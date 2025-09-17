@@ -1,0 +1,8 @@
+.python-version
+*.npz
+*.pkl
+*.docx
+
+Drv_UDPST*
+gxipy*
+__pycache__*
