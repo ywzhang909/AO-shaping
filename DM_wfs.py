@@ -11,7 +11,7 @@ import pygame
 import utils
 from drivers import CameraStreamManager, MlaRes, NlightDM, WFSManager
 
-ROOT_DIR = r"D:\ao-project\data"
+ROOT_DIR = "./data"
 
 # display settings
 VOLT_HEIGHT = 200
@@ -31,11 +31,6 @@ Rho_0 = 0.99
 
 # metropolis parameters
 METROPOLIS_ALPHA = 0.8
-
-# camera parameters
-CAM_EXP_TIME = 200
-CAM_EXP_TIME_ADJ_RATE = 0
-IMG_SIZE = (300, 300)
 
 # dm parameters
 KEEP_VOLTAGE_WHEN_EXIT = True
@@ -148,7 +143,7 @@ def optimizer(
     delta = abs(delta)
     epochs = int(epochs)
 
-    with WFSManager(MlaRes.Res512, use_custom_ref=False, high_speed=True) as wfs,\
+    with WFSManager(MlaRes.Res768, use_custom_ref=False, high_speed=True) as wfs,\
             NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
 
         if init_v is None:
@@ -248,19 +243,26 @@ def optimizer(
                 else:
                     print("相邻单元压差过大，放弃本次结果")
 
+                avg_j = (pos_j + neg_j) / 2
+                if avg_j > 0.2:
+                    delta = 3
+                elif avg_j > 0.1:
+                    delta = 2
+                else:
+                    delta = 1
                 
                 log = {
-                    "J": (pos_j + neg_j) / 2,
-                    "diff": diff,
-                    "gamma": lr,
-                    "_delta": delta,
+                    "J": avg_j,
+                    "_diff": diff,
+                    "_gamma": lr,
+                    "delta": delta,
                     "_epoch": epoch,
                     "_v": _init_v,
                 }
                 history.append(log)
                 # earlying schedule
 
-                bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
+                bar.set_postfix({k: f'{v:.4f}' for k, v in log.items() if k[0] != "_"})
                 bar.update(1)
 
         return history

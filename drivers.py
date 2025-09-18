@@ -923,7 +923,7 @@ class NlightDM:
         time.sleep(0.5)
         return ret
 
-    def send_voltages(self, vs:np.ndarray, wait_time_s = 0.003):
+    def send_voltages(self, vs:np.ndarray, wait_time_s = 0.002):
         vs = np.clip(vs, -300, 499)
         __gap = vs - self.__last_v
         if self.max_iter_diff > 0:
@@ -1163,14 +1163,18 @@ if __name__ == '__main__':
     import math
     import tqdm
     import matplotlib.pyplot as plt
+    def ture_off_dm():
+        with NlightDM(keep_when_exit=False) as dm:
+            v = np.zeros((dm.dm_num,))
+            
     def test_dm():
         import itertools
         with NlightDM(keep_when_exit=False) as dm:
             v = np.zeros((dm.dm_num,))
-            # for phi in itertools.cycle(np.linspace(0, 2*np.pi, 10)):
-            #     v[1] = math.sin(phi)*30
-            #     dm.send_voltages(v, 0.1)
-            #     print(v[1])
+            for phi in itertools.cycle(np.linspace(0, 2*np.pi, 10)):
+                v[1] = math.sin(phi)*30
+                dm.send_voltages(v, 0.1)
+                print(v[1])
 
     def test_wfs():
         with WFSManager(MlaRes.Res512, exp_time=0.029) as wfs:
@@ -1227,7 +1231,7 @@ if __name__ == '__main__':
     
     # test_cam()
     # test_wfs()  
-    test_dm()
+    ture_off_dm()
     
 
     

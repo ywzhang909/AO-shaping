@@ -2,7 +2,10 @@
 *.npz
 *.pkl
 *.docx
+*.csv
+*.pyc
 
 Drv_UDPST*
 gxipy*
 __pycache__*
+
