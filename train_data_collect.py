@@ -7,17 +7,9 @@ import numpy as np
 import pandas as pd
 
 import tqdm
-from drivers import MlaRes, NlightDM, WFSManager
+from drivers import MlaRes, NlightDM, WFSManager, CameraStreamManager
 
 ROOT_DIR = "./data"
-
-# display settings
-VOLT_HEIGHT = 200
-LOG_J_HEIGHT = 200
-# 定义背景颜色
-BACKGROUND_COLOR = (0, 0, 0)
-# 定义折线颜色
-LINE_COLOR = (0, 255, 0)
 
 # adam parameters
 beta1 = 0.9
@@ -31,7 +23,7 @@ Rho_0 = 0.99
 METROPOLIS_ALPHA = 0.8
 
 # dm parameters
-KEEP_VOLTAGE_WHEN_EXIT = True
+KEEP_VOLTAGE_WHEN_EXIT = False
 
 V_MAX = 499
 V_MIN = -300
@@ -98,8 +90,10 @@ def optimizer(
     delta = abs(delta)
     epochs = int(epochs)
 
-    with WFSManager(MlaRes.Res768, use_custom_ref=False, high_speed=True) as wfs,\
-            NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
+    with WFSManager(MlaRes.Res512, use_custom_ref=False, high_speed=False, pupil_diameter=0.0) as wfs,\
+            NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm, \
+            CameraStreamManager(cam_id=0, explosure_time=20) as cam_axis, \
+            CameraStreamManager(cam_id=1, explosure_time=20) as cam_focal:
 
         if init_v is None:
             _init_v = np.zeros(dm.dm_num, dtype=np.float64)
@@ -108,24 +102,29 @@ def optimizer(
             _init_v = np.array(init_v)
         dm.send_voltages(_init_v, 1)
         
-        def calc_j():
+        def get_data():
             wfs.take_image()
-            return wfs.get_wavefront()[-1]['rms']
+            wf, statics = wfs.get_wavefront()
+            return statics, wf, cam_axis.get_numpy_image(), cam_focal.get_numpy_image()
 
-        
+        wf_statics, wf, cam_axis_img, cam_focal_img = get_data()
         history = [
             {
-                "J": calc_j(),
+                "J": wf_statics['rms'],
                 "_v": _init_v,
-                "diff": 0,
-                "gamma": lr,
-                "_delta": delta,
+                "_diff": 0,
+                "_gamma": lr,
+                "delta": delta,
                 "_epoch": -1,
+                "_cam_axis": cam_axis_img,
+                "_cam_focal": cam_focal_img,
+                "_wavefront": wf
             }
         ]
         with tqdm.tqdm(
             total=epochs, desc=f"{algorithm} iter {epochs}", dynamic_ncols=True
         ) as bar:
+            s_time = time.perf_counter()
             for epoch in range(epochs):
                 disturb_v = np.random.binomial(1, 0.5, (dm.dm_num,)).astype(float) * 2.0 - 1.0
 
@@ -133,10 +132,32 @@ def optimizer(
                 disturb_v[0] = 0
 
                 dm.send_voltages(_init_v + disturb_v)
-                pos_j = calc_j()
+                wf_statics, wf, cam_axis_img, cam_focal_img = get_data()
+                pos_j = wf_statics['rms']
+                history.append({
+                    "J": pos_j,
+                    "_diff": pos_j - history[-1]["J"],
+                    "_epoch": epoch,
+                    "_v": _init_v + disturb_v,
+                    "_cam_axis": cam_axis_img,
+                    "_cam_focal": cam_focal_img,
+                    "_wavefront": wf,
+                    "_time": time.perf_counter() - s_time
+                })
 
                 dm.send_voltages(_init_v - disturb_v)
-                neg_j = calc_j()
+                wf_statics, wf, cam_axis_img, cam_focal_img = get_data()
+                neg_j = wf_statics['rms']
+                history.append({
+                    "J": neg_j,
+                    "_diff": pos_j - neg_j,
+                    "_epoch": epoch,
+                    "_v": _init_v + disturb_v,
+                    "_cam_axis": cam_axis_img,
+                    "_cam_focal": cam_focal_img,
+                    "_wavefront": wf,
+                    "_time": time.perf_counter() - s_time
+                })
 
                 diff = pos_j - neg_j
                 gradient = diff * disturb_v
@@ -206,15 +227,7 @@ def optimizer(
                 else:
                     delta = 1
                 
-                log = {
-                    "J": avg_j,
-                    "_diff": diff,
-                    "_gamma": lr,
-                    "delta": delta,
-                    "_epoch": epoch,
-                    "_v": _init_v,
-                }
-                history.append(log)
+                log = history[-1]
                 # earlying schedule
 
                 bar.set_postfix({k: f'{v:.4f}' for k, v in log.items() if k[0] != "_"})
@@ -223,10 +236,7 @@ def optimizer(
         return history
 
 def run():
-    # init_V = np.load('last_v.npz')['v'] \
-    #                  if os.path.exists("last_v.npz") else None
-    # init_V = np.random.random((64,))*100 - 50
-    init_V = np.zeros((64,))
+    init_V = np.random.random((64,))*100 - 50
     init_V[0] = 0
 
     res_list = optimizer(
@@ -239,27 +249,13 @@ def run():
         lr_schedul="static")
     
     res_df = pd.DataFrame(res_list)
-    res_df.to_pickle('record.pkl', compression=None)
+    file_name = gen_file_name(ROOT_DIR, "pkl")
+    print(f"结果保存到 {file_name}")
+    res_df.to_pickle(file_name, compression="zip")
     max_j_id = res_df['J'].idxmin()
     last_V = res_df.iloc[max_j_id]["_v"]
     print(f"{max_j_id} -> {res_df.iloc[max_j_id]['J']}")
-    
-    def get_nerbors(unit_id):
-        return (a for a in np.where(DM_Adj[unit_id, :] == 1)[0])
-    
-    base_unit_id = np.argmin(np.abs(last_V[1:]))+1
-    checked_mask = np.zeros_like(DM_Adj, dtype=bool)
-    def reset_nerbors(unit_id, v):
-        min, max = v[unit_id]-Tolerance, v[unit_id]+Tolerance
-        for nerbor in get_nerbors(unit_id):
-            if not checked_mask[unit_id, nerbor]:
-                v[nerbor] = np.clip(v[nerbor], min, max)
-                checked_mask[unit_id, nerbor] = checked_mask[nerbor, unit_id] = True
-                reset_nerbors(nerbor, v)
 
-    reset_nerbors(base_unit_id, last_V)
-    np.savez('last_v', v=last_V)
-    np.savetxt('to_load_V.csv', np.around(last_V), fmt="%d")
 
     fig, ax = plt.subplots(2, 1)
     ax[0].bar(x=np.arange(64)-0.25, height=init_V, width=0.5)
@@ -268,4 +264,5 @@ def run():
     plt.show()
 
 if __name__ == "__main__":
-    run()
+   for _ in range(50):
+        run()

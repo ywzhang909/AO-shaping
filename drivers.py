@@ -309,8 +309,19 @@ def np2c(x):
 
 
 class WFSManager:
-    def __init__(self, mla_index:MlaRes, exp_time:float = 0.0, high_speed:bool = False, use_custom_ref:bool = False):
-
+    """ Wavefront Sensor Manager
+    """
+    
+    def __init__(self, mla_index:MlaRes, exp_time:float = 0.0, high_speed:bool = False, use_custom_ref:bool = False, pupil_diameter:float = 2.0):
+        """
+        mla_index: MlaRes
+        exp_time: exposure time in ms, 0 means auto
+        high_speed: enable high speed mode, only 512x512 resolution supported
+        use_custom_ref: use custom reference file, if not, use default reference file
+        pupil_diameter: pupil diameter in mm, default 2.0
+        """
+        assert mla_index in MlaRes, "mla_index must be one of MlaRes"
+        
         self._lib = load_dll()
         self.device_id = c_int32()
         self._instrument_handle = c_ulong(0)
@@ -319,7 +330,8 @@ class WFSManager:
         self.mla_index = mla_index
         self.image_pix = Mla_pix[mla_index]
         self.num_spots_x, self.num_spots_y = 0, 0
-        self.c_x, self.c_y, self.d_x, self.d_y = 0.0, 0.0, 2.0, 2.0
+        self.c_x, self.c_y = 0.0, 0.0
+        self.d_x, self.d_y = pupil_diameter, pupil_diameter
 
         self._explosure_time = exp_time
         self._gain = 1.0
@@ -361,6 +373,7 @@ class WFSManager:
             self._explosure_time,_ = self.optimize_exposure_time_and_gain()
         self.exposure_time = self._explosure_time
         self.high_speed = self.enable_high_speed
+        self.pupil = self.pupil if (self.d_x>0 and self.d_y>0) else self.optimize_pupil()
         
     def close(self):
         self.__exit__()
@@ -458,7 +471,7 @@ class WFSManager:
             #     np2c(spots_diameter_x), np2c(spots_diameter_y))
         return spots_intensities[:self.num_spots_x, :self.num_spots_y], (spots_center_x[:self.num_spots_x, :self.num_spots_y], spots_center_y[:self.num_spots_x, :self.num_spots_y])
 
-    def get_rms(self, image_loop_counter: int = -1):
+    def get_wavefront(self, image_loop_counter: int = -1):
         adaptive_pupil = 0 if (self.d_x and self.d_y) else 1
         wavefront = np.zeros(MAX_SPOTS, dtype=c_float)
         if err := self._lib.WFS_CalcWavefront(
@@ -985,179 +998,6 @@ except Exception as e:
     print('use python 3.6 for bmc dm.')
 
 
-def test_wfs_sdk():
-    lib = load_dll()
-    # lib = cdll.LoadLibrary(r"C:\Program Files\IVI Foundation\VISA\Win64\Bin\WFS_64.dll")
-    device_id = c_int32(0)
-    instrument_handle = c_ulong(0)
-    status = ViStatus(0)
-    
-    def handle_error(err):
-        info = create_string_buffer(256)
-        errorCode = ViStatus(err)
-        lib.WFS_error_message(instrument_handle, errorCode, byref(info))
-        print(info.value)
-    
-    device_in_use = ViInt32()
-    device_name = create_string_buffer(256)
-    serial_number = create_string_buffer(256)
-    resource_name = create_string_buffer(256)
-    lib.WFS_GetInstrumentListInfo(VI_NULL(), ViInt32(0), byref(device_id), byref(device_in_use), device_name,
-                                        serial_number, resource_name)
-    lib.WFS_init(resource_name, c_bool(False), c_bool(True), byref(instrument_handle))
-    print(f"Connected to {device_name.value} with Serial Number {serial_number.value}")
-    
-    num_spots_x = c_int32()
-    num_spots_y = c_int32()
-    spots_x = np.zeros(MAX_SPOTS, dtype=c_float)
-    spots_y = np.zeros(MAX_SPOTS, dtype=c_float)
-    wavefront = np.zeros(MAX_SPOTS, dtype=c_float)
-    
-    lib.WFS_SelectMla(instrument_handle, 0)
-    lib.WFS_ConfigureCam(instrument_handle, c_int32(0), MlaRes.Res512, byref(num_spots_x), byref(num_spots_y))
-    print(f"Number of detectable spots in X: {num_spots_x.value} \n"+
-              f"Number of detectable spots in Y: {num_spots_y.value}")
-    num_spots_x, num_spots_y = num_spots_x.value, num_spots_y.value
-    
-    actual_exposure = c_double()
-    actual_gain = c_double()
-    lib.WFS_SetExposureTime(instrument_handle, c_double(0.03), byref(actual_exposure))
-    print(f"actual exposure time is {actual_exposure.value} ms.")
-    
-    lib.WFS_SetPupil(instrument_handle, c_double(0), c_double(0), c_double(2.2), c_double(2.2))
-    lib.WFS_SetReferencePlane(instrument_handle, c_int32(0))
-    
-    if err:= lib.WFS_TakeSpotfieldImage(instrument_handle) :
-        handle_error(err)
-        
-    # spots_filed_img = np.zeros((512,512), np.uint8)
-    # if err:= lib.WFS_GetSpotfieldImageCopy(instrument_handle,
-    #                           spots_filed_img,
-    #                           byref(c_int32(512)), byref(c_int32(512))
-    #                           ):
-    #     handle_error(err)
-    # else:
-    #     plt.imshow(spots_filed_img)
-    #     plt.show()
-        
-    # if err := lib.WFS_CalcSpotsCentrDiaIntens(instrument_handle, ViInt32(0), ViInt32(1)):
-    #     handle_error(err)
-
-
-    
-    # if res:= lib.WFS_GetSpotCentroids(instrument_handle, spots_x, spots_y):
-    #     handle_error(res)
-    # else:
-    #     plt.imshow(spots_x[:num_spots_x, :num_spots_y])
-    #     plt.show()
-    
-    
-    # if res := lib.WFS_CalcSpotToReferenceDeviations(instrument_handle, c_int32(1)):
-    #     handle_error(res)
-    
-    # if res:= lib.WFS_GetSpotDeviations(instrument_handle, spots_x, spots_y):
-    #     handle_error(res)
-    # else:
-    #     plt.imshow(spots_x[:num_spots_x, :num_spots_y])
-    #     plt.show()
-        
-    # wavefront = np.zeros(MAX_SPOTS, dtype=c_float)
-    # if err:= lib.WFS_CalcWavefront(instrument_handle, c_int32(0), c_int32(0), wavefront) :
-    #     handle_error(err)
-    # else:
-    #     plt.imshow(wavefront[:num_spots_x, :num_spots_y])
-    #     plt.show()
-        
-    # min, max, diff, mean = c_double(), c_double(), c_double(), c_double()
-    # rms, wighted_rms = c_double(), c_double()
-    # if err := lib.WFS_CalcWavefrontStatistics(
-    #     instrument_handle, byref(min), byref(max), byref(diff), byref(mean),
-    #     byref(rms), byref(wighted_rms)) :
-    #     handle_error(err)
-    # else:
-    #     print(f"{rms=}")
-        
-    # roc_mm = c_double()
-    # zernike_order = c_int32(3)
-    # zernike_um = np.zeros((67,), c_float)
-    # zernike_orders_rms_um = np.zeros((11,), c_float)
-    # if err:= lib.WFS_ZernikeLsf(instrument_handle, byref(zernike_order),
-    #                             zernike_um.ctypes.data_as(ctypes.POINTER(c_float)),
-    #                             zernike_orders_rms_um.ctypes.data_as(ctypes.POINTER(c_float)),
-    #                             byref(roc_mm)
-    #                             ):
-    #     handle_error(err)
-    # else:
-    #     plt.hist(zernike_um[:16])
-    #     plt.show()
-    
-    if err:= lib.WFS_CalcSpotsCentrDiaIntens(instrument_handle, c_int32(1), c_int32(1)):
-        handle_error(err)
-    beam_centroid_x = c_double()
-    beam_centroid_y = c_double()
-    beam_diameter_x = c_double()
-    beam_diameter_y = c_double()
-    lib.WFS_CalcBeamCentroidDia(instrument_handle, byref(beam_centroid_x), byref(beam_centroid_y), byref(beam_diameter_x), byref(beam_diameter_y))
-    if err:= lib.WFS_SetPupil(instrument_handle, beam_centroid_x, beam_centroid_y, beam_diameter_x, beam_diameter_y):
-        handle_error(err)
-    else:
-        print(f"center:({beam_centroid_x.value:.3f},{beam_centroid_y.value:.3f}), diameter:({beam_diameter_x.value:.3f}, {beam_diameter_y.value:.3f})")
-    
-    if err:= lib.WFS_SetHighspeedMode(instrument_handle, ViInt32(1), ViInt32(1), ViInt32(30), ViInt32(1)):
-        handle_error(err)
-    else:
-        hs_win_count_x = ViInt32() # This parameter returns the number of spot windows in X direction.
-        hs_win_count_y = ViInt32() # This parameter returns the number of spot windows in Y direction.
-        hs_win_size_x = ViInt32() # This parameter returns the size in pixels of spot windows in X direction.
-        hs_win_size_y = ViInt32() # This parameter returns the size in pixels of spot windows in Y direction.
-        hs_win_start_x = np.zeros(MAX_SPOTS[1], dtype=np.int32) # This parameter returns a one-dimensional array containing the start positions in pixels for spot windows in X direction.
-        hs_win_start_x = np.zeros(MAX_SPOTS[0], dtype=np.int32) # This parameter returns a one-dimensional array containing the start positions in pixels for spot windows in Y direction.
-        if err:= lib.WFS_GetHighspeedWindows(
-                        instrument_handle,
-                        byref(hs_win_count_x),
-                        byref(hs_win_count_y),
-                        byref(hs_win_size_x),
-                        byref(hs_win_size_y),
-                        np2c(hs_win_start_x),
-                        np2c(hs_win_start_x)):
-            handle_error(err)
-        else:
-            print(f"{hs_win_count_x=}, {hs_win_count_y=}\n{hs_win_size_x=},{hs_win_size_y=}")
-    
-        for _ in tqdm.trange(200):
-            if err:=lib.WFS_TakeSpotfieldImageAutoExpos(instrument_handle, byref(actual_exposure), byref(actual_gain)):
-                handle_error(err)
-            
-            # if res:= lib.WFS_GetSpotCentroids(instrument_handle, spots_x, spots_y):
-            #     handle_error(res)
-            # else:
-            #     plt.imshow(spots_x[:num_spots_x, :num_spots_y])
-            #     plt.show()
-                
-            if res := lib.WFS_CalcSpotToReferenceDeviations(instrument_handle, c_int32(1)):
-                handle_error(res)
-            
-            # if res:= lib.WFS_GetSpotDeviations(instrument_handle, spots_x, spots_y):
-            #     handle_error(res)
-            # else:
-            #     plt.imshow(spots_x[:num_spots_x, :num_spots_y])
-            #     plt.show()
-            
-            if err:= lib.WFS_CalcWavefront(instrument_handle, c_int32(0), c_int32(0), wavefront) :
-                handle_error(err)
-            
-            rms_min, rms_max, diff, mean = c_double(), c_double(), c_double(), c_double()
-            rms, wighted_rms = c_double(), c_double()
-            if err := lib.WFS_CalcWavefrontStatistics(
-                instrument_handle, byref(rms_min), byref(rms_max), byref(diff), byref(mean),
-                byref(rms), byref(wighted_rms)) :
-                handle_error(err)
-            else:
-                print(f"{rms=}")
-        
-    lib.WFS_close(instrument_handle)
-
-
 if __name__ == '__main__':
     import numpy as np
     import math
@@ -1191,28 +1031,28 @@ if __name__ == '__main__':
                 wfs.take_image()
                 
                 
-            #     spots_filed = wfs.get_spotfiled_image()
-            #     plt.imshow(spots_filed)
-            #     plt.show()
+                spots_filed = wfs.get_spotfiled_image()
+                plt.imshow(spots_filed)
+                plt.show()
                 
-            #     x, y = wfs.get_spot_deviation()
-            #     intensity, _ = wfs.get_spots_statics()
-            #     wf, statics = wfs.get_rms()
-            #     print(f"{statics=}")
+                x, y = wfs.get_spot_deviation()
+                intensity, _ = wfs.get_spots_statics()
+                wf, statics = wfs.get_rms()
+                print(f"{statics=}")
 
-            #     fig, ax = plt.subplots(2,2)
-            #     ax[0,0].imshow(x)
-            #     ax[0,0].set_title("spot deviation x")
+                fig, ax = plt.subplots(2,2)
+                ax[0,0].imshow(x)
+                ax[0,0].set_title("spot deviation x")
 
-            #     ax[0,1].imshow(y)
-            #     ax[0,1].set_title("spot deviation y")
+                ax[0,1].imshow(y)
+                ax[0,1].set_title("spot deviation y")
                 
-            #     ax[1,0].imshow(intensity)
-            #     ax[1,0].set_title("spot intensity")
+                ax[1,0].imshow(intensity)
+                ax[1,0].set_title("spot intensity")
                 
-            #     ax[1,1].imshow(wf)
-            #     ax[1,1].set_title("wavefront")
-            #     plt.show()
+                ax[1,1].imshow(wf)
+                ax[1,1].set_title("wavefront")
+                plt.show()
                 
             wfs.high_speed = True
             for _ in range(10):
@@ -1220,15 +1060,13 @@ if __name__ == '__main__':
                 # x,y = wfs.get_spot_deviation()
                 # print(y)
                 print(wfs.get_zernike(3))
-                print(wfs.get_rms()[-1]['rms'])
+                print(wfs.get_wavefront()[-1]['rms'])
     def test_cam():
         with CameraStreamManager(0, explosure_time=300) as cam:
             img = cam.get_numpy_image()
             plt.imshow(img)
             plt.show()
             
-            
-    
     # test_cam()
     # test_wfs()  
     ture_off_dm()
