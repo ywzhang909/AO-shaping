@@ -11,7 +11,7 @@ import pygame
 import utils
 from drivers import CameraStreamManager, NlightDM
 
-ROOT_DIR = r"D:\ao-project\data"
+ROOT_DIR = "./data"
 
 # display settings
 VOLT_HEIGHT = 200
@@ -23,11 +23,11 @@ LINE_COLOR = (0, 255, 0)
 
 # adam parameters
 beta1 = 0.9
-beta2 = 0.999
-beta3 = 0.9999
+beta2 = 0.99
+beta3 = 0.9995
 
 # cool_momentum_spgd parameters
-Rho_0 = 0.99
+Rho_0 = 0.9
 
 # metropolis parameters
 METROPOLIS_ALPHA = 0.8
@@ -35,7 +35,7 @@ METROPOLIS_ALPHA = 0.8
 # camera parameters
 CAM_EXP_TIME = 200
 CAM_EXP_TIME_ADJ_RATE = 0
-IMG_SIZE = (300, 300)
+IMG_SIZE = (200, 200)
 
 # dm parameters
 KEEP_VOLTAGE_WHEN_EXIT = True
@@ -108,23 +108,23 @@ def render(window, img, log, center, r, info="") -> None:
         height = int((value / V_MAX) *  VOLT_HEIGHT)
         pygame.draw.line(window, color, (x, y), (x, y - height), bar_width)
         
-    # 清空之前绘制的折线统计图
-    line_plot_area = pygame.Rect(0, IMG_SIZE[1] + VOLT_HEIGHT, IMG_SIZE[0], LOG_J_HEIGHT)
-    window.fill(BACKGROUND_COLOR, line_plot_area)
-    if len(log) > 1:
-        min_sum = min(v["J"] for v in log)
-        max_sum = min(v["J"] for v in log)
-        points = []
-        num_points = len(log)
-        for i, value in enumerate(log):
-            j_value = value['J']
-            # 均匀分布 x 轴坐标
-            x = int(i * (IMG_SIZE[0] / (num_points - 1)))
-            y = IMG_SIZE[1] + VOLT_HEIGHT + LOG_J_HEIGHT - int(
-                (j_value - min_sum) / (max_sum - min_sum) * LOG_J_HEIGHT
-            ) if max_sum != min_sum else IMG_SIZE[1] + VOLT_HEIGHT + LOG_J_HEIGHT // 2
-            points.append((x, y))
-        pygame.draw.lines(window, LINE_COLOR, False, points, 2)
+    # # 清空之前绘制的折线统计图
+    # line_plot_area = pygame.Rect(0, IMG_SIZE[1] + VOLT_HEIGHT, IMG_SIZE[0], LOG_J_HEIGHT)
+    # window.fill(BACKGROUND_COLOR, line_plot_area)
+    # if len(log) > 1:
+    #     min_sum = min(v["J"] for v in log)
+    #     max_sum = min(v["J"] for v in log)
+    #     points = []
+    #     num_points = len(log)
+    #     for i, value in enumerate(log):
+    #         j_value = value['J']
+    #         # 均匀分布 x 轴坐标
+    #         x = int(i * (IMG_SIZE[0] / (num_points - 1)))
+    #         y = IMG_SIZE[1] + VOLT_HEIGHT + LOG_J_HEIGHT - int(
+    #             (j_value - min_sum) / (max_sum - min_sum) * LOG_J_HEIGHT
+    #         ) if max_sum != min_sum else IMG_SIZE[1] + VOLT_HEIGHT + LOG_J_HEIGHT // 2
+    #         points.append((x, y))
+    #     pygame.draw.lines(window, LINE_COLOR, False, points, 2)
     
     pygame.event.pump()
     pygame.display.update()
@@ -154,7 +154,7 @@ def optimizer(
     delta = abs(delta)
     epochs = int(epochs)
 
-    with CameraStreamManager(cam_id=0, explosure_time=250, skip_sampling=True) as cam,\
+    with CameraStreamManager(cam_id=0, explosure_time=200, skip_sampling=False) as cam,\
             NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
         # dm.reset_all()
 
@@ -219,13 +219,12 @@ def optimizer(
         history = [
             {
                 "J": calc_j(init_img),
-                "pib": calc_pib(init_img, 10),
                 "_v": _init_v,
                 "_img": init_img,
-                "diff": 0,
+                "_diff": 0,
                 "gamma": lr,
                 "r": r_bucket,
-                "_delta": delta,
+                "delta": delta,
                 "_epoch": -1,
             }
         ]
@@ -238,11 +237,11 @@ def optimizer(
                 disturb_v = disturb_v * delta
                 disturb_v[0] = 0
 
-                dm.send_voltages(_init_v + disturb_v)
+                dm.send_voltages(_init_v + disturb_v, 0.005)
                 img = cam.get_numpy_image()
                 pos_j = calc_j(img)
 
-                dm.send_voltages(_init_v - disturb_v)
+                dm.send_voltages(_init_v - disturb_v, 0.005)
                 img = cam.get_numpy_image()
                 neg_j = calc_j(img)
 
@@ -313,10 +312,10 @@ def optimizer(
                 log = {
                     "J": (pos_j + neg_j) / 2,
                     # "pib": calc_pib(img, 10),
-                    "diff": diff,
+                    "_diff": diff,
                     "gamma": lr,
                     "r": r_bucket,
-                    "_delta": delta,
+                    "delta": delta,
                     "_epoch": epoch,
                     "_v": _init_v,
                     # "_img": img,
@@ -454,19 +453,20 @@ def run():
     res_list = optimizer(
         init_v=init_V.copy(),
         epochs=10000, 
-        r_bucket=12, 
-        delta=5, # 扰动要和桶半径匹配，不要扰动会导致质心出桶
-        lr=1.2, 
-        weights_class=0.5,
+        r_bucket=10, 
+        delta=1, # 扰动要和桶半径匹配，不要扰动会导致质心出桶
+        lr=1, 
+        weights_class=1,
         algorithm="adamod",
         metropolis_temperature=0,
         lr_schedul="static",
         pid_weighted_ratio=0.1,
-        shrank_iter=3000,
-        center=(567, 530))
+        shrank_iter=0,
+        center=(632, 520))
     
     res_df = pd.DataFrame(res_list)
-    res_df.to_pickle('record.pkl', compression=None)
+    file_name = gen_file_name(ROOT_DIR, 'pkl')
+    res_df.to_pickle(file_name, compression=None)
     max_j_id = -1
     last_V = res_df.iloc[max_j_id]["_v"]
     print(f"{max_j_id} -> {res_df.iloc[max_j_id]['J']}")

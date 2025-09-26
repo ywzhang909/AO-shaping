@@ -1069,7 +1069,8 @@ if __name__ == '__main__':
             
     # test_cam()
     # test_wfs()  
-    ture_off_dm()
+    test_dm()
+    # ture_off_dm()
     
 
     

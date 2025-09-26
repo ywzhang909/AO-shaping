@@ -9,3 +9,9 @@ Drv_UDPST*
 gxipy*
 __pycache__*
 
+.kilocode*
+ao_project.egg-info*
+data/checkpoint
+data/feature_maps_features_*.png
+data/conv_kernels.png
+data/history.png
