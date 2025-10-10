@@ -11,6 +11,10 @@ from drivers import MlaRes, NlightDM, WFSManager, CameraStreamManager
 
 ROOT_DIR = "./data"
 
+# metrics
+R_Bucket = 10
+Img_Size = (200,200)
+
 # adam parameters
 beta1 = 0.9
 beta2 = 0.999
@@ -23,7 +27,7 @@ Rho_0 = 0.99
 METROPOLIS_ALPHA = 0.8
 
 # dm parameters
-KEEP_VOLTAGE_WHEN_EXIT = False
+KEEP_VOLTAGE_WHEN_EXIT = True
 
 V_MAX = 499
 V_MIN = -300
@@ -59,21 +63,33 @@ def learning_schedule(
 
 
 def gen_file_name(dir, postfix: str = None):
-    fname = os.listdir(dir)
-    fname = len(fname) + 1
+    if postfix:
+        postfix = postfix if postfix.startswith('.') else f'.{postfix}'
+        fname = [f for f in os.listdir(dir) if f.endswith(postfix)]
+    else:
+        fname = [f for f in os.listdir(dir) if os.path.isdir(os.path.join(dir, f))]
+    fname = max([int(f.split('.')[0]) for f in fname]) + 1 if fname else '1'
 
     if not postfix:  # make dir
         path = os.path.join(dir, str(fname))
         if not postfix and not os.path.exists(path):
             os.makedirs(path)
     else:
-        if postfix[0] != ".":
-            postfix = "." + postfix
         path = os.path.join(dir, str(fname)) + postfix
+        
+    print(f"save path : {path}")
     return path
 
+def save_list(dir, data):
+    f_name = len(os.listdir(dir))+1
+    save_path = os.path.join(dir, str(f_name)) + '.pkl'
+    res_df = pd.DataFrame(data)
+    res_df.to_pickle(save_path)
+    print(f"\n{len(res_df)} saved @ {save_path}")
+    del res_df
+
 def optimizer(
-    saved_dir,
+    save_dir,
     epochs,
     delta=1,
     lr=1,
@@ -86,82 +102,85 @@ def optimizer(
     ] = "static",
     metropolis_temperature=0,
     v0=0,
-    init_v=None,
+    init_v=None
 ):
     delta = abs(delta)
     epochs = int(epochs)
 
-    with WFSManager(MlaRes.Res512, use_custom_ref=False, high_speed=False, pupil_diameter=0.0) as wfs,\
+    with WFSManager(MlaRes.Res768, use_custom_ref=False, high_speed=True, pupil_diameter=2.8) as wfs,\
             NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm, \
-            CameraStreamManager(cam_id=0, explosure_time=20) as cam_axis, \
-            CameraStreamManager(cam_id=1, explosure_time=20) as cam_focal:
+            CameraStreamManager(cam_id=0, explosure_time=80, skip_sampling=False) as f_cam ,\
+            CameraStreamManager(cam_id=1, explosure_time=400, skip_sampling=False) as n_cam:
 
         if init_v is None:
             _init_v = np.zeros(dm.dm_num, dtype=np.float64)
             _init_v[0] = v0
         else:
             _init_v = np.array(init_v)
-        dm.send_voltages(_init_v, 1)
+        dm.send_voltages(_init_v, 0.5)
         
-        def get_data():
+        init_img = f_cam.get_numpy_image()
+        # init_n_img = n_cam.get_numpy_image()
+
+        # center = np.unravel_index(np.argmax(init_img), init_img.shape)
+        # center = (center[1], center[0])
+        center = (776, 470)
+
+        print(f"{center=}")
+        img_size, center = f_cam.reset_window(center, Img_Size)
+        
+        w,h = img_size
+        cood = np.mgrid[-w//2:w//2, -h//2:h//2]
+        bucket_mask = (cood[0]**2 + cood[1]**2) < R_Bucket**2
+        def calc_bucket(img, r=10):
+            return np.sum(img[bucket_mask])
+        
+        def calc_j():
             wfs.take_image()
             wf, statics = wfs.get_wavefront()
-            return statics, wf, cam_axis.get_numpy_image(), cam_focal.get_numpy_image()
+            return wf, statics
 
-        wf_statics, wf, cam_axis_img, cam_focal_img = get_data()
+        wf, statics = calc_j()
+        f_img = f_cam.get_numpy_image()
         history = [
             {
-                "J": wf_statics['rms'],
+                "J": statics['rms'],
                 "_v": _init_v,
                 "_diff": 0,
                 "_gamma": lr,
                 "delta": delta,
                 "_epoch": -1,
-                "_cam_axis": cam_axis_img,
-                "_cam_focal": cam_focal_img,
-                "_wavefront": wf
+                "_f_cam": f_img[np.newaxis, ...],
+                "_n_cam": n_cam.get_numpy_image()[np.newaxis, ...],
+                "_wavefront": wf[np.newaxis, ...],
+                "_statics": statics,
+                "pib": calc_bucket(f_img)
             }
         ]
+        Js_log = [history[-1]["J"]]
         with tqdm.tqdm(
             total=epochs, desc=f"{algorithm} iter {epochs}", dynamic_ncols=True
         ) as bar:
-            s_time = time.perf_counter()
             for epoch in range(epochs):
                 disturb_v = np.random.binomial(1, 0.5, (dm.dm_num,)).astype(float) * 2.0 - 1.0
 
                 disturb_v = disturb_v * delta
                 disturb_v[0] = 0
 
-                dm.send_voltages(_init_v + disturb_v)
-                wf_statics, wf, cam_axis_img, cam_focal_img = get_data()
-                pos_j = wf_statics['rms']
-                history.append({
-                    "J": pos_j,
-                    "_diff": pos_j - history[-1]["J"],
-                    "_epoch": epoch,
-                    "_v": _init_v + disturb_v,
-                    "_cam_axis": cam_axis_img,
-                    "_cam_focal": cam_focal_img,
-                    "_wavefront": wf,
-                    "_time": time.perf_counter() - s_time
-                })
+                pos_vs = dm.send_voltages(_init_v + disturb_v)
+                pos_wf, pos_statics = calc_j()
+                pos_j = pos_statics['rms']
+                pos_f_img = f_cam.get_numpy_image()
+                pos_n_img = n_cam.get_numpy_image()
 
-                dm.send_voltages(_init_v - disturb_v)
-                wf_statics, wf, cam_axis_img, cam_focal_img = get_data()
-                neg_j = wf_statics['rms']
-                history.append({
-                    "J": neg_j,
-                    "_diff": pos_j - neg_j,
-                    "_epoch": epoch,
-                    "_v": _init_v + disturb_v,
-                    "_cam_axis": cam_axis_img,
-                    "_cam_focal": cam_focal_img,
-                    "_wavefront": wf,
-                    "_time": time.perf_counter() - s_time
-                })
-
-                diff = pos_j - neg_j
-                gradient = diff * disturb_v
+                ng_vs = dm.send_voltages(_init_v - disturb_v)
+                neg_wf, neg_statics = calc_j()
+                neg_j = neg_statics['rms']
+                neg_f_img = f_cam.get_numpy_image()
+                neg_n_img = n_cam.get_numpy_image()
+                
+                diff = pos_statics['rms'] - neg_statics['rms']
+                gradient = -diff * disturb_v
                 lr = learning_schedule(lr, epoch, epochs, method=lr_schedul)
                 if algorithm == "spgd":
                     update = lr * gradient - lr * weight_decay * _init_v
@@ -221,57 +240,75 @@ def optimizer(
                     print("相邻单元压差过大，放弃本次结果")
 
                 avg_j = (pos_j + neg_j) / 2
-                if avg_j > 0.2:
-                    delta = 3
-                elif avg_j > 0.1:
-                    delta = 2
-                else:
-                    delta = 1
+                # if avg_j > 1.2:
+                #     delta = 2
+                #     lr = 1.2
+                # elif avg_j > 0.5:
+                #     delta = 1.8
+                #     lr = 1.1
+                # elif avg_j > 0.3:
+                #     delta = 1.3
+                #     lr = 1.0
+                # elif avg_j > 0.2:
+                #     delta = 1
+                #     lr = 0.9
+                # else:
+                #     delta = 0.9
+                #     lr = 0.8
                 
-                log = history[-1]
-                # earlying schedule
-
-                bar.set_postfix({k: f'{v:.4f}' for k, v in log.items() if k[0] != "_"})
-                bar.update(1)
-                
+                log = {
+                    "J": avg_j,
+                    "_diff": diff,
+                    "_gamma": lr,
+                    "delta": delta,
+                    "pib": calc_bucket(neg_f_img),
+                    "_epoch": epoch,
+                    "_v": _init_v,
+                    "_pos_v": pos_vs,
+                    "_neg_v": ng_vs,
+                    "_wavefront": np.stack((pos_wf, neg_wf)),
+                    "_statics": {"pos": pos_statics, "neg": neg_statics},
+                    "_f_cam": np.stack((pos_f_img, neg_f_img)),
+                    "_n_cam": np.stack((pos_n_img, neg_n_img))
+                }
+                Js_log.append(log["J"])
+                history.append(log)
                 if len(history) >= 1000:
-                    res_df = pd.DataFrame(history)
+                    save_list(save_dir, history)
                     del history
                     history = []
-                    res_df.to_pickle(f'data/1/{}')
                     
-
-        return history
+                bar.set_postfix({k: f'{v:.4f}' for k, v in log.items() if k[0] != "_"})
+                bar.update(1)
+        if history:
+            save_list(save_dir, history)
+            del history
+            
+        return Js_log
 
 def run():
-    init_V = np.random.random((64,))*100 - 50
+    # init_V = np.load('last_v.npz')['v'] \
+    #                  if os.path.exists("last_v.npz") else np.zeros((64,))
+    init_V = np.random.random((64,))*200 - 80
+    # init_V = np.zeros((64,))
     init_V[0] = 0
-
+    dir_name = gen_file_name(ROOT_DIR)
     res_list = optimizer(
-        
+        save_dir=dir_name,
         init_v=init_V.copy(),
         epochs=10000, 
-        delta=2, # 扰动要和桶半径匹配，不要扰动会导致质心出桶
-        lr=1.2, 
+        delta=1,
+        lr=1, 
         algorithm="adamod",
         metropolis_temperature=0,
         lr_schedul="static")
-    
-    res_df = pd.DataFrame(res_list)
-    file_name = gen_file_name(ROOT_DIR, "pkl")
-    print(f"结果保存到 {file_name}")
-    res_df.to_pickle(file_name, compression="zip")
-    max_j_id = res_df['J'].idxmin()
-    last_V = res_df.iloc[max_j_id]["_v"]
-    print(f"{max_j_id} -> {res_df.iloc[max_j_id]['J']}")
 
-
-    fig, ax = plt.subplots(2, 1)
-    ax[0].bar(x=np.arange(64)-0.25, height=init_V, width=0.5)
-    ax[0].bar(x=np.arange(64)+0.25, height=last_V, width=0.5)
-    ax[1].plot(res_df['J'])
-    plt.show()
+    plt.plot(res_list, label='rms')
+    plt.legend()
+    plt.savefig(os.path.join(dir_name, 'j.png'))
+    plt.close()
 
 if __name__ == "__main__":
-   for _ in range(50):
+    for iter in range(1):
+        print(f"Collect data @ iter:{iter}")
         run()

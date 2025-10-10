@@ -9,3 +9,6 @@ Drv_UDPST*
 gxipy*
 __pycache__*
 
+data/*
+ckpts*
+!data/data_analysis.py

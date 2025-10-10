@@ -47,7 +47,7 @@ class MainWin(QMainWindow):
         right = QVBoxLayout()
         self.slider_x = QSlider(Qt.Horizontal); self.slider_x.setRange(-1000, 1000); self.slider_x.setValue(0)
         self.slider_y = QSlider(Qt.Horizontal); self.slider_y.setRange(-1000, 1000); self.slider_y.setValue(0)
-        self.lab_x = QLabel('X: 0.00 mm'); self.lab_y = QLabel('Y: 0.00 mm')
+        self.lab_x = QLabel('X: 0.00 urand'); self.lab_y = QLabel('Y: 0.00 urand')
         # 添加输入框
         self.txt_x = QLineEdit('0'); self.txt_x.setValidator(QIntValidator(-1000, 1000))
         self.txt_y = QLineEdit('0'); self.txt_y.setValidator(QIntValidator(-1000, 1000))
@@ -75,10 +75,10 @@ class MainWin(QMainWindow):
 
     # -------------------- 辅助方法 --------------------
     def update_x_label(self, value):
-        self.lab_x.setText(f'X: {value/10:.2f} mm')
+        self.lab_x.setText(f'X: {value:.2f} urand')
     
     def update_y_label(self, value):
-        self.lab_y.setText(f'Y: {value/10:.2f} mm')
+        self.lab_y.setText(f'Y: {value:.2f} urand')
     
     def update_x_text(self, value):
         self.txt_x.setText(str(value))
@@ -101,9 +101,9 @@ class MainWin(QMainWindow):
             if os.path.exists('last_position.pkl'):
                 with open('last_position.pkl', 'rb') as f:
                     x_value, y_value = pickle.load(f)
-                    # 转换为滑块值（乘以10）
-                    x_int = int(x_value * 10)
-                    y_int = int(y_value * 10)
+                    # 转换为滑块值
+                    x_int = int(x_value)
+                    y_int = int(y_value)
                     # 确保值在有效范围内
                     x_int = max(-1000, min(1000, x_int))
                     y_int = max(-1000, min(1000, y_int))
@@ -165,9 +165,9 @@ class MainWin(QMainWindow):
             pass
 
     def on_send(self):
-        x, y = self.slider_x.value()/10, self.slider_y.value()/10
-        self.ser.send_pos(x, y)
-        self.log(f'下发  X={x:.2f}  Y={y:.2f}')
+        x, y = self.slider_x.value(), self.slider_y.value()
+        frame = self.ser.send_pos(x, y)
+        self.log(f'下发  X={x:.2f}  Y={y:.2f}. 报文: ' + frame.hex(' ').upper())
         # 保存发送的位置
         self.save_position(x, y)
 

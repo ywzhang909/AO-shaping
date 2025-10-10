@@ -1,5 +1,6 @@
 import os
 import time
+import json
 from typing import Literal
 
 import matplotlib.pyplot as plt
@@ -11,7 +12,7 @@ import pygame
 import utils
 from drivers import CameraStreamManager, NlightDM
 
-ROOT_DIR = r"D:\ao-project\data"
+ROOT_DIR = r"D:\workspace\AO\ao-project\data\wf-less"
 
 # display settings
 VOLT_HEIGHT = 200
@@ -23,8 +24,8 @@ LINE_COLOR = (0, 255, 0)
 
 # adam parameters
 beta1 = 0.9
-beta2 = 0.999
-beta3 = 0.9999
+beta2 = 0.99
+beta3 = 0.9994
 
 # cool_momentum_spgd parameters
 Rho_0 = 0.99
@@ -33,9 +34,9 @@ Rho_0 = 0.99
 METROPOLIS_ALPHA = 0.8
 
 # camera parameters
-CAM_EXP_TIME = 200
+CAM_EXP_TIME = 50
 CAM_EXP_TIME_ADJ_RATE = 0
-IMG_SIZE = (300, 300)
+IMG_SIZE = (200, 200)
 
 # dm parameters
 KEEP_VOLTAGE_WHEN_EXIT = True
@@ -75,7 +76,10 @@ def learning_schedule(
 
 def gen_file_name(dir, postfix: str = None):
     fname = os.listdir(dir)
-    fname = len(fname) + 1
+    if postfix:
+        fname = len([_ for _ in fname if _.endswith(postfix)]) + 1
+    else:
+        fname = len(fname) + 1
 
     if not postfix:  # make dir
         path = os.path.join(dir, str(fname))
@@ -107,24 +111,6 @@ def render(window, img, log, center, r, info="") -> None:
         y = int(IMG_SIZE[1] + VOLT_HEIGHT)
         height = int((value / V_MAX) *  VOLT_HEIGHT)
         pygame.draw.line(window, color, (x, y), (x, y - height), bar_width)
-        
-    # 清空之前绘制的折线统计图
-    line_plot_area = pygame.Rect(0, IMG_SIZE[1] + VOLT_HEIGHT, IMG_SIZE[0], LOG_J_HEIGHT)
-    window.fill(BACKGROUND_COLOR, line_plot_area)
-    if len(log) > 1:
-        min_sum = min(v["J"] for v in log)
-        max_sum = min(v["J"] for v in log)
-        points = []
-        num_points = len(log)
-        for i, value in enumerate(log):
-            j_value = value['J']
-            # 均匀分布 x 轴坐标
-            x = int(i * (IMG_SIZE[0] / (num_points - 1)))
-            y = IMG_SIZE[1] + VOLT_HEIGHT + LOG_J_HEIGHT - int(
-                (j_value - min_sum) / (max_sum - min_sum) * LOG_J_HEIGHT
-            ) if max_sum != min_sum else IMG_SIZE[1] + VOLT_HEIGHT + LOG_J_HEIGHT // 2
-            points.append((x, y))
-        pygame.draw.lines(window, LINE_COLOR, False, points, 2)
     
     pygame.event.pump()
     pygame.display.update()
@@ -137,10 +123,11 @@ def optimizer(
     lr=1,
     weight_decay=0.001,
     shrank_iter=0,
+    shrank_ratio=0.9,
     weights_class=1,
     pid_weighted_ratio=1.0,
     algorithm: Literal[
-        "spgd", "adam", "nadam", "adamod", "cool_momentum_spgd"
+        "spgd", "adam", "nadam", "adamod", "cool_momentum_spgd", "gready"
     ] = "adamod",
     lr_schedul: Literal[
         "static", "cosin", "exp", "linear"
@@ -154,7 +141,7 @@ def optimizer(
     delta = abs(delta)
     epochs = int(epochs)
 
-    with CameraStreamManager(cam_id=0, explosure_time=250, skip_sampling=True) as cam,\
+    with CameraStreamManager(cam_id=0, explosure_time=CAM_EXP_TIME, skip_sampling=True) as cam,\
             NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
         # dm.reset_all()
 
@@ -164,32 +151,31 @@ def optimizer(
         else:
             _init_v = np.array(init_v)
         dm.send_voltages(_init_v, 1)
-        init_img = cam.get_numpy_image()
-
-        # center = utils.centroid(init_img, cam.xv, cam.yv, 30)
+        
         if center == 'max':
+            init_img = cam.get_numpy_image(10)
             center = np.unravel_index(np.argmax(init_img), init_img.shape)
             center = (center[1], center[0])
+            print(f'{center=} : {init_img[center]}')
         elif center == 'centroid':
+            init_img = cam.get_numpy_image(10)
             center = utils.centroid(init_img, cam.xv, cam.yv, 30)
+            print(f'{center=} : {init_img[center]}')
         else:
             center = center
 
+        img_size, _ = cam.reset_window(center, IMG_SIZE)
+
+        init_img = cam.get_numpy_image(10)
+        center = np.unravel_index(np.argmax(init_img), init_img.shape)
         print(f"{center=}")
-        # center = (init_img.shape[1] // 2, init_img.shape[0] // 2)
-        # center = (500//2, 1250//2)
-        img_size, center = cam.reset_window(center, IMG_SIZE)
+        c_x, c_y = center[1]+2, center[0]+1
+        xv, yv = np.ogrid[:img_size[0], :img_size[1]]
 
-        init_img = cam.get_numpy_image()
-        xv, yv = np.meshgrid(
-            np.arange(-img_size[0] // 2, img_size[0] // 2),
-            np.arange(-img_size[1] // 2, img_size[1] // 2),
-        )
-
-        imgmesh_dist = (xv) ** 2 + (yv) ** 2
+        imgmesh_dist = (xv-c_x) ** 2 + (yv-c_y) ** 2
+        dist = np.sqrt(imgmesh_dist)
         weighted_mask = ( - imgmesh_dist/np.max(imgmesh_dist) + 1) ** (weights_class)
-        bucket_mask = imgmesh_dist < r_bucket**2
-        fix_r_mask = imgmesh_dist < 20**2
+        bucket_mask = dist < r_bucket
         
         if show:
             total_height = VOLT_HEIGHT + LOG_J_HEIGHT + cam.cam_height
@@ -198,12 +184,48 @@ def optimizer(
 
         def calc_pib(img, r):
             if shrank_iter <= 0:
-                return np.sum(img[bucket_mask]) / np.sum(bucket_mask)
-            in_power = np.sum(img[imgmesh_dist < r**2])
+                return -np.sum(img[bucket_mask]).astype(float)
+            in_power = -np.sum(img[dist < r]).astype(float)
             return in_power
 
         def calc_weighted_power(img) -> float:
-            return np.sum(weighted_mask * img) / np.sum(weighted_mask)
+            return -np.sum(weighted_mask * img) / np.sum(weighted_mask)
+
+        def encircled_radius(image: np.ndarray,
+                    ratio: float = 0.86,
+                    pixel_size: float = 1.17,   # px → mm
+                    dist_step: float = 0.5,     # 直方图 bin 宽
+                    ):
+            """
+            计算光斑质心与 encircled-energy 半径
+            Parameters
+            ----------
+            image : 2-D ndarray, float or int
+            ratio : 能量包围比，默认 0.86
+            pixel_size : 像素物理尺寸（缩放系数），默认 1.17
+            dist_step : 直方图距离间隔，默认 0.5 px
+            center_offset : 坐标偏移，默认 (23.5, 23.5)
+
+            Returns
+            -------
+            (cx, cy) : 质心（已乘 pixel_size）
+            radius   : encircled-energy 半径（已乘 pixel_size）
+            """
+            max_d = dist.max()
+            bins = int(np.ceil(max_d / dist_step)) + 1
+            hist, bin_edges = np.histogram(dist, bins=bins, range=(0, bins*dist_step), weights=image)
+            bin_centers = bin_edges[:-1] + dist_step / 2
+            cum = np.cumsum(hist)
+            target = ratio * np.sum(image)
+
+            idx = np.searchsorted(cum, target, side='right')
+            if idx == 0:
+                radius = dist_step * 0.5
+            else:
+                radius = bin_centers[idx-1]
+            radius *= pixel_size
+            return radius
+        
         def calc_j(img):
             # weighted_ratio = (0, 10 * pid_weighted_ratio, 10 * (1-pid_weighted_ratio)) # PIB越大越集中，锥形权越大约均匀
             # _pib_r_20 = np.sum(img[fix_r_mask])*weighted_ratio[1] / np.sum(fix_r_mask) * weighted_ratio[0]\
@@ -211,18 +233,19 @@ def optimizer(
             # _pib = calc_pib(img, r_bucket) * weighted_ratio[1] if weighted_ratio[1] else 0
             # _wp = calc_weighted_power(img) * weighted_ratio[-1] if weighted_ratio[-1] else 0
             # return _pib+_wp+_pib_r_20
-            
-            return  calc_pib(img, r_bucket)
+            return encircled_radius(img)
+            # return -np.max(img)
+            # return calc_pib(img, r_bucket)
 
         # utils.disp(init_img, cam.xv, cam.yv, r_bucket, 15)
-        
+        init_pid = -calc_pib(init_img, 5)
         history = [
             {
-                "J": calc_j(init_img),
-                "pib": calc_pib(init_img, 10),
+                "J": -calc_j(init_img),
+                "pib": init_pid,
                 "_v": _init_v,
                 "_img": init_img,
-                "diff": 0,
+                "_diff": 0,
                 "gamma": lr,
                 "r": r_bucket,
                 "_delta": delta,
@@ -236,22 +259,22 @@ def optimizer(
                 disturb_v = np.random.binomial(1, 0.5, (dm.dm_num,)).astype(float) * 2.0 - 1.0
 
                 disturb_v = disturb_v * delta
-                disturb_v[0] = 0
+                disturb_v[0] = 0.0
 
                 dm.send_voltages(_init_v + disturb_v)
-                img = cam.get_numpy_image()
+                img = cam.get_numpy_image(10)
                 pos_j = calc_j(img)
 
                 dm.send_voltages(_init_v - disturb_v)
-                img = cam.get_numpy_image()
+                img = cam.get_numpy_image(10)
                 neg_j = calc_j(img)
 
-                if (pos_j + neg_j) == 0 and CAM_EXP_TIME_ADJ_RATE > 1:
-                    cam.reset_explore_time(cam.explore_time * CAM_EXP_TIME_ADJ_RATE)
-                    continue
+                # if (pos_j + neg_j) == 0 and CAM_EXP_TIME_ADJ_RATE > 1:
+                #     cam.reset_explore_time(cam.explore_time * CAM_EXP_TIME_ADJ_RATE)
+                #     continue
 
                 diff = pos_j - neg_j
-                gradient = -diff * disturb_v
+                gradient = diff * disturb_v
                 lr = learning_schedule(lr, epoch, epochs, method=lr_schedul)
                 if algorithm == "spgd":
                     update = lr * gradient - lr * weight_decay * _init_v
@@ -291,6 +314,13 @@ def optimizer(
                     learning_rate = lr * (1 + rho_n) / 2
                     update = rho_n * momentum + learning_rate * (gradient)
                     momentum = update
+                    
+                elif algorithm == "gready":
+                    update = lr * np.sign(-diff) * disturb_v
+                    
+                else:
+                    raise NameError(f'{algorithm} not supported!')
+                    
 
                 update = np.clip(update, -UPDATE_MAX+delta, UPDATE_MAX-delta)
                 if metropolis_temperature > 0:
@@ -311,21 +341,22 @@ def optimizer(
                     print("相邻单元压差过大，放弃本次结果")
 
                 log = {
-                    "J": (pos_j + neg_j) / 2,
-                    # "pib": calc_pib(img, 10),
-                    "diff": diff,
+                    "J": -(pos_j + neg_j) / 2,
+                    "pib": -calc_pib(img, 5),
+                    "_diff": diff,
                     "gamma": lr,
                     "r": r_bucket,
                     "_delta": delta,
                     "_epoch": epoch,
                     "_v": _init_v,
-                    # "_img": img,
+                    "_img": img,
                 }
                 history.append(log)
                 # earlying schedule
                 if shrank_iter > 0 and epoch % shrank_iter == shrank_iter - 1:
-                    r_bucket = max(0.8 * r_bucket, 5)
-                    delta = max(delta * 0.8, 0.7)
+                    r_bucket = max(shrank_ratio * r_bucket, 4.0)
+                    delta = max(delta * shrank_ratio, 0.6)
+                    lr = max(lr * shrank_ratio, 0.8)
                     # pid_weighted_ratio = min(pid_weighted_ratio * 0.7, 0)
 
                 if np.sum(img[img == 255]) / 255 > 2 and CAM_EXP_TIME_ADJ_RATE > 1:
@@ -445,32 +476,36 @@ def bayes_opt():
     return dfhistory
 
 def run():
-    # init_V = np.load('last_v.npz')['v'] \
+    init_V = np.load('last_v-0.07.npz')['v']
     #                  if os.path.exists("last_v.npz") else None
     # init_V = np.random.random((64,))*100 - 50
-    init_V = np.zeros((64,))
-    init_V[0] = 0
-
-    res_list = optimizer(
-        init_v=init_V.copy(),
-        epochs=10000, 
-        r_bucket=12, 
-        delta=5, # 扰动要和桶半径匹配，不要扰动会导致质心出桶
-        lr=1.2, 
-        weights_class=0.5,
+    # init_V = np.zeros((64,))
+    # init_V[0] = -0
+    
+    args = dict(
+        init_v=init_V.copy().tolist(),
+        epochs=4000, 
+        r_bucket=6.5, 
+        delta=1, # 扰动要和桶半径匹配，不要扰动会导致质心出桶
+        lr=0.9, 
+        weights_class=1,
         algorithm="adamod",
         metropolis_temperature=0,
         lr_schedul="static",
-        pid_weighted_ratio=0.1,
-        shrank_iter=3000,
-        center=(567, 530))
+        pid_weighted_ratio=1,
+        shrank_iter=0,
+        center=(554,425)
+    )
+
+    res_list = optimizer(**args)
     
     res_df = pd.DataFrame(res_list)
-    res_df.to_pickle('record.pkl', compression=None)
-    max_j_id = -1
+    saved_file_name = gen_file_name(ROOT_DIR, 'pkl')
+    res_df.to_pickle(saved_file_name, compression='zip')
+    max_j_id = res_df.pib.argmax()
     last_V = res_df.iloc[max_j_id]["_v"]
-    print(f"{max_j_id} -> {res_df.iloc[max_j_id]['J']}")
-    
+    print(f"{max_j_id} -> {-res_df.iloc[max_j_id]['J']}")
+
     def get_nerbors(unit_id):
         return (a for a in np.where(DM_Adj[unit_id, :] == 1)[0])
     
@@ -485,14 +520,22 @@ def run():
                 reset_nerbors(nerbor, v)
 
     reset_nerbors(base_unit_id, last_V)
-    np.savez('last_v', v=last_V)
     np.savetxt('to_load_V.csv', np.around(last_V), fmt="%d")
 
-    fig, ax = plt.subplots(2, 1)
-    ax[0].bar(x=np.arange(64)-0.25, height=init_V, width=0.5)
-    ax[0].bar(x=np.arange(64)+0.25, height=last_V, width=0.5)
-    ax[1].plot(res_df['J'])
+    fig, ax = plt.subplots(2, 2)
+    ax[0,0].bar(x=np.arange(64)-0.25, height=init_V, width=0.5)
+    ax[0,0].bar(x=np.arange(64)+0.25, height=last_V, width=0.5)
+    ax[0,1].plot(res_df['pib'])
+    ax[1,0].imshow(res_df.loc[0,"_img"])
+    ax[1,0].set_title(f'{res_df.loc[0,"pib"]:.4f}')
+    ax[1,1].imshow(res_df.loc[max_j_id,"_img"])
+    ax[1,1].set_title(f'{res_df.loc[max_j_id,"pib"]:.4f}')
     plt.show()
+    plt.savefig(saved_file_name+'.png')
+    
+    
+    with open(saved_file_name+'-args.json', 'w' ,encoding='utf8') as f:
+        json.dump(args, f, ensure_ascii=False, indent=4)
 
 if __name__ == "__main__":
     run()

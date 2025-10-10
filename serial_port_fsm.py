@@ -2,7 +2,6 @@
 import struct, serial, serial.tools.list_ports, threading, queue
 
 class SerialPortFSM:
-    """与 Qt 解耦，普通线程跑收发；外部 push/pop 数据即可"""
     MAX, MIN = 1510.0, -1510.0
     FRAME_LEN = 13
 
@@ -10,6 +9,10 @@ class SerialPortFSM:
         self.ser = serial.Serial(timeout=0.5)
         self.ser.port = port
         self.ser.baudrate = baud
+        self.ser.bytesize = serial.EIGHTBITS
+        self.ser.parity = serial.PARITY_NONE    
+        self.ser.stopbits = serial.STOPBITS_TWO
+        
         self.rx_que = queue.Queue()
         self.tx_que = queue.Queue()
         self.worker = None
@@ -38,7 +41,9 @@ class SerialPortFSM:
     # -------------------- 业务 API --------------------
     def send_pos(self, x: float, y: float):
         """外部唯一需要调用的接口：发位置"""
-        self.tx_que.put(self._build_frame(x, y))
+        frame = self._build_frame(x, y)
+        self.tx_que.put(frame)
+        return frame
 
     def get_rx(self):
         """非阻塞弹一条最新回读"""
@@ -54,7 +59,26 @@ class SerialPortFSM:
             if self.ser.in_waiting:
                 data = self.ser.read(self.ser.in_waiting)
                 self.rx_que.put(data)
+                
+    @staticmethod
+    def pack_position_xy(position_x: float, position_y: float) -> bytes:
+        """
+        与 C++ 代码 bit-wise 一致：
+            int16_t xInt = (int16_t)std::round(PositionX / 0.05);
+            大端写入高 8 位、低 8 位
+        返回 4 字节 bytes：X高 X低 Y高 Y低
+        """
+        # 量化 + 四舍五入，与 C++ 保持相同溢出行为
+        x_int = int(round(position_x / 0.05))
+        y_int = int(round(position_y / 0.05))
 
+        # 强制 16-bit 补码范围（Python int 很大，需要掩码）
+        x_int = (x_int & 0xFFFF) if x_int >= 0 else ((x_int + 0x10000) & 0xFFFF)
+        y_int = (y_int & 0xFFFF) if y_int >= 0 else ((y_int + 0x10000) & 0xFFFF)
+
+        # 大端序打包
+        return struct.pack('>HH', x_int, y_int)
+    
     @staticmethod
     def _build_frame(x: float, y: float):
         buf = bytearray(13)
@@ -62,10 +86,9 @@ class SerialPortFSM:
         buf[1] = 0xE7
         buf[2] = 0x01
         # 限幅 + 0.05 量化
-        x = max(SerialPortFSM.MIN, min(SerialPortFSM.MAX, x))
-        y = max(SerialPortFSM.MIN, min(SerialPortFSM.MAX, y))
-        ix, iy = int(round(x / 0.05)), int(round(y / 0.05))
-        buf[3:7] = struct.pack('>hh', ix, iy)   # 大端 2×int16
+        x = max(min(x, SerialPortFSM.MAX), SerialPortFSM.MIN)
+        y = max(min(y, SerialPortFSM.MAX), SerialPortFSM.MIN)
+        buf[3:7] = SerialPortFSM.pack_position_xy(x, y)
         checksum = (~(sum(buf[2:12])) & 0xFF)
         buf[12] = checksum
         return buf
