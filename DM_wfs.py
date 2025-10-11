@@ -7,17 +7,13 @@ import numpy as np
 import pandas as pd
 
 import tqdm
-from drivers import MlaRes, NlightDM, WFSManager
+from drivers import MlaRes, NlightDM, WFSManager, CameraStreamManager
 
 ROOT_DIR = "./data"
 
-# display settings
-VOLT_HEIGHT = 200
-LOG_J_HEIGHT = 200
-# 定义背景颜色
-BACKGROUND_COLOR = (0, 0, 0)
-# 定义折线颜色
-LINE_COLOR = (0, 255, 0)
+# metrics
+R_Bucket = 10
+Img_Size = (200,200)
 
 # adam parameters
 beta1 = 0.9
@@ -67,20 +63,33 @@ def learning_schedule(
 
 
 def gen_file_name(dir, postfix: str = None):
-    fname = os.listdir(dir)
-    fname = len(fname) + 1
+    if postfix:
+        postfix = postfix if postfix.startswith('.') else f'.{postfix}'
+        fname = [f for f in os.listdir(dir) if f.endswith(postfix)]
+    else:
+        fname = [f for f in os.listdir(dir) if os.path.isdir(os.path.join(dir, f))]
+    fname = max([int(f.split('.')[0]) for f in fname]) + 1 if fname else '1'
 
     if not postfix:  # make dir
         path = os.path.join(dir, str(fname))
         if not postfix and not os.path.exists(path):
             os.makedirs(path)
     else:
-        if postfix[0] != ".":
-            postfix = "." + postfix
         path = os.path.join(dir, str(fname)) + postfix
+        
+    print(f"save path : {path}")
     return path
 
+def save_list(dir, data):
+    f_name = len(os.listdir(dir))+1
+    save_path = os.path.join(dir, str(f_name)) + '.pkl'
+    res_df = pd.DataFrame(data)
+    res_df.to_pickle(save_path)
+    print(f"\n{len(res_df)} saved @ {save_path}")
+    del res_df
+
 def optimizer(
+    save_dir,
     epochs,
     delta=1,
     lr=1,
@@ -98,31 +107,57 @@ def optimizer(
     delta = abs(delta)
     epochs = int(epochs)
 
-    with WFSManager(MlaRes.Res768, use_custom_ref=False, high_speed=True) as wfs,\
-            NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
+    with WFSManager(MlaRes.Res768, use_custom_ref=False, high_speed=True, pupil_diameter=2.8) as wfs,\
+            NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm, \
+            CameraStreamManager(cam_id=0, explosure_time=80, skip_sampling=False) as f_cam ,\
+            CameraStreamManager(cam_id=1, explosure_time=400, skip_sampling=False) as n_cam:
 
         if init_v is None:
             _init_v = np.zeros(dm.dm_num, dtype=np.float64)
             _init_v[0] = v0
         else:
             _init_v = np.array(init_v)
-        dm.send_voltages(_init_v, 1)
+        dm.send_voltages(_init_v, 0.5)
+        
+        init_img = f_cam.get_numpy_image()
+        # init_n_img = n_cam.get_numpy_image()
+
+        # center = np.unravel_index(np.argmax(init_img), init_img.shape)
+        # center = (center[1], center[0])
+        center = (776, 470)
+
+        print(f"{center=}")
+        img_size, center = f_cam.reset_window(center, Img_Size)
+        
+        w,h = img_size
+        cood = np.mgrid[-w//2:w//2, -h//2:h//2]
+        bucket_mask = (cood[0]**2 + cood[1]**2) < R_Bucket**2
+        def calc_bucket(img, r=10):
+            return np.sum(img[bucket_mask])
         
         def calc_j():
             wfs.take_image()
-            return wfs.get_wavefront()[-1]['rms']
+            wf, statics = wfs.get_wavefront()
+            return wf, statics
 
-        
+        wf, statics = calc_j()
+        f_img = f_cam.get_numpy_image()
         history = [
             {
-                "J": calc_j(),
+                "J": statics['rms'],
                 "_v": _init_v,
-                "diff": 0,
-                "gamma": lr,
-                "_delta": delta,
+                "_diff": 0,
+                "_gamma": lr,
+                "delta": delta,
                 "_epoch": -1,
+                "_f_cam": f_img[np.newaxis, ...],
+                "_n_cam": n_cam.get_numpy_image()[np.newaxis, ...],
+                "_wavefront": wf[np.newaxis, ...],
+                "_statics": statics,
+                "pib": calc_bucket(f_img)
             }
         ]
+        Js_log = [history[-1]["J"]]
         with tqdm.tqdm(
             total=epochs, desc=f"{algorithm} iter {epochs}", dynamic_ncols=True
         ) as bar:
@@ -132,14 +167,20 @@ def optimizer(
                 disturb_v = disturb_v * delta
                 disturb_v[0] = 0
 
-                dm.send_voltages(_init_v + disturb_v)
-                pos_j = calc_j()
+                pos_vs = dm.send_voltages(_init_v + disturb_v)
+                pos_wf, pos_statics = calc_j()
+                pos_j = pos_statics['rms']
+                pos_f_img = f_cam.get_numpy_image()
+                pos_n_img = n_cam.get_numpy_image()
 
-                dm.send_voltages(_init_v - disturb_v)
-                neg_j = calc_j()
-
-                diff = pos_j - neg_j
-                gradient = diff * disturb_v
+                ng_vs = dm.send_voltages(_init_v - disturb_v)
+                neg_wf, neg_statics = calc_j()
+                neg_j = neg_statics['rms']
+                neg_f_img = f_cam.get_numpy_image()
+                neg_n_img = n_cam.get_numpy_image()
+                
+                diff = pos_statics['rms'] - neg_statics['rms']
+                gradient = -diff * disturb_v
                 lr = learning_schedule(lr, epoch, epochs, method=lr_schedul)
                 if algorithm == "spgd":
                     update = lr * gradient - lr * weight_decay * _init_v
@@ -211,61 +252,54 @@ def optimizer(
                     "_diff": diff,
                     "_gamma": lr,
                     "delta": delta,
+                    "pib": calc_bucket(neg_f_img),
                     "_epoch": epoch,
                     "_v": _init_v,
+                    "_pos_v": pos_vs,
+                    "_neg_v": ng_vs,
+                    "_wavefront": np.stack((pos_wf, neg_wf)),
+                    "_statics": {"pos": pos_statics, "neg": neg_statics},
+                    "_f_cam": np.stack((pos_f_img, neg_f_img)),
+                    "_n_cam": np.stack((pos_n_img, neg_n_img))
                 }
+                Js_log.append(log["J"])
                 history.append(log)
-                # earlying schedule
-
+                if len(history) >= 1000:
+                    save_list(save_dir, history)
+                    del history
+                    history = []
+                    
                 bar.set_postfix({k: f'{v:.4f}' for k, v in log.items() if k[0] != "_"})
                 bar.update(1)
-
-        return history
+        if history:
+            save_list(save_dir, history)
+            del history
+            
+        return Js_log
 
 def run():
     # init_V = np.load('last_v.npz')['v'] \
-    #                  if os.path.exists("last_v.npz") else None
-    # init_V = np.random.random((64,))*100 - 50
-    init_V = np.zeros((64,))
+    #                  if os.path.exists("last_v.npz") else np.zeros((64,))
+    init_V = np.random.random((64,))*200 - 80
+    # init_V = np.zeros((64,))
     init_V[0] = 0
-
+    dir_name = gen_file_name(ROOT_DIR)
     res_list = optimizer(
+        save_dir=dir_name,
         init_v=init_V.copy(),
         epochs=10000, 
-        delta=2, # 扰动要和桶半径匹配，不要扰动会导致质心出桶
-        lr=1.2, 
+        delta=4,
+        lr=0.9, 
         algorithm="adamod",
         metropolis_temperature=0,
         lr_schedul="static")
-    
-    res_df = pd.DataFrame(res_list)
-    res_df.to_pickle('record.pkl', compression=None)
-    max_j_id = res_df['J'].idxmin()
-    last_V = res_df.iloc[max_j_id]["_v"]
-    print(f"{max_j_id} -> {res_df.iloc[max_j_id]['J']}")
-    
-    def get_nerbors(unit_id):
-        return (a for a in np.where(DM_Adj[unit_id, :] == 1)[0])
-    
-    base_unit_id = np.argmin(np.abs(last_V[1:]))+1
-    checked_mask = np.zeros_like(DM_Adj, dtype=bool)
-    def reset_nerbors(unit_id, v):
-        min, max = v[unit_id]-Tolerance, v[unit_id]+Tolerance
-        for nerbor in get_nerbors(unit_id):
-            if not checked_mask[unit_id, nerbor]:
-                v[nerbor] = np.clip(v[nerbor], min, max)
-                checked_mask[unit_id, nerbor] = checked_mask[nerbor, unit_id] = True
-                reset_nerbors(nerbor, v)
 
-    reset_nerbors(base_unit_id, last_V)
-    np.savez('last_v', v=last_V)
-    np.savetxt('to_load_V.csv', np.around(last_V), fmt="%d")
-
-    fig, ax = plt.subplots(2, 1)
-    ax[0].bar(x=np.arange(64)-0.25, height=init_V, width=0.5)
-    ax[0].bar(x=np.arange(64)+0.25, height=last_V, width=0.5)
-    ax[1].plot(res_df['J'])
-    plt.show()
+    plt.plot(res_list, label='rms')
+    plt.legend()
+    plt.savefig(os.path.join(dir_name, 'j.png'))
+    plt.close()
 
 if __name__ == "__main__":
-    run()
+    for iter in range(1):
+        print(f"Collect data @ iter:{iter}")
+        run()

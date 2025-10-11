@@ -485,7 +485,9 @@ class WFSManager:
                 byref(rms), byref(wighted_rms)
             )
 
-        return wavefront[:self.num_spots_x, :self.num_spots_y], {"min":min.value, "max":max.value, "diff":diff.value, "mean":mean.value, "rms":rms.value, "wighted_rms":wighted_rms.value}
+        wavefront = wavefront[:self.num_spots_x, :self.num_spots_y]
+        # wavefront = np.where(wavefront==np.nan, 0, wavefront)
+        return wavefront, {"min":min.value, "max":max.value, "diff":diff.value, "mean":mean.value, "rms":rms.value, "wighted_rms":wighted_rms.value}
 
     def get_zernike(self, zernike_order=5, image_loop_counter: int = -1):
         roc_mm = c_double()
@@ -761,17 +763,17 @@ class CameraStreamManager:
     def get_numpy_image(self, n_sample=1) -> np.ndarray:
         assert n_sample>0
         
-        numpy_image = np.zeros((self.cam_height, self.cam_width), dtype=np.uint8)
+        numpy_image = np.zeros((self.cam_height, self.cam_width))
         for _ in range(n_sample):
             while True:
                 raw_image = self.cam.data_stream[0].get_image()
                 if not raw_image:
                     continue
-
+                
                 numpy_image += raw_image.get_numpy_array()
                 break
-                
-        return numpy_image/n_sample
+        avg_img = numpy_image/n_sample
+        return avg_img.astype(np.uint8)
 
     def __update_properties(self):
         self.cam_width = self.cam.Width.get()
@@ -936,7 +938,7 @@ class NlightDM:
         time.sleep(0.5)
         return ret
 
-    def send_voltages(self, vs:np.ndarray, wait_time_s = 0.002):
+    def send_voltages(self, vs:np.ndarray, wait_time_s = 0.001):
         vs = np.clip(vs, -300, 499)
         __gap = vs - self.__last_v
         if self.max_iter_diff > 0:
@@ -955,7 +957,7 @@ class NlightDM:
         ret = self.udp_driver.set_voltages(vs)
         self.__last_v = vs
         time.sleep(wait_time_s)
-        return ret
+        return vs
 
     def set_hv(self, hv:bool = True):
         ret = self.c_driver.set_hv(hv)
@@ -1006,71 +1008,84 @@ if __name__ == '__main__':
     def ture_off_dm():
         with NlightDM(keep_when_exit=False) as dm:
             v = np.zeros((dm.dm_num,))
+            dm.send_voltages(v)
+            
+    def load_last_v(file='last_v.npz', reset=False):
+        with NlightDM(keep_when_exit=True, max_iter_diff=10) as dm:
+            if file:
+                load_v = np.load(file)['v'] if file.endswith('.npz') else np.loadtxt(file)
+            init_V = np.zeros((dm.dm_num,)) if reset else load_v
+            dm.send_voltages(init_V, wait_time_s=0.01)
             
     def test_dm():
         import itertools
         with NlightDM(keep_when_exit=False) as dm:
             v = np.zeros((dm.dm_num,))
             for phi in itertools.cycle(np.linspace(0, 2*np.pi, 10)):
-                v[1] = math.sin(phi)*30
+                v[1] = math.sin(phi)*100
                 dm.send_voltages(v, 0.1)
                 print(v[1])
 
     def test_wfs():
         with WFSManager(MlaRes.Res512, exp_time=0.029) as wfs:
-            opt_exp_time, _ = wfs.optimize_exposure_time_and_gain()
-            if 0.001 < opt_exp_time < 87:
-                wfs.exposure_time = opt_exp_time
-            else:
-                print("no usable image. exit now..")
-                exit()
+            # opt_exp_time, _ = wfs.optimize_exposure_time_and_gain()
+            # if 0.001 < opt_exp_time < 87:
+            #     wfs.exposure_time = opt_exp_time
+            # else:
+            #     print("no usable image. exit now..")
+            #     exit()
 
-            print(f"optimize_pupil: {wfs.optimize_pupil()}")
+            # print(f"optimize_pupil: {wfs.optimize_pupil()}")
 
-            for _ in range(1):
-                wfs.take_image()
+            # for _ in range(1):
+            #     wfs.take_image()
                 
                 
-                spots_filed = wfs.get_spotfiled_image()
-                plt.imshow(spots_filed)
-                plt.show()
+            #     spots_filed = wfs.get_spotfiled_image()
+            #     plt.imshow(spots_filed)
+            #     plt.show()
                 
-                x, y = wfs.get_spot_deviation()
-                intensity, _ = wfs.get_spots_statics()
-                wf, statics = wfs.get_rms()
-                print(f"{statics=}")
+            #     x, y = wfs.get_spot_deviation()
+            #     intensity, _ = wfs.get_spots_statics()
+            #     wf, statics = wfs.get_rms()
+            #     print(f"{statics=}")
 
-                fig, ax = plt.subplots(2,2)
-                ax[0,0].imshow(x)
-                ax[0,0].set_title("spot deviation x")
+            #     fig, ax = plt.subplots(2,2)
+            #     ax[0,0].imshow(x)
+            #     ax[0,0].set_title("spot deviation x")
 
-                ax[0,1].imshow(y)
-                ax[0,1].set_title("spot deviation y")
+            #     ax[0,1].imshow(y)
+            #     ax[0,1].set_title("spot deviation y")
                 
-                ax[1,0].imshow(intensity)
-                ax[1,0].set_title("spot intensity")
+            #     ax[1,0].imshow(intensity)
+            #     ax[1,0].set_title("spot intensity")
                 
-                ax[1,1].imshow(wf)
-                ax[1,1].set_title("wavefront")
-                plt.show()
+            #     ax[1,1].imshow(wf)
+            #     ax[1,1].set_title("wavefront")
+            #     plt.show()
                 
             wfs.high_speed = True
             for _ in range(10):
                 wfs.take_image()
-                # x,y = wfs.get_spot_deviation()
-                # print(y)
-                print(wfs.get_zernike(3))
-                print(wfs.get_wavefront()[-1]['rms'])
-    def test_cam():
-        with CameraStreamManager(0, explosure_time=300) as cam:
+                x,y = wfs.get_spot_deviation()
+                print(y[0,:])
+                # print(wfs.get_zernike(3))
+                print(wfs.get_wavefront()[0][0,:])
+    def test_cam(cam_id=0):
+        with CameraStreamManager(cam_id, explosure_time=80) as cam:
             img = cam.get_numpy_image()
+            center = np.unravel_index(np.argmax(img), img.shape)
+            center = (center[1], center[0])
+            print(f'{center=}')
             plt.imshow(img)
+            plt.title(f'{center=} = {img[center[::-1]]=}')
             plt.show()
             
-    # test_cam()
-    # test_wfs()  
-    test_dm()
     # ture_off_dm()
-    
+    load_last_v(file='to_load_V.csv',reset=False)
+    test_cam(0)
+    # test_wfs()
+    # 
+    # test_dm()
 
     
