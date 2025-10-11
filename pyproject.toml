@@ -21,7 +21,14 @@ dependencies = [
     "torchvision>=0.23.0",
     "timm>=1.0.20",
     "accelerate>=1.10.1",
+    "gymnasium>=1.2.1",
+    "stable-baselines3>=2.7.0",
+    "sb3-contrib>=2.7.0",
 ]
+
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
 
 [[tool.uv.index]]
 name = "pytorch-cu129"
