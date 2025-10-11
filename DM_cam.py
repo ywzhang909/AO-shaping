@@ -25,10 +25,10 @@ LINE_COLOR = (0, 255, 0)
 # adam parameters
 beta1 = 0.9
 beta2 = 0.99
-beta3 = 0.9994
+beta3 = 0.9995
 
 # cool_momentum_spgd parameters
-Rho_0 = 0.99
+Rho_0 = 0.9
 
 # metropolis parameters
 METROPOLIS_ALPHA = 0.8
@@ -141,7 +141,7 @@ def optimizer(
     delta = abs(delta)
     epochs = int(epochs)
 
-    with CameraStreamManager(cam_id=0, explosure_time=CAM_EXP_TIME, skip_sampling=True) as cam,\
+    with CameraStreamManager(cam_id=0, explosure_time=CAM_EXP_TIME, skip_sampling=False) as cam,\
             NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
         # dm.reset_all()
 
@@ -248,7 +248,7 @@ def optimizer(
                 "_diff": 0,
                 "gamma": lr,
                 "r": r_bucket,
-                "_delta": delta,
+                "delta": delta,
                 "_epoch": -1,
             }
         ]
@@ -346,7 +346,7 @@ def optimizer(
                     "_diff": diff,
                     "gamma": lr,
                     "r": r_bucket,
-                    "_delta": delta,
+                    "delta": delta,
                     "_epoch": epoch,
                     "_v": _init_v,
                     "_img": img,

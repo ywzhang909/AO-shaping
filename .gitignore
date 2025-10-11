@@ -9,6 +9,9 @@ Drv_UDPST*
 gxipy*
 __pycache__*
 
+.kilocode*
+ao_project.egg-info*
+
 data/*
 ckpts*
 !data/data_analysis.py
