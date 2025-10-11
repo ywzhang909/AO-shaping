@@ -14,4 +14,10 @@ ao_project.egg-info*
 data/checkpoint
 data/feature_maps_features_*.png
 data/conv_kernels.png
-data/history.png
+data/history.pn
+data/*/j.png
+*.zip
+
+!data/data_analysisy.py
+!data/streamlit_visualizer.py
+history.png
