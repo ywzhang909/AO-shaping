@@ -34,7 +34,7 @@ Rho_0 = 0.9
 METROPOLIS_ALPHA = 0.8
 
 # camera parameters
-CAM_EXP_TIME = 50
+CAM_EXP_TIME = 60
 CAM_EXP_TIME_ADJ_RATE = 0
 IMG_SIZE = (200, 200)
 
@@ -153,7 +153,10 @@ def optimizer(
         dm.send_voltages(_init_v, 1)
         
         if center == 'max':
-            init_img = cam.get_numpy_image(10)
+            init_img = cam.get_numpy_image().astype(float)
+            for _ in range(10):
+                init_img += cam.get_numpy_image()
+            init_img /= 11
             center = np.unravel_index(np.argmax(init_img), init_img.shape)
             center = (center[1], center[0])
             print(f'{center=} : {init_img[center]}')
@@ -476,7 +479,8 @@ def bayes_opt():
     return dfhistory
 
 def run():
-    init_V = np.load('last_v-0.07.npz')['v']
+    # init_V = np.load('last_v-0.07.npz')['v']
+    init_V = np.loadtxt('rms-0.087.csv')
     #                  if os.path.exists("last_v.npz") else None
     # init_V = np.random.random((64,))*100 - 50
     # init_V = np.zeros((64,))
@@ -494,7 +498,7 @@ def run():
         lr_schedul="static",
         pid_weighted_ratio=1,
         shrank_iter=0,
-        center=(554,425)
+        center='max'
     )
 
     res_list = optimizer(**args)

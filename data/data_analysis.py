@@ -385,3 +385,7 @@ def get_train_data(line:pd.Series):
         x = x[0]
         
     return x,y
+# %%
+neg_trans_m = np.loadtxt('DM-flatten_res/20251013/negTransFunc.txt')
+neg_trans_m = neg_trans_m.reshape(37, 2, np.sqrt(498//2).astype(int))
+neg_trans_m.shape

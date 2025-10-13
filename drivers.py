@@ -1082,7 +1082,7 @@ if __name__ == '__main__':
             plt.show()
             
     # ture_off_dm()
-    load_last_v(file='to_load_V.csv',reset=False)
+    load_last_v(file='last_v-0.07.npz',reset=False)
     test_cam(0)
     # test_wfs()
     # 
