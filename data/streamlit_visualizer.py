@@ -1,10 +1,8 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 import plotly.express as px
-from plotly.subplots import make_subplots
 import os
 
 # 移除了 matplotlib 字体设置，因为现在使用 plotly
@@ -38,45 +36,6 @@ if st.button("加载数据") or (uploaded_file is not None):
             data = pd.read_pickle(file_to_load, compression="zip")
         
         st.success(f"成功加载文件: {file_name}")
-        
-        # 数据预处理：合并带下划线的列名
-        # 创建列名映射
-        column_mapping = {}
-        columns_to_drop = []
-        
-        for col in data.columns:
-            if '_' in col and col != '_cam':
-                # 去掉下划线的列名
-                clean_col = col.replace('_', '')
-                # 如果存在不带下划线的同名列，则合并数据
-                if clean_col in data.columns and clean_col != col:
-                    # 合并数据：将带下划线的列数据追加到不带下划线的列数据后面
-                    try:
-                        # 如果两列都是数值类型，则合并为数组
-                        if isinstance(data[col].iloc[0], (int, float, np.number)) and isinstance(data[clean_col].iloc[0], (int, float, np.number)):
-                            # 合并两列数据
-                            merged_data = []
-                            for i in range(len(data)):
-                                clean_data = data[clean_col].iloc[i]
-                                merged_data =  data[col].iloc[i] if pd.isna(clean_data) else clean_data
-                            data[clean_col] = merged_data
-                        # 如果是数组类型，则合并数组
-                        elif isinstance(data[col].iloc[0], (list, np.ndarray)) and isinstance(data[clean_col].iloc[0], (list, np.ndarray)):
-                            # 合并两列数据
-                            merged_data = []
-                            for i in range(len(data)):
-                                merged_data.append(np.concatenate([data[clean_col].iloc[i], data[col].iloc[i]]))
-                            data[clean_col] = merged_data
-                        else:
-                            # 其他情况，直接合并
-                            data[clean_col] = data[clean_col].astype(str) + ", " + data[col].astype(str)
-                    except Exception as e:
-                        st.warning(f"合并列 {col} 和 {clean_col} 时出错: {str(e)}")
-                    # 标记带下划线的列待删除
-                    columns_to_drop.append(col)
-        
-        # 删除带下划线的列
-        data = data.drop(columns=columns_to_drop)
         
         # 将数据存储在session state中，以便在组件间共享
         st.session_state['loaded_data'] = data
