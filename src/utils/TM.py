@@ -3,7 +3,7 @@ import sys, datetime, pickle, os
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont, QIntValidator
-from serial_port_fsm import SerialPortFSM
+from drivers.tm.serial_port_fsm import SerialPortFSM
 
 class MainWin(QMainWindow):
     def __init__(self):

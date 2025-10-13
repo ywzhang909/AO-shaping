@@ -1,13 +1,14 @@
 import numpy as np
 import time
+import os
 import socket
 from .base import DM
 
 from ctypes import byref, c_bool, c_int32, cdll
-
+DM_NUM = 64
 
 class NLight(DM):
-    channel: int = 64
+    dm_num: int = DM_NUM
     v_min, v_max = -300, 499
 
     def __init__(self, max_iter_diff=20, max_neibor_diff=0, keep_when_exit=True):
@@ -16,7 +17,7 @@ class NLight(DM):
 
         self.units_adj_mat = self._load_adj_txt()
 
-        self.__last_v = np.zeros(self.channel)
+        self.__last_v = np.zeros(self.dm_num)
         self.max_iter_diff = max_iter_diff
         self.max_neibor_diff = max_neibor_diff
 
@@ -57,7 +58,7 @@ class NLight(DM):
         self.set_hv(hv=True)
 
     def reset_all(self):
-        self.send_voltages(np.zeros(self.channel), 0.01)
+        self.send_voltages(np.zeros(self.dm_num), 0.01)
 
         if (ret := self.c_driver.reset_all()) == 0:
             self.__last_v = np.zeros_like(self.__last_v)
@@ -114,7 +115,7 @@ class DMUdp:
         self.ip = "192.168.6.10"
         self.port = 1001
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.dm_num = 64
+        self.dm_num = DM_NUM
 
     @staticmethod
     def _num_hex(num:int):
@@ -147,13 +148,12 @@ class DMUdp:
     def set_hv(self, hv:bool):
         raise NotImplementedError()
 
-
 class DMSdk:
 
     def __init__(self):
         self.dm_num = 64
-
-        dll = cdll.LoadLibrary('Drv_UDPST/x64/Release/Drv_UDPST.dll')
+        this_py_file_path = os.path.abspath(__file__)
+        dll = cdll.LoadLibrary(os.path.join(os.path.dirname(this_py_file_path), 'Drv_UDPST/x64/Release/Drv_UDPST.dll'))
         dll.SetVoltages.restype = c_bool
         dll.SetVoltages.argtypes = [
             np.ctypeslib.ndpointer(dtype=np.double, ndim=1, shape=(self.dm_num)), c_int32, c_int32]

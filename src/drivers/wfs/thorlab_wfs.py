@@ -1,11 +1,8 @@
 import sys
 import time
 import logging
-import socket
 
 import numpy as np
-
-import gxipy as gx
 
 import ctypes
 from ctypes import byref, c_double, create_string_buffer, c_bool, c_uint8, c_int16, c_int32, c_ulong, c_float, c_char,\
@@ -38,6 +35,8 @@ WFS_STATUS = {
 # MAX_SPOTS is actually a constrained by the library version
 # see WFS.h for the actual value
 MAX_SPOTS = [80, 80]
+EXP_TIME_LOW = 0.002
+EXP_TIME_HIGH = 86
 
 # defining names according to the manual
 ViStatus = c_int32
@@ -321,6 +320,7 @@ class WFSManager:
         pupil_diameter: pupil diameter in mm, default 2.0
         """
         assert mla_index in MlaRes, "mla_index must be one of MlaRes"
+        assert exp_time >= EXP_TIME_LOW and exp_time <= EXP_TIME_HIGH, f"exp_time must be in [{EXP_TIME_LOW},{EXP_TIME_HIGH}]"
         
         self._lib = load_dll()
         self.device_id = c_int32()
@@ -345,12 +345,7 @@ class WFSManager:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        if self._instrument_handle.value > 0:
-            self.enable_high_speed = False
-
-            self.__image_loop_counter = 0
-            self._lib.WFS_close(self._instrument_handle)
-            self._instrument_handle = c_ulong(0)
+        self.close()
 
     def initialize(self):
         device_in_use = ViInt32()
@@ -376,7 +371,12 @@ class WFSManager:
         self.pupil = self.pupil if (self.d_x>0 and self.d_y>0) else self.optimize_pupil()
         
     def close(self):
-        self.__exit__()
+        if self._instrument_handle.value > 0:
+            self.enable_high_speed = False
+
+            self.__image_loop_counter = 0
+            self._lib.WFS_close(self._instrument_handle)
+            self._instrument_handle = c_ulong(0)
 
     def handle_error(self, err, no_raise=False):
         info = create_string_buffer(256)
@@ -450,7 +450,7 @@ class WFSManager:
                                 spots_filed_img,
                                 byref(c_int32(px)), byref(c_int32(py))
                                 ):
-            self.handle_error(err)
+            raise RuntimeError(self.handle_error(err))
         else:
             return spots_filed_img
         
@@ -552,7 +552,7 @@ class WFSManager:
 
     @exposure_time.setter
     def exposure_time(self, value: float):
-        assert 0.002 <= value <= 87, "exposure time must be in range [0.002, 87] ms"
+        assert EXP_TIME_LOW <= value <= EXP_TIME_HIGH, f"exposure time must be in range [{EXP_TIME_LOW}, {EXP_TIME_HIGH}] ms"
         actual_exposure = c_double()
         self._lib.WFS_SetExposureTime(self._instrument_handle, c_double(value), byref(actual_exposure))
         print(f"actual exposure time is {actual_exposure.value} ms.")
@@ -579,7 +579,6 @@ class WFSManager:
             c_double(c_x), c_double(c_y), c_double(d_x), c_double(d_y))
         self.c_x, self.c_y, self.d_x, self.d_y = c_x, c_y, d_x, d_y
 
-    #TODO: set high speed mode And get info enable in high speed mode
     @property
     def high_speed(self):
         enable_high_speed = self._lib.WFS_CheckHighspeedCentroids(self._instrument_handle).value
@@ -635,434 +634,47 @@ class WFSManager:
 
         print("high speed mode is " + "on" if enable else "off")
 
-class CameraStreamManager:
-    def __init__(self, cam_id:int=0, explosure_time:int=20, skip_sampling=True, log=logging.getLogger('galaxy camera driver')):
-        self.device_manager = gx.DeviceManager()
-        self.cam_id = cam_id
-        self.explore_time = explosure_time
-        self.skip_sampling = skip_sampling
-
-        self.cam, self.__sn = None, None
-        self.cam_width ,self.cam_height = 0, 0
-        self.log = log
-
-    def __enter__(self):
-        self.initialize()
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        if self.cam:
-            self.cam_width ,self.cam_height = 0, 0
-            self.cam.stream_off()
-            self.cam.close_device()
-            self.cam, self.__sn = None, None
-
-    def initialize(self):
-        """
-        初始化相机设备。
-
-        此方法执行以下操作：
-        1. 关闭之前打开的相机设备（如果有）。
-        2. 更新设备列表并检查是否有足够的设备。
-        3. 打开指定的相机设备。
-        4. 设置相机的曝光时间、增益、像素格式、采样方式、偏移量、宽度和高度。
-        5. 更新相机的属性并开启数据流。
-
-        如果没有找到相机设备，将记录错误并抛出连接中止错误。
-
-        参数:
-            无
-
-        返回:
-            无
-        """
-        # 关闭之前打开的相机设备（如果有）
-        self.__exit__(None, None, None)
-
-        # 更新设备列表并获取设备信息列表
-        _, dev_info_list = self.device_manager.update_device_list()
-        # 检查设备列表长度是否小于等于指定的相机ID
-        if len(dev_info_list) <= self.cam_id:
-            self.log.error("No devices found.")
-            raise ConnectionAbortedError("No cam devices found.")
-
-        sn = dev_info_list[self.cam_id].get("sn")
-        self.cam = self.device_manager.open_device_by_sn(sn)
-        # 设置相机的曝光时间
-        self.cam.ExposureTime.set(self.explore_time)
-        # 设置相机的增益
-        self.cam.Gain.set(0.0)
-        # 设置相机的像素格式为MONO8
-        self.cam.PixelFormat.set(gx.GxPixelFormatEntry.MONO8)
-        if self.skip_sampling:
-            # 设置相机的合并因子为2
-            self.cam.BinningHorizontal.set(2)
-            self.cam.BinningVertical.set(2)
-
-        # 设置相机的水平偏移量为0
-        self.cam.OffsetX.set(0)
-        self.cam.OffsetY.set(0)
-        # 设置相机的宽度为最大宽度
-        self.cam.Width.set(self.cam.WidthMax.get())
-        self.cam.Height.set(self.cam.HeightMax.get())
-
-        self.__sn = sn
-        self.__update_properties()
-        self.cam.stream_on()
-
-    def reset_explore_time(self, time:int):
-        if time >= 20:
-            self.explore_time = time
-        else:
-            self.explore_time = 20
-            self.log.warning('explore time must >= 20. set to 20.')
-        self.cam.ExposureTime.set(self.explore_time)
-        return self.explore_time
-
-    def reset_window(self, center:tuple[int], size:tuple[int,int]=(0,0)) -> tuple[int]:
-        """
-        重置相机的窗口大小和位置，以确保图像的中心位于指定的位置。
-
-        参数:
-        size (Tuple[int]): 期望的窗口大小，格式为 (宽度, 高度)。
-        center (Tuple[int]): 期望的窗口中心位置，格式为 (x坐标, y坐标)。
-
-        返回:
-        Tuple[int]: 新的窗口中心位置，格式为 (x坐标, y坐标)。
-        """
-        # 中心坐标大于0
-        assert center[0]>0 and center[1]>0
-        center = tuple(int(c) for c in center)
-        if self.cam:
-            self.cam.stream_off()
-            # 如果未指定窗口大小，则使用相机的最大宽度和高度
-            if size == (0, 0):
-                size = (self.cam.WidthMax.get(), self.cam.HeightMax.get())
-            width, height = size
-            
-            min_quatic = 16
-            def reset_value(v):
-                return int(v//min_quatic*min_quatic)
-            width, height = reset_value(width), reset_value(height)
-            # 计算窗口的偏移量，确保中心位置在指定位置
-            x_offset, y_offset = center[0]-(width//2), center[1]-(height//2)
-            x_offset, y_offset = reset_value(x_offset), reset_value(y_offset)
-            assert x_offset>0 and y_offset>0
-            self.cam.Width.set(width)
-            self.cam.Height.set(height)
-            self.cam.OffsetX.set(x_offset)
-            # 设置相机的垂直偏移量，确保偏移量是4的倍数
-            self.cam.OffsetY.set(y_offset)
-
-            self.__update_properties()
-            self.cam.stream_on()
-
-            # 返回新的窗口中心位置
-            return (width, height), (width//2, height//2)
-
-    def get_numpy_image(self, n_sample=1) -> np.ndarray:
-        assert n_sample>0
-        
-        numpy_image = np.zeros((self.cam_height, self.cam_width))
-        for _ in range(n_sample):
-            while True:
-                raw_image = self.cam.data_stream[0].get_image()
-                if not raw_image:
-                    continue
-                
-                numpy_image += raw_image.get_numpy_array()
-                break
-        avg_img = numpy_image/n_sample
-        return avg_img.astype(np.uint8)
-
-    def __update_properties(self):
-        self.cam_width = self.cam.Width.get()
-        self.cam_height = self.cam.Height.get()
-        self.log.info(f"Open cam {self.__sn} success. width={self.cam_width}, height={self.cam_height}")
-        self.xv, self.yv = self.__get_grid(self.cam_width, self.cam_height)
-
-    @staticmethod
-    def __get_grid(width, height):
-        x = np.arange(0, width)
-        y = np.arange(0, height)
-        xv, yv = np.meshgrid(x, y)
-        return xv, yv
-
-
-class DMUdp:
-
-    global HEAD_WITH_ECHO, HEAD, REG_IDS
-    HEAD_WITH_ECHO = '10 01 2c'.split(' ')
-    HEAD = '30 01 2c'.split(' ')
-    REG_IDS = [0, 16384, 32768, 49152] # 0x00, 0x40, 0x80, 0xc0 to dec
-
-    def __init__(self):
-        self.ip = "192.168.6.10"
-        self.port = 1001
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.dm_num = 64
-
-    @staticmethod
-    def _num_hex(num:int):
-        hex_16 = hex(int(num))[2:].zfill(4)
-        return hex_16[:2]+' '+hex_16[2:]
-
-    @staticmethod
-    def _voltage_hex(num:float, registry:int):
-        _num = int((num+500)/1000*4096)
-        # _num = min(_num, 4095)
-        # _num = max(_num, 820)
-        _num += REG_IDS[registry%4]
-        hex_16 = DMUdp._num_hex(_num)
-        return hex_16
-    
-    def check_connection(self):
-        # ping target ip
-        try:
-            socket.gethostbyname(self.ip)
-            return True
-        except socket.error:
-            return False
-
-    def _send(self, message):
-        hex_message = bytes.fromhex(message)
-        return self.sock.sendto(hex_message, (self.ip, self.port))
-    
-    def set_voltages(self, vs, with_echo=False):
-        _head = HEAD_WITH_ECHO if with_echo else HEAD
-        send_data = ' '.join(_head+[self._num_hex(self.dm_num)]+[self._voltage_hex(v,i) for i,v in enumerate(vs)])
-        return self._send(send_data)
-    
-    def reset_all(self):
-        vs = np.zeros(256)
-        send_data = ' '.join(HEAD_WITH_ECHO+[self._num_hex(256)]+[self._voltage_hex(v,i) for i,v in enumerate(vs)])
-        return self._send(send_data) & self._send("10 00 00 00 01 00 03")
-    
-    def set_hv(self, hv:bool):
-        raise NotImplementedError()
-
-
-class DMSdk:
-
-    def __init__(self):
-        self.dm_num = 64
-
-        dll = cdll.LoadLibrary('Drv_UDPST/x64/Release/Drv_UDPST.dll')
-        dll.SetVoltages.restype = c_bool
-        dll.SetVoltages.argtypes = [
-            np.ctypeslib.ndpointer(dtype=np.double, ndim=1, shape=(self.dm_num)), c_int32, c_int32]
-        
-        dll.SetVoltagesNoEcho.restype = c_bool
-        dll.SetVoltagesNoEcho.argtypes = [
-            np.ctypeslib.ndpointer(dtype=np.double, ndim=1, shape=(self.dm_num)), c_int32, c_int32]
-        
-        dll.SetHV.restype = c_bool
-        dll.SetHV.argtypes = [c_bool, c_bool]
-
-        self._dll = dll
-
-    def set_voltages(self, vs:np.ndarray, with_echo=False):
-        func = self._dll.SetVoltages if with_echo else self._dll.SetVoltagesNoEcho
-        return func(vs, c_int32(0), c_int32(self.dm_num))
-    
-    def reset_all(self):
-        return self._dll.ResetAll()
-    
-    def set_hv(self, hv:bool):
-        return self._dll.SetHV(c_bool(hv), c_bool(True))
-    
-    def get_hv(self):
-        hv_status = c_bool(False)
-        if self._dll.GetHV(byref(hv_status)):
-            return hv_status
-        else:
-            raise Exception("device connection error.")
-
-
-class NlightDM:
-    
-    def __init__(self, max_iter_diff=20, max_neibor_diff=0 ,keep_when_exit=True):
-        assert max_iter_diff < 200
-        assert max_neibor_diff < 200
-
-        self.dm_num = 64
-        self.units_adj_mat = self._load_adj_txt()
-
-        self.__last_v = np.zeros(self.dm_num)
-        self.max_iter_diff = max_iter_diff
-        self.max_neibor_diff = max_neibor_diff
-
-        self.c_driver = DMSdk()
-        self.udp_driver = DMUdp()
-
-        self.__keep_when_exit = keep_when_exit
-
-    def __enter__(self):
-        if not self.udp_driver.check_connection():
-            raise Exception("device connection error.")
-
-        self.initialize()
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        if not self.__keep_when_exit:
-            self.reset_all()
-            self.set_hv(False)
-            print("DM Turn off high voltages.")
-        
-        self.udp_driver.sock.close()
-
-    @staticmethod
-    def _load_adj_txt():
-        return np.loadtxt('data/dm_adj.txt')
-    
-    def get_nerbors(self, unit_id):
-        return np.where(self.units_adj_mat[unit_id, :] == 1)[0]
-    
-    def _reset_nerbors_voltage_in_range(self, unit_id, voltages, checked_mask):
-        min, max = voltages[unit_id]-self.max_neibor_diff, voltages[unit_id]+self.max_neibor_diff
-        for nerbor in self.get_nerbors(unit_id):
-            if not checked_mask[unit_id, nerbor]:
-                voltages[nerbor] = np.clip(voltages[nerbor], min, max)
-                checked_mask[unit_id, nerbor] = checked_mask[nerbor, unit_id] = True
-                self._reset_nerbors_voltage_in_range(nerbor, voltages)
-
-    def initialize(self) -> None:
-        self.set_hv(hv=True)
-
-    def reset_all(self):
-        self.send_voltages(np.zeros(self.dm_num), 0.01)
-
-        if (ret := self.c_driver.reset_all()) == 0:
-            self.__last_v = np.zeros_like(self.__last_v)
-        time.sleep(0.5)
-        return ret
-
-    def send_voltages(self, vs:np.ndarray, wait_time_s = 0.001):
-        vs = np.clip(vs, -300, 499)
-        __gap = vs - self.__last_v
-        if self.max_iter_diff > 0:
-            _direction = np.sign(__gap)
-            _abs_gap = np.abs(__gap)
-            while _abs_gap.any():
-                _abs_gap = _abs_gap-self.max_iter_diff
-                _abs_gap = np.where(_abs_gap<0, 0, _abs_gap)
-                self.udp_driver.set_voltages(vs + _direction * _abs_gap)
-
-        if np.max(vs) > 250:
-            print("alert, votage higher than 250.", f"{np.argmax(vs)}={np.max(vs)}")
-        if np.min(vs) < -150:
-             print("alert, votage lower than -150.", f"{np.argmin(vs)}={np.min(vs)}")
-
-        ret = self.udp_driver.set_voltages(vs)
-        self.__last_v = vs
-        time.sleep(wait_time_s)
-        return vs
-
-    def set_hv(self, hv:bool = True):
-        ret = self.c_driver.set_hv(hv)
-        time.sleep(0.5)
-        return ret
-
-try:
-    import bmc
-
-    class BMCManager:
-
-        def __init__(self, sn='17DW023#013', log=logging.getLogger('bmc dm driver')):
-
-            self.sn = sn
-            self.dm:bmc.BmcDm = None
-            self.dm_num = 0
-            self.log = log
-
-        def initialize(self):
-            self.dm = bmc.BmcDm()
-            res = self.dm.open_dm(self.sn)
-            if res:
-                self.log.error(self.dm.error_string(res))
-                return
-            self.dm_num = self.dm.num_actuators()
-            self.log.info(f'dm {self.sn} init. actuators count {self.dm_num}.')
-        def __enter__(self):
-            self.initialize()
-            return self
-        def __exit__(self, exc_type, exc_value, traceback):
-            if self.dm:
-                self.dm.close_dm()
-            self.dm = None
-
-        def set_data(self, data:np.ndarray):
-            res = self.dm.send_data(data)
-            if res:
-                self.log.error(self.dm.error_string(res))
-except Exception as e:
-    print('use python 3.6 for bmc dm.')
 
 
 if __name__ == '__main__':
-    import numpy as np
-    import math
-    import tqdm
     import matplotlib.pyplot as plt
-    def ture_off_dm():
-        with NlightDM(keep_when_exit=False) as dm:
-            v = np.zeros((dm.dm_num,))
-            dm.send_voltages(v)
-            
-    def load_last_v(file='last_v.npz', reset=False):
-        with NlightDM(keep_when_exit=True, max_iter_diff=10) as dm:
-            if file:
-                load_v = np.load(file)['v'] if file.endswith('.npz') else np.loadtxt(file)
-            init_V = np.zeros((dm.dm_num,)) if reset else load_v
-            dm.send_voltages(init_V, wait_time_s=0.01)
-            
-    def test_dm():
-        import itertools
-        with NlightDM(keep_when_exit=False) as dm:
-            v = np.zeros((dm.dm_num,))
-            for phi in itertools.cycle(np.linspace(0, 2*np.pi, 10)):
-                v[1] = math.sin(phi)*100
-                dm.send_voltages(v, 0.1)
-                print(v[1])
 
     def test_wfs():
         with WFSManager(MlaRes.Res512, exp_time=0.029) as wfs:
-            # opt_exp_time, _ = wfs.optimize_exposure_time_and_gain()
-            # if 0.001 < opt_exp_time < 87:
-            #     wfs.exposure_time = opt_exp_time
-            # else:
-            #     print("no usable image. exit now..")
-            #     exit()
+            opt_exp_time, _ = wfs.optimize_exposure_time_and_gain()
+            if 0.001 < opt_exp_time < 87:
+                wfs.exposure_time = opt_exp_time
+            else:
+                print("no usable image. exit now..")
+                exit()
 
-            # print(f"optimize_pupil: {wfs.optimize_pupil()}")
+            print(f"optimize_pupil: {wfs.optimize_pupil()}")
 
-            # for _ in range(1):
-            #     wfs.take_image()
+            for _ in range(1):
+                wfs.take_image()
                 
+                spots_filed = wfs.get_spotfiled_image()
+                plt.imshow(spots_filed)
+                plt.show()
                 
-            #     spots_filed = wfs.get_spotfiled_image()
-            #     plt.imshow(spots_filed)
-            #     plt.show()
-                
-            #     x, y = wfs.get_spot_deviation()
-            #     intensity, _ = wfs.get_spots_statics()
-            #     wf, statics = wfs.get_rms()
-            #     print(f"{statics=}")
+                x, y = wfs.get_spot_deviation()
+                intensity, _ = wfs.get_spots_statics()
+                wf, statics = wfs.get_wavefront()
+                print(f"{statics=}")
 
-            #     fig, ax = plt.subplots(2,2)
-            #     ax[0,0].imshow(x)
-            #     ax[0,0].set_title("spot deviation x")
+                fig, ax = plt.subplots(2,2)
+                ax[0,0].imshow(x)
+                ax[0,0].set_title("spot deviation x")
 
-            #     ax[0,1].imshow(y)
-            #     ax[0,1].set_title("spot deviation y")
+                ax[0,1].imshow(y)
+                ax[0,1].set_title("spot deviation y")
                 
-            #     ax[1,0].imshow(intensity)
-            #     ax[1,0].set_title("spot intensity")
+                ax[1,0].imshow(intensity)
+                ax[1,0].set_title("spot intensity")
                 
-            #     ax[1,1].imshow(wf)
-            #     ax[1,1].set_title("wavefront")
-            #     plt.show()
+                ax[1,1].imshow(wf)
+                ax[1,1].set_title("wavefront")
+                plt.show()
                 
             wfs.high_speed = True
             for _ in range(10):
@@ -1071,21 +683,7 @@ if __name__ == '__main__':
                 print(y[0,:])
                 # print(wfs.get_zernike(3))
                 print(wfs.get_wavefront()[0][0,:])
-    def test_cam(cam_id=0):
-        with CameraStreamManager(cam_id, explosure_time=80) as cam:
-            img = cam.get_numpy_image()
-            center = np.unravel_index(np.argmax(img), img.shape)
-            center = (center[1], center[0])
-            print(f'{center=}')
-            plt.imshow(img)
-            plt.title(f'{center=} = {img[center[::-1]]=}')
-            plt.show()
-            
-    # ture_off_dm()
-    load_last_v(file='to_load_V.csv',reset=False)
-    test_cam(0)
-    # test_wfs()
-    # 
-    # test_dm()
+
+    test_wfs()
 
     

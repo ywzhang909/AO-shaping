@@ -16,7 +16,7 @@ from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.logger import Image, Figure
 
-from drivers import WFSManager, MlaRes, NlightDM
+from drivers import Thorlab_wfs as WFS, MlaRes, NlightDM as DM
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -33,8 +33,8 @@ class WFSLaserCastEnv(gym.Env):
         super().__init__()
         
         # 使用WFSManager替代CameraStreamManager
-        self.wfs = WFSManager(MlaRes.Res768, use_custom_ref=False, high_speed=True, pupil_diameter=2.8)
-        self.dm = NlightDM(keep_when_exit=True)
+        self.wfs = WFS(MlaRes.Res768, use_custom_ref=False, high_speed=True, pupil_diameter=2.8)
+        self.dm = DM(keep_when_exit=True)
 
         self.action_dim = self.dm.dm_num-1
         
