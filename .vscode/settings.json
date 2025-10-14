@@ -1,0 +1,5 @@
+{
+    "terminal.integrated.env.windows": {
+        "PYTHONPATH": "D:/Projects/TIFO/AO-shaping/src"
+    }
+}

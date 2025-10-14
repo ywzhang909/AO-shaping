@@ -1,15 +1,19 @@
 import os
-import time
+import sys
+sys.path.append(r'D:\Projects\TIFO\AO-shaping')
 from typing import Literal
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 import tqdm
-from drivers import MlaRes, NlightDM, WFSManager, CameraStreamManager
+from src.drivers import MlaRes, NlightDM, Thorlab_WFS
 
-ROOT_DIR = "./data"
+ROOT_DIR = "./data/wf"
+
+# metrics
+R_Bucket = 10
+Img_Size = (200,200)
 
 # adam parameters
 beta1 = 0.9
@@ -23,12 +27,12 @@ Rho_0 = 0.99
 METROPOLIS_ALPHA = 0.8
 
 # dm parameters
-KEEP_VOLTAGE_WHEN_EXIT = False
+KEEP_VOLTAGE_WHEN_EXIT = True
 
 V_MAX = 499
 V_MIN = -300
 UPDATE_MAX = 20
-DM_Adj = np.loadtxt('data\dm_adj.txt')
+DM_Adj = np.loadtxt('data/dm_adj.txt')
 Tolerance = 300
 print(f"相邻单元矩阵加载完成:{DM_Adj.shape},最大压差:{Tolerance}")
 
@@ -58,22 +62,33 @@ def learning_schedule(
         raise ValueError("method must be static, cosin, exp or linear")
 
 
-def gen_file_name(dir, postfix: str = None):
-    fname = os.listdir(dir)
-    fname = len(fname) + 1
+def gen_file_name(dir, postfix: str = ''):
+    if postfix:
+        postfix = postfix if postfix.startswith('.') else f'.{postfix}'
+        fname = [f for f in os.listdir(dir) if f.endswith(postfix)]
+    else:
+        fname = [f for f in os.listdir(dir) if os.path.isdir(os.path.join(dir, f))]
+    fname = max([int(f.split('.')[0]) for f in fname]) + 1 if fname else '1'
 
     if not postfix:  # make dir
         path = os.path.join(dir, str(fname))
         if not postfix and not os.path.exists(path):
             os.makedirs(path)
     else:
-        if postfix[0] != ".":
-            postfix = "." + postfix
         path = os.path.join(dir, str(fname)) + postfix
+        
+    print(f"save path : {path}")
     return path
 
+def save_list(dir, data):
+    f_name = len(os.listdir(dir))+1
+    save_path = os.path.join(dir, str(f_name)) + '.pkl'
+    res_df = pd.DataFrame(data)
+    res_df.to_pickle(save_path)
+    print(f"\n{len(res_df)} saved @ {save_path}")
+    del res_df
+
 def optimizer(
-    saved_dir,
     epochs,
     delta=1,
     lr=1,
@@ -86,82 +101,60 @@ def optimizer(
     ] = "static",
     metropolis_temperature=0,
     v0=0,
-    init_v=None,
+    init_v=None
 ):
     delta = abs(delta)
     epochs = int(epochs)
 
-    with WFSManager(MlaRes.Res512, use_custom_ref=False, high_speed=False, pupil_diameter=0.0) as wfs,\
-            NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm, \
-            CameraStreamManager(cam_id=0, explosure_time=20) as cam_axis, \
-            CameraStreamManager(cam_id=1, explosure_time=20) as cam_focal:
+    with Thorlab_WFS(MlaRes.Res768, use_custom_ref=False, high_speed=True, pupil_diameter=2.7) as wfs,\
+            NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
 
         if init_v is None:
             _init_v = np.zeros(dm.DM_Num, dtype=np.float64)
             _init_v[0] = v0
         else:
             _init_v = np.array(init_v)
-        dm.send_voltages(_init_v, 1)
-        
-        def get_data():
-            wfs.take_image()
-            wf, statics = wfs.get_wavefront()
-            return statics, wf, cam_axis.get_numpy_image(), cam_focal.get_numpy_image()
+        dm.send_voltages(_init_v, 0.5)
 
-        wf_statics, wf, cam_axis_img, cam_focal_img = get_data()
+        def calc_j():
+            wfs.take_image(5)
+            wf, statics = wfs.get_wavefront()
+            return wf, statics
+
+        wf, statics = calc_j()
+
         history = [
             {
-                "J": wf_statics['rms'],
+                "J": statics['rms'],
                 "_v": _init_v,
                 "_diff": 0,
                 "_gamma": lr,
                 "delta": delta,
                 "_epoch": -1,
-                "_cam_axis": cam_axis_img,
-                "_cam_focal": cam_focal_img,
-                "_wavefront": wf
+                "_wavefront": wf[np.newaxis, ...],
+                "_statics": statics
             }
         ]
+
         with tqdm.tqdm(
             total=epochs, desc=f"{algorithm} iter {epochs}", dynamic_ncols=True
         ) as bar:
-            s_time = time.perf_counter()
             for epoch in range(epochs):
                 disturb_v = np.random.binomial(1, 0.5, (dm.DM_Num,)).astype(float) * 2.0 - 1.0
 
                 disturb_v = disturb_v * delta
                 disturb_v[0] = 0
 
-                dm.send_voltages(_init_v + disturb_v)
-                wf_statics, wf, cam_axis_img, cam_focal_img = get_data()
-                pos_j = wf_statics['rms']
-                history.append({
-                    "J": pos_j,
-                    "_diff": pos_j - history[-1]["J"],
-                    "_epoch": epoch,
-                    "_v": _init_v + disturb_v,
-                    "_cam_axis": cam_axis_img,
-                    "_cam_focal": cam_focal_img,
-                    "_wavefront": wf,
-                    "_time": time.perf_counter() - s_time
-                })
+                pos_vs = dm.send_voltages(_init_v + disturb_v)
+                pos_wf, pos_statics = calc_j()
+                pos_j = pos_statics['rms']
 
-                dm.send_voltages(_init_v - disturb_v)
-                wf_statics, wf, cam_axis_img, cam_focal_img = get_data()
-                neg_j = wf_statics['rms']
-                history.append({
-                    "J": neg_j,
-                    "_diff": pos_j - neg_j,
-                    "_epoch": epoch,
-                    "_v": _init_v + disturb_v,
-                    "_cam_axis": cam_axis_img,
-                    "_cam_focal": cam_focal_img,
-                    "_wavefront": wf,
-                    "_time": time.perf_counter() - s_time
-                })
-
-                diff = pos_j - neg_j
-                gradient = diff * disturb_v
+                ng_vs = dm.send_voltages(_init_v - disturb_v)
+                neg_wf, neg_statics = calc_j()
+                neg_j = neg_statics['rms']
+                
+                diff = pos_statics['rms'] - neg_statics['rms']
+                gradient = -diff * disturb_v
                 lr = learning_schedule(lr, epoch, epochs, method=lr_schedul)
                 if algorithm == "spgd":
                     update = lr * gradient - lr * weight_decay * _init_v
@@ -224,54 +217,49 @@ def optimizer(
                 if avg_j > 0.2:
                     delta = 3
                 elif avg_j > 0.1:
-                    delta = 2
-                else:
                     delta = 1
+                else:
+                    delta = 0.8
                 
-                log = history[-1]
-                # earlying schedule
-
+                log = {
+                    "J": avg_j,
+                    "_diff": diff,
+                    "_gamma": lr,
+                    "delta": delta,
+                    "_epoch": epoch,
+                    "_v": _init_v,
+                    "_pos_v": pos_vs,
+                    "_neg_v": ng_vs,
+                    "_statics": {"pos": pos_statics, "neg": neg_statics},
+                }
+                history.append(log)
+                    
                 bar.set_postfix({k: f'{v:.4f}' for k, v in log.items() if k[0] != "_"})
                 bar.update(1)
-                
-                if len(history) >= 1000:
-                    res_df = pd.DataFrame(history)
-                    del history
-                    history = []
-                    res_df.to_pickle(f'data/1/{}')
-                    
 
         return history
 
 def run():
-    init_V = np.random.random((64,))*100 - 50
-    init_V[0] = 0
+    # init_V = np.loadtxt("rms-0.087.csv")
+    init_V = np.zeros((64,))
 
+    dir_name = gen_file_name(ROOT_DIR)
     res_list = optimizer(
-        
         init_v=init_V.copy(),
         epochs=10000, 
-        delta=2, # 扰动要和桶半径匹配，不要扰动会导致质心出桶
-        lr=1.2, 
+        delta=4,
+        lr=.8, 
         algorithm="adamod",
         metropolis_temperature=0,
         lr_schedul="static")
-    
+
     res_df = pd.DataFrame(res_list)
-    file_name = gen_file_name(ROOT_DIR, "pkl")
-    print(f"结果保存到 {file_name}")
-    res_df.to_pickle(file_name, compression="zip")
-    max_j_id = res_df['J'].idxmin()
-    last_V = res_df.iloc[max_j_id]["_v"]
-    print(f"{max_j_id} -> {res_df.iloc[max_j_id]['J']}")
-
-
-    fig, ax = plt.subplots(2, 1)
-    ax[0].bar(x=np.arange(64)-0.25, height=init_V, width=0.5)
-    ax[0].bar(x=np.arange(64)+0.25, height=last_V, width=0.5)
-    ax[1].plot(res_df['J'])
-    plt.show()
+    res_df.to_pickle(os.path.join(dir_name,'data.pkl'))
+    min_id = res_df["J"].argmin()
+    min_iter = res_df.iloc[min_id]
+    np.savetxt(f'rms-{min_iter["J"]:.3f}.csv', min_iter["_v"], fmt="%d")
 
 if __name__ == "__main__":
-   for _ in range(50):
+    for iter in range(1):
+        print(f"Collect data @ iter:{iter}")
         run()
