@@ -427,7 +427,7 @@ class WFSManager:
             byref(beam_centroid_x), byref(beam_centroid_y), byref(beam_diameter_x), byref(beam_diameter_y))
         return beam_centroid_x.value, beam_centroid_y.value, beam_diameter_x.value, beam_diameter_y.value
 
-    def take_image(self):
+    def take_image(self, n_sample=10):
         if self._explosure_time > 0:
             if err := self._lib.WFS_TakeSpotfieldImage(self._instrument_handle):
                 self.handle_error(err)
@@ -436,7 +436,7 @@ class WFSManager:
         else:
             actual_exposure = c_double()
             actual_gain = c_double()
-            for _ in range(10):
+            for _ in range(n_sample):
                 self._lib.WFS_TakeSpotfieldImageAutoExpos(
                     self._instrument_handle, byref(actual_exposure), byref(actual_gain))
             self.__image_loop_counter = (self.__image_loop_counter + 1) % (sys.maxsize - 1)
@@ -719,7 +719,7 @@ class CameraStreamManager:
         self.cam.ExposureTime.set(self.explore_time)
         return self.explore_time
 
-    def reset_window(self, center:tuple[int], size:tuple[int,int]=(0,0)) -> tuple[int]:
+    def reset_window(self, center:tuple[int, ...]|tuple[np.intp, ...], size:tuple[int,int]=(0,0)) -> tuple[tuple[int,int], tuple[int,int]]:
         """
         重置相机的窗口大小和位置，以确保图像的中心位于指定的位置。
 
@@ -760,7 +760,7 @@ class CameraStreamManager:
             # 返回新的窗口中心位置
             return (width, height), (width//2, height//2)
 
-    def get_numpy_image(self, n_sample=1) -> np.ndarray:
+    def get_numpy_image(self, n_sample=1) -> np.ndarray[np.uint8]:
         assert n_sample>0
         
         numpy_image = np.zeros((self.cam_height, self.cam_width))
@@ -881,16 +881,27 @@ class DMSdk:
 
 class NlightDM:
     
-    def __init__(self, max_iter_diff=20, max_neibor_diff=0 ,keep_when_exit=True):
+    DM_Num = 64
+    V_Min = -300
+    V_Max = 499
+
+    def __init__(
+            self, 
+            max_iter_diff=20, 
+            max_neibor_diff=0, 
+            warning_min = -180,
+            warning_max = 200,
+            keep_when_exit=True):
         assert max_iter_diff < 200
         assert max_neibor_diff < 200
 
-        self.dm_num = 64
         self.units_adj_mat = self._load_adj_txt()
 
-        self.__last_v = np.zeros(self.dm_num)
+        self.__last_v = np.zeros(self.DM_Num)
         self.max_iter_diff = max_iter_diff
         self.max_neibor_diff = max_neibor_diff
+        self.warning_min = warning_min
+        self.warning_max = warning_max
 
         self.c_driver = DMSdk()
         self.udp_driver = DMUdp()
@@ -925,13 +936,13 @@ class NlightDM:
             if not checked_mask[unit_id, nerbor]:
                 voltages[nerbor] = np.clip(voltages[nerbor], min, max)
                 checked_mask[unit_id, nerbor] = checked_mask[nerbor, unit_id] = True
-                self._reset_nerbors_voltage_in_range(nerbor, voltages)
+                self._reset_nerbors_voltage_in_range(nerbor, voltages, checked_mask)
 
     def initialize(self) -> None:
         self.set_hv(hv=True)
 
     def reset_all(self):
-        self.send_voltages(np.zeros(self.dm_num), 0.01)
+        self.send_voltages(np.zeros(self.DM_Num), 0.01)
 
         if (ret := self.c_driver.reset_all()) == 0:
             self.__last_v = np.zeros_like(self.__last_v)
@@ -939,7 +950,7 @@ class NlightDM:
         return ret
 
     def send_voltages(self, vs:np.ndarray, wait_time_s = 0.001):
-        vs = np.clip(vs, -300, 499)
+        vs = np.clip(vs, self.V_Min, self.V_Max)
         __gap = vs - self.__last_v
         if self.max_iter_diff > 0:
             _direction = np.sign(__gap)
@@ -949,15 +960,16 @@ class NlightDM:
                 _abs_gap = np.where(_abs_gap<0, 0, _abs_gap)
                 self.udp_driver.set_voltages(vs + _direction * _abs_gap)
 
-        if np.max(vs) > 250:
-            print("alert, votage higher than 250.", f"{np.argmax(vs)}={np.max(vs)}")
-        if np.min(vs) < -150:
-             print("alert, votage lower than -150.", f"{np.argmin(vs)}={np.min(vs)}")
+        if np.max(vs) > self.warning_max:
+            print(f"alert, votage higher than {self.warning_max}.", f"{np.argmax(vs)}={np.max(vs)}")
+        if np.min(vs) < self.warning_min:
+            print(f"alert, votage lower than {self.warning_min}.", f"{np.argmin(vs)}={np.min(vs)}")
 
-        ret = self.udp_driver.set_voltages(vs)
+        self.udp_driver.set_voltages(vs)
         self.__last_v = vs
         time.sleep(wait_time_s)
         return vs
+
 
     def set_hv(self, hv:bool = True):
         ret = self.c_driver.set_hv(hv)
@@ -1007,20 +1019,20 @@ if __name__ == '__main__':
     import matplotlib.pyplot as plt
     def ture_off_dm():
         with NlightDM(keep_when_exit=False) as dm:
-            v = np.zeros((dm.dm_num,))
+            v = np.zeros((dm.DM_Num,))
             dm.send_voltages(v)
             
     def load_last_v(file='last_v.npz', reset=False):
         with NlightDM(keep_when_exit=True, max_iter_diff=10) as dm:
             if file:
                 load_v = np.load(file)['v'] if file.endswith('.npz') else np.loadtxt(file)
-            init_V = np.zeros((dm.dm_num,)) if reset else load_v
+            init_V = np.zeros((dm.DM_Num,)) if reset else load_v
             dm.send_voltages(init_V, wait_time_s=0.01)
             
     def test_dm():
         import itertools
         with NlightDM(keep_when_exit=False) as dm:
-            v = np.zeros((dm.dm_num,))
+            v = np.zeros((dm.DM_Num,))
             for phi in itertools.cycle(np.linspace(0, 2*np.pi, 10)):
                 v[1] = math.sin(phi)*100
                 dm.send_voltages(v, 0.1)

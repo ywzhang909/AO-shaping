@@ -54,7 +54,7 @@ class LaserCastEnv(gym.Env):
         self.wfs = WFS()
         self.dm = NlightDM(keep_when_exit=True)
 
-        self.action_dim = self.dm.dm_num-1
+        self.action_dim = self.dm.DM_Num-1
         
         self.history_len = history_len
         self.target_rms = target_rms
@@ -62,7 +62,7 @@ class LaserCastEnv(gym.Env):
         
         self.action_space:spaces.Box = spaces.Box(low=-action_delta, high=action_delta, shape=(self.action_dim,), dtype=np.float32)
         self.observation_space = spaces.Dict({
-            "voltage": spaces.Box(low=-1, high=1, shape=(self.history_len, self.dm.dm_num), dtype=np.float32),
+            "voltage": spaces.Box(low=-1, high=1, shape=(self.history_len, self.dm.DM_Num), dtype=np.float32),
             "image": spaces.Box(low=0, high=2*np.pi, shape=(self.history_len, *self.img_size), dtype=np.uint8),
             "rms": spaces.Box(low=0, high=2, shape=(self.history_len, 1), dtype=np.float32)
         })
@@ -82,11 +82,11 @@ class LaserCastEnv(gym.Env):
         # 初始化 DM 设备
         self.dm.initialize()
         # 设置初始电压为零
-        self.v = np.random.rand(self.dm.dm_num,) * (self.v_high-self.v_low) + self.v_low
+        self.v = np.random.rand(self.dm.DM_Num,) * (self.v_high-self.v_low) + self.v_low
         self.dm.send_voltages(self.v, 0.01) 
         wavefront, stastistics = self.wfs.calc_j()
         
-        self.history_votages = np.zeros((self.history_len, self.dm.dm_num), dtype=np.float32)
+        self.history_votages = np.zeros((self.history_len, self.dm.DM_Num), dtype=np.float32)
         self.history_rms = np.ones((self.history_len, 1), dtype=np.float32) * stastistics['rms']
         self.history_wavefront = np.repeat(wavefront, self.history_len, axis=0)
         
@@ -128,7 +128,7 @@ class LaserCastEnv(gym.Env):
         Tuple[dict, float, bool, bool, dict]: 包含观测、奖励、是否完成、是否达到最大迭代次数以及信息的元组。
         """
         # 创建一个与self.v形状相同的零数组dv
-        dv = np.zeros((self.dm.dm_num,), dtype=float)
+        dv = np.zeros((self.dm.DM_Num,), dtype=float)
         dv[1:] = action.astype(float)
         _v = self.v + dv
         forbiden_cond = any([

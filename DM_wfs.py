@@ -110,7 +110,7 @@ def optimizer(
             NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
 
         if init_v is None:
-            _init_v = np.zeros(dm.dm_num, dtype=np.float64)
+            _init_v = np.zeros(dm.DM_Num, dtype=np.float64)
             _init_v[0] = v0
         else:
             _init_v = np.array(init_v)
@@ -140,7 +140,7 @@ def optimizer(
             total=epochs, desc=f"{algorithm} iter {epochs}", dynamic_ncols=True
         ) as bar:
             for epoch in range(epochs):
-                disturb_v = np.random.binomial(1, 0.5, (dm.dm_num,)).astype(float) * 2.0 - 1.0
+                disturb_v = np.random.binomial(1, 0.5, (dm.DM_Num,)).astype(float) * 2.0 - 1.0
 
                 disturb_v = disturb_v * delta
                 disturb_v[0] = 0

@@ -92,7 +92,7 @@ def optimizer( delta=DELTA, gamma=GAMMA, algorithm='adam', continue_opt=False):
         if continue_opt and os.path.exists(Last_voltage_path):
             init_v = np.loadtxt(Last_voltage_path)
         else:
-            init_v = np.zeros((dm.dm_num), dtype=np.float64)
+            init_v = np.zeros((dm.DM_Num), dtype=np.float64)
             init_v[0] = V0
 
         dm.send_voltages(init_v)
@@ -106,7 +106,7 @@ def optimizer( delta=DELTA, gamma=GAMMA, algorithm='adam', continue_opt=False):
         list_J = []
         with tqdm.tqdm(total=EPOCHS, desc=f'SPGD iter {EPOCHS}/{sample_num}', dynamic_ncols=True) as bar:
             for epoch in range(EPOCHS):
-                disturb_v = np.random.binomial(1, 0.5, (dm.dm_num,)).astype(float) * 2.0 - 1.0
+                disturb_v = np.random.binomial(1, 0.5, (dm.DM_Num,)).astype(float) * 2.0 - 1.0
                 disturb_v = disturb_v * delta
                 disturb_v[0] = 0
                 # disturb_v = np.zeros_like(init_v)
