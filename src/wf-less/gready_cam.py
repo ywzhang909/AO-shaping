@@ -1,14 +1,10 @@
-import os
-import time
-from typing import Literal
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 import tqdm
 import pygame
-import utils
+import utils.utils as utils
 from drivers import CameraStreamManager, NlightDM
 
 ROOT_DIR = r"D:\ao-project\data"
@@ -98,7 +94,7 @@ def optimizer(
         # dm.reset_all()
 
         if init_v is None:
-            _init_v = np.zeros(dm.dm_num, dtype=np.float64)
+            _init_v = np.zeros(dm.DM_Num, dtype=np.float64)
         else:
             _init_v = np.array(init_v)
         dm.send_voltages(_init_v, 1)
@@ -166,7 +162,7 @@ def optimizer(
             total=epochs, desc="iter {epochs}", dynamic_ncols=True
         ) as bar:
             for epoch in range(epochs):
-                disturb_v = np.random.binomial(1, 0.5, (dm.dm_num,)).astype(float) * 2.0 - 1.0
+                disturb_v = np.random.binomial(1, 0.5, (dm.DM_Num,)).astype(float) * 2.0 - 1.0
 
                 disturb_v = disturb_v * delta
                 disturb_v[0] = 0

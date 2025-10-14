@@ -427,7 +427,7 @@ class WFSManager:
             byref(beam_centroid_x), byref(beam_centroid_y), byref(beam_diameter_x), byref(beam_diameter_y))
         return beam_centroid_x.value, beam_centroid_y.value, beam_diameter_x.value, beam_diameter_y.value
 
-    def take_image(self):
+    def take_image(self, n_sample=10):
         if self._explosure_time > 0:
             if err := self._lib.WFS_TakeSpotfieldImage(self._instrument_handle):
                 self.handle_error(err)
@@ -436,7 +436,7 @@ class WFSManager:
         else:
             actual_exposure = c_double()
             actual_gain = c_double()
-            for _ in range(10):
+            for _ in range(n_sample):
                 self._lib.WFS_TakeSpotfieldImageAutoExpos(
                     self._instrument_handle, byref(actual_exposure), byref(actual_gain))
             self.__image_loop_counter = (self.__image_loop_counter + 1) % (sys.maxsize - 1)

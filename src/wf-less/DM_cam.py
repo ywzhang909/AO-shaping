@@ -3,13 +3,12 @@ import time
 import json
 from typing import Literal
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 import tqdm
 import pygame
-import utils
+import utils.utils as utils
 from drivers import CameraStreamManager, NlightDM
 
 ROOT_DIR = r"D:\workspace\AO\ao-project\data\wf-less"
@@ -34,7 +33,7 @@ Rho_0 = 0.9
 METROPOLIS_ALPHA = 0.8
 
 # camera parameters
-CAM_EXP_TIME = 50
+CAM_EXP_TIME = 60
 CAM_EXP_TIME_ADJ_RATE = 0
 IMG_SIZE = (200, 200)
 
@@ -146,19 +145,19 @@ def optimizer(
         # dm.reset_all()
 
         if init_v is None:
-            _init_v = np.zeros(dm.dm_num, dtype=np.float64)
+            _init_v = np.zeros(dm.DM_Num, dtype=np.float64)
             _init_v[0] = v0
         else:
             _init_v = np.array(init_v)
         dm.send_voltages(_init_v, 1)
         
         if center == 'max':
-            init_img = cam.get_numpy_image(10)
+            init_img = cam.get_numpy_image(20)
             center = np.unravel_index(np.argmax(init_img), init_img.shape)
             center = (center[1], center[0])
             print(f'{center=} : {init_img[center]}')
         elif center == 'centroid':
-            init_img = cam.get_numpy_image(10)
+            init_img = cam.get_numpy_image(20)
             center = utils.centroid(init_img, cam.xv, cam.yv, 30)
             print(f'{center=} : {init_img[center]}')
         else:
@@ -227,15 +226,7 @@ def optimizer(
             return radius
         
         def calc_j(img):
-            # weighted_ratio = (0, 10 * pid_weighted_ratio, 10 * (1-pid_weighted_ratio)) # PIB越大越集中，锥形权越大约均匀
-            # _pib_r_20 = np.sum(img[fix_r_mask])*weighted_ratio[1] / np.sum(fix_r_mask) * weighted_ratio[0]\
-            #     if weighted_ratio[0] else 0
-            # _pib = calc_pib(img, r_bucket) * weighted_ratio[1] if weighted_ratio[1] else 0
-            # _wp = calc_weighted_power(img) * weighted_ratio[-1] if weighted_ratio[-1] else 0
-            # return _pib+_wp+_pib_r_20
             return encircled_radius(img)
-            # return -np.max(img)
-            # return calc_pib(img, r_bucket)
 
         # utils.disp(init_img, cam.xv, cam.yv, r_bucket, 15)
         init_pid = -calc_pib(init_img, 5)
@@ -256,7 +247,7 @@ def optimizer(
             total=epochs, desc=f"{algorithm} iter {epochs}", dynamic_ncols=True
         ) as bar:
             for epoch in range(epochs):
-                disturb_v = np.random.binomial(1, 0.5, (dm.dm_num,)).astype(float) * 2.0 - 1.0
+                disturb_v = np.random.binomial(1, 0.5, (dm.DM_Num,)).astype(float) * 2.0 - 1.0
 
                 disturb_v = disturb_v * delta
                 disturb_v[0] = 0.0
@@ -369,48 +360,10 @@ def optimizer(
                         window, img, history, center, r_bucket, f"{epoch}: J={log['J']:.3f}"
                     )
                 
-
                 bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
                 bar.update(1)
 
         return history
-
-
-def save_samples(n_epochs=1000):
-    for sample_num in range(n_epochs):
-        history = optimizer(50)
-        dfhistory = pd.DataFrame(history)
-        init_img = dfhistory.loc[0, "_img"]
-        final_img = dfhistory.iloc[-1]["_img"]
-        # 计算数据的最小值和最大值
-        vmin = min(np.min(init_img), np.min(final_img))
-        vmax = max(np.max(init_img), np.max(final_img))
-
-        # 归一化颜色映射
-        norm = colors.Normalize(vmin=vmin, vmax=vmax)
-
-        disp_grid = (2, 2)
-        fig, ax = plt.subplots(*disp_grid)
-        cm0 = ax[0, 0].imshow(init_img, norm=norm)
-        cm1 = ax[0, 1].imshow(final_img, norm=norm)
-        ax[1, 0].plot(dfhistory.J.to_list())
-        cm3 = ax[1, 1].imshow(
-            np.stack(dfhistory["_v"].to_list()).transpose(),
-            interpolation="nearest",
-            aspect="auto",
-        )
-
-        fig.colorbar(cm0, ax=[ax[0, 0], ax[0, 1]])
-        fig.colorbar(cm3, ax=ax[1, 1])
-
-        saved_dir = gen_file_name(ROOT_DIR)
-        dfhistory.to_pickle(gen_file_name(saved_dir, "pkl"), compression="zip")
-        plt.savefig(gen_file_name(saved_dir, "png"))
-
-        plt.close("all")
-
-        time.sleep(2)
-
 
 def bayes_opt():
     from skopt import gp_minimize
@@ -442,7 +395,6 @@ def bayes_opt():
             weights_class=weights_class,
             algorithm=algorithm,
             pid_weighted_ratio=ratio,
-            show=False,
             epochs=int(shrank_iter*4)
         )
         return -(dfhistory.iloc[-20:]["J"]).mean()
@@ -476,7 +428,8 @@ def bayes_opt():
     return dfhistory
 
 def run():
-    init_V = np.load('last_v-0.07.npz')['v']
+    # init_V = np.load('last_v-0.07.npz')['v']
+    init_V = np.loadtxt('rms-0.087.csv')
     #                  if os.path.exists("last_v.npz") else None
     # init_V = np.random.random((64,))*100 - 50
     # init_V = np.zeros((64,))
@@ -494,7 +447,7 @@ def run():
         lr_schedul="static",
         pid_weighted_ratio=1,
         shrank_iter=0,
-        center=(554,425)
+        center='max'
     )
 
     res_list = optimizer(**args)
@@ -522,18 +475,6 @@ def run():
     reset_nerbors(base_unit_id, last_V)
     np.savetxt('to_load_V.csv', np.around(last_V), fmt="%d")
 
-    fig, ax = plt.subplots(2, 2)
-    ax[0,0].bar(x=np.arange(64)-0.25, height=init_V, width=0.5)
-    ax[0,0].bar(x=np.arange(64)+0.25, height=last_V, width=0.5)
-    ax[0,1].plot(res_df['pib'])
-    ax[1,0].imshow(res_df.loc[0,"_img"])
-    ax[1,0].set_title(f'{res_df.loc[0,"pib"]:.4f}')
-    ax[1,1].imshow(res_df.loc[max_j_id,"_img"])
-    ax[1,1].set_title(f'{res_df.loc[max_j_id,"pib"]:.4f}')
-    plt.show()
-    plt.savefig(saved_file_name+'.png')
-    
-    
     with open(saved_file_name+'-args.json', 'w' ,encoding='utf8') as f:
         json.dump(args, f, ensure_ascii=False, indent=4)
 

@@ -36,7 +36,7 @@ class WFSLaserCastEnv(gym.Env):
         self.wfs = WFS(MlaRes.Res768, use_custom_ref=False, high_speed=True, pupil_diameter=2.8)
         self.dm = DM(keep_when_exit=True)
 
-        self.action_dim = self.dm.dm_num-1
+        self.action_dim = self.dm.DM_Num-1
         
         self.history_len = history_len
         self.max_iter = max_iter
@@ -49,7 +49,7 @@ class WFSLaserCastEnv(gym.Env):
         
         # 观察空间：包括历史电压、波前数据和RMS值
         self.observation_space = spaces.Dict({
-            "vector": spaces.Box(low=-1, high=1, shape=(self.history_len, self.dm.dm_num), dtype=np.float32),
+            "vector": spaces.Box(low=-1, high=1, shape=(self.history_len, self.dm.DM_Num), dtype=np.float32),
             "wavefront": spaces.Box(low=-10, high=10, shape=(self.history_len, 32, 32), dtype=np.float32),  # 假设波前数据是32x32
             "rms_values": spaces.Box(low=0, high=10, shape=(self.history_len, 1), dtype=np.float32)
         })
@@ -69,7 +69,7 @@ class WFSLaserCastEnv(gym.Env):
         Tuple[dict, float, bool, bool, dict]: 包含观测、奖励、是否完成、是否达到最大迭代次数以及信息的元组。
         """
         # 创建一个与self.v形状相同的零数组dv
-        dv = np.zeros((self.dm.dm_num,), dtype=float)
+        dv = np.zeros((self.dm.DM_Num,), dtype=float)
         dv[1:] = action.astype(float)
         # 计算新的电压值v，通过将当前电压self.v与dv相加，并将结果限制在-300到499之间
         _v = np.clip(self.v + dv, -300, 499)
@@ -187,7 +187,7 @@ class WFSLaserCastEnv(gym.Env):
         self.wfs.initialize()
         
         # 设置初始电压
-        self.v = np.random.rand(self.dm.dm_num,) * (self.v_high-self.v_low) + self.v_low
+        self.v = np.random.rand(self.dm.DM_Num,) * (self.v_high-self.v_low) + self.v_low
         self.init_v = self.v.copy()
         self.dm.send_voltages(self.v, 0.01)
         
@@ -198,7 +198,7 @@ class WFSLaserCastEnv(gym.Env):
         self.init_rms = self.last_rms
         
         # 初始化历史数据数组
-        self.history_voltages = np.zeros((self.history_len, self.dm.dm_num), dtype=np.float32)
+        self.history_voltages = np.zeros((self.history_len, self.dm.DM_Num), dtype=np.float32)
         self.history_rms = np.ones((self.history_len, 1), dtype=np.float32) * self.init_rms
         self.history_wavefront = np.repeat(wf[np.newaxis, :, :], self.history_len, axis=0)
         

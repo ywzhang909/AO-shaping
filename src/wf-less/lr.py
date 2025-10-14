@@ -16,7 +16,7 @@ from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.logger import Image, Figure
 
-import utils
+import utils.utils as utils
 from drivers import CameraStreamManager, NlightDM
 
 import matplotlib.pyplot as plt
@@ -40,7 +40,7 @@ class LaserCastEnv(gym.Env):
         self.cam = CameraStreamManager(explosure_time=50)
         self.dm = NlightDM(keep_when_exit=True)
 
-        self.action_dim = self.dm.dm_num-1
+        self.action_dim = self.dm.DM_Num-1
         
         self.history_len = history_len
         self.img_size = (img_size[0]//16*16, img_size[1]//16*16)
@@ -53,7 +53,7 @@ class LaserCastEnv(gym.Env):
         self.wighted_mask = 0
         self.action_space:spaces.Box = spaces.Box(low=-5, high=5, shape=(self.action_dim,), dtype=np.float32)
         self.observation_space = spaces.Dict({
-            "vector": spaces.Box(low=-1, high=1, shape=(self.history_len, self.dm.dm_num), dtype=np.float32),
+            "vector": spaces.Box(low=-1, high=1, shape=(self.history_len, self.dm.DM_Num), dtype=np.float32),
             "image": spaces.Box(low=0, high=2^8-1, shape=(self.history_len, *self.img_size), dtype=np.uint8),
             "powers": spaces.Box(low=0, high=2, shape=(self.history_len, 1), dtype=np.float32)
         })
@@ -74,7 +74,7 @@ class LaserCastEnv(gym.Env):
         Tuple[dict, float, bool, bool, dict]: 包含观测、奖励、是否完成、是否达到最大迭代次数以及信息的元组。
         """
         # 创建一个与self.v形状相同的零数组dv
-        dv = np.zeros((self.dm.dm_num,), dtype=float)
+        dv = np.zeros((self.dm.DM_Num,), dtype=float)
         dv[1:] = action.astype(float)
         # 计算新的电压值v，通过将当前电压self.v与dv相加，并将结果限制在-299到499之间
         _v = np.clip(self.v + dv, -300, 499)
@@ -173,7 +173,7 @@ class LaserCastEnv(gym.Env):
         # 初始化 DM 设备
         self.dm.initialize()
         # 设置初始电压为零
-        self.v = np.random.rand(self.dm.dm_num,) * (self.v_high-self.v_low) + self.v_low
+        self.v = np.random.rand(self.dm.DM_Num,) * (self.v_high-self.v_low) + self.v_low
         self.init_v = self.v.copy()
         self.dm.send_voltages(self.v, 0.01)
         
@@ -197,7 +197,7 @@ class LaserCastEnv(gym.Env):
         self.last_power = self.calc_pib(self.img)
         self.init_power = self.last_power
         
-        self.history_votages = np.zeros((self.history_len, self.dm.dm_num), dtype=np.float32)
+        self.history_votages = np.zeros((self.history_len, self.dm.DM_Num), dtype=np.float32)
         self.history_powers = np.ones((self.history_len, 1), dtype=np.float32) * self.init_power
         self.history_intensity = np.repeat(self.img, self.history_len, axis=0)
         
