@@ -7,7 +7,9 @@ import pandas as pd
 import tqdm
 import pygame
 import utils.utils as utils
-from drivers import MlaRes, NlightDM, Thorlab_WFS, CameraStreamManager
+
+from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS, CameraStreamManager
+
 
 ROOT_DIR = "./data/wf"
 
@@ -141,7 +143,11 @@ def optimizer(
 ):
     epochs = int(epochs)
 
+<<<<<<<< HEAD:src/ao_shaping/DM_combined.py
     with Thorlab_WFS(MlaRes.Res768, use_custom_ref=False, high_speed=True, pupil_diameter=Pupil_Diameter) as wfs,\
+========
+    with Thorlab_wfs(MlaRes.Res768, use_custom_ref=False, high_speed=True, pupil_diameter=Pupil_Diameter) as wfs,\
+>>>>>>>> 0ed911aefd309de807e0c09d1989d1470a949b31:src/DM_combined.py
             CameraStreamManager(cam_id=0, explosure_time=CAM_EXP_TIME, skip_sampling=False) as cam,\
             NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
         if not init_v:

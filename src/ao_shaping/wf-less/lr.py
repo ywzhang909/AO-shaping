@@ -14,7 +14,6 @@ import torch as th
 from torch import nn
 from stable_baselines3 import SAC
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, CallbackList
-from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.logger import Image, Figure
@@ -205,7 +204,7 @@ class LaserCastEnv(gym.Env):
         return np.sum(self.wighted_mask*self.img) / (self.img_size[0]*self.img_size[1])
     
     def render(self)->Any:
-        if self.window ==None and self.render_mode == 'human':
+        if not self.window and self.render_mode == 'human':
             pygame.init()
             self.window = pygame.display.set_mode(self.img_size)
             self.clock = time.time()
