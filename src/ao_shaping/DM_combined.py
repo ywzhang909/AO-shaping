@@ -52,32 +52,13 @@ def check_dm_unit_grad_safe(vs, adj_mat=DM_Adj, tolerance=Tolerance):
     diff_mat = (vs[:,None] - vs[None,:]) * adj_mat
     return not np.any(diff_mat[diff_mat > tolerance])
 
-def learning_schedule(
-    lr, epoch, epochs, method="static"
-):
-    if method == "static":
-        return lr
-    # 余弦退火
-    elif method == "cosin":
-        lr = lr * np.cos(np.pi * epoch / epochs) + 1e-6
-        return lr
-    # 指数衰减
-    elif method == "exp":
-        lr = lr * np.exp(-epoch / epochs) + 1e-6
-        return lr
-    # 线性衰减
-    elif method == "linear":
-        lr = lr * (1 - epoch / epochs) + 1e-6
-        return lr
+def schedule(rms):
+    if rms > 0.3:
+        return 1.2, 2
+    elif rms > 0.15:
+        return 1.0,1
     else:
-        raise ValueError("method must be static, cosin, exp or linear")
-def delta_schedule(rms):
-    if rms > 0.2:
-        return 2
-    elif rms > 0.13:
-        return 1
-    else:
-        return 0.8
+        return 0.8, 0.8
 
 def gen_file_name(dir, postfix=None):
     if postfix:
@@ -101,6 +82,7 @@ def render(window,
             history, r,
             info="") -> None:
     img = history[-1]['_img']
+    wavefront = history[-1]['_wavefront']
     center = history[-1]['_center']
     
     _, img_y, img_x = img.shape
@@ -108,8 +90,10 @@ def render(window,
     pygame.draw.circle(pos_img_canvas, (255, 0, 0), center, r, 1)
     pygame.display.set_caption(info)
     window.blit(pos_img_canvas, (0,0))
-
-    neg_img_canvas = pygame.surfarray.make_surface(img[1].transpose())
+    # 扩大wavefront使得大小和img一样
+    disp_wf = np.resize(wavefront[0], (img_x, img_y))
+    
+    neg_img_canvas = pygame.surfarray.make_surface(disp_wf.transpose())
     pygame.draw.circle(neg_img_canvas, (255, 0, 0), center, r, 1)
     window.blit(neg_img_canvas, (img_y+5,0))
     
@@ -131,29 +115,18 @@ def render(window,
 
 def optimizer(
     epochs,
-    rms_threshold=0.9,
-    lr=0.9,
-    weight_decay=0.001,
-    algorithm="adamod",
-    lr_schedul="static",
-    init_v=[],
+    rms_threshold=0.2,
+    init_v:list=[],
     r_bucket=6.4,
-    center="max",
+    init_center="max",
     show=True,
 ):
     epochs = int(epochs)
-
-<<<<<<<< HEAD:src/ao_shaping/DM_combined.py
+    _init_v = np.array(init_v)
     with Thorlab_WFS(MlaRes.Res768, use_custom_ref=False, high_speed=True, pupil_diameter=Pupil_Diameter) as wfs,\
-========
-    with Thorlab_wfs(MlaRes.Res768, use_custom_ref=False, high_speed=True, pupil_diameter=Pupil_Diameter) as wfs,\
->>>>>>>> 0ed911aefd309de807e0c09d1989d1470a949b31:src/DM_combined.py
-            CameraStreamManager(cam_id=0, explosure_time=CAM_EXP_TIME, skip_sampling=False) as cam,\
+            CameraStreamManager(cam_id=0, exposure_time_ms=CAM_EXP_TIME, skip_sampling=False) as cam,\
             NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
-        if not init_v:
-            _init_v = np.zeros(dm.DM_Num, dtype=np.float64)
-        else:
-            _init_v = np.array(init_v)
+        assert len(init_v) == dm.DM_Num
         dm.send_voltages(_init_v, 0.5)
 
         def calc_rms(n_sample=5):
@@ -166,39 +139,30 @@ def optimizer(
             return img, np.sum(img[bucket_mask]).astype(float)
 
         # Set up camera window for visualization
-        if center == 'max':
-            init_img = cam.get_numpy_image(10)
-            _center = np.unravel_index(np.argmax(init_img), init_img.shape)[::-1]
-        elif center == 'centroid':
-            init_img = cam.get_numpy_image(10)
-            _center = utils.centroid(init_img, cam.xv, cam.yv, 30)
-        else:
-            _center = center
-
+        init_img = cam.get_numpy_image(10)
+        _center = np.unravel_index(np.argmax(init_img), init_img.shape)[::-1]
         (img_sx, img_sy), _ = cam.reset_window(_center, IMG_SIZE)
-
-        def refind_center():
-            init_img = cam.get_numpy_image(10)
-            center = np.unravel_index(np.argmax(init_img), init_img.shape)
+        xv, yv = np.ogrid[:img_sx, :img_sy]
+        def refind_center(img):
+            center = np.unravel_index(np.argmax(img), img.shape)
             c_x, c_y = center[1]+1, center[0]+1
-            print("({},{}) value: {}".format(c_x, c_y, init_img[center]))
-            xv, yv = np.ogrid[:img_sx, :img_sy]
-
+            print("({},{}) value: {}".format(c_x, c_y, img[center]))
             imgmesh_dist = (xv-c_x) ** 2 + (yv-c_y) ** 2
             dist = np.sqrt(imgmesh_dist)
             bucket_mask = dist < r_bucket
 
-            return (c_x, c_y), bucket_mask
+            return (c_x, c_y), bucket_mask.transpose()
 
-        _center, bucket_mask = refind_center()
+        _center, bucket_mask = refind_center(cam.get_numpy_image(10))
         wf, rms = calc_rms(5)
         img, pib = calc_pib(1)
-        delta = delta_schedule(rms)
+        lr, delta = schedule(rms)
         history = [
             {
                 "J": pib,
-                "rms": (rms,),
-                "pib": (pib,),
+                "J_rms": rms,
+                "_rms": (rms,),
+                "_pib": (pib,),
                 "_center": _center,
                 "_v": (_init_v,),
                 "_gamma": lr,
@@ -208,7 +172,7 @@ def optimizer(
                 "_img": img[np.newaxis, ...],
             }
         ]
-        last_mode = 'rms' if rms < rms_threshold else 'pib'
+        mode = 'rms' if rms > rms_threshold else 'pib'
         
         if show:
             pygame.init()
@@ -216,7 +180,7 @@ def optimizer(
             window = pygame.display.set_mode((cam.cam_width*2, total_height))
 
         with tqdm.tqdm(
-            total=epochs, desc="{} iter {}".format(algorithm, epochs), dynamic_ncols=True
+            total=epochs, desc="{} iter {}".format(mode, epochs), dynamic_ncols=True
         ) as bar:
             for epoch in range(1,epochs+1):
                 disturb_v = np.random.binomial(1, 0.5, (dm.DM_Num,)).astype(float) * 2.0 - 1.0
@@ -234,53 +198,30 @@ def optimizer(
 
                 # 如果rms大于阈值, 使用rms作用目标函数；否则使用pib
                 if min(pos_rms, neg_rms) > rms_threshold:
-                    diff = (pos_rms-neg_rms)
-                    last_mode = 'rms'
+                    diff = -(pos_rms-neg_rms)
+                    mode = 'rms'
                 else:
-                    diff = -(pos_pib-neg_pib)
-                    if last_mode == 'rms':
-                        _center, bucket_mask = refind_center()
-                    last_mode = 'pib'
-                gradient = -diff * disturb_v
-                lr = learning_schedule(lr, epoch, epochs, method=lr_schedul)
-                if algorithm == "spgd":
-                    update = lr * gradient - lr * weight_decay * _init_v
+                    diff = (pos_pib-neg_pib)
+                    if mode == 'rms':
+                        _center, bucket_mask = refind_center(pos_img if pos_pib>neg_pib else neg_img)
+                    mode = 'pib'
+                gradient = diff * disturb_v
 
-                elif algorithm.lower() in ("adam", "nadam", "adamod"):
-                    if epoch == 1:
-                        m = np.zeros_like(_init_v, dtype=np.float64)
-                        v = np.zeros_like(_init_v, dtype=np.float64)
-                        s = 0
+                if epoch == 1:
+                    m = np.zeros_like(_init_v, dtype=np.float64)
+                    v = np.zeros_like(_init_v, dtype=np.float64)
+                    s = 0
 
-                    m = beta1 * m + (1 - beta1) * (gradient)
-                    v = beta2 * v + (1 - beta2) * (gradient**2)
+                m = beta1 * m + (1 - beta1) * (gradient)
+                v = beta2 * v + (1 - beta2) * (gradient**2)
 
-                    m_hat = m / (1 - beta1 ** (epoch + 1))
-                    v_hat = v / (1 - beta2 ** (epoch + 1))
+                m_hat = m / (1 - beta1 ** (epoch + 1))
+                v_hat = v / (1 - beta2 ** (epoch + 1))
 
-                    if algorithm == "nadam":
-                        m_hat = beta1 * m_hat + (1 - beta1) * (
-                            gradient - lr * weight_decay * _init_v
-                        ) / (1 - beta1 ** (epoch + 1))
-                    elif algorithm == "adamod":
-                        gamma = lr / (np.sqrt(v_hat) + 1e-8)
-                        s = beta3 * s + (1 - beta3) * gamma
-                        learning_rate = np.where(gamma<s, gamma, s)
-                        update = learning_rate * m_hat
-                    elif algorithm == "adam":
-                        update = lr * m_hat / (np.sqrt(v_hat) + 1e-8)
-                    else:
-                        pass
-
-                elif algorithm == "cool_momentum_spgd":
-                    if epoch == 1:
-                        cooling_rate = (1 - Rho_0) ** (1 / epochs)
-                        momentum = np.zeros_like(_init_v, dtype=np.float64)
-
-                    rho_n = 1 - (1 - Rho_0) / (cooling_rate**epoch)
-                    learning_rate = lr * (1 + rho_n) / 2
-                    update = rho_n * momentum + learning_rate * (gradient)
-                    momentum = update
+                gamma = lr / (np.sqrt(v_hat) + 1e-8)
+                s = beta3 * s + (1 - beta3) * gamma
+                learning_rate = np.where(gamma<s, gamma, s)
+                update = learning_rate * m_hat
 
                 _to_update_v = _init_v - update
                 if check_dm_unit_grad_safe(_to_update_v):
@@ -288,11 +229,12 @@ def optimizer(
                 else:
                     print("相邻单元压差过大，放弃本次结果")
 
-                delta = delta_schedule(rms)
+                lr, delta = schedule(rms)
                 history.append({
                     "J": np.mean([pos_pib, neg_pib]),
-                    "rms": (pos_rms, neg_rms),
-                    "pib": (pos_pib, neg_pib),
+                    "J_rms": np.mean([pos_rms, neg_rms]),
+                    "_rms": (pos_rms, neg_rms),
+                    "_pib": (pos_pib, neg_pib),
                     "_center": _center,
                     "_v": (pos_vs, neg_vs),
                     "_gamma": lr,
@@ -312,20 +254,21 @@ def optimizer(
     return history
 
 def run():
-    init_V = np.loadtxt("rms-0.087.csv")
+    init_V = np.zeros((64,))
     wfs_history = optimizer(
-        init_v=init_V.copy(),
-        epochs=10000,
-        algorithm="adamod")
+        init_v=init_V.tolist(),
+        epochs=10000)
 
     # Find best voltage
     wfs_df = pd.DataFrame(wfs_history)
-    wfs_df.columns = [c[1:] if c.startswith('_') else c for c in wfs_df.columns]
-    min_J_idx = wfs_df["J"].argmin()
-    best_v = wfs_df.iloc[min_J_idx]["v"]
-    best_J = wfs_df.iloc[min_J_idx]["J"]
+    wfs_df["J"].plot()
+    
+    # wfs_df.columns = [c[1:] if c.startswith('_') else c for c in wfs_df.columns]
+    # min_J_idx = wfs_df["J"].argmin()
+    # best_v = wfs_df.iloc[min_J_idx]["v"]
+    # best_J = wfs_df.iloc[min_J_idx]["J"]
     # Save final voltages
-    np.savetxt('final_J-{:.4f}.csv'.format(best_J), best_v, fmt="%d")
+    # np.savetxt('final_J-{:.4f}.csv'.format(best_J), best_v, fmt="%d")
 
 
 if __name__ == "__main__":

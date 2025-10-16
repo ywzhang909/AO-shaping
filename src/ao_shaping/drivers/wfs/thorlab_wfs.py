@@ -166,7 +166,7 @@ def load_dll():
     # WFS_GetSpotfieldImage left out
 
     dll.WFS_GetSpotfieldImageCopy.restype = ViStatus
-    dll.WFS_GetSpotfieldImageCopy.argtypes = [ViSession, ArrImg, POINTER(ViInt32), POINTER(ViInt32)]  # ViUInt8[]
+    dll.WFS_GetSpotfieldImageCopy.argtypes = [ViSession, ctypes.POINTER(c_uint8), POINTER(ViInt32), POINTER(ViInt32)]  # ViUInt8[]
 
     dll.WFS_AverageImage.restype = ViStatus
     dll.WFS_AverageImage.argtypes = [ViSession, ViInt32, POINTER(ViInt32)]
@@ -311,7 +311,7 @@ class WFSManager:
     """ Wavefront Sensor Manager
     """
     
-    def __init__(self, mla_index:MlaRes, exp_time:float = 0.0, high_speed:bool = False, use_custom_ref:bool = False, pupil_diameter:float = 2.0):
+    def __init__(self, mla_index:MlaRes = MlaRes.Res768, exp_time:float = 0.0, high_speed:bool = False, use_custom_ref:bool = False, pupil_diameter:float = 2.0):
         """
         mla_index: MlaRes
         exp_time: exposure time in ms, 0 means auto
@@ -447,7 +447,7 @@ class WFSManager:
         px, py = self.image_pix
         spots_filed_img = np.zeros((px,py), np.uint8)
         if err:= self._lib.WFS_GetSpotfieldImageCopy(self._instrument_handle,
-                                spots_filed_img,
+                                spots_filed_img.ctypes.data_as(ctypes.POINTER(c_uint8)),
                                 byref(c_int32(px)), byref(c_int32(py))
                                 ):
             raise RuntimeError(self.handle_error(err))

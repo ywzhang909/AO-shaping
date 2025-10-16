@@ -34,7 +34,7 @@ class LaserCastEnv(gym.Env):
     def __init__(self, max_iter, target_power=10_000, r_bucket=5, img_size:Tuple[int,int]=(250,250), history_len:int=8, render_mode='human', img_noise:bool=False) -> None:
         super().__init__()
         
-        self.cam = CameraStreamManager(cam_id=0, explosure_time=60, skip_sampling=False)
+        self.cam = CameraStreamManager(cam_id=0, exposure_time_ms=60, skip_sampling=False)
         self.dm = NlightDM(keep_when_exit=True)
         # 初始化 DM 设备
         # 初始化相机设备

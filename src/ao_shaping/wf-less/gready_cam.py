@@ -89,7 +89,7 @@ def optimizer(
     delta = abs(delta)
     epochs = int(epochs)
 
-    with CameraStreamManager(cam_id=0, explosure_time=CAM_EXP_TIME, skip_sampling=True) as cam,\
+    with CameraStreamManager(cam_id=0, exposure_time_ms=CAM_EXP_TIME, skip_sampling=True) as cam,\
             NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
         # dm.reset_all()
 
@@ -176,7 +176,7 @@ def optimizer(
                 neg_j = calc_j(img)
 
                 if (pos_j + neg_j) == 0 and CAM_EXP_TIME_ADJ_RATE > 1:
-                    cam.reset_explore_time(cam.explore_time * CAM_EXP_TIME_ADJ_RATE)
+                    cam.reset_exposure_time(cam.explore_time * CAM_EXP_TIME_ADJ_RATE)
                     continue
 
                 gradient = np.sign(pos_j - neg_j) * disturb_v
@@ -205,7 +205,7 @@ def optimizer(
 
                 if np.sum(img[img == 255]) / 255 > 2 and CAM_EXP_TIME_ADJ_RATE > 1:
                     print(
-                        f"exp time = {cam.reset_explore_time(cam.explore_time * CAM_EXP_TIME_ADJ_RATE)}"
+                        f"exp time = {cam.reset_exposure_time(cam.explore_time * CAM_EXP_TIME_ADJ_RATE)}"
                     )
 
                 if show:

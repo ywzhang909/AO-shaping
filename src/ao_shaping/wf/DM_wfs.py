@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 import tqdm
-from src.drivers import MlaRes, NlightDM, Thorlab_WFS
+from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS
 
 ROOT_DIR = "./data/wf"
 
@@ -214,12 +214,15 @@ def optimizer(
                     print("相邻单元压差过大，放弃本次结果")
 
                 avg_j = (pos_j + neg_j) / 2
-                if avg_j > 0.2:
+                if avg_j > 0.3:
                     delta = 3
-                elif avg_j > 0.1:
+                    lr = 1.2
+                elif avg_j > 0.15:
                     delta = 1
+                    lr = 1.0
                 else:
                     delta = 0.8
+                    lr = 0.8
                 
                 log = {
                     "J": avg_j,
@@ -240,24 +243,27 @@ def optimizer(
         return history
 
 def run():
-    # init_V = np.loadtxt("rms-0.087.csv")
-    init_V = np.zeros((64,))
-
-    dir_name = gen_file_name(ROOT_DIR)
+    init_V = np.loadtxt("data/flatten_voltages/20251016/rms-0.130.csv")
     res_list = optimizer(
         init_v=init_V.copy(),
         epochs=10000, 
         delta=4,
-        lr=.8, 
+        lr=1.2, 
         algorithm="adamod",
         metropolis_temperature=0,
         lr_schedul="static")
 
     res_df = pd.DataFrame(res_list)
+    dir_name = gen_file_name(ROOT_DIR)
     res_df.to_pickle(os.path.join(dir_name,'data.pkl'))
     min_id = res_df["J"].argmin()
     min_iter = res_df.iloc[min_id]
-    np.savetxt(f'rms-{min_iter["J"]:.3f}.csv', min_iter["_v"], fmt="%d")
+    
+    # 在data/flatten_voltages下生成名称为当前日期的目录并保存电压
+    from datetime import datetime
+    dir_name = datetime.now().strftime("%Y%m%d")
+    os.makedirs(os.path.join("data/flatten_voltages", dir_name), exist_ok=True)
+    np.savetxt(os.path.join("data/flatten_voltages", dir_name, f'rms-{min_iter["J"]:.3f}.csv'), min_iter["_v"], fmt="%d")
 
 if __name__ == "__main__":
     for iter in range(1):

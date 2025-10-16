@@ -6,10 +6,10 @@ import gxipy as gx
 log = logging.getLogger(__file__)
 
 class CameraStreamManager:
-    def __init__(self, cam_id:int=0, explosure_time:int=20, skip_sampling=True):
+    def __init__(self, cam_id:int=0, exposure_time_ms:int=20, skip_sampling=False):
         self.device_manager = gx.DeviceManager()
         self.cam_id = cam_id
-        self.explore_time = explosure_time
+        self.exposure_time_ms = exposure_time_ms
         self.skip_sampling = skip_sampling
 
         self.cam, self.__sn = None, None
@@ -58,7 +58,7 @@ class CameraStreamManager:
         sn = dev_info_list[self.cam_id].get("sn")
         self.cam = self.device_manager.open_device_by_sn(sn)
         # 设置相机的曝光时间
-        self.cam.ExposureTime.set(self.explore_time)
+        self.cam.ExposureTime.set(self.exposure_time_ms)
         # 设置相机的增益
         self.cam.Gain.set(0.0)
         # 设置相机的像素格式为MONO8
@@ -79,14 +79,14 @@ class CameraStreamManager:
         self.__update_properties()
         self.cam.stream_on()
 
-    def reset_explore_time(self, time:int):
-        if time >= 20:
-            self.explore_time = time
+    def reset_exposure_time(self, time_ms:int):
+        if time_ms >= 20:
+            self.exposure_time_ms = time_ms
         else:
-            self.explore_time = 20
-            log.warning('explore time must >= 20. set to 20.')
-        self.cam.ExposureTime.set(self.explore_time)
-        return self.explore_time
+            self.exposure_time_ms = 20
+            log.warning('exposure time must >= 20. set to 20.')
+        self.cam.ExposureTime.set(self.exposure_time_ms)
+        return self.exposure_time_ms
 
     def reset_window(self, center:tuple[int,int]|tuple[np.intp,...]=(0,0), size:tuple[int,int]=(0,0)) -> tuple[tuple[int,int], tuple[int,int]]:
         """
@@ -164,7 +164,7 @@ if __name__ == '__main__':
     import matplotlib.pyplot as plt
    
     def test_cam(cam_id=0):
-        with CameraStreamManager(cam_id, explosure_time=80) as cam:
+        with CameraStreamManager(cam_id, exposure_time_ms=80) as cam:
             img = cam.get_numpy_image()
             center = np.unravel_index(np.argmax(img), img.shape)
             center = (center[1], center[0])
