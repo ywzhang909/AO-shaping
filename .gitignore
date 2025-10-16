@@ -23,3 +23,5 @@ ckpts*
 .marscode*
 .kilocode*
 uv.lock
+notebooks/checkpoint
+data/*.py

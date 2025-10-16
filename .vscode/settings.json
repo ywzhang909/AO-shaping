@@ -1,5 +1,6 @@
 {
     "terminal.integrated.env.windows": {
-        "PYTHONPATH": "D:/Projects/TIFO/AO-shaping/src"
+        "python.envFile": "${workspaceFolder}/.vscode/.env",
+        "python.terminal.useEnvFile": "${workspaceFolder}/.vscode/.env"
     }
 }
