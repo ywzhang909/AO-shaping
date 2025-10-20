@@ -25,7 +25,10 @@ ckpts*
 .kilocode*
 uv.lock
 notebooks/checkpoint
+notebooks/.ipynb_checkpoints*
 data/*.py
 
 NuitkaGUI.exe
 DM_combined.dist*
+
+logs/**/*.png
