@@ -1,6 +1,7 @@
 {
     "terminal.integrated.env.windows": {
         "python.envFile": "${workspaceFolder}/.vscode/.env",
-        "python.terminal.useEnvFile": "${workspaceFolder}/.vscode/.env"
+        "python.terminal.useEnvFile": "${workspaceFolder}/.vscode/.env",
+        "PYTHONPATH": "${workspaceFolder}/src"
     }
 }

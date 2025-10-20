@@ -8,6 +8,7 @@
 Drv_UDPST*
 gxipy*
 __pycache__*
+.venv*
 
 .kilocode*
 ao_project.egg-info*
@@ -25,3 +26,5 @@ ckpts*
 uv.lock
 notebooks/checkpoint
 data/*.py
+
+NuitkaGUI.exe

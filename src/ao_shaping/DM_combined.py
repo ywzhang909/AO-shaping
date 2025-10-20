@@ -2,11 +2,9 @@
 import os
 
 import numpy as np
-import pandas as pd
 
 import tqdm
 import pygame
-import utils.utils as utils
 
 from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS, CameraStreamManager
 
@@ -118,7 +116,6 @@ def optimizer(
     rms_threshold=0.2,
     init_v:list=[],
     r_bucket=6.4,
-    init_center="max",
     show=True,
 ):
     epochs = int(epochs)
@@ -134,7 +131,7 @@ def optimizer(
             wf, statics = wfs.get_wavefront()
             return wf, statics['rms']
         
-        def calc_pib(n_sample=3):
+        def calc_pib(bucket_mask, n_sample=3):
             img = cam.get_numpy_image(n_sample)
             return img, np.sum(img[bucket_mask]).astype(float)
 
@@ -155,7 +152,7 @@ def optimizer(
 
         _center, bucket_mask = refind_center(cam.get_numpy_image(10))
         wf, rms = calc_rms(5)
-        img, pib = calc_pib(1)
+        img, pib = calc_pib(bucket_mask, 1)
         lr, delta = schedule(rms)
         history = [
             {
@@ -190,11 +187,11 @@ def optimizer(
 
                 pos_vs = dm.send_voltages(_init_v + disturb_v)
                 pos_wf, pos_rms = calc_rms()
-                pos_img, pos_pib = calc_pib()
+                pos_img, pos_pib = calc_pib(bucket_mask)
 
                 neg_vs = dm.send_voltages(_init_v - disturb_v)
                 neg_wf, neg_rms = calc_rms()
-                neg_img, neg_pib = calc_pib()
+                neg_img, neg_pib = calc_pib(bucket_mask)
 
                 # 如果rms大于阈值, 使用rms作用目标函数；否则使用pib
                 if min(pos_rms, neg_rms) > rms_threshold:
@@ -260,15 +257,11 @@ def run():
         epochs=10000)
 
     # Find best voltage
-    wfs_df = pd.DataFrame(wfs_history)
-    wfs_df["J"].plot()
-    
-    # wfs_df.columns = [c[1:] if c.startswith('_') else c for c in wfs_df.columns]
-    # min_J_idx = wfs_df["J"].argmin()
-    # best_v = wfs_df.iloc[min_J_idx]["v"]
-    # best_J = wfs_df.iloc[min_J_idx]["J"]
+    id_max = np.argmax([h["J"] for h in wfs_history])
+    best_v = wfs_history[id_max]["_v"][0]
+    best_J = wfs_history[id_max]["J"]
     # Save final voltages
-    # np.savetxt('final_J-{:.4f}.csv'.format(best_J), best_v, fmt="%d")
+    np.savetxt('final_J-{:.4f}.csv'.format(best_J), best_v, fmt="%d")
 
 
 if __name__ == "__main__":
