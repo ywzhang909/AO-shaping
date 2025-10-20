@@ -3,7 +3,7 @@ name = "ao_shaping"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.13"
 dependencies = [
     "numpy>=2.2.6",
     "pandas>=2.3.2",
@@ -13,7 +13,6 @@ dependencies = [
     "matplotlib>=3.9.2",
     "pyserial>=3.5",
     "nidaqmx>=0.8.10",
-    "numba>=0.60.0",
     "scikit-optimize>=0.10.2",
     "streamlit>=1.49.1",
     "plotly>=6.3.0",
@@ -32,6 +31,12 @@ dependencies = [
     "hf-xet>=1.1.10",
     "torchview>=0.2.7",
     "tensorboard>=2.20.0",
+    "nuitka>=2.8.1",
+    "ipykernel>=7.0.1",
+    "nbformat>=4.2.0",
+    "grad-cam>=1.5.5",
+    "mbrl>=0.0.1",
+    "ordered-set>=4.1.0",
 ]
 
 [[tool.uv.index]]
@@ -41,6 +46,11 @@ default = true
 [[tool.uv.index]]
 name = "pytorch-cu129"
 url = "https://download.pytorch.org/whl/cu129"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [tool.uv.sources]

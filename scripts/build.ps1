@@ -1,0 +1,1 @@
+uv run nuitka --show-progress --standalone --include-data-dir=./data=./data --lto .\src\ao_shaping\DM_combined.py
