@@ -28,4 +28,5 @@ notebooks/checkpoint
 data/*.py
 
 NuitkaGUI.exe
-DM_combined.dist*
+DM_combined.*
+DM_cam.*

@@ -37,6 +37,7 @@ dependencies = [
     "grad-cam>=1.5.5",
     "mbrl>=0.0.1",
     "ordered-set>=4.1.0",
+    "findlibs>=0.1.2",
 ]
 
 [[tool.uv.index]]

@@ -20,6 +20,9 @@ from stable_baselines3.common.logger import Image, Figure
 
 from ao_shaping.drivers import CameraStreamManager, NlightDM
 
+Far_Cam_ID = int(os.environ.get('Far_Cam_ID', '1'))
+Near_Cam_ID = int(os.environ.get('Near_Cam_ID', '0'))
+
 # TODO 添加近场图像
 
 class LaserCastEnv(gym.Env):
@@ -28,18 +31,16 @@ class LaserCastEnv(gym.Env):
     激光投射环境。
 
     参数:
-    
-    
     '''
     def __init__(self, max_iter, target_power=10_000, r_bucket=5, img_size:Tuple[int,int]=(250,250), history_len:int=8, render_mode='human', img_noise:bool=False) -> None:
         super().__init__()
         
-        self.cam = CameraStreamManager(cam_id=0, exposure_time_ms=60, skip_sampling=False)
+        self.cam = CameraStreamManager(cam_id=Far_Cam_ID, exposure_time_ms=70, skip_sampling=False)
         self.dm = NlightDM(keep_when_exit=True)
         # 初始化 DM 设备
         # 初始化相机设备
         self.cam.initialize()
-        center = (681, 410)
+        center = (665, 415)
         # 重置相机窗口以确保质心在图像中心
         self.img_size, _ = self.cam.reset_window(size=img_size, center=center)
         self.dm.initialize()
@@ -181,7 +182,7 @@ class LaserCastEnv(gym.Env):
 
         _img = self.cam.get_numpy_image(10)
         self.center = np.unravel_index(np.argmax(_img), _img.shape)[::-1]
-        c_x, c_y = self.center[0], self.center[1]
+        c_x, c_y = self.center
         xv, yv = np.ogrid[:self.img_size[0], :self.img_size[1]]
         self.imgmesh_dist = np.sqrt((xv-c_x) ** 2 + (yv-c_y) ** 2)
         
@@ -242,19 +243,6 @@ class TensorboardCallback(BaseCallback):
             info:dict = self.locals["infos"][0]
             self.history.append(info)
             done = self.locals["dones"][0]
-        
-            # if info['J'] > self.best_power and self.best_power>0:
-            #     obs = self.training_env.get_attr('init_obs')[0]
-            #     action = self.training_env.get_attr('v')[0][1:]
-            #     next_obs = self.training_env.get_attr('step_obs')[0]
-            #     power = info['J']
-            #     reward = np.sum(self.training_env.get_attr('wighted_mask')[0] * self.training_env.get_attr('img')[0])\
-            #         + 10 * (self.training_env.get_attr('max_iter')[0])**2 * (power - self.training_env.get_attr('init_power')[0][0])
-            #     self.model.replay_buffer.add(obs, next_obs, action, reward, done, {})
-            # '''File "D:\Downloads\Libs\conda\py312\Lib\site-packages\stable_baselines3\common\buffers.py", line 640, in add
-            #     self.timeouts[self.pos] = np.array([info.get("TimeLimit.truncated", False) for info in infos])
-            #     ~~~~~~~~~~~~~^^^^^^^^^^
-            # ValueError: could not broadcast input array from shape (0,) into shape (1,)'''
             
             if done:
                 cam_img = self.training_env.render(mode="rgb_array")[0,:,:]
@@ -368,7 +356,7 @@ class CustomCombineImageAndVetorExtractor(BaseFeaturesExtractor):
 train = True
 device = 'cuda' if th.cuda.is_available() else 'cpu'
 img_size = (192, 192)
-env = LaserCastEnv(render_mode='rgb_array', target_power=10_000, max_iter=200, img_size=img_size, img_noise=True, r_bucket=5)
+env = LaserCastEnv(render_mode='rgb_array', target_power=8_000, max_iter=200, img_size=img_size, img_noise=True, r_bucket=5)
 policy_kwargs = dict(
     features_extractor_class=CustomCombineImageAndVetorExtractor,
     features_extractor_kwargs=dict(features_dim=128),
@@ -376,7 +364,7 @@ policy_kwargs = dict(
 agent = SAC('MultiInputPolicy', env, 
             verbose=1, device=device, tensorboard_log='logs/sac_tensorboard',
             use_sde=True, use_sde_at_warmup=True,
-            learning_starts=200, buffer_size=3000, batch_size=100, learning_rate=0.004,
+            learning_starts=1_000, buffer_size=9_000, batch_size=128, learning_rate=0.008,
             policy_kwargs=policy_kwargs)
 
 if train:
@@ -384,12 +372,12 @@ if train:
     if len(ckpt_paths) > 0:
         latest_ckpt_path = list(sorted(ckpt_paths, key=lambda x: os.path.getmtime(x)))[-1]
         print(latest_ckpt_path)
-        agent.load(latest_ckpt_path, env=env)
+        agent = agent.load(latest_ckpt_path, env=env)
     callbacks = CallbackList([
         TensorboardCallback(),
         CheckpointCallback(save_freq=1000, save_path='ckpts/rl', save_replay_buffer=False, verbose=1)
     ])
-    agent.learn(10_200, progress_bar=True, callback=callbacks, log_interval=1)
+    agent.learn(100_200, progress_bar=True, callback=callbacks, log_interval=1)
     # agent.save('laser_agent')
 
 else:
@@ -398,7 +386,7 @@ else:
     print(latest_ckpt_path)
     agent.load(latest_ckpt_path, env=env)
     
-    env = LaserCastEnv(render_mode='human', max_iter=500)
+    env = LaserCastEnv(render_mode='human', max_iter=200)
     obs,_ = env.reset()
     env.render()
     history = []

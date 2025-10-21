@@ -1,10 +1,11 @@
 import numpy as np
 import time
-import os
 import socket
-from .base import DM
+from ao_shaping.drivers.dm.base import DM
 
 from ctypes import byref, c_bool, c_int32, cdll
+import findlibs
+
 DM_NUM = 64
 
 class NLight(DM):
@@ -150,8 +151,11 @@ class DMSdk:
 
     def __init__(self):
         self.dm_num = 64
-        this_py_file_path = os.path.abspath(__file__)
-        dll = cdll.LoadLibrary(os.path.join(os.path.dirname(this_py_file_path), 'Drv_UDPST/x64/Release/Drv_UDPST.dll'))
+        path = findlibs.find('Drv_UDPST')
+        if path is None:
+            raise Exception("Drv_UDPST.dll not found.")
+        
+        dll = cdll.LoadLibrary(path)
         dll.SetVoltages.restype = c_bool
         dll.SetVoltages.argtypes = [
             np.ctypeslib.ndpointer(dtype=np.double, ndim=1, shape=(self.dm_num)), c_int32, c_int32]

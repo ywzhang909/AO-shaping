@@ -2,6 +2,7 @@
     "terminal.integrated.env.windows": {
         "python.envFile": "${workspaceFolder}/.vscode/.env",
         "python.terminal.useEnvFile": "${workspaceFolder}/.vscode/.env",
-        "PYTHONPATH": "${workspaceFolder}/src"
+        "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs",
+        "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${env:PATH}",
     }
 }

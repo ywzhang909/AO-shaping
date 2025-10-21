@@ -173,7 +173,7 @@ if __name__ == '__main__':
             plt.title(f'{center=} = {img[center[::-1]]=}')
             plt.show()
             
-    test_cam(0)
+    test_cam(1)
 
 
     

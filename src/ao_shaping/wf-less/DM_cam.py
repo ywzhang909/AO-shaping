@@ -1,17 +1,16 @@
 import os
-
+import datetime
 import json
-from typing import Literal
+import tqdm
+import argparse
 
 import numpy as np
 import pandas as pd
 
-import tqdm
 import pygame
 import matplotlib.pyplot as plt
 
 from ao_shaping.drivers import CameraStreamManager, NlightDM
-from ao_shaping.utils import centroid
 
 ROOT_DIR = "data/wf-less"
 
@@ -35,7 +34,6 @@ Rho_0 = 0.9
 METROPOLIS_ALPHA = 0.8
 
 # camera parameters
-CAM_EXP_TIME = 60
 CAM_EXP_TIME_ADJ_RATE = 0
 IMG_SIZE = (250, 250)
 
@@ -53,26 +51,6 @@ def check_dm_unit_grad_safe(vs, adj_mat=DM_Adj, tolerance=Tolerance):
     assert len(vs) == DM_Adj.shape[0] == DM_Adj.shape[1]
     diff_mat = (vs[:,None] - vs[None,:]) * adj_mat
     return not np.any(diff_mat[diff_mat > tolerance])
-
-def learning_schedule(
-    lr, epoch, epochs, method: Literal["static", "cosin", "exp", "linear"] = "static"
-):
-    if method == "static":
-        return lr
-    # 余弦退火
-    elif method == "cosin":
-        lr = lr * np.cos(np.pi * epoch / epochs) + 1e-6
-        return lr
-    # 指数衰减
-    elif method == "exp":
-        lr = lr * np.exp(-epoch / epochs) + 1e-6
-        return lr
-    # 线性衰减
-    elif method == "linear":
-        lr = lr * (1 - epoch / epochs) + 1e-6
-        return lr
-    else:
-        raise ValueError("method must be static, cosin, exp or linear")
 
 
 def gen_file_name(dir, postfix: str = ''):
@@ -118,52 +96,31 @@ def render(window, img, log, center, r, info="") -> None:
 
 
 def optimizer(
+    center,
     r_bucket,
     epochs,
     delta=1,
     lr=1,
-    weight_decay=0.001,
+    exposure_time_ms=80,
     shrank_iter=0,
     shrank_ratio=0.9,
     weights_class=1,
-    pid_weighted_ratio=1.0,
-    algorithm: Literal[
-        "spgd", "adam", "nadam", "adamod", "cool_momentum_spgd", "gready"
-    ] = "adamod",
-    lr_schedul: Literal[
-        "static", "cosin", "exp", "linear"
-    ] = "static",
-    metropolis_temperature=0,
-    v0=0,
+    cam_id=0,
     show=True,
-    init_v=None,
-    center="max"
+    init_v=[]
 ):
     delta = abs(delta)
     epochs = int(epochs)
 
-    with CameraStreamManager(cam_id=0, exposure_time_ms=CAM_EXP_TIME, skip_sampling=False) as cam,\
+    with CameraStreamManager(cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False) as cam,\
             NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
         # dm.reset_all()
 
-        if init_v is None:
+        if not init_v:
             _init_v = np.zeros(dm.DM_Num, dtype=np.float64)
-            _init_v[0] = v0
         else:
             _init_v = np.array(init_v)
         dm.send_voltages(_init_v, 1)
-        
-        if center == 'max':
-            init_img = cam.get_numpy_image(20)
-            center = np.unravel_index(np.argmax(init_img), init_img.shape)
-            center = (center[1], center[0])
-            print(f'{center=} : {init_img[center]}')
-        elif center == 'centroid':
-            init_img = cam.get_numpy_image(20)
-            center = centroid(init_img, cam.xv, cam.yv, 30)
-            print(f'{center=} : {init_img[center]}')
-        else:
-            center = center
 
         img_size, _ = cam.reset_window(center, IMG_SIZE)
         init_img = cam.get_numpy_image(1)
@@ -172,7 +129,6 @@ def optimizer(
 
         imgmesh_dist = ((xv) ** 2 + (yv) ** 2).transpose()
         dist = np.sqrt(imgmesh_dist)
-        weighted_mask = ( - imgmesh_dist/np.max(imgmesh_dist) + 1) ** (weights_class)
         bucket_mask = dist < r_bucket
         pib_mask = dist < 5
         
@@ -189,50 +145,10 @@ def optimizer(
         
         def test_pib(img):
             return np.sum(img[pib_mask]).astype(float)
-
-        def calc_weighted_power(img) -> float:
-            return np.sum(weighted_mask * img) / np.sum(weighted_mask)
-
-        def encircled_radius(image: np.ndarray,
-                    ratio: float = 0.86,
-                    pixel_size: float = 1.17,   # px → mm
-                    dist_step: float = 0.5,     # 直方图 bin 宽
-                    ):
-            """
-            计算光斑质心与 encircled-energy 半径
-            Parameters
-            ----------
-            image : 2-D ndarray, float or int
-            ratio : 能量包围比，默认 0.86
-            pixel_size : 像素物理尺寸（缩放系数），默认 1.17
-            dist_step : 直方图距离间隔，默认 0.5 px
-            center_offset : 坐标偏移，默认 (23.5, 23.5)
-
-            Returns
-            -------
-            (cx, cy) : 质心（已乘 pixel_size）
-            radius   : encircled-energy 半径（已乘 pixel_size）
-            """
-            max_d = dist.max()
-            bins = int(np.ceil(max_d / dist_step)) + 1
-            hist, bin_edges = np.histogram(dist, bins=bins, range=(0, bins*dist_step), weights=image)
-            bin_centers = bin_edges[:-1] + dist_step / 2
-            cum = np.cumsum(hist)
-            target = ratio * np.sum(image)
-
-            idx = np.searchsorted(cum, target, side='right')
-            if idx == 0:
-                radius = dist_step * 0.5
-            else:
-                radius = bin_centers[idx-1]
-            radius *= pixel_size
-            return radius
         
         def calc_j(img):
             return calc_pib(img, r_bucket)
 
-        
-        # utils.disp(init_img, cam.xv, cam.yv, r_bucket, 15)
         init_pid = test_pib(init_img)
         history = [
             {
@@ -248,7 +164,7 @@ def optimizer(
             }
         ]
         with tqdm.tqdm(
-            total=epochs, desc=f"{algorithm} iter {epochs}", dynamic_ncols=True
+            total=epochs, desc=f"iter {epochs}", dynamic_ncols=True
         ) as bar:
             for epoch in range(1,epochs+1):
                 disturb_v = np.random.binomial(1, 0.5, (dm.DM_Num,)).astype(float) * 2.0 - 1.0
@@ -270,66 +186,24 @@ def optimizer(
 
                 diff = pos_j - neg_j
                 gradient = -diff * disturb_v
-                lr = learning_schedule(lr, epoch, epochs, method=lr_schedul)
-                if algorithm == "spgd":
-                    update = lr * gradient - lr * weight_decay * _init_v
 
-                elif algorithm.lower() in ("adam", "nadam", "adamod"):
-                    if epoch == 1:
-                        m = np.zeros_like(_init_v, dtype=np.float64)
-                        v = np.zeros_like(_init_v, dtype=np.float64)
-                        s = 0
+                if epoch == 1:
+                    m = np.zeros_like(_init_v, dtype=np.float64)
+                    v = np.zeros_like(_init_v, dtype=np.float64)
+                    s = 0
 
-                    m = beta1 * m + (1 - beta1) * (gradient)
-                    v = beta2 * v + (1 - beta2) * (gradient**2)
+                m = beta1 * m + (1 - beta1) * (gradient)
+                v = beta2 * v + (1 - beta2) * (gradient**2)
 
-                    m_hat = m / (1 - beta1 ** (epoch + 1))
-                    v_hat = v / (1 - beta2 ** (epoch + 1))
+                m_hat = m / (1 - beta1 ** (epoch + 1))
+                v_hat = v / (1 - beta2 ** (epoch + 1))
 
-                    if algorithm == "nadam":
-                        m_hat = beta1 * m_hat + (1 - beta1) * (
-                            gradient - lr * weight_decay * _init_v
-                        ) / (1 - beta1 ** (epoch + 1))
-                    elif algorithm == "adamod":
-                        gamma = lr / (np.sqrt(v_hat) + 1e-8)
-                        s = beta3 * s + (1 - beta3) * gamma
-                        learning_rate = np.where(gamma<s, gamma, s)
-                        update = learning_rate * m_hat
-                    elif algorithm == "adam":
-                        update = lr * m_hat / (np.sqrt(v_hat) + 1e-8)
-                    else:
-                        pass
+                gamma = lr / (np.sqrt(v_hat) + 1e-8)
+                s = beta3 * s + (1 - beta3) * gamma
+                learning_rate = np.where(gamma<s, gamma, s)
+                update = learning_rate * m_hat
 
-                elif algorithm == "cool_momentum_spgd":
-                    if epoch == 0:
-                        cooling_rate = (1 - Rho_0) ** (1 / epochs)
-                        momentum = np.zeros_like(_init_v, dtype=np.float64)
-
-                    rho_n = 1 - (1 - Rho_0) / (cooling_rate**epoch)
-                    learning_rate = lr * (1 + rho_n) / 2
-                    update = rho_n * momentum + learning_rate * (gradient)
-                    momentum = update
-                    
-                elif algorithm == "gready":
-                    update = lr * np.sign(-diff) * disturb_v
-                    
-                else:
-                    raise NameError(f'{algorithm} not supported!')
-                    
-
-                update = np.clip(update, -UPDATE_MAX+delta, UPDATE_MAX-delta)
-                if metropolis_temperature > 0:
-                    # 使用模拟退火接受或拒绝更新
-                    last_J = history[-1]["J"]
-                    metropolis = (max(pos_j, neg_j) - last_J) / last_J
-                    if metropolis > 0 or np.random.rand() < np.exp(
-                        metropolis / metropolis_temperature
-                    ):
-                        _to_update_v = np.clip(_init_v - update, V_MIN, V_MAX)
-                    metropolis_temperature *= METROPOLIS_ALPHA
-                else:
-                    _to_update_v = np.clip(_init_v - update, V_MIN, V_MAX)
-                
+                _to_update_v = np.clip(_init_v - update, V_MIN, V_MAX)
                 if check_dm_unit_grad_safe(_to_update_v):
                     _init_v = _to_update_v
                 else:
@@ -352,7 +226,6 @@ def optimizer(
                     r_bucket = max(shrank_ratio * r_bucket, 4.0)
                     delta = max(delta * shrank_ratio, 0.6)
                     lr = max(lr * shrank_ratio, 0.8)
-                    # pid_weighted_ratio = min(pid_weighted_ratio * 0.7, 0)
 
                 if show:
                     render(
@@ -364,99 +237,8 @@ def optimizer(
 
         return history
 
-def bayes_opt():
-    from skopt import gp_minimize
-    from skopt.space import Categorical, Integer, Real
-
-    space = [
-        Integer(10, 20, name="r_bucket"),
-        Integer(0.4, 2, name="delta"),
-        Real(0.4, 2, name="lr"),
-        Real(0.0001, 0.01, name="weight_decay"),
-        Integer(2000, 6000, name="shrank_iter"),
-        Integer(0, 100, name="v0"),
-        Integer(5,55, name="weights_class"),
-        Real(0.2, 0.8, name="pid_weighted_ratio"),
-        Categorical(
-            ["adam", "nadam", "adamod"], name="algorithm"
-        ),  # 添加算法选项
-    ]
-
-    def objective(params):
-        r_bucket, delta, lr, weight_decay, shrank_iter, v0, ratio, weights_class, algorithm = params
-        dfhistory = optimizer(
-            r_bucket=r_bucket,
-            delta=delta,
-            lr=lr,
-            weight_decay=weight_decay,
-            shrank_iter=shrank_iter,
-            v0=v0,
-            weights_class=weights_class,
-            algorithm=algorithm,
-            pid_weighted_ratio=ratio,
-            epochs=int(shrank_iter*4)
-        )
-        return -(dfhistory.iloc[-20:]["J"]).mean()
-
-    result = gp_minimize(objective, space, n_calls=100, random_state=0)
-    # 输出最优超参数
-    (
-        best_r_bucket,
-        best_delta,
-        best_gamma,
-        best_weight_decay,
-        best_shrank_iter,
-        best_weights_class,
-        best_algorithm,
-    ) = result.x
-    print(result)
-    print(
-        f"Best r_bucket: {best_r_bucket}, Best delta: {best_delta}, Best gamma: {best_gamma}, Best weight_decay: {best_weight_decay}, Best shrank_iter: {best_shrank_iter}, Best weights_class: {best_weights_class}, Best algorithm: {best_algorithm}"
-    )
-
-    # 使用最优超参数运行优化器
-    dfhistory = optimizer(
-        best_r_bucket,
-        best_delta,
-        best_gamma,
-        best_weight_decay,
-        best_shrank_iter,
-        best_weights_class,
-        best_algorithm,
-    )
-    return dfhistory
-
-def run():
-    # init_V = np.load('last_v-0.07.npz')['v']
-    # init_V = np.loadtxt('rms-0.087.csv')
-    #                  if os.path.exists("last_v.npz") else None
-    
-    # init_V = np.random.random((64,))*100 - 50
-    # init_V[0] = 0
-    
-    # import pathlib
-    # volt_files = list(pathlib.Path('data').glob('to_load_V-*.csv'))
-    # volt_files.sort(key=lambda x: float(x.stem.split('-')[-1]))
-    # init_V = np.loadtxt(volt_files[-1])
-    
-    init_V = np.zeros((64,))
-
-    args = dict(
-        init_v=init_V.tolist(),
-        epochs=4_000,
-        r_bucket=18,
-        delta=2, # 扰动要和桶半径匹配，不要扰动会导致质心出桶
-        lr=2,
-        weights_class=1,
-        algorithm="adamod",
-        metropolis_temperature=0,
-        lr_schedul="static",
-        pid_weighted_ratio=1,
-        shrank_iter=300,
-        center="max"
-    )
-
-    res_list = optimizer(**args)
+def run(args:argparse.Namespace):
+    res_list = optimizer(**args.__dict__)
     
     res_df = pd.DataFrame(res_list)
     saved_file_name = gen_file_name(ROOT_DIR, 'pkl')
@@ -466,49 +248,51 @@ def run():
     max_j = res_df.iloc[max_j_id]['pib']
     print(f"{max_j_id} -> {max_j}")
 
-    def get_nerbors(unit_id):
-        return (a for a in np.where(DM_Adj[unit_id, :] == 1)[0])
-    
-    # base_unit_id = np.argmin(np.abs(last_V[1:]))+1
-    # checked_mask = np.zeros_like(DM_Adj, dtype=bool)
-    # def reset_nerbors(unit_id, v):
-    #     min, max = v[unit_id]-Tolerance, v[unit_id]+Tolerance
-    #     for nerbor in get_nerbors(unit_id):
-    #         if not checked_mask[unit_id, nerbor]:
-    #             v[nerbor] = np.clip(v[nerbor], min, max)
-    #             checked_mask[unit_id, nerbor] = checked_mask[nerbor, unit_id] = True
-    #             reset_nerbors(nerbor, v)
-
-    # reset_nerbors(base_unit_id, last_V)
-    np.savetxt(f'data/to_load_V-{max_j}.csv', np.around(last_V).astype(int), fmt="%d")
+    saved_dir = f'data/flatten_voltages/{datetime.datetime.now().strftime("%Y%m%d")}'
+    if not os.path.exists(saved_dir):
+        os.makedirs(saved_dir)
+    np.savetxt(f'{saved_dir}/to_load_V-{max_j}.csv', np.around(last_V).astype(int), fmt="%d")
 
     with open(saved_file_name+'-args.json', 'w' ,encoding='utf8') as f:
-        json.dump(args, f, ensure_ascii=False, indent=4)
+        json.dump(args.__dict__, f, ensure_ascii=False, indent=4)
         
-    fig, ax = plt.subplots(2, 2, figsize=(12, 8))
-    # init image
-    ax[0, 0].imshow(res_df.iloc[0]["_img"])
-    ax[0, 0].set_title(f"Init Image, pib={res_df.iloc[0]['pib']:.3f}")
-    ax[0, 0].axis("off")
-    # best image
-    ax[0, 1].imshow(res_df.iloc[max_j_id]["_img"])
-    ax[0, 1].set_title(f"Best Image, pib={max_j:.3f}")
-    ax[0, 1].axis("off")
-    # pib history
-    ax[1, 0].plot(res_df["pib"])
-    ax[1, 0].set_title("PIB History")
-    ax[1, 0].set_xlabel("Epoch")
-    ax[1, 0].set_ylabel("PIB")
-    # best voltages plot bar
-    ax[1, 1].bar(range(64), last_V)
-    ax[1, 1].set_title("Best Voltages")
-    ax[1, 1].set_xlabel("Unit ID")
-    ax[1, 1].set_ylabel("Voltage")
-        
-    plt.tight_layout()
-    plt.savefig(saved_file_name+'-plot.png')
-    plt.close()
+    if args.show:
+        fig, ax = plt.subplots(2, 2, figsize=(12, 8))
+        # init image
+        ax[0, 0].imshow(res_df.iloc[0]["_img"])
+        ax[0, 0].set_title(f"Init Image, pib={res_df.iloc[0]['pib']:.3f}")
+        ax[0, 0].axis("off")
+        # best image
+        ax[0, 1].imshow(res_df.iloc[max_j_id]["_img"])
+        ax[0, 1].set_title(f"Best Image, pib={max_j:.3f}")
+        ax[0, 1].axis("off")
+        # pib history
+        ax[1, 0].plot(res_df["pib"])
+        ax[1, 0].set_title("PIB History")
+        ax[1, 0].set_xlabel("Epoch")
+        ax[1, 0].set_ylabel("PIB")
+        # best voltages plot bar
+        ax[1, 1].bar(range(64), last_V)
+        ax[1, 1].set_title("Best Voltages")
+        ax[1, 1].set_xlabel("Unit ID")
+        ax[1, 1].set_ylabel("Voltage")
+            
+        plt.tight_layout()
+        plt.savefig(saved_file_name+'-plot.png')
+        plt.close()
     
 
 if __name__ == "__main__":
-    run()
+    args = argparse.ArgumentParser()
+    args.add_argument("--cam_id", type=int, default=1)
+    args.add_argument("--center", type=tuple, default=(665, 415))
+    args.add_argument("--exposure_time_ms", type=int, default=60)
+    args.add_argument("--epochs", type=int, default=4_000)
+    args.add_argument("--r_bucket", type=float, default=18)
+    args.add_argument("--delta", type=float, default=2)
+    args.add_argument("--lr", type=float, default=2)
+    args.add_argument("--shrank_iter", type=int, default=300)
+    args.add_argument("--show", type=bool, default=True)
+    
+    args = args.parse_args()
+    run(args)
