@@ -150,9 +150,9 @@ def optimizer(
         pib_mask = dist < 5
         
         if show:
-            total_height = VOLT_HEIGHT + LOG_J_HEIGHT + cam.cam_height
+            total_height = VOLT_HEIGHT + LOG_J_HEIGHT + (cam.cam_height or 400)
             pygame.init()
-            window = pygame.display.set_mode((cam.cam_width, total_height))
+            window = pygame.display.set_mode((cam.cam_width or 640, total_height))
 
         def calc_pib(img, r):
             if shrank_iter <= 0:
@@ -246,7 +246,7 @@ def optimizer(
 
                 if show:
                     render(
-                        window, pos_img, history, center, r_bucket, f"{epoch}: J={log['J']:.3f}", img_size
+                        window, pos_img, history, center, r_bucket, f"{epoch}: PIB={log['pib']:.3f}", img_size
                     )
                 
                 bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
@@ -305,7 +305,7 @@ if __name__ == "__main__":
     args.add_argument("--root_dir", type=str, default="data", help="数据保存根目录 (default: data)")
     args.add_argument("--cam_id", type=int, default=1, help="远场光斑CCD设备ID (default: 1)")
     args.add_argument("--center", type=tuple, default=(665, 415), help="远场光斑CCD中心位置 (default: (665, 415))")
-    args.add_argument("--exposure_time_ms", type=int, default=60, help="远场光斑CCD曝光时间 (毫秒) (default: 60)")
+    args.add_argument("--exposure_time_ms", type=int, default=50, help="远场光斑CCD曝光时间 (毫秒) (default: 60)")
     args.add_argument("--epochs", type=int, default=4_000, help="优化迭代次数 (default: 4000)")
     args.add_argument("--r_bucket", type=float, default=18, help="渲染半径桶大小 (default: 18)")
     args.add_argument("--delta", type=float, default=2, help="优化步长 (default: 2)")

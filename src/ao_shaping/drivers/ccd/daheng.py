@@ -138,8 +138,9 @@ class CameraStreamManager:
                 raw_image = self.cam.data_stream[0].get_image()
                 if any([not raw_image, raw_image.get_numpy_array() is None]):
                     continue
-                
-                numpy_image += raw_image.get_numpy_array().astype(np.uint8)
+                new_img = raw_image.get_numpy_array()
+                # 使用相同的数据类型进行加法运算，避免类型转换问题
+                numpy_image = numpy_image + new_img.astype(float)
                 break
         avg_img = numpy_image/n_sample
         return avg_img.astype(np.uint8)
@@ -162,10 +163,10 @@ if __name__ == '__main__':
     import numpy as np
 
     import matplotlib.pyplot as plt
-   
+    
     def test_cam(cam_id=0):
-        with CameraStreamManager(cam_id, exposure_time_ms=80) as cam:
-            img = cam.get_numpy_image()
+        with CameraStreamManager(cam_id, exposure_time_ms=50) as cam:
+            img = cam.get_numpy_image(10)
             center = np.unravel_index(np.argmax(img), img.shape)
             center = (center[1], center[0])
             print(f'{center=}')
@@ -174,6 +175,3 @@ if __name__ == '__main__':
             plt.show()
             
     test_cam(1)
-
-
-    

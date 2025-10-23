@@ -5,7 +5,6 @@ dmunitcompute.m 的Python实现
 """
 
 import numpy as np
-import matplotlib.pyplot as plt
 from pathlib import Path
 import pygame
 
@@ -22,8 +21,6 @@ def normalize_01(matrix):
     返回:
     normalized: 归一化后的矩阵
     """
-    import numpy as np
-    
     min_val = np.min(matrix)
     max_val = np.max(matrix)
     
@@ -46,8 +43,6 @@ def centroid_calculation(matrix):
     c_x: 质心x坐标
     c_y: 质心y坐标
     """
-    import numpy as np
-    
     # 获取矩阵尺寸
     rows, cols = matrix.shape
     
@@ -76,8 +71,6 @@ def calculate_derotation(x_actual, y_actual, theta):
     x_derotated: 消旋后的x坐标
     y_derotated: 消旋后的y坐标
     """
-    import numpy as np
-    
     # 步骤2：计算旋转角的余弦值和正弦值
     cos_theta = np.cos(theta)
     sin_theta = np.sin(theta)
@@ -107,59 +100,55 @@ def get_zernike_base_matrixs(folder_path = 'scripts/tuning_devices/stdWavefront'
         
     return wavefront_matrices
 
-def get_centroid(zernike_coef, wavefront_matrices):
+
+class ZernikeCentroidCalculator:
     # 计算100mm×100mm对应的像素尺寸  —（233，220）  （237，223）
     mm_size = 100  # 实际尺寸(mm)
     resolution_for_70mm = 360  # 70mm对应的像素数
+    shape = (resolution_for_70mm, resolution_for_70mm)
     pixel_per_mm = resolution_for_70mm / 70  # 每毫米的像素数
     pixel_size = int(round(mm_size * pixel_per_mm))  # 100mm对应的像素数
     mm_per_pixel = 1 / pixel_per_mm  # 每像素对应的毫米数 (约0.1944mm/像素)
     
-    print(f"像素尺寸: {pixel_size}x{pixel_size}")
-    print(f"每像素毫米数: {mm_per_pixel:.4f} mm/pixel")
+    # print(f"像素尺寸: {pixel_size}x{pixel_size}")
+    # print(f"每像素毫米数: {mm_per_pixel:.4f} mm/pixel")
+    def __init__(self, folder_path = 'scripts/tuning_devices/stdWavefront', black_level=0.0):
+        self.wavefront_matrices = get_zernike_base_matrixs(folder_path)
+        self.num_files = self.wavefront_matrices.shape[0]
+        self.black_level = black_level
+        
+    def get_centroid(self, zernike_coef):
+        """
+        计算给定Zernike系数组合的波前矩阵的质心坐标
+        """
+        zer_class = min(len(zernike_coef), self.num_files)
+        _zernike_coef = zernike_coef[:zer_class]
+        _wavefront_matrices = self.wavefront_matrices[:zer_class]
+        _zernike_base_matrix = np.sum(_wavefront_matrices * _zernike_coef[:, np.newaxis, np.newaxis], axis=0)
+        _zernike_base_matrix = normalize_01(_zernike_base_matrix)
+        _zernike_base_matrix = _zernike_base_matrix - self.black_level
+        _zernike_base_matrix = np.where(_zernike_base_matrix < 0, 0, _zernike_base_matrix)
+        cx, cy = centroid_calculation(_zernike_base_matrix)
+        return (cx, cy), _zernike_base_matrix
     
-    for i in range(1, num_files + 1):  # 模拟不同系数组合的实时计算
-        # 根据当前迭代次数选择相应的zernike系数
-        current_coef = zernike_coef[:min(i, len(zernike_coef))]  # 使用前i个系数
-        # 如果系数数量不足，用0填充
-        if len(current_coef) < i:
-            current_coef = np.pad(current_coef, (0, i - len(current_coef)), 'constant')
-        else:
-            current_coef = current_coef[:i]
-            
-        # 计算当前波前矩阵
-        zernike_base_matrix = np.zeros((360, 360))
-        for j in range(min(i, len(wavefront_matrices))):
-            zernike_base_matrix += wavefront_matrices[j] * current_coef[j]
+    def pix_to_mm(self, pix):
+        """
+        将像素坐标转换为毫米坐标
+        """
+        return (pix - self.resolution_for_70mm / 2) * self.mm_per_pixel
+    
+    def center_coordinate(self, cx, cy):
+        """
+        将像素坐标转换为毫米坐标
+        """
+        return (cx - self.resolution_for_70mm / 2), (cy - self.resolution_for_70mm / 2)
+    
+    # def __iter__(self):
+    #     self.wfs.initialize()
         
-        A = zernike_base_matrix
-        A1 = A.reshape(360, 360)
-        
-        # 归一化
-        A_norm = normalize_01(A1)
-        A_norm = A_norm - 0.0
-        
-        # 设置负值为0
-        A_norm[A_norm < 0] = 0
-        
-        # 计算质心
-        cx_A, cy_A = centroid_calculation(A_norm)
-        print(f'A1 质心: ({cx_A:.2f}, {cy_A:.2f})')
-        
-        theta = 0.1  # 示例角度
-        cx_A_derotated, cy_A_derotated = calculate_derotation(cx_A, cy_A, theta)
-        print(f'消旋后质心: ({cx_A_derotated:.2f}, {cy_A_derotated:.2f})')
-        
-        # 可视化部分（如果需要的话）
-        # matplotlib相关代码来显示图像
-        # plt.imshow(A_norm)
-        # plt.show()
-        
-        # 使用pygame显示图像和质心
-        visualize_with_pygame(A_norm, cx_A, cy_A)
         
     
-def visualize_with_pygame(matrix, cx, cy, title="Image Visualization"):
+def visualize_with_pygame(title="Image Visualization"):
     """
     使用pygame实时显示矩阵图像并在图像上显示质心坐标
     
@@ -171,28 +160,20 @@ def visualize_with_pygame(matrix, cx, cy, title="Image Visualization"):
     """
     # 初始化pygame
     pygame.init()
-    
+    calculator = ZernikeCentroidCalculator()
     # 设置窗口大小（根据矩阵大小调整）
-    height, width = matrix.shape
+    height, width = calculator.shape
     window_width = min(width, 800)  # 最大800像素宽
     window_height = min(height, 600)  # 最大600像素高
     screen = pygame.display.set_mode((window_width, window_height))
     pygame.display.set_caption(title)
-    
-    # 创建缩放后的图像表面
-    scale_x = window_width / width
-    scale_y = window_height / height
     scaled_surface = pygame.Surface((width, height))
     
-    # 将矩阵转换为RGB图像（归一化到0-255范围）
-    normalized_matrix = (matrix - np.min(matrix)) / (np.max(matrix) - np.min(matrix) + 1e-8)
-    rgb_matrix = np.stack([normalized_matrix*255]*3, axis=-1).astype(np.uint8)
-    
-    # 创建pygame表面
-    for y in range(height):
-        for x in range(width):
-            color = tuple(rgb_matrix[y, x])
-            pygame.draw.rect(scaled_surface, color, pygame.Rect(x, y, 1, 1))
+    def to_color(matrix, max_val=1):   
+        # 将矩阵转换为RGB图像（归一化到0-255范围）
+        normalized_matrix = (matrix) / (max_val + 1e-8)
+        rgb_matrix = np.stack([normalized_matrix*255]*3, axis=-1).astype(np.uint8)
+        return rgb_matrix
     
     # 缩放图像到窗口大小
     scaled_image = pygame.transform.scale(scaled_surface, (window_width, window_height))
@@ -223,16 +204,23 @@ def visualize_with_pygame(matrix, cx, cy, title="Image Visualization"):
                 if button_rect.collidepoint(event.pos):
                     running = False
         
+        zernike_coef = np.random.rand(20)*2-1
+        (dx, dy), img = calculator.get_centroid(zernike_coef)
+        cx, cy = calculator.center_coordinate(dx, dy)
+        cx, cy = calculate_derotation(cx, cy, np.deg2rad(45))
         # 绘制图像
+        scaled_image = pygame.surfarray.make_surface(to_color(img))
+        pygame.draw.circle(scaled_image, (255, 0, 0), (int(dx), int(dy)), 10, 15)
         screen.blit(scaled_image, (0, 0))
         
         # 显示质心坐标
-        text = font.render(f'A1 质心: ({cx:.2f}, {cy:.2f})', True, (255, 255, 255))  # 白色文字
-        screen.blit(text, (10, 10))
+        content = f'center: x={calculator.pix_to_mm(cx):.2f}mm, y={calculator.pix_to_mm(cy):.2f}mm'
+        text = font.render(content, True, (255, 255, 255))  # 白色文字
+        screen.blit(text, (10, window_height-font.size(content)[1]-10))
         
         # 绘制退出按钮
         pygame.draw.rect(screen, (255, 0, 0), button_rect)  # 红色按钮
-        button_text = small_font.render("退出", True, (255, 255, 255))  # 白色文字
+        button_text = small_font.render("Quit", True, (255, 255, 255))  # 白色文字
         text_rect = button_text.get_rect(center=button_rect.center)
         screen.blit(button_text, text_rect)
         
@@ -242,20 +230,21 @@ def visualize_with_pygame(matrix, cx, cy, title="Image Visualization"):
     
     pygame.quit()
 
-def main():
-    with Thorlab_WFS(MlaRes.Res768) as wfs, NlightDM() as dm:
-        vs = get_init_V_by_rms()
-        # TODO: 对称的驱动单元加电压
-        dm.send_voltages(vs, 0.1)
+# def main():
+    # with Thorlab_WFS(MlaRes.Res768) as wfs, NlightDM() as dm:
+    #     vs = get_init_V_by_rms()
+    #     # TODO: 对称的驱动单元加电压
+    #     dm.send_voltages(vs, 0.1)
         
-        wfs.high_speed = True
-        wfs.take_image(n_sample=10)
+    #     wfs.high_speed = True
+    #     wfs.take_image(n_sample=10)
         
-        # dx, dy = wfs.get_spot_deviation()
-        # rms = np.sqrt(np.nanmean(dx**2+dy**2))
-        coef = wfs.get_zernike(10)
-        print(coef)
-        get_centroid(coef)
+    #     # dx, dy = wfs.get_spot_deviation()
+    #     # rms = np.sqrt(np.nanmean(dx**2+dy**2))
+    #     coef = wfs.get_zernike(10)
+    #     print(coef)
+    #     get_centroid(coef)
+    
 
 if __name__ == "__main__":
-    main()
+    visualize_with_pygame()
