@@ -489,7 +489,8 @@ class WFSManager:
         # wavefront = np.where(wavefront==np.nan, 0, wavefront)
         return wavefront, {"min":min.value, "max":max.value, "diff":diff.value, "mean":mean.value, "rms":rms.value, "wighted_rms":wighted_rms.value}
 
-    def get_zernike(self, zernike_order=5, image_loop_counter: int = -1):
+    def get_zernike(self, zernike_order=10, image_loop_counter: int = -1):
+        assert zernike_order <= 10, "zernike order must be less than or equal to 10"
         roc_mm = c_double()
         coeff_num =  (zernike_order + 1) * (zernike_order + 2) // 2 + 1
         zernike_order = c_int32(zernike_order)
@@ -683,7 +684,23 @@ if __name__ == '__main__':
                 print(y[0,:])
                 # print(wfs.get_zernike(3))
                 print(wfs.get_wavefront()[0][0,:])
+                
+    def test_rms():
+        rms_hist = []
+        with WFSManager(MlaRes.Res768) as wfs:
+            wfs.high_speed = True
+            for _ in range(100):
+                wfs.take_image(n_sample=10)
+                
+                # dx, dy = wfs.get_spot_deviation()
+                # rms = np.sqrt(np.nanmean(dx**2+dy**2))
+                zernike_coeff = wfs.get_zernike(10)
+                print(zernike_coeff)
+                rms_hist.append(np.mean(np.sqrt(np.sum(zernike_coeff**2))))
+        return rms_hist
+    # test_wfs()
 
-    test_wfs()
-
+    rms_hist = test_rms()
+    plt.plot(rms_hist)
+    plt.show()
     

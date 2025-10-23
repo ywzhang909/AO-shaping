@@ -198,17 +198,23 @@ class DMSdk:
             raise Exception("device connection error.")
 
 
-def test():
-    import os
-    import tqdm
-    
-    v_dump_path = os.path.join(os.path.dirname(__file__), 'to_load_V.csv')
-    # v = np.loadtxt(v_dump_path)
-    with NLight(keep_when_exit=True) as dm:
-        for i in tqdm.trange(100_000):
-            v = np.zeros((dm.DM_Num,))
-            v[1] = 30 * np.sin(2* np.pi * (i/10))
-            dm.send_voltages(v, 0.2)
+
 
 if __name__ == '__main__':
-    test()
+    def test():
+        import os
+        import tqdm
+        
+        v_dump_path = os.path.join(os.path.dirname(__file__), 'to_load_V.csv')
+        # v = np.loadtxt(v_dump_path)
+        with NLight(keep_when_exit=True) as dm:
+            for i in tqdm.trange(100_000):
+                v = np.zeros((dm.DM_Num,))
+                v[1] = 30 * np.sin(2* np.pi * (i/10))
+                dm.send_voltages(v, 0.2)
+                
+    def turn_off():
+        with NLight(keep_when_exit=False) as dm:
+            dm.reset_all()
+            
+    turn_off()

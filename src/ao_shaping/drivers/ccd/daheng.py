@@ -136,10 +136,10 @@ class CameraStreamManager:
         for _ in range(n_sample):
             while True:
                 raw_image = self.cam.data_stream[0].get_image()
-                if not raw_image:
+                if any([not raw_image, raw_image.get_numpy_array() is None]):
                     continue
                 
-                numpy_image += raw_image.get_numpy_array()
+                numpy_image += raw_image.get_numpy_array().astype(np.uint8)
                 break
         avg_img = numpy_image/n_sample
         return avg_img.astype(np.uint8)

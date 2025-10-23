@@ -8,6 +8,7 @@ import pandas as pd
 
 import tqdm
 from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS
+from ao_shaping.utils import get_init_V_by_rms
 
 ROOT_DIR = "./data/wf"
 
@@ -90,8 +91,8 @@ def save_list(dir, data):
 
 def optimizer(
     epochs,
-    delta=1,
-    lr=1,
+    delta=1.0,
+    lr=1.0,
     weight_decay=0.001,
     algorithm: Literal[
         "spgd", "adam", "nadam", "adamod", "cool_momentum_spgd"
@@ -219,10 +220,16 @@ def optimizer(
                     lr = 1.2
                 elif avg_j > 0.15:
                     delta = 1
-                    lr = 1.0
-                else:
+                    lr = 1.1
+                elif avg_j > 0.12:
+                    delta = 0.9
+                    lr = 0.9
+                elif avg_j > 0.08:
                     delta = 0.8
                     lr = 0.8
+                else:
+                    delta = 0.7
+                    lr = 0.7
                 
                 log = {
                     "J": avg_j,
@@ -243,7 +250,7 @@ def optimizer(
         return history
 
 def run():
-    init_V = np.loadtxt("data/flatten_voltages/20251016/rms-0.130.csv")
+    init_V = get_init_V_by_rms()
     res_list = optimizer(
         init_v=init_V.copy(),
         epochs=10000, 

@@ -45,6 +45,7 @@ def test_all(vs: np.ndarray):
         
         
 if __name__ == "__main__":
-    # vs = np.loadtxt("data/to_load_V-9635.0.csv")
-    # test_all(vs)
-    turn_off_dm()
+    from ao_shaping.utils import get_init_V_by_rms
+    vs = get_init_V_by_rms()
+    test_all(vs)
+    # turn_off_dm()

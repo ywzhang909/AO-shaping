@@ -7,6 +7,7 @@ import tqdm
 import pygame
 
 from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS, CameraStreamManager
+from ao_shaping.utils import get_init_V_by_rms
 
 
 ROOT_DIR = "./data/wf"
@@ -90,7 +91,8 @@ def render(window,
     window.blit(pos_img_canvas, (0,0))
     # 扩大wavefront使得大小和img一样
     disp_wf = np.resize(wavefront[0], (img_x, img_y))
-    
+    # fill nan in disp_wf
+    disp_wf[np.isnan(disp_wf)] = 0
     neg_img_canvas = pygame.surfarray.make_surface(disp_wf.transpose())
     pygame.draw.circle(neg_img_canvas, (255, 0, 0), center, r, 1)
     window.blit(neg_img_canvas, (img_y+5,0))
@@ -121,7 +123,7 @@ def optimizer(
     epochs = int(epochs)
     _init_v = np.array(init_v)
     with Thorlab_WFS(MlaRes.Res768, use_custom_ref=False, high_speed=True, pupil_diameter=Pupil_Diameter) as wfs,\
-            CameraStreamManager(cam_id=0, exposure_time_ms=CAM_EXP_TIME, skip_sampling=False) as cam,\
+            CameraStreamManager(cam_id=1, exposure_time_ms=CAM_EXP_TIME, skip_sampling=False) as cam,\
             NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
         assert len(init_v) == dm.DM_Num
         dm.send_voltages(_init_v, 0.5)
@@ -169,7 +171,7 @@ def optimizer(
                 "_img": img[np.newaxis, ...],
             }
         ]
-        mode = 'rms' if rms > rms_threshold else 'pib'
+        mode = 'rms' if 6 > rms > rms_threshold else 'pib'
         
         if show:
             pygame.init()
@@ -194,7 +196,7 @@ def optimizer(
                 neg_img, neg_pib = calc_pib(bucket_mask)
 
                 # 如果rms大于阈值, 使用rms作用目标函数；否则使用pib
-                if min(pos_rms, neg_rms) > rms_threshold:
+                if min(pos_rms, neg_rms) > rms_threshold and max(pos_pib, neg_pib) < 6.0:
                     diff = -(pos_rms-neg_rms)
                     mode = 'rms'
                 else:
@@ -254,7 +256,7 @@ def run():
     init_V = np.zeros((64,))
     wfs_history = optimizer(
         init_v=init_V.tolist(),
-        epochs=10000)
+        epochs=100_000)
 
     # Find best voltage
     id_max = np.argmax([h["J"] for h in wfs_history])
