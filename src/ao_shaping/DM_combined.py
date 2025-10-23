@@ -52,12 +52,25 @@ def check_dm_unit_grad_safe(vs, adj_mat=DM_Adj, tolerance=Tolerance):
     return not np.any(diff_mat[diff_mat > tolerance])
 
 def schedule(rms):
+    '''
+    schedule the learning rate and momentum factor based on the rms of the wavefront
+    
+    Args:
+        rms (float): rms of the wavefront
+    
+    Returns:
+        tuple: A tuple containing the learning rate (lr) and delta (disturb voltage).
+    '''
     if rms > 0.3:
-        return 1.2, 2
+        return 1.2, 3
     elif rms > 0.15:
-        return 1.0,1
-    else:
+        return 1.0,1.1
+    elif rms > 0.12:
+        return 0.9, 0.9
+    elif rms > 0.08:
         return 0.8, 0.8
+    else:
+        return 0.7, 0.7
 
 def gen_file_name(dir, postfix=None):
     if postfix:

@@ -12,8 +12,6 @@ import matplotlib.pyplot as plt
 
 from ao_shaping.drivers import CameraStreamManager, NlightDM
 
-ROOT_DIR = "data/wf-less"
-
 # display settings
 VOLT_HEIGHT = 200
 LOG_J_HEIGHT = 200
@@ -54,6 +52,8 @@ def check_dm_unit_grad_safe(vs, adj_mat=DM_Adj, tolerance=Tolerance):
 
 
 def gen_file_name(dir, postfix: str = ''):
+    if not os.path.exists(dir):
+        os.makedirs(dir)
     fname = os.listdir(dir)
     if postfix:
         fname = len([_ for _ in fname if _.endswith(postfix)]) + 1
@@ -71,7 +71,7 @@ def gen_file_name(dir, postfix: str = ''):
     return path
 
 
-def render(window, img, log, center, r, info="") -> None:
+def render(window, img, log, center, r, info="", img_size=None) -> None:
     canvas = pygame.surfarray.make_surface(img.transpose())
     pygame.draw.circle(canvas, (255, 0, 0), center, r, 1)
     pygame.display.set_caption(info)
@@ -79,17 +79,31 @@ def render(window, img, log, center, r, info="") -> None:
     
     # 绘制电压图
     # 清空之前绘制的条形统计图
-    plot_area = pygame.Rect(0, IMG_SIZE[1], IMG_SIZE[0], VOLT_HEIGHT)
-    window.fill(BACKGROUND_COLOR, plot_area)
-    volts = log[-1]['_v']
-    bar_width = int(IMG_SIZE[0] / len(volts))
-    for i,value in enumerate(volts):
-        normed_v = (value-V_MIN)/(-V_MIN+V_MAX)
-        color = (int(normed_v*255), int((1-normed_v)*255), 0)
-        x = int(i * bar_width)
-        y = int(IMG_SIZE[1] + VOLT_HEIGHT)
-        height = int((value / V_MAX) *  VOLT_HEIGHT)
-        pygame.draw.line(window, color, (x, y), (x, y - height), bar_width)
+    if img_size is not None:
+        plot_area = pygame.Rect(0, img_size[1], img_size[0], VOLT_HEIGHT)
+        window.fill(BACKGROUND_COLOR, plot_area)
+        volts = log[-1]['_v']
+        bar_width = int(img_size[0] / len(volts))
+        for i,value in enumerate(volts):
+            normed_v = (value-V_MIN)/(-V_MIN+V_MAX)
+            color = (int(normed_v*255), int((1-normed_v)*255), 0)
+            x = int(i * bar_width)
+            y = int(img_size[1] + VOLT_HEIGHT)
+            height = int((value / V_MAX) *  VOLT_HEIGHT)
+            pygame.draw.line(window, color, (x, y), (x, y - height), bar_width)
+    else:
+        # 如果没有提供img_size，则使用默认值
+        plot_area = pygame.Rect(0, IMG_SIZE[1], IMG_SIZE[0], VOLT_HEIGHT)
+        window.fill(BACKGROUND_COLOR, plot_area)
+        volts = log[-1]['_v']
+        bar_width = int(IMG_SIZE[0] / len(volts))
+        for i,value in enumerate(volts):
+            normed_v = (value-V_MIN)/(-V_MIN+V_MAX)
+            color = (int(normed_v*255), int((1-normed_v)*255), 0)
+            x = int(i * bar_width)
+            y = int(IMG_SIZE[1] + VOLT_HEIGHT)
+            height = int((value / V_MAX) *  VOLT_HEIGHT)
+            pygame.draw.line(window, color, (x, y), (x, y - height), bar_width)
     
     pygame.event.pump()
     pygame.display.update()
@@ -104,10 +118,11 @@ def optimizer(
     exposure_time_ms=80,
     shrank_iter=0,
     shrank_ratio=0.9,
-    weights_class=1,
     cam_id=0,
     show=True,
-    init_v=[]
+    init_v=[],
+    cam_size=250,
+    **kwargs
 ):
     delta = abs(delta)
     epochs = int(epochs)
@@ -122,7 +137,9 @@ def optimizer(
             _init_v = np.array(init_v)
         dm.send_voltages(_init_v, 1)
 
-        img_size, _ = cam.reset_window(center, IMG_SIZE)
+        # 使用传入的相机尺寸参数
+        img_size = (cam_size, cam_size)
+        img_size, _ = cam.reset_window(center, img_size)
         init_img = cam.get_numpy_image(1)
         img_size = init_img.shape[::-1]
         xv, yv = np.ogrid[-img_size[0]//2:img_size[0]//2, -img_size[1]//2:img_size[1]//2]
@@ -229,7 +246,7 @@ def optimizer(
 
                 if show:
                     render(
-                        window, pos_img, history, center, r_bucket, f"{epoch}: J={log['J']:.3f}"
+                        window, pos_img, history, center, r_bucket, f"{epoch}: J={log['J']:.3f}", img_size
                     )
                 
                 bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
@@ -238,10 +255,11 @@ def optimizer(
         return history
 
 def run(args:argparse.Namespace):
+    root_dir = args.root_dir
     res_list = optimizer(**args.__dict__)
-    
+    # 保存结果
     res_df = pd.DataFrame(res_list)
-    saved_file_name = gen_file_name(ROOT_DIR, 'pkl')
+    saved_file_name = gen_file_name(os.path.join(root_dir,'wf-less'), 'pkl')
     res_df.to_pickle(saved_file_name, compression='zip')
     max_j_id = res_df['pib'].argmax()
     last_V = res_df.iloc[max_j_id]["_v"]
@@ -284,15 +302,17 @@ def run(args:argparse.Namespace):
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
-    args.add_argument("--cam_id", type=int, default=1)
-    args.add_argument("--center", type=tuple, default=(665, 415))
-    args.add_argument("--exposure_time_ms", type=int, default=60)
-    args.add_argument("--epochs", type=int, default=4_000)
-    args.add_argument("--r_bucket", type=float, default=18)
-    args.add_argument("--delta", type=float, default=2)
-    args.add_argument("--lr", type=float, default=2)
-    args.add_argument("--shrank_iter", type=int, default=300)
-    args.add_argument("--show", type=bool, default=True)
+    args.add_argument("--root_dir", type=str, default="data", help="数据保存根目录 (default: data)")
+    args.add_argument("--cam_id", type=int, default=1, help="远场光斑CCD设备ID (default: 1)")
+    args.add_argument("--center", type=tuple, default=(665, 415), help="远场光斑CCD中心位置 (default: (665, 415))")
+    args.add_argument("--exposure_time_ms", type=int, default=60, help="远场光斑CCD曝光时间 (毫秒) (default: 60)")
+    args.add_argument("--epochs", type=int, default=4_000, help="优化迭代次数 (default: 4000)")
+    args.add_argument("--r_bucket", type=float, default=18, help="渲染半径桶大小 (default: 18)")
+    args.add_argument("--delta", type=float, default=2, help="优化步长 (default: 2)")
+    args.add_argument("--lr", type=float, default=2, help="优化学习率 (default: 2)")
+    args.add_argument("--shrank_iter", type=int, default=300, help="优化迭代次数后收缩半径桶和步长 (default: 300)")
+    args.add_argument("--show", type=bool, default=True, help="显示远场光斑CCD图像和优化历史 (default: True)")
+    args.add_argument("--cam_size", type=int, default=250, help="相机开窗大小 (default: 250*250)")
     
     args = args.parse_args()
     run(args)

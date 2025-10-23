@@ -1,5 +1,6 @@
 #%%
 import os
+from pathlib import Path
 import tqdm
 
 from pathlib import Path
@@ -8,6 +9,7 @@ import pandas as pd
 import numpy as np
 
 import matplotlib.pyplot as plt
+from PIL import Image
 
 import math
 from scipy.optimize import curve_fit
@@ -45,7 +47,18 @@ for dir in DATA_DIR.iterdir():
         all_data_df.append(data)
         pkl_file.unlink()
 # %%
-
+data_dir = '../data/1021有风情况下远场光斑/spots'
+mass_of_centers = []
+for img_path in Path(data_dir).glob('*.jpg'):
+    img = Image.open(img_path)
+    img = np.array(img)
+    c = find_centroid(img)
+    mass_of_centers.append(c)
+    
+mass_of_centers = np.array(mass_of_centers)
+plt.plot(mass_of_centers[:, 0], label='x')
+plt.plot(mass_of_centers[:, 1], label='y')
+plt.legend()
 # %%
 min_iter = data.loc[data.J.compute().argmin(), :]
 max_iter = data.loc[data.J.compute().argmax(), :]

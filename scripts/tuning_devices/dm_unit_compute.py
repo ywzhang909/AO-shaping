@@ -4,17 +4,111 @@ dmunitcompute.m 的Python实现
 用于计算100mm×100mm对应的像素尺寸，并处理stdWavefront目录下的矩阵文件
 """
 
-import os
 import numpy as np
+import matplotlib.pyplot as plt
 from pathlib import Path
+import pygame
 
-# 导入自定义函数
-from .calculate_derotation import calculate_derotation
-from .centroid_calculation import centroid_calculation
-from .normalize_01 import normalize_01
+from ao_shaping.drivers import Thorlab_WFS, MlaRes, NlightDM
+from ao_shaping.utils import get_init_V_by_rms, get_init_V_by_energy
 
-def main():
-    # 计算100mm×100mm对应的像素尺寸  —（233，220）  （237，223）  
+def normalize_01(matrix):
+    """
+    将矩阵归一化到[0, 1]范围
+    
+    参数:
+    matrix: 输入矩阵
+    
+    返回:
+    normalized: 归一化后的矩阵
+    """
+    import numpy as np
+    
+    min_val = np.min(matrix)
+    max_val = np.max(matrix)
+    
+    # 避免除以零的情况
+    if max_val == min_val:
+        normalized = np.zeros_like(matrix)
+    else:
+        normalized = (matrix - min_val) / (max_val - min_val)
+    
+    return normalized
+
+def centroid_calculation(matrix):
+    """
+    计算矩阵的质心坐标
+    
+    参数:
+    matrix: 输入矩阵
+    
+    返回:
+    c_x: 质心x坐标
+    c_y: 质心y坐标
+    """
+    import numpy as np
+    
+    # 获取矩阵尺寸
+    rows, cols = matrix.shape
+    
+    # 创建坐标网格
+    x, y = np.meshgrid(np.arange(1, cols + 1), np.arange(1, rows + 1))
+    
+    # 计算总和
+    sum_intensity = np.sum(matrix)
+    
+    # 计算质心坐标 (加权平均)
+    c_x = np.sum(matrix * x) / sum_intensity
+    c_y = np.sum(matrix * y) / sum_intensity
+    
+    return c_x, c_y
+
+def calculate_derotation(x_actual, y_actual, theta):
+    """
+    计算消旋坐标变换（反向旋转theta角）
+    
+    参数:
+    x_actual: 实际x坐标
+    y_actual: 实际y坐标  
+    theta: 旋转角度
+    
+    返回:
+    x_derotated: 消旋后的x坐标
+    y_derotated: 消旋后的y坐标
+    """
+    import numpy as np
+    
+    # 步骤2：计算旋转角的余弦值和正弦值
+    cos_theta = np.cos(theta)
+    sin_theta = np.sin(theta)
+    
+    # 步骤3：执行消旋坐标变换（反向旋转theta角），公式依据专利消旋原理推导
+    x_derotated = x_actual * cos_theta + y_actual * sin_theta
+    y_derotated = -x_actual * sin_theta + y_actual * cos_theta
+    
+    # 步骤4：输出消旋后的坐标（保留6位小数，与专利实施例数据精度一致，如0.025mm、-0.144mm）
+    x_derotated = np.round(x_derotated, 6)
+    y_derotated = np.round(y_derotated, 6)
+    
+    return x_derotated, y_derotated
+
+def get_zernike_base_matrixs(folder_path = 'scripts/tuning_devices/stdWavefront'):
+    # 获取所有txt文件
+    txt_files = list(Path(folder_path).glob('*.txt'))
+    print(f"找到 {len(txt_files)} 个文件")
+    
+    # 一次性读取所有文件到一个三维数组中
+    num_files = len(txt_files)  # 最多处理64个文件
+    wavefront_matrices = np.zeros((num_files, 360, 360))
+    # 读取所有文件
+    for i in range(num_files):
+        data = np.loadtxt(txt_files[i])
+        wavefront_matrices[i] = data.reshape(360, 360)
+        
+    return wavefront_matrices
+
+def get_centroid(zernike_coef, wavefront_matrices):
+    # 计算100mm×100mm对应的像素尺寸  —（233，220）  （237，223）
     mm_size = 100  # 实际尺寸(mm)
     resolution_for_70mm = 360  # 70mm对应的像素数
     pixel_per_mm = resolution_for_70mm / 70  # 每毫米的像素数
@@ -24,59 +118,144 @@ def main():
     print(f"像素尺寸: {pixel_size}x{pixel_size}")
     print(f"每像素毫米数: {mm_per_pixel:.4f} mm/pixel")
     
-    # 读取stdWavefront下所有矩阵文件
-    folder_path = 'scripts/tuning_devices/stdWavefront'
-    file_pattern = '*.txt'
-    
-    # 获取所有txt文件
-    txt_files = list(Path(folder_path).glob('*.txt'))
-    print(f"找到 {len(txt_files)} 个文件")
-    
-    # 初始化矩阵
-    zernike_base_matrix = np.zeros((360, 360))
-    coeff = np.zeros((64, 1))
-    
-    # 处理每个文件
-    for i, file_path in enumerate(txt_files):
-        if i >= 64:  # 最多处理64个文件
-            break
+    for i in range(1, num_files + 1):  # 模拟不同系数组合的实时计算
+        # 根据当前迭代次数选择相应的zernike系数
+        current_coef = zernike_coef[:min(i, len(zernike_coef))]  # 使用前i个系数
+        # 如果系数数量不足，用0填充
+        if len(current_coef) < i:
+            current_coef = np.pad(current_coef, (0, i - len(current_coef)), 'constant')
+        else:
+            current_coef = current_coef[:i]
             
-        # 读取数据
-        data = np.loadtxt(file_path)
-        A1 = data.reshape(360, 360)
+        # 计算当前波前矩阵
+        zernike_base_matrix = np.zeros((360, 360))
+        for j in range(min(i, len(wavefront_matrices))):
+            zernike_base_matrix += wavefront_matrices[j] * current_coef[j]
         
-        # 根据注释中的逻辑，这里应该是累加操作
-        # 原始代码中使用了 coeff(i)，但没有定义coeff的值，这里假设为1
-        zernike_base_matrix = zernike_base_matrix + A1 * coeff[i] if i < len(coeff) else zernike_base_matrix + A1
+        A = zernike_base_matrix
+        A1 = A.reshape(360, 360)
         
-        print(f"处理文件: {file_path.name}")
+        # 归一化
+        A_norm = normalize_01(A1)
+        A_norm = A_norm - 0.0
+        
+        # 设置负值为0
+        A_norm[A_norm < 0] = 0
+        
+        # 计算质心
+        cx_A, cy_A = centroid_calculation(A_norm)
+        print(f'A1 质心: ({cx_A:.2f}, {cy_A:.2f})')
+        
+        theta = 0.1  # 示例角度
+        cx_A_derotated, cy_A_derotated = calculate_derotation(cx_A, cy_A, theta)
+        print(f'消旋后质心: ({cx_A_derotated:.2f}, {cy_A_derotated:.2f})')
+        
+        # 可视化部分（如果需要的话）
+        # matplotlib相关代码来显示图像
+        # plt.imshow(A_norm)
+        # plt.show()
+        
+        # 使用pygame显示图像和质心
+        visualize_with_pygame(A_norm, cx_A, cy_A)
+        
     
-    # 创建对应尺寸的二维数组
-    matrix_data = np.ones((pixel_size, pixel_size))
+def visualize_with_pygame(matrix, cx, cy, title="Image Visualization"):
+    """
+    使用pygame实时显示矩阵图像并在图像上显示质心坐标
     
-    A = zernike_base_matrix
-    A1 = A.reshape(360, 360)
+    参数:
+    matrix: 要显示的矩阵
+    cx: 质心x坐标
+    cy: 质心y坐标
+    title: 窗口标题
+    """
+    # 初始化pygame
+    pygame.init()
     
-    # 归一化
-    A_norm = normalize_01(A1)
-    A_norm = A_norm - 0.0
+    # 设置窗口大小（根据矩阵大小调整）
+    height, width = matrix.shape
+    window_width = min(width, 800)  # 最大800像素宽
+    window_height = min(height, 600)  # 最大600像素高
+    screen = pygame.display.set_mode((window_width, window_height))
+    pygame.display.set_caption(title)
     
-    # 设置负值为0
-    A_norm[A_norm < 0] = 0
+    # 创建缩放后的图像表面
+    scale_x = window_width / width
+    scale_y = window_height / height
+    scaled_surface = pygame.Surface((width, height))
     
-    # 计算质心
-    cx_A, cy_A = centroid_calculation(A_norm)
+    # 将矩阵转换为RGB图像（归一化到0-255范围）
+    normalized_matrix = (matrix - np.min(matrix)) / (np.max(matrix) - np.min(matrix) + 1e-8)
+    rgb_matrix = np.stack([normalized_matrix*255]*3, axis=-1).astype(np.uint8)
     
-    print(f'A1 质心: ({cx_A:.2f}, {cy_A:.2f})')
+    # 创建pygame表面
+    for y in range(height):
+        for x in range(width):
+            color = tuple(rgb_matrix[y, x])
+            pygame.draw.rect(scaled_surface, color, pygame.Rect(x, y, 1, 1))
     
-    # 可视化部分（如果需要的话）
-    # 这里可以添加matplotlib相关代码来显示图像
+    # 缩放图像到窗口大小
+    scaled_image = pygame.transform.scale(scaled_surface, (window_width, window_height))
     
-    # 如果需要进行消旋计算，可以调用calculate_derotation函数
-    # 例如：
-    # theta = 0.1  # 示例角度
-    # cx_A_derotated, cy_A_derotated = calculate_derotation(cx_A, cy_A, theta)
-    # print(f'消旋后质心: ({cx_A_derotated:.2f}, {cy_A_derotated:.2f})')
+    # 字体设置
+    font = pygame.font.Font(None, 36)
+    small_font = pygame.font.Font(None, 24)
+    
+    # 创建退出按钮
+    button_width = 100
+    button_height = 40
+    button_x = window_width - button_width - 10
+    button_y = 10
+    button_rect = pygame.Rect(button_x, button_y, button_width, button_height)
+    
+    # 主循环
+    running = True
+    clock = pygame.time.Clock()
+    
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    running = False
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if button_rect.collidepoint(event.pos):
+                    running = False
+        
+        # 绘制图像
+        screen.blit(scaled_image, (0, 0))
+        
+        # 显示质心坐标
+        text = font.render(f'A1 质心: ({cx:.2f}, {cy:.2f})', True, (255, 255, 255))  # 白色文字
+        screen.blit(text, (10, 10))
+        
+        # 绘制退出按钮
+        pygame.draw.rect(screen, (255, 0, 0), button_rect)  # 红色按钮
+        button_text = small_font.render("退出", True, (255, 255, 255))  # 白色文字
+        text_rect = button_text.get_rect(center=button_rect.center)
+        screen.blit(button_text, text_rect)
+        
+        # 更新显示
+        pygame.display.flip()
+        clock.tick(30)  # 30 FPS
+    
+    pygame.quit()
+
+def main():
+    with Thorlab_WFS(MlaRes.Res768) as wfs, NlightDM() as dm:
+        vs = get_init_V_by_rms()
+        # TODO: 对称的驱动单元加电压
+        dm.send_voltages(vs, 0.1)
+        
+        wfs.high_speed = True
+        wfs.take_image(n_sample=10)
+        
+        # dx, dy = wfs.get_spot_deviation()
+        # rms = np.sqrt(np.nanmean(dx**2+dy**2))
+        coef = wfs.get_zernike(10)
+        print(coef)
+        get_centroid(coef)
 
 if __name__ == "__main__":
     main()

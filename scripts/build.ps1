@@ -1,1 +1,1 @@
-uv run nuitka --show-progress --standalone --include-data-dir=./data=./data .\src\ao_shaping\DM_combined.py
+uv run nuitka --enable-plugin=tk-inter --show-progress --standalone --include-data-dir=./data=./data .\src\ao_shaping\DM_combined.py
