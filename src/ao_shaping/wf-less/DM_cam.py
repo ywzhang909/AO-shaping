@@ -11,6 +11,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from ao_shaping.drivers import CameraStreamManager, NlightDM
+from ao_shaping.algorithm.adam import AdaMOD
 from ao_shaping.utils.file import gen_file_path_uuid, gen_date_dir
 from ao_shaping.utils.display import ImageVoltagesDisplay
 
@@ -33,7 +34,7 @@ CAM_SAMPLE_ITER = 10
 KEEP_VOLTAGE_WHEN_EXIT = True
 
 
-def optimizer(
+def optimize_pib(
     center,
     r_bucket,
     epochs,
@@ -53,17 +54,13 @@ def optimizer(
     
     with CameraStreamManager(cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False) as cam,\
             NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT, max_neibor_diff=200) as dm:
-        # dm.reset_all()
+        optimizer = AdaMOD(dm.DM_Num, lr=lr, beta1=beta1, beta2=beta2, beta3=beta3, **kwargs)
 
         if not init_v:
             _init_v = np.zeros(dm.DM_Num, dtype=np.float64)
         else:
             _init_v = np.array(init_v)
         dm.send_voltages(_init_v, 1)
-        
-        m = np.zeros_like(_init_v, dtype=np.float64)
-        v = np.zeros_like(_init_v, dtype=np.float64)
-        s = 0
         
         # 使用传入的相机尺寸参数
         img_size = (cam_size, cam_size)
@@ -130,17 +127,10 @@ def optimizer(
 
                 diff = pos_j - neg_j
                 gradient = -diff * disturb_v
-                m = beta1 * m + (1 - beta1) * (gradient)
-                v = beta2 * v + (1 - beta2) * (gradient**2)
-                m_hat = m / (1 - beta1 ** (epoch))
-                v_hat = v / (1 - beta2 ** (epoch))
-                gamma = lr / (np.sqrt(v_hat) + 1e-8)
-                s = beta3 * s + (1 - beta3) * gamma
-                learning_rate = np.where(gamma<s, gamma, s)
-                update = _init_v - learning_rate * m_hat
-                   
-                if dm.check_dm_unit_grad_safe(update):
-                    _init_v = update
+                update = optimizer.update(gradient)
+                _to_update_v = np.clip(_init_v - update, dm.V_Min, dm.V_Max)
+                if dm.check_dm_unit_grad_safe(_to_update_v):
+                    _init_v = _to_update_v
                 else:
                     logger.warning("相邻单元压差过大，放弃本次结果")
 
@@ -148,7 +138,7 @@ def optimizer(
                     "J": (pos_j + neg_j) / 2,
                     "pib": test_pib(pos_img),
                     "_diff": diff,
-                    "gamma": lr,
+                    "gamma": optimizer.lr,
                     "r": r_bucket,
                     "delta": delta,
                     "_epoch": epoch,
@@ -160,7 +150,7 @@ def optimizer(
                 if shrank_iter > 0 and epoch % shrank_iter == shrank_iter - 1:
                     r_bucket = max(shrank_ratio * r_bucket, 4.0)
                     delta = max(delta * shrank_ratio, 0.6)
-                    lr = max(lr * shrank_ratio, 0.8)
+                    optimizer.lr = max(lr * shrank_ratio, 0.8)
 
                 if show:
                     window.render(
@@ -180,7 +170,7 @@ def run(args:argparse.Namespace):
         last_v = np.loadtxt(load_file)
         opti_args['init_v'] = last_v.tolist()
     
-    res_list = optimizer(**opti_args)
+    res_list = optimize_pib(**opti_args)
     # 保存结果
     res_df = pd.DataFrame(res_list)
     if root_dir:
@@ -237,6 +227,7 @@ if __name__ == "__main__":
     args.add_argument("--r_bucket", type=float, default=18, help="渲染半径桶大小 (default: 18)")
     args.add_argument("--delta", type=float, default=2, help="优化步长 (default: 2)")
     args.add_argument("--lr", type=float, default=2, help="优化学习率 (default: 2)")
+    args.add_argument("--weight_decay", type=float, default=0.0, help="权重衰减 (default: 0.0)")
     args.add_argument("--shrank_iter", type=int, default=300, help="优化迭代次数后收缩半径桶和步长 (default: 300)")
     args.add_argument("--show", type=bool, default=True, help="显示远场光斑CCD图像和优化历史 (default: True)")
     args.add_argument("--cam_size", type=int, default=200, help="相机开窗大小 (default: 200*200)")

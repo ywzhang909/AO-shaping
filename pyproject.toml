@@ -44,6 +44,7 @@ dependencies = [
     "typing-extensions>=4.12.2",
     "pyside6>=6.7.3",
     "pyside6-fluent-widgets>=1.6.5",
+    "numba>=0.62.1",
 ]
 
 [[tool.uv.index]]
