@@ -1,4 +1,5 @@
 import os
+from loguru import logger
 import datetime
 import json
 import tqdm
@@ -38,19 +39,6 @@ IMG_SIZE = (250, 250)
 # dm parameters
 KEEP_VOLTAGE_WHEN_EXIT = True
 
-V_MAX = 499
-V_MIN = -300
-UPDATE_MAX = 20
-DM_Adj = np.loadtxt('data/dm_adj.txt')
-Tolerance = 300
-print(f"相邻单元矩阵加载完成:{DM_Adj.shape},最大压差:{Tolerance}")
-
-def check_dm_unit_grad_safe(vs, adj_mat=DM_Adj, tolerance=Tolerance):
-    assert len(vs) == DM_Adj.shape[0] == DM_Adj.shape[1]
-    diff_mat = (vs[:,None] - vs[None,:]) * adj_mat
-    return not np.any(diff_mat[diff_mat > tolerance])
-
-
 def gen_file_name(dir, postfix: str = ''):
     if not os.path.exists(dir):
         os.makedirs(dir)
@@ -71,39 +59,24 @@ def gen_file_name(dir, postfix: str = ''):
     return path
 
 
-def render(window, img, log, center, r, info="", img_size=None) -> None:
+def render(window, img, log, center, r, info="", img_size=IMG_SIZE) -> None:
     canvas = pygame.surfarray.make_surface(img.transpose())
     pygame.draw.circle(canvas, (255, 0, 0), center, r, 1)
     pygame.display.set_caption(info)
     window.blit(canvas, (0,0))
-    
     # 绘制电压图
     # 清空之前绘制的条形统计图
-    if img_size is not None:
-        plot_area = pygame.Rect(0, img_size[1], img_size[0], VOLT_HEIGHT)
-        window.fill(BACKGROUND_COLOR, plot_area)
-        volts = log[-1]['_v']
-        bar_width = int(img_size[0] / len(volts))
-        for i,value in enumerate(volts):
-            normed_v = (value-V_MIN)/(-V_MIN+V_MAX)
-            color = (int(normed_v*255), int((1-normed_v)*255), 0)
-            x = int(i * bar_width)
-            y = int(img_size[1] + VOLT_HEIGHT)
-            height = int((value / V_MAX) *  VOLT_HEIGHT)
-            pygame.draw.line(window, color, (x, y), (x, y - height), bar_width)
-    else:
-        # 如果没有提供img_size，则使用默认值
-        plot_area = pygame.Rect(0, IMG_SIZE[1], IMG_SIZE[0], VOLT_HEIGHT)
-        window.fill(BACKGROUND_COLOR, plot_area)
-        volts = log[-1]['_v']
-        bar_width = int(IMG_SIZE[0] / len(volts))
-        for i,value in enumerate(volts):
-            normed_v = (value-V_MIN)/(-V_MIN+V_MAX)
-            color = (int(normed_v*255), int((1-normed_v)*255), 0)
-            x = int(i * bar_width)
-            y = int(IMG_SIZE[1] + VOLT_HEIGHT)
-            height = int((value / V_MAX) *  VOLT_HEIGHT)
-            pygame.draw.line(window, color, (x, y), (x, y - height), bar_width)
+    plot_area = pygame.Rect(0, img_size[1], img_size[0], VOLT_HEIGHT)
+    window.fill(BACKGROUND_COLOR, plot_area)
+    volts = log[-1]['_v']
+    bar_width = int(img_size[0] / len(volts))
+    for i,value in enumerate(volts):
+        normed_v = (value-NlightDM.V_Min)/(NlightDM.V_Max-NlightDM.V_Min)
+        color = (int(normed_v*255), int((1-normed_v)*255), 0)
+        x = int(i * bar_width)
+        y = int(img_size[1] + VOLT_HEIGHT)
+        height = int((value / NlightDM.V_Max) *  VOLT_HEIGHT)
+        pygame.draw.line(window, color, (x, y), (x, y - height), bar_width)
     
     pygame.event.pump()
     pygame.display.update()
@@ -220,11 +193,11 @@ def optimizer(
                 learning_rate = np.where(gamma<s, gamma, s)
                 update = learning_rate * m_hat
 
-                _to_update_v = np.clip(_init_v - update, V_MIN, V_MAX)
-                if check_dm_unit_grad_safe(_to_update_v):
+                _to_update_v = np.clip(_init_v - update, dm.V_Min, dm.V_Max)
+                if dm.check_dm_unit_grad_safe(_to_update_v):
                     _init_v = _to_update_v
                 else:
-                    print("相邻单元压差过大，放弃本次结果")
+                    logger.warning("相邻单元压差过大，放弃本次结果")
 
                 log = {
                     "J": (pos_j + neg_j) / 2,
@@ -264,7 +237,7 @@ def run(args:argparse.Namespace):
     max_j_id = res_df['pib'].argmax()
     last_V = res_df.iloc[max_j_id]["_v"]
     max_j = res_df.iloc[max_j_id]['pib']
-    print(f"{max_j_id} -> {max_j}")
+    logger.info(f"{max_j_id} -> {max_j}")
 
     saved_dir = f'data/flatten_voltages/{datetime.datetime.now().strftime("%Y%m%d")}'
     if not os.path.exists(saved_dir):

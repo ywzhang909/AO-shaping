@@ -34,3 +34,5 @@ DM_cam.*
 DM_combined.dist*
 
 logs/**/*.png
+logs/*.txt
+scripts/logs*

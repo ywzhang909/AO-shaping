@@ -8,15 +8,17 @@ import findlibs
 
 DM_NUM = 64
 
+def _load_adj_txt():
+    return np.loadtxt('data/dm_adj.txt')
+
 class NLight(DM):
     DM_Num: int = DM_NUM
-    v_min, v_max = -300, 499
+    V_Min, V_Max = -300, 499
+    Units_Adj_Mat = _load_adj_txt()
 
     def __init__(self, max_iter_diff=20, max_neibor_diff=0, keep_when_exit=True):
         assert max_iter_diff <= 200
         assert max_neibor_diff <= 300
-
-        self.units_adj_mat = self._load_adj_txt()
 
         self.__last_v = np.zeros(self.DM_Num)
         self.max_iter_diff = max_iter_diff
@@ -42,7 +44,7 @@ class NLight(DM):
     def transform(self, cmd:np.ndarray) -> np.ndarray:
         """Transform command to DM actuators"""
         cmd = np.clip(cmd, -1, 1)
-        return (cmd + 1) * (self.v_max - self.v_min) / 2 + self.v_min
+        return (cmd + 1) * (self.V_Max - self.V_Min) / 2 + self.V_Min
 
     def send(self, cmd):
         """Send command to DM - accepts voltage array"""
@@ -85,16 +87,16 @@ class NLight(DM):
         time.sleep(0.5)
         return ret
 
-    @staticmethod
-    def _load_adj_txt():
-        return np.loadtxt('data/dm_adj.txt')
-
     def get_neighbors(self, unit_id):
-        return np.where(self.units_adj_mat[unit_id, :] == 1)[0]
+        return np.where(self.Units_Adj_Mat[unit_id, :] == 1)[0]
+    
+    def check_dm_unit_grad_safe(self, vs):
+        diff_mat = (vs[:,None] - vs[None,:]) * self.Units_Adj_Mat
+        return not np.any(diff_mat[diff_mat > self.max_neibor_diff])
 
     def _reset_nerbors_voltage_in_range(self, unit_id, voltages, checked_mask=None):
         if checked_mask is None:
-            checked_mask = np.zeros_like(self.units_adj_mat, dtype=bool)
+            checked_mask = np.zeros_like(self.Units_Adj_Mat, dtype=bool)
         min_v, max_v = voltages[unit_id]-self.max_neibor_diff, voltages[unit_id]+self.max_neibor_diff
         for nerbor in self.get_neighbors(unit_id):
             if not checked_mask[unit_id, nerbor]:

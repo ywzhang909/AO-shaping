@@ -1,1 +1,1 @@
-uv run nuitka --enable-plugin=tk-inter --show-progress --standalone --include-data-dir=./data=./data .\src\ao_shaping\DM_combined.py
+uv run nuitka --enable-plugin=tk-inter --show-progress --standalone --include-data-file=.\libs\Drv_UDPST\x64\Release\Drv_UDPST.dll=Drv_UDPST.dll --include-data-dir=./data=./data .\src\ao_shaping\wf-less\DM_cam.py

@@ -1,18 +1,17 @@
-import os
+import time
 from typing import Literal
+import asyncio
+import concurrent.futures
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 import tqdm
-from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS
-from ao_shaping.utils import gen_file_path_uuid, get_init_V_by_rms
+from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS, CameraStreamManager
+from ao_shaping.utils import gen_file_path_uuid, gen_file_name_inc
 
-ROOT_DIR = "./data/wf"
-
-# metrics
-R_Bucket = 10
-Img_Size = (200,200)
+ROOT_DIR = "./data/img2img"
 
 # adam parameters
 beta1 = 0.9
@@ -26,14 +25,13 @@ Rho_0 = 0.99
 METROPOLIS_ALPHA = 0.8
 
 # dm parameters
-KEEP_VOLTAGE_WHEN_EXIT = True
+KEEP_VOLTAGE_WHEN_EXIT = False
 
-V_MAX = NlightDM.V_Max
-V_MIN = NlightDM.V_Min
-
-def check_dm_unit_grad_safe(vs, adj_mat=NlightDM.Units_Adj_Mat, tolerance=NlightDM.Tolerance):
-    diff_mat = (vs[:,None] - vs[None,:]) * adj_mat
-    return not np.any(diff_mat[diff_mat > tolerance])
+async def async_to_pickle(df, file_path, **kwargs):
+    """异步执行to_pickle操作"""
+    loop = asyncio.get_event_loop()
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        await loop.run_in_executor(executor, lambda: df.to_pickle(file_path, **kwargs))
 
 def learning_schedule(
     lr, epoch, epochs, method: Literal["static", "cosin", "exp", "linear"] = "static"
@@ -55,15 +53,8 @@ def learning_schedule(
     else:
         raise ValueError("method must be static, cosin, exp or linear")
 
-def save_list(dir, data):
-    f_name = len(os.listdir(dir))+1
-    save_path = os.path.join(dir, str(f_name)) + '.pkl'
-    res_df = pd.DataFrame(data)
-    res_df.to_pickle(save_path)
-    print(f"\n{len(res_df)} saved @ {save_path}")
-    del res_df
-
 def optimizer(
+    saved_dir,
     epochs,
     delta=1.0,
     lr=1.0,
@@ -76,60 +67,89 @@ def optimizer(
     ] = "static",
     metropolis_temperature=0,
     v0=0,
-    init_v=None
+    init_v=None,
 ):
     delta = abs(delta)
     epochs = int(epochs)
 
-    with Thorlab_WFS(MlaRes.Res768, use_custom_ref=False, high_speed=True, pupil_diameter=2.7) as wfs,\
-            NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
+    with Thorlab_WFS(MlaRes.Res512, use_custom_ref=False, high_speed=False, pupil_diameter=0.0) as wfs,\
+            NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm, \
+            CameraStreamManager(cam_id=1, exposure_time_ms=20) as cam_axis, \
+            CameraStreamManager(cam_id=0, exposure_time_ms=20) as cam_focal:
 
         if init_v is None:
             _init_v = np.zeros(dm.DM_Num, dtype=np.float64)
             _init_v[0] = v0
         else:
             _init_v = np.array(init_v)
-        dm.send_voltages(_init_v, 0.5)
-
-        def calc_j():
-            wfs.take_image(5)
+        dm.send_voltages(_init_v, 1)
+        
+        def get_data():
+            wfs.take_image()
             wf, statics = wfs.get_wavefront()
-            return wf, statics
+            return statics, wf, cam_axis.get_numpy_image(), cam_focal.get_numpy_image()
 
-        wf, statics = calc_j()
-
+        wf_statics, wf, cam_axis_img, cam_focal_img = get_data()
         history = [
             {
-                "J": statics['rms'],
+                "J": wf_statics['rms'],
                 "_v": _init_v,
                 "_diff": 0,
                 "_gamma": lr,
                 "delta": delta,
-                "_epoch": -1,
-                "_wavefront": wf[np.newaxis, ...],
-                "_statics": statics
+                "_epoch": 0,
+                "_cam_axis": cam_axis_img,
+                "_cam_focal": cam_focal_img,
+                "_wavefront": wf
             }
         ]
-
+        J_v_history = [
+            {
+                "J": wf_statics['rms'],
+                "v": _init_v,
+                "_epoch": 0,
+            }
+        ]
         with tqdm.tqdm(
             total=epochs, desc=f"{algorithm} iter {epochs}", dynamic_ncols=True
         ) as bar:
-            for epoch in range(epochs):
+            s_time = time.perf_counter()
+            for epoch in range(1, epochs+1):
                 disturb_v = np.random.binomial(1, 0.5, (dm.DM_Num,)).astype(float) * 2.0 - 1.0
 
                 disturb_v = disturb_v * delta
                 disturb_v[0] = 0
 
-                pos_vs = dm.send_voltages(_init_v + disturb_v)
-                pos_wf, pos_statics = calc_j()
-                pos_j = pos_statics['rms']
+                dm.send_voltages(_init_v + disturb_v)
+                wf_statics, wf, cam_axis_img, cam_focal_img = get_data()
+                pos_j = wf_statics['rms']
+                history.append({
+                    "J": pos_j,
+                    "_diff": pos_j - history[-1]["J"],
+                    "_epoch": epoch,
+                    "_v": _init_v + disturb_v,
+                    "_cam_axis": cam_axis_img,
+                    "_cam_focal": cam_focal_img,
+                    "_wavefront": wf,
+                    "_time": time.perf_counter() - s_time
+                })
 
-                ng_vs = dm.send_voltages(_init_v - disturb_v)
-                neg_wf, neg_statics = calc_j()
-                neg_j = neg_statics['rms']
-                
-                diff = pos_statics['rms'] - neg_statics['rms']
-                gradient = -diff * disturb_v
+                dm.send_voltages(_init_v - disturb_v)
+                wf_statics, wf, cam_axis_img, cam_focal_img = get_data()
+                neg_j = wf_statics['rms']
+                history.append({
+                    "J": neg_j,
+                    "_diff": pos_j - neg_j,
+                    "_epoch": epoch,
+                    "_v": _init_v + disturb_v,
+                    "_cam_axis": cam_axis_img,
+                    "_cam_focal": cam_focal_img,
+                    "_wavefront": wf,
+                    "_time": time.perf_counter() - s_time
+                })
+
+                diff = pos_j - neg_j
+                gradient = diff * disturb_v
                 lr = learning_schedule(lr, epoch, epochs, method=lr_schedul)
                 if algorithm == "spgd":
                     update = lr * gradient - lr * weight_decay * _init_v
@@ -170,7 +190,7 @@ def optimizer(
                     update = rho_n * momentum + learning_rate * (gradient)
                     momentum = update
 
-                update = np.clip(update, -dm.max_iter_diff+delta, dm.max_iter_diff-delta)
+                update = np.clip(update, -dm.max_neibor_diff+delta, dm.max_neibor_diff-delta)
                 if metropolis_temperature > 0:
                     # 使用模拟退火接受或拒绝更新
                     last_J = history[-1]["J"]
@@ -178,75 +198,71 @@ def optimizer(
                     if metropolis > 0 or np.random.rand() < np.exp(
                         metropolis / metropolis_temperature
                     ):
-                        _to_update_v = np.clip(_init_v - update, V_MIN, V_MAX)
+                        _to_update_v = np.clip(_init_v - update, dm.V_Min, dm.V_Max)
                     metropolis_temperature *= METROPOLIS_ALPHA
                 else:
-                    _to_update_v = np.clip(_init_v - update, V_MIN, V_MAX)
+                    _to_update_v = np.clip(_init_v - update, dm.V_Min, dm.V_Max)
                 
-                if check_dm_unit_grad_safe(_to_update_v):
+                if dm.check_dm_unit_grad_safe(_to_update_v):
                     _init_v = _to_update_v
                 else:
                     print("相邻单元压差过大，放弃本次结果")
 
                 avg_j = (pos_j + neg_j) / 2
-                if avg_j > 0.3:
+                if avg_j > 0.2:
                     delta = 3
-                    lr = 1.2
-                elif avg_j > 0.15:
-                    delta = 1
-                    lr = 1.1
-                elif avg_j > 0.12:
-                    delta = 0.9
-                    lr = 0.9
-                elif avg_j > 0.08:
-                    delta = 0.8
-                    lr = 0.8
+                elif avg_j > 0.1:
+                    delta = 2
                 else:
-                    delta = 0.7
-                    lr = 0.7
+                    delta = 1
                 
-                log = {
+                log = history[-1]
+                J_v_history.append({
                     "J": avg_j,
-                    "_diff": diff,
-                    "_gamma": lr,
-                    "delta": delta,
+                    "v": _init_v,
                     "_epoch": epoch,
-                    "_v": _init_v,
-                    "_pos_v": pos_vs,
-                    "_neg_v": ng_vs,
-                    "_statics": {"pos": pos_statics, "neg": neg_statics},
-                }
-                history.append(log)
-                    
+                })
+                # earlying schedule
+
                 bar.set_postfix({k: f'{v:.4f}' for k, v in log.items() if k[0] != "_"})
                 bar.update(1)
-
-        return history
+                
+                if len(history) >= 1000 or epoch == epochs-1:
+                    res_df = pd.DataFrame(history)
+                    del history
+                    history = []
+                    file_path = gen_file_name_inc(saved_dir, "pkl")
+                    asyncio.run(async_to_pickle(res_df, file_path))
+                    
+        return J_v_history
 
 def run():
-    init_V = get_init_V_by_rms()
+    init_V = np.random.random((64,))*100 - 50
+    init_V[0] = 0
+    
+    save_dir = gen_file_path_uuid(ROOT_DIR)
+
     res_list = optimizer(
+        saved_dir=save_dir,
         init_v=init_V.copy(),
         epochs=10000, 
-        delta=4,
+        delta=2, # 扰动要和桶半径匹配，不要扰动会导致质心出桶
         lr=1.2, 
         algorithm="adamod",
         metropolis_temperature=0,
         lr_schedul="static")
-
-    res_df = pd.DataFrame(res_list)
-    dir_name = gen_file_path_uuid(ROOT_DIR)
-    res_df.to_pickle(os.path.join(dir_name,'data.pkl'))
-    min_id = res_df["J"].argmin()
-    min_iter = res_df.iloc[min_id]
     
-    # 在data/flatten_voltages下生成名称为当前日期的目录并保存电压
-    from datetime import datetime
-    dir_name = datetime.now().strftime("%Y%m%d")
-    os.makedirs(os.path.join("data/flatten_voltages", dir_name), exist_ok=True)
-    np.savetxt(os.path.join("data/flatten_voltages", dir_name, f'rms-{min_iter["J"]:.3f}.csv'), min_iter["_v"], fmt="%d")
+    res_df = pd.DataFrame(res_list)
+    max_j_id = res_df['J'].argmax()
+    last_V = res_df.iloc[max_j_id]["_v"]
+    print(f"{max_j_id} -> {res_df.iloc[max_j_id]['J']}")
+
+    fig, ax = plt.subplots(2, 1)
+    ax[0].bar(x=np.arange(64)-0.25, height=init_V, width=0.5)
+    ax[0].bar(x=np.arange(64)+0.25, height=last_V, width=0.5)
+    ax[1].plot(res_df['J'])
+    plt.savefig(gen_file_path_uuid(save_dir, "png"))
 
 if __name__ == "__main__":
-    for iter in range(1):
-        print(f"Collect data @ iter:{iter}")
+   for _ in range(50):
         run()
