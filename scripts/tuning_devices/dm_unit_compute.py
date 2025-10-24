@@ -7,6 +7,7 @@ dmunitcompute.m 的Python实现
 import numpy as np
 from pathlib import Path
 import pygame
+from contextlib import contextmanager
 
 from ao_shaping.drivers import Thorlab_WFS, MlaRes, NlightDM
 from ao_shaping.utils import get_init_V_by_rms, get_init_V_by_energy
@@ -100,6 +101,11 @@ def get_zernike_base_matrixs(folder_path = 'scripts/tuning_devices/stdWavefront'
         
     return wavefront_matrices
 
+def to_color(matrix, max_val=1):   
+        # 将矩阵转换为RGB图像（归一化到0-255范围）
+        normalized_matrix = (matrix) / (max_val + 1e-8)
+        rgb_matrix = np.stack([normalized_matrix*255]*3, axis=-1).astype(np.uint8)
+        return rgb_matrix
 
 class ZernikeCentroidCalculator:
     # 计算100mm×100mm对应的像素尺寸  —（233，220）  （237，223）
@@ -147,7 +153,7 @@ class ZernikeCentroidCalculator:
     #     self.wfs.initialize()
         
         
-    
+@contextmanager
 def visualize_with_pygame(title="Image Visualization"):
     """
     使用pygame实时显示矩阵图像并在图像上显示质心坐标
@@ -169,12 +175,6 @@ def visualize_with_pygame(title="Image Visualization"):
     pygame.display.set_caption(title)
     scaled_surface = pygame.Surface((width, height))
     
-    def to_color(matrix, max_val=1):   
-        # 将矩阵转换为RGB图像（归一化到0-255范围）
-        normalized_matrix = (matrix) / (max_val + 1e-8)
-        rgb_matrix = np.stack([normalized_matrix*255]*3, axis=-1).astype(np.uint8)
-        return rgb_matrix
-    
     # 缩放图像到窗口大小
     scaled_image = pygame.transform.scale(scaled_surface, (window_width, window_height))
     
@@ -193,7 +193,17 @@ def visualize_with_pygame(title="Image Visualization"):
     running = True
     clock = pygame.time.Clock()
     
-    while running:
+    # WFS init
+    wfs = Thorlab_WFS(MlaRes.Res768)
+    wfs.initialize()
+    
+    exposure_time, gain = wfs.optimize_exposure_time_and_gain()
+    wfs.exposure_time = exposure_time
+    wfs.optimize_pupil()
+    wfs.pupil = wfs.optimize_pupil()
+    
+    try:
+        assert running
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -204,7 +214,7 @@ def visualize_with_pygame(title="Image Visualization"):
                 if button_rect.collidepoint(event.pos):
                     running = False
         
-        zernike_coef = np.random.rand(20)*2-1
+        zernike_coef = wfs.get_zernike()
         (dx, dy), img = calculator.get_centroid(zernike_coef)
         cx, cy = calculator.center_coordinate(dx, dy)
         cx, cy = calculate_derotation(cx, cy, np.deg2rad(45))
@@ -227,24 +237,15 @@ def visualize_with_pygame(title="Image Visualization"):
         # 更新显示
         pygame.display.flip()
         clock.tick(30)  # 30 FPS
-    
-    pygame.quit()
-
-# def main():
-    # with Thorlab_WFS(MlaRes.Res768) as wfs, NlightDM() as dm:
-    #     vs = get_init_V_by_rms()
-    #     # TODO: 对称的驱动单元加电压
-    #     dm.send_voltages(vs, 0.1)
+        yield
+    except AssertionError as e:
+        pass
+    finally:
+        wfs.close()
+        pygame.quit()
         
-    #     wfs.high_speed = True
-    #     wfs.take_image(n_sample=10)
-        
-    #     # dx, dy = wfs.get_spot_deviation()
-    #     # rms = np.sqrt(np.nanmean(dx**2+dy**2))
-    #     coef = wfs.get_zernike(10)
-    #     print(coef)
-    #     get_centroid(coef)
     
 
 if __name__ == "__main__":
-    visualize_with_pygame()
+    while True:
+        visualize_with_pygame()

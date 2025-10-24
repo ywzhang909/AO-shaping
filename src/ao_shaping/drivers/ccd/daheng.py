@@ -57,6 +57,7 @@ class CameraStreamManager:
 
         sn = dev_info_list[self.cam_id].get("sn")
         self.cam = self.device_manager.open_device_by_sn(sn)
+        assert self.cam, "camera not found"
         # 设置相机的曝光时间
         self.cam.ExposureTime.set(self.exposure_time_ms)
         # 设置相机的增益
@@ -80,6 +81,16 @@ class CameraStreamManager:
         self.cam.stream_on()
 
     def reset_exposure_time(self, time_ms:int):
+        """
+        重置相机的曝光时间。
+
+        参数:
+        time_ms (int): 新的曝光时间，单位为毫秒。必须大于等于20。
+
+        返回:
+        int: 实际设置的曝光时间，单位为毫秒。
+        """
+        assert self.cam, "camera not initialized"
         if time_ms >= 20:
             self.exposure_time_ms = time_ms
         else:
@@ -100,6 +111,7 @@ class CameraStreamManager:
         Tuple[int]: 新的窗口中心位置，格式为 (x坐标, y坐标)。
         """
         # 中心坐标大于0
+        assert self.cam, "camera not initialized"
         center = tuple(int(c) for c in center)
         self.cam.stream_off()
         # 如果未指定窗口大小，则使用相机的最大宽度和高度
@@ -130,7 +142,17 @@ class CameraStreamManager:
         return (width, height), (width//2, height//2)
 
     def get_numpy_image(self, n_sample=1) -> np.ndarray:
-        assert n_sample>0
+        """
+        获取相机的图像数据，进行平均处理。
+
+        参数:
+        n_sample (int): 采样次数，用于计算平均图像。必须大于0。
+
+        返回:
+        np.ndarray: 处理后的平均图像，数据类型为uint8。
+        """
+        assert self.cam, "camera not initialized"
+        assert n_sample>0, "n_sample must > 0"
         
         numpy_image = np.zeros((self.cam_height, self.cam_width))
         for _ in range(n_sample):
@@ -146,6 +168,7 @@ class CameraStreamManager:
         return avg_img.astype(np.uint8)
 
     def __update_properties(self):
+        assert self.cam, "camera not initialized"
         self.cam_width = self.cam.Width.get()
         self.cam_height = self.cam.Height.get()
         log.info(f"Open cam {self.__sn} success. width={self.cam_width}, height={self.cam_height}")

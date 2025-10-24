@@ -4,7 +4,7 @@ import pandas as pd
 
 import tqdm
 import pygame
-import utils.utils as utils
+from ao_shaping.utils import centroid
 from drivers import CameraStreamManager, NlightDM
 
 ROOT_DIR = r"D:\ao-project\data"
@@ -105,7 +105,7 @@ def optimizer(
             center = np.unravel_index(np.argmax(init_img), init_img.shape)
             center = (center[1], center[0])
         elif center == 'centroid':
-            center = utils.centroid(init_img, cam.xv, cam.yv, 30)
+            center = centroid(init_img, cam.xv, cam.yv, 30)
         else:
             center = center
 

@@ -416,6 +416,11 @@ class WFSManager:
 
 
     def optimize_pupil(self):
+        '''
+        This function help to optimize pupil.
+        Returns:
+            tuple[float, float, float, float]: beam centroid x, beam centroid y, beam diameter x, beam diameter y
+        '''
         assert not self.enable_high_speed, "turn off high speed mode first"
         self._lib.WFS_CalcSpotsCentrDiaIntens(self._instrument_handle, c_int32(1), c_int32(1))
         beam_centroid_x = c_double()
@@ -472,6 +477,13 @@ class WFSManager:
         return spots_intensities[:self.num_spots_x, :self.num_spots_y], (spots_center_x[:self.num_spots_x, :self.num_spots_y], spots_center_y[:self.num_spots_x, :self.num_spots_y])
 
     def get_wavefront(self, image_loop_counter: int = -1):
+        '''
+        This function help to get wavefront.
+        Args:
+            image_loop_counter (int, optional): Image loop counter. Defaults to -1.
+        Returns:
+            tuple[np.ndarray, dict]: wavefront, wavefront statistics
+        '''
         adaptive_pupil = 0 if (self.d_x and self.d_y) else 1
         wavefront = np.zeros(MAX_SPOTS, dtype=c_float)
         if err := self._lib.WFS_CalcWavefront(
@@ -490,6 +502,13 @@ class WFSManager:
         return wavefront, {"min":min.value, "max":max.value, "diff":diff.value, "mean":mean.value, "rms":rms.value, "wighted_rms":wighted_rms.value}
 
     def get_zernike(self, zernike_order=10, image_loop_counter: int = -1):
+        '''
+        This function help to get zernike coefficients.
+        Args:
+            zernike_order (int, optional): Zernike order. Defaults to 10.
+        Returns:
+            np.ndarray: zernike coefficients
+        '''
         assert zernike_order <= 10, "zernike order must be less than or equal to 10"
         roc_mm = c_double()
         coeff_num =  (zernike_order + 1) * (zernike_order + 2) // 2 + 1
@@ -507,6 +526,13 @@ class WFSManager:
             return zernike_um
 
     def get_spot_deviation(self, cancel_tile:bool = False):
+        '''
+        This function help to get spot deviation.
+        Args:
+            cancel_tile (bool, optional): Whether to cancel tile. Defaults to False.
+        Returns:
+            tuple[np.ndarray, np.ndarray]: spot deviation x, spot deviation y
+        '''
         spots_deviation_x = np.zeros(MAX_SPOTS, dtype= np.float32)
         spots_deviation_y = np.zeros(MAX_SPOTS, dtype= np.float32)
         # if err:= self._lib.WFS_CalcSpotsCentrDiaIntens(self._instrument_handle, c_int32(1), c_int32(1)):
@@ -525,6 +551,11 @@ class WFSManager:
     def optimize_exposure_time_and_gain(self) -> tuple[float, float]:
         '''
         This function help to find reasonable exposure time, will NOT change it.
+        
+        Args:
+        
+        Returns:
+            tuple[float, float]: exposure time, gain
         '''
         lib, instrument_handle = self._lib, self._instrument_handle
         #Take a series of images until one is usable. Check the device status after each image to determine usability
@@ -561,6 +592,11 @@ class WFSManager:
 
     @property
     def pupil(self):
+        '''
+        This function help to get pupil.
+        Returns:
+            tuple[float, float, float, float]: beam centroid x, beam centroid y, beam diameter x, beam diameter y
+        '''
         beam_centroid_x = c_double()
         beam_centroid_y = c_double()
         beam_diameter_x = c_double()

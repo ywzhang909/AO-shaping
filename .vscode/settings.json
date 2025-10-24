@@ -4,5 +4,10 @@
         "python.terminal.useEnvFile": "${workspaceFolder}/.vscode/.env",
         "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs",
         "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${env:PATH}",
-    }
+    },
+    "python.testing.pytestArgs": [
+        "test"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true
 }

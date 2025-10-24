@@ -1,7 +1,3 @@
-from datetime import datetime
-from glob import glob
-import re
-
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
@@ -207,39 +203,3 @@ def disp(img, xv, yv, r_bucket, threshold=0, title=''):
     plt.title(f'Image {title}. {J=}')
     plt.colorbar()
     plt.show()
-    
-# 在当天data下的flatten_voltages文件夹找出rms最小的文件，读取电压值，如果没有则返回全0
-def get_init_V_by_rms(date:str = ''):
-    data_path = f"data/flatten_voltages/{date}" if date else f"data/flatten_voltages/{datetime.now().strftime('%Y%m%d')}"
-    def get_rms(file_name):
-        regex_pattern = r"rms-(\d+\.\d+)\.csv"
-        match = re.search(regex_pattern, file_name)
-        if match:
-            return float(match.group(1))
-        return None
-        
-    min_rms = min([get_rms(f) for f in glob(f"{data_path}/rms-*.csv") if get_rms(f) is not None])
-    try:
-        init_V = np.loadtxt(f"{data_path}/rms-{min_rms:.3f}.csv")
-        print(f"init_V by rms {min_rms:.3f}")
-    except FileNotFoundError:
-        init_V = np.zeros(64)
-        print(f"init_V by rms {min_rms:.3f} not found, return 0")
-    return init_V
-
-def get_init_V_by_energy(date:str = ''):
-    data_path = f"data/flatten_voltages/{date}" if date else f"data/flatten_voltages/{datetime.now().strftime('%Y%m%d')}"
-    def get_energy(file_name):
-        regex_pattern = r"to_load_V-(\d+\.\d+)\.csv"
-        match = re.search(regex_pattern, file_name)
-        if match:
-            return float(match.group(1))
-        return None
-    max_energy = max([get_energy(f) for f in glob(f"{data_path}/to_load_V-*.csv") if get_energy(f) is not None])
-    try:
-        print(f"init_V by energy {max_energy:.3f}")
-        init_V = np.loadtxt(f"{data_path}/to_load_V-{max_energy:.3f}.csv")
-    except FileNotFoundError:
-        init_V = np.zeros(64)
-        print(f"init_V by energy {max_energy:.3f} not found, return 0")
-    return init_V

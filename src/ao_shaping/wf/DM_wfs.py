@@ -1,6 +1,4 @@
 import os
-import sys
-sys.path.append(r'D:\Projects\TIFO\AO-shaping')
 from typing import Literal
 
 import numpy as np
@@ -8,7 +6,7 @@ import pandas as pd
 
 import tqdm
 from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS
-from ao_shaping.utils import get_init_V_by_rms
+from ao_shaping.utils import gen_file_path_uuid, get_init_V_by_rms
 
 ROOT_DIR = "./data/wf"
 
@@ -61,25 +59,6 @@ def learning_schedule(
         return lr
     else:
         raise ValueError("method must be static, cosin, exp or linear")
-
-
-def gen_file_name(dir, postfix: str = ''):
-    if postfix:
-        postfix = postfix if postfix.startswith('.') else f'.{postfix}'
-        fname = [f for f in os.listdir(dir) if f.endswith(postfix)]
-    else:
-        fname = [f for f in os.listdir(dir) if os.path.isdir(os.path.join(dir, f))]
-    fname = max([int(f.split('.')[0]) for f in fname]) + 1 if fname else '1'
-
-    if not postfix:  # make dir
-        path = os.path.join(dir, str(fname))
-        if not postfix and not os.path.exists(path):
-            os.makedirs(path)
-    else:
-        path = os.path.join(dir, str(fname)) + postfix
-        
-    print(f"save path : {path}")
-    return path
 
 def save_list(dir, data):
     f_name = len(os.listdir(dir))+1
@@ -261,7 +240,7 @@ def run():
         lr_schedul="static")
 
     res_df = pd.DataFrame(res_list)
-    dir_name = gen_file_name(ROOT_DIR)
+    dir_name = gen_file_path_uuid(ROOT_DIR)
     res_df.to_pickle(os.path.join(dir_name,'data.pkl'))
     min_id = res_df["J"].argmin()
     min_iter = res_df.iloc[min_id]
