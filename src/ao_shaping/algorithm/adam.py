@@ -1,6 +1,29 @@
+from typing import Literal
+
 import numpy as np
 
 from abc import ABC, abstractmethod
+
+def learning_schedule(
+    lr, epoch, epochs, method: Literal["static", "cosin", "exp", "linear"] = "static"
+):
+    if method == "static":
+        return lr
+    # 余弦退火
+    elif method == "cosin":
+        lr = lr * np.cos(np.pi * epoch / epochs) + 1e-6
+        return lr
+    # 指数衰减
+    elif method == "exp":
+        lr = lr * np.exp(-epoch / epochs) + 1e-6
+        return lr
+    # 线性衰减
+    elif method == "linear":
+        lr = lr * (1 - epoch / epochs) + 1e-6
+        return lr
+    else:
+        raise ValueError("method must be static, cosin, exp or linear")
+
 
 class Base(ABC):
     def __init__(self, dim:int, lr=1.0):

@@ -16,7 +16,7 @@ class NLight(DM):
     V_Min, V_Max = -300, 499
     Units_Adj_Mat = _load_adj_txt()
 
-    def __init__(self, max_iter_diff=20, max_neibor_diff=0, keep_when_exit=True):
+    def __init__(self, max_iter_diff=20, max_neibor_diff=200, keep_when_exit=True):
         assert max_iter_diff <= 200
         assert max_neibor_diff <= 300
 

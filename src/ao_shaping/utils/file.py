@@ -34,7 +34,9 @@ def gen_file_path_uuid(dir: str|Path, postfix: str = ''):
     if not dir.exists():
         dir.mkdir(parents=True)
     fname = str(uuid.uuid4())
-    path = dir.joinpath(fname).with_suffix(postfix if postfix.startswith('.') else f'.{postfix}')
+    path = dir.joinpath(fname)
+    if postfix:
+        path = path.with_suffix(postfix if postfix.startswith('.') else f'.{postfix}')
     return path
 
 def gen_date_str():
@@ -59,15 +61,18 @@ def get_init_V_by_rms(date:str = ''):
         match = re.search(regex_pattern, file_name)
         if match:
             return float(match.group(1))
-        return None
+        return np.nan
         
-    min_rms = min([get_rms(f) for f in glob(f"{data_path}/rms-*.csv") if get_rms(f) is not None])
     try:
+        file_list = glob(f"{data_path}/rms-*.csv")
+        if not file_list:
+            raise FileNotFoundError
+        min_rms = min([get_rms(f) for f in file_list if not np.isnan(get_rms(f))])
         init_V = np.loadtxt(f"{data_path}/rms-{min_rms:.3f}.csv")
         print(f"init_V by rms {min_rms:.3f}")
     except FileNotFoundError:
         init_V = np.zeros(64)
-        print(f"init_V by rms {min_rms:.3f} not found, return 0")
+        print(f"init_V by rms in {data_path} not found, return 0")
     return init_V
 
 def get_init_V_by_energy(date:str = ''):
@@ -77,8 +82,8 @@ def get_init_V_by_energy(date:str = ''):
         match = re.search(regex_pattern, file_name)
         if match:
             return float(match.group(1))
-        return None
-    max_energy = max([get_energy(f) for f in glob(f"{data_path}/to_load_V-*.csv") if get_energy(f) is not None])
+        return np.nan
+    max_energy = max([get_energy(f) for f in glob(f"{data_path}/to_load_V-*.csv") if not np.isnan(get_energy(f))])
     try:
         print(f"init_V by energy {max_energy:.3f}")
         init_V = np.loadtxt(f"{data_path}/to_load_V-{max_energy:.3f}.csv")

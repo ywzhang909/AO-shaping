@@ -1,18 +1,16 @@
 import os
-from typing import Literal
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 import tqdm
 from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS
-from ao_shaping.utils import gen_file_path_uuid, get_init_V_by_rms
+from ao_shaping.utils import gen_date_dir, gen_file_path_uuid, get_init_V_by_rms
+from ao_shaping.algorithm.adam import AdaMOD
 
 ROOT_DIR = "./data/wf"
-
-# metrics
-R_Bucket = 10
-Img_Size = (200,200)
 
 # adam parameters
 beta1 = 0.9
@@ -31,30 +29,6 @@ KEEP_VOLTAGE_WHEN_EXIT = True
 V_MAX = NlightDM.V_Max
 V_MIN = NlightDM.V_Min
 
-def check_dm_unit_grad_safe(vs, adj_mat=NlightDM.Units_Adj_Mat, tolerance=NlightDM.Tolerance):
-    diff_mat = (vs[:,None] - vs[None,:]) * adj_mat
-    return not np.any(diff_mat[diff_mat > tolerance])
-
-def learning_schedule(
-    lr, epoch, epochs, method: Literal["static", "cosin", "exp", "linear"] = "static"
-):
-    if method == "static":
-        return lr
-    # 余弦退火
-    elif method == "cosin":
-        lr = lr * np.cos(np.pi * epoch / epochs) + 1e-6
-        return lr
-    # 指数衰减
-    elif method == "exp":
-        lr = lr * np.exp(-epoch / epochs) + 1e-6
-        return lr
-    # 线性衰减
-    elif method == "linear":
-        lr = lr * (1 - epoch / epochs) + 1e-6
-        return lr
-    else:
-        raise ValueError("method must be static, cosin, exp or linear")
-
 def save_list(dir, data):
     f_name = len(os.listdir(dir))+1
     save_path = os.path.join(dir, str(f_name)) + '.pkl'
@@ -62,23 +36,36 @@ def save_list(dir, data):
     res_df.to_pickle(save_path)
     print(f"\n{len(res_df)} saved @ {save_path}")
     del res_df
+    
+def schedule_lr_delta(rms):
+    '''
+    schedule the learning rate and momentum factor based on the rms of the wavefront
+    
+    Args:
+        rms (float): rms of the wavefront
+    
+    Returns:
+        tuple: A tuple containing the learning rate (lr) and delta (disturb voltage).
+    '''
+    if rms > 0.3:
+        return 2, 3
+    elif rms > 0.25:
+        return 1.2, 2
+    elif rms > 0.18:
+        return 1.0,1.1
+    elif rms > 0.12:
+        return 0.9, 0.9
+    elif rms > 0.08:
+        return 0.8, 0.8
+    else:
+        return 0.7, 0.7
 
 def optimizer(
     epochs,
-    delta=1.0,
-    lr=1.0,
-    weight_decay=0.001,
-    algorithm: Literal[
-        "spgd", "adam", "nadam", "adamod", "cool_momentum_spgd"
-    ] = "adamod",
-    lr_schedul: Literal[
-        "static", "cosin", "exp", "linear"
-    ] = "static",
     metropolis_temperature=0,
     v0=0,
     init_v=None
 ):
-    delta = abs(delta)
     epochs = int(epochs)
 
     with Thorlab_WFS(MlaRes.Res768, use_custom_ref=False, high_speed=True, pupil_diameter=2.7) as wfs,\
@@ -97,6 +84,8 @@ def optimizer(
             return wf, statics
 
         wf, statics = calc_j()
+        lr, delta = schedule_lr_delta(statics['rms'])
+        optimizer = AdaMOD(dim=dm.DM_Num, lr=lr, beta1=beta1, beta2=beta2, beta3=beta3)
 
         history = [
             {
@@ -105,16 +94,16 @@ def optimizer(
                 "_diff": 0,
                 "_gamma": lr,
                 "delta": delta,
-                "_epoch": -1,
+                "_epoch": 0,
                 "_wavefront": wf[np.newaxis, ...],
                 "_statics": statics
             }
         ]
 
         with tqdm.tqdm(
-            total=epochs, desc=f"{algorithm} iter {epochs}", dynamic_ncols=True
+            total=epochs, desc=f"{statics['rms']:.3f} iter {epochs}", dynamic_ncols=True
         ) as bar:
-            for epoch in range(epochs):
+            for epoch in range(1, epochs+1):
                 disturb_v = np.random.binomial(1, 0.5, (dm.DM_Num,)).astype(float) * 2.0 - 1.0
 
                 disturb_v = disturb_v * delta
@@ -130,46 +119,11 @@ def optimizer(
                 
                 diff = pos_statics['rms'] - neg_statics['rms']
                 gradient = -diff * disturb_v
-                lr = learning_schedule(lr, epoch, epochs, method=lr_schedul)
-                if algorithm == "spgd":
-                    update = lr * gradient - lr * weight_decay * _init_v
-
-                elif algorithm.lower() in ("adam", "nadam", "adamod"):
-                    if epoch == 0:
-                        m = np.zeros_like(_init_v, dtype=np.float64)
-                        v = np.zeros_like(_init_v, dtype=np.float64)
-                        s = 0
-
-                    m = beta1 * m + (1 - beta1) * (gradient)
-                    v = beta2 * v + (1 - beta2) * (gradient**2)
-
-                    m_hat = m / (1 - beta1 ** (epoch + 1))
-                    v_hat = v / (1 - beta2 ** (epoch + 1))
-
-                    if algorithm == "nadam":
-                        m_hat = beta1 * m_hat + (1 - beta1) * (
-                            gradient - lr * weight_decay * _init_v
-                        ) / (1 - beta1 ** (epoch + 1))
-                    elif algorithm == "adamod":
-                        gamma = lr / (np.sqrt(v_hat) + 1e-8)
-                        s = beta3 * s + (1 - beta3) * gamma
-                        learning_rate = np.where(gamma<s, gamma, s)
-                        update = learning_rate * m_hat
-                    elif algorithm == "adam":
-                        update = lr * m_hat / (np.sqrt(v_hat) + 1e-8)
-                    else:
-                        pass
-
-                elif algorithm == "cool_momentum_spgd":
-                    if epoch == 0:
-                        cooling_rate = (1 - Rho_0) ** (1 / epochs)
-                        momentum = np.zeros_like(_init_v, dtype=np.float64)
-
-                    rho_n = 1 - (1 - Rho_0) / (cooling_rate**epoch)
-                    learning_rate = lr * (1 + rho_n) / 2
-                    update = rho_n * momentum + learning_rate * (gradient)
-                    momentum = update
-
+                
+                avg_j = (pos_j + neg_j) / 2
+                lr, delta = schedule_lr_delta(avg_j)
+                optimizer.lr = lr
+                update = optimizer.update(gradient)
                 update = np.clip(update, -dm.max_iter_diff+delta, dm.max_iter_diff-delta)
                 if metropolis_temperature > 0:
                     # 使用模拟退火接受或拒绝更新
@@ -183,37 +137,21 @@ def optimizer(
                 else:
                     _to_update_v = np.clip(_init_v - update, V_MIN, V_MAX)
                 
-                if check_dm_unit_grad_safe(_to_update_v):
+                if dm.check_dm_unit_grad_safe(_to_update_v):
                     _init_v = _to_update_v
                 else:
                     print("相邻单元压差过大，放弃本次结果")
-
-                avg_j = (pos_j + neg_j) / 2
-                if avg_j > 0.3:
-                    delta = 3
-                    lr = 1.2
-                elif avg_j > 0.15:
-                    delta = 1
-                    lr = 1.1
-                elif avg_j > 0.12:
-                    delta = 0.9
-                    lr = 0.9
-                elif avg_j > 0.08:
-                    delta = 0.8
-                    lr = 0.8
-                else:
-                    delta = 0.7
-                    lr = 0.7
                 
                 log = {
                     "J": avg_j,
                     "_diff": diff,
-                    "_gamma": lr,
+                    "_gamma": optimizer.lr,
                     "delta": delta,
                     "_epoch": epoch,
                     "_v": _init_v,
                     "_pos_v": pos_vs,
                     "_neg_v": ng_vs,
+                    "_wavefront": np.stack([pos_wf, neg_wf]),
                     "_statics": {"pos": pos_statics, "neg": neg_statics},
                 }
                 history.append(log)
@@ -224,24 +162,45 @@ def optimizer(
         return history
 
 def run():
-    init_V = get_init_V_by_rms()
+    # init_V = get_init_V_by_rms()
+    init_V = [0 for _ in range(64)]
     res_list = optimizer(
         init_v=init_V.copy(),
-        epochs=10000, 
-        delta=4,
-        lr=1.2, 
-        algorithm="adamod",
-        metropolis_temperature=0,
-        lr_schedul="static")
+        epochs=15000,
+        metropolis_temperature=0)
 
     res_df = pd.DataFrame(res_list)
-    dir_name = gen_file_path_uuid(ROOT_DIR)
-    res_df.to_pickle(os.path.join(dir_name,'data.pkl'))
+    save_dir = gen_date_dir(ROOT_DIR)
+    saved_file_name = gen_file_path_uuid(save_dir, 'pkl')
+    res_df.to_pickle(saved_file_name)
     min_id = res_df["J"].argmin()
     min_iter = res_df.iloc[min_id]
     
+    fig, ax = plt.subplots(2, 2, figsize=(12, 9))
+    # 绘制J的变化趋势
+    ax[0, 0].scatter(min_iter["_epoch"], min_iter["J"], color="red", marker="*", s=100)
+    ax[0, 0].plot(res_df["_epoch"], res_df["J"])
+    ax[0, 0].set_xlabel("Epoch")
+    ax[0, 0].set_ylabel("J")
+    ax[0, 0].set_title(f"Min J: {min_iter['J']:.3f} @ epoch {min_iter['_epoch']}")
+    # 绘制保存的电压
+    ax[0, 1].bar(range(64), min_iter["_v"])
+    ax[0, 1].set_xlabel("DM Unit")
+    ax[0, 1].set_ylabel("Voltage")
+    ax[0, 1].set_title(f"Min J: {min_iter['J']:.3f} @ epoch {min_iter['_epoch']}")
+    # 绘制保存的初始波前
+    ax[1, 0].imshow(res_df.iloc[0]["_wavefront"][0], cmap='gray')
+    ax[1, 0].set_title("init wavefront")
+    ax[1, 0].axis('off')
+    # 绘制保存的最优波前
+    ax[1, 1].imshow(min_iter["_wavefront"][1], cmap='gray')
+    ax[1, 1].set_title("opt wavefront")
+    ax[1, 1].axis('off')
+    
+    plt.savefig(saved_file_name.with_suffix('.png'))
+    plt.close()
+    
     # 在data/flatten_voltages下生成名称为当前日期的目录并保存电压
-    from datetime import datetime
     dir_name = datetime.now().strftime("%Y%m%d")
     os.makedirs(os.path.join("data/flatten_voltages", dir_name), exist_ok=True)
     np.savetxt(os.path.join("data/flatten_voltages", dir_name, f'rms-{min_iter["J"]:.3f}.csv'), min_iter["_v"], fmt="%d")
