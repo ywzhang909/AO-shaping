@@ -1,13 +1,5 @@
-from frames import Image2DFrame, Image2DWithBucketFrame, VoltageFrame
-from windows import AutoDisplay, ImageVoltagesDisplay
-
-__FRAME = {
-    "Image2D": Image2DFrame,
-    "Image2DWithBucket": Image2DWithBucketFrame,
-    "Voltage": VoltageFrame,
-}
-
-FRAME = __FRAME.keys()
+from .frames import Image2DFrame, Image2DWithBucketFrame, VoltageFrame, Frame_Reg
+from .windows import AutoDisplay, ImageVoltagesDisplay
 
 __all__ = [
     "AutoDisplay",
@@ -15,4 +7,5 @@ __all__ = [
     "Image2DFrame",
     "Image2DWithBucketFrame",
     "VoltageFrame",
+    "Frame_Reg",
 ]

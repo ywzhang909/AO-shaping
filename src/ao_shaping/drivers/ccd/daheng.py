@@ -1,9 +1,7 @@
-import logging
+from loguru import logger
 import numpy as np
 
 import gxipy as gx
-
-log = logging.getLogger(__file__)
 
 class CameraStreamManager:
     def __init__(self, cam_id:int=0, exposure_time_ms:int=20, skip_sampling=False):
@@ -52,7 +50,7 @@ class CameraStreamManager:
         _, dev_info_list = self.device_manager.update_device_list()
         # 检查设备列表长度是否小于等于指定的相机ID
         if len(dev_info_list) <= self.cam_id:
-            log.error("No devices found.")
+            logger.error("No devices found.")
             raise ConnectionAbortedError("No cam devices found.")
 
         sn = dev_info_list[self.cam_id].get("sn")
@@ -95,7 +93,7 @@ class CameraStreamManager:
             self.exposure_time_ms = time_ms
         else:
             self.exposure_time_ms = 20
-            log.warning('exposure time must >= 20. set to 20.')
+            logger.warning('exposure time must >= 20. set to 20.')
         self.cam.ExposureTime.set(self.exposure_time_ms)
         return self.exposure_time_ms
 
@@ -178,7 +176,7 @@ class CameraStreamManager:
         assert self.cam, "camera not initialized"
         self.cam_width = self.cam.Width.get()
         self.cam_height = self.cam.Height.get()
-        log.info(f"Open cam {self.__sn} success. width={self.cam_width}, height={self.cam_height}")
+        logger.info(f"Open cam {self.__sn} success. width={self.cam_width}, height={self.cam_height}")
         self.xv, self.yv = self.__get_grid(self.cam_width, self.cam_height)
 
     @staticmethod

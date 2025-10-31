@@ -3,6 +3,7 @@ import numpy as np
 from scipy.ndimage import zoom
 
 import tqdm
+from loguru import logger
 import pygame
 
 from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS, CameraStreamManager
@@ -24,14 +25,8 @@ beta1 = 0.9
 beta2 = 0.999
 beta3 = 0.9999
 
-# cool_momentum_spgd parameters
-Rho_0 = 0.99
-
-# metropolis parameters
-METROPOLIS_ALPHA = 0.8
-
 # camera parameters
-CAM_EXP_TIME = 60
+CAM_EXP_TIME = 50
 CAM_EXP_TIME_ADJ_RATE = 0
 IMG_SIZE = (200, 200)
 
@@ -40,15 +35,6 @@ Pupil_Diameter = 2.7
 
 # dm parameters
 KEEP_VOLTAGE_WHEN_EXIT = True
-UPDATE_MAX = 20
-DM_Adj = np.loadtxt('data/dm_adj.txt')
-Tolerance = 300
-print("DM adjacency matrix loaded: {}, max voltage difference: {}".format(DM_Adj.shape, Tolerance))
-
-def check_dm_unit_grad_safe(vs, adj_mat=DM_Adj, tolerance=Tolerance):
-    assert len(vs) == DM_Adj.shape[0] == DM_Adj.shape[1]
-    diff_mat = (vs[:,None] - vs[None,:]) * adj_mat
-    return not np.any(diff_mat[diff_mat > tolerance])
 
 def schedule(rms):
     '''
@@ -127,7 +113,7 @@ def optimizer(
         assert len(init_v) == dm.DM_Num
         dm.send_voltages(_init_v, 0.5)
 
-        def calc_rms(n_sample=10):
+        def calc_rms(n_sample=5):
             wfs.take_image(n_sample)
             wf, statics = wfs.get_wavefront()
             return wf, statics['rms']
@@ -144,7 +130,7 @@ def optimizer(
         def refind_center(img):
             center = np.unravel_index(np.argmax(img), img.shape)
             c_x, c_y = center[1]+1, center[0]+1
-            print("({},{}) value: {}".format(c_x, c_y, img[center]))
+            logger.info("({},{}) value: {}".format(c_x, c_y, img[center]))
             imgmesh_dist = (xv-c_x) ** 2 + (yv-c_y) ** 2
             dist = np.sqrt(imgmesh_dist)
             bucket_mask = dist < r_bucket
@@ -187,16 +173,18 @@ def optimizer(
                 disturb_v = disturb_v * delta
                 disturb_v[0] = 0
 
+                n_sample = 1 if mode == 'rms' else 10
+                
                 pos_vs = dm.send_voltages(_init_v + disturb_v)
                 pos_wf, pos_rms = calc_rms()
-                pos_img, pos_pib = calc_pib(bucket_mask)
+                pos_img, pos_pib = calc_pib(bucket_mask, n_sample)
 
                 neg_vs = dm.send_voltages(_init_v - disturb_v)
                 neg_wf, neg_rms = calc_rms()
-                neg_img, neg_pib = calc_pib(bucket_mask)
+                neg_img, neg_pib = calc_pib(bucket_mask, n_sample)
 
                 # 如果rms大于阈值, 使用rms作用目标函数；否则使用pib
-                if min(pos_rms, neg_rms) > rms_threshold and max(pos_pib, neg_pib) < 3.0:
+                if min(pos_rms, neg_rms) > rms_threshold and max(pos_rms, neg_rms) < 4.0:
                     diff = (pos_rms-neg_rms)
                     mode = 'rms'
                 else:
@@ -209,10 +197,10 @@ def optimizer(
                 optimizer.lr = lr
                 update = optimizer.update(gradient)
                 _to_update_v = _init_v - update
-                if check_dm_unit_grad_safe(_to_update_v):
+                if dm.check_dm_unit_grad_safe(_to_update_v):
                     _init_v = _to_update_v
                 else:
-                    print("相邻单元压差过大，放弃本次结果")
+                    logger.warning("相邻单元压差过大，放弃本次结果")
                 history.append({
                     "J": np.mean([pos_pib, neg_pib]),
                     "J_rms": np.mean([pos_rms, neg_rms]),

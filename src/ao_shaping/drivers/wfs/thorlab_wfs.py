@@ -1,6 +1,5 @@
 import sys
-import time
-import logging
+from loguru import logger
 
 import numpy as np
 
@@ -337,7 +336,7 @@ class WFSManager:
         self._gain = 1.0
         self.enable_high_speed = high_speed
         if self.enable_high_speed:
-            print("high speed mode can only use auto explore time!")
+            logger.info("high speed mode can only use auto explore time!")
         self.__image_loop_counter = 0
 
     def __enter__(self):
@@ -359,7 +358,7 @@ class WFSManager:
         assert not device_in_use, "Wavefront sensor currently in use.... closing program"
 
         self._lib.WFS_init(resource_name, c_bool(False), c_bool(True), byref(self._instrument_handle))
-        print(f"Connected to {device_name.value} with Serial Number {serial_number.value}")
+        logger.info(f"Connected to {device_name.value} with Serial Number {serial_number.value}")
 
         self.select_mla(self.mla_index)
         self.set_ref_plane(self.use_custom_ref)
@@ -382,10 +381,8 @@ class WFSManager:
         info = create_string_buffer(256)
         errorCode = ViStatus(err)
         self._lib.WFS_error_message(self._instrument_handle, errorCode, byref(info))
-        print("error:", str(info.value))
-        if no_raise:
-            print(info.value)
-        else:
+        logger.error("error:", str(info.value))
+        if not no_raise:
             raise Exception(info.value)
 
     def select_mla(self, mla_index:MlaRes):
@@ -397,7 +394,7 @@ class WFSManager:
         self.mla_index = mla_index
         self.image_pix = Mla_pix[mla_index]
         self.num_spots_x, self.num_spots_y = num_spots_x.value, num_spots_y.value
-        print(f"Number of detectable spots in X: {num_spots_x.value} \n"+
+        logger.info(f"Number of detectable spots in X: {num_spots_x.value} \n"+
               f"Number of detectable spots in Y: {num_spots_y.value}")
 
     def set_ref_plane(self, custom:bool):
@@ -566,13 +563,13 @@ class WFSManager:
             lib.WFS_TakeSpotfieldImageAutoExpos(instrument_handle, byref(actual_exposure), byref(actual_gain))
             lib.WFS_GetStatus(instrument_handle, byref(device_status))
             if device_status.value & 0x00000002:
-                print("Power too high")
+                logger.warning("Power too high")
             elif device_status.value & 0x00000004:
-                print("Power too low")
+                logger.warning("Power too low")
             elif device_status.value & 0x00000008:
-                print("High ambient light")
+                logger.warning("High ambient light")
             else:
-                print(f"Image is usable at {actual_exposure.value} ms.... breaking loop")
+                logger.info(f"Image is usable at {actual_exposure.value} ms.... breaking loop")
                 break
         return actual_exposure.value, actual_gain.value
 
@@ -587,7 +584,7 @@ class WFSManager:
         assert EXP_TIME_LOW <= value <= EXP_TIME_HIGH, f"exposure time must be in range [{EXP_TIME_LOW}, {EXP_TIME_HIGH}] ms"
         actual_exposure = c_double()
         self._lib.WFS_SetExposureTime(self._instrument_handle, c_double(value), byref(actual_exposure))
-        print(f"actual exposure time is {actual_exposure.value} ms.")
+        logger.info(f"actual exposure time is {actual_exposure.value} ms.")
 
 
     @property
@@ -669,7 +666,7 @@ class WFSManager:
                 self.hs_window_startpos_x = windowStartposX
                 self.hs_window_startpos_y = windowStartposY
 
-        print("high speed mode is " + "on" if enable else "off")
+        logger.info("high speed mode is " + "on" if enable else "off")
 
 
 

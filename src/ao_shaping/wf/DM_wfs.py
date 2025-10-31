@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from loguru import logger
 
 import numpy as np
 import pandas as pd
@@ -29,13 +30,6 @@ KEEP_VOLTAGE_WHEN_EXIT = True
 V_MAX = NlightDM.V_Max
 V_MIN = NlightDM.V_Min
 
-def save_list(dir, data):
-    f_name = len(os.listdir(dir))+1
-    save_path = os.path.join(dir, str(f_name)) + '.pkl'
-    res_df = pd.DataFrame(data)
-    res_df.to_pickle(save_path)
-    print(f"\n{len(res_df)} saved @ {save_path}")
-    del res_df
     
 def schedule_lr_delta(rms):
     '''
@@ -140,7 +134,7 @@ def optimizer(
                 if dm.check_dm_unit_grad_safe(_to_update_v):
                     _init_v = _to_update_v
                 else:
-                    print("相邻单元压差过大，放弃本次结果")
+                    logger.warning("相邻单元压差过大，放弃本次结果")
                 
                 log = {
                     "J": avg_j,
@@ -206,6 +200,4 @@ def run():
     np.savetxt(os.path.join("data/flatten_voltages", dir_name, f'rms-{min_iter["J"]:.3f}.csv'), min_iter["_v"], fmt="%d")
 
 if __name__ == "__main__":
-    for iter in range(1):
-        print(f"Collect data @ iter:{iter}")
-        run()
+    run()

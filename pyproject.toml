@@ -45,6 +45,7 @@ dependencies = [
     "pyside6>=6.7.3",
     "pyside6-fluent-widgets>=1.6.5",
     "numba>=0.62.1",
+    "pytest-cov>=7.0.0",
 ]
 
 [[tool.uv.index]]

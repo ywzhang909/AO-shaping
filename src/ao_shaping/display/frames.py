@@ -26,18 +26,19 @@ class Image2DFrame(BaseFrame):
         img_h, img_w = img.shape
         zoom_factors = (self.height / img_h, self.width / img_w)
         img = zoom(img, zoom_factors, mode='nearest')
+        img[np.isnan(img)] = 0
         img_surf = pygame.surfarray.make_surface(img.transpose())
         self.window.blit(img_surf, (self.left, self.top))
         
         
 class Image2DWithBucketFrame(BaseFrame):
-    def render(self, img:np.ndarray, bucket_center:tuple[int,int], buckets_r:int):
+    def render(self, img:np.ndarray, center:tuple[int,int], r:int):
         assert img.ndim == 2, "ImageFrame only supports 2D images"
         img_h, img_w = img.shape
         zoom_factors = (self.height / img_h, self.width / img_w)
         img = zoom(img, zoom_factors, mode='nearest')
         img_surf = pygame.surfarray.make_surface(img.transpose())
-        pygame.draw.circle(img_surf, (255, 0, 0), bucket_center, buckets_r, 3)
+        pygame.draw.circle(img_surf, (255, 0, 0), center, r, 3)
         self.window.blit(img_surf, (self.left, self.top))
 
 
@@ -64,3 +65,10 @@ class VoltageFrame(BaseFrame):
             pygame.draw.line(self.window, color, (x, y), (x, y - height), bar_width)
             
 
+Frame_Reg = {
+    "Image2D": Image2DFrame,
+    "Image2DWithBucket": Image2DWithBucketFrame,
+    "Voltage": VoltageFrame,
+}
+
+Frame = Frame_Reg.keys()

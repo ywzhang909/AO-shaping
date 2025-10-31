@@ -11,7 +11,7 @@ __pycache__*
 .venv*
 
 .kilocode*
-ao_project.egg-info*
+**/ao_shaping.egg-info*
 *.zip
 
 !data/data_analysisy.py

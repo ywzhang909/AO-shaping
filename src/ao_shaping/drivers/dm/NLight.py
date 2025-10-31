@@ -1,10 +1,13 @@
 import numpy as np
 import time
 import socket
-from ao_shaping.drivers.dm.base import DM
+from loguru import logger
 
 from ctypes import byref, c_bool, c_int32, cdll
 import findlibs
+
+from ao_shaping.drivers.dm.base import DM
+
 
 DM_NUM = 64
 
@@ -38,7 +41,7 @@ class NLight(DM):
         if not self.__keep_when_exit:
             self.reset_all()
             self.set_hv(False)
-            print("DM Turn off high voltages.")
+            logger.info("DM Turn off high voltages.")
         self.udp_driver.sock.close()
 
     def transform(self, cmd:np.ndarray) -> np.ndarray:

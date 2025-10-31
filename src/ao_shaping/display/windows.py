@@ -1,9 +1,11 @@
 from abc import ABC
+from typing import Iterable
+from loguru import logger
 
 import pygame
 
-from .frames import  Image2DFrame, VoltageFrame
-from . import __FRAME
+from . import  Image2DFrame, VoltageFrame
+from .frames import Frame_Reg
 
 class BaseDisplay(ABC):
     def __init__(self, total_size) -> None:
@@ -44,28 +46,36 @@ class ImageVoltagesDisplay(BaseDisplay):
 
 
 class AutoDisplay(BaseDisplay):
-    def __init__(self, frame_list:list[str], frame_size=(300, 300)) -> None:
-        # 获取屏幕分辨率
-        screen_info = pygame.display.Info()
-        screen_w, screen_h = screen_info.current_w, screen_info.current_h
+    def __init__(self, frame_list:Iterable[str], frame_size=(300, 300), display_size=(1280, 720), margin=10) -> None:
+        self.total_size = display_size
+        self.frame_size = frame_size
+        self.frame_list = frame_list
+        self.margin = margin
         
-        n_cols = screen_w // frame_size[0]
-        n_rows = len(frame_list) // n_cols + 1
-        if n_rows * frame_size[1] > screen_h:
-            n_rows = screen_h // frame_size[1]
-            n_cols = len(frame_list) // n_rows + 1
+    def init_window(self) -> None:
+        super().init_window()
+        screen_w, screen_h = self.total_size
+        frame_w, frame_h = self.frame_size
+        n_cols = screen_w // frame_w
+        n_rows = len(self.frame_list) // n_cols + 1
+        if n_rows * frame_h > screen_h:
+            n_rows = screen_h // frame_h
+            n_cols = len(self.frame_list) // n_rows + 1
         
-        total_size = (n_cols * frame_size[0],
-                      n_rows * frame_size[1])
+        logger.info(f"AutoDisplay: {n_cols} x {n_rows} = {n_cols*n_rows} frames")
+        total_size = (n_cols * frame_w,
+                      n_rows * frame_h)
         super().__init__(total_size)
         
         self._frames = {}
-        for i, frame_class_name in enumerate(frame_list):
+        for i, frame_class_name in enumerate(self.frame_list):
             _row, _col = divmod(i, n_cols)
-            _frame = __FRAME.get(frame_class_name)
-            self._frames[frame_class_name] = _frame(self.window, (_col*frame_size[0], _row*frame_size[1]), frame_size)
-            
-    def render(self, frame_data:dict, info:str='') -> None:
+            _frame = Frame_Reg.get(frame_class_name)
+            top = _row*(frame_h + self.margin)
+            left = _col*(frame_w + self.margin)
+            self._frames[frame_class_name] = _frame(window=self.window, render_pos=(top, left), frame_size=self.frame_size)
+
+    def render(self, frame_data:dict[str, dict], info:str='') -> None:
         for name, frame in self._frames.items():
-            frame.render(frame_data.get(name))
+            frame.render(**frame_data.get(name))
         return super().render(info)

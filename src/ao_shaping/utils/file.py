@@ -1,5 +1,6 @@
 import os
 import re
+from loguru import logger
 
 import uuid
 from pathlib import Path
@@ -69,10 +70,10 @@ def get_init_V_by_rms(date:str = ''):
             raise FileNotFoundError
         min_rms = min([get_rms(f) for f in file_list if not np.isnan(get_rms(f))])
         init_V = np.loadtxt(f"{data_path}/rms-{min_rms:.3f}.csv")
-        print(f"init_V by rms {min_rms:.3f}")
+        logger.info(f"init_V by rms {min_rms:.3f}")
     except FileNotFoundError:
         init_V = np.zeros(64)
-        print(f"init_V by rms in {data_path} not found, return 0")
+        logger.info(f"init_V by rms in {data_path} not found, return 0")
     return init_V
 
 def get_init_V_by_energy(date:str = ''):
@@ -85,9 +86,9 @@ def get_init_V_by_energy(date:str = ''):
         return np.nan
     max_energy = max([get_energy(f) for f in glob(f"{data_path}/to_load_V-*.csv") if not np.isnan(get_energy(f))])
     try:
-        print(f"init_V by energy {max_energy:.3f}")
+        logger.info(f"init_V by energy {max_energy:.3f}")
         init_V = np.loadtxt(f"{data_path}/to_load_V-{max_energy:.3f}.csv")
     except FileNotFoundError:
         init_V = np.zeros(64)
-        print(f"init_V by energy {max_energy:.3f} not found, return 0")
+        logger.info(f"init_V by energy {max_energy:.3f} not found, return 0")
     return init_V
