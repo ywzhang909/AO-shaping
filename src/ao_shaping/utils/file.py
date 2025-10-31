@@ -8,7 +8,7 @@ from datetime import datetime
 
 import numpy as np
 
-def gen_file_name_inc(dir: str|Path, postfix: str = ''):
+def gen_file_path_inc(dir: str|Path, postfix: str = ''):
     if isinstance(dir, str):
         dir = Path(dir)
     if not dir.exists():
@@ -34,7 +34,7 @@ def gen_file_path_uuid(dir: str|Path, postfix: str = ''):
     if not dir.exists():
         dir.mkdir(parents=True)
     fname = str(uuid.uuid4())
-    path = dir.joinpath(fname).with_suffix(postfix)
+    path = dir.joinpath(fname).with_suffix(postfix if postfix.startswith('.') else f'.{postfix}')
     return path
 
 def gen_date_str():

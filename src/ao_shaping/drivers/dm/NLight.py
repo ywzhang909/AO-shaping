@@ -91,6 +91,8 @@ class NLight(DM):
         return np.where(self.Units_Adj_Mat[unit_id, :] == 1)[0]
     
     def check_dm_unit_grad_safe(self, vs):
+        if self.max_iter_diff <= 0:
+            return True
         diff_mat = (vs[:,None] - vs[None,:]) * self.Units_Adj_Mat
         return not np.any(diff_mat[diff_mat > self.max_neibor_diff])
 

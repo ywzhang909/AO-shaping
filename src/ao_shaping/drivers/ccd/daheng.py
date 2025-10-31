@@ -141,7 +141,22 @@ class CameraStreamManager:
         # 返回新的窗口中心位置
         return (width, height), (width//2, height//2)
 
-    def get_numpy_image(self, n_sample=1) -> np.ndarray:
+    def __take_one_shot(self) -> np.ndarray:
+        """
+        拍摄一张相机图像。
+
+        参数:
+        无
+
+        返回:
+        np.ndarray: 拍摄到的图像数据，数据类型为uint8。
+        """
+        while True:
+            raw_image = self.cam.data_stream[0].get_image()
+            if raw_image and (new_img:=raw_image.get_numpy_array()) is not None:
+                return new_img
+    
+    def get_numpy_image(self, n_sample=1, skip_first=True) -> np.ndarray:
         """
         获取相机的图像数据，进行平均处理。
 
@@ -151,20 +166,12 @@ class CameraStreamManager:
         返回:
         np.ndarray: 处理后的平均图像，数据类型为uint8。
         """
-        assert self.cam, "camera not initialized"
-        assert n_sample>0, "n_sample must > 0"
-        
-        numpy_image = np.zeros((self.cam_height, self.cam_width))
-        for _ in range(n_sample):
-            while True:
-                raw_image = self.cam.data_stream[0].get_image()
-                if any([not raw_image, raw_image.get_numpy_array() is None]):
-                    continue
-                new_img = raw_image.get_numpy_array()
-                # 使用相同的数据类型进行加法运算，避免类型转换问题
-                numpy_image = numpy_image + new_img.astype(float)
-                break
-        avg_img = numpy_image/n_sample
+        assert n_sample>0, "采样次数必须大于0"
+        numpy_image = np.zeros_like(self.__take_one_shot()) if skip_first else self.__take_one_shot()
+        _n_sample = n_sample if skip_first else n_sample-1
+        for _ in range(_n_sample):
+            numpy_image = numpy_image + self.__take_one_shot()
+        avg_img = numpy_image/_n_sample
         return avg_img.astype(np.uint8)
 
     def __update_properties(self):

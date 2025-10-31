@@ -9,7 +9,7 @@ import pandas as pd
 
 import tqdm
 from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS, CameraStreamManager
-from ao_shaping.utils import gen_file_path_uuid, gen_file_name_inc
+from ao_shaping.utils import gen_file_path_uuid, gen_file_path_inc
 
 ROOT_DIR = "./data/img2img"
 
@@ -231,7 +231,7 @@ def optimizer(
                     res_df = pd.DataFrame(history)
                     del history
                     history = []
-                    file_path = gen_file_name_inc(saved_dir, "pkl")
+                    file_path = gen_file_path_inc(saved_dir, "pkl")
                     asyncio.run(async_to_pickle(res_df, file_path))
                     
         return J_v_history

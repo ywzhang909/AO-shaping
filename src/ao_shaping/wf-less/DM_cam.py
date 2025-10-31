@@ -8,18 +8,11 @@ import argparse
 import numpy as np
 import pandas as pd
 
-import pygame
 import matplotlib.pyplot as plt
 
 from ao_shaping.drivers import CameraStreamManager, NlightDM
-
-# display settings
-VOLT_HEIGHT = 200
-LOG_J_HEIGHT = 200
-# 定义背景颜色
-BACKGROUND_COLOR = (0, 0, 0)
-# 定义折线颜色
-LINE_COLOR = (0, 255, 0)
+from ao_shaping.utils.file import gen_file_path_uuid, gen_date_dir
+from ao_shaping.utils.display import ImageVoltagesDisplay
 
 # adam parameters
 beta1 = 0.9
@@ -34,52 +27,10 @@ METROPOLIS_ALPHA = 0.8
 
 # camera parameters
 CAM_EXP_TIME_ADJ_RATE = 0
-IMG_SIZE = (250, 250)
+CAM_SAMPLE_ITER = 10
 
 # dm parameters
 KEEP_VOLTAGE_WHEN_EXIT = True
-
-def gen_file_name(dir, postfix: str = ''):
-    if not os.path.exists(dir):
-        os.makedirs(dir)
-    fname = os.listdir(dir)
-    if postfix:
-        fname = len([_ for _ in fname if _.endswith(postfix)]) + 1
-    else:
-        fname = len(fname) + 1
-
-    if not postfix:  # make dir
-        path = os.path.join(dir, str(fname))
-        if not postfix and not os.path.exists(path):
-            os.makedirs(path)
-    else:
-        if postfix[0] != ".":
-            postfix = "." + postfix
-        path = os.path.join(dir, str(fname)) + postfix
-    return path
-
-
-def render(window, img, log, center, r, info="", img_size=IMG_SIZE) -> None:
-    canvas = pygame.surfarray.make_surface(img.transpose())
-    pygame.draw.circle(canvas, (255, 0, 0), center, r, 1)
-    pygame.display.set_caption(info)
-    window.blit(canvas, (0,0))
-    # 绘制电压图
-    # 清空之前绘制的条形统计图
-    plot_area = pygame.Rect(0, img_size[1], img_size[0], VOLT_HEIGHT)
-    window.fill(BACKGROUND_COLOR, plot_area)
-    volts = log[-1]['_v']
-    bar_width = int(img_size[0] / len(volts))
-    for i,value in enumerate(volts):
-        normed_v = (value-NlightDM.V_Min)/(NlightDM.V_Max-NlightDM.V_Min)
-        color = (int(normed_v*255), int((1-normed_v)*255), 0)
-        x = int(i * bar_width)
-        y = int(img_size[1] + VOLT_HEIGHT)
-        height = int((value / NlightDM.V_Max) *  VOLT_HEIGHT)
-        pygame.draw.line(window, color, (x, y), (x, y - height), bar_width)
-    
-    pygame.event.pump()
-    pygame.display.update()
 
 
 def optimizer(
@@ -99,9 +50,9 @@ def optimizer(
 ):
     delta = abs(delta)
     epochs = int(epochs)
-
+    
     with CameraStreamManager(cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False) as cam,\
-            NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
+            NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT, max_neibor_diff=200) as dm:
         # dm.reset_all()
 
         if not init_v:
@@ -109,7 +60,11 @@ def optimizer(
         else:
             _init_v = np.array(init_v)
         dm.send_voltages(_init_v, 1)
-
+        
+        m = np.zeros_like(_init_v, dtype=np.float64)
+        v = np.zeros_like(_init_v, dtype=np.float64)
+        s = 0
+        
         # 使用传入的相机尺寸参数
         img_size = (cam_size, cam_size)
         img_size, _ = cam.reset_window(center, img_size)
@@ -123,9 +78,8 @@ def optimizer(
         pib_mask = dist < 5
         
         if show:
-            total_height = VOLT_HEIGHT + LOG_J_HEIGHT + (cam.cam_height or 400)
-            pygame.init()
-            window = pygame.display.set_mode((cam.cam_width or 640, total_height))
+            window = ImageVoltagesDisplay(img_size)
+            window.init_window()
 
         def calc_pib(img, r):
             if shrank_iter <= 0:
@@ -163,11 +117,11 @@ def optimizer(
                 disturb_v[0] = 0.0
 
                 dm.send_voltages(_init_v + disturb_v)
-                pos_img = cam.get_numpy_image(8)
+                pos_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
                 pos_j = calc_j(pos_img)
 
                 dm.send_voltages(_init_v - disturb_v)
-                neg_img = cam.get_numpy_image(8)
+                neg_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
                 neg_j = calc_j(neg_img)
 
                 # if (pos_j + neg_j) == 0 and CAM_EXP_TIME_ADJ_RATE > 1:
@@ -176,26 +130,17 @@ def optimizer(
 
                 diff = pos_j - neg_j
                 gradient = -diff * disturb_v
-
-                if epoch == 1:
-                    m = np.zeros_like(_init_v, dtype=np.float64)
-                    v = np.zeros_like(_init_v, dtype=np.float64)
-                    s = 0
-
                 m = beta1 * m + (1 - beta1) * (gradient)
                 v = beta2 * v + (1 - beta2) * (gradient**2)
-
-                m_hat = m / (1 - beta1 ** (epoch + 1))
-                v_hat = v / (1 - beta2 ** (epoch + 1))
-
+                m_hat = m / (1 - beta1 ** (epoch))
+                v_hat = v / (1 - beta2 ** (epoch))
                 gamma = lr / (np.sqrt(v_hat) + 1e-8)
                 s = beta3 * s + (1 - beta3) * gamma
                 learning_rate = np.where(gamma<s, gamma, s)
-                update = learning_rate * m_hat
-
-                _to_update_v = np.clip(_init_v - update, dm.V_Min, dm.V_Max)
-                if dm.check_dm_unit_grad_safe(_to_update_v):
-                    _init_v = _to_update_v
+                update = _init_v - learning_rate * m_hat
+                   
+                if dm.check_dm_unit_grad_safe(update):
+                    _init_v = update
                 else:
                     logger.warning("相邻单元压差过大，放弃本次结果")
 
@@ -218,8 +163,8 @@ def optimizer(
                     lr = max(lr * shrank_ratio, 0.8)
 
                 if show:
-                    render(
-                        window, pos_img, history, center, r_bucket, f"{epoch}: PIB={log['pib']:.3f}", img_size
+                    window.render(
+                        pos_img, _init_v, dm.V_Min, dm.V_Max, center, r_bucket, f"{epoch}: PIB={log['pib']:.3f}"
                     )
                 
                 bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
@@ -227,13 +172,21 @@ def optimizer(
 
         return history
 
-def run(args:argparse.Namespace):
-    root_dir = args.root_dir
-    res_list = optimizer(**args.__dict__)
+def run(args:argparse.Namespace): 
+    opti_args = args.__dict__
+    root_dir = opti_args.pop('root_dir')
+    load_file = opti_args.pop('load_file')
+    if load_file:
+        last_v = np.loadtxt(load_file)
+        opti_args['init_v'] = last_v.tolist()
+    
+    res_list = optimizer(**opti_args)
     # 保存结果
     res_df = pd.DataFrame(res_list)
-    saved_file_name = gen_file_name(os.path.join(root_dir,'wf-less'), 'pkl')
-    res_df.to_pickle(saved_file_name, compression='zip')
+    if root_dir:
+        save_dir = gen_date_dir(root_dir)
+        saved_file_name = gen_file_path_uuid(save_dir, 'pkl')
+        res_df.to_pickle(saved_file_name, compression='zip')
     max_j_id = res_df['pib'].argmax()
     last_V = res_df.iloc[max_j_id]["_v"]
     max_j = res_df.iloc[max_j_id]['pib']
@@ -244,7 +197,7 @@ def run(args:argparse.Namespace):
         os.makedirs(saved_dir)
     np.savetxt(f'{saved_dir}/to_load_V-{max_j}.csv', np.around(last_V).astype(int), fmt="%d")
 
-    with open(saved_file_name+'-args.json', 'w' ,encoding='utf8') as f:
+    with open(saved_file_name.with_suffix('.json'), 'w' ,encoding='utf8') as f:
         json.dump(args.__dict__, f, ensure_ascii=False, indent=4)
         
     if args.show:
@@ -269,15 +222,16 @@ def run(args:argparse.Namespace):
         ax[1, 1].set_ylabel("Voltage")
             
         plt.tight_layout()
-        plt.savefig(saved_file_name+'-plot.png')
+        plt.savefig(saved_file_name.with_suffix('.png'))
         plt.close()
     
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
-    args.add_argument("--root_dir", type=str, default="data", help="数据保存根目录 (default: data)")
+    args.add_argument("--root_dir", type=str, default="data/wf-less", help="数据保存根目录 (default: data/wf-less)")
+    args.add_argument("--load_file", type=str, default=None, help="加载优化结果文件 (default: None)")
     args.add_argument("--cam_id", type=int, default=1, help="远场光斑CCD设备ID (default: 1)")
-    args.add_argument("--center", type=tuple, default=(665, 415), help="远场光斑CCD中心位置 (default: (665, 415))")
+    args.add_argument("--center", type=tuple, default=(662,420), help="远场光斑CCD中心位置 (default: (665, 403))")
     args.add_argument("--exposure_time_ms", type=int, default=50, help="远场光斑CCD曝光时间 (毫秒) (default: 60)")
     args.add_argument("--epochs", type=int, default=4_000, help="优化迭代次数 (default: 4000)")
     args.add_argument("--r_bucket", type=float, default=18, help="渲染半径桶大小 (default: 18)")
@@ -285,7 +239,7 @@ if __name__ == "__main__":
     args.add_argument("--lr", type=float, default=2, help="优化学习率 (default: 2)")
     args.add_argument("--shrank_iter", type=int, default=300, help="优化迭代次数后收缩半径桶和步长 (default: 300)")
     args.add_argument("--show", type=bool, default=True, help="显示远场光斑CCD图像和优化历史 (default: True)")
-    args.add_argument("--cam_size", type=int, default=250, help="相机开窗大小 (default: 250*250)")
+    args.add_argument("--cam_size", type=int, default=200, help="相机开窗大小 (default: 200*200)")
     
     args = args.parse_args()
     run(args)
