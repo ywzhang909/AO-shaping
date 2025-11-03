@@ -1,7 +1,8 @@
-from loguru import logger
 import numpy as np
 
 import gxipy as gx
+
+from ao_shaping.utils.file import logger
 
 class CameraStreamManager:
     def __init__(self, cam_id:int=0, exposure_time_ms:int=20, skip_sampling=False):
@@ -49,9 +50,12 @@ class CameraStreamManager:
         # 更新设备列表并获取设备信息列表
         _, dev_info_list = self.device_manager.update_device_list()
         # 检查设备列表长度是否小于等于指定的相机ID
-        if len(dev_info_list) <= self.cam_id:
-            logger.error("No devices found.")
-            raise ConnectionAbortedError("No cam devices found.")
+        if not dev_info_list or len(dev_info_list) <= self.cam_id:
+            error_info = f"Camera ID {self.cam_id} not found. "
+            if dev_info_list:
+                error_info += f" Available cameras: {[_.get('sn') for _ in dev_info_list]}."
+            logger.error(error_info)
+            raise ConnectionAbortedError(error_info)
 
         sn = dev_info_list[self.cam_id].get("sn")
         self.cam = self.device_manager.open_device_by_sn(sn)

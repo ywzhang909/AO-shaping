@@ -34,3 +34,4 @@ DM_cam.*
 DM_combined.dist*
 
 logs*
+.history*

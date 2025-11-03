@@ -14,6 +14,7 @@ class ImageVoltagesDisplay:
         self.img_size = img_size
         self.volt_height = volt_height
         self.plot_area = pygame.Rect(0, img_size[1], img_size[0], volt_height)
+        self.background_color = background_color
         
     def init_window(self) -> None:
         pygame.init()

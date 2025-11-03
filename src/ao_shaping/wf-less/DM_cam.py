@@ -1,9 +1,9 @@
 import os
-from loguru import logger
 import datetime
 import json
 import tqdm
 import argparse
+import coredumpy
 
 import numpy as np
 import pandas as pd
@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 
 from ao_shaping.drivers import CameraStreamManager, NlightDM
 from ao_shaping.algorithm.adam import AdaMOD
-from ao_shaping.utils.file import gen_file_path_uuid, gen_date_dir
+from ao_shaping.utils.file import gen_file_path_uuid, gen_date_dir, logger
 from ao_shaping.utils.display import ImageVoltagesDisplay
 
 # adam parameters
@@ -32,7 +32,6 @@ CAM_SAMPLE_ITER = 10
 
 # dm parameters
 KEEP_VOLTAGE_WHEN_EXIT = True
-
 
 def optimize_pib(
     center,
@@ -219,18 +218,22 @@ def run(args:argparse.Namespace):
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
     args.add_argument("--root_dir", type=str, default="data/wf-less", help="数据保存根目录 (default: data/wf-less)")
-    args.add_argument("--load_file", type=str, default=None, help="加载优化结果文件 (default: None)")
-    args.add_argument("--cam_id", type=int, default=1, help="远场光斑CCD设备ID (default: 1)")
-    args.add_argument("--center", type=tuple, default=(662,420), help="远场光斑CCD中心位置 (default: (665, 403))")
+    args.add_argument("-f", "--load_file", type=str, default=None, help="加载优化结果文件 (default: None)")
+    args.add_argument("--cam_id", type=int, default=os.environ.get('Far_Cam_ID', 0), help="远场光斑CCD设备ID (default: Far_Cam_ID/0)")
+    args.add_argument("-c", "--center", type=tuple, default=(570,444), help="远场光斑CCD中心位置 (default: (665, 403))")
     args.add_argument("--exposure_time_ms", type=int, default=50, help="远场光斑CCD曝光时间 (毫秒) (default: 60)")
     args.add_argument("--epochs", type=int, default=4_000, help="优化迭代次数 (default: 4000)")
-    args.add_argument("--r_bucket", type=float, default=18, help="渲染半径桶大小 (default: 18)")
+    args.add_argument("-r", "--r_bucket", type=float, default=18, help="渲染半径桶大小 (default: 18)")
     args.add_argument("--delta", type=float, default=2, help="优化步长 (default: 2)")
     args.add_argument("--lr", type=float, default=2, help="优化学习率 (default: 2)")
     args.add_argument("--weight_decay", type=float, default=0.0, help="权重衰减 (default: 0.0)")
     args.add_argument("--shrank_iter", type=int, default=300, help="优化迭代次数后收缩半径桶和步长 (default: 300)")
     args.add_argument("--show", type=bool, default=True, help="显示远场光斑CCD图像和优化历史 (default: True)")
     args.add_argument("--cam_size", type=int, default=200, help="相机开窗大小 (default: 200*200)")
-    
+    args.add_argument("--debug", action='store_true', default=False, help="是否开启调试模式 (default: False)")
     args = args.parse_args()
+    coredumpy.patch_except(directory='logs/debug/error')
+
     run(args)
+    if args.debug:
+        coredumpy.dump(directory='logs/debug')

@@ -9,6 +9,8 @@ from datetime import datetime
 
 import numpy as np
 
+error_handler = logger.add("logs/error.log", rotation="500 MB", encoding="utf-8", level="ERROR", backtrace=True, diagnose=True)
+
 def gen_file_path_inc(dir: str|Path, postfix: str = ''):
     if isinstance(dir, str):
         dir = Path(dir)
