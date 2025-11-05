@@ -1,13 +1,12 @@
 {
     "terminal.integrated.env.windows": {
-        "envFile": "${workspaceFolder}/.env",
         "python.envFile": "${workspaceFolder}/.env",
         "python.terminal.useEnvFile": "${workspaceFolder}/.env",
-        "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs",
+        "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs;${env:PYTHONPATH}",
         "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${env:PATH}",
     },
     "python.testing.pytestArgs": [
-        "test"
+        "tests"
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,

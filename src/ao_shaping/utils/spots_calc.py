@@ -1,4 +1,6 @@
 import numpy as np
+from scipy.ndimage import center_of_mass
+
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
@@ -49,7 +51,7 @@ def jitter_diameter(lamd, aperture, dist):
 
     return diameter
 
-def centroid(intensity:np.ndarray, x, y, threshold=0/255) -> Tuple[int, int]:
+def centroid(intensity:np.ndarray, moment:int=1, threshold=0.01) -> Tuple[int, int]:
     """
     光强的质心位置
 
@@ -59,16 +61,11 @@ def centroid(intensity:np.ndarray, x, y, threshold=0/255) -> Tuple[int, int]:
     :return center_x, center_y: 光强的质心
     """
     _intensity = intensity.copy()
-    _intensity[_intensity < threshold] = 0
+    _intensity -= threshold*np.max(_intensity)
+    _intensity[_intensity < 0] = 0
     
-    total_intensity = np.sum(intensity)
-    if total_intensity == 0:
-        return 0,0
-    
-    center_x = np.sum(x * intensity) / total_intensity
-    center_y = np.sum(y * intensity) / total_intensity
-
-    return round(center_x), round(center_y)
+    center = center_of_mass(_intensity**moment)
+    return center[1], center[0]
 
 def peak_position(intensity, x, y):
     """

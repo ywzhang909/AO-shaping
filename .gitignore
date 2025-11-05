@@ -35,3 +35,8 @@ DM_combined.dist*
 
 logs*
 .history*
+logs/**/*.png
+logs/*.txt
+scripts/logs*
+src/ao_shaping.egg-info*
+.trae*

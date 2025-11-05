@@ -9,6 +9,7 @@ import pygame
 from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS, CameraStreamManager
 from ao_shaping.algorithm.adam import AdaMOD
 from ao_shaping.utils import gen_date_dir, gen_file_path_uuid
+from ao_shaping.display import FrameInfo, AutoDisplay
 
 ROOT_DIR = "./data/wf"
 
@@ -59,57 +60,26 @@ def schedule(rms):
     else:
         return 0.7, 0.7
 
-
-def render(window,
-            history, r,
-            info="") -> None:
-    img = history[-1]['_img']
-    wavefront = history[-1]['_wavefront']
-    center = history[-1]['_center']
-    
-    _, img_y, img_x = img.shape
-    pos_img_canvas = pygame.surfarray.make_surface(img[0].transpose())
-    pygame.draw.circle(pos_img_canvas, (255, 0, 0), center, r, 1)
-    pygame.display.set_caption(info)
-    window.blit(pos_img_canvas, (0,0))
-    # 扩大wavefront使得大小和img一样
-    wf = wavefront[0]
-    zoom_factors = (img_y / wf.shape[0], img_x / wf.shape[1])
-    disp_wf = zoom(wf, zoom_factors, order=1)  # 双线性插值
-    # fill nan in disp_wf
-    disp_wf[np.isnan(disp_wf)] = 0
-    wavefront_canvas = pygame.surfarray.make_surface(disp_wf.transpose())
-    window.blit(wavefront_canvas, (img_y+5,0))
-    
-    # 绘制电压图
-    # 清空之前绘制的条形统计图
-    volts = history[-1]['_v'][0]
-    plot_area = pygame.Rect(0, IMG_SIZE[1], IMG_SIZE[0], VOLT_HEIGHT)
-    window.fill(BACKGROUND_COLOR, plot_area)
-    bar_width = int(IMG_SIZE[0] / len(volts))
-    for i,value in enumerate(history[-1]['_v'][0]):
-        normed_v = (value + 300)/800
-        color = (int(normed_v*255), int((1-normed_v)*255), 0)
-        x = int(i * bar_width)
-        y = int(IMG_SIZE[1] + VOLT_HEIGHT)
-        height = int(value *  VOLT_HEIGHT/ 500)
-        pygame.draw.line(window, color, (x, y), (x, y - height), bar_width)
-    
-    pygame.event.pump()
-    pygame.display.update()
-
 def optimizer(
     epochs,
     rms_threshold=0.15,
     init_v:list=[],
-    r_bucket=6.4,
-    show=True,
+    r_bucket=6.4
 ):
     epochs = int(epochs)
     _init_v = np.array(init_v)
+
+    frames = [
+        FrameInfo("fspot", "far spot", "Image2DWithBucketFrame"),
+        FrameInfo("wf", "wavefront", "Image2DFrame"),
+        FrameInfo("voltage", "voltages", "VoltageFrame"),
+        FrameInfo("value", "PIB", "LogFrame"),
+    ]
+
     with Thorlab_WFS(MlaRes.Res768, use_custom_ref=False, high_speed=True, pupil_diameter=Pupil_Diameter) as wfs,\
             CameraStreamManager(cam_id=1, exposure_time_ms=CAM_EXP_TIME, skip_sampling=False) as cam,\
-            NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:     
+            NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm, \
+            AutoDisplay(frames) as display:
         assert len(init_v) == dm.DM_Num
         dm.send_voltages(_init_v, 0.5)
 
@@ -158,11 +128,6 @@ def optimizer(
             }
         ]
         mode = 'rms' if 6 > rms > rms_threshold else 'pib'
-        
-        if show:
-            pygame.init()
-            total_height = VOLT_HEIGHT*2 + cam.cam_height
-            window = pygame.display.set_mode((cam.cam_width*2, total_height))
 
         with tqdm.tqdm(
             total=epochs, desc="{} iter {}".format(mode, epochs), dynamic_ncols=True
@@ -201,8 +166,10 @@ def optimizer(
                     _init_v = _to_update_v
                 else:
                     logger.warning("相邻单元压差过大，放弃本次结果")
+                
+                J_value = np.mean([pos_pib, neg_pib])
                 history.append({
-                    "J": np.mean([pos_pib, neg_pib]),
+                    "J": J_value,
                     "J_rms": np.mean([pos_rms, neg_rms]),
                     "_rms": (pos_rms, neg_rms),
                     "_pib": (pos_pib, neg_pib),
@@ -215,11 +182,14 @@ def optimizer(
                     "_img": np.stack((pos_img, neg_img), axis=0),
                 })
 
-                if show:
-                    render(
-                        window, history, r_bucket, f"{epoch}: J={history[-1]['J']:.3f}"
-                    )
-
+                frame_data = {
+                    "fspot": {'img': neg_img, 'center': _center, 'r': r_bucket},
+                    "wf": {'img': neg_wf},
+                    "voltage": {'volts': _init_v},
+                    "value": {'value': J_value},
+                }
+                display.render(frame_data=frame_data, info=f"Epoch {epoch}/{epochs}")
+                
                 bar.set_postfix({k: '{:.4f}'.format(v) for k, v in history[-1].items() if k[0] != "_"})
                 bar.update(1)
     return history

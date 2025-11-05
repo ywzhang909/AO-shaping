@@ -45,9 +45,9 @@ def schedule_lr_delta(rms):
         return 2, 3
     elif rms > 0.25:
         return 1.2, 2
-    elif rms > 0.18:
+    elif rms > 0.2:
         return 1.0,1.1
-    elif rms > 0.12:
+    elif rms > 0.15:
         return 0.9, 0.9
     elif rms > 0.08:
         return 0.8, 0.8

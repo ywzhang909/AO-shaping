@@ -20,17 +20,21 @@ class ImageVoltagesDisplay:
         pygame.init()
         self.window = pygame.display.set_mode((self.img_size[1], self.img_size[0] + self.volt_height*2))
 
-    def render(self, img, volts, v_min, v_max, center, r, info="") -> None:
+    def render(self, img, volts, v_min, v_max, center, r, info="") -> bool:
         '''
         渲染图像到窗口，同时绘制电压图
         Parameters:
         window (pygame.Surface): 要渲染的窗口
-        img (np.ndarray): 要渲染的图像，形状为 (height, width, 3)
+        img (np.ndarray): 要渲染的图像，形状为 (height, width)
         volts (np.ndarray): 电压值数组，用于绘制电压图
         center (tuple): 绘制圆的中心坐标 (x, y)
         r (int): 绘制圆的半径
         info (str, optional): 窗口标题信息，默认值为空字符串
         '''
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return False
+
         img_size = img.shape
         canvas = pygame.surfarray.make_surface(img.transpose())
         pygame.draw.circle(canvas, (255, 0, 0), center, r, 3)
@@ -51,6 +55,8 @@ class ImageVoltagesDisplay:
         
         pygame.event.pump()
         pygame.display.update()
+
+        return True
         
     def close(self) -> None:
         pygame.quit()
