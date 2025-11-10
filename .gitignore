@@ -40,3 +40,4 @@ logs/*.txt
 scripts/logs*
 src/ao_shaping.egg-info*
 .trae*
+.coverage

@@ -1,3 +1,4 @@
+from typing import Any
 import os
 import re
 from loguru import logger
@@ -8,6 +9,7 @@ from glob import glob
 from datetime import datetime
 
 import numpy as np
+import pandas as pd
 
 error_handler = logger.add("logs/error.log", rotation="500 MB", encoding="utf-8", level="ERROR", backtrace=True, diagnose=True)
 
@@ -94,3 +96,13 @@ def get_init_V_by_energy(date:str = ''):
         init_V = np.zeros(64)
         logger.info(f"init_V by energy {max_energy:.3f} not found, return 0")
     return init_V
+
+def save_history(history:pd.DataFrame | list[dict[str, Any]], file_path:str|Path=None):
+    if isinstance(file_path, str):
+        file_path = Path(file_path)
+    if not file_path.exists():
+        file_path.parent.mkdir(parents=True)
+    if not isinstance(history, pd.DataFrame):
+        history = pd.DataFrame(history)
+    else:
+        np.save(file_path, history)

@@ -10,6 +10,7 @@ import tqdm
 from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS
 from ao_shaping.utils import gen_date_dir, gen_file_path_uuid, get_init_V_by_rms
 from ao_shaping.algorithm.adam import AdaMOD
+from ao_shaping.display import FrameInfo, AutoDisplay
 
 ROOT_DIR = "./data/wf"
 
@@ -46,7 +47,7 @@ def schedule_lr_delta(rms):
     elif rms > 0.25:
         return 1.2, 2
     elif rms > 0.2:
-        return 1.0,1.1
+        return 0.95,1.2
     elif rms > 0.15:
         return 0.9, 0.9
     elif rms > 0.08:
@@ -56,102 +57,105 @@ def schedule_lr_delta(rms):
 
 def optimizer(
     epochs,
-    metropolis_temperature=0,
-    v0=0,
-    init_v=None
+    init_v:list[float]=[],
+    pupil_diameter:float=2.24
 ):
     epochs = int(epochs)
 
-    with Thorlab_WFS(MlaRes.Res768, use_custom_ref=False, high_speed=True, pupil_diameter=2.7) as wfs,\
-            NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
+    frames = [
+        FrameInfo("wf", "wavefront", "Image2DFrame"),
+        FrameInfo("voltage", "voltages", "VoltageFrame"),
+        FrameInfo("rms", "RMS", "LogFrame"),
+        FrameInfo("info", "info", "TextFrame"),
+    ]
 
-        if init_v is None:
+
+    with NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
+        if not init_v:
             _init_v = np.zeros(dm.DM_Num, dtype=np.float64)
-            _init_v[0] = v0
         else:
             _init_v = np.array(init_v)
         dm.send_voltages(_init_v, 0.5)
+        
+        with Thorlab_WFS(MlaRes.Res512, use_custom_ref=False, high_speed=True, pupil_diameter=pupil_diameter) as wfs:
+            
+            def calc_j():
+                wfs.take_image(5)
+                wf, statics = wfs.get_wavefront()
+                return wf, statics
 
-        def calc_j():
-            wfs.take_image(5)
-            wf, statics = wfs.get_wavefront()
-            return wf, statics
+            wf, statics = calc_j()
+            lr, delta = schedule_lr_delta(statics['rms'])
+            optimizer = AdaMOD(dim=dm.DM_Num, lr=lr, beta1=beta1, beta2=beta2, beta3=beta3)
 
-        wf, statics = calc_j()
-        lr, delta = schedule_lr_delta(statics['rms'])
-        optimizer = AdaMOD(dim=dm.DM_Num, lr=lr, beta1=beta1, beta2=beta2, beta3=beta3)
-
-        history = [
-            {
-                "J": statics['rms'],
-                "_v": _init_v,
-                "_diff": 0,
-                "_gamma": lr,
-                "delta": delta,
-                "_epoch": 0,
-                "_wavefront": wf[np.newaxis, ...],
-                "_statics": statics
-            }
-        ]
-
-        with tqdm.tqdm(
-            total=epochs, desc=f"{statics['rms']:.3f} iter {epochs}", dynamic_ncols=True
-        ) as bar:
-            for epoch in range(1, epochs+1):
-                disturb_v = np.random.binomial(1, 0.5, (dm.DM_Num,)).astype(float) * 2.0 - 1.0
-
-                disturb_v = disturb_v * delta
-                disturb_v[0] = 0
-
-                pos_vs = dm.send_voltages(_init_v + disturb_v)
-                pos_wf, pos_statics = calc_j()
-                pos_j = pos_statics['rms']
-
-                ng_vs = dm.send_voltages(_init_v - disturb_v)
-                neg_wf, neg_statics = calc_j()
-                neg_j = neg_statics['rms']
-                
-                diff = pos_statics['rms'] - neg_statics['rms']
-                gradient = -diff * disturb_v
-                
-                avg_j = (pos_j + neg_j) / 2
-                lr, delta = schedule_lr_delta(avg_j)
-                optimizer.lr = lr
-                update = optimizer.update(gradient)
-                update = np.clip(update, -dm.max_iter_diff+delta, dm.max_iter_diff-delta)
-                if metropolis_temperature > 0:
-                    # 使用模拟退火接受或拒绝更新
-                    last_J = history[-1]["J"]
-                    metropolis = (max(pos_j, neg_j) - last_J) / last_J
-                    if metropolis > 0 or np.random.rand() < np.exp(
-                        metropolis / metropolis_temperature
-                    ):
-                        _to_update_v = np.clip(_init_v - update, V_MIN, V_MAX)
-                    metropolis_temperature *= METROPOLIS_ALPHA
-                else:
-                    _to_update_v = np.clip(_init_v - update, V_MIN, V_MAX)
-                
-                if dm.check_dm_unit_grad_safe(_to_update_v):
-                    _init_v = _to_update_v
-                else:
-                    logger.warning("相邻单元压差过大，放弃本次结果")
-                
-                log = {
-                    "J": avg_j,
-                    "_diff": diff,
-                    "_gamma": optimizer.lr,
-                    "delta": delta,
-                    "_epoch": epoch,
+            history = [
+                {
+                    "J": statics['rms'],
                     "_v": _init_v,
-                    "_pos_v": pos_vs,
-                    "_neg_v": ng_vs,
-                    "_wavefront": np.stack([pos_wf, neg_wf]),
-                    "_statics": {"pos": pos_statics, "neg": neg_statics},
+                    "_diff": 0,
+                    "_gamma": lr,
+                    "delta": delta,
+                    "_epoch": 0,
+                    "_wavefront": wf[np.newaxis, ...],
+                    "_statics": statics
                 }
-                history.append(log)
+            ]
+
+            with tqdm.tqdm(
+                total=epochs, desc=f"{statics['rms']:.3f} iter {epochs}", dynamic_ncols=True
+            ) as bar:
+                for epoch in range(1, epochs+1):
+                    disturb_v = np.random.binomial(1, 0.5, (dm.DM_Num,)).astype(float) * 2.0 - 1.0
+
+                    disturb_v = disturb_v * delta
+                    disturb_v[0] = 0
+
+                    pos_vs = dm.send_voltages(_init_v + disturb_v)
+                    pos_wf, pos_statics = calc_j()
+                    pos_j = pos_statics['rms']
+
+                    ng_vs = dm.send_voltages(_init_v - disturb_v)
+                    neg_wf, neg_statics = calc_j()
+                    neg_j = neg_statics['rms']
                     
-                bar.set_postfix({k: f'{v:.4f}' for k, v in log.items() if k[0] != "_"})
-                bar.update(1)
+                    diff = pos_statics['rms'] - neg_statics['rms']
+                    gradient = -diff * disturb_v
+                    
+                    avg_j = (pos_j + neg_j) / 2
+                    lr, delta = schedule_lr_delta(avg_j)
+                    optimizer.lr = lr
+                    update = optimizer.update(gradient)
+                    update = np.clip(update, -dm.max_iter_diff+delta, dm.max_iter_diff-delta)
+                    _to_update_v = np.clip(_init_v - update, V_MIN, V_MAX)
+                    
+                    if dm.check_dm_unit_grad_safe(_to_update_v):
+                        _init_v = _to_update_v
+                    else:
+                        logger.warning(f"相邻单元压差大于{dm.max_neibor_diff}，放弃本次结果")
+                    
+                    log = {
+                        "J": avg_j,
+                        "_diff": diff,
+                        "_gamma": optimizer.lr,
+                        "delta": delta,
+                        "_epoch": epoch,
+                        "_v": _init_v,
+                        "_pos_v": pos_vs,
+                        "_neg_v": ng_vs,
+                        "_wavefront": np.stack([pos_wf, neg_wf]),
+                        "_statics": {"pos": pos_statics, "neg": neg_statics},
+                    }
+                    history.append(log)
+                    # frame_data = {
+                    #     "wf": {'img': (neg_wf+np.pi)/np.pi/2*255},
+                    #     "voltage": {'volts': _init_v},
+                    #     "rms": {'value': avg_j},
+                    #     "info": {'text': f"diff: {diff:.4f}, gamma: {optimizer.lr:.4f}, delta: {delta:.4f}"},
+                    # }
+                    # display.render(frame_data=frame_data, info=f"Epoch {epoch}/{epochs}:{avg_j=:.4f}")
+                        
+                    bar.set_postfix({k: f'{v:.4f}' for k, v in log.items() if k[0] != "_"})
+                    bar.update(1)
 
         return history
 
@@ -160,8 +164,7 @@ def run():
     init_V = [0 for _ in range(64)]
     res_list = optimizer(
         init_v=init_V.copy(),
-        epochs=15000,
-        metropolis_temperature=0)
+        epochs=20_000)
 
     res_df = pd.DataFrame(res_list)
     save_dir = gen_date_dir(ROOT_DIR)

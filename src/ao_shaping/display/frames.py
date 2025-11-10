@@ -4,8 +4,26 @@ import pygame
 import numpy as np
 from scipy.ndimage import zoom
 
+from ao_shaping.utils import logger
+
 BACKGROUND_COLOR = (0, 0, 0)
 Title_height = 36
+DPI = 96
+
+__frame_registry = {}
+
+def get_frame_names():
+    return __frame_registry.keys()
+
+def get_frame(frame_name:str):
+    return __frame_registry[frame_name]
+
+def register_frame(frame_name:str):
+    def decorator(cls):
+        assert frame_name not in __frame_registry, f"Frame name {frame_name} already registered"
+        __frame_registry[frame_name] = cls
+        return cls
+    return decorator
 
 class BaseFrame(ABC):
     def __init__(self, window, render_pos, frame_size, title:str="") -> None:
@@ -31,7 +49,7 @@ class BaseFrame(ABC):
     def render(self):
         self._render_title()
 
-
+@register_frame("Image2D")
 class Image2DFrame(BaseFrame):
     def render(self, img:np.ndarray):
         assert img.ndim == 2, "ImageFrame only supports 2D images"
@@ -43,6 +61,8 @@ class Image2DFrame(BaseFrame):
         self.window.blit(img_surf, (self.left, self.top))
         super().render()
         
+
+@register_frame("Image2DWithBucket")
 class Image2DWithBucketFrame(BaseFrame):
     def render(self, img:np.ndarray, center:tuple[int,int], r:int):
         assert img.ndim == 2, "ImageFrame only supports 2D images"
@@ -55,6 +75,7 @@ class Image2DWithBucketFrame(BaseFrame):
         super().render()
 
 
+@register_frame("Voltage")
 class VoltageFrame(BaseFrame):
     def __init__(self, v_min:int=-300, v_max:int=500, background_color=BACKGROUND_COLOR, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -80,6 +101,7 @@ class VoltageFrame(BaseFrame):
         super().render()
 
 
+@register_frame("Log")
 class LogFrame(BaseFrame):
     Line_Coler = (0, 255, 0)
 
@@ -98,7 +120,7 @@ class LogFrame(BaseFrame):
             num_points = len(self.__recorder)
             for i, sum_value in enumerate(self.__recorder):
                 # 均匀分布 x 轴坐标
-                x = int(i * (self.width / (num_points - 1)))
+                x = self.left + int(i * (self.width / (num_points - 1)))
                 y = self.top + self.height - int(
                     (sum_value - min_sum) / (max_sum - min_sum) * self.height
                 ) if max_sum != min_sum else self.height // 2
@@ -112,13 +134,16 @@ class LogFrame(BaseFrame):
     @property
     def data(self):
         return self.__recorder
-    
 
+
+@register_frame("Text")
 class TextFrame(BaseFrame):
     def __init__(self, font_size:int=0, background_color=BACKGROUND_COLOR, **kwargs) -> None:
         super().__init__(**kwargs)
         self.font_size = font_size
         self.background_color = background_color
+        if self.font_size == 0:
+            logger.info("Font size not specified, using dynamic font size")
 
     def render(self, text:str, font_size:int=0):
         self.window.fill(self.background_color, self.plot_area)
@@ -129,10 +154,19 @@ class TextFrame(BaseFrame):
 
         if self.font_size == 0:
             max_line_len = max(len(line) for line in lines)
-            self.font_size = min(self.height // len(lines)-6, self.width // max_line_len-6)
+            font_pixel = min(self.height // len(lines)-6, self.width // max_line_len-6)
+            self.font_size = self.__font_pixel_to_pt(font_pixel)
 
         font = pygame.font.Font(None, self.font_size)
         for i, line in enumerate(lines):
             text = font.render(line, True, (0, 255, 255))
             self.window.blit(text, (self.left, self.top + i * (font.get_height()+3)))
         super().render()
+
+    @staticmethod
+    def __font_pt_to_pixel(pt:int):
+        return int(pt * DPI / 72)
+    
+    @staticmethod
+    def __font_pixel_to_pt(px:int):
+        return int(px * 72 / DPI)

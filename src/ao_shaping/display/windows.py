@@ -88,7 +88,7 @@ class AutoDisplay(BaseDisplay):
             assert name not in self._frames, f"Frame name {name} is duplicated"
             self._frames[name] = _frame(window=self.window, render_pos=(top, left), frame_size=self.frame_size, title=title, **frame_info.kwargs)
 
-    def render(self, frame_data:dict[str, dict], info:str='') -> None:
+    def render(self, frame_data:dict[str, dict], info:str='') -> bool:
         for name, frame in self._frames.items():
             frame.render(**frame_data.get(name))
             # frame.top, frame.left = frame.render_pos

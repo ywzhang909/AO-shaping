@@ -1,16 +1,21 @@
 {
     "terminal.integrated.env.windows": {
-        "python.envFile": "${workspaceFolder}/.env",
         "python.terminal.useEnvFile": "${workspaceFolder}/.env",
-        "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs;${env:PYTHONPATH}",
-        "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${env:PATH}",
+        // "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs;${env:PYTHONPATH}",
+        // "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${env:PATH}",
     },
-    "python.testing.pytestArgs": [
-        "tests"
-    ],
+    "python.testing.pytestArgs": [],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
-    "cSpell.words": [
-        "UDPST"
-    ]
+    "python.terminal.useEnvFile": true,
+    "python.envFile": "${workspaceFolder}/.env",
+    "python.testing.pytestPath": "${workspaceFolder}/.venv/Scrits/pytest.exe",
+    "[dotenv]": {
+        "editor.formatOnSave": true
+    },
+    "python-env.workspaceSearchPaths": [
+        "${workspaceFolder}/src",
+        "${workspaceFolder}/libs",
+    ],
+    "python.autoComplete.extraPaths": ["./src"]
 }
