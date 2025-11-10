@@ -18,5 +18,8 @@ def test_cam(cam_id=0):
         center = centroid(img)
         print(f'{center=}')
         plt.imshow(img)
-        plt.title(f'{center=} = {img[center[::-1]]=}')
+        plt.title(f'{center=}')
         plt.show()
+
+if __name__ == '__main__':
+    test_cam()

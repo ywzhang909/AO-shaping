@@ -98,7 +98,7 @@ class LogFrame(BaseFrame):
             num_points = len(self.__recorder)
             for i, sum_value in enumerate(self.__recorder):
                 # 均匀分布 x 轴坐标
-                x = int(i * (self.width / (num_points - 1)))
+                x = self.left + int(i * (self.width / (num_points - 1)))
                 y = self.top + self.height - int(
                     (sum_value - min_sum) / (max_sum - min_sum) * self.height
                 ) if max_sum != min_sum else self.height // 2

@@ -13,3 +13,6 @@ def test_turn_off_dm():
     with NlightDM(keep_when_exit=False) as dm:
         dm.send_voltages(np.zeros((dm.DM_Num)))
         dm.reset_all()
+
+if __name__ == "__main__":
+    test_turn_off_dm()

@@ -60,7 +60,7 @@ def centroid(intensity:np.ndarray, moment:int=1, threshold=0.01) -> Tuple[int, i
     :param y: y坐标矩阵
     :return center_x, center_y: 光强的质心
     """
-    _intensity = intensity.copy()
+    _intensity = intensity.copy().astype(np.float32)
     _intensity -= threshold*np.max(_intensity)
     _intensity[_intensity < 0] = 0
     

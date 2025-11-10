@@ -11,9 +11,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": "${command:pickArgs}",
-            "env": {
-                "DEBUG": "1"
-            }
+            "envFile": "${workspaceFolder}/.env"
         }
     ]
 }
