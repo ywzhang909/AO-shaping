@@ -329,6 +329,7 @@ class WFSManager:
         self.mla_index = mla_index
         self.image_pix = Mla_pix[mla_index]
         self.num_spots_x, self.num_spots_y = 0, 0
+
         self.c_x, self.c_y = 0.0, 0.0
         self.d_x, self.d_y = pupil_diameter, pupil_diameter
 
@@ -362,12 +363,12 @@ class WFSManager:
 
         self.select_mla(self.mla_index)
         self.set_ref_plane(self.use_custom_ref)
-        self.pupil = (self.c_x, self.c_y, self.d_x, self.d_y)
         if self._explosure_time <= 0:
             self._explosure_time,_ = self.optimize_exposure_time_and_gain()
         self.exposure_time = self._explosure_time
         self.high_speed = self.enable_high_speed
-        self.pupil = self.pupil if (self.d_x>0 and self.d_y>0) else self.optimize_pupil()
+        self.pupil = (self.c_x, self.c_y, self.d_x, self.d_y) \
+            if (self.d_x>0 and self.d_y>0) else self.optimize_pupil()
         
     def close(self):
         if self._instrument_handle.value > 0:
@@ -632,15 +633,20 @@ class WFSManager:
         allowAutoExposure	ViInt32	When Highspeed Mode is selected, this parameter determines if the camera should also calculate the image saturation in order enable the auto exposure feature using function WFS_TakeSpotfieldImageAutoExpos() instead of WFS_TakeSpotfieldImage().
         This option leads to a somewhat reduced measurement speed when enabled.
                 '''
+        def __set_high_speed():
+            return self._lib.WFS_SetHighspeedMode(self._instrument_handle,
+                                       c_int32(1 if enable else 0), c_int32(1), c_int32(1), c_int32(1))
+
         self.enable_high_speed = False
         if enable:
             self.optimize_exposure_time_and_gain()
             self._lib.WFS_CalcSpotsCentrDiaIntens(self._instrument_handle, c_int32(1), c_int32(1))
-            self.pupil = self.optimize_pupil()
 
-        if (res := self._lib.WFS_SetHighspeedMode(self._instrument_handle,
-                                       c_int32(1 if enable else 0), c_int32(1), c_int32(1), c_int32(1))) != 0:
-            self.handle_error(res, False)
+        if (res := __set_high_speed()):  # res == 0 means success
+            self.handle_error(res, True)
+            self.pupil = self.optimize_pupil()
+            if (res := __set_high_speed()): # try again with auto pupil settings
+                self.handle_error(res, False)
         else:
             self.enable_high_speed = enable
             if self.enable_high_speed:
@@ -667,5 +673,5 @@ class WFSManager:
                 self.hs_window_startpos_x = windowStartposX
                 self.hs_window_startpos_y = windowStartposY
 
-        logger.info("high speed mode is " + "on" if enable else "off")
+        logger.info("high speed mode is " + "on" if self.enable_high_speed else "off")
     
