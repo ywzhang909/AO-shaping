@@ -7,7 +7,10 @@ class SerialPortFSM:
 
     def __init__(self, port=None, baud=115200):
         self.ser = serial.Serial(timeout=0.5)
-        self.ser.port = port
+        if port:
+            self.ser.port = port
+        else:
+            self.ser.port = self.list_port()[0]
         self.ser.baudrate = baud
         self.ser.bytesize = serial.EIGHTBITS
         self.ser.parity = serial.PARITY_NONE    
@@ -26,7 +29,8 @@ class SerialPortFSM:
         self.close()
     # -------------------- 线程生命周期 --------------------
     def open(self):
-        if self.ser.is_open: return True
+        if self.ser.is_open:
+            return True
         self.ser.open()
         self.running = True
         self.worker = threading.Thread(target=self._loop, daemon=True)

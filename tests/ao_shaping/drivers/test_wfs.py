@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import numpy as np
 
 from ao_shaping.drivers import Thorlab_WFS, MlaRes
 

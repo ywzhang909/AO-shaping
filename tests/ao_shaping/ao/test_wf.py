@@ -1,11 +1,11 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from ao_shaping.wf.DM_wfs import optimizer
+from ao_shaping.wf.DM_wfs import optimizer_rms
 
-def test_raw_optimizer():
+def test_wf_optimizer():
     init_V = [0 for _ in range(64)]
-    res_list = optimizer(
+    res_list = optimizer_rms(
         init_v=init_V.copy(),
         epochs=20_000)
 
@@ -33,6 +33,7 @@ def test_raw_optimizer():
     ax[1, 1].set_title("opt wavefront")
     ax[1, 1].axis('off')
     plt.show()
+    plt.close()
 
 if __name__ == "__main__":
-    test_raw_optimizer()
+    test_wf_optimizer()

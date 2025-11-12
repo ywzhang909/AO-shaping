@@ -81,7 +81,17 @@ def peak_position(intensity, x, y):
 
     return xp, yp
 
-def radius(intensity, x, y, center='centroid', energy=0.99):
+def make_coord(img:np.ndarray):
+    """
+    生成坐标矩阵
+
+    :param img: 强度分布
+    :return x, y: 坐标矩阵
+    """
+    x, y = np.meshgrid(np.arange(img.shape[1]), np.arange(img.shape[0]))
+    return x, y
+
+def radius(intensity, center='centroid', energy=0.99):
     """
     以center为圆心，占总能量百分比为energy的圆的半径
 
@@ -92,6 +102,7 @@ def radius(intensity, x, y, center='centroid', energy=0.99):
     :param energy: 圆内的能量比，默认0.99，取值范围0~1，常用0.5，0.865， 0.99
     :return radius: 圆的半径
     """
+    x, y = make_coord(intensity)
     npix = len(x)
     dpix = x[0, 1] - x[0, 0]
 
@@ -101,7 +112,8 @@ def radius(intensity, x, y, center='centroid', energy=0.99):
         elif center == 'centroid':
             x0, y0 = centroid(intensity, x, y)
         elif center == 'origin':
-            x0, y0 = 0, 0
+            h, w = intensity.shape
+            x0, y0 = w // 2, h // 2
         else:
             raise ValueError('center is wrong set')
     else:

@@ -7,7 +7,7 @@ from ao_shaping.utils.file import logger
 class CameraStreamManager:
     def __init__(self, cam_id:int=0, exposure_time_ms:int=20, skip_sampling=False):
         self.device_manager = gx.DeviceManager()
-        self.cam_id = cam_id
+        self.cam_id = int(cam_id)
         self.exposure_time_ms = exposure_time_ms
         self.skip_sampling = skip_sampling
 

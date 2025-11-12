@@ -31,13 +31,12 @@ class ImageVoltagesDisplay:
         r (int): 绘制圆的半径
         info (str, optional): 窗口标题信息，默认值为空字符串
         '''
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                return False
+        if pygame.event.get(pygame.QUIT):
+            return False
 
         img_size = img.shape
         canvas = pygame.surfarray.make_surface(img.transpose())
-        pygame.draw.circle(canvas, (255, 0, 0), center, r, 3)
+        pygame.draw.circle(canvas, (255, 255, 255), center, r, 10)
         pygame.display.set_caption(info)
         self.window.blit(canvas, (0,0))
         # 绘制电压图

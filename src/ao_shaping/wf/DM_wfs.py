@@ -1,3 +1,4 @@
+from typing import Literal
 import os
 from datetime import datetime
 from loguru import logger
@@ -8,9 +9,8 @@ import matplotlib.pyplot as plt
 
 import tqdm
 from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS
-from ao_shaping.utils import gen_date_dir, gen_file_path_uuid, get_init_V_by_rms
+from ao_shaping.utils import gen_date_dir, gen_file_path_uuid
 from ao_shaping.algorithm.adam import AdaMOD
-from ao_shaping.display import FrameInfo, AutoDisplay
 
 ROOT_DIR = "./data/wf"
 
@@ -47,7 +47,7 @@ def schedule_lr_delta(rms):
     elif rms > 0.25:
         return 1.2, 2
     elif rms > 0.2:
-        return 0.95,1.2
+        return 1, 1.2
     elif rms > 0.15:
         return 0.9, 0.9
     elif rms > 0.08:
@@ -55,20 +55,14 @@ def schedule_lr_delta(rms):
     else:
         return 0.7, 0.7
 
-def optimizer(
+def optimizer_rms(
     epochs,
+    wfs_res: Literal['512', '768'] = '768',
     init_v:list[float]=[],
-    pupil_diameter:float=2.24
+    pupil_diameter:float=2.24,
+    early_stop_threshold:float=0.12,
 ):
     epochs = int(epochs)
-
-    frames = [
-        FrameInfo("wf", "wavefront", "Image2DFrame"),
-        FrameInfo("voltage", "voltages", "VoltageFrame"),
-        FrameInfo("rms", "RMS", "LogFrame"),
-        FrameInfo("info", "info", "TextFrame"),
-    ]
-
 
     with NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
         if not init_v:
@@ -77,8 +71,15 @@ def optimizer(
             _init_v = np.array(init_v)
         dm.send_voltages(_init_v, 0.5)
         
-        with Thorlab_WFS(MlaRes.Res512, use_custom_ref=False, high_speed=True, pupil_diameter=pupil_diameter) as wfs:
-            
+        if wfs_res == '768':
+            wfs_res_config = MlaRes.Res768
+        elif wfs_res == '512':
+            wfs_res_config = MlaRes.Res512
+        else:
+            raise ValueError(f"wfs_res must be '512' or '768', but got {wfs_res}")
+        
+        with Thorlab_WFS(wfs_res_config, use_custom_ref=False, high_speed=True, pupil_diameter=pupil_diameter) as wfs:
+                
             def calc_j():
                 wfs.take_image(5)
                 wf, statics = wfs.get_wavefront()
@@ -146,13 +147,10 @@ def optimizer(
                         "_statics": {"pos": pos_statics, "neg": neg_statics},
                     }
                     history.append(log)
-                    # frame_data = {
-                    #     "wf": {'img': (neg_wf+np.pi)/np.pi/2*255},
-                    #     "voltage": {'volts': _init_v},
-                    #     "rms": {'value': avg_j},
-                    #     "info": {'text': f"diff: {diff:.4f}, gamma: {optimizer.lr:.4f}, delta: {delta:.4f}"},
-                    # }
-                    # display.render(frame_data=frame_data, info=f"Epoch {epoch}/{epochs}:{avg_j=:.4f}")
+
+                    if avg_j < early_stop_threshold:
+                        logger.info(f"Early stop at epoch {epoch} with J={avg_j:.4f}")
+                        break
                         
                     bar.set_postfix({k: f'{v:.4f}' for k, v in log.items() if k[0] != "_"})
                     bar.update(1)
@@ -162,7 +160,7 @@ def optimizer(
 def run():
     # init_V = get_init_V_by_rms()
     init_V = [0 for _ in range(64)]
-    res_list = optimizer(
+    res_list = optimizer_rms(
         init_v=init_V.copy(),
         epochs=20_000)
 

@@ -2,9 +2,11 @@
     "terminal.integrated.env.windows": {
         "python.terminal.useEnvFile": "${workspaceFolder}/.env",
         // "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs;${env:PYTHONPATH}",
-        // "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${env:PATH}",
+        "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${env:PATH}",
     },
-    "python.testing.pytestArgs": [],
+    "python.testing.pytestArgs": [
+        "-s"
+    ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
     "python.terminal.useEnvFile": true,
@@ -17,5 +19,14 @@
         "${workspaceFolder}/src",
         "${workspaceFolder}/libs",
     ],
-    "python.autoComplete.extraPaths": ["./src"]
+    "python.autoComplete.extraPaths": [
+        "./src"
+    ],
+    "python-envs.pythonProjects": [
+        {
+            "path": "libs/gxipy",
+            "envManager": "ms-python.python:venv",
+            "packageManager": "ms-python.python:pip"
+        }
+    ]
 }

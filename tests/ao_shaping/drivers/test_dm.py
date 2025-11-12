@@ -1,4 +1,6 @@
 from ao_shaping.drivers import NlightDM
+from ao_shaping.utils.file import get_init_V_by_energy
+
 import numpy as np
 
 def test_dm():
@@ -14,5 +16,8 @@ def test_turn_off_dm():
         dm.send_voltages(np.zeros((dm.DM_Num)))
         dm.reset_all()
 
-if __name__ == "__main__":
-    test_turn_off_dm()
+def test_last_voltage():
+    voltages = get_init_V_by_energy()
+    with NlightDM() as dm:
+        dm.send_voltages(voltages, 0)
+        

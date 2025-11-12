@@ -123,7 +123,7 @@ class DMUdp:
         try:
             socket.inet_aton(self.ip)
         except socket.error:
-            raise ValueError(f"Invalid IP address: {self.ip}")
+            raise AssertionError("device connection error.")
         self.port = 1001
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.dm_num = DM_NUM
