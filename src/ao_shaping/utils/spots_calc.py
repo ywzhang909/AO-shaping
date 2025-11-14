@@ -65,7 +65,7 @@ def centroid(intensity:np.ndarray, moment:int=1, threshold=0.01) -> Tuple[int, i
     _intensity[_intensity < 0] = 0
     
     center = center_of_mass(_intensity**moment)
-    return center[1], center[0]
+    return int(center[1]), int(center[0])
 
 def peak_position(intensity, x, y):
     """

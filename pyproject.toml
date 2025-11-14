@@ -49,11 +49,6 @@ dependencies = [
     "coredumpy>=0.4.3",
 ]
 
-packages = [
-  { include = "ao_shaping", from = "src" },
-  { include = "gxipy", from = "libs" },
-]
-
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true

@@ -1,5 +1,6 @@
 {
     "terminal.integrated.env.windows": {
+        "env": "${workspaceFolder}/.env",
         "python.terminal.useEnvFile": "${workspaceFolder}/.env",
         // "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs;${env:PYTHONPATH}",
         "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${env:PATH}",
