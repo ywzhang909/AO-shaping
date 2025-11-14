@@ -3,7 +3,7 @@ import os
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from ao_shaping.wfless.DM_cam import optimize_pib
+from ao_shaping.optimizer.wfless.pib import optimize_pib
 from ao_shaping.utils.file import get_init_V_by_rms
 
 def test_optimize_pib():

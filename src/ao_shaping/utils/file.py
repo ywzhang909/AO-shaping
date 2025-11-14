@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 import os
 import re
 from loguru import logger
@@ -10,8 +10,8 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
-
-error_handler = logger.add("logs/error.log", rotation="500 MB", encoding="utf-8", level="ERROR", backtrace=True, diagnose=True)
+import matplotlib.pyplot as plt
+import swanlab
 
 def gen_file_path_inc(dir: str|Path, postfix: str = ''):
     if isinstance(dir, str):
@@ -98,7 +98,7 @@ def get_init_V_by_energy(date:str = ''):
         logger.info(f"init_V by energy @ {data_path} not found, return 0")
     return init_V
 
-def save_history(history:pd.DataFrame | list[dict[str, Any]], file_path:str|Path=None):
+async def save_history(history:pd.DataFrame | list[dict[str, Any]], file_path:str|Path=None):
     if isinstance(file_path, str):
         file_path = Path(file_path)
     if not file_path.exists():
@@ -109,45 +109,126 @@ def save_history(history:pd.DataFrame | list[dict[str, Any]], file_path:str|Path
         np.save(file_path, history)
 
 
-class Recorder():
-    def __init__(self, mark:str="J", target="v"):
-        self.history = []
-        self.mark = mark
-        self.target = target
+class Register:
+    def __init__(self) -> None:
+        self.members = {}
+
+    def register(self, name:str) -> None:
+        def decorator(func):
+            self.members[name] = func
+            return func
+        return decorator
     
-    def record(self, record):
+    def __getitem__(self, name:str):
+        return self.members[name]
+    
+    @property
+    def all_funcs(self):
+        return self.members.values()
+    
+    @property
+    def all_names(self):
+        return self.members.keys()
+
+
+class Recorder():
+    def __init__(self, mark:str="J", mode:Literal["max", "min"]="max"):
+        self.mark = mark
+        self.mode = mode
+        self.history = list()
+
+        self._all_columns = set()
+    
+    def append(self, record:dict):
+        assert self.mark in record, \
+            f"mark {self.mark} not in record {record}"
+        if "_id" not in record:
+            record["_id"] = len(self.history)
         self.history.append(record)
+        self._all_columns.update(record.keys())
+    
+    @property
+    def dataframe(self):
+        return pd.DataFrame(self.history)
 
     def save_dataframe(self, filename:str, **kwargs):
         df = self.dataframe
         save_history(df, filename)
         return df
 
-    def save_best(self, saved_dir:str, **kwargs):
-        res_df = self.dataframe
-        max_j_id = res_df[self.mark].argmax()
-        last_V = res_df.iloc[max_j_id][self.target]
-        max_j = res_df.iloc[max_j_id][self.mark]
-        np.savetxt(f'{saved_dir}/to_load_V-{max_j:.3f}.csv', np.around(last_V).astype(int), fmt="%d")
-        logger.info(f"{max_j_id} -> {max_j:.3f}")
-        return last_V, max_j
+    def save_best(self, saved_dir:str|Path, target:str, process_fn=lambda x:x, **kwargs):
+        if target not in self.columns:
+            target = "_"+target
+            if target not in self.columns:
+                raise ValueError(f"target {target} not in columns {self.columns}")
+        
+        if isinstance(saved_dir, str):
+            saved_dir = Path(saved_dir)
+        saved_dir.mkdir(parents=True, exist_ok=True)
 
-    @property
-    def dataframe(self):
-        df = pd.DataFrame(self.history)
-        df.columns = [c[1:] if c.startswith("_") else c for c in df.columns]
-        return df
+        target_iter, (index, value) = self.get_best_iter()
+        target_value = process_fn(target_iter[target])
+        if isinstance(target_value, np.ndarray) and target_value.ndim == 1: # 1D array
+            save_file = saved_dir / f'{self.mark}-{value:.3f}.csv'
+            np.savetxt(save_file, target_value, **kwargs)
+        elif isinstance(target_value, np.ndarray) and target_value.ndim == 2: # 2D array
+            save_file = saved_dir / f'{self.mark}-{value:.3f}.png'
+            plt.imshow(target_value, **kwargs)
+            plt.savefig(save_file)
+            plt.close()
+        else:
+            raise ValueError(f"target_value {target_value} has invalid shape {target_value.shape}")
+        logger.info(f"{self.mark}@{index}->{value:.3f} saved to {save_file}")
+        return target_value, target_iter[self.mark]
+    
+    def plot(self, target:str, ax=None):
+        if ax is None:
+            fig, ax = plt.subplots(1, 1, figsize=(12, 4))
+        ax.plot(self.history[target], self.history[self.mark])
+        ax.set_xlabel(target)
+        ax.set_ylabel(self.mark)
+        ax.set_title(f"{self.mark} vs {self.target}")
+        return ax
+
+    def __len__(self):
+        return len(self.history)
+    
+    def __getitem__(self, index):
+        assert index < len(self.history), f"index {index} out of range {len(self.history)}"
+        return self.history.iloc[index]
+    
+    def __add__(self, other:"Recorder"):
+        assert self.mark == other.mark and self.target == other.target, "mark and target must be the same"
+        self.history.extend(other.history)
+        return self
     
     @property
-    def last_record(self):
+    def columns(self):
+        return list(self._all_columns)
+    
+    @property
+    def last(self):
         return self.history[-1]
     
     @property
-    def first_record(self):
+    def first(self):
         return self.history[0]
     
     @property
-    def best_record(self):
-        res_df = self.__to_dataframe()
-        max_j_id = res_df[self.mark].argmax()
-        return res_df.iloc[max_j_id]
+    def last_info_dict(self) -> dict[str, Any]:
+        info_dict = self.last
+        return {k:v for k,v in info_dict.items() if not k.startswith("_")}
+
+    def get_best_iter(self, mark:str=""):
+        mark = mark or self.mark
+        res_df = pd.DataFrame(self.history)
+        target_id = res_df[mark].argmax() if self.mode == "max" else res_df[mark].argmin()
+        return res_df.iloc[target_id], (target_id, res_df.iloc[target_id][mark])
+
+    def get_sublist(self, columns:list[str] | str | None = ""):
+        if not columns:
+            columns = self.mark
+        if isinstance(columns, str):
+            return [l.get(columns, np.nan) for l in self.history]
+        else:
+            return [{k:v for k,v in l.items() if k in columns} for l in self.history]

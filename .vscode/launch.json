@@ -11,7 +11,10 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": "${command:pickArgs}",
-            "envFile": "${workspaceFolder}/.env"
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${env:PATH}",
+            }
         }
     ]
 }

@@ -47,6 +47,7 @@ dependencies = [
     "numba>=0.62.1",
     "pytest-cov>=7.0.0",
     "coredumpy>=0.4.3",
+    "swanlab>=0.7.1",
 ]
 
 [[tool.uv.index]]

@@ -1,7 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from ao_shaping.wf.DM_wfs import optimizer_rms
+from ao_shaping.optimizer.wf.rms import optimizer_rms
 
 def test_wf_optimizer():
     init_V = [0 for _ in range(64)]

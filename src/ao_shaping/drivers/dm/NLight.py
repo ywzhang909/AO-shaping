@@ -18,8 +18,19 @@ class NLight(DM):
     DM_Num: int = DM_NUM
     V_Min, V_Max = -300, 499
     Units_Adj_Mat = _load_adj_txt()
+    all_dm_unit_mask = np.ones(DM_NUM, dtype=bool)
+    all_dm_unit_mask[0] = False
 
-    def __init__(self, max_iter_diff=20, max_neibor_diff=200, keep_when_exit=True):
+    inner_dm_unit_mask = all_dm_unit_mask.copy()
+    inner_dm_unit_mask[21:] = False
+
+    middle_dm_unit_mask = all_dm_unit_mask.copy()
+    middle_dm_unit_mask[39:] = False
+
+    default_dm_unit_mask = all_dm_unit_mask
+
+
+    def __init__(self, max_iter_diff=20, max_neibor_diff=100, keep_when_exit=True):
         assert max_iter_diff <= 200
         assert max_neibor_diff <= 300
 

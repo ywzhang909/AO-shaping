@@ -1,4 +1,5 @@
 import sys
+from copy import deepcopy
 from loguru import logger
 
 import numpy as np
@@ -472,6 +473,7 @@ class WFSManager:
                 spots_center_x, spots_center_y)
             # self._lib.WFS_GetSpotDiameters(self._instrument_handle,
             #     np2c(spots_diameter_x), np2c(spots_diameter_y))
+
         return spots_intensities[:self.num_spots_x, :self.num_spots_y], (spots_center_x[:self.num_spots_x, :self.num_spots_y], spots_center_y[:self.num_spots_x, :self.num_spots_y])
 
     def get_wavefront(self, image_loop_counter: int = -1):
@@ -495,7 +497,7 @@ class WFSManager:
                 byref(rms), byref(wighted_rms)
             )
 
-        wavefront = wavefront[:self.num_spots_x, :self.num_spots_y]
+        wavefront = deepcopy(wavefront)[:self.num_spots_x, :self.num_spots_y]
         # wavefront = np.where(wavefront==np.nan, 0, wavefront)
         return wavefront, {"min":min.value, "max":max.value, "diff":diff.value, "mean":mean.value, "rms":rms.value, "wighted_rms":wighted_rms.value}
 
@@ -531,19 +533,21 @@ class WFSManager:
         Returns:
             tuple[np.ndarray, np.ndarray]: spot deviation x, spot deviation y
         '''
-        spots_deviation_x = np.zeros(MAX_SPOTS, dtype= np.float32)
-        spots_deviation_y = np.zeros(MAX_SPOTS, dtype= np.float32)
+        _spots_deviation_x = np.zeros(MAX_SPOTS, dtype= np.float32)
+        _spots_deviation_y = np.zeros(MAX_SPOTS, dtype= np.float32)
         # if err:= self._lib.WFS_CalcSpotsCentrDiaIntens(self._instrument_handle, c_int32(1), c_int32(1)):
         #     self.handle_error(err)
         
         if (res := self._lib.WFS_CalcSpotToReferenceDeviations(
             self._instrument_handle, c_int32(1 if cancel_tile else 0))) == 0:
-            if err:= self._lib.WFS_GetSpotDeviations(self._instrument_handle, spots_deviation_x, spots_deviation_y):
+            if err:= self._lib.WFS_GetSpotDeviations(self._instrument_handle, _spots_deviation_x, _spots_deviation_y):
                 self.handle_error(err)
         else:
             self.handle_error(res)
-
-        return spots_deviation_x[:self.num_spots_x, :self.num_spots_y], spots_deviation_y[:self.num_spots_x, :self.num_spots_y]
+        x = deepcopy(_spots_deviation_x)[:self.num_spots_x, :self.num_spots_y]
+        y = deepcopy(_spots_deviation_y)[:self.num_spots_x, :self.num_spots_y]
+        
+        return x, y
 
 
     def optimize_exposure_time_and_gain(self) -> tuple[float, float]:

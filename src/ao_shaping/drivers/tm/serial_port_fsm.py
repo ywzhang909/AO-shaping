@@ -1,5 +1,5 @@
 # serial_port_fsm.py
-import struct, serial, serial.tools.list_ports, threading, queue
+import serial, serial.tools.list_ports, threading, queue
 
 class SerialPortFSM:
     MAX, MIN = 1510.0, -1510.0
@@ -51,7 +51,6 @@ class SerialPortFSM:
         return frame
 
     def send_in_queue(self, x: float, y: float):
-        """外部唯一需要调用的接口：发位置"""
         frame = self._build_frame(x, y)
         self.tx_que.put(frame)
         return frame
@@ -76,7 +75,7 @@ class SerialPortFSM:
                 self.rx_que.put(data)
                 
     @staticmethod
-    def pack_position_xy(position_x: float, position_y: float, big_endian: bool = True) -> bytes:
+    def pack_position_xy(position_x: float, position_y: float) -> bytes:
         """
         与 C++ 代码 bit-wise 一致：
             int16_t xInt = (int16_t)std::round(PositionX / 0.05);
@@ -86,16 +85,13 @@ class SerialPortFSM:
         # 量化 + 四舍五入，与 C++ 保持相同溢出行为
         x_int = int(round(position_x / 0.05))
         y_int = int(round(position_y / 0.05))
-        
-        # 强制 16-bit 补码范围（Python int 很大，需要掩码）
-        x_int = (x_int & 0xFFFF) if x_int >= 0 else ((x_int + 0x10000) & 0xFFFF)
-        y_int = (y_int & 0xFFFF) if y_int >= 0 else ((y_int + 0x10000) & 0xFFFF)
-        
-        # 大端序打包 (匹配 C++ 实现)
-        if big_endian:
-            return struct.pack('>HH', x_int, y_int)
-        else:
-            return struct.pack('<HH', x_int, y_int)
+        buf = bytearray(4)
+        # 将 int16 转换为两个字节（大端序：高8位在前）
+        buf[0] = (x_int >> 8) & 0xFF   # X轴高8位
+        buf[1] = x_int & 0xFF          # X轴低8位
+        buf[2] = (y_int >> 8) & 0xFF   # Y轴高8位
+        buf[3] = y_int & 0xFF          # Y轴低8位
+        return buf
     
     @staticmethod
     def _build_frame(x: float, y: float):
@@ -107,7 +103,7 @@ class SerialPortFSM:
         x = max(min(x, SerialPortFSM.MAX), SerialPortFSM.MIN)
         y = max(min(y, SerialPortFSM.MAX), SerialPortFSM.MIN)
         # Pack position data in big-endian format to match C++ implementation
-        buf[3:7] = SerialPortFSM.pack_position_xy(x, y, big_endian=True)
+        buf[3:7] = SerialPortFSM.pack_position_xy(x, y)
         checksum = (~(sum(buf[2:12])) & 0xFF)
         buf[12] = checksum
         return buf

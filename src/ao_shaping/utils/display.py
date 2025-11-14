@@ -1,4 +1,7 @@
 import pygame
+import matplotlib.pyplot as plt
+
+from ao_shaping.utils import Register
 
 # display settings
 VOLT_HEIGHT = 200
@@ -59,3 +62,48 @@ class ImageVoltagesDisplay:
         
     def close(self) -> None:
         pygame.quit()
+
+plot_funcs = Register()
+
+@plot_funcs.register("voltages")
+def plot_voltages(volts, ax:plt.Axes, title="") -> plt.Axes:
+    '''
+    绘制电压图
+    Parameters:
+    volts (np.ndarray): 电压值数组，用于绘制电压图
+    ax (plt.Axes): 要绘制的Axes对象
+    '''
+    ax.bar(range(len(volts)), volts)
+    ax.set_title(title)
+    ax.set_xlabel("Time Step")
+    ax.set_ylabel("Voltage")
+    ax.set_axis_off()
+    return ax
+
+@plot_funcs.register("img")
+def plot_img(img, ax:plt.Axes, title="") -> plt.Axes:
+    '''
+    绘制图像
+    Parameters:
+    img (np.ndarray): 要绘制的图像，形状为 (height, width)
+    ax (plt.Axes): 要绘制的Axes对象
+    '''
+    ax.imshow(img)
+    ax.set_title(title)
+    ax.set_axis_off()
+    return ax
+
+@plot_funcs.register("log_j")
+def plot_log_j(log_j, ax:plt.Axes, title="") -> plt.Axes:
+    '''
+    绘制log_j图
+    Parameters:
+    log_j (np.ndarray): log_j值数组，用于绘制log_j图
+    ax (plt.Axes): 要绘制的Axes对象
+    '''
+    ax.plot(log_j)
+    ax.set_title(title)
+    ax.set_xlabel("Time Step")
+    ax.set_ylabel("log_j")
+    ax.set_axis_off()
+    return ax

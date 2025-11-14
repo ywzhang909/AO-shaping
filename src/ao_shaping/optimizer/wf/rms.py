@@ -1,37 +1,16 @@
 from typing import Literal
-import os
-from datetime import datetime
-from loguru import logger
+import tqdm
 
 import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
 
-import tqdm
 from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS
-from ao_shaping.utils import gen_date_dir, gen_file_path_uuid
 from ao_shaping.algorithm.adam import AdaMOD
-
-ROOT_DIR = "./data/wf"
-
-# adam parameters
-beta1 = 0.9
-beta2 = 0.999
-beta3 = 0.9999
-
-# cool_momentum_spgd parameters
-Rho_0 = 0.99
-
-# metropolis parameters
-METROPOLIS_ALPHA = 0.8
+from ao_shaping.utils import logger, Recorder
 
 # dm parameters
 KEEP_VOLTAGE_WHEN_EXIT = True
 
-V_MAX = NlightDM.V_Max
-V_MIN = NlightDM.V_Min
 
-    
 def schedule_lr_delta(rms):
     '''
     schedule the learning rate and momentum factor based on the rms of the wavefront
@@ -61,9 +40,10 @@ def optimizer_rms(
     init_v:list[float]=[],
     pupil_diameter:float=2.24,
     early_stop_threshold:float=0.12,
-):
+) -> Recorder:
     epochs = int(epochs)
-
+    recorder = Recorder(mark='rms', mode='min')
+    
     with NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
         if not init_v:
             _init_v = np.zeros(dm.DM_Num, dtype=np.float64)
@@ -87,11 +67,11 @@ def optimizer_rms(
 
             wf, statics = calc_j()
             lr, delta = schedule_lr_delta(statics['rms'])
-            optimizer = AdaMOD(dim=dm.DM_Num, lr=lr, beta1=beta1, beta2=beta2, beta3=beta3)
+            optimizer = AdaMOD(dim=dm.DM_Num, lr=lr, beta3=0.9999)
 
-            history = [
+            recorder.append(
                 {
-                    "J": statics['rms'],
+                    "rms": statics['rms'],
                     "_v": _init_v,
                     "_diff": 0,
                     "_gamma": lr,
@@ -100,7 +80,7 @@ def optimizer_rms(
                     "_wavefront": wf[np.newaxis, ...],
                     "_statics": statics
                 }
-            ]
+            )
 
             with tqdm.tqdm(
                 total=epochs, desc=f"{statics['rms']:.3f} iter {epochs}", dynamic_ncols=True
@@ -127,7 +107,7 @@ def optimizer_rms(
                     optimizer.lr = lr
                     update = optimizer.update(gradient)
                     update = np.clip(update, -dm.max_iter_diff+delta, dm.max_iter_diff-delta)
-                    _to_update_v = np.clip(_init_v - update, V_MIN, V_MAX)
+                    _to_update_v = np.clip(_init_v - update, dm.V_Min, dm.V_Max)
                     
                     if dm.check_dm_unit_grad_safe(_to_update_v):
                         _init_v = _to_update_v
@@ -135,7 +115,7 @@ def optimizer_rms(
                         logger.warning(f"相邻单元压差大于{dm.max_neibor_diff}，放弃本次结果")
                     
                     log = {
-                        "J": avg_j,
+                        "rms": avg_j,
                         "_diff": diff,
                         "_gamma": optimizer.lr,
                         "delta": delta,
@@ -146,59 +126,12 @@ def optimizer_rms(
                         "_wavefront": np.stack([pos_wf, neg_wf]),
                         "_statics": {"pos": pos_statics, "neg": neg_statics},
                     }
-                    history.append(log)
-
+                    recorder.append(log)
+                    bar.set_postfix(recorder.last_info_dict)
                     if avg_j < early_stop_threshold:
-                        logger.info(f"Early stop at epoch {epoch} with J={avg_j:.4f}")
+                        logger.info(f"Early stop at epoch {epoch} with rms={avg_j:.4f}")
                         break
-                        
-                    bar.set_postfix({k: f'{v:.4f}' for k, v in log.items() if k[0] != "_"})
+                    
                     bar.update(1)
 
-        return history
-
-def run():
-    # init_V = get_init_V_by_rms()
-    init_V = [0 for _ in range(64)]
-    res_list = optimizer_rms(
-        init_v=init_V.copy(),
-        epochs=20_000)
-
-    res_df = pd.DataFrame(res_list)
-    save_dir = gen_date_dir(ROOT_DIR)
-    saved_file_name = gen_file_path_uuid(save_dir, 'pkl')
-    res_df.to_pickle(saved_file_name)
-    min_id = res_df["J"].argmin()
-    min_iter = res_df.iloc[min_id]
-    
-    fig, ax = plt.subplots(2, 2, figsize=(12, 9))
-    # 绘制J的变化趋势
-    ax[0, 0].scatter(min_iter["_epoch"], min_iter["J"], color="red", marker="*", s=100)
-    ax[0, 0].plot(res_df["_epoch"], res_df["J"])
-    ax[0, 0].set_xlabel("Epoch")
-    ax[0, 0].set_ylabel("J")
-    ax[0, 0].set_title(f"Min J: {min_iter['J']:.3f} @ epoch {min_iter['_epoch']}")
-    # 绘制保存的电压
-    ax[0, 1].bar(range(64), min_iter["_v"])
-    ax[0, 1].set_xlabel("DM Unit")
-    ax[0, 1].set_ylabel("Voltage")
-    ax[0, 1].set_title(f"Min J: {min_iter['J']:.3f} @ epoch {min_iter['_epoch']}")
-    # 绘制保存的初始波前
-    ax[1, 0].imshow(res_df.iloc[0]["_wavefront"][0], cmap='gray')
-    ax[1, 0].set_title("init wavefront")
-    ax[1, 0].axis('off')
-    # 绘制保存的最优波前
-    ax[1, 1].imshow(min_iter["_wavefront"][1], cmap='gray')
-    ax[1, 1].set_title("opt wavefront")
-    ax[1, 1].axis('off')
-    
-    plt.savefig(saved_file_name.with_suffix('.png'))
-    plt.close()
-    
-    # 在data/flatten_voltages下生成名称为当前日期的目录并保存电压
-    dir_name = datetime.now().strftime("%Y%m%d")
-    os.makedirs(os.path.join("data/flatten_voltages", dir_name), exist_ok=True)
-    np.savetxt(os.path.join("data/flatten_voltages", dir_name, f'rms-{min_iter["J"]:.3f}.csv'), min_iter["_v"], fmt="%d")
-
-if __name__ == "__main__":
-    run()
+        return recorder

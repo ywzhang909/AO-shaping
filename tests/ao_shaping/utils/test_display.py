@@ -24,13 +24,9 @@ def test_autodisplay():
         "value": {},
         "info": {},
     }
-    total_frames = 100
+    total_frames = 100_000
     with AutoDisplay(frames) as window:
         for frame_count in range(total_frames):
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    pygame.quit()
-                    exit()
             frames_data['nspot'] = {'img': np.random.randint(0, 255, (300, 300))}
             coef = np.random.randint(-300, 500, (64,))
             center, wf = wavefront.get_centroid(coef)
@@ -39,7 +35,8 @@ def test_autodisplay():
             frames_data['voltage'] = {'volts': coef}
             frames_data['value'] = {'value': np.random.randint(0, 100)}
             frames_data['info'] = {'text': f"Frame {frame_count}/{total_frames}\nPIB: {frames_data['value']['value']}"}
-            window.render(frame_data=frames_data, info=f"Frame {frame_count}/{total_frames}")
+            if not window.render(frame_data=frames_data, info=f"Frame {frame_count}/{total_frames}"):
+                break
             clock.tick(60)
 
 
@@ -126,3 +123,20 @@ def test_display():
         pygame.display.update()
         # 控制帧率
         clock.tick(30)
+
+def test_swanlab():
+    import pandas as pd
+    import swanlab
+    import json
+
+    df = pd.read_pickle(r"D:\workspace\AO-shaping\data\wf-less\20251112_194659\c8c982a4-d879-4202-b11d-36dda2ed4f41.pkl")
+
+    swanlab.init(
+        experiment_name="c8c982a4-d879-4202-b11d-36dda2ed4f41",
+        config=json.load(open(r"D:\workspace\AO-shaping\data\wf-less\20251112_194659\c8c982a4-d879-4202-b11d-36dda2ed4f41.json"))
+    )
+    for i, row in df.iterrows():
+        swanlab.log({
+            "J": row["J"],
+            "PIB": row["value"],
+        })
