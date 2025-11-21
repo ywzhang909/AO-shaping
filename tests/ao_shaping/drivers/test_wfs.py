@@ -61,3 +61,17 @@ def test_rms():
             print(zernike_coeff)
             rms_hist.append(np.mean(np.sqrt(np.sum(zernike_coeff**2))))
     return rms_hist
+
+def test_high_speed_d():
+    rms_hist = []
+    with Thorlab_WFS(MlaRes.Res768) as wfs:
+        last_dx, last_dy = None, None
+        for _ in range(100):
+            wfs.take_image(n_sample=10)
+            
+            dx, dy = wfs.get_spot_deviation()
+            assert last_dx != dx and last_dy != dy
+
+            last_dx, last_dy = dx, dy
+
+            

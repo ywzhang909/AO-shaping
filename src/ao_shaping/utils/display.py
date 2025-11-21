@@ -107,3 +107,87 @@ def plot_log_j(log_j, ax:plt.Axes, title="") -> plt.Axes:
     ax.set_ylabel("log_j")
     ax.set_axis_off()
     return ax
+
+@plot_funcs.register("pib_history")
+def plot_pib_history(pib_values, ax:plt.Axes, title="PIB History") -> plt.Axes:
+    '''
+    绘制PIB历史曲线
+    Parameters:
+    pib_values (list or np.ndarray): PIB值数组，用于绘制历史曲线
+    ax (plt.Axes): 要绘制的Axes对象
+    title (str): 图标题
+    '''
+    ax.plot(pib_values)
+    ax.set_title(title)
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("PIB")
+    return ax
+
+@plot_funcs.register("rms_history")
+def plot_rms_history(rms_values, ax:plt.Axes, min_epoch=None, min_rms=None, title="RMS History") -> plt.Axes:
+    '''
+    绘制RMS历史曲线
+    Parameters:
+    rms_values (list or np.ndarray): RMS值数组，用于绘制历史曲线
+    ax (plt.Axes): 要绘制的Axes对象
+    min_epoch (int, optional): 最小RMS值对应的epoch
+    min_rms (float, optional): 最小RMS值
+    title (str): 图标题
+    '''
+    ax.plot(rms_values)
+    if min_epoch is not None and min_rms is not None:
+        ax.scatter(min_epoch, min_rms, color='r', marker='*', label='Min RMS')
+        ax.text(min_epoch, min_rms, f"{min_rms:.4f}", color='r')
+    ax.set_title(title)
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("RMS")
+    return ax
+
+@plot_funcs.register("wavefront")
+def plot_wavefront(wavefront, ax:plt.Axes, title="Wavefront", cmap='gray') -> plt.Axes:
+    '''
+    绘制波前图像
+    Parameters:
+    wavefront (np.ndarray): 波前数据，用于绘制图像
+    ax (plt.Axes): 要绘制的Axes对象
+    title (str): 图标题
+    cmap (str): 颜色映射
+    '''
+    ax.imshow(wavefront, cmap=cmap)
+    ax.set_title(title)
+    ax.axis('off')
+    return ax
+
+@plot_funcs.register("voltage_comparison")
+def plot_voltage_comparison(init_v, best_v, ax:plt.Axes, title="Voltage Comparison") -> plt.Axes:
+    '''
+    绘制电压对比柱状图
+    Parameters:
+    init_v (list or np.ndarray): 初始电压值
+    best_v (list or np.ndarray): 最优电压值
+    ax (plt.Axes): 要绘制的Axes对象
+    title (str): 图标题
+    '''
+    ax.bar(range(len(init_v)), init_v, color='r', label='Initial', alpha=0.7)
+    ax.bar(range(len(best_v)), best_v, color='b', label='Best', alpha=0.7)
+    ax.set_title(title)
+    ax.set_xlabel("Unit ID")
+    ax.set_ylabel("Voltage")
+    ax.legend()
+    return ax
+
+@plot_funcs.register("voltage_heatmap")
+def plot_voltage_heatmap(voltages, ax:plt.Axes, title="Voltage History") -> plt.Axes:
+    '''
+    绘制电压历史热力图
+    Parameters:
+    voltages (np.ndarray): 电压历史数据，形状为 (epochs, units)
+    ax (plt.Axes): 要绘制的Axes对象
+    title (str): 图标题
+    '''
+    im = ax.imshow(voltages.T, aspect='auto')
+    ax.set_title(title)
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Unit ID")
+    plt.colorbar(im, ax=ax)
+    return ax

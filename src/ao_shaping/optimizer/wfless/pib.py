@@ -73,7 +73,9 @@ def optimize_pib(
 
         if dm_unit_mask is None:
             dm_unit_mask = dm.default_dm_unit_mask
-
+            if dm_unit_mask[0]:
+                logger.warning("dm_unit_mask[0] is True, which means the first unit is active.")
+        
         if init_v is None or len(init_v) == 0:
             _init_v = np.zeros(dm.DM_Num, dtype=np.float64)
         else:

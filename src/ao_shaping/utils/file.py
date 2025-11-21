@@ -98,11 +98,12 @@ def get_init_V_by_energy(date:str = ''):
         logger.info(f"init_V by energy @ {data_path} not found, return 0")
     return init_V
 
-async def save_history(history:pd.DataFrame | list[dict[str, Any]], file_path:str|Path=None):
+def save_history(history:pd.DataFrame | list[dict[str, Any]], file_path:str|Path=None):
+    # TODO: use asyncer to save history
     if isinstance(file_path, str):
         file_path = Path(file_path)
     if not file_path.exists():
-        file_path.parent.mkdir(parents=True)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
     if not isinstance(history, pd.DataFrame):
         history = pd.DataFrame(history)
     else:

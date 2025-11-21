@@ -533,8 +533,8 @@ class WFSManager:
         Returns:
             tuple[np.ndarray, np.ndarray]: spot deviation x, spot deviation y
         '''
-        _spots_deviation_x = np.zeros(MAX_SPOTS, dtype= np.float32)
-        _spots_deviation_y = np.zeros(MAX_SPOTS, dtype= np.float32)
+        _spots_deviation_x = np.empty(MAX_SPOTS, dtype=np.float32)
+        _spots_deviation_y = np.empty(MAX_SPOTS, dtype=np.float32)
         # if err:= self._lib.WFS_CalcSpotsCentrDiaIntens(self._instrument_handle, c_int32(1), c_int32(1)):
         #     self.handle_error(err)
         

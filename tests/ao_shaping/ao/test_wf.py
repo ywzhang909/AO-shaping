@@ -9,7 +9,7 @@ def test_wf_optimizer():
         init_v=init_V.copy(),
         epochs=20_000)
 
-    res_df = pd.DataFrame(res_list)
+    res_df = res_list.dataframe
     min_id = res_df["J"].argmin()
     min_iter = res_df.iloc[min_id]
     fig, ax = plt.subplots(2, 2, figsize=(12, 9))
@@ -33,7 +33,6 @@ def test_wf_optimizer():
     ax[1, 1].set_title("opt wavefront")
     ax[1, 1].axis('off')
     plt.show()
-    plt.close()
 
 if __name__ == "__main__":
     test_wf_optimizer()
