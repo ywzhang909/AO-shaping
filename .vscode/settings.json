@@ -7,11 +7,28 @@
         "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${env:PATH}",
     },
     "python.testing.pytestArgs": [
-        "test"
+        "tests/ao_shaping"
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
     "cSpell.words": [
+        "gxipy",
         "UDPST"
-    ]
+    ],
+    "files.exclude": {
+        "**/.git": true,
+        "**/.svn": true,
+        "**/.hg": true,
+        "**/.DS_Store": true,
+        "**/Thumbs.db": true,
+        ".kilocode": true,
+        ".trae": true,
+        ".history": true,
+        "**/__pycache__": true,
+        ".kilocodemodes": true,
+        "uv.lock": true,
+        ".pytest_cache": true,
+        "data/.stfolder": true
+    },
+    "explorerExclude.backup": {}
 }
