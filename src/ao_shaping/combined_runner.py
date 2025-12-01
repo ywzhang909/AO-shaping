@@ -18,6 +18,7 @@ from ao_shaping.optimizer.wfless.pib import optimize_pib
 @click.option("-d", "--dir", default="data", help="数据保存根目录 (default: data)")
 @click.option("-f", "--load_file", default=None, help="加载优化结果文件 (default: None)")
 @click.option("-e", "--epochs", default=8_000, help="优化迭代次数 (default: 8000)")
+@click.option("-E", "--wf_epochs", default=8_000, help="WF优化迭代次数 (default: 8000)")
 @click.option("-R", "--wfs_res", type=click.Choice(['768', '512']), default='768', help="WFS分辨率 (default: 768)")
 @click.option("-p", "--pupil_diameter", default=2.7, help="瞳孔直径 (default: 2.7)")
 @click.option("-c", "--cam_id", default=lambda: os.environ.get('Far_Cam_ID', 0), help="远场光斑CCD设备ID (default: Far_Cam_ID/0)")
@@ -26,7 +27,7 @@ from ao_shaping.optimizer.wfless.pib import optimize_pib
 @click.option("-r", "--rms_threshold", default=0.12, help="RMS阈值 (default: 0.12)")
 @click.option("--debug", is_flag=True, help="是否开启调试模式 (default: False)")
 @click.option("-u", "--dm_unit_mask", type=click.Choice(['all','inner','outer']), default='all', help="DM单元掩码 (default: all)")
-def run(dir, load_file, epochs, wfs_res, pupil_diameter, cam_id, exposure_time_ms, cam_size, rms_threshold, dm_unit_mask, debug):
+def run(dir, load_file, epochs, wf_epochs, wfs_res, pupil_diameter, cam_id, exposure_time_ms, cam_size, rms_threshold, dm_unit_mask, debug):
     """组合优化器（先波前优化，再轴向光束优化）"""
     if load_file:
         last_v = np.loadtxt(load_file)
@@ -39,9 +40,10 @@ def run(dir, load_file, epochs, wfs_res, pupil_diameter, cam_id, exposure_time_m
         pupil_diameter=pupil_diameter,
         wfs_res=wfs_res,
         early_stop_threshold=rms_threshold,
-        epochs=epochs)
+        epochs=wf_epochs)
 
     min_iter, (min_epoch, min_rms) = wf_records.get_best_iter()
+    logger.info(f"WF优化完成，最佳迭代：{min_epoch}，RMS：{min_rms:.4f}")
 
     if debug:
         init_wf, min_wf = wf_records.first["_wavefront"][0], min_iter["_wavefront"][0]
@@ -54,7 +56,7 @@ def run(dir, load_file, epochs, wfs_res, pupil_diameter, cam_id, exposure_time_m
         dm_available[:39] = False
 
     ccd_records = optimize_pib(
-        cam_id=cam_id, center=None, exposure_time_ms=exposure_time_ms, cam_size=cam_size,
+        cam_id=cam_id, center="mass", exposure_time_ms=exposure_time_ms, cam_size=cam_size,
         dm_unit_mask=dm_available,
         epochs=epochs, lr=0.9, delta=0.9, shrink_iter=20, shrink_ratio=0.8,
         init_v=min_iter["_v"], show=False)
@@ -64,21 +66,30 @@ def run(dir, load_file, epochs, wfs_res, pupil_diameter, cam_id, exposure_time_m
     # 在data/flatten_voltages下生成名称为当前日期的目录并保存电压
     dir_name = datetime.now().strftime("%Y%m%d")
     save_dir = Path(dir) / "flatten_voltages" / dir_name
-    wf_records.save_best(saved_dir=save_dir, target="_v", process_fn=round, fmt="%d")
-    ccd_records.save_best(saved_dir=save_dir, target="_v", process_fn=round, fmt="%d")
+    def np_array_to_int(arr):
+        return arr.astype(int)
+    wf_records.save_best(saved_dir=save_dir, target="_v", process_fn=np_array_to_int, fmt="%d")
+    ccd_records.save_best(saved_dir=save_dir, target="_v", process_fn=np_array_to_int, fmt="%d")
 
     if debug:
         fig, ax = plt.subplots(2, 4, figsize=(12, 8))
         # rms history
-        min_rms_values = [record['_rms'] for record in wf_records.get_sublist()]
-        plot_funcs["rms_history"](min_rms_values, ax[0, 1], min_epoch, min_rms)
+        rms_values = wf_records.get_sublist()
+        plot_funcs["rms_history"](rms_values, ax[0, 0], min_epoch, min_rms)
         # pib history
-        pib_values = [record['_pib'] for record in ccd_records.get_sublist()[1:]]
-        plot_funcs["pib_history"](pib_values, ax[1, 1])
+        pib_values = ccd_records.get_sublist()[1:]
+        plot_funcs["pib_history"](pib_values, ax[1, 0])
         # init wf
-        plot_funcs["wavefront"](init_wf, ax[0, 2], "Init WF")
+        axim = plot_funcs["wavefront"](init_wf, ax[0, 1], "Init WF")
+        plt.colorbar(axim, ax=ax[0, 1], orientation='vertical', fraction=0.046, pad=0.04)
         # best wf
-        plot_funcs["wavefront"](min_wf, ax[1, 2], "Best WF")
+        axim = plot_funcs["wavefront"](min_wf, ax[1, 1], "Best WF")
+        plt.colorbar(axim, ax=ax[1, 1], orientation='vertical')
+        # init ccd
+        axim1 = plot_funcs["img"](ccd_records.first["_img"], ax[0, 2], "Init CCD")
+        # best ccd
+        axim2 = plot_funcs["img"](max_pid_iter["_img"], ax[1, 2], "Best CCD")
+        plt.colorbar(axim2, ax=ax[1, 2], fraction=0.046, pad=0.04, orientation='vertical')
         # voltage comparison
         plot_funcs["voltage_comparison"](init_v, last_V, ax[0, 3], "Voltage Comparison")
         # voltage heatmap

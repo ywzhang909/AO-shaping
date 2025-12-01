@@ -7,7 +7,6 @@ import click
 import coredumpy
 
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 
 from ao_shaping.optimizer.wfless.pib import optimize_pib
@@ -37,12 +36,12 @@ def parse_tuple(ctx, param, value):
 @click.option("-d", "--root_dir", default="data", help="数据保存根目录 (default: data)")
 @click.option("-f", "--load_file", default=None, help="加载优化结果文件 (default: None)")
 @click.option("--cam_id", default=lambda: os.environ.get('Far_Cam_ID', 0), help="远场光斑CCD设备ID (default: Far_Cam_ID/0)")
-@click.option("-c", "--center", callback=parse_tuple, default=None, help="场光斑CCD中心位置 (default: (665, 403))")
-@click.option("-t","--exposure_time_ms", default=800, help="远场光斑CCD曝光时间 (毫秒) (default: 60)")
+@click.option("-c", "--center", callback=parse_tuple, default=None, help="场光斑CCD中心位置 (example: 665,403)")
+@click.option("-t","--exposure_time_ms", default=60, help="远场光斑CCD曝光时间 (毫秒) (default: 60)")
 @click.option("-e", "--epochs", default=4_000, help="优化迭代次数 (default: 4000)")
-@click.option("-r", "--r_bucket", default=0, help="渲染半径桶大小 (default: 0，范围半径)")
+@click.option("-r", "--r_bucket", default=0, help="渲染半径桶大小 (default: 0，环围半径)")
 @click.option("--delta", default=2, help="优化步长 (default: 2)")
-@click.option("--lr", default=2, help="优化学习率 (default: 2)")
+@click.option("--lr", default=None, help="优化学习率 (default: None，表示基于环围半径动态学习率衰减)")
 @click.option("--weight_decay", default=0.0, help="权重衰减 (default: 0.0)")
 @click.option("--shrink_iter", default=300, help="优化迭代次数后收缩半径桶和步长 (default: 300)")
 @click.option("--shrink_ratio", default=0.8, help="收缩半径桶和步长比例 (default: 0.8)")
@@ -79,6 +78,9 @@ def run(root_dir, load_file, cam_id, center, exposure_time_ms, epochs, r_bucket,
     }
     logger.info(config)
 
+    dm_unit_mask = np.ones(64, dtype=bool)
+    dm_unit_mask[0] = False
+    # dm_unit_mask[38:] = False
     res_list = optimize_pib(
         center=center,
         r_bucket=r_bucket,
@@ -92,18 +94,17 @@ def run(root_dir, load_file, cam_id, center, exposure_time_ms, epochs, r_bucket,
         show=show,
         init_v=init_v,
         cam_size=cam_size,
+        dm_unit_mask=dm_unit_mask,
+        dm_neibor_diff=400,
+        dm_max_voltage=300,
+        dm_min_voltage=-200,
     )
     # 保存结果
     res_df = res_list.dataframe
-    max_j_id = res_df['pib'].argmax()
-    last_V = res_df.iloc[max_j_id]["_v"]
-    max_j = res_df.iloc[max_j_id]['pib']
-    logger.info(f"{max_j_id} -> {max_j}")
 
     saved_dir = f'{root_dir}/flatten_voltages/{datetime.now().strftime("%Y%m%d")}'
-    if not os.path.exists(saved_dir):
-        os.makedirs(saved_dir)
-    np.savetxt(f'{saved_dir}/to_load_V-{max_j}.csv', np.around(last_V).astype(int), fmt="%d")
+    res_list.save_best(saved_dir, target="_v",
+                        process_fn=lambda x: np.around(x).astype(int), fmt="%d")
         
     if debug:
         save_dir = gen_date_dir(f'{root_dir}/wf-less')
@@ -117,11 +118,13 @@ def run(root_dir, load_file, cam_id, center, exposure_time_ms, epochs, r_bucket,
         # init image
         plot_funcs["img"](res_df.iloc[0]["_img"], ax[0, 0], f"Init Image, pib={res_df.iloc[0]['pib']:.3f}")
         # best image
-        plot_funcs["img"](res_df.iloc[max_j_id]["_img"], ax[0, 1], f"Best Image, pib={max_j:.3f}")
+        best_iter, (max_j_id, max_j) = res_list.get_best_iter()
+        axim = plot_funcs["img"](res_df.iloc[max_j_id]["_img"], ax[0, 1], f"Best Image, pib={max_j:.3f}")
+        cbar = fig.colorbar(axim, ax=[ax[0, 0], ax[0, 1]], orientation='horizontal')
         # pib history
         plot_funcs["pib_history"](res_df["pib"], ax[1, 0])
         # best voltages plot bar
-        plot_funcs["voltages"](last_V, ax[1, 1], "Best Voltages")
+        plot_funcs["voltages"](best_iter["_v"], ax[1, 1], "Best Voltages")
             
         plt.tight_layout()
         plt.savefig(saved_file_name.with_suffix('.png'))

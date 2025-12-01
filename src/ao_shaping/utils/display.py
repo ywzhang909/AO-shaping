@@ -81,17 +81,17 @@ def plot_voltages(volts, ax:plt.Axes, title="") -> plt.Axes:
     return ax
 
 @plot_funcs.register("img")
-def plot_img(img, ax:plt.Axes, title="") -> plt.Axes:
+def plot_img(img, ax:plt.Axes, title=""):
     '''
     绘制图像
     Parameters:
     img (np.ndarray): 要绘制的图像，形状为 (height, width)
     ax (plt.Axes): 要绘制的Axes对象
     '''
-    ax.imshow(img)
+    im = ax.imshow(img, vmin=0, vmax=255, cmap='gray')
     ax.set_title(title)
     ax.set_axis_off()
-    return ax
+    return im
 
 @plot_funcs.register("log_j")
 def plot_log_j(log_j, ax:plt.Axes, title="") -> plt.Axes:
@@ -144,7 +144,7 @@ def plot_rms_history(rms_values, ax:plt.Axes, min_epoch=None, min_rms=None, titl
     return ax
 
 @plot_funcs.register("wavefront")
-def plot_wavefront(wavefront, ax:plt.Axes, title="Wavefront", cmap='gray') -> plt.Axes:
+def plot_wavefront(wavefront, ax:plt.Axes, title="Wavefront", cmap='gray'):
     '''
     绘制波前图像
     Parameters:
@@ -153,10 +153,10 @@ def plot_wavefront(wavefront, ax:plt.Axes, title="Wavefront", cmap='gray') -> pl
     title (str): 图标题
     cmap (str): 颜色映射
     '''
-    ax.imshow(wavefront, cmap=cmap)
+    im = ax.imshow(wavefront, cmap=cmap)
     ax.set_title(title)
     ax.axis('off')
-    return ax
+    return im
 
 @plot_funcs.register("voltage_comparison")
 def plot_voltage_comparison(init_v, best_v, ax:plt.Axes, title="Voltage Comparison") -> plt.Axes:

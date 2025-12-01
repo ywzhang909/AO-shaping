@@ -30,13 +30,23 @@ class NLight(DM):
     default_dm_unit_mask = all_dm_unit_mask
 
 
-    def __init__(self, max_iter_diff=20, max_neibor_diff=100, keep_when_exit=True):
+    def __init__(self, 
+                max_iter_diff=20,
+                max_neibor_diff=200,
+                max_voltage = None,
+                min_voltage = None,
+                keep_when_exit=True):
         assert max_iter_diff <= 200
-        assert max_neibor_diff <= 300
+        # assert max_neibor_diff <= 500
+        assert max_voltage is None or max_voltage <= self.V_Max
+        assert min_voltage is None or min_voltage >= self.V_Min
 
         self.__last_v = np.zeros(self.DM_Num)
         self.max_iter_diff = max_iter_diff
         self.max_neibor_diff = max_neibor_diff
+
+        self.max_voltage = max_voltage or self.V_Max
+        self.min_voltage = min_voltage or self.V_Min
 
         self.c_driver = DMSdk()
         self.udp_driver = DMUdp()
