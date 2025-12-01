@@ -2,7 +2,7 @@
     "terminal.integrated.env.windows": {
         "env": "${workspaceFolder}/.env",
         "python.terminal.useEnvFile": "${workspaceFolder}/.env",
-        // "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs;${env:PYTHONPATH}",
+        "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs;${env:PYTHONPATH}",
         "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${env:PATH}",
     },
     "python.testing.pytestArgs": [
@@ -21,7 +21,7 @@
         "${workspaceFolder}/libs",
     ],
     "python.autoComplete.extraPaths": [
-        "./src"
+        "${workspaceFolder}/libs"
     ],
     "python-envs.pythonProjects": [
         {
@@ -29,5 +29,27 @@
             "envManager": "ms-python.python:venv",
             "packageManager": "ms-python.python:pip"
         }
+    ],
+    "files.exclude": {
+        "**/.git": true,
+        "**/.svn": true,
+        "**/.hg": true,
+        "**/.DS_Store": true,
+        "**/Thumbs.db": true,
+        "**/__pycache__": true,
+        "__pycache__": true,
+        ".kilocode": true,
+        ".marscode": true,
+        ".pytest_cache": true,
+        ".trae": true
+    },
+    "hide-files.files": [
+        "**/__pycache__",
+        "__pycache__",
+        ".kilocode",
+        ".marscode",
+        ".pytest_cache",
+        ".trae",
+        "uv.lock"
     ]
 }
