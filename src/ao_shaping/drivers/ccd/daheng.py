@@ -5,7 +5,7 @@ import gxipy as gx
 from ao_shaping.utils.file import logger
 
 class CameraStreamManager:
-    def __init__(self, cam_id:int=0, exposure_time_ms:int=20, skip_sampling=False):
+    def __init__(self, cam_id:int=0, exposure_time_ms:int=0, skip_sampling=False):
         self.device_manager = gx.DeviceManager()
         self.cam_id = int(cam_id)
         self.exposure_time_ms = exposure_time_ms
@@ -93,6 +93,7 @@ class CameraStreamManager:
         int: 实际设置的曝光时间，单位为毫秒。
         """
         assert self.cam, "camera not initialized"
+        time_ms = int(time_ms)
         if time_ms >= 20:
             self.exposure_time_ms = time_ms
         else:
@@ -170,12 +171,46 @@ class CameraStreamManager:
         np.ndarray: 处理后的平均图像，数据类型为uint8。
         """
         assert n_sample>0, "采样次数必须大于0"
-        numpy_image = np.zeros_like(self.__take_one_shot()) if skip_first else self.__take_one_shot()
-        _n_sample = n_sample if skip_first else n_sample-1
-        for _ in range(_n_sample):
-            numpy_image = numpy_image + self.__take_one_shot()
-        avg_img = numpy_image/_n_sample
+        numpy_image = np.zeros((n_sample, self.cam_height, self.cam_width))
+        if skip_first:
+            self.__take_one_shot()
+        for i in range(n_sample):
+            numpy_image[i] = self.__take_one_shot()
+        avg_img = np.mean(numpy_image, axis=0)
         return avg_img.astype(np.uint8)
+    
+    def autoset_exposure_time_ms(self, target_max_brightness, n_sample=1, threshold=0.1):
+        """
+        自动设置相机的曝光时间，以确保图像的最大亮度在指定的阈值范围内。
+
+        参数:
+        n_sample (int): 采样次数，用于计算平均图像。必须大于0，需要和闭环时的采样次数一致。
+        target_max_brightness (float): 目标最大亮度值。
+        threshold (float): 允许的最大亮度范围，默认值为0.1。必须在(0,1)之间。
+
+        返回:
+        np.ndarray: 自动设置后的图像数据，数据类型为uint8。
+        """
+        assert 0<threshold<1, "threshold must be in (0,1)"
+        assert self.cam, "camera not initialized"
+
+        low, high = target_max_brightness*(1-threshold), target_max_brightness*(1+threshold)
+        low, high = int(max(low, 10)), int(min(high, 255))
+        while True:
+            _img = self.get_numpy_image(n_sample)
+            cur_max_brightness = np.max(_img)
+            if cur_max_brightness > high:
+                self.reset_exposure_time(self.exposure_time_ms * (high/cur_max_brightness))
+            elif cur_max_brightness < low:
+                self.reset_exposure_time(self.exposure_time_ms * (low/cur_max_brightness))
+            else:
+                break
+            # TODO: 超出上下限提醒并推出循环
+            if self.exposure_time_ms <= 20:
+                logger.warning(f"exposure time {self.exposure_time_ms}ms is out of range [20, 8000]ms")
+                break
+        logger.info(f"autoset exposure time to {self.exposure_time_ms}ms, max brightness={np.max(_img)}")
+        return _img
 
     def __update_properties(self):
         assert self.cam, "camera not initialized"

@@ -107,6 +107,25 @@ class SerialPortFSM:
         checksum = (~(sum(buf[2:12])) & 0xFF)
         buf[12] = checksum
         return buf
+    
+    @staticmethod
+    def bin_frame_to_pos(frame: bytes) -> tuple[float, float]:
+        """
+        解析 13 字节帧，返回 (x, y) 坐标
+        假设 frame包含 X 和 Y 的 int16 大端序编码
+        """
+        if len(frame) != 4:
+            raise ValueError(f"Frame must be 4 bytes long")
+        
+        # 提取 X 和 Y 的 int16 编码（大端序）
+        x_int = (frame[0] << 8) | frame[1]
+        y_int = (frame[2] << 8) | frame[3]
+        
+        # 转换为浮点数（假设 0.05 分辨率）
+        x = x_int * 0.05
+        y = y_int * 0.05
+        
+        return x, y
 
     @staticmethod
     def list_port():

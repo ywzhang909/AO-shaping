@@ -29,5 +29,24 @@
             "envManager": "ms-python.python:venv",
             "packageManager": "ms-python.python:pip"
         }
+    ],
+    "files.exclude": {
+        "**/.git": true,
+        "**/.svn": true,
+        "**/.hg": true,
+        "**/.DS_Store": true,
+        "**/Thumbs.db": true,
+        ".trae": true,
+        ".pytest_cache": true,
+        ".kilocode": true,
+        "__pycache__": true,
+        "data/.stfolder": true
+    },
+    "hide-files.files": [
+        ".trae",
+        ".pytest_cache",
+        ".kilocode",
+        "__pycache__",
+        "data/.stfolder"
     ]
 }

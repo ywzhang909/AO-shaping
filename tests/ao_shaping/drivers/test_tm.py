@@ -77,4 +77,7 @@ def test_tm():
     with TM("COM3") as tm:
         frame = TM._build_frame(*position)
         tm.send(*position)
-        print(tm.wait_rx(), frame)
+        ret_frame = tm.wait_rx()
+        # bin to hex
+        ret_pos = tm.bin_frame_to_pos(ret_frame[2:6])
+        print(ret_pos, frame, ret_frame)

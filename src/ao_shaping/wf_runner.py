@@ -44,9 +44,11 @@ def run(dir, epochs, wfs_res, pupil_diameter, early_stop_threshold, debug, show)
         # 绘制保存的电压
         plot_funcs["voltages"](min_iter["_v"], ax[0, 1], f"Min J: {min_rms:.3f} @ epoch {min_epoch}")
         # 绘制保存的初始波前
-        plot_funcs["wavefront"](records.first["_wavefront"][0], ax[1, 0], "init wavefront")
+        im = plot_funcs["wavefront"](records.first["_wavefront"][0], ax[1, 0], "init wavefront")
+        plt.colorbar(im, ax=ax[1, 0], orientation='horizontal')
         # 绘制保存的最优波前
-        plot_funcs["wavefront"](min_iter["_wavefront"][1], ax[1, 1], "opt wavefront")
+        im = plot_funcs["wavefront"](min_iter["_wavefront"][1], ax[1, 1], "opt wavefront")
+        plt.colorbar(im, ax=ax[1, 1], orientation='horizontal')
         
         plt.savefig(saved_file_name.with_suffix('.png'))
         plt.close()

@@ -7,9 +7,6 @@ from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS
 from ao_shaping.algorithm.adam import AdaMOD
 from ao_shaping.utils import logger, Recorder
 
-# dm parameters
-KEEP_VOLTAGE_WHEN_EXIT = True
-
 
 def schedule_lr_delta(rms):
     '''
@@ -24,10 +21,12 @@ def schedule_lr_delta(rms):
     if rms > 0.3:
         return 2, 3
     elif rms > 0.25:
-        return 1.2, 2
+        return 1.5, 2
     elif rms > 0.2:
-        return 1, 1.2
+        return 1.1, 1.2
     elif rms > 0.15:
+        return 1, 1
+    elif rms > 0.11:
         return 0.9, 0.9
     elif rms > 0.08:
         return 0.8, 0.8
@@ -44,7 +43,7 @@ def optimizer_rms(
     epochs = int(epochs)
     recorder = Recorder(mark='rms', mode='min')
     
-    with NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
+    with NlightDM(keep_when_exit=True) as dm:
         if not init_v:
             _init_v = np.zeros(dm.DM_Num, dtype=np.float64)
         else:
