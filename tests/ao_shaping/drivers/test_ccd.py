@@ -27,7 +27,7 @@ def test_autoset_exposure_time(cam_id=0):
     """
     with CameraStreamManager(cam_id, exposure_time_ms=50) as cam:
         # 测试自动设置曝光时间功能
-        initial_exposure = cam.exposure_time_ms
+        initial_exposure = cam.exposure_time
         print(f"初始曝光时间: {initial_exposure}ms")
         
         # 调用自动设置曝光时间方法

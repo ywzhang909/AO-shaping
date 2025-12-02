@@ -2,16 +2,18 @@ import numpy as np
 
 import gxipy as gx
 
+from . import ExposureTime
 from ao_shaping.utils.file import logger
+
 
 class CameraStreamManager:
     def __init__(self, cam_id:int=0, exposure_time_ms:int=0, skip_sampling=False):
         self.device_manager = gx.DeviceManager()
         self.cam_id = int(cam_id)
-        self.exposure_time_ms = exposure_time_ms
+        self.__exposure_time_ms = ExposureTime(exposure_time_ms)
         self.skip_sampling = skip_sampling
 
-        self.cam, self.__sn = None, None
+        self.cam, self.__sn, self.__feature_controller = None, None, None
         self.cam_width ,self.cam_height = 0, 0
 
     def __enter__(self):
@@ -23,7 +25,7 @@ class CameraStreamManager:
             self.cam_width ,self.cam_height = 0, 0
             self.cam.stream_off()
             self.cam.close_device()
-            self.cam, self.__sn = None, None
+            self.cam, self.__sn, self.__feature_controller = None, None, None
 
     def initialize(self):
         """
@@ -59,9 +61,14 @@ class CameraStreamManager:
 
         sn = dev_info_list[self.cam_id].get("sn")
         self.cam = self.device_manager.open_device_by_sn(sn)
+        self.__feature_controller = self.cam.get_remote_device_feature_control()
         assert self.cam, "camera not found"
         # 设置相机的曝光时间
-        self.cam.ExposureTime.set(self.exposure_time_ms)
+        exposure_time_feature = self.__feature_controller.get_float_feature("ExposureTime")
+        float_range = exposure_time_feature.get_range()
+        self.__exposure_time_ms.min = float_range['min']
+        self.__exposure_time_ms.max = float_range['max']
+        self.cam.ExposureTime.set(self.__exposure_time_ms.ms)
         # 设置相机的增益
         self.cam.Gain.set(0.0)
         # 设置相机的像素格式为MONO8
@@ -82,7 +89,7 @@ class CameraStreamManager:
         self.__update_properties()
         self.cam.stream_on()
 
-    def reset_exposure_time(self, time_ms:int):
+    def __reset_exposure_time(self, time_ms:int):
         """
         重置相机的曝光时间。
 
@@ -94,13 +101,15 @@ class CameraStreamManager:
         """
         assert self.cam, "camera not initialized"
         time_ms = int(time_ms)
-        if time_ms >= 20:
-            self.exposure_time_ms = time_ms
+        if time_ms >= self.__exposure_time_ms.min:
+            v = time_ms
         else:
-            self.exposure_time_ms = 20
-            logger.warning('exposure time must >= 20. set to 20.')
-        self.cam.ExposureTime.set(self.exposure_time_ms)
-        return self.exposure_time_ms
+            v = self.__exposure_time_ms.min
+            logger.warning(f'exposure time must >= {self.__exposure_time_ms.min}ms. set to {self.__exposure_time_ms.min}ms.')
+        self.cam.ExposureTime.set(v)
+        self.__exposure_time_ms.ms = self.exposure_time
+        
+        return self.exposure_time
 
     def reset_window(self, center:tuple[int,int]|tuple[np.intp,...]=(0,0), size:tuple[int,int]=(0,0)) -> tuple[tuple[int,int], tuple[int,int]]:
         """
@@ -115,7 +124,7 @@ class CameraStreamManager:
         """
         # 中心坐标大于0
         assert self.cam, "camera not initialized"
-        center = tuple(int(c) for c in center)
+        center = int(center[0]), int(center[1])
         self.cam.stream_off()
         # 如果未指定窗口大小，则使用相机的最大宽度和高度
         if size == (0, 0):
@@ -154,10 +163,11 @@ class CameraStreamManager:
         返回:
         np.ndarray: 拍摄到的图像数据，数据类型为uint8。
         """
+        assert self.cam, "camera not initialized"
         while True:
             raw_image = self.cam.data_stream[0].get_image()
-            if raw_image and (new_img:=raw_image.get_numpy_array()) is not None:
-                return new_img
+            if raw_image.get_status() == gx.GxFrameStatusList.OK:
+                return raw_image.get_numpy_array()
     
     def get_numpy_image(self, n_sample=1, skip_first=True) -> np.ndarray:
         """
@@ -179,7 +189,7 @@ class CameraStreamManager:
         avg_img = np.mean(numpy_image, axis=0)
         return avg_img.astype(np.uint8)
     
-    def autoset_exposure_time_ms(self, target_max_brightness, n_sample=1, threshold=0.1):
+    def autoset_exposure_time_ms(self, target_max_brightness, n_sample=1, threshold=0.1, twice_valid=False):
         """
         自动设置相机的曝光时间，以确保图像的最大亮度在指定的阈值范围内。
 
@@ -196,20 +206,29 @@ class CameraStreamManager:
 
         low, high = target_max_brightness*(1-threshold), target_max_brightness*(1+threshold)
         low, high = int(max(low, 10)), int(min(high, 255))
+
+        _twice_valid_flag = False
         while True:
             _img = self.get_numpy_image(n_sample)
             cur_max_brightness = np.max(_img)
             if cur_max_brightness > high:
-                self.reset_exposure_time(self.exposure_time_ms * (high/cur_max_brightness))
+                self.reset_exposure_time(self.exposure_time * (high/cur_max_brightness))
+                _twice_valid_flag = False
             elif cur_max_brightness < low:
-                self.reset_exposure_time(self.exposure_time_ms * (low/cur_max_brightness))
+                self.reset_exposure_time(self.exposure_time * (low/cur_max_brightness))
+                _twice_valid_flag = False
             else:
+                if _twice_valid_flag and not twice_valid:
+                    break
+                _twice_valid_flag = True
+            
+            if self.exposure_time <= self.__exposure_time_ms.min and np.max(_img) > high:
+                logger.warning(f"exposure time {self.exposure_time}ms is out of range [{self.__exposure_time_ms.min}, {self.__exposure_time_ms.max}]ms")
                 break
-            # TODO: 超出上下限提醒并推出循环
-            if self.exposure_time_ms <= 20:
-                logger.warning(f"exposure time {self.exposure_time_ms}ms is out of range [20, 8000]ms")
+            elif self.exposure_time >= self.__exposure_time_ms.max and np.max(_img) < low:
+                logger.warning(f"exposure time {self.exposure_time}ms is out of range [{self.__exposure_time_ms.min}, {self.__exposure_time_ms.max}]ms")
                 break
-        logger.info(f"autoset exposure time to {self.exposure_time_ms}ms, max brightness={np.max(_img)}")
+        logger.info(f"autoset exposure time to {self.exposure_time}ms, max brightness={np.max(_img)}")
         return _img
 
     def __update_properties(self):
@@ -218,6 +237,17 @@ class CameraStreamManager:
         self.cam_height = self.cam.Height.get()
         logger.info(f"Open cam {self.__sn} success. width={self.cam_width}, height={self.cam_height}")
         self.xv, self.yv = self.__get_grid(self.cam_width, self.cam_height)
+        
+    @property
+    def exposure_time(self) -> int:
+        assert self.__feature_controller, "camera not initialized"
+        exposure_time_feature = self.__feature_controller.get_float_feature("ExposureTime")
+        return exposure_time_feature.get()
+    
+    @exposure_time.setter
+    def exposure_time(self, time_ms: int):
+        assert self.__feature_controller, "camera not initialized"
+        self.__reset_exposure_time(time_ms)
 
     @staticmethod
     def __get_grid(width, height):

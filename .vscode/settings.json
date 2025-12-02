@@ -2,7 +2,7 @@
     "terminal.integrated.env.windows": {
         "env": "${workspaceFolder}/.env",
         "python.terminal.useEnvFile": "${workspaceFolder}/.env",
-        // "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs;${env:PYTHONPATH}",
+        "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs;${env:PYTHONPATH}",
         "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${env:PATH}",
     },
     "python.testing.pytestArgs": [
@@ -21,7 +21,7 @@
         "${workspaceFolder}/libs",
     ],
     "python.autoComplete.extraPaths": [
-        "./src"
+        "${workspaceFolder}/libs"
     ],
     "python-envs.pythonProjects": [
         {
@@ -36,17 +36,23 @@
         "**/.hg": true,
         "**/.DS_Store": true,
         "**/Thumbs.db": true,
-        ".trae": true,
-        ".pytest_cache": true,
-        ".kilocode": true,
+        "**/__pycache__": true,
         "__pycache__": true,
-        "data/.stfolder": true
+        ".kilocode": true,
+        ".marscode": true,
+        ".pytest_cache": true,
+        ".trae": true,
+        "uv.lock": true,
+        "src/ao_shaping/drivers/__pycache__": true
     },
     "hide-files.files": [
-        ".trae",
-        ".pytest_cache",
-        ".kilocode",
+        "**/__pycache__",
         "__pycache__",
-        "data/.stfolder"
+        ".kilocode",
+        ".marscode",
+        ".pytest_cache",
+        ".trae",
+        "uv.lock",
+        "**__pycache__"
     ]
 }

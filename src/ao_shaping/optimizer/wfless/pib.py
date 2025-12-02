@@ -107,7 +107,7 @@ def optimize_pib(
 
         else:
             center = center    
-        logger.info(f"Centroid: {center}, Max brightness: {np.max(_img)} @ {cam.exposure_time_ms}ms")
+        logger.info(f"Centroid: {center}, Max brightness: {np.max(_img)} @ {cam.exposure_time}ms")
 
         img_size = (cam_size, cam_size)
         img_size, _ = cam.reset_window(center, img_size)
@@ -117,7 +117,7 @@ def optimize_pib(
         else:
             cam.reset_exposure_time(exposure_time_ms)
             init_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
-        logger.debug(f"Inital Image Max brightness: {np.max(init_img)} @ {cam.exposure_time_ms}ms")
+        logger.debug(f"Inital Image Max brightness: {np.max(init_img)} @ {cam.exposure_time}ms")
         img_size = init_img.shape[::-1]
         xv, yv = np.ogrid[-img_size[0]//2:img_size[0]//2, -img_size[1]//2:img_size[1]//2]
 
@@ -168,7 +168,7 @@ def optimize_pib(
                 "r": r_bucket,
                 "delta": delta,
                 "_epoch": 0,
-                "exp_t": cam.exposure_time_ms,
+                "exp_t": cam.exposure_time,
                 "max_brt": np.max(init_img),
             }
         )
@@ -214,7 +214,7 @@ def optimize_pib(
                     "_epoch": epoch,
                     "_v": _init_v,
                     "_img": pos_img,
-                    "exp_t": cam.exposure_time_ms,
+                    "exp_t": cam.exposure_time,
                     "max_brt": np.max(pos_img),
                 }
                 recorder.append(log)

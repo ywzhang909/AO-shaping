@@ -176,7 +176,7 @@ def optimizer(
                 neg_j = calc_j(img)
 
                 if (pos_j + neg_j) == 0 and CAM_EXP_TIME_ADJ_RATE > 1:
-                    cam.reset_exposure_time(cam.explore_time * CAM_EXP_TIME_ADJ_RATE)
+                    cam.exposure_time = cam.exposure_time * CAM_EXP_TIME_ADJ_RATE
                     continue
 
                 gradient = np.sign(pos_j - neg_j) * disturb_v
@@ -204,9 +204,8 @@ def optimizer(
                     # pid_weighted_ratio = min(pid_weighted_ratio * 0.7, 0)
 
                 if np.sum(img[img == 255]) / 255 > 2 and CAM_EXP_TIME_ADJ_RATE > 1:
-                    print(
-                        f"exp time = {cam.reset_exposure_time(cam.explore_time * CAM_EXP_TIME_ADJ_RATE)}"
-                    )
+                    cam.exposure_time = cam.exposure_time * CAM_EXP_TIME_ADJ_RATE
+                    print(f"exp time = {cam.exposure_time}")
 
                 if show:
                     render(

@@ -41,3 +41,6 @@ scripts/logs*
 src/ao_shaping.egg-info*
 .trae*
 .coverage
+test_output*
+libs*
+!libs/Galaxy_Linux_Python_2.4.2503.9202/doc_cn/Python接口开发说明书.pdf
