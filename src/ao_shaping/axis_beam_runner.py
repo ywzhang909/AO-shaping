@@ -45,7 +45,7 @@ def parse_tuple(ctx, param, value):
 @click.option("--delta", default=2, help="优化步长 (default: 2)")
 @click.option("--lr", default=0.0, help="优化学习率 (default: None，表示基于环围半径动态学习率衰减)")
 @click.option("--weight_decay", default=0.0, help="权重衰减 (default: 0.0)")
-@click.option("--shrink_iter", default=300, help="优化迭代次数后收缩半径桶和步长 (default: 300)")
+@click.option("--shrink_iter", default=200, help="优化迭代次数后收缩半径桶和步长 (default: 300)")
 @click.option("--shrink_ratio", default=0.8, help="收缩半径桶和步长比例 (default: 0.8)")
 @click.option("-s", "--cam_size", default=200, help="相机开窗大小 (default: 200*200)")
 @click.option("-b", "--target_max_brightness", default=90, help="目标最大亮度值 (default: 90)")
@@ -59,10 +59,11 @@ def run(root_dir, load_file, cam_id, center, exposure_time_ms, epochs, r_bucket,
     # 处理初始电压
     if load_file.lower() == 'rms':
         init_v = get_init_V_by_rms()
-    elif load_file:
+    elif os.path.exists(load_file):
         last_v = np.loadtxt(load_file)
         init_v = last_v.tolist()
     else:
+        logger.warning(f"load_file {load_file} not exists")
         init_v = []
 
     config = {
@@ -113,7 +114,7 @@ def run(root_dir, load_file, cam_id, center, exposure_time_ms, epochs, r_bucket,
     saved_dir = f'{root_dir}/flatten_voltages/{datetime.now().strftime("%Y%m%d")}'
     res_list.save_best(saved_dir, target="_v",
                         process_fn=lambda x: np.around(x).astype(int), fmt="%d")
-        
+    best_iter, (max_j_id, max_j) = res_list.get_best_iter()    
     if debug:
         save_dir = gen_date_dir(f'{root_dir}/wf-less')
         saved_file_name = gen_file_path_uuid(save_dir, 'pkl')
@@ -126,7 +127,6 @@ def run(root_dir, load_file, cam_id, center, exposure_time_ms, epochs, r_bucket,
         # init image
         plot_funcs["img"](res_df.iloc[0]["_img"], ax[0, 0], f"Init Image, pib={res_df.iloc[0]['pib']:.3f}")
         # best image
-        best_iter, (max_j_id, max_j) = res_list.get_best_iter()
         axim = plot_funcs["img"](res_df.iloc[max_j_id]["_img"], ax[0, 1], f"Best Image, pib={max_j:.3f}")
         cbar = fig.colorbar(axim, ax=[ax[0, 0], ax[0, 1]], orientation='horizontal')
         # pib history
