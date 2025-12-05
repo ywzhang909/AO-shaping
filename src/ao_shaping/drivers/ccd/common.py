@@ -66,3 +66,13 @@ class ExposureTime():
     def min(self, value):
         assert value > 0, "Min exposure time must be positive"
         self._min = int(value)
+        
+
+@dataclass
+class WindowSize():
+    width: int
+    height: int
+    max_width: int
+    max_height: int
+    
+    inc: int

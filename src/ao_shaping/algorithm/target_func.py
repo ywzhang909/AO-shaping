@@ -1,9 +1,28 @@
 import numpy as np
 
-class ImageTargetFunc:
-    def __init__(self, x, y):
-        assert x.type == y.type, "x and y must have the same type"
+from ao_shaping.utils.spots_calc import (
+    center_of_mass_numba,
+    center_of_brightness_numba
+)
 
+class ImageTargetFunc:
+    
+    @classmethod
+    def build_from_init_image(cls, init_img:np.ndarray):
+        h, w = init_img.shape
+        xv, yv = np.ogrid[:h, :w]
+        _ret = cls(xv, yv, (h//2, w//2))
+        center = _ret.intelligen_center(init_img)
+        _ret.center = center
+        
+        return _ret
+    
+    def __init__(self, x, y, center):
+        assert x.type == y.type, "x and y must have the same type"
+        self.init_coordinates(x, y, center)
+        
+        
+    def init_coordinates(self, x, y, center):
         if isinstance(x, int):
             self.xv, self.yv = np.ogrid[:x, :y]
         elif isinstance(x, np.ndarray):
@@ -11,14 +30,61 @@ class ImageTargetFunc:
                 self.xv, self.yv = x, y
             elif x.ndim == 1:
                 self.xv, self.yv = np.meshgrid(x, y)
+        self.shape = self.xv.shape
+        self.center = center
+        self.dist_mat = np.sqrt((self.xv - self.center[0])**2 + (self.yv - self.center[1])**2)
+        self.masks = self.__gen_center_bucket_masks()
+        
+        self.npix = len(self.xv)
+        self.dpix = self.xv[0, 1] - self.xv[0, 0]
+        
+    def __gen_center_bucket_masks(self):
+        max_radius = min(
+            self.center[0], 
+            self.center[1],
+            self.shape[0]-self.center[0],
+            self.shape[1]-self.center[1]
+        )
+        mask_mats = np.zeros((max_radius, *self.shape), dtype=bool)
+        for r in range(1, max_radius):
+            mask_mats[r] = self.dist_mat <= r
+        return mask_mats
 
-        self.dist_mat = np.sqrt(self.xv**2 + self.yv**2)
+    def pib(self, img, pib_radius, normalize=True):
+        pib_mask = self.__get_bucket_mask(pib_radius)
+        pib = np.sum(img[pib_mask])
+        return pib/np.sum(img) if normalize else pib
+    
+    def denoise_process(self, img):
+        noise_sample = np.percentile(img, 5)
+        denoised_img = img - noise_sample
+        denoised_img[denoised_img < 0] = 0
+        return denoised_img
+    
+    def intelligen_center(self, img):
+        # TODO 如果环围半径较小，使用质心而非形心;如果中间存在空洞使用形心，否则质心
+        return self.center_of_brightness(img)
+    
+    def center_of_brightness(self, img):
+        center = center_of_brightness_numba(img)
+        return center
+    
+    def center_of_mass(self, img):
+        return center_of_mass_numba(img, self.xv, self.yv)
+    
+    def radius(self, intensity, energy=0.99):
+        """
+        以center为圆心，占总能量百分比为energy的圆的半径
 
-    def __get_pib_mask(self, pib_radius):
-        pib_mask = self.dist_mat <= pib_radius
-        return pib_mask
-
-    def pib(self, img, pib_radius):
-        pib_mask = self.__get_pib_mask(pib_radius)
-        pib_ratio = calc_pib_ratio(img, pib_mask)
-        return pib_ratio
+        :param intensity: 强度分布
+        :param energy: 圆内的能量比，默认0.99，取值范围0~1，常用0.5，0.865， 0.99
+        :return radius: 圆的半径
+        """
+        power_in_circle = np.sum(intensity) * energy
+        power_in_masks = np.sum(intensity[self.masks], axis=(1, 2))
+        radius = np.argmax(power_in_masks >= power_in_circle)+1
+        return radius
+    
+    def __get_bucket_mask(self, radius):
+        assert 0 < radius < len(self.masks), "Radius out of range"
+        return self.masks[radius-1]

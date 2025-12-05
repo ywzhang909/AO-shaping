@@ -1,7 +1,6 @@
 from typing import Any, Literal
 import os
 import re
-import asyncer
 from loguru import logger
 
 import uuid
@@ -12,7 +11,6 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import swanlab
 
 def gen_file_path_inc(dir: str|Path, postfix: str = ''):
     if isinstance(dir, str):

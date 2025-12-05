@@ -1,4 +1,6 @@
 import numpy as np
+import numba
+
 from scipy.ndimage import center_of_mass
 
 import matplotlib.pyplot as plt
@@ -6,6 +8,7 @@ from matplotlib.patches import Rectangle
 
 from typing import Tuple
 
+@numba.njit
 def calculate_sharpness(img:np.ndarray):
   gradient_x = np.gradient(img, axis=1)
   gradient_y = np.gradient(img, axis=0)
@@ -13,6 +16,7 @@ def calculate_sharpness(img:np.ndarray):
   sharpness = np.mean(gradient_magnitude)
   return sharpness
 
+@numba.njit
 def crop(img:np.ndarray, sample_pix=500):
   assert img.ndim == 2
   bg = np.max(img[:sample_pix,:])
@@ -22,6 +26,28 @@ def crop(img:np.ndarray, sample_pix=500):
   cmin, cmax = np.nonzero(cols)[0][[0, -1]]
 
   return img[rmin:rmax + 1, cmin:cmax + 1]
+
+@numba.njit
+def center_of_mass_numba(intensity:np.ndarray, xv:np.ndarray, yv:np.ndarray, moment:int=1) -> Tuple[float, float]:
+    """
+    计算光强的中心位置
+
+    :param intensity: 强度分布
+    :param x: x坐标矩阵
+    :param y: y坐标矩阵
+    :param moment: 中心位置的阶数
+    :return center_x, center_y: 光强的中心位置
+    """
+    _intensity = intensity.copy().astype(np.float32)**moment
+    total_intensity = np.sum(_intensity)
+    c_x = np.sum(xv * _intensity) / total_intensity
+    c_y = np.sum(yv * _intensity) / total_intensity
+    return (float(c_x), float(c_y))
+
+@numba.njit
+def center_of_brightness_numba(img:np.ndarray) -> Tuple[int, int]:
+    center = np.unravel_index(np.argmax(img), img.shape)[::-1]
+    return int(center[0]), int(center[1])
 
 def diffraction_limit(lamd, aperture, dist):
     """
