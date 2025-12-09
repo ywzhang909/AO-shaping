@@ -13,22 +13,8 @@ dependencies = [
     "pyserial>=3.5",
     "nidaqmx>=0.8.10",
     "scikit-optimize>=0.10.2",
-    "torchkeras>=4.0.5",
-    "torch>=2.8.0",
-    "torchvision>=0.23.0",
-    "timm>=1.0.20",
-    "accelerate>=1.10.1",
-    "pyarrow>=21.0.0",
-    "tabm>=0.0.3",
-    "gymnasium>=1.2.1",
-    "stable-baselines3[extra]>=2.7.0",
-    "sb3-contrib>=2.7.0",
-    "segmentation-models-pytorch>=0.5.0",
-    "hf-xet>=1.1.10",
-    "torchview>=0.2.7",
     "tensorboard>=2.20.0",
     "nuitka>=2.8.1",
-    "mbrl>=0.0.1",
     "ordered-set>=4.1.0",
     "findlibs>=0.1.2",
     "pytest>=8.4.2",
@@ -38,9 +24,12 @@ dependencies = [
     "numba>=0.62.1",
     "pytest-cov>=7.0.0",
     "coredumpy>=0.4.3",
-    "swanlab>=0.7.1",
     "asyncer>=0.0.10",
     "click>=8.3.0",
+    "setuptools>=80.9.0",
+    "gymnasium>=1.2.2",
+    "timm>=1.0.22",
+    "cython>=3.2.2",
 ]
 
 [[tool.uv.index]]
@@ -59,8 +48,8 @@ explicit = true
 
 [tool.uv.sources]
 torch = [
-  { index = "pytorch-cu130", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+  { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
 ]
 torchvision = [
-  { index = "pytorch-cu130", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+  { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
 ]

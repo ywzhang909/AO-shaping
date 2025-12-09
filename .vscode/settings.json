@@ -21,6 +21,7 @@
         "${workspaceFolder}/libs",
     ],
     "python.autoComplete.extraPaths": [
+        "${workspaceFolder}/src",
         "${workspaceFolder}/libs"
     ],
     "python-envs.pythonProjects": [
