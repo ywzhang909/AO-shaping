@@ -30,6 +30,7 @@ dependencies = [
     "gymnasium>=1.2.2",
     "timm>=1.0.22",
     "cython>=3.2.2",
+    "pyside6>=6.10.1",
 ]
 
 [[tool.uv.index]]

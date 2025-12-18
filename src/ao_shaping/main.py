@@ -1,10 +1,9 @@
 import click
-from pathlib import Path
-
 from ao_shaping.wf_runner import run as wf_run
 from ao_shaping.axis_beam_runner import run as axis_beam_run
 from ao_shaping.combined_runner import run as combined_run
 from ao_shaping.optimizer.wfless.bayes_opt_runner import run as bayes_opt_run
+from ao_shaping.heuristic_search_runner import run as heuristic_search_run
 
 
 @click.group()
@@ -23,6 +22,9 @@ main.add_command(combined_run, name='combine')
 
 # 将贝叶斯优化命令添加到主组中
 main.add_command(bayes_opt_run, name='bayes-opt')
+
+# 将启发式搜索命令添加到主组中
+main.add_command(heuristic_search_run, name='heuristic')
 
 if __name__ == "__main__":
     import coredumpy
