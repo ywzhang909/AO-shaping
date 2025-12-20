@@ -66,6 +66,7 @@ def optimize_pib(
     dm_neibor_diff=200,
     dm_max_voltage=None,
     dm_min_voltage=None,
+    callback=None,
     **kwargs
 ):
     delta = abs(delta)
@@ -218,6 +219,11 @@ def optimize_pib(
                     "max_brt": np.max(pos_img),
                 }
                 recorder.append(log)
+                
+                # 调用回调函数（如果提供）
+                if callback is not None:
+                    callback(epoch, epochs, _init_v)
+                
                 # earlying schedule
                 if epoch % update_iter == update_iter - 1 and log['J'] > 0:
                     init_r = max(init_r * shrink_ratio, 5)
@@ -241,4 +247,3 @@ def optimize_pib(
         if show:
             window.close()
         return recorder
-

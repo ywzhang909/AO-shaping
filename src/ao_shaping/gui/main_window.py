@@ -26,9 +26,19 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.runner_manager = RunnerManager()
         self.simulation_manager = SimulationManager()
+        self.is_running = False  # 添加运行状态标志
         self.init_ui()
         self.connect_signals()
-        
+        self.update_button_states()  # 初始化按钮状态
+
+    def update_button_states(self):
+        """更新按钮状态"""
+        # 在控制面板中设置按钮的启用/禁用状态
+        if hasattr(self, 'control_panel'):
+            self.control_panel.start_button.setEnabled(not self.is_running)
+            self.control_panel.stop_button.setEnabled(self.is_running)
+            self.control_panel.reset_button.setEnabled(not self.is_running)
+
     def init_ui(self):
         """初始化用户界面"""
         self.setWindowTitle('AO Shaping 可视化控制系统')
@@ -42,10 +52,10 @@ class MainWindow(QMainWindow):
         main_layout = QVBoxLayout(central_widget)
         
         # 创建标题
-        title_label = QLabel('AO Shaping 自适应光学整形系统')
-        title_label.setAlignment(Qt.AlignCenter)
-        title_label.setStyleSheet("font-size: 18px; font-weight: bold; margin: 10px;")
-        main_layout.addWidget(title_label)
+        # title_label = QLabel('AO Shaping 自适应光学整形系统')
+        # title_label.setAlignment(Qt.AlignCenter)
+        # title_label.setStyleSheet("font-size: 18px; font-weight: bold; margin: 10px;")
+        # main_layout.addWidget(title_label)
         
         # 创建水平分割器
         splitter = QSplitter(Qt.Horizontal)
@@ -109,6 +119,11 @@ class MainWindow(QMainWindow):
         
     def start_run(self):
         """启动运行"""
+        if self.is_running:
+            return
+            
+        self.is_running = True
+        self.update_button_states()  # 更新按钮状态
         try:
             # 获取参数
             params = self.control_panel.get_parameters()
@@ -152,13 +167,27 @@ class MainWindow(QMainWindow):
             
     def stop_run(self):
         """停止运行"""
-        self.runner_manager.stop_run()
-        self.simulation_manager.stop_simulation()
-        self.progress_bar.setVisible(False)
-        self.status_bar.showMessage('运行已停止')
+        self.is_running = False
+        self.update_button_states()  # 更新按钮状态
+        
+        # 使用QTimer来异步停止运行，避免阻塞UI线程
+        QTimer.singleShot(0, self._async_stop_run)
+        
+    def _async_stop_run(self):
+        """异步停止运行"""
+        try:
+            self.runner_manager.stop_run()
+            self.simulation_manager.stop_simulation()
+        except Exception as e:
+            print(f"停止运行时发生错误: {str(e)}")
+        finally:
+            self.progress_bar.setVisible(False)
+            self.status_bar.showMessage('运行已停止')
         
     def reset_system(self):
         """重置系统"""
+        self.is_running = False  # 重置运行状态
+        self.update_button_states()  # 更新按钮状态
         self.simulation_manager.reset()
         self.dm_panel.reset_values()
         self.status_bar.showMessage('系统已重置')
@@ -183,18 +212,24 @@ class MainWindow(QMainWindow):
             
     def on_run_finished(self):
         """处理运行完成"""
+        self.is_running = False
+        self.update_button_states()  # 更新按钮状态
         self.progress_bar.setVisible(False)
         self.status_bar.showMessage('运行完成')
         QMessageBox.information(self, "完成", "算法运行已完成")
         
     def on_run_error(self, error: str):
         """处理运行错误"""
+        self.is_running = False
+        self.update_button_states()  # 更新按钮状态
         self.progress_bar.setVisible(False)
         self.status_bar.showMessage('运行出错')
         QMessageBox.critical(self, "错误", f"运行过程中发生错误: {error}")
         
     def on_optimization_completed(self, result):
         """处理优化完成"""
+        self.is_running = False
+        self.update_button_states()  # 更新按钮状态
         self.progress_bar.setVisible(False)
         self.status_bar.showMessage('优化完成')
         
@@ -227,6 +262,8 @@ class MainWindow(QMainWindow):
         
     def on_simulation_finished(self, recorder=None):
         """处理模拟完成"""
+        self.is_running = False
+        self.update_button_states()  # 更新按钮状态
         self.progress_bar.setVisible(False)
         self.status_bar.showMessage('运行完成')
         
@@ -248,6 +285,8 @@ class MainWindow(QMainWindow):
         
     def on_simulation_error(self, error: str):
         """处理模拟错误"""
+        self.is_running = False
+        self.update_button_states()  # 更新按钮状态
         self.progress_bar.setVisible(False)
         self.status_bar.showMessage('模拟出错')
         QMessageBox.critical(self, "模拟错误", f"模拟过程中发生错误: {error}")
@@ -262,13 +301,17 @@ class MainWindow(QMainWindow):
         
     def closeEvent(self, event):
         """处理窗口关闭事件"""
-        # 停止所有运行的进程
-        self.runner_manager.stop_run()
-        self.simulation_manager.stop_simulation()
-        self.simulation_manager.cleanup()
-        
-        # 等待一段时间确保所有进程都已停止
-        time.sleep(0.5)
+        try:
+            # 停止所有运行的进程
+            self.runner_manager.stop_run()
+            self.simulation_manager.stop_simulation()
+            self.simulation_manager.cleanup()
+        except RuntimeError:
+            # 忽略Qt对象已被删除的运行时错误
+            pass
+        except Exception as e:
+            # 打印其他异常但不中断关闭过程
+            print(f"关闭时出现错误: {str(e)}")
         
         event.accept()
 

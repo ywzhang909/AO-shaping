@@ -1,9 +1,8 @@
-import sys
 import os
 from PySide6.QtWidgets import (
-    QWidget, QGridLayout, QLabel, QSizePolicy, QScrollArea
+    QWidget, QLabel
 )
-from PySide6.QtCore import Qt, Signal, QRect, QPoint
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPainter, QColor, QFont, QPen, QBrush
 
 
@@ -280,5 +279,11 @@ class DMPanel(QWidget):
     def reset_values(self):
         """重置所有单元的数值"""
         self.values = [0.0] * 64
+        # 直接设置所有按钮的值而不触发单独的更新
         for button in self.buttons:
-            button.setValue(0.0)
+            button.value = 0.0
+        # 一次性更新所有按钮的颜色显示
+        for button in self.buttons:
+            button.update_color()
+        # 刷新整个面板以减少重绘次数
+        self.update()

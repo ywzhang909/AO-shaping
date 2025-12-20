@@ -100,7 +100,31 @@ class SimulationManager(QObject):
         dm_unit_mask = np.ones(64, dtype=bool)
         dm_unit_mask[0] = False  # 禁用第一个单元
         
-        # 调用optimize_pib函数
+        # 创建回调函数用于实时更新
+        def progress_callback(current_epoch, total_epochs, voltages):
+            """进度回调函数"""
+            if not self.is_running:
+                return  # 直接返回表示停止优化
+                
+            # 更新内部状态
+            self.voltages = np.array(voltages)
+            self.iteration = current_epoch
+            
+            # 发送更新信号
+            self.simulationUpdated.emit(self.voltages.tolist())
+            
+            # 记录历史
+            self.history.append({
+                "iteration": current_epoch,
+                "voltages": self.voltages.copy(),
+                "timestamp": time.time()
+            })
+            
+            # 限制历史记录长度
+            if len(self.history) > 1000:
+                self.history.pop(0)
+        
+        # 调用optimize_pib函数，传入回调函数
         self.recorder = optimize_pib(
             center=self.parameters.get('center', 'mass'),
             epochs=int(self.parameters.get('epochs', 4000)),
@@ -119,18 +143,21 @@ class SimulationManager(QObject):
             dm_neibor_diff=400,
             dm_max_voltage=300,
             dm_min_voltage=-200,
+            callback=progress_callback  # 传入回调函数
         )
         
         # 更新电压值
         if self.recorder and hasattr(self.recorder, 'best_v'):
             self.voltages = np.array(self.recorder.best_v)
             
-        # 发送更新信号
+        # 发送最终更新信号
         self.simulationUpdated.emit(self.voltages.tolist())
         
     def _run_simulation_loop(self):
         """运行模拟循环（用于非PIB算法）"""
-        while self.is_running:
+        max_iterations = int(self.parameters.get("epochs", 1000))  # 获取设置的迭代次数，默认1000
+        
+        while self.is_running and self.iteration < max_iterations:
             # 模拟算法执行
             if self.algorithm == "wf":
                 # 波前优化算法模拟
@@ -161,6 +188,11 @@ class SimulationManager(QObject):
             
             self.iteration += 1
             time.sleep(0.1)  # 控制模拟速度
+            
+        # 如果是因为达到迭代次数而停止，发送完成信号
+        if self.iteration >= max_iterations:
+            self.is_running = False
+            self.simulationFinished.emit(None)
             
     def _simulate_wf_algorithm(self):
         """模拟波前优化算法"""

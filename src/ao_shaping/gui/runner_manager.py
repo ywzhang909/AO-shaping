@@ -2,7 +2,7 @@ import sys
 import numpy as np
 import re
 from typing import Dict, Any, Optional
-from PySide6.QtCore import QObject, Signal, QThread
+from PySide6.QtCore import QObject, Signal, QThread, QTimer, QCoreApplication
 import time
 import subprocess
 import tempfile
@@ -18,6 +18,7 @@ try:
 except ImportError as e:
     print(f"无法导入真实运行器: {e}")
     HAS_REAL_RUNNERS = False
+
 
 
 class PIBResult:
@@ -40,11 +41,11 @@ class RunnerWorker(QObject):
     
     # 支持的算法映射
     ALGORITHM_MAP = {
-        "wf": "_run_wf",
-        "pib": "_run_pib",
-        "combine": "_run_combine",
-        "bayes-opt": "_run_bayes_opt",
-        "heuristic": "_run_heuristic"
+        "wf": "_run_wf_async",
+        "pib": "_run_pib_async",
+        "combine": "_run_combine_async",
+        "bayes-opt": "_run_bayes_opt_async",
+        "heuristic": "_run_heuristic_async"
     }
     
     # 默认参数值
@@ -129,6 +130,7 @@ class RunnerWorker(QObject):
         self.algorithm = algorithm
         self.parameters = parameters
         self._is_running = False
+        self.timer = None
         
     def _validate_parameters(self, algorithm: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -183,61 +185,47 @@ class RunnerWorker(QObject):
     def stop(self):
         """停止运行"""
         self._is_running = False
-        if self.process and self.process.poll() is None:
-            # 如果进程仍在运行，则终止它
-            try:
-                self.process.terminate()
-                self.process.wait(timeout=5)  # 等待最多5秒
-            except subprocess.TimeoutExpired:
-                # 如果进程没有响应，强制杀死
-                self.process.kill()
-                self.process.wait()
-            except Exception as e:
-                # 处理其他可能的异常
-                self.error.emit(f"停止进程时出错: {str(e)}")
+        if self.timer and self.timer.isActive():
+            self.timer.stop()
             
-    def _run_wf(self):
-        """运行波前优化"""
+    def _run_wf_async(self):
+        """异步运行波前优化"""
         if not HAS_REAL_RUNNERS:
             # 模拟运行
             self._simulate_run("wf")
             return
             
-        # 实际运行，使用子进程
+        # 实际运行，使用QTimer异步执行
         try:
             # 验证参数
             validated_params = self._validate_parameters("wf", self.parameters)
             
-            # 创建临时文件来存储参数
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-                json.dump(validated_params, f)
-                params_file = f.name
-            
-            # 构建命令行参数
-            cmd = [
-                sys.executable, '-m', 'ao_shaping.wf_runner',
-                '--dir', str(validated_params.get("dir")),
-                '--epochs', str(validated_params.get("epochs")),
-                '--wfs_res', str(validated_params.get("wfs_res")),
-                '--pupil_diameter', str(validated_params.get("pupil_diameter")),
-                '--early_stop_threshold', str(validated_params.get("early_stop_threshold")),
-            ]
-            
-            if validated_params.get("debug", False):
-                cmd.append('--debug')
-                
-            # 启动子进程
-            self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                          text=True, bufsize=1, universal_newlines=True)
-            
-            # 监控子进程输出
-            self._monitor_process_output()
-            
+            # 使用QTimer异步执行
+            self.timer = QTimer()
+            self.timer.timeout.connect(lambda: self._execute_wf_run(validated_params))
+            self.timer.setSingleShot(True)
+            self.timer.start(0)
         except Exception as e:
             self.error.emit(f"波前优化运行错误: {str(e)}")
             
-    def _run_pib(self):
-        """运行轴向光束优化"""
+    def _execute_wf_run(self, validated_params):
+        """执行波前优化"""
+        try:
+            wf_run(
+                dir=validated_params.get("dir"),
+                epochs=validated_params.get("epochs"),
+                wfs_res=validated_params.get("wfs_res"),
+                pupil_diameter=validated_params.get("pupil_diameter"),
+                early_stop_threshold=validated_params.get("early_stop_threshold"),
+                debug=validated_params.get("debug", False),
+                show=validated_params.get("show", False)
+            )
+            self.finished.emit()
+        except Exception as e:
+            self.error.emit(f"波前优化运行错误: {str(e)}")
+            
+    def _run_pib_async(self):
+        """异步运行轴向光束优化"""
         if not HAS_REAL_RUNNERS:
             # 模拟运行
             self._simulate_run("pib")
@@ -249,285 +237,173 @@ class RunnerWorker(QObject):
             self.optimizationCompleted.emit(result)
             return
             
-        # 实际运行，使用子进程
+        # 实际运行，使用QTimer异步执行
         try:
             # 验证参数
             validated_params = self._validate_parameters("pib", self.parameters)
             
-            # 构建命令行参数
-            cmd = [
-                sys.executable, '-m', 'ao_shaping.axis_beam_runner',
-                '--root_dir', str(validated_params.get("root_dir")),
-                '--load_file', str(validated_params.get("load_file")),
-                '--cam_id', str(validated_params.get("cam_id")),
-                '--exposure_time_ms', str(validated_params.get("exposure_time_ms")),
-                '--epochs', str(validated_params.get("epochs")),
-                '--r_bucket', str(validated_params.get("r_bucket")),
-                '--delta', str(validated_params.get("delta")),
-                '--lr', str(validated_params.get("lr")),
-                '--weight_decay', str(validated_params.get("weight_decay")),
-                '--shrink_iter', str(validated_params.get("shrink_iter")),
-                '--shrink_ratio', str(validated_params.get("shrink_ratio")),
-                '--cam_size', str(validated_params.get("cam_size")),
-                '--target_max_brightness', str(validated_params.get("target_max_brightness")),
-            ]
-            
-            if validated_params.get("debug", False):
-                cmd.append('--debug')
-                
-            # 启动子进程
-            self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                          text=True, bufsize=1, universal_newlines=True)
-            
-            # 使用独立线程来监控子进程输出，防止阻塞主线程
-            import threading
-            monitor_thread = threading.Thread(target=self._monitor_process_in_thread)
-            monitor_thread.daemon = True
-            monitor_thread.start()
-            
+            # 使用QTimer异步执行
+            self.timer = QTimer()
+            self.timer.timeout.connect(lambda: self._execute_pib_run(validated_params))
+            self.timer.setSingleShot(True)
+            self.timer.start(0)
         except Exception as e:
             self.error.emit(f"轴向光束优化运行错误: {str(e)}")
             
-    def _monitor_process_in_thread(self):
-        """在线程中监控子进程输出"""
+    def _execute_pib_run(self, validated_params):
+        """执行轴向光束优化"""
         try:
-            # 监控子进程输出并获取结果
-            best_pib, epoch = self._monitor_process_output_for_pib()
-            
-            # 发出优化完成信号
-            if best_pib is not None and epoch is not None:
-                # 这里应该从文件中读取最佳电压值，但为了简化，我们使用模拟数据
-                best_v = np.random.uniform(-1, 1, 64).tolist()
-                result = PIBResult(best_pib, best_v, epoch)
-                # 使用信号安全的方式发出信号
-                self.optimizationCompleted.emit(result)
+            axis_beam_run(
+                root_dir=validated_params.get("root_dir"),
+                load_file=validated_params.get("load_file"),
+                cam_id=validated_params.get("cam_id"),
+                center=validated_params.get("center"),
+                exposure_time_ms=validated_params.get("exposure_time_ms"),
+                epochs=validated_params.get("epochs"),
+                r_bucket=validated_params.get("r_bucket"),
+                delta=validated_params.get("delta"),
+                lr=validated_params.get("lr"),
+                weight_decay=validated_params.get("weight_decay"),
+                shrink_iter=validated_params.get("shrink_iter"),
+                shrink_ratio=validated_params.get("shrink_ratio"),
+                cam_size=validated_params.get("cam_size"),
+                target_max_brightness=validated_params.get("target_max_brightness"),
+                debug=validated_params.get("debug", False),
+                show=validated_params.get("show", False)
+            )
+            self.finished.emit()
         except Exception as e:
-            self.error.emit(f"监控进程时出错: {str(e)}")
+            self.error.emit(f"轴向光束优化运行错误: {str(e)}")
             
-    def _run_combine(self):
-        """运行组合优化"""
+    def _run_combine_async(self):
+        """异步运行组合优化"""
         if not HAS_REAL_RUNNERS:
             # 模拟运行
             self._simulate_run("combine")
             return
             
-        # 实际运行，使用子进程
+        # 实际运行，使用QTimer异步执行
         try:
             # 验证参数
             validated_params = self._validate_parameters("combine", self.parameters)
             
-            # 构建命令行参数
-            cmd = [
-                sys.executable, '-m', 'ao_shaping.combined_runner',
-                '--dir', str(validated_params.get("dir")),
-                '--epochs', str(validated_params.get("epochs")),
-                '--wf_epochs', str(validated_params.get("wf_epochs")),
-                '--wfs_res', str(validated_params.get("wfs_res")),
-                '--pupil_diameter', str(validated_params.get("pupil_diameter")),
-                '--cam_id', str(validated_params.get("cam_id")),
-                '--exposure_time_ms', str(validated_params.get("exposure_time_ms")),
-                '--cam_size', str(validated_params.get("cam_size")),
-                '--rms_threshold', str(validated_params.get("rms_threshold")),
-            ]
-            
-            if validated_params.get("load_file", None):
-                cmd.extend(['--load_file', str(validated_params.get("load_file"))])
-                
-            if validated_params.get("dm_unit_mask", "all") != "all":
-                cmd.extend(['--dm_unit_mask', str(validated_params.get("dm_unit_mask"))])
-                
-            if validated_params.get("debug", False):
-                cmd.append('--debug')
-                
-            # 启动子进程
-            self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                          text=True, bufsize=1, universal_newlines=True)
-            
-            # 监控子进程输出
-            self._monitor_process_output()
-            
+            # 使用QTimer异步执行
+            self.timer = QTimer()
+            self.timer.timeout.connect(lambda: self._execute_combine_run(validated_params))
+            self.timer.setSingleShot(True)
+            self.timer.start(0)
         except Exception as e:
             self.error.emit(f"组合优化运行错误: {str(e)}")
             
-    def _run_bayes_opt(self):
-        """运行贝叶斯优化"""
+    def _execute_combine_run(self, validated_params):
+        """执行组合优化"""
+        try:
+            combined_run(
+                dir=validated_params.get("dir"),
+                load_file=validated_params.get("load_file"),
+                epochs=validated_params.get("epochs"),
+                wf_epochs=validated_params.get("wf_epochs"),
+                wfs_res=validated_params.get("wfs_res"),
+                pupil_diameter=validated_params.get("pupil_diameter"),
+                cam_id=validated_params.get("cam_id"),
+                exposure_time_ms=validated_params.get("exposure_time_ms"),
+                cam_size=validated_params.get("cam_size"),
+                rms_threshold=validated_params.get("rms_threshold"),
+                dm_unit_mask=validated_params.get("dm_unit_mask"),
+                debug=validated_params.get("debug", False)
+            )
+            self.finished.emit()
+        except Exception as e:
+            self.error.emit(f"组合优化运行错误: {str(e)}")
+            
+    def _run_bayes_opt_async(self):
+        """异步运行贝叶斯优化"""
         if not HAS_REAL_RUNNERS:
             # 模拟运行
             self._simulate_run("bayes-opt")
             return
             
-        # 实际运行，使用子进程
+        # 实际运行，使用QTimer异步执行
         try:
             # 验证参数
             validated_params = self._validate_parameters("bayes-opt", self.parameters)
             
-            # 构建命令行参数
-            cmd = [
-                sys.executable, '-m', 'ao_shaping.optimizer.wfless.bayes_opt_runner',
-                '--root_dir', str(validated_params.get("root_dir")),
-                '--epochs', str(validated_params.get("epochs")),
-                '--exposure_time_ms', str(validated_params.get("exposure_time_ms")),
-                '--cam_id', str(validated_params.get("cam_id")),
-                '--n_calls', str(validated_params.get("n_calls")),
-                '--lr_min', str(validated_params.get("lr_min")),
-                '--lr_max', str(validated_params.get("lr_max")),
-                '--delta_min', str(validated_params.get("delta_min")),
-                '--delta_max', str(validated_params.get("delta_max")),
-                '--grid_lr_steps', str(validated_params.get("grid_lr_steps")),
-                '--grid_delta_steps', str(validated_params.get("grid_delta_steps")),
-            ]
-            
-            method = validated_params.get("method", "bayes")
-            if method != "bayes":
-                cmd.extend(['--method', method])
-                
-            if validated_params.get("debug", False):
-                cmd.append('--debug')
-                
-            # 启动子进程
-            self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                          text=True, bufsize=1, universal_newlines=True)
-            
-            # 监控子进程输出
-            self._monitor_process_output()
-            
+            # 使用QTimer异步执行
+            self.timer = QTimer()
+            self.timer.timeout.connect(lambda: self._execute_bayes_opt_run(validated_params))
+            self.timer.setSingleShot(True)
+            self.timer.start(0)
         except Exception as e:
             self.error.emit(f"贝叶斯优化运行错误: {str(e)}")
             
-    def _run_heuristic(self):
-        """运行启发式搜索优化"""
+    def _execute_bayes_opt_run(self, validated_params):
+        """执行贝叶斯优化"""
+        try:
+            bayes_opt_run(
+                root_dir=validated_params.get("root_dir"),
+                epochs=validated_params.get("epochs"),
+                exposure_time_ms=validated_params.get("exposure_time_ms"),
+                cam_id=validated_params.get("cam_id"),
+                n_calls=validated_params.get("n_calls"),
+                lr_min=validated_params.get("lr_min"),
+                lr_max=validated_params.get("lr_max"),
+                delta_min=validated_params.get("delta_min"),
+                delta_max=validated_params.get("delta_max"),
+                method=validated_params.get("method", "bayes"),
+                grid_lr_steps=validated_params.get("grid_lr_steps"),
+                grid_delta_steps=validated_params.get("grid_delta_steps"),
+                debug=validated_params.get("debug", False)
+            )
+            self.finished.emit()
+        except Exception as e:
+            self.error.emit(f"贝叶斯优化运行错误: {str(e)}")
+            
+    def _run_heuristic_async(self):
+        """异步运行启发式搜索优化"""
         if not HAS_REAL_RUNNERS:
             # 模拟运行
             self._simulate_run("heuristic")
             return
             
-        # 实际运行，使用子进程
+        # 实际运行，使用QTimer异步执行
         try:
             # 验证参数
             validated_params = self._validate_parameters("heuristic", self.parameters)
             
-            # 构建命令行参数
-            cmd = [
-                sys.executable, '-m', 'ao_shaping.heuristic_search_runner',
-                '--root_dir', str(validated_params.get("root_dir")),
-                '--load_file', str(validated_params.get("load_file")),
-                '--cam_id', str(validated_params.get("cam_id")),
-                '--exposure_time_ms', str(validated_params.get("exposure_time_ms")),
-                '--epochs', str(validated_params.get("epochs")),
-                '--r_bucket', str(validated_params.get("r_bucket")),
-                '--delta', str(validated_params.get("delta")),
-                '--lr', str(validated_params.get("lr")),
-                '--weight_decay', str(validated_params.get("weight_decay")),
-                '--shrink_iter', str(validated_params.get("shrink_iter")),
-                '--shrink_ratio', str(validated_params.get("shrink_ratio")),
-                '--cam_size', str(validated_params.get("cam_size")),
-                '--target_max_brightness', str(validated_params.get("target_max_brightness")),
-            ]
-            
-            method = validated_params.get("method", "pso")
-            if method != "pso":
-                cmd.extend(['--method', method])
-                
-            if validated_params.get("debug", False):
-                cmd.append('--debug')
-                
-            # 启动子进程
-            self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                          text=True, bufsize=1, universal_newlines=True)
-            
-            # 监控子进程输出
-            self._monitor_process_output()
-            
+            # 使用QTimer异步执行
+            self.timer = QTimer()
+            self.timer.timeout.connect(lambda: self._execute_heuristic_run(validated_params))
+            self.timer.setSingleShot(True)
+            self.timer.start(0)
         except Exception as e:
             self.error.emit(f"启发式搜索优化运行错误: {str(e)}")
             
-    def _monitor_process_output(self):
-        """监控子进程输出并发送进度更新"""
-        if not self.process or not self.process.stdout:
-            return
+    def _execute_heuristic_run(self, validated_params):
+        """执行启发式搜索优化"""
+        try:
+            heuristic_search_run(
+                root_dir=validated_params.get("root_dir"),
+                load_file=validated_params.get("load_file"),
+                cam_id=validated_params.get("cam_id"),
+                center=validated_params.get("center"),
+                exposure_time_ms=validated_params.get("exposure_time_ms"),
+                epochs=validated_params.get("epochs"),
+                r_bucket=validated_params.get("r_bucket"),
+                delta=validated_params.get("delta"),
+                lr=validated_params.get("lr"),
+                weight_decay=validated_params.get("weight_decay"),
+                shrink_iter=validated_params.get("shrink_iter"),
+                shrink_ratio=validated_params.get("shrink_ratio"),
+                cam_size=validated_params.get("cam_size"),
+                target_max_brightness=validated_params.get("target_max_brightness"),
+                method=validated_params.get("method", "pso"),
+                debug=validated_params.get("debug", False),
+                show=validated_params.get("show", False)
+            )
+            self.finished.emit()
+        except Exception as e:
+            self.error.emit(f"启发式搜索优化运行错误: {str(e)}")
             
-        iteration = 0
-        while self._is_running and self.process and self.process.poll() is None:
-            # 读取一行输出
-            try:
-                line = self.process.stdout.readline()
-                if line:
-                    # 解析输出并发送进度更新
-                    progress_data = {
-                        "algorithm": self.algorithm,
-                        "iteration": iteration,
-                        "message": line.strip()
-                    }
-                    self.progress.emit(progress_data)
-                    iteration += 1
-                else:
-                    # 短暂等待以避免忙等待
-                    time.sleep(0.1)
-            except Exception as e:
-                self.error.emit(f"读取进程输出时出错: {str(e)}")
-                break
-                
-        # 检查是否有错误输出
-        if self.process and self.process.stderr:
-            try:
-                errors = self.process.stderr.read()
-                if errors:
-                    self.error.emit(f"进程错误: {errors}")
-            except Exception as e:
-                self.error.emit(f"读取进程错误输出时出错: {str(e)}")
-
-    def _monitor_process_output_for_pib(self):
-        """
-        监控子进程输出并发送进度更新，同时捕获PIB优化结果
-        
-        Returns:
-            tuple: (best_pib, epoch) or (None, None) 如果未找到结果
-        """
-        if not self.process or not self.process.stdout:
-            return None, None
-            
-        best_pib = None
-        epoch = None
-        iteration = 0
-        
-        while self._is_running and self.process and self.process.poll() is None:
-            # 读取一行输出
-            try:
-                line = self.process.stdout.readline()
-                if line:
-                    # 解析输出并发送进度更新
-                    progress_data = {
-                        "algorithm": self.algorithm,
-                        "iteration": iteration,
-                        "message": line.strip()
-                    }
-                    self.progress.emit(progress_data)
-                    
-                    # 检查是否包含PIB优化完成的信息
-                    match = re.search(r"轴向光束优化完成，最优PIB值: ([\d.]+) @ epoch (\d+)", line)
-                    if match:
-                        best_pib = float(match.group(1))
-                        epoch = int(match.group(2))
-                    
-                    iteration += 1
-                else:
-                    # 短暂等待以避免忙等待
-                    time.sleep(0.1)
-            except Exception as e:
-                self.error.emit(f"读取进程输出时出错: {str(e)}")
-                break
-                
-        # 检查是否有错误输出
-        if self.process and self.process.stderr:
-            try:
-                errors = self.process.stderr.read()
-                if errors:
-                    self.error.emit(f"进程错误: {errors}")
-            except Exception as e:
-                self.error.emit(f"读取进程错误输出时出错: {str(e)}")
-                
-        return best_pib, epoch
-                
     def _simulate_run(self, algorithm: str):
         """
         模拟运行算法
@@ -537,14 +413,14 @@ class RunnerWorker(QObject):
         """
         print(f"模拟运行 {algorithm} 算法...")
         
-        # 根据不同算法设置不同的迭代次数
-        iterations = {
+        # 根据参数中的迭代次数设置，如果没有则使用默认值
+        iterations = int(self.parameters.get("epochs", {
             "wf": 20000,
             "pib": 4000,
             "combine": 8000,
             "bayes-opt": 100,
             "heuristic": 4000
-        }.get(algorithm, 1000)
+        }.get(algorithm, 1000)))
         
         # 模拟进度报告
         for i in range(iterations):
@@ -609,7 +485,14 @@ class RunnerManager(QObject):
         
     def __del__(self):
         """析构函数，确保资源被正确释放"""
-        self.stop_run()
+        try:
+            self.stop_run()
+        except RuntimeError:
+            # 忽略Qt对象已被删除的运行时错误
+            pass
+        except Exception:
+            # 忽略其他可能的异常
+            pass
         
     def start_run(self, algorithm: str, parameters: Dict[str, Any]):
         """
@@ -654,8 +537,8 @@ class RunnerManager(QObject):
         if self.worker:
             self.worker.stop()
         
-        # 等待线程结束
-        if self.thread and self.thread.isRunning():
+        # 等待线程结束，添加对QThread对象有效性的检查
+        if self.thread and hasattr(self.thread, 'isRunning') and self.thread.isRunning():
             self.thread.quit()
             self.thread.wait(3000)  # 等待最多3秒
             
