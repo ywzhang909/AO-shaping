@@ -77,7 +77,7 @@ def jitter_diameter(lamd, aperture, dist):
 
     return diameter
 
-def centroid(intensity:np.ndarray, moment:int=1, threshold=0.01) -> Tuple[int, int]:
+def centroid(intensity:np.ndarray, moment:int=1, threshold=0.01) -> Tuple[float, float]:
     """
     光强的质心位置
 
@@ -91,7 +91,8 @@ def centroid(intensity:np.ndarray, moment:int=1, threshold=0.01) -> Tuple[int, i
     _intensity[_intensity < 0] = 0
     
     center = center_of_mass(_intensity**moment)
-    return int(center[1]), int(center[0])
+    return center[::-1]
+
 
 def peak_position(intensity, x, y):
     """
@@ -221,7 +222,7 @@ def power_bucket(intensity, x, y, center, r_bucket, weighted=4):
     return power_in_bucket
 
 def disp(img, xv, yv, r_bucket, threshold=0, title=''):
-    center = centroid(img, xv, yv, threshold)
+    center = centroid(img, threshold=threshold)
     
     def calc_j():
             r = int(r_bucket)

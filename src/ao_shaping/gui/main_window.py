@@ -1,22 +1,15 @@
 import sys
-import os
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QPushButton, QTabWidget, QLabel, QSplitter, QStatusBar,
-    QGroupBox, QFormLayout, QLineEdit, QComboBox, QCheckBox, QSpinBox, QDoubleSpinBox,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QSplitter, QStatusBar,
     QMessageBox, QProgressBar
 )
 from PySide6.QtCore import Qt, QTimer
-import numpy as np
 
-# 添加项目根目录到Python路径
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
-from .dm_panel import DMPanel
-from .visualization_panel import VisualizationPanel
-from .control_panel import ControlPanel
-from .runner_manager import RunnerManager
-from .simulation_manager import SimulationManager
+from .panels.dm_panel import DMPanel
+from .panels.visualization_panel import VisualizationPanel
+from .panels.control_panel import ControlPanel
+from .workers.runner_manager import RunnerManager
+from .workers.simulation_manager import SimulationManager
 
 
 class MainWindow(QMainWindow):
@@ -50,12 +43,6 @@ class MainWindow(QMainWindow):
         
         # 创建主布局
         main_layout = QVBoxLayout(central_widget)
-        
-        # 创建标题
-        # title_label = QLabel('AO Shaping 自适应光学整形系统')
-        # title_label.setAlignment(Qt.AlignCenter)
-        # title_label.setStyleSheet("font-size: 18px; font-weight: bold; margin: 10px;")
-        # main_layout.addWidget(title_label)
         
         # 创建水平分割器
         splitter = QSplitter(Qt.Horizontal)

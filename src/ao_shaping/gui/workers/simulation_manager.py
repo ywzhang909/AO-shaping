@@ -2,8 +2,7 @@ import numpy as np
 from typing import List, Dict, Any
 import threading
 import time
-from PySide6.QtCore import QObject, Signal, QThread
-import os
+from PySide6.QtCore import QObject, Signal
 
 from ao_shaping.optimizer.wfless.pib import optimize_pib
 from ao_shaping.utils.file import get_init_V_by_rms

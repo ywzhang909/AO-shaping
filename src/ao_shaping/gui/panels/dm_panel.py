@@ -1,9 +1,14 @@
-import os
+from typing import Literal
+
 from PySide6.QtWidgets import (
     QWidget, QLabel
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPainter, QColor, QFont, QPen, QBrush
+
+import numpy as np
+
+from ao_shaping.utils import logger
 
 
 class DMCircularUnit(QLabel):
@@ -19,7 +24,7 @@ class DMCircularUnit(QLabel):
         self.value = 0.0  # 默认初始值为0
         
         # 设置按钮属性
-        self.setAlignment(Qt.AlignCenter)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setText(str(unit_index))
         self.setFont(QFont("Arial", 8))
         
@@ -71,11 +76,11 @@ class DMCircularUnit(QLabel):
         
     def mousePressEvent(self, event):
         """处理鼠标点击事件"""
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             # 左键点击：增加值
             new_value = self.value + 0.1
             self.setValue(new_value)
-        elif event.button() == Qt.RightButton:
+        elif event.button() == Qt.MouseButton.RightButton:
             # 右键点击：减少值
             new_value = self.value - 0.1
             self.setValue(new_value)
@@ -84,7 +89,7 @@ class DMCircularUnit(QLabel):
     def paintEvent(self, event):
         """自定义绘制事件"""
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
         # 绘制圆形背景
         rect = self.rect()
@@ -107,13 +112,13 @@ class DMCircularUnit(QLabel):
         
         # 绘制圆形
         painter.setBrush(QBrush(color))
-        painter.setPen(QPen(Qt.black, 1))
+        painter.setPen(QPen(QColor("black"), 1))
         painter.drawEllipse(x, y, diameter, diameter)
         
         # 绘制文本
-        painter.setPen(QPen(Qt.black, 1))
+        painter.setPen(QPen(QColor("black"), 1))
         painter.setFont(QFont("Arial", 8))
-        painter.drawText(rect, Qt.AlignCenter, str(self.unit_index))
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, str(self.unit_index))
 
 
 class DMPanel(QWidget):
@@ -127,60 +132,59 @@ class DMPanel(QWidget):
         self.values = [0.0] * 64  # 每个单元的数值列表
         self.unit_positions = []  # 存储单元位置信息
         self.init_ui()
-        self.load_unit_positions()
         self.create_buttons()
         
     def init_ui(self):
         """初始化界面"""
-        self.setAttribute(Qt.WA_OpaquePaintEvent)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
         self.setMinimumSize(400, 400)
+
+    @classmethod
+    def from_unit_positions(cls, unit_positions: list[tuple[int, float, float]]):
+        """从单元位置创建面板"""
+        panel = cls()
+        panel.unit_positions = unit_positions
+        panel.create_buttons()
+        return panel
+    
+    @classmethod
+    def from_layout_file_to_panel(cls, layout_file: str):
+        """从布局文件创建面板
         
-    def load_unit_positions(self):
-        """从文件加载单元位置信息"""
-        try:
-            # 构建文件路径
-            file_path = os.path.join("data", "layouts", "XuWeiDM64_UnitsPos.txt")
+        Parameters
+        ----------
+        layout_file : str
+            布局文件路径
             
-            # 如果文件不存在，使用默认位置
-            if not os.path.exists(file_path):
-                print(f"布局文件 {file_path} 不存在，使用默认位置")
-                self.unit_positions = []
-                for i in range(64):
-                    row = i // 8
-                    col = i % 8
-                    # 生成近似圆形分布的位置
-                    x = 50.0 + col * 10
-                    y = 50.0 + row * 10
-                    self.unit_positions.append((i+1, x, y))
-                return
-                
-            # 清空旧的位置信息
-            self.unit_positions.clear()
+        Returns
+        -------
+        DMPanel
+            创建的面板实例
+        """
+        unit_positions = cls.__load_unit_positions(layout_file)
+        return cls.from_unit_positions(unit_positions)
+    
+    @classmethod
+    def create_default_panel(cls, layout: Literal["grid", "circular"] = "grid", num_actuators_x: int = 8, num_actuators_y: int = 8):
+        """创建默认面板
+        
+        Parameters
+        ----------
+        layout : Literal["grid", "circular"], optional
+            布局类型，默认是"grid"
+        num_actuators_x : int, optional
+            X方向上的单元数量，默认是8
+        num_actuators_y : int, optional
+            Y方向上的单元数量，默认是8
             
-            # 读取文件
-            with open(file_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if line.strip():
-                        parts = line.strip().split()
-                        if len(parts) >= 3:
-                            unit_index = int(parts[0])
-                            x_coord = float(parts[1])
-                            y_coord = float(parts[2])
-                            self.unit_positions.append((unit_index, x_coord, y_coord))
-                            
-            print(f"成功加载 {len(self.unit_positions)} 个单元位置信息")
-        except Exception as e:
-            print(f"加载单元位置信息失败: {e}")
-            # 如果加载失败，使用默认位置
-            self.unit_positions = []
-            for i in range(64):
-                row = i // 8
-                col = i % 8
-                # 生成近似圆形分布的位置
-                x = 50.0 + col * 10
-                y = 50.0 + row * 10
-                self.unit_positions.append((i+1, x, y))
-            
+        Returns
+        -------
+        DMPanel
+            创建的面板实例
+        """
+        unit_positions = cls.__generate_actuator_positions(layout, num_actuators_x, num_actuators_y, True)
+        return cls.from_unit_positions(unit_positions)
+
     def create_buttons(self):
         """创建所有单元按钮"""
         # 清除现有的按钮
@@ -201,6 +205,7 @@ class DMPanel(QWidget):
     def layout_buttons(self):
         """根据面板大小布局按钮"""
         if not self.unit_positions or not self.buttons:
+            logger.warning("没有单元位置信息或按钮")
             return
             
         # 获取面板尺寸
@@ -287,3 +292,53 @@ class DMPanel(QWidget):
             button.update_color()
         # 刷新整个面板以减少重绘次数
         self.update()
+        
+    def set_unit_positions(self, unit_positions: list[tuple[int, float, float]]):
+        """设置所有单元的位置"""
+        self.unit_positions.clear()
+        self.unit_positions.extend(unit_positions)
+        self.layout_buttons()
+        
+    @staticmethod
+    def __generate_actuator_positions(arrangement_type: Literal["grid", "circular"], num_actuators_x, num_actuators_y, extend_outside):
+        if arrangement_type == "grid":
+            if extend_outside:
+                min_val, max_val = -1.2, 1.2
+            else:
+                min_val, max_val = -1, 1
+            actuator_x_positions = np.linspace(min_val, max_val, num_actuators_x)
+            actuator_y_positions = np.linspace(min_val, max_val, num_actuators_y)
+            actuator_positions = [
+                (enum, xx, yy) for enum, xx in enumerate(actuator_x_positions) for yy in actuator_y_positions
+            ]
+        elif arrangement_type == "circular":
+            if extend_outside:
+                max_radius = 1.2
+            else:
+                max_radius = 1.0
+            rings = np.linspace(0.0, max_radius, num_actuators_y)
+            angles = np.linspace(0, 2*np.pi, num_actuators_x, endpoint=False)
+            actuator_positions = []
+            for enum, r in enumerate(rings):
+                for a in angles:
+                    actuator_positions.append((enum, r*np.cos(a), r*np.sin(a)))
+        else:
+            raise ValueError("Unknown arrangement_type.")
+        return actuator_positions
+    
+    @staticmethod
+    def __load_unit_positions(layout_file):
+        """从文件加载单元位置信息"""
+        unit_positions = []
+        with open(layout_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                if line.strip():
+                    parts = line.strip().split()
+                    if len(parts) >= 3:
+                        unit_index = int(parts[0])
+                        x_coord = float(parts[1])
+                        y_coord = float(parts[2])
+                        unit_positions.append((unit_index, x_coord, y_coord))
+                        
+        logger.info(f"成功加载 {len(unit_positions)} 个单元位置信息")
+        return unit_positions
