@@ -48,7 +48,7 @@ def parse_tuple(ctx, param, value):
 @click.option("--shrink_iter", default=200, help="优化迭代次数后收缩半径桶和步长 (default: 300)")
 @click.option("--shrink_ratio", default=0.8, help="收缩半径桶和步长比例 (default: 0.8)")
 @click.option("-s", "--cam_size", default=200, help="相机开窗大小 (default: 200*200)")
-@click.option("-b", "--target_max_brightness", default=90, help="目标最大亮度值 (default: 90)")
+@click.option("-b", "--target_max_brightness", default=90, help="目标最大亮度值 (default: 90), 若为0则不自动调整曝光时间")
 @click.option("--debug", is_flag=True, help="是否开启调试模式 (default: False)")
 @click.option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)")
 def run(root_dir, load_file, cam_id, center, exposure_time_ms, epochs, r_bucket, 

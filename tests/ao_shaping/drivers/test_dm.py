@@ -21,3 +21,6 @@ def test_last_voltage():
     with NlightDM() as dm:
         dm.send_voltages(voltages, 0)
         
+def test_zero_voltage():
+    with NlightDM() as dm:
+        dm.send_voltages(np.zeros((dm.DM_Num)))

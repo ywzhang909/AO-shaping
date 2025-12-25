@@ -16,7 +16,7 @@ beta3 = 0.9999
 METROPOLIS_ALPHA = 0.8
 
 # camera parameters
-CAM_SAMPLE_ITER = 5
+CAM_SAMPLE_ITER = 1
 IDEAL_SPOT_RADIUS = int(os.environ.get("IDEAL_SPOT_RADIUS", 6))
 
 # dm parameters
@@ -85,7 +85,7 @@ def optimize_pib(
             _init_v = np.array(init_v)
         dm.send_voltages(_init_v, 1)
 
-        _img = cam.autoset_exposure_time_ms(target_max_brightness=220)
+        _img = cam.autoset_exposure_time_ms(target_max_brightness=240)
         if center is None:
             (h,w), margin = _img.shape
             # 如果中心不是空洞，使用质心而非形心;如果中间存在空洞使用形心，否则质心
@@ -114,10 +114,12 @@ def optimize_pib(
         img_size = (cam_size, cam_size)
         img_size, _ = cam.reset_window(center, img_size)
         if 0<target_max_brightness<255 and target_max_brightness > 10:
+            auto_exposure = True
             init_img = cam.autoset_exposure_time_ms(
                 target_max_brightness=target_max_brightness, twice_valid=True)
         else:
-            cam.reset_exposure_time(exposure_time_ms)
+            auto_exposure = False
+            cam.exposure_time = exposure_time_ms
             init_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
         logger.debug(f"Inital Image Max brightness: {np.max(init_img)} @ {cam.exposure_time}ms")
         img_size = init_img.shape[::-1]
@@ -194,8 +196,8 @@ def optimize_pib(
                         break
                 
                 avg_brightness = np.mean([np.max(pos_img), np.max(neg_img)])
-                # if avg_brightness == 255:
-                #     cam.autoset_exposure_time_ms(target_max_brightness, twice_valid=False)
+                if avg_brightness == 255 and auto_exposure:
+                    cam.autoset_exposure_time_ms(target_max_brightness, twice_valid=False)
 
                 diff = pos_j - neg_j
                 gradient = -diff * disturb_v
@@ -215,7 +217,7 @@ def optimize_pib(
 
                 if (epoch % update_iter == update_iter - 1 or
                      epoch % shrink_iter == shrink_iter - 1 or
-                     pib_ratio >= 0.99) and pib > 0 and _fix_bucket:
+                     pib_ratio >= 0.99) and pib > 0 and not _fix_bucket:
                     power_radio = radius(pos_img, center=center, energy=0.8)
                     _pr = power_radio * shrink_ratio
                     _r = max(r_bucket*shrink_ratio+1, IDEAL_SPOT_RADIUS, r_bucket)

@@ -4,7 +4,6 @@ from pathlib import Path
 from ao_shaping.wf_runner import run as wf_run
 from ao_shaping.axis_beam_runner import run as axis_beam_run
 from ao_shaping.pipeline_runner import run as pipeline_run
-from ao_shaping.bayes_opt_runner import run as bayes_opt_run
 
 
 @click.group()
@@ -21,8 +20,7 @@ main.add_command(axis_beam_run, name='pib')
 # 将combined_run命令添加到main组中
 main.add_command(pipeline_run, name='pipeline')
 
-# 将贝叶斯优化命令添加到主组中
-main.add_command(bayes_opt_run, name='bayes-opt')
+
 
 if __name__ == "__main__":
     import coredumpy
