@@ -24,3 +24,8 @@ def test_last_voltage():
 def test_zero_voltage():
     with NlightDM() as dm:
         dm.send_voltages(np.zeros((dm.DM_Num)))
+
+def test_csv_voltage():
+    voltages = np.loadtxt("data/calibration/20251225-1.csv", delimiter=",")
+    with NlightDM() as dm:
+        dm.send_voltages(voltages, 0)

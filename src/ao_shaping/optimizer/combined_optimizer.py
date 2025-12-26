@@ -2,7 +2,7 @@ import os
 import tqdm
 import numpy as np
 
-from ao_shaping.drivers import CameraStreamManager, NlightDM
+from ao_shaping.drivers import CameraStreamManager, NlightDM, Thorlab_WFS
 from ao_shaping.algorithm.adam import AdaMOD
 from ao_shaping.utils import ImageVoltagesDisplay, logger, Recorder
 from ao_shaping.utils.spots_calc import centroid, radius
@@ -46,10 +46,8 @@ def learning_schedule(power_radius, ideal_r=IDEAL_SPOT_RADIUS) -> tuple[float, f
         return 2.5, 3
     elif power_radius <= 4*ideal_r:
         return 3, 4
-    elif power_radius <= 5*ideal_r:
-        return 4.5, 5
     else:
-        return 6, 5
+        return 4, 5
 
 def optimize_pib(
     center,
@@ -100,6 +98,7 @@ def optimize_pib(
     recorder = Recorder(mark="pib", mode="max")
     
     with CameraStreamManager(cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False) as cam,\
+            Thorlab_WFS() as wfs,\
             NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT, max_neibor_diff=dm_neibor_diff, max_voltage=dm_max_voltage, min_voltage=dm_min_voltage) as dm:
         if dm_unit_mask is None:
             dm_unit_mask = dm.default_dm_unit_mask
@@ -112,67 +111,64 @@ def optimize_pib(
             _init_v = np.array(init_v)
         dm.send_voltages(_init_v, 1)
 
-        _img = cam.autoset_exposure_time_ms(target_max_brightness=TEST_EXPOSURE_TIME_BRIGHTNESS)
-        def intellij_center(img):
-            (h,w) = img.shape
-            margin = int(IDEAL_SPOT_RADIUS)
-            # 如果中心不是空洞，使用质心而非形心;如果中间存在空洞使用形心，否则质心
-            center = centroid(np.where(img > np.max(img[:max(int(h//50),2),:max(int(w//50),2)])
-                                       , 1, 0))
-            (cx, cy) = center
-            if np.all(img[cy-margin: cy+margin, cx-margin: cx+margin] >= np.max(img) * 0.4): # 中心不是空洞
-                center = centroid(img)
-            return center
+        def reset_cam():
+            cam.reset_window(center, img_size)
 
-        if center is None:
-            center = intellij_center(_img)
-        elif isinstance(center, str):
-            _img = cam.get_numpy_image(10)
-            if center == "mass":
-                center = centroid(_img)
-            elif center == 'max':
-                center = np.unravel_index(np.argmax(_img), _img.shape)[::-1]
-            elif center == 'shape':
-                center = centroid(
-                    np.where(_img > np.max(_img[:max(int(h//50),2),:max(int(w//50),2)]), 1, 0))
-                
+            _img = cam.autoset_exposure_time_ms(target_max_brightness=TEST_EXPOSURE_TIME_BRIGHTNESS)
+            if center is None:
+                (h,w), margin = _img.shape
+                # 如果中心不是空洞，使用质心而非形心;如果中间存在空洞使用形心，否则质心
+                center = centroid(np.where(_img > np.max(_img[:max(int(h//50),2),:max(int(w//50),2)])
+                                        , 1, 0))
+                (cx, cy) = center
+                if np.all(_img[cy-margin: cy+margin, cx-margin: cx+margin] >= np.max(_img) * 0.4): # 中心不是空洞
+                    center = centroid(_img)
+            elif isinstance(center, str):
+                _img = cam.get_numpy_image(10)
+                if center == "mass":
+                    center = centroid(_img)
+                elif center == 'max':
+                    center = np.unravel_index(np.argmax(_img), _img.shape)[::-1]
+                elif center == 'shape':
+                    center = centroid(
+                        np.where(_img > np.max(_img[:max(int(h//50),2),:max(int(w//50),2)]), 1, 0))
+                    
+                else:
+                    raise ValueError(f"known center: {center}")
+
             else:
-                raise ValueError(f"known center: {center}")
+                center = center    
+            logger.info(f"Centroid: {center}, Max brightness: {np.max(_img)} @ {cam.exposure_time}ms")
 
-        else:
-            center = center    
-        logger.info(f"Centroid: {center}, Max brightness: {np.max(_img)} @ {cam.exposure_time}ms")
+            img_size = (cam_size, cam_size)
+            img_size, _ = cam.reset_window(center, img_size)
 
-        img_size = (cam_size, cam_size)
-        img_size, center = cam.reset_window(center, img_size)
+            if 0<target_max_brightness<255 and target_max_brightness > 0:
+                auto_exposure = True
+                init_img = cam.autoset_exposure_time_ms(
+                    target_max_brightness=target_max_brightness, twice_valid=True)
+            elif exposure_time_ms > 0:
+                auto_exposure = False
+                cam.exposure_time = exposure_time_ms
+                init_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
+            else:
+                init_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
+            logger.debug(f"Inital Image Max brightness: {np.max(init_img)} @ {cam.exposure_time}ms")
+            img_size = init_img.shape[::-1]
+            xv, yv = np.ogrid[-img_size[0]//2:img_size[0]//2, -img_size[1]//2:img_size[1]//2]
 
-        auto_exposure = False
-        if 0<target_max_brightness<255 and target_max_brightness > 0:
-            auto_exposure = True
-            init_img = cam.autoset_exposure_time_ms(
-                target_max_brightness=target_max_brightness, twice_valid=True)
-        elif exposure_time_ms > 0:
-            cam.exposure_time = exposure_time_ms
-            init_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
-        else:
-            init_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
-        logger.debug(f"Inital Image Max brightness: {np.max(init_img)} @ {cam.exposure_time}ms")
-        img_size = init_img.shape[::-1]
-        xv, yv = np.ogrid[-img_size[0]//2:img_size[0]//2, -img_size[1]//2:img_size[1]//2]
+            if r_bucket <= 0:
+                r_bucket = radius(init_img, center=center, energy=0.6) * shrink_ratio
+                _fix_bucket = False
+            else:
+                _fix_bucket = True
 
-        if r_bucket <= 0:
-            r_bucket = radius(init_img, center=center, energy=0.6)
-            r_bucket = min(r_bucket, cam_size//2) * shrink_ratio
-            _fix_bucket = False
-        else:
-            _fix_bucket = True
+            init_r, update_iter = r_bucket, epochs * 0.8 // (np.log(IDEAL_SPOT_RADIUS / r_bucket) / np.log(shrink_ratio))
 
-        init_r, update_iter = r_bucket, epochs * 0.8 // (np.log(IDEAL_SPOT_RADIUS / r_bucket) / np.log(shrink_ratio))
-
-        imgmesh_dist = ((xv - center[0]) ** 2 + (yv - center[1]) ** 2).transpose()
-        dist = np.sqrt(imgmesh_dist)
-        bucket_mask = (dist <= r_bucket)
-        pib_mask = (dist <= IDEAL_SPOT_RADIUS)
+            imgmesh_dist = ((xv) ** 2 + (yv) ** 2).transpose()
+            dist = np.sqrt(imgmesh_dist)
+            bucket_mask = (dist <= r_bucket)
+            pib_mask = (dist <= IDEAL_SPOT_RADIUS)
         
         if show:
             window = ImageVoltagesDisplay(img_size)
@@ -221,11 +217,11 @@ def optimize_pib(
 
                 dm.send_voltages(_init_v + disturb_v)
                 pos_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
-                pos_j, pos_j_ratio = calc_j(pos_img, bucket_mask)
+                pos_j, pos_pib_ratio = calc_j(pos_img, bucket_mask)
 
                 dm.send_voltages(_init_v - disturb_v)
                 neg_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
-                neg_j, neg_j_ratio = calc_j(neg_img, bucket_mask)
+                neg_j, neg_pib_ratio = calc_j(neg_img, bucket_mask)
                 
                 if show:
                     if not window.render(
@@ -236,10 +232,9 @@ def optimize_pib(
                 avg_brightness = np.mean([np.max(pos_img), np.max(neg_img)])
                 if avg_brightness == 255 and auto_exposure:
                     _resampled_img = cam.autoset_exposure_time_ms(target_max_brightness, twice_valid=False)
-                    pib_scaler = np.max(_resampled_img) / 255.0
-                    optimizer.rescale_grad(pib_scaler)
+                    pib_scaler = avg_brightness / np.max(_resampled_img)
 
-                diff = pos_j_ratio - neg_j_ratio
+                diff = pos_j - neg_j
                 gradient = -diff * disturb_v
                 update = optimizer.update(gradient)
                 _to_update_v = np.clip(_init_v - update, dm.min_voltage, dm.max_voltage)
@@ -249,7 +244,7 @@ def optimize_pib(
                     logger.warning(f"相邻单元压差大于{dm.max_neibor_diff}，放弃本次结果")
               
                 # learning schedule
-                pib, pib_ratio = test_pib(pos_img, pib_scaler), (pos_j_ratio+neg_j_ratio)/2
+                pib, pib_ratio = test_pib(pos_img, pib_scaler), (pos_pib_ratio+neg_pib_ratio)/2
                 J = (pos_j + neg_j) / 2
 
                 if epoch % update_iter == update_iter - 1:
@@ -257,7 +252,7 @@ def optimize_pib(
 
                 if (epoch % update_iter == update_iter - 1 or
                      epoch % shrink_iter == shrink_iter - 1 or
-                     pib_ratio >= 0.99) and not _fix_bucket:
+                     pib_ratio >= 0.99) and pib > 0 and not _fix_bucket:
                     power_radio = radius(pos_img, center=center, energy=0.8)
                     _pr = power_radio * shrink_ratio
                     _r = max(r_bucket*shrink_ratio+1, IDEAL_SPOT_RADIUS, r_bucket)
@@ -288,4 +283,3 @@ def optimize_pib(
         if show:
             window.close()
         return recorder
-

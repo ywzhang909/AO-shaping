@@ -22,7 +22,7 @@ from ao_shaping.optimizer.wfless.pib import optimize_pib
 @click.option("-R", "--wfs_res", type=click.Choice(['768', '512']), default='768', help="WFS分辨率 (default: 768)")
 @click.option("-p", "--pupil_diameter", default=2.7, help="瞳孔直径 (default: 2.7)")
 @click.option("-c", "--cam_id", default=lambda: os.environ.get('Far_Cam_ID', 0), help="远场光斑CCD设备ID (default: Far_Cam_ID/0)")
-@click.option("-t", "--exposure_time_ms", default=500, help="远场光斑CCD曝光时间 (毫秒) (default: 500)")
+@click.option("-t", "--exposure_time_ms", default=0, help="远场光斑CCD曝光时间 (毫秒) (default: 0，自动选取曝光)")
 @click.option("-s", "--cam_size", default=160, help="相机开窗大小 (default: 160)")
 @click.option("-r", "--rms_threshold", default=0.12, help="RMS阈值 (default: 0.12)")
 @click.option("--debug", is_flag=True, help="是否开启调试模式 (default: False)")
@@ -35,7 +35,6 @@ def run(dir, load_file, epochs, wf_epochs, wfs_res, pupil_diameter, cam_id, expo
     else:
         init_v = []
 
-    # FIXME: 同wf比较，二者表现不同，是否需要调整优化参数
     wf_records = optimizer_rms(
         init_v=init_v,
         pupil_diameter=pupil_diameter,
@@ -57,9 +56,13 @@ def run(dir, load_file, epochs, wf_epochs, wfs_res, pupil_diameter, cam_id, expo
         dm_available[:39] = False
 
     ccd_records = optimize_pib(
-        cam_id=cam_id, center="mass", exposure_time_ms=exposure_time_ms, cam_size=cam_size,
+        cam_id=cam_id, center="mass",
+        exposure_time_ms=exposure_time_ms, 
+        cam_size=cam_size,
         dm_unit_mask=dm_available,
-        epochs=epochs, lr=0.9, delta=0.9, shrink_iter=20, shrink_ratio=0.8,
+        target_max_brightness=0, # 不自动调整曝光时间
+        epochs=epochs, lr=0.9, delta=0.9,
+        shrink_iter=20, shrink_ratio=0.8, r_bucket=int(os.environ.get("IDEAL_SPOT_RADIUS", 6)),
         init_v=min_iter["_v"], show=False)
     max_pid_iter, (max_epoch, max_pib) = ccd_records.get_best_iter()
     last_V = max_pid_iter["_v"]
@@ -98,7 +101,7 @@ def run(dir, load_file, epochs, wf_epochs, wfs_res, pupil_diameter, cam_id, expo
         plot_funcs["voltage_heatmap"](voltages, ax[1, 3], "Voltage History")
             
         plt.tight_layout()
-        save_dir = gen_date_dir(f'{dir}/combined')
+        save_dir = gen_date_dir(f'{dir}/pipeline')
         saved_file_name = gen_file_path_uuid(save_dir)
         wf_records.save_dataframe(saved_file_name.with_suffix('.wfs.pkl'), compression='zip')
         ccd_records.save_dataframe(saved_file_name.with_suffix('.ccd.pkl'), compression='zip')

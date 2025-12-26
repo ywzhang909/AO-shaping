@@ -152,7 +152,7 @@ class CameraStreamManager:
         self.cam.stream_on()
 
         # 返回新的窗口中心位置
-        return (width, height), (width//2, height//2)
+        return (width, height), (center[0]-x_offset, center[1]-y_offset)
 
     def __take_one_shot(self) -> np.ndarray:
         """
@@ -170,7 +170,7 @@ class CameraStreamManager:
             if raw_image and raw_image.get_status() == gx.GxFrameStatusList.SUCCESS:
                 return raw_image.get_numpy_array()
     
-    def get_numpy_image(self, n_sample=1, skip_first=True) -> np.ndarray:
+    def get_numpy_image(self, n_sample=1, skip_first=True, denoise=False) -> np.ndarray:
         """
         获取相机的图像数据，进行平均处理。
 
@@ -188,6 +188,9 @@ class CameraStreamManager:
         for i in range(n_sample):
             numpy_image[i] = self.__take_one_shot()
         avg_img = np.mean(numpy_image, axis=0)
+        if denoise:
+            avg_img = avg_img - np.median(avg_img)
+            avg_img = np.where(avg_img<0, 0, avg_img)
         return avg_img.astype(np.uint16)
     
     def autoset_exposure_time_ms(self, target_max_brightness, threshold=20, twice_valid=True):

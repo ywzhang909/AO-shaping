@@ -41,7 +41,6 @@ class SGD(Base):
     def __init__(self, dim:int, lr=1.0):
         self.dim = dim
         self.lr = lr
-        self.m = np.zeros(self.dim, dtype=np.float32)
         self.t:int = 0
         
     def update(self, grad:np.ndarray):
@@ -71,6 +70,10 @@ class Adam(Base):
         m_hat = self.m / (1 - self.beta1**self.t)
         v_hat = self.v / (1 - self.beta2**self.t)
         return self.lr * m_hat / (np.sqrt(v_hat) + 1e-8)
+    
+    def rescale_grad(self, scaler:float):
+        self.m *= scaler
+        self.v *= scaler
     
 class AdamW(Adam):
     def __init__(self, dim:int, lr=1.0, beta1 = 0.9, beta2 = 0.99, weight_decay=1e-2):
