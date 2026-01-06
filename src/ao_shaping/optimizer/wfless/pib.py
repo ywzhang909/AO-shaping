@@ -184,8 +184,8 @@ def optimize_pib(
             in_power_ratio = in_power / np.sum(img, dtype=np.float64)
             return in_power, in_power_ratio
         
-        def test_pib(img, scaler:float = 1):
-            return np.sum(img[pib_mask], dtype=np.float64) / np.sum(img, dtype=np.float64) * scaler
+        def test_pib(img):
+            return np.sum(img[pib_mask], dtype=np.float64) / np.sum(img, dtype=np.float64)
 
         j, pib_ratio = calc_j(init_img, bucket_mask)
         pib_scaler = 1.0
@@ -233,10 +233,10 @@ def optimize_pib(
                     ):
                         break
                 
-                avg_brightness = np.mean([np.max(pos_img), np.max(neg_img)])
-                if avg_brightness == 255 and auto_exposure:
+                max_brightness = np.mean([np.max(pos_img), np.max(neg_img)])
+                if max_brightness == 255 and auto_exposure:
                     _resampled_img = cam.autoset_exposure_time_ms(target_max_brightness, twice_valid=False)
-                    pib_scaler = np.max(_resampled_img) / 255.0
+                    pib_scaler = np.mean(_resampled_img) / np.mean(neg_img)
                     optimizer.rescale_grad(pib_scaler)
 
                 diff = pos_j_ratio - neg_j_ratio
@@ -280,7 +280,7 @@ def optimize_pib(
                     "_v": _init_v,
                     "_img": pos_img,
                     "exp_t": cam.exposure_time,
-                    "max_brt": avg_brightness,
+                    "max_brt": max_brightness,
                 }
                 recorder.append(log)
                 bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
