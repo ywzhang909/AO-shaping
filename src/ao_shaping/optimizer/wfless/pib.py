@@ -17,16 +17,16 @@ METROPOLIS_ALPHA = 0.8
 
 # camera parameters
 CAM_SAMPLE_ITER = 5
-IDEAL_SPOT_RADIUS = int(os.environ.get("IDEAL_SPOT_RADIUS", 7))
+IDEAL_SPOT_RADIUS = int(os.environ.get("IDEAL_SPOT_RADIUS", 6))
 
 # dm parameters
 KEEP_VOLTAGE_WHEN_EXIT = True
 
 
-def learning_schedule(power_radio, ideal_r=IDEAL_SPOT_RADIUS) -> tuple[float, float]:
+def learning_schedule(power_radius, ideal_r=IDEAL_SPOT_RADIUS) -> tuple[float, float]:
     '''
     Learning schedule for power radio.
-    If power radio is less than or equal to 7, return power radio.
+    If power radio is less than or equal to ideal_r, return power radio.
     Otherwise, return power radio raised to the power of epoch divided by update_iter.
 
     Args:
@@ -37,16 +37,16 @@ def learning_schedule(power_radio, ideal_r=IDEAL_SPOT_RADIUS) -> tuple[float, fl
         lr (float): Learning rate.
         delta (float): distribution.
     '''
-    if power_radio <= 2*ideal_r:
-        return 0.9, 0.9
-    elif power_radio <= 3*ideal_r:
-        return 1, 1
-    elif power_radio <= 4*ideal_r:
-        return 1.5, 2
-    elif power_radio <= 5*ideal_r:
-        return 2.2, 4
+    if power_radius <= ideal_r:
+        return 1.5, 1
+    elif power_radius <= 2*ideal_r:
+        return 2, 2
+    elif power_radius <= 3*ideal_r:
+        return 2.5, 3
+    elif power_radius <= 4*ideal_r:
+        return 3, 4
     else:
-        return 3, 5
+        return 4, 5
 
 def optimize_pib(
     center,
@@ -85,13 +85,15 @@ def optimize_pib(
             _init_v = np.array(init_v)
         dm.send_voltages(_init_v, 1)
 
-        cam.autoset_exposure_time_ms(n_sample=10, target_max_brightness=255, threshold=0.2)
-        _img = cam.get_numpy_image(10)
+        _img = cam.autoset_exposure_time_ms(target_max_brightness=220)
         if center is None:
-            h,w = _img.shape
-            # TODO: 如果环围半径较小，使用质心而非形心;如果中间存在空洞使用形心，否则质心
+            (h,w), margin = _img.shape
+            # 如果中心不是空洞，使用质心而非形心;如果中间存在空洞使用形心，否则质心
             center = centroid(np.where(_img > np.max(_img[:max(int(h//50),2),:max(int(w//50),2)])
                                        , 1, 0))
+            (cx, cy) = center
+            if np.all(_img[cy-margin: cy+margin, cx-margin: cx+margin] >= np.max(_img) * 0.4): # 中心不是空洞
+                center = centroid(_img)
         elif isinstance(center, str):
             _img = cam.get_numpy_image(10)
             if center == "mass":
@@ -111,9 +113,9 @@ def optimize_pib(
 
         img_size = (cam_size, cam_size)
         img_size, _ = cam.reset_window(center, img_size)
-        if 0<target_max_brightness<255:
+        if 0<target_max_brightness<255 and target_max_brightness > 10:
             init_img = cam.autoset_exposure_time_ms(
-                n_sample=CAM_SAMPLE_ITER, target_max_brightness=target_max_brightness)
+                target_max_brightness=target_max_brightness, twice_valid=True)
         else:
             cam.reset_exposure_time(exposure_time_ms)
             init_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
@@ -122,44 +124,41 @@ def optimize_pib(
         xv, yv = np.ogrid[-img_size[0]//2:img_size[0]//2, -img_size[1]//2:img_size[1]//2]
 
         if r_bucket <= 0:
-            r_bucket = radius(init_img, center=center, energy=0.9) * shrink_ratio
-        
-        # r_bucket * shrink_ratio ^ 0.8N = IDEAL_SPOT_RADIUS
-        # 0.8N = log_ shrink_ratio (IDEAL_SPOT_RADIUS / r_bucket)
-        # iter = total_epochs / 0.8N
+            r_bucket = radius(init_img, center=center, energy=0.6) * shrink_ratio
+            _fix_bucket = False
+        else:
+            _fix_bucket = True
+
         init_r, update_iter = r_bucket, epochs * 0.8 // (np.log(IDEAL_SPOT_RADIUS / r_bucket) / np.log(shrink_ratio))
 
         imgmesh_dist = ((xv) ** 2 + (yv) ** 2).transpose()
         dist = np.sqrt(imgmesh_dist)
-        bucket_mask = dist <= r_bucket
-        pib_mask = dist <= IDEAL_SPOT_RADIUS
+        bucket_mask = (dist <= r_bucket)
+        pib_mask = (dist <= IDEAL_SPOT_RADIUS)
         
         if show:
             window = ImageVoltagesDisplay(img_size)
             window.init_window()
 
         # TODO: 修改成util中的函数、工具类
-        def calc_j(img):
-            if shrink_iter <= 0:
-                in_power = np.sum(img[bucket_mask]).astype(float)
-            else:
-                in_power = np.sum(img[dist < r_bucket]).astype(float)
-            in_power_ratio = in_power / np.sum(img[img>2]).astype(float)
+        def calc_j(img, bucket_mask):
+            in_power = np.sum(img[bucket_mask], dtype=np.float64)
+            in_power_ratio = in_power / np.sum(img, dtype=np.float64)
             return in_power, in_power_ratio
         
-        def test_pib(img):
-            return np.sum(img[pib_mask]).astype(float)
+        def test_pib(img, scaler:float = 1):
+            return np.sum(img[pib_mask], dtype=np.float64) / np.sum(img, dtype=np.float64) * scaler
 
-        j, pib_ratio = calc_j(init_img)
-        if lr <= 0:
-            lr, delta = learning_schedule(radius(init_img, center=center, energy=0.9))
+        j, pib_ratio = calc_j(init_img, bucket_mask)
 
         optimizer = AdaMOD(dm.DM_Num, lr=lr, beta1=beta1, beta2=beta2, beta3=beta3, **kwargs)
+        if lr == 0:
+            optimizer.lr, delta = learning_schedule(radius(init_img, center=center, energy=0.8))
         recorder.append(
             {
                 "J": j,
                 "pib": test_pib(init_img),
-                "_p%": pib_ratio,
+                "p%": pib_ratio,
                 "_max_r": init_r,
                 "_v": _init_v,
                 "_img": init_img,
@@ -182,15 +181,21 @@ def optimize_pib(
 
                 dm.send_voltages(_init_v + disturb_v)
                 pos_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
-                pos_j, pos_pib_ratio = calc_j(pos_img)
+                pos_j, pos_pib_ratio = calc_j(pos_img, bucket_mask)
 
                 dm.send_voltages(_init_v - disturb_v)
                 neg_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
-                neg_j, neg_pib_ratio = calc_j(neg_img)            
-
-                # if (pos_j + neg_j) == 0 and CAM_EXP_TIME_ADJ_RATE > 1:
-                #     cam.reset_explore_time(cam.explore_time * CAM_EXP_TIME_ADJ_RATE)
-                #     continue
+                neg_j, neg_pib_ratio = calc_j(neg_img, bucket_mask)
+                
+                if show:
+                    if not window.render(
+                        pos_img, _init_v, dm.V_Min, dm.V_Max, center, r_bucket, f"{epoch}"
+                    ):
+                        break
+                
+                avg_brightness = np.mean([np.max(pos_img), np.max(neg_img)])
+                # if avg_brightness == 255:
+                #     cam.autoset_exposure_time_ms(target_max_brightness, twice_valid=False)
 
                 diff = pos_j - neg_j
                 gradient = -diff * disturb_v
@@ -200,13 +205,30 @@ def optimize_pib(
                     _init_v = _to_update_v
                 else:
                     logger.warning(f"相邻单元压差大于{dm.max_neibor_diff}，放弃本次结果")
+              
+                # learning schedule
+                pib, pib_ratio = test_pib(pos_img), (pos_pib_ratio+neg_pib_ratio)/2
+                J = (pos_j + neg_j) / 2
 
-                avg_pib_ratio = (pos_pib_ratio + neg_pib_ratio) / 2
+                if epoch % update_iter == update_iter - 1:
+                    init_r = max(init_r * shrink_ratio, IDEAL_SPOT_RADIUS)
+
+                if (epoch % update_iter == update_iter - 1 or
+                     epoch % shrink_iter == shrink_iter - 1 or
+                     pib_ratio >= 0.99) and pib > 0 and _fix_bucket:
+                    power_radio = radius(pos_img, center=center, energy=0.8)
+                    _pr = power_radio * shrink_ratio
+                    _r = max(r_bucket*shrink_ratio+1, IDEAL_SPOT_RADIUS, r_bucket)
+                    r_bucket = min(_r, _pr, init_r)
+                    bucket_mask = dist <= r_bucket
+                    if lr == 0:
+                        optimizer.lr, delta = learning_schedule(r_bucket)
+                
                 log = {
-                    "J": (pos_j + neg_j) / 2,
-                    "_p%": avg_pib_ratio,
+                    "J": J,
+                    "p%": pib_ratio,
                     "_max_r": init_r,
-                    "pib": test_pib(pos_img),
+                    "pib": pib,
                     "_diff": diff,
                     "lr": optimizer.lr,
                     "r": r_bucket,
@@ -215,27 +237,9 @@ def optimize_pib(
                     "_v": _init_v,
                     "_img": pos_img,
                     "exp_t": cam.exposure_time,
-                    "max_brt": np.max(pos_img),
+                    "max_brt": avg_brightness,
                 }
                 recorder.append(log)
-                # earlying schedule
-                if epoch % update_iter == update_iter - 1 and log['J'] > 0:
-                    init_r = max(init_r * shrink_ratio, 5)
-
-                if (shrink_iter > 0 and epoch % shrink_iter == shrink_iter - 1 and avg_pib_ratio > 0.1) or avg_pib_ratio > 0.5:
-                    power_radio = radius(pos_img, center='origin', energy=0.9)
-                    _pr = power_radio * shrink_ratio
-                    r_bucket = min(r_bucket, _pr, init_r)
-                    if not lr:
-                        optimizer.lr, delta = learning_schedule(epoch, power_radio)
-                    # delta = max(delta * shrink_ratio, 0.6)
-                    # optimizer.lr = max(lr * shrink_ratio, 0.8)
-                if show:
-                    if not window.render(
-                        pos_img, _init_v, dm.V_Min, dm.V_Max, center, r_bucket, f"{epoch}: PIB={log['pib']:.3f}"
-                    ):
-                        break
-                
                 bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
                 bar.update(1)
         if show:
