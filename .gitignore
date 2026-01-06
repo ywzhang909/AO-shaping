@@ -4,11 +4,15 @@
 *.docx
 *.csv
 *.pyc
+*.so
+*.o
 
 Drv_UDPST*
 gxipy*
 __pycache__*
 .venv*
+.vscode*
+!.vscode/settings.json
 
 .kilocode*
 **/ao_shaping.egg-info*
@@ -44,7 +48,8 @@ src/ao_shaping.egg-info*
 test_output*
 libs*
 !libs/Galaxy_Linux_Python_2.4.2503.9202/doc_cn/Python接口开发说明书.pdf
+src/calculators/**/*.c
+
 *.pyd
-src/calculators/*.c
 src/calculators/build/temp*
 src/calculators/*.html

@@ -1,6 +1,9 @@
 import numpy as np
 
-import gxipy as gx
+try:
+    import gxipy as gx
+except (ImportError, NameError) as e:
+    raise ImportError(f"gxipy is not available. Please install Daheng Galaxy SDK. Error: {e}")
 
 from . import ExposureTime
 from ao_shaping.utils.file import logger

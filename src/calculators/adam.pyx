@@ -28,7 +28,7 @@ def learning_schedule(
         return lr
     # 指数衰减
     elif method == "exp":
-        lr = lr * exp(-epoch / epochs) + 1e-6
+        lr = <DTYPE_t>(lr * exp(<DTYPE_DOUBLE_t>(-epoch / epochs)) + 1e-6)
         return lr
     # 线性衰减
     elif method == "linear":
@@ -53,14 +53,14 @@ cdef class Base:
 
 
 cdef class SGD(Base):
-    cdef public DTYPE_t[:] m
-    
+    cdef object m  # Use object instead of buffer type
+
     def __init__(self, int dim, DTYPE_DOUBLE_t lr=1.0):
         self.dim = dim
         self.lr = lr
         self.m = np.zeros(self.dim, dtype=np.float32)
         self.t = 0
-        
+
     cpdef update(self, cnp.ndarray[DTYPE_t, ndim=1] grad):
         self.t += 1
         return self.lr * grad
@@ -72,33 +72,38 @@ cdef class Adam(Base):
     """
     cdef public DTYPE_DOUBLE_t beta1
     cdef public DTYPE_DOUBLE_t beta2
-    cdef public DTYPE_t[:] m
-    cdef public DTYPE_t[:] v
-    
+    cdef object m  # Use object instead of buffer type
+    cdef object v  # Use object instead of buffer type
+
     def __init__(self, int dim, DTYPE_DOUBLE_t lr=1.0, DTYPE_DOUBLE_t beta1 = 0.9, DTYPE_DOUBLE_t beta2 = 0.99):
         self.dim = dim
         self.lr = lr
         self.beta1 = beta1
         self.beta2 = beta2
-        
+
         self.m = np.zeros(self.dim, dtype=np.float32)
         self.v = np.zeros(self.dim, dtype=np.float32)
         self.t = 0
-        
+
     cpdef update(self, cnp.ndarray[DTYPE_t, ndim=1] grad):
         cdef DTYPE_DOUBLE_t m_hat, v_hat
         cdef int i
+        cdef cnp.float32_t[:] m_view = self.m  # Use memoryview for performance
+        cdef cnp.float32_t[:] v_view = self.v  # Use memoryview for performance
+        cdef cnp.float32_t[:] grad_view = grad  # Use memoryview for performance
+
         self.t += 1
         for i in range(self.dim):
-            self.m[i] = self.beta1 * self.m[i] + (1 - self.beta1) * grad[i]
-            self.v[i] = self.beta2 * self.v[i] + (1 - self.beta2) * grad[i] * grad[i]
-            
+            m_view[i] = self.beta1 * m_view[i] + (1 - self.beta1) * grad_view[i]
+            v_view[i] = self.beta2 * v_view[i] + (1 - self.beta2) * grad_view[i] * grad_view[i]
+
         m_hat = 1.0 / (1 - self.beta1**self.t)
         v_hat = 1.0 / (1 - self.beta2**self.t)
-        
+
         cdef cnp.ndarray[DTYPE_t, ndim=1] result = np.empty(self.dim, dtype=np.float32)
+        cdef cnp.float32_t[:] result_view = result
         for i in range(self.dim):
-            result[i] = self.lr * (self.m[i] * m_hat) / (sqrt(self.v[i] * v_hat) + 1e-8)
+            result_view[i] = self.lr * (m_view[i] * m_hat) / (sqrt(v_view[i] * v_hat) + 1e-8)
         return result
     
 cdef class AdamW(Adam):
@@ -111,17 +116,22 @@ cdef class AdamW(Adam):
     cpdef update(self, cnp.ndarray[DTYPE_t, ndim=1] grad):
         cdef DTYPE_DOUBLE_t m_hat, v_hat
         cdef int i
+        cdef cnp.float32_t[:] m_view = self.m  # Use memoryview for performance
+        cdef cnp.float32_t[:] v_view = self.v  # Use memoryview for performance
+        cdef cnp.float32_t[:] grad_view = grad  # Use memoryview for performance
+
         self.t += 1
         for i in range(self.dim):
-            self.m[i] = self.beta1 * self.m[i] + (1 - self.beta1) * grad[i]
-            self.v[i] = self.beta2 * self.v[i] + (1 - self.beta2) * grad[i] * grad[i]
-            
+            m_view[i] = self.beta1 * m_view[i] + (1 - self.beta1) * grad_view[i]
+            v_view[i] = self.beta2 * v_view[i] + (1 - self.beta2) * grad_view[i] * grad_view[i]
+
         m_hat = 1.0 / (1 - self.beta1**self.t)
         v_hat = 1.0 / (1 - self.beta2**self.t)
-        
+
         cdef cnp.ndarray[DTYPE_t, ndim=1] result = np.empty(self.dim, dtype=np.float32)
+        cdef cnp.float32_t[:] result_view = result
         for i in range(self.dim):
-            result[i] = self.lr * (self.m[i] * m_hat) / (sqrt(self.v[i] * v_hat) + 1e-8) + self.weight_decay * self.lr * self.m[i]
+            result_view[i] = self.lr * (m_view[i] * m_hat) / (sqrt(v_view[i] * v_hat) + 1e-8) + self.weight_decay * self.lr * m_view[i]
         return result
 
 
@@ -144,28 +154,34 @@ cdef class AdaMOD(Adam):
     def __init__(self, int dim, DTYPE_DOUBLE_t lr=1.0, DTYPE_DOUBLE_t beta1 = 0.9, DTYPE_DOUBLE_t beta2 = 0.99, DTYPE_DOUBLE_t beta3 = 0.9995):
         super().__init__(dim, lr, beta1, beta2)
         self.beta3 = beta3
-        self.s = 0.0
+        self.s = <DTYPE_DOUBLE_t>0.0
         
     cpdef update(self, cnp.ndarray[DTYPE_t, ndim=1] grad):
         cdef DTYPE_DOUBLE_t m_hat, v_hat, gamma, learning_rate
         cdef int i
+        cdef cnp.float32_t[:] m_view = self.m  # Use memoryview for performance
+        cdef cnp.float32_t[:] v_view = self.v  # Use memoryview for performance
+        cdef cnp.float32_t[:] grad_view = grad  # Use memoryview for performance
+
         self.t += 1
         for i in range(self.dim):
-            self.m[i] = self.beta1 * self.m[i] + (1 - self.beta1) * grad[i]
-            self.v[i] = self.beta2 * self.v[i] + (1 - self.beta2) * grad[i] * grad[i]
-            
+            m_view[i] = self.beta1 * m_view[i] + (1 - self.beta1) * grad_view[i]
+            v_view[i] = self.beta2 * v_view[i] + (1 - self.beta2) * grad_view[i] * grad_view[i]
+
         m_hat = 1.0 / (1 - self.beta1 ** self.t)
         v_hat = 1.0 / (1 - self.beta2 ** self.t)
 
         cdef cnp.ndarray[DTYPE_t, ndim=1] gammas = np.empty(self.dim, dtype=np.float32)
+        cdef cnp.float32_t[:] gammas_view = gammas
         for i in range(self.dim):
-            gammas[i] = self.lr / (sqrt(self.v[i] * v_hat) + 1e-8)
-            
+            gammas_view[i] = self.lr / (sqrt(v_view[i] * v_hat) + 1e-8)
+
         gamma = np.mean(gammas)  # 简化计算
         self.s = self.beta3 * self.s + (1 - self.beta3) * gamma
         learning_rate = gamma if gamma < self.s else self.s
-        
+
         cdef cnp.ndarray[DTYPE_t, ndim=1] result = np.empty(self.dim, dtype=np.float32)
+        cdef cnp.float32_t[:] result_view = result
         for i in range(self.dim):
-            result[i] = learning_rate * self.m[i] * m_hat
+            result_view[i] = learning_rate * m_view[i] * m_hat
         return result
