@@ -215,7 +215,312 @@ class LaserCastEnv(gym.Env):
         elif self.render_mode == 'rgb_array':
             return self.img.copy()
 
+# ================== 1. 物理仿真核心 ==================
+class VectorWaveOpticsSim:
+    def __init__(self, N=64, L=0.1, wavelength=1550e-9, Z=1000.0, Cn2=1e-14):
+        self.N = N
+        self.L = L
+        self.wavelength = wavelength
+        self.Z = Z
+        self.Cn2 = Cn2
+        self.dx = L / N
+        self.k0 = 2 * np.pi / wavelength
 
+        # 网格
+        x = np.linspace(-L/2, L/2, N)
+        y = np.linspace(-L/2, L/2, N)
+        X, Y = np.meshgrid(x, y)
+        self.R = np.sqrt(X**2 + Y**2)
+        self.THETA = np.arctan2(Y, X)
+        self.X, self.Y = X, Y
 
+        # 频域参数 (角谱法)
+        fx = np.fft.fftfreq(N, d=self.dx)
+        fy = np.fft.fftfreq(N, d=self.dx)
+        FX, FY = np.meshgrid(fx, fy)
+        self.k_trans = 2 * np.pi * np.sqrt(FX**2 + FY**2)
+        
+        kz_arg = 1 - (wavelength * FX)**2 - (wavelength * FY)**2
+        kz_arg[kz_arg <= 0] = 1e-10
+        self.propagator = np.exp(1j * self.k0 * np.sqrt(kz_arg) * Z)
+
+        # 湍流相位屏 (固定路径)
+        self.turb_phase = self._generate_turbulence()
+
+    def _generate_turbulence(self):
+        # 简化的湍流相位
+        power = (self.k_trans + 1e-6)**(-11/3)
+        power[0,0] = 0
+        phi_fft = (np.random.randn(self.N, self.N) + 1j * np.random.randn(self.N, self.N)) * np.sqrt(power)
+        phi = np.fft.ifft2(phi_fft).real
+        return (phi - np.mean(phi)) * 2
+
+    def diffract(self, Ex, Ey):
+        """角谱法传播"""
+        Ux = np.fft.ifft2(np.fft.fft2(Ex) * self.propagator)
+        Uy = np.fft.ifft2(np.fft.fft2(Ey) * self.propagator)
+        return Ux, Uy
+
+    def add_turbulence(self, Ex, Ey):
+        """施加湍流"""
+        return Ex * np.exp(1j * self.turb_phase), Ey * np.exp(1j * self.turb_phase)
+
+    def create_target_radial(self, w0_factor=5):
+        """创建目标径向偏振光"""
+        w0 = self.L / w0_factor
+        amplitude = np.exp(-(self.R**2) / (w0**2))
+        Ex = amplitude * np.cos(self.THETA)
+        Ey = amplitude * np.sin(self.THETA)
+        return Ex, Ey
+    
+    @staticmethod
+    def calculate_stokes_rgb(Ex, Ey):
+        """计算斯托克斯参数并转换为RGB图像用于可视化"""
+        S0 = np.abs(Ex)**2 + np.abs(Ey)**2
+        S1 = np.abs(Ex)**2 - np.abs(Ey)**2
+        S2 = 2 * np.real(Ex * np.conj(Ey))
+        
+        # 避免除零
+        S0 = np.where(S0 == 0, 1e-10, S0)
+        
+        # 计算方位角和圆度
+        alpha = np.arctan2(S2, S1) / 2
+        alpha = (alpha - alpha.min()) / (alpha.ptp() + 1e-10)
+        
+        p = np.sqrt(S1**2 + S2**2) / S0
+        
+        # HSV to RGB
+        H = alpha
+        S = p
+        V = S0 / S0.max()
+        
+        HSV = np.dstack((H, S, V))
+        return hsv_to_rgb(HSV)
+
+# ================== 2. 强化学习环境 ==================
+class VectorAOTurbulenceEnv(gym.Env):
+    metadata = {'render_modes': ['human', 'rgb_array']}
+
+    def __init__(self, N=64, max_steps=50, actuator_grid=8):
+        super(VectorAOTurbulenceEnv, self).__init__()
+        
+        self.N = N
+        self.max_steps = max_steps
+        self.actuator_grid = actuator_grid
+        self.step_count = 0
+        
+        # --- 物理引擎 ---
+        self.physics = VectorWaveOpticsSim(N=N, Cn2=1e-14)
+        
+        # --- 动作空间: 扩展为两个控制通道 ---
+        # 动作维度: [Phase_Voltages (actuator_grid^2),  Polarization_Angles (actuator_grid^2)]
+        # Phase: 控制镜面高度 (相位延迟)
+        # Polarization: 控制局部偏振旋转角度 (如液晶轴向)
+        action_dim = (actuator_grid * actuator_grid) * 2
+        self.action_space = spaces.Box(
+            low=-1.0, high=1.0, shape=(action_dim,), dtype=np.float32
+        )
+        
+        # --- 状态空间: 增加偏振态作为观测 ---
+        # 通道 0: 强度 (Intensity)
+        # 通道 1: 相位 (Phase)
+        # 通道 2: 偏振角 (Polarization Angle)
+        self.observation_space = spaces.Box(
+            low=0, high=255, shape=(3, N, N), dtype=np.uint8
+        )
+        
+        self._init_state()
+
+    def _init_state(self):
+        self.Ex = np.ones((self.N, self.N), dtype=complex)
+        self.Ey = np.zeros((self.N, self.N), dtype=complex)
+        self.target_Ex = None
+        self.target_Ey = None
+        self.done = False
+
+    def reset(self, seed=None):
+        super().reset(seed=seed)
+        self.step_count = 0
+        self._init_state()
+        
+        # --- 初始化目标 ---
+        self.target_Ex, self.target_Ey = self.physics.create_target_radial()
+        
+        # --- 初始扰动: 经过湍流传播 ---
+        init_phase = np.random.uniform(-np.pi, np.pi, (self.N, self.N))
+        self.Ex = np.exp(1j * init_phase)
+        self.Ey = np.zeros_like(self.Ex)
+        
+        # 传播一步增加真实性
+        self.Ex, self.Ey = self.physics.diffract(self.Ex, self.Ey)
+        self.Ex, self.Ey = self.physics.add_turbulence(self.Ex, self.Ey)
+        
+        return self._get_obs(), {}
+
+    def step(self, action):
+        if self.done:
+            raise RuntimeError("环境已结束")
+
+        self.step_count += 1
+        
+        # --- 1. 动作解码 (拆分相位和偏振控制) ---
+        mid_idx = len(action) // 2
+        action_phase = action[:mid_idx]      # 前半部分: 相位控制
+        action_polar = action[mid_idx:]      # 后半部分: 偏振控制
+
+        # --- 2. 生成控制面型 ---
+        # 插值动作到全分辨率
+        phase_screen = self._interpolate_action(action_phase)
+        # 偏振旋转角: 将动作映射到 -pi/2 ~ pi/2
+        delta_theta = self._interpolate_action(action_polar) * np.pi 
+        
+        # --- 3. 执行校正 (核心物理模型) ---
+        # 模拟一个可编程的矢量光学器件 (如双SLM或q-plate)
+        # 这里我们使用一个简化的模型: 局部坐标旋转
+        
+        # 获取当前的偏振态角度
+        # Jones 矢量旋转: J_out = R(-theta) * J_in * R(theta)
+        # 简化模型: 直接调制偏振方向
+        amp = np.sqrt(np.abs(self.Ex)**2 + np.abs(self.Ey)**2)
+        current_theta = np.angle(self.Ex) # 简化表示
+        
+        # 新的偏振方向 = 原始方向 + 控制增量
+        new_theta = current_theta + delta_theta
+        
+        # 重新合成 Ex, Ey (假设保持为线偏振，但方向改变)
+        self.Ex = amp * np.cos(new_theta)
+        self.Ey = amp * np.sin(new_theta)
+        
+        # 同时应用相位校正 (校正波前畸变)
+        self.Ex = self.Ex * np.exp(1j * phase_screen)
+        self.Ey = self.Ey * np.exp(1j * phase_screen)
+        
+        # --- 4. 计算奖励 ---
+        reward, info = self._calculate_reward()
+        
+        # --- 5. 终止条件 ---
+        self.done = self.step_count >= self.max_steps
+
+        # --- 6. 获取新状态 ---
+        obs = self._get_obs()
+        
+        return obs, reward, self.done, False, info
+
+    def _interpolate_action(self, action_vec):
+        """将低维动作插值到高维网格"""
+        grid_size = self.actuator_grid
+        action_grid = action_vec.reshape((grid_size, grid_size))
+        
+        # 使用 OpenCV 进行双线性插值 (如果没有 cv2，可以用 scipy)
+        try:
+            import cv2
+            screen = cv2.resize(action_grid, (self.N, self.N), interpolation=cv2.INTER_LINEAR)
+        except ImportError:
+            from scipy.ndimage import zoom
+            zoom_factor = self.N / grid_size
+            screen = zoom(action_grid, zoom_factor, order=1)
+        
+        return screen
+
+    def _calculate_reward(self):
+        """计算奖励: 结合强度和偏振匹配度"""
+        # --- 1. 偏振保真度 (主要奖励) ---
+        # 计算当前矢量场与目标径向场的重叠
+        overlap_x = np.vdot(self.Ex, self.target_Ex)
+        overlap_y = np.vdot(self.Ey, self.target_Ey)
+        energy_current = np.vdot(self.Ex, self.Ex) + np.vdot(self.Ey, self.Ey)
+        energy_target = np.vdot(self.target_Ex, self.target_Ex) + np.vdot(self.target_Ey, self.target_Ey)
+        
+        fidelity = (np.abs(overlap_x)**2 + np.abs(overlap_y)**2) / (energy_current * energy_target + 1e-10)
+        
+        # --- 2. 模式质量 (OAM 或 径向纯度) ---
+        # 对于径向偏振，Ex 和 Ey 应该与 cos(theta), sin(theta) 高度相关
+        cos_t = np.cos(self.physics.THETA)
+        sin_t = np.sin(self.physics.THETA)
+        purity_x = np.corrcoef(self.Ex.real.flatten(), cos_t.flatten())[0,1]**2
+        purity_y = np.corrcoef(self.Ey.real.flatten(), sin_t.flatten())[0,1]**2
+        mode_purity = (purity_x + purity_y) / 2
+        
+        # --- 3. 综合奖励 ---
+        # 早期侧重于模式，后期侧重于保真度
+        reward = 0.7 * fidelity + 0.3 * mode_purity
+
+        info = {
+            "fidelity": fidelity,
+            "mode_purity": mode_purity,
+            "step": self.step_count
+        }
+        
+        return float(reward), info
+
+    def _get_obs(self):
+        """生成包含强度、相位、偏振角的观测"""
+        intensity = np.abs(self.Ex)**2 + np.abs(self.Ey)**2
+        intensity = ((intensity - intensity.min()) / (intensity.ptp() + 1e-10) * 255).astype(np.uint8)
+        
+        phase = np.angle(self.Ex)
+        phase = ((phase - np.min(phase)) / (np.ptp(phase) + 1e-10) * 255).astype(np.uint8)
+        
+        # 偏振角 (由 Ex 和 Ey 计算)
+        # 对于线偏振，偏振角 alpha = 0.5 * arctan2(2*Re(Ex*Ey*), |Ex|^2 - |Ey|^2)
+        try:
+            S1 = 2 * np.real(self.Ex * np.conj(self.Ey))
+            S0 = np.abs(self.Ex)**2 + np.abs(self.Ey)**2
+            # 避免除零
+            S0 = np.clip(S0, 1e-10, None)
+            alpha = 0.5 * np.arctan2(S1, (np.abs(self.Ex)**2 - np.abs(self.Ey)**2))
+            alpha = ((alpha - np.min(alpha)) / (np.ptp(alpha) + 1e-10) * 255).astype(np.uint8)
+        except:
+            alpha = np.zeros_like(phase, dtype=np.uint8)
+
+        # Stack to channels
+        obs = np.stack([intensity, phase, alpha], axis=0) # (3, N, N)
+        return obs
+
+    def render(self, mode='human'):
+        if mode == 'human':
+            plt.cla()
+            intensity = np.abs(self.Ex)**2 + np.abs(self.Ey)**2
+            plt.imshow(intensity, cmap='hot', extent=[-self.physics.L/2, self.physics.L/2, -self.physics.L/2, self.physics.L/2])
+            plt.colorbar(label='Intensity')
+            plt.title(f"Step {self.step_count}")
+            plt.xlabel("X (m)")
+            plt.ylabel("Y (m)")
+            plt.pause(0.01)
+        elif mode == 'rgb_array':
+            intensity = np.abs(self.Ex)**2 + np.abs(self.Ey)**2
+            return np.stack([intensity, intensity, intensity], axis=-1)
+
+# ================== 3. 测试运行 ==================
+if __name__ == "__main__":
+    env = VectorAOTurbulenceEnv(N=64, max_steps=20, actuator_grid=8)
+    
+    print(f"动作空间: {env.action_space.shape}") # 应为 (128,)
+    print(f"状态空间: {env.observation_space.shape}") # 应为 (3, 64, 64)
+    
+    obs, _ = env.reset()
+    total_reward = 0
+    
+    plt.figure(figsize=(10, 5))
+    for i in range(50):
+        # 随机策略
+        action = env.action_space.sample()
+        obs, reward, done, truncated, info = env.step(action)
+        total_reward += reward
+        
+        if i % 10 == 0:
+            print(f"Step {i}, Reward: {reward:.3f}, Fidelity: {info['fidelity']:.3f}")
+        
+        if i % 50 == 0:
+            env.render('human')
+        
+        if done:
+            print(f"--- Episode End. Total Reward: {total_reward:.3f} ---")
+            obs, _ = env.reset()
+            total_reward = 0
+            break
+
+    plt.show()
+    env.close()
     
     
