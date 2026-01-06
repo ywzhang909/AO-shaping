@@ -46,6 +46,9 @@ name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.uv.sources]
 torch = [
   { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },

@@ -14,11 +14,11 @@ ctypedef cnp.float64_t DTYPE_t
 ctypedef cnp.uint8_t BOOL_t
 
 cdef class ImageTargetFunc:
-    cdef public cnp.ndarray[DTYPE_t, ndim=2] xv
-    cdef public cnp.ndarray[DTYPE_t, ndim=2] yv
+    cdef public object xv  # Use object instead of buffer type
+    cdef public object yv  # Use object instead of buffer type
     cdef public tuple center
-    cdef public cnp.ndarray[DTYPE_t, ndim=2] dist_mat
-    cdef public cnp.ndarray[BOOL_t, ndim=3] masks
+    cdef public object dist_mat  # Use object instead of buffer type
+    cdef public object masks  # Use object instead of buffer type
     cdef public int shape_0, shape_1
     cdef public int npix
     cdef public DTYPE_t dpix
@@ -45,32 +45,36 @@ cdef class ImageTargetFunc:
                 self.xv, self.yv = xv, yv
             elif xv.ndim == 1:
                 self.xv, self.yv = np.meshgrid(xv, yv)
-                
+
         self.shape_0 = self.xv.shape[0]
         self.shape_1 = self.xv.shape[1]
         self.center = center
         self.dist_mat = np.sqrt((self.xv - self.center[0])**2 + (self.yv - self.center[1])**2)
         self.masks = self.__gen_center_bucket_masks()
-        
+
+        # Use memoryviews for indexing
+        cdef cnp.float64_t[:, :] xv_view = self.xv
         self.npix = self.xv.size
-        self.dpix = self.xv[0, 1] - self.xv[0, 0]
+        self.dpix = xv_view[0, 1] - xv_view[0, 0]
         
     cdef cnp.ndarray[BOOL_t, ndim=2] __gen_center_bucket_masks(self):
         cdef int max_radius = min(
-            self.center[0], 
+            self.center[0],
             self.center[1],
             self.shape_0-self.center[0],
             self.shape_1-self.center[1]
         )
         cdef cnp.ndarray[BOOL_t, ndim=3] mask_mats = np.zeros((max_radius, self.shape_0, self.shape_1), dtype=np.bool_)
+        cdef cnp.float64_t[:, :] dist_mat_view = self.dist_mat  # Use memoryview
+        cdef cnp.uint8_t[:, :, :] mask_mats_view = mask_mats  # Use memoryview
         cdef int r, i, j
         cdef DTYPE_t dist_val
         for r in range(1, max_radius):
             for i in range(self.shape_0):
                 for j in range(self.shape_1):
-                    dist_val = self.dist_mat[i, j]
+                    dist_val = dist_mat_view[i, j]
                     if dist_val <= r:
-                        mask_mats[r, i, j] = True
+                        mask_mats_view[r, i, j] = True
         return mask_mats
 
     def pib(self, cnp.ndarray[DTYPE_t, ndim=2] img, int pib_radius, bint normalize=True):
@@ -136,19 +140,22 @@ cdef class ImageTargetFunc:
         cdef DTYPE_t weighted_y = 0.0
         cdef int i, j
         cdef DTYPE_t intensity
-        
+        cdef cnp.float64_t[:, :] xv_view = self.xv  # Use memoryview
+        cdef cnp.float64_t[:, :] yv_view = self.yv  # Use memoryview
+        cdef cnp.float64_t[:, :] img_view = img  # Use memoryview
+
         for i in range(img.shape[0]):
             for j in range(img.shape[1]):
-                intensity = img[i, j]
+                intensity = img_view[i, j]
                 total_intensity += intensity
-                weighted_x += intensity * self.xv[i, j]
-                weighted_y += intensity * self.yv[i, j]
-                
+                weighted_x += intensity * xv_view[i, j]
+                weighted_y += intensity * yv_view[i, j]
+
         if total_intensity > 0:
             return (weighted_x / total_intensity, weighted_y / total_intensity)
         else:
-            return (self.xv[img.shape[0] // 2, img.shape[1] // 2], 
-                    self.yv[img.shape[0] // 2, img.shape[1] // 2])
+            return (xv_view[img.shape[0] // 2, img.shape[1] // 2],
+                    yv_view[img.shape[0] // 2, img.shape[1] // 2])
     
     def radius(self, cnp.ndarray[DTYPE_t, ndim=2] intensity, DTYPE_t energy=0.99):
         """
@@ -161,29 +168,31 @@ cdef class ImageTargetFunc:
         cdef DTYPE_t power_in_circle = 0.0
         cdef DTYPE_t total_power = 0.0
         cdef int i, j
-        
+        cdef cnp.float64_t[:, :] intensity_view = intensity  # Use memoryview
+
         # 计算总功率
         for i in range(intensity.shape[0]):
             for j in range(intensity.shape[1]):
-                total_power += intensity[i, j]
-                
+                total_power += intensity_view[i, j]
+
         power_in_circle = total_power * energy
-        
+
         cdef int max_radius = self.masks.shape[0]
         cdef DTYPE_t current_power
         cdef int r
-        
+        cdef cnp.uint8_t[:, :, :] masks_view = self.masks  # Use memoryview
+
         # 计算每个半径的能量
         for r in range(1, max_radius):
             current_power = 0.0
             for i in range(self.shape_0):
                 for j in range(self.shape_1):
-                    if self.masks[r, i, j]:
-                        current_power += intensity[i, j]
-                        
+                    if masks_view[r, i, j]:
+                        current_power += intensity_view[i, j]
+
             if current_power >= power_in_circle:
                 return r
-                
+
         return max_radius
 
     cdef cnp.ndarray[BOOL_t, ndim=2] __get_bucket_mask(self, int radius):
