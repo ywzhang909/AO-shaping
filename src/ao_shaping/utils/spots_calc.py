@@ -1,5 +1,6 @@
 import numpy as np
 import numba
+import cupy as cp
 
 from scipy.ndimage import center_of_mass
 
@@ -9,6 +10,32 @@ from matplotlib.patches import Rectangle
 from typing import Tuple
 
 @numba.njit
+def calculate_sharpness_numba(img:np.ndarray):
+    h, w = img.shape
+    gradient_x = np.zeros_like(img)
+    gradient_y = np.zeros_like(img)
+    for i in range(h):
+        for j in range(1, w-1):
+            gradient_x[i, j] = (img[i, j+1] - img[i, j-1]) / 2
+        gradient_x[i, 0] = img[i, 1] - img[i, 0]
+        gradient_x[i, w-1] = img[i, w-1] - img[i, w-2]
+    for i in range(1, h-1):
+        for j in range(w):
+            gradient_y[i, j] = (img[i+1, j] - img[i-1, j]) / 2
+    for j in range(w):
+        gradient_y[0, j] = img[1, j] - img[0, j]
+        gradient_y[h-1, j] = img[h-1, j] - img[h-2, j]
+    gradient_magnitude = np.sqrt(gradient_x**2 + gradient_y**2)
+    sharpness = np.mean(gradient_magnitude)
+    return sharpness
+
+def calculate_sharpness_cupy(img:cp.ndarray):
+    gradient_x = cp.gradient(img, axis=1)
+    gradient_y = cp.gradient(img, axis=0)
+    gradient_magnitude = cp.sqrt(gradient_x**2 + gradient_y**2)
+    sharpness = cp.mean(gradient_magnitude)
+    return sharpness
+
 def calculate_sharpness(img:np.ndarray):
   gradient_x = np.gradient(img, axis=1)
   gradient_y = np.gradient(img, axis=0)
@@ -17,6 +44,56 @@ def calculate_sharpness(img:np.ndarray):
   return sharpness
 
 @numba.njit
+def crop_numba(img:np.ndarray, sample_pix=500):
+    assert img.ndim == 2
+    h, w = img.shape
+    bg = 0.0
+    for i in range(min(sample_pix, h)):
+        for j in range(w):
+            if img[i, j] > bg:
+                bg = img[i, j]
+    rows = np.zeros(h, dtype=np.bool_)
+    for i in range(h):
+        for j in range(w):
+            if img[i, j] > bg:
+                rows[i] = True
+                break
+    cols = np.zeros(w, dtype=np.bool_)
+    for j in range(w):
+        for i in range(h):
+            if img[i, j] > bg:
+                cols[j] = True
+                break
+    rmin = h
+    rmax = -1
+    for i in range(h):
+        if rows[i]:
+            if i < rmin:
+                rmin = i
+            if i > rmax:
+                rmax = i
+    cmin = w
+    cmax = -1
+    for j in range(w):
+        if cols[j]:
+            if j < cmin:
+                cmin = j
+            if j > cmax:
+                cmax = j
+    if rmin > rmax or cmin > cmax:
+        return img[0:0, 0:0]  # empty
+    return img[rmin:rmax + 1, cmin:cmax + 1]
+
+def crop_cupy(img:cp.ndarray, sample_pix=500):
+    assert img.ndim == 2
+    bg = cp.max(img[:sample_pix,:])
+    rows = cp.any(img>bg, axis=1)
+    cols = cp.any(img>bg, axis=0)
+    rmin, rmax = cp.nonzero(rows)[0][[0, -1]]
+    cmin, cmax = cp.nonzero(cols)[0][[0, -1]]
+
+    return img[rmin:rmax + 1, cmin:cmax + 1]
+
 def crop(img:np.ndarray, sample_pix=500):
   assert img.ndim == 2
   bg = np.max(img[:sample_pix,:])
@@ -26,6 +103,13 @@ def crop(img:np.ndarray, sample_pix=500):
   cmin, cmax = np.nonzero(cols)[0][[0, -1]]
 
   return img[rmin:rmax + 1, cmin:cmax + 1]
+
+def center_of_mass_cupy(intensity:cp.ndarray, xv:cp.ndarray, yv:cp.ndarray, moment:int=1) -> Tuple[float, float]:
+    _intensity = intensity.copy().astype(cp.float32)**moment
+    total_intensity = cp.sum(_intensity)
+    c_x = cp.sum(xv * _intensity) / total_intensity
+    c_y = cp.sum(yv * _intensity) / total_intensity
+    return (float(c_x), float(c_y))
 
 @numba.njit
 def center_of_mass_numba(intensity:np.ndarray, xv:np.ndarray, yv:np.ndarray, moment:int=1) -> Tuple[float, float]:
@@ -44,7 +128,10 @@ def center_of_mass_numba(intensity:np.ndarray, xv:np.ndarray, yv:np.ndarray, mom
     c_y = np.sum(yv * _intensity) / total_intensity
     return (float(c_x), float(c_y))
 
-@numba.njit
+def center_of_brightness_cupy(img:cp.ndarray) -> Tuple[int, int]:
+    center = cp.unravel_index(cp.argmax(img), img.shape)[::-1]
+    return int(center[0]), int(center[1])
+
 def center_of_brightness_numba(img:np.ndarray) -> Tuple[int, int]:
     center = np.unravel_index(np.argmax(img), img.shape)[::-1]
     return int(center[0]), int(center[1])
@@ -136,7 +223,7 @@ def radius(intensity, center='centroid', energy=0.99):
         if center == 'peak':
             x0, y0 = peak_position(intensity, x, y)
         elif center == 'centroid':
-            x0, y0 = centroid(intensity, x, y)
+            x0, y0 = centroid(intensity)
         elif center == 'origin':
             h, w = intensity.shape
             x0, y0 = w // 2, h // 2
@@ -202,7 +289,7 @@ def power_bucket(intensity, x, y, center, r_bucket, weighted=4):
         if center == 'peak':
             x0, y0 = peak_position(intensity, x, y)
         elif center == 'centroid':
-            x0, y0 = centroid(intensity, x, y)
+            x0, y0 = centroid(intensity)
         elif center == 'origin':
             x0, y0 = 0, 0
         else:
@@ -221,7 +308,7 @@ def power_bucket(intensity, x, y, center, r_bucket, weighted=4):
     return power_in_bucket
 
 def disp(img, xv, yv, r_bucket, threshold=0, title=''):
-    center = centroid(img, xv, yv, threshold)
+    center = centroid(img, threshold=threshold)
     
     def calc_j():
             r = int(r_bucket)

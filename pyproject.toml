@@ -30,6 +30,7 @@ dependencies = [
     "gymnasium>=1.2.2",
     "timm>=1.0.22",
     "cython>=3.2.2",
+    "cupy-cuda12x>=13.6.0",
 ]
 
 [[tool.uv.index]]
