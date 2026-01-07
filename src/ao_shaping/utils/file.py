@@ -151,7 +151,7 @@ class Recorder():
     def dataframe(self):
         return pd.DataFrame(self.history)
 
-    def save_dataframe(self, filename:str, **kwargs):
+    def save_dataframe(self, filename:str|Path, **kwargs):
         df = self.dataframe
         save_history(df, filename)
         return df

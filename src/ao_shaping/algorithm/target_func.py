@@ -1,9 +1,8 @@
 import numpy as np
 
 from ao_shaping.utils.spots_calc import (
-    center_of_mass_numba,
-    center_of_brightness_numba,
-    
+    center_of_mass_numpy,
+    center_of_brightness,
 )
 
 class ImageTargetFunc:
@@ -51,10 +50,10 @@ class ImageTargetFunc:
             mask_mats[r] = self.dist_mat <= r
         return mask_mats
 
-    def pib(self, img, pib_radius, normalize=True):
+    def pib(self, img, pib_radius):
         pib_mask = self.__get_bucket_mask(pib_radius)
         pib = np.sum(img[pib_mask])
-        return pib/np.sum(img) if normalize else pib
+        return pib/np.sum(pib_mask), pib/np.sum(img)
     
     def denoise_process(self, img):
         noise_sample = np.percentile(img, 5)
@@ -62,16 +61,21 @@ class ImageTargetFunc:
         denoised_img[denoised_img < 0] = 0
         return denoised_img
     
-    def intelligen_center(self, img):
-        # TODO 如果环围半径较小，使用质心而非形心;如果中间存在空洞使用形心，否则质心
-        return self.center_of_brightness(img)
-    
-    def center_of_brightness(self, img):
-        center = center_of_brightness_numba(img)
+    def intelligen_center(self, img, margin=5):
+        # 如果环围半径较小，使用质心而非形心;如果中间存在空洞使用形心，否则质心 
+        center = self.center_of_brightness(img)
+        (cx, cy) = center
+        if np.all(img[cy-margin: cy+margin, cx-margin: cx+margin] >= np.max(img) * 0.4): # 中心不是空洞
+            center = self.center_of_mass(img)
+            
         return center
     
-    def center_of_mass(self, img):
-        return center_of_mass_numba(img, self.xv, self.yv)
+    def center_of_brightness(self, img):
+        center = center_of_brightness(img)
+        return center
+    
+    def center_of_mass(self, img, moment=1):
+        return center_of_mass_numpy(img, self.xv, self.yv, moment)
     
     def radius(self, intensity, energy=0.99):
         """

@@ -9,7 +9,7 @@ from matplotlib.patches import Rectangle
 
 from typing import Tuple
 
-@numba.njit
+@numba.njit(cache=True)
 def calculate_sharpness_numba(img:np.ndarray):
     h, w = img.shape
     gradient_x = np.zeros_like(img)
@@ -43,7 +43,7 @@ def calculate_sharpness(img:np.ndarray):
   sharpness = np.mean(gradient_magnitude)
   return sharpness
 
-@numba.njit
+@numba.njit(cache=True)
 def crop_numba(img:np.ndarray, sample_pix=500):
     assert img.ndim == 2
     h, w = img.shape
@@ -104,6 +104,22 @@ def crop(img:np.ndarray, sample_pix=500):
 
   return img[rmin:rmax + 1, cmin:cmax + 1]
 
+def center_of_mass_numpy(intensity:np.ndarray, xv:np.ndarray, yv:np.ndarray, moment:int=1) -> Tuple[float, float]:
+    """
+    计算光强的中心位置
+
+    :param intensity: 强度分布
+    :param x: x坐标矩阵
+    :param y: y坐标矩阵
+    :param moment: 中心位置的阶数
+    :return center_x, center_y: 光强的中心位置
+    """
+    _intensity = intensity.copy().astype(np.float32)**moment
+    total_intensity = np.sum(_intensity)
+    c_x = np.sum(xv * _intensity) / total_intensity
+    c_y = np.sum(yv * _intensity) / total_intensity
+    return (float(c_x), float(c_y))
+
 def center_of_mass_cupy(intensity:cp.ndarray, xv:cp.ndarray, yv:cp.ndarray, moment:int=1) -> Tuple[float, float]:
     _intensity = intensity.copy().astype(cp.float32)**moment
     total_intensity = cp.sum(_intensity)
@@ -111,7 +127,7 @@ def center_of_mass_cupy(intensity:cp.ndarray, xv:cp.ndarray, yv:cp.ndarray, mome
     c_y = cp.sum(yv * _intensity) / total_intensity
     return (float(c_x), float(c_y))
 
-@numba.njit
+@numba.njit(cache=True)
 def center_of_mass_numba(intensity:np.ndarray, xv:np.ndarray, yv:np.ndarray, moment:int=1) -> Tuple[float, float]:
     """
     计算光强的中心位置
@@ -132,9 +148,17 @@ def center_of_brightness_cupy(img:cp.ndarray) -> Tuple[int, int]:
     center = cp.unravel_index(cp.argmax(img), img.shape)[::-1]
     return int(center[0]), int(center[1])
 
-def center_of_brightness_numba(img:np.ndarray) -> Tuple[int, int]:
+def center_of_brightness(img:np.ndarray) -> Tuple[int, int]:
     center = np.unravel_index(np.argmax(img), img.shape)[::-1]
     return int(center[0]), int(center[1])
+
+@numba.njit(cache=True)
+def center_of_brightness_numba(img:np.ndarray) -> Tuple[int, int]:
+    h, w = img.shape
+    flat_idx = np.argmax(img)
+    j = flat_idx // w
+    i = flat_idx % w
+    return int(i), int(j)
 
 def diffraction_limit(lamd, aperture, dist):
     """
@@ -164,7 +188,7 @@ def jitter_diameter(lamd, aperture, dist):
 
     return diameter
 
-def centroid(intensity:np.ndarray, moment:int=1, threshold=0.01) -> Tuple[int, int]:
+def centroid(intensity:np.ndarray, moment:int=1, threshold=0.01, return_float=False) -> Tuple[float | int, float | int]:
     """
     光强的质心位置
 
@@ -177,10 +201,11 @@ def centroid(intensity:np.ndarray, moment:int=1, threshold=0.01) -> Tuple[int, i
     _intensity -= threshold*np.max(_intensity)
     _intensity[_intensity < 0] = 0
     
-    center = center_of_mass(_intensity**moment)
-    return int(center[1]), int(center[0])
+    y, x = center_of_mass(_intensity**moment)
+    x, y = (float(x), float(y)) if return_float else (int(round(x)), int(round(y)))
+    return x, y
 
-def peak_position(intensity, x, y):
+def peak_position(intensity:np.ndarray, x:np.ndarray, y:np.ndarray) -> Tuple[float | int, float | int]:
     """
     光强峰值处的坐标
 
@@ -204,7 +229,7 @@ def make_coord(img:np.ndarray):
     x, y = np.meshgrid(np.arange(img.shape[1]), np.arange(img.shape[0]))
     return x, y
 
-def radius(intensity, center='centroid', energy=0.99):
+def radius(intensity, center, energy=0.99) -> float:
     """
     以center为圆心，占总能量百分比为energy的圆的半径
 
@@ -218,19 +243,7 @@ def radius(intensity, center='centroid', energy=0.99):
     x, y = make_coord(intensity)
     npix = len(x)
     dpix = x[0, 1] - x[0, 0]
-
-    if type(center) is str:
-        if center == 'peak':
-            x0, y0 = peak_position(intensity, x, y)
-        elif center == 'centroid':
-            x0, y0 = centroid(intensity)
-        elif center == 'origin':
-            h, w = intensity.shape
-            x0, y0 = w // 2, h // 2
-        else:
-            raise ValueError('center is wrong set')
-    else:
-        x0, y0 = center[0], center[1]
+    x0, y0 = center[0], center[1]
 
     power_in_circle = np.sum(intensity) * energy
     r = np.sqrt((x - x0) ** 2 + (y - y0) ** 2)
@@ -307,8 +320,8 @@ def power_bucket(intensity, x, y, center, r_bucket, weighted=4):
 
     return power_in_bucket
 
-def disp(img, xv, yv, r_bucket, threshold=0, title=''):
-    center = centroid(img, threshold=threshold)
+def disp(img, r_bucket, threshold=0, title=''):
+    center = centroid(img, 1, threshold)
     
     def calc_j():
             r = int(r_bucket)

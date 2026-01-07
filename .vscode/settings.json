@@ -59,5 +59,6 @@
         ".trae",
         "uv.lock",
         "**__pycache__"
-    ]
+    ],
+    "python.defaultInterpreterPath": "d:\\Projects\\TIFO\\AO-shaping\\.venv\\Scripts\\python.exe"
 }

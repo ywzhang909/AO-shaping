@@ -1,6 +1,9 @@
 import numpy as np
 import pytest
 import time
+
+from scipy.ndimage import center_of_mass
+
 try:
     import cupy as cp
     CUPY_AVAILABLE = cp.cuda.is_available()
@@ -13,6 +16,7 @@ from ao_shaping.utils.spots_calc import (
     crop,
     crop_numba,
     center_of_mass_numba,
+    center_of_brightness,
     center_of_brightness_numba,
     diffraction_limit,
     jitter_diameter,
@@ -229,32 +233,11 @@ class TestMakeCoord:
 
 
 class TestRadius:
-    def test_radius_centroid(self):
-        intensity = np.zeros((10, 10))
-        intensity[5, 5] = 1
-        r = radius(intensity, center='centroid', energy=1.0)
-        assert r >= 0
-
-    def test_radius_peak(self):
-        intensity = np.zeros((10, 10))
-        intensity[3, 4] = 1
-        r = radius(intensity, center='peak', energy=1.0)
-        assert r >= 0
-
-    def test_radius_origin(self):
-        intensity = np.ones((10, 10))
-        r = radius(intensity, center='origin', energy=0.5)
-        assert r >= 0
 
     def test_radius_custom_center(self):
         intensity = np.ones((10, 10))
         r = radius(intensity, center=(5, 5), energy=0.5)
         assert r >= 0
-
-    def test_radius_invalid_center(self):
-        intensity = np.ones((10, 10))
-        with pytest.raises(ValueError):
-            radius(intensity, center='invalid')
 
 
 class TestEffectiveRadius:
@@ -308,7 +291,7 @@ class TestDisp:
         img = np.random.rand(10, 10)
         xv, yv = np.meshgrid(np.arange(10), np.arange(10))
         # This will display but we mock show
-        disp(img, xv, yv, r_bucket=2.0, title='Test')
+        disp(img, r_bucket=2.0, title='Test')
         # If no exception, test passes
 
 
@@ -324,9 +307,9 @@ class TestPerformance:
         def time_func(func, *args, n=100):
             times = []
             for _ in range(n):
-                start = time.time()
+                start = time.perf_counter()
                 func(*args)
-                end = time.time()
+                end = time.perf_counter()
                 times.append(end - start)
             return np.mean(times)
 
@@ -364,6 +347,10 @@ class TestPerformance:
         except Exception:
             results['crop_cupy'] = 'N/A'
 
+        # Test center_of_mass
+        centroid(img)  # warmup
+        results['center_of_mass_numpy'] = time_func(centroid, img)
+
         # Test center_of_mass_numba
         center_of_mass_numba(img, xv, yv)  # warmup
         results['center_of_mass_numba'] = time_func(center_of_mass_numba, img, xv, yv)
@@ -378,6 +365,10 @@ class TestPerformance:
                 results['center_of_mass_cupy'] = 'N/A'
         except Exception:
             results['center_of_mass_cupy'] = 'N/A'
+
+        # Test center_of_brightness
+        center_of_brightness(img)  # warmup
+        results['center_of_brightness_numpy'] = time_func(center_of_brightness, img)
 
         # Test center_of_brightness_numba
         center_of_brightness_numba(img)  # warmup

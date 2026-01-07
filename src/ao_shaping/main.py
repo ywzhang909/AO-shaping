@@ -1,5 +1,4 @@
 import click
-from pathlib import Path
 
 from ao_shaping.wf_runner import run as wf_run
 from ao_shaping.axis_beam_runner import run as axis_beam_run
@@ -19,8 +18,6 @@ main.add_command(axis_beam_run, name='pib')
 
 # 将combined_run命令添加到main组中
 main.add_command(pipeline_run, name='pipeline')
-
-
 
 if __name__ == "__main__":
     import coredumpy

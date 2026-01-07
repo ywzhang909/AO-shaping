@@ -32,7 +32,7 @@ class Base(ABC):
         self.t:int = 0
         
     @abstractmethod
-    def update(self, grad:np.ndarray):
+    def update(self, grad:np.ndarray) -> np.ndarray:
         pass
 
 
@@ -71,9 +71,9 @@ class Adam(Base):
         v_hat = self.v / (1 - self.beta2**self.t)
         return self.lr * m_hat / (np.sqrt(v_hat) + 1e-8)
     
-    def rescale_grad(self, scaler:float):
+    def scale_momentum(self, scaler:float):
         self.m *= scaler
-        self.v *= scaler
+        self.v *= scaler**2
     
 class AdamW(Adam):
     def __init__(self, dim:int, lr=1.0, beta1 = 0.9, beta2 = 0.99, weight_decay=1e-2):

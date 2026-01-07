@@ -16,7 +16,7 @@ class CameraStreamManager:
         self.__exposure_time_ms = ExposureTime(exposure_time_ms)
         self.skip_sampling = skip_sampling
 
-        self.cam, self.__sn, self.__feature_controller = None, None, None
+        self.cam, self.__sn = None, None
         self.cam_width ,self.cam_height = 0, 0
 
     def __enter__(self):
@@ -28,7 +28,7 @@ class CameraStreamManager:
             self.cam_width ,self.cam_height = 0, 0
             self.cam.stream_off()
             self.cam.close_device()
-            self.cam, self.__sn, self.__feature_controller = None, None, None
+            self.cam, self.__sn = None, None
 
     def initialize(self):
         """
@@ -67,8 +67,11 @@ class CameraStreamManager:
         assert self.cam, "camera not found"
         # 设置相机的曝光时间
         float_range = self.cam.ExposureTime.get_range()
-        self.__exposure_time_ms.min = float_range['min']
-        self.__exposure_time_ms.max = float_range['max']
+        if float_range:
+            self.__exposure_time_ms.min = float_range['min']
+            self.__exposure_time_ms.max = float_range['max']
+        else:
+            logger.warning(f"Exposure time range not found for camera {sn}. Using default value.")
         self.cam.ExposureTime.set(self.__exposure_time_ms.ms)
         # 设置相机的增益
         self.cam.Gain.set(0.0)
@@ -133,12 +136,15 @@ class CameraStreamManager:
         # 如果未指定窗口大小，则使用相机的最大宽度和高度
         if size == (0, 0):
             width, height = (self.cam.WidthMax.get(), self.cam.HeightMax.get())
+            assert width and height, "camera width and height must be greater than 0"
             x_offset, y_offset = 0, 0
         else:
             width, height = size
-            width_quatic = self.cam.Width.get_range()['inc']
+            range_w, range_h = self.cam.Width.get_range(), self.cam.Height.get_range()
+            assert range_w and range_h, "camera width and height range not found"
+            width_quatic = range_w['inc']
             width_quatic = width_quatic*2 if width_quatic%2==1 else width_quatic
-            height_quatic = self.cam.Height.get_range()['inc']
+            height_quatic = range_h['inc']
             height_quatic = height_quatic*2 if height_quatic%2==1 else height_quatic
             width, height = int(width//width_quatic*width_quatic), int(height//height_quatic*height_quatic)
             # 计算窗口的偏移量，确保中心位置在指定位置
@@ -184,8 +190,7 @@ class CameraStreamManager:
         返回:
         np.ndarray: 处理后的平均图像，数据类型为uint8。
         """
-        assert n_sample>0, "采样次数必须大于0"
-        numpy_image = np.zeros((n_sample, self.cam_height, self.cam_width))
+        numpy_image = np.zeros((n_sample, self.cam_height, self.cam_width)) # type: ignore # ignore
         if skip_first:
             self.__take_one_shot()
         for i in range(n_sample):
@@ -196,7 +201,7 @@ class CameraStreamManager:
             avg_img = np.where(avg_img<0, 0, avg_img)
         return avg_img.astype(np.uint16)
     
-    def autoset_exposure_time_ms(self, target_max_brightness, threshold=20, twice_valid=True):
+    def autoset_exposure_time_ms(self, target_max_brightness, threshold=5, twice_valid=True):
         """
         自动设置相机的曝光时间，以确保图像的最大亮度在指定的阈值范围内。
 
@@ -248,7 +253,8 @@ class CameraStreamManager:
     @property
     def exposure_time(self) -> int:
         assert self.cam, "camera not initialized"
-        return self.cam.ExposureTime.get()
+        _exp_time = self.cam.ExposureTime.get()
+        return int(_exp_time) if _exp_time else 0
     
     @exposure_time.setter
     def exposure_time(self, time_ms: int):
