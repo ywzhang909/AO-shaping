@@ -1,0 +1,3 @@
+[submodule "scripts/dm_sim"]
+	path = scripts/dm_sim
+	url = https://github.com/mavasbel/deformable_mirror.git
