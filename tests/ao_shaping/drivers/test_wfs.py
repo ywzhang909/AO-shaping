@@ -25,28 +25,15 @@ def test_wfs():
             intensity, _ = wfs.get_spots_statics()
             wf, statics = wfs.get_wavefront()
             print(f"{statics=}")
-
-            fig, ax = plt.subplots(2,2)
-            ax[0,0].imshow(x)
-            ax[0,0].set_title("spot deviation x")
-
-            ax[0,1].imshow(y)
-            ax[0,1].set_title("spot deviation y")
+            print(f'{np.std(wf)}')
             
-            ax[1,0].imshow(intensity)
-            ax[1,0].set_title("spot intensity")
-            
-            ax[1,1].imshow(wf)
-            ax[1,1].set_title("wavefront")
-            plt.show()
-            
-        wfs.high_speed = True
-        for _ in range(10):
-            wfs.take_image()
-            x,y = wfs.get_spot_deviation()
-            print(y[0,:])
-            # print(wfs.get_zernike(3))
-            print(wfs.get_wavefront()[0][0,:])
+        # wfs.high_speed = True
+        # for _ in range(10):
+        #     wfs.take_image()
+        #     x,y = wfs.get_spot_deviation()
+        #     print(y[0,:])
+        #     # print(wfs.get_zernike(3))
+        #     print(wfs.get_wavefront()[0][0,:])
             
 def test_rms():
     rms_hist = []

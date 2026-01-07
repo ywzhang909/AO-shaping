@@ -162,7 +162,7 @@ def optimize_pib(
         img_size = init_img.shape[::-1]
         if r_bucket <= 0:
             _w, _h = img_size
-            r_bucket = ImageTargetFunc(_w, _h, center).radius(init_img, energy=0.6)
+            r_bucket = ImageTargetFunc(_w, _h, center).radius(init_img, energy=0.99)
             r_bucket = min(r_bucket, cam_size//2) * shrink_ratio
             _fix_bucket = False
         else:
@@ -175,9 +175,17 @@ def optimize_pib(
             window.init_window()
 
         target_func = ImageTargetFunc.build_from_init_image(init_img)
-        # TODO: 修改成util中的函数、工具类
         def calc_pib(img):
-            return target_func.pib(img, r_bucket)
+            #
+            # return target_func.pib(img, r_bucket)
+            
+            # TODO 根据环围半径找出边缘梯度最大的阶数
+            r, nr = target_func.avg_radius(img, moment=0.5)
+            return -r, -nr
+            
+            # r = target_func.radius(img)
+            # return -r, 0
+            
         
         def test_pib(img):
             return target_func.pib(img, IDEAL_SPOT_RADIUS)[1]
@@ -202,6 +210,7 @@ def optimize_pib(
                 "_epoch": 0,
                 "exp_t": cam.exposure_time,
                 "max_brt": np.max(init_img),
+                "_grad": np.zeros_like(_init_v),
             }
         )
         with tqdm.tqdm(
@@ -231,12 +240,13 @@ def optimize_pib(
                     _resample_img = cam.autoset_exposure_time_ms(target_max_brightness, twice_valid=False)
                     optimizer.scale_momentum(np.sum(_resample_img) / np.sum(pos_img))
                     
-                if exposure_time_ms > 0 and max_brightness == 255:
-                    # 固定曝光时，如果过曝，则使用pib_ratio计算梯度
-                    optimizer.scale_momentum(neg_pib_ratio / neg_j)
-                    pos_j, neg_j = pos_pib_ratio, neg_pib_ratio
-                else:
-                    pos_j, neg_j = pos_pib, neg_pib
+                # if exposure_time_ms > 0 and max_brightness == 255:
+                #     # 固定曝光时，如果过曝，则使用pib_ratio计算梯度
+                #     optimizer.scale_momentum(neg_pib_ratio / neg_j)
+                #     pos_j, neg_j = pos_pib_ratio, neg_pib_ratio
+                # else:
+                #     pos_j, neg_j = pos_pib, neg_pib
+                pos_j, neg_j = pos_pib, neg_pib
                 diff = pos_j - neg_j
                 gradient = -diff * disturb_v
                 update = optimizer.update(gradient)
@@ -254,7 +264,7 @@ def optimize_pib(
 
                 if (epoch % update_iter == update_iter - 1 or
                      epoch % shrink_iter == shrink_iter - 1 or
-                     pib_ratio >= 0.99) and not _fix_bucket:
+                     pib_ratio >= 0.99) and not _fix_bucket and pib>0:
                     power_radio = radius(pos_img, center=center, energy=0.8)
                     _pr = power_radio * shrink_ratio
                     _r = max(r_bucket*shrink_ratio+1, IDEAL_SPOT_RADIUS, r_bucket)
@@ -276,6 +286,8 @@ def optimize_pib(
                     "_img": pos_img,
                     "exp_t": cam.exposure_time,
                     "max_brt": max_brightness,
+                    "_grad": gradient,
+                    "_opt_m": optimizer.m
                 }
                 recorder.append(log)
                 bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})

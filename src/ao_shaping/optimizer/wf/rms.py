@@ -7,6 +7,8 @@ from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS
 from ao_shaping.algorithm.adam import AdaMOD
 from ao_shaping.utils import logger, Recorder
 
+KEEP_VOLTAGES = True
+
 
 def schedule_lr_delta(rms):
     '''
@@ -44,7 +46,7 @@ def optimizer_rms(
     epochs = int(epochs)
     recorder = Recorder(mark='rms', mode='min')
     
-    with NlightDM(keep_when_exit=True) as dm:
+    with NlightDM(keep_when_exit=KEEP_VOLTAGES) as dm:
         if not init_v:
             _init_v = np.zeros(dm.DM_Num, dtype=np.float64)
         else:
@@ -136,5 +138,10 @@ def optimizer_rms(
                         break
                     
                     bar.update(1)
+
+                # end iter
+            if KEEP_VOLTAGES:
+                best_voltage, _ = recorder.get_best_target('_v')
+                dm.send_voltages(best_voltage)
 
         return recorder

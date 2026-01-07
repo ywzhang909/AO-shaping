@@ -161,7 +161,7 @@ def reconstruct_poisson_svd(sx, sy, remove_tilt=True):
 
 # ---------------- demo ----------------
 if __name__ == "__main__":
-    N = 16
+    N = 32
     # -------------- 伪造：X tilt + 球面 + 噪声 --------------
     x = np.linspace(-1, 1, N)
     X, Y = np.meshgrid(x, x)
@@ -189,13 +189,19 @@ if __name__ == "__main__":
     phi_center = 0.25*(phi[:-1,:-1] + phi[1:,:-1] + phi[:-1,1:] + phi[1:,1:])
 
     plt.figure(figsize=(9,3))
-    plt.subplot(131)
+    plt.subplot(231)
     plt.imshow(true_phi)
     plt.title('true (tilt+sphere+noise)')
-    plt.subplot(132)
+    plt.subplot(232)
     plt.imshow(phi)
     plt.title('reconstructed')
-    plt.subplot(133)
+    plt.subplot(233)
     plt.imshow(true_phi-phi_center, vmin=-0.05, vmax=0.05)
     plt.title("Recovered RMS = %.3f" % rms)
+    plt.subplot(234)
+    plt.imshow(sx)
+    plt.title("sx")
+    plt.subplot(235)
+    plt.imshow(sy)
+    plt.title("sy")
     plt.show()

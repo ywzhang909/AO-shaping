@@ -1,5 +1,7 @@
 import numpy as np
 
+from ao_shaping.utils import logger
+
 from ao_shaping.utils.spots_calc import (
     center_of_mass_numpy,
     center_of_brightness,
@@ -10,8 +12,7 @@ class ImageTargetFunc:
     @classmethod
     def build_from_init_image(cls, init_img:np.ndarray):
         h, w = init_img.shape
-        xv, yv = np.ogrid[:h, :w]
-        _ret = cls(xv, yv, (h//2, w//2))
+        _ret = cls(w, h, (h//2, w//2))
         center = _ret.intelligen_center(init_img)
         _ret.center = center
         
@@ -26,12 +27,14 @@ class ImageTargetFunc:
         if isinstance(x, int) and isinstance(y, int):
             _x, _y = np.arange(x), np.arange(y)
             self.xv, self.yv = np.meshgrid(_x, _y, indexing='xy')
+            self.shape = y,x
         elif isinstance(x, np.ndarray):
             if x.ndim == 2:
                 self.xv, self.yv = x, y
             elif x.ndim == 1:
                 self.xv, self.yv = np.meshgrid(x, y, indexing='xy')
-        self.shape = self.xv.shape
+            self.shape = self.xv.shape
+
         self.center = center
         self.dist_mat = np.sqrt((self.xv - self.center[0])**2 + (self.yv - self.center[1])**2)
         self.masks = self.__gen_center_bucket_masks()
@@ -57,10 +60,23 @@ class ImageTargetFunc:
             mask_mats[r] = self.dist_mat <= r
         return mask_mats
 
-    def pib(self, img, pib_radius, normalize=True):
+    def pib(self, img, pib_radius):
+        """计算桶中功率
+
+        Args:
+            img (np.ndarray[ndim=2, shape=(h,w)]): CCD 图片
+            pib_radius (int): 桶半径
+
+        Returns:
+            tuple[float, float]: 桶功率/面积, 桶中/全部
+        """
         pib_mask = self.__get_bucket_mask(pib_radius)
         pib = np.sum(img[pib_mask])
-        return pib/np.sum(img) if normalize else pib
+        return pib, pib/np.sum(img)
+    
+    def avg_radius(self, img, moment=1.0):
+        r = np.sum(self.dist_mat ** moment * img)
+        return r, r / np.sum(img), 
     
     def denoise_process(self, img):
         noise_sample = np.percentile(img, 5)
@@ -96,9 +112,9 @@ class ImageTargetFunc:
         # intensity 复制扩展成3D 与 masks 维度一致
         intensity_3d = np.repeat(intensity[np.newaxis, ...], len(self.masks), axis=0)
         power_in_masks = np.sum(intensity_3d * self.masks, axis=(1, 2))
-        radius = np.argmax(power_in_masks >= power_in_circle)+1
+        radius = int(np.argmax(power_in_masks >= power_in_circle)+1)
         return radius
     
     def __get_bucket_mask(self, radius):
-        assert 0 < radius < len(self.masks), "Radius out of range"
-        return self.masks[radius-1]
+        assert 0 < radius < len(self.masks), f"Radius {radius} out of range"
+        return self.masks[int(radius-1)]
