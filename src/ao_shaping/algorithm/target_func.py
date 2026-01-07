@@ -23,13 +23,14 @@ class ImageTargetFunc:
         
         
     def init_coordinates(self, x, y, center):
-        if isinstance(x, int):
-            self.xv, self.yv = np.ogrid[:x, :y]
+        if isinstance(x, int) and isinstance(y, int):
+            _x, _y = np.arange(x), np.arange(y)
+            self.xv, self.yv = np.meshgrid(_x, _y, indexing='xy')
         elif isinstance(x, np.ndarray):
             if x.ndim == 2:
                 self.xv, self.yv = x, y
             elif x.ndim == 1:
-                self.xv, self.yv = np.meshgrid(x, y)
+                self.xv, self.yv = np.meshgrid(x, y, indexing='xy')
         self.shape = self.xv.shape
         self.center = center
         self.dist_mat = np.sqrt((self.xv - self.center[0])**2 + (self.yv - self.center[1])**2)

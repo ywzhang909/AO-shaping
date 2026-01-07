@@ -17,9 +17,8 @@ class TestImageTargetFuncInit:
         """Test initialization with integer height and width."""
         h, w = 10, 15
         center = (5, 7)
-        target = ImageTargetFunc(h, w, center)
-        # ogrid produces (h, 1) and (1, w) arrays
-        assert target.shape == (h, 1)
+        target = ImageTargetFunc(w, h, center)
+        assert target.shape == (h, w)
         assert target.center == center
         assert target.xv.shape == (h, 1)
         assert target.yv.shape == (1, w)
@@ -122,12 +121,13 @@ class TestPIB:
     def test_pib_with_gaussian_image(self):
         """Test pib with a Gaussian intensity distribution."""
         xv, yv = np.meshgrid(np.arange(20), np.arange(20), indexing='ij')
-        img = np.exp(-((xv - 10)**2 + (yv - 10)**2) / 20)
+        img = np.exp(-((xv - 10)**2 + (yv - 10)**2) / 3)
         target = create_target_from_dims(20, 20, (10, 10))
         pib_center = target.pib(img, pib_radius=3, normalize=True)
-        pib_edge = target.pib(img, pib_radius=8, normalize=True)
+        pib_edge = target.pib(img, pib_radius=6, normalize=True)
         # Center bucket should have higher normalized power density
         assert pib_center > 0
+        assert pib_center > pib_edge-pib_center
 
 
 class TestDenoiseProcess:
@@ -274,7 +274,7 @@ class TestRadius:
         img = np.zeros((20, 20))
         img[9:11, 9:11] = 1  # Small 2x2 bright square
         target = create_target_from_dims(20, 20, (10, 10))
-        r = target.radius(img, energy=0.5)
+        r = target.radius(img, energy=0.99)
         # Should be small
         assert r <= 3
 

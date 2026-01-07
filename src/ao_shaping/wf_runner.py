@@ -32,7 +32,7 @@ def parse_tuple(ctx, param, value):
 @click.option("-e", "--epochs", default=20_000, help="优化迭代次数 (default: 20000)")
 @click.option("-r", "--wfs_res", default='768', help="WFS分辨率 (default: 768)")
 @click.option("-p", "--pupil_diameter", default=2.7, help="瞳孔直径 (default: 2.7)")
-@click.option("-c", "--pupil_center", callback=parse_tuple, default=(0,0), help="瞳孔中心坐标 (default: (0,0))")
+@click.option("-c", "--pupil_center", callback=parse_tuple, default="(0,0)", help="瞳孔中心坐标 (default: (0,0))")
 @click.option("-t", "--early_stop_threshold", default=0.0, help="早停阈值 (default: 0.0)")
 @click.option("--debug", is_flag=True, help="是否开启调试模式 (default: False)")
 @click.option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)")

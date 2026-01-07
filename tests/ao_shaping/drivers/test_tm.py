@@ -72,11 +72,9 @@ def test_port_list():
     print(TM.list_port())
 
 def test_tm():
-    # position = (0, 0)
-    position = (412, 389)
+    position = (0, -420)
+    # position = (412, 389)
     with TM("COM3") as tm:
-        tm.send(0, 0)
-
         frame = TM._build_frame(*position)
         tm.send(*position)
         ret_frame = tm.wait_rx()
