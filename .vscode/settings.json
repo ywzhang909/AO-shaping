@@ -5,6 +5,10 @@
         "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs;${env:PYTHONPATH}",
         "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${env:PATH}",
     },
+    "terminal.integrated.env.linux": {
+        "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs;${env:PYTHONPATH}",
+        "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${env:PATH}",
+    },
     "python.testing.pytestArgs": [
         "-s"
     ],
@@ -21,6 +25,7 @@
         "${workspaceFolder}/libs",
     ],
     "python.autoComplete.extraPaths": [
+        "${workspaceFolder}/src",
         "${workspaceFolder}/libs"
     ],
     "python-envs.pythonProjects": [

@@ -18,10 +18,9 @@ main.add_command(wf_run, name='wf')
 main.add_command(axis_beam_run, name='pib')
 
 # 将combined_run命令添加到main组中
-main.add_command(combined_run, name='combine')
+main.add_command(pipeline_run, name='pipeline')
 
-# 将贝叶斯优化命令添加到主组中
-main.add_command(bayes_opt_run, name='bayes-opt')
+
 
 # 将启发式搜索命令添加到主组中
 main.add_command(heuristic_search_run, name='heuristic')

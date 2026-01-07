@@ -2,7 +2,8 @@ import numpy as np
 
 from ao_shaping.utils.spots_calc import (
     center_of_mass_numba,
-    center_of_brightness_numba
+    center_of_brightness_numba,
+    
 )
 
 class ImageTargetFunc:

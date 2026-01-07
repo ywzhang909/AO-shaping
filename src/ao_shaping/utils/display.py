@@ -1,4 +1,5 @@
 import pygame
+import numpy as np
 import matplotlib.pyplot as plt
 
 from ao_shaping.utils import Register
@@ -39,7 +40,7 @@ class ImageVoltagesDisplay:
 
         img_size = img.shape
         canvas = pygame.surfarray.make_surface(img.transpose())
-        pygame.draw.circle(canvas, (255, 255, 255), center, r, 10)
+        pygame.draw.circle(canvas, (255, 0, 0), center, r, 10)
         pygame.display.set_caption(info)
         self.window.blit(canvas, (0,0))
         # 绘制电压图
@@ -49,7 +50,7 @@ class ImageVoltagesDisplay:
         bar_width = int(img_size[0] / len(volts))
         for i,v in enumerate(volts):
             normed_v = (v - v_min) / (v_max - v_min)
-            color = (int(normed_v*255), int((1-normed_v)*255), 0)
+            color = (int(normed_v*255), int((1-normed_v)*255), 0) if not np.isnan(normed_v) else (0, 0, 0)
             x = int(i * bar_width)
             y = int(img_size[1] + VOLT_HEIGHT)
             height = int(2* v *  VOLT_HEIGHT / (v_max - v_min))
