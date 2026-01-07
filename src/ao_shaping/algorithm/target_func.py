@@ -18,7 +18,7 @@ class ImageTargetFunc:
         return _ret
     
     def __init__(self, x, y, center):
-        assert x.type == y.type, "x and y must have the same type"
+        assert type(x) is type(y), "x and y must have the same type"
         self.init_coordinates(x, y, center)
         
         
@@ -36,24 +36,30 @@ class ImageTargetFunc:
         self.masks = self.__gen_center_bucket_masks()
         
         self.npix = len(self.xv)
-        self.dpix = self.xv[0, 1] - self.xv[0, 0]
+        if self.xv.ndim == 2 and self.xv.shape[1] > 1:
+            self.dpix = self.xv[0, 1] - self.xv[0, 0]
+        elif self.xv.ndim == 1:
+            self.dpix = self.xv[1] - self.xv[0] if len(self.xv) > 1 else 1.0
+        else:
+            self.dpix = 1.0
         
     def __gen_center_bucket_masks(self):
         max_radius = min(
             self.center[0], 
             self.center[1],
-            self.shape[0]-self.center[0],
-            self.shape[1]-self.center[1]
+            self.shape[0]-self.center[0]-1,
+            self.shape[1]-self.center[1]-1
         )
+        max_radius = max(1, max_radius)
         mask_mats = np.zeros((max_radius, *self.shape), dtype=bool)
         for r in range(1, max_radius):
             mask_mats[r] = self.dist_mat <= r
         return mask_mats
 
-    def pib(self, img, pib_radius):
+    def pib(self, img, pib_radius, normalize=True):
         pib_mask = self.__get_bucket_mask(pib_radius)
         pib = np.sum(img[pib_mask])
-        return pib/np.sum(pib_mask), pib/np.sum(img)
+        return pib/np.sum(img) if normalize else pib
     
     def denoise_process(self, img):
         noise_sample = np.percentile(img, 5)
@@ -86,7 +92,9 @@ class ImageTargetFunc:
         :return radius: 圆的半径
         """
         power_in_circle = np.sum(intensity) * energy
-        power_in_masks = np.sum(intensity[self.masks], axis=(1, 2))
+        # intensity 复制扩展成3D 与 masks 维度一致
+        intensity_3d = np.repeat(intensity[np.newaxis, ...], len(self.masks), axis=0)
+        power_in_masks = np.sum(intensity_3d * self.masks, axis=(1, 2))
         radius = np.argmax(power_in_masks >= power_in_circle)+1
         return radius
     
