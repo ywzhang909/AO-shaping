@@ -5,6 +5,7 @@ from ao_shaping.wf_runner import run as wf_run
 from ao_shaping.axis_beam_runner import run as axis_beam_run
 from ao_shaping.pipeline_runner import run as pipeline_run
 from ao_shaping.heuristic_runner import run as heuristic_run
+from ao_shaping.heuristic_rms_runner import run as heuristic_rms_run
 
 
 @click.group()
@@ -23,6 +24,9 @@ main.add_command(pipeline_run, name='pipeline')
 
 # 将heuristic_run命令添加到main组中
 main.add_command(heuristic_run, name='heuristic')
+
+# 将heuristic_rms_run命令添加到main组中
+main.add_command(heuristic_rms_run, name='heuristic-rms')
 
 if __name__ == "__main__":
     import coredumpy
