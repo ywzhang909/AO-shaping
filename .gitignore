@@ -1,55 +1,45 @@
-.python-version
-*.npz
-*.pkl
-*.docx
-*.csv
+```
+# Compiled and build artifacts
 *.pyc
-*.so
+__pycache__/
 *.o
+*.obj
 
-Drv_UDPST*
-gxipy*
-__pycache__*
-.venv*
-.vscode*
-!.vscode/settings.json
+# Dependencies
+.venv/
+venv/
+node_modules/
+dist/
+build/
 
-.kilocode*
-**/ao_shaping.egg-info*
-*.zip
+# Logs and temp files
+*.log
+*.tmp
+*.swp
 
-!data/data_analysisy.py
-!data/streamlit_visualizer.py
-history.png
+# Environment
+.env
+.env.local
+*.env.*
 
-data/*
-ckpts*
-!data/data_analysis.py
-.marscode*
-.kilocode*
-uv.lock
-notebooks/checkpoint
-notebooks/.ipynb_checkpoints*
-data/*.py
+# Editors
+.vscode/
+.idea/
 
-NuitkaGUI.exe
-DM_combined.*
-DM_cam.*
-DM_combined.dist*
-
-logs*
-.history*
-logs/**/*.png
-logs/*.txt
-scripts/logs*
-src/ao_shaping.egg-info*
-.trae*
+# Coverage
 .coverage
-test_output*
-libs*
-!libs/Galaxy_Linux_Python_2.4.2503.9202/doc_cn/Python接口开发说明书.pdf
-src/calculators/**/*.c
+coverage/
+htmlcov/
 
+# Python specific
+*.pyc
+__pycache__/
+*.pyo
 *.pyd
-src/calculators/build/temp*
-src/calculators/*.html
+.Python
+*.so
+
+# Testing
+.pytest_cache/
+.mypy_cache/
+```
