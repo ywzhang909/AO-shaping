@@ -4,6 +4,7 @@ import numpy as np
 
 from ao_shaping.drivers import CameraStreamManager, NlightDM
 from ao_shaping.algorithm.adam import AdaMOD
+from ao_shaping.algorithm.heuristic import PSO, RUN, GeneticAlgorithm
 from ao_shaping.utils import ImageVoltagesDisplay, logger, Recorder
 from ao_shaping.utils.spots_calc import centroid, radius
 from ao_shaping.algorithm.target_func import ImageTargetFunc
@@ -296,3 +297,186 @@ def optimize_pib(
             window.close()
         return recorder
 
+def optimize_pib_heuristic(
+    center,
+    epochs,
+    algorithm='PSO',  # 'PSO', 'RUN', 'GA'
+    r_bucket=0,
+    delta: float = 1,
+    lr: float = 0,
+    exposure_time_ms: int = 80,
+    shrink_iter: int = 0,
+    shrink_ratio: float = 0.9,
+    cam_id=0,
+    show: bool = False,
+    init_v=[],
+    cam_size=250,
+    target_max_brightness=40,
+    dm_unit_mask=None,
+    dm_neibor_diff=200,
+    dm_max_voltage=None,
+    dm_min_voltage=None,
+    **kwargs
+):
+    """
+    使用元启发式算法优化PIB
+    """
+    delta = abs(delta)
+    epochs = int(epochs)
+
+    recorder = Recorder(mark="pib_heuristic", mode="max")
+
+    with CameraStreamManager(cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False) as cam, \
+            NlightDM(keep_when_exit=True, max_neibor_diff=dm_neibor_diff, max_voltage=dm_max_voltage, min_voltage=dm_min_voltage) as dm:
+        
+        if dm_unit_mask is None:
+            dm_unit_mask = dm.default_dm_unit_mask
+            if dm_unit_mask[0]:
+                logger.warning("dm_unit_mask[0] is True, which means the first unit is active.")
+
+        if init_v is None or len(init_v) == 0:
+            _init_v = np.zeros(dm.DM_Num, dtype=np.float64)
+        else:
+            _init_v = np.array(init_v)
+        
+        dm.send_voltages(_init_v, 0.5)
+
+        _img = cam.autoset_exposure_time_ms(target_max_brightness=TEST_EXPOSURE_TIME_BRIGHTNESS)
+
+        def intellij_center(img):
+            (h, w) = img.shape
+            margin = int(IDEAL_SPOT_RADIUS)
+            center = centroid(np.where(img > np.max(img[:max(int(h//50), 2), :max(int(w//50), 2)]), 1, 0))
+            (cx, cy) = center
+            if np.all(img[cy-margin: cy+margin, cx-margin: cx+margin] >= np.max(img) * 0.4):
+                center = centroid(img)
+            return center
+
+        if center is None:
+            center = intellij_center(_img)
+        elif isinstance(center, str):
+            _img = cam.get_numpy_image(10)
+            if center == "mass":
+                center = centroid(_img)
+            elif center == 'max':
+                center = np.unravel_index(np.argmax(_img), _img.shape)[::-1]
+            elif center == 'shape':
+                (h, w) = _img.shape
+                center = centroid(
+                    np.where(_img > np.max(_img[:max(int(h//50), 2), :max(int(w//50), 2)]), 1, 0))
+            else:
+                raise ValueError(f"known center: {center}")
+        else:
+            center = center
+
+        logger.info(f"Centroid: {center}, Max brightness: {np.max(_img)} @ {cam.exposure_time}ms")
+
+        img_size = (cam_size, cam_size)
+        img_size, center = cam.reset_window(center, img_size)
+
+        if exposure_time_ms > 0:
+            cam.exposure_time = exposure_time_ms
+            init_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
+        elif 0 < target_max_brightness < 255 and target_max_brightness > 0:
+            init_img = cam.autoset_exposure_time_ms(
+                target_max_brightness=target_max_brightness, twice_valid=True)
+        else:
+            init_img = cam.autoset_exposure_time_ms(
+                target_max_brightness=ADVISE_EXPOSURE_TIME_BRIGHTNESS, twice_valid=True)
+        
+        logger.debug(f"Inital Image Max brightness: {np.max(init_img)} @ {cam.exposure_time}ms")
+        img_size = init_img.shape[::-1]
+
+        if r_bucket <= 0:
+            target_func = ImageTargetFunc.build_from_init_image(init_img)
+            r_bucket = target_func.radius(init_img, energy=0.99)
+            r_bucket = min(r_bucket, cam_size//2) * shrink_ratio
+            _fix_bucket = False
+        else:
+            _fix_bucket = True
+
+        target_func = ImageTargetFunc.build_from_init_image(init_img)
+        
+        def calc_pib(img):
+            # 根据环围半径找出边缘梯度最大的阶数
+            r, nr = target_func.pib(img, r_bucket)
+            return r, nr
+
+        def test_pib(img):
+            return target_func.pib(img, IDEAL_SPOT_RADIUS)[1]
+
+        j, pib_ratio = calc_pib(init_img)
+
+        # 定义目标函数（最小化负PIB以最大化PIB）
+        def objective_function(voltages):
+            # 确保电压在范围内
+            clipped_voltages = np.clip(voltages, dm.min_voltage, dm.max_voltage)
+            dm.send_voltages(clipped_voltages)
+            img = cam.get_numpy_image(CAM_SAMPLE_ITER)
+            pib_value, _ = calc_pib(img)
+            # 返回负值因为优化器最小化目标函数
+            return -pib_value
+
+        # 定义搜索边界
+        lower_bounds = np.full(dm.DM_Num, dm.min_voltage)
+        upper_bounds = np.full(dm.DM_Num, dm.max_voltage)
+        bounds = (lower_bounds, upper_bounds)
+
+        # 选择优化算法
+        if algorithm == 'PSO':
+            optimizer = PSO(
+                dimensions=dm.DM_Num,
+                bounds=bounds,
+                objective_func=objective_function,
+                num_particles=min(30, dm.DM_Num),
+                max_iter=epochs // 10,  # 减少迭代次数以适应实际硬件操作
+                verbose=True
+            )
+        elif algorithm == 'RUN':
+            optimizer = RUN(
+                dimensions=dm.DM_Num,
+                bounds=bounds,
+                objective_func=objective_function,
+                population_size=min(30, dm.DM_Num),
+                max_iter=epochs // 10,
+                verbose=True
+            )
+        elif algorithm == 'GA':
+            optimizer = GeneticAlgorithm(
+                dimensions=dm.DM_Num,
+                bounds=bounds,
+                objective_func=objective_function,
+                population_size=min(50, dm.DM_Num * 2),
+                max_iter=epochs // 10,
+                verbose=True
+            )
+        else:
+            raise ValueError(f"Unknown algorithm: {algorithm}")
+
+        # 执行优化
+        best_solution, best_fitness = optimizer.optimize()
+
+        # 发送最终电压
+        dm.send_voltages(best_solution)
+        final_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
+        final_pib = test_pib(final_img)
+
+        # 记录结果
+        recorder.append({
+            "J": -best_fitness,  # 转换回正PIB值
+            "pib": final_pib,
+            "_p%": final_pib,  # 简化的PIB比例
+            "_max_r": r_bucket,
+            "_v": best_solution,
+            "_img": final_img,
+            "_diff": 0,
+            "lr": lr,
+            "r": r_bucket,
+            "delta": delta,
+            "_epoch": epochs,
+            "exp_t": cam.exposure_time,
+            "max_brt": np.max(final_img),
+            "_grad": np.zeros_like(best_solution),
+        })
+
+        return recorder

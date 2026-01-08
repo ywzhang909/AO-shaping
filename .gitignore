@@ -1,26 +1,35 @@
-```
 # Compiled and build artifacts
 *.pyc
 __pycache__/
+build*
+dist*
+**/ao_shaping.egg-info*
 
 # Dependencies
 .venv/
 venv/
 node_modules/
+libs*
+src/ao_shaping/drivers/ccd/gxipy*
+src/ao_shaping/drivers/dm/Drv_UDPST/*
 
 # Logs and temp files
 *.log
 *.tmp
 *.swp
+.history*
+logs*
 
 # Environment
 .env
 .env.local
 *.env.*
+uv.lock
 
 # Editors
 .vscode/
 .idea/
+.kilocode*
 
 # Coverage
 .coverage
@@ -30,4 +39,12 @@ htmlcov/
 # Python cache
 .mypy_cache/
 .pytest_cache/
-```
+
+# data and dumps
+data*
+ckpts*
+src/ao_shaping/drivers/dm/to_load_V.csv
+*.exe
+*.docx
+notebooks/history.png
+
