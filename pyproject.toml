@@ -1,9 +1,9 @@
 [project]
 name = "ao_shaping"
 version = "0.1.0"
-description = "Add your description here"
+description = "AO-Shaping是一个基于强化学习的自适应光学(AO)系统，用于波前校正和光束整形。该项目集成了多种优化算法，包括基于波前传感器(WFS)的优化和无波前优化方法，能够通过变形镜(DM)对光波前进行精确控制，实现高质量的光束输出。"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.2.6",
     "pandas>=2.3.2",
@@ -30,6 +30,8 @@ dependencies = [
     "gymnasium>=1.2.2",
     "timm>=1.0.22",
     "cython>=3.2.2",
+    "stable-baselines3>=2.3.0",
+    "torch>=2.8.0",
 ]
 
 [[tool.uv.index]]
@@ -37,8 +39,8 @@ url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
 
 [[tool.uv.index]]
-name = "pytorch-cu129"
-url = "https://download.pytorch.org/whl/cu129"
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [[tool.uv.index]]
@@ -46,13 +48,16 @@ name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.uv.sources]
 torch = [
-  { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
+  { index = "pytorch-cu128" ,marker = "sys_platform == 'win32'"},
 ]
 torchvision = [
-  { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
+  { index = "pytorch-cu128" ,marker = "sys_platform == 'win32'"},
 ]
