@@ -2,7 +2,8 @@ from ao_shaping.drivers import NlightDM
 from ao_shaping.utils.file import get_init_V_by_energy
 
 import numpy as np
-
+import pytest
+@pytest.mark.experiment
 def test_dm():
     with NlightDM() as dm:
         voltages = np.zeros((dm.DM_Num))
@@ -10,21 +11,26 @@ def test_dm():
             v = np.sin(2 * np.pi * i / 1_000_000) * 100
             voltages[1] = v
             dm.send_voltages(voltages, 0)
-        
+
+
+@pytest.mark.experiment
 def test_turn_off_dm():
     with NlightDM(keep_when_exit=False) as dm:
         dm.send_voltages(np.zeros((dm.DM_Num)))
         dm.reset_all()
 
+@pytest.mark.experiment
 def test_last_voltage():
     voltages = get_init_V_by_energy()
     with NlightDM() as dm:
         dm.send_voltages(voltages, 0)
-        
+
+@pytest.mark.experiment
 def test_zero_voltage():
     with NlightDM() as dm:
         dm.send_voltages(np.zeros((dm.DM_Num)))
 
+@pytest.mark.experiment
 def test_csv_voltage():
     voltages = np.loadtxt("data/calibration/20251225-1.csv", delimiter=",")
     with NlightDM() as dm:

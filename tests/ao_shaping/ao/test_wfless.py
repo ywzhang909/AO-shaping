@@ -8,13 +8,13 @@ from ao_shaping.utils.file import get_init_V_by_rms
 
 def test_optimize_pib():
 
-    cam_id = os.environ['Far_Cam_ID']
-    center = (625,452)
-    exposure_time_ms = 500
+    cam_id = int(os.environ['Far_Cam_ID'])
+    center = None
+    exposure_time_ms = 400
     epochs = 4_000
-    r_bucket = 0
+    r_bucket = 10
     cam_size = 200
-    init_v = get_init_V_by_rms()
+    init_v = []
 
     res_list = optimize_pib(
         cam_id=cam_id, center=center, exposure_time_ms=exposure_time_ms, cam_size=cam_size,

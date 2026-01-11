@@ -1,4 +1,6 @@
 import click
+# import dotenv
+
 from ao_shaping.wf_runner import run as wf_run
 from ao_shaping.axis_beam_runner import run as axis_beam_run
 from ao_shaping.combined_runner import run as combined_run
@@ -19,8 +21,6 @@ main.add_command(axis_beam_run, name='pib')
 
 # 将combined_run命令添加到main组中
 main.add_command(pipeline_run, name='pipeline')
-
-
 
 # 将启发式搜索命令添加到主组中
 main.add_command(heuristic_search_run, name='heuristic')

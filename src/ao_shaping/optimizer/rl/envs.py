@@ -1,18 +1,25 @@
 import os
 import time
-from typing import Tuple, Any
+from typing import Tuple, Any, Dict
 
 import gymnasium as gym
 from gymnasium import spaces
 import pygame
 import numpy as np
+import time
 
 from ao_shaping.drivers import CameraStreamManager, NlightDM
+
+from ao_shaping.sim.devices import (
+    TraditionalAOSystem, AOConfig,
+)
+
 
 Far_Cam_ID = int(os.environ.get('Far_Cam_ID', '1'))
 Near_Cam_ID = int(os.environ.get('Near_Cam_ID', '0'))
 
 # TODO 添加近场图像
+
 
 class LaserCastEnv(gym.Env):
     metadata = {'render.modes': ['human', 'ansi', 'rgb_array']}
@@ -217,6 +224,326 @@ class LaserCastEnv(gym.Env):
             return self.img.copy()
 
 
+class TraditionalAOEnv(gym.Env):
+    """
+    改进版传统自适应光学仿真环境
+    
+    针对强化学习训练优化：
+    - 使用成形奖励（shaped reward）促进收敛
+    - 添加进步奖励（progress reward）
+    - 适度的动作惩罚
+    - 归一化的观测空间
+    """
+    metadata = {'render_modes': ['human', 'rgb_array']}
+
+    def __init__(self, 
+                 N: int = 64,
+                 max_steps: int = 50,
+                 n_actuators: int = 4,
+                 n_subapertures: int = 4,
+                 reward_type: str = 'shaped',
+                 Cn2: float = 1e-14,
+                 render_mode: str = None):
+        """
+        初始化TraditionalAOEnv
+        
+        参数:
+            N: 网格大小
+            max_steps: 每个episode的最大步数
+            n_actuators: 变形镜驱动器数量（每边）
+            n_subapertures: WFS子孔径数量
+            reward_type: 奖励类型 ['shaped', 'strehl', 'progress']
+            Cn2: 折射率结构常数
+            render_mode: 渲染模式
+        """
+        super(TraditionalAOEnv, self).__init__()
+        
+        self.N = N
+        self.max_steps = max_steps
+        self.n_actuators = n_actuators
+        self.n_subapertures = n_subapertures
+        self.reward_type = reward_type
+        self.Cn2 = Cn2
+        self.render_mode = render_mode
+        self.step_count = 0
+        
+        # 物理参数
+        self.L = 0.1  # 孔径尺寸 (m)
+        self.wavelength = 1550e-9  # 波长 (m)
+        self.dx = self.L / N
+        
+        # 初始化设备
+        self._init_devices()
+        
+        # 动作空间: DM电压 (归一化到[-1, 1])
+        self.action_dim = n_actuators * n_actuators
+        self.action_space = spaces.Box(
+            low=-1.0, high=1.0, 
+            shape=(self.action_dim,), 
+            dtype=np.float32
+        )
+        
+        # 观测空间: 包含历史信息的字典
+        # image: 强度图像 (N, N) -> 归一化到 [0, 1]
+        # slopes: 波前斜率 (2 * n_subapertures^2,)
+        # history: 历史观测 (history_len, 3) 包含strehl, rms, power
+        self.history_len = 8
+        self.observation_space = spaces.Dict({
+            "image": spaces.Box(
+                low=0.0, high=1.0,
+                shape=(N, N),
+                dtype=np.float32
+            ),
+            "slopes": spaces.Box(
+                low=-10.0, high=10.0,
+                shape=(2 * n_subapertures ** 2,),
+                dtype=np.float32
+            ),
+            "history": spaces.Box(
+                low=-1.0, high=2.0,
+                shape=(self.history_len, 3),
+                dtype=np.float32
+            ),
+            "voltages": spaces.Box(
+                low=-1.0, high=1.0,
+                shape=(self.action_dim,),
+                dtype=np.float32
+            )
+        })
+        
+        # 初始化状态
+        self._init_state()
+        
+        # 用于进度奖励
+        self.prev_strehl = 0.0
+        self.prev_rms = 1.0
+        self.best_strehl = 0.0
+        
+        # 渲染相关
+        self.window = None
+        self.clock = None
+    
+    def _init_devices(self):
+        """初始化仿真设备"""
+        self.config = AOConfig(
+            N=self.N,
+            L=self.L,
+            wavelength=self.wavelength,
+            Cn2=self.Cn2,
+            dm_actuators=self.n_actuators,
+            subapertures=self.n_subapertures,
+            propagation_distance=1000.0
+        )
+        self.ao_system = TraditionalAOSystem(self.config)
+
+    def _init_state(self):
+        """初始化状态"""
+        self.step_count = 0
+        self.history = np.zeros((self.history_len, 3), dtype=np.float32)
+        self.current_voltages = np.zeros(self.action_dim, dtype=np.float32)
+        self._reset_sim()
 
     
+    def _reset_sim(self):
+        """使用仿真模块重置"""
+        result = self.ao_system.reset()
+        self.current_image = result['image'].astype(np.float32) / 65535.0
+        self.current_slopes = result['slopes'].astype(np.float32)
+        self.prev_strehl = result['strehl']
+        self.prev_rms = np.sqrt(np.mean(self.ao_system.turbulence.phase_screen**2))
+        self.best_strehl = self.prev_strehl
     
+    def reset(self, seed=None, options=None):
+        """重置环境"""
+        super().reset(seed=seed)
+        if seed is not None:
+            np.random.seed(seed)
+        
+        self._init_state()
+        
+        return self._get_obs(), self._get_info()
+    
+    def step(self, action: np.ndarray):
+        """执行一步"""
+        if self.step_count >= self.max_steps:
+            return self._get_obs(), 0.0, True, False, self._get_info()
+        
+        self.step_count += 1
+        
+        # 应用动作 (带平滑)
+        action = np.clip(action, -1, 1)
+        self.current_voltages = action.copy()
+        self._step_sim(action)
+
+        # 计算奖励
+        reward = self._calculate_reward()
+        
+        # 更新历史
+        self._update_history()
+        
+        # 检查终止条件
+        done = self.step_count >= self.max_steps
+        
+        return self._get_obs(), reward, done, False, self._get_info()
+    
+    def _step_sim(self, action):
+        """使用仿真模块执行一步"""
+        result = self.ao_system.step(action)
+        self.current_image = result['image'].astype(np.float32) / 65535.0
+        self.current_slopes = result['slopes'].astype(np.float32)
+        # 保存从step返回的性能指标
+        self.current_strehl = result['strehl']
+        self.current_power = result['power']
+    
+    def _calculate_reward(self) -> float:
+        """计算奖励 - 改进版，解决收敛问题"""
+        # 获取当前性能
+        
+        # 使用湍流相位屏计算，不使用不存在的E_corrected
+        phase = self.ao_system.turbulence.phase_screen
+        strehl = np.exp(-np.std(phase)**2) if self.step_count > 0 else self.prev_strehl
+        rms = np.sqrt(np.mean(phase**2)) if self.step_count > 0 else self.prev_rms
+
+        
+        if self.reward_type == 'shaped':
+            # 成形奖励：组合多种信号
+            # 1. Strehl比奖励 (主要)
+            strehl_reward = strehl * 10.0  # 缩放到合理范围
+            
+            # 2. 进步奖励 (鼓励改善)
+            strehl_improvement = max(0, strehl - self.prev_strehl) * 20.0
+            
+            # 3. RMS奖励 (低RMS好)
+            rms_reward = (1.0 - min(rms / 2.0, 1.0)) * 5.0
+            
+            # 4. 动作正则化 (惩罚大动作)
+            action_penalty = -0.01 * np.mean(np.abs(self.current_voltages))
+            
+            # 5. 稳定性奖励 (保持好性能)
+            stability_bonus = 0.0
+            if strehl > self.best_strehl:
+                stability_bonus = (strehl - self.best_strehl) * 10.0
+                self.best_strehl = strehl
+            
+            reward = strehl_reward + strehl_improvement + rms_reward + action_penalty + stability_bonus
+            
+        elif self.reward_type == 'strehl':
+            # 仅Strehl奖励
+            reward = strehl * 10.0 + max(0, strehl - self.prev_strehl) * 5.0
+            
+        elif self.reward_type == 'progress':
+            # 进步奖励
+            reward = (strehl - self.prev_strehl) * 50.0
+        else:
+            reward = strehl * 10.0
+        
+        # 更新previous值
+        self.prev_strehl = strehl
+        self.prev_rms = rms
+        
+        return float(reward)
+    
+    def _update_history(self):
+        """更新历史记录"""
+        # 使用从step返回的性能指标
+        strehl = self.current_strehl
+        rms = np.sqrt(np.mean(self.ao_system.turbulence.phase_screen**2))
+        power = self.current_power
+
+        # 滚动历史
+        self.history = np.roll(self.history, -1, axis=0)
+        self.history[-1] = [strehl, rms, power]
+    
+    def _get_obs(self) -> Dict:
+        """获取观测"""
+        return {
+            "image": self.current_image.astype(np.float32),
+            "slopes": self.current_slopes.astype(np.float32),
+            "history": self.history.astype(np.float32),
+            "voltages": self.current_voltages.astype(np.float32)
+        }
+    
+    def _get_info(self) -> Dict:
+        """获取信息"""
+        strehl = self.prev_strehl
+        rms = np.sqrt(np.mean(self.ao_system.turbulence.phase_screen**2))
+
+        return {
+            "strehl": float(strehl),
+            "rms": float(rms),
+            "step": self.step_count,
+            "best_strehl": float(self.best_strehl)
+        }
+    
+    def render(self, mode='human'):
+        """渲染环境"""
+        if mode == 'human':
+            self._render()
+        elif mode == 'rgb_array':
+            return (self.current_image * 255).astype(np.uint8)
+    
+    def _render(self):
+        """备用渲染实现"""
+        intensity = (self.current_image * 255).astype(np.uint8)
+        
+        if not self.window:
+            pygame.init()
+            self.window = pygame.display.set_mode((self.N * 2, self.N))
+            self.clock = pygame.time.Clock()
+        
+        surf = pygame.surfarray.make_surface(intensity)
+        self.window.blit(surf, (0, 0))
+        
+        # 绘制信息
+        font = pygame.font.Font(None, 24)
+        info = self._get_info()
+        info_text = f"Step: {info['step']}, Strehl: {info['strehl']:.3f}, RMS: {info['rms']:.4f}"
+        text_surf = font.render(info_text, True, (255, 255, 255))
+        self.window.blit(text_surf, (10, 10))
+        
+        pygame.display.flip()
+        self.clock.tick(30)
+    
+    def close(self):
+        """关闭环境"""
+        if self.window:
+            pygame.quit()
+            self.window = None
+
+
+# ================== 6. 测试运行 ==================
+if __name__ == "__main__":
+    # 测试TraditionalAOEnv
+    print("测试TraditionalAOEnv...")
+    
+    env = TraditionalAOEnv(
+        N=64,
+        max_steps=20,
+        n_actuators=4,
+        n_subapertures=4,
+        reward_type='shaped',
+        seed=42
+    )
+    
+    print(f"动作空间形状: {env.action_space.shape}")
+    print(f"观测空间: {env.observation_space}")
+    
+    obs, info = env.reset()
+    print(f"初始Strehl比: {info['strehl']:.4f}")
+    print(f"初始RMS: {info['rms']:.6f}")
+    
+    total_reward = 0
+    for i in range(50):
+        action = env.action_space.sample()
+        obs, reward, done, truncated, info = env.step(action)
+        total_reward += reward
+        
+        if i % 10 == 0:
+            print(f"Step {i}, Reward: {reward:.3f}, Strehl: {info['strehl']:.4f}, RMS: {info['rms']:.6f}")
+        
+        if done:
+            print(f"--- Episode End. Total Reward: {total_reward:.3f} ---")
+            break
+    
+    env.close()
+    print("测试完成!")

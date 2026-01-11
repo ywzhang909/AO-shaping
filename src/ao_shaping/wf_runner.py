@@ -1,4 +1,5 @@
 import click
+import re
 import coredumpy
 from pathlib import Path
 from datetime import datetime
@@ -10,23 +11,40 @@ from ao_shaping.utils import gen_date_dir, gen_file_path_uuid, logger
 from ao_shaping.optimizer.wf.rms import optimizer_rms
 from ao_shaping.utils.display import plot_funcs
 
+def parse_tuple(ctx, param, value):
+    """解析元组格式的参数，支持 'x,y' 或 '(x,y)' 格式"""
+    # 移除空格和括号
+    s_clean = re.sub(r'[()\s]', '', str(value))
+    try:
+        parts = s_clean.split(',')
+        if len(parts) != 2:
+            raise ValueError("Must have exactly two integers")
+        x, y = map(int, parts)
+        return (x, y)
+    except Exception:
+        raise click.BadParameter(
+            f"Invalid center format: {value}. Expected formats: 'x,y' or '(x,y)'"
+        )
+
 
 @click.command()
 @click.option("-d", "--dir", default="data", help="数据保存根目录 (default: data)")
 @click.option("-e", "--epochs", default=20_000, help="优化迭代次数 (default: 20000)")
 @click.option("-r", "--wfs_res", default='768', help="WFS分辨率 (default: 768)")
 @click.option("-p", "--pupil_diameter", default=2.7, help="瞳孔直径 (default: 2.7)")
+@click.option("-c", "--pupil_center", callback=parse_tuple, default="(0,0)", help="瞳孔中心坐标 (default: (0,0))")
 @click.option("-t", "--early_stop_threshold", default=0.0, help="早停阈值 (default: 0.0)")
 @click.option("--debug", is_flag=True, help="是否开启调试模式 (default: False)")
 @click.option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)")
-def run(dir, epochs, wfs_res, pupil_diameter, early_stop_threshold, debug, show):
+def run(dir, epochs, wfs_res, pupil_diameter, pupil_center, early_stop_threshold, debug, show):
     """波前优化器"""
     init_V = [0 for _ in range(64)]
     records = optimizer_rms(
-        init_v=init_V.copy(),
+        init_v=init_V,
         epochs=epochs,
         wfs_res=wfs_res,
         pupil_diameter=pupil_diameter,
+        pupil_center=pupil_center,
         early_stop_threshold=early_stop_threshold,
     )
     root_dir = Path(dir)

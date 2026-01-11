@@ -1,16 +1,19 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import pytest
 
 from ao_shaping.utils.spots_calc import centroid
 from ao_shaping.drivers import CameraStreamManager
 
+@pytest.mark.experiment
 def test_cam_list():
         cam_list = CameraStreamManager.get_cam_list()
         for cam in cam_list:
             print(cam)
-    
+
+@pytest.mark.experiment
 def test_cam(cam_id=0):
-    
+
     with CameraStreamManager(cam_id, exposure_time_ms=500) as cam:
         exp_times = list(range(1, 51, 10))
         # center = np.unravel_index(np.argmax(img), img.shape)
@@ -24,6 +27,7 @@ def test_cam(cam_id=0):
         plt.colorbar(im, ax=ax_list, orientation='horizontal')
         plt.show()
 
+@pytest.mark.experiment
 def test_autoset_exposure_time(cam_id=0):
     """
     测试自动设置曝光时间功能
