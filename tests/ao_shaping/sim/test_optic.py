@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')  # 使用非交互式后端
 import matplotlib.pyplot as plt
+import pytest
 
 from ao_shaping.sim.devices import VectorWaveOpticsSim
 
@@ -21,6 +22,7 @@ def create_gaussian_field(N, L, w0):
     return Ex, Ey
 
 
+@pytest.mark.sim
 def test_vector_ao_correction():
     """测试矢量AO校正仿真"""
     N = 64
@@ -88,8 +90,6 @@ def test_vector_ao_correction():
     assert Ex_final.shape == (N, N), f"光场形状错误: {Ex_final.shape}"
     # 校正后与理想波前的匹配度应该提高
     assert overlap_after >= overlap_before * 0.5, f"校正效果不明显: {overlap_before} -> {overlap_after}"
-    
-    return True
 
 
 if __name__ == "__main__":

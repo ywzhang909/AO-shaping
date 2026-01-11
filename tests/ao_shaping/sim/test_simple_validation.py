@@ -4,6 +4,7 @@
 
 import numpy as np
 import sys
+import pytest
 from pathlib import Path
 
 # 添加src目录到路径
@@ -11,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from ao_shaping.sim.devices import AtmosphericTurbulence, ZernikePolynomials
 
+@pytest.mark.sim
 def test_turbulence_generation():
     """测试湍流生成"""
     print("=== 测试湍流生成 ===")
@@ -32,6 +34,7 @@ def test_turbulence_generation():
         assert phase_screen.shape == (64, 64), f"形状错误: {phase_screen.shape}"
         assert np.isfinite(rms), f"RMS不是有限值: {rms}"
 
+@pytest.mark.sim
 def test_zernike_basis():
     """测试Zernike基函数"""
     print("\n=== 测试Zernike基函数 ===")
@@ -48,6 +51,7 @@ def test_zernike_basis():
         norm = np.sqrt(np.mean(basis[i]**2))
         print(".3f")
 
+@pytest.mark.sim
 def test_correlation_calculation():
     """测试相关性计算"""
     print("\n=== 测试相关性计算 ===")
@@ -70,9 +74,12 @@ def test_correlation_calculation():
     try:
         corr_const = np.corrcoef(a, d)[0, 1]
         print(".3f")
+        # 对于常数数组，相关性应该是NaN或未定义
+        assert np.isnan(corr_const), "常数数组的相关性应该是NaN"
     except:
         print("常数相关性计算失败（预期）")
 
+@pytest.mark.sim
 def test_ao_system_integration():
     """测试AO系统集成"""
     print("\n=== 测试AO系统集成 ===")

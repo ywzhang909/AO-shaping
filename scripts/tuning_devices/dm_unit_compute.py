@@ -11,6 +11,7 @@ from contextlib import contextmanager
 
 from ao_shaping.drivers import Thorlab_WFS, MlaRes, NlightDM
 from ao_shaping.utils import get_init_V_by_rms, get_init_V_by_energy
+from ao_shaping.sim.zernike import Zernike
 
 def normalize_01(matrix):
     """
@@ -86,20 +87,41 @@ def calculate_derotation(x_actual, y_actual, theta):
     
     return x_derotated, y_derotated
 
-def get_zernike_base_matrixs(folder_path = 'scripts/tuning_devices/stdWavefront'):
-    # 获取所有txt文件
-    txt_files = list(Path(folder_path).glob('*.txt'))
-    print(f"找到 {len(txt_files)} 个文件")
-    
-    # 一次性读取所有文件到一个三维数组中
-    num_files = len(txt_files)  # 最多处理64个文件
-    wavefront_matrices = np.zeros((num_files, 360, 360))
-    # 读取所有文件
-    for i in range(num_files):
-        data = np.loadtxt(txt_files[i])
-        wavefront_matrices[i] = data.reshape(360, 360)
-        
-    return wavefront_matrices
+def get_zernike_base_matrixs(folder_path: str = 'scripts/tuning_devices/stdWavefront',
+                           n_max: int = 10, N: int = 360) -> np.ndarray:
+    """
+    获取Zernike基函数矩阵
+
+    参数:
+        folder_path: 缓存文件路径
+        n_max: 最大径向阶数
+        N: 网格点数
+
+    返回:
+        wavefront_matrices: shape为(num_modes, N, N)的Zernike基函数
+    """
+    try:
+        # 尝试从文件加载
+        txt_files = list(Path(folder_path).glob('*.txt'))
+        print(f"找到 {len(txt_files)} 个缓存文件")
+
+        num_files = len(txt_files)
+        wavefront_matrices = np.zeros((num_files, N, N))
+
+        for i, txt_file in enumerate(sorted(txt_files)):
+            data = np.loadtxt(txt_file)
+            if data.size == N * N:
+                wavefront_matrices[i] = data.reshape(N, N)
+            else:
+                raise ValueError(f"文件 {txt_file} 尺寸不匹配")
+
+        return wavefront_matrices
+
+    except Exception as e:
+        print(f"加载缓存失败: {e}，使用Zernike类生成")
+        # 使用Zernike类生成
+        zernike_obj = Zernike(n_max=n_max, N=N, L=2.0)  # 范围[-1,1]对应L=2.0
+        return zernike_obj.basis
 
 def to_color(matrix, max_val=1):   
         # 将矩阵转换为RGB图像（归一化到0-255范围）
@@ -108,6 +130,8 @@ def to_color(matrix, max_val=1):
         return rgb_matrix
 
 class ZernikeCentroidCalculator:
+    """Zernike质心计算器"""
+
     # 计算100mm×100mm对应的像素尺寸  —（233，220）  （237，223）
     mm_size = 100  # 实际尺寸(mm)
     resolution_for_70mm = 360  # 70mm对应的像素数
@@ -115,13 +139,21 @@ class ZernikeCentroidCalculator:
     pixel_per_mm = resolution_for_70mm / 70  # 每毫米的像素数
     pixel_size = int(round(mm_size * pixel_per_mm))  # 100mm对应的像素数
     mm_per_pixel = 1 / pixel_per_mm  # 每像素对应的毫米数 (约0.1944mm/像素)
-    
-    # print(f"像素尺寸: {pixel_size}x{pixel_size}")
-    # print(f"每像素毫米数: {mm_per_pixel:.4f} mm/pixel")
-    def __init__(self, folder_path = 'scripts/tuning_devices/stdWavefront', black_level=0.0):
-        self.wavefront_matrices = get_zernike_base_matrixs(folder_path)
+
+    def __init__(self, folder_path: str = 'scripts/tuning_devices/stdWavefront',
+                 black_level: float = 0.0, n_max: int = 10):
+        """
+        初始化Zernike质心计算器
+
+        参数:
+            folder_path: Zernike基函数文件路径
+            black_level: 黑电平
+            n_max: 最大径向阶数
+        """
+        self.wavefront_matrices = get_zernike_base_matrixs(folder_path, n_max, self.resolution_for_70mm)
         self.num_files = self.wavefront_matrices.shape[0]
         self.black_level = black_level
+        self.n_max = n_max
         
     def get_centroid(self, zernike_coef):
         """

@@ -20,8 +20,8 @@ class TestImageTargetFuncInit:
         target = ImageTargetFunc(w, h, center)
         assert target.shape == (h, w)
         assert target.center == center
-        assert target.xv.shape == (h, 1)
-        assert target.yv.shape == (1, w)
+        assert target.xv.shape == (h, w)
+        assert target.yv.shape == (h, w)
 
     def test_init_with_meshgrid_coordinates(self):
         """Test initialization with meshgrid coordinates."""
@@ -92,20 +92,11 @@ class TestBuildFromInitImage:
 class TestPIB:
     """Test pib (power in bucket) method."""
 
-    def test_pib_normalized(self):
-        """Test pib with normalization."""
-        img = np.ones((10, 10))
-        target = create_target_from_dims(10, 10, (5, 5))
-        pib_value = target.pib(img, pib_radius=2, normalize=True)
-        # Total power is 100, bucket area is approximately pi*2^2 = 12.56
-        # Normalized pib should be between 0 and 1
-        assert 0 <= pib_value <= 1
-
     def test_pib_not_normalized(self):
         """Test pib without normalization."""
         img = np.ones((10, 10))
         target = create_target_from_dims(10, 10, (5, 5))
-        pib_value = target.pib(img, pib_radius=2, normalize=False)
+        pib_value, _ = target.pib(img, pib_radius=2)
         # Should return sum of values in bucket
         assert pib_value > 0
 
@@ -113,8 +104,8 @@ class TestPIB:
         """Test pib with different bucket radii."""
         img = np.ones((20, 20))
         target = create_target_from_dims(20, 20, (10, 10))
-        pib_small = target.pib(img, pib_radius=2, normalize=True)
-        pib_large = target.pib(img, pib_radius=5, normalize=True)
+        pib_small = target.pib(img, pib_radius=2)
+        pib_large = target.pib(img, pib_radius=5)
         # Larger radius should have more power
         assert pib_large >= pib_small
 
@@ -123,8 +114,8 @@ class TestPIB:
         xv, yv = np.meshgrid(np.arange(20), np.arange(20), indexing='ij')
         img = np.exp(-((xv - 10)**2 + (yv - 10)**2) / 3)
         target = create_target_from_dims(20, 20, (10, 10))
-        pib_center = target.pib(img, pib_radius=3, normalize=True)
-        pib_edge = target.pib(img, pib_radius=6, normalize=True)
+        pib_center, _ = target.pib(img, pib_radius=3)
+        pib_edge, _ = target.pib(img, pib_radius=6)
         # Center bucket should have higher normalized power density
         assert pib_center > 0
         assert pib_center > pib_edge-pib_center

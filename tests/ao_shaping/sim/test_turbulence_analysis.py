@@ -6,6 +6,7 @@
 
 import numpy as np
 import sys
+import pytest
 from pathlib import Path
 
 # 添加src目录到路径
@@ -15,6 +16,7 @@ from ao_shaping.sim.devices import AOConfig, TraditionalAOSystem
 from ao_shaping.utils.spots_calc import centroid, effective_radius, calculate_sharpness, power_bucket, make_coord
 
 
+@pytest.mark.sim
 def analyze_turbulence_effects():
     """分析不同湍流强度对AO系统的影响"""
 
@@ -86,6 +88,7 @@ def analyze_turbulence_effects():
     return results
 
 
+@pytest.mark.sim
 def analyze_zernike_reconstruction():
     """分析Zernike相位重建的一致性"""
 

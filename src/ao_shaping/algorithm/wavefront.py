@@ -4,15 +4,20 @@ from numpy.linalg import svd, lstsq
 
 import matplotlib.pyplot as plt
 from scipy.sparse import coo_matrix
+from ..sim.zernike import Zernike
 
 def zernike_piston_tilt(N):
     """返回 piston+x tilt+y tilt 的 3 个正交基，形状 (3,(N+1)**2)"""
-    x = np.linspace(-1,1,N+1)
-    X,Y = np.meshgrid(x,x)
-    Z0 = np.ones_like(X).ravel() / np.sqrt((N+1)**2)          # piston
-    Z1 = X.ravel() / np.sqrt(np.sum(X*X))                     # x-tilt
-    Z2 = Y.ravel() / np.sqrt(np.sum(Y*Y))                     # y-tilt
-    return np.vstack([Z0,Z1,Z2])                              # 3×K
+    # 使用新的Zernike类
+    zernike_obj = Zernike(n_max=1, N=N+1, L=2.0)  # N+1点，范围[-1,1]对应L=2.0
+    basis = zernike_obj.piston_tilt_basis()
+
+    # 转换为行向量格式
+    Z0 = basis[0].ravel() / np.sqrt(np.sum(basis[0]**2))  # piston
+    Z1 = basis[1].ravel() / np.sqrt(np.sum(basis[1]**2))  # x-tilt
+    Z2 = basis[2].ravel() / np.sqrt(np.sum(basis[2]**2))  # y-tilt
+
+    return np.vstack([Z0, Z1, Z2])  # 3×K
 
 def build_D_vectorized(N):
     """向量化构造稀疏差分矩阵 D，形状 (2*N*N, (N+1)*(N+1))"""
