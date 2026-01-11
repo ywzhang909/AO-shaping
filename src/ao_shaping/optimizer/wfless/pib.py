@@ -71,6 +71,7 @@ def optimize_pib(
     dm_neibor_diff=200,
     dm_max_voltage=None,
     dm_min_voltage=None,
+    callback=None,
     **kwargs
 ):
     """优化PIB（Power in Bucket）
@@ -290,9 +291,31 @@ def optimize_pib(
                     "_opt_m": optimizer.m
                 }
                 recorder.append(log)
+                
+                # 调用回调函数（如果提供）
+                if callback is not None:
+                    callback(epoch, epochs, _init_v)
+                
+                # earlying schedule
+                if epoch % update_iter == update_iter - 1 and log['J'] > 0:
+                    init_r = max(init_r * shrink_ratio, 5)
+
+                if (shrink_iter > 0 and epoch % shrink_iter == shrink_iter - 1 and avg_pib_ratio > 0.1) or avg_pib_ratio > 0.5:
+                    power_radio = radius(pos_img, center='origin', energy=0.9)
+                    _pr = power_radio * shrink_ratio
+                    r_bucket = min(r_bucket, _pr, init_r)
+                    if not lr:
+                        optimizer.lr, delta = learning_schedule(epoch, power_radio)
+                    # delta = max(delta * shrink_ratio, 0.6)
+                    # optimizer.lr = max(lr * shrink_ratio, 0.8)
+                if show:
+                    if not window.render(
+                        pos_img, _init_v, dm.V_Min, dm.V_Max, center, r_bucket, f"{epoch}: PIB={log['pib']:.3f}"
+                    ):
+                        break
+                
                 bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
                 bar.update(1)
         if show:
             window.close()
         return recorder
-

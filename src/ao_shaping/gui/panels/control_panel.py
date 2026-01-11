@@ -1,230 +1,302 @@
-"""
-AO系统控制面板
-
-提供DM电压手动控制和仿真操作按钮
-"""
-
-import numpy as np
-from typing import List
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout,
-    QSlider, QLabel, QPushButton, QScrollArea, QFrame,
-    QDoubleSpinBox
+    QWidget, QVBoxLayout, QGroupBox, QFormLayout, QPushButton,
+    QComboBox, QSpinBox, QDoubleSpinBox, QCheckBox, QLineEdit, QLabel, QTabWidget
 )
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtCore import Signal
 
 
 class ControlPanel(QWidget):
-    """
-    控制面板
-
-    提供DM电压控制和仿真操作
-    """
-
-    # 信号
-    reset_requested = Signal()
-    step_requested = Signal()
-    voltages_changed = Signal(list)  # voltages: List[float]
-
-    def __init__(self):
-        super().__init__()
-        self.num_actuators = 8  # 默认值
-        self.voltage_sliders: List[QSlider] = []
-        self.voltage_spins: List[QDoubleSpinBox] = []
-        self.voltage_labels: List[QLabel] = []
-
+    """控制面板类"""
+    
+    startRequested = Signal()
+    stopRequested = Signal()
+    resetRequested = Signal()
+    
+    def __init__(self, simulation_manager, parent=None):
+        super().__init__(parent)
+        self.simulation_manager = simulation_manager
         self.init_ui()
-
+        
     def init_ui(self):
-        """初始化界面"""
+        """初始化用户界面"""
         layout = QVBoxLayout(self)
-
-        # DM控制组
-        dm_group = self.create_dm_control_group()
-        layout.addWidget(dm_group)
-
-        # 操作按钮组
-        operation_group = self.create_operation_group()
-        layout.addWidget(operation_group)
-
-        layout.addStretch()
-
-    def create_dm_control_group(self) -> QGroupBox:
-        """创建DM控制组"""
-        group = QGroupBox("DM电压控制")
-        layout = QVBoxLayout(group)
-
-        # 创建滚动区域
-        scroll_area = QScrollArea()
-        scroll_widget = QWidget()
-        self.dm_layout = QFormLayout(scroll_widget)
-
-        scroll_area.setWidget(scroll_widget)
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setMinimumHeight(300)
-
-        layout.addWidget(scroll_area)
-
-        # 批量控制按钮
-        batch_layout = QHBoxLayout()
-
-        zero_all_btn = QPushButton("全部置零")
-        zero_all_btn.clicked.connect(self.zero_all_voltages)
-        batch_layout.addWidget(zero_all_btn)
-
-        randomize_btn = QPushButton("随机化")
-        randomize_btn.clicked.connect(self.randomize_voltages)
-        batch_layout.addWidget(randomize_btn)
-
-        layout.addLayout(batch_layout)
-
-        return group
-
-    def create_operation_group(self) -> QGroupBox:
-        """创建操作按钮组"""
-        group = QGroupBox("仿真操作")
-        layout = QVBoxLayout(group)
-
-        # 重置按钮
-        reset_btn = QPushButton("重置系统")
-        reset_btn.clicked.connect(self.reset_requested.emit)
-        layout.addWidget(reset_btn)
-
-        # 单步执行按钮
-        step_btn = QPushButton("单步执行")
-        step_btn.clicked.connect(self.step_requested.emit)
-        layout.addWidget(step_btn)
-
-        # 分隔线
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Sunken)
-        layout.addWidget(line)
-
-        # 自动运行控制（预留）
-        auto_label = QLabel("自动运行功能待实现")
-        auto_label.setStyleSheet("color: gray; font-style: italic;")
-        layout.addWidget(auto_label)
-
-        layout.addStretch()
-
-        return group
-
-    def set_num_actuators(self, num_actuators: int):
-        """设置致动器数量"""
-        if num_actuators == self.num_actuators:
-            return
-
-        self.num_actuators = num_actuators
-        self.update_dm_controls()
-
-    def update_dm_controls(self):
-        """更新DM控制控件"""
-        # 清除现有控件
-        for slider in self.voltage_sliders:
-            slider.deleteLater()
-        for spin in self.voltage_spins:
-            spin.deleteLater()
-        for label in self.voltage_labels:
-            label.deleteLater()
-
-        self.voltage_sliders.clear()
-        self.voltage_spins.clear()
-        self.voltage_labels.clear()
-
-        # 重新创建控件
-        for i in range(self.num_actuators):
-            self.create_actuator_control(i)
-
-        # 发出初始电压变化信号（全部为0）
-        self.emit_voltages_changed()
-
-    def create_actuator_control(self, index: int):
-        """创建单个致动器控制"""
-        # 创建水平布局
-        control_widget = QWidget()
-        control_layout = QHBoxLayout(control_widget)
-        control_layout.setContentsMargins(0, 0, 0, 0)
-
-        # 标签
-        label = QLabel(f"Act {index+1}:")
-        label.setMinimumWidth(60)
-        control_layout.addWidget(label)
-        self.voltage_labels.append(label)
-
-        # 滑块
-        slider = QSlider(Qt.Horizontal)
-        slider.setRange(-100, 100)  # -1.0 到 1.0，对应电压范围
-        slider.setValue(0)
-        slider.setMinimumWidth(100)
-        slider.valueChanged.connect(lambda v, idx=index: self.on_slider_changed(idx, v))
-        control_layout.addWidget(slider)
-        self.voltage_sliders.append(slider)
-
-        # 数值输入框
-        spin = QDoubleSpinBox()
-        spin.setRange(-1.0, 1.0)
-        spin.setSingleStep(0.01)
-        spin.setDecimals(3)
-        spin.setValue(0.0)
-        spin.setMaximumWidth(80)
-        spin.valueChanged.connect(lambda v, idx=index: self.on_spin_changed(idx, v))
-        control_layout.addWidget(spin)
-        self.voltage_spins.append(spin)
-
-        # 添加到布局
-        self.dm_layout.addRow(control_widget)
-
-    def on_slider_changed(self, index: int, value: int):
-        """滑块值变化处理"""
-        voltage = value / 100.0  # 转换为 -1.0 到 1.0
-        self.voltage_spins[index].blockSignals(True)
-        self.voltage_spins[index].setValue(voltage)
-        self.voltage_spins[index].blockSignals(False)
-        self.emit_voltages_changed()
-
-    def on_spin_changed(self, index: int, voltage: float):
-        """数值输入框变化处理"""
-        slider_value = int(voltage * 100)  # 转换为 -100 到 100
-        self.voltage_sliders[index].blockSignals(True)
-        self.voltage_sliders[index].setValue(slider_value)
-        self.voltage_sliders[index].blockSignals(False)
-        self.emit_voltages_changed()
-
-    def emit_voltages_changed(self):
-        """发出电压变化信号"""
-        voltages = [spin.value() for spin in self.voltage_spins]
-        self.voltages_changed.emit(voltages)
-
-    def zero_all_voltages(self):
-        """将所有电压置零"""
-        for slider in self.voltage_sliders:
-            slider.setValue(0)
-        # emit_voltages_changed 会在滑块变化时自动调用
-
-    def randomize_voltages(self):
-        """随机化所有电压"""
-        for slider in self.voltage_sliders:
-            random_value = np.random.randint(-50, 51)  # -0.5 到 0.5
-            slider.setValue(random_value)
-        # emit_voltages_changed 会在滑块变化时自动调用
-
-    def get_voltages(self) -> List[float]:
-        """获取当前电压值"""
-        return [spin.value() for spin in self.voltage_spins]
-
-    def set_voltages(self, voltages: List[float]):
-        """设置电压值"""
-        if len(voltages) != len(self.voltage_spins):
-            return
-
-        for i, voltage in enumerate(voltages):
-            self.voltage_spins[i].blockSignals(True)
-            self.voltage_sliders[i].blockSignals(True)
-
-            self.voltage_spins[i].setValue(voltage)
-            self.voltage_sliders[i].setValue(int(voltage * 100))
-
-            self.voltage_spins[i].blockSignals(False)
-            self.voltage_sliders[i].blockSignals(False)</content>
-</xai:function_call">控制面板已创建。现在创建结果显示面板，它需要集成图像显示和波前显示，并显示数值指标。让我创建results_panel.py文件。
+        
+        # 创建标题
+        title_label = QLabel('控制面板')
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
+        layout.addWidget(title_label)
+        
+        # 创建选项卡控件
+        tab_widget = QTabWidget()
+        layout.addWidget(tab_widget)
+        
+        # 算法设置选项卡
+        algorithm_tab = QWidget()
+        algorithm_layout = QVBoxLayout(algorithm_tab)
+        
+        # 创建算法选择组
+        algorithm_group = QGroupBox("算法选择")
+        algorithm_form = QFormLayout(algorithm_group)
+        
+        self.algorithm_combo = QComboBox()
+        self.algorithm_combo.addItems([
+            "波前优化 (wf)",
+            "轴向光束优化 (pib)",
+            "组合优化 (combine)",
+            "贝叶斯优化 (bayes-opt)",
+            "启发式搜索 (heuristic)"
+        ])
+        algorithm_form.addRow("算法:", self.algorithm_combo)
+        
+        self.method_combo = QComboBox()
+        self.method_combo.addItems(["pso", "ga", "sa", "de"])
+        self.method_combo.setCurrentText("pso")
+        algorithm_form.addRow("启发式方法:", self.method_combo)
+        
+        algorithm_layout.addWidget(algorithm_group)
+        
+        # 创建参数设置组
+        params_group = QGroupBox("参数设置")
+        params_form = QFormLayout(params_group)
+        
+        # 通用参数
+        self.epochs_spin = QSpinBox()
+        self.epochs_spin.setRange(1, 100000)
+        self.epochs_spin.setValue(20000)
+        params_form.addRow("迭代次数:", self.epochs_spin)
+        
+        self.debug_checkbox = QCheckBox("调试模式")
+        params_form.addRow("调试:", self.debug_checkbox)
+        
+        # 实时优化选项
+        self.realtime_optimization_checkbox = QCheckBox("实时PIB优化模式")
+        self.realtime_optimization_checkbox.setChecked(True)  # 默认启用
+        params_form.addRow("实时优化:", self.realtime_optimization_checkbox)
+        
+        # 波前优化参数
+        self.wfs_res_combo = QComboBox()
+        self.wfs_res_combo.addItems(["768", "512"])
+        self.wfs_res_combo.setCurrentText("768")
+        params_form.addRow("WFS分辨率:", self.wfs_res_combo)
+        
+        self.pupil_diameter_spin = QDoubleSpinBox()
+        self.pupil_diameter_spin.setRange(0.1, 10.0)
+        self.pupil_diameter_spin.setValue(2.7)
+        self.pupil_diameter_spin.setSingleStep(0.1)
+        params_form.addRow("瞳孔直径:", self.pupil_diameter_spin)
+        
+        self.early_stop_threshold_spin = QDoubleSpinBox()
+        self.early_stop_threshold_spin.setRange(0.0, 1.0)
+        self.early_stop_threshold_spin.setValue(0.0)
+        self.early_stop_threshold_spin.setSingleStep(0.01)
+        params_form.addRow("早停阈值:", self.early_stop_threshold_spin)
+        
+        algorithm_layout.addWidget(params_group)
+        tab_widget.addTab(algorithm_tab, "算法设置")
+        
+        # CCD设置选项卡
+        ccd_tab = QWidget()
+        ccd_layout = QVBoxLayout(ccd_tab)
+        
+        ccd_group = QGroupBox("CCD相机设置")
+        ccd_form = QFormLayout(ccd_group)
+        
+        self.cam_id_spin = QSpinBox()
+        self.cam_id_spin.setRange(0, 10)
+        self.cam_id_spin.setValue(0)
+        ccd_form.addRow("相机ID:", self.cam_id_spin)
+        
+        self.exposure_time_spin = QSpinBox()
+        self.exposure_time_spin.setRange(1, 10000)
+        self.exposure_time_spin.setValue(60)
+        ccd_form.addRow("曝光时间(ms):", self.exposure_time_spin)
+        
+        self.cam_size_spin = QSpinBox()
+        self.cam_size_spin.setRange(50, 1000)
+        self.cam_size_spin.setValue(200)
+        ccd_form.addRow("相机窗口大小:", self.cam_size_spin)
+        
+        self.target_max_brightness_spin = QSpinBox()
+        self.target_max_brightness_spin.setRange(0, 255)
+        self.target_max_brightness_spin.setValue(90)
+        ccd_form.addRow("目标最大亮度:", self.target_max_brightness_spin)
+        
+        ccd_layout.addWidget(ccd_group)
+        tab_widget.addTab(ccd_tab, "CCD设置")
+        
+        # 变形镜设置选项卡
+        dm_tab = QWidget()
+        dm_layout = QVBoxLayout(dm_tab)
+        
+        dm_group = QGroupBox("变形镜设置")
+        dm_form = QFormLayout(dm_group)
+        
+        self.delta_spin = QDoubleSpinBox()
+        self.delta_spin.setRange(0.1, 10.0)
+        self.delta_spin.setValue(2.0)
+        self.delta_spin.setSingleStep(0.1)
+        dm_form.addRow("步长(delta):", self.delta_spin)
+        
+        self.lr_spin = QDoubleSpinBox()
+        self.lr_spin.setRange(0.0, 10.0)
+        self.lr_spin.setValue(0.0)
+        self.lr_spin.setSingleStep(0.1)
+        dm_form.addRow("学习率(lr):", self.lr_spin)
+        
+        self.weight_decay_spin = QDoubleSpinBox()
+        self.weight_decay_spin.setRange(0.0, 1.0)
+        self.weight_decay_spin.setValue(0.0)
+        self.weight_decay_spin.setSingleStep(0.01)
+        dm_form.addRow("权重衰减:", self.weight_decay_spin)
+        
+        self.shrink_iter_spin = QSpinBox()
+        self.shrink_iter_spin.setRange(0, 10000)
+        self.shrink_iter_spin.setValue(300)
+        dm_form.addRow("收缩迭代:", self.shrink_iter_spin)
+        
+        self.shrink_ratio_spin = QDoubleSpinBox()
+        self.shrink_ratio_spin.setRange(0.1, 1.0)
+        self.shrink_ratio_spin.setValue(0.8)
+        self.shrink_ratio_spin.setSingleStep(0.1)
+        dm_form.addRow("收缩比率:", self.shrink_ratio_spin)
+        
+        self.dm_unit_mask_combo = QComboBox()
+        self.dm_unit_mask_combo.addItems(["all", "inner", "outer"])
+        self.dm_unit_mask_combo.setCurrentText("all")
+        dm_form.addRow("单元掩码:", self.dm_unit_mask_combo)
+        
+        dm_layout.addWidget(dm_group)
+        tab_widget.addTab(dm_tab, "变形镜设置")
+        
+        # 优化器设置选项卡
+        optimizer_tab = QWidget()
+        optimizer_layout = QVBoxLayout(optimizer_tab)
+        
+        optimizer_group = QGroupBox("优化器设置")
+        optimizer_form = QFormLayout(optimizer_group)
+        
+        self.r_bucket_spin = QDoubleSpinBox()
+        self.r_bucket_spin.setRange(0, 100)
+        self.r_bucket_spin.setValue(0)
+        self.r_bucket_spin.setSingleStep(0.1)
+        optimizer_form.addRow("半径桶大小:", self.r_bucket_spin)
+        
+        self.center_combo = QComboBox()
+        self.center_combo.addItems(["mass", "max", "shape"])
+        self.center_combo.setCurrentText("mass")
+        optimizer_form.addRow("中心位置:", self.center_combo)
+        
+        optimizer_layout.addWidget(optimizer_group)
+        tab_widget.addTab(optimizer_tab, "优化器设置")
+        
+        # 贝叶斯优化设置选项卡
+        bayes_tab = QWidget()
+        bayes_layout = QVBoxLayout(bayes_tab)
+        
+        bayes_group = QGroupBox("贝叶斯优化设置")
+        bayes_form = QFormLayout(bayes_group)
+        
+        self.n_calls_spin = QSpinBox()
+        self.n_calls_spin.setRange(1, 1000)
+        self.n_calls_spin.setValue(30)
+        bayes_form.addRow("调用次数:", self.n_calls_spin)
+        
+        self.lr_min_spin = QDoubleSpinBox()
+        self.lr_min_spin.setRange(0.01, 10.0)
+        self.lr_min_spin.setValue(0.1)
+        self.lr_min_spin.setSingleStep(0.1)
+        bayes_form.addRow("学习率最小值:", self.lr_min_spin)
+        
+        self.lr_max_spin = QDoubleSpinBox()
+        self.lr_max_spin.setRange(0.01, 10.0)
+        self.lr_max_spin.setValue(5.0)
+        self.lr_max_spin.setSingleStep(0.1)
+        bayes_form.addRow("学习率最大值:", self.lr_max_spin)
+        
+        self.delta_min_spin = QDoubleSpinBox()
+        self.delta_min_spin.setRange(0.01, 10.0)
+        self.delta_min_spin.setValue(0.1)
+        self.delta_min_spin.setSingleStep(0.1)
+        bayes_form.addRow("Delta最小值:", self.delta_min_spin)
+        
+        self.delta_max_spin = QDoubleSpinBox()
+        self.delta_max_spin.setRange(0.01, 10.0)
+        self.delta_max_spin.setValue(5.0)
+        self.delta_max_spin.setSingleStep(0.1)
+        bayes_form.addRow("Delta最大值:", self.delta_max_spin)
+        
+        self.method_type_combo = QComboBox()
+        self.method_type_combo.addItems(["bayes", "grid"])
+        self.method_type_combo.setCurrentText("bayes")
+        bayes_form.addRow("优化方法:", self.method_type_combo)
+        
+        bayes_layout.addWidget(bayes_group)
+        tab_widget.addTab(bayes_tab, "贝叶斯优化")
+        
+        # 创建操作按钮组
+        buttons_group = QGroupBox("操作")
+        buttons_layout = QVBoxLayout(buttons_group)
+        
+        self.start_button = QPushButton("开始")
+        self.start_button.clicked.connect(self.on_start_clicked)
+        buttons_layout.addWidget(self.start_button)
+        
+        self.stop_button = QPushButton("停止")
+        self.stop_button.clicked.connect(self.on_stop_clicked)
+        buttons_layout.addWidget(self.stop_button)
+        
+        self.reset_button = QPushButton("重置")
+        self.reset_button.clicked.connect(self.on_reset_clicked)
+        buttons_layout.addWidget(self.reset_button)
+        
+        layout.addWidget(buttons_group)
+        
+    def on_start_clicked(self):
+        """处理开始按钮点击事件"""
+        self.startRequested.emit()
+        
+    def on_stop_clicked(self):
+        """处理停止按钮点击事件"""
+        self.stopRequested.emit()
+        
+    def on_reset_clicked(self):
+        """处理重置按钮点击事件"""
+        self.resetRequested.emit()
+        
+    def get_parameters(self):
+        """获取当前设置的参数"""
+        return {
+            "algorithm": self.algorithm_combo.currentText(),
+            "method": self.method_combo.currentText(),
+            "epochs": self.epochs_spin.value(),
+            "debug": self.debug_checkbox.isChecked(),
+            "realtime_optimization": self.realtime_optimization_checkbox.isChecked(),
+            "wfs_res": self.wfs_res_combo.currentText(),
+            "pupil_diameter": self.pupil_diameter_spin.value(),
+            "early_stop_threshold": self.early_stop_threshold_spin.value(),
+            "cam_id": self.cam_id_spin.value(),
+            "exposure_time_ms": self.exposure_time_spin.value(),
+            "cam_size": self.cam_size_spin.value(),
+            "target_max_brightness": self.target_max_brightness_spin.value(),
+            "delta": self.delta_spin.value(),
+            "lr": self.lr_spin.value(),
+            "weight_decay": self.weight_decay_spin.value(),
+            "shrink_iter": self.shrink_iter_spin.value(),
+            "shrink_ratio": self.shrink_ratio_spin.value(),
+            "dm_unit_mask": self.dm_unit_mask_combo.currentText(),
+            "r_bucket": self.r_bucket_spin.value(),
+            "center": self.center_combo.currentText(),
+            "n_calls": self.n_calls_spin.value(),
+            "lr_min": self.lr_min_spin.value(),
+            "lr_max": self.lr_max_spin.value(),
+            "delta_min": self.delta_min_spin.value(),
+            "delta_max": self.delta_max_spin.value(),
+            "method_type": self.method_type_combo.currentText(),
+            # 添加其他可能需要的参数
+            "dir": "data",
+            "load_file": "rms",
+            "wf_epochs": 8000,
+            "rms_threshold": 0.12,
+            "grid_lr_steps": 5,
+            "grid_delta_steps": 5
+        }
