@@ -5,7 +5,7 @@ import pandas as pd
 import tqdm
 import pygame
 from ao_shaping.utils import centroid
-from drivers import CameraStreamManager, NlightDM
+from ao_shaping.drivers import CameraStreamManager, NlightDM
 
 ROOT_DIR = r"D:\ao-project\data"
 

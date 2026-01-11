@@ -3,7 +3,7 @@ from dataclasses import dataclass
 @dataclass
 class ExposureTime():
     current: int
-    _max: int = 0
+    _max: int = 100_000
     _min: int = 0
     unit = "ms"
     

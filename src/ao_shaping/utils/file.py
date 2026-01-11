@@ -151,23 +151,19 @@ class Recorder():
     def dataframe(self):
         return pd.DataFrame(self.history)
 
-    def save_dataframe(self, filename:str, **kwargs):
+    def save_dataframe(self, filename:str|Path, **kwargs):
         df = self.dataframe
         save_history(df, filename)
         return df
 
     def save_best(self, saved_dir:str|Path, target:str, process_fn=lambda x:x, **kwargs):
-        if target not in self.columns:
-            target = "_"+target
-            if target not in self.columns:
-                raise ValueError(f"target {target} not in columns {self.columns}")
+        target_value, (index, value) = self.get_best_target(target)
         
         if isinstance(saved_dir, str):
             saved_dir = Path(saved_dir)
         saved_dir.mkdir(parents=True, exist_ok=True)
 
-        target_iter, (index, value) = self.get_best_iter()
-        target_value = process_fn(target_iter[target])
+        target_value = process_fn(target_value)
         if isinstance(target_value, np.ndarray) and target_value.ndim == 1: # 1D array
             save_file = saved_dir / f'{self.mark}-{value:.3f}.csv'
             np.savetxt(save_file, target_value, **kwargs)
@@ -179,7 +175,7 @@ class Recorder():
         else:
             raise ValueError(f"target_value {target_value} has invalid shape {target_value.shape}")
         logger.info(f"{self.mark}@{index}->{value:.3f} saved to {save_file}")
-        return target_value, target_iter[self.mark]
+        return target_value, value
     
     def plot(self, target:str, ax=None):
         if ax is None:
@@ -224,6 +220,14 @@ class Recorder():
         res_df = pd.DataFrame(self.history)
         target_id = res_df[mark].argmax() if self.mode == "max" else res_df[mark].argmin()
         return res_df.iloc[target_id], (target_id, res_df.iloc[target_id][mark])
+    
+    def get_best_target(self, target):
+        if target not in self.columns:
+            target = "_"+target
+            if target not in self.columns:
+                raise ValueError(f"target {target} not in columns {self.columns}")
+        target_iter, (index, value) = self.get_best_iter()
+        return target_iter[target], (index, value)
 
     def get_sublist(self, columns:list[str] | str | None = ""):
         if not columns:

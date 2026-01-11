@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Sequence
 import tqdm
 
 import numpy as np
@@ -6,6 +6,8 @@ import numpy as np
 from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS
 from ao_shaping.algorithm.adam import AdaMOD
 from ao_shaping.utils import logger, Recorder
+
+KEEP_VOLTAGES = True
 
 
 def schedule_lr_delta(rms):
@@ -36,14 +38,15 @@ def schedule_lr_delta(rms):
 def optimizer_rms(
     epochs,
     wfs_res: Literal['512', '768'] = '768',
-    init_v:list[float]=[],
+    init_v: Sequence[float | int]=[],
+    pupil_center:tuple[float, float]=(0,0),
     pupil_diameter:float=2.24,
     early_stop_threshold:float=0.12,
 ) -> Recorder:
     epochs = int(epochs)
     recorder = Recorder(mark='rms', mode='min')
     
-    with NlightDM(keep_when_exit=True) as dm:
+    with NlightDM(keep_when_exit=KEEP_VOLTAGES) as dm:
         if not init_v:
             _init_v = np.zeros(dm.DM_Num, dtype=np.float64)
         else:
@@ -57,7 +60,10 @@ def optimizer_rms(
         else:
             raise ValueError(f"wfs_res must be '512' or '768', but got {wfs_res}")
         
-        with Thorlab_WFS(wfs_res_config, use_custom_ref=False, high_speed=True, pupil_diameter=pupil_diameter) as wfs:
+        with Thorlab_WFS(wfs_res_config, 
+                         use_custom_ref=False, high_speed=True, 
+                         pupil_diameter=pupil_diameter,
+                         pupil_center=pupil_center) as wfs:
                 
             def calc_j():
                 wfs.take_image(5)
@@ -65,7 +71,7 @@ def optimizer_rms(
                 return wf, statics
 
             wf, statics = calc_j()
-            lr, delta = schedule_lr_delta(statics['rms'])
+            lr, delta = schedule_lr_delta(statics['wighted_rms'])
             optimizer = AdaMOD(dim=dm.DM_Num, lr=lr, beta3=0.9999)
 
             recorder.append(
@@ -132,5 +138,10 @@ def optimizer_rms(
                         break
                     
                     bar.update(1)
+
+                # end iter
+            if KEEP_VOLTAGES:
+                best_voltage, _ = recorder.get_best_target('_v')
+                dm.send_voltages(best_voltage)
 
         return recorder

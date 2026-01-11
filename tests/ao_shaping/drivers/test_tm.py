@@ -72,8 +72,8 @@ def test_port_list():
     print(TM.list_port())
 
 def test_tm():
-    # position = (-227, 175)
-    position = (136, 450)
+    position = (0, -420)
+    # position = (412, 389)
     with TM("COM3") as tm:
         frame = TM._build_frame(*position)
         tm.send(*position)
@@ -81,3 +81,4 @@ def test_tm():
         # bin to hex
         ret_pos = tm.bin_frame_to_pos(ret_frame[2:6])
         print(ret_pos, frame, ret_frame)
+        # assert ret_pos == (0.0, 51.150000000000006)

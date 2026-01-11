@@ -311,7 +311,13 @@ class WFSManager:
     """ Wavefront Sensor Manager
     """
     
-    def __init__(self, mla_index:MlaRes = MlaRes.Res768, exp_time:float = 0.0, high_speed:bool = False, use_custom_ref:bool = False, pupil_diameter:float = 2.0):
+    def __init__(self,
+                 mla_index:MlaRes = MlaRes.Res768,
+                 exp_time:float = 0.0,
+                 high_speed:bool = False,
+                 use_custom_ref:bool = False,
+                 pupil_diameter:float = 2.0,
+                 pupil_center:tuple = (0.0,0.0)):
         """
         mla_index: MlaRes
         exp_time: exposure time in ms, 0 means auto
@@ -331,14 +337,14 @@ class WFSManager:
         self.image_pix = Mla_pix[mla_index]
         self.num_spots_x, self.num_spots_y = 0, 0
 
-        self.c_x, self.c_y = 0.0, 0.0
+        self.c_x, self.c_y = pupil_center
         self.d_x, self.d_y = pupil_diameter, pupil_diameter
 
         self._explosure_time = exp_time
         self._gain = 1.0
         self.enable_high_speed = high_speed
         if self.enable_high_speed:
-            logger.info("high speed mode can only use auto explore time!")
+            logger.info("high speed mode can only use auto exposure time!")
         self.__image_loop_counter = 0
 
     def __enter__(self):
@@ -460,12 +466,12 @@ class WFSManager:
         
     def get_spots_statics(self, image_loop_counter: int = -1):
         assert not self.enable_high_speed, "turn off high speed mode first"
-
+        spots_intensities = np.empty(MAX_SPOTS, dtype= np.float32)
+        spots_center_x = np.empty(MAX_SPOTS, dtype= np.float32)
+        spots_center_y = np.empty(MAX_SPOTS, dtype= np.float32)
         if err := self._lib.WFS_CalcSpotsCentrDiaIntens(self._instrument_handle, ViInt32(0), ViInt32(1)):
             self.handle_error(err)
         else:
-            spots_intensities = np.zeros(MAX_SPOTS, dtype= np.float32)
-            spots_center_x, spots_center_y = spots_intensities.copy(), spots_intensities.copy()
             # spots_diameter_x, spots_diameter_y = spots_intensities.copy(), spots_intensities.copy()
             self._lib.WFS_GetSpotIntensities(
                 self._instrument_handle, spots_intensities)
@@ -473,7 +479,6 @@ class WFSManager:
                 spots_center_x, spots_center_y)
             # self._lib.WFS_GetSpotDiameters(self._instrument_handle,
             #     np2c(spots_diameter_x), np2c(spots_diameter_y))
-
         return spots_intensities[:self.num_spots_x, :self.num_spots_y], (spots_center_x[:self.num_spots_x, :self.num_spots_y], spots_center_y[:self.num_spots_x, :self.num_spots_y])
 
     def get_wavefront(self, image_loop_counter: int = -1):
@@ -485,7 +490,7 @@ class WFSManager:
             tuple[np.ndarray, dict]: wavefront, wavefront statistics
         '''
         adaptive_pupil = 0 if (self.d_x and self.d_y) else 1
-        wavefront = np.zeros(MAX_SPOTS, dtype=c_float)
+        wavefront = np.empty(MAX_SPOTS, dtype=c_float)
         if err := self._lib.WFS_CalcWavefront(
             self._instrument_handle, ViInt32(0), ViInt32(adaptive_pupil), wavefront):
             self.handle_error(err)
@@ -496,11 +501,12 @@ class WFSManager:
                 self._instrument_handle, byref(min), byref(max), byref(diff), byref(mean),
                 byref(rms), byref(wighted_rms)
             )
-
-        wavefront = deepcopy(wavefront)[:self.num_spots_x, :self.num_spots_y]
-        # wavefront = np.where(wavefront==np.nan, 0, wavefront)
-        return wavefront, {"min":min.value, "max":max.value, "diff":diff.value, "mean":mean.value, "rms":rms.value, "wighted_rms":wighted_rms.value}
-
+            # FIXME: 这个函数的返回值不变
+            wavefront = deepcopy(wavefront)[:self.num_spots_x, :self.num_spots_y]
+            # wavefront = np.where(wavefront==np.nan, 0, wavefront)
+            return wavefront, {"min":min.value, "max":max.value, "diff":diff.value, "mean":mean.value, "rms":rms.value, "wighted_rms":wighted_rms.value}
+        return wavefront, {"min":np.nan, "max":np.nan, "diff":np.nan, "mean":np.nan, "rms":np.nan, "wighted_rms":np.nan}
+    
     def get_zernike(self, zernike_order=10, image_loop_counter: int = -1):
         '''
         This function help to get zernike coefficients.
@@ -533,6 +539,8 @@ class WFSManager:
         Returns:
             tuple[np.ndarray, np.ndarray]: spot deviation x, spot deviation y
         '''
+        # FIXME: 这个函数的返回值不变
+        
         _spots_deviation_x = np.empty(MAX_SPOTS, dtype=np.float32)
         _spots_deviation_y = np.empty(MAX_SPOTS, dtype=np.float32)
         # if err:= self._lib.WFS_CalcSpotsCentrDiaIntens(self._instrument_handle, c_int32(1), c_int32(1)):
@@ -544,8 +552,8 @@ class WFSManager:
                 self.handle_error(err)
         else:
             self.handle_error(res)
-        x = deepcopy(_spots_deviation_x)[:self.num_spots_x, :self.num_spots_y]
-        y = deepcopy(_spots_deviation_y)[:self.num_spots_x, :self.num_spots_y]
+        x = _spots_deviation_x[:self.num_spots_x, :self.num_spots_y]
+        y = _spots_deviation_y[:self.num_spots_x, :self.num_spots_y]
         
         return x, y
 
