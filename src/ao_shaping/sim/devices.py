@@ -106,27 +106,22 @@ class DeformableMirror:
     """
     
     def __init__(self,
-                 num_actuators: int = 8,
+                 act_positions: np.ndarray,
                  stroke: float = 5e-6,
-                 influence_matrix: Optional[np.ndarray] = None,
                  N: int = 256,
-                 actuator_coupling: float = 0.3,
-                 regularization: float = 1e-6):
+                 actuator_coupling: float = 0.3):
         """
         初始化DM
         
         参数:
             num_actuators: 致动器数量（沿一个维度）
             stroke: 最大行程 (m)
-            influence_matrix: 影响矩阵，shape为(num_actuators^2, N, N)
+            act_positions: 致动器位置，shape为(num_actuators, 2)
             N: 输出网格点数
             actuator_coupling: 致动器间的耦合系数
-            use_advanced_influence: 是否使用高级影响函数
-            regularization: 正则化参数
         """
         # 输入验证
-        if num_actuators <= 0:
-            raise ValueError("致动器数量必须为正整数")
+
         if stroke <= 0:
             raise ValueError("行程必须为正数")
         if N <= 0:
@@ -134,66 +129,61 @@ class DeformableMirror:
         if actuator_coupling < 0 or actuator_coupling > 1:
             raise ValueError("致动器耦合系数必须在[0, 1]范围内")
         
-        self.num_actuators = num_actuators
-        self.total_actuators = num_actuators ** 2
         self.stroke = stroke
         self.N = N
         self.actuator_coupling = actuator_coupling
-        self.regularization = regularization
         
-        if influence_matrix is not None:
-            self.influence_matrix = influence_matrix
-        else:
-            self.influence_matrix = self._create_influence_functions()
+        self.act_positions = act_positions
+        self.num_actuators = len(act_positions)
+        self.influence_matrix = self._create_influence_functions()
 
+    @classmethod
+    def create_from_position_file(cls, filename: str, N: int=256, stroke: float = 5e-6, actuator_coupling: float = 0.3) -> 'DeformableMirror':
+        """从文本文件创建DM实例"""
+        act_positions = np.loadtxt(filename, delimiter=',')
+        # TODO 位置归一化到[-0.9, 0.9]
+        return cls(act_positions=act_positions, N=N, stroke=stroke, actuator_coupling=actuator_coupling)
     
-    def _create_default_influence_functions(self) -> np.ndarray:
-        """创建默认的高斯型影响函数"""
-        N = self.N
-        num_act = self.num_actuators
-        
-        # 创建致动器位置网格
-        x = np.linspace(-0.9, 0.9, num_act)
-        y = np.linspace(-0.9, 0.9, num_act)
+    @classmethod
+    def create_from_grid(cls, num_actuators_x: int, num_actuators_y: int, N: int=256, stroke: float = 5e-6, actuator_coupling: float = 0.3) -> 'DeformableMirror':
+        """创建网格分布的DM实例"""
+        act_positions = cls._create_grid_actuators(num_actuators_x, num_actuators_y)
+        return cls(act_positions=act_positions, N=N, stroke=stroke, actuator_coupling=actuator_coupling)
+    
+    @classmethod
+    def create_from_circle(cls, num_actuators: int, N: int=256, stroke: float = 5e-6, actuator_coupling: float = 0.3) -> 'DeformableMirror':
+        """创建环形分布的DM实例"""
+        act_positions = cls._create_circle_actuators(num_actuators)
+        return cls(act_positions=act_positions, N=N, stroke=stroke, actuator_coupling=actuator_coupling)
+
+    @staticmethod
+    def _create_grid_actuators(num_actuators_x: int, num_actuators_y: int) -> np.ndarray:
+        x = np.linspace(-0.9, 0.9, num_actuators_x)
+        y = np.linspace(-0.9, 0.9, num_actuators_y)
         act_x, act_y = np.meshgrid(x, y)
-        act_positions = np.column_stack([act_x.flatten(), act_y.flatten()])
-        
-        # 创建空间网格
-        grid_x = np.linspace(-1, 1, N)
-        grid_y = np.linspace(-1, 1, N)
-        X, Y = np.meshgrid(grid_x, grid_y)
-        
-        # 高斯影响函数参数
-        sigma = 0.8 / num_act  # 影响函数宽度
-        
-        influence_matrix = np.zeros((self.total_actuators, N, N))
-        for i, (ax, ay) in enumerate(act_positions):
-            R = np.sqrt((X - ax)**2 + (Y - ay)**2)
-            influence_matrix[i] = np.exp(-(R**2) / (2 * sigma**2))
-        
-        return influence_matrix
-    
+        return np.column_stack([act_x.flatten(), act_y.flatten()])
+
+    @staticmethod
+    def _create_circle_actuators(num_actuators: int) -> np.ndarray:
+        """创建环形分布的致动器位置"""
+        radius = 0.9
+        theta = np.linspace(0, 2*np.pi, num_actuators, endpoint=False)
+        x = radius * np.cos(theta)
+        y = radius * np.sin(theta)
+        return np.column_stack([x, y])
+
     def _create_influence_functions(self) -> np.ndarray:
-        """创建高级影响函数，包含致动器耦合"""
         N = self.N
-        num_act = self.num_actuators
-        
-        # 创建致动器位置网格
-        x = np.linspace(-0.9, 0.9, num_act)
-        y = np.linspace(-0.9, 0.9, num_act)
-        act_x, act_y = np.meshgrid(x, y)
-        act_positions = np.column_stack([act_x.flatten(), act_y.flatten()])
-        
         # 创建空间网格
         grid_x = np.linspace(-1, 1, N)
         grid_y = np.linspace(-1, 1, N)
         X, Y = np.meshgrid(grid_x, grid_y)
         
         # 基础高斯影响函数参数
-        sigma_base = 0.8 / num_act
-        influence_matrix = np.zeros((self.total_actuators, N, N))
+        sigma_base = 0.8 / self.num_actuators
+        influence_matrix = np.zeros((self.num_actuators, N, N))
         
-        for i, (ax, ay) in enumerate(act_positions):
+        for i, (ax, ay) in enumerate(self.act_positions):
             R = np.sqrt((X - ax)**2 + (Y - ay)**2)
             
             # 主要影响函数
@@ -203,10 +193,10 @@ class DeformableMirror:
             coupling_influence = np.zeros_like(primary_influence)
             
             # 计算与相邻致动器的距离
-            for j, (bx, by) in enumerate(act_positions):
+            for j, (bx, by) in enumerate(self.act_positions):
                 if i != j:
                     dist = np.sqrt((ax - bx)**2 + (ay - by)**2)
-                    if dist < 2.5 * (1.8 / num_act):  # 只考虑近邻
+                    if dist < 2.5 * (1.8 / self.num_actuators):  # 只考虑近邻
                         R_cross = np.sqrt((X - bx)**2 + (Y - by)**2)
                         coupling_influence += self.actuator_coupling * \
                                              np.exp(-(R_cross**2) / (2 * (sigma_base * 1.2)**2))
@@ -227,8 +217,8 @@ class DeformableMirror:
             surface: DM面型 (m)
         """
         # 输入验证
-        if len(voltages) != self.total_actuators:
-            raise ValueError(f"电压数组长度应为{self.total_actuators}，实际为{len(voltages)}")
+        if len(voltages) != self.num_actuators:
+            raise ValueError(f"电压数组长度应为{self.num_actuators}，实际为{len(voltages)}")
         
         # 将电压缩放到行程范围，并使用tanh函数模拟非线性响应
         normalized_voltages = np.clip(voltages, -1, 1)

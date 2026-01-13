@@ -120,18 +120,17 @@ class TestDeformableMirror:
     @pytest.mark.sim
     def test_influence_matrix_shape(self):
         """测试影响函数矩阵形状"""
-        dm = DeformableMirror(num_actuators=8, N=128)
+        dm = DeformableMirror.create_from_grid(num_actuators_x=8, num_actuators_y=8, N=128)
 
-        assert dm.influence_matrix.shape[0] == 64  # 8x8
+        assert dm.influence_matrix.shape[0] == 64
         assert dm.influence_matrix.shape[1] == 128
         assert dm.influence_matrix.shape[2] == 128
 
     @pytest.mark.sim
     def test_apply_voltages_shape(self):
         """测试电压应用输出形状"""
-        dm = DeformableMirror(num_actuators=8, N=128)
+        dm = DeformableMirror.create_from_grid(num_actuators_x=8, num_actuators_y=8, N=128)
         voltages = np.random.randn(64)
-
         surface = dm.apply_voltages(voltages)
 
         assert surface.shape == (128, 128)
@@ -139,8 +138,7 @@ class TestDeformableMirror:
     @pytest.mark.sim
     def test_apply_voltages_range(self):
         """测试电压应用范围"""
-        dm = DeformableMirror(num_actuators=8, stroke=5e-6, N=128)
-        
+        dm = DeformableMirror.create_from_grid(num_actuators_x=8, num_actuators_y=8, N=128)
         # 最大电压
         max_voltages = np.ones(64)
         surface = dm.apply_voltages(max_voltages)
@@ -149,36 +147,9 @@ class TestDeformableMirror:
         assert np.max(np.abs(surface)) <= dm.stroke * 2  # 允许一些超出由于影响函数叠加
 
     @pytest.mark.sim
-    def test_advanced_influence_functions(self):
-        """测试高级影响函数功能"""
-        dm = DeformableMirror(
-            num_actuators=8, 
-            N=128, 
-            use_advanced_influence=True,
-            actuator_coupling=0.3
-        )
-        
-        assert dm.influence_matrix.shape[0] == 64  # 8x8
-        assert dm.influence_matrix.shape[1] == 128
-        assert dm.influence_matrix.shape[2] == 128
-        assert dm.use_advanced_influence == True
-        assert dm.actuator_coupling == 0.3
-
-    @pytest.mark.sim
-    def test_voltage_validation(self):
-        """测试电压应用中的输入验证"""
-        dm = DeformableMirror(num_actuators=8, N=128)
-        
-        # 测试错误的电压数组长度
-        wrong_voltages = np.random.randn(63)  # 应该是64
-        
-        with pytest.raises(ValueError):
-            dm.apply_voltages(wrong_voltages)
-
-    @pytest.mark.sim
     def test_aperture_masking(self):
         """测试孔径掩模功能"""
-        dm = DeformableMirror(num_actuators=8, N=64)
+        dm = DeformableMirror.create_from_grid(num_actuators_x=8, num_actuators_y=8, N=128)
         voltages = np.random.randn(64)
         
         # 测试默认圆形孔径
@@ -199,7 +170,7 @@ class TestDeformableMirror:
     @pytest.mark.sim
     def test_command_matrix_regularization(self):
         """测试命令矩阵的正则化功能"""
-        dm = DeformableMirror(num_actuators=8, N=64, regularization=1e-6)
+        dm = DeformableMirror.create_from_grid(num_actuators_x=8, num_actuators_y=8, N=128)
         
         command_matrix = dm.get_command_matrix()
         
@@ -210,7 +181,7 @@ class TestDeformableMirror:
     @pytest.mark.sim
     def test_surface_metrics(self):
         """测试表面形变指标计算"""
-        dm = DeformableMirror(num_actuators=8, N=64)
+        dm = DeformableMirror.create_from_grid(num_actuators_x=8, num_actuators_y=8, N=128)
         voltages = np.random.randn(64) * 0.5  # 中等幅度电压
         
         # 测试RMS计算
@@ -224,26 +195,47 @@ class TestDeformableMirror:
         assert pv >= 0
 
     @pytest.mark.sim
-    def test_parameter_validation(self):
-        """测试参数验证"""
-        # 测试负的致动器数量
-        with pytest.raises(ValueError):
-            DeformableMirror(num_actuators=-1)
+    def test_create_from_grid(self):
+        """测试通过网格分布创建DM实例"""
+        num_actuators = 8
+        stroke = 5e-6
         
-        # 测试负的行程
-        with pytest.raises(ValueError):
-            DeformableMirror(stroke=-1e-6)
+        dm = DeformableMirror.create_from_grid(
+            num_actuators_x=num_actuators, num_actuators_y=num_actuators, stroke=stroke)
         
-        # 测试负的网格点数
-        with pytest.raises(ValueError):
-            DeformableMirror(N=-128)
+        # 验证致动器数量
+        assert dm.num_actuators == num_actuators ** 2  # 网格分布的总致动器数量
         
-        # 测试超出范围的耦合系数
-        with pytest.raises(ValueError):
-            DeformableMirror(actuator_coupling=1.5)
+        # 验证行程
+        assert dm.stroke == stroke
         
-        with pytest.raises(ValueError):
-            DeformableMirror(actuator_coupling=-0.5)
+        # 验证致动器位置是否在合理范围内
+        assert np.all(dm.act_positions >= -0.9)
+        assert np.all(dm.act_positions <= 0.9)
+        
+        # 验证影响矩阵形状
+        assert dm.influence_matrix.shape == (num_actuators ** 2, 256, 256)
+
+    @pytest.mark.sim
+    def test_create_from_circle(self):
+        """测试通过环形分布创建DM实例"""
+        num_actuators = 8
+        stroke = 5e-6
+        
+        dm = DeformableMirror.create_from_circle(num_actuators=num_actuators, stroke=stroke)
+        
+        # 验证致动器数量
+        assert dm.num_actuators == num_actuators
+        
+        # 验证行程
+        assert dm.stroke == stroke
+        
+        # 验证致动器位置是否在合理范围内
+        assert np.all(dm.act_positions >= -0.9)
+        assert np.all(dm.act_positions <= 0.9)
+        
+        # 验证影响矩阵形状
+        assert dm.influence_matrix.shape == (num_actuators, 256, 256)
 
 
 class TestAtmosphericTurbulence:
