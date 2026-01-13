@@ -69,6 +69,7 @@ class ControlPanel(QWidget):
         params_form.addRow("调试:", self.debug_checkbox)
         
         # 实时优化选项
+        # TODO : 如果设备没有连接，则无法启用实时优化模式
         self.realtime_optimization_checkbox = QCheckBox("实时PIB优化模式")
         self.realtime_optimization_checkbox.setChecked(True)  # 默认启用
         params_form.addRow("实时优化:", self.realtime_optimization_checkbox)

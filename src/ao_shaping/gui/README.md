@@ -4,6 +4,7 @@
 
 ## 功能特性
 
+### 主AO Shaping系统
 - 变形镜单元可视化控制
 - 多种优化算法支持：
   - 波前优化 (wf)
@@ -16,6 +17,13 @@
 - 变形镜参数配置
 - 实时可视化显示
 
+### 传统AO系统
+- 基于物理模型的传统AO系统仿真
+- 可配置的系统参数（网格、大气、DM、WFS等）
+- 实时Strehl比监控
+- 电压分布可视化
+- 手动配置和仿真运行
+
 ## 安装依赖
 
 ```bash
@@ -24,6 +32,7 @@ pip install PyQt6 numpy matplotlib
 
 ## 运行应用程序
 
+### 主AO Shaping系统
 ```bash
 python -m src.ao_shaping.gui
 ```
@@ -32,6 +41,17 @@ python -m src.ao_shaping.gui
 
 ```bash
 python src/ao_shaping/gui/main.py
+```
+
+### 传统AO系统
+```bash
+python scripts/run_traditional_ao_gui.py
+```
+
+或者直接运行：
+
+```bash
+python src/ao_shaping/gui/traditional_ao_main.py
 ```
 
 ## 使用说明
@@ -74,18 +94,42 @@ python src/ao_shaping/gui/main.py
 - **RMS历史**：显示RMS值变化历史
 - **PIB历史**：显示PIB值变化历史
 
+### 传统AO系统界面
+
+传统AO系统界面专门用于仿真和分析传统自适应光学系统：
+
+1. **配置面板**：设置AO系统的各种参数
+   - 网格参数：网格点数、孔径大小、波长
+   - 大气参数：折射率结构常数、外/内尺度
+   - 变形镜参数：致动器数量、行程
+   - 波前传感器参数：子孔径数量、像素比例
+   - 传播参数：传播距离
+
+2. **仿真控制**：开始、停止、重置仿真
+
+3. **状态显示**：实时显示系统配置和状态信息
+
+4. **Strehl比图表**：显示仿真过程中Strehl比的变化
+
+5. **电压可视化**：显示变形镜电压分布和历史
+
 ## 代码结构
 
 ```
 src/ao_shaping/gui/
 ├── __init__.py
 ├── __main__.py
-├── main_window.py          # 主窗口类
+├── main.py                 # 主AO系统入口
+├── main_window.py          # 主AO系统窗口类
+├── traditional_ao_main.py  # 传统AO系统入口
+├── traditional_ao_window.py # 传统AO系统窗口类
 ├── dm_panel.py             # 变形镜面板
 ├── control_panel.py        # 控制面板
 ├── visualization_panel.py   # 可视化面板
 ├── runner_manager.py       # 运行器管理器
 ├── simulation_manager.py    # 模拟管理器
+├── panels/                 # 面板组件
+├── workers/                # 工作线程
 └── README.md
 ```
 

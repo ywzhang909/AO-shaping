@@ -4,13 +4,9 @@
 包含光源、变形镜(DM)、哈特曼传感器(WFS)、大气湍流相位屏等设备的仿真实现。
 基于Zernike多项式和角谱传播法进行物理仿真。
 """
-
-import math
 import numpy as np
 from typing import Tuple, Optional, Dict, Any
 from dataclasses import dataclass
-from .zernike import Zernike
-
 
 @dataclass
 class AOConfig:
@@ -36,90 +32,6 @@ class AOConfig:
     
     # 传播参数
     propagation_distance: float = 1000.0  # 传播距离 (m)
-
-
-class ZernikePolynomials:
-    """Zernike多项式计算工具类（向后兼容）"""
-
-    def __init__(self, n_max: int = 10, N: int = 256, L: float = 1.0):
-        """
-        初始化Zernike多项式工具类
-
-        参数:
-            n_max: 最大径向阶数
-            N: 网格点数
-            L: 物理孔径大小
-        """
-        self.zernike = Zernike(n_max=n_max, N=N, L=L)
-
-    @staticmethod
-    def zernike_name(n: int, m: int) -> str:
-        """返回Zernike模式名称"""
-        return Zernike.get_name(n, m)
-
-    @staticmethod
-    def radial_polynomial(n: int, m: int, rho: np.ndarray) -> np.ndarray:
-        """计算径向多项式R_n^m(rho)"""
-        from .zernike import zernike_radial
-        return zernike_radial(n, m, rho)
-
-    @staticmethod
-    def zernike(n: int, m: int, rho: np.ndarray, theta: np.ndarray) -> np.ndarray:
-        """
-        计算Zernike多项式Z_n^m(rho, theta)
-
-        参数:
-            n: 径向阶数
-            m: 方位角阶数
-            rho: 归一化径向坐标 [0, 1]
-            theta: 角度坐标
-
-        返回:
-            Zernike多项式值
-        """
-        from .zernike import zernike_polynomial
-        return zernike_polynomial(n, m, rho, theta)
-
-    @staticmethod
-    def generate_basis(num_modes: int, N: int, L: float) -> np.ndarray:
-        """
-        生成Zernike基函数
-
-        参数:
-            num_modes: Zernike模式数量
-            N: 网格点数
-            L: 物理孔径大小
-
-        返回:
-            basis: shape为(num_modes, N, N)的Zernike基函数
-        """
-        # 创建网格
-        x = np.linspace(-1, 1, N)
-        y = np.linspace(-1, 1, N)
-        X, Y = np.meshgrid(x, y)
-
-        rho = np.sqrt(X**2 + Y**2)
-        theta = np.arctan2(Y, X)
-
-        # 圆形遮罩
-        mask = rho <= 1.0
-
-        # 生成Zernike模式（与原来实现保持一致）
-        basis = np.zeros((num_modes, N, N))
-        j = 1
-        for n in range(num_modes + 1):
-            for m in range(-n, n + 1, 2):
-                if j > num_modes:
-                    break
-                if np.abs(m) <= n:
-                    z = ZernikePolynomials.zernike(n, m, rho, theta)
-                    z[~mask] = 0
-                    basis[j - 1] = z
-                    j += 1
-            if j > num_modes:
-                break
-
-        return basis
 
 
 class LightSource:
@@ -199,7 +111,6 @@ class DeformableMirror:
                  influence_matrix: Optional[np.ndarray] = None,
                  N: int = 256,
                  actuator_coupling: float = 0.3,
-                 use_advanced_influence: bool = False,
                  regularization: float = 1e-6):
         """
         初始化DM
@@ -228,16 +139,13 @@ class DeformableMirror:
         self.stroke = stroke
         self.N = N
         self.actuator_coupling = actuator_coupling
-        self.use_advanced_influence = use_advanced_influence
         self.regularization = regularization
         
         if influence_matrix is not None:
             self.influence_matrix = influence_matrix
         else:
-            if use_advanced_influence:
-                self.influence_matrix = self._create_advanced_influence_functions()
-            else:
-                self.influence_matrix = self._create_default_influence_functions()
+            self.influence_matrix = self._create_influence_functions()
+
     
     def _create_default_influence_functions(self) -> np.ndarray:
         """创建默认的高斯型影响函数"""
@@ -265,7 +173,7 @@ class DeformableMirror:
         
         return influence_matrix
     
-    def _create_advanced_influence_functions(self) -> np.ndarray:
+    def _create_influence_functions(self) -> np.ndarray:
         """创建高级影响函数，包含致动器耦合"""
         N = self.N
         num_act = self.num_actuators
@@ -368,30 +276,32 @@ class DeformableMirror:
         返回:
             command_matrix: shape为(num_zernike, num_actuators^2)
         """
-        if regularization is None:
-            regularization = self.regularization
+        # if regularization is None:
+        #     regularization = self.regularization
             
-        # 简化的命令矩阵：使用Zernike模式作为期望面型
-        num_modes = min(36, self.total_actuators)
-        basis = ZernikePolynomials.generate_basis(num_modes, self.N, 2.0)
+        # # 简化的命令矩阵：使用Zernike模式作为期望面型
+        # num_modes = min(36, self.total_actuators)
+        # basis = ZernikePolynomials.generate_basis(num_modes, self.N, 2.0)
         
-        # 展平影响矩阵
-        inf_flat = self.influence_matrix.reshape(self.total_actuators, -1)
-        basis_flat = basis.reshape(num_modes, -1)
+        # # 展平影响矩阵
+        # inf_flat = self.influence_matrix.reshape(self.total_actuators, -1)
+        # basis_flat = basis.reshape(num_modes, -1)
         
-        # 使用正则化最小二乘求解以提高数值稳定性
-        # 构建正规方程: (A^T*A + λ*I)*x = A^T*b
-        A = inf_flat.T  # A shape: (N*N, total_actuators)
-        B = basis_flat.T  # B shape: (N*N, num_modes)
+        # # 使用正则化最小二乘求解以提高数值稳定性
+        # # 构建正规方程: (A^T*A + λ*I)*x = A^T*b
+        # A = inf_flat.T  # A shape: (N*N, total_actuators)
+        # B = basis_flat.T  # B shape: (N*N, num_modes)
         
-        # 计算 A^T*A + λ*I
-        AtA_reg = A.T @ A + regularization * np.eye(A.shape[1])
-        AtB = A.T @ B
+        # # 计算 A^T*A + λ*I
+        # AtA_reg = A.T @ A + regularization * np.eye(A.shape[1])
+        # AtB = A.T @ B
         
-        # 求解命令矩阵
-        command_matrix = np.linalg.solve(AtA_reg, AtB)
+        # # 求解命令矩阵
+        # command_matrix = np.linalg.solve(AtA_reg, AtB)
 
-        return command_matrix.T
+        # return command_matrix.T
+        # TODO: 实现用最小二乘拟合模式法响应矩阵
+        raise NotImplementedError("获取命令矩阵未实现")
 
     def get_surface_rms(self, voltages: np.ndarray) -> float:
         """
@@ -709,58 +619,11 @@ class HartmannShackWavefrontSensor:
         slopes = np.array(slopes_x + slopes_y)
         return slopes
     
-    def measure_slopes(self, intensity: np.ndarray, wavefront: np.ndarray) -> np.ndarray:
-        """
-        测量波前斜率（原始方法）
-        
-        参数:
-            intensity: 光强分布
-            wavefront: 波前相位
-            
-        返回:
-            slopes: 波前斜率数组，shape为(total_subapertures * 2,)
-                     前半部分是x方向斜率，后半部分是y方向斜率
-        """
-        slopes_x = []
-        slopes_y = []
-        
-        # 创建坐标网格
-        x = np.arange(self.N)
-        y = np.arange(self.N)
-        X, Y = np.meshgrid(x, y)
-        
-        for mask in self.masks:
-            # 提取子孔径区域
-            sub_intensity = intensity[mask]
-            sub_wavefront = wavefront[mask]
-            sub_x = X[mask]
-            sub_y = Y[mask]
-            
-            if np.sum(sub_intensity) < 1e-10:
-                slopes_x.append(0)
-                slopes_y.append(0)
-                continue
-            
-            # 计算质心（基于强度加权的波前梯度）
-            total_intensity = np.sum(sub_intensity)
-            cx = np.sum(sub_x * sub_intensity) / total_intensity
-            cy = np.sum(sub_y * sub_intensity) / total_intensity
-            
-            # 子孔径中心
-            center_x = np.mean(sub_x) if len(sub_x) > 0 else 0
-            center_y = np.mean(sub_y) if len(sub_y) > 0 else 0
-            
-            # 质心偏移作为斜率（简化模型）
-            slope_x = (cx - center_x) * self.pixel_scale
-            slope_y = (cy - center_y) * self.pixel_scale
-            
-            slopes_x.append(slope_x)
-            slopes_y.append(slope_y)
-        
-        slopes = np.array(slopes_x + slopes_y)
-        return slopes
-    
-    def reconstruct_wavefront(self, slopes: np.ndarray, zernike_modes: Optional[np.ndarray] = None) -> np.ndarray:
+    def reconstruct_wavefront(self, 
+                              slopes: np.ndarray, 
+                              zernike_modes: Optional[np.ndarray] = None,
+                              piston: bool = True,
+                              tile: bool = True) -> np.ndarray:
         """
         从斜率重建波前
 
@@ -771,6 +634,7 @@ class HartmannShackWavefrontSensor:
         返回:
             wavefront: 重建的波前
         """
+        # TODO: 实现波前重建
         # 获取x和y方向的斜率
         num_subaps = self.subapertures ** 2
         x_slopes = slopes[:num_subaps]
@@ -1153,7 +1017,7 @@ def zernike_phase_screen(n_max: int, rho: np.ndarray, theta: np.ndarray,
     return ZernikePolynomials.generate_basis(len(coefficients), rho.shape[0], 2.0)[0]
 
 
-def calculate_strehl(intensity: np.ndarray, peak_reference: Optional[float] = None) -> float:
+def calculate_strehl(intensity: np.ndarray, peak_reference: Optional[float]) -> float:
     """
     计算Strehl比
     
@@ -1164,8 +1028,8 @@ def calculate_strehl(intensity: np.ndarray, peak_reference: Optional[float] = No
         Strehl比
     """
     peak_intensity = np.max(intensity)
-    if peak_reference is None:
-        peak_reference = np.max(intensity)
+    peak_reference = peak_reference if peak_reference else peak_intensity
+    assert peak_reference and peak_reference > 0, "峰值参考值必须大于0"
     return float(np.clip(peak_intensity / (peak_reference + 1e-10), 0, 1))
 
 
@@ -1380,9 +1244,12 @@ LaserSource = LightSource
 HartmannSensor = HartmannShackWavefrontSensor
 TurbulencePhaseScreen = AtmosphericTurbulence
 CCD = Camera
-ZernikeReconstructor = ZernikePolynomials
 OpticalPropagator = VectorWavePropagator
 AOSystem = TraditionalAOSystem
 CCDCamera = Camera
 WavefrontPropagator = VectorWavePropagator
 HartmannShackSensor = HartmannShackWavefrontSensor
+
+if __name__ == "__main__":
+    # 测试代码
+    pass

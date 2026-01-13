@@ -5,11 +5,11 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer
 
-from .panels.dm_panel import DMPanel
-from .panels.visualization_panel import VisualizationPanel
-from .panels.control_panel import ControlPanel
-from .workers.runner_manager import RunnerManager
-from .workers.simulation_manager import SimulationManager
+from ao_shaping.gui.panels.dm_panel import DMPanel
+from ao_shaping.gui.panels.visualization_panel import VisualizationPanel
+from ao_shaping.gui.panels.control_panel import ControlPanel
+from ao_shaping.gui.workers.runner_manager import RunnerManager
+from ao_shaping.gui.workers.simulation_manager import SimulationManager
 
 
 class MainWindow(QMainWindow):

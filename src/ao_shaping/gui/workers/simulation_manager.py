@@ -70,35 +70,59 @@ class SimulationManager(QObject):
     def _run_simulation(self):
         """运行PIB优化的后台线程函数"""
         try:
-            # 只有当算法是pib时才执行实际优化
-            if self.algorithm == "pib":
-                self._run_pib_optimization()
-            else:
-                # 对于其他算法仍然使用模拟
-                self._run_simulation_loop()
+            self._run_simulation_loop()
                 
         except Exception as e:
             self.simulationError.emit(str(e))
         finally:
             self.is_running = False
             self.simulationFinished.emit(self.recorder)
-            
-    def _run_pib_optimization(self):
-        """运行PIB优化算法"""
-        # 处理初始电压
-        load_file = self.parameters.get('load_file', 'rms')
-        if load_file.lower() == 'rms':
-            init_v = get_init_V_by_rms()
-        elif load_file:
-            last_v = np.loadtxt(load_file)
-            init_v = last_v.tolist()
-        else:
-            init_v = []
-            
-        # 设置变形镜单元掩码
-        dm_unit_mask = np.ones(64, dtype=bool)
-        dm_unit_mask[0] = False  # 禁用第一个单元
         
+    def _run_simulation_loop(self):
+        """运行模拟循环（用于非PIB算法）"""
+        max_iterations = int(self.parameters.get("epochs", 1000))  # 获取设置的迭代次数，默认1000
+
+        algorithm_mapping = {
+            "pib": self._run_pib_optimization,
+            "wf": self._simulate_wf_algorithm,
+            "combine": self._simulate_combine_algorithm,
+            "bayes-opt": self._simulate_bayes_opt_algorithm,
+            "heuristic": self._simulate_heuristic_algorithm,
+        } 
+        
+        while self.is_running and self.iteration < max_iterations:
+            # 模拟算法执行
+            if self.algorithm in algorithm_mapping:
+                # 调用映射中的函数
+                algorithm_mapping[self.algorithm]()
+            else:
+                # 未知算法，使用默认模拟
+                raise ValueError(f"未知的优化算法: {self.algorithm}")
+                
+            # 记录历史
+            self.history.append({
+                "iteration": self.iteration,
+                "voltages": self.voltages.copy(),
+                "timestamp": time.time()
+            })
+            
+            # 限制历史记录长度
+            if len(self.history) > 1000:
+                self.history.pop(0)
+                
+            # 发送更新信号
+            self.simulationUpdated.emit(self.voltages.tolist())
+            
+            self.iteration += 1
+            time.sleep(0.1)  # 控制模拟速度
+            
+        # 如果是因为达到迭代次数而停止，发送完成信号
+        if self.iteration >= max_iterations:
+            self.is_running = False
+            self.simulationFinished.emit(None)
+
+    def _run_pib_optimization(self):
+        """运行PIB优化算法"""      
         # 创建回调函数用于实时更新
         def progress_callback(current_epoch, total_epochs, voltages):
             """进度回调函数"""
@@ -123,75 +147,10 @@ class SimulationManager(QObject):
             if len(self.history) > 1000:
                 self.history.pop(0)
         
-        # 调用optimize_pib函数，传入回调函数
-        self.recorder = optimize_pib(
-            center=self.parameters.get('center', 'mass'),
-            epochs=int(self.parameters.get('epochs', 4000)),
-            r_bucket=float(self.parameters.get('r_bucket', 0)),
-            delta=float(self.parameters.get('delta', 2)),
-            lr=float(self.parameters.get('lr', 0)),
-            exposure_time_ms=int(self.parameters.get('exposure_time_ms', 60)),
-            shrink_iter=int(self.parameters.get('shrink_iter', 300)),
-            shrink_ratio=float(self.parameters.get('shrink_ratio', 0.8)),
-            cam_id=self.parameters.get('cam_id', 0),
-            show=False,  # GUI中不显示
-            init_v=init_v,
-            cam_size=int(self.parameters.get('cam_size', 200)),
-            target_max_brightness=int(self.parameters.get('target_max_brightness', 90)),
-            dm_unit_mask=dm_unit_mask,
-            dm_neibor_diff=400,
-            dm_max_voltage=300,
-            dm_min_voltage=-200,
-            callback=progress_callback  # 传入回调函数
-        )
-        
-        # 更新电压值
-        if self.recorder and hasattr(self.recorder, 'best_v'):
-            self.voltages = np.array(self.recorder.best_v)
+        # TODO: 实现PIB优化算法
             
         # 发送最终更新信号
         self.simulationUpdated.emit(self.voltages.tolist())
-        
-    def _run_simulation_loop(self):
-        """运行模拟循环（用于非PIB算法）"""
-        max_iterations = int(self.parameters.get("epochs", 1000))  # 获取设置的迭代次数，默认1000
-        
-        while self.is_running and self.iteration < max_iterations:
-            # 模拟算法执行
-            if self.algorithm == "wf":
-                # 波前优化算法模拟
-                self._simulate_wf_algorithm()
-            elif self.algorithm == "combine":
-                # 组合优化算法模拟
-                self._simulate_combine_algorithm()
-            elif self.algorithm == "bayes-opt":
-                # 贝叶斯优化算法模拟
-                self._simulate_bayes_opt_algorithm()
-            elif self.algorithm == "heuristic":
-                # 启发式搜索算法模拟
-                self._simulate_heuristic_algorithm()
-                
-            # 记录历史
-            self.history.append({
-                "iteration": self.iteration,
-                "voltages": self.voltages.copy(),
-                "timestamp": time.time()
-            })
-            
-            # 限制历史记录长度
-            if len(self.history) > 1000:
-                self.history.pop(0)
-                
-            # 发送更新信号
-            self.simulationUpdated.emit(self.voltages.tolist())
-            
-            self.iteration += 1
-            time.sleep(0.1)  # 控制模拟速度
-            
-        # 如果是因为达到迭代次数而停止，发送完成信号
-        if self.iteration >= max_iterations:
-            self.is_running = False
-            self.simulationFinished.emit(None)
             
     def _simulate_wf_algorithm(self):
         """模拟波前优化算法"""

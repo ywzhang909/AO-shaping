@@ -1,17 +1,12 @@
-"""
-AO Shaping GUI 应用程序入口点
-"""
-
 import sys
-
 from PySide6.QtWidgets import QApplication
-from .main_window import MainWindow
+from ao_shaping.gui.traditional_ao_window import TraditionalAOWindow
 
 
 def main():
     """主函数"""
     app = QApplication(sys.argv)
-    window = MainWindow()
+    window = TraditionalAOWindow()
     window.show()
     sys.exit(app.exec())
 

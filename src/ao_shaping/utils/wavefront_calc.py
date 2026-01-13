@@ -1,6 +1,6 @@
 import numpy as np
 from pathlib import Path
-from ..sim.zernike import Zernike
+from .zernike import Zernike
 
 def normalize_01(matrix):
     """

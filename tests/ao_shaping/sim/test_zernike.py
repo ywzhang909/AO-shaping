@@ -5,8 +5,7 @@ Zernike多项式测试
 """
 
 import numpy as np
-import pytest
-from ao_shaping.sim.zernike import Zernike, zernike_radial, zernike_polynomial, normalize_zernike
+from ao_shaping.utils.zernike import Zernike, zernike_radial_py as zernike_radial, zernike_polynomial, normalize_zernike
 
 
 class TestZernikeClass:
@@ -145,31 +144,6 @@ class TestZernikeFunctions:
         assert normalize_zernike(0, 0) == np.sqrt(1)  # piston
         assert normalize_zernike(1, 1) == np.sqrt(4)  # tilt: sqrt(2*(1+1)) = sqrt(4) = 2
         assert normalize_zernike(2, 0) == np.sqrt(3)  # defocus
-
-
-class TestZernikeBackwardCompatibility:
-    """测试向后兼容性"""
-
-    def test_zernike_polynomials_class(self):
-        """测试ZernikePolynomials类的向后兼容性"""
-        from ao_shaping.sim.devices import ZernikePolynomials
-
-        zp = ZernikePolynomials(n_max=5, N=32)
-
-        # 测试静态方法
-        name = ZernikePolynomials.zernike_name(2, 0)
-        assert name == "Defocus"
-
-        # 测试径向多项式
-        rho = np.linspace(0, 1, 10)
-        R = ZernikePolynomials.radial_polynomial(2, 0, rho)
-        expected = 2 * rho**2 - 1
-        np.testing.assert_allclose(R, expected)
-
-        # 测试基函数生成
-        basis = ZernikePolynomials.generate_basis(5, 32, 2.0)
-        assert basis.shape[0] >= 5
-        assert basis.shape[1:] == (32, 32)
 
 
 class TestZernikeIntegration:

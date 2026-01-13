@@ -4,7 +4,6 @@ from ao_shaping.algorithm.heuristic_search import (
     GeneticAlgorithm,
     SimulatedAnnealing,
     DifferentialEvolution,
-    DMOptimizer
 )
 
 def test_sphere_function(x):
@@ -50,11 +49,6 @@ def test_algorithms():
     best_solution, best_fitness = de.optimize(test_sphere_function, max_iter=100)
     print(f"   Best fitness: {best_fitness:.6f}")
     print(f"   Best solution: {best_solution[:5]}...")  # 只显示前5个元素
-    
-    # 测试DM优化器
-    print("\n5. Testing DM Optimizer...")
-    dm_optimizer = DMOptimizer(dim=64, method="pso", bounds=(-200, 300))
-    print(f"   DM Optimizer created with method: {dm_optimizer.method}")
     
     print("\nAll tests completed!")
 

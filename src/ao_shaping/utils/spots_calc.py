@@ -95,10 +95,21 @@ def crop_cupy(img:cp.ndarray, sample_pix=500):
     return img[rmin:rmax + 1, cmin:cmax + 1]
 
 def crop(img:np.ndarray, sample_pix=500):
-  assert img.ndim == 2
+  """
+  对输入图像进行裁剪，移除背景区域。
+
+  :param img: 输入图像，必须是2维数组
+  :param sample_pix: 用于计算背景的样本像素数，默认500
+  :return: 裁剪后的图像
+  """
+  assert img.ndim == 2, "输入图像必须是2维数组，当前维度为{}".format(img.ndim)
   bg = np.max(img[:sample_pix,:])
   rows = np.any(img>bg, axis=1)
   cols = np.any(img>bg, axis=0)
+
+  if not np.any(rows) or not np.any(cols):
+      return img[0:0, 0:0]  # empty
+  
   rmin, rmax = np.nonzero(rows)[0][[0, -1]]
   cmin, cmax = np.nonzero(cols)[0][[0, -1]]
 

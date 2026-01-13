@@ -17,7 +17,6 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from ao_shaping.sim.devices import (
-    ZernikePolynomials,
     LightSource,
     DeformableMirror,
     AtmosphericTurbulence,
@@ -308,8 +307,8 @@ class TestHartmannShackWavefrontSensor:
 
         intensity = np.random.rand(128, 128) + 1  # 避免0
         phase = np.random.rand(128, 128)
-
-        slopes = wfs.measure_slopes(intensity, phase)
+        E = intensity * np.exp(1j * 2 * np.pi * phase)
+        slopes = wfs.measure_slopes_with_propagation(E)
 
         assert slopes.shape == (128,)  # 64 * 2
 

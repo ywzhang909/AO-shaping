@@ -1,8 +1,6 @@
-from typing import Callable, Optional
+from typing import Callable
 import numpy as np
 from abc import ABC, abstractmethod
-
-from .adam import Base
 
 
 class HeuristicSearchBase(ABC):
@@ -419,88 +417,3 @@ class DifferentialEvolution(HeuristicSearchBase):
         self.population = np.array(new_population)
         
         return self.best_solution.copy(), self.best_fitness
-
-
-# 专门为变形镜优化设计的启发式搜索算法
-class DMOptimizer(Base):
-    """
-    专门为变形镜优化设计的启发式搜索算法
-    注意：变形镜一次只能施加一种电压
-    """
-    
-    def __init__(self, dim: int, method: str = "pso", **kwargs):
-        """
-        初始化变形镜优化器
-        
-        Args:
-            dim: 变形镜单元数量
-            method: 优化方法 ("pso", "ga", "sa", "de")
-            **kwargs: 传递给具体算法的参数
-        """
-        super().__init__(dim, kwargs.get("lr", 1.0))
-        self.method = method.lower()
-        
-        # 根据方法选择合适的启发式搜索算法
-        if method == "pso":
-            self.optimizer = ParticleSwarmOptimization(dim, **kwargs)
-        elif method == "ga":
-            self.optimizer = GeneticAlgorithm(dim, **kwargs)
-        elif method == "sa":
-            self.optimizer = SimulatedAnnealing(dim, **kwargs)
-        elif method == "de":
-            self.optimizer = DifferentialEvolution(dim, **kwargs)
-        else:
-            raise ValueError(f"Unknown method: {method}")
-            
-        # 设置变形镜的约束条件
-        self.dm_bounds = kwargs.get("dm_bounds", (-200, 300))  # 电压范围
-        self.dm_unit_mask = kwargs.get("dm_unit_mask", np.ones(dim, dtype=bool))  # 单元掩码
-        
-        # 存储当前电压
-        self.current_voltages = np.zeros(dim)
-        
-    def update(self, grad: np.ndarray) -> np.ndarray:
-        """
-        使用启发式搜索算法更新变形镜电压
-        
-        Args:
-            grad: 梯度信息（在启发式搜索中可能不直接使用）
-            
-        Returns:
-            电压更新量
-        """
-        self.t += 1
-        
-        # 定义适应度函数（负的性能指标，因为我们要最小化）
-        def fitness_func(voltages):
-            # 在实际应用中，这里应该与实际系统交互获取性能指标
-            # 这里简化为基于梯度的计算
-            return -np.sum(voltages * grad)
-        
-        # 运行一步优化
-        solution, fitness = self.optimizer.search_step(fitness_func)
-        
-        # 应用单元掩码
-        solution = solution * self.dm_unit_mask
-        
-        # 确保电压在允许范围内
-        solution = np.clip(solution, self.dm_bounds[0], self.dm_bounds[1])
-        
-        # 返回相对于当前电压的更新量
-        update = solution - self.current_voltages
-        self.current_voltages = solution.copy()
-            
-        return update
-    
-    def optimize(self, fitness_func: Callable[[np.ndarray], float], max_iter: int = 1000) -> tuple[np.ndarray, float]:
-        """
-        运行完整的优化过程
-        
-        Args:
-            fitness_func: 适应度函数
-            max_iter: 最大迭代次数
-            
-        Returns:
-            (best_solution, best_fitness): 最优解和对应的适应度值
-        """
-        return self.optimizer.optimize(fitness_func, max_iter)

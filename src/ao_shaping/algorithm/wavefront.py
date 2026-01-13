@@ -4,7 +4,7 @@ from numpy.linalg import svd, lstsq
 
 import matplotlib.pyplot as plt
 from scipy.sparse import coo_matrix
-from ..sim.zernike import Zernike
+from ..utils.zernike import Zernike
 
 def zernike_piston_tilt(N):
     """返回 piston+x tilt+y tilt 的 3 个正交基，形状 (3,(N+1)**2)"""

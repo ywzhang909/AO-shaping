@@ -7,7 +7,7 @@ Zernike多项式模块
 import math
 import numpy as np
 from pathlib import Path
-from typing import Tuple, Optional, List, Dict, Any
+from typing import Tuple, Optional, List
 
 
 def zernike_radial(n: int, m: int, rho: np.ndarray) -> np.ndarray:

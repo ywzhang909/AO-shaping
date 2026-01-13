@@ -5,7 +5,6 @@ AO仿真模块
 """
 
 from .devices import (
-    ZernikePolynomials,
     LightSource,
     DeformableMirror,
     AtmosphericTurbulence,
@@ -24,7 +23,6 @@ from .devices import (
     HartmannSensor,
     TurbulencePhaseScreen,
     CCD,
-    ZernikeReconstructor,
     OpticalPropagator,
     AOSystem,
     CCDCamera,
@@ -33,7 +31,6 @@ from .devices import (
 )
 
 __all__ = [
-    'ZernikePolynomials',
     'LightSource',
     'DeformableMirror',
     'AtmosphericTurbulence',
@@ -52,7 +49,6 @@ __all__ = [
     'HartmannSensor',
     'TurbulencePhaseScreen',
     'CCD',
-    'ZernikeReconstructor',
     'OpticalPropagator',
     'AOSystem',
     'CCDCamera',
