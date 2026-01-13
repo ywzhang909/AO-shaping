@@ -1,55 +1,50 @@
-.python-version
-*.npz
-*.pkl
-*.docx
-*.csv
+# Compiled and build artifacts
 *.pyc
-*.so
-*.o
-
-Drv_UDPST*
-gxipy*
-__pycache__*
-.venv*
-.vscode*
-!.vscode/settings.json
-
-.kilocode*
+__pycache__/
+build*
+dist*
 **/ao_shaping.egg-info*
-*.zip
 
-!data/data_analysisy.py
-!data/streamlit_visualizer.py
-history.png
-
-data/*
-ckpts*
-!data/data_analysis.py
-.marscode*
-.kilocode*
-uv.lock
-notebooks/checkpoint
-notebooks/.ipynb_checkpoints*
-data/*.py
-
-NuitkaGUI.exe
-DM_combined.*
-DM_cam.*
-DM_combined.dist*
-
-logs*
-.history*
-logs/**/*.png
-logs/*.txt
-scripts/logs*
-src/ao_shaping.egg-info*
-.trae*
-.coverage
-test_output*
+# Dependencies
+.venv/
+venv/
+node_modules/
 libs*
-!libs/Galaxy_Linux_Python_2.4.2503.9202/doc_cn/Python接口开发说明书.pdf
-src/calculators/**/*.c
+src/ao_shaping/drivers/ccd/gxipy*
+src/ao_shaping/drivers/dm/Drv_UDPST/*
 
-*.pyd
-src/calculators/build/temp*
-src/calculators/*.html
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+.history*
+logs*
+
+# Environment
+.env
+.env.local
+*.env.*
+uv.lock
+
+# Editors
+.vscode/
+.idea/
+.kilocode*
+
+# Coverage
+.coverage
+coverage/
+htmlcov/
+
+# Python cache
+.mypy_cache/
+.pytest_cache/
+
+# data and dumps
+data*
+ckpts*
+src/ao_shaping/drivers/dm/to_load_V.csv
+*.exe
+*.docx
+notebooks/history.png
+
