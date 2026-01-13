@@ -4,9 +4,17 @@
 包含光源、变形镜(DM)、哈特曼传感器(WFS)、大气湍流相位屏等设备的仿真实现。
 基于Zernike多项式和角谱传播法进行物理仿真。
 """
-import numpy as np
-from typing import Tuple, Optional, Dict, Any
+from typing import List, Tuple, Optional, Dict, Any
 from dataclasses import dataclass
+from functools import cached_property
+import numpy as np
+from scipy.interpolate import RectBivariateSpline, interp1d
+from scipy.ndimage import zoom
+
+# 全局常量定义
+PI = np.pi
+N_expansion = 3  # 扩展倍数
+FTT_expande_time = 1  # FFT扩展时间
 
 @dataclass
 class AOConfig:
@@ -96,6 +104,133 @@ class LightSource:
         amplitude = np.exp(-(R**2) / (w0**2))
         
         return amplitude.astype(complex)
+
+
+class ZernikePolynomials:
+    """
+    Zernike多项式计算类
+    用于波前分析和光学像差建模
+    """
+    
+    # Zernike模式名称映射
+    ZERNIKE_NAMES = {
+        (0, 0): "Piston",
+        (1, -1): "Tilt X",
+        (1, 1): "Tilt Y",
+        (2, -2): "Astigmatism 45°",
+        (2, 0): "Defocus",
+        (2, 2): "Astigmatism 0°",
+        (3, -3): "Trefoil X",
+        (3, -1): "Coma X",
+        (3, 1): "Coma Y",
+        (3, 3): "Trefoil Y",
+        (4, -4): "Secondary Astigmatism",
+        (4, -2): "Secondary Astigmatism",
+        (4, 0): "Spherical",
+        (4, 2): "Secondary Astigmatism",
+        (4, 4): "Secondary Astigmatism",
+    }
+
+    @staticmethod
+    def zernike_name(n: int, m: int) -> str:
+        """
+        获取Zernike模式名称
+        
+        参数:
+            n: 径向阶数
+            m: 角向阶数
+            
+        返回:
+            名称字符串
+        """
+        return ZernikePolynomials.ZERNIKE_NAMES.get((n, m), f"Z_{n}_{m}")
+
+    @staticmethod
+    def radial_polynomial(n: int, m: int, rho: np.ndarray) -> np.ndarray:
+        """
+        计算Zernike径向多项式
+        
+        参数:
+            n: 径向阶数
+            m: 角向阶数
+            rho: 归一化径向坐标 (0-1)
+            
+        返回:
+            径向多项式值
+        """
+        if (n - abs(m)) % 2 != 0:
+            return np.zeros_like(rho)
+        
+        m = abs(m)
+        R = np.zeros_like(rho, dtype=float)
+        
+        for k in range((n - m) // 2 + 1):
+            numerator = (-1) ** k * np.math.factorial(n - k)
+            denominator = (
+                np.math.factorial(k) *
+                np.math.factorial((n + m) // 2 - k) *
+                np.math.factorial((n - m) // 2 - k)
+            )
+            coefficient = numerator / denominator
+            R += coefficient * (rho ** (n - 2 * k))
+        
+        return R
+
+    @staticmethod
+    def generate_basis(num_modes: int, N: int, L: float = 1.0) -> np.ndarray:
+        """
+        生成Zernike基函数
+        
+        参数:
+            num_modes: 模式数量
+            N: 网格点数
+            L: 孔径大小
+            
+        返回:
+            基函数数组，shape为(num_modes, N, N)
+        """
+        # 计算径向阶数和角向阶数
+        modes = []
+        n = 0
+        while len(modes) < num_modes:
+            for m in range(-n, n + 1, 2):
+                modes.append((n, m))
+                if len(modes) >= num_modes:
+                    break
+            n += 1
+        
+        basis = np.zeros((num_modes, N, N))
+        
+        x = np.linspace(-L, L, N)
+        y = np.linspace(-L, L, N)
+        X, Y = np.meshgrid(x, y)
+        rho = np.sqrt(X**2 + Y**2) / L
+        theta = np.arctan2(Y, X)
+        
+        # 创建圆形掩码
+        mask = rho <= 1.0
+        
+        for i, (n, m) in enumerate(modes[:num_modes]):
+            if i >= num_modes:
+                break
+            R = ZernikePolynomials.radial_polynomial(n, m, rho)
+            
+            if m > 0:
+                Z = R * np.cos(m * theta)
+            elif m < 0:
+                Z = R * np.sin(-m * theta)
+            else:
+                Z = R
+            
+            # 应用圆形掩码并归一化
+            Z = Z * mask
+            norm = np.sqrt(np.sum(Z**2))
+            if norm > 0:
+                Z = Z / norm
+            
+            basis[i] = Z
+        
+        return basis
 
 
 class DeformableMirror:
@@ -742,11 +877,159 @@ class Camera:
         return image
 
 
+# 定义配置类
+class OptConfig:
+    """
+    Optical configuration parameters
+    """
+    pol = 1, 1
+    shift = 0, 0
+
+
+class GlDim:
+    """
+    Grid dimensions
+    """
+    x = 1
+    y = 1
+
+
+@dataclass
+class FDTDIntervalConfig:
+    """
+    FDTD output field density interval
+    """
+    x: int
+    y: int
+    z: int
+
+    def __post_init__(self):
+        self.x = int(max(self.x, 1))
+        self.y = int(max(self.y, 1))
+        self.z = int(max(self.z, 1))
+
+
+FDTDInterval = {"x": 50, "y": 50, "z": 50}
+N_expansion = 3  # 扩展倍数
+FTT_expande_time = 1  # FFT扩展时间
+
+@dataclass(frozen=True)
+class OpticParameters:
+    """
+    Optical parameters for calculations
+    """
+    _num_elements_x: int  # Number of elements
+    _num_elements_y: int  # Number of elements
+    period: float  # Period
+    wavelength: float  # Wavelength
+    focal_length: float  # Focal length
+
+    @property
+    def num_elements_x(self):
+        return int(self._num_elements_x)
+
+    @property
+    def num_elements_y(self):
+        return int(self._num_elements_y)
+
+    @property
+    def k0(self):
+        return 1 / self.wavelength
+
+    @property
+    def Px(self):
+        return self.num_elements_x * self.period
+
+    @property
+    def Py(self):
+        return self.num_elements_y * self.period
+
+    @cached_property
+    def str_x(self):
+        return np.linspace(-self.Px / 2, self.Px / 2, self.num_elements_x)
+
+    @cached_property
+    def str_y(self):
+        return np.linspace(-self.Py / 2, self.Py / 2, self.num_elements_y)
+    @cached_property
+    def meshed_X(self):
+        X, _ = np.meshgrid(self.str_x, self.str_y)
+        return X
+
+    @cached_property
+    def meshed_Y(self):
+        _, Y = np.meshgrid(self.str_x, self.str_y)
+        return Y
+
+    @property
+    def R(self):
+        return min(self.Px, self.Py) / 2
+
+    # 出射场密度
+    @property
+    def x_fdtd(self):
+        x_count = np.ceil(self.Px / FDTDInterval["x"]).astype(int) // 2 * 2 + 1
+        return np.linspace(-self.Px / 2, self.Px / 2, x_count)
+
+    @property
+    def y_fdtd(self):
+        y_count = np.ceil(self.Py / FDTDInterval["y"]).astype(int) // 2 * 2 + 1
+        return np.linspace(-self.Py / 2, self.Py / 2, y_count)
+
+    @property
+    def F(self):
+        return self.focal_length / (2 * self.R)
+
+    @property
+    def NA(self):
+        return np.sin(np.arctan(self.R / self.focal_length))
+
+
+@dataclass
+class ElectronicField:
+    """
+    Electronic field representation
+    """
+    Ex: np.ndarray
+    Ey: np.ndarray
+    Ez: np.ndarray
+
+    @property
+    def G(self):
+        """
+        Calculate the intensity of the electronic field
+        """
+        g = np.abs(self.Ex) ** 2 + np.abs(self.Ey) ** 2 + np.abs(self.Ez) ** 2
+        g[g < 0] = 0
+        return g
+
+
 class VectorWavePropagator:
     """
-    矢量波传播器（角谱法）
+    矢量波传播器
     
-    支持标量和矢量波的角谱传播
+    支持多种电磁波传播算法：
+    1. 角谱法 (propagate) - 传统的快速传播方法
+    2. 光束变换法 (trans_beam) - 高精度传播与效率分析方法（推荐）
+    
+    提供统一接口unified_propagate用于选择最适合的传播方法
+    
+    示例:
+        # 创建传播器实例
+        propagator = VectorWavePropagator(N=256, L=0.01, wavelength=1550e-9)
+        
+        # 使用传统角谱法传播
+        result = propagator.propagate(field)
+        
+        # 使用高精度光束变换法传播（需提供光学参数）
+        params = OpticParameters(...)  # 需要配置光学参数
+        result, efficiency = propagator.trans_beam(phase, params, mon_dist=10e-3)
+        
+        # 使用统一接口（默认使用光束变换法）
+        result, efficiency = propagator.unified_propagate(field_or_phase, 
+                                                        method="beam_transform",
+                                                        params=params, 
+                                                        mon_dist=10e-3)
     """
     
     def __init__(self,
@@ -788,25 +1071,392 @@ class VectorWavePropagator:
         
         self.propagator = np.exp(1j * self.k0 * np.sqrt(kz_arg) * self.distance)
     
-    def propagate(self, E: np.ndarray) -> np.ndarray:
+    def propagate(self, E: np.ndarray, distance: float = None) -> np.ndarray:
         """
-        角谱法传播
+        角谱法传播 - 传统的快速传播方法
         
         参数:
             E: 输入电场
+            distance: 传播距离（如果为None，则使用初始化时的距离）
             
         返回:
             E_propagated: 传播后的电场
         """
-        E_fft = np.fft.fft2(E)
-        E_propagated = np.fft.ifft2(E_fft * self.propagator)
-        return E_propagated
+        if distance is not None and distance != self.distance:
+            # 如果指定了不同的距离，临时更新传播器
+            old_distance = self.distance
+            self.distance = distance
+            self._setup_propagator()  # 重新设置传播器
+            result = np.fft.ifft2(np.fft.fft2(E) * self.propagator)
+            # 恢复原始距离设置
+            self.distance = old_distance
+            self._setup_propagator()
+        else:
+            # 使用预设的传播器
+            result = np.fft.ifft2(np.fft.fft2(E) * self.propagator)
+        
+        return result
     
     def propagate_vector(self, Ex: np.ndarray, Ey: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """矢量波传播"""
         Ex_out = self.propagate(Ex)
         Ey_out = self.propagate(Ey)
         return Ex_out, Ey_out
+
+    def propagate_with_beam_transformation(
+        self,
+        init_phase: np.ndarray,
+        params: OpticParameters,
+        mon_dist: float,
+    ) -> tuple[np.ndarray, float]:
+        """
+        使用光束变换方法进行传播并计算效率
+        
+        Args:
+            init_phase: 初始相位
+            params: 光学参数
+            mon_dist: 监测距离
+            
+        Returns:
+            tuple: 传播后的电场和效率
+        """
+        # 将输入相位转换为电场
+        e_field = self.phase_to_electronic_field(init_phase, params.Px, params.Py)
+        
+        # 使用FFT执行传播
+        x_coords = np.linspace(-params.Px/2, params.Px/2, init_phase.shape[1])
+        y_coords = np.linspace(-params.Py/2, params.Py/2, init_phase.shape[0])
+        
+        Eo, jmX, jmY = self.perform_fft(
+            e_field, x_coords, y_coords, params.k0, params.focal_length, mon_dist
+        )
+        
+        # 计算效率
+        intensity = np.abs(Eo.Ex)**2 + np.abs(Eo.Ey)**2 + np.abs(Eo.Ez)**2
+        efficiency, (fl, fr) = self.calculate_efficiency(intensity, jmX[0, :], jmY[:, 0], params.R)
+        
+        return Eo, efficiency
+
+    def unified_propagate(self, 
+                         field_or_phase: np.ndarray, 
+                         method: str = "beam_transform",  # 更改默认方法为beam_transform
+                         **kwargs) -> tuple:
+        """
+        统一的传播接口，支持多种传播方法，默认使用光束变换法
+        
+        Args:
+            field_or_phase: 输入电场或相位
+            method: 传播方法 ("angular_spectrum", "beam_transform")
+            **kwargs: 其他参数
+            
+        Returns:
+            传播后的电场和效率元组
+        """
+        if method == "angular_spectrum":
+            # 使用传统的角谱方法
+            if kwargs.get('distance'):
+                result = self.propagate(field_or_phase, distance=kwargs['distance'])
+                # 对于角谱方法，返回结果和单位效率
+                return result, 1.0
+            else:
+                result = self.propagate(field_or_phase)
+                return result, 1.0
+        elif method == "beam_transform" and 'params' in kwargs and 'mon_dist' in kwargs:
+            # 使用光束变换方法（现在是默认方法）
+            return self.trans_beam(
+                field_or_phase, 
+                kwargs['params'], 
+                kwargs['mon_dist']
+            )
+        else:
+            # 默认使用光束变换方法
+            if 'params' in kwargs and 'mon_dist' in kwargs:
+                return self.trans_beam(
+                    field_or_phase, 
+                    kwargs['params'], 
+                    kwargs['mon_dist']
+                )
+            else:
+                # 如果没有提供必要的参数，回退到角谱方法
+                result = self.propagate(field_or_phase)
+                return result, 1.0
+
+    def phase_to_electronic_field(self, phase, x, y):
+        """
+        Convert phase to electronic field
+
+        Args:
+            phase: Phase distribution
+            x: Size in x direction
+            y: Size in y direction
+
+        Returns:
+            Electronic field
+        """
+        g = np.exp(-1j * phase)
+        g1 = np.zeros_like(phase)
+        datax = np.linspace(-x / 2, x / 2, phase.shape[1])
+        datay = np.linspace(-y / 2, y / 2, phase.shape[0])
+        X, Y = np.meshgrid(datax, datay)
+        r = np.sqrt(X**2 + Y**2)
+        R = min(x, y) / 2
+        g1[r <= R] = 1
+        g = g * g1
+
+        Ex = g * 1
+        Ey = g * 1j
+        Ez = np.zeros_like(Ex, dtype=np.complex64)
+        return ElectronicField(Ex, Ey, Ez)
+
+    def expande_electronic_field(self, init_phase, Px, Py, fdtd_x, fdtd_y):
+        """
+        Expand electronic field
+
+        Args:
+            init_phase: Initial phase
+            Px: Size in x direction
+            Py: Size in y direction
+            fdtd_x: FDTD x coordinates
+            fdtd_y: FDTD y coordinates
+
+        Returns:
+            Expanded electronic field
+        """
+        # Initialize optical field
+        g = np.exp(-1j * init_phase)
+        datax = np.linspace(-Px / 2, Px / 2, init_phase.shape[1])
+        datay = np.linspace(-Py / 2, Py / 2, init_phase.shape[0])
+        X, Y = np.meshgrid(datax, datay)
+        g = np.where(np.sqrt(X**2 + Y**2) <= min(Px, Py) / 2, g, 0)
+
+        Ex = g * 1
+        Ey = g * 1j
+        Ez = np.zeros_like(Ex, dtype=np.complex64)
+
+        def interpolate_and_expand(E):
+            from scipy.interpolate import RectBivariateSpline
+            E_amp, E_phase = np.abs(E), np.angle(E)
+            E_amp_interpolated = RectBivariateSpline(datax, datay, E_amp, kx=1, ky=1)(
+                fdtd_x, fdtd_y
+            )
+            E_phase_interpolated = RectBivariateSpline(datax, datay, E_phase, kx=1, ky=1)(
+                fdtd_x, fdtd_y
+            )
+            E_interpolated = E_amp_interpolated * np.exp(1j * E_phase_interpolated)
+            E_expanded = np.tile(E_interpolated, (N_expansion, 1))
+            return E_expanded
+
+        Ex_expanded = interpolate_and_expand(Ex)
+        Ey_expanded = interpolate_and_expand(Ey)
+        Ez_expanded = interpolate_and_expand(Ez)
+        return ElectronicField(Ex_expanded, Ey_expanded, Ez_expanded)
+
+    def interp_phase(self, num_structure_x, num_structure_y, Px, Py, ws, ps, f, lambda_) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Interpolate phase values
+
+        Args:
+            num_structure_x: Number of structures in x direction
+            num_structure_y: Number of structures in y direction
+            Px: Size in x direction
+            Py: Size in y direction
+            ws: Widths
+            ps: Phases
+            f: Focal length
+            lambda_: Wavelength
+
+        Returns:
+            Interpolated phase values
+        """
+        from scipy.interpolate import interp1d
+        # Generate grid
+        x = np.linspace(-Px / 2, Px / 2, num_structure_x)
+        y = np.linspace(-Py / 2, Py / 2, num_structure_y)
+        X, Y = np.meshgrid(x, y)
+        k = 360 / lambda_
+        r2 = X**2 + Y**2
+        phase = k * (np.sqrt(r2 + f**2) - f)
+        phase = np.mod(phase, 360)
+
+        # Interpolation
+        P_a = interp1d(ps, ws, kind="nearest", fill_value=np.nan)(phase)
+        phase_map = dict(zip(ws, np.deg2rad(ps)))
+        dist_phase = np.vectorize(phase_map.get)(P_a)
+        return P_a, dist_phase
+
+    def trans_beam(
+        self,
+        init_phase,
+        params: OpticParameters,
+        mon_dist: float,
+    ) -> tuple[ElectronicField, float]:
+        """
+        Transform beam and calculate efficiency
+
+        Args:
+            init_phase: Initial phase
+            params: Optical parameters
+            mon_dist: Monitor distance
+            figure_path: Path to save figures
+
+        Returns:
+            tuple: Efficiency and paths to 2D and 1D plots
+        """
+        expanded_Ef = self.expande_electronic_field(
+            init_phase,
+            params.Px,
+            params.Py,
+            params.x_fdtd,
+            params.y_fdtd,
+        )
+
+        x_FDTD = params.x_fdtd
+        y_num = (len(x_FDTD) - 1) * N_expansion + 1
+        y_FDTD = np.linspace(-params.Py / 2, params.Py / 2, y_num)
+
+        Eo, jmX, jmY = self.perform_fft(
+            expanded_Ef, x_FDTD, y_FDTD, params.k0, params.focal_length, mon_dist
+        )
+        efficiency, (fl, fr) = self.calculate_efficiency(Eo.G, jmX[0, :], jmY[:, 0], params.R)
+
+        return Eo, efficiency
+
+    def calculate_efficiency(self, G, x, y, R) -> tuple[float, tuple[float, float]]:
+        """
+        Calculate focusing efficiency
+
+        Args:
+            G: Intensity distribution
+            x: X coordinates
+            y: Y coordinates
+            R: Radius
+
+        Returns:
+            Efficiency and FWHM values
+        """
+        from scipy.interpolate import interp1d
+        A_half = G.shape[0] // 2
+        If = G[A_half, :]
+        If0 = If / np.max(G[A_half, :])
+
+        pq = np.argmax(If0)
+        # pq = A_half
+        fl = interp1d(np.flip(If0[0 : pq + 1]), np.flip(x[0 : pq + 1]), kind="linear", fill_value=np.nan)(0.5)
+        fr = interp1d(If0[pq:], x[pq:], kind="linear", fill_value=np.nan)(0.5)
+        FWHM = abs(fl - fr)
+
+        xc, yc = getattr(OptConfig, 'shift', (0, 0))
+        rm1 = 3 * FWHM
+        rm2 = min(np.max(x), np.max(y))
+        rm1 = min(rm1, rm2)
+
+        zmX, zmY = np.meshgrid(x, y)
+        cycle = (zmX - xc) ** 2 * getattr(GlDim, 'x', 1) + (zmY - yc) ** 2 * getattr(GlDim, 'y', 1)
+        I1 = np.where(cycle <= rm1**2, G, 0)
+        I2 = np.where(cycle <= rm2**2, G, 0)
+        efficiency = np.sum(I1) / np.sum(I2)
+
+        return efficiency, (fl, fr)
+
+    def perform_fft(self, e_field: ElectronicField, x_FDTD, y_FDTD, k0, focal_length, mon_dist, recover_scale=False):
+        """
+        Perform FFT transformation and calculate light intensity
+
+        Args:
+            e_field: Electronic field
+            x_FDTD: FDTD x coordinates
+            y_FDTD: FDTD y coordinates
+            k0: Wave number
+            focal_length: Focal length
+            mon_dist: Monitor distance
+            recover_scale: Whether to recover scale
+
+        Returns:
+            Electronic field and coordinates
+        """
+        from scipy.ndimage import zoom
+        # Each pixel size
+        px = abs(x_FDTD[-1] - x_FDTD[0]) / (len(x_FDTD) - 1)
+        py = abs(y_FDTD[-1] - y_FDTD[0]) / (len(y_FDTD) - 1)
+
+        # Expand field of view, a*b -> (jm*a)*3 * (jm*b)*3
+        def expand(E, jm):
+            E = zoom(E, jm, order=3) if jm != 1 else E
+            a, b = E.shape
+            E = np.pad(E,
+                       ((FTT_expande_time*a, FTT_expande_time*a), (FTT_expande_time*b, FTT_expande_time*b)),
+                       mode="constant", constant_values=0)
+            return E
+
+        jm = N_expansion
+        jExi = expand(e_field.Ex, jm)
+        jEyi = expand(e_field.Ey, jm)
+        A, B = jExi.shape
+
+        # FFT parameters
+        lmaxX = (B / jm - 1) * px
+        lmaxY = (A / jm - 1) * py
+        jmx = np.linspace(-lmaxX / 2, lmaxX / 2, B)
+        jmy = np.linspace(-lmaxY / 2, lmaxY / 2, A)
+        jmX, jmY = np.meshgrid(jmx, jmy)
+        jfx = np.pi * B / lmaxX
+        jfy = np.pi * A / lmaxY
+        jfmx = np.linspace(-jfx, jfx, B) / (2 * np.pi)
+        jfmy = np.linspace(-jfy, jfy, A) / (2 * np.pi)
+        jkx, jky = np.meshgrid(jfmx, jfmy)
+        kr = np.sqrt(jkx**2 + jky**2) / k0
+
+        # FFT transformation
+        Ax = np.fft.fftshift(np.fft.fft2(jExi))
+        Ay = np.fft.fftshift(np.fft.fft2(jEyi))
+        Ax[kr > 1] = 0
+        Ay[kr > 1] = 0
+        q = np.sqrt(k0**2 - jkx**2 - jky**2, dtype=np.complex64)
+        Az = -(jkx * Ax + jky * Ay) / q
+        Az[kr > 1] = 0
+
+        # Calculate focal plane light intensity
+        zz = focal_length - mon_dist
+        qq = np.exp(1j * 2 * PI * q * zz)
+
+        Exo = np.fft.ifft2(np.fft.ifftshift(Ax * qq))
+        Eyo = np.fft.ifft2(np.fft.ifftshift(Ay * qq))
+        Ezo = np.fft.ifft2(np.fft.ifftshift(Az * qq))
+
+        return (
+            ElectronicField(Exo, Eyo, Ezo),
+            jmX,
+            jmY,
+        )
+
+    def rescale_EF(self, E:ElectronicField, jmX, jmY):
+        """
+        Rescale electronic field
+
+        Args:
+            E: Electronic field
+            jmX: X coordinates
+            jmY: Y coordinates
+
+        Returns:
+            Rescaled electronic field and coordinates
+        """
+        A = E.Ex.shape[0]
+        expand_boarder = A //  int(2*FTT_expande_time+1)
+        Exo = E.Ex[
+            expand_boarder:-expand_boarder, expand_boarder:-expand_boarder
+        ]
+        Eyo = E.Ey[
+            expand_boarder:-expand_boarder, expand_boarder:-expand_boarder
+        ]
+        Ezo = E.Ez[
+            expand_boarder:-expand_boarder, expand_boarder:-expand_boarder
+        ]
+        return (
+            ElectronicField(Exo, Eyo, Ezo),
+            jmX[expand_boarder:-expand_boarder, expand_boarder:-expand_boarder],
+            jmY[expand_boarder:-expand_boarder, expand_boarder:-expand_boarder],
+        )
 
 
 class TraditionalAOSystem:
