@@ -5,8 +5,8 @@ import time
 
 def test_serial():
     ser = serial.Serial(timeout=0.5)
-    ser.port = 'COM6'
-    ser.baudrate = 9600
+    ser.port = 'COM3'
+    ser.baudrate = 2000000
     ser.bytesize = serial.EIGHTBITS
     ser.parity = serial.PARITY_NONE    
     ser.stopbits = serial.STOPBITS_ONE
@@ -26,12 +26,12 @@ def test_serial():
 def test_pack_position_xy():
     """Test the pack_position_xy method"""
     # Test normal values
-    result = TM.pack_position_xy(8.0, 16.0)
+    result = TM._pack_position_xy(8.0, 16.0)
     expected = bytes([0x00, 0xA0, 0x01, 0x40])  # Big-endian format
     assert result == expected, f"Expected {expected.hex()}, got {result.hex()}"
     
     # Test negative values
-    result = TM.pack_position_xy(-8.0, -16.0)
+    result = TM._pack_position_xy(-8.0, -16.0)
     # -8.0 / 0.05 = -160 = 0xFF60 in 16-bit two's complement
     # -16.0 / 0.05 = -320 = 0xFE80 in 16-bit two's complement
     expected = bytes([0xFF, 0x60, 0xFE, 0x80])  # Big-endian format
@@ -47,9 +47,9 @@ def test_build_frame():
     expected_position = bytes([0x00, 0xA0, 0x01, 0x40])  # X=0x00A0, Y=0x0140
     expected_zeros = bytes([0x00, 0x00, 0x00, 0x00, 0x00])
     
-    assert frame[0:3] == expected_header, f"Header mismatch"
-    assert frame[3:7] == expected_position, f"Position data mismatch"
-    assert frame[7:12] == expected_zeros, f"Zero padding mismatch"
+    assert frame[0:3] == expected_header, f"Header mismatch: expected {expected_header.hex()}, got {frame[0:3].hex()}"
+    assert frame[3:7] == expected_position, f"Position data mismatch: expected {expected_position.hex()}, got {frame[3:7].hex()}"
+    assert frame[7:12] == expected_zeros, f"Zero padding mismatch: expected {expected_zeros.hex()}, got {frame[7:12].hex()}"
     
     # Verify checksum
     checksum = (~(sum(frame[2:12])) & 0xFF)
@@ -63,8 +63,8 @@ def test_range_limiting():
     frame = TM._build_frame(100.0, -100.0)
     print(frame)
     # Should not be modified
-    assert frame[3:7] == TM.pack_position_xy(100.0, -100.0)
-    
+    assert frame[3:7] == TM._pack_position_xy(100.0, -100.0)
+
     print("All range limiting tests passed!")
 
 
@@ -72,13 +72,16 @@ def test_port_list():
     print(TM.list_port())
 
 def test_tm():
-    position = (0, -420)
+    x, y = (0, -100)
+    # position = (0, -420)
     # position = (412, 389)
     with TM("COM3") as tm:
-        frame = TM._build_frame(*position)
-        tm.send(*position)
+        frame = tm.send(x, y)
         ret_frame = tm.wait_rx()
         # bin to hex
-        ret_pos = tm.bin_frame_to_pos(ret_frame[2:6])
-        print(ret_pos, frame, ret_frame)
-        # assert ret_pos == (0.0, 51.150000000000006)
+        valid, checksum = tm.validate_received_data(ret_frame)
+        assert valid, f"Invalid frame: {ret_frame.hex()}, checksum: {checksum:02X}"
+        
+        valid, ret_x, ret_y = tm.parse_position_data(ret_frame)
+        assert valid, f"Invalid position data: {ret_frame.hex()}"
+        assert (ret_x-x) < 1 and (ret_y-y) < 1, f"Expected {x}, {y}, got {ret_x}, {ret_y}"
