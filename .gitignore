@@ -35,3 +35,11 @@ DM_combined.dist*
 
 logs*
 .history*
+docs/slm-200*
+
+# Test coverage
+.coverage
+htmlcov/
+.coverage.*
+scripts/dm_sim*
+.vscode/settings.json

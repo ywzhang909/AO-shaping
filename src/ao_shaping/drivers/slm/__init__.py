@@ -5,6 +5,7 @@
 目前支持:
 - Santec SLM-200系列（SDK原生）
 - Santec SLM-200系列（PyVISA兼容）
+- SLM闪耀光栅标定
 
 Example:
     >>> from ao_shaping.drivers.slm import SantecSLM200
@@ -22,6 +23,13 @@ PyVISA Example:
     >>> with SantecSLM200Visa('SLM::1::INSTR') as slm:
     ...     slm.write('WAVELENGTH 1064')
     ...     slm.query('*IDN?')
+
+Calibration Example:
+    >>> from ao_shaping.drivers.slm import SantecSLM200Calibrator, plot_calibration_result
+    >>> 
+    >>> calibrator = SantecSLM200Calibrator(slm=slm, camera=camera)
+    >>> result = calibrator.calibrate_with_background()
+    >>> plot_calibration_result(result)
 """
 
 from .santec_slm200 import SantecSLM200, SantecSLM200Error
@@ -35,3 +43,19 @@ try:
 except ImportError as e:
     import logging
     logging.getLogger(__name__).debug(f"SantecSLM200Visa not available: {e}")
+
+# 导入标定模块
+from .slm_calibration import (
+    SLMCalibratorBase,
+    SantecSLM200Calibrator,
+    CalibrationResult,
+    plot_calibration_result,
+    calibrate_santec_slm200,
+)
+__all__ += [
+    "SLMCalibratorBase",
+    "SantecSLM200Calibrator", 
+    "CalibrationResult",
+    "plot_calibration_result",
+    "calibrate_santec_slm200",
+]
