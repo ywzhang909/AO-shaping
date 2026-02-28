@@ -41,3 +41,5 @@ scripts/logs*
 src/ao_shaping.egg-info*
 .trae*
 .coverage
+*.pyd
+src/calculators/build*
