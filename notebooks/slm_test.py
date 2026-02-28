@@ -195,6 +195,40 @@ def generate_binary_grating(b:int=2, a:int=3, direction: str = 'horizontal') -> 
     return (img * max_val).astype(np.uint16)
 
 
+def generate_blazed_grating(period: int = 100, direction: str = 'horizontal') -> np.ndarray:
+    """
+    生成闪耀光栅 (锯齿状相位分布)
+
+    闪耀光栅具有线性变化的锯齿状相位分布，可以将光衍射到特定级次，
+    提高衍射效率。
+
+    参数:
+        period: 光栅周期 (像素)
+        direction: 'horizontal' 或 'vertical', 默认为 'horizontal'
+
+    返回:
+        相位图案 (0 ~ max_val//2, 对应相位 0 ~ π)
+    """
+    height, width = RESOLUTION[1], RESOLUTION[0]
+    # 最大值为正常最大值的一半 (对应相位 2π)
+    max_val = (2 ** Bits - 1)
+
+    if direction == 'horizontal':
+        # 水平方向闪耀光栅 (相位沿垂直方向变化)
+        y = np.arange(height)
+        # 生成锯齿波形: 0 -> max_val (对应相位 0 -> π)
+        grating = ((y % period) / period * max_val)
+        img = np.tile(grating[:, np.newaxis], (1, width))
+    else:
+        # 垂直方向闪耀光栅 (相位沿水平方向变化)
+        x = np.arange(width)
+        # 生成锯齿波形: 0 -> max_val (对应相位 0 -> π)
+        grating = ((x % period) / period * max_val)
+        img = np.tile(grating[np.newaxis, :], (height, 1))
+
+    return img.astype(np.uint16)
+
+
 def generate_microlens_array(lens_size: int = 200, focal_length: float = 0.1,
                               wavelength: float = 532e-9, pixel_size: float = 8e-6) -> np.ndarray:
     """
@@ -347,7 +381,7 @@ def generate_zernike(n: int, m: int, amplitude: float = 1.0, radius: float = Non
 
 # %% 测试代码
 if __name__ == "__main__":
-    P = 8
+    P = 20
     print(f'周期为{P}像素')
     # 测试 5: 生成聚焦相位
     # print("\n生成聚焦相位...")
@@ -375,21 +409,33 @@ if __name__ == "__main__":
     generate_csv(binary_grating_v, r"data\pattern\binary-grating-v.csv")
     print(r"已生成: data\pattern\binary-grating-v.csv")
 
-    # # 测试 8: 生成微透镜阵列
+    # 测试 8: 生成闪耀光栅
+    print("\n生成闪耀光栅...")
+    blazed_grating_h = generate_blazed_grating(period=P, direction='horizontal')
+    # show(blazed_grating_h, "Blazed Grating (horizontal)")
+    generate_csv(blazed_grating_h, r"data\pattern\blazed-grating-h.csv")
+    print(r"已生成: data\pattern\blazed-grating-h.csv")
+
+    blazed_grating_v = generate_blazed_grating(period=P, direction='vertical')
+    # show(blazed_grating_v, "Blazed Grating (vertical)")
+    generate_csv(blazed_grating_v, r"data\pattern\blazed-grating-v.csv")
+    print(r"已生成: data\pattern\blazed-grating-v.csv")
+
+    # # 测试 9: 生成微透镜阵列
     # print("\n生成微透镜阵列...")
     # microlens = generate_microlens_array(lens_size=200, focal_length=0.1)
     # show(microlens, "Microlens Array")
     # generate_csv(microlens, r"data\pattern\microlens-array.csv")
     # print(r"已生成: data\pattern\microlens-array.csv")
 
-    # # 测试 9: 生成湍流屏
+    # # 测试 10: 生成湍流屏
     # print("\n生成湍流相位屏...")
     # turbulence = generate_turbulence_screen(Cn2=1e-14, L=1000)
     # show(turbulence, "Turbulence Screen")
     # generate_csv(turbulence, r"data\pattern\turbulence-screen.csv")
     # print(r"已生成: data\pattern\turbulence-screen.csv")
 
-    # # 测试 10: 生成 Zernike 相位
+    # # 测试 11: 生成 Zernike 相位
     # print("\n生成 Zernike 相位...")
     # # 常见的 Zernike 模式: (n=2, m=0) 是离焦, (n=2, m=±2) 是像散
     # zernike_defocus = generate_zernike(n=2, m=0, amplitude=2.0)
