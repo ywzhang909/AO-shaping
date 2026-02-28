@@ -1,29 +1,7 @@
-from typing import Literal
-
 import numpy as np
+from numba import njit, float32
 
 from abc import ABC, abstractmethod
-
-def learning_schedule(
-    lr, epoch, epochs, method: Literal["static", "cosin", "exp", "linear"] = "static"
-):
-    if method == "static":
-        return lr
-    # 余弦退火
-    elif method == "cosin":
-        lr = lr * np.cos(np.pi * epoch / epochs) + 1e-6
-        return lr
-    # 指数衰减
-    elif method == "exp":
-        lr = lr * np.exp(-epoch / epochs) + 1e-6
-        return lr
-    # 线性衰减
-    elif method == "linear":
-        lr = lr * (1 - epoch / epochs) + 1e-6
-        return lr
-    else:
-        raise ValueError("method must be static, cosin, exp or linear")
-
 
 class Base(ABC):
     def __init__(self, dim:int, lr=1.0):
@@ -63,7 +41,7 @@ class Adam(Base):
         self.m = np.zeros(self.dim, dtype=np.float32)
         self.v = np.zeros(self.dim, dtype=np.float32)
         self.t:int = 0
-        
+
     def update(self, grad:np.ndarray):
         self.t += 1
         self.m = self.beta1 * self.m + (1 - self.beta1) * grad
@@ -72,11 +50,12 @@ class Adam(Base):
         v_hat = self.v / (1 - self.beta2**self.t)
         return self.lr * m_hat / (np.sqrt(v_hat) + 1e-8)
     
+    
 class AdamW(Adam):
     def __init__(self, dim:int, lr=1.0, beta1 = 0.9, beta2 = 0.99, weight_decay=1e-2):
         super().__init__(dim, lr, beta1, beta2)
         self.weight_decay = weight_decay
-        
+
     def update(self, grad:np.ndarray):
         self.t += 1
         self.m = self.beta1 * self.m + (1 - self.beta1) * grad
@@ -84,8 +63,8 @@ class AdamW(Adam):
         m_hat = self.m / (1 - self.beta1**self.t)
         v_hat = self.v / (1 - self.beta2**self.t)
         return self.lr * m_hat / (np.sqrt(v_hat) + 1e-8) + self.weight_decay * self.lr * self.m
-
-
+    
+    
 class AdaMOD(Adam):
     """
     AdaMod 是一个基于 Adam 的新的深度学习优化器，但它提供了自动warmup heuristic和长期学习率缓冲。 
@@ -103,7 +82,7 @@ class AdaMOD(Adam):
         super().__init__(dim, lr, beta1, beta2)
         self.beta3 = beta3
         self.s = 0.0
-        
+
     def update(self, grad:np.ndarray):
         self.t += 1
         self.m = self.beta1 * self.m + (1 - self.beta1) * grad

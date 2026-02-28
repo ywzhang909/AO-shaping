@@ -14,8 +14,14 @@ import matplotlib.pyplot as plt
 
 from ao_shaping.drivers import CameraStreamManager, NlightDM
 from ao_shaping.algorithm.adam import AdaMOD
-from ao_shaping.utils.file import gen_file_path_uuid, gen_date_dir, logger
-from ao_shaping.utils.display import ImageVoltagesDisplay
+
+# display settings
+VOLT_HEIGHT = 200
+LOG_J_HEIGHT = 200
+# 定义背景颜色
+BACKGROUND_COLOR = (0, 0, 0)
+# 定义折线颜色
+LINE_COLOR = (0, 255, 0)
 
 # adam parameters
 beta1 = 0.9
@@ -45,6 +51,49 @@ def parse_tuple(s):
         raise argparse.ArgumentTypeError(
             f"Invalid center format: {s}. Expected formats: 'x,y' or '(x,y)'"
         )
+    
+def gen_file_name(dir, postfix: str = ''):
+    if not os.path.exists(dir):
+        os.makedirs(dir)
+    fname = os.listdir(dir)
+    if postfix:
+        fname = len([_ for _ in fname if _.endswith(postfix)]) + 1
+    else:
+        fname = len(fname) + 1
+
+    if not postfix:  # make dir
+        path = os.path.join(dir, str(fname))
+        if not postfix and not os.path.exists(path):
+            os.makedirs(path)
+    else:
+        if postfix[0] != ".":
+            postfix = "." + postfix
+        path = os.path.join(dir, str(fname)) + postfix
+    return path
+
+
+def render(window, img, log, center, r, info="", img_size=IMG_SIZE) -> None:
+    canvas = pygame.surfarray.make_surface(img.transpose())
+    pygame.draw.circle(canvas, (255, 0, 0), center, r, 1)
+    pygame.display.set_caption(info)
+    window.blit(canvas, (0,0))
+    # 绘制电压图
+    # 清空之前绘制的条形统计图
+    plot_area = pygame.Rect(0, img_size[1], img_size[0], VOLT_HEIGHT)
+    window.fill(BACKGROUND_COLOR, plot_area)
+    volts = log[-1]['_v']
+    bar_width = int(img_size[0] / len(volts))
+    for i,value in enumerate(volts):
+        normed_v = (value-NlightDM.V_Min)/(NlightDM.V_Max-NlightDM.V_Min)
+        color = (int(normed_v*255), int((1-normed_v)*255), 0)
+        x = int(i * bar_width)
+        y = int(img_size[1] + VOLT_HEIGHT)
+        height = int((value / NlightDM.V_Max) *  VOLT_HEIGHT)
+        pygame.draw.line(window, color, (x, y), (x, y - height), bar_width)
+    
+    pygame.event.pump()
+    pygame.display.update()
+
 
 def optimize_pib(
     center,
@@ -65,7 +114,7 @@ def optimize_pib(
     epochs = int(epochs)
     
     with CameraStreamManager(cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False) as cam,\
-            NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT, max_neibor_diff=200) as dm:
+            NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
         optimizer = AdaMOD(dm.DM_Num, lr=lr, beta1=beta1, beta2=beta2, beta3=beta3, **kwargs)
 
         if not init_v:

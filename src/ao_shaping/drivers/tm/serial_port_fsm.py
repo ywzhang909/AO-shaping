@@ -1,5 +1,9 @@
 # serial_port_fsm.py
-import struct, serial, serial.tools.list_ports, threading, queue
+import struct
+import serial
+import serial.tools.list_ports
+import threading
+import queue
 
 class SerialPortFSM:
     MAX, MIN = 1510.0, -1510.0

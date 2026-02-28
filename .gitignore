@@ -43,3 +43,11 @@ src/ao_shaping.egg-info*
 .coverage
 *.pyd
 src/calculators/build*
+docs/slm-200*
+
+# Test coverage
+.coverage
+htmlcov/
+.coverage.*
+scripts/dm_sim*
+.vscode/settings.json
