@@ -1,4 +1,6 @@
 import numpy as np
+from scipy.ndimage import center_of_mass
+
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
@@ -49,7 +51,7 @@ def jitter_diameter(lamd, aperture, dist):
 
     return diameter
 
-def centroid(intensity:np.ndarray, x, y, threshold=0/255) -> Tuple[int, int]:
+def centroid(intensity:np.ndarray, moment:int=1, threshold=0.01) -> Tuple[int, int]:
     """
     光强的质心位置
 
@@ -58,17 +60,12 @@ def centroid(intensity:np.ndarray, x, y, threshold=0/255) -> Tuple[int, int]:
     :param y: y坐标矩阵
     :return center_x, center_y: 光强的质心
     """
-    _intensity = intensity.copy()
-    _intensity[_intensity < threshold] = 0
+    _intensity = intensity.copy().astype(np.float32)
+    _intensity -= threshold*np.max(_intensity)
+    _intensity[_intensity < 0] = 0
     
-    total_intensity = np.sum(intensity)
-    if total_intensity == 0:
-        return 0,0
-    
-    center_x = np.sum(x * intensity) / total_intensity
-    center_y = np.sum(y * intensity) / total_intensity
-
-    return round(center_x), round(center_y)
+    center = center_of_mass(_intensity**moment)
+    return int(center[1]), int(center[0])
 
 def peak_position(intensity, x, y):
     """
@@ -84,7 +81,17 @@ def peak_position(intensity, x, y):
 
     return xp, yp
 
-def radius(intensity, x, y, center='centroid', energy=0.99):
+def make_coord(img:np.ndarray):
+    """
+    生成坐标矩阵
+
+    :param img: 强度分布
+    :return x, y: 坐标矩阵
+    """
+    x, y = np.meshgrid(np.arange(img.shape[1]), np.arange(img.shape[0]))
+    return x, y
+
+def radius(intensity, center='centroid', energy=0.99):
     """
     以center为圆心，占总能量百分比为energy的圆的半径
 
@@ -95,6 +102,7 @@ def radius(intensity, x, y, center='centroid', energy=0.99):
     :param energy: 圆内的能量比，默认0.99，取值范围0~1，常用0.5，0.865， 0.99
     :return radius: 圆的半径
     """
+    x, y = make_coord(intensity)
     npix = len(x)
     dpix = x[0, 1] - x[0, 0]
 
@@ -104,7 +112,8 @@ def radius(intensity, x, y, center='centroid', energy=0.99):
         elif center == 'centroid':
             x0, y0 = centroid(intensity, x, y)
         elif center == 'origin':
-            x0, y0 = 0, 0
+            h, w = intensity.shape
+            x0, y0 = w // 2, h // 2
         else:
             raise ValueError('center is wrong set')
     else:

@@ -1,29 +1,21 @@
 # -*- coding: utf-8 -*-
 import numpy as np
-from scipy.ndimage import zoom
 
 import tqdm
+import json
 from loguru import logger
-import pygame
 
 from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS, CameraStreamManager
 from ao_shaping.algorithm.adam import AdaMOD
 from ao_shaping.utils import gen_date_dir, gen_file_path_uuid
+from ao_shaping.display import FrameInfo, AutoDisplay
 
 ROOT_DIR = "./data/wf"
-
-# display settings
-VOLT_HEIGHT = 200
-LOG_J_HEIGHT = 200
-# 定义背景颜色
-BACKGROUND_COLOR = (0, 0, 0)
-# 定义折线颜色
-LINE_COLOR = (0, 255, 0)
 
 # adam parameters
 beta1 = 0.9
 beta2 = 0.999
-beta3 = 0.9999
+beta3 = 0.9995
 
 # camera parameters
 CAM_EXP_TIME = 50
@@ -31,7 +23,7 @@ CAM_EXP_TIME_ADJ_RATE = 0
 IMG_SIZE = (200, 200)
 
 # wavefront sensor parameters
-Pupil_Diameter = 2.7
+Pupil_Diameter = 2.26
 
 # dm parameters
 KEEP_VOLTAGE_WHEN_EXIT = True
@@ -50,66 +42,38 @@ def schedule(rms):
         return 2, 3
     elif rms > 0.25:
         return 1.2, 2
-    elif rms > 0.18:
+    elif rms > 0.2:
         return 1.0,1.1
     elif rms > 0.15:
         return 0.9, 0.9
-    elif rms > 0.1:
+    elif rms > 0.08:
         return 0.8, 0.8
     else:
         return 0.7, 0.7
 
-
-def render(window,
-            history, r,
-            info="") -> None:
-    img = history[-1]['_img']
-    wavefront = history[-1]['_wavefront']
-    center = history[-1]['_center']
-    
-    _, img_y, img_x = img.shape
-    pos_img_canvas = pygame.surfarray.make_surface(img[0].transpose())
-    pygame.draw.circle(pos_img_canvas, (255, 0, 0), center, r, 1)
-    pygame.display.set_caption(info)
-    window.blit(pos_img_canvas, (0,0))
-    # 扩大wavefront使得大小和img一样
-    wf = wavefront[0]
-    zoom_factors = (img_y / wf.shape[0], img_x / wf.shape[1])
-    disp_wf = zoom(wf, zoom_factors, order=1)  # 双线性插值
-    # fill nan in disp_wf
-    disp_wf[np.isnan(disp_wf)] = 0
-    wavefront_canvas = pygame.surfarray.make_surface(disp_wf.transpose())
-    window.blit(wavefront_canvas, (img_y+5,0))
-    
-    # 绘制电压图
-    # 清空之前绘制的条形统计图
-    volts = history[-1]['_v'][0]
-    plot_area = pygame.Rect(0, IMG_SIZE[1], IMG_SIZE[0], VOLT_HEIGHT)
-    window.fill(BACKGROUND_COLOR, plot_area)
-    bar_width = int(IMG_SIZE[0] / len(volts))
-    for i,value in enumerate(history[-1]['_v'][0]):
-        normed_v = (value + 300)/800
-        color = (int(normed_v*255), int((1-normed_v)*255), 0)
-        x = int(i * bar_width)
-        y = int(IMG_SIZE[1] + VOLT_HEIGHT)
-        height = int(value *  VOLT_HEIGHT/ 500)
-        pygame.draw.line(window, color, (x, y), (x, y - height), bar_width)
-    
-    pygame.event.pump()
-    pygame.display.update()
-
 def optimizer(
     epochs,
+    img_size=IMG_SIZE,
     rms_threshold=0.15,
     init_v:list=[],
-    r_bucket=6.4,
-    show=True,
+    r_bucket=6.4
 ):
     epochs = int(epochs)
     _init_v = np.array(init_v)
-    with Thorlab_WFS(MlaRes.Res768, use_custom_ref=False, high_speed=True, pupil_diameter=Pupil_Diameter) as wfs,\
-            CameraStreamManager(cam_id=1, exposure_time_ms=CAM_EXP_TIME, skip_sampling=False) as cam,\
-            NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:     
+
+    frames = [
+        FrameInfo("fspot", "far spot", "Image2DWithBucketFrame"),
+        FrameInfo("wf", "wavefront", "Image2DFrame"),
+        FrameInfo("voltage", "voltages", "VoltageFrame"),
+        FrameInfo("pib", "PIB", "LogFrame"),
+        FrameInfo("rms", "RMS", "LogFrame"),
+        FrameInfo("info", "info", "TextFrame"),
+    ]
+
+    with Thorlab_WFS(MlaRes.Res512, use_custom_ref=False, high_speed=True, pupil_diameter=Pupil_Diameter) as wfs,\
+            CameraStreamManager(cam_id=0, exposure_time_ms=CAM_EXP_TIME, skip_sampling=False) as cam,\
+            NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm, \
+            AutoDisplay(frames) as display:
         assert len(init_v) == dm.DM_Num
         dm.send_voltages(_init_v, 0.5)
 
@@ -125,7 +89,7 @@ def optimizer(
         # Set up camera window for visualization
         init_img = cam.get_numpy_image(10)
         _center = np.unravel_index(np.argmax(init_img), init_img.shape)[::-1]
-        (img_sx, img_sy), _ = cam.reset_window(_center, IMG_SIZE)
+        (img_sx, img_sy), _ = cam.reset_window(_center, img_size)
         xv, yv = np.ogrid[:img_sx, :img_sy]
         def refind_center(img):
             center = np.unravel_index(np.argmax(img), img.shape)
@@ -144,7 +108,7 @@ def optimizer(
         optimizer = AdaMOD(dim=dm.DM_Num, lr=lr, beta1=beta1, beta2=beta2, beta3=beta3)
         history = [
             {
-                "J": pib,
+                "J_pib": pib,
                 "J_rms": rms,
                 "_rms": (rms,),
                 "_pib": (pib,),
@@ -158,11 +122,6 @@ def optimizer(
             }
         ]
         mode = 'rms' if 6 > rms > rms_threshold else 'pib'
-        
-        if show:
-            pygame.init()
-            total_height = VOLT_HEIGHT*2 + cam.cam_height
-            window = pygame.display.set_mode((cam.cam_width*2, total_height))
 
         with tqdm.tqdm(
             total=epochs, desc="{} iter {}".format(mode, epochs), dynamic_ncols=True
@@ -173,22 +132,21 @@ def optimizer(
                 disturb_v = disturb_v * delta
                 disturb_v[0] = 0
 
-                n_sample = 1 if mode == 'rms' else 10
-                
+                cam_sample, wf_sample = (1, 7) if mode == 'rms' else (10, 1)
                 pos_vs = dm.send_voltages(_init_v + disturb_v)
-                pos_wf, pos_rms = calc_rms()
-                pos_img, pos_pib = calc_pib(bucket_mask, n_sample)
+                pos_wf, pos_rms = calc_rms(wf_sample)
+                pos_img, pos_pib = calc_pib(bucket_mask, cam_sample)
 
                 neg_vs = dm.send_voltages(_init_v - disturb_v)
-                neg_wf, neg_rms = calc_rms()
-                neg_img, neg_pib = calc_pib(bucket_mask, n_sample)
+                neg_wf, neg_rms = calc_rms(wf_sample)
+                neg_img, neg_pib = calc_pib(bucket_mask, cam_sample)
 
                 # 如果rms大于阈值, 使用rms作用目标函数；否则使用pib
-                if min(pos_rms, neg_rms) > rms_threshold and max(pos_rms, neg_rms) < 4.0:
-                    diff = (pos_rms-neg_rms)
+                if min(pos_rms, neg_rms) > rms_threshold and max(pos_rms, neg_rms) < 6.0:
+                    diff = -(pos_rms-neg_rms)
                     mode = 'rms'
                 else:
-                    diff = -(pos_pib-neg_pib)
+                    diff = (pos_pib-neg_pib)
                     if mode == 'rms':
                         _center, bucket_mask = refind_center(pos_img if pos_pib>neg_pib else neg_img)
                     mode = 'pib'
@@ -196,14 +154,17 @@ def optimizer(
                 lr, delta = schedule(rms)
                 optimizer.lr = lr
                 update = optimizer.update(gradient)
-                _to_update_v = _init_v - update
+                _to_update_v = np.clip(_init_v - update, -dm.max_iter_diff+delta, dm.max_iter_diff-delta)
                 if dm.check_dm_unit_grad_safe(_to_update_v):
                     _init_v = _to_update_v
                 else:
-                    logger.warning("相邻单元压差过大，放弃本次结果")
+                    logger.warning(f"相邻单元压差大于{dm.max_neibor_diff}，放弃本次结果")
+                
+                J_pib = np.mean([pos_pib, neg_pib])
+                J_rms = np.mean([pos_rms, neg_rms])
                 history.append({
-                    "J": np.mean([pos_pib, neg_pib]),
-                    "J_rms": np.mean([pos_rms, neg_rms]),
+                    "J_pib": J_pib,
+                    "J_rms": J_rms,
                     "_rms": (pos_rms, neg_rms),
                     "_pib": (pos_pib, neg_pib),
                     "_center": _center,
@@ -214,13 +175,19 @@ def optimizer(
                     "_wavefront": np.stack((pos_wf, neg_wf), axis=0),
                     "_img": np.stack((pos_img, neg_img), axis=0),
                 })
+                info = {k: '{:.4f}'.format(v) for k, v in history[-1].items() if k[0] != "_"}
 
-                if show:
-                    render(
-                        window, history, r_bucket, f"{epoch}: J={history[-1]['J']:.3f}"
-                    )
-
-                bar.set_postfix({k: '{:.4f}'.format(v) for k, v in history[-1].items() if k[0] != "_"})
+                frame_data = {
+                    "fspot": {'img': neg_img, 'center': _center, 'r': r_bucket},
+                    "wf": {'img': neg_wf},
+                    "voltage": {'volts': _init_v},
+                    "pib": {'value': J_pib},
+                    "rms": {'value': J_rms},
+                    "info": {'text': json.dumps(info, indent=4)},
+                }
+                display.render(frame_data=frame_data, info=f"Epoch {epoch}/{epochs}:{J_pib=:.4f},{J_rms=:.4f}")
+                
+                bar.set_postfix(info)
                 bar.update(1)
     return history
 
@@ -233,7 +200,7 @@ def run():
     # Find best voltage
     id_max = np.argmax([h["J"] for h in wfs_history])
     best_v = wfs_history[id_max]["_v"][0]
-    best_J = wfs_history[id_max]["J"]
+    best_J = wfs_history[id_max]["J_pib"]
     # Save final voltages
     np.savetxt('final_J-{:.4f}.csv'.format(best_J), best_v, fmt="%d")
 

@@ -7,7 +7,7 @@ from ao_shaping.utils.file import logger
 class CameraStreamManager:
     def __init__(self, cam_id:int=0, exposure_time_ms:int=20, skip_sampling=False):
         self.device_manager = gx.DeviceManager()
-        self.cam_id = cam_id
+        self.cam_id = int(cam_id)
         self.exposure_time_ms = exposure_time_ms
         self.skip_sampling = skip_sampling
 
@@ -164,6 +164,7 @@ class CameraStreamManager:
 
         参数:
         n_sample (int): 采样次数，用于计算平均图像。必须大于0。
+        skip_first (bool): 是否跳过第一次采样，默认值为True。
 
         返回:
         np.ndarray: 处理后的平均图像，数据类型为uint8。
@@ -190,20 +191,7 @@ class CameraStreamManager:
         xv, yv = np.meshgrid(x, y)
         return xv, yv
 
-
-if __name__ == '__main__':
-    import numpy as np
-
-    import matplotlib.pyplot as plt
-    
-    def test_cam(cam_id=0):
-        with CameraStreamManager(cam_id, exposure_time_ms=50) as cam:
-            img = cam.get_numpy_image(10)
-            center = np.unravel_index(np.argmax(img), img.shape)
-            center = (center[1], center[0])
-            print(f'{center=}')
-            plt.imshow(img)
-            plt.title(f'{center=} = {img[center[::-1]]=}')
-            plt.show()
-            
-    test_cam(1)
+    @staticmethod
+    def get_cam_list():
+        device_manager = gx.DeviceManager()
+        return device_manager.update_device_list()

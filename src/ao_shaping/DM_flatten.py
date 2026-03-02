@@ -1,6 +1,8 @@
 import os
+import sys
 import datetime
 import json
+import re
 import tqdm
 import argparse
 import coredumpy
@@ -24,10 +26,7 @@ LINE_COLOR = (0, 255, 0)
 # adam parameters
 beta1 = 0.9
 beta2 = 0.99
-beta3 = 0.9995
-
-# cool_momentum_spgd parameters
-Rho_0 = 0.9
+beta3 = 0.9999
 
 # metropolis parameters
 METROPOLIS_ALPHA = 0.8
@@ -39,6 +38,20 @@ CAM_SAMPLE_ITER = 10
 # dm parameters
 KEEP_VOLTAGE_WHEN_EXIT = True
 
+def parse_tuple(s):
+    # 移除空格和括号
+    s_clean = re.sub(r'[()\s]', '', s)
+    try:
+        parts = s_clean.split(',')
+        if len(parts) != 2:
+            raise ValueError("Must have exactly two integers")
+        x, y = map(int, parts)
+        return (x, y)
+    except Exception as e:
+        raise argparse.ArgumentTypeError(
+            f"Invalid center format: {s}. Expected formats: 'x,y' or '(x,y)'"
+        )
+    
 def gen_file_name(dir, postfix: str = ''):
     if not os.path.exists(dir):
         os.makedirs(dir)
@@ -110,7 +123,6 @@ def optimize_pib(
             _init_v = np.array(init_v)
         dm.send_voltages(_init_v, 1)
         
-        # 使用传入的相机尺寸参数
         img_size = (cam_size, cam_size)
         img_size, _ = cam.reset_window(center, img_size)
         init_img = cam.get_numpy_image(1)
@@ -201,38 +213,48 @@ def optimize_pib(
                     optimizer.lr = max(lr * shrank_ratio, 0.8)
 
                 if show:
-                    window.render(
+                    if not window.render(
                         pos_img, _init_v, dm.V_Min, dm.V_Max, center, r_bucket, f"{epoch}: PIB={log['pib']:.3f}"
-                    )
+                    ):
+                        break
                 
                 bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
                 bar.update(1)
-
+        if show:
+            window.close()
         return history
 
-def run(args:argparse.Namespace):
-    root_dir = args.root_dir
-    res_list = optimize_pib(**args.__dict__)
+def run(args:argparse.Namespace): 
+    opti_args = args.__dict__
+    root_dir = opti_args.pop('root_dir')
+    load_file = opti_args.pop('load_file')
+    if load_file:
+        last_v = np.loadtxt(load_file)
+        opti_args['init_v'] = last_v.tolist()
+    opti_args['center'] = tuple(opti_args['center'])
+    logger.info(opti_args)
+
+    res_list = optimize_pib(**opti_args)
     # 保存结果
     res_df = pd.DataFrame(res_list)
-    if root_dir:
-        save_dir = gen_date_dir(root_dir)
-        saved_file_name = gen_file_path_uuid(save_dir, 'pkl')
-        res_df.to_pickle(saved_file_name, compression='zip')
     max_j_id = res_df['pib'].argmax()
     last_V = res_df.iloc[max_j_id]["_v"]
     max_j = res_df.iloc[max_j_id]['pib']
     logger.info(f"{max_j_id} -> {max_j}")
 
-    saved_dir = f'data/flatten_voltages/{datetime.datetime.now().strftime("%Y%m%d")}'
+    saved_dir = f'{root_dir}/flatten_voltages/{datetime.datetime.now().strftime("%Y%m%d")}'
     if not os.path.exists(saved_dir):
         os.makedirs(saved_dir)
     np.savetxt(f'{saved_dir}/to_load_V-{max_j}.csv', np.around(last_V).astype(int), fmt="%d")
-
-    with open(saved_file_name.with_suffix('.json'), 'w' ,encoding='utf8') as f:
-        json.dump(args.__dict__, f, ensure_ascii=False, indent=4)
         
-    if args.show:
+    if args.debug:
+        save_dir = gen_date_dir(f'{root_dir}/wf-less')
+        saved_file_name = gen_file_path_uuid(save_dir, 'pkl')
+        res_df.to_pickle(saved_file_name, compression='zip')
+
+        with open(saved_file_name.with_suffix('.json'), 'w' ,encoding='utf8') as f:
+            json.dump(args.__dict__, f, ensure_ascii=False, indent=4)
+
         fig, ax = plt.subplots(2, 2, figsize=(12, 8))
         # init image
         ax[0, 0].imshow(res_df.iloc[0]["_img"])
@@ -260,11 +282,11 @@ def run(args:argparse.Namespace):
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
-    args.add_argument("--root_dir", type=str, default="data/wf-less", help="数据保存根目录 (default: data/wf-less)")
+    args.add_argument("-d", "--root_dir", type=str, default="data", help="数据保存根目录 (default: data)")
     args.add_argument("-f", "--load_file", type=str, default=None, help="加载优化结果文件 (default: None)")
     args.add_argument("--cam_id", type=int, default=os.environ.get('Far_Cam_ID', 0), help="远场光斑CCD设备ID (default: Far_Cam_ID/0)")
-    args.add_argument("-c", "--center", type=tuple, default=(570,444), help="远场光斑CCD中心位置 (default: (665, 403))")
-    args.add_argument("--exposure_time_ms", type=int, default=50, help="远场光斑CCD曝光时间 (毫秒) (default: 60)")
+    args.add_argument("-c", "--center", type=parse_tuple, default=(665, 403), help="场光斑CCD中心位置 (default: (665, 403))")
+    args.add_argument("-t","--exposure_time_ms", type=int, default=100, help="远场光斑CCD曝光时间 (毫秒) (default: 60)")
     args.add_argument("--epochs", type=int, default=4_000, help="优化迭代次数 (default: 4000)")
     args.add_argument("-r", "--r_bucket", type=float, default=18, help="渲染半径桶大小 (default: 18)")
     args.add_argument("--delta", type=float, default=2, help="优化步长 (default: 2)")
@@ -272,11 +294,18 @@ if __name__ == "__main__":
     args.add_argument("--weight_decay", type=float, default=0.0, help="权重衰减 (default: 0.0)")
     args.add_argument("--shrank_iter", type=int, default=300, help="优化迭代次数后收缩半径桶和步长 (default: 300)")
     args.add_argument("--show", type=bool, default=True, help="显示远场光斑CCD图像和优化历史 (default: True)")
-    args.add_argument("--cam_size", type=int, default=200, help="相机开窗大小 (default: 200*200)")
+    args.add_argument("-s", "--cam_size", type=int, default=200, help="相机开窗大小 (default: 200*200)")
     args.add_argument("--debug", action='store_true', default=False, help="是否开启调试模式 (default: False)")
     args = args.parse_args()
     coredumpy.patch_except(directory='logs/debug/error')
 
-    run(args)
-    if args.debug:
-        coredumpy.dump(directory='logs/debug')
+    try:
+        run(args)
+    except Exception as e:
+        logger.error(e)
+        sys.exit(1)
+    finally:
+        if args.debug:
+            coredumpy.dump(directory='logs/debug')
+
+    sys.exit(0)

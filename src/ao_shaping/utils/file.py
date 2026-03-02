@@ -1,3 +1,4 @@
+from typing import Any
 import os
 import re
 from loguru import logger
@@ -8,6 +9,7 @@ from glob import glob
 from datetime import datetime
 
 import numpy as np
+import pandas as pd
 
 error_handler = logger.add("logs/error.log", rotation="500 MB", encoding="utf-8", level="ERROR", backtrace=True, diagnose=True)
 
@@ -86,11 +88,66 @@ def get_init_V_by_energy(date:str = ''):
         if match:
             return float(match.group(1))
         return np.nan
-    max_energy = max([get_energy(f) for f in glob(f"{data_path}/to_load_V-*.csv") if not np.isnan(get_energy(f))])
+    
     try:
-        logger.info(f"init_V by energy {max_energy:.3f}")
+        max_energy = max([get_energy(f) for f in glob(f"{data_path}/to_load_V-*.csv") if not np.isnan(get_energy(f))])
         init_V = np.loadtxt(f"{data_path}/to_load_V-{max_energy:.3f}.csv")
-    except FileNotFoundError:
+        logger.info(f"init_V by energy {max_energy:.3f}")
+    except FileNotFoundError or ValueError:
         init_V = np.zeros(64)
-        logger.info(f"init_V by energy {max_energy:.3f} not found, return 0")
+        logger.info(f"init_V by energy @ {data_path} not found, return 0")
     return init_V
+
+def save_history(history:pd.DataFrame | list[dict[str, Any]], file_path:str|Path=None):
+    if isinstance(file_path, str):
+        file_path = Path(file_path)
+    if not file_path.exists():
+        file_path.parent.mkdir(parents=True)
+    if not isinstance(history, pd.DataFrame):
+        history = pd.DataFrame(history)
+    else:
+        np.save(file_path, history)
+
+
+class Recorder():
+    def __init__(self, mark:str="J", target="v"):
+        self.history = []
+        self.mark = mark
+        self.target = target
+    
+    def record(self, record):
+        self.history.append(record)
+
+    def save_dataframe(self, filename:str, **kwargs):
+        df = self.dataframe
+        save_history(df, filename)
+        return df
+
+    def save_best(self, saved_dir:str, **kwargs):
+        res_df = self.dataframe
+        max_j_id = res_df[self.mark].argmax()
+        last_V = res_df.iloc[max_j_id][self.target]
+        max_j = res_df.iloc[max_j_id][self.mark]
+        np.savetxt(f'{saved_dir}/to_load_V-{max_j:.3f}.csv', np.around(last_V).astype(int), fmt="%d")
+        logger.info(f"{max_j_id} -> {max_j:.3f}")
+        return last_V, max_j
+
+    @property
+    def dataframe(self):
+        df = pd.DataFrame(self.history)
+        df.columns = [c[1:] if c.startswith("_") else c for c in df.columns]
+        return df
+    
+    @property
+    def last_record(self):
+        return self.history[-1]
+    
+    @property
+    def first_record(self):
+        return self.history[0]
+    
+    @property
+    def best_record(self):
+        res_df = self.__to_dataframe()
+        max_j_id = res_df[self.mark].argmax()
+        return res_df.iloc[max_j_id]

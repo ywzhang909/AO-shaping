@@ -119,6 +119,11 @@ class DMUdp:
 
     def __init__(self):
         self.ip = "192.168.6.10"
+        # test ip reachable
+        try:
+            socket.inet_aton(self.ip)
+        except socket.error:
+            raise AssertionError("device connection error.")
         self.port = 1001
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.dm_num = DM_NUM
@@ -163,6 +168,10 @@ class DMSdk:
             raise Exception("Drv_UDPST.dll not found.")
         
         dll = cdll.LoadLibrary(path)
+
+        dll.GetConnection2.restype = c_bool
+        dll.GetConnection2.argtypes = []
+
         dll.SetVoltages.restype = c_bool
         dll.SetVoltages.argtypes = [
             np.ctypeslib.ndpointer(dtype=np.double, ndim=1, shape=(self.dm_num)), c_int32, c_int32]
@@ -179,6 +188,7 @@ class DMSdk:
             np.ctypeslib.ndpointer(dtype=np.double, ndim=1, shape=(self.dm_num)), c_int32, c_int32]
 
         self._dll = dll
+        assert self._dll.GetConnection2(), "device connection error."
 
     def set_voltages(self, vs:np.ndarray, with_echo=False):
         func = self._dll.SetVoltages if with_echo else self._dll.SetVoltagesNoEcho
@@ -203,25 +213,3 @@ class DMSdk:
             return voltages
         else:
             raise Exception("device connection error.")
-
-
-
-
-if __name__ == '__main__':
-    def test():
-        import os
-        import tqdm
-        
-        v_dump_path = os.path.join(os.path.dirname(__file__), 'to_load_V.csv')
-        # v = np.loadtxt(v_dump_path)
-        with NLight(keep_when_exit=True) as dm:
-            for i in tqdm.trange(100_000):
-                v = np.zeros((dm.DM_Num,))
-                v[1] = 30 * np.sin(2* np.pi * (i/10))
-                dm.send_voltages(v, 0.2)
-                
-    def turn_off():
-        with NLight(keep_when_exit=False) as dm:
-            dm.reset_all()
-            
-    turn_off()

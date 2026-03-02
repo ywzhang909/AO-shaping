@@ -329,6 +329,7 @@ class WFSManager:
         self.mla_index = mla_index
         self.image_pix = Mla_pix[mla_index]
         self.num_spots_x, self.num_spots_y = 0, 0
+
         self.c_x, self.c_y = 0.0, 0.0
         self.d_x, self.d_y = pupil_diameter, pupil_diameter
 
@@ -362,12 +363,12 @@ class WFSManager:
 
         self.select_mla(self.mla_index)
         self.set_ref_plane(self.use_custom_ref)
-        self.pupil = (self.c_x, self.c_y, self.d_x, self.d_y)
         if self._explosure_time <= 0:
             self._explosure_time,_ = self.optimize_exposure_time_and_gain()
         self.exposure_time = self._explosure_time
         self.high_speed = self.enable_high_speed
-        self.pupil = self.pupil if (self.d_x>0 and self.d_y>0) else self.optimize_pupil()
+        self.pupil = (self.c_x, self.c_y, self.d_x, self.d_y) \
+            if (self.d_x>0 and self.d_y>0) else self.optimize_pupil()
         
     def close(self):
         if self._instrument_handle.value > 0:
@@ -381,7 +382,7 @@ class WFSManager:
         info = create_string_buffer(256)
         errorCode = ViStatus(err)
         self._lib.WFS_error_message(self._instrument_handle, errorCode, byref(info))
-        logger.error("error:", str(info.value))
+        logger.error(f"error: {info.value.decode('utf-8')}")
         if not no_raise:
             raise Exception(info.value)
 
@@ -611,6 +612,7 @@ class WFSManager:
         self._lib.WFS_SetPupil(
             self._instrument_handle,
             c_double(c_x), c_double(c_y), c_double(d_x), c_double(d_y))
+        logger.info(f"pupil is {c_x=}, {c_y=}, {d_x=}, {d_y=}")
         self.c_x, self.c_y, self.d_x, self.d_y = c_x, c_y, d_x, d_y
 
     @property
@@ -631,15 +633,20 @@ class WFSManager:
         allowAutoExposure	ViInt32	When Highspeed Mode is selected, this parameter determines if the camera should also calculate the image saturation in order enable the auto exposure feature using function WFS_TakeSpotfieldImageAutoExpos() instead of WFS_TakeSpotfieldImage().
         This option leads to a somewhat reduced measurement speed when enabled.
                 '''
+        def __set_high_speed():
+            return self._lib.WFS_SetHighspeedMode(self._instrument_handle,
+                                       c_int32(1 if enable else 0), c_int32(1), c_int32(1), c_int32(1))
+
         self.enable_high_speed = False
         if enable:
             self.optimize_exposure_time_and_gain()
             self._lib.WFS_CalcSpotsCentrDiaIntens(self._instrument_handle, c_int32(1), c_int32(1))
-            self.pupil = (self.c_x, self.c_y, self.d_x, self.d_y)
 
-        if (res := self._lib.WFS_SetHighspeedMode(self._instrument_handle,
-                                       c_int32(1 if enable else 0), c_int32(1), c_int32(1), c_int32(1))) != 0:
+        if (res := __set_high_speed()):  # res == 0 means success
             self.handle_error(res, True)
+            self.pupil = self.optimize_pupil()
+            if (res := __set_high_speed()): # try again with auto pupil settings
+                self.handle_error(res, False)
         else:
             self.enable_high_speed = enable
             if self.enable_high_speed:
@@ -666,74 +673,5 @@ class WFSManager:
                 self.hs_window_startpos_x = windowStartposX
                 self.hs_window_startpos_y = windowStartposY
 
-        logger.info("high speed mode is " + "on" if enable else "off")
-
-
-
-if __name__ == '__main__':
-    import matplotlib.pyplot as plt
-
-    def test_wfs():
-        with WFSManager(MlaRes.Res512, exp_time=0.029) as wfs:
-            opt_exp_time, _ = wfs.optimize_exposure_time_and_gain()
-            if 0.001 < opt_exp_time < 87:
-                wfs.exposure_time = opt_exp_time
-            else:
-                print("no usable image. exit now..")
-                exit()
-
-            print(f"optimize_pupil: {wfs.optimize_pupil()}")
-
-            for _ in range(1):
-                wfs.take_image()
-                
-                spots_filed = wfs.get_spotfiled_image()
-                plt.imshow(spots_filed)
-                plt.show()
-                
-                x, y = wfs.get_spot_deviation()
-                intensity, _ = wfs.get_spots_statics()
-                wf, statics = wfs.get_wavefront()
-                print(f"{statics=}")
-
-                fig, ax = plt.subplots(2,2)
-                ax[0,0].imshow(x)
-                ax[0,0].set_title("spot deviation x")
-
-                ax[0,1].imshow(y)
-                ax[0,1].set_title("spot deviation y")
-                
-                ax[1,0].imshow(intensity)
-                ax[1,0].set_title("spot intensity")
-                
-                ax[1,1].imshow(wf)
-                ax[1,1].set_title("wavefront")
-                plt.show()
-                
-            wfs.high_speed = True
-            for _ in range(10):
-                wfs.take_image()
-                x,y = wfs.get_spot_deviation()
-                print(y[0,:])
-                # print(wfs.get_zernike(3))
-                print(wfs.get_wavefront()[0][0,:])
-                
-    def test_rms():
-        rms_hist = []
-        with WFSManager(MlaRes.Res768) as wfs:
-            wfs.high_speed = True
-            for _ in range(100):
-                wfs.take_image(n_sample=10)
-                
-                # dx, dy = wfs.get_spot_deviation()
-                # rms = np.sqrt(np.nanmean(dx**2+dy**2))
-                zernike_coeff = wfs.get_zernike(10)
-                print(zernike_coeff)
-                rms_hist.append(np.mean(np.sqrt(np.sum(zernike_coeff**2))))
-        return rms_hist
-    # test_wfs()
-
-    rms_hist = test_rms()
-    plt.plot(rms_hist)
-    plt.show()
+        logger.info("high speed mode is " + "on" if self.enable_high_speed else "off")
     

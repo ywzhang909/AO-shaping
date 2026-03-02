@@ -1,31 +1,46 @@
 import pygame
 import numpy as np
 
-from ao_shaping.display import AutoDisplay
+from ao_shaping.display import AutoDisplay, FrameInfo
 from ao_shaping.utils.wavefront_calc import ZernikeCentroidCalculator
 
 
 def test_autodisplay():
     wavefront = ZernikeCentroidCalculator()
     clock = pygame.time.Clock()
+    frames = [
+        FrameInfo("fspot", "远场光斑", "Image2DWithBucketFrame"),
+        FrameInfo("nspot", "远场光斑", "Image2DFrame"),
+        FrameInfo("wf", "波前", "Image2DFrame"),
+        FrameInfo("voltage", "波前", "VoltageFrame"),
+        FrameInfo("value", "PIB", "LogFrame"),
+        FrameInfo("info", "info", "TextFrame"),
+    ]
     frames_data = {
-        "Image2D": {},
-        "Image2DWithBucket": {},
-        "Voltage": {},
+        "fspot": {},
+        "nspot": {},
+        "wf": {},
+        "voltage": {},
+        "value": {},
+        "info": {},
     }
-    with AutoDisplay(frames_data.keys()) as window:
-        for _ in range(10_000):
+    total_frames = 100
+    with AutoDisplay(frames) as window:
+        for frame_count in range(total_frames):
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     pygame.quit()
                     exit()
-            frames_data['Image2D'] = {'img': np.random.randint(0, 255, (300, 300))}
+            frames_data['nspot'] = {'img': np.random.randint(0, 255, (300, 300))}
             coef = np.random.randint(-300, 500, (64,))
             center, wf = wavefront.get_centroid(coef)
-            frames_data['Image2DWithBucket'] = {'img': wf, 'center': center, 'r': 10}
-            frames_data['Voltage'] = {'volts': coef}
-            window.render(frame_data=frames_data)
-            clock.tick(30)
+            frames_data['fspot'] = {'img': wf, 'center': center, 'r': 10}
+            frames_data['wf'] = {'img': wf}
+            frames_data['voltage'] = {'volts': coef}
+            frames_data['value'] = {'value': np.random.randint(0, 100)}
+            frames_data['info'] = {'text': f"Frame {frame_count}/{total_frames}\nPIB: {frames_data['value']['value']}"}
+            window.render(frame_data=frames_data, info=f"Frame {frame_count}/{total_frames}")
+            clock.tick(60)
 
 
 def test_display():
@@ -53,7 +68,7 @@ def test_display():
     # 最多存储的历史数据点
     MAX_HISTORY = IMG_SIZE[0]
 
-    for _ in range(10_000):
+    for _ in range(100):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
@@ -111,7 +126,3 @@ def test_display():
         pygame.display.update()
         # 控制帧率
         clock.tick(30)
-        
-        
-if __name__ == '__main__':
-    test_autodisplay()
