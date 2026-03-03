@@ -217,13 +217,14 @@ def generate_blazed_grating(period: int = 100, direction: str = 'horizontal') ->
         # 水平方向闪耀光栅 (相位沿垂直方向变化)
         y = np.arange(height)
         # 生成锯齿波形: 0 -> max_val (对应相位 0 -> π)
-        grating = ((y % period) / period * max_val)
+        grating = np.astype(y % period, np.float32) / period
+        grating = grating * max_val
         img = np.tile(grating[:, np.newaxis], (1, width))
     else:
         # 垂直方向闪耀光栅 (相位沿水平方向变化)
         x = np.arange(width)
         # 生成锯齿波形: 0 -> max_val (对应相位 0 -> π)
-        grating = ((x % period) / period * max_val)
+        grating = (np.astype(x % period, np.float32) / period * max_val)
         img = np.tile(grating[np.newaxis, :], (height, 1))
 
     return img.astype(np.uint16)
@@ -381,7 +382,8 @@ def generate_zernike(n: int, m: int, amplitude: float = 1.0, radius: float = Non
 
 # %% 测试代码
 if __name__ == "__main__":
-    P = 20
+    P = 8
+
     print(f'周期为{P}像素')
     # 测试 5: 生成聚焦相位
     # print("\n生成聚焦相位...")
@@ -390,21 +392,23 @@ if __name__ == "__main__":
     # generate_csv(focus_phase, r"data\pattern\focus-phase.csv")
     # print(r"已生成: data\pattern\focus-phase.csv")
 
-    # 测试 6: 生成棋盘格
-    print("\n生成棋盘格...")
-    checker = generate_checkerboard(period=P)
-    # show(checker, "Checkerboard (period=150)")
-    generate_csv(checker, r"data\pattern\checkerboard.csv")
-    print(r"已生成: data\pattern\checkerboard.csv")
+    # # 测试 6: 生成棋盘格
+    # print("\n生成棋盘格...")
+    # checker = generate_checkerboard(period=P)
+    # # show(checker, "Checkerboard (period=150)")
+    # generate_csv(checker, r"data\pattern\checkerboard.csv")
+    # print(r"已生成: data\pattern\checkerboard.csv")
 
-    # 测试 7: 生成 01 光栅
+    # # 测试 7: 生成 01 光栅
     print("\n生成 01 光栅...")
-    binary_grating_h = generate_binary_grating(b=5, a=10, direction='horizontal')
+    _b = int(P/2) 
+    _a = P-_b
+    binary_grating_h = generate_binary_grating(b=_b, a=_a, direction='horizontal')
     # show(binary_grating_h, "Binary Grating (horizontal)")
     generate_csv(binary_grating_h, r"data\pattern\binary-grating-h.csv")
     print(r"已生成: data\pattern\binary-grating-h.csv")
 
-    binary_grating_v = generate_binary_grating(b=11, a=15, direction='vertical')
+    binary_grating_v = generate_binary_grating(b=_b, a=_a, direction='vertical')
     # show(binary_grating_v, "Binary Grating (vertical)")
     generate_csv(binary_grating_v, r"data\pattern\binary-grating-v.csv")
     print(r"已生成: data\pattern\binary-grating-v.csv")
@@ -413,13 +417,13 @@ if __name__ == "__main__":
     print("\n生成闪耀光栅...")
     blazed_grating_h = generate_blazed_grating(period=P, direction='horizontal')
     # show(blazed_grating_h, "Blazed Grating (horizontal)")
-    generate_csv(blazed_grating_h, r"data\pattern\blazed-grating-h.csv")
-    print(r"已生成: data\pattern\blazed-grating-h.csv")
+    generate_csv(blazed_grating_h, f"data/pattern/{P}-blazed-grating-h.csv")
+    print(f"已生成: data/pattern/{P}-blazed-grating-h.csv")
 
     blazed_grating_v = generate_blazed_grating(period=P, direction='vertical')
     # show(blazed_grating_v, "Blazed Grating (vertical)")
-    generate_csv(blazed_grating_v, r"data\pattern\blazed-grating-v.csv")
-    print(r"已生成: data\pattern\blazed-grating-v.csv")
+    generate_csv(blazed_grating_v, f"data/pattern/{P}-blazed-grating-v.csv")
+    print(f"已生成: data/pattern/{P}-blazed-grating-v.csv")
 
     # # 测试 9: 生成微透镜阵列
     # print("\n生成微透镜阵列...")

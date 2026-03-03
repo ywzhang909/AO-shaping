@@ -77,7 +77,7 @@ class SantecSLM200:
         
         # 延迟导入SLM SDK
         try:
-            import _slm_win as slm_sdk
+            import ao_shaping.drivers.slm._slm_win as slm_sdk
             self._slm = slm_sdk
         except ImportError as e:
             raise SantecSLM200Error(
@@ -417,3 +417,10 @@ class SantecSLM200:
             f"相位范围={self.phase_range*0.01:.2f}π"
             f")"
         )
+
+def test():
+    with SantecSLM200(slm_number=1) as slm:
+        slm.set_wavelength(1064, 200)  # 1064nm, 2*pi相位
+        phase_data = np.zeros((1080, 1920), dtype=np.uint16)
+        slm.write_phase(phase_data, memory_number=1)
+        slm.display_memory(1)
