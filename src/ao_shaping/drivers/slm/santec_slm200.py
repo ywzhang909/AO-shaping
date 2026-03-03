@@ -8,6 +8,7 @@ import ctypes
 import numpy as np
 from pathlib import Path
 from typing import Optional, Tuple, Union
+from enum import IntEnum
 from loguru import logger
 
 # SLM SDK常量
@@ -18,6 +19,10 @@ FLAGS_RATE120 = 1
 MEMORY_MODE_INTERNAL = 0  # 内部内存模式
 DVI_MODE = 1  # DVI模式
 
+class VideoMode(IntEnum):
+    # 0:Memory mode, 1:DVI mode
+    Memory = 0
+    DVI = 1
 
 class SantecSLM200Error(Exception):
     """Santec SLM-200 驱动错误"""
@@ -46,13 +51,21 @@ class SantecSLM200:
         ...     slm.write_phase(phase_data, memory_number=1)
         ...     slm.display_memory(1)
     """
+    Pixel_Size_um = 7.8
+    Pitch_um = 8
+    Panel_Size_mm = (15.36, 9.60)
+    Panel_Res = (1920, 1200)
+    Response_time_ms = 300
+    Gray_Scale_bits = 10
+    MAX_GRAYSCALE_VALUE = 2 ** Gray_Scale_bits - 1  # 10位灰阶最大值: 1023
     
     def __init__(
         self,
         slm_number: int = 1,
         use_120hz: bool = False,
         wavelength: int = 1064,
-        phase_range: int = 200
+        phase_range: int = 200,
+        video_mode: int | VideoMode = 0
     ):
         """初始化SLM驱动
         
@@ -61,19 +74,22 @@ class SantecSLM200:
             use_120hz: 是否使用120Hz刷新率，默认为False
             wavelength: 工作波长（nm），默认为1064
             phase_range: 相位范围（单位：0.01*pi），默认为200（2*pi）
+            video_mode: 视频模式 (0=内存模式, 1=DVI模式)，默认为0
         
         Raises:
             SantecSLM200Error: 设备编号无效
         """
         if not 1 <= slm_number <= 8:
             raise SantecSLM200Error(f"SLM编号必须在1-8之间，当前: {slm_number}")
-        
+        assert 450 <= wavelength <= 1600, f"{wavelength=} not in range(450, 1600)"
         self.slm_number = slm_number
         self.flags = FLAGS_RATE120 if use_120hz else 0
         self.wavelength = wavelength
         self.phase_range = phase_range
+        self.video_mode = video_mode if isinstance(video_mode, int) else int(video_mode)
         self.is_open = False
         self._max_grayscale_for_2pi: Optional[int] = None
+        self._max_gray = self.MAX_GRAYSCALE_VALUE
         
         # 延迟导入SLM SDK
         try:
@@ -114,7 +130,7 @@ class SantecSLM200:
         self._check_status()
         
         # 设置内存模式
-        self._set_memory_mode(MEMORY_MODE_INTERNAL)
+        self._set_memory_mode(self.video_mode)
     
     def close(self) -> None:
         """关闭SLM设备连接
@@ -143,26 +159,29 @@ class SantecSLM200:
             raise SantecSLM200Error(f"SLM #{self.slm_number} 状态异常, 错误码: {ret}")
         logger.debug(f"SLM #{self.slm_number} 状态正常")
     
-    def _set_memory_mode(self, mode: int) -> None:
+    def _set_memory_mode(self, mode: int | VideoMode) -> None:
         """设置SLM工作模式
         
         Args:
-            mode: 内存模式 (0=内部内存, 1=DVI)
+            mode: 内存模式 (0=内部内存, 1=DVI)，支持int或VideoMode枚举
         
         Raises:
             SantecSLM200Error: 模式设置失败
         """
-        ret = self._slm.SLM_Ctrl_WriteVI(self.slm_number, mode)
+        # 转换为int以兼容SDK
+        mode_int = int(mode)
+        
+        ret = self._slm.SLM_Ctrl_WriteVI(self.slm_number, mode_int)
         if ret != SLM_OK:
             raise SantecSLM200Error(f"设置内存模式失败, 错误码: {ret}")
         
         # 验证设置
         dat32 = ctypes.c_uint32(0)
         self._slm.SLM_Ctrl_ReadVI(self.slm_number, dat32)
-        if dat32.value != mode:
-            raise SantecSLM200Error(f"内存模式设置验证失败")
+        if dat32.value != mode_int:
+            raise SantecSLM200Error("内存模式设置验证失败")
         
-        mode_str = "内部内存" if mode == MEMORY_MODE_INTERNAL else "DVI"
+        mode_str = "内部内存" if mode_int == MEMORY_MODE_INTERNAL else "DVI"
         logger.info(f"SLM #{self.slm_number} 已设置为{mode_str}模式")
     
     def set_wavelength(
@@ -186,7 +205,7 @@ class SantecSLM200:
             RuntimeError: 设备未打开
         """
         self._ensure_open()
-        
+        assert 450 <= wavelength <= 1600, f"{wavelength=} not in range(450, 1600)"
         logger.info(f"设置波长 {wavelength}nm, 相位范围 {phase_range*0.01:.2f}π...")
         
         # 设置波长和相位范围
@@ -205,7 +224,11 @@ class SantecSLM200:
         
         self.wavelength = wavelength
         self.phase_range = phase_range
-        self._max_grayscale_for_2pi = int(1023 * 2 / (phase_range * 0.01))
+        # 防止除零错误
+        if phase_range > 0:
+            self._max_grayscale_for_2pi = int(self._max_gray * 2 / (phase_range * 0.01))
+        else:
+            self._max_grayscale_for_2pi = self._max_gray
         
         logger.info(
             f"波长设置完成: {wavelength}nm, "
@@ -234,7 +257,11 @@ class SantecSLM200:
         
         wavelength = dat32_1.value
         phase_range = dat32_2.value * 0.01
-        max_grayscale = int(1023 * 2 / phase_range)
+        # 防止除零错误
+        if phase_range > 0:
+            max_grayscale = int(self._max_gray * 2 / phase_range)
+        else:
+            max_grayscale = self._max_gray
         
         return wavelength, phase_range, max_grayscale
     
@@ -376,15 +403,14 @@ class SantecSLM200:
             灰度值数组，dtype为uint16
         """
         if max_grayscale is None:
-            if self._max_grayscale_for_2pi is None:
-                # 使用当前相位范围计算
-                max_grayscale = int(1023 * 2 / (self.phase_range * 0.01))
-            else:
-                max_grayscale = self._max_grayscale_for_2pi
+            max_grayscale = self._max_gray
+        
+        # 确保 max_grayscale 有有效值
+        assert max_grayscale is not None, "max_grayscale should be calculated"
         
         # 将弧度转换为灰度值
         grayscale = (phase_rad / (2 * np.pi) * max_grayscale).astype(np.uint16)
-        grayscale = np.clip(grayscale, 0, 1023)
+        grayscale = np.clip(grayscale, 0, self._max_gray)
         
         return grayscale
     
@@ -409,12 +435,14 @@ class SantecSLM200:
     def __repr__(self) -> str:
         """字符串表示"""
         status = "已连接" if self.is_open else "未连接"
+        mode_str = "内存模式" if self.video_mode == 0 else "DVI模式"
         return (
             f"SantecSLM200("
             f"编号={self.slm_number}, "
             f"状态={status}, "
             f"波长={self.wavelength}nm, "
-            f"相位范围={self.phase_range*0.01:.2f}π"
+            f"相位范围={self.phase_range*0.01:.2f}π, "
+            f"模式={mode_str}"
             f")"
         )
 

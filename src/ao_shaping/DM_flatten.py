@@ -6,14 +6,19 @@ import re
 import tqdm
 import argparse
 import coredumpy
+import pygame
 
 import numpy as np
 import pandas as pd
 
 import matplotlib.pyplot as plt
 
+from loguru import logger
+
 from ao_shaping.drivers import CameraStreamManager, NlightDM
 from ao_shaping.algorithm.adam import AdaMOD
+from ao_shaping.display import ImageVoltagesDisplay
+from ao_shaping.utils.file import gen_date_dir, gen_file_path_uuid
 
 # display settings
 VOLT_HEIGHT = 200
@@ -34,6 +39,7 @@ METROPOLIS_ALPHA = 0.8
 # camera parameters
 CAM_EXP_TIME_ADJ_RATE = 0
 CAM_SAMPLE_ITER = 10
+IMG_SIZE = (200, 200)
 
 # dm parameters
 KEEP_VOLTAGE_WHEN_EXIT = True

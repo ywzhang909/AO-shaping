@@ -1,4 +1,15 @@
 # %%
+"""
+SLM 相位图案生成测试脚本
+
+本脚本提供独立的 SLM 相位图案生成功能，可直接运行生成测试用的 CSV 文件。
+
+与 PatternHelper 的关系:
+- 本脚本: 独立的函数形式，便于 Jupyter Notebook 中快速测试和交互
+- PatternHelper 类 (slm_pattern_helper.py): 面向对象的封装，推荐在生产代码中使用
+  
+建议: 在 Python 代码中使用 PatternHelper 类，在 Jupyter Notebook 中交互测试时可用本脚本
+"""
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image

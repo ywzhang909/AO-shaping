@@ -1,13 +1,25 @@
-"""SLM闪耀光栅标定模块
+"""SLM相位-灰度响应标定模块
 
-使用闪耀光栅法实现对SLM的相位-灰度响应标定。
-通过在SLM上显示闪耀光栅图案，测量衍射效率来确定灰度值与相位的对应关系。
+实现多种SLM标定方法：
+1. 闪耀光栅法(Blazed Grating): 通过衍射效率测量确定2π相位对应的灰度值
+2. 干涉法(Interferometer): 使用干涉图样测量相位响应
+3. 衍射效率法(Diffraction Efficiency): 测量一级衍射效率曲线
 
 闪耀光栅法原理：
 1. 在SLM上显示线性相位梯度（闪耀光栅）
 2. 光栅将入射光衍射到特定方向
 3. 当相位深度为2π时，衍射效率最高
 4. 通过扫描灰度值找到最大衍射效率点，确定2π对应的灰度值
+
+干涉法原理：
+1. 将SLM与参考光进行干涉
+2. 通过改变SLM上的相位图案，观察干涉条纹变化
+3. 从干涉条纹的移动量计算相位-灰度响应
+
+自动曝光功能：
+- 在标定开始前自动检测光强水平
+- 动态调整曝光时间以确保测量在合理范围内
+- 避免饱和或信号过弱导致的测量误差
 """
 
 import json
@@ -15,6 +27,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Optional, Tuple, List, Protocol, Union
 
@@ -174,6 +187,173 @@ class CameraProtocol(Protocol):
         ...
 
 
+class CameraWithExposureProtocol(CameraProtocol):
+    """带曝光控制的相机协议接口
+    
+    扩展CameraProtocol，添加曝光控制功能。
+    """
+    
+    def reset_exposure_time(self, time_ms: int) -> int:
+        """重置曝光时间
+        
+        Args:
+            time_ms: 曝光时间（毫秒）
+            
+        Returns:
+            实际设置的曝光时间
+        """
+        ...
+
+
+class CalibrationMethod(Enum):
+    """标定方法枚举"""
+    BLAZED_GRATING = "blazed_grating"       # 闪耀光栅法
+    INTERFEROMETER = "interferometer"         # 干涉法
+    DIFFRACTION_EFFICIENCY = "diffraction_efficiency"  # 衍射效率法
+    TWIN_BEAM = "twin_beam"                  # 双光束干涉法
+
+
+class AutoExposureController:
+    """自动曝光控制器
+    
+    用于在标定过程中自动调整相机曝光时间，确保测量在合理范围内。
+    
+    工作原理：
+    1. 初始拍摄一张图像，检测最大灰度值
+    2. 如果饱和（>250），降低曝光时间
+    3. 如果信号过弱（<50），增加曝光时间
+    4. 重复直到达到目标范围
+    """
+    
+    def __init__(
+        self,
+        camera: CameraWithExposureProtocol,
+        target_min: int = 80,
+        target_max: int = 220,
+        min_exposure: int = 1,
+        max_exposure: int = 1000,
+        max_iterations: int = 5
+    ):
+        """初始化自动曝光控制器
+        
+        Args:
+            camera: 相机实例
+            target_min: 目标最小灰度值
+            target_max: 目标最大灰度值
+            min_exposure: 最小曝光时间（ms）
+            max_exposure: 最大曝光时间（ms）
+            max_iterations: 最大迭代次数
+        """
+        self.camera = camera
+        self.target_min = target_min
+        self.target_max = target_max
+        self.min_exposure = min_exposure
+        self.max_exposure = max_exposure
+        self.max_iterations = max_iterations
+        
+        self._current_exposure = getattr(camera, 'exposure_time_ms', 50)
+    
+    def auto_adjust(self, n_samples: int = 3) -> int:
+        """自动调整曝光时间
+        
+        Args:
+            n_samples: 采样次数
+            
+        Returns:
+            最终设置的曝光时间
+        """
+        logger.info("开始自动曝光调整...")
+        
+        for iteration in range(self.max_iterations):
+            # 获取图像
+            img = self.camera.get_numpy_image(n_sample=n_samples)
+            max_val = np.max(img)
+            mean_val = np.mean(img)
+            
+            logger.debug(f"迭代 {iteration + 1}: 最大灰度={max_val:.0f}, 平均灰度={mean_val:.1f}")
+            
+            # 检查是否在目标范围内
+            if self.target_min <= max_val <= self.target_max:
+                logger.info(f"曝光调整完成: 曝光时间={self._current_exposure}ms, "
+                           f"最大灰度={max_val:.0f}")
+                return self._current_exposure
+            
+            # 计算新的曝光时间
+            if max_val > self.target_max:
+                # 饱和，降低曝光
+                ratio = self.target_max / max_val
+                new_exposure = int(self._current_exposure * ratio * 0.8)  # 额外降低20%确保安全
+            elif max_val < self.target_min:
+                # 信号过弱，增加曝光
+                ratio = self.target_min / max_val if max_val > 0 else 2.0
+                new_exposure = int(self._current_exposure * ratio * 1.2)  # 额外增加20%确保足够
+            else:
+                break
+            
+            # 限制曝光时间范围
+            new_exposure = max(self.min_exposure, min(self.max_exposure, new_exposure))
+            
+            if new_exposure == self._current_exposure:
+                logger.warning("曝光时间已达到极限值")
+                break
+            
+            # 应用新的曝光时间
+            if hasattr(self.camera, 'reset_exposure_time'):
+                self._current_exposure = self.camera.reset_exposure_time(new_exposure)
+            else:
+                logger.warning("相机不支持曝光时间调整")
+                break
+            
+            time.sleep(0.1)  # 等待相机稳定
+        
+        logger.warning(f"自动曝光调整达到最大迭代次数，当前曝光时间={self._current_exposure}ms")
+        return self._current_exposure
+    
+    def get_optimal_exposure_for_signal(self, signal_func, *args, **kwargs) -> int:
+        """针对特定信号获取最佳曝光时间
+        
+        Args:
+            signal_func: 获取信号的函数
+            *args, **kwargs: 传递给signal_func的参数
+            
+        Returns:
+            最佳曝光时间
+        """
+        logger.info("为特定信号调整曝光...")
+        
+        for iteration in range(self.max_iterations):
+            # 获取信号
+            signal = signal_func(*args, **kwargs)
+            
+            if isinstance(signal, (int, float)):
+                signal_value = signal
+            else:
+                signal_value = np.max(signal) if hasattr(signal, '__len__') else signal
+            
+            # 检查范围
+            if self.target_min * 2 <= signal_value <= self.target_max * 2:
+                break
+            
+            # 调整曝光
+            if signal_value > self.target_max * 2:
+                ratio = (self.target_max * 2) / signal_value
+                new_exposure = int(self._current_exposure * ratio * 0.8)
+            elif signal_value < self.target_min * 2:
+                ratio = (self.target_min * 2) / signal_value if signal_value > 0 else 2.0
+                new_exposure = int(self._current_exposure * ratio * 1.2)
+            else:
+                break
+            
+            new_exposure = max(self.min_exposure, min(self.max_exposure, new_exposure))
+            
+            if hasattr(self.camera, 'reset_exposure_time'):
+                self._current_exposure = self.camera.reset_exposure_time(new_exposure)
+            
+            time.sleep(0.1)
+        
+        return self._current_exposure
+
+
 class SLMCalibratorBase(ABC):
     """SLM标定器基类
     
@@ -291,6 +471,54 @@ class SLMCalibratorBase(ABC):
         intensity = self._calculate_roi_intensity(img)
         
         return intensity
+    
+    def measure_zero_order_ratio(
+        self,
+        grayscale_depth: int,
+        n_samples: int = 3,
+        memory_number: int = 1
+    ) -> float:
+        """测量零级光强比值作为衍射效率
+        
+        通过比较全0相位（无光栅）和光栅相位图案下的零级光强，
+        计算衍射效率。这种方法可以消除光源功率波动的影响。
+        
+        原理：
+        - 全0相位时，光直接通过（零级）
+        - 光栅相位时，部分光被衍射到一级，零级光强降低
+        - 衍射效率 = I(光栅) / I(全0)
+        
+        Args:
+            grayscale_depth: 相位深度（灰度值）
+            n_samples: 采样次数
+            memory_number: SLM内存编号
+            
+        Returns:
+            零级光强比值（0-1之间）
+        """
+        # 测量全0相位时的零级光强（作为参考）
+        self.slm.set_grayscale(0)
+        time.sleep(0.1)
+        ref_img = self.camera.get_numpy_image(n_sample=n_samples)
+        ref_intensity = self._calculate_roi_intensity(ref_img)
+        
+        # 测量光栅相位时的零级光强
+        grating = self.create_blazed_grating(grayscale_depth)
+        self.slm.write_phase(grating, memory_number=memory_number)
+        self.slm.display_memory(memory_number)
+        time.sleep(0.1)
+        
+        grating_img = self.camera.get_numpy_image(n_sample=n_samples)
+        grating_intensity = self._calculate_roi_intensity(grating_img)
+        
+        # 计算比值
+        if ref_intensity > 0:
+            ratio = grating_intensity / ref_intensity
+        else:
+            logger.warning("参考光强为零，无法计算比值")
+            ratio = 0.0
+        
+        return ratio
     
     def _calculate_roi_intensity(self, img: np.ndarray) -> float:
         """计算ROI区域内的平均强度
@@ -574,9 +802,491 @@ class SantecSLM200Calibrator(SLMCalibratorBase):
         
         return result
     
+    def calibrate_with_zero_order_ratio(
+        self,
+        grayscale_range: Tuple[int, int] = (100, 1023),
+        step: int = 10,
+        n_samples: int = 3,
+        fine_search: bool = True,
+        fine_step: int = 2,
+        fine_range: int = 50
+    ) -> CalibrationResult:
+        """使用零级光强比值法标定
+        
+        通过比较全0相位和光栅相位下的零级光强比值来确定2π相位。
+        这种方法可以消除光源功率波动的影响，测量更稳定。
+        
+        原理：
+        - 全0相位时：零级光强 = I₀（参考）
+        - 光栅相位时：零级光强 = I₁
+        - 当相位深度 = 2π时，一级衍射效率最高，零级光强最低
+        - 通过扫描找到零级光强最低的点，即为2π相位
+        
+        Args:
+            grayscale_range: 灰度值扫描范围
+            step: 扫描步长
+            n_samples: 采样次数
+            fine_search: 是否精细搜索
+            fine_step: 精细搜索步长
+            fine_range: 精细搜索范围
+            
+        Returns:
+            CalibrationResult: 标定结果
+        """
+        logger.info("开始零级光强比值法标定...")
+        
+        # 先测量一次全0相位的参考光强
+        logger.info("测量全0相位参考光强...")
+        self.slm.set_grayscale(0)
+        time.sleep(0.2)
+        ref_imgs = [self.camera.get_numpy_image(n_sample=n_samples) for _ in range(3)]
+        ref_intensity = np.mean([self._calculate_roi_intensity(img) for img in ref_imgs])
+        logger.info(f"参考光强 (全0相位): {ref_intensity:.2f}")
+        
+        # 粗搜索
+        grayscale_values = lrange(
+            grayscale_range[0], 
+            grayscale_range[1] + 1, 
+            step
+        )
+        ratios = []
+        
+        logger.info(f"粗搜索范围: {grayscale_range}, 步长: {step}")
+        
+        for gs in grayscale_values:
+            ratio = self.measure_zero_order_ratio(gs, n_samples)
+            ratios.append(ratio)
+            logger.debug(f"灰度值: {gs}, 零级比值: {ratio:.4f}")
+        
+        ratios = np.array(ratios)
+        
+        # 找到最小值（零级光强最低点，即衍射效率最高）
+        min_idx = np.argmin(ratios)
+        best_grayscale = grayscale_values[min_idx]
+        logger.info(f"粗搜索结果: 最佳灰度值 = {best_grayscale}, 最小比值 = {ratios[min_idx]:.4f}")
+        
+        # 精细搜索
+        if fine_search:
+            fine_min = max(grayscale_range[0], best_grayscale - fine_range)
+            fine_max = min(grayscale_range[1], best_grayscale + fine_range)
+            
+            fine_grayscale_values = lrange(fine_min, fine_max + 1, fine_step)
+            fine_ratios = []
+            
+            logger.info(f"精细搜索范围: ({fine_min}, {fine_max}), 步长: {fine_step}")
+            
+            for gs in fine_grayscale_values:
+                ratio = self.measure_zero_order_ratio(gs, n_samples)
+                fine_ratios.append(ratio)
+                logger.debug(f"精细搜索 - 灰度值: {gs}, 零级比值: {ratio:.4f}")
+            
+            fine_ratios = np.array(fine_ratios)
+            
+            # 合并结果
+            all_grayscale_values = np.concatenate([grayscale_values, fine_grayscale_values])
+            all_ratios = np.concatenate([ratios, fine_ratios])
+            
+            # 找到最终最小值
+            final_min_idx = np.argmin(all_ratios)
+            best_grayscale = int(all_grayscale_values[final_min_idx])
+            
+            # 排序以便保存
+            sort_idx = np.argsort(all_grayscale_values)
+            grayscale_values = all_grayscale_values[sort_idx].tolist()
+            ratios = all_ratios[sort_idx]
+        
+        logger.info(f"零级光强比值法标定完成: 2π相位对应灰度值 = {best_grayscale}")
+        
+        # 创建标定结果
+        self._result = CalibrationResult(
+            grayscale_2pi=best_grayscale,
+            grayscale_values=grayscale_values,
+            intensities=ratios,
+            wavelength_nm=self.slm.wavelength if hasattr(self.slm, 'wavelength') else 0,
+            slm_model=self._get_slm_model(),
+            timestamp=datetime.now().isoformat(),
+            metadata={
+                'method': 'zero_order_ratio',
+                'reference_intensity': ref_intensity,
+                'grating_period': self.grating_period,
+                'roi_center': self.roi_center,
+                'roi_size': self.roi_size,
+                'n_samples': n_samples
+            }
+        )
+        
+        return self._result
+    
     def _get_slm_model(self) -> str:
         """获取SLM型号"""
         return "Santec SLM-200"
+
+    def calibrate_with_auto_exposure(
+        self,
+        grayscale_range: Tuple[int, int] = (100, 1023),
+        step: int = 10,
+        n_samples: int = 3,
+        fine_search: bool = True,
+        fine_step: int = 2,
+        fine_range: int = 50,
+        measure_background: bool = True,
+        auto_exposure: bool = True,
+        target_min: int = 80,
+        target_max: int = 220
+    ) -> CalibrationResult:
+        """带自动曝光的标定
+        
+        在标定开始前自动调整相机曝光时间，确保测量在合理范围内。
+        
+        Args:
+            grayscale_range: 灰度值扫描范围
+            step: 扫描步长
+            n_samples: 采样次数
+            fine_search: 是否精细搜索
+            fine_step: 精细搜索步长
+            fine_range: 精细搜索范围
+            measure_background: 是否测量背景
+            auto_exposure: 是否启用自动曝光
+            target_min: 自动曝光目标最小值
+            target_max: 自动曝光目标最大值
+            
+        Returns:
+            CalibrationResult: 标定结果
+        """
+        # 自动曝光调整
+        if auto_exposure and hasattr(self.camera, 'reset_exposure_time'):
+            logger.info("启用自动曝光调整...")
+            auto_expo_ctrl = AutoExposureController(
+                camera=self.camera,
+                target_min=target_min,
+                target_max=target_max
+            )
+            # 先显示一个测试图案来调整曝光
+            test_grating = self.create_blazed_grating(512)  # 中等灰度值测试
+            self.slm.write_phase(test_grating, memory_number=1)
+            self.slm.display_memory(1)
+            time.sleep(0.2)
+            
+            optimal_exposure = auto_expo_ctrl.auto_adjust(n_samples=3)
+            logger.info(f"自动曝光调整完成，最佳曝光时间: {optimal_exposure}ms")
+        
+        # 执行带背景测量的标定
+        return self.calibrate_with_background(
+            grayscale_range=grayscale_range,
+            step=step,
+            n_samples=n_samples,
+            fine_search=fine_search,
+            fine_step=fine_step,
+            fine_range=fine_range,
+            measure_background=measure_background
+        )
+
+
+class InterferometerCalibrator(SLMCalibratorBase):
+    """干涉法标定器
+    
+    使用干涉图样测量SLM的相位-灰度响应。
+    
+    原理：
+    1. 将SLM输出光与参考光进行干涉
+    2. 在SLM上显示不同灰度值的均匀图案
+    3. 观察干涉条纹的移动或相位变化
+    4. 从干涉条纹变化计算相位-灰度响应
+    
+    注意：此方法需要马赫-泽德干涉仪或类似干涉装置。
+    """
+    
+    def __init__(
+        self,
+        slm: SLMProtocol,
+        camera: CameraProtocol,
+        roi_center: Optional[Tuple[int, int]] = None,
+        roi_size: Tuple[int, int] = (100, 100)
+    ):
+        """初始化干涉法标定器
+        
+        Args:
+            slm: SLM设备实例
+            camera: 相机设备实例
+            roi_center: ROI中心坐标
+            roi_size: ROI大小
+        """
+        super().__init__(
+            slm=slm,
+            camera=camera,
+            grating_period=1,  # 不使用光栅
+            roi_center=roi_center,
+            roi_size=roi_size
+        )
+    
+    def measure_phase_from_interference(
+        self,
+        grayscale: int,
+        reference_grayscale: int = 0,
+        n_samples: int = 3
+    ) -> float:
+        """从干涉图样测量相位变化
+        
+        Args:
+            grayscale: 当前灰度值
+            reference_grayscale: 参考灰度值
+            n_samples: 采样次数
+            
+        Returns:
+            相位变化（弧度）
+        """
+        # 设置SLM为测试灰度值
+        self.slm.set_grayscale(grayscale)
+        time.sleep(0.1)
+        img1 = self.camera.get_numpy_image(n_sample=n_samples)
+        
+        # 设置SLM为参考灰度值
+        self.slm.set_grayscale(reference_grayscale)
+        time.sleep(0.1)
+        img2 = self.camera.get_numpy_image(n_sample=n_samples)
+        
+        # 计算相位差（简化版，实际需要更复杂的相位提取算法）
+        # 这里使用强度差分作为简化
+        diff = np.mean(img1) - np.mean(img2)
+        
+        # 转换为相位（假设线性响应）
+        return diff * np.pi / 128.0  # 简化转换
+    
+    def calibrate(
+        self,
+        grayscale_range: Tuple[int, int] = (0, 1023),
+        step: int = 32,
+        n_samples: int = 3,
+        reference_grayscale: int = 0
+    ) -> CalibrationResult:
+        """执行干涉法标定
+        
+        Args:
+            grayscale_range: 灰度值扫描范围
+            step: 扫描步长
+            n_samples: 采样次数
+            reference_grayscale: 参考灰度值
+            
+        Returns:
+            CalibrationResult: 标定结果
+        """
+        logger.info("开始干涉法标定...")
+        
+        grayscale_values = lrange(grayscale_range[0], grayscale_range[1] + 1, step)
+        phase_values = []
+        
+        for gs in grayscale_values:
+            phase = self.measure_phase_from_interference(gs, reference_grayscale, n_samples)
+            phase_values.append(phase)
+            logger.debug(f"灰度值: {gs}, 相位: {phase:.4f} rad")
+        
+        phase_values = np.array(phase_values)
+        
+        # 找到2π相位对应的灰度值
+        # 拟合相位-灰度曲线，找到斜率
+        valid_idx = phase_values > 0
+        if np.sum(valid_idx) > 1:
+            valid_gs = np.array(grayscale_values)[valid_idx]
+            valid_phase = phase_values[valid_idx]
+            slope = np.polyfit(valid_gs, valid_phase, 1)[0]
+            
+            if slope > 0:
+                grayscale_2pi = int(2 * np.pi / slope)
+            else:
+                grayscale_2pi = int(grayscale_values[-1])
+        else:
+            grayscale_2pi = int(grayscale_values[-1])
+        
+        logger.info(f"干涉法标定完成: 2π相位对应灰度值 = {grayscale_2pi}")
+        
+        self._result = CalibrationResult(
+            grayscale_2pi=min(grayscale_2pi, 1023),
+            grayscale_values=grayscale_values,
+            intensities=phase_values,
+            wavelength_nm=self.slm.wavelength if hasattr(self.slm, 'wavelength') else 0,
+            slm_model=self._get_slm_model(),
+            timestamp=datetime.now().isoformat(),
+            metadata={
+                'method': 'interferometer',
+                'roi_center': self.roi_center,
+                'roi_size': self.roi_size
+            }
+        )
+        
+        return self._result
+    
+    def _get_slm_model(self) -> str:
+        """获取SLM型号"""
+        return "SLM (Interferometer)"
+
+
+class DiffractionEfficiencyCalibrator(SLMCalibratorBase):
+    """衍射效率法标定器
+    
+    通过测量不同灰度值下的一级衍射效率来确定相位响应。
+    
+    原理：
+    1. 在SLM上显示周期性光栅结构
+    2. 测量一级衍射光的强度
+    3. 根据衍射效率与相位深度的关系（贝塞尔函数）
+    4. 拟合得到相位-灰度响应曲线
+    
+    衍射效率公式：η₁ = (2π * J₁(φ) / φ)²
+    其中φ是相位深度，J₁是第一类贝塞尔函数
+    """
+    
+    def __init__(
+        self,
+        slm: SLMProtocol,
+        camera: CameraProtocol,
+        grating_period: int = 16,
+        roi_center: Optional[Tuple[int, int]] = None,
+        roi_size: Tuple[int, int] = (50, 50)
+    ):
+        """初始化衍射效率法标定器
+        
+        Args:
+            slm: SLM设备实例
+            camera: 相机设备实例
+            grating_period: 光栅周期（像素）
+            roi_center: 一级衍射光斑中心坐标
+            roi_size: ROI大小
+        """
+        super().__init__(
+            slm=slm,
+            camera=camera,
+            grating_period=grating_period,
+            roi_center=roi_center,
+            roi_size=roi_size
+        )
+    
+    def _calculate_diffraction_efficiency(
+        self,
+        phase_depth: float,
+        order: int = 1
+    ) -> float:
+        """计算理论衍射效率
+        
+        使用贝塞尔函数计算一级衍射效率。
+        
+        Args:
+            phase_depth: 相位深度（弧度）
+            order: 衍射级次
+            
+        Returns:
+            衍射效率
+        """
+        from scipy.special import jn
+        if abs(phase_depth) < 1e-10:
+            return 0.0
+        
+        # 一级衍射效率
+        j_val = jn(order, phase_depth)
+        efficiency = (2 * j_val / phase_depth) ** 2
+        return efficiency
+    
+    def calibrate(
+        self,
+        grayscale_range: Tuple[int, int] = (50, 1023),
+        step: int = 10,
+        n_samples: int = 3,
+        fine_search: bool = True,
+        fine_step: int = 2,
+        fine_range: int = 50
+    ) -> CalibrationResult:
+        """执行衍射效率法标定
+        
+        Args:
+            grayscale_range: 灰度值扫描范围
+            step: 扫描步长
+            n_samples: 采样次数
+            fine_search: 是否精细搜索
+            fine_step: 精细搜索步长
+            fine_range: 精细搜索范围
+            
+        Returns:
+            CalibrationResult: 标定结果
+        """
+        logger.info("开始衍射效率法标定...")
+        
+        # 测量零级（透射光）作为参考
+        self.slm.set_grayscale(0)
+        time.sleep(0.1)
+        zero_order_img = self.camera.get_numpy_image(n_sample=n_samples)
+        zero_order_intensity = self._calculate_roi_intensity(zero_order_img)
+        logger.info(f"零级衍射强度: {zero_order_intensity:.2f}")
+        
+        # 粗搜索
+        grayscale_values = lrange(grayscale_range[0], grayscale_range[1] + 1, step)
+        efficiencies = []
+        
+        logger.info(f"粗搜索范围: {grayscale_range}, 步长: {step}")
+        
+        for gs in grayscale_values:
+            intensity = self.measure_diffraction_efficiency(gs, n_samples)
+            # 计算相对衍射效率
+            if zero_order_intensity > 0:
+                efficiency = intensity / zero_order_intensity
+            else:
+                efficiency = 0
+            efficiencies.append(efficiency)
+            logger.debug(f"灰度值: {gs}, 衍射效率: {efficiency:.4f}")
+        
+        efficiencies = np.array(efficiencies)
+        
+        # 找到最大效率点
+        max_idx = np.argmax(efficiencies)
+        best_grayscale = grayscale_values[max_idx]
+        logger.info(f"粗搜索结果: 最佳灰度值 = {best_grayscale}")
+        
+        # 精细搜索
+        if fine_search:
+            fine_min = max(grayscale_range[0], best_grayscale - fine_range)
+            fine_max = min(grayscale_range[1], best_grayscale + fine_range)
+            
+            fine_grayscale_values = lrange(fine_min, fine_max + 1, fine_step)
+            fine_efficiencies = []
+            
+            for gs in fine_grayscale_values:
+                intensity = self.measure_diffraction_efficiency(gs, n_samples)
+                efficiency = intensity / zero_order_intensity if zero_order_intensity > 0 else 0
+                fine_efficiencies.append(efficiency)
+            
+            # 合并结果
+            all_grayscale = np.concatenate([grayscale_values, fine_grayscale_values])
+            all_efficiencies = np.concatenate([efficiencies, fine_efficiencies])
+            
+            final_max_idx = np.argmax(all_efficiencies)
+            best_grayscale = int(all_grayscale[final_max_idx])
+            
+            # 排序
+            sort_idx = np.argsort(all_grayscale)
+            grayscale_values = all_grayscale[sort_idx].tolist()
+            efficiencies = all_efficiencies[sort_idx]
+        
+        logger.info(f"衍射效率法标定完成: 2π相位对应灰度值 = {best_grayscale}")
+        
+        self._result = CalibrationResult(
+            grayscale_2pi=best_grayscale,
+            grayscale_values=grayscale_values,
+            intensities=efficiencies,
+            wavelength_nm=self.slm.wavelength if hasattr(self.slm, 'wavelength') else 0,
+            slm_model=self._get_slm_model(),
+            timestamp=datetime.now().isoformat(),
+            metadata={
+                'method': 'diffraction_efficiency',
+                'grating_period': self.grating_period,
+                'zero_order_intensity': zero_order_intensity,
+                'roi_center': self.roi_center,
+                'roi_size': self.roi_size
+            }
+        )
+        
+        return self._result
+    
+    def _get_slm_model(self) -> str:
+        """获取SLM型号"""
+        return "SLM (Diffraction Efficiency)"
 
 
 def create_calibration_curve(
