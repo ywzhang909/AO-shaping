@@ -46,6 +46,7 @@ from ctypes.wintypes import LPCWSTR
 from ctypes.wintypes import FILETIME
 import os
 import platform
+import findlibs
 
 STRING = c_char_p
 pf = platform.system()
@@ -96,8 +97,8 @@ if pf == 'Darwin':
     _libraries[_libname] = cdll.LoadLibrary(_libname)
     _FILENAME = STRING
 elif pf == 'Windows':
-    _libname = 'SLMFunc.dll'
-    path = os.path.abspath(_libname)
+    _libname = 'SLMFunc'
+    path = findlibs.find(_libname)
     _libraries[_libname] = WinDLL(_libname)
     _FILENAME = LPCWSTR
     _FILENAME_A = LPCSTR

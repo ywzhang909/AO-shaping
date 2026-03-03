@@ -452,3 +452,6 @@ def test():
         phase_data = np.zeros((1080, 1920), dtype=np.uint16)
         slm.write_phase(phase_data, memory_number=1)
         slm.display_memory(1)
+
+if __name__ == '__main__':
+    test()
