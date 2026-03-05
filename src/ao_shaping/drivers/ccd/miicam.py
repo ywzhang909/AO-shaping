@@ -12,26 +12,20 @@ import numpy as np
 import miicam
 
 from ao_shaping.utils.file import logger
+from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
 
 
-class MIICAMError(Exception):
+class MIICAMError(CameraError):
     """Exception raised for MIICAM camera errors."""
 
     pass
 
 
-class CameraStreamManager:
+class CameraStreamManager(BaseCamera):
     def __init__(
         self, cam_id: int = 0, exposure_time_ms: int = 20, skip_sampling: bool = False
     ):
-        self.cam_id = int(cam_id)
-        self.exposure_time_ms = exposure_time_ms
-        self.skip_sampling = skip_sampling
-
-        self.cam = None
-        self.__sn = None
-        self.cam_width = 0
-        self.cam_height = 0
+        super().__init__(cam_id, exposure_time_ms, skip_sampling)
         self._pixel_format = "MONO8"  # Default format
 
     def __enter__(self):
@@ -39,6 +33,14 @@ class CameraStreamManager:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
+    def open(self) -> None:
+        """Open the camera device (alias for initialize)."""
+        self.initialize()
+
+    def close(self) -> None:
+        """Close the camera device and release resources."""
         if self.cam:
             self.cam_width = 0
             self.cam_height = 0
@@ -46,7 +48,7 @@ class CameraStreamManager:
             self.cam.Close()
             self.cam = None
 
-    def initialize(self):
+    def initialize(self) -> None:
         """
         Initialize the camera device.
 
@@ -140,9 +142,9 @@ class CameraStreamManager:
 
         # Get serial number
         try:
-            self.__sn = self.cam.SerialNumber()
+            self._sn = self.cam.SerialNumber()
         except Exception:
-            self.__sn = f"MIICAM_{self.cam_id}"
+            self._sn = f"MIICAM_{self.cam_id}"
 
         # Start streaming (pull mode with callback)
         # Use a minimal callback that just stores the image
@@ -437,7 +439,7 @@ class CameraStreamManager:
         assert self.cam, "camera not initialized"
         self.cam_width, self.cam_height = self.cam.get_Size()
         logger.info(
-            f"Open cam {self.__sn} success. width={self.cam_width}, height={self.cam_height}"
+            f"Open cam {self._sn} success. width={self.cam_width}, height={self.cam_height}"
         )
         self.xv, self.yv = self.__get_grid(self.cam_width, self.cam_height)
 

@@ -3,27 +3,40 @@ import numpy as np
 import gxipy as gx
 
 from ao_shaping.utils.file import logger
+from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
 
-class CameraStreamManager:
-    def __init__(self, cam_id:int=0, exposure_time_ms:int=20, skip_sampling=False):
+
+class DahengError(CameraError):
+    """Exception raised for Daheng camera errors."""
+
+    pass
+
+
+class CameraStreamManager(BaseCamera):
+    def __init__(self, cam_id: int = 0, exposure_time_ms: int = 20, skip_sampling: bool = False):
+        super().__init__(cam_id, exposure_time_ms, skip_sampling)
         self.device_manager = gx.DeviceManager()
-        self.cam_id = int(cam_id)
-        self.exposure_time_ms = exposure_time_ms
-        self.skip_sampling = skip_sampling
-
-        self.cam, self.__sn = None, None
-        self.cam_width ,self.cam_height = 0, 0
 
     def __enter__(self):
         self.initialize()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
+    def open(self) -> None:
+        """Open the camera device (alias for initialize)."""
+        self.initialize()
+
+    def close(self) -> None:
+        """Close the camera device and release resources."""
         if self.cam:
-            self.cam_width ,self.cam_height = 0, 0
+            self.cam_width = 0
+            self.cam_height = 0
             self.cam.stream_off()
             self.cam.close_device()
-            self.cam, self.__sn = None, None
+            self.cam = None
+            self._sn = None
 
     def initialize(self):
         """
@@ -78,9 +91,52 @@ class CameraStreamManager:
         self.cam.Width.set(self.cam.WidthMax.get())
         self.cam.Height.set(self.cam.HeightMax.get())
 
-        self.__sn = sn
+        self._sn = sn
         self.__update_properties()
         self.cam.stream_on()
+
+    def close(self):
+        """关闭相机设备"""
+        self.__exit__(None, None, None)
+
+    def enable_auto_exposure(self, enable: bool = True, mode: int = 1) -> bool:
+        """
+        启用或禁用自动曝光。
+
+        Args:
+            enable (bool): True 启用, False 禁用。
+            mode (int): 自动曝光模式 (大恒相机不支持模式选择，仅启用/禁用)。
+
+        Returns:
+            bool: 是否成功。
+        """
+        assert self.cam, "camera not initialized"
+        try:
+            self.cam.ExposureAuto.set(gx.GxAutoEntry.CONTINUOUS if enable else gx.GxAutoEntry.OFF)
+            return True
+        except Exception as e:
+            logger.warning(f"Auto exposure not supported: {e}")
+            return False
+
+    def set_auto_exposure_target(self, target: int) -> int:
+        """
+        设置自动曝光目标亮度。
+
+        Args:
+            target (int): 目标亮度值。
+
+        Returns:
+            int: 设置的目标值。
+
+        Raises:
+            NotImplementedError: 大恒相机不支持直接设置自动曝光目标值。
+        """
+        assert self.cam, "camera not initialized"
+        # 大恒相机不支持直接设置自动曝光目标值
+        raise NotImplementedError(
+            "Daheng camera does not support setting auto exposure target directly. "
+            "Auto exposure uses internal algorithm."
+        )
 
     def reset_exposure_time(self, time_ms:int):
         """
@@ -181,7 +237,7 @@ class CameraStreamManager:
         assert self.cam, "camera not initialized"
         self.cam_width = self.cam.Width.get()
         self.cam_height = self.cam.Height.get()
-        logger.info(f"Open cam {self.__sn} success. width={self.cam_width}, height={self.cam_height}")
+        logger.info(f"Open cam {self._sn} success. width={self.cam_width}, height={self.cam_height}")
         self.xv, self.yv = self.__get_grid(self.cam_width, self.cam_height)
 
     @staticmethod

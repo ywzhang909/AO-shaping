@@ -3,6 +3,8 @@
 测试 SLM 驱动的基本功能，包括设备连接、波长设置、相位图显示等。
 """
 
+import ctypes
+
 import pytest
 import numpy as np
 
@@ -700,6 +702,19 @@ class TestPhasePatterns1064_300:
         assert open_slm_1064_300.wavelength == 1064
         assert open_slm_1064_300.phase_range == 300
 
+        # 验证 set_wavelength 已正确下发到设备：检查 _max_grayscale_for_2pi 已计算
+        assert open_slm_1064_300._max_grayscale_for_2pi is not None
+        expected_max_gray = int(1023 * 2 / 3)  # 300 (3π) -> 682
+        assert open_slm_1064_300._max_grayscale_for_2pi == expected_max_gray
+
+        # 验证设备实际波长设置与预期一致
+        wavelength_info = open_slm_1064_300.get_wavelength_info()
+        actual_wavelength, actual_phase_range_pi, actual_max_gray = wavelength_info
+        assert actual_wavelength == 1064, f"设备波长 {actual_wavelength} 与预期 1064 不符"
+        assert (
+            abs(actual_phase_range_pi - 3.0) < 0.1
+        ), f"设备相位范围 {actual_phase_range_pi}π 与预期 3.0π 不符"
+
         # 生成所有三种相位图案
         patterns = [
             ("fresnel", self.generate_fresnel_phase(focal_length=0.3), 20),
@@ -733,3 +748,51 @@ class TestPhasePatterns1064_300:
             # 写入并显示
             open_slm_1064_300.write_phase(phase, memory_number=mem_num)
             open_slm_1064_300.display_memory(mem_num)
+
+            # 验证 SLM 实际显示的内存编号与预期一致
+            displayed_mem = ctypes.c_ulong(0)
+            ret = open_slm_1064_300._slm.SLM_Ctrl_ReadDS(
+                open_slm_1064_300.slm_number, ctypes.byref(displayed_mem)
+            )
+            assert ret == 0, f"{name}: 读取显示内存失败，错误码 {ret}"
+            assert (
+                displayed_mem.value == mem_num
+            ), f"{name}: SLM 显示内存 {displayed_mem.value} 与预期 {mem_num} 不符"
+
+    def test_wavelength_setting_consistency(self, open_slm_1064_300):
+        """测试波长设置的一致性：Python 对象状态与设备实际状态"""
+        # 1. 验证 Python 对象状态
+        assert open_slm_1064_300.wavelength == 1064
+        assert open_slm_1064_300.phase_range == 300
+
+        # 2. 验证设备实际状态（通过 SDK 读取）
+        dat32_wl = ctypes.c_uint32(0)
+        dat32_pr = ctypes.c_uint32(0)
+        ret = open_slm_1064_300._slm.SLM_Ctrl_ReadWL(
+            open_slm_1064_300.slm_number, dat32_wl, dat32_pr
+        )
+        assert ret == 0, f"读取波长信息失败，错误码 {ret}"
+
+        # 3. 验证两者一致
+        assert (
+            dat32_wl.value == 1064
+        ), f"设备波长 {dat32_wl.value} 与 Python 对象 {open_slm_1064_300.wavelength} 不符"
+        assert (
+            dat32_pr.value == 300
+        ), f"设备相位范围 {dat32_pr.value} 与 Python 对象 {open_slm_1064_300.phase_range} 不符"
+
+    def test_phase_range_affects_grayscale_calculation(self, open_slm_1064_300):
+        """测试相位范围影响灰度值计算"""
+        # 对于 3π 相位范围 (300)，2π 对应灰度值应为 1023 * 2/3 = 682
+        expected_2pi_gray = int(1023 * 2 / 3)
+        assert open_slm_1064_300._max_grayscale_for_2pi == expected_2pi_gray
+
+        # 验证 create_phase_from_array 使用正确的 max_grayscale
+        phase_rad = np.array([[0, 2 * np.pi]])  # 0 和 2π
+        grayscale = open_slm_1064_300.create_phase_from_array(phase_rad)
+
+        # 2π 应该映射到 expected_2pi_gray，而不是 1023
+        assert grayscale[0, 0] == 0, "0 弧度应映射到灰度 0"
+        assert (
+            grayscale[0, 1] == expected_2pi_gray
+        ), f"2π 弧度应映射到灰度 {expected_2pi_gray}，实际 {grayscale[0, 1]}"

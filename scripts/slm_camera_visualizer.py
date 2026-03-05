@@ -14,504 +14,670 @@ SLM + Camera 实时可视化测试工具
     - 相机硬件 (MIICAM 4100 或 Daheng)
 """
 
+import time
+from pathlib import Path
+from typing import Dict, Optional, Any
+
 import streamlit as st
 import numpy as np
-import pandas as pd
-from pathlib import Path
-import time
+from loguru import logger
 
 # 导入驱动
 from ao_shaping.drivers.slm import SantecSLM200
 from ao_shaping.drivers.ccd.miicam import CameraStreamManager as MIICAMCamera
 from ao_shaping.drivers.ccd.daheng import CameraStreamManager as DahengCamera
-
-
-# ============== 相位图案生成函数 ==============
-
-SLM_RESOLUTION = (1920, 1200)  # SLM 分辨率
-SLM_BITS = 10
-SLM_MAX_VAL = 2**SLM_BITS - 1  # 1023
-
-
-def generate_blazed_grating(
-    period: int = 20, direction: str = "horizontal"
-) -> np.ndarray:
-    """生成闪耀光栅"""
-    height, width = SLM_RESOLUTION[1], SLM_RESOLUTION[0]
-    max_val = SLM_MAX_VAL
-
-    if direction == "horizontal":
-        y = np.arange(height)
-        grating = (y % period) / period * max_val
-        img = np.tile(grating[:, np.newaxis], (1, width))
-    else:
-        x = np.arange(width)
-        grating = (x % period) / period * max_val
-        img = np.tile(grating[np.newaxis, :], (height, 1))
-
-    return img.astype(np.uint16)
-
-
-def generate_focus(
-    focal_length: float = 0.5, wavelength: float = 532e-9, pixel_size: float = 8e-6
-) -> np.ndarray:
-    """生成聚焦相位 (抛物面)"""
-    height, width = SLM_RESOLUTION[1], SLM_RESOLUTION[0]
-    max_val = SLM_MAX_VAL
-
-    x = np.arange(width) - width // 2
-    y = np.arange(height) - height // 2
-    X, Y = np.meshgrid(x, y)
-    R2 = X**2 + Y**2
-
-    phase = (np.pi / wavelength / focal_length) * (R2 * pixel_size**2)
-    phase_wrapped = np.mod(phase, 2 * np.pi)
-    img = (phase_wrapped / (2 * np.pi) * max_val).astype(np.uint16)
-
-    return img
-
-
-def generate_checkerboard(period: int = 100) -> np.ndarray:
-    """生成棋盘格"""
-    height, width = SLM_RESOLUTION[1], SLM_RESOLUTION[0]
-    max_val = SLM_MAX_VAL
-
-    y = np.arange(height) // period
-    x = np.arange(width) // period
-    X, Y = np.meshgrid(x, y)
-
-    checker = (X + Y) % 2
-    img = (checker * max_val).astype(np.uint16)
-
-    return img
-
-
-def generate_binary_grating(
-    period: int = 8, direction: str = "horizontal"
-) -> np.ndarray:
-    """生成二元光栅 (01光栅)"""
-    height, width = SLM_RESOLUTION[1], SLM_RESOLUTION[0]
-    max_val = SLM_MAX_VAL // 2
-
-    if direction == "horizontal":
-        y = np.arange(height)
-        grating = np.where(y % period < period // 2, 0, max_val)
-        img = np.tile(grating[:, np.newaxis], (1, width))
-    else:
-        x = np.arange(width)
-        grating = np.where(x % period < period // 2, 0, max_val)
-        img = np.tile(grating[np.newaxis, :], (height, 1))
-
-    return img.astype(np.uint16)
-
-
-def generate_vortex(topological_charge: int = 1) -> np.ndarray:
-    """生成涡旋光束相位"""
-    height, width = SLM_RESOLUTION[1], SLM_RESOLUTION[0]
-    max_val = SLM_MAX_VAL
-
-    x = np.arange(width) - width // 2
-    y = np.arange(height) - height // 2
-    X, Y = np.meshgrid(x, y)
-
-    theta = np.arctan2(Y, X)
-    phase = topological_charge * theta
-    phase_wrapped = np.mod(phase, 2 * np.pi)
-    img = (phase_wrapped / (2 * np.pi) * max_val).astype(np.uint16)
-
-    return img
-
-
-def generate_zernike(n: int = 4, m: int = 0, amplitude: float = 2.0) -> np.ndarray:
-    """生成Zernike多项式相位"""
-    from scipy.special import factorial
-
-    height, width = SLM_RESOLUTION[1], SLM_RESOLUTION[0]
-    max_val = SLM_MAX_VAL
-
-    radius = min(height, width) // 2
-
-    x = (np.arange(width) - width // 2) / radius
-    y = (np.arange(height) - height // 2) / radius
-    X, Y = np.meshgrid(x, y)
-
-    R = np.sqrt(X**2 + Y**2)
-    Theta = np.arctan2(Y, X)
-
-    mask = R <= 1.0
-
-    def zernike_radial(n, m, r):
-        R_arr = np.zeros_like(r)
-        for k in range((n - abs(m)) // 2 + 1):
-            coef = ((-1) ** k * factorial(n - k)) / (
-                factorial(k)
-                * factorial((n + abs(m)) // 2 - k)
-                * factorial((n - abs(m)) // 2 - k)
-            )
-            R_arr += coef * r ** (n - 2 * k)
-        return R_arr
-
-    if m >= 0:
-        Z = zernike_radial(n, m, R) * np.cos(m * Theta)
-    else:
-        Z = zernike_radial(n, -m, R) * np.sin(-m * Theta)
-
-    Z = Z * mask
-    phase = Z * amplitude * 2 * np.pi
-    phase_wrapped = np.mod(phase, 2 * np.pi)
-    img = (phase_wrapped / (2 * np.pi) * max_val).astype(np.uint16)
-
-    return img
-
-
-def load_phase_csv(file_path: str) -> np.ndarray:
-    """加载CSV格式的相位图案"""
-    with open(file_path, "r") as f:
-        header = f.readline().strip().split(",")
-        cols = len(header) - 1
-
-    data = np.loadtxt(file_path, delimiter=",", skiprows=1, usecols=range(1, cols + 1))
-    return data.astype(np.uint16)
-
-
-def resize_to_slm(img: np.ndarray) -> np.ndarray:
-    """将图像调整到SLM分辨率"""
-    from scipy.ndimage import zoom
-
-    target_height, target_width = SLM_RESOLUTION[1], SLM_RESOLUTION[0]
-
-    if img.shape[0] == target_height and img.shape[1] == target_width:
-        return img
-
-    zoom_y = target_height / img.shape[0]
-    zoom_x = target_width / img.shape[1]
-    img_scaled = zoom(img, (zoom_y, zoom_x), order=1)
-
-    return img_scaled.astype(np.uint16)
-
-
-# ============== Streamlit 应用 ==============
-
-# 页面配置
-st.set_page_config(
-    page_title="SLM + Camera 可视化测试",
-    page_icon="🔬",
-    layout="wide",
-    initial_sidebar_state="expanded",
+from ao_shaping.utils.phase_patterns import (
+    SLM_RESOLUTION,
+    _get_max_grayscale,
+    generate_blazed_grating,
+    generate_focus,
+    generate_checkerboard,
+    generate_binary_grating,
+    generate_vortex,
+    generate_zernike,
+    resize_to_slm,
+    load_phase_csv,
 )
 
-st.title("🔬 SLM + Camera 实时可视化测试")
 
-# 初始化 session state
-if "slm_connected" not in st.session_state:
-    st.session_state.slm_connected = False
-if "camera_connected" not in st.session_state:
-    st.session_state.camera_connected = False
-if "camera" not in st.session_state:
-    st.session_state.camera = None
-if "slm" not in st.session_state:
-    st.session_state.slm = None
-if "auto_refresh" not in st.session_state:
-    st.session_state.auto_refresh = False
+class SLMVisualizer:
+    def __init__(self):
+        self.slm = None
+        self.camera = None
+        self.phase_array = None
+        self.last_image = None
+        self.auto_refresh = False
+        self.refresh_interval = 1.0
+        self.n_sample = 1
+        self.phase_range = 200  # 默认相位范围 2π (200 * 0.01π)
 
+    def verify_slm_display(self) -> Dict[str, Any]:
+        """验证SLM显示状态"""
+        result = {
+            "success": False,
+            "message": "",
+            "display_memory": None,
+        }
 
-# ============== 侧边栏 - 设备连接 ==============
-st.sidebar.header("🔌 设备连接")
-
-# SLM 连接
-st.sidebar.subheader("SLM 设置")
-slm_connected = st.sidebar.checkbox("连接 SLM", value=st.session_state.slm_connected)
-
-if slm_connected != st.session_state.slm_connected:
-    if slm_connected:
         try:
-            st.session_state.slm = SantecSLM200(
-                slm_number=1,
-                wavelength=1064,
-                phase_range=200,
-                video_mode=0,
+            # 直接从session state获取SLM对象
+            slm = st.session_state.get('slm_obj', None)
+            if slm is None:
+                result["message"] = "SLM未连接"
+                return result
+
+            mem_num = ctypes.c_ulong(0)
+            ret = slm._slm.SLM_Ctrl_ReadDS(
+                slm.slm_number, ctypes.byref(mem_num)
             )
-            st.session_state.slm.open()
-            st.session_state.slm_connected = True
-            st.sidebar.success("✅ SLM 已连接")
-        except Exception as e:
-            st.sidebar.error(f"❌ SLM 连接失败: {e}")
-            st.session_state.slm_connected = False
-    else:
-        if st.session_state.slm:
-            st.session_state.slm.close()
-            st.session_state.slm = None
-        st.session_state.slm_connected = False
-        st.sidebar.info("ℹ️ SLM 已断开")
 
-# 相机选择和连接
-st.sidebar.subheader("相机设置")
-camera_type = st.sidebar.selectbox("相机类型", ["MIICAM 4100", "Daheng"], index=0)
-
-camera_connected = st.sidebar.checkbox(
-    "连接相机", value=st.session_state.camera_connected
-)
-
-if camera_connected != st.session_state.camera_connected:
-    if camera_connected:
-        try:
-            if camera_type == "MIICAM 4100":
-                st.session_state.camera = MIICAMCamera(cam_id=0, exposure_time_ms=20)
+            if ret == 0:
+                result["success"] = True
+                result["display_memory"] = mem_num.value
+                result["message"] = f"SLM正在显示内存 #{mem_num.value}"
             else:
-                st.session_state.camera = DahengCamera(cam_id=0, exposure_time_ms=20)
-            st.session_state.camera.initialize()
-            st.session_state.camera_connected = True
-            st.sidebar.success("✅ 相机已连接")
+                result["message"] = f"读取显示状态失败, 错误码: {ret}"
+
         except Exception as e:
-            st.sidebar.error(f"❌ 相机连接失败: {e}")
-            st.session_state.camera_connected = False
-    else:
-        if st.session_state.camera:
-            st.session_state.camera.close()
-            st.session_state.camera = None
-        st.session_state.camera_connected = False
-        st.sidebar.info("ℹ️ 相机已断开")
+            result["message"] = f"验证失败: {e}"
 
-# ============== 主界面布局 ==============
+        return result
 
-# 创建两个主要列: SLM控制和相机显示
-col1, col2 = st.columns([1, 2])
+    def generate_phase_pattern(self, phase_type: str, **kwargs) -> Optional[np.ndarray]:
+        """生成相位图案"""
+        try:
+            # 获取相位范围参数，如果没有指定则使用实例的 phase_range
+            phase_range = kwargs.get("phase_range", self.phase_range)
 
-# ============== SLM 控制面板 ==============
-with col1:
-    st.subheader("🎛️ SLM 相位控制")
-
-    # 相位来源选择
-    phase_source = st.radio(
-        "相位来源",
-        ["参数生成", "加载 CSV"],
-        horizontal=True,
-    )
-
-    phase_array = None
-
-    if phase_source == "参数生成":
-        # 相位类型选择
-        phase_type = st.selectbox(
-            "相位类型",
-            [
-                "闪耀光栅 (Blazed Grating)",
-                "聚焦透镜 (Focus)",
-                "棋盘格 (Checkerboard)",
-                "二元光栅 (Binary Grating)",
-                "涡旋光束 (Vortex)",
-                "Zernike 多项式",
-                "清空 (全零)",
-            ],
-        )
-
-        # 根据相位类型显示对应参数
-        if "闪耀光栅" in phase_type:
-            period = st.slider("周期 (像素)", 4, 100, 20)
-            direction = st.selectbox("方向", ["horizontal", "vertical"], 0)
-            phase_array = generate_blazed_grating(period=period, direction=direction)
-
-        elif "聚焦" in phase_type:
-            focal_length = st.number_input(
-                "焦距 (m)", value=0.5, min_value=0.01, max_value=10.0, step=0.01
-            )
-            wavelength = st.number_input(
-                "波长 (nm)", value=532, min_value=450, max_value=1600, step=1
-            )
-            phase_array = generate_focus(
-                focal_length=focal_length, wavelength=wavelength * 1e-9
-            )
-
-        elif "棋盘格" in phase_type:
-            period = st.slider("周期 (像素)", 10, 200, 100)
-            phase_array = generate_checkerboard(period=period)
-
-        elif "二元光栅" in phase_type:
-            period = st.slider("周期 (像素)", 4, 50, 8)
-            direction = st.selectbox("方向", ["horizontal", "vertical"], 0)
-            phase_array = generate_binary_grating(period=period, direction=direction)
-
-        elif "涡旋" in phase_type:
-            charge = st.slider("拓扑荷", 1, 10, 1)
-            phase_array = generate_vortex(topological_charge=charge)
-
-        elif "Zernike" in phase_type:
-            n = st.selectbox("径向阶数 n", [1, 2, 3, 4, 5, 6, 7, 8], 3)
-            m = st.selectbox("角向阶数 m", [-n, -n + 2, -n + 4, n], 0)
-            amplitude = st.slider("振幅 (波长)", 0.5, 5.0, 2.0)
-            phase_array = generate_zernike(n=n, m=m, amplitude=amplitude)
-
-        elif "清空" in phase_type:
-            phase_array = np.zeros(
-                (SLM_RESOLUTION[1], SLM_RESOLUTION[0]), dtype=np.uint16
-            )
-
-    else:  # 加载 CSV
-        csv_file = st.file_uploader("选择 CSV 文件", type=["csv"])
-
-        if csv_file:
-            try:
-                # 保存上传的文件到临时位置
-                temp_path = Path(f"/tmp/{csv_file.name}")
-                with open(temp_path, "wb") as f:
-                    f.write(csv_file.getbuffer())
-
-                # 加载并调整大小
-                loaded = load_phase_csv(str(temp_path))
-                phase_array = resize_to_slm(loaded)
-                st.success(f"已加载: {csv_file.name}, 原始尺寸: {loaded.shape}")
-            except Exception as e:
-                st.error(f"加载失败: {e}")
-
-    # 发送到 SLM 按钮
-    if phase_array is not None and st.session_state.slm_connected:
-        if st.button("🚀 发送到 SLM", type="primary"):
-            try:
-                st.session_state.slm.write_phase(phase_array, memory_number=1)
-                st.session_state.slm.display_memory(1)
-                st.success("✅ 已发送到 SLM")
-            except Exception as e:
-                st.error(f"❌ 发送失败: {e}")
-
-    # 显示当前相位图案预览
-    if phase_array is not None:
-        st.image(
-            phase_array,
-            caption="相位图案预览",
-            clamp=True,
-            channels="GRAY",
-        )
-        st.caption(f"尺寸: {phase_array.shape}, 最大值: {phase_array.max()}")
-
-# ============== 相机显示和控制 ==============
-with col2:
-    st.subheader("📷 相机实时显示")
-
-    if not st.session_state.camera_connected:
-        st.info("请先连接相机")
-    else:
-        # 相机控制
-        with st.expander("📸 相机控制", expanded=True):
-            # 曝光控制
-            col_expo1, col_expo2 = st.columns(2)
-
-            with col_expo1:
-                # 手动曝光时间
-                expo_time = st.number_input(
-                    "曝光时间 (ms)",
-                    min_value=1,
-                    max_value=1000,
-                    value=20,
-                    step=1,
+            if phase_type == "闪耀光栅":
+                return generate_blazed_grating(
+                    kwargs.get("period", 20),
+                    kwargs.get("direction", "horizontal"),
+                    phase_range=phase_range,
                 )
-                if st.button("设置曝光"):
-                    try:
-                        st.session_state.camera.reset_exposure_time(expo_time)
-                        st.success(f"曝光时间设为 {expo_time} ms")
-                    except Exception as e:
-                        st.error(f"设置失败: {e}")
+            elif phase_type == "聚焦透镜":
+                return generate_focus(
+                    focal_length=kwargs.get("focal_length", 0.5),
+                    wavelength=kwargs.get("wavelength", 532e-9),
+                    phase_range=phase_range,
+                )
+            elif phase_type == "棋盘格":
+                return generate_checkerboard(
+                    kwargs.get("period", 100), phase_range=phase_range
+                )
+            elif phase_type == "二元光栅":
+                return generate_binary_grating(
+                    kwargs.get("period", 8),
+                    kwargs.get("direction", "horizontal"),
+                    phase_range=phase_range,
+                )
+            elif phase_type == "涡旋光束":
+                return generate_vortex(kwargs.get("charge", 1), phase_range=phase_range)
+            elif phase_type == "Zernike 多项式":
+                return generate_zernike(
+                    n=kwargs.get("n", 4),
+                    m=kwargs.get("m", 0),
+                    amplitude=kwargs.get("amplitude", 2.0),
+                    phase_range=phase_range,
+                )
+            elif phase_type == "清空":
+                return np.zeros((1200, 1920), dtype=np.uint16)
+        except Exception as e:
+            st.error(f"相位生成失败: {e}")
+            return None
 
-            with col_expo2:
-                # 自动曝光
-                auto_expo_enabled = st.checkbox("启用自动曝光", value=False)
+    def send_to_slm(self, phase_array: np.ndarray, memory_number: int = 1) -> bool:
+        """发送相位图案到SLM
 
-                if auto_expo_enabled:
-                    try:
-                        st.session_state.camera.enable_auto_exposure(
-                            enable=True, mode=1
-                        )
+        Args:
+            phase_array: 相位数据数组
+            memory_number: 内存编号（1-128），默认 1
+        """
+        try:
+            # 直接从session state获取SLM对象（避免实例变量丢失问题）
+            slm = st.session_state.get('slm_obj', None)
+            
+            if slm is None:
+                st.error("SLM未连接")
+                return False
+            
+            # 使用session state中的对象
+            self.slm = slm
 
-                        target_val = st.slider("目标亮度", 16, 220, 120)
+            # 验证 SLM 参数设置与当前 phase_range 一致
+            if self.slm.phase_range != self.phase_range:
+                st.warning(
+                    f"⚠️ SLM 相位范围 ({self.slm.phase_range}) 与当前设置 ({self.phase_range}) 不一致"
+                )
 
-                        if st.button("设置目标亮度"):
-                            st.session_state.camera.set_auto_exposure_target(
-                                target=target_val
-                            )
-                            st.success(f"目标亮度设为 {target_val}")
+            # 计算预期灰度范围
+            max_grayscale = _get_max_grayscale(self.phase_range)
+            actual_max = phase_array.max()
+            actual_min = phase_array.min()
 
-                        # 显示自动曝光状态
-                        state = st.session_state.camera.get_auto_exposure_state()
-                        st.caption(f"状态: {state}")
-                    except Exception as e:
-                        st.error(f"自动曝光设置失败: {e}")
-                else:
-                    try:
-                        st.session_state.camera.enable_auto_exposure(
-                            enable=False, mode=0
-                        )
-                    except:
-                        pass
-
-        # 自动刷新控制
-        auto_refresh = st.checkbox("自动刷新", value=st.session_state.auto_refresh)
-        st.session_state.auto_refresh = auto_refresh
-
-        refresh_interval = st.slider("刷新间隔 (秒)", 0.5, 5.0, 1.0)
-
-        # 拍照按钮
-        col_btn1, col_btn2, col_btn3 = st.columns(3)
-
-        with col_btn1:
-            n_sample = st.number_input("采样次数", 1, 10, 1)
-
-        with col_btn2:
-            if st.button("📸 拍照"):
-                try:
-                    img = st.session_state.camera.get_numpy_image(n_sample=n_sample)
-                    st.session_state.last_image = img
-                    st.success(f"已拍摄, 尺寸: {img.shape}")
-                except Exception as e:
-                    st.error(f"拍照失败: {e}")
-
-        with col_btn3:
-            if st.button("🔄 刷新显示"):
-                pass
-
-        # 显示图像
-        if "last_image" in st.session_state:
-            img = st.session_state.last_image
-
-            # 显示图像统计
             st.caption(
-                f"图像统计: 最大={img.max()}, 最小={img.min()}, 平均={img.mean():.1f}"
+                f"相位数据: shape={phase_array.shape}, dtype={phase_array.dtype}, "
+                f"max={actual_max}, min={actual_min}, "
+                f"phase_range={self.phase_range} (2π对应灰度{max_grayscale})"
             )
 
-            # 显示图像
-            st.image(
-                img,
-                caption="相机画面",
-                clamp=True,
-                channels="GRAY",
-            )
+            # 警告如果灰度值超出当前相位范围的有效范围
+            if actual_max > max_grayscale:
+                st.warning(
+                    f"⚠️ 相位最大灰度值 {actual_max} 超过当前相位范围允许的最大值 {max_grayscale}"
+                )
+
+            # 写入相位到SLM内存
+            self.slm.write_phase(phase_array, memory_number=memory_number)
+            st.info(f"相位数据已写入内存 #{memory_number}")
+
+            # 显示相位
+            self.slm.display_memory(memory_number)
+
+            # 验证显示状态
+            verify_result = self.verify_slm_display()
+            if verify_result["success"]:
+                # 验证显示的内存编号与预期一致
+                if verify_result["display_memory"] == memory_number:
+                    st.success(f"✅ {verify_result['message']}")
+                    return True
+                else:
+                    st.warning(
+                        f"⚠️ SLM 显示内存 #{verify_result['display_memory']} 与预期 #{memory_number} 不符"
+                    )
+                    return False
+            else:
+                st.warning(f"⚠️ 发送完成但验证失败: {verify_result['message']}")
+                return False
+
+        except Exception as e:
+            st.error(f"❌ 发送失败: {e}")
+            return False
+
+    def take_photo(self, n_sample: int = 1) -> Optional[np.ndarray]:
+        """拍摄照片"""
+        try:
+            # 直接从session state获取相机对象
+            camera = st.session_state.get('camera_obj', None)
+            if camera is None:
+                st.error("相机未连接")
+                return None
+
+            img = camera.get_numpy_image(n_sample=n_sample)
+            self.last_image = img
+            st.success(f"✨ 已拍摄, 尺寸: {img.shape}")
+            return img
+        except Exception as e:
+            st.error(f"❌ 拍照失败: {e}")
+            return None
+
+    def refresh_display(self, silent: bool = False) -> Optional[np.ndarray]:
+        """刷新显示
+
+        Args:
+            silent: 如果为True，则不显示成功消息（用于自动刷新减少闪烁）
+        """
+        try:
+            # 直接从session state获取相机对象
+            camera = st.session_state.get('camera_obj', None)
+            if camera is None:
+                if not silent:
+                    st.error("相机未连接")
+                return None
+
+            img = camera.get_numpy_image(n_sample=self.n_sample)
+            self.last_image = img
+            if not silent:
+                st.success(f"🔄 已刷新, 尺寸: {img.shape}")
+            return img
+        except Exception as e:
+            if not silent:
+                st.error(f"❌ 刷新失败: {e}")
+            logger.error(f"刷新显示失败: {e}")
+            return None
+
+    def set_exposure(self, expo_time: float) -> bool:
+        """设置曝光时间"""
+        try:
+            # 直接从session state获取相机对象
+            camera = st.session_state.get('camera_obj', None)
+            if camera is None:
+                st.error("相机未连接")
+                return False
+
+            # 将float转换为int (SLM SDK可能要求int)
+            camera.reset_exposure_time(int(round(expo_time)))
+            st.success(f"✨ 曝光时间设为 {expo_time} ms")
+            return True
+        except Exception as e:
+            st.error(f"❌ 设置失败: {e}")
+            return False
+
+    def set_auto_exposure(self, enable: bool, target_val: Optional[int] = None) -> bool:
+        """设置自动曝光"""
+        try:
+            # 直接从session state获取相机对象
+            camera = st.session_state.get('camera_obj', None)
+            if camera is None:
+                st.error("相机未连接")
+                return False
+
+            camera.enable_auto_exposure(enable=enable, mode=1)
+            if target_val is not None:
+                camera.set_auto_exposure_target(target=target_val)
+                st.success(f"✨ 目标亮度设为 {target_val}")
+            return True
+        except Exception as e:
+            st.error(f"❌ 自动曝光设置失败: {e}")
+            return False
+
+    def run(self):
+        """运行Streamlit应用"""
+        # 页面配置
+        st.set_page_config(
+            page_title="SLM + Camera 实时可视化测试",
+            page_icon="🧪",
+            layout="wide",
+            initial_sidebar_state="expanded",
+        )
+
+        st.title("🧪 SLM + Camera 实时可视化测试")
+
+        # 初始化 session state
+        if "slm_connected" not in st.session_state:
+            st.session_state.slm_connected = False
+        if "camera_connected" not in st.session_state:
+            st.session_state.camera_connected = False
+        if "auto_refresh" not in st.session_state:
+            st.session_state.auto_refresh = False
+        if "camera_placeholder" not in st.session_state:
+            st.session_state.camera_placeholder = None
+        if "last_frame_time" not in st.session_state:
+            st.session_state.last_frame_time = 0
+
+        # ============== 侧边栏 - 设备连接 ==============
+        st.sidebar.header("🔌 设备连接")
+
+        # SLM 连接
+        st.sidebar.subheader("SLM 设置")
+
+        # SLM 参数设置
+        slm_wavelength = st.sidebar.number_input(
+            "波长 (nm)", min_value=450, max_value=1600, value=1064, step=1
+        )
+        slm_phase_range = st.sidebar.selectbox(
+            "相位范围",
+            options=[200, 300, 400],
+            format_func=lambda x: f"{x*0.01:.2f}π ({x})",
+            index=0,  # 默认 2π (200)
+        )
+        self.phase_range = slm_phase_range
+
+        slm_connected = st.sidebar.checkbox(
+            "连接 SLM", value=st.session_state.slm_connected
+        )
+
+        if slm_connected != st.session_state.slm_connected:
+            if slm_connected:
+                try:
+                    slm_obj = SantecSLM200(
+                        slm_number=1,
+                        wavelength=slm_wavelength,
+                        phase_range=slm_phase_range,
+                        video_mode=0,
+                    )
+                    slm_obj.open()
+                    # 注意：不调用 set_wavelength()，保持SLM现有设置
+                    # 将SLM对象存储在session state中以保持持久化
+                    st.session_state.slm_obj = slm_obj
+                    st.session_state.slm_connected = True
+                    st.sidebar.success(
+                        f"✅ SLM 已连接 (保持现有设置)"
+                    )
+                except Exception as e:
+                    st.sidebar.error(f"❌ SLM 连接失败: {e}")
+                    st.session_state.slm_connected = False
+                    if 'slm_obj' in st.session_state:
+                        del st.session_state.slm_obj
+            else:
+                if 'slm_obj' in st.session_state and st.session_state.slm_obj:
+                    st.session_state.slm_obj.close()
+                    del st.session_state.slm_obj
+                st.session_state.slm_connected = False
+                st.sidebar.info("ℹ️ SLM 已断开")
+
+        # 从session state恢复SLM对象到实例变量
+        if 'slm_obj' in st.session_state:
+            self.slm = st.session_state.slm_obj
+            st.sidebar.caption(f"📝 SLM对象已从session state恢复: {self.slm}")
         else:
-            st.info("点击「拍照」或启用「自动刷新」显示图像")
+            self.slm = None
+            st.sidebar.caption("📝 session state中没有SLM对象")
 
-        # 自动刷新循环
-        if auto_refresh:
-            # 使用 placeholder 进行实时更新
-            placeholder = st.empty()
+        # 相机选择和连接
+        st.sidebar.subheader("相机设置")
+        camera_type = st.sidebar.selectbox(
+            "相机类型", ["MIICAM 4100", "Daheng"], index=0
+        )
 
-            try:
-                img = st.session_state.camera.get_numpy_image(n_sample=1)
-                st.session_state.last_image = img
+        camera_connected = st.sidebar.checkbox(
+            "连接相机", value=st.session_state.camera_connected
+        )
 
-                # 显示
-                with placeholder.container():
-                    st.caption(
-                        f"自动刷新中... 图像统计: 最大={img.max()}, 最小={img.min()}, 平均={img.mean():.1f}"
+        if camera_connected != st.session_state.camera_connected:
+            if camera_connected:
+                try:
+                    if camera_type == "MIICAM 4100":
+                        camera_obj = MIICAMCamera(cam_id=0, exposure_time_ms=20)
+                    else:
+                        camera_obj = DahengCamera(cam_id=0, exposure_time_ms=20)
+                    camera_obj.initialize()
+                    # 将相机对象存储在session state中以保持持久化
+                    st.session_state.camera_obj = camera_obj
+                    st.session_state.camera_connected = True
+                    st.sidebar.success("✅ 相机已连接")
+                except Exception as e:
+                    st.sidebar.error(f"❌ 相机连接失败: {e}")
+                    st.session_state.camera_connected = False
+                    if 'camera_obj' in st.session_state:
+                        del st.session_state.camera_obj
+            else:
+                if 'camera_obj' in st.session_state and st.session_state.camera_obj:
+                    st.session_state.camera_obj.close()
+                    del st.session_state.camera_obj
+                st.session_state.camera_connected = False
+                st.session_state.camera_placeholder = None  # 重置占位符
+                st.session_state.last_frame_time = 0
+                st.sidebar.info("ℹ️ 相机已断开")
+
+        # 从session state恢复相机对象到实例变量
+        if 'camera_obj' in st.session_state:
+            self.camera = st.session_state.camera_obj
+        else:
+            self.camera = None
+
+        # ============== 主界面布局 ==============
+
+        # 创建两个主要列: SLM控制和相机显示
+        col1, col2 = st.columns([1, 2])
+
+        # ============== SLM 控制面板 ==============
+        with col1:
+            st.subheader("🎮 SLM 相位控制")
+
+            # 相位来源选择
+            phase_source = st.radio(
+                "相位来源",
+                ["参数生成", "加载 CSV"],
+                horizontal=True,
+            )
+
+            self.phase_array = None
+
+            if phase_source == "参数生成":
+                # 相位类型选择
+                phase_type = st.selectbox(
+                    "相位类型",
+                    [
+                        "闪耀光栅 (Blazed Grating)",
+                        "聚焦透镜 (Focus)",
+                        "棋盘格 (Checkerboard)",
+                        "二元光栅 (Binary Grating)",
+                        "涡旋光束 (Vortex)",
+                        "Zernike 多项式",
+                        "清空 (全零)",
+                    ],
+                )
+
+                # 根据相位类型显示对应参数
+                if "闪耀光栅" in phase_type:
+                    period = st.slider("周期 (像素)", 4, 100, 20)
+                    direction = st.selectbox("方向", ["horizontal", "vertical"], 0)
+                    self.phase_array = self.generate_phase_pattern(
+                        "闪耀光栅", period=period, direction=direction
                     )
+                    # 发送到 SLM 按钮
+                    if self.phase_array is not None and st.session_state.slm_connected:
+                        if st.button("🚀 发送到 SLM", type="primary", key="btn_blazed"):
+                            self.send_to_slm(self.phase_array)
+
+                elif "聚焦" in phase_type:
+                    focal_length = st.number_input(
+                        "焦距 (m)", value=0.5, min_value=0.01, max_value=10.0, step=0.01
+                    )
+                    wavelength = st.number_input(
+                        "波长 (nm)", value=532, min_value=450, max_value=1600, step=1
+                    )
+                    self.phase_array = self.generate_phase_pattern(
+                        "聚焦透镜",
+                        focal_length=focal_length,
+                        wavelength=wavelength * 1e-9,
+                    )
+                    # 发送到 SLM 按钮
+                    if self.phase_array is not None and st.session_state.slm_connected:
+                        if st.button("🚀 发送到 SLM", type="primary", key="btn_focus"):
+                            self.send_to_slm(self.phase_array)
+
+                elif "棋盘格" in phase_type:
+                    period = st.slider("周期 (像素)", 10, 200, 100)
+                    self.phase_array = self.generate_phase_pattern(
+                        "棋盘格", period=period
+                    )
+                    # 发送到 SLM 按钮
+                    if self.phase_array is not None and st.session_state.slm_connected:
+                        if st.button("🚀 发送到 SLM", type="primary", key="btn_checker"):
+                            self.send_to_slm(self.phase_array)
+
+                elif "二元光栅" in phase_type:
+                    period = st.slider("周期 (像素)", 4, 50, 8)
+                    direction = st.selectbox("方向", ["horizontal", "vertical"], 0)
+                    self.phase_array = self.generate_phase_pattern(
+                        "二元光栅", period=period, direction=direction
+                    )
+                    # 发送到 SLM 按钮
+                    if self.phase_array is not None and st.session_state.slm_connected:
+                        if st.button("🚀 发送到 SLM", type="primary", key="btn_binary"):
+                            self.send_to_slm(self.phase_array)
+
+                elif "涡旋光束" in phase_type:
+                    charge = st.slider("拓扑荷", 1, 10, 1)
+                    self.phase_array = self.generate_phase_pattern(
+                        "涡旋光束", charge=charge
+                    )
+                    # 发送到 SLM 按钮
+                    if self.phase_array is not None and st.session_state.slm_connected:
+                        if st.button("🚀 发送到 SLM", type="primary", key="btn_vortex"):
+                            self.send_to_slm(self.phase_array)
+
+                elif "Zernike" in phase_type:
+                    n = st.selectbox("径向阶数 n", [1, 2, 3, 4, 5, 6, 7, 8], 3)
+                    m = st.selectbox("角向阶数 m", [-n, -n + 2, -n + 4, n], 0)
+                    amplitude = st.slider("振幅 (波长)", 0.5, 5.0, 2.0)
+                    self.phase_array = self.generate_phase_pattern(
+                        "Zernike 多项式", n=n, m=m, amplitude=amplitude
+                    )
+                    # 发送到 SLM 按钮
+                    if self.phase_array is not None and st.session_state.slm_connected:
+                        if st.button("🚀 发送到 SLM", type="primary", key="btn_zernike"):
+                            self.send_to_slm(self.phase_array)
+
+                elif "清空" in phase_type:
+                    self.phase_array = np.zeros((SLM_RESOLUTION[1], SLM_RESOLUTION[0]), dtype=np.uint16)
+                    # 发送到 SLM 按钮
+                    if self.phase_array is not None and st.session_state.slm_connected:
+                        if st.button("🚀 发送到 SLM", type="primary", key="btn_clear"):
+                            self.send_to_slm(self.phase_array)
+
+            else:  # 加载 CSV
+                csv_file = st.file_uploader("选择 CSV 文件", type=["csv"])
+
+                if csv_file:
+                    try:
+                        # 保存上传的文件到临时位置 (使用系统temp目录)
+                        temp_dir = tempfile.gettempdir()
+                        safe_filename = Path(csv_file.name).name
+                        temp_path = Path(temp_dir) / safe_filename
+                        with open(temp_path, "wb") as f:
+                            f.write(csv_file.getbuffer())
+
+                        # 加载并调整大小
+                        loaded = load_phase_csv(str(temp_path))
+                        self.phase_array = resize_to_slm(loaded)
+                        st.success(
+                            f"✅ 已加载: {csv_file.name}, 原始尺寸: {loaded.shape}"
+                        )
+                        # 发送到 SLM 按钮
+                        if self.phase_array is not None and st.session_state.slm_connected:
+                            if st.button("🚀 发送到 SLM", type="primary", key="btn_csv"):
+                                self.send_to_slm(self.phase_array)
+                    except Exception as e:
+                        st.error(f"❌ 加载失败: {e}")
+
+            # 显示当前相位图案预览
+            if self.phase_array is not None:
+                try:
                     st.image(
-                        img, caption="相机画面 (自动刷新)", clamp=True, channels="GRAY"
+                        self.phase_array,
+                        caption="相位图案预览",
+                        clamp=True,
+                        channels="GRAY",
                     )
+                except Exception as e:
+                    st.warning(f"⚠️ 预览图显示失败: {e}")
+                st.caption(
+                    f"尺寸: {self.phase_array.shape}, 最大值: {self.phase_array.max()}"
+                )
 
-            except Exception as e:
-                st.error(f"自动刷新失败: {e}")
+        # ============== 相机显示和控制 ==============
+        with col2:
+            st.subheader("📸 相机实时显示")
 
-            # JavaScript 定时刷新
-            time.sleep(refresh_interval)
-            st.rerun()
+            if not st.session_state.camera_connected:
+                st.info("先连接相机")
+            else:
+                # 相机控制
+                with st.expander("📸 相机控制", expanded=True):
+                    # 露光控制
+                    col_expo1, col_expo2 = st.columns(2)
 
-# ============== 底部信息 ==============
-st.divider()
-st.caption("🔬 AO-shaping SLM + Camera 可视化测试工具")
-st.caption("SLM: Santec SLM-200 | 相机: MIICAM 4100 / Daheng")
+                    with col_expo1:
+                        # 手动露光时间
+                        expo_time = st.number_input(
+                            "露光时间 (ms)",
+                            min_value=0.011,
+                            max_value=2.0,
+                            value=1.0,
+                            step=0.001,
+                        )
+                        if st.button("设置露光"):
+                            self.set_exposure(expo_time)
+
+                    with col_expo2:
+                        # 自动露光
+                        auto_expo_enabled = st.checkbox("启用自动露光", value=False)
+
+                        if auto_expo_enabled:
+                            try:
+                                self.set_auto_exposure(True)
+
+                                target_val = st.slider("目标亮度", 16, 220, 120)
+
+                                if st.button("设置目标亮度"):
+                                    self.set_auto_exposure(True, target_val)
+
+                                # 显示自动露光状态
+                                state = "正在自动露光..."
+                                st.caption(f"状态: {state}")
+                            except Exception as e:
+                                st.error(f"❌ 自动露光设置失败: {e}")
+                        else:
+                            try:
+                                self.set_auto_exposure(False)
+                            except Exception as e:
+                                logger.debug(f"Failed to disable auto exposure: {e}")
+
+                # 自动刷新控制
+                auto_refresh = st.checkbox(
+                    "自动刷新", value=st.session_state.auto_refresh
+                )
+                st.session_state.auto_refresh = auto_refresh
+
+                refresh_interval = st.slider("刷新间隔 (秒)", 0.5, 5.0, 1.0)
+
+                # 拍照按钮
+                col_btn1, col_btn2, col_btn3 = st.columns(3)
+
+                with col_btn1:
+                    self.n_sample = st.number_input("采样次数", 1, 10, 1)
+
+                with col_btn2:
+                    if st.button("📸 拍照"):
+                        self.take_photo(self.n_sample)
+
+                with col_btn3:
+                    if st.button("🔄 刷新显示"):
+                        self.refresh_display()
+
+                # 图像显示区域 - 使用占位符避免闪烁
+                if st.session_state.camera_placeholder is None:
+                    st.session_state.camera_placeholder = st.empty()
+
+                # 显示图像
+                if self.last_image is not None:
+                    # 使用占位符更新图像，避免整个页面重绘
+                    with st.session_state.camera_placeholder.container():
+                        # 显示图像统计
+                        st.caption(
+                            f"图像统计: 最大={self.last_image.max()}, 最小={self.last_image.min()}, 平均={self.last_image.mean():.1f}"
+                        )
+                        # 显示图像 - 使用固定宽度避免布局抖动
+                        st.image(
+                            self.last_image,
+                            caption="相机画面",
+                            clamp=True,
+                            channels="GRAY",
+                            use_container_width=True,
+                        )
+                else:
+                    with st.session_state.camera_placeholder.container():
+                        st.info("点击「拍照」或启用「自动刷新」显示图像")
+
+                # 自动刷新循环 - 使用非阻塞方式
+                if auto_refresh:
+                    current_time = time.time()
+                    elapsed = current_time - st.session_state.last_frame_time
+
+                    # 只在达到刷新间隔时更新
+                    if elapsed >= refresh_interval:
+                        try:
+                            img = self.refresh_display(silent=True)
+                            if img is not None:
+                                st.session_state.last_frame_time = current_time
+                                # 直接更新占位符内容，不触发全页面rerun
+                                with st.session_state.camera_placeholder.container():
+                                    st.caption(
+                                        f"自动刷新中... 图像统计: 最大={img.max()}, 最小={img.min()}, 平均={img.mean():.1f}"
+                                    )
+                                    st.image(
+                                        img,
+                                        caption="相机画面 (自动刷新)",
+                                        clamp=True,
+                                        channels="GRAY",
+                                        use_container_width=True,
+                                    )
+                        except Exception as e:
+                            st.error(f"❌ 自动刷新失败: {e}")
+
+                    # 使用 st.rerun() 但保持占位符状态
+                    time.sleep(0.05)  # 短暂休眠避免CPU占用过高
+                    st.rerun()
+
+        # ============== 底部信息 ==============
+        st.divider()
+        st.caption("🧪 AO-shaping SLM + Camera 可视化测试工具")
+        st.caption("SLM: Santec SLM-200 | 相机: MIICAM 4100 / Daheng")
+
+
+if __name__ == "__main__":
+    app = SLMVisualizer()
+    app.run()
