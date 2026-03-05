@@ -14,6 +14,8 @@ SLM + Camera 实时可视化测试工具
     - 相机硬件 (MIICAM 4100 或 Daheng)
 """
 
+import ctypes
+import tempfile
 import time
 from pathlib import Path
 from typing import Dict, Optional, Any

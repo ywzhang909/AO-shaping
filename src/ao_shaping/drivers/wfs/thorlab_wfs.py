@@ -474,7 +474,7 @@ class WFSManager:
             #     np2c(spots_diameter_x), np2c(spots_diameter_y))
         return spots_intensities[:self.num_spots_x, :self.num_spots_y], (spots_center_x[:self.num_spots_x, :self.num_spots_y], spots_center_y[:self.num_spots_x, :self.num_spots_y])
 
-    def get_wavefront(self, image_loop_counter: int = -1):
+    def get_wavefront(self, with_tile:bool=True, image_loop_counter: int = -1):
         '''
         This function help to get wavefront.
         Args:
@@ -485,7 +485,7 @@ class WFSManager:
         adaptive_pupil = 0 if (self.d_x and self.d_y) else 1
         wavefront = np.zeros(MAX_SPOTS, dtype=c_float)
         if err := self._lib.WFS_CalcWavefront(
-            self._instrument_handle, ViInt32(0), ViInt32(adaptive_pupil), wavefront):
+            self._instrument_handle, ViInt32(1 if with_tile else 0), ViInt32(adaptive_pupil), wavefront):
             self.handle_error(err)
         else:
             min, max, diff, mean = c_double(), c_double(), c_double(), c_double()

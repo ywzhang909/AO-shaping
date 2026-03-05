@@ -57,10 +57,11 @@ def schedule_lr_delta(rms):
 
 def optimizer_rms(
     epochs,
-    wfs_res: Literal['512', '768'] = '768',
+    wfs_res: Literal['512', '768', '1024', '1280'] = '768',
     init_v:list[float]=[],
     pupil_diameter:float=2.24,
     early_stop_threshold:float=0.12,
+    with_tile:bool=True
 ):
     epochs = int(epochs)
 
@@ -71,7 +72,11 @@ def optimizer_rms(
             _init_v = np.array(init_v)
         dm.send_voltages(_init_v, 0.5)
         
-        if wfs_res == '768':
+        if wfs_res == '1280':
+            wfs_res_config = MlaRes.Res1280
+        elif wfs_res == '1024':
+            wfs_res_config = MlaRes.Res1024
+        elif wfs_res == '768':
             wfs_res_config = MlaRes.Res768
         elif wfs_res == '512':
             wfs_res_config = MlaRes.Res512
@@ -80,9 +85,9 @@ def optimizer_rms(
         
         with Thorlab_WFS(wfs_res_config, use_custom_ref=False, high_speed=True, pupil_diameter=pupil_diameter) as wfs:
                 
-            def calc_j():
+            def calc_j(with_tile = with_tile):
                 wfs.take_image(5)
-                wf, statics = wfs.get_wavefront()
+                wf, statics = wfs.get_wavefront(with_tile)
                 return wf, statics
 
             wf, statics = calc_j()
@@ -162,7 +167,10 @@ def run():
     init_V = [0 for _ in range(64)]
     res_list = optimizer_rms(
         init_v=init_V.copy(),
-        epochs=20_000)
+        epochs=6_000,
+        wfs_res='1024',
+        pupil_diameter=3.0,
+        early_stop_threshold=0)
 
     res_df = pd.DataFrame(res_list)
     save_dir = gen_date_dir(ROOT_DIR)

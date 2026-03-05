@@ -95,10 +95,6 @@ class CameraStreamManager(BaseCamera):
         self.__update_properties()
         self.cam.stream_on()
 
-    def close(self):
-        """关闭相机设备"""
-        self.__exit__(None, None, None)
-
     def enable_auto_exposure(self, enable: bool = True, mode: int = 1) -> bool:
         """
         启用或禁用自动曝光。
@@ -137,6 +133,67 @@ class CameraStreamManager(BaseCamera):
             "Daheng camera does not support setting auto exposure target directly. "
             "Auto exposure uses internal algorithm."
         )
+
+    def get_auto_exposure_state(self) -> dict:
+        """
+        获取当前自动曝光状态。
+
+        Returns:
+            dict: 包含以下字段的字典:
+                - enabled: bool - 自动曝光是否启用
+                - mode: int - 当前模式 (0=关闭, 1=连续)
+                - target: int - 当前目标亮度值 (大恒相机不支持, 返回默认值120)
+        """
+        assert self.cam, "camera not initialized"
+        state = {
+            "enabled": False,
+            "mode": 0,
+            "target": 120,
+        }
+        try:
+            # 大恒相机的 ExposureAuto 返回 GxAutoEntry 枚举值
+            # CONTINUOUS = 2, OFF = 0
+            auto_entry = self.cam.ExposureAuto.get()
+            state["enabled"] = auto_entry == gx.GxAutoEntry.CONTINUOUS
+            state["mode"] = 1 if state["enabled"] else 0
+        except Exception as e:
+            logger.warning(f"Failed to get auto exposure state: {e}")
+        return state
+
+    def set_auto_exposure_range(
+        self,
+        max_time_ms: int = 350,
+        min_time_ms: int = 0,
+        max_gain: int = 300,
+        min_gain: int = 100,
+    ) -> bool:
+        """
+        设置自动曝光的曝光时间和增益范围。
+
+        Args:
+            max_time_ms: 最大曝光时间 (毫秒)
+            min_time_ms: 最小曝光时间 (毫秒)
+            max_gain: 最大增益
+            min_gain: 最小增益
+
+        Returns:
+            bool: 如果设置成功返回 True, 否则返回 False
+        """
+        assert self.cam, "camera not initialized"
+        try:
+            # 大恒相机 SDK 可能支持 ExposureTimeRange 相关设置
+            # 但由于 gxipy 封装限制, 这里尝试设置曝光时间范围
+            # 如果 SDK 支持, 可以通过 cam.ExposureTime 的 min/max 范围设置
+            logger.info(
+                f"Setting auto exposure range: time {min_time_ms}-{max_time_ms} ms, "
+                f"gain {min_gain}-{max_gain}"
+            )
+            # 大恒相机 SDK 未提供直接的自动曝光范围设置接口
+            # 返回 False 表示不支持此功能
+            return False
+        except Exception as e:
+            logger.warning(f"Failed to set auto exposure range: {e}")
+            return False
 
     def reset_exposure_time(self, time_ms:int):
         """
