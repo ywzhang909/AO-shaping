@@ -30,7 +30,6 @@ from ao_shaping.drivers.ccd.miicam import CameraStreamManager as MIICAMCamera
 from ao_shaping.drivers.ccd.daheng import CameraStreamManager as DahengCamera
 from ao_shaping.utils.phase_patterns import (
     SLM_RESOLUTION,
-    _get_max_grayscale,
     generate_blazed_grating,
     generate_focus,
     generate_checkerboard,
@@ -51,7 +50,6 @@ class SLMVisualizer:
         self.auto_refresh = False
         self.refresh_interval = 1.0
         self.n_sample = 1
-        self.phase_range = 200  # 默认相位范围 2π (200 * 0.01π)
 
     def verify_slm_display(self) -> Dict[str, Any]:
         """验证SLM显示状态"""
@@ -63,15 +61,13 @@ class SLMVisualizer:
 
         try:
             # 直接从session state获取SLM对象
-            slm = st.session_state.get('slm_obj', None)
+            slm = st.session_state.get("slm_obj", None)
             if slm is None:
                 result["message"] = "SLM未连接"
                 return result
 
             mem_num = ctypes.c_ulong(0)
-            ret = slm._slm.SLM_Ctrl_ReadDS(
-                slm.slm_number, ctypes.byref(mem_num)
-            )
+            ret = slm._slm.SLM_Ctrl_ReadDS(slm.slm_number, ctypes.byref(mem_num))
 
             if ret == 0:
                 result["success"] = True
@@ -88,39 +84,30 @@ class SLMVisualizer:
     def generate_phase_pattern(self, phase_type: str, **kwargs) -> Optional[np.ndarray]:
         """生成相位图案"""
         try:
-            # 获取相位范围参数，如果没有指定则使用实例的 phase_range
-            phase_range = kwargs.get("phase_range", self.phase_range)
-
             if phase_type == "闪耀光栅":
                 return generate_blazed_grating(
                     kwargs.get("period", 20),
                     kwargs.get("direction", "horizontal"),
-                    phase_range=phase_range,
                 )
             elif phase_type == "聚焦透镜":
                 return generate_focus(
                     focal_length=kwargs.get("focal_length", 0.5),
                     wavelength=kwargs.get("wavelength", 532e-9),
-                    phase_range=phase_range,
                 )
             elif phase_type == "棋盘格":
-                return generate_checkerboard(
-                    kwargs.get("period", 100), phase_range=phase_range
-                )
+                return generate_checkerboard(kwargs.get("period", 100))
             elif phase_type == "二元光栅":
                 return generate_binary_grating(
                     kwargs.get("period", 8),
                     kwargs.get("direction", "horizontal"),
-                    phase_range=phase_range,
                 )
             elif phase_type == "涡旋光束":
-                return generate_vortex(kwargs.get("charge", 1), phase_range=phase_range)
+                return generate_vortex(kwargs.get("charge", 1))
             elif phase_type == "Zernike 多项式":
                 return generate_zernike(
                     n=kwargs.get("n", 4),
                     m=kwargs.get("m", 0),
                     amplitude=kwargs.get("amplitude", 2.0),
-                    phase_range=phase_range,
                 )
             elif phase_type == "清空":
                 return np.zeros((1200, 1920), dtype=np.uint16)
@@ -128,39 +115,48 @@ class SLMVisualizer:
             st.error(f"相位生成失败: {e}")
             return None
 
-    def send_to_slm(self, phase_array: np.ndarray, memory_number: int = 1) -> bool:
+    def send_to_slm(
+        self, phase_array: np.ndarray, memory_number: Optional[int] = None
+    ) -> bool:
         """发送相位图案到SLM
 
         Args:
             phase_array: 相位数据数组
-            memory_number: 内存编号（1-128），默认 1
+            memory_number: 内存编号（2-15循环），默认自动递增
         """
+        # 使用循环内存编号 (2-15)
+        if memory_number is None:
+            current_num: int = st.session_state.slm_memory_number
+            # 递增并在 2-15 范围内循环
+            next_num = current_num + 1
+            if next_num > 15:
+                next_num = 2
+            st.session_state.slm_memory_number = next_num
+            memory_number = current_num
+
+        # 确保 memory_number 是 int 类型
+        mem_num: int = memory_number  # type: ignore[assignment]
+
         try:
             # 直接从session state获取SLM对象（避免实例变量丢失问题）
-            slm = st.session_state.get('slm_obj', None)
-            
+            slm = st.session_state.get("slm_obj", None)
+
             if slm is None:
                 st.error("SLM未连接")
                 return False
-            
+
             # 使用session state中的对象
             self.slm = slm
 
-            # 验证 SLM 参数设置与当前 phase_range 一致
-            if self.slm.phase_range != self.phase_range:
-                st.warning(
-                    f"⚠️ SLM 相位范围 ({self.slm.phase_range}) 与当前设置 ({self.phase_range}) 不一致"
-                )
-
-            # 计算预期灰度范围
-            max_grayscale = _get_max_grayscale(self.phase_range)
+            # 计算预期灰度范围 (固定 2π = 1023)
+            max_grayscale = 1023
             actual_max = phase_array.max()
             actual_min = phase_array.min()
 
             st.caption(
                 f"相位数据: shape={phase_array.shape}, dtype={phase_array.dtype}, "
                 f"max={actual_max}, min={actual_min}, "
-                f"phase_range={self.phase_range} (2π对应灰度{max_grayscale})"
+                f"相位范围=0~2π (2π对应灰度{max_grayscale})"
             )
 
             # 警告如果灰度值超出当前相位范围的有效范围
@@ -170,22 +166,22 @@ class SLMVisualizer:
                 )
 
             # 写入相位到SLM内存
-            self.slm.write_phase(phase_array, memory_number=memory_number)
-            st.info(f"相位数据已写入内存 #{memory_number}")
+            self.slm.write_phase(phase_array, memory_number=mem_num)
+            st.info(f"相位数据已写入内存 #{mem_num}")
 
             # 显示相位
-            self.slm.display_memory(memory_number)
+            self.slm.display_memory(mem_num)
 
             # 验证显示状态
             verify_result = self.verify_slm_display()
             if verify_result["success"]:
                 # 验证显示的内存编号与预期一致
-                if verify_result["display_memory"] == memory_number:
+                if verify_result["display_memory"] == mem_num:
                     st.success(f"✅ {verify_result['message']}")
                     return True
                 else:
                     st.warning(
-                        f"⚠️ SLM 显示内存 #{verify_result['display_memory']} 与预期 #{memory_number} 不符"
+                        f"⚠️ SLM 显示内存 #{verify_result['display_memory']} 与预期 #{mem_num} 不符"
                     )
                     return False
             else:
@@ -200,7 +196,7 @@ class SLMVisualizer:
         """拍摄照片"""
         try:
             # 直接从session state获取相机对象
-            camera = st.session_state.get('camera_obj', None)
+            camera = st.session_state.get("camera_obj", None)
             if camera is None:
                 st.error("相机未连接")
                 return None
@@ -221,7 +217,7 @@ class SLMVisualizer:
         """
         try:
             # 直接从session state获取相机对象
-            camera = st.session_state.get('camera_obj', None)
+            camera = st.session_state.get("camera_obj", None)
             if camera is None:
                 if not silent:
                     st.error("相机未连接")
@@ -242,7 +238,7 @@ class SLMVisualizer:
         """设置曝光时间"""
         try:
             # 直接从session state获取相机对象
-            camera = st.session_state.get('camera_obj', None)
+            camera = st.session_state.get("camera_obj", None)
             if camera is None:
                 st.error("相机未连接")
                 return False
@@ -259,7 +255,7 @@ class SLMVisualizer:
         """设置自动曝光"""
         try:
             # 直接从session state获取相机对象
-            camera = st.session_state.get('camera_obj', None)
+            camera = st.session_state.get("camera_obj", None)
             if camera is None:
                 st.error("相机未连接")
                 return False
@@ -296,6 +292,14 @@ class SLMVisualizer:
             st.session_state.camera_placeholder = None
         if "last_frame_time" not in st.session_state:
             st.session_state.last_frame_time = 0
+        # 初始化内存编号 (2-15 循环)
+        if "slm_memory_number" not in st.session_state:
+            st.session_state.slm_memory_number = 2
+        # 初始化聚焦参数
+        if "focus_focal_length_mm" not in st.session_state:
+            st.session_state.focus_focal_length_mm = 500
+        if "focus_wavelength" not in st.session_state:
+            st.session_state.focus_wavelength = 1064
 
         # ============== 侧边栏 - 设备连接 ==============
         st.sidebar.header("🔌 设备连接")
@@ -307,13 +311,6 @@ class SLMVisualizer:
         slm_wavelength = st.sidebar.number_input(
             "波长 (nm)", min_value=450, max_value=1600, value=1064, step=1
         )
-        slm_phase_range = st.sidebar.selectbox(
-            "相位范围",
-            options=[200, 300, 400],
-            format_func=lambda x: f"{x*0.01:.2f}π ({x})",
-            index=0,  # 默认 2π (200)
-        )
-        self.phase_range = slm_phase_range
 
         slm_connected = st.sidebar.checkbox(
             "连接 SLM", value=st.session_state.slm_connected
@@ -325,7 +322,6 @@ class SLMVisualizer:
                     slm_obj = SantecSLM200(
                         slm_number=1,
                         wavelength=slm_wavelength,
-                        phase_range=slm_phase_range,
                         video_mode=0,
                     )
                     slm_obj.open()
@@ -333,23 +329,21 @@ class SLMVisualizer:
                     # 将SLM对象存储在session state中以保持持久化
                     st.session_state.slm_obj = slm_obj
                     st.session_state.slm_connected = True
-                    st.sidebar.success(
-                        f"✅ SLM 已连接 (保持现有设置)"
-                    )
+                    st.sidebar.success(f"✅ SLM 已连接 (保持现有设置)")
                 except Exception as e:
                     st.sidebar.error(f"❌ SLM 连接失败: {e}")
                     st.session_state.slm_connected = False
-                    if 'slm_obj' in st.session_state:
+                    if "slm_obj" in st.session_state:
                         del st.session_state.slm_obj
             else:
-                if 'slm_obj' in st.session_state and st.session_state.slm_obj:
+                if "slm_obj" in st.session_state and st.session_state.slm_obj:
                     st.session_state.slm_obj.close()
                     del st.session_state.slm_obj
                 st.session_state.slm_connected = False
                 st.sidebar.info("ℹ️ SLM 已断开")
 
         # 从session state恢复SLM对象到实例变量
-        if 'slm_obj' in st.session_state:
+        if "slm_obj" in st.session_state:
             self.slm = st.session_state.slm_obj
             st.sidebar.caption(f"📝 SLM对象已从session state恢复: {self.slm}")
         else:
@@ -381,10 +375,10 @@ class SLMVisualizer:
                 except Exception as e:
                     st.sidebar.error(f"❌ 相机连接失败: {e}")
                     st.session_state.camera_connected = False
-                    if 'camera_obj' in st.session_state:
+                    if "camera_obj" in st.session_state:
                         del st.session_state.camera_obj
             else:
-                if 'camera_obj' in st.session_state and st.session_state.camera_obj:
+                if "camera_obj" in st.session_state and st.session_state.camera_obj:
                     st.session_state.camera_obj.close()
                     del st.session_state.camera_obj
                 st.session_state.camera_connected = False
@@ -393,7 +387,7 @@ class SLMVisualizer:
                 st.sidebar.info("ℹ️ 相机已断开")
 
         # 从session state恢复相机对象到实例变量
-        if 'camera_obj' in st.session_state:
+        if "camera_obj" in st.session_state:
             self.camera = st.session_state.camera_obj
         else:
             self.camera = None
@@ -444,15 +438,53 @@ class SLMVisualizer:
                             self.send_to_slm(self.phase_array)
 
                 elif "聚焦" in phase_type:
-                    focal_length = st.number_input(
-                        "焦距 (m)", value=0.5, min_value=0.01, max_value=10.0, step=0.01
-                    )
+                    # 焦距：滑块 + 手动输入 (单位: mm)，使用 session state 联动
+                    col_fl1, col_fl2 = st.columns([2, 1])
+                    with col_fl1:
+                        focal_length_mm = st.slider(
+                            "焦距 (mm)",
+                            min_value=10,
+                            max_value=10000,
+                            value=st.session_state.focus_focal_length_mm,
+                            key="focus_slider",
+                        )
+                    with col_fl2:
+                        focal_length_manual = st.number_input(
+                            "手动 (mm)",
+                            min_value=10,
+                            max_value=10000,
+                            value=st.session_state.focus_focal_length_mm,
+                            step=10,
+                            key="focus_manual",
+                        )
+
+                    # 同步滑块和手动输入
+                    if focal_length_mm != st.session_state.focus_focal_length_mm:
+                        st.session_state.focus_focal_length_mm = focal_length_mm
+                        st.rerun()
+                    if focal_length_manual != st.session_state.focus_focal_length_mm:
+                        st.session_state.focus_focal_length_mm = focal_length_manual
+                        st.rerun()
+
+                    # 使用 session state 中的值
+                    focal_length_mm = st.session_state.focus_focal_length_mm
+
+                    # 波长：使用 session state，默认值为 sidebar 中的波长
                     wavelength = st.number_input(
-                        "波长 (nm)", value=532, min_value=450, max_value=1600, step=1
+                        "波长 (nm)",
+                        min_value=450,
+                        max_value=1600,
+                        value=st.session_state.get("focus_wavelength", slm_wavelength),
+                        step=1,
+                        key="focus_wavelength_input",
                     )
+                    if wavelength != st.session_state.focus_wavelength:
+                        st.session_state.focus_wavelength = wavelength
+                        st.rerun()
+
                     self.phase_array = self.generate_phase_pattern(
                         "聚焦透镜",
-                        focal_length=focal_length,
+                        focal_length=focal_length_mm / 1000.0,  # mm 转 m
                         wavelength=wavelength * 1e-9,
                     )
                     # 发送到 SLM 按钮
@@ -467,7 +499,9 @@ class SLMVisualizer:
                     )
                     # 发送到 SLM 按钮
                     if self.phase_array is not None and st.session_state.slm_connected:
-                        if st.button("🚀 发送到 SLM", type="primary", key="btn_checker"):
+                        if st.button(
+                            "🚀 发送到 SLM", type="primary", key="btn_checker"
+                        ):
                             self.send_to_slm(self.phase_array)
 
                 elif "二元光栅" in phase_type:
@@ -500,11 +534,15 @@ class SLMVisualizer:
                     )
                     # 发送到 SLM 按钮
                     if self.phase_array is not None and st.session_state.slm_connected:
-                        if st.button("🚀 发送到 SLM", type="primary", key="btn_zernike"):
+                        if st.button(
+                            "🚀 发送到 SLM", type="primary", key="btn_zernike"
+                        ):
                             self.send_to_slm(self.phase_array)
 
                 elif "清空" in phase_type:
-                    self.phase_array = np.zeros((SLM_RESOLUTION[1], SLM_RESOLUTION[0]), dtype=np.uint16)
+                    self.phase_array = np.zeros(
+                        (SLM_RESOLUTION[1], SLM_RESOLUTION[0]), dtype=np.uint16
+                    )
                     # 发送到 SLM 按钮
                     if self.phase_array is not None and st.session_state.slm_connected:
                         if st.button("🚀 发送到 SLM", type="primary", key="btn_clear"):
@@ -529,8 +567,13 @@ class SLMVisualizer:
                             f"✅ 已加载: {csv_file.name}, 原始尺寸: {loaded.shape}"
                         )
                         # 发送到 SLM 按钮
-                        if self.phase_array is not None and st.session_state.slm_connected:
-                            if st.button("🚀 发送到 SLM", type="primary", key="btn_csv"):
+                        if (
+                            self.phase_array is not None
+                            and st.session_state.slm_connected
+                        ):
+                            if st.button(
+                                "🚀 发送到 SLM", type="primary", key="btn_csv"
+                            ):
                                 self.send_to_slm(self.phase_array)
                     except Exception as e:
                         st.error(f"❌ 加载失败: {e}")
@@ -641,8 +684,10 @@ class SLMVisualizer:
                             use_container_width=True,
                         )
                 else:
-                    with st.session_state.camera_placeholder.container():
-                        st.info("点击「拍照」或启用「自动刷新」显示图像")
+                    # 自动刷新时不显示提示信息
+                    if not auto_refresh:
+                        with st.session_state.camera_placeholder.container():
+                            st.info("点击「拍照」或启用「自动刷新」显示图像")
 
                 # 自动刷新循环 - 使用非阻塞方式
                 if auto_refresh:
@@ -654,6 +699,8 @@ class SLMVisualizer:
                         try:
                             img = self.refresh_display(silent=True)
                             if img is not None:
+                                # 更新 last_image 以便在非自动刷新时也能显示
+                                self.last_image = img
                                 st.session_state.last_frame_time = current_time
                                 # 直接更新占位符内容，不触发全页面rerun
                                 with st.session_state.camera_placeholder.container():

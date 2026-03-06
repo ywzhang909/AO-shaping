@@ -205,7 +205,8 @@ from ao_shaping.drivers.ccd.daheng import CameraStreamManager
 
 # 连接设备
 with SantecSLM200(slm_number=1) as slm:
-    slm.set_wavelength(1064, 200)
+    # 设置波长（相位范围固定为0~2π）
+    slm.set_wavelength(1064)
     
     with CameraStreamManager(cam_id=0, exposure_time_ms=50) as camera:
         # 创建标定器
@@ -239,7 +240,8 @@ from ao_shaping.drivers.slm.slm_calibration import SantecSLM200Calibrator
 from ao_shaping.drivers.ccd.daheng import CameraStreamManager
 
 with SantecSLM200(slm_number=1) as slm:
-    slm.set_wavelength(1064, 200)
+    # 设置波长（相位范围固定为0~2π）
+    slm.set_wavelength(1064)
     
     with CameraStreamManager(cam_id=0, exposure_time_ms=50) as camera:
         calibrator = SantecSLM200Calibrator(

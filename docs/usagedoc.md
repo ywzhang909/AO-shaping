@@ -1,8 +1,8 @@
 # 使用文档
 
-**项目名称:** AO-shaping  
-**文档版本:** 1.0.0  
-**创建日期:** 2026-03-05  
+**项目名称:** AO-shaping
+**文档版本:** 1.0.0
+**创建日期:** 2026-03-05
 **最后更新:** 2026-03-05
 
 ---
@@ -24,11 +24,11 @@
 
 ### 1.1 环境要求
 
-| 要求 | 最低版本 |
-|-----|---------|
-| Python | 3.13 |
-| CUDA | 11.8 (GPU 支持) |
-| 操作系统 | Windows/Linux |
+| 要求     | 最低版本        |
+| -------- | --------------- |
+| Python   | 3.13            |
+| CUDA     | 11.8 (GPU 支持) |
+| 操作系统 | Windows/Linux   |
 
 ### 1.2 安装步骤
 
@@ -74,10 +74,10 @@ with SantecSLM200() as slm:
     with MiiCAM() as ccd:
         # 3. 创建优化器
         optimizer = GreedyCAM(slm, ccd)
-        
+      
         # 4. 运行优化
         result = optimizer.optimize(iterations=100)
-        
+      
         print(f"优化完成: {result}")
 ```
 
@@ -93,10 +93,10 @@ with NLightDM() as dm:
     with ThorlabsWFS() as wfs:
         # 创建控制器
         controller = DMWFSController(dm, wfs)
-        
+      
         # 校准
         controller.calibrate()
-        
+      
         # 波前校正
         controller.correct(accuracy=0.01)
 ```
@@ -113,61 +113,92 @@ with NLightDM() as dm:
 from ao_shaping.drivers.slm import SantecSLM200
 import numpy as np
 
-# 初始化
-slm = SantecSLM200()
+# 初始化（默认波长1064nm，固定使用0~2π相位范围）
+slm = SantecSLM200(slm_number=1, wavelength=1064)
 slm.open()
 
-# 加载图案
-phase_pattern = np.random.rand(1920, 1080) * 2 * np.pi
-slm.write_pattern(phase_pattern)
+# 设置波长（相位范围固定为0~2π）
+slm.set_wavelength(1064)
 
-# 获取状态
-status = slm.get_status()
-print(f"SLM 状态: {status}")
+# 生成相位图案（使用0~2π，对应灰度0~1023）
+from ao_shaping.utils.phase_patterns import generate_focus, generate_blazed_grating
+
+# 生成聚焦图案（焦距0.5m）
+phase = generate_focus(focal_length=0.5, wavelength=1064e-9)
+
+# 生成闪耀光栅（周期20像素）
+grating = generate_blazed_grating(period=20, direction="horizontal")
+
+# 写入相位到SLM内存
+slm.write_phase(phase, memory_number=1)
+
+# 显示相位
+slm.display_memory(1)
+
+# 获取波长信息
+wavelength, max_grayscale = slm.get_wavelength_info()
+print(f"波长: {wavelength}nm, 2π对应灰度: {max_grayscale}")
 
 # 关闭
 slm.close()
 
 # 上下文管理器方式
-with SantecSLM200() as slm:
-    slm.write_pattern(phase_pattern)
+with SantecSLM200(slm_number=1) as slm:
+    slm.set_wavelength(1064)
+    slm.write_phase(phase, memory_number=1)
+    slm.display_memory(1)
 # 自动关闭
 ```
 
-#### 图案辅助工具
+#### 相位图案生成
 
 ```python
-from ao_shaping.drivers.slm import SLMPatternHelper
+from ao_shaping.utils.phase_patterns import (
+    generate_blazed_grating,    # 闪耀光栅
+    generate_focus,             # 聚焦透镜
+    generate_checkerboard,      # 棋盘格
+    generate_binary_grating,     # 二元光栅
+    generate_vortex,            # 涡旋光束
+    generate_zernike,           # Zernike多项式
+)
 import numpy as np
 
-# 创建光栅图案
-grating = SLMPatternHelper.grating(angle=10, period=50)
+# 闪耀光栅 - 用于衍射分光或校准
+grating_h = generate_blazed_grating(period=20, direction="horizontal")
+grating_v = generate_blazed_grating(period=20, direction="vertical")
 
-# 创建闪耀光栅
-blazed = SLMPatternHelper.blazed_grating(blaze_angle=15)
+# 聚焦透镜 - 用于光束聚焦
+focus = generate_focus(focal_length=0.5, wavelength=1064e-9)  # 焦距0.5m
 
-# 创建随机相位
-random_phase = SLMPatternHelper.random_phase(resolution=(1920, 1080))
+# 棋盘格 - 用于均匀性测试
+checker = generate_checkerboard(period=100)
 
-# 生成 GS 算法图案
-from ao_shaping.utils.phase_patterns import gs_iterate
-target = np.random.rand(512, 512)
-gs_pattern = gs_iterate(target, iterations=50)
+# 二元光栅 - 用于产生周期结构
+binary = generate_binary_grating(period=8, direction="horizontal")
+
+# 涡旋光束 - 用于产生OAM光束
+vortex = generate_vortex(topological_charge=1)
+
+# Zernike多项式 - 用于像差校正
+zernike = generate_zernike(n=4, m=0, amplitude=2.0)
+
+# 所有图案固定使用0~2π相位范围（灰度0~1023）
+print(f"最大灰度值: {focus.max()}")  # 输出: 1023
 ```
 
 #### SLM 校准
 
 ```python
-from ao_shaping.drivers.slm import SLMCalibration
+from ao_shaping.drivers.slm.slm_calibration import SantecSLM200Calibrator
 
-calibrator = SLMCalibration(slm, ccd)
+calibrator = SantecSLM200Calibrator(slm, ccd)
 calibration_data = calibrator.calibrate()
 
 # 保存校准数据
-calibrator.save("slm_calibration.json")
+calibrator.save_calibration('slm_calibration.json')
 
 # 加载校准数据
-calibrator.load("slm_calibration.json")
+calibrator.load_calibration('slm_calibration.json')
 ```
 
 ### 3.2 变形镜 (DM)
@@ -322,17 +353,17 @@ import numpy as np
 with NLightDM() as dm, ThorlabsWFS() as wfs:
     # 创建控制器
     controller = DMWFSController(dm, wfs)
-    
+  
     # 校准（建立响应矩阵）
     controller.calibrate(response_matrix=None)  # 或提供预计算的响应矩阵
-    
+  
     # 执行波前校正
     result = controller.correct(
         target_rms=0.01,      # 目标 RMS
         max_iterations=50,    # 最大迭代次数
         convergence=0.001     # 收敛阈值
     )
-    
+  
     print(f"校正结果: RMS = {result['final_rms']}")
     print(f"迭代次数: {result['iterations']}")
 ```
@@ -347,10 +378,10 @@ from ao_shaping.wf.lr_wfs import LrWFS
 with NLightDM() as dm, MiiCAM() as ccd:
     # 创建控制器
     wfs = LrWFS(dm, ccd)
-    
+  
     # 校准
     wfs.calibrate(n_samples=100)
-    
+  
     # 校正
     wfs.correct(target_rms=0.02)
 ```
@@ -371,10 +402,10 @@ with NLightDM() as dm, MiiCAM() as ccd:
         n_episodes=1000,
         reward_function="intensity"
     )
-    
+  
     # 训练
     wfs.train(write_path="models/rl_wfs")
-    
+  
     # 使用训练好的模型
     wfs.load("models/rl_wfs/best_model")
     wfs.correct()
@@ -395,20 +426,20 @@ import numpy as np
 with SantecSLM200() as slm, MiiCAM() as ccd:
     # 创建优化器
     optimizer = GreedyCAM(slm, ccd)
-    
+  
     # 配置
     optimizer.set_config(
         n_patterns=100,       # 每轮模式数
         iterations=50,        # 迭代次数
         exposure_time=0.001   # 曝光时间
     )
-    
+  
     # 优化
     result = optimizer.optimize(
         target_region=None,   # 目标区域 (x, y, w, h)
         metric="brightness"   # 优化指标: "brightness", "contrast", "custom"
     )
-    
+  
     print(f"最终强度: {result['final_intensity']}")
     print(f"收敛曲线: {result['history']}")
 ```
@@ -422,10 +453,10 @@ from ao_shaping.wfless.lr import LrWFLess
 
 with SantecSLM200() as slm, MiiCAM() as ccd:
     optimizer = LrWFLess(slm, ccd)
-    
+  
     # 校准
     optimizer.calibrate(n_samples=200)
-    
+  
     # 优化
     result = optimizer.optimize(iterations=100)
 ```
@@ -440,7 +471,7 @@ from ao_shaping.wfless.adc_dm_adam import ADCDMAdam
 
 with SantecSLM200() as slm, NLightDM() as dm, MiiCAM() as ccd:
     optimizer = ADCDMAdam(slm, dm, ccd)
-    
+  
     # 优化
     result = optimizer.optimize(
         lr=0.01,              # 学习率
@@ -500,24 +531,31 @@ print(f"倾斜: {wf.tilt}")
 
 ```python
 from ao_shaping.utils.phase_patterns import (
-    grating_pattern,
-    blazed_grating,
-    gs_iterate,
-    dmd_pattern
+    generate_blazed_grating,
+    generate_focus,
+    generate_checkerboard,
+    generate_binary_grating,
+    generate_vortex,
+    generate_zernike,
+    resize_to_slm,
+    load_phase_csv,
 )
-
-# 光栅图案
-grating = grating_pattern(resolution=(1920, 1080), period=50, angle=0)
+import numpy as np
 
 # 闪耀光栅
-blazed = blazed_grating(resolution=(1920, 1080), blaze_angle=10)
+blazed = generate_blazed_grating(resolution=(1920, 1080), period=20)
+
+# 聚焦图案
+focus = generate_focus(focal_length=0.5, wavelength=532e-9)
 
 # GS 算法迭代
 target = np.random.rand(512, 512) + 0j
 phase = gs_iterate(target, iterations=50)
 
-# DMD 图案
-dmd = dmd_pattern(binary_phase=True)
+# 从CSV加载
+phase_data = load_phase_csv("pattern.csv")
+# 调整到SLM分辨率
+resized = resize_to_slm(phase_data)
 ```
 
 ### 6.3 光斑计算
@@ -572,6 +610,7 @@ streamlit run scripts/streamlit_visualizer.py
 ```
 
 功能包括：
+
 - 实时图像显示
 - 参数配置
 - 优化过程监控
@@ -612,32 +651,32 @@ import numpy as np
 
 def wavefront_correction():
     """完整的波前校正流程"""
-    
+  
     # 初始化硬件
     with SantecSLM200() as slm, \
          NLightDM() as dm, \
          ThorlabsWFS() as wfs:
-        
+      
         # 1. 校准 DM 响应矩阵
         controller = DMWFSController(dm, wfs)
         print("正在校准...")
         response_matrix = controller.calibrate(n_samples=50)
-        
+      
         # 2. 保存响应矩阵
         np.save("response_matrix.npy", response_matrix)
-        
+      
         # 3. 执行校正
         print("正在校正波前...")
         result = controller.correct(
             target_rms=0.01,
             max_iterations=30
         )
-        
+      
         print(f"校正完成!")
         print(f"  初始 RMS: {result['initial_rms']:.6f}")
         print(f"  最终 RMS: {result['final_rms']:.6f}")
         print(f"  迭代次数: {result['iterations']}")
-        
+      
         return result
 
 if __name__ == "__main__":
@@ -655,30 +694,30 @@ import numpy as np
 
 def wfless_optimization():
     """无波前传感优化流程"""
-    
+  
     with SantecSLM200() as slm, MiiCAM() as ccd:
         # 1. 设置目标
         ccd.set_exposure(0.001)
-        
+      
         # 2. 创建优化器
         optimizer = GreedyCAM(slm, ccd)
-        
+      
         # 3. 执行优化
         print("开始优化...")
         result = optimizer.optimize(
             iterations=100,
             n_patterns=50
         )
-        
+      
         print(f"优化完成!")
         print(f"  最终强度: {result['final_intensity']:.2f}")
-        
+      
         # 4. 获取最终相位图案
         final_pattern = optimizer.get_best_pattern()
-        
+      
         # 5. 保存结果
         np.save("best_pattern.npy", final_pattern)
-        
+      
         return result
 
 if __name__ == "__main__":
@@ -695,24 +734,24 @@ import numpy as np
 
 def collect_training_data():
     """训练数据采集"""
-    
+  
     with SantecSLM200() as slm, MiiCAM() as ccd:
         collector = DataCollector(slm, ccd)
-        
+      
         # 配置采集
         collector.set_config(
             n_samples=1000,
             pattern_type="random",
             save_path="training_data"
         )
-        
+      
         # 开始采集
         print("开始采集数据...")
         dataset = collector.collect()
-        
+      
         print(f"采集完成!")
         print(f"  样本数: {len(dataset)}")
-        
+      
         return dataset
 
 if __name__ == "__main__":
@@ -760,5 +799,7 @@ phase = zernike.generate(coefficients)  # 自动使用 JIT 编译
 ```
 
 ---
+
+![1772783279793](image/usagedoc/1772783279793.png)
 
 *本文档由 AI 自动生成，最后更新于 2026-03-05*

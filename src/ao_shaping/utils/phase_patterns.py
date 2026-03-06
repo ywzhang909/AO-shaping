@@ -9,7 +9,7 @@
         generate_focus,
         SLM_RESOLUTION,
     )
-    
+
     # 生成水平闪耀光栅
     phase = generate_blazed_grating(period=20, direction="horizontal")
 """
@@ -25,37 +25,20 @@ SLM_BITS = 10
 SLM_MAX_VAL = 2**SLM_BITS - 1  # 1023
 
 
-def _get_max_grayscale(phase_range: int) -> int:
-    """根据相位范围计算对应 2π 的最大灰度值
-
-    Args:
-        phase_range: 相位范围（单位：0.01*pi），例如 200 表示 2π，300 表示 3π
-
-    Returns:
-        2π 相位对应的最大灰度值
-    """
-    # phase_range=200 (2π) -> max_val=1023
-    # phase_range=300 (3π) -> max_val=1023 * 2/3 = 682 (2π 对应值)
-    if phase_range <= 0:
-        return SLM_MAX_VAL
-    return int(SLM_MAX_VAL * 2 / (phase_range * 0.01))
-
-
 def generate_blazed_grating(
-    period: int = 20, direction: str = "horizontal", phase_range: int = 200
+    period: int = 20, direction: str = "horizontal"
 ) -> NDArray[np.uint16]:
     """生成闪耀光栅
 
     Args:
         period: 光栅周期（像素）
         direction: 方向，"horizontal" 或 "vertical"
-        phase_range: 相位范围（单位：0.01*pi），默认 200 (2π)
 
     Returns:
         相位图案数组，形状为 (1200, 1920)，dtype 为 uint16
     """
     height, width = SLM_RESOLUTION[1], SLM_RESOLUTION[0]
-    max_val = _get_max_grayscale(phase_range)
+    max_val = SLM_MAX_VAL  # 固定 2π = 1023
 
     if direction == "horizontal":
         y = np.arange(height)
@@ -73,7 +56,6 @@ def generate_focus(
     focal_length: float = 0.5,
     wavelength: float = 532e-9,
     pixel_size: float = 8e-6,
-    phase_range: int = 200,
 ) -> NDArray[np.uint16]:
     """生成聚焦相位 (抛物面)
 
@@ -81,13 +63,12 @@ def generate_focus(
         focal_length: 焦距（米）
         wavelength: 波长（米）
         pixel_size: 像素尺寸（米）
-        phase_range: 相位范围（单位：0.01*pi），默认 200 (2π)
 
     Returns:
         相位图案数组，形状为 (1200, 1920)，dtype 为 uint16
     """
     height, width = SLM_RESOLUTION[1], SLM_RESOLUTION[0]
-    max_val = _get_max_grayscale(phase_range)
+    max_val = SLM_MAX_VAL  # 固定 2π = 1023
 
     x = np.arange(width) - width // 2
     y = np.arange(height) - height // 2
@@ -101,18 +82,17 @@ def generate_focus(
     return img
 
 
-def generate_checkerboard(period: int = 100, phase_range: int = 200) -> NDArray[np.uint16]:
+def generate_checkerboard(period: int = 100) -> NDArray[np.uint16]:
     """生成棋盘格
 
     Args:
         period: 周期（像素）
-        phase_range: 相位范围（单位：0.01*pi），默认 200 (2π)
 
     Returns:
         相位图案数组，形状为 (1200, 1920)，dtype 为 uint16
     """
     height, width = SLM_RESOLUTION[1], SLM_RESOLUTION[0]
-    max_val = _get_max_grayscale(phase_range)
+    max_val = SLM_MAX_VAL  # 固定 2π = 1023
 
     y = np.arange(height) // period
     x = np.arange(width) // period
@@ -125,20 +105,19 @@ def generate_checkerboard(period: int = 100, phase_range: int = 200) -> NDArray[
 
 
 def generate_binary_grating(
-    period: int = 8, direction: str = "horizontal", phase_range: int = 200
+    period: int = 8, direction: str = "horizontal"
 ) -> NDArray[np.uint16]:
     """生成二元光栅 (01光栅)
 
     Args:
         period: 光栅周期（像素）
         direction: 方向，"horizontal" 或 "vertical"
-        phase_range: 相位范围（单位：0.01*pi），默认 200 (2π)
 
     Returns:
         相位图案数组，形状为 (1200, 1920)，dtype 为 uint16
     """
     height, width = SLM_RESOLUTION[1], SLM_RESOLUTION[0]
-    max_val = _get_max_grayscale(phase_range) // 2
+    max_val = SLM_MAX_VAL // 2  # π = 1023/2
 
     if direction == "horizontal":
         y = np.arange(height)
@@ -152,18 +131,17 @@ def generate_binary_grating(
     return img.astype(np.uint16)
 
 
-def generate_vortex(topological_charge: int = 1, phase_range: int = 200) -> NDArray[np.uint16]:
+def generate_vortex(topological_charge: int = 1) -> NDArray[np.uint16]:
     """生成涡旋光束相位
 
     Args:
         topological_charge: 拓扑荷
-        phase_range: 相位范围（单位：0.01*pi），默认 200 (2π)
 
     Returns:
         相位图案数组，形状为 (1200, 1920)，dtype 为 uint16
     """
     height, width = SLM_RESOLUTION[1], SLM_RESOLUTION[0]
-    max_val = _get_max_grayscale(phase_range)
+    max_val = SLM_MAX_VAL  # 固定 2π = 1023
 
     x = np.arange(width) - width // 2
     y = np.arange(height) - height // 2
@@ -178,7 +156,7 @@ def generate_vortex(topological_charge: int = 1, phase_range: int = 200) -> NDAr
 
 
 def generate_zernike(
-    n: int = 4, m: int = 0, amplitude: float = 2.0, phase_range: int = 200
+    n: int = 4, m: int = 0, amplitude: float = 2.0
 ) -> NDArray[np.uint16]:
     """生成Zernike多项式相位
 
@@ -186,13 +164,12 @@ def generate_zernike(
         n: 径向阶数
         m: 角向阶数
         amplitude: 振幅（波长）
-        phase_range: 相位范围（单位：0.01*pi），默认 200 (2π)
 
     Returns:
         相位图案数组，形状为 (1200, 1920)，dtype 为 uint16
     """
     height, width = SLM_RESOLUTION[1], SLM_RESOLUTION[0]
-    max_val = _get_max_grayscale(phase_range)
+    max_val = SLM_MAX_VAL  # 固定 2π = 1023
 
     radius = min(height, width) // 2
 
