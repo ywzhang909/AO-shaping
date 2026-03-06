@@ -222,7 +222,7 @@ def load_dll():
     dll.WFS_CalcFourierOptometric.argtypes = [ViSession, ViInt32, ViInt32, POINTER(ViReal64), POINTER(ViReal64), POINTER(ViReal64), POINTER(ViReal64), POINTER(ViReal64), POINTER(ViReal64)]
 
     dll.WFS_CalcReconstrDeviations.restype = ViStatus
-    dll.WFS_CalcReconstrDeviations.argtypes = [ViSession, ViInt32, ViInt32, ViInt32, POINTER(ViReal64), POINTER(ViReal64)] # ViInt32[]
+    # dll.WFS_CalcReconstrDeviations.argtypes = [ViSession, ViInt32, ViInt32, ViInt32, POINTER(ViReal64), POINTER(ViReal64)] # ViInt32[]
 
     dll.WFS_CalcWavefront.restype = ViStatus
     dll.WFS_CalcWavefront.argtypes = [ViSession, ViInt32, ViInt32, ArrFloat] # float[]
@@ -482,6 +482,14 @@ class WFSManager:
         Returns:
             tuple[np.ndarray, dict]: wavefront, wavefront statistics
         '''
+        if with_tile:
+            Coeff_num =  67 # 10
+            zernike_um = np.ones((Coeff_num+1,), c_int32)
+            fitErrMean, fitErrorDev = ViReal64(), ViReal64()
+            if err := self._lib.WFS_CalcReconstrDeviations(
+                self._instrument_handle, ViInt32(10), 
+                zernike_um.ctypes.data_as(ctypes.POINTER(c_int32)), ViInt32(1), byref(fitErrMean), byref(fitErrorDev)):
+                self.handle_error(err)
         adaptive_pupil = 0 if (self.d_x and self.d_y) else 1
         wavefront = np.zeros(MAX_SPOTS, dtype=c_float)
         if err := self._lib.WFS_CalcWavefront(

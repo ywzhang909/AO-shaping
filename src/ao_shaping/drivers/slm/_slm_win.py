@@ -98,15 +98,16 @@ if pf == "Darwin":
 elif pf == "Windows":
     _libname = "SLMFunc"
 
-    dll_dir = os.path.join(
-        os.path.dirname(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-        ),
-        "libs",
-        "SLM_DLL_ver.2.51",
-        "dll",
-        "x64",
-    )
+    # 优先从环境变量读取 DLL 目录，若未设置则使用默认相对路径
+    dll_dir = os.environ.get("AO_SHAPING_SLM_DLL_DIR")
+    if dll_dir is None:
+        dll_dir = os.path.join(
+            os.path.dirname(
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+            ),
+            "libs",
+            "santec_slm"
+        )
     if os.path.exists(dll_dir):
         os.add_dll_directory(dll_dir)
 

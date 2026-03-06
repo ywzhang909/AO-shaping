@@ -364,7 +364,7 @@ class TestPatternTypes:
         return img.astype(np.uint16)
 
     def generate_focus(
-        self, focal_length: float, wavelength: float = 532e-9, pixel_size: float = 8e-6
+        self, focal_length: float, wavelength: float = 1064e-9, pixel_size: float = 8e-6
     ) -> np.ndarray:
         """生成聚焦相位图案（抛物面）"""
         height, width = self.RESOLUTION[1], self.RESOLUTION[0]
@@ -454,6 +454,17 @@ class TestIntegration:
 
             # 显示相位图
             slm.display_memory(1)
+
+    def test_full_workflow_direct_display(self):
+        """测试完整的工作流程"""
+        with SantecSLM200(slm_number=1, video_mode=0) as slm:
+            # 设置波长
+            # slm.set_wavelength(1064)
+
+            # 生成并写入相位图案
+            phase = np.zeros((1080, 1920), dtype=np.uint16)
+            phase[500:580, 900:1020] = 511  # 添加一个中心图案
+            slm.display_data(phase)
 
     def test_verify_display_memory(self, open_slm):
         """测试验证显示内存编号"""

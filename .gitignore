@@ -51,4 +51,5 @@ htmlcov/
 .coverage.*
 scripts/dm_sim*
 .vscode/settings.json
-libs/SLM_DLL_ver.2.51*
+docs/SLM_DLL_ver.2.51*
+libs/miicamsdk.20240728*

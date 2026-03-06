@@ -168,8 +168,8 @@ def run():
     res_list = optimizer_rms(
         init_v=init_V.copy(),
         epochs=6_000,
-        wfs_res='1024',
-        pupil_diameter=3.0,
+        wfs_res='768',
+        pupil_diameter=2.7,
         early_stop_threshold=0)
 
     res_df = pd.DataFrame(res_list)

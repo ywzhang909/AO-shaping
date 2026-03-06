@@ -149,14 +149,22 @@ class CameraStreamManager(BaseCamera):
         # Start streaming (pull mode with callback)
         # Use a minimal callback that just stores the image
         self._frame_buffer = None
+        self._frame_buffer_lock = False  # Lock to prevent reading while updating
 
         def frame_callback(nEvent, ctx):
             if nEvent == miicam.MIICAM_EVENT_IMAGE:
                 try:
-                    bufsize = ctx.cam_width * ctx.cam_height
-                    buffer = bytearray(bufsize)
-                    ctx.cam.PullImageV4(buffer, 0, 8, 0, None)
-                    ctx._frame_buffer = buffer
+                    # Wait for buffer to be free
+                    while ctx._frame_buffer_lock:
+                        pass
+                    ctx._frame_buffer_lock = True
+                    try:
+                        bufsize = ctx.cam_width * ctx.cam_height
+                        buffer = (ctypes.c_char * bufsize)()
+                        ctx.cam.PullImageV4(buffer, 0, 8, 0, None)
+                        ctx._frame_buffer = buffer
+                    finally:
+                        ctx._frame_buffer_lock = False
                 except Exception:
                     pass
 
@@ -338,14 +346,21 @@ class CameraStreamManager(BaseCamera):
 
         # Restart streaming
         self._frame_buffer = None
+        self._frame_buffer_lock = False
 
         def frame_callback(nEvent, ctx):
             if nEvent == miicam.MIICAM_EVENT_IMAGE:
                 try:
-                    bufsize = ctx.cam_width * ctx.cam_height
-                    buffer = (ctypes.c_char * bufsize)()
-                    ctx.cam.PullImageV4(buffer, 0, 8, 0, None)
-                    ctx._frame_buffer = buffer
+                    while ctx._frame_buffer_lock:
+                        pass
+                    ctx._frame_buffer_lock = True
+                    try:
+                        bufsize = ctx.cam_width * ctx.cam_height
+                        buffer = (ctypes.c_char * bufsize)()
+                        ctx.cam.PullImageV4(buffer, 0, 8, 0, None)
+                        ctx._frame_buffer = buffer
+                    finally:
+                        ctx._frame_buffer_lock = False
                 except Exception:
                     pass
 
@@ -361,8 +376,40 @@ class CameraStreamManager(BaseCamera):
         Returns:
             np.ndarray: Captured image data as uint8 array.
         """
-        import ctypes
         import time
+
+        # Try to get image from callback buffer first
+        max_wait = 1.0  # Wait up to 1 second for a new frame
+        start_time = time.time()
+
+        while time.time() - start_time < max_wait:
+            # Check if we have a valid buffer
+            if self._frame_buffer is not None and not self._frame_buffer_lock:
+                try:
+                    # Convert buffer to numpy array
+                    img_data = np.frombuffer(self._frame_buffer, dtype=np.uint8)
+
+                    # Handle YUV422 format - extract Y channel (luminance)
+                    if getattr(self, "_pixel_format", None) == "YUV422":
+                        # YUV422: 2 bytes per pixel (Y0 U0 Y1 V0 ...)
+                        img_yuv = img_data.reshape(
+                            (self.cam_height, self.cam_width * 2)
+                        )
+                        img = img_yuv[
+                            :, ::2
+                        ]  # Take every other column (Y channel only)
+                    else:
+                        # MONO8 or other formats
+                        img = img_data.reshape((self.cam_height, self.cam_width))
+
+                    return img
+                except Exception:
+                    pass
+
+            time.sleep(0.01)  # Wait a bit before retrying
+
+        # Fallback: If callback buffer not available, use direct pull
+        import ctypes
 
         # Calculate buffer size based on pixel format
         if getattr(self, "_pixel_format", None) == "YUV422":

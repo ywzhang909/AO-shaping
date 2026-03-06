@@ -317,6 +317,32 @@ class SantecSLM200:
         self._slm.SLM_Ctrl_WriteDS(self.slm_number, memory_number)
         logger.info(f"SLM #{self.slm_number} 正在显示内存#{memory_number}的相位图")
 
+    def display_data(self, phase: np.ndarray):
+        self._ensure_open()
+        # 验证数据类型和形状
+        if phase.dtype != np.uint16:
+            raise ValueError(f"相位数据类型必须是uint16，当前: {phase.dtype}")
+
+        if phase.ndim != 2:
+            raise ValueError(f"相位数据必须是2D数组，当前维度: {phase.ndim}")
+
+        height, width = phase.shape
+
+        # 创建ctypes指针
+        dat = (ctypes.c_ushort * (width * height))()
+        ctypes.memmove(dat, phase.ctypes.data, phase.nbytes)
+
+        ret = self._slm.SLM_Disp_Data(
+            self.slm_number, width, height, 0, dat
+        )
+
+        if ret != SLM_OK:
+            raise SantecSLM200Error(
+                f"显示相位数据失败, 错误码: {ret}"
+            )
+
+        logger.debug(f"相位数据显示")
+
     def set_grayscale(self, gs: int) -> None:
         """设置SLM灰度值（均匀显示）
 
