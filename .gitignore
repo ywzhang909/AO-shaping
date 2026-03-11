@@ -53,3 +53,4 @@ src/calculators/**/*.c
 *.pyd
 src/calculators/build/temp*
 src/calculators/*.html
+docs/SLM_DLL_ver*
