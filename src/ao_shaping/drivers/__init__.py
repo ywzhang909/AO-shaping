@@ -139,3 +139,35 @@ __all__ += [
     "MockWFS",
     "MockWFSError",
 ]
+
+# Import simulated devices (wrapping sim.digitaltwin)
+from ao_shaping.drivers.sim import (
+    SimulatedCCD,
+    SimulatedLaser,
+    SimulatedSLM,
+    SimulatedLens,
+    SimulatedAperture,
+    SimulatedTurbulentScreen,
+    SimulatedThermalScreen,
+    SimulatedATP,
+    # Base classes
+    SimulatedDevice,
+    OpticalDevice,
+    WavefrontProcessor,
+)
+
+__all__ += [
+    # Simulated devices
+    "SimulatedCCD",
+    "SimulatedLaser",
+    "SimulatedSLM",
+    "SimulatedLens",
+    "SimulatedAperture",
+    "SimulatedTurbulentScreen",
+    "SimulatedThermalScreen",
+    "SimulatedATP",
+    # Base classes
+    "SimulatedDevice",
+    "OpticalDevice",
+    "WavefrontProcessor",
+]

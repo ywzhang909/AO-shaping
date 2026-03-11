@@ -55,3 +55,6 @@ src/calculators/build/temp*
 src/calculators/*.html
 src/ao_shaping/drivers/ccd/_miicam_sdk*
 docs/slm-200*
+
+# Simulation data
+data_adam/
