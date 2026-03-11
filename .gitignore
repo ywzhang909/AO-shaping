@@ -59,3 +59,5 @@ docs/slm-200*
 
 # Simulation data
 data_adam/
+docs/WFS20_Manual*
+.opencode/
