@@ -54,3 +54,8 @@ src/calculators/**/*.c
 src/calculators/build/temp*
 src/calculators/*.html
 docs/SLM_DLL_ver*
+src/ao_shaping/drivers/ccd/_miicam_sdk*
+docs/slm-200*
+
+# Simulation data
+data_adam/

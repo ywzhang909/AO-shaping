@@ -33,6 +33,7 @@ dependencies = [
     "cupy-cuda12x>=13.6.0",
     "stable-baselines3>=2.3.0",
     "torch>=2.8.0",
+    "zernike>=0.0.33",
 ]
 
 [[tool.uv.index]]
