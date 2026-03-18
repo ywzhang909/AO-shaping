@@ -2,6 +2,7 @@
 绘大气传输模型，设置相位屏
 """
 import pickle
+import tempfile
 
 import numpy as np
 import math
@@ -282,16 +283,16 @@ class ATP:
 
             if self.Thermal:
                 self.tb_screens[i].out(self.wave)
-                with open('temp/tb_opd l{0:d}.pkl'.format(i), 'wb') as file:
+                with tempfile.NamedTemporaryFile(mode='wb', dir='temp', prefix='tb_opd l{0:d}_'.format(i), suffix='.pkl', delete=False) as file:
                     pickle.dump(self.tb_screens[i].opd, file)
             if self.Turbulent:
                 self.tl_screens[i].out(self.wave)
-                with open('temp/tl_opd l{0:d}.pkl'.format(i), 'wb') as file:
+                with tempfile.NamedTemporaryFile(mode='wb', dir='temp', prefix='tl_opd l{0:d}_'.format(i), suffix='.pkl', delete=False) as file:
                     pickle.dump(self.tl_screens[i].opd, file)
 
             self.free_propagation(self.layer_length / 2, self.env_array[i].extinction)
 
-            with open('temp/wave l{0:d}.pkl'.format(i), 'wb') as file:
+            with tempfile.NamedTemporaryFile(mode='wb', dir='temp', prefix='wave l{0:d}_'.format(i), suffix='.pkl', delete=False) as file:
                 pickle.dump(self.wave, file)
 
     def restrict(self, Cn2, L0, l0):
@@ -411,20 +412,20 @@ class TimeATP(ATP):
                 if self.Thermal:
                     self.tb_screens[i].out(self.wave)
                     if self.save_mode == 'all' or t == time_num:
-                        with open('temp/tb_opd l{0:d} t{1:.6f}.pkl'.format(i, self.time), 'wb') as file:
+                        with tempfile.NamedTemporaryFile(mode='wb', dir='temp', prefix='tb_opd l{0:d} t{1:.6f}_'.format(i, self.time), suffix='.pkl', delete=False) as file:
                             pickle.dump(self.tb_screens[i].opd, file)
                 if self.Turbulent:
                     self.tl_screens[i].out(self.wave)
                     if self.save_mode == 'all' or t == time_num:
-                        with open('temp/tl_opd l{0:d} t{1:.6f}.pkl'.format(i, self.time), 'wb') as file:
+                        with tempfile.NamedTemporaryFile(mode='wb', dir='temp', prefix='tl_opd l{0:d} t{1:.6f}_'.format(i, self.time), suffix='.pkl', delete=False) as file:
                             pickle.dump(self.tl_screens[i].opd, file)
-                with open('temp/wave l{0:d} t{1:.6f}.pkl'.format(i, self.time), 'wb') as file:
+                with tempfile.NamedTemporaryFile(mode='wb', dir='temp', prefix='wave l{0:d} t{1:.6f}_'.format(i, self.time), suffix='.pkl', delete=False) as file:
                     pickle.dump(self.wave, file)
 
                 self.free_propagation(self.layer_length / 2, self.env_array[i].extinction)
 
             if self.save_mode == 'all' or t == time_num:
-                with open('temp/wave l{0:d} t{1:.6f}.pkl'.format(self.layers, self.time), 'wb') as file:
+                with tempfile.NamedTemporaryFile(mode='wb', dir='temp', prefix='wave l{0:d} t{1:.6f}_'.format(self.layers, self.time), suffix='.pkl', delete=False) as file:
                     pickle.dump(self.wave, file)
 
             print('time {0:.3f} s'.format(self.time))

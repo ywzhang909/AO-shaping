@@ -8,10 +8,11 @@
 2. [Device 基类接口](#device-基类接口)
 3. [设备类型与接口定义](#设备类型与接口定义)
 4. [现有驱动实现](#现有驱动实现)
-5. [实现新驱动的指南](#实现新驱动的指南)
-6. [设备注册与管理](#设备注册与管理)
-7. [VISA 通信层](#visa-通信层)
-8. [Mock 设备](#mock-设备)
+5. [模拟设备 (sim/)](#模拟设备-sim-)
+6. [实现新驱动的指南](#实现新驱动的指南)
+7. [设备注册与管理](#设备注册与管理)
+8. [VISA 通信层](#visa-通信层)
+9. [Mock 设备](#mock-设备)
 
 ---
 
@@ -38,7 +39,41 @@
           │                           │
     ┌──────────┐                ┌──────────┐
     │DahengCam │                │ NLightDM │
-    └──────────┘                └──────────┘
+    │MIICAMDev │                └──────────┘
+    └──────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│               Simulated Devices (sim/ 模块)                      │
+│          数字孪生模拟设备 - 集成 sim.digitaltwin                  │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │
+    ┌─────────────────────┼─────────────────────┐
+    │                     │                     │
+    ▼                     ▼                     ▼
+┌──────────┐        ┌──────────┐        ┌──────────┐
+│Simulated │        │Simulated │        │Simulated │
+│   CCD    │        │   SLM    │        │  Laser   │
+└──────────┘        └──────────┘        └──────────┘
+    │                     │                     │
+    └─────────────────────┼─────────────────────┘
+                          │
+                          ▼
+              ┌───────────────────────┐
+              │   Base Classes        │
+              │ (SimulatedDevice)     │
+              │ (OpticalDevice)       │
+              │ (WavefrontProcessor)  │
+              └───────────────────────┘
+                          │
+    ┌─────────────────────┼─────────────────────┐
+    │                     │                     │
+    ▼                     ▼                     ▼
+┌──────────┐        ┌──────────┐        ┌──────────┐
+│Simulated │        │Simulated │        │Simulated │
+│  Lens    │        │Aperture  │        │  ATP     │
+└──────────┘        └──────────┘        └──────────┘
+
+大气模拟: SimulatedTurbulentScreen, SimulatedThermalScreen
 ```
 
 ---
@@ -242,6 +277,7 @@ WFS 驱动通常需要实现以下功能（参考 [`MockWFS`](src/ao_shaping/dri
 |------|------|------|
 | [`CameraStreamManager`](src/ao_shaping/drivers/ccd/daheng.py) | `ccd/daheng.py` | 大恒相机 (GigE) |
 | [`MiiCamDevice`](src/ao_shaping/drivers/ccd/miicam.py) | `ccd/miicam.py` | Mii相机 SDK |
+| [`MIICAMDevice`](src/ao_shaping/drivers/ccd/miicam_device.py:33) | `ccd/miicam_device.py` | MIICAM 相机 (Device基类) |
 | [`MockCamera`](src/ao_shaping/drivers/mock_devices.py:25) | `mock_devices.py` | 模拟相机 |
 
 ### 2. SLM 驱动
@@ -275,6 +311,216 @@ WFS 驱动通常需要实现以下功能（参考 [`MockWFS`](src/ao_shaping/dri
 | [`MockLaser`](src/ao_shaping/drivers/mock_devices.py:1114) | `mock_devices.py` | 模拟激光器 |
 | [`MockStage`](src/ao_shaping/drivers/mock_devices.py:915) | `mock_devices.py` | 模拟运动台 |
 | [`MockFilter`](src/ao_shaping/drivers/mock_devices.py:1341) | `mock_devices.py` | 模拟滤光轮 |
+
+---
+
+## 模拟设备 (sim/)
+
+`sim/` 模块提供高级模拟设备，集成 `sim.digitaltwin` 数值仿真引擎，用于数字孪生和端到端光学系统仿真。
+
+### 与 mock_devices 的区别
+
+| 特性 | mock_devices | sim/ |
+|------|-------------|------|
+| 用途 | 简单测试/开发 | 数值仿真/数字孪生 |
+| 实现 | 简化模拟 | 集成 sim.digitaltwin |
+| 复杂度 | 基础 | 高级物理模型 |
+| 继承 | BaseCamera, Device | SimulatedDevice |
+
+### 基类接口
+
+#### SimulatedDevice ([`base.py:35`](src/ao_shaping/drivers/sim/base.py:35))
+
+所有模拟设备的基类：
+
+```python
+class SimulatedDevice(Device):
+    device_type = DeviceType.OTHER
+    manufacturer = "Simulation"
+    
+    def __init__(self, device_id="", enable_noise=True, random_seed=None):
+        ...
+    
+    @abstractmethod
+    def compute(self, *args, **kwargs) -> Any:
+        """执行仿真计算"""
+        pass
+    
+    def reset(self) -> None:
+        """重置仿真状态"""
+    
+    def set_seed(self, seed: int) -> None:
+        """设置随机种子"""
+    
+    def set_noise(self, enabled: bool) -> None:
+        """启用/禁用噪声"""
+```
+
+#### OpticalDevice ([`base.py:173`](src/ao_shaping/drivers/sim/base.py:173))
+
+光学仿真设备基类：
+
+```python
+class OpticalDevice(SimulatedDevice):
+    def __init__(self, device_id="", wavelength=1064.0, ...):
+        self.wavelength = wavelength
+    
+    def set_input(self, wave: Any) -> None:
+        """设置输入波前"""
+    
+    def get_output(self) -> Any:
+        """获取输出波前"""
+    
+    @abstractmethod
+    def process(self, wave: Any) -> Any:
+        """处理波前"""
+        pass
+```
+
+#### WavefrontProcessor ([`base.py:247`](src/ao_shaping/drivers/sim/base.py:247))
+
+波前处理器基类（SLM、透镜等）：
+
+```python
+class WavefrontProcessor(OpticalDevice):
+    def __init__(self, device_id="", wavelength=1064.0, npix=512, dpix=1e-3, ...):
+        ...
+    
+    def set_phase(self, phase: np.ndarray) -> None:
+        """设置相位图"""
+    
+    def get_phase(self) -> np.ndarray:
+        """获取当前相位"""
+```
+
+### 现有模拟设备实现
+
+#### 1. 相机/CCD
+
+| 驱动 | 文件 | 说明 |
+|------|------|------|
+| [`SimulatedCCD`](src/ao_shaping/drivers/sim/ccd/simulated_ccd.py:25) | `sim/ccd/simulated_ccd.py` | 模拟 CCD 相机 |
+
+```python
+from ao_shaping.drivers.sim.ccd import SimulatedCCD
+
+cam = SimulatedCCD(resolution=(1024, 1024), noise_level=5.0)
+with cam:
+    img = cam.get_numpy_image()
+    print(f"图像形状: {img.shape}")
+```
+
+#### 2. 激光器
+
+| 驱动 | 文件 | 说明 |
+|------|------|------|
+| [`SimulatedLaser`](src/ao_shaping/drivers/sim/laser/simulated_laser.py:25) | `sim/laser/simulated_laser.py` | 模拟激光器 |
+
+```python
+from ao_shaping.drivers.sim import SimulatedLaser
+
+laser = SimulatedLaser(power=100, wavelength=1064, aperture=0.2)
+with laser:
+    wave = laser.generate()
+    print(f"波前功率: {laser.power}W")
+```
+
+#### 3. 光学元件
+
+| 驱动 | 文件 | 说明 |
+|------|------|------|
+| [`SimulatedSLM`](src/ao_shaping/drivers/sim/optics/simulated_slm.py:23) | `sim/optics/simulated_slm.py` | 模拟空间光调制器 |
+| [`SimulatedLens`](src/ao_shaping/drivers/sim/optics/simulated_slm.py:233) | `sim/optics/simulated_slm.py` | 模拟透镜 |
+| [`SimulatedAperture`](src/ao_shaping/drivers/sim/optics/simulated_slm.py:306) | `sim/optics/simulated_slm.py` | 模拟光阑 |
+
+```python
+from ao_shaping.drivers.sim import SimulatedSLM, SimulatedLens, SimulatedAperture
+
+# SLM
+slm = SimulatedSLM(resolution=(1920, 1080), wavelength=1064)
+with slm:
+    phase = np.random.rand(1080, 1920) * 2 * np.pi
+    slm.set_phase(phase)
+    output = slm.process(input_wave)
+
+# 透镜
+lens = SimulatedLens(focus_length=0.5, wavelength=1064)
+with lens:
+    focused = lens.process(input_wave)
+
+# 光阑
+aperture = SimulatedAperture(radius=0.05)
+with aperture:
+    masked = aperture.process(input_wave)
+```
+
+#### 4. 大气模拟
+
+| 驱动 | 文件 | 说明 |
+|------|------|------|
+| [`SimulatedTurbulentScreen`](src/ao_shaping/drivers/sim/atmos/screens.py:18) | `sim/atmos/screens.py` | 湍流相位屏 |
+| [`SimulatedThermalScreen`](src/ao_shaping/drivers/sim/atmos/screens.py:190) | `sim/atmos/screens.py` | 热晕相位屏 |
+| [`SimulatedATP`](src/ao_shaping/drivers/sim/atmos/screens.py:296) | `sim/atmos/screens.py` | 大气传输仿真 |
+
+```python
+from ao_shaping.drivers.sim.atmos import (
+    SimulatedTurbulentScreen,
+    SimulatedThermalScreen,
+    SimulatedATP
+)
+
+# 湍流屏
+turb = SimulatedTurbulentScreen(Cn2=1e-15, L0=1.0, l0=0.01)
+with turb:
+    wf_turb = turb.process(input_wave)
+
+# 热晕屏
+thermal = SimulatedThermalScreen(absorb=1e-5, wind_x=2.0)
+with thermal:
+    wf_thermal = thermal.process(input_wave)
+
+# 大气传输
+atp = SimulatedATP(prop_dist=3000, layers=10, Cn2=1e-15)
+with atp:
+    wf_propagated = atp.propagate(input_wave)
+```
+
+### 端到端仿真示例
+
+```python
+from ao_shaping.drivers.sim import (
+    SimulatedLaser,
+    SimulatedSLM,
+    SimulatedCCD,
+)
+from ao_shaping.drivers.sim.atmos import SimulatedTurbulentScreen
+
+# 创建仿真链路
+laser = SimulatedLaser(power=100, wavelength=1064)
+slm = SimulatedSLM(resolution=(1920, 1080))
+turb = SimulatedTurbulentScreen(Cn2=1e-14)
+ccd = SimulatedCCD(resolution=(512, 512))
+
+# 仿真流程
+with laser, slm, turb, ccd:
+    # 生成波前
+    wave = laser.generate()
+    
+    # 设置SLM相位
+    phase = np.zeros((1080, 1920))
+    slm.set_phase(phase)
+    
+    # 通过SLM调制
+    wave = slm.process(wave)
+    
+    # 通过大气湍流
+    wave = turb.process(wave)
+    
+    # CCD探测
+    img = ccd.get_numpy_image()
+
+print(f"探测图像: {img.shape}, 强度: {img.mean():.2f}")
+```
 
 ---
 
@@ -552,6 +798,8 @@ with factory.open_all() as instruments:
 
 ## Mock 设备
 
+> **注意**: 有关更高级的数值仿真设备，请参见 [模拟设备 (sim/)](#模拟设备-sim-) 章节。
+
 用于测试和开发：
 
 ```python
@@ -656,6 +904,7 @@ AO-Shaping 是一个基于 PyTorch 深度学习的自适应 Optics（AO）系统
 | 设备注册表 | `device_registry.py` | 设备集中管理 |
 | VISA 通信 | `visa_base.py` | 仪器控制 |
 | Mock 设备 | `mock_devices.py` | 测试模拟 |
+| 模拟设备 | `sim/` | 数字孪生仿真 |
 
 ### 2.2 设备类型
 
@@ -667,7 +916,23 @@ AO-Shaping 是一个基于 PyTorch 深度学习的自适应 Optics（AO）系统
 ├── WFS      - 波前传感器
 ├── STAGE    - 运动台
 ├── LASER    - 激光器
-└── FILTER   - 滤光轮
+├── FILTER   - 滤光轮
+└── OTHER    - 其他设备 (含模拟设备)
+```
+
+**模拟设备继承层次:**
+```
+SimulatedDevice (Device)
+├── OpticalDevice
+│   ├── WavefrontProcessor
+│   │   ├── SimulatedSLM
+│   │   ├── SimulatedLens
+│   │   ├── SimulatedAperture
+│   │   ├── SimulatedTurbulentScreen
+│   │   └── SimulatedThermalScreen
+│   └── SimulatedLaser
+├── SimulatedCCD (BaseCamera)
+└── SimulatedATP
 ```
 
 ---
@@ -699,6 +964,14 @@ class Device(ABC):
 | SLM | - | write_phase(), set_wavelength() |
 | WFS | - | measure_wavefront(), fit_zernike() |
 
+### 3.3 模拟设备接口
+
+| 设备 | 抽象基类 | 特有方法 |
+|------|---------|---------|
+| 模拟设备 | SimulatedDevice | compute(), set_seed(), set_noise() |
+| 光学模拟 | OpticalDevice | process(), set_input(), get_output() |
+| 波前处理 | WavefrontProcessor | set_phase(), get_phase() |
+
 ---
 
 ## 四、现有驱动
@@ -712,6 +985,7 @@ class Device(ABC):
 | DM | NLight | SDK + UDP |
 | 相机 | Daheng (大恒) | GigE SDK |
 | 相机 | MiiCam | Miic SDK |
+| 相机 | MIICAMDevice | USB3.0 SDK |
 | WFS | Thorlabs | 专用协议 |
 | TM | SerialPortFSM | RS232 串口 |
 
@@ -726,6 +1000,20 @@ class Device(ABC):
 - MockLaser - 模拟激光器
 - MockStage - 模拟运动台
 - MockFilter - 模拟滤光轮
+
+### 4.3 模拟设备 (sim/)
+
+用于数字孪生和端到端数值仿真：
+
+| 类别 | 设备 | 说明 |
+|------|------|------|
+| 光源 | SimulatedLaser | 模拟激光器 |
+| 调制器 | SimulatedSLM | 模拟空间光调制器 |
+| 元件 | SimulatedLens, SimulatedAperture | 模拟透镜/光阑 |
+| 探测 | SimulatedCCD | 模拟 CCD 相机 |
+| 大气 | SimulatedTurbulentScreen | 湍流相位屏 |
+| 大气 | SimulatedThermalScreen | 热晕相位屏 |
+| 传输 | SimulatedATP | 大气传输仿真 |
 
 ---
 
@@ -792,6 +1080,26 @@ device.set_parameter_value("exposure_time_ms", 50.0)
 value = device.get_parameter_value("exposure_time_ms")
 ```
 
+### 6.3 模拟设备 (SimulatedDevice)
+
+`sim/` 模块中的设备继承自 `SimulatedDevice`，内置数字孪生支持：
+
+```python
+from ao_shaping.drivers.sim import SimulatedLaser
+
+laser = SimulatedLaser(power=100, wavelength=1064, random_seed=42)
+with laser:
+    # 设置随机种子以保证可重复性
+    laser.set_seed(123)
+    
+    # 启用/禁用噪声
+    laser.set_noise(True)
+    
+    # 获取数字孪生状态
+    state = laser.get_twin_state()
+    print(state)
+```
+
 ---
 
 ## 七、扩展开发
@@ -812,7 +1120,34 @@ class MyDevice(Device):
     def get_hardware_info(self): ...
 ```
 
-### 7.2 VISA 集成
+### 7.2 实现模拟设备
+
+```python
+from ao_shaping.drivers.sim.base import OpticalDevice, WavefrontProcessor
+import numpy as np
+
+class MySLM(WavefrontProcessor):
+    """自定义模拟 SLM"""
+    
+    device_type = DeviceType.SLM
+    manufacturer = "Simulation"
+    model = "My Simulated SLM"
+    
+    def __init__(self, resolution=(1920, 1080), wavelength=1064, ...):
+        super().__init__(wavelength=wavelength, npix=resolution[1])
+        self._resolution = resolution
+    
+    def compute(self, *args, **kwargs):
+        """实现仿真计算"""
+        return self.process(args[0])
+    
+    def process(self, wave):
+        """处理波前"""
+        # 实现光学处理逻辑
+        return wave
+```
+
+### 7.3 VISA 集成
 
 ```python
 from ao_shaping.drivers.visa_base import VisaInstrument
@@ -828,9 +1163,10 @@ with VisaInstrument('GPIB0::1::INSTR') as inst:
 
 - **统一接口**: 所有硬件通过 Device 基类统一管理
 - **灵活扩展**: 支持多种驱动实现方式
-- **数字孪生**: 内置状态同步支持
+- **数字孪生**: 内置状态同步支持，SimulatedDevice 集成 sim.digitaltwin
 - **开箱即用**: 提供多种主流设备驱动
 - **测试友好**: Mock 设备支持无硬件开发
+- **仿真能力**: sim/ 模块提供端到端光学系统数值仿真
 
 ---
 
@@ -844,5 +1180,7 @@ with VisaInstrument('GPIB0::1::INSTR') as inst:
 - [device_registry.py](src/ao_shaping/drivers/device_registry.py) - 设备注册表
 - [visa_base.py](src/ao_shaping/drivers/visa_base.py) - VISA 通信层
 - [mock_devices.py](src/ao_shaping/drivers/mock_devices.py) - Mock 设备
+- [sim/](src/ao_shaping/drivers/sim/) - 模拟设备 (数字孪生)
 - [ccd/base.py](src/ao_shaping/drivers/ccd/base.py) - 相机抽象基类
 - [dm/base.py](src/ao_shaping/drivers/dm/base.py) - DM 抽象基类
+- [sim/base.py](src/ao_shaping/drivers/sim/base.py) - 模拟设备基类

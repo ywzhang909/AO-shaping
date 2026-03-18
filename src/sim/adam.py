@@ -133,10 +133,10 @@ for p in range(20):
             print('{4:.1f}... {0:.1f}, J = {1:.2f}, Imax = {2:.2f}, pm={3:.2f}'.format(i/2, J1, wave1.intensity.max() / 1e7,
                   DM1.phase.max() - DM1.phase.min(), p))
 
-    np.savetxt('data_adam/Iraw{0}.txt'.format(p), I_raw_out)
-    np.savetxt('data_adam/Ispgd{0}.txt'.format(p), I_spgd_out)
-    np.savetxt('data_adam/DMphase{0}.txt'.format(p), DM_phase)
-    np.savetxt('data_adam/zernike{0}.txt'.format(p), zer)
-np.savetxt('data_adam/Cn2.txt', Cn2)
+    np.savetxt('data/sim/Iraw{0}.txt'.format(p), I_raw_out)
+    np.savetxt('data/sim/Ispgd{0}.txt'.format(p), I_spgd_out)
+    np.savetxt('data/sim/DMphase{0}.txt'.format(p), DM_phase)
+    np.savetxt('data/sim/zernike{0}.txt'.format(p), zer)
+np.savetxt('data/sim/Cn2.txt', Cn2)
 
 plt.show()
