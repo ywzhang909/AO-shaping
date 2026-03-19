@@ -10,7 +10,7 @@ import time
 
 from ao_shaping.drivers import CameraStreamManager, NlightDM
 
-from ao_shaping.sim.devices import (
+from ao_shaping.drivers.sim.compat import (
     TraditionalAOSystem, AOConfig,
 )
 

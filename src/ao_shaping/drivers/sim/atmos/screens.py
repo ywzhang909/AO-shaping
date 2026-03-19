@@ -112,34 +112,23 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
         Returns:
             Wavefront with turbulence applied.
         """
-        if not self.is_connected():
-            raise RuntimeError("Turbulent screen not connected")
-        
-        self._set_state(DeviceState.BUSY)
-        
         try:
-            # Try digitaltwin
-            try:
-                from sim.digitaltwin import screens as dt_screens
-                from sim.digitaltwin import base as dt_base
-                
-                # Create environment
-                env = dt_base.Environment()
-                env.Cn2 = self.Cn2
-                env.L0 = self.L0
-                env.l0 = self.l0
-                
-                # Create and apply screen
-                screen = dt_screens.TurbulentScreen(self.dist, env, self.harmonic)
-                screen.out(wave)
-                
-                self._opd = screen.opd
-                return wave
-            except ImportError:
-                logger.warning("sim.digitaltwin not available, using fallback")
-                return self._apply_turbulence_fallback(wave)
-        finally:
-            self._set_state(DeviceState.READY)
+            from sim.digitaltwin import screens as dt_screens
+            from sim.digitaltwin import base as dt_base
+            
+            env = dt_base.Environment()
+            env.Cn2 = self.Cn2
+            env.L0 = self.L0
+            env.l0 = self.l0
+            
+            screen = dt_screens.TurbulentScreen(self.dist, env, self.harmonic)
+            screen.out(wave)
+            
+            self._opd = screen.opd
+            return wave
+        except ImportError:
+            logger.warning("sim.digitaltwin not available, using fallback")
+            return self._apply_turbulence_fallback(wave)
     
     def _apply_turbulence_fallback(self, wave: Any) -> Any:
         """Apply turbulence directly (fallback)."""

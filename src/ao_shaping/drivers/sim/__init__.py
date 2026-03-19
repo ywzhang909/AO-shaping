@@ -7,24 +7,34 @@ code from sim.digitaltwin while presenting a Device-compatible interface.
 Structure:
     sim/
     ├── base.py          # Base classes for simulated devices
+    ├── wave.py          # Wave generation, propagation, and metric utilities
     ├── ccd/             # Simulated cameras
     ├── laser/           # Simulated lasers
     ├── optics/          # Simulated optical elements (SLM, Lens, Aperture)
     └── atmos/           # Simulated atmospheric effects
 
+Physics utilities (wrapping sim.digitaltwin):
+    create_wave()        # Create a Wave object
+    apply_aperture()     # Apply circular aperture
+    apply_focus()        # Apply thin lens focus phase
+    propagate()          # Angular spectrum propagation
+    power_bucket()       # Compute PIB metric
+    radius_metric()      # Compute energy-containing radius
+
 Example:
-    >>> from ao_shaping.drivers.sim import SimulatedLaser, SimulatedSLM
+    >>> from ao_shaping.drivers.sim import (
+    ...     SimulatedTurbulentScreen,
+    ...     create_wave, apply_aperture, apply_focus,
+    ...     propagate, power_bucket, radius_metric,
+    ... )
     >>> 
-    >>> # Use simulated laser
-    >>> laser = SimulatedLaser(power=100, wavelength=1064)
-    >>> with laser:
-    ...     wave = laser.generate()
-    ...
-    >>> # Use simulated SLM
-    >>> slm = SimulatedSLM(resolution=(1920, 1080))
-    >>> with slm:
-    ...     slm.set_phase(phase_pattern)
-    ...     output = slm.process(wave)
+    >>> wave = create_wave(256, 0.1e-3, 1550e-9)
+    >>> apply_aperture(wave, 0.05)
+    >>> apply_focus(wave, 0.5)
+    >>> turb = SimulatedTurbulentScreen(Cn2=1e-9)
+    >>> turb.process(wave)
+    >>> propagate(wave, 0.5)
+    >>> pib = power_bucket(wave.intensity, wave.x, wave.y, 'origin', 5e-3)
 """
 
 from ao_shaping.drivers.sim.base import (
@@ -34,25 +44,38 @@ from ao_shaping.drivers.sim.base import (
     WavefrontProcessor,
 )
 
-# CCD/Camera simulations
 from ao_shaping.drivers.sim.ccd import SimulatedCCD
 
-# Laser simulations
 from ao_shaping.drivers.sim.laser import SimulatedLaser
 
-# Optics simulations
 from ao_shaping.drivers.sim.optics import (
     SimulatedAperture,
     SimulatedLens,
     SimulatedSLM,
 )
 
-# Atmospheric simulations
 from ao_shaping.drivers.sim.atmos import (
     SimulatedATP,
     SimulatedThermalScreen,
     SimulatedTurbulentScreen,
 )
+
+from ao_shaping.drivers.sim.wave import (
+    WaveGenerator,
+    WavePropagator,
+    LensApplier,
+    ApertureApplier,
+    WaveMetric,
+    WaveDeviceError,
+    create_wave,
+    apply_aperture,
+    apply_focus,
+    propagate,
+    power_bucket,
+    radius_metric,
+)
+
+from sim.digitaltwin.base import Environment
 
 __all__ = [
     # Base classes
@@ -60,6 +83,19 @@ __all__ = [
     "SimulatedDeviceError",
     "OpticalDevice",
     "WavefrontProcessor",
+    # Wave utilities
+    "WaveGenerator",
+    "WavePropagator",
+    "LensApplier",
+    "ApertureApplier",
+    "WaveMetric",
+    "WaveDeviceError",
+    "create_wave",
+    "apply_aperture",
+    "apply_focus",
+    "propagate",
+    "power_bucket",
+    "radius_metric",
     # CCD
     "SimulatedCCD",
     # Laser
@@ -72,7 +108,8 @@ __all__ = [
     "SimulatedTurbulentScreen",
     "SimulatedThermalScreen",
     "SimulatedATP",
+    # digitaltwin re-exports
+    "Environment",
 ]
 
-# Version
 __version__ = "1.0.0"
