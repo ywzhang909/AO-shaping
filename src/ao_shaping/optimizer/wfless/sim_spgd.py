@@ -141,16 +141,27 @@ def optimize_spgd(
         ao_sys.set_dm_voltages(_init_v)
 
     R0 = n_grid / 2
-    _ = radius(ao_sys.get_image(), center=(R0, R0), energy=0.865)
+
+    def _calc_ideal_bucket_radius(energy: float = 0.05) -> float:
+        """Calculate PIB radius from ideal diffraction-limited spot."""
+        saved_turb = None if ao_sys._turbulence_phase is None else ao_sys._turbulence_phase.copy()
+        saved_v = _init_v.copy()
+        try:
+            ao_sys._turbulence_phase = np.zeros((n_grid, n_grid), dtype=float)
+            ao_sys.set_dm_voltages(np.zeros(total_actuators, dtype=float))
+            ideal_img = ao_sys.get_image()
+            return float(radius(ideal_img, center=(R0, R0), energy=energy))
+        finally:
+            ao_sys._turbulence_phase = saved_turb
+            ao_sys.set_dm_voltages(saved_v)
+
+    ideal_bucket_radius = _calc_ideal_bucket_radius()
 
     if r_bucket <= 0:
-        _img = ao_sys.get_image()
-        r_bucket = radius(_img, center=(R0, R0), energy=0.99)
-        _fix_bucket = False
-    else:
-        _fix_bucket = True
+        r_bucket = ideal_bucket_radius
+    _fix_bucket = True
 
-    ideal_r = n_grid / 30
+    ideal_r = max(ideal_bucket_radius, 1.0)
     current_gamma = gamma
     current_delta = delta
 
@@ -172,7 +183,7 @@ def optimize_spgd(
     pos_img = ao_sys.get_image()
 
     _init_r = r_bucket
-    update_iter = max(int(epochs * 0.8 / (np.log(ideal_r / r_bucket) / np.log(0.9))), 1) if not _fix_bucket else epochs + 1
+    update_iter = epochs + 1
 
     init_img = ao_sys.get_image()
     init_phase = np.angle(init_img)
@@ -192,13 +203,26 @@ def optimize_spgd(
             "gamma": current_gamma,
             "r": r_bucket,
             "delta": current_delta,
+            "ideal_r": ideal_bucket_radius,
             "_epoch": 0,
             "strehl": _strehl_init,
             "_grad": np.zeros_like(_init_v),
         }
     )
 
-    use_fixed_gain = optimizer_type.lower() == "spgd"
+    optimizer_key = optimizer_type.lower()
+    use_fixed_gain = optimizer_key == "spgd"
+    adaptive_optimizer = None
+    if not use_fixed_gain:
+        adaptive_optimizer = _create_optimizer(
+            optimizer_key,
+            total_actuators,
+            lr=max(current_gamma * current_delta, 1e-8),
+            beta1=beta1,
+            beta2=beta2,
+            beta3=beta3,
+            **kwargs,
+        )
 
     with tqdm.tqdm(total=epochs, desc=f"sim_spgd iter {epochs}", dynamic_ncols=True) as bar:
         for epoch in range(1, epochs + 1):
@@ -229,11 +253,7 @@ def optimize_spgd(
                 if use_fixed_gain:
                     update = current_gamma * gradient
                 else:
-                    optimizer = _create_optimizer(
-                        optimizer_type, total_actuators, lr=current_gamma * 0.01,
-                        beta1=beta1, beta2=beta2, beta3=beta3, **kwargs
-                    )
-                    update = optimizer.update(gradient)
+                    update = adaptive_optimizer.update(gradient)
 
                 _init_v = np.clip(_init_v + update + disturb_v / 2, -1.0, 1.0)
                 ao_sys.set_dm_voltages(_init_v)
@@ -271,6 +291,7 @@ def optimize_spgd(
                 "gamma": current_gamma,
                 "r": r_bucket,
                 "delta": current_delta,
+                "ideal_r": ideal_bucket_radius,
                 "_epoch": epoch,
                 "_v": _init_v.copy(),
                 "_img": pos_img,
@@ -304,6 +325,7 @@ def optimize_spgd_zernike(
     beta2: float = 0.99,
     beta3: float = 0.9999,
     use_momentum: bool = True,
+    optimizer_type: str = "spgd",
     **kwargs
 ):
     """SPGD-based optimization using Zernike polynomial modes.
@@ -327,6 +349,7 @@ def optimize_spgd_zernike(
         beta2: Second moment decay.
         beta3: AdaMOD long-term buffer coefficient.
         use_momentum: Smooth gradient estimates.
+        optimizer_type: Optimizer type: "spgd", "adam", "adamod", etc.
         **kwargs: Additional optimizer parameters.
 
     Returns:
@@ -383,15 +406,26 @@ def optimize_spgd_zernike(
         return np.array(cart.eval_grid(c, matrix=True))
 
     R0 = n_grid / 2
-    if r_bucket <= 0:
-        _img = ao_sys.get_image()
-        r_bucket = radius(_img, center=(R0, R0), energy=0.99)
-        _fix_bucket = False
-    else:
-        _fix_bucket = True
 
-    ideal_r = n_grid / 30
-    update_iter = max(int(epochs * 0.8 / (np.log(ideal_r / r_bucket) / np.log(0.9))), 1) if not _fix_bucket else epochs + 1
+    def _calc_ideal_bucket_radius(energy: float = 0.05) -> float:
+        saved_turb = None if ao_sys._turbulence_phase is None else ao_sys._turbulence_phase.copy()
+        saved_v = ao_sys.dm_voltages.copy()
+        try:
+            ao_sys._turbulence_phase = np.zeros((n_grid, n_grid), dtype=float)
+            ao_sys.set_dm_voltages(np.zeros_like(saved_v))
+            ideal_img = ao_sys.get_image()
+            return float(radius(ideal_img, center=(R0, R0), energy=energy))
+        finally:
+            ao_sys._turbulence_phase = saved_turb
+            ao_sys.set_dm_voltages(saved_v)
+
+    ideal_bucket_radius = _calc_ideal_bucket_radius()
+    if r_bucket <= 0:
+        r_bucket = ideal_bucket_radius
+    _fix_bucket = True
+
+    ideal_r = max(ideal_bucket_radius, 1.0)
+    update_iter = epochs + 1
     nk = cart.nk
 
     current_gamma = gamma
@@ -404,12 +438,15 @@ def optimize_spgd_zernike(
         total_power = np.sum(img)
         return pb, pb / (total_power + 1e-10)
 
+    init_img = ao_sys.get_image()
+    init_pib, init_ratio = calc_pib(init_img)
+
     c = np.zeros(nk)
     disturb_c = np.zeros(nk)
     phase = np.zeros((n_grid, n_grid))
     pos_pib, neg_pib = 0.0, 0.0
     flag = 0
-    J = 0.0
+    J = init_pib
     diff = 0.0
     gradient = np.zeros(nk)
     pos_img = ao_sys.get_image()
@@ -423,9 +460,9 @@ def optimize_spgd_zernike(
     recorder.append(
         {
             "sim_spgd_zernike": "init",
-            "J": J,
-            "pib": J,
-            "_p%": 0.0,
+            "J": init_pib,
+            "pib": init_pib,
+            "_p%": init_ratio,
             "_max_r": _init_r,
             "_c": c.copy(),
             "_phase": phase.copy(),
@@ -434,11 +471,26 @@ def optimize_spgd_zernike(
             "gamma": current_gamma,
             "r": r_bucket,
             "delta": current_delta,
+            "ideal_r": ideal_bucket_radius,
             "_epoch": 0,
             "strehl": _strehl_init,
             "_grad": np.zeros(nk),
         }
     )
+
+    optimizer_key = optimizer_type.lower()
+    use_fixed_gain = optimizer_key == "spgd"
+    adaptive_optimizer = None
+    if not use_fixed_gain:
+        adaptive_optimizer = _create_optimizer(
+            optimizer_key,
+            nk,
+            lr=max(current_gamma * current_delta, 1e-8),
+            beta1=beta1,
+            beta2=beta2,
+            beta3=beta3,
+            **kwargs,
+        )
 
     with tqdm.tqdm(total=epochs, desc=f"sim_spgd_zernike iter {epochs}", dynamic_ncols=True) as bar:
         for epoch in range(1, epochs + 1):
@@ -469,7 +521,10 @@ def optimize_spgd_zernike(
                     m_momentum = beta1 * m_momentum + (1 - beta1) * gradient
                     gradient = m_momentum
 
-                update = current_gamma * gradient
+                if use_fixed_gain:
+                    update = current_gamma * gradient
+                else:
+                    update = adaptive_optimizer.update(gradient)
                 c = np.clip(c + update + disturb_c / 2, -5.0, 5.0)
                 phase = zernike2phase(c)
                 ao_sys.E_corrected = ao_sys.E_corrected * np.exp(1j * phase * 2 * np.pi / wavelength)
@@ -507,6 +562,7 @@ def optimize_spgd_zernike(
                 "gamma": current_gamma,
                 "r": r_bucket,
                 "delta": current_delta,
+                "ideal_r": ideal_bucket_radius,
                 "_epoch": epoch,
                 "_c": c.copy(),
                 "_phase": phase.copy(),

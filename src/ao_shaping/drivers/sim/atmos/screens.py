@@ -112,6 +112,10 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
         Returns:
             Wavefront with turbulence applied.
         """
+        if not self.is_connected():
+            raise RuntimeError("Turbulent screen not connected")
+
+        self._set_state(DeviceState.BUSY)
         try:
             from sim.digitaltwin import screens as dt_screens
             from sim.digitaltwin import base as dt_base
@@ -126,25 +130,45 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
             
             self._opd = screen.opd
             return wave
-        except ImportError:
-            logger.warning("sim.digitaltwin not available, using fallback")
+        except Exception as exc:
+            logger.warning(f"digitaltwin turbulence path unavailable ({exc}), using fallback")
             return self._apply_turbulence_fallback(wave)
+        finally:
+            self._set_state(DeviceState.READY)
     
     def _apply_turbulence_fallback(self, wave: Any) -> Any:
         """Apply turbulence directly (fallback)."""
-        # Generate simple random phase
-        npix = getattr(wave, 'npix', 512)
-        
-        # Generate Kolmogorov spectrum phase screen
-        phase = self._generate_kolmogorov_phase(npix, wave.dpix if hasattr(wave, 'dpix') else 1e-3)
+        npix = getattr(wave, "npix", 512)
+        dpix = getattr(wave, "dpix", 1e-3)
+        wavelength = getattr(wave, "wavelength", getattr(wave, "lamd", 1064e-9))
+
+        phase = self._generate_kolmogorov_phase(
+            npix=npix,
+            dpix=dpix,
+            wavelength=float(wavelength),
+            cn2=self.Cn2,
+            l0=self.l0,
+            l_max=self.L0,
+            distance=self.dist,
+        )
+        self._opd = phase
         
         if hasattr(wave, 'change_wf'):
             wave.change_wf(phase=phase)
         
         return wave
     
-    def _generate_kolmogorov_phase(self, npix: int, dpix: float) -> np.ndarray:
-        """Generate Kolmogorov turbulence phase screen.
+    def _generate_kolmogorov_phase(
+        self,
+        npix: int,
+        dpix: float,
+        wavelength: float,
+        cn2: float,
+        l0: float,
+        l_max: float,
+        distance: float,
+    ) -> np.ndarray:
+        """Generate Von Kármán/Kolmogorov turbulence phase screen.
         
         Args:
             npix: Number of pixels.
@@ -153,18 +177,24 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
         Returns:
             Phase screen array.
         """
-        # Simplified: generate random phase with appropriate statistics
-        rng = np.random.default_rng(self._random_seed)
-        
-        # Generate Gaussian random phase
-        phase = rng.standard_normal((npix, npix)) * 0.1
-        
-        # Apply low-pass filter to approximate Kolmogorov
-        from scipy import signal
-        kernel_size = max(3, int(npix / 50))
-        kernel = np.ones((kernel_size, kernel_size)) / kernel_size ** 2
-        phase = signal.convolve2d(phase, kernel, mode='same')
-        
+        # Reference model adapted from Machine-Learning-for-Optical-Communication.
+        k = 2 * np.pi / wavelength
+        r0 = (0.423 * (k**2) * cn2 * distance) ** (-3 / 5)
+
+        fx = np.fft.fftshift(np.fft.fftfreq(npix, dpix))
+        fy = np.fft.fftshift(np.fft.fftfreq(npix, dpix))
+        fx_grid, fy_grid = np.meshgrid(fx, fy)
+        f = np.sqrt(fx_grid**2 + fy_grid**2)
+
+        fm = 5.92 / (2 * np.pi * max(l0, 1e-12))
+        f0 = 1.0 / max(l_max, 1e-12)
+        psd_phi = 0.023 * r0 ** (-5 / 3) * np.exp(-(f / fm) ** 2) / ((f**2 + f0**2) ** (11 / 6))
+        psd_phi[npix // 2, npix // 2] = 0.0
+
+        delta_f = 1.0 / (npix * dpix)
+        rand_spec = self._rng.normal(size=(npix, npix)) + 1j * self._rng.normal(size=(npix, npix))
+        cn = rand_spec * np.sqrt(psd_phi) * delta_f
+        phase = np.real(np.fft.ifftshift(np.fft.ifft2(np.fft.fftshift(cn)))) * (npix**2)
         return phase
     
     def get_opd(self) -> Optional[np.ndarray]:

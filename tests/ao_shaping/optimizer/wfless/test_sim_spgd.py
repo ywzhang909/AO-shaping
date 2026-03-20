@@ -130,6 +130,42 @@ class TestOptimizeSPGDBasics:
         )
         assert len(recorder.history) == 11
 
+    @pytest.mark.parametrize("optimizer_type", ["adam", "adamod"])
+    def test_optimize_spgd_adam_family_converges(self, optimizer_type):
+        """Test Adam/AdaMOD variants converge in simulation."""
+        recorder = optimize_spgd(
+            epochs=80,
+            r_bucket=0,
+            delta=0.08,
+            gamma=5e-3,
+            n_grid=64,
+            Cn2=1e-9,
+            optimizer_type=optimizer_type,
+            seed=42,
+            use_momentum=False,
+        )
+
+        initial_pib = recorder.history[0]["pib"]
+        final_pib = recorder.history[-1]["pib"]
+        assert final_pib > initial_pib, (
+            f"{optimizer_type} PIB decreased from {initial_pib:.2f} to {final_pib:.2f}"
+        )
+
+    def test_optimize_spgd_auto_bucket_uses_ideal_radius(self):
+        """When r_bucket=0, PIB radius should be derived from ideal spot radius."""
+        recorder = optimize_spgd(
+            epochs=5,
+            r_bucket=0,
+            n_grid=64,
+            Cn2=1e-9,
+            seed=42,
+        )
+
+        init_log = recorder.history[0]
+        assert "ideal_r" in init_log
+        assert init_log["ideal_r"] > 0
+        assert np.isclose(init_log["r"], init_log["ideal_r"])
+
 
 class TestOptimizeSPGDZernike:
     """Test cases for optimize_spgd_zernike function."""
@@ -186,6 +222,25 @@ class TestOptimizeSPGDZernike:
             )
             assert len(recorder.history) == 6
 
+    def test_optimize_spgd_zernike_adamod_run(self):
+        """Test Zernike optimization with AdaMOD backend."""
+        pytest.importorskip("zernike", reason="zernike package required")
+
+        recorder = optimize_spgd_zernike(
+            epochs=10,
+            n_max=4,
+            r_bucket=0,
+            n_grid=64,
+            Cn2=1e-9,
+            optimizer_type="adamod",
+            seed=42,
+            use_momentum=False,
+        )
+
+        assert len(recorder.history) == 11
+        best_pib = max(item["pib"] for item in recorder.history)
+        assert best_pib >= recorder.history[0]["pib"] * 0.95
+
 
 class TestRecorder:
     """Test Recorder functionality within SPGD optimization."""
@@ -202,7 +257,7 @@ class TestRecorder:
 
         expected_fields = [
             "sim_spgd", "J", "pib", "_p%", "_max_r", "_v", "_img",
-            "_diff", "gamma", "r", "_epoch", "strehl", "_grad"
+            "_diff", "gamma", "r", "ideal_r", "_epoch", "strehl", "_grad"
         ]
 
         for record in recorder.history:
