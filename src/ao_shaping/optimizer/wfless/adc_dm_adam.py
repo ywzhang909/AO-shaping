@@ -1,10 +1,11 @@
 import numpy as np
-import numba
 import pandas as pd
 import time
 import os
 import tqdm
 import matplotlib.pyplot as plt
+
+from ao_shaping.algorithm.acceleration import _njit
 
 from drivers import NlightDM
 import nidaqmx
@@ -128,7 +129,7 @@ def optimizer( delta=DELTA, gamma=GAMMA, algorithm='adam', continue_opt=False):
                     if epoch == 0:
                         m = np.zeros_like(init_v)
                         v = np.zeros_like(init_v)
-                    @numba.jit(nopython=True)
+                    @_njit(cache=True)
                     def update_epoch(
                         epoch:int,
                         m:np.ndarray[float],

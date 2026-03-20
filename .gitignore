@@ -61,3 +61,5 @@ docs/slm-200*
 data_adam/
 docs/WFS20_Manual*
 .opencode/
+# Binary assets
+*.png

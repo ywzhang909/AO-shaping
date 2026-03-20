@@ -1,38 +1,62 @@
-"""Wave generation and propagation devices.
-
-This module provides simulated wavefront generation (laser sources)
-and propagation (free-space, lens focus) using validated physics
-from sim.digitaltwin.
-"""
-
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Optional
 
 import numpy as np
-from loguru import logger
 
 from ao_shaping.drivers.device_base import DeviceState, DeviceType
 from ao_shaping.drivers.sim.base import OpticalDevice, SimulatedDevice, SimulatedDeviceError, WavefrontProcessor
 
 
 class WaveDeviceError(SimulatedDeviceError):
-    pass
+    """Wave simulation related errors."""
+
+
+@dataclass
+class SimWave:
+    """Lightweight wave container used when sim.digitaltwin is unavailable."""
+
+    wavefront: np.ndarray
+    wavelength: float
+    dpix: float
+    refractive: float = 1.0
+
+    @property
+    def npix(self) -> int:
+        return int(self.wavefront.shape[0])
+
+    @property
+    def x(self) -> np.ndarray:
+        coord = (np.arange(self.npix) - self.npix // 2) * self.dpix
+        return np.tile(coord, (self.npix, 1))
+
+    @property
+    def y(self) -> np.ndarray:
+        coord = (np.arange(self.npix) - self.npix // 2) * self.dpix
+        return np.tile(coord[:, None], (1, self.npix))
+
+    @property
+    def r(self) -> np.ndarray:
+        return np.sqrt(self.x**2 + self.y**2)
+
+    @property
+    def intensity(self) -> np.ndarray:
+        return np.abs(self.wavefront) ** 2
+
+    @property
+    def lamd(self) -> float:
+        return self.wavelength
+
+    def change_wf(self, phase: np.ndarray | None = None, amplitude: np.ndarray | None = None) -> None:
+        """Apply phase and/or amplitude to the wavefront."""
+        if amplitude is not None:
+            self.wavefront = self.wavefront * amplitude
+        if phase is not None:
+            self.wavefront = self.wavefront * np.exp(1j * phase)
 
 
 class WaveGenerator(OpticalDevice):
-    """Simulated wavefront generator.
-
-    Generates plane waves or Gaussian beams using validated physics
-    from sim.digitaltwin.base.Wave.
-
-    Example:
-        >>> gen = WaveGenerator(npix=256, dpix=0.1e-3, wavelength=1550e-9)
-        >>> with gen:
-        ...     wave = gen.generate()
-        >>> # wave is a sim.digitaltwin.base.Wave object
-    """
-
     device_type = DeviceType.LASER
     manufacturer = "Simulation"
     model = "Wave Generator"
@@ -47,110 +71,70 @@ class WaveGenerator(OpticalDevice):
         beam_type: str = "plane",
         random_seed: Optional[int] = None,
     ):
-        super().__init__(device_id, wavelength, npix, dpix, False, random_seed)
-
+        super().__init__(device_id=device_id, wavelength=wavelength, enable_noise=False, random_seed=random_seed)
         self.npix = npix
         self.dpix = dpix
         self.aperture = aperture
         self.beam_type = beam_type
 
-        self._dt_wave: Any = None
-        self._current_wave: Any = None
-
     def generate(self) -> Any:
-        """Generate a wavefront.
-
-        Returns:
-            Wave object (sim.digitaltwin.base.Wave).
-        """
         if not self.is_connected():
             raise RuntimeError("WaveGenerator not connected")
 
         self._set_state(DeviceState.BUSY)
         try:
-            from sim.digitaltwin import base as dt_base
-
-            wave = dt_base.Wave()
-            wave.change_grid(self.npix, self.dpix)
-            wave.wavelength = self.wavelength
-            wave.refractive = 1.0
-            wave.wavefront = np.ones((self.npix, self.npix), dtype=complex)
-
             if self.beam_type == "gaussian":
                 radius = self.aperture / 2 / np.sqrt(2) if self.aperture > 0 else self.npix * self.dpix / 4
-                amplitude = np.exp(-(wave.r / radius) ** 2)
-                wave.wavefront = amplitude * np.exp(0j)
+                amplitude = np.exp(-(_wave_grid(self.npix, self.dpix)[2] / radius) ** 2)
+            else:
+                amplitude = np.ones((self.npix, self.npix), dtype=float)
 
             if self.aperture > 0:
-                mask = (np.sign(self.aperture / 2 - wave.r) + 1) / 2
-                wave.wavefront *= mask
+                mask = (_wave_grid(self.npix, self.dpix)[2] <= self.aperture / 2).astype(float)
+                amplitude *= mask
 
-            self._current_wave = wave
-            return wave
+            return SimWave(
+                wavefront=amplitude.astype(np.complex128),
+                wavelength=self.wavelength,
+                dpix=self.dpix,
+            )
         finally:
             self._set_state(DeviceState.READY)
 
     def process(self, wave: Any) -> Any:
         return wave
 
+    def compute(self, *args, **kwargs) -> Any:
+        return self.generate()
+
 
 class WavePropagator(SimulatedDevice):
-    """Simulated wavefront propagator.
-
-    Propagates wavefronts using angular spectrum method
-    (sim.digitaltwin.utilities.wave_angle_spectrum).
-
-    Example:
-        >>> prop = WavePropagator(prop_dist=0.5)
-        >>> with prop:
-        ...     wave_out = prop.propagate(wave_in)
-    """
-
     device_type = DeviceType.OTHER
     manufacturer = "Simulation"
     model = "Wave Propagator"
 
-    def __init__(
-        self,
-        device_id: str = "",
-        prop_dist: float = 0.5,
-    ):
+    def __init__(self, device_id: str = "", prop_dist: float = 0.5):
         super().__init__(device_id)
         self.prop_dist = prop_dist
 
     def propagate(self, wave: Any) -> Any:
-        """Propagate wavefront.
-
-        Args:
-            wave: Input wavefront (sim.digitaltwin.base.Wave).
-
-        Returns:
-            Propagated wavefront.
-        """
         if not self.is_connected():
             raise RuntimeError("WavePropagator not connected")
 
         self._set_state(DeviceState.BUSY)
         try:
-            from sim.digitaltwin import utilities as utils
-
-            utils.wave_angle_spectrum(wave, self.prop_dist)
+            propagate(wave, self.prop_dist)
             return wave
         finally:
             self._set_state(DeviceState.READY)
 
+    def compute(self, *args, **kwargs) -> Any:
+        if len(args) < 1:
+            raise ValueError("Wave argument required")
+        return self.propagate(args[0])
+
 
 class LensApplier(WavefrontProcessor):
-    """Simulated thin lens.
-
-    Applies lens phase to wavefronts: phase = -pi * r^2 / (lambda * f).
-
-    Example:
-        >>> lens = LensApplier(focal_length=0.5)
-        >>> with lens:
-        ...     wave_out = lens.apply(wave_in)
-    """
-
     device_type = DeviceType.OTHER
     manufacturer = "Simulation"
     model = "Thin Lens"
@@ -167,24 +151,11 @@ class LensApplier(WavefrontProcessor):
         self.focal_length = focal_length
 
     def apply(self, wave: Any) -> Any:
-        """Apply lens phase to wavefront.
-
-        Args:
-            wave: Input wavefront.
-
-        Returns:
-            Wavefront with lens phase applied.
-        """
         if not self.is_connected():
             raise RuntimeError("LensApplier not connected")
-
         self._set_state(DeviceState.BUSY)
         try:
-            if not hasattr(wave, "r") or not hasattr(wave, "lamd"):
-                raise ValueError("Wave must be a sim.digitaltwin.base.Wave object")
-
-            focus_phase = -np.pi * wave.r ** 2 / wave.lamd / self.focal_length
-            wave.change_wf(phase=focus_phase)
+            apply_focus(wave, self.focal_length)
             return wave
         finally:
             self._set_state(DeviceState.READY)
@@ -192,18 +163,13 @@ class LensApplier(WavefrontProcessor):
     def process(self, wave: Any) -> Any:
         return self.apply(wave)
 
+    def compute(self, *args, **kwargs) -> Any:
+        if len(args) < 1:
+            raise ValueError("Wave argument required")
+        return self.apply(args[0])
+
 
 class ApertureApplier(WavefrontProcessor):
-    """Simulated circular aperture.
-
-    Applies a circular pupil mask to wavefronts.
-
-    Example:
-        >>> ap = ApertureApplier(radius=0.05)
-        >>> with ap:
-        ...     wave_out = ap.apply(wave_in)
-    """
-
     device_type = DeviceType.OTHER
     manufacturer = "Simulation"
     model = "Circular Aperture"
@@ -220,26 +186,11 @@ class ApertureApplier(WavefrontProcessor):
         self.radius = radius
 
     def apply(self, wave: Any) -> Any:
-        """Apply aperture mask to wavefront.
-
-        Args:
-            wave: Input wavefront.
-
-        Returns:
-            Masked wavefront.
-        """
         if not self.is_connected():
             raise RuntimeError("ApertureApplier not connected")
-
         self._set_state(DeviceState.BUSY)
         try:
-            if not hasattr(wave, "r"):
-                raise ValueError("Wave must be a sim.digitaltwin.base.Wave object")
-
-            mask = (np.sign(self.radius - wave.r) + 1) / 2
-            real_wf = np.real(wave.wavefront)
-            imag_wf = np.imag(wave.wavefront)
-            wave.wavefront = real_wf * mask + 1j * imag_wf * mask
+            apply_aperture(wave, self.radius)
             return wave
         finally:
             self._set_state(DeviceState.READY)
@@ -247,150 +198,130 @@ class ApertureApplier(WavefrontProcessor):
     def process(self, wave: Any) -> Any:
         return self.apply(wave)
 
+    def compute(self, *args, **kwargs) -> Any:
+        if len(args) < 1:
+            raise ValueError("Wave argument required")
+        return self.apply(args[0])
+
 
 class WaveMetric:
-    """Wavefront metric computation utilities.
-
-    Provides PIB, Strehl, centroid, and radius computation
-    using sim.digitaltwin.params.WaveIndex.
-    """
-
     @staticmethod
     def power_bucket(wave: Any, r_bucket: float, center: str = "origin") -> float:
-        """Compute Power-In-Bucket.
-
-        Args:
-            wave: Wave object with intensity.
-            r_bucket: Bucket radius.
-            center: 'origin', 'centroid', 'peak', or (x, y) tuple.
-
-        Returns:
-            Power within the bucket.
-        """
-        from sim.digitaltwin import params as dt_params
-
-        return dt_params.WaveIndex.power_bucket(wave.intensity, wave.x, wave.y, center, r_bucket)
+        return power_bucket(wave.intensity, wave.x, wave.y, center, r_bucket)
 
     @staticmethod
-    def radius(intensity: np.ndarray, x: np.ndarray, y: np.ndarray,
-               center: str = "origin", energy: float = 0.865) -> float:
-        """Compute radius containing a fraction of total energy.
-
-        Args:
-            intensity: Intensity array.
-            x, y: Coordinate arrays.
-            center: Center type.
-            energy: Energy fraction.
-
-        Returns:
-            Radius.
-        """
-        from sim.digitaltwin import params as dt_params
-
-        return dt_params.WaveIndex.radius(intensity, x, y, center, energy)
+    def radius(
+        intensity: np.ndarray,
+        x: np.ndarray,
+        y: np.ndarray,
+        center: str = "origin",
+        energy: float = 0.865,
+    ) -> float:
+        return radius_metric(intensity, x, y, center, energy)
 
     @staticmethod
     def centroid(intensity: np.ndarray, x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
-        """Compute intensity centroid.
-
-        Args:
-            intensity: Intensity array.
-            x, y: Coordinate arrays.
-
-        Returns:
-            (cx, cy) centroid position.
-        """
-        from sim.digitaltwin import params as dt_params
-
-        return dt_params.WaveIndex.centroid(intensity, x, y)
+        total = float(np.sum(intensity))
+        if total <= 0:
+            return 0.0, 0.0
+        return float(np.sum(intensity * x) / total), float(np.sum(intensity * y) / total)
 
 
-def create_wave(npix: int, dpix: float, wavelength: float) -> Any:
-    """Create a wave object.
+def _wave_grid(npix: int, dpix: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    coord = (np.arange(npix) - npix // 2) * dpix
+    xx, yy = np.meshgrid(coord, coord)
+    return xx, yy, np.sqrt(xx**2 + yy**2)
 
-    Args:
-        npix: Number of pixels.
-        dpix: Pixel size (m).
-        wavelength: Wavelength (m).
 
-    Returns:
-        Wave object.
-    """
-    from sim.digitaltwin import base as dt_base
+def _as_sim_wave(wave: Any) -> SimWave:
+    if isinstance(wave, SimWave):
+        return wave
+    if hasattr(wave, "wavefront") and hasattr(wave, "dpix"):
+        wavelength = float(getattr(wave, "wavelength", getattr(wave, "lamd", 1550e-9)))
+        return SimWave(np.asarray(wave.wavefront), wavelength=wavelength, dpix=float(wave.dpix))
+    raise WaveDeviceError("Unsupported wave object type")
 
-    wave = dt_base.Wave()
-    wave.change_grid(npix, dpix)
-    wave.wavelength = wavelength
-    wave.refractive = 1.0
-    wave.wavefront = np.ones((npix, npix), dtype=complex)
-    return wave
+
+def create_wave(npix: int, dpix: float, wavelength: float) -> SimWave:
+    return SimWave(np.ones((npix, npix), dtype=np.complex128), wavelength=float(wavelength), dpix=float(dpix))
 
 
 def apply_aperture(wave: Any, radius: float) -> None:
-    """Apply circular aperture to wavefront.
-
-    Args:
-        wave: Wave object.
-        radius: Aperture radius (m).
-    """
-    mask = (np.sign(radius - wave.r) + 1) / 2
-    wave.wavefront = wave.wavefront * mask
+    sim_wave = _as_sim_wave(wave)
+    mask = (sim_wave.r <= radius).astype(float)
+    sim_wave.wavefront *= mask
 
 
 def apply_focus(wave: Any, focal_length: float) -> None:
-    """Apply thin lens focus phase to wavefront.
-
-    Args:
-        wave: Wave object.
-        focal_length: Focal length (m).
-    """
-    focus_phase = -np.pi * wave.r ** 2 / wave.lamd / focal_length
-    wave.change_wf(phase=focus_phase)
+    sim_wave = _as_sim_wave(wave)
+    focus_phase = -np.pi * sim_wave.r**2 / sim_wave.wavelength / focal_length
+    sim_wave.change_wf(phase=focus_phase)
 
 
 def propagate(wave: Any, distance: float) -> None:
-    """Propagate wavefront using angular spectrum.
+    """Angular spectrum propagation (from ML optical communication implementation idea)."""
+    sim_wave = _as_sim_wave(wave)
+    npix = sim_wave.npix
+    dpix = sim_wave.dpix
 
-    Args:
-        wave: Wave object.
-        distance: Propagation distance (m).
-    """
-    from sim.digitaltwin import utilities as utils
+    fx = np.fft.fftshift(np.fft.fftfreq(npix, d=dpix))
+    fy = np.fft.fftshift(np.fft.fftfreq(npix, d=dpix))
+    fx_grid, fy_grid = np.meshgrid(fx, fy)
 
-    utils.wave_angle_spectrum(wave, distance)
+    lam = sim_wave.wavelength
+    k = 2 * np.pi / lam
+    spatial = (lam * fx_grid) ** 2 + (lam * fy_grid) ** 2
+    transfer = np.exp(1j * k * distance * np.sqrt(np.clip(1.0 - spatial, 0.0, None)))
 
-
-def power_bucket(intensity: np.ndarray, x: np.ndarray, y: np.ndarray,
-                 center: str, r_bucket: float) -> float:
-    """Compute power-in-bucket.
-
-    Args:
-        intensity: Intensity array.
-        x, y: Coordinate arrays.
-        center: Center type.
-        r_bucket: Bucket radius.
-
-    Returns:
-        Power within bucket.
-    """
-    from sim.digitaltwin import params as dt_params
-
-    return dt_params.WaveIndex.power_bucket(intensity, x, y, center, r_bucket)
+    field_spectrum = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(sim_wave.wavefront)))
+    field_out = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(field_spectrum * transfer)))
+    sim_wave.wavefront = field_out
 
 
-def radius_metric(intensity: np.ndarray, x: np.ndarray, y: np.ndarray,
-                  center: str, energy: float) -> float:
-    """Compute radius containing fraction of total energy.
+def power_bucket(
+    intensity: np.ndarray,
+    x: np.ndarray,
+    y: np.ndarray,
+    center: str,
+    r_bucket: float,
+) -> float:
+    if center == "origin":
+        cx, cy = 0.0, 0.0
+    elif center == "peak":
+        idx = np.unravel_index(np.argmax(intensity), intensity.shape)
+        cx, cy = float(x[idx]), float(y[idx])
+    elif center == "centroid":
+        total = np.sum(intensity)
+        cx = float(np.sum(intensity * x) / total)
+        cy = float(np.sum(intensity * y) / total)
+    else:
+        raise ValueError(f"Unsupported center mode: {center}")
 
-    Args:
-        intensity: Intensity array.
-        x, y: Coordinate arrays.
-        center: Center type.
-        energy: Energy fraction.
+    rr = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+    return float(np.sum(intensity[rr <= r_bucket]))
 
-    Returns:
-        Radius.
-    """
-    from sim.digitaltwin import params as dt_params
 
-    return dt_params.WaveIndex.radius(intensity, x, y, center, energy)
+def radius_metric(
+    intensity: np.ndarray,
+    x: np.ndarray,
+    y: np.ndarray,
+    center: str,
+    energy: float,
+) -> float:
+    total = float(np.sum(intensity))
+    if total <= 0:
+        return 0.0
+
+    if center == "origin":
+        cx, cy = 0.0, 0.0
+    elif center == "centroid":
+        cx, cy = WaveMetric.centroid(intensity, x, y)
+    else:
+        raise ValueError(f"Unsupported center mode: {center}")
+
+    rr = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+    sort_idx = np.argsort(rr.ravel())
+    cum_energy = np.cumsum(intensity.ravel()[sort_idx])
+    threshold = energy * total
+    pos = np.searchsorted(cum_energy, threshold)
+    return float(rr.ravel()[sort_idx[min(pos, len(sort_idx) - 1)]])

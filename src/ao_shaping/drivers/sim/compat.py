@@ -48,6 +48,7 @@ class TraditionalAOSystem:
         self._phase_corrected: Optional[np.ndarray] = None
         self._intensity: Optional[np.ndarray] = None
         self._image: Optional[np.ndarray] = None
+        self._wavefront_override: Optional[np.ndarray] = None
 
         self._init_components()
 
@@ -132,6 +133,7 @@ class TraditionalAOSystem:
         self._dm_surface = np.tensordot(
             self.dm_voltages, self._inf_matrix, axes=1
         )
+        self._wavefront_override = None
         self._intensity = None
         self._image = None
 
@@ -149,9 +151,14 @@ class TraditionalAOSystem:
     
     @E_corrected.setter
     def E_corrected(self, value: np.ndarray) -> None:
-        pass
+        self._wavefront_override = np.asarray(value, dtype=complex).copy()
+        self._intensity = None
+        self._image = None
 
     def _get_corrected_wave(self) -> np.ndarray:
+        if self._wavefront_override is not None:
+            return self._wavefront_override
+
         cfg = self.config
         wave = self._wave
 
@@ -170,7 +177,8 @@ class TraditionalAOSystem:
     def _compute_image(self) -> np.ndarray:
         if self._intensity is None:
             E = self._get_corrected_wave()
-            self._intensity = np.abs(E) ** 2
+            focal = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(E)))
+            self._intensity = np.abs(focal) ** 2
 
         img = self._intensity.copy()
         img = img / (np.max(img) + 1e-20) * 65535
