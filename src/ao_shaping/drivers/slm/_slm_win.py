@@ -97,22 +97,49 @@ if pf == "Darwin":
     _FILENAME = STRING
 elif pf == "Windows":
     _libname = "SLMFunc"
+    repo_root = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+    )
+    arch_dir = "x64" if platform.architecture()[0] == "64bit" else "x86"
 
-    # 优先从环境变量读取 DLL 目录，若未设置则使用默认相对路径
-    dll_dir = os.environ.get("AO_SHAPING_SLM_DLL_DIR")
-    if dll_dir is None:
-        dll_dir = os.path.join(
-            os.path.dirname(
-                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-            ),
-            "libs",
-            "santec_slm"
+    candidate_dirs = []
+    env_dll_dir = os.environ.get("AO_SHAPING_SLM_DLL_DIR")
+    if env_dll_dir:
+        candidate_dirs.append(env_dll_dir)
+
+    candidate_dirs.extend(
+        [
+            os.path.join(repo_root, "libs", "santec_slm"),
+            os.path.join(repo_root, "docs", "SLM_DLL_ver.2.51", "dll", arch_dir),
+            os.path.join(repo_root, "docs", "SLM_DLL_ver.2.51", "sample", "Python"),
+            os.path.join(repo_root, "docs", "SLM_DLL_ver.2.51", "sample", "LabVIEW", "dll", arch_dir),
+            os.path.join(repo_root, "docs", "SLM_DLL_ver.2.51", "sample", "MATLAB"),
+        ]
+    )
+
+    dll_path = None
+    for candidate_dir in candidate_dirs:
+        if not candidate_dir or not os.path.isdir(candidate_dir):
+            continue
+        if (sys.version_info.major * 100 + sys.version_info.minor) >= 308:
+            os.add_dll_directory(candidate_dir)
+        candidate_path = os.path.join(candidate_dir, "SLMFunc.dll")
+        if os.path.isfile(candidate_path):
+            dll_path = candidate_path
+            break
+
+    if dll_path is None:
+        path = findlibs.find(_libname)
+        if path:
+            dll_path = path
+
+    if dll_path is None:
+        raise OSError(
+            "Could not find SLMFunc.dll. Set AO_SHAPING_SLM_DLL_DIR to the vendor SDK directory "
+            "or place the DLL under docs/SLM_DLL_ver.2.51."
         )
-    if os.path.exists(dll_dir):
-        os.add_dll_directory(dll_dir)
 
-    path = findlibs.find(_libname)
-    _libraries[_libname] = WinDLL(_libname)
+    _libraries[_libname] = WinDLL(dll_path)
     _FILENAME = LPCWSTR
     _FILENAME_A = LPCSTR
 

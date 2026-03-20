@@ -1,10 +1,12 @@
 # 相位图案生成函数
+from __future__ import annotations
+
 import numpy as np
 
 
-class PatternHelper():
+class PatternHelper:
     
-    def __init__(self, resolution:tuple[int, int], bits:int = 10) -> None:
+    def __init__(self, resolution: tuple[int, int], bits: int = 10) -> None:
         self.resolution = resolution
         self.bits = bits
 
@@ -93,7 +95,7 @@ class PatternHelper():
             grating = np.where(x%(a+b)<b, 0, max_val)
             img = np.tile(grating[np.newaxis, :], (height, 1))
 
-        return (img * max_val).astype(np.uint16)
+        return img.astype(np.uint16)
 
 
     def generate_microlens_array(self, lens_size: int = 200, focal_length: float = 0.1,
@@ -244,3 +246,65 @@ class PatternHelper():
         img = (phase_wrapped / (2 * np.pi) * max_val).astype(np.uint16)
 
         return img
+
+
+class SLMPatternHelper:
+    """Generate phase patterns in radians for Streamlit SLM helpers."""
+
+    def linear_grating(
+        self,
+        width: int,
+        height: int,
+        period: float,
+        phase_range: float = 2 * np.pi,
+    ) -> np.ndarray:
+        """Generate a horizontal linear grating."""
+        x = np.arange(width, dtype=np.float64)
+        phase_line = np.mod(x / period * phase_range, phase_range)
+        return np.tile(phase_line, (height, 1))
+
+    def circular_grating(
+        self,
+        width: int,
+        height: int,
+        radius: float,
+        phase_range: float = 2 * np.pi,
+    ) -> np.ndarray:
+        """Generate a radial circular grating."""
+        x = np.arange(width, dtype=np.float64) - width / 2
+        y = np.arange(height, dtype=np.float64) - height / 2
+        xx, yy = np.meshgrid(x, y)
+        rr = np.sqrt(xx**2 + yy**2)
+        return np.mod(rr / radius * phase_range, phase_range)
+
+    def lens(
+        self,
+        width: int,
+        height: int,
+        focal_length: float,
+        wavelength: float,
+        pixel_size: float = 8e-6,
+    ) -> np.ndarray:
+        """Generate a wrapped thin-lens phase profile."""
+        x = (np.arange(width, dtype=np.float64) - width / 2) * pixel_size
+        y = (np.arange(height, dtype=np.float64) - height / 2) * pixel_size
+        xx, yy = np.meshgrid(x, y)
+        wavelength_m = wavelength * 1e-9 if wavelength > 1e-6 else wavelength
+        focal_length_m = focal_length * 1e-3 if focal_length > 1 else focal_length
+        phase = np.pi * (xx**2 + yy**2) / (wavelength_m * focal_length_m)
+        return np.mod(phase, 2 * np.pi)
+
+    def hologram(
+        self,
+        width: int,
+        height: int,
+        period: float,
+        phase_range: float = 2 * np.pi,
+    ) -> np.ndarray:
+        """Generate a simple blazed grating hologram."""
+        return self.linear_grating(
+            width=width,
+            height=height,
+            period=period,
+            phase_range=phase_range,
+        )

@@ -63,3 +63,4 @@ docs/WFS20_Manual*
 .opencode/
 # Binary assets
 *.png
+.agents/skills*

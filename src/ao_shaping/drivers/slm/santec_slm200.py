@@ -89,6 +89,9 @@ class SantecSLM200:
         self.video_mode = video_mode if isinstance(video_mode, int) else int(video_mode)
         self.is_open = False
         self._max_gray = self.MAX_GRAYSCALE_VALUE
+        self._memory_phase_cache: dict[int, np.ndarray] = {}
+        self._displayed_memory_number: int | None = None
+        self._displayed_phase_cache: np.ndarray | None = None
 
         # 延迟导入SLM SDK
         try:
@@ -295,6 +298,7 @@ class SantecSLM200:
                 f"写入相位数据到内存#{memory_number}失败, 错误码: {ret}"
             )
 
+        self._memory_phase_cache[memory_number] = phase.copy()
         logger.debug(f"相位数据已写入SLM #{self.slm_number} 内存#{memory_number}")
 
     def display_memory(self, memory_number: int) -> None:
@@ -314,7 +318,12 @@ class SantecSLM200:
         if not 1 <= memory_number <= 128:
             raise ValueError(f"内存编号必须在1-128之间，当前: {memory_number}")
 
-        self._slm.SLM_Ctrl_WriteDS(self.slm_number, memory_number)
+        ret = self._slm.SLM_Ctrl_WriteDS(self.slm_number, memory_number)
+        if ret != SLM_OK:
+            raise SantecSLM200Error(f"显示内存#{memory_number}失败, 错误码: {ret}")
+
+        self._displayed_memory_number = memory_number
+        self._displayed_phase_cache = self._memory_phase_cache.get(memory_number)
         logger.info(f"SLM #{self.slm_number} 正在显示内存#{memory_number}的相位图")
 
     def display_data(self, phase: np.ndarray):
@@ -341,6 +350,8 @@ class SantecSLM200:
                 f"显示相位数据失败, 错误码: {ret}"
             )
 
+        self._displayed_memory_number = None
+        self._displayed_phase_cache = phase.copy()
         logger.debug(f"相位数据显示")
 
     def set_grayscale(self, gs: int) -> None:
@@ -355,8 +366,60 @@ class SantecSLM200:
             RuntimeError: 设备未打开
         """
         self._ensure_open()
-        self._slm.SLM_Ctrl_WriteGS(self.slm_number, gs)
+        ret = self._slm.SLM_Ctrl_WriteGS(self.slm_number, gs)
+        if ret != SLM_OK:
+            raise SantecSLM200Error(f"设置灰度值失败, 错误码: {ret}")
+        self._displayed_memory_number = None
+        self._displayed_phase_cache = np.full(
+            (self.Panel_Res[1], self.Panel_Res[0]),
+            gs,
+            dtype=np.uint16,
+        )
         logger.debug(f"SLM #{self.slm_number} 灰度值设置为 {gs}")
+
+    def get_displayed_memory_number(self) -> int | None:
+        """读取当前正在显示的内存编号。"""
+        self._ensure_open()
+        memory_number = ctypes.c_uint32(0)
+        ret = self._slm.SLM_Ctrl_ReadDS(self.slm_number, ctypes.byref(memory_number))
+        if ret != SLM_OK:
+            raise SantecSLM200Error(f"读取当前显示内存失败, 错误码: {ret}")
+        return memory_number.value or None
+
+    def get_current_grayscale(self) -> int:
+        """读取当前均匀灰度值。"""
+        self._ensure_open()
+        gray = ctypes.c_ushort(0)
+        ret = self._slm.SLM_Ctrl_ReadGS(self.slm_number, ctypes.byref(gray))
+        if ret != SLM_OK:
+            raise SantecSLM200Error(f"读取当前灰度值失败, 错误码: {ret}")
+        return gray.value
+
+    def get_displayed_phase(self) -> tuple[np.ndarray | None, str]:
+        """获取当前显示的相位缓存及其来源说明。
+
+        Returns:
+            Tuple of (phase_gray, source). `phase_gray` 为 uint16 灰度相位图。
+        """
+        self._ensure_open()
+
+        try:
+            memory_number = self.get_displayed_memory_number()
+        except SantecSLM200Error:
+            memory_number = self._displayed_memory_number
+
+        if memory_number is not None:
+            self._displayed_memory_number = memory_number
+            phase = self._memory_phase_cache.get(memory_number)
+            if phase is not None:
+                self._displayed_phase_cache = phase
+                return phase.copy(), f"内存槽 {memory_number}"
+            return None, f"内存槽 {memory_number}（未缓存，无法从设备读回整幅相位）"
+
+        if self._displayed_phase_cache is not None:
+            return self._displayed_phase_cache.copy(), "直接显示缓存"
+
+        return None, "当前显示相位未缓存，且 SDK 不支持直接读回显存图像"
 
     def load_phase_from_csv(
         self, filepath: Union[str, Path], skiprows: int = 1, delimiter: str = ","
