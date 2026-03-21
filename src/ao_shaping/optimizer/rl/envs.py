@@ -511,6 +511,208 @@ class TraditionalAOEnv(gym.Env):
             self.window = None
 
 
+class SimTurbulenceAOEnv(gym.Env):
+    """Gymnasium environment for turbulence AO using simulation optics.
+
+    Optical chain:
+    Laser -> Deformable Mirror -> Focusing Lens -> Atmospheric Turbulence
+    -> CCD + Shack-Hartmann-like Sensor.
+
+    The environment uses :class:`TraditionalAOSystem` from
+    ``ao_shaping.drivers.sim.compat`` for wave propagation and sensor synthesis.
+    """
+
+    metadata = {"render_modes": ["human", "rgb_array"]}
+
+    def __init__(
+        self,
+        n_grid: int = 128,
+        n_actuators: int = 8,
+        n_subapertures: int = 8,
+        max_steps: int = 100,
+        history_len: int = 8,
+        cn2: float = 1e-14,
+        wavelength: float = 1550e-9,
+        aperture_size: float = 0.1,
+        propagation_distance: float = 1000.0,
+        pib_radius: int = 4,
+        pib_target: float | None = None,
+        time_penalty: float = 0.2,
+    ) -> None:
+        super().__init__()
+        self.max_steps = max_steps
+        self.history_len = history_len
+        self.step_count = 0
+        self.pib_radius = pib_radius
+        self.pib_target = pib_target
+        self.time_penalty = time_penalty
+
+        self.config = AOConfig(
+            N=n_grid,
+            L=aperture_size,
+            wavelength=wavelength,
+            Cn2=cn2,
+            dm_actuators=n_actuators,
+            subapertures=n_subapertures,
+            propagation_distance=propagation_distance,
+        )
+        self.ao_system = TraditionalAOSystem(self.config)
+
+        self.action_dim = n_actuators * n_actuators
+        self.action_space = spaces.Box(
+            low=-0.2,
+            high=0.2,
+            shape=(self.action_dim,),
+            dtype=np.float32,
+        )
+
+        self.observation_space = spaces.Dict(
+            {
+                "ccd": spaces.Box(
+                    low=0.0,
+                    high=1.0,
+                    shape=(history_len, n_grid, n_grid),
+                    dtype=np.float32,
+                ),
+                "hartmann_slopes": spaces.Box(
+                    low=-50.0,
+                    high=50.0,
+                    shape=(history_len, 2 * n_subapertures ** 2),
+                    dtype=np.float32,
+                ),
+                "dm_signal": spaces.Box(
+                    low=-1.0,
+                    high=1.0,
+                    shape=(history_len, self.action_dim),
+                    dtype=np.float32,
+                ),
+                "metrics": spaces.Box(
+                    low=0.0,
+                    high=np.finfo(np.float32).max,
+                    shape=(3,),
+                    dtype=np.float32,
+                ),
+            }
+        )
+
+        self._last_strehl = 0.0
+        self._last_power = 0.0
+        self._last_rms = 0.0
+        self._last_ccd: np.ndarray | None = None
+        self._last_slopes: np.ndarray | None = None
+        self._ccd_history: np.ndarray | None = None
+        self._slopes_history: np.ndarray | None = None
+        self._dm_history: np.ndarray | None = None
+        self._last_pib = 0.0
+        self._best_pib = 0.0
+        self._center = (n_grid // 2, n_grid // 2)
+        yy, xx = np.ogrid[:n_grid, :n_grid]
+        self._pib_mask = (
+            (xx - self._center[1]) ** 2 + (yy - self._center[0]) ** 2
+        ) <= pib_radius ** 2
+
+    def reset(self, *, seed: int | None = None, options: dict | None = None):
+        super().reset(seed=seed, options=options)
+        if seed is not None:
+            np.random.seed(seed)
+
+        self.step_count = 0
+        self.ao_system.set_dm_voltages(np.zeros(self.action_dim, dtype=float))
+        result = self.ao_system.reset()
+        self._sync_from_result(result)
+        self._init_history()
+        self._best_pib = self._last_pib
+        if self.pib_target is None:
+            self.pib_target = max(self._last_pib * 1.8, self._last_pib + 500.0)
+        return self._get_obs(), self._get_info()
+
+    def step(self, action: np.ndarray):
+        self.step_count += 1
+        clipped_action = np.clip(action, self.action_space.low, self.action_space.high)
+        result = self.ao_system.step(clipped_action.astype(float))
+        prev_pib = self._last_pib
+        self._sync_from_result(result)
+        self._update_history()
+
+        progress_reward = (self._last_pib - prev_pib) / max(self.pib_target, 1.0)
+        pib_ratio = self._last_pib / max(self.pib_target, 1.0)
+        pib_reward = 5.0 * pib_ratio
+        action_penalty = 0.01 * float(np.mean(np.square(clipped_action)))
+        time_cost = self.time_penalty * (self.step_count / max(self.max_steps, 1))
+        success_bonus = 3.0 if self._last_pib >= self.pib_target else 0.0
+        reward = pib_reward + progress_reward + success_bonus - action_penalty - time_cost
+
+        self._best_pib = max(self._best_pib, self._last_pib)
+        terminated = self.step_count >= self.max_steps or self._last_pib >= self.pib_target
+        return self._get_obs(), float(reward), terminated, False, self._get_info()
+
+    def _sync_from_result(self, result: Dict[str, Any]) -> None:
+        image = result["image"].astype(np.float32)
+        image_norm = image / max(float(np.max(image)), 1.0)
+
+        phase = self.ao_system.turbulence.phase_screen
+        self._last_rms = float(np.sqrt(np.mean(phase ** 2)))
+        self._last_strehl = float(result["strehl"])
+        self._last_power = float(result["power"])
+        self._last_pib = float(np.sum(image[self._pib_mask]))
+        self._last_ccd = image_norm
+        self._last_slopes = result["slopes"].astype(np.float32)
+
+    def _get_obs(self) -> Dict[str, np.ndarray]:
+        if self._ccd_history is None or self._slopes_history is None or self._dm_history is None:
+            raise RuntimeError("Environment not initialized. Call reset() first.")
+
+        return {
+            "ccd": self._ccd_history.astype(np.float32),
+            "hartmann_slopes": self._slopes_history.astype(np.float32),
+            "dm_signal": self._dm_history.astype(np.float32),
+            "metrics": np.array(
+                [self._last_strehl, self._last_rms, self._last_pib],
+                dtype=np.float32,
+            ),
+        }
+
+    def _get_info(self) -> Dict[str, float | int | str]:
+        return {
+            "strehl": self._last_strehl,
+            "rms": self._last_rms,
+            "power": self._last_power,
+            "pib": self._last_pib,
+            "best_pib": self._best_pib,
+            "pib_target": float(self.pib_target),
+            "step": self.step_count,
+        }
+
+    def _init_history(self) -> None:
+        if self._last_ccd is None or self._last_slopes is None:
+            raise RuntimeError("Environment state is not initialized.")
+
+        self._ccd_history = np.repeat(
+            self._last_ccd[np.newaxis, :, :], self.history_len, axis=0
+        )
+        self._slopes_history = np.repeat(
+            self._last_slopes[np.newaxis, :], self.history_len, axis=0
+        )
+        dm_now = self.ao_system.dm_voltages.astype(np.float32)
+        self._dm_history = np.repeat(
+            dm_now[np.newaxis, :], self.history_len, axis=0
+        )
+
+    def _update_history(self) -> None:
+        if self._ccd_history is None or self._slopes_history is None or self._dm_history is None:
+            self._init_history()
+            return
+
+        self._ccd_history = np.roll(self._ccd_history, -1, axis=0)
+        self._ccd_history[-1] = self._last_ccd
+
+        self._slopes_history = np.roll(self._slopes_history, -1, axis=0)
+        self._slopes_history[-1] = self._last_slopes
+
+        self._dm_history = np.roll(self._dm_history, -1, axis=0)
+        self._dm_history[-1] = self.ao_system.dm_voltages.astype(np.float32)
+
+
 # ================== 6. 测试运行 ==================
 if __name__ == "__main__":
     # 测试TraditionalAOEnv
