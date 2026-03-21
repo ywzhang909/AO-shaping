@@ -28,6 +28,8 @@ dependencies = [
     "setuptools>=80.9.0",
     "cython>=3.2.2",
     "zernike>=0.0.33",
+    "gymnasium>=1.2.1",
+    "stable-baselines3>=2.7.0",
 ]
 
 [[tool.uv.index]]
