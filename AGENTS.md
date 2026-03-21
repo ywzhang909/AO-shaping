@@ -1,5 +1,7 @@
 # AGENTS.md - AO-Shaping Development Guide
 
+**Generated:** 2026-03-22
+
 ## Project Overview
 
 AO-Shaping is an Adaptive Optics (AO) system using reinforcement learning for wavefront correction and beam shaping. It integrates multiple optimization algorithms including WFS-based and wavefront-sensorless methods.
@@ -7,22 +9,70 @@ AO-Shaping is an Adaptive Optics (AO) system using reinforcement learning for wa
 ## Project Structure
 
 ```
-src/ao_shaping/
-├── main.py              # CLI entry point
-├── algorithm/           # Optimization algorithms (Adam, SGD, etc.)
-├── drivers/              # Hardware drivers (SLM, DM, WFS, CCD)
-│   ├── slm/             # Spatial Light Modulator
-│   ├── dm/              # Deformable Mirror
-│   ├── wfs/             # Wavefront Sensor
-│   └── ccd/             # Camera
-├── optimizer/           # High-level optimizers
-│   ├── wf/              # Wavefront-based
-│   ├── wfless/          # Wavefront-sensorless
-│   └── rl/              # Reinforcement learning
-├── utils/               # Utilities (spots_calc, wavefront_calc, etc.)
-├── display/             # Visualization
-└── sim/                 # Simulation components
+AO-shaping/
+├── src/
+│   ├── ao_shaping/          # Main package
+│   │   ├── main.py              # CLI entry point (Click-based)
+│   │   ├── wf_runner.py         # Wavefront RMS optimizer
+│   │   ├── axis_beam_runner.py  # PIB optimizer
+│   │   ├── pipeline_runner.py    # Serial WF→PIB pipeline
+│   │   ├── algorithm/            # Optimization algorithms (Adam, SGD, etc.)
+│   │   ├── drivers/              # Hardware drivers (see drivers/AGENTS.md)
+│   │   │   ├── ccd/              # Cameras (Daheng, MiiCam)
+│   │   │   ├── dm/               # Deformable Mirrors (NLight)
+│   │   │   ├── slm/              # Spatial Light Modulators (Santec)
+│   │   │   ├── wfs/              # Wavefront Sensors (Thorlabs)
+│   │   │   ├── sim/              # Digital twin simulation
+│   │   │   └── mock_devices.py   # Mock devices for testing
+│   │   ├── optimizer/            # High-level optimizers
+│   │   │   ├── wf/               # Wavefront-based (RMS)
+│   │   │   ├── wfless/           # Wavefront-sensorless (PIB)
+│   │   │   └── rl/               # Reinforcement learning (SAC)
+│   │   ├── utils/                # Utilities (spots_calc, wavefront_calc)
+│   │   └── gui/                  # GUI components
+│   ├── calculators/               # Cython extensions (standalone)
+│   └── optical_ui/                # [DEPRECATED] Empty package
+├── tests/ao_shaping/              # Tests (mirrors src structure)
+├── libs/                          # Third-party SDK binaries (gxipy, Drv_UDPST)
+└── scripts/                       # Utility scripts
 ```
+
+## WHERE TO LOOK
+
+| Task | Location | Notes |
+|------|----------|-------|
+| Hardware drivers | `src/ao_shaping/drivers/` | See drivers/AGENTS.md |
+| Optimization algorithms | `src/ao_shaping/algorithm/` | Adam, SGD, Muon, etc. |
+| Wavefront optimizers | `src/ao_shaping/optimizer/wf/` | RMS optimization |
+| PIB optimizers | `src/ao_shaping/optimizer/wfless/` | Power-in-bucket |
+| RL training | `src/ao_shaping/optimizer/rl/` | SAC, LR-WFS |
+| Simulation | `src/ao_shaping/drivers/sim/` | Digital twin devices |
+| Tests | `tests/ao_shaping/` | Mirror of src structure |
+
+---
+
+## Entry Points
+
+**CLI Commands (Click-based):**
+```bash
+# Via main.py hub
+python src/ao_shaping/main.py [COMMAND]
+
+# Direct runners (standalone)
+python src/ao_shaping/wf_runner.py
+python src/ao_shaping/axis_beam_runner.py
+python src/ao_shaping/pipeline_runner.py
+```
+
+**CLI Structure:**
+```
+main (click.group)
+├── wf         → wf_runner.run()    [Wavefront RMS optimization]
+├── pib        → axis_beam_run()   [Power-in-Bucket optimization]
+└── pipeline   → pipeline_run()    [Serial WF→PIB pipeline]
+```
+
+**Note:** `combined_runner.py` exists but is NOT wired to main CLI (documented in README only).
 
 ---
 
@@ -332,3 +382,36 @@ pythonpath = ["src"]
 ```
 
 VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` directories.
+
+---
+
+## ANTI-PATTERNS (THIS PROJECT)
+
+| Pattern | Forbidden Because |
+|---------|------------------|
+| Relative imports in package | Use `from ao_shaping.xxx import yyy` instead of `from .xxx import yyy` |
+| `as any`, `@ts-ignore` | Never suppress type errors |
+| Empty catch blocks | Always handle exceptions or log |
+| Deleting failing tests | Fix the code, not the test |
+| `combined_runner.py` with main CLI | Use `pipeline_runner.py` instead |
+
+---
+
+## UNIQUE STYLES
+
+- **Mock-first testing**: Tests use simulation classes (`SimTurbulenceAOEnv`, `sim_spgd`) to avoid hardware
+- **Hardware skip pattern**: Tests requiring physical hardware use `pytest.skip("Requires DM hardware")`
+- **Recorder pattern**: Optimization tests validate history dictionaries with expected fields
+- **Optional backend testing**: CuPy/Numba tested conditionally with try/except guards
+- **No fixtures**: No `conftest.py`, fixtures defined inline in test methods
+
+---
+
+## MISSING INFRASTRUCTURE
+
+- **No CI/CD**: No GitHub Actions, no automated testing on push
+- **No linting**: No ruff/mypy/flake8 configured
+- **No pre-commit**: No hooks for lint/format before commits
+- **No requirements.txt**: Only `pyproject.toml` and `uv.lock`
+
+Consider adding: `.github/workflows/ci.yml`, `ruff.toml`, `.pre-commit-config.yaml`

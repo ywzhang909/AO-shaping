@@ -8,13 +8,14 @@ from pathlib import Path
 import click
 import gymnasium as gym
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch import nn
 from stable_baselines3 import SAC
-from stable_baselines3.common.callbacks import BaseCallback, CallbackList
+from stable_baselines3.common.callbacks import BaseCallback, CallbackList, EvalCallback
 from stable_baselines3.common.logger import Figure, Image
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
@@ -23,105 +24,76 @@ from ao_shaping.optimizer.rl.device_registry import build_default_registry
 from ao_shaping.optimizer.rl.envs import SimTurbulenceAOEnv
 
 
-class MambaTemporalBlock(nn.Module):
-    """Lightweight Mamba-style temporal mixer with selective scan behavior."""
+class TemporalAOExtractor(BaseFeaturesExtractor):
+    """Compact temporal encoder tuned for stable SAC training."""
 
-    def __init__(self, d_model: int) -> None:
-        super().__init__()
-        self.norm = nn.LayerNorm(d_model)
-        self.in_proj = nn.Linear(d_model, d_model * 2)
-        self.depthwise_conv = nn.Conv1d(
-            in_channels=d_model,
-            out_channels=d_model,
-            kernel_size=3,
-            padding=1,
-            groups=d_model,
-        )
-        self.a_logit = nn.Parameter(torch.zeros(d_model))
-        self.out_proj = nn.Linear(d_model, d_model)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: [B, T, D]
-        residual = x
-        x = self.norm(x)
-        value, gate = self.in_proj(x).chunk(2, dim=-1)
-        value = self.depthwise_conv(value.transpose(1, 2)).transpose(1, 2)
-        gate = torch.sigmoid(gate)
-
-        a = torch.sigmoid(self.a_logit).view(1, 1, -1)
-        state = torch.zeros_like(value[:, 0, :])
-        outputs = []
-        for t in range(value.size(1)):
-            state = a.squeeze(1) * state + (1 - a.squeeze(1)) * value[:, t, :]
-            outputs.append(state * gate[:, t, :])
-        y = torch.stack(outputs, dim=1)
-        return residual + self.out_proj(y)
-
-
-class CrossAttentionMambaExtractor(BaseFeaturesExtractor):
-    """Fuse CCD, Hartmann slopes and DM signals via cross-attention + Mamba."""
-
-    def __init__(self, observation_space: gym.spaces.Dict, d_model: int = 128) -> None:
-        self.d_model = d_model
-        super().__init__(observation_space, features_dim=d_model + 32)
-
-        ccd_shape = observation_space["ccd"].shape
+    def __init__(
+        self,
+        observation_space: gym.spaces.Dict,
+        features_dim: int = 256,
+        cnn_dim: int = 96,
+        recurrent_dim: int = 128,
+    ) -> None:
+        super().__init__(observation_space, features_dim=features_dim)
         slopes_dim = observation_space["hartmann_slopes"].shape[-1]
         dm_dim = observation_space["dm_signal"].shape[-1]
         metrics_dim = observation_space["metrics"].shape[0]
-        self.ccd_encoder = nn.Sequential(
+
+        self.cnn = nn.Sequential(
             nn.Conv2d(1, 16, kernel_size=5, stride=2, padding=2),
             nn.SiLU(),
             nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
             nn.SiLU(),
-            nn.AdaptiveAvgPool2d((4, 4)),
+            nn.Conv2d(32, 32, kernel_size=3, stride=2, padding=1),
+            nn.SiLU(),
+            nn.AdaptiveAvgPool2d((2, 2)),
             nn.Flatten(),
-            nn.Linear(32 * 4 * 4, d_model),
-            nn.LayerNorm(d_model),
+            nn.Linear(32 * 2 * 2, cnn_dim),
+            nn.LayerNorm(cnn_dim),
+            nn.SiLU(),
         )
         self.slopes_encoder = nn.Sequential(
-            nn.Linear(slopes_dim, d_model),
+            nn.Linear(slopes_dim, 96),
+            nn.LayerNorm(96),
             nn.SiLU(),
-            nn.LayerNorm(d_model),
         )
         self.dm_encoder = nn.Sequential(
-            nn.Linear(dm_dim, d_model),
+            nn.Linear(dm_dim, 64),
+            nn.LayerNorm(64),
             nn.SiLU(),
-            nn.LayerNorm(d_model),
         )
         self.metrics_encoder = nn.Sequential(
             nn.Linear(metrics_dim, 32),
+            nn.LayerNorm(32),
+            nn.SiLU(),
+        )
+        self.temporal_gru = nn.GRU(
+            input_size=cnn_dim + 96 + 64,
+            hidden_size=recurrent_dim,
+            batch_first=True,
+        )
+        self.output_head = nn.Sequential(
+            nn.Linear(recurrent_dim + 32, features_dim),
+            nn.LayerNorm(features_dim),
             nn.SiLU(),
         )
 
-        self.cross_attn = nn.MultiheadAttention(
-            embed_dim=d_model, num_heads=4, batch_first=True
-        )
-        self.temporal_mamba = MambaTemporalBlock(d_model)
-
     def forward(self, observations: dict[str, torch.Tensor]) -> torch.Tensor:
-        ccd = observations["ccd"]  # [B, T, H, W]
-        slopes = observations["hartmann_slopes"]  # [B, T, S]
-        dm_signal = observations["dm_signal"]  # [B, T, A]
-        metrics = observations["metrics"]  # [B, 3]
+        ccd = observations["ccd"]
+        slopes = observations["hartmann_slopes"]
+        dm_signal = observations["dm_signal"]
+        metrics = observations["metrics"]
 
-        batch, time_steps, h, w = ccd.shape
-        ccd_feat = self.ccd_encoder(ccd.reshape(batch * time_steps, 1, h, w)).view(
-            batch, time_steps, self.d_model
+        batch, time_steps, height, width = ccd.shape
+        ccd_feat = self.cnn(ccd.reshape(batch * time_steps, 1, height, width)).view(
+            batch, time_steps, -1
         )
         slopes_feat = self.slopes_encoder(slopes)
         dm_feat = self.dm_encoder(dm_signal)
-
-        kv = torch.stack([slopes_feat, dm_feat], dim=2).reshape(
-            batch * time_steps, 2, self.d_model
-        )
-        q = ccd_feat.reshape(batch * time_steps, 1, self.d_model)
-        fused, _ = self.cross_attn(query=q, key=kv, value=kv, need_weights=False)
-        fused = fused.reshape(batch, time_steps, self.d_model)
-
-        temporal_feat = self.temporal_mamba(fused)[:, -1, :]
+        temporal_input = torch.cat([ccd_feat, slopes_feat, dm_feat], dim=-1)
+        _, hidden = self.temporal_gru(temporal_input)
         metrics_feat = self.metrics_encoder(metrics)
-        return torch.cat([temporal_feat, metrics_feat], dim=-1)
+        return self.output_head(torch.cat([hidden[-1], metrics_feat], dim=-1))
 
 
 class RichAOTensorboardCallback(BaseCallback):
@@ -151,7 +123,9 @@ class RichAOTensorboardCallback(BaseCallback):
         if self.num_timesteps % self.log_every == 0:
             self.logger.record("ao/pib", float(info.get("pib", 0.0)))
             self.logger.record("ao/best_pib", float(info.get("best_pib", 0.0)))
+            self.logger.record("ao/initial_pib", float(info.get("initial_pib", 0.0)))
             self.logger.record("ao/pib_target", float(info.get("pib_target", 1.0)))
+            self.logger.record("ao/pib_ratio", float(info.get("pib_ratio", 0.0)))
             self.logger.record("ao/strehl", float(info.get("strehl", 0.0)))
             self.logger.record("ao/rms", float(info.get("rms", 0.0)))
             self.logger.record("ao/pib_mavg200", float(np.mean(self.pib_window)))
@@ -215,6 +189,22 @@ def build_env(max_steps: int, n_grid: int, n_actuators: int, n_subapertures: int
     return Monitor(env)
 
 
+def validate_env(env: gym.Env, seed: int) -> None:
+    """Lightweight preflight validation for the custom dict environment."""
+    obs, _ = env.reset(seed=seed)
+    if not env.observation_space.contains(obs):
+        raise ValueError("Reset observation is outside the declared observation space.")
+
+    action = env.action_space.sample()
+    obs, reward, terminated, truncated, _ = env.step(action)
+    if not env.observation_space.contains(obs):
+        raise ValueError("Step observation is outside the declared observation space.")
+    if not np.isfinite(reward):
+        raise ValueError("Environment returned a non-finite reward.")
+    if not isinstance(terminated, bool) or not isinstance(truncated, bool):
+        raise TypeError("Environment terminated/truncated flags must be bool.")
+
+
 def _warn_if_physical_selected(dm_device: str, ccd_device: str, wfs_device: str) -> None:
     registry = build_default_registry()
     specs = [
@@ -241,6 +231,15 @@ def _warn_if_physical_selected(dm_device: str, ccd_device: str, wfs_device: str)
 @click.option("--cn2", type=float, default=1e-14, show_default=True)
 @click.option("--history-len", type=int, default=8, show_default=True)
 @click.option("--seed", type=int, default=42, show_default=True)
+@click.option("--learning-rate", type=float, default=1e-4, show_default=True)
+@click.option("--buffer-size", type=int, default=100_000, show_default=True)
+@click.option("--batch-size", type=int, default=128, show_default=True)
+@click.option("--learning-starts", type=int, default=1_000, show_default=True)
+@click.option("--tau", type=float, default=0.01, show_default=True)
+@click.option("--gamma", type=float, default=0.98, show_default=True)
+@click.option("--train-freq", type=int, default=4, show_default=True)
+@click.option("--gradient-steps", type=int, default=4, show_default=True)
+@click.option("--eval-freq", type=int, default=2_000, show_default=True)
 @click.option("--log-dir", type=str, default="logs/sac_turbulence", show_default=True)
 @click.option("--model-dir", type=str, default="models/sac_turbulence", show_default=True)
 @click.option(
@@ -273,16 +272,27 @@ def main(
     cn2: float,
     history_len: int,
     seed: int,
-    log_dir: str,
-    model_dir: str,
+    learning_rate: float,
+    buffer_size: int,
+    batch_size: int,
+    learning_starts: int,
+    tau: float,
+    gamma: float,
+    train_freq: int,
+    gradient_steps: int,
+    eval_freq: int,
+    log_dir: Path | str,
+    model_dir: Path | str,
     dm_device: str,
     ccd_device: str,
     wfs_device: str,
 ) -> None:
+    np.random.seed(seed)
+    torch.manual_seed(seed)
     _warn_if_physical_selected(dm_device=dm_device, ccd_device=ccd_device, wfs_device=wfs_device)
     click.echo(f"Selected devices -> DM:{dm_device} CCD:{ccd_device} WFS:{wfs_device}")
 
-    log_dir = Path(log_dir)
+    log_dir = Path(log_dir) if isinstance(log_dir, str) else log_dir
     model_dir = Path(model_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     model_dir.mkdir(parents=True, exist_ok=True)
@@ -295,36 +305,63 @@ def main(
         cn2=cn2,
         history_len=history_len,
     )
+    validate_env(env.env, seed=seed)
+    eval_env = build_env(
+        max_steps=max_steps,
+        n_grid=n_grid,
+        n_actuators=n_actuators,
+        n_subapertures=n_subapertures,
+        cn2=cn2,
+        history_len=history_len,
+    )
 
     model = SAC(
         policy="MultiInputPolicy",
         env=env,
-        learning_rate=3e-4,
-        buffer_size=200_000,
-        batch_size=256,
-        learning_starts=2000,
-        train_freq=1,
-        gradient_steps=1,
-        gamma=0.99,
-        tau=0.005,
-        ent_coef="auto",
+        learning_rate=learning_rate,
+        buffer_size=buffer_size,
+        batch_size=batch_size,
+        learning_starts=learning_starts,
+        train_freq=(train_freq, "step"),
+        gradient_steps=gradient_steps,
+        gamma=gamma,
+        tau=tau,
+        ent_coef="auto_0.1",
+        target_update_interval=1,
+        use_sde=True,
+        target_entropy="auto",
         tensorboard_log=str(log_dir),
         seed=seed,
         verbose=1,
         policy_kwargs={
-            "features_extractor_class": CrossAttentionMambaExtractor,
-            "features_extractor_kwargs": {"d_model": 128},
+            "features_extractor_class": TemporalAOExtractor,
+            "features_extractor_kwargs": {
+                "features_dim": 256,
+                "cnn_dim": 96,
+                "recurrent_dim": 128,
+            },
+            "net_arch": {"pi": [256, 256], "qf": [256, 256]},
         },
     )
 
     callbacks = CallbackList([
         RichAOTensorboardCallback(log_every=50, image_every=500),
+        EvalCallback(
+            eval_env,
+            best_model_save_path=str(model_dir / "best"),
+            log_path=str(log_dir / "eval"),
+            eval_freq=max(eval_freq, 1),
+            n_eval_episodes=5,
+            deterministic=True,
+            render=False,
+        ),
     ])
 
     model.learn(total_timesteps=total_timesteps, callback=callbacks, tb_log_name="sac_run")
 
     model.save(model_dir / "sac_turbulence_final")
     env.close()
+    eval_env.close()
 
 
 if __name__ == "__main__":

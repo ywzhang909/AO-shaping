@@ -10,18 +10,15 @@ Architecture:
 
 from __future__ import annotations
 
-import uuid
-from abc import ABC, abstractmethod
-from typing import Any, Callable, Optional
+from abc import abstractmethod
+from typing import Any, Optional
 
 import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.device_base import (
     Device,
-    DeviceCapability,
     DeviceError,
-    DeviceMetadata,
     DeviceState,
     DeviceType,
 )
@@ -296,21 +293,3 @@ class WavefrontProcessor(OpticalDevice):
             Current phase pattern or None.
         """
         return self._phase_pattern
-
-
-# Import original digitaltwin utilities for compatibility
-# These will be used by the simulation devices
-try:
-    from sim.digitaltwin import utilities as _dt_utils
-    from sim.digitaltwin import base as _dt_base
-    from sim.digitaltwin import source as _dt_source
-    
-    # Re-export for convenience
-    DT_UTILS = _dt_utils
-    DT_BASE = _dt_base
-    DT_SOURCE = _dt_source
-except ImportError:
-    logger.warning("sim.digitaltwin not available - simulation may be limited")
-    DT_UTILS = None
-    DT_BASE = None
-    DT_SOURCE = None

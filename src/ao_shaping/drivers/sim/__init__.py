@@ -27,7 +27,7 @@ Example:
     ...     create_wave, apply_aperture, apply_focus,
     ...     propagate, power_bucket, radius_metric,
     ... )
-    >>> 
+    >>>
     >>> wave = create_wave(256, 0.1e-3, 1550e-9)
     >>> apply_aperture(wave, 0.05)
     >>> apply_focus(wave, 0.5)
@@ -75,8 +75,15 @@ from ao_shaping.drivers.sim.wave import (
     radius_metric,
 )
 
-from sim.digitaltwin.base import Environment
+# Try to import Environment from sim.digitaltwin, but gracefully handle missing dependency
+try:
+    from sim.digitaltwin.base import Environment
+    _has_environment = True
+except ImportError:
+    Environment = None
+    _has_environment = False
 
+# Build __all__ list dynamically
 __all__ = [
     # Base classes
     "SimulatedDevice",
@@ -108,8 +115,9 @@ __all__ = [
     "SimulatedTurbulentScreen",
     "SimulatedThermalScreen",
     "SimulatedATP",
-    # digitaltwin re-exports
-    "Environment",
 ]
+
+if _has_environment:
+    __all__.append("Environment")
 
 __version__ = "1.0.0"

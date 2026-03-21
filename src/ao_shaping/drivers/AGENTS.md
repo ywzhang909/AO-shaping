@@ -6,36 +6,70 @@ Hardware SDK wrappers for SLM, DM, WFS, CCD, TM devices.
 
 ```
 drivers/
-├── slm/           # Spatial Light Modulator
-│   ├── _slm_win.py        # Santec SDK bindings (ctypes)
-│   ├── santec_slm200.py    # Main driver class
+├── device_base.py       # Device base class (Device, DeviceState, DeviceType)
+├── device_registry.py    # Device registration and management
+├── visa_base.py         # VISA communication layer
+├── mock_devices.py      # Mock devices for testing
+├── ccd/                 # Cameras
+│   ├── base.py          # BaseCamera abstract class
+│   ├── daheng.py        # Daheng GigE camera
+│   ├── miicam.py        # MiiCam SDK
+│   └── miicam_device.py # MIICAMDevice
+├── dm/                  # Deformable Mirrors
+│   ├── base.py          # DM abstract class
+│   ├── NLight.py        # NLight DM driver
+│   └── simulateDM.py    # Simulation DM
+├── slm/                 # Spatial Light Modulators
+│   ├── santec_slm200.py # Santec SLM-200 SDK
 │   ├── santec_slm200_visa.py
-│   ├── slm_calibration.py  # Phase-gamma calibration
+│   ├── slm_calibration.py
 │   └── slm_pattern_helper.py
-├── dm/             # Deformable Mirror
-│   ├── base.py             # Abstract base class
-│   ├── NLight.py           # NLight DM driver
-│   └── simulateDM.py       # Simulation driver
-├── wfs/            # Wavefront Sensor
-│   └── thorlab_wfs.py      # Thorlabs WFS
-├── ccd/            # Camera
-│   └── daheng.py           # Daheng camera
-├── tm/             # Timing Module
-│   └── serial_port_fsm.py   # Serial FSM
-└── visa_base.py    # VISA base class
+├── wfs/                 # Wavefront Sensors
+│   └── thorlab_wfs.py  # Thorlabs WFS
+├── tm/                  # Timing Modules
+│   └── serial_port_fsm.py
+└── sim/                 # Simulation (digital twin)
+    ├── base.py          # SimulatedDevice, OpticalDevice
+    ├── ccd/             # SimulatedCCD
+    ├── laser/           # SimulatedLaser
+    ├── optics/          # SimulatedSLM, SimulatedLens
+    └── atmos/           # Turbulence screens
 ```
 
 ## KEY CLASSES
 
 | Class | File | Purpose |
 |-------|------|---------|
-| `SantecSLM200` | santec_slm200.py | SLM control |
+| `Device` | device_base.py | Base class for all devices |
+| `DeviceState` | device_base.py | State enum (DISCONNECTED, READY, BUSY, etc.) |
+| `DeviceType` | device_base.py | Type enum (CAMERA, SLM, DM, WFS, etc.) |
 | `NLightDM` | dm/NLight.py | DM control |
 | `BaseDM` | dm/base.py | DM abstract base |
+| `ThorlabWFS` | wfs/thorlab_wfs.py | WFS control |
+
+## REQUIRED INTERFACE
+
+All drivers must implement:
+```python
+class Device(ABC):
+    @abstractmethod
+    def open(self) -> None: ...
+    @abstractmethod
+    def close(self) -> None: ...
+    @abstractmethod
+    def is_connected(self) -> bool: ...
+    @abstractmethod
+    def get_hardware_info(self) -> dict: ...
+    
+    # Context manager support
+    def __enter__(self) -> "Device": ...
+    def __exit__(self, ...): ...
+```
 
 ## CONVENTIONS
 
-- Driver must implement: `open()`, `close()`, `__enter__`, `__exit__`
-- Custom exceptions: `*Error` suffix
-- State tracking: `self.is_open`
-- SDK import in `__init__`, handle failure gracefully
+- Custom exceptions: `*Error` suffix (e.g., `DeviceError`, `CameraError`)
+- State tracking via `_set_state(state, error_msg)` 
+- SDK imports in `__init__`, handle failure gracefully with try/except
+- Use `loguru.logger` for logging
+- Parameter registration via `register_parameter()` method

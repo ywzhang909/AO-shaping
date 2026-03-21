@@ -14,6 +14,9 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import numpy as np
+from loguru import logger
+
+from ao_shaping.drivers.sim.wave import create_wave
 
 
 @dataclass
@@ -55,28 +58,43 @@ class TraditionalAOSystem:
     def _init_components(self) -> None:
         cfg = self.config
 
-        from sim.digitaltwin import base, screens, utilities
+        try:
+            from sim.digitaltwin import base, screens, utilities
+        except ImportError:
+            logger.warning(
+                "sim.digitaltwin not available, using local AO simulation fallback"
+            )
+            self._dt_base = None
+            self._dt_screens = None
+            self._dt_utils = None
+            self._wave = create_wave(
+                npix=cfg.N,
+                dpix=cfg.L / cfg.N,
+                wavelength=cfg.wavelength,
+            )
+            self._env = None
+            self._turb_screen = None
+        else:
+            self._dt_base = base
+            self._dt_screens = screens
+            self._dt_utils = utilities
 
-        self._dt_base = base
-        self._dt_screens = screens
-        self._dt_utils = utilities
+            wave = base.Wave()
+            wave.change_grid(cfg.N, cfg.L / cfg.N)
+            wave.wavelength = cfg.wavelength
+            wave.refractive = 1.0
+            wave.wavefront = np.ones((cfg.N, cfg.N), dtype=complex)
+            self._wave = wave
 
-        wave = base.Wave()
-        wave.change_grid(cfg.N, cfg.L / cfg.N)
-        wave.wavelength = cfg.wavelength
-        wave.refractive = 1.0
-        wave.wavefront = np.ones((cfg.N, cfg.N), dtype=complex)
-        self._wave = wave
+            env = base.Environment()
+            env.Cn2 = cfg.Cn2
+            env.L0 = cfg.L0
+            env.l0 = cfg.l0
+            self._env = env
 
-        env = base.Environment()
-        env.Cn2 = cfg.Cn2
-        env.L0 = cfg.L0
-        env.l0 = cfg.l0
-        self._env = env
-
-        self._turb_screen = screens.TurbulentScreen(
-            cfg.propagation_distance, env, harmonic=0
-        )
+            self._turb_screen = screens.TurbulentScreen(
+                cfg.propagation_distance, env, harmonic=0
+            )
 
         self._dpix = cfg.L / cfg.N
         self._aperture = cfg.L / 2
@@ -90,13 +108,56 @@ class TraditionalAOSystem:
 
         self._focus_phase = -np.pi * R ** 2 / cfg.wavelength / cfg.propagation_distance
 
-        if cfg.Cn2 > 0:
-            self._turb_screen.out(wave)
-            self._turbulence_phase = np.angle(wave.wavefront)
-        else:
-            self._turbulence_phase = np.zeros((cfg.N, cfg.N))
+        self._sample_turbulence_phase()
 
         self._init_dm_surface()
+
+    def _sample_turbulence_phase(self) -> None:
+        cfg = self.config
+        if cfg.Cn2 <= 0:
+            self._turbulence_phase = np.zeros((cfg.N, cfg.N), dtype=float)
+            return
+
+        if self._turb_screen is not None and self._wave is not None and self._dt_base is not None:
+            wave = self._dt_base.Wave()
+            wave.change_grid(cfg.N, cfg.L / cfg.N)
+            wave.wavelength = cfg.wavelength
+            wave.refractive = 1.0
+            wave.wavefront = np.ones((cfg.N, cfg.N), dtype=complex)
+            self._turb_screen.out(wave)
+            self._turbulence_phase = np.angle(wave.wavefront)
+            return
+
+        self._turbulence_phase = self._generate_kolmogorov_phase()
+
+    def _generate_kolmogorov_phase(self) -> np.ndarray:
+        cfg = self.config
+        k = 2 * np.pi / cfg.wavelength
+        r0 = (0.423 * (k**2) * cfg.Cn2 * cfg.propagation_distance) ** (-3 / 5)
+
+        fx = np.fft.fftshift(np.fft.fftfreq(cfg.N, self._dpix))
+        fy = np.fft.fftshift(np.fft.fftfreq(cfg.N, self._dpix))
+        fx_grid, fy_grid = np.meshgrid(fx, fy)
+        freq = np.sqrt(fx_grid**2 + fy_grid**2)
+
+        fm = 5.92 / (2 * np.pi * max(cfg.l0, 1e-12))
+        f0 = 1.0 / max(cfg.L0, 1e-12)
+        psd_phi = (
+            0.023
+            * r0 ** (-5 / 3)
+            * np.exp(-(freq / fm) ** 2)
+            / ((freq**2 + f0**2) ** (11 / 6))
+        )
+        psd_phi[cfg.N // 2, cfg.N // 2] = 0.0
+
+        delta_f = 1.0 / (cfg.N * self._dpix)
+        noise = np.random.normal(size=(cfg.N, cfg.N)) + 1j * np.random.normal(
+            size=(cfg.N, cfg.N)
+        )
+        coeff = noise * np.sqrt(psd_phi) * delta_f
+        return np.real(np.fft.ifftshift(np.fft.ifft2(np.fft.fftshift(coeff)))) * (
+            cfg.N**2
+        )
 
     def _init_dm_surface(self) -> None:
         cfg = self.config
@@ -160,19 +221,13 @@ class TraditionalAOSystem:
             return self._wavefront_override
 
         cfg = self.config
-        wave = self._wave
-
-        wave.wavefront = self._mask.astype(complex)
-        wave.change_wf(phase=self._focus_phase)
 
         phase = self._focus_phase
         if self._turbulence_phase is not None:
             phase = phase + self._turbulence_phase
 
         phase = phase + self._dm_surface * 2 * np.pi / cfg.wavelength
-
-        wave.change_wf(phase=phase)
-        return wave.wavefront
+        return self._mask.astype(np.complex128) * np.exp(1j * phase)
 
     def _compute_image(self) -> np.ndarray:
         if self._intensity is None:
@@ -207,9 +262,10 @@ class TraditionalAOSystem:
 
         for i in range(sub):
             for j in range(sub):
-                sl = slice(i * sub_size, (i + 1) * sub_size)
                 mask = np.zeros((N, N), dtype=bool)
-                mask[sl, sl] = True
+                row_slice = slice(i * sub_size, (i + 1) * sub_size)
+                col_slice = slice(j * sub_size, (j + 1) * sub_size)
+                mask[row_slice, col_slice] = True
 
                 sub_I = intensity[mask]
                 sub_X = X[mask]
@@ -231,6 +287,7 @@ class TraditionalAOSystem:
         return np.array(slopes_x + slopes_y)
 
     def reset(self) -> dict[str, Any]:
+        self._sample_turbulence_phase()
         self._intensity = None
         self._image = None
 

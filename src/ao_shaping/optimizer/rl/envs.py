@@ -537,15 +537,22 @@ class SimTurbulenceAOEnv(gym.Env):
         propagation_distance: float = 1000.0,
         pib_radius: int = 4,
         pib_target: float | None = None,
-        time_penalty: float = 0.2,
+        time_penalty: float = 0.02,
+        goal_gain: float = 0.15,
+        action_penalty: float = 0.002,
+        saturation_penalty: float = 0.01,
     ) -> None:
         super().__init__()
         self.max_steps = max_steps
         self.history_len = history_len
         self.step_count = 0
         self.pib_radius = pib_radius
+        self._configured_pib_target = pib_target
         self.pib_target = pib_target
         self.time_penalty = time_penalty
+        self.goal_gain = goal_gain
+        self.action_penalty = action_penalty
+        self.saturation_penalty = saturation_penalty
 
         self.config = AOConfig(
             N=n_grid,
@@ -560,8 +567,8 @@ class SimTurbulenceAOEnv(gym.Env):
 
         self.action_dim = n_actuators * n_actuators
         self.action_space = spaces.Box(
-            low=-0.2,
-            high=0.2,
+            low=-0.05,
+            high=0.05,
             shape=(self.action_dim,),
             dtype=np.float32,
         )
@@ -587,14 +594,18 @@ class SimTurbulenceAOEnv(gym.Env):
                     dtype=np.float32,
                 ),
                 "metrics": spaces.Box(
-                    low=0.0,
-                    high=np.finfo(np.float32).max,
-                    shape=(3,),
+                    low=np.array([0.0, 0.0, -1.0, -1.0, 0.0], dtype=np.float32),
+                    high=np.array([1.0, 5.0, 2.0, 2.0, 1.0], dtype=np.float32),
+                    shape=(5,),
                     dtype=np.float32,
                 ),
             }
         )
 
+        self._initial_strehl = 0.0
+        self._initial_power = 0.0
+        self._initial_rms = 0.0
+        self._initial_pib = 0.0
         self._last_strehl = 0.0
         self._last_power = 0.0
         self._last_rms = 0.0
@@ -620,31 +631,54 @@ class SimTurbulenceAOEnv(gym.Env):
         self.ao_system.set_dm_voltages(np.zeros(self.action_dim, dtype=float))
         result = self.ao_system.reset()
         self._sync_from_result(result)
+        self._initial_strehl = self._last_strehl
+        self._initial_power = self._last_power
+        self._initial_rms = self._last_rms
+        self._initial_pib = self._last_pib
         self._init_history()
         self._best_pib = self._last_pib
-        if self.pib_target is None:
-            self.pib_target = max(self._last_pib * 1.8, self._last_pib + 500.0)
+        if self._configured_pib_target is None:
+            self.pib_target = self._initial_pib * (1.0 + self.goal_gain)
+        else:
+            self.pib_target = self._configured_pib_target
         return self._get_obs(), self._get_info()
 
     def step(self, action: np.ndarray):
         self.step_count += 1
         clipped_action = np.clip(action, self.action_space.low, self.action_space.high)
-        result = self.ao_system.step(clipped_action.astype(float))
         prev_pib = self._last_pib
+        prev_strehl = self._last_strehl
+        result = self.ao_system.step(clipped_action.astype(float))
         self._sync_from_result(result)
         self._update_history()
 
-        progress_reward = (self._last_pib - prev_pib) / max(self.pib_target, 1.0)
+        pib_scale = max(self._initial_pib, 1.0)
+        strehl_delta = self._last_strehl - prev_strehl
+        pib_delta = (self._last_pib - prev_pib) / pib_scale
+        pib_gain = (self._last_pib - self._initial_pib) / pib_scale
+        strehl_gain = self._last_strehl - self._initial_strehl
         pib_ratio = self._last_pib / max(self.pib_target, 1.0)
-        pib_reward = 5.0 * pib_ratio
-        action_penalty = 0.01 * float(np.mean(np.square(clipped_action)))
-        time_cost = self.time_penalty * (self.step_count / max(self.max_steps, 1))
-        success_bonus = 3.0 if self._last_pib >= self.pib_target else 0.0
-        reward = pib_reward + progress_reward + success_bonus - action_penalty - time_cost
+
+        reward = 0.0
+        reward += 3.0 * np.tanh(12.0 * pib_delta)
+        reward += 2.0 * np.tanh(8.0 * strehl_delta)
+        reward += 1.5 * np.tanh(6.0 * pib_gain)
+        reward += 1.0 * np.tanh(10.0 * strehl_gain)
+
+        if self._last_pib > self._best_pib:
+            reward += 0.5 * np.tanh(8.0 * ((self._last_pib - self._best_pib) / pib_scale))
+
+        action_cost = self.action_penalty * float(np.mean(np.square(clipped_action)))
+        saturation = float(np.mean(np.abs(self.ao_system.dm_voltages)))
+        saturation_cost = self.saturation_penalty * max(0.0, saturation - 0.6)
+        step_cost = self.time_penalty
+        success_bonus = 5.0 if pib_ratio >= 1.0 else 0.0
+        reward = reward + success_bonus - action_cost - saturation_cost - step_cost
 
         self._best_pib = max(self._best_pib, self._last_pib)
-        terminated = self.step_count >= self.max_steps or self._last_pib >= self.pib_target
-        return self._get_obs(), float(reward), terminated, False, self._get_info()
+        terminated = self._last_pib >= self.pib_target
+        truncated = self.step_count >= self.max_steps and not terminated
+        return self._get_obs(), float(reward), terminated, truncated, self._get_info()
 
     def _sync_from_result(self, result: Dict[str, Any]) -> None:
         image = result["image"].astype(np.float32)
@@ -667,7 +701,13 @@ class SimTurbulenceAOEnv(gym.Env):
             "hartmann_slopes": self._slopes_history.astype(np.float32),
             "dm_signal": self._dm_history.astype(np.float32),
             "metrics": np.array(
-                [self._last_strehl, self._last_rms, self._last_pib],
+                [
+                    self._last_strehl,
+                    self._last_rms,
+                    (self._last_pib - self._initial_pib) / max(self._initial_pib, 1.0),
+                    (self._best_pib - self._initial_pib) / max(self._initial_pib, 1.0),
+                    float(np.sqrt(np.mean(np.square(self.ao_system.dm_voltages)))),
+                ],
                 dtype=np.float32,
             ),
         }
@@ -679,6 +719,8 @@ class SimTurbulenceAOEnv(gym.Env):
             "power": self._last_power,
             "pib": self._last_pib,
             "best_pib": self._best_pib,
+            "initial_pib": self._initial_pib,
+            "pib_ratio": self._last_pib / max(self.pib_target, 1.0),
             "pib_target": float(self.pib_target),
             "step": self.step_count,
         }
@@ -691,7 +733,9 @@ class SimTurbulenceAOEnv(gym.Env):
             self._last_ccd[np.newaxis, :, :], self.history_len, axis=0
         )
         self._slopes_history = np.repeat(
-            self._last_slopes[np.newaxis, :], self.history_len, axis=0
+            np.clip(self._last_slopes / 10.0, -5.0, 5.0)[np.newaxis, :],
+            self.history_len,
+            axis=0,
         )
         dm_now = self.ao_system.dm_voltages.astype(np.float32)
         self._dm_history = np.repeat(
@@ -707,7 +751,7 @@ class SimTurbulenceAOEnv(gym.Env):
         self._ccd_history[-1] = self._last_ccd
 
         self._slopes_history = np.roll(self._slopes_history, -1, axis=0)
-        self._slopes_history[-1] = self._last_slopes
+        self._slopes_history[-1] = np.clip(self._last_slopes / 10.0, -5.0, 5.0)
 
         self._dm_history = np.roll(self._dm_history, -1, axis=0)
         self._dm_history[-1] = self.ao_system.dm_voltages.astype(np.float32)
