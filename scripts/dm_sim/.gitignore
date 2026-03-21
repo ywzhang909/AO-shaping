@@ -1,0 +1,9 @@
+slprj/
+*_grt_rtw/
+*.asv
+*.autosave
+*.mexw64
+*.avi
+*.eps
+*.png
+*.mp4
