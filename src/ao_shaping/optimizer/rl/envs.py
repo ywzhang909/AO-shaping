@@ -643,8 +643,9 @@ class SimTurbulenceAOEnv(gym.Env):
         reward = pib_reward + progress_reward + success_bonus - action_penalty - time_cost
 
         self._best_pib = max(self._best_pib, self._last_pib)
-        terminated = self.step_count >= self.max_steps or self._last_pib >= self.pib_target
-        return self._get_obs(), float(reward), terminated, False, self._get_info()
+        terminated = self._last_pib >= self.pib_target
+        truncated = self.step_count >= self.max_steps and not terminated
+        return self._get_obs(), float(reward), terminated, truncated, self._get_info()
 
     def _sync_from_result(self, result: Dict[str, Any]) -> None:
         image = result["image"].astype(np.float32)
