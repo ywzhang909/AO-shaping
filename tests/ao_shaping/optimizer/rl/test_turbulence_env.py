@@ -48,3 +48,19 @@ def test_sim_turbulence_env_hartmann_mode_reset_and_step() -> None:
     _, _, terminated, truncated, _ = env.step(action)
     assert terminated is False
     assert truncated is False
+
+
+def test_sim_turbulence_env_marks_step_limit_as_truncated() -> None:
+    env = SimTurbulenceAOEnv(
+        n_grid=32,
+        n_actuators=4,
+        n_subapertures=4,
+        max_steps=1,
+        cn2=1e-15,
+    )
+
+    env.reset(seed=123)
+    action = np.zeros(env.action_space.shape, dtype=np.float32)
+    _, _, terminated, truncated, _ = env.step(action)
+    assert terminated is False
+    assert truncated is True
