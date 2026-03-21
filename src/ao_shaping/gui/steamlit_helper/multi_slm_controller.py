@@ -3,6 +3,7 @@ import numpy as np
 from pathlib import Path
 import sys
 from loguru import logger
+from typing import Any
 
 # Add the src directory to the path when running this file directly via Streamlit.
 SRC_ROOT = Path(__file__).resolve().parents[3]
@@ -37,6 +38,17 @@ def _initialize_slm_state() -> None:
         st.session_state.slm2_next_memory = 1
         st.session_state.slm2_phase_preview = None
         st.session_state.slm2_phase_source = "暂无"
+
+    for cam_num in (1, 2):
+        prefix = f"cam{cam_num}"
+        if prefix not in st.session_state:
+            st.session_state[prefix] = None
+            st.session_state[f"{prefix}_connected"] = False
+            st.session_state[f"{prefix}_driver"] = "MIICAM"
+            st.session_state[f"{prefix}_id"] = cam_num - 1
+            st.session_state[f"{prefix}_exposure_ms"] = 20
+            st.session_state[f"{prefix}_exposure_min_ms"] = 1
+            st.session_state[f"{prefix}_exposure_max_ms"] = 1000
 
 
 def _phase_to_preview(phase_gray: np.ndarray) -> np.ndarray:
@@ -426,6 +438,153 @@ def main():
                 refresh_phase_preview(2)
             render_phase_preview(2)
             slm2_phase_control()
+
+    st.divider()
+    st.header("相机可视化")
+    cam_col1, cam_col2 = st.columns(2)
+    with cam_col1:
+        render_camera_panel(1)
+    with cam_col2:
+        render_camera_panel(2)
+
+
+def _get_camera_class(driver_name: str):
+    if driver_name == "MIICAM":
+        from ao_shaping.drivers.ccd.miicam import CameraStreamManager
+
+        return CameraStreamManager
+    if driver_name == "Daheng":
+        from ao_shaping.drivers.ccd.daheng import CameraStreamManager
+
+        return CameraStreamManager
+    raise ValueError(f"未知相机驱动: {driver_name}")
+
+
+def _detect_exposure_range(camera: Any, driver_name: str) -> tuple[int, int]:
+    if driver_name == "Daheng" and getattr(camera, "cam", None) is not None:
+        try:
+            float_range = camera.cam.ExposureTime.get_range()
+            if float_range:
+                return int(float_range["min"]), int(float_range["max"])
+        except Exception as e:
+            logger.warning(f"Daheng曝光范围读取失败，使用默认范围: {e}")
+        return 20, 1_000_000
+
+    if driver_name == "MIICAM" and getattr(camera, "cam", None) is not None:
+        try:
+            max_us, min_us, _, _ = camera.cam.get_ExpTimeRange()
+            return max(int(min_us / 1000), 1), max(int(max_us / 1000), 1)
+        except Exception as e:
+            logger.warning(f"MIICAM曝光范围读取失败，使用默认范围: {e}")
+        return 1, 1000
+
+    return 1, 1000
+
+
+def connect_camera(cam_num: int) -> None:
+    prefix = f"cam{cam_num}"
+    driver_name = st.session_state[f"{prefix}_driver"]
+    cam_id = st.session_state[f"{prefix}_id"]
+    exposure_ms = st.session_state[f"{prefix}_exposure_ms"]
+    try:
+        camera_class = _get_camera_class(driver_name)
+        camera = camera_class(cam_id=cam_id, exposure_time_ms=exposure_ms)
+        camera.open()
+        exposure_min_ms, exposure_max_ms = _detect_exposure_range(camera, driver_name)
+
+        st.session_state[prefix] = camera
+        st.session_state[f"{prefix}_connected"] = True
+        st.session_state[f"{prefix}_exposure_min_ms"] = exposure_min_ms
+        st.session_state[f"{prefix}_exposure_max_ms"] = exposure_max_ms
+        st.session_state[f"{prefix}_exposure_ms"] = int(
+            min(max(exposure_ms, exposure_min_ms), exposure_max_ms)
+        )
+        st.success(f"相机 {cam_num} 连接成功（{driver_name}）")
+    except Exception as e:
+        st.error(f"相机 {cam_num} 连接失败: {e}")
+        logger.error(f"Failed to connect camera {cam_num}: {e}")
+
+
+def disconnect_camera(cam_num: int) -> None:
+    prefix = f"cam{cam_num}"
+    camera = st.session_state.get(prefix)
+    try:
+        if camera is not None:
+            camera.close()
+        st.session_state[prefix] = None
+        st.session_state[f"{prefix}_connected"] = False
+        st.success(f"相机 {cam_num} 已断开")
+    except Exception as e:
+        st.error(f"相机 {cam_num} 断开失败: {e}")
+        logger.error(f"Failed to disconnect camera {cam_num}: {e}")
+
+
+def render_camera_panel(cam_num: int) -> None:
+    prefix = f"cam{cam_num}"
+    st.subheader(f"相机 {cam_num}")
+    st.selectbox(
+        "驱动类型",
+        options=["MIICAM", "Daheng"],
+        key=f"{prefix}_driver",
+    )
+    st.number_input(
+        "相机ID",
+        min_value=0,
+        max_value=8,
+        step=1,
+        key=f"{prefix}_id",
+    )
+
+    action_col1, action_col2 = st.columns(2)
+    with action_col1:
+        if st.button("连接", key=f"{prefix}_connect"):
+            connect_camera(cam_num)
+    with action_col2:
+        if st.button("断开", key=f"{prefix}_disconnect"):
+            disconnect_camera(cam_num)
+
+    if not st.session_state.get(f"{prefix}_connected", False):
+        st.info("相机未连接")
+        return
+
+    exposure_min = int(st.session_state.get(f"{prefix}_exposure_min_ms", 1))
+    exposure_max = int(st.session_state.get(f"{prefix}_exposure_max_ms", 1000))
+    st.caption(f"曝光范围：{exposure_min} ~ {exposure_max} ms（不同相机范围不同）")
+    st.slider(
+        "曝光时间 (ms)",
+        min_value=exposure_min,
+        max_value=exposure_max,
+        key=f"{prefix}_exposure_ms",
+    )
+
+    camera = st.session_state[prefix]
+    if st.button("设置曝光", key=f"{prefix}_set_exp"):
+        try:
+            actual_exposure = camera.reset_exposure_time(st.session_state[f"{prefix}_exposure_ms"])
+            st.session_state[f"{prefix}_exposure_ms"] = int(actual_exposure)
+            st.success(f"曝光设置成功: {actual_exposure} ms")
+        except Exception as e:
+            st.error(f"设置曝光失败: {e}")
+            logger.error(f"Failed to set exposure for camera {cam_num}: {e}")
+
+    sample_count = st.number_input(
+        "平均帧数",
+        min_value=1,
+        max_value=16,
+        value=1,
+        step=1,
+        key=f"{prefix}_sample_count",
+    )
+    skip_first = st.checkbox("跳过首帧", value=True, key=f"{prefix}_skip_first")
+
+    if st.button("采集并显示图像", key=f"{prefix}_capture"):
+        try:
+            frame = camera.get_numpy_image(n_sample=int(sample_count), skip_first=bool(skip_first))
+            st.image(frame, caption=f"相机 {cam_num} 实时图像", clamp=True, use_container_width=True)
+            st.write(f"形状: {frame.shape}, dtype: {frame.dtype}, min/max: {frame.min()}/{frame.max()}")
+        except Exception as e:
+            st.error(f"采集图像失败: {e}")
+            logger.error(f"Failed to capture image for camera {cam_num}: {e}")
 
 def connect_slm(slm_num: int):
     """Connect to the specified SLM"""
