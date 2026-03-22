@@ -10,13 +10,11 @@ for optimizer scripts (sim_spgd.py, envs.py).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Optional
 
 import numpy as np
 from loguru import logger
-
-from ao_shaping.drivers.sim.wave import create_wave
 
 
 @dataclass
@@ -57,44 +55,6 @@ class TraditionalAOSystem:
 
     def _init_components(self) -> None:
         cfg = self.config
-
-        try:
-            from sim.digitaltwin import base, screens, utilities
-        except ImportError:
-            logger.warning(
-                "sim.digitaltwin not available, using local AO simulation fallback"
-            )
-            self._dt_base = None
-            self._dt_screens = None
-            self._dt_utils = None
-            self._wave = create_wave(
-                npix=cfg.N,
-                dpix=cfg.L / cfg.N,
-                wavelength=cfg.wavelength,
-            )
-            self._env = None
-            self._turb_screen = None
-        else:
-            self._dt_base = base
-            self._dt_screens = screens
-            self._dt_utils = utilities
-
-            wave = base.Wave()
-            wave.change_grid(cfg.N, cfg.L / cfg.N)
-            wave.wavelength = cfg.wavelength
-            wave.refractive = 1.0
-            wave.wavefront = np.ones((cfg.N, cfg.N), dtype=complex)
-            self._wave = wave
-
-            env = base.Environment()
-            env.Cn2 = cfg.Cn2
-            env.L0 = cfg.L0
-            env.l0 = cfg.l0
-            self._env = env
-
-            self._turb_screen = screens.TurbulentScreen(
-                cfg.propagation_distance, env, harmonic=0
-            )
 
         self._dpix = cfg.L / cfg.N
         self._aperture = cfg.L / 2

@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "fileType": "kanban.settings",
+  "meta": {
+    "updatedAt": 1774118096223,
+    "revision": 2
+  },
+  "settings": {
+    "ui": {
+      "compactMode": false,
+      "showHistoryPanel": true,
+      "defaultCardTemplate": "",
+      "locale": "",
+      "detailTextSizeLevel": 2
+    },
+    "workflow": {
+      "doneColumnId": "",
+      "autoArchiveDoneAfterDays": 0,
+      "enforceWipLimit": false,
+      "runnerProfiles": {
+        "build": {
+          "model": {
+            "providerID": "opencode",
+            "modelID": "minimax-m2.5-free",
+            "reasoningDepth": "high"
+          },
+          "writable": true,
+          "prePrompt": "You are the Build Agent for this kanban task. Focus on implementing the user's request with correct, maintainable code. Prefer concrete edits and preserve existing project patterns."
+        },
+        "plan": {
+          "model": {
+            "providerID": "opencode",
+            "modelID": "big-pickle",
+            "reasoningDepth": "high"
+          },
+          "writable": false,
+          "prePrompt": "You are the Plan Agent for this kanban task. Clarify requirements with the user and refine the card content into an actionable, testable execution plan. Do not modify project files or run shell commands."
+        },
+        "review": {
+          "model": {
+            "providerID": "opencode",
+            "modelID": "big-pickle",
+            "reasoningDepth": "high"
+          },
+          "writable": false,
+          "prePrompt": "You are the Review Agent for this kanban task. Analyze the proposed changes critically, identify bugs/risks/regressions, and provide actionable review feedback before final acceptance."
+        },
+        "autoReviewAfterBuild": false,
+        "allowAllPermissions": false
+      }
+    },
+    "sync": {
+      "enableAutoSave": true,
+      "debounceMs": 1000,
+      "conflictPolicy": "lww"
+    },
+    "recovery": {
+      "compact": {
+        "enabled": true
+      }
+    }
+  },
+  "runnerProfiles": {
+    "build": {
+      "model": {
+        "providerID": "opencode",
+        "modelID": "minimax-m2.5-free",
+        "reasoningDepth": "high"
+      },
+      "writable": true,
+      "prePrompt": "You are the Build Agent for this kanban task. Focus on implementing the user's request with correct, maintainable code. Prefer concrete edits and preserve existing project patterns."
+    },
+    "plan": {
+      "model": {
+        "providerID": "opencode",
+        "modelID": "big-pickle",
+        "reasoningDepth": "high"
+      },
+      "writable": false,
+      "prePrompt": "You are the Plan Agent for this kanban task. Clarify requirements with the user and refine the card content into an actionable, testable execution plan. Do not modify project files or run shell commands."
+    },
+    "review": {
+      "model": {
+        "providerID": "opencode",
+        "modelID": "big-pickle",
+        "reasoningDepth": "high"
+      },
+      "writable": false,
+      "prePrompt": "You are the Review Agent for this kanban task. Analyze the proposed changes critically, identify bugs/risks/regressions, and provide actionable review feedback before final acceptance."
+    },
+    "autoReviewAfterBuild": false,
+    "allowAllPermissions": false
+  }
+}

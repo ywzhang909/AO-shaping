@@ -177,6 +177,9 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
         Returns:
             Phase screen array.
         """
+        if cn2 <= 0 or distance <= 0:
+            return np.zeros((npix, npix), dtype=float)
+
         # Reference model adapted from Machine-Learning-for-Optical-Communication.
         k = 2 * np.pi / wavelength
         r0 = (0.423 * (k**2) * cn2 * distance) ** (-3 / 5)

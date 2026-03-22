@@ -2,12 +2,18 @@ import os
 import json
 import re
 from datetime import datetime
+from pathlib import Path
+import sys
 
 import click
 import coredumpy
 
 import numpy as np
 import matplotlib.pyplot as plt
+
+SRC_ROOT = Path(__file__).resolve().parents[1]
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
 from ao_shaping.optimizer.wfless.pib import optimize_pib
 from ao_shaping.utils.file import gen_file_path_uuid, gen_date_dir, get_init_V_by_rms, logger
@@ -45,14 +51,31 @@ def parse_tuple(ctx, param, value):
 @click.option("--delta", default=2, help="优化步长 (default: 2)")
 @click.option("--lr", default=0.0, help="优化学习率 (default: 0.0，表示基于环围半径动态学习率衰减)")
 @click.option("--weight_decay", default=0.0, help="权重衰减 (default: 0.0)")
+@click.option(
+    "--optimizer_type",
+    type=click.Choice(["adam", "adamw", "adamod", "sgd", "muno", "munow"], case_sensitive=False),
+    default="adamod",
+    show_default=True,
+    help="梯度阶段使用的优化器类型",
+)
 @click.option("--shrink_iter", default=200, help="优化迭代次数后收缩半径桶和步长 (default: 200)。若设置为0，则不进行收缩。")
 @click.option("--shrink_ratio", default=0.8, help="收缩半径桶和步长比例 (default: 0.8)")
+@click.option("--enable_adaptive_search", is_flag=True, help="启用局部最优后的自适应邻域搜索")
+@click.option("--search_interval", default=120, show_default=True, help="邻域搜索触发间隔")
+@click.option("--search_warmup", default=200, show_default=True, help="邻域搜索启动前的最小迭代数")
+@click.option("--search_patience", default=100, show_default=True, help="最佳 PIB 无提升时触发搜索的等待轮数")
+@click.option("--search_samples", default=8, show_default=True, help="每次邻域搜索评估的候选解数量")
+@click.option("--search_radius", default=None, type=float, help="邻域搜索初始半径，默认跟随 delta 自适应")
+@click.option("--tabu_memory_size", default=128, show_default=True, help="禁忌记忆表容量")
 @click.option("-s", "--cam_size", default=200, help="相机开窗大小 (default: 200*200)")
 @click.option("-b", "--target_max_brightness", default=90, help="目标最大亮度值 (default: 90), 若为0则不自动调整曝光时间")
 @click.option("--debug", is_flag=True, help="是否开启调试模式 (default: False)")
 @click.option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)")
 def run(root_dir, load_file, cam_id, center, exposure_time_ms, epochs, r_bucket, 
-        delta, lr, weight_decay, shrink_iter, shrink_ratio, cam_size, target_max_brightness, debug, show):
+        delta, lr, weight_decay, optimizer_type, shrink_iter, shrink_ratio,
+        enable_adaptive_search, search_interval, search_warmup, search_patience,
+        search_samples, search_radius, tabu_memory_size, cam_size,
+        target_max_brightness, debug, show):
     """轴向光束优化器"""
     
     
@@ -78,8 +101,16 @@ def run(root_dir, load_file, cam_id, center, exposure_time_ms, epochs, r_bucket,
         'delta': delta,
         'lr': lr,
         'weight_decay': weight_decay,
+        'optimizer_type': optimizer_type,
         'shrink_iter': shrink_iter,
         'shrink_ratio': shrink_ratio,
+        'enable_adaptive_search': enable_adaptive_search,
+        'search_interval': search_interval,
+        'search_warmup': search_warmup,
+        'search_patience': search_patience,
+        'search_samples': search_samples,
+        'search_radius': search_radius,
+        'tabu_memory_size': tabu_memory_size,
         'cam_size': cam_size,
         'debug': debug,
         'show': show
@@ -107,6 +138,15 @@ def run(root_dir, load_file, cam_id, center, exposure_time_ms, epochs, r_bucket,
         dm_neibor_diff=400,
         dm_max_voltage=300,
         dm_min_voltage=-200,
+        optimizer_type=optimizer_type,
+        enable_adaptive_search=enable_adaptive_search,
+        search_interval=search_interval,
+        search_warmup=search_warmup,
+        search_patience=search_patience,
+        search_samples=search_samples,
+        search_radius=search_radius,
+        tabu_memory_size=tabu_memory_size,
+        weight_decay=weight_decay,
     )
     # 保存结果
     res_df = res_list.dataframe

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "fileType": "kanban.board",
+  "meta": {
+    "updatedAt": 1774118096244,
+    "revision": 2
+  },
+  "boardState": {
+    "cards": [],
+    "sessions": []
+  }
+}
