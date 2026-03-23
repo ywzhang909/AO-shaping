@@ -16,7 +16,7 @@ from ao_shaping.optimizer.rl.device_registry import build_default_registry
 from ao_shaping.optimizer.rl.envs import SimTurbulenceAOEnv
 from ao_shaping.optimizer.rl.sac_common import (
     AOTrainingCallback,
-    TemporalAOExtractor,
+    MambaCrossAttentionTemporalAOExtractor,
     evaluate_model,
     save_evaluation_artifacts,
     validate_env,
@@ -105,6 +105,7 @@ def build_env(
 @click.option("--eval-episodes", type=int, default=5, show_default=True)
 @click.option("--log-dir", type=str, default="logs/sac_turbulence", show_default=True)
 @click.option("--model-dir", type=str, default="models/sac_turbulence", show_default=True)
+@click.option("--init-model", type=click.Path(path_type=Path, exists=True), default=None)
 @click.option(
     "--dm-device",
     type=click.Choice(build_default_registry().names("dm"), case_sensitive=False),
@@ -152,6 +153,7 @@ def main(
     eval_episodes: int,
     log_dir: str,
     model_dir: str,
+    init_model: Path | None,
     dm_device: str,
     ccd_device: str,
     wfs_device: str,
@@ -192,6 +194,7 @@ def main(
         "gradient_steps": gradient_steps,
         "eval_freq": eval_freq,
         "eval_episodes": eval_episodes,
+        "init_model": str(init_model) if init_model is not None else None,
     }
     with (log_path / "config.json").open("w", encoding="utf-8") as fh:
         json.dump(config, fh, indent=2, ensure_ascii=False)
@@ -230,34 +233,55 @@ def main(
         saturation_penalty=saturation_penalty,
     )
 
-    model = SAC(
-        policy="MultiInputPolicy",
-        env=env,
-        learning_rate=learning_rate,
-        buffer_size=buffer_size,
-        batch_size=batch_size,
-        learning_starts=learning_starts,
-        train_freq=(train_freq, "step"),
-        gradient_steps=gradient_steps,
-        gamma=gamma,
-        tau=tau,
-        ent_coef="auto_0.05",
-        target_update_interval=1,
-        use_sde=True,
-        target_entropy="auto",
-        tensorboard_log=str(log_path),
-        seed=seed,
-        verbose=1,
-        policy_kwargs={
-            "features_extractor_class": TemporalAOExtractor,
-            "features_extractor_kwargs": {
-                "features_dim": 256,
-                "cnn_dim": 96,
-                "recurrent_dim": 128,
+    if init_model is not None:
+        model = SAC.load(
+            init_model,
+            env=env,
+            device="auto",
+        )
+        model.tensorboard_log = str(log_path)
+        model.learning_rate = learning_rate
+        model.seed = seed
+        model.batch_size = batch_size
+        model.buffer_size = buffer_size
+        model.learning_starts = learning_starts
+        model.gamma = gamma
+        model.tau = tau
+        model.gradient_steps = gradient_steps
+        model.train_freq = (train_freq, "step")
+        model._convert_train_freq()
+        model.set_env(env)
+    else:
+        model = SAC(
+            policy="MultiInputPolicy",
+            env=env,
+            learning_rate=learning_rate,
+            buffer_size=buffer_size,
+            batch_size=batch_size,
+            learning_starts=learning_starts,
+            train_freq=(train_freq, "step"),
+            gradient_steps=gradient_steps,
+            gamma=gamma,
+            tau=tau,
+            ent_coef="auto_0.05",
+            target_update_interval=1,
+            use_sde=True,
+            target_entropy="auto",
+            tensorboard_log=str(log_path),
+            seed=seed,
+            verbose=1,
+            policy_kwargs={
+                "features_extractor_class": MambaCrossAttentionTemporalAOExtractor,
+                "features_extractor_kwargs": {
+                    "features_dim": 384,
+                    "token_dim": 128,
+                    "num_heads": 4,
+                    "num_layers": 2,
+                    "dropout": 0.1,
+                },
+                "net_arch": {"pi": [384, 256], "qf": [384, 256]},
             },
-            "net_arch": {"pi": [256, 256], "qf": [256, 256]},
-        },
-    )
+        )
 
     callbacks = CallbackList([
         AOTrainingCallback(log_every=50, image_every=500),
@@ -272,7 +296,7 @@ def main(
         ),
     ])
 
-    model.learn(total_timesteps=total_timesteps, callback=callbacks, tb_log_name="moving_turbulence")
+    model.learn(total_timesteps=total_timesteps, callback=callbacks, tb_log_name="moving_turbulence_mamba")
     model.save(model_path / "sac_turbulence_final")
 
     results = evaluate_model(model, eval_env, episodes=eval_episodes, deterministic=True)

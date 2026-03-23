@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch import nn
+from torch.nn import functional as F
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.logger import Figure, Image
 from stable_baselines3.common.monitor import Monitor
@@ -90,6 +91,219 @@ class TemporalAOExtractor(BaseFeaturesExtractor):
         _, hidden = self.temporal_gru(temporal_input)
         metrics_feat = self.metrics_encoder(metrics)
         return self.output_head(torch.cat([hidden[-1], metrics_feat], dim=-1))
+
+
+class SelectiveStateSpaceBlock(nn.Module):
+    """Lightweight Mamba-style selective scan block for temporal fusion."""
+
+    def __init__(
+        self,
+        d_model: int,
+        expand: int = 2,
+        kernel_size: int = 3,
+    ) -> None:
+        super().__init__()
+        inner_dim = d_model * expand
+        self.norm = nn.LayerNorm(d_model)
+        self.in_proj = nn.Linear(d_model, inner_dim * 2)
+        self.depthwise_conv = nn.Conv1d(
+            inner_dim,
+            inner_dim,
+            kernel_size=kernel_size,
+            padding=kernel_size - 1,
+            groups=inner_dim,
+        )
+        self.dt_proj = nn.Linear(inner_dim, inner_dim)
+        self.b_proj = nn.Linear(inner_dim, inner_dim)
+        self.c_proj = nn.Linear(inner_dim, inner_dim)
+        self.out_proj = nn.Linear(inner_dim, d_model)
+        self.skip = nn.Parameter(torch.ones(inner_dim))
+        self.a_log = nn.Parameter(torch.zeros(inner_dim))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        residual = x
+        x = self.norm(x)
+        u, gate = self.in_proj(x).chunk(2, dim=-1)
+        u = self.depthwise_conv(u.transpose(1, 2)).transpose(1, 2)
+        u = F.silu(u[:, : x.shape[1], :])
+        dt = F.softplus(self.dt_proj(u)) + 1e-4
+        b = torch.sigmoid(self.b_proj(u))
+        c = torch.tanh(self.c_proj(u))
+        a = -torch.exp(self.a_log).unsqueeze(0)
+
+        state = torch.zeros(u.shape[0], u.shape[-1], device=u.device, dtype=u.dtype)
+        outputs: list[torch.Tensor] = []
+        for step in range(u.shape[1]):
+            dt_t = dt[:, step, :]
+            u_t = u[:, step, :]
+            decay = torch.exp(a * dt_t)
+            state = decay * state + dt_t * b[:, step, :] * u_t
+            y_t = c[:, step, :] * state + self.skip * u_t
+            outputs.append(y_t)
+
+        y = torch.stack(outputs, dim=1)
+        y = y * torch.sigmoid(gate)
+        return residual + self.out_proj(y)
+
+
+class MultiScalePatchTokenizer(nn.Module):
+    """Encode each CCD frame into multi-scale patch tokens plus an attention summary."""
+
+    def __init__(
+        self,
+        token_dim: int,
+        num_heads: int,
+    ) -> None:
+        super().__init__()
+        self.stem = nn.Sequential(
+            nn.Conv2d(1, 16, kernel_size=5, stride=2, padding=2),
+            nn.SiLU(),
+            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
+            nn.SiLU(),
+            nn.Conv2d(32, token_dim, kernel_size=3, stride=1, padding=1),
+            nn.SiLU(),
+        )
+        self.local_pool = nn.AdaptiveAvgPool2d((4, 4))
+        self.global_pool = nn.AdaptiveAvgPool2d((2, 2))
+        self.local_norm = nn.LayerNorm(token_dim)
+        self.global_norm = nn.LayerNorm(token_dim)
+        self.summary_query = nn.Parameter(torch.randn(1, 1, token_dim) * 0.02)
+        self.summary_attention = nn.MultiheadAttention(
+            embed_dim=token_dim,
+            num_heads=num_heads,
+            batch_first=True,
+        )
+
+    def forward(self, frames: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        features = self.stem(frames)
+        local_tokens = self.local_pool(features).flatten(2).transpose(1, 2)
+        global_tokens = self.global_pool(features).flatten(2).transpose(1, 2)
+        local_tokens = self.local_norm(local_tokens)
+        global_tokens = self.global_norm(global_tokens)
+        patch_tokens = torch.cat([local_tokens, global_tokens], dim=1)
+        query = self.summary_query.expand(frames.shape[0], -1, -1)
+        summary, _ = self.summary_attention(query=query, key=patch_tokens, value=patch_tokens, need_weights=False)
+        return patch_tokens, summary[:, 0]
+
+
+class MambaCrossAttentionTemporalAOExtractor(BaseFeaturesExtractor):
+    """Cross-attention + Mamba-style temporal fusion for turbulence SAC."""
+
+    def __init__(
+        self,
+        observation_space: gym.spaces.Dict,
+        features_dim: int = 384,
+        token_dim: int = 128,
+        num_heads: int = 4,
+        num_layers: int = 2,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__(observation_space, features_dim=features_dim)
+        slopes_dim = observation_space["hartmann_slopes"].shape[-1]
+        dm_dim = observation_space["dm_signal"].shape[-1]
+        metrics_dim = observation_space["metrics"].shape[0]
+
+        self.ccd_tokenizer = MultiScalePatchTokenizer(token_dim=token_dim, num_heads=num_heads)
+        self.slopes_encoder = nn.Sequential(
+            nn.Linear(slopes_dim, token_dim),
+            nn.LayerNorm(token_dim),
+            nn.SiLU(),
+        )
+        self.dm_encoder = nn.Sequential(
+            nn.Linear(dm_dim, token_dim),
+            nn.LayerNorm(token_dim),
+            nn.SiLU(),
+        )
+        self.metrics_encoder = nn.Sequential(
+            nn.Linear(metrics_dim, token_dim),
+            nn.LayerNorm(token_dim),
+            nn.SiLU(),
+        )
+        self.time_embedding = nn.Parameter(
+            torch.randn(1, observation_space["ccd"].shape[0], token_dim) * 0.02
+        )
+        self.visual_to_control_attention = nn.MultiheadAttention(
+            embed_dim=token_dim,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=True,
+        )
+        self.temporal_encoder = nn.ModuleList(
+            [SelectiveStateSpaceBlock(token_dim, expand=2, kernel_size=3) for _ in range(num_layers)]
+        )
+        self.context_proj = nn.Linear(token_dim * 4, token_dim)
+        self.cross_attention = nn.MultiheadAttention(
+            embed_dim=token_dim,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=True,
+        )
+        self.gate = nn.Sequential(
+            nn.Linear(token_dim * 2, token_dim),
+            nn.Sigmoid(),
+        )
+        self.output_head = nn.Sequential(
+            nn.Linear(token_dim * 3, features_dim),
+            nn.LayerNorm(features_dim),
+            nn.SiLU(),
+            nn.Linear(features_dim, features_dim),
+            nn.LayerNorm(features_dim),
+            nn.SiLU(),
+        )
+
+    def forward(self, observations: dict[str, torch.Tensor]) -> torch.Tensor:
+        ccd = observations["ccd"]
+        slopes = observations["hartmann_slopes"]
+        dm_signal = observations["dm_signal"]
+        metrics = observations["metrics"]
+
+        batch, time_steps, height, width = ccd.shape
+        patch_tokens, ccd_tokens = self.ccd_tokenizer(
+            ccd.reshape(batch * time_steps, 1, height, width)
+        )
+        ccd_tokens = ccd_tokens.view(batch, time_steps, -1)
+        ccd_tokens = ccd_tokens + self.time_embedding[:, :time_steps]
+
+        slopes_tokens = self.slopes_encoder(slopes)
+        dm_tokens = self.dm_encoder(dm_signal)
+        control_tokens = 0.5 * (slopes_tokens + dm_tokens)
+        cross_tokens, _ = self.visual_to_control_attention(
+            query=control_tokens.reshape(batch * time_steps, 1, -1),
+            key=patch_tokens,
+            value=patch_tokens,
+            need_weights=False,
+        )
+        cross_tokens = cross_tokens[:, 0].view(batch, time_steps, -1)
+        temporal_tokens = ccd_tokens + cross_tokens + control_tokens
+        for block in self.temporal_encoder:
+            temporal_tokens = block(temporal_tokens)
+
+        metrics_token = self.metrics_encoder(metrics).unsqueeze(1)
+        context_token = self.context_proj(
+            torch.cat(
+                [
+                    ccd_tokens[:, -1],
+                    slopes_tokens[:, -1],
+                    dm_tokens[:, -1],
+                    metrics_token[:, 0],
+                ],
+                dim=-1,
+            )
+        ).unsqueeze(1)
+
+        fused_token, _ = self.cross_attention(
+            query=context_token,
+            key=temporal_tokens,
+            value=temporal_tokens,
+            need_weights=False,
+        )
+        fused_token = fused_token[:, 0]
+        temporal_summary = temporal_tokens[:, -1]
+        gate = self.gate(torch.cat([fused_token, metrics_token[:, 0]], dim=-1))
+        gated_fusion = gate * fused_token + (1.0 - gate) * temporal_summary
+        return self.output_head(
+            torch.cat([gated_fusion, temporal_summary, metrics_token[:, 0]], dim=-1)
+        )
 
 
 class AOTrainingCallback(BaseCallback):

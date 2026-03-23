@@ -41,6 +41,7 @@
         "**/.hg": true,
         "**/.DS_Store": true,
         "**/Thumbs.db": true,
+        "src/ao_shaping/drivers/__pycache__": true,
         "**/__pycache__": true,
         "__pycache__": true,
         ".kilocode": true,
@@ -48,7 +49,14 @@
         ".pytest_cache": true,
         ".trae": true,
         "uv.lock": true,
-        "src/ao_shaping/drivers/__pycache__": true
+        "**__pycache__": true,
+        ".ocx": true,
+        ".history": true,
+        ".opencode": true,
+        ".ruff_cache": true,
+        ".venv": true,
+        ".coverage": true,
+        ".kilocodemodes": true
     },
     "hide-files.files": [
         "**/__pycache__",
@@ -58,7 +66,14 @@
         ".pytest_cache",
         ".trae",
         "uv.lock",
-        "**__pycache__"
+        "**__pycache__",
+        ".ocx",
+        ".history",
+        ".opencode",
+        ".ruff_cache",
+        ".venv",
+        ".coverage",
+        ".kilocodemodes"
     ],
     "python.defaultInterpreterPath": "d:\\Projects\\TIFO\\AO-shaping\\.venv\\Scripts\\python.exe"
 }

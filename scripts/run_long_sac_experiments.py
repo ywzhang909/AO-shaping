@@ -60,34 +60,95 @@ STATIC_ARGS = {
     "seed": 101,
 }
 
-TURB_ARGS = {
-    "total-timesteps": 2048,
-    "max-steps": 32,
-    "n-grid": 32,
-    "n-actuators": 4,
-    "n-subapertures": 4,
-    "history-len": 4,
-    "cn2": 1e-15,
-    "screen-step-px": 1,
-    "screen-margin-steps": 12,
-    "goal-gain": 0.06,
-    "hold-target-steps": 4,
-    "action-scale": 0.015,
-    "time-penalty": 0.010,
-    "action-penalty": 0.0004,
-    "saturation-penalty": 0.006,
-    "learning-rate": 8e-5,
-    "buffer-size": 150000,
-    "batch-size": 64,
-    "learning-starts": 256,
-    "tau": 0.008,
-    "gamma": 0.99,
-    "train-freq": 1,
-    "gradient-steps": 1,
-    "eval-freq": 256,
-    "eval-episodes": 6,
-    "seed": 103,
-}
+TURB_CURRICULUM = [
+    {
+        "name": "stage1_easy",
+        "total-timesteps": 1024,
+        "max-steps": 32,
+        "n-grid": 32,
+        "n-actuators": 4,
+        "n-subapertures": 4,
+        "history-len": 4,
+        "cn2": 5e-16,
+        "screen-step-px": 1,
+        "screen-margin-steps": 12,
+        "goal-gain": 0.02,
+        "hold-target-steps": 3,
+        "action-scale": 0.01,
+        "time-penalty": 0.006,
+        "action-penalty": 0.00015,
+        "saturation-penalty": 0.003,
+        "learning-rate": 5e-5,
+        "buffer-size": 150000,
+        "batch-size": 64,
+        "learning-starts": 256,
+        "tau": 0.006,
+        "gamma": 0.995,
+        "train-freq": 1,
+        "gradient-steps": 1,
+        "eval-freq": 256,
+        "eval-episodes": 6,
+        "seed": 401,
+    },
+    {
+        "name": "stage2_medium",
+        "total-timesteps": 1024,
+        "max-steps": 32,
+        "n-grid": 32,
+        "n-actuators": 4,
+        "n-subapertures": 4,
+        "history-len": 4,
+        "cn2": 8e-16,
+        "screen-step-px": 1,
+        "screen-margin-steps": 12,
+        "goal-gain": 0.025,
+        "hold-target-steps": 3,
+        "action-scale": 0.01,
+        "time-penalty": 0.007,
+        "action-penalty": 0.0002,
+        "saturation-penalty": 0.0035,
+        "learning-rate": 5e-5,
+        "buffer-size": 150000,
+        "batch-size": 64,
+        "learning-starts": 0,
+        "tau": 0.006,
+        "gamma": 0.995,
+        "train-freq": 1,
+        "gradient-steps": 1,
+        "eval-freq": 256,
+        "eval-episodes": 6,
+        "seed": 401,
+    },
+    {
+        "name": "stage3_target",
+        "total-timesteps": 2048,
+        "max-steps": 32,
+        "n-grid": 32,
+        "n-actuators": 4,
+        "n-subapertures": 4,
+        "history-len": 4,
+        "cn2": 1e-15,
+        "screen-step-px": 1,
+        "screen-margin-steps": 12,
+        "goal-gain": 0.03,
+        "hold-target-steps": 3,
+        "action-scale": 0.01,
+        "time-penalty": 0.008,
+        "action-penalty": 0.0002,
+        "saturation-penalty": 0.004,
+        "learning-rate": 5e-5,
+        "buffer-size": 150000,
+        "batch-size": 64,
+        "learning-starts": 0,
+        "tau": 0.006,
+        "gamma": 0.995,
+        "train-freq": 1,
+        "gradient-steps": 1,
+        "eval-freq": 256,
+        "eval-episodes": 6,
+        "seed": 401,
+    },
+]
 
 
 def _run_training(script: str, log_dir: Path, model_dir: Path, args: dict[str, object]) -> None:
@@ -107,6 +168,29 @@ def _run_training(script: str, log_dir: Path, model_dir: Path, args: dict[str, o
     (log_dir / "stderr.log").write_text(proc.stderr, encoding="utf-8")
     if proc.returncode != 0:
         raise RuntimeError(f"Training failed for {script}. See {log_dir / 'stderr.log'}")
+
+
+def _run_curriculum_stage(stage: dict[str, object], log_dir: Path, model_dir: Path, init_model: Path | None) -> Path:
+    args = {k: v for k, v in stage.items() if k != "name"}
+    cmd = [PYTHON, "src/ao_shaping/optimizer/rl/sac_turbulence_train.py"]
+    for key, value in args.items():
+        cmd.extend([f"--{key}", str(value)])
+    cmd.extend(["--log-dir", str(log_dir), "--model-dir", str(model_dir)])
+    if init_model is not None:
+        cmd.extend(["--init-model", str(init_model)])
+    proc = subprocess.run(
+        cmd,
+        cwd=ROOT,
+        env=ENV,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    (log_dir / "stdout.log").write_text(proc.stdout, encoding="utf-8")
+    (log_dir / "stderr.log").write_text(proc.stderr, encoding="utf-8")
+    if proc.returncode != 0:
+        raise RuntimeError(f"Curriculum stage failed: {stage['name']}. See {log_dir / 'stderr.log'}")
+    return model_dir / "sac_turbulence_final.zip"
 
 
 def _format_command(script: str, args: dict[str, object], log_dir: Path, model_dir: Path) -> str:
@@ -188,6 +272,8 @@ def _rollout(log_dir: Path, episodes: int = 3) -> dict[str, object]:
             "strehl": [float(info.get("strehl", 0.0))],
             "pib": [float(info.get("pib", 0.0))],
             "rms": [float(info.get("rms", 0.0))],
+            "action_l2": [0.0],
+            "action_abs_mean": [0.0],
         }
         done = False
         step = 0
@@ -202,6 +288,8 @@ def _rollout(log_dir: Path, episodes: int = 3) -> dict[str, object]:
             trace["strehl"].append(float(info.get("strehl", 0.0)))
             trace["pib"].append(float(info.get("pib", 0.0)))
             trace["rms"].append(float(info.get("rms", 0.0)))
+            trace["action_l2"].append(float(np.linalg.norm(action)))
+            trace["action_abs_mean"].append(float(np.mean(np.abs(action))))
             done = terminated or truncated
         trajectories.append(trace)
     env.close()
@@ -268,12 +356,14 @@ def _plot_training(
 def _plot_rollout(rollout: dict[str, object], out_dir: Path, label: str) -> pd.DataFrame:
     trajectories = rollout["trajectories"]
     frames = rollout["frames"]
-    fig, axes = plt.subplots(3, 1, figsize=(10, 9), sharex=True)
+    fig, axes = plt.subplots(5, 1, figsize=(10, 13), sharex=True)
     rows: list[dict[str, float | int]] = []
     for idx, trace in enumerate(trajectories):
         axes[0].plot(trace["step"], trace["strehl"], alpha=0.8, label=f"ep{idx}")
         axes[1].plot(trace["step"], trace["pib"], alpha=0.8)
         axes[2].plot(trace["step"], trace["rms"], alpha=0.8)
+        axes[3].plot(trace["step"], trace["reward"], alpha=0.8)
+        axes[4].plot(trace["step"], trace["action_l2"], alpha=0.8)
         for step, reward, strehl, pib, rms in zip(
             trace["step"], trace["reward"], trace["strehl"], trace["pib"], trace["rms"]
         ):
@@ -285,12 +375,16 @@ def _plot_rollout(rollout: dict[str, object], out_dir: Path, label: str) -> pd.D
                     "strehl": strehl,
                     "pib": pib,
                     "rms": rms,
+                    "action_l2": trace["action_l2"][step],
+                    "action_abs_mean": trace["action_abs_mean"][step],
                 }
             )
     axes[0].set_ylabel("Strehl")
     axes[1].set_ylabel("PIB")
     axes[2].set_ylabel("Residual RMS")
-    axes[2].set_xlabel("Step")
+    axes[3].set_ylabel("Reward")
+    axes[4].set_ylabel("Action L2")
+    axes[4].set_xlabel("Step")
     axes[0].legend()
     for ax in axes:
         ax.grid(alpha=0.3)
@@ -298,8 +392,8 @@ def _plot_rollout(rollout: dict[str, object], out_dir: Path, label: str) -> pd.D
     fig.savefig(out_dir / f"{label}_rollout_metrics.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
-    idx = np.linspace(0, len(frames) - 1, min(6, len(frames)), dtype=int)
-    fig, axes = plt.subplots(2, 3, figsize=(10, 7))
+    idx = np.linspace(0, len(frames) - 1, min(12, len(frames)), dtype=int)
+    fig, axes = plt.subplots(3, 4, figsize=(12, 9))
     for ax, frame_idx in zip(axes.flat, idx):
         ax.imshow(frames[frame_idx], cmap="inferno")
         ax.set_title(f"frame={frame_idx}")
@@ -312,6 +406,34 @@ def _plot_rollout(rollout: dict[str, object], out_dir: Path, label: str) -> pd.D
 
     df = pd.DataFrame(rows)
     df.to_csv(out_dir / f"{label}_rollout.csv", index=False)
+    episode_summary = (
+        df.groupby("episode")
+        .agg(
+            final_strehl=("strehl", "last"),
+            best_pib=("pib", "max"),
+            final_rms=("rms", "last"),
+            reward_sum=("reward", "sum"),
+            action_l2_mean=("action_l2", "mean"),
+        )
+        .reset_index()
+    )
+    episode_summary.to_csv(out_dir / f"{label}_rollout_episode_summary.csv", index=False)
+
+    fig, axes = plt.subplots(2, 2, figsize=(10, 8))
+    axes[0, 0].bar(episode_summary["episode"], episode_summary["final_strehl"])
+    axes[0, 0].set_title("Final Strehl by Episode")
+    axes[0, 1].bar(episode_summary["episode"], episode_summary["best_pib"])
+    axes[0, 1].set_title("Best PIB by Episode")
+    axes[1, 0].bar(episode_summary["episode"], episode_summary["reward_sum"])
+    axes[1, 0].set_title("Reward Sum by Episode")
+    axes[1, 1].bar(episode_summary["episode"], episode_summary["action_l2_mean"])
+    axes[1, 1].set_title("Mean Action L2 by Episode")
+    for ax in axes.flat:
+        ax.grid(alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(out_dir / f"{label}_rollout_episode_summary.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
     return df
 
 
@@ -330,16 +452,65 @@ def main() -> None:
     report_dir.mkdir(parents=True, exist_ok=True)
 
     static_log = ROOT / "logs" / f"static_long_{timestamp}"
-    turb_log = ROOT / "logs" / f"turbulence_long_{timestamp}"
     static_model = ROOT / "models" / static_log.name
-    turb_model = ROOT / "models" / turb_log.name
     static_log.mkdir(parents=True, exist_ok=True)
-    turb_log.mkdir(parents=True, exist_ok=True)
     static_model.mkdir(parents=True, exist_ok=True)
-    turb_model.mkdir(parents=True, exist_ok=True)
-
     _run_training("src/ao_shaping/optimizer/rl/sac_train.py", static_log, static_model, STATIC_ARGS)
-    _run_training("src/ao_shaping/optimizer/rl/sac_turbulence_train.py", turb_log, turb_model, TURB_ARGS)
+
+    curriculum_rows: list[dict[str, object]] = []
+    init_model: Path | None = None
+    for stage in TURB_CURRICULUM:
+        stage_log = ROOT / "logs" / f"{stage['name']}_{timestamp}"
+        stage_model = ROOT / "models" / f"{stage['name']}_{timestamp}"
+        stage_log.mkdir(parents=True, exist_ok=True)
+        stage_model.mkdir(parents=True, exist_ok=True)
+        final_model = _run_curriculum_stage(stage, stage_log, stage_model, init_model)
+        stage_summary = json.loads((stage_log / "summary.json").read_text(encoding="utf-8"))
+        curriculum_rows.append(
+            {
+                "stage": stage["name"],
+                "log_dir": str(stage_log),
+                "model_dir": str(stage_model),
+                **{k: v for k, v in stage.items() if k != "name"},
+                **stage_summary,
+            }
+        )
+        init_model = final_model
+
+    turb_stage_final = curriculum_rows[-1]
+    turb_log = Path(str(turb_stage_final["log_dir"]))
+    turb_model = Path(str(turb_stage_final["model_dir"]))
+    pd.DataFrame(curriculum_rows).to_csv(report_dir / "turbulence_curriculum_summary.csv", index=False)
+    with (report_dir / "turbulence_curriculum_summary.json").open("w", encoding="utf-8") as fh:
+        json.dump(curriculum_rows, fh, indent=2, ensure_ascii=False)
+
+    fig, axes = plt.subplots(3, 1, figsize=(10, 10), sharex=True)
+    stage_names = [row["stage"] for row in curriculum_rows]
+    axes[0].bar(stage_names, [float(row["mean_reward"]) for row in curriculum_rows])
+    axes[0].set_ylabel("Mean Reward")
+    axes[1].bar(stage_names, [float(row["mean_final_strehl"]) for row in curriculum_rows])
+    axes[1].set_ylabel("Final Strehl")
+    axes[2].bar(stage_names, [float(row["mean_best_pib"]) / 1e6 for row in curriculum_rows])
+    axes[2].set_ylabel("Best PIB (x1e6)")
+    axes[2].tick_params(axis="x", rotation=15)
+    for ax in axes:
+        ax.grid(alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(report_dir / "turbulence_curriculum_stage_summary.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    for row in curriculum_rows:
+        _, rewards = _load_eval(Path(str(row["log_dir"])))
+        ax.plot(rewards, marker="o", label=row["stage"])
+    ax.set_title("Turbulence Curriculum Eval Reward")
+    ax.set_ylabel("Mean Eval Reward")
+    ax.set_xlabel("Eval Index")
+    ax.grid(alpha=0.3)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(report_dir / "turbulence_curriculum_eval_curves.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
 
     static_summary = json.loads((static_log / "summary.json").read_text(encoding="utf-8"))
     turb_summary = json.loads((turb_log / "summary.json").read_text(encoding="utf-8"))
@@ -382,10 +553,20 @@ def main() -> None:
             "model_dir": str(turb_model),
             "converged": bool(turb_conv["is_plateau"]),
         },
+        "turbulence_curriculum": {
+            "stages": curriculum_rows,
+            "final_stage": turb_stage_final["stage"],
+        },
         "commands": {
             "static": "python scripts/run_long_sac_experiments.py",
             "direct_static": _format_command("src/ao_shaping/optimizer/rl/sac_train.py", STATIC_ARGS, static_log, static_model),
-            "direct_turbulence": _format_command("src/ao_shaping/optimizer/rl/sac_turbulence_train.py", TURB_ARGS, turb_log, turb_model),
+            "direct_turbulence": _format_command(
+                "src/ao_shaping/optimizer/rl/sac_turbulence_train.py",
+                {k: v for k, v in TURB_CURRICULUM[-1].items() if k != "name"},
+                turb_log,
+                turb_model,
+            ),
+            "curriculum": "python scripts/run_curriculum_mamba_turbulence.py",
         },
     }
 
@@ -417,6 +598,7 @@ def main() -> None:
         f"- late_reward_slope: `{combined['static']['late_reward_slope']:.3f}`",
         "",
         "## Turbulence",
+        f"- curriculum_final_stage: `{combined['turbulence_curriculum']['final_stage']}`",
         f"- mean_reward: `{combined['turbulence']['mean_reward']:.3f}`",
         f"- mean_final_strehl: `{combined['turbulence']['mean_final_strehl']:.3f}`",
         f"- mean_best_pib: `{combined['turbulence']['mean_best_pib']:.1f}`",
@@ -427,6 +609,7 @@ def main() -> None:
         "",
         "## One-Click",
         f"`{combined['commands']['static']}`",
+        f"`{combined['commands']['curriculum']}`",
     ]
     (report_dir / "report.md").write_text("\n".join(report_lines), encoding="utf-8")
     print(report_dir)

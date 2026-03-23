@@ -48,18 +48,34 @@ __all__ = [
 # Try to import CameraStreamManager, but make it optional
 try:
     from .ccd.daheng import CameraStreamManager
+
     __all__ += ["CameraStreamManager"]
 except (ImportError, NameError) as e:
     import logging
+
     logging.getLogger(__name__).warning(f"CameraStreamManager not available: {e}")
     CameraStreamManager = None
+
+# Try to import FFmpegCamera, but make it optional
+try:
+    from .ccd.ffmpeg import FFmpegCamera, FFmpegCameraError
+
+    __all__ += ["FFmpegCamera", "FFmpegCameraError"]
+except ImportError as e:
+    import logging
+
+    logging.getLogger(__name__).debug(f"FFmpegCamera not available: {e}")
+    FFmpegCamera = None
+    FFmpegCameraError = None
 
 # Try to import SantecSLM200, but make it optional
 try:
     from .slm.santec_slm200 import SantecSLM200, SantecSLM200Error
+
     __all__ += ["SantecSLM200", "SantecSLM200Error"]
 except ImportError as e:
     import logging
+
     logging.getLogger(__name__).warning(f"SantecSLM200 not available: {e}")
     SantecSLM200 = None
     SantecSLM200Error = None
@@ -75,6 +91,7 @@ try:
         list_visa_resources,
         open_visa_instrument,
     )
+
     __all__ += [
         "VisaResourceManager",
         "VisaInstrument",
@@ -86,6 +103,7 @@ try:
     ]
 except ImportError as e:
     import logging
+
     logging.getLogger(__name__).debug(f"PyVISA components not available: {e}")
     VisaResourceManager = None
     VisaInstrument = None
@@ -98,9 +116,11 @@ except ImportError as e:
 # Try to import SLM VISA wrapper, but make it optional
 try:
     from .slm.santec_slm200_visa import SantecSLM200Visa, create_slm_visa_instrument
+
     __all__ += ["SantecSLM200Visa", "create_slm_visa_instrument"]
 except ImportError as e:
     import logging
+
     logging.getLogger(__name__).debug(f"SantecSLM200Visa not available: {e}")
     SantecSLM200Visa = None
     create_slm_visa_instrument = None
