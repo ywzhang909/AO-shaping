@@ -4,8 +4,15 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 import numpy as np
+from ao_shaping.drivers.sim import beam_simulation as bs
 
 from ao_shaping.drivers.device_base import DeviceState, DeviceType
+from ao_shaping.drivers.sim.beam_backend import (
+    gaussian_pupil,
+    make_beam_config,
+    propagate as beam_propagate,
+    to_bs_config,
+)
 from ao_shaping.drivers.sim.base import OpticalDevice, SimulatedDevice, SimulatedDeviceError, WavefrontProcessor
 
 
@@ -84,8 +91,22 @@ class WaveGenerator(OpticalDevice):
         self._set_state(DeviceState.BUSY)
         try:
             if self.beam_type == "gaussian":
-                radius = self.aperture / 2 / np.sqrt(2) if self.aperture > 0 else self.npix * self.dpix / 4
-                amplitude = np.exp(-(_wave_grid(self.npix, self.dpix)[2] / radius) ** 2)
+                beam_cfg = make_beam_config(
+                    n_grid=self.npix,
+                    aperture_size=self.npix * self.dpix,
+                    wavelength=self.wavelength,
+                    cn2=0.0,
+                    l_max=1.0,
+                    l_min=1e-3,
+                    propagation_distance=0.0,
+                    beam_waist=self.aperture / 3.5 if self.aperture > 0 else self.npix * self.dpix / 4,
+                )
+                amplitude = np.abs(
+                    gaussian_pupil(
+                        beam_cfg,
+                        aperture_radius=self.aperture / 2 if self.aperture > 0 else None,
+                    )
+                )
             else:
                 amplitude = np.ones((self.npix, self.npix), dtype=float)
 
@@ -254,28 +275,33 @@ def apply_aperture(wave: Any, radius: float) -> None:
 
 def apply_focus(wave: Any, focal_length: float) -> None:
     sim_wave = _as_sim_wave(wave)
-    focus_phase = -np.pi * sim_wave.r**2 / sim_wave.wavelength / focal_length
+    beam_cfg = make_beam_config(
+        n_grid=sim_wave.npix,
+        aperture_size=sim_wave.npix * sim_wave.dpix,
+        wavelength=sim_wave.wavelength,
+        cn2=0.0,
+        l_max=1.0,
+        l_min=1e-3,
+        propagation_distance=focal_length,
+    )
+    beam_bs_cfg = to_bs_config(beam_cfg)
+    focus_phase = bs.lens_phase(f=focal_length, cfg=beam_bs_cfg)
     sim_wave.change_wf(phase=focus_phase)
 
 
 def propagate(wave: Any, distance: float) -> None:
-    """Angular spectrum propagation (from ML optical communication implementation idea)."""
+    """Angular spectrum propagation using internal beam simulation backend."""
     sim_wave = _as_sim_wave(wave)
-    npix = sim_wave.npix
-    dpix = sim_wave.dpix
-
-    fx = np.fft.fftshift(np.fft.fftfreq(npix, d=dpix))
-    fy = np.fft.fftshift(np.fft.fftfreq(npix, d=dpix))
-    fx_grid, fy_grid = np.meshgrid(fx, fy)
-
-    lam = sim_wave.wavelength
-    k = 2 * np.pi / lam
-    spatial = (lam * fx_grid) ** 2 + (lam * fy_grid) ** 2
-    transfer = np.exp(1j * k * distance * np.sqrt(np.clip(1.0 - spatial, 0.0, None)))
-
-    field_spectrum = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(sim_wave.wavefront)))
-    field_out = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(field_spectrum * transfer)))
-    sim_wave.wavefront = field_out
+    beam_cfg = make_beam_config(
+        n_grid=sim_wave.npix,
+        aperture_size=sim_wave.npix * sim_wave.dpix,
+        wavelength=sim_wave.wavelength,
+        cn2=0.0,
+        l_max=1.0,
+        l_min=1e-3,
+        propagation_distance=distance,
+    )
+    sim_wave.wavefront = beam_propagate(sim_wave.wavefront, beam_cfg, distance)
 
 
 def power_bucket(

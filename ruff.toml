@@ -1,0 +1,60 @@
+# Ruff Configuration
+# Linter and formatter for Python
+
+[lint]
+# Enable rules
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "N",      # pep8-naming
+    "UP",     # pyupgrade
+    "YTT",    # flake8-2020
+    "ASYNC",  # flake8-async
+    "C4",     # flake8-comprehensions
+    "FA",     # flake8-future-annotations
+    "PIE",    # flake8-pie
+    "T20",    # flake8-print
+    "RSE",    # flake8-raise
+    "RET",    # flake8-return
+    "SIM",    # flake8-simplify
+    "PTH",    # flake8-use-pathlib
+    "PGH",    # pygrep-hooks
+    "PL",     # pylint
+    "PERF",   # perflint
+    "RUF",    # Ruff-specific rules
+]
+
+# Ignore specific rules
+ignore = [
+    # Isort
+    "I001", "I002",  # import sort requires starred config
+    
+    # Pyupgrade
+    "UP007",  # None type annotations (not compatible with Python 3.12)
+    "UP038",  # isinstance second arg (personal preference)
+    
+    # Pycodestyle
+    "E501",   # line length handled by formatter
+    
+    # Pylint
+    "PLR0913",  # too-many-arguments (allow for dataclasses)
+    "PLR2004",  # magic-value-comparison (allow for constants)
+    
+    # Simplify
+    "SIM115",  # use-context-handler (IOBase supports both)
+]
+
+[lint.per-file-ignores]
+"tests/*" = [
+    "PLR0913",  # too-many-arguments in tests
+    "PLR2004",  # magic-value-comparison in tests
+    "T20",      # print statements in tests allowed
+]
+
+[format]
+# Use ruff formatter
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

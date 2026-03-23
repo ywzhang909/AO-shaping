@@ -12,6 +12,7 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.device_base import DeviceState, DeviceType
+from ao_shaping.drivers.sim.beam_backend import make_beam_config, turbulence_phase
 from ao_shaping.drivers.sim.base import SimulatedDevice, WavefrontProcessor
 
 
@@ -179,26 +180,23 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
         """
         if cn2 <= 0 or distance <= 0:
             return np.zeros((npix, npix), dtype=float)
-
-        # Reference model adapted from Machine-Learning-for-Optical-Communication.
-        k = 2 * np.pi / wavelength
-        r0 = (0.423 * (k**2) * cn2 * distance) ** (-3 / 5)
-
-        fx = np.fft.fftshift(np.fft.fftfreq(npix, dpix))
-        fy = np.fft.fftshift(np.fft.fftfreq(npix, dpix))
-        fx_grid, fy_grid = np.meshgrid(fx, fy)
-        f = np.sqrt(fx_grid**2 + fy_grid**2)
-
-        fm = 5.92 / (2 * np.pi * max(l0, 1e-12))
-        f0 = 1.0 / max(l_max, 1e-12)
-        psd_phi = 0.023 * r0 ** (-5 / 3) * np.exp(-(f / fm) ** 2) / ((f**2 + f0**2) ** (11 / 6))
-        psd_phi[npix // 2, npix // 2] = 0.0
-
-        delta_f = 1.0 / (npix * dpix)
-        rand_spec = self._rng.normal(size=(npix, npix)) + 1j * self._rng.normal(size=(npix, npix))
-        cn = rand_spec * np.sqrt(psd_phi) * delta_f
-        phase = np.real(np.fft.ifftshift(np.fft.ifft2(np.fft.fftshift(cn)))) * (npix**2)
-        return phase
+        beam_cfg = make_beam_config(
+            n_grid=npix,
+            aperture_size=npix * dpix,
+            wavelength=wavelength,
+            cn2=cn2,
+            l_max=l_max,
+            l_min=l0,
+            propagation_distance=distance,
+        )
+        return turbulence_phase(
+            beam_cfg,
+            cn2=cn2,
+            l_max=l_max,
+            l_min=l0,
+            propagation_distance=distance,
+            rng=self._rng,
+        )
     
     def get_opd(self) -> Optional[np.ndarray]:
         """Get current OPD (Optical Path Difference).

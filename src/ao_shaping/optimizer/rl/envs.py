@@ -9,6 +9,8 @@ import numpy as np
 import time
 
 from ao_shaping.drivers import CameraStreamManager, NlightDM
+from ao_shaping.drivers.sim.beam_backend import make_beam_config, turbulence_phase
+from ao_shaping.drivers.sim import beam_simulation as bs
 
 from ao_shaping.drivers.sim.compat import (
     TraditionalAOSystem, AOConfig,
@@ -511,21 +513,14 @@ class TraditionalAOEnv(gym.Env):
             self.window = None
 
 
-class SimTurbulenceAOEnv(gym.Env):
-    """Gymnasium environment for turbulence AO using simulation optics.
-
-    Optical chain:
-    Laser -> Deformable Mirror -> Focusing Lens -> Atmospheric Turbulence
-    -> CCD + Shack-Hartmann-like Sensor.
-
-    The environment uses :class:`TraditionalAOSystem` from
-    ``ao_shaping.drivers.sim.compat`` for wave propagation and sensor synthesis.
-    """
+class _BaseSimAOEnv(gym.Env):
+    """Shared RL environment for beam-based AO simulation."""
 
     metadata = {"render_modes": ["human", "rgb_array"]}
 
     def __init__(
         self,
+        *,
         n_grid: int = 128,
         n_actuators: int = 8,
         n_subapertures: int = 8,
@@ -537,22 +532,31 @@ class SimTurbulenceAOEnv(gym.Env):
         propagation_distance: float = 1000.0,
         pib_radius: int = 4,
         pib_target: float | None = None,
-        time_penalty: float = 0.02,
+        strehl_target: float | None = None,
         goal_gain: float = 0.15,
-        action_penalty: float = 0.002,
+        hold_target_steps: int = 3,
+        action_scale: float = 0.03,
+        time_penalty: float = 0.01,
+        action_penalty: float = 0.001,
         saturation_penalty: float = 0.01,
     ) -> None:
         super().__init__()
-        self.max_steps = max_steps
-        self.history_len = history_len
+        self.max_steps = int(max_steps)
+        self.history_len = int(history_len)
         self.step_count = 0
-        self.pib_radius = pib_radius
+        self.pib_radius = int(pib_radius)
         self._configured_pib_target = pib_target
+        self._configured_strehl_target = strehl_target
         self.pib_target = pib_target
-        self.time_penalty = time_penalty
-        self.goal_gain = goal_gain
-        self.action_penalty = action_penalty
-        self.saturation_penalty = saturation_penalty
+        self.strehl_target = strehl_target
+        self.goal_gain = float(goal_gain)
+        self.hold_target_steps = max(int(hold_target_steps), 1)
+        self.time_penalty = float(time_penalty)
+        self.action_penalty = float(action_penalty)
+        self.saturation_penalty = float(saturation_penalty)
+        self._success_streak = 0
+        self._disturbance_rms = 0.0
+        self._disturbance_meta: dict[str, float | int] = {}
 
         self.config = AOConfig(
             N=n_grid,
@@ -567,12 +571,11 @@ class SimTurbulenceAOEnv(gym.Env):
 
         self.action_dim = n_actuators * n_actuators
         self.action_space = spaces.Box(
-            low=-0.05,
-            high=0.05,
+            low=-action_scale,
+            high=action_scale,
             shape=(self.action_dim,),
             dtype=np.float32,
         )
-
         self.observation_space = spaces.Dict(
             {
                 "ccd": spaces.Box(
@@ -582,8 +585,8 @@ class SimTurbulenceAOEnv(gym.Env):
                     dtype=np.float32,
                 ),
                 "hartmann_slopes": spaces.Box(
-                    low=-50.0,
-                    high=50.0,
+                    low=-5.0,
+                    high=5.0,
                     shape=(history_len, 2 * n_subapertures ** 2),
                     dtype=np.float32,
                 ),
@@ -595,13 +598,18 @@ class SimTurbulenceAOEnv(gym.Env):
                 ),
                 "metrics": spaces.Box(
                     low=np.array([0.0, 0.0, -1.0, -1.0, 0.0], dtype=np.float32),
-                    high=np.array([1.0, 5.0, 2.0, 2.0, 1.0], dtype=np.float32),
+                    high=np.array([1.0, 10.0, 2.0, 2.0, 1.0], dtype=np.float32),
                     shape=(5,),
                     dtype=np.float32,
                 ),
             }
         )
 
+        self._last_ccd: np.ndarray | None = None
+        self._last_slopes: np.ndarray | None = None
+        self._ccd_history: np.ndarray | None = None
+        self._slopes_history: np.ndarray | None = None
+        self._dm_history: np.ndarray | None = None
         self._initial_strehl = 0.0
         self._initial_power = 0.0
         self._initial_rms = 0.0
@@ -609,13 +617,9 @@ class SimTurbulenceAOEnv(gym.Env):
         self._last_strehl = 0.0
         self._last_power = 0.0
         self._last_rms = 0.0
-        self._last_ccd: np.ndarray | None = None
-        self._last_slopes: np.ndarray | None = None
-        self._ccd_history: np.ndarray | None = None
-        self._slopes_history: np.ndarray | None = None
-        self._dm_history: np.ndarray | None = None
         self._last_pib = 0.0
         self._best_pib = 0.0
+        self._best_strehl = 0.0
         self._center = (n_grid // 2, n_grid // 2)
         yy, xx = np.ogrid[:n_grid, :n_grid]
         self._pib_mask = (
@@ -624,78 +628,116 @@ class SimTurbulenceAOEnv(gym.Env):
 
     def reset(self, *, seed: int | None = None, options: dict | None = None):
         super().reset(seed=seed, options=options)
-        if seed is not None:
-            np.random.seed(seed)
-
         self.step_count = 0
+        self._success_streak = 0
+        self._disturbance_meta = {}
         self.ao_system.set_dm_voltages(np.zeros(self.action_dim, dtype=float))
-        result = self.ao_system.reset()
+        phase = self._sample_disturbance()
+        self._apply_disturbance(phase)
+        result = self.ao_system.observe()
         self._sync_from_result(result)
         self._initial_strehl = self._last_strehl
         self._initial_power = self._last_power
         self._initial_rms = self._last_rms
         self._initial_pib = self._last_pib
-        self._init_history()
         self._best_pib = self._last_pib
+        self._best_strehl = self._last_strehl
+        self._init_history()
         if self._configured_pib_target is None:
             self.pib_target = self._initial_pib * (1.0 + self.goal_gain)
         else:
             self.pib_target = self._configured_pib_target
+        if self._configured_strehl_target is None:
+            self.strehl_target = min(0.98, self._initial_strehl + max(0.08, self.goal_gain))
+        else:
+            self.strehl_target = self._configured_strehl_target
         return self._get_obs(), self._get_info()
 
     def step(self, action: np.ndarray):
         self.step_count += 1
+        self._advance_disturbance()
         clipped_action = np.clip(action, self.action_space.low, self.action_space.high)
         prev_pib = self._last_pib
         prev_strehl = self._last_strehl
-        result = self.ao_system.step(clipped_action.astype(float))
+        prev_rms = self._last_rms
+
+        new_voltages = self.ao_system.dm_voltages + clipped_action.astype(float)
+        self.ao_system.set_dm_voltages(new_voltages)
+        result = self.ao_system.observe()
         self._sync_from_result(result)
+        reward = self._calculate_reward(clipped_action, prev_pib, prev_strehl, prev_rms)
         self._update_history()
 
-        pib_scale = max(self._initial_pib, 1.0)
-        strehl_delta = self._last_strehl - prev_strehl
-        pib_delta = (self._last_pib - prev_pib) / pib_scale
-        pib_gain = (self._last_pib - self._initial_pib) / pib_scale
-        strehl_gain = self._last_strehl - self._initial_strehl
-        pib_ratio = self._last_pib / max(self.pib_target, 1.0)
-
-        reward = 0.0
-        reward += 3.0 * np.tanh(12.0 * pib_delta)
-        reward += 2.0 * np.tanh(8.0 * strehl_delta)
-        reward += 1.5 * np.tanh(6.0 * pib_gain)
-        reward += 1.0 * np.tanh(10.0 * strehl_gain)
-
-        if self._last_pib > self._best_pib:
-            reward += 0.5 * np.tanh(8.0 * ((self._last_pib - self._best_pib) / pib_scale))
-
-        action_cost = self.action_penalty * float(np.mean(np.square(clipped_action)))
-        saturation = float(np.mean(np.abs(self.ao_system.dm_voltages)))
-        saturation_cost = self.saturation_penalty * max(0.0, saturation - 0.6)
-        step_cost = self.time_penalty
-        success_bonus = 5.0 if pib_ratio >= 1.0 else 0.0
-        reward = reward + success_bonus - action_cost - saturation_cost - step_cost
-
-        self._best_pib = max(self._best_pib, self._last_pib)
-        terminated = self._last_pib >= self.pib_target
+        reached_goal = (
+            self._last_pib >= max(self.pib_target or 0.0, 1.0)
+            and self._last_strehl >= float(self.strehl_target or 0.0)
+        )
+        self._success_streak = self._success_streak + 1 if reached_goal else 0
+        terminated = self._success_streak >= self.hold_target_steps
         truncated = self.step_count >= self.max_steps and not terminated
         return self._get_obs(), float(reward), terminated, truncated, self._get_info()
+
+    def _sample_disturbance(self) -> np.ndarray:
+        raise NotImplementedError
+
+    def _advance_disturbance(self) -> None:
+        return
+
+    def _apply_disturbance(self, phase: np.ndarray) -> None:
+        phase = np.asarray(phase, dtype=float)
+        self._disturbance_rms = float(np.sqrt(np.mean(phase ** 2)))
+        self.ao_system._turbulence_phase = phase
+        self.ao_system._wavefront_override = None
+        self.ao_system._invalidate_cached_outputs()
 
     def _sync_from_result(self, result: Dict[str, Any]) -> None:
         image = result["image"].astype(np.float32)
         image_norm = image / max(float(np.max(image)), 1.0)
-
-        phase = self.ao_system.turbulence.phase_screen
-        self._last_rms = float(np.sqrt(np.mean(phase ** 2)))
+        self._last_rms = float(result.get("phase_rms", 0.0))
         self._last_strehl = float(result["strehl"])
         self._last_power = float(result["power"])
         self._last_pib = float(np.sum(image[self._pib_mask]))
         self._last_ccd = image_norm
         self._last_slopes = result["slopes"].astype(np.float32)
+        self._best_pib = max(self._best_pib, self._last_pib)
+        self._best_strehl = max(self._best_strehl, self._last_strehl)
+
+    def _calculate_reward(
+        self,
+        action: np.ndarray,
+        prev_pib: float,
+        prev_strehl: float,
+        prev_rms: float,
+    ) -> float:
+        pib_scale = max(self._initial_pib, 1.0)
+        rms_scale = max(self._initial_rms, 1e-6)
+        pib_delta = (self._last_pib - prev_pib) / pib_scale
+        strehl_delta = self._last_strehl - prev_strehl
+        rms_delta = (prev_rms - self._last_rms) / rms_scale
+        pib_gain = (self._last_pib - self._initial_pib) / pib_scale
+        strehl_gain = self._last_strehl - self._initial_strehl
+
+        reward = 0.0
+        reward += 3.5 * np.tanh(10.0 * pib_delta)
+        reward += 2.5 * np.tanh(8.0 * strehl_delta)
+        reward += 2.0 * np.tanh(6.0 * rms_delta)
+        reward += 1.5 * np.tanh(5.0 * pib_gain)
+        reward += 1.0 * np.tanh(6.0 * strehl_gain)
+
+        if self._last_pib >= max(self.pib_target or 0.0, 1.0):
+            reward += 1.0
+        if self._last_strehl >= float(self.strehl_target or 0.0):
+            reward += 0.5
+
+        action_cost = self.action_penalty * float(np.mean(np.square(action)))
+        saturation = float(np.mean(np.abs(self.ao_system.dm_voltages)))
+        saturation_cost = self.saturation_penalty * max(0.0, saturation - 0.6)
+        reward = reward - action_cost - saturation_cost - self.time_penalty
+        return float(reward)
 
     def _get_obs(self) -> Dict[str, np.ndarray]:
         if self._ccd_history is None or self._slopes_history is None or self._dm_history is None:
             raise RuntimeError("Environment not initialized. Call reset() first.")
-
         return {
             "ccd": self._ccd_history.astype(np.float32),
             "hartmann_slopes": self._slopes_history.astype(np.float32),
@@ -712,84 +754,165 @@ class SimTurbulenceAOEnv(gym.Env):
             ),
         }
 
-    def _get_info(self) -> Dict[str, float | int | str]:
-        return {
+    def _get_info(self) -> Dict[str, float | int]:
+        info: Dict[str, float | int] = {
             "strehl": self._last_strehl,
+            "best_strehl": self._best_strehl,
             "rms": self._last_rms,
             "power": self._last_power,
             "pib": self._last_pib,
             "best_pib": self._best_pib,
             "initial_pib": self._initial_pib,
-            "pib_ratio": self._last_pib / max(self.pib_target, 1.0),
-            "pib_target": float(self.pib_target),
+            "pib_ratio": self._last_pib / max(float(self.pib_target or 1.0), 1.0),
+            "pib_target": float(self.pib_target or 0.0),
+            "strehl_target": float(self.strehl_target or 0.0),
+            "disturbance_rms": self._disturbance_rms,
             "step": self.step_count,
+            "success_streak": self._success_streak,
         }
+        info.update(self._disturbance_meta)
+        return info
 
     def _init_history(self) -> None:
         if self._last_ccd is None or self._last_slopes is None:
             raise RuntimeError("Environment state is not initialized.")
-
-        self._ccd_history = np.repeat(
-            self._last_ccd[np.newaxis, :, :], self.history_len, axis=0
-        )
+        self._ccd_history = np.repeat(self._last_ccd[np.newaxis, :, :], self.history_len, axis=0)
         self._slopes_history = np.repeat(
             np.clip(self._last_slopes / 10.0, -5.0, 5.0)[np.newaxis, :],
             self.history_len,
             axis=0,
         )
         dm_now = self.ao_system.dm_voltages.astype(np.float32)
-        self._dm_history = np.repeat(
-            dm_now[np.newaxis, :], self.history_len, axis=0
-        )
+        self._dm_history = np.repeat(dm_now[np.newaxis, :], self.history_len, axis=0)
 
     def _update_history(self) -> None:
         if self._ccd_history is None or self._slopes_history is None or self._dm_history is None:
             self._init_history()
             return
-
         self._ccd_history = np.roll(self._ccd_history, -1, axis=0)
         self._ccd_history[-1] = self._last_ccd
-
         self._slopes_history = np.roll(self._slopes_history, -1, axis=0)
         self._slopes_history[-1] = np.clip(self._last_slopes / 10.0, -5.0, 5.0)
-
         self._dm_history = np.roll(self._dm_history, -1, axis=0)
         self._dm_history[-1] = self.ao_system.dm_voltages.astype(np.float32)
 
+    def render(self, mode='human'):
+        if mode == 'rgb_array':
+            if self._last_ccd is None:
+                raise RuntimeError("Environment not initialized. Call reset() first.")
+            return np.clip(self._last_ccd * 255.0, 0, 255).astype(np.uint8)
+        raise NotImplementedError("Only rgb_array render mode is supported for simulation envs.")
 
-# ================== 6. 测试运行 ==================
-if __name__ == "__main__":
-    # 测试TraditionalAOEnv
-    print("测试TraditionalAOEnv...")
-    
-    env = TraditionalAOEnv(
-        N=64,
-        max_steps=20,
-        n_actuators=4,
-        n_subapertures=4,
-        reward_type='shaped',
-        seed=42
-    )
-    
-    print(f"动作空间形状: {env.action_space.shape}")
-    print(f"观测空间: {env.observation_space}")
-    
-    obs, info = env.reset()
-    print(f"初始Strehl比: {info['strehl']:.4f}")
-    print(f"初始RMS: {info['rms']:.6f}")
-    
-    total_reward = 0
-    for i in range(50):
-        action = env.action_space.sample()
-        obs, reward, done, truncated, info = env.step(action)
-        total_reward += reward
-        
-        if i % 10 == 0:
-            print(f"Step {i}, Reward: {reward:.3f}, Strehl: {info['strehl']:.4f}, RMS: {info['rms']:.6f}")
-        
-        if done:
-            print(f"--- Episode End. Total Reward: {total_reward:.3f} ---")
-            break
-    
-    env.close()
-    print("测试完成!")
+
+class StaticAberrationAOEnv(_BaseSimAOEnv):
+    """Static AO correction task with random Zernike phase aberrations."""
+
+    def __init__(
+        self,
+        *,
+        n_zernike_modes: int = 10,
+        min_noll: int = 4,
+        zernike_coeff_std: float = 0.18,
+        zernike_coeff_clip: float = 0.45,
+        **kwargs,
+    ) -> None:
+        super().__init__(cn2=0.0, **kwargs)
+        self.n_zernike_modes = int(n_zernike_modes)
+        self.min_noll = int(min_noll)
+        self.zernike_coeff_std = float(zernike_coeff_std)
+        self.zernike_coeff_clip = float(zernike_coeff_clip)
+        self._static_coefficients: dict[int, float] = {}
+
+    def _sample_disturbance(self) -> np.ndarray:
+        phase = np.zeros((self.config.N, self.config.N), dtype=float)
+        mask = getattr(self.ao_system, "_mask", np.ones_like(phase, dtype=bool))
+        coefficients: dict[int, float] = {}
+        for noll_idx in range(self.min_noll, self.min_noll + self.n_zernike_modes):
+            coeff = float(self.np_random.normal(0.0, self.zernike_coeff_std))
+            coeff = float(np.clip(coeff, -self.zernike_coeff_clip, self.zernike_coeff_clip))
+            coefficients[noll_idx] = coeff
+            phase += 2 * np.pi * coeff * bs.generate_zernike_map(
+                noll_idx,
+                self.ao_system._x,
+                self.ao_system._y,
+            )
+
+        phase = phase * mask
+        if np.any(mask):
+            phase = phase - float(np.mean(phase[mask])) * mask
+        self._static_coefficients = coefficients
+        self._disturbance_meta = {
+            "coeff_l2": float(np.linalg.norm(list(coefficients.values()))),
+            "active_modes": len(coefficients),
+        }
+        return phase
+
+
+class SimTurbulenceAOEnv(_BaseSimAOEnv):
+    """Slowly varying turbulence with a moving window over a large phase screen."""
+
+    def __init__(
+        self,
+        *,
+        screen_step_px: int = 2,
+        screen_margin_steps: int = 20,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.screen_step_px = max(int(screen_step_px), 0)
+        self.screen_margin_steps = max(int(screen_margin_steps), 0)
+        self._large_phase_screen: np.ndarray | None = None
+        self._screen_row_start = 0
+        self._screen_offset_px = 0
+
+    def _sample_disturbance(self) -> np.ndarray:
+        width = self.config.N + self.screen_step_px * (self.max_steps + self.screen_margin_steps)
+        side = max(self.config.N, width)
+        big_cfg = make_beam_config(
+            n_grid=side,
+            aperture_size=self.config.L * side / self.config.N,
+            wavelength=self.config.wavelength,
+            cn2=self.config.Cn2,
+            l_max=self.config.L0,
+            l_min=self.config.l0,
+            propagation_distance=self.config.propagation_distance,
+        )
+        self._large_phase_screen = turbulence_phase(
+            big_cfg,
+            cn2=self.config.Cn2,
+            l_max=self.config.L0,
+            l_min=self.config.l0,
+            propagation_distance=self.config.propagation_distance,
+            rng=self.np_random,
+        )
+        self._screen_row_start = (side - self.config.N) // 2
+        self._screen_offset_px = 0
+        phase = self._current_window()
+        self._disturbance_meta = {
+            "screen_offset_px": self._screen_offset_px,
+            "screen_width_px": side,
+        }
+        return phase
+
+    def _current_window(self) -> np.ndarray:
+        if self._large_phase_screen is None:
+            raise RuntimeError("Large turbulence screen is not initialized.")
+        row = slice(self._screen_row_start, self._screen_row_start + self.config.N)
+        col = slice(self._screen_offset_px, self._screen_offset_px + self.config.N)
+        return self._large_phase_screen[row, col].copy()
+
+    def _advance_disturbance(self) -> None:
+        if self._large_phase_screen is None or self.screen_step_px <= 0:
+            return
+        max_offset = self._large_phase_screen.shape[1] - self.config.N
+        self._screen_offset_px = min(self._screen_offset_px + self.screen_step_px, max_offset)
+        self._disturbance_meta["screen_offset_px"] = self._screen_offset_px
+        self._apply_disturbance(self._current_window())
+
+
+__all__ = [
+    "LaserCastEnv",
+    "TraditionalAOEnv",
+    "StaticAberrationAOEnv",
+    "SimTurbulenceAOEnv",
+]

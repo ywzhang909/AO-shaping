@@ -1,0 +1,49 @@
+# Pre-commit hooks configuration
+# Install: pip install pre-commit && pre-commit install
+
+repos:
+  # Ruff - linting and formatting
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # trailing whitespace
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linefix-ext=.md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb=5000']
+      - id: check-merge-conflict
+
+  # Check for debug statements
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: debug-statements
+      - id: check-toml
+
+# Auto-exclude third-party and generated files
+exclude: |
+  (?x)(
+    ^libs/ |
+    ^src/beam_project/ |
+    ^\.venv/ |
+    ^dist/ |
+    ^build/ |
+    \.egg-info/ |
+    __pycache__/ |
+    \.pyc$
+  )
+
+# Stages to run
+default_stages: [pre-commit]
+
+# All hooks should pass
+fail_fast: false

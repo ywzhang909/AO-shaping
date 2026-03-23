@@ -20,7 +20,7 @@ src/
 │ ├── main.py # 命令行入口点 
 │ ├── wf_runner.py # 波前优化器 
 │ ├── axis_beam_runner.py # 轴向光束优化器 
-│ ├── combined_runner.py # 组合优化器 
+│ ├── pipeline_runner.py # 串行 WF→PIB 流水线 
 │ ├── algorithm/ # 优化算法实现 
 │ ├── drivers/ # 硬件驱动 
 │ ├── optimizer/ # 优化器模块 
@@ -32,7 +32,7 @@ src/
 
 ### 环境要求
 
-- Python 3.13+
+- Python 3.12+
 - Windows/Linux/macOS
 
 ### 安装步骤
@@ -53,7 +53,7 @@ source .venv/bin/activate  # Linux/macOS
 
 3. 安装依赖:
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
 ## 使用说明
@@ -111,9 +111,9 @@ python src/ao_shaping/main.py pib [OPTIONS]
 python src/ao_shaping/main.py pib --epochs 5000 --cam_id 1 --debug
 ```
 
-#### 组合优化器 (combine)
+#### 串行流水线优化器 (pipeline)
 ```bash
-python src/ao_shaping/main.py combine [OPTIONS]
+python src/ao_shaping/main.py pipeline [OPTIONS]
 ```
 
 选项:
@@ -129,12 +129,12 @@ python src/ao_shaping/main.py combine [OPTIONS]
 
 示例:
 ```bash
-python src/ao_shaping/main.py combine --epochs 6000 --debug
+python src/ao_shaping/main.py pipeline --epochs 6000 --debug
 ```
 
-### 组合优化器处理流程详解
+### 串行流水线优化器处理流程详解
 
-组合优化器采用分阶段优化策略，集成了波前传感器和CCD相机的优势，通过两个阶段的优化实现高质量的光束输出。
+串行流水线优化器采用分阶段优化策略，集成了波前传感器和CCD相机的优势，通过两个阶段的优化实现高质量的光束输出。
 
 #### 1. 使用的设备
 

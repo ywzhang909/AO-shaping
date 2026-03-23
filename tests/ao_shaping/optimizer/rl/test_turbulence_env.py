@@ -1,6 +1,6 @@
 import numpy as np
 
-from ao_shaping.optimizer.rl.envs import SimTurbulenceAOEnv
+from ao_shaping.optimizer.rl.envs import SimTurbulenceAOEnv, StaticAberrationAOEnv
 
 
 def test_sim_turbulence_env_camera_mode_reset_and_step() -> None:
@@ -16,7 +16,9 @@ def test_sim_turbulence_env_camera_mode_reset_and_step() -> None:
     assert obs["ccd"].shape == (8, 32, 32)
     assert obs["hartmann_slopes"].shape == (8, 32)
     assert obs["dm_signal"].shape == (8, 16)
-    assert obs["metrics"].shape == (3,)
+    assert obs["metrics"].shape == (5,)
+    assert obs["metrics"][0] >= 0.0
+    assert obs["metrics"][1] >= 0.0
     assert "pib" in info
 
     action = np.zeros(env.action_space.shape, dtype=np.float32)
@@ -41,10 +43,55 @@ def test_sim_turbulence_env_hartmann_mode_reset_and_step() -> None:
     assert obs["ccd"].shape == (8, 32, 32)
     assert obs["hartmann_slopes"].shape == (8, 32)
     assert obs["dm_signal"].shape == (8, 16)
-    assert obs["metrics"].shape == (3,)
+    assert obs["metrics"].shape == (5,)
+    assert obs["metrics"][4] == 0.0
     assert info["pib_target"] > 0
 
     action = np.ones(env.action_space.shape, dtype=np.float32) * 0.05
     _, _, terminated, truncated, _ = env.step(action)
     assert terminated is False
     assert truncated is False
+
+
+def test_static_aberration_env_reset_and_step() -> None:
+    env = StaticAberrationAOEnv(
+        n_grid=32,
+        n_actuators=4,
+        n_subapertures=4,
+        max_steps=4,
+        n_zernike_modes=6,
+    )
+
+    obs, info = env.reset(seed=123)
+    assert obs["ccd"].shape == (8, 32, 32)
+    assert obs["hartmann_slopes"].shape == (8, 32)
+    assert obs["dm_signal"].shape == (8, 16)
+    assert obs["metrics"].shape == (5,)
+    assert info["active_modes"] == 6
+    assert info["disturbance_rms"] > 0.0
+
+    action = np.zeros(env.action_space.shape, dtype=np.float32)
+    next_obs, reward, terminated, truncated, next_info = env.step(action)
+    assert next_obs["ccd"].shape == (8, 32, 32)
+    assert isinstance(reward, float)
+    assert next_info["disturbance_rms"] > 0.0
+    assert terminated is False
+    assert truncated is False
+
+
+def test_sim_turbulence_env_moves_window_each_step() -> None:
+    env = SimTurbulenceAOEnv(
+        n_grid=32,
+        n_actuators=4,
+        n_subapertures=4,
+        max_steps=5,
+        cn2=1e-15,
+        screen_step_px=3,
+    )
+
+    _, info = env.reset(seed=123)
+    assert info["screen_offset_px"] == 0
+
+    action = np.zeros(env.action_space.shape, dtype=np.float32)
+    _, _, _, _, next_info = env.step(action)
+    assert next_info["screen_offset_px"] == 3

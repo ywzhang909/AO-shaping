@@ -22,6 +22,10 @@ OPTIMIZER_MAP = {
     "munow": MunoW,
 }
 
+
+def _current_strehl(ao_sys: TraditionalAOSystem) -> float:
+    return float(ao_sys.observe()["strehl"])
+
 def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs) -> Base:
     """Create optimizer instance."""
     opt_class = OPTIMIZER_MAP.get(optimizer_type.lower(), AdaMOD)
@@ -42,7 +46,7 @@ def optimize_spgd(
     n_grid: int = 256,
     aperture: float = 0.1,
     wavelength: float = 1550e-9,
-    Cn2: float = 1e-9,
+    Cn2: float = 1e-14,
     dm_actuators: int = 8,
     dm_stroke: float = 5e-6,
     propagation_distance: float = 1000.0,
@@ -186,9 +190,7 @@ def optimize_spgd(
     update_iter = epochs + 1
 
     init_img = ao_sys.get_image()
-    init_phase = np.angle(init_img)
-    init_rms = np.sqrt(np.mean(init_phase ** 2))
-    _strehl_init = np.exp(-init_rms ** 2) if init_rms < 10 else 0.001
+    _strehl_init = _current_strehl(ao_sys)
 
     recorder.append(
         {
@@ -264,9 +266,7 @@ def optimize_spgd(
 
             pib, pib_ratio = calc_pib(pos_img)
 
-            phase = np.angle(pos_img)
-            phase_rms = np.sqrt(np.mean(phase ** 2))
-            strehl = np.exp(-phase_rms ** 2) if phase_rms < 10 else 0.001
+            strehl = _current_strehl(ao_sys)
 
             if epoch % update_iter == update_iter - 1 and not _fix_bucket:
                 _init_r = max(_init_r * 0.9, ideal_r)
@@ -315,7 +315,7 @@ def optimize_spgd_zernike(
     n_grid: int = 256,
     aperture: float = 0.1,
     wavelength: float = 1550e-9,
-    Cn2: float = 1e-9,
+    Cn2: float = 1e-14,
     propagation_distance: float = 1000.0,
     learning_schedule: bool = False,
     aber_strength: float = 1.0,
@@ -393,9 +393,6 @@ def optimize_spgd_zernike(
     else:
         _aber_phase = np.zeros((n_grid, n_grid))
 
-    if np.any(_aber_phase != 0):
-        ao_sys.E_corrected = ao_sys.E_corrected * np.exp(1j * _aber_phase)
-
     cart = RZern(n_max)
     cart.make_cart_grid(X, Y)
 
@@ -404,6 +401,11 @@ def optimize_spgd_zernike(
 
     def zernike2phase(c: np.ndarray) -> np.ndarray:
         return np.array(cart.eval_grid(c, matrix=True))
+
+    def _apply_zernike_phase(coeffs: np.ndarray) -> np.ndarray:
+        z_phase = zernike2phase(coeffs) * 2 * np.pi / wavelength
+        ao_sys.E_corrected = ao_sys._base_field * np.exp(1j * (_aber_phase + z_phase))
+        return z_phase
 
     R0 = n_grid / 2
 
@@ -453,9 +455,8 @@ def optimize_spgd_zernike(
 
     _init_r = r_bucket
 
-    _strehl_init = ao_sys.reset()["strehl"]
-    if _aber_phase is not None and np.any(_aber_phase != 0):
-        ao_sys.E_corrected = ao_sys.E_corrected * np.exp(1j * _aber_phase)
+    phase = _apply_zernike_phase(c)
+    _strehl_init = _current_strehl(ao_sys)
 
     recorder.append(
         {
@@ -499,18 +500,16 @@ def optimize_spgd_zernike(
                 disturb_c[disturb_c == 0] = -1
                 disturb_c = current_delta * disturb_c
                 c = c + disturb_c / 2
-                phase = zernike2phase(c)
+                phase = _apply_zernike_phase(c)
                 flag = 1
 
             if flag == 1:
-                ao_sys.E_corrected = ao_sys.E_corrected * np.exp(1j * phase * 2 * np.pi / wavelength)
                 pos_img = ao_sys.get_image()
                 pos_pib, pos_ratio = calc_pib(pos_img)
                 c = c - disturb_c
-                phase = zernike2phase(c)
+                phase = _apply_zernike_phase(c)
                 flag = -1
             elif flag == -1:
-                ao_sys.E_corrected = ao_sys.E_corrected * np.exp(1j * phase * 2 * np.pi / wavelength)
                 neg_img = ao_sys.get_image()
                 neg_pib, neg_ratio = calc_pib(neg_img)
                 J = (pos_pib + neg_pib) / 2
@@ -526,18 +525,14 @@ def optimize_spgd_zernike(
                 else:
                     update = adaptive_optimizer.update(gradient)
                 c = np.clip(c + update + disturb_c / 2, -5.0, 5.0)
-                phase = zernike2phase(c)
-                ao_sys.E_corrected = ao_sys.E_corrected * np.exp(1j * phase * 2 * np.pi / wavelength)
+                phase = _apply_zernike_phase(c)
                 pos_img = ao_sys.get_image()
                 flag = 0
             else:
                 pos_img = ao_sys.get_image()
 
             pib, pib_ratio = calc_pib(pos_img)
-            strehl_dict = ao_sys.reset()
-            strehl = strehl_dict["strehl"]
-            if _aber_phase is not None and np.any(_aber_phase != 0):
-                ao_sys.E_corrected = ao_sys.E_corrected * np.exp(1j * _aber_phase)
+            strehl = _current_strehl(ao_sys)
 
             if epoch % update_iter == update_iter - 1 and not _fix_bucket:
                 _init_r = max(_init_r * 0.9, ideal_r)
@@ -585,7 +580,7 @@ def optimize_pso(
     n_grid: int = 256,
     aperture: float = 0.1,
     wavelength: float = 1550e-9,
-    Cn2: float = 1e-9,
+    Cn2: float = 1e-14,
     dm_actuators: int = 8,
     dm_stroke: float = 5e-6,
     propagation_distance: float = 1000.0,
@@ -622,11 +617,10 @@ def optimize_pso(
     if Cn2 > 0:
         turb = ao_sys.turbulence.get_phase_screen()
         _aber_phase = turb * aber_strength if aber_strength != 1.0 else turb
+        ao_sys._turbulence_phase = _aber_phase
     else:
         _aber_phase = np.zeros((n_grid, n_grid))
-
-    if np.any(_aber_phase != 0):
-        ao_sys.E_corrected = ao_sys.E_corrected * np.exp(1j * _aber_phase)
+        ao_sys._turbulence_phase = None
 
     if r_bucket <= 0:
         _img = ao_sys.get_image()
@@ -647,7 +641,7 @@ def optimize_pso(
     global_best_pib = personal_best_pib[global_idx]
 
     init_pib = calc_pib(np.zeros(total_actuators))
-    _strehl_init = ao_sys.reset()["strehl"]
+    _strehl_init = _current_strehl(ao_sys)
 
     recorder.append({
         "sim_pso": "init", "pib": init_pib, "_p%": 0.0,
@@ -675,10 +669,7 @@ def optimize_pso(
                 global_best_pib = personal_best_pib[global_idx]
 
             pib = global_best_pib
-            strehl_dict = ao_sys.reset()
-            strehl = strehl_dict["strehl"]
-            if _aber_phase is not None and np.any(_aber_phase != 0):
-                ao_sys.E_corrected = ao_sys.E_corrected * np.exp(1j * _aber_phase)
+            strehl = _current_strehl(ao_sys)
 
             recorder.append({
                 "sim_pso": epoch, "pib": pib, "_p%": 0.0,
@@ -697,7 +688,7 @@ def optimize_ga(
     n_grid: int = 256,
     aperture: float = 0.1,
     wavelength: float = 1550e-9,
-    Cn2: float = 1e-9,
+    Cn2: float = 1e-14,
     dm_actuators: int = 8,
     dm_stroke: float = 5e-6,
     propagation_distance: float = 1000.0,
@@ -711,6 +702,9 @@ def optimize_ga(
     **kwargs
 ):
     """Genetic Algorithm for AO wavefront correction."""
+    if "population_size" in kwargs:
+        pop_size = int(kwargs.pop("population_size"))
+
     if seed is not None:
         np.random.seed(seed)
 
@@ -734,11 +728,10 @@ def optimize_ga(
     if Cn2 > 0:
         turb = ao_sys.turbulence.get_phase_screen()
         _aber_phase = turb * aber_strength if aber_strength != 1.0 else turb
+        ao_sys._turbulence_phase = _aber_phase
     else:
         _aber_phase = np.zeros((n_grid, n_grid))
-
-    if np.any(_aber_phase != 0):
-        ao_sys.E_corrected = ao_sys.E_corrected * np.exp(1j * _aber_phase)
+        ao_sys._turbulence_phase = None
 
     if r_bucket <= 0:
         _img = ao_sys.get_image()
@@ -756,7 +749,7 @@ def optimize_ga(
     best_pib = fitness[best_idx]
 
     init_pib = calc_pib(np.zeros(total_actuators))
-    _strehl_init = ao_sys.reset()["strehl"]
+    _strehl_init = _current_strehl(ao_sys)
 
     recorder.append({
         "sim_ga": "init", "pib": init_pib, "_p%": 0.0,
@@ -801,10 +794,7 @@ def optimize_ga(
                 best_pib = fitness[best_idx]
 
             pib = best_pib
-            strehl_dict = ao_sys.reset()
-            strehl = strehl_dict["strehl"]
-            if _aber_phase is not None and np.any(_aber_phase != 0):
-                ao_sys.E_corrected = ao_sys.E_corrected * np.exp(1j * _aber_phase)
+            strehl = _current_strehl(ao_sys)
 
             recorder.append({
                 "sim_ga": epoch, "pib": pib, "_p%": 0.0,
@@ -822,7 +812,7 @@ def optimize_sa(
     n_grid: int = 256,
     aperture: float = 0.1,
     wavelength: float = 1550e-9,
-    Cn2: float = 1e-9,
+    Cn2: float = 1e-14,
     dm_actuators: int = 8,
     dm_stroke: float = 5e-6,
     propagation_distance: float = 1000.0,
@@ -860,11 +850,10 @@ def optimize_sa(
     if Cn2 > 0:
         turb = ao_sys.turbulence.get_phase_screen()
         _aber_phase = turb * aber_strength if aber_strength != 1.0 else turb
+        ao_sys._turbulence_phase = _aber_phase
     else:
         _aber_phase = np.zeros((n_grid, n_grid))
-
-    if np.any(_aber_phase != 0):
-        ao_sys.E_corrected = ao_sys.E_corrected * np.exp(1j * _aber_phase)
+        ao_sys._turbulence_phase = None
 
     if r_bucket <= 0:
         _img = ao_sys.get_image()
@@ -882,7 +871,7 @@ def optimize_sa(
     T = T_init
 
     init_pib = current_pib
-    _strehl_init = ao_sys.reset()["strehl"]
+    _strehl_init = _current_strehl(ao_sys)
 
     recorder.append({
         "sim_sa": "init", "pib": init_pib, "_p%": 0.0,
@@ -906,10 +895,7 @@ def optimize_sa(
             T = max(T * cooling_rate, T_min)
 
             pib = best_pib
-            strehl_dict = ao_sys.reset()
-            strehl = strehl_dict["strehl"]
-            if _aber_phase is not None and np.any(_aber_phase != 0):
-                ao_sys.E_corrected = ao_sys.E_corrected * np.exp(1j * _aber_phase)
+            strehl = _current_strehl(ao_sys)
 
             recorder.append({
                 "sim_sa": epoch, "pib": pib, "_p%": 0.0,

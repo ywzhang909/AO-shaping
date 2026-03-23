@@ -1,12 +1,4 @@
-"""Compatibility layer for legacy ao_shaping.sim module.
-
-This module provides AOConfig and TraditionalAOSystem interfaces
-that were available in the deleted ao_shaping.sim package, re-implemented
-using sim.digitaltwin physics.
-
-These are NOT device drivers - they are standalone simulation utilities
-for optimizer scripts (sim_spgd.py, envs.py).
-"""
+"""Compatibility layer for legacy ao_shaping.sim module."""
 
 from __future__ import annotations
 
@@ -14,7 +6,14 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 import numpy as np
-from loguru import logger
+
+from ao_shaping.drivers.sim.beam_backend import (
+    focal_plane,
+    gaussian_pupil,
+    grid,
+    make_beam_config,
+    turbulence_phase,
+)
 
 
 @dataclass
@@ -38,125 +37,82 @@ class TraditionalAOSystem:
         self.config = config or AOConfig()
         cfg = self.config
 
-        self.dm_voltages = np.zeros(cfg.dm_actuators ** 2)
+        self.dm_voltages = np.zeros(cfg.dm_actuators**2, dtype=float)
         self._turbulence_phase: Optional[np.ndarray] = None
-
-        self._wave: Any = None
-        self._turb_screen: Any = None
-        self._env: Any = None
         self._mask: Optional[np.ndarray] = None
+        self._base_field: Optional[np.ndarray] = None
         self._dm_surface: Optional[np.ndarray] = None
-        self._phase_corrected: Optional[np.ndarray] = None
+        self._focal_field: Optional[np.ndarray] = None
         self._intensity: Optional[np.ndarray] = None
         self._image: Optional[np.ndarray] = None
         self._wavefront_override: Optional[np.ndarray] = None
 
+        self._beam_cfg = make_beam_config(
+            n_grid=cfg.N,
+            aperture_size=cfg.L,
+            wavelength=cfg.wavelength,
+            cn2=cfg.Cn2,
+            l_max=cfg.L0,
+            l_min=cfg.l0,
+            propagation_distance=cfg.propagation_distance,
+        )
         self._init_components()
 
     def _init_components(self) -> None:
         cfg = self.config
-
-        self._dpix = cfg.L / cfg.N
-        self._aperture = cfg.L / 2
-
-        x = np.linspace(-cfg.L / 2, cfg.L / 2, cfg.N)
-        y = np.linspace(-cfg.L / 2, cfg.L / 2, cfg.N)
-        X, Y = np.meshgrid(x, y)
-        R = np.sqrt(X ** 2 + Y ** 2)
-        mask = (np.sign(self._aperture - R) + 1) / 2
-        self._mask = mask
-
-        self._focus_phase = -np.pi * R ** 2 / cfg.wavelength / cfg.propagation_distance
-
-        self._sample_turbulence_phase()
-
+        x, y = grid(self._beam_cfg)
+        radius = np.sqrt(x**2 + y**2)
+        self._mask = radius <= (cfg.L / 2)
+        self._x = x
+        self._y = y
+        self._base_field = gaussian_pupil(self._beam_cfg, aperture_radius=cfg.L / 2)
         self._init_dm_surface()
+        self._sample_turbulence_phase()
+        ideal = self._propagate_field(
+            self._base_field,
+            dm_phase=np.zeros((cfg.N, cfg.N), dtype=float),
+            turb_phase=np.zeros((cfg.N, cfg.N), dtype=float),
+        )
+        self._ideal_peak = float(np.max(np.abs(ideal) ** 2))
 
     def _sample_turbulence_phase(self) -> None:
         cfg = self.config
-        if cfg.Cn2 <= 0:
-            self._turbulence_phase = np.zeros((cfg.N, cfg.N), dtype=float)
-            return
-
-        if self._turb_screen is not None and self._wave is not None and self._dt_base is not None:
-            wave = self._dt_base.Wave()
-            wave.change_grid(cfg.N, cfg.L / cfg.N)
-            wave.wavelength = cfg.wavelength
-            wave.refractive = 1.0
-            wave.wavefront = np.ones((cfg.N, cfg.N), dtype=complex)
-            self._turb_screen.out(wave)
-            self._turbulence_phase = np.angle(wave.wavefront)
-            return
-
-        self._turbulence_phase = self._generate_kolmogorov_phase()
-
-    def _generate_kolmogorov_phase(self) -> np.ndarray:
-        cfg = self.config
-        k = 2 * np.pi / cfg.wavelength
-        r0 = (0.423 * (k**2) * cfg.Cn2 * cfg.propagation_distance) ** (-3 / 5)
-
-        fx = np.fft.fftshift(np.fft.fftfreq(cfg.N, self._dpix))
-        fy = np.fft.fftshift(np.fft.fftfreq(cfg.N, self._dpix))
-        fx_grid, fy_grid = np.meshgrid(fx, fy)
-        freq = np.sqrt(fx_grid**2 + fy_grid**2)
-
-        fm = 5.92 / (2 * np.pi * max(cfg.l0, 1e-12))
-        f0 = 1.0 / max(cfg.L0, 1e-12)
-        psd_phi = (
-            0.023
-            * r0 ** (-5 / 3)
-            * np.exp(-(freq / fm) ** 2)
-            / ((freq**2 + f0**2) ** (11 / 6))
-        )
-        psd_phi[cfg.N // 2, cfg.N // 2] = 0.0
-
-        delta_f = 1.0 / (cfg.N * self._dpix)
-        noise = np.random.normal(size=(cfg.N, cfg.N)) + 1j * np.random.normal(
-            size=(cfg.N, cfg.N)
-        )
-        coeff = noise * np.sqrt(psd_phi) * delta_f
-        return np.real(np.fft.ifftshift(np.fft.ifft2(np.fft.fftshift(coeff)))) * (
-            cfg.N**2
+        self._turbulence_phase = turbulence_phase(
+            self._beam_cfg,
+            cn2=cfg.Cn2,
+            l_max=cfg.L0,
+            l_min=cfg.l0,
+            propagation_distance=cfg.propagation_distance,
         )
 
     def _init_dm_surface(self) -> None:
         cfg = self.config
-        wave = self._wave
+        x = self._x
+        y = self._y
 
-        x = np.linspace(-cfg.L / 2, cfg.L / 2, cfg.N)
-        y = np.linspace(-cfg.L / 2, cfg.L / 2, cfg.N)
-        X, Y = np.meshgrid(x, y)
-
-        sigma = 0.8 / cfg.dm_actuators
+        sigma = 0.8 / cfg.dm_actuators * (cfg.L / 2)
         act_x = np.linspace(-0.9, 0.9, cfg.dm_actuators) * (cfg.L / 2)
         act_y = np.linspace(-0.9, 0.9, cfg.dm_actuators) * (cfg.L / 2)
         act_X, act_Y = np.meshgrid(act_x, act_y)
 
-        inf_matrix = np.zeros((cfg.dm_actuators ** 2, cfg.N, cfg.N))
-        for i, (ax, ay) in enumerate(
-            zip(act_X.flatten(), act_Y.flatten())
-        ):
-            R2 = (X - ax) ** 2 + (Y - ay) ** 2
-            inf_matrix[i] = np.exp(-R2 / (2 * sigma ** 2))
+        inf_matrix = np.zeros((cfg.dm_actuators**2, cfg.N, cfg.N), dtype=float)
+        for i, (ax, ay) in enumerate(zip(act_X.flatten(), act_Y.flatten())):
+            r2 = (x - ax) ** 2 + (y - ay) ** 2
+            inf_matrix[i] = np.exp(-r2 / (2 * sigma**2)) * self._mask
 
         self._inf_matrix = inf_matrix
-        self._act_x = act_x
-        self._act_y = act_y
-        self._grid_x = x
-        self._grid_y = y
-        self._X = X
-        self._Y = Y
+        self._dm_surface = np.zeros((cfg.N, cfg.N), dtype=float)
 
-        self._dm_surface = np.zeros((cfg.N, cfg.N))
-
-    def set_dm_voltages(self, voltages: np.ndarray) -> None:
-        self.dm_voltages = np.clip(voltages, -1, 1)
-        self._dm_surface = np.tensordot(
-            self.dm_voltages, self._inf_matrix, axes=1
-        )
-        self._wavefront_override = None
+    def _invalidate_cached_outputs(self) -> None:
+        self._focal_field = None
         self._intensity = None
         self._image = None
+
+    def set_dm_voltages(self, voltages: np.ndarray) -> None:
+        self.dm_voltages = np.clip(np.asarray(voltages, dtype=float), -1.0, 1.0)
+        self._dm_surface = np.tensordot(self.dm_voltages, self._inf_matrix, axes=1)
+        self._wavefront_override = None
+        self._invalidate_cached_outputs()
 
     @property
     def dm(self) -> "_DMProxy":
@@ -169,121 +125,113 @@ class TraditionalAOSystem:
     @property
     def E_corrected(self) -> np.ndarray:
         return self._get_corrected_wave()
-    
+
     @E_corrected.setter
     def E_corrected(self, value: np.ndarray) -> None:
-        self._wavefront_override = np.asarray(value, dtype=complex).copy()
-        self._intensity = None
-        self._image = None
+        self._wavefront_override = np.asarray(value, dtype=np.complex128).copy()
+        self._invalidate_cached_outputs()
+
+    def _get_dm_phase(self) -> np.ndarray:
+        return self._dm_surface * self.config.dm_stroke * (2 * np.pi / self.config.wavelength)
 
     def _get_corrected_wave(self) -> np.ndarray:
         if self._wavefront_override is not None:
             return self._wavefront_override
 
-        cfg = self.config
-
-        phase = self._focus_phase
+        total_phase = self._get_dm_phase()
         if self._turbulence_phase is not None:
-            phase = phase + self._turbulence_phase
+            total_phase = total_phase + self._turbulence_phase
+        return self._base_field * np.exp(1j * total_phase)
 
-        phase = phase + self._dm_surface * 2 * np.pi / cfg.wavelength
-        return self._mask.astype(np.complex128) * np.exp(1j * phase)
+    def _propagate_field(
+        self,
+        pupil_field: np.ndarray,
+        *,
+        dm_phase: np.ndarray | None = None,
+        turb_phase: np.ndarray | None = None,
+    ) -> np.ndarray:
+        phase = np.zeros_like(pupil_field, dtype=float)
+        if dm_phase is not None:
+            phase = phase + dm_phase
+        if turb_phase is not None:
+            phase = phase + turb_phase
+        field = pupil_field * np.exp(1j * phase)
+        return focal_plane(field, self._beam_cfg, self.config.propagation_distance)
 
     def _compute_image(self) -> np.ndarray:
         if self._intensity is None:
-            E = self._get_corrected_wave()
-            focal = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(E)))
-            self._intensity = np.abs(focal) ** 2
+            self._focal_field = focal_plane(
+                self._get_corrected_wave(),
+                self._beam_cfg,
+                self.config.propagation_distance,
+            )
+            self._intensity = np.abs(self._focal_field) ** 2
 
-        img = self._intensity.copy()
-        img = img / (np.max(img) + 1e-20) * 65535
-        return img.astype(np.uint16)
+        image = self._intensity / max(float(np.max(self._intensity)), 1e-20)
+        return np.round(image * 65535.0).astype(np.uint16)
 
     def get_image(self) -> np.ndarray:
         if self._image is None:
             self._image = self._compute_image()
         return self._image
 
-    def measure_wavefront(self) -> np.ndarray:
-        E = self._get_corrected_wave()
-        intensity = np.abs(E) ** 2
-        phase = np.angle(E)
+    def _phase_rms(self) -> float:
+        phase = np.angle(self._get_corrected_wave())
+        masked = phase[self._mask]
+        return float(np.sqrt(np.mean(masked**2))) if masked.size else 0.0
 
+    def _strehl(self) -> float:
+        if self._intensity is None:
+            self._compute_image()
+        peak = float(np.max(self._intensity))
+        return float(np.clip(peak / max(self._ideal_peak, 1e-12), 0.0, 1.0))
+
+    def measure_wavefront(self) -> np.ndarray:
+        phase = np.angle(self._get_corrected_wave()) * self._mask
+        grad_y, grad_x = np.gradient(phase)
         sub = self.config.subapertures
         sub_size = self.config.N // sub
-        N = self.config.N
-
-        x = np.arange(N)
-        y = np.arange(N)
-        X, Y = np.meshgrid(x, y)
-
         slopes_x: list[float] = []
         slopes_y: list[float] = []
 
         for i in range(sub):
             for j in range(sub):
-                mask = np.zeros((N, N), dtype=bool)
                 row_slice = slice(i * sub_size, (i + 1) * sub_size)
                 col_slice = slice(j * sub_size, (j + 1) * sub_size)
-                mask[row_slice, col_slice] = True
-
-                sub_I = intensity[mask]
-                sub_X = X[mask]
-                sub_Y = Y[mask]
-
-                if np.sum(sub_I) < 1e-10:
+                sub_mask = self._mask[row_slice, col_slice]
+                if not np.any(sub_mask):
                     slopes_x.append(0.0)
                     slopes_y.append(0.0)
                     continue
+                sx = grad_x[row_slice, col_slice][sub_mask]
+                sy = grad_y[row_slice, col_slice][sub_mask]
+                slopes_x.append(float(np.mean(sx) * self.config.pixel_scale))
+                slopes_y.append(float(np.mean(sy) * self.config.pixel_scale))
 
-                cx = np.sum(sub_X * sub_I) / np.sum(sub_I)
-                cy = np.sum(sub_Y * sub_I) / np.sum(sub_I)
-                center_x = np.mean(sub_X)
-                center_y = np.mean(sub_Y)
+        return np.array(slopes_x + slopes_y, dtype=np.float32)
 
-                slopes_x.append((cx - center_x) * self.config.pixel_scale)
-                slopes_y.append((cy - center_y) * self.config.pixel_scale)
+    def _build_result(self) -> dict[str, Any]:
+        image = self.get_image()
+        return {
+            "image": image,
+            "slopes": self.measure_wavefront(),
+            "strehl": self._strehl(),
+            "power": float(np.sum(self._intensity)) if self._intensity is not None else float(np.sum(image)),
+            "voltages": self.dm_voltages.copy(),
+            "phase_rms": self._phase_rms(),
+        }
 
-        return np.array(slopes_x + slopes_y)
+    def observe(self) -> dict[str, Any]:
+        return self._build_result()
 
     def reset(self) -> dict[str, Any]:
         self._sample_turbulence_phase()
-        self._intensity = None
-        self._image = None
-
-        img = self.get_image()
-        slopes = self.measure_wavefront()
-
-        phase = np.angle(self._get_corrected_wave())
-        phase_rms = np.sqrt(np.mean(phase**2))
-        strehl = float(np.exp(-phase_rms**2)) if phase_rms < 10 else 0.001
-
-        return {
-            "image": img,
-            "slopes": slopes,
-            "strehl": strehl,
-            "power": float(np.sum(img)),
-            "voltages": self.dm_voltages.copy(),
-        }
+        self._invalidate_cached_outputs()
+        return self._build_result()
 
     def step(self, action: np.ndarray) -> dict[str, Any]:
-        new_voltages = self.dm_voltages + action
-        self.set_dm_voltages(new_voltages)
-
-        img = self.get_image()
-        slopes = self.measure_wavefront()
-
-        phase = np.angle(self._get_corrected_wave())
-        phase_rms = np.sqrt(np.mean(phase**2))
-        strehl = float(np.exp(-phase_rms**2)) if phase_rms < 10 else 0.001
-
-        return {
-            "image": img,
-            "slopes": slopes,
-            "strehl": strehl,
-            "power": float(np.sum(img)),
-            "voltages": self.dm_voltages.copy(),
-        }
+        self.set_dm_voltages(self.dm_voltages + np.asarray(action, dtype=float))
+        return self._build_result()
 
 
 class _DMProxy:
@@ -292,8 +240,7 @@ class _DMProxy:
 
     @property
     def total_actuators(self) -> int:
-        cfg = self._ao.config
-        return cfg.dm_actuators ** 2
+        return self._ao.config.dm_actuators**2
 
 
 class _TurbProxy:
@@ -303,7 +250,7 @@ class _TurbProxy:
     @property
     def phase_screen(self) -> np.ndarray:
         if self._ao._turbulence_phase is None:
-            return np.zeros((self._ao.config.N, self._ao.config.N))
+            return np.zeros((self._ao.config.N, self._ao.config.N), dtype=float)
         return self._ao._turbulence_phase
 
     def get_phase_screen(self) -> np.ndarray:
