@@ -202,8 +202,6 @@ def optimize_pib(
     target_max_brightness=40,
     dm_unit_mask=None,
     dm_neibor_diff=200,
-    dm_max_voltage=None,
-    dm_min_voltage=None,
     optimizer_type: str = "adamod",
     enable_adaptive_search: bool = False,
     search_interval: int = 120,
@@ -270,14 +268,15 @@ def optimize_pib(
         raise ValueError("search_anchor must be 'best' or 'current'")
 
     recorder = Recorder(mark="pib", mode="max")
-    
+
     with CameraStreamManager(cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False) as cam,\
             NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT, max_neibor_diff=dm_neibor_diff) as dm:
         if dm_unit_mask is None:
-            dm_unit_mask = dm.default_dm_unit_mask
+            dm_unit_mask = np.ones(dm.DM_Num)
+            dm_unit_mask[0] = 0
             if dm_unit_mask[0]:
                 logger.warning("dm_unit_mask[0] is True, which means the first unit is active.")
-        
+
         if init_v is None or len(init_v) == 0:
             _init_v = np.zeros(dm.DM_Num, dtype=np.float64)
         else:
@@ -310,9 +309,8 @@ def optimize_pib(
                     np.where(_img > np.max(_img[:max(int(h//50),2),:max(int(w//50),2)]), 1, 0))
             else:
                 raise ValueError(f"known center: {center}")
-
         else:
-            center = center    
+            pass
         logger.info(f"Centroid: {center}, Max brightness: {np.max(_img)} @ {cam.exposure_time}ms")
 
         img_size = (cam_size, cam_size)
@@ -353,17 +351,16 @@ def optimize_pib(
 
         target_func = ImageTargetFunc.build_from_init_image(init_img)
         def calc_pib(img):
-            #
-            return target_func.pib(img, r_bucket)
-            
+            # return target_func.pib(img, r_bucket)
+
             # TODO 根据环围半径找出边缘梯度最大的阶数
             # r, nr = target_func.avg_radius(img, moment=0.5)
             # return -r, -nr
-            
-            # r = target_func.radius(img)
-            # return -r, 0
-            
-        
+
+            r = target_func.radius(img)
+            return -r, 0
+
+
         def test_pib(img):
             return target_func.pib(img, IDEAL_SPOT_RADIUS)[1]
 
@@ -430,13 +427,13 @@ def optimize_pib(
             evaluated = 0
 
             for candidate in candidates:
-                candidate = np.clip(candidate, dm.min_voltage, dm.max_voltage)
-                if tabu_memory.contains(candidate):
+                _candidate = np.clip(candidate, dm.V_Min, dm.V_Max)
+                if tabu_memory.contains(_candidate):
                     tabu_hits += 1
                     continue
-                if not dm.check_dm_unit_grad_safe(candidate):
+                if not dm.check_dm_unit_grad_safe(_candidate):
                     safe_rejects += 1
-                    tabu_memory.add(candidate)
+                    tabu_memory.add(_candidate)
                     continue
 
                 candidate_eval = evaluate_candidate(candidate)
@@ -515,18 +512,17 @@ def optimize_pib(
                 dm.send_voltages(_init_v - disturb_v)
                 neg_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
                 neg_pib, neg_pib_ratio = calc_pib(neg_img)
-                
-                if show:
-                    if not window.render(
-                        pos_img, _init_v, dm.V_Min, dm.V_Max, center, r_bucket, f"{epoch}"
-                    ):
-                        break
-                
+
+                if show and not window.render(
+                    pos_img, _init_v, dm.V_Min, dm.V_Max, center, r_bucket, f"{epoch}"
+                ):
+                    break
+
                 max_brightness = max([np.max(pos_img), np.max(neg_img)])
                 if max_brightness == 255 and exposure_time_ms == 0:
                     _resample_img = cam.autoset_exposure_time_ms(target_max_brightness, twice_valid=False)
                     optimizer.scale_momentum(np.sum(_resample_img) / np.sum(pos_img))
-                    
+
                 # if exposure_time_ms > 0 and max_brightness == 255:
                 #     # 固定曝光时，如果过曝，则使用pib_ratio计算梯度
                 #     optimizer.scale_momentum(neg_pib_ratio / neg_j)

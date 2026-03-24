@@ -1,15 +1,16 @@
 from abc import ABC, abstractmethod
 
+import numpy as np
 
 class DM(ABC):
     channel: int
 
     @abstractmethod
-    def transform(self, cmd):
+    def transform(self, cmd) -> np.ndarray:
         pass
 
     @abstractmethod
-    def send(self, cmd):
+    def send(self, cmd) -> np.ndarray:
         pass
 
     @abstractmethod

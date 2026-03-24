@@ -92,7 +92,7 @@ class NLight(DM):
 
     def get_neighbors(self, unit_id):
         return np.where(self.Units_Adj_Mat[unit_id, :] == 1)[0]
-    
+
     def check_dm_unit_grad_safe(self, vs):
         if self.max_iter_diff <= 0:
             return True
@@ -157,7 +157,7 @@ class DMUdp:
         return self._send(send_data) & self._send("10 00 00 00 01 00 03")
 
     def set_hv(self, hv:bool):
-        raise NotImplementedError()
+        raise NotImplementedError("set_hv func not Implement")
 
 class DMSdk:
 
@@ -166,7 +166,7 @@ class DMSdk:
         path = findlibs.find('Drv_UDPST')
         if path is None:
             raise Exception("Drv_UDPST.dll not found.")
-        
+
         dll = cdll.LoadLibrary(path)
 
         dll.GetConnection2.restype = c_bool
