@@ -272,7 +272,7 @@ def optimize_pib(
     recorder = Recorder(mark="pib", mode="max")
     
     with CameraStreamManager(cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False) as cam,\
-            NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT, max_neibor_diff=dm_neibor_diff, max_voltage=dm_max_voltage, min_voltage=dm_min_voltage) as dm:
+            NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT, max_neibor_diff=dm_neibor_diff) as dm:
         if dm_unit_mask is None:
             dm_unit_mask = dm.default_dm_unit_mask
             if dm_unit_mask[0]:
@@ -354,11 +354,11 @@ def optimize_pib(
         target_func = ImageTargetFunc.build_from_init_image(init_img)
         def calc_pib(img):
             #
-            # return target_func.pib(img, r_bucket)
+            return target_func.pib(img, r_bucket)
             
             # TODO 根据环围半径找出边缘梯度最大的阶数
-            r, nr = target_func.avg_radius(img, moment=0.5)
-            return -r, -nr
+            # r, nr = target_func.avg_radius(img, moment=0.5)
+            # return -r, -nr
             
             # r = target_func.radius(img)
             # return -r, 0
@@ -537,7 +537,7 @@ def optimize_pib(
                 diff = pos_j - neg_j
                 gradient = -diff * disturb_v
                 update = optimizer.update(gradient)
-                _to_update_v = np.clip(_init_v - update, dm.min_voltage, dm.max_voltage)
+                _to_update_v = np.clip(_init_v - update, dm.V_Min, dm.V_Max)
                 if dm.check_dm_unit_grad_safe(_to_update_v):
                     _init_v = _to_update_v
                 else:

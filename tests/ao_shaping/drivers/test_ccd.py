@@ -11,11 +11,9 @@ def test_cam_list():
     for cam in cam_list:
         print(cam)
 
-
 def test_cam(cam_id=0):
-    """Test CCD camera - requires hardware"""
-    pytest.skip("Requires CCD camera hardware")
-
+    with CameraStreamManager(id=cam_id) as cam:
+        assert cam.get_numpy_image()
 
 def test_exposure_time_difference(cam_id=0):
     """
