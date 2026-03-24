@@ -45,16 +45,34 @@ __all__ = [
     "NlightDM",
 ]
 
-# Try to import CameraStreamManager, but make it optional
+import logging
+
+
+logger = logging.getLogger(__name__)
+
+
+# Try to import CameraStreamManager, preferring Daheng and falling back to MIICAM.
 try:
     from .ccd.daheng import CameraStreamManager
 
     __all__ += ["CameraStreamManager"]
-except (ImportError, NameError) as e:
-    import logging
+except Exception as daheng_error:
+    try:
+        from .ccd.miicam import CameraStreamManager
 
-    logging.getLogger(__name__).warning(f"CameraStreamManager not available: {e}")
-    CameraStreamManager = None
+        __all__ += ["CameraStreamManager"]
+        logger.warning(
+            "Daheng CameraStreamManager not available; using MIICAM fallback: %s",
+            daheng_error,
+        )
+    except Exception as miicam_error:
+        logger.warning(
+            "CameraStreamManager not available. Daheng import failed: %s; "
+            "MIICAM import failed: %s",
+            daheng_error,
+            miicam_error,
+        )
+        CameraStreamManager = None
 
 # Try to import FFmpegCamera, but make it optional
 try:
@@ -62,9 +80,7 @@ try:
 
     __all__ += ["FFmpegCamera", "FFmpegCameraError"]
 except ImportError as e:
-    import logging
-
-    logging.getLogger(__name__).debug(f"FFmpegCamera not available: {e}")
+    logger.debug(f"FFmpegCamera not available: {e}")
     FFmpegCamera = None
     FFmpegCameraError = None
 
@@ -74,9 +90,7 @@ try:
 
     __all__ += ["SantecSLM200", "SantecSLM200Error"]
 except ImportError as e:
-    import logging
-
-    logging.getLogger(__name__).warning(f"SantecSLM200 not available: {e}")
+    logger.warning(f"SantecSLM200 not available: {e}")
     SantecSLM200 = None
     SantecSLM200Error = None
 
@@ -102,9 +116,7 @@ try:
         "open_visa_instrument",
     ]
 except ImportError as e:
-    import logging
-
-    logging.getLogger(__name__).debug(f"PyVISA components not available: {e}")
+    logger.debug(f"PyVISA components not available: {e}")
     VisaResourceManager = None
     VisaInstrument = None
     VisaInstrumentFactory = None
@@ -119,9 +131,7 @@ try:
 
     __all__ += ["SantecSLM200Visa", "create_slm_visa_instrument"]
 except ImportError as e:
-    import logging
-
-    logging.getLogger(__name__).debug(f"SantecSLM200Visa not available: {e}")
+    logger.debug(f"SantecSLM200Visa not available: {e}")
     SantecSLM200Visa = None
     create_slm_visa_instrument = None
 
