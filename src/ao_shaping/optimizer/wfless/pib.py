@@ -5,6 +5,7 @@ import os
 
 import tqdm
 import numpy as np
+import matplotlib.pylab as plt
 
 from ao_shaping.drivers import CameraStreamManager, NlightDM
 from ao_shaping.algorithm.adam import AdaMOD, Adam, AdamW, Base, Muno, MunoW, SGD
@@ -202,6 +203,8 @@ def optimize_pib(
     target_max_brightness=40,
     dm_unit_mask=None,
     dm_neibor_diff=200,
+    dm_max_voltage=None,
+    dm_min_voltage=None,
     optimizer_type: str = "adamod",
     enable_adaptive_search: bool = False,
     search_interval: int = 120,
@@ -268,15 +271,14 @@ def optimize_pib(
         raise ValueError("search_anchor must be 'best' or 'current'")
 
     recorder = Recorder(mark="pib", mode="max")
-
+    
     with CameraStreamManager(cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False) as cam,\
             NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT, max_neibor_diff=dm_neibor_diff) as dm:
         if dm_unit_mask is None:
-            dm_unit_mask = np.ones(dm.DM_Num)
-            dm_unit_mask[0] = 0
+            dm_unit_mask = dm.default_dm_unit_mask
             if dm_unit_mask[0]:
                 logger.warning("dm_unit_mask[0] is True, which means the first unit is active.")
-
+        
         if init_v is None or len(init_v) == 0:
             _init_v = np.zeros(dm.DM_Num, dtype=np.float64)
         else:
@@ -309,13 +311,20 @@ def optimize_pib(
                     np.where(_img > np.max(_img[:max(int(h//50),2),:max(int(w//50),2)]), 1, 0))
             else:
                 raise ValueError(f"known center: {center}")
+
         else:
-            pass
-        logger.info(f"Centroid: {center}, Max brightness: {np.max(_img)} @ {cam.exposure_time}ms")
+            center = center
+
+        if show:
+            plt.imshow(_img, cmap='gray')
+            plt.scatter(x = center[0], y = center[1], c='red', s=5)
+            plt.show()
+
+        logger.info(f"Centroid brightness : {_img[center[::-1]]}@{center}, Max brightness: {np.max(_img)} @ {cam.exposure_time}ms")
 
         img_size = (cam_size, cam_size)
         img_size, center = cam.reset_window(center, img_size)
-
+        logger.info(f"reset window center @ {center}")
         if exposure_time_ms > 0:
             cam.exposure_time = exposure_time_ms
             init_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
@@ -351,16 +360,17 @@ def optimize_pib(
 
         target_func = ImageTargetFunc.build_from_init_image(init_img)
         def calc_pib(img):
-            # return target_func.pib(img, r_bucket)
-
+            #
+            return target_func.pib(img, r_bucket)
+            
             # TODO 根据环围半径找出边缘梯度最大的阶数
             # r, nr = target_func.avg_radius(img, moment=0.5)
-            # return -r, -nr
-
-            r = target_func.radius(img)
-            return -r, 0
-
-
+            # return r, nr
+            
+            # r = target_func.radius(img)
+            # return r, 0
+            
+        
         def test_pib(img):
             return target_func.pib(img, IDEAL_SPOT_RADIUS)[1]
 
@@ -411,6 +421,7 @@ def optimize_pib(
             }
 
         def run_adaptive_search(epoch: int, current_v: np.ndarray, current_pib: float) -> dict | None:
+            logger.info(f'tabu search start @ {epoch}')
             anchor_v = best_v.copy() if search_anchor == "best" else current_v.copy()
             anchor_pib = best_pib if search_anchor == "best" else float(current_pib)
             candidates = _generate_search_candidates(
@@ -427,13 +438,13 @@ def optimize_pib(
             evaluated = 0
 
             for candidate in candidates:
-                _candidate = np.clip(candidate, dm.V_Min, dm.V_Max)
-                if tabu_memory.contains(_candidate):
+                candidate = np.clip(candidate, dm.V_Min, dm.V_Max)
+                if tabu_memory.contains(candidate):
                     tabu_hits += 1
                     continue
-                if not dm.check_dm_unit_grad_safe(_candidate):
+                if not dm.check_dm_unit_grad_safe(candidate):
                     safe_rejects += 1
-                    tabu_memory.add(_candidate)
+                    tabu_memory.add(candidate)
                     continue
 
                 candidate_eval = evaluate_candidate(candidate)
@@ -512,17 +523,18 @@ def optimize_pib(
                 dm.send_voltages(_init_v - disturb_v)
                 neg_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
                 neg_pib, neg_pib_ratio = calc_pib(neg_img)
-
-                if show and not window.render(
-                    pos_img, _init_v, dm.V_Min, dm.V_Max, center, r_bucket, f"{epoch}"
-                ):
-                    break
-
+                
+                if show:
+                    if not window.render(
+                        pos_img, _init_v, dm.V_Min, dm.V_Max, center, r_bucket, f"{epoch}"
+                    ):
+                        break
+                
                 max_brightness = max([np.max(pos_img), np.max(neg_img)])
                 if max_brightness == 255 and exposure_time_ms == 0:
                     _resample_img = cam.autoset_exposure_time_ms(target_max_brightness, twice_valid=False)
                     optimizer.scale_momentum(np.sum(_resample_img) / np.sum(pos_img))
-
+                    
                 # if exposure_time_ms > 0 and max_brightness == 255:
                 #     # 固定曝光时，如果过曝，则使用pib_ratio计算梯度
                 #     optimizer.scale_momentum(neg_pib_ratio / neg_j)
@@ -533,7 +545,7 @@ def optimize_pib(
                 diff = pos_j - neg_j
                 gradient = -diff * disturb_v
                 update = optimizer.update(gradient)
-                _to_update_v = np.clip(_init_v - update, dm.V_Min, dm.V_Max)
+                _to_update_v = np.clip(_init_v + update, dm.V_Min, dm.V_Max)
                 if dm.check_dm_unit_grad_safe(_to_update_v):
                     _init_v = _to_update_v
                 else:

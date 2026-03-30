@@ -226,18 +226,20 @@ def jitter_diameter(lamd, aperture, dist):
 
     return diameter
 
-def centroid(intensity:np.ndarray, moment:int=1, threshold=0.01, return_float=False) -> Tuple[float | int, float | int]:
+def centroid(intensity:np.ndarray, moment:int=1, threshold=0.00, return_float=False) -> Tuple[float | int, float | int]:
     """
     光强的质心位置
 
     :param intensity: 强度分布
-    :param x: x坐标矩阵
-    :param y: y坐标矩阵
+    :param moment: 阶
     :return center_x, center_y: 光强的质心
     """
-    _intensity = intensity.copy().astype(np.float32)
-    _intensity -= threshold*np.max(_intensity)
-    _intensity[_intensity < 0] = 0
+    if threshold > 0:
+        _intensity = intensity.copy().astype(np.float32)
+        _intensity -= threshold*np.max(_intensity)
+        _intensity[_intensity < 0] = 0
+    else:
+        _intensity = intensity
     
     y, x = center_of_mass(_intensity**moment)
     x, y = (float(x), float(y)) if return_float else (int(round(x)), int(round(y)))

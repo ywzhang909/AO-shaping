@@ -175,7 +175,7 @@ class CameraStreamManager:
         self.cam.OffsetX.set(x_offset)
         # 设置相机的垂直偏移量，确保偏移量是4的倍数
         self.cam.OffsetY.set(y_offset)
-
+        logger.info(f"ROI Window offset: ({x_offset, y_offset})")
         self.__update_properties()
         self.cam.stream_on()
 

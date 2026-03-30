@@ -81,7 +81,7 @@ def run(root_dir, load_file, cam_id, center, exposure_time_ms, epochs, r_bucket,
     # 处理初始电压
     if load_file.lower() == 'rms':
         init_v = get_init_V_by_rms()
-    elif Path.exists(load_file):
+    elif Path(load_file).exists():
         last_v = np.loadtxt(load_file)
         init_v = last_v.tolist()
     else:
