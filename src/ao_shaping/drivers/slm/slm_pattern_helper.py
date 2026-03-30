@@ -267,6 +267,91 @@ class PatternHelper:
 
         return img
 
+    def generate_zernike_polynomial(
+        self,
+        n_max: int = 4,
+        coefficients: dict[tuple[int, int], float] | None = None,
+        radius: float = None,
+    ) -> np.ndarray:
+        """
+        生成多阶 Zernike 多项式叠加相位图案
+
+        参数:
+            n_max: 最大径向阶数
+            coefficients: {(n, m): amplitude} 字典，例如 {(0,0): 1.0, (1,-1): 0.5}
+            radius: 圆形孔径半径 (像素), 默认为短边的一半
+
+        返回:
+            相位图案
+        """
+        height, width = self.resolution[1], self.resolution[0]
+        max_val = 2**self.bits - 1
+
+        if radius is None:
+            radius = min(height, width) // 2
+
+        # 创建归一化坐标
+        x = (np.arange(width, dtype=np.float64) - width / 2) / radius
+        y = (np.arange(height, dtype=np.float64) - height / 2) / radius
+        X, Y = np.meshgrid(x, y)
+
+        # 转换为极坐标
+        R = np.sqrt(X**2 + Y**2)
+        Theta = np.arctan2(Y, X)
+
+        # 只在圆内计算
+        mask = R <= 1.0
+
+        # 计算 Zernike 多项式
+        from scipy.special import factorial
+
+        def zernike_radial(n, m, r):
+            """Zernike 径向多项式"""
+            R = np.zeros_like(r)
+            for k in range((n - abs(m)) // 2 + 1):
+                coef = ((-1) ** k * factorial(n - k)) / (
+                    factorial(k)
+                    * factorial((n + abs(m)) // 2 - k)
+                    * factorial((n - abs(m)) // 2 - k)
+                )
+                R += coef * r ** (n - 2 * k)
+            return R
+
+        # 默认系数：前n_max阶都为0，除了 piston (0,0) 为1
+        if coefficients is None:
+            coefficients = {}
+            for n in range(n_max + 1):
+                for m in range(-n, n + 1):
+                    if (n - abs(m)) % 2 == 0:
+                        if n == 0 and m == 0:
+                            coefficients[(n, m)] = 1.0  # piston
+                        else:
+                            coefficients[(n, m)] = 0.0
+
+        # 叠加各阶 Zernike
+        phase_total = np.zeros_like(R)
+
+        for (n, m), amp in coefficients.items():
+            if abs(amp) < 1e-10:  # 跳过零系数
+                continue
+
+            if m >= 0:
+                Z = zernike_radial(n, m, R) * np.cos(m * Theta)
+            else:
+                Z = zernike_radial(n, -m, R) * np.sin(-m * Theta)
+
+            # 应用圆形孔径
+            Z = Z * mask
+
+            # 转换为相位 (单位: 2π) 并叠加
+            phase_total += Z * amp * 2 * np.pi
+
+        # 包裹并映射到 0~max_val
+        phase_wrapped = np.mod(phase_total, 2 * np.pi)
+        img = (phase_wrapped / (2 * np.pi) * max_val).astype(np.uint16)
+
+        return img
+
 
 class SLMPatternHelper:
     """Generate phase patterns in radians for Streamlit SLM helpers."""

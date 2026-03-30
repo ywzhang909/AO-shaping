@@ -13,13 +13,8 @@ if str(SRC_ROOT) not in sys.path:
 from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
 from ao_shaping.drivers.slm.slm_pattern_helper import PatternHelper, SLMPatternHelper
 
-# Initialize SLM pattern helper
-SLM_WIDTH = 1920
-SLM_HEIGHT = 1200
-pattern_helper = SLMPatternHelper()
-gray_pattern_helper = PatternHelper(
-    (SLM_WIDTH, SLM_HEIGHT), bits=SantecSLM200.Gray_Scale_bits
-)
+# Global pattern helpers (will be recreated per-SLM based on resolution)
+# Note: Resolution and bit depth now come from the SLM object when generating patterns
 
 
 def _initialize_slm_state() -> None:
@@ -96,6 +91,12 @@ def render_phase_preview(slm_num: int) -> None:
 
 def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | str]]:
     prefix = f"slm{slm_num}"
+
+    # Get SLM properties from session state (set during connection)
+    slm_width = st.session_state.get(f"slm{slm_num}_width", 1920)
+    slm_height = st.session_state.get(f"slm{slm_num}_height", 1200)
+    slm_pixel_size = st.session_state.get(f"slm{slm_num}_pixel_size_um", 8.0)
+
     pattern_type = st.selectbox(
         "选择相位图类型",
         options=[
@@ -113,7 +114,7 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
         key=f"{prefix}_pattern_type",
     )
 
-    params: dict[str, int | float | str] = {}
+    params: dict[str, Any] = {}
 
     if pattern_type in {"线性光栅", "全息光栅"}:
         params["period"] = st.number_input(
@@ -160,7 +161,7 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "像素尺寸 (um)",
             min_value=0.1,
             max_value=100.0,
-            value=8.0,
+            value=slm_pixel_size,
             step=0.1,
             key=f"{prefix}_lens_pixel_size",
         )
@@ -217,7 +218,7 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "像素尺寸 (um)",
             min_value=0.1,
             max_value=100.0,
-            value=8.0,
+            value=slm_pixel_size,
             step=0.1,
             key=f"{prefix}_microlens_pixel_size",
         )
@@ -242,117 +243,186 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "像素尺寸 (um)",
             min_value=0.1,
             max_value=100.0,
-            value=8.0,
+            value=slm_pixel_size,
             step=0.1,
             key=f"{prefix}_turbulence_pixel_size",
         )
     elif pattern_type == "Zernike":
-        params["n"] = st.number_input(
-            "径向阶数 n",
-            min_value=0,
-            max_value=20,
-            value=2,
+        # Maximum radial order
+        n_max = st.number_input(
+            "最大径向阶数 N",
+            min_value=1,
+            max_value=10,
+            value=4,
             step=1,
-            key=f"{prefix}_zernike_n",
+            key=f"{prefix}_zernike_n_max",
         )
-        params["m"] = st.number_input(
-            "角向阶数 m",
-            min_value=-20,
-            max_value=20,
-            value=0,
-            step=1,
-            key=f"{prefix}_zernike_m",
-        )
-        params["amplitude"] = st.number_input(
-            "振幅 (单位: 波长)",
-            min_value=0.0,
-            max_value=10.0,
-            value=1.0,
-            step=0.1,
-            key=f"{prefix}_zernike_amplitude",
-        )
+        params["n_max"] = n_max
         params["radius"] = st.number_input(
             "孔径半径 (像素)",
             min_value=1,
             max_value=2000,
-            value=min(SLM_WIDTH, SLM_HEIGHT) // 2,
+            value=min(slm_width, slm_height) // 2,
             step=1,
             key=f"{prefix}_zernike_radius",
         )
+
+        # Collect coefficients for all (n, m) pairs up to n_max
+        st.caption("各阶系数 (n, m):")
+        coefficients = {}
+
+        # Zernike polynomial naming (Noll's scheme)
+        zernike_names = {
+            (0, 0): "Piston",
+            (1, -1): "Tip",
+            (1, 1): "Tilt",
+            (2, 0): "Defocus",
+            (2, -2): "Astigmatism 45°",
+            (2, 2): "Astigmatism 0°",
+            (3, -1): "Coma Y",
+            (3, 1): "Coma X",
+            (3, -3): "Trefoil Y",
+            (3, 3): "Trefoil X",
+            (4, 0): "Spherical",
+            (4, -2): "Secondary Astig 45°",
+            (4, 2): "Secondary Astig 0°",
+            (4, -4): "Tetrafoil Y",
+            (4, 4): "Tetrafoil X",
+        }
+
+        # Generate all valid (n, m) pairs for orders up to n_max
+        for n in range(n_max + 1):
+            for m in range(-n, n + 1):
+                if (n - abs(m)) % 2 == 0:  # Valid Zernike order
+                    key = f"{prefix}_zernike_{n}_{m}"
+
+                    # Default value: 1.0 for piston (0,0), 0.0 for others
+                    default_val = 1.0 if n == 0 and m == 0 else 0.0
+
+                    # Get value from session state if exists, otherwise use default
+                    current_val = st.session_state.get(key, default_val)
+
+                    col1, col2, col3 = st.columns([1, 2, 2])
+                    with col1:
+                        st.write(f"Z{n},{m}")
+                    with col2:
+                        name = zernike_names.get((n, m), "")
+                        st.caption(name if name else f"n={n},m={m}")
+                    with col3:
+                        coeff = st.number_input(
+                            "系数",
+                            min_value=-5.0,
+                            max_value=5.0,
+                            value=float(current_val),
+                            step=0.1,
+                            key=key,
+                        )
+                    coefficients[(n, m)] = coeff
+
+        params["coefficients"] = coefficients
 
     return pattern_type, params
 
 
 def generate_phase_gray(
     slm: SantecSLM200,
-    wavelength_nm: int,
     pattern_type: str,
     params: dict[str, int | float | str],
 ) -> np.ndarray:
+    """Generate phase pattern using SLM properties.
+
+    Automatically reads resolution, pixel size, bit depth, and wavelength from the SLM object.
+    """
+    # Get SLM properties
+    width = slm.Panel_Res[0]
+    height = slm.Panel_Res[1]
+    pixel_size_um = slm.Pixel_Size_um
+    bits = slm.Gray_Scale_bits
+    wavelength_nm = slm.wavelength
+
+    # Create pattern helper with correct resolution and bit depth
+    slm_pattern_helper = SLMPatternHelper()
+    gray_helper = PatternHelper((width, height), bits=bits)
+
     if pattern_type == "平场":
-        phase_rad = np.zeros((SLM_HEIGHT, SLM_WIDTH))
+        phase_rad = np.zeros((height, width))
         return slm.create_phase_from_array(phase_rad)
     if pattern_type == "线性光栅":
-        phase_rad = pattern_helper.linear_grating(
-            width=SLM_WIDTH,
-            height=SLM_HEIGHT,
+        phase_rad = slm_pattern_helper.linear_grating(
+            width=width,
+            height=height,
             period=float(params["period"]),
             phase_range=float(params["phase_range"]),
         )
         return slm.create_phase_from_array(phase_rad)
     if pattern_type == "圆形光栅":
-        phase_rad = pattern_helper.circular_grating(
-            width=SLM_WIDTH,
-            height=SLM_HEIGHT,
+        phase_rad = slm_pattern_helper.circular_grating(
+            width=width,
+            height=height,
             radius=float(params["radius"]),
             phase_range=float(params["phase_range"]),
         )
         return slm.create_phase_from_array(phase_rad)
     if pattern_type == "透镜":
-        phase_rad = pattern_helper.lens(
-            width=SLM_WIDTH,
-            height=SLM_HEIGHT,
+        # Use pixel size from SLM if not provided in params
+        pixel_size = params.get("pixel_size_um", pixel_size_um)
+        phase_rad = slm_pattern_helper.lens(
+            width=width,
+            height=height,
             focal_length=float(params["focal_length_mm"]) * 1e-3,  # mm -> m
             wavelength=float(wavelength_nm) * 1e-9,  # nm -> m
-            pixel_size=float(params["pixel_size_um"]) * 1e-6,  # um -> m
+            pixel_size=float(pixel_size) * 1e-6,  # um -> m
         )
         return slm.create_phase_from_array(phase_rad)
     if pattern_type == "全息光栅":
-        phase_rad = pattern_helper.hologram(
-            width=SLM_WIDTH,
-            height=SLM_HEIGHT,
+        phase_rad = slm_pattern_helper.hologram(
+            width=width,
+            height=height,
             period=float(params["period"]),
             phase_range=float(params["phase_range"]),
         )
         return slm.create_phase_from_array(phase_rad)
     if pattern_type == "棋盘格":
-        return gray_pattern_helper.generate_checkerboard(period=int(params["period"]))
+        return gray_helper.generate_checkerboard(period=int(params["period"]))
     if pattern_type == "二元光栅":
-        return gray_pattern_helper.generate_binary_grating(
+        return gray_helper.generate_binary_grating(
             a=int(params["a"]),
             b=int(params["b"]),
             direction=str(params["direction"]),
         )
     if pattern_type == "微透镜阵列":
-        return gray_pattern_helper.generate_microlens_array(
+        # Use pixel size from SLM if not provided in params
+        pixel_size = params.get("pixel_size_um", pixel_size_um)
+        return gray_helper.generate_microlens_array(
             lens_size=int(params["lens_size"]),
             focal_length=float(params["focal_length_mm"]) * 1e-3,
-            wavelength=wavelength_nm * 1e-9,
-            pixel_size=float(params["pixel_size_um"]) * 1e-6,
+            wavelength=float(wavelength_nm) * 1e-9,
+            pixel_size=float(pixel_size) * 1e-6,
         )
     if pattern_type == "湍流相位屏":
-        return gray_pattern_helper.generate_turbulence_screen(
+        # Use pixel size from SLM if not provided in params
+        pixel_size = params.get("pixel_size_um", pixel_size_um)
+        return gray_helper.generate_turbulence_screen(
             Cn2=float(params["Cn2"]),
             L=float(params["L"]),
-            wavelength=wavelength_nm * 1e-9,
-            pixel_size=float(params["pixel_size_um"]) * 1e-6,
+            wavelength=float(wavelength_nm) * 1e-9,
+            pixel_size=float(pixel_size) * 1e-6,
         )
     if pattern_type == "Zernike":
-        return gray_pattern_helper.generate_zernike(
-            n=int(params["n"]),
-            m=int(params["m"]),
-            amplitude=float(params["amplitude"]),
-            radius=float(params["radius"]),
+        n_max = int(params.get("n_max", 4))
+        raw_coeffs = params.get("coefficients")
+        coefficients: dict[tuple[int, int], float] | None = None
+        if raw_coeffs is not None and isinstance(raw_coeffs, dict):
+            coefficients = {
+                k: float(v)
+                for k, v in raw_coeffs.items()
+                if isinstance(k, tuple) and isinstance(v, (int, float))
+            }
+        radius = float(params.get("radius", min(width, height) // 2))
+        return gray_helper.generate_zernike_polynomial(
+            n_max=n_max,
+            coefficients=coefficients,
+            radius=radius,
         )
     raise ValueError(f"未知相位图类型: {pattern_type}")
 
@@ -374,6 +444,20 @@ def main():
 
         # Only show wavelength and mode settings if connected
         if st.session_state.slm1_connected:
+            # Display device info
+            st.caption("设备信息")
+            col_info1, col_info2 = st.columns(2)
+            with col_info1:
+                st.write(
+                    f"分辨率: {st.session_state.slm1_width}×{st.session_state.slm1_height}"
+                )
+                st.write(f"像素尺寸: {st.session_state.slm1_pixel_size_um} μm")
+            with col_info2:
+                st.write(f"Bit数: {st.session_state.slm1_bits}")
+                st.write(f"SLM编号: {st.session_state.slm1.slm_number}")
+
+            st.divider()
+
             st.number_input(
                 "波长 (nm)",
                 min_value=450,
@@ -406,6 +490,20 @@ def main():
             disconnect_slm(2)
 
         if st.session_state.slm2_connected:
+            # Display device info
+            st.caption("设备信息")
+            col_info1, col_info2 = st.columns(2)
+            with col_info1:
+                st.write(
+                    f"分辨率: {st.session_state.slm2_width}×{st.session_state.slm2_height}"
+                )
+                st.write(f"像素尺寸: {st.session_state.slm2_pixel_size_um} μm")
+            with col_info2:
+                st.write(f"Bit数: {st.session_state.slm2_bits}")
+                st.write(f"SLM编号: {st.session_state.slm2.slm_number}")
+
+            st.divider()
+
             st.number_input(
                 "波长 (nm)",
                 min_value=450,
@@ -623,6 +721,11 @@ def connect_slm(slm_num: int):
             st.session_state.slm1_video_mode = slm.video_mode
             st.session_state.slm1_phase_preview = None
             st.session_state.slm1_phase_source = "连接成功，等待读取或下发相位"
+            # Store SLM properties from driver
+            st.session_state.slm1_width = slm.Panel_Res[0]
+            st.session_state.slm1_height = slm.Panel_Res[1]
+            st.session_state.slm1_pixel_size_um = slm.Pixel_Size_um
+            st.session_state.slm1_bits = slm.Gray_Scale_bits
             st.success(f"SLM {slm_num} 连接成功")
         else:
             slm = SantecSLM200(
@@ -637,6 +740,11 @@ def connect_slm(slm_num: int):
             st.session_state.slm2_video_mode = slm.video_mode
             st.session_state.slm2_phase_preview = None
             st.session_state.slm2_phase_source = "连接成功，等待读取或下发相位"
+            # Store SLM properties from driver
+            st.session_state.slm2_width = slm.Panel_Res[0]
+            st.session_state.slm2_height = slm.Panel_Res[1]
+            st.session_state.slm2_pixel_size_um = slm.Pixel_Size_um
+            st.session_state.slm2_bits = slm.Gray_Scale_bits
             st.success(f"SLM {slm_num} 连接成功")
     except Exception as e:
         st.error(f"SLM {slm_num} 连接失败: {e}")
@@ -726,7 +834,6 @@ def slm1_phase_control():
         try:
             phase_gray = generate_phase_gray(
                 st.session_state.slm1,
-                st.session_state.slm1_wavelength,
                 pattern_type,
                 params,
             )
@@ -789,7 +896,6 @@ def slm2_phase_control():
         try:
             phase_gray = generate_phase_gray(
                 st.session_state.slm2,
-                st.session_state.slm2_wavelength,
                 pattern_type,
                 params,
             )
