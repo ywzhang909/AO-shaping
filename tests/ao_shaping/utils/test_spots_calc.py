@@ -211,6 +211,205 @@ class TestCentroid:
         assert cx == 2
         assert cy == 2
 
+    def _create_gaussian_2d(self, shape: tuple, center: tuple, sigma: float) -> np.ndarray:
+        """创建2D高斯分布
+        
+        Args:
+            shape: 矩阵形状 (height, width)
+            center: 高斯中心 (x, y)
+            sigma: 高斯标准差
+            
+        Returns:
+            2D高斯分布矩阵
+        """
+        h, w = shape
+        cy, cx = np.ogrid[:h, :w]
+        x, y = center
+        gaussian = np.exp(-((cx - x) ** 2 + (cy - y) ** 2) / (2 * sigma ** 2))
+        return gaussian
+
+    def test_centroid_gaussian_centered(self):
+        """测试中心位置的高斯分布 - 100x100矩阵"""
+        size = 100
+        center = (50, 50)
+        sigma = 10.0
+        intensity = self._create_gaussian_2d((size, size), center, sigma)
+        
+        cx, cy = centroid(intensity, return_float=True)
+        
+        # 验证质心与高斯中心基本一致 (误差小于1像素)
+        assert abs(cx - center[0]) < 1.0, f"x质心={cx}, 期望={center[0]}"
+        assert abs(cy - center[1]) < 1.0, f"y质心={cy}, 期望={center[1]}"
+
+    def test_centroid_gaussian_shifted(self):
+        """测试偏移位置的高斯分布 - 100x100矩阵"""
+        size = 100
+        center = (30, 70)
+        sigma = 8.0
+        intensity = self._create_gaussian_2d((size, size), center, sigma)
+        
+        cx, cy = centroid(intensity, return_float=True)
+        
+        # 验证质心与高斯中心基本一致 (误差小于1像素)
+        assert abs(cx - center[0]) < 1.0, f"x质心={cx}, 期望={center[0]}"
+        assert abs(cy - center[1]) < 1.0, f"y质心={cy}, 期望={center[1]}"
+
+    def test_centroid_gaussian_with_noise(self):
+        """测试高斯分布+噪声 - 100x100矩阵"""
+        np.random.seed(42)
+        size = 100
+        center = (45, 55)
+        sigma = 12.0
+        
+        # 创建高斯分布
+        intensity = self._create_gaussian_2d((size, size), center, sigma)
+        
+        # 添加高斯噪声
+        noise_level = 0.05  # 噪声水平
+        noise = np.random.normal(0, noise_level, (size, size))
+        intensity = intensity + noise
+        
+        # 确保没有负值
+        intensity = np.clip(intensity, 0, None)
+        
+        cx, cy = centroid(intensity, return_float=True)
+        
+        # 验证质心与高斯中心基本一致 (误差小于2像素)
+        assert abs(cx - center[0]) < 2.0, f"x质心={cx}, 期望={center[0]}"
+        assert abs(cy - center[1]) < 2.0, f"y质心={cy}, 期望={center[1]}"
+
+    def test_centroid_gaussian_large_noise(self):
+        """测试高斯分布+较大噪声 - 100x100矩阵"""
+        np.random.seed(123)
+        size = 120
+        center = (60, 60)
+        sigma = 15.0
+        
+        # 创建高斯分布
+        intensity = self._create_gaussian_2d((size, size), center, sigma)
+        
+        # 添加较大高斯噪声
+        noise_level = 0.1  # 较高的噪声水平
+        noise = np.random.normal(0, noise_level, (size, size))
+        intensity = intensity + noise
+        
+        # 确保没有负值
+        intensity = np.clip(intensity, 0, None)
+        
+        cx, cy = centroid(intensity, return_float=True)
+        
+        # 验证质心与高斯中心基本一致 (误差小于3像素)
+        assert abs(cx - center[0]) < 3.0, f"x质心={cx}, 期望={center[0]}"
+        assert abs(cy - center[1]) < 3.0, f"y质心={cy}, 期望={center[1]}"
+
+    def test_centroid_gaussian_small_sigma(self):
+        """测试窄高斯分布 (小sigma) - 100x100矩阵"""
+        size = 100
+        center = (40, 60)
+        sigma = 5.0  # 较小的sigma
+        intensity = self._create_gaussian_2d((size, size), center, sigma)
+        
+        cx, cy = centroid(intensity, return_float=True)
+        
+        # 窄高斯应该更精确
+        assert abs(cx - center[0]) < 0.5, f"x质心={cx}, 期望={center[0]}"
+        assert abs(cy - center[1]) < 0.5, f"y质心={cy}, 期望={center[1]}"
+
+    def test_centroid_gaussian_large_sigma(self):
+        """测试宽高斯分布 (大sigma) - 100x100矩阵"""
+        size = 100
+        center = (50, 50)
+        sigma = 30.0  # 较大的sigma
+        intensity = self._create_gaussian_2d((size, size), center, sigma)
+        
+        cx, cy = centroid(intensity, return_float=True)
+        
+        # 宽高斯质心应该仍然准确
+        assert abs(cx - center[0]) < 1.0, f"x质心={cx}, 期望={center[0]}"
+        assert abs(cy - center[1]) < 1.0, f"y质心={cy}, 期望={center[1]}"
+
+    def test_centroid_gaussian_with_threshold(self):
+        """测试高斯分布+threshold参数 - 100x100矩阵"""
+        size = 100
+        center = (50, 50)
+        sigma = 10.0
+        intensity = self._create_gaussian_2d((size, size), center, sigma)
+        
+        # 添加背景噪声
+        intensity = intensity + 0.1
+        
+        cx, cy = centroid(intensity, threshold=0.1, return_float=True)
+        
+        # 使用threshold后应该忽略低于阈值的部分
+        assert abs(cx - center[0]) < 2.0, f"x质心={cx}, 期望={center[0]}"
+        assert abs(cy - center[1]) < 2.0, f"y质心={cy}, 期望={center[1]}"
+
+    def test_centroid_gaussian_integer_return(self):
+        """测试高斯分布返回整数质心 - 100x100矩阵"""
+        size = 100
+        center = (50, 50)
+        sigma = 10.0
+        intensity = self._create_gaussian_2d((size, size), center, sigma)
+        
+        cx, cy = centroid(intensity, return_float=False)
+        
+        # 验证返回整数
+        assert isinstance(cx, int)
+        assert isinstance(cy, int)
+        # 验证质心与高斯中心基本一致
+        assert abs(cx - center[0]) <= 1
+        assert abs(cy - center[1]) <= 1
+
+    def test_centroid_gaussian_moment(self):
+        """测试高斯分布moment参数 - 100x100矩阵"""
+        size = 100
+        center = (50, 50)
+        sigma = 10.0
+        intensity = self._create_gaussian_2d((size, size), center, sigma)
+        
+        # 测试moment=2
+        cx, cy = centroid(intensity, moment=2, return_float=True)
+        
+        # moment=2时质心应该更接近峰值中心
+        assert abs(cx - center[0]) < 1.0, f"x质心={cx}, 期望={center[0]}"
+        assert abs(cy - center[1]) < 1.0, f"y质心={cy}, 期望={center[1]}"
+
+    def test_centroid_gaussian_150x150(self):
+        """测试更大尺寸 - 150x150矩阵"""
+        size = 150
+        center = (75, 80)
+        sigma = 15.0
+        np.random.seed(456)
+        
+        intensity = self._create_gaussian_2d((size, size), center, sigma)
+        
+        # 添加噪声
+        noise = np.random.normal(0, 0.03, (size, size))
+        intensity = np.clip(intensity + noise, 0, None)
+        
+        cx, cy = centroid(intensity, return_float=True)
+        
+        assert abs(cx - center[0]) < 2.0, f"x质心={cx}, 期望={center[0]}"
+        assert abs(cy - center[1]) < 2.0, f"y质心={cy}, 期望={center[1]}"
+
+    def test_centroid_gaussian_200x200(self):
+        """测试更大尺寸 - 200x200矩阵"""
+        size = 200
+        center = (100, 100)
+        sigma = 20.0
+        np.random.seed(789)
+        
+        intensity = self._create_gaussian_2d((size, size), center, sigma)
+        
+        # 添加噪声
+        noise = np.random.normal(0, 0.02, (size, size))
+        intensity = np.clip(intensity + noise, 0, None)
+        
+        cx, cy = centroid(intensity, return_float=True)
+        
+        assert abs(cx - center[0]) < 2.0, f"x质心={cx}, 期望={center[0]}"
+        assert abs(cy - center[1]) < 2.0, f"y质心={cy}, 期望={center[1]}"
+
 
 class TestPeakPosition:
     def test_peak_position(self):

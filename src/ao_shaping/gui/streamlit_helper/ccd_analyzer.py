@@ -437,6 +437,14 @@ def main():
             # Manual refresh button
             manual_refresh = st.button("🔄 Refresh Image", type="primary")
 
+        # DEBUG: Log checkbox and button state
+        logger.debug(
+            f"[DEBUG] auto_refresh={st.session_state.auto_refresh}, "
+            f"manual_refresh={manual_refresh}, "
+            f"last_update_time={st.session_state.last_update_time:.3f}, "
+            f"update_interval={st.session_state.update_interval}"
+        )
+
         with col_status:
             if st.session_state.current_image is not None:
                 # Show capture timestamp to verify fresh image
@@ -453,7 +461,17 @@ def main():
         current_time = time.time()
         should_update = False
 
+        # DEBUG: Log decision factors
+        logger.debug(
+            f"[DEBUG] current_time={current_time:.3f}, "
+            f"elapsed={current_time - st.session_state.last_update_time:.3f}, "
+            f"time_check_passed={current_time - st.session_state.last_update_time >= st.session_state.update_interval}"
+        )
+
         if manual_refresh:
+            logger.debug(
+                "[DEBUG] Manual refresh button pressed - setting should_update=True"
+            )
             should_update = True
         elif st.session_state.auto_refresh:
             # Auto-refresh: check if enough time has passed
@@ -461,13 +479,33 @@ def main():
                 current_time - st.session_state.last_update_time
                 >= st.session_state.update_interval
             ):
+                logger.debug(
+                    "[DEBUG] Auto-refresh time interval passed - setting should_update=True"
+                )
                 should_update = True
+            else:
+                logger.debug(
+                    "[DEBUG] Auto-refresh but time interval not passed - no update"
+                )
+
+        logger.debug(f"[DEBUG] should_update={should_update}")
 
         if should_update:
             try:
+                # DEBUG: Log before camera capture
+                logger.debug("[DEBUG] Starting camera capture...")
+                capture_start = time.time()
+
                 # Get image directly - skip_first=False reduces delay, n_sample=1 for speed
                 img = st.session_state.camera.get_numpy_image(
                     n_sample=1, skip_first=False
+                )
+
+                # DEBUG: Log after camera capture
+                capture_end = time.time()
+                logger.debug(
+                    f"[DEBUG] Camera capture completed in {(capture_end - capture_start) * 1000:.1f}ms, "
+                    f"image shape={img.shape}, dtype={img.dtype}"
                 )
 
                 # Calculate centroid
@@ -503,13 +541,20 @@ def main():
                     "capture_time": capture_time,  # Add timestamp to verify fresh capture
                 }
 
-                # Update last update time
-                st.session_state.last_update_time = current_time
+                # Update last update time AFTER capture
+                st.session_state.last_update_time = time.time()
 
                 # Debug: Log capture to console
                 logger.info(f"Captured new image at {capture_time:.3f}")
 
+                # For auto-refresh, trigger rerun AFTER successful capture to create polling loop
+                # This creates the time-based polling effect
+                if st.session_state.auto_refresh:
+                    logger.debug("[DEBUG] Auto-refresh enabled, triggering st.rerun()")
+                    st.rerun()
+
             except Exception as e:
+                logger.error(f"[DEBUG] Failed to get image: {e}")
                 st.error(f"Failed to get image: {e}")
 
         # Status display moved above

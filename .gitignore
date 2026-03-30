@@ -64,3 +64,4 @@ docs/WFS20_Manual*
 # Binary assets
 *.png
 .agents/skills*
+nul
