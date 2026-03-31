@@ -17,16 +17,6 @@ except ImportError:
 
     CYTHON_TARGET_FUNC_AVAILABLE = False
 
-# 导入 Tabu Search 模块
-from .tabu_search import (
-    TabuMemory,
-    AdaptiveSearchState,
-    generate_search_candidates,
-    should_trigger_search,
-    TabuSearchRunner,
-    create_tabu_search_runner,
-)
-
 # 导出所有类和函数
 __all__ = [
     "Base",
@@ -36,12 +26,6 @@ __all__ = [
     "AdaMOD",
     "learning_schedule",
     "ImageTargetFunc",
-    "TabuMemory",
-    "AdaptiveSearchState",
-    "generate_search_candidates",
-    "should_trigger_search",
-    "TabuSearchRunner",
-    "create_tabu_search_runner",
 ]
 
 
