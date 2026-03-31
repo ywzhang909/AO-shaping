@@ -27,6 +27,9 @@ class NLight(DM):
         self.max_iter_diff = max_iter_diff
         self.max_neibor_diff = max_neibor_diff
 
+        self.default_dm_unit_mask = np.ones(DM_NUM)
+        self.default_dm_unit_mask[0] = 0
+
         self.c_driver = DMSdk()
         self.udp_driver = DMUdp()
 

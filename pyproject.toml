@@ -14,14 +14,11 @@ dependencies = [
     "nidaqmx>=0.8.10",
     "scikit-optimize>=0.10.2",
     "tensorboard>=2.20.0",
-    "nuitka>=2.8.1",
     "ordered-set>=4.1.0",
     "findlibs>=0.1.2",
-    "pytest>=8.4.2",
     "loguru>=0.7.3",
     "ansi2html>=1.9.2",
     "typing-extensions>=4.12.2",
-    "pytest-cov>=7.0.0",
     "coredumpy>=0.4.3",
     "asyncer>=0.0.10",
     "click>=8.3.0",
@@ -34,6 +31,13 @@ dependencies = [
     "streamlit>=1.40.0",
     "scipy>=1.15.0",
     "pillow>=11.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "nuitka>=2.8.1",
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
 ]
 
 [[tool.uv.index]]

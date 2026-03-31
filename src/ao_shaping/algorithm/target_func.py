@@ -9,7 +9,7 @@ from ao_shaping.utils.spots_calc import (
 class ImageTargetFunc:
 
     @classmethod
-    def build_from_init_image(cls, init_img:np.ndarray):
+    def build_from_init_image(cls: "ImageTargetFunc", init_img:np.ndarray) -> "ImageTargetFunc":
         h, w = init_img.shape
         _ret = cls(w, h, (h//2, w//2))
         center = _ret.intelligen_center(init_img)
@@ -107,6 +107,7 @@ class ImageTargetFunc:
         :param energy: 圆内的能量比，默认0.99，取值范围0~1，常用0.5，0.865， 0.99
         :return radius: 圆的半径
         """
+        # FIX
         power_in_circle = np.sum(intensity) * energy
         # intensity 复制扩展成3D 与 masks 维度一致
         intensity_3d = np.repeat(intensity[np.newaxis, ...], len(self.masks), axis=0)

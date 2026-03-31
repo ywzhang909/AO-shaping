@@ -78,7 +78,7 @@ def parse_tuple(ctx, param, value):
     default=0,
     help="半径桶大小 (default: 0,环围半径)。若设置为0,则根据功率半径自动调整。",
 )
-@click.option("--delta", default=2, help="优化步长 (default: 2)")
+@click.option("--delta", default=2.0, help="优化步长 (default: 2)")
 @click.option(
     "--lr", default=0.0, help="优化学习率 (default: 0.0,表示基于环围半径动态学习率衰减)"
 )
@@ -136,6 +136,7 @@ def parse_tuple(ctx, param, value):
     help="目标最大亮度值 (default: 90), 若为0则不自动调整曝光时间",
 )
 @click.option(
+    "-o",
     "--objective",
     type=click.Choice(["pib", "radiu", "avg_radiu"]),
     default="pib",
