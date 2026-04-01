@@ -556,13 +556,21 @@ def main():
 
 def _get_camera_class(driver_name: str):
     if driver_name == "MIICAM":
-        from ao_shaping.drivers.ccd.miicam import CameraStreamManager
+        try:
+            from ao_shaping.drivers.ccd.miicam_driver import CameraStreamManager
 
-        return CameraStreamManager
+            return CameraStreamManager
+        except ImportError as e:
+            raise ImportError(
+                f"MIICAM 驱动不可用: {e}. 请确保已安装 MIICAM SDK 或将 SDK 文件放置在正确的位置。"
+            )
     if driver_name == "Daheng":
-        from ao_shaping.drivers.ccd.daheng import CameraStreamManager
+        try:
+            from ao_shaping.drivers.ccd.daheng import CameraStreamManager
 
-        return CameraStreamManager
+            return CameraStreamManager
+        except ImportError as e:
+            raise ImportError(f"Daheng 驱动不可用: {e}. 请确保已安装 GxIPy 库。")
     raise ValueError(f"未知相机驱动: {driver_name}")
 
 
@@ -669,8 +677,9 @@ def render_camera_panel(cam_num: int) -> None:
             actual_exposure = camera.reset_exposure_time(
                 st.session_state[f"{prefix}_exposure_ms"]
             )
-            st.session_state[f"{prefix}_exposure_ms"] = int(actual_exposure)
-            st.success(f"曝光设置成功: {actual_exposure} ms")
+            # Note: Cannot modify session_state for widgets after instantiation in Streamlit
+            # Just show the actual value that was set
+            st.success(f"曝光设置成功: 期望值={st.session_state[f'{prefix}_exposure_ms']}ms, 实际值={actual_exposure}ms")
         except Exception as e:
             st.error(f"设置曝光失败: {e}")
             logger.error(f"Failed to set exposure for camera {cam_num}: {e}")

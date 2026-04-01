@@ -16,6 +16,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from ao_shaping.optimizer.wfless.pib import optimize_pib
+from ao_shaping.algorithm.target_func import ImageTargetFunc
 from ao_shaping.utils.file import (
     gen_file_path_uuid,
     gen_date_dir,
@@ -260,6 +261,36 @@ def run(
         with saved_file_name.with_suffix(".json").open("w", encoding="utf8") as f:
             json.dump(config, f, ensure_ascii=False, indent=4)
 
+        # Calculate second moment radius for all images and select the smallest
+        logger.info("Calculating second moment radius for all images...")
+        second_moment_radii = []
+        images = res_df["_img"].values
+        for idx, img in enumerate(images):
+            if img is not None:
+                target = ImageTargetFunc.build_from_init_image(img)
+                radius = target.second_moment_radius(img)
+                second_moment_radii.append(radius)
+            else:
+                second_moment_radii.append(None)
+
+        res_df["_second_moment_radius"] = second_moment_radii
+
+        # Find the image with minimum second moment radius (best focus)
+        valid_radii = [
+            (i, r) for i, r in enumerate(second_moment_radii) if r is not None
+        ]
+        if valid_radii:
+            min_radius_idx, min_radius = min(valid_radii, key=lambda x: x[1])
+            logger.info(
+                f"Best second moment radius: {min_radius:.3f} pixels @ epoch {min_radius_idx}"
+            )
+        else:
+            min_radius_idx = max_j_id
+            min_radius = None
+            logger.warning(
+                "All second moment calculations failed, falling back to PIB best"
+            )
+
         fig, ax = plt.subplots(2, 2, figsize=(12, 8))
         # init image
         plot_funcs["img"](
@@ -267,9 +298,9 @@ def run(
             ax[0, 0],
             f"Init Image, pib={res_df.iloc[0]['pib']:.3f}",
         )
-        # best image
+        # best PIB image
         axim = plot_funcs["img"](
-            res_df.iloc[max_j_id]["_img"], ax[0, 1], f"Best Image, pib={max_j:.3f}"
+            res_df.iloc[max_j_id]["_img"], ax[0, 1], f"Best PIB Image, pib={max_j:.3f}"
         )
         cbar = fig.colorbar(axim, ax=[ax[0, 0], ax[0, 1]], orientation="horizontal")
         # pib history
@@ -279,6 +310,58 @@ def run(
 
         plt.savefig(saved_file_name.with_suffix(".png"))
         plt.close()
+
+        # Save additional plot: second moment radius vs epoch
+        if valid_radii:
+            fig2, ax2 = plt.subplots(figsize=(10, 6))
+            epochs = [i for i, _ in valid_radii]
+            radii = [r for _, r in valid_radii]
+            ax2.plot(epochs, radii, marker=".", markersize=2, alpha=0.5)
+            ax2.axvline(
+                x=min_radius_idx,
+                color="r",
+                linestyle="--",
+                label=f"Min radius @ {min_radius_idx}",
+            )
+            ax2.axhline(
+                y=min_radius,
+                color="g",
+                linestyle="--",
+                label=f"Min radius = {min_radius:.3f}",
+            )
+            ax2.set_xlabel("Epoch")
+            ax2.set_ylabel("Second Moment Radius (pixels)")
+            ax2.set_title("Second Moment Radius vs Epoch")
+            ax2.legend()
+            ax2.grid(alpha=0.3)
+            plt.savefig(
+                saved_file_name.with_name(
+                    saved_file_name.stem + "_second_moment_radius.png"
+                )
+            )
+            plt.close()
+
+        # Save the best image (minimum second moment radius) as a separate file
+        if valid_radii:
+            best_img = res_df.iloc[min_radius_idx]["_img"]
+            best_v = res_df.iloc[min_radius_idx]["_v"]
+            fig3, ax3 = plt.subplots(figsize=(6, 6))
+            plot_funcs["img"](
+                best_img,
+                ax3,
+                f"Best Focus (Second Moment Radius={min_radius:.3f}px) @ epoch {min_radius_idx}",
+            )
+            plt.savefig(
+                saved_file_name.with_name(saved_file_name.stem + "_best_focus.png")
+            )
+            plt.close()
+
+            # Save the best focus voltages
+            best_focus_v_file = saved_file_name.with_name(
+                saved_file_name.stem + "_best_focus_v.txt"
+            )
+            np.savetxt(best_focus_v_file, np.around(best_v).astype(int), fmt="%d")
+            logger.info(f"Best focus voltages saved to {best_focus_v_file}")
 
     # 优化目标名称映射
     objective_names = {

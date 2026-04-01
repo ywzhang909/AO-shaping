@@ -2,10 +2,44 @@ import os
 import sys
 import ctypes
 
-# Vendored MIICAM SDK - bundled in this project
-_MII_SDK_PATH = os.path.join(os.path.dirname(__file__), "_miicam_sdk")
-if _MII_SDK_PATH not in sys.path:
+
+def _find_miicam_sdk_path() -> str | None:
+    """Find the MIICAM SDK path by checking multiple possible locations.
+    
+    Checks in order:
+    1. Bundled in project (src/ao_shaping/drivers/ccd/_miicam_sdk)
+    2. External libs directory (libs/miicamsdk.20240728/python)
+    
+    Returns:
+        str | None: Path to SDK if found, None otherwise.
+    """
+    _current_file = os.path.abspath(__file__)
+    _src_dir = os.path.dirname(os.path.dirname(os.path.dirname(_current_file)))
+    _project_root = os.path.dirname(_src_dir)
+    
+    _MII_SDK_PATHS = [
+        # Option 1: Bundled in project (for development)
+        os.path.join(os.path.dirname(__file__), "_miicam_sdk"),
+        # Option 2: External libs directory
+        os.path.join(_project_root, "libs", "miicamsdk.20240728", "python"),
+    ]
+    
+    for path in _MII_SDK_PATHS:
+        if os.path.isdir(path):
+            return path
+    return None
+
+
+# Add SDK path to sys.path if found
+_MII_SDK_PATH = _find_miicam_sdk_path()
+if _MII_SDK_PATH is not None and _MII_SDK_PATH not in sys.path:
     sys.path.insert(0, _MII_SDK_PATH)
+else:
+    import logging
+    logging.getLogger(__name__).warning(
+        "MIICAM SDK not found. Tried: bundled '_miicam_sdk' and 'libs/miicamsdk.20240728/python'. "
+        "Camera functionality will not be available."
+    )
 
 import numpy as np
 

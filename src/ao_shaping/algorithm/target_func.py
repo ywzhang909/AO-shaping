@@ -1,10 +1,41 @@
 import numpy as np
-
+from scipy.optimize import curve_fit
+import warnings
 
 from ao_shaping.utils.spots_calc import (
     center_of_mass_numpy,
     center_of_brightness,
 )
+
+
+def _gaussian2d(
+    xdata: np.ndarray,
+    amplitude: float,
+    x0: float,
+    y0: float,
+    sigma: float,
+    offset: float,
+) -> np.ndarray:
+    """2D Gaussian function for curve fitting.
+    
+    Args:
+        xdata: Coordinate array of shape (2, N)
+        amplitude: Peak amplitude
+        x0, y0: Center coordinates
+        sigma: Standard deviation (waist radius)
+        offset: Background offset
+        
+    Returns:
+        np.ndarray: Gaussian values at each point
+    """
+    x = xdata[0]
+    y = xdata[1]
+    
+    # Ensure sigma is positive
+    sigma = max(sigma, 1e-6)
+    
+    return amplitude * np.exp(-((x - x0)**2 + (y - y0)**2) / (2 * sigma**2)) + offset
+
 
 class ImageTargetFunc:
 
@@ -118,3 +149,94 @@ class ImageTargetFunc:
     def __get_bucket_mask(self, radius):
         assert 0 < radius < len(self.masks), f"Radius {radius} out of range"
         return self.masks[int(radius-1)]
+
+    def fit_gaussian_radius(self, img: np.ndarray, center: tuple[float, float] | None = None) -> float | None:
+        """拟合2D高斯曲线得到半腰半径（sigma）。
+        
+        Args:
+            img (np.ndarray[ndim=2, shape=(h,w)]): CCD图片
+            center (tuple[float, float] | None): 光斑中心坐标，默认为self.center
+            
+        Returns:
+            float | None: 高斯半腰半径（sigma），拟合失败返回None
+        """
+        if center is None:
+            center = self.center
+        
+        h, w = img.shape
+        cy, cx = int(center[1]), int(center[0])
+        
+        # 提取感兴趣区域（ROI），中心48x48像素
+        roi_size = 48
+        y_start = max(0, cy - roi_size // 2)
+        y_end = min(h, cy + roi_size // 2)
+        x_start = max(0, cx - roi_size // 2)
+        x_end = min(w, cx + roi_size // 2)
+        
+        if y_end - y_start < 5 or x_end - x_start < 5:
+            return None
+            
+        roi = img[y_start:y_end, x_start:x_end]
+        
+        # 初始参数估计
+        amplitude = float(np.max(roi) - np.min(roi))
+        offset = float(np.min(roi))
+        sigma_estimate = roi_size / 6
+        
+        # 构建2D网格并转换为 (2, N) 形状
+        x_mesh, y_mesh = np.meshgrid(
+            np.arange(roi.shape[1]) + x_start,
+            np.arange(roi.shape[0]) + y_start,
+            indexing='xy'
+        )
+        coords = np.vstack([x_mesh.ravel(), y_mesh.ravel()])
+        
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                popt, _ = curve_fit(
+                    _gaussian2d,
+                    coords,
+                    roi.ravel(),
+                    p0=[amplitude, center[0], center[1], sigma_estimate, offset],
+                    bounds=(
+                        [0, x_start, y_start, 0.5, -np.inf],
+                        [np.inf, x_end, y_end, roi_size, np.inf]
+                    ),
+                    maxfev=1000,
+                )
+            # popt = [amplitude, x0, y0, sigma, offset]
+            return float(popt[3])
+        except Exception:
+            return None
+
+    def second_moment_radius(self, img: np.ndarray, center: tuple[float, float] | None = None) -> float:
+        """计算二阶矩半径。
+        
+        二阶矩半径定义：
+        r^2 = Σ(r^2 * I) / Σ(I)
+        其中 r 是像素到中心的距离，I 是强度值。
+        
+        Args:
+            img (np.ndarray[ndim=2, shape=(h,w)]): CCD图片
+            center (tuple[float, float] | None): 光斑中心坐标，默认为self.center
+            
+        Returns:
+            float: 二阶矩半径
+        """
+        if center is None:
+            center = self.center
+        
+        cx, cy = center
+        
+        # 计算距离矩阵
+        y_coords, x_coords = np.ogrid[:img.shape[0], :img.shape[1]]
+        dist_sq = (x_coords - cx)**2 + (y_coords - cy)**2
+        
+        # 计算二阶矩半径
+        total_intensity = np.sum(img)
+        if total_intensity <= 0:
+            return 0.0
+            
+        second_moment_sq = np.sum(dist_sq * img) / total_intensity
+        return float(np.sqrt(second_moment_sq))
