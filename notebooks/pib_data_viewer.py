@@ -45,7 +45,8 @@ plt.legend()
 plt.title(f'Second Moment Radius: {radius_sm:.1f}, Gaussian Radius: {radius_gauss:.1f}')
 plt.show()
 # %%
-from matplotlib.animation import FuncAnimation
+from IPython.display import HTML
+from matplotlib.animation import FuncAnimation, PillowWriter
 
 # 创建动画展示process_data._img变化过程
 fig, ax = plt.subplots(figsize=(8, 6))
@@ -62,6 +63,8 @@ def update(frame):
     return []
 
 anim = FuncAnimation(fig, update, frames=len(process_data), init_func=init, interval=100, blit=True)
-# 保存为gif
-anim.save('pib_process.gif', writer='pillow', fps=10)
+
+# 在Jupyter中显示动画
+plt.close(fig)  # 防止重复显示静态图
+HTML(anim.to_html5_video())
 # %%

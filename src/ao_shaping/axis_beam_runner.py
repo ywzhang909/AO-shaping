@@ -257,30 +257,32 @@ def run(
     if debug:
         save_dir = gen_date_dir(f"{root_dir}/wf-less")
         saved_file_name = gen_file_path_uuid(save_dir, "pkl")
+
+        # Register second moment radius as a postprocess feature
+        def _calc_second_moment_radius(row: dict) -> float | None:
+            img = row.get("_img")
+            if img is None:
+                return None
+            target = ImageTargetFunc.build_from_init_image(img)
+            return target.second_moment_radius(img)
+
+        res_list.postprocess_feature(
+            "second_moment_radius",
+            _calc_second_moment_radius,
+            column="_second_moment_radius",
+        )
+
+        # Re-fetch dataframe with postprocess columns applied
+        res_df = res_list.dataframe
         res_df.to_pickle(saved_file_name, compression="zip")
         with saved_file_name.with_suffix(".json").open("w", encoding="utf8") as f:
             json.dump(config, f, ensure_ascii=False, indent=4)
 
-        # Calculate second moment radius for all images and select the smallest
-        logger.info("Calculating second moment radius for all images...")
-        second_moment_radii = []
-        images = res_df["_img"].values
-        for idx, img in enumerate(images):
-            if img is not None:
-                target = ImageTargetFunc.build_from_init_image(img)
-                radius = target.second_moment_radius(img)
-                second_moment_radii.append(radius)
-            else:
-                second_moment_radii.append(None)
-
-        res_df["_second_moment_radius"] = second_moment_radii
-
         # Find the image with minimum second moment radius (best focus)
-        valid_radii = [
-            (i, r) for i, r in enumerate(second_moment_radii) if r is not None
-        ]
-        if valid_radii:
-            min_radius_idx, min_radius = min(valid_radii, key=lambda x: x[1])
+        valid_radii = res_df.dropna(subset=["_second_moment_radius"])
+        if not valid_radii.empty:
+            min_radius_idx = valid_radii["_second_moment_radius"].idxmin()
+            min_radius = valid_radii.loc[min_radius_idx, "_second_moment_radius"]
             logger.info(
                 f"Best second moment radius: {min_radius:.3f} pixels @ epoch {min_radius_idx}"
             )
@@ -312,11 +314,15 @@ def run(
         plt.close()
 
         # Save additional plot: second moment radius vs epoch
-        if valid_radii:
+        if not valid_radii.empty:
             fig2, ax2 = plt.subplots(figsize=(10, 6))
-            epochs = [i for i, _ in valid_radii]
-            radii = [r for _, r in valid_radii]
-            ax2.plot(epochs, radii, marker=".", markersize=2, alpha=0.5)
+            ax2.plot(
+                valid_radii.index,
+                valid_radii["_second_moment_radius"],
+                marker=".",
+                markersize=2,
+                alpha=0.5,
+            )
             ax2.axvline(
                 x=min_radius_idx,
                 color="r",
@@ -342,9 +348,9 @@ def run(
             plt.close()
 
         # Save the best image (minimum second moment radius) as a separate file
-        if valid_radii:
-            best_img = res_df.iloc[min_radius_idx]["_img"]
-            best_v = res_df.iloc[min_radius_idx]["_v"]
+        if not valid_radii.empty:
+            best_img = res_df.loc[min_radius_idx, "_img"]
+            best_v = res_df.loc[min_radius_idx, "_v"]
             fig3, ax3 = plt.subplots(figsize=(6, 6))
             plot_funcs["img"](
                 best_img,

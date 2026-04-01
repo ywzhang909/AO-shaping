@@ -12,7 +12,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-def gen_file_path_inc(dir: str|Path, postfix: str = ''):
+
+def gen_file_path_inc(dir: str | Path, postfix: str = ""):
     if isinstance(dir, str):
         dir = Path(dir)
     if not dir.exists():
@@ -31,7 +32,8 @@ def gen_file_path_inc(dir: str|Path, postfix: str = ''):
         path = dir.joinpath(str(fname)).with_suffix(postfix)
     return path
 
-def gen_file_path_uuid(dir: str|Path, postfix: str = ''):
+
+def gen_file_path_uuid(dir: str | Path, postfix: str = ""):
     # generate file path with uuid
     if isinstance(dir, str):
         dir = Path(dir)
@@ -40,14 +42,16 @@ def gen_file_path_uuid(dir: str|Path, postfix: str = ''):
     fname = str(uuid.uuid4())
     path = dir.joinpath(fname)
     if postfix:
-        path = path.with_suffix(postfix if postfix.startswith('.') else f'.{postfix}')
+        path = path.with_suffix(postfix if postfix.startswith(".") else f".{postfix}")
     return path
+
 
 def gen_date_str():
     # generate date string
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
-def gen_date_dir(base_dir: str|Path = 'data'):
+
+def gen_date_dir(base_dir: str | Path = "data"):
     # generate date dir
     if isinstance(base_dir, str):
         base_dir = Path(base_dir)
@@ -57,16 +61,22 @@ def gen_date_dir(base_dir: str|Path = 'data'):
         date_dir.mkdir(parents=True)
     return date_dir
 
+
 # 在当天data下的flatten_voltages文件夹找出rms最小的文件，读取电压值，如果没有则返回全0
-def get_init_V_by_rms(date:str = ''):
-    data_path = f"data/flatten_voltages/{date}" if date else f"data/flatten_voltages/{datetime.now().strftime('%Y%m%d')}"
+def get_init_V_by_rms(date: str = ""):
+    data_path = (
+        f"data/flatten_voltages/{date}"
+        if date
+        else f"data/flatten_voltages/{datetime.now().strftime('%Y%m%d')}"
+    )
+
     def get_rms(file_name):
         regex_pattern = r"rms-(\d+\.\d+)\.csv"
         match = re.search(regex_pattern, file_name)
         if match:
             return float(match.group(1))
         return np.nan
-        
+
     try:
         file_list = glob(f"{data_path}/rms-*.csv")
         if not file_list:
@@ -79,17 +89,29 @@ def get_init_V_by_rms(date:str = ''):
         logger.info(f"init_V by rms in {data_path} not found, return 0")
     return init_V
 
-def get_init_V_by_energy(date:str = ''):
-    data_path = f"data/flatten_voltages/{date}" if date else f"data/flatten_voltages/{datetime.now().strftime('%Y%m%d')}"
+
+def get_init_V_by_energy(date: str = ""):
+    data_path = (
+        f"data/flatten_voltages/{date}"
+        if date
+        else f"data/flatten_voltages/{datetime.now().strftime('%Y%m%d')}"
+    )
+
     def get_energy(file_name):
         regex_pattern = r"to_load_V-(\d+\.\d+)\.csv"
         match = re.search(regex_pattern, file_name)
         if match:
             return float(match.group(1))
         return np.nan
-    
+
     try:
-        max_energy = max([get_energy(f) for f in glob(f"{data_path}/to_load_V-*.csv") if not np.isnan(get_energy(f))])
+        max_energy = max(
+            [
+                get_energy(f)
+                for f in glob(f"{data_path}/to_load_V-*.csv")
+                if not np.isnan(get_energy(f))
+            ]
+        )
         init_V = np.loadtxt(f"{data_path}/to_load_V-{max_energy:.3f}.csv")
         logger.info(f"init_V by energy {max_energy:.3f}")
     except FileNotFoundError or ValueError:
@@ -97,7 +119,10 @@ def get_init_V_by_energy(date:str = ''):
         logger.info(f"init_V by energy @ {data_path} not found, return 0")
     return init_V
 
-def save_history(history:pd.DataFrame | list[dict[str, Any]], file_path:str|Path=None):
+
+def save_history(
+    history: pd.DataFrame | list[dict[str, Any]], file_path: str | Path = None
+):
     # TODO: use asyncer to save history
     if isinstance(file_path, str):
         file_path = Path(file_path)
@@ -113,71 +138,119 @@ class Register:
     def __init__(self) -> None:
         self.members = {}
 
-    def register(self, name:str) -> None:
+    def register(self, name: str) -> None:
         def decorator(func):
             self.members[name] = func
             return func
+
         return decorator
-    
-    def __getitem__(self, name:str):
+
+    def __getitem__(self, name: str):
         return self.members[name]
-    
+
     @property
     def all_funcs(self):
         return self.members.values()
-    
+
     @property
     def all_names(self):
         return self.members.keys()
 
 
-class Recorder():
-    def __init__(self, mark:str="J", mode:Literal["max", "min"]="max"):
+class Recorder:
+    def __init__(self, mark: str = "J", mode: Literal["max", "min"] = "max"):
         self.mark = mark
         self.mode = mode
         self.history = list()
 
         self._all_columns = set()
-    
-    def append(self, record:dict):
-        assert self.mark in record, \
-            f"mark {self.mark} not in record {record}"
+        self._postprocess_funcs: dict[str, callable] = {}
+
+    def append(self, record: dict):
+        assert self.mark in record, f"mark {self.mark} not in record {record}"
         if "_id" not in record:
             record["_id"] = len(self.history)
         self.history.append(record)
         self._all_columns.update(record.keys())
-    
+
+    def postprocess_feature(self, feature_name: str, func: callable, column: str = ""):
+        """为 history 添加后处理特征列。
+
+        Args:
+            feature_name: 特征名称，可作为 get_best_* 系列函数的输入
+            func: 计算函数，签名为 func(row_dict) -> value
+            column: 保存到 DataFrame 的列名，默认为 feature_name
+        """
+        if not column:
+            column = feature_name
+        self._postprocess_funcs[feature_name] = (func, column)
+        self._all_columns.add(column)
+
+    def _apply_postprocess_to_record(self, record: dict) -> dict:
+        """对单条记录应用所有已注册的后处理函数。"""
+        result = dict(record)
+        for feature_name, (func, column) in self._postprocess_funcs.items():
+            if column not in result:
+                try:
+                    result[column] = func(result)
+                except Exception as e:
+                    logger.warning(f"postprocess_feature '{feature_name}' failed: {e}")
+                    result[column] = None
+        return result
+
+    def _ensure_postprocess_applied(self, df: pd.DataFrame) -> pd.DataFrame:
+        """确保 DataFrame 包含所有后处理列。"""
+        for feature_name, (func, column) in self._postprocess_funcs.items():
+            if column not in df.columns:
+
+                def _safe_apply(row, f=func):
+                    try:
+                        return f(row.to_dict())
+                    except Exception as e:
+                        logger.warning(f"postprocess_feature failed: {e}")
+                        return None
+
+                df[column] = df.apply(_safe_apply, axis=1)
+        return df
+
     @property
     def dataframe(self):
-        return pd.DataFrame(self.history)
+        df = pd.DataFrame(self.history)
+        return self._ensure_postprocess_applied(df)
 
-    def save_dataframe(self, filename:str|Path, **kwargs):
+    def save_dataframe(self, filename: str | Path, **kwargs):
         df = self.dataframe
         save_history(df, filename)
         return df
 
-    def save_best(self, saved_dir:str|Path, target:str, process_fn=lambda x:x, **kwargs):
+    def save_best(
+        self, saved_dir: str | Path, target: str, process_fn=lambda x: x, **kwargs
+    ):
         target_value, (index, value) = self.get_best_target(target)
-        
+
         if isinstance(saved_dir, str):
             saved_dir = Path(saved_dir)
         saved_dir.mkdir(parents=True, exist_ok=True)
 
         target_value = process_fn(target_value)
-        if isinstance(target_value, np.ndarray) and target_value.ndim == 1: # 1D array
-            save_file = saved_dir / f'{self.mark}-{value:.3f}.csv'
+        if isinstance(target_value, np.ndarray) and target_value.ndim == 1:  # 1D array
+            save_file = saved_dir / f"{self.mark}-{value:.3f}.csv"
             np.savetxt(save_file, target_value, **kwargs)
-        elif isinstance(target_value, np.ndarray) and target_value.ndim == 2: # 2D array
-            save_file = saved_dir / f'{self.mark}-{value:.3f}.png'
+        elif (
+            isinstance(target_value, np.ndarray) and target_value.ndim == 2
+        ):  # 2D array
+            save_file = saved_dir / f"{self.mark}-{value:.3f}.png"
             plt.imshow(target_value, **kwargs)
             plt.savefig(save_file)
             plt.close()
         else:
-            raise ValueError(f"target_value {target_value} has invalid shape {target_value.shape}")
+            raise ValueError(
+                f"target_value {target_value} has invalid shape {target_value.shape}"
+            )
         logger.info(f"{self.mark}@{index}->{value:.3f} saved to {save_file}")
         return target_value, value
-    
-    def plot(self, target:str, ax=None):
+
+    def plot(self, target: str, ax=None):
         if ax is None:
             fig, ax = plt.subplots(1, 1, figsize=(12, 4))
         ax.plot(self.history[target], self.history[self.mark])
@@ -188,51 +261,57 @@ class Recorder():
 
     def __len__(self):
         return len(self.history)
-    
+
     def __getitem__(self, index):
-        assert index < len(self.history), f"index {index} out of range {len(self.history)}"
+        assert index < len(self.history), (
+            f"index {index} out of range {len(self.history)}"
+        )
         return self.history.iloc[index]
-    
-    def __add__(self, other:"Recorder"):
-        assert self.mark == other.mark and self.target == other.target, "mark and target must be the same"
+
+    def __add__(self, other: "Recorder"):
+        assert self.mark == other.mark and self.target == other.target, (
+            "mark and target must be the same"
+        )
         self.history.extend(other.history)
         return self
-    
+
     @property
     def columns(self):
         return list(self._all_columns)
-    
+
     @property
     def last(self):
         return self.history[-1]
-    
+
     @property
     def first(self):
         return self.history[0]
-    
+
     @property
     def last_info_dict(self) -> dict[str, Any]:
         info_dict = self.last
-        return {k:v for k,v in info_dict.items() if not k.startswith("_")}
+        return {k: v for k, v in info_dict.items() if not k.startswith("_")}
 
-    def get_best_iter(self, mark:str=""):
+    def get_best_iter(self, mark: str = ""):
         mark = mark or self.mark
-        res_df = pd.DataFrame(self.history)
-        target_id = res_df[mark].argmax() if self.mode == "max" else res_df[mark].argmin()
+        res_df = self.dataframe
+        target_id = (
+            res_df[mark].argmax() if self.mode == "max" else res_df[mark].argmin()
+        )
         return res_df.iloc[target_id], (target_id, res_df.iloc[target_id][mark])
-    
+
     def get_best_target(self, target):
         if target not in self.columns:
-            target = "_"+target
+            target = "_" + target
             if target not in self.columns:
                 raise ValueError(f"target {target} not in columns {self.columns}")
         target_iter, (index, value) = self.get_best_iter()
         return target_iter[target], (index, value)
 
-    def get_sublist(self, columns:list[str] | str | None = ""):
+    def get_sublist(self, columns: list[str] | str | None = ""):
         if not columns:
             columns = self.mark
         if isinstance(columns, str):
             return [l.get(columns, np.nan) for l in self.history]
         else:
-            return [{k:v for k,v in l.items() if k in columns} for l in self.history]
+            return [{k: v for k, v in l.items() if k in columns} for l in self.history]
