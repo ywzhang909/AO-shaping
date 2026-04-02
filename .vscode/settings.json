@@ -31,8 +31,8 @@
     "python-envs.pythonProjects": [
         {
             "path": "libs/gxipy",
-            "envManager": "ms-python.python:venv",
-            "packageManager": "ms-python.python:pip"
+            "envManager": "ms-python.python:conda",
+            "packageManager": "ms-python.python:conda"
         }
     ],
     "files.exclude": {
@@ -75,5 +75,7 @@
         ".coverage",
         ".kilocodemodes"
     ],
-    "python.defaultInterpreterPath": "d:\\Projects\\TIFO\\AO-shaping\\.venv\\Scripts\\python.exe"
+    "python.defaultInterpreterPath": "d:\\Projects\\TIFO\\AO-shaping\\.venv\\Scripts\\python.exe",
+    "python-envs.defaultEnvManager": "ms-python.python:conda",
+    "python-envs.defaultPackageManager": "ms-python.python:conda"
 }
