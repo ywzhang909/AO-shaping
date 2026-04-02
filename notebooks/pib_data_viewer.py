@@ -45,6 +45,28 @@ plt.legend()
 plt.title(f'Second Moment Radius: {radius_sm:.1f}, Gaussian Radius: {radius_gauss:.1f}')
 plt.show()
 # %%
+# 绘制二阶矩最小的一帧
+# 计算每帧的二阶矩半径
+radii = process_data._img.apply(lambda img: func.second_moment_radius(img, center))
+min_idx = radii.idxmin()
+min_img = process_data.loc[min_idx]._img
+min_radius = radii.loc[min_idx]
+
+plt.figure(figsize=(10, 8))
+plt.imshow(min_img)
+
+cx, cy = func.center_of_mass(min_img)
+plt.scatter(cx, cy, c='red', s=100, marker='x', label='Center of Mass')
+
+# 绘制二阶矩半径圆
+circle_sm_min = Circle((w//2, h//2), min_radius, fill=False, color='yellow', linewidth=2, label=f'Second Moment Radius: {min_radius:.1f}')
+plt.gca().add_patch(circle_sm_min)
+
+plt.colorbar()
+plt.legend()
+plt.title(f'Min Second Moment Frame (idx={min_idx}): Radius = {min_radius:.1f}')
+plt.show()
+# %%
 from IPython.display import HTML
 from matplotlib.animation import FuncAnimation, PillowWriter
 
