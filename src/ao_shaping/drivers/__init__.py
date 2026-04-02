@@ -73,38 +73,3 @@ except Exception as daheng_error:
             miicam_error,
         )
         CameraStreamManager = None
-
-# Import mock devices for testing
-from ao_shaping.drivers.mock_devices import (
-    MockCamera,
-    MockCameraError,
-    MockDM,
-    MockDMError,
-    MockFilter,
-    MockFilterError,
-    MockLaser,
-    MockLaserError,
-    MockSLM,
-    MockSLMError,
-    MockStage,
-    MockStageError,
-    MockWFS,
-    MockWFSError,
-)
-
-__all__ += [
-    "MockCamera",
-    "MockCameraError",
-    "MockDM",
-    "MockDMError",
-    "MockFilter",
-    "MockFilterError",
-    "MockLaser",
-    "MockLaserError",
-    "MockSLM",
-    "MockSLMError",
-    "MockStage",
-    "MockStageError",
-    "MockWFS",
-    "MockWFSError",
-]

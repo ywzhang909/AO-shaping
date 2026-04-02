@@ -78,7 +78,7 @@ def parse_tuple(ctx, param, value):
     default=0,
     help="半径桶大小 (default: 0,环围半径)。若设置为0,则根据功率半径自动调整。",
 )
-@click.option("--delta", default=2, help="优化步长 (default: 2)")
+@click.option("--delta", default=2.0, help="优化步长 (default: 2)")
 @click.option(
     "--lr", default=0.0, help="优化学习率 (default: 0.0,表示基于环围半径动态学习率衰减)"
 )
@@ -262,9 +262,9 @@ def run(
         fig, ax = plt.subplots(2, 2, figsize=(12, 8))
         # init image
         plot_funcs["img"](
-            res_df.iloc[0]["_img"],
+            res_df.iloc[1]["_img"],
             ax[0, 0],
-            f"Init Image, pib={res_df.iloc[0]['pib']:.3f}",
+            f"Init Image, pib={res_df.iloc[1]['pib']:.3f}",
         )
         # best image
         axim = plot_funcs["img"](

@@ -277,7 +277,7 @@ def optimize_pib(
     r_bucket=0,
     delta: float = 1,
     lr: float = 0,
-    exposure_time_ms: int = 80,
+    exposure_time_ms: float = 80.0,
     shrink_iter: int = 0,
     shrink_ratio: float = 0.9,
     cam_id=0,
@@ -418,6 +418,7 @@ def optimize_pib(
         elif isinstance(center, str):
             _img = cam.get_numpy_image(10)
             if center == "mass":
+                # FIX: wrong
                 center = centroid(_img)
             elif center == "max":
                 center = np.unravel_index(np.argmax(_img), _img.shape)[::-1]
@@ -469,6 +470,7 @@ def optimize_pib(
             r_bucket = ImageTargetFunc(_w, _h, center).radius(init_img, energy=0.99)
             r_bucket = min(r_bucket, cam_size // 2) * shrink_ratio
             _fix_bucket = False
+            logger.info(f"Use dynamic radiu @ {r_bucket}")
         else:
             _fix_bucket = True
 
@@ -493,28 +495,25 @@ def optimize_pib(
         target_func = ImageTargetFunc.build_from_init_image(init_img)
 
         # 根据优化目标创建对应的计算函数
+        def test_pib(img):
+            return target_func.pib(img, IDEAL_SPOT_RADIUS)[1]
+
+        to_min = 1
         if objective == "pib":
 
             def calc_objective(img):
-                return target_func.pib(img, r_bucket)
-
-            def test_objective(img):
-                return target_func.pib(img, IDEAL_SPOT_RADIUS)[1]
+                pib, pib_ratio = target_func.pib(img, r_bucket)
+                to_min = -1
+                return pib, pib_ratio
         elif objective == "radiu":
 
             def calc_objective(img):
                 r = target_func.radius(img, energy=0.99)
                 return r, 0.0  # 返回(值, ratio)保持与其他目标一致
-
-            def test_objective(img):
-                return target_func.radius(img, energy=0.99)
         elif objective == "avg_radiu":
 
             def calc_objective(img):
                 return target_func.avg_radius(img, moment=1.0)
-
-            def test_objective(img):
-                return target_func.avg_radius(img, moment=1.0)[0]
 
         j, pib_ratio = calc_objective(init_img)
 
@@ -558,7 +557,7 @@ def optimize_pib(
             quantization=float(tabu_quantization),
         )
 
-        best_objective = float(test_objective(init_img))
+        best_objective = float(test_pib(init_img))
         best_j = float(j)
         best_objective_ratio = float(pib_ratio)
         best_v = _init_v.copy()
@@ -571,7 +570,7 @@ def optimize_pib(
             candidate_j, candidate_ratio = calc_objective(candidate_img)
             return {
                 "J": float(candidate_j),
-                objective: float(test_objective(candidate_img)),
+                objective: float(test_pib(candidate_img)),
                 "ratio": float(candidate_ratio),
                 "img": candidate_img,
                 "max_brt": float(np.max(candidate_img)),
@@ -654,7 +653,7 @@ def optimize_pib(
         recorder.append(
             {
                 "J": j,
-                objective: test_objective(init_img),
+                objective: test_pib(init_img),
                 "_p%": pib_ratio,
                 "_max_r": _init_r,
                 "_v": _init_v,
@@ -713,8 +712,8 @@ def optimize_pib(
                 # else:
                 #     pos_j, neg_j = pos_pib, neg_pib
                 pos_j, neg_j = pos_obj, neg_obj
-                diff = pos_j - neg_j
-                gradient = -diff * disturb_v
+                diff = (pos_j - neg_j) * to_min
+                gradient = diff * disturb_v
                 update = optimizer.update(gradient)
                 _to_update_v = np.clip(_init_v - update, dm.V_Min, dm.V_Max)
                 if dm.check_dm_unit_grad_safe(_to_update_v):
@@ -725,7 +724,7 @@ def optimize_pib(
                     )
 
                 objective_val, objective_ratio = (
-                    test_objective(pos_img),
+                    test_pib(pos_img),
                     (pos_obj_ratio + neg_obj_ratio) / 2,
                 )
                 J = (pos_j + neg_j) / 2
@@ -777,7 +776,7 @@ def optimize_pib(
                     "J": J,
                     "_p%": objective_ratio,
                     "_max_r": _init_r,
-                    objective: objective_val,
+                    "pib": objective_val,
                     "_diff": diff,
                     "lr": optimizer.lr,
                     "r": r_bucket,
@@ -789,8 +788,6 @@ def optimize_pib(
                     "max_brt": max_brightness,
                     "_grad": gradient,
                     "_opt_m": _extract_optimizer_momentum(optimizer),
-                    "optimizer": optimizer_type,
-                    f"best_{objective}": best_objective,
                     "search_radius": adaptive_search_state.radius,
                     "tabu_size": len(tabu_memory._queue),
                     "search_accept": False,
