@@ -201,12 +201,12 @@ class CameraStreamManager(BaseCamera):
                         temp_cam.put_Option(miicam.MIICAM_OPTION_FLUSH, 3)
                     except Exception:
                         pass
-                    _init_time.sleep(0.3)
+                    _init_time.sleep(0.5)
                     try:
                         temp_cam.Close()
                     except Exception:
                         pass
-                    _init_time.sleep(0.5)
+                    _init_time.sleep(1.0)
         except Exception:
             pass
 

@@ -112,10 +112,31 @@ def generate_random_zernike_phase(
 def capture_camera_frame(
     camera, cam_name: str, n_sample: int = 1, skip_first: bool = True
 ) -> np.ndarray | None:
-    """Safely capture a frame from a camera, returning None on failure."""
+    """Safely capture a frame from a camera, returning None on failure.
+
+    Warns if max brightness is 255 (saturated) or below 10 (too dark).
+    """
     try:
         frame = camera.get_numpy_image(n_sample=n_sample, skip_first=skip_first)
-        logger.info(f"{cam_name} 采集成功: shape={frame.shape}, dtype={frame.dtype}")
+        max_val = int(frame.max())
+        min_val = int(frame.min())
+        mean_val = float(frame.mean())
+
+        if max_val >= 255:
+            logger.warning(
+                f"{cam_name} 画面过曝! max={max_val}, mean={mean_val:.1f}, min={min_val}. "
+                f"建议降低曝光时间或增益。"
+            )
+        elif max_val < 10:
+            logger.warning(
+                f"{cam_name} 画面过暗! max={max_val}, mean={mean_val:.1f}, min={min_val}. "
+                f"建议增加曝光时间或增益。"
+            )
+        else:
+            logger.info(
+                f"{cam_name} 采集成功: shape={frame.shape}, dtype={frame.dtype}, "
+                f"max={max_val}, mean={mean_val:.1f}, min={min_val}"
+            )
         return frame
     except Exception as e:
         logger.warning(f"{cam_name} 采集失败: {e}")
@@ -250,7 +271,7 @@ def save_capture(
 # MiiCam camera parameters
 @click.option("--miicam-id", default=0, help="MiiCam相机ID (default: 0)")
 @click.option(
-    "--miicam-exposure", default=20, help="MiiCam相机曝光时间 ms (default: 20)"
+    "--miicam-exposure", default=1.0, help="MiiCam相机曝光时间 ms (default: 1.0)"
 )
 @click.option("--no-miicam", is_flag=True, help="跳过MiiCam相机采集")
 # Capture parameters
