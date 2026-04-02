@@ -37,11 +37,15 @@ class SimLandscape:
     def score(self, voltages: np.ndarray) -> tuple[float, float, float]:
         active = np.asarray(voltages, dtype=np.float64)[:4]
         global_score = float(
-            np.exp(-np.sum((active - self.global_center) ** 2) / (2 * self.global_width**2))
+            np.exp(
+                -np.sum((active - self.global_center) ** 2) / (2 * self.global_width**2)
+            )
         )
         local_score = float(
             self.local_scale
-            * np.exp(-np.sum((active - self.local_center) ** 2) / (2 * self.local_width**2))
+            * np.exp(
+                -np.sum((active - self.local_center) ** 2) / (2 * self.local_width**2)
+            )
         )
         return max(global_score, local_score), global_score, local_score
 
@@ -91,7 +95,9 @@ class SimDM:
         return None
 
     def send_voltages(self, vs: np.ndarray, wait_time_s: float = 0.0) -> np.ndarray:
-        clipped = np.clip(np.asarray(vs, dtype=np.float64), self.min_voltage, self.max_voltage)
+        clipped = np.clip(
+            np.asarray(vs, dtype=np.float64), self.min_voltage, self.max_voltage
+        )
         self.current_voltages = clipped.copy()
         SimDM.current_voltages = clipped.copy()
         return clipped
@@ -104,7 +110,12 @@ class SimDM:
 class SimCamera:
     """Minimal camera shim compatible with optimize_pib()."""
 
-    def __init__(self, cam_id: int = 0, exposure_time_ms: int = 80, skip_sampling: bool = False) -> None:
+    def __init__(
+        self,
+        cam_id: int = 0,
+        exposure_time_ms: float = 80.0,
+        skip_sampling: bool = False,
+    ) -> None:
         self.cam_id = cam_id
         self.exposure_time = exposure_time_ms
 
@@ -238,18 +249,26 @@ def run_case(name: str, **kwargs):
         **kwargs,
     )
     df = recorder.dataframe.copy()
-    df["global_score"] = df["_v"].apply(lambda voltages: LANDSCAPE.score(np.asarray(voltages))[1])
-    df["local_score"] = df["_v"].apply(lambda voltages: LANDSCAPE.score(np.asarray(voltages))[2])
+    df["global_score"] = df["_v"].apply(
+        lambda voltages: LANDSCAPE.score(np.asarray(voltages))[1]
+    )
+    df["local_score"] = df["_v"].apply(
+        lambda voltages: LANDSCAPE.score(np.asarray(voltages))[2]
+    )
     df["epoch_index"] = np.arange(len(df))
     best_iter, (_, best_pib) = recorder.get_best_iter()
     final = recorder.last
-    _, global_score, local_score = LANDSCAPE.score(np.asarray(final["_v"], dtype=np.float64))
+    _, global_score, local_score = LANDSCAPE.score(
+        np.asarray(final["_v"], dtype=np.float64)
+    )
     summary = {
         "case": name,
         "final_pib": float(final["pib"]),
         "best_pib": float(best_pib),
         "final_J": float(final["J"]),
-        "search_accepts": int(sum(1 for item in recorder.history if item.get("search_accept"))),
+        "search_accepts": int(
+            sum(1 for item in recorder.history if item.get("search_accept"))
+        ),
         "tabu_peak": int(max(item.get("tabu_size", 0) for item in recorder.history)),
         "search_radius_final": float(final.get("search_radius", np.nan)),
         "global_score": global_score,
@@ -272,12 +291,18 @@ def run_suite(cases: list[tuple[str, dict[str, object]]] | None = None):
             rows.append(summary)
             recorders[name] = recorder
             histories[name] = history_df
-    summary_df = pd.DataFrame(rows).sort_values("best_pib", ascending=False).reset_index(drop=True)
+    summary_df = (
+        pd.DataFrame(rows)
+        .sort_values("best_pib", ascending=False)
+        .reset_index(drop=True)
+    )
     return summary_df, histories, recorders
 
 
 def _find_stage_row(history_df: pd.DataFrame, stage: str) -> pd.Series:
-    search_accept = pd.Series(history_df["search_accept"], dtype="boolean").fillna(False)
+    search_accept = pd.Series(history_df["search_accept"], dtype="boolean").fillna(
+        False
+    )
     if stage == "init":
         return history_df.iloc[0]
     if stage == "best":
@@ -353,9 +378,13 @@ def save_visualizations(
     fig, axes = plt.subplots(2, 3, figsize=(14, 8))
     for col, stage in enumerate(["init", "best", "final"]):
         baseline_row = _find_stage_row(baseline_history, stage)
-        best_row = _find_stage_row(best_history, stage if stage != "best" else "search_accept")
+        best_row = _find_stage_row(
+            best_history, stage if stage != "best" else "search_accept"
+        )
         axes[0, col].imshow(baseline_row["_img"], cmap="gray")
-        axes[0, col].set_title(f"Baseline {stage}\nPIB={float(baseline_row['pib']):.3f}")
+        axes[0, col].set_title(
+            f"Baseline {stage}\nPIB={float(baseline_row['pib']):.3f}"
+        )
         axes[0, col].axis("off")
         axes[1, col].imshow(best_row["_img"], cmap="gray")
         axes[1, col].set_title(f"{best_case} {stage}\nPIB={float(best_row['pib']):.3f}")
@@ -369,11 +398,17 @@ def save_visualizations(
     fig, axes = plt.subplots(2, 2, figsize=(14, 9))
     pib_values = best_history["pib"].astype(float).to_numpy()
     axes[0, 0].plot(pib_values, label="PIB", color="tab:blue")
-    axes[0, 0].plot(np.maximum.accumulate(pib_values), label="Best PIB", color="tab:orange")
-    accepted_mask = pd.Series(best_history["search_accept"], dtype="boolean").fillna(False)
+    axes[0, 0].plot(
+        np.maximum.accumulate(pib_values), label="Best PIB", color="tab:orange"
+    )
+    accepted_mask = pd.Series(best_history["search_accept"], dtype="boolean").fillna(
+        False
+    )
     accepted = best_history.index[accepted_mask]
     if len(accepted):
-        axes[0, 0].scatter(accepted, pib_values[accepted], color="red", s=25, label="Search Accept")
+        axes[0, 0].scatter(
+            accepted, pib_values[accepted], color="red", s=25, label="Search Accept"
+        )
     axes[0, 0].set_title(f"{best_case} PIB Trace")
     axes[0, 0].legend()
 
@@ -382,7 +417,9 @@ def save_visualizations(
     axes[0, 1].set_title("Search Diagnostics")
     axes[0, 1].legend()
 
-    voltages = np.vstack(best_history["_v"].apply(lambda value: np.asarray(value, dtype=np.float64)))
+    voltages = np.vstack(
+        best_history["_v"].apply(lambda value: np.asarray(value, dtype=np.float64))
+    )
     im = axes[1, 0].imshow(voltages.T, aspect="auto")
     axes[1, 0].set_title("Voltage History")
     axes[1, 0].set_xlabel("Recorder Step")
@@ -577,7 +614,7 @@ def save_report(
       </tr>
     </thead>
     <tbody>
-      {''.join(rows_html)}
+      {"".join(rows_html)}
     </tbody>
   </table>
 
@@ -608,9 +645,15 @@ def save_report(
     return {"report_md": markdown_path, "report_html": html_path}
 
 
-def run_suite_and_save(output_dir: str | Path, cases: list[tuple[str, dict[str, object]]] | None = None):
+def run_suite_and_save(
+    output_dir: str | Path, cases: list[tuple[str, dict[str, object]]] | None = None
+):
     """Convenience wrapper used by pytest/script entrypoints."""
     summary_df, histories, recorders = run_suite(cases=cases)
-    artifacts = save_visualizations(summary_df=summary_df, histories=histories, output_dir=output_dir)
-    artifacts.update(save_report(summary_df=summary_df, output_dir=output_dir, artifacts=artifacts))
+    artifacts = save_visualizations(
+        summary_df=summary_df, histories=histories, output_dir=output_dir
+    )
+    artifacts.update(
+        save_report(summary_df=summary_df, output_dir=output_dir, artifacts=artifacts)
+    )
     return summary_df, histories, recorders, artifacts

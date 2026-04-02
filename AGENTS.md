@@ -113,13 +113,13 @@ pytest -m "not slow"
 ### Environment Setup
 
 ```bash
-# Create virtual environment
-python -m venv .venv
+# Create virtual environment with uv
+uv venv .venv
 source .venv/bin/activate  # Linux/macOS
 # .venv\Scripts\activate   # Windows
 
 # Install dependencies
-pip install -e .
+uv add -e .
 ```
 
 ---

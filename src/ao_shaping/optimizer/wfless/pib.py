@@ -277,7 +277,7 @@ def optimize_pib(
     r_bucket=0,
     delta: float = 1,
     lr: float = 0,
-    exposure_time_ms: int = 80,
+    exposure_time_ms: float = 80.0,
     shrink_iter: int = 0,
     shrink_ratio: float = 0.9,
     cam_id=0,
@@ -418,7 +418,7 @@ def optimize_pib(
         elif isinstance(center, str):
             _img = cam.get_numpy_image(10)
             if center == "mass":
-                #FIX: wrong
+                # FIX: wrong
                 center = centroid(_img)
             elif center == "max":
                 center = np.unravel_index(np.argmax(_img), _img.shape)[::-1]
@@ -497,6 +497,7 @@ def optimize_pib(
         # 根据优化目标创建对应的计算函数
         def test_pib(img):
             return target_func.pib(img, IDEAL_SPOT_RADIUS)[1]
+
         to_min = 1
         if objective == "pib":
 

@@ -66,7 +66,7 @@ class FFmpegCamera(BaseCamera):
     def __init__(
         self,
         cam_id: int | str = 0,
-        exposure_time_ms: int = 20,
+        exposure_time_ms: float = 20.0,
         skip_sampling: bool = False,
     ):
         """Initialize FFmpeg camera configuration.
@@ -194,7 +194,7 @@ class FFmpegCamera(BaseCamera):
             AssertionError: If camera is not initialized.
         """
         assert self._cap is not None and self._cap.isOpened(), "camera not initialized"
-        self.exposure_time_ms = max(1, int(time_ms))
+        self.exposure_time_ms = max(0.011, float(time_ms))
         logger.warning(
             f"[FFmpegCamera] Exposure time is SIMULATED only - adds {self.exposure_time_ms}ms "
             f"delay between captures. Actual exposure depends on video source, not controllable."
@@ -441,7 +441,7 @@ class ImageFolderCamera(BaseCamera):
     def __init__(
         self,
         cam_id: str = "",
-        exposure_time_ms: int = 20,
+        exposure_time_ms: float = 20.0,
         skip_sampling: bool = False,
     ):
         """Initialize image folder camera.

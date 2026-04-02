@@ -1,52 +1,106 @@
 import os
 import sys
 import ctypes
+import logging
+
+_logger = logging.getLogger(__name__)
 
 
 def _find_miicam_sdk_path() -> str | None:
     """Find the MIICAM SDK path by checking multiple possible locations.
-    
+
     Checks in order:
-    1. Bundled in project (src/ao_shaping/drivers/ccd/_miicam_sdk)
-    2. External libs directory (libs/miicamsdk.20240728/python)
-    
+    1. Environment variable MIICAM_SDK_PATH (user-configurable)
+    2. Bundled in project (src/ao_shaping/drivers/ccd/_miicam_sdk)
+    3. External libs directory (libs/miicamsdk.20240728/python)
+
     Returns:
         str | None: Path to SDK if found, None otherwise.
     """
+    # Option 0: Environment variable (highest priority, user-configurable)
+    env_sdk_path = os.environ.get("MIICAM_SDK_PATH")
+    if env_sdk_path and os.path.isdir(env_sdk_path):
+        return env_sdk_path
+
     _current_file = os.path.abspath(__file__)
-    _src_dir = os.path.dirname(os.path.dirname(os.path.dirname(_current_file)))
-    _project_root = os.path.dirname(_src_dir)
-    
+    # _current_file -> src/ao_shaping/drivers/ccd/miicam_driver.py
+    # Go up 5 levels: ccd -> drivers -> ao_shaping -> src -> project_root
+    _project_root = os.path.dirname(
+        os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.dirname(_current_file)))
+        )
+    )
+
     _MII_SDK_PATHS = [
         # Option 1: Bundled in project (for development)
         os.path.join(os.path.dirname(__file__), "_miicam_sdk"),
         # Option 2: External libs directory
         os.path.join(_project_root, "libs", "miicamsdk.20240728", "python"),
     ]
-    
+
     for path in _MII_SDK_PATHS:
-        if os.path.isdir(path):
+        if os.path.isdir(path) and os.path.isfile(os.path.join(path, "miicam.py")):
             return path
     return None
 
 
-# Add SDK path to sys.path if found
-_MII_SDK_PATH = _find_miicam_sdk_path()
-if _MII_SDK_PATH is not None and _MII_SDK_PATH not in sys.path:
-    sys.path.insert(0, _MII_SDK_PATH)
+def _setup_miicam_sdk() -> bool:
+    """Set up the MIICAM SDK by adding its path to sys.path and DLL search path.
+
+    Returns:
+        bool: True if SDK was found and set up successfully, False otherwise.
+    """
+    sdk_path = _find_miicam_sdk_path()
+    if sdk_path is None:
+        _logger.warning(
+            "MIICAM SDK not found. Tried: "
+            "1) MIICAM_SDK_PATH env var, "
+            "2) bundled '_miicam_sdk', "
+            "3) 'libs/miicamsdk.20240728/python'. "
+            "Camera functionality will not be available. "
+            "Set MIICAM_SDK_PATH to the directory containing miicam.py and miicam.dll."
+        )
+        return False
+
+    # Add to sys.path so Python can import the miicam module
+    if sdk_path not in sys.path:
+        sys.path.insert(0, sdk_path)
+
+    # On Windows, add the SDK directory to the DLL search path
+    # so miicam.dll and its dependencies can be found
+    if sys.platform == "win32":
+        try:
+            os.add_dll_directory(sdk_path)
+        except (OSError, AttributeError):
+            # os.add_dll_directory requires Python 3.8+
+            # Fall back to adding to PATH
+            os.environ["PATH"] = sdk_path + os.pathsep + os.environ.get("PATH", "")
+
+    _logger.debug(f"MIICAM SDK set up successfully from: {sdk_path}")
+    return True
+
+
+# Set up MIICAM SDK before importing
+_MIICAM_AVAILABLE = _setup_miicam_sdk()
+
+if _MIICAM_AVAILABLE:
+    import numpy as np
+
+    import miicam
+
+    from ao_shaping.utils.file import logger
+    from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
 else:
-    import logging
-    logging.getLogger(__name__).warning(
-        "MIICAM SDK not found. Tried: bundled '_miicam_sdk' and 'libs/miicamsdk.20240728/python'. "
-        "Camera functionality will not be available."
-    )
+    # Provide stubs so the module can still be imported for testing
+    np = None
+    miicam = None
+    logger = logging.getLogger(__name__)
 
-import numpy as np
+    class CameraError(Exception):
+        pass
 
-import miicam
-
-from ao_shaping.utils.file import logger
-from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
+    class BaseCamera:
+        pass
 
 
 class MIICAMError(CameraError):
@@ -57,7 +111,10 @@ class MIICAMError(CameraError):
 
 class CameraStreamManager(BaseCamera):
     def __init__(
-        self, cam_id: int = 0, exposure_time_ms: int = 20, skip_sampling: bool = False
+        self,
+        cam_id: int = 0,
+        exposure_time_ms: float = 20.0,
+        skip_sampling: bool = False,
     ):
         super().__init__(cam_id, exposure_time_ms, skip_sampling)
         self._pixel_format = "MONO8"  # Default format
@@ -76,11 +133,39 @@ class CameraStreamManager(BaseCamera):
     def close(self) -> None:
         """Close the camera device and release resources."""
         if self.cam:
+            import time
+
+            # Stop streaming with retry - the callback thread may need time to exit
+            for _ in range(3):
+                try:
+                    self.cam.Stop()
+                    break
+                except miicam.HRESULTException:
+                    time.sleep(0.05)
+                except Exception:
+                    break
+
+            # Flush any pending frames
+            try:
+                self.cam.put_Option(miicam.MIICAM_OPTION_FLUSH, 3)
+            except Exception:
+                pass
+
+            # Small delay to let callback thread finish
+            time.sleep(0.1)
+
+            try:
+                self.cam.Close()
+            except Exception:
+                pass
+
             self.cam_width = 0
             self.cam_height = 0
-            self.cam.Stop()
-            self.cam.Close()
             self.cam = None
+            self._frame_buffer = None
+
+            # Give the camera hardware a moment to settle before re-opening
+            time.sleep(0.2)
 
     def initialize(self) -> None:
         """
@@ -98,6 +183,33 @@ class CameraStreamManager(BaseCamera):
         # Close previously opened camera device (if any)
         self.__exit__(None, None, None)
 
+        # Pre-emptive: try to stop any stale stream from a previous session
+        # This handles cases where the camera was left streaming from a prior run
+        import time as _init_time
+
+        try:
+            # Try to open and immediately close to clear any stale state
+            dev_list = miicam.Miicam.EnumV2()
+            if dev_list and len(dev_list) > self.cam_id:
+                temp_cam = miicam.Miicam.Open(dev_list[self.cam_id].id)
+                if temp_cam:
+                    try:
+                        temp_cam.Stop()
+                    except Exception:
+                        pass
+                    try:
+                        temp_cam.put_Option(miicam.MIICAM_OPTION_FLUSH, 3)
+                    except Exception:
+                        pass
+                    _init_time.sleep(0.3)
+                    try:
+                        temp_cam.Close()
+                    except Exception:
+                        pass
+                    _init_time.sleep(0.5)
+        except Exception:
+            pass
+
         # Update device list and get device info list
         dev_list = miicam.Miicam.EnumV2()
         if not dev_list or len(dev_list) <= self.cam_id:
@@ -112,14 +224,23 @@ class CameraStreamManager(BaseCamera):
         if not self.cam:
             raise MIICAMError("Failed to open camera")
 
-        # Disable auto exposure
-        self.cam.put_AutoExpoEnable(0)
+        # Disable auto exposure (some cameras may not support this during init)
+        try:
+            self.cam.put_AutoExpoEnable(0)
+        except miicam.HRESULTException:
+            logger.warning("Could not disable auto exposure during init")
 
-        # Set exposure time (convert ms to microseconds)
-        self.cam.put_ExpoTime(self.exposure_time_ms * 1000)
+        # Set exposure time (convert ms to microseconds; SDK expects integer)
+        try:
+            self.cam.put_ExpoTime(int(self.exposure_time_ms * 1000))
+        except miicam.HRESULTException:
+            logger.warning(f"Could not set exposure time to {self.exposure_time_ms}ms")
 
         # Set gain (default 100 = 1x)
-        self.cam.put_ExpoAGain(100)
+        try:
+            self.cam.put_ExpoAGain(100)
+        except miicam.HRESULTException:
+            logger.warning("Could not set exposure gain")
 
         # Try to set pixel format to 8-bit grey (MONO8 equivalent)
         # MIICAM_OPTION_RGB = 3 means 8-bit grey for monochrome camera
@@ -180,7 +301,7 @@ class CameraStreamManager(BaseCamera):
         except Exception:
             self._sn = f"MIICAM_{self.cam_id}"
 
-        # Start streaming (pull mode with callback)
+        # Start streaming (pull mode with callback) with retry
         # Use a minimal callback that just stores the image
         self._frame_buffer = None
         self._frame_buffer_lock = False  # Lock to prevent reading while updating
@@ -202,28 +323,58 @@ class CameraStreamManager(BaseCamera):
                 except Exception:
                     pass
 
-        self.cam.StartPullModeWithCallback(frame_callback, self)
+        # Retry StartPullModeWithCallback - the camera may need time to
+        # fully stop the previous streaming session (from this or a prior process)
+        import time as _time
+
+        # Pre-emptively try to stop any stale stream from a previous session
+        try:
+            self.cam.Stop()
+        except Exception:
+            pass
+        _time.sleep(0.3)
+
+        max_retries = 7
+        for attempt in range(max_retries):
+            try:
+                self.cam.StartPullModeWithCallback(frame_callback, self)
+                break
+            except miicam.HRESULTException:
+                if attempt < max_retries - 1:
+                    # Try to stop again and wait with increasing delay
+                    try:
+                        self.cam.Stop()
+                    except Exception:
+                        pass
+                    _time.sleep(0.5 + 0.3 * attempt)
+                else:
+                    raise
 
         self.__update_properties()
 
-    def reset_exposure_time(self, time_ms: int) -> int:
+    def reset_exposure_time(self, time_ms: float) -> float:
         """
         Reset the camera exposure time.
 
         Args:
-            time_ms (int): New exposure time in milliseconds. Must be >= 1.
+            time_ms (float): New exposure time in milliseconds.
+                Valid range: 0.011ms to 10000ms. Values outside this range are clamped.
 
         Returns:
-            int: Actual exposure time set in milliseconds.
+            float: Actual exposure time set in milliseconds.
         """
         assert self.cam, "camera not initialized"
-        if time_ms >= 1:
-            self.exposure_time_ms = time_ms
+        # Clamp to valid range: 0.011ms to 10000ms
+        if time_ms < 0.011:
+            self.exposure_time_ms = 0.011
+            logger.warning("exposure time must >= 0.011ms. clamped to 0.011ms.")
+        elif time_ms > 10000:
+            self.exposure_time_ms = 10000.0
+            logger.warning("exposure time must <= 10000ms. clamped to 10000ms.")
         else:
-            self.exposure_time_ms = 1
-            logger.warning("exposure time must >= 1. set to 1.")
-        # Convert ms to microseconds for MIICAM
-        self.cam.put_ExpoTime(self.exposure_time_ms * 1000)
+            self.exposure_time_ms = time_ms
+        # Convert ms to microseconds for MIICAM (SDK expects integer microseconds)
+        self.cam.put_ExpoTime(int(self.exposure_time_ms * 1000))
         return self.exposure_time_ms
 
     def enable_auto_exposure(self, enable: bool = True, mode: int = 1) -> bool:

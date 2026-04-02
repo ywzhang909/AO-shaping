@@ -8,7 +8,9 @@ from ao_shaping.utils.file import logger
 
 
 class CameraStreamManager(BaseCamera):
-    def __init__(self, cam_id: int = 0, exposure_time_ms: int = 0, skip_sampling=False):
+    def __init__(
+        self, cam_id: int = 0, exposure_time_ms: float = 0.0, skip_sampling=False
+    ):
         self.device_manager = gx.DeviceManager()
         self.cam_id = int(cam_id)
         self.__exposure_time_ms = ExposureTime(exposure_time_ms)
@@ -82,7 +84,17 @@ class CameraStreamManager(BaseCamera):
             raise ConnectionAbortedError(error_info)
 
         sn = dev_info_list[self.cam_id].get("sn")
-        self.cam = self.device_manager.open_device_by_sn(sn)
+        try:
+            self.cam = self.device_manager.open_device_by_sn(sn)
+        except gx.gxiapi.InvalidAccess as e:
+            if "REPEAT_OPENED" in str(e) or "device has been open" in str(e):
+                logger.warning(
+                    f"Device {sn} already opened, attempting to reinitialize..."
+                )
+                self.device_manager = gx.DeviceManager()
+                self.cam = self.device_manager.open_device_by_sn(sn)
+            else:
+                raise
         assert self.cam, "camera not found"
         # 设置相机的曝光时间
         float_range = self.cam.ExposureTime.get_range()

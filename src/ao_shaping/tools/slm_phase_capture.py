@@ -231,7 +231,7 @@ def save_capture(
     "--length", "-L", default=1000.0, type=float, help="传播距离 L (m) (default: 1000)"
 )
 # Zernike parameters
-@click.option("--n-max", default=4, type=int, help="Zernike最大径向阶数 (default: 4)")
+@click.option("--n-max", default=10, type=int, help="Zernike最大径向阶数 (default: 10)")
 @click.option(
     "--max-coeff", default=1.0, type=float, help="Zernike系数最大绝对值 (default: 1.0)"
 )
@@ -261,6 +261,12 @@ def save_capture(
 @click.option("--interval", default=0.5, type=float, help="样本间隔秒 (default: 0.5)")
 @click.option("--no-slm", is_flag=True, help="仅采集相机画面，不下发相位到SLM")
 @click.option("--seed", default=None, type=int, help="随机种子 (default: None)")
+@click.option(
+    "--resume-from",
+    default=None,
+    type=str,
+    help="从已有 global_metadata.json 继续采集 (路径)",
+)
 def run(
     mode: str,
     samples: int,
@@ -284,6 +290,7 @@ def run(
     interval: float,
     no_slm: bool,
     seed: int | None,
+    resume_from: str | None,
 ):
     """SLM随机相位采集工具
 
@@ -294,9 +301,40 @@ def run(
     if seed is not None:
         np.random.seed(seed)
 
-    output_dir = Path(output)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    logger.info(f"输出目录: {output_dir}")
+    # Determine output directory and starting sample index
+    base_output_dir = Path(output)
+    start_idx = 0
+    resumed_meta = None
+
+    if resume_from is not None:
+        resume_path = Path(resume_from)
+        if not resume_path.exists():
+            logger.error(f"Resume file not found: {resume_path}")
+            sys.exit(1)
+        base_output_dir = resume_path.parent
+        with open(resume_path, "r", encoding="utf-8") as f:
+            resumed_meta = json.load(f)
+        logger.info(f"从 {resume_path} 恢复采集")
+
+        # Find existing sample directories to determine next index
+        existing_dirs = sorted(base_output_dir.glob("sample_*"))
+        if existing_dirs:
+            last_idx = max(
+                int(d.name.split("_")[1])
+                for d in existing_dirs
+                if d.name.startswith("sample_") and d.name.split("_")[1].isdigit()
+            )
+            start_idx = last_idx + 1
+            logger.info(
+                f"发现已有 {len(existing_dirs)} 个样本，从 sample_{start_idx:04d} 开始"
+            )
+    else:
+        # Create a new batch folder with timestamp
+        batch_name = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_output_dir = base_output_dir / batch_name
+
+    base_output_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"输出目录: {base_output_dir}")
     logger.info(f"采集模式: {mode}, 样本数: {samples}")
 
     # Initialize devices
@@ -359,7 +397,7 @@ def run(
             logger.warning(f"MiiCam相机不可用: {e}")
             miicam_cam = None
 
-    # Global metadata
+    # Build global metadata
     global_meta = {
         "timestamp": datetime.now().isoformat(),
         "mode": mode,
@@ -388,8 +426,18 @@ def run(
             "radius": zernike_radius,
         }
 
+    # Merge with resumed metadata if resuming
+    if resumed_meta is not None:
+        # Preserve original timestamp and merge new samples count
+        global_meta["timestamp"] = resumed_meta.get(
+            "timestamp", global_meta["timestamp"]
+        )
+        global_meta["resumed_at"] = datetime.now().isoformat()
+        global_meta["total_samples"] = resumed_meta.get("total_samples", 0) + samples
+
     # Save global metadata
-    with open(output_dir / "global_metadata.json", "w", encoding="utf-8") as f:
+    meta_path = base_output_dir / "global_metadata.json"
+    with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(global_meta, f, ensure_ascii=False, indent=2)
 
     # Main capture loop
@@ -472,8 +520,8 @@ def run(
         }
 
         saved = save_capture(
-            output_dir=output_dir,
-            sample_idx=i,
+            output_dir=base_output_dir,
+            sample_idx=start_idx + i,
             phase_gray=phase_gray,
             daheng_frame=daheng_frame,
             miicam_frame=miicam_frame,
@@ -510,8 +558,8 @@ def run(
         except Exception as e:
             logger.warning(f"MiiCam相机断开失败: {e}")
 
-    logger.info(f"全部 {samples} 个样本已保存到 {output_dir}")
-    logger.info(f"全局元数据: {output_dir / 'global_metadata.json'}")
+    logger.info(f"全部 {samples} 个样本已保存到 {base_output_dir}")
+    logger.info(f"全局元数据: {base_output_dir / 'global_metadata.json'}")
 
 
 if __name__ == "__main__":

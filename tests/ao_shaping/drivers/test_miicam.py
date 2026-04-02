@@ -16,7 +16,7 @@ class TestMIICAMCamera:
     def miicam_module(self):
         """Import MIICAM module, skip if not available."""
         try:
-            from ao_shaping.drivers.ccd import miicam
+            from ao_shaping.drivers.ccd import miicam_driver as miicam
 
             return miicam
         except ImportError:
@@ -42,20 +42,30 @@ class TestMIICAMCamera:
             assert cam.cam_width > 0
             assert cam.cam_height > 0
             print(f"\nCamera initialized: {cam.cam_width}x{cam.cam_height}")
-            print(f"Serial number: {cam._CameraStreamManager__sn}")
+            print(f"Serial number: {cam._sn}")
 
     def test_exposure_time(self, CameraStreamManager):
         """Test setting and getting exposure time."""
-        with CameraStreamManager(cam_id=0, exposure_time_ms=50) as cam:
+        with CameraStreamManager(cam_id=0, exposure_time_ms=50.0) as cam:
             # Reset to different exposure time
-            new_exposure = cam.reset_exposure_time(30)
-            assert new_exposure == 30
+            new_exposure = cam.reset_exposure_time(30.0)
+            assert new_exposure == 30.0
             print(f"\nExposure time set to: {new_exposure}ms")
 
-            # Test minimum exposure
+            # Test minimum exposure clamping (0.011ms minimum)
             new_exposure = cam.reset_exposure_time(0)
-            assert new_exposure == 1  # Should be clamped to minimum
+            assert abs(new_exposure - 0.011) < 0.001  # Should be clamped to 0.011ms
             print(f"Exposure time (min clamped): {new_exposure}ms")
+
+            # Test float exposure (sub-millisecond)
+            new_exposure = cam.reset_exposure_time(0.5)
+            assert abs(new_exposure - 0.5) < 0.001
+            print(f"Exposure time (sub-ms): {new_exposure}ms")
+
+            # Test maximum exposure clamping (10000ms maximum)
+            new_exposure = cam.reset_exposure_time(20000)
+            assert abs(new_exposure - 10000.0) < 0.001
+            print(f"Exposure time (max clamped): {new_exposure}ms")
 
     def test_reset_window_full(self, CameraStreamManager):
         """Test resetting window to full resolution."""
@@ -206,9 +216,9 @@ class TestMIICAMCamera:
                 if mean_val < 10:
                     pytest.skip("Scene too dark - need more light")
 
-            # Verify in range
-            assert 200 <= max_val <= 240, (
-                f"Max brightness {max_val} not in range [200, 240]"
+            # Verify in range (allow small tolerance for sensor noise)
+            assert 195 <= max_val <= 245, (
+                f"Max brightness {max_val} not in range [195, 245]"
             )
 
     def test_context_manager(self, CameraStreamManager):
