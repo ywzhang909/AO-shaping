@@ -38,13 +38,20 @@ def _gaussian2d(
 
 
 class ImageTargetFunc:
-
     @classmethod
-    def build_from_init_image(cls: "ImageTargetFunc", init_img:np.ndarray) -> "ImageTargetFunc":
+    def build_from_init_image(
+        cls: "ImageTargetFunc", init_img: np.ndarray
+    ) -> "ImageTargetFunc":
         h, w = init_img.shape
-        _ret = cls(w, h, (h//2, w//2))
+        # Initial center in (x, y) = (col, row) format: (w//2, h//2)
+        _ret = cls(w, h, (w // 2, h // 2))
         center = _ret.intelligen_center(init_img)
-        _ret.center = center
+        # Round center values to integers for consistent mask calculation
+        # intelligen_center may return floats from center_of_mass calculation
+        center_int = (round(center[0]), round(center[1]))
+        # Recalculate dist_mat and masks with the correct center
+        # since intelligen_center may update center based on actual image content
+        _ret.init_coordinates(_ret.xv, _ret.yv, center_int)
 
         return _ret
 
@@ -52,21 +59,22 @@ class ImageTargetFunc:
         assert type(x) is type(y), "x and y must have the same type"
         self.init_coordinates(x, y, center)
 
-
     def init_coordinates(self, x, y, center):
         if isinstance(x, int) and isinstance(y, int):
             _x, _y = np.arange(x), np.arange(y)
-            self.xv, self.yv = np.meshgrid(_x, _y, indexing='xy')
-            self.shape = y,x
+            self.xv, self.yv = np.meshgrid(_x, _y, indexing="xy")
+            self.shape = y, x
         elif isinstance(x, np.ndarray):
             if x.ndim == 2:
                 self.xv, self.yv = x, y
             elif x.ndim == 1:
-                self.xv, self.yv = np.meshgrid(x, y, indexing='xy')
+                self.xv, self.yv = np.meshgrid(x, y, indexing="xy")
             self.shape = self.xv.shape
 
         self.center = center
-        self.dist_mat = np.sqrt((self.xv - self.center[0])**2 + (self.yv - self.center[1])**2)
+        self.dist_mat = np.sqrt(
+            (self.xv - self.center[0]) ** 2 + (self.yv - self.center[1]) ** 2
+        )
         self.masks = self.__gen_center_bucket_masks()
 
         self.npix = len(self.xv)
@@ -81,12 +89,12 @@ class ImageTargetFunc:
         max_radius = min(
             self.center[0],
             self.center[1],
-            self.shape[0]-self.center[0]-1,
-            self.shape[1]-self.center[1]-1
+            self.shape[0] - self.center[0] - 1,
+            self.shape[1] - self.center[1] - 1,
         )
-        max_radius = max(1, max_radius)
+        max_radius = max(1, int(max_radius))
         mask_mats = np.zeros((max_radius, *self.shape), dtype=bool)
-        for r in range(1, max_radius):
+        for r in range(max_radius):
             mask_mats[r] = self.dist_mat <= r
         return mask_mats
 
@@ -102,11 +110,14 @@ class ImageTargetFunc:
         """
         pib_mask = self.__get_bucket_mask(pib_radius)
         pib = np.sum(img[pib_mask])
-        return pib, pib/np.sum(img)
+        return pib, pib / np.sum(img)
 
     def avg_radius(self, img, moment=1.0):
-        r = np.sum(self.dist_mat ** moment * img)
-        return r, r / np.sum(img),
+        r = np.sum(self.dist_mat**moment * img)
+        return (
+            r,
+            r / np.sum(img),
+        )
 
     def denoise_process(self, img):
         noise_sample = np.percentile(img, 5)
@@ -118,7 +129,10 @@ class ImageTargetFunc:
         # 如果环围半径较小，使用质心而非形心;如果中间存在空洞使用形心，否则质心
         center = self.center_of_brightness(img)
         (cx, cy) = center
-        if np.all(img[cy-margin: cy+margin, cx-margin: cx+margin] >= np.max(img) * 0.4): # 中心不是空洞
+        if np.all(
+            img[cy - margin : cy + margin, cx - margin : cx + margin]
+            >= np.max(img) * 0.4
+        ):  # 中心不是空洞
             center = self.center_of_mass(img)
 
         return center
@@ -143,12 +157,12 @@ class ImageTargetFunc:
         # intensity 复制扩展成3D 与 masks 维度一致
         intensity_3d = np.repeat(intensity[np.newaxis, ...], len(self.masks), axis=0)
         power_in_masks = np.sum(intensity_3d * self.masks, axis=(1, 2))
-        radius = int(np.argmax(power_in_masks >= power_in_circle)+1)
+        radius = int(np.argmax(power_in_masks >= power_in_circle) + 1)
         return radius
 
     def __get_bucket_mask(self, radius):
         assert 0 < radius < len(self.masks), f"Radius {radius} out of range"
-        return self.masks[int(radius-1)]
+        return self.masks[int(radius)]
 
     def fit_gaussian_radius(self, img: np.ndarray, center: tuple[float, float] | None = None) -> float | None:
         """拟合2D高斯曲线得到半腰半径（sigma）。
