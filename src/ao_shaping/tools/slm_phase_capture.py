@@ -32,10 +32,11 @@ from ao_shaping.drivers.slm.slm_pattern_helper import PatternHelper
 def _get_daheng_camera(cam_id: int, exposure_ms: int):
     """Import and create Daheng camera instance."""
     try:
-        from ao_shaping.drivers.ccd.daheng import CameraStreamManager
+        from ao_shaping.drivers.ccd.daheng import DahengCamManager
 
-        cam = CameraStreamManager(cam_id=cam_id, exposure_time_ms=exposure_ms)
+        cam = DahengCamManager(cam_id=cam_id, exposure_time_ms=exposure_ms)
         cam.open()
+        cam.reset_window()
         return cam
     except ImportError as e:
         logger.warning(f"Daheng相机不可用: {e}")
@@ -52,6 +53,7 @@ def _get_miicam_camera(cam_id: int, exposure_ms: int):
 
         cam = CameraStreamManager(cam_id=cam_id, exposure_time_ms=exposure_ms)
         cam.open()
+        # cam.reset_window()
         return cam
     except ImportError as e:
         logger.warning(f"MiiCam相机不可用: {e}")
@@ -283,6 +285,7 @@ def save_capture(
 @click.option("--no-slm", is_flag=True, help="仅采集相机画面，不下发相位到SLM")
 @click.option("--seed", default=None, type=int, help="随机种子 (default: None)")
 @click.option(
+    "-f",
     "--resume-from",
     default=None,
     type=str,

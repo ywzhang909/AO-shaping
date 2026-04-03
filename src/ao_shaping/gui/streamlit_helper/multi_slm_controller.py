@@ -559,16 +559,16 @@ def _get_camera_class(driver_name: str):
         try:
             from ao_shaping.drivers.ccd.miicam_driver import CameraStreamManager
 
-            return CameraStreamManager
+            return DahengCamManager
         except ImportError as e:
             raise ImportError(
                 f"MIICAM 驱动不可用: {e}. 请确保已安装 MIICAM SDK 或将 SDK 文件放置在正确的位置。"
             )
     if driver_name == "Daheng":
         try:
-            from ao_shaping.drivers.ccd.daheng import CameraStreamManager
+            from ao_shaping.drivers.ccd.daheng import DahengCamManager
 
-            return CameraStreamManager
+            return DahengCamManager
         except ImportError as e:
             raise ImportError(f"Daheng 驱动不可用: {e}. 请确保已安装 GxIPy 库。")
     raise ValueError(f"未知相机驱动: {driver_name}")

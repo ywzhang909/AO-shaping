@@ -3,18 +3,19 @@ import matplotlib.pyplot as plt
 import pytest
 
 from ao_shaping.utils.spots_calc import centroid
-from ao_shaping.drivers import CameraStreamManager
+from ao_shaping.drivers.ccd.daheng import DahengCamManager
 
 
 def test_cam_list():
-    cam_list = CameraStreamManager.get_cam_list()
+    cam_list = DahengCamManager.get_cam_list()
     for cam in cam_list:
         print(cam)
 
 
 def test_cam(cam_id=0):
-    with CameraStreamManager(cam_id=cam_id) as cam:
-        assert all(cam.get_numpy_image())
+    with DahengCamManager(cam_id=cam_id) as cam:
+        img = cam.get_numpy_image()
+        assert np.sum(img) > 0
 
 
 def test_exposure_time_difference(cam_id=0):
@@ -30,13 +31,13 @@ def test_exposure_time_difference(cam_id=0):
     - Hardware: Daheng CCD camera
     - Expected: 500ms exposure should produce ~10x brighter image than 50ms
     """
-    with CameraStreamManager(cam_id=cam_id, exposure_time_ms=50) as cam:
+    with DahengCamManager(cam_id=cam_id, exposure_time_ms=50) as cam:
         img_50ms = cam.get_numpy_image(n_sample=1, skip_first=False)
         assert img_50ms is not None
         assert img_50ms.size > 0
         mean_50ms = np.mean(img_50ms)
 
-    with CameraStreamManager(cam_id=cam_id, exposure_time_ms=500) as cam:
+    with DahengCamManager(cam_id=cam_id, exposure_time_ms=500) as cam:
         img_500ms = cam.get_numpy_image(n_sample=1, skip_first=False)
         assert img_500ms is not None
         assert img_500ms.size > 0
@@ -57,12 +58,12 @@ def test_exposure_time_difference_manual(cam_id=0):
     This is a template for manual testing. Run with:
     pytest tests/ao_shaping/drivers/test_ccd.py::test_exposure_time_difference_manual -v -s
     """
-    with CameraStreamManager(cam_id=cam_id, exposure_time_ms=50) as cam:
+    with DahengCamManager(cam_id=cam_id, exposure_time_ms=50) as cam:
         img_50ms = cam.get_numpy_image(n_sample=1, skip_first=False)
         mean_50ms = np.mean(img_50ms)
         print(f"\n50ms exposure:  mean={mean_50ms:.2f}, shape={img_50ms.shape}")
 
-    with CameraStreamManager(cam_id=cam_id, exposure_time_ms=500) as cam:
+    with DahengCamManager(cam_id=cam_id, exposure_time_ms=500) as cam:
         img_500ms = cam.get_numpy_image(n_sample=1, skip_first=False)
         mean_500ms = np.mean(img_500ms)
         print(f"500ms exposure: mean={mean_500ms:.2f}, shape={img_500ms.shape}")
@@ -90,11 +91,11 @@ def run_exposure_comparison():
     cam_id = 0
 
     # Capture at 50ms exposure
-    with CameraStreamManager(cam_id=cam_id, exposure_time_ms=50) as cam:
+    with DahengCamManager(cam_id=cam_id, exposure_time_ms=50) as cam:
         img_50ms = cam.get_numpy_image(n_sample=1, skip_first=False)
 
     # Capture at 500ms exposure
-    with CameraStreamManager(cam_id=cam_id, exposure_time_ms=500) as cam:
+    with DahengCamManager(cam_id=cam_id, exposure_time_ms=500) as cam:
         img_500ms = cam.get_numpy_image(n_sample=1, skip_first=False)
 
     # Calculate statistics

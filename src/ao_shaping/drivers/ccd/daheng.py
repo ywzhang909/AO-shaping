@@ -7,7 +7,7 @@ from ao_shaping.drivers.ccd.common import ExposureTime
 from ao_shaping.utils.file import logger
 
 
-class CameraStreamManager(BaseCamera):
+class DahengCamManager(BaseCamera):
     def __init__(
         self, cam_id: int = 0, exposure_time_ms: float = 0.0, skip_sampling=False
     ):
