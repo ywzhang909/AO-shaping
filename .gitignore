@@ -65,3 +65,4 @@ docs/WFS20_Manual*
 *.png
 .agents/skills*
 nul
+checkpoints*

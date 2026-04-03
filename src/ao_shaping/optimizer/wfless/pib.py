@@ -570,7 +570,7 @@ def optimize_pib(
             candidate_j, candidate_ratio = calc_objective(candidate_img)
             return {
                 "J": float(candidate_j),
-                objective: float(test_pib(candidate_img)),
+                objective: float(test_objective(candidate_img)),
                 "ratio": float(candidate_ratio),
                 "img": candidate_img,
                 "max_brt": float(np.max(candidate_img)),

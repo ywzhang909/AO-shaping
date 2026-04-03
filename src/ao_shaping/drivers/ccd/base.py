@@ -23,7 +23,7 @@ class BaseCamera(ABC):
     def __init__(
         self,
         cam_id: int = 0,
-        exposure_time_ms: int = 20,
+        exposure_time_ms: float = 20.0,
         skip_sampling: bool = False,
     ):
         """Initialize camera configuration.
@@ -31,10 +31,11 @@ class BaseCamera(ABC):
         Args:
             cam_id: Camera device index.
             exposure_time_ms: Initial exposure time in milliseconds.
+                Valid range: 0.011ms to 10000ms.
             skip_sampling: Whether to enable binning/skipping for faster capture.
         """
         self.cam_id = int(cam_id)
-        self.exposure_time_ms = exposure_time_ms
+        self.exposure_time_ms = float(exposure_time_ms)
         self.skip_sampling = skip_sampling
 
         self.cam = None
@@ -86,14 +87,15 @@ class BaseCamera(ABC):
         pass
 
     @abstractmethod
-    def reset_exposure_time(self, time_ms: int) -> int:
+    def reset_exposure_time(self, time_ms: float) -> float:
         """Set the camera exposure time.
 
         Args:
             time_ms: New exposure time in milliseconds.
+                Valid range: 0.011ms to 10000ms.
 
         Returns:
-            int: Actual exposure time set in milliseconds.
+            float: Actual exposure time set in milliseconds.
 
         Raises:
             AssertionError: If camera is not initialized.
@@ -155,17 +157,18 @@ class BaseCamera(ABC):
         pass
 
     @abstractmethod
-    def set_auto_exposure_target(self, target: int) -> int:
-        """Set auto exposure target brightness.
+    def reset_exposure_time(self, time_ms: float) -> float:
+        """Set the camera exposure time.
 
         Args:
-            target: Target brightness value (implementation specific range).
+            time_ms: New exposure time in milliseconds.
+                Valid range: 0.011ms to 10000ms.
 
         Returns:
-            int: The target value that was set.
+            float: Actual exposure time set in milliseconds.
 
         Raises:
-            NotImplementedError: If not supported by the camera.
+            AssertionError: If camera is not initialized.
         """
         pass
 

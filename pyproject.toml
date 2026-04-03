@@ -1,28 +1,71 @@
 [project]
 name = "ao_shaping"
 version = "0.1.0"
-description = "AO-Shaping自适应光学系统命令行工具，支持波前校正和光束整形。"
+description = "AO-Shaping是一个基于强化学习的自适应光学(AO)系统，用于波前校正和光束整形。该项目集成了多种优化算法，包括基于波前传感器(WFS)的优化和无波前优化方法，能够通过变形镜(DM)对光波前进行精确控制，实现高质量的光束输出。"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "click>=8.3.0",
-    "coredumpy>=0.4.3",
-    "findlibs>=0.1.2",
-    "loguru>=0.7.3",
-    "matplotlib>=3.9.2",
     "numpy>=2.2.6",
     "pandas>=2.3.2",
     "pygame>=2.6.1",
-    "scipy>=1.15.0",
     "tqdm>=4.67.1",
+    "matplotlib>=3.9.2",
+    "pyserial>=3.5",
+    "nidaqmx>=0.8.10",
+    "scikit-optimize>=0.10.2",
+    "tensorboard>=2.20.0",
+    "ordered-set>=4.1.0",
+    "findlibs>=0.1.2",
+    "loguru>=0.7.3",
+    "ansi2html>=1.9.2",
+    "typing-extensions>=4.12.2",
+    "coredumpy>=0.4.3",
+    "asyncer>=0.0.10",
+    "click>=8.3.0",
+    "setuptools>=80.9.0",
+    "cython>=3.2.2",
+    "zernike>=0.0.33",
+    "gymnasium>=1.2.1",
+    "stable-baselines3>=2.7.0",
+    "torch>=2.10",
+    "streamlit>=1.40.0",
+    "scipy>=1.15.0",
+    "pillow>=11.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "nuitka>=2.8.1",
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
 ]
 
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
 
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+testpaths = ["tests"]
+norecursedirs = ["docs", "libs", ".venv", "node_modules", ".git"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
+]
+torchvision = [
+  { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
+]

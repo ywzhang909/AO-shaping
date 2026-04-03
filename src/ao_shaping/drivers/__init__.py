@@ -1,7 +1,7 @@
 """Hardware drivers package.
 
 This package provides unified interfaces for various hardware devices,
-including cameras, DMs, and wavefront sensors.
+including cameras, SLMs, DMs, and wavefront sensors.
 """
 
 # Device base classes for digital twin management
@@ -73,3 +73,131 @@ except Exception as daheng_error:
             miicam_error,
         )
         CameraStreamManager = None
+
+# Try to import FFmpegCamera, but make it optional
+try:
+    from .ccd.ffmpeg import FFmpegCamera, FFmpegCameraError
+
+    __all__ += ["FFmpegCamera", "FFmpegCameraError"]
+except ImportError as e:
+    logger.debug(f"FFmpegCamera not available: {e}")
+    FFmpegCamera = None
+    FFmpegCameraError = None
+
+# Try to import SantecSLM200, but make it optional
+try:
+    from .slm.santec_slm200 import SantecSLM200, SantecSLM200Error
+
+    __all__ += ["SantecSLM200", "SantecSLM200Error"]
+except ImportError as e:
+    logger.warning(f"SantecSLM200 not available: {e}")
+    SantecSLM200 = None
+    SantecSLM200Error = None
+
+# Try to import PyVISA base components, but make them optional
+try:
+    from .visa_base import (
+        VisaResourceManager,
+        VisaInstrument,
+        VisaInstrumentFactory,
+        VisaError,
+        is_pyvisa_available,
+        list_visa_resources,
+        open_visa_instrument,
+    )
+
+    __all__ += [
+        "VisaResourceManager",
+        "VisaInstrument",
+        "VisaInstrumentFactory",
+        "VisaError",
+        "is_pyvisa_available",
+        "list_visa_resources",
+        "open_visa_instrument",
+    ]
+except ImportError as e:
+    logger.debug(f"PyVISA components not available: {e}")
+    VisaResourceManager = None
+    VisaInstrument = None
+    VisaInstrumentFactory = None
+    VisaError = None
+    is_pyvisa_available = lambda: False
+    list_visa_resources = None
+    open_visa_instrument = None
+
+# Try to import SLM VISA wrapper, but make it optional
+try:
+    from .slm.santec_slm200_visa import SantecSLM200Visa, create_slm_visa_instrument
+
+    __all__ += ["SantecSLM200Visa", "create_slm_visa_instrument"]
+except ImportError as e:
+    logger.debug(f"SantecSLM200Visa not available: {e}")
+    SantecSLM200Visa = None
+    create_slm_visa_instrument = None
+
+# Import mock devices for testing
+from ao_shaping.drivers.mock_devices import (
+    MockCamera,
+    MockCameraError,
+    MockDM,
+    MockDMError,
+    MockFilter,
+    MockFilterError,
+    MockLaser,
+    MockLaserError,
+    MockSLM,
+    MockSLMError,
+    MockStage,
+    MockStageError,
+    MockWFS,
+    MockWFSError,
+)
+
+__all__ += [
+    "MockCamera",
+    "MockCameraError",
+    "MockDM",
+    "MockDMError",
+    "MockFilter",
+    "MockFilterError",
+    "MockLaser",
+    "MockLaserError",
+    "MockSLM",
+    "MockSLMError",
+    "MockStage",
+    "MockStageError",
+    "MockWFS",
+    "MockWFSError",
+]
+
+# Import simulated devices (wrapping sim.digitaltwin)
+from ao_shaping.drivers.sim import (
+    SimulatedCCD,
+    SimulatedLaser,
+    SimulatedSLM,
+    SimulatedLens,
+    SimulatedAperture,
+    SimulatedTurbulentScreen,
+    SimulatedThermalScreen,
+    SimulatedATP,
+    # Base classes
+    SimulatedDevice,
+    OpticalDevice,
+    WavefrontProcessor,
+)
+
+__all__ += [
+    # Simulated devices
+    "SimulatedCCD",
+    "SimulatedLaser",
+    "SimulatedSLM",
+    "SimulatedLens",
+    "SimulatedAperture",
+    "SimulatedTurbulentScreen",
+    "SimulatedThermalScreen",
+    "SimulatedATP",
+    # Base classes
+    "SimulatedDevice",
+    "OpticalDevice",
+    "WavefrontProcessor",
+]

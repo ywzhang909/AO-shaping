@@ -2,30 +2,52 @@ import numpy as np
 
 import gxipy as gx
 
+from ao_shaping.drivers.ccd import BaseCamera
 from ao_shaping.drivers.ccd.common import ExposureTime
 from ao_shaping.utils.file import logger
 
 
-class CameraStreamManager:
-    def __init__(self, cam_id: int = 0, exposure_time_ms: int = 0, skip_sampling=False):
+class CameraStreamManager(BaseCamera):
+    def __init__(
+        self, cam_id: int = 0, exposure_time_ms: float = 0.0, skip_sampling=False
+    ):
         self.device_manager = gx.DeviceManager()
         self.cam_id = int(cam_id)
         self.__exposure_time_ms = ExposureTime(exposure_time_ms)
         self.skip_sampling = skip_sampling
 
-        self.cam, self.__sn = None, None
+        self.cam = None
+        self._sn: str | None = None
         self.cam_width, self.cam_height = 0, 0
+
+    def open(self) -> None:
+        """Open the camera device (alias for initialize)."""
+        self.initialize()
+
+    def close(self) -> None:
+        """Close the camera device and release resources."""
+        if self.cam:
+            self.cam_width, self.cam_height = 0, 0
+            self.cam.stream_off()
+            self.cam.close_device()
+            self.cam = None
+            self._sn = None
+
+    @property
+    def sn(self) -> str | None:
+        """Get the camera serial number."""
+        return self._sn
+
+    def is_connected(self) -> bool:
+        """Check if camera is connected and ready."""
+        return self.cam is not None and self._sn is not None
 
     def __enter__(self):
         self.initialize()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        if self.cam:
-            self.cam_width, self.cam_height = 0, 0
-            self.cam.stream_off()
-            self.cam.close_device()
-            self.cam, self.__sn = None, None
+        self.close()
 
     def initialize(self):
         """
@@ -62,7 +84,17 @@ class CameraStreamManager:
             raise ConnectionAbortedError(error_info)
 
         sn = dev_info_list[self.cam_id].get("sn")
-        self.cam = self.device_manager.open_device_by_sn(sn)
+        try:
+            self.cam = self.device_manager.open_device_by_sn(sn)
+        except gx.gxiapi.InvalidAccess as e:
+            if "REPEAT_OPENED" in str(e) or "device has been open" in str(e):
+                logger.warning(
+                    f"Device {sn} already opened, attempting to reinitialize..."
+                )
+                self.device_manager = gx.DeviceManager()
+                self.cam = self.device_manager.open_device_by_sn(sn)
+            else:
+                raise
         assert self.cam, "camera not found"
         # 设置相机的曝光时间
         float_range = self.cam.ExposureTime.get_range()
@@ -90,19 +122,18 @@ class CameraStreamManager:
         self.cam.Width.set(self.cam.WidthMax.get())
         self.cam.Height.set(self.cam.HeightMax.get())
 
-        self.__sn = sn
+        self._sn = sn
         self.__update_properties()
         self.cam.stream_on()
 
-    def __reset_exposure_time(self, time_ms: float):
-        """
-        重置相机的曝光时间。
+    def reset_exposure_time(self, time_ms: int) -> int:
+        """Reset the camera exposure time.
 
-        参数:
-        time_ms (int): 新的曝光时间，单位为毫秒。必须大于等于20。
+        Args:
+            time_ms: The new exposure time in milliseconds. Must be >= 20.
 
-        返回:
-        int: 实际设置的曝光时间，单位为毫秒。
+        Returns:
+            int: The actual exposure time set in milliseconds.
         """
         assert self.cam, "camera not initialized"
         time_ms = int(time_ms)
@@ -283,7 +314,7 @@ class CameraStreamManager:
         self.cam_width = self.cam.Width.get()
         self.cam_height = self.cam.Height.get()
         logger.info(
-            f"Open cam {self.__sn} success. width={self.cam_width}, height={self.cam_height}"
+            f"Open cam {self._sn} success. width={self.cam_width}, height={self.cam_height}"
         )
         self.xv, self.yv = self.__get_grid(self.cam_width, self.cam_height)
 
@@ -296,7 +327,7 @@ class CameraStreamManager:
     @exposure_time.setter
     def exposure_time(self, time_ms: int):
         assert self.cam, "camera not initialized"
-        self.__reset_exposure_time(time_ms)
+        self.reset_exposure_time(time_ms)
 
     @staticmethod
     def __get_grid(width, height):
@@ -307,5 +338,35 @@ class CameraStreamManager:
 
     @staticmethod
     def get_cam_list():
+        """Get list of available cameras."""
         device_manager = gx.DeviceManager()
         return device_manager.update_device_list()
+
+    def enable_auto_exposure(self, enable: bool = True, mode: int = 1) -> bool:
+        """Enable or disable auto exposure (not supported on Daheng)."""
+        logger.warning("Auto exposure not supported on Daheng camera")
+        return False
+
+    def set_auto_exposure_target(self, target: int) -> int:
+        """Set auto exposure target brightness (not supported on Daheng)."""
+        logger.warning("Auto exposure target not supported on Daheng camera")
+        raise NotImplementedError("Auto exposure not supported on Daheng camera")
+
+    def get_auto_exposure_state(self) -> dict:
+        """Get current auto exposure state (not supported on Daheng)."""
+        return {
+            "enabled": False,
+            "mode": 0,
+            "target": 120,
+        }
+
+    def set_auto_exposure_range(
+        self,
+        max_time_ms: int = 350,
+        min_time_ms: int = 0,
+        max_gain: int = 300,
+        min_gain: int = 100,
+    ) -> bool:
+        """Set auto exposure time and gain range (not supported on Daheng)."""
+        logger.warning("Auto exposure range not supported on Daheng camera")
+        return False
