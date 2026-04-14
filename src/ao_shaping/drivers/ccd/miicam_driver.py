@@ -115,9 +115,22 @@ class CameraStreamManager(BaseCamera):
         cam_id: int = 0,
         exposure_time_ms: float = 20.0,
         skip_sampling: bool = False,
+        bit_depth: int = 8,
     ):
+        """Initialize MIICAM camera.
+
+        Args:
+            cam_id: Camera index
+            exposure_time_ms: Exposure time in milliseconds
+            skip_sampling: Enable 2x2 binning
+            bit_depth: Output bit depth (8 or 16). 8-bit for MONO8, 16-bit for
+                full sensor bit depth (e.g., 12-bit sensor data in 16-bit container).
+                If the camera doesn't support high bit depth, it falls back to 8-bit.
+        """
         super().__init__(cam_id, exposure_time_ms, skip_sampling)
-        self._pixel_format = "MONO8"  # Default format
+        self._bit_depth = bit_depth
+        self._pixel_format = "MONO8" if bit_depth == 8 else "MONO16"
+        self._max_bit_depth = 8  # Will be updated from camera
 
     def __enter__(self):
         self.initialize()
@@ -136,12 +149,12 @@ class CameraStreamManager(BaseCamera):
             import time
 
             # Stop streaming with retry - the callback thread may need time to exit
-            for _ in range(3):
+            for _ in range(5):
                 try:
                     self.cam.Stop()
                     break
                 except miicam.HRESULTException:
-                    time.sleep(0.05)
+                    time.sleep(0.1)
                 except Exception:
                     break
 
@@ -151,8 +164,8 @@ class CameraStreamManager(BaseCamera):
             except Exception:
                 pass
 
-            # Small delay to let callback thread finish
-            time.sleep(0.1)
+            # Delay to let callback thread finish
+            time.sleep(0.3)
 
             try:
                 self.cam.Close()
@@ -163,9 +176,10 @@ class CameraStreamManager(BaseCamera):
             self.cam_height = 0
             self.cam = None
             self._frame_buffer = None
+            self._frame_buffer_lock = False
 
             # Give the camera hardware a moment to settle before re-opening
-            time.sleep(0.2)
+            time.sleep(0.5)
 
     def initialize(self) -> None:
         """
@@ -242,29 +256,74 @@ class CameraStreamManager(BaseCamera):
         except miicam.HRESULTException:
             logger.warning("Could not set exposure gain")
 
-        # Try to set pixel format to 8-bit grey (MONO8 equivalent)
-        # MIICAM_OPTION_RGB = 3 means 8-bit grey for monochrome camera
-        # Note: Not all cameras support this option, wrap in try-except
-        self._pixel_format = "MONO8"  # Default assumption
-        try:
-            self.cam.put_Option(miicam.MIICAM_OPTION_RGB, 3)
-        except miicam.HRESULTException:
-            # Option not supported, try YUV format
-            try:
-                self.cam.put_Option(miicam.MIICAM_OPTION_RGB, 8)  # YUV422
-                self._pixel_format = "YUV422"
-            except miicam.HRESULTException:
-                logger.warning("Could not set pixel format, using default")
+        # Get camera's maximum bit depth
+        self._max_bit_depth = self.cam.MaxBitDepth()
 
-        # Get actual raw format from camera
-        raw_fmt, _ = self.cam.get_RawFormat()
-        print(f"Raw format: {raw_fmt}")
-        if raw_fmt == b"YUYV" or raw_fmt == "YUYV":
-            self._pixel_format = "YUV422"
-            logger.info("Camera using YUV422 format")
-        elif raw_fmt == b"YMono" or raw_fmt == "YMono":
+        # Set output bit depth (8 or 16)
+        # MIICAM_OPTION_BITDEPTH: 0 = 8 bits, 1 = 16 bits
+        # "16-bit" mode outputs full sensor bit depth in 16-bit container
+        # (e.g., 12-bit sensor data in 16-bit container)
+        if self._bit_depth == 8:
+            output_bitdepth = 0
+        elif self._max_bit_depth > 8:
+            # Camera supports high bit depth, enable 16-bit output
+            output_bitdepth = 1
+        else:
+            output_bitdepth = 0
+            logger.warning(
+                f"Camera max bit depth is {self._max_bit_depth}, "
+                f"requested {self._bit_depth}-bit. Falling back to 8-bit."
+            )
+            self._bit_depth = 8
+
+        try:
+            self.cam.put_Option(miicam.MIICAM_OPTION_BITDEPTH, output_bitdepth)
+        except miicam.HRESULTException:
+            logger.warning(f"Could not set bit depth to {self._bit_depth}, using 8-bit")
+            self._bit_depth = 8
+
+        # Set pixel format based on bit depth
+        # MIICAM_OPTION_RGB: 3 = 8-bit Grey, 4 = 16-bit Grey
+        # For Bayer sensors, use RAW mode for high bit depth to get full sensor data
+        if self._bit_depth == 8:
             self._pixel_format = "MONO8"
-            logger.info("Camera using MONO8 format")
+            try:
+                self.cam.put_Option(miicam.MIICAM_OPTION_RGB, 3)
+            except miicam.HRESULTException:
+                logger.warning("Could not set MONO8 format, using default")
+            # Ensure RAW mode is off for 8-bit
+            try:
+                self.cam.put_Option(miicam.MIICAM_OPTION_RAW, 0)
+            except miicam.HRESULTException:
+                pass
+        else:
+            # For high bit depth mode, try RAW mode first (works with Bayer sensors)
+            self._pixel_format = "MONO16"
+            raw_mode_set = False
+            try:
+                self.cam.put_Option(miicam.MIICAM_OPTION_RAW, 1)
+                raw_mode_set = True
+                logger.info("RAW mode enabled for high bit depth capture")
+            except miicam.HRESULTException:
+                # Fall back to 16-bit Grey if RAW mode not supported
+                try:
+                    self.cam.put_Option(miicam.MIICAM_OPTION_RGB, 4)
+                    logger.info("16-bit Grey format enabled")
+                except miicam.HRESULTException:
+                    logger.warning(
+                        "Could not set high bit depth mode (RAW or 16-bit Grey), "
+                        "falling back to 8-bit"
+                    )
+                    self._pixel_format = "MONO8"
+                    self._bit_depth = 8
+                    try:
+                        self.cam.put_Option(miicam.MIICAM_OPTION_RGB, 3)
+                    except miicam.HRESULTException:
+                        logger.warning("Could not set pixel format, using default")
+                    try:
+                        self.cam.put_Option(miicam.MIICAM_OPTION_RAW, 0)
+                    except miicam.HRESULTException:
+                        pass
 
         # Set binning if skip_sampling is True
         # Note: Not all cameras support binning, wrap in try-except
@@ -288,12 +347,28 @@ class CameraStreamManager(BaseCamera):
 
         # Check actual raw format after all settings
         raw_fmt, _ = self.cam.get_RawFormat()
-        if raw_fmt == b"YUYV" or raw_fmt == "YUYV":
-            self._pixel_format = "YUV422"
-            logger.info("Camera using YUV422 format")
+        # Convert bytes to string for comparison
+        if isinstance(raw_fmt, bytes):
+            raw_fmt_str = raw_fmt.decode("ascii", errors="replace")
         else:
-            self._pixel_format = "MONO8"
-            logger.info(f"Camera using format: {raw_fmt}")
+            raw_fmt_str = raw_fmt
+
+        if raw_fmt_str in ("YUYV", "VUYY", "UYVY"):
+            self._pixel_format = "YUV422"
+            logger.info(f"Camera using YUV422 format (raw: {raw_fmt_str})")
+        elif raw_fmt_str in ("YMono",):
+            logger.info(
+                f"Camera using MONO{self._bit_depth} format (raw: {raw_fmt_str})"
+            )
+        elif raw_fmt_str in ("BGGR", "RGGB", "GRBG", "GBRG"):
+            # Bayer pattern sensor - treated as mono for our purposes
+            logger.info(
+                f"Camera using Bayer {raw_fmt_str} format, treating as MONO{self._bit_depth}"
+            )
+        else:
+            logger.info(
+                f"Camera using format: {raw_fmt_str}, treating as MONO{self._bit_depth}"
+            )
 
         # Get serial number
         try:
@@ -306,6 +381,14 @@ class CameraStreamManager(BaseCamera):
         self._frame_buffer = None
         self._frame_buffer_lock = False  # Lock to prevent reading while updating
 
+        # Calculate callback buffer size based on bit depth
+        if self._bit_depth == 8:
+            callback_bits = 8
+            callback_bufsize = self.cam_width * self.cam_height
+        else:
+            callback_bits = 16
+            callback_bufsize = self.cam_width * self.cam_height * 2
+
         def frame_callback(nEvent, ctx):
             if nEvent == miicam.MIICAM_EVENT_IMAGE:
                 try:
@@ -314,9 +397,8 @@ class CameraStreamManager(BaseCamera):
                         pass
                     ctx._frame_buffer_lock = True
                     try:
-                        bufsize = ctx.cam_width * ctx.cam_height
-                        buffer = (ctypes.c_char * bufsize)()
-                        ctx.cam.PullImageV4(buffer, 0, 8, 0, None)
+                        buffer = (ctypes.c_char * callback_bufsize)()
+                        ctx.cam.PullImageV4(buffer, 0, callback_bits, 0, None)
                         ctx._frame_buffer = buffer
                     finally:
                         ctx._frame_buffer_lock = False
@@ -332,9 +414,9 @@ class CameraStreamManager(BaseCamera):
             self.cam.Stop()
         except Exception:
             pass
-        _time.sleep(0.3)
+        _time.sleep(0.5)
 
-        max_retries = 7
+        max_retries = 10
         for attempt in range(max_retries):
             try:
                 self.cam.StartPullModeWithCallback(frame_callback, self)
@@ -346,7 +428,7 @@ class CameraStreamManager(BaseCamera):
                         self.cam.Stop()
                     except Exception:
                         pass
-                    _time.sleep(0.5 + 0.3 * attempt)
+                    _time.sleep(0.5 + 0.5 * attempt)
                 else:
                     raise
 
@@ -533,6 +615,14 @@ class CameraStreamManager(BaseCamera):
         self._frame_buffer = None
         self._frame_buffer_lock = False
 
+        # Calculate callback buffer size based on bit depth
+        if self._bit_depth == 8:
+            callback_bits = 8
+            callback_bufsize = self.cam_width * self.cam_height
+        else:
+            callback_bits = 16
+            callback_bufsize = self.cam_width * self.cam_height * 2
+
         def frame_callback(nEvent, ctx):
             if nEvent == miicam.MIICAM_EVENT_IMAGE:
                 try:
@@ -540,9 +630,8 @@ class CameraStreamManager(BaseCamera):
                         pass
                     ctx._frame_buffer_lock = True
                     try:
-                        bufsize = ctx.cam_width * ctx.cam_height
-                        buffer = (ctypes.c_char * bufsize)()
-                        ctx.cam.PullImageV4(buffer, 0, 8, 0, None)
+                        buffer = (ctypes.c_char * callback_bufsize)()
+                        ctx.cam.PullImageV4(buffer, 0, callback_bits, 0, None)
                         ctx._frame_buffer = buffer
                     finally:
                         ctx._frame_buffer_lock = False
@@ -559,9 +648,18 @@ class CameraStreamManager(BaseCamera):
         Capture a single camera image.
 
         Returns:
-            np.ndarray: Captured image data as uint8 array.
+            np.ndarray: Captured image data as uint8 (8-bit mode) or uint16 (14-bit mode) array.
         """
         import time
+
+        # Determine bits parameter for PullImageV4 based on bit depth
+        # bits: 8=Grey8, 16=Grey16
+        if self._bit_depth == 8:
+            bits_param = 8
+            dtype = np.uint8
+        else:
+            bits_param = 16
+            dtype = np.uint16
 
         # Try to get image from callback buffer first
         max_wait = 1.0  # Wait up to 1 second for a new frame
@@ -572,7 +670,7 @@ class CameraStreamManager(BaseCamera):
             if self._frame_buffer is not None and not self._frame_buffer_lock:
                 try:
                     # Convert buffer to numpy array
-                    img_data = np.frombuffer(self._frame_buffer, dtype=np.uint8)
+                    img_data = np.frombuffer(self._frame_buffer, dtype=dtype)
 
                     # Handle YUV422 format - extract Y channel (luminance)
                     if getattr(self, "_pixel_format", None) == "YUV422":
@@ -584,7 +682,7 @@ class CameraStreamManager(BaseCamera):
                             :, ::2
                         ]  # Take every other column (Y channel only)
                     else:
-                        # MONO8 or other formats
+                        # MONO8/MONO14 or other formats
                         img = img_data.reshape((self.cam_height, self.cam_width))
 
                     return img
@@ -596,13 +694,16 @@ class CameraStreamManager(BaseCamera):
         # Fallback: If callback buffer not available, use direct pull
         import ctypes
 
-        # Calculate buffer size based on pixel format
+        # Calculate buffer size based on pixel format and bit depth
         if getattr(self, "_pixel_format", None) == "YUV422":
             # YUV422: 2 bytes per pixel (Y0 U0 Y1 V0 ...)
             bufsize = self.cam_width * self.cam_height * 2
-        else:
-            # MONO8 or other 8-bit formats
+        elif self._bit_depth == 8:
+            # 8-bit mono: 1 byte per pixel
             bufsize = self.cam_width * self.cam_height
+        else:
+            # 14/16-bit mono: 2 bytes per pixel
+            bufsize = self.cam_width * self.cam_height * 2
 
         # Create a ctypes buffer
         buffer = (ctypes.c_char * bufsize)()
@@ -611,12 +712,11 @@ class CameraStreamManager(BaseCamera):
         time.sleep(0.05)
 
         # Pull image with retry logic
-        # bits=8 for 8-bit grey
         max_retries = 5
         retry_count = 0
         while retry_count < max_retries:
             try:
-                self.cam.PullImageV4(buffer, 0, 8, 0, None)
+                self.cam.PullImageV4(buffer, 0, bits_param, 0, None)
                 break  # Success
             except miicam.HRESULTException:
                 retry_count += 1
@@ -625,7 +725,7 @@ class CameraStreamManager(BaseCamera):
                 time.sleep(0.05)  # Wait before retry
 
         # Convert to numpy array
-        img_data = np.frombuffer(buffer, dtype=np.uint8)
+        img_data = np.frombuffer(buffer, dtype=dtype)
 
         # Handle YUV422 format - extract Y channel (luminance)
         if getattr(self, "_pixel_format", None) == "YUV422":
@@ -634,7 +734,7 @@ class CameraStreamManager(BaseCamera):
             img_yuv = img_data.reshape((self.cam_height, self.cam_width * 2))
             img = img_yuv[:, ::2]  # Take every other column (Y channel only)
         else:
-            # MONO8 or other formats
+            # MONO8 or MONO14
             img = img_data.reshape((self.cam_height, self.cam_width))
 
         return img
@@ -648,7 +748,7 @@ class CameraStreamManager(BaseCamera):
             skip_first (bool): Whether to skip first sample, default True.
 
         Returns:
-            np.ndarray: Processed averaged image as uint8 array.
+            np.ndarray: Processed averaged image as uint8 (8-bit mode) or uint16 (14-bit mode) array.
         """
         assert n_sample > 0, "Sample count must be > 0"
 
@@ -665,7 +765,10 @@ class CameraStreamManager(BaseCamera):
             numpy_image = numpy_image + self.__take_one_shot()
 
         avg_img = numpy_image / _n_sample
-        return avg_img.astype(np.uint8)
+        if self._bit_depth == 8:
+            return avg_img.astype(np.uint8)
+        else:
+            return avg_img.astype(np.uint16)
 
     def __update_properties(self):
         assert self.cam, "camera not initialized"

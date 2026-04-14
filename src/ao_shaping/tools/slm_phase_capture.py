@@ -35,8 +35,8 @@ def _get_daheng_camera(cam_id: int, exposure_ms: int):
         from ao_shaping.drivers.ccd.daheng import DahengCamManager
 
         cam = DahengCamManager(cam_id=cam_id, exposure_time_ms=exposure_ms)
+        # cam.reset_window()
         cam.open()
-        cam.reset_window()
         return cam
     except ImportError as e:
         logger.warning(f"Daheng相机不可用: {e}")
@@ -46,12 +46,14 @@ def _get_daheng_camera(cam_id: int, exposure_ms: int):
         raise
 
 
-def _get_miicam_camera(cam_id: int, exposure_ms: int):
+def _get_miicam_camera(cam_id: int, exposure_ms: int, bit_depth: int = 8):
     """Import and create MiiCam camera instance."""
     try:
         from ao_shaping.drivers.ccd.miicam_driver import CameraStreamManager
 
-        cam = CameraStreamManager(cam_id=cam_id, exposure_time_ms=exposure_ms)
+        cam = CameraStreamManager(
+            cam_id=cam_id, exposure_time_ms=exposure_ms, bit_depth=bit_depth
+        )
         cam.open()
         # cam.reset_window()
         return cam
@@ -83,19 +85,16 @@ def generate_random_turbulence_phase(
     )
 
 
-def generate_random_zernike_phase(
-    pattern_helper: PatternHelper,
+def generate_random_zernike_coeffs(
     n_max: int = 4,
     radius: float | None = None,
     max_coeff: float = 1.0,
-) -> np.ndarray:
+) -> dict:
     """Generate a random Zernike phase pattern with random coefficients.
 
     Random coefficients are drawn uniformly from [-max_coeff, max_coeff]
     for all valid (n, m) pairs up to n_max (except piston which is fixed at 1.0).
     """
-    from scipy.special import factorial  # noqa: F811 - needed by zernike
-
     coefficients: dict[tuple[int, int], float] = {}
     for n in range(n_max + 1):
         for m in range(-n, n + 1):
@@ -108,7 +107,7 @@ def generate_random_zernike_phase(
     kwargs = {"n_max": n_max, "coefficients": coefficients}
     if radius is not None:
         kwargs["radius"] = radius
-    return pattern_helper.generate_zernike_polynomial(**kwargs)
+    return kwargs
 
 
 def capture_camera_frame(
@@ -116,7 +115,8 @@ def capture_camera_frame(
 ) -> np.ndarray | None:
     """Safely capture a frame from a camera, returning None on failure.
 
-    Warns if max brightness is 255 (saturated) or below 10 (too dark).
+    Warns if max brightness is saturated (255 for 8-bit, 65535 for 16-bit)
+    or below threshold.
     """
     try:
         frame = camera.get_numpy_image(n_sample=n_sample, skip_first=skip_first)
@@ -124,12 +124,20 @@ def capture_camera_frame(
         min_val = int(frame.min())
         mean_val = float(frame.mean())
 
-        if max_val >= 255:
+        # Determine saturation threshold based on dtype
+        if frame.dtype == np.uint16:
+            saturation_threshold = 65535
+            dark_threshold = 100
+        else:
+            saturation_threshold = 255
+            dark_threshold = 10
+
+        if max_val >= saturation_threshold:
             logger.warning(
                 f"{cam_name} 画面过曝! max={max_val}, mean={mean_val:.1f}, min={min_val}. "
                 f"建议降低曝光时间或增益。"
             )
-        elif max_val < 10:
+        elif max_val < dark_threshold:
             logger.warning(
                 f"{cam_name} 画面过暗! max={max_val}, mean={mean_val:.1f}, min={min_val}. "
                 f"建议增加曝光时间或增益。"
@@ -152,7 +160,7 @@ def save_capture(
     daheng_frame: np.ndarray | None,
     miicam_frame: np.ndarray | None,
     metadata: dict,
-    save_pytorch: bool = True,
+    save_pytorch: bool = False,
 ) -> dict:
     """Save phase pattern and camera frames to disk.
 
@@ -200,7 +208,14 @@ def save_capture(
 
         if miicam_frame.ndim == 2:
             miicam_png = sample_dir / "miicam_frame.png"
-            img_data = np.clip(miicam_frame, 0, 255).astype(np.uint8)
+            if miicam_frame.dtype == np.uint16:
+                # Normalize 16-bit data to 0-255 for PNG preview
+                img_data = (
+                    (miicam_frame.astype(np.float32) / max(int(miicam_frame.max()), 1))
+                    * 255
+                ).astype(np.uint8)
+            else:
+                img_data = np.clip(miicam_frame, 0, 255).astype(np.uint8)
             Image.fromarray(img_data).save(miicam_png)
             saved_files["miicam_preview"] = str(miicam_png)
 
@@ -275,6 +290,12 @@ def save_capture(
 @click.option(
     "--miicam-exposure", default=1.0, help="MiiCam相机曝光时间 ms (default: 1.0)"
 )
+@click.option(
+    "--miicam-bit-depth",
+    default=8,
+    type=click.IntRange(8, 16),
+    help="MiiCam相机输出位深 8或16 (default: 8)",
+)
 @click.option("--no-miicam", is_flag=True, help="跳过MiiCam相机采集")
 # Capture parameters
 @click.option("--n-sample", default=1, help="每帧平均采样数 (default: 1)")
@@ -308,6 +329,7 @@ def run(
     no_daheng: bool,
     miicam_id: int,
     miicam_exposure: int,
+    miicam_bit_depth: int,
     no_miicam: bool,
     n_sample: int,
     skip_first: bool,
@@ -413,7 +435,9 @@ def run(
             logger.info(
                 f"正在连接MiiCam相机 ID={miicam_id}, 曝光={miicam_exposure}ms..."
             )
-            miicam_cam = _get_miicam_camera(miicam_id, miicam_exposure)
+            miicam_cam = _get_miicam_camera(
+                miicam_id, miicam_exposure, miicam_bit_depth
+            )
             logger.info(
                 f"MiiCam相机已连接: {miicam_cam.cam_width}x{miicam_cam.cam_height}"
             )
@@ -439,6 +463,7 @@ def run(
             "enabled": miicam_cam is not None,
             "cam_id": miicam_id,
             "exposure_ms": miicam_exposure,
+            "bit_depth": miicam_bit_depth,
         },
     }
     if mode == "turbulence":
@@ -484,15 +509,16 @@ def run(
             phase_type = "turbulence"
             phase_params = {"Cn2": cn2, "L": length}
         else:
-            phase_gray = generate_random_zernike_phase(
-                pattern_helper,
+            kwargs = generate_random_zernike_coeffs(
                 n_max=n_max,
                 radius=zernike_radius,
                 max_coeff=max_coeff,
             )
+            phase_gray = pattern_helper.generate_zernike_polynomial(**kwargs)
             phase_type = "zernike"
             # Record actual coefficients used
-            phase_params = {"n_max": n_max, "max_coeff": max_coeff}
+            phase_params = kwargs
+            phase_params['coefficients'] = list(phase_params['coefficients'].values())
 
         logger.info(
             f"相位生成完成: type={phase_type}, shape={phase_gray.shape}, "
