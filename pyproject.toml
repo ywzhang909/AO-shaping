@@ -32,15 +32,11 @@ dependencies = [
     "streamlit>=1.40.0",
     "scipy>=1.15.0",
     "pillow>=11.0.0",
-    "wandb>=0.20.0",
+"wandb>=0.20.0",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "nuitka>=2.8.1",
-    "pytest>=8.4.2",
-    "pytest-cov>=7.0.0",
-]
+[project.scripts]
+ao-train = "ao_shaping.ml.train:cli"
 
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"

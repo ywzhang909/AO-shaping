@@ -66,3 +66,6 @@ docs/WFS20_Manual*
 .agents/skills*
 nul
 checkpoints*
+wandb*
+
+.kilo*

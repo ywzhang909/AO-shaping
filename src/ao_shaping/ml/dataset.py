@@ -26,6 +26,142 @@ def calculate_n_zernike_terms(n_max: int) -> int:
     return n_max * (n_max + 1) // 2
 
 
+def coefficients_to_phase_map(
+    coefficients: np.ndarray,
+    size: tuple[int, int] = (256, 256),
+    pupil_radius: float | None = None,
+) -> np.ndarray:
+    """Convert Zernike coefficients to 2D phase map.
+
+    Args:
+        coefficients: Zernike coefficient array (n_terms,).
+        size: Output phase map size (H, W).
+        pupil_radius: Pupil radius in pixels. If None, use min(H, W) / 2.
+
+    Returns:
+        Phase map (H, W) in radians.
+    """
+    import numpy as np
+
+    h, w = size
+    if pupil_radius is None:
+        pupil_radius = min(h, w) / 2 - 2
+
+    # Create coordinate grid
+    cy, cx = np.ogrid[:h, :w]
+    x = (cx - w / 2) / pupil_radius
+    y = (cy - h / 2) / pupil_radius
+
+    # Normalize to unit circle
+    rho = np.sqrt(x**2 + y**2)
+    theta = np.arctan2(y, x)
+
+    # Apply circular mask
+    mask = rho <= 1.0
+
+    # Generate phase map
+    phase = np.zeros((h, w), dtype=np.float32)
+
+    for noll_idx, coeff in enumerate(coefficients):
+        if coeff == 0:
+            continue
+
+        # Convert Noll index to (n, m)
+        n, m = _noll_to_nm(noll_idx + 1)  # 1-indexed
+
+        # Generate Zernike polynomial
+        zernike = _zernike_polynomial(n, m, rho, theta)
+
+        # Apply only within pupil
+        phase += coeff * zernike * mask
+
+    # Subtract piston (mean within pupil)
+    if mask.any():
+        phase = phase - np.mean(phase[mask]) * mask
+
+    return phase
+
+
+def _noll_to_nm(noll_index: int) -> tuple[int, int]:
+    """Convert Noll index to (n, m) radial orders.
+
+    Noll indices map to Zernike modes as:
+    1: (0, 0) - piston
+    2: (1, -1) - tilt x
+    3: (1, 1) - tilt y
+    4: (2, 0) - defocus
+    5: (2, -2) - astigmatism x
+    6: (2, 2) - astigmatism y
+    ...
+    """
+    # Pre-computed mapping for first few modes
+    mapping = {
+        1: (0, 0),
+        2: (1, -1),
+        3: (1, 1),
+        4: (2, 0),
+        5: (2, -2),
+        6: (2, 2),
+        7: (3, -1),
+        8: (3, 1),
+        9: (3, -3),
+        10: (3, 3),
+    }
+
+    # For higher indices, compute
+    n = 0
+    idx = 1
+    while idx < noll_index:
+        for m in range(-n, n + 1, 2):
+            if idx == noll_index:
+                return n, m
+            idx += 1
+        n += 1
+
+    return mapping.get(noll_index, (noll_index // 2, noll_index % 2))
+
+
+def _zernike_polynomial(
+    n: int, m: int, rho: np.ndarray, theta: np.ndarray
+) -> np.ndarray:
+    """Generate Zernike polynomial."""
+    if m == 0:
+        if n == 0:
+            return np.ones_like(rho)
+        return 2 * _radial_zernike(n, rho)
+    elif m > 0:
+        return _radial_zernike(n, rho) * np.cos(m * theta)
+    else:
+        return _radial_zernike(n, rho) * np.sin(-m * theta)
+
+
+def _radial_zernike(n: int, rho: np.ndarray) -> np.ndarray:
+    """Radial Zernike polynomial."""
+    m = abs(n)
+    r = np.zeros_like(rho)
+
+    for k in range((m // 2) + 1):
+        numerator = ((-1) ** k) * _factorial(n - k)
+        denominator = (
+            _factorial(k) * _factorial((n + m) // 2 - k) * _factorial((n - m) // 2 - k)
+        )
+        if denominator > 0:
+            coeff = numerator / denominator
+            r += coeff * rho ** (n - 2 * k)
+
+    return r
+
+
+def _factorial(n: int) -> float:
+    """Simple factorial."""
+    if n <= 1:
+        return 1.0
+    result = 1.0
+    for i in range(2, n + 1):
+        result *= i
+    return result
+
+
 def load_zernike_coefficients(csv_path: Path, n_terms: int | None = None) -> np.ndarray:
     """Load Zernike coefficients from CSV file.
 
@@ -730,15 +866,13 @@ class ZernikeCoefficientDataset(Dataset):
         return img
 
     def _apply_augmentation(self, image: torch.Tensor) -> torch.Tensor:
-        """Apply random augmentation."""
-        if not self.augment:
-            return image
-
+        """Apply random augmentation to image."""
         # Random shift
-        shift_x = np.random.randint(-self.shift_range, self.shift_range + 1)
-        shift_y = np.random.randint(-self.shift_range, self.shift_range + 1)
-        if shift_x != 0 or shift_y != 0:
-            image = self._shift_tensor(image, shift_x, shift_y)
+        if self.shift_range > 0:
+            shift_x = np.random.randint(-self.shift_range, self.shift_range + 1)
+            shift_y = np.random.randint(-self.shift_range, self.shift_range + 1)
+            if shift_x != 0 or shift_y != 0:
+                image = self._shift_tensor(image, shift_x, shift_y)
 
         # Random blur
         if self.random_blur:
@@ -749,7 +883,7 @@ class ZernikeCoefficientDataset(Dataset):
         return image
 
     def _shift_tensor(self, t: torch.Tensor, sx: int, sy: int) -> torch.Tensor:
-        """Shift tensor."""
+        """Shift tensor (all channels same shift)."""
         if sx == 0 and sy == 0:
             return t
 
@@ -777,26 +911,35 @@ class ZernikeCoefficientDataset(Dataset):
         return shifted
 
     def _apply_gaussian_blur(self, t: torch.Tensor, sigma: float) -> torch.Tensor:
-        """Apply Gaussian blur."""
+        """Apply Gaussian blur to each channel separately."""
         if sigma < 0.1:
             return t
 
         if t.ndim == 2:
             t = t.unsqueeze(0)
 
-        # Simple box blur as approximation
-        kernel_size = max(3, int(6 * sigma + 1))
-        if kernel_size % 2 == 0:
-            kernel_size += 1
+        # Apply blur per channel
+        c = t.shape[0]
+        result = []
+        for ch in range(c):
+            channel = t[ch : ch + 1, :, :]  # (1, H, W)
 
-        pad = kernel_size // 2
-        padded = torch.nn.functional.pad(t, (pad, pad, pad, pad), mode="reflect")
-        kernel = torch.ones(1, 1, kernel_size, kernel_size) / (kernel_size**2)
-        blurred = torch.nn.functional.conv2d(
-            padded.unsqueeze(0), kernel, padding=0, groups=1
-        ).squeeze(0)
+            # Simple box blur as approximation
+            kernel_size = max(3, int(6 * sigma + 1))
+            if kernel_size % 2 == 0:
+                kernel_size += 1
 
-        return blurred
+            pad = kernel_size // 2
+            padded = torch.nn.functional.pad(
+                channel, (pad, pad, pad, pad), mode="reflect"
+            )
+            kernel = torch.ones(1, 1, kernel_size, kernel_size, device=t.device) / (
+                kernel_size**2
+            )
+            blurred = torch.nn.functional.conv2d(padded, kernel, padding=0, groups=1)
+            result.append(blurred)
+
+        return torch.cat(result, dim=0)
 
     def _find_center(self, img: torch.Tensor) -> tuple[float, float]:
         """Find image center of mass."""
@@ -888,9 +1031,9 @@ class ZernikeCoefficientDataset(Dataset):
 
         image = torch.cat(channels, dim=0)  # (C, H, W)
 
-        # Apply augmentation (skip for now - has bugs)
-        # if self.augment:
-        #     image = self._apply_augmentation(image)
+        # Apply augmentation
+        if self.augment:
+            image = self._apply_augmentation(image)
 
         # Load Zernike coefficients
         coeffs = load_zernike_coefficients(

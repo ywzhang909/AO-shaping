@@ -51,7 +51,6 @@ SWEEP_CONFIG = {
     "metric": {"name": "val_loss", "goal": "minimize"},
     "parameters": {
         "lr": {"values": [1e-4, 5e-4, 1e-3, 5e-3]},
-        "batch_size": {"values": [4, 8, 16]},
         "model_type": {"values": ["resnet18", "simple_cnn"]},
         "input_mode": {"values": ["focus", "pupil", "combined"]},
         "n_zernike_terms": {"values": [28, 55]},
@@ -157,7 +156,7 @@ def train(
     )
 
     # Build models
-    generator, discriminator = build_model(
+    generator, discriminator = build_gan_models(
         in_channels=in_channels,
         device=device,
     )
@@ -258,7 +257,7 @@ def predict(
     in_channels = int(use_daheng) + int(use_miicam)
 
     # Build models
-    generator, _ = build_model(in_channels=in_channels, device=device)
+    generator, _ = build_gan_models(in_channels=in_channels, device=device)
     generator.load_state_dict(ckpt["generator"])
     generator.eval()
 
@@ -404,7 +403,9 @@ def zernike_train(
     n_train = len(train_loader.dataset)
     n_val = len(val_loader.dataset)
     n_test = len(test_loader.dataset)
-    logger.info(f"Train: {n_train}, Val: {n_val}, Test: {n_test}")
+    n_batches = len(train_loader)
+    logger.info(f"Dataset: train={n_train}, val={n_val}, test={n_test} samples")
+    logger.info(f"Batch size: {batch_size}, steps per epoch: {n_batches}")
 
     # Build model
     model = build_model(
@@ -481,14 +482,16 @@ def zernike_train(
         json.dump(config, f, indent=2)
 
     # Training loop
-    logger.info("Starting training...")
-    history = {"train_loss": [], "val_loss": []}
+    logger.info(f"Starting training for {epochs} epochs...")
+    history = {"train_loss": [], "val_loss": [], "test_loss": []}
 
+    val_loss = np.inf
     for epoch in range(start_epoch, epochs):
         # Train
         model.train()
         train_loss = 0.0
-        for batch in train_loader:
+        n_processed = 0
+        for batch_idx, batch in enumerate(train_loader):
             images = batch["image"].to(device)
             coeffs = batch["coefficients"].to(device)
 
@@ -499,12 +502,21 @@ def zernike_train(
             optimizer.step()
 
             train_loss += loss.item() * images.size(0)
+            n_processed += images.size(0)
+
+            # Log every 50 steps
+            if (batch_idx + 1) % 50 == 0:
+                logger.info(
+                    f"  Step {batch_idx + 1}/{n_batches}, batch_loss={loss.item():.6f}"
+                )
 
         train_loss /= n_train
+        train_per = train_loss / n_train * 1000  # per sample
 
         # Validate
         model.eval()
         val_loss = 0.0
+        n_val_processed = 0
         with torch.no_grad():
             for batch in val_loader:
                 images = batch["image"].to(device)
@@ -512,36 +524,76 @@ def zernike_train(
                 pred = model(images)
                 loss = criterion(pred, coeffs)
                 val_loss += loss.item() * images.size(0)
+                n_val_processed += images.size(0)
 
         val_loss /= n_val
+
+        # Update scheduler
+        old_lr = optimizer.param_groups[0]["lr"]
         scheduler.step(val_loss)
+        new_lr = optimizer.param_groups[0]["lr"]
 
         history["train_loss"].append(train_loss)
         history["val_loss"].append(val_loss)
 
-        # Log
-        if (epoch + 1) % 10 == 0 or epoch == 0:
-            logger.info(
-                f"Epoch {epoch + 1}/{epochs}: train={train_loss:.6f}, val={val_loss:.6f}"
+        # Log epoch
+        lr_info = f", lr={new_lr:.2e}" if new_lr != old_lr else ""
+        logger.info(
+            f"Epoch {epoch + 1}/{epochs}: "
+            f"train_loss={train_loss:.6f}, "
+            f"val_loss={val_loss:.6f}{lr_info}"
+        )
+
+        # Log test images to wandb every 10 epochs or on best
+        if wandb_run and (epoch + 1) % 10 == 0:
+            # Log a random sample from test set
+            test_sample_idx = np.random.randint(0, len(test_loader.dataset))
+            test_sample = test_loader.dataset[test_sample_idx]
+
+            # Get prediction
+            model.eval()
+            with torch.no_grad():
+                test_img = test_sample["image"].unsqueeze(0).to(device)
+                test_coeff = test_sample["coefficients"]
+                pred_coeff = model(test_img).cpu().squeeze(0).numpy()
+
+            # Generate phase maps
+            from ao_shaping.ml.dataset import coefficients_to_phase_map
+
+            target_phase = coefficients_to_phase_map(
+                test_coeff.numpy(), size=target_size_tuple
+            )
+            pred_phase = coefficients_to_phase_map(pred_coeff, size=target_size_tuple)
+
+            # Log image grid
+            wandb_run.log(
+                {
+                    "test_sample": wandb.Image(
+                        np.concatenate([target_phase, pred_phase], axis=1),
+                        caption=f"Epoch {epoch + 1}: target vs prediction",
+                    )
+                }
             )
 
-            if wandb_run:
-                wandb_run.log(
-                    {
-                        "epoch": epoch + 1,
-                        "train_loss": train_loss,
-                        "val_loss": val_loss,
-                        "lr": optimizer.param_groups[0]["lr"],
-                    }
-                )
+        if wandb_run:
+            wandb_run.log(
+                {
+                    "epoch": epoch + 1,
+                    "train_loss": train_loss,
+                    "val_loss": val_loss,
+                    "lr": new_lr,
+                }
+            )
 
         # Save best
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            logger.info(f"  -> New best model! val_loss={val_loss:.6f}")
             torch.save(
                 {
                     "model": model.state_dict(),
                     "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict(),
                     "epoch": epoch + 1,
                     "val_loss": val_loss,
                     "config": config,
@@ -564,10 +616,13 @@ def zernike_train(
     history["test_loss"] = test_loss
     logger.info(f"Test loss: {test_loss:.6f}")
 
-    # Save final
+    # Save final with scheduler state
     torch.save(
         {
             "model": model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "scheduler": scheduler.state_dict(),
+            "epoch": epochs,
             "val_loss": val_loss,
             "test_loss": test_loss,
             "config": config,
@@ -592,9 +647,10 @@ def zernike_train(
 @cli.command("sweep")
 @click.option("--data-dir", required=True, help="数据目录")
 @click.option("--project", default="ao-shaping-sweep", help="wandb项目名")
+@click.option("--batch-size", default=8, help="批次大小")
 @click.option("--epochs", default=30, help="每次run轮数")
 @click.option("--count", default=10, help="sweep次数")
-def sweep(data_dir: str, project: str, epochs: int, count: int):
+def sweep(data_dir: str, project: str, batch_size: int, epochs: int, count: int):
     """Run wandb hyperparameter sweep."""
     try:
         import wandb
@@ -604,6 +660,7 @@ def sweep(data_dir: str, project: str, epochs: int, count: int):
 
     sweep_id = wandb.sweep(SWEEP_CONFIG, project=project)
     logger.info(f"Sweep: {sweep_id}")
+    logger.info(f"Fixed batch_size: {batch_size}")
 
     def agent():
         wandb.init()
@@ -614,9 +671,9 @@ def sweep(data_dir: str, project: str, epochs: int, count: int):
             cfg.model_type, in_channels=in_ch, n_coeffs=cfg.n_zernike_terms
         )
 
-        train_loader, val_loader, _ = create_zernike_loaders(
+        train_loader, val_loader, test_loader = create_zernike_loaders(
             data_dir=data_dir,
-            batch_size=cfg.batch_size,
+            batch_size=batch_size,
             input_mode=cfg.input_mode,
             n_zernike_terms=cfg.n_zernike_terms,
             target_size=(256, 256),
@@ -629,7 +686,7 @@ def sweep(data_dir: str, project: str, epochs: int, count: int):
         crit = nn.MSELoss()
 
         best_val = float("inf")
-        for _ in range(epochs):
+        for epoch in range(epochs):
             model.train()
             for batch in train_loader:
                 imgs = batch["image"].to(device)
@@ -650,6 +707,65 @@ def sweep(data_dir: str, project: str, epochs: int, count: int):
             v_loss /= len(val_loader.dataset)
             best_val = min(best_val, v_loss)
             wandb.log({"val_loss": v_loss})
+
+            # Log test image every 10 epochs
+            if (epoch + 1) % 10 == 0 and len(test_loader.dataset) > 0:
+                import numpy as np
+                import matplotlib.pyplot as plt
+                from ao_shaping.ml.dataset import coefficients_to_phase_map
+
+                # Get random test sample
+                sample_idx = np.random.randint(0, len(test_loader.dataset))
+                sample = test_loader.dataset[sample_idx]
+
+                with torch.no_grad():
+                    test_img = sample["image"].unsqueeze(0).to(device)
+                    test_coeff = sample["coefficients"].numpy()
+                    pred_coeff = model(test_img).cpu().squeeze(0).numpy()
+
+                # Generate phase maps
+                target_phase = coefficients_to_phase_map(test_coeff, size=(256, 256))
+                pred_phase = coefficients_to_phase_map(pred_coeff, size=(256, 256))
+
+                # Create coefficient comparison bar chart
+                diff = pred_coeff - test_coeff
+                x = np.arange(len(test_coeff))
+
+                fig, axes = plt.subplots(2, 1, figsize=(12, 8))
+
+                # Top: target vs prediction bar chart
+                axes[0].bar(x - 0.2, test_coeff, 0.4, label="Ground Truth", alpha=0.8)
+                axes[0].bar(x + 0.2, pred_coeff, 0.4, label="Prediction", alpha=0.8)
+                axes[0].set_xlabel("Zernike Index")
+                axes[0].set_ylabel("Coefficient Value")
+                axes[0].set_title(
+                    f"Zernike Coefficients Comparison (Epoch {epoch + 1})"
+                )
+                axes[0].legend()
+                axes[0].grid(True, alpha=0.3)
+
+                # Bottom: difference bar chart
+                colors = ["green" if d >= 0 else "red" for d in diff]
+                axes[1].bar(x, diff, color=colors, alpha=0.7)
+                axes[1].axhline(y=0, color="black", linestyle="-", linewidth=0.5)
+                axes[1].set_xlabel("Zernike Index")
+                axes[1].set_ylabel("Difference (Pred - GT)")
+                axes[1].set_title("Prediction Error")
+                axes[1].grid(True, alpha=0.3)
+
+                plt.tight_layout()
+
+                # Log both images to wandb
+                wandb.log(
+                    {
+                        "test_sample": wandb.Image(
+                            np.concatenate([target_phase, pred_phase], axis=1),
+                            caption=f"Epoch {epoch + 1}: phase target vs prediction",
+                        ),
+                        "coeff_comparison": wandb.Image(fig),
+                    }
+                )
+                plt.close(fig)
 
         wandb.log({"best_val_loss": best_val})
 

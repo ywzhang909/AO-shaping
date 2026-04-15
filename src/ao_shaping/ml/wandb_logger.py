@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import wandb
+import matplotlib.pyplot as plt
 from matplotlib import colormaps
 from matplotlib.colors import Normalize
 
