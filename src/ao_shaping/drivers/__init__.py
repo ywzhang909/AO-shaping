@@ -53,14 +53,14 @@ logger = logging.getLogger(__name__)
 
 # Try to import CameraStreamManager, preferring Daheng and falling back to MIICAM.
 try:
-    from .ccd.daheng import CameraStreamManager
+    from .ccd.daheng import DahengCamManager
 
-    __all__ += ["CameraStreamManager"]
+    __all__ += ["DahengCamManager"]
 except Exception as daheng_error:
     try:
         from .ccd.miicam import CameraStreamManager
 
-        __all__ += ["CameraStreamManager"]
+        __all__ += ["DahengCamManager"]
         logger.warning(
             "Daheng CameraStreamManager not available; using MIICAM fallback: %s",
             daheng_error,
@@ -72,7 +72,7 @@ except Exception as daheng_error:
             daheng_error,
             miicam_error,
         )
-        CameraStreamManager = None
+        DahengCamManager = None
 
 # Try to import FFmpegCamera, but make it optional
 try:

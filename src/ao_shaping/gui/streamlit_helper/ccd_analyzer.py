@@ -35,7 +35,7 @@ if "miicam" not in sys.modules:
     sys.modules["miicam"] = types.ModuleType("miicam")
 
 from loguru import logger
-from ao_shaping.drivers.ccd.daheng import CameraStreamManager
+from ao_shaping.drivers.ccd.daheng import DahengCamManager
 from ao_shaping.utils.spots_calc import centroid
 from scipy import ndimage
 from scipy.optimize import curve_fit
@@ -372,7 +372,7 @@ def main():
         if not st.session_state.camera_connected:
             if st.button("Connect Camera", type="primary"):
                 try:
-                    st.session_state.camera = CameraStreamManager(
+                    st.session_state.camera = DahengCamManager(
                         cam_id=st.session_state.camera_id,
                         exposure_time_ms=st.session_state.exposure_time_ms,
                     )
@@ -660,7 +660,7 @@ def main():
         # Show available camera list
         st.subheader("Available Cameras")
         try:
-            cam_list = CameraStreamManager.get_cam_list()
+            cam_list = DahengCamManager.get_cam_list()
             if cam_list:
                 st.write(f"Found {len(cam_list)} camera device(s)")
                 for i, cam in enumerate(cam_list):

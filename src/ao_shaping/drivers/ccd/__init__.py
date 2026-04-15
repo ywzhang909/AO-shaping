@@ -20,7 +20,7 @@ except Exception as e:
     logger.debug(f"MIICAM driver not available: {e}")
 
 try:
-    from ao_shaping.drivers.ccd.daheng import CameraStreamManager as DahengCamera
+    from ao_shaping.drivers.ccd.daheng import DahengCamManager as DahengCamera
 except Exception as e:
     logger.debug(f"Daheng driver not available: {e}")
 
