@@ -28,9 +28,11 @@ dependencies = [
     "gymnasium>=1.2.1",
     "stable-baselines3>=2.7.0",
     "torch>=2.10",
+    "torchvision>=0.20",
     "streamlit>=1.40.0",
     "scipy>=1.15.0",
     "pillow>=11.0.0",
+    "wandb>=0.20.0",
 ]
 
 [project.optional-dependencies]

@@ -40,12 +40,11 @@ class Base(ABC):
 
 
 class SGD(Base):
-    
     def __init__(self, dim:int, lr=1.0):
         self.dim = dim
         self.lr = lr
         self.t:int = 0
-        
+
     def update(self, grad:np.ndarray):
         self.t += 1
         return self.lr * grad

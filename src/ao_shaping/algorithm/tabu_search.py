@@ -36,7 +36,7 @@ Created: 2026-03-26
 
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Callable
+from collections.abc import Callable
 
 import numpy as np
 

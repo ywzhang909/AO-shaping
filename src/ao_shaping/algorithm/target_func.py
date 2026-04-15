@@ -17,14 +17,14 @@ def _gaussian2d(
     offset: float,
 ) -> np.ndarray:
     """2D Gaussian function for curve fitting.
-    
+
     Args:
         xdata: Coordinate array of shape (2, N)
         amplitude: Peak amplitude
         x0, y0: Center coordinates
         sigma: Standard deviation (waist radius)
         offset: Background offset
-        
+
     Returns:
         np.ndarray: Gaussian values at each point
     """
@@ -40,17 +40,13 @@ def _gaussian2d(
 class ImageTargetFunc:
     @classmethod
     def build_from_init_image(
-        cls: "ImageTargetFunc", init_img: np.ndarray
+        cls: type["ImageTargetFunc"], init_img: np.ndarray
     ) -> "ImageTargetFunc":
         h, w = init_img.shape
         # Initial center in (x, y) = (col, row) format: (w//2, h//2)
         _ret = cls(w, h, (w // 2, h // 2))
         center = _ret.intelligen_center(init_img)
-        # Round center values to integers for consistent mask calculation
-        # intelligen_center may return floats from center_of_mass calculation
         center_int = (round(center[0]), round(center[1]))
-        # Recalculate dist_mat and masks with the correct center
-        # since intelligen_center may update center based on actual image content
         _ret.init_coordinates(_ret.xv, _ret.yv, center_int)
 
         return _ret
@@ -138,8 +134,7 @@ class ImageTargetFunc:
         return center
 
     def center_of_brightness(self, img):
-        center = center_of_brightness(img)
-        return center
+        return center_of_brightness(img)
 
     def center_of_mass(self, img, moment=1):
         return center_of_mass_numpy(img, self.xv, self.yv, moment)
@@ -157,8 +152,7 @@ class ImageTargetFunc:
         # intensity 复制扩展成3D 与 masks 维度一致
         intensity_3d = np.repeat(intensity[np.newaxis, ...], len(self.masks), axis=0)
         power_in_masks = np.sum(intensity_3d * self.masks, axis=(1, 2))
-        radius = int(np.argmax(power_in_masks >= power_in_circle) + 1)
-        return radius
+        return int(np.argmax(power_in_masks >= power_in_circle) + 1)
 
     def __get_bucket_mask(self, radius):
         assert 0 < radius < len(self.masks), f"Radius {radius} out of range"
@@ -166,37 +160,37 @@ class ImageTargetFunc:
 
     def fit_gaussian_radius(self, img: np.ndarray, center: tuple[float, float] | None = None) -> float | None:
         """拟合2D高斯曲线得到半腰半径（sigma）。
-        
+
         Args:
             img (np.ndarray[ndim=2, shape=(h,w)]): CCD图片
             center (tuple[float, float] | None): 光斑中心坐标，默认为self.center
-            
+
         Returns:
             float | None: 高斯半腰半径（sigma），拟合失败返回None
         """
         if center is None:
             center = self.center
-        
+
         h, w = img.shape
         cy, cx = int(center[1]), int(center[0])
-        
+
         # 提取感兴趣区域（ROI），中心48x48像素
         roi_size = 48
         y_start = max(0, cy - roi_size // 2)
         y_end = min(h, cy + roi_size // 2)
         x_start = max(0, cx - roi_size // 2)
         x_end = min(w, cx + roi_size // 2)
-        
+
         if y_end - y_start < 5 or x_end - x_start < 5:
             return None
-            
+
         roi = img[y_start:y_end, x_start:x_end]
-        
+
         # 初始参数估计
         amplitude = float(np.max(roi) - np.min(roi))
         offset = float(np.min(roi))
         sigma_estimate = roi_size / 6
-        
+
         # 构建2D网格并转换为 (2, N) 形状
         x_mesh, y_mesh = np.meshgrid(
             np.arange(roi.shape[1]) + x_start,
@@ -204,7 +198,7 @@ class ImageTargetFunc:
             indexing='xy'
         )
         coords = np.vstack([x_mesh.ravel(), y_mesh.ravel()])
-        
+
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -226,31 +220,31 @@ class ImageTargetFunc:
 
     def second_moment_radius(self, img: np.ndarray, center: tuple[float, float] | None = None) -> float:
         """计算二阶矩半径。
-        
+
         二阶矩半径定义：
         r^2 = Σ(r^2 * I) / Σ(I)
         其中 r 是像素到中心的距离，I 是强度值。
-        
+
         Args:
             img (np.ndarray[ndim=2, shape=(h,w)]): CCD图片
             center (tuple[float, float] | None): 光斑中心坐标，默认为self.center
-            
+
         Returns:
             float: 二阶矩半径
         """
         if center is None:
             center = self.center
-        
+
         cx, cy = center
-        
+
         # 计算距离矩阵
         y_coords, x_coords = np.ogrid[:img.shape[0], :img.shape[1]]
         dist_sq = (x_coords - cx)**2 + (y_coords - cy)**2
-        
+
         # 计算二阶矩半径
         total_intensity = np.sum(img)
         if total_intensity <= 0:
             return 0.0
-            
+
         second_moment_sq = np.sum(dist_sq * img) / total_intensity
         return float(np.sqrt(second_moment_sq))

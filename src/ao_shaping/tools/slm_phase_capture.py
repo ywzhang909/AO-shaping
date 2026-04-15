@@ -19,10 +19,6 @@ import click
 import numpy as np
 import torch
 
-SRC_ROOT = Path(__file__).resolve().parents[1]
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
 from loguru import logger
 
 from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
@@ -92,8 +88,6 @@ def generate_random_zernike_phase(
     Random coefficients are drawn uniformly from [-max_coeff, max_coeff]
     for all valid (n, m) pairs up to n_max (except piston which is fixed at 1.0).
     """
-    from scipy.special import factorial  # noqa: F811 - needed by zernike
-
     coefficients: dict[tuple[int, int], float] = {}
     for n in range(n_max + 1):
         for m in range(-n, n + 1):
@@ -204,7 +198,7 @@ def save_capture(
 
     # Save metadata
     meta_file = sample_dir / "metadata.json"
-    with open(meta_file, "w", encoding="utf-8") as f:
+    with meta_file.open("w", encoding="utf-8") as f:
         json.dump(metadata, f, ensure_ascii=False, indent=2)
     saved_files["metadata"] = str(meta_file)
 

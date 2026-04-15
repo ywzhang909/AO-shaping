@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 from typing import Callable
@@ -11,6 +12,44 @@ import torch
 from scipy import ndimage
 from torch import nn
 from torch.utils.data import Dataset
+
+
+def calculate_n_zernike_terms(n_max: int) -> int:
+    """Calculate number of Zernike terms for given n_max.
+
+    Args:
+        n_max: Maximum radial order.
+
+    Returns:
+        Number of Zernike terms (n_max * (n_max + 1) // 2).
+    """
+    return n_max * (n_max + 1) // 2
+
+
+def load_zernike_coefficients(csv_path: Path, n_terms: int | None = None) -> np.ndarray:
+    """Load Zernike coefficients from CSV file.
+
+    Args:
+        csv_path: Path to CSV file with coefficients.
+        n_terms: Number of terms to load. If None, load all.
+
+    Returns:
+        Array of Zernike coefficients.
+    """
+    with open(csv_path, "r") as f:
+        reader = csv.reader(f)
+        rows = list(reader)
+
+    if not rows or len(rows) < 2:
+        raise ValueError(f"Empty or invalid CSV: {csv_path}")
+
+    # First row is header, second row is values
+    values = [float(v) for v in rows[1]]
+
+    if n_terms is not None:
+        values = values[:n_terms]
+
+    return np.array(values, dtype=np.float32)
 
 
 class PhasePredictionDataset(Dataset):
@@ -534,6 +573,423 @@ class PhasePredictionDataset(Dataset):
         return tuple(phase.shape[-2:])
 
 
+# =============================================================================
+# New Dataset for .npy / .csv format (20260414_171241)
+# =============================================================================
+
+
+class ZernikeCoefficientDataset(Dataset):
+    """Dataset for Zernike coefficient prediction from camera images.
+
+    Loads from separate .npy and .csv files:
+        data_dir/
+        ├── sample_0000/
+        │   ├── daheng_frame.npy      # Focus/far-field image
+        │   ├── miicam_frame.npy     # Pupil/near-field image
+        │   ├── phase.csv           # Zernike coefficients
+        │   └── metadata.json
+        └── global_metadata.json
+
+    Input modes:
+        - "focus": Daheng (1 channel)
+        - "pupil": MiiCam (1 channel)
+        - "combined": Daheng + MiiCam (2 channels)
+
+    Output: Zernike coefficient vector (n_zernike_terms,)
+    """
+
+    def __init__(
+        self,
+        data_dir: str | Path,
+        input_mode: Literal["focus", "pupil", "combined"] = "combined",
+        n_zernike_terms: int = 55,
+        n_max: int = 10,
+        target_size: tuple[int, int] | None = (256, 256),
+        normalize_images: bool = True,
+        brightness_normalize: bool = True,
+        random_shift: bool = True,
+        shift_range: int = 20,
+        random_blur: bool = True,
+        blur_sigma_range: tuple[float, float] = (0.1, 1.5),
+        augment: bool = True,
+    ):
+        """Initialize dataset.
+
+        Args:
+            data_dir: Root directory with sample_XXXX subdirectories.
+            input_mode: "focus" (Daheng), "pupil" (MiiCam), or "combined".
+            n_zernike_terms: Number of Zernike terms to predict.
+            n_max: Zernike radial order (determines n_terms if not specified).
+            target_size: Resize images to (H, W). None for original.
+            normalize_images: Normalize images to [-1, 1].
+            brightness_normalize: Apply z-score normalization.
+            random_shift: Apply random translation augmentation.
+            shift_range: Max pixels to shift.
+            random_blur: Apply random Gaussian blur.
+            blur_sigma_range: Range for blur sigma.
+            augment: Enable all augmentations.
+        """
+        self.data_dir = Path(data_dir)
+        self.input_mode = input_mode
+        self.n_zernike_terms = n_zernike_terms
+        self.n_max = n_max
+        self.target_size = target_size if target_size else (256, 256)
+        self.normalize_images = normalize_images
+        self.brightness_normalize = brightness_normalize
+        self.augment = augment and random_shift
+        self.shift_range = shift_range
+        self.random_blur = random_blur and augment
+        self.blur_sigma_range = blur_sigma_range
+
+        self.in_channels = 2 if input_mode == "combined" else 1
+
+        # Discover samples
+        self.sample_dirs = sorted(self.data_dir.glob("sample_*"))
+        self.samples = [d for d in self.sample_dirs if self._is_valid_sample(d)]
+
+        if not self.samples:
+            raise ValueError(
+                f"No valid samples found in {data_dir}. "
+                "Expected sample_XXXX/{daheng_frame.npy, miicam_frame.npy, phase.csv}"
+            )
+
+        # Load global metadata
+        self.global_meta = {}
+        meta_path = self.data_dir / "global_metadata.json"
+        if meta_path.exists():
+            with open(meta_path, "r") as f:
+                self.global_meta = json.load(f)
+
+        # Pre-compute normalization stats
+        self._compute_stats()
+
+    def _is_valid_sample(self, sample_dir: Path) -> bool:
+        """Check if sample directory has required files."""
+        daheng = sample_dir / "daheng_frame.npy"
+        miicam = sample_dir / "miicam_frame.npy"
+        phase = sample_dir / "phase.csv"
+
+        if self.input_mode == "focus":
+            return daheng.exists() and phase.exists()
+        elif self.input_mode == "pupil":
+            return miicam.exists() and phase.exists()
+        else:  # combined
+            return daheng.exists() and miicam.exists() and phase.exists()
+
+    def _compute_stats(self) -> None:
+        """Pre-compute normalization statistics."""
+        self.stats = {"daheng": {}, "miicam": {}}
+
+        if not self.brightness_normalize:
+            return
+
+        # Sample first 30 images
+        n_samples = min(30, len(self.samples))
+        daheng_vals, miicam_vals = [], []
+
+        for i in range(n_samples):
+            sample_dir = self.samples[i]
+            if (sample_dir / "daheng_frame.npy").exists():
+                daheng_vals.append(
+                    torch.from_numpy(np.load(sample_dir / "daheng_frame.npy")).float()
+                )
+            if (sample_dir / "miicam_frame.npy").exists():
+                miicam_vals.append(
+                    torch.from_numpy(np.load(sample_dir / "miicam_frame.npy")).float()
+                )
+
+        if daheng_vals:
+            daheng_cat = torch.cat(daheng_vals)
+            self.stats["daheng"]["mean"] = daheng_cat.mean().item()
+            self.stats["daheng"]["std"] = daheng_cat.std().item()
+
+        if miicam_vals:
+            miicam_cat = torch.cat(miicam_vals)
+            self.stats["miicam"]["mean"] = miicam_cat.mean().item()
+            self.stats["miicam"]["std"] = miicam_cat.std().item()
+
+    def _normalize_image(self, img: torch.Tensor, camera: str) -> torch.Tensor:
+        """Normalize image."""
+        # Brightness normalization
+        if self.brightness_normalize:
+            stats = self.stats.get(camera, {})
+            mean = stats.get("mean")
+            std = stats.get("std")
+            if mean is not None and std is not None and std > 0:
+                img = (img - mean) / std
+                img = img.clamp(-3, 3) / 3
+
+        # Min-max to [-1, 1]
+        if self.normalize_images:
+            img_min = img.amin()
+            img_max = img.amax()
+            img_range = img_max - img_min
+            if img_range > 0:
+                img = 2.0 * (img - img_min) / img_range - 1.0
+
+        return img
+
+    def _apply_augmentation(self, image: torch.Tensor) -> torch.Tensor:
+        """Apply random augmentation."""
+        if not self.augment:
+            return image
+
+        # Random shift
+        shift_x = np.random.randint(-self.shift_range, self.shift_range + 1)
+        shift_y = np.random.randint(-self.shift_range, self.shift_range + 1)
+        if shift_x != 0 or shift_y != 0:
+            image = self._shift_tensor(image, shift_x, shift_y)
+
+        # Random blur
+        if self.random_blur:
+            sigma = np.random.uniform(*self.blur_sigma_range)
+            if sigma > 0.1:
+                image = self._apply_gaussian_blur(image, sigma)
+
+        return image
+
+    def _shift_tensor(self, t: torch.Tensor, sx: int, sy: int) -> torch.Tensor:
+        """Shift tensor."""
+        if sx == 0 and sy == 0:
+            return t
+
+        if t.ndim == 2:
+            t = t.unsqueeze(0)
+
+        c, h, w = t.shape
+        shifted = torch.zeros_like(t)
+
+        src_x_s = max(0, -sx)
+        src_x_e = min(w, w - sx)
+        src_y_s = max(0, -sy)
+        src_y_e = min(h, h - sy)
+
+        dst_x_s = max(0, sx)
+        dst_x_e = min(w, w + sx)
+        dst_y_s = max(0, sy)
+        dst_y_e = min(h, h + sy)
+
+        if src_x_e > src_x_s and src_y_e > src_y_s:
+            shifted[:, dst_y_s:dst_y_e, dst_x_s:dst_x_e] = t[
+                :, src_y_s:src_y_e, src_x_s:src_x_e
+            ]
+
+        return shifted
+
+    def _apply_gaussian_blur(self, t: torch.Tensor, sigma: float) -> torch.Tensor:
+        """Apply Gaussian blur."""
+        if sigma < 0.1:
+            return t
+
+        if t.ndim == 2:
+            t = t.unsqueeze(0)
+
+        # Simple box blur as approximation
+        kernel_size = max(3, int(6 * sigma + 1))
+        if kernel_size % 2 == 0:
+            kernel_size += 1
+
+        pad = kernel_size // 2
+        padded = torch.nn.functional.pad(t, (pad, pad, pad, pad), mode="reflect")
+        kernel = torch.ones(1, 1, kernel_size, kernel_size) / (kernel_size**2)
+        blurred = torch.nn.functional.conv2d(
+            padded.unsqueeze(0), kernel, padding=0, groups=1
+        ).squeeze(0)
+
+        return blurred
+
+    def _find_center(self, img: torch.Tensor) -> tuple[float, float]:
+        """Find image center of mass."""
+        arr = img.squeeze().cpu().numpy()
+        arr_norm = arr - arr.min()
+        if arr_norm.max() > 0:
+            center = ndimage.center_of_mass(arr_norm)
+            return float(center[0]), float(center[1])
+        return arr.shape[0] / 2, arr.shape[1] / 2
+
+    def _crop_resize(
+        self, img: torch.Tensor, center: tuple[float, float], crop_size: int
+    ) -> torch.Tensor:
+        """Crop around center and resize to target_size."""
+        if img.ndim == 3:
+            img = img.squeeze(0)
+
+        h, w = img.shape
+        row, col = center
+
+        # Calculate crop bounds
+        top = int(max(0, row - crop_size // 2))
+        bottom = top + crop_size
+        left = int(max(0, col - crop_size // 2))
+        right = left + crop_size
+
+        # Adjust if out of bounds
+        if bottom > h:
+            bottom = h
+            top = max(0, bottom - crop_size)
+        if right > w:
+            right = w
+            left = max(0, right - crop_size)
+
+        cropped = img[top:bottom, left:right]
+
+        # Pad to crop_size if needed
+        if cropped.shape[0] < crop_size or cropped.shape[1] < crop_size:
+            pad_h = max(0, crop_size - cropped.shape[0])
+            pad_w = max(0, crop_size - cropped.shape[1])
+            cropped = torch.nn.functional.pad(
+                cropped,
+                (pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2),
+                mode="constant",
+                value=cropped.min().item() if cropped.numel() > 0 else 0,
+            )
+
+        # Resize to target_size (H, W)
+        resized = (
+            torch.nn.functional.interpolate(
+                cropped.unsqueeze(0).unsqueeze(0),
+                size=(self.target_size[0], self.target_size[1]),
+                mode="bilinear",
+                align_corners=False,
+            )
+            .squeeze(0)
+            .squeeze(0)
+        )
+
+        return resized
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def __getitem__(self, idx: int) -> dict:
+        sample_dir = self.samples[idx]
+
+        # Load image(s)
+        channels = []
+        if self.input_mode in ("focus", "combined"):
+            daheng = torch.from_numpy(np.load(sample_dir / "daheng_frame.npy")).float()
+            row, col = self._find_center(daheng)
+            crop_size = min(512, daheng.shape[-2], daheng.shape[-1])
+            daheng_proc = self._crop_resize(daheng, (row, col), crop_size)
+            daheng_norm = self._normalize_image(daheng_proc, "daheng")
+            if daheng_norm.ndim == 2:
+                daheng_norm = daheng_norm.unsqueeze(0)
+            channels.append(daheng_norm)
+
+        if self.input_mode in ("pupil", "combined"):
+            miicam = torch.from_numpy(np.load(sample_dir / "miicam_frame.npy")).float()
+            row, col = self._find_center(miicam)
+            crop_size = min(512, miicam.shape[-2], miicam.shape[-1])
+            miicam_proc = self._crop_resize(miicam, (row, col), crop_size)
+            miicam_norm = self._normalize_image(miicam_proc, "miicam")
+            if miicam_norm.ndim == 2:
+                miicam_norm = miicam_norm.unsqueeze(0)
+            channels.append(miicam_norm)
+
+        image = torch.cat(channels, dim=0)  # (C, H, W)
+
+        # Apply augmentation (skip for now - has bugs)
+        # if self.augment:
+        #     image = self._apply_augmentation(image)
+
+        # Load Zernike coefficients
+        coeffs = load_zernike_coefficients(
+            sample_dir / "phase.csv", self.n_zernike_terms
+        )
+        coeffs = torch.from_numpy(coeffs)
+
+        return {
+            "image": image,
+            "coefficients": coeffs,
+            "sample_idx": idx,
+            "path": str(sample_dir),
+        }
+
+
+def create_zernike_loaders(
+    data_dir: str | Path,
+    batch_size: int = 8,
+    train_split: float = 0.7,
+    val_split: float = 0.15,
+    input_mode: Literal["focus", "pupil", "combined"] = "combined",
+    n_zernike_terms: int = 55,
+    n_max: int = 10,
+    target_size: tuple[int, int] = (256, 256),
+    num_workers: int = 0,
+    seed: int = 42,
+    augment: bool = True,
+) -> tuple[
+    torch.utils.data.DataLoader,
+    torch.utils.data.DataLoader,
+    torch.utils.data.DataLoader,
+]:
+    """Create train/val/test loaders for Zernike coefficient prediction.
+
+    Args:
+        data_dir: Root directory with sample_XXXX subdirectories.
+        batch_size: Batch size.
+        train_split: Training fraction (0.7 = 70%).
+        val_split: Validation fraction (0.15 = 15%).
+        input_mode: "focus", "pupil", or "combined".
+        n_zernike_terms: Number of Zernike terms.
+        n_max: Zernike radial order.
+        target_size: Image resize.
+        num_workers: DataLoader workers.
+        seed: Random seed.
+        augment: Enable augmentation.
+
+    Returns:
+        Tuple of (train_loader, val_loader, test_loader).
+    """
+    dataset = ZernikeCoefficientDataset(
+        data_dir=data_dir,
+        input_mode=input_mode,
+        n_zernike_terms=n_zernike_terms,
+        n_max=n_max,
+        target_size=target_size,
+        augment=augment,
+    )
+
+    n = len(dataset.samples)
+    generator = torch.Generator().manual_seed(seed)
+    shuffled = torch.randperm(n, generator=generator).tolist()
+
+    train_end = int(n * train_split)
+    val_end = train_end + int(n * val_split)
+
+    train_indices = shuffled[:train_end]
+    val_indices = shuffled[train_end:val_end]
+    test_indices = shuffled[val_end:]
+
+    train_subset = torch.utils.data.Subset(dataset, train_indices)
+    val_subset = torch.utils.data.Subset(dataset, val_indices)
+    test_subset = torch.utils.data.Subset(dataset, test_indices)
+
+    train_loader = torch.utils.data.DataLoader(
+        train_subset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+    val_loader = torch.utils.data.DataLoader(
+        val_subset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+    test_loader = torch.utils.data.DataLoader(
+        test_subset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    return train_loader, val_loader, test_loader
+
+
 def create_dataloaders(
     data_dir: str | Path,
     batch_size: int = 8,
@@ -563,7 +1019,7 @@ def create_dataloaders(
         random_shift: Apply random translation augmentation.
         shift_range: Maximum pixels to shift in each direction.
         random_blur: Apply random Gaussian blur augmentation.
-        blur_sigma_range: Range (min, max) for random Gaussian blur sigma.
+        blur_sigma_range: Range (min, max) for Gaussian blur sigma.
 
     Returns:
         Tuple of (train_loader, val_loader).
@@ -580,16 +1036,13 @@ def create_dataloaders(
     )
 
     # Train/val split
-    # Need to use filtered sample indices, not raw dataset indices
     n = len(dataset.samples)
-    all_indices = list(range(n))
     generator = torch.Generator().manual_seed(seed)
     shuffled = torch.randperm(n, generator=generator).tolist()
     split = int(n * train_split)
     train_indices = shuffled[:split]
     val_indices = shuffled[split:]
 
-    # Create subsets using filtered indices
     train_subset = torch.utils.data.Subset(dataset, train_indices)
     val_subset = torch.utils.data.Subset(dataset, val_indices)
 
@@ -609,3 +1062,98 @@ def create_dataloaders(
     )
 
     return train_loader, val_loader
+
+
+def create_train_val_test_loaders(
+    data_dir: str | Path,
+    batch_size: int = 8,
+    train_split: float = 0.7,
+    val_split: float = 0.15,
+    target_size: tuple[int, int] | None = (512, 512),
+    num_workers: int = 0,
+    use_daheng: bool = True,
+    use_miicam: bool = True,
+    seed: int = 42,
+    random_shift: bool = True,
+    shift_range: int = 20,
+    random_blur: bool = True,
+    blur_sigma_range: tuple[float, float] = (0.1, 1.5),
+) -> tuple[
+    torch.utils.data.DataLoader,
+    torch.utils.data.DataLoader,
+    torch.utils.data.DataLoader,
+]:
+    """Create train/val/test dataloaders from a dataset directory.
+
+    Args:
+        data_dir: Root directory with sample_XXXX subdirectories.
+        batch_size: Batch size for all loaders.
+        train_split: Fraction for training (default 0.7 = 70%).
+        val_split: Fraction for validation (default 0.15 = 15%).
+        target_size: Resize to (height, width).
+        num_workers: DataLoader workers.
+        use_daheng: Include Daheng camera.
+        use_miicam: Include MiiCam camera.
+        seed: Random seed for split.
+        random_shift: Apply random translation augmentation.
+        shift_range: Maximum pixels to shift.
+        random_blur: Apply random Gaussian blur.
+        blur_sigma_range: Range for blur sigma.
+
+    Returns:
+        Tuple of (train_loader, val_loader, test_loader).
+    """
+    if train_split + val_split > 1.0:
+        raise ValueError(
+            f"train_split + val_split must be <= 1.0, got {train_split + val_split}"
+        )
+
+    dataset = PhasePredictionDataset(
+        data_dir=data_dir,
+        target_size=target_size,
+        use_daheng=use_daheng,
+        use_miicam=use_miicam,
+        random_shift=random_shift,
+        shift_range=shift_range,
+        random_blur=random_blur,
+        blur_sigma_range=blur_sigma_range,
+    )
+
+    n = len(dataset.samples)
+    generator = torch.Generator().manual_seed(seed)
+    shuffled = torch.randperm(n, generator=generator).tolist()
+
+    train_end = int(n * train_split)
+    val_end = train_end + int(n * val_split)
+
+    train_indices = shuffled[:train_end]
+    val_indices = shuffled[train_end:val_end]
+    test_indices = shuffled[val_end:]
+
+    train_subset = torch.utils.data.Subset(dataset, train_indices)
+    val_subset = torch.utils.data.Subset(dataset, val_indices)
+    test_subset = torch.utils.data.Subset(dataset, test_indices)
+
+    train_loader = torch.utils.data.DataLoader(
+        train_subset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+    val_loader = torch.utils.data.DataLoader(
+        val_subset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+    test_loader = torch.utils.data.DataLoader(
+        test_subset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    return train_loader, val_loader, test_loader

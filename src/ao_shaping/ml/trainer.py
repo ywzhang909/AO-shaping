@@ -8,12 +8,40 @@ from pathlib import Path
 
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
+from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+import wandb
 
 from ao_shaping.ml.models import UNetGenerator, PatchGANDiscriminator
+
+
+def angular_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """Circular/angular loss for phase prediction.
+
+    Phase values wrap around 2*pi, so we need special handling.
+    This computes the shortest angular distance between predicted and target phase.
+
+    Args:
+        pred: Predicted phase (B, 1, H, W) or (B, H, W)
+        target: Target phase (B, 1, H, W) or (B, H, W)
+
+    Returns:
+        Mean squared angular difference
+    """
+    # Ensure same shape
+    if pred.shape != target.shape:
+        # Handle channel dimension mismatch
+        if pred.ndim == 4 and target.ndim == 4:
+            if pred.shape[1] != target.shape[1]:
+                if pred.shape[1] == 1:
+                    pred = pred.squeeze(1)
+                elif target.shape[1] == 1:
+                    target = target.squeeze(1)
+
+    # Compute angular difference (shortest path)
+    diff = torch.remainder(pred - target + torch.pi, 2 * torch.pi) - torch.pi
+    return torch.mean(diff**2)
 
 
 class GANLoss(nn.Module):
@@ -34,13 +62,7 @@ class GANLoss(nn.Module):
         prediction: torch.Tensor,
         target_is_real: bool,
     ) -> torch.Tensor:
-        if self.gan_mode == "vanilla":
-            target = (
-                torch.ones_like(prediction)
-                if target_is_real
-                else torch.zeros_like(prediction)
-            )
-        elif self.gan_mode == "lsgan":
+        if self.gan_mode in {"vanilla", "lsgan"}:
             target = (
                 torch.ones_like(prediction)
                 if target_is_real
@@ -54,7 +76,7 @@ class GANLoss(nn.Module):
 class PhaseGANTrainer:
     """Train U-Net + PatchGAN for phase prediction from camera images.
 
-    Loss = L1(predicted_phase, true_phase) + lambda_adv * BCE(GAN_loss)
+    Loss = AngularLoss(pred_phase, true_phase) + lambda_adv * BCE(GAN_loss)
     """
 
     def __init__(
@@ -70,6 +92,11 @@ class PhaseGANTrainer:
         beta2: float = 0.999,
         gan_mode: str = "vanilla",
         checkpoint_dir: str | Path | None = None,
+        loss_type: str = "angular",  # "l1" or "angular"
+        use_wandb: bool = False,
+        wandb_project: str = "ao-shaping",
+        wandb_run_name: str | None = None,
+        log_images: bool = True,
     ):
         self.gen = generator
         self.disc = discriminator
@@ -77,6 +104,26 @@ class PhaseGANTrainer:
 
         self.lambda_l1 = lambda_l1
         self.lambda_adv = lambda_adv
+        self.loss_type = loss_type
+        self.use_wandb = use_wandb
+        self.log_images = log_images
+
+        # Initialize wandb
+        if self.use_wandb:
+            wandb.init(
+                project=wandb_project,
+                name=wandb_run_name,
+                config={
+                    "lr_gen": lr_gen,
+                    "lr_disc": lr_disc,
+                    "lambda_l1": lambda_l1,
+                    "lambda_adv": lambda_adv,
+                    "beta1": beta1,
+                    "beta2": beta2,
+                    "gan_mode": gan_mode,
+                    "loss_type": loss_type,
+                },
+            )
 
         # Optimizers
         self.opt_gen = torch.optim.Adam(
@@ -97,6 +144,7 @@ class PhaseGANTrainer:
         # Loss functions
         self.gan_loss = GANLoss(gan_mode).to(device)
         self.l1_loss = nn.L1Loss()
+        self.angular_loss = angular_loss
 
         # Checkpointing
         self.checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir else None
@@ -107,7 +155,7 @@ class PhaseGANTrainer:
         self.history = {
             "gen_loss": [],
             "disc_loss": [],
-            "l1_loss": [],
+            "main_loss": [],
             "adv_loss": [],
             "val_loss": [],
         }
@@ -151,8 +199,14 @@ class PhaseGANTrainer:
         pred_fake = self.disc(fake_input)
 
         loss_adv = self.gan_loss(pred_fake, target_is_real=True)
-        loss_l1 = self.l1_loss(fake_phase, phases)
-        loss_gen = loss_l1 * self.lambda_l1 + loss_adv * self.lambda_adv
+
+        # Use angular loss or L1 based on configuration
+        if self.loss_type == "angular":
+            loss_main = self.angular_loss(fake_phase, phases)
+        else:
+            loss_main = self.l1_loss(fake_phase, phases)
+
+        loss_gen = loss_main * self.lambda_l1 + loss_adv * self.lambda_adv
 
         loss_gen.backward()
         self.opt_gen.step()
@@ -160,7 +214,7 @@ class PhaseGANTrainer:
         return {
             "gen_loss": loss_gen.item(),
             "disc_loss": loss_disc.item(),
-            "l1_loss": loss_l1.item(),
+            "main_loss": loss_main.item(),
             "adv_loss": loss_adv.item(),
         }
 
@@ -170,7 +224,7 @@ class PhaseGANTrainer:
         self.gen.eval()
         self.disc.eval()
 
-        total_l1 = 0.0
+        total_main = 0.0
         total_samples = 0
 
         for batch in val_loader:
@@ -178,14 +232,21 @@ class PhaseGANTrainer:
             phases = batch["phase"].to(self.device)
 
             pred_phase = self.gen(images)
-            total_l1 += self.l1_loss(pred_phase, phases).item() * images.size(0)
+
+            # Use angular loss or L1 based on configuration
+            if self.loss_type == "angular":
+                loss = self.angular_loss(pred_phase, phases)
+            else:
+                loss = self.l1_loss(pred_phase, phases)
+
+            total_main += loss.item() * images.size(0)
             total_samples += images.size(0)
 
-        avg_l1 = total_l1 / max(total_samples, 1)
+        avg_loss = total_main / max(total_samples, 1)
 
         self.gen.train()
         self.disc.train()
-        return {"val_loss": avg_l1}
+        return {"val_loss": avg_loss}
 
     def train(
         self,
@@ -209,10 +270,16 @@ class PhaseGANTrainer:
         self.disc.train()
 
         best_val_loss = float("inf")
+        loss_key = "angular" if self.loss_type == "angular" else "l1"
 
         for epoch in range(epochs):
             epoch_start = time.time()
-            epoch_losses = {"gen_loss": 0, "disc_loss": 0, "l1_loss": 0, "adv_loss": 0}
+            epoch_losses = {
+                "gen_loss": 0,
+                "disc_loss": 0,
+                "main_loss": 0,
+                "adv_loss": 0,
+            }
             n_batches = 0
 
             pbar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}", leave=False)
@@ -229,7 +296,7 @@ class PhaseGANTrainer:
                     {
                         "G": f"{losses['gen_loss']:.4f}",
                         "D": f"{losses['disc_loss']:.4f}",
-                        "L1": f"{losses['l1_loss']:.4f}",
+                        loss_key: f"{losses['main_loss']:.4f}",
                     }
                 )
 
@@ -264,11 +331,30 @@ class PhaseGANTrainer:
                 f"Epoch {epoch + 1}/{epochs} | "
                 f"G: {epoch_losses['gen_loss']:.4f} | "
                 f"D: {epoch_losses['disc_loss']:.4f} | "
-                f"L1: {epoch_losses['l1_loss']:.4f} | "
+                f"{loss_key}: {epoch_losses['main_loss']:.4f} | "
                 f"Val: {epoch_losses.get('val_loss', 'N/A'):.4f} | "
                 f"LR: {lr:.6f} | "
                 f"Time: {epoch_time:.1f}s"
             )
+
+            # Log to wandb
+            if self.use_wandb:
+                wandb.log(
+                    {
+                        "epoch": epoch + 1,
+                        "train/gen_loss": epoch_losses["gen_loss"],
+                        "train/disc_loss": epoch_losses["disc_loss"],
+                        f"train/{loss_key}_loss": epoch_losses["main_loss"],
+                        "train/adv_loss": epoch_losses["adv_loss"],
+                        "val/loss": epoch_losses.get("val_loss", 0),
+                        "train/lr": lr,
+                        "train/time": epoch_time,
+                    }
+                )
+
+                # Log images at the end of each epoch
+                if self.log_images and val_loader is not None:
+                    self._log_val_images(val_loader)
 
             # Checkpoint
             if (epoch + 1) % save_every == 0 and self.checkpoint_dir:
@@ -331,6 +417,61 @@ class PhaseGANTrainer:
             ]
         with open(self.checkpoint_dir / "training_history.json", "w") as f:
             json.dump(serializable, f, indent=2)
+
+        # Finish wandb
+        if self.use_wandb:
+            wandb.finish()
+
+    def _log_val_images(self, val_loader: DataLoader) -> None:
+        """Log validation images to wandb."""
+        self.gen.eval()
+
+        # Get a batch
+        batch = next(iter(val_loader))
+        images = batch["image"].to(self.device)
+        phases = batch["phase"].to(self.device)
+
+        # Get predictions
+        with torch.no_grad():
+            pred_phase = self.gen(images)
+
+        # Log first sample of the batch
+        idx = 0
+        daheng = images[idx, 0].cpu().numpy()
+        miicam = images[idx, 1].cpu().numpy()
+        true_phase = phases[idx, 0].cpu().numpy()
+        pred = pred_phase[idx, 0].cpu().numpy()
+
+        # Create figure
+        import matplotlib.pyplot as plt
+
+        fig, axes = plt.subplots(1, 4, figsize=(16, 4))
+
+        axes[0].imshow(daheng, cmap="gray")
+        axes[0].set_title("Daheng")
+        axes[0].axis("off")
+
+        axes[1].imshow(miicam, cmap="gray")
+        axes[1].set_title("MiiCam")
+        axes[1].axis("off")
+
+        im2 = axes[2].imshow(true_phase, cmap="hsv", vmin=0, vmax=1)
+        axes[2].set_title("True Phase")
+        axes[2].axis("off")
+        plt.colorbar(im2, ax=axes[2])
+
+        im3 = axes[3].imshow(pred, cmap="hsv", vmin=0, vmax=1)
+        axes[3].set_title("Predicted")
+        axes[3].axis("off")
+        plt.colorbar(im3, ax=axes[3])
+
+        plt.tight_layout()
+
+        # Log to wandb
+        wandb.log({"val/images": wandb.Image(fig)})
+        plt.close(fig)
+
+        self.gen.train()
 
     @torch.no_grad()
     def predict(self, image: torch.Tensor) -> torch.Tensor:
