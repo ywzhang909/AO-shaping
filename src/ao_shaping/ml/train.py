@@ -26,6 +26,14 @@ import torch
 import torch.nn as nn
 from torch import optim
 
+# Set matplotlib backend to Agg to avoid threading issues
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import tempfile
+from PIL import Image
+
 from loguru import logger
 
 from ao_shaping.ml.dataset import (
@@ -755,17 +763,72 @@ def sweep(data_dir: str, project: str, batch_size: int, epochs: int, count: int)
 
                 plt.tight_layout()
 
-                # Log both images to wandb
-                wandb.log(
-                    {
-                        "test_sample": wandb.Image(
-                            np.concatenate([target_phase, pred_phase], axis=1),
-                            caption=f"Epoch {epoch + 1}: phase target vs prediction",
-                        ),
-                        "coeff_comparison": wandb.Image(fig),
-                    }
-                )
-                plt.close(fig)
+                # Save images to temporary files and load with PIL
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    # Save phase comparison
+                    phase_path = Path(temp_dir) / "phase_comparison.png"
+                    plt.figure(figsize=(12, 4))
+                    plt.subplot(1, 2, 1)
+                    plt.imshow(target_phase[0], cmap="gray")
+                    plt.title("Target Phase")
+                    plt.subplot(1, 2, 2)
+                    plt.imshow(pred_phase[0], cmap="gray")
+                    plt.title("Predicted Phase")
+                    plt.tight_layout()
+                    plt.savefig(phase_path)
+                    plt.close()
+
+                    # Load with PIL and log to wandb
+                    phase_image = Image.open(phase_path)
+                    wandb.log(
+                        {
+                            "phase_target_vs_pred": wandb.Image(
+                                phase_image,
+                                caption=f"Epoch {epoch + 1}: phase target vs prediction",
+                            )
+                        }
+                    )
+
+                    # Save coefficient comparison
+                    coeff_path = Path(temp_dir) / "coeff_comparison.png"
+                    plt.figure(figsize=(12, 8))
+
+                    # Top: target vs prediction bar chart
+                    plt.subplot(2, 1, 1)
+                    x = np.arange(len(test_coeff))
+                    plt.bar(x - 0.2, test_coeff, 0.4, label="Ground Truth", alpha=0.8)
+                    plt.bar(x + 0.2, pred_coeff, 0.4, label="Prediction", alpha=0.8)
+                    plt.xlabel("Zernike Index")
+                    plt.ylabel("Coefficient Value")
+                    plt.title(f"Zernike Coefficients Comparison (Epoch {epoch + 1})")
+                    plt.legend()
+                    plt.grid(True, alpha=0.3)
+
+                    # Bottom: difference bar chart
+                    plt.subplot(2, 1, 2)
+                    diff = pred_coeff - test_coeff
+                    colors = ["green" if d >= 0 else "red" for d in diff]
+                    plt.bar(x, diff, color=colors, alpha=0.7)
+                    plt.axhline(y=0, color="black", linestyle="-", linewidth=0.5)
+                    plt.xlabel("Zernike Index")
+                    plt.ylabel("Difference (Pred - GT)")
+                    plt.title("Prediction Error")
+                    plt.grid(True, alpha=0.3)
+
+                    plt.tight_layout()
+                    plt.savefig(coeff_path)
+                    plt.close()
+
+                    # Load with PIL and log to wandb
+                    coeff_image = Image.open(coeff_path)
+                    wandb.log(
+                        {
+                            "coeff_comparison": wandb.Image(
+                                coeff_image,
+                                caption=f"Epoch {epoch + 1}: coefficients target vs prediction",
+                            )
+                        }
+                    )
 
         wandb.log({"best_val_loss": best_val})
 
