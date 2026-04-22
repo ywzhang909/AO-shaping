@@ -110,6 +110,7 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "微透镜阵列",
             "湍流相位屏",
             "Zernike",
+            "达曼光栅",
         ],
         key=f"{prefix}_pattern_type",
     )
@@ -320,6 +321,23 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
                     coefficients[(n, m)] = coeff
 
         params["coefficients"] = coefficients
+    elif pattern_type == "达曼光栅":
+        params["order"] = st.number_input(
+            "衍射级数",
+            min_value=2,
+            max_value=8,
+            value=3,
+            step=1,
+            key=f"{prefix}_dammann_order",
+        )
+        params["fill_factor"] = st.slider(
+            "填充因子",
+            min_value=0.1,
+            max_value=1.0,
+            value=0.5,
+            step=0.1,
+            key=f"{prefix}_dammann_fill_factor",
+        )
 
     return pattern_type, params
 
@@ -423,6 +441,12 @@ def generate_phase_gray(
             n_max=n_max,
             coefficients=coefficients,
             radius=radius,
+        )
+    if pattern_type == "达曼光栅":
+        order = int(params.get("order", 3))
+        fill_factor = float(params.get("fill_factor", 0.5))
+        return gray_helper.generate_dammann_grating(
+            order=order, fill_factor=fill_factor
         )
     raise ValueError(f"未知相位图类型: {pattern_type}")
 
@@ -559,7 +583,7 @@ def _get_camera_class(driver_name: str):
         try:
             from ao_shaping.drivers.ccd.miicam_driver import CameraStreamManager
 
-            return DahengCamManager
+            return CameraStreamManager
         except ImportError as e:
             raise ImportError(
                 f"MIICAM 驱动不可用: {e}. 请确保已安装 MIICAM SDK 或将 SDK 文件放置在正确的位置。"
@@ -679,7 +703,9 @@ def render_camera_panel(cam_num: int) -> None:
             )
             # Note: Cannot modify session_state for widgets after instantiation in Streamlit
             # Just show the actual value that was set
-            st.success(f"曝光设置成功: 期望值={st.session_state[f'{prefix}_exposure_ms']}ms, 实际值={actual_exposure}ms")
+            st.success(
+                f"曝光设置成功: 期望值={st.session_state[f'{prefix}_exposure_ms']}ms, 实际值={actual_exposure}ms"
+            )
         except Exception as e:
             st.error(f"设置曝光失败: {e}")
             logger.error(f"Failed to set exposure for camera {cam_num}: {e}")

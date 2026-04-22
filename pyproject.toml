@@ -27,12 +27,12 @@ dependencies = [
     "zernike>=0.0.33",
     "gymnasium>=1.2.1",
     "stable-baselines3>=2.7.0",
-    "torch>=2.10",
+    "torch>=2.4.0",
     "torchvision>=0.20",
     "streamlit>=1.40.0",
     "scipy>=1.15.0",
     "pillow>=11.0.0",
-"wandb>=0.20.0",
+    "wandb>=0.20.0",
 ]
 
 [project.scripts]
@@ -43,27 +43,19 @@ url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
 
 [[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
-explicit = true
-
-[[tool.uv.index]]
 name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
-[tool.pytest.ini_options]
-pythonpath = ["src"]
-testpaths = ["tests"]
-norecursedirs = ["docs", "libs", ".venv", "node_modules", ".git"]
-
-[tool.setuptools.packages.find]
-where = ["src"]
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
 
 [tool.uv.sources]
 torch = [
-  { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
+  { index = "pytorch-cu124", marker = "sys_platform == 'win32'" },
 ]
 torchvision = [
-  { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
+  { index = "pytorch-cu124", marker = "sys_platform == 'win32'" },
 ]
