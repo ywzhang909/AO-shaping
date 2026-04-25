@@ -438,6 +438,88 @@ class TestPatternTypes:
             open_slm.display_memory(mem_num)
 
 
+class TestShiftCorrection:
+    """测试平移校正功能"""
+
+    def test_shift_init_params(self):
+        """测试初始化时的平移参数"""
+        slm = SantecSLM200(slm_number=1, shift_x=10, shift_y=-5)
+        assert slm.shift_x == 10
+        assert slm.shift_y == -5
+
+    def test_shift_default_params(self):
+        """测试默认平移参数为0"""
+        slm = SantecSLM200(slm_number=1)
+        assert slm.shift_x == 0
+        assert slm.shift_y == 0
+
+    def test_set_shift_runtime(self):
+        """测试运行时设置平移参数"""
+        slm = SantecSLM200(slm_number=1)
+        slm.set_shift(shift_x=20, shift_y=30)
+        assert slm.shift_x == 20
+        assert slm.shift_y == 30
+
+    def test_apply_shift_positive(self):
+        """测试正向平移（shift_x=右，shift_y=下）"""
+        slm = SantecSLM200(slm_number=1, shift_x=5, shift_y=3)
+        phase = np.zeros((10, 10), dtype=np.uint16)
+        phase[2:8, 2:8] = 100  # 中心6x6区域设为100
+
+        shifted = slm._apply_shift(phase)
+
+        # 验证：原数据向右移动5，向下移动3
+        assert shifted[5, 7] == 100  # 原(2,2) → (5,7)
+        assert shifted[2, 2] == 0  # 左上角应为0
+
+    def test_apply_shift_negative(self):
+        """测试负向平移（shift_x=左，shift_y=上）"""
+        slm = SantecSLM200(slm_number=1, shift_x=-5, shift_y=-3)
+        phase = np.zeros((10, 10), dtype=np.uint16)
+        phase[2:8, 2:8] = 100  # 中心6x6区域设为100
+
+        shifted = slm._apply_shift(phase)
+
+        # 验证：原数据向左移动5，向上移动3
+        assert shifted[2, 2] == 100  # 原(5,5) → (2,2)
+        assert shifted[7, 7] == 0  # 右下角应为0
+
+    def test_apply_shift_no_shift(self):
+        """测试无平移时返回原数组"""
+        slm = SantecSLM200(slm_number=1, shift_x=0, shift_y=0)
+        phase = np.ones((10, 10), dtype=np.uint16) * 100
+
+        shifted = slm._apply_shift(phase)
+
+        assert np.array_equal(shifted, phase)
+
+    def test_apply_shift_boundary(self):
+        """测试边界情况：平移量大于数组尺寸"""
+        slm = SantecSLM200(slm_number=1, shift_x=15, shift_y=15)
+        phase = np.zeros((10, 10), dtype=np.uint16)
+        phase[5, 5] = 100
+
+        shifted = slm._apply_shift(phase)
+
+        # 验证：全部移出视野，结果全为0
+        assert np.all(shifted == 0)
+
+    def test_apply_shift_partial_out_of_bounds(self):
+        """测试部分超出边界的情况"""
+        slm = SantecSLM200(slm_number=1, shift_x=8, shift_y=0)
+        phase = np.zeros((10, 10), dtype=np.uint16)
+        phase[0, 0] = 100  # (0,0) → shifted[0,8]=100
+        phase[5, 5] = 200  # (5,5) → shifted[5,13] out of bounds → 0
+
+        shifted = slm._apply_shift(phase)
+
+        # (0,0) → (0,8) 在范围内
+        assert shifted[0, 0] == 0  # vacated
+        assert shifted[0, 8] == 100  # shifted position
+        # (5,5) → (5,13) 完全超出边界 → cval=0
+        assert shifted[5, 5] == 0  # vacated
+
+
 class TestIntegration:
     """集成测试"""
 

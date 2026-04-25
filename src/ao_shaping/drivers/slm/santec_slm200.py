@@ -5,10 +5,13 @@
 """
 
 import ctypes
-import numpy as np
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import Optional, Union
 from enum import IntEnum
+
+import numpy as np
+from scipy import ndimage
+
 from loguru import logger
 
 # SLM SDK常量
@@ -68,6 +71,8 @@ class SantecSLM200:
         use_120hz: bool = False,
         wavelength: int = 1064,
         video_mode: int | VideoMode = 0,
+        shift_x: int = 0,
+        shift_y: int = 0,
     ):
         """初始化SLM驱动
 
@@ -76,6 +81,8 @@ class SantecSLM200:
             use_120hz: 是否使用120Hz刷新率，默认为False
             wavelength: 工作波长（nm），默认为1064
             video_mode: 视频模式 (0=内存模式, 1=DVI模式)，默认为0
+            shift_x: X方向平移像素数（正=右，负=左），默认为0
+            shift_y: Y方向平移像素数（正=下，负=上），默认为0
 
         Raises:
             SantecSLM200Error: 设备编号无效
@@ -92,6 +99,10 @@ class SantecSLM200:
         self._memory_phase_cache: dict[int, np.ndarray] = {}
         self._displayed_memory_number: int | None = None
         self._displayed_phase_cache: np.ndarray | None = None
+
+        # 平移参数（X正=右，Y正=下，vacated区域填0）
+        self._shift_x = shift_x
+        self._shift_y = shift_y
 
         # 延迟导入SLM SDK
         try:
@@ -226,7 +237,7 @@ class SantecSLM200:
             f"2π对应灰度值: {self._max_gray}"
         )
 
-    def get_wavelength_info(self) -> Tuple[int, int]:
+    def get_wavelength_info(self) -> tuple[int, int]:
         """获取当前波长设置信息
 
         Returns:
@@ -282,6 +293,9 @@ class SantecSLM200:
         if phase.ndim != 2:
             raise ValueError(f"相位数据必须是2D数组，当前维度: {phase.ndim}")
 
+        # 应用平移
+        phase = self._apply_shift(phase)
+
         height, width = phase.shape
 
         # 创建ctypes指针
@@ -335,6 +349,9 @@ class SantecSLM200:
         if phase.ndim != 2:
             raise ValueError(f"相位数据必须是2D数组，当前维度: {phase.ndim}")
 
+        # 应用平移
+        phase = self._apply_shift(phase)
+
         height, width = phase.shape
 
         # 创建ctypes指针
@@ -352,7 +369,7 @@ class SantecSLM200:
 
         self._displayed_memory_number = None
         self._displayed_phase_cache = phase.copy()
-        logger.debug(f"相位数据显示")
+        logger.debug("相位数据显示")
 
     def set_grayscale(self, gs: int) -> None:
         """设置SLM灰度值（均匀显示）
@@ -471,6 +488,50 @@ class SantecSLM200:
         grayscale = np.clip(grayscale, 0, self._max_gray)
 
         return grayscale
+
+    def _apply_shift(self, phase: np.ndarray) -> np.ndarray:
+        """应用X/Y平移到相位图，空白区域填0
+
+        Args:
+            phase: 输入相位图，shape (height, width)
+
+        Returns:
+            平移后的相位图，vacated区域填0
+        """
+        if self._shift_x == 0 and self._shift_y == 0:
+            return phase
+
+        # scipy.ndimage.shift: shift > 0 向右/下移动 (order=0 最近邻填充0)
+        # shift convention: (shift_y, shift_x) - 注意顺序
+        shifted = ndimage.shift(
+            phase,
+            shift=(self._shift_y, self._shift_x),
+            order=0,
+            mode="constant",
+            cval=0,
+        )
+        return shifted.astype(phase.dtype)
+
+    def set_shift(self, shift_x: int, shift_y: int) -> None:
+        """设置平移参数
+
+        Args:
+            shift_x: X方向平移像素数（正=右，负=左）
+            shift_y: Y方向平移像素数（正=下，负=上）
+        """
+        self._shift_x = shift_x
+        self._shift_y = shift_y
+        logger.info(f"SLM #{self.slm_number} 平移参数已更新: shift_x={shift_x}, shift_y={shift_y}")
+
+    @property
+    def shift_x(self) -> int:
+        """X方向平移像素数"""
+        return self._shift_x
+
+    @property
+    def shift_y(self) -> int:
+        """Y方向平移像素数"""
+        return self._shift_y
 
     def _ensure_open(self) -> None:
         """确保设备已打开

@@ -38,6 +38,8 @@ class ZernikeSLM:
         n_max: int = 4,
         slm_resolution: tuple[int, int] | None = None,
         use_120hz: bool = False,
+        shift_x: int = 0,
+        shift_y: int = 0,
     ):
         self.slm_number = slm_number
         self.wavelength = wavelength
@@ -50,6 +52,8 @@ class ZernikeSLM:
             slm_number=slm_number,
             use_120hz=use_120hz,
             wavelength=wavelength,
+            shift_x=shift_x,
+            shift_y=shift_y,
         )
         self._zernike_dm = ZernikeDM(
             n_max=n_max,
@@ -88,6 +92,25 @@ class ZernikeSLM:
     def _ensure_open(self) -> None:
         if not self.is_open:
             raise RuntimeError("ZernikeSLM not open, call open() first")
+
+    def set_shift(self, shift_x: int, shift_y: int) -> None:
+        """设置平移参数
+
+        Args:
+            shift_x: X方向平移像素数（正=右，负=左）
+            shift_y: Y方向平移像素数（正=下，负=上）
+        """
+        self._slm.set_shift(shift_x, shift_y)
+
+    @property
+    def shift_x(self) -> int:
+        """X方向平移像素数"""
+        return self._slm.shift_x
+
+    @property
+    def shift_y(self) -> int:
+        """Y方向平移像素数"""
+        return self._slm.shift_y
 
     def send_zernike(
         self,
