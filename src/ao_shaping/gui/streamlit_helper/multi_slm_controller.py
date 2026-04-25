@@ -11,7 +11,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
-from ao_shaping.drivers.slm.slm_pattern_helper import PatternHelper, SLMPatternHelper
+from ao_shaping.drivers.slm.slm_pattern_helper import PatternHelper
 
 # Global pattern helpers (will be recreated per-SLM based on resolution)
 # Note: Resolution and bit depth now come from the SLM object when generating patterns
@@ -340,52 +340,46 @@ def generate_phase_gray(
     bits = slm.Gray_Scale_bits
     wavelength_nm = slm.wavelength
 
-    # Create pattern helper with correct resolution and bit depth
-    slm_pattern_helper = SLMPatternHelper()
-    gray_helper = PatternHelper((width, height), bits=bits)
+    # Create unified pattern helper
+    helper = PatternHelper((height, width), bits=bits)
 
+    # Phase pattern generation mapping
     if pattern_type == "平场":
         phase_rad = np.zeros((height, width))
         return slm.create_phase_from_array(phase_rad)
     if pattern_type == "线性光栅":
-        phase_rad = slm_pattern_helper.linear_grating(
-            width=width,
-            height=height,
+        phase_rad = helper.linear_grating(
             period=float(params["period"]),
             phase_range=float(params["phase_range"]),
+            wrap_phase=False,
         )
         return slm.create_phase_from_array(phase_rad)
     if pattern_type == "圆形光栅":
-        phase_rad = slm_pattern_helper.circular_grating(
-            width=width,
-            height=height,
+        phase_rad = helper.circular_grating(
             radius=float(params["radius"]),
             phase_range=float(params["phase_range"]),
+            wrap_phase=False,
         )
         return slm.create_phase_from_array(phase_rad)
     if pattern_type == "透镜":
         # Use pixel size from SLM if not provided in params
         pixel_size = params.get("pixel_size_um", pixel_size_um)
-        phase_rad = slm_pattern_helper.lens(
-            width=width,
-            height=height,
+        phase_rad = helper.lens(
             focal_length=float(params["focal_length_mm"]) * 1e-3,  # mm -> m
             wavelength=float(wavelength_nm) * 1e-9,  # nm -> m
             pixel_size=float(pixel_size) * 1e-6,  # um -> m
         )
         return slm.create_phase_from_array(phase_rad)
     if pattern_type == "全息光栅":
-        phase_rad = slm_pattern_helper.hologram(
-            width=width,
-            height=height,
+        phase_rad = helper.hologram(
             period=float(params["period"]),
             phase_range=float(params["phase_range"]),
         )
         return slm.create_phase_from_array(phase_rad)
     if pattern_type == "棋盘格":
-        return gray_helper.generate_checkerboard(period=int(params["period"]))
+        return helper.generate_checkerboard(period=int(params["period"]))
     if pattern_type == "二元光栅":
-        return gray_helper.generate_binary_grating(
+        return helper.generate_binary_grating(
             a=int(params["a"]),
             b=int(params["b"]),
             direction=str(params["direction"]),
@@ -393,7 +387,7 @@ def generate_phase_gray(
     if pattern_type == "微透镜阵列":
         # Use pixel size from SLM if not provided in params
         pixel_size = params.get("pixel_size_um", pixel_size_um)
-        return gray_helper.generate_microlens_array(
+        return helper.generate_microlens_array(
             lens_size=int(params["lens_size"]),
             focal_length=float(params["focal_length_mm"]) * 1e-3,
             wavelength=float(wavelength_nm) * 1e-9,
@@ -402,7 +396,7 @@ def generate_phase_gray(
     if pattern_type == "湍流相位屏":
         # Use pixel size from SLM if not provided in params
         pixel_size = params.get("pixel_size_um", pixel_size_um)
-        return gray_helper.generate_turbulence_screen(
+        return helper.generate_turbulence_screen(
             Cn2=float(params["Cn2"]),
             L=float(params["L"]),
             wavelength=float(wavelength_nm) * 1e-9,
@@ -419,7 +413,7 @@ def generate_phase_gray(
                 if isinstance(k, tuple) and isinstance(v, (int, float))
             }
         radius = float(params.get("radius", min(width, height) // 2))
-        return gray_helper.generate_zernike_polynomial(
+        return helper.generate_zernike_polynomial(
             n_max=n_max,
             coefficients=coefficients,
             radius=radius,

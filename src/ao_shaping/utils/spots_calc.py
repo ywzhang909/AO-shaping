@@ -12,6 +12,12 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     numba = None
 
+try:
+    from aotools.image_processing.psf import encircled_energy as aotools_ee
+    AOTOOLS_AVAILABLE = True
+except ImportError:
+    AOTOOLS_AVAILABLE = False
+
 from scipy.ndimage import center_of_mass
 
 import matplotlib.pyplot as plt
@@ -269,45 +275,52 @@ def make_coord(img:np.ndarray):
     x, y = np.meshgrid(np.arange(img.shape[1]), np.arange(img.shape[0]))
     return x, y
 
-def radius(intensity, center, energy=0.99) -> float:
+def radius(intensity, center, energy=0.99, use_aotools: bool = True) -> float:
     """
     以center为圆心，占总能量百分比为energy的圆的半径
 
     :param intensity: 强度分布
-    :param x: x坐标矩阵
-    :param y: y坐标矩阵
-    :param center: 圆心，默认'centroid'，可选'peak'，'origin'，坐标，如(0, 0)
+    :param center: 圆心，如(0, 0)
     :param energy: 圆内的能量比，默认0.99，取值范围0~1，常用0.5，0.865， 0.99
+    :param use_aotools: 是否使用aotools库，默认True
     :return radius: 圆的半径
     """
-    x, y = make_coord(intensity)
-    npix = len(x)
-    dpix = x[0, 1] - x[0, 0]
-    x0, y0 = center[0], center[1]
-
-    power_in_circle = np.sum(intensity) * energy
-    r = np.sqrt((x - x0) ** 2 + (y - y0) ** 2)
-    radius = npix * dpix / 2
-    radius_change = npix * dpix / 4
-
-    for i in range(300):
-        mask = (np.sign(radius - r) + 1) / 2
-        power = np.sum(intensity * mask)
-
-        if power - power_in_circle < -1e-10 * power_in_circle:
-            radius += radius_change
-        elif power - power_in_circle > 1e-10 * power_in_circle:
-            radius -= radius_change
+    if use_aotools and AOTOOLS_AVAILABLE:
+        if center is None:
+            center = np.array(intensity.shape) // 2
         else:
-            break
+            center = np.array(center)
+        diameter = aotools_ee(intensity, fraction=energy, center=center, eeDiameter=True)
+        return float(diameter) / 2
+    else:
+        x, y = make_coord(intensity)
+        npix = len(x)
+        dpix = x[0, 1] - x[0, 0]
+        x0, y0 = center[0], center[1]
 
-        radius_change /= 2
-        if radius_change < dpix / 50:
-            break
-        if i == 299:
-            raise StopIteration('Maximal number of iterations reached while calculating beam radius.')
+        power_in_circle = np.sum(intensity) * energy
+        r = np.sqrt((x - x0) ** 2 + (y - y0) ** 2)
+        radius = npix * dpix / 2
+        radius_change = npix * dpix / 4
 
-    return radius
+        for i in range(300):
+            mask = (np.sign(radius - r) + 1) / 2
+            power = np.sum(intensity * mask)
+
+            if power - power_in_circle < -1e-10 * power_in_circle:
+                radius += radius_change
+            elif power - power_in_circle > 1e-10 * power_in_circle:
+                radius -= radius_change
+            else:
+                break
+
+            radius_change /= 2
+            if radius_change < dpix / 50:
+                break
+            if i == 299:
+                raise StopIteration('Maximal number of iterations reached while calculating beam radius.')
+
+        return radius
 
 def effective_radius(intensity, dpix, clip):
     """

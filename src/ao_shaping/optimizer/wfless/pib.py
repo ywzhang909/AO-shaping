@@ -370,7 +370,7 @@ def optimize_pib(
     _max_history_len = 50  # 保持最近50次记录
 
     with (
-        CameraStreamManager(
+        DahengCamManager(
             cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
         ) as cam,
         NlightDM(

@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Literal
 
 import numpy as np
 import torch
@@ -13,17 +13,12 @@ from scipy import ndimage
 from torch import nn
 from torch.utils.data import Dataset
 
-
-def calculate_n_zernike_terms(n_max: int) -> int:
-    """Calculate number of Zernike terms for given n_max.
-
-    Args:
-        n_max: Maximum radial order.
-
-    Returns:
-        Number of Zernike terms (n_max * (n_max + 1) // 2).
-    """
-    return n_max * (n_max + 1) // 2
+from ao_shaping.utils.zernike_calc import (
+    ZernikeGenerator,
+    noll_to_nm,
+    zernike_radial,
+    calc_n_zernike_terms,
+)
 
 
 def coefficients_to_phase_map(
@@ -59,107 +54,21 @@ def coefficients_to_phase_map(
     # Apply circular mask
     mask = rho <= 1.0
 
-    # Generate phase map
-    phase = np.zeros((h, w), dtype=np.float32)
+    # Generate phase map using ZernikeGenerator
+    gen = ZernikeGenerator(resolution=(w, h), radius=pupil_radius)
+    gen.set_bits(16)  # Use high precision for phase
+    gen.precompute_bases(len(coefficients))
+    phase = gen.generate_noll(coefficients.astype(np.float64))
 
-    for noll_idx, coeff in enumerate(coefficients):
-        if coeff == 0:
-            continue
-
-        # Convert Noll index to (n, m)
-        n, m = _noll_to_nm(noll_idx + 1)  # 1-indexed
-
-        # Generate Zernike polynomial
-        zernike = _zernike_polynomial(n, m, rho, theta)
-
-        # Apply only within pupil
-        phase += coeff * zernike * mask
+    # Convert from uint16 to radians and apply mask
+    phase = phase.astype(np.float64) / (2**16) * 2 * np.pi
+    phase = phase * mask
 
     # Subtract piston (mean within pupil)
     if mask.any():
         phase = phase - np.mean(phase[mask]) * mask
 
     return phase
-
-
-def _noll_to_nm(noll_index: int) -> tuple[int, int]:
-    """Convert Noll index to (n, m) radial orders.
-
-    Noll indices map to Zernike modes as:
-    1: (0, 0) - piston
-    2: (1, -1) - tilt x
-    3: (1, 1) - tilt y
-    4: (2, 0) - defocus
-    5: (2, -2) - astigmatism x
-    6: (2, 2) - astigmatism y
-    ...
-    """
-    # Pre-computed mapping for first few modes
-    mapping = {
-        1: (0, 0),
-        2: (1, -1),
-        3: (1, 1),
-        4: (2, 0),
-        5: (2, -2),
-        6: (2, 2),
-        7: (3, -1),
-        8: (3, 1),
-        9: (3, -3),
-        10: (3, 3),
-    }
-
-    # For higher indices, compute
-    n = 0
-    idx = 1
-    while idx < noll_index:
-        for m in range(-n, n + 1, 2):
-            if idx == noll_index:
-                return n, m
-            idx += 1
-        n += 1
-
-    return mapping.get(noll_index, (noll_index // 2, noll_index % 2))
-
-
-def _zernike_polynomial(
-    n: int, m: int, rho: np.ndarray, theta: np.ndarray
-) -> np.ndarray:
-    """Generate Zernike polynomial."""
-    if m == 0:
-        if n == 0:
-            return np.ones_like(rho)
-        return 2 * _radial_zernike(n, rho)
-    elif m > 0:
-        return _radial_zernike(n, rho) * np.cos(m * theta)
-    else:
-        return _radial_zernike(n, rho) * np.sin(-m * theta)
-
-
-def _radial_zernike(n: int, rho: np.ndarray) -> np.ndarray:
-    """Radial Zernike polynomial."""
-    m = abs(n)
-    r = np.zeros_like(rho)
-
-    for k in range((m // 2) + 1):
-        numerator = ((-1) ** k) * _factorial(n - k)
-        denominator = (
-            _factorial(k) * _factorial((n + m) // 2 - k) * _factorial((n - m) // 2 - k)
-        )
-        if denominator > 0:
-            coeff = numerator / denominator
-            r += coeff * rho ** (n - 2 * k)
-
-    return r
-
-
-def _factorial(n: int) -> float:
-    """Simple factorial."""
-    if n <= 1:
-        return 1.0
-    result = 1.0
-    for i in range(2, n + 1):
-        result *= i
-    return result
 
 
 def load_zernike_coefficients(csv_path: Path, n_terms: int | None = None) -> np.ndarray:

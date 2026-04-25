@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from ao_shaping.utils.zernike_calc import noll_to_nm
 from scipy.special import factorial
 
 
@@ -90,21 +91,6 @@ def zernike_polynomial(n: int, m: int, rho: np.ndarray, theta: np.ndarray) -> np
         )
         radial += coeff * rho ** (n - 2 * k)
     return radial * angular
-
-
-def noll_to_nm(noll_index: int) -> tuple[int, int]:
-    n = 0
-    m = 0
-    noll = 1
-    while noll < noll_index:
-        m += 1
-        if m > n:
-            n += 1
-            m = -n
-        else:
-            m = -m
-        noll += 1
-    return n, m
 
 
 def generate_zernike_map(noll_index: int, x: np.ndarray, y: np.ndarray) -> np.ndarray:

@@ -3,66 +3,104 @@ from __future__ import annotations
 
 import numpy as np
 
+from ao_shaping.utils.zernike_calc import ZernikeGenerator, nm_to_noll
+
+from aotools.turbulence import PhaseScreenKolmogorov
+from aotools import ft_phase_screen
+
+
 
 class PatternHelper:
     def __init__(self, resolution: tuple[int, int], bits: int = 10) -> None:
         self.resolution = resolution
         self.bits = bits
+        height, width = resolution[1], resolution[0]
+        self._max_val = 2**bits - 1
+        self._height = height
+        self._width = width
 
-    def generate_focus(
-        self, focal_length: float, wavelength: float = 532e-9, pixel_size: float = 8e-6
-    ) -> np.ndarray:
-        """
-        生成聚焦相位图案 (抛物面相位)
+        # Cached coordinate arrays (lazy-computed)
+        self._x: np.ndarray | None = None
+        self._y: np.ndarray | None = None
+        self._xx: np.ndarray | None = None
+        self._yy: np.ndarray | None = None
+        self._R: np.ndarray | None = None
+        self._Theta: np.ndarray | None = None
+        self._mask: np.ndarray | None = None
+        self._pixel_x: np.ndarray | None = None
+        self._pixel_y: np.ndarray | None = None
 
-        参数:
-            focal_length: 焦距 (米)
-            wavelength: 波长 (米), 默认 532nm
-            pixel_size: 像素大小 (米), 默认 8um
+    @property
+    def x(self) -> np.ndarray:
+        """1D x coordinates (centered at 0)."""
+        if self._x is None:
+            self._x = np.arange(self._width, dtype=np.float64) - self._width // 2
+        return self._x
 
-        返回:
-            相位图案 (0~2^Bits-1)
-        """
-        height, width = self.resolution[1], self.resolution[0]
-        max_val = 2**self.bits - 1
+    @property
+    def y(self) -> np.ndarray:
+        """1D y coordinates (centered at 0)."""
+        if self._y is None:
+            self._y = np.arange(self._height, dtype=np.float64) - self._height // 2
+        return self._y
 
-        # 创建坐标网格
-        x = np.arange(width) - width // 2
-        y = np.arange(height) - height // 2
-        X, Y = np.meshgrid(x, y)
+    @property
+    def xx(self) -> np.ndarray:
+        """2D meshgrid x coordinates."""
+        if self._xx is None:
+            self._xx, self._yy = np.meshgrid(self.x, self.y)
+        return self._xx
 
-        # 计算半径 (像素)
-        R2 = X**2 + Y**2
+    @property
+    def yy(self) -> np.ndarray:
+        """2D meshgrid y coordinates."""
+        if self._yy is None:
+            self._xx, self._yy = np.meshgrid(self.x, self.y)
+        return self._yy
 
-        # 抛物面相位: phi = (pi / lambda / f) * r^2
-        # 转换为 SLM 灰度值
-        phase = (np.pi / wavelength / focal_length) * (R2 * pixel_size**2)
+    @property
+    def R(self) -> np.ndarray:
+        """Radial distance from center."""
+        if self._R is None:
+            self._R = np.sqrt(self.xx**2 + self.yy**2)
+        return self._R
 
-        # 包裹到 0~2π 并映射到 0~max_val
-        phase_wrapped = np.mod(phase, 2 * np.pi)
-        img = (phase_wrapped / (2 * np.pi) * max_val).astype(np.uint16)
+    @property
+    def Theta(self) -> np.ndarray:
+        """Azimuthal angle from center."""
+        if self._Theta is None:
+            self._Theta = np.arctan2(self.yy, self.xx)
+        return self._Theta
 
-        return img
+    @property
+    def mask(self) -> np.ndarray:
+        """Circular pupil mask (R <= 1.0)."""
+        if self._mask is None:
+            radius = min(self._height, self._width) / 2
+            self._mask = (self.R <= radius).astype(np.float64)
+        return self._mask
+
+    @property
+    def pixel_x(self) -> np.ndarray:
+        """Pixel x coordinates (centered at 0, in pixel units)."""
+        if self._pixel_x is None:
+            self._pixel_x = np.arange(self._width, dtype=np.float64) - self._width / 2
+        return self._pixel_x
+
+    @property
+    def pixel_y(self) -> np.ndarray:
+        """Pixel y coordinates (centered at 0, in pixel units)."""
+        if self._pixel_y is None:
+            self._pixel_y = np.arange(self._height, dtype=np.float64) - self._height / 2
+        return self._pixel_y
 
     def generate_checkerboard(self, period: int = 100) -> np.ndarray:
-        """
-        生成棋盘格相位图案
+        max_val = self._max_val
 
-        参数:
-            period: 棋盘格周期 (像素)
-
-        返回:
-            相位图案 (0 或 max_val)
-        """
-        height, width = self.resolution[1], self.resolution[0]
-        max_val = 2**self.bits - 1
-
-        # 创建棋盘格
-        y = np.arange(height) // period
-        x = np.arange(width) // period
+        y = np.arange(self._height) // period
+        x = np.arange(self._width) // period
         X, Y = np.meshgrid(x, y)
 
-        # 黑白交替
         checker = (X + Y) % 2
         img = (checker * max_val).astype(np.uint16)
 
@@ -71,27 +109,14 @@ class PatternHelper:
     def generate_binary_grating(
         self, a: int = 2, b: int = 3, direction: str = "horizontal"
     ) -> np.ndarray:
-        """
-        生成 01 光栅 (二元光栅)
-
-        参数:
-            a: 亮条纹宽度 (像素)
-            b: 暗条纹宽度 (像素)
-            direction: 'horizontal' 或 'vertical'
-
-        返回:
-            相位图案 (0 或 max_val//2， pi)
-        """
-        height, width = self.resolution[1], self.resolution[0]
+        height, width = self._height, self._width
         max_val = (2**self.bits - 1) // 2
 
         if direction == "horizontal":
-            # 水平光栅
             y = np.arange(height)
             grating = np.where(y % (a + b) < b, 0, max_val)
             img = np.tile(grating[:, np.newaxis], (1, width))
         else:
-            # 垂直光栅
             x = np.arange(width)
             grating = np.where(x % (a + b) < b, 0, max_val)
             img = np.tile(grating[np.newaxis, :], (height, 1))
@@ -105,40 +130,24 @@ class PatternHelper:
         wavelength: float = 532e-9,
         pixel_size: float = 8e-6,
     ) -> np.ndarray:
-        """
-        生成微透镜阵列相位图案
+        height, width = self._height, self._width
+        max_val = self._max_val
 
-        参数:
-            lens_size: 单个微透镜的大小 (像素)
-            focal_length: 焦距 (米)
-            wavelength: 波长 (米)
-            pixel_size: 像素大小 (米)
-
-        返回:
-            相位图案
-        """
-        height, width = self.resolution[1], self.resolution[0]
-        max_val = 2**self.bits - 1
-
-        # 创建单个透镜的相位图案 (使用精确薄透镜公式)
         x = (np.arange(lens_size, dtype=np.float64) - lens_size / 2) * pixel_size
         y = (np.arange(lens_size, dtype=np.float64) - lens_size / 2) * pixel_size
         X, Y = np.meshgrid(x, y)
         r2 = X**2 + Y**2
 
-        # 精确薄透镜相位: φ = k * (f - √(r² + f²))
         k = 2 * np.pi / wavelength
         phase = k * (focal_length - np.sqrt(r2 + focal_length**2))
         phase_wrapped = np.mod(phase, 2 * np.pi)
         lens_pattern = (phase_wrapped / (2 * np.pi) * max_val).astype(np.uint16)
 
-        # 平铺成阵列
         n_y = height // lens_size + 1
         n_x = width // lens_size + 1
 
         array = np.tile(lens_pattern, (n_y, n_x))
 
-        # 裁剪到目标大小
         img = array[:height, :width]
 
         return img
@@ -149,273 +158,224 @@ class PatternHelper:
         L: float = 1000,
         wavelength: float = 532e-9,
         pixel_size: float = 8e-6,
-        screen_size: float = None,
+        screen_size: float | None = None,
+        L0: float | None = None,
+        l0: float | None = None,
+        random_seed: int | None = None,
+        method: str = "kolmogorov",
     ) -> np.ndarray:
-        """
-        生成大气湍流相位屏 (基于 Kolmogorov 谱)
+        """Generate turbulence phase screen.
 
-        参数:
-            Cn2: 折射率结构常数 (m^(-2/3))
-            L: 传输距离 (米)
-            wavelength: 波长 (米)
-            pixel_size: 像素大小 (米)
-            screen_size: 屏的物理大小 (米), 默认根据分辨率计算
+        Args:
+            Cn2: Refractive index structure constant (m^(2/3)).
+                Default 1e-14 corresponds to weak turbulence.
+            L: Propagation path length in meters.
+            wavelength: Wavelength in meters.
+            pixel_size: Pixel size in meters.
+            screen_size: Physical size of the screen in meters.
+                Defaults to max(height, width) * pixel_size.
+            L0: Outer scale in meters. Defaults to 10 * screen_size.
+            l0: Inner scale in meters. Defaults to pixel_size * 2.
+            random_seed: Random seed for reproducibility.
+                Only used when method='kolmogorov'.
+            method: 'kolmogorov' (PhaseScreenKolmogorov) or 'vankarman' (ft_phase_screen).
+                Defaults to 'kolmogorov'.
 
-        返回:
-            相位图案
+        Returns:
+            Turbulence phase screen in radians (normalized to [0, 2π)).
         """
-        height, width = self.resolution[1], self.resolution[0]
-        max_val = 2**self.bits - 1
+        height, width = self._height, self._width
+        max_val = self._max_val
 
         if screen_size is None:
             screen_size = max(height, width) * pixel_size
 
-        # 创建频率网格
-        kx = 2 * np.pi * np.fft.fftfreq(width, pixel_size)
-        ky = 2 * np.pi * np.fft.fftfreq(height, pixel_size)
-        KX, KY = np.meshgrid(kx, ky)
-        K = np.sqrt(KX**2 + KY**2)
-        K[0, 0] = 1e-10  # 避免除以零
+        if L0 is None:
+            L0 = 10 * screen_size
+        if l0 is None:
+            l0 = pixel_size * 2
 
-        # Kolmogorov 谱: Phi(k) = 0.033 * Cn2 * k^(-11/3)
-        # 相位屏功率谱: W_phi(k) = 2 * pi * k^2 * L * Phi(k)
-        power_spectrum = 2 * np.pi * K**2 * L * 0.033 * Cn2 * K ** (-11 / 3)
 
-        # 生成随机相位
-        random_phase = np.random.randn(height, width) + 1j * np.random.randn(
-            height, width
+        # Compute Fried parameter r0 from Cn2
+        r0 = (wavelength**2 / (Cn2 * L * 0.033 * (2 * np.pi) ** 2)) ** (3 / 5)
+
+        try:
+            if method == "kolmogorov":
+                # Use PhaseScreenKolmogorov for Kolmogorov turbulence
+                screen = PhaseScreenKolmogorov(
+                    nx_size=height,
+                    pixel_scale=pixel_size,
+                    r0=r0,
+                    L0=L0,
+                    random_seed=random_seed,
+                )
+                phase_screen = screen.scrn
+            else:
+                # Fallback to ft_phase_screen for Von Karman
+                screen = ft_phase_screen(r0, height, pixel_size, L0, l0)
+                phase_screen = screen[:height, :width]
+        except np.linalg.LinAlgError:
+            # PhaseScreenKolmogorov can fail for certain L0/pixel_scale combinations
+            # Fall back to ft_phase_screen
+            screen = ft_phase_screen(r0, height, pixel_size, L0, l0)
+            phase_screen = screen[:height, :width]
+
+        # Normalize to [0, 2π) and convert to uint16
+        phase_min = phase_screen.min()
+        phase_max = phase_screen.max()
+        phase_normalized = (
+            (phase_screen - phase_min)
+            / (phase_max - phase_min + 1e-10)
+            * 2 * np.pi
         )
 
-        # 在频域应用功率谱
-        screen_fft = np.sqrt(power_spectrum) * random_phase
-
-        # 逆 FFT 得到相位屏
-        phase_screen = np.real(np.fft.ifft2(screen_fft))
-
-        # 归一化并映射到 0~max_val
-        phase_screen = (
-            (phase_screen - phase_screen.min())
-            / (phase_screen.max() - phase_screen.min())
-            * max_val
-        )
-
-        return phase_screen.astype(np.uint16)
+        img = (phase_normalized / (2 * np.pi) * max_val).astype(np.uint16)
+        return img
 
     def generate_zernike(
-        self, n: int, m: int, amplitude: float = 1.0, radius: float = None
+        self,
+        n: int,
+        m: int,
+        amplitude: float = 1.0,
+        radius: float | None = None,
     ) -> np.ndarray:
+        """Generate single Zernike mode phase pattern.
+
+        Args:
+            n: Zernike radial order.
+            m: Zernike azimuthal frequency.
+            amplitude: Zernike coefficient amplitude.
+            radius: Pupil radius in pixels. Defaults to half of min dimension.
+
+        Returns:
+            Phase pattern as uint16 (0 to 2^bits-1).
         """
-        生成 Zernike 多项式相位图案
-
-        参数:
-            n: 径向阶数
-            m: 角向阶数
-            amplitude: 振幅 (单位: 波长)
-            radius: 圆形孔径半径 (像素), 默认为短边的一半
-
-        返回:
-            相位图案
-        """
-        height, width = self.resolution[1], self.resolution[0]
-        max_val = 2**self.bits - 1
-
-        if radius is None:
-            radius = min(height, width) // 2
-
-        # 创建归一化坐标
-        x = (np.arange(width) - width // 2) / radius
-        y = (np.arange(height) - height // 2) / radius
-        X, Y = np.meshgrid(x, y)
-
-        # 转换为极坐标
-        R = np.sqrt(X**2 + Y**2)
-        Theta = np.arctan2(Y, X)
-
-        # 只在圆内计算
-        mask = R <= 1.0
-
-        # 计算 Zernike 多项式
-        from scipy.special import factorial
-
-        def zernike_radial(n, m, r):
-            """Zernike 径向多项式"""
-            R = np.zeros_like(r)
-            for k in range((n - abs(m)) // 2 + 1):
-                coef = ((-1) ** k * factorial(n - k)) / (
-                    factorial(k)
-                    * factorial((n + abs(m)) // 2 - k)
-                    * factorial((n - abs(m)) // 2 - k)
-                )
-                R += coef * r ** (n - 2 * k)
-            return R
-
-        # 计算 Zernike 多项式
-        if m >= 0:
-            Z = zernike_radial(n, m, R) * np.cos(m * Theta)
-        else:
-            Z = zernike_radial(n, -m, R) * np.sin(-m * Theta)
-
-        # 应用圆形孔径
-        Z = Z * mask
-
-        # 转换为相位 (单位: 2π)
-        phase = Z * amplitude * 2 * np.pi
-
-        # 包裹并映射到 0~max_val
-        phase_wrapped = np.mod(phase, 2 * np.pi)
-        img = (phase_wrapped / (2 * np.pi) * max_val).astype(np.uint16)
-
-        return img
+        gen = ZernikeGenerator(resolution=(self._height, self._width), radius=radius)
+        gen.set_bits(self.bits)
+        # generate() internally needs bases cached; precompute up to needed Noll index
+        j = nm_to_noll(n, m)
+        gen.precompute_bases(j)
+        return gen.generate(n, m, amplitude)
 
     def generate_zernike_polynomial(
         self,
-        n_max: int = 4,
         coefficients: dict[tuple[int, int], float] | None = None,
-        radius: float = None,
+        radius: float | None = None,
     ) -> np.ndarray:
+        """Generate multi-mode Zernike polynomial phase pattern.
+
+        Args:
+            n_max: Maximum radial order. Used to precompute Zernike bases.
+            coefficients: Dict of {(n, m): amplitude}. Defaults to piston only.
+            radius: Pupil radius in pixels. Defaults to half of min dimension.
+
+        Returns:
+            Phase pattern as uint16 (0 to 2^bits-1).
         """
-        生成多阶 Zernike 多项式叠加相位图案
+        gen = ZernikeGenerator(resolution=(self._height, self._width), radius=radius)
+        gen.set_bits(self.bits)
 
-        参数:
-            n_max: 最大径向阶数
-            coefficients: {(n, m): amplitude} 字典，例如 {(0,0): 1.0, (1,-1): 0.5}
-            radius: 圆形孔径半径 (像素), 默认为短边的一半
-
-        返回:
-            相位图案
-        """
-        height, width = self.resolution[1], self.resolution[0]
-        max_val = 2**self.bits - 1
-
-        if radius is None:
-            radius = min(height, width) // 2
-
-        # 创建归一化坐标
-        x = (np.arange(width, dtype=np.float64) - width / 2) / radius
-        y = (np.arange(height, dtype=np.float64) - height / 2) / radius
-        X, Y = np.meshgrid(x, y)
-
-        # 转换为极坐标
-        R = np.sqrt(X**2 + Y**2)
-        Theta = np.arctan2(Y, X)
-
-        # 只在圆内计算
-        mask = R <= 1.0
-
-        # 计算 Zernike 多项式
-        from scipy.special import factorial
-
-        def zernike_radial(n, m, r):
-            """Zernike 径向多项式"""
-            R = np.zeros_like(r)
-            for k in range((n - abs(m)) // 2 + 1):
-                coef = ((-1) ** k * factorial(n - k)) / (
-                    factorial(k)
-                    * factorial((n + abs(m)) // 2 - k)
-                    * factorial((n - abs(m)) // 2 - k)
-                )
-                R += coef * r ** (n - 2 * k)
-            return R
-
-        # 默认系数：前n_max阶都为0，除了 piston (0,0) 为1
         if coefficients is None:
             coefficients = {}
-            for n in range(n_max + 1):
-                for m in range(-n, n + 1):
-                    if (n - abs(m)) % 2 == 0:
-                        if n == 0 and m == 0:
-                            coefficients[(n, m)] = 1.0  # piston
-                        else:
-                            coefficients[(n, m)] = 0.0
+        max_noll = max(nm_to_noll(n, m) for (n, m) in coefficients) if coefficients else 1
+        n_terms = max_noll
+        gen.precompute_bases(n_terms)
 
-        # 叠加各阶 Zernike
-        phase_total = np.zeros_like(R)
+        if not coefficients:
+            return np.zeros((self._height, self._width), dtype=np.uint16)
 
-        for (n, m), amp in coefficients.items():
-            if abs(amp) < 1e-10:  # 跳过零系数
-                continue
+        return gen.generate_polynomial(coefficients)
 
-            if m >= 0:
-                Z = zernike_radial(n, m, R) * np.cos(m * Theta)
-            else:
-                Z = zernike_radial(n, -m, R) * np.sin(-m * Theta)
+    def to_uint16(self, phase_radians: np.ndarray) -> np.ndarray:
+        """Convert phase in radians to uint16 for SLM display.
 
-            # 应用圆形孔径
-            Z = Z * mask
+        Args:
+            phase_radians: Phase array in radians (0 to phase_range)
 
-            # 转换为相位 (单位: 2π) 并叠加
-            phase_total += Z * amp * 2 * np.pi
-
-        # 包裹并映射到 0~max_val
-        phase_wrapped = np.mod(phase_total, 2 * np.pi)
-        img = (phase_wrapped / (2 * np.pi) * max_val).astype(np.uint16)
-
+        Returns:
+            Phase array in uint16 format (0 to 2^bits - 1)
+        """
+        phase_wrapped = np.mod(phase_radians, 2 * np.pi)
+        img = (phase_wrapped / (2 * np.pi) * self._max_val).astype(np.uint16)
         return img
 
+    def generate_focus(
+        self,
+        focal_length: float,
+        wavelength: float = 532e-9,
+        pixel_size: float = 8e-6,
+        wrap_phase: bool = True,
+    ) -> np.ndarray:
+        """Generate focus pattern (lens phase)."""
+        max_val = self._max_val
+        R2 = self.xx**2 + self.yy**2
+        phase = (np.pi / wavelength / focal_length) * (R2 * pixel_size**2)
 
-class SLMPatternHelper:
-    """Generate phase patterns in radians for Streamlit SLM helpers."""
+        if not wrap_phase:
+            return phase
+
+        phase_wrapped = np.mod(phase, 2 * np.pi)
+        img = (phase_wrapped / (2 * np.pi) * max_val).astype(np.uint16)
+        return img
 
     def linear_grating(
         self,
-        width: int,
-        height: int,
         period: float,
         phase_range: float = 2 * np.pi,
+        wrap_phase: bool = True,
     ) -> np.ndarray:
-        """Generate a horizontal linear grating."""
-        x = np.arange(width, dtype=np.float64)
-        phase_line = np.mod(x / period * phase_range, phase_range)
-        return np.tile(phase_line, (height, 1))
+        """Generate linear (blazed) grating pattern."""
+        max_val = self._max_val
+        phase = (self.xx / period) * phase_range
+
+        if not wrap_phase:
+            return np.mod(phase, phase_range)
+
+        phase_wrapped = np.mod(phase, phase_range)
+        img = (phase_wrapped / phase_range * max_val).astype(np.uint16)
+        return img
 
     def circular_grating(
         self,
-        width: int,
-        height: int,
         radius: float,
         phase_range: float = 2 * np.pi,
+        wrap_phase: bool = True,
     ) -> np.ndarray:
-        """Generate a radial circular grating."""
-        x = np.arange(width, dtype=np.float64) - width / 2
-        y = np.arange(height, dtype=np.float64) - height / 2
-        xx, yy = np.meshgrid(x, y)
-        rr = np.sqrt(xx**2 + yy**2)
-        return np.mod(rr / radius * phase_range, phase_range)
+        """Generate circular (radial) grating pattern."""
+        max_val = self._max_val
+        rr = np.sqrt(self.xx**2 + self.yy**2)
+        phase = (rr / radius) * phase_range
+
+        if not wrap_phase:
+            return np.mod(phase, phase_range)
+
+        phase_wrapped = np.mod(phase, phase_range)
+        img = (phase_wrapped / phase_range * max_val).astype(np.uint16)
+        return img
 
     def lens(
         self,
-        width: int,
-        height: int,
         focal_length: float,
-        wavelength: float,
-        pixel_size: float,
+        wavelength: float = 532e-9,
+        pixel_size: float = 8e-6,
     ) -> np.ndarray:
-        """Generate a wrapped thin-lens phase profile.
-
-        All parameters in meters:
-            focal_length: focal length (m)
-            wavelength: wavelength (m)
-            pixel_size: pixel size (m)
-        """
-        x = (np.arange(width, dtype=np.float64) - width / 2) * pixel_size
-        y = (np.arange(height, dtype=np.float64) - height / 2) * pixel_size
-        xx, yy = np.meshgrid(x, y)
+        """Generate lens (focus) phase pattern."""
+        xx = self.pixel_x * pixel_size
+        yy = self.pixel_y * pixel_size
+        xx, yy = np.meshgrid(xx, yy)
         r2 = xx**2 + yy**2
         k = 2 * np.pi / wavelength
         phase = k * (focal_length - np.sqrt(r2 + focal_length**2))
         return np.mod(phase, 2 * np.pi)
 
-    def hologram(
-        self,
-        width: int,
-        height: int,
-        period: float,
-        phase_range: float = 2 * np.pi,
-    ) -> np.ndarray:
-        """Generate a simple blazed grating hologram."""
-        return self.linear_grating(
-            width=width,
-            height=height,
-            period=period,
-            phase_range=phase_range,
-        )
+    def hologram(self, period: float, phase_range: float = 2 * np.pi) -> np.ndarray:
+        """Generate hologram (alias for linear_grating).
+
+        Args:
+            period: Grating period in pixels
+            phase_range: Maximum phase range in radians (default 2π)
+
+        Returns:
+            Phase pattern in radians (0 to phase_range), wrapped
+        """
+        return self.linear_grating(period=period, phase_range=phase_range, wrap_phase=False)

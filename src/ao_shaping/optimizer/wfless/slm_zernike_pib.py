@@ -42,6 +42,7 @@ from ao_shaping.utils import logger, Recorder
 from ao_shaping.utils.file import gen_date_dir, gen_date_str
 from ao_shaping.utils.spots_calc import centroid, radius
 from ao_shaping.algorithm.target_func import ImageTargetFunc
+from ao_shaping.utils.zernike_calc import calc_n_zernike_terms, noll_to_nm
 
 # adam parameters
 beta1 = 0.9
@@ -73,26 +74,20 @@ OPTIMIZER_MAP = {
 }
 
 
-def _count_zernike_modes(n_max: int) -> int:
-    """Count the number of valid Zernike modes for a given maximum radial order.
-
-    Valid modes satisfy: 0 <= n <= n_max, -n <= m <= n, (n - |m|) % 2 == 0.
-    """
-    count = 0
-    for n in range(n_max + 1):
-        for m in range(-n, n + 1):
-            if (n - abs(m)) % 2 == 0:
-                count += 1
-    return count
+from ao_shaping.utils.zernike_calc import calc_n_zernike_terms, noll_to_nm
 
 
 def _zernike_indices(n_max: int) -> list[tuple[int, int]]:
-    """Return list of (n, m) pairs for all valid Zernike modes up to n_max."""
+    """Return list of (n, m) pairs for all valid Zernike modes up to n_max.
+    
+    Uses noll_to_nm from zernike_calc for correctness.
+    """
+    n_terms = calc_n_zernike_terms(n_max)
     modes = []
-    for n in range(n_max + 1):
-        for m in range(-n, n + 1):
-            if (n - abs(m)) % 2 == 0:
-                modes.append((n, m))
+    for j in range(1, n_terms + 1):
+        n, m = noll_to_nm(j)
+        if n <= n_max:
+            modes.append((n, m))
     return modes
 
 
@@ -311,7 +306,7 @@ def optimize_slm_zernike_pib(
     _max_history_len = 50
 
     # Zernike mode count and index mapping
-    nk = _count_zernike_modes(n_max)
+    nk = calc_n_zernike_terms(n_max)
     zernike_modes = _zernike_indices(n_max)
 
     # SLM pattern helper

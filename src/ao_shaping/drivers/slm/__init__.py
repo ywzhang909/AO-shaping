@@ -33,8 +33,16 @@ Calibration Example:
 """
 
 from .santec_slm200 import SantecSLM200, SantecSLM200Error
+from .zernike_slm import ZernikeSLM, ZernikeSLMError
+from .slm_pattern_helper import PatternHelper
 
-__all__ = ["SantecSLM200", "SantecSLM200Error"]
+__all__ = [
+    "PatternHelper",
+    "SantecSLM200",
+    "SantecSLM200Error",
+    "ZernikeSLM",
+    "ZernikeSLMError",
+]
 
 # 可选导入 PyVISA 兼容类
 try:
@@ -53,9 +61,9 @@ from .slm_calibration import (
     calibrate_santec_slm200,
 )
 __all__ += [
-    "SLMCalibratorBase",
-    "SantecSLM200Calibrator", 
     "CalibrationResult",
-    "plot_calibration_result",
+    "SLMCalibratorBase",
+    "SantecSLM200Calibrator",
     "calibrate_santec_slm200",
+    "plot_calibration_result",
 ]

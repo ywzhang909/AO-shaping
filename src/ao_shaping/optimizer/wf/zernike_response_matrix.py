@@ -1,0 +1,505 @@
+"""Zernike响应矩阵校准模块
+
+使用ZernikeSLM逐一加载各阶Zernike相位，测量对应的Thorlab WFS Zernike系数，
+建立SLM Zernike命令到WFS响应的响应矩阵。
+
+支持:
+- N次正负交替循环测量
+- M次WFS读取取平均
+- 方差计算作为稳定性指标
+- SVD伪逆和最小二乘逆计算
+- 可视化报告生成
+
+Example:
+    >>> from ao_shaping.optimizer.wf.zernike_response_matrix import calibrate_zernike_response_matrix
+    >>> from ao_shaping.drivers.slm import ZernikeSLM
+    >>> from ao_shaping.drivers.wfs import ThorlabWFS
+    >>>
+    >>> with ZernikeSLM(slm_number=1, wavelength=1064, n_max=10) as zslm:
+    ...     with ThorlabWFS() as wfs:
+    ...         result = calibrate_zernike_response_matrix(zslm, wfs, n_max=10, n_cycles=3, n_averages=5)
+    ...         print(f"Matrix shape: {result.matrix.shape}")
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from dataclasses import dataclass, asdict
+from datetime import datetime
+from pathlib import Path
+from typing import TYPE_CHECKING, Union
+
+import numpy as np
+from loguru import logger
+from tqdm import tqdm
+
+if TYPE_CHECKING:
+    from ao_shaping.drivers.slm.zernike_slm import ZernikeSLM
+    from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager
+
+
+# 默认参数
+DEFAULT_N_MAX = 10
+DEFAULT_MAGNITUDE = 0.5  # 波长单位
+DEFAULT_N_AVERAGES = 3  # 每次WFS读取次数
+DEFAULT_N_CYCLES = 1  # 正负交替循环次数
+DEFAULT_WAIT_TIME = 0.1  # 秒
+
+# Re-export from utils for public API compatibility
+from ao_shaping.utils.matrix_utils import (
+    calc_n_zernike_terms,
+    compute_lstsq,
+    compute_pinv,
+    index_to_noll,
+    noll_to_index,
+)
+
+
+@dataclass
+class ZernikeResponseMatrixResult:
+    """Zernike响应矩阵校准结果"""
+
+    matrix: np.ndarray  # 响应矩阵 (n_wfs_terms, n_slm_terms)
+    variance_matrix: np.ndarray  # 方差矩阵 (n_wfs_terms, n_slm_terms)
+    n_max: int  # Zernike最大阶数
+    magnitude: float  # 校准时使用的幅度 (波长)
+    wavelength_nm: int  # 工作波长 (nm)
+    n_averages: int  # 每次WFS读取次数 (M)
+    n_cycles: int  # 正负交替循环次数 (N)
+    timestamp: str  # 时间戳
+    excluded_piston: bool = True  # 是否排除piston
+
+    # 可选的逆矩阵
+    pinv_matrix: np.ndarray | None = None
+    lstsq_matrix: np.ndarray | None = None
+
+    @property
+    def n_wfs_terms(self) -> int:
+        return self.matrix.shape[0]
+
+    @property
+    def n_slm_terms(self) -> int:
+        return self.matrix.shape[1]
+
+    @property
+    def slm_noll_terms(self) -> int:
+        """SLM侧包含的Noll项数 (排除piston)"""
+        return calc_n_zernike_terms(self.n_max) - 1 if self.excluded_piston else calc_n_zernike_terms(self.n_max)
+
+    @property
+    def mean_variance(self) -> float:
+        """平均方差"""
+        return float(np.mean(self.variance_matrix))
+
+    @property
+    def max_variance(self) -> float:
+        """最大方差"""
+        return float(np.max(self.variance_matrix))
+
+    @property
+    def condition_number(self) -> float | None:
+        """矩阵条件数 (如果已计算逆矩阵)"""
+        if self.pinv_matrix is not None:
+            return float(np.linalg.cond(self.matrix))
+        return None
+
+    def to_dict(self) -> dict:
+        """转换为字典用于JSON序列化"""
+        d = asdict(self)
+        d["matrix"] = self.matrix.tolist()
+        d["variance_matrix"] = self.variance_matrix.tolist()
+        if self.pinv_matrix is not None:
+            d["pinv_matrix"] = self.pinv_matrix.tolist()
+        if self.lstsq_matrix is not None:
+            d["lstsq_matrix"] = self.lstsq_matrix.tolist()
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ZernikeResponseMatrixResult":
+        """从字典加载"""
+        d = d.copy()
+        d["matrix"] = np.array(d["matrix"])
+        d["variance_matrix"] = np.array(d["variance_matrix"])
+        if "pinv_matrix" in d and d["pinv_matrix"] is not None:
+            d["pinv_matrix"] = np.array(d["pinv_matrix"])
+        else:
+            d["pinv_matrix"] = None
+        if "lstsq_matrix" in d and d["lstsq_matrix"] is not None:
+            d["lstsq_matrix"] = np.array(d["lstsq_matrix"])
+        else:
+            d["lstsq_matrix"] = None
+        return cls(**d)
+
+
+def set_slm_flat(slm) -> None:
+    """设置SLM为平相位"""
+    zero_phase = np.zeros((slm.Panel_Res[1], slm.Panel_Res[0]), dtype=np.uint16)
+    slm.display_data(zero_phase)
+
+
+def measure_zernike_mode_response(
+    zslm: "ZernikeSLM",
+    wfs: "WFSManager",
+    mode_index: int,
+    magnitude: float = DEFAULT_MAGNITUDE,
+    n_averages: int = DEFAULT_N_AVERAGES,
+    n_cycles: int = DEFAULT_N_CYCLES,
+    wait_time: float = DEFAULT_WAIT_TIME,
+) -> tuple[np.ndarray, np.ndarray]:
+    """测量单个Zernike模式的响应 (多次循环)
+
+    使用正负扰动测量N次循环，以消除偏置和系统误差:
+    response = (response_plus - response_minus) / (2 * magnitude)
+
+    Args:
+        zslm: ZernikeSLM实例
+        wfs: Thorlab WFS实例
+        mode_index: 模式索引 (0-based，对应Noll 2开始，跳过piston)
+        magnitude: 扰动幅度 (波长)
+        n_averages: 每次WFS读取次数 (M)
+        n_cycles: 正负交替循环次数 (N)
+        wait_time: 等待时间 (秒)
+
+    Returns:
+        (mean_response, variance_response): 平均响应向量和方差向量，shape为 (n_wfs_terms,)
+    """
+    n_wfs_terms = calc_n_zernike_terms(10)  # WFS使用固定n_max=10
+
+    def measure_once(coefficient: float) -> np.ndarray:
+        """单次测量 (M次WFS读取取平均)"""
+        coeffs = np.zeros(calc_n_zernike_terms(10), dtype=np.float64)
+        coeffs[mode_index + 1] = coefficient  # +1 跳过piston (Noll index 1)
+
+        zslm.send_zernike(coeffs, display=True)
+        time.sleep(wait_time)
+
+        responses = []
+        for _ in range(n_averages):
+            zernike_coeffs = wfs.get_zernike(zernike_order=10)
+            responses.append(zernike_coeffs)
+
+        return np.mean(responses, axis=0)
+
+    # N次正负交替循环测量
+    all_responses = []
+
+    for cycle in range(n_cycles):
+        # 正向扰动
+        response_plus = measure_once(+magnitude)
+        set_slm_flat(zslm._slm)
+        time.sleep(wait_time)
+
+        # 负向扰动
+        response_minus = measure_once(-magnitude)
+        set_slm_flat(zslm._slm)
+        time.sleep(wait_time)
+
+        # 计算本次循环的响应 (去除piston)
+        response = (response_plus - response_minus) / (2 * magnitude)
+        all_responses.append(response[1:])  # 去除piston
+
+    # 堆叠所有循环结果
+    all_responses = np.array(all_responses)  # shape: (n_cycles, n_wfs_terms-1)
+
+    # 计算平均值和方差
+    mean_response = np.mean(all_responses, axis=0)
+    variance_response = np.var(all_responses, axis=0)
+
+    return mean_response, variance_response
+
+
+# Re-export from matrix_utils for public API compatibility
+from ao_shaping.utils.matrix_utils import compute_pinv, compute_lstsq
+
+
+def calibrate_zernike_response_matrix(
+    zslm: "ZernikeSLM",
+    wfs: "WFSManager",
+    n_max: int = DEFAULT_N_MAX,
+    magnitude: float = DEFAULT_MAGNITUDE,
+    n_cycles: int = DEFAULT_N_CYCLES,
+    n_averages: int = DEFAULT_N_AVERAGES,
+    wait_time: float = DEFAULT_WAIT_TIME,
+    excluded_piston: bool = True,
+    compute_inverses: bool = True,
+    verbose: bool = True,
+) -> ZernikeResponseMatrixResult:
+    """校准Zernike响应矩阵 (增强版)
+
+    逐一加载各阶Zernike模式，测量对应的WFS响应，构建响应矩阵。
+
+    Args:
+        zslm: ZernikeSLM实例
+        wfs: Thorlab WFS实例
+        n_max: Zernike最大阶数
+        magnitude: 每个模式的扰动幅度 (波长)
+        n_cycles: 正负交替循环次数 (N)
+        n_averages: 每次WFS读取次数 (M)
+        wait_time: 每次施加相位后的等待时间 (秒)
+        excluded_piston: 是否排除piston (Z1)
+        compute_inverses: 是否计算逆矩阵
+        verbose: 是否显示进度条
+
+    Returns:
+        ZernikeResponseMatrixResult对象，包含响应矩阵、方差和逆矩阵
+    """
+    n_slm_terms = calc_n_zernike_terms(n_max) - (1 if excluded_piston else 0)
+    n_wfs_terms = calc_n_zernike_terms(10) - 1  # WFS返回67项，去除piston得66项
+
+    logger.info(
+        f"开始Zernike响应矩阵校准: n_max={n_max}, "
+        f"SLM terms={n_slm_terms}, WFS terms={n_wfs_terms}, "
+        f"magnitude={magnitude}λ, cycles={n_cycles}, averages={n_averages}"
+    )
+
+    response_matrix = np.zeros((n_wfs_terms, n_slm_terms), dtype=np.float64)
+    variance_matrix = np.zeros((n_wfs_terms, n_slm_terms), dtype=np.float64)
+
+    set_slm_flat(zslm._slm)
+    time.sleep(wait_time * 2)
+
+    mode_indices = range(n_slm_terms)
+    if verbose:
+        mode_indices = tqdm(mode_indices, desc="校准进度")
+
+    for i in mode_indices:
+        mean_resp, var_resp = measure_zernike_mode_response(
+            zslm=zslm,
+            wfs=wfs,
+            mode_index=i,
+            magnitude=magnitude,
+            n_averages=n_averages,
+            n_cycles=n_cycles,
+            wait_time=wait_time,
+        )
+        response_matrix[:, i] = mean_resp
+        variance_matrix[:, i] = var_resp
+
+    set_slm_flat(zslm._slm)
+
+    # 计算逆矩阵 (可选)
+    pinv_matrix = None
+    lstsq_matrix = None
+
+    if compute_inverses:
+        logger.info("计算SVD伪逆矩阵...")
+        pinv_matrix = compute_pinv(response_matrix)
+
+        logger.info("计算最小二乘逆矩阵...")
+        lstsq_matrix = compute_lstsq(response_matrix)
+
+    result = ZernikeResponseMatrixResult(
+        matrix=response_matrix,
+        variance_matrix=variance_matrix,
+        n_max=n_max,
+        magnitude=magnitude,
+        wavelength_nm=zslm.wavelength,
+        n_averages=n_averages,
+        n_cycles=n_cycles,
+        timestamp=datetime.now().isoformat(),
+        excluded_piston=excluded_piston,
+        pinv_matrix=pinv_matrix,
+        lstsq_matrix=lstsq_matrix,
+    )
+
+    logger.info(
+        f"校准完成: matrix shape={result.matrix.shape}, "
+        f"mean_variance={result.mean_variance:.6f}, "
+        f"max_variance={result.max_variance:.6f}, "
+        f"timestamp={result.timestamp}"
+    )
+
+    return result
+
+
+def save_zernike_response_matrix(
+    result: ZernikeResponseMatrixResult,
+    path: str | Path,
+    include_inverses: bool = True,
+) -> None:
+    """保存响应矩阵到文件 (增强版)
+
+    Args:
+        result: 校准结果
+        path: 保存路径 (不含扩展名)
+        include_inverses: 是否包含逆矩阵
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # 保存响应矩阵
+    np.save(path.with_suffix(".response.npy"), result.matrix)
+
+    # 保存方差矩阵
+    np.save(path.with_suffix(".variance.npy"), result.variance_matrix)
+
+    # 保存逆矩阵 (可选)
+    if include_inverses and result.pinv_matrix is not None:
+        np.save(path.with_suffix(".pinv.npy"), result.pinv_matrix)
+
+    if include_inverses and result.lstsq_matrix is not None:
+        np.save(path.with_suffix(".lstsq.npy"), result.lstsq_matrix)
+
+    # 保存元数据
+    metadata = {
+        "n_max": result.n_max,
+        "magnitude": result.magnitude,
+        "wavelength_nm": result.wavelength_nm,
+        "n_averages": result.n_averages,
+        "n_cycles": result.n_cycles,
+        "timestamp": result.timestamp,
+        "excluded_piston": result.excluded_piston,
+        "matrix_shape": result.matrix.shape,
+        "variance_shape": result.variance_matrix.shape,
+        "mean_variance": result.mean_variance,
+        "max_variance": result.max_variance,
+        "condition_number": result.condition_number,
+        "has_pinv": result.pinv_matrix is not None,
+        "has_lstsq": result.lstsq_matrix is not None,
+    }
+
+    with open(path.with_suffix(".json"), "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2, ensure_ascii=False)
+
+    logger.info(f"响应矩阵已保存到: {path.parent}")
+
+
+def load_zernike_response_matrix(path: str | Path) -> ZernikeResponseMatrixResult:
+    """从文件加载响应矩阵 (增强版)
+
+    Args:
+        path: 文件路径 (不含扩展名)
+
+    Returns:
+        校准结果
+    """
+    path = Path(path)
+
+    # 加载响应矩阵
+    matrix = np.load(path.with_suffix(".response.npy"))
+
+    # 加载方差矩阵
+    variance_matrix = np.load(path.with_suffix(".variance.npy"))
+
+    # 加载逆矩阵 (如果存在)
+    pinv_path = path.with_suffix(".pinv.npy")
+    pinv_matrix = np.load(pinv_path) if pinv_path.exists() else None
+
+    lstsq_path = path.with_suffix(".lstsq.npy")
+    lstsq_matrix = np.load(lstsq_path) if lstsq_path.exists() else None
+
+    # 加载元数据
+    with open(path.with_suffix(".json"), encoding="utf-8") as f:
+        metadata = json.load(f)
+
+    return ZernikeResponseMatrixResult(
+        matrix=matrix,
+        variance_matrix=variance_matrix,
+        n_max=metadata["n_max"],
+        magnitude=metadata["magnitude"],
+        wavelength_nm=metadata["wavelength_nm"],
+        n_averages=metadata["n_averages"],
+        n_cycles=metadata["n_cycles"],
+        timestamp=metadata["timestamp"],
+        excluded_piston=metadata.get("excluded_piston", True),
+        pinv_matrix=pinv_matrix,
+        lstsq_matrix=lstsq_matrix,
+    )
+
+
+def plot_response_matrix(
+    result: ZernikeResponseMatrixResult,
+    output_dir: str | Path,
+) -> None:
+    """绘制响应矩阵和方差矩阵可视化
+
+    Args:
+        result: 校准结果
+        output_dir: 输出目录
+    """
+    try:
+        import matplotlib.pyplot as plt
+
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # 1. 响应矩阵热图
+        fig, ax = plt.subplots(figsize=(12, 10))
+        im = ax.imshow(result.matrix, aspect="auto", cmap="RdBu_r")
+        ax.set_xlabel("SLM Zernike Mode Index")
+        ax.set_ylabel("WFS Zernike Mode Index")
+        ax.set_title(f"Response Matrix (n_max={result.n_max})")
+        fig.colorbar(im, ax=ax, label="Response")
+        fig.tight_layout()
+        fig.savefig(output_dir / "response_heatmap.png", dpi=150)
+        plt.close(fig)
+
+        # 2. 方差矩阵热图
+        fig, ax = plt.subplots(figsize=(12, 10))
+        im = ax.imshow(result.variance_matrix, aspect="auto", cmap="YlOrRd")
+        ax.set_xlabel("SLM Zernike Mode Index")
+        ax.set_ylabel("WFS Zernike Mode Index")
+        ax.set_title(f"Variance Matrix (mean={result.mean_variance:.6f})")
+        fig.colorbar(im, ax=ax, label="Variance")
+        fig.tight_layout()
+        fig.savefig(output_dir / "variance_heatmap.png", dpi=150)
+        plt.close(fig)
+
+        # 3. 每列平均方差 (稳定性指标)
+        fig, ax = plt.subplots(figsize=(12, 5))
+        col_mean_var = np.mean(result.variance_matrix, axis=0)
+        ax.bar(range(len(col_mean_var)), col_mean_var)
+        ax.set_xlabel("SLM Zernike Mode Index")
+        ax.set_ylabel("Mean Variance")
+        ax.set_title("Measurement Stability per Mode")
+        ax.grid(True, alpha=0.3)
+        fig.tight_layout()
+        fig.savefig(output_dir / "variance_per_mode.png", dpi=150)
+        plt.close(fig)
+
+        # 4. SVD奇异值 (如果已计算逆矩阵)
+        if result.pinv_matrix is not None:
+            _, s, _ = np.linalg.svd(result.matrix)
+            fig, ax = plt.subplots(figsize=(10, 5))
+            ax.plot(s, "o-")
+            ax.set_xlabel("Singular Value Index")
+            ax.set_ylabel("Singular Value")
+            ax.set_title(f"SVD Singular Values (condition={result.condition_number:.2e})")
+            ax.set_yscale("log")
+            ax.grid(True, alpha=0.3)
+            fig.tight_layout()
+            fig.savefig(output_dir / "singular_values.png", dpi=150)
+            plt.close(fig)
+
+        logger.info(f"可视化图表已保存到: {output_dir}")
+
+    except ImportError:
+        logger.warning("matplotlib未安装，跳过可视化")
+
+
+# 兼容旧API
+def save_zernike_response_matrix_legacy(
+    result: ZernikeResponseMatrixResult,
+    path: str | Path,
+) -> None:
+    """兼容旧版保存接口 (仅保存响应矩阵)"""
+    save_zernike_response_matrix(result, path, include_inverses=False)
+
+
+# 导出主要函数
+__all__ = [
+    "ZernikeResponseMatrixResult",
+    "calibrate_zernike_response_matrix",
+    "measure_zernike_mode_response",
+    "save_zernike_response_matrix",
+    "load_zernike_response_matrix",
+    "compute_pinv",
+    "compute_lstsq",
+    "plot_response_matrix",
+    "DEFAULT_N_MAX",
+    "DEFAULT_MAGNITUDE",
+    "DEFAULT_N_AVERAGES",
+    "DEFAULT_N_CYCLES",
+    "DEFAULT_WAIT_TIME",
+]

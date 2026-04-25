@@ -44,6 +44,7 @@ AO-shaping/
 | Hardware drivers | `src/ao_shaping/drivers/` | See drivers/AGENTS.md |
 | Optimization algorithms | `src/ao_shaping/algorithm/` | Adam, SGD, Muon, etc. |
 | Wavefront optimizers | `src/ao_shaping/optimizer/wf/` | RMS optimization |
+| Zernike response matrix | `src/ao_shaping/optimizer/wf/zernike_response_matrix.py` | SLM→WFS Zernike校准 |
 | PIB optimizers | `src/ao_shaping/optimizer/wfless/` | Power-in-bucket |
 | RL training | `src/ao_shaping/optimizer/rl/` | SAC, LR-WFS |
 | Simulation | `src/ao_shaping/drivers/sim/` | Digital twin devices |
@@ -67,9 +68,10 @@ python src/ao_shaping/pipeline_runner.py
 **CLI Structure:**
 ```
 main (click.group)
-├── wf         → wf_runner.run()    [Wavefront RMS optimization]
-├── pib        → axis_beam_run()   [Power-in-Bucket optimization]
-└── pipeline   → pipeline_run()    [Serial WF→PIB pipeline]
+├── wf             → wf_runner.run()              [Wavefront RMS optimization]
+├── pib            → axis_beam_run()              [Power-in-Bucket optimization]
+├── pipeline       → pipeline_run()               [Serial WF→PIB pipeline]
+└── zernike-matrix → zernike_matrix_run()         [Zernike响应矩阵校准]
 ```
 
 **Note:** `combined_runner.py` exists but is NOT wired to main CLI (documented in README only).

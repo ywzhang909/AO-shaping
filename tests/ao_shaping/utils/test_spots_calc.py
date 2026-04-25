@@ -438,6 +438,45 @@ class TestRadius:
         r = radius(intensity, center=(5, 5), energy=0.5)
         assert r >= 0
 
+    def test_radius_with_aotools_synthetic_psf(self):
+        x = np.linspace(-10, 10, 100)
+        y = np.linspace(-10, 10, 100)
+        xx, yy = np.meshgrid(x, y)
+        r = np.sqrt(xx**2 + yy**2)
+        psf = np.exp(-r**2 / 5)
+        radius_ee50 = radius(psf, center=(50, 50), energy=0.5, use_aotools=True)
+        assert radius_ee50 > 0
+        assert radius_ee50 < 50
+
+    def test_radius_without_aotools_synthetic_psf(self):
+        x = np.linspace(-10, 10, 100)
+        y = np.linspace(-10, 10, 100)
+        xx, yy = np.meshgrid(x, y)
+        r = np.sqrt(xx**2 + yy**2)
+        psf = np.exp(-r**2 / 5)
+        radius_ee50 = radius(psf, center=(50, 50), energy=0.5, use_aotools=False)
+        assert radius_ee50 > 0
+        assert radius_ee50 < 50
+
+    def test_radius_with_aotools_ee99(self):
+        x = np.linspace(-10, 10, 100)
+        y = np.linspace(-10, 10, 100)
+        xx, yy = np.meshgrid(x, y)
+        r = np.sqrt(xx**2 + yy**2)
+        psf = np.exp(-r**2 / 5)
+        radius_ee99 = radius(psf, center=(50, 50), energy=0.99, use_aotools=True)
+        radius_ee50 = radius(psf, center=(50, 50), energy=0.5, use_aotools=True)
+        assert radius_ee99 > radius_ee50
+
+    def test_radius_with_aotools_none_center(self):
+        x = np.linspace(-10, 10, 100)
+        y = np.linspace(-10, 10, 100)
+        xx, yy = np.meshgrid(x, y)
+        r = np.sqrt(xx**2 + yy**2)
+        psf = np.exp(-r**2 / 5)
+        radius_val = radius(psf, center=None, energy=0.5, use_aotools=True)
+        assert radius_val > 0
+
 
 class TestEffectiveRadius:
     def test_effective_radius(self):
