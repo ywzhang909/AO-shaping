@@ -148,9 +148,7 @@ class PatternHelper:
 
         array = np.tile(lens_pattern, (n_y, n_x))
 
-        img = array[:height, :width]
-
-        return img
+        return array[:height, :width]
 
     def generate_turbulence_screen(
         self,

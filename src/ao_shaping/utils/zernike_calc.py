@@ -159,7 +159,7 @@ class ZernikeGenerator:
         if not coefficients:
             return np.zeros((self._height, self._width), dtype=np.uint16)
 
-        max_j = max(nm_to_noll(n, m) for (n, m) in coefficients.keys())
+        max_j = max(nm_to_noll(n, m) for (n, m) in coefficients)
         coeffs_array = np.zeros(max_j, dtype=np.float64)
 
         for (n, m), amp in coefficients.items():

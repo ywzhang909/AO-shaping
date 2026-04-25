@@ -165,7 +165,7 @@ class ZernikeSLM:
         return self._zernike_dm.get_actuator_positions()
 
     def is_connected(self) -> bool:
-        return self.is_open and self._slm.is_connected
+        return self.is_open
 
     def get_hardware_info(self) -> dict:
         return {
