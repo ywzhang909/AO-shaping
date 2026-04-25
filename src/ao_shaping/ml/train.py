@@ -15,6 +15,10 @@ Usage:
 
     # Inference
     uv run python src/ao_shaping/ml/train.py predict --checkpoint checkpoints/best.pt --data-dir data/slm_capture
+
+Note:
+    - UNet: phase map output (requires --target-phase-dir for training data)
+    - Zernike models (resnet18/resnet34/simple_cnn): coefficient output
 """
 
 from __future__ import annotations
@@ -34,6 +38,7 @@ import torch.nn as nn
 from loguru import logger
 from PIL import Image
 from torch import optim
+from torch.utils.data import DataLoader
 
 # Set matplotlib backend to Agg to avoid threading issues
 matplotlib.use("Agg")
@@ -46,6 +51,7 @@ from ao_shaping.ml.dataset import (
 )
 from ao_shaping.ml.models import (
     MODEL_REGISTRY,
+    BasePhasePredictor,
     build_model,
     build_gan_models,
 )
@@ -53,7 +59,21 @@ from ao_shaping.ml.trainer import PhaseGANTrainer
 
 
 # =============================================================================
-# WandB Sweep Configuration
+# Model Type Definitions
+# =============================================================================
+
+# Model types that output Zernike coefficients (regression)
+ZERNIKE_MODEL_TYPES = {"resnet18", "resnet34", "simple_cnn"}
+
+# Model types that output phase maps (image-to-image)
+PHASE_MODEL_TYPES = {"unet"}
+
+# All supported model types
+ALL_MODEL_TYPES = ZERNIKE_MODEL_TYPES | PHASE_MODEL_TYPES
+
+
+# =============================================================================
+# WandB Sweep Configuration (Universal - supports ALL model types)
 # =============================================================================
 
 SWEEP_CONFIG = {
@@ -61,10 +81,14 @@ SWEEP_CONFIG = {
     "metric": {"name": "val_loss", "goal": "minimize"},
     "parameters": {
         "lr": {"values": [1e-4, 5e-4, 1e-3, 5e-3]},
-        "model_type": {"values": ["resnet18", "simple_cnn"]},
+        "model_type": {"values": ["resnet18", "resnet34", "simple_cnn", "unet"]},
+        # Zernike-specific parameters (ignored for unet)
         "input_mode": {"values": ["focus", "pupil", "combined"]},
         "output_mode": {"values": ["coeffs", "phase"]},
         "n_zernike_terms": {"values": [28, 55]},
+        # UNet-specific parameters (ignored for zernike models)
+        "lambda_l1": {"values": [50.0, 100.0, 200.0]},
+        "gan_mode": {"values": ["lsgan", "vanilla"]},
     },
 }
 
@@ -75,10 +99,282 @@ def cli():
     pass
 
 
-@cli.command()
-@click.option("--data-dir", required=True, help="训练数据目录 (包含sample_XXXX子目录)")
+# =============================================================================
+# Unified Training Function (supports ALL model types)
+# =============================================================================
+
+
+def train_model(
+    model: torch.nn.Module,
+    train_loader: DataLoader,
+    val_loader: DataLoader | None,
+    test_loader: DataLoader | None,
+    device: torch.device,
+    epochs: int,
+    lr: float,
+    weight_decay: float = 0.0,
+    # Model-type specific args
+    model_type: str = "resnet18",
+    is_phase_model: bool = False,
+    lambda_l1: float = 100.0,
+    lambda_adv: float = 1.0,
+    gan_mode: str = "lsgan",
+    loss_type: str = "angular",
+    checkpoint_dir: str = "checkpoints",
+    use_wandb: bool = False,
+    wandb_project: str = "ao-shaping",
+    wandb_name: str | None = None,
+    log_images: bool = True,
+    resume: str | None = None,
+) -> dict:
+    """Unified training function for both UNet (phase) and Zernike (coefficient) models.
+    
+    Args:
+        model: The model to train (UNetGenerator or regression model)
+        train_loader: Training data loader
+        val_loader: Validation data loader
+        test_loader: Test data loader (optional, for zernike models)
+        device: Device to train on
+        epochs: Number of training epochs
+        lr: Learning rate
+        weight_decay: Weight decay for optimizer
+        model_type: Model type identifier
+        is_phase_model: Whether this is a UNet phase prediction model (with GAN training)
+        lambda_l1: L1 loss weight (only for phase models)
+        lambda_adv: Adversarial loss weight (only for phase models)
+        gan_mode: GAN mode - "vanilla" or "lsgan" (only for phase models)
+        loss_type: Loss type - "l1" or "angular" (only for phase models)
+        checkpoint_dir: Directory to save checkpoints
+        use_wandb: Whether to use wandb logging
+        wandb_project: wandb project name
+        wandb_name: wandb run name
+        log_images: Whether to log images to wandb
+        resume: Checkpoint path to resume from
+        
+    Returns:
+        Training history dict
+    """
+    # Build optimizer and scheduler
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=10
+    )
+    
+    # Initialize wandb
+    wandb_run = None
+    if use_wandb:
+        try:
+            import wandb
+            wandb_run = wandb.init(project=wandb_project, name=wandb_name)
+        except ImportError:
+            logger.warning("wandb not installed, skipping")
+    
+    # Resume from checkpoint
+    start_epoch = 0
+    best_val_loss = float("inf")
+    if resume:
+        logger.info(f"Resuming from {resume}")
+        ckpt = torch.load(resume, map_location=device, weights_only=False)
+        if is_phase_model:
+            # GAN model checkpoint
+            model.load_state_dict(ckpt["generator"])
+        else:
+            model.load_state_dict(ckpt["model"])
+        optimizer.load_state_dict(ckpt.get("optimizer", optimizer.state_dict()))
+        start_epoch = ckpt.get("epoch", 0)
+        best_val_loss = ckpt.get("val_loss", float("inf"))
+    
+    # Create criterion
+    if is_phase_model:
+        # For phase prediction, use PhaseGANTrainer
+        from ao_shaping.ml.trainer import PhaseGANTrainer
+        
+        # Need to build discriminator for GAN
+        in_channels = model.in_channels if hasattr(model, "in_channels") else 2
+        _, discriminator = build_gan_models(in_channels=in_channels, device=device)
+        
+        trainer = PhaseGANTrainer(
+            generator=model,
+            discriminator=discriminator,
+            device=device,
+            lr_gen=lr,
+            lr_disc=lr,
+            lambda_l1=lambda_l1,
+            lambda_adv=lambda_adv,
+            gan_mode=gan_mode,
+            checkpoint_dir=checkpoint_dir,
+            loss_type=loss_type,
+            use_wandb=use_wandb,
+            wandb_project=wandb_project,
+            wandb_run_name=wandb_name,
+            log_images=log_images,
+        )
+        
+        # GAN training
+        history = trainer.train(
+            train_loader=train_loader,
+            val_loader=val_loader,
+            epochs=epochs,
+            save_every=10,
+        )
+        
+        if wandb_run:
+            wandb_run.finish()
+        
+        return history
+    else:
+        # Regression training (Zernike coefficients)
+        criterion = nn.MSELoss()
+        history = {"train_loss": [], "val_loss": [], "test_loss": []}
+        
+        n_train = len(train_loader.dataset)
+        n_val = len(val_loader.dataset) if val_loader else 0
+        n_test = len(test_loader.dataset) if test_loader else 0
+        
+        for epoch in range(start_epoch, epochs):
+            # Train
+            model.train()
+            train_loss = 0.0
+            n_processed = 0
+            
+            for batch_idx, batch in enumerate(train_loader):
+                images = batch["image"].to(device)
+                targets = batch["coefficients"].to(device)
+                
+                optimizer.zero_grad()
+                pred = model(images)
+                loss = criterion(pred, targets)
+                loss.backward()
+                optimizer.step()
+                
+                train_loss += loss.item() * images.size(0)
+                n_processed += images.size(0)
+                
+                if (batch_idx + 1) % 50 == 0:
+                    logger.info(f"  Step {batch_idx + 1}/{len(train_loader)}, batch_loss={loss.item():.6f}")
+            
+            train_loss /= n_train
+            
+            # Validate
+            model.eval()
+            val_loss = 0.0
+            if val_loader:
+                with torch.no_grad():
+                    for batch in val_loader:
+                        images = batch["image"].to(device)
+                        targets = batch["coefficients"].to(device)
+                        pred = model(images)
+                        loss = criterion(pred, targets)
+                        val_loss += loss.item() * images.size(0)
+                
+                val_loss /= n_val
+            
+            # Update scheduler
+            old_lr = optimizer.param_groups[0]["lr"]
+            scheduler.step(val_loss)
+            new_lr = optimizer.param_groups[0]["lr"]
+            
+            history["train_loss"].append(train_loss)
+            history["val_loss"].append(val_loss)
+            
+            lr_info = f", lr={new_lr:.2e}" if new_lr != old_lr else ""
+            logger.info(
+                f"Epoch {epoch + 1}/{epochs}: "
+                f"train_loss={train_loss:.6f}, "
+                f"val_loss={val_loss:.6f}{lr_info}"
+            )
+            
+            # Log to wandb
+            if wandb_run:
+                wandb_run.log({
+                    "epoch": epoch + 1,
+                    "train_loss": train_loss,
+                    "val_loss": val_loss,
+                    "lr": new_lr,
+                })
+            
+            # Save best
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                logger.info(f"  -> New best model! val_loss={val_loss:.6f}")
+                torch.save({
+                    "model": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict(),
+                    "epoch": epoch + 1,
+                    "val_loss": val_loss,
+                }, Path(checkpoint_dir) / "best.pt")
+        
+        # Final test evaluation
+        if test_loader and len(test_loader.dataset) > 0:
+            model.eval()
+            test_loss = 0.0
+            with torch.no_grad():
+                for batch in test_loader:
+                    images = batch["image"].to(device)
+                    targets = batch["coefficients"].to(device)
+                    pred = model(images)
+                    test_loss += criterion(pred, targets).item() * images.size(0)
+            
+            test_loss /= n_test
+            history["test_loss"] = test_loss
+            logger.info(f"Test loss: {test_loss:.6f}")
+        
+        # Save final model
+        torch.save({
+            "model": model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "scheduler": scheduler.state_dict(),
+            "epoch": epochs,
+            "val_loss": best_val_loss,
+            "test_loss": history.get("test_loss", None),
+        }, Path(checkpoint_dir) / "final.pt")
+        
+        if wandb_run:
+            wandb_run.finish()
+        
+        logger.info(f"Done! Best val={best_val_loss:.6f}")
+        return history
+
+
+@cli.command("train")
+@click.option("--data-dir", required=True, help="数据目录")
+@click.option("--output-dir", default="checkpoints", help="模型保存目录")
 @click.option(
-    "--output-dir", default="checkpoints", help="模型保存目录 (default: checkpoints)"
+    "--model-type",
+    "model_type",
+    default="resnet18",
+    type=click.Choice(["unet", "resnet18", "resnet34", "simple_cnn"]),
+    help="模型类型: unet=相位图, 其他=Zernike系数",
+)
+@click.option("--epochs", default=100, help="训练轮数")
+@click.option("--batch-size", default=8, help="批次大小")
+@click.option("--lr", default=1e-3, help="学习率")
+@click.option("--weight-decay", default=1e-4, help="权重衰减")
+@click.option("--train-split", default=0.7, help="训练集比例")
+@click.option("--val-split", default=0.15, help="验证集比例")
+@click.option("--num-workers", default=0, help="DataLoader工作进程")
+@click.option("--device", default=None, help="设备 (auto)")
+@click.option("--seed", default=42, help="随机种子")
+@click.option("--target-size", default="256x256", help="目标尺寸 HxW")
+# Zernike-specific options
+@click.option(
+    "--input-mode",
+    "input_mode",
+    type=click.Choice(["focus", "pupil", "combined"]),
+    default="combined",
+    help="输入模式 (Zernike模型)",
+)
+@click.option("--n-zernike-terms", "n_zernike_terms", default=55, help="Zernike项数")
+@click.option("--n-max", "n_max", default=10, help="Zernike径向阶")
+# UNet-specific options
+@click.option("--lambda-l1", default=100.0, help="L1损失权重 (UNet)")
+@click.option("--lambda-adv", default=1.0, help="对抗损失权重 (UNet)")
+@click.option(
+    "--gan-mode",
+    type=click.Choice(["vanilla", "lsgan"]),
+    default="lsgan",
+    help="GAN模式 (UNet)",
 )
 @click.option("--epochs", default=100, help="训练轮数 (default: 100)")
 @click.option("--batch-size", default=8, help="批次大小 (default: 8)")
@@ -114,23 +410,23 @@ def cli():
     "--loss-type",
     type=click.Choice(["l1", "angular"]),
     default="angular",
-    help="损失函数类型: l1或angular (default: angular)",
+    help=" (UNet)",
 )
-@click.option("--use-wandb/--no-wandb", default=False, help="使用 wandb 记录训练")
-@click.option("--wandb-project", default="ao-shaping", help="wandb 项目名称")
-@click.option("--wandb-name", default=None, help="wandb run 名称")
-@click.option("--log-images/--no-log-images", default=True, help="记录验证图像到 wandb")
-@click.option("--resume", default=None, help="从检查点恢复训练")
+# Logging options
+@click.option("--use-wandb/--no-wandb", default=False, help="使用wandb")
+@click.option("--wandb-project", default="ao-shaping", help="项目名")
+@click.option("--wandb-name", default=None, help="run名")
+@click.option("--resume", default=None, help="恢复训练")
 def train(
     data_dir: str,
     output_dir: str,
+    model_type: str,
     epochs: int,
     batch_size: int,
     lr: float,
-    lambda_l1: float,
-    lambda_adv: float,
-    target_size: str | None,
+    weight_decay: float,
     train_split: float,
+    val_split: float,
     num_workers: int,
     input_mode: str,
     output_mode: str,
@@ -139,18 +435,28 @@ def train(
     use_miicam: bool,
     device: str | None,
     seed: int,
+    target_size: str,
+    input_mode: str,
+    n_zernike_terms: int,
+    n_max: int,
+    lambda_l1: float,
+    lambda_adv: float,
     gan_mode: str,
     loss_type: str,
     use_wandb: bool,
     wandb_project: str,
     wandb_name: str | None,
-    log_images: bool,
     resume: str | None,
 ):
     """Train model for phase prediction (phase map or Zernike coefficients)."""
     torch.manual_seed(seed)
     np.random.seed(seed)
 
+    # Parse target size
+    h, w = map(int, target_size.split("x"))
+    target_size_tuple = (h, w)
+
+    # Device
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     device = torch.device(device)
@@ -279,29 +585,59 @@ def _train_phase_mode(
     # Build models
     generator, discriminator = build_gan_models(
         in_channels=in_channels,
+        n_coeffs=n_zernike_terms,
         device=device,
     )
-    logger.info(f"Generator params: {sum(p.numel() for p in generator.parameters()):,}")
-    logger.info(
-        f"Discriminator params: {sum(p.numel() for p in discriminator.parameters()):,}"
-    )
+    logger.info(f"Model: {model_type}, params: {sum(p.numel() for p in model.parameters()):,}")
+    
+    # Save config
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    config = {
+        "model_type": model_type,
+        "input_mode": input_mode,
+        "n_zernike_terms": n_zernike_terms,
+        "n_max": n_max,
+        "target_size": target_size,
+        "lr": lr,
+        "weight_decay": weight_decay,
+        "batch_size": batch_size,
+        "epochs": epochs,
+        "train_split": train_split,
+        "val_split": val_split,
+        "seed": seed,
+    }
+    if is_phase_model:
+        config.update({
+            "lambda_l1": lambda_l1,
+            "lambda_adv": lambda_adv,
+            "gan_mode": gan_mode,
+            "loss_type": loss_type,
+        })
+    with (Path(output_dir) / "config.json").open("w") as f:
+        json.dump(config, f, indent=2)
 
-    # Create trainer
-    trainer = PhaseGANTrainer(
-        generator=generator,
-        discriminator=discriminator,
+    # Train using unified training function
+    logger.info(f"Starting {model_type} training for {epochs} epochs...")
+    history = train_model(
+        model=model,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        test_loader=test_loader,
         device=device,
-        lr_gen=lr,
-        lr_disc=lr,
+        epochs=epochs,
+        lr=lr,
+        weight_decay=weight_decay,
+        model_type=model_type,
+        is_phase_model=is_phase_model,
         lambda_l1=lambda_l1,
         lambda_adv=lambda_adv,
         gan_mode=gan_mode,
-        checkpoint_dir=output_dir,
         loss_type=loss_type,
+        checkpoint_dir=output_dir,
         use_wandb=use_wandb,
         wandb_project=wandb_project,
-        wandb_run_name=wandb_name,
-        log_images=log_images,
+        wandb_name=wandb_name,
+        resume=resume,
     )
 
     # Resume if requested
@@ -706,338 +1042,6 @@ def predict(
         raise click.BadParameter("Provide either --data-dir or --image")
 
 
-# =============================================================================
-# Zernike Coefficient Training
-# =============================================================================
-
-
-@cli.command("zernike")
-@click.option("--data-dir", required=True, help="数据目录 (含sample_XXXX子目录)")
-@click.option("--output-dir", default="checkpoints_zernike", help="输出目录")
-@click.option(
-    "--model-type",
-    "model_type",
-    default="resnet18",
-    help="模型类型: resnet18, simple_cnn",
-)
-@click.option(
-    "--input-mode",
-    type=click.Choice(["focus", "pupil", "combined"]),
-    default="combined",
-    help="输入模式",
-)
-@click.option("--n-zernike-terms", "n_zernike_terms", default=55, help="Zernike项数量")
-@click.option("--n-max", "n_max", default=10, help="Zernike径向阶")
-@click.option("--target-size", "target_size", default="256x256", help="图像尺寸 HxW")
-@click.option("--epochs", default=100, help="训练轮数")
-@click.option("--batch-size", default=8, help="批次大小")
-@click.option("--lr", default=1e-3, help="学习率")
-@click.option("--weight-decay", default=1e-4, help="权重衰减")
-@click.option("--train-split", default=0.7, help="训练集比例")
-@click.option("--val-split", default=0.15, help="验证集比例")
-@click.option("--num-workers", default=0, help="DataLoader工作进程")
-@click.option("--device", default=None, help="设备")
-@click.option("--seed", default=42, help="随机种子")
-@click.option("--use-wandb/--no-wandb", default=False, help="使用wandb")
-@click.option("--wandb-project", default="ao-shaping-zernike", help="项目名")
-@click.option("--wandb-name", default=None, help="run名")
-@click.option("--resume", default=None, help="恢复训练")
-def zernike_train(
-    data_dir: str,
-    output_dir: str,
-    model_type: str,
-    input_mode: str,
-    n_zernike_terms: int,
-    n_max: int,
-    target_size: str,
-    epochs: int,
-    batch_size: int,
-    lr: float,
-    weight_decay: float,
-    train_split: float,
-    val_split: float,
-    num_workers: int,
-    device: str | None,
-    seed: int,
-    use_wandb: bool,
-    wandb_project: str,
-    wandb_name: str | None,
-    resume: str | None,
-):
-    """Train Zernike coefficient predictor."""
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-
-    # Parse target size
-    h, w = map(int, target_size.split("x"))
-    target_size_tuple = (h, w)
-
-    # Device
-    if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    device = torch.device(device)
-    logger.info(f"Using device: {device}")
-
-    # Input channels
-    in_channels = 2 if input_mode == "combined" else 1
-
-    # Create dataloaders (3-way split)
-    logger.info(f"Loading data from {data_dir}")
-    train_loader, val_loader, test_loader = create_zernike_loaders(
-        data_dir=data_dir,
-        batch_size=batch_size,
-        train_split=train_split,
-        val_split=val_split,
-        input_mode=input_mode,
-        n_zernike_terms=n_zernike_terms,
-        n_max=n_max,
-        target_size=target_size_tuple,
-        num_workers=num_workers,
-        seed=seed,
-    )
-
-    n_train = len(train_loader.dataset)
-    n_val = len(val_loader.dataset)
-    n_test = len(test_loader.dataset)
-    n_batches = len(train_loader)
-    logger.info(f"Dataset: train={n_train}, val={n_val}, test={n_test} samples")
-    logger.info(f"Batch size: {batch_size}, steps per epoch: {n_batches}")
-
-    # Build model
-    model = build_model(
-        model_type,
-        in_channels=in_channels,
-        n_coeffs=n_zernike_terms,
-        device=device,
-    )
-    logger.info(
-        f"Model: {model_type}, params: {sum(p.numel() for p in model.parameters()):,}"
-    )
-
-    # Optimizer
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=10
-    )
-    criterion = nn.MSELoss()
-
-    # WandB
-    wandb_run = None
-    if use_wandb:
-        try:
-            import wandb
-
-            wandb_run = wandb.init(
-                project=wandb_project,
-                name=wandb_name,
-                config={
-                    "model_type": model_type,
-                    "input_mode": input_mode,
-                    "n_zernike_terms": n_zernike_terms,
-                    "n_max": n_max,
-                    "target_size": target_size,
-                    "lr": lr,
-                    "weight_decay": weight_decay,
-                    "batch_size": batch_size,
-                    "train_split": train_split,
-                    "val_split": val_split,
-                    "seed": seed,
-                },
-            )
-        except ImportError:
-            logger.warning("wandb not installed, skipping")
-
-    # Resume
-    start_epoch = 0
-    best_val_loss = float("inf")
-    if resume:
-        logger.info(f"Resuming from {resume}")
-        ckpt = torch.load(resume, map_location=device)
-        model.load_state_dict(ckpt["model"])
-        optimizer.load_state_dict(ckpt["optimizer"])
-        start_epoch = ckpt.get("epoch", 0)
-        best_val_loss = ckpt.get("val_loss", float("inf"))
-
-    # Save config
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
-    config = {
-        "model_type": model_type,
-        "input_mode": input_mode,
-        "n_zernike_terms": n_zernike_terms,
-        "n_max": n_max,
-        "target_size": target_size,
-        "lr": lr,
-        "weight_decay": weight_decay,
-        "batch_size": batch_size,
-        "epochs": epochs,
-        "train_split": train_split,
-        "val_split": val_split,
-        "seed": seed,
-    }
-    with (Path(output_dir) / "config.json").open("w") as f:
-        json.dump(config, f, indent=2)
-
-    # Training loop
-    logger.info(f"Starting training for {epochs} epochs...")
-    history = {"train_loss": [], "val_loss": [], "test_loss": []}
-
-    val_loss = np.inf
-    for epoch in range(start_epoch, epochs):
-        # Train
-        model.train()
-        train_loss = 0.0
-        n_processed = 0
-        for batch_idx, batch in enumerate(train_loader):
-            images = batch["image"].to(device)
-            coeffs = batch["coefficients"].to(device)
-
-            optimizer.zero_grad()
-            pred = model(images)
-            loss = criterion(pred, coeffs)
-            loss.backward()
-            optimizer.step()
-
-            train_loss += loss.item() * images.size(0)
-            n_processed += images.size(0)
-
-            # Log every 50 steps
-            if (batch_idx + 1) % 50 == 0:
-                logger.info(
-                    f"  Step {batch_idx + 1}/{n_batches}, batch_loss={loss.item():.6f}"
-                )
-
-        train_loss /= n_train
-        train_per = train_loss / n_train * 1000  # per sample
-
-        # Validate
-        model.eval()
-        val_loss = 0.0
-        n_val_processed = 0
-        with torch.no_grad():
-            for batch in val_loader:
-                images = batch["image"].to(device)
-                coeffs = batch["coefficients"].to(device)
-                pred = model(images)
-                loss = criterion(pred, coeffs)
-                val_loss += loss.item() * images.size(0)
-                n_val_processed += images.size(0)
-
-        val_loss /= n_val
-
-        # Update scheduler
-        old_lr = optimizer.param_groups[0]["lr"]
-        scheduler.step(val_loss)
-        new_lr = optimizer.param_groups[0]["lr"]
-
-        history["train_loss"].append(train_loss)
-        history["val_loss"].append(val_loss)
-
-        # Log epoch
-        lr_info = f", lr={new_lr:.2e}" if new_lr != old_lr else ""
-        logger.info(
-            f"Epoch {epoch + 1}/{epochs}: "
-            f"train_loss={train_loss:.6f}, "
-            f"val_loss={val_loss:.6f}{lr_info}"
-        )
-
-        # Log test images to wandb every 10 epochs or on best
-        if wandb_run and (epoch + 1) % 10 == 0:
-            # Log a random sample from test set
-            test_sample_idx = np.random.randint(0, len(test_loader.dataset))
-            test_sample = test_loader.dataset[test_sample_idx]
-
-            # Get prediction
-            model.eval()
-            with torch.no_grad():
-                test_img = test_sample["image"].unsqueeze(0).to(device)
-                test_coeff = test_sample["coefficients"]
-                pred_coeff = model(test_img).cpu().squeeze(0).numpy()
-
-            # Generate phase maps
-            from ao_shaping.ml.dataset import coefficients_to_phase_map
-
-            target_phase = coefficients_to_phase_map(
-                test_coeff.numpy(), size=target_size_tuple
-            )
-            pred_phase = coefficients_to_phase_map(pred_coeff, size=target_size_tuple)
-
-            # Log image grid
-            wandb_run.log(
-                {
-                    "test_sample": wandb.Image(
-                        np.concatenate([target_phase, pred_phase], axis=1),
-                        caption=f"Epoch {epoch + 1}: target vs prediction",
-                    )
-                }
-            )
-
-        if wandb_run:
-            wandb_run.log(
-                {
-                    "epoch": epoch + 1,
-                    "train_loss": train_loss,
-                    "val_loss": val_loss,
-                    "lr": new_lr,
-                }
-            )
-
-        # Save best
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            logger.info(f"  -> New best model! val_loss={val_loss:.6f}")
-            torch.save(
-                {
-                    "model": model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "scheduler": scheduler.state_dict(),
-                    "epoch": epoch + 1,
-                    "val_loss": val_loss,
-                    "config": config,
-                },
-                Path(output_dir) / "best.pt",
-            )
-            logger.info(f"Saved best (val={val_loss:.6f})")
-
-    # Final test
-    model.eval()
-    test_loss = 0.0
-    with torch.no_grad():
-        for batch in test_loader:
-            images = batch["image"].to(device)
-            coeffs = batch["coefficients"].to(device)
-            pred = model(images)
-            test_loss += criterion(pred, coeffs).item() * images.size(0)
-
-    test_loss /= n_test
-    history["test_loss"] = test_loss
-    logger.info(f"Test loss: {test_loss:.6f}")
-
-    # Save final with scheduler state
-    torch.save(
-        {
-            "model": model.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "scheduler": scheduler.state_dict(),
-            "epoch": epochs,
-            "val_loss": val_loss,
-            "test_loss": test_loss,
-            "config": config,
-        },
-        Path(output_dir) / "final.pt",
-    )
-
-    with (Path(output_dir) / "history.json").open("w") as f:
-        json.dump(history, f)
-
-    if wandb_run:
-        wandb_run.finish()
-
-    logger.info(f"Done! Best val={best_val_loss:.6f}, test={test_loss:.6f}")
-
-
-# =============================================================================
-# WandB Sweep
-# =============================================================================
 
 
 @cli.command("sweep")
@@ -1094,6 +1098,7 @@ def sweep(
     logger.info(f"Fixed batch_size: {batch_size}, epochs: {epochs}")
 
     def agent():
+        """Universal sweep agent that handles ALL model types."""
         wandb.init()
         cfg = wandb.config
 

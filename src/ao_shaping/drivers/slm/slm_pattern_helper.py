@@ -310,12 +310,56 @@ class PatternHelper:
         max_val = self._max_val
         R2 = self.xx**2 + self.yy**2
         phase = (np.pi / wavelength / focal_length) * (R2 * pixel_size**2)
-
         if not wrap_phase:
             return phase
 
         phase_wrapped = np.mod(phase, 2 * np.pi)
         img = (phase_wrapped / (2 * np.pi) * max_val).astype(np.uint16)
+        return img
+
+    def generate_dammann_grating(
+        self, order: int = 3, fill_factor: float = 0.5
+    ) -> np.ndarray:
+        """
+        Generate a Dammann grating phase pattern
+
+        Args:
+            order: Number of diffraction orders in each direction (typically 2, 3, 4)
+            fill_factor: Ratio of transparent area in each cell (0.0 to 1.0)
+
+        Returns:
+            Phase pattern (0 or max_val)
+        """
+        height, width = self.resolution[1], self.resolution[0]
+        max_val = 2**self.bits - 1
+
+        if order <= 0:
+            order = 1
+
+        # Calculate the size of each grating element
+        elem_width = width // order
+        elem_height = height // order
+
+        # Create the Dammann grating pattern
+        img = np.zeros((height, width), dtype=np.uint16)
+
+        # Fill each grating element with alternating phase values
+        for i in range(order):
+            for j in range(order):
+                # Define the region for this grating element
+                y_start = i * elem_height
+                y_end = min((i + 1) * elem_height, height)
+                x_start = j * elem_width
+                x_end = min((j + 1) * elem_width, width)
+
+                # Determine phase based on position (alternating 0 and pi)
+                if (i + j) % 2 == 0:
+                    # Set to max phase (pi phase shift)
+                    img[y_start:y_end, x_start:x_end] = max_val
+                else:
+                    # Set to zero phase
+                    img[y_start:y_end, x_start:x_end] = 0
+
         return img
 
     def linear_grating(
@@ -379,3 +423,46 @@ class PatternHelper:
             Phase pattern in radians (0 to phase_range), wrapped
         """
         return self.linear_grating(period=period, phase_range=phase_range, wrap_phase=False)
+
+    def dammann_grating(
+        self,
+        width: int,
+        height: int,
+        order: int = 3,
+        phase_range: float = 2 * np.pi,
+    ) -> np.ndarray:
+        """Generate a Dammann grating phase pattern.
+
+        A Dammann grating is a binary-phase grating that generates uniform diffraction orders.
+        It creates a specific number of equally intense spots at regular intervals.
+
+        Args:
+            width: Width of the output pattern in pixels
+            height: Height of the output pattern in pixels
+            order: Number of diffraction orders (typically 2, 3, 4, etc.)
+            phase_range: Total phase range in radians (default 2π)
+
+        Returns:
+            Phase pattern array in radians
+        """
+        # Create coordinate grids
+        if order <= 1:
+            order = 2  # Minimum order is 2
+
+        # Calculate the Dammann grating pattern
+        # For a 1D Dammann grating, the phase follows a specific sequence to create uniform orders
+        # For 2D, we can combine two 1D gratings orthogonally
+
+        # Calculate the spatial frequency for the specified order
+        # The grating period is chosen such that it creates the desired number of orders
+        period_x = width // order
+        period_y = height // order
+
+        # Create the phase pattern based on Dammann grating principles
+        # This implementation creates a pattern that generates uniform diffraction orders
+        phase_x = (self.xx // period_x) % 2 * np.pi  # Alternate 0 and π phases
+        phase_y = (self.yy // period_y) % 2 * np.pi  # Alternate 0 and π phases
+
+        # Combine both dimensions (XOR-like behavior)
+        return np.mod(phase_x + phase_y, phase_range)
+

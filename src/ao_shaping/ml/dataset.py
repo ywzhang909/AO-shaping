@@ -100,12 +100,15 @@ def load_zernike_coefficients(csv_path: Path, n_terms: int | None = None) -> np.
 class PhasePredictionDataset(Dataset):
     """Dataset for dual-camera phase prediction.
 
-    Expects data saved by slm_phase_capture.py with consolidated .pt files.
+    Expects data saved by slm_phase_capture.py with separate .npy and .csv files.
 
     Directory structure:
         data_dir/
         ├── sample_0000/
-        │   ├── sample.pt          # {"phase": tensor, "daheng": tensor, "miicam": tensor}
+        │   ├── daheng_frame.npy      # Focus/far-field image
+        │   ├── miicam_frame.npy     # Pupil/near-field image
+        │   ├── phase.csv           # Zernike coefficients (for backwards compatibility)
+        │   ├── phase.npy           # Phase map (H, W) in radians
         │   └── metadata.json
         ├── sample_0001/
         │   └── ...
@@ -122,6 +125,7 @@ class PhasePredictionDataset(Dataset):
         use_miicam: bool = True,
         brightness_normalize: bool = True,
         equalize_histogram: bool = False,
+        cache_data: bool = False,  # Cache loaded data in memory for faster access
         # Augmentation parameters
         random_shift: bool = True,
         shift_range: int = 20,
@@ -138,6 +142,7 @@ class PhasePredictionDataset(Dataset):
             use_miicam: Include MiiCam camera channel.
             brightness_normalize: Normalize brightness across dataset (per-channel z-score).
             equalize_histogram: Apply histogram equalization for contrast enhancement.
+            cache_data: Cache loaded data in memory for faster access (use with caution for large datasets).
             random_shift: Apply random translation augmentation.
             shift_range: Maximum pixels to shift in each direction.
             random_blur: Apply random Gaussian blur augmentation.
@@ -152,6 +157,7 @@ class PhasePredictionDataset(Dataset):
         self.use_miicam = use_miicam
         self.brightness_normalize = brightness_normalize
         self.equalize_histogram = equalize_histogram
+        self.cache_data = cache_data
 
         # Augmentation parameters
         self.random_shift = random_shift
@@ -159,13 +165,16 @@ class PhasePredictionDataset(Dataset):
         self.random_blur = random_blur
         self.blur_sigma_range = blur_sigma_range
 
+        # Initialize cache if enabled
+        self._cache = {} if cache_data else None
+
         # Discover samples
         self.sample_dirs = sorted(self.data_dir.glob("sample_*"))
-        self.samples = [d for d in self.sample_dirs if (d / "sample.pt").exists()]
+        self.samples = [d for d in self.sample_dirs if self._is_valid_sample(d)]
 
         if not self.samples:
             raise ValueError(
-                f"No samples found in {data_dir}. Expected sample_XXXX/sample.pt files."
+                f"No valid samples found in {data_dir}. Expected sample_XXXX with .npy files."
             )
 
         # Load global metadata
@@ -181,6 +190,22 @@ class PhasePredictionDataset(Dataset):
 
         # Pre-compute dataset statistics for brightness normalization
         self._compute_dataset_stats()
+
+    def _is_valid_sample(self, sample_dir: Path) -> bool:
+        """Check if sample directory has required files."""
+        daheng = sample_dir / "daheng_frame.npy"
+        miicam = sample_dir / "miicam_frame.npy"
+        phase_npy = sample_dir / "phase.npy"
+        phase_csv = sample_dir / "phase.csv"  # For backwards compatibility
+
+        # Need images and either phase.npy or phase.csv
+        if self.use_daheng and not daheng.exists():
+            return False
+        if self.use_miicam and not miicam.exists():
+            return False
+
+        # Phase can be either .npy (direct phase map) or .csv (zernike coefficients)
+        return phase_npy.exists() or phase_csv.exists()
 
     def _find_center(self, img: torch.Tensor) -> tuple[float, float]:
         """Find center of mass for an image tensor.
@@ -218,11 +243,21 @@ class PhasePredictionDataset(Dataset):
         daheng_values, miicam_values = [], []
 
         for i in range(n_samples):
-            data = torch.load(self.samples[i] / "sample.pt", weights_only=False)
-            if self.use_daheng and "daheng" in data:
-                daheng_values.append(data["daheng"].float())
-            if self.use_miicam and "miicam" in data:
-                miicam_values.append(data["miicam"].float())
+            sample_dir = self.samples[i]
+
+            # Load Daheng image if used
+            if self.use_daheng:
+                daheng_path = sample_dir / "daheng_frame.npy"
+                if daheng_path.exists():
+                    daheng_np = np.load(daheng_path)
+                    daheng_values.append(torch.from_numpy(daheng_np).float())
+
+            # Load MiiCam image if used
+            if self.use_miicam:
+                miicam_path = sample_dir / "miicam_frame.npy"
+                if miicam_path.exists():
+                    miicam_np = np.load(miicam_path)
+                    miicam_values.append(torch.from_numpy(miicam_np).float())
 
         if daheng_values and self.use_daheng:
             daheng_cat = torch.cat(daheng_values)
@@ -501,52 +536,111 @@ class PhasePredictionDataset(Dataset):
         return len(self.samples)
 
     def __getitem__(self, idx: int) -> dict:
-        sample_dir = self.samples[idx]
-        data = torch.load(sample_dir / "sample.pt", weights_only=False)
+        sample_path = str(self.samples[idx])
 
-        # Load phase target
-        phase = data["phase"]  # (H, W)
-        if phase.ndim == 2:
-            phase = phase.unsqueeze(0)  # (1, H, W)
+        # Check cache if enabled
+        if self.cache_data and sample_path in self._cache:
+            cached_result = self._cache[sample_path]
+            # Deep copy to avoid issues with augmentations modifying cached tensors
+            image = cached_result["image"].clone()
+            phase = cached_result["phase"].clone()
+        else:
+            sample_dir = self.samples[idx]
 
-        # Determine crop size: use the smaller image dimension
-        # Default to 512 or smaller if images are smaller
-        default_crop = 512
+            # Load camera images with center detection and cropping
+            channels = []
 
-        # Load camera images with center detection and cropping
-        channels = []
-        if self.use_daheng and "daheng" in data:
-            daheng = data["daheng"]
-            if daheng.ndim == 2:
-                daheng = daheng.unsqueeze(0)
-            # Find center and crop around it
-            center_row, center_col = self._find_center(daheng)
-            # Use reasonable crop size (512 or smaller)
-            crop_size = min(default_crop, daheng.shape[-2], daheng.shape[-1])
-            daheng_cropped = self._crop_and_resize(
-                daheng, (center_row, center_col), crop_size, self.target_size
-            )
-            channels.append(daheng_cropped.unsqueeze(0))
-        if self.use_miicam and "miicam" in data:
-            miicam = data["miicam"]
-            if miicam.ndim == 2:
-                miicam = miicam.unsqueeze(0)
-            # Find center and crop around it
-            center_row, center_col = self._find_center(miicam)
-            crop_size = min(default_crop, miicam.shape[-2], miicam.shape[-1])
-            miicam_cropped = self._crop_and_resize(
-                miicam, (center_row, center_col), crop_size, self.target_size
-            )
-            channels.append(miicam_cropped.unsqueeze(0))
+            if self.use_daheng:
+                # Load Daheng image
+                daheng_path = sample_dir / "daheng_frame.npy"
+                if not daheng_path.exists():
+                    raise ValueError(f"Daheng frame not found: {daheng_path}")
 
-        if not channels:
-            raise ValueError(f"No camera data found in {sample_dir}")
+                daheng_np = np.load(daheng_path)
+                if daheng_np.ndim not in [2, 3]:
+                    raise ValueError(
+                        f"Expected 2D or 3D image for Daheng, got {daheng_np.ndim}D: {daheng_path}"
+                    )
 
-        # Concatenate channels - now all channels have same size
-        image = torch.cat(channels, dim=0)  # (C, H, W)
+                daheng = torch.from_numpy(daheng_np).float()
+                if daheng.ndim == 2:
+                    daheng = daheng.unsqueeze(0)
+
+                # Find center and crop around it
+                center_row, center_col = self._find_center(daheng)
+                # Use reasonable crop size (512 or smaller)
+                crop_size = min(512, daheng.shape[-2], daheng.shape[-1])
+                daheng_cropped = self._crop_and_resize(
+                    daheng, (center_row, center_col), crop_size, self.target_size
+                )
+                channels.append(daheng_cropped.unsqueeze(0))
+
+            if self.use_miicam:
+                # Load MiiCam image
+                miicam_path = sample_dir / "miicam_frame.npy"
+                if not miicam_path.exists():
+                    raise ValueError(f"MiiCam frame not found: {miicam_path}")
+
+                miicam_np = np.load(miicam_path)
+                if miicam_np.ndim not in [2, 3]:
+                    raise ValueError(
+                        f"Expected 2D or 3D image for MiiCam, got {miicam_np.ndim}D: {miicam_path}"
+                    )
+
+                miicam = torch.from_numpy(miicam_np).float()
+                if miicam.ndim == 2:
+                    miicam = miicam.unsqueeze(0)
+
+                # Find center and crop around it
+                center_row, center_col = self._find_center(miicam)
+                crop_size = min(512, miicam.shape[-2], miicam.shape[-1])
+                miicam_cropped = self._crop_and_resize(
+                    miicam, (center_row, center_col), crop_size, self.target_size
+                )
+                channels.append(miicam_cropped.unsqueeze(0))
+
+            if not channels:
+                raise ValueError(f"No camera data found in {sample_dir}")
+
+            # Concatenate channels - now all channels have same size
+            image = torch.cat(channels, dim=0)  # (C, H, W)
+
+            # Load phase target - try .npy first, then fall back to .csv
+            phase_path_npy = sample_dir / "phase.npy"
+            phase_path_csv = sample_dir / "phase.csv"
+
+            if phase_path_npy.exists():
+                # Load phase directly as numpy array (H, W)
+                phase_np = np.load(phase_path_npy)
+                if phase_np.ndim != 2:
+                    raise ValueError(
+                        f"Expected 2D phase map, got {phase_np.ndim}D: {phase_path_npy}"
+                    )
+                phase = torch.from_numpy(phase_np).float()
+                if phase.ndim == 2:
+                    phase = phase.unsqueeze(0)  # (1, H, W)
+            elif phase_path_csv.exists():
+                # Load Zernike coefficients from CSV and convert to phase map
+                coeffs = load_zernike_coefficients(phase_path_csv)
+                phase_np = coefficients_to_phase_map(coeffs, size=self.target_size)
+                phase = torch.from_numpy(phase_np).float().unsqueeze(0)  # (1, H, W)
+            else:
+                raise ValueError(
+                    f"No phase data found in {sample_dir} (neither phase.npy nor phase.csv)"
+                )
+
+            # Cache the raw image and phase if caching is enabled
+            if self.cache_data:
+                self._cache[sample_path] = {
+                    "image": image.clone(),
+                    "phase": phase.clone(),
+                    "sample_idx": idx,
+                    "phase_type": "unknown",
+                    "path": sample_path,
+                }
 
         # Resize phase if needed (only if not already resized above)
-        if self.target_size is not None:
+        if self.target_size is not None and phase.shape[-2:] != self.target_size:
             phase = torch.nn.functional.interpolate(
                 phase.unsqueeze(0),
                 size=self.target_size,
@@ -601,9 +695,9 @@ class PhasePredictionDataset(Dataset):
         return {
             "image": image,  # (C, H, W)
             "phase": phase,  # (1, H, W)
-            "sample_idx": data.get("sample_idx", idx),
-            "phase_type": data.get("phase_type", "unknown"),
-            "path": str(sample_dir),
+            "sample_idx": idx,
+            "phase_type": "unknown",  # Could extract from metadata if needed
+            "path": sample_path,
         }
 
     @property
@@ -652,6 +746,7 @@ class ZernikeCoefficientDataset(Dataset):
         target_size: tuple[int, int] | None = (256, 256),
         normalize_images: bool = True,
         brightness_normalize: bool = True,
+        cache_data: bool = False,  # Cache loaded data in memory for faster access
         random_shift: bool = True,
         shift_range: int = 20,
         random_blur: bool = True,
@@ -668,6 +763,7 @@ class ZernikeCoefficientDataset(Dataset):
             target_size: Resize images to (H, W). None for original.
             normalize_images: Normalize images to [-1, 1].
             brightness_normalize: Apply z-score normalization.
+            cache_data: Cache loaded data in memory for faster access (use with caution for large datasets).
             random_shift: Apply random translation augmentation.
             shift_range: Max pixels to shift.
             random_blur: Apply random Gaussian blur.
@@ -681,12 +777,16 @@ class ZernikeCoefficientDataset(Dataset):
         self.target_size = target_size if target_size else (256, 256)
         self.normalize_images = normalize_images
         self.brightness_normalize = brightness_normalize
+        self.cache_data = cache_data
         self.augment = augment and random_shift
         self.shift_range = shift_range
         self.random_blur = random_blur and augment
         self.blur_sigma_range = blur_sigma_range
 
         self.in_channels = 2 if input_mode == "combined" else 1
+
+        # Initialize cache if enabled
+        self._cache = {} if cache_data else None
 
         # Discover samples
         self.sample_dirs = sorted(self.data_dir.glob("sample_*"))
@@ -914,47 +1014,87 @@ class ZernikeCoefficientDataset(Dataset):
         return len(self.samples)
 
     def __getitem__(self, idx: int) -> dict:
-        sample_dir = self.samples[idx]
+        sample_path = str(self.samples[idx])
 
-        # Load image(s)
-        channels = []
-        if self.input_mode in ("focus", "combined"):
-            daheng = torch.from_numpy(np.load(sample_dir / "daheng_frame.npy")).float()
-            row, col = self._find_center(daheng)
-            crop_size = min(512, daheng.shape[-2], daheng.shape[-1])
-            daheng_proc = self._crop_resize(daheng, (row, col), crop_size)
-            daheng_norm = self._normalize_image(daheng_proc, "daheng")
-            if daheng_norm.ndim == 2:
-                daheng_norm = daheng_norm.unsqueeze(0)
-            channels.append(daheng_norm)
+        # Check cache if enabled
+        if self.cache_data and sample_path in self._cache:
+            cached_result = self._cache[sample_path]
+            # Deep copy to avoid issues with augmentations modifying cached tensors
+            image = cached_result["image"].clone()
+            coefficients = cached_result["coefficients"].clone()
+        else:
+            sample_dir = self.samples[idx]
 
-        if self.input_mode in ("pupil", "combined"):
-            miicam = torch.from_numpy(np.load(sample_dir / "miicam_frame.npy")).float()
-            row, col = self._find_center(miicam)
-            crop_size = min(512, miicam.shape[-2], miicam.shape[-1])
-            miicam_proc = self._crop_resize(miicam, (row, col), crop_size)
-            miicam_norm = self._normalize_image(miicam_proc, "miicam")
-            if miicam_norm.ndim == 2:
-                miicam_norm = miicam_norm.unsqueeze(0)
-            channels.append(miicam_norm)
+            # Load image(s)
+            channels = []
+            if self.input_mode in ("focus", "combined"):
+                daheng_path = sample_dir / "daheng_frame.npy"
+                if not daheng_path.exists():
+                    raise ValueError(f"Daheng frame not found: {daheng_path}")
 
-        image = torch.cat(channels, dim=0)  # (C, H, W)
+                daheng_np = np.load(daheng_path)
+                if daheng_np.ndim not in [2, 3]:
+                    raise ValueError(
+                        f"Expected 2D or 3D image for Daheng, got {daheng_np.ndim}D: {daheng_path}"
+                    )
 
-        # Apply augmentation
+                daheng = torch.from_numpy(daheng_np).float()
+                row, col = self._find_center(daheng)
+                crop_size = min(512, daheng.shape[-2], daheng.shape[-1])
+                daheng_proc = self._crop_resize(daheng, (row, col), crop_size)
+                daheng_norm = self._normalize_image(daheng_proc, "daheng")
+                if daheng_norm.ndim == 2:
+                    daheng_norm = daheng_norm.unsqueeze(0)
+                channels.append(daheng_norm)
+
+            if self.input_mode in ("pupil", "combined"):
+                miicam_path = sample_dir / "miicam_frame.npy"
+                if not miicam_path.exists():
+                    raise ValueError(f"MiiCam frame not found: {miicam_path}")
+
+                miicam_np = np.load(miicam_path)
+                if miicam_np.ndim not in [2, 3]:
+                    raise ValueError(
+                        f"Expected 2D or 3D image for MiiCam, got {miicam_np.ndim}D: {miicam_path}"
+                    )
+
+                miicam = torch.from_numpy(miicam_np).float()
+                row, col = self._find_center(miicam)
+                crop_size = min(512, miicam.shape[-2], miicam.shape[-1])
+                miicam_proc = self._crop_resize(miicam, (row, col), crop_size)
+                miicam_norm = self._normalize_image(miicam_proc, "miicam")
+                if miicam_norm.ndim == 2:
+                    miicam_norm = miicam_norm.unsqueeze(0)
+                channels.append(miicam_norm)
+
+            image = torch.cat(channels, dim=0)  # (C, H, W)
+
+            # Load Zernike coefficients
+            phase_path = sample_dir / "phase.csv"
+            if not phase_path.exists():
+                raise ValueError(f"Phase CSV not found: {phase_path}")
+
+            coeffs = load_zernike_coefficients(phase_path, self.n_zernike_terms)
+            coefficients = torch.from_numpy(coeffs)
+
+            # Cache the raw image and coefficients if caching is enabled
+            if self.cache_data:
+                self._cache[sample_path] = {
+                    "image": image.clone(),
+                    "coefficients": coefficients.clone(),
+                    "sample_idx": idx,
+                    "path": sample_path,
+                }
+
+        # Apply augmentation (only to image, not to coefficients)
         if self.augment:
             image = self._apply_augmentation(image)
 
-        # Load Zernike coefficients
-        coeffs = load_zernike_coefficients(
-            sample_dir / "phase.csv", self.n_zernike_terms
-        )
-        coeffs = torch.from_numpy(coeffs)
-
         return {
             "image": image,
-            "coefficients": coeffs,
+            "coefficients": coefficients,
             "sample_idx": idx,
-            "path": str(sample_dir),
+            "path": sample_path,
         }
 
 
@@ -970,6 +1110,7 @@ def create_zernike_loaders(
     num_workers: int = 0,
     seed: int = 42,
     augment: bool = True,
+    cache_data: bool = False,  # Cache loaded data in memory for faster access
 ) -> tuple[
     torch.utils.data.DataLoader,
     torch.utils.data.DataLoader,
@@ -989,6 +1130,7 @@ def create_zernike_loaders(
         num_workers: DataLoader workers.
         seed: Random seed.
         augment: Enable augmentation.
+        cache_data: Cache loaded data in memory for faster access (use with caution for large datasets).
 
     Returns:
         Tuple of (train_loader, val_loader, test_loader).
@@ -1000,6 +1142,7 @@ def create_zernike_loaders(
         n_max=n_max,
         target_size=target_size,
         augment=augment,
+        cache_data=cache_data,
     )
 
     n = len(dataset.samples)
@@ -1051,6 +1194,7 @@ def create_dataloaders(
     use_daheng: bool = True,
     use_miicam: bool = True,
     seed: int = 42,
+    cache_data: bool = False,  # Cache loaded data in memory for faster access
     # Augmentation parameters
     random_shift: bool = True,
     shift_range: int = 20,
@@ -1068,6 +1212,7 @@ def create_dataloaders(
         use_daheng: Include Daheng camera.
         use_miicam: Include MiiCam camera.
         seed: Random seed for split.
+        cache_data: Cache loaded data in memory for faster access (use with caution for large datasets).
         random_shift: Apply random translation augmentation.
         shift_range: Maximum pixels to shift in each direction.
         random_blur: Apply random Gaussian blur augmentation.
@@ -1081,6 +1226,7 @@ def create_dataloaders(
         target_size=target_size,
         use_daheng=use_daheng,
         use_miicam=use_miicam,
+        cache_data=cache_data,
         random_shift=random_shift,
         shift_range=shift_range,
         random_blur=random_blur,
@@ -1126,6 +1272,7 @@ def create_train_val_test_loaders(
     use_daheng: bool = True,
     use_miicam: bool = True,
     seed: int = 42,
+    cache_data: bool = False,  # Cache loaded data in memory for faster access
     random_shift: bool = True,
     shift_range: int = 20,
     random_blur: bool = True,
@@ -1147,6 +1294,7 @@ def create_train_val_test_loaders(
         use_daheng: Include Daheng camera.
         use_miicam: Include MiiCam camera.
         seed: Random seed for split.
+        cache_data: Cache loaded data in memory for faster access (use with caution for large datasets).
         random_shift: Apply random translation augmentation.
         shift_range: Maximum pixels to shift.
         random_blur: Apply random Gaussian blur.
@@ -1165,6 +1313,7 @@ def create_train_val_test_loaders(
         target_size=target_size,
         use_daheng=use_daheng,
         use_miicam=use_miicam,
+        cache_data=cache_data,
         random_shift=random_shift,
         shift_range=shift_range,
         random_blur=random_blur,
