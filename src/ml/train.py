@@ -43,19 +43,19 @@ from torch.utils.data import DataLoader
 # Set matplotlib backend to Agg to avoid threading issues
 matplotlib.use("Agg")
 
-from ao_shaping.ml.dataset import (
+from ml.phase.dataset import (
     PhasePredictionDataset,
     ZernikeCoefficientDataset,
     create_dataloaders,
     create_zernike_loaders,
 )
-from ao_shaping.ml.models import (
+from ml.zernike.models import (
     MODEL_REGISTRY,
     BasePhasePredictor,
     build_model,
-    build_gan_models,
 )
-from ao_shaping.ml.trainer import PhaseGANTrainer
+from ml.phase import build_unet, build_discriminator
+from ml.phase.trainer import PhaseGANTrainer
 
 
 # =============================================================================
@@ -187,11 +187,12 @@ def train_model(
     # Create criterion
     if is_phase_model:
         # For phase prediction, use PhaseGANTrainer
-        from ao_shaping.ml.trainer import PhaseGANTrainer
+        from ml.phase.trainer import PhaseGANTrainer
         
         # Need to build discriminator for GAN
         in_channels = model.in_channels if hasattr(model, "in_channels") else 2
-        _, discriminator = build_gan_models(in_channels=in_channels, device=device)
+        generator = build_unet(in_channels=in_channels, device=device)
+        discriminator = build_discriminator(in_channels=in_channels + 1, device=device)
         
         trainer = PhaseGANTrainer(
             generator=model,
@@ -875,7 +876,7 @@ def _train_coeffs_mode(
                 pred_coeff = model(test_img).cpu().squeeze(0).numpy()
 
             # Generate phase maps
-            from ao_shaping.ml.dataset import coefficients_to_phase_map
+            from ml.phase.dataset import coefficients_to_phase_map
 
             target_phase = coefficients_to_phase_map(
                 test_coeff.numpy(), size=target_size
@@ -1209,7 +1210,7 @@ def _sweep_coeffs_agent(
 
         # Log test samples every 10 epochs
         if use_wandb and (epoch + 1) % 10 == 0 and len(test_loader.dataset) > 0:
-            from ao_shaping.ml.dataset import coefficients_to_phase_map
+            from ml.phase.dataset import coefficients_to_phase_map
 
             sample_idx = np.random.randint(0, len(test_loader.dataset))
             sample = test_loader.dataset[sample_idx]

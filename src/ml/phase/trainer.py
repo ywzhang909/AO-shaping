@@ -13,7 +13,9 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 import wandb
 
-from ao_shaping.ml.models import UNetGenerator, PatchGANDiscriminator
+# Internal imports - using new ml package paths
+from ml.phase.unet import UNetGenerator
+from ml.phase.discriminator import PatchGANDiscriminator
 
 
 def angular_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
@@ -28,16 +30,13 @@ def angular_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 
     Returns:
         Mean squared angular difference
-    """
+    """if pred.shape[1] != target.shape[1]:
     # Ensure same shape
-    if pred.shape != target.shape:
-        # Handle channel dimension mismatch
-        if pred.ndim == 4 and target.ndim == 4:
-            if pred.shape[1] != target.shape[1]:
-                if pred.shape[1] == 1:
-                    pred = pred.squeeze(1)
-                elif target.shape[1] == 1:
-                    target = target.squeeze(1)
+    if pred.shape != target.shape and pred.ndim == 4 and target.ndim == 4:
+        if pred.shape[1] == 1:
+            pred = pred.squeeze(1)
+        elif target.shape[1] == 1:
+            target = target.squeeze(1)
 
     # Compute angular difference (shortest path)
     diff = torch.remainder(pred - target + torch.pi, 2 * torch.pi) - torch.pi
@@ -92,7 +91,7 @@ class PhaseGANTrainer:
         beta2: float = 0.999,
         gan_mode: str = "vanilla",
         checkpoint_dir: str | Path | None = None,
-        loss_type: str = "angular",  # "l1" or "angular"
+        loss_type: str = "angular",
         use_wandb: bool = False,
         wandb_project: str = "ao-shaping",
         wandb_run_name: str | None = None,
@@ -161,28 +160,18 @@ class PhaseGANTrainer:
         }
 
     def train_step(self, images: torch.Tensor, phases: torch.Tensor) -> dict:
-        """Single training step.
-
-        Args:
-            images: Input camera images (B, C, H, W)
-            phases: Target phase maps (B, 1, H, W)
-
-        Returns:
-            Dict of loss values.
-        """
+        """Single training step."""
         images = images.to(self.device)
         phases = phases.to(self.device)
 
-        # ---- Train Discriminator ----
+        # Train Discriminator
         self.opt_disc.zero_grad()
 
-        # Fake phase (detach generator)
         fake_phase = self.gen(images).detach()
         fake_input = torch.cat([images, fake_phase], dim=1)
         pred_fake = self.disc(fake_input)
         loss_disc_fake = self.gan_loss(pred_fake, target_is_real=False)
 
-        # Real phase
         real_input = torch.cat([images, phases], dim=1)
         pred_real = self.disc(real_input)
         loss_disc_real = self.gan_loss(pred_real, target_is_real=True)
@@ -191,7 +180,7 @@ class PhaseGANTrainer:
         loss_disc.backward()
         self.opt_disc.step()
 
-        # ---- Train Generator ----
+        # Train Generator
         self.opt_gen.zero_grad()
 
         fake_phase = self.gen(images)
@@ -200,7 +189,6 @@ class PhaseGANTrainer:
 
         loss_adv = self.gan_loss(pred_fake, target_is_real=True)
 
-        # Use angular loss or L1 based on configuration
         if self.loss_type == "angular":
             loss_main = self.angular_loss(fake_phase, phases)
         else:
@@ -233,7 +221,6 @@ class PhaseGANTrainer:
 
             pred_phase = self.gen(images)
 
-            # Use angular loss or L1 based on configuration
             if self.loss_type == "angular":
                 loss = self.angular_loss(pred_phase, phases)
             else:
@@ -255,17 +242,7 @@ class PhaseGANTrainer:
         epochs: int = 100,
         save_every: int = 10,
     ) -> dict:
-        """Full training loop.
-
-        Args:
-            train_loader: Training data loader.
-            val_loader: Optional validation loader.
-            epochs: Number of training epochs.
-            save_every: Save checkpoint every N epochs.
-
-        Returns:
-            Training history dict.
-        """
+        """Full training loop."""
         self.gen.train()
         self.disc.train()
 
@@ -292,13 +269,11 @@ class PhaseGANTrainer:
                     epoch_losses[k] += losses[k]
                 n_batches += 1
 
-                pbar.set_postfix(
-                    {
-                        "G": f"{losses['gen_loss']:.4f}",
-                        "D": f"{losses['disc_loss']:.4f}",
-                        loss_key: f"{losses['main_loss']:.4f}",
-                    }
-                )
+                pbar.set_postfix({
+                    "G": f"{losses['gen_loss']:.4f}",
+                    "D": f"{losses['disc_loss']:.4f}",
+                    loss_key: f"{losses['main_loss']:.4f}",
+                })
 
             # Average losses
             for k in epoch_losses:
@@ -310,7 +285,6 @@ class PhaseGANTrainer:
                 val_info = self.validate(val_loader)
                 epoch_losses.update(val_info)
 
-                # Save best model
                 if val_info.get("val_loss", float("inf")) < best_val_loss:
                     best_val_loss = val_info["val_loss"]
                     self.save_checkpoint("best.pt")
@@ -337,30 +311,24 @@ class PhaseGANTrainer:
                 f"Time: {epoch_time:.1f}s"
             )
 
-            # Log to wandb
             if self.use_wandb:
-                wandb.log(
-                    {
-                        "epoch": epoch + 1,
-                        "train/gen_loss": epoch_losses["gen_loss"],
-                        "train/disc_loss": epoch_losses["disc_loss"],
-                        f"train/{loss_key}_loss": epoch_losses["main_loss"],
-                        "train/adv_loss": epoch_losses["adv_loss"],
-                        "val/loss": epoch_losses.get("val_loss", 0),
-                        "train/lr": lr,
-                        "train/time": epoch_time,
-                    }
-                )
+                wandb.log({
+                    "epoch": epoch + 1,
+                    "train/gen_loss": epoch_losses["gen_loss"],
+                    "train/disc_loss": epoch_losses["disc_loss"],
+                    f"train/{loss_key}_loss": epoch_losses["main_loss"],
+                    "train/adv_loss": epoch_losses["adv_loss"],
+                    "val/loss": epoch_losses.get("val_loss", 0),
+                    "train/lr": lr,
+                    "train/time": epoch_time,
+                })
 
-                # Log images at the end of each epoch
                 if self.log_images and val_loader is not None:
                     self._log_val_images(val_loader)
 
-            # Checkpoint
             if (epoch + 1) % save_every == 0 and self.checkpoint_dir:
                 self.save_checkpoint(f"checkpoint_{epoch + 1}.pt")
 
-        # Save final
         if self.checkpoint_dir:
             self.save_checkpoint("final.pt")
             self.save_history()
@@ -372,20 +340,17 @@ class PhaseGANTrainer:
         if not self.checkpoint_dir:
             return
         path = self.checkpoint_dir / filename
-        torch.save(
-            {
-                "generator": self.gen.state_dict(),
-                "discriminator": self.disc.state_dict(),
-                "opt_gen": self.opt_gen.state_dict(),
-                "opt_disc": self.opt_disc.state_dict(),
-                "sched_gen": self.sched_gen.state_dict(),
-                "sched_disc": self.sched_disc.state_dict(),
-                "history": self.history,
-                "lambda_l1": self.lambda_l1,
-                "lambda_adv": self.lambda_adv,
-            },
-            path,
-        )
+        torch.save({
+            "generator": self.gen.state_dict(),
+            "discriminator": self.disc.state_dict(),
+            "opt_gen": self.opt_gen.state_dict(),
+            "opt_disc": self.opt_disc.state_dict(),
+            "sched_gen": self.sched_gen.state_dict(),
+            "sched_disc": self.sched_disc.state_dict(),
+            "history": self.history,
+            "lambda_l1": self.lambda_l1,
+            "lambda_adv": self.lambda_adv,
+        }, path)
 
     def load_checkpoint(self, path: str | Path):
         """Load model checkpoint."""
@@ -409,7 +374,6 @@ class PhaseGANTrainer:
         """Save training history as JSON."""
         if not self.checkpoint_dir:
             return
-        # Convert numpy types for JSON serialization
         serializable = {}
         for k, v in self.history.items():
             serializable[k] = [
@@ -418,7 +382,6 @@ class PhaseGANTrainer:
         with open(self.checkpoint_dir / "training_history.json", "w") as f:
             json.dump(serializable, f, indent=2)
 
-        # Finish wandb
         if self.use_wandb:
             wandb.finish()
 
@@ -426,23 +389,19 @@ class PhaseGANTrainer:
         """Log validation images to wandb."""
         self.gen.eval()
 
-        # Get a batch
         batch = next(iter(val_loader))
         images = batch["image"].to(self.device)
         phases = batch["phase"].to(self.device)
 
-        # Get predictions
         with torch.no_grad():
             pred_phase = self.gen(images)
 
-        # Log first sample of the batch
         idx = 0
         daheng = images[idx, 0].cpu().numpy()
         miicam = images[idx, 1].cpu().numpy()
         true_phase = phases[idx, 0].cpu().numpy()
         pred = pred_phase[idx, 0].cpu().numpy()
 
-        # Create figure
         import matplotlib.pyplot as plt
 
         fig, axes = plt.subplots(1, 4, figsize=(16, 4))
@@ -467,7 +426,6 @@ class PhaseGANTrainer:
 
         plt.tight_layout()
 
-        # Log to wandb
         wandb.log({"val/images": wandb.Image(fig)})
         plt.close(fig)
 
@@ -475,14 +433,7 @@ class PhaseGANTrainer:
 
     @torch.no_grad()
     def predict(self, image: torch.Tensor) -> torch.Tensor:
-        """Predict phase from camera image(s).
-
-        Args:
-            image: Input tensor (B, C, H, W) or (C, H, W).
-
-        Returns:
-            Predicted phase (B, 1, H, W) or (1, H, W).
-        """
+        """Predict phase from camera image(s)."""
         self.gen.eval()
         if image.ndim == 3:
             image = image.unsqueeze(0)
