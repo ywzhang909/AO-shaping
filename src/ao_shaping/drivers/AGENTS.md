@@ -23,7 +23,8 @@ drivers/
 │   ├── santec_slm200.py # Santec SLM-200 SDK
 │   ├── santec_slm200_visa.py
 │   ├── slm_calibration.py
-│   └── slm_pattern_helper.py
+│   ├── zernike_slm.py  # Zernike coefficient-driven SLM
+│   └── _slm_win.py    # SDK bindings (internal)
 ├── wfs/                 # Wavefront Sensors
 │   └── thorlab_wfs.py  # Thorlabs WFS
 ├── tm/                  # Timing Modules

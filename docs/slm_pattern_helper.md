@@ -2,16 +2,10 @@
 
 `PatternHelper` 是 AO-Shaping 项目中的光学相位图案生成工具类，提供多种光学相位图案的生成方法。
 
-> **注意**: 从 `ao_shaping.drivers.slm.slm_pattern_helper` 移动到 `ao_shaping.utils.pattern_helper`
-
 ## 导入
 
 ```python
-# 新位置 (推荐)
 from ao_shaping.utils.pattern_helper import PatternHelper
-
-# 旧位置 (已废弃，可能会在未来版本中删除)
-from ao_shaping.drivers.slm.slm_pattern_helper import PatternHelper
 ```
 
 ```python

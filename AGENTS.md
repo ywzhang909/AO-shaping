@@ -1,6 +1,6 @@
 # AGENTS.md - AO-Shaping Development Guide
 
-**Generated:** 2026-03-22
+**Generated:** 2026-04-25
 
 ## Project Overview
 
@@ -22,14 +22,18 @@ AO-shaping/
 │   │   │   ├── dm/               # Deformable Mirrors (NLight)
 │   │   │   ├── slm/              # Spatial Light Modulators (Santec)
 │   │   │   ├── wfs/              # Wavefront Sensors (Thorlabs)
+│   │   │   ├── tm/               # Timing modules (Serial/FSM)
 │   │   │   ├── sim/              # Digital twin simulation
 │   │   │   └── mock_devices.py   # Mock devices for testing
 │   │   ├── optimizer/            # High-level optimizers
 │   │   │   ├── wf/               # Wavefront-based (RMS)
 │   │   │   ├── wfless/           # Wavefront-sensorless (PIB)
 │   │   │   └── rl/               # Reinforcement learning (SAC)
-│   │   ├── utils/                # Utilities (spots_calc, wavefront_calc)
-│   │   └── gui/                  # GUI components
+│   │   ├── utils/                # Utilities (spots_calc, wavefront_calc, zernike_calc)
+│   │   ├── ml/                  # Machine learning (U-Net+GAN, training, models)
+│   │   ├── tools/                # Standalone tools (SLM phase capture, data collection)
+│   │   ├── display/              # Visualization (Windows, frames for GUI)
+│   │   └── gui/                  # GUI components (Streamlit)
 │   ├── calculators/               # Cython extensions (standalone)
 │   └── optical_ui/                # [DEPRECATED] Empty package
 ├── tests/ao_shaping/              # Tests (mirrors src structure)
@@ -42,13 +46,50 @@ AO-shaping/
 | Task | Location | Notes |
 |------|----------|-------|
 | Hardware drivers | `src/ao_shaping/drivers/` | See drivers/AGENTS.md |
-| Optimization algorithms | `src/ao_shaping/algorithm/` | Adam, SGD, Muon, etc. |
+| Optimization algorithms | `src/ao_shaping/algorithm/` | Adam, SGD, Muon, Tabu search, etc. |
 | Wavefront optimizers | `src/ao_shaping/optimizer/wf/` | RMS optimization |
 | Zernike response matrix | `src/ao_shaping/optimizer/wf/zernike_response_matrix.py` | SLM→WFS Zernike校准 |
 | PIB optimizers | `src/ao_shaping/optimizer/wfless/` | Power-in-bucket |
 | RL training | `src/ao_shaping/optimizer/rl/` | SAC, LR-WFS |
 | Simulation | `src/ao_shaping/drivers/sim/` | Digital twin devices |
+| Utilities | `src/ao_shaping/utils/` | spots_calc, wavefront_calc, zernike_calc, display |
+| ML training | `src/ao_shaping/ml/` | U-Net+GAN, trainer, wandb_logger |
+| Standalone tools | `src/ao_shaping/tools/` | SLM phase capture, train data collection |
+| Visualization | `src/ao_shaping/display/` | Windows, frames for GUI |
+| GUI | `src/ao_shaping/gui/` | Streamlit components |
 | Tests | `tests/ao_shaping/` | Mirror of src structure |
+
+---
+
+## optimizer/ Module
+
+High-level optimizers for wavefront correction and beam shaping:
+
+| Submodule | File | Purpose |
+|----------|------|---------|
+| wf/ | `rms.py` | Wavefront sensor-based RMS optimization |
+| wf/ | `interaction_matrix.py` | DM-WFS interaction matrix |
+| wf/ | `zernike_response_matrix.py` | Zernike calibration |
+| wfless/ | `pib.py` | Power-in-bucket optimization |
+| wfless/ | `sim_spgd.py` | Simulated SPGD |
+| rl/ | `sac_train.py` | SAC reinforcement learning |
+| rl/ | `lr_wfs.py` | Learning-based wavefront sensing |
+
+---
+
+## utils/ Module
+
+Utility functions for image processing and calculations:
+
+| File | Purpose |
+|------|---------|
+| `spots_calc.py` | Centroid calculation, sharpness metrics |
+| `wavefront_calc.py` | Wavefront reconstruction from spots |
+| `zernike_calc.py` | Zernike polynomial generation |
+| `matrix_utils.py` | Matrix operations |
+| `display.py` | Visualization utilities |
+| `pattern_helper.py` | SLM pattern generation |
+| `file.py` | File I/O utilities |
 
 ---
 

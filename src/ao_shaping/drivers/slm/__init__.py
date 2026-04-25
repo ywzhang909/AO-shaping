@@ -34,15 +34,15 @@ Calibration Example:
 
 from .santec_slm200 import SantecSLM200, SantecSLM200Error
 from .zernike_slm import ZernikeSLM, ZernikeSLMError
-from .slm_pattern_helper import PatternHelper
 
 __all__ = [
-    "PatternHelper",
     "SantecSLM200",
     "SantecSLM200Error",
     "ZernikeSLM",
     "ZernikeSLMError",
 ]
+
+# Note: PatternHelper is in ao_shaping.utils.pattern_helper
 
 # 可选导入 PyVISA 兼容类
 try:
