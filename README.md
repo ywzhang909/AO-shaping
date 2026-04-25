@@ -8,25 +8,43 @@ AO-Shaping是一个基于强化学习的自适应光学(AO)系统，用于波前
 
 - **多优化算法**: 支持基于波前传感器的RMS优化和无波前的PIB优化
 - **强化学习集成**: 使用SAC算法进行波前优化
-- **硬件支持**: 兼容Thorlabs WFS波前传感器、NLight变形镜和大恒相机
+- **硬件支持**: 兼容Thorlabs WFS波前传感器、NLight变形镜、大恒相机、MIICAM和Santec SLM200
 - **可视化工具**: 提供实时波前和电压可视化功能
 - **数据处理**: 集成Dask进行高性能数据处理和分析
-- **实验跟踪**: 使用SwanLab进行实验管理和可视化
+- **实验跟踪**: 支持WandB和SwanLab进行实验管理和可视化
+- **ML训练**: 支持U-Net+GAN相位预测模型训练和推理
 
 ## 项目结构
 
-src/ 
-├── ao_shaping/ # 主程序包 
-│ ├── main.py # 命令行入口点 
-│ ├── wf_runner.py # 波前优化器 
-│ ├── axis_beam_runner.py # 轴向光束优化器 
-│ ├── pipeline_runner.py # 串行 WF→PIB 流水线 
-│ ├── algorithm/ # 优化算法实现 
-│ ├── drivers/ # 硬件驱动 
-│ ├── optimizer/ # 优化器模块 
-│ ├── utils/ # 工具函数 
-│ └── display/ # 显示和可视化模块
-
+```
+AO-shaping/
+├── src/
+│   ├── ao_shaping/          # 主程序包
+│   │   ├── main.py              # CLI入口点 (Click-based)
+│   │   ├── wf_runner.py         # 波前RMS优化器
+│   │   ├── axis_beam_runner.py  # PIB优化器
+│   │   ├── pipeline_runner.py  # 串行 WF→PIB 流水线
+│   │   ├── algorithm/           # 优化算法 (Adam, SGD, Muon等)
+│   │   ├── drivers/             # 硬件驱动
+│   │   │   ├── ccd/             # 相机 (Daheng, MiiCam)
+│   │   │   ├── dm/              # 变形镜 (NLight)
+│   │   │   ├── slm/             # 空间光调制器 (Santec)
+│   │   │   ├── wfs/             # 波前传感器 (Thorlabs)
+│   │   │   ├── sim/             # 数字孪生仿真
+│   │   │   └── mock_devices.py # 测试用模拟设备
+│   │   ├── optimizer/           # 高层优化器
+│   │   │   ├── wf/              # 波前优化 (RMS)
+│   │   │   ├── wfless/          # 无波前优化 (PIB)
+│   │   │   └── rl/              # 强化学习 (SAC, LR-WFS)
+│   │   ├── utils/               # 工具函数 (spots_calc, wavefront_calc)
+│   │   ├── gui/                 # GUI组件 (Streamlit)
+│   │   └── recorder.py          # 数据记录器
+│   ├── calculators/             # Cython扩展 (独立)
+│   └── optical_ui/             # [已废弃]
+├── tests/ao_shaping/            # 测试 (镜像src结构)
+├── scripts/                     # 实用脚本
+└── AGENTS.md                    # 开发指南
+```
 
 ## 安装指南
 
@@ -34,6 +52,7 @@ src/
 
 - Python 3.12+
 - Windows/Linux/macOS
+- CUDA (可选，用于GPU加速)
 
 ### 安装步骤
 
@@ -45,7 +64,7 @@ cd AO-shaping
 
 2. 创建虚拟环境:
 ```bash
-python -m venv .venv
+uv venv .venv
 source .venv/bin/activate  # Linux/macOS
 # 或
 .venv\Scripts\activate     # Windows
@@ -58,7 +77,7 @@ uv sync
 
 ## 使用说明
 
-### 主要操作命令
+### CLI命令 (基于Click)
 
 项目提供了统一的命令行界面，通过`main.py`作为入口点：
 
@@ -132,6 +151,11 @@ python src/ao_shaping/main.py pipeline [OPTIONS]
 python src/ao_shaping/main.py pipeline --epochs 6000 --debug
 ```
 
+#### Zernike响应矩阵校准 (zernike-matrix)
+```bash
+python src/ao_shaping/main.py zernike-matrix [OPTIONS]
+```
+
 ### 串行流水线优化器处理流程详解
 
 串行流水线优化器采用分阶段优化策略，集成了波前传感器和CCD相机的优势，通过两个阶段的优化实现高质量的光束输出。
@@ -140,10 +164,11 @@ python src/ao_shaping/main.py pipeline --epochs 6000 --debug
 
 组合优化器集成了多种硬件设备协同工作：
 
-1. **波前传感器(WFS)**：Thorlab WFS系列设备，用于测量光波前的畸变
-2. **变形镜(DM)**：NlightDM设备，用于校正光波前
-3. **CCD相机**：大恒相机系统，用于捕捉远场光斑图像
-4. **计算单元**：运行优化算法的计算机系统
+1. **波前传感器(WFS)**：Thorlabs WFS系列设备，用于测量光波前的畸变
+2. **变形镜(DM)**：NLight DM设备，用于校正光波前
+3. **CCD相机**：大恒相机/MIICAM系统，用于捕捉远场光斑图像
+4. **空间光调制器(SLM)**：Santec SLM200，用于相位调制
+5. **计算单元**：运行优化算法的计算机系统
 
 #### 2. 算法流程
 
@@ -211,36 +236,114 @@ python src/ao_shaping/wf_runner.py [OPTIONS]
 python src/ao_shaping/axis_beam_runner.py [OPTIONS]
 ```
 
-3. 组合优化器:
+3. 组合优化器 (NOT wired to main CLI):
 ```bash
 python src/ao_shaping/combined_runner.py [OPTIONS]
 ```
 
+### ML训练 (U-Net+GAN相位预测)
+
+项目支持使用深度学习模型进行相位预测训练和推理：
+
+```bash
+# 训练
+python scripts/train_phase_prediction.py --config configs/train_config.yaml
+
+# 推理
+python scripts/inference_phase.py --model models/best_model.pth --input input.png
+```
+
+### GUI界面 (Streamlit)
+
+项目提供了基于Streamlit的图形界面：
+
+```bash
+streamlit run src/ao_shaping/gui/app.py
+```
+
 ## 硬件支持
 
-- **波前传感器**: Thorlabs WFS系列
-- **变形镜**: NLight系列
-- **相机**: 大恒相机系列
-- **数据采集卡**: NI DAQ设备
+### 波前传感器
+- **Thorlabs WFS系列**: 支持自动图像采集和倾斜去除
+
+### 变形镜
+- **NLight系列**: 支持电压控制和电压差安全检查
+
+### 相机
+- **大恒相机系列**: DahengCamManager，支持14位和16位模式
+- **MIICAM系列**: MIICamDriver，支持高速采集
+
+### 空间光调制器
+- **Santec SLM200**: 支持相位图案生成、缓存和CSV加载
+
+### 数据采集卡
+- **NI DAQ设备**: 用于多设备同步控制
+
+## 仿真环境
+
+项目包含完整的数字孪生仿真环境，支持无硬件测试：
+
+```bash
+python -c "from ao_shaping.drivers.sim import SimTurbulenceAOEnv; env = SimTurbulenceAOEnv()"
+```
+
+仿真模块包括:
+- 变形镜仿真 (带迟滞特性)
+- 波前传播仿真
+- 湍流生成
+- 光束传播
 
 ## 开发指南
 
 ### 代码规范
 
 - 遵循PEP8代码风格
-- 使用类型提示
+- 使用类型提示 (Python 3.12+)
+- 使用`loguru`进行日志记录
 - 编写单元测试
 
 ### 贡献流程
 
 1. Fork项目
 2. 创建功能分支
-3. 提交更改
+3. 提交更改 (遵循conventional commits)
 4. 发起Pull Request
 
 ### 测试
 
-运行测试套件:
 ```bash
-pytest
+# 运行所有测试
+pytest -v
+
+# 运行特定测试文件
+pytest tests/ao_shaping/utils/test_spots_calc.py
+
+# 运行测试并查看输出
+pytest -s
+
+# 运行特定测试函数
+pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_uniform
 ```
+
+### 文档
+
+- [AGENTS.md](AGENTS.md): 开发指南和项目架构
+- [drivers/AGENTS.md](src/ao_shaping/drivers/AGENTS.md): 硬件驱动文档
+
+## 近期更新
+
+### v0.2.0 (2026-03)
+- 新增SLM (Santec SLM200) 支持
+- 重构相机驱动 (DahengCamManager, MIICamDriver)
+- 支持14位相机模式
+- 新增U-Net+GAN相位预测训练
+- 集成WandB实验跟踪
+- 重构仿真模块到 `drivers/sim/`
+- 新增Zernike多项式计算工具
+- 添加AGENTS.md开发文档
+
+### v0.1.0
+- 基础波前优化功能
+- PIB优化功能
+- 串行流水线优化
+- SAC强化学习集成

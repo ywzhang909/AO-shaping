@@ -28,7 +28,7 @@ import time
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Any, Any
 
 import numpy as np
 from loguru import logger
@@ -37,6 +37,7 @@ from tqdm import tqdm
 if TYPE_CHECKING:
     from ao_shaping.drivers.slm.zernike_slm import ZernikeSLM
     from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager
+    from ao_shaping.utils.display import ZernikeCalibrationDisplay
 
 
 # 默认参数
@@ -211,6 +212,7 @@ def measure_zernike_mode_response(
 
 # Re-export from matrix_utils for public API compatibility
 from ao_shaping.utils.matrix_utils import compute_pinv, compute_lstsq
+from ao_shaping.utils.display import ZernikeCalibrationDisplay
 
 
 def calibrate_zernike_response_matrix(
@@ -224,6 +226,7 @@ def calibrate_zernike_response_matrix(
     excluded_piston: bool = True,
     compute_inverses: bool = True,
     verbose: bool = True,
+    display: "ZernikeCalibrationDisplay | None" = None,
 ) -> ZernikeResponseMatrixResult:
     """校准Zernike响应矩阵 (增强版)
 
@@ -240,6 +243,7 @@ def calibrate_zernike_response_matrix(
         excluded_piston: 是否排除piston (Z1)
         compute_inverses: 是否计算逆矩阵
         verbose: 是否显示进度条
+        display: 可选的ZernikeCalibrationDisplay实例，用于实时可视化
 
     Returns:
         ZernikeResponseMatrixResult对象，包含响应矩阵、方差和逆矩阵
@@ -259,6 +263,10 @@ def calibrate_zernike_response_matrix(
     set_slm_flat(zslm._slm)
     time.sleep(wait_time * 2)
 
+    # Initialize display window if provided
+    if display is not None:
+        display.init_window()
+
     mode_indices = range(n_slm_terms)
     if verbose:
         mode_indices = tqdm(mode_indices, desc="校准进度")
@@ -276,7 +284,21 @@ def calibrate_zernike_response_matrix(
         response_matrix[:, i] = mean_resp
         variance_matrix[:, i] = var_resp
 
-    set_slm_flat(zslm._slm)
+        # Update display if provided
+        if display is not None:
+            mode_name = f"Z{i + 2}"  # Zernike modes start from Z2 (Noll index 1)
+            continue_flag = display.update(
+                mode_index=i,
+                mode_name=mode_name,
+                response_col=mean_resp,
+                variance_col=var_resp,
+                current_cycle=n_cycles,
+                total_cycles=n_cycles,
+                mean_variance=float(np.mean(var_resp)),
+            )
+            if not continue_flag:
+                logger.warning("用户关闭了显示窗口，校准终止")
+                break
 
     # 计算逆矩阵 (可选)
     pinv_matrix = None
@@ -309,6 +331,10 @@ def calibrate_zernike_response_matrix(
         f"max_variance={result.max_variance:.6f}, "
         f"timestamp={result.timestamp}"
     )
+
+    # Close display window if provided
+    if display is not None:
+        display.close()
 
     return result
 
