@@ -11,7 +11,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
-from ao_shaping.drivers.slm.slm_pattern_helper import PatternHelper
+from ao_shaping.utils.pattern_helper import PatternHelper
 
 # Global pattern helpers (will be recreated per-SLM based on resolution)
 # Note: Resolution and bit depth now come from the SLM object when generating patterns

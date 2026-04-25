@@ -1,4 +1,4 @@
-# 相位图案生成函数
+# Pattern Helper - 光学相位图案生成工具
 from __future__ import annotations
 
 import numpy as np
@@ -9,8 +9,49 @@ from aotools.turbulence import PhaseScreenKolmogorov
 from aotools import ft_phase_screen
 
 
-
 class PatternHelper:
+    """光学相位图案生成工具类。
+
+    提供多种光学相位图案的生成方法，用于SLM（空间光调制器）等显示设备。
+
+    用法示例:
+    ```python
+    from ao_shaping.utils.pattern_helper import PatternHelper
+
+    ph = PatternHelper(resolution=(256, 256), bits=10)
+
+    # 生成棋盘格图案
+    checker = ph.generate_checkerboard(period=32)
+
+    # 生成Zernike模式
+    zernike = ph.generate_zernike(n=4, m=0, amplitude=1.0)
+
+    # 生成聚焦透镜
+    focus = ph.generate_focus(focal_length=0.5, wavelength=532e-9, pixel_size=8e-6)
+    ```
+
+    属性:
+        x, y: 1D坐标 (中心为0)
+        xx, yy: 2D网格坐标
+        R: 径向距离
+        Theta: 角向坐标
+        mask: 圆形光阑掩模
+        pixel_x, pixel_y: 像素坐标
+
+    图案类型:
+        - checkerboard: 棋盘格
+        - binary_grating: 二值光栅
+        - microlens_array: 微透镜阵列
+        - turbulence: 湍流相位屏
+        - zernike: Zernike模式
+        - focus: 聚焦透镜
+        - dammann: Dammann光栅
+        - linear_grating: 线性光栅
+        - circular_grating: 圆形光栅
+        - lens: 透镜模式
+        - hologram: 全息图
+    """
+
     def __init__(self, resolution: tuple[int, int], bits: int = 10) -> None:
         self.resolution = resolution
         self.bits = bits
@@ -95,6 +136,14 @@ class PatternHelper:
         return self._pixel_y
 
     def generate_checkerboard(self, period: int = 100) -> np.ndarray:
+        """生成棋盘格图案。
+
+        Args:
+            period: 棋盘格周期（像素）
+
+        Returns:
+            棋盘格图案 (uint16)
+        """
         max_val = self._max_val
 
         y = np.arange(self._height) // period
@@ -109,6 +158,16 @@ class PatternHelper:
     def generate_binary_grating(
         self, a: int = 2, b: int = 3, direction: str = "horizontal"
     ) -> np.ndarray:
+        """生成二值光栅。
+
+        Args:
+            a: 明条纹宽度
+            b: 暗条纹宽度
+            direction: "horizontal" 或 "vertical"
+
+        Returns:
+            二值光栅图案 (uint16)
+        """
         height, width = self._height, self._width
         max_val = (2**self.bits - 1) // 2
 
@@ -130,6 +189,17 @@ class PatternHelper:
         wavelength: float = 532e-9,
         pixel_size: float = 8e-6,
     ) -> np.ndarray:
+        """生成微透镜阵列。
+
+        Args:
+            lens_size: 单个透镜尺寸（像素）
+            focal_length: 焦距 (m)
+            wavelength: 波长 (m)
+            pixel_size: 像素大小 (m)
+
+        Returns:
+            微透镜阵列图案 (uint16)
+        """
         height, width = self._height, self._width
         max_val = self._max_val
 
@@ -162,25 +232,22 @@ class PatternHelper:
         random_seed: int | None = None,
         method: str = "kolmogorov",
     ) -> np.ndarray:
-        """Generate turbulence phase screen.
+        """生成湍流相位���。
 
         Args:
-            Cn2: Refractive index structure constant (m^(2/3)).
-                Default 1e-14 corresponds to weak turbulence.
-            L: Propagation path length in meters.
-            wavelength: Wavelength in meters.
-            pixel_size: Pixel size in meters.
-            screen_size: Physical size of the screen in meters.
-                Defaults to max(height, width) * pixel_size.
-            L0: Outer scale in meters. Defaults to 10 * screen_size.
-            l0: Inner scale in meters. Defaults to pixel_size * 2.
-            random_seed: Random seed for reproducibility.
-                Only used when method='kolmogorov'.
-            method: 'kolmogorov' (PhaseScreenKolmogorov) or 'vankarman' (ft_phase_screen).
-                Defaults to 'kolmogorov'.
+            Cn2: 折射率结构常数 (m^(2/3))。
+                默认 1e-14 对应弱湍流。
+            L: 传播路径长度 (m)
+            wavelength: 波长 (m)
+            pixel_size: 像素大小 (m)
+            screen_size: 屏幕物理尺寸 (m)。默认 max(h,w) * pixel_size
+            L0: 外尺度 (m)。默认 10 * screen_size
+            l0: 内尺度 (m)。默认 pixel_size * 2
+            random_seed: 随机种子（用于 kolmogorov 方法）
+            method: "kolmogorov" 或 "vankarman"
 
         Returns:
-            Turbulence phase screen in radians (normalized to [0, 2π)).
+            湍流相位屏 (uint16, 0 到 2π)
         """
         height, width = self._height, self._width
         max_val = self._max_val
@@ -192,7 +259,6 @@ class PatternHelper:
             L0 = 10 * screen_size
         if l0 is None:
             l0 = pixel_size * 2
-
 
         # Compute Fried parameter r0 from Cn2
         r0 = (wavelength**2 / (Cn2 * L * 0.033 * (2 * np.pi) ** 2)) ** (3 / 5)
@@ -237,20 +303,19 @@ class PatternHelper:
         amplitude: float = 1.0,
         radius: float | None = None,
     ) -> np.ndarray:
-        """Generate single Zernike mode phase pattern.
+        """生成单个Zernike模式。
 
         Args:
-            n: Zernike radial order.
-            m: Zernike azimuthal frequency.
-            amplitude: Zernike coefficient amplitude.
-            radius: Pupil radius in pixels. Defaults to half of min dimension.
+            n: Zernike径向阶数
+            m: Zernike角向阶数
+            amplitude: 振幅
+            radius: 瞳孔半径（像素）。默认 min(h,w)/2
 
         Returns:
-            Phase pattern as uint16 (0 to 2^bits-1).
+            Zernike相位图案 (uint16, 0 到 2^bits-1)
         """
         gen = ZernikeGenerator(resolution=(self._height, self._width), radius=radius)
         gen.set_bits(self.bits)
-        # generate() internally needs bases cached; precompute up to needed Noll index
         j = nm_to_noll(n, m)
         gen.precompute_bases(j)
         return gen.generate(n, m, amplitude)
@@ -260,15 +325,14 @@ class PatternHelper:
         coefficients: dict[tuple[int, int], float] | None = None,
         radius: float | None = None,
     ) -> np.ndarray:
-        """Generate multi-mode Zernike polynomial phase pattern.
+        """生成多模式Zernike多项式。
 
         Args:
-            n_max: Maximum radial order. Used to precompute Zernike bases.
-            coefficients: Dict of {(n, m): amplitude}. Defaults to piston only.
-            radius: Pupil radius in pixels. Defaults to half of min dimension.
+            coefficients: {(n, m): amplitude} 字典
+            radius: 瞳孔半径（像素）
 
         Returns:
-            Phase pattern as uint16 (0 to 2^bits-1).
+            Zernike相位图案 (uint16)
         """
         gen = ZernikeGenerator(resolution=(self._height, self._width), radius=radius)
         gen.set_bits(self.bits)
@@ -285,13 +349,13 @@ class PatternHelper:
         return gen.generate_polynomial(coefficients)
 
     def to_uint16(self, phase_radians: np.ndarray) -> np.ndarray:
-        """Convert phase in radians to uint16 for SLM display.
+        """将弧度相位转换为uint16格式。
 
         Args:
-            phase_radians: Phase array in radians (0 to phase_range)
+            phase_radians: 弧度相位数组
 
         Returns:
-            Phase array in uint16 format (0 to 2^bits - 1)
+            uint16格式相位数组 (0 到 2^bits-1)
         """
         phase_wrapped = np.mod(phase_radians, 2 * np.pi)
         img = (phase_wrapped / (2 * np.pi) * self._max_val).astype(np.uint16)
@@ -304,7 +368,17 @@ class PatternHelper:
         pixel_size: float = 8e-6,
         wrap_phase: bool = True,
     ) -> np.ndarray:
-        """Generate focus pattern (lens phase)."""
+        """生成聚焦图案（透镜相位）。
+
+        Args:
+            focal_length: 焦距 (m)
+            wavelength: 波长 (m)
+            pixel_size: 像素大小 (m)
+            wrap_phase: 是否包裹相位
+
+        Returns:
+            聚焦图案 (uint16 或弧度)
+        """
         max_val = self._max_val
         R2 = self.xx**2 + self.yy**2
         phase = (np.pi / wavelength / focal_length) * (R2 * pixel_size**2)
@@ -318,15 +392,14 @@ class PatternHelper:
     def generate_dammann_grating(
         self, order: int = 3, fill_factor: float = 0.5
     ) -> np.ndarray:
-        """
-        Generate a Dammann grating phase pattern
+        """生成Dammann光栅。
 
         Args:
-            order: Number of diffraction orders in each direction (typically 2, 3, 4)
-            fill_factor: Ratio of transparent area in each cell (0.0 to 1.0)
+            order: 衍射级次数量 (通常 2, 3, 4)
+            fill_factor: 填充因子 (0.0 到 1.0)
 
         Returns:
-            Phase pattern (0 or max_val)
+            Dammann光栅图案 (uint16)
         """
         height, width = self.resolution[1], self.resolution[0]
         max_val = 2**self.bits - 1
@@ -334,28 +407,21 @@ class PatternHelper:
         if order <= 0:
             order = 1
 
-        # Calculate the size of each grating element
         elem_width = width // order
         elem_height = height // order
 
-        # Create the Dammann grating pattern
         img = np.zeros((height, width), dtype=np.uint16)
 
-        # Fill each grating element with alternating phase values
         for i in range(order):
             for j in range(order):
-                # Define the region for this grating element
                 y_start = i * elem_height
                 y_end = min((i + 1) * elem_height, height)
                 x_start = j * elem_width
                 x_end = min((j + 1) * elem_width, width)
 
-                # Determine phase based on position (alternating 0 and pi)
                 if (i + j) % 2 == 0:
-                    # Set to max phase (pi phase shift)
                     img[y_start:y_end, x_start:x_end] = max_val
                 else:
-                    # Set to zero phase
                     img[y_start:y_end, x_start:x_end] = 0
 
         return img
@@ -366,7 +432,16 @@ class PatternHelper:
         phase_range: float = 2 * np.pi,
         wrap_phase: bool = True,
     ) -> np.ndarray:
-        """Generate linear (blazed) grating pattern."""
+        """生成线性（闪耀）光栅。
+
+        Args:
+            period: 光栅周期
+            phase_range: 最大相位范围 (弧度)
+            wrap_phase: 是否包裹相位
+
+        Returns:
+            线性光栅图案
+        """
         max_val = self._max_val
         phase = (self.xx / period) * phase_range
 
@@ -383,7 +458,16 @@ class PatternHelper:
         phase_range: float = 2 * np.pi,
         wrap_phase: bool = True,
     ) -> np.ndarray:
-        """Generate circular (radial) grating pattern."""
+        """生成圆形（径向）光栅。
+
+        Args:
+            radius: 光栅半径
+            phase_range: 最大相位范围
+            wrap_phase: 是否包裹相位
+
+        Returns:
+            圆形光栅图案
+        """
         max_val = self._max_val
         rr = np.sqrt(self.xx**2 + self.yy**2)
         phase = (rr / radius) * phase_range
@@ -401,7 +485,16 @@ class PatternHelper:
         wavelength: float = 532e-9,
         pixel_size: float = 8e-6,
     ) -> np.ndarray:
-        """Generate lens (focus) phase pattern."""
+        """生成透镜相位模式。
+
+        Args:
+            focal_length: 焦距 (m)
+            wavelength: 波长 (m)
+            pixel_size: 像素大小 (m)
+
+        Returns:
+            透镜相位 (弧度, 未包裹)
+        """
         xx = self.pixel_x * pixel_size
         yy = self.pixel_y * pixel_size
         xx, yy = np.meshgrid(xx, yy)
@@ -411,14 +504,14 @@ class PatternHelper:
         return np.mod(phase, 2 * np.pi)
 
     def hologram(self, period: float, phase_range: float = 2 * np.pi) -> np.ndarray:
-        """Generate hologram (alias for linear_grating).
+        """生成全息图（线性光栅的别名）。
 
         Args:
-            period: Grating period in pixels
-            phase_range: Maximum phase range in radians (default 2π)
+            period: 光栅周期 (像素)
+            phase_range: 最大相位范围 (弧度)
 
         Returns:
-            Phase pattern in radians (0 to phase_range), wrapped
+            相位图案 (弧度)
         """
         return self.linear_grating(period=period, phase_range=phase_range, wrap_phase=False)
 
@@ -429,38 +522,24 @@ class PatternHelper:
         order: int = 3,
         phase_range: float = 2 * np.pi,
     ) -> np.ndarray:
-        """Generate a Dammann grating phase pattern.
-
-        A Dammann grating is a binary-phase grating that generates uniform diffraction orders.
-        It creates a specific number of equally intense spots at regular intervals.
+        """生成Dammann光栅相位图案。
 
         Args:
-            width: Width of the output pattern in pixels
-            height: Height of the output pattern in pixels
-            order: Number of diffraction orders (typically 2, 3, 4, etc.)
-            phase_range: Total phase range in radians (default 2π)
+            width: 宽度
+            height: 高度
+            order: 衍射级次
+            phase_range: 相位范围
 
         Returns:
-            Phase pattern array in radians
+            相位图案 (弧度)
         """
-        # Create coordinate grids
         if order <= 1:
-            order = 2  # Minimum order is 2
+            order = 2
 
-        # Calculate the Dammann grating pattern
-        # For a 1D Dammann grating, the phase follows a specific sequence to create uniform orders
-        # For 2D, we can combine two 1D gratings orthogonally
-
-        # Calculate the spatial frequency for the specified order
-        # The grating period is chosen such that it creates the desired number of orders
         period_x = width // order
         period_y = height // order
 
-        # Create the phase pattern based on Dammann grating principles
-        # This implementation creates a pattern that generates uniform diffraction orders
-        phase_x = (self.xx // period_x) % 2 * np.pi  # Alternate 0 and π phases
-        phase_y = (self.yy // period_y) % 2 * np.pi  # Alternate 0 and π phases
+        phase_x = (self.xx // period_x) % 2 * np.pi
+        phase_y = (self.yy // period_y) % 2 * np.pi
 
-        # Combine both dimensions (XOR-like behavior)
         return np.mod(phase_x + phase_y, phase_range)
-

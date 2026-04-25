@@ -36,7 +36,7 @@ import matplotlib.pylab as plt
 
 from ao_shaping.drivers import CameraStreamManager
 from ao_shaping.drivers.slm import SantecSLM200
-from ao_shaping.drivers.slm.slm_pattern_helper import PatternHelper
+from ao_shaping.utils.pattern_helper import PatternHelper
 from ao_shaping.algorithm.adam import AdaMOD, Adam, AdamW, Base, Muno, MunoW, SGD
 from ao_shaping.utils import logger, Recorder
 from ao_shaping.utils.file import gen_date_dir, gen_date_str

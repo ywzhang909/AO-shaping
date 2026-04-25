@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.drivers.slm.slm_pattern_helper import PatternHelper, SLMPatternHelper
+from ao_shaping.utils.pattern_helper import PatternHelper
 
 
 class TestPatternHelperTurbulence:
