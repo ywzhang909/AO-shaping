@@ -23,7 +23,7 @@ def _initialize_slm_state() -> None:
         st.session_state.slm1_connected = False
         st.session_state.slm1_wavelength = 1064
         st.session_state.slm1_video_mode = 0
-        st.session_state.slm1_next_memory = 1
+        st.session_state.slm1_next_memory = np.random.randint(1, 128)
         st.session_state.slm1_phase_preview = None
         st.session_state.slm1_phase_source = "暂无"
 
@@ -32,7 +32,7 @@ def _initialize_slm_state() -> None:
         st.session_state.slm2_connected = False
         st.session_state.slm2_wavelength = 1064
         st.session_state.slm2_video_mode = 0
-        st.session_state.slm2_next_memory = 1
+        st.session_state.slm2_next_memory = np.random.randint(1, 128)
         st.session_state.slm2_phase_preview = None
         st.session_state.slm2_phase_source = "暂无"
 
@@ -359,7 +359,7 @@ def generate_phase_gray(
     wavelength_nm = slm.wavelength
 
     # Create unified pattern helper
-    helper = PatternHelper((height, width), bits=bits)
+    helper = PatternHelper((width, height), bits=bits)
 
     # Phase pattern generation mapping
     if pattern_type == "平场":
@@ -386,6 +386,7 @@ def generate_phase_gray(
             focal_length=float(params["focal_length_mm"]) * 1e-3,  # mm -> m
             wavelength=float(wavelength_nm) * 1e-9,  # nm -> m
             pixel_size=float(pixel_size) * 1e-6,  # um -> m
+            radius=float(params["radius"]),
         )
         return slm.create_phase_from_array(phase_rad)
     if pattern_type == "全息光栅":
@@ -439,9 +440,7 @@ def generate_phase_gray(
     if pattern_type == "达曼光栅":
         order = int(params.get("order", 3))
         fill_factor = float(params.get("fill_factor", 0.5))
-        return gray_helper.generate_dammann_grating(
-            order=order, fill_factor=fill_factor
-        )
+        return helper.generate_dammann_grating(order=order, fill_factor=fill_factor)
     raise ValueError(f"未知相位图类型: {pattern_type}")
 
 

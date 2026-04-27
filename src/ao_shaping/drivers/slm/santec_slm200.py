@@ -29,10 +29,153 @@ class VideoMode(IntEnum):
     DVI = 1
 
 
-class SantecSLM200Error(Exception):
-    """Santec SLM-200 驱动错误"""
+class SLMErrorCode(IntEnum):
+    """SLM SDK 错误码定义
 
-    pass
+    对应Santec SLM-200官方手册中的错误代码。
+    """
+
+    # SLM 基础错误码
+    SLM_OK = 0
+    SLM_NG = 1
+    SLM_IS_BUSY = 2
+    SLM_PARAMETER_ERROR = 3
+
+    # 显示/显示器相关错误
+    SLM_INVALID_MONITOR = -1
+    SLM_NOT_OPEN_MONITOR = -2
+    SLM_OPEN_WINDOW_ERR = -3
+    SLM_DATA_FORMAT_ERR = -4
+    SLM_FILE_READ_ERR = -101
+
+    # USB/连接相关错误
+    SLM_NOT_OPEN_USB = -200
+
+    # 通用错误
+    SLM_OTHER_ERROR = -1000
+
+    # FTDI USB驱动错误
+    FT_INVALID_HANDLE = -10001
+    FT_DEVICE_NOT_FOUND = -10002
+    FT_DEVICE_NOT_OPENED = -10003
+    FT_IO_ERROR = -10004
+    FT_INSUFFICIENT_RESOURCES = -10005
+    FT_INVALID_PARAMETER = -10006
+    FT_INVALID_BAUD_RATE = -10007
+    FT_DEVICE_NOT_OPENED_FOR_ERASE = -10008
+    FT_DEVICE_NOT_OPENED_FOR_WRITE = -10009
+    FT_FAILED_TO_WRITE_DEVICE = -10010
+    FT_EEPROM_READ_FAILED = -10011
+    FT_EEPROM_WRITE_FAILED = -10012
+    FT_EEPROM_ERASE_FAILED = -10013
+    FT_EEPROM_NOT_PRESENT = -10014
+    FT_EEPROM_NOT_PROGRAMMED = -10015
+    FT_INVALID_ARGS = -10016
+    FT_NOT_SUPPORTED = -10017
+    FT_NO_MORE_ITEMS = -10018
+    FT_TIMEOUT = -10019
+    FT_OPERATION_ABORTED = -10020
+    FT_RESERVED_PIPE = -10021
+    FT_INVALID_CONTROL_REQUEST_DIRECTION = -10022
+    FT_INVALID_CONTROL_REQUEST_TYPE = -10023
+    FT_IO_PENDING = -10024
+    FT_IO_INCOMPLETE = -10025
+    FT_HANDLE_EOF = -10026
+    FT_BUSY = -10027
+    FT_NO_SYSTEM_RESOURCES = -10028
+    FT_DEVICE_LIST_NOT_READY = -10029
+    FT_DEVICE_NOT_CONNECTED = -10030
+    FT_INCORRECT_DEVICE_PATH = -10031
+    FT_OTHER_ERROR = -10032
+
+
+# 错误码到人类可读消息的映射
+_SLM_ERROR_MESSAGES = {
+    # SLM 基础错误码
+    0: "操作成功",
+    1: "操作失败",
+    2: "SLM 忙碌中，请稍后重试",
+    3: "参数错误，请检查输入参数",
+
+    # 显示/显示器相关错误
+    -1: "未找到有效的显示器",
+    -2: "显示器未打开",
+    -3: "窗口打开错误",
+    -4: "数据格式错误",
+    -101: "数据值超出0-1023范围",
+
+    # USB/连接相关错误
+    -200: "USB未连接或未打开",
+
+    # 通用错误
+    -1000: "未知错误",
+
+    # FTDI USB驱动错误
+    -10001: "USB驱动句柄无效",
+    -10002: "未找到USB设备，请检查设备电源和连接",
+    -10003: "USB设备已打开",
+    -10004: "USB通信错误",
+    -10005: "USB资源不足",
+    -10006: "USB参数无效",
+    -10007: "USB波特率无效",
+    -10008: "USB设备未打开(擦除)",
+    -10009: "USB设备未打开(写入)",
+    -10010: "USB写入失败",
+    -10011: "EEPROM读取失败",
+    -10012: "EEPROM写入失败",
+    -10013: "EEPROM擦除失败",
+    -10014: "EEPROM不存在",
+    -10015: "EEPROM未编程",
+    -10016: "参数无效",
+    -10017: "操作不支持",
+    -10018: "没有更多项目",
+    -10019: "操作超时",
+    -10020: "操作中止",
+    -10021: "保留管道错误",
+    -10022: "无效的控制请求方向",
+    -10023: "无效的控制请求类型",
+    -10024: "IO等待中",
+    -10025: "IO未完成",
+    -10026: "句柄结束",
+    -10027: "USB设备忙碌",
+    -10028: "系统资源不足",
+    -10029: "设备列表未就绪",
+    -10030: "USB设备未连接",
+    -10031: "设备路径错误",
+    -10032: "USB其他错误",
+}
+
+
+def _get_slm_error_message(code: int) -> str:
+    """获取SLM错误码对应的可读错误消息
+
+    Args:
+        code: SLM SDK返回的错误码
+
+    Returns:
+        人类可读的错误消息，如果未知则返回"未知错误码"
+    """
+    return _SLM_ERROR_MESSAGES.get(code, f"未知错误码 ({code})")
+
+
+class SantecSLM200Error(Exception):
+    """Santec SLM-200 驱动错误
+
+    包含错误码和可读错误消息，便于调试。
+
+    Attributes:
+        code: SLM SDK返回的错误码
+        message: 人类可读的错误消息
+    """
+
+    def __init__(self, message: str = "", code: int | None = None):
+        self.code = code
+        if code is not None:
+            error_detail = _get_slm_error_message(code)
+            full_message = f"{message} (错误码: {code}, {error_detail})" if message else f"错误码: {code}, {error_detail}"
+            super().__init__(full_message)
+        else:
+            super().__init__(message)
 
 
 class SantecSLM200:
@@ -132,7 +275,7 @@ class SantecSLM200:
         # 打开设备
         ret = self._slm.SLM_Ctrl_Open(self.slm_number)
         if ret != SLM_OK:
-            raise SantecSLM200Error(f"无法打开SLM #{self.slm_number}, 错误码: {ret}")
+            raise SantecSLM200Error(f"无法打开SLM #{self.slm_number}", code=ret)
 
         self.is_open = True
         logger.info(f"成功打开SLM #{self.slm_number}")
@@ -167,7 +310,7 @@ class SantecSLM200:
         """
         ret = self._slm.SLM_Ctrl_ReadSU(self.slm_number)
         if ret != SLM_OK:
-            raise SantecSLM200Error(f"SLM #{self.slm_number} 状态异常, 错误码: {ret}")
+            raise SantecSLM200Error(f"SLM #{self.slm_number} 状态异常", code=ret)
         logger.debug(f"SLM #{self.slm_number} 状态正常")
 
     def _set_memory_mode(self, mode: int | VideoMode) -> None:
@@ -184,7 +327,7 @@ class SantecSLM200:
 
         ret = self._slm.SLM_Ctrl_WriteVI(self.slm_number, mode_int)
         if ret != SLM_OK:
-            raise SantecSLM200Error(f"设置内存模式失败, 错误码: {ret}")
+            raise SantecSLM200Error("设置内存模式失败", code=ret)
 
         # 验证设置
         dat32 = ctypes.c_uint32(0)
@@ -220,14 +363,14 @@ class SantecSLM200:
         res = self._slm.SLM_Ctrl_WriteWL(self.slm_number, wavelength, phase_range)
         if res != SLM_OK:
             raise SantecSLM200Error(
-                f"设置波长/相位范围失败, 错误码: {res}. 可能是参数超出有效范围。"
+                f"设置波长/相位范围失败", code=res
             )
 
         # 保存到设备
         if save_to_device:
             ret = self._slm.SLM_Ctrl_WriteAW(self.slm_number)
             if ret != SLM_OK:
-                raise SantecSLM200Error(f"保存波长设置失败, 错误码: {ret}")
+                raise SantecSLM200Error(f"保存波长设置失败", code=ret)
 
         self.wavelength = wavelength
 
@@ -254,7 +397,7 @@ class SantecSLM200:
 
         res = self._slm.SLM_Ctrl_ReadWL(self.slm_number, dat32_1, dat32_2)
         if res != SLM_OK:
-            raise SantecSLM200Error(f"读取波长信息失败, 错误码: {res}")
+            raise SantecSLM200Error(f"读取波长信息失败", code=res)
 
         wavelength = dat32_1.value
 
@@ -309,7 +452,7 @@ class SantecSLM200:
 
         if ret != SLM_OK:
             raise SantecSLM200Error(
-                f"写入相位数据到内存#{memory_number}失败, 错误码: {ret}"
+                f"写入相位数据到内存#{memory_number}失败", code=ret
             )
 
         self._memory_phase_cache[memory_number] = phase.copy()
@@ -334,7 +477,7 @@ class SantecSLM200:
 
         ret = self._slm.SLM_Ctrl_WriteDS(self.slm_number, memory_number)
         if ret != SLM_OK:
-            raise SantecSLM200Error(f"显示内存#{memory_number}失败, 错误码: {ret}")
+            raise SantecSLM200Error(f"显示内存#{memory_number}失败", code=ret)
 
         self._displayed_memory_number = memory_number
         self._displayed_phase_cache = self._memory_phase_cache.get(memory_number)
@@ -364,7 +507,7 @@ class SantecSLM200:
 
         if ret != SLM_OK:
             raise SantecSLM200Error(
-                f"显示相位数据失败, 错误码: {ret}"
+                f"显示相位数据失败", code=ret
             )
 
         self._displayed_memory_number = None
@@ -385,7 +528,7 @@ class SantecSLM200:
         self._ensure_open()
         ret = self._slm.SLM_Ctrl_WriteGS(self.slm_number, gs)
         if ret != SLM_OK:
-            raise SantecSLM200Error(f"设置灰度值失败, 错误码: {ret}")
+            raise SantecSLM200Error(f"设置灰度值失败", code=ret)
         self._displayed_memory_number = None
         self._displayed_phase_cache = np.full(
             (self.Panel_Res[1], self.Panel_Res[0]),
@@ -400,7 +543,7 @@ class SantecSLM200:
         memory_number = ctypes.c_uint32(0)
         ret = self._slm.SLM_Ctrl_ReadDS(self.slm_number, ctypes.byref(memory_number))
         if ret != SLM_OK:
-            raise SantecSLM200Error(f"读取当前显示内存失败, 错误码: {ret}")
+            raise SantecSLM200Error(f"读取当前显示内存失败", code=ret)
         return memory_number.value or None
 
     def get_current_grayscale(self) -> int:
@@ -409,7 +552,7 @@ class SantecSLM200:
         gray = ctypes.c_ushort(0)
         ret = self._slm.SLM_Ctrl_ReadGS(self.slm_number, ctypes.byref(gray))
         if ret != SLM_OK:
-            raise SantecSLM200Error(f"读取当前灰度值失败, 错误码: {ret}")
+            raise SantecSLM200Error(f"读取当前灰度值失败", code=ret)
         return gray.value
 
     def get_displayed_phase(self) -> tuple[np.ndarray | None, str]:
@@ -479,6 +622,10 @@ class SantecSLM200:
         """
         if max_grayscale is None:
             max_grayscale = self._max_gray
+
+        #TODO 添加矩阵shape的校验，shape=（height，width）
+        # 过大从中心裁切，过小四周补0
+        # 然后log warning
 
         # 确保 max_grayscale 有有效值
         assert max_grayscale is not None, "max_grayscale should be calculated"
