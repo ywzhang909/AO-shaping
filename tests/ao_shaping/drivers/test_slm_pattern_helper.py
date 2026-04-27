@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
-
 from ao_shaping.utils.pattern_helper import PatternHelper
 
 
@@ -13,33 +11,20 @@ class TestPatternHelperTurbulence:
         screen = ph.generate_turbulence_screen(
             Cn2=1e-14,
             L=1000,
-            pixel_size=8e-6,
-            use_aotools=True
+            pixel_size=8e-6
         )
         assert screen.shape == (256, 256)
         assert screen.dtype == np.uint16
         assert screen.max() > 0
 
-    def test_generate_turbulence_screen_without_aotools(self):
-        np.random.seed(42)
-        ph = PatternHelper((256, 256), bits=10)
-        screen = ph.generate_turbulence_screen(
-            Cn2=1e-14,
-            L=1000,
-            pixel_size=8e-6,
-            use_aotools=False
-        )
-        assert screen.shape == (256, 256)
-        assert screen.dtype == np.uint16
-
     def test_generate_turbulence_screen_deterministic_with_seed(self):
         np.random.seed(123)
         ph1 = PatternHelper((128, 128), bits=10)
-        screen1 = ph1.generate_turbulence_screen(Cn2=1e-14, L=1000, pixel_size=8e-6, use_aotools=True)
+        screen1 = ph1.generate_turbulence_screen(Cn2=1e-14, L=1000, pixel_size=8e-6)
 
         np.random.seed(456)
         ph2 = PatternHelper((128, 128), bits=10)
-        screen2 = ph2.generate_turbulence_screen(Cn2=1e-14, L=1000, pixel_size=8e-6, use_aotools=True)
+        screen2 = ph2.generate_turbulence_screen(Cn2=1e-14, L=1000, pixel_size=8e-6)
 
         assert not np.array_equal(screen1, screen2)
 
@@ -47,8 +32,8 @@ class TestPatternHelperTurbulence:
         np.random.seed(42)
         ph = PatternHelper((128, 128), bits=10)
 
-        screen1 = ph.generate_turbulence_screen(Cn2=1e-14, L=500, pixel_size=8e-6, use_aotools=True)
-        screen2 = ph.generate_turbulence_screen(Cn2=1e-13, L=500, pixel_size=8e-6, use_aotools=True)
+        screen1 = ph.generate_turbulence_screen(Cn2=1e-14, L=500, pixel_size=8e-6)
+        screen2 = ph.generate_turbulence_screen(Cn2=1e-13, L=500, pixel_size=8e-6)
 
         assert not np.array_equal(screen1, screen2)
 
@@ -56,7 +41,7 @@ class TestPatternHelperTurbulence:
 class TestPatternHelperZernike:
     def test_generate_zernike_single(self):
         ph = PatternHelper((200, 200), bits=10)
-        img = ph.generate_zernike(2, 0, amplitude=0.5)
+        img = ph.generate_zernike(2, 0, amplitude=1)
         assert img.shape == (200, 200)
         assert img.dtype == np.uint16
 

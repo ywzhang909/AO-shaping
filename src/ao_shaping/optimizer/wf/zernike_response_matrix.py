@@ -28,11 +28,19 @@ import time
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 from loguru import logger
 from tqdm import tqdm
+
+from ao_shaping.utils.matrix_utils import (
+    calc_n_zernike_terms,
+    compute_lstsq,
+    compute_pinv,
+)
+from ao_shaping.utils.display import ZernikeCalibrationDisplay
+
 
 if TYPE_CHECKING:
     from ao_shaping.drivers.slm.zernike_slm import ZernikeSLM
@@ -43,18 +51,9 @@ if TYPE_CHECKING:
 # 默认参数
 DEFAULT_N_MAX = 10
 DEFAULT_MAGNITUDE = 0.5  # 波长单位
-DEFAULT_N_AVERAGES = 3  # 每次WFS读取次数
+DEFAULT_N_AVERAGES = 20  # 每次WFS读取次数
 DEFAULT_N_CYCLES = 1  # 正负交替循环次数
 DEFAULT_WAIT_TIME = 0.1  # 秒
-
-# Re-export from utils for public API compatibility
-from ao_shaping.utils.matrix_utils import (
-    calc_n_zernike_terms,
-    compute_lstsq,
-    compute_pinv,
-    index_to_noll,
-    noll_to_index,
-)
 
 
 @dataclass
@@ -117,7 +116,7 @@ class ZernikeResponseMatrixResult:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict) -> "ZernikeResponseMatrixResult":
+    def from_dict(cls, d: dict) -> ZernikeResponseMatrixResult:
         """从字典加载"""
         d = d.copy()
         d["matrix"] = np.array(d["matrix"])
@@ -140,8 +139,8 @@ def set_slm_flat(slm) -> None:
 
 
 def measure_zernike_mode_response(
-    zslm: "ZernikeSLM",
-    wfs: "WFSManager",
+    zslm: ZernikeSLM,
+    wfs: WFSManager,
     mode_index: int,
     magnitude: float = DEFAULT_MAGNITUDE,
     n_averages: int = DEFAULT_N_AVERAGES,
@@ -165,8 +164,6 @@ def measure_zernike_mode_response(
     Returns:
         (mean_response, variance_response): 平均响应向量和方差向量，shape为 (n_wfs_terms,)
     """
-    n_wfs_terms = calc_n_zernike_terms(10)  # WFS使用固定n_max=10
-
     def measure_once(coefficient: float) -> np.ndarray:
         """单次测量 (M次WFS读取取平均)"""
         coeffs = np.zeros(calc_n_zernike_terms(10), dtype=np.float64)
@@ -209,15 +206,9 @@ def measure_zernike_mode_response(
 
     return mean_response, variance_response
 
-
-# Re-export from matrix_utils for public API compatibility
-from ao_shaping.utils.matrix_utils import compute_pinv, compute_lstsq
-from ao_shaping.utils.display import ZernikeCalibrationDisplay
-
-
 def calibrate_zernike_response_matrix(
-    zslm: "ZernikeSLM",
-    wfs: "WFSManager",
+    zslm: ZernikeSLM,
+    wfs: WFSManager,
     n_max: int = DEFAULT_N_MAX,
     magnitude: float = DEFAULT_MAGNITUDE,
     n_cycles: int = DEFAULT_N_CYCLES,
@@ -226,7 +217,7 @@ def calibrate_zernike_response_matrix(
     excluded_piston: bool = True,
     compute_inverses: bool = True,
     verbose: bool = True,
-    display: "ZernikeCalibrationDisplay | None" = None,
+    display: ZernikeCalibrationDisplay | None = None,
 ) -> ZernikeResponseMatrixResult:
     """校准Zernike响应矩阵 (增强版)
 
@@ -515,17 +506,17 @@ def save_zernike_response_matrix_legacy(
 
 # 导出主要函数
 __all__ = [
-    "ZernikeResponseMatrixResult",
-    "calibrate_zernike_response_matrix",
-    "measure_zernike_mode_response",
-    "save_zernike_response_matrix",
-    "load_zernike_response_matrix",
-    "compute_pinv",
-    "compute_lstsq",
-    "plot_response_matrix",
-    "DEFAULT_N_MAX",
     "DEFAULT_MAGNITUDE",
     "DEFAULT_N_AVERAGES",
     "DEFAULT_N_CYCLES",
+    "DEFAULT_N_MAX",
     "DEFAULT_WAIT_TIME",
+    "ZernikeResponseMatrixResult",
+    "calibrate_zernike_response_matrix",
+    "compute_lstsq",
+    "compute_pinv",
+    "load_zernike_response_matrix",
+    "measure_zernike_mode_response",
+    "plot_response_matrix",
+    "save_zernike_response_matrix",
 ]

@@ -576,8 +576,8 @@ class WFSManager:
 
     def handle_error(self, err, no_raise=False):
         info = create_string_buffer(256)
-        errorCode = ViStatus(err)
-        self._lib.WFS_error_message(self._instrument_handle, errorCode, byref(info))
+        error_code = ViStatus(err)
+        self._lib.WFS_error_message(self._instrument_handle, error_code, byref(info))
         logger.error(f"error: {info.value.decode('utf-8')}")
         if not no_raise:
             raise Exception(info.value)
@@ -980,7 +980,7 @@ class WFSManager:
             self.handle_error(res, True)
             self.pupil = self.optimize_pupil()
             if res := __set_high_speed():  # try again with auto pupil settings
-                self.handle_error(res, False)
+                self.handle_error(res, True)
         else:
             self.enable_high_speed = enable
             if self.enable_high_speed:

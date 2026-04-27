@@ -431,13 +431,10 @@ class SantecSLM200:
 
         # 验证数据类型和形状
         if phase.dtype != np.uint16:
-            raise ValueError(f"相位数据类型必须是uint16，当前: {phase.dtype}")
+            phase = phase.astype(np.uint16)
 
         if phase.ndim != 2:
             raise ValueError(f"相位数据必须是2D数组，当前维度: {phase.ndim}")
-
-        # 应用平移
-        phase = self._apply_shift(phase)
 
         height, width = phase.shape
 
@@ -623,16 +620,46 @@ class SantecSLM200:
         if max_grayscale is None:
             max_grayscale = self._max_gray
 
-        #TODO 添加矩阵shape的校验，shape=（height，width）
-        # 过大从中心裁切，过小四周补0
-        # 然后log warning
+        # 验证并调整矩阵shape为SLM面板分辨率 (height, width)
+        target_h, target_w = self.Panel_Res[1], self.Panel_Res[0]  # (1200, 1920)
+        
+        h, w = phase_rad.shape
+        
+        if (h, w) != (target_h, target_w):
+            if h > target_h or w > target_w:
+                # 过大：从中心裁切
+                logger.warning(
+                    f"输入相位图尺寸 ({h}, {w}) 超过SLM面板 ({target_h}, {target_w})，"
+                    f"将从中心裁切"
+                )
+                # 计算裁切起始位置
+                start_y = (h - target_h) // 2
+                start_x = (w - target_w) // 2
+                phase_rad = phase_rad[start_y : start_y + target_h, start_x : start_x + target_w]
+            else:
+                # 过小：四周补0
+                logger.warning(
+                    f"输入相位图尺寸 ({h}, {w}) 小于SLM面板 ({target_h}, {target_w})，"
+                    f"将在四周补0"
+                )
+                padded = np.zeros((target_h, target_w), dtype=phase_rad.dtype)
+                # 居中放置
+                start_y = (target_h - h) // 2
+                start_x = (target_w - w) // 2
+                padded[start_y : start_y + h, start_x : start_x + w] = phase_rad
+                phase_rad = padded
 
         # 确保 max_grayscale 有有效值
         assert max_grayscale is not None, "max_grayscale should be calculated"
+        np.nan_to_num(phase_rad, copy=False, nan=0)
+        phase_rad = np.mod(phase_rad, 2*np.pi)
+        # 确保输入是float类型以便计算
+        phase_rad = phase_rad.astype(np.float64)
 
         # 将弧度转换为灰度值
-        grayscale = (phase_rad / (2 * np.pi) * max_grayscale).astype(np.uint16)
-        grayscale = np.clip(grayscale, 0, self._max_gray)
+        grayscale = (phase_rad / (2 * np.pi) * max_grayscale)      
+        # 应用平移
+        grayscale = self._apply_shift(grayscale)
 
         return grayscale
 

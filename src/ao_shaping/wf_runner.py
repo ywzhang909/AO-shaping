@@ -38,9 +38,9 @@ def parse_tuple(ctx, param, value):
 @click.option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)")
 def run(dir, epochs, wfs_res, pupil_diameter, pupil_center, early_stop_threshold, debug, show):
     """波前优化器"""
-    init_V = [0 for _ in range(64)]
+    init_v = [0 for _ in range(64)]
     records = optimizer_rms(
-        init_v=init_V,
+        init_v=init_v,
         epochs=epochs,
         wfs_res=wfs_res,
         pupil_diameter=pupil_diameter,
@@ -50,7 +50,7 @@ def run(dir, epochs, wfs_res, pupil_diameter, pupil_center, early_stop_threshold
     root_dir = Path(dir)
 
     min_iter, (min_epoch, min_rms) = records.get_best_iter()
-    
+
     if debug:
         save_dir = gen_date_dir(root_dir / "wf")
         saved_file_name = gen_file_path_uuid(save_dir, 'pkl')

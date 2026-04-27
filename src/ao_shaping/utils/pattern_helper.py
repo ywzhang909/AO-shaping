@@ -314,9 +314,9 @@ class PatternHelper:
         Returns:
             Zernike相位图案 (uint16, 0 到 2^bits-1)
         """
-        gen = ZernikeGenerator(resolution=(self._height, self._width), radius=radius)
+        gen = ZernikeGenerator(resolution=(self._width, self._height), radius=radius)
         gen.set_bits(self.bits)
-        j = nm_to_noll(n, m)
+        j = nm_to_noll(n, m)-1
         gen.precompute_bases(j)
         return gen.generate(n, m, amplitude)
 
@@ -334,7 +334,7 @@ class PatternHelper:
         Returns:
             Zernike相位图案 (uint16)
         """
-        gen = ZernikeGenerator(resolution=(self._height, self._width), radius=radius)
+        gen = ZernikeGenerator(resolution=(self._width, self._height), radius=radius)
         gen.set_bits(self.bits)
 
         if coefficients is None:

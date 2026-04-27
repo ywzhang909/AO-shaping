@@ -8,6 +8,8 @@ import ctypes
 import pytest
 import numpy as np
 
+import matplotlib.pyplot as plt
+
 from ao_shaping.drivers.slm.santec_slm200 import (
     SantecSLM200,
     SantecSLM200Error,
@@ -20,11 +22,11 @@ from ao_shaping.drivers.slm.santec_slm200 import (
 @pytest.fixture
 def slm():
     """创建并返回一个已初始化的 SLM 实例"""
-    return SantecSLM200(slm_number=1, wavelength=1064)
+    return SantecSLM200(slm_number=1, wavelength=532, shift_x=100, shift_y=-110)
 
 
 @pytest.fixture
-def open_slm(slm):
+def open_slm(slm)->SantecSLM200:
     """创建并返回一个已打开的 SLM 实例"""
     slm.open()
     return slm
@@ -314,6 +316,9 @@ class TestPatternTypes:
 
     RESOLUTION = (1920, 1200)  # SLM 分辨率
 
+    def get_mem_num(self):
+        return np.random.randint(1, 128)
+
     def generate_checkerboard(self, period: int = 100) -> np.ndarray:
         """生成棋盘格相位图案"""
         height, width = self.RESOLUTION[1], self.RESOLUTION[0]
@@ -390,6 +395,8 @@ class TestPatternTypes:
     def test_write_blazed_grating_horizontal(self, open_slm):
         """测试写入水平闪耀光栅"""
         phase = self.generate_blazed_grating(period=20, direction="horizontal")
+        plt.imshow(phase)
+        plt.show()
         open_slm.write_phase(phase, memory_number=2)
         open_slm.display_memory(2)
 
@@ -405,11 +412,13 @@ class TestPatternTypes:
         open_slm.write_phase(phase, memory_number=4)
         open_slm.display_memory(4)
 
-    def test_write_focus_pattern(self, open_slm):
+    def test_write_focus_pattern(self, open_slm:SantecSLM200):
         """测试写入聚焦相位图"""
-        phase = self.generate_focus(focal_length=0.5)
-        open_slm.write_phase(phase, memory_number=5)
-        open_slm.display_memory(5)
+        phase = self.generate_focus(focal_length=0.01, wavelength=532e-9)
+        phase = open_slm.create_phase_from_array(phase)
+        mem_num = 20
+        open_slm.write_phase(phase, memory_number=mem_num)
+        open_slm.display_memory(mem_num)
 
     def test_helper_to_circle_pattern(self, open_slm):
         from ao_shaping.utils.pattern_helper import PatternHelper
@@ -419,9 +428,41 @@ class TestPatternTypes:
             phase_range=float(2*np.pi),
             wrap_phase=False,
         )
+        assert phase_rad.shape[1] == self.RESOLUTION[0] and phase_rad.shape[0] == self.RESOLUTION[1]
         phase = open_slm.create_phase_from_array(phase_rad)
         open_slm.write_phase(phase, memory_number=6)
         open_slm.display_memory(6)
+
+    def test_helper_to_zernike(self, open_slm:SantecSLM200):
+        from ao_shaping.utils.pattern_helper import PatternHelper
+        helper = PatternHelper(self.RESOLUTION)
+        phase_rad = helper.generate_zernike(n=2, m=0, amplitude=15)
+        assert phase_rad.shape[1] == self.RESOLUTION[0] and phase_rad.shape[0] == self.RESOLUTION[1]
+        phase = open_slm.create_phase_from_array(phase_rad)
+        # plt.imshow(phase)
+        # plt.show()
+        mem_num = self.get_mem_num()
+        open_slm.write_phase(phase, memory_number=mem_num)
+        open_slm.display_memory(mem_num)
+
+    def test_write_npy(self, open_slm:SantecSLM200):
+        bases = np.load("D:/Projects/TIFO/AO-shaping/libs/SLM_DLL_ver.2.51/sample/python_code/zernike_bases_810.npy")
+        k, m, n = bases.shape
+        coeff = np.zeros((k,))
+        coeff[3] = 10
+        phase_rad = np.einsum('i,ijk->jk', coeff, bases)
+        phase = open_slm.create_phase_from_array(phase_rad)
+        mem_num = self.get_mem_num()
+        open_slm.write_phase(phase, memory_number=mem_num)
+        open_slm.display_memory(mem_num)
+
+    def test_write_black_phase(self, open_slm:SantecSLM200):
+        phase_rad = np.zeros(self.RESOLUTION[::-1])
+        phase = open_slm.create_phase_from_array(phase_rad)
+        assert phase.shape[1] == self.RESOLUTION[0] and phase_rad.shape[0] == self.RESOLUTION[1]
+        mem_num = self.get_mem_num()
+        open_slm.write_phase(phase, memory_number=mem_num)
+        open_slm.display_memory(mem_num)
 
     def test_full_pattern_workflow(self, open_slm):
         """测试完整的相位图案工作流程"""

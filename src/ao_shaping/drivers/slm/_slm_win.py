@@ -110,10 +110,8 @@ elif pf == "Windows":
     candidate_dirs.extend(
         [
             os.path.join(repo_root, "libs", "santec_slm"),
-            os.path.join(repo_root, "docs", "SLM_DLL_ver.2.51", "dll", arch_dir),
-            os.path.join(repo_root, "docs", "SLM_DLL_ver.2.51", "sample", "Python"),
-            os.path.join(repo_root, "docs", "SLM_DLL_ver.2.51", "sample", "LabVIEW", "dll", arch_dir),
-            os.path.join(repo_root, "docs", "SLM_DLL_ver.2.51", "sample", "MATLAB"),
+            os.path.join(repo_root, "libs", "SLM_DLL_ver.2.51", "dll", arch_dir),
+            os.path.join(repo_root, "libs", "SLM_DLL_ver.2.51", "sample", "Python")
         ]
     )
 

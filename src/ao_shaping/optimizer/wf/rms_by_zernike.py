@@ -37,7 +37,6 @@ def schedule_lr_delta(rms):
 
 def optimizer_rms(
     epochs,
-    wfs_res: Literal['512', '768'] = '768',
     init_v: Sequence[float | int]=[],
     pupil_center:tuple[float, float]=(0,0),
     pupil_diameter:float=2.24,
@@ -52,15 +51,8 @@ def optimizer_rms(
         else:
             _init_v = np.array(init_v)
         dm.send_voltages(_init_v, 0.5)
-
-        if wfs_res == '768':
-            wfs_res_config = MlaRes.Res768
-        elif wfs_res == '512':
-            wfs_res_config = MlaRes.Res512
-        else:
-            raise ValueError(f"wfs_res must be '512' or '768', but got {wfs_res}")
-
-        with Thorlab_WFS(wfs_res_config, 
+        wfs_res_config = MlaRes.Res1024
+        with Thorlab_WFS(wfs_res_config,
                          use_custom_ref=False, high_speed=True, 
                          pupil_diameter=pupil_diameter,
                          pupil_center=pupil_center) as wfs:

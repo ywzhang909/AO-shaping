@@ -1,9 +1,9 @@
 {
     "terminal.integrated.env.windows": {
-        "env": "${workspaceFolder}/.env",
-        "python.terminal.useEnvFile": "${workspaceFolder}/.env",
-        "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs;${env:PYTHONPATH}",
-        "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${env:PATH}",
+        // "env": "${workspaceFolder}/.env",
+        // "python.terminal.useEnvFile": "${workspaceFolder}/.env",
+        // "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs;${env:PYTHONPATH}",
+        // "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${env:PATH}",
     },
     "terminal.integrated.env.linux": {
         "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs;${env:PYTHONPATH}",
@@ -20,10 +20,6 @@
     "[dotenv]": {
         "editor.formatOnSave": true
     },
-    "python-env.workspaceSearchPaths": [
-        "${workspaceFolder}/src",
-        "${workspaceFolder}/libs",
-    ],
     "python.autoComplete.extraPaths": [
         "${workspaceFolder}/src",
         "${workspaceFolder}/libs"

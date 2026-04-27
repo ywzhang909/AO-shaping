@@ -7,7 +7,7 @@ from zernike import RZern, FitZern
 
 class ZernikeGenerator:
     """Zernike polynomial generator using the zernike package.
-    
+
     This class wraps the zernike package (from Jacopo Antonello) to provide
     Zernike polynomial generation functionality.
     """
@@ -16,7 +16,20 @@ class ZernikeGenerator:
         self,
         resolution: tuple[int, int],
         radius: float | None = None,
+        square: bool = True,
     ) -> None:
+        """Initialize Zernike polynomial generator.
+
+        Args:
+            resolution: Target resolution as (width, height).
+            radius: Aperture radius. Defaults to min(height, width) / 2.
+            square: If True and resolution is non-square, generate on square grid
+                    (max dimension) then crop back to target resolution.
+                    This ensures proper aspect ratio for circular patterns.
+
+        Returns:
+            None
+        """
         height, width = resolution[1], resolution[0]
         if radius is None:
             radius = min(height, width) / 2
@@ -26,19 +39,33 @@ class ZernikeGenerator:
         self._radius = radius
         self._max_val: float | None = None
         self._n_orders: int = 6  # default to 6 radial orders
+        self._square = square
+
+        # Effective resolution for Zernike generation
+        if square and height != width:
+            # Generate on square grid (max dimension), then crop back
+            max_dim = max(height, width)
+            self._gen_height = max_dim
+            self._gen_width = max_dim
+            # Adjust radius for square grid
+            self._gen_radius = max_dim / 2
+        else:
+            self._gen_height = height
+            self._gen_width = width
+            self._gen_radius = radius
 
         # Create zernike RZern object
         self._cart = RZern(self._n_orders)
 
         # Create normalized coordinate grid (in units of radius)
-        ddx = np.linspace(-1.0, 1.0, width)
-        ddy = np.linspace(-1.0, 1.0, height)
+        ddx = np.linspace(-1.0, 1.0, self._gen_width)
+        ddy = np.linspace(-1.0, 1.0, self._gen_height)
         xv, yv = np.meshgrid(ddx, ddy)
         self._cart.make_cart_grid(xv, yv)
 
     def precompute_bases(self, n_terms: int) -> None:
         """Precompute Zernike bases up to n_terms.
-        
+
         Args:
             n_terms: Number of Zernike terms to compute.
         """
@@ -50,19 +77,41 @@ class ZernikeGenerator:
         while count < n_terms:
             n += 1
             count = n * (n + 1) // 2 + 1  # +1 for piston
-        
+
         self._n_orders = n
         self._cart = RZern(self._n_orders)
-        
-        # Re-create grid
-        ddx = np.linspace(-1.0, 1.0, self._width)
-        ddy = np.linspace(-1.0, 1.0, self._height)
+
+        # Re-create grid with effective resolution
+        ddx = np.linspace(-1.0, 1.0, self._gen_width)
+        ddy = np.linspace(-1.0, 1.0, self._gen_height)
         xv, yv = np.meshgrid(ddx, ddy)
         self._cart.make_cart_grid(xv, yv)
 
+    def _crop_to_output(self, arr: np.ndarray) -> np.ndarray:
+        """Crop square output to original resolution.
+        
+        When square=True, Zernike polynomials are generated on a square
+        grid (max dimension). This method crops the center region to
+        match the target resolution.
+        
+        Args:
+            arr: Square array from Zernike generation.
+            
+        Returns:
+            Cropped array matching original (width, height).
+        """
+        if not self._square or (self._gen_height == self._height and self._gen_width == self._width):
+            return arr
+
+        # Calculate crop offsets to center
+        y_offset = (self._gen_height - self._height) // 2
+        x_offset = (self._gen_width - self._width) // 2
+
+        return arr[y_offset:y_offset + self._height, x_offset:x_offset + self._width]
+
     def set_bits(self, bits: int) -> None:
         """Set output bit depth.
-        
+
         Args:
             bits: Number of bits for output (e.g., 10 for 0-1023).
         """
@@ -73,53 +122,39 @@ class ZernikeGenerator:
         coefficients: np.ndarray,
     ) -> np.ndarray:
         """Generate phase from Noll-index coefficients.
-        
+
         Args:
             coefficients: 1D array of coefficients (Noll index, 0-based).
-            
+
         Returns:
             2D array of phase values.
         """
-        max_val = self._max_val
-        if max_val is None:
-            raise ValueError("Call set_bits() first to configure output scale")
 
         # Pad coefficients to match available terms
         coeffs = np.zeros(self._cart.nk, dtype=np.float64)
         n_coeffs = min(len(coefficients), self._cart.nk)
         coeffs[:n_coeffs] = coefficients[:n_coeffs]
 
-        # Generate phase
-        phase = self._cart.eval_grid(coeffs, matrix=True)
-
-        # Scale to output range
-        if max_val > 0:
-            # Normalize to [0, max_val]
-            phase_min = phase.min()
-            phase_max = phase.max()
-            if phase_max > phase_min:
-                phase = (phase - phase_min) / (phase_max - phase_min) * max_val
-                phase = np.clip(phase, 0, max_val)  # Ensure within bounds
-            else:
-                # All values are the same - set to middle of range
-                phase = np.full_like(phase, max_val // 2)
-
-        return phase.astype(np.uint16)
+        # Generate phase (apply crop for square mode)
+        result = self._cart.eval_grid(coeffs, matrix=True)
+        return self._crop_to_output(result)
 
     def generate_polynomial(
         self,
         coefficients: dict[tuple[int, int], float],
     ) -> np.ndarray:
         """Generate phase from (n, m) coefficients.
-        
+
         Args:
             coefficients: Dictionary mapping (n, m) to amplitude.
-            
+
         Returns:
             2D array of phase values.
         """
         if not coefficients:
-            return np.zeros((self._height, self._width), dtype=np.uint16)
+            shape = (self._gen_height, self._gen_width)
+            arr = np.zeros(shape, dtype=np.float64)
+            return self._crop_to_output(arr)
 
         # Convert (n, m) to Noll index and create coefficient array
         coeffs = np.zeros(self._cart.nk, dtype=np.float64)
@@ -128,6 +163,7 @@ class ZernikeGenerator:
             if j < self._cart.nk:
                 coeffs[j] = amp
 
+        # Use generate_noll which handles cropping internally
         return self.generate_noll(coeffs)
 
     def generate(
@@ -137,20 +173,19 @@ class ZernikeGenerator:
         amplitude: float = 1.0,
     ) -> np.ndarray:
         """Generate single Zernike polynomial.
-        
+
         Args:
             n: Radial order.
             m: Azimuthal order.
             amplitude: Amplitude factor.
-            
+
         Returns:
             2D array of phase values.
         """
         max_val = self._max_val
         if max_val is None:
             raise ValueError("Call set_bits() first to configure output scale")
-
-        j = nm_to_noll(n, m) - 1  # Convert to 0-based index
+        j = self._cart.nm2noll(n, m) - 1 # Convert to 0-based index
         coeffs = np.zeros(self._cart.nk, dtype=np.float64)
         if j < self._cart.nk:
             coeffs[j] = amplitude
@@ -328,6 +363,7 @@ def generate_noll_polynomial(
     resolution: tuple[int, int],
     radius: float | None = None,
     bits: int = 10,
+    square: bool = False,
 ) -> np.ndarray:
     """Generate phase from Noll coefficients.
     
@@ -336,11 +372,12 @@ def generate_noll_polynomial(
         resolution: (width, height).
         radius: Aperture radius.
         bits: Output bit depth.
+        square: If True, generate on square grid and crop back.
         
     Returns:
         2D phase array.
     """
-    gen = ZernikeGenerator(resolution=resolution, radius=radius)
+    gen = ZernikeGenerator(resolution=resolution, radius=radius, square=square)
     gen.set_bits(bits)
     gen.precompute_bases(len(coeffs))
     return gen.generate_noll(coeffs)
