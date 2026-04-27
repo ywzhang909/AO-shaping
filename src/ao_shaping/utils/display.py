@@ -2,7 +2,7 @@ import pygame
 import numpy as np
 import matplotlib.pyplot as plt
 
-from ao_shaping.utils import Register
+from ao_shaping.utils.handler import Register
 
 # display settings
 VOLT_HEIGHT = 200

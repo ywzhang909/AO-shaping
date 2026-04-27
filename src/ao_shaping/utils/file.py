@@ -133,30 +133,6 @@ def save_history(
     else:
         np.save(file_path, history)
 
-
-class Register:
-    def __init__(self) -> None:
-        self.members = {}
-
-    def register(self, name: str) -> None:
-        def decorator(func):
-            self.members[name] = func
-            return func
-
-        return decorator
-
-    def __getitem__(self, name: str):
-        return self.members[name]
-
-    @property
-    def all_funcs(self):
-        return self.members.values()
-
-    @property
-    def all_names(self):
-        return self.members.keys()
-
-
 class Recorder:
     def __init__(self, mark: str = "J", mode: Literal["max", "min"] = "max"):
         self.mark = mark

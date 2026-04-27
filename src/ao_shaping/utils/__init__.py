@@ -19,6 +19,7 @@ from ao_shaping.utils import matrix_utils
 from ao_shaping.utils import pattern_helper
 from ao_shaping.utils import wavefront_calc
 from ao_shaping.utils import zernike_calc
+from ao_shaping.utils.handler import Register
 
 
 # Explicit exports from spots_calc
@@ -55,7 +56,6 @@ from ao_shaping.utils.file import (
     get_init_V_by_rms,
     get_init_V_by_energy,
     save_history,
-    Register,
     Recorder,
 )
 
