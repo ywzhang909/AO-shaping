@@ -58,11 +58,11 @@ class TestZernikeGeneratorSquare:
         width, height = 1920, 1080
         gen = ZernikeGenerator((width, height), square=True)
         gen.set_bits(10)
-        gen.precompute_bases(10)
 
         coeffs = np.ones(10)
         img = gen.generate_noll(coeffs)
 
+        # Output must match requested resolution
         assert img.shape == (height, width), f"Expected ({height}, {width}), got {img.shape}"
 
     def test_square_generate_polynomial(self):

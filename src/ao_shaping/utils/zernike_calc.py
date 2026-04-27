@@ -5,6 +5,118 @@ import numpy as np
 from zernike import RZern
 
 
+def nm_to_noll(n: int, m: int) -> int:
+    """Convert (n, m) Zernike indices to Noll index.
+
+    Args:
+        n: Radial order.
+        m: Azimuthal order (can be negative).
+
+    Returns:
+        Noll index (1-based).
+    """
+    cart = RZern(max(n, 4))  # Use minimal order for conversion
+    return cart.nm2noll(n, m)
+
+
+def noll_to_nm(j: int) -> tuple[int, int]:
+    """Convert Noll index to (n, m) Zernike indices.
+
+    Args:
+        j: Noll index (1-based).
+
+    Returns:
+        Tuple of (n, m) radial and azimuthal orders.
+"""
+    cart = RZern(10)  # Use sufficient order
+    result = cart.noll2nm(j)
+    # Handle both tuple and array returns
+    if isinstance(result, tuple):
+        return (int(result[0]), int(result[1]))
+    # Handle array return type
+    return (int(result[0][0]), int(result[1][0]))
+
+
+def calc_n_zernike_terms(n_max: int) -> int:
+    """Calculate the number of Zernike terms up to order n_max.
+
+    Args:
+        n_max: Maximum Zernike radial order.
+
+    Returns:
+        Number of Zernike terms (including piston).
+    """
+    return (n_max + 1) * (n_max + 2) // 2
+
+
+def fit_zernike(phase: np.ndarray, n_max: int = 10) -> np.ndarray:
+    """Fit Zernike coefficients to a phase map.
+
+    Args:
+        phase: 2D phase array.
+        n_max: Maximum Zernike order.
+
+    Returns:
+        1D array of Zernike coefficients (Noll order).
+    """
+    height, width = phase.shape
+    cart = RZern(n_max)
+    ddx = np.linspace(-1.0, 1.0, width)
+    ddy = np.linspace(-1.0, 1.0, height)
+    xv, yv = np.meshgrid(ddx, ddy)
+    cart.make_cart_grid(xv, yv)
+    return cart.fit_cart_grid(phase)[0]
+
+
+def zernike_radial(n: int, m: int, rho: np.ndarray) -> np.ndarray:
+    """Generate radial Zernike polynomial R_n^m(rho).
+
+    Args:
+        n: Radial order.
+        m: Azimuthal order.
+        rho: Radial coordinate array (normalized to [0,1]).
+
+    Returns:
+        Radial polynomial values.
+    """
+    # Create sufficient order for the given (n,m)
+    cart = RZern(n)
+    # Use k-th Zernike radial polynomial (0-indexed internally)
+    # The package uses Noll index -> radial polynomial internally
+    k = cart.nm2noll(n, m) - 1  # Convert to 0-based Noll index
+    return cart.radial(k, rho)
+
+
+def generate_noll_polynomial(
+    n: int,
+    m: int,
+    resolution: tuple[int, int],
+    amplitude: float = 1.0,
+) -> np.ndarray:
+    """Generate a single Zernike polynomial pattern.
+
+    Args:
+        n: Radial order.
+        m: Azimuthal order.
+        resolution: Output resolution (width, height).
+        amplitude: Coefficient amplitude.
+
+    Returns:
+        2D phase pattern.
+    """
+    height, width = resolution[1], resolution[0]
+    cart = RZern(n)
+    ddx = np.linspace(-1.0, 1.0, width)
+    ddy = np.linspace(-1.0, 1.0, height)
+    xv, yv = np.meshgrid(ddx, ddy)
+    cart.make_cart_grid(xv, yv)
+    coeffs = np.zeros(cart.nk)
+    j = cart.nm2noll(n, m) - 1  # Convert to 0-based
+    if j < cart.nk:
+        coeffs[j] = amplitude
+    return cart.eval_grid(coeffs, matrix=True)
+
+
 class ZernikeGenerator:
     """Zernike polynomial generator using the zernike package.
 

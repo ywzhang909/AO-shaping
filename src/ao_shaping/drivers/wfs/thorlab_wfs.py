@@ -464,6 +464,46 @@ class MlaRes(IntEnum):
     Res512 = 3
     Res320 = 4
 
+    @classmethod
+    def from_str(cls, value: str | int) -> "MlaRes":
+        """Convert a string or integer to MlaRes enum member.
+
+        Args:
+            value: Resolution string ('512', '768', '1024', '1280', '320') or integer
+
+        Returns:
+            MlaRes enum member
+
+        Raises:
+            ValueError: If value is not a supported resolution
+        """
+        if isinstance(value, int):
+            mapping = {
+                1280: cls.Res1280,
+                1024: cls.Res1024,
+                768: cls.Res768,
+                512: cls.Res512,
+                320: cls.Res320,
+            }
+            if value in mapping:
+                return mapping[value]
+            raise ValueError(f"Invalid resolution {value}. Must be one of: 320, 512, 768, 1024, 1280")
+
+        if not isinstance(value, str):
+            raise ValueError(f"Value must be str or int, got {type(value).__name__}")
+
+        mapping = {
+            "1280": cls.Res1280,
+            "1024": cls.Res1024,
+            "768": cls.Res768,
+            "512": cls.Res512,
+            "320": cls.Res320,
+        }
+        if value in mapping:
+            return mapping[value]
+        raise ValueError(f"Invalid resolution '{value}'. Must be one of: '320', '512', '768', '1024', '1280'")
+
+
 
 Mla_pix = {
     MlaRes.Res1280: (1280, 1024),
