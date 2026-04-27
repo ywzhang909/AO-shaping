@@ -13,13 +13,13 @@ from ao_shaping.drivers.dm.MicroDM import (
 
 __all__ = [
     "DM",
-    "ZernikeDM",
-    "MicroDM",
-    "SimMicroDM",
-    "MicroDMError",
-    "MicroDMConnectionError",
-    "MicroDMVoltageError",
+    "ChannelMapping",
     "JointDM",
     "JointDMLookup",
-    "ChannelMapping",
+    "MicroDM",
+    "MicroDMConnectionError",
+    "MicroDMError",
+    "MicroDMVoltageError",
+    "SimMicroDM",
+    "ZernikeDM",
 ]
