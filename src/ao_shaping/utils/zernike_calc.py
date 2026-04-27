@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from zernike import RZern, FitZern
+from zernike import RZern
 
 
 class ZernikeGenerator:
@@ -42,26 +42,16 @@ class ZernikeGenerator:
         self._square = square
 
         # Effective resolution for Zernike generation
-        if square and height != width:
-            # Generate on square grid (max dimension), then crop back
-            max_dim = max(height, width)
-            self._gen_height = max_dim
-            self._gen_width = max_dim
-            # Adjust radius for square grid
-            self._gen_radius = max_dim / 2
-        else:
-            self._gen_height = height
-            self._gen_width = width
-            self._gen_radius = radius
+        scaler = self._height / self._width
 
         # Create zernike RZern object
         self._cart = RZern(self._n_orders)
 
         # Create normalized coordinate grid (in units of radius)
-        ddx = np.linspace(-1.0, 1.0, self._gen_width)
-        ddy = np.linspace(-1.0, 1.0, self._gen_height)
-        xv, yv = np.meshgrid(ddx, ddy)
-        self._cart.make_cart_grid(xv, yv)
+        self.ddx = np.linspace(-1.0, 1.0, self._width)
+        self.ddy = np.linspace(-1.0, 1.0, self._height) * scaler
+        self.xv, self.yv = np.meshgrid(self.ddx, self.ddy)
+        self._cart.make_cart_grid(self.xv, self.yv)
 
     def precompute_bases(self, n_terms: int) -> None:
         """Precompute Zernike bases up to n_terms.
@@ -80,34 +70,7 @@ class ZernikeGenerator:
 
         self._n_orders = n
         self._cart = RZern(self._n_orders)
-
-        # Re-create grid with effective resolution
-        ddx = np.linspace(-1.0, 1.0, self._gen_width)
-        ddy = np.linspace(-1.0, 1.0, self._gen_height)
-        xv, yv = np.meshgrid(ddx, ddy)
-        self._cart.make_cart_grid(xv, yv)
-
-    def _crop_to_output(self, arr: np.ndarray) -> np.ndarray:
-        """Crop square output to original resolution.
-        
-        When square=True, Zernike polynomials are generated on a square
-        grid (max dimension). This method crops the center region to
-        match the target resolution.
-        
-        Args:
-            arr: Square array from Zernike generation.
-            
-        Returns:
-            Cropped array matching original (width, height).
-        """
-        if not self._square or (self._gen_height == self._height and self._gen_width == self._width):
-            return arr
-
-        # Calculate crop offsets to center
-        y_offset = (self._gen_height - self._height) // 2
-        x_offset = (self._gen_width - self._width) // 2
-
-        return arr[y_offset:y_offset + self._height, x_offset:x_offset + self._width]
+        self._cart.make_cart_grid(self.xv, self.yv)
 
     def set_bits(self, bits: int) -> None:
         """Set output bit depth.
@@ -136,8 +99,7 @@ class ZernikeGenerator:
         coeffs[:n_coeffs] = coefficients[:n_coeffs]
 
         # Generate phase (apply crop for square mode)
-        result = self._cart.eval_grid(coeffs, matrix=True)
-        return self._crop_to_output(result)
+        return self._cart.eval_grid(coeffs, matrix=True)
 
     def generate_polynomial(
         self,
@@ -152,14 +114,13 @@ class ZernikeGenerator:
             2D array of phase values.
         """
         if not coefficients:
-            shape = (self._gen_height, self._gen_width)
-            arr = np.zeros(shape, dtype=np.float64)
-            return self._crop_to_output(arr)
+            shape = (self._height, self._width)
+            return np.zeros(shape, dtype=np.float64)
 
         # Convert (n, m) to Noll index and create coefficient array
         coeffs = np.zeros(self._cart.nk, dtype=np.float64)
         for (n, m), amp in coefficients.items():
-            j = nm_to_noll(n, m) - 1  # Convert to 0-based index
+            j = self._cart.nm2noll(n, m) - 1  # Convert to 0-based index
             if j < self._cart.nk:
                 coeffs[j] = amp
 
@@ -192,10 +153,12 @@ class ZernikeGenerator:
 
         return self.generate_noll(coeffs)
 
+    def fit(self, phase):
+        return self._cart.fit_cart_grid(phase)[0]
+
     @property
     def mask(self) -> np.ndarray:
         """Get circular aperture mask.
-        
         Returns:
             2D binary array where 1 indicates inside aperture.
         """
@@ -206,7 +169,7 @@ class ZernikeGenerator:
     @property
     def R(self) -> np.ndarray:
         """Get radial coordinates.
-        
+
         Returns:
             2D array of radial distances.
         """
@@ -215,7 +178,7 @@ class ZernikeGenerator:
     @property
     def Theta(self) -> np.ndarray:
         """Get angular coordinates.
-        
+
         Returns:
             2D array of angles.
         """
@@ -230,154 +193,3 @@ class ZernikeGenerator:
     def radius(self) -> float:
         """Get radius."""
         return self._radius
-
-
-def fit_zernike(
-    wavefront: np.ndarray,
-    n_max: int = 4,
-    radius: float | None = None,
-) -> dict[tuple[int, int], float]:
-    """Fit Zernike polynomials to wavefront data.
-    
-    Args:
-        wavefront: 2D array of wavefront values.
-        n_max: Maximum radial order.
-        radius: Aperture radius (defaults to min dimensions / 2).
-        
-    Returns:
-        Dictionary mapping (n, m) to fitted coefficients.
-    """
-    height, width = wavefront.shape
-    if radius is None:
-        radius = min(height, width) / 2
-
-    # Create Zernike fitter - note: FitZern expects (L, K) = (rows, cols)
-    pol = RZern(n_max)
-    ip = FitZern(pol, height, width)
-
-    # Make a Cartesian grid for the wavefront (not polar)
-    ddx = np.linspace(-1.0, 1.0, width)
-    ddy = np.linspace(-1.0, 1.0, height)
-    xv, yv = np.meshgrid(ddx, ddy)
-    pol.make_cart_grid(xv, yv)
-
-    # Fit wavefront using Cartesian grid
-    coeffs = pol.fit_cart_grid(wavefront)[0]
-
-    # Convert to (n, m) dictionary
-    result: dict[tuple[int, int], float] = {}
-    for j, amp in enumerate(coeffs):
-        n, m = noll_to_nm(j + 1)
-        result[(n, m)] = float(amp)
-
-    return result
-
-
-def zernike_radial(n: int, m: int, r: np.ndarray) -> np.ndarray:
-    """Calculate radial part of Zernike polynomial.
-    
-    Args:
-        n: Radial order.
-        m: Azimuthal order.
-        r: Radial coordinates.
-        
-    Returns:
-        Radial polynomial values.
-    """
-    # Use zernike package for calculation
-    cart = RZern(n)
-    L = len(r)
-    ddx = np.linspace(-1.0, 1.0, L)
-    ddy = np.zeros(L)
-    xv, yv = np.meshgrid(ddx, ddy)
-    cart.make_cart_grid(xv, yv)
-
-    coeffs = np.zeros(cart.nk)
-    j = nm_to_noll(n, m) - 1
-    if j < cart.nk:
-        coeffs[j] = 1.0
-
-    return cart.eval_grid(coeffs)
-
-
-def noll_to_nm(j: int) -> tuple[int, int]:
-    """Convert Noll index to (n, m).
-    
-    Args:
-        j: Noll index (1-based).
-        
-    Returns:
-        (n, m) tuple.
-    """
-    if j < 1:
-        raise ValueError(f"Noll索引必须>=1，当前: {j}")
-
-    n = 0
-    count = 0
-    while count < j:
-        for m in range(-n, n + 1, 2):
-            count += 1
-            if count == j:
-                return (n, m)
-        n += 1
-    raise ValueError(f"无法转换为(n,m): j={j}")
-
-
-def nm_to_noll(n: int, m: int) -> int:
-    """Convert (n, m) to Noll index.
-    
-    Args:
-        n: Radial order.
-        m: Azimuthal order.
-        
-    Returns:
-        Noll index (1-based).
-    """
-    j = 0
-    for n_i in range(n + 1):
-        for m_i in range(-n_i, n_i + 1, 2):
-            j += 1
-            if n_i == n and m_i == m:
-                return j
-    raise ValueError(f"无法转换为Noll索引: n={n}, m={m}")
-
-
-def calc_n_zernike_terms(n_max: int) -> int:
-    """Calculate number of Zernike terms up to order n_max.
-    
-    Args:
-        n_max: Maximum Zernike order.
-        
-    Returns:
-        Total number of Zernike terms including piston.
-    """
-    count = 0
-    for n in range(n_max + 1):
-        for m in range(-n, n + 1, 2):
-            count += 1
-    return count
-
-
-def generate_noll_polynomial(
-    coeffs: np.ndarray,
-    resolution: tuple[int, int],
-    radius: float | None = None,
-    bits: int = 10,
-    square: bool = False,
-) -> np.ndarray:
-    """Generate phase from Noll coefficients.
-    
-    Args:
-        coeffs: 1D array of Noll coefficients.
-        resolution: (width, height).
-        radius: Aperture radius.
-        bits: Output bit depth.
-        square: If True, generate on square grid and crop back.
-        
-    Returns:
-        2D phase array.
-    """
-    gen = ZernikeGenerator(resolution=resolution, radius=radius, square=square)
-    gen.set_bits(bits)
-    gen.precompute_bases(len(coeffs))
-    return gen.generate_noll(coeffs)
