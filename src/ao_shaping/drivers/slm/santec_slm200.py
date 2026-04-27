@@ -425,6 +425,7 @@ class SantecSLM200:
             RuntimeError: 设备未打开
         """
         self._ensure_open()
+        assert self.video_mode == VideoMode.Memory
 
         if not 1 <= memory_number <= 128:
             raise ValueError(f"内存编号必须在1-128之间，当前: {memory_number}")
@@ -481,6 +482,7 @@ class SantecSLM200:
         logger.info(f"SLM #{self.slm_number} 正在显示内存#{memory_number}的相位图")
 
     def display_data(self, phase: np.ndarray):
+        assert self.video_mode == VideoMode.DVI, "Memory 模式请使用 write_phase+display_memory"
         self._ensure_open()
         # 验证数据类型和形状
         if phase.dtype != np.uint16:

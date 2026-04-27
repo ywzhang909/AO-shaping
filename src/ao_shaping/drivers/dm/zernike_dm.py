@@ -41,11 +41,8 @@ class ZernikeDM(DM):
         self.resolution = resolution
         self.bits = bits
 
-        n_terms = _calc_n_zernike_terms(n_max)
-
         self._generator = ZernikeGenerator(resolution=resolution, radius=radius)
         self._generator.set_bits(bits)
-        self._generator.precompute_bases(n_terms)
 
         self._current_coeffs: dict[tuple[int, int], float] = {}
         self._current_phase: np.ndarray | None = None

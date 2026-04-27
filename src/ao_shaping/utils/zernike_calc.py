@@ -53,25 +53,6 @@ class ZernikeGenerator:
         self.xv, self.yv = np.meshgrid(self.ddx, self.ddy)
         self._cart.make_cart_grid(self.xv, self.yv)
 
-    def precompute_bases(self, n_terms: int) -> None:
-        """Precompute Zernike bases up to n_terms.
-
-        Args:
-            n_terms: Number of Zernike terms to compute.
-        """
-        # Calculate required radial orders to get n_terms
-        # Number of terms = (n_orders + 1) * (n_orders + 2) / 2
-        # Solve for n_orders: n_terms >= (n_orders + 1) * (n_orders + 2) / 2
-        n = 0
-        count = 0
-        while count < n_terms:
-            n += 1
-            count = n * (n + 1) // 2 + 1  # +1 for piston
-
-        self._n_orders = n
-        self._cart = RZern(self._n_orders)
-        self._cart.make_cart_grid(self.xv, self.yv)
-
     def set_bits(self, bits: int) -> None:
         """Set output bit depth.
 
