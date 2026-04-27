@@ -411,6 +411,18 @@ class TestPatternTypes:
         open_slm.write_phase(phase, memory_number=5)
         open_slm.display_memory(5)
 
+    def test_helper_to_circle_pattern(self, open_slm):
+        from ao_shaping.utils.pattern_helper import PatternHelper
+        helper = PatternHelper(self.RESOLUTION)
+        phase_rad = helper.circular_grating(
+            radius=float(200),
+            phase_range=float(2*np.pi),
+            wrap_phase=False,
+        )
+        phase = open_slm.create_phase_from_array(phase_rad)
+        open_slm.write_phase(phase, memory_number=6)
+        open_slm.display_memory(6)
+
     def test_full_pattern_workflow(self, open_slm):
         """测试完整的相位图案工作流程"""
         patterns = [

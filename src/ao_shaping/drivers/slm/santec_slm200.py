@@ -480,6 +480,10 @@ class SantecSLM200:
         if max_grayscale is None:
             max_grayscale = self._max_gray
 
+        #TODO 添加矩阵shape的校验，shape=（height，width）
+        # 过大从中心裁切，过小四周补0
+        # 然后log warning
+
         # 确保 max_grayscale 有有效值
         assert max_grayscale is not None, "max_grayscale should be calculated"
 

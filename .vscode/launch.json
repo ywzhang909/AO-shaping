@@ -2,6 +2,22 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "streamlit",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "streamlit",
+            "console": "integratedTerminal",
+            "env": {
+                "STREAMLIT_ENABLE_COLAB_BACKEND": "true",
+                "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs;${env:PYTHONPATH}",
+                "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${workspaceFolder}/libs/gxipy;${env:PATH}"
+            },
+            "args": [
+                "run",
+                "${file}"
+            ]
+        },
+        {
             "name": "Python: ML Train (Zernike)",
             "type": "debugpy",
             "request": "launch",
