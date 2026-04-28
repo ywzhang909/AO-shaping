@@ -4,6 +4,7 @@ Tests ZernikeSLMResponseMatrixResult, save/load functions,
 and mathematical operations using mock devices.
 """
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -298,23 +299,180 @@ class TestCalculateZernikeSLMResponseMatrixMocked:
 
     def test_cannot_run_without_proper_mocks(self):
         """Document that we need interface-compatible mocks."""
-        # This is a placeholder - full integration test would need
-        # mock devices with: create_phase_from_array(), write_phase(),
-        # display_memory(), take_image(), get_spot_deviation()
         pytest.skip(
             "Integration test requires mock devices with SantecSLM200/WFSManager interfaces. "
             "Current MockSLM/MockWFS have simpler interfaces."
         )
 
 
-class TestApplyZernikeCorrectionMocked:
-    """Test apply_zernike_correction with mock devices."""
+class TestApplyZernikeCorrectionPIDMocked:
+    """Test apply_zernike_correction with PID control using mocks."""
 
-    def test_cannot_run_without_proper_mocks(self):
-        """Document that we need interface-compatible mocks."""
-        pytest.skip(
-            "Integration test requires mock devices with SantecSLM200/WFSManager interfaces."
+    @pytest.fixture
+    def mock_slm(self):
+        """Create a mock SLM with required interface."""
+        class MockSLM:
+            Panel_Res = (1920, 1200)
+            wavelength = 1064
+
+            def create_phase_from_array(self, phase):
+                return phase.astype(np.uint16)
+
+            def write_phase(self, gray, memory_number):
+                self._last_phase = gray
+                self._last_memory = memory_number
+
+            def display_memory(self, memory_number):
+                pass
+
+        return MockSLM()
+
+    @pytest.fixture
+    def mock_wfs(self):
+        """Create a mock WFS with required interface."""
+        class MockWFS:
+            num_spots_x = 10
+            num_spots_y = 5
+            d_x = 2.24
+
+            def take_image(self, n_sample=1):
+                pass
+
+            def get_spot_deviation(self):
+                # Return zero deviations (already corrected)
+                return np.zeros((10, 5)), np.zeros((10, 5))
+
+        return MockWFS()
+
+    @pytest.fixture
+    def response_matrix_file(self, tmp_path):
+        """Create a temporary response matrix file for testing."""
+        n_spots = 50  # 10x5
+        n_modes = 10
+
+        # Create a well-conditioned response matrix: (100, 10)
+        # Make first 10 rows an invertible matrix for numerical stability
+        D = np.random.randn(2 * n_spots, n_modes)
+        D[:n_modes, :] += np.eye(n_modes) * 10
+
+        variance = np.abs(np.random.randn(2 * n_spots, n_modes)) * 0.01
+        pinv = compute_pinv(D)
+
+        base = tmp_path / "test_response_matrix"
+
+        np.save(base.with_suffix(".matrix.npy"), D)
+        np.save(base.with_suffix(".variance.npy"), variance)
+        np.save(base.with_suffix(".pinv.npy"), pinv)
+
+        metadata = {
+            "slm_wavelength_nm": 1064,
+            "wfs_resolution": "768",
+            "pupil_diameter_mm": 2.24,
+            "magnitude_rad": 0.5,
+            "n_cycles": 3,
+            "n_averages": 5,
+            "timestamp": "2026-04-28T12:00:00",
+            "matrix_shape": list(D.shape),
+            "n_spots": n_spots,
+            "n_modes": n_modes,
+        }
+
+        with open(base.with_suffix(".json"), "w") as f:
+            json.dump(metadata, f)
+
+        return str(base)
+
+    def test_pid_convergence(self, mock_slm, mock_wfs, response_matrix_file):
+        """Test that PID loop converges when WFS returns zero slopes."""
+        from ao_shaping.optimizer.wf.interaction_matrix import apply_zernike_correction
+
+        final_coeffs, history = apply_zernike_correction(
+            mock_slm, mock_wfs, response_matrix_file,
+            Kp=1.0, Ki=0.1, Kd=0.01,
+            max_iterations=50, convergence_threshold=1e-6,
+            wait_time_s=0.01, n_averages=1,
         )
+
+        assert len(history) > 0
+        assert len(history) <= 50
+        # Final coefficients should be close to zero (already corrected)
+        assert np.linalg.norm(final_coeffs) < 1e-3
+
+    def test_pid_max_iterations(self, mock_slm, response_matrix_file):
+        """Test that PID stops after max_iterations."""
+        from ao_shaping.optimizer.wf.interaction_matrix import apply_zernike_correction
+
+        # Create WFS that always returns non-zero slopes (won't converge)
+        class StubbornWFS:
+            num_spots_x = 10
+            num_spots_y = 5
+            d_x = 2.24
+
+            def take_image(self, n_sample=1):
+                pass
+
+            def get_spot_deviation(self):
+                # Always return the same non-zero deviation
+                return np.ones((10, 5)) * 0.1, np.ones((10, 5)) * 0.1
+
+        wfs = StubbornWFS()
+
+        final_coeffs, history = apply_zernike_correction(
+            mock_slm, wfs, response_matrix_file,
+            Kp=1.0, Ki=0.1, Kd=0.01,
+            max_iterations=10, convergence_threshold=1e-10,
+            wait_time_s=0.01, n_averages=1,
+        )
+
+        assert len(history) == 10  # Should hit max_iterations
+
+    def test_pid_history_tracking(self, mock_slm, mock_wfs, response_matrix_file):
+        """Test that history tracks coefficient vectors correctly."""
+        from ao_shaping.optimizer.wf.interaction_matrix import apply_zernike_correction
+
+        final_coeffs, history = apply_zernike_correction(
+            mock_slm, mock_wfs, response_matrix_file,
+            Kp=1.0, Ki=0.1, Kd=0.01,
+            max_iterations=5, convergence_threshold=1e-10,
+            wait_time_s=0.01, n_averages=1,
+        )
+
+        assert isinstance(history, list)
+        assert len(history) <= 5
+        for coeffs in history:
+            assert isinstance(coeffs, np.ndarray)
+            assert coeffs.shape == (10,)  # n_modes
+
+    def test_pid_loads_from_file(self, mock_slm, mock_wfs, response_matrix_file):
+        """Test that response matrix is loaded from file path."""
+        from ao_shaping.optimizer.wf.interaction_matrix import apply_zernike_correction
+
+        # This should not raise
+        final_coeffs, history = apply_zernike_correction(
+            mock_slm, mock_wfs, response_matrix_file,
+            Kp=1.0, Ki=0.1, Kd=0.01,
+            max_iterations=2, convergence_threshold=1e-10,
+            wait_time_s=0.01, n_averages=1,
+        )
+
+        assert isinstance(final_coeffs, np.ndarray)
+
+    def test_pid_with_target(self, mock_slm, mock_wfs, response_matrix_file):
+        """Test PID with non-zero target (wavefront shaping, not flattening)."""
+        from ao_shaping.optimizer.wf.interaction_matrix import apply_zernike_correction
+
+        target = np.ones(10) * 0.5  # Non-zero target
+
+        final_coeffs, history = apply_zernike_correction(
+            mock_slm, mock_wfs, response_matrix_file,
+            target=target,
+            Kp=1.0, Ki=0.1, Kd=0.01,
+            max_iterations=2, convergence_threshold=1e-10,
+            wait_time_s=0.01, n_averages=1,
+        )
+
+        assert isinstance(final_coeffs, np.ndarray)
+        assert len(history) <= 2
 
 
 if __name__ == "__main__":

@@ -425,13 +425,24 @@ def apply_zernike_correction(
     regularization: float = 1e-6,
     n_averages: int = 1,
     apply_correction: bool = True,
-) -> tuple[np.ndarray, np.ndarray]:
+    # PID control parameters
+    Kp: float = 1.0,
+    Ki: float = 0.0,
+    Kd: float = 0.0,
+    pid: bool = False,
+    max_iterations: int = 10,
+    target: np.ndarray | None = None,
+    convergence_threshold: float = 1e-6,
+    wait_time_s: float = 0.0,
+) -> tuple[np.ndarray, np.ndarray | list]:
     """Apply Zernike correction using pseudoinverse of response matrix.
 
     Steps:
     1. Measure current slopes: g = WFS.get_spot_deviation()
     2. Compute Zernike coefficients: â = D⁺ · g (via SVD pseudoinverse)
     3. Apply negative correction to SLM: phase = -â · Zernike_basis
+
+    When pid=True, runs an iterative PID control loop to converge to target.
 
     Args:
         slm: SantecSLM200 instance
@@ -442,21 +453,37 @@ def apply_zernike_correction(
         regularization: Regularization parameter for pseudoinverse (λ for SVD)
         n_averages: Number of WFS frames to average for measurement
         apply_correction: If True, apply correction to SLM. If False, only compute.
+        Kp: Proportional gain for PID controller (default 1.0)
+        Ki: Integral gain for PID controller (default 0.0)
+        Kd: Derivative gain for PID controller (default 0.0)
+        pid: If True, run iterative PID control loop (default False)
+        max_iterations: Maximum PID iterations (default 10)
+        target: Target Zernike coefficients. If None, target is zeros.
+            Shape (N_modes,). Only used when pid=True.
 
     Returns:
-        Tuple of (estimated_zernike_coeffs, measured_slopes)
-            - estimated_zernike_coeffs: Shape (N_modes,), computed correction values
-            - measured_slopes: Shape (2*N_spots,), raw WFS slopes
+        When pid=False:
+            Tuple of (estimated_zernike_coeffs, measured_slopes)
+        When pid=True:
+            Tuple of (final_zernike_coeffs, history_dict)
+            history_dict contains: 'slopes', 'coeffs', 'corrections'
     """
-    # Extract matrix from result object if needed
+    # Handle response_matrix: could be ZernikeSLMResponseMatrixResult, np.ndarray, or file path (str/Path)
     if isinstance(response_matrix, ZernikeSLMResponseMatrixResult):
         matrix = response_matrix.matrix
         pinv = response_matrix.pinv_matrix
         if slm_zernike_modes is None:
             slm_zernike_modes = DEFAULT_SLM_ZERNIKE_MODES
-    else:
+    elif isinstance(response_matrix, np.ndarray):
         matrix = response_matrix
         pinv = None
+    else:
+        # Assume it's a file path (str or Path)
+        result = load_zernike_slm_response_matrix(response_matrix)
+        matrix = result.matrix
+        pinv = result.pinv_matrix
+        if slm_zernike_modes is None:
+            slm_zernike_modes = DEFAULT_SLM_ZERNIKE_MODES
 
     n_modes = matrix.shape[1]
 
@@ -468,6 +495,53 @@ def apply_zernike_correction(
     if pinv is None:
         pinv = compute_pinv(matrix)
 
+    # Get SLM resolution for phase generation
+    slm_resolution = (slm.Panel_Res[0], slm.Panel_Res[1])
+
+    # Set target coefficients (default: zeros = fully corrected)
+    if target is None:
+        target = np.zeros(n_modes)
+    else:
+        target = np.asarray(target, dtype=np.float64)[:n_modes]
+
+    # PID mode: iterative control loop
+    if pid:
+        return _apply_zernike_correction_pid(
+            slm=slm,
+            slm_resolution=slm_resolution,
+            wfs=wfs,
+            pinv=pinv,
+            slm_zernike_modes=slm_zernike_modes[:n_modes],
+            n_averages=n_averages,
+            Kp=Kp,
+            Ki=Ki,
+            Kd=Kd,
+            max_iterations=max_iterations,
+            target=target,
+        )
+
+    # Single-shot mode (original behavior)
+    return _apply_zernike_correction_single(
+        slm=slm,
+        slm_resolution=slm_resolution,
+        wfs=wfs,
+        pinv=pinv,
+        slm_zernike_modes=slm_zernike_modes[:n_modes],
+        n_averages=n_averages,
+        apply_correction=apply_correction,
+    )
+
+
+def _apply_zernike_correction_single(
+    slm: SantecSLM200,
+    slm_resolution: tuple[int, int],
+    wfs: WFSManager,
+    pinv: np.ndarray,
+    slm_zernike_modes: list[tuple[int, int]],
+    n_averages: int,
+    apply_correction: bool,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Single-shot Zernike correction (original behavior)."""
     # Measure current slopes
     wfs.take_image(n_sample=n_averages)
     x_dev, y_dev = wfs.get_spot_deviation()
@@ -480,7 +554,6 @@ def apply_zernike_correction(
 
     if apply_correction:
         # Generate correction phase: phase = -sum(a_hat[i] * Zernike_i)
-        slm_resolution = (slm.Panel_Res[0], slm.Panel_Res[1])
         correction_phase = np.zeros(slm_resolution, dtype=np.float64)
 
         for i, (n, m) in enumerate(slm_zernike_modes):
@@ -496,6 +569,109 @@ def apply_zernike_correction(
         logger.info("Zernike correction applied to SLM")
 
     return a_hat, g
+
+
+def _apply_zernike_correction_pid(
+    slm: SantecSLM200,
+    slm_resolution: tuple[int, int],
+    wfs: WFSManager,
+    pinv: np.ndarray,
+    slm_zernike_modes: list[tuple[int, int]],
+    n_averages: int,
+    Kp: float,
+    Ki: float,
+    Kd: float,
+    max_iterations: int,
+    target: np.ndarray,
+    convergence_threshold: float,
+    wait_time_s: float,
+) -> tuple[np.ndarray, list]:
+    """PID control loop for iterative Zernike correction.
+
+    Returns:
+        (final_coeffs, history) where history is a list of coefficient vectors (np.ndarray).
+    """
+    n_modes = len(slm_zernike_modes)
+
+    # History tracking (list of coefficient vectors)
+    history: list[np.ndarray] = []
+
+    # PID state
+    integral = np.zeros(n_modes, dtype=np.float64)
+    prev_error = None
+
+    # Current correction applied to SLM (starts at zero)
+    current_correction = np.zeros(slm_resolution, dtype=np.float64)
+
+    for iteration in range(max_iterations):
+        # Measure current slopes
+        wfs.take_image(n_sample=n_averages)
+        x_dev, y_dev = wfs.get_spot_deviation()
+        g = np.concatenate([x_dev.flatten(), y_dev.flatten()])
+
+        # Compute Zernike coefficients from slopes
+        a_hat = pinv @ g
+
+        # Compute error = target - current_coeffs
+        # If target is zero, we want a_hat to go to zero (fully corrected)
+        error = target - a_hat
+
+        # PID terms
+        p_term = Kp * error
+        integral += Ki * error
+        d_term = np.zeros_like(error)
+        if prev_error is not None:
+            d_term = Kd * (error - prev_error)
+        prev_error = error.copy()
+
+        # PID correction
+        correction_coeffs = p_term + integral + d_term
+
+        # Update history (append coefficient vector)
+        history.append(a_hat.copy())
+
+        logger.debug(
+            f"PID iteration {iteration + 1}/{max_iterations}: "
+            f"error_rms={np.sqrt(np.mean(error**2)):.6f}"
+        )
+
+        # Check convergence: error RMS below threshold
+        error_rms = np.sqrt(np.mean(error**2))
+        if error_rms < convergence_threshold:
+            logger.info(f"PID converged at iteration {iteration + 1}")
+            break
+
+        # Apply correction to SLM
+        # correction_phase = +sum(correction_coeffs[i] * Zernike_i)
+        # Note: slm_resolution is (width, height), but generate_noll_polynomial returns (height, width)
+        # So we transpose the result to match slm_resolution
+        correction_phase = np.zeros(slm_resolution, dtype=np.float64)
+        for i, (n, m) in enumerate(slm_zernike_modes):
+            if i >= len(correction_coeffs):
+                break
+            mode_phase = generate_noll_polynomial(
+                n, m, slm_resolution, correction_coeffs[i]
+            )
+            # Transpose mode_phase from (height, width) to (width, height) to match slm_resolution
+            correction_phase += mode_phase.T
+
+        # Accumulate correction (add to existing phase pattern)
+        current_correction += correction_phase
+
+        # Apply to SLM
+        gray_corr = slm.create_phase_from_array(current_correction)
+        slm.write_phase(gray_corr, memory_number=1)
+        slm.display_memory(1)
+
+        # Wait time between iterations
+        if wait_time_s > 0:
+            time.sleep(wait_time_s)
+
+    logger.info(f"PID loop completed: {max_iterations} iterations")
+
+    # Return final coefficients and history (list of coeffs)
+    final_coeffs = a_hat
+    return final_coeffs, history
 
 
 def save_zernike_slm_response_matrix(
