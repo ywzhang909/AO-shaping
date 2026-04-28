@@ -176,7 +176,7 @@ def measure_zernike_mode_response(
         for _ in range(n_averages):
             zernike_coeffs = wfs.get_zernike(zernike_order=10)
             responses.append(zernike_coeffs)
-
+        # TODO 如果n>5, 去掉最大、最小防止异常
         return np.mean(responses, axis=0)
 
     # N次正负交替循环测量
@@ -196,6 +196,10 @@ def measure_zernike_mode_response(
         # 计算本次循环的响应 (去除piston)
         response = (response_plus - response_minus) / (2 * magnitude)
         all_responses.append(response[1:])  # 去除piston
+
+        # TODO 添加log
+
+    # TODO 多组magnitude来测量线性度
 
     # 堆叠所有循环结果
     all_responses = np.array(all_responses)  # shape: (n_cycles, n_wfs_terms-1)
@@ -493,15 +497,6 @@ def plot_response_matrix(
 
     except ImportError:
         logger.warning("matplotlib未安装，跳过可视化")
-
-
-# 兼容旧API
-def save_zernike_response_matrix_legacy(
-    result: ZernikeResponseMatrixResult,
-    path: str | Path,
-) -> None:
-    """兼容旧版保存接口 (仅保存响应矩阵)"""
-    save_zernike_response_matrix(result, path, include_inverses=False)
 
 
 # 导出主要函数
