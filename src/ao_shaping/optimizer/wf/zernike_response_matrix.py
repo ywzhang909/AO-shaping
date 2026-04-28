@@ -28,7 +28,7 @@ import time
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 from loguru import logger
@@ -169,7 +169,7 @@ def measure_zernike_mode_response(
         coeffs = np.zeros(calc_n_zernike_terms(10), dtype=np.float64)
         coeffs[mode_index + 1] = coefficient  # +1 跳过piston (Noll index 1)
 
-        zslm.send_zernike(coeffs, display=True)
+        zslm.send_zernike(coeffs)
         time.sleep(wait_time)
 
         responses = []
@@ -222,6 +222,7 @@ def calibrate_zernike_response_matrix(
     compute_inverses: bool = True,
     verbose: bool = True,
     display: ZernikeCalibrationDisplay | None = None,
+    callback: Callable[[int, int, np.ndarray, np.ndarray], None] | None = None,
 ) -> ZernikeResponseMatrixResult:
     """校准Zernike响应矩阵 (增强版)
 
@@ -239,6 +240,13 @@ def calibrate_zernike_response_matrix(
         compute_inverses: 是否计算逆矩阵
         verbose: 是否显示进度条
         display: 可选的ZernikeCalibrationDisplay实例，用于实时可视化
+        callback: 可选的回调函数，每次模式测量后调用。
+            签名: callback(mode_index, total_modes, response_col, variance_col)
+            - mode_index: 当前模式索引 (0-based)
+            - total_modes: 总模式数 (n_slm_terms)
+            - response_col: 响应向量 (mean_resp)
+            - variance_col: 方差向量 (var_resp)
+            如果提供callback，将跳过tqdm进度条。
 
     Returns:
         ZernikeResponseMatrixResult对象，包含响应矩阵、方差和逆矩阵
@@ -263,7 +271,10 @@ def calibrate_zernike_response_matrix(
         display.init_window()
 
     mode_indices = range(n_slm_terms)
-    if verbose:
+
+    # Determine if we should use tqdm (only if no callback and verbose=True)
+    use_tqdm = (callback is None) and verbose
+    if use_tqdm:
         mode_indices = tqdm(mode_indices, desc="校准进度")
 
     for i in mode_indices:
@@ -278,6 +289,10 @@ def calibrate_zernike_response_matrix(
         )
         response_matrix[:, i] = mean_resp
         variance_matrix[:, i] = var_resp
+
+        # Call callback if provided (after each mode measurement)
+        if callback is not None:
+            callback(i, n_slm_terms, mean_resp, var_resp)
 
         # Update display if provided
         if display is not None:

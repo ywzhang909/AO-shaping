@@ -360,5 +360,218 @@ class TestVarianceTracking:
         assert result.mean_variance <= result.max_variance
 
 
+class TestCallbackSupport:
+    """测试callback回调功能"""
+
+    def test_callback_called_correct_times(self):
+        """测试callback被正确调用了预期的次数"""
+        from unittest.mock import MagicMock, patch
+        from ao_shaping.optimizer.wf.zernike_response_matrix import (
+            calibrate_zernike_response_matrix,
+            calc_n_zernike_terms,
+        )
+
+        n_max = 4
+        n_slm_terms = calc_n_zernike_terms(n_max) - 1  # excluded_piston=True
+
+        # Create mock callback
+        mock_callback = MagicMock()
+
+        # Mock the hardware and measurement function
+        mock_zslm = MagicMock()
+        mock_zslm.wavelength = 1064
+        mock_wfs = MagicMock()
+
+        # Mock measure_zernike_mode_response to return dummy data
+        n_wfs_terms = calc_n_zernike_terms(10) - 1
+
+        with patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
+        ) as mock_measure:
+            # Return dummy response and variance
+            mock_measure.return_value = (
+                np.zeros(n_wfs_terms),
+                np.zeros(n_wfs_terms),
+            )
+
+            # Call calibration with callback
+            result = calibrate_zernike_response_matrix(
+                zslm=mock_zslm,
+                wfs=mock_wfs,
+                n_max=n_max,
+                magnitude=0.5,
+                n_cycles=1,
+                n_averages=1,
+                wait_time=0.01,
+                excluded_piston=True,
+                compute_inverses=False,
+                verbose=False,  # No tqdm when testing callback
+                display=None,
+                callback=mock_callback,
+            )
+
+            # Verify callback was called n_slm_terms times
+            assert mock_callback.call_count == n_slm_terms
+
+            # Verify callback was called with correct arguments
+            for call_idx, call_args in enumerate(mock_callback.call_args_list):
+                args = call_args[0]  # Positional arguments
+                assert len(args) == 4
+                assert args[0] == call_idx  # mode_index
+                assert args[1] == n_slm_terms  # total_modes
+                assert isinstance(args[2], np.ndarray)  # response_col
+                assert isinstance(args[3], np.ndarray)  # variance_col
+
+    def test_callback_skips_tqdm(self):
+        """测试提供callback时跳过tqdm进度条"""
+        from unittest.mock import MagicMock, patch
+        from ao_shaping.optimizer.wf.zernike_response_matrix import (
+            calibrate_zernike_response_matrix,
+            calc_n_zernike_terms,
+        )
+
+        n_max = 3
+        n_slm_terms = calc_n_zernike_terms(n_max) - 1
+
+        mock_callback = MagicMock()
+        mock_zslm = MagicMock()
+        mock_zslm.wavelength = 1064
+        mock_wfs = MagicMock()
+
+        n_wfs_terms = calc_n_zernike_terms(10) - 1
+
+        with patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
+        ) as mock_measure, patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.tqdm"
+        ) as mock_tqdm:
+            mock_measure.return_value = (
+                np.zeros(n_wfs_terms),
+                np.zeros(n_wfs_terms),
+            )
+            # Make tqdm return the input unchanged
+            mock_tqdm.side_effect = lambda x, **kwargs: x
+
+            # Call with callback and verbose=True
+            result = calibrate_zernike_response_matrix(
+                zslm=mock_zslm,
+                wfs=mock_wfs,
+                n_max=n_max,
+                magnitude=0.5,
+                n_cycles=1,
+                n_averages=1,
+                wait_time=0.01,
+                excluded_piston=True,
+                compute_inverses=False,
+                verbose=True,  # Would normally use tqdm
+                display=None,
+                callback=mock_callback,  # But callback skips tqdm
+            )
+
+            # Verify tqdm was NOT called (callback skips tqdm)
+            mock_tqdm.assert_not_called()
+
+    def test_callback_without_callback_uses_tqdm(self):
+        """测试不提供callback时正常使用tqdm"""
+        from unittest.mock import MagicMock, patch
+        from ao_shaping.optimizer.wf.zernike_response_matrix import (
+            calibrate_zernike_response_matrix,
+            calc_n_zernike_terms,
+        )
+
+        n_max = 3
+        n_slm_terms = calc_n_zernike_terms(n_max) - 1
+
+        mock_zslm = MagicMock()
+        mock_zslm.wavelength = 1064
+        mock_wfs = MagicMock()
+
+        n_wfs_terms = calc_n_zernike_terms(10) - 1
+
+        with patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
+        ) as mock_measure, patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.tqdm"
+        ) as mock_tqdm:
+            mock_measure.return_value = (
+                np.zeros(n_wfs_terms),
+                np.zeros(n_wfs_terms),
+            )
+            # Make tqdm return the input unchanged
+            mock_tqdm.side_effect = lambda x, **kwargs: x
+
+            # Call without callback
+            result = calibrate_zernike_response_matrix(
+                zslm=mock_zslm,
+                wfs=mock_wfs,
+                n_max=n_max,
+                magnitude=0.5,
+                n_cycles=1,
+                n_averages=1,
+                wait_time=0.01,
+                excluded_piston=True,
+                compute_inverses=False,
+                verbose=True,  # Should use tqdm
+                display=None,
+                callback=None,  # No callback
+            )
+
+            # Verify tqdm WAS called
+            mock_tqdm.assert_called_once()
+
+    def test_callback_backward_compatibility(self):
+        """测试向后兼容性：display参数仍然正常工作"""
+        from unittest.mock import MagicMock, patch
+        from ao_shaping.optimizer.wf.zernike_response_matrix import (
+            calibrate_zernike_response_matrix,
+            calc_n_zernike_terms,
+            ZernikeCalibrationDisplay,
+        )
+
+        n_max = 3
+        n_slm_terms = calc_n_zernike_terms(n_max) - 1
+
+        mock_zslm = MagicMock()
+        mock_zslm.wavelength = 1064
+        mock_wfs = MagicMock()
+
+        # Mock display
+        mock_display = MagicMock(spec=ZernikeCalibrationDisplay)
+        mock_display.update.return_value = True  # Continue calibration
+
+        n_wfs_terms = calc_n_zernike_terms(10) - 1
+
+        with patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
+        ) as mock_measure:
+            mock_measure.return_value = (
+                np.zeros(n_wfs_terms),
+                np.zeros(n_wfs_terms),
+            )
+
+            # Call with display but no callback
+            result = calibrate_zernike_response_matrix(
+                zslm=mock_zslm,
+                wfs=mock_wfs,
+                n_max=n_max,
+                magnitude=0.5,
+                n_cycles=1,
+                n_averages=1,
+                wait_time=0.01,
+                excluded_piston=True,
+                compute_inverses=False,
+                verbose=False,
+                display=mock_display,  # Display provided
+                callback=None,  # No callback
+            )
+
+            # Verify display.update was called n_slm_terms times
+            assert mock_display.update.call_count == n_slm_terms
+            # Verify display.init_window was called
+            mock_display.init_window.assert_called_once()
+            # Verify display.close was called
+            mock_display.close.assert_called_once()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

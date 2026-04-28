@@ -3,6 +3,8 @@ import click
 from ao_shaping.wf_runner import run as wf_run
 from ao_shaping.axis_beam_runner import run as axis_beam_run
 from ao_shaping.pipeline_runner import run as pipeline_run
+from ao_shaping.rms_zernike_runner import run as rms_zernike_run
+from ao_shaping.ga_zernike_runner import run as ga_zernike_run
 
 
 @click.group()
@@ -109,3 +111,9 @@ main.add_command(pipeline_run, name='pipeline')
 
 # 添加zernike-matrix命令
 main.add_command(zernike_matrix_run, name='zernike-matrix')
+
+# 添加rms-zernike命令 (Zernike RMS优化)
+main.add_command(rms_zernike_run, name='rms-zernike')
+
+# 添加ga-zernike命令 (遗传算法Zernike优化)
+main.add_command(ga_zernike_run, name='ga-zernike')

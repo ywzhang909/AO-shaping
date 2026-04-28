@@ -103,7 +103,13 @@ def schedule_lr_delta(rms: float) -> tuple[float, float]:
     Returns:
         tuple: (learning_rate, delta) for perturbation amplitude.
     """
-    return 1, 1
+    if rms > 0.15:
+        return 1, 1
+    if rms > 0.1:
+        return 1, 0.5
+    if rms > 0.06:
+        return 0.8, 0.3
+    return 0.5, 0.1
 
 
 def optimizer_rms(
@@ -287,50 +293,9 @@ def optimizer_rms(
         # Restore best coefficients on exit
         best_c, _ = recorder.get_best_target('_c')
         if best_c is not None:
-            slm.send_zernike(best_c, display=True)
+            slm.send_zernike(best_c)
             logger.info(f"Restored best coefficients, RMS: {recorder.get_best_target('rms')}")
 
         return recorder
 
 
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="RMS optimization using SLM with Zernike coefficients"
-    )
-    parser.add_argument("-e", "--epochs", type=int, default=2000, help="Number of iterations")
-    parser.add_argument("-n", "--n_max", type=int, default=4, help="Max Zernike radial order")
-    parser.add_argument("-w", "--wavelength", type=int, default=532, help="SLM wavelength (nm)")
-    parser.add_argument("--wfs_res", type=int, default=1024, help="WFS resolution")
-    parser.add_argument(
-        "--pupil_diameter", type=float, default=4.6, help="WFS pupil diameter"
-    )
-    parser.add_argument(
-        "--early_stop_threshold", type=float, default=0.01, help="Early stop threshold"
-    )
-    parser.add_argument("--slm_number", type=int, default=1, help="SLM device number")
-    parser.add_argument("--remove_tilt", action="store_true", help="Remove tilt in WFS")
-    parser.add_argument("--shift_x", type=int, default=0, help="SLM X shift")
-    parser.add_argument("--shift_y", type=int, default=0, help="SLM Y shift")
-
-    args = parser.parse_args()
-
-    # Convert WFS resolution to MlaRes
-    wfs_res = MlaRes.from_str(args.wfs_res)
-
-    recorder = optimizer_rms(
-        epochs=args.epochs,
-        n_max=args.n_max,
-        wavelength=args.wavelength,
-        wfs_res=wfs_res,
-        pupil_diameter=args.pupil_diameter,
-        early_stop_threshold=args.early_stop_threshold,
-        slm_number=args.slm_number,
-        remove_tilt=args.remove_tilt,
-        shift_x=args.shift_x,
-        shift_y=args.shift_y,
-    )
-
-    best_epoch, (best_rms, _) = recorder.get_best_iter()
-    logger.info(f"Optimization complete. Best RMS: {best_rms:.4f} @ epoch {best_epoch}")

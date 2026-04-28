@@ -12,22 +12,17 @@ Usage:
 
 from __future__ import annotations
 
-import streamlit as st
-import numpy as np
-from pathlib import Path
 import sys
-import time
+import types
 from datetime import datetime
-from typing import Any
+from pathlib import Path
+import json
+import threading
+import time
+import os
 
-# Add src to path when running directly via Streamlit
-SRC_ROOT = Path(__file__).resolve().parents[3]  # src/
-PROJECT_ROOT = Path(__file__).resolve().parents[4]  # AO-shaping/
-
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
+import numpy as np
+import streamlit as st
 
 from loguru import logger
 
@@ -48,10 +43,20 @@ from ao_shaping.optimizer.wf.zernike_response_matrix import (
     DEFAULT_N_CYCLES,
     DEFAULT_WAIT_TIME,
 )
-
-# Import utilities
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
 
+# Determine project root (file is at src/ao_shaping/gui/streamlit_helper/zernike_response_matrix_ui.py)
+PROJECT_ROOT = Path(__file__).resolve().parents[4]  # AO-shaping/
+SRC_ROOT = PROJECT_ROOT / "src"
+
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+# Patch miicam module before importing ccd package
+if "miicam" not in sys.modules:
+    sys.modules["miicam"] = types.ModuleType("miicam")
 
 def _initialize_state() -> None:
     """Initialize session state variables."""
@@ -80,17 +85,48 @@ def _initialize_state() -> None:
     if "zrm_wait_time" not in st.session_state:
         st.session_state.zrm_wait_time = DEFAULT_WAIT_TIME
 
+    if "zrm_excluded_piston" not in st.session_state:
+        st.session_state.zrm_excluded_piston = True
+
+    if "zrm_compute_inverses" not in st.session_state:
+        st.session_state.zrm_compute_inverses = True
+
+    if "zrm_verbose" not in st.session_state:
+        st.session_state.zrm_verbose = True
+
     if "zrm_storage_dir" not in st.session_state:
         st.session_state.zrm_storage_dir = str(PROJECT_ROOT / "data" / "zernike_calibration")
 
     if "zrm_slm_wavelength" not in st.session_state:
-        st.session_state.zrm_slm_wavelength = 1064
+        st.session_state.zrm_slm_wavelength = 532
 
     if "zrm_slm_number" not in st.session_state:
         st.session_state.zrm_slm_number = 1
 
     if "zrm_slm_n_max" not in st.session_state:
         st.session_state.zrm_slm_n_max = 10
+
+    if "zrm_shift_x" not in st.session_state:
+        st.session_state.zrm_shift_x = 0
+
+    if "zrm_shift_y" not in st.session_state:
+        st.session_state.zrm_shift_y = 0
+
+    # WFS settings
+    if "zrm_wfs_mla_res" not in st.session_state:
+        st.session_state.zrm_wfs_mla_res = "768"
+
+    if "zrm_wfs_exp_time" not in st.session_state:
+        st.session_state.zrm_wfs_exp_time = 0.0
+
+    if "zrm_wfs_pupil_diameter" not in st.session_state:
+        st.session_state.zrm_wfs_pupil_diameter = 2.0
+
+    if "zrm_wfs_pupil_center_x" not in st.session_state:
+        st.session_state.zrm_wfs_pupil_center_x = 0.0
+
+    if "zrm_wfs_pupil_center_y" not in st.session_state:
+        st.session_state.zrm_wfs_pupil_center_y = 0.0
 
     # Calibration state
     if "zrm_calibration_result" not in st.session_state:
@@ -101,6 +137,23 @@ def _initialize_state() -> None:
 
     if "zrm_current_mode" not in st.session_state:
         st.session_state.zrm_current_mode = "calibrate"
+
+    # Progress tracking
+    if "zrm_progress_file" not in st.session_state:
+        # Create a unique progress file path in the storage directory
+        progress_dir = Path(st.session_state.get("zrm_storage_dir", str(PROJECT_ROOT / "data" / "zernike_calibration")))
+        progress_dir.mkdir(parents=True, exist_ok=True)
+        st.session_state.zrm_progress_file = str(progress_dir / f"progress_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+
+    # Calibration parameters
+    if "zrm_excluded_piston" not in st.session_state:
+        st.session_state.zrm_excluded_piston = True
+
+    if "zrm_compute_inverses" not in st.session_state:
+        st.session_state.zrm_compute_inverses = True
+
+    if "zrm_verbose" not in st.session_state:
+        st.session_state.zrm_verbose = True
 
 
 def _get_zernike_name(n_max: int) -> dict[tuple[int, int], str]:
@@ -127,10 +180,7 @@ def _get_zernike_name(n_max: int) -> dict[tuple[int, int], str]:
     for n in range(n_max + 1):
         for m in range(-n, n + 1):
             if (n - abs(m)) % 2 == 0:
-                if (n, m) in names:
-                    valid[(n, m)] = names[(n, m)]
-                else:
-                    valid[(n, m)] = f"Z{n},{m}"
+                valid[n, m] = names.get((n, m), f"Z{n},{m}")
     return valid
 
 
@@ -144,6 +194,8 @@ def connect_slm() -> bool:
             slm_number=st.session_state.zrm_slm_number,
             wavelength=st.session_state.zrm_slm_wavelength,
             n_max=st.session_state.zrm_slm_n_max,
+            shift_x=st.session_state.zrm_shift_x,
+            shift_y=st.session_state.zrm_shift_y,
         )
         slm.open()
 
@@ -177,7 +229,12 @@ def connect_wfs() -> bool:
         if st.session_state.zrm_wfs is not None:
             st.session_state.zrm_wfs.close()
 
-        wfs = WFSManager()
+        wfs = WFSManager(
+            mla_index=st.session_state.zrm_wfs_mla_res,
+            exp_time=st.session_state.zrm_wfs_exp_time,
+            pupil_diameter=st.session_state.zrm_wfs_pupil_diameter,
+            pupil_center=(st.session_state.zrm_wfs_pupil_center_x, st.session_state.zrm_wfs_pupil_center_y),
+        )
         wfs.initialize()
 
         st.session_state.zrm_wfs = wfs
@@ -202,6 +259,113 @@ def disconnect_wfs() -> None:
     except Exception as e:
         st.error(f"WFS disconnect failed: {e}")
         logger.error(f"WFS disconnect failed: {e}")
+
+
+def _progress_callback(progress_data: dict) -> None:
+    """Write progress data to JSON file for UI polling.
+
+    Args:
+        progress_data: Dictionary containing progress information with keys like:
+            - current_mode: Current Zernike mode being calibrated
+            - total_modes: Total number of modes to calibrate
+            - percent: Progress percentage (0-100)
+            - message: Status message
+            - timestamp: ISO format timestamp
+    """
+    try:
+        progress_file = st.session_state.get("zrm_progress_file")
+        if progress_file:
+            with open(progress_file, "w") as f:
+                json.dump(progress_data, f)
+    except Exception as e:
+        logger.warning(f"Failed to write progress file: {e}")
+
+
+def _run_calibration_thread(
+    zslm,
+    wfs,
+    n_max,
+    magnitude,
+    n_cycles,
+    n_averages,
+    wait_time,
+    excluded_piston,
+    compute_inverses,
+    verbose,
+    save_path,
+) -> None:
+    """Run calibration in a background thread and update progress.
+
+    This function runs the calibration in a separate thread, writing progress
+    updates to a JSON file that the UI can poll.
+    """
+    try:
+        # Import here to avoid circular imports
+        from ao_shaping.optimizer.wf.zernike_response_matrix import (
+            calibrate_zernike_response_matrix,
+            save_zernike_response_matrix,
+        )
+
+        # Calculate total modes for progress tracking
+        from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
+        total_modes = calc_n_zernike_terms(n_max) - (1 if excluded_piston else 0)
+
+        # Progress callback wrapper (matches backend signature)
+        def callback(mode_index: int, total_modes: int, mean_resp: np.ndarray, var_resp: np.ndarray) -> None:
+            # Calculate progress percentage
+            percent = ((mode_index + 1) / total_modes) * 100.0
+            _progress_callback({
+                "current_mode": mode_index,
+                "total_modes": total_modes,
+                "percent": percent,
+                "message": f"Calibrating mode {mode_index + 1}/{total_modes}",
+                "timestamp": datetime.now().isoformat(),
+                "mean_response": mean_resp.tolist() if mean_resp is not None else None,
+                "variance": var_resp.tolist() if var_resp is not None else None,
+            })
+
+        # Run calibration with progress callback
+        result = calibrate_zernike_response_matrix(
+            zslm=zslm,
+            wfs=wfs,
+            n_max=n_max,
+            magnitude=magnitude,
+            n_cycles=n_cycles,
+            n_averages=n_averages,
+            wait_time=wait_time,
+            excluded_piston=excluded_piston,
+            compute_inverses=compute_inverses,
+            verbose=verbose,
+            callback=callback if verbose else None,
+        )
+
+        # Save result
+        save_zernike_response_matrix(result, str(save_path))
+
+        # Write completion status
+        _progress_callback({
+            "current_mode": total_modes,
+            "total_modes": total_modes,
+            "percent": 100.0,
+            "message": "Calibration complete!",
+            "timestamp": datetime.now().isoformat(),
+            "status": "complete",
+            "result_path": str(save_path),
+        })
+
+        # Store result in session state (will be picked up on next rerun)
+        st.session_state.zrm_calibration_result = result
+
+    except Exception as e:
+        logger.error(f"Calibration thread error: {e}")
+        _progress_callback({
+            "percent": -1,
+            "message": f"Calibration failed: {e}",
+            "timestamp": datetime.now().isoformat(),
+            "status": "error",
+        })
+    finally:
+        st.session_state.zrm_calibration_running = False
 
 
 def render_sidebar() -> None:
@@ -243,9 +407,8 @@ def render_sidebar() -> None:
         st.session_state.zrm_magnitude = st.number_input(
             "扰动幅度 (波长)",
             min_value=0.01,
-            max_value=2.0,
+            max_value=20.0,
             value=st.session_state.zrm_magnitude,
-            step=0.05,
             format="%.3f",
         )
 
@@ -274,6 +437,61 @@ def render_sidebar() -> None:
             format="%.2f",
         )
 
+        st.session_state.zrm_excluded_piston = st.checkbox(
+            "排除Piston (Z1)",
+            value=st.session_state.zrm_excluded_piston,
+            help="排除Zernike第1项（Piston）的校准，通常不需要校准Piston模式",
+        )
+
+        st.session_state.zrm_compute_inverses = st.checkbox(
+            "计算逆矩阵",
+            value=st.session_state.zrm_compute_inverses,
+            help="计算并保存响应矩阵的逆矩阵，用于后续波前校正",
+        )
+
+        st.session_state.zrm_verbose = st.checkbox(
+            "显示详细进度",
+            value=st.session_state.zrm_verbose,
+            help="显示校准过程中的详细日志和进度信息",
+        )
+
+        st.divider()
+
+        # WFS settings
+        st.subheader("WFS设置")
+
+        st.session_state.zrm_wfs_mla_res = st.selectbox(
+            "MLA分辨率",
+            options=[0, 1, 2, 3, 4],
+            format_func=lambda x: {0: "1280x1024", 1: "1024x1024", 2: "768x768", 3: "512x512", 4: "320x320"}.get(x, str(x)),
+            index=2,  # Default Res768
+        )
+
+        st.session_state.zrm_wfs_exp_time = st.number_input(
+            "曝光时间 (ms)",
+            min_value=0.002,
+            max_value=86.0,
+            value=0.0,
+            step=0.1,
+            format="%.3f",
+            help="0=自动曝光"
+        )
+
+        st.session_state.zrm_wfs_pupil_diameter = st.number_input(
+            "瞳孔直径 (mm)",
+            min_value=0.5,
+            max_value=10.0,
+            value=2.0,
+            step=0.1,
+            format="%.1f"
+        )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.session_state.zrm_wfs_pupil_center_x = st.number_input("瞳孔中心 X", value=0.0, step=0.1, format="%.1f")
+        with col2:
+            st.session_state.zrm_wfs_pupil_center_y = st.number_input("瞳孔中心 Y", value=0.0, step=0.1, format="%.1f")
+
         st.divider()
 
         # SLM settings
@@ -300,6 +518,22 @@ def render_sidebar() -> None:
             min_value=1,
             max_value=10,
             value=st.session_state.zrm_slm_n_max,
+            step=1,
+        )
+
+        st.session_state.zrm_shift_x = st.number_input(
+            "SLM Shift X",
+            min_value=-500,
+            max_value=500,
+            value=st.session_state.zrm_shift_x,
+            step=1,
+        )
+
+        st.session_state.zrm_shift_y = st.number_input(
+            "SLM Shift Y",
+            min_value=-500,
+            max_value=500,
+            value=st.session_state.zrm_shift_y,
             step=1,
         )
 
@@ -365,61 +599,157 @@ def render_calibrate_mode() -> None:
 
     save_path = storage_dir / filename
 
+    # Progress bar placeholder (created once, reused during polling)
+    progress_bar = st.empty()
+    status_text = st.empty()
+    plot_placeholder = st.empty()
+
     # Start calibration button
     if st.button("开始校准", type="primary", disabled=st.session_state.zrm_calibration_running):
         if filename.strip() == "":
             st.error("请输入文件名")
             return
 
+        # Initialize progress file
+        progress_file = Path(st.session_state.zrm_storage_dir) / f"progress_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        progress_file.parent.mkdir(parents=True, exist_ok=True)
+        st.session_state.zrm_progress_file = str(progress_file)
+
+        # Clear any old progress data
+        if progress_file.exists():
+            progress_file.unlink()
+
         st.session_state.zrm_calibration_running = True
 
-        try:
-            result = calibrate_zernike_response_matrix(
-                zslm=st.session_state.zrm_slm,
-                wfs=st.session_state.zrm_wfs,
-                n_max=st.session_state.zrm_n_max,
-                magnitude=st.session_state.zrm_magnitude,
-                n_cycles=st.session_state.zrm_n_cycles,
-                n_averages=st.session_state.zrm_n_averages,
-                wait_time=st.session_state.zrm_wait_time,
-                verbose=True,
-            )
+        # Start calibration in background thread
+        import threading
 
-            # Save result
-            save_zernike_response_matrix(result, str(save_path))
-            st.session_state.zrm_calibration_result = result
+        calibration_thread = threading.Thread(
+            target=_run_calibration_thread,
+            args=(
+                st.session_state.zrm_slm,
+                st.session_state.zrm_wfs,
+                st.session_state.zrm_n_max,
+                st.session_state.zrm_magnitude,
+                st.session_state.zrm_n_cycles,
+                st.session_state.zrm_n_averages,
+                st.session_state.zrm_wait_time,
+                st.session_state.zrm_excluded_piston,
+                st.session_state.zrm_compute_inverses,
+                st.session_state.zrm_verbose,
+                save_path,
+            ),
+            daemon=True,
+        )
+        calibration_thread.start()
 
-            st.success(f"校准完成! 结果已保存到: {save_path.parent}")
+        # Trigger rerun to start polling
+        st.rerun()
 
-            # Display summary
-            st.subheader("校准结果摘要")
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("矩阵形状", f"{result.matrix.shape}")
-            with col2:
-                st.metric("平均方差", f"{result.mean_variance:.6f}")
-            with col3:
-                st.metric("最大方差", f"{result.max_variance:.6f}")
-            with col4:
-                st.metric("条件数", f"{result.condition_number:.2e}" if result.condition_number else "N/A")
-
-            # Auto-plot
-            try:
-                plot_response_matrix(result, save_path.parent)
-                st.success("可视化图表已生成")
-            except Exception as e:
-                logger.warning(f"可视化生成失败: {e}")
-
-        except Exception as e:
-            st.error(f"校准失败: {e}")
-            logger.error(f"Calibration failed: {e}")
-
-        finally:
-            st.session_state.zrm_calibration_running = False
-
-    # Status
+    # Polling: Check progress if calibration is running
     if st.session_state.zrm_calibration_running:
-        st.warning("校准进行中...")
+        status_text.warning("校准进行中...")
+
+        # Read progress from JSON file
+        progress_file = st.session_state.get("zrm_progress_file")
+        if progress_file and Path(progress_file).exists():
+            try:
+                with open(progress_file, "r") as f:
+                    progress_data = json.load(f)
+
+                percent = progress_data.get("percent", 0)
+                message = progress_data.get("message", "校准进行中...")
+                current_mode = progress_data.get("current_mode", 0)
+                total_modes = progress_data.get("total_modes", 1)
+                mode_name = progress_data.get("mode_name", "")
+
+                # Update progress bar
+                if percent >= 0:
+                    progress_bar.progress(
+                        min(percent / 100.0, 1.0),
+                        text=f"{message} ({percent:.1f}%)" if mode_name else message,
+                    )
+                else:
+                    status_text.error(message)
+
+                # Check for completion
+                if progress_data.get("status") == "complete":
+                    status_text.success("校准完成!")
+                    progress_bar.empty()
+
+                    # Load and display result
+                    try:
+                        from ao_shaping.optimizer.wf.zernike_response_matrix import load_zernike_response_matrix
+
+                        result = load_zernike_response_matrix(str(save_path))
+                        st.session_state.zrm_calibration_result = result
+
+                        st.success(f"校准完成! 结果已保存到: {save_path.parent}")
+
+                        # Display summary
+                        st.subheader("校准结果摘要")
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("矩阵形状", f"{result.matrix.shape}")
+                        with col2:
+                            st.metric("平均方差", f"{result.mean_variance:.6f}")
+                        with col3:
+                            st.metric("最大方差", f"{result.max_variance:.6f}")
+                        with col4:
+                            st.metric("条件数", f"{result.condition_number:.2e}" if result.condition_number else "N/A")
+
+                        # Auto-plot
+                        try:
+                            from ao_shaping.optimizer.wf.zernike_response_matrix import plot_response_matrix
+
+                            plot_response_matrix(result, save_path.parent)
+                            st.success("可视化图表已生成")
+                        except Exception as e:
+                            logger.warning(f"可视化生成失败: {e}")
+
+                    except Exception as e:
+                        st.error(f"加载结果失败: {e}")
+                        logger.error(f"Failed to load calibration result: {e}")
+
+                    st.session_state.zrm_calibration_running = False
+
+                    # Clean up progress file
+                    try:
+                        if progress_file and Path(progress_file).exists():
+                            Path(progress_file).unlink()
+                    except Exception:
+                        pass
+
+                elif progress_data.get("status") == "error":
+                    status_text.error(f"校准失败: {message}")
+                    progress_bar.empty()
+                    st.session_state.zrm_calibration_running = False
+
+            except json.JSONDecodeError:
+                # File might be partially written, retry on next poll
+                pass
+            except Exception as e:
+                logger.warning(f"Failed to read progress file: {e}")
+
+        # Rerun to poll again (with a small delay to avoid excessive reruns)
+        import time
+        time.sleep(0.5)
+        st.rerun()
+
+    # Display result if already loaded (and not currently running)
+    if not st.session_state.zrm_calibration_running and st.session_state.zrm_calibration_result is not None:
+        result = st.session_state.zrm_calibration_result
+
+        st.subheader("校准结果摘要")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("矩阵形状", f"{result.matrix.shape}")
+        with col2:
+            st.metric("平均方差", f"{result.mean_variance:.6f}")
+        with col3:
+            st.metric("最大方差", f"{result.max_variance:.6f}")
+        with col4:
+            st.metric("条件数", f"{result.condition_number:.2e}" if result.condition_number else "N/A")
 
 
 def render_load_view_mode() -> None:
