@@ -53,12 +53,7 @@ def optimizer_rms(
             _init_v = np.array(init_v)
         dm.send_voltages(_init_v, 0.5)
 
-        if wfs_res == '768':
-            wfs_res_config = MlaRes.Res768
-        elif wfs_res == '512':
-            wfs_res_config = MlaRes.Res512
-        else:
-            raise ValueError(f"wfs_res must be '512' or '768', but got {wfs_res}")
+        wfs_res_config = MlaRes.from_str(wfs_res)
 
         with Thorlab_WFS(wfs_res_config, 
                          use_custom_ref=False, high_speed=True, 

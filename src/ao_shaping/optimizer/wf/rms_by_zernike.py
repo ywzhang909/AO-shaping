@@ -333,12 +333,8 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    # Map WFS resolution
-    wfs_res_map = {
-        768: MlaRes.Res768,
-        1024: MlaRes.Res1024,
-    }
-    wfs_res = wfs_res_map.get(args.wfs_res, MlaRes.Res768)
+    # Convert WFS resolution to MlaRes
+    wfs_res = MlaRes.from_str(args.wfs_res)
     
     recorder = optimizer_rms(
         epochs=args.epochs,

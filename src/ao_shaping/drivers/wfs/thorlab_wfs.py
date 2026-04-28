@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from copy import deepcopy
 from functools import wraps
 from loguru import logger
@@ -465,11 +467,12 @@ class MlaRes(IntEnum):
     Res320 = 4
 
     @classmethod
-    def from_str(cls, value: str | int) -> "MlaRes":
+    def from_str(cls, value: str | int | "MlaRes") -> "MlaRes":
         """Convert a string or integer to MlaRes enum member.
 
         Args:
-            value: Resolution string ('512', '768', '1024', '1280', '320') or integer
+            value: Resolution string ('512', '768', '1024', '1280', '320'),
+                   integer (512, 768, 1024, 1280, 320), or MlaRes instance
 
         Returns:
             MlaRes enum member
@@ -477,6 +480,10 @@ class MlaRes(IntEnum):
         Raises:
             ValueError: If value is not a supported resolution
         """
+        # If already a MlaRes instance, return as-is
+        if isinstance(value, cls):
+            return value
+
         if isinstance(value, int):
             mapping = {
                 1280: cls.Res1280,
@@ -490,7 +497,7 @@ class MlaRes(IntEnum):
             raise ValueError(f"Invalid resolution {value}. Must be one of: 320, 512, 768, 1024, 1280")
 
         if not isinstance(value, str):
-            raise ValueError(f"Value must be str or int, got {type(value).__name__}")
+            raise ValueError(f"Value must be str, int, or MlaRes, got {type(value).__name__}")
 
         mapping = {
             "1280": cls.Res1280,
