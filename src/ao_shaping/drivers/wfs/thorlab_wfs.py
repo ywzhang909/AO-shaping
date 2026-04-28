@@ -1,3 +1,5 @@
+# refreces docs : https://github.com/nvladimus/WFS/blob/master/python/Thorlabs-WFS-read-average-wavefront.ipynb
+
 from __future__ import annotations
 
 from copy import deepcopy
@@ -692,7 +694,7 @@ class WFSManager:
             beam_diameter_y.value,
         )
 
-    def take_image(self, n_sample=10):
+    def take_image(self, n_sample=10, dynamicNoiseCut=True):
         if self._explosure_time > 0:
             if err := self._lib.WFS_TakeSpotfieldImage(self._instrument_handle):
                 self.handle_error(err)
@@ -707,14 +709,22 @@ class WFSManager:
                     self._instrument_handle, byref(actual_exposure), byref(actual_gain)
                 )
             self._image_captured = True
-        if res := self._lib.WFS_CalcSpotToReferenceDeviations(
-            self._instrument_handle, c_int32(1)
+            
+        #_instrument_handle, dynamicNoiseCut, calculateDiameters
+        if res := self._lib.WFS_CalcSpotsCentrDiaIntens(
+            self._instrument_handle, c_int32(1 if dynamicNoiseCut else 0), c_int32(0)
         ):
             self.handle_error(res)
+        
+        # if res := self._lib.WFS_CalcSpotToReferenceDeviations(
+        #     self._instrument_handle, c_int32(1)
+        # ):
+        #     self.handle_error(res)
 
+    @require_take_image
     def get_spotfiled_image(self, image_loop_counter: int = -1):
         px, py = self.image_pix
-        spots_filed_img = np.zeros((px, py), np.uint8)
+        spots_filed_img = np.empty((px, py), np.uint8)
         if err := self._lib.WFS_GetSpotfieldImageCopy(
             self._instrument_handle,
             spots_filed_img.ctypes.data_as(ctypes.POINTER(c_uint8)),
@@ -726,7 +736,7 @@ class WFSManager:
             return spots_filed_img
 
     @require_take_image
-    def get_spots_statics(self, image_loop_counter: int = -1):
+    def get_spots_statics(self):
         assert not self.enable_high_speed, "turn off high speed mode first"
         spots_intensities = np.empty(MAX_SPOTS, dtype=np.float32)
         spots_center_x = np.empty(MAX_SPOTS, dtype=np.float32)
@@ -749,7 +759,7 @@ class WFSManager:
         )
 
     @require_take_image
-    def get_wavefront(self, cancel_tile=False, image_loop_counter: int = -1):
+    def get_wavefront(self, cancel_tile=False):
         """
         This function help to get wavefront.
         Args:
@@ -797,7 +807,7 @@ class WFSManager:
                 "diff": diff.value,
                 "mean": mean.value,
                 "rms": rms.value,
-                "wighted_rms": wighted_rms.value,
+                "wighted_rms": wighted_rms.value if wighted_rms.value > 0 else rms.value
             }
         return wavefront, {
             "min": np.nan,
@@ -845,7 +855,7 @@ class WFSManager:
         return wavefront_no_tilt
 
     @require_take_image
-    def get_zernike(self, zernike_order=10, image_loop_counter: int = -1):
+    def get_zernike(self, zernike_order=10):
         """
         This function help to get zernike coefficients.
         Args:
@@ -857,8 +867,13 @@ class WFSManager:
         roc_mm = c_double()
         coeff_num = (zernike_order + 1) * (zernike_order + 2) // 2 + 1
         zernike_order = c_int32(zernike_order)
-        zernike_um = np.zeros((coeff_num,), c_float)
-        zernike_orders_rms_um = np.zeros((11,), c_float)
+        zernike_um = np.empty((coeff_num,), c_float)
+        zernike_orders_rms_um = np.empty((11,), c_float)
+        
+        if res := self._lib.WFS_CalcSpotToReferenceDeviations(
+            self._instrument_handle, c_int32(0)):
+            self.handle_error(res)
+        
         if err := self._lib.WFS_ZernikeLsf(
             self._instrument_handle,
             byref(zernike_order),

@@ -212,8 +212,8 @@ class SantecSLM200:
         self,
         slm_number: int = 1,
         use_120hz: bool = False,
-        wavelength: int = 1064,
-        video_mode: int | VideoMode = 0,
+        wavelength: int | None = 1064,
+        video_mode: int | VideoMode = VideoMode.Memory,
         shift_x: int = 0,
         shift_y: int = 0,
     ):
@@ -232,7 +232,8 @@ class SantecSLM200:
         """
         if not 1 <= slm_number <= 8:
             raise SantecSLM200Error(f"SLM编号必须在1-8之间，当前: {slm_number}")
-        assert 450 <= wavelength <= 1600, f"{wavelength=} not in range(450, 1600)"
+        if wavelength:
+            assert 450 <= wavelength <= 1600, f"{wavelength=} not in range(450, 1600)"
         self.slm_number = slm_number
         self.flags = FLAGS_RATE120 if use_120hz else 0
         self.wavelength = wavelength
@@ -281,7 +282,8 @@ class SantecSLM200:
         logger.info(f"成功打开SLM #{self.slm_number}")
 
         # 读取并验证设备状态
-        self._check_status()
+        if self._check_status():
+            self.wavelength = self.wavelength if self.wavelength else self.get_wavelength_info()[0]
 
         # 设置内存模式
         self._set_memory_mode(self.video_mode)
@@ -302,7 +304,7 @@ class SantecSLM200:
 
         self.is_open = False
 
-    def _check_status(self) -> None:
+    def _check_status(self) -> bool:
         """检查SLM设备状态
 
         Raises:
@@ -312,6 +314,7 @@ class SantecSLM200:
         if ret != SLM_OK:
             raise SantecSLM200Error(f"SLM #{self.slm_number} 状态异常", code=ret)
         logger.debug(f"SLM #{self.slm_number} 状态正常")
+        return True
 
     def _set_memory_mode(self, mode: int | VideoMode) -> None:
         """设置SLM工作模式
@@ -479,10 +482,9 @@ class SantecSLM200:
 
         self._displayed_memory_number = memory_number
         self._displayed_phase_cache = self._memory_phase_cache.get(memory_number)
-        logger.info(f"SLM #{self.slm_number} 正在显示内存#{memory_number}的相位图")
 
     def display_data(self, phase: np.ndarray):
-        assert self.video_mode == VideoMode.DVI, "Memory 模式请使用 write_phase+display_memory"
+        assert self.video_mode == VideoMode.DVI, f"display data only available in {self.video_mode}"
         self._ensure_open()
         # 验证数据类型和形状
         if phase.dtype != np.uint16:

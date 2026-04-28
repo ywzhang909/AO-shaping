@@ -317,7 +317,6 @@ class PatternHelper:
         gen = ZernikeGenerator(resolution=(self._width, self._height), radius=radius)
         gen.set_bits(self.bits)
         j = nm_to_noll(n, m)-1
-        gen.precompute_bases(j)
         return gen.generate(n, m, amplitude)
 
     def generate_zernike_polynomial(

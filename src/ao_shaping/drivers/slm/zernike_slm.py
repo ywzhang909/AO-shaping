@@ -34,7 +34,7 @@ class ZernikeSLM:
     def __init__(
         self,
         slm_number: int = 1,
-        wavelength: int = 1064,
+        wavelength: int|None = 1064,
         n_max: int = 4,
         slm_resolution: tuple[int, int] | None = None,
         use_120hz: bool = False,
@@ -115,8 +115,7 @@ class ZernikeSLM:
 
     def send_zernike(
         self,
-        coefficients: dict[tuple[int, int], float] | np.ndarray,
-        display: bool = True,
+        coefficients: dict[tuple[int, int], float] | np.ndarray
     ) -> np.ndarray:
         """发送Zernike系数到SLM
 
@@ -129,8 +128,6 @@ class ZernikeSLM:
         Returns:
             发送的灰度相位图
         """
-        self._ensure_open()
-
         phase_rad = self._zernike_dm.generate_phase_2pi(coefficients)
         self._current_phase = self._slm.create_phase_from_array(phase_rad)
 
@@ -139,10 +136,9 @@ class ZernikeSLM:
             else self._zernike_dm._noll_to_dict(coefficients)
         )
 
-        if display:
-            self._slm.write_phase(self._current_phase, self._mem_slot_num+1)
-            self._slm.display_memory(self._mem_slot_num+1)
-            self._mem_slot_num = (self._mem_slot_num + 1) % 128
+        self._slm.write_phase(self._current_phase, self._mem_slot_num+1)
+        self._slm.display_memory(self._mem_slot_num+1)
+        self._mem_slot_num = (self._mem_slot_num + 1) % 128
 
         return self._current_phase
 
@@ -175,8 +171,10 @@ class ZernikeSLM:
     def set_flat(self) -> None:
         """设置SLM为平相位（清零）"""
         self._ensure_open()
-        zero_phase = np.zeros(self._zernike_dm.resolution, dtype=np.uint16)
-        self._slm.display_data(zero_phase)
+        self._current_phase = np.zeros(self._zernike_dm.resolution, dtype=np.uint16)
+        self._slm.write_phase(self._current_phase, self._mem_slot_num+1)
+        self._slm.display_memory(self._mem_slot_num+1)
+        self._mem_slot_num = (self._mem_slot_num + 1) % 128
 
     def set_grayscale(self, gs: int) -> None:
         """设置SLM为均匀灰度值"""

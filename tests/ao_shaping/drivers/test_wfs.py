@@ -6,7 +6,7 @@ import numpy as np
 from ao_shaping.drivers import Thorlab_WFS, MlaRes
 
 def test_get_images():
-    with Thorlab_WFS(MlaRes.Res1024, exp_time=0.5) as wfs:
+    with Thorlab_WFS(MlaRes.Res1024, exp_time=10) as wfs:
         opt_exp_time, _ = wfs.optimize_exposure_time_and_gain()
         if 0.001 < opt_exp_time < 87:
             wfs.exposure_time = opt_exp_time
@@ -27,12 +27,12 @@ def test_get_images():
         ax_intensity = fig.add_subplot(gs[1, :])
 
         # Initialize images
-        im_spot = ax_spot.imshow(wfs.get_spotfiled_image(), cmap='viridis')
+        im_spot = ax_spot.imshow(wfs.get_spots_statics()[0], cmap='viridis')
         wf, statics = wfs.get_wavefront()
         x, y = wfs.get_spot_deviation()
         im_wf = ax_wf.imshow(wf, cmap='RdBu')
-        im_dev_x = ax_dev_x.imshow(np.zeros((100, 100)), cmap='RdBu')
-        im_dev_y = ax_dev_y.imshow(np.zeros((100, 100)), cmap='RdBu')
+        im_dev_x = ax_dev_x.imshow(x, cmap='RdBu')
+        im_dev_y = ax_dev_y.imshow(y, cmap='RdBu')
 
         ax_spot.set_title("Spot Field")
         ax_wf.set_title("Wavefront")
@@ -49,17 +49,17 @@ def test_get_images():
 
 def test_rms():
     rms_hist = []
-    with Thorlab_WFS(MlaRes.Res768) as wfs:
-        wfs.high_speed = True
-        for _ in range(100):
-            wfs.take_image(n_sample=10)
-
-            # dx, dy = wfs.get_spot_deviation()
-            # rms = np.sqrt(np.nanmean(dx**2+dy**2))
-            zernike_coeff = wfs.get_zernike(10)
-            print(zernike_coeff)
-            rms_hist.append(np.mean(np.sqrt(np.sum(zernike_coeff**2))))
-    return rms_hist
+    with Thorlab_WFS(MlaRes.Res1024, use_custom_ref=False) as wfs:
+        for _ in range(10):
+            wfs.take_image(n_sample=1)
+            dx, dy = wfs.get_spot_deviation()
+            rms = np.sqrt(np.nanmean(dx**2+dy**2))
+            # x, y = wfs.get_spot_deviation()
+            # zernike_coeff = wfs.get_zernike(10)
+            # rms_hist.append(np.mean(np.sqrt(np.sum(x**2 + y**2))))
+            rms_hist.append(rms)
+    plt.plot(rms_hist)
+    plt.show()
 
 def test_high_speed_d():
     rms_hist = []

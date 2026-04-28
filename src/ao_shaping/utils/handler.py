@@ -2,7 +2,7 @@ class Register:
     def __init__(self) -> None:
         self.members = {}
 
-    def register(self, name: str) -> None:
+    def register(self, name: str):
         def decorator(func):
             self.members[name] = func
             return func
