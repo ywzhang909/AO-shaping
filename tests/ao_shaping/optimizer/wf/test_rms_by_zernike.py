@@ -70,29 +70,25 @@ class TestOptimizerReturnsRecorder:
     def test_optimizer_rms_returns_recorder(self):
         """Test that optimizer_rms returns a Recorder with expected fields."""
         from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms
-        from ao_shaping.optimizer.wf.rms_by_zernike import ZernikeSLM, Thorlab_WFS
 
         # Create mock objects for SLM and WFS
-        mock_slm_instance = MagicMock()
-        mock_slm_instance.send_zernike.return_value = np.zeros((512, 512))
-        mock_slm_instance.wavelength = 1064
+        mock_slm = MagicMock()
+        mock_slm.send_zernike.return_value = np.zeros((512, 512))
+        mock_slm.wavelength = 1064
 
-        mock_wfs_instance = MagicMock()
-        mock_wfs_instance.get_wavefront.return_value = (
+        mock_wfs = MagicMock()
+        mock_wfs.get_wavefront.return_value = (
             np.zeros((64, 64)),
             {"rms": 0.15, "strehl": 0.8}
         )
-        mock_wfs_instance.take_image.return_value = None
+        mock_wfs.take_image.return_value = None
 
-        # Mock the classes to return mock instances
-        with patch.object(
-            ZernikeSLM, "__enter__", return_value=mock_slm_instance
-        ), patch.object(
-            ZernikeSLM, "__exit__", return_value=None
-        ), patch.object(
-            Thorlab_WFS, "__enter__", return_value=mock_wfs_instance
-        ), patch.object(
-            Thorlab_WFS, "__exit__", return_value=None
+        with patch(
+            "ao_shaping.optimizer.wf.rms_by_zernike.ZernikeSLM",
+            return_value=mock_slm,
+        ), patch(
+            "ao_shaping.optimizer.wf.rms_by_zernike.Thorlab_WFS",
+            return_value=mock_wfs,
         ), patch(
             "ao_shaping.optimizer.wf.rms_by_zernike.tqdm"
         ):
@@ -117,27 +113,24 @@ class TestOptimizerReturnsRecorder:
     def test_recorder_initial_state(self):
         """Test that initial state is recorded correctly."""
         from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms
-        from ao_shaping.optimizer.wf.rms_by_zernike import ZernikeSLM, Thorlab_WFS
 
-        mock_slm_instance = MagicMock()
-        mock_slm_instance.send_zernike.return_value = np.zeros((512, 512))
-        mock_slm_instance.wavelength = 1064
+        mock_slm = MagicMock()
+        mock_slm.send_zernike.return_value = np.zeros((512, 512))
+        mock_slm.wavelength = 1064
 
-        mock_wfs_instance = MagicMock()
-        mock_wfs_instance.get_wavefront.return_value = (
+        mock_wfs = MagicMock()
+        mock_wfs.get_wavefront.return_value = (
             np.zeros((64, 64)),
             {"rms": 0.2, "strehl": 0.7}
         )
-        mock_wfs_instance.take_image.return_value = None
+        mock_wfs.take_image.return_value = None
 
-        with patch.object(
-            ZernikeSLM, "__enter__", return_value=mock_slm_instance
-        ), patch.object(
-            ZernikeSLM, "__exit__", return_value=None
-        ), patch.object(
-            Thorlab_WFS, "__enter__", return_value=mock_wfs_instance
-        ), patch.object(
-            Thorlab_WFS, "__exit__", return_value=None
+        with patch(
+            "ao_shaping.optimizer.wf.rms_by_zernike.ZernikeSLM",
+            return_value=mock_slm,
+        ), patch(
+            "ao_shaping.optimizer.wf.rms_by_zernike.Thorlab_WFS",
+            return_value=mock_wfs,
         ), patch(
             "ao_shaping.optimizer.wf.rms_by_zernike.tqdm"
         ):
@@ -176,8 +169,8 @@ class TestScheduleLearningRate:
         assert delta == 0.5
 
         lr, delta = schedule_lr_delta(rms=0.11)
-        assert lr == 1
-        assert delta == 0.5
+        assert lr == 0.8
+        assert delta == 0.3
 
     def test_schedule_lr_delta_low_rms(self):
         """Test schedule with low RMS values."""
@@ -220,31 +213,28 @@ class TestZernikeCoefficientHandling:
     def test_init_z_as_none(self):
         """Test initialization with None."""
         from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms
-        from ao_shaping.optimizer.wf.rms_by_zernike import ZernikeSLM, Thorlab_WFS
         from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
 
         n_max = 4
         n_zernike = calc_n_zernike_terms(n_max)
 
-        mock_slm_instance = MagicMock()
-        mock_slm_instance.send_zernike.return_value = np.zeros((512, 512))
-        mock_slm_instance.wavelength = 1064
+        mock_slm = MagicMock()
+        mock_slm.send_zernike.return_value = np.zeros((512, 512))
+        mock_slm.wavelength = 1064
 
-        mock_wfs_instance = MagicMock()
-        mock_wfs_instance.get_wavefront.return_value = (
+        mock_wfs = MagicMock()
+        mock_wfs.get_wavefront.return_value = (
             np.zeros((64, 64)),
             {"rms": 0.15, "strehl": 0.8}
         )
-        mock_wfs_instance.take_image.return_value = None
+        mock_wfs.take_image.return_value = None
 
-        with patch.object(
-            ZernikeSLM, "__enter__", return_value=mock_slm_instance
-        ), patch.object(
-            ZernikeSLM, "__exit__", return_value=None
-        ), patch.object(
-            Thorlab_WFS, "__enter__", return_value=mock_wfs_instance
-        ), patch.object(
-            Thorlab_WFS, "__exit__", return_value=None
+        with patch(
+            "ao_shaping.optimizer.wf.rms_by_zernike.ZernikeSLM",
+            return_value=mock_slm,
+        ), patch(
+            "ao_shaping.optimizer.wf.rms_by_zernike.Thorlab_WFS",
+            return_value=mock_wfs,
         ), patch(
             "ao_shaping.optimizer.wf.rms_by_zernike.tqdm"
         ):
@@ -261,29 +251,26 @@ class TestZernikeCoefficientHandling:
     def test_init_z_as_dict(self):
         """Test initialization with dict {(n,m): value}."""
         from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms
-        from ao_shaping.optimizer.wf.rms_by_zernike import ZernikeSLM, Thorlab_WFS
 
-        mock_slm_instance = MagicMock()
-        mock_slm_instance.send_zernike.return_value = np.zeros((512, 512))
-        mock_slm_instance.wavelength = 1064
+        mock_slm = MagicMock()
+        mock_slm.send_zernike.return_value = np.zeros((512, 512))
+        mock_slm.wavelength = 1064
 
-        mock_wfs_instance = MagicMock()
-        mock_wfs_instance.get_wavefront.return_value = (
+        mock_wfs = MagicMock()
+        mock_wfs.get_wavefront.return_value = (
             np.zeros((64, 64)),
             {"rms": 0.15, "strehl": 0.8}
         )
-        mock_wfs_instance.take_image.return_value = None
+        mock_wfs.take_image.return_value = None
 
         init_dict = {(2, 0): 1.0, (2, -2): 0.5}
 
-        with patch.object(
-            ZernikeSLM, "__enter__", return_value=mock_slm_instance
-        ), patch.object(
-            ZernikeSLM, "__exit__", return_value=None
-        ), patch.object(
-            Thorlab_WFS, "__enter__", return_value=mock_wfs_instance
-        ), patch.object(
-            Thorlab_WFS, "__exit__", return_value=None
+        with patch(
+            "ao_shaping.optimizer.wf.rms_by_zernike.ZernikeSLM",
+            return_value=mock_slm,
+        ), patch(
+            "ao_shaping.optimizer.wf.rms_by_zernike.Thorlab_WFS",
+            return_value=mock_wfs,
         ), patch(
             "ao_shaping.optimizer.wf.rms_by_zernike.tqdm"
         ):

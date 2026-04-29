@@ -5,8 +5,26 @@ import numpy as np
 
 from ao_shaping.drivers import Thorlab_WFS, MlaRes
 
-def test_get_images():
-    with Thorlab_WFS(MlaRes.Res1024, exp_time=10) as wfs:
+
+def test_get_image():
+    with Thorlab_WFS(MlaRes.Res1024, exp_time=4) as wfs:
+        opt_exp_time, _ = wfs.optimize_exposure_time_and_gain()
+        if 0.001 < opt_exp_time < 87:
+            wfs.exposure_time = opt_exp_time
+        else:
+            print("no usable image. exit now..")
+            sys.exit()
+
+        print(f"optimize_pupil: {wfs.optimize_pupil()}")
+        wfs.take_image()
+        # Create figure with multiple subplots
+        image = wfs.get_spotfiled_image()
+        plt.imshow(image, cmap='gray')
+        plt.show()
+
+
+def test_calc_wf():
+    with Thorlab_WFS(MlaRes.Res1024, exp_time=4) as wfs:
         opt_exp_time, _ = wfs.optimize_exposure_time_and_gain()
         if 0.001 < opt_exp_time < 87:
             wfs.exposure_time = opt_exp_time
@@ -18,13 +36,12 @@ def test_get_images():
         wfs.take_image()
         # Create figure with multiple subplots
         fig = plt.figure(figsize=(12, 8))
-        gs = fig.add_gridspec(2, 4, hspace=0.3, wspace=0.3)
+        gs = fig.add_gridspec(1, 4, hspace=0.3, wspace=0.3)
 
         ax_spot = fig.add_subplot(gs[0, 0])
         ax_wf = fig.add_subplot(gs[0, 1])
         ax_dev_x = fig.add_subplot(gs[0, 2])
         ax_dev_y = fig.add_subplot(gs[0, 3])
-        ax_intensity = fig.add_subplot(gs[1, :])
 
         # Initialize images
         im_spot = ax_spot.imshow(wfs.get_spots_statics()[0], cmap='viridis')
@@ -38,7 +55,6 @@ def test_get_images():
         ax_wf.set_title("Wavefront")
         ax_dev_x.set_title("Deviation X")
         ax_dev_y.set_title("Deviation X")
-        ax_intensity.set_title("Intensity Profile")
 
         # Add colorbars
         fig.colorbar(im_spot, ax=ax_spot, shrink=0.8)

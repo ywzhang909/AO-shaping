@@ -235,7 +235,7 @@ def optimizer_ga(
     n_zernike = calc_n_zernike_terms(n_max)
     zernike_modes = _zernike_indices(n_max)
 
-        recorder = Recorder(mark='rms', mode='min')
+    recorder = Recorder(mark='ga_zernike', mode='min')
 
     with (
         ZernikeSLM(
