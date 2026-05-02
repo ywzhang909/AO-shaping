@@ -30,6 +30,7 @@ from ao_shaping.utils.display import ZernikeCalibrationDisplay
 @click.option('--wavelength', default=1064, help='工作波长 (nm)')
 @click.option('--no-inverses', 'compute_inverses', default=True, flag_value=False, help='不计算逆矩阵')
 @click.option('--no-excluded-piston', 'excluded_piston', default=True, flag_value=False, help='不排除piston模式')
+@click.option('--excluded-tip-tilt', 'excluded_tip_tilt', default=False, flag_value=True, help='排除tip/tilt模式 (Z2, Z3)')
 @click.option('--display/--no-display', default=False, help='显示实时pygame显示')
 def run(
     n_max: int,
@@ -44,6 +45,7 @@ def run(
     wavelength: int,
     compute_inverses: bool,
     excluded_piston: bool,
+    excluded_tip_tilt: bool,
     display: bool,
 ):
     """获取Zernike响应矩阵
@@ -56,13 +58,15 @@ def run(
     n_cycles = n_cycles or DEFAULT_N_CYCLES
     wait_time = wait_time or DEFAULT_WAIT_TIME
 
-    # Calculate n_slm_terms before calibration
-    n_slm_terms = calc_n_zernike_terms(n_max) - (1 if excluded_piston else 0)
+    # Calculate n_slm_terms and n_wfs_terms before calibration
+    n_remove = (1 if excluded_piston else 0) + (2 if excluded_tip_tilt else 0)
+    n_slm_terms = calc_n_zernike_terms(n_max) - n_remove
+    n_wfs_terms = calc_n_zernike_terms(n_max) - n_remove
 
     # Conditionally create display
     ui_display = None
     if display:
-        ui_display = ZernikeCalibrationDisplay(n_wfs_terms=66, n_slm_terms=n_slm_terms)
+        ui_display = ZernikeCalibrationDisplay(n_wfs_terms=n_wfs_terms, n_slm_terms=n_slm_terms)
 
     try:
         with ZernikeSLM(slm_number=slm_number, wavelength=wavelength, n_max=n_max, shift_x=shift_x, shift_y=shift_y) as zslm:
@@ -76,6 +80,7 @@ def run(
                     n_cycles=n_cycles,
                     wait_time=wait_time,
                     excluded_piston=excluded_piston,
+                    excluded_tip_tilt=excluded_tip_tilt,
                     compute_inverses=compute_inverses,
                     display=ui_display,
                     verbose=True,
@@ -86,6 +91,7 @@ def run(
         click.echo(f"矩阵形状: {result.matrix.shape}")
         click.echo(f"平均方差: {result.mean_variance:.6f}")
         click.echo(f"最大方差: {result.max_variance:.6f}")
+        click.echo(f"排除piston: {result.excluded_piston}, 排除tip/tilt: {result.excluded_tip_tilt}")
         if result.condition_number is not None:
             click.echo(f"条件数: {result.condition_number:.2e}")
     finally:
