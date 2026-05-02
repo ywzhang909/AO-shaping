@@ -88,6 +88,9 @@ def _initialize_state() -> None:
     if "zrm_excluded_piston" not in st.session_state:
         st.session_state.zrm_excluded_piston = True
 
+    if "zrm_excluded_tip_tilt" not in st.session_state:
+        st.session_state.zrm_excluded_tip_tilt = False
+
     if "zrm_compute_inverses" not in st.session_state:
         st.session_state.zrm_compute_inverses = True
 
@@ -177,12 +180,6 @@ def _initialize_state() -> None:
         st.session_state.zrm_progress_file = str(progress_dir / f"progress_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
 
     # Calibration parameters
-    if "zrm_excluded_piston" not in st.session_state:
-        st.session_state.zrm_excluded_piston = True
-
-    if "zrm_compute_inverses" not in st.session_state:
-        st.session_state.zrm_compute_inverses = True
-
     if "zrm_verbose" not in st.session_state:
         st.session_state.zrm_verbose = True
 
@@ -367,6 +364,7 @@ def _run_calibration_thread(
     n_averages,
     wait_time,
     excluded_piston,
+    excluded_tip_tilt,
     compute_inverses,
     verbose,
     save_path,
@@ -377,7 +375,7 @@ def _run_calibration_thread(
     updates to a JSON file that the UI can poll.
     """
     try:       
-        total_modes = calc_n_zernike_terms(n_max) - (1 if excluded_piston else 0)
+        total_modes = calc_n_zernike_terms(n_max) - (1 if excluded_piston else 0) - (2 if excluded_tip_tilt else 0)
 
         # Progress callback wrapper (matches backend signature)
         def callback(mode_index: int, total_modes: int, mean_resp: np.ndarray, var_resp: np.ndarray) -> None:
@@ -403,6 +401,7 @@ def _run_calibration_thread(
             n_averages=n_averages,
             wait_time=wait_time,
             excluded_piston=excluded_piston,
+            excluded_tip_tilt=excluded_tip_tilt,
             compute_inverses=compute_inverses,
             verbose=verbose,
             callback=callback if verbose else None,
@@ -510,6 +509,12 @@ def render_sidebar() -> None:
             "排除Piston (Z1)",
             value=st.session_state.zrm_excluded_piston,
             help="排除Zernike第1项（Piston）的校准，通常不需要校准Piston模式",
+        )
+
+        st.session_state.zrm_excluded_tip_tilt = st.checkbox(
+            "排除Tip/Tilt (Z2, Z3)",
+            value=st.session_state.zrm_excluded_tip_tilt,
+            help="排除Zernike第2、3项（Tip/Tilt）的校准，通常由光路对准补偿",
         )
 
         st.session_state.zrm_compute_inverses = st.checkbox(
@@ -714,12 +719,14 @@ def render_calibrate_mode() -> None:
         return
 
     # Show configuration summary
-    n_terms = calc_n_zernike_terms(st.session_state.zrm_n_max) - 1
+    n_terms = calc_n_zernike_terms(st.session_state.zrm_n_max) - (1 if st.session_state.zrm_excluded_piston else 0) - (2 if st.session_state.zrm_excluded_tip_tilt else 0)
     st.info(
         f"配置: n_max={st.session_state.zrm_n_max}, "
         f"magnitude={st.session_state.zrm_magnitude}λ, "
         f"cycles={st.session_state.zrm_n_cycles}, "
         f"averages={st.session_state.zrm_n_averages}, "
+        f"排除piston={st.session_state.zrm_excluded_piston}, "
+        f"排除tip/tilt={st.session_state.zrm_excluded_tip_tilt}, "
         f"预计校准 {n_terms} 个模式"
     )
 
@@ -776,6 +783,7 @@ def render_calibrate_mode() -> None:
                 st.session_state.zrm_n_averages,
                 st.session_state.zrm_wait_time,
                 st.session_state.zrm_excluded_piston,
+                st.session_state.zrm_excluded_tip_tilt,
                 st.session_state.zrm_compute_inverses,
                 st.session_state.zrm_verbose,
                 save_path,
@@ -955,7 +963,11 @@ def render_load_view_mode() -> None:
         with col4:
             st.metric("条件数", f"{result.condition_number:.2e}" if result.condition_number else "N/A")
 
-        st.caption(f"时间戳: {result.timestamp}")
+        st.caption(
+            f"时间戳: {result.timestamp} | "
+            f"排除piston: {result.excluded_piston} | "
+            f"排除tip/tilt: {result.excluded_tip_tilt}"
+        )
 
         # Visualization
         st.divider()

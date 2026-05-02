@@ -69,6 +69,7 @@ class ZernikeResponseMatrixResult:
     n_cycles: int  # 正负交替循环次数 (N)
     timestamp: str  # 时间戳
     excluded_piston: bool = True  # 是否排除piston
+    excluded_tip_tilt: bool = False  # 是否排除tip/tilt
 
     # 可选的逆矩阵
     pinv_matrix: np.ndarray | None = None
@@ -84,8 +85,9 @@ class ZernikeResponseMatrixResult:
 
     @property
     def slm_noll_terms(self) -> int:
-        """SLM侧包含的Noll项数 (排除piston)"""
-        return calc_n_zernike_terms(self.n_max) - 1 if self.excluded_piston else calc_n_zernike_terms(self.n_max)
+        """SLM侧包含的Noll项数 (排除piston/tip-tilt)"""
+        n_remove = (1 if self.excluded_piston else 0) + (2 if self.excluded_tip_tilt else 0)
+        return calc_n_zernike_terms(self.n_max) - n_remove
 
     @property
     def mean_variance(self) -> float:
@@ -146,6 +148,9 @@ def measure_zernike_mode_response(
     n_averages: int = DEFAULT_N_AVERAGES,
     n_cycles: int = DEFAULT_N_CYCLES,
     wait_time: float = DEFAULT_WAIT_TIME,
+    excluded_piston: bool = True,
+    excluded_tip_tilt: bool = False,
+    zernike_order: int = 10,
 ) -> tuple[np.ndarray, np.ndarray]:
     """测量单个Zernike模式的响应 (多次循环)
 
@@ -160,9 +165,12 @@ def measure_zernike_mode_response(
         n_averages: 每次WFS读取次数 (M)
         n_cycles: 正负交替循环次数 (N)
         wait_time: 等待时间 (秒)
+        excluded_piston: 是否排除piston (Z1)
+        excluded_tip_tilt: 是否排除tip/tilt (Z2, Z3)
+        zernike_order: WFS Zernike拟合阶数 (最大10)
 
     Returns:
-        (mean_response, variance_response): 平均响应向量和方差向量，shape为 (n_wfs_terms,)
+        (mean_response, variance_response): 平均响应向量和方差向量
     """
     def measure_once(coeffs: np.ndarray) -> np.ndarray:
         """单次测量 (M次WFS读取取平均)"""
@@ -171,7 +179,7 @@ def measure_zernike_mode_response(
 
         responses = []
         for _ in range(n_averages):
-            zernike_coeffs = wfs.get_zernike(zernike_order=10)
+            zernike_coeffs = wfs.get_zernike(zernike_order=zernike_order)
             responses.append(zernike_coeffs)
         # TODO 如果n>5, 去掉最大、最小防止异常
         return np.mean(responses, axis=0)
@@ -190,13 +198,21 @@ def measure_zernike_mode_response(
         set_slm_flat(zslm._slm)
         time.sleep(wait_time)
 
-        # 计算本次循环的响应 (去除piston)
+        # 计算本次循环的响应
         response = (response_plus - response_minus) / (2 * coeff_value)
-        # 去除piston (WFS返回的结果中index 0是piston)
-        all_responses.append(response[1:])  # 去除piston
+
+        # 根据配置移除对应的Zernike项
+        # WFS返回的系数顺序: index 0=piston(Z1), 1=tip(Z2), 2=tilt(Z3), ...
+        start_idx = 0
+        if excluded_piston:
+            start_idx += 1  # 跳过piston (Z1)
+        if excluded_tip_tilt:
+            start_idx += 2  # 跳过tip/tilt (Z2, Z3)
+
+        all_responses.append(response[start_idx:])
 
     # 堆叠所有循环结果
-    all_responses = np.array(all_responses)  # shape: (n_cycles, n_wfs_terms-1)
+    all_responses = np.array(all_responses)  # shape: (n_cycles, n_response_terms)
 
     # 计算平均值和方差
     mean_response = np.mean(all_responses, axis=0)
@@ -213,6 +229,7 @@ def calibrate_zernike_response_matrix(
     n_averages: int = DEFAULT_N_AVERAGES,
     wait_time: float = DEFAULT_WAIT_TIME,
     excluded_piston: bool = True,
+    excluded_tip_tilt: bool = False,
     compute_inverses: bool = True,
     verbose: bool = True,
     display: ZernikeCalibrationDisplay | None = None,
@@ -231,6 +248,7 @@ def calibrate_zernike_response_matrix(
         n_averages: 每次WFS读取次数 (M)
         wait_time: 每次施加相位后的等待时间 (秒)
         excluded_piston: 是否排除piston (Z1)
+        excluded_tip_tilt: 是否排除tip/tilt (Z2, Z3)
         compute_inverses: 是否计算逆矩阵
         verbose: 是否显示进度条
         display: 可选的ZernikeCalibrationDisplay实例，用于实时可视化
@@ -245,13 +263,16 @@ def calibrate_zernike_response_matrix(
     Returns:
         ZernikeResponseMatrixResult对象，包含响应矩阵、方差和逆矩阵
     """
-    n_slm_terms = calc_n_zernike_terms(n_max) - (1 if excluded_piston else 0)
-    n_wfs_terms = calc_n_zernike_terms(10) - (1 if excluded_piston else 0)  # WFS返回67项，去除piston得66项
+    # 计算SLM和WFS的项数 (考虑piston和tip/tilt排除)
+    n_remove = (1 if excluded_piston else 0) + (2 if excluded_tip_tilt else 0)
+    n_slm_terms = calc_n_zernike_terms(n_max) - n_remove
+    n_wfs_terms = calc_n_zernike_terms(n_max) - n_remove
 
     logger.info(
         f"开始Zernike响应矩阵校准: n_max={n_max}, "
         f"SLM terms={n_slm_terms}, WFS terms={n_wfs_terms}, "
-        f"magnitude={magnitude}λ, cycles={n_cycles}, averages={n_averages}"
+        f"magnitude={magnitude}λ, cycles={n_cycles}, averages={n_averages}, "
+        f"excluded_piston={excluded_piston}, excluded_tip_tilt={excluded_tip_tilt}"
     )
 
     response_matrix = np.zeros((n_wfs_terms, n_slm_terms), dtype=np.float64)
@@ -273,17 +294,26 @@ def calibrate_zernike_response_matrix(
 
     for i in mode_indices:
         # Create coefficient array for this mode
-        # coeffs_full is in full Zernike format (size calc_n_zernike_terms(10)=66)
-        # index 0 corresponds to piston (Noll index 1)
-        # When excluded_piston=True, mode i corresponds to Noll index i+2 (skipping piston)
-        # When excluded_piston=False, mode i corresponds to Noll index i+1 (including piston)
-        coeffs_full = np.zeros(calc_n_zernike_terms(10), dtype=np.float64)
+        # coeffs_full is in full Zernike format (size calc_n_zernike_terms(n_max))
+        # index 0 = piston (Z1), index 1 = tip (Z2), index 2 = tilt (Z3), ...
+        # When excluded_piston=True, mode i starts from Noll index i+2
+        # When excluded_piston=True AND excluded_tip_tilt=True, mode i starts from Noll index i+4
+        n_full = calc_n_zernike_terms(n_max)
+        coeffs_full = np.zeros(n_full, dtype=np.float64)
         coeff_value = magnitude
-        if excluded_piston:
-            coeffs_full[i + 1] = coeff_value  # +1 skips piston
+
+        # Calculate which Noll index this mode corresponds to
+        if excluded_piston and excluded_tip_tilt:
+            # Skip piston (1) + tip/tilt (2) = 3 terms
+            noll_offset = 3
+        elif excluded_piston:
+            # Skip piston (1) = 1 term
+            noll_offset = 1
         else:
-            coeffs_full[i] = coeff_value  # include piston
-        
+            noll_offset = 0
+
+        coeffs_full[i + noll_offset] = coeff_value
+
         mean_resp, var_resp = measure_zernike_mode_response(
             zslm=zslm,
             wfs=wfs,
@@ -292,6 +322,9 @@ def calibrate_zernike_response_matrix(
             n_averages=n_averages,
             n_cycles=n_cycles,
             wait_time=wait_time,
+            excluded_piston=excluded_piston,
+            excluded_tip_tilt=excluded_tip_tilt,
+            zernike_order=n_max,
         )
         response_matrix[:, i] = mean_resp
         variance_matrix[:, i] = var_resp
@@ -302,7 +335,7 @@ def calibrate_zernike_response_matrix(
 
         # Update display if provided
         if display is not None:
-            noll_index = i + (2 if excluded_piston else 1)  # piston is Noll index 1
+            noll_index = i + noll_offset + 1  # Noll index is 1-based
             mode_name = f"Z{noll_index}"
             continue_flag = display.update(
                 mode_index=i,
@@ -338,6 +371,7 @@ def calibrate_zernike_response_matrix(
         n_cycles=n_cycles,
         timestamp=datetime.now().isoformat(),
         excluded_piston=excluded_piston,
+        excluded_tip_tilt=excluded_tip_tilt,
         pinv_matrix=pinv_matrix,
         lstsq_matrix=lstsq_matrix,
     )
@@ -393,6 +427,7 @@ def save_zernike_response_matrix(
         "n_cycles": result.n_cycles,
         "timestamp": result.timestamp,
         "excluded_piston": result.excluded_piston,
+        "excluded_tip_tilt": result.excluded_tip_tilt,
         "matrix_shape": result.matrix.shape,
         "variance_shape": result.variance_matrix.shape,
         "mean_variance": result.mean_variance,
@@ -446,6 +481,7 @@ def load_zernike_response_matrix(path: str | Path) -> ZernikeResponseMatrixResul
         n_cycles=metadata["n_cycles"],
         timestamp=metadata["timestamp"],
         excluded_piston=metadata.get("excluded_piston", True),
+        excluded_tip_tilt=metadata.get("excluded_tip_tilt", False),
         pinv_matrix=pinv_matrix,
         lstsq_matrix=lstsq_matrix,
     )
