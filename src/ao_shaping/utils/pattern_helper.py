@@ -329,10 +329,6 @@ class PatternHelper:
 
         if coefficients is None:
             coefficients = {}
-        max_noll = max(nm_to_noll(n, m) for (n, m) in coefficients) if coefficients else 1
-        n_terms = max_noll
-        gen.precompute_bases(n_terms)
-
         if not coefficients:
             return np.zeros((self._height, self._width), dtype=np.uint16)
 

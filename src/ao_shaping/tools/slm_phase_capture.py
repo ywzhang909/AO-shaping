@@ -67,18 +67,38 @@ def generate_random_turbulence_phase(
     length: float = 1000.0,
     pixel_size_um: float = 8.0,
     wavelength_nm: int = 1064,
+    L0: float = 1.0,
+    random_seed: int | None = None,
 ) -> np.ndarray:
-    """Generate a random turbulence phase screen.
+    """Generate a random turbulence phase screen using iterative add_row().
 
     Each call produces a different random screen due to Kolmogorov spectrum
     with random phase components.
+
+    Args:
+        pattern_helper: PatternHelper instance with resolution configured
+        cn2: Refractive index structure constant (m^(-2/3))
+        length: Propagation path length (m)
+        pixel_size_um: Pixel size in micrometers
+        wavelength_nm: Wavelength in nanometers
+        L0: Outer scale (m)
+        random_seed: Optional random seed for reproducibility
     """
-    return pattern_helper.generate_turbulence_screen(
-        Cn2=cn2,
-        L=length,
-        wavelength=wavelength_nm * 1e-9,
-        pixel_size=pixel_size_um * 1e-6,
+    wavelength = wavelength_nm * 1e-9
+    pixel_size = pixel_size_um * 1e-6
+
+    # Compute Fried parameter r0 from Cn2 and L
+    r0 = (wavelength**2 / (cn2 * length * 0.033 * (2 * np.pi) ** 2)) ** (3 / 5)
+
+    # Initialize turbulence screen if not already initialized or parameters changed
+    pattern_helper.init_turbulence_screen(
+        r0=r0,
+        L0=L0,
+        pixel_scale=pixel_size,
+        random_seed=random_seed,
     )
+
+    return pattern_helper.generate_turbulence_screen()
 
 
 def generate_random_zernike_coeffs(

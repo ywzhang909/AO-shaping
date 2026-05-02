@@ -1,10 +1,22 @@
 {
   "version": 1,
   "skills": {
+    "deep-learning-pytorch": {
+      "source": "mindrally/skills",
+      "sourceType": "github",
+      "skillPath": "deep-learning-pytorch/SKILL.md",
+      "computedHash": "651c310b5e90e28938f5a953b6fce4fa0c0fffa350a2f0b92028aaa66adf04d1"
+    },
     "developing-with-streamlit": {
       "source": "streamlit/agent-skills",
       "sourceType": "github",
       "computedHash": "51823384978f738f76ff8f601e11c1343aebea03d2ad782dc73fc22d3f129812"
+    },
+    "pytorch-patterns": {
+      "source": "affaan-m/everything-claude-code",
+      "sourceType": "github",
+      "skillPath": "skills/pytorch-patterns/SKILL.md",
+      "computedHash": "ad5141095e87144129934656b80501e42b166cf5694640088450919bac2b9500"
     }
   }
 }

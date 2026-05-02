@@ -266,3 +266,21 @@ class ZernikeGenerator:
     def radius(self) -> float:
         """Get radius."""
         return self._radius
+
+    @property
+    def mask(self) -> np.ndarray:
+        """Get circular aperture mask.
+        Returns:
+            2D binary array where 1 indicates inside aperture.
+        """
+        # The zernike package uses unit circle, so mask is where radius <= 1
+        mask = np.sqrt(self.xv**2 + self.yv**2) <= 1.0
+        return mask.astype(np.uint8)
+
+    @property
+    def R(self) -> np.ndarray:
+        """Get radial coordinates.
+        Returns:
+            2D array of radial distances.
+        """
+        return np.sqrt(self.xv**2 + self.yv**2)

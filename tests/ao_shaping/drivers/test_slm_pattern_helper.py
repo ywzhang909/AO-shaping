@@ -8,34 +8,44 @@ class TestPatternHelperTurbulence:
     def test_generate_turbulence_screen_with_aotools(self):
         np.random.seed(42)
         ph = PatternHelper((256, 256), bits=10)
-        screen = ph.generate_turbulence_screen(
-            Cn2=1e-14,
-            L=1000,
-            pixel_size=8e-6
-        )
+        # Initialize turbulence screen with r0 and L0 directly
+        # Using values from user example: r0=10e-2, L0=1, pixel_scale=0.1/256
+        ph.init_turbulence_screen(r0=10e-2, L0=1.0, pixel_scale=0.1/256, random_seed=42)
+        screen = ph.generate_turbulence_screen()
         assert screen.shape == (256, 256)
         assert screen.dtype == np.uint16
         assert screen.max() > 0
 
     def test_generate_turbulence_screen_deterministic_with_seed(self):
-        np.random.seed(123)
-        ph1 = PatternHelper((128, 128), bits=10)
-        screen1 = ph1.generate_turbulence_screen(Cn2=1e-14, L=1000, pixel_size=8e-6)
+        ph1 = PatternHelper((256, 256), bits=10)
+        ph1.init_turbulence_screen(r0=10e-2, L0=1.0, pixel_scale=0.1/256, random_seed=123)
+        screen1 = ph1.generate_turbulence_screen()
 
-        np.random.seed(456)
-        ph2 = PatternHelper((128, 128), bits=10)
-        screen2 = ph2.generate_turbulence_screen(Cn2=1e-14, L=1000, pixel_size=8e-6)
+        ph2 = PatternHelper((256, 256), bits=10)
+        ph2.init_turbulence_screen(r0=10e-2, L0=1.0, pixel_scale=0.1/256, random_seed=456)
+        screen2 = ph2.generate_turbulence_screen()
 
         assert not np.array_equal(screen1, screen2)
 
     def test_generate_turbulence_screen_different_params(self):
-        np.random.seed(42)
-        ph = PatternHelper((128, 128), bits=10)
+        ph = PatternHelper((256, 256), bits=10)
+        # First screen with one set of parameters
+        ph.init_turbulence_screen(r0=10e-2, L0=1.0, pixel_scale=0.1/256, random_seed=42)
+        screen1 = ph.generate_turbulence_screen()
 
-        screen1 = ph.generate_turbulence_screen(Cn2=1e-14, L=500, pixel_size=8e-6)
-        screen2 = ph.generate_turbulence_screen(Cn2=1e-13, L=500, pixel_size=8e-6)
+        # Re-initialize with different r0
+        ph.init_turbulence_screen(r0=5e-2, L0=1.0, pixel_scale=0.1/256, random_seed=42)
+        screen2 = ph.generate_turbulence_screen()
 
         assert not np.array_equal(screen1, screen2)
+
+    def test_generate_turbulence_screen_without_init_raises_error(self):
+        ph = PatternHelper((128, 128), bits=10)
+        try:
+            ph.generate_turbulence_screen()
+            assert False, "Expected RuntimeError"
+        except RuntimeError as e:
+            assert "not initialized" in str(e).lower()
 
 
 class TestPatternHelperZernike:
