@@ -309,9 +309,7 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
         )
         params["wavelength_nm"] = st.number_input(
             "波长 (nm)",
-            min_value=400,
-            max_value=1000,
-            value=532,
+            value=st.session_state.get(f"{prefix}_wavelength", 532),
             step=1,
             key=f"{prefix}_vortex_wavelength",
         )
