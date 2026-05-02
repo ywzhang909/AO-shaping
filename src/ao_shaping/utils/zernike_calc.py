@@ -250,32 +250,12 @@ class ZernikeGenerator:
         return self._cart.fit_cart_grid(phase)[0]
 
     @property
-    def mask(self) -> np.ndarray:
-        """Get circular aperture mask.
-        Returns:
-            2D binary array where 1 indicates inside aperture.
-        """
-        # The zernike package uses unit circle, so mask is where radius <= 1
-        mask = np.sqrt(self._cart.xv**2 + self._cart.yv**2) <= 1.0
-        return mask.astype(np.uint8)
-
-    @property
-    def R(self) -> np.ndarray:
-        """Get radial coordinates.
-
-        Returns:
-            2D array of radial distances.
-        """
-        return np.sqrt(self._cart.xv**2 + self._cart.yv**2)
-
-    @property
     def Theta(self) -> np.ndarray:
         """Get angular coordinates.
-
         Returns:
             2D array of angles.
         """
-        return np.arctan2(self._cart.yv, self._cart.xv)
+        return np.arctan2(self.yv, self.xv)
 
     @property
     def resolution(self) -> tuple[int, int]:
