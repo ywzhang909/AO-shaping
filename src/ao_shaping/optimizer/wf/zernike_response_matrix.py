@@ -252,7 +252,7 @@ def calibrate_zernike_response_matrix(
         ZernikeResponseMatrixResult对象，包含响应矩阵、方差和逆矩阵
     """
     n_slm_terms = calc_n_zernike_terms(n_max) - (1 if excluded_piston else 0)
-    n_wfs_terms = calc_n_zernike_terms(10) - 1  # WFS返回67项，去除piston得66项
+    n_wfs_terms = wfs.calc_n_zernike_terms(10)  # WFS返回67项，去除piston得66项
 
     logger.info(
         f"开始Zernike响应矩阵校准: n_max={n_max}, "

@@ -22,6 +22,7 @@ FLAGS_RATE120 = 1
 MEMORY_MODE_INTERNAL = 0  # 内部内存模式
 DVI_MODE = 1  # DVI模式
 
+MAX_MEM_SLOTS = 127 # 可用的内存地址为 1~127
 
 class VideoMode(IntEnum):
     # 0:Memory mode, 1:DVI mode
@@ -248,6 +249,8 @@ class SantecSLM200:
         self._shift_x = shift_x
         self._shift_y = shift_y
 
+        self._current_memory_slot = 1
+
         # 延迟导入SLM SDK
         try:
             import ao_shaping.drivers.slm._slm_win as slm_sdk
@@ -403,6 +406,7 @@ class SantecSLM200:
             raise SantecSLM200Error(f"读取波长信息失败", code=res)
 
         wavelength = dat32_1.value
+        self._max_gray = dat32_2
 
         return wavelength, self._max_gray
 
@@ -430,8 +434,8 @@ class SantecSLM200:
         self._ensure_open()
         assert self.video_mode == VideoMode.Memory
 
-        if not 1 <= memory_number <= 128:
-            raise ValueError(f"内存编号必须在1-128之间，当前: {memory_number}")
+        if not 1 <= memory_number < 128:
+            raise ValueError(f"内存编号必须在1-127之间，当前: {memory_number}")
 
         # 验证数据类型和形状
         if phase.dtype != np.uint16:
@@ -483,9 +487,7 @@ class SantecSLM200:
         self._displayed_memory_number = memory_number
         self._displayed_phase_cache = self._memory_phase_cache.get(memory_number)
 
-    def display_data(self, phase: np.ndarray):
-        assert self.video_mode == VideoMode.DVI, f"display data only available in {self.video_mode}"
-        self._ensure_open()
+    def display_video(self, phase):
         # 验证数据类型和形状
         if phase.dtype != np.uint16:
             raise ValueError(f"相位数据类型必须是uint16，当前: {phase.dtype}")
@@ -515,6 +517,16 @@ class SantecSLM200:
         self._displayed_phase_cache = phase.copy()
         logger.debug("相位数据显示")
 
+    def display_data(self, phase: np.ndarray):
+        self._ensure_open()
+        if self.video_mode == VideoMode.DVI:
+            self.display_video(phase)
+        
+        elif self.video_mode == VideoMode.Memory:
+            self._current_memory_slot = (self._current_memory_slot + 1) % MAX_MEM_SLOTS
+            self.write_phase(phase, self._current_memory_slot+1)
+            self.display_memory(self._current_memory_slot+1)
+        
     def set_grayscale(self, gs: int) -> None:
         """设置SLM灰度值（均匀显示）
 

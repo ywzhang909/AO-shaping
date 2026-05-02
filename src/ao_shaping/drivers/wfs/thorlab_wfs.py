@@ -553,6 +553,8 @@ class WFSManager:
 
         self._lib = load_dll()
         self.device_id = c_int32()
+        self.device_name = ''
+        self.serial_num = ''
         self._instrument_handle = c_ulong(0)
 
         self.use_custom_ref = use_custom_ref
@@ -612,8 +614,10 @@ class WFSManager:
         self._lib.WFS_init(
             resource_name, c_bool(False), c_bool(True), byref(self._instrument_handle)
         )
+        self.device_name = str(device_name.value, encoding='utf8')
+        self.serial_num = str(serial_number.value, encoding='utf8')
         logger.info(
-            f"Connected to {device_name.value} with Serial Number {serial_number.value}"
+            f"Connected to {self.device_name} with Serial Number {self.serial_num}"
         )
 
         self.select_mla(self.mla_index)
@@ -650,7 +654,7 @@ class WFSManager:
         if not no_raise:
             raise Exception(info.value)
 
-    def select_mla(self, mla_index: MlaRes) -> None:
+    def select_mla(self, mla_index: int) -> None:
         """Select and configure MLA (Micro Lens Array) holographic element.
 
         Args:
@@ -665,7 +669,7 @@ class WFSManager:
         self._lib.WFS_ConfigureCam(
             self._instrument_handle,
             c_int32(0),
-            c_int32(mla_index.value),
+            c_int32(mla_index),
             byref(num_spots_x),
             byref(num_spots_y),
         )
@@ -920,6 +924,10 @@ class WFSManager:
             return wavefront
 
         return wavefront_no_tilt
+    
+    @staticmethod
+    def calc_n_zernike_terms(n):
+        return (n + 1) * (n + 2) // 2 + 1
 
     @require_take_image
     def get_zernike(self, zernike_order: int = 10) -> np.ndarray:
@@ -936,7 +944,7 @@ class WFSManager:
         """
         assert zernike_order <= 10, "zernike order must be less than or equal to 10"
         roc_mm = c_double()
-        coeff_num = (zernike_order + 1) * (zernike_order + 2) // 2 + 1
+        coeff_num = self.calc_n_zernike_terms(zernike_order)
         zernike_order_c = c_int32(zernike_order)
         zernike_um = np.empty((coeff_num,), c_float)
         zernike_orders_rms_um = np.empty((11,), c_float)
@@ -1024,6 +1032,46 @@ class WFSManager:
                 )
                 break
         return actual_exposure.value, actual_gain.value
+
+    def get_exposure_time_range(self) -> tuple[float, float, float]:
+        """Get the hardware-supported exposure time range.
+
+        Returns:
+            tuple[float, float, float]: (min_exposure_ms, max_exposure_ms, increment_ms)
+                All values are in seconds.
+
+        Note:
+            Returns cached values if already retrieved; queries hardware on first call.
+        """
+        if hasattr(self, "_exposure_time_range"):
+            return self._exposure_time_range
+
+        min_exp = c_double()
+        max_exp = c_double()
+        increment = c_double()
+        err = self._lib.WFS_GetExposureTimeRange(
+            self._instrument_handle,
+            byref(min_exp),
+            byref(max_exp),
+            byref(increment),
+        )
+        if err != 0:
+            self.handle_error(err, no_raise=True)
+            # Fall back to constants if hardware query fails
+            logger.warning("Failed to get exposure range from hardware, using defaults")
+            return EXP_TIME_LOW, EXP_TIME_HIGH, 0.001
+
+        # Convert from microseconds to milliseconds
+        self._exposure_time_range = (
+            min_exp.value / 1000.0,
+            max_exp.value / 1000.0,
+            increment.value / 1000.0 if increment.value > 0 else 0.001,
+        )
+        logger.info(
+            f"Exposure time range: {self._exposure_time_range[0]:.3f} ~ "
+            f"{self._exposure_time_range[1]:.3f} ms (step: {self._exposure_time_range[2]:.3f} ms)"
+        )
+        return self._exposure_time_range
 
     @property
     def exposure_time(self) -> c_double:
@@ -1132,7 +1180,10 @@ class WFSManager:
         allowAutoExposure	ViInt32	When Highspeed Mode is selected, this parameter determines if the camera should also calculate the image saturation in order enable the auto exposure feature using function WFS_TakeSpotfieldImageAutoExpos() instead of WFS_TakeSpotfieldImage().
         This option leads to a somewhat reduced measurement speed when enabled.
         """
-
+        if self.device_name.upper() == 'WFS40-5C':
+            logger.warning(f'{self.device_name} not support high speed mode!')
+            return
+        
         def __set_high_speed():
             return self._lib.WFS_SetHighspeedMode(
                 self._instrument_handle,

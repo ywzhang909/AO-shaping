@@ -20,6 +20,7 @@ import json
 import threading
 import time
 import os
+from ctypes import byref, c_double
 
 import numpy as np
 import streamlit as st
@@ -98,10 +99,13 @@ def _initialize_state() -> None:
         st.session_state.zrm_storage_dir = str(PROJECT_ROOT / "data" / "zernike_calibration")
 
     if "zrm_slm_wavelength" not in st.session_state:
-        st.session_state.zrm_slm_wavelength = 532
+        st.session_state.zrm_slm_wavelength = 1064
 
     if "zrm_slm_number" not in st.session_state:
         st.session_state.zrm_slm_number = 1
+
+    if "zrm_slm_selection" not in st.session_state:
+        st.session_state.zrm_slm_selection = 1  # Default to SLM 1
 
     if "zrm_slm_n_max" not in st.session_state:
         st.session_state.zrm_slm_n_max = 10
@@ -112,12 +116,40 @@ def _initialize_state() -> None:
     if "zrm_shift_y" not in st.session_state:
         st.session_state.zrm_shift_y = 0
 
+    # SLM properties (populated after connection)
+    if "zrm_slm_width" not in st.session_state:
+        st.session_state.zrm_slm_width = None
+
+    if "zrm_slm_height" not in st.session_state:
+        st.session_state.zrm_slm_height = None
+
+    if "zrm_slm_pixel_size_um" not in st.session_state:
+        st.session_state.zrm_slm_pixel_size_um = None
+
+    if "zrm_slm_bits" not in st.session_state:
+        st.session_state.zrm_slm_bits = None
+
     # WFS settings
     if "zrm_wfs_mla_res" not in st.session_state:
         st.session_state.zrm_wfs_mla_res = "768"
 
     if "zrm_wfs_exp_time" not in st.session_state:
-        st.session_state.zrm_wfs_exp_time = 0.0
+        st.session_state.zrm_wfs_exp_time = 0.01  # Valid default within [0.002, 86]
+
+    # WFS auto-exposure display value (separate from actual exp_time used)
+    if "zrm_wfs_exp_time_display" not in st.session_state:
+        st.session_state.zrm_wfs_exp_time_display = None  # Will be set on first render
+
+    # WFS auto-exposure toggle
+    if "zrm_wfs_auto_exposure" not in st.session_state:
+        st.session_state.zrm_wfs_auto_exposure = True  # Default to auto-exposure
+
+    # WFS exposure time range (detected from device)
+    if "zrm_wfs_exp_time_min" not in st.session_state:
+        st.session_state.zrm_wfs_exp_time_min = 0.002  # Default from WFS driver
+
+    if "zrm_wfs_exp_time_max" not in st.session_state:
+        st.session_state.zrm_wfs_exp_time_max = 86.0  # Default from WFS driver
 
     if "zrm_wfs_pupil_diameter" not in st.session_state:
         st.session_state.zrm_wfs_pupil_diameter = 2.0
@@ -184,14 +216,33 @@ def _get_zernike_name(n_max: int) -> dict[tuple[int, int], str]:
     return valid
 
 
+def set_slm_shift() -> None:
+    """Apply shift values to connected SLM."""
+    try:
+        slm = st.session_state.zrm_slm
+        if slm is None:
+            st.error("SLM未连接")
+            return
+        shift_x = st.session_state.zrm_shift_x
+        shift_y = st.session_state.zrm_shift_y
+        slm.set_shift(shift_x, shift_y)
+        st.success(f"SLM shift set to ({shift_x}, {shift_y})")
+    except Exception as e:
+        st.error(f"设置shift失败: {e}")
+        logger.exception(f"Failed to set SLM shift: {e}")
+
+
 def connect_slm() -> bool:
     """Connect to ZernikeSLM."""
     try:
         if st.session_state.zrm_slm is not None:
             st.session_state.zrm_slm.close()
 
+        # Use selected SLM number from dropdown
+        slm_number = st.session_state.zrm_slm_selection
+
         slm = ZernikeSLM(
-            slm_number=st.session_state.zrm_slm_number,
+            slm_number=slm_number,
             wavelength=st.session_state.zrm_slm_wavelength,
             n_max=st.session_state.zrm_slm_n_max,
             shift_x=st.session_state.zrm_shift_x,
@@ -199,14 +250,21 @@ def connect_slm() -> bool:
         )
         slm.open()
 
+        # Store SLM properties for pattern generation and display
         st.session_state.zrm_slm = slm
         st.session_state.zrm_slm_connected = True
-        st.success(f"SLM {st.session_state.zrm_slm_number} connected")
+        st.session_state.zrm_slm_width = slm._slm.Panel_Res[0]
+        st.session_state.zrm_slm_height = slm._slm.Panel_Res[1]
+        st.session_state.zrm_slm_pixel_size_um = slm._slm.Pitch_um
+        st.session_state.zrm_slm_bits = slm._slm.Gray_Scale_bits
+        st.session_state.zrm_slm_number = slm_number  # Store the actual connected number
+
+        st.success(f"SLM {slm_number} connected (wavelength={slm.wavelength}nm, resolution={st.session_state.zrm_slm_width}×{st.session_state.zrm_slm_height})")
         return True
 
     except Exception as e:
         st.error(f"SLM connection failed: {e}")
-        logger.error(f"ZernikeSLM connection failed: {e}")
+        logger.exception(f"ZernikeSLM connection failed: {e}")
         return False
 
 
@@ -220,45 +278,65 @@ def disconnect_slm() -> None:
         st.success("SLM disconnected")
     except Exception as e:
         st.error(f"SLM disconnect failed: {e}")
-        logger.error(f"ZernikeSLM disconnect failed: {e}")
+        logger.exception(f"ZernikeSLM disconnect failed: {e}")
 
 
 def connect_wfs() -> bool:
-    """Connect to Thorlab WFS."""
+    """Connect to Thorlab WFS with auto-retry on failure."""
     try:
+        # Ensure previous connection is fully closed
         if st.session_state.zrm_wfs is not None:
-            st.session_state.zrm_wfs.close()
+            try:
+                st.session_state.zrm_wfs.close()
+            except Exception as e:
+                logger.warning(f"Previous WFS close warning: {e}")
+            st.session_state.zrm_wfs = None
+            st.session_state.zrm_wfs_connected = False
+
+        # Determine exposure time: auto-exposure uses 0, otherwise use configured value
+        exp_time = 0.0 if st.session_state.zrm_wfs_auto_exposure else st.session_state.zrm_wfs_exp_time
 
         wfs = WFSManager(
             mla_index=st.session_state.zrm_wfs_mla_res,
-            exp_time=st.session_state.zrm_wfs_exp_time,
+            exp_time=exp_time,
+            high_speed=False,
             pupil_diameter=st.session_state.zrm_wfs_pupil_diameter,
             pupil_center=(st.session_state.zrm_wfs_pupil_center_x, st.session_state.zrm_wfs_pupil_center_y),
         )
         wfs.initialize()
+        min_exp, max_exp, _ = wfs.get_exposure_time_range()
+        if max_exp > 0:
+            st.session_state.zrm_wfs_exp_time_min = min_exp*1000
+            st.session_state.zrm_wfs_exp_time_max = max_exp*1000
+            logger.info(f"WFS exposure range: {min_exp*1000:.3f} ~ {max_exp*1000:.3f} ms")
+        else:
+            logger.warning("Failed to get WFS exposure range, using defaults")
 
         st.session_state.zrm_wfs = wfs
         st.session_state.zrm_wfs_connected = True
-        st.success("WFS connected")
+        mode_str = "自动曝光" if st.session_state.zrm_wfs_auto_exposure else f"手动曝光 {exp_time:.3f}ms"
+        st.success(f"WFS connected ({mode_str})")
         return True
-
     except Exception as e:
-        st.error(f"WFS connection failed: {e}")
-        logger.error(f"WFS connection failed: {e}")
+        logger.exception(f"fail to connect wfs: {e}")
+        st.error(f"fail to connect wfs: {e}")
         return False
-
 
 def disconnect_wfs() -> None:
     """Disconnect from Thorlab WFS."""
     try:
         if st.session_state.zrm_wfs is not None:
-            st.session_state.zrm_wfs.close()
-        st.session_state.zrm_wfs = None
-        st.session_state.zrm_wfs_connected = False
+            try:
+                st.session_state.zrm_wfs.close()
+            except Exception as e:
+                logger.warning(f"WFS close warning: {e}")
+            finally:
+                st.session_state.zrm_wfs = None
+                st.session_state.zrm_wfs_connected = False
         st.success("WFS disconnected")
     except Exception as e:
         st.error(f"WFS disconnect failed: {e}")
-        logger.error(f"WFS disconnect failed: {e}")
+        logger.exception(f"Failed to disconnect WFS: {e}")
 
 
 def _progress_callback(progress_data: dict) -> None:
@@ -357,7 +435,7 @@ def _run_calibration_thread(
         st.session_state.zrm_calibration_result = result
 
     except Exception as e:
-        logger.error(f"Calibration thread error: {e}")
+        logger.exception(f"Calibration thread error: {e}")
         _progress_callback({
             "percent": -1,
             "message": f"Calibration failed: {e}",
@@ -457,8 +535,8 @@ def render_sidebar() -> None:
 
         st.divider()
 
-        # WFS settings
-        st.subheader("WFS设置")
+        # WFS settings (parameters applied on connect)
+        st.subheader("WFS参数")
 
         st.session_state.zrm_wfs_mla_res = st.selectbox(
             "MLA分辨率",
@@ -467,42 +545,88 @@ def render_sidebar() -> None:
             index=2,  # Default Res768
         )
 
-        st.session_state.zrm_wfs_exp_time = st.number_input(
-            "曝光时间 (ms)",
-            min_value=0.002,
-            max_value=86.0,
-            value=0.0,
+        # Show current exposure range (default or detected)
+        exp_min = st.session_state.get("zrm_wfs_exp_time_min", 0.002)
+        exp_max = st.session_state.get("zrm_wfs_exp_time_max", 86.0)
+        st.caption(f"设备曝光范围: {exp_min:.3f} ~ {exp_max:.3f} ms")
+
+        # Auto-exposure toggle
+        auto_exp = st.checkbox(
+            "自动曝光",
+            value=st.session_state.zrm_wfs_auto_exposure,
+            help="开启时使用WFS自动曝光，曝光时间设置无效",
+        )
+        # Update session state only if changed (avoid unnecessary resets)
+        if auto_exp != st.session_state.zrm_wfs_auto_exposure:
+            st.session_state.zrm_wfs_auto_exposure = auto_exp
+            # Only reset to 0.0 when enabling auto-exposure (for driver), 
+            # but keep a separate display value
+            if auto_exp:
+                st.session_state.zrm_wfs_exp_time_display = 0.0
+
+        # Determine display value: use stored display value if in auto mode, else use actual exp_time
+        if st.session_state.zrm_wfs_auto_exposure:
+            # When auto, show the minimum valid value (since actual value is 0.0 for driver)
+            display_value = exp_min
+            st.session_state.zrm_wfs_exp_time_display = exp_min
+        else:
+            display_value = st.session_state.zrm_wfs_exp_time
+            # Ensure manual value is within [exp_min, exp_max] for UI safety
+            if display_value < exp_min:
+                display_value = exp_min
+                st.session_state.zrm_wfs_exp_time = exp_min
+            elif display_value > exp_max:
+                display_value = exp_max
+                st.session_state.zrm_wfs_exp_time = exp_max
+            st.session_state.zrm_wfs_exp_time_display = display_value
+
+        # Exposure time input (disabled when auto-exposure is on)
+        new_exp = st.number_input(
+            "曝光时间 (ms)" + (" (自动)" if st.session_state.zrm_wfs_auto_exposure else ""),
+            min_value=float(exp_min),
+            max_value=float(exp_max),
+            value=float(display_value),
             step=0.1,
             format="%.3f",
-            help="0=自动曝光"
+            help="自动曝光模式下此设置无效" if st.session_state.zrm_wfs_auto_exposure else "手动曝光时间，0=自动曝光",
+            disabled=st.session_state.zrm_wfs_auto_exposure,
+        )
+
+        # Update exposure time state if not auto and value changed
+        if not st.session_state.zrm_wfs_auto_exposure:
+            st.session_state.zrm_wfs_exp_time = new_exp
+        # Clamp to device range (should be enforced by number_input but ensure safety)
+        st.session_state.zrm_wfs_exp_time = min(
+            max(st.session_state.zrm_wfs_exp_time, float(exp_min)),
+            float(exp_max)
         )
 
         st.session_state.zrm_wfs_pupil_diameter = st.number_input(
             "瞳孔直径 (mm)",
             min_value=0.5,
             max_value=10.0,
-            value=2.0,
+            value=st.session_state.zrm_wfs_pupil_diameter,
             step=0.1,
             format="%.1f"
         )
 
         col1, col2 = st.columns(2)
         with col1:
-            st.session_state.zrm_wfs_pupil_center_x = st.number_input("瞳孔中心 X", value=0.0, step=0.1, format="%.1f")
+            st.session_state.zrm_wfs_pupil_center_x = st.number_input("瞳孔中心 X", value=st.session_state.zrm_wfs_pupil_center_x, step=0.1, format="%.1f")
         with col2:
-            st.session_state.zrm_wfs_pupil_center_y = st.number_input("瞳孔中心 Y", value=0.0, step=0.1, format="%.1f")
+            st.session_state.zrm_wfs_pupil_center_y = st.number_input("瞳孔中心 Y", value=st.session_state.zrm_wfs_pupil_center_y, step=0.1, format="%.1f")
 
         st.divider()
 
-        # SLM settings
-        st.subheader("SLM设置")
+        # SLM settings (parameters applied on connect)
+        st.subheader("SLM参数")
 
-        st.session_state.zrm_slm_number = st.number_input(
-            "SLM编号",
-            min_value=1,
-            max_value=2,
-            value=st.session_state.zrm_slm_number,
-            step=1,
+        st.session_state.zrm_slm_selection = st.selectbox(
+            "选择SLM编号",
+            options=[1, 2],
+            index=st.session_state.get("zrm_slm_selection", 1) - 1,
+            format_func=lambda x: f"SLM {x}",
+            help="选择要连接的SLM设备编号",
         )
 
         st.session_state.zrm_slm_wavelength = st.number_input(
@@ -522,7 +646,7 @@ def render_sidebar() -> None:
         )
 
         st.session_state.zrm_shift_x = st.number_input(
-            "SLM Shift X",
+            "SLM Shift X (像素)",
             min_value=-500,
             max_value=500,
             value=st.session_state.zrm_shift_x,
@@ -530,37 +654,63 @@ def render_sidebar() -> None:
         )
 
         st.session_state.zrm_shift_y = st.number_input(
-            "SLM Shift Y",
+            "SLM Shift Y (像素)",
             min_value=-500,
             max_value=500,
             value=st.session_state.zrm_shift_y,
             step=1,
         )
 
+        # Apply shift button (only enabled when SLM connected)
+        if st.session_state.zrm_slm_connected:
+            if st.button("应用Shift设置", key="zrm_apply_shift", type="secondary"):
+                set_slm_shift()
+        else:
+            st.caption("连接SLM后可设置shift")
+
         st.divider()
 
         # Device connection
         st.subheader("设备连接")
 
+        # SLM connection section
+        st.write("**SLM**")
         col1, col2 = st.columns(2)
         with col1:
             if not st.session_state.zrm_slm_connected:
-                if st.button("连接SLM", type="primary"):
+                if st.button("连接SLM", type="primary", key="zrm_connect_slm"):
                     connect_slm()
             else:
                 st.success("SLM已连接")
-                if st.button("断开SLM"):
+                if st.button("断开SLM", key="zrm_disconnect_slm"):
                     disconnect_slm()
 
-        with col2:
+        # Display SLM info when connected
+        if st.session_state.zrm_slm_connected:
+            width = st.session_state.get("zrm_slm_width")
+            height = st.session_state.get("zrm_slm_height")
+            pixel_size = st.session_state.get("zrm_slm_pixel_size_um")
+            bits = st.session_state.get("zrm_slm_bits")
+            if width and height:
+                st.caption(f"分辨率: {width}×{height}")
+            if pixel_size:
+                st.caption(f"像素尺寸: {pixel_size} μm")
+            if bits:
+                st.caption(f"Bit: {bits}")
+
+        st.divider()
+
+        # WFS connection section
+        st.write("**WFS**")
+        col1, col2 = st.columns(2)
+        with col1:
             if not st.session_state.zrm_wfs_connected:
-                if st.button("连接WFS", type="primary"):
+                if st.button("连接WFS", type="primary", key="zrm_connect_wfs"):
                     connect_wfs()
             else:
                 st.success("WFS已连接")
-                if st.button("断开WFS"):
+                if st.button("断开WFS", key="zrm_disconnect_wfs"):
                     disconnect_wfs()
-
 
 def render_calibrate_mode() -> None:
     """Render calibration mode UI."""
@@ -709,7 +859,7 @@ def render_calibrate_mode() -> None:
 
                     except Exception as e:
                         st.error(f"加载结果失败: {e}")
-                        logger.error(f"Failed to load calibration result: {e}")
+                        logger.exception(f"Failed to load calibration result: {e}")
 
                     st.session_state.zrm_calibration_running = False
 
