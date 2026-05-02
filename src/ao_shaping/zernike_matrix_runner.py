@@ -30,7 +30,7 @@ from ao_shaping.utils.display import ZernikeCalibrationDisplay
 @click.option('--wavelength', default=1064, help='工作波长 (nm)')
 @click.option('--no-inverses', 'compute_inverses', default=True, flag_value=False, help='不计算逆矩阵')
 @click.option('--no-excluded-piston', 'excluded_piston', default=True, flag_value=False, help='不排除piston模式')
-@click.option('--display', default=False, help='显示实时pygame显示')
+@click.option('--display/--no-display', default=False, help='显示实时pygame显示')
 def run(
     n_max: int,
     magnitude: float,

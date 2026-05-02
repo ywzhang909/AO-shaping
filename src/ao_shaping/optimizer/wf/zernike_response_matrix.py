@@ -141,8 +141,8 @@ def set_slm_flat(slm) -> None:
 def measure_zernike_mode_response(
     zslm: ZernikeSLM,
     wfs: WFSManager,
-    mode_index: int,
-    magnitude: float = DEFAULT_MAGNITUDE,
+    coefficients: np.ndarray,
+    coeff_value: float,
     n_averages: int = DEFAULT_N_AVERAGES,
     n_cycles: int = DEFAULT_N_CYCLES,
     wait_time: float = DEFAULT_WAIT_TIME,
@@ -150,13 +150,13 @@ def measure_zernike_mode_response(
     """测量单个Zernike模式的响应 (多次循环)
 
     使用正负扰动测量N次循环，以消除偏置和系统误差:
-    response = (response_plus - response_minus) / (2 * magnitude)
+    response = (response_plus - response_minus) / (2 * coeff_value)
 
     Args:
         zslm: ZernikeSLM实例
         wfs: Thorlab WFS实例
-        mode_index: 模式索引 (0-based，对应Noll 2开始，跳过piston)
-        magnitude: 扰动幅度 (波长)
+        coefficients: Zernike系数数组 (numpy格式，包含或不包含piston，根据noll顺序排列)
+        coeff_value: 扰动系数值 (用于归一化)
         n_averages: 每次WFS读取次数 (M)
         n_cycles: 正负交替循环次数 (N)
         wait_time: 等待时间 (秒)
@@ -164,11 +164,8 @@ def measure_zernike_mode_response(
     Returns:
         (mean_response, variance_response): 平均响应向量和方差向量，shape为 (n_wfs_terms,)
     """
-    def measure_once(coefficient: float) -> np.ndarray:
+    def measure_once(coeffs: np.ndarray) -> np.ndarray:
         """单次测量 (M次WFS读取取平均)"""
-        coeffs = np.zeros(calc_n_zernike_terms(10), dtype=np.float64)
-        coeffs[mode_index + 1] = coefficient  # +1 跳过piston (Noll index 1)
-
         zslm.send_zernike(coeffs)
         time.sleep(wait_time)
 
@@ -184,22 +181,19 @@ def measure_zernike_mode_response(
 
     for cycle in range(n_cycles):
         # 正向扰动
-        response_plus = measure_once(+magnitude)
+        response_plus = measure_once(+coefficients)
         set_slm_flat(zslm._slm)
         time.sleep(wait_time)
 
         # 负向扰动
-        response_minus = measure_once(-magnitude)
+        response_minus = measure_once(-coefficients)
         set_slm_flat(zslm._slm)
         time.sleep(wait_time)
 
         # 计算本次循环的响应 (去除piston)
-        response = (response_plus - response_minus) / (2 * magnitude)
+        response = (response_plus - response_minus) / (2 * coeff_value)
+        # 去除piston (WFS返回的结果中index 0是piston)
         all_responses.append(response[1:])  # 去除piston
-
-        # TODO 添加log
-
-    # TODO 多组magnitude来测量线性度
 
     # 堆叠所有循环结果
     all_responses = np.array(all_responses)  # shape: (n_cycles, n_wfs_terms-1)
@@ -252,7 +246,7 @@ def calibrate_zernike_response_matrix(
         ZernikeResponseMatrixResult对象，包含响应矩阵、方差和逆矩阵
     """
     n_slm_terms = calc_n_zernike_terms(n_max) - (1 if excluded_piston else 0)
-    n_wfs_terms = wfs.calc_n_zernike_terms(10)  # WFS返回67项，去除piston得66项
+    n_wfs_terms = calc_n_zernike_terms(10) - (1 if excluded_piston else 0)  # WFS返回67项，去除piston得66项
 
     logger.info(
         f"开始Zernike响应矩阵校准: n_max={n_max}, "
@@ -278,11 +272,23 @@ def calibrate_zernike_response_matrix(
         mode_indices = tqdm(mode_indices, desc="校准进度")
 
     for i in mode_indices:
+        # Create coefficient array for this mode
+        # coeffs_full is in full Zernike format (size calc_n_zernike_terms(10)=66)
+        # index 0 corresponds to piston (Noll index 1)
+        # When excluded_piston=True, mode i corresponds to Noll index i+2 (skipping piston)
+        # When excluded_piston=False, mode i corresponds to Noll index i+1 (including piston)
+        coeffs_full = np.zeros(calc_n_zernike_terms(10), dtype=np.float64)
+        coeff_value = magnitude
+        if excluded_piston:
+            coeffs_full[i + 1] = coeff_value  # +1 skips piston
+        else:
+            coeffs_full[i] = coeff_value  # include piston
+        
         mean_resp, var_resp = measure_zernike_mode_response(
             zslm=zslm,
             wfs=wfs,
-            mode_index=i,
-            magnitude=magnitude,
+            coefficients=coeffs_full,
+            coeff_value=coeff_value,
             n_averages=n_averages,
             n_cycles=n_cycles,
             wait_time=wait_time,
@@ -296,7 +302,8 @@ def calibrate_zernike_response_matrix(
 
         # Update display if provided
         if display is not None:
-            mode_name = f"Z{i + 2}"  # Zernike modes start from Z2 (Noll index 1)
+            noll_index = i + (2 if excluded_piston else 1)  # piston is Noll index 1
+            mode_name = f"Z{noll_index}"
             continue_flag = display.update(
                 mode_index=i,
                 mode_name=mode_name,

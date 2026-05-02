@@ -575,3 +575,216 @@ class TestCallbackSupport:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestMatrixShapeCorrectness:
+    """测试响应矩阵形状正确性 - 包括shift参数影响"""
+
+    def test_matrix_shape_excluded_piston_true(self):
+        """测试当excluded_piston=True时的矩阵形状"""
+        from unittest.mock import MagicMock, patch
+        from ao_shaping.optimizer.wf.zernike_response_matrix import (
+            calibrate_zernike_response_matrix,
+            calc_n_zernike_terms,
+        )
+
+        n_max = 10
+        n_slm_terms = calc_n_zernike_terms(n_max) - 1  # 排除piston
+        n_wfs_terms = calc_n_zernike_terms(10) - 1  # 排除piston，应该是65
+
+        mock_zslm = MagicMock()
+        mock_zslm.wavelength = 1064
+        mock_wfs = MagicMock()
+
+        with patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
+        ) as mock_measure:
+            mock_measure.return_value = (
+                np.zeros(n_wfs_terms),
+                np.zeros(n_wfs_terms),
+            )
+
+            result = calibrate_zernike_response_matrix(
+                zslm=mock_zslm,
+                wfs=mock_wfs,
+                n_max=n_max,
+                magnitude=0.5,
+                n_cycles=1,
+                n_averages=1,
+                wait_time=0.01,
+                excluded_piston=True,
+                compute_inverses=False,
+                verbose=False,
+                display=None,
+                callback=None,
+            )
+
+            # 验证矩阵形状正确: (n_wfs_terms, n_slm_terms)
+            assert result.matrix.shape == (n_wfs_terms, n_slm_terms), \
+                f"期望形状 ({n_wfs_terms}, {n_slm_terms}), 实际 {result.matrix.shape}"
+            assert result.variance_matrix.shape == (n_wfs_terms, n_slm_terms)
+            assert result.n_wfs_terms == n_wfs_terms
+            assert result.n_slm_terms == n_slm_terms
+
+    def test_matrix_shape_excluded_piston_false(self):
+        """测试当excluded_piston=False时的矩阵形状"""
+        from unittest.mock import MagicMock, patch
+        from ao_shaping.optimizer.wf.zernike_response_matrix import (
+            calibrate_zernike_response_matrix,
+            calc_n_zernike_terms,
+        )
+
+        n_max = 10
+        n_slm_terms = calc_n_zernike_terms(n_max)  # 不排除piston，应该是66
+        n_wfs_terms = calc_n_zernike_terms(10)  # 不排除piston，应该是66
+
+        mock_zslm = MagicMock()
+        mock_zslm.wavelength = 1064
+        mock_wfs = MagicMock()
+
+        with patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
+        ) as mock_measure:
+            mock_measure.return_value = (
+                np.zeros(n_wfs_terms),
+                np.zeros(n_wfs_terms),
+            )
+
+            result = calibrate_zernike_response_matrix(
+                zslm=mock_zslm,
+                wfs=mock_wfs,
+                n_max=n_max,
+                magnitude=0.5,
+                n_cycles=1,
+                n_averages=1,
+                wait_time=0.01,
+                excluded_piston=False,  # 不排除piston
+                compute_inverses=False,
+                verbose=False,
+                display=None,
+                callback=None,
+            )
+
+            # 验证矩阵形状正确: (n_wfs_terms, n_slm_terms)
+            assert result.matrix.shape == (n_wfs_terms, n_slm_terms), \
+                f"期望形状 ({n_wfs_terms}, {n_slm_terms}), 实际 {result.matrix.shape}"
+            assert result.variance_matrix.shape == (n_wfs_terms, n_slm_terms)
+            assert result.n_wfs_terms == n_wfs_terms
+            assert result.n_slm_terms == n_slm_terms
+
+    def test_calibrate_with_shift_parameters(self):
+        """测试校准函数在shift参数存在时仍能正常工作"""
+        from unittest.mock import MagicMock, patch
+        from ao_shaping.optimizer.wf.zernike_response_matrix import (
+            calibrate_zernike_response_matrix,
+            calc_n_zernike_terms,
+        )
+
+        n_max = 4
+        n_slm_terms = calc_n_zernike_terms(n_max) - 1
+
+        mock_zslm = MagicMock()
+        mock_zslm.wavelength = 1064
+        # 验证shift属性存在
+        mock_zslm.shift_x = 0
+        mock_zslm.shift_y = 0
+        mock_wfs = MagicMock()
+
+        n_wfs_terms = calc_n_zernike_terms(10) - 1
+
+        with patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
+        ) as mock_measure:
+            mock_measure.return_value = (
+                np.zeros(n_wfs_terms),
+                np.zeros(n_wfs_terms),
+            )
+
+            # 即使底层SLM有shift参数，校准也应正常进行
+            result = calibrate_zernike_response_matrix(
+                zslm=mock_zslm,
+                wfs=mock_wfs,
+                n_max=n_max,
+                magnitude=0.5,
+                n_cycles=1,
+                n_averages=1,
+                wait_time=0.01,
+                excluded_piston=True,
+                compute_inverses=False,
+                verbose=False,
+                display=None,
+                callback=None,
+            )
+
+            # 验证矩阵形状正确
+            assert result.matrix.shape == (n_wfs_terms, n_slm_terms)
+
+    def test_response_vector_dimension_matches_matrix(self):
+        """测试响应向量维度与矩阵维度匹配 - 这是之前numpy错误的场景"""
+        from unittest.mock import MagicMock, patch
+        from ao_shaping.optimizer.wf.zernike_response_matrix import (
+            calibrate_zernike_response_matrix,
+            calc_n_zernike_terms,
+        )
+
+        n_max = 10
+        n_slm_terms = calc_n_zernike_terms(n_max) - 1  # 65
+        n_wfs_terms = calc_n_zernike_terms(10) - 1  # 65
+
+        mock_zslm = MagicMock()
+        mock_zslm.wavelength = 1064
+        mock_wfs = MagicMock()
+
+        with patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
+        ) as mock_measure:
+            # 返回的响应向量应该是65维 (n_wfs_terms)
+            response_vec = np.random.randn(n_wfs_terms) * 0.1
+            variance_vec = np.random.rand(n_wfs_terms) * 0.01
+            mock_measure.return_value = (response_vec, variance_vec)
+
+            result = calibrate_zernike_response_matrix(
+                zslm=mock_zslm,
+                wfs=mock_wfs,
+                n_max=n_max,
+                magnitude=0.5,
+                n_cycles=1,
+                n_averages=1,
+                wait_time=0.01,
+                excluded_piston=True,
+                compute_inverses=False,
+                verbose=False,
+                display=None,
+                callback=None,
+            )
+
+            # 关键验证: 矩阵的每一列应能正确接收响应向量
+            # 之前的问题是response_vec.shape=(66,)而矩阵有67行
+            assert result.matrix.shape == (n_wfs_terms, n_slm_terms)
+            # 验证第一列的数据与模拟返回的数据匹配
+            assert np.allclose(result.matrix[:, 0], response_vec)
+            assert np.allclose(result.variance_matrix[:, 0], variance_vec)
+
+    def test_n_wfs_terms_calculation_with_excluded_piston(self):
+        """测试n_wfs_terms在不同excluded_piston设置下的计算"""
+        from ao_shaping.optimizer.wf.zernike_response_matrix import calc_n_zernike_terms
+
+        # calc_n_zernike_terms(10) 应该返回66 (包括piston)
+        n_total = calc_n_zernike_terms(10)
+        assert n_total == 66
+
+        # 排除piston后应为65
+        n_excluded = calc_n_zernike_terms(10) - 1
+        assert n_excluded == 65
+
+    def test_slm_zernike_terms_calculation(self):
+        """测试SLM侧Zernike项数计算"""
+        from ao_shaping.optimizer.wf.zernike_response_matrix import calc_n_zernike_terms
+
+        # 不同n_max对应的项数
+        assert calc_n_zernike_terms(4) == 15    # n_max=4
+        assert calc_n_zernike_terms(10) == 66   # n_max=10
+
+        # 排除piston后的项数
+        assert calc_n_zernike_terms(4) - 1 == 14   # n_max=4, 排除piston
+        assert calc_n_zernike_terms(10) - 1 == 65  # n_max=10, 排除piston

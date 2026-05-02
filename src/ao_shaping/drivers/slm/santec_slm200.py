@@ -434,8 +434,8 @@ class SantecSLM200:
         self._ensure_open()
         assert self.video_mode == VideoMode.Memory
 
-        if not 1 <= memory_number < 128:
-            raise ValueError(f"内存编号必须在1-127之间，当前: {memory_number}")
+        if not 1 <= memory_number <= 128:
+            raise ValueError(f"内存编号必须在1-128之间，当前: {memory_number}")
 
         # 验证数据类型和形状
         if phase.dtype != np.uint16:

@@ -31,7 +31,6 @@ from loguru import logger
 from ao_shaping.drivers.slm.zernike_slm import ZernikeSLM
 from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager
 
-# Import calibration functions
 from ao_shaping.optimizer.wf.zernike_response_matrix import (
     ZernikeResponseMatrixResult,
     calibrate_zernike_response_matrix,
@@ -377,15 +376,7 @@ def _run_calibration_thread(
     This function runs the calibration in a separate thread, writing progress
     updates to a JSON file that the UI can poll.
     """
-    try:
-        # Import here to avoid circular imports
-        from ao_shaping.optimizer.wf.zernike_response_matrix import (
-            calibrate_zernike_response_matrix,
-            save_zernike_response_matrix,
-        )
-
-        # Calculate total modes for progress tracking
-        from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
+    try:       
         total_modes = calc_n_zernike_terms(n_max) - (1 if excluded_piston else 0)
 
         # Progress callback wrapper (matches backend signature)
@@ -900,7 +891,6 @@ def render_calibrate_mode() -> None:
             st.metric("最大方差", f"{result.max_variance:.6f}")
         with col4:
             st.metric("条件数", f"{result.condition_number:.2e}" if result.condition_number else "N/A")
-
 
 def render_load_view_mode() -> None:
     """Render load and view mode UI."""

@@ -44,7 +44,6 @@ class ZernikeSLM:
         self.slm_number = slm_number
         self.wavelength = wavelength
         self.n_max = n_max
-        self._mem_slot_num = 2
 
         if slm_resolution is None:
             slm_resolution = SantecSLM200.Panel_Res  # (1920, 1200)
@@ -135,10 +134,7 @@ class ZernikeSLM:
             coefficients if isinstance(coefficients, dict)
             else self._zernike_dm._noll_to_dict(coefficients)
         )
-
-        self._slm.write_phase(self._current_phase, self._mem_slot_num+1)
-        self._slm.display_memory(self._mem_slot_num+1)
-        self._mem_slot_num = (self._mem_slot_num + 1) % 128
+        self._slm.display_data(self._current_phase)
 
         return self._current_phase
 
