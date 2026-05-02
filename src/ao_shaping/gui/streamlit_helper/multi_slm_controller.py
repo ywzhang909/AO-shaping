@@ -943,12 +943,27 @@ def render_phase_control(slm_num: int):
                 params,
             )
 
-            # Apply shift if configured
+            # Apply shift if configured (with zero-padding instead of wrap-around)
             shift_x = st.session_state.get(f"{prefix}_shift_x", 0)
             shift_y = st.session_state.get(f"{prefix}_shift_y", 0)
             if shift_x != 0 or shift_y != 0:
-                phase_gray = np.roll(phase_gray, shift=shift_y, axis=0)
-                phase_gray = np.roll(phase_gray, shift=shift_x, axis=1)
+                # Create shifted array with zero-padding
+                shifted_gray = np.zeros_like(phase_gray)
+                y_src_start = max(0, -shift_y)
+                y_src_end = min(phase_gray.shape[0], phase_gray.shape[0] - shift_y)
+                y_dst_start = max(0, shift_y)
+                y_dst_end = min(phase_gray.shape[0], phase_gray.shape[0] + shift_y)
+                
+                x_src_start = max(0, -shift_x)
+                x_src_end = min(phase_gray.shape[1], phase_gray.shape[1] - shift_x)
+                x_dst_start = max(0, shift_x)
+                x_dst_end = min(phase_gray.shape[1], phase_gray.shape[1] + shift_x)
+                
+                if y_src_end > y_src_start and x_src_end > x_src_start:
+                    shifted_gray[y_dst_start:y_dst_end, x_dst_start:x_dst_end] = \
+                        phase_gray[y_src_start:y_src_end, x_src_start:x_src_end]
+                
+                phase_gray = shifted_gray
 
             # Write to next memory slot and immediately display
             mem_slot = st.session_state[f"{prefix}_next_memory"]
@@ -984,8 +999,23 @@ def render_phase_control(slm_num: int):
                 shift_x = st.session_state.get(f"{prefix}_shift_x", 0)
                 shift_y = st.session_state.get(f"{prefix}_shift_y", 0)
                 if shift_x != 0 or shift_y != 0:
-                    phase_gray = np.roll(phase_gray, shift=shift_y, axis=0)
-                    phase_gray = np.roll(phase_gray, shift=shift_x, axis=1)
+                    # Create shifted array with zero-padding
+                    shifted_gray = np.zeros_like(phase_gray)
+                    y_src_start = max(0, -shift_y)
+                    y_src_end = min(phase_gray.shape[0], phase_gray.shape[0] - shift_y)
+                    y_dst_start = max(0, shift_y)
+                    y_dst_end = min(phase_gray.shape[0], phase_gray.shape[0] + shift_y)
+                    
+                    x_src_start = max(0, -shift_x)
+                    x_src_end = min(phase_gray.shape[1], phase_gray.shape[1] - shift_x)
+                    x_dst_start = max(0, shift_x)
+                    x_dst_end = min(phase_gray.shape[1], phase_gray.shape[1] + shift_x)
+                    
+                    if y_src_end > y_src_start and x_src_end > x_src_start:
+                        shifted_gray[y_dst_start:y_dst_end, x_dst_start:x_dst_end] = \
+                            phase_gray[y_src_start:y_src_end, x_src_start:x_src_end]
+                    
+                    phase_gray = shifted_gray
 
                 # Write to next memory slot and immediately display
                 mem_slot = st.session_state[f"{prefix}_next_memory"]
