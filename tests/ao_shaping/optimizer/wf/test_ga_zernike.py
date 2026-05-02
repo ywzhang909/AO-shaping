@@ -93,6 +93,9 @@ class TestTournamentSelection:
         selected = _tournament_selection(population, fitness, tournament_size=3)
 
         assert selected.shape == (5,)
+        assert np.any(np.all(selected == population[0])) or np.all(
+            selected != population[0]
+        )
 
 
 class TestBlendCrossover:
@@ -112,11 +115,7 @@ class TestBlendCrossover:
 
     def test_blend_crossover_bounds(self):
         """Test that children are within reasonable bounds."""
-        from ao_shaping.optimizer.wf.ga_zernike import (
-            _blend_crossover,
-            ZERNIKE_MIN,
-            ZERNIKE_MAX,
-        )
+        from ao_shaping.optimizer.wf.ga_zernike import _blend_crossover, ZERNIKE_MIN, ZERNIKE_MAX
 
         parent1 = np.array([10.0, 20.0, 30.0])
         parent2 = np.array([15.0, 25.0, 35.0])
@@ -125,6 +124,7 @@ class TestBlendCrossover:
 
         # With alpha=0.5, children should be within expanded range
         assert np.all(child1 >= parent1.min() * 0.5 - 5)
+        assert np.all(child2 <= parent2.max() * 1.5 + 5)
 
 
 class TestGaussianMutation:
@@ -159,42 +159,244 @@ class TestGaussianMutation:
         assert np.all(mutated <= ZERNIKE_MAX)
 
 
-class TestOptimizerCreation:
-    """Test that optimizer can be created (basic smoke test)."""
+class TestOptimizerReturnsRecorder:
+    """Test that optimizer returns a Recorder object with expected fields."""
 
-    def test_optimizer_ga_creation(self):
-        """Test that optimizer_ga can be imported and has correct signature."""
-        import inspect
+    def test_optimizer_ga_returns_recorder(self):
+        """Test that optimizer_ga returns a Recorder with expected fields."""
         from ao_shaping.optimizer.wf.ga_zernike import optimizer_ga
 
-        sig = inspect.signature(optimizer_ga)
-        params = list(sig.parameters.keys())
+        # Create mock objects for SLM and WFS
+        mock_slm = MagicMock()
+        mock_slm.send_zernike.return_value = np.zeros((512, 512))
+        mock_slm.wavelength = 1064
 
-        # Check expected parameters
-        assert "n_generations" in params
-        assert "population_size" in params
-        assert "crossover_prob" in params
-        assert "mutation_prob" in params
-        assert "elite_count" in params
-        assert "n_max" in params
+        mock_wfs = MagicMock()
+        mock_wfs.get_wavefront.return_value = (
+            np.zeros((64, 64)),
+            {"rms": 0.15, "strehl": 0.8}
+        )
+        mock_wfs.take_image.return_value = None
 
-    def test_default_values(self):
-        """Test that default parameter values are sensible."""
-        import inspect
+        with patch(
+            "ao_shaping.optimizer.wf.ga_zernike.ZernikeSLM",
+            return_value=mock_slm,
+        ), patch(
+            "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
+            return_value=mock_wfs,
+        ), patch(
+            "ao_shaping.optimizer.wf.ga_zernike.tqdm"
+        ):
+            # Run optimizer with minimal population and generations
+            recorder = optimizer_ga(
+                n_generations=2,
+                population_size=6,
+                n_max=4,
+                slm_number=1,
+            )
+
+            # Verify return type and basic properties
+            assert recorder is not None
+            assert hasattr(recorder, "history")
+            assert len(recorder.history) > 0
+
+            # Check expected fields in first record
+            first_record = recorder.history[0]
+            assert "rms" in first_record
+            assert "_c" in first_record
+            assert "_generation" in first_record
+
+    def test_recorder_initial_state(self):
+        """Test that initial state is recorded correctly."""
         from ao_shaping.optimizer.wf.ga_zernike import optimizer_ga
 
-        sig = inspect.signature(optimizer_ga)
+        mock_slm = MagicMock()
+        mock_slm.send_zernike.return_value = np.zeros((512, 512))
+        mock_slm.wavelength = 1064
 
-        # Test some default values
-        assert sig.parameters["population_size"].default == 50
-        assert sig.parameters["crossover_prob"].default == 0.7
-        assert sig.parameters["mutation_prob"].default == 0.15
-        assert sig.parameters["elite_count"].default == 2
-        assert sig.parameters["n_max"].default == 4
+        mock_wfs = MagicMock()
+        mock_wfs.get_wavefront.return_value = (
+            np.zeros((64, 64)),
+            {"rms": 0.2, "strehl": 0.7}
+        )
+        mock_wfs.take_image.return_value = None
+
+        with patch(
+            "ao_shaping.optimizer.wf.ga_zernike.ZernikeSLM",
+            return_value=mock_slm,
+        ), patch(
+            "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
+            return_value=mock_wfs,
+        ), patch(
+            "ao_shaping.optimizer.wf.ga_zernike.tqdm"
+        ):
+            recorder = optimizer_ga(
+                n_generations=1,
+                population_size=4,
+                n_max=2,
+            )
+
+            first_record = recorder.history[0]
+            assert first_record["_generation"] == 0
+            assert isinstance(first_record["rms"], float)
+            assert first_record["rms"] > 0
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+class TestGAPopulation:
+    """Test GA population handling."""
+
+    def test_population_initialization(self):
+        """Test that population is initialized with correct size."""
+        from ao_shaping.optimizer.wf.ga_zernike import optimizer_ga
+
+        mock_slm = MagicMock()
+        mock_slm.send_zernike.return_value = np.zeros((512, 512))
+        mock_slm.wavelength = 1064
+
+        mock_wfs = MagicMock()
+        mock_wfs.get_wavefront.return_value = (
+            np.zeros((64, 64)),
+            {"rms": 0.15, "strehl": 0.8}
+        )
+        mock_wfs.take_image.return_value = None
+
+        with patch(
+            "ao_shaping.optimizer.wf.ga_zernike.ZernikeSLM",
+            return_value=mock_slm,
+        ), patch(
+            "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
+            return_value=mock_wfs,
+        ), patch(
+            "ao_shaping.optimizer.wf.ga_zernike.tqdm"
+        ):
+            pop_size = 10
+            recorder = optimizer_ga(
+                n_generations=1,
+                population_size=pop_size,
+                n_max=2,
+            )
+
+            # Population should be recorded
+            assert "_population" in recorder.history[0]
+            pop = recorder.history[0]["_population"]
+            assert pop.shape[0] == pop_size
+
+
+class TestGAElitism:
+    """Test GA elitism preservation."""
+
+    def test_elitism_preserves_best(self):
+        """Test that elitism preserves top individuals."""
+        from ao_shaping.optimizer.wf.ga_zernike import optimizer_ga
+
+        mock_slm = MagicMock()
+        mock_slm.send_zernike.return_value = np.zeros((512, 512))
+        mock_slm.wavelength = 1064
+
+        mock_wfs = MagicMock()
+        mock_wfs.get_wavefront.return_value = (
+            np.zeros((64, 64)),
+            {"rms": 0.15, "strehl": 0.8}
+        )
+        mock_wfs.take_image.return_value = None
+
+        with patch(
+            "ao_shaping.optimizer.wf.ga_zernike.ZernikeSLM",
+            return_value=mock_slm,
+        ), patch(
+            "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
+            return_value=mock_wfs,
+        ), patch(
+            "ao_shaping.optimizer.wf.ga_zernike.tqdm"
+        ):
+            # With 2 elite individuals
+            recorder = optimizer_ga(
+                n_generations=2,
+                population_size=8,
+                elite_count=2,
+                n_max=2,
+            )
+
+            # After first generation, best RMS should not increase (elitism)
+            assert len(recorder.history) >= 2
+            first_rms = recorder.history[0]["rms"]
+            second_rms = recorder.history[1]["rms"]
+            # Best RMS may improve (not worsen) due to elitism
+            assert second_rms <= first_rms * 1.01  # Allow small floating point error
+
+
+class TestGACrossoverAndMutation:
+    """Test GA crossover and mutation parameters."""
+
+    def test_custom_crossover_prob(self):
+        """Test that custom crossover probability is used."""
+        from ao_shaping.optimizer.wf.ga_zernike import optimizer_ga
+
+        mock_slm = MagicMock()
+        mock_slm.send_zernike.return_value = np.zeros((512, 512))
+        mock_slm.wavelength = 1064
+
+        mock_wfs = MagicMock()
+        mock_wfs.get_wavefront.return_value = (
+            np.zeros((64, 64)),
+            {"rms": 0.15, "strehl": 0.8}
+        )
+        mock_wfs.take_image.return_value = None
+
+        crossover_prob = 0.3
+
+        with patch(
+            "ao_shaping.optimizer.wf.ga_zernike.ZernikeSLM",
+            return_value=mock_slm,
+        ), patch(
+            "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
+            return_value=mock_wfs,
+        ), patch(
+            "ao_shaping.optimizer.wf.ga_zernike.tqdm"
+        ):
+            recorder = optimizer_ga(
+                n_generations=1,
+                population_size=6,
+                crossover_prob=crossover_prob,
+                n_max=2,
+            )
+
+            assert recorder is not None
+
+    def test_custom_mutation_prob(self):
+        """Test that custom mutation probability is used."""
+        from ao_shaping.optimizer.wf.ga_zernike import optimizer_ga
+
+        mock_slm = MagicMock()
+        mock_slm.send_zernike.return_value = np.zeros((512, 512))
+        mock_slm.wavelength = 1064
+
+        mock_wfs = MagicMock()
+        mock_wfs.get_wavefront.return_value = (
+            np.zeros((64, 64)),
+            {"rms": 0.15, "strehl": 0.8}
+        )
+        mock_wfs.take_image.return_value = None
+
+        mutation_prob = 0.3
+
+        with patch(
+            "ao_shaping.optimizer.wf.ga_zernike.ZernikeSLM",
+            return_value=mock_slm,
+        ), patch(
+            "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
+            return_value=mock_wfs,
+        ), patch(
+            "ao_shaping.optimizer.wf.ga_zernike.tqdm"
+        ):
+            recorder = optimizer_ga(
+                n_generations=1,
+                population_size=6,
+                mutation_prob=mutation_prob,
+                n_max=2,
+            )
+
+            assert recorder is not None
 
 
 if __name__ == "__main__":

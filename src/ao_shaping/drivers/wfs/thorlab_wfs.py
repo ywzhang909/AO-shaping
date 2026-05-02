@@ -570,11 +570,23 @@ class WFSManager:
             logger.info("high speed mode can only use auto exposure time!")
         self._image_captured = False
 
-    def __enter__(self):
+    def __enter__(self) -> "WFSManager":
+        """Enter context manager, initialize the device connection.
+
+        Returns:
+            WFSManager: self instance for use in with statement
+        """
         self.initialize()
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """Exit context manager, close the device connection.
+
+        Args:
+            exc_type: Exception type if an exception occurred
+            exc_value: Exception value if an exception occurred
+            traceback: Traceback if an exception occurred
+        """
         self.close()
 
     def initialize(self):
@@ -616,14 +628,21 @@ class WFSManager:
             else self.optimize_pupil()
         )
 
-    def close(self):
+    def close(self) -> None:
+        """Close the WFS device connection and release resources."""
         if self._instrument_handle.value > 0:
             self.enable_high_speed = False
 
             self._lib.WFS_close(self._instrument_handle)
             self._instrument_handle = c_ulong(0)
 
-    def handle_error(self, err, no_raise=False):
+    def handle_error(self, err: ViStatus, no_raise: bool = False) -> None:
+        """Handle WFS error by retrieving and logging error message.
+
+        Args:
+            err: Error code returned from WFS library
+            no_raise: If True, only log error without raising exception
+        """
         info = create_string_buffer(256)
         error_code = ViStatus(err)
         self._lib.WFS_error_message(self._instrument_handle, error_code, byref(info))
@@ -631,7 +650,15 @@ class WFSManager:
         if not no_raise:
             raise Exception(info.value)
 
-    def select_mla(self, mla_index: MlaRes):
+    def select_mla(self, mla_index: MlaRes) -> None:
+        """Select and configure MLA (Micro Lens Array) holographic element.
+
+        Args:
+            mla_index: MLA resolution enum value
+
+        Note:
+            This resets the camera configuration and updates num_spots_x/y
+        """
         self._lib.WFS_SelectMla(self._instrument_handle, 0)
         num_spots_x = c_int32()
         num_spots_y = c_int32()
@@ -650,7 +677,15 @@ class WFSManager:
             + f"Number of detectable spots in Y: {num_spots_y.value}"
         )
 
-    def set_ref_plane(self, custom: bool):
+    def set_ref_plane(self, custom: bool) -> None:
+        """Set reference plane for wavefront measurement.
+
+        Args:
+            custom: If True, load custom user reference file; otherwise use default reference
+
+        Raises:
+            Exception: If loading custom reference file fails
+        """
         _select = 1 if custom else 0
         if err := self._lib.WFS_SetReferencePlane(
             self._instrument_handle, c_int32(_select)
@@ -694,14 +729,24 @@ class WFSManager:
             beam_diameter_y.value,
         )
 
-    def take_image(self, n_sample=10, dynamicNoiseCut=True):
+    def take_image(self, n_sample: int = 10, dynamicNoiseCut: bool = True) -> None:
+        """Capture spotfield image and calculate spot centroids/diameters/intensities.
+
+        Args:
+            n_sample: Number of auto-exposure samples to take (used when exposure_time <= 0)
+            dynamicNoiseCut: Enable dynamic noise floor cutoff for spot calculation
+
+        Note:
+            Sets self._image_captured flag to True upon successful capture.
+            For fixed exposure, takes single image; for auto exposure, iterates n_sample times.
+        """
         if self._explosure_time > 0:
             if err := self._lib.WFS_TakeSpotfieldImage(self._instrument_handle):
                 self.handle_error(err)
             else:
                 self._image_captured = True
         else:
-            # 没有设置曝光时间需要自动测试
+            # No fixed exposure time, use auto-exposure with multiple samples
             actual_exposure = c_double()
             actual_gain = c_double()
             for _ in range(n_sample):
@@ -709,34 +754,50 @@ class WFSManager:
                     self._instrument_handle, byref(actual_exposure), byref(actual_gain)
                 )
             self._image_captured = True
-            
-        #_instrument_handle, dynamicNoiseCut, calculateDiameters
+
+        # Calculate spot centroids, diameters, and intensities
         if res := self._lib.WFS_CalcSpotsCentrDiaIntens(
             self._instrument_handle, c_int32(1 if dynamicNoiseCut else 0), c_int32(0)
         ):
             self.handle_error(res)
-        
-        # if res := self._lib.WFS_CalcSpotToReferenceDeviations(
-        #     self._instrument_handle, c_int32(1)
-        # ):
-        #     self.handle_error(res)
 
     @require_take_image
-    def get_spotfiled_image(self, image_loop_counter: int = -1):
-        px, py = self.image_pix
-        spots_filed_img = np.empty((px, py), np.uint8)
+    def get_spotfiled_image(self, image_loop_counter: int = -1) -> np.ndarray:
+        """Retrieve the captured spotfield image from the WFS device.
+
+        Args:
+            image_loop_counter: Image loop counter (-1 for latest image)
+
+        Returns:
+            np.ndarray: 2D uint8 image array of shape (512, 512)
+
+        Raises:
+            RuntimeError: If WFS_GetSpotfieldImageCopy fails
+        """
+        spots_filed_img = np.empty(MAX_SPOTS, np.uint8)
         if err := self._lib.WFS_GetSpotfieldImageCopy(
             self._instrument_handle,
             spots_filed_img.ctypes.data_as(ctypes.POINTER(c_uint8)),
-            byref(c_int32(px)),
-            byref(c_int32(py)),
+            byref(c_int32(MAX_SPOTS[0])),
+            byref(c_int32(MAX_SPOTS[1])),
         ):
             raise RuntimeError(self.handle_error(err))
-        else:
-            return spots_filed_img
+        return spots_filed_img
 
     @require_take_image
-    def get_spots_statics(self):
+    def get_spots_statics(self) -> tuple[np.ndarray, tuple[np.ndarray, np.ndarray]]:
+        """Get spot intensities and centroid positions.
+
+        Returns:
+            tuple containing:
+                - np.ndarray: spot intensities array of shape (num_spots_x, num_spots_y)
+                - tuple[np.ndarray, np.ndarray]: (centroid_x, centroid_y) arrays
+                  each of shape (num_spots_x, num_spots_y)
+
+        Note:
+            Requires high speed mode to be disabled.
+            Spots outside the active pupil region will have NaN values.
+        """
         assert not self.enable_high_speed, "turn off high speed mode first"
         spots_intensities = np.empty(MAX_SPOTS, dtype=np.float32)
         spots_center_x = np.empty(MAX_SPOTS, dtype=np.float32)
@@ -759,14 +820,19 @@ class WFSManager:
         )
 
     @require_take_image
-    def get_wavefront(self, cancel_tile=False):
-        """
-        This function help to get wavefront.
+    def get_wavefront(self, cancel_tile: bool = False) -> tuple[np.ndarray, dict]:
+        """Calculate wavefront from spot deviations.
+
         Args:
-            cancel_tile (bool, optional): Whether to cancel/remove tile (tilt) from wavefront. Defaults to False.
-            image_loop_counter (int, optional): Image loop counter. Defaults to -1.
+            cancel_tile: If True, remove tip/tilt from wavefront measurement
+
         Returns:
-            tuple[np.ndarray, dict]: wavefront, wavefront statistics
+            tuple[np.ndarray, dict]: (wavefront array, statistics dict)
+                - wavefront: 2D array of wavefront values in waves
+                - statistics: dict with keys 'min', 'max', 'diff', 'mean', 'rms', 'wighted_rms'
+
+        Note:
+            Uses measured wavefront (type=0) with adaptive pupil compensation if pupil is defined.
         """
         if res := self._lib.WFS_CalcSpotToReferenceDeviations(
             self._instrument_handle, c_int32(1 if cancel_tile else 0)):
@@ -819,10 +885,11 @@ class WFSManager:
         }
 
     def _remove_tilt(self, wavefront: np.ndarray) -> np.ndarray:
-        """
-        Remove tilt (tip/tilt) from wavefront by fitting a plane and subtracting it.
+        """Remove tilt (tip/tilt) from wavefront by fitting a plane and subtracting it.
+
         Args:
             wavefront: 2D wavefront array
+
         Returns:
             Wavefront with tilt removed
         """
@@ -855,44 +922,50 @@ class WFSManager:
         return wavefront_no_tilt
 
     @require_take_image
-    def get_zernike(self, zernike_order=10):
-        """
-        This function help to get zernike coefficients.
+    def get_zernike(self, zernike_order: int = 10) -> np.ndarray:
+        """Calculate Zernike polynomial coefficients from spot deviations.
+
         Args:
-            zernike_order (int, optional): Zernike order. Defaults to 10.
+            zernike_order: Zernike order (max 10, indexed from 0)
+
         Returns:
-            np.ndarray: zernike coefficients
+            np.ndarray: Zernike coefficients array
+
+        Raises:
+            AssertionError: If zernike_order exceeds 10
         """
         assert zernike_order <= 10, "zernike order must be less than or equal to 10"
         roc_mm = c_double()
         coeff_num = (zernike_order + 1) * (zernike_order + 2) // 2 + 1
-        zernike_order = c_int32(zernike_order)
+        zernike_order_c = c_int32(zernike_order)
         zernike_um = np.empty((coeff_num,), c_float)
         zernike_orders_rms_um = np.empty((11,), c_float)
-        
+
         if res := self._lib.WFS_CalcSpotToReferenceDeviations(
             self._instrument_handle, c_int32(0)):
             self.handle_error(res)
-        
+
         if err := self._lib.WFS_ZernikeLsf(
             self._instrument_handle,
-            byref(zernike_order),
+            byref(zernike_order_c),
             zernike_um.ctypes.data_as(ctypes.POINTER(c_float)),
             zernike_orders_rms_um.ctypes.data_as(ctypes.POINTER(c_float)),
             byref(roc_mm),
         ):
             self.handle_error(err)
-        else:
-            return zernike_um
+            return np.empty_like(zernike_um)
+        return zernike_um
 
     @require_take_image
-    def get_spot_deviation(self, cancel_tile: bool = False):
-        """
-        This function help to get spot deviation.
+    def get_spot_deviation(self, cancel_tile: bool = False) -> tuple[np.ndarray, np.ndarray]:
+        """Get spot deviation from reference positions.
+
         Args:
-            cancel_tile (bool, optional): Whether to cancel tile. Defaults to False.
+            cancel_tile: If True, remove tip/tilt from deviations
+
         Returns:
-            tuple[np.ndarray, np.ndarray]: spot deviation x, spot deviation y
+            tuple[np.ndarray, np.ndarray]: (deviation_x, deviation_y) arrays
+               each of shape (num_spots_x, num_spots_y)
         """
         # FIXME: 这个函数的返回值不变
 
@@ -918,13 +991,16 @@ class WFSManager:
         return x, y
 
     def optimize_exposure_time_and_gain(self) -> tuple[float, float]:
-        """
-        This function help to find reasonable exposure time, will NOT change it.
+        """Automatically optimize exposure time and gain for clear spotfield images.
 
-        Args:
+        Takes up to 10 test images, checking device status after each to find usable exposure
+        that is neither saturated (power too high) nor too dim (power too low).
 
         Returns:
-            tuple[float, float]: exposure time, gain
+            tuple[float, float]: (optimal_exposure_time_ms, optimal_gain)
+
+        Note:
+            Does NOT change device settings; caller should apply returned values.
         """
         lib, instrument_handle = self._lib, self._instrument_handle
         # Take a series of images until one is usable. Check the device status after each image to determine usability
@@ -950,13 +1026,26 @@ class WFSManager:
         return actual_exposure.value, actual_gain.value
 
     @property
-    def exposure_time(self):
+    def exposure_time(self) -> c_double:
+        """Get current exposure time.
+
+        Returns:
+            c_double: Exposure time in milliseconds
+        """
         actual_exposure = c_double()
         self._lib.WFS_GetExposureTime(self._instrument_handle, actual_exposure)
         return actual_exposure
 
     @exposure_time.setter
-    def exposure_time(self, value: float):
+    def exposure_time(self, value: float) -> None:
+        """Set exposure time.
+
+        Args:
+            value: Exposure time in milliseconds
+
+        Raises:
+            AssertionError: If value is outside valid range [0.002, 86] ms
+        """
         assert EXP_TIME_LOW <= value <= EXP_TIME_HIGH, (
             f"exposure time must be in range [{EXP_TIME_LOW}, {EXP_TIME_HIGH}] ms"
         )
@@ -967,11 +1056,11 @@ class WFSManager:
         logger.info(f"actual exposure time is {actual_exposure.value} ms.")
 
     @property
-    def pupil(self):
-        """
-        This function help to get pupil.
+    def pupil(self) -> tuple[float, float, float, float]:
+        """Get current pupil configuration.
+
         Returns:
-            tuple[float, float, float, float]: beam centroid x, beam centroid y, beam diameter x, beam diameter y
+            tuple[float, float, float, float]: (centroid_x, centroid_y, diameter_x, diameter_y) in mm
         """
         beam_centroid_x = c_double()
         beam_centroid_y = c_double()
@@ -989,7 +1078,15 @@ class WFSManager:
         return self.c_x, self.c_y, self.d_x, self.d_y
 
     @pupil.setter
-    def pupil(self, center_and_diameter: tuple):
+    def pupil(self, center_and_diameter: tuple[float, float, float, float]) -> None:
+        """Set pupil configuration.
+
+        Args:
+            center_and_diameter: (centroid_x, centroid_y, diameter_x, diameter_y) in mm
+
+        Note:
+            If diameter_x or diameter_y is <= 0, optimize_pupil() is called instead.
+        """
         c_x, c_y, d_x, d_y = center_and_diameter
         self._lib.WFS_SetPupil(
             self._instrument_handle,
@@ -1002,7 +1099,12 @@ class WFSManager:
         self.c_x, self.c_y, self.d_x, self.d_y = c_x, c_y, d_x, d_y
 
     @property
-    def high_speed(self):
+    def high_speed(self) -> bool:
+        """Check if high speed mode is enabled.
+
+        Returns:
+            bool: True if high speed mode is active
+        """
         enable_high_speed = self._lib.WFS_CheckHighspeedCentroids(
             self._instrument_handle
         ).value
@@ -1010,6 +1112,15 @@ class WFSManager:
 
     @high_speed.setter
     def high_speed(self, enable: bool):
+        """Enable or disable high speed mode.
+
+        Args:
+            enable: True to enable high speed mode, False to disable
+
+        Note:
+            High speed mode only supports 512x512 resolution and requires auto exposure.
+            Automatically re-optimizes pupil after enabling.
+        """
         """
         instrumentHandle	ViSession	This parameter accepts the Instrument Handle returned by the Init function to select the desired instrument driver session.
         highspeedMode	ViInt32	This parameter determines if the camera's Highspeed Mode is switched on or off.
@@ -1046,14 +1157,10 @@ class WFSManager:
         else:
             self.enable_high_speed = enable
             if self.enable_high_speed:
-                windowCountX = (
-                    ViInt32()
-                )  # This parameter returns the number of spot windows in X direction.
-                windowCountY = (
-                    ViInt32()
-                )  # This parameter returns the number of spot windows in Y direction.
-                windowSizeX = ViInt32()  # This parameter returns the size in pixels of spot windows in X direction.
-                windowSizeY = ViInt32()  # This parameter returns the size in pixels of spot windows in Y direction.
+                windowCountX = ViInt32()
+                windowCountY = ViInt32()
+                windowSizeX = ViInt32()
+                windowSizeY = ViInt32()
                 windowStartposX = np.zeros(
                     self.num_spots_x, dtype=np.int32
                 )  # This parameter returns a one-dimensional array containing the start positions in pixels for spot windows in X direction.
