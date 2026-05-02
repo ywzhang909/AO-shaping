@@ -160,6 +160,7 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "湍流相位屏",
             "Zernike",
             "达曼光栅",
+            "涡旋相位",
         ],
         key=f"{prefix}_pattern_type",
     )
@@ -296,6 +297,36 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             value=slm_pixel_size,
             step=0.1,
             key=f"{prefix}_turbulence_pixel_size",
+        )
+    elif pattern_type == "涡旋相位":
+        params["topological_charge"] = st.number_input(
+            "拓扑荷",
+            min_value=-10,
+            max_value=10,
+            value=1,
+            step=1,
+            key=f"{prefix}_vortex_charge",
+        )
+        params["wavelength_nm"] = st.number_input(
+            "波长 (nm)",
+            min_value=400,
+            max_value=1000,
+            value=532,
+            step=1,
+            key=f"{prefix}_vortex_wavelength",
+        )
+        params["pixel_size_um"] = st.number_input(
+            "像素尺寸 (um)",
+            min_value=0.1,
+            max_value=100.0,
+            value=slm_pixel_size,
+            step=0.1,
+            key=f"{prefix}_vortex_pixel_size",
+        )
+        params["wrap_phase"] = st.checkbox(
+            "包裹相位",
+            value=True,
+            key=f"{prefix}_vortex_wrap_phase",
         )
     elif pattern_type == "Zernike":
         # Maximum radial order
@@ -487,6 +518,31 @@ def generate_phase_gray(
         order = int(params.get("order", 3))
         fill_factor = float(params.get("fill_factor", 0.5))
         return helper.generate_dammann_grating(order=order, fill_factor=fill_factor)
+    if pattern_type == "涡旋相位":
+        # Convert parameters to appropriate units
+        wavelength_m = float(params["wavelength_nm"]) * 1e-9  # nm -> m
+        pixel_size_m = float(params.get("pixel_size_um", pixel_size_um)) * 1e-6  # um -> m
+        wrap_phase = bool(params.get("wrap_phase", True))
+        topological_charge = int(params["topological_charge"])
+        
+        # Generate vortex phase
+        phase_rad = helper.generate_vortex(
+            topological_charge=topological_charge,
+            wavelength=wavelength_m,
+            pixel_size=pixel_size_m,
+            wrap_phase=wrap_phase,
+        )
+        
+        # If phase is not wrapped, we need to convert it to uint16 for display
+        if not wrap_phase:
+            # Convert radians to uint16 by wrapping to [0, 2π) and scaling
+            phase_wrapped = np.mod(phase_rad, 2 * np.pi)
+            phase_gray = (phase_wrapped / (2 * np.pi) * (2**bits - 1)).astype(np.uint16)
+        else:
+            # Already in uint16 format from helper
+            phase_gray = phase_rad
+            
+        return phase_gray
     raise ValueError(f"未知相位图类型: {pattern_type}")
 
 

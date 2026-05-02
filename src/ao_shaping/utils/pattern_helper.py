@@ -5,8 +5,7 @@ import numpy as np
 
 from ao_shaping.utils.zernike_calc import ZernikeGenerator, nm_to_noll
 
-from aotools.turbulence import PhaseScreenKolmogorov
-from aotools import ft_phase_screen
+from aotools.turbulence.infinitephasescreen import PhaseScreenKolmogorov
 
 
 class PatternHelper:
@@ -50,6 +49,7 @@ class PatternHelper:
         - circular_grating: 圆形光栅
         - lens: 透镜模式
         - hologram: 全息图
+        - vortex: 涡旋相位
     """
 
     def __init__(self, resolution: tuple[int, int], bits: int = 10) -> None:
@@ -70,6 +70,9 @@ class PatternHelper:
         self._mask: np.ndarray | None = None
         self._pixel_x: np.ndarray | None = None
         self._pixel_y: np.ndarray | None = None
+
+        # Turbulence screen (lazy-initialized)
+        self._turbulence_screen: PhaseScreenKolmogorov | None = None
 
     @property
     def x(self) -> np.ndarray:
@@ -134,6 +137,29 @@ class PatternHelper:
         if self._pixel_y is None:
             self._pixel_y = np.arange(self._height, dtype=np.float64) - self._height / 2
         return self._pixel_y
+
+    def init_turbulence_screen(
+        self,
+        r0: float,
+        L0: float,
+        pixel_scale: float,
+        random_seed: int | None = None,
+    ) -> None:
+        """初始化湍流相屏成员变量。
+
+        Args:
+            r0: Fried参数 (米)
+            L0: 外尺度 (米)
+            pixel_scale: 每个像素的物理尺寸 (米)
+            random_seed: 随机种子（可选）
+        """
+        self._turbulence_screen = PhaseScreenKolmogorov(
+            nx_size=self._height,
+            pixel_scale=pixel_scale,
+            r0=r0,
+            L0=L0,
+            random_seed=random_seed,
+        )
 
     def generate_checkerboard(self, period: int = 100) -> np.ndarray:
         """生成棋盘格图案。
@@ -220,75 +246,40 @@ class PatternHelper:
 
         return array[:height, :width]
 
-    def generate_turbulence_screen(
-        self,
-        Cn2: float = 1e-14,
-        L: float = 1000,
-        wavelength: float = 532e-9,
-        pixel_size: float = 8e-6,
-        screen_size: float | None = None,
-        L0: float | None = None,
-        l0: float | None = None,
-        random_seed: int | None = None,
-        method: str = "kolmogorov",
-    ) -> np.ndarray:
-        """生成湍流相位���。
+    def generate_turbulence_screen(self) -> np.ndarray:
+        """生成湍流相位屏（通过add_row()迭代生成）。
 
-        Args:
-            Cn2: 折射率结构常数 (m^(2/3))。
-                默认 1e-14 对应弱湍流。
-            L: 传播路径长度 (m)
-            wavelength: 波长 (m)
-            pixel_size: 像素大小 (m)
-            screen_size: 屏幕物理尺寸 (m)。默认 max(h,w) * pixel_size
-            L0: 外尺度 (m)。默认 10 * screen_size
-            l0: 内尺度 (m)。默认 pixel_size * 2
-            random_seed: 随机种子（用于 kolmogorov 方法）
-            method: "kolmogorov" 或 "vankarman"
+        调用前必须先调用 init_turbulence_screen() 初始化湍流屏。
 
         Returns:
-            湍流相位屏 (uint16, 0 到 2π)
+            湍流相位屏 (uint16, 0 到 2^bits-1)
+
+        Raises:
+            RuntimeError: 如果湍流屏未初始化
         """
+        if self._turbulence_screen is None:
+            raise RuntimeError(
+                "Turbulence screen not initialized. "
+                "Call init_turbulence_screen() first with r0, L0, and pixel_scale."
+            )
+
         height, width = self._height, self._width
         max_val = self._max_val
 
-        if screen_size is None:
-            screen_size = max(height, width) * pixel_size
+        # Call add_row() to generate new phase and get updated screen
+        self._turbulence_screen.add_row()
 
-        if L0 is None:
-            L0 = 10 * screen_size
-        if l0 is None:
-            l0 = pixel_size * 2
+        # Get phase from .scrn property (in radians)
+        phase_screen = self._turbulence_screen.scrn
 
-        # Compute Fried parameter r0 from Cn2
-        r0 = (wavelength**2 / (Cn2 * L * 0.033 * (2 * np.pi) ** 2)) ** (3 / 5)
-
-        try:
-            if method == "kolmogorov":
-                # Use PhaseScreenKolmogorov for Kolmogorov turbulence
-                screen = PhaseScreenKolmogorov(
-                    nx_size=height,
-                    pixel_scale=pixel_size,
-                    r0=r0,
-                    L0=L0,
-                    random_seed=random_seed,
-                )
-                phase_screen = screen.scrn
-            else:
-                # Fallback to ft_phase_screen for Von Karman
-                screen = ft_phase_screen(r0, height, pixel_size, L0, l0)
-                phase_screen = screen[:height, :width]
-        except np.linalg.LinAlgError:
-            # PhaseScreenKolmogorov can fail for certain L0/pixel_scale combinations
-            # Fall back to ft_phase_screen
-            screen = ft_phase_screen(r0, height, pixel_size, L0, l0)
-            phase_screen = screen[:height, :width]
+        # Extract region matching our resolution
+        phase_cropped = phase_screen[:height, :width]
 
         # Normalize to [0, 2π) and convert to uint16
-        phase_min = phase_screen.min()
-        phase_max = phase_screen.max()
+        phase_min = phase_cropped.min()
+        phase_max = phase_cropped.max()
         phase_normalized = (
-            (phase_screen - phase_min)
+            (phase_cropped - phase_min)
             / (phase_max - phase_min + 1e-10)
             * 2 * np.pi
         )
@@ -513,6 +504,37 @@ class PatternHelper:
             相位图案 (弧度)
         """
         return self.linear_grating(period=period, phase_range=phase_range, wrap_phase=False)
+
+    def generate_vortex(
+        self,
+        topological_charge: int = 1,
+        wavelength: float = 532e-9,
+        pixel_size: float = 8e-6,
+        wrap_phase: bool = True,
+    ) -> np.ndarray:
+        """生成涡旋相位（螺旋相位）。
+        
+        生成具有拓扑荷的涡旋相位，位移与角度Theta成正比：phi = l * Theta
+        
+        Args:
+            topological_charge: 拓扑荷 (l)，可以是正负整数
+            wavelength: 波长 (m)
+            pixel_size: 像素大小 (m)
+            wrap_phase: 是否包裹相位到[0, 2π)
+            
+        Returns:
+            涡旋相位图案 (uint16 或弧度)
+        """
+        # 涡旋相位：phi = l * theta，其中theta是角坐标
+        phase = topological_charge * self.Theta
+        
+        if not wrap_phase:
+            return phase
+            
+        # 将相位包裹到[0, 2π)范围并转换为uint16
+        phase_wrapped = np.mod(phase, 2 * np.pi)
+        img = (phase_wrapped / (2 * np.pi) * self._max_val).astype(np.uint16)
+        return img
 
     def dammann_grating(
         self,
