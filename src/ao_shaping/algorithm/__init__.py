@@ -27,6 +27,15 @@ from .tabu_search import (
     create_tabu_search_runner,
 )
 
+# 导入 Gerchberg-Saxton 模块
+from .gerchberg_saxton import (
+    gerchberg_saxton,
+    adaptive_gerchberg_saxton,
+    angular_spectrum_propagate,
+    calculate_reconstruction_error,
+    GSResult,
+)
+
 # 导出所有类和函数
 __all__ = [
     "Base",
@@ -42,6 +51,11 @@ __all__ = [
     "should_trigger_search",
     "TabuSearchRunner",
     "create_tabu_search_runner",
+    "gerchberg_saxton",
+    "adaptive_gerchberg_saxton",
+    "angular_spectrum_propagate",
+    "calculate_reconstruction_error",
+    "GSResult",
 ]
 
 
