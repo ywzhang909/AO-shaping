@@ -1,19 +1,11 @@
 import os
 import json
-import re
 from datetime import datetime
 from pathlib import Path
-import sys
 
 import click
-import coredumpy
-
 import numpy as np
 import matplotlib.pyplot as plt
-
-SRC_ROOT = Path(__file__).resolve().parents[1]
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
 
 from ao_shaping.optimizer.wfless.pib import optimize_pib
 from ao_shaping.algorithm.target_func import ImageTargetFunc
@@ -24,26 +16,8 @@ from ao_shaping.utils.file import (
     logger,
 )
 from ao_shaping.utils.display import plot_funcs
-
-
-def parse_tuple(ctx, param, value):
-    """解析元组格式的参数，支持 'x,y' 或 '(x,y)' 格式"""
-    if value is None:
-        return None
-    if value.lower() in ["mass", "max", "shape"]:
-        return value.lower()
-    # 移除空格和括号
-    s_clean = re.sub(r"[()\s]", "", str(value))
-    try:
-        parts = s_clean.split(",")
-        if len(parts) != 2:
-            raise ValueError("Must have exactly two integers")
-        x, y = map(int, parts)
-        return (x, y)
-    except Exception as e:
-        raise click.BadParameter(
-            f"Invalid center format: {value}. Expected formats: 'x,y' or '(x,y)'"
-        )
+from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name
+from ao_shaping.config import DM_N_ACTUATORS
 
 
 @click.command()
@@ -177,7 +151,6 @@ def run(
 ):
     """轴向光束优化器"""
 
-    # 处理初始电压
     if load_file.lower() == "rms":
         init_v = get_init_V_by_rms()
     elif Path(load_file).exists():
@@ -216,9 +189,8 @@ def run(
     }
     logger.info(config)
 
-    dm_unit_mask = np.ones(64, dtype=bool)
+    dm_unit_mask = np.ones(DM_N_ACTUATORS, dtype=bool)
     dm_unit_mask[0] = False
-    # dm_unit_mask[38:] = False
     res_list = optimize_pib(
         center=center,
         r_bucket=r_bucket,
@@ -246,10 +218,9 @@ def run(
         weight_decay=weight_decay,
         objective=objective,
     )
-    # 保存结果
     res_df = res_list.dataframe
 
-    saved_dir = f"{root_dir}/flatten_voltages/{datetime.now().strftime('%Y%m%d')}"
+    saved_dir = f"{root_dir}/flatten_voltages/{get_date_dir_name()}"
     res_list.save_best(
         saved_dir, target="_v", process_fn=lambda x: np.around(x).astype(int), fmt="%d"
     )
@@ -258,7 +229,6 @@ def run(
         save_dir = gen_date_dir(f"{root_dir}/wf-less")
         saved_file_name = gen_file_path_uuid(save_dir, "pkl")
 
-        # Register second moment radius as a postprocess feature
         def _calc_second_moment_radius(row: dict) -> float | None:
             img = row.get("_img")
             if img is None:
@@ -272,13 +242,11 @@ def run(
             column="_second_moment_radius",
         )
 
-        # Re-fetch dataframe with postprocess columns applied
         res_df = res_list.dataframe
         res_df.to_pickle(saved_file_name, compression="zip")
         with saved_file_name.with_suffix(".json").open("w", encoding="utf8") as f:
             json.dump(config, f, ensure_ascii=False, indent=4)
 
-        # Find the image with minimum second moment radius (best focus)
         valid_radii = res_df.dropna(subset=["_second_moment_radius"])
         if not valid_radii.empty:
             min_radius_idx = valid_radii["_second_moment_radius"].idxmin()
@@ -294,26 +262,21 @@ def run(
             )
 
         fig, ax = plt.subplots(2, 2, figsize=(12, 8))
-        # init image
         plot_funcs["img"](
             res_df.iloc[0]["_img"],
             ax[0, 0],
             f"Init Image, pib={res_df.iloc[0]['pib']:.3f}",
         )
-        # best PIB image
         axim = plot_funcs["img"](
             res_df.iloc[max_j_id]["_img"], ax[0, 1], f"Best PIB Image, pib={max_j:.3f}"
         )
         cbar = fig.colorbar(axim, ax=[ax[0, 0], ax[0, 1]], orientation="horizontal")
-        # pib history
         plot_funcs["pib_history"](res_df["pib"], ax[1, 0])
-        # best voltages plot bar
         plot_funcs["voltages"](best_iter["_v"], ax[1, 1], "Best Voltages")
 
         plt.savefig(saved_file_name.with_suffix(".png"))
         plt.close()
 
-        # Save additional plot: second moment radius vs epoch
         if not valid_radii.empty:
             fig2, ax2 = plt.subplots(figsize=(10, 6))
             ax2.plot(
@@ -347,7 +310,6 @@ def run(
             )
             plt.close()
 
-        # Save the best image (minimum second moment radius) as a separate file
         if not valid_radii.empty:
             best_img = res_df.loc[min_radius_idx, "_img"]
             best_v = res_df.loc[min_radius_idx, "_v"]
@@ -362,14 +324,12 @@ def run(
             )
             plt.close()
 
-            # Save the best focus voltages
             best_focus_v_file = saved_file_name.with_name(
                 saved_file_name.stem + "_best_focus_v.txt"
             )
             np.savetxt(best_focus_v_file, np.around(best_v).astype(int), fmt="%d")
             logger.info(f"Best focus voltages saved to {best_focus_v_file}")
 
-    # 优化目标名称映射
     objective_names = {
         "pib": "PIB",
         "radiu": "半径",
@@ -383,9 +343,5 @@ def run(
 
 
 if __name__ == "__main__":
-    try:
-        coredumpy.patch_except(directory="logs/debug/error")
-    except Exception:
-        logger.error("coredumpy初始化失败")
-
+    setup_coredumpy()
     run()

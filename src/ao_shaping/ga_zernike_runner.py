@@ -10,6 +10,7 @@ import click
 
 from ao_shaping.drivers import MlaRes
 from ao_shaping.optimizer.wf.ga_zernike import optimizer_ga
+from ao_shaping.utils.cli_helpers import setup_coredumpy
 
 
 @click.command(name="ga-zernike")
@@ -172,4 +173,5 @@ def run(
 
 
 if __name__ == "__main__":
+    setup_coredumpy()
     run()

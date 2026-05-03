@@ -1,9 +1,7 @@
 import os
 
 import click
-import coredumpy
 from pathlib import Path
-from datetime import datetime
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -12,6 +10,8 @@ from ao_shaping.utils import gen_date_dir, gen_file_path_uuid, logger
 from ao_shaping.utils.display import plot_funcs
 from ao_shaping.optimizer.wf.rms import optimizer_rms
 from ao_shaping.optimizer.wfless.pib import optimize_pib
+from ao_shaping.utils.cli_helpers import setup_coredumpy, get_date_dir_name
+from ao_shaping.config import DM_N_ACTUATORS
 
 
 @click.command()
@@ -48,7 +48,7 @@ def run(dir, load_file, epochs, wf_epochs, wfs_res, pupil_diameter, cam_id, expo
     if debug:
         init_wf, min_wf = wf_records.first["_wavefront"][0], min_iter["_wavefront"][0]
 
-    dm_available = np.ones(64, dtype=bool)
+    dm_available = np.ones(DM_N_ACTUATORS, dtype=bool)
     dm_available[0] = False
     if dm_unit_mask == 'inner':
         dm_available[21:] = False
@@ -60,16 +60,14 @@ def run(dir, load_file, epochs, wf_epochs, wfs_res, pupil_diameter, cam_id, expo
         exposure_time_ms=exposure_time_ms, 
         cam_size=cam_size,
         dm_unit_mask=dm_available,
-        target_max_brightness=0, # 不自动调整曝光时间
+        target_max_brightness=0,
         epochs=epochs, lr=0.9, delta=0.9,
         shrink_iter=20, shrink_ratio=0.8, r_bucket=int(os.environ.get("IDEAL_SPOT_RADIUS", 6)),
         init_v=min_iter["_v"], show=False)
     max_pid_iter, (max_epoch, max_pib) = ccd_records.get_best_iter()
     last_V = max_pid_iter["_v"]
 
-    # 在data/flatten_voltages下生成名称为当前日期的目录并保存电压
-    dir_name = datetime.now().strftime("%Y%m%d")
-    save_dir = Path(dir) / "flatten_voltages" / dir_name
+    save_dir = Path(dir) / "flatten_voltages" / get_date_dir_name()
     def np_array_to_int(arr):
         return arr.astype(int)
     wf_records.save_best(saved_dir=save_dir, target="_v", process_fn=np_array_to_int, fmt="%d")
@@ -77,26 +75,18 @@ def run(dir, load_file, epochs, wf_epochs, wfs_res, pupil_diameter, cam_id, expo
 
     if debug:
         fig, ax = plt.subplots(2, 4, figsize=(12, 8))
-        # rms history
         rms_values = wf_records.get_sublist()
         plot_funcs["rms_history"](rms_values, ax[0, 0], min_epoch, min_rms)
-        # pib history
         pib_values = ccd_records.get_sublist()[1:]
         plot_funcs["pib_history"](pib_values, ax[1, 0])
-        # init wf
         axim = plot_funcs["wavefront"](init_wf, ax[0, 1], "Init WF")
         plt.colorbar(axim, ax=ax[0, 1], orientation='vertical', fraction=0.046, pad=0.04)
-        # best wf
         axim = plot_funcs["wavefront"](min_wf, ax[1, 1], "Best WF")
         plt.colorbar(axim, ax=ax[1, 1], orientation='vertical')
-        # init ccd
         axim1 = plot_funcs["img"](ccd_records.first["_img"], ax[0, 2], "Init CCD")
-        # best ccd
         axim2 = plot_funcs["img"](max_pid_iter["_img"], ax[1, 2], "Best CCD")
         plt.colorbar(axim2, ax=ax[1, 2], fraction=0.046, pad=0.04, orientation='vertical')
-        # voltage comparison
         plot_funcs["voltage_comparison"](init_v, last_V, ax[0, 3], "Voltage Comparison")
-        # voltage heatmap
         voltages = np.array(wf_records.get_sublist("_v")+ccd_records.get_sublist("_v")[1:])
         plot_funcs["voltage_heatmap"](voltages, ax[1, 3], "Voltage History")
             
@@ -126,8 +116,5 @@ def run(dir, load_file, epochs, wf_epochs, wfs_res, pupil_diameter, cam_id, expo
 
 
 if __name__ == "__main__":
-    try:
-        coredumpy.patch_except(directory='logs/debug/error')
-    except:
-        logger.error("coredumpy初始化失败")
+    setup_coredumpy()
     run()
