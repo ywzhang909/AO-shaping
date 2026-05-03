@@ -12,160 +12,130 @@ from pathlib import Path
 from typing import Literal
 
 
-# ============================================
-# Hardware Constants
-# ============================================
-DM_N_ACTUATORS: int = 64
-"""Number of deformable mirror actuators."""
+def _resolve_dm_n_actuators() -> int:
+    """Resolve DM actuator count from device driver."""
+    try:
+        from ao_shaping.drivers.dm.NLight import NLight
+        return NLight.n_actuators
+    except ImportError:
+        return 64
 
-DM_DISABLED_ACTUATORS: list[int] = [0]
-"""List of actuator indices to disable (0-indexed)."""
+
+def _resolve_disabled_actuators() -> list[int]:
+    """Resolve disabled actuators from device driver."""
+    try:
+        from ao_shaping.drivers.dm.NLight import NLight
+        return NLight.disabled_actuators
+    except ImportError:
+        return [0]
 
 
-# ============================================
-# Default Optimization Parameters
-# ============================================
-@dataclass(frozen=True)
+DEFAULT_OPTIMIZATION_DEFAULTS = dict(
+    WF_EPOCHS=20_000,
+    WF_EARLY_STOP_THRESHOLD=0.12,
+    WF_WFS_RES="768",
+    WF_PUPIL_DIAMETER=2.7,
+    PIB_EPOCHS=4_000,
+    PIB_DELTA=2.0,
+    PIB_LR=0.0,
+    PIB_R_BUCKET=0,
+    PIB_SHRINK_ITER=200,
+    PIB_SHRINK_RATIO=0.8,
+    PIPELINE_WF_EPOCHS=8_000,
+    PIPELINE_PIB_EPOCHS=8_000,
+    PIPELINE_RMS_THRESHOLD=0.12,
+    GA_POPULATION_SIZE=50,
+    GA_N_GENERATIONS=2000,
+    GA_CROSSOVER_PROB=0.7,
+    GA_MUTATION_PROB=0.15,
+    GA_TOURNAMENT_SIZE=3,
+    GA_ELITE_COUNT=2,
+    GA_N_MAX=4,
+)
+
+DEFAULT_PATHS = dict(
+    root_dir="data",
+    voltages_dir="flatten_voltages",
+    zernike_dir="flatten_zernike",
+    log_dir="logs/debug/error",
+    wf_subdir="wf",
+    pib_subdir="wf-less",
+    pipeline_subdir="pipeline",
+    rms_zernike_subdir="rms_zernike",
+)
+
+DEFAULT_DEVICE_CONFIG = dict(
+    far_cam_id=0,
+    near_cam_id=1,
+    slm_number=1,
+    slm_wavelength=532,
+    exposure_time_ms=60,
+    cam_size=200,
+    target_max_brightness=90,
+)
+
+
 class OptimizationDefaults:
-    """Default parameters for optimization algorithms."""
+    def __init__(self):
+        for k, v in DEFAULT_OPTIMIZATION_DEFAULTS.items():
+            setattr(self, k, v)
     
-    # WF (Wavefront) optimization
-    WF_EPOCHS: int = 20_000
-    WF_EARLY_STOP_THRESHOLD: float = 0.12
-    WF_WFS_RES: str = "768"
-    WF_PUPIL_DIAMETER: float = 2.7
+    def __getitem__(self, key):
+        return getattr(self, key)
     
-    # PIB (Power-in-Bucket) optimization  
-    PIB_EPOCHS: int = 4_000
-    PIB_DELTA: float = 2.0
-    PIB_LR: float = 0.0  # 0 means adaptive
-    PIB_R_BUCKET: int = 0  # 0 means auto-adjust
-    PIB_SHRINK_ITER: int = 200
-    PIB_SHRINK_RATIO: float = 0.8
-    
-    # Pipeline optimization
-    PIPELINE_WF_EPOCHS: int = 8_000
-    PIPELINE_PIB_EPOCHS: int = 8_000
-    PIPELINE_RMS_THRESHOLD: float = 0.12
-    
-    # GA Zernike optimization
-    GA_POPULATION_SIZE: int = 50
-    GA_N_GENERATIONS: int = 2000
-    GA_CROSSOVER_PROB: float = 0.7
-    GA_MUTATION_PROB: float = 0.15
-    GA_TOURNAMENT_SIZE: int = 3
-    GA_ELITE_COUNT: int = 2
-    GA_N_MAX: int = 4
+    def __getattr__(self, name):
+        return DEFAULT_OPTIMIZATION_DEFAULTS.get(name)
 
 
-# ============================================
-# Path Configuration
-# ============================================
-@dataclass
 class PathConfig:
-    """Path configuration for data storage and logs."""
-    
-    root_dir: Path = field(default_factory=lambda: Path("data"))
-    """Root directory for all data."""
-    
-    voltages_dir: str = "flatten_voltages"
-    """Subdirectory for saved voltages."""
-    
-    zernike_dir: str = "flatten_zernike"
-    """Subdirectory for saved Zernike coefficients."""
-    
-    log_dir: Path = field(default_factory=lambda: Path("logs/debug/error"))
-    """Directory for debug/error logs."""
-    
-    wf_subdir: str = "wf"
-    """Subdirectory for wavefront optimization results."""
-    
-    pib_subdir: str = "wf-less"
-    """Subdirectory for PIB optimization results."""
-    
-    pipeline_subdir: str = "pipeline"
-    """Subdirectory for pipeline optimization results."""
-    
-    rms_zernike_subdir: str = "rms_zernike"
-    """Subdirectory for RMS Zernike optimization results."""
+    def __init__(self):
+        for k, v in DEFAULT_PATHS.items():
+            setattr(self, k, Path(v) if k == "log_dir" else v)
+        self.root_dir = Path("data")
     
     def get_voltages_path(self, date_str: str | None = None) -> Path:
-        """Get path for voltage files."""
+        from datetime import datetime
         if date_str is None:
-            from datetime import datetime
             date_str = datetime.now().strftime("%Y%m%d")
         return self.root_dir / self.voltages_dir / date_str
     
     def get_debug_path(self, subdir: str) -> Path:
-        """Get debug save path with date subdirectory."""
         from datetime import datetime
         date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         path = self.root_dir / subdir / date_str
         path.mkdir(parents=True, exist_ok=True)
         return path
+    
+    def __getattr__(self, name):
+        return DEFAULT_PATHS.get(name, getattr(self, name))
 
 
-# ============================================
-# Device Configuration
-# ============================================
-@dataclass
 class DeviceConfig:
-    """Hardware device configuration."""
+    def __init__(self):
+        self.far_cam_id = int(os.environ.get("Far_Cam_ID", 0))
+        self.near_cam_id = int(os.environ.get("Near_Cam_ID", 1))
     
-    far_cam_id: int = field(default_factory=lambda: int(os.environ.get("Far_Cam_ID", 0)))
-    """Far-field camera ID."""
-    
-    near_cam_id: int = field(default_factory=lambda: int(os.environ.get("Near_Cam_ID", 1)))
-    """Near-field camera ID."""
-    
-    slm_number: int = 1
-    """SLM device number."""
-    
-    slm_wavelength: int = 532
-    """SLM wavelength in nm."""
-    
-    exposure_time_ms: int = 60
-    """Default camera exposure time in milliseconds."""
-    
-    cam_size: int = 200
-    """Default camera window size."""
-    
-    target_max_brightness: int = 90
-    """Target maximum brightness for auto-exposure."""
+    def __getattr__(self, name):
+        return DEFAULT_DEVICE_CONFIG.get(name)
 
 
-# ============================================
-# Global Instances
-# ============================================
 DEFAULTS = OptimizationDefaults()
 PATHS = PathConfig()
 DEVICES = DeviceConfig()
 
 
-# ============================================
-# Utility Functions
-# ============================================
 def get_dm_unit_mask(available: Literal["all", "inner", "outer"] = "all") -> list[bool]:
-    """Generate DM unit mask based on availability pattern.
+    n_actuators = _resolve_dm_n_actuators()
+    disabled = _resolve_disabled_actuators()
+    mask = [True] * n_actuators
     
-    Args:
-        available: Which actuators to enable ("all", "inner", or "outer")
-        
-    Returns:
-        List of boolean values indicating which actuators are enabled.
-    """
-    mask = [True] * DM_N_ACTUATORS
-    
-    # Disable problematic actuators
-    for idx in DM_DISABLED_ACTUATORS:
+    for idx in disabled:
         mask[idx] = False
     
     if available == "inner":
-        # Only inner 21 actuators (indices 0-20)
-        for i in range(21, DM_N_ACTUATORS):
+        for i in range(21, n_actuators):
             mask[i] = False
     elif available == "outer":
-        # Only outer actuators (indices 39-63)
         for i in range(39):
             mask[i] = False
     
@@ -173,10 +143,16 @@ def get_dm_unit_mask(available: Literal["all", "inner", "outer"] = "all") -> lis
 
 
 def get_init_voltages() -> list[float]:
-    """Get initial voltage values (all zeros)."""
-    return [0.0] * DM_N_ACTUATORS
+    return [0.0] * _resolve_dm_n_actuators()
 
 
 def get_coredumpy_directory() -> str:
-    """Get coredumpy error directory path."""
     return str(PATHS.log_dir)
+
+
+def __getattr__(name: str):
+    if name == "DM_N_ACTUATORS":
+        return _resolve_dm_n_actuators()
+    if name == "DM_DISABLED_ACTUATORS":
+        return _resolve_disabled_actuators()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

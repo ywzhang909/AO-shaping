@@ -15,7 +15,13 @@ def _load_adj_txt():
     return np.loadtxt('data/dm_adj.txt')
 
 class NLight(DM):
-    DM_Num: int = DM_NUM
+    DM_NUM: int = DM_NUM
+    n_actuators: int = DM_NUM
+    
+    @property
+    def disabled_actuators(self) -> list[int]:
+        return [0]
+    
     V_Min, V_Max = -300, 499
     Units_Adj_Mat = _load_adj_txt()
 
@@ -23,11 +29,11 @@ class NLight(DM):
         assert max_iter_diff <= 200
         assert max_neibor_diff <= 300
 
-        self.__last_v = np.zeros(self.DM_Num)
+        self.__last_v = np.zeros(self.n_actuators)
         self.max_iter_diff = max_iter_diff
         self.max_neibor_diff = max_neibor_diff
 
-        self.default_dm_unit_mask = np.ones(DM_NUM)
+        self.default_dm_unit_mask = np.ones(self.n_actuators)
         self.default_dm_unit_mask[0] = 0
 
         self.c_driver = DMSdk()
@@ -67,7 +73,7 @@ class NLight(DM):
         self.set_hv(hv=True)
 
     def reset_all(self):
-        self.send_voltages(np.zeros(self.DM_Num), 0.01)
+        self.send_voltages(np.zeros(self.n_actuators), 0.01)
 
         if (ret := self.c_driver.reset_all()) == 0:
             self.__last_v = np.zeros_like(self.__last_v)
