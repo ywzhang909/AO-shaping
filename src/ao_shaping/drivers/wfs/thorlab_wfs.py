@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import shutil
 from copy import deepcopy
 from functools import wraps
 from loguru import logger
+from pathlib import Path
 
 import numpy as np
 
@@ -705,6 +707,164 @@ class WFSManager:
 
         self.use_custom_ref = False
 
+    def get_mla_name(self, mla_index: int | None = None) -> str:
+        """Get MLA name string (e.g., 'MLA150M-5C') for the specified MLA index.
+
+        Args:
+            mla_index: MLA index. If None, uses self.mla_index.
+
+        Returns:
+            MLA name string, or empty string on failure.
+        """
+        if mla_index is None:
+            mla_index = self.mla_index
+        mla_name_buffer = create_string_buffer(256)
+        err = self._lib.WFS_GetMlaData(
+            self._instrument_handle,
+            c_int32(mla_index),
+            mla_name_buffer,
+            byref(c_double()),
+            byref(c_double()),
+            byref(c_double()),
+            byref(c_double()),
+            byref(c_double()),
+            byref(c_double()),
+        )
+        if err != 0:
+            self.handle_error(err, no_raise=True)
+            return ""
+        name = mla_name_buffer.value
+        if isinstance(name, bytes):
+            name = name.decode("utf-8")
+        return name.strip("\x00").strip()
+
+    @staticmethod
+    def _get_ref_default_dir() -> Path:
+        """Get the default WFS reference file directory.
+
+        The Thorlabs WFS DLL saves/loads reference files to/from:
+            C:\\Users\\<user>\\Documents\\Thorlabs\\Wavefront Sensor\\Reference
+
+        Returns:
+            Path object for the reference directory.
+        """
+        import os
+        user_docs = Path(os.environ.get("USERPROFILE", "")) / "Documents"
+        return user_docs / "Thorlabs" / "Wavefront Sensor" / "Reference"
+
+    def _get_ref_filename(self) -> str:
+        """Construct the .ref filename that the WFS DLL expects.
+
+        Filename pattern from Thorlabs docs:
+            WFS_<serial_number>_<mla_name>_<cam_resol_idx>.ref
+
+        Returns:
+            Filename string like 'WFS_M00224955_MLA150M-5C_0.ref'.
+        """
+        mla_name = self.get_mla_name()
+        # cam_resol_idx is the MLA resolution index (self.mla_index value)
+        cam_resol_idx = int(self.mla_index)
+        filename = f"WFS_{self.serial_num}_{mla_name}_{cam_resol_idx}.ref"
+        return filename
+
+    def save_user_ref(self, backup_dir: str | Path | None = None) -> Path | None:
+        """Save user reference file and create a timestamped backup.
+
+        This calls WFS_SaveUserRefFile to save to the DLL-managed location,
+        then copies the saved file to the project backup directory with a timestamp.
+
+        Args:
+            backup_dir: Directory to store backup. Defaults to 'data/calibration/'.
+
+        Returns:
+            Path to the backup file, or None on failure.
+        """
+        if backup_dir is None:
+            backup_dir = Path("data/calibration")
+        else:
+            backup_dir = Path(backup_dir)
+        backup_dir.mkdir(parents=True, exist_ok=True)
+
+        # Call DLL to save reference file to its default location
+        if err := self._lib.WFS_SaveUserRefFile(self._instrument_handle):
+            self.handle_error(err, no_raise=True)
+            logger.error("Failed to save user reference file via WFS_SaveUserRefFile")
+            return None
+
+        # Get the source file path (where DLL saved it)
+        ref_dir = self._get_ref_default_dir()
+        ref_filename = self._get_ref_filename()
+        src_path = ref_dir / ref_filename
+
+        if not src_path.exists():
+            logger.error(f"Reference file not found at expected path: {src_path}")
+            return None
+
+        # Create timestamped backup filename
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_filename = f"{src_path.stem}_{timestamp}{src_path.suffix}"
+        backup_path = backup_dir / backup_filename
+
+        # Copy to backup location
+        try:
+            shutil.copy2(src_path, backup_path)
+            logger.info(f"User reference saved to DLL location: {src_path}")
+            logger.info(f"Backup created at: {backup_path}")
+            return backup_path
+        except Exception as e:
+            logger.error(f"Failed to create backup: {e}")
+            return None
+
+    def load_user_ref(self, backup_path: str | Path | None = None) -> bool:
+        """Load user reference file from a backup or default location.
+
+        If backup_path is provided:
+        1. Copy the backup file to the DLL's expected location
+        2. Then call WFS_LoadUserRefFile to load it
+
+        If backup_path is None:
+        - Directly call WFS_LoadUserRefFile to load from DLL's default location
+
+        Args:
+            backup_path: Optional path to a backup .ref file to load.
+
+        Returns:
+            True on success, False on failure.
+        """
+        if backup_path is not None:
+            backup_path = Path(backup_path)
+            if not backup_path.exists():
+                logger.error(f"Backup file not found: {backup_path}")
+                return False
+
+            # Copy backup to DLL's expected location
+            ref_dir = self._get_ref_default_dir()
+            ref_dir.mkdir(parents=True, exist_ok=True)
+            ref_filename = self._get_ref_filename()
+            dst_path = ref_dir / ref_filename
+
+            try:
+                shutil.copy2(backup_path, dst_path)
+                logger.info(f"Copied backup {backup_path} to {dst_path}")
+            except Exception as e:
+                logger.error(f"Failed to copy backup file: {e}")
+                return False
+
+        # Call DLL to load reference file from its default location
+        if err := self._lib.WFS_LoadUserRefFile(self._instrument_handle):
+            self.handle_error(err, no_raise=True)
+            logger.error("Failed to load user reference file via WFS_LoadUserRefFile")
+            return False
+
+        # Also update the reference plane setting
+        if err := self._lib.WFS_SetReferencePlane(self._instrument_handle, c_int32(1)):
+            self.handle_error(err, no_raise=True)
+
+        self.use_custom_ref = True
+        logger.info("User reference file loaded successfully")
+        return True
+
     def optimize_pupil(self):
         """
         This function help to optimize pupil.
@@ -995,6 +1155,83 @@ class WFSManager:
             self.handle_error(res)
         x = _spots_deviation_x[: self.num_spots_x, : self.num_spots_y]
         y = _spots_deviation_y[: self.num_spots_x, : self.num_spots_y]
+
+        return x, y
+
+    @require_take_image
+    def get_stable_spot_deviation(
+        self, intensity_threshold: float = 0.0, cancel_tile: bool = False
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Get spot deviations with low-intensity subapertures zeroed out.
+
+        This function:
+        1. Calculates spot intensities and centroids via WFS_CalcSpotsCentrDiaIntens
+        2. Calculates spot deviations via WFS_CalcSpotToReferenceDeviations
+        3. Zeros out deviation for subapertures where intensity < intensity_threshold
+
+        Args:
+            intensity_threshold: Minimum intensity threshold. Subapertures with
+                intensity below this value will have their deviations set to 0.
+                Default 0.0 means no filtering (all subapertures included).
+            cancel_tile: If True, remove tip/tilt from deviations.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray]: (deviation_x, deviation_y)
+                arrays of shape (num_spots_x, num_spots_y).
+                Subapertures with intensity < threshold have deviation = 0.
+        """
+        # Step 1: Calculate intensities and centroids
+        spots_intensities = np.empty(MAX_SPOTS, dtype=np.float32)
+        if res := self._lib.WFS_CalcSpotsCentrDiaIntens(
+            self._instrument_handle, c_int32(1), c_int32(0)
+        ):
+            self.handle_error(res)
+            return (
+                np.zeros((self.num_spots_x, self.num_spots_y), dtype=np.float32),
+                np.zeros((self.num_spots_x, self.num_spots_y), dtype=np.float32),
+            )
+
+        self._lib.WFS_GetSpotIntensities(self._instrument_handle, spots_intensities)
+        intensities = spots_intensities[: self.num_spots_x, : self.num_spots_y]
+
+        # Step 2: Calculate deviations
+        _spots_deviation_x = np.empty(MAX_SPOTS, dtype=np.float32)
+        _spots_deviation_y = np.empty(MAX_SPOTS, dtype=np.float32)
+
+        if (
+            res := self._lib.WFS_CalcSpotToReferenceDeviations(
+                self._instrument_handle, c_int32(1 if cancel_tile else 0)
+            )
+        ) != 0:
+            self.handle_error(res)
+            return (
+                np.zeros((self.num_spots_x, self.num_spots_y), dtype=np.float32),
+                np.zeros((self.num_spots_x, self.num_spots_y), dtype=np.float32),
+            )
+
+        if err := self._lib.WFS_GetSpotDeviations(
+            self._instrument_handle, _spots_deviation_x, _spots_deviation_y
+        ):
+            self.handle_error(err)
+            return (
+                np.zeros((self.num_spots_x, self.num_spots_y), dtype=np.float32),
+                np.zeros((self.num_spots_x, self.num_spots_y), dtype=np.float32),
+            )
+
+        x = _spots_deviation_x[: self.num_spots_x, : self.num_spots_y]
+        y = _spots_deviation_y[: self.num_spots_x, : self.num_spots_y]
+
+        # Step 3: Zero out deviations for low-intensity subapertures
+        if intensity_threshold > 0.0:
+            low_intensity_mask = intensities < intensity_threshold
+            x[low_intensity_mask] = 0.0
+            y[low_intensity_mask] = 0.0
+            zeroed_count = np.sum(low_intensity_mask)
+            if zeroed_count > 0:
+                logger.info(
+                    f"Zeroed deviations for {zeroed_count} subapertures "
+                    f"with intensity < {intensity_threshold}"
+                )
 
         return x, y
 
