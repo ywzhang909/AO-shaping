@@ -1,6 +1,7 @@
 from typing import Any, Literal
 import os
 import re
+import json
 from loguru import logger
 
 import uuid
@@ -291,3 +292,176 @@ class Recorder:
             return [l.get(columns, np.nan) for l in self.history]
         else:
             return [{k: v for k, v in l.items() if k in columns} for l in self.history]
+
+
+class DeviceConfigManager:
+    """通用设备配置管理器
+    
+    管理设备的JSON配置文件加载和保存，支持所有设备类型。
+    配置文件按设备序列号存储，路径: <config_dir>/{device_type}/{serial_number}.json
+    
+    支持默认启动参数，可在配置目录下放置 defaults.json 作为全局默认配置。
+    """
+    
+    def __init__(self, config_dir: str | Path, device_type: str = ""):
+        """初始化配置管理器
+        
+        Args:
+            config_dir: 配置文件根目录路径
+            device_type: 设备类型标识（如 'slm', 'dm', 'ccd' 等）
+        """
+        self.config_dir = Path(config_dir)
+        self.device_type = device_type
+        self.device_config_dir = self.config_dir / device_type if device_type else self.config_dir
+        self.device_config_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 加载默认配置
+        self._default_config = self._load_default_config()
+    
+    def _load_default_config(self) -> dict:
+        """加载全局默认配置文件 defaults.json"""
+        default_file = self.config_dir / "defaults.json"
+        if default_file.exists():
+            try:
+                with open(default_file, "r", encoding="utf-8") as f:
+                    defaults = json.load(f)
+                # 返回对应设备类型的默认配置
+                if self.device_type and self.device_type in defaults:
+                    return defaults[self.device_type]
+                return defaults
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"读取默认配置失败: {e}")
+        return {}
+    
+    def _get_config_file(self, serial: str) -> Path:
+        """获取配置文件路径"""
+        return self.device_config_dir / f"{serial}.json"
+    
+    def load_config(self, serial: str) -> dict:
+        """根据序列号加载JSON配置文件
+        
+        配置文件路径: <config_dir>/{device_type}/{serial}.json
+        如果文件不存在，返回默认配置（如果已设置）
+        
+        Args:
+            serial: 设备序列号
+            
+        Returns:
+            配置字典；合并默认配置和设备特定配置
+        """
+        config_file = self._get_config_file(serial)
+        
+        # 从默认配置开始
+        config = dict(self._default_config)
+        
+        if not config_file.exists():
+            logger.info(f"未找到{self.device_type}设备({serial})配置文件，使用默认参数")
+            return config
+        
+        try:
+            with open(config_file, "r", encoding="utf-8") as f:
+                device_config = json.load(f)
+            # 合并设备特定配置（覆盖默认值）
+            config.update(device_config)
+            logger.info(f"已加载{self.device_type}设备({serial})配置文件")
+            return config
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"读取配置文件失败: {e}，使用默认参数")
+            return config
+    
+    def save_config(self, serial: str, config: dict) -> None:
+        """将配置保存到JSON文件
+        
+        配置文件路径: <config_dir>/{device_type}/{serial}.json
+        
+        Args:
+            serial: 设备序列号
+            config: 配置字典
+        """
+        config_file = self._get_config_file(serial)
+        
+        # 确保配置中包含序列号
+        config_with_serial = dict(config)
+        config_with_serial["serial_number"] = serial
+        
+        try:
+            with open(config_file, "w", encoding="utf-8") as f:
+                json.dump(config_with_serial, f, indent=2, ensure_ascii=False)
+            logger.info(f"配置已保存: {config_file}")
+        except OSError as e:
+            logger.error(f"保存配置失败: {e}")
+    
+    def config_exists(self, serial: str) -> bool:
+        """检查指定序列号的配置文件是否存在
+        
+        Args:
+            serial: 设备序列号
+            
+        Returns:
+            配置文件是否存在
+        """
+        return self._get_config_file(serial).exists()
+    
+    def delete_config(self, serial: str) -> bool:
+        """删除指定序列号的配置文件
+        
+        Args:
+            serial: 设备序列号
+            
+        Returns:
+            是否成功删除
+        """
+        config_file = self._get_config_file(serial)
+        try:
+            if config_file.exists():
+                config_file.unlink()
+                logger.info(f"配置已删除: {config_file}")
+                return True
+            return False
+        except OSError as e:
+            logger.error(f"删除配置失败: {e}")
+            return False
+    
+    def list_configs(self) -> list[str]:
+        """列出所有已保存的配置文件对应的序列号
+        
+        Returns:
+            序列号列表
+        """
+        try:
+            return [f.stem for f in self.device_config_dir.glob("*.json")]
+        except OSError:
+            return []
+    
+    def set_default_config(self, defaults: dict) -> None:
+        """设置默认配置（运行时）
+        
+        Args:
+            defaults: 默认配置字典
+        """
+        self._default_config = dict(defaults)
+    
+    def save_default_config(self, defaults: dict) -> None:
+        """保存默认配置到文件 defaults.json
+        
+        Args:
+            defaults: 默认配置字典，可按设备类型组织
+                      如: {'slm': {'wavelength': 1064}, 'dm': {'voltages': [0]*64}}
+        """
+        default_file = self.config_dir / "defaults.json"
+        try:
+            with open(default_file, "w", encoding="utf-8") as f:
+                json.dump(defaults, f, indent=2, ensure_ascii=False)
+            logger.info(f"默认配置已保存: {default_file}")
+            # 重新加载
+            self._default_config = self._load_default_config()
+        except OSError as e:
+            logger.error(f"保存默认配置失败: {e}")
+
+
+# 向后兼容：SLMConfigManager 作为 DeviceConfigManager 的别名
+class SLMConfigManager(DeviceConfigManager):
+    """SLM设备配置管理器（DeviceConfigManager的别名，用于向后兼容）"""
+    
+    def __init__(self, config_dir: str | Path):
+        super().__init__(config_dir, device_type="slm")

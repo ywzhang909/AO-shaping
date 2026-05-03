@@ -353,6 +353,7 @@ class PatternHelper:
         wavelength: float = 532e-9,
         pixel_size: float = 8e-6,
         wrap_phase: bool = True,
+        lens_radius: float | None = None,
     ) -> np.ndarray:
         """生成聚焦图案（透镜相位）。
 
@@ -361,13 +362,21 @@ class PatternHelper:
             wavelength: 波长 (m)
             pixel_size: 像素大小 (m)
             wrap_phase: 是否包裹相位
+            lens_radius: 透镜半径（像素），默认 min(height, width)/2
 
         Returns:
-            聚焦图案 (uint16 或弧度)
+            聚焦图案 (uint16 或弧度)，超出透镜半径的区域置为0
         """
         max_val = self._max_val
         R2 = self.xx**2 + self.yy**2
         phase = (np.pi / wavelength / focal_length) * (R2 * pixel_size**2)
+
+        # 应用透镜半径掩模
+        if lens_radius is not None:
+            # 创建圆形掩模 (R <= lens_radius)
+            mask = self.R <= lens_radius
+            phase = phase * mask.astype(np.float64)
+
         if not wrap_phase:
             return phase
 
@@ -470,6 +479,7 @@ class PatternHelper:
         focal_length: float,
         wavelength: float = 532e-9,
         pixel_size: float = 8e-6,
+        lens_radius: float | None = None,
     ) -> np.ndarray:
         """生成透镜相位模式。
 
@@ -477,9 +487,10 @@ class PatternHelper:
             focal_length: 焦距 (m)
             wavelength: 波长 (m)
             pixel_size: 像素大小 (m)
+            lens_radius: 透镜半径（像素），默认 min(height, width)/2
 
         Returns:
-            透镜相位 (弧度, 未包裹)
+            透镜相位 (弧度, 未包裹)，超出透镜半径的区域置为0
         """
         xx = self.pixel_x * pixel_size
         yy = self.pixel_y * pixel_size
@@ -487,6 +498,13 @@ class PatternHelper:
         r2 = xx**2 + yy**2
         k = 2 * np.pi / wavelength
         phase = k * (focal_length - np.sqrt(r2 + focal_length**2))
+
+        # 应用透镜半径掩模
+        if lens_radius is not None:
+            # 创建圆形掩模 (R <= lens_radius * pixel_size)
+            mask = np.sqrt(xx**2 + yy**2) <= (lens_radius * pixel_size)
+            phase = phase * mask.astype(np.float64)
+
         return np.mod(phase, 2 * np.pi)
 
     def hologram(self, period: float, phase_range: float = 2 * np.pi) -> np.ndarray:

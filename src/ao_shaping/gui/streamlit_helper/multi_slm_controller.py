@@ -216,6 +216,14 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             step=0.1,
             key=f"{prefix}_lens_pixel_size",
         )
+        params["lens_radius"] = st.number_input(
+            "透镜半径 (像素)",
+            min_value=1,
+            max_value=2000,
+            value=min(slm_width, slm_height) // 2,
+            step=1,
+            key=f"{prefix}_lens_radius",
+        )
     elif pattern_type == "棋盘格":
         params["period"] = st.number_input(
             "棋盘格周期 (像素)",
@@ -460,10 +468,13 @@ def generate_phase_gray(
     if pattern_type == "透镜":
         # Use pixel size from SLM if not provided in params
         pixel_size = params.get("pixel_size_um", pixel_size_um)
+        lens_radius = float(params.get("lens_radius", 0.0))
+        lens_radius = lens_radius if lens_radius > 0 else None
         phase_rad = helper.lens(
             focal_length=float(params["focal_length_mm"]) * 1e-3,  # mm -> m
             wavelength=float(wavelength_nm) * 1e-9,  # nm -> m
             pixel_size=float(pixel_size) * 1e-6,  # um -> m
+            lens_radius=lens_radius,
         )
         return slm.create_phase_from_array(phase_rad)
     if pattern_type == "全息光栅":

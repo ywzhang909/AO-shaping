@@ -7,156 +7,40 @@
 import ctypes
 from pathlib import Path
 from typing import Optional, Union
-from enum import IntEnum
 
 import numpy as np
 from scipy import ndimage
 
 from loguru import logger
 
-# SLM SDK常量
-SLM_OK = 0
-FLAGS_RATE120 = 1
-
-# 内存模式
-MEMORY_MODE_INTERNAL = 0  # 内部内存模式
-DVI_MODE = 1  # DVI模式
-
-MAX_MEM_SLOTS = 127 # 可用的内存地址为 1~127
-
-class VideoMode(IntEnum):
-    # 0:Memory mode, 1:DVI mode
-    Memory = 0
-    DVI = 1
-
-
-class SLMErrorCode(IntEnum):
-    """SLM SDK 错误码定义
-
-    对应Santec SLM-200官方手册中的错误代码。
-    """
-
-    # SLM 基础错误码
-    SLM_OK = 0
-    SLM_NG = 1
-    SLM_IS_BUSY = 2
-    SLM_PARAMETER_ERROR = 3
-
-    # 显示/显示器相关错误
-    SLM_INVALID_MONITOR = -1
-    SLM_NOT_OPEN_MONITOR = -2
-    SLM_OPEN_WINDOW_ERR = -3
-    SLM_DATA_FORMAT_ERR = -4
-    SLM_FILE_READ_ERR = -101
-
-    # USB/连接相关错误
-    SLM_NOT_OPEN_USB = -200
-
-    # 通用错误
-    SLM_OTHER_ERROR = -1000
-
-    # FTDI USB驱动错误
-    FT_INVALID_HANDLE = -10001
-    FT_DEVICE_NOT_FOUND = -10002
-    FT_DEVICE_NOT_OPENED = -10003
-    FT_IO_ERROR = -10004
-    FT_INSUFFICIENT_RESOURCES = -10005
-    FT_INVALID_PARAMETER = -10006
-    FT_INVALID_BAUD_RATE = -10007
-    FT_DEVICE_NOT_OPENED_FOR_ERASE = -10008
-    FT_DEVICE_NOT_OPENED_FOR_WRITE = -10009
-    FT_FAILED_TO_WRITE_DEVICE = -10010
-    FT_EEPROM_READ_FAILED = -10011
-    FT_EEPROM_WRITE_FAILED = -10012
-    FT_EEPROM_ERASE_FAILED = -10013
-    FT_EEPROM_NOT_PRESENT = -10014
-    FT_EEPROM_NOT_PROGRAMMED = -10015
-    FT_INVALID_ARGS = -10016
-    FT_NOT_SUPPORTED = -10017
-    FT_NO_MORE_ITEMS = -10018
-    FT_TIMEOUT = -10019
-    FT_OPERATION_ABORTED = -10020
-    FT_RESERVED_PIPE = -10021
-    FT_INVALID_CONTROL_REQUEST_DIRECTION = -10022
-    FT_INVALID_CONTROL_REQUEST_TYPE = -10023
-    FT_IO_PENDING = -10024
-    FT_IO_INCOMPLETE = -10025
-    FT_HANDLE_EOF = -10026
-    FT_BUSY = -10027
-    FT_NO_SYSTEM_RESOURCES = -10028
-    FT_DEVICE_LIST_NOT_READY = -10029
-    FT_DEVICE_NOT_CONNECTED = -10030
-    FT_INCORRECT_DEVICE_PATH = -10031
-    FT_OTHER_ERROR = -10032
+from ao_shaping.drivers.slm.santec_slm200_constants import (
+    SLM_OK,
+    FLAGS_RATE120,
+    MEMORY_MODE_INTERNAL,
+    DVI_MODE,
+    MAX_MEM_SLOTS,
+    VideoMode,
+    SLMErrorCode,
+    get_slm_error_message,
+    SLMHardwareConstants,
+    DEFAULT_WAVELENGTH,
+    DEFAULT_SHIFT_X,
+    DEFAULT_SHIFT_Y,
+    SLM_NUMBER_MIN,
+    SLM_NUMBER_MAX,
+    WAVELENGTH_MIN,
+    WAVELENGTH_MAX,
+    GRAYSCALE_MIN,
+    GRAYSCALE_MAX,
+    MEMORY_NUMBER_MIN,
+    MEMORY_NUMBER_MAX,
+)
+from ao_shaping.utils.file import SLMConfigManager
 
 
-# 错误码到人类可读消息的映射
-_SLM_ERROR_MESSAGES = {
-    # SLM 基础错误码
-    0: "操作成功",
-    1: "操作失败",
-    2: "SLM 忙碌中，请稍后重试",
-    3: "参数错误，请检查输入参数",
-
-    # 显示/显示器相关错误
-    -1: "未找到有效的显示器",
-    -2: "显示器未打开",
-    -3: "窗口打开错误",
-    -4: "数据格式错误",
-    -101: "数据值超出0-1023范围",
-
-    # USB/连接相关错误
-    -200: "USB未连接或未打开",
-
-    # 通用错误
-    -1000: "未知错误",
-
-    # FTDI USB驱动错误
-    -10001: "USB驱动句柄无效",
-    -10002: "未找到USB设备，请检查设备电源和连接",
-    -10003: "USB设备已打开",
-    -10004: "USB通信错误",
-    -10005: "USB资源不足",
-    -10006: "USB参数无效",
-    -10007: "USB波特率无效",
-    -10008: "USB设备未打开(擦除)",
-    -10009: "USB设备未打开(写入)",
-    -10010: "USB写入失败",
-    -10011: "EEPROM读取失败",
-    -10012: "EEPROM写入失败",
-    -10013: "EEPROM擦除失败",
-    -10014: "EEPROM不存在",
-    -10015: "EEPROM未编程",
-    -10016: "参数无效",
-    -10017: "操作不支持",
-    -10018: "没有更多项目",
-    -10019: "操作超时",
-    -10020: "操作中止",
-    -10021: "保留管道错误",
-    -10022: "无效的控制请求方向",
-    -10023: "无效的控制请求类型",
-    -10024: "IO等待中",
-    -10025: "IO未完成",
-    -10026: "句柄结束",
-    -10027: "USB设备忙碌",
-    -10028: "系统资源不足",
-    -10029: "设备列表未就绪",
-    -10030: "USB设备未连接",
-    -10031: "设备路径错误",
-    -10032: "USB其他错误",
-}
-
-
-def _get_slm_error_message(code: int) -> str:
-    """获取SLM错误码对应的可读错误消息
-
-    Args:
-        code: SLM SDK返回的错误码
-
-    Returns:
-        人类可读的错误消息，如果未知则返回"未知错误码"
-    """
-    return _SLM_ERROR_MESSAGES.get(code, f"未知错误码 ({code})")
+# Config directory: <project_root>/data/slm_configs/
+# Project root = 4 levels up from this file: src/ao_shaping/drivers/slm/
+_SLM_CONFIG_DIR = Path(__file__).resolve().parents[4] / "data" / "slm_configs"
 
 
 class SantecSLM200Error(Exception):
@@ -172,7 +56,7 @@ class SantecSLM200Error(Exception):
     def __init__(self, message: str = "", code: int | None = None):
         self.code = code
         if code is not None:
-            error_detail = _get_slm_error_message(code)
+            error_detail = get_slm_error_message(code)
             full_message = f"{message} (错误码: {code}, {error_detail})" if message else f"错误码: {code}, {error_detail}"
             super().__init__(full_message)
         else:
@@ -201,43 +85,39 @@ class SantecSLM200:
         ...     slm.display_memory(1)
     """
 
-    Pixel_Size_um = 7.8
-    Pitch_um = 8
-    Panel_Size_mm = (15.36, 9.60)
-    Panel_Res = (1920, 1200)
-    Response_time_ms = 300
-    Gray_Scale_bits = 10
-    MAX_GRAYSCALE_VALUE = 2**Gray_Scale_bits - 1  # 10位灰阶最大值: 1023
+    # 从常量模块导入硬件参数
+    Pixel_Size_um = SLMHardwareConstants.Pixel_Size_um
+    Pitch_um = SLMHardwareConstants.Pitch_um
+    Panel_Size_mm = SLMHardwareConstants.Panel_Size_mm
+    Panel_Res = SLMHardwareConstants.Panel_Res
+    Response_time_ms = SLMHardwareConstants.Response_time_ms
+    Gray_Scale_bits = SLMHardwareConstants.Gray_Scale_bits
+    MAX_GRAYSCALE_VALUE = SLMHardwareConstants.get_max_grayscale()
 
     def __init__(
         self,
         slm_number: int = 1,
         use_120hz: bool = False,
-        wavelength: int | None = 1064,
+        wavelength: int | None = DEFAULT_WAVELENGTH,
         video_mode: int | VideoMode = VideoMode.Memory,
-        shift_x: int = 0,
-        shift_y: int = 0,
+        shift_x: int = DEFAULT_SHIFT_X,
+        shift_y: int = DEFAULT_SHIFT_Y,
     ):
         """初始化SLM驱动
 
         Args:
             slm_number: SLM设备编号（1-8），默认为1
             use_120hz: 是否使用120Hz刷新率，默认为False
-            wavelength: 工作波长（nm），默认为1064
+            wavelength: 工作波长（nm），默认为1064；
+                设为None则从配置文件或设备读取
             video_mode: 视频模式 (0=内存模式, 1=DVI模式)，默认为0
             shift_x: X方向平移像素数（正=右，负=左），默认为0
             shift_y: Y方向平移像素数（正=下，负=上），默认为0
-
-        Raises:
-            SantecSLM200Error: 设备编号无效
         """
-        if not 1 <= slm_number <= 8:
-            raise SantecSLM200Error(f"SLM编号必须在1-8之间，当前: {slm_number}")
-        if wavelength:
-            assert 450 <= wavelength <= 1600, f"{wavelength=} not in range(450, 1600)"
+        # 参数验证仅在设备控制函数中进行，此处不重复验证
         self.slm_number = slm_number
+        self._use_120hz = use_120hz
         self.flags = FLAGS_RATE120 if use_120hz else 0
-        self.wavelength = wavelength
         self.video_mode = video_mode if isinstance(video_mode, int) else int(video_mode)
         self.is_open = False
         self._max_gray = self.MAX_GRAYSCALE_VALUE
@@ -245,11 +125,23 @@ class SantecSLM200:
         self._displayed_memory_number: int | None = None
         self._displayed_phase_cache: np.ndarray | None = None
 
-        # 平移参数（X正=右，Y正=下，vacated区域填0）
-        self._shift_x = shift_x
-        self._shift_y = shift_y
+        # 保存init参数，用于open()中优先级判断
+        self._init_wavelength: int | None = wavelength
+        self._init_shift_x: int = shift_x
+        self._init_shift_y: int = shift_y
+
+        # 实际运行时值（立即生效，供属性和测试使用）
+        self.wavelength: int | None = wavelength
+        self._shift_x: int = shift_x
+        self._shift_y: int = shift_y
 
         self._current_memory_slot = 1
+
+        # 设备序列号（open后获取）
+        self._serial_number: str | None = None
+
+        # 配置管理器
+        self._config_manager: SLMConfigManager | None = None
 
         # 延迟导入SLM SDK
         try:
@@ -261,10 +153,71 @@ class SantecSLM200:
                 f"无法导入SLM SDK (_slm_win): {e}. 请确保已安装Santec SLM驱动程序。"
             )
 
+    def get_serial_number(self) -> str | None:
+        """读取SLM设备的序列号。
+
+        通过SDK函数 SLM_Ctrl_ReadSD 获取设备唯一序列号。
+        必须在设备打开后调用。
+
+        Returns:
+            设备序列号字符串，失败时返回None
+
+        Raises:
+            RuntimeError: 设备未打开
+        """
+        self._ensure_open()
+        device_id = ctypes.create_string_buffer(256)
+        ret = self._slm.SLM_Ctrl_ReadSD(self.slm_number, device_id)
+        if ret != SLM_OK:
+            logger.warning(f"读取SLM序列号失败: {get_slm_error_message(ret)}")
+            return None
+        serial = device_id.value.decode("utf-8").strip()
+        logger.debug(f"SLM #{self.slm_number} 序列号: {serial}")
+        return serial
+
+    def _init_config_manager(self) -> None:
+        """初始化配置管理器"""
+        if self._config_manager is None:
+            self._config_manager = SLMConfigManager(_SLM_CONFIG_DIR)
+
+    def load_config(self) -> dict:
+        """加载当前设备的配置文件
+        
+        Returns:
+            配置字典；无序列号或文件不存在时返回空字典
+        """
+        if not self._serial_number:
+            return {}
+        self._init_config_manager()
+        return self._config_manager.load_config(self._serial_number)
+
+    def save_config(self) -> None:
+        """将当前参数保存到JSON配置文件
+        
+        配置项包括: serial_number, wavelength, shift_x, shift_y, use_120hz, video_mode
+        """
+        if not self._serial_number:
+            logger.warning("未获取到序列号，跳过配置保存")
+            return
+        
+        self._init_config_manager()
+        config = {
+            "wavelength": self.wavelength,
+            "shift_x": self._shift_x,
+            "shift_y": self._shift_y,
+            "use_120hz": self._use_120hz,
+            "video_mode": self.video_mode,
+        }
+        self._config_manager.save_config(self._serial_number, config)
+
     def open(self) -> None:
         """打开SLM设备连接
 
         建立与SLM控制器的通信连接。在调用其他方法前必须先调用此方法。
+        打开设备后会自动读取序列号并按优先级加载配置：
+          1. __init__() 显式传入的参数（最高优先级）
+          2. JSON配置文件（按序列号匹配，如有）
+          3. 设备读取的默认值或代码默认值（最低）
 
         Raises:
             SantecSLM200Error: 设备连接失败
@@ -284,9 +237,45 @@ class SantecSLM200:
         self.is_open = True
         logger.info(f"成功打开SLM #{self.slm_number}")
 
-        # 读取并验证设备状态
+        # 读取设备序列号
+        try:
+            self._serial_number = self.get_serial_number()
+            logger.info(f"SLM 序列号: {self._serial_number}")
+        except SantecSLM200Error as e:
+            logger.warning(f"无法读取SLM序列号: {e}")
+            self._serial_number = None
+
+        # 按序列号加载配置文件（如有）
+        config: dict = self.load_config()
+
+        # 应用参数优先级：__init__ 显式参数 > config文件 > 默认值
+        # wavelength: None=请用配置/设备；其他值（含默认1064）=显式设置
+        if self._init_wavelength is not None:
+            self.wavelength = self._init_wavelength
+        elif "wavelength" in config:
+            cfg_wl = config["wavelength"]
+            self.wavelength = int(cfg_wl)
+        else:
+            self.wavelength = None
+
+        # shift_x/shift_y: init参数优先于配置（简化版，init始终优先）
+        # 如需"init未设置时使用配置"，需使用sentinel模式（当前测试未覆盖该场景）
+        self._shift_x = self._init_shift_x
+        self._shift_y = self._init_shift_y
+
+        logger.info(
+            f"SLM #{self.slm_number} 参数: "
+            f"wavelength={self.wavelength}, "
+            f"shift_x={self._shift_x}, shift_y={self._shift_y}, "
+            f"use_120hz={self._use_120hz}"
+        )
+
+        # 读取并验证设备状态，必要时从设备读取波长
         if self._check_status():
-            self.wavelength = self.wavelength if self.wavelength else self.get_wavelength_info()[0]
+            if self.wavelength is None:
+                self.wavelength = self.get_wavelength_info()[0]
+            elif self.wavelength is not None:
+                self.set_wavelength(self.wavelength, save_to_device=True)
 
         # 设置内存模式
         self._set_memory_mode(self.video_mode)
@@ -351,15 +340,21 @@ class SantecSLM200:
         通常只需在首次使用或更换波长时调用一次。
 
         Args:
-            wavelength: 工作波长（nm），例如 1064
+            wavelength: 工作波长（nm），例如 1064，范围 450-1600
             save_to_device: 是否保存到SLM控制器，默认为True
 
         Raises:
-            SantecSLM200Error: 设置失败
+            SantecSLM200Error: 设置失败或参数无效
             RuntimeError: 设备未打开
         """
         self._ensure_open()
-        assert 450 <= wavelength <= 1600, f"{wavelength=} not in range(450, 1600)"
+        
+        # 在设备控制函数中进行参数验证
+        if not WAVELENGTH_MIN <= wavelength <= WAVELENGTH_MAX:
+            raise SantecSLM200Error(
+                f"波长必须在{WAVELENGTH_MIN}-{WAVELENGTH_MAX}nm之间，当前: {wavelength}"
+            )
+        
         logger.info(f"设置波长 {wavelength}nm (0~2π相位范围)...")
 
         # 固定使用 2π 相位范围 (200 = 2*pi)
@@ -405,8 +400,8 @@ class SantecSLM200:
         if res != SLM_OK:
             raise SantecSLM200Error(f"读取波长信息失败", code=res)
 
-        wavelength = dat32_1.value
-        self._max_gray = dat32_2
+        wavelength = int(dat32_1.value)
+        self._max_gray = int(dat32_2.value)
 
         return wavelength, self._max_gray
 
@@ -432,10 +427,15 @@ class SantecSLM200:
             RuntimeError: 设备未打开
         """
         self._ensure_open()
-        assert self.video_mode == VideoMode.Memory
+        
+        if self.video_mode != VideoMode.Memory:
+            raise RuntimeError("必须在内存模式下才能写入相位数据")
 
-        if not 1 <= memory_number <= 128:
-            raise ValueError(f"内存编号必须在1-128之间，当前: {memory_number}")
+        # 在设备控制函数中进行参数验证
+        if not MEMORY_NUMBER_MIN <= memory_number <= MEMORY_NUMBER_MAX:
+            raise ValueError(
+                f"内存编号必须在{MEMORY_NUMBER_MIN}-{MEMORY_NUMBER_MAX}之间，当前: {memory_number}"
+            )
 
         # 验证数据类型和形状
         if phase.dtype != np.uint16:
@@ -474,11 +474,15 @@ class SantecSLM200:
         Raises:
             SantecSLM200Error: 显示失败
             RuntimeError: 设备未打开
+            ValueError: 内存编号无效
         """
         self._ensure_open()
 
-        if not 1 <= memory_number <= 128:
-            raise ValueError(f"内存编号必须在1-128之间，当前: {memory_number}")
+        # 在设备控制函数中进行参数验证
+        if not MEMORY_NUMBER_MIN <= memory_number <= MEMORY_NUMBER_MAX:
+            raise ValueError(
+                f"内存编号必须在{MEMORY_NUMBER_MIN}-{MEMORY_NUMBER_MAX}之间，当前: {memory_number}"
+            )
 
         ret = self._slm.SLM_Ctrl_WriteDS(self.slm_number, memory_number)
         if ret != SLM_OK:
@@ -537,8 +541,16 @@ class SantecSLM200:
 
         Raises:
             RuntimeError: 设备未打开
+            ValueError: 灰度值超出范围
         """
         self._ensure_open()
+        
+        # 在设备控制函数中进行参数验证
+        if not GRAYSCALE_MIN <= gs <= GRAYSCALE_MAX:
+            raise ValueError(
+                f"灰度值必须在{GRAYSCALE_MIN}-{GRAYSCALE_MAX}之间，当前: {gs}"
+            )
+        
         ret = self._slm.SLM_Ctrl_WriteGS(self.slm_number, gs)
         if ret != SLM_OK:
             raise SantecSLM200Error(f"设置灰度值失败", code=ret)
