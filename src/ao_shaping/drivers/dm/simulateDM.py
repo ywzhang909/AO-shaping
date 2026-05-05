@@ -5,10 +5,7 @@ from .base import DM
 class SimulateDM(DM):
     channel: int = 64
     n_actuators: int = 64
-    
-    @property
-    def disabled_actuators(self) -> list[int]:
-        return []
+    disabled_actuators: list[int] = []
     
     v_min, v_max = -300, 499
 

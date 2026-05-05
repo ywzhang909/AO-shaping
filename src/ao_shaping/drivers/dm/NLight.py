@@ -17,10 +17,7 @@ def _load_adj_txt():
 class NLight(DM):
     DM_NUM: int = DM_NUM
     n_actuators: int = DM_NUM
-    
-    @property
-    def disabled_actuators(self) -> list[int]:
-        return [0]
+    disabled_actuators: list[int] = [0]
     
     V_Min, V_Max = -300, 499
     Units_Adj_Mat = _load_adj_txt()
