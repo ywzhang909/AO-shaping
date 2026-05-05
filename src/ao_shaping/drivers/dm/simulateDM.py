@@ -4,6 +4,12 @@ from .base import DM
 
 class SimulateDM(DM):
     channel: int = 64
+    n_actuators: int = 64
+    
+    @property
+    def disabled_actuators(self) -> list[int]:
+        return []
+    
     v_min, v_max = -300, 499
 
     def __init__(self, max_iter_diff=20, max_neibor_diff=0, keep_when_exit=True, noise_level=0.01):

@@ -1,5 +1,4 @@
 import click
-import coredumpy
 
 from ao_shaping.utils import logger
 from ao_shaping.optimizer.wf.zernike_response_matrix import (
@@ -15,6 +14,7 @@ from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
 from ao_shaping.utils.display import ZernikeCalibrationDisplay
+from ao_shaping.utils.cli_helpers import setup_coredumpy
 
 
 @click.command('zernike-matrix')
@@ -100,8 +100,5 @@ def run(
 
 
 if __name__ == "__main__":
-    try:
-        coredumpy.patch_except(directory='logs/debug/error')
-    except Exception:
-        logger.error("coredumpy初始化失败")
+    setup_coredumpy()
     run()

@@ -119,6 +119,15 @@ from ao_shaping.utils.zernike_calc import (
     generate_noll_polynomial,
 )
 
+# Explicit exports from cli_helpers
+from ao_shaping.utils.cli_helpers import (
+    parse_tuple,
+    setup_coredumpy,
+    get_date_dir_name,
+    get_timestamp_str,
+    create_save_dir,
+)
+
 # Define public API
 __all__ = [
     "BACKGROUND_COLOR",
@@ -207,6 +216,12 @@ __all__ = [
     "wavefront_calc",
     "zernike_calc",
     "zernike_radial",
+    # cli_helpers
+    "parse_tuple",
+    "setup_coredumpy",
+    "get_date_dir_name",
+    "get_timestamp_str",
+    "create_save_dir",
 ]
 
 from loguru import logger

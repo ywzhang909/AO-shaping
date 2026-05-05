@@ -1,68 +1,115 @@
 {
+    // ============================================
+    // Terminal Environment Configuration
+    // ============================================
     "terminal.integrated.env.windows": {
-        // "env": "${workspaceFolder}/.env",
-        // "python.terminal.useEnvFile": "${workspaceFolder}/.env",
-        // "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs;${env:PYTHONPATH}",
-        // "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${env:PATH}",
+        "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs;${env:PYTHONPATH}",
+        "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${workspaceFolder}/libs/gxipy;${env:PATH}"
     },
     "terminal.integrated.env.linux": {
-        "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs;${env:PYTHONPATH}",
-        "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${env:PATH}",
+        "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}/libs:${env:PYTHONPATH}",
+        "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release:${workspaceFolder}/libs/gxipy:${env:PATH}"
     },
-    "python.testing.pytestArgs": [
-        "-s"
-    ],
-    "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true,
+    "terminal.integrated.env.osx": {
+        "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}/libs:${env:PYTHONPATH}",
+        "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release:${workspaceFolder}/libs/gxipy:${env:PATH}"
+    },
+
+    // ============================================
+    // Python Environment Configuration
+    // ============================================
     "python.terminal.useEnvFile": true,
     "python.envFile": "${workspaceFolder}/.env",
-    "python.testing.pytestPath": "${workspaceFolder}/.venv/Scrits/pytest.exe",
-    "[dotenv]": {
-        "editor.formatOnSave": true
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+
+    // ============================================
+    // Python Analysis & IntelliSense
+    // ============================================
+    "python.analysis.extraPaths": [
+        "src",
+        "libs",
+        "libs/gxipy",
+        "libs/Drv_UDPST/x64/Release"
+    ],
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.completeFunctionParens": true,
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportMissingImports": "error",
+        "reportMissingTypeStubs": "information"
     },
     "python.autoComplete.extraPaths": [
         "${workspaceFolder}/src",
-        "${workspaceFolder}/libs"
+        "${workspaceFolder}/libs",
+        "${workspaceFolder}/libs/gxipy"
     ],
-    "python-envs.pythonProjects": [
-        {
-            "path": "libs/gxipy",
-            "envManager": "ms-python.python:venv",
-            "packageManager": "ms-python.python:pip"
-        }
+
+    // ============================================
+    // Testing Configuration
+    // ============================================
+    "python.testing.pytestEnabled": true,
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestPath": "pytest",
+    "python.testing.pytestArgs": [
+        "-v",
+        "--tb=short"
     ],
+    "python.testing.autoTestDiscoverOnSaveEnabled": true,
+
+    // ============================================
+    // Editor Configuration
+    // ============================================
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+        "source.organizeImports": "explicit"
+    },
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.python",
+        "editor.formatOnSave": true
+    },
+    "[dotenv]": {
+        "editor.formatOnSave": true
+    },
+
+    // ============================================
+    // File Exclusions
+    // ============================================
     "files.exclude": {
         "**/.git": true,
         "**/.svn": true,
         "**/.hg": true,
         "**/.DS_Store": true,
         "**/Thumbs.db": true,
-        "src/ao_shaping/drivers/__pycache__": true,
         "**/__pycache__": true,
-        "__pycache__": true,
+        "**/*.pyc": true,
+        "**/*.pyo": true,
         ".kilocode": true,
         ".marscode": true,
         ".pytest_cache": true,
         ".trae": true,
         "uv.lock": true,
-        "**__pycache__": true,
         ".ocx": true,
         ".history": true,
         ".opencode": true,
         ".ruff_cache": true,
         ".venv": true,
         ".coverage": true,
-        ".kilocodemodes": true
+        ".kilocodemodes": true,
+        "**/*.egg-info": true,
+        "dist": true,
+        "build": true
     },
+
+    // ============================================
+    // Hide Files
+    // ============================================
     "hide-files.files": [
         "**/__pycache__",
-        "__pycache__",
         ".kilocode",
         ".marscode",
         ".pytest_cache",
         ".trae",
         "uv.lock",
-        "**__pycache__",
         ".ocx",
         ".history",
         ".opencode",
@@ -70,15 +117,5 @@
         ".venv",
         ".coverage",
         ".kilocodemodes"
-    ],
-    "python.defaultInterpreterPath": "d:\\Projects\\TIFO\\AO-shaping\\.venv\\Scripts\\python.exe",
-
-    "python.analysis.extraPaths": [
-        "src",
-        "libs"
-    ],
-    "python.analysis PYTHONPATH": [
-        "src",
-        "libs"
     ]
 }

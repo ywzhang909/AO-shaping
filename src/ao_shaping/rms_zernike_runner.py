@@ -1,8 +1,5 @@
 import click
-import re
-import coredumpy
 from pathlib import Path
-from datetime import datetime
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,22 +8,7 @@ from ao_shaping.utils import gen_date_dir, gen_file_path_uuid, logger
 from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms
 from ao_shaping.utils.display import plot_funcs
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
-
-
-def parse_tuple(ctx, param, value):
-    """解析元组格式的参数，支持 'x,y' 或 '(x,y)' 格式"""
-    # 移除空格和括号
-    s_clean = re.sub(r'[()\s]', '', str(value))
-    try:
-        parts = s_clean.split(',')
-        if len(parts) != 2:
-            raise ValueError("Must have exactly two integers")
-        x, y = map(int, parts)
-        return (x, y)
-    except Exception:
-        raise click.BadParameter(
-            f"Invalid center format: {value}. Expected formats: 'x,y' or '(x,y)'"
-        )
+from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name
 
 
 @click.command()
@@ -74,15 +56,11 @@ def run(dir, epochs, n_max, wfs_res, pupil_diameter, pupil_center, early_stop_th
         saved_file_name = gen_file_path_uuid(save_dir, 'pkl')
 
         fig, ax = plt.subplots(2, 2, figsize=(12, 9))
-        # 绘制RMS变化趋势
         rms_values = records.get_sublist()
         plot_funcs["rms_history"](rms_values, ax[0, 0], min_epoch, min_rms)
-        # 绘制最优Zernike系数
         plot_funcs["voltages"](min_iter["_c"], ax[0, 1], f"Min RMS: {min_rms:.3f} @ epoch {min_epoch}")
-        # 绘制初始波前
         im = plot_funcs["wavefront"](records.first["_wavefront"][0], ax[1, 0], "初始波前")
         plt.colorbar(im, ax=ax[1, 0], orientation='horizontal')
-        # 绘制最优波前
         im = plot_funcs["wavefront"](min_iter["_wavefront"][1], ax[1, 1], "最优波前")
         plt.colorbar(im, ax=ax[1, 1], orientation='horizontal')
 
@@ -90,17 +68,12 @@ def run(dir, epochs, n_max, wfs_res, pupil_diameter, pupil_center, early_stop_th
         plt.close()
         records.save_dataframe(saved_file_name.with_suffix('.zip'), compression='zip')
 
-    # 保存最优Zernike系数
-    dir_name = datetime.now().strftime("%Y%m%d")
-    save_dir = root_dir / "flatten_zernike" / dir_name
+    save_dir = root_dir / "flatten_zernike" / get_date_dir_name()
     records.save_best(saved_dir=save_dir, target="_c", process_fn=np.round, fmt="%.6f")
 
     click.echo(f"波前优化完成，最优RMS值: {min_rms:.4f} @ epoch {min_epoch}")
 
 
 if __name__ == "__main__":
-    try:
-        coredumpy.patch_except(directory='logs/debug/error')
-    except:
-        logger.error("coredumpy初始化失败")
+    setup_coredumpy()
     run()

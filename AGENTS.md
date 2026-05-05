@@ -90,6 +90,55 @@ Utility functions for image processing and calculations:
 | `display.py` | Visualization utilities |
 | `pattern_helper.py` | SLM pattern generation |
 | `file.py` | File I/O utilities |
+| `cli_helpers.py` | CLI common utilities (parse_tuple, coredumpy setup) |
+
+---
+
+## Configuration
+
+### Environment Variables (.env)
+
+Project uses `.env` file for environment configuration:
+
+```bash
+# Hardware device IDs
+Far_Cam_ID=0
+Near_Cam_ID=1
+
+# Optical parameters
+IDEAL_SPOT_RADIUS=7
+CENTER=577,655
+
+# Library paths
+PYTHONPATH=src;libs
+PATH=libs\Drv_UDPST\x64\Release;libs\gxipy;${PATH}
+```
+
+### VSCode Settings
+
+VSCode settings are configured in `.vscode/settings.json`:
+- Python path includes `src/` and `libs/`
+- Pytest integration enabled
+- Terminal environment variables from `.env`
+
+### Config Module
+
+Centralized configuration in `src/ao_shaping/config.py`:
+
+```python
+from ao_shaping.config import DM_N_ACTUATORS, DEFAULTS, PATHS
+
+# Hardware constants
+DM_N_ACTUATORS = 64
+
+# Default optimization parameters
+defaults = DEFAULTS
+print(defaults.WF_EPOCHS)  # 20000
+
+# Path configuration
+paths = PATHS
+print(paths.root_dir)  # data/
+```
 
 ---
 
@@ -112,10 +161,17 @@ main (click.group)
 ├── wf             → wf_runner.run()              [Wavefront RMS optimization]
 ├── pib            → axis_beam_run()              [Power-in-Bucket optimization]
 ├── pipeline       → pipeline_run()               [Serial WF→PIB pipeline]
-└── zernike-matrix → zernike_matrix_run()         [Zernike响应矩阵校准]
+├── zernike-matrix → zernike_matrix_run()         [Zernike响应矩阵校准]
+├── rms-zernike    → rms_zernike_run()            [Zernike RMS optimization]
+└── ga-zernike     → ga_zernike_run()             [GA Zernike optimization]
 ```
 
 **Note:** `combined_runner.py` exists but is NOT wired to main CLI (documented in README only).
+
+**Refactoring Notes:**
+- All runner scripts now use centralized config from `config.py` (DM_N_ACTUATORS, PATHS, DEFAULTS)
+- Common CLI helpers moved to `utils/cli_helpers.py` (parse_tuple, setup_coredumpy)
+- Duplicate code eliminated across runner files
 
 ---
 
