@@ -5,8 +5,9 @@
 """
 
 import ctypes
+import os
 from pathlib import Path
-from typing import Optional, Union
+from typing import Union
 
 import numpy as np
 from scipy import ndimage
@@ -17,17 +18,13 @@ from ao_shaping.drivers.slm.santec_slm200_constants import (
     SLM_OK,
     FLAGS_RATE120,
     MEMORY_MODE_INTERNAL,
-    DVI_MODE,
     MAX_MEM_SLOTS,
     VideoMode,
-    SLMErrorCode,
     get_slm_error_message,
     SLMHardwareConstants,
     DEFAULT_WAVELENGTH,
     DEFAULT_SHIFT_X,
     DEFAULT_SHIFT_Y,
-    SLM_NUMBER_MIN,
-    SLM_NUMBER_MAX,
     WAVELENGTH_MIN,
     WAVELENGTH_MAX,
     GRAYSCALE_MIN,
@@ -38,9 +35,10 @@ from ao_shaping.drivers.slm.santec_slm200_constants import (
 from ao_shaping.utils.file import SLMConfigManager
 
 
-# Config directory: <project_root>/data/slm_configs/
+# Config directory: <project_root>/data/slm_configs/ or from SLM_CONFIG_DIR env var
 # Project root = 4 levels up from this file: src/ao_shaping/drivers/slm/
-_SLM_CONFIG_DIR = Path(__file__).resolve().parents[4] / "data" / "slm_configs"
+_DEFAULT_SLM_CONFIG_DIR = Path(__file__).resolve().parents[4] / "data" / "slm_configs"
+_SLM_CONFIG_DIR = Path(os.environ.get("SLM_CONFIG_DIR", _DEFAULT_SLM_CONFIG_DIR))
 
 
 class SantecSLM200Error(Exception):
@@ -182,25 +180,27 @@ class SantecSLM200:
 
     def load_config(self) -> dict:
         """加载当前设备的配置文件
-        
+
         Returns:
             配置字典；无序列号或文件不存在时返回空字典
         """
         if not self._serial_number:
             return {}
         self._init_config_manager()
+        assert self._config_manager is not None, "Config manager should be initialized"
         return self._config_manager.load_config(self._serial_number)
 
     def save_config(self) -> None:
         """将当前参数保存到JSON配置文件
-        
+
         配置项包括: serial_number, wavelength, shift_x, shift_y, use_120hz, video_mode
         """
         if not self._serial_number:
             logger.warning("未获取到序列号，跳过配置保存")
             return
-        
+
         self._init_config_manager()
+        assert self._config_manager is not None, "Config manager should be initialized"
         config = {
             "wavelength": self.wavelength,
             "shift_x": self._shift_x,
@@ -348,13 +348,13 @@ class SantecSLM200:
             RuntimeError: 设备未打开
         """
         self._ensure_open()
-        
+
         # 在设备控制函数中进行参数验证
         if not WAVELENGTH_MIN <= wavelength <= WAVELENGTH_MAX:
             raise SantecSLM200Error(
                 f"波长必须在{WAVELENGTH_MIN}-{WAVELENGTH_MAX}nm之间，当前: {wavelength}"
             )
-        
+
         logger.info(f"设置波长 {wavelength}nm (0~2π相位范围)...")
 
         # 固定使用 2π 相位范围 (200 = 2*pi)
@@ -364,14 +364,14 @@ class SantecSLM200:
         res = self._slm.SLM_Ctrl_WriteWL(self.slm_number, wavelength, phase_range)
         if res != SLM_OK:
             raise SantecSLM200Error(
-                f"设置波长/相位范围失败", code=res
+                "设置波长/相位范围失败", code=res
             )
 
         # 保存到设备
         if save_to_device:
             ret = self._slm.SLM_Ctrl_WriteAW(self.slm_number)
             if ret != SLM_OK:
-                raise SantecSLM200Error(f"保存波长设置失败", code=ret)
+                raise SantecSLM200Error("保存波长设置失败", code=ret)
 
         self.wavelength = wavelength
 
@@ -398,7 +398,7 @@ class SantecSLM200:
 
         res = self._slm.SLM_Ctrl_ReadWL(self.slm_number, dat32_1, dat32_2)
         if res != SLM_OK:
-            raise SantecSLM200Error(f"读取波长信息失败", code=res)
+            raise SantecSLM200Error("读取波长信息失败", code=res)
 
         wavelength = int(dat32_1.value)
         self._max_gray = int(dat32_2.value)
@@ -427,7 +427,7 @@ class SantecSLM200:
             RuntimeError: 设备未打开
         """
         self._ensure_open()
-        
+
         if self.video_mode != VideoMode.Memory:
             raise RuntimeError("必须在内存模式下才能写入相位数据")
 
@@ -514,7 +514,7 @@ class SantecSLM200:
 
         if ret != SLM_OK:
             raise SantecSLM200Error(
-                f"显示相位数据失败", code=ret
+                "显示相位数据失败", code=ret
             )
 
         self._displayed_memory_number = None
@@ -525,12 +525,12 @@ class SantecSLM200:
         self._ensure_open()
         if self.video_mode == VideoMode.DVI:
             self.display_video(phase)
-        
+
         elif self.video_mode == VideoMode.Memory:
             self._current_memory_slot = (self._current_memory_slot + 1) % MAX_MEM_SLOTS
             self.write_phase(phase, self._current_memory_slot+1)
             self.display_memory(self._current_memory_slot+1)
-        
+
     def set_grayscale(self, gs: int) -> None:
         """设置SLM灰度值（均匀显示）
 
@@ -544,16 +544,16 @@ class SantecSLM200:
             ValueError: 灰度值超出范围
         """
         self._ensure_open()
-        
+
         # 在设备控制函数中进行参数验证
         if not GRAYSCALE_MIN <= gs <= GRAYSCALE_MAX:
             raise ValueError(
                 f"灰度值必须在{GRAYSCALE_MIN}-{GRAYSCALE_MAX}之间，当前: {gs}"
             )
-        
+
         ret = self._slm.SLM_Ctrl_WriteGS(self.slm_number, gs)
         if ret != SLM_OK:
-            raise SantecSLM200Error(f"设置灰度值失败", code=ret)
+            raise SantecSLM200Error("设置灰度值失败", code=ret)
         self._displayed_memory_number = None
         self._displayed_phase_cache = np.full(
             (self.Panel_Res[1], self.Panel_Res[0]),
@@ -568,7 +568,7 @@ class SantecSLM200:
         memory_number = ctypes.c_uint32(0)
         ret = self._slm.SLM_Ctrl_ReadDS(self.slm_number, ctypes.byref(memory_number))
         if ret != SLM_OK:
-            raise SantecSLM200Error(f"读取当前显示内存失败", code=ret)
+            raise SantecSLM200Error("读取当前显示内存失败", code=ret)
         return memory_number.value or None
 
     def get_current_grayscale(self) -> int:
@@ -577,7 +577,7 @@ class SantecSLM200:
         gray = ctypes.c_ushort(0)
         ret = self._slm.SLM_Ctrl_ReadGS(self.slm_number, ctypes.byref(gray))
         if ret != SLM_OK:
-            raise SantecSLM200Error(f"读取当前灰度值失败", code=ret)
+            raise SantecSLM200Error("读取当前灰度值失败", code=ret)
         return gray.value
 
     def get_displayed_phase(self) -> tuple[np.ndarray | None, str]:
@@ -632,7 +632,7 @@ class SantecSLM200:
         return phase
 
     def create_phase_from_array(
-        self, phase_rad: np.ndarray, max_grayscale: Optional[int] = None
+        self, phase_rad: np.ndarray, max_grayscale: int | None = None
     ) -> np.ndarray:
         """将弧度相位值转换为SLM灰度值
 
@@ -650,9 +650,9 @@ class SantecSLM200:
 
         # 验证并调整矩阵shape为SLM面板分辨率 (height, width)
         target_h, target_w = self.Panel_Res[1], self.Panel_Res[0]  # (1200, 1920)
-        
+
         h, w = phase_rad.shape
-        
+
         if (h, w) != (target_h, target_w):
             if h > target_h or w > target_w:
                 # 过大：从中心裁切
@@ -685,7 +685,7 @@ class SantecSLM200:
         phase_rad = phase_rad.astype(np.float64)
 
         # 将弧度转换为灰度值
-        grayscale = (phase_rad / (2 * np.pi) * max_grayscale)      
+        grayscale = (phase_rad / (2 * np.pi) * max_grayscale)
         # 应用平移
         grayscale = self._apply_shift(grayscale)
 
