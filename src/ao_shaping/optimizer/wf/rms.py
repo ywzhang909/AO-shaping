@@ -48,7 +48,7 @@ def optimizer_rms(
 
     with NlightDM(keep_when_exit=KEEP_VOLTAGES) as dm:
         if not init_v:
-            _init_v = np.zeros(dm.DM_Num, dtype=np.float64)
+            _init_v = np.zeros(dm.DM_NUM, dtype=np.float64)
         else:
             _init_v = np.array(init_v)
         dm.send_voltages(_init_v, 0.5)
