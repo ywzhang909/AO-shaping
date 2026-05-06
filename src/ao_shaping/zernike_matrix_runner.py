@@ -14,7 +14,7 @@ from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
 from ao_shaping.utils.display import ZernikeCalibrationDisplay
-from ao_shaping.utils.cli_helpers import setup_coredumpy
+from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy
 
 
 @click.command('zernike-matrix')
@@ -28,6 +28,12 @@ from ao_shaping.utils.cli_helpers import setup_coredumpy
 @click.option('--shift-x', 'shift_x', type=int, default=0, help='SLM X方向平移像素 (正=右, 负=左)')
 @click.option('--shift-y', 'shift_y', type=int, default=0, help='SLM Y方向平移像素 (正=下, 负=上)')
 @click.option('--wavelength', default=1064, help='工作波长 (nm)')
+@click.option('--mla-index', 'mla_index', default='Res768', help='MLA分辨率 (Res512, Res540, Res600, Res768, Res1080)')
+@click.option('--exp-time', 'exp_time', type=float, default=0.0, help='曝光时间 (ms, 0=自动)')
+@click.option('--high-speed', 'high_speed', is_flag=True, default=False, help='启用高速模式')
+@click.option('--use-custom-ref', 'use_custom_ref', is_flag=True, default=False, help='使用自定义参考文件')
+@click.option('--pupil-diameter', 'pupil_diameter', type=float, default=2.0, help='瞳孔直径 (mm)')
+@click.option('--pupil-center', callback=parse_tuple, default="(0.0,0.0)", help='瞳孔中心坐标 (默认: (0.0,0.0))')
 @click.option('--no-inverses', 'compute_inverses', default=True, flag_value=False, help='不计算逆矩阵')
 @click.option('--no-excluded-piston', 'excluded_piston', default=True, flag_value=False, help='不排除piston模式')
 @click.option('--excluded-tip-tilt', 'excluded_tip_tilt', default=False, flag_value=True, help='排除tip/tilt模式 (Z2, Z3)')
@@ -43,6 +49,12 @@ def run(
     shift_x: int,
     shift_y: int,
     wavelength: int,
+    mla_index: str,
+    exp_time: float,
+    high_speed: bool,
+    use_custom_ref: bool,
+    pupil_diameter: float,
+    pupil_center: tuple,
     compute_inverses: bool,
     excluded_piston: bool,
     excluded_tip_tilt: bool,
@@ -70,7 +82,14 @@ def run(
 
     try:
         with ZernikeSLM(slm_number=slm_number, wavelength=wavelength, n_max=n_max, shift_x=shift_x, shift_y=shift_y) as zslm:
-            with WFSManager() as wfs:
+            with WFSManager(
+                mla_index=mla_index,
+                exp_time=exp_time,
+                high_speed=high_speed,
+                use_custom_ref=use_custom_ref,
+                pupil_diameter=pupil_diameter,
+                pupil_center=pupil_center,
+            ) as wfs:
                 result = calibrate_zernike_response_matrix(
                     zslm=zslm,
                     wfs=wfs,

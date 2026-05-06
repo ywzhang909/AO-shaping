@@ -14,14 +14,12 @@
         "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}/libs:${env:PYTHONPATH}",
         "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release:${workspaceFolder}/libs/gxipy:${env:PATH}"
     },
-
     // ============================================
     // Python Environment Configuration
     // ============================================
     "python.terminal.useEnvFile": true,
     "python.envFile": "${workspaceFolder}/.env",
     "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
-
     // ============================================
     // Python Analysis & IntelliSense
     // ============================================
@@ -43,7 +41,6 @@
         "${workspaceFolder}/libs",
         "${workspaceFolder}/libs/gxipy"
     ],
-
     // ============================================
     // Testing Configuration
     // ============================================
@@ -51,11 +48,9 @@
     "python.testing.unittestEnabled": false,
     "python.testing.pytestPath": "pytest",
     "python.testing.pytestArgs": [
-        "-v",
-        "--tb=short"
+        "tests"
     ],
     "python.testing.autoTestDiscoverOnSaveEnabled": true,
-
     // ============================================
     // Editor Configuration
     // ============================================
@@ -70,7 +65,6 @@
     "[dotenv]": {
         "editor.formatOnSave": true
     },
-
     // ============================================
     // File Exclusions
     // ============================================
@@ -99,7 +93,6 @@
         "dist": true,
         "build": true
     },
-
     // ============================================
     // Hide Files
     // ============================================

@@ -266,7 +266,7 @@ def calibrate_zernike_response_matrix(
     # 计算SLM和WFS的项数 (考虑piston和tip/tilt排除)
     n_remove = (1 if excluded_piston else 0) + (2 if excluded_tip_tilt else 0)
     n_slm_terms = calc_n_zernike_terms(n_max) - n_remove
-    n_wfs_terms = calc_n_zernike_terms(n_max) - n_remove
+    n_wfs_terms = wfs.calc_n_zernike_terms(n_max) - n_remove
 
     logger.info(
         f"开始Zernike响应矩阵校准: n_max={n_max}, "
@@ -279,7 +279,7 @@ def calibrate_zernike_response_matrix(
     variance_matrix = np.zeros((n_wfs_terms, n_slm_terms), dtype=np.float64)
 
     set_slm_flat(zslm._slm)
-    time.sleep(wait_time * 2)
+    time.sleep(wait_time)
 
     # Initialize display window if provided
     if display is not None:
@@ -298,7 +298,7 @@ def calibrate_zernike_response_matrix(
         # index 0 = piston (Z1), index 1 = tip (Z2), index 2 = tilt (Z3), ...
         # When excluded_piston=True, mode i starts from Noll index i+2
         # When excluded_piston=True AND excluded_tip_tilt=True, mode i starts from Noll index i+4
-        n_full = calc_n_zernike_terms(n_max)
+        n_full = wfs.calc_n_zernike_terms(n_max)
         coeffs_full = np.zeros(n_full, dtype=np.float64)
         coeff_value = magnitude
 

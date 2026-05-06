@@ -2,6 +2,19 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python Debugger: main with Arguments",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "main.py",
+            "console": "integratedTerminal",
+            "args": "${command:pickArgs}",
+            "env": {
+                "STREAMLIT_ENABLE_COLAB_BACKEND": "true",
+                "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs;${env:PYTHONPATH}",
+                "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${workspaceFolder}/libs/gxipy;${env:PATH}"
+            }
+        },
+        {
             "name": "Python 调试程序: 当前文件",
             "type": "debugpy",
             "request": "launch",

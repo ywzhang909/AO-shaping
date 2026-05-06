@@ -101,6 +101,7 @@ def require_take_image(func):
                 f"Automatically calling take_image() now."
             )
             self.take_image()
+            self._image_captured = False
         return func(self, *args, **kwargs)
     return wrapper
 

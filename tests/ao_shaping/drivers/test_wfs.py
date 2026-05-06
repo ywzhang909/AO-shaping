@@ -77,6 +77,17 @@ def test_rms():
     plt.plot(rms_hist)
     plt.show()
 
+def test_zernike():
+    rms_hist = []
+    with Thorlab_WFS(MlaRes.Res1024, use_custom_ref=False) as wfs:
+        for _ in range(10):
+            zernike_coeff = wfs.get_zernike(10)
+            rms_hist.append(np.mean(np.sqrt(np.sum(zernike_coeff**2))))
+    fig, [ax1, ax2] = plt.subplots(2,1)
+    ax1.plot(rms_hist)
+    ax2.bar(np.arange(len(rms_hist[0])), rms_hist[0])
+    plt.show()
+
 def test_high_speed_d():
     rms_hist = []
     with Thorlab_WFS(MlaRes.Res768) as wfs:
