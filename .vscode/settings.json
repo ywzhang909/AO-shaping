@@ -4,15 +4,18 @@
     // ============================================
     "terminal.integrated.env.windows": {
         "PYTHONPATH": "${workspaceFolder}/src;${workspaceFolder}/libs;${env:PYTHONPATH}",
-        "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${workspaceFolder}/libs/gxipy;${env:PATH}"
+        "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release;${workspaceFolder}/libs/gxipy;${env:PATH}",
+        "LOGURU_LEVEL": "INFO"
     },
     "terminal.integrated.env.linux": {
         "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}/libs:${env:PYTHONPATH}",
-        "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release:${workspaceFolder}/libs/gxipy:${env:PATH}"
+        "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release:${workspaceFolder}/libs/gxipy:${env:PATH}",
+        "LOGURU_LEVEL": "INFO"
     },
     "terminal.integrated.env.osx": {
         "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}/libs:${env:PYTHONPATH}",
-        "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release:${workspaceFolder}/libs/gxipy:${env:PATH}"
+        "PATH": "${workspaceFolder}/libs/Drv_UDPST/x64/Release:${workspaceFolder}/libs/gxipy:${env:PATH}",
+        "LOGURU_LEVEL": "INFO"
     },
     // ============================================
     // Python Environment Configuration

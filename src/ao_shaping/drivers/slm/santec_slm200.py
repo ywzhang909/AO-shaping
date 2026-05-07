@@ -96,7 +96,7 @@ class SantecSLM200:
         self,
         slm_number: int = 1,
         use_120hz: bool = False,
-        wavelength: int | None = DEFAULT_WAVELENGTH,
+        wavelength: int | None = None,
         video_mode: int | VideoMode = VideoMode.Memory,
         shift_x: int = DEFAULT_SHIFT_X,
         shift_y: int = DEFAULT_SHIFT_Y,

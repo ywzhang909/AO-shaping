@@ -366,7 +366,6 @@ class WFSManager:
         # Call DLL to save reference file to its default location
         if err := self._lib.WFS_SaveUserRefFile(self._instrument_handle):
             self.handle_error(err, no_raise=True)
-            logger.error("Failed to save user reference file via WFS_SaveUserRefFile")
             return None
 
         # Get the source file path (where DLL saved it)

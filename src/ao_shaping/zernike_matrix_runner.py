@@ -31,7 +31,7 @@ from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy
 @click.option('--shift-x', 'shift_x', type=int, default=0, help='SLM X方向平移像素 (正=右, 负=左)')
 @click.option('--shift-y', 'shift_y', type=int, default=0, help='SLM Y方向平移像素 (正=下, 负=上)')
 @click.option('--wavelength', default=1064, help='工作波长 (nm)')
-@click.option('--mla-index', 'mla_index', type=click.Choice(['512', '540', '600', '768', '1280']), default='768', help='MLA分辨率 (512, 540, 600, 768, 1280)')
+@click.option('--mla-index', 'mla_index', type=click.Choice(['512', '540', '600', '768', '1280']), default='512', help='MLA分辨率 (512, 540, 600, 768, 1280)')
 @click.option('--exp-time', 'exp_time', type=float, default=0.0, help='曝光时间 (ms, 0=自动)')
 @click.option('--high-speed', 'high_speed', is_flag=True, default=False, help='启用高速模式')
 @click.option('--use-custom-ref', 'use_custom_ref', is_flag=True, default=False, help='使用自定义参考文件')
@@ -74,7 +74,7 @@ def run(
     wait_time = wait_time or DEFAULT_WAIT_TIME
 
     # Convert mla_index string to MlaRes enum
-    mla_index = MlaRes.from_str(mla_index)
+    mla_index_enum = MlaRes.from_str(mla_index)
 
     # Calculate n_slm_terms and n_wfs_terms before calibration
     n_remove = (1 if excluded_piston else 0) + (2 if excluded_tip_tilt else 0)
@@ -89,18 +89,19 @@ def run(
     try:
         with ZernikeSLM(slm_number=slm_number, wavelength=wavelength, n_max=n_max, shift_x=shift_x, shift_y=shift_y) as zslm:
             with WFSManager(
-                mla_index=mla_index,
+                mla_index=mla_index_enum,
                 exp_time=exp_time,
                 high_speed=high_speed,
                 use_custom_ref=use_custom_ref,
                 pupil_diameter=pupil_diameter,
                 pupil_center=pupil_center,
             ) as wfs:
+                if not use_custom_ref:
                 # 测试相应矩阵前标定当前为参考波前避免干扰
-                zslm.set_flat()
-                sleep(0.5)
-                wfs.save_user_ref()
-                wfs.load_user_ref()
+                    zslm.set_flat()
+                    sleep(0.5)
+                    wfs.save_user_ref()
+                    wfs.load_user_ref()
                 result = calibrate_zernike_response_matrix(
                     zslm=zslm,
                     wfs=wfs,

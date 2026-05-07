@@ -14,15 +14,13 @@ from ao_shaping.drivers.slm.santec_slm200 import (
     SantecSLM200,
     SantecSLM200Error,
     VideoMode,
-    MEMORY_MODE_INTERNAL,
-    DVI_MODE,
 )
 
 
 @pytest.fixture
 def slm():
     """创建并返回一个已初始化的 SLM 实例"""
-    return SantecSLM200(slm_number=1, wavelength=532, shift_x=100, shift_y=-110)
+    return SantecSLM200(slm_number=1, shift_x=100, shift_y=-110)
 
 
 @pytest.fixture
@@ -39,11 +37,6 @@ class TestSLMConstants:
         """测试 VideoMode 枚举"""
         assert VideoMode.Memory == 0
         assert VideoMode.DVI == 1
-
-    def test_memory_mode_constants(self):
-        """测试内存模式常量"""
-        assert MEMORY_MODE_INTERNAL == 0
-        assert DVI_MODE == 1
 
     def test_class_constants(self):
         """测试类级别常量"""

@@ -69,3 +69,4 @@ torch = [
 torchvision = [
   { index = "pytorch-cu124", marker = "sys_platform == 'win32'" },
 ]
+
