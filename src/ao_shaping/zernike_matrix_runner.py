@@ -1,3 +1,5 @@
+from time import sleep
+
 import click
 from typing import Literal
 
@@ -94,6 +96,11 @@ def run(
                 pupil_diameter=pupil_diameter,
                 pupil_center=pupil_center,
             ) as wfs:
+                # 测试相应矩阵前标定当前为参考波前避免干扰
+                zslm.set_flat()
+                sleep(0.5)
+                wfs.save_user_ref()
+                wfs.load_user_ref()
                 result = calibrate_zernike_response_matrix(
                     zslm=zslm,
                     wfs=wfs,

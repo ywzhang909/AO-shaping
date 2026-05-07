@@ -326,6 +326,8 @@ def calibrate_zernike_response_matrix(
             excluded_tip_tilt=excluded_tip_tilt,
             zernike_order=n_max,
         )
+        logger.debug(f'iter {i} rms = {np.sqrt(np.mean(mean_resp ** 2))}')
+
         response_matrix[:, i] = mean_resp
         variance_matrix[:, i] = var_resp
 
@@ -497,64 +499,60 @@ def plot_response_matrix(
         result: 校准结果
         output_dir: 输出目录
     """
-    try:
-        import matplotlib.pyplot as plt
+    import matplotlib.pyplot as plt
 
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-        # 1. 响应矩阵热图
-        fig, ax = plt.subplots(figsize=(12, 10))
-        im = ax.imshow(result.matrix, aspect="auto", cmap="RdBu_r")
-        ax.set_xlabel("SLM Zernike Mode Index")
-        ax.set_ylabel("WFS Zernike Mode Index")
-        ax.set_title(f"Response Matrix (n_max={result.n_max})")
-        fig.colorbar(im, ax=ax, label="Response")
-        fig.tight_layout()
-        fig.savefig(output_dir / "response_heatmap.png", dpi=150)
-        plt.close(fig)
+    # 1. 响应矩阵热图
+    fig, ax = plt.subplots(figsize=(12, 10))
+    im = ax.imshow(result.matrix, aspect="auto", cmap="RdBu_r")
+    ax.set_xlabel("SLM Zernike Mode Index")
+    ax.set_ylabel("WFS Zernike Mode Index")
+    ax.set_title(f"Response Matrix (n_max={result.n_max})")
+    fig.colorbar(im, ax=ax, label="Response")
+    fig.tight_layout()
+    fig.savefig(output_dir / "response_heatmap.png", dpi=150)
+    plt.close(fig)
 
-        # 2. 方差矩阵热图
-        fig, ax = plt.subplots(figsize=(12, 10))
-        im = ax.imshow(result.variance_matrix, aspect="auto", cmap="YlOrRd")
-        ax.set_xlabel("SLM Zernike Mode Index")
-        ax.set_ylabel("WFS Zernike Mode Index")
-        ax.set_title(f"Variance Matrix (mean={result.mean_variance:.6f})")
-        fig.colorbar(im, ax=ax, label="Variance")
-        fig.tight_layout()
-        fig.savefig(output_dir / "variance_heatmap.png", dpi=150)
-        plt.close(fig)
+    # 2. 方差矩阵热图
+    fig, ax = plt.subplots(figsize=(12, 10))
+    im = ax.imshow(result.variance_matrix, aspect="auto", cmap="YlOrRd")
+    ax.set_xlabel("SLM Zernike Mode Index")
+    ax.set_ylabel("WFS Zernike Mode Index")
+    ax.set_title(f"Variance Matrix (mean={result.mean_variance:.6f})")
+    fig.colorbar(im, ax=ax, label="Variance")
+    fig.tight_layout()
+    fig.savefig(output_dir / "variance_heatmap.png", dpi=150)
+    plt.close(fig)
 
-        # 3. 每列平均方差 (稳定性指标)
-        fig, ax = plt.subplots(figsize=(12, 5))
-        col_mean_var = np.mean(result.variance_matrix, axis=0)
-        ax.bar(range(len(col_mean_var)), col_mean_var)
-        ax.set_xlabel("SLM Zernike Mode Index")
-        ax.set_ylabel("Mean Variance")
-        ax.set_title("Measurement Stability per Mode")
+    # 3. 每列平均方差 (稳定性指标)
+    fig, ax = plt.subplots(figsize=(12, 5))
+    col_mean_var = np.mean(result.variance_matrix, axis=0)
+    ax.bar(range(len(col_mean_var)), col_mean_var)
+    ax.set_xlabel("SLM Zernike Mode Index")
+    ax.set_ylabel("Mean Variance")
+    ax.set_title("Measurement Stability per Mode")
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(output_dir / "variance_per_mode.png", dpi=150)
+    plt.close(fig)
+
+    # 4. SVD奇异值 (如果已计算逆矩阵)
+    if result.pinv_matrix is not None:
+        _, s, _ = np.linalg.svd(result.matrix)
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.plot(s, "o-")
+        ax.set_xlabel("Singular Value Index")
+        ax.set_ylabel("Singular Value")
+        ax.set_title(f"SVD Singular Values (condition={result.condition_number:.2e})")
+        ax.set_yscale("log")
         ax.grid(True, alpha=0.3)
         fig.tight_layout()
-        fig.savefig(output_dir / "variance_per_mode.png", dpi=150)
+        fig.savefig(output_dir / "singular_values.png", dpi=150)
         plt.close(fig)
 
-        # 4. SVD奇异值 (如果已计算逆矩阵)
-        if result.pinv_matrix is not None:
-            _, s, _ = np.linalg.svd(result.matrix)
-            fig, ax = plt.subplots(figsize=(10, 5))
-            ax.plot(s, "o-")
-            ax.set_xlabel("Singular Value Index")
-            ax.set_ylabel("Singular Value")
-            ax.set_title(f"SVD Singular Values (condition={result.condition_number:.2e})")
-            ax.set_yscale("log")
-            ax.grid(True, alpha=0.3)
-            fig.tight_layout()
-            fig.savefig(output_dir / "singular_values.png", dpi=150)
-            plt.close(fig)
-
-        logger.info(f"可视化图表已保存到: {output_dir}")
-
-    except ImportError:
-        logger.warning("matplotlib未安装，跳过可视化")
+    logger.info(f"可视化图表已保存到: {output_dir}")
 
 
 # 导出主要函数

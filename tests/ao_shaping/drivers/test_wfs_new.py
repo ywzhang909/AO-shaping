@@ -3,14 +3,13 @@
 Note: Tests that require actual WFS hardware are skipped when hardware is not available.
 Mock-based tests are used for logic verification without hardware.
 """
-import sys
 import pytest
 from pathlib import Path
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 import numpy as np
 
 from ao_shaping.drivers import Thorlab_WFS, MlaRes
-from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager, load_dll
+from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager
 
 
 # ---------------------------------------------------------------------------
@@ -21,7 +20,7 @@ from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager, load_dll
 def wfs_instance():
     """Create a WFS instance for hardware testing. Skip if not available."""
     try:
-        wfs = Thorlab_WFS(MlaRes.Res768, exp_time=4.0)
+        wfs = Thorlab_WFS(MlaRes.Res768)
         wfs.initialize()
         yield wfs
         wfs.close()
@@ -29,7 +28,6 @@ def wfs_instance():
         pytest.skip(f"WFS hardware not available: {e}")
 
 
-@pytest.mark.hardware
 def test_get_mla_name(wfs_instance):
     """Test get_mla_name() returns a non-empty string."""
     mla_name = wfs_instance.get_mla_name()
@@ -40,7 +38,6 @@ def test_get_mla_name(wfs_instance):
     print(f"MLA name: {mla_name}")
 
 
-@pytest.mark.hardware
 def test_get_ref_filename(wfs_instance):
     """Test _get_ref_filename() constructs correct filename pattern."""
     filename = wfs_instance._get_ref_filename()
@@ -53,7 +50,6 @@ def test_get_ref_filename(wfs_instance):
     print(f"Reference filename: {filename}")
 
 
-@pytest.mark.hardware
 def test_get_ref_default_dir(wfs_instance):
     """Test _get_ref_default_dir() returns a valid Path."""
     ref_dir = WFSManager._get_ref_default_dir()
@@ -65,7 +61,7 @@ def test_get_ref_default_dir(wfs_instance):
     print(f"Reference directory: {ref_dir}")
 
 
-@pytest.mark.hardware
+
 def test_save_user_ref(wfs_instance, tmp_path):
     """Test save_user_ref() creates a backup file."""
     wfs_instance.take_image()
@@ -78,7 +74,7 @@ def test_save_user_ref(wfs_instance, tmp_path):
     print(f"Backup saved to: {backup_path}")
 
 
-@pytest.mark.hardware
+
 def test_load_user_ref(wfs_instance, tmp_path):
     """Test load_user_ref() with a backup file."""
     # First save a reference
@@ -93,14 +89,14 @@ def test_load_user_ref(wfs_instance, tmp_path):
     assert wfs_instance.use_custom_ref is True
 
 
-@pytest.mark.hardware
+
 def test_load_user_ref_nonexistent(wfs_instance):
     """Test load_user_ref() with nonexistent file returns False."""
     result = wfs_instance.load_user_ref("nonexistent_file_12345.ref")
     assert result is False, "Should return False for nonexistent file"
 
 
-@pytest.mark.hardware
+
 def test_get_stable_spot_deviation(wfs_instance):
     """Test get_stable_spot_deviation() returns correct shapes."""
     wfs_instance.take_image()
@@ -116,7 +112,7 @@ def test_get_stable_spot_deviation(wfs_instance):
     ), f"Shape should be ({wfs_instance.num_spots_x}, {wfs_instance.num_spots_y})"
 
 
-@pytest.mark.hardware
+
 def test_get_stable_spot_deviation_with_threshold(wfs_instance):
     """Test that intensity threshold zeros out low-intensity subapertures."""
     wfs_instance.take_image()
@@ -152,15 +148,15 @@ class TestGetMlaName:
         # We can't easily test the actual ctypes buffer without real DLL,
         # so we test the method signature and error handling
         with patch.object(WFSManager, "get_mla_name", return_value="MLA150M-5C"):
-        name = WFSManager.get_mla_name(wfs)
-        assert name == "MLA150M-5C"
+            name = WFSManager.get_mla_name(wfs)
+            assert name == "MLA150M-5C"
 
     def test_get_mla_name_failure(self):
         """Test get_mla_name() when DLL call fails."""
         with patch.object(WFSManager, "get_mla_name", return_value=""):
-        wfs = MagicMock(spec=WFSManager)
-        name = WFSManager.get_mla_name(wfs)
-        assert name == ""
+            wfs = MagicMock(spec=WFSManager)
+            name = WFSManager.get_mla_name(wfs)
+            assert name == ""
 
 
 class TestGetRefDefaultDir:
@@ -181,7 +177,8 @@ class TestGetRefDefaultDir:
         assert "Reference" in path_str
 
 
-class TestGetRefFilename:    """Tests for _get_ref_filename()."""
+class TestGetRefFilename:    
+    """Tests for _get_ref_filename()."""
 
     def test_returns_string(self):
         wfs = MagicMock(spec=WFSManager)
@@ -330,9 +327,9 @@ class TestGetStableSpotDeviation:
 
         threshold = 0.0
         if threshold > 0.0:
-        low_mask = intensities < threshold
-        dev_x[low_mask] = 0.0
-        dev_y[low_mask] = 0.0
+            low_mask = intensities < threshold
+            dev_x[low_mask] = 0.0
+            dev_y[low_mask] = 0.0
 
         # With threshold=0.0, nothing should be zeroed
         assert not np.any(dev_x == 0.0) or np.any(dev_x != 0.0)
