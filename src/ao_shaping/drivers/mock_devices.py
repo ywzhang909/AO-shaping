@@ -8,7 +8,6 @@ actual hardware.
 from __future__ import annotations
 
 import time
-import uuid
 from typing import Any
 
 import numpy as np

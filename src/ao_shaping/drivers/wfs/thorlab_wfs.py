@@ -29,7 +29,7 @@ def require_take_image(func):
     如果未拍摄，会自动调用 take_image()。
     """
     @wraps(func)
-    def wrapper(self:"WFSManager", *args, **kwargs):
+    def wrapper(self:WFSManager, *args, **kwargs):
         if not self._image_captured:
             logger.debug(
                 f"{func.__name__} requires take_image() to be called first. "
@@ -53,7 +53,7 @@ class MlaRes(IntEnum):
     Res320 = 4
 
     @classmethod
-    def from_str(cls, value: str | int | "MlaRes") -> "MlaRes":
+    def from_str(cls, value: str | int | MlaRes) -> MlaRes:
         """Convert a string or integer to MlaRes enum member.
 
         Args:
@@ -151,7 +151,7 @@ class WFSManager:
             logger.info("high speed mode can only use auto exposure time!")
         self._image_captured = False
 
-    def __enter__(self) -> "WFSManager":
+    def __enter__(self) -> WFSManager:
         """Enter context manager, initialize the device connection.
 
         Returns:
@@ -603,8 +603,9 @@ class WFSManager:
                 byref(rms),
                 byref(wighted_rms),
             )
-            # FIXME: 这个函数的返回值不变
             wavefront = deepcopy(wavefront)[: self.num_spots_x, : self.num_spots_y]
+            if np.all(wavefront == 0):
+                logger.warning("WFS_CalcWavefront returned zero-filled buffer — DLL may not have written data")
 
             # wavefront = np.where(wavefront==np.nan, 0, wavefront)
             return wavefront, {
@@ -660,7 +661,7 @@ class WFSManager:
             return wavefront
 
         return wavefront_no_tilt
-    
+
     @staticmethod
     def calc_n_zernike_terms(n):
         return (n + 1) * (n + 2) // 2 + 1
@@ -711,8 +712,6 @@ class WFSManager:
             tuple[np.ndarray, np.ndarray]: (deviation_x, deviation_y) arrays
                each of shape (num_spots_x, num_spots_y)
         """
-        # FIXME: 这个函数的返回值不变
-
         _spots_deviation_x = np.empty(MAX_SPOTS, dtype=np.float32)
         _spots_deviation_y = np.empty(MAX_SPOTS, dtype=np.float32)
         # if err:= self._lib.WFS_CalcSpotsCentrDiaIntens(self._instrument_handle, c_int32(1), c_int32(1)):
@@ -731,6 +730,8 @@ class WFSManager:
             self.handle_error(res)
         x = _spots_deviation_x[: self.num_spots_x, : self.num_spots_y]
         y = _spots_deviation_y[: self.num_spots_x, : self.num_spots_y]
+        if np.all(x == 0) and np.all(y == 0):
+            logger.warning("WFS_GetSpotDeviations returned zero-filled buffers — DLL may not have written data")
 
         return x, y
 
@@ -996,7 +997,7 @@ class WFSManager:
         if self.device_name.upper() == 'WFS40-5C':
             logger.warning(f'{self.device_name} not support high speed mode!')
             return
-        
+
         def __set_high_speed():
             return self._lib.WFS_SetHighspeedMode(
                 self._instrument_handle,

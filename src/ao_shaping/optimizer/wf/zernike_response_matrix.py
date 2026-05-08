@@ -28,7 +28,8 @@ import time
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
+from collections.abc import Callable
 
 import numpy as np
 from loguru import logger
@@ -151,6 +152,8 @@ def measure_zernike_mode_response(
     excluded_piston: bool = True,
     excluded_tip_tilt: bool = False,
     zernike_order: int = 10,
+    mode_index: int = 0,
+    debug_data_callback: Callable | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """测量单个Zernike模式的响应 (多次循环)
 
@@ -168,20 +171,50 @@ def measure_zernike_mode_response(
         excluded_piston: 是否排除piston (Z1)
         excluded_tip_tilt: 是否排除tip/tilt (Z2, Z3)
         zernike_order: WFS Zernike拟合阶数 (最大10)
+        debug_data_callback: 调试数据回调，签名为:
+            callback(mode_index: int, cycle: int, sample: int, 
+                     slm_phase: np.ndarray, shift_x: int, shift_y: int,
+                     deviation_x: np.ndarray, deviation_y: np.ndarray,
+                     zernike_coeffs: np.ndarray, is_plus: bool)
+            仅在debug模式且回调非None时调用
 
     Returns:
         (mean_response, variance_response): 平均响应向量和方差向量
     """
-    def measure_once(coeffs: np.ndarray) -> np.ndarray:
+    def measure_once(coeffs: np.ndarray, mode_idx: int, cycle: int, is_plus: bool) -> np.ndarray:
         """单次测量 (M次WFS读取取平均)"""
-        zslm.send_zernike(coeffs)
+        phase_gray = zslm.send_zernike(coeffs)
         time.sleep(wait_time)
 
         responses = []
-        for _ in range(n_averages):
+        for sample_idx in range(n_averages):
             zernike_coeffs = wfs.get_zernike(zernike_order=zernike_order)
             responses.append(zernike_coeffs)
-        # TODO 如果n>5, 去掉最大、最小防止异常
+
+            if debug_data_callback is not None:
+                try:
+                    dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=False)
+                except Exception:
+                    dev_x = np.array([])
+                    dev_y = np.array([])
+
+                debug_data_callback(
+                    mode_index=mode_idx,
+                    cycle=cycle,
+                    sample=sample_idx,
+                    slm_phase=phase_gray,
+                    shift_x=zslm.shift_x,
+                    shift_y=zslm.shift_y,
+                    deviation_x=dev_x,
+                    deviation_y=dev_y,
+                    zernike_coeffs=zernike_coeffs.copy() if zernike_coeffs is not None else np.array([]),
+                    is_plus=is_plus,
+                )
+
+        if len(responses) > 5:
+            arr = np.array(responses)
+            sorted_arr = np.sort(arr, axis=0)
+            return np.mean(sorted_arr[1:-1], axis=0)
         return np.mean(responses, axis=0)
 
     # N次正负交替循环测量
@@ -189,12 +222,12 @@ def measure_zernike_mode_response(
 
     for cycle in range(n_cycles):
         # 正向扰动
-        response_plus = measure_once(+coefficients)
+        response_plus = measure_once(+coefficients, mode_index, cycle, True)
         set_slm_flat(zslm._slm)
         time.sleep(wait_time)
 
         # 负向扰动
-        response_minus = measure_once(-coefficients)
+        response_minus = measure_once(-coefficients, mode_index, cycle, False)
         set_slm_flat(zslm._slm)
         time.sleep(wait_time)
 
@@ -234,6 +267,7 @@ def calibrate_zernike_response_matrix(
     verbose: bool = True,
     display: ZernikeCalibrationDisplay | None = None,
     callback: Callable[[int, int, np.ndarray, np.ndarray], None] | None = None,
+    debug_data_callback: Callable | None = None,
 ) -> ZernikeResponseMatrixResult:
     """校准Zernike响应矩阵 (增强版)
 
@@ -259,6 +293,18 @@ def calibrate_zernike_response_matrix(
             - response_col: 响应向量 (mean_resp)
             - variance_col: 方差向量 (var_resp)
             如果提供callback，将跳过tqdm进度条。
+        debug_data_callback: 调试数据回调，用于保存每次测量的原始数据。
+            签名为: callback(mode_index, cycle, sample, slm_phase, shift_x, shift_y,
+                           deviation_x, deviation_y, zernike_coeffs, is_plus)
+            - mode_index: SLM Zernike模式索引
+            - cycle: 当前循环次数 (0 to n_cycles-1)
+            - sample: 当前采样索引 (0 to n_averages-1)
+            - slm_phase: SLM灰度相位图 (uint16, with shift applied)
+            - shift_x, shift_y: SLM平移值
+            - deviation_x, deviation_y: WFS spot deviation数组
+            - zernike_coeffs: WFS Zernike系数 (原始, averaging前)
+            - is_plus: 是否是正向扰动 (+coefficients)
+            仅在debug模式且回调非None时调用。
 
     Returns:
         ZernikeResponseMatrixResult对象，包含响应矩阵、方差和逆矩阵
@@ -325,6 +371,8 @@ def calibrate_zernike_response_matrix(
             excluded_piston=excluded_piston,
             excluded_tip_tilt=excluded_tip_tilt,
             zernike_order=n_max,
+            mode_index=i,
+            debug_data_callback=debug_data_callback,
         )
         logger.debug(f'iter {i} rms = {np.sqrt(np.mean(mean_resp ** 2))}')
 

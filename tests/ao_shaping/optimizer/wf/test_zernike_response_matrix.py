@@ -373,28 +373,28 @@ class TestCallbackSupport:
 
         n_max = 4
         n_slm_terms = calc_n_zernike_terms(n_max) - 1  # excluded_piston=True
+        n_wfs_terms = calc_n_zernike_terms(n_max) - 1
 
-        # Create mock callback
         mock_callback = MagicMock()
 
-        # Mock the hardware and measurement function
         mock_zslm = MagicMock()
         mock_zslm.wavelength = 1064
+        mock_zslm._slm = MagicMock()
         mock_wfs = MagicMock()
-
-        # Mock measure_zernike_mode_response to return dummy data
-        n_wfs_terms = calc_n_zernike_terms(10) - 1
+        mock_wfs.calc_n_zernike_terms.return_value = calc_n_zernike_terms(n_max)
 
         with patch(
             "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
-        ) as mock_measure:
-            # Return dummy response and variance
+        ) as mock_measure, patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.set_slm_flat"
+        ), patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.time"
+        ):
             mock_measure.return_value = (
                 np.zeros(n_wfs_terms),
                 np.zeros(n_wfs_terms),
             )
 
-            # Call calibration with callback
             result = calibrate_zernike_response_matrix(
                 zslm=mock_zslm,
                 wfs=mock_wfs,
@@ -405,22 +405,20 @@ class TestCallbackSupport:
                 wait_time=0.01,
                 excluded_piston=True,
                 compute_inverses=False,
-                verbose=False,  # No tqdm when testing callback
+                verbose=False,
                 display=None,
                 callback=mock_callback,
             )
 
-            # Verify callback was called n_slm_terms times
             assert mock_callback.call_count == n_slm_terms
 
-            # Verify callback was called with correct arguments
             for call_idx, call_args in enumerate(mock_callback.call_args_list):
-                args = call_args[0]  # Positional arguments
+                args = call_args[0]
                 assert len(args) == 4
-                assert args[0] == call_idx  # mode_index
-                assert args[1] == n_slm_terms  # total_modes
-                assert isinstance(args[2], np.ndarray)  # response_col
-                assert isinstance(args[3], np.ndarray)  # variance_col
+                assert args[0] == call_idx
+                assert args[1] == n_slm_terms
+                assert isinstance(args[2], np.ndarray)
+                assert isinstance(args[3], np.ndarray)
 
     def test_callback_skips_tqdm(self):
         """测试提供callback时跳过tqdm进度条"""
@@ -432,27 +430,30 @@ class TestCallbackSupport:
 
         n_max = 3
         n_slm_terms = calc_n_zernike_terms(n_max) - 1
+        n_wfs_terms = calc_n_zernike_terms(n_max) - 1
 
         mock_callback = MagicMock()
         mock_zslm = MagicMock()
         mock_zslm.wavelength = 1064
+        mock_zslm._slm = MagicMock()
         mock_wfs = MagicMock()
-
-        n_wfs_terms = calc_n_zernike_terms(10) - 1
+        mock_wfs.calc_n_zernike_terms.return_value = calc_n_zernike_terms(n_max)
 
         with patch(
             "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
         ) as mock_measure, patch(
             "ao_shaping.optimizer.wf.zernike_response_matrix.tqdm"
-        ) as mock_tqdm:
+        ) as mock_tqdm, patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.set_slm_flat"
+        ), patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.time"
+        ):
             mock_measure.return_value = (
                 np.zeros(n_wfs_terms),
                 np.zeros(n_wfs_terms),
             )
-            # Make tqdm return the input unchanged
             mock_tqdm.side_effect = lambda x, **kwargs: x
 
-            # Call with callback and verbose=True
             result = calibrate_zernike_response_matrix(
                 zslm=mock_zslm,
                 wfs=mock_wfs,
@@ -463,12 +464,11 @@ class TestCallbackSupport:
                 wait_time=0.01,
                 excluded_piston=True,
                 compute_inverses=False,
-                verbose=True,  # Would normally use tqdm
+                verbose=True,
                 display=None,
-                callback=mock_callback,  # But callback skips tqdm
+                callback=mock_callback,
             )
 
-            # Verify tqdm was NOT called (callback skips tqdm)
             mock_tqdm.assert_not_called()
 
     def test_callback_without_callback_uses_tqdm(self):
@@ -481,26 +481,29 @@ class TestCallbackSupport:
 
         n_max = 3
         n_slm_terms = calc_n_zernike_terms(n_max) - 1
+        n_wfs_terms = calc_n_zernike_terms(n_max) - 1
 
         mock_zslm = MagicMock()
         mock_zslm.wavelength = 1064
+        mock_zslm._slm = MagicMock()
         mock_wfs = MagicMock()
-
-        n_wfs_terms = calc_n_zernike_terms(10) - 1
+        mock_wfs.calc_n_zernike_terms.return_value = calc_n_zernike_terms(n_max)
 
         with patch(
             "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
         ) as mock_measure, patch(
             "ao_shaping.optimizer.wf.zernike_response_matrix.tqdm"
-        ) as mock_tqdm:
+        ) as mock_tqdm, patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.set_slm_flat"
+        ), patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.time"
+        ):
             mock_measure.return_value = (
                 np.zeros(n_wfs_terms),
                 np.zeros(n_wfs_terms),
             )
-            # Make tqdm return the input unchanged
             mock_tqdm.side_effect = lambda x, **kwargs: x
 
-            # Call without callback
             result = calibrate_zernike_response_matrix(
                 zslm=mock_zslm,
                 wfs=mock_wfs,
@@ -511,12 +514,11 @@ class TestCallbackSupport:
                 wait_time=0.01,
                 excluded_piston=True,
                 compute_inverses=False,
-                verbose=True,  # Should use tqdm
+                verbose=True,
                 display=None,
-                callback=None,  # No callback
+                callback=None,
             )
 
-            # Verify tqdm WAS called
             mock_tqdm.assert_called_once()
 
     def test_callback_backward_compatibility(self):
@@ -530,26 +532,29 @@ class TestCallbackSupport:
 
         n_max = 3
         n_slm_terms = calc_n_zernike_terms(n_max) - 1
+        n_wfs_terms = calc_n_zernike_terms(n_max) - 1
 
         mock_zslm = MagicMock()
         mock_zslm.wavelength = 1064
+        mock_zslm._slm = MagicMock()
         mock_wfs = MagicMock()
+        mock_wfs.calc_n_zernike_terms.return_value = calc_n_zernike_terms(n_max)
 
-        # Mock display
         mock_display = MagicMock(spec=ZernikeCalibrationDisplay)
-        mock_display.update.return_value = True  # Continue calibration
-
-        n_wfs_terms = calc_n_zernike_terms(10) - 1
+        mock_display.update.return_value = True
 
         with patch(
             "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
-        ) as mock_measure:
+        ) as mock_measure, patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.set_slm_flat"
+        ), patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.time"
+        ):
             mock_measure.return_value = (
                 np.zeros(n_wfs_terms),
                 np.zeros(n_wfs_terms),
             )
 
-            # Call with display but no callback
             result = calibrate_zernike_response_matrix(
                 zslm=mock_zslm,
                 wfs=mock_wfs,
@@ -561,15 +566,12 @@ class TestCallbackSupport:
                 excluded_piston=True,
                 compute_inverses=False,
                 verbose=False,
-                display=mock_display,  # Display provided
-                callback=None,  # No callback
+                display=mock_display,
+                callback=None,
             )
 
-            # Verify display.update was called n_slm_terms times
             assert mock_display.update.call_count == n_slm_terms
-            # Verify display.init_window was called
             mock_display.init_window.assert_called_once()
-            # Verify display.close was called
             mock_display.close.assert_called_once()
 
 
@@ -589,16 +591,22 @@ class TestMatrixShapeCorrectness:
         )
 
         n_max = 10
-        n_slm_terms = calc_n_zernike_terms(n_max) - 1  # 排除piston
-        n_wfs_terms = calc_n_zernike_terms(10) - 1  # 排除piston，应该是65
+        n_slm_terms = calc_n_zernike_terms(n_max) - 1
+        n_wfs_terms = calc_n_zernike_terms(n_max) - 1
 
         mock_zslm = MagicMock()
         mock_zslm.wavelength = 1064
+        mock_zslm._slm = MagicMock()
         mock_wfs = MagicMock()
+        mock_wfs.calc_n_zernike_terms.return_value = calc_n_zernike_terms(n_max)
 
         with patch(
             "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
-        ) as mock_measure:
+        ) as mock_measure, patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.set_slm_flat"
+        ), patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.time"
+        ):
             mock_measure.return_value = (
                 np.zeros(n_wfs_terms),
                 np.zeros(n_wfs_terms),
@@ -619,7 +627,6 @@ class TestMatrixShapeCorrectness:
                 callback=None,
             )
 
-            # 验证矩阵形状正确: (n_wfs_terms, n_slm_terms)
             assert result.matrix.shape == (n_wfs_terms, n_slm_terms), \
                 f"期望形状 ({n_wfs_terms}, {n_slm_terms}), 实际 {result.matrix.shape}"
             assert result.variance_matrix.shape == (n_wfs_terms, n_slm_terms)
@@ -635,16 +642,22 @@ class TestMatrixShapeCorrectness:
         )
 
         n_max = 10
-        n_slm_terms = calc_n_zernike_terms(n_max)  # 不排除piston，应该是66
-        n_wfs_terms = calc_n_zernike_terms(10)  # 不排除piston，应该是66
+        n_slm_terms = calc_n_zernike_terms(n_max)
+        n_wfs_terms = calc_n_zernike_terms(n_max)
 
         mock_zslm = MagicMock()
         mock_zslm.wavelength = 1064
+        mock_zslm._slm = MagicMock()
         mock_wfs = MagicMock()
+        mock_wfs.calc_n_zernike_terms.return_value = calc_n_zernike_terms(n_max)
 
         with patch(
             "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
-        ) as mock_measure:
+        ) as mock_measure, patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.set_slm_flat"
+        ), patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.time"
+        ):
             mock_measure.return_value = (
                 np.zeros(n_wfs_terms),
                 np.zeros(n_wfs_terms),
@@ -658,14 +671,13 @@ class TestMatrixShapeCorrectness:
                 n_cycles=1,
                 n_averages=1,
                 wait_time=0.01,
-                excluded_piston=False,  # 不排除piston
+                excluded_piston=False,
                 compute_inverses=False,
                 verbose=False,
                 display=None,
                 callback=None,
             )
 
-            # 验证矩阵形状正确: (n_wfs_terms, n_slm_terms)
             assert result.matrix.shape == (n_wfs_terms, n_slm_terms), \
                 f"期望形状 ({n_wfs_terms}, {n_slm_terms}), 实际 {result.matrix.shape}"
             assert result.variance_matrix.shape == (n_wfs_terms, n_slm_terms)
@@ -682,25 +694,28 @@ class TestMatrixShapeCorrectness:
 
         n_max = 4
         n_slm_terms = calc_n_zernike_terms(n_max) - 1
+        n_wfs_terms = calc_n_zernike_terms(n_max) - 1
 
         mock_zslm = MagicMock()
         mock_zslm.wavelength = 1064
-        # 验证shift属性存在
+        mock_zslm._slm = MagicMock()
         mock_zslm.shift_x = 0
         mock_zslm.shift_y = 0
         mock_wfs = MagicMock()
-
-        n_wfs_terms = calc_n_zernike_terms(10) - 1
+        mock_wfs.calc_n_zernike_terms.return_value = calc_n_zernike_terms(n_max)
 
         with patch(
             "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
-        ) as mock_measure:
+        ) as mock_measure, patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.set_slm_flat"
+        ), patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.time"
+        ):
             mock_measure.return_value = (
                 np.zeros(n_wfs_terms),
                 np.zeros(n_wfs_terms),
             )
 
-            # 即使底层SLM有shift参数，校准也应正常进行
             result = calibrate_zernike_response_matrix(
                 zslm=mock_zslm,
                 wfs=mock_wfs,
@@ -716,11 +731,10 @@ class TestMatrixShapeCorrectness:
                 callback=None,
             )
 
-            # 验证矩阵形状正确
             assert result.matrix.shape == (n_wfs_terms, n_slm_terms)
 
     def test_response_vector_dimension_matches_matrix(self):
-        """测试响应向量维度与矩阵维度匹配 - 这是之前numpy错误的场景"""
+        """测试响应向量维度与矩阵维度匹配"""
         from unittest.mock import MagicMock, patch
         from ao_shaping.optimizer.wf.zernike_response_matrix import (
             calibrate_zernike_response_matrix,
@@ -728,17 +742,22 @@ class TestMatrixShapeCorrectness:
         )
 
         n_max = 10
-        n_slm_terms = calc_n_zernike_terms(n_max) - 1  # 65
-        n_wfs_terms = calc_n_zernike_terms(10) - 1  # 65
+        n_slm_terms = calc_n_zernike_terms(n_max) - 1
+        n_wfs_terms = calc_n_zernike_terms(n_max) - 1
 
         mock_zslm = MagicMock()
         mock_zslm.wavelength = 1064
+        mock_zslm._slm = MagicMock()
         mock_wfs = MagicMock()
+        mock_wfs.calc_n_zernike_terms.return_value = calc_n_zernike_terms(n_max)
 
         with patch(
             "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
-        ) as mock_measure:
-            # 返回的响应向量应该是65维 (n_wfs_terms)
+        ) as mock_measure, patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.set_slm_flat"
+        ), patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.time"
+        ):
             response_vec = np.random.randn(n_wfs_terms) * 0.1
             variance_vec = np.random.rand(n_wfs_terms) * 0.01
             mock_measure.return_value = (response_vec, variance_vec)
@@ -758,10 +777,7 @@ class TestMatrixShapeCorrectness:
                 callback=None,
             )
 
-            # 关键验证: 矩阵的每一列应能正确接收响应向量
-            # 之前的问题是response_vec.shape=(66,)而矩阵有67行
             assert result.matrix.shape == (n_wfs_terms, n_slm_terms)
-            # 验证第一列的数据与模拟返回的数据匹配
             assert np.allclose(result.matrix[:, 0], response_vec)
             assert np.allclose(result.variance_matrix[:, 0], variance_vec)
 

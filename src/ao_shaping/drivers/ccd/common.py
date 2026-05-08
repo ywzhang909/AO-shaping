@@ -6,7 +6,7 @@ class ExposureTime():
     _max: int = 100_000
     _min: int = 0
     unit = "ms"
-    
+
     @classmethod
     def build(cls, time_str: str):
         """
@@ -26,19 +26,19 @@ class ExposureTime():
         else:
             raise ValueError("Invalid time string format. Use 'ms' or 's' suffix.")
         return cls(current=current, max=0, min=0,)
-    
+
     def __str__(self) -> str:
         return f"ExposureTime(current={self.current}{self.unit}, max={self.max}{self.unit}, min={self.min}{self.unit})"
-    
+
     @property
     def ms(self):
         return self.current
-    
+
     @ms.setter
     def ms(self, value):
         assert self.min <= value <= self.max, f"Exposure time must be between {self.min}ms and {self.max}ms"
         self.current = int(value)
-    
+
     @property
     def s(self):
         return self.current / 1000
@@ -51,7 +51,7 @@ class ExposureTime():
     def max(self):
         assert self._max > 0, "Max exposure time must be set"
         return self._max
-     
+
     @max.setter
     def max(self, value):
         assert value > 0, "Max exposure time must be positive"
@@ -61,12 +61,12 @@ class ExposureTime():
     def min(self):
         assert self._min > 0, "Min exposure time must be set"
         return self._min
-     
+
     @min.setter
     def min(self, value):
         assert value > 0, "Min exposure time must be positive"
         self._min = int(value)
-        
+
 
 @dataclass
 class WindowSize():
@@ -74,5 +74,5 @@ class WindowSize():
     height: int
     max_width: int
     max_height: int
-    
+
     inc: int

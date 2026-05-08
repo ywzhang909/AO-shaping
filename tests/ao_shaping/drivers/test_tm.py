@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.skip(reason="Requires serial port (COM3) hardware")
+
 from ao_shaping.drivers.tm import TM
 
 import serial

@@ -6,7 +6,7 @@ using phase screens, which can be used as device-compatible wrappers.
 
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any
 
 import numpy as np
 from loguru import logger
@@ -27,11 +27,11 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
         >>> with screen:
         ...     output = screen.process(input_wave)
     """
-    
+
     device_type = DeviceType.OTHER
     manufacturer = "Simulation"
     model = "Turbulent Phase Screen"
-    
+
     def __init__(
         self,
         device_id: str = "",
@@ -52,21 +52,21 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
             harmonic: Sub-harmonic order.
         """
         super().__init__(device_id, wavelength=1064.0, npix=512, dpix=1e-3)
-        
+
         self.dist = dist
         self.Cn2 = Cn2
         self.L0 = L0
         self.l0 = l0
         self.harmonic = harmonic
-        
+
         self._screen = None
         self._opd = None
-        
+
         logger.debug(
             f"TurbulentScreen initialized: Cn2={Cn2}, "
             f"L0={L0}m, l0={l0}m"
         )
-    
+
     def _register_parameters(self) -> None:
         """Register parameters."""
         self.register_parameter(
@@ -93,17 +93,17 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
             unit="m",
             description="Inner scale",
         )
-    
+
     # ========== SimulatedDevice Implementation ==========
-    
+
     def compute(self, *args, **kwargs) -> Any:
         """Apply turbulent screen to wavefront."""
         if len(args) < 1:
             raise ValueError("Wave argument required")
         return self.process(args[0])
-    
+
     # ========== WavefrontProcessor Implementation ==========
-    
+
     def process(self, wave: Any) -> Any:
         """Apply turbulent phase screen to wavefront.
         
@@ -120,15 +120,15 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
         try:
             from sim.digitaltwin import screens as dt_screens
             from sim.digitaltwin import base as dt_base
-            
+
             env = dt_base.Environment()
             env.Cn2 = self.Cn2
             env.L0 = self.L0
             env.l0 = self.l0
-            
+
             screen = dt_screens.TurbulentScreen(self.dist, env, self.harmonic)
             screen.out(wave)
-            
+
             self._opd = screen.opd
             return wave
         except Exception as exc:
@@ -136,7 +136,7 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
             return self._apply_turbulence_fallback(wave)
         finally:
             self._set_state(DeviceState.READY)
-    
+
     def _apply_turbulence_fallback(self, wave: Any) -> Any:
         """Apply turbulence directly (fallback)."""
         npix = getattr(wave, "npix", 512)
@@ -153,12 +153,12 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
             distance=self.dist,
         )
         self._opd = phase
-        
+
         if hasattr(wave, 'change_wf'):
             wave.change_wf(phase=phase)
-        
+
         return wave
-    
+
     def _generate_kolmogorov_phase(
         self,
         npix: int,
@@ -197,8 +197,8 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
             propagation_distance=distance,
             rng=self._rng,
         )
-    
-    def get_opd(self) -> Optional[np.ndarray]:
+
+    def get_opd(self) -> np.ndarray | None:
         """Get current OPD (Optical Path Difference).
         
         Returns:
@@ -215,11 +215,11 @@ class SimulatedThermalScreen(WavefrontProcessor):
         >>> with screen:
         ...     output = screen.process(input_wave)
     """
-    
+
     device_type = DeviceType.OTHER
     manufacturer = "Simulation"
     model = "Thermal Phase Screen"
-    
+
     def __init__(
         self,
         device_id: str = "",
@@ -240,30 +240,30 @@ class SimulatedThermalScreen(WavefrontProcessor):
             solve_mode: Solution mode ('Green', 'FFT_Isobaric', 'FFT_non_Isobaric').
         """
         super().__init__(device_id, wavelength=1064.0, npix=512, dpix=1e-3)
-        
+
         self.dist = dist
         self.absorb = absorb
         self.wind_x = wind_x
         self.wind_y = wind_y
         self.solve_mode = solve_mode
-        
+
         self._opd = None
-        
+
         logger.debug(
             f"ThermalScreen initialized: absorb={absorb}, "
             f"wind=({wind_x}, {wind_y}) m/s"
         )
-    
+
     # ========== SimulatedDevice Implementation ==========
-    
+
     def compute(self, *args, **kwargs) -> Any:
         """Apply thermal screen to wavefront."""
         if len(args) < 1:
             raise ValueError("Wave argument required")
         return self.process(args[0])
-    
+
     # ========== WavefrontProcessor Implementation ==========
-    
+
     def process(self, wave: Any) -> Any:
         """Apply thermal blooming phase screen to wavefront.
         
@@ -275,15 +275,15 @@ class SimulatedThermalScreen(WavefrontProcessor):
         """
         if not self.is_connected():
             raise RuntimeError("Thermal screen not connected")
-        
+
         self._set_state(DeviceState.BUSY)
-        
+
         try:
             # Try digitaltwin
             try:
                 from sim.digitaltwin import screens as dt_screens
                 from sim.digitaltwin import base as dt_base
-                
+
                 # Create environment
                 env = dt_base.Environment()
                 env.absorb = self.absorb
@@ -295,11 +295,11 @@ class SimulatedThermalScreen(WavefrontProcessor):
                 env.temperature = 288
                 env.Cs2 = 331.3 ** 2
                 env.gravity = 9.81
-                
+
                 # Create and apply screen
                 screen = dt_screens.ThermalScreen(self.dist, env, self.solve_mode)
                 screen.out(wave)
-                
+
                 self._opd = screen.opd
                 return wave
             except ImportError:
@@ -307,8 +307,8 @@ class SimulatedThermalScreen(WavefrontProcessor):
                 return wave  # Fallback: no-op
         finally:
             self._set_state(DeviceState.READY)
-    
-    def get_opd(self) -> Optional[np.ndarray]:
+
+    def get_opd(self) -> np.ndarray | None:
         """Get current OPD."""
         return self._opd.copy() if self._opd is not None else None
 
@@ -324,11 +324,11 @@ class SimulatedATP(SimulatedDevice):
         >>> with atp:
         ...     output = atp.propagate(input_wave)
     """
-    
+
     device_type = DeviceType.OTHER
     manufacturer = "Simulation"
     model = "Atmospheric Propagation"
-    
+
     def __init__(
         self,
         device_id: str = "",
@@ -349,28 +349,28 @@ class SimulatedATP(SimulatedDevice):
             Turbulent: Enable turbulence.
         """
         super().__init__(device_id)
-        
+
         self.prop_dist = prop_dist
         self.layers = layers
         self.Cn2 = Cn2
         self.Thermal = Thermal
         self.Turbulent = Turbulent
-        
+
         self._atp = None
-        
+
         logger.debug(
             f"ATP initialized: distance={prop_dist}m, layers={layers}, "
             f"Cn2={Cn2}, Turbulent={Turbulent}, Thermal={Thermal}"
         )
-    
+
     # ========== SimulatedDevice Implementation ==========
-    
+
     def compute(self, *args, **kwargs) -> Any:
         """Propagate wave through atmosphere."""
         if len(args) < 1:
             raise ValueError("Wave argument required")
         return self.propagate(args[0])
-    
+
     def propagate(self, wave: Any) -> Any:
         """Propagate wave through atmosphere.
         
@@ -382,15 +382,15 @@ class SimulatedATP(SimulatedDevice):
         """
         if not self.is_connected():
             raise RuntimeError("ATP not connected")
-        
+
         self._set_state(DeviceState.BUSY)
-        
+
         try:
             # Try digitaltwin
             try:
                 from sim.digitaltwin import atp as dt_atp
                 from sim.digitaltwin import base as dt_base
-                
+
                 # Create initial environment
                 env = dt_base.Environment()
                 env.absorb = 5e-6
@@ -408,7 +408,7 @@ class SimulatedATP(SimulatedDevice):
                 env.Cn2 = self.Cn2
                 env.L0 = 1.0
                 env.l0 = 0.01
-                
+
                 # Create ATP
                 atp = dt_atp.ATP(
                     env_init=env,
@@ -417,10 +417,10 @@ class SimulatedATP(SimulatedDevice):
                     Turbulent=self.Turbulent,
                     Thermal=self.Thermal,
                 )
-                
+
                 # Propagate
                 atp.out(wave)
-                
+
                 self._atp = atp
                 return wave
             except ImportError:
@@ -428,7 +428,7 @@ class SimulatedATP(SimulatedDevice):
                 return wave
         finally:
             self._set_state(DeviceState.READY)
-    
+
     def set_env_params(self, **kwargs) -> None:
         """Set environmental parameters.
         

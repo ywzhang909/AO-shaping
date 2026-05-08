@@ -23,7 +23,8 @@ from scipy.ndimage import center_of_mass
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
-from typing import Any, Callable, Tuple
+from typing import Any
+from collections.abc import Callable
 
 
 def _njit(*args: Any, **kwargs: Any) -> Callable[..., Any]:
@@ -144,7 +145,7 @@ def crop(img:np.ndarray, sample_pix=500):
 
   return img[rmin:rmax + 1, cmin:cmax + 1]
 
-def center_of_mass_numpy(intensity:np.ndarray, xv:np.ndarray, yv:np.ndarray, moment:int=1) -> Tuple[float, float]:
+def center_of_mass_numpy(intensity:np.ndarray, xv:np.ndarray, yv:np.ndarray, moment:int=1) -> tuple[float, float]:
     """
     计算光强的中心位置
 
@@ -160,7 +161,7 @@ def center_of_mass_numpy(intensity:np.ndarray, xv:np.ndarray, yv:np.ndarray, mom
     c_y = np.sum(yv * _intensity) / total_intensity
     return (float(c_x), float(c_y))
 
-def center_of_mass_cupy(intensity, xv, yv, moment:int=1) -> Tuple[float, float]:
+def center_of_mass_cupy(intensity, xv, yv, moment:int=1) -> tuple[float, float]:
     if cp is None:
         raise RuntimeError("cupy is not installed")
     _intensity = intensity.copy().astype(cp.float32)**moment
@@ -170,7 +171,7 @@ def center_of_mass_cupy(intensity, xv, yv, moment:int=1) -> Tuple[float, float]:
     return (float(c_x), float(c_y))
 
 @_njit(cache=True)
-def center_of_mass_numba(intensity:np.ndarray, xv:np.ndarray, yv:np.ndarray, moment:int=1) -> Tuple[float, float]:
+def center_of_mass_numba(intensity:np.ndarray, xv:np.ndarray, yv:np.ndarray, moment:int=1) -> tuple[float, float]:
     """
     计算光强的中心位置
 
@@ -186,18 +187,18 @@ def center_of_mass_numba(intensity:np.ndarray, xv:np.ndarray, yv:np.ndarray, mom
     c_y = np.sum(yv * _intensity) / total_intensity
     return (float(c_x), float(c_y))
 
-def center_of_brightness_cupy(img) -> Tuple[int, int]:
+def center_of_brightness_cupy(img) -> tuple[int, int]:
     if cp is None:
         raise RuntimeError("cupy is not installed")
     center = cp.unravel_index(cp.argmax(img), img.shape)[::-1]
     return int(center[0]), int(center[1])
 
-def center_of_brightness(img:np.ndarray) -> Tuple[int, int]:
+def center_of_brightness(img:np.ndarray) -> tuple[int, int]:
     center = np.unravel_index(np.argmax(img), img.shape)[::-1]
     return int(center[0]), int(center[1])
 
 @_njit(cache=True)
-def center_of_brightness_numba(img:np.ndarray) -> Tuple[int, int]:
+def center_of_brightness_numba(img:np.ndarray) -> tuple[int, int]:
     h, w = img.shape
     flat_idx = np.argmax(img)
     j = flat_idx // w
@@ -232,7 +233,7 @@ def jitter_diameter(lamd, aperture, dist):
 
     return diameter
 
-def centroid(intensity:np.ndarray, moment:int=1, threshold=0.00, return_float=False) -> Tuple[float | int, float | int]:
+def centroid(intensity:np.ndarray, moment:int=1, threshold=0.00, return_float=False) -> tuple[float | int, float | int]:
     """
     光强的质心位置
 
@@ -246,12 +247,12 @@ def centroid(intensity:np.ndarray, moment:int=1, threshold=0.00, return_float=Fa
         _intensity[_intensity < 0] = 0
     else:
         _intensity = intensity
-    
+
     y, x = center_of_mass(_intensity**moment)
     x, y = (float(x), float(y)) if return_float else (int(round(x)), int(round(y)))
     return x, y
 
-def peak_position(intensity:np.ndarray, x:np.ndarray, y:np.ndarray) -> Tuple[float | int, float | int]:
+def peak_position(intensity:np.ndarray, x:np.ndarray, y:np.ndarray) -> tuple[float | int, float | int]:
     """
     光强峰值处的坐标
 
@@ -378,19 +379,60 @@ def power_bucket(intensity, x, y, center, r_bucket, weighted=4, use_dpix_scaling
 
 def disp(img, r_bucket, threshold=0, title=''):
     center = centroid(img, 1, threshold)
-    
-    def calc_j():
-            r = int(r_bucket)
-            _img = img.copy()
-            _img[img<5] = 0
-            in_power = np.sum(_img[center[1]-r:center[1]+r, center[0]-r:center[0]+r])          
-            return in_power
-    
+
+    def _calc_j():
+        r = int(r_bucket)
+        _img = img.copy()
+        _img[img < 5] = 0
+        in_power = np.sum(_img[center[1]-r:center[1]+r, center[0]-r:center[0]+r])
+        return in_power
+
     _, ax = plt.subplots()
     plt.imshow(img)
     ax.scatter(center[0], center[1], c='r', marker='x')
     ax.add_patch(Rectangle((center[0]-r_bucket, center[1]-r_bucket), 2*r_bucket, 2*r_bucket, edgecolor='red', facecolor='none'))
-    J = calc_j()
+    J = _calc_j()
     plt.title(f'Image {title}. {J=}')
     plt.colorbar()
     plt.show()
+
+
+def power_in_bucket_mask(img: np.ndarray, mask: np.ndarray) -> tuple[float, float]:
+    """Compute power inside a boolean mask region.
+
+    Unlike power_bucket() which uses a circular radius around a center,
+    this function accepts an arbitrary boolean mask for non-circular regions.
+
+    Args:
+        img: 2D image array.
+        mask: Boolean mask array matching img shape. True pixels are in-bucket.
+
+    Returns:
+        Tuple of (in_power, in_power_ratio) where in_power is the sum of
+        pixel values inside the mask and in_power_ratio is that divided
+        by total image power.
+    """
+    in_power = np.sum(img[mask], dtype=np.float64)
+    total_power = np.sum(img, dtype=np.float64)
+    in_power_ratio = in_power / total_power if total_power > 0 else 0.0
+    return in_power, in_power_ratio
+
+
+def pib_ratio_mask(img: np.ndarray, mask: np.ndarray, scaler: float = 1.0) -> float:
+    """Compute power-in-bucket ratio using a boolean mask.
+
+    A convenience wrapper around power_in_bucket_mask that returns
+    only the ratio, optionally scaled.
+
+    Args:
+        img: 2D image array.
+        mask: Boolean mask array matching img shape.
+        scaler: Multiplier for the ratio (default: 1.0).
+
+    Returns:
+        Scaled power-in-bucket ratio, or 0.0 if total power is zero.
+    """
+    total = np.sum(img, dtype=np.float64)
+    if total <= 0:
+        return 0.0
+    return np.sum(img[mask], dtype=np.float64) / total * scaler

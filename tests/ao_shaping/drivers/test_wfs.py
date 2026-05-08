@@ -1,4 +1,8 @@
 import sys
+import pytest
+
+pytestmark = pytest.mark.skip(reason="Requires Thorlabs WFS hardware (Windows DLL)")
+
 import matplotlib.pyplot as plt
 from matplotlib import animation
 import numpy as np

@@ -17,10 +17,6 @@ import types
 from datetime import datetime
 from pathlib import Path
 import json
-import threading
-import time
-import os
-from ctypes import byref, c_double
 
 import numpy as np
 import streamlit as st
@@ -32,11 +28,9 @@ from ao_shaping.drivers.slm.zernike_slm import ZernikeSLM
 from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager
 
 from ao_shaping.optimizer.wf.zernike_response_matrix import (
-    ZernikeResponseMatrixResult,
     calibrate_zernike_response_matrix,
     load_zernike_response_matrix,
     save_zernike_response_matrix,
-    plot_response_matrix,
     DEFAULT_N_MAX,
     DEFAULT_MAGNITUDE,
     DEFAULT_N_AVERAGES,
@@ -374,7 +368,7 @@ def _run_calibration_thread(
     This function runs the calibration in a separate thread, writing progress
     updates to a JSON file that the UI can poll.
     """
-    try:       
+    try:
         total_modes = calc_n_zernike_terms(n_max) - (1 if excluded_piston else 0) - (2 if excluded_tip_tilt else 0)
 
         # Progress callback wrapper (matches backend signature)
@@ -555,7 +549,7 @@ def render_sidebar() -> None:
         # Update session state only if changed (avoid unnecessary resets)
         if auto_exp != st.session_state.zrm_wfs_auto_exposure:
             st.session_state.zrm_wfs_auto_exposure = auto_exp
-            # Only reset to 0.0 when enabling auto-exposure (for driver), 
+            # Only reset to 0.0 when enabling auto-exposure (for driver),
             # but keep a separate display value
             if auto_exp:
                 st.session_state.zrm_wfs_exp_time_display = 0.0
@@ -803,7 +797,7 @@ def render_calibrate_mode() -> None:
         progress_file = st.session_state.get("zrm_progress_file")
         if progress_file and Path(progress_file).exists():
             try:
-                with open(progress_file, "r") as f:
+                with open(progress_file) as f:
                     progress_data = json.load(f)
 
                 percent = progress_data.get("percent", 0)

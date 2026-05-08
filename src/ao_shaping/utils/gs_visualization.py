@@ -6,16 +6,12 @@ showing phase pattern evolution and intensity reconstruction.
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
 from pathlib import Path
-import io
 
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
-from matplotlib.axes import Axes
 
 # Try to import PIL for GIF creation
 try:
@@ -34,7 +30,7 @@ def create_gs_iteration_frame(
     iteration: int,
     total_iterations: int,
     error: float,
-    figsize: Tuple[int, int] = (12, 4),
+    figsize: tuple[int, int] = (12, 4),
 ) -> np.ndarray:
     """Create a single frame showing GS iteration state.
     
@@ -51,7 +47,7 @@ def create_gs_iteration_frame(
         RGB array of the rendered frame
     """
     fig, axes = plt.subplots(1, 3, figsize=figsize)
-    
+
     # Plot 1: Phase pattern
     ax = axes[0]
     phase_display = np.mod(phase, 2 * np.pi)
@@ -59,39 +55,39 @@ def create_gs_iteration_frame(
     ax.set_title(f'Phase Pattern\nIter {iteration}/{total_iterations}')
     ax.axis('off')
     plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    
+
     # Plot 2: Target amplitude
     ax = axes[1]
     im = ax.imshow(target_amplitude, cmap='hot')
     ax.set_title('Target Amplitude')
     ax.axis('off')
     plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    
+
     # Plot 3: Reconstructed amplitude
     ax = axes[2]
     im = ax.imshow(reconstructed_amplitude, cmap='hot')
     ax.set_title(f'Reconstructed\nMSE: {error:.6f}')
     ax.axis('off')
     plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    
+
     plt.tight_layout()
-    
+
     # Render to RGB array using buffer_rgba
     fig.canvas.draw()
     buf = np.array(fig.canvas.buffer_rgba())
     ncols, nrows = fig.canvas.get_width_height()
     buf = buf.reshape(nrows, ncols, 4)  # RGBA
-    
+
     # Convert RGBA to RGB
     buf_rgb = buf[:, :, :3]
-    
+
     plt.close(fig)
-    
+
     return buf_rgb
 
 
 def save_frames_as_gif(
-    frames: List[np.ndarray],
+    frames: list[np.ndarray],
     output_path: Path,
     duration: float = 200.0,
     loop: int = 0,
@@ -107,11 +103,11 @@ def save_frames_as_gif(
     if not PIL_AVAILABLE:
         raise ImportError("PIL (Pillow) is required for GIF creation. "
                          "Install with: pip install Pillow")
-    
+
     if not frames:
         logger.warning("No frames to save")
         return
-    
+
     # Convert numpy arrays to PIL Images
     pil_images = []
     for i, frame in enumerate(frames):
@@ -120,13 +116,13 @@ def save_frames_as_gif(
             frame = np.ascontiguousarray(frame)
         pil_img = Image.fromarray(frame)
         pil_images.append(pil_img)
-        
+
         if (i + 1) % 10 == 0:
             logger.debug(f"Converted {i+1}/{len(frames)} frames")
-    
+
     # Save as GIF
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     pil_images[0].save(
         output_path,
         save_all=True,
@@ -135,15 +131,15 @@ def save_frames_as_gif(
         loop=loop,
         optimize=True,
     )
-    
+
     logger.info(f"GIF saved to: {output_path}")
 
 
 def render_gs_animation(
-    phase_history: List[np.ndarray],
+    phase_history: list[np.ndarray],
     target_amplitude: np.ndarray,
-    reconstructed_history: List[np.ndarray],
-    error_history: List[float],
+    reconstructed_history: list[np.ndarray],
+    error_history: list[float],
     output_path: Path,
     frame_duration: float = 200.0,
     skip_frames: int = 1,
@@ -162,12 +158,12 @@ def render_gs_animation(
     if not PIL_AVAILABLE:
         logger.error("PIL not available, cannot create GIF")
         return
-    
+
     logger.info(f"Rendering GS animation with {len(phase_history)} iterations...")
-    
+
     frames = []
     total_iterations = len(phase_history)
-    
+
     for i in range(0, total_iterations, skip_frames):
         frame = create_gs_iteration_frame(
             phase=phase_history[i],
@@ -178,10 +174,10 @@ def render_gs_animation(
             error=error_history[i],
         )
         frames.append(frame)
-        
+
         if (i // skip_frames + 1) % 10 == 0:
             logger.debug(f"Rendered {i+1}/{total_iterations} frames")
-    
+
     # Always include last frame
     if (total_iterations - 1) % skip_frames != 0:
         frame = create_gs_iteration_frame(
@@ -193,14 +189,14 @@ def render_gs_animation(
             error=error_history[-1],
         )
         frames.append(frame)
-    
+
     save_frames_as_gif(frames, output_path, duration=frame_duration)
     logger.info(f"Animation saved: {output_path}")
 
 
 class GSVizCallback:
     """Callback class to collect GS iteration data for visualization."""
-    
+
     def __init__(self, source_amplitude: np.ndarray):
         """Initialize callback.
         
@@ -208,10 +204,10 @@ class GSVizCallback:
             source_amplitude: Source plane amplitude for reconstruction
         """
         self.source_amplitude = source_amplitude
-        self.phase_history: List[np.ndarray] = []
-        self.amplitude_history: List[np.ndarray] = []
-        self.error_history: List[float] = []
-    
+        self.phase_history: list[np.ndarray] = []
+        self.amplitude_history: list[np.ndarray] = []
+        self.error_history: list[float] = []
+
     def __call__(self, iteration: int, error: float) -> None:
         """Callback function for GS algorithm.
         
@@ -222,7 +218,7 @@ class GSVizCallback:
         For now, we'll record the error and rely on post-hoc reconstruction.
         """
         self.error_history.append(error)
-    
+
     def add_state(self, phase: np.ndarray, amplitude: np.ndarray, error: float) -> None:
         """Manually add a state snapshot.
         
@@ -234,7 +230,7 @@ class GSVizCallback:
         self.phase_history.append(phase.copy())
         self.amplitude_history.append(amplitude.copy())
         self.error_history.append(error)
-    
+
     def save_animation(
         self,
         target_amplitude: np.ndarray,
@@ -253,7 +249,7 @@ class GSVizCallback:
         if not self.phase_history:
             logger.warning("No states collected, cannot create animation")
             return
-        
+
         render_gs_animation(
             phase_history=self.phase_history,
             target_amplitude=target_amplitude,
@@ -272,7 +268,7 @@ def gerchberg_saxton_with_visualization(
     cell_spacing: float = 8e-6,
     distance: float = 0.1,
     wavelength: float = 1064e-9,
-    output_dir: Optional[Path] = None,
+    output_dir: Path | None = None,
     save_animation: bool = True,
     animation_fps: int = 5,
     skip_frames: int = 1,
@@ -301,15 +297,15 @@ def gerchberg_saxton_with_visualization(
         angular_spectrum_propagate,
         GSResult,
     )
-    
+
     if output_dir is None:
         output_dir = Path("logs/gs_viz")
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Initialize
     k = 2 * np.pi / wavelength
     Ny, Nx = source_amplitude.shape
-    
+
     # Initialize with target back-propagated
     A = angular_spectrum_propagate(
         target_amplitude.astype(np.complex128),
@@ -317,55 +313,55 @@ def gerchberg_saxton_with_visualization(
         -distance,
         wavelength,
     )
-    
+
     # Collect states
     phase_history = []
     amplitude_history = []
     error_history = []
-    
+
     # Main iteration loop
     for i in range(iterations):
         # Source plane constraint
         phase_A = np.angle(A)
         B = source_amplitude * np.exp(1j * phase_A)
-        
+
         # Forward propagate
         C = angular_spectrum_propagate(B, cell_spacing, distance, wavelength)
-        
+
         # Target plane constraint
         phase_C = np.angle(C)
         D = target_amplitude * np.exp(1j * phase_C)
-        
+
         # Backward propagate
         A = angular_spectrum_propagate(D, cell_spacing, -distance, wavelength)
-        
+
         # Calculate error
         amplitude_C = np.abs(C)
         mse = np.mean((amplitude_C - target_amplitude) ** 2)
-        
+
         # Record state
         if i % skip_frames == 0 or i == iterations - 1:
             phase_history.append(phase_A.copy())
             amplitude_history.append(amplitude_C.copy())
             error_history.append(float(mse))
-        
+
         if (i + 1) % 10 == 0:
             logger.debug(f"Iteration {i+1}/{iterations}, MSE={mse:.6f}")
-    
+
     # Final results
     final_phase = np.angle(A)
     final_B = source_amplitude * np.exp(1j * final_phase)
     final_C = angular_spectrum_propagate(final_B, cell_spacing, distance, wavelength)
     final_amplitude = np.abs(final_C)
-    
+
     # Save animation
     animation_path = None
     if save_animation and PIL_AVAILABLE:
         timestamp = np.datetime64('now').astype(str).replace(':', '-')
         animation_path = output_dir / f"gs_animation_{timestamp}.gif"
-        
+
         frame_duration = 1000 / animation_fps  # Convert fps to ms
-        
+
         render_gs_animation(
             phase_history=phase_history,
             target_amplitude=target_amplitude,
@@ -375,7 +371,7 @@ def gerchberg_saxton_with_visualization(
             frame_duration=frame_duration,
             skip_frames=1,  # Already skipped during collection
         )
-    
+
     result = GSResult(
         phase=final_phase,
         amplitude=final_amplitude,
@@ -383,8 +379,8 @@ def gerchberg_saxton_with_visualization(
         iterations=len(error_history),
         converged=False,
     )
-    
+
     # Add animation path as attribute
     result.animation_path = animation_path
-    
+
     return result

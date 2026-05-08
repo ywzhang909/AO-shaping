@@ -14,11 +14,11 @@ Reference:
 
 from __future__ import annotations
 
-from typing import Optional, Callable
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
-from numpy.fft import fft2, ifft2, fftshift, ifftshift
+from numpy.fft import fft2, ifft2, ifftshift
 from loguru import logger
 
 
@@ -67,35 +67,35 @@ def angular_spectrum_propagate(
     """
     if field.ndim != 2:
         raise ValueError(f"Field must be 2D array, got {field.ndim}D")
-    
+
     Ny, Nx = field.shape
     k = 2 * np.pi / wavelength
-    
+
     # Spatial frequencies
     fx = np.fft.fftfreq(Nx, dx)
     fy = np.fft.fftfreq(Ny, dx)
     FX, FY = np.meshgrid(fx, fy)
-    
+
     # Propagator: H = exp(i * kz * z)
     # kz = sqrt(k^2 - (2π*fx)^2 - (2π*fy)^2)
     kx = 2 * np.pi * FX
     ky = 2 * np.pi * FY
-    
+
     # Evanescent wave filtering (optional but recommended)
     kz_squared = k**2 - kx**2 - ky**2
     kz = np.sqrt(np.maximum(kz_squared, 0))  # Clip negative values (evanescent waves)
-    
+
     # Propagator phase factor
     H = np.exp(1j * kz * z)
-    
+
     # Handle evanescent waves (damped propagation)
     evanescent_mask = kz_squared < 0
     H[evanescent_mask] = 0
-    
+
     # FFT → multiply by propagator → IFFT
     F = fft2(field)
     F_propagated = F * ifftshift(H)  # ifftshift aligns with fft2 output
-    
+
     return ifft2(F_propagated)
 
 
@@ -106,8 +106,8 @@ def gerchberg_saxton(
     cell_spacing: float = 8e-6,
     distance: float = 0.1,
     wavelength: float = 1064e-9,
-    error_threshold: Optional[float] = None,
-    progress_callback: Optional[Callable[[int, float], None]] = None,
+    error_threshold: float | None = None,
+    progress_callback: Callable[[int, float], None] | None = None,
 ) -> GSResult:
     """Gerchberg-Saxton algorithm for phase retrieval.
     
@@ -165,27 +165,27 @@ def gerchberg_saxton(
     # Validate inputs
     if source_amplitude.ndim != 2 or target_amplitude.ndim != 2:
         raise ValueError("Input amplitudes must be 2D arrays")
-    
+
     if source_amplitude.shape != target_amplitude.shape:
         raise ValueError(
             f"Source and target shapes must match: "
             f"{source_amplitude.shape} vs {target_amplitude.shape}"
         )
-    
+
     if iterations < 1:
         raise ValueError(f"Iterations must be >= 1, got {iterations}")
-    
+
     if cell_spacing <= 0 or distance <= 0 or wavelength <= 0:
         raise ValueError("Physical parameters must be positive")
-    
+
     logger.info(
         f"Starting Gerchberg-Saxton algorithm: "
         f"iterations={iterations}, distance={distance*1000:.1f}mm, "
         f"λ={wavelength*1e9:.0f}nm, pixel={cell_spacing*1e6:.1f}µm"
     )
-    
+
     Ny, Nx = source_amplitude.shape
-    
+
     # Initialize field A with target back-propagated to source plane
     # This gives a better starting point than random initialization
     logger.debug("Initializing field with back-propagated target")
@@ -195,61 +195,61 @@ def gerchberg_saxton(
         -distance,  # Backward propagation
         wavelength,
     )
-    
+
     error_history = []
-    
+
     # Main GS iteration loop
     for i in range(iterations):
         # Step 1: Apply source plane amplitude constraint
         # B = source_amplitude * exp(i * phase(A))
         phase_A = np.angle(A)
         B = source_amplitude * np.exp(1j * phase_A)
-        
+
         # Step 2: Forward propagate to target plane
         C = angular_spectrum_propagate(B, cell_spacing, distance, wavelength)
-        
+
         # Step 3: Apply target plane amplitude constraint
         # D = target_amplitude * exp(i * phase(C))
         phase_C = np.angle(C)
         D = target_amplitude * np.exp(1j * phase_C)
-        
+
         # Step 4: Backward propagate to source plane
         A = angular_spectrum_propagate(D, cell_spacing, -distance, wavelength)
-        
+
         # Calculate error (mean squared error between |C| and target)
         amplitude_C = np.abs(C)
         mse = np.mean((amplitude_C - target_amplitude) ** 2)
         error_history.append(float(mse))
-        
+
         # Progress callback
         if progress_callback is not None:
             progress_callback(i, float(mse))
-        
+
         # Log progress every 10 iterations
         if (i + 1) % 10 == 0 or i == 0:
             logger.debug(f"Iteration {i+1}/{iterations}, MSE={mse:.6f}")
-        
+
         # Check convergence
         if error_threshold is not None and mse < error_threshold:
             logger.info(f"Converged at iteration {i+1} with MSE={mse:.6f}")
             break
-    
+
     # Extract final results
     final_phase = np.angle(A)
-    
+
     # Forward propagate one more time to get target plane amplitude
     final_B = source_amplitude * np.exp(1j * final_phase)
     final_C = angular_spectrum_propagate(final_B, cell_spacing, distance, wavelength)
     final_amplitude = np.abs(final_C)
-    
+
     # Check if we converged
     converged = error_threshold is not None and error_history[-1] < error_threshold
-    
+
     logger.info(
         f"GS algorithm completed: final MSE={error_history[-1]:.6f}, "
         f"converged={converged}"
     )
-    
+
     return GSResult(
         phase=final_phase,
         amplitude=final_amplitude,
@@ -307,7 +307,7 @@ def adaptive_gerchberg_saxton(
         ... )
     """
     logger.info(f"Starting adaptive GS: {outer_iterations} outer loops")
-    
+
     # Start with standard GS
     result = gerchberg_saxton(
         source_amplitude,
@@ -317,22 +317,22 @@ def adaptive_gerchberg_saxton(
         distance=distance,
         wavelength=wavelength,
     )
-    
+
     current_phase = result.phase
-    
+
     for outer_i in range(outer_iterations):
         logger.info(f"Adaptive iteration {outer_i+1}/{outer_iterations}")
-        
+
         # Get measured amplitude from experiment
         measured_amp = measured_amplitude_callback(current_phase)
-        
+
         # Blend target with measured (feedback)
         # This allows the algorithm to adapt to real-world imperfections
         blended_target = (
             (1 - feedback_weight) * target_amplitude +
             feedback_weight * measured_amp * target_amplitude / (measured_amp + 1e-10)
         )
-        
+
         # Run GS with blended target
         result = gerchberg_saxton(
             source_amplitude,
@@ -342,9 +342,9 @@ def adaptive_gerchberg_saxton(
             distance=distance,
             wavelength=wavelength,
         )
-        
+
         current_phase = result.phase
-    
+
     return result
 
 
@@ -377,26 +377,26 @@ def calculate_reconstruction_error(
     field = source_amplitude * np.exp(1j * computed_phase)
     propagated = angular_spectrum_propagate(field, cell_spacing, distance, wavelength)
     computed_amplitude = np.abs(propagated)
-    
+
     # Normalize for comparison
     target_norm = target_amplitude / (target_amplitude.max() + 1e-10)
     computed_norm = computed_amplitude / (computed_amplitude.max() + 1e-10)
-    
+
     # MSE
     mse = np.mean((computed_norm - target_norm) ** 2)
-    
+
     # Normalized MSE
     nmse = mse / (np.mean(target_norm**2) + 1e-10)
-    
+
     # Correlation coefficient
     correlation = np.corrcoef(
         computed_norm.flatten(),
         target_norm.flatten()
     )[0, 1]
-    
+
     # Optical efficiency (energy in target region / total energy)
     efficiency = np.sum(computed_amplitude**2) / (np.sum(source_amplitude**2) + 1e-10)
-    
+
     return {
         "mse": float(mse),
         "nmse": float(nmse),

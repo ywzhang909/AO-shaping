@@ -60,6 +60,8 @@ from ao_shaping.drivers.sim.atmos import (
     SimulatedTurbulentScreen,
 )
 
+from ao_shaping.drivers.sim.dm import SimMicroDM, SimulateDM
+
 from ao_shaping.drivers.sim.wave import (
     WaveGenerator,
     WavePropagator,
@@ -103,6 +105,9 @@ __all__ = [
     "propagate",
     "power_bucket",
     "radius_metric",
+    # DM
+    "SimMicroDM",
+    "SimulateDM",
     # CCD
     "SimulatedCCD",
     # Laser

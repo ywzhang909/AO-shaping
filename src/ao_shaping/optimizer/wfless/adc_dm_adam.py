@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 from ao_shaping.algorithm.acceleration import _njit
 
-from drivers import NlightDM
+from ao_shaping.drivers import NlightDM
 import nidaqmx
 from nidaqmx.constants import AcquisitionType
 

@@ -11,7 +11,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import tqdm as tqdm_lib
 
 from ao_shaping.optimizer.wfless import pib as pib_module
 
@@ -88,7 +87,7 @@ class SimDM:
         self.V_Max = self.max_voltage
         self.keep_when_exit = keep_when_exit
 
-    def __enter__(self) -> "SimDM":
+    def __enter__(self) -> SimDM:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
@@ -119,7 +118,7 @@ class SimCamera:
         self.cam_id = cam_id
         self.exposure_time = exposure_time_ms
 
-    def __enter__(self) -> "SimCamera":
+    def __enter__(self) -> SimCamera:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:

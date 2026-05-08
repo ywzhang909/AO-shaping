@@ -11,7 +11,7 @@ Architecture:
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 from loguru import logger
@@ -51,16 +51,16 @@ class SimulatedDevice(Device):
         ...         # Simulation logic here
         ...         return result
     """
-    
+
     device_type = DeviceType.OTHER
     manufacturer = "Simulation"
     model = "Generic Simulated Device"
-    
+
     def __init__(
         self,
         device_id: str = "",
         enable_noise: bool = True,
-        random_seed: Optional[int] = None,
+        random_seed: int | None = None,
     ):
         """Initialize simulated device.
         
@@ -70,36 +70,36 @@ class SimulatedDevice(Device):
             random_seed: Random seed for reproducible results.
         """
         super().__init__(device_id)
-        
+
         self._simulation_enabled = True
         self._enable_noise = enable_noise
         self._random_seed = random_seed
         self._rng = np.random.default_rng(random_seed)
-        
+
         # Update metadata for simulation
         self._metadata.manufacturer = self.manufacturer
         self._metadata.model = self.model
-        
+
         logger.debug(f"SimulatedDevice {self.__class__.__name__} initialized")
-    
+
     # ========== Device Base Class Implementation ==========
-    
+
     def open(self) -> None:
         """Open simulated device connection."""
         self._set_state(DeviceState.CONNECTING)
         # Simulate connection delay
         self._set_state(DeviceState.READY)
         logger.info(f"Simulated device {self.device_id} opened")
-    
+
     def close(self) -> None:
         """Close simulated device connection."""
         self._set_state(DeviceState.DISCONNECTED)
         logger.info(f"Simulated device {self.device_id} closed")
-    
+
     def is_connected(self) -> bool:
         """Check if device is connected."""
         return self._state == DeviceState.READY
-    
+
     def get_hardware_info(self) -> dict[str, Any]:
         """Get simulated hardware information.
         
@@ -114,9 +114,9 @@ class SimulatedDevice(Device):
             "noise_enabled": self._enable_noise,
             "random_seed": self._random_seed,
         }
-    
+
     # ========== Simulation-Specific Methods ==========
-    
+
     @abstractmethod
     def compute(self, *args, **kwargs) -> Any:
         """Execute simulation computation.
@@ -128,11 +128,11 @@ class SimulatedDevice(Device):
             Simulation result (type depends on implementation).
         """
         pass
-    
+
     def reset(self) -> None:
         """Reset simulation state to initial conditions."""
         logger.debug(f"Simulated device {self.device_id} reset")
-    
+
     def set_seed(self, seed: int) -> None:
         """Set random seed for reproducible simulations.
         
@@ -142,7 +142,7 @@ class SimulatedDevice(Device):
         self._random_seed = seed
         self._rng = np.random.default_rng(seed)
         logger.debug(f"Random seed set to {seed}")
-    
+
     def set_noise(self, enabled: bool) -> None:
         """Enable or disable noise in simulations.
         
@@ -151,7 +151,7 @@ class SimulatedDevice(Device):
         """
         self._enable_noise = enabled
         logger.debug(f"Noise {'enabled' if enabled else 'disabled'}")
-    
+
     def _generate_noise(self, shape: tuple, scale: float = 1.0) -> np.ndarray:
         """Generate noise array.
         
@@ -186,13 +186,13 @@ class OpticalDevice(SimulatedDevice):
         ...         # Process wavefront
         ...         return processed_wave
     """
-    
+
     def __init__(
         self,
         device_id: str = "",
         wavelength: float = 1064.0,
         enable_noise: bool = True,
-        random_seed: Optional[int] = None,
+        random_seed: int | None = None,
     ):
         """Initialize optical simulation device.
         
@@ -203,11 +203,11 @@ class OpticalDevice(SimulatedDevice):
             random_seed: Random seed for reproducibility.
         """
         super().__init__(device_id, enable_noise, random_seed)
-        
+
         self.wavelength = wavelength
-        self._input_wave: Optional[Any] = None
-        self._output_wave: Optional[Any] = None
-    
+        self._input_wave: Any | None = None
+        self._output_wave: Any | None = None
+
     def set_input(self, wave: Any) -> None:
         """Set input wavefront for processing.
         
@@ -216,7 +216,7 @@ class OpticalDevice(SimulatedDevice):
         """
         self._input_wave = wave
         logger.debug(f"Input wave set for {self.__class__.__name__}")
-    
+
     def get_output(self) -> Any:
         """Get processed output wavefront.
         
@@ -224,7 +224,7 @@ class OpticalDevice(SimulatedDevice):
             Output wavefront object.
         """
         return self._output_wave
-    
+
     @abstractmethod
     def process(self, wave: Any) -> Any:
         """Process input wavefront.
@@ -247,7 +247,7 @@ class WavefrontProcessor(OpticalDevice):
     Specialized optical device for wavefront manipulation,
     such as SLMs, lenses, and apertures.
     """
-    
+
     def __init__(
         self,
         device_id: str = "",
@@ -255,7 +255,7 @@ class WavefrontProcessor(OpticalDevice):
         npix: int = 512,
         dpix: float = 1e-3,
         enable_noise: bool = True,
-        random_seed: Optional[int] = None,
+        random_seed: int | None = None,
     ):
         """Initialize wavefront processor.
         
@@ -268,11 +268,11 @@ class WavefrontProcessor(OpticalDevice):
             random_seed: Random seed for reproducibility.
         """
         super().__init__(device_id, wavelength, enable_noise, random_seed)
-        
+
         self.npix = npix
         self.dpix = dpix
-        self._phase_pattern: Optional[np.ndarray] = None
-    
+        self._phase_pattern: np.ndarray | None = None
+
     def set_phase(self, phase: np.ndarray) -> None:
         """Set phase pattern.
         
@@ -285,8 +285,8 @@ class WavefrontProcessor(OpticalDevice):
                 f"({self.npix}, {self.npix})"
             )
         self._phase_pattern = phase
-    
-    def get_phase(self) -> Optional[np.ndarray]:
+
+    def get_phase(self) -> np.ndarray | None:
         """Get current phase pattern.
         
         Returns:

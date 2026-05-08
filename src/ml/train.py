@@ -24,10 +24,8 @@ Note:
 from __future__ import annotations
 
 import json
-import sys
 import tempfile
 from pathlib import Path
-from typing import Literal
 
 import click
 import matplotlib
@@ -45,13 +43,10 @@ matplotlib.use("Agg")
 
 from ml.phase.dataset import (
     PhasePredictionDataset,
-    ZernikeCoefficientDataset,
     create_dataloaders,
     create_zernike_loaders,
 )
 from ml.zernike.models import (
-    MODEL_REGISTRY,
-    BasePhasePredictor,
     build_model,
 )
 from ml.phase import build_unet, build_discriminator
@@ -159,7 +154,7 @@ def train_model(
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=10
     )
-    
+
     # Initialize wandb
     wandb_run = None
     if use_wandb:
@@ -168,7 +163,7 @@ def train_model(
             wandb_run = wandb.init(project=wandb_project, name=wandb_name)
         except ImportError:
             logger.warning("wandb not installed, skipping")
-    
+
     # Resume from checkpoint
     start_epoch = 0
     best_val_loss = float("inf")
@@ -183,17 +178,17 @@ def train_model(
         optimizer.load_state_dict(ckpt.get("optimizer", optimizer.state_dict()))
         start_epoch = ckpt.get("epoch", 0)
         best_val_loss = ckpt.get("val_loss", float("inf"))
-    
+
     # Create criterion
     if is_phase_model:
         # For phase prediction, use PhaseGANTrainer
         from ml.phase.trainer import PhaseGANTrainer
-        
+
         # Need to build discriminator for GAN
         in_channels = model.in_channels if hasattr(model, "in_channels") else 2
         generator = build_unet(in_channels=in_channels, device=device)
         discriminator = build_discriminator(in_channels=in_channels + 1, device=device)
-        
+
         trainer = PhaseGANTrainer(
             generator=model,
             discriminator=discriminator,
@@ -210,7 +205,7 @@ def train_model(
             wandb_run_name=wandb_name,
             log_images=log_images,
         )
-        
+
         # GAN training
         history = trainer.train(
             train_loader=train_loader,
@@ -218,44 +213,44 @@ def train_model(
             epochs=epochs,
             save_every=10,
         )
-        
+
         if wandb_run:
             wandb_run.finish()
-        
+
         return history
     else:
         # Regression training (Zernike coefficients)
         criterion = nn.MSELoss()
         history = {"train_loss": [], "val_loss": [], "test_loss": []}
-        
+
         n_train = len(train_loader.dataset)
         n_val = len(val_loader.dataset) if val_loader else 0
         n_test = len(test_loader.dataset) if test_loader else 0
-        
+
         for epoch in range(start_epoch, epochs):
             # Train
             model.train()
             train_loss = 0.0
             n_processed = 0
-            
+
             for batch_idx, batch in enumerate(train_loader):
                 images = batch["image"].to(device)
                 targets = batch["coefficients"].to(device)
-                
+
                 optimizer.zero_grad()
                 pred = model(images)
                 loss = criterion(pred, targets)
                 loss.backward()
                 optimizer.step()
-                
+
                 train_loss += loss.item() * images.size(0)
                 n_processed += images.size(0)
-                
+
                 if (batch_idx + 1) % 50 == 0:
                     logger.info(f"  Step {batch_idx + 1}/{len(train_loader)}, batch_loss={loss.item():.6f}")
-            
+
             train_loss /= n_train
-            
+
             # Validate
             model.eval()
             val_loss = 0.0
@@ -267,24 +262,24 @@ def train_model(
                         pred = model(images)
                         loss = criterion(pred, targets)
                         val_loss += loss.item() * images.size(0)
-                
+
                 val_loss /= n_val
-            
+
             # Update scheduler
             old_lr = optimizer.param_groups[0]["lr"]
             scheduler.step(val_loss)
             new_lr = optimizer.param_groups[0]["lr"]
-            
+
             history["train_loss"].append(train_loss)
             history["val_loss"].append(val_loss)
-            
+
             lr_info = f", lr={new_lr:.2e}" if new_lr != old_lr else ""
             logger.info(
                 f"Epoch {epoch + 1}/{epochs}: "
                 f"train_loss={train_loss:.6f}, "
                 f"val_loss={val_loss:.6f}{lr_info}"
             )
-            
+
             # Log to wandb
             if wandb_run:
                 wandb_run.log({
@@ -293,7 +288,7 @@ def train_model(
                     "val_loss": val_loss,
                     "lr": new_lr,
                 })
-            
+
             # Save best
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
@@ -305,7 +300,7 @@ def train_model(
                     "epoch": epoch + 1,
                     "val_loss": val_loss,
                 }, Path(checkpoint_dir) / "best.pt")
-        
+
         # Final test evaluation
         if test_loader and len(test_loader.dataset) > 0:
             model.eval()
@@ -316,11 +311,11 @@ def train_model(
                     targets = batch["coefficients"].to(device)
                     pred = model(images)
                     test_loss += criterion(pred, targets).item() * images.size(0)
-            
+
             test_loss /= n_test
             history["test_loss"] = test_loss
             logger.info(f"Test loss: {test_loss:.6f}")
-        
+
         # Save final model
         torch.save({
             "model": model.state_dict(),
@@ -330,10 +325,10 @@ def train_model(
             "val_loss": best_val_loss,
             "test_loss": history.get("test_loss", None),
         }, Path(checkpoint_dir) / "final.pt")
-        
+
         if wandb_run:
             wandb_run.finish()
-        
+
         logger.info(f"Done! Best val={best_val_loss:.6f}")
         return history
 
@@ -590,7 +585,7 @@ def _train_phase_mode(
         device=device,
     )
     logger.info(f"Model: {model_type}, params: {sum(p.numel() for p in model.parameters()):,}")
-    
+
     # Save config
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     config = {

@@ -1,7 +1,6 @@
 """Base camera driver interface."""
 
 from abc import ABC, abstractmethod
-from typing import Tuple
 
 import numpy as np
 
@@ -105,9 +104,9 @@ class BaseCamera(ABC):
     @abstractmethod
     def reset_window(
         self,
-        center: Tuple[int, int] | Tuple[np.intp, ...],
-        size: Tuple[int, int],
-    ) -> Tuple[Tuple[int, int], Tuple[int, int]]:
+        center: tuple[int, int] | tuple[np.intp, ...],
+        size: tuple[int, int],
+    ) -> tuple[tuple[int, int], tuple[int, int]]:
         """Reset the camera ROI window size and position.
 
         Args:
@@ -215,7 +214,7 @@ class BaseCamera(ABC):
         """
         pass
 
-    def _get_grid(self, width: int, height: int) -> Tuple[np.ndarray, np.ndarray]:
+    def _get_grid(self, width: int, height: int) -> tuple[np.ndarray, np.ndarray]:
         """Generate coordinate grids for the image.
 
         Args:

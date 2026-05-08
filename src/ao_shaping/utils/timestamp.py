@@ -10,7 +10,6 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Tuple
 
 
 class TimestampParser:
@@ -36,65 +35,56 @@ class TimestampParser:
     """
 
     # Regex patterns for common timestamp formats
-    PATTERNS: list[Tuple[str, re.Pattern, str]] = [
-        # Unix milliseconds: 1700000000000, 1700000000000.png
+    PATTERNS: list[tuple[str, re.Pattern, str]] = [
         (
             "unix_ms",
-            re.compile(r"^(\d{13})(?:_[a-zA-Z0-9]+)?\.[a-zA-Z]+$"),
+            re.compile(r"^(\d{13})(?:_[a-zA-Z0-9]+)?$"),
             "unix_ms",
         ),
-        # Unix seconds: 1700000000, 1700000000.png
         (
             "unix_s",
-            re.compile(r"^(\d{10})(?:_[a-zA-Z0-9]+)?\.[a-zA-Z]+$"),
+            re.compile(r"^(\d{10})(?:_[a-zA-Z0-9]+)?$"),
             "unix_s",
         ),
-        # Unix microseconds: 1700000000000000
         (
             "unix_us",
-            re.compile(r"^(\d{16})(?:_[a-zA-Z0-9]+)?\.[a-zA-Z]+$"),
+            re.compile(r"^(\d{16})(?:_[a-zA-Z0-9]+)?$"),
             "unix_us",
         ),
-        # DateTime compact: 20240101_120000, 20240101_120000.png
         (
             "datetime_compact",
-            re.compile(r"^(\d{8})_(\d{6})(?:_[a-zA-Z0-9]+)?\.[a-zA-Z]+$"),
+            re.compile(r"^(\d{8})_(\d{6})(?:_[a-zA-Z0-9]+)?$"),
             "%Y%m%d_%H%M%S",
         ),
-        # DateTime with dashes: 2024-01-01_12-00-00
         (
             "datetime_dashes",
             re.compile(
-                r"^(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})(?:_[a-zA-Z0-9]+)?\.[a-zA-Z]+$"
+                r"^(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})(?:_[a-zA-Z0-9]+)?$"
             ),
             "%Y-%m-%d_%H-%M-%S",
         ),
-        # Date only: 20240101.png
         (
             "date_only",
-            re.compile(r"^(\d{8})(?:_[a-zA-Z0-9]+)?\.[a-zA-Z]+$"),
+            re.compile(r"^(\d{8})(?:_[a-zA-Z0-9]+)?$"),
             "%Y%m%d",
         ),
-        # ISO datetime with T: 2024-01-01T12-00-00.png
         (
             "iso_datetime",
             re.compile(
-                r"^(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})(?:_[a-zA-Z0-9]+)?\.[a-zA-Z]+$"
+                r"^(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})(?:_[a-zA-Z0-9]+)?$"
             ),
             "%Y-%m-%dT%H-%M-%S",
         ),
-        # Datetime with dots: 2024.01.01.12.00.00
         (
             "datetime_dots",
             re.compile(
-                r"^(\d{4})\.(\d{2})\.(\d{2})\.(\d{2})\.(\d{2})\.(\d{2})(?:_[a-zA-Z0-9]+)?\.[a-zA-Z]+$"
+                r"^(\d{4})\.(\d{2})\.(\d{2})\.(\d{2})\.(\d{2})\.(\d{2})(?:_[a-zA-Z0-9]+)?$"
             ),
             "%Y.%m.%d.%H.%M.%S",
         ),
-        # Time only (when date is implied): 120000.png
         (
             "time_only",
-            re.compile(r"^(\d{6})(?:_[a-zA-Z0-9]+)?\.[a-zA-Z]+$"),
+            re.compile(r"^(\d{6})(?:_[a-zA-Z0-9]+)?$"),
             "%H%M%S",
         ),
     ]
@@ -145,9 +135,14 @@ class TimestampParser:
                     ts = int(match.group(1))
                     return datetime.fromtimestamp(ts / 1_000_000)
                 else:
-                    # It's a strptime format
+                    last_group_end = max(
+                        match.end(i)
+                        for i in range(1, len(match.groups()) + 1)
+                        if match.group(i) is not None
+                    )
+                    ts_portion = name[:last_group_end]
                     try:
-                        return datetime.strptime(name, fmt)
+                        return datetime.strptime(ts_portion, fmt)
                     except ValueError:
                         continue
 
@@ -160,7 +155,7 @@ class TimestampParser:
 
         return None
 
-    def parse_with_timestamp(self, filename: str) -> Tuple[datetime, str]:
+    def parse_with_timestamp(self, filename: str) -> tuple[datetime, str]:
         """Parse timestamp and return with original filename.
 
         Args:

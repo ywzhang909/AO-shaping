@@ -20,14 +20,21 @@ def nm_to_noll(n: int, m: int) -> int:
 
 
 def noll_to_nm(j: int) -> tuple[int, int]:
-    """Convert Noll index to (n, m) Zernike indices.
+    """Convert Noll index to (n, m) Zernike indices (aotools convention).
+
+    Uses the aotools RZern library for conversion, which follows the
+    standard Noll indexing convention (Noll 1976). Supports any Noll index.
+
+    NOTE: This convention differs from the hardcoded lookup table in
+    `optimizer/wf/ga_zernike.py` and `optimizer/wf/rms_by_zernike.py`.
+    The aotools version is the canonical implementation.
 
     Args:
         j: Noll index (1-based).
 
     Returns:
         Tuple of (n, m) radial and azimuthal orders.
-"""
+    """
     cart = RZern(10)  # Use sufficient order
     result = cart.noll2nm(j)
     # Handle both tuple and array returns

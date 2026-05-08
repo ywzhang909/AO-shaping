@@ -26,6 +26,8 @@ from ao_shaping.utils.spots_calc import (
     radius,
     effective_radius,
     power_bucket,
+    power_in_bucket_mask,
+    pib_ratio_mask,
     disp
 )
 
@@ -643,3 +645,49 @@ class TestPerformance:
         # Save to file
         with open('performance_comparison.md', 'w') as f:
             f.write(markdown)
+
+class TestPowerInBucketMask:
+    def test_uniform_image_full_mask(self):
+        img = np.ones((10, 10), dtype=np.float64)
+        mask = np.ones((10, 10), dtype=bool)
+        power, ratio = power_in_bucket_mask(img, mask)
+        assert power == pytest.approx(100.0)
+        assert ratio == pytest.approx(1.0)
+
+    def test_partial_mask(self):
+        img = np.ones((10, 10), dtype=np.float64)
+        mask = np.zeros((10, 10), dtype=bool)
+        mask[:5, :] = True
+        power, ratio = power_in_bucket_mask(img, mask)
+        assert power == pytest.approx(50.0)
+        assert ratio == pytest.approx(0.5)
+
+    def test_zero_image(self):
+        img = np.zeros((10, 10), dtype=np.float64)
+        mask = np.ones((10, 10), dtype=bool)
+        power, ratio = power_in_bucket_mask(img, mask)
+        assert power == pytest.approx(0.0)
+        assert ratio == pytest.approx(0.0)
+
+
+class TestPibRatioMask:
+    def test_uniform_image(self):
+        img = np.ones((10, 10), dtype=np.float64)
+        mask = np.ones((10, 10), dtype=bool)
+        assert pib_ratio_mask(img, mask) == pytest.approx(1.0)
+
+    def test_half_mask(self):
+        img = np.ones((10, 10), dtype=np.float64)
+        mask = np.zeros((10, 10), dtype=bool)
+        mask[:5, :] = True
+        assert pib_ratio_mask(img, mask) == pytest.approx(0.5)
+
+    def test_with_scaler(self):
+        img = np.ones((10, 10), dtype=np.float64)
+        mask = np.ones((10, 10), dtype=bool)
+        assert pib_ratio_mask(img, mask, scaler=2.0) == pytest.approx(2.0)
+
+    def test_zero_image(self):
+        img = np.zeros((10, 10), dtype=np.float64)
+        mask = np.ones((10, 10), dtype=bool)
+        assert pib_ratio_mask(img, mask) == pytest.approx(0.0)

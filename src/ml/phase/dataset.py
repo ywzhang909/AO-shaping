@@ -5,20 +5,15 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
-from typing import Callable, Literal
 
 import numpy as np
 import torch
 from scipy import ndimage
-from torch import nn
 from torch.utils.data import Dataset
 
 # External dependency - keep as absolute import
 from ao_shaping.utils.zernike_calc import (
     ZernikeGenerator,
-    noll_to_nm,
-    zernike_radial,
-    calc_n_zernike_terms,
 )
 
 
@@ -82,7 +77,7 @@ def load_zernike_coefficients(csv_path: Path, n_terms: int | None = None) -> np.
     Returns:
         Array of Zernike coefficients.
     """
-    with open(csv_path, "r") as f:
+    with open(csv_path) as f:
         reader = csv.reader(f)
         rows = list(reader)
 
@@ -181,7 +176,7 @@ class PhasePredictionDataset(Dataset):
         self.global_meta = {}
         meta_path = self.data_dir / "global_metadata.json"
         if meta_path.exists():
-            with open(meta_path, "r") as f:
+            with open(meta_path) as f:
                 self.global_meta = json.load(f)
 
         self.in_channels = int(use_daheng) + int(use_miicam)

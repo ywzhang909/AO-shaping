@@ -2,8 +2,11 @@ from time import sleep
 
 import click
 from typing import Literal
+from pathlib import Path
 
-from ao_shaping.utils import logger
+import numpy as np
+from loguru import logger
+
 from ao_shaping.optimizer.wf.zernike_response_matrix import (
     calibrate_zernike_response_matrix,
     save_zernike_response_matrix,
@@ -17,10 +20,11 @@ from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager, MlaRes
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
 from ao_shaping.utils.display import ZernikeCalibrationDisplay
-from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy
+from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_timestamp_str
 
 
 @click.command('zernike-matrix')
+@click.pass_context
 @click.option('--n-max', default=10, help='Zernike最大阶数')
 @click.option('--magnitude', default=0.5, help='扰动幅度 (波长)')
 @click.option('--n-averages', 'n_averages', default=3, help='每次WFS读取次数 (M)')
@@ -33,6 +37,7 @@ from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy
 @click.option('--wavelength', default=1064, help='工作波长 (nm)')
 @click.option('--mla-index', 'mla_index', type=click.Choice(['512', '540', '600', '768', '1280']), default='512', help='MLA分辨率 (512, 540, 600, 768, 1280)')
 @click.option('--exp-time', 'exp_time', type=float, default=0.0, help='曝光时间 (ms, 0=自动)')
+@click.option('--auto-exposure/--no-auto-exposure', 'auto_exposure', default=True, help='启用WFS自动曝光 (默认开启)')
 @click.option('--high-speed', 'high_speed', is_flag=True, default=False, help='启用高速模式')
 @click.option('--use-custom-ref', 'use_custom_ref', is_flag=True, default=False, help='使用自定义参考文件')
 @click.option('--pupil-diameter', 'pupil_diameter', type=float, default=2.0, help='瞳孔直径 (mm)')
@@ -41,7 +46,9 @@ from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy
 @click.option('--no-excluded-piston', 'excluded_piston', default=True, flag_value=False, help='不排除piston模式')
 @click.option('--excluded-tip-tilt', 'excluded_tip_tilt', default=False, flag_value=True, help='排除tip/tilt模式 (Z2, Z3)')
 @click.option('--display/--no-display', default=False, help='显示实时pygame显示')
+@click.option('--debug', 'debug', is_flag=True, default=None, help='启用调试模式 (保存原始测量数据)')
 def run(
+    ctx: click.Context,
     n_max: int,
     magnitude: float,
     n_averages: int,
@@ -54,6 +61,7 @@ def run(
     wavelength: int,
     mla_index: Literal['512', '540', '600', '768', '1280'],
     exp_time: float,
+    auto_exposure: bool,
     high_speed: bool,
     use_custom_ref: bool,
     pupil_diameter: float,
@@ -62,10 +70,17 @@ def run(
     excluded_piston: bool,
     excluded_tip_tilt: bool,
     display: bool,
+    debug: bool | None,
 ):
     """获取Zernike响应矩阵
 
     支持 N 次正负交替循环测量 + M 次 WFS 读取取平均 + 方差跟踪 + 逆矩阵计算。
+
+    调试模式 (--debug):
+        保存每次测量的原始数据:
+        - SLM相位图 (灰度值, 已应用shift)
+        - WFS deviation数据
+        - WFS Zernike系数 (averaging前)
     """
     n_max = n_max or DEFAULT_N_MAX
     magnitude = magnitude or DEFAULT_MAGNITUDE
@@ -73,8 +88,63 @@ def run(
     n_cycles = n_cycles or DEFAULT_N_CYCLES
     wait_time = wait_time or DEFAULT_WAIT_TIME
 
+    # Determine debug flag: use explicit value, or inherit from parent context
+    if debug is None:
+        debug = ctx.parent.obj.get("debug", False) if ctx.parent else False
+
+    # Handle auto_exposure: when enabled, set exp_time to 0.0 to trigger auto-exposure
+    effective_exp_time = 0.0 if auto_exposure else exp_time
+
     # Convert mla_index string to MlaRes enum
     mla_index_enum = MlaRes.from_str(mla_index)
+
+    # Debug data saving: create callback if debug mode is enabled
+    debug_data_callback = None
+    debug_data_dir = None
+    if debug:
+        debug_data_dir = Path(output_path) / f"debug_{get_timestamp_str()}"
+        debug_data_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Debug mode enabled, saving raw data to: {debug_data_dir}")
+
+        def debug_callback(
+            mode_index: int,
+            cycle: int,
+            sample: int,
+            slm_phase: np.ndarray,
+            shift_x: int,
+            shift_y: int,
+            deviation_x: np.ndarray,
+            deviation_y: np.ndarray,
+            zernike_coeffs: np.ndarray,
+            is_plus: bool,
+        ) -> None:
+            """Save debug data for each measurement."""
+            sign_str = "plus" if is_plus else "minus"
+            mode_dir = debug_data_dir / f"mode_{mode_index:03d}" / f"cycle_{cycle}" / sign_str
+            mode_dir.mkdir(parents=True, exist_ok=True)
+
+            np.save(mode_dir / f"sample_{sample:03d}_slm_phase.npy", slm_phase)
+
+            if deviation_x is not None and len(deviation_x) > 0:
+                np.save(mode_dir / f"sample_{sample:03d}_deviation_x.npy", deviation_x)
+                np.save(mode_dir / f"sample_{sample:03d}_deviation_y.npy", deviation_y)
+
+            if zernike_coeffs is not None and len(zernike_coeffs) > 0:
+                np.save(mode_dir / f"sample_{sample:03d}_zernike_coeffs.npy", zernike_coeffs)
+
+            import json
+            meta = {
+                "mode_index": mode_index,
+                "cycle": cycle,
+                "sample": sample,
+                "shift_x": shift_x,
+                "shift_y": shift_y,
+                "is_plus": is_plus,
+            }
+            with open(mode_dir / f"sample_{sample:03d}_meta.json", "w") as f:
+                json.dump(meta, f)
+
+        debug_data_callback = debug_callback
 
     # Calculate n_slm_terms and n_wfs_terms before calibration
     n_remove = (1 if excluded_piston else 0) + (2 if excluded_tip_tilt else 0)
@@ -89,8 +159,13 @@ def run(
     try:
         with ZernikeSLM(slm_number=slm_number, wavelength=wavelength, n_max=n_max, shift_x=shift_x, shift_y=shift_y) as zslm:
             with WFSManager(
+<<<<<<< Updated upstream
                 mla_index=mla_index_enum,
                 exp_time=exp_time,
+=======
+                mla_index=mla_index,
+                exp_time=effective_exp_time,
+>>>>>>> Stashed changes
                 high_speed=high_speed,
                 use_custom_ref=use_custom_ref,
                 pupil_diameter=pupil_diameter,
@@ -115,6 +190,7 @@ def run(
                     compute_inverses=compute_inverses,
                     display=ui_display,
                     verbose=True,
+                    debug_data_callback=debug_data_callback,
                 )
 
         save_zernike_response_matrix(result, output_path, include_inverses=compute_inverses)
@@ -125,6 +201,8 @@ def run(
         click.echo(f"排除piston: {result.excluded_piston}, 排除tip/tilt: {result.excluded_tip_tilt}")
         if result.condition_number is not None:
             click.echo(f"条件数: {result.condition_number:.2e}")
+        if debug_data_dir is not None:
+            click.echo(f"调试数据已保存到: {debug_data_dir}")
     finally:
         if ui_display is not None:
             ui_display.close()

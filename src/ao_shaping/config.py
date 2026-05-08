@@ -7,7 +7,6 @@ including hardware constants, paths, and default parameters.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -79,12 +78,14 @@ class OptimizationDefaults:
     def __init__(self):
         for k, v in DEFAULT_OPTIMIZATION_DEFAULTS.items():
             setattr(self, k, v)
-    
+
     def __getitem__(self, key):
         return getattr(self, key)
-    
-    def __getattr__(self, name):
-        return DEFAULT_OPTIMIZATION_DEFAULTS.get(name)
+
+    def __getattr__(self, name: str):
+        if name in DEFAULT_OPTIMIZATION_DEFAULTS:
+            return DEFAULT_OPTIMIZATION_DEFAULTS[name]
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
 
 class PathConfig:
@@ -92,31 +93,35 @@ class PathConfig:
         for k, v in DEFAULT_PATHS.items():
             setattr(self, k, Path(v) if k == "log_dir" else v)
         self.root_dir = Path("data")
-    
+
     def get_voltages_path(self, date_str: str | None = None) -> Path:
         from datetime import datetime
         if date_str is None:
             date_str = datetime.now().strftime("%Y%m%d")
         return self.root_dir / self.voltages_dir / date_str
-    
+
     def get_debug_path(self, subdir: str) -> Path:
         from datetime import datetime
         date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         path = self.root_dir / subdir / date_str
         path.mkdir(parents=True, exist_ok=True)
         return path
-    
-    def __getattr__(self, name):
-        return DEFAULT_PATHS.get(name, getattr(self, name))
+
+    def __getattr__(self, name: str):
+        if name in DEFAULT_PATHS:
+            return DEFAULT_PATHS[name]
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
 
 class DeviceConfig:
     def __init__(self):
         self.far_cam_id = int(os.environ.get("Far_Cam_ID", 0))
         self.near_cam_id = int(os.environ.get("Near_Cam_ID", 1))
-    
-    def __getattr__(self, name):
-        return DEFAULT_DEVICE_CONFIG.get(name)
+
+    def __getattr__(self, name: str):
+        if name in DEFAULT_DEVICE_CONFIG:
+            return DEFAULT_DEVICE_CONFIG[name]
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
 
 DEFAULTS = OptimizationDefaults()
@@ -128,17 +133,17 @@ def get_dm_unit_mask(available: Literal["all", "inner", "outer"] = "all") -> lis
     n_actuators = _resolve_dm_n_actuators()
     disabled = _resolve_disabled_actuators()
     mask = [True] * n_actuators
-    
+
     for idx in disabled:
         mask[idx] = False
-    
+
     if available == "inner":
         for i in range(21, n_actuators):
             mask[i] = False
     elif available == "outer":
         for i in range(39):
             mask[i] = False
-    
+
     return mask
 
 

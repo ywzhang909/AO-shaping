@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 
-from ao_shaping.utils import gen_date_dir, gen_file_path_uuid, logger
+from ao_shaping.utils import gen_date_dir, gen_file_path_uuid
 from ao_shaping.optimizer.wf.rms import optimizer_rms
 from ao_shaping.utils.display import plot_funcs
 from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name
@@ -47,14 +47,14 @@ def run(dir, epochs, wfs_res, pupil_diameter, pupil_center, early_stop_threshold
         plt.colorbar(im, ax=ax[1, 0], orientation='horizontal')
         im = plot_funcs["wavefront"](min_iter["_wavefront"][1], ax[1, 1], "opt wavefront")
         plt.colorbar(im, ax=ax[1, 1], orientation='horizontal')
-        
+
         plt.savefig(saved_file_name.with_suffix('.png'))
         plt.close()
         records.save_dataframe(saved_file_name.with_suffix('.zip'), compression='zip')
-    
+
     save_dir = root_dir / "flatten_voltages" / get_date_dir_name()
     records.save_best(saved_dir=save_dir, target="_v", process_fn=np.round, fmt="%d")
-    
+
     click.echo(f"波前优化完成，最优RMS值: {min_rms:.4f} @ epoch {min_epoch}")
 
 

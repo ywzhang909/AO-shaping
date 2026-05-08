@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 from ao_shaping.drivers.sim import beam_simulation as bs
@@ -76,7 +76,7 @@ class WaveGenerator(OpticalDevice):
         wavelength: float = 1550e-9,
         aperture: float = 0.0,
         beam_type: str = "plane",
-        random_seed: Optional[int] = None,
+        random_seed: int | None = None,
     ):
         super().__init__(device_id=device_id, wavelength=wavelength, enable_noise=False, random_seed=random_seed)
         self.npix = npix

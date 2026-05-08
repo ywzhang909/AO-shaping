@@ -9,6 +9,8 @@ Run with: pytest tests/ao_shaping/drivers/test_slm_miicam.py -v
 import numpy as np
 import pytest
 
+pytestmark = pytest.mark.skip(reason="Requires SLM + MIICAM hardware")
+
 
 class TestSLMMIICAMJoint:
     """SLM 和 MIICAM 相机联合测试类"""

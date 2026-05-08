@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
@@ -33,19 +33,19 @@ class AOConfig:
 
 
 class TraditionalAOSystem:
-    def __init__(self, config: Optional[AOConfig] = None):
+    def __init__(self, config: AOConfig | None = None):
         self.config = config or AOConfig()
         cfg = self.config
 
         self.dm_voltages = np.zeros(cfg.dm_actuators**2, dtype=float)
-        self._turbulence_phase: Optional[np.ndarray] = None
-        self._mask: Optional[np.ndarray] = None
-        self._base_field: Optional[np.ndarray] = None
-        self._dm_surface: Optional[np.ndarray] = None
-        self._focal_field: Optional[np.ndarray] = None
-        self._intensity: Optional[np.ndarray] = None
-        self._image: Optional[np.ndarray] = None
-        self._wavefront_override: Optional[np.ndarray] = None
+        self._turbulence_phase: np.ndarray | None = None
+        self._mask: np.ndarray | None = None
+        self._base_field: np.ndarray | None = None
+        self._dm_surface: np.ndarray | None = None
+        self._focal_field: np.ndarray | None = None
+        self._intensity: np.ndarray | None = None
+        self._image: np.ndarray | None = None
+        self._wavefront_override: np.ndarray | None = None
 
         self._beam_cfg = make_beam_config(
             n_grid=cfg.N,
@@ -115,11 +115,11 @@ class TraditionalAOSystem:
         self._invalidate_cached_outputs()
 
     @property
-    def dm(self) -> "_DMProxy":
+    def dm(self) -> _DMProxy:
         return _DMProxy(self)
 
     @property
-    def turbulence(self) -> "_TurbProxy":
+    def turbulence(self) -> _TurbProxy:
         return _TurbProxy(self)
 
     @property

@@ -21,7 +21,13 @@ from ao_shaping.drivers.slm.santec_slm200_constants import (
     MAX_MEM_SLOTS,
     VideoMode,
     get_slm_error_message,
-    SLMHardwareConstants,
+    PIXEL_SIZE_UM,
+    PITCH_UM,
+    PANEL_SIZE_MM,
+    PANEL_RES,
+    RESPONSE_TIME_MS,
+    GRAY_SCALE_BITS,
+    get_max_grayscale,
     DEFAULT_WAVELENGTH,
     DEFAULT_SHIFT_X,
     DEFAULT_SHIFT_Y,
@@ -84,13 +90,13 @@ class SantecSLM200:
     """
 
     # 从常量模块导入硬件参数
-    Pixel_Size_um = SLMHardwareConstants.Pixel_Size_um
-    Pitch_um = SLMHardwareConstants.Pitch_um
-    Panel_Size_mm = SLMHardwareConstants.Panel_Size_mm
-    Panel_Res = SLMHardwareConstants.Panel_Res
-    Response_time_ms = SLMHardwareConstants.Response_time_ms
-    Gray_Scale_bits = SLMHardwareConstants.Gray_Scale_bits
-    MAX_GRAYSCALE_VALUE = SLMHardwareConstants.get_max_grayscale()
+    Pixel_Size_um = PIXEL_SIZE_UM
+    Pitch_um = PITCH_UM
+    Panel_Size_mm = PANEL_SIZE_MM
+    Panel_Res = PANEL_RES
+    Response_time_ms = RESPONSE_TIME_MS
+    Gray_Scale_bits = GRAY_SCALE_BITS
+    MAX_GRAYSCALE_VALUE = get_max_grayscale()
 
     def __init__(
         self,

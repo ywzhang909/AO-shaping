@@ -1,14 +1,10 @@
-"""
-Tests for MIICAM camera driver.
-
-These tests require MIICAM 4100 series camera hardware connected via USB.
-Run with: pytest tests/ao_shaping/drivers/test_miicam.py -v
-"""
-
 import time
 
 import numpy as np
 import pytest
+
+
+pytestmark = pytest.mark.skip(reason="Requires MIICAM 4100 series camera hardware and SDK")
 
 
 class TestMIICAMCamera:

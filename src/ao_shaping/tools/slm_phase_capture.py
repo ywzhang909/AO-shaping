@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -374,7 +373,7 @@ def run(
             logger.error(f"Resume file not found: {resume_path}")
             sys.exit(1)
         base_output_dir = resume_path.parent
-        with open(resume_path, "r", encoding="utf-8") as f:
+        with open(resume_path, encoding="utf-8") as f:
             resumed_meta = json.load(f)
         logger.info(f"从 {resume_path} 恢复采集")
 

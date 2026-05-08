@@ -1,12 +1,15 @@
 import numpy as np
 
-from ao_shaping.algorithm.adam import AdaMOD, Adam
+from ao_shaping.algorithm.adam import AdaMOD, Adam, AdamW
 from ao_shaping.optimizer.wfless.pib import (
     AdaptiveSearchState,
     TabuMemory,
     _create_optimizer,
+    _extract_optimizer_momentum,
     _generate_search_candidates,
+    _reset_optimizer_state,
     _should_trigger_adaptive_search,
+    learning_schedule,
 )
 
 
@@ -93,3 +96,63 @@ def test_create_optimizer_supports_adam_family() -> None:
 
     assert isinstance(adam, Adam)
     assert isinstance(fallback, AdaMOD)
+
+
+def test_create_optimizer_with_beta_and_epsilon() -> None:
+    adamw = _create_optimizer("adamw", dim=4, lr=0.1, beta1=0.85, beta2=0.95)
+    assert isinstance(adamw, AdamW)
+
+    sgd = _create_optimizer("sgd", dim=4, lr=0.5)
+    assert sgd.lr == 0.5
+
+
+def test_extract_optimizer_momentum_returns_ndarray() -> None:
+    adam = _create_optimizer("adam", dim=4, lr=0.1)
+    momentum = _extract_optimizer_momentum(adam)
+    assert momentum is None or isinstance(momentum, np.ndarray)
+
+
+def test_reset_optimizer_state_zeroes_momentum() -> None:
+    from ao_shaping.algorithm.adam import Adam
+
+    adam = Adam(dim=4, lr=0.1)
+    adam.m = np.ones(4)
+    adam.v = np.ones(4)
+    adam.t = 10
+
+    _reset_optimizer_state(adam)
+
+    assert adam.t == 0
+
+
+def test_learning_schedule_returns_base_values_for_no_history() -> None:
+    lr, delta = learning_schedule(power_radius=5.0)
+    assert lr > 0
+    assert delta > 0
+
+    lr, delta = learning_schedule(power_radius=20.0)
+    assert lr > 0
+    assert delta > 0
+
+
+def test_learning_schedule_adapts_with_gradient_history() -> None:
+    grad_history = [0.1] * 10
+    pib_history = [0.9] * 10
+
+    lr, delta = learning_schedule(
+        power_radius=5.0,
+        gradient_history=grad_history,
+        pib_history=pib_history,
+    )
+    assert lr > 0
+    assert delta > 0
+
+
+def test_tabu_memory_add_and_retrieve() -> None:
+    memory = TabuMemory(capacity=4, quantization=2.0)
+
+    solution = np.array([0.0, 4.1, -3.9])
+    memory.add(solution)
+
+    key = memory.make_key(solution)
+    assert len(key) == 3

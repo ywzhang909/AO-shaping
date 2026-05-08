@@ -1,5 +1,3 @@
-from collections import deque
-from dataclasses import dataclass, field
 import inspect
 import os
 
@@ -7,7 +5,7 @@ import tqdm
 import numpy as np
 import matplotlib.pylab as plt
 
-from ao_shaping.drivers import CameraStreamManager, NlightDM
+from ao_shaping.drivers import NlightDM, CameraStreamManager
 from ao_shaping.algorithm.adam import AdaMOD, Adam, AdamW, Base, Muno, MunoW, SGD
 from ao_shaping.utils import ImageVoltagesDisplay, logger, Recorder
 from ao_shaping.utils.spots_calc import centroid, radius
@@ -40,57 +38,11 @@ OPTIMIZER_MAP = {
 }
 
 
-@dataclass
-class TabuMemory:
-    """Short-term tabu memory for already explored suboptimal candidates."""
-
-    capacity: int
-    quantization: float
-    _queue: deque[tuple[int, ...]] = field(init=False, default_factory=deque)
-    _keys: set[tuple[int, ...]] = field(init=False, default_factory=set)
-
-    def make_key(self, voltages: np.ndarray) -> tuple[int, ...]:
-        scale = max(float(self.quantization), 1e-6)
-        return tuple(
-            np.round(np.asarray(voltages, dtype=np.float64) / scale).astype(int)
-        )
-
-    def contains(self, voltages: np.ndarray) -> bool:
-        if self.capacity <= 0:
-            return False
-        return self.make_key(voltages) in self._keys
-
-    def add(self, voltages: np.ndarray) -> None:
-        if self.capacity <= 0:
-            return
-        key = self.make_key(voltages)
-        if key in self._keys:
-            return
-        self._queue.append(key)
-        self._keys.add(key)
-        while len(self._queue) > self.capacity:
-            expired = self._queue.popleft()
-            self._keys.discard(expired)
-
-
-@dataclass
-class AdaptiveSearchState:
-    """State for adaptive neighborhood search around a local optimum."""
-
-    radius: float
-    min_radius: float
-    max_radius: float
-    expand_ratio: float
-    shrink_ratio: float
-    improvement_tol: float
-
-    def update_radius(self, improved: bool) -> float:
-        if improved:
-            next_radius = self.radius * self.shrink_ratio
-        else:
-            next_radius = self.radius * self.expand_ratio
-        self.radius = float(np.clip(next_radius, self.min_radius, self.max_radius))
-        return self.radius
+# Re-export TabuMemory and AdaptiveSearchState from shared algorithm module
+from ao_shaping.algorithm.tabu_search import (  # noqa: F401
+    AdaptiveSearchState,
+    TabuMemory,
+)
 
 
 def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs) -> Base:
@@ -370,7 +322,7 @@ def optimize_pib(
     _max_history_len = 50  # 保持最近50次记录
 
     with (
-        DahengCamManager(
+        CameraStreamManager(
             cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
         ) as cam,
         NlightDM(

@@ -11,11 +11,14 @@ Commands:
     pipeline        串行WF→PIB流水线优化器
     gs              Gerchberg-Saxton全息图生成器
     zernike-matrix  Zernike响应矩阵校准
+    rms-zernike     Zernike RMS优化器
+    ga-zernike      GA Zernike优化器
 
 Examples:
-    python main.py wf --epochs 10000 --debug
-    python main.py pib --cam_id 1 --epochs 5000
-    python main.py gs --target-shape gaussian --use-hardware
+    python main.py --debug wf --epochs 10000
+    python main.py --debug pib --cam_id 1 --epochs 5000
+    python main.py --debug gs --target-shape gaussian --use-hardware
+    python main.py --debug zernike-matrix --n-max 10
 """
 
 from __future__ import annotations
@@ -36,26 +39,36 @@ from ao_shaping import wf_runner
 from ao_shaping import axis_beam_runner
 from ao_shaping import pipeline_runner
 from ao_shaping import gs_hologram_runner
+from ao_shaping import zernike_matrix_runner
+from ao_shaping import rms_zernike_runner
 
 
 @click.group()
-@click.option("--debug", is_flag=True, help="启用全局调试模式")
+@click.option("--debug", is_flag=True, default=False, help="启用全局调试模式 (loguru显示DEBUG级别)")
 @click.option("--dir", default="data", help="数据保存根目录 (default: data)")
 @click.pass_context
 def cli(ctx: click.Context, debug: bool, dir: str):
     """AO-Shaping自适应光学整形系统 CLI
     
     提供波前优化、光束整形、全息图生成等功能。
+    
+    全局选项:
+        --debug  启用调试模式，loguru显示DEBUG级别日志
+        --dir    数据保存根目录
     """
     # 确保context对象存在
     ctx.ensure_object(dict)
     ctx.obj["debug"] = debug
     ctx.obj["dir"] = dir
-    
+
+    # 配置loguru日志级别
+    # 默认情况下loguru不显示DEBUG级别(只显示INFO及以上)
+    # 启用--debug时设置级别为DEBUG
     if debug:
         logger.remove()
         logger.add(sys.stderr, level="DEBUG")
-        logger.debug("Debug mode enabled")
+        logger.debug("Debug mode enabled - DEBUG level logging active")
+    # else: 保持默认配置，不显示DEBUG
 
 
 # Register subcommands
@@ -63,6 +76,8 @@ cli.add_command(wf_runner.run, name="wf")
 cli.add_command(axis_beam_runner.run, name="pib")
 cli.add_command(pipeline_runner.run, name="pipeline")
 cli.add_command(gs_hologram_runner.run, name="gs")
+cli.add_command(zernike_matrix_runner.run, name="zernike-matrix")
+cli.add_command(rms_zernike_runner.run, name="rms-zernike")
 
 
 # Entry point

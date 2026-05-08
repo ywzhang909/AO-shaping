@@ -74,7 +74,6 @@ OPTIMIZER_MAP = {
 }
 
 
-from ao_shaping.utils.zernike_calc import calc_n_zernike_terms, noll_to_nm
 
 
 def _zernike_indices(n_max: int) -> list[tuple[int, int]]:

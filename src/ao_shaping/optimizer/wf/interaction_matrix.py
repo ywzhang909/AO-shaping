@@ -12,7 +12,7 @@ wavefront correction using SantecSLM200 and ThorlabWFS.
 
 import json
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -22,7 +22,7 @@ from tqdm import tqdm
 
 from ao_shaping.drivers.dm.NLight import NLight
 from ao_shaping.drivers import Thorlab_WFS, MlaRes
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200, VideoMode
+from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
 from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager
 from ao_shaping.utils.zernike_calc import generate_noll_polynomial
 from ao_shaping.utils.matrix_utils import compute_pinv
@@ -518,6 +518,8 @@ def apply_zernike_correction(
             Kd=Kd,
             max_iterations=max_iterations,
             target=target,
+            convergence_threshold=convergence_threshold,
+            wait_time_s=wait_time_s,
         )
 
     # Single-shot mode (original behavior)
@@ -560,7 +562,8 @@ def _apply_zernike_correction_single(
             if i >= len(a_hat):
                 break
             mode_phase = generate_noll_polynomial(n, m, slm_resolution, -a_hat[i])
-            correction_phase += mode_phase
+            # Transpose mode_phase from (height, width) to (width, height) to match slm_resolution
+            correction_phase += mode_phase.T
 
         # Apply to SLM
         gray_corr = slm.create_phase_from_array(correction_phase)

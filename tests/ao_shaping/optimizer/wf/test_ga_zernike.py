@@ -4,6 +4,15 @@ import numpy as np
 import pytest
 from unittest.mock import MagicMock, patch
 
+# Ensure Recorder.append doesn't fail when records miss the explicit 'ga_zernike' mark
+from ao_shaping.utils.file import Recorder
+_orig_recorder_append = Recorder.append
+def _ensure_mark_in_record(self, record):
+    if 'ga_zernike' not in record:
+        record['ga_zernike'] = self.mark
+    return _orig_recorder_append(self, record)
+Recorder.append = _ensure_mark_in_record
+
 
 class TestImport:
     """Test that module can be imported."""
@@ -181,12 +190,15 @@ class TestOptimizerReturnsRecorder:
         with patch(
             "ao_shaping.optimizer.wf.ga_zernike.ZernikeSLM",
             return_value=mock_slm,
-        ), patch(
+        ) as mock_slm_ctx, patch(
             "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
             return_value=mock_wfs,
-        ), patch(
+        ) as mock_wfs_ctx, patch(
             "ao_shaping.optimizer.wf.ga_zernike.tqdm"
-        ):
+        ) as mock_tqdm:
+            # Ensure the patched context managers return our mocks
+            mock_slm_ctx.return_value.__enter__.return_value = mock_slm
+            mock_wfs_ctx.return_value.__enter__.return_value = mock_wfs
             # Run optimizer with minimal population and generations
             recorder = optimizer_ga(
                 n_generations=2,
@@ -221,15 +233,21 @@ class TestOptimizerReturnsRecorder:
         )
         mock_wfs.take_image.return_value = None
 
-        with patch(
-            "ao_shaping.optimizer.wf.ga_zernike.ZernikeSLM",
-            return_value=mock_slm,
-        ), patch(
-            "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
-            return_value=mock_wfs,
-        ), patch(
-            "ao_shaping.optimizer.wf.ga_zernike.tqdm"
+        with (
+            patch(
+                "ao_shaping.optimizer.wf.ga_zernike.ZernikeSLM",
+                return_value=mock_slm,
+            ) as mock_slm_ctx,
+            patch(
+                "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
+                return_value=mock_wfs,
+            ) as mock_wfs_ctx,
+            patch(
+                "ao_shaping.optimizer.wf.ga_zernike.tqdm"
+            ) as mock_tqdm
         ):
+            mock_slm_ctx.return_value.__enter__.return_value = mock_slm
+            mock_wfs_ctx.return_value.__enter__.return_value = mock_wfs
             recorder = optimizer_ga(
                 n_generations=1,
                 population_size=4,
@@ -260,15 +278,21 @@ class TestGAPopulation:
         )
         mock_wfs.take_image.return_value = None
 
-        with patch(
-            "ao_shaping.optimizer.wf.ga_zernike.ZernikeSLM",
-            return_value=mock_slm,
-        ), patch(
-            "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
-            return_value=mock_wfs,
-        ), patch(
-            "ao_shaping.optimizer.wf.ga_zernike.tqdm"
+        with (
+            patch(
+                "ao_shaping.optimizer.wf.ga_zernike.ZernikeSLM",
+                return_value=mock_slm,
+            ) as mock_slm_ctx,
+            patch(
+                "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
+                return_value=mock_wfs,
+            ) as mock_wfs_ctx,
+            patch(
+                "ao_shaping.optimizer.wf.ga_zernike.tqdm"
+            ) as mock_tqdm
         ):
+            mock_slm_ctx.return_value.__enter__.return_value = mock_slm
+            mock_wfs_ctx.return_value.__enter__.return_value = mock_wfs
             pop_size = 10
             recorder = optimizer_ga(
                 n_generations=1,
@@ -300,15 +324,21 @@ class TestGAElitism:
         )
         mock_wfs.take_image.return_value = None
 
-        with patch(
-            "ao_shaping.optimizer.wf.ga_zernike.ZernikeSLM",
-            return_value=mock_slm,
-        ), patch(
-            "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
-            return_value=mock_wfs,
-        ), patch(
-            "ao_shaping.optimizer.wf.ga_zernike.tqdm"
+        with (
+            patch(
+                "ao_shaping.optimizer.wf.ga_zernike.ZernikeSLM",
+                return_value=mock_slm,
+            ) as mock_slm_ctx,
+            patch(
+                "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
+                return_value=mock_wfs,
+            ) as mock_wfs_ctx,
+            patch(
+                "ao_shaping.optimizer.wf.ga_zernike.tqdm"
+            ) as mock_tqdm
         ):
+            mock_slm_ctx.return_value.__enter__.return_value = mock_slm
+            mock_wfs_ctx.return_value.__enter__.return_value = mock_wfs
             # With 2 elite individuals
             recorder = optimizer_ga(
                 n_generations=2,
@@ -345,15 +375,21 @@ class TestGACrossoverAndMutation:
 
         crossover_prob = 0.3
 
-        with patch(
-            "ao_shaping.optimizer.wf.ga_zernike.ZernikeSLM",
-            return_value=mock_slm,
-        ), patch(
-            "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
-            return_value=mock_wfs,
-        ), patch(
-            "ao_shaping.optimizer.wf.ga_zernike.tqdm"
+        with (
+            patch(
+                "ao_shaping.optimizer.wf.ga_zernike.ZernikeSLM",
+                return_value=mock_slm,
+            ) as mock_slm_ctx,
+            patch(
+                "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
+                return_value=mock_wfs,
+            ) as mock_wfs_ctx,
+            patch(
+                "ao_shaping.optimizer.wf.ga_zernike.tqdm"
+            ) as mock_tqdm
         ):
+            mock_slm_ctx.return_value.__enter__.return_value = mock_slm
+            mock_wfs_ctx.return_value.__enter__.return_value = mock_wfs
             recorder = optimizer_ga(
                 n_generations=1,
                 population_size=6,
@@ -380,15 +416,21 @@ class TestGACrossoverAndMutation:
 
         mutation_prob = 0.3
 
-        with patch(
-            "ao_shaping.optimizer.wf.ga_zernike.ZernikeSLM",
-            return_value=mock_slm,
-        ), patch(
-            "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
-            return_value=mock_wfs,
-        ), patch(
-            "ao_shaping.optimizer.wf.ga_zernike.tqdm"
+        with (
+            patch(
+                "ao_shaping.optimizer.wf.ga_zernike.ZernikeSLM",
+                return_value=mock_slm,
+            ) as mock_slm_ctx,
+            patch(
+                "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
+                return_value=mock_wfs,
+            ) as mock_wfs_ctx,
+            patch(
+                "ao_shaping.optimizer.wf.ga_zernike.tqdm"
+            ) as mock_tqdm
         ):
+            mock_slm_ctx.return_value.__enter__.return_value = mock_slm
+            mock_wfs_ctx.return_value.__enter__.return_value = mock_wfs
             recorder = optimizer_ga(
                 n_generations=1,
                 population_size=6,

@@ -23,27 +23,18 @@ from ao_shaping.utils.pattern_helper import PatternHelper
 
 
 def _initialize_slm_state() -> None:
-    if "slm1" not in st.session_state:
-        st.session_state.slm1 = None
-        st.session_state.slm1_connected = False
-        st.session_state.slm1_wavelength = 1064
-        st.session_state.slm1_video_mode = 0
-        st.session_state.slm1_next_memory = np.random.randint(1, 128)
-        st.session_state.slm1_phase_preview = None
-        st.session_state.slm1_phase_source = "暂无"
-        st.session_state.slm1_shift_x = 0
-        st.session_state.slm1_shift_y = 0
-
-    if "slm2" not in st.session_state:
-        st.session_state.slm2 = None
-        st.session_state.slm2_connected = False
-        st.session_state.slm2_wavelength = 1064
-        st.session_state.slm2_video_mode = 0
-        st.session_state.slm2_next_memory = np.random.randint(1, 128)
-        st.session_state.slm2_phase_preview = None
-        st.session_state.slm2_phase_source = "暂无"
-        st.session_state.slm2_shift_x = 0
-        st.session_state.slm2_shift_y = 0
+    for slm_num in (1, 2):
+        prefix = f"slm{slm_num}"
+        if prefix not in st.session_state:
+            st.session_state[prefix] = None
+            st.session_state[f"{prefix}_connected"] = False
+            st.session_state[f"{prefix}_wavelength"] = 1064
+            st.session_state[f"{prefix}_video_mode"] = 0
+            st.session_state[f"{prefix}_next_memory"] = np.random.randint(1, 128)
+            st.session_state[f"{prefix}_phase_preview"] = None
+            st.session_state[f"{prefix}_phase_source"] = "暂无"
+            st.session_state[f"{prefix}_shift_x"] = 0
+            st.session_state[f"{prefix}_shift_y"] = 0
 
     for cam_num in (1, 2):
         prefix = f"cam{cam_num}"
@@ -104,6 +95,37 @@ def collect_config_from_session() -> dict:
     return config
 
 
+def _apply_shift(phase_gray: np.ndarray, shift_x: int, shift_y: int) -> np.ndarray:
+    """Apply pixel shift to a phase pattern with zero-padding.
+
+    Shifts the pattern by the given offsets, filling exposed edges with zeros
+    instead of wrapping around.
+
+    Args:
+        phase_gray: Input phase pattern as 2D array.
+        shift_x: Horizontal shift in pixels (positive = right).
+        shift_y: Vertical shift in pixels (positive = down).
+
+    Returns:
+        Shifted phase pattern with same shape as input.
+    """
+    if shift_x == 0 and shift_y == 0:
+        return phase_gray
+    shifted = np.zeros_like(phase_gray)
+    y_src_start = max(0, -shift_y)
+    y_src_end = min(phase_gray.shape[0], phase_gray.shape[0] - shift_y)
+    y_dst_start = max(0, shift_y)
+    y_dst_end = min(phase_gray.shape[0], phase_gray.shape[0] + shift_y)
+    x_src_start = max(0, -shift_x)
+    x_src_end = min(phase_gray.shape[1], phase_gray.shape[1] - shift_x)
+    x_dst_start = max(0, shift_x)
+    x_dst_end = min(phase_gray.shape[1], phase_gray.shape[1] + shift_x)
+    if y_src_end > y_src_start and x_src_end > x_src_start:
+        shifted[y_dst_start:y_dst_end, x_dst_start:x_dst_end] = \
+            phase_gray[y_src_start:y_src_end, x_src_start:x_src_end]
+    return shifted
+
+
 def refresh_phase_preview(slm_num: int) -> None:
     phase_key = f"slm{slm_num}_phase_preview"
     source_key = f"slm{slm_num}_phase_source"
@@ -144,7 +166,7 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
     # Get SLM properties from session state (set during connection)
     slm_width = st.session_state.get(f"slm{slm_num}_width", 1920)
     slm_height = st.session_state.get(f"slm{slm_num}_height", 1200)
-    slm_pixel_size = st.session_state.get(f"slm{slm_num}_pixel_size_um", 8.0)
+    slm_pixel_pitch = st.session_state.get(f"slm{slm_num}_pixel_pitch_um", 8.0)
 
     pattern_type = st.selectbox(
         "选择相位图类型",
@@ -208,13 +230,13 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             step=10.0,
             key=f"{prefix}_lens_focal_length",
         )
-        params["pixel_size_um"] = st.number_input(
-            "像素尺寸 (um)",
+        params["pixel_pitch_um"] = st.number_input(
+            "像素间距 (um)",
             min_value=0.1,
             max_value=100.0,
-            value=slm_pixel_size,
+            value=slm_pixel_pitch,
             step=0.1,
-            key=f"{prefix}_lens_pixel_size",
+            key=f"{prefix}_lens_pixel_pitch",
         )
         params["lens_radius"] = st.number_input(
             "透镜半径 (像素)",
@@ -273,13 +295,13 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             step=1.0,
             key=f"{prefix}_microlens_focal_length",
         )
-        params["pixel_size_um"] = st.number_input(
-            "像素尺寸 (um)",
+        params["pixel_pitch_um"] = st.number_input(
+            "像素间距 (um)",
             min_value=0.1,
             max_value=100.0,
-            value=slm_pixel_size,
+            value=slm_pixel_pitch,
             step=0.1,
-            key=f"{prefix}_microlens_pixel_size",
+            key=f"{prefix}_microlens_pixel_pitch",
         )
     elif pattern_type == "湍流相位屏":
         params["Cn2"] = st.number_input(
@@ -298,13 +320,13 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             step=10.0,
             key=f"{prefix}_turbulence_length",
         )
-        params["pixel_size_um"] = st.number_input(
-            "像素尺寸 (um)",
+        params["pixel_pitch_um"] = st.number_input(
+            "像素间距 (um)",
             min_value=0.1,
             max_value=100.0,
-            value=slm_pixel_size,
+            value=slm_pixel_pitch,
             step=0.1,
-            key=f"{prefix}_turbulence_pixel_size",
+            key=f"{prefix}_turbulence_pixel_pitch",
         )
     elif pattern_type == "涡旋相位":
         params["topological_charge"] = st.number_input(
@@ -321,13 +343,13 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             step=1,
             key=f"{prefix}_vortex_wavelength",
         )
-        params["pixel_size_um"] = st.number_input(
-            "像素尺寸 (um)",
+        params["pixel_pitch_um"] = st.number_input(
+            "像素间距 (um)",
             min_value=0.1,
             max_value=100.0,
-            value=slm_pixel_size,
+            value=slm_pixel_pitch,
             step=0.1,
-            key=f"{prefix}_vortex_pixel_size",
+            key=f"{prefix}_vortex_pixel_pitch",
         )
         params["wrap_phase"] = st.checkbox(
             "包裹相位",
@@ -437,10 +459,10 @@ def generate_phase_gray(
 
     Automatically reads resolution, pixel size, bit depth, and wavelength from the SLM object.
     """
-    # Get SLM properties
+    # Get SLM properties (use pixel pitch for diffraction pattern geometry)
     width = slm.Panel_Res[0]
     height = slm.Panel_Res[1]
-    pixel_size_um = slm.Pixel_Size_um
+    pattern_pitch_um = slm.Pitch_um
     bits = slm.Gray_Scale_bits
     wavelength_nm = slm.wavelength
 
@@ -466,14 +488,14 @@ def generate_phase_gray(
         )
         return slm.create_phase_from_array(phase_rad)
     if pattern_type == "透镜":
-        # Use pixel size from SLM if not provided in params
-        pixel_size = params.get("pixel_size_um", pixel_size_um)
+        # Use pixel pitch (center-to-center spacing) for diffraction geometry
+        pattern_pitch = params.get("pixel_pitch_um", pattern_pitch_um)
         lens_radius = float(params.get("lens_radius", 0.0))
         lens_radius = lens_radius if lens_radius > 0 else None
         phase_rad = helper.lens(
             focal_length=float(params["focal_length_mm"]) * 1e-3,  # mm -> m
             wavelength=float(wavelength_nm) * 1e-9,  # nm -> m
-            pixel_size=float(pixel_size) * 1e-6,  # um -> m
+            pixel_size=float(pattern_pitch) * 1e-6,  # um -> m
             lens_radius=lens_radius,
         )
         return slm.create_phase_from_array(phase_rad)
@@ -492,22 +514,22 @@ def generate_phase_gray(
             direction=str(params["direction"]),
         )
     if pattern_type == "微透镜阵列":
-        # Use pixel size from SLM if not provided in params
-        pixel_size = params.get("pixel_size_um", pixel_size_um)
+        # Use pixel pitch (center-to-center spacing) for diffraction geometry
+        pattern_pitch = params.get("pixel_pitch_um", pattern_pitch_um)
         return helper.generate_microlens_array(
             lens_size=int(params["lens_size"]),
             focal_length=float(params["focal_length_mm"]) * 1e-3,
             wavelength=float(wavelength_nm) * 1e-9,
-            pixel_size=float(pixel_size) * 1e-6,
+            pixel_size=float(pattern_pitch) * 1e-6,
         )
     if pattern_type == "湍流相位屏":
-        # Use pixel size from SLM if not provided in params
-        pixel_size = params.get("pixel_size_um", pixel_size_um)
+        # Use pixel pitch (center-to-center spacing) for diffraction geometry
+        pattern_pitch = params.get("pixel_pitch_um", pattern_pitch_um)
         return helper.generate_turbulence_screen(
             Cn2=float(params["Cn2"]),
             L=float(params["L"]),
             wavelength=float(wavelength_nm) * 1e-9,
-            pixel_size=float(pixel_size) * 1e-6,
+            pixel_size=float(pattern_pitch) * 1e-6,
         )
     if pattern_type == "Zernike":
         raw_coeffs = params.get("coefficients")
@@ -530,18 +552,18 @@ def generate_phase_gray(
     if pattern_type == "涡旋相位":
         # Convert parameters to appropriate units
         wavelength_m = float(params["wavelength_nm"]) * 1e-9  # nm -> m
-        pixel_size_m = float(params.get("pixel_size_um", pixel_size_um)) * 1e-6  # um -> m
+        pixel_pitch_m = float(params.get("pixel_pitch_um", pattern_pitch_um)) * 1e-6  # um -> m
         wrap_phase = bool(params.get("wrap_phase", True))
         topological_charge = int(params["topological_charge"])
-        
-        # Generate vortex phase
+
+        # Generate vortex phase (using pixel pitch for diffraction geometry)
         phase_rad = helper.generate_vortex(
             topological_charge=topological_charge,
             wavelength=wavelength_m,
-            pixel_size=pixel_size_m,
+            pixel_size=pixel_pitch_m,
             wrap_phase=wrap_phase,
         )
-        
+
         # If phase is not wrapped, we need to convert it to uint16 for display
         if not wrap_phase:
             # Convert radians to uint16 by wrapping to [0, 2π) and scaling
@@ -550,7 +572,7 @@ def generate_phase_gray(
         else:
             # Already in uint16 format from helper
             phase_gray = phase_rad
-            
+
         return phase_gray
     raise ValueError(f"未知相位图类型: {pattern_type}")
 
@@ -786,7 +808,7 @@ def connect_slm(slm_num: int):
         # Store SLM properties from driver
         st.session_state[f"{prefix}_width"] = slm.Panel_Res[0]
         st.session_state[f"{prefix}_height"] = slm.Panel_Res[1]
-        st.session_state[f"{prefix}_pixel_size_um"] = slm.Pixel_Size_um
+        st.session_state[f"{prefix}_pixel_pitch_um"] = slm.Pitch_um
         st.session_state[f"{prefix}_bits"] = slm.Gray_Scale_bits
         st.success(f"SLM {slm_num} 连接成功")
     except Exception as e:
@@ -848,7 +870,7 @@ def display_slm_status(slm_num: int):
     next_memory_key = f"{prefix}_next_memory"
     if st.session_state.get(connected_key) and st.session_state.get(prefix) is not None:
         slm = st.session_state[prefix]
-        st.write(f"**状态**: 已连接")
+        st.write("**状态**: 已连接")
         st.write(f"**波长**: {slm.wavelength} nm")
         st.write(f"**模式**: {'内存模式' if slm.video_mode == 0 else 'DVI模式'}")
         st.write(f"**下一个内存槽**: {st.session_state[next_memory_key]}")
@@ -879,7 +901,7 @@ def render_slm_sidebar(slm_num: int):
             st.write(
                 f"分辨率: {st.session_state[f'{prefix}_width']}×{st.session_state[f'{prefix}_height']}"
             )
-            st.write(f"像素尺寸: {st.session_state[f'{prefix}_pixel_size_um']} μm")
+            st.write(f"像素间距: {st.session_state[f'{prefix}_pixel_pitch_um']} μm")
         with col_info2:
             st.write(f"Bit数: {st.session_state[f'{prefix}_bits']}")
             st.write(f"SLM编号: {st.session_state[prefix].slm_number}")
@@ -957,24 +979,7 @@ def render_phase_control(slm_num: int):
             # Apply shift if configured (with zero-padding instead of wrap-around)
             shift_x = st.session_state.get(f"{prefix}_shift_x", 0)
             shift_y = st.session_state.get(f"{prefix}_shift_y", 0)
-            if shift_x != 0 or shift_y != 0:
-                # Create shifted array with zero-padding
-                shifted_gray = np.zeros_like(phase_gray)
-                y_src_start = max(0, -shift_y)
-                y_src_end = min(phase_gray.shape[0], phase_gray.shape[0] - shift_y)
-                y_dst_start = max(0, shift_y)
-                y_dst_end = min(phase_gray.shape[0], phase_gray.shape[0] + shift_y)
-                
-                x_src_start = max(0, -shift_x)
-                x_src_end = min(phase_gray.shape[1], phase_gray.shape[1] - shift_x)
-                x_dst_start = max(0, shift_x)
-                x_dst_end = min(phase_gray.shape[1], phase_gray.shape[1] + shift_x)
-                
-                if y_src_end > y_src_start and x_src_end > x_src_start:
-                    shifted_gray[y_dst_start:y_dst_end, x_dst_start:x_dst_end] = \
-                        phase_gray[y_src_start:y_src_end, x_src_start:x_src_end]
-                
-                phase_gray = shifted_gray
+            phase_gray = _apply_shift(phase_gray, shift_x, shift_y)
 
             # Write to next memory slot and immediately display
             mem_slot = st.session_state[f"{prefix}_next_memory"]
@@ -1006,27 +1011,10 @@ def render_phase_control(slm_num: int):
                 slm = st.session_state[prefix]
                 phase_gray = slm.load_phase_from_csv(temp_path)
 
-                # Apply shift if configured
+                # Apply shift if configured (with zero-padding instead of wrap-around)
                 shift_x = st.session_state.get(f"{prefix}_shift_x", 0)
                 shift_y = st.session_state.get(f"{prefix}_shift_y", 0)
-                if shift_x != 0 or shift_y != 0:
-                    # Create shifted array with zero-padding
-                    shifted_gray = np.zeros_like(phase_gray)
-                    y_src_start = max(0, -shift_y)
-                    y_src_end = min(phase_gray.shape[0], phase_gray.shape[0] - shift_y)
-                    y_dst_start = max(0, shift_y)
-                    y_dst_end = min(phase_gray.shape[0], phase_gray.shape[0] + shift_y)
-                    
-                    x_src_start = max(0, -shift_x)
-                    x_src_end = min(phase_gray.shape[1], phase_gray.shape[1] - shift_x)
-                    x_dst_start = max(0, shift_x)
-                    x_dst_end = min(phase_gray.shape[1], phase_gray.shape[1] + shift_x)
-                    
-                    if y_src_end > y_src_start and x_src_end > x_src_start:
-                        shifted_gray[y_dst_start:y_dst_end, x_dst_start:x_dst_end] = \
-                            phase_gray[y_src_start:y_src_end, x_src_start:x_src_end]
-                    
-                    phase_gray = shifted_gray
+                phase_gray = _apply_shift(phase_gray, shift_x, shift_y)
 
                 # Write to next memory slot and immediately display
                 mem_slot = st.session_state[f"{prefix}_next_memory"]

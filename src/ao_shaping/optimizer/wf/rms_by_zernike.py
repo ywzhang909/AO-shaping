@@ -36,10 +36,15 @@ from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
 
 
 def noll_to_nm(j: int) -> tuple[int, int]:
-    """Convert Noll index to (n, m) Zernike order.
+    """Convert Noll index to (n, m) Zernike order (hardcoded convention).
+
+    Uses a hardcoded lookup table (Noll indices 1-15 only).
+    NOTE: This convention DIFFERS from the aotools-based implementation
+    in `utils/zernike_calc.py`. The canonical implementation is in
+    `utils/zernike_calc.noll_to_nm()`.
 
     Args:
-        j: Noll index (1-based).
+        j: Noll index (1-based), valid range 1-15.
 
     Returns:
         Tuple of (n, m) radial and azimuthal orders.

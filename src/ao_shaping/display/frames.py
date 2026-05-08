@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from abc import ABC
 
 import pygame
 import numpy as np
@@ -35,17 +35,17 @@ class BaseFrame(ABC):
         if title:
             self.top += Title_height
             self.height -= Title_height
-        
+
         self.plot_area = pygame.Rect(self.left, self.top, self.width, self.height)
 
     def close(self):
         pass
-        
+
     def _render_title(self):
         font = pygame.font.Font(None, Title_height-6)
         text = font.render(self.title, True, (0, 255, 255))
         self.window.blit(text, (self.left, self.top - Title_height))
-    
+
     def render(self):
         self._render_title()
 
@@ -60,7 +60,7 @@ class Image2DFrame(BaseFrame):
         img_surf = pygame.surfarray.make_surface(img.transpose())
         self.window.blit(img_surf, (self.left, self.top))
         super().render()
-        
+
 
 @register_frame("Image2DWithBucket")
 class Image2DWithBucketFrame(BaseFrame):
@@ -82,11 +82,11 @@ class VoltageFrame(BaseFrame):
         self.background_color = background_color
         self.v_min = v_min
         self.v_max = v_max
-        
+
         max_hight_ratio, total_scale = self.height / max(abs(v_max),abs(v_min)), (self.v_max - self.v_min)
         self.v_norm = lambda v: (v - self.v_min) / total_scale
         self.v_hight = lambda v: int(v * max_hight_ratio)
-    
+
     def render(self, volts):
         _volts = np.clip(volts, self.v_min, self.v_max)
         self.window.fill(self.background_color, self.plot_area)
@@ -166,7 +166,7 @@ class TextFrame(BaseFrame):
     @staticmethod
     def __font_pt_to_pixel(pt:int):
         return int(pt * DPI / 72)
-    
+
     @staticmethod
     def __font_pixel_to_pt(px:int):
         return int(px * 72 / DPI)

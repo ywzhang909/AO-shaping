@@ -17,7 +17,7 @@ def parse_tuple(ctx, param, value):
         return None
     if isinstance(value, str) and value.lower() in ["mass", "max", "shape"]:
         return value.lower()
-    
+
     s_clean = re.sub(r"[()\s]", "", str(value))
     try:
         parts = s_clean.split(",")

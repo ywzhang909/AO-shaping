@@ -1,5 +1,8 @@
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+markers = [
+    "hardware: requires physical hardware device",
+]
 
 [project]
 name = "ao_shaping"
@@ -46,6 +49,7 @@ ao-train = "ml.train:cli"
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
+    "ruff>=0.15.12",
 ]
 
 [[tool.uv.index]]
