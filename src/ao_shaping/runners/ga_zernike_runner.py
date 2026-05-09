@@ -126,7 +126,7 @@ def run(
     # Convert wfs_res from int to MlaRes
     wfs_res_enum = MlaRes.from_str(str(wfs_res))
 
-    click.echo(f"GA-Zernike优化参数:")
+    click.echo("GA-Zernike优化参数:")
     click.echo(f"  种群大小: {population_size}")
     click.echo(f"  迭代代数: {n_generations}")
     click.echo(f"  交叉概率: {crossover_prob}")
@@ -166,7 +166,7 @@ def run(
     best_gen = recorder.last.get("_generation", 0)
     best_zernike = recorder.get_best_target("_c")
 
-    click.echo(f"\nGA-Zernike优化完成!")
+    click.echo("\nGA-Zernike优化完成!")
     click.echo(f"  最佳RMS: {best_rms:.4f}")
     click.echo(f"  最佳代数: {best_gen}")
     click.echo(f"  Zernike系数: {best_zernike}")

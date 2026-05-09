@@ -30,10 +30,10 @@ def _gaussian2d(
     """
     x = xdata[0]
     y = xdata[1]
-    
+
     # Ensure sigma is positive
     sigma = max(sigma, 1e-6)
-    
+
     return amplitude * np.exp(-((x - x0)**2 + (y - y0)**2) / (2 * sigma**2)) + offset
 
 

@@ -1,5 +1,4 @@
 import numpy as np
-from scipy.optimize import minimize
 from skopt import gp_minimize
 from skopt.space import Real
 from skopt.utils import use_named_args
@@ -7,8 +6,8 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from ao_shaping.optimizer.wfless.pib import optimize_pib
-from ao_shaping.drivers import CameraStreamManager, NlightDM
-from ao_shaping.utils import Recorder, logger
+from ao_shaping.drivers import CameraStreamManager
+from ao_shaping.utils import logger
 
 
 def objective_function(lr, delta, center=None, epochs=100, exposure_time_ms=80, cam_id=0):
@@ -36,7 +35,7 @@ def objective_function(lr, delta, center=None, epochs=100, exposure_time_ms=80, 
                 # 计算质心
                 from ao_shaping.utils.spots_calc import centroid
                 center = centroid(np.where(_img > np.max(_img[:max(int(h//50), 2), :max(int(w//50), 2)]), 1, 0))
-        
+
         # 运行优化
         recorder = optimize_pib(
             center=center,
@@ -55,14 +54,14 @@ def objective_function(lr, delta, center=None, epochs=100, exposure_time_ms=80, 
             dm_max_voltage=None,
             dm_min_voltage=None
         )
-        
+
         # 获取最佳PIB值
         best_iter, (max_j_id, max_j) = recorder.get_best_iter()
         pib_value = best_iter["pib"]
-        
+
         # 返回负值，因为我们使用最小化优化器来最大化PIB
         return -pib_value
-    
+
     except Exception as e:
         logger.error(f"优化过程中出现错误: {e}")
         # 返回一个较大的正值表示失败
@@ -98,7 +97,7 @@ def bayesian_optimize_lr_delta(
         Real(*lr_bounds, name='lr'),
         Real(*delta_bounds, name='delta')
     ]
-    
+
     # 创建目标函数的包装器
     @use_named_args(dimensions)
     def wrapped_objective(lr, delta):
@@ -110,7 +109,7 @@ def bayesian_optimize_lr_delta(
             exposure_time_ms=exposure_time_ms,
             cam_id=cam_id
         )
-    
+
     # 执行贝叶斯优化
     result = gp_minimize(
         func=wrapped_objective,
@@ -119,7 +118,7 @@ def bayesian_optimize_lr_delta(
         random_state=42,
         n_initial_points=10
     )
-    
+
     # 返回结果
     return {
         'best_params': {
@@ -156,15 +155,15 @@ def grid_search_lr_delta(
     best_score = -np.inf
     best_params = {'lr': None, 'delta': None}
     results = []
-    
+
     total_combinations = len(lr_values) * len(delta_values)
     current_combination = 0
-    
+
     for lr in lr_values:
         for delta in delta_values:
             current_combination += 1
             print(f"测试参数组合 {current_combination}/{total_combinations}: lr={lr}, delta={delta}")
-            
+
             try:
                 score = -objective_function(
                     lr=lr,
@@ -174,19 +173,19 @@ def grid_search_lr_delta(
                     exposure_time_ms=exposure_time_ms,
                     cam_id=cam_id
                 )
-                
+
                 results.append({
                     'lr': lr,
                     'delta': delta,
                     'score': score
                 })
-                
+
                 if score > best_score:
                     best_score = score
                     best_params = {'lr': lr, 'delta': delta}
-                    
+
                 print(f"  得分: {score:.4f}")
-                
+
             except Exception as e:
                 print(f"  错误: {e}")
                 results.append({
@@ -195,7 +194,7 @@ def grid_search_lr_delta(
                     'score': -np.inf,
                     'error': str(e)
                 })
-    
+
     return {
         'best_params': best_params,
         'best_score': best_score,
@@ -206,7 +205,7 @@ def grid_search_lr_delta(
 if __name__ == "__main__":
     # 示例用法
     print("开始贝叶斯优化...")
-    
+
     # 贝叶斯优化
     bayes_result = bayesian_optimize_lr_delta(
         n_calls=20,
@@ -215,14 +214,14 @@ if __name__ == "__main__":
         epochs=50,  # 减少迭代次数以加快测试
         exposure_time_ms=60
     )
-    
+
     print("贝叶斯优化结果:")
     print(f"最优学习率: {bayes_result['best_params']['lr']:.4f}")
     print(f"最优delta: {bayes_result['best_params']['delta']:.4f}")
     print(f"最优PIB值: {bayes_result['best_score']:.4f}")
-    
+
     print("\n" + "="*50 + "\n")
-    
+
     # 网格搜索
     print("开始网格搜索...")
     grid_result = grid_search_lr_delta(
@@ -231,7 +230,7 @@ if __name__ == "__main__":
         epochs=50,  # 减少迭代次数以加快测试
         exposure_time_ms=60
     )
-    
+
     print("网格搜索结果:")
     print(f"最优学习率: {grid_result['best_params']['lr']}")
     print(f"最优delta: {grid_result['best_params']['delta']}")

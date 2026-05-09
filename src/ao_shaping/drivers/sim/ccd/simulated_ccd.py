@@ -8,7 +8,6 @@ numerical simulation internally.
 from __future__ import annotations
 
 import time
-from typing import Optional, Tuple
 
 import numpy as np
 from loguru import logger
@@ -46,9 +45,9 @@ class SimulatedCCD(BaseCamera):
         self,
         cam_id: int = 0,
         exposure_time_ms: float = 20.0,
-        resolution: Tuple[int, int] = (1024, 1024),
+        resolution: tuple[int, int] = (1024, 1024),
         noise_level: float = 5.0,
-        random_seed: Optional[int] = None,
+        random_seed: int | None = None,
     ):
         """Initialize simulated CCD.
 
@@ -67,7 +66,7 @@ class SimulatedCCD(BaseCamera):
         self._rng = np.random.default_rng(random_seed)
 
         self._frame_counter = 0
-        self._last_image: Optional[np.ndarray] = None
+        self._last_image: np.ndarray | None = None
 
         logger.debug(
             f"SimulatedCCD initialized: resolution={resolution}, noise={noise_level}"
@@ -107,9 +106,9 @@ class SimulatedCCD(BaseCamera):
 
     def reset_window(
         self,
-        center: Tuple[int, int],
-        size: Tuple[int, int],
-    ) -> Tuple[Tuple[int, int], Tuple[int, int]]:
+        center: tuple[int, int],
+        size: tuple[int, int],
+    ) -> tuple[tuple[int, int], tuple[int, int]]:
         """Set ROI window.
 
         Args:
@@ -280,7 +279,7 @@ class SimulatedCCD(BaseCamera):
         self.cam = state
 
     @property
-    def resolution(self) -> Tuple[int, int]:
+    def resolution(self) -> tuple[int, int]:
         """Get camera resolution."""
         return self._resolution
 

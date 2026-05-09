@@ -218,9 +218,10 @@ class TestSecondMomentRadiusFunction:
             )
 
     def test_second_moment_radius_on_zero_image(self):
-        """Test second moment radius on all-zero image."""
+        """Test second_moment_radius directly on all-zero image."""
+        from ao_shaping.algorithm.target_func import ImageTargetFunc
+
         img = np.zeros((50, 50), dtype=np.uint16)
-        target = ImageTargetFunc.build_from_init_image(img)
+        target = ImageTargetFunc(50, 50, (25, 25))
         radius = target.second_moment_radius(img)
-        # Zero image should return 0
         assert radius == 0.0, f"Zero image should give radius 0, got {radius}"

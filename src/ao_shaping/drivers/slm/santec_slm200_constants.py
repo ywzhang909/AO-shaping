@@ -154,19 +154,21 @@ def get_slm_error_message(code: int) -> str:
 
 
 # 设备硬件参数常量
-class SLMHardwareConstants:
-    """SLM硬件参数常量"""
-    Pixel_Size_um = 7.8
-    Pitch_um = 8
-    Panel_Size_mm = (15.36, 9.60)
-    Panel_Res = (1920, 1200)
-    Response_time_ms = 300
-    Gray_Scale_bits = 10
+PIXEL_SIZE_UM = 7.8  # 像素尺寸 (微米)
+PITCH_UM = 8  # 像素间距 (微米)
+PANEL_SIZE_MM = (15.36, 9.60)  # 面板尺寸 (mm, 宽x高)
+PANEL_RES = (1920, 1200)  # 面板分辨率 (宽x高)
+RESPONSE_TIME_MS = 300  # 响应时间 (毫秒)
+GRAY_SCALE_BITS = 10  # 灰度位数
 
-    @classmethod
-    def get_max_grayscale(cls) -> int:
-        """获取最大灰度值 (2^bits - 1)"""
-        return 2 ** cls.Gray_Scale_bits - 1
+
+def get_max_grayscale() -> int:
+    """Get maximum grayscale value (2^bits - 1).
+
+    Returns:
+        Maximum grayscale value based on GRAY_SCALE_BITS.
+    """
+    return 2 ** GRAY_SCALE_BITS - 1
 
 
 # 默认参数值

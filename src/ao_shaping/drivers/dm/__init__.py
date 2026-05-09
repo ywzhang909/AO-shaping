@@ -2,7 +2,6 @@ from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.dm.zernike_dm import ZernikeDM
 from ao_shaping.drivers.dm.MicroDM import (
     MicroDM,
-    SimMicroDM,
     MicroDMError,
     MicroDMConnectionError,
     MicroDMVoltageError,
@@ -10,6 +9,9 @@ from ao_shaping.drivers.dm.MicroDM import (
     JointDMLookup,
     ChannelMapping,
 )
+
+# Re-export simulated DM from sim package (moved out of hardware driver files)
+from ao_shaping.drivers.sim.dm import SimMicroDM, SimulateDM
 
 __all__ = [
     "DM",

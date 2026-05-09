@@ -177,7 +177,7 @@ class TestGetRefDefaultDir:
         assert "Reference" in path_str
 
 
-class TestGetRefFilename:    
+class TestGetRefFilename:
     """Tests for _get_ref_filename()."""
 
     def test_returns_string(self):
@@ -231,10 +231,10 @@ class TestSaveUserRef:
         assert result is None or isinstance(result, Path)
 
     def test_save_dll_failure(self):
-        """Test save when DLL call fails."""
         wfs = MagicMock(spec=WFSManager)
+        wfs._instrument_handle = 1
         wfs._lib = MagicMock()
-        wfs._lib.WFS_SaveUserRefFile.return_value = 1  # Error
+        wfs._lib.WFS_SaveUserRefFile.return_value = 1
         wfs.save_user_ref = WFSManager.save_user_ref.__get__(wfs)
 
         result = wfs.save_user_ref()

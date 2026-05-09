@@ -83,7 +83,7 @@ def optimizer(
         else:
             _init_v = np.array(init_v)
         dm.send_voltages(_init_v, 1)
-        
+
         def get_data():
             wfs.take_image()
             wf, statics = wfs.get_wavefront()
@@ -202,7 +202,7 @@ def optimizer(
                     metropolis_temperature *= METROPOLIS_ALPHA
                 else:
                     _to_update_v = np.clip(_init_v - update, dm.V_Min, dm.V_Max)
-                
+
                 if dm.check_dm_unit_grad_safe(_to_update_v):
                     _init_v = _to_update_v
                 else:
@@ -215,7 +215,7 @@ def optimizer(
                     delta = 2
                 else:
                     delta = 1
-                
+
                 log = history[-1]
                 J_v_history.append({
                     "J": avg_j,
@@ -226,32 +226,32 @@ def optimizer(
 
                 bar.set_postfix({k: f'{v:.4f}' for k, v in log.items() if k[0] != "_"})
                 bar.update(1)
-                
+
                 if len(history) >= 1000 or epoch == epochs-1:
                     res_df = pd.DataFrame(history)
                     del history
                     history = []
                     file_path = gen_file_path_inc(saved_dir, "pkl")
                     asyncio.run(async_to_pickle(res_df, file_path))
-                    
+
         return J_v_history
 
 def run():
     init_V = np.random.random((64,))*100 - 50
     init_V[0] = 0
-    
+
     save_dir = gen_file_path_uuid(ROOT_DIR)
 
     res_list = optimizer(
         saved_dir=save_dir,
         init_v=init_V.copy(),
-        epochs=10000, 
+        epochs=10000,
         delta=2, # 扰动要和桶半径匹配，不要扰动会导致质心出桶
-        lr=1.2, 
+        lr=1.2,
         algorithm="adamod",
         metropolis_temperature=0,
         lr_schedul="static")
-    
+
     res_df = pd.DataFrame(res_list)
     max_j_id = res_df['J'].argmax()
     last_V = res_df.iloc[max_j_id]["_v"]

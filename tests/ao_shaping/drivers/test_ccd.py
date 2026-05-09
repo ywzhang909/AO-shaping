@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import pytest
 
 from ao_shaping.utils.spots_calc import centroid
+
+gxipy = pytest.importorskip("gxipy")
 from ao_shaping.drivers.ccd.daheng import DahengCamManager
 
 

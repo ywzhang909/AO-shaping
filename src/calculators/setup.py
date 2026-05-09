@@ -21,7 +21,7 @@ extensions = [
 setup(
     name="ao_shaping_cython_extensions",
     ext_modules=cythonize(
-        extensions, 
+        extensions,
         compiler_directives={
             'language_level': 3,
             'binding': True  # 这有助于生成更好的类型提示

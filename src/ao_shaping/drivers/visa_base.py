@@ -22,9 +22,7 @@ Example:
     ...     inst.write('VOLT 12.0')
 """
 
-from typing import Optional, Union, List, Dict, Any, Callable
-from pathlib import Path
-import contextlib
+from typing import Union, Any
 from loguru import logger
 
 # PyVISA 可选导入
@@ -68,8 +66,8 @@ class VisaResourceManager:
         >>> # 使用特定后端
         >>> rm_py = VisaResourceManager(backend='@py')  # 使用纯 Python 后端
     """
-    
-    def __init__(self, backend: Optional[str] = None, library_path: Optional[str] = None):
+
+    def __init__(self, backend: str | None = None, library_path: str | None = None):
         """初始化资源管理器
         
         Args:
@@ -84,11 +82,11 @@ class VisaResourceManager:
                 "PyVISA 未安装。请运行: uv add pyvisa "
                 "或 pip install pyvisa"
             )
-        
+
         self.backend = backend
         self._library_path = library_path
-        self._rm: Optional[ResourceManager] = None
-        
+        self._rm: ResourceManager | None = None
+
         try:
             if library_path:
                 self._rm = ResourceManager(library_path)
@@ -103,18 +101,18 @@ class VisaResourceManager:
                     # 回退到 pyvisa-py
                     self._rm = ResourceManager('@py')
                     self.backend = '@py'
-            
+
             logger.info(f"VISA 资源管理器已初始化，后端: {self.backend}")
         except Exception as e:
             raise VisaError(f"无法初始化 VISA 资源管理器: {e}")
-    
+
     @property
     def resource_manager(self) -> ResourceManager:
         """获取底层 ResourceManager 实例"""
         if self._rm is None:
             raise VisaError("资源管理器未初始化")
         return self._rm
-    
+
     def list_resources(self, query: str = '?*::INSTR') -> tuple:
         """列出可用的 VISA 资源
         
@@ -129,8 +127,8 @@ class VisaResourceManager:
         except Exception as e:
             logger.error(f"列举资源失败: {e}")
             return ()
-    
-    def list_resources_info(self, query: str = '?*::INSTR') -> Dict[str, Any]:
+
+    def list_resources_info(self, query: str = '?*::INSTR') -> dict[str, Any]:
         """获取详细的资源信息
         
         Args:
@@ -144,13 +142,13 @@ class VisaResourceManager:
         except Exception as e:
             logger.error(f"获取资源信息失败: {e}")
             return {}
-    
+
     def open_resource(
         self,
         resource_name: str,
         timeout: int = 5000,
-        read_termination: Optional[str] = '\n',
-        write_termination: Optional[str] = '\n',
+        read_termination: str | None = '\n',
+        write_termination: str | None = '\n',
         **kwargs
     ) -> Resource:
         """打开 VISA 资源
@@ -174,19 +172,19 @@ class VisaResourceManager:
                 timeout=timeout,
                 **kwargs
             )
-            
+
             # 配置消息基资源
             if isinstance(resource, MessageBasedResource):
                 if read_termination is not None:
                     resource.read_termination = read_termination
                 if write_termination is not None:
                     resource.write_termination = write_termination
-            
+
             logger.info(f"已打开资源: {resource_name}")
             return resource
         except Exception as e:
             raise VisaError(f"无法打开资源 {resource_name}: {e}")
-    
+
     def open_instrument(
         self,
         resource_name: str,
@@ -205,13 +203,13 @@ class VisaResourceManager:
         """
         resource = self.open_resource(resource_name, **kwargs)
         return VisaInstrument(resource, auto_init=auto_init)
-    
+
     def find_instruments(
         self,
-        manufacturer_id: Optional[str] = None,
-        model_code: Optional[str] = None,
-        serial_number: Optional[str] = None
-    ) -> List[str]:
+        manufacturer_id: str | None = None,
+        model_code: str | None = None,
+        serial_number: str | None = None
+    ) -> list[str]:
         """根据条件查找仪器
         
         Args:
@@ -224,27 +222,27 @@ class VisaResourceManager:
         """
         resources = self.list_resources()
         matches = []
-        
+
         for resource in resources:
             # USB 资源格式: USB[board]::manufacturer_id::model_code::serial_number[::interface]::INSTR
             if 'USB' in resource:
                 parts = resource.split('::')
                 match = True
-                
+
                 if manufacturer_id and len(parts) > 1:
                     match = match and manufacturer_id.lower() in parts[1].lower()
                 if model_code and len(parts) > 2:
                     match = match and model_code.lower() in parts[2].lower()
                 if serial_number and len(parts) > 3:
                     match = match and serial_number.lower() in parts[3].lower()
-                
+
                 if match:
                     matches.append(resource)
             else:
                 matches.append(resource)
-        
+
         return matches
-    
+
     def close(self) -> None:
         """关闭资源管理器"""
         if self._rm:
@@ -255,13 +253,13 @@ class VisaResourceManager:
                 logger.error(f"关闭资源管理器时出错: {e}")
             finally:
                 self._rm = None
-    
+
     def __enter__(self):
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
-    
+
     def __repr__(self) -> str:
         if self._rm:
             resources = self.list_resources()
@@ -294,12 +292,12 @@ class VisaInstrument:
         ...     # 读取测量值
         ...     voltage = inst.query_float('MEAS:VOLT?')
     """
-    
+
     def __init__(
         self,
         resource: Union[str, Resource],
         auto_init: bool = True,
-        resource_manager: Optional[VisaResourceManager] = None,
+        resource_manager: VisaResourceManager | None = None,
         **resource_kwargs
     ):
         """初始化仪器
@@ -312,12 +310,12 @@ class VisaInstrument:
         """
         if not PYVISA_AVAILABLE:
             raise VisaError("PyVISA 未安装")
-        
+
         self._resource_manager = resource_manager
         self._own_resource_manager = False
-        self._resource: Optional[Resource] = None
-        self._resource_name: Optional[str] = None
-        
+        self._resource: Resource | None = None
+        self._resource_name: str | None = None
+
         if isinstance(resource, str):
             # 从资源名称打开
             self._resource_name = resource
@@ -331,34 +329,34 @@ class VisaInstrument:
             self._resource_name = resource.resource_name
         else:
             raise ValueError(f"不支持的资源类型: {type(resource)}")
-        
+
         self._auto_init = auto_init
         self._is_open = True
-        
+
         if auto_init:
             self.initialize()
-    
+
     @property
     def resource(self) -> Resource:
         """获取底层 Resource 实例"""
         if self._resource is None:
             raise VisaError("仪器未连接")
         return self._resource
-    
+
     @property
     def resource_name(self) -> str:
         """获取资源名称"""
         return self._resource_name or "unknown"
-    
+
     @property
     def timeout(self) -> int:
         """获取/设置超时时间（毫秒）"""
         return self.resource.timeout
-    
+
     @timeout.setter
     def timeout(self, value: int) -> None:
         self.resource.timeout = value
-    
+
     def initialize(self) -> None:
         """初始化仪器（清除状态和错误）"""
         try:
@@ -369,7 +367,7 @@ class VisaInstrument:
             logger.debug(f"仪器 {self.resource_name} 已初始化")
         except Exception as e:
             logger.warning(f"初始化仪器时出错: {e}")
-    
+
     def write(self, command: str) -> None:
         """发送 SCPI 命令
         
@@ -384,7 +382,7 @@ class VisaInstrument:
             logger.debug(f"-> {command}")
         except Exception as e:
             raise VisaError(f"写入命令失败 '{command}': {e}")
-    
+
     def read(self) -> str:
         """读取仪器响应
         
@@ -400,7 +398,7 @@ class VisaInstrument:
             return response
         except Exception as e:
             raise VisaError(f"读取响应失败: {e}")
-    
+
     def query(self, command: str) -> str:
         """发送查询命令并读取响应
         
@@ -417,7 +415,7 @@ class VisaInstrument:
             return response.strip()
         except Exception as e:
             raise VisaError(f"查询失败 '{command}': {e}")
-    
+
     def query_float(self, command: str) -> float:
         """查询并解析为浮点数
         
@@ -432,7 +430,7 @@ class VisaInstrument:
             return float(response)
         except ValueError:
             raise VisaError(f"无法将响应解析为浮点数: {response}")
-    
+
     def query_int(self, command: str) -> int:
         """查询并解析为整数
         
@@ -447,7 +445,7 @@ class VisaInstrument:
             return int(response)
         except ValueError:
             raise VisaError(f"无法将响应解析为整数: {response}")
-    
+
     def query_binary(
         self,
         command: str,
@@ -472,7 +470,7 @@ class VisaInstrument:
             )
         except Exception as e:
             raise VisaError(f"二进制查询失败 '{command}': {e}")
-    
+
     def read_raw(self) -> bytes:
         """读取原始字节数据
         
@@ -483,7 +481,7 @@ class VisaInstrument:
             return self.resource.read_raw()
         except Exception as e:
             raise VisaError(f"原始读取失败: {e}")
-    
+
     def write_raw(self, data: bytes) -> None:
         """写入原始字节数据
         
@@ -494,7 +492,7 @@ class VisaInstrument:
             self.resource.write_raw(data)
         except Exception as e:
             raise VisaError(f"原始写入失败: {e}")
-    
+
     def clear(self) -> None:
         """清除仪器状态"""
         try:
@@ -502,7 +500,7 @@ class VisaInstrument:
             logger.debug(f"仪器 {self.resource_name} 已清除")
         except Exception as e:
             logger.warning(f"清除仪器时出错: {e}")
-    
+
     def get_idn(self) -> str:
         """获取仪器标识 (*IDN?)
         
@@ -510,13 +508,13 @@ class VisaInstrument:
             仪器标识字符串
         """
         return self.query('*IDN?')
-    
+
     def reset(self) -> None:
         """重置仪器 (*RST)"""
         self.write('*RST')
         logger.info(f"仪器 {self.resource_name} 已重置")
-    
-    def wait_for_operation_complete(self, timeout: Optional[int] = None) -> bool:
+
+    def wait_for_operation_complete(self, timeout: int | None = None) -> bool:
         """等待操作完成 (*OPC?)
         
         Args:
@@ -528,7 +526,7 @@ class VisaInstrument:
         old_timeout = self.timeout
         if timeout:
             self.timeout = timeout
-        
+
         try:
             response = self.query('*OPC?')
             return response.strip() == '1'
@@ -538,12 +536,12 @@ class VisaInstrument:
         finally:
             if timeout:
                 self.timeout = old_timeout
-    
+
     def close(self) -> None:
         """关闭仪器连接"""
         if not self._is_open:
             return
-        
+
         if self._resource:
             try:
                 self._resource.close()
@@ -552,24 +550,24 @@ class VisaInstrument:
                 logger.error(f"关闭仪器时出错: {e}")
             finally:
                 self._resource = None
-        
+
         # 如果资源管理器是我们创建的，也关闭它
         if self._own_resource_manager and self._resource_manager:
             self._resource_manager.close()
             self._resource_manager = None
-        
+
         self._is_open = False
-    
+
     def __enter__(self):
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
-    
+
     def __repr__(self) -> str:
         if self._is_open:
             return f"VisaInstrument({self.resource_name}, open=True)"
-        return f"VisaInstrument(closed)"
+        return "VisaInstrument(closed)"
 
 
 class VisaInstrumentFactory:
@@ -590,17 +588,17 @@ class VisaInstrumentFactory:
         ...     dmm = instruments['multimeter']
         ...     print(ps.get_idn())
     """
-    
-    def __init__(self, resource_manager: Optional[VisaResourceManager] = None):
+
+    def __init__(self, resource_manager: VisaResourceManager | None = None):
         """初始化工厂
         
         Args:
             resource_manager: 可选的资源管理器实例
         """
         self._rm = resource_manager or VisaResourceManager()
-        self._configs: Dict[str, Dict[str, Any]] = {}
-        self._instruments: Dict[str, VisaInstrument] = {}
-    
+        self._configs: dict[str, dict[str, Any]] = {}
+        self._instruments: dict[str, VisaInstrument] = {}
+
     def register(
         self,
         name: str,
@@ -619,7 +617,7 @@ class VisaInstrumentFactory:
             'kwargs': kwargs
         }
         logger.debug(f"已注册仪器 '{name}': {resource_name}")
-    
+
     def open(self, name: str) -> VisaInstrument:
         """打开指定仪器
         
@@ -631,7 +629,7 @@ class VisaInstrumentFactory:
         """
         if name not in self._configs:
             raise VisaError(f"未找到仪器配置: {name}")
-        
+
         config = self._configs[name]
         instrument = VisaInstrument(
             config['resource_name'],
@@ -640,8 +638,8 @@ class VisaInstrumentFactory:
         )
         self._instruments[name] = instrument
         return instrument
-    
-    def open_all(self) -> Dict[str, VisaInstrument]:
+
+    def open_all(self) -> dict[str, VisaInstrument]:
         """打开所有注册的仪器
         
         Returns:
@@ -651,24 +649,24 @@ class VisaInstrumentFactory:
             if name not in self._instruments:
                 self.open(name)
         return self._instruments.copy()
-    
+
     def close_all(self) -> None:
         """关闭所有仪器"""
         for name, instrument in list(self._instruments.items()):
             instrument.close()
         self._instruments.clear()
         logger.info("所有仪器已关闭")
-    
+
     def close(self) -> None:
         """关闭工厂和所有资源"""
         self.close_all()
         if self._rm:
             self._rm.close()
             self._rm = None
-    
+
     def __enter__(self):
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 

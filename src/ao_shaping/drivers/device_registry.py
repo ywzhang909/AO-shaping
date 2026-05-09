@@ -7,14 +7,14 @@ for building digital twin systems.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 from loguru import logger
 
 from ao_shaping.drivers.device_base import (
     Device,
     DeviceError,
-    DeviceMetadata,
     DeviceState,
     DeviceType,
 )

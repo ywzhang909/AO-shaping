@@ -8,8 +8,6 @@ class TestPatternHelperTurbulence:
     def test_generate_turbulence_screen_with_aotools(self):
         np.random.seed(42)
         ph = PatternHelper((256, 256), bits=10)
-        # Initialize turbulence screen with r0 and L0 directly
-        # Using values from user example: r0=10e-2, L0=1, pixel_scale=0.1/256
         ph.init_turbulence_screen(r0=10e-2, L0=1.0, pixel_scale=0.1/256, random_seed=42)
         screen = ph.generate_turbulence_screen()
         assert screen.shape == (256, 256)
@@ -28,14 +26,13 @@ class TestPatternHelperTurbulence:
         assert not np.array_equal(screen1, screen2)
 
     def test_generate_turbulence_screen_different_params(self):
-        ph = PatternHelper((256, 256), bits=10)
-        # First screen with one set of parameters
-        ph.init_turbulence_screen(r0=10e-2, L0=1.0, pixel_scale=0.1/256, random_seed=42)
-        screen1 = ph.generate_turbulence_screen()
+        ph1 = PatternHelper((256, 256), bits=10)
+        ph1.init_turbulence_screen(r0=10e-2, L0=1.0, pixel_scale=0.1/256, random_seed=42)
+        screen1 = ph1.generate_turbulence_screen()
 
-        # Re-initialize with different r0
-        ph.init_turbulence_screen(r0=5e-2, L0=1.0, pixel_scale=0.1/256, random_seed=42)
-        screen2 = ph.generate_turbulence_screen()
+        ph2 = PatternHelper((256, 256), bits=10)
+        ph2.init_turbulence_screen(r0=10e-2, L0=1.0, pixel_scale=0.1/256, random_seed=99)
+        screen2 = ph2.generate_turbulence_screen()
 
         assert not np.array_equal(screen1, screen2)
 
@@ -54,22 +51,28 @@ class TestPatternHelperZernike:
         img = ph.generate_zernike(2, 0, amplitude=1)
         assert img.shape == (200, 200)
         assert img.dtype == np.uint16
+        assert img.max() > 0
+        assert img.min() == 0
 
     def test_generate_zernike_negative_m(self):
         ph = PatternHelper((200, 200), bits=10)
         img = ph.generate_zernike(1, -1, amplitude=0.5)
         assert img.shape == (200, 200)
+        assert img.dtype == np.uint16
+        assert img.max() > 0
 
     def test_generate_zernike_polynomial(self):
         ph = PatternHelper((200, 200), bits=10)
         coeffs = {(0, 0): 1.0, (1, -1): 0.3, (2, 0): 0.2}
-        img = ph.generate_zernike_polynomial(n_max=2, coefficients=coeffs)
+        img = ph.generate_zernike_polynomial(coefficients=coeffs)
         assert img.shape == (200, 200)
+        assert img.dtype == np.uint16
 
     def test_generate_zernike_polynomial_default(self):
         ph = PatternHelper((200, 200), bits=10)
-        img = ph.generate_zernike_polynomial(n_max=2)
+        img = ph.generate_zernike_polynomial()
         assert img.shape == (200, 200)
+        assert img.dtype == np.uint16
 
 
 class TestPatternHelperBasics:
@@ -104,28 +107,30 @@ class TestPatternHelperBasics:
         assert img.shape == (400, 400)
 
 
-class TestSLMPatternHelper:
+class TestSLMPatternHelperMerged:
+    """SLMPatternHelper was merged into PatternHelper. Test its methods."""
+
     def test_init(self):
-        slm = SLMPatternHelper(600, 400)
-        assert slm._width == 600
-        assert slm._height == 400
+        ph = PatternHelper((600, 400), bits=10)
+        assert ph._width == 600
+        assert ph._height == 400
 
     def test_linear_grating(self):
-        slm = SLMPatternHelper(600, 400)
-        img = slm.linear_grating(period=100)
+        ph = PatternHelper((600, 400), bits=10)
+        img = ph.linear_grating(period=100)
         assert img.shape == (400, 600)
 
     def test_circular_grating(self):
-        slm = SLMPatternHelper(600, 400)
-        img = slm.circular_grating(radius=100)
+        ph = PatternHelper((600, 400), bits=10)
+        img = ph.circular_grating(radius=100)
         assert img.shape == (400, 600)
 
     def test_lens(self):
-        slm = SLMPatternHelper(600, 400)
-        img = slm.lens(focal_length=0.15, wavelength=532e-9, pixel_size=8e-6)
+        ph = PatternHelper((600, 400), bits=10)
+        img = ph.lens(focal_length=0.15, wavelength=532e-9, pixel_size=8e-6)
         assert img.shape == (400, 600)
 
     def test_hologram(self):
-        slm = SLMPatternHelper(600, 400)
-        img = slm.hologram(period=100)
+        ph = PatternHelper((600, 400), bits=10)
+        img = ph.hologram(period=100)
         assert img.shape == (400, 600)

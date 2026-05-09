@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ao_shaping.utils.zernike_calc import ZernikeGenerator, nm_to_noll
+from ao_shaping.utils.zernike_calc import ZernikeGenerator
 
 from aotools.turbulence.infinitephasescreen import PhaseScreenKolmogorov
 
@@ -294,37 +294,16 @@ class PatternHelper:
         amplitude: float = 1.0,
         radius: float | None = None,
     ) -> np.ndarray:
-        """Generate single Zernike polynomial phase pattern.
-
-        Args:
-            n: Zernike radial order.
-            m: Zernike azimuthal order.
-            amplitude: Coefficient amplitude.
-            radius: Aperture radius (pixels). Defaults to min(h,w)/2.
-
-        Returns:
-            Zernike phase pattern as uint16 grayscale values (0 to 2^bits-1).
-        """
         gen = ZernikeGenerator(resolution=(self._width, self._height), radius=radius)
         gen.set_bits(self.bits)
-        j = nm_to_noll(n, m) - 1
-        phase_rad = gen.generate(n, m, amplitude)
-        return self.to_uint16(phase_rad)
+        phase = gen.generate(n, m, amplitude)
+        return self._zernike_to_uint16(phase)
 
     def generate_zernike_polynomial(
         self,
         coefficients: dict[tuple[int, int], float] | None = None,
         radius: float | None = None,
     ) -> np.ndarray:
-        """Generate multi-mode Zernike polynomial phase pattern.
-
-        Args:
-            coefficients: Dictionary mapping (n, m) to amplitude.
-            radius: Aperture radius (pixels).
-
-        Returns:
-            Zernike phase pattern as uint16 grayscale values (0 to 2^bits-1).
-        """
         gen = ZernikeGenerator(resolution=(self._width, self._height), radius=radius)
         gen.set_bits(self.bits)
 
@@ -333,9 +312,13 @@ class PatternHelper:
         if not coefficients:
             return np.zeros((self._height, self._width), dtype=np.uint16)
 
-        # Generate phase in radians, then convert to uint16
-        phase_rad = gen.generate_polynomial(coefficients)
-        return self.to_uint16(phase_rad)
+        phase = gen.generate_polynomial(coefficients)
+        return self._zernike_to_uint16(phase)
+
+    def _zernike_to_uint16(self, phase: np.ndarray) -> np.ndarray:
+        result = np.nan_to_num(phase, nan=0.0)
+        result = (result - result.min()) / (result.max() - result.min() + 1e-10)
+        return (result * self._max_val).astype(np.uint16)
 
     def to_uint16(self, phase_radians: np.ndarray) -> np.ndarray:
         """将弧度相位转换为uint16格式。
@@ -544,10 +527,10 @@ class PatternHelper:
         """
         # 涡旋相位：phi = l * theta，其中theta是角坐标
         phase = topological_charge * self.Theta
-        
+
         if not wrap_phase:
             return phase
-            
+
         # 将相位包裹到[0, 2π)范围并转换为uint16
         phase_wrapped = np.mod(phase, 2 * np.pi)
         img = (phase_wrapped / (2 * np.pi) * self._max_val).astype(np.uint16)

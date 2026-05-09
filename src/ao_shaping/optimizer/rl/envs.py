@@ -1,12 +1,11 @@
 import os
 import time
-from typing import Tuple, Any, Dict
+from typing import Any
 
 import gymnasium as gym
 from gymnasium import spaces
 import pygame
 import numpy as np
-import time
 
 from ao_shaping.drivers import CameraStreamManager, NlightDM
 from ao_shaping.drivers.sim.beam_backend import make_beam_config, turbulence_phase
@@ -20,8 +19,6 @@ from ao_shaping.drivers.sim.compat import (
 Far_Cam_ID = int(os.environ.get('Far_Cam_ID', '1'))
 Near_Cam_ID = int(os.environ.get('Near_Cam_ID', '0'))
 
-# TODO 添加近场图像
-
 
 class LaserCastEnv(gym.Env):
     metadata = {'render.modes': ['human', 'ansi', 'rgb_array']}
@@ -30,9 +27,9 @@ class LaserCastEnv(gym.Env):
 
     参数:
     '''
-    def __init__(self, max_iter, target_power=10_000, r_bucket=5, img_size:Tuple[int,int]=(250,250), history_len:int=8, render_mode='human', img_noise:bool=False) -> None:
+    def __init__(self, max_iter, target_power=10_000, r_bucket=5, img_size:tuple[int,int]=(250,250), history_len:int=8, render_mode='human', img_noise:bool=False) -> None:
         super().__init__()
-        
+
         self.cam = CameraStreamManager(cam_id=Far_Cam_ID, exposure_time_ms=70, skip_sampling=False)
         self.dm = NlightDM(keep_when_exit=True)
         # 初始化 DM 设备
@@ -44,14 +41,14 @@ class LaserCastEnv(gym.Env):
         self.dm.initialize()
 
         self.action_dim = self.dm.DM_Num-1
-        
+
         self.history_len = history_len
-        
+
         self.r_bucket = r_bucket
         self._ideal_power = 255*(2*r_bucket)**2
         self.target_power = target_power if target_power else self._ideal_power
         self.max_iter = max_iter
-        
+
         self.wighted_mask = 0
         self.action_space:spaces.Box = spaces.Box(low=-5, high=5, shape=(self.action_dim,), dtype=np.float32)
         self.observation_space = spaces.Dict({
@@ -64,8 +61,8 @@ class LaserCastEnv(gym.Env):
         self.render_mode = render_mode
         self.window = None
         self.clock = None
-        
-    def step(self, action:np.ndarray)->Tuple[dict, float, bool, bool, dict]:
+
+    def step(self, action:np.ndarray)->tuple[dict, float, bool, bool, dict]:
         """
         执行一个动作并返回相应的观测、奖励、是否完成、是否达到最大迭代次数以及信息。
 
@@ -80,21 +77,21 @@ class LaserCastEnv(gym.Env):
         dv[1:] = action.astype(float)
         # 计算新的电压值v，通过将当前电压self.v与dv相加，并将结果限制在-299到499之间
         _v = np.clip(self.v + dv, -300, 499)
-        
+
         self.dm.send_voltages(_v, 0.002)
         self.img = self.cam.get_numpy_image()[np.newaxis,:,:]
         if self.img_noise:
             noise = np.random.normal(0, 10, self.img.shape).astype(self.img.dtype)
             self.img = np.clip(self.img+noise, 0, 255).astype(self.img.dtype)
-            
+
         _power = self.calc_pib(self.img)
-        
+
         if self.img_noise:
             reward = (_power - self.history_powers[-1])
-            
+
             if _power>=self.target_power:
                 reward = _power * self._time_penalty * (self.max_iter - self.iter)
-            
+
             # 如果电压超出范围或最小电压变化小于1，则给予负奖励
             forbiden_cond = any([
                 (np.min(self.v + dv) < -150 or np.max(self.v + dv) > 200),
@@ -105,7 +102,7 @@ class LaserCastEnv(gym.Env):
                 reward = -10 * (self.target_power - _power) * self._time_penalty * (self.max_iter - self.iter)**2
         else:
             reward = _power
-        
+
         # 更新历史电压、功率和强度数组
         self.history_votages = np.roll(self.history_votages, -1, axis=0)
         self.history_votages[-1,:] = _v
@@ -113,28 +110,28 @@ class LaserCastEnv(gym.Env):
         self.history_powers[-1] = _power
         self.history_intensity = np.roll(self.history_intensity, -1, axis=0)
         self.history_intensity[-1,:,:] = self.img[0,:,:]
-        
+
         self.v = _v
         self.last_power = _power
         self.iter += 1
 
         return self.step_obs, reward, _power>=self.target_power, forbiden_cond, self.step_info
 
-    def reset(self, *, seed=None, options=None) -> Tuple[Any, dict]:
+    def reset(self, *, seed=None, options=None) -> tuple[Any, dict]:
         super().reset(seed=seed, options=options)
         if seed:
             np.random.seed(seed)
-        
+
         self.init_env()
         self.iter = 0
         self._time_penalty = abs(self.target_power / self.max_iter)
-        
+
         return self.step_obs, self.step_info
-    
+
     def seed(self, seed=None):
         self.np_random, seed = gym.utils.seeding.np_random(seed)
         return [seed]
-    
+
     @property
     def step_obs(self):
         scaled_voltages = (self.history_votages + self.v_low) / (self.v_high-self.v_low) - 0.5
@@ -143,11 +140,11 @@ class LaserCastEnv(gym.Env):
             "image": self.history_intensity,
             "powers": self.history_powers / self._ideal_power
         }
-        
+
     @property
     def step_info(self)->dict:
         return {'J':self.last_power, 'iter': self.iter, 'v':self.v}
-        
+
     @property
     def v_low(self):
         return self.action_space.low[0]
@@ -155,7 +152,7 @@ class LaserCastEnv(gym.Env):
     @property
     def v_high(self):
         return self.action_space.high[0]
-    
+
     def init_env(self) -> None:
         """
         初始化环境。
@@ -183,32 +180,32 @@ class LaserCastEnv(gym.Env):
         c_x, c_y = self.center
         xv, yv = np.ogrid[:self.img_size[0], :self.img_size[1]]
         self.imgmesh_dist = np.sqrt((xv-c_x) ** 2 + (yv-c_y) ** 2)
-        
+
         self.img = np.expand_dims(_img, 0)
-        
+
         self.last_power = self.calc_pib(self.img)
         self.init_power = self.last_power
-        
+
         self.history_votages = np.zeros((self.history_len, self.dm.DM_Num), dtype=np.float32)
         self.history_powers = np.ones((self.history_len, 1), dtype=np.float32) * self.init_power
         self.history_intensity = np.repeat(self.img, self.history_len, axis=0)
-        
+
         self.init_obs = self.step_obs.copy()
-        
+
     def calc_pib(self, img:np.ndarray)->float:
         bucket_mask = self.imgmesh_dist <= self.r_bucket
         return np.sum(img[0][bucket_mask]).astype(float)
-    
+
     def calc_target(self) -> float:
         return np.sum(self.wighted_mask*self.img) / (self.img_size[0]*self.img_size[1])
-    
+
     def render(self)->Any:
         if not self.window and self.render_mode == 'human':
             pygame.init()
             self.window = pygame.display.set_mode(self.img_size)
             self.clock = time.time()
-        
-        if self.render_mode == 'human':    
+
+        if self.render_mode == 'human':
             canvas = pygame.surfarray.make_surface(self.img[0].transpose())
             h_r = self.r_bucket//2
             pygame.draw.rect(canvas, (255, 0, 0), (self.img_size[0]//2-h_r, self.img_size[1]//2-h_r, 2*h_r, 2*h_r), 1)
@@ -216,12 +213,12 @@ class LaserCastEnv(gym.Env):
             self.window.blit(canvas, canvas.get_rect())
             pygame.event.pump()
             pygame.display.update()
-            
+
         elif self.render_mode == 'ansi':
             gain = self.last_power - self.init_power
             output_str = f'{self.last_power=} {gain=}'
             return output_str
-            
+
         elif self.render_mode == 'rgb_array':
             return self.img.copy()
 
@@ -238,7 +235,7 @@ class TraditionalAOEnv(gym.Env):
     """
     metadata = {'render_modes': ['human', 'rgb_array']}
 
-    def __init__(self, 
+    def __init__(self,
                  N: int = 64,
                  max_steps: int = 50,
                  n_actuators: int = 4,
@@ -259,7 +256,7 @@ class TraditionalAOEnv(gym.Env):
             render_mode: 渲染模式
         """
         super(TraditionalAOEnv, self).__init__()
-        
+
         self.N = N
         self.max_steps = max_steps
         self.n_actuators = n_actuators
@@ -268,23 +265,23 @@ class TraditionalAOEnv(gym.Env):
         self.Cn2 = Cn2
         self.render_mode = render_mode
         self.step_count = 0
-        
+
         # 物理参数
         self.L = 0.1  # 孔径尺寸 (m)
         self.wavelength = 1550e-9  # 波长 (m)
         self.dx = self.L / N
-        
+
         # 初始化设备
         self._init_devices()
-        
+
         # 动作空间: DM电压 (归一化到[-1, 1])
         self.action_dim = n_actuators * n_actuators
         self.action_space = spaces.Box(
-            low=-1.0, high=1.0, 
-            shape=(self.action_dim,), 
+            low=-1.0, high=1.0,
+            shape=(self.action_dim,),
             dtype=np.float32
         )
-        
+
         # 观测空间: 包含历史信息的字典
         # image: 强度图像 (N, N) -> 归一化到 [0, 1]
         # slopes: 波前斜率 (2 * n_subapertures^2,)
@@ -312,19 +309,19 @@ class TraditionalAOEnv(gym.Env):
                 dtype=np.float32
             )
         })
-        
+
         # 初始化状态
         self._init_state()
-        
+
         # 用于进度奖励
         self.prev_strehl = 0.0
         self.prev_rms = 1.0
         self.best_strehl = 0.0
-        
+
         # 渲染相关
         self.window = None
         self.clock = None
-    
+
     def _init_devices(self):
         """初始化仿真设备"""
         self.config = AOConfig(
@@ -345,7 +342,7 @@ class TraditionalAOEnv(gym.Env):
         self.current_voltages = np.zeros(self.action_dim, dtype=np.float32)
         self._reset_sim()
 
-    
+
     def _reset_sim(self):
         """使用仿真模块重置"""
         result = self.ao_system.reset()
@@ -354,24 +351,24 @@ class TraditionalAOEnv(gym.Env):
         self.prev_strehl = result['strehl']
         self.prev_rms = np.sqrt(np.mean(self.ao_system.turbulence.phase_screen**2))
         self.best_strehl = self.prev_strehl
-    
+
     def reset(self, seed=None, options=None):
         """重置环境"""
         super().reset(seed=seed)
         if seed is not None:
             np.random.seed(seed)
-        
+
         self._init_state()
-        
+
         return self._get_obs(), self._get_info()
-    
+
     def step(self, action: np.ndarray):
         """执行一步"""
         if self.step_count >= self.max_steps:
             return self._get_obs(), 0.0, True, False, self._get_info()
-        
+
         self.step_count += 1
-        
+
         # 应用动作 (带平滑)
         action = np.clip(action, -1, 1)
         self.current_voltages = action.copy()
@@ -379,15 +376,15 @@ class TraditionalAOEnv(gym.Env):
 
         # 计算奖励
         reward = self._calculate_reward()
-        
+
         # 更新历史
         self._update_history()
-        
+
         # 检查终止条件
         done = self.step_count >= self.max_steps
-        
+
         return self._get_obs(), reward, done, False, self._get_info()
-    
+
     def _step_sim(self, action):
         """使用仿真模块执行一步"""
         result = self.ao_system.step(action)
@@ -396,55 +393,55 @@ class TraditionalAOEnv(gym.Env):
         # 保存从step返回的性能指标
         self.current_strehl = result['strehl']
         self.current_power = result['power']
-    
+
     def _calculate_reward(self) -> float:
         """计算奖励 - 改进版，解决收敛问题"""
         # 获取当前性能
-        
+
         # 使用湍流相位屏计算，不使用不存在的E_corrected
         phase = self.ao_system.turbulence.phase_screen
         strehl = np.exp(-np.std(phase)**2) if self.step_count > 0 else self.prev_strehl
         rms = np.sqrt(np.mean(phase**2)) if self.step_count > 0 else self.prev_rms
 
-        
+
         if self.reward_type == 'shaped':
             # 成形奖励：组合多种信号
             # 1. Strehl比奖励 (主要)
             strehl_reward = strehl * 10.0  # 缩放到合理范围
-            
+
             # 2. 进步奖励 (鼓励改善)
             strehl_improvement = max(0, strehl - self.prev_strehl) * 20.0
-            
+
             # 3. RMS奖励 (低RMS好)
             rms_reward = (1.0 - min(rms / 2.0, 1.0)) * 5.0
-            
+
             # 4. 动作正则化 (惩罚大动作)
             action_penalty = -0.01 * np.mean(np.abs(self.current_voltages))
-            
+
             # 5. 稳定性奖励 (保持好性能)
             stability_bonus = 0.0
             if strehl > self.best_strehl:
                 stability_bonus = (strehl - self.best_strehl) * 10.0
                 self.best_strehl = strehl
-            
+
             reward = strehl_reward + strehl_improvement + rms_reward + action_penalty + stability_bonus
-            
+
         elif self.reward_type == 'strehl':
             # 仅Strehl奖励
             reward = strehl * 10.0 + max(0, strehl - self.prev_strehl) * 5.0
-            
+
         elif self.reward_type == 'progress':
             # 进步奖励
             reward = (strehl - self.prev_strehl) * 50.0
         else:
             reward = strehl * 10.0
-        
+
         # 更新previous值
         self.prev_strehl = strehl
         self.prev_rms = rms
-        
+
         return float(reward)
-    
+
     def _update_history(self):
         """更新历史记录"""
         # 使用从step返回的性能指标
@@ -455,8 +452,8 @@ class TraditionalAOEnv(gym.Env):
         # 滚动历史
         self.history = np.roll(self.history, -1, axis=0)
         self.history[-1] = [strehl, rms, power]
-    
-    def _get_obs(self) -> Dict:
+
+    def _get_obs(self) -> dict:
         """获取观测"""
         return {
             "image": self.current_image.astype(np.float32),
@@ -464,8 +461,8 @@ class TraditionalAOEnv(gym.Env):
             "history": self.history.astype(np.float32),
             "voltages": self.current_voltages.astype(np.float32)
         }
-    
-    def _get_info(self) -> Dict:
+
+    def _get_info(self) -> dict:
         """获取信息"""
         strehl = self.prev_strehl
         rms = np.sqrt(np.mean(self.ao_system.turbulence.phase_screen**2))
@@ -476,36 +473,36 @@ class TraditionalAOEnv(gym.Env):
             "step": self.step_count,
             "best_strehl": float(self.best_strehl)
         }
-    
+
     def render(self, mode='human'):
         """渲染环境"""
         if mode == 'human':
             self._render()
         elif mode == 'rgb_array':
             return (self.current_image * 255).astype(np.uint8)
-    
+
     def _render(self):
         """备用渲染实现"""
         intensity = (self.current_image * 255).astype(np.uint8)
-        
+
         if not self.window:
             pygame.init()
             self.window = pygame.display.set_mode((self.N * 2, self.N))
             self.clock = pygame.time.Clock()
-        
+
         surf = pygame.surfarray.make_surface(intensity)
         self.window.blit(surf, (0, 0))
-        
+
         # 绘制信息
         font = pygame.font.Font(None, 24)
         info = self._get_info()
         info_text = f"Step: {info['step']}, Strehl: {info['strehl']:.3f}, RMS: {info['rms']:.4f}"
         text_surf = font.render(info_text, True, (255, 255, 255))
         self.window.blit(text_surf, (10, 10))
-        
+
         pygame.display.flip()
         self.clock.tick(30)
-    
+
     def close(self):
         """关闭环境"""
         if self.window:
@@ -690,7 +687,7 @@ class _BaseSimAOEnv(gym.Env):
         self.ao_system._wavefront_override = None
         self.ao_system._invalidate_cached_outputs()
 
-    def _sync_from_result(self, result: Dict[str, Any]) -> None:
+    def _sync_from_result(self, result: dict[str, Any]) -> None:
         image = result["image"].astype(np.float32)
         image_norm = image / max(float(np.max(image)), 1.0)
         self._last_rms = float(result.get("phase_rms", 0.0))
@@ -735,7 +732,7 @@ class _BaseSimAOEnv(gym.Env):
         reward = reward - action_cost - saturation_cost - self.time_penalty
         return float(reward)
 
-    def _get_obs(self) -> Dict[str, np.ndarray]:
+    def _get_obs(self) -> dict[str, np.ndarray]:
         if self._ccd_history is None or self._slopes_history is None or self._dm_history is None:
             raise RuntimeError("Environment not initialized. Call reset() first.")
         return {
@@ -754,8 +751,8 @@ class _BaseSimAOEnv(gym.Env):
             ),
         }
 
-    def _get_info(self) -> Dict[str, float | int]:
-        info: Dict[str, float | int] = {
+    def _get_info(self) -> dict[str, float | int]:
+        info: dict[str, float | int] = {
             "strehl": self._last_strehl,
             "best_strehl": self._best_strehl,
             "rms": self._last_rms,

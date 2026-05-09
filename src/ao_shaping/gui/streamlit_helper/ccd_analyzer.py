@@ -13,13 +13,9 @@ import numpy as np
 from pathlib import Path
 import sys
 import time
-import logging
-from typing import Tuple, Optional
 
 # Add the src directory to the path when running this file directly via Streamlit.
-import sys
 import types
-from pathlib import Path
 
 # ccd_analyzer.py is at: src/ao_shaping/gui/steamlit_helper/ccd_analyzer.py
 SRC_ROOT = Path(__file__).resolve().parents[3]  # src/
@@ -71,7 +67,7 @@ def gaussian(
 
 def fit_gaussian(
     x: np.ndarray, y: np.ndarray
-) -> Tuple[Optional[np.ndarray], Optional[float]]:
+) -> tuple[np.ndarray | None, float | None]:
     """
     对数据进行高斯拟合。
 
@@ -114,7 +110,7 @@ def fit_gaussian(
 
 def calculate_enclosing_ellipse(
     img: np.ndarray, threshold_ratio: float = 0.1
-) -> Tuple[Tuple[float, float], Tuple[float, float], float]:
+) -> tuple[tuple[float, float], tuple[float, float], float]:
     """
     计算包围椭圆。
 
@@ -179,12 +175,9 @@ def calculate_enclosing_ellipse(
 
 def draw_ellipse_on_image(
     img: np.ndarray,
-    ellipse_params: Tuple[Tuple[float, float], Tuple[float, float], float],
+    ellipse_params: tuple[tuple[float, float], tuple[float, float], float],
 ) -> np.ndarray:
     """在图像上绘制椭圆并返回带标记的图像。"""
-    import matplotlib.patches as mpatches
-    from matplotlib.colors import Normalize
-    import matplotlib.cm as cm
 
     # 归一化图像到0-255
     img_normalized = ((img - img.min()) / (img.max() - img.min() + 1e-8) * 255).astype(
@@ -237,8 +230,8 @@ def draw_ellipse_on_image(
 
 
 def get_cross_sections(
-    img: np.ndarray, center: Tuple[float, float], width: int = 5
-) -> Tuple[np.ndarray, np.ndarray]:
+    img: np.ndarray, center: tuple[float, float], width: int = 5
+) -> tuple[np.ndarray, np.ndarray]:
     """
     获取X和Y方向的强度分布截面（从质心位置提取）。
 

@@ -14,11 +14,8 @@ delay, not actual hardware exposure.
 
 from __future__ import annotations
 
-import os
 import time
-from datetime import datetime
 from pathlib import Path
-from typing import Tuple
 
 import numpy as np
 
@@ -84,7 +81,7 @@ class FFmpegCamera(BaseCamera):
         self._frame_count = 0
         self._total_frames = 0
 
-    def __enter__(self) -> "FFmpegCamera":
+    def __enter__(self) -> FFmpegCamera:
         """Context manager entry - initialize camera."""
         self.initialize()
         return self
@@ -203,9 +200,9 @@ class FFmpegCamera(BaseCamera):
 
     def reset_window(
         self,
-        center: Tuple[int, int] | Tuple[np.intp, ...],
-        size: Tuple[int, int],
-    ) -> Tuple[Tuple[int, int], Tuple[int, int]]:
+        center: tuple[int, int] | tuple[np.intp, ...],
+        size: tuple[int, int],
+    ) -> tuple[tuple[int, int], tuple[int, int]]:
         """Reset the video ROI (not supported for FFmpeg).
 
         FFmpeg does not support region of interest. Returns current dimensions.
@@ -457,7 +454,7 @@ class ImageFolderCamera(BaseCamera):
         self._current_index: int = 0
         self._last_image: np.ndarray | None = None
 
-    def __enter__(self) -> "ImageFolderCamera":
+    def __enter__(self) -> ImageFolderCamera:
         """Context manager entry - initialize camera."""
         self.initialize()
         return self
@@ -483,7 +480,6 @@ class ImageFolderCamera(BaseCamera):
         # Close previously opened folder
         self.close()
 
-        import cv2
 
         # Convert cam_id to Path
         self._folder_path = Path(self.cam_id)
@@ -600,9 +596,9 @@ class ImageFolderCamera(BaseCamera):
 
     def reset_window(
         self,
-        center: Tuple[int, int] | Tuple[np.intp, ...],
-        size: Tuple[int, int],
-    ) -> Tuple[Tuple[int, int], Tuple[int, int]]:
+        center: tuple[int, int] | tuple[np.intp, ...],
+        size: tuple[int, int],
+    ) -> tuple[tuple[int, int], tuple[int, int]]:
         """Reset the image ROI (not supported).
 
         Image folder camera does not support ROI. Returns current dimensions.
@@ -643,7 +639,6 @@ class ImageFolderCamera(BaseCamera):
         assert self._folder_path is not None, "camera not initialized"
         assert n_sample > 0, "Sample count must be > 0"
 
-        import cv2
 
         # Skip first image if requested
         if skip_first:

@@ -30,7 +30,7 @@ from ml.phase import (
     build_discriminator,
 )
 
-# Zernike submodule exports  
+# Zernike submodule exports
 from ml.zernike import (
     ResNetRegression,
     SimpleCNNRegression,
@@ -52,7 +52,7 @@ from ml.zernike.dataset import coefficients_to_phase_map as _phase_map_helper
 __all__ = [
     # Phase prediction
     "UNetGenerator",
-    "PatchGANDiscriminator", 
+    "PatchGANDiscriminator",
     "PhasePredictionDataset",
     "PhaseGANTrainer",
     "create_dataloaders",

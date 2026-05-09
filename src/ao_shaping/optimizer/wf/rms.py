@@ -1,4 +1,5 @@
-from typing import Literal, Sequence
+from typing import Literal
+from collections.abc import Sequence
 import tqdm
 
 import numpy as np
@@ -55,8 +56,8 @@ def optimizer_rms(
 
         wfs_res_config = MlaRes.from_str(wfs_res)
 
-        with Thorlab_WFS(wfs_res_config, 
-                         use_custom_ref=False, high_speed=True, 
+        with Thorlab_WFS(wfs_res_config,
+                         use_custom_ref=False, high_speed=True,
                          pupil_diameter=pupil_diameter,
                          pupil_center=pupil_center) as wfs:
 

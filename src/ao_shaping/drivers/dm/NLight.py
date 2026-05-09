@@ -18,7 +18,7 @@ class NLight(DM):
     DM_NUM: int = DM_NUM
     n_actuators: int = DM_NUM
     disabled_actuators: list[int] = [0]
-    
+
     V_Min, V_Max = -300, 499
     Units_Adj_Mat = _load_adj_txt()
 

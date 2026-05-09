@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Literal
+from typing import Any, Literal
+from collections.abc import Callable
 
-import numpy as np
 from skopt import gp_minimize
 from skopt.space import Real
 from skopt.utils import use_named_args

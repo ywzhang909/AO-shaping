@@ -44,6 +44,8 @@ from ao_shaping.utils.spots_calc import (
     radius,
     effective_radius,
     power_bucket,
+    power_in_bucket_mask,
+    pib_ratio_mask,
     disp,
 )
 
@@ -206,6 +208,8 @@ __all__ = [
     "peak_position",
     "plot_funcs",
     "power_bucket",
+    "power_in_bucket_mask",
+    "pib_ratio_mask",
     "radius",
     "save_history",
     "sort_by_timestamp",

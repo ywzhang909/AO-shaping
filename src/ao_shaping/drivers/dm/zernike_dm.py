@@ -4,7 +4,7 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.dm.base import DM
-from ao_shaping.utils.zernike_calc import ZernikeGenerator, noll_to_nm, calc_n_zernike_terms
+from ao_shaping.utils.zernike_calc import ZernikeGenerator, noll_to_nm
 
 
 class ZernikeDM(DM):

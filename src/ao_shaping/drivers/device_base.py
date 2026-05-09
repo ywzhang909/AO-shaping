@@ -11,7 +11,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
-from typing import Any, Callable, ClassVar
+from typing import Any, ClassVar
+from collections.abc import Callable
 
 from loguru import logger
 
@@ -228,7 +229,7 @@ class Device(ABC):
 
     # ==================== Context Manager ====================
 
-    def __enter__(self) -> "Device":
+    def __enter__(self) -> Device:
         """Context manager entry."""
         self.open()
         return self

@@ -2,28 +2,13 @@ import sys
 from ctypes import (
     POINTER,
     cdll,
-    CDLL,
-    c_bool,
-    c_byte,
     c_char,
     c_char_p,
-    c_double,
-    c_float,
     c_int,
-    c_int16,
     c_int32,
-    c_int8,
-    c_long,
-    c_longlong,
     c_short,
-    c_size_t,
-    c_ssize_t,
     c_ubyte,
-    c_uint,
-    c_uint16,
     c_uint32,
-    c_uint8,
-    c_ulong,
     c_ulonglong,
     c_ushort,
     c_void_p,
@@ -34,16 +19,9 @@ from ctypes import (
 from ctypes.wintypes import DWORD
 from ctypes.wintypes import ULONG
 from ctypes.wintypes import WORD
-from ctypes.wintypes import BYTE
-from ctypes.wintypes import BOOL
-from ctypes.wintypes import BOOLEAN
 from ctypes.wintypes import LPCSTR
-from ctypes.wintypes import HANDLE
-from ctypes.wintypes import LONG
-from ctypes.wintypes import UINT
 from ctypes.wintypes import LPSTR
 from ctypes.wintypes import LPCWSTR
-from ctypes.wintypes import FILETIME
 import os
 import platform
 import findlibs

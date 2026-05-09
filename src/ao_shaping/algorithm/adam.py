@@ -190,7 +190,7 @@ class MunoW(Muno):
     带权重衰减的 Muno 优化器 (MunoW)
     """
 
-    def __init__(self, dim:int, lr=1.0, beta1=0.9, beta2=0.999, eps=1e-8, 
+    def __init__(self, dim:int, lr=1.0, beta1=0.9, beta2=0.999, eps=1e-8,
                  weight_decay=1e-2, amsgrad=False):
         """
         初始化 MunoW 优化器
@@ -366,8 +366,8 @@ class Muon(Base):
 
         # Apply Muon update
         update, self.momentum_buffer = muon_update(
-            grad, self.momentum_buffer, 
-            beta=self.momentum, 
+            grad, self.momentum_buffer,
+            beta=self.momentum,
             ns_steps=self.ns_steps
         )
 

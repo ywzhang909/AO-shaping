@@ -7,12 +7,11 @@
 此模块提供 PyVISA 兼容的包装层，但底层仍依赖 SDK。
 """
 
-from typing import Optional, Union
 import numpy as np
 from loguru import logger
 
 from .santec_slm200 import SantecSLM200, SantecSLM200Error
-from ..visa_base import VisaInstrument, VisaError, is_pyvisa_available
+from ..visa_base import VisaError
 
 
 class SantecSLM200Visa:

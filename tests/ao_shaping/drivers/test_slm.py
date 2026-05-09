@@ -8,13 +8,17 @@ import ctypes
 import pytest
 import numpy as np
 
+pytestmark = pytest.mark.skip(reason="Requires Santec SLM-200 hardware (Windows DLL)")
+
 import matplotlib.pyplot as plt
 
 from ao_shaping.drivers.slm.santec_slm200 import (
     SantecSLM200,
     SantecSLM200Error,
     VideoMode,
+    MEMORY_MODE_INTERNAL,
 )
+from ao_shaping.drivers.slm.santec_slm200_constants import DVI_MODE
 
 
 @pytest.fixture

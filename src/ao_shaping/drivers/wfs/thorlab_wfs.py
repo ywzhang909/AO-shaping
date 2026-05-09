@@ -29,7 +29,7 @@ def require_take_image(func):
     如果未拍摄，会自动调用 take_image()。
     """
     @wraps(func)
-    def wrapper(self:"WFSManager", *args, **kwargs):
+    def wrapper(self:WFSManager, *args, **kwargs):
         if not self._image_captured:
             logger.debug(
                 f"{func.__name__} requires take_image() to be called first. "
@@ -53,7 +53,7 @@ class MlaRes(IntEnum):
     Res320 = 4
 
     @classmethod
-    def from_str(cls, value: str | int | "MlaRes") -> "MlaRes":
+    def from_str(cls, value: str | int | MlaRes) -> MlaRes:
         """Convert a string or integer to MlaRes enum member.
 
         Args:
@@ -151,7 +151,7 @@ class WFSManager:
             logger.info("high speed mode can only use auto exposure time!")
         self._image_captured = False
 
-    def __enter__(self) -> "WFSManager":
+    def __enter__(self) -> WFSManager:
         """Enter context manager, initialize the device connection.
 
         Returns:
@@ -559,6 +559,76 @@ class WFSManager:
             spots_center_y[: self.num_spots_x, : self.num_spots_y],
         )
 
+    def build_subaperture_mask(
+        self,
+        n_avg: int = 30,
+        threshold_ratio: float = 0.3,
+        edge_clip: int = 1,
+        plot: bool = False,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Build valid subaperture mask for WFS40-5C.
+
+        Args:
+            n_avg: Number of frames to average for noise suppression
+            threshold_ratio: Intensity threshold as ratio of max intensity (0.2-0.4 typical)
+            edge_clip: Number of lenslet rows/cols to clip from edges (1-2 recommended)
+            plot: If True, display visualization
+
+        Returns:
+            tuple: (mask_bool, valid_indices_flat)
+                - mask_bool: 2D boolean array of shape (num_spots_x, num_spots_y)
+                - valid_indices_flat: 1D array of flattened indices for valid subapertures
+        """
+        from scipy import ndimage
+
+        intensities = []
+        for _ in range(n_avg):
+            self.take_image(n_sample=1, dynamicNoiseCut=True)
+            spots_intensities = np.empty(MAX_SPOTS, dtype=np.float32)
+            self._lib.WFS_GetSpotIntensities(self._instrument_handle, spots_intensities)
+            int_mat = spots_intensities[: self.num_spots_x, : self.num_spots_y]
+            intensities.append(int_mat)
+
+        int_mean = np.mean(intensities, axis=0)
+        int_max = np.max(int_mean)
+        threshold = int_max * threshold_ratio
+
+        mask = int_mean > threshold
+
+        if edge_clip > 0:
+            mask[:edge_clip, :] = False
+            mask[-edge_clip:, :] = False
+            mask[:, :edge_clip] = False
+            mask[:, -edge_clip:] = False
+
+        mask = ndimage.binary_opening(mask, structure=np.ones((3, 3)))
+        mask = ndimage.binary_closing(mask, structure=np.ones((3, 3)))
+
+        valid_flat = np.where(mask.flatten())[0]
+
+        logger.info(
+            f"Valid subapertures: {np.sum(mask)}/{mask.size} "
+            f"({np.sum(mask) / mask.size * 100:.1f}%), "
+            f"threshold={threshold:.1f} (max={int_max:.1f})"
+        )
+
+        if plot:
+            import matplotlib.pyplot as plt
+
+            fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+            axes[0].imshow(int_mean, cmap="hot")
+            axes[0].set_title("Mean Intensity")
+            axes[1].imshow(mask, cmap="gray")
+            axes[1].set_title("Valid Mask")
+            overlay = np.dstack([int_mean / int_max] * 3)
+            overlay[~mask] = [0, 0, 1]
+            axes[2].imshow(overlay)
+            axes[2].set_title("Overlay (invalid=blue)")
+            plt.tight_layout()
+            plt.show()
+
+        return mask, valid_flat
+
     @require_take_image
     def get_wavefront(self, cancel_tile: bool = False) -> tuple[np.ndarray, dict]:
         """Calculate wavefront from spot deviations.
@@ -603,8 +673,9 @@ class WFSManager:
                 byref(rms),
                 byref(wighted_rms),
             )
-            # FIXME: 这个函数的返回值不变
             wavefront = deepcopy(wavefront)[: self.num_spots_x, : self.num_spots_y]
+            if np.all(wavefront == 0):
+                logger.warning("WFS_CalcWavefront returned zero-filled buffer — DLL may not have written data")
 
             # wavefront = np.where(wavefront==np.nan, 0, wavefront)
             return wavefront, {
@@ -660,7 +731,7 @@ class WFSManager:
             return wavefront
 
         return wavefront_no_tilt
-    
+
     @staticmethod
     def calc_n_zernike_terms(n):
         return (n + 1) * (n + 2) // 2 + 1
@@ -711,8 +782,6 @@ class WFSManager:
             tuple[np.ndarray, np.ndarray]: (deviation_x, deviation_y) arrays
                each of shape (num_spots_x, num_spots_y)
         """
-        # FIXME: 这个函数的返回值不变
-
         _spots_deviation_x = np.empty(MAX_SPOTS, dtype=np.float32)
         _spots_deviation_y = np.empty(MAX_SPOTS, dtype=np.float32)
         # if err:= self._lib.WFS_CalcSpotsCentrDiaIntens(self._instrument_handle, c_int32(1), c_int32(1)):
@@ -731,6 +800,8 @@ class WFSManager:
             self.handle_error(res)
         x = _spots_deviation_x[: self.num_spots_x, : self.num_spots_y]
         y = _spots_deviation_y[: self.num_spots_x, : self.num_spots_y]
+        if np.all(x == 0) and np.all(y == 0):
+            logger.warning("WFS_GetSpotDeviations returned zero-filled buffers — DLL may not have written data")
 
         return x, y
 
@@ -996,7 +1067,7 @@ class WFSManager:
         if self.device_name.upper() == 'WFS40-5C':
             logger.warning(f'{self.device_name} not support high speed mode!')
             return
-        
+
         def __set_high_speed():
             return self._lib.WFS_SetHighspeedMode(
                 self._instrument_handle,

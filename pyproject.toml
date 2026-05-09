@@ -1,5 +1,8 @@
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+markers = [
+    "hardware: requires physical hardware device",
+]
 
 [project]
 name = "ao_shaping"
@@ -38,6 +41,7 @@ dependencies = [
     "wandb>=0.20.0",
     "aotools>=1.0.7",
     "numba>=0.65.1",
+    "h5py>=3.14.0",
 ]
 
 [project.scripts]
@@ -46,6 +50,7 @@ ao-train = "ml.train:cli"
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
+    "ruff>=0.15.12",
 ]
 
 [[tool.uv.index]]

@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 
-from ao_shaping.utils import gen_date_dir, gen_file_path_uuid, logger
+from ao_shaping.utils import gen_date_dir, gen_file_path_uuid
 from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms
 from ao_shaping.utils.display import plot_funcs
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms

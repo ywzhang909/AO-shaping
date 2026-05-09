@@ -54,7 +54,7 @@ def render(window, img, log, center, r, info="") -> None:
     pygame.draw.circle(canvas, (255, 0, 0), center, r, 1)
     pygame.display.set_caption(info)
     window.blit(canvas, (0,0))
-    
+
     # 绘制电压图
     # 清空之前绘制的条形统计图
     plot_area = pygame.Rect(0, IMG_SIZE[1], IMG_SIZE[0], VOLT_HEIGHT)
@@ -68,7 +68,7 @@ def render(window, img, log, center, r, info="") -> None:
         y = int(IMG_SIZE[1] + VOLT_HEIGHT)
         height = int((value / V_MAX) *  VOLT_HEIGHT)
         pygame.draw.line(window, color, (x, y), (x, y - height), bar_width)
-    
+
     pygame.event.pump()
     pygame.display.update()
 
@@ -122,7 +122,7 @@ def optimizer(
         weighted_mask = ( - imgmesh_dist/np.max(imgmesh_dist) + 1) ** (weights_class)
         bucket_mask = imgmesh_dist < r_bucket**2
         fix_r_mask = imgmesh_dist < 20**2
-        
+
         if show:
             total_height = VOLT_HEIGHT + LOG_J_HEIGHT + cam.cam_height
             pygame.init()
@@ -143,9 +143,9 @@ def optimizer(
             _pib = calc_pib(img, r_bucket) * weighted_ratio[1] if weighted_ratio[1] else 0
             _wp = calc_weighted_power(img) * weighted_ratio[-1] if weighted_ratio[-1] else 0
             return _pib+_wp+_pib_r_20
-            
+
             # return  np.max(img)
-        
+
         history = [
             {
                 "J": calc_j(init_img),
@@ -181,7 +181,7 @@ def optimizer(
 
                 gradient = np.sign(pos_j - neg_j) * disturb_v
                 _to_update_v = _init_v + gradient * lr
-                
+
                 if check_dm_unit_grad_safe(_to_update_v):
                     _init_v = _to_update_v
                 else:
@@ -211,7 +211,7 @@ def optimizer(
                     render(
                         window, img, history, center, r_bucket, f"{epoch}: J={log['J']:.3f}"
                     )
-                
+
 
                 bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
                 bar.update(1)
@@ -228,24 +228,24 @@ def run():
 
     res_list = optimizer(
         init_v=init_V.copy(),
-        epochs=10000, 
-        r_bucket=10, 
+        epochs=10000,
+        r_bucket=10,
         delta=1, # 扰动要和桶半径匹配，不要扰动会导致质心出桶
-        lr=1, 
+        lr=1,
         weights_class=1,
         pid_weighted_ratio=1,
         shrank_iter=0,
         center=(776, 470))
-    
+
     res_df = pd.DataFrame(res_list)
     res_df.to_pickle('record.pkl', compression=None)
     max_j_id = -1
     last_V = res_df.iloc[max_j_id]["_v"]
     print(f"{max_j_id} -> {res_df.iloc[max_j_id]['J']}")
-    
+
     def get_nerbors(unit_id):
         return (a for a in np.where(DM_Adj[unit_id, :] == 1)[0])
-    
+
     base_unit_id = np.argmin(np.abs(last_V[1:]))+1
     checked_mask = np.zeros_like(DM_Adj, dtype=bool)
     def reset_nerbors(unit_id, v):

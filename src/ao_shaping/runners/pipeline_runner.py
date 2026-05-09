@@ -57,7 +57,7 @@ def run(dir, load_file, epochs, wf_epochs, wfs_res, pupil_diameter, cam_id, expo
 
     ccd_records = optimize_pib(
         cam_id=cam_id, center="mass",
-        exposure_time_ms=exposure_time_ms, 
+        exposure_time_ms=exposure_time_ms,
         cam_size=cam_size,
         dm_unit_mask=dm_available,
         target_max_brightness=0,
@@ -89,7 +89,7 @@ def run(dir, load_file, epochs, wf_epochs, wfs_res, pupil_diameter, cam_id, expo
         plot_funcs["voltage_comparison"](init_v, last_V, ax[0, 3], "Voltage Comparison")
         voltages = np.array(wf_records.get_sublist("_v")+ccd_records.get_sublist("_v")[1:])
         plot_funcs["voltage_heatmap"](voltages, ax[1, 3], "Voltage History")
-            
+
         plt.tight_layout()
         save_dir = gen_date_dir(f'{dir}/pipeline')
         saved_file_name = gen_file_path_uuid(save_dir)
@@ -111,7 +111,7 @@ def run(dir, load_file, epochs, wf_epochs, wfs_res, pupil_diameter, cam_id, expo
                 'rms_threshold': rms_threshold,
                 'debug': debug
             }, f, ensure_ascii=False, indent=4)
-    
+
     click.echo(f"组合优化完成，最优RMS值: {min_rms:.4f} @ epoch {min_epoch}, 最优PIB值: {max_pib:.4f} @ epoch {max_epoch}")
 
 

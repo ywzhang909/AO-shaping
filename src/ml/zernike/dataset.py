@@ -10,7 +10,6 @@ from typing import Literal
 import numpy as np
 import torch
 from scipy import ndimage
-from torch import nn
 from torch.utils.data import Dataset
 
 # External dependency - keep as absolute import
@@ -62,7 +61,7 @@ def coefficients_to_phase_map(
 
 def load_zernike_coefficients(csv_path: Path, n_terms: int | None = None) -> np.ndarray:
     """Load Zernike coefficients from CSV file."""
-    with open(csv_path, "r") as f:
+    with open(csv_path) as f:
         reader = csv.reader(f)
         rows = list(reader)
 
@@ -138,7 +137,7 @@ class ZernikeCoefficientDataset(Dataset):
         self.global_meta = {}
         meta_path = self.data_dir / "global_metadata.json"
         if meta_path.exists():
-            with open(meta_path, "r") as f:
+            with open(meta_path) as f:
                 self.global_meta = json.load(f)
 
         self._compute_stats()

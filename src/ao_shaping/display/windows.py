@@ -14,7 +14,7 @@ FrameInfo = namedtuple('FrameInfo', ['name', 'title', 'frame', "kwargs"], defaul
 class BaseDisplay(ABC):
     def __init__(self, total_size) -> None:
         self.total_size = total_size
-        
+
     def render(self, info:str='') -> bool:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -25,20 +25,20 @@ class BaseDisplay(ABC):
         pygame.event.pump()
         pygame.display.update()
         return True
-    
+
     def init_window(self) -> None:
         pygame.init()
         self.window = pygame.display.set_mode(self.total_size)
-        
+
     def close(self) -> None:
         for frame in self._frames.values():
             frame.close()
         pygame.quit()
-        
+
     def __enter__(self):
         self.init_window()
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
@@ -62,7 +62,7 @@ class AutoDisplay(BaseDisplay):
         self.frame_size = frame_size
         self.frame_list = frame_list
         self.margin = margin
-        
+
     def init_window(self) -> None:
         super().init_window()
         screen_w, screen_h = self.total_size
@@ -72,12 +72,12 @@ class AutoDisplay(BaseDisplay):
         if n_rows * frame_h > screen_h:
             n_rows = screen_h // frame_h
             n_cols = len(self.frame_list) // n_rows + 1
-        
+
         logger.info(f"AutoDisplay: {n_cols} x {n_rows} = {n_cols*n_rows} frames")
         total_size = (n_cols * frame_w,
                       n_rows * frame_h)
         super().__init__(total_size)
-        
+
         self._frames = {}
         for i, frame_info in enumerate(self.frame_list):
             name, title, frame_class_name = frame_info.name, frame_info.title, frame_info.frame

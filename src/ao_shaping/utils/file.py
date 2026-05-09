@@ -124,15 +124,16 @@ def get_init_V_by_energy(date: str = ""):
 def save_history(
     history: pd.DataFrame | list[dict[str, Any]], file_path: str | Path = None
 ):
-    # TODO: use asyncer to save history
     if isinstance(file_path, str):
         file_path = Path(file_path)
-    if not file_path.exists():
-        file_path.parent.mkdir(parents=True, exist_ok=True)
     if not isinstance(history, pd.DataFrame):
         history = pd.DataFrame(history)
-    else:
-        np.save(file_path, history)
+    if file_path is not None:
+        if not file_path.exists():
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+        csv_path = file_path.with_suffix('.csv')
+        history.to_csv(csv_path, index=False)
+        logger.info(f"History saved to {csv_path}")
 
 class Recorder:
     def __init__(self, mark: str = "J", mode: Literal["max", "min"] = "max"):
@@ -243,11 +244,13 @@ class Recorder:
         assert index < len(self.history), (
             f"index {index} out of range {len(self.history)}"
         )
-        return self.history.iloc[index]
+        if hasattr(self.history, 'iloc'):
+            return self.history.iloc[index]
+        return self.history[index]
 
     def __add__(self, other: "Recorder"):
-        assert self.mark == other.mark and self.target == other.target, (
-            "mark and target must be the same"
+        assert self.mark == other.mark, (
+            "mark must be the same"
         )
         self.history.extend(other.history)
         return self
@@ -302,7 +305,7 @@ class DeviceConfigManager:
     
     支持默认启动参数，可在配置目录下放置 defaults.json 作为全局默认配置。
     """
-    
+
     def __init__(self, config_dir: str | Path, device_type: str = ""):
         """初始化配置管理器
         
@@ -314,16 +317,16 @@ class DeviceConfigManager:
         self.device_type = device_type
         self.device_config_dir = self.config_dir / device_type if device_type else self.config_dir
         self.device_config_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # 加载默认配置
         self._default_config = self._load_default_config()
-    
+
     def _load_default_config(self) -> dict:
         """加载全局默认配置文件 defaults.json"""
         default_file = self.config_dir / "defaults.json"
         if default_file.exists():
             try:
-                with open(default_file, "r", encoding="utf-8") as f:
+                with open(default_file, encoding="utf-8") as f:
                     defaults = json.load(f)
                 # 返回对应设备类型的默认配置
                 if self.device_type and self.device_type in defaults:
@@ -332,11 +335,11 @@ class DeviceConfigManager:
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"读取默认配置失败: {e}")
         return {}
-    
+
     def _get_config_file(self, serial: str) -> Path:
         """获取配置文件路径"""
         return self.device_config_dir / f"{serial}.json"
-    
+
     def load_config(self, serial: str) -> dict:
         """根据序列号加载JSON配置文件
         
@@ -350,16 +353,16 @@ class DeviceConfigManager:
             配置字典；合并默认配置和设备特定配置
         """
         config_file = self._get_config_file(serial)
-        
+
         # 从默认配置开始
         config = dict(self._default_config)
-        
+
         if not config_file.exists():
             logger.info(f"未找到{self.device_type}设备({serial})配置文件，使用默认参数")
             return config
-        
+
         try:
-            with open(config_file, "r", encoding="utf-8") as f:
+            with open(config_file, encoding="utf-8") as f:
                 device_config = json.load(f)
             # 合并设备特定配置（覆盖默认值）
             config.update(device_config)
@@ -368,7 +371,7 @@ class DeviceConfigManager:
         except (json.JSONDecodeError, OSError) as e:
             logger.warning(f"读取配置文件失败: {e}，使用默认参数")
             return config
-    
+
     def save_config(self, serial: str, config: dict) -> None:
         """将配置保存到JSON文件
         
@@ -379,18 +382,18 @@ class DeviceConfigManager:
             config: 配置字典
         """
         config_file = self._get_config_file(serial)
-        
+
         # 确保配置中包含序列号
         config_with_serial = dict(config)
         config_with_serial["serial_number"] = serial
-        
+
         try:
             with open(config_file, "w", encoding="utf-8") as f:
                 json.dump(config_with_serial, f, indent=2, ensure_ascii=False)
             logger.info(f"配置已保存: {config_file}")
         except OSError as e:
             logger.error(f"保存配置失败: {e}")
-    
+
     def config_exists(self, serial: str) -> bool:
         """检查指定序列号的配置文件是否存在
         
@@ -401,7 +404,7 @@ class DeviceConfigManager:
             配置文件是否存在
         """
         return self._get_config_file(serial).exists()
-    
+
     def delete_config(self, serial: str) -> bool:
         """删除指定序列号的配置文件
         
@@ -421,7 +424,7 @@ class DeviceConfigManager:
         except OSError as e:
             logger.error(f"删除配置失败: {e}")
             return False
-    
+
     def list_configs(self) -> list[str]:
         """列出所有已保存的配置文件对应的序列号
         
@@ -432,7 +435,7 @@ class DeviceConfigManager:
             return [f.stem for f in self.device_config_dir.glob("*.json")]
         except OSError:
             return []
-    
+
     def set_default_config(self, defaults: dict) -> None:
         """设置默认配置（运行时）
         
@@ -440,7 +443,7 @@ class DeviceConfigManager:
             defaults: 默认配置字典
         """
         self._default_config = dict(defaults)
-    
+
     def save_default_config(self, defaults: dict) -> None:
         """保存默认配置到文件 defaults.json
         
@@ -462,6 +465,6 @@ class DeviceConfigManager:
 # 向后兼容：SLMConfigManager 作为 DeviceConfigManager 的别名
 class SLMConfigManager(DeviceConfigManager):
     """SLM设备配置管理器（DeviceConfigManager的别名，用于向后兼容）"""
-    
+
     def __init__(self, config_dir: str | Path):
         super().__init__(config_dir, device_type="slm")

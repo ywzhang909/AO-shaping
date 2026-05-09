@@ -1,5 +1,9 @@
 import pandas as pd
 import matplotlib.pyplot as plt
+import pytest
+
+pytestmark = pytest.mark.skip(reason="Requires DM + WFS hardware")
+
 
 from ao_shaping.optimizer.wf.rms import optimizer_rms
 from ao_shaping.config import DM_N_ACTUATORS
