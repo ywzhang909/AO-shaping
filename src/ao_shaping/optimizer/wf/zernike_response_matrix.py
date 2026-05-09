@@ -77,6 +77,7 @@ class ZernikeResponseMatrixResult:
     # 可选的逆矩阵
     pinv_matrix: np.ndarray | None = None
     lstsq_matrix: np.ndarray | None = None
+    amplitude_optimization: dict | None = None  # 幅度优化结果: {mode_idx: {test_amps, responses, linearity, optimal}}
 
     @property
     def n_wfs_terms(self) -> int:
@@ -122,6 +123,8 @@ class ZernikeResponseMatrixResult:
             d["pinv_matrix"] = self.pinv_matrix.tolist()
         if self.lstsq_matrix is not None:
             d["lstsq_matrix"] = self.lstsq_matrix.tolist()
+        if self.amplitude_optimization is not None:
+            d["amplitude_optimization"] = self.amplitude_optimization
         return d
 
     @classmethod
@@ -146,6 +149,10 @@ class ZernikeResponseMatrixResult:
             d["lstsq_matrix"] = np.array(d["lstsq_matrix"])
         else:
             d["lstsq_matrix"] = None
+        if "amplitude_optimization" in d and d["amplitude_optimization"] is not None:
+            d["amplitude_optimization"] = d["amplitude_optimization"]
+        else:
+            d["amplitude_optimization"] = None
         return cls(**d)
 
 
@@ -153,6 +160,87 @@ def set_slm_flat(slm) -> None:
     """设置SLM为平相位"""
     zero_phase = np.zeros((slm.Panel_Res[1], slm.Panel_Res[0]), dtype=np.uint16)
     slm.display_data(zero_phase)
+
+
+def _optimize_perturbation_amplitude(
+    zslm: ZernikeSLM,
+    wfs: WFSManager,
+    mode_idx: int,
+    test_amps: np.ndarray,
+    n_avg: int = 20,
+    zernike_order: int = 10,
+) -> tuple[float, dict]:
+    """Find optimal perturbation amplitude for a Zernike mode.
+
+    Uses linearity criterion: find amplitude where response magnitude vs
+    perturbation ratio is most stable (minimum second derivative).
+
+    Args:
+        zslm: ZernikeSLM instance
+        wfs: Thorlab WFS instance
+        mode_idx: Mode index (0-based, excluding piston/tip-tilt)
+        test_amps: Array of amplitudes to test
+        n_avg: Number of WFS readings per amplitude
+        zernike_order: WFS Zernike order
+
+    Returns:
+        tuple: (optimal_amplitude, diagnostics_dict)
+            - optimal_amplitude: Best amplitude found
+            - diagnostics: dict with test_amps, responses, linearity scores, best_idx
+    """
+    noll_offset = 3  # exclude piston + tip/tilt
+    n_full = wfs.calc_n_zernike_terms(zernike_order)
+    coeffs = np.zeros(n_full, dtype=np.float64)
+    coeffs[mode_idx + noll_offset] = 1.0
+
+    responses = []
+    for a in test_amps:
+        set_slm_flat(zslm._slm)
+        time.sleep(0.05)
+
+        s_pos = measure_zernike_mode_response(
+            zslm, wfs, coeffs * a, a, n_averages=n_avg, n_cycles=1,
+            excluded_piston=True, excluded_tip_tilt=True, zernike_order=zernike_order,
+            mode_index=mode_idx,
+        )[0]
+
+        set_slm_flat(zslm._slm)
+        time.sleep(0.05)
+
+        s_neg = measure_zernike_mode_response(
+            zslm, wfs, coeffs * (-a), a, n_averages=n_avg, n_cycles=1,
+            excluded_piston=True, excluded_tip_tilt=True, zernike_order=zernike_order,
+            mode_index=mode_idx,
+        )[0]
+
+        resp = np.linalg.norm(s_pos - s_neg) / (2 * a)
+        responses.append(resp)
+
+    responses = np.array(responses)
+
+    linearity = []
+    for i in range(1, len(test_amps) - 1):
+        k1 = (responses[i] - responses[i - 1]) / (test_amps[i] - test_amps[i - 1])
+        k2 = (responses[i + 1] - responses[i]) / (test_amps[i + 1] - test_amps[i])
+        linearity.append(abs(k1 - k2))
+
+    best_idx = np.argmin(linearity) + 1
+    optimal = float(test_amps[best_idx])
+
+    diagnostics = {
+        "test_amps": test_amps.copy(),
+        "responses": responses.copy(),
+        "linearity": np.array(linearity),
+        "best_idx": int(best_idx),
+        "optimal_amplitude": optimal,
+    }
+
+    logger.info(
+        f"Optimized amplitude for mode {mode_idx}: {optimal:.4f}λ "
+        f"(test range: [{test_amps[0]:.2f}, {test_amps[-1]:.2f}])"
+    )
+
+    return optimal, diagnostics
 
 
 def measure_zernike_mode_response(
@@ -286,7 +374,7 @@ def calibrate_zernike_response_matrix(
     zslm: ZernikeSLM,
     wfs: WFSManager,
     n_max: int = DEFAULT_N_MAX,
-    magnitude: float = DEFAULT_MAGNITUDE,
+    magnitude: float | None = None,
     n_cycles: int = DEFAULT_N_CYCLES,
     n_averages: int = DEFAULT_N_AVERAGES,
     wait_time: float = DEFAULT_WAIT_TIME,
@@ -301,6 +389,8 @@ def calibrate_zernike_response_matrix(
     mask_n_avg: int = 30,
     mask_threshold_ratio: float = 0.3,
     mask_edge_clip: int = 1,
+    auto_optimize_amplitude: bool = True,
+    optimize_n_avg: int = 10,
 ) -> ZernikeResponseMatrixResult:
     """Calibrate Zernike response matrix.
 
@@ -308,7 +398,7 @@ def calibrate_zernike_response_matrix(
         zslm: ZernikeSLM instance
         wfs: Thorlab WFS instance
         n_max: Zernike maximum order
-        magnitude: Perturbation magnitude per mode (in wavelength)
+        magnitude: Perturbation magnitude per mode (in wavelength). If None or 0, auto-optimizes.
         n_cycles: Number of positive/negative perturbation cycles (N)
         n_averages: Number of WFS readings per measurement (M)
         wait_time: Wait time after applying phase (seconds)
@@ -323,6 +413,8 @@ def calibrate_zernike_response_matrix(
         mask_n_avg: Frames to average for mask building (if auto-built)
         mask_threshold_ratio: Intensity threshold ratio for mask (if auto-built)
         mask_edge_clip: Edge clip for mask (if auto-built)
+        auto_optimize_amplitude: If True and magnitude is None/0, auto-optimize per mode.
+        optimize_n_avg: WFS readings per amplitude during optimization.
 
     Returns:
         ZernikeResponseMatrixResult with response matrices and metadata
@@ -330,6 +422,23 @@ def calibrate_zernike_response_matrix(
     n_remove = (1 if excluded_piston else 0) + (2 if excluded_tip_tilt else 0)
     n_slm_terms = calc_n_zernike_terms(n_max) - n_remove
     n_wfs_terms = wfs.calc_n_zernike_terms(n_max) - n_remove
+
+    amplitude_optimization = None
+    if magnitude is None or magnitude == 0:
+        if auto_optimize_amplitude:
+            logger.info("Auto-optimizing perturbation amplitude...")
+            test_amps = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
+            amplitude_optimization = {}
+            for mode_idx in range(n_slm_terms):
+                opt_amp, diagnostics = _optimize_perturbation_amplitude(
+                    zslm, wfs, mode_idx, test_amps, n_avg=optimize_n_avg, zernike_order=n_max
+                )
+                amplitude_optimization[mode_idx] = diagnostics
+            avg_amp = np.mean([v["optimal_amplitude"] for v in amplitude_optimization.values()])
+            magnitude = round(avg_amp, 3)
+            logger.info(f"Using average optimal amplitude: {magnitude}λ")
+        else:
+            magnitude = DEFAULT_MAGNITUDE
 
     if subaperture_mask is None:
         logger.info("Building subaperture mask automatically...")
@@ -455,6 +564,7 @@ def calibrate_zernike_response_matrix(
         excluded_tip_tilt=excluded_tip_tilt,
         pinv_matrix=pinv_matrix,
         lstsq_matrix=lstsq_matrix,
+        amplitude_optimization=amplitude_optimization,
     )
 
     logger.info(
@@ -519,6 +629,16 @@ def save_zernike_response_matrix(
         meta.attrs["max_variance"] = result.max_variance
         meta.attrs["condition_number"] = result.condition_number if result.condition_number is not None else -1
 
+        if result.amplitude_optimization is not None:
+            opt_grp = f.create_group("amplitude_optimization")
+            for mode_idx, diag in result.amplitude_optimization.items():
+                mode_grp = opt_grp.create_group(f"mode_{mode_idx}")
+                mode_grp.create_dataset("test_amps", data=diag["test_amps"])
+                mode_grp.create_dataset("responses", data=diag["responses"])
+                mode_grp.create_dataset("linearity", data=diag["linearity"])
+                mode_grp.attrs["best_idx"] = diag["best_idx"]
+                mode_grp.attrs["optimal_amplitude"] = diag["optimal_amplitude"]
+
     logger.info(f"Response matrix saved to: {path}")
 
 
@@ -560,22 +680,38 @@ def load_zernike_response_matrix(path: str | Path) -> ZernikeResponseMatrixResul
         if condition_number == -1:
             condition_number = None
 
-    return ZernikeResponseMatrixResult(
-        matrix=matrix,
-        variance_matrix=variance_matrix,
-        deviation_response_matrix=deviation_matrix,
-        subaperture_mask=subaperture_mask,
-        n_max=n_max,
-        magnitude=magnitude,
-        wavelength_nm=wavelength_nm,
-        n_averages=n_averages,
-        n_cycles=n_cycles,
-        timestamp=timestamp,
-        excluded_piston=excluded_piston,
-        excluded_tip_tilt=excluded_tip_tilt,
-        pinv_matrix=pinv_matrix,
-        lstsq_matrix=lstsq_matrix,
-    )
+        amplitude_optimization = None
+        if "amplitude_optimization" in f:
+            amplitude_optimization = {}
+            opt_grp = f["amplitude_optimization"]
+            for mode_key in opt_grp.keys():
+                mode_idx = int(mode_key.split("_")[1])
+                mode_grp = opt_grp[mode_key]
+                amplitude_optimization[mode_idx] = {
+                    "test_amps": mode_grp["test_amps"][:],
+                    "responses": mode_grp["responses"][:],
+                    "linearity": mode_grp["linearity"][:],
+                    "best_idx": int(mode_grp.attrs["best_idx"]),
+                    "optimal_amplitude": float(mode_grp.attrs["optimal_amplitude"]),
+                }
+
+        return ZernikeResponseMatrixResult(
+            matrix=matrix,
+            variance_matrix=variance_matrix,
+            deviation_response_matrix=deviation_matrix,
+            subaperture_mask=subaperture_mask,
+            n_max=n_max,
+            magnitude=magnitude,
+            wavelength_nm=wavelength_nm,
+            n_averages=n_averages,
+            n_cycles=n_cycles,
+            timestamp=timestamp,
+            excluded_piston=excluded_piston,
+            excluded_tip_tilt=excluded_tip_tilt,
+            pinv_matrix=pinv_matrix,
+            lstsq_matrix=lstsq_matrix,
+            amplitude_optimization=amplitude_optimization,
+        )
 
 
 def plot_response_matrix(
