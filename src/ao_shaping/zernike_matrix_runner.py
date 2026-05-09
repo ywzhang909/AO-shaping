@@ -5,6 +5,7 @@ from typing import Literal
 from pathlib import Path
 
 import numpy as np
+from scipy.ndimage import gaussian_filter
 from loguru import logger
 
 from ao_shaping.optimizer.wf.zernike_response_matrix import (
@@ -21,6 +22,85 @@ from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager, MlaRes
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
 from ao_shaping.utils.display import ZernikeCalibrationDisplay
 from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_timestamp_str
+
+
+class DitheredReference:
+    """Dithered reference measurement for SLM phase averaging.
+
+    Applies sub-wavelength random phase dithering to average out
+    pixelation steps and liquid crystal local relaxation errors.
+    """
+
+    def __init__(
+        self,
+        slm,
+        dither_amp: float = 0.03,
+        n_dither: int = 30,
+        wait_time: float = 0.05,
+    ):
+        """Initialize dithered reference.
+
+        Args:
+            slm: ZernikeSLM instance
+            dither_amp: Dithering amplitude in wavelength units (0.02-0.05 typical)
+            n_dither: Number of dithering samples to average
+            wait_time: Wait time after loading phase (seconds)
+        """
+        self.slm = slm
+        self._slm = slm._slm
+        self.dither_amp = dither_amp
+        self.n_dither = n_dither
+        self.wait_time = wait_time
+
+    def measure(self, wfs, base_phase: np.ndarray | None = None) -> tuple[np.ndarray, dict]:
+        """Measure reference slopes with dithering average.
+
+        Args:
+            wfs: WFS instance with get_spot_deviation method
+            base_phase: Base phase to add dither to (None = zero flat)
+
+        Returns:
+            tuple: (s_ref, diagnostics)
+                - s_ref: Median reference slopes (flattened concat of dev_x and dev_y)
+                - diagnostics: dict with snr, std, n_samples
+        """
+        if base_phase is None:
+            h, w = self._slm.Panel_Res[1], self._slm.Panel_Res[0]
+            base_phase = np.zeros((h, w), dtype=np.float64)
+
+        slopes_list = []
+        for i in range(self.n_dither):
+            noise = np.random.randn(*base_phase.shape)
+            noise = gaussian_filter(noise, sigma=20)
+            noise = noise / np.std(noise) * self.dither_amp * 2 * np.pi
+
+            phase_rad = (base_phase + noise) % (2 * np.pi)
+            phase_gray = self._slm._phase_to_gray(phase_rad)
+            self._slm.display_data(phase_gray)
+            sleep(self.wait_time)
+
+            dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=False)
+            s = np.concatenate([dev_x.flatten(), dev_y.flatten()])
+            slopes_list.append(s)
+
+        slopes_arr = np.array(slopes_list)
+        s_ref = np.median(slopes_arr, axis=0)
+        std = np.std(slopes_arr, axis=0)
+
+        snr_linear = np.linalg.norm(s_ref) / (np.linalg.norm(std) + 1e-10)
+        snr_db = 20 * np.log10(snr_linear + 1e-10)
+
+        diagnostics = {
+            "n_samples": self.n_dither,
+            "dither_amp": self.dither_amp,
+            "snr_linear": float(snr_linear),
+            "snr_db": float(snr_db),
+            "std_mean": float(np.mean(std)),
+        }
+
+        logger.info(f"Dithered reference SNR: {snr_db:.1f} dB (n={self.n_dither})")
+
+        return s_ref, diagnostics
 
 
 @click.command('zernike-matrix')
@@ -50,6 +130,9 @@ from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_times
 @click.option('--auto-optimize/--no-auto-optimize', 'auto_optimize_amplitude', default=True, help='自动优化扰动幅度 (magnitude=0时)')
 @click.option('--optimize-n-avg', 'optimize_n_avg', default=10, help='幅度优化时的WFS读取次数')
 @click.option('--n-magnitudes', 'n_magnitudes', default=0, help='自动生成N个不同扰动幅度并分别保存 (0=禁用)')
+@click.option('--dither/--no-dither', 'use_dither', default=False, help='使用亚波长抖动平均测量参考斜率')
+@click.option('--dither-amp', 'dither_amp', default=0.03, help='抖动幅度 [λ], 建议0.02-0.05')
+@click.option('--n-dither', 'n_dither', default=30, help='抖动样本数')
 def run(
     ctx: click.Context,
     n_max: int,
@@ -77,6 +160,9 @@ def run(
     auto_optimize_amplitude: bool,
     optimize_n_avg: int,
     n_magnitudes: int,
+    use_dither: bool,
+    dither_amp: float,
+    n_dither: int,
 ):
     """获取Zernike响应矩阵
 
@@ -175,11 +261,24 @@ def run(
                 pupil_diameter=pupil_diameter,
                 pupil_center=pupil_center,
             ) as wfs:
+                dither_diagnostics = None
                 if not use_custom_ref:
                     zslm.set_flat()
                     sleep(0.5)
-                    wfs.save_user_ref()
-                    wfs.load_user_ref()
+
+                    if use_dither:
+                        click.echo(f"Measuring dithered reference: amp={dither_amp}, n={n_dither}")
+                        dither = DitheredReference(
+                            slm=zslm,
+                            dither_amp=dither_amp,
+                            n_dither=n_dither,
+                            wait_time=wait_time,
+                        )
+                        s_ref, dither_diagnostics = dither.measure(wfs)
+                        click.echo(f"Dithered ref SNR: {dither_diagnostics['snr_db']:.1f} dB")
+                    else:
+                        wfs.save_user_ref()
+                        wfs.load_user_ref()
 
                 magnitudes_to_run = []
                 if n_magnitudes > 0:
