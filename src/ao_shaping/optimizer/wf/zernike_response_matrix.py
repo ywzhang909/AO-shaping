@@ -172,6 +172,7 @@ def _optimize_perturbation_amplitude(
     test_amps: np.ndarray,
     n_avg: int = 20,
     zernike_order: int = 10,
+    cancel_tile: bool = False,
 ) -> tuple[float, dict]:
     """Find optimal perturbation amplitude for a Zernike mode.
 
@@ -204,7 +205,7 @@ def _optimize_perturbation_amplitude(
         s_pos = measure_zernike_mode_response(
             zslm, wfs, coeffs * a, a, n_averages=n_avg, n_cycles=1,
             excluded_piston=True, excluded_tip_tilt=True, zernike_order=zernike_order,
-            mode_index=mode_idx,
+            mode_index=mode_idx, cancel_tile=cancel_tile,
         )[0]
 
         set_slm_flat(zslm._slm)
@@ -213,7 +214,7 @@ def _optimize_perturbation_amplitude(
         s_neg = measure_zernike_mode_response(
             zslm, wfs, coeffs * (-a), a, n_averages=n_avg, n_cycles=1,
             excluded_piston=True, excluded_tip_tilt=True, zernike_order=zernike_order,
-            mode_index=mode_idx,
+            mode_index=mode_idx, cancel_tile=cancel_tile,
         )[0]
 
         resp = np.linalg.norm(s_pos - s_neg) / (2 * a)
@@ -249,16 +250,18 @@ def _optimize_perturbation_amplitude(
 def measure_zernike_mode_response(
     zslm: ZernikeSLM,
     wfs: WFSManager,
-    coefficients: np.ndarray,
-    coeff_value: float,
+    zernike_coeffs: np.ndarray,
+    magnitude: float,
     n_averages: int = DEFAULT_N_AVERAGES,
     n_cycles: int = DEFAULT_N_CYCLES,
     wait_time: float = DEFAULT_WAIT_TIME,
     excluded_piston: bool = True,
     excluded_tip_tilt: bool = False,
-    zernike_order: int = 10,
-    mode_index: int = 0,
+    zernike_order: int = DEFAULT_N_MAX,
+    mode_index: int = -1,
     debug_data_callback: Callable | None = None,
+    subaperture_mask: np.ndarray | None = None,
+    cancel_tile: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """测量单个Zernike模式的响应 (多次循环)
 
@@ -301,7 +304,7 @@ def measure_zernike_mode_response(
             zernike_coeffs = wfs.get_zernike(zernike_order=zernike_order)
             responses.append(zernike_coeffs)
 
-            dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=False)
+            dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=cancel_tile)
             deviations.append((dev_x, dev_y))
 
             if debug_data_callback is not None:
@@ -343,16 +346,16 @@ def measure_zernike_mode_response(
     all_deviations = []
 
     for cycle in range(n_cycles):
-        response_plus, dev_plus = measure_once(+coefficients, mode_index, cycle, True)
+        response_plus, dev_plus = measure_once(+zernike_coeffs, mode_index, cycle, True)
         set_slm_flat(zslm._slm)
         time.sleep(wait_time)
 
-        response_minus, dev_minus = measure_once(-coefficients, mode_index, cycle, False)
+        response_minus, dev_minus = measure_once(-zernike_coeffs, mode_index, cycle, False)
         set_slm_flat(zslm._slm)
         time.sleep(wait_time)
 
-        response = (response_plus - response_minus) / (2 * coeff_value)
-        deviation = (dev_plus - dev_minus) / (2 * coeff_value)
+        response = (response_plus - response_minus) / (2 * magnitude)
+        deviation = (dev_plus - dev_minus) / (2 * magnitude)
 
         start_idx = 0
         if excluded_piston:
@@ -394,6 +397,7 @@ def calibrate_zernike_response_matrix(
     mask_edge_clip: int = 1,
     auto_optimize_amplitude: bool = True,
     optimize_n_avg: int = 10,
+    cancel_tile: bool = False,
 ) -> ZernikeResponseMatrixResult:
     """Calibrate Zernike response matrix.
 
@@ -418,6 +422,7 @@ def calibrate_zernike_response_matrix(
         mask_edge_clip: Edge clip for mask (if auto-built)
         auto_optimize_amplitude: If True and magnitude is None/0, auto-optimize per mode.
         optimize_n_avg: WFS readings per amplitude during optimization.
+        cancel_tile: If True, remove tip/tilt from WFS measurements.
 
     Returns:
         ZernikeResponseMatrixResult with response matrices and metadata
@@ -434,7 +439,8 @@ def calibrate_zernike_response_matrix(
             amplitude_optimization = {}
             for mode_idx in range(n_slm_terms):
                 opt_amp, diagnostics = _optimize_perturbation_amplitude(
-                    zslm, wfs, mode_idx, test_amps, n_avg=optimize_n_avg, zernike_order=n_max
+                    zslm, wfs, mode_idx, test_amps, n_avg=optimize_n_avg, zernike_order=n_max,
+                    cancel_tile=cancel_tile,
                 )
                 amplitude_optimization[mode_idx] = diagnostics
             magnitude = float(np.mean([v["optimal_amplitude"] for v in amplitude_optimization.values()]))
@@ -502,8 +508,8 @@ def calibrate_zernike_response_matrix(
         mean_resp, var_resp, mean_dev, var_dev = measure_zernike_mode_response(
             zslm=zslm,
             wfs=wfs,
-            coefficients=coeffs_full,
-            coeff_value=coeff_value,
+            zernike_coeffs=coeffs_full,
+            magnitude=coeff_value,
             n_averages=n_averages,
             n_cycles=n_cycles,
             wait_time=wait_time,
@@ -512,6 +518,7 @@ def calibrate_zernike_response_matrix(
             zernike_order=n_max,
             mode_index=i,
             debug_data_callback=debug_data_callback,
+            cancel_tile=cancel_tile,
         )
         logger.debug(f'iter {i} rms = {np.sqrt(np.mean(mean_resp ** 2))}')
 

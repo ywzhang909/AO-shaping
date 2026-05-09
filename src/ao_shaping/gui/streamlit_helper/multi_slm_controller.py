@@ -79,17 +79,26 @@ def save_slm_config(config: dict) -> None:
 
 def apply_config_to_session(config: dict) -> None:
     """Apply loaded config to session state."""
+    # Widget types that cannot be set via session_state (use suffix matching)
+    toggle_suffixes = ("_btn", "_toggle", "_file")
     for key, value in config.items():
-        if key.startswith(("slm1_", "slm2_")):
+        if key.startswith(("slm1_", "slm2_", "cam1_", "cam2_")):
+            # Skip toggle widgets (buttons, checkboxes, radio toggles)
+            if any(key.endswith(suffix) for suffix in toggle_suffixes):
+                continue
             st.session_state[key] = value
 
 
 def collect_config_from_session() -> dict:
     """Collect current SLM configuration from session state."""
     config = {}
+    toggle_suffixes = ("_btn", "_toggle", "_file")
     for key in st.session_state:
-        if key.startswith(("slm1_", "slm2_")):
+        if key.startswith(("slm1_", "slm2_", "cam1_", "cam2_")):
             value = st.session_state[key]
+            # Skip toggle widgets (buttons, checkboxes, etc.)
+            if any(key.endswith(suffix) for suffix in toggle_suffixes):
+                continue
             if not callable(value):
                 config[key] = value
     return config
@@ -163,11 +172,6 @@ def render_phase_preview(slm_num: int) -> None:
 def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | str]]:
     prefix = f"slm{slm_num}"
 
-    # Get SLM properties from session state (set during connection)
-    slm_width = st.session_state.get(f"slm{slm_num}_width", 1920)
-    slm_height = st.session_state.get(f"slm{slm_num}_height", 1200)
-    slm_pixel_pitch = st.session_state.get(f"slm{slm_num}_pixel_pitch_um", 8.0)
-
     pattern_type = st.selectbox(
         "选择相位图类型",
         options=[
@@ -194,7 +198,6 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "周期 (像素)",
             min_value=1.0,
             max_value=1000.0,
-            value=50.0,
             step=1.0,
             key=f"{prefix}_{pattern_type}_period",
         )
@@ -202,7 +205,7 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "相位范围 (rad)",
             min_value=0.1,
             max_value=float(2 * np.pi),
-            value=float(2 * np.pi),
+            step=0.1,
             key=f"{prefix}_{pattern_type}_phase_range",
         )
     elif pattern_type == "圆形光栅":
@@ -210,7 +213,6 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "圆形周期半径 (像素)",
             min_value=1.0,
             max_value=2000.0,
-            value=300.0,
             step=10.0,
             key=f"{prefix}_circular_radius",
         )
@@ -218,7 +220,7 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "相位范围 (rad)",
             min_value=0.1,
             max_value=float(2 * np.pi),
-            value=float(2 * np.pi),
+            step=0.1,
             key=f"{prefix}_circular_phase_range",
         )
     elif pattern_type == "透镜":
@@ -226,7 +228,6 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "焦距 (mm)",
             min_value=1.0,
             max_value=100000.0,
-            value=1000.0,
             step=10.0,
             key=f"{prefix}_lens_focal_length",
         )
@@ -234,7 +235,6 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "像素间距 (um)",
             min_value=0.1,
             max_value=100.0,
-            value=slm_pixel_pitch,
             step=0.1,
             key=f"{prefix}_lens_pixel_pitch",
         )
@@ -242,7 +242,6 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "透镜半径 (像素)",
             min_value=1,
             max_value=2000,
-            value=min(slm_width, slm_height) // 2,
             step=1,
             key=f"{prefix}_lens_radius",
         )
@@ -251,7 +250,6 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "棋盘格周期 (像素)",
             min_value=1,
             max_value=1000,
-            value=100,
             step=1,
             key=f"{prefix}_checker_period",
         )
@@ -260,7 +258,6 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "亮条纹宽度 a (像素)",
             min_value=1,
             max_value=1000,
-            value=2,
             step=1,
             key=f"{prefix}_binary_a",
         )
@@ -268,7 +265,6 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "暗条纹宽度 b (像素)",
             min_value=1,
             max_value=1000,
-            value=3,
             step=1,
             key=f"{prefix}_binary_b",
         )
@@ -283,7 +279,6 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "微透镜尺寸 (像素)",
             min_value=8,
             max_value=1000,
-            value=200,
             step=1,
             key=f"{prefix}_microlens_size",
         )
@@ -291,7 +286,6 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "焦距 (mm)",
             min_value=1.0,
             max_value=100000.0,
-            value=100.0,
             step=1.0,
             key=f"{prefix}_microlens_focal_length",
         )
@@ -299,7 +293,6 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "像素间距 (um)",
             min_value=0.1,
             max_value=100.0,
-            value=slm_pixel_pitch,
             step=0.1,
             key=f"{prefix}_microlens_pixel_pitch",
         )
@@ -308,7 +301,6 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "Cn²",
             min_value=1e-18,
             max_value=1e-10,
-            value=1e-14,
             format="%.1e",
             key=f"{prefix}_turbulence_cn2",
         )
@@ -316,7 +308,6 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "传播距离 L (m)",
             min_value=0.1,
             max_value=1e6,
-            value=1000.0,
             step=10.0,
             key=f"{prefix}_turbulence_length",
         )
@@ -324,7 +315,6 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "像素间距 (um)",
             min_value=0.1,
             max_value=100.0,
-            value=slm_pixel_pitch,
             step=0.1,
             key=f"{prefix}_turbulence_pixel_pitch",
         )
@@ -333,27 +323,29 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "拓扑荷",
             min_value=-10,
             max_value=10,
-            value=1,
             step=1,
             key=f"{prefix}_vortex_charge",
         )
+        # 从sidebar设置读取默认值
+        default_wavelength = st.session_state.get(f"{prefix}_wavelength", 1064)
+        default_pixel_pitch = st.session_state.get(f"{prefix}_pixel_pitch_um", 8.0)
+
         params["wavelength_nm"] = st.number_input(
             "波长 (nm)",
-            value=st.session_state.get(f"{prefix}_wavelength", 532),
+            value=default_wavelength,
             step=1,
             key=f"{prefix}_vortex_wavelength",
         )
         params["pixel_pitch_um"] = st.number_input(
             "像素间距 (um)",
+            value=default_pixel_pitch,
             min_value=0.1,
             max_value=100.0,
-            value=slm_pixel_pitch,
             step=0.1,
             key=f"{prefix}_vortex_pixel_pitch",
         )
         params["wrap_phase"] = st.checkbox(
             "包裹相位",
-            value=True,
             key=f"{prefix}_vortex_wrap_phase",
         )
     elif pattern_type == "Zernike":
@@ -362,7 +354,6 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "最大径向阶数 N",
             min_value=1,
             max_value=10,
-            value=4,
             step=1,
             key=f"{prefix}_zernike_n_max",
         )
@@ -371,7 +362,6 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "孔径半径 (像素)",
             min_value=1,
             max_value=2000,
-            value=min(slm_width, slm_height) // 2,
             step=1,
             key=f"{prefix}_zernike_radius",
         )
@@ -409,7 +399,7 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
                     default_val = 1.0 if n == 0 and m == 0 else 0.0
 
                     # Get value from session state if exists, otherwise use default
-                    current_val = st.session_state.get(key, default_val)
+                    st.session_state.get(key, default_val)
 
                     col1, col2, col3 = st.columns([1, 2, 2])
                     with col1:
@@ -418,15 +408,14 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
                         name = zernike_names.get((n, m), "")
                         st.caption(name if name else f"n={n},m={m}")
                     with col3:
-                        coeff = st.number_input(
+                        st.number_input(
                             "系数",
                             min_value=-5.0,
                             max_value=5.0,
-                            value=float(current_val),
                             step=0.1,
                             key=key,
                         )
-                    coefficients[(n, m)] = coeff
+                    coefficients[(n, m)] = st.session_state.get(key, default_val)
 
         params["coefficients"] = coefficients
     elif pattern_type == "达曼光栅":
@@ -434,7 +423,6 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "衍射级数",
             min_value=2,
             max_value=8,
-            value=3,
             step=1,
             key=f"{prefix}_dammann_order",
         )
@@ -442,7 +430,6 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "填充因子",
             min_value=0.1,
             max_value=1.0,
-            value=0.5,
             step=0.1,
             key=f"{prefix}_dammann_fill_factor",
         )
@@ -576,11 +563,7 @@ def generate_phase_gray(
 def main():
     st.title("双SLM200控制器")
 
-    # Load config from JSON on startup
-    config = load_slm_config()
-    if config:
-        apply_config_to_session(config)
-
+    # Initialize state with defaults only
     _initialize_slm_state()
 
     # Sidebar for controls
@@ -596,7 +579,7 @@ def main():
         st.header("SLM 1 相位控制")
         display_slm_status(1)
         if st.session_state.slm1_connected:
-            if st.button("刷新当前显示相位", key="slm1_refresh_phase"):
+            if st.button("刷新当前显示相位", key="slm1_refresh_phase_btn"):
                 refresh_phase_preview(1)
             render_phase_preview(1)
             render_phase_control(1)
@@ -605,7 +588,7 @@ def main():
         st.header("SLM 2 相位控制")
         display_slm_status(2)
         if st.session_state.slm2_connected:
-            if st.button("刷新当前显示相位", key="slm2_refresh_phase"):
+            if st.button("刷新当前显示相位", key="slm2_refresh_phase_btn"):
                 refresh_phase_preview(2)
             render_phase_preview(2)
             render_phase_control(2)
@@ -716,10 +699,10 @@ def render_camera_panel(cam_num: int) -> None:
 
     action_col1, action_col2 = st.columns(2)
     with action_col1:
-        if st.button("连接", key=f"{prefix}_connect"):
+        if st.button("连接", key=f"{prefix}_connect_btn"):
             connect_camera(cam_num)
     with action_col2:
-        if st.button("断开", key=f"{prefix}_disconnect"):
+        if st.button("断开", key=f"{prefix}_disconnect_btn"):
             disconnect_camera(cam_num)
 
     if not st.session_state.get(f"{prefix}_connected", False):
@@ -737,7 +720,7 @@ def render_camera_panel(cam_num: int) -> None:
     )
 
     camera = st.session_state[prefix]
-    if st.button("设置曝光", key=f"{prefix}_set_exp"):
+    if st.button("设置曝光", key=f"{prefix}_set_exp_btn"):
         try:
             actual_exposure = camera.reset_exposure_time(
                 st.session_state[f"{prefix}_exposure_ms"]
@@ -755,13 +738,12 @@ def render_camera_panel(cam_num: int) -> None:
         "平均帧数",
         min_value=1,
         max_value=16,
-        value=1,
         step=1,
         key=f"{prefix}_sample_count",
     )
-    skip_first = st.checkbox("跳过首帧", value=True, key=f"{prefix}_skip_first")
+    skip_first = st.checkbox("跳过首帧", key=f"{prefix}_skip_first_toggle")
 
-    if st.button("采集并显示图像", key=f"{prefix}_capture"):
+    if st.button("采集并显示图像", key=f"{prefix}_capture_btn"):
         try:
             frame = camera.get_numpy_image(
                 n_sample=int(sample_count), skip_first=bool(skip_first)
@@ -880,8 +862,8 @@ def render_slm_sidebar(slm_num: int):
     connected_key = f"{prefix}_connected"
 
     st.header(f"SLM {slm_num} 设置")
-    conn_button = st.button(f"连接 SLM {slm_num}", key=f"{prefix}_connect")
-    disc_button = st.button(f"断开 SLM {slm_num}", key=f"{prefix}_disconnect")
+    conn_button = st.button(f"连接 SLM {slm_num}", key=f"{prefix}_connect_btn")
+    disc_button = st.button(f"断开 SLM {slm_num}", key=f"{prefix}_disconnect_btn")
 
     if conn_button:
         connect_slm(slm_num)
@@ -889,7 +871,8 @@ def render_slm_sidebar(slm_num: int):
         disconnect_slm(slm_num)
 
     # Only show wavelength and mode settings if connected
-    if st.session_state.get(connected_key):
+    slm_obj = st.session_state.get(prefix)
+    if st.session_state.get(connected_key) and slm_obj is not None:
         # Display device info
         st.caption("设备信息")
         col_info1, col_info2 = st.columns(2)
@@ -908,20 +891,19 @@ def render_slm_sidebar(slm_num: int):
             "波长 (nm)",
             min_value=450,
             max_value=1600,
-            value=st.session_state[f"{prefix}_wavelength"],
+            step=1,
             key=f"{prefix}_wavelength",
         )
-        if st.button("设置波长", key=f"{prefix}_set_wl"):
+        if st.button("设置波长", key=f"{prefix}_set_wl_btn"):
             set_wavelength(slm_num)
 
         st.selectbox(
             "视频模式",
             options=[0, 1],
             format_func=lambda x: "内存模式" if x == 0 else "DVI模式",
-            index=st.session_state[f"{prefix}_video_mode"],
             key=f"{prefix}_video_mode",
         )
-        if st.button("设置模式", key=f"{prefix}_set_mode"):
+        if st.button("设置模式", key=f"{prefix}_set_mode_btn"):
             set_video_mode(slm_num, st.session_state[f"{prefix}_video_mode"])
 
         st.divider()
@@ -934,7 +916,6 @@ def render_slm_sidebar(slm_num: int):
                 "Shift X",
                 min_value=-500,
                 max_value=500,
-                value=st.session_state.get(f"{prefix}_shift_x", 0),
                 step=1,
                 key=f"{prefix}_shift_x",
             )
@@ -943,7 +924,6 @@ def render_slm_sidebar(slm_num: int):
                 "Shift Y",
                 min_value=-500,
                 max_value=500,
-                value=st.session_state.get(f"{prefix}_shift_y", 0),
                 step=1,
                 key=f"{prefix}_shift_y",
             )
@@ -951,7 +931,7 @@ def render_slm_sidebar(slm_num: int):
         st.divider()
 
         # Save configuration button
-        if st.button("保存配置", key=f"{prefix}_save_config"):
+        if st.button("保存配置", key=f"{prefix}_save_config_btn"):
             config = collect_config_from_session()
             save_slm_config(config)
             st.success(f"SLM {slm_num} 配置已保存")
@@ -963,7 +943,7 @@ def render_phase_control(slm_num: int):
     st.subheader("设置相位")
     pattern_type, params = render_pattern_controls(slm_num)
 
-    if st.button("从模式生成器生成相位", key=f"{prefix}_gen_pattern"):
+    if st.button("从模式生成器生成相位", key=f"{prefix}_gen_pattern_btn"):
         try:
             slm = st.session_state[prefix]
             phase_gray = generate_phase_gray(
@@ -978,7 +958,7 @@ def render_phase_control(slm_num: int):
             phase_gray = _apply_shift(phase_gray, shift_x, shift_y)
 
             # Write to next memory slot and immediately display
-            mem_slot = st.session_state[f"{prefix}_next_memory"]
+            mem_slot = int(st.session_state[f"{prefix}_next_memory"])
             slm.write_phase(phase_gray, memory_number=mem_slot)
             slm.display_memory(mem_slot)
             refresh_phase_preview(slm_num)
@@ -994,9 +974,9 @@ def render_phase_control(slm_num: int):
             logger.error(f"Failed to generate/display phase for SLM {slm_num}: {e}")
 
     # Option to load from CSV
-    uploaded_file = st.file_uploader("上传CSV相位文件", type=["csv"], key=f"{prefix}_csv")
+    uploaded_file = st.file_uploader("上传CSV相位文件", type=["csv"], key=f"{prefix}_csv_file")
     if uploaded_file is not None:
-        if st.button("从CSV加载相位", key=f"{prefix}_load_csv"):
+        if st.button("从CSV加载相位", key=f"{prefix}_load_csv_btn"):
             try:
                 # Save uploaded file temporarily
                 temp_path = Path(f"temp_{prefix}_phase.csv")

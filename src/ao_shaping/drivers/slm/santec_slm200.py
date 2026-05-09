@@ -104,8 +104,8 @@ class SantecSLM200:
         use_120hz: bool = False,
         wavelength: int | None = None,
         video_mode: int | VideoMode = VideoMode.Memory,
-        shift_x: int = DEFAULT_SHIFT_X,
-        shift_y: int = DEFAULT_SHIFT_Y,
+        shift_x: int | None = None,
+        shift_y: int | None = None,
     ):
         """初始化SLM驱动
 
@@ -115,8 +115,8 @@ class SantecSLM200:
             wavelength: 工作波长（nm），默认为1064；
                 设为None则从配置文件或设备读取
             video_mode: 视频模式 (0=内存模式, 1=DVI模式)，默认为0
-            shift_x: X方向平移像素数（正=右，负=左），默认为0
-            shift_y: Y方向平移像素数（正=下，负=上），默认为0
+            shift_x: X方向平移像素数（正=右，负=左），设为None从配置文件加载
+            shift_y: Y方向平移像素数（正=下，负=上），设为None从配置文件加载
         """
         # 参数验证仅在设备控制函数中进行，此处不重复验证
         self.slm_number = slm_number
@@ -131,13 +131,13 @@ class SantecSLM200:
 
         # 保存init参数，用于open()中优先级判断
         self._init_wavelength: int | None = wavelength
-        self._init_shift_x: int = shift_x
-        self._init_shift_y: int = shift_y
+        self._init_shift_x: int | None = shift_x
+        self._init_shift_y: int | None = shift_y
 
         # 实际运行时值（立即生效，供属性和测试使用）
         self.wavelength: int | None = wavelength
-        self._shift_x: int = shift_x
-        self._shift_y: int = shift_y
+        self._shift_x: int = 0
+        self._shift_y: int = 0
 
         self._current_memory_slot = 1
 
@@ -209,12 +209,15 @@ class SantecSLM200:
         assert self._config_manager is not None, "Config manager should be initialized"
         config = {
             "wavelength": self.wavelength,
+            "max_gray": self._max_gray,
             "shift_x": self._shift_x,
             "shift_y": self._shift_y,
             "use_120hz": self._use_120hz,
             "video_mode": self.video_mode,
         }
         self._config_manager.save_config(self._serial_number, config)
+        config_file = self._config_manager._get_config_file(self._serial_number)
+        logger.info(f"SLM配置已保存: {config_file}")
 
     def open(self) -> None:
         """打开SLM设备连接
@@ -264,10 +267,16 @@ class SantecSLM200:
         else:
             self.wavelength = None
 
-        # shift_x/shift_y: init参数优先于配置（简化版，init始终优先）
-        # 如需"init未设置时使用配置"，需使用sentinel模式（当前测试未覆盖该场景）
-        self._shift_x = self._init_shift_x
-        self._shift_y = self._init_shift_y
+        # shift_x/shift_y: 优先使用init参数，否则从配置加载
+        if self._init_shift_x is not None:
+            self._shift_x = self._init_shift_x
+        elif "shift_x" in config:
+            self._shift_x = config["shift_x"]
+
+        if self._init_shift_y is not None:
+            self._shift_y = self._init_shift_y
+        elif "shift_y" in config:
+            self._shift_y = config["shift_y"]
 
         logger.info(
             f"SLM #{self.slm_number} 参数: "
@@ -279,9 +288,18 @@ class SantecSLM200:
         # 读取并验证设备状态，必要时从设备读取波长
         if self._check_status():
             if self.wavelength is None:
-                self.wavelength = self.get_wavelength_info()[0]
-            elif self.wavelength is not None:
-                self.set_wavelength(self.wavelength, save_to_device=True)
+                self.wavelength, self._max_gray = self.get_wavelength_info()
+            else:
+                # 先获取设备当前波长，比较后再决定是否设置
+                device_wavelength, device_max_gray = self.get_wavelength_info()
+                if device_wavelength == self.wavelength:
+                    logger.info(
+                        f"SLM #{self.slm_number} 波长与设备当前值相同，跳过设置 "
+                        f"(wavelength={self.wavelength})"
+                    )
+                    self._max_gray = device_max_gray
+                else:
+                    self.set_wavelength(self.wavelength, save_to_device=True)
 
         # 设置内存模式
         self._set_memory_mode(self.video_mode)
@@ -293,6 +311,9 @@ class SantecSLM200:
         """
         if not self.is_open:
             return
+
+        # 保存当前配置
+        self.save_config()
 
         ret = self._slm.SLM_Ctrl_Close(self.slm_number)
         if ret == SLM_OK:

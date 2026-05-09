@@ -30,7 +30,7 @@ from ao_shaping.utils.wfs_utils import DitheredReference
 @click.option('--magnitude', default=0.5, help='扰动幅度 (波长, 0=自动优化)')
 @click.option('--n-averages', 'n_averages', default=3, help='每次WFS读取次数 (M)')
 @click.option('--n-cycles', 'n_cycles', default=1, help='正负交替循环次数 (N)')
-@click.option('--wait-time', 'wait_time', default=0.1, help='等待时间 (秒)')
+@click.option('--wait', 'wait_time', default=0.1, help='等待时间 (秒)')
 @click.option('--output', 'output_path', default='data/zernike_response_matrix', help='输出文件路径')
 @click.option('--slm-number', 'slm_number', default=1, help='SLM设备编号')
 @click.option('--shift-x', 'shift_x', type=int, default=0, help='SLM X方向平移像素 (正=右, 负=左)')
@@ -44,15 +44,14 @@ from ao_shaping.utils.wfs_utils import DitheredReference
 @click.option('--pupil-diameter', 'pupil_diameter', type=float, default=2.0, help='瞳孔直径 (mm)')
 @click.option('--pupil-center', callback=parse_tuple, default="(0,0)", help='瞳孔中心坐标 (默认: (0,0))')
 @click.option('--no-inverses', 'compute_inverses', default=True, flag_value=False, help='不计算逆矩阵')
-@click.option('--no-excluded-piston', 'excluded_piston', default=True, flag_value=False, help='不排除piston模式')
 @click.option('--excluded-tip-tilt', 'excluded_tip_tilt', default=False, flag_value=True, help='排除tip/tilt模式 (Z2, Z3)')
+@click.option('--cancel-tile', 'cancel_tile', is_flag=True, default=False, help='测量时去除WFS的tip/tilt (对应Thorlabs的cancel_tile功能)')
 @click.option('--display/--no-display', default=False, help='显示实时pygame显示')
 @click.option('--debug', 'debug', is_flag=True, default=None, help='启用调试模式 (保存原始测量数据)')
 @click.option('--auto-optimize/--no-auto-optimize', 'auto_optimize_amplitude', default=True, help='自动优化扰动幅度 (magnitude=0时)')
 @click.option('--optimize-n-avg', 'optimize_n_avg', default=10, help='幅度优化时的WFS读取次数')
 @click.option('--n-magnitudes', 'n_magnitudes', default=0, help='自动生成N个不同扰动幅度并分别保存 (0=禁用)')
 @click.option('--dither-amp', 'dither_amp', default=0.0, help='亚波长抖动幅度 [λ], 0=禁用 (建议0.02-0.05)')
-@click.option('--n-dither', 'n_dither', default=None, help='[已废弃,使用n-averages] 抖动样本数')
 def run(
     ctx: click.Context,
     n_max: int,
@@ -73,15 +72,15 @@ def run(
     pupil_diameter: float,
     pupil_center: tuple,
     compute_inverses: bool,
-    excluded_piston: bool,
     excluded_tip_tilt: bool,
+    cancel_tile: bool,
     display: bool,
     debug: bool | None,
     auto_optimize_amplitude: bool,
     optimize_n_avg: int,
     n_magnitudes: int,
     dither_amp: float,
-    n_dither: int | None,
+    excluded_piston: bool = True
 ):
     """获取Zernike响应矩阵
 
@@ -101,6 +100,11 @@ def run(
     n_averages = n_averages or DEFAULT_N_AVERAGES
     n_cycles = n_cycles or DEFAULT_N_CYCLES
     wait_time = wait_time or DEFAULT_WAIT_TIME
+
+    # Auto-enable cancel_tile when excluded_tip_tilt is set
+    if excluded_tip_tilt:
+        cancel_tile = True
+        click.echo("Note: --excluded-tip-tilt enabled, auto-setting --cancel-tile")
 
     # Determine debug flag: use explicit value, or inherit from parent context
     if debug is None:
@@ -179,25 +183,28 @@ def run(
                 use_custom_ref=use_custom_ref,
                 pupil_diameter=pupil_diameter,
                 pupil_center=pupil_center,
-) as wfs:
+            ) as wfs:
                 dither_diagnostics = None
+                if dither_amp > 0:
+                    click.echo(f"Dithered reference: amp={dither_amp}λ, n={n_averages}")
+                    dither = DitheredReference(
+                        slm=zslm,
+                        dither_amp=dither_amp,
+                        n_dither=n_averages,
+                        wait_time=wait_time,
+                    )
+                    _, dither_diagnostics = dither.measure(wfs, n_averages=n_averages)
+                    click.echo(f"Dithered ref SNR: {dither_diagnostics['snr_db']:.1f} dB")
+
                 if not use_custom_ref:
+                    # 测量响应矩阵需要在平面下测量防止wfs质心偏移过大
                     zslm.set_flat()
                     sleep(0.5)
+                    wfs.save_user_ref()
+                    wfs.load_user_ref()
 
-                    if dither_amp > 0:
-                        click.echo(f"Dithered reference: amp={dither_amp}λ, n={n_averages}")
-                        dither = DitheredReference(
-                            slm=zslm,
-                            dither_amp=dither_amp,
-                            n_dither=n_averages,
-                            wait_time=wait_time,
-                        )
-                        _, dither_diagnostics = dither.measure(wfs, n_averages=n_averages)
-                        click.echo(f"Dithered ref SNR: {dither_diagnostics['snr_db']:.1f} dB")
-                    else:
-                        wfs.save_user_ref()
-                        wfs.load_user_ref()
+                    logger.debug(f'自动标定参考波前:{wfs.get_wavefront(cancel_tile)[1]["rms"]}')
+
 
                 magnitudes_to_run = []
                 if n_magnitudes > 0:
@@ -235,6 +242,7 @@ def run(
                         debug_data_callback=debug_data_callback,
                         auto_optimize_amplitude=auto_optimize_amplitude,
                         optimize_n_avg=optimize_n_avg,
+                        cancel_tile=cancel_tile,
                     )
 
                     save_zernike_response_matrix(result, mag_output_path, include_inverses=compute_inverses)

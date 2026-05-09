@@ -11,6 +11,8 @@ from pathlib import Path
 from datetime import datetime
 
 import numpy as np
+
+from ao_shaping.utils.file import DeviceConfigManager
 import ctypes
 from ctypes import (
     c_double, c_uint8, c_int32, c_bool, c_float, c_ulong, create_string_buffer, byref
@@ -111,19 +113,20 @@ class WFSManager:
 
     def __init__(
         self,
-        mla_index: MlaRes = MlaRes.Res768,
-        exp_time: float = 0.0,
-        high_speed: bool = False,
-        use_custom_ref: bool = False,
-        pupil_diameter: float = 2.0,
-        pupil_center: tuple = (0.0, 0.0),
+        mla_index: MlaRes | None = None,
+        exp_time: float | None = None,
+        high_speed: bool | None = None,
+        use_custom_ref: bool | None = None,
+        pupil_diameter: float | None = None,
+        pupil_center: tuple | None = None,
     ):
         """
-        mla_index: MlaRes
-        exp_time: exposure time in ms, 0 means auto
-        high_speed: enable high speed mode, only 512x512 resolution supported
-        use_custom_ref: use custom reference file, if not, use default reference file
-        pupil_diameter: pupil diameter in mm, default 2.0
+        mla_index: MlaRes (如果为None，从配置文件加载)
+        exp_time: exposure time in ms, 0 means auto (如果为None，从配置文件加载)
+        high_speed: enable high speed mode (如果为None，从配置文件加载)
+        use_custom_ref: use custom reference file (如果为None，从配置文件加载)
+        pupil_diameter: pupil diameter in mm (如果为None，从配置文件加载)
+        pupil_center: (cx, cy) center position (如果为None，从配置文件加载)
         """
         assert mla_index in MlaRes, "mla_index must be one of MlaRes"
         assert exp_time == 0.0 or EXP_TIME_LOW <= exp_time <= EXP_TIME_HIGH, (
@@ -151,6 +154,55 @@ class WFSManager:
             logger.info("high speed mode can only use auto exposure time!")
         self._image_captured = False
 
+        # 配置管理器
+        self._config_manager: DeviceConfigManager | None = None
+
+    def _init_config_manager(self) -> None:
+        """初始化WFS配置管理器"""
+        if self._config_manager is None:
+            # 默认配置目录: data/wfs_configs/
+            project_root = Path(__file__).resolve().parents[4]
+            config_dir = project_root / "data" / "wfs_configs"
+            self._config_manager = DeviceConfigManager(config_dir, device_type="wfs")
+
+    def load_config(self) -> dict:
+        """根据序列号加载JSON配置文件
+
+        Returns:
+            配置字典；无序列号或文件不存在时返回空字典
+        """
+        if not self.serial_num:
+            logger.warning("WFS序列号未获取，跳过配置加载")
+            return {}
+        self._init_config_manager()
+        assert self._config_manager is not None
+        return self._config_manager.load_config(self.serial_num)
+
+    def save_config(self) -> None:
+        """将当前参数保存到JSON配置文件
+
+        配置项包括: serial_number, mla_index, exposure_time, high_speed,
+        pupil_center, pupil_diameter, use_custom_ref
+        """
+        if not self.serial_num:
+            logger.warning("WFS序列号未获取，跳过配置保存")
+            return
+
+        self._init_config_manager()
+        assert self._config_manager is not None
+
+        config = {
+            "mla_index": int(self.mla_index),
+            "exposure_time": self._explosure_time,
+            "high_speed": self.enable_high_speed,
+            "pupil_center": (self.c_x, self.c_y),
+            "pupil_diameter": (self.d_x, self.d_y),
+            "use_custom_ref": self.use_custom_ref,
+        }
+        self._config_manager.save_config(self.serial_num, config)
+        config_file = self._config_manager._get_config_file(self.serial_num)
+        logger.info(f"WFS配置已保存: {config_file}")
+
     def __enter__(self) -> WFSManager:
         """Enter context manager, initialize the device connection.
 
@@ -170,7 +222,7 @@ class WFSManager:
         """
         self.close()
 
-    def initialize(self):
+def initialize(self):
         device_in_use = ViInt32()
         device_name = create_string_buffer(256)
         serial_number = create_string_buffer(256)
@@ -183,6 +235,77 @@ class WFSManager:
             device_name,
             serial_number,
             resource_name,
+        )
+
+        # check if WFS is in use, if not, connect to device
+        assert not device_in_use, (
+            "Wavefront sensor currently in use.... closing program"
+        )
+
+        self._lib.WFS_init(
+            resource_name, c_bool(False), c_bool(True), byref(self._instrument_handle)
+        )
+        self.device_name = str(device_name.value, encoding='utf8')
+        self.serial_num = str(serial_number.value, encoding='utf8')
+        logger.info(
+            f"Connected to {self.device_name} with Serial Number {self.serial_num}"
+        )
+
+        # 加载配置（优先使用init参数，否则使用配置值）
+        config = self.load_config()
+
+        # MLA index
+        if self.mla_index is None:
+            if "mla_index" in config:
+                self.mla_index = MlaRes(config["mla_index"])
+            else:
+                self.mla_index = MlaRes.Res768
+
+        # exposure time
+        if self._explosure_time is None:
+            if "exposure_time" in config:
+                self._explosure_time = float(config["exposure_time"])
+            else:
+                self._explosure_time = 0.0
+
+        # high speed
+        if self.enable_high_speed is None:
+            if "high_speed" in config:
+                self.enable_high_speed = bool(config["high_speed"])
+            else:
+                self.enable_high_speed = False
+
+        # use custom ref
+        if self.use_custom_ref is None:
+            if "use_custom_ref" in config:
+                self.use_custom_ref = bool(config["use_custom_ref"])
+            else:
+                self.use_custom_ref = False
+
+        # pupil center
+        if self.pupil_center is None:
+            if "pupil_center" in config:
+                self.c_x, self.c_y = config["pupil_center"]
+            else:
+                self.c_x, self.c_y = 0.0, 0.0
+
+        # pupil diameter
+        if self.pupil_diameter is None:
+            if "pupil_diameter" in config:
+                self.d_x, self.d_y = config["pupil_diameter"]
+            else:
+                self.d_x, self.d_y = 2.0, 2.0
+
+        self.select_mla(self.mla_index)
+        self.set_ref_plane(self.use_custom_ref)
+        if self._explosure_time <= 0:
+            self._explosure_time, _ = self.optimize_exposure_time_and_gain()
+        self.exposure_time = self._explosure_time
+        self.high_speed = self.enable_high_speed
+        self.pupil = (
+            (self.c_x, self.c_y, self.d_x, self.d_y)
+            if (self.d_x > 0 and self.d_y > 0)
+            else self.optimize_pupil()
         )
 
         # check if WFS is in use, if not, connect to device
@@ -214,6 +337,8 @@ class WFSManager:
     def close(self) -> None:
         """Close the WFS device connection and release resources."""
         if self._instrument_handle.value > 0:
+            # 保存配置
+            self.save_config()
             self.enable_high_speed = False
 
             self._lib.WFS_close(self._instrument_handle)

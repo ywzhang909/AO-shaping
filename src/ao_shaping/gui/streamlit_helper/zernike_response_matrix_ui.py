@@ -85,6 +85,9 @@ def _initialize_state() -> None:
     if "zrm_excluded_tip_tilt" not in st.session_state:
         st.session_state.zrm_excluded_tip_tilt = False
 
+    if "zrm_cancel_tile" not in st.session_state:
+        st.session_state.zrm_cancel_tile = False
+
     if "zrm_compute_inverses" not in st.session_state:
         st.session_state.zrm_compute_inverses = True
 
@@ -359,6 +362,7 @@ def _run_calibration_thread(
     wait_time,
     excluded_piston,
     excluded_tip_tilt,
+    cancel_tile,
     compute_inverses,
     verbose,
     save_path,
@@ -399,6 +403,7 @@ def _run_calibration_thread(
             compute_inverses=compute_inverses,
             verbose=verbose,
             callback=callback if verbose else None,
+            cancel_tile=cancel_tile,
         )
 
         # Save result
@@ -509,6 +514,17 @@ def render_sidebar() -> None:
             "排除Tip/Tilt (Z2, Z3)",
             value=st.session_state.zrm_excluded_tip_tilt,
             help="排除Zernike第2、3项（Tip/Tilt）的校准，通常由光路对准补偿",
+        )
+
+        # Auto-enable cancel_tile when excluded_tip_tilt is set
+        if st.session_state.zrm_excluded_tip_tilt and not st.session_state.zrm_cancel_tile:
+            st.session_state.zrm_cancel_tile = True
+            st.caption("💡 已自动启用: 排除tip/tilt时自动启用cancel_tile")
+
+        st.session_state.zrm_cancel_tile = st.checkbox(
+            "去除WFS tip/tilt (cancel_tile)",
+            value=st.session_state.zrm_cancel_tile,
+            help="测量时去除WFS的tip/tilt (对应Thorlabs的cancel_tile功能)",
         )
 
         st.session_state.zrm_compute_inverses = st.checkbox(
@@ -778,6 +794,7 @@ def render_calibrate_mode() -> None:
                 st.session_state.zrm_wait_time,
                 st.session_state.zrm_excluded_piston,
                 st.session_state.zrm_excluded_tip_tilt,
+                st.session_state.zrm_cancel_tile,
                 st.session_state.zrm_compute_inverses,
                 st.session_state.zrm_verbose,
                 save_path,
