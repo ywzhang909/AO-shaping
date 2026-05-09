@@ -64,6 +64,7 @@ class ZernikeResponseMatrixResult:
     matrix: np.ndarray  # 响应矩阵 (n_wfs_terms, n_slm_terms)
     variance_matrix: np.ndarray  # 方差矩阵 (n_wfs_terms, n_slm_terms)
     deviation_response_matrix: np.ndarray | None = None  # 子孔径斜率响应矩阵 (2*n_spots, n_slm_terms), 每列包含展平后的[dev_x; dev_y]
+    subaperture_mask: np.ndarray | None = None  # 有效子孔径掩膜 2D bool数组
     n_max: int = 10  # Zernike最大阶数
     magnitude: float = 0.5  # 校准时使用的幅度 (波长)
     wavelength_nm: int = 1064  # 工作波长 (nm)
@@ -115,6 +116,8 @@ class ZernikeResponseMatrixResult:
         d["variance_matrix"] = self.variance_matrix.tolist()
         if self.deviation_response_matrix is not None:
             d["deviation_response_matrix"] = self.deviation_response_matrix.tolist()
+        if self.subaperture_mask is not None:
+            d["subaperture_mask"] = self.subaperture_mask.tolist()
         if self.pinv_matrix is not None:
             d["pinv_matrix"] = self.pinv_matrix.tolist()
         if self.lstsq_matrix is not None:
@@ -131,6 +134,10 @@ class ZernikeResponseMatrixResult:
             d["deviation_response_matrix"] = np.array(d["deviation_response_matrix"])
         else:
             d["deviation_response_matrix"] = None
+        if "subaperture_mask" in d and d["subaperture_mask"] is not None:
+            d["subaperture_mask"] = np.array(d["subaperture_mask"])
+        else:
+            d["subaperture_mask"] = None
         if "pinv_matrix" in d and d["pinv_matrix"] is not None:
             d["pinv_matrix"] = np.array(d["pinv_matrix"])
         else:
@@ -290,56 +297,55 @@ def calibrate_zernike_response_matrix(
     display: ZernikeCalibrationDisplay | None = None,
     callback: Callable[[int, int, np.ndarray, np.ndarray], None] | None = None,
     debug_data_callback: Callable | None = None,
+    subaperture_mask: np.ndarray | None = None,
+    mask_n_avg: int = 30,
+    mask_threshold_ratio: float = 0.3,
+    mask_edge_clip: int = 1,
 ) -> ZernikeResponseMatrixResult:
-    """校准Zernike响应矩阵 (增强版)
-
-    逐一加载各阶Zernike模式，测量对应的WFS响应，构建响应矩阵。
+    """Calibrate Zernike response matrix.
 
     Args:
-        zslm: ZernikeSLM实例
-        wfs: Thorlab WFS实例
-        n_max: Zernike最大阶数
-        magnitude: 每个模式的扰动幅度 (波长)
-        n_cycles: 正负交替循环次数 (N)
-        n_averages: 每次WFS读取次数 (M)
-        wait_time: 每次施加相位后的等待时间 (秒)
-        excluded_piston: 是否排除piston (Z1)
-        excluded_tip_tilt: 是否排除tip/tilt (Z2, Z3)
-        compute_inverses: 是否计算逆矩阵
-        verbose: 是否显示进度条
-        display: 可选的ZernikeCalibrationDisplay实例，用于实时可视化
-        callback: 可选的回调函数，每次模式测量后调用。
-            签名: callback(mode_index, total_modes, response_col, variance_col)
-            - mode_index: 当前模式索引 (0-based)
-            - total_modes: 总模式数 (n_slm_terms)
-            - response_col: 响应向量 (mean_resp)
-            - variance_col: 方差向量 (var_resp)
-            如果提供callback，将跳过tqdm进度条。
-        debug_data_callback: 调试数据回调，用于保存每次测量的原始数据。
-            签名为: callback(mode_index, cycle, sample, slm_phase, shift_x, shift_y,
-                           deviation_x, deviation_y, zernike_coeffs, is_plus)
-            - mode_index: SLM Zernike模式索引
-            - cycle: 当前循环次数 (0 to n_cycles-1)
-            - sample: 当前采样索引 (0 to n_averages-1)
-            - slm_phase: SLM灰度相位图 (uint16, with shift applied)
-            - shift_x, shift_y: SLM平移值
-            - deviation_x, deviation_y: WFS spot deviation数组
-            - zernike_coeffs: WFS Zernike系数 (原始, averaging前)
-            - is_plus: 是否是正向扰动 (+coefficients)
-            仅在debug模式且回调非None时调用。
+        zslm: ZernikeSLM instance
+        wfs: Thorlab WFS instance
+        n_max: Zernike maximum order
+        magnitude: Perturbation magnitude per mode (in wavelength)
+        n_cycles: Number of positive/negative perturbation cycles (N)
+        n_averages: Number of WFS readings per measurement (M)
+        wait_time: Wait time after applying phase (seconds)
+        excluded_piston: Exclude piston (Z1)
+        excluded_tip_tilt: Exclude tip/tilt (Z2, Z3)
+        compute_inverses: Compute inverse matrices
+        verbose: Show progress bar
+        display: Optional ZernikeCalibrationDisplay for real-time visualization
+        callback: Optional callback after each mode measurement.
+        debug_data_callback: Debug data callback for raw measurement storage.
+        subaperture_mask: Pre-computed valid subaperture mask. If None, builds automatically.
+        mask_n_avg: Frames to average for mask building (if auto-built)
+        mask_threshold_ratio: Intensity threshold ratio for mask (if auto-built)
+        mask_edge_clip: Edge clip for mask (if auto-built)
 
     Returns:
-        ZernikeResponseMatrixResult对象，包含响应矩阵、方差和逆矩阵
+        ZernikeResponseMatrixResult with response matrices and metadata
     """
     n_remove = (1 if excluded_piston else 0) + (2 if excluded_tip_tilt else 0)
     n_slm_terms = calc_n_zernike_terms(n_max) - n_remove
     n_wfs_terms = wfs.calc_n_zernike_terms(n_max) - n_remove
 
+    if subaperture_mask is None:
+        logger.info("Building subaperture mask automatically...")
+        subaperture_mask, _ = wfs.build_subaperture_mask(
+            n_avg=mask_n_avg,
+            threshold_ratio=mask_threshold_ratio,
+            edge_clip=mask_edge_clip,
+        )
+
+    valid_count = np.sum(subaperture_mask)
+    total_count = subaperture_mask.size
     logger.info(
-        f"开始Zernike响应矩阵校准: n_max={n_max}, "
+        f"Starting Zernike response matrix calibration: n_max={n_max}, "
         f"SLM terms={n_slm_terms}, WFS terms={n_wfs_terms}, "
-        f"magnitude={magnitude}λ, cycles={n_cycles}, averages={n_averages}, "
-        f"excluded_piston={excluded_piston}, excluded_tip_tilt={excluded_tip_tilt}"
+        f"valid subapertures={valid_count}/{total_count} ({valid_count/total_count*100:.1f}%), "
+        f"magnitude={magnitude}λ, cycles={n_cycles}, averages={n_averages}"
     )
 
     response_matrix = np.zeros((n_wfs_terms, n_slm_terms), dtype=np.float64)
@@ -438,6 +444,7 @@ def calibrate_zernike_response_matrix(
         matrix=response_matrix,
         variance_matrix=variance_matrix,
         deviation_response_matrix=deviation_response_matrix,
+        subaperture_mask=subaperture_mask,
         n_max=n_max,
         magnitude=magnitude,
         wavelength_nm=zslm.wavelength,
@@ -451,9 +458,9 @@ def calibrate_zernike_response_matrix(
     )
 
     logger.info(
-        f"校准完成: matrix shape={result.matrix.shape}, "
+        f"Calibration complete: matrix shape={result.matrix.shape}, "
+        f"valid_subapertures={np.sum(subaperture_mask)}/{subaperture_mask.size}, "
         f"mean_variance={result.mean_variance:.6f}, "
-        f"max_variance={result.max_variance:.6f}, "
         f"timestamp={result.timestamp}"
     )
 
@@ -469,104 +476,103 @@ def save_zernike_response_matrix(
     path: str | Path,
     include_inverses: bool = True,
 ) -> None:
-    """保存响应矩阵到文件 (增强版)
+    """Save response matrix to HDF5 file with full metadata.
 
     Args:
-        result: 校准结果
-        path: 保存路径 (不含扩展名)
-        include_inverses: 是否包含逆矩阵
+        result: Calibration result
+        path: Save path (with .h5 extension or as base path)
+        include_inverses: Whether to include inverse matrices
     """
+    import h5py
+
     path = Path(path)
+    if path.suffix != ".h5":
+        path = path.with_suffix(".h5")
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 保存响应矩阵
-    np.save(path.with_suffix(".response.npy"), result.matrix)
+    with h5py.File(path, "w") as f:
+        f.create_dataset("matrix", data=result.matrix)
+        f.create_dataset("variance_matrix", data=result.variance_matrix)
 
-    # 保存方差矩阵
-    np.save(path.with_suffix(".variance.npy"), result.variance_matrix)
+        if result.deviation_response_matrix is not None:
+            f.create_dataset("deviation_response_matrix", data=result.deviation_response_matrix)
 
-    # 保存子孔径斜率响应矩阵
-    if result.deviation_response_matrix is not None:
-        np.save(path.with_suffix(".deviation.npy"), result.deviation_response_matrix)
+        if result.subaperture_mask is not None:
+            f.create_dataset("subaperture_mask", data=result.subaperture_mask)
 
-    # 保存逆矩阵 (可选)
-    if include_inverses and result.pinv_matrix is not None:
-        np.save(path.with_suffix(".pinv.npy"), result.pinv_matrix)
+        if include_inverses and result.pinv_matrix is not None:
+            f.create_dataset("pinv_matrix", data=result.pinv_matrix)
 
-    if include_inverses and result.lstsq_matrix is not None:
-        np.save(path.with_suffix(".lstsq.npy"), result.lstsq_matrix)
+        if include_inverses and result.lstsq_matrix is not None:
+            f.create_dataset("lstsq_matrix", data=result.lstsq_matrix)
 
-    # 保存元数据
-    metadata = {
-        "n_max": result.n_max,
-        "magnitude": result.magnitude,
-        "wavelength_nm": result.wavelength_nm,
-        "n_averages": result.n_averages,
-        "n_cycles": result.n_cycles,
-        "timestamp": result.timestamp,
-        "excluded_piston": result.excluded_piston,
-        "excluded_tip_tilt": result.excluded_tip_tilt,
-        "matrix_shape": result.matrix.shape,
-        "variance_shape": result.variance_matrix.shape,
-        "mean_variance": result.mean_variance,
-        "max_variance": result.max_variance,
-        "condition_number": result.condition_number,
-        "has_pinv": result.pinv_matrix is not None,
-        "has_lstsq": result.lstsq_matrix is not None,
-        "has_deviation": result.deviation_response_matrix is not None,
-        "deviation_shape": result.deviation_response_matrix.shape if result.deviation_response_matrix is not None else None,
-    }
+        meta = f.create_group("metadata")
+        meta.attrs["n_max"] = result.n_max
+        meta.attrs["magnitude"] = result.magnitude
+        meta.attrs["wavelength_nm"] = result.wavelength_nm
+        meta.attrs["n_averages"] = result.n_averages
+        meta.attrs["n_cycles"] = result.n_cycles
+        meta.attrs["timestamp"] = result.timestamp
+        meta.attrs["excluded_piston"] = result.excluded_piston
+        meta.attrs["excluded_tip_tilt"] = result.excluded_tip_tilt
+        meta.attrs["mean_variance"] = result.mean_variance
+        meta.attrs["max_variance"] = result.max_variance
+        meta.attrs["condition_number"] = result.condition_number if result.condition_number is not None else -1
 
-    with open(path.with_suffix(".json"), "w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2, ensure_ascii=False)
-
-    logger.info(f"响应矩阵已保存到: {path.parent}")
+    logger.info(f"Response matrix saved to: {path}")
 
 
 def load_zernike_response_matrix(path: str | Path) -> ZernikeResponseMatrixResult:
-    """从文件加载响应矩阵 (增强版)
+    """Load response matrix from HDF5 file.
 
     Args:
-        path: 文件路径 (不含扩展名)
+        path: File path (.h5 extension or base)
 
     Returns:
-        校准结果
+        Calibration result
     """
+    import h5py
+
     path = Path(path)
+    if path.suffix != ".h5":
+        path = path.with_suffix(".h5")
 
-    # 加载响应矩阵
-    matrix = np.load(path.with_suffix(".response.npy"))
+    with h5py.File(path, "r") as f:
+        matrix = f["matrix"][:]
+        variance_matrix = f["variance_matrix"][:]
+        deviation_matrix = f["deviation_response_matrix"][:] if "deviation_response_matrix" in f else None
+        subaperture_mask = f["subaperture_mask"][:] if "subaperture_mask" in f else None
+        pinv_matrix = f["pinv_matrix"][:] if "pinv_matrix" in f else None
+        lstsq_matrix = f["lstsq_matrix"][:] if "lstsq_matrix" in f else None
 
-    # 加载方差矩阵
-    variance_matrix = np.load(path.with_suffix(".variance.npy"))
-
-    # 加载子孔径斜率响应矩阵 (如果存在)
-    dev_path = path.with_suffix(".deviation.npy")
-    deviation_matrix = np.load(dev_path) if dev_path.exists() else None
-
-    # 加载逆矩阵 (如果存在)
-    pinv_path = path.with_suffix(".pinv.npy")
-    pinv_matrix = np.load(pinv_path) if pinv_path.exists() else None
-
-    lstsq_path = path.with_suffix(".lstsq.npy")
-    lstsq_matrix = np.load(lstsq_path) if lstsq_path.exists() else None
-
-    # 加载元数据
-    with open(path.with_suffix(".json"), encoding="utf-8") as f:
-        metadata = json.load(f)
+        meta = f["metadata"]
+        n_max = int(meta.attrs["n_max"])
+        magnitude = float(meta.attrs["magnitude"])
+        wavelength_nm = int(meta.attrs["wavelength_nm"])
+        n_averages = int(meta.attrs["n_averages"])
+        n_cycles = int(meta.attrs["n_cycles"])
+        timestamp = str(meta.attrs["timestamp"])
+        excluded_piston = bool(meta.attrs["excluded_piston"])
+        excluded_tip_tilt = bool(meta.attrs["excluded_tip_tilt"])
+        mean_variance = float(meta.attrs["mean_variance"])
+        max_variance = float(meta.attrs["max_variance"])
+        condition_number = meta.attrs["condition_number"]
+        if condition_number == -1:
+            condition_number = None
 
     return ZernikeResponseMatrixResult(
         matrix=matrix,
         variance_matrix=variance_matrix,
         deviation_response_matrix=deviation_matrix,
-        n_max=metadata["n_max"],
-        magnitude=metadata["magnitude"],
-        wavelength_nm=metadata["wavelength_nm"],
-        n_averages=metadata["n_averages"],
-        n_cycles=metadata["n_cycles"],
-        timestamp=metadata["timestamp"],
-        excluded_piston=metadata.get("excluded_piston", True),
-        excluded_tip_tilt=metadata.get("excluded_tip_tilt", False),
+        subaperture_mask=subaperture_mask,
+        n_max=n_max,
+        magnitude=magnitude,
+        wavelength_nm=wavelength_nm,
+        n_averages=n_averages,
+        n_cycles=n_cycles,
+        timestamp=timestamp,
+        excluded_piston=excluded_piston,
+        excluded_tip_tilt=excluded_tip_tilt,
         pinv_matrix=pinv_matrix,
         lstsq_matrix=lstsq_matrix,
     )
