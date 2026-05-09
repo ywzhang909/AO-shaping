@@ -63,12 +63,13 @@ class ZernikeResponseMatrixResult:
 
     matrix: np.ndarray  # 响应矩阵 (n_wfs_terms, n_slm_terms)
     variance_matrix: np.ndarray  # 方差矩阵 (n_wfs_terms, n_slm_terms)
-    n_max: int  # Zernike最大阶数
-    magnitude: float  # 校准时使用的幅度 (波长)
-    wavelength_nm: int  # 工作波长 (nm)
-    n_averages: int  # 每次WFS读取次数 (M)
-    n_cycles: int  # 正负交替循环次数 (N)
-    timestamp: str  # 时间戳
+    deviation_response_matrix: np.ndarray | None = None  # 子孔径斜率响应矩阵 (2*n_spots, n_slm_terms), 每列包含展平后的[dev_x; dev_y]
+    n_max: int = 10  # Zernike最大阶数
+    magnitude: float = 0.5  # 校准时使用的幅度 (波长)
+    wavelength_nm: int = 1064  # 工作波长 (nm)
+    n_averages: int = 20  # 每次WFS读取次数 (M)
+    n_cycles: int = 1  # 正负交替循环次数 (N)
+    timestamp: str = ""  # 时间戳
     excluded_piston: bool = True  # 是否排除piston
     excluded_tip_tilt: bool = False  # 是否排除tip/tilt
 
@@ -112,6 +113,8 @@ class ZernikeResponseMatrixResult:
         d = asdict(self)
         d["matrix"] = self.matrix.tolist()
         d["variance_matrix"] = self.variance_matrix.tolist()
+        if self.deviation_response_matrix is not None:
+            d["deviation_response_matrix"] = self.deviation_response_matrix.tolist()
         if self.pinv_matrix is not None:
             d["pinv_matrix"] = self.pinv_matrix.tolist()
         if self.lstsq_matrix is not None:
@@ -124,6 +127,10 @@ class ZernikeResponseMatrixResult:
         d = d.copy()
         d["matrix"] = np.array(d["matrix"])
         d["variance_matrix"] = np.array(d["variance_matrix"])
+        if "deviation_response_matrix" in d and d["deviation_response_matrix"] is not None:
+            d["deviation_response_matrix"] = np.array(d["deviation_response_matrix"])
+        else:
+            d["deviation_response_matrix"] = None
         if "pinv_matrix" in d and d["pinv_matrix"] is not None:
             d["pinv_matrix"] = np.array(d["pinv_matrix"])
         else:
@@ -154,7 +161,7 @@ def measure_zernike_mode_response(
     zernike_order: int = 10,
     mode_index: int = 0,
     debug_data_callback: Callable | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """测量单个Zernike模式的响应 (多次循环)
 
     使用正负扰动测量N次循环，以消除偏置和系统误差:
@@ -179,25 +186,27 @@ def measure_zernike_mode_response(
             仅在debug模式且回调非None时调用
 
     Returns:
-        (mean_response, variance_response): 平均响应向量和方差向量
+        tuple: (mean_response, variance_response, mean_deviation, variance_deviation)
+            - mean_response: 平均Zernike响应向量
+            - variance_response: Zernike响应方差向量
+            - mean_deviation: 平均子孔径斜率响应 (flattened concat of dev_x and dev_y)
+            - variance_deviation: 子孔径斜率响应方差
     """
-    def measure_once(coeffs: np.ndarray, mode_idx: int, cycle: int, is_plus: bool) -> np.ndarray:
+    def measure_once(coeffs: np.ndarray, mode_idx: int, cycle: int, is_plus: bool) -> tuple[np.ndarray, np.ndarray]:
         """单次测量 (M次WFS读取取平均)"""
         phase_gray = zslm.send_zernike(coeffs)
         time.sleep(wait_time)
 
         responses = []
+        deviations = []
         for sample_idx in range(n_averages):
             zernike_coeffs = wfs.get_zernike(zernike_order=zernike_order)
             responses.append(zernike_coeffs)
 
-            if debug_data_callback is not None:
-                try:
-                    dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=False)
-                except Exception:
-                    dev_x = np.array([])
-                    dev_y = np.array([])
+            dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=False)
+            deviations.append((dev_x, dev_y))
 
+            if debug_data_callback is not None:
                 debug_data_callback(
                     mode_index=mode_idx,
                     cycle=cycle,
@@ -214,44 +223,57 @@ def measure_zernike_mode_response(
         if len(responses) > 5:
             arr = np.array(responses)
             sorted_arr = np.sort(arr, axis=0)
-            return np.mean(sorted_arr[1:-1], axis=0)
-        return np.mean(responses, axis=0)
+            mean_resp = np.mean(sorted_arr[1:-1], axis=0)
+        else:
+            mean_resp = np.mean(responses, axis=0)
 
-    # N次正负交替循环测量
+        dev_x_arr = np.array([d[0] for d in deviations])
+        dev_y_arr = np.array([d[1] for d in deviations])
+        if len(deviations) > 5:
+            sorted_x = np.sort(dev_x_arr, axis=0)
+            sorted_y = np.sort(dev_y_arr, axis=0)
+            mean_dev_x = np.mean(sorted_x[1:-1], axis=0)
+            mean_dev_y = np.mean(sorted_y[1:-1], axis=0)
+        else:
+            mean_dev_x = np.mean(dev_x_arr, axis=0)
+            mean_dev_y = np.mean(dev_y_arr, axis=0)
+
+        mean_dev = np.concatenate([mean_dev_x.flatten(), mean_dev_y.flatten()])
+        return mean_resp, mean_dev
+
     all_responses = []
+    all_deviations = []
 
     for cycle in range(n_cycles):
-        # 正向扰动
-        response_plus = measure_once(+coefficients, mode_index, cycle, True)
+        response_plus, dev_plus = measure_once(+coefficients, mode_index, cycle, True)
         set_slm_flat(zslm._slm)
         time.sleep(wait_time)
 
-        # 负向扰动
-        response_minus = measure_once(-coefficients, mode_index, cycle, False)
+        response_minus, dev_minus = measure_once(-coefficients, mode_index, cycle, False)
         set_slm_flat(zslm._slm)
         time.sleep(wait_time)
 
-        # 计算本次循环的响应
         response = (response_plus - response_minus) / (2 * coeff_value)
+        deviation = (dev_plus - dev_minus) / (2 * coeff_value)
 
-        # 根据配置移除对应的Zernike项
-        # WFS返回的系数顺序: index 0=piston(Z1), 1=tip(Z2), 2=tilt(Z3), ...
         start_idx = 0
         if excluded_piston:
-            start_idx += 1  # 跳过piston (Z1)
+            start_idx += 1
         if excluded_tip_tilt:
-            start_idx += 2  # 跳过tip/tilt (Z2, Z3)
+            start_idx += 2
 
         all_responses.append(response[start_idx:])
+        all_deviations.append(deviation)
 
-    # 堆叠所有循环结果
-    all_responses = np.array(all_responses)  # shape: (n_cycles, n_response_terms)
+    all_responses = np.array(all_responses)
+    all_deviations = np.array(all_deviations)
 
-    # 计算平均值和方差
     mean_response = np.mean(all_responses, axis=0)
     variance_response = np.var(all_responses, axis=0)
+    mean_deviation = np.mean(all_deviations, axis=0)
+    variance_deviation = np.var(all_deviations, axis=0)
 
-    return mean_response, variance_response
+    return mean_response, variance_response, mean_deviation, variance_deviation
 
 def calibrate_zernike_response_matrix(
     zslm: ZernikeSLM,
@@ -309,7 +331,6 @@ def calibrate_zernike_response_matrix(
     Returns:
         ZernikeResponseMatrixResult对象，包含响应矩阵、方差和逆矩阵
     """
-    # 计算SLM和WFS的项数 (考虑piston和tip/tilt排除)
     n_remove = (1 if excluded_piston else 0) + (2 if excluded_tip_tilt else 0)
     n_slm_terms = calc_n_zernike_terms(n_max) - n_remove
     n_wfs_terms = wfs.calc_n_zernike_terms(n_max) - n_remove
@@ -323,6 +344,7 @@ def calibrate_zernike_response_matrix(
 
     response_matrix = np.zeros((n_wfs_terms, n_slm_terms), dtype=np.float64)
     variance_matrix = np.zeros((n_wfs_terms, n_slm_terms), dtype=np.float64)
+    deviation_response_matrix = np.zeros((2 * wfs.num_spots_x * wfs.num_spots_y, n_slm_terms), dtype=np.float64)
 
     set_slm_flat(zslm._slm)
     time.sleep(wait_time)
@@ -360,7 +382,7 @@ def calibrate_zernike_response_matrix(
 
         coeffs_full[i + noll_offset] = coeff_value
 
-        mean_resp, var_resp = measure_zernike_mode_response(
+        mean_resp, var_resp, mean_dev, var_dev = measure_zernike_mode_response(
             zslm=zslm,
             wfs=wfs,
             coefficients=coeffs_full,
@@ -378,6 +400,7 @@ def calibrate_zernike_response_matrix(
 
         response_matrix[:, i] = mean_resp
         variance_matrix[:, i] = var_resp
+        deviation_response_matrix[:, i] = mean_dev
 
         # Call callback if provided (after each mode measurement)
         if callback is not None:
@@ -414,6 +437,7 @@ def calibrate_zernike_response_matrix(
     result = ZernikeResponseMatrixResult(
         matrix=response_matrix,
         variance_matrix=variance_matrix,
+        deviation_response_matrix=deviation_response_matrix,
         n_max=n_max,
         magnitude=magnitude,
         wavelength_nm=zslm.wavelength,
@@ -461,6 +485,10 @@ def save_zernike_response_matrix(
     # 保存方差矩阵
     np.save(path.with_suffix(".variance.npy"), result.variance_matrix)
 
+    # 保存子孔径斜率响应矩阵
+    if result.deviation_response_matrix is not None:
+        np.save(path.with_suffix(".deviation.npy"), result.deviation_response_matrix)
+
     # 保存逆矩阵 (可选)
     if include_inverses and result.pinv_matrix is not None:
         np.save(path.with_suffix(".pinv.npy"), result.pinv_matrix)
@@ -485,6 +513,8 @@ def save_zernike_response_matrix(
         "condition_number": result.condition_number,
         "has_pinv": result.pinv_matrix is not None,
         "has_lstsq": result.lstsq_matrix is not None,
+        "has_deviation": result.deviation_response_matrix is not None,
+        "deviation_shape": result.deviation_response_matrix.shape if result.deviation_response_matrix is not None else None,
     }
 
     with open(path.with_suffix(".json"), "w", encoding="utf-8") as f:
@@ -510,6 +540,10 @@ def load_zernike_response_matrix(path: str | Path) -> ZernikeResponseMatrixResul
     # 加载方差矩阵
     variance_matrix = np.load(path.with_suffix(".variance.npy"))
 
+    # 加载子孔径斜率响应矩阵 (如果存在)
+    dev_path = path.with_suffix(".deviation.npy")
+    deviation_matrix = np.load(dev_path) if dev_path.exists() else None
+
     # 加载逆矩阵 (如果存在)
     pinv_path = path.with_suffix(".pinv.npy")
     pinv_matrix = np.load(pinv_path) if pinv_path.exists() else None
@@ -524,6 +558,7 @@ def load_zernike_response_matrix(path: str | Path) -> ZernikeResponseMatrixResul
     return ZernikeResponseMatrixResult(
         matrix=matrix,
         variance_matrix=variance_matrix,
+        deviation_response_matrix=deviation_matrix,
         n_max=metadata["n_max"],
         magnitude=metadata["magnitude"],
         wavelength_nm=metadata["wavelength_nm"],
