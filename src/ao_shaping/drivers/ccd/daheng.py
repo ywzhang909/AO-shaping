@@ -251,6 +251,82 @@ class DahengCamManager(BaseCamera):
             avg_img = np.where(avg_img < 0, 0, avg_img)
         return avg_img.astype(np.uint16)
 
+    def auto_exposure(
+        self,
+        target_mean: float = 0.5,
+        tolerance: float = 0.05,
+        max_iterations: int = 10,
+        n_sample: int = 1,
+    ) -> tuple[int, float]:
+        """
+        自动曝光调整 - 根据目标平均亮度迭代调整曝光时间。
+
+        算法:
+        1. 拍摄图像并计算平均亮度
+        2. 如果平均亮度在目标值的tolerance范围内,停止
+        3. 否则，根据比例调整曝光时间: new_exp = current_exp * (target / current)
+        4. 裁剪到有效范围 [min, max]
+        5. 重复直到收敛或达到最大迭代次数
+
+        Args:
+            target_mean: 目标平均亮度 (0-1范围, 默认0.5)
+            tolerance: 容差范围 (默认0.05, 即5%)
+            max_iterations: 最大迭代次数 (默认10)
+            n_sample: 每次迭代的采样次数 (默认1)
+
+        Returns:
+            tuple[int, float]: (最终曝光时间ms, 最终平均亮度)
+        """
+        assert self.cam, "camera not initialized"
+
+        target_val = target_mean * 255
+        min_exp = self.__exposure_time_ms.min
+        max_exp = self.__exposure_time_ms.max
+
+        logger.info(
+            f"Auto exposure start: target={target_mean:.2f} ({target_val:.0f}), "
+            f"range=[{min_exp}, {max_exp}]ms, max_iter={max_iterations}"
+        )
+
+        current_exp = self.exposure_time
+        for i in range(max_iterations):
+            img = self.get_numpy_image(n_sample, skip_first=True)
+            mean_val = np.mean(img)
+
+            if abs(mean_val - target_val) <= tolerance * 255:
+                logger.info(
+                    f"Auto exposure converged at iter {i+1}: "
+                    f"exp={current_exp}ms, mean={mean_val:.1f}"
+                )
+                return current_exp, mean_val / 255.0
+
+            ratio = target_val / max(mean_val, 1)
+            new_exp = int(current_exp * ratio)
+            new_exp = max(min_exp, min(max_exp, new_exp))
+
+            if new_exp == current_exp:
+                logger.info(
+                    f"Auto exposure stable at iter {i+1}: "
+                    f"exp={current_exp}ms, mean={mean_val:.1f}"
+                )
+                return current_exp, mean_val / 255.0
+
+            current_exp = new_exp
+            self.reset_exposure_time(current_exp)
+
+            logger.debug(
+                f"Auto exposure iter {i+1}: mean={mean_val:.1f}, "
+                f"exp={current_exp}ms (target={target_val:.0f})"
+            )
+
+        final_img = self.get_numpy_image(n_sample, skip_first=True)
+        final_mean = np.mean(final_img)
+        logger.warning(
+            f"Auto exposure max iterations reached: "
+            f"exp={current_exp}ms, mean={final_mean:.1f}"
+        )
+        return current_exp, final_mean / 255.0
+
     def autoset_exposure_time_ms(
         self, target_max_brightness, threshold=5, twice_valid=True
     ):
