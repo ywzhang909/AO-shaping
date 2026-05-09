@@ -104,7 +104,7 @@ def run(
 
     # Determine debug flag: use explicit value, or inherit from parent context
     if debug is None:
-        debug = ctx.parent.obj.get("debug", False) if ctx.parent else False
+        debug = ctx.parent.obj.get("debug", False) if ctx.parent and ctx.parent.obj else False
 
     # Handle auto_exposure: when enabled, set exp_time to 0.0 to trigger auto-exposure
     effective_exp_time = 0.0 if auto_exposure else exp_time

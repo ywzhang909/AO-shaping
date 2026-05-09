@@ -24,6 +24,8 @@ Example:
 from __future__ import annotations
 
 import json
+import h5py
+
 import time
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -435,9 +437,8 @@ def calibrate_zernike_response_matrix(
                     zslm, wfs, mode_idx, test_amps, n_avg=optimize_n_avg, zernike_order=n_max
                 )
                 amplitude_optimization[mode_idx] = diagnostics
-            avg_amp = np.mean([v["optimal_amplitude"] for v in amplitude_optimization.values()])
-            magnitude = round(avg_amp, 3)
-            logger.info(f"Using average optimal amplitude: {magnitude}λ")
+            magnitude = float(np.mean([v["optimal_amplitude"] for v in amplitude_optimization.values()]))
+            logger.info(f"Using average optimal amplitude: {magnitude:.3%}λ")
         else:
             magnitude = DEFAULT_MAGNITUDE
 
@@ -594,8 +595,6 @@ def save_zernike_response_matrix(
         path: Save path (with .h5 extension or as base path)
         include_inverses: Whether to include inverse matrices
     """
-    import h5py
-
     path = Path(path)
     if path.suffix != ".h5":
         path = path.with_suffix(".h5")
@@ -652,8 +651,6 @@ def load_zernike_response_matrix(path: str | Path) -> ZernikeResponseMatrixResul
     Returns:
         Calibration result
     """
-    import h5py
-
     path = Path(path)
     if path.suffix != ".h5":
         path = path.with_suffix(".h5")

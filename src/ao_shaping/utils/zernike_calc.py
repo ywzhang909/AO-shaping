@@ -4,6 +4,38 @@ import numpy as np
 
 from zernike import RZern
 
+# Zernike polynomial naming (Noll's scheme)
+ZERNIKE_NAMES: dict[tuple[int, int], str] = {
+    (0, 0): "Piston",
+    (1, -1): "Tip",
+    (1, 1): "Tilt",
+    (2, 0): "Defocus",
+    (2, -2): "Astigmatism 45°",
+    (2, 2): "Astigmatism 0°",
+    (3, -1): "Coma Y",
+    (3, 1): "Coma X",
+    (3, -3): "Trefoil Y",
+    (3, 3): "Trefoil X",
+    (4, 0): "Spherical",
+    (4, -2): "Secondary Astig 45°",
+    (4, 2): "Secondary Astig 0°",
+    (4, -4): "Tetrafoil Y",
+    (4, 4): "Tetrafoil X",
+}
+
+
+def get_zernike_name(n: int, m: int) -> str:
+    """Get Zernike polynomial name from (n, m) indices.
+
+    Args:
+        n: Radial order.
+        m: Azimuthal order.
+
+    Returns:
+        Zernike name string, or empty string if not in lookup table.
+    """
+    return ZERNIKE_NAMES.get((n, m), f"n={n},m={m}")
+
 
 def nm_to_noll(n: int, m: int) -> int:
     """Convert (n, m) Zernike indices to Noll index.

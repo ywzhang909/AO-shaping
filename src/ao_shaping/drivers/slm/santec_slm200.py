@@ -354,7 +354,7 @@ class SantecSLM200:
             RuntimeError: 设备未打开
         """
         self._ensure_open()
-
+        wavelength = int(wavelength)
         # 在设备控制函数中进行参数验证
         if not WAVELENGTH_MIN <= wavelength <= WAVELENGTH_MAX:
             raise SantecSLM200Error(
