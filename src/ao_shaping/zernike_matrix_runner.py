@@ -26,7 +26,7 @@ from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_times
 @click.command('zernike-matrix')
 @click.pass_context
 @click.option('--n-max', default=10, help='Zernike最大阶数')
-@click.option('--magnitude', default=0.5, help='扰动幅度 (波长)')
+@click.option('--magnitude', default=0.5, help='扰动幅度 (波长, 0=自动优化)')
 @click.option('--n-averages', 'n_averages', default=3, help='每次WFS读取次数 (M)')
 @click.option('--n-cycles', 'n_cycles', default=1, help='正负交替循环次数 (N)')
 @click.option('--wait-time', 'wait_time', default=0.1, help='等待时间 (秒)')
@@ -47,6 +47,9 @@ from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_times
 @click.option('--excluded-tip-tilt', 'excluded_tip_tilt', default=False, flag_value=True, help='排除tip/tilt模式 (Z2, Z3)')
 @click.option('--display/--no-display', default=False, help='显示实时pygame显示')
 @click.option('--debug', 'debug', is_flag=True, default=None, help='启用调试模式 (保存原始测量数据)')
+@click.option('--auto-optimize/--no-auto-optimize', 'auto_optimize_amplitude', default=True, help='自动优化扰动幅度 (magnitude=0时)')
+@click.option('--optimize-n-avg', 'optimize_n_avg', default=10, help='幅度优化时的WFS读取次数')
+@click.option('--n-magnitudes', 'n_magnitudes', default=0, help='自动生成N个不同扰动幅度并分别保存 (0=禁用)')
 def run(
     ctx: click.Context,
     n_max: int,
@@ -71,10 +74,16 @@ def run(
     excluded_tip_tilt: bool,
     display: bool,
     debug: bool | None,
+    auto_optimize_amplitude: bool,
+    optimize_n_avg: int,
+    n_magnitudes: int,
 ):
     """获取Zernike响应矩阵
 
     支持 N 次正负交替循环测量 + M 次 WFS 读取取平均 + 方差跟踪 + 逆矩阵计算。
+
+    多幅度模式 (--n-magnitudes N):
+        自动生成N个不同扰动幅度 (0.1到0.8λ)，分别标定并保存。
 
     调试模式 (--debug):
         保存每次测量的原始数据:
@@ -159,50 +168,77 @@ def run(
     try:
         with ZernikeSLM(slm_number=slm_number, wavelength=wavelength, n_max=n_max, shift_x=shift_x, shift_y=shift_y) as zslm:
             with WFSManager(
-<<<<<<< Updated upstream
                 mla_index=mla_index_enum,
-                exp_time=exp_time,
-=======
-                mla_index=mla_index,
                 exp_time=effective_exp_time,
->>>>>>> Stashed changes
                 high_speed=high_speed,
                 use_custom_ref=use_custom_ref,
                 pupil_diameter=pupil_diameter,
                 pupil_center=pupil_center,
             ) as wfs:
                 if not use_custom_ref:
-                # 测试相应矩阵前标定当前为参考波前避免干扰
                     zslm.set_flat()
                     sleep(0.5)
                     wfs.save_user_ref()
                     wfs.load_user_ref()
-                result = calibrate_zernike_response_matrix(
-                    zslm=zslm,
-                    wfs=wfs,
-                    n_max=n_max,
-                    magnitude=magnitude,
-                    n_averages=n_averages,
-                    n_cycles=n_cycles,
-                    wait_time=wait_time,
-                    excluded_piston=excluded_piston,
-                    excluded_tip_tilt=excluded_tip_tilt,
-                    compute_inverses=compute_inverses,
-                    display=ui_display,
-                    verbose=True,
-                    debug_data_callback=debug_data_callback,
-                )
 
-        save_zernike_response_matrix(result, output_path, include_inverses=compute_inverses)
-        click.echo(f"响应矩阵已保存到: {output_path}")
-        click.echo(f"矩阵形状: {result.matrix.shape}")
-        click.echo(f"平均方差: {result.mean_variance:.6f}")
-        click.echo(f"最大方差: {result.max_variance:.6f}")
-        click.echo(f"排除piston: {result.excluded_piston}, 排除tip/tilt: {result.excluded_tip_tilt}")
-        if result.condition_number is not None:
-            click.echo(f"条件数: {result.condition_number:.2e}")
-        if debug_data_dir is not None:
-            click.echo(f"调试数据已保存到: {debug_data_dir}")
+                magnitudes_to_run = []
+                if n_magnitudes > 0:
+                    magnitudes_to_run = np.linspace(0.1, 0.8, n_magnitudes).round(3).tolist()
+                    click.echo(f"Multi-magnitude mode: running {n_magnitudes} calibrations with magnitudes {magnitudes_to_run}")
+                elif magnitude == 0:
+                    magnitudes_to_run = [None]
+                else:
+                    magnitudes_to_run = [magnitude]
+
+                results = []
+                for mag in magnitudes_to_run:
+                    effective_magnitude = mag
+                    if mag is None:
+                        effective_magnitude = 0.0
+
+                    mag_suffix = f"_mag{mag}" if mag is not None else "_auto"
+                    mag_output_path = f"{output_path}{mag_suffix}"
+
+                    click.echo(f"\n=== Calibration run: magnitude={effective_magnitude} ===")
+
+                    result = calibrate_zernike_response_matrix(
+                        zslm=zslm,
+                        wfs=wfs,
+                        n_max=n_max,
+                        magnitude=effective_magnitude,
+                        n_averages=n_averages,
+                        n_cycles=n_cycles,
+                        wait_time=wait_time,
+                        excluded_piston=excluded_piston,
+                        excluded_tip_tilt=excluded_tip_tilt,
+                        compute_inverses=compute_inverses,
+                        display=ui_display,
+                        verbose=True,
+                        debug_data_callback=debug_data_callback,
+                        auto_optimize_amplitude=auto_optimize_amplitude,
+                        optimize_n_avg=optimize_n_avg,
+                    )
+
+                    save_zernike_response_matrix(result, mag_output_path, include_inverses=compute_inverses)
+                    click.echo(f"Saved: {mag_output_path}.h5")
+                    results.append((mag, result))
+
+                if len(results) == 1:
+                    result = results[0][1]
+                    click.echo(f"\n响应矩阵已保存到: {output_path}")
+                else:
+                    click.echo(f"\n多幅度标定完成: {len(results)} 组")
+                    for mag, res in results:
+                        click.echo(f"  mag={mag}: mean_var={res.mean_variance:.6f}, shape={res.matrix.shape}")
+
+                click.echo(f"矩阵形状: {result.matrix.shape}")
+                click.echo(f"平均方差: {result.mean_variance:.6f}")
+                click.echo(f"最大方差: {result.max_variance:.6f}")
+                click.echo(f"排除piston: {result.excluded_piston}, 排除tip/tilt: {result.excluded_tip_tilt}")
+                if result.condition_number is not None:
+                    click.echo(f"条件数: {result.condition_number:.2e}")
+                if debug_data_dir is not None:
+                    click.echo(f"调试数据已保存到: {debug_data_dir}")
     finally:
         if ui_display is not None:
             ui_display.close()
