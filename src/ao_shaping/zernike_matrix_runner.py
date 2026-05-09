@@ -52,12 +52,13 @@ class DitheredReference:
         self.n_dither = n_dither
         self.wait_time = wait_time
 
-    def measure(self, wfs, base_phase: np.ndarray | None = None) -> tuple[np.ndarray, dict]:
+    def measure(self, wfs, base_phase: np.ndarray | None = None, n_averages: int | None = None) -> tuple[np.ndarray, dict]:
         """Measure reference slopes with dithering average.
 
         Args:
             wfs: WFS instance with get_spot_deviation method
             base_phase: Base phase to add dither to (None = zero flat)
+            n_averages: Number of samples (uses self.n_dither if None)
 
         Returns:
             tuple: (s_ref, diagnostics)
@@ -68,8 +69,9 @@ class DitheredReference:
             h, w = self._slm.Panel_Res[1], self._slm.Panel_Res[0]
             base_phase = np.zeros((h, w), dtype=np.float64)
 
+        n_samples = n_averages if n_averages is not None else self.n_dither
         slopes_list = []
-        for i in range(self.n_dither):
+        for i in range(n_samples):
             noise = np.random.randn(*base_phase.shape)
             noise = gaussian_filter(noise, sigma=20)
             noise = noise / np.std(noise) * self.dither_amp * 2 * np.pi
@@ -91,14 +93,14 @@ class DitheredReference:
         snr_db = 20 * np.log10(snr_linear + 1e-10)
 
         diagnostics = {
-            "n_samples": self.n_dither,
+            "n_samples": n_samples,
             "dither_amp": self.dither_amp,
             "snr_linear": float(snr_linear),
             "snr_db": float(snr_db),
             "std_mean": float(np.mean(std)),
         }
 
-        logger.info(f"Dithered reference SNR: {snr_db:.1f} dB (n={self.n_dither})")
+        logger.info(f"Dithered reference SNR: {snr_db:.1f} dB (n={n_samples})")
 
         return s_ref, diagnostics
 
@@ -130,9 +132,8 @@ class DitheredReference:
 @click.option('--auto-optimize/--no-auto-optimize', 'auto_optimize_amplitude', default=True, help='自动优化扰动幅度 (magnitude=0时)')
 @click.option('--optimize-n-avg', 'optimize_n_avg', default=10, help='幅度优化时的WFS读取次数')
 @click.option('--n-magnitudes', 'n_magnitudes', default=0, help='自动生成N个不同扰动幅度并分别保存 (0=禁用)')
-@click.option('--dither/--no-dither', 'use_dither', default=False, help='使用亚波长抖动平均测量参考斜率')
-@click.option('--dither-amp', 'dither_amp', default=0.03, help='抖动幅度 [λ], 建议0.02-0.05')
-@click.option('--n-dither', 'n_dither', default=30, help='抖动样本数')
+@click.option('--dither-amp', 'dither_amp', default=0.0, help='亚波长抖动幅度 [λ], 0=禁用 (建议0.02-0.05)')
+@click.option('--n-dither', 'n_dither', default=None, help='[已废弃,使用n-averages] 抖动样本数')
 def run(
     ctx: click.Context,
     n_max: int,
@@ -160,9 +161,8 @@ def run(
     auto_optimize_amplitude: bool,
     optimize_n_avg: int,
     n_magnitudes: int,
-    use_dither: bool,
     dither_amp: float,
-    n_dither: int,
+    n_dither: int | None,
 ):
     """获取Zernike响应矩阵
 
@@ -260,21 +260,21 @@ def run(
                 use_custom_ref=use_custom_ref,
                 pupil_diameter=pupil_diameter,
                 pupil_center=pupil_center,
-            ) as wfs:
+) as wfs:
                 dither_diagnostics = None
                 if not use_custom_ref:
                     zslm.set_flat()
                     sleep(0.5)
 
-                    if use_dither:
-                        click.echo(f"Measuring dithered reference: amp={dither_amp}, n={n_dither}")
+                    if dither_amp > 0:
+                        click.echo(f"Dithered reference: amp={dither_amp}λ, n={n_averages}")
                         dither = DitheredReference(
                             slm=zslm,
                             dither_amp=dither_amp,
-                            n_dither=n_dither,
+                            n_dither=n_averages,
                             wait_time=wait_time,
                         )
-                        s_ref, dither_diagnostics = dither.measure(wfs)
+                        _, dither_diagnostics = dither.measure(wfs, n_averages=n_averages)
                         click.echo(f"Dithered ref SNR: {dither_diagnostics['snr_db']:.1f} dB")
                     else:
                         wfs.save_user_ref()
