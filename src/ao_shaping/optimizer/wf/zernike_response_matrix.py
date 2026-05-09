@@ -260,7 +260,6 @@ def measure_zernike_mode_response(
     zernike_order: int = DEFAULT_N_MAX,
     mode_index: int = -1,
     debug_data_callback: Callable | None = None,
-    subaperture_mask: np.ndarray | None = None,
     cancel_tile: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """测量单个Zernike模式的响应 (多次循环)
@@ -429,7 +428,7 @@ def calibrate_zernike_response_matrix(
     """
     n_remove = (1 if excluded_piston else 0) + (2 if excluded_tip_tilt else 0)
     n_slm_terms = calc_n_zernike_terms(n_max) - n_remove
-    n_wfs_terms = wfs.calc_n_zernike_terms(n_max) - n_remove
+    n_wfs_terms = wfs.calc_n_zernike_terms(DEFAULT_N_MAX) - n_remove
 
     amplitude_optimization = None
     if magnitude is None or magnitude == 0:
@@ -489,7 +488,7 @@ def calibrate_zernike_response_matrix(
         # index 0 = piston (Z1), index 1 = tip (Z2), index 2 = tilt (Z3), ...
         # When excluded_piston=True, mode i starts from Noll index i+2
         # When excluded_piston=True AND excluded_tip_tilt=True, mode i starts from Noll index i+4
-        n_full = wfs.calc_n_zernike_terms(n_max)
+        n_full = wfs.calc_n_zernike_terms(DEFAULT_N_MAX)
         coeffs_full = np.zeros(n_full, dtype=np.float64)
         coeff_value = magnitude
 
@@ -515,7 +514,7 @@ def calibrate_zernike_response_matrix(
             wait_time=wait_time,
             excluded_piston=excluded_piston,
             excluded_tip_tilt=excluded_tip_tilt,
-            zernike_order=n_max,
+            zernike_order=DEFAULT_N_MAX,
             mode_index=i,
             debug_data_callback=debug_data_callback,
             cancel_tile=cancel_tile,

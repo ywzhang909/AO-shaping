@@ -115,8 +115,6 @@ from ao_shaping.utils.zernike_calc import (
     ZernikeGenerator,
     fit_zernike,
     zernike_radial,
-    noll_to_nm,
-    nm_to_noll,
     calc_n_zernike_terms as calc_n_zernike_terms_zern,
     generate_noll_polynomial,
 )
@@ -198,9 +196,7 @@ __all__ = [
     "jitter_diameter",
     "make_coord",
     "matrix_utils",
-    "nm_to_noll",
     "noll_to_index",
-    "noll_to_nm",
     # wavefront_calc
     "normalize_01",
     "parse_timestamp",

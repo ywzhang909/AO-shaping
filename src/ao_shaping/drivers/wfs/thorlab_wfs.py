@@ -3,6 +3,7 @@
 from __future__ import annotations
 from enum import IntEnum
 
+import os
 import shutil
 from copy import deepcopy
 from functools import wraps
@@ -128,10 +129,13 @@ class WFSManager:
         pupil_diameter: pupil diameter in mm (如果为None，从配置文件加载)
         pupil_center: (cx, cy) center position (如果为None，从配置文件加载)
         """
-        assert mla_index in MlaRes, "mla_index must be one of MlaRes"
-        assert exp_time == 0.0 or EXP_TIME_LOW <= exp_time <= EXP_TIME_HIGH, (
-            f"exp_time must be in [{EXP_TIME_LOW},{EXP_TIME_HIGH}], now is {exp_time}"
-        )
+        # 不做参数验证，延迟到 initialize() 中处理
+        self._init_mla_index: MlaRes | None = mla_index
+        self._init_exp_time: float | None = exp_time
+        self._init_high_speed: bool | None = high_speed
+        self._init_use_custom_ref: bool | None = use_custom_ref
+        self._init_pupil_diameter: float | None = pupil_diameter
+        self._init_pupil_center: tuple | None = pupil_center
 
         self._lib = load_dll()
         self.device_id = c_int32()
@@ -139,19 +143,20 @@ class WFSManager:
         self.serial_num = ''
         self._instrument_handle = c_ulong(0)
 
-        self.use_custom_ref = use_custom_ref
-        self.mla_index = mla_index
-        self.image_pix = Mla_pix[mla_index]
+        # 初始化实例属性（将在 initialize() 中根据配置更新）
+        self.use_custom_ref: bool = False
+        self.mla_index: MlaRes = MlaRes.Res768
+        self.image_pix = Mla_pix[self.mla_index]
         self.num_spots_x, self.num_spots_y = 0, 0
 
-        self.c_x, self.c_y = pupil_center
-        self.d_x, self.d_y = pupil_diameter, pupil_diameter
+        self.c_x: float = 0.0
+        self.c_y: float = 0.0
+        self.d_x: float = 2.0
+        self.d_y: float = 2.0
 
-        self._explosure_time = exp_time
+        self._explosure_time: float = 0.0
         self._gain = 1.0
-        self.enable_high_speed = high_speed
-        if self.enable_high_speed:
-            logger.info("high speed mode can only use auto exposure time!")
+        self.enable_high_speed: bool = False
         self._image_captured = False
 
         # 配置管理器
@@ -222,7 +227,7 @@ class WFSManager:
         """
         self.close()
 
-def initialize(self):
+    def initialize(self):
         device_in_use = ViInt32()
         device_name = create_string_buffer(256)
         serial_number = create_string_buffer(256)
@@ -255,72 +260,62 @@ def initialize(self):
         config = self.load_config()
 
         # MLA index
-        if self.mla_index is None:
-            if "mla_index" in config:
-                self.mla_index = MlaRes(config["mla_index"])
-            else:
-                self.mla_index = MlaRes.Res768
+        if self._init_mla_index is not None:
+            self.mla_index = self._init_mla_index
+        elif "mla_index" in config:
+            self.mla_index = MlaRes(config["mla_index"])
+        else:
+            self.mla_index = MlaRes.Res768
 
         # exposure time
-        if self._explosure_time is None:
-            if "exposure_time" in config:
-                self._explosure_time = float(config["exposure_time"])
-            else:
-                self._explosure_time = 0.0
+        if self._init_exp_time is not None:
+            self._explosure_time = self._init_exp_time
+        elif "exposure_time" in config:
+            self._explosure_time = float(config["exposure_time"])
+        else:
+            self._explosure_time = 0.0
+
+        # 验证 exposure time
+        if not (self._explosure_time == 0.0 or EXP_TIME_LOW <= self._explosure_time <= EXP_TIME_HIGH):
+            logger.warning(
+                f"exp_time {self._explosure_time} out of range, resetting to auto"
+            )
+            self._explosure_time = 0.0
 
         # high speed
-        if self.enable_high_speed is None:
-            if "high_speed" in config:
-                self.enable_high_speed = bool(config["high_speed"])
-            else:
-                self.enable_high_speed = False
+        if self._init_high_speed is not None:
+            self.enable_high_speed = self._init_high_speed
+        elif "high_speed" in config:
+            self.enable_high_speed = bool(config["high_speed"])
+        else:
+            self.enable_high_speed = False
 
         # use custom ref
-        if self.use_custom_ref is None:
-            if "use_custom_ref" in config:
-                self.use_custom_ref = bool(config["use_custom_ref"])
-            else:
-                self.use_custom_ref = False
+        if self._init_use_custom_ref is not None:
+            self.use_custom_ref = self._init_use_custom_ref
+        elif "use_custom_ref" in config:
+            self.use_custom_ref = bool(config["use_custom_ref"])
+        else:
+            self.use_custom_ref = False
 
         # pupil center
-        if self.pupil_center is None:
-            if "pupil_center" in config:
-                self.c_x, self.c_y = config["pupil_center"]
-            else:
-                self.c_x, self.c_y = 0.0, 0.0
+        if self._init_pupil_center is not None:
+            self.c_x, self.c_y = self._init_pupil_center
+        elif "pupil_center" in config:
+            self.c_x, self.c_y = config["pupil_center"]
+        else:
+            self.c_x, self.c_y = 0.0, 0.0
 
         # pupil diameter
-        if self.pupil_diameter is None:
-            if "pupil_diameter" in config:
-                self.d_x, self.d_y = config["pupil_diameter"]
-            else:
-                self.d_x, self.d_y = 2.0, 2.0
+        if self._init_pupil_diameter is not None:
+            self.d_x, self.d_y = self._init_pupil_diameter, self._init_pupil_diameter
+        elif "pupil_diameter" in config:
+            self.d_x, self.d_y = config["pupil_diameter"]
+        else:
+            self.d_x, self.d_y = 2.0, 2.0
 
-        self.select_mla(self.mla_index)
-        self.set_ref_plane(self.use_custom_ref)
-        if self._explosure_time <= 0:
-            self._explosure_time, _ = self.optimize_exposure_time_and_gain()
-        self.exposure_time = self._explosure_time
-        self.high_speed = self.enable_high_speed
-        self.pupil = (
-            (self.c_x, self.c_y, self.d_x, self.d_y)
-            if (self.d_x > 0 and self.d_y > 0)
-            else self.optimize_pupil()
-        )
-
-        # check if WFS is in use, if not, connect to device
-        assert not device_in_use, (
-            "Wavefront sensor currently in use.... closing program"
-        )
-
-        self._lib.WFS_init(
-            resource_name, c_bool(False), c_bool(True), byref(self._instrument_handle)
-        )
-        self.device_name = str(device_name.value, encoding='utf8')
-        self.serial_num = str(serial_number.value, encoding='utf8')
-        logger.info(
-            f"Connected to {self.device_name} with Serial Number {self.serial_num}"
-        )
+        if self.enable_high_speed:
+            logger.info("high speed mode can only use auto exposure time!")
 
         self.select_mla(self.mla_index)
         self.set_ref_plane(self.use_custom_ref)
@@ -352,13 +347,12 @@ def initialize(self):
             no_raise: If True, only log error without raising exception
         """
         info = create_string_buffer(256)
-        error_code = ViStatus(err)
-        self._lib.WFS_error_message(self._instrument_handle, error_code, byref(info))
+        self._lib.WFS_error_message(self._instrument_handle, err, byref(info))
         logger.error(f"error: {info.value.decode('utf-8')}")
         if not no_raise:
             raise Exception(info.value)
 
-    def select_mla(self, mla_index: int) -> None:
+    def select_mla(self, mla_index: MlaRes) -> None:
         """Select and configure MLA (Micro Lens Array) holographic element.
 
         Args:
@@ -409,7 +403,7 @@ def initialize(self):
 
         self.use_custom_ref = False
 
-    def get_mla_name(self, mla_index: int | None = None) -> str:
+    def get_mla_name(self, mla_index: MlaRes | None = None) -> str:
         """Get MLA name string (e.g., 'MLA150M-5C') for the specified MLA index.
 
         Args:
@@ -423,7 +417,7 @@ def initialize(self):
         mla_name_buffer = create_string_buffer(256)
         err = self._lib.WFS_GetMlaData(
             self._instrument_handle,
-            c_int32(mla_index),
+            c_int32(int(mla_index)),
             mla_name_buffer,
             byref(c_double()),
             byref(c_double()),
@@ -450,7 +444,6 @@ def initialize(self):
         Returns:
             Path object for the reference directory.
         """
-        import os
         user_docs = Path(os.environ.get("USERPROFILE", "")) / "Documents"
         return user_docs / "Thorlabs" / "Wavefront Sensor" / "Reference"
 
@@ -746,7 +739,7 @@ def initialize(self):
             axes[1].imshow(mask, cmap="gray")
             axes[1].set_title("Valid Mask")
             overlay = np.dstack([int_mean / int_max] * 3)
-            overlay[~mask] = [0, 0, 1]
+            overlay[np.logical_not(mask)] = [0, 0, 1]
             axes[2].imshow(overlay)
             axes[2].set_title("Overlay (invalid=blue)")
             plt.tight_layout()

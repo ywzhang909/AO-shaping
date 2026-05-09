@@ -4,7 +4,7 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.dm.base import DM
-from ao_shaping.utils.zernike_calc import ZernikeGenerator, noll_to_nm
+from ao_shaping.utils.zernike_calc import ZernikeGenerator
 
 
 class ZernikeDM(DM):
@@ -41,7 +41,7 @@ class ZernikeDM(DM):
         self.resolution = resolution
         self.bits = bits
 
-        self._generator = ZernikeGenerator(resolution=resolution, radius=radius)
+        self._generator = ZernikeGenerator(resolution=resolution, radius=radius, n_orders=n_max)
         self._generator.set_bits(bits)
 
         self._current_coeffs: dict[tuple[int, int], float] = {}
@@ -118,7 +118,7 @@ class ZernikeDM(DM):
         for j, amp in enumerate(coeffs):
             if abs(amp) < 1e-10:
                 continue
-            n, m = noll_to_nm(j + 1)
+            n, m = self._generator.noll_to_nm(j + 1)
             result[(n, m)] = float(amp)
         return result
 

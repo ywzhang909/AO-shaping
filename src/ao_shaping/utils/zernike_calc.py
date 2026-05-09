@@ -36,46 +36,6 @@ def get_zernike_name(n: int, m: int) -> str:
     """
     return ZERNIKE_NAMES.get((n, m), f"n={n},m={m}")
 
-
-def nm_to_noll(n: int, m: int) -> int:
-    """Convert (n, m) Zernike indices to Noll index.
-
-    Args:
-        n: Radial order.
-        m: Azimuthal order (can be negative).
-
-    Returns:
-        Noll index (1-based).
-    """
-    cart = RZern(max(n, 4))  # Use minimal order for conversion
-    return cart.nm2noll(n, m)
-
-
-def noll_to_nm(j: int) -> tuple[int, int]:
-    """Convert Noll index to (n, m) Zernike indices (aotools convention).
-
-    Uses the aotools RZern library for conversion, which follows the
-    standard Noll indexing convention (Noll 1976). Supports any Noll index.
-
-    NOTE: This convention differs from the hardcoded lookup table in
-    `optimizer/wf/ga_zernike.py` and `optimizer/wf/rms_by_zernike.py`.
-    The aotools version is the canonical implementation.
-
-    Args:
-        j: Noll index (1-based).
-
-    Returns:
-        Tuple of (n, m) radial and azimuthal orders.
-    """
-    cart = RZern(10)  # Use sufficient order
-    result = cart.noll2nm(j)
-    # Handle both tuple and array returns
-    if isinstance(result, tuple):
-        return (int(result[0]), int(result[1]))
-    # Handle array return type
-    return (int(result[0][0]), int(result[1][0]))
-
-
 def calc_n_zernike_terms(n_max: int) -> int:
     """Calculate the number of Zernike terms up to order n_max.
 
@@ -168,6 +128,7 @@ class ZernikeGenerator:
         resolution: tuple[int, int],
         radius: float | None = None,
         square: bool = True,
+        n_orders: int = 6,
     ) -> None:
         """Initialize Zernike polynomial generator.
 
@@ -177,6 +138,7 @@ class ZernikeGenerator:
             square: If True and resolution is non-square, generate on square grid
                     (max dimension) then crop back to target resolution.
                     This ensures proper aspect ratio for circular patterns.
+            n_orders: Number of radial orders (default 6). Determines max Zernike modes.
 
         Returns:
             None
@@ -189,7 +151,7 @@ class ZernikeGenerator:
         self._width = width
         self._radius = radius
         self._max_val: float | None = None
-        self._n_orders: int = 6  # default to 6 radial orders
+        self._n_orders: int = n_orders
         self._square = square
 
         # Effective resolution for Zernike generation
@@ -203,6 +165,42 @@ class ZernikeGenerator:
         self.ddy = np.linspace(-1.0, 1.0, self._height) * scaler
         self.xv, self.yv = np.meshgrid(self.ddx, self.ddy)
         self._cart.make_cart_grid(self.xv, self.yv)
+
+    def nm_to_noll(self, n: int, m: int) -> int:
+        """Convert (n, m) Zernike indices to Noll index.
+
+        Args:
+            n: Radial order.
+            m: Azimuthal order (can be negative).
+
+        Returns:
+            Noll index (1-based).
+        """
+        return self._cart.nm2noll(n, m)
+
+
+    def noll_to_nm(self, j: int) -> tuple[int, int]:
+        """Convert Noll index to (n, m) Zernike indices (aotools convention).
+
+        Uses the aotools RZern library for conversion, which follows the
+        standard Noll indexing convention (Noll 1976). Supports any Noll index.
+
+        NOTE: This convention differs from the hardcoded lookup table in
+        `optimizer/wf/ga_zernike.py` and `optimizer/wf/rms_by_zernike.py`.
+        The aotools version is the canonical implementation.
+
+        Args:
+            j: Noll index (1-based).
+
+        Returns:
+            Tuple of (n, m) radial and azimuthal orders.
+        """
+        result = self._cart.noll2nm(j)
+        # Handle both tuple and array returns
+        if isinstance(result, tuple):
+            return (int(result[0]), int(result[1]))
+        # Handle array return type
+        return (int(result[0][0]), int(result[1][0]))
 
     def set_bits(self, bits: int) -> None:
         """Set output bit depth.

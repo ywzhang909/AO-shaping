@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from ao_shaping.utils.zernike_calc import noll_to_nm
+from ao_shaping.utils.zernike_calc import ZernikeGenerator
 from scipy.special import factorial
 
 
@@ -93,18 +93,10 @@ def zernike_polynomial(n: int, m: int, rho: np.ndarray, theta: np.ndarray) -> np
     return radial * angular
 
 
-def generate_zernike_map(noll_index: int, x: np.ndarray, y: np.ndarray) -> np.ndarray:
-    n, m = noll_to_nm(noll_index)
-    rho = normalize_rho(x, y)
-    theta = np.arctan2(y, x)
-    return zernike_polynomial(n, m, rho, theta)
-
-
 __all__ = [
     "Config",
     "apply_lens",
     "gauss",
-    "generate_zernike_map",
     "lens_fft_propagation_to_focal",
     "lens_phase",
     "propagation",
