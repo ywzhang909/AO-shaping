@@ -13,9 +13,12 @@ AO-shaping/
 ├── src/
 │   ├── ao_shaping/          # Main package
 │   │   ├── main.py              # CLI entry point (Click-based)
-│   │   ├── wf_runner.py         # Wavefront RMS optimizer
-│   │   ├── axis_beam_runner.py  # PIB optimizer
-│   │   ├── pipeline_runner.py    # Serial WF→PIB pipeline
+│   │   ├── runners/             # Runner scripts package
+│   │   │   ├── __init__.py     # Re-exports for backward compatibility
+│   │   │   ├── wf_runner.py         # Wavefront RMS optimizer
+│   │   │   ├── axis_beam_runner.py  # PIB optimizer
+│   │   │   ├── pipeline_runner.py   # Serial WF→PIB pipeline
+│   │   │   └── zernike_matrix_runner.py  # Zernike response matrix
 │   │   ├── algorithm/            # Optimization algorithms (Adam, SGD, etc.)
 │   │   ├── drivers/              # Hardware drivers (see drivers/AGENTS.md)
 │   │   │   ├── ccd/              # Cameras (Daheng, MiiCam)
@@ -29,8 +32,11 @@ AO-shaping/
 │   │   │   ├── wf/               # Wavefront-based (RMS)
 │   │   │   ├── wfless/           # Wavefront-sensorless (PIB)
 │   │   │   └── rl/               # Reinforcement learning (SAC)
-│   │   ├── utils/                # Utilities (spots_calc, wavefront_calc, zernike_calc)
+│   │   ├── utils/                # Utilities (spots_calc, wavefront_calc, zernike_calc, wfs_utils)
 │   │   ├── ml/                  # Machine learning (U-Net+GAN, training, models)
+│   │   │   ├── trainer/         # Training utilities
+│   │   │   ├── models/          # Neural network models
+│   │   │   └── wandb_logger.py  # WandB integration
 │   │   ├── tools/                # Standalone tools (SLM phase capture, data collection)
 │   │   ├── display/              # Visualization (Windows, frames for GUI)
 │   │   └── gui/                  # GUI components (Streamlit)
@@ -91,6 +97,7 @@ Utility functions for image processing and calculations:
 | `pattern_helper.py` | SLM pattern generation |
 | `file.py` | File I/O utilities |
 | `cli_helpers.py` | CLI common utilities (parse_tuple, coredumpy setup) |
+| `wfs_utils.py` | WFS utilities (flatten_slopes, compute_snr, DitheredReference) |
 
 ---
 
@@ -150,9 +157,10 @@ print(paths.root_dir)  # data/
 python src/ao_shaping/main.py [COMMAND]
 
 # Direct runners (standalone)
-python src/ao_shaping/wf_runner.py
-python src/ao_shaping/axis_beam_runner.py
-python src/ao_shaping/pipeline_runner.py
+python -m ao_shaping.runners.wf_runner
+python -m ao_shaping.runners.axis_beam_runner
+python -m ao_shaping.runners.pipeline_runner
+python -m ao_shaping.runners.zernike_matrix_runner
 ```
 
 **CLI Structure:**
@@ -166,7 +174,7 @@ main (click.group)
 └── ga-zernike     → ga_zernike_run()             [GA Zernike optimization]
 ```
 
-**Note:** `combined_runner.py` exists but is NOT wired to main CLI (documented in README only).
+**Note:** `combined_runner.py` is DEPRECATED — use `pipeline_runner.py` instead.
 
 **Refactoring Notes:**
 - All runner scripts now use centralized config from `config.py` (DM_N_ACTUATORS, PATHS, DEFAULTS)

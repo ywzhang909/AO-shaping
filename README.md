@@ -21,29 +21,38 @@ AO-shaping/
 ├── src/
 │   ├── ao_shaping/          # 主程序包
 │   │   ├── main.py              # CLI入口点 (Click-based)
-│   │   ├── wf_runner.py         # 波前RMS优化器
-│   │   ├── axis_beam_runner.py  # PIB优化器
-│   │   ├── pipeline_runner.py  # 串行 WF→PIB 流水线
+│   │   ├── runners/             # 运行器包
+│   │   │   ├── wf_runner.py     # 波前RMS优化器
+│   │   │   ├── axis_beam_runner.py  # PIB优化器
+│   │   │   ├── pipeline_runner.py  # 串行 WF→PIB 流水线
+│   │   │   └── zernike_matrix_runner.py  # Zernike响应矩阵校准
 │   │   ├── algorithm/           # 优化算法 (Adam, SGD, Muon等)
 │   │   ├── drivers/             # 硬件驱动
 │   │   │   ├── ccd/             # 相机 (Daheng, MiiCam)
 │   │   │   ├── dm/              # 变形镜 (NLight)
 │   │   │   ├── slm/             # 空间光调制器 (Santec)
 │   │   │   ├── wfs/             # 波前传感器 (Thorlabs)
+│   │   │   ├── tm/              # 定时模块 (Serial/FSM)
 │   │   │   ├── sim/             # 数字孪生仿真
-│   │   │   └── mock_devices.py # 测试用模拟设备
+│   │   │   └── mock_devices.py  # 测试用模拟设备
 │   │   ├── optimizer/           # 高层优化器
 │   │   │   ├── wf/              # 波前优化 (RMS)
 │   │   │   ├── wfless/          # 无波前优化 (PIB)
 │   │   │   └── rl/              # 强化学习 (SAC, LR-WFS)
 │   │   ├── utils/               # 工具函数 (spots_calc, wavefront_calc)
-│   │   ├── gui/                 # GUI组件 (Streamlit)
-│   │   └── recorder.py          # 数据记录器
+│   │   ├── ml/                  # 机器学习 (U-Net+GAN, 训练, 模型)
+│   │   │   ├── trainer/         # 训练器
+│   │   │   ├── models/          # 神经网络模型
+│   │   │   └── wandb_logger.py  # WandB日志
+│   │   ├── tools/               # 独立工具 (SLM相位捕获, 数据采集)
+│   │   ├── display/             # 可视化 (窗口, GUI帧)
+│   │   └── gui/                 # GUI组件 (Streamlit)
 │   ├── calculators/             # Cython扩展 (独立)
-│   └── optical_ui/             # [已废弃]
-├── tests/ao_shaping/            # 测试 (镜像src结构)
-├── scripts/                     # 实用脚本
-└── AGENTS.md                    # 开发指南
+│   └── optical_ui/              # [已废弃]
+├── tests/ao_shaping/             # 测试 (镜像src结构)
+├── scripts/                      # 实用脚本
+├── libs/                         # 第三方SDK二进制 (gxipy, Drv_UDPST)
+└── AGENTS.md                     # 开发指南
 ```
 
 ## 安装指南
@@ -85,6 +94,8 @@ uv sync
 python src/ao_shaping/main.py [OPTIONS] COMMAND [ARGS]...
 ```
 
+所有运行器位于 `src/ao_shaping/runners/` 包中，通过 main CLI 统一调用：
+
 #### 全局选项
 - `--debug`: 开启调试模式
 - `--dir`: 指定数据保存根目录 (默认: data)
@@ -94,6 +105,7 @@ python src/ao_shaping/main.py [OPTIONS] COMMAND [ARGS]...
 ```bash
 python src/ao_shaping/main.py wf [OPTIONS]
 ```
+等同于: `python -m ao_shaping.runners.wf_runner`
 
 选项:
 - `-e, --epochs`: 优化迭代次数 (默认: 20000)
@@ -110,6 +122,7 @@ python src/ao_shaping/main.py wf --epochs 10000 --debug
 ```bash
 python src/ao_shaping/main.py pib [OPTIONS]
 ```
+等同于: `python -m ao_shaping.runners.axis_beam_runner`
 
 选项:
 - `-f, --load_file`: 加载优化结果文件
@@ -134,6 +147,7 @@ python src/ao_shaping/main.py pib --epochs 5000 --cam_id 1 --debug
 ```bash
 python src/ao_shaping/main.py pipeline [OPTIONS]
 ```
+等同于: `python -m ao_shaping.runners.pipeline_runner`
 
 选项:
 - `-f, --load_file`: 加载优化结果文件
@@ -155,6 +169,7 @@ python src/ao_shaping/main.py pipeline --epochs 6000 --debug
 ```bash
 python src/ao_shaping/main.py zernike-matrix [OPTIONS]
 ```
+等同于: `python -m ao_shaping.runners.zernike_matrix_runner`
 
 ### 串行流水线优化器处理流程详解
 
@@ -228,18 +243,25 @@ center = np.unravel_index(np.argmax(img), img.shape)[::-1]
 
 1. 波前优化器:
 ```bash
-python src/ao_shaping/wf_runner.py [OPTIONS]
+python -m ao_shaping.runners.wf_runner [OPTIONS]
 ```
 
 2. 轴向光束优化器:
 ```bash
-python src/ao_shaping/axis_beam_runner.py [OPTIONS]
+python -m ao_shaping.runners.axis_beam_runner [OPTIONS]
 ```
 
-3. 组合优化器 (NOT wired to main CLI):
+3. 流水线优化器:
 ```bash
-python src/ao_shaping/combined_runner.py [OPTIONS]
+python -m ao_shaping.runners.pipeline_runner [OPTIONS]
 ```
+
+4. Zernike校准:
+```bash
+python -m ao_shaping.runners.zernike_matrix_runner [OPTIONS]
+```
+
+注意: `combined_runner.py` 已废弃，请使用 `pipeline_runner`
 
 ### ML训练 (U-Net+GAN相位预测)
 
