@@ -34,13 +34,16 @@ if str(SRC_ROOT) not in sys.path:
 import click
 from loguru import logger
 
-# Import all runners
-from ao_shaping import wf_runner
-from ao_shaping import axis_beam_runner
-from ao_shaping import pipeline_runner
-from ao_shaping import gs_hologram_runner
-from ao_shaping import zernike_matrix_runner
-from ao_shaping import rms_zernike_runner
+# Import all runners from runners package
+from ao_shaping.runners import (
+    wf_run,
+    pib_run,
+    pipeline_run,
+    gs_run,
+    zernike_matrix_run,
+    rms_zernike_run,
+    ga_zernike_run,
+)
 
 
 @click.group()
@@ -72,12 +75,13 @@ def cli(ctx: click.Context, debug: bool, dir: str):
 
 
 # Register subcommands
-cli.add_command(wf_runner.run, name="wf")
-cli.add_command(axis_beam_runner.run, name="pib")
-cli.add_command(pipeline_runner.run, name="pipeline")
-cli.add_command(gs_hologram_runner.run, name="gs")
-cli.add_command(zernike_matrix_runner.run, name="zernike-matrix")
-cli.add_command(rms_zernike_runner.run, name="rms-zernike")
+cli.add_command(wf_run, name="wf")
+cli.add_command(pib_run, name="pib")
+cli.add_command(pipeline_run, name="pipeline")
+cli.add_command(gs_run, name="gs")
+cli.add_command(zernike_matrix_run, name="zernike-matrix")
+cli.add_command(rms_zernike_run, name="rms-zernike")
+cli.add_command(ga_zernike_run, name="ga-zernike")
 
 
 # Entry point

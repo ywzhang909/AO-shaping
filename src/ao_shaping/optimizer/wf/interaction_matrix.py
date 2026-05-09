@@ -26,6 +26,7 @@ from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
 from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager
 from ao_shaping.utils.zernike_calc import generate_noll_polynomial
 from ao_shaping.utils.matrix_utils import compute_pinv
+from ao_shaping.utils.wfs_utils import flatten_slopes
 
 
 def calculate_interaction_matrix(
@@ -334,7 +335,7 @@ def calculate_zernike_slm_response_matrix(
         """Measure WFS slopes, averaging over n_averages frames."""
         wfs.take_image(n_sample=n_averages)
         x_dev, y_dev = wfs.get_spot_deviation()
-        slopes = np.concatenate([x_dev.flatten(), y_dev.flatten()])
+        slopes = flatten_slopes(x_dev, y_dev)
         return slopes
 
     # Reset SLM to flat

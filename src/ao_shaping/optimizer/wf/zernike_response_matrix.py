@@ -40,6 +40,7 @@ from ao_shaping.utils.matrix_utils import (
     compute_lstsq,
     compute_pinv,
 )
+from ao_shaping.utils.wfs_utils import flatten_slopes
 from ao_shaping.utils.display import ZernikeCalibrationDisplay
 
 
@@ -333,7 +334,7 @@ def measure_zernike_mode_response(
             mean_dev_x = np.mean(dev_x_arr, axis=0)
             mean_dev_y = np.mean(dev_y_arr, axis=0)
 
-        mean_dev = np.concatenate([mean_dev_x.flatten(), mean_dev_y.flatten()])
+        mean_dev = flatten_slopes(mean_dev_x, mean_dev_y)
         return mean_resp, mean_dev
 
     all_responses = []

@@ -906,14 +906,14 @@ def render_load_view_mode() -> None:
         st.info("请在侧边栏设置正确的存储目录")
         return
 
-    # Find available result files
-    json_files = list(storage_dir.glob("*.json"))
-    if not json_files:
-        st.warning("未找到校准结果文件")
+    # Find available result files (HDF5 format from backend)
+    h5_files = list(storage_dir.glob("*.h5"))
+    if not h5_files:
+        st.warning("未找到校准结果文件 (.h5)")
         return
 
     # Show available files
-    file_options = [f.stem for f in json_files]
+    file_options = [f.stem for f in h5_files]
     selected_file = st.selectbox("选择校准结果", file_options)
 
     if selected_file:
@@ -1010,6 +1010,50 @@ def render_load_view_mode() -> None:
                 ax.set_yscale("log")
                 ax.grid(True, alpha=0.3)
                 st.pyplot(fig)
+
+            # Subaperture mask visualization
+            if result.subaperture_mask is not None:
+                st.divider()
+                st.subheader("子孔径掩膜")
+                fig, ax = plt.subplots(figsize=(8, 6))
+                im = ax.imshow(result.subaperture_mask, cmap="gray")
+                ax.set_title(f"Valid Subapertures: {np.sum(result.subaperture_mask)}/{result.subaperture_mask.size}")
+                fig.colorbar(im, ax=ax, label="Valid")
+                st.pyplot(fig)
+
+            # Deviation response matrix visualization
+            if result.deviation_response_matrix is not None:
+                st.divider()
+                st.subheader("子孔径斜率响应矩阵")
+                dev_matrix = result.deviation_response_matrix
+                n_spots = dev_matrix.shape[0] // 2
+                st.info(f"子孔径斜率维度: {n_spots} spots (X+Y)")
+                fig, ax = plt.subplots(figsize=(12, 8))
+                im = ax.imshow(dev_matrix, aspect="auto", cmap="RdBu_r")
+                ax.set_xlabel("SLM Zernike Mode Index")
+                ax.set_ylabel("Subaperture Slope Index (X then Y)")
+                ax.set_title(f"Deviation Response Matrix ({n_spots}×2 spots)")
+                fig.colorbar(im, ax=ax, label="Slope Response")
+                st.pyplot(fig)
+
+            # Amplitude optimization visualization
+            if result.amplitude_optimization is not None:
+                st.divider()
+                st.subheader("幅度优化结果")
+                opt_data = result.amplitude_optimization
+                n_modes = len(opt_data)
+                st.info(f"优化了 {n_modes} 个模式的幅度")
+                optimal_amps = [opt_data[i]["optimal_amplitude"] for i in range(n_modes)]
+                fig, ax = plt.subplots(figsize=(10, 4))
+                ax.bar(range(n_modes), optimal_amps)
+                ax.set_xlabel("SLM Zernike Mode Index")
+                ax.set_ylabel("Optimal Amplitude (λ)")
+                ax.set_title("Optimal Perturbation Amplitude per Mode")
+                ax.grid(True, alpha=0.3)
+                st.pyplot(fig)
+                with st.expander("查看详细优化数据"):
+                    for mode_idx, diag in opt_data.items():
+                        st.write(f"Mode {mode_idx}: optimal={diag['optimal_amplitude']:.4f}λ, best_idx={diag['best_idx']}")
 
         except ImportError:
             st.warning("matplotlib未安装，无法生成可视化")

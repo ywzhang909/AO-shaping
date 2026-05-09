@@ -5,7 +5,6 @@ from typing import Literal
 from pathlib import Path
 
 import numpy as np
-from scipy.ndimage import gaussian_filter
 from loguru import logger
 
 from ao_shaping.optimizer.wf.zernike_response_matrix import (
@@ -22,87 +21,7 @@ from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager, MlaRes
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
 from ao_shaping.utils.display import ZernikeCalibrationDisplay
 from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_timestamp_str
-
-
-class DitheredReference:
-    """Dithered reference measurement for SLM phase averaging.
-
-    Applies sub-wavelength random phase dithering to average out
-    pixelation steps and liquid crystal local relaxation errors.
-    """
-
-    def __init__(
-        self,
-        slm,
-        dither_amp: float = 0.03,
-        n_dither: int = 30,
-        wait_time: float = 0.05,
-    ):
-        """Initialize dithered reference.
-
-        Args:
-            slm: ZernikeSLM instance
-            dither_amp: Dithering amplitude in wavelength units (0.02-0.05 typical)
-            n_dither: Number of dithering samples to average
-            wait_time: Wait time after loading phase (seconds)
-        """
-        self.slm = slm
-        self._slm = slm._slm
-        self.dither_amp = dither_amp
-        self.n_dither = n_dither
-        self.wait_time = wait_time
-
-    def measure(self, wfs, base_phase: np.ndarray | None = None, n_averages: int | None = None) -> tuple[np.ndarray, dict]:
-        """Measure reference slopes with dithering average.
-
-        Args:
-            wfs: WFS instance with get_spot_deviation method
-            base_phase: Base phase to add dither to (None = zero flat)
-            n_averages: Number of samples (uses self.n_dither if None)
-
-        Returns:
-            tuple: (s_ref, diagnostics)
-                - s_ref: Median reference slopes (flattened concat of dev_x and dev_y)
-                - diagnostics: dict with snr, std, n_samples
-        """
-        if base_phase is None:
-            h, w = self._slm.Panel_Res[1], self._slm.Panel_Res[0]
-            base_phase = np.zeros((h, w), dtype=np.float64)
-
-        n_samples = n_averages if n_averages is not None else self.n_dither
-        slopes_list = []
-        for i in range(n_samples):
-            noise = np.random.randn(*base_phase.shape)
-            noise = gaussian_filter(noise, sigma=20)
-            noise = noise / np.std(noise) * self.dither_amp * 2 * np.pi
-
-            phase_rad = (base_phase + noise) % (2 * np.pi)
-            phase_gray = self._slm._phase_to_gray(phase_rad)
-            self._slm.display_data(phase_gray)
-            sleep(self.wait_time)
-
-            dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=False)
-            s = np.concatenate([dev_x.flatten(), dev_y.flatten()])
-            slopes_list.append(s)
-
-        slopes_arr = np.array(slopes_list)
-        s_ref = np.median(slopes_arr, axis=0)
-        std = np.std(slopes_arr, axis=0)
-
-        snr_linear = np.linalg.norm(s_ref) / (np.linalg.norm(std) + 1e-10)
-        snr_db = 20 * np.log10(snr_linear + 1e-10)
-
-        diagnostics = {
-            "n_samples": n_samples,
-            "dither_amp": self.dither_amp,
-            "snr_linear": float(snr_linear),
-            "snr_db": float(snr_db),
-            "std_mean": float(np.mean(std)),
-        }
-
-        logger.info(f"Dithered reference SNR: {snr_db:.1f} dB (n={n_samples})")
-
-        return s_ref, diagnostics
+from ao_shaping.utils.wfs_utils import DitheredReference
 
 
 @click.command('zernike-matrix')
