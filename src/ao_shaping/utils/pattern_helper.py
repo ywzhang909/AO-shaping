@@ -294,35 +294,36 @@ class PatternHelper:
         amplitude: float = 1.0,
         radius: float | None = None,
     ) -> np.ndarray:
-        """生成单个Zernike模式。
+        """Generate single Zernike polynomial phase pattern.
 
         Args:
-            n: Zernike径向阶数
-            m: Zernike角向阶数
-            amplitude: 振幅
-            radius: 瞳孔半径（像素）。默认 min(h,w)/2
+            n: Zernike radial order.
+            m: Zernike azimuthal order.
+            amplitude: Coefficient amplitude.
+            radius: Aperture radius (pixels). Defaults to min(h,w)/2.
 
         Returns:
-            Zernike相位图案 (uint16, 0 到 2^bits-1)
+            Zernike phase pattern as uint16 grayscale values (0 to 2^bits-1).
         """
         gen = ZernikeGenerator(resolution=(self._width, self._height), radius=radius)
         gen.set_bits(self.bits)
-        j = nm_to_noll(n, m)-1
-        return gen.generate(n, m, amplitude)
+        j = nm_to_noll(n, m) - 1
+        phase_rad = gen.generate(n, m, amplitude)
+        return self.to_uint16(phase_rad)
 
     def generate_zernike_polynomial(
         self,
         coefficients: dict[tuple[int, int], float] | None = None,
         radius: float | None = None,
     ) -> np.ndarray:
-        """生成多模式Zernike多项式。
+        """Generate multi-mode Zernike polynomial phase pattern.
 
         Args:
-            coefficients: {(n, m): amplitude} 字典
-            radius: 瞳孔半径（像素）
+            coefficients: Dictionary mapping (n, m) to amplitude.
+            radius: Aperture radius (pixels).
 
         Returns:
-            Zernike相位图案 (uint16)
+            Zernike phase pattern as uint16 grayscale values (0 to 2^bits-1).
         """
         gen = ZernikeGenerator(resolution=(self._width, self._height), radius=radius)
         gen.set_bits(self.bits)
@@ -332,7 +333,9 @@ class PatternHelper:
         if not coefficients:
             return np.zeros((self._height, self._width), dtype=np.uint16)
 
-        return gen.generate_polynomial(coefficients)
+        # Generate phase in radians, then convert to uint16
+        phase_rad = gen.generate_polynomial(coefficients)
+        return self.to_uint16(phase_rad)
 
     def to_uint16(self, phase_radians: np.ndarray) -> np.ndarray:
         """将弧度相位转换为uint16格式。

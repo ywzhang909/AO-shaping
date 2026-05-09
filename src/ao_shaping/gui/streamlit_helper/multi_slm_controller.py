@@ -533,23 +533,19 @@ def generate_phase_gray(
         pixel_size_m = float(params.get("pixel_size_um", pixel_size_um)) * 1e-6  # um -> m
         wrap_phase = bool(params.get("wrap_phase", True))
         topological_charge = int(params["topological_charge"])
-        
-        # Generate vortex phase
-        phase_rad = helper.generate_vortex(
+
+        # Generate vortex phase (helper returns uint16 when wrap_phase=True, radians when False)
+        phase_gray = helper.generate_vortex(
             topological_charge=topological_charge,
             wavelength=wavelength_m,
             pixel_size=pixel_size_m,
             wrap_phase=wrap_phase,
         )
-        
-        # If phase is not wrapped, we need to convert it to uint16 for display
+
+        # If wrap_phase=False, helper returns radians; convert to uint16
         if not wrap_phase:
-            # Convert radians to uint16 by wrapping to [0, 2π) and scaling
-            phase_wrapped = np.mod(phase_rad, 2 * np.pi)
+            phase_wrapped = np.mod(phase_gray, 2 * np.pi)
             phase_gray = (phase_wrapped / (2 * np.pi) * (2**bits - 1)).astype(np.uint16)
-        else:
-            # Already in uint16 format from helper
-            phase_gray = phase_rad
             
         return phase_gray
     raise ValueError(f"未知相位图类型: {pattern_type}")
