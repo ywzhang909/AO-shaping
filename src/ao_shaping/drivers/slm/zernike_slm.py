@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 from loguru import logger
 
@@ -40,6 +42,7 @@ class ZernikeSLM:
         use_120hz: bool = False,
         shift_x: int = 0,
         shift_y: int = 0,
+        correction_csv_path: str | Path | None = None,
     ):
         self.slm_number = slm_number
         self.wavelength = wavelength
@@ -54,6 +57,7 @@ class ZernikeSLM:
             wavelength=wavelength,
             shift_x=shift_x,
             shift_y=shift_y,
+            correction_csv_path=correction_csv_path,
         )
         self._zernike_dm = ZernikeDM(
             n_max=n_max,

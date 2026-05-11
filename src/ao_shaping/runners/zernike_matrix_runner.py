@@ -52,6 +52,7 @@ from ao_shaping.utils.wfs_utils import DitheredReference
 @click.option('--optimize-n-avg', 'optimize_n_avg', default=10, help='幅度优化时的WFS读取次数')
 @click.option('--n-magnitudes', 'n_magnitudes', default=0, help='自动生成N个不同扰动幅度并分别保存 (0=禁用)')
 @click.option('--dither-amp', 'dither_amp', default=0.0, help='亚波长抖动幅度 [λ], 0=禁用 (建议0.02-0.05)')
+@click.option('--correction-csv', 'correction_csv_path', default=None, help='误差矫正CSV文件路径 (如 libs/SLM_DLL_ver.2.51/Wavefront_correction_Data/Wavefront_correction_Data_240236000006(520nm).csv)')
 def run(
     ctx: click.Context,
     n_max: int,
@@ -80,6 +81,7 @@ def run(
     optimize_n_avg: int,
     n_magnitudes: int,
     dither_amp: float,
+    correction_csv_path: str | None,
     excluded_piston: bool = True
 ):
     """获取Zernike响应矩阵
@@ -175,7 +177,7 @@ def run(
         ui_display = ZernikeCalibrationDisplay(n_wfs_terms=n_wfs_terms, n_slm_terms=n_slm_terms)
 
     try:
-        with ZernikeSLM(slm_number=slm_number, wavelength=wavelength, n_max=n_max, shift_x=shift_x, shift_y=shift_y) as zslm:
+        with ZernikeSLM(slm_number=slm_number, wavelength=wavelength, n_max=n_max, shift_x=shift_x, shift_y=shift_y, correction_csv_path=correction_csv_path) as zslm:
             with WFSManager(
                 mla_index=mla_index_enum,
                 exp_time=effective_exp_time,

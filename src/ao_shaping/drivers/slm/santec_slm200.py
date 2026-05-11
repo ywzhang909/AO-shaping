@@ -10,36 +10,31 @@ from pathlib import Path
 from typing import Union
 
 import numpy as np
+from loguru import logger
 from scipy import ndimage
 
-from loguru import logger
-
 from ao_shaping.drivers.slm.santec_slm200_constants import (
-    SLM_OK,
     FLAGS_RATE120,
-    MEMORY_MODE_INTERNAL,
-    MAX_MEM_SLOTS,
-    VideoMode,
-    get_slm_error_message,
-    PIXEL_SIZE_UM,
-    PITCH_UM,
-    PANEL_SIZE_MM,
-    PANEL_RES,
-    RESPONSE_TIME_MS,
     GRAY_SCALE_BITS,
-    get_max_grayscale,
-    DEFAULT_WAVELENGTH,
-    DEFAULT_SHIFT_X,
-    DEFAULT_SHIFT_Y,
-    WAVELENGTH_MIN,
-    WAVELENGTH_MAX,
-    GRAYSCALE_MIN,
     GRAYSCALE_MAX,
-    MEMORY_NUMBER_MIN,
+    GRAYSCALE_MIN,
+    MAX_MEM_SLOTS,
+    MEMORY_MODE_INTERNAL,
     MEMORY_NUMBER_MAX,
+    MEMORY_NUMBER_MIN,
+    PANEL_RES,
+    PANEL_SIZE_MM,
+    PITCH_UM,
+    PIXEL_SIZE_UM,
+    RESPONSE_TIME_MS,
+    SLM_OK,
+    WAVELENGTH_MAX,
+    WAVELENGTH_MIN,
+    VideoMode,
+    get_max_grayscale,
+    get_slm_error_message,
 )
 from ao_shaping.utils.file import SLMConfigManager
-
 
 # Config directory: <project_root>/data/slm_configs/ or from SLM_CONFIG_DIR env var
 # Project root = 4 levels up from this file: src/ao_shaping/drivers/slm/
@@ -106,6 +101,7 @@ class SantecSLM200:
         video_mode: int | VideoMode = VideoMode.Memory,
         shift_x: int | None = None,
         shift_y: int | None = None,
+        correction_csv_path: Union[str, Path, None] = None,
     ):
         """初始化SLM驱动
 
@@ -117,6 +113,10 @@ class SantecSLM200:
             video_mode: 视频模式 (0=内存模式, 1=DVI模式)，默认为0
             shift_x: X方向平移像素数（正=右，负=左），设为None从配置文件加载
             shift_y: Y方向平移像素数（正=下，负=上），设为None从配置文件加载
+            correction_csv_path: 误差矫正CSV文件路径，默认为None；
+                格式如 libs/SLM_DLL_ver.2.51/Wavefront_correction_Data/
+                Wavefront_correction_Data_240236000006(520nm).csv；
+                若提供则在create_phase_from_array时自动叠加矫正
         """
         # 参数验证仅在设备控制函数中进行，此处不重复验证
         self.slm_number = slm_number
@@ -146,6 +146,18 @@ class SantecSLM200:
 
         # 配置管理器
         self._config_manager: SLMConfigManager | None = None
+
+        # 误差矫正数据（从CSV加载，在create_phase_from_array中叠加）
+        self._correction_phase: np.ndarray | None = None
+        if correction_csv_path is not None:
+            correction_path = Path(correction_csv_path)
+            if not correction_path.exists():
+                raise FileNotFoundError(f"误差矫正文件不存在: {correction_path}")
+            raw_correction = self.load_phase_from_csv(correction_path)
+            self._correction_phase = self._resize_to_panel(raw_correction)
+            logger.info(
+                f"SLM #{self.slm_number} 已加载误差矫正数据: {correction_path.name}, "
+            )
 
         # 延迟导入SLM SDK
         try:
@@ -401,7 +413,7 @@ class SantecSLM200:
                 raise SantecSLM200Error("保存波长设置失败", code=ret)
 
         self.wavelength = wavelength
-
+        self.get_wavelength_info()
         logger.info(
             f"波长设置完成: {wavelength}nm, "
             f"相位范围: 0~2π, "
@@ -420,15 +432,16 @@ class SantecSLM200:
         """
         self._ensure_open()
 
-        dat32_1 = ctypes.c_uint32(0)
-        dat32_2 = ctypes.c_uint32(0)
+        wavelength = ctypes.c_uint32(0)
+        phase = ctypes.c_uint32(0)
 
-        res = self._slm.SLM_Ctrl_ReadWL(self.slm_number, dat32_1, dat32_2)
+        res = self._slm.SLM_Ctrl_ReadWL(self.slm_number, wavelength, phase)
         if res != SLM_OK:
             raise SantecSLM200Error("读取波长信息失败", code=res)
 
-        wavelength = int(dat32_1.value)
-        self._max_gray = int(dat32_2.value)
+        wavelength = int(wavelength.value)
+        phase_pi = phase.value / 100.0
+        self._max_gray = int(2.0 / phase_pi * self.MAX_GRAYSCALE_VALUE)
 
         return wavelength, self._max_gray
 
@@ -713,10 +726,45 @@ class SantecSLM200:
 
         # 将弧度转换为灰度值
         grayscale = (phase_rad / (2 * np.pi) * max_grayscale)
+
+        # 叠加误差矫正（如有）
+        if self._correction_phase is not None:
+            grayscale = np.mod(grayscale + self._correction_phase, max_grayscale + 1)
+
         # 应用平移
         grayscale = self._apply_shift(grayscale)
 
         return grayscale
+
+    def _resize_to_panel(self, data: np.ndarray) -> np.ndarray:
+        """将数组裁切或补零至SLM面板分辨率
+
+        若输入尺寸超过面板分辨率，从中心裁切；
+        若不足，则居中补零。
+
+        Args:
+            data: 输入数组，shape为(height, width)
+
+        Returns:
+            调整后的数组，shape为(Panel_Res[1], Panel_Res[0])
+        """
+        target_h, target_w = self.Panel_Res[1], self.Panel_Res[0]  # (1200, 1920)
+        h, w = data.shape
+
+        if (h, w) == (target_h, target_w):
+            return data.astype(np.float64)
+
+        if h > target_h or w > target_w:
+            start_y = (h - target_h) // 2
+            start_x = (w - target_w) // 2
+            result = data[start_y:start_y + target_h, start_x:start_x + target_w]
+        else:
+            result = np.zeros((target_h, target_w), dtype=data.dtype)
+            start_y = (target_h - h) // 2
+            start_x = (target_w - w) // 2
+            result[start_y:start_y + h, start_x:start_x + w] = data
+
+        return result.astype(np.float64)
 
     def _apply_shift(self, phase: np.ndarray) -> np.ndarray:
         """应用X/Y平移到相位图，空白区域填0
