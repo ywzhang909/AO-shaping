@@ -5,6 +5,7 @@ from ao_shaping.runners.axis_beam_runner import run as pib_run
 from ao_shaping.runners.pipeline_runner import run as pipeline_run
 from ao_shaping.runners.gs_hologram_runner import run as gs_run
 from ao_shaping.runners.zernike_matrix_runner import run as zernike_matrix_run
+from ao_shaping.runners.zernike_matrix_runner import closed_loop_run as zernike_closed_loop_run
 from ao_shaping.runners.rms_zernike_runner import run as rms_zernike_run
 from ao_shaping.runners.ga_zernike_runner import run as ga_zernike_run
 
@@ -14,6 +15,7 @@ __all__ = [
     "pipeline_run",
     "gs_run",
     "zernike_matrix_run",
+    "zernike_closed_loop_run",
     "rms_zernike_run",
     "ga_zernike_run",
 ]

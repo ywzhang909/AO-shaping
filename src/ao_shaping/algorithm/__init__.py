@@ -36,6 +36,14 @@ from .gerchberg_saxton import (
     GSResult,
 )
 
+# 导入闭环控制器模块
+from .controller import (
+    AOClosedLoop,
+    ControlLaw,
+    LoopConfig,
+    HardwareConfig,
+)
+
 # 导出所有类和函数
 __all__ = [
     "Base",
@@ -56,6 +64,10 @@ __all__ = [
     "angular_spectrum_propagate",
     "calculate_reconstruction_error",
     "GSResult",
+    "AOClosedLoop",
+    "ControlLaw",
+    "LoopConfig",
+    "HardwareConfig",
 ]
 
 

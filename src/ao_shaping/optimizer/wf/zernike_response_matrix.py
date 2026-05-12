@@ -77,6 +77,9 @@ class ZernikeResponseMatrixResult:
     excluded_piston: bool = True  # 是否排除piston
     excluded_tip_tilt: bool = False  # 是否排除tip/tilt
 
+    # 硬件配置快照 (用于闭环优化恢复)
+    device_config: dict | None = None  # 包含 shift_x/y, mla_index, exposure_time, pupil 等
+
     # 可选的逆矩阵
     pinv_matrix: np.ndarray | None = None
     lstsq_matrix: np.ndarray | None = None
@@ -645,6 +648,9 @@ def save_zernike_response_matrix(
                 mode_grp.attrs["best_idx"] = diag["best_idx"]
                 mode_grp.attrs["optimal_amplitude"] = diag["optimal_amplitude"]
 
+        if result.device_config is not None:
+            meta.attrs["device_config"] = json.dumps(result.device_config)
+
     logger.info(f"Response matrix saved to: {path}")
 
 
@@ -699,6 +705,13 @@ def load_zernike_response_matrix(path: str | Path) -> ZernikeResponseMatrixResul
                     "optimal_amplitude": float(mode_grp.attrs["optimal_amplitude"]),
                 }
 
+        device_config = None
+        if "device_config" in meta.attrs:
+            try:
+                device_config = json.loads(meta.attrs["device_config"])
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning(f"Failed to parse device_config: {e}")
+
         return ZernikeResponseMatrixResult(
             matrix=matrix,
             variance_matrix=variance_matrix,
@@ -715,6 +728,7 @@ def load_zernike_response_matrix(path: str | Path) -> ZernikeResponseMatrixResul
             pinv_matrix=pinv_matrix,
             lstsq_matrix=lstsq_matrix,
             amplitude_optimization=amplitude_optimization,
+            device_config=device_config,
         )
 
 
