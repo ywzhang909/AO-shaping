@@ -1,0 +1,72 @@
+Products: SLM-210,SLM-200,250,300
+
+
+Version:2.51 2024/02/27
+ 
+ Defects Fixed: 
+   - Fixed SLMDLL2.py : 54  Fix search mistakes.
+
+
+Version:2.5 2023/02/22
+ New Features:
+   - Add following command
+     SLM_Ctrl_ReadTD, SLM_Ctrl_ReadTO, SLM_Ctrl_ReadED, SLM_Ctrl_ReadTD, SLM_Ctrl_ReadTO, 
+     SLM_Ctrl_ReadPS, SLM_Ctrl_ReadLS, SLM_Ctrl_ReadVR, SLM_Ctrl_ReadPS, SLM_Ctrl_ReadLS,
+     SLM_Ctrl_Reboot, SLM_Ctrl_ReadPN, SLM_Ctrl_WritePN
+
+ Defects Fixed: 
+   - Fixed a case where the response of a command is shifted by forced termination of the program, and it is restored by sending SLM_Ctrl_ReadSU.
+   - Fixed command response shift after SLM_Ctrl_WriteVI.
+    
+
+Version:2.4 2021/07/13
+ New Features:
+   - 120Hz suport
+
+ Defects Fixed: 
+   - In the following case, DISPLAY1 and DISPLAY17 had the same name when a partial search was performed in the display search.
+     So, the search was made to search by full match.
+      mon 0, 0, 1920, 1080, \\.\DISPLAY17
+      mon 1920, 0, 1920, 1200, \\.\DISPLAY1
+
+
+Version:2.3 2020/10/02
+ New Features:
+   - Added USB connected LabVIEW samples.
+
+ Defects Fixed: 
+   - Fixed a problem that the phase was wrong when transmitting 24-bit BMP with USB connection.
+   - Fixed a memory failure in the MATLAB sample. 
+
+Version:2.2 2020/09/04
+ New Features:
+   - Support for '/' in file names.
+   - Small BMP in the center.
+   - Add LabVIEW sample 
+   
+ Defects Fixed: 
+   - Fixed a problem with ReadBMP that the size would not fit when displayed on a non-SLM display.
+   - Fix SLMStatus when the file name does not exist in ReadBMP.
+   
+Version:2.1 2020/08/20
+ New Features:
+   - Added MATLAB sample.
+   - Added C# sample.
+   
+Version:2.0 2020/04/28
+ New Features:
+   - Added USB connection commands.
+   - Added CPP,VB,Python and LabVIEW sample.
+
+Version:1.1 2020/01/28
+ New Features:
+   - Supports ANSI codes for file names.
+   
+ Defects Fixed: 
+   - Fixed open failures in the MATLAB sample.
+   
+Version:1.0 2019/11/28
+ New Features:
+   - New release.
+
+

@@ -1,0 +1,19 @@
+EXPORTS 
+  DM_Init 
+  DM_Disconnect 
+  DM_IsConnected 
+  DM_SetVoltageAllControllers 
+  DM_SetActuatorVoltage 
+  DM_SetControllerVoltage 
+  DM_SetChannelAllControllers 
+  DM_ControlRelay 
+  DM_OpenRelay 
+  DM_CloseRelay 
+  DM_GetControllerIP 
+  DM_GetLastError 
+  DM_GetConnectedCount 
+  DM_SetControllerVoltageArray 
+  DM_InitAllActuators 
+  DM_GetActuatorMapping 
+  DM_SetMultipleActuators 
+  DM_GetVersion 

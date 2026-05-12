@@ -17,6 +17,7 @@ __pycache__*
 .kilocode*
 **/ao_shaping.egg-info*
 *.zip
+*.obj
 
 !data/data_analysisy.py
 !data/streamlit_visualizer.py
@@ -46,8 +47,9 @@ src/ao_shaping.egg-info*
 .trae*
 .coverage
 test_output*
-libs*
-!libs/Galaxy_Linux_Python_2.4.2503.9202/doc_cn/Python接口开发说明书.pdf
+
+
+
 src/calculators/**/*.c
 
 *.pyd
@@ -69,3 +71,8 @@ checkpoints*
 wandb*
 
 .kilo*
+libs/micro_drive1300/docs*
+libs/miicamsdk.20240728*
+!libs/miicamsdk.20240728/python/samples*
+libs/SLM_DLL_ver.2.51/sample*
+libs/SLM_DLL_ver.2.51/tool*

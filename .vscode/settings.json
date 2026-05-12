@@ -77,9 +77,12 @@
         "**/.hg": true,
         "**/.DS_Store": true,
         "**/Thumbs.db": true,
-        "**/__pycache__": true,
         "**/*.pyc": true,
         "**/*.pyo": true,
+        "**/*.egg-info": true,
+        "dist": true,
+        "build": true,
+        "**/__pycache__": true,
         ".kilocode": true,
         ".marscode": true,
         ".pytest_cache": true,
@@ -92,9 +95,7 @@
         ".venv": true,
         ".coverage": true,
         ".kilocodemodes": true,
-        "**/*.egg-info": true,
-        "dist": true,
-        "build": true
+        "wandb": true
     },
     // ============================================
     // Hide Files
@@ -112,6 +113,7 @@
         ".ruff_cache",
         ".venv",
         ".coverage",
-        ".kilocodemodes"
+        ".kilocodemodes",
+        "wandb"
     ]
 }
