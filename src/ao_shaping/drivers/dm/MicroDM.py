@@ -34,19 +34,17 @@ Example:
 from __future__ import annotations
 
 import asyncio
+import socket
 import threading
 import time
-
 from enum import IntEnum
 from typing import Any
 
 import numpy as np
-
 from loguru import logger
 
 from ao_shaping.drivers.device_base import Device, DeviceState, DeviceType
 from ao_shaping.drivers.dm.base import DM
-
 
 # =============================================================================
 # Protocol Constants
@@ -103,6 +101,35 @@ def voltage_to_bytes_clipped(voltage: float) -> tuple[int, int]:
     return voltage_to_bytes(max(VOLTAGE_MIN, min(VOLTAGE_MAX, voltage)))
 
 
+def voltages_to_payload(voltages: np.ndarray | list[float]) -> bytes:
+    """Convert a voltage array to the 0x09 command payload (100 bytes).
+
+    Vectorized numpy version — clips, scales, rounds, and interleaves
+    high/low bytes in one pass.  Accepts both ``list[float]`` and
+    ``np.ndarray``, so callers (sync and async) can pass data in whatever
+    form they already have without an extra conversion step.
+
+    Compared to a per-element loop::
+
+        for v in voltages:                             # 50 Python calls
+            hv, lv = voltage_to_bytes_clipped(v)       # 50 clip + convert
+            cmd += bytes([hv, lv])                     # 50 small allocations
+
+    this function replaces all 150+ intermediate operations with a single
+    numpy vectorised pass.
+    """
+    v = np.asarray(voltages, dtype=np.float64)
+    np.clip(v, VOLTAGE_MIN, VOLTAGE_MAX, out=v)  # in-place, no copy
+    value = (v + 20.0) / (20.0 * 3.4 * 3.3) * 65535.0
+    raw = np.round(value).astype(np.int32)
+    high = (raw // 256).astype(np.uint8)
+    low = (raw % 256).astype(np.uint8)
+    interleaved = np.empty(2 * len(v), dtype=np.uint8)
+    interleaved[0::2] = high
+    interleaved[1::2] = low
+    return interleaved.tobytes()
+
+
 # =============================================================================
 # Exceptions
 # =============================================================================
@@ -157,56 +184,67 @@ class R50Controller:
         self.port = port
         self._timeout = timeout
 
-        self._reader: asyncio.StreamReader | None = None
-        self._writer: asyncio.StreamWriter | None = None
-        self._connected = False
+        self._socket: socket.socket | None = None
 
     # ---- Properties ---------------------------------------------------------
 
     @property
     def is_connected(self) -> bool:
         """Check if the TCP connection is established."""
-        return self._connected and self._writer is not None
+        return self._socket is not None
+
+    # ---- Context Manager ---------------------------------------------------
+
+    def __enter__(self) -> R50Controller:
+        """Context manager entry — opens the TCP connection.
+
+        Usage::
+
+            with R50Controller(1, "192.168.0.101", 10101) as ctrl:
+                ctrl.set_all_channel_voltage(0.0)
+        """
+        self.connect()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Context manager exit — closes the TCP connection."""
+        self.disconnect()
 
     # ---- Connection Management ----------------------------------------------
 
-    async def connect(self) -> bool:
+    def connect(self) -> bool:
         """Open a TCP connection to the controller.
 
         Returns:
             True on success, False on failure.
         """
         try:
-            self._reader, self._writer = await asyncio.wait_for(
-                asyncio.open_connection(self.ip, self.port),
-                timeout=self._timeout,
-            )
-            self._connected = True
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(self._timeout)
+            sock.connect((self.ip, self.port))
+            self._socket = sock
             logger.debug(
                 f"R50Controller[{self.controller_id}] connected to {self.ip}:{self.port}"
             )
             return True
-        except (asyncio.TimeoutError, OSError, ConnectionError) as exc:
+        except (socket.timeout, OSError, ConnectionError) as exc:
             logger.warning(f"R50Controller[{self.controller_id}] connect failed: {exc}")
-            self._connected = False
+            self._socket = None
             return False
 
-    async def disconnect(self) -> None:
+    def disconnect(self) -> None:
         """Close the TCP connection."""
-        self._connected = False
-        if self._writer is not None:
+        if self._socket is not None:
             try:
-                self._writer.close()
-                await self._writer.wait_closed()
+                self._socket.close()
             except Exception:
                 pass
-            self._writer = None
-            self._reader = None
+            self._socket = None
             logger.debug(f"R50Controller[{self.controller_id}] disconnected")
 
     # ---- Command Sending ----------------------------------------------------
 
-    async def send_command(self, data: bytes) -> bool:
+    def send_command(self, data: bytes) -> bool:
         """Send raw command bytes to the controller.
 
         Args:
@@ -215,21 +253,17 @@ class R50Controller:
         Returns:
             True on success. On failure, marks the controller as disconnected.
         """
-        if not self.is_connected:
-            return False
-        writer = self._writer
-        if writer is None:
+        if self._socket is None:
             return False
         try:
-            writer.write(data)
-            await writer.drain()
+            self._socket.sendall(data)
             return True
         except (OSError, ConnectionError) as exc:
             logger.warning(f"R50Controller[{self.controller_id}] send error: {exc}")
-            self._connected = False
+            self._socket = None
             return False
 
-    async def set_all_channel_voltage(self, voltage: float) -> bool:
+    def set_all_channel_voltage(self, voltage: float) -> bool:
         """Set all 50 channels to the same voltage (command 0x08).
 
         Args:
@@ -240,9 +274,9 @@ class R50Controller:
         """
         hv, lv = voltage_to_bytes_clipped(voltage)
         cmd = HEADER + bytes([CMD_SET_ALL_CHANNEL_VOLTAGE, hv, lv]) + FOOTER
-        return await self.send_command(cmd)
+        return self.send_command(cmd)
 
-    async def set_channel_voltage(self, channel: int, voltage: float) -> bool:
+    def set_channel_voltage(self, channel: int, voltage: float) -> bool:
         """Set a single channel voltage (command 0x04).
 
         Args:
@@ -259,9 +293,9 @@ class R50Controller:
             return False
         hv, lv = voltage_to_bytes_clipped(voltage)
         cmd = HEADER + bytes([CMD_SET_CHANNEL_VOLTAGE, channel, hv, lv]) + FOOTER
-        return await self.send_command(cmd)
+        return self.send_command(cmd)
 
-    async def set_all_voltage_array(self, voltages: list[float]) -> bool:
+    def set_all_voltage_array(self, voltages: list[float]) -> bool:
         """Set all 50 channels by array (command 0x09, fastest method).
 
         Args:
@@ -282,15 +316,65 @@ class R50Controller:
             hv, lv = voltage_to_bytes_clipped(v)
             cmd += bytes([hv, lv])
         cmd += FOOTER
-        return await self.send_command(cmd)
+        return self.send_command(cmd)
 
-    async def set_relay(self, state: bool) -> bool:
+    async def set_all_voltage_array_async(
+        self, voltages: np.ndarray | list[float]
+    ) -> bool:
+        """Non-blocking version of :meth:`set_all_voltage_array`.
+
+        Builds the command packet using the vectorised
+        :func:`voltages_to_payload` helper, then offloads the TCP send
+        to a thread-pool executor.
+
+        Accepts both ``list[float]`` and ``np.ndarray`` — callers can
+        pass data directly without converting.
+
+        Args:
+            voltages: Exactly 50 voltage values, as a list or array.
+
+        Returns:
+            True on success, False if array length is not 50.
+        """
+        if len(voltages) != MAX_CHANNELS:
+            logger.warning(
+                f"R50Controller[{self.controller_id}] expected {MAX_CHANNELS} voltages, "
+                f"got {len(voltages)}"
+            )
+            return False
+
+        cmd = (
+            HEADER
+            + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR])
+            + voltages_to_payload(voltages)
+            + FOOTER
+        )
+        return await self.send_command_async(cmd)
+
+    def set_relay(self, state: bool) -> bool:
         """Open (True) or close (False) the relay.
 
         Command 0x06 = open, 0x07 = close.
         """
         cmd = HEADER + bytes([CMD_RELAY_ON if state else CMD_RELAY_OFF]) + FOOTER
-        return await self.send_command(cmd)
+        return self.send_command(cmd)
+
+    async def send_command_async(self, data: bytes) -> bool:
+        """Non-blocking version of send_command, runs the TCP send in a thread pool.
+
+        Unlike the sync :meth:`send_command`, this method does not block the
+        calling coroutine.  It offloads the blocking ``socket.sendall()`` to a
+        default thread-pool executor so that multiple sends (e.g. to different
+        controllers) can run concurrently via ``asyncio.gather``.
+
+        Args:
+            data: Complete command packet (header + payload + footer).
+
+        Returns:
+            True on success. On failure, marks the controller as disconnected.
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.send_command, data)
 
 
 # =============================================================================
@@ -593,13 +677,21 @@ class MicroDM(DM, Device):
         Returns:
             Number of successfully connected controllers.
         """
-        tasks = [ctrl.connect() for ctrl in self._controllers]
+        loop = asyncio.get_running_loop()
+        tasks = [
+            loop.run_in_executor(None, ctrl.connect)
+            for ctrl in self._controllers
+        ]
         results = await asyncio.gather(*tasks)
         return sum(1 for r in results if r)
 
     async def _disconnect_all(self) -> None:
         """Disconnect all controllers in parallel."""
-        tasks = [ctrl.disconnect() for ctrl in self._controllers]
+        loop = asyncio.get_running_loop()
+        tasks = [
+            loop.run_in_executor(None, ctrl.disconnect)
+            for ctrl in self._controllers
+        ]
         await asyncio.gather(*tasks)
 
     async def _send_voltages_async(self, vs: np.ndarray) -> None:
@@ -621,15 +713,23 @@ class MicroDM(DM, Device):
             # Pad with zeros if the last controller has fewer than 50
             if len(chunk) < MAX_CHANNELS:
                 chunk.extend([0.0] * (MAX_CHANNELS - len(chunk)))
-            tasks.append(ctrl.set_all_voltage_array(chunk))
+
+            # Build full 0x09 command bytes synchronously, then async send
+            cmd = HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR])
+            for v in chunk:
+                hv, lv = voltage_to_bytes_clipped(v)
+                cmd += bytes([hv, lv])
+            cmd += FOOTER
+            tasks.append(ctrl.send_command_async(cmd))
 
         if tasks:
             await asyncio.gather(*tasks)
 
     async def _set_relay_async(self, state: bool) -> None:
         """Send relay command to all connected controllers in parallel."""
+        cmd = HEADER + bytes([CMD_RELAY_ON if state else CMD_RELAY_OFF]) + FOOTER
         tasks = [
-            ctrl.set_relay(state)
+            ctrl.send_command_async(cmd)
             for ctrl in self._controllers
             if ctrl.is_connected
         ]
@@ -661,7 +761,7 @@ class MicroDM(DM, Device):
         if ctrl_idx < len(self._controllers):
             ctrl = self._controllers[ctrl_idx]
             voltage_clipped = max(self.V_Min, min(self.V_Max, float(voltage)))
-            self._run_async(ctrl.set_channel_voltage(ch_idx, voltage_clipped))
+            ctrl.set_channel_voltage(ch_idx, voltage_clipped)
             self._voltages[channel] = voltage_clipped
 
     def set_all_voltage_by_arr(self, voltages: np.ndarray) -> None:
