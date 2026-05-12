@@ -38,7 +38,6 @@ from .gerchberg_saxton import (
 
 # 导入闭环控制器模块
 from .controller import (
-    AOClosedLoop,
     ControlLaw,
     LoopConfig,
     HardwareConfig,
@@ -64,7 +63,6 @@ __all__ = [
     "angular_spectrum_propagate",
     "calculate_reconstruction_error",
     "GSResult",
-    "AOClosedLoop",
     "ControlLaw",
     "LoopConfig",
     "HardwareConfig",

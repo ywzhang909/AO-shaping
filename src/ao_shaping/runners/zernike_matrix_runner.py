@@ -23,7 +23,8 @@ from ao_shaping.utils.display import ZernikeCalibrationDisplay
 from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_timestamp_str
 from ao_shaping.utils.wfs_utils import flatten_slopes
 from ao_shaping.utils.wfs_utils import DitheredReference
-from ao_shaping.algorithm.controller import AOClosedLoop, ControlLaw, LoopConfig, HardwareConfig
+from ao_shaping.runners.closed_loop import AOClosedLoop
+from ao_shaping.algorithm.controller import ControlLaw, LoopConfig, HardwareConfig
 
 
 @click.command('zernike-matrix')
