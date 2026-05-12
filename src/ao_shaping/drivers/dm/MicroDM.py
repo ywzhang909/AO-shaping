@@ -166,6 +166,10 @@ class R50Controller:
     Low-level helper used internally by MicroDM. Each instance manages a
     persistent TCP connection to one physical power supply unit.
 
+    Implements the same method names as :class:`DM` where applicable
+    (``open``/``close``/``is_connected``) so it composes naturally
+    with the DM interface.
+
     Attributes:
         controller_id: 1-based controller identifier.
         ip: IP address string.
@@ -203,16 +207,16 @@ class R50Controller:
             with R50Controller(1, "192.168.0.101", 10101) as ctrl:
                 ctrl.set_all_channel_voltage(0.0)
         """
-        self.connect()
+        self.open()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """Context manager exit — closes the TCP connection."""
-        self.disconnect()
+        self.close()
 
     # ---- Connection Management ----------------------------------------------
 
-    def connect(self) -> bool:
+    def open(self) -> bool:
         """Open a TCP connection to the controller.
 
         Returns:
@@ -232,7 +236,7 @@ class R50Controller:
             self._socket = None
             return False
 
-    def disconnect(self) -> None:
+    def close(self) -> None:
         """Close the TCP connection."""
         if self._socket is not None:
             try:
@@ -243,6 +247,17 @@ class R50Controller:
             logger.debug(f"R50Controller[{self.controller_id}] disconnected")
 
     # ---- Command Sending ----------------------------------------------------
+
+    def send(self, data: bytes) -> bool:
+        """Send raw command bytes (DM-compatible alias for :meth:`send_command`).
+
+        Args:
+            data: Complete command packet (header + payload + footer).
+
+        Returns:
+            True on success.
+        """
+        return self.send_command(data)
 
     def send_command(self, data: bytes) -> bool:
         """Send raw command bytes to the controller.
@@ -409,7 +424,7 @@ class MicroDM(DM, Device):
         >>> dm.close()
     """
 
-    DM_Num: int = MAX_CHANNELS
+    DM_Num: int = 39 * 39
     V_Min: float = VOLTAGE_MIN
     V_Max: float = VOLTAGE_MAX
 
@@ -437,10 +452,6 @@ class MicroDM(DM, Device):
         self._ips = ips or [DEFAULT_IPS[0]]
         self._timeout = timeout
 
-        # Total channel count: 50 per controller
-        n_controllers = len(self._ips)
-        self.DM_Num = n_controllers * MAX_CHANNELS
-
         # Current voltage state (logical actuator voltages)
         self._voltages: np.ndarray = np.zeros(self.DM_Num)
         self._relay_state = RelayState.OFF
@@ -464,7 +475,7 @@ class MicroDM(DM, Device):
         self._register_parameters()
 
         logger.debug(
-            f"MicroDM initialized: {n_controllers} controller(s), "
+            f"MicroDM initialized: {len(self._controllers)} controller(s), "
             f"{self.DM_Num} channels, "
             f"voltage range [{self.V_Min}, {self.V_Max}] V"
         )
@@ -679,7 +690,7 @@ class MicroDM(DM, Device):
         """
         loop = asyncio.get_running_loop()
         tasks = [
-            loop.run_in_executor(None, ctrl.connect)
+            loop.run_in_executor(None, ctrl.open)
             for ctrl in self._controllers
         ]
         results = await asyncio.gather(*tasks)
@@ -689,7 +700,7 @@ class MicroDM(DM, Device):
         """Disconnect all controllers in parallel."""
         loop = asyncio.get_running_loop()
         tasks = [
-            loop.run_in_executor(None, ctrl.disconnect)
+            loop.run_in_executor(None, ctrl.close)
             for ctrl in self._controllers
         ]
         await asyncio.gather(*tasks)

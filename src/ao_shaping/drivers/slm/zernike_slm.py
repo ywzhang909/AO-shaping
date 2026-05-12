@@ -185,7 +185,7 @@ class ZernikeSLM:
 
     def get_current_zernike_coeffs(self) -> dict[tuple[int, int], float]:
         """获取当前Zernike系数"""
-        return self._zernike_dm.get_actuator_positions()
+        return self._zernike_dm._current_coeffs.copy()
 
     def is_connected(self) -> bool:
         return self.is_open

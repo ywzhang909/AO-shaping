@@ -1,22 +1,19 @@
-import numpy as np
-import time
 import socket
-from loguru import logger
-
+import time
 from ctypes import byref, c_bool, c_int32, cdll
+
 import findlibs
+import numpy as np
+from loguru import logger
 
 from ao_shaping.drivers.dm.base import DM
 
-
-DM_NUM = 64
 
 def _load_adj_txt():
     return np.loadtxt('data/dm_adj.txt')
 
 class NLight(DM):
-    DM_NUM: int = DM_NUM
-    n_actuators: int = DM_NUM
+    DM_NUM: int = 64
     disabled_actuators: list[int] = [0]
 
     V_Min, V_Max = -300, 499
@@ -26,11 +23,11 @@ class NLight(DM):
         assert max_iter_diff <= 200
         assert max_neibor_diff <= 300
 
-        self.__last_v = np.zeros(self.n_actuators)
+        self.__last_v = np.zeros(self.DM_NUM)
         self.max_iter_diff = max_iter_diff
         self.max_neibor_diff = max_neibor_diff
 
-        self.default_dm_unit_mask = np.ones(self.n_actuators)
+        self.default_dm_unit_mask = np.ones(self.DM_NUM)
         self.default_dm_unit_mask[0] = 0
 
         self.c_driver = DMSdk()
@@ -61,16 +58,15 @@ class NLight(DM):
             return self.send_voltages(cmd)
         raise ValueError("Unsupported command type. Expected numpy array of voltages.")
 
-    def get_actuator_positions(self):
+    def get_actuator_positions(self) -> np.ndarray:
         """Get positions of DM actuators"""
-        # Implementation would depend on specific hardware capabilities
-        pass
+        return self.__last_v.copy()
 
     def initialize(self) -> None:
         self.set_hv(hv=True)
 
     def reset_all(self):
-        self.send_voltages(np.zeros(self.n_actuators), 0.01)
+        self.send_voltages(np.zeros(self.DM_NUM), 0.01)
 
         if (ret := self.c_driver.reset_all()) == 0:
             self.__last_v = np.zeros_like(self.__last_v)
@@ -132,7 +128,7 @@ class DMUdp:
             raise AssertionError("device connection error.")
         self.port = 1001
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.dm_num = DM_NUM
+        self.dm_num = 64
 
     @staticmethod
     def _num_hex(num:int):

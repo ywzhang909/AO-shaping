@@ -43,12 +43,12 @@ class TestR50Controller:
         return R50Controller(controller_id=1, ip=CONTROLLER_IP, port=CONTROLLER_PORT)
     
     def test_sends(self, controller: R50Controller):
-        assert controller.connect()
+        assert controller.open()
         assert controller.set_relay(True)
         assert controller.set_channel_voltage(1, 50)
         
     async def test_sends_async(self, controller: R50Controller):
-        assert controller.connect()
+        assert controller.open()
         assert await controller.set_all_voltage_array_async([30.0]*50)
         
     def test_initialization(self, controller):
@@ -69,13 +69,13 @@ class TestR50Controller:
         controller._socket = None
         assert controller.is_connected is False
 
-    def test_connect_success(self, controller):
+    def test_open_success(self, controller):
         """Test successful connection."""
         with patch('socket.socket') as mock_socket_cls:
             mock_sock_instance = Mock()
             mock_socket_cls.return_value = mock_sock_instance
             
-            result = controller.connect()
+            result = controller.open()
             
             assert result is True
             assert controller._socket == mock_sock_instance
@@ -85,47 +85,47 @@ class TestR50Controller:
             mock_sock_instance.settimeout.assert_called_once_with(10.0)
             mock_sock_instance.connect.assert_called_once_with(("127.0.0.1", 10101))
 
-    def test_connect_timeout(self, controller):
+    def test_open_timeout(self, controller):
         """Test connection timeout."""
         with patch('socket.socket') as mock_socket_cls:
             mock_sock_instance = Mock()
             mock_sock_instance.connect.side_effect = socket_module.timeout("timed out")
             mock_socket_cls.return_value = mock_sock_instance
             
-            result = controller.connect()
+            result = controller.open()
             
             assert result is False
             assert controller._socket is None
 
-    def test_connect_os_error(self, controller):
+    def test_open_os_error(self, controller):
         """Test connection OS error."""
         with patch('socket.socket') as mock_socket_cls:
             mock_sock_instance = Mock()
             mock_sock_instance.connect.side_effect = OSError("Network error")
             mock_socket_cls.return_value = mock_sock_instance
             
-            result = controller.connect()
+            result = controller.open()
             
             assert result is False
             assert controller._socket is None
 
-    def test_disconnect(self, controller):
+    def test_close(self, controller):
         """Test disconnection."""
         # Set up connected state
         mock_sock = Mock()
         controller._socket = mock_sock
         
-        controller.disconnect()
+        controller.close()
         
         assert controller._socket is None
         mock_sock.close.assert_called_once()
 
-    def test_disconnect_not_connected(self, controller):
+    def test_close_not_connected(self, controller):
         """Test disconnection when not connected."""
         controller._socket = None
         
         # Should not raise any exception
-        controller.disconnect()
+        controller.close()
         
         assert controller._socket is None
 
@@ -256,7 +256,7 @@ class TestR50ControllerProtocol:
         )
         
         # Connect the controller (sync call)
-        connected = controller.connect()
+        connected = controller.open()
         assert connected, "Failed to connect to port listener"
 
         return controller
@@ -301,7 +301,7 @@ class TestR50ControllerProtocol:
 
             finally:
                 # Cleanup controller (sync call)
-                controller.disconnect()
+                controller.close()
         finally:
             # Cleanup port listener
             await port_listener.stop()
@@ -348,7 +348,7 @@ class TestR50ControllerProtocol:
 
             finally:
                 # Cleanup controller (sync call)
-                controller.disconnect()
+                controller.close()
         finally:
             # Cleanup port listener
             await port_listener.stop()
@@ -401,7 +401,7 @@ class TestR50ControllerProtocol:
 
             finally:
                 # Cleanup controller (sync call)
-                controller.disconnect()
+                controller.close()
         finally:
             # Cleanup port listener
             await port_listener.stop()
@@ -451,7 +451,7 @@ class TestR50ControllerProtocol:
 
             finally:
                 # Cleanup controller (sync call)
-                controller.disconnect()
+                controller.close()
         finally:
             # Cleanup port listener
             await port_listener.stop()
