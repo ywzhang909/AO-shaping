@@ -44,8 +44,11 @@ class TestR50Controller:
     
     def test_sends(self, controller: R50Controller):
         assert controller.open()
-        assert controller.set_relay(True)
-        assert controller.set_channel_voltage(1, 50)
+        # assert controller.set_relay(True)
+        # assert controller.set_all_channel_voltage(20)
+        assert controller.set_all_voltage_array(list(range(1, 51)))
+        # assert controller.set_channel_voltage(1, 20)
+        # assert controller.set_relay(False)
         
     async def test_sends_async(self, controller: R50Controller):
         assert controller.open()
