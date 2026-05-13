@@ -6,7 +6,9 @@ sent by the R50Controller to verify protocol compliance during testing.
 
 from __future__ import annotations
 
-import asyncio
+import socket
+import threading
+import time
 import logging
 from typing import List, Optional
 from dataclasses import dataclass
@@ -29,19 +31,21 @@ class PortListener:
     verify that the correct protocol bytes are being sent over the wire.
     
     Example usage:
-        async with PortListener(port=10101) as listener:
-            # Connect your R50Controller to localhost:10101
-            controller = R50Controller(1, "127.0.0.1", 10101)
-            await controller.connect()
-            
-            # Send some commands
-            await controller.set_all_channel_voltage(5.0)
-            await controller.set_channel_voltage(0, 10.0)
-            
-            # Check what was actually sent
-            commands = listener.get_captured_commands()
-            assert len(commands) == 2
-            # Verify the protocol format of each command
+        listener = PortListener(port=10101)
+        listener.start()
+        # Connect your R50Controller to localhost:10101
+        controller = R50Controller(1, "127.0.0.1", 10101)
+        controller.connect()
+        
+        # Send some commands
+        controller.set_all_channel_voltage(5.0)
+        controller.set_channel_voltage(0, 10.0)
+        
+        # Check what was actually sent
+        commands = listener.get_captured_commands()
+        assert len(commands) == 2
+        # Verify the protocol format of each command
+        listener.stop()
     """
     
     def __init__(self, host: str = "127.0.0.1", port: int = 0):
@@ -53,64 +57,92 @@ class PortListener:
         """
         self.host = host
         self.port = port
-        self._server: Optional[asyncio.Server] = None
+        self._server_socket: Optional[socket.socket] = None
         self._captured_commands: List[CapturedCommand] = []
-        self._connections: List[asyncio.StreamReader] = []
+        self._client_sockets: List[socket.socket] = []
+        self._is_running = False
+        self._listen_thread: Optional[threading.Thread] = None
         
-    async def __aenter__(self):
-        """Async context manager entry."""
-        await self.start()
-        return self
-        
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
-        await self.stop()
-        
-    async def start(self) -> None:
+    def start(self) -> None:
         """Start the TCP listener."""
-        self._server = await asyncio.start_server(
-            self._handle_client,
-            self.host,
-            self.port
-        )
+        if self._is_running:
+            return
+            
+        self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._server_socket.bind((self.host, self.port))
+        self._server_socket.listen(5)
+        
         # Get the actual port if we used port 0
         if self.port == 0:
-            sock = self._server.sockets[0]
-            self.port = sock.getsockname()[1]
+            self.port = self._server_socket.getsockname()[1]
+            
+        self._is_running = True
+        self._listen_thread = threading.Thread(target=self._listen_for_connections, daemon=True)
+        self._listen_thread.start()
         logger.info(f"PortListener started on {self.host}:{self.port}")
         
-    async def stop(self) -> None:
+    def stop(self) -> None:
         """Stop the TCP listener and cleanup."""
-        if self._server:
-            self._server.close()
-            await self._server.wait_closed()
-            self._server = None
+        self._is_running = False
+        if self._server_socket:
+            try:
+                self._server_socket.close()
+            except Exception:
+                pass
+            self._server_socket = None
             
         # Close all client connections
-        for conn in self._connections:
-            if not conn.at_eof():
-                # Try to close gracefully
+        for sock in self._client_sockets:
+            try:
+                sock.close()
+            except Exception:
                 pass
-        self._connections.clear()
+        self._client_sockets.clear()
+        
+        if self._listen_thread and self._listen_thread.is_alive():
+            self._listen_thread.join(timeout=1)
+            
         logger.info("PortListener stopped")
         
-    async def _handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    def _listen_for_connections(self) -> None:
+        """Listen for incoming connections and handle them."""
+        while self._is_running:
+            try:
+                self._server_socket.settimeout(1.0)  # 1 second timeout to allow checking _is_running
+                client_socket, address = self._server_socket.accept()
+                if not self._is_running:
+                    break
+                    
+                peer_info = f"{address[0]}:{address[1]}"
+                logger.debug(f"New connection from {peer_info}")
+                
+                self._client_sockets.append(client_socket)
+                
+                # Handle client in a separate thread
+                client_thread = threading.Thread(
+                    target=self._handle_client,
+                    args=(client_socket, peer_info),
+                    daemon=True
+                )
+                client_thread.start()
+            except socket.timeout:
+                continue
+            except Exception as e:
+                if self._is_running:
+                    logger.warning(f"Error accepting connection: {e}")
+                break
+                
+    def _handle_client(self, client_socket: socket.socket, peer_info: str) -> None:
         """Handle a client connection and capture all data sent."""
-        peer_name = writer.get_extra_info('peername')
-        peer_info = f"{peer_name[0]}:{peer_name[1]}" if peer_name else "unknown"
-        logger.debug(f"New connection from {peer_info}")
-        
-        self._connections.append(reader)
-        
         try:
-            while True:
+            while self._is_running:
                 # Read data until connection closes
-                data = await reader.read(1024)  # Read in chunks
+                data = client_socket.recv(1024)  # Read in chunks
                 if not data:
                     break
                     
                 # Capture the data with timestamp
-                import time
                 captured = CapturedCommand(
                     data=data,
                     timestamp=time.time(),
@@ -119,15 +151,16 @@ class PortListener:
                 self._captured_commands.append(captured)
                 logger.debug(f"Captured {len(data)} bytes from {peer_info}: {data.hex()}")
                 
-        except asyncio.IncompleteReadError:
-            # Connection closed by peer
-            pass
         except Exception as e:
-            logger.warning(f"Error handling client {peer_info}: {e}")
+            logger.debug(f"Error handling client {peer_info}: {e}")
         finally:
             logger.debug(f"Connection from {peer_info} closed")
-            if reader in self._connections:
-                self._connections.remove(reader)
+            try:
+                client_socket.close()
+            except Exception:
+                pass
+            if client_socket in self._client_sockets:
+                self._client_sockets.remove(client_socket)
                 
     def get_captured_commands(self) -> List[CapturedCommand]:
         """Get all captured commands since the listener started.
