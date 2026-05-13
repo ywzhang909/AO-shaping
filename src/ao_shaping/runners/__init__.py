@@ -8,6 +8,7 @@ from ao_shaping.runners.zernike_matrix_runner import run as zernike_matrix_run
 from ao_shaping.runners.zernike_matrix_runner import closed_loop_run as zernike_closed_loop_run
 from ao_shaping.runners.rms_zernike_runner import run as rms_zernike_run
 from ao_shaping.runners.ga_zernike_runner import run as ga_zernike_run
+from ao_shaping.runners.dm_matrix_runner import run as dm_matrix_run
 
 __all__ = [
     "wf_run",
@@ -18,4 +19,5 @@ __all__ = [
     "zernike_closed_loop_run",
     "rms_zernike_run",
     "ga_zernike_run",
+    "dm_matrix_run",
 ]

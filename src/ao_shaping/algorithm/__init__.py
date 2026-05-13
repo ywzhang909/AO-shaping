@@ -43,6 +43,12 @@ from .controller import (
     HardwareConfig,
 )
 
+# 导入相位包裹优化模块
+from .phase_wrap import (
+    PhaseWrapOptimizer,
+    SLMPhaseController,
+)
+
 # 导出所有类和函数
 __all__ = [
     "Base",
@@ -66,6 +72,8 @@ __all__ = [
     "ControlLaw",
     "LoopConfig",
     "HardwareConfig",
+    "PhaseWrapOptimizer",
+    "SLMPhaseController",
 ]
 
 

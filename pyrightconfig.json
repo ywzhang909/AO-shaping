@@ -1,0 +1,7 @@
+{
+    "extraPaths": [
+        "src",
+        "libs"
+    ],
+    "typeCheckingMode": "basic"
+}

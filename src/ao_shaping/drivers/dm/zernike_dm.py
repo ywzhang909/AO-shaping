@@ -147,8 +147,8 @@ class ZernikeDM(DM):
         self.is_open = False
         logger.info("ZernikeDM closed")
 
-    def get_actuator_positions(self) -> dict[tuple[int, int], float]:
-        return self._current_coeffs.copy()
+    def get_actuator_positions(self) -> np.ndarray:
+        return np.array(list(self._current_coeffs.values()))
 
     def get_phase(self) -> np.ndarray | None:
         return self._current_phase.copy() if self._current_phase is not None else None

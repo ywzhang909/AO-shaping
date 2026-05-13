@@ -44,6 +44,7 @@ from ao_shaping.runners import (
     zernike_closed_loop_run,
     rms_zernike_run,
     ga_zernike_run,
+    dm_matrix_run,
 )
 
 
@@ -84,6 +85,7 @@ cli.add_command(zernike_matrix_run, name="zernike-matrix")
 cli.add_command(rms_zernike_run, name="rms-zernike")
 cli.add_command(ga_zernike_run, name="ga-zernike")
 cli.add_command(zernike_closed_loop_run, name="closed-loop")
+cli.add_command(dm_matrix_run, name="dm-matrix")
 
 
 # Entry point

@@ -8,7 +8,8 @@ from ao_shaping.utils import gen_date_dir, gen_file_path_uuid
 from ao_shaping.optimizer.wf.rms import optimizer_rms
 from ao_shaping.utils.display import plot_funcs
 from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name
-from ao_shaping.config import DM_N_ACTUATORS
+from ao_shaping import config as ao_config
+DM_N_ACTUATORS = ao_config.DM_N_ACTUATORS
 
 
 @click.command()

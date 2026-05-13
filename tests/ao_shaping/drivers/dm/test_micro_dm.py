@@ -220,7 +220,7 @@ class TestMicroDMIntegration:
         assert MicroDMVoltageError is not None
 
     def test_class_constants(self):
-        assert MicroDM.DM_Num == MAX_CHANNELS
+        assert MicroDM.DM_Num == 39 * 39
         assert MicroDM.V_Min == VOLTAGE_MIN
         assert MicroDM.V_Max == VOLTAGE_MAX
 

@@ -2,9 +2,9 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-class DM(ABC):
-    channel: int
 
+class DM(ABC):
+    DM_NUM: int
     @abstractmethod
     def transform(self, cmd) -> np.ndarray:
         pass

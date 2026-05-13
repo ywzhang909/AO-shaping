@@ -15,8 +15,8 @@ def _resolve_dm_n_actuators() -> int:
     """Resolve DM actuator count from device driver."""
     try:
         from ao_shaping.drivers.dm.NLight import NLight
-        return NLight.n_actuators
-    except ImportError:
+        return NLight.DM_NUM
+    except (ImportError, AttributeError):
         return 64
 
 
