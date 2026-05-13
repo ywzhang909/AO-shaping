@@ -22,7 +22,7 @@
     // ============================================
     "python.terminal.useEnvFile": true,
     "python.envFile": "${workspaceFolder}/.env",
-    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+    "python.defaultInterpreterPath": "d:\\Projects\\TIFO\\AO-shaping\\.venv\\Scripts\\python.exe",
     // ============================================
     // Python Analysis & IntelliSense
     // ============================================
