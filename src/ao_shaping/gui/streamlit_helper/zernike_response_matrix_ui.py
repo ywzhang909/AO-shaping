@@ -21,6 +21,8 @@ import json
 import numpy as np
 import streamlit as st
 
+import time
+
 from loguru import logger
 
 # Import drivers
@@ -135,6 +137,9 @@ def _initialize_state() -> None:
     if "zrm_wfs_exp_time" not in st.session_state:
         st.session_state.zrm_wfs_exp_time = 0.01  # Valid default within [0.002, 86]
 
+    if "zrm_wfs_use_user_ref" not in st.session_state:
+        st.session_state.zrm_wfs_use_user_ref = False
+
     # WFS auto-exposure display value (separate from actual exp_time used)
     if "zrm_wfs_exp_time_display" not in st.session_state:
         st.session_state.zrm_wfs_exp_time_display = None  # Will be set on first render
@@ -175,6 +180,30 @@ def _initialize_state() -> None:
         progress_dir = Path(st.session_state.get("zrm_storage_dir", str(PROJECT_ROOT / "data" / "zernike_calibration")))
         progress_dir.mkdir(parents=True, exist_ok=True)
         st.session_state.zrm_progress_file = str(progress_dir / f"progress_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+
+    # Interactive measurement state
+    if "zrm_interactive_enabled" not in st.session_state:
+        st.session_state.zrm_interactive_enabled = False
+    if "zrm_interactive_current_mode" not in st.session_state:
+        st.session_state.zrm_interactive_current_mode = 0
+    if "zrm_interactive_current_coeff" not in st.session_state:
+        st.session_state.zrm_interactive_current_coeff = 1.0
+    if "zrm_interactive_phase_sent" not in st.session_state:
+        st.session_state.zrm_interactive_phase_sent = False
+    if "zrm_interactive_captures" not in st.session_state:
+        st.session_state.zrm_interactive_captures = []
+    if "zrm_interactive_last_dev_x" not in st.session_state:
+        st.session_state.zrm_interactive_last_dev_x = None
+    if "zrm_interactive_last_dev_y" not in st.session_state:
+        st.session_state.zrm_interactive_last_dev_y = None
+    if "zrm_interactive_last_zernike" not in st.session_state:
+        st.session_state.zrm_interactive_last_zernike = None
+    if "zrm_interactive_total_modes" not in st.session_state:
+        st.session_state.zrm_interactive_total_modes = 0
+    if "zrm_interactive_capture_count" not in st.session_state:
+        st.session_state.zrm_interactive_capture_count = 0
+    if "zrm_interactive_call_seq" not in st.session_state:
+        st.session_state.zrm_interactive_call_seq = 0  # monotonically increasing debug counter
 
     # Calibration parameters
     if "zrm_verbose" not in st.session_state:
@@ -295,8 +324,15 @@ def connect_wfs() -> bool:
             high_speed=False,
             pupil_diameter=st.session_state.zrm_wfs_pupil_diameter,
             pupil_center=(st.session_state.zrm_wfs_pupil_center_x, st.session_state.zrm_wfs_pupil_center_y),
+            use_custom_ref=st.session_state.zrm_wfs_use_user_ref,
         )
         wfs.initialize()
+        
+        # Apply user reference setting after initialization
+        if st.session_state.zrm_wfs_use_user_ref:
+            wfs.set_ref_plane(custom=True)
+            
+        # Get exposure time range
         min_exp, max_exp, _ = wfs.get_exposure_time_range()
         if max_exp > 0:
             st.session_state.zrm_wfs_exp_time_min = min_exp*1000
@@ -319,6 +355,13 @@ def disconnect_wfs() -> None:
     """Disconnect from Thorlab WFS."""
     try:
         if st.session_state.zrm_wfs is not None:
+            # Save user reference setting before disconnecting
+            if st.session_state.zrm_wfs_use_user_ref and st.session_state.zrm_wfs is not None:
+                try:
+                    st.session_state.zrm_wfs.save_config()
+                except Exception as e:
+                    logger.warning(f"Failed to save WFS config on disconnect: {e}")
+            
             try:
                 st.session_state.zrm_wfs.close()
             except Exception as e:
@@ -330,6 +373,279 @@ def disconnect_wfs() -> None:
     except Exception as e:
         st.error(f"WFS disconnect failed: {e}")
         logger.exception(f"Failed to disconnect WFS: {e}")
+
+
+# ── Interactive measurement helpers ──────────────────────────────────────────
+
+
+def _get_interactive_mode_name(mode_idx: int, excluded_piston: bool, excluded_tip_tilt: bool) -> str:
+    """Get human-readable Zernike name for an interactive mode index.
+
+    Args:
+        mode_idx: 0-based mode index (after excluding piston/tip-tilt)
+        excluded_piston: Whether piston is excluded
+        excluded_tip_tilt: Whether tip/tilt is excluded
+
+    Returns:
+        String like "Z4 (Defocus)" or "Z5 (Astig 45°)".
+    """
+    n_remove = (1 if excluded_piston else 0) + (2 if excluded_tip_tilt else 0)
+    noll_1based = mode_idx + n_remove + 1
+
+    zernike_names = {
+        1: "Piston", 2: "Tip", 3: "Tilt",
+        4: "Defocus", 5: "Astig 45°", 6: "Astig 0°",
+        7: "Coma Y", 8: "Coma X",
+        9: "Trefoil Y", 10: "Trefoil X",
+        11: "Spherical", 12: "Sec Astig 45°", 13: "Sec Astig 0°",
+        14: "Tetrafoil Y", 15: "Tetrafoil X",
+    }
+    name = zernike_names.get(noll_1based, "")
+    if name:
+        return f"Z{noll_1based} ({name})"
+    return f"Z{noll_1based}"
+
+
+def _send_current_zernike_phase_interactive(coeff: float = 1.0) -> None:
+    """Send current interactive mode's Zernike phase to SLM and live-read WFS.
+
+    Builds a coefficient array matching :func:`calibrate_zernike_response_matrix`,
+    sends it to the SLM, then reads WFS spot deviations and Zernike coefficients
+    to update the visualisation.
+    """
+    slm = st.session_state.zrm_slm
+    wfs = st.session_state.zrm_wfs
+    if slm is None or wfs is None:
+        st.error("设备和传感器未连接")
+        return
+
+    mode_idx = st.session_state.zrm_interactive_current_mode
+    magnitude = st.session_state.zrm_magnitude
+    excluded_piston = st.session_state.zrm_excluded_piston
+    excluded_tip_tilt = st.session_state.zrm_excluded_tip_tilt
+    cancel_tile = st.session_state.zrm_cancel_tile
+
+    # Get coefficient from session state
+    coeff = st.session_state.zrm_interactive_current_coeff if "zrm_interactive_current_coeff" in st.session_state else 1.0
+
+    # Noll offset: same logic as calibrate_zernike_response_matrix
+    if excluded_piston and excluded_tip_tilt:
+        noll_offset = 3
+    elif excluded_piston:
+        noll_offset = 1
+    else:
+        noll_offset = 0
+
+    full_terms = calc_n_zernike_terms(DEFAULT_N_MAX)
+    coeffs = np.zeros(full_terms, dtype=np.float64)
+    coeffs[mode_idx + noll_offset] = coeff * magnitude
+    noll_index = mode_idx + noll_offset + 1  # 1-based Noll for logging
+
+    st.session_state.zrm_interactive_call_seq += 1
+    seq = st.session_state.zrm_interactive_call_seq
+
+    try:
+        logger.debug(
+            f"[INT#{seq:04d}] SLM.send_zernike — "
+            f"mode_idx={mode_idx}, noll=Z{noll_index}, coeff={coeff:+.4f}, "
+            f"magnitude={magnitude:.4f}λ, coeffs[active]={coeffs[mode_idx + noll_offset]:.4f}"
+        )
+        slm.send_zernike(coeffs)
+        st.session_state.zrm_interactive_phase_sent = True
+
+        # Live-read WFS for visual updates
+        time.sleep(st.session_state.zrm_wait_time)
+
+        logger.debug(
+            f"[INT#{seq:04d}] WFS.get_spot_deviation — "
+            f"cancel_tile={cancel_tile}, after_mode={mode_idx}"
+        )
+        dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=cancel_tile)
+
+        logger.debug(
+            f"[INT#{seq:04d}] WFS.get_zernike — "
+            f"zernike_order={DEFAULT_N_MAX}, after_mode={mode_idx}"
+        )
+        zernike = wfs.get_zernike(zernike_order=DEFAULT_N_MAX)
+
+        st.session_state.zrm_interactive_last_dev_x = dev_x
+        st.session_state.zrm_interactive_last_dev_y = dev_y
+        st.session_state.zrm_interactive_last_zernike = zernike
+    except Exception as e:
+        st.error(f"发送相位失败: {e}")
+        logger.exception(f"[INT#{seq:04d}] Failed to send Zernike phase: {e}")
+
+
+def _capture_wfs_data_interactive() -> None:
+    """Read WFS deviation + Zernike coefficients and record to session state."""
+    wfs = st.session_state.zrm_wfs
+    if wfs is None:
+        st.error("WFS未连接")
+        return
+
+    if not st.session_state.zrm_interactive_phase_sent:
+        st.warning("请先发送相位（点击'下一个泽尼克'）")
+        return
+
+    cancel_tile = st.session_state.zrm_cancel_tile
+    mode_idx = st.session_state.zrm_interactive_current_mode
+
+    st.session_state.zrm_interactive_call_seq += 1
+    seq = st.session_state.zrm_interactive_call_seq
+
+    try:
+        logger.debug(
+            f"[INT#{seq:04d}] WFS.get_spot_deviation — "
+            f"cancel_tile={cancel_tile}, mode_idx={mode_idx}, "
+            f"capture#{st.session_state.zrm_interactive_capture_count + 1}"
+        )
+        dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=cancel_tile)
+
+        logger.debug(
+            f"[INT#{seq:04d}] WFS.get_zernike — "
+            f"zernike_order={DEFAULT_N_MAX}, mode_idx={mode_idx}"
+        )
+        zernike = wfs.get_zernike(zernike_order=DEFAULT_N_MAX)
+
+        capture = {
+            "mode_idx": st.session_state.zrm_interactive_current_mode,
+            "coeff": st.session_state.zrm_interactive_current_coeff if "zrm_interactive_current_coeff" in st.session_state else 1.0,
+            "dev_x": dev_x.copy(),
+            "dev_y": dev_y.copy(),
+            "zernike": zernike.copy(),
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        st.session_state.zrm_interactive_captures.append(capture)
+        st.session_state.zrm_interactive_capture_count += 1
+
+        # Keep the last-read data for live display
+        st.session_state.zrm_interactive_last_dev_x = dev_x
+        st.session_state.zrm_interactive_last_dev_y = dev_y
+        st.session_state.zrm_interactive_last_zernike = zernike
+
+    except Exception as e:
+        st.error(f"WFS采集失败: {e}")
+        logger.exception(f"WFS capture failed: {e}")
+
+
+def _set_slm_flat_interactive() -> None:
+    """Set SLM to flat phase and refresh WFS visualisation."""
+    slm = st.session_state.zrm_slm
+    wfs = st.session_state.zrm_wfs
+
+    st.session_state.zrm_interactive_call_seq += 1
+    seq = st.session_state.zrm_interactive_call_seq
+
+    try:
+        if slm is not None:
+            logger.debug(
+                f"[INT#{seq:04d}] SLM.set_flat — "
+                f"prev_mode={st.session_state.zrm_interactive_current_mode}"
+            )
+            slm.set_flat()
+        st.session_state.zrm_interactive_phase_sent = False
+
+        if wfs is not None:
+            cancel_tile = st.session_state.zrm_cancel_tile
+            time.sleep(st.session_state.zrm_wait_time)
+
+            logger.debug(
+                f"[INT#{seq:04d}] WFS.get_spot_deviation — "
+                f"cancel_tile={cancel_tile}, after_flat=True"
+            )
+            dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=cancel_tile)
+
+            logger.debug(
+                f"[INT#{seq:04d}] WFS.get_zernike — "
+                f"zernike_order={DEFAULT_N_MAX}, after_flat=True"
+            )
+            zernike = wfs.get_zernike(zernike_order=DEFAULT_N_MAX)
+
+            st.session_state.zrm_interactive_last_dev_x = dev_x
+            st.session_state.zrm_interactive_last_dev_y = dev_y
+            st.session_state.zrm_interactive_last_zernike = zernike
+    except Exception as e:
+        st.error(f"设置平相位失败: {e}")
+        logger.exception(f"[INT#{seq:04d}] Failed to set SLM flat: {e}")
+
+
+# ── Visualisation helpers ────────────────────────────────────────────────────
+
+
+def _plot_wfs_deviations(dev_x: np.ndarray, dev_y: np.ndarray):
+    """Quiver plot of WFS spot deviation vectors."""
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    ny, nx = dev_x.shape
+    x = np.arange(nx)
+    y = np.arange(ny)
+    X, Y = np.meshgrid(x, y)
+
+    # Auto-scale arrows: use 20 % of max deviation as the reference length
+    max_dev = max(np.max(np.abs(dev_x)), np.max(np.abs(dev_y)))
+    scale = max_dev * 12 if max_dev > 1e-9 else 1.0
+
+    q = ax.quiver(X, Y, dev_x, dev_y, scale=scale, scale_units="xy", alpha=0.8, width=0.004)
+    ax.quiverkey(q, 0.9, 0.95, scale / 10, f"{scale/10:.2f}", labelpos="E", coordinates="figure")
+
+    ax.set_aspect("equal")
+    ax.set_title("WFS Spot Deviations")
+    ax.set_xlabel("Spot X Index")
+    ax.set_ylabel("Spot Y Index")
+    ax.invert_yaxis()
+    ax.grid(True, alpha=0.2)
+
+    fig.tight_layout()
+    return fig
+
+
+def _plot_zernike_coeffs(zernike: np.ndarray):
+    """Bar chart of WFS Zernike coefficients."""
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    indices = np.arange(len(zernike))
+
+    ax.bar(indices, zernike, color="#2ca02c", edgecolor="gray", linewidth=0.5)
+    ax.axhline(y=0, color="gray", linestyle="-", linewidth=0.5)
+    ax.set_xlabel("Zernike Coefficient Index (Noll)")
+    ax.set_ylabel("Coefficient Value")
+    ax.set_title("WFS Zernike Coefficients")
+    ax.grid(True, alpha=0.3, axis="y")
+
+    fig.tight_layout()
+    return fig
+
+
+def _plot_capture_summary(captures: list, total_modes: int):
+    """Bar chart showing how many captures exist per mode."""
+    import matplotlib.pyplot as plt
+
+    mode_counts: dict[int, int] = {}
+    for c in captures:
+        idx = c["mode_idx"]
+        mode_counts[idx] = mode_counts.get(idx, 0) + 1
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+
+    all_modes = list(range(total_modes))
+    counts = [mode_counts.get(i, 0) for i in all_modes]
+    colors = ["#2ca02c" if c > 0 else "#d3d3d3" for c in counts]
+
+    ax.bar(all_modes, counts, color=colors, edgecolor="gray", linewidth=0.5)
+    ax.set_xlabel("Mode Index")
+    ax.set_ylabel("Captures")
+    ax.set_title("Captures Per Mode (green = has data)")
+    ax.set_xticks(range(total_modes))
+    ax.grid(True, alpha=0.3, axis="y")
+
+    fig.tight_layout()
+    return fig
+
+
+# ── Progress callback ────────────────────────────────────────────────────────
 
 
 def _progress_callback(progress_data: dict) -> None:
@@ -622,6 +938,13 @@ def render_sidebar() -> None:
         with col2:
             st.session_state.zrm_wfs_pupil_center_y = st.number_input("瞳孔中心 Y", value=st.session_state.zrm_wfs_pupil_center_y, step=0.1, format="%.1f")
 
+        # Use user reference checkbox
+        st.session_state.zrm_wfs_use_user_ref = st.checkbox(
+            "使用用户参考（设置当前波前为参考）",
+            value=st.session_state.zrm_wfs_use_user_ref,
+            help="勾选后将当前测量的波前设置为参考波前，用于后续测量"
+        )
+
         st.divider()
 
         # SLM settings (parameters applied on connect)
@@ -726,6 +1049,20 @@ def render_calibrate_mode() -> None:
     # Check device connection
     if not st.session_state.zrm_slm_connected or not st.session_state.zrm_wfs_connected:
         st.warning("请先在侧边栏连接SLM和WFS设备")
+        return
+
+    # Interactive mode toggle
+    interactive = st.checkbox(
+        "🔬 逐模式测量模式（手动点击发送/采集，实时可视化）",
+        value=st.session_state.zrm_interactive_enabled,
+        help="启用后逐个模式手动测量：点击「下一个泽尼克」发送相位，点击「WFS采集」记录数据",
+    )
+    if interactive != st.session_state.zrm_interactive_enabled:
+        st.session_state.zrm_interactive_enabled = interactive
+        st.rerun()
+
+    if st.session_state.zrm_interactive_enabled:
+        _render_interactive_measurement()
         return
 
     # Show configuration summary
@@ -910,6 +1247,170 @@ def render_calibrate_mode() -> None:
             st.metric("最大方差", f"{result.max_variance:.6f}")
         with col4:
             st.metric("条件数", f"{result.condition_number:.2e}" if result.condition_number else "N/A")
+
+
+def _render_interactive_measurement() -> None:
+    """Render step-by-step interactive measurement UI.
+
+    Lets the user manually advance through Zernike modes, send each phase
+    to the SLM, observe live WFS deviations / Zernike coefficients, and
+    capture data points one at a time.
+    """
+    st.subheader("逐模式交互测量")
+    st.markdown("手动控制每个 Zernike 模式的测量过程，实时观察 WFS 响应。")
+
+    slm = st.session_state.zrm_slm
+    wfs = st.session_state.zrm_wfs
+
+    if slm is None or wfs is None:
+        st.warning("请先在侧边栏连接 SLM 和 WFS 设备")
+        return
+
+    # ── Calculate mode count ─────────────────────────────────────────────
+    n_terms = calc_n_zernike_terms(st.session_state.zrm_n_max)
+    n_remove = (1 if st.session_state.zrm_excluded_piston else 0) + (
+        2 if st.session_state.zrm_excluded_tip_tilt else 0
+    )
+    total_modes = n_terms - n_remove
+    st.session_state.zrm_interactive_total_modes = total_modes
+
+    current_mode = st.session_state.zrm_interactive_current_mode
+
+    # Clamp current mode if out of range
+    if current_mode >= total_modes:
+        current_mode = 0
+        st.session_state.zrm_interactive_current_mode = 0
+
+    # ── Mode info header ─────────────────────────────────────────────────
+    mode_name = _get_interactive_mode_name(
+        current_mode,
+        st.session_state.zrm_excluded_piston,
+        st.session_state.zrm_excluded_tip_tilt,
+    )
+    captures_this_mode = sum(
+        1 for c in st.session_state.zrm_interactive_captures if c["mode_idx"] == current_mode
+    )
+
+    col_info, col_ctrl, col_acq = st.columns([2, 1, 1])
+
+    with col_info:
+        st.markdown(f"**当前模式:** {mode_name}")
+        st.markdown(f"**进度:** {current_mode + 1} / {total_modes}")
+        st.markdown(f"**本模式采集:** {captures_this_mode} 次")
+        st.markdown(f"**总采集:** {len(st.session_state.zrm_interactive_captures)} 次")
+        st.markdown(
+            f"**相位:** {'已发送 ✅' if st.session_state.zrm_interactive_phase_sent else '未发送 ⏳'}"
+        )
+
+    with col_ctrl:
+        st.markdown("**模式控制**")
+
+        # Coefficient input instead of sign toggle
+        current_coeff = st.session_state.zrm_interactive_current_coeff if "zrm_interactive_current_coeff" in st.session_state else 1.0
+        new_coeff = st.number_input(
+            "系数 (可正可负)",
+            min_value=-10.0,
+            max_value=10.0,
+            value=current_coeff,
+            step=0.1,
+            format="%.1f",
+            key="zrm_int_coeff"
+        )
+        # Update session state if changed
+        if new_coeff != current_coeff:
+            st.session_state.zrm_interactive_current_coeff = new_coeff
+            # If phase was already sent, resend with new coefficient
+            if st.session_state.zrm_interactive_phase_sent:
+                _send_current_zernike_phase_interactive(coeff=new_coeff)
+            st.rerun()
+
+        if st.button("上一个 ◀️", key="zrm_int_prev", use_container_width=True):
+            if current_mode > 0:
+                st.session_state.zrm_interactive_current_mode = current_mode - 1
+            coeff = st.session_state.zrm_interactive_current_coeff if "zrm_interactive_current_coeff" in st.session_state else 1.0
+            _send_current_zernike_phase_interactive(coeff=coeff)
+            st.rerun()
+
+        next_disabled = current_mode >= total_modes - 1
+        if st.button("下一个泽尼克 ▶️", key="zrm_int_next", type="primary", use_container_width=True, disabled=next_disabled):
+            if current_mode < total_modes - 1:
+                st.session_state.zrm_interactive_current_mode = current_mode + 1
+            coeff = st.session_state.zrm_interactive_current_coeff if "zrm_interactive_current_coeff" in st.session_state else 1.0
+            _send_current_zernike_phase_interactive(coeff=coeff)
+            st.rerun()
+
+    with col_acq:
+        st.markdown("**测量控制**")
+
+        if st.button("WFS采集 📷", key="zrm_int_capture", type="primary", use_container_width=True):
+            _capture_wfs_data_interactive()
+            st.rerun()
+
+        if st.button("平相位", key="zrm_int_flat", use_container_width=True):
+            _set_slm_flat_interactive()
+            st.rerun()
+
+        if st.button("重置所有", key="zrm_int_reset", use_container_width=True):
+            st.session_state.zrm_interactive_captures = []
+            st.session_state.zrm_interactive_current_mode = 0
+            st.session_state.zrm_interactive_phase_sent = False
+            st.session_state.zrm_interactive_last_dev_x = None
+            st.session_state.zrm_interactive_last_dev_y = None
+            st.session_state.zrm_interactive_last_zernike = None
+            st.session_state.zrm_interactive_capture_count = 0
+            _set_slm_flat_interactive()
+            st.rerun()
+
+    st.divider()
+
+    # ── Live visualisation ───────────────────────────────────────────────
+    last_dev_x = st.session_state.zrm_interactive_last_dev_x
+    last_dev_y = st.session_state.zrm_interactive_last_dev_y
+    last_zernike = st.session_state.zrm_interactive_last_zernike
+    captures = st.session_state.zrm_interactive_captures
+
+    if last_dev_x is not None and last_dev_y is not None:
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.subheader("WFS Spot Deviations (slopes)")
+            fig = _plot_wfs_deviations(last_dev_x, last_dev_y)
+            st.pyplot(fig)
+
+        with col2:
+            st.subheader("Zernike Coefficients")
+            if last_zernike is not None:
+                fig = _plot_zernike_coeffs(last_zernike)
+                st.pyplot(fig)
+            else:
+                st.info("无 Zernike 数据——请先发送相位")
+
+    if captures:
+        st.divider()
+        st.subheader("采集数据摘要")
+
+        fig = _plot_capture_summary(captures, total_modes)
+        st.pyplot(fig)
+
+        with st.expander(f"查看详细采集记录 ({len(captures)} 条)"):
+            for i, cap in enumerate(reversed(captures[-50:])):
+                cap_mode_name = _get_interactive_mode_name(
+                    cap["mode_idx"],
+                    st.session_state.zrm_excluded_piston,
+                    st.session_state.zrm_excluded_tip_tilt,
+                )
+                z_norm = float(np.linalg.norm(cap["zernike"]))
+                dev_norm = float(np.linalg.norm(cap["dev_x"]) + np.linalg.norm(cap["dev_y"]))
+                coeff_val = cap.get("coeff", cap.get("sign", 1.0))  # Backward compatibility
+                st.text(
+                    f"#{len(captures) - i:3d}  │ "
+                    f"Mode {cap_mode_name:20s}  │ "
+                    f"coeff={coeff_val:+6.2f}  │ "
+                    f"‖Zernike‖={z_norm:8.4f}  │ "
+                    f"‖Dev‖={dev_norm:8.4f}  │ "
+                    f"{cap['timestamp'][:19]}"
+                )
+
 
 def render_load_view_mode() -> None:
     """Render load and view mode UI."""
