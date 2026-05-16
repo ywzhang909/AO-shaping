@@ -276,9 +276,18 @@ def optimizer_rms(
         def calc_j():
             wfs.take_image(5)
             wf, statics = wfs.get_wavefront(cancel_tile=remove_tilt)
-            return wf, statics
+            extra = {}
+            if DEBUG_MODE:
+                spots_intensities, (cx, cy) = wfs.get_spots_statics()
+                dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=remove_tilt)
+                extra = {
+                    "_intensity": spots_intensities,
+                    "_dev_x": dev_x,
+                    "_dev_y": dev_y,
+                }
+            return wf, statics, extra
 
-        wf, statics = calc_j()
+        wf, statics, init_extra = calc_j()
         rms = statics.get('rms', np.inf)
         lr, delta = schedule_lr_delta(rms)
         optimizer = AdaMOD(dim=n_zernike, lr=lr, beta3=0.9999)
@@ -287,18 +296,19 @@ def optimizer_rms(
             f"Initial RMS: {statics['rms']:.4f}, weight_rms: {rms:.4f}"
         )
 
-        recorder.append(
-            {
-                "rms": statics['rms'],
-                "_c": _init_c,
-                "_diff": 0,
-                "_gamma": lr,
-                "delta": delta,
-                "_epoch": 0,
-                "_wavefront": wf[np.newaxis, ...],
-                "_statics": statics,
-            }
-        )
+        init_record = {
+            "rms": statics['rms'],
+            "_c": _init_c,
+            "_diff": 0,
+            "_gamma": lr,
+            "delta": delta,
+            "_epoch": 0,
+            "_wavefront": wf[np.newaxis, ...],
+            "_statics": statics,
+        }
+        if DEBUG_MODE:
+            init_record.update(init_extra)
+        recorder.append(init_record)
 
         perturb_weights = _get_perturb_weights(n_zernike)
         if DEBUG_MODE:
@@ -318,13 +328,13 @@ def optimizer_rms(
                 # Positive perturbation
                 _pos_c = np.clip(_init_c + disturb_c, ZERNIKE_MIN, ZERNIKE_MAX)
                 slm.send_zernike(_pos_c)
-                pos_wf, pos_statics = calc_j()
+                pos_wf, pos_statics, pos_extra = calc_j()
                 pos_j = pos_statics['rms']
 
                 # Negative perturbation
                 _neg_c = np.clip(_init_c - disturb_c, ZERNIKE_MIN, ZERNIKE_MAX)
                 slm.send_zernike(_neg_c)
-                neg_wf, neg_statics = calc_j()
+                neg_wf, neg_statics, neg_extra = calc_j()
                 neg_j = neg_statics['rms']
 
                 diff = pos_statics['rms'] - neg_statics['rms']
@@ -352,6 +362,15 @@ def optimizer_rms(
                     "_wavefront": np.stack([pos_wf, neg_wf]),
                     "_statics": {"pos": pos_statics, "neg": neg_statics},
                 }
+                if DEBUG_MODE:
+                    log.update({
+                        "_pos_intensity": pos_extra.get("_intensity"),
+                        "_neg_intensity": neg_extra.get("_intensity"),
+                        "_pos_dev_x": pos_extra.get("_dev_x"),
+                        "_neg_dev_x": neg_extra.get("_dev_x"),
+                        "_pos_dev_y": pos_extra.get("_dev_y"),
+                        "_neg_dev_y": neg_extra.get("_dev_y"),
+                    })
                 recorder.append(log)
                 bar.set_postfix(recorder.last_info_dict)
 

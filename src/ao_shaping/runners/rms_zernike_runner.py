@@ -69,6 +69,27 @@ def run(dir, epochs, n_max, wfs_res, pupil_diameter, pupil_center, early_stop_th
         plt.close()
         records.save_dataframe(saved_file_name.with_suffix('.zip'), compression='zip')
 
+        has_intensity = "_pos_intensity" in records.first
+        if has_intensity:
+            all_intensities = []
+            all_dev_x = []
+            all_dev_y = []
+            for rec in records.history:
+                if "_pos_intensity" in rec and rec["_pos_intensity"] is not None:
+                    all_intensities.append(rec["_pos_intensity"])
+                if "_pos_dev_x" in rec and rec["_pos_dev_x"] is not None:
+                    all_dev_x.append(rec["_pos_dev_x"])
+                if "_pos_dev_y" in rec and rec["_pos_dev_y"] is not None:
+                    all_dev_y.append(rec["_pos_dev_y"])
+            if all_intensities:
+                np.savez_compressed(
+                    save_dir / "wfs_debug_data.npz",
+                    intensities=np.array(all_intensities),
+                    dev_x=np.array(all_dev_x) if all_dev_x else np.array([]),
+                    dev_y=np.array(all_dev_y) if all_dev_y else np.array([]),
+                )
+                click.echo(f"WFS debug数据已保存: {save_dir / 'wfs_debug_data.npz'}")
+
     save_dir = root_dir / "flatten_zernike" / get_date_dir_name()
     records.save_best(saved_dir=save_dir, target="_c", process_fn=np.round, fmt="%.6f")
 
