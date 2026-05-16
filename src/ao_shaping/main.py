@@ -23,6 +23,7 @@ Examples:
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -48,32 +49,30 @@ from ao_shaping.runners import (
 )
 
 
+from ao_shaping.utils.cli_helpers import get_debug_mode
+
+
 @click.group()
-@click.option("--debug", is_flag=True, default=False, help="启用全局调试模式 (loguru显示DEBUG级别)")
 @click.option("--dir", default="data", help="数据保存根目录 (default: data)")
 @click.pass_context
-def cli(ctx: click.Context, debug: bool, dir: str):
+def cli(ctx: click.Context, dir: str):
     """AO-Shaping自适应光学整形系统 CLI
-    
+
     提供波前优化、光束整形、全息图生成等功能。
-    
+
     全局选项:
-        --debug  启用调试模式，loguru显示DEBUG级别日志
         --dir    数据保存根目录
+        DEBUG    环境变量控制调试模式 (export DEBUG=1 或 DEBUG=true)
     """
-    # 确保context对象存在
+    debug = get_debug_mode()
     ctx.ensure_object(dict)
     ctx.obj["debug"] = debug
     ctx.obj["dir"] = dir
 
-    # 配置loguru日志级别
-    # 默认情况下loguru不显示DEBUG级别(只显示INFO及以上)
-    # 启用--debug时设置级别为DEBUG
     if debug:
         logger.remove()
         logger.add(sys.stderr, level="DEBUG")
-        logger.debug("Debug mode enabled - DEBUG level logging active")
-    # else: 保持默认配置，不显示DEBUG
+        logger.debug("Debug mode enabled via DEBUG env var - DEBUG level logging active")
 
 
 # Register subcommands

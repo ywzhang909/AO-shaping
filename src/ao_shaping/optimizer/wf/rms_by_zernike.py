@@ -23,6 +23,7 @@ Example:
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 
 import tqdm
@@ -79,6 +80,69 @@ SLM_SHIFT_Y_DEFAULT = 0  # pixels
 # Zernike coefficient bounds
 ZERNIKE_MIN = -50.0  # wavelengths
 ZERNIKE_MAX = 50.0  # wavelengths
+
+# Debug mode control via environment variable
+DEBUG_MODE = os.environ.get("RMS_ZERNIKE_DEBUG", "0") == "1"
+
+# Zernike n项扰动权重数组 - n越小影响越小
+# 默认使用 n/n_max 归一化权重，可通过环境变量覆盖
+# 环境变量格式: "1.0,0.8,0.6,0.4,0.2" (逗号分隔的权重值)
+_ZERNIKE_PERTURB_WEIGHTS_DEFAULT = None  # 将在运行时根据n_max动态生成
+
+
+def _get_perturb_weights(n_zernike: int) -> np.ndarray:
+    """获取扰动权重数组
+
+    使用环境变量 RMS_ZERNIKE_WEIGHTS 覆盖默认权重。
+    环境变量格式: "w0,w1,w2,..." (逗号分隔)
+
+    Args:
+        n_zernike: Zernike项数量
+
+    Returns:
+        权重数组，形状为 (n_zernike,)
+    """
+    env_weights = os.environ.get("RMS_ZERNIKE_WEIGHTS", "")
+    if env_weights:
+        try:
+            weights = np.array([float(x.strip()) for x in env_weights.split(",")], dtype=np.float64)
+            if len(weights) == n_zernike:
+                logger.debug(f"Using custom Zernike weights from env: {weights}")
+                return weights
+            elif len(weights) > n_zernike:
+                logger.debug(f"Using first {n_zernike} custom weights: {weights[:n_zernike]}")
+                return weights[:n_zernike]
+            else:
+                logger.warning(f"Custom weights count ({len(weights)}) != n_zernike ({n_zernike}), using default")
+        except ValueError as e:
+            logger.warning(f"Failed to parse RMS_ZERNIKE_WEIGHTS: {e}")
+
+    # 默认权重: 基于n项的归一化权重 (n+1)/n_max
+    # 生成zernike_modes对应的权重
+    modes = _zernike_indices_from_n(n_zernike)
+    n_values = np.array([n for n, m in modes], dtype=np.float64)
+    n_max = np.max(n_values) if len(n_values) > 0 else 1
+    weights = (n_values + 1) / (n_max + 1)  # 归一化到 (0, 1]
+    weights[0] = 0.1  # piston mode权重最小
+    if DEBUG_MODE:
+        logger.debug(f"Default Zernike perturb weights: {weights}")
+    return weights
+
+
+def _zernike_indices_from_n(n_zernike: int) -> list[tuple[int, int]]:
+    """根据Zernike项数量生成(n,m)模式列表
+
+    Args:
+        n_zernike: Zernike项数量 (Noll顺序)
+
+    Returns:
+        (n,m)元组列表
+    """
+    modes = []
+    for j in range(1, n_zernike + 1):
+        n, m = noll_to_nm(j)
+        modes.append((n, m))
+    return modes
 
 
 def _zernike_indices(n_max: int) -> list[tuple[int, int]]:
@@ -236,16 +300,18 @@ def optimizer_rms(
             }
         )
 
+        perturb_weights = _get_perturb_weights(n_zernike)
+        if DEBUG_MODE:
+            logger.debug(f"Zernike perturb weights shape: {perturb_weights.shape}")
+
         with tqdm.tqdm(
             total=epochs,
             desc=f"RMS {statics['rms']:.3f} iter {epochs}",
             dynamic_ncols=True,
         ) as bar:
             for epoch in range(1, epochs + 1):
-                # Generate random perturbation (±1 pattern)
                 disturb_c = np.random.binomial(1, 0.5, (n_zernike,)).astype(float) * 2.0 - 1.0
-                disturb_c = disturb_c * delta
-                # Set first mode (piston) to zero
+                disturb_c = disturb_c * delta * perturb_weights
                 if len(disturb_c) > 0:
                     disturb_c[0] = 0
 

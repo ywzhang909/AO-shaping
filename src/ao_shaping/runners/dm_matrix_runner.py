@@ -30,7 +30,7 @@ from ao_shaping.optimizer.wf.dm_response_matrix import (
 )
 from ao_shaping.drivers.dm.NLight import NLight
 from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager, MlaRes
-from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_timestamp_str
+from ao_shaping.utils.cli_helpers import parse_tuple, get_debug_mode, setup_coredumpy, get_timestamp_str
 
 
 @click.command("dm-matrix")
@@ -107,9 +107,8 @@ def run(
     调试模式 (--debug):
         保存每次测量的原始WFS deviation数据。
     """
-    # Determine debug flag from parent context
     if debug is None:
-        debug = ctx.parent.obj.get("debug", False) if ctx.parent and ctx.parent.obj else False
+        debug = get_debug_mode()
 
     # Resolve WFS exposure time
     effective_exp_time = 0.0 if auto_exposure else exp_time

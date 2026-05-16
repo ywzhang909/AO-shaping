@@ -5,10 +5,20 @@ Common utilities used across multiple CLI runner scripts.
 
 from __future__ import annotations
 
+import os
 import re
 import click
 from datetime import datetime
 from pathlib import Path
+
+
+def get_debug_mode() -> bool:
+    """从环境变量读取DEBUG模式
+
+    Returns:
+        bool: DEBUG环境变量为1/true/yes时返回True，否则返回False
+    """
+    return os.environ.get("DEBUG", "").lower() in ("1", "true", "yes")
 
 
 def parse_tuple(ctx, param, value):

@@ -12,6 +12,7 @@ from ao_shaping.optimizer.wf.rms import optimizer_rms
 from ao_shaping.optimizer.wfless.pib import optimize_pib
 from ao_shaping.utils.cli_helpers import setup_coredumpy, get_date_dir_name
 from ao_shaping.config import DM_N_ACTUATORS
+from ao_shaping.utils.cli_helpers import get_debug_mode
 
 
 @click.command()
@@ -25,10 +26,13 @@ from ao_shaping.config import DM_N_ACTUATORS
 @click.option("-t", "--exposure_time_ms", default=0, help="远场光斑CCD曝光时间 (毫秒) (default: 0，自动选取曝光)")
 @click.option("-s", "--cam_size", default=160, help="相机开窗大小 (default: 160)")
 @click.option("-r", "--rms_threshold", default=0.12, help="RMS阈值 (default: 0.12)")
-@click.option("--debug", is_flag=True, help="是否开启调试模式 (default: False)")
 @click.option("-u", "--dm_unit_mask", type=click.Choice(['all','inner','outer']), default='all', help="DM单元掩码 (default: all)")
-def run(dir, load_file, epochs, wf_epochs, wfs_res, pupil_diameter, cam_id, exposure_time_ms, cam_size, rms_threshold, dm_unit_mask, debug):
-    """串行优化器（先波前优化，再轴向光束优化）"""
+def run(dir, load_file, epochs, wf_epochs, wfs_res, pupil_diameter, cam_id, exposure_time_ms, cam_size, rms_threshold, dm_unit_mask):
+    """串行优化器（先波前优化，再轴向光束优化）
+
+    DEBUG环境变量控制调试模式。
+    """
+    debug = get_debug_mode()
     if load_file:
         last_v = np.loadtxt(load_file)
         init_v = last_v.tolist()

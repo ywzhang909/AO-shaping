@@ -8,7 +8,7 @@ from ao_shaping.utils import gen_date_dir, gen_file_path_uuid
 from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms
 from ao_shaping.utils.display import plot_funcs
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
-from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name
+from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name, get_debug_mode
 
 
 @click.command()
@@ -24,14 +24,15 @@ from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_
 @click.option("--shift-y", default=0, help="SLM Y方向平移 (像素, default: 0)")
 @click.option("--slm-number", default=1, help="SLM设备编号 (default: 1)")
 @click.option("--remove-tilt", is_flag=True, help="移除波前测量中的倾斜项")
-@click.option("--debug", is_flag=True, help="是否开启调试模式 (default: False)")
 @click.option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)")
 def run(dir, epochs, n_max, wfs_res, pupil_diameter, pupil_center, early_stop_threshold,
-        wavelength, shift_x, shift_y, slm_number, remove_tilt, debug, show):
+        wavelength, shift_x, shift_y, slm_number, remove_tilt, show):
     """Zernike波前优化器 (基于SLM的RMS最小化)
 
     使用Zernike多项式通过SLM进行波前校正，最小化WFS测量的波前RMS值。
+    DEBUG环境变量控制调试模式。
     """
+    debug = get_debug_mode()
     init_v = [0 for _ in range(calc_n_zernike_terms(n_max))]
     records = optimizer_rms(
         init_z=init_v,

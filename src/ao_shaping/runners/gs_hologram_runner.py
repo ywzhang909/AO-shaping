@@ -324,11 +324,6 @@ def capture_amplitude_with_ccd(
     is_flag=True,
     help="显示结果图像",
 )
-@click.option(
-    "--debug",
-    is_flag=True,
-    help="调试模式 (保存详细数据)",
-)
 def run(
     target_image: Path | None,
     target_shape: str,
@@ -346,8 +341,9 @@ def run(
     adaptive: bool,
     adaptive_iterations: int,
     show: bool,
-    debug: bool,
 ):
+    from ao_shaping.utils.cli_helpers import get_debug_mode
+    debug = get_debug_mode()
     """Gerchberg-Saxton全息图生成器
     
     使用GS算法计算最优相位图案，生成目标远场光强分布。

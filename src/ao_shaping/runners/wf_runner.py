@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from ao_shaping.utils import gen_date_dir, gen_file_path_uuid
 from ao_shaping.optimizer.wf.rms import optimizer_rms
 from ao_shaping.utils.display import plot_funcs
-from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name
+from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name, get_debug_mode
 from ao_shaping import config as ao_config
 DM_N_ACTUATORS = ao_config.DM_N_ACTUATORS
 
@@ -19,10 +19,13 @@ DM_N_ACTUATORS = ao_config.DM_N_ACTUATORS
 @click.option("-p", "--pupil_diameter", default=2.7, help="瞳孔直径 (default: 2.7)")
 @click.option("-c", "--pupil_center", callback=parse_tuple, default="(0,0)", help="瞳孔中心坐标 (default: (0,0))")
 @click.option("-t", "--early_stop_threshold", default=0.0, help="早停阈值 (default: 0.0)")
-@click.option("--debug", is_flag=True, help="是否开启调试模式 (default: False)")
 @click.option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)")
-def run(dir, epochs, wfs_res, pupil_diameter, pupil_center, early_stop_threshold, debug, show):
-    """波前优化器"""
+def run(dir, epochs, wfs_res, pupil_diameter, pupil_center, early_stop_threshold, show):
+    """波前优化器
+
+    DEBUG环境变量控制调试模式。
+    """
+    debug = get_debug_mode()
     init_v = [0 for _ in range(DM_N_ACTUATORS)]
     records = optimizer_rms(
         init_v=init_v,
