@@ -81,7 +81,17 @@ source .venv/bin/activate  # Linux/macOS
 
 3. 安装依赖:
 ```bash
+# 仅安装基础依赖
 uv sync
+
+# 安装 ML 相关包 (torch, torchvision, wandb)
+uv sync --extra ml
+
+# 安装 RL 相关包 (gymnasium, stable-baselines3)
+uv sync --extra rl
+
+# 安装所有可选依赖
+uv sync --extra ml --extra rl
 ```
 
 ## 使用说明
@@ -97,9 +107,23 @@ python src/ao_shaping/main.py [OPTIONS] COMMAND [ARGS]...
 所有运行器位于 `src/ao_shaping/runners/` 包中，通过 main CLI 统一调用：
 
 #### 全局选项
-- `--debug`: 开启调试模式
 - `--dir`: 指定数据保存根目录 (默认: data)
-- `--show`: 显示远场光斑CCD图像和优化历史
+- `DEBUG`: 环境变量控制调试模式 (export DEBUG=1 或 DEBUG=true)
+
+#### 调试模式
+
+所有命令支持通过环境变量开启调试模式：
+
+```bash
+# 方式1: export
+export DEBUG=1
+python src/ao_shaping/main.py wf --epochs 10000
+
+# 方式2: 内联
+DEBUG=1 python src/ao_shaping/main.py pib --epochs 5000
+```
+
+支持的DEBUG值: `1`, `true`, `yes` (不区分大小写)
 
 #### 波前优化器 (wf)
 ```bash
@@ -115,7 +139,7 @@ python src/ao_shaping/main.py wf [OPTIONS]
 
 示例:
 ```bash
-python src/ao_shaping/main.py wf --epochs 10000 --debug
+DEBUG=1 python src/ao_shaping/main.py wf --epochs 10000
 ```
 
 #### 轴向光束优化器 (pib)
@@ -140,7 +164,7 @@ python src/ao_shaping/main.py pib [OPTIONS]
 
 示例:
 ```bash
-python src/ao_shaping/main.py pib --epochs 5000 --cam_id 1 --debug
+DEBUG=1 python src/ao_shaping/main.py pib --epochs 5000 --cam_id 1
 ```
 
 #### 串行流水线优化器 (pipeline)
@@ -162,7 +186,7 @@ python src/ao_shaping/main.py pipeline [OPTIONS]
 
 示例:
 ```bash
-python src/ao_shaping/main.py pipeline --epochs 6000 --debug
+DEBUG=1 python src/ao_shaping/main.py pipeline --epochs 6000
 ```
 
 #### Zernike响应矩阵校准 (zernike-matrix)
