@@ -111,9 +111,12 @@ def _auto_delta_detect_rms(
 @click.option("--max-delta", default=2.0, help="自动检测时的最大delta值 (default: 2.0)")
 @click.option("--delta-step", default=0.2, help="自动检测时的delta步长 (default: 0.2)")
 @click.option("--n-directions", default=3, help="每个delta测试的随机方向数量 (default: 3)")
+@click.option("--n-init-positions", default=0, help="多起点优化：随机初始位置数量 (default: 0, 禁用)")
+@click.option("--init-range", default=20.0, help="多起点初始化的随机范围 (default: 20.0)")
 def run(dir, epochs, n_max, wfs_res, pupil_diameter, pupil_center, early_stop_threshold,
         wavelength, shift_x, shift_y, slm_number, remove_tilt, show,
-        auto_delta, min_delta, max_delta, delta_step, n_directions):
+        auto_delta, min_delta, max_delta, delta_step, n_directions,
+        n_init_positions, init_range):
     """Zernike波前优化器 (基于SLM的RMS最小化)
 
     使用Zernike多项式通过SLM进行波前校正，最小化WFS测量的波前RMS值。
@@ -154,6 +157,8 @@ def run(dir, epochs, n_max, wfs_res, pupil_diameter, pupil_center, early_stop_th
         wfs_res=wfs_res,
         remove_tilt=remove_tilt,
         slm_number=slm_number,
+        n_init_positions=n_init_positions,
+        init_range=init_range,
     )
     root_dir = Path(dir)
 

@@ -198,6 +198,8 @@ def optimizer_rms(
     # Other parameters
     slm_number: int = 1,
     slm_wavelength: int | None = None,
+n_init_positions: int = 0,
+    init_range: float = 20.0,
 ) -> Recorder:
     """Optimize wavefront RMS using SLM with Zernike coefficient control.
 
@@ -221,6 +223,8 @@ def optimizer_rms(
         remove_tilt: Remove tilt in WFS wavefront measurement.
         slm_number: SLM device number (1-8).
         slm_wavelength: Override SLM wavelength (deprecated, use wavelength).
+        n_init_positions: Number of random initial positions to try (0 = disabled).
+        init_range: Range for random initialization.
 
     Returns:
         Recorder: Optimization history with RMS and coefficients.
@@ -269,6 +273,32 @@ def optimizer_rms(
                 _init_c = padded
             elif len(_init_c) > n_zernike:
                 _init_c = _init_c[:n_zernike]
+
+        # Multi-start optimization: try multiple random positions
+        if n_init_positions > 0 and init_z is None:
+            logger.info(f"Multi-start: testing {n_init_positions} random positions...")
+            best_init_c = _init_c.copy()
+            best_rms = np.inf
+            
+            for i in range(n_init_positions):
+                test_c = np.random.uniform(-init_range, init_range, size=n_zernike)
+                test_c[0] = 0
+                test_c = np.clip(test_c, ZERNIKE_MIN, ZERNIKE_MAX)
+                
+                slm.send_zernike(test_c)
+                wfs.take_image(3)
+                wf, statics = wfs.get_wavefront(cancel_tile=remove_tilt)
+                test_rms = statics.get('rms', np.inf)
+                
+                logger.debug(f"  Position {i+1}/{n_init_positions}: RMS={test_rms:.4f}")
+                
+                if test_rms < best_rms:
+                    best_rms = test_rms
+                    best_init_c = test_c.copy()
+            
+            _init_c = best_init_c
+            logger.info(f"Multi-start: best position RMS={best_rms:.4f}")
+            slm.send_zernike(_init_c)
 
         # Initialize SLM with initial coefficients
         init_phase = slm.send_zernike(_init_c)
