@@ -1,8 +1,9 @@
-from typing import Literal
+from typing import Literal, Callable
 
 import numpy as np
 
 from abc import ABC, abstractmethod
+
 
 def learning_schedule(
     lr, epoch, epochs, method: Literal["static", "cosin", "exp", "linear"] = "static"
@@ -449,3 +450,141 @@ class AdamNS(Base):
                 update = update.reshape(original_shape)
 
         return self.lr * update
+
+
+def search_optimal_delta(
+    param_dim: int,
+    objective_fn: Callable[[np.ndarray], float],
+    apply_fn: Callable[[np.ndarray], None],
+    min_delta: float = 0.1,
+    max_delta: float = 2.0,
+    delta_step: float = 0.2,
+    n_directions: int = 3,
+    clip_min: float = -50.0,
+    clip_max: float = 50.0,
+    perturb_mask: np.ndarray | None = None,
+    verbose: bool = True,
+) -> tuple[float, dict]:
+    """Search for optimal perturbation delta by testing different values.
+
+    Tests delta values from min_delta to max_delta, trying multiple random
+    directions at each level. Stops when objective stops improving significantly.
+
+    Args:
+        param_dim: Dimension of parameter vector to optimize.
+        objective_fn: Function that takes parameters and returns scalar objective.
+        apply_fn: Function to apply parameters to the system.
+        min_delta: Minimum delta value to test.
+        max_delta: Maximum delta value to test.
+        delta_step: Step size between delta values.
+        n_directions: Number of random directions to test per delta.
+        clip_min: Minimum value for parameter clipping.
+        clip_max: Maximum value for parameter clipping.
+        perturb_mask: Optional mask for which parameters to perturb.
+        verbose: Whether to print progress information.
+
+    Returns:
+        Tuple of (optimal_delta, info_dict) where info_dict contains:
+        - baseline_obj: Initial objective value
+        - best_obj: Best objective achieved
+        - best_delta: Optimal delta value
+        - all_results: List of detailed results per delta
+    """
+    delta_values = np.arange(min_delta, max_delta + delta_step, delta_step)
+    results = []
+    
+    if verbose:
+        print(f"\n{'='*60}")
+        print("Auto Delta Detection Mode")
+        print(f"Testing delta range: [{min_delta}, {max_delta}] with step {delta_step}")
+        print(f"Directions per delta: {n_directions}")
+        print(f"{'='*60}\n")
+    
+    init_params = np.zeros(param_dim, dtype=np.float64)
+    apply_fn(init_params)
+    
+    baseline_obj = objective_fn(init_params)
+    if verbose:
+        print(f"Baseline objective: {baseline_obj:.4f}")
+    
+    prev_best_obj = baseline_obj
+    best_delta = min_delta
+    best_obj = baseline_obj
+    
+    for delta in delta_values:
+        delta_results = []
+        
+        if verbose:
+            print(f"\nTesting delta = {delta:.2f}:")
+        
+        for direction_idx in range(n_directions):
+            apply_fn(init_params)
+            
+            disturb = np.random.binomial(1, 0.5, (param_dim,)).astype(float) * 2.0 - 1.0
+            disturb *= delta
+            
+            if perturb_mask is not None:
+                disturb *= perturb_mask
+            
+            pos_params = np.clip(init_params + disturb, clip_min, clip_max)
+            neg_params = np.clip(init_params - disturb, clip_min, clip_max)
+            
+            apply_fn(pos_params)
+            pos_obj = objective_fn(pos_params)
+            
+            apply_fn(neg_params)
+            neg_obj = objective_fn(neg_params)
+            
+            avg_obj = (pos_obj + neg_obj) / 2
+            delta_results.append({
+                'direction': direction_idx,
+                'pos_obj': pos_obj,
+                'neg_obj': neg_obj,
+                'avg_obj': avg_obj,
+            })
+            
+            if verbose:
+                print(f"  Direction {direction_idx + 1}/{n_directions}: pos={pos_obj:.4f}, neg={neg_obj:.4f}, avg={avg_obj:.4f}")
+        
+        avg_obj_values = [r['avg_obj'] for r in delta_results]
+        mean_obj = np.mean(avg_obj_values)
+        min_obj = np.min(avg_obj_values)
+        
+        result_entry = {
+            'delta': delta,
+            'mean_obj': mean_obj,
+            'min_obj': min_obj,
+            'directions': delta_results,
+        }
+        results.append(result_entry)
+        
+        if verbose:
+            print(f"  Summary: mean={mean_obj:.4f}, min={min_obj:.4f}")
+        
+        improvement = prev_best_obj - min_obj
+        if min_obj < best_obj:
+            best_obj = min_obj
+            best_delta = delta
+        
+        if delta > min_delta and improvement < 0.001:
+            if verbose:
+                print(f"\n  Stopping: objective stopped improving significantly (improvement={improvement:.4f})")
+            break
+        
+        prev_best_obj = min_obj
+    
+    apply_fn(init_params)
+    
+    if verbose:
+        print(f"\n{'='*60}")
+        print(f"Auto Delta Detection Complete")
+        print(f"Best delta: {best_delta:.2f} (objective: {best_obj:.4f})")
+        print(f"{'='*60}\n")
+    
+    return float(best_delta), {
+        'baseline_obj': float(baseline_obj),
+        'best_obj': float(best_obj),
+        'best_delta': float(best_delta),
+        'all_results': results,
+    }
+

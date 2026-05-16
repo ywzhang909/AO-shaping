@@ -9,6 +9,87 @@ from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms
 from ao_shaping.utils.display import plot_funcs
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
 from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name, get_debug_mode
+from ao_shaping.drivers import MlaRes, Thorlab_WFS
+from ao_shaping.drivers.slm import ZernikeSLM
+from ao_shaping.algorithm.adam import search_optimal_delta
+
+
+def _get_wfs_res(res_str: str) -> MlaRes:
+    res_map = {
+        '320': MlaRes.Res320,
+        '512': MlaRes.Res512,
+        '768': MlaRes.Res768,
+        '1024': MlaRes.Res1024,
+        '1280': MlaRes.Res1280,
+    }
+    return res_map.get(res_str, MlaRes.Res1024)
+
+
+def _auto_delta_detect_rms(
+    min_delta: float = 0.1,
+    max_delta: float = 2.0,
+    delta_step: float = 0.2,
+    n_directions: int = 3,
+    pupil_center: tuple[float, float] = (0, 0),
+    pupil_diameter: float = 4.6,
+    wavelength: int = 532,
+    shift_x: int = 0,
+    shift_y: int = 0,
+    n_max: int = 4,
+    wfs_res: MlaRes = MlaRes.Res1024,
+    remove_tilt: bool = False,
+    slm_number: int = 1,
+) -> tuple[float, dict]:
+    n_zernike = calc_n_zernike_terms(n_max)
+    
+    with (
+        ZernikeSLM(
+            slm_number=slm_number,
+            wavelength=wavelength,
+            n_max=n_max,
+            shift_x=shift_x,
+            shift_y=shift_y,
+        ) as slm,
+        Thorlab_WFS(
+            wfs_res,
+            use_custom_ref=False,
+            high_speed=True,
+            pupil_diameter=pupil_diameter,
+            pupil_center=pupil_center,
+        ) as wfs,
+    ):
+        def objective_fn(params: np.ndarray) -> float:
+            wfs.take_image(3)
+            wf, statics = wfs.get_wavefront(cancel_tile=remove_tilt)
+            return statics.get('rms', np.inf)
+        
+        def apply_fn(params: np.ndarray) -> None:
+            slm.send_zernike(params)
+        
+        perturb_mask = np.ones(n_zernike, dtype=np.float64)
+        if n_zernike > 0:
+            perturb_mask[0] = 0
+        
+        best_delta, info = search_optimal_delta(
+            param_dim=n_zernike,
+            objective_fn=objective_fn,
+            apply_fn=apply_fn,
+            min_delta=min_delta,
+            max_delta=max_delta,
+            delta_step=delta_step,
+            n_directions=n_directions,
+            clip_min=-50.0,
+            clip_max=50.0,
+            perturb_mask=perturb_mask,
+            verbose=True,
+        )
+        
+        return best_delta, {
+            'baseline_rms': info['baseline_obj'],
+            'best_rms': info['best_obj'],
+            'best_delta': info['best_delta'],
+            'all_results': info['all_results'],
+        }
 
 
 @click.command()
@@ -25,14 +106,40 @@ from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_
 @click.option("--slm-number", default=1, help="SLM设备编号 (default: 1)")
 @click.option("--remove-tilt", is_flag=True, help="移除波前测量中的倾斜项")
 @click.option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)")
+@click.option("--auto-delta", is_flag=True, help="启用自动delta检测模式 (default: False)")
+@click.option("--min-delta", default=0.1, help="自动检测时的最小delta值 (default: 0.1)")
+@click.option("--max-delta", default=2.0, help="自动检测时的最大delta值 (default: 2.0)")
+@click.option("--delta-step", default=0.2, help="自动检测时的delta步长 (default: 0.2)")
+@click.option("--n-directions", default=3, help="每个delta测试的随机方向数量 (default: 3)")
 def run(dir, epochs, n_max, wfs_res, pupil_diameter, pupil_center, early_stop_threshold,
-        wavelength, shift_x, shift_y, slm_number, remove_tilt, show):
+        wavelength, shift_x, shift_y, slm_number, remove_tilt, show,
+        auto_delta, min_delta, max_delta, delta_step, n_directions):
     """Zernike波前优化器 (基于SLM的RMS最小化)
 
     使用Zernike多项式通过SLM进行波前校正，最小化WFS测量的波前RMS值。
     DEBUG环境变量控制调试模式。
     """
     debug = get_debug_mode()
+    
+    if auto_delta:
+        detected_delta, delta_info = _auto_delta_detect_rms(
+            min_delta=min_delta,
+            max_delta=max_delta,
+            delta_step=delta_step,
+            n_directions=n_directions,
+            pupil_center=pupil_center,
+            pupil_diameter=pupil_diameter,
+            wavelength=wavelength,
+            shift_x=shift_x,
+            shift_y=shift_y,
+            n_max=n_max,
+            wfs_res=_get_wfs_res(wfs_res),
+            remove_tilt=remove_tilt,
+            slm_number=slm_number,
+        )
+        click.echo(f"Detected optimal delta: {detected_delta:.2f} (baseline RMS: {delta_info['baseline_rms']:.4f}, best RMS: {delta_info['best_rms']:.4f})")
+        click.echo("Note: The optimizer will use its internal scheduler, but this detection provides guidance on optimal perturbation amplitudes.")
+
     init_v = [0 for _ in range(calc_n_zernike_terms(n_max))]
     records = optimizer_rms(
         init_z=init_v,
