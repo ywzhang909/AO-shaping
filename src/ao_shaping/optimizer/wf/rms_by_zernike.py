@@ -77,8 +77,8 @@ SLM_SHIFT_X_DEFAULT = 0  # pixels
 SLM_SHIFT_Y_DEFAULT = 0  # pixels
 
 # Zernike coefficient bounds
-ZERNIKE_MIN = -50.0  # wavelengths
-ZERNIKE_MAX = 50.0  # wavelengths
+ZERNIKE_MIN = -5  # wavelengths
+ZERNIKE_MAX = 5  # wavelengths
 
 
 def _zernike_indices(n_max: int) -> list[tuple[int, int]]:
@@ -108,13 +108,13 @@ def schedule_lr_delta(rms: float) -> tuple[float, float]:
     Returns:
         tuple: (learning_rate, delta) for perturbation amplitude.
     """
-    if rms > 0.15:
-        return 1, 1
-    if rms > 0.1:
-        return 1, 0.5
-    if rms > 0.06:
-        return 0.8, 0.3
-    return 0.5, 0.1
+    # if rms > 0.15:
+    #     return 1, 1
+    # if rms > 0.1:
+    #     return 1, 0.5
+    # if rms > 0.06:
+    #     return 0.8, 0.3
+    return 0.001, 0.0001
 
 
 def optimizer_rms(
@@ -131,9 +131,11 @@ def optimizer_rms(
     # WFS parameters
     wfs_res: MlaRes = MlaRes.Res1024,
     remove_tilt: bool = False,
+    wfs_exposure_time: float = 0.2,
     # Other parameters
     slm_number: int = 1,
     slm_wavelength: int | None = None,
+    slm_wait_time: float = 0.2
 ) -> Recorder:
     """Optimize wavefront RMS using SLM with Zernike coefficient control.
 
@@ -179,6 +181,7 @@ def optimizer_rms(
         ) as slm,
         Thorlab_WFS(
             wfs_res,
+            exposure_time=wfs_exposure_time,
             use_custom_ref=False,
             high_speed=True,
             pupil_diameter=pupil_diameter,
@@ -207,10 +210,10 @@ def optimizer_rms(
                 _init_c = _init_c[:n_zernike]
 
         # Initialize SLM with initial coefficients
-        init_phase = slm.send_zernike(_init_c)
+        init_phase = slm.send_zernike(_init_c, 1.0)
 
         def calc_j():
-            wfs.take_image(5)
+            wfs.take_image(10)
             wf, statics = wfs.get_wavefront(cancel_tile=remove_tilt)
             return wf, statics
 
@@ -251,13 +254,13 @@ def optimizer_rms(
 
                 # Positive perturbation
                 _pos_c = np.clip(_init_c + disturb_c, ZERNIKE_MIN, ZERNIKE_MAX)
-                slm.send_zernike(_pos_c)
+                slm.send_zernike(_pos_c, slm_wait_time)
                 pos_wf, pos_statics = calc_j()
                 pos_j = pos_statics['rms']
 
                 # Negative perturbation
                 _neg_c = np.clip(_init_c - disturb_c, ZERNIKE_MIN, ZERNIKE_MAX)
-                slm.send_zernike(_neg_c)
+                slm.send_zernike(_neg_c, slm_wait_time)
                 neg_wf, neg_statics = calc_j()
                 neg_j = neg_statics['rms']
 

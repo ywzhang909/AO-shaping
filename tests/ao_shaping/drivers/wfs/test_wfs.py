@@ -11,7 +11,7 @@ from ao_shaping.drivers import Thorlab_WFS, MlaRes
 
 
 def test_get_image():
-    with Thorlab_WFS(MlaRes.Res1024, exp_time=4) as wfs:
+    with Thorlab_WFS(MlaRes.Res1024, exposure_time=4) as wfs:
         opt_exp_time, _ = wfs.optimize_exposure_time_and_gain()
         if 0.001 < opt_exp_time < 87:
             wfs.exposure_time = opt_exp_time
@@ -28,7 +28,7 @@ def test_get_image():
 
 
 def test_calc_wf():
-    with Thorlab_WFS(MlaRes.Res1024, exp_time=4) as wfs:
+    with Thorlab_WFS(MlaRes.Res1024, exposure_time=4) as wfs:
         opt_exp_time, _ = wfs.optimize_exposure_time_and_gain()
         if 0.001 < opt_exp_time < 87:
             wfs.exposure_time = opt_exp_time

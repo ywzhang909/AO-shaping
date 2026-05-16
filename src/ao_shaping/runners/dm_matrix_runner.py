@@ -177,7 +177,7 @@ def run(
         with NLight() as dm:
             with WFSManager(
                 mla_index=mla_index_enum,
-                exp_time=effective_exp_time,
+                exposure_time=effective_exp_time,
                 high_speed=high_speed,
                 use_custom_ref=use_custom_ref,
                 pupil_diameter=pupil_diameter,

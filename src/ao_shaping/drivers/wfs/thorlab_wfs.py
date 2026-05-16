@@ -114,8 +114,8 @@ class WFSManager:
 
     def __init__(
         self,
-        mla_index: MlaRes | None = None,
-        exp_time: float | None = None,
+        mla_index: MlaRes | str | None = None,
+        exposure_time: float | None = None,
         high_speed: bool | None = None,
         use_custom_ref: bool | None = None,
         pupil_diameter: float | None = None,
@@ -130,8 +130,10 @@ class WFSManager:
         pupil_center: (cx, cy) center position (如果为None，从配置文件加载)
         """
         # 不做参数验证，延迟到 initialize() 中处理
+        if isinstance(mla_index, str):
+            mla_index = MlaRes.from_str(mla_index)
         self._init_mla_index: MlaRes | None = mla_index
-        self._init_exp_time: float | None = exp_time
+        self._init_exp_time: float | None = exposure_time
         self._init_high_speed: bool | None = high_speed
         self._init_use_custom_ref: bool | None = use_custom_ref
         self._init_pupil_diameter: float | None = pupil_diameter
@@ -367,7 +369,7 @@ class WFSManager:
         self._lib.WFS_ConfigureCam(
             self._instrument_handle,
             c_int32(0),
-            c_int32(mla_index),
+            c_int32(mla_index.value),
             byref(num_spots_x),
             byref(num_spots_y),
         )

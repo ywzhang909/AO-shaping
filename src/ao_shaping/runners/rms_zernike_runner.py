@@ -1,3 +1,5 @@
+from email.policy import default
+
 import click
 from pathlib import Path
 
@@ -18,16 +20,18 @@ from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_
 @click.option("-r", "--wfs_res", default='1024', help="WFS分辨率 (default: 1024)")
 @click.option("-p", "--pupil_diameter", default=2.7, help="瞳孔直径 (default: 2.7)")
 @click.option("-c", "--pupil_center", callback=parse_tuple, default="(0,0)", help="瞳孔中心坐标 (default: (0,0))")
+@click.option("--exposure-time", default=0.0, help="曝光时间 (秒, default: 0.0, auto exposure time)")
 @click.option("-t", "--early_stop_threshold", default=0.12, help="早停阈值 (default: 0.12)")
-@click.option("--wavelength", default=532, help="SLM波长 (nm, default: 532)")
+@click.option("--wavelength", default=1024, help="SLM波长 (nm, default: 532)")
 @click.option("--shift-x", default=0, help="SLM X方向平移 (像素, default: 0)")
 @click.option("--shift-y", default=0, help="SLM Y方向平移 (像素, default: 0)")
+@click.option("--wait-time", default=0.3, help="SLM 液晶翻转等待时间(秒, default: 0.3) ")
 @click.option("--slm-number", default=1, help="SLM设备编号 (default: 1)")
 @click.option("--remove-tilt", is_flag=True, help="移除波前测量中的倾斜项")
 @click.option("--debug", is_flag=True, help="是否开启调试模式 (default: False)")
 @click.option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)")
-def run(dir, epochs, n_max, wfs_res, pupil_diameter, pupil_center, early_stop_threshold,
-        wavelength, shift_x, shift_y, slm_number, remove_tilt, debug, show):
+def run(dir, epochs, n_max, wfs_res, pupil_diameter, pupil_center, exposure_time, early_stop_threshold,
+        wavelength, shift_x, shift_y, wait_time, slm_number, remove_tilt, debug, show):
     """Zernike波前优化器 (基于SLM的RMS最小化)
 
     使用Zernike多项式通过SLM进行波前校正，最小化WFS测量的波前RMS值。
@@ -44,8 +48,10 @@ def run(dir, epochs, n_max, wfs_res, pupil_diameter, pupil_center, early_stop_th
         shift_y=shift_y,
         n_max=n_max,
         wfs_res=wfs_res,
+        wfs_exposure_time=exposure_time,
         remove_tilt=remove_tilt,
         slm_number=slm_number,
+        slm_wait_time=wait_time,
     )
     root_dir = Path(dir)
 
@@ -59,9 +65,9 @@ def run(dir, epochs, n_max, wfs_res, pupil_diameter, pupil_center, early_stop_th
         rms_values = records.get_sublist()
         plot_funcs["rms_history"](rms_values, ax[0, 0], min_epoch, min_rms)
         plot_funcs["voltages"](min_iter["_c"], ax[0, 1], f"Min RMS: {min_rms:.3f} @ epoch {min_epoch}")
-        im = plot_funcs["wavefront"](records.first["_wavefront"][0], ax[1, 0], "初始波前")
+        im = plot_funcs["wavefront"](records.first["_wavefront"][0], ax[1, 0], "Init wavefront")
         plt.colorbar(im, ax=ax[1, 0], orientation='horizontal')
-        im = plot_funcs["wavefront"](min_iter["_wavefront"][1], ax[1, 1], "最优波前")
+        im = plot_funcs["wavefront"](min_iter["_wavefront"][1], ax[1, 1], "Opt wavefront")
         plt.colorbar(im, ax=ax[1, 1], orientation='horizontal')
 
         plt.savefig(saved_file_name.with_suffix('.png'))

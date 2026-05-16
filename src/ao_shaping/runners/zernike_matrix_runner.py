@@ -183,7 +183,7 @@ def run(
         with ZernikeSLM(slm_number=slm_number, wavelength=wavelength, n_max=n_max, shift_x=shift_x, shift_y=shift_y, correction_csv_path=correction_csv_path) as zslm:
             with WFSManager(
                 mla_index=mla_index_enum,
-                exp_time=effective_exp_time,
+                exposure_time=effective_exp_time,
                 high_speed=high_speed,
                 use_custom_ref=use_custom_ref,
                 pupil_diameter=pupil_diameter,
@@ -549,7 +549,7 @@ def closed_loop_run(
             click.echo("初始化WFS...")
             with WFSManager(
                 mla_index=MlaRes(device_cfg.mla_index),
-                exp_time=device_cfg.exposure_time,
+                exposure_time=device_cfg.exposure_time,
                 high_speed=device_cfg.high_speed,
                 use_custom_ref=device_cfg.use_custom_ref,
                 pupil_diameter=device_cfg.pupil_diameter,

@@ -320,7 +320,7 @@ def connect_wfs() -> bool:
 
         wfs = WFSManager(
             mla_index=st.session_state.zrm_wfs_mla_res,
-            exp_time=exp_time,
+            exposure_time=exp_time,
             high_speed=False,
             pupil_diameter=st.session_state.zrm_wfs_pupil_diameter,
             pupil_center=(st.session_state.zrm_wfs_pupil_center_x, st.session_state.zrm_wfs_pupil_center_y),

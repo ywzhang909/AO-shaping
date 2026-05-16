@@ -118,7 +118,8 @@ class ZernikeSLM:
 
     def send_zernike(
         self,
-        coefficients: dict[tuple[int, int], float] | np.ndarray
+        coefficients: dict[tuple[int, int], float] | np.ndarray,
+        wait_time_s:float = 0.2
     ) -> np.ndarray:
         """发送Zernike系数到SLM
 
@@ -138,7 +139,7 @@ class ZernikeSLM:
             coefficients if isinstance(coefficients, dict)
             else self._zernike_dm._noll_to_dict(coefficients)
         )
-        self._slm.display_data(self._current_phase)
+        self._slm.display_data(self._current_phase, wait_time_s)
 
         return self._current_phase
 

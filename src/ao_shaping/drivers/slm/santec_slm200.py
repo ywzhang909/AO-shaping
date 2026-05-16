@@ -5,6 +5,7 @@
 """
 
 import ctypes
+import time
 import os
 from pathlib import Path
 from typing import Union
@@ -435,13 +436,15 @@ class SantecSLM200:
         wavelength = ctypes.c_uint32(0)
         phase = ctypes.c_uint32(0)
 
-        res = self._slm.SLM_Ctrl_ReadWL(self.slm_number, wavelength, phase)
+        res = self._slm.SLM_Ctrl_ReadWL(self.slm_number,
+                                         ctypes.byref(wavelength), ctypes.byref(phase))
         if res != SLM_OK:
             raise SantecSLM200Error("读取波长信息失败", code=res)
 
         wavelength = int(wavelength.value)
         phase_pi = phase.value / 100.0
         self._max_gray = int(2.0 / phase_pi * self.MAX_GRAYSCALE_VALUE)
+        logger.info(f"当前波长: {wavelength}nm, 2π对应灰度值: {self._max_gray}")
 
         return wavelength, self._max_gray
 
@@ -561,7 +564,7 @@ class SantecSLM200:
         self._displayed_phase_cache = phase.copy()
         logger.debug("相位数据显示")
 
-    def display_data(self, phase: np.ndarray):
+    def display_data(self, phase: np.ndarray, wait_time_s=0.2):
         self._ensure_open()
         if self.video_mode == VideoMode.DVI:
             self.display_video(phase)
@@ -570,6 +573,7 @@ class SantecSLM200:
             self._current_memory_slot = (self._current_memory_slot + 1) % MAX_MEM_SLOTS
             self.write_phase(phase, self._current_memory_slot+1)
             self.display_memory(self._current_memory_slot+1)
+        time.sleep(wait_time_s)
 
     def set_grayscale(self, gs: int) -> None:
         """设置SLM灰度值（均匀显示）
