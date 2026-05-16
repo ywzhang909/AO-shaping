@@ -72,6 +72,29 @@ from .simulated_annealing import (
     minimize_sa,
 )
 
+from .heuristic_base import (
+    HeuristicOptimizer,
+    OptimizerConfig,
+    OptimizerType,
+)
+
+from .hill_climbing import (
+    HillClimbing,
+    HCConfig,
+)
+
+from .random_search import RandomSearch
+
+from .cross_entropy import (
+    CrossEntropyMethod,
+    CEMConfig,
+)
+
+from .differential_evolution import (
+    DifferentialEvolution,
+    DEConfig,
+)
+
 # 导出所有类和函数
 __all__ = [
     "Base",
@@ -110,6 +133,16 @@ __all__ = [
     "SAParams",
     "TempSchedule",
     "minimize_sa",
+    "HeuristicOptimizer",
+    "OptimizerConfig",
+    "OptimizerType",
+    "HillClimbing",
+    "HCConfig",
+    "RandomSearch",
+    "CrossEntropyMethod",
+    "CEMConfig",
+    "DifferentialEvolution",
+    "DEConfig",
 ]
 
 
