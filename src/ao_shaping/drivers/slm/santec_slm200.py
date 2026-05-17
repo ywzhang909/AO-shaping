@@ -183,14 +183,38 @@ class SantecSLM200:
             RuntimeError: 设备未打开
         """
         self._ensure_open()
+        # 使用正确的大小初始化buffer (256字节 + null terminator)
         device_id = ctypes.create_string_buffer(256)
+        logger.debug(f"SLM #{self.slm_number} 正在读取序列号, buffer size: {len(device_id)}")
+        
         ret = self._slm.SLM_Ctrl_ReadSD(self.slm_number, device_id)
+        logger.debug(f"SLM #{self.slm_number} ReadSD 返回码: {ret} (OK={SLM_OK})")
+        
         if ret != SLM_OK:
+            # 尝试使用备用方法 SLM_Ctrl_ReadSDO
+            logger.warning(f"SLM_Ctrl_ReadSD 失败: {get_slm_error_message(ret)}, 尝试备用方法...")
+            try:
+                device_id2 = ctypes.create_string_buffer(256)
+                option_id = ctypes.create_string_buffer(256)
+                ret2 = self._slm.SLM_Ctrl_ReadSDO(self.slm_number, device_id2, option_id)
+                logger.debug(f"SLM_Ctrl_ReadSDO 返回码: {ret2}")
+                if ret2 == SLM_OK:
+                    serial = device_id2.value.decode("utf-8").strip()
+                    logger.info(f"SLM #{self.slm_number} 序列号(备用方法): {serial}")
+                    return serial
+            except Exception as e:
+                logger.debug(f"备用方法也失败: {e}")
+            
             logger.warning(f"读取SLM序列号失败: {get_slm_error_message(ret)}")
             return None
-        serial = device_id.value.decode("utf-8").strip()
-        logger.debug(f"SLM #{self.slm_number} 序列号: {serial}")
-        return serial
+        
+        try:
+            serial = device_id.value.decode("utf-8").strip()
+            logger.debug(f"SLM #{self.slm_number} 序列号: {serial}")
+            return serial
+        except Exception as e:
+            logger.error(f"解析序列号失败: {e}, raw value: {device_id.value}")
+            return None
 
     def _init_config_manager(self) -> None:
         """初始化配置管理器"""

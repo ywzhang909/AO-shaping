@@ -122,6 +122,10 @@ class WFSManager:
         use_custom_ref: bool | None = None,
         pupil_diameter: float | None = None,
         pupil_center: tuple | None = None,
+        stable_sample_enable: bool = False,
+        stable_sample_n: int = 5,
+        stable_variance_threshold: float = 0.1,
+        stable_max_attempts: int = 50,
     ):
         """
         mla_index: MlaRes (如果为None，从配置文件加载)
@@ -130,6 +134,10 @@ class WFSManager:
         use_custom_ref: use custom reference file (如果为None，从配置文件加载)
         pupil_diameter: pupil diameter in mm (如果为None，从配置文件加载)
         pupil_center: (cx, cy) center position (如果为None，从配置文件加载)
+        stable_sample_enable: enable automatic stable sample filtering (默认: False)
+        stable_sample_n: number of stable samples to collect (默认: 5)
+        stable_variance_threshold: variance threshold for stability (默认: 0.1)
+        stable_max_attempts: max attempts before giving up (默认: 50)
         """
         # 不做参数验证，延迟到 initialize() 中处理
         if isinstance(mla_index, str):
@@ -140,6 +148,10 @@ class WFSManager:
         self._init_use_custom_ref: bool | None = use_custom_ref
         self._init_pupil_diameter: float | None = pupil_diameter
         self._init_pupil_center: tuple | None = pupil_center
+        self._init_stable_sample_enable: bool = stable_sample_enable
+        self._init_stable_sample_n: int = stable_sample_n
+        self._init_stable_variance_threshold: float = stable_variance_threshold
+        self._init_stable_max_attempts: int = stable_max_attempts
 
         self._lib = load_dll()
         self.device_id = c_int32()
@@ -162,6 +174,12 @@ class WFSManager:
         self._gain = 1.0
         self.enable_high_speed: bool = False
         self._image_captured = False
+
+        # 稳定采样参数
+        self.stable_sample_enable: bool = False
+        self.stable_sample_n: int = 5
+        self.stable_variance_threshold: float = 0.1
+        self.stable_max_attempts: int = 50
 
         # 配置管理器
         self._config_manager: DeviceConfigManager | None = None
@@ -318,6 +336,18 @@ class WFSManager:
         else:
             self.d_x, self.d_y = 2.0, 2.0
 
+        # stable sample parameters
+        self.stable_sample_enable = self._init_stable_sample_enable
+        self.stable_sample_n = self._init_stable_sample_n
+        self.stable_variance_threshold = self._init_stable_variance_threshold
+        self.stable_max_attempts = self._init_stable_max_attempts
+        if self.stable_sample_enable:
+            logger.info(
+                f"Stable sample enabled: n={self.stable_sample_n}, "
+                f"threshold={self.stable_variance_threshold}, "
+                f"max_attempts={self.stable_max_attempts}"
+            )
+
         if self.enable_high_speed:
             logger.info("high speed mode can only use auto exposure time!")
 
@@ -445,11 +475,38 @@ class WFSManager:
         The Thorlabs WFS DLL saves/loads reference files to/from:
             C:\\Users\\<user>\\Documents\\Thorlabs\\Wavefront Sensor\\Reference
 
+        On Linux, falls back to ~/.local/share/Thorlabs/WFS/Ref or project data directory.
+
         Returns:
             Path object for the reference directory.
         """
-        user_docs = Path(os.environ.get("USERPROFILE", "")) / "Documents"
-        return user_docs / "Thorlabs" / "Wavefront Sensor" / "Reference"
+        import platform
+        system = platform.system()
+        
+        if system == "Windows":
+            user_docs = Path(os.environ.get("USERPROFILE", ""))
+            if not user_docs:
+                logger.warning("USERPROFILE not set on Windows, using Documents")
+                user_docs = Path.home() / "Documents"
+            return user_docs / "Thorlabs" / "Wavefront Sensor" / "Reference"
+        else:
+            # Linux/macOS fallback: use XDG_DATA_HOME or project data directory
+            xdg_data = os.environ.get("XDG_DATA_HOME", "")
+            if xdg_data:
+                base = Path(xdg_data)
+            else:
+                base = Path.home() / ".local" / "share"
+            
+            ref_dir = base / "Thorlabs" / "WFS" / "Ref"
+            logger.debug(f"[WFS _get_ref_default_dir] Linux fallback: {ref_dir}")
+            
+            # Fallback to project data/calibration if not writable
+            project_fallback = Path("data") / "calibration" / "wfs_ref"
+            if not ref_dir.parent.exists():
+                logger.debug(f"[WFS _get_ref_default_dir] XDG path not accessible, using project fallback: {project_fallback}")
+                return project_fallback
+            
+            return ref_dir
 
     def _get_ref_filename(self) -> str:
         """Construct the .ref filename that the WFS DLL expects.
@@ -530,6 +587,11 @@ class WFSManager:
         Returns:
             True on success, False on failure.
         """
+        # Debug: 打印当前系统信息
+        import platform
+        logger.debug(f"[WFS load_user_ref] Platform: {platform.system()}")
+        logger.debug(f"[WFS load_user_ref] USERPROFILE: {os.environ.get('USERPROFILE', 'NOT_SET')}")
+        
         if backup_path is not None:
             backup_path = Path(backup_path)
             if not backup_path.exists():
@@ -538,9 +600,14 @@ class WFSManager:
 
             # Copy backup to DLL's expected location
             ref_dir = self._get_ref_default_dir()
+            logger.debug(f"[WFS load_user_ref] ref_dir: {ref_dir}")
+            logger.debug(f"[WFS load_user_ref] ref_dir exists: {ref_dir.exists()}")
+            logger.debug(f"[WFS load_user_ref] ref_dir parent exists: {ref_dir.parent.exists() if ref_dir.parent != ref_dir else 'N/A'}")
+            
             ref_dir.mkdir(parents=True, exist_ok=True)
             ref_filename = self._get_ref_filename()
             dst_path = ref_dir / ref_filename
+            logger.debug(f"[WFS load_user_ref] dst_path: {dst_path}")
 
             try:
                 shutil.copy2(backup_path, dst_path)
@@ -550,14 +617,30 @@ class WFSManager:
                 return False
 
         # Call DLL to load reference file from its default location
+        logger.debug(f"[WFS load_user_ref] Calling WFS_LoadUserRefFile...")
         if err := self._lib.WFS_LoadUserRefFile(self._instrument_handle):
             self.handle_error(err, no_raise=True)
             logger.error("Failed to load user reference file via WFS_LoadUserRefFile")
+            # Additional debug: 列出DLL认为的参考文件路径
+            ref_dir = self._get_ref_default_dir()
+            ref_filename = self._get_ref_filename()
+            expected_path = ref_dir / ref_filename
+            logger.debug(f"[WFS load_user_ref] Expected path: {expected_path}")
+            logger.debug(f"[WFS load_user_ref] Expected path exists: {expected_path.exists()}")
+            if not expected_path.exists():
+                # 列出目录内容帮助调试
+                try:
+                    files = list(ref_dir.glob("*")) if ref_dir.exists() else []
+                    logger.debug(f"[WFS load_user_ref] Files in ref_dir: {files}")
+                except Exception as list_err:
+                    logger.debug(f"[WFS load_user_ref] Cannot list ref_dir: {list_err}")
             return False
 
         # Also update the reference plane setting
+        logger.debug(f"[WFS load_user_ref] Setting reference plane to custom...")
         if err := self._lib.WFS_SetReferencePlane(self._instrument_handle, c_int32(1)):
             self.handle_error(err, no_raise=True)
+            logger.warning("WFS_SetReferencePlane returned error but continuing")
 
         self.use_custom_ref = True
         logger.info("User reference file loaded successfully")
@@ -751,6 +834,62 @@ class WFSManager:
 
         return mask, valid_flat
 
+    def _get_stable_samples(
+        self,
+        n_samples: int,
+        variance_threshold: float,
+        max_attempts: int,
+    ) -> list[np.ndarray]:
+        """Collect stable samples based on variance threshold.
+
+        Args:
+            n_samples: Number of stable samples to collect
+            variance_threshold: Maximum allowed variance for a sample to be considered stable
+            max_attempts: Maximum number of attempts before giving up
+
+        Returns:
+            List of stable sample arrays
+        """
+        stable_samples = []
+        attempts = 0
+
+        while len(stable_samples) < n_samples and attempts < max_attempts:
+            self.take_image(n_sample=1, dynamicNoiseCut=True)
+            self._lib.WFS_CalcSpotToReferenceDeviations(
+                self._instrument_handle, c_int32(0)
+            )
+
+            wavefront = np.empty(MAX_SPOTS, dtype=c_float)
+            self._lib.WFS_CalcWavefront(
+                self._instrument_handle,
+                ViInt32(0),
+                ViInt32(0),
+                wavefront,
+            )
+            wf_slice = wavefront[: self.num_spots_x, : self.num_spots_y]
+
+            variance = float(np.var(wf_slice))
+            if variance < variance_threshold:
+                stable_samples.append(wf_slice)
+                logger.debug(
+                    f"Stable sample {len(stable_samples)}/{n_samples}: "
+                    f"variance={variance:.6f} < {variance_threshold}"
+                )
+            else:
+                logger.debug(
+                    f"Unstable sample rejected: variance={variance:.6f} >= {variance_threshold}"
+                )
+
+            attempts += 1
+
+        if len(stable_samples) < n_samples:
+            logger.warning(
+                f"Only collected {len(stable_samples)}/{n_samples} stable samples "
+                f"after {attempts} attempts"
+            )
+
+        return stable_samples
+
     @require_take_image
     def get_wavefront(self, cancel_tile: bool = False) -> tuple[np.ndarray, dict]:
         """Calculate wavefront from spot deviations.
@@ -765,10 +904,73 @@ class WFSManager:
 
         Note:
             Uses measured wavefront (type=0) with adaptive pupil compensation if pupil is defined.
+            When stable_sample_enable is True, collects multiple stable samples and returns mean.
         """
-        if res := self._lib.WFS_CalcSpotToReferenceDeviations(
-            self._instrument_handle, c_int32(1 if cancel_tile else 0)):
-            self.handle_error(res)
+        # Use stable sampling if enabled
+        if self.stable_sample_enable:
+            stable_wfs = self._get_stable_samples(
+                self.stable_sample_n,
+                self.stable_variance_threshold,
+                self.stable_max_attempts,
+            )
+            if stable_wfs:
+                wavefront = np.mean(stable_wfs, axis=0)
+            else:
+                return np.zeros((self.num_spots_x, self.num_spots_y), dtype=np.float32), {
+                    "min": np.nan,
+                    "max": np.nan,
+                    "diff": np.nan,
+                    "mean": np.nan,
+                    "rms": np.nan,
+                    "wighted_rms": np.nan,
+                }
+        else:
+            if res := self._lib.WFS_CalcSpotToReferenceDeviations(
+                self._instrument_handle, c_int32(1 if cancel_tile else 0)):
+                self.handle_error(res)
+            adaptive_pupil = 0 if (self.d_x and self.d_y) else 1
+            wavefront = np.empty(MAX_SPOTS, dtype=c_float)
+            wavefront_type = 0
+            if err := self._lib.WFS_CalcWavefront(
+                self._instrument_handle,
+                ViInt32(wavefront_type),
+                ViInt32(adaptive_pupil),
+                wavefront,
+            ):
+                self.handle_error(err)
+                wavefront = np.zeros((self.num_spots_x, self.num_spots_y), dtype=np.float32)
+            else:
+                wavefront = deepcopy(wavefront)[: self.num_spots_x, : self.num_spots_y]
+
+        # Calculate statistics from the wavefront (regardless of how it was obtained)
+        min_val, max_val, diff_val, mean_val = c_double(), c_double(), c_double(), c_double()
+        rms_val, wighted_rms_val = c_double(), c_double()
+        self._lib.WFS_CalcWavefrontStatistics(
+            self._instrument_handle,
+            byref(min_val),
+            byref(max_val),
+            byref(diff_val),
+            byref(mean_val),
+            byref(rms_val),
+            byref(wighted_rms_val),
+        )
+
+        if np.all(wavefront == 0):
+            logger.warning("WFS_CalcWavefront returned zero-filled buffer — DLL may not have written data")
+
+        if WFS_DEBUG_MODE:
+            wf_variance = np.var(wavefront)
+            wf_std = np.std(wavefront)
+            logger.debug(f"WFS wavefront stats: var={wf_variance:.6f}, std={wf_std:.6f}, shape={wavefront.shape}")
+
+        return wavefront, {
+            "min": min_val.value if not self.stable_sample_enable else float(np.min(wavefront)),
+            "max": max_val.value if not self.stable_sample_enable else float(np.max(wavefront)),
+            "diff": diff_val.value if not self.stable_sample_enable else float(np.max(wavefront) - np.min(wavefront)),
+            "mean": mean_val.value if not self.stable_sample_enable else float(np.mean(wavefront)),
+            "rms": rms_val.value if not self.stable_sample_enable else float(np.std(wavefront)),
+            "wighted_rms": wighted_rms_val.value if not self.stable_sample_enable else float(np.std(wavefront)),
+        }
         adaptive_pupil = 0 if (self.d_x and self.d_y) else 1
         wavefront = np.empty(MAX_SPOTS, dtype=c_float)
         # wavefrontType: 0=Measured Wavefront (direct from spot deviations),
@@ -908,25 +1110,84 @@ class WFSManager:
         Returns:
             tuple[np.ndarray, np.ndarray]: (deviation_x, deviation_y) arrays
                each of shape (num_spots_x, num_spots_y)
-        """
-        _spots_deviation_x = np.empty(MAX_SPOTS, dtype=np.float32)
-        _spots_deviation_y = np.empty(MAX_SPOTS, dtype=np.float32)
-        # if err:= self._lib.WFS_CalcSpotsCentrDiaIntens(self._instrument_handle, c_int32(1), c_int32(1)):
-        #     self.handle_error(err)
 
-        if (
-            res := self._lib.WFS_CalcSpotToReferenceDeviations(
-                self._instrument_handle, c_int32(1 if cancel_tile else 0)
-            )
-        ) == 0:
-            if err := self._lib.WFS_GetSpotDeviations(
-                self._instrument_handle, _spots_deviation_x, _spots_deviation_y
-            ):
-                self.handle_error(err)
+        Note:
+            When stable_sample_enable is True, collects multiple stable samples and returns mean.
+        """
+        # Use stable sampling if enabled
+        if self.stable_sample_enable:
+            stable_x_list = []
+            stable_y_list = []
+            attempts = 0
+
+            while len(stable_x_list) < self.stable_sample_n and attempts < self.stable_max_attempts:
+                self.take_image(n_sample=1, dynamicNoiseCut=True)
+
+                _spots_dev_x = np.empty(MAX_SPOTS, dtype=np.float32)
+                _spots_dev_y = np.empty(MAX_SPOTS, dtype=np.float32)
+
+                if (
+                    res := self._lib.WFS_CalcSpotToReferenceDeviations(
+                        self._instrument_handle, c_int32(1 if cancel_tile else 0)
+                    )
+                ) == 0:
+                    if err := self._lib.WFS_GetSpotDeviations(
+                        self._instrument_handle, _spots_dev_x, _spots_dev_y
+                    ):
+                        self.handle_error(err)
+                else:
+                    self.handle_error(res)
+                    continue
+
+                dev_x = _spots_dev_x[: self.num_spots_x, : self.num_spots_y]
+                dev_y = _spots_dev_y[: self.num_spots_x, : self.num_spots_y]
+
+                # Calculate variance as stability metric
+                variance = float(np.var(dev_x) + np.var(dev_y))
+                if variance < self.stable_variance_threshold:
+                    stable_x_list.append(dev_x)
+                    stable_y_list.append(dev_y)
+                    logger.debug(
+                        f"Stable deviation sample {len(stable_x_list)}/{self.stable_sample_n}: "
+                        f"variance={variance:.6f} < {self.stable_variance_threshold}"
+                    )
+                else:
+                    logger.debug(
+                        f"Unstable deviation sample rejected: variance={variance:.6f} >= {self.stable_variance_threshold}"
+                    )
+
+                attempts += 1
+
+            if len(stable_x_list) < self.stable_sample_n:
+                logger.warning(
+                    f"Only collected {len(stable_x_list)}/{self.stable_sample_n} stable deviation samples "
+                    f"after {attempts} attempts"
+                )
+
+            if stable_x_list:
+                x = np.mean(stable_x_list, axis=0)
+                y = np.mean(stable_y_list, axis=0)
+            else:
+                x = np.zeros((self.num_spots_x, self.num_spots_y), dtype=np.float32)
+                y = np.zeros((self.num_spots_x, self.num_spots_y), dtype=np.float32)
         else:
-            self.handle_error(res)
-        x = _spots_deviation_x[: self.num_spots_x, : self.num_spots_y]
-        y = _spots_deviation_y[: self.num_spots_x, : self.num_spots_y]
+            _spots_deviation_x = np.empty(MAX_SPOTS, dtype=np.float32)
+            _spots_deviation_y = np.empty(MAX_SPOTS, dtype=np.float32)
+
+            if (
+                res := self._lib.WFS_CalcSpotToReferenceDeviations(
+                    self._instrument_handle, c_int32(1 if cancel_tile else 0)
+                )
+            ) == 0:
+                if err := self._lib.WFS_GetSpotDeviations(
+                    self._instrument_handle, _spots_deviation_x, _spots_deviation_y
+                ):
+                    self.handle_error(err)
+            else:
+                self.handle_error(res)
+            x = _spots_deviation_x[: self.num_spots_x, : self.num_spots_y]
+            y = _spots_deviation_y[: self.num_spots_x, : self.num_spots_y]
+
         if np.all(x == 0) and np.all(y == 0):
             logger.warning("WFS_GetSpotDeviations returned zero-filled buffers — DLL may not have written data")
 
