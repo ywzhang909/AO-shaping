@@ -17,6 +17,7 @@ from ao_shaping.utils.file import (
 from ao_shaping.utils.display import plot_funcs
 from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name
 from ao_shaping.config import DM_N_ACTUATORS
+from ao_shaping.utils.cli_helpers import get_debug_mode
 
 
 @click.command()
@@ -117,7 +118,6 @@ from ao_shaping.config import DM_N_ACTUATORS
     show_default=True,
     help="优化目标函数: pib(最大化PIB), radiu(最小化半径), avg_radiu(最大化平均半径)",
 )
-@click.option("--debug", is_flag=True, help="是否开启调试模式 (default: False)")
 @click.option(
     "--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)"
 )
@@ -145,10 +145,13 @@ def run(
     cam_size,
     target_max_brightness,
     objective,
-    debug,
     show,
 ):
-    """轴向光束优化器"""
+    """轴向光束优化器
+
+    DEBUG环境变量控制调试模式。
+    """
+    debug = get_debug_mode()
 
     if load_file.lower() == "rms":
         init_v = get_init_V_by_rms()

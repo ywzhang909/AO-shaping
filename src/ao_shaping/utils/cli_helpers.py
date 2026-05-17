@@ -5,10 +5,26 @@ Common utilities used across multiple CLI runner scripts.
 
 from __future__ import annotations
 
+import os,sys
 import re
 import click
 from datetime import datetime
 from pathlib import Path
+from loguru import logger
+
+def get_debug_mode() -> bool:
+    """从环境变量读取DEBUG模式
+
+    Returns:
+        bool: DEBUG环境变量为1/true/yes时返回True，否则返回False
+    """
+    debug_mode = os.environ.get("DEBUG", "").lower() in ("1", "true", "yes")
+    if debug_mode:
+        logger.remove()
+        logger.add(sys.stderr, level="DEBUG")
+        logger.debug("Debug mode enabled via DEBUG env var - DEBUG level logging active")
+        logger.debug("Debug mode enabled")
+    return debug_mode
 
 
 def parse_tuple(ctx, param, value):

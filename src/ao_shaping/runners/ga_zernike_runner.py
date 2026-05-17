@@ -6,14 +6,26 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import click
+import numpy as np
+import matplotlib.pyplot as plt
 
 from ao_shaping.drivers import MlaRes
 from ao_shaping.optimizer.wf.ga_zernike import optimizer_ga
-from ao_shaping.utils.cli_helpers import setup_coredumpy
+from ao_shaping.utils import gen_date_dir, gen_file_path_uuid
+from ao_shaping.utils.display import plot_funcs
+from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name, get_debug_mode
 
 
 @click.command(name="ga-zernike")
+@click.option(
+    "-d",
+    "--dir",
+    default="data",
+    help="数据保存根目录 (default: data)",
+)
 @click.option(
     "--population-size",
     type=int,
@@ -77,6 +89,13 @@ from ao_shaping.utils.cli_helpers import setup_coredumpy
     help="WFS瞳孔直径 (default: 4.6)",
 )
 @click.option(
+    "-c",
+    "--pupil-center",
+    callback=parse_tuple,
+    default="(0,0)",
+    help="瞳孔中心坐标 (default: (0,0))",
+)
+@click.option(
     "--early-stop-threshold",
     type=float,
     default=0.01,
@@ -105,7 +124,13 @@ from ao_shaping.utils.cli_helpers import setup_coredumpy
     default=0,
     help="SLM Y方向偏移 (pixels) (default: 0)",
 )
+@click.option(
+    "--show",
+    is_flag=True,
+    help="显示优化历史 (default: False)",
+)
 def run(
+    dir: str,
     population_size: int,
     n_generations: int,
     crossover_prob: float,
@@ -116,13 +141,17 @@ def run(
     wavelength: int,
     wfs_res: int,
     pupil_diameter: float,
+    pupil_center: tuple,
     early_stop_threshold: float,
     slm_number: int,
     remove_tilt: bool,
     shift_x: int,
     shift_y: int,
+    show: bool,
 ) -> None:
     """使用遗传算法优化Zernike系数进行波前校正."""
+    debug = get_debug_mode()
+
     # Convert wfs_res from int to MlaRes
     wfs_res_enum = MlaRes.from_str(str(wfs_res))
 
@@ -137,6 +166,7 @@ def run(
     click.echo(f"  波长: {wavelength} nm")
     click.echo(f"  WFS分辨率: {wfs_res_enum}")
     click.echo(f"  瞳孔直径: {pupil_diameter}")
+    click.echo(f"  瞳孔中心: {pupil_center}")
     click.echo(f"  早停阈值: {early_stop_threshold}")
     click.echo(f"  SLM编号: {slm_number}")
     click.echo(f"  去除倾斜: {remove_tilt}")
@@ -154,6 +184,7 @@ def run(
         wavelength=wavelength,
         wfs_res=wfs_res_enum,
         pupil_diameter=pupil_diameter,
+        pupil_center=pupil_center,
         early_stop_threshold=early_stop_threshold,
         slm_number=slm_number,
         remove_tilt=remove_tilt,
@@ -162,14 +193,33 @@ def run(
     )
 
     # Extract results
-    best_rms = recorder.get_best_target("rms")
-    best_gen = recorder.last.get("_generation", 0)
-    best_zernike = recorder.get_best_target("_c")
+    min_iter, (min_gen, min_rms) = recorder.get_best_iter()
+    best_zernike = min_iter["_c"]
 
-    click.echo("\nGA-Zernike优化完成!")
-    click.echo(f"  最佳RMS: {best_rms:.4f}")
-    click.echo(f"  最佳代数: {best_gen}")
-    click.echo(f"  Zernike系数: {best_zernike}")
+    root_dir = Path(dir)
+
+    if debug or show:
+        save_dir = gen_date_dir(root_dir / "ga_zernike")
+        saved_file_name = gen_file_path_uuid(save_dir, 'pkl')
+
+        fig, ax = plt.subplots(2, 2, figsize=(12, 9))
+        rms_values = recorder.get_sublist()
+        plot_funcs["rms_history"](rms_values, ax[0, 0], min_gen, min_rms)
+        plot_funcs["voltages"](best_zernike, ax[0, 1], f"Min RMS: {min_rms:.3f} @ gen {min_gen}")
+        im = plot_funcs["wavefront"](recorder.first["_wavefront"][0], ax[1, 0], "初始波前")
+        plt.colorbar(im, ax=ax[1, 0], orientation='horizontal')
+        im = plot_funcs["wavefront"](min_iter["_wavefront"][0], ax[1, 1], "最优波前")
+        plt.colorbar(im, ax=ax[1, 1], orientation='horizontal')
+
+        plt.savefig(saved_file_name.with_suffix('.png'))
+        plt.close()
+        recorder.save_dataframe(saved_file_name.with_suffix('.zip'), compression='zip')
+
+    flatten_dir = root_dir / "flatten_zernike" / get_date_dir_name()
+    recorder.save_best(saved_dir=flatten_dir, target="_c", process_fn=np.round, fmt="%.6f")
+
+    click.echo(f"\nGA-Zernike优化完成!")
+    click.echo(f"  最佳RMS: {min_rms:.4f} @ generation {min_gen}")
 
 
 if __name__ == "__main__":

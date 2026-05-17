@@ -81,7 +81,17 @@ source .venv/bin/activate  # Linux/macOS
 
 3. 安装依赖:
 ```bash
+# 仅安装基础依赖
 uv sync
+
+# 安装 ML 相关包 (torch, torchvision, wandb)
+uv sync --extra ml
+
+# 安装 RL 相关包 (gymnasium, stable-baselines3)
+uv sync --extra rl
+
+# 安装所有可选依赖
+uv sync --extra ml --extra rl
 ```
 
 ## 使用说明
@@ -97,9 +107,23 @@ python src/ao_shaping/main.py [OPTIONS] COMMAND [ARGS]...
 所有运行器位于 `src/ao_shaping/runners/` 包中，通过 main CLI 统一调用：
 
 #### 全局选项
-- `--debug`: 开启调试模式
 - `--dir`: 指定数据保存根目录 (默认: data)
-- `--show`: 显示远场光斑CCD图像和优化历史
+- `DEBUG`: 环境变量控制调试模式 (export DEBUG=1 或 DEBUG=true)
+
+#### 调试模式
+
+所有命令支持通过环境变量开启调试模式：
+
+```bash
+# 方式1: export
+export DEBUG=1
+python src/ao_shaping/main.py wf --epochs 10000
+
+# 方式2: 内联
+DEBUG=1 python src/ao_shaping/main.py pib --epochs 5000
+```
+
+支持的DEBUG值: `1`, `true`, `yes` (不区分大小写)
 
 #### 波前优化器 (wf)
 ```bash
@@ -115,7 +139,7 @@ python src/ao_shaping/main.py wf [OPTIONS]
 
 示例:
 ```bash
-python src/ao_shaping/main.py wf --epochs 10000 --debug
+DEBUG=1 python src/ao_shaping/main.py wf --epochs 10000
 ```
 
 #### 轴向光束优化器 (pib)
@@ -140,7 +164,7 @@ python src/ao_shaping/main.py pib [OPTIONS]
 
 示例:
 ```bash
-python src/ao_shaping/main.py pib --epochs 5000 --cam_id 1 --debug
+DEBUG=1 python src/ao_shaping/main.py pib --epochs 5000 --cam_id 1
 ```
 
 #### 串行流水线优化器 (pipeline)
@@ -162,7 +186,7 @@ python src/ao_shaping/main.py pipeline [OPTIONS]
 
 示例:
 ```bash
-python src/ao_shaping/main.py pipeline --epochs 6000 --debug
+DEBUG=1 python src/ao_shaping/main.py pipeline --epochs 6000
 ```
 
 #### Zernike响应矩阵校准 (zernike-matrix)
@@ -170,6 +194,37 @@ python src/ao_shaping/main.py pipeline --epochs 6000 --debug
 python src/ao_shaping/main.py zernike-matrix [OPTIONS]
 ```
 等同于: `python -m ao_shaping.runners.zernike_matrix_runner`
+
+#### Zernike波前优化器 - 贪婪局部搜索 (greedy-zernike)
+```bash
+python src/ao_shaping/main.py greedy-zernike [OPTIONS]
+```
+使用贪婪局部搜索算法进行Zernike波前校正。
+
+选项:
+- `-e, --epochs`: 优化迭代次数 (默认: 2000)
+- `-n, --n-max`: Zernike最大阶数 (默认: 4)
+- `-r, --wfs_res`: WFS分辨率 (默认: 1024)
+- `-p, --pupil_diameter`: 瞳孔直径 (默认: 2.7)
+- `-c, --pupil_center`: 瞳孔中心坐标 (默认: (0,0))
+- `-t, --early_stop_threshold`: 早停阈值 (默认: 0.12)
+- `--wavelength`: SLM波长 (nm, 默认: 532)
+- `--slm-number`: SLM设备编号 (默认: 1)
+- `--remove-tilt`: 移除波前测量中的倾斜项
+- `--n-init`: 初始随机位置数量 (默认: 10)
+- `--n-directions`: 每次迭代的随机方向数量 (默认: 5)
+- `--perturbation-scale`: 扰动幅度缩放因子 (默认: 5.0)
+
+算法流程:
+1. 随机初始化N个位置，选取最优作为起始点
+2. 每次迭代采样n个随机扰动方向
+3. 评估所有候选(当前位置+n个扰动)，选择最优
+4. 重复直到收敛或达到最大迭代次数
+
+示例:
+```bash
+DEBUG=1 python src/ao_shaping/main.py greedy-zernike --n-init 20 --n-directions 8
+```
 
 ### 串行流水线优化器处理流程详解
 

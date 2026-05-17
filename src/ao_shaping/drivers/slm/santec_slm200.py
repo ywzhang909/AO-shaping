@@ -404,7 +404,7 @@ class SantecSLM200:
         res = self._slm.SLM_Ctrl_WriteWL(self.slm_number, wavelength, phase_range)
         if res != SLM_OK:
             raise SantecSLM200Error(
-                "设置波长/相位范围失败", code=res
+                f"设置波长/相位范围失败，输入波长为{wavelength}", code=res
             )
 
         # 保存到设备

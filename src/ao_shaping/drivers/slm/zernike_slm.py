@@ -36,7 +36,7 @@ class ZernikeSLM:
     def __init__(
         self,
         slm_number: int = 1,
-        wavelength: int = 1064,
+        wavelength: int|None = None,
         n_max: int = 4,
         slm_resolution: tuple[int, int] | None = None,
         use_120hz: bool = False,
@@ -75,6 +75,8 @@ class ZernikeSLM:
 
         try:
             current_wl, max_gray = self._slm.get_wavelength_info()
+            if not self.wavelength:
+                self.wavelength = current_wl
             if current_wl != self.wavelength:
                 self._slm.set_wavelength(self.wavelength)
         except Exception as e:

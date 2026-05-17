@@ -23,6 +23,8 @@ from ._thorlab_wfs import (
     load_dll, np2c, VI_NULL, ViInt32, ViStatus)
 from ._thorlab_wfs import MAX_SPOTS
 
+WFS_DEBUG_MODE = os.environ.get("WFS_DEBUG", "0") == "1"
+
 EXP_TIME_LOW = 0.002
 EXP_TIME_HIGH = 86
 
@@ -796,6 +798,11 @@ class WFSManager:
             wavefront = deepcopy(wavefront)[: self.num_spots_x, : self.num_spots_y]
             if np.all(wavefront == 0):
                 logger.warning("WFS_CalcWavefront returned zero-filled buffer — DLL may not have written data")
+
+            if WFS_DEBUG_MODE:
+                wf_variance = np.var(wavefront)
+                wf_std = np.std(wavefront)
+                logger.debug(f"WFS wavefront stats: var={wf_variance:.6f}, std={wf_std:.6f}, shape={wavefront.shape}")
 
             # wavefront = np.where(wavefront==np.nan, 0, wavefront)
             return wavefront, {

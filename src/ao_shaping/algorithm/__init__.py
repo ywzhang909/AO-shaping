@@ -49,6 +49,52 @@ from .phase_wrap import (
     SLMPhaseController,
 )
 
+# 导入启发式优化算法模块
+from .ga import (
+    GeneticAlgorithm,
+    GAParams,
+    tournament_selection,
+    blend_crossover,
+    gaussian_mutation,
+    minimize_ga,
+)
+
+from .pso import (
+    ParticleSwarmOptimizer,
+    PSOParams,
+    minimize_pso,
+)
+
+from .simulated_annealing import (
+    SimulatedAnnealing,
+    SAParams,
+    TempSchedule,
+    minimize_sa,
+)
+
+from .heuristic_base import (
+    HeuristicOptimizer,
+    OptimizerConfig,
+    OptimizerType,
+)
+
+from .hill_climbing import (
+    HillClimbing,
+    HCConfig,
+)
+
+from .random_search import RandomSearch
+
+from .cross_entropy import (
+    CrossEntropyMethod,
+    CEMConfig,
+)
+
+from .differential_evolution import (
+    DifferentialEvolution,
+    DEConfig,
+)
+
 # 导出所有类和函数
 __all__ = [
     "Base",
@@ -74,6 +120,29 @@ __all__ = [
     "HardwareConfig",
     "PhaseWrapOptimizer",
     "SLMPhaseController",
+    "GeneticAlgorithm",
+    "GAParams",
+    "tournament_selection",
+    "blend_crossover",
+    "gaussian_mutation",
+    "minimize_ga",
+    "ParticleSwarmOptimizer",
+    "PSOParams",
+    "minimize_pso",
+    "SimulatedAnnealing",
+    "SAParams",
+    "TempSchedule",
+    "minimize_sa",
+    "HeuristicOptimizer",
+    "OptimizerConfig",
+    "OptimizerType",
+    "HillClimbing",
+    "HCConfig",
+    "RandomSearch",
+    "CrossEntropyMethod",
+    "CEMConfig",
+    "DifferentialEvolution",
+    "DEConfig",
 ]
 
 

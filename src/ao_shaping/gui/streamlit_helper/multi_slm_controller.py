@@ -28,7 +28,7 @@ def _initialize_slm_state() -> None:
         if prefix not in st.session_state:
             st.session_state[prefix] = None
             st.session_state[f"{prefix}_connected"] = False
-            st.session_state[f"{prefix}_wavelength"] = 1064
+            st.session_state[f"{prefix}_wavelength"] = 532
             st.session_state[f"{prefix}_video_mode"] = 0
             st.session_state[f"{prefix}_next_memory"] = np.random.randint(1, 128)
             st.session_state[f"{prefix}_phase_preview"] = None
@@ -410,9 +410,9 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
                     with col3:
                         st.number_input(
                             "系数",
-                            min_value=-5.0,
-                            max_value=5.0,
-                            step=0.1,
+                            min_value=-100.0,
+                            max_value=100.0,
+                            step=0.001,
                             key=key,
                         )
                     coefficients[(n, m)] = st.session_state.get(key, default_val)
