@@ -195,6 +195,37 @@ python src/ao_shaping/main.py zernike-matrix [OPTIONS]
 ```
 等同于: `python -m ao_shaping.runners.zernike_matrix_runner`
 
+#### Zernike波前优化器 - 贪婪局部搜索 (greedy-zernike)
+```bash
+python src/ao_shaping/main.py greedy-zernike [OPTIONS]
+```
+使用贪婪局部搜索算法进行Zernike波前校正。
+
+选项:
+- `-e, --epochs`: 优化迭代次数 (默认: 2000)
+- `-n, --n-max`: Zernike最大阶数 (默认: 4)
+- `-r, --wfs_res`: WFS分辨率 (默认: 1024)
+- `-p, --pupil_diameter`: 瞳孔直径 (默认: 2.7)
+- `-c, --pupil_center`: 瞳孔中心坐标 (默认: (0,0))
+- `-t, --early_stop_threshold`: 早停阈值 (默认: 0.12)
+- `--wavelength`: SLM波长 (nm, 默认: 532)
+- `--slm-number`: SLM设备编号 (默认: 1)
+- `--remove-tilt`: 移除波前测量中的倾斜项
+- `--n-init`: 初始随机位置数量 (默认: 10)
+- `--n-directions`: 每次迭代的随机方向数量 (默认: 5)
+- `--perturbation-scale`: 扰动幅度缩放因子 (默认: 5.0)
+
+算法流程:
+1. 随机初始化N个位置，选取最优作为起始点
+2. 每次迭代采样n个随机扰动方向
+3. 评估所有候选(当前位置+n个扰动)，选择最优
+4. 重复直到收敛或达到最大迭代次数
+
+示例:
+```bash
+DEBUG=1 python src/ao_shaping/main.py greedy-zernike --n-init 20 --n-directions 8
+```
+
 ### 串行流水线优化器处理流程详解
 
 串行流水线优化器采用分阶段优化策略，集成了波前传感器和CCD相机的优势，通过两个阶段的优化实现高质量的光束输出。
