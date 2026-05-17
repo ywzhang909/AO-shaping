@@ -7,12 +7,13 @@ Usage:
 
 Commands:
     wf              波前RMS优化器
-    pib             轴向光束PIB优化器  
+    pib             轴向光束PIB优化器
     pipeline        串行WF→PIB流水线优化器
     gs              Gerchberg-Saxton全息图生成器
     zernike-matrix  Zernike响应矩阵校准
     rms-zernike     Zernike RMS优化器
     ga-zernike      GA Zernike优化器
+    greedy-zernike  贪婪局部搜索Zernike优化器
 
 Examples:
     python main.py --debug wf --epochs 10000
@@ -45,6 +46,7 @@ from ao_shaping.runners import (
     zernike_closed_loop_run,
     rms_zernike_run,
     ga_zernike_run,
+    greedy_zernike_run,
     dm_matrix_run,
 )
 
@@ -83,6 +85,7 @@ cli.add_command(gs_run, name="gs")
 cli.add_command(zernike_matrix_run, name="zernike-matrix")
 cli.add_command(rms_zernike_run, name="rms-zernike")
 cli.add_command(ga_zernike_run, name="ga-zernike")
+cli.add_command(greedy_zernike_run, name="greedy-zernike")
 cli.add_command(zernike_closed_loop_run, name="closed-loop")
 cli.add_command(dm_matrix_run, name="dm-matrix")
 
