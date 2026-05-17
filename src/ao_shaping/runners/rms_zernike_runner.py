@@ -174,11 +174,10 @@ def run(dir, epochs, lr, delta, n_max, wfs_res, pupil_diameter, pupil_center, ea
     root_dir = Path(dir)
 
     min_iter, (min_epoch, min_rms) = records.get_best_iter()
-
+    save_dir = root_dir / "flatten_zernike" / get_date_dir_name()
+    records.save_best(saved_dir=save_dir, target="_c", process_fn=np.round, fmt="%.6f")
     if debug:
-        save_dir = gen_date_dir(root_dir / "rms_zernike")
         saved_file_name = gen_file_path_uuid(save_dir, 'pkl')
-
         fig, ax = plt.subplots(2, 2, figsize=(12, 9))
         rms_values = records.get_sublist()
         plot_funcs["rms_history"](rms_values, ax[0, 0], min_epoch, min_rms)
@@ -212,9 +211,6 @@ def run(dir, epochs, lr, delta, n_max, wfs_res, pupil_diameter, pupil_center, ea
                     dev_y=np.array(all_dev_y) if all_dev_y else np.array([]),
                 )
                 click.echo(f"WFS debug数据已保存: {save_dir / 'wfs_debug_data.npz'}")
-
-    save_dir = root_dir / "flatten_zernike" / get_date_dir_name()
-    records.save_best(saved_dir=save_dir, target="_c", process_fn=np.round, fmt="%.6f")
 
     click.echo(f"波前优化完成，最优RMS值: {min_rms:.4f} @ epoch {min_epoch}")
 

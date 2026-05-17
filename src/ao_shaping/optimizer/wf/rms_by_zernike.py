@@ -262,10 +262,13 @@ def optimizer_rms(
                 _init_c = _init_c[:n_zernike]
 
         # Multi-start optimization: try multiple random positions
-        if n_init_positions > 0 and init_z is None:
+        if n_init_positions > 0:
             logger.info(f"Multi-start: testing {n_init_positions} random positions...")
             best_init_c = _init_c.copy()
-            best_rms = np.inf
+            slm.send_zernike(_init_c)
+            wfs.take_image(3)
+            wf, statics = wfs.get_wavefront(cancel_tile=remove_tilt)
+            best_rms = statics.get('rms', np.inf)
             
             for i in range(n_init_positions):
                 test_c = np.random.uniform(-init_range, init_range, size=n_zernike)

@@ -66,8 +66,15 @@ def cli(ctx: click.Context, dir: str):
         --dir    数据保存根目录
         DEBUG    环境变量控制调试模式 (export DEBUG=1 或 DEBUG=true)
     """
+    _debug = get_debug_mode()
+    if _debug:
+        logger.remove()
+        logger.add(sys.stderr, level="DEBUG")
+        logger.debug("Debug mode enabled via DEBUG env var - DEBUG level logging active")
+        logger.debug("Debug mode enabled")
     ctx.ensure_object(dict)
     ctx.obj["dir"] = dir
+    ctx.obj["debug"] = _debug
 
 # Register subcommands
 cli.add_command(wf_run, name="wf")
