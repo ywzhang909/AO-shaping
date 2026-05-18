@@ -29,12 +29,11 @@ from ao_shaping.utils.wfs_utils import flatten_slopes
 from ao_shaping.utils.hadamard_calc import calc_n_hadamard_modes
 
 
-# 默认参数
 DEFAULT_MODE_ORDER = 8
-DEFAULT_MAGNITUDE = 0.5  # 波长单位
-DEFAULT_N_AVERAGES = 10  # 每次WFS读取次数
-DEFAULT_N_CYCLES = 1  # 正负交替循环次数
-DEFAULT_WAIT_TIME = 0.1  # 秒
+DEFAULT_MAGNITUDE = 0.5
+DEFAULT_N_AVERAGES = 10
+DEFAULT_N_CYCLES = 1
+DEFAULT_WAIT_TIME = 0.1
 
 
 @click.command('hadamard-matrix')
@@ -87,29 +86,18 @@ def run(
     - mode_order=16: 256个模式
     - mode_order=32: 1024个模式
     """
-    # Parse resolution
     res_width, res_height = map(int, resolution.split(','))
 
     n_modes = calc_n_hadamard_modes(mode_order)
     logger.info(f"Hadamard响应矩阵校准: mode_order={mode_order}, n_modes={n_modes}")
 
-    # Determine debug flag
     if debug is None:
         debug = ctx.parent.obj.get("debug", False) if ctx.parent and ctx.parent.obj else False
 
-    # Handle auto_exposure
     effective_exp_time = 0.0 if auto_exposure else exp_time
-
-    # Convert mla_index
     mla_index_enum = MlaRes.from_str(mla_index)
 
-    # Calculate expected response matrix size
-    # WFS response: typically returns Zernike coefficients or subaperture slopes
-    # We'll use the slopes (flattened deviation_x, deviation_y)
-
-    # Initialize hardware
     try:
-        # Create HadamardDM (virtual, for phase generation)
         hdm = HadamardDM(
             mode_order=mode_order,
             resolution=(res_width, res_height),
@@ -128,19 +116,14 @@ def run(
         ) as wfs:
             logger.info(f"WFS initialized: MLA={mla_index}")
 
-            # Set flat reference
             flat_phase = np.zeros(n_modes)
             flat_pattern = hdm.generate_phase_2pi(flat_phase)
             logger.debug("Set flat reference on WFS")
 
-            # Save reference (if not using custom)
             if not use_custom_ref:
                 wfs.save_user_ref()
                 wfs.load_user_ref()
 
-            # Allocate response matrix
-            # We'll measure slopes (flattened dev_x, dev_y)
-            # First, get the expected size
             dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=False)
             s_flat = flatten_slopes(dev_x, dev_y)
             n_measurements = len(s_flat)
@@ -150,23 +133,18 @@ def run(
 
             logger.info(f"响应矩阵大小: ({n_measurements}, {n_modes})")
 
-            # Calibrate each Hadamard mode
             for mode_idx in range(n_modes):
                 logger.debug(f"校准模式 {mode_idx + 1}/{n_modes}")
 
-                # Create coefficient vector (positive)
                 coeffs_plus = np.zeros(n_modes)
                 coeffs_plus[mode_idx] = magnitude
 
-                # Create coefficient vector (negative)
                 coeffs_minus = np.zeros(n_modes)
                 coeffs_minus[mode_idx] = -magnitude
 
-                # Measure positive
                 s_plus_all = []
                 for _ in range(n_averages):
                     pattern_plus = hdm.generate_phase_2pi(coeffs_plus)
-                    # In real hardware, would send to SLM here
                     sleep(wait_time)
                     dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=False)
                     s_plus_all.append(flatten_slopes(dev_x, dev_y))
@@ -174,11 +152,9 @@ def run(
                 s_plus_mean = np.mean(s_plus_all, axis=0)
                 s_plus_var = np.var(s_plus_all, axis=0)
 
-                # Measure negative
                 s_minus_all = []
                 for _ in range(n_averages):
                     pattern_minus = hdm.generate_phase_2pi(coeffs_minus)
-                    # In real hardware, would send to SLM here
                     sleep(wait_time)
                     dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=False)
                     s_minus_all.append(flatten_slopes(dev_x, dev_y))
@@ -186,21 +162,15 @@ def run(
                 s_minus_mean = np.mean(s_minus_all, axis=0)
                 s_minus_var = np.var(s_minus_all, axis=0)
 
-                # Compute response (difference) and variance
                 if n_cycles > 1:
-                    # Multi-cycle: accumulate
-                    for cycle in range(n_cycles):
-                        # Alternate between plus and minus
-                        pass
+                    pass
                 else:
-                    # Single cycle: use difference
                     response_matrix[:, mode_idx] = (s_plus_mean - s_minus_mean) / (2 * magnitude)
                     variance_matrix[:, mode_idx] = (s_plus_var + s_minus_var) / (4 * magnitude ** 2)
 
                 if (mode_idx + 1) % 10 == 0:
                     logger.info(f"进度: {mode_idx + 1}/{n_modes} 模式")
 
-            # Compute inverse matrices if requested
             pinv_matrix = None
             lstsq_matrix = None
 
@@ -209,7 +179,6 @@ def run(
                 pinv_matrix = np.linalg.pinv(response_matrix)
                 lstsq_matrix = np.linalg.lstsq(response_matrix, np.eye(n_measurements), rcond=None)[0]
 
-            # Save results
             output_file = Path(output_path)
             output_file.parent.mkdir(parents=True, exist_ok=True)
 
