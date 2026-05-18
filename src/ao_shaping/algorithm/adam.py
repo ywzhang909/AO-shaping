@@ -456,48 +456,44 @@ def search_optimal_delta(
     param_dim: int,
     objective_fn: Callable[[np.ndarray], float],
     apply_fn: Callable[[np.ndarray], None],
-    min_delta: float = 0.1,
-    max_delta: float = 2.0,
-    delta_step: float = 0.2,
-    n_directions: int = 3,
+    min_delta: float = 0.01,
+    max_delta: float = 100.0,
+    n_magnitude_steps: int = 5,
+    n_samples_per_delta: int = 5,
     clip_min: float = -50.0,
     clip_max: float = 50.0,
     perturb_mask: np.ndarray | None = None,
     verbose: bool = True,
 ) -> tuple[float, dict]:
-    """Search for optimal perturbation delta by testing different values.
+    """Search for optimal perturbation delta using magnitude scanning.
 
-    Tests delta values from min_delta to max_delta, trying multiple random
-    directions at each level. Stops when objective stops improving significantly.
+    Two-phase approach:
+    1. Magnitude scan: test orders of magnitude (1e-2, 1e-1, 1e0, 1e1, 1e2)
+    2. Fine scan: test within best magnitude range
 
+    A valid delta should produce consistent RMS improvement in both +/- directions.
+    
     Args:
         param_dim: Dimension of parameter vector to optimize.
         objective_fn: Function that takes parameters and returns scalar objective.
         apply_fn: Function to apply parameters to the system.
         min_delta: Minimum delta value to test.
         max_delta: Maximum delta value to test.
-        delta_step: Step size between delta values.
-        n_directions: Number of random directions to test per delta.
+        n_magnitude_steps: Number of magnitude steps to test (default: 5).
+        n_samples_per_delta: Number of samples per delta to reduce noise (default: 5).
         clip_min: Minimum value for parameter clipping.
         clip_max: Maximum value for parameter clipping.
         perturb_mask: Optional mask for which parameters to perturb.
         verbose: Whether to print progress information.
 
     Returns:
-        Tuple of (optimal_delta, info_dict) where info_dict contains:
-        - baseline_obj: Initial objective value
-        - best_obj: Best objective achieved
-        - best_delta: Optimal delta value
-        - all_results: List of detailed results per delta
+        Tuple of (optimal_delta, info_dict)
     """
-    delta_values = np.arange(min_delta, max_delta + delta_step, delta_step)
-    results = []
-    
     if verbose:
         print(f"\n{'='*60}")
-        print("Auto Delta Detection Mode")
-        print(f"Testing delta range: [{min_delta}, {max_delta}] with step {delta_step}")
-        print(f"Directions per delta: {n_directions}")
+        print("Auto Delta Detection (Magnitude Scan)")
+        print(f"Range: [{min_delta}, {max_delta}], Magnitude steps: {n_magnitude_steps}")
+        print(f"Samples per delta: {n_samples_per_delta}")
         print(f"{'='*60}\n")
     
     init_params = np.zeros(param_dim, dtype=np.float64)
@@ -507,20 +503,93 @@ def search_optimal_delta(
     if verbose:
         print(f"Baseline objective: {baseline_obj:.4f}")
     
-    prev_best_obj = baseline_obj
-    best_delta = min_delta
-    best_obj = baseline_obj
+    magnitude_results = []
+    magnitude_values = np.linspace(-2, 2, n_magnitude_steps)
     
-    for delta in delta_values:
-        delta_results = []
-        
+    if verbose:
+        print("\n--- Phase 1: Magnitude Scan ---")
+    
+    for mag in magnitude_values:
+        test_delta = 10.0 ** mag
+        if test_delta < min_delta or test_delta > max_delta:
+            continue
+            
         if verbose:
-            print(f"\nTesting delta = {delta}:")
+            print(f"\nTesting magnitude 10^{mag:.1f} (delta={test_delta:.4f}):")
         
-        for direction_idx in range(n_directions):
+        pos_improvements = []
+        neg_improvements = []
+        
+        for sample_idx in range(n_samples_per_delta):
             apply_fn(init_params)
             
-            disturb = np.random.binomial(1, 0.5, (param_dim,)).astype(float) * 2.0 - 1.0
+            disturb = np.random.randn(param_dim).astype(np.float64)
+            disturb *= test_delta
+            
+            if perturb_mask is not None:
+                disturb *= perturb_mask
+            
+            pos_params = np.clip(init_params + disturb, clip_min, clip_max)
+            neg_params = np.clip(init_params - disturb, clip_min, clip_max)
+            
+            apply_fn(pos_params)
+            pos_obj = objective_fn(pos_params)
+            
+            apply_fn(neg_params)
+            neg_obj = objective_fn(neg_params)
+            
+            pos_imp = baseline_obj - pos_obj
+            neg_imp = baseline_obj - neg_obj
+            pos_improvements.append(pos_imp)
+            neg_improvements.append(neg_imp)
+            
+            if verbose:
+                print(f"  Sample {sample_idx + 1}: pos_imp={pos_imp:.4f}, neg_imp={neg_imp:.4f}")
+        
+        avg_pos_imp = np.mean(pos_improvements)
+        avg_neg_imp = np.mean(neg_improvements)
+        consistency = min(avg_pos_imp, avg_neg_imp) / (max(avg_pos_imp, avg_neg_imp) + 1e-8)
+        
+        magnitude_results.append({
+            'magnitude': mag,
+            'delta': test_delta,
+            'avg_pos_imp': avg_pos_imp,
+            'avg_neg_imp': avg_neg_imp,
+            'avg_improvement': (avg_pos_imp + avg_neg_imp) / 2,
+            'consistency': consistency,
+        })
+        
+        if verbose:
+            print(f"  Summary: avg_pos={avg_pos_imp:.4f}, avg_neg={avg_neg_imp:.4f}, consistency={consistency:.2f}")
+    
+    best_mag_result = max(magnitude_results, key=lambda x: x['avg_improvement'])
+    best_magnitude = best_mag_result['magnitude']
+    
+    if verbose:
+        print(f"\nBest magnitude: 10^{best_magnitude:.1f} (delta={best_mag_result['delta']:.4f})")
+        print("\n--- Phase 2: Fine Scan ---")
+    
+    fine_delta_min = 10.0 ** (best_magnitude - 0.5)
+    fine_delta_max = 10.0 ** (best_magnitude + 0.5)
+    fine_delta_min = max(fine_delta_min, min_delta)
+    fine_delta_max = min(fine_delta_max, max_delta)
+    
+    n_fine_steps = 10
+    fine_deltas = np.linspace(fine_delta_min, fine_delta_max, n_fine_steps)
+    
+    fine_results = []
+    
+    for delta in fine_deltas:
+        if verbose:
+            print(f"\nTesting delta = {delta:.4f}:")
+        
+        pos_improvements = []
+        neg_improvements = []
+        
+        for sample_idx in range(n_samples_per_delta):
+            apply_fn(init_params)
+            
+            disturb = np.random.randn(param_dim).astype(np.float64)
             disturb *= delta
             
             if perturb_mask is not None:
@@ -535,56 +604,53 @@ def search_optimal_delta(
             apply_fn(neg_params)
             neg_obj = objective_fn(neg_params)
             
-            avg_obj = (pos_obj + neg_obj) / 2
-            delta_results.append({
-                'direction': direction_idx,
-                'pos_obj': pos_obj,
-                'neg_obj': neg_obj,
-                'avg_obj': avg_obj,
-            })
-            
-            if verbose:
-                print(f"  Direction {direction_idx + 1}/{n_directions}: pos={pos_obj:.4f}, neg={neg_obj:.4f}, avg={avg_obj:.4f}")
+            pos_imp = baseline_obj - pos_obj
+            neg_imp = baseline_obj - neg_obj
+            pos_improvements.append(pos_imp)
+            neg_improvements.append(neg_imp)
         
-        avg_obj_values = [r['avg_obj'] for r in delta_results]
-        mean_obj = np.mean(avg_obj_values)
-        min_obj = np.min(avg_obj_values)
+        avg_pos_imp = np.mean(pos_improvements)
+        avg_neg_imp = np.mean(neg_improvements)
         
-        result_entry = {
+        both_positive = avg_pos_imp > 0 and avg_neg_imp > 0
+        avg_improvement = (avg_pos_imp + avg_neg_imp) / 2
+        
+        fine_results.append({
             'delta': delta,
-            'mean_obj': mean_obj,
-            'min_obj': min_obj,
-            'directions': delta_results,
-        }
-        results.append(result_entry)
+            'avg_pos_imp': avg_pos_imp,
+            'avg_neg_imp': avg_neg_imp,
+            'avg_improvement': avg_improvement,
+            'both_positive': both_positive,
+            'std_pos': np.std(pos_improvements),
+            'std_neg': np.std(neg_improvements),
+        })
         
+        status = "✓" if both_positive else "✗"
         if verbose:
-            print(f"  Summary: mean={mean_obj:.4f}, min={min_obj:.4f}")
-        
-        improvement = prev_best_obj - min_obj
-        if min_obj < best_obj:
-            best_obj = min_obj
-            best_delta = delta
-        
-        if delta > min_delta and improvement < 0.001:
-            if verbose:
-                print(f"\n  Stopping: objective stopped improving significantly (improvement={improvement:.4f})")
-            break
-        
-        prev_best_obj = min_obj
+            print(f"  pos_imp={avg_pos_imp:.4f}±{np.std(pos_improvements):.4f}, neg_imp={avg_neg_imp:.4f}±{np.std(neg_improvements):.4f} {status}")
+    
+    valid_results = [r for r in fine_results if r['both_positive']]
+    
+    if valid_results:
+        best_result = max(valid_results, key=lambda x: x['avg_improvement'])
+        optimal_delta = best_result['delta']
+    else:
+        best_result = max(fine_results, key=lambda x: x['avg_improvement'])
+        optimal_delta = best_result['delta']
     
     apply_fn(init_params)
     
     if verbose:
         print(f"\n{'='*60}")
         print(f"Auto Delta Detection Complete")
-        print(f"Best delta: {best_delta} (objective: {best_obj:.4f})")
+        print(f"Optimal delta: {optimal_delta:.4f}")
+        print(f"Improvement: pos={best_result['avg_pos_imp']:.4f}, neg={best_result['avg_neg_imp']:.4f}")
         print(f"{'='*60}\n")
     
-    return float(best_delta), {
+    return float(optimal_delta), {
         'baseline_obj': float(baseline_obj),
-        'best_obj': float(best_obj),
-        'best_delta': float(best_delta),
-        'all_results': results,
+        'optimal_delta': float(optimal_delta),
+        'magnitude_results': magnitude_results,
+        'fine_results': fine_results,
     }
 

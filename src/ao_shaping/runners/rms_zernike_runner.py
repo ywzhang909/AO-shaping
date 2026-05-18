@@ -79,8 +79,8 @@ def _auto_delta_detect_rms(
             apply_fn=apply_fn,
             min_delta=min_delta,
             max_delta=max_delta,
-            delta_step=delta_step,
-            n_directions=n_directions,
+            n_magnitude_steps=max(5, int(delta_step)),
+            n_samples_per_delta=n_directions,
             clip_min=-50.0,
             clip_max=50.0,
             perturb_mask=perturb_mask,
@@ -89,9 +89,9 @@ def _auto_delta_detect_rms(
         
         return best_delta, {
             'baseline_rms': info['baseline_obj'],
-            'best_rms': info['best_obj'],
-            'best_delta': info['best_delta'],
-            'all_results': info['all_results'],
+            'best_rms': info.get('best_obj', info['baseline_obj'] - info.get('optimal_delta', 0)),
+            'best_delta': info['optimal_delta'],
+            'all_results': info.get('fine_results', []),
         }
 
 
@@ -112,10 +112,10 @@ def _auto_delta_detect_rms(
 @click.option("--wait-time", default=0.3, help="SLM 液晶翻转等待时间(秒, default: 0.3) ")
 @click.option("--slm-number", default=1, help="SLM设备编号 (default: 1)")
 @click.option("--remove-tilt", is_flag=True, help="移除波前测量中的倾斜项")
-@click.option("--min-delta", default=0.1, help="自动检测时的最小delta值 (default: 0.1)")
-@click.option("--max-delta", default=2.0, help="自动检测时的最大delta值 (default: 2.0)")
-@click.option("--delta-step", default=0.2, help="自动检测时的delta步长 (default: 0.2)")
-@click.option("--n-directions", default=3, help="每个delta测试的随机方向数量 (default: 3)")
+@click.option("--min-delta", default=0.01, help="自动检测最小delta (数量级扫描, default: 0.01)")
+@click.option("--max-delta", default=100.0, help="自动检测最大delta (数量级扫描, default: 100.0)")
+@click.option("--delta-step", default=5, help="数量级扫描步数 (用于细粒度扫描, default: 5)")
+@click.option("--n-directions", default=5, help="每个delta采样次数防噪声 (default: 5)")
 @click.option("--n-init-positions", default=0, help="多起点优化：随机初始位置数量 (default: 0, 禁用)")
 @click.option("--init-range", default=1.0, help="多起点初始化的随机范围 (default: 1.0)")
 def run(dir, epochs, lr, delta, n_max, wfs_res, pupil_diameter, pupil_center, early_stop_threshold,
