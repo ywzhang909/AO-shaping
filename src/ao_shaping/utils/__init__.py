@@ -9,6 +9,7 @@ This package provides various utility modules:
 - pattern_helper: Optical pattern generation
 - wavefront_calc: Wavefront calculations
 - zernike_calc: Zernike polynomial generation
+- hadamard_calc: Walsh-Hadamard mode generation
 """
 
 from ao_shaping.utils import spots_calc
@@ -110,6 +111,14 @@ from ao_shaping.utils.wavefront_calc import (
     ZernikeCentroidCalculator,
 )
 
+# Explicit exports from hadamard_calc
+from ao_shaping.utils.hadamard_calc import (
+    HadamardGenerator,
+    calc_n_hadamard_modes,
+    hadamard_mode_2d,
+    is_hadamard_order,
+)
+
 # Explicit exports from zernike_calc
 from ao_shaping.utils.zernike_calc import (
     ZernikeGenerator,
@@ -130,6 +139,11 @@ from ao_shaping.utils.cli_helpers import (
 
 # Define public API
 __all__ = [
+    # hadamard_calc
+    "HadamardGenerator",
+    "calc_n_hadamard_modes",
+    "hadamard_mode_2d",
+    "is_hadamard_order",
     "BACKGROUND_COLOR",
     "LINE_COLOR",
     "LOG_J_HEIGHT",
