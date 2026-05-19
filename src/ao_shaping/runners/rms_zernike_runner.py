@@ -106,7 +106,7 @@ def _auto_delta_detect_rms(
 @click.option("-c", "--pupil_center", callback=parse_tuple, default="(0,0)", help="瞳孔中心坐标 (default: (0,0))")
 @click.option("--exposure-time", default=0.0, help="曝光时间 (秒, default: 0.0, auto exposure time)")
 @click.option("-t", "--early_stop_threshold", default=0.12, help="早停阈值 (default: 0.12)")
-@click.option("--wavelength", default=1024, help="SLM波长 (nm, default: 532)")
+@click.option("--wavelength", default=532, help="SLM波长 (nm, default: 532)")
 @click.option("--shift-x", default=0, help="SLM X方向平移 (像素, default: 0)")
 @click.option("--shift-y", default=0, help="SLM Y方向平移 (像素, default: 0)")
 @click.option("--wait-time", default=0.3, help="SLM 液晶翻转等待时间(秒, default: 0.3) ")
@@ -118,10 +118,30 @@ def _auto_delta_detect_rms(
 @click.option("--n-directions", default=5, help="每个delta采样次数防噪声 (default: 5)")
 @click.option("--n-init-positions", default=0, help="多起点优化：随机初始位置数量 (default: 0, 禁用)")
 @click.option("--init-range", default=1.0, help="多起点初始化的随机范围 (default: 1.0)")
+@click.option("--lr-schedule", default="static", type=click.Choice(["static", "cosine", "exp", "linear"]), help="学习率调度类型 (default: static)")
+@click.option("--lr-min", default=1e-6, type=float, help="学习率最小值 (default: 1e-6)")
+@click.option("--delta-schedule", default="static", type=click.Choice(["static", "cosine", "exp", "linear"]), help="Delta调度类型 (default: static)")
+@click.option("--delta-min", default=1e-7, type=float, help="Delta最小值 (default: 1e-7)")
+@click.option("--optimizer", default="adamod", type=click.Choice(["adamod", "adamw"]), help="优化器类型 (default: adamod)")
+@click.option("--beta1", default=0.95, type=float, help="Adam beta1参数 (default: 0.95)")
+@click.option("--weight-decay", default=1e-2, type=float, help="AdamW权重衰减 (default: 1e-2)")
+@click.option("--mini-batch", default=1, type=int, help="SPGD mini-batch大小 (default: 1)")
+@click.option("--gradient-clip", default=0.0, type=float, help="梯度裁剪阈值 (default: 0.0, 禁用)")
+@click.option("--stagnation-patience", default=30, type=int, help="停滞检测轮数 (default: 30)")
+@click.option("--stagnation-delta-boost", default=1.5, type=float, help="停滞时delta倍增 (default: 1.5)")
+@click.option("--freeze-threshold", default=None, type=float, help="冻结高阶模式阈值 (default: None)")
+@click.option("--early-stop-window", default=0, type=int, help="早停滑动窗口大小 (default: 0)")
+@click.option("--early-stop-min-epochs", default=0, type=int, help="早停最小轮数 (default: 0)")
+@click.option("--early-stop-patience", default=0, type=int, help="早停耐心值 (default: 0)")
+@click.option("--n-frames", default=10, type=int, help="WFS帧平均数 (default: 10)")
 def run(dir, epochs, lr, delta, n_max, wfs_res, pupil_diameter, pupil_center, early_stop_threshold,
         exposure_time, wavelength, shift_x, shift_y, slm_number, remove_tilt, wait_time,
         min_delta, max_delta, delta_step, n_directions,
-        n_init_positions, init_range):
+        n_init_positions, init_range,
+        lr_schedule, lr_min, delta_schedule, delta_min,
+        optimizer, beta1, weight_decay, mini_batch, gradient_clip,
+        stagnation_patience, stagnation_delta_boost, freeze_threshold,
+        early_stop_window, early_stop_min_epochs, early_stop_patience, n_frames):
     """Zernike波前优化器 (基于SLM的RMS最小化)
 
     使用Zernike多项式通过SLM进行波前校正，最小化WFS测量的波前RMS值。
@@ -170,6 +190,22 @@ def run(dir, epochs, lr, delta, n_max, wfs_res, pupil_diameter, pupil_center, ea
         slm_wait_time=wait_time,
         n_init_positions=n_init_positions,
         init_range=init_range,
+        lr_schedule=lr_schedule,
+        lr_min=lr_min,
+        delta_schedule=delta_schedule,
+        delta_min=delta_min,
+        optimizer_type=optimizer,
+        beta1=beta1,
+        weight_decay=weight_decay,
+        mini_batch=mini_batch,
+        gradient_clip=gradient_clip,
+        stagnation_patience=stagnation_patience,
+        stagnation_delta_boost=stagnation_delta_boost,
+        freeze_high_order_threshold=freeze_threshold,
+        early_stop_window=early_stop_window,
+        early_stop_min_epochs=early_stop_min_epochs,
+        early_stop_patience=early_stop_patience,
+        n_frames=n_frames,
     )
     root_dir = Path(dir)
 
