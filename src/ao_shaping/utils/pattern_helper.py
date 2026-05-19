@@ -4,8 +4,42 @@ from __future__ import annotations
 import numpy as np
 
 from ao_shaping.utils.zernike_calc import ZernikeGenerator
+from ao_shaping.utils.phase_unwrap import PhaseUnwrapper, UnwrapStrategy, unwrap_phase
 
 from aotools.turbulence.infinitephasescreen import PhaseScreenKolmogorov
+
+
+UNWRAP_STRATEGY = "iterative"
+
+
+class PhaseUnwrapperHelper:
+    _instance: PhaseUnwrapper | None = None
+
+    @classmethod
+    def get_unwrapper(cls, resolution: tuple[int, int], strategy: str = UNWRAP_STRATEGY) -> PhaseUnwrapper:
+        if cls._instance is None or cls._instance.resolution != resolution:
+            strategy_enum = UnwrapStrategy[strategy.upper()] if strategy.upper() in [e.name for e in UnwrapStrategy] else UnwrapStrategy.ITERATIVE
+            cls._instance = PhaseUnwrapper(resolution=resolution, strategy=strategy_enum)
+        return cls._instance
+
+    @classmethod
+    def set_strategy(cls, strategy: str):
+        global UNWRAP_STRATEGY
+        UNWRAP_STRATEGY = strategy
+        if cls._instance is not None:
+            strategy_enum = UnwrapStrategy[strategy.upper()] if strategy.upper() in [e.name for e in UnwrapStrategy] else UnwrapStrategy.ITERATIVE
+            cls._instance.strategy = strategy_enum
+
+    @classmethod
+    def unwrap(cls, wrapped: np.ndarray, strategy: str | None = None) -> np.ndarray:
+        s = strategy or UNWRAP_STRATEGY
+        unwrapper = cls.get_unwrapper(wrapped.shape, s)
+        return unwrapper.unwrap(wrapped)
+
+    @classmethod
+    def unwrap_fast(cls, wrapped: np.ndarray) -> np.ndarray:
+        unwrapper = cls.get_unwrapper(wrapped.shape, "iterative")
+        return unwrapper.unwrap_fast(wrapped)
 
 
 class PatternHelper:
@@ -564,3 +598,20 @@ class PatternHelper:
         phase_y = (self.yy // period_y) % 2 * np.pi
 
         return np.mod(phase_x + phase_y, phase_range)
+
+    def unwrap_phase(self, wrapped: np.ndarray, strategy: str | None = None) -> np.ndarray:
+        """解包相位（将包裹相位转换为连续相位）。
+
+        Args:
+            wrapped: 包裹相位 [0, 2π)
+            strategy: 解包策略 ("goldstein", "quality_guided", "iterative", "least_squares", "region_growing", "simple", "fast")
+
+        Returns:
+            连续相位 (弧度)
+        """
+        if wrapped.shape != self.resolution:
+            resolution = tuple(wrapped.shape)
+        else:
+            resolution = self.resolution
+        s = strategy if strategy is not None else UNWRAP_STRATEGY
+        return unwrap_phase(wrapped, strategy=s, resolution=resolution)
