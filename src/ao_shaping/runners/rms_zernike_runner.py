@@ -1,20 +1,18 @@
-from email.policy import default
-
 import click
 from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
-from tqdm import cli
+from tqdm import tqdm
 
 from ao_shaping.utils import gen_date_dir, gen_file_path_uuid
-from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms
 from ao_shaping.utils.display import plot_funcs
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
 from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name, get_debug_mode
 from ao_shaping.drivers import MlaRes, Thorlab_WFS
 from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.algorithm.adam import search_optimal_delta
+from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms
 
 
 def _get_wfs_res(res_str: str) -> MlaRes:
@@ -35,6 +33,7 @@ def _auto_delta_detect_rms(
     n_directions: int = 3,
     pupil_center: tuple[float, float] = (0, 0),
     pupil_diameter: float = 4.6,
+    wfs_exposure_time: float = 0.0,
     wavelength: int = 532,
     shift_x: int = 0,
     shift_y: int = 0,
@@ -55,6 +54,7 @@ def _auto_delta_detect_rms(
         ) as slm,
         Thorlab_WFS(
             wfs_res,
+            exposure_time=wfs_exposure_time,
             use_custom_ref=False,
             high_speed=True,
             pupil_diameter=pupil_diameter,
@@ -104,7 +104,7 @@ def _auto_delta_detect_rms(
 @click.option("-r", "--wfs_res", default='1024', help="WFS分辨率 (default: 1024)")
 @click.option("-p", "--pupil_diameter", default=2.7, help="瞳孔直径 (default: 2.7)")
 @click.option("-c", "--pupil_center", callback=parse_tuple, default="(0,0)", help="瞳孔中心坐标 (default: (0,0))")
-@click.option("--exposure-time", default=0.0, help="曝光时间 (秒, default: 0.0, auto exposure time)")
+@click.option("--exposure-time-ms", default=0.0, type=float, help="WFS曝光时间 (毫秒, default: 0.0=自动曝光)")
 @click.option("-t", "--early_stop_threshold", default=0.12, help="早停阈值 (default: 0.12)")
 @click.option("--wavelength", default=532, help="SLM波长 (nm, default: 532)")
 @click.option("--shift-x", default=0, help="SLM X方向平移 (像素, default: 0)")
@@ -135,7 +135,7 @@ def _auto_delta_detect_rms(
 @click.option("--early-stop-patience", default=0, type=int, help="早停耐心值 (default: 0)")
 @click.option("--n-frames", default=10, type=int, help="WFS帧平均数 (default: 10)")
 def run(dir, epochs, lr, delta, n_max, wfs_res, pupil_diameter, pupil_center, early_stop_threshold,
-        exposure_time, wavelength, shift_x, shift_y, slm_number, remove_tilt, wait_time,
+        exposure_time_ms, wavelength, shift_x, shift_y, slm_number, remove_tilt, wait_time,
         min_delta, max_delta, delta_step, n_directions,
         n_init_positions, init_range,
         lr_schedule, lr_min, delta_schedule, delta_min,
@@ -159,6 +159,7 @@ def run(dir, epochs, lr, delta, n_max, wfs_res, pupil_diameter, pupil_center, ea
             n_directions=n_directions,
             pupil_center=pupil_center,
             pupil_diameter=pupil_diameter,
+            wfs_exposure_time=exposure_time_ms,
             wavelength=wavelength,
             shift_x=shift_x,
             shift_y=shift_y,
@@ -184,7 +185,7 @@ def run(dir, epochs, lr, delta, n_max, wfs_res, pupil_diameter, pupil_center, ea
         shift_y=shift_y,
         n_max=n_max,
         wfs_res=wfs_res,
-        wfs_exposure_time=exposure_time,
+        wfs_exposure_time=exposure_time_ms,
         remove_tilt=remove_tilt,
         slm_number=slm_number,
         slm_wait_time=wait_time,
