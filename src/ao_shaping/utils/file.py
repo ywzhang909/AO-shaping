@@ -122,7 +122,8 @@ def get_init_V_by_energy(date: str = ""):
 
 
 def save_history(
-    history: pd.DataFrame | list[dict[str, Any]], file_path: str | Path = None
+    history: pd.DataFrame | list[dict[str, Any]], file_path: str | Path = None,
+    sidecar_dir: str | Path | None = None,
 ):
     if isinstance(file_path, str):
         file_path = Path(file_path)
@@ -134,6 +135,53 @@ def save_history(
         csv_path = file_path.with_suffix('.csv')
         history.to_csv(csv_path, index=False)
         logger.info(f"History saved to {csv_path}")
+        if sidecar_dir is not None:
+            _save_array_sidecars(history, sidecar_dir, file_path)
+
+
+def _save_array_sidecars(
+    history: pd.DataFrame,
+    sidecar_dir: str | Path,
+    base_path: str | Path,
+):
+    """Extract numpy-array columns from *history* and save each as an .npy sidecar.
+
+    Columns whose values are numpy arrays are identified by inspecting the
+    first non-null entry.  One ``.npy`` file is written per epoch:
+
+        <base_name>_<col>_<epoch:04d>.npy
+
+    where *base_name* is the stem of *base_path* (e.g. ``"myrun"`` from
+    ``myrun.csv``).
+    """
+    sidecar_dir = Path(sidecar_dir)
+    sidecar_dir.mkdir(parents=True, exist_ok=True)
+    base = Path(base_path).stem if base_path else "history"
+
+    array_cols: list[str] = []
+    for col in history.columns:
+        vals = history[col].dropna()
+        if len(vals) > 0 and isinstance(vals.iloc[0], np.ndarray):
+            array_cols.append(col)
+
+    if not array_cols:
+        return
+
+    npy_paths: list[Path] = []
+    for epoch_idx, row in history.iterrows():
+        for col in array_cols:
+            arr = row[col]
+            if isinstance(arr, np.ndarray):
+                fname = f"{base}_{col}_{epoch_idx:04d}.npy"
+                path = sidecar_dir / fname
+                np.save(path, arr)
+                npy_paths.append(path)
+
+    logger.info(
+        f"Saved {len(npy_paths)} array sidecar files "
+        f"for columns {array_cols} to {sidecar_dir}"
+    )
+
 
 class Recorder:
     def __init__(self, mark: str = "J", mode: Literal["max", "min"] = "max"):
@@ -196,10 +244,19 @@ class Recorder:
         df = pd.DataFrame(self.history)
         return self._ensure_postprocess_applied(df)
 
-    def save_dataframe(self, filename: str | Path, **kwargs):
+    def save_dataframe(self, filename: str | Path, sidecar_dir: str | Path | None = None, **kwargs):
         df = self.dataframe
-        save_history(df, filename)
+        save_history(df, filename, sidecar_dir=sidecar_dir)
         return df
+
+    def save_array_sidecars(self, sidecar_dir: str | Path) -> None:
+        """Save /_wavefront/ and /_phase/ columns as .npy sidecar files.
+
+        One ``.npy`` file written per epoch and per column:
+        ``<sidecar_dir>/<base>_<col>_<epoch:04d>.npy`` where
+        *base* is ``recorder.mark``.
+        """
+        _save_array_sidecars(self.dataframe, sidecar_dir, self.mark)
 
     def save_best(
         self, saved_dir: str | Path, target: str, process_fn=lambda x: x, **kwargs

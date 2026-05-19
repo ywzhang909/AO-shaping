@@ -176,6 +176,7 @@ def run(dir, epochs, lr, delta, n_max, wfs_res, pupil_diameter, pupil_center, ea
     min_iter, (min_epoch, min_rms) = records.get_best_iter()
     save_dir = root_dir / "flatten_zernike" / get_date_dir_name()
     records.save_best(saved_dir=save_dir, target="_c", process_fn=np.round, fmt="%.6f")
+    records.save_array_sidecars(save_dir)
     if debug:
         saved_file_name = gen_file_path_uuid(save_dir, 'pkl')
         fig, ax = plt.subplots(2, 2, figsize=(12, 9))
@@ -189,7 +190,7 @@ def run(dir, epochs, lr, delta, n_max, wfs_res, pupil_diameter, pupil_center, ea
 
         plt.savefig(saved_file_name.with_suffix('.png'))
         plt.close()
-        records.save_dataframe(saved_file_name.with_suffix('.zip'), compression='zip')
+        records.save_dataframe(saved_file_name.with_suffix('.zip'), sidecar_dir=save_dir, compression='zip')
 
         has_intensity = "_pos_intensity" in records.first
         if has_intensity:

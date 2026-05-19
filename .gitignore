@@ -76,3 +76,4 @@ libs/miicamsdk.20240728*
 !libs/miicamsdk.20240728/python/samples*
 libs/SLM_DLL_ver.2.51/sample*
 libs/SLM_DLL_ver.2.51/tool*
+scripts/_test*
