@@ -1,11 +1,11 @@
-import click
 from pathlib import Path
 
+import click
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-from ao_shaping.utils import gen_date_dir, gen_file_path_uuid
+from ao_shaping.utils import gen_file_path_uuid
 from ao_shaping.utils.display import plot_funcs
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
 from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name, get_debug_mode
@@ -148,10 +148,8 @@ def run(dir, epochs, lr, delta, n_max, wfs_res, pupil_diameter, pupil_center, ea
     DEBUG环境变量控制调试模式。
     """
     debug = get_debug_mode()
-    
-    if delta > 0:
-        pass
-    else:
+
+    if delta <= 0:
         delta, delta_info = _auto_delta_detect_rms(
             min_delta=min_delta,
             max_delta=max_delta,
