@@ -5,11 +5,57 @@ import numpy as np
 
 from ao_shaping.utils.zernike_calc import ZernikeGenerator
 from ao_shaping.utils.phase_unwrap import PhaseUnwrapper, UnwrapStrategy, unwrap_phase
+from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
 
 from aotools.turbulence.infinitephasescreen import PhaseScreenKolmogorov
 
 
 UNWRAP_STRATEGY = "iterative"
+WRAP_STRATEGY = "hybrid"
+
+
+class PhaseWrapOptimizerHelper:
+    _instance: PhaseWrapOptimizer | None = None
+
+    @classmethod
+    def get_optimizer(cls, slm_height: int = 1600, slm_width: int = 2560, strategy: str = WRAP_STRATEGY) -> PhaseWrapOptimizer:
+        if cls._instance is None or cls._instance.slm_height != slm_height or cls._instance.slm_width != slm_width:
+            cls._instance = PhaseWrapOptimizer(slm_height=slm_height, slm_width=slm_width, oversample=2)
+        return cls._instance
+
+    @classmethod
+    def set_strategy(cls, strategy: str):
+        global WRAP_STRATEGY
+        WRAP_STRATEGY = strategy
+
+    @classmethod
+    def wrap(cls, phase_unwrapped: np.ndarray, strategy: str | None = None) -> np.ndarray:
+        s = strategy or WRAP_STRATEGY
+        optimizer = cls.get_optimizer(phase_unwrapped.shape[0], phase_unwrapped.shape[1], s)
+        return optimizer.optimize(phase_unwrapped, strategy=s)
+
+    @classmethod
+    def min_jump_wrap(cls, phase_unwrapped: np.ndarray) -> np.ndarray:
+        optimizer = cls.get_optimizer(phase_unwrapped.shape[0], phase_unwrapped.shape[1])
+        return optimizer.min_jump_wrap(phase_unwrapped)
+
+    @classmethod
+    def error_diffusion_wrap(cls, phase_unwrapped: np.ndarray, quantization_levels: int = 256) -> np.ndarray:
+        optimizer = cls.get_optimizer(phase_unwrapped.shape[0], phase_unwrapped.shape[1])
+        return optimizer.error_diffusion_wrap(phase_unwrapped, quantization_levels)
+
+    @classmethod
+    def oversample_smooth(cls, phase_unwrapped: np.ndarray, sigma_pixels: float = 0.8) -> np.ndarray:
+        optimizer = cls.get_optimizer(phase_unwrapped.shape[0], phase_unwrapped.shape[1])
+        return optimizer.oversample_smooth(phase_unwrapped, sigma_pixels)
+
+    @classmethod
+    def detect_jumps(cls, wrapped_phase: np.ndarray, threshold: float = 0.5 * np.pi) -> np.ndarray:
+        return PhaseWrapOptimizer.detect_jumps(wrapped_phase, threshold)
+
+    @classmethod
+    def calculate_efficiency(cls, phase: np.ndarray) -> float:
+        return PhaseWrapOptimizer.calculate_diffraction_efficiency(phase)
 
 
 class PhaseUnwrapperHelper:
@@ -615,3 +661,79 @@ class PatternHelper:
             resolution = self.resolution
         s = strategy if strategy is not None else UNWRAP_STRATEGY
         return unwrap_phase(wrapped, strategy=s, resolution=resolution)
+
+    def wrap_phase(self, phase_unwrapped: np.ndarray, strategy: str = WRAP_STRATEGY) -> np.ndarray:
+        """包裹相位（将连续相位转换为2π范围内的包裹相位）。
+
+        使用 PhaseWrapOptimizer 进行包裹优化，减少2π跳变产生的高频衍射误差。
+
+        Args:
+            phase_unwrapped: 连续相位 (弧度)
+            strategy: 包裹策略 ("min_jump", "error_diffusion", "oversample", "repair", "hybrid")
+
+        Returns:
+            包裹相位 [0, 2π)
+        """
+        optimizer = PhaseWrapOptimizer(slm_height=self._height, slm_width=self._width, oversample=2)
+        return optimizer.optimize(phase_unwrapped, strategy=strategy)
+
+    def wrap_phase_min_jump(self, phase_unwrapped: np.ndarray) -> np.ndarray:
+        """最小跳变包裹。
+
+        Args:
+            phase_unwrapped: 连续相位
+
+        Returns:
+            包裹相位
+        """
+        optimizer = PhaseWrapOptimizer(slm_height=self._height, slm_width=self._width)
+        return optimizer.min_jump_wrap(phase_unwrapped)
+
+    def wrap_phase_error_diffusion(self, phase_unwrapped: np.ndarray, quantization_levels: int = 256) -> np.ndarray:
+        """误差扩散包裹。
+
+        Args:
+            phase_unwrapped: 连续相位
+            quantization_levels: 量化级数
+
+        Returns:
+            包裹相位
+        """
+        optimizer = PhaseWrapOptimizer(slm_height=self._height, slm_width=self._width)
+        return optimizer.error_diffusion_wrap(phase_unwrapped, quantization_levels)
+
+    def wrap_phase_oversample(self, phase_unwrapped: np.ndarray, sigma_pixels: float = 0.8) -> np.ndarray:
+        """过采样平滑包裹。
+
+        Args:
+            phase_unwrapped: 连续相位
+            sigma_pixels: 高斯平滑 sigma
+
+        Returns:
+            包裹相位
+        """
+        optimizer = PhaseWrapOptimizer(slm_height=self._height, slm_width=self._width, oversample=2)
+        return optimizer.oversample_smooth(phase_unwrapped, sigma_pixels)
+
+    def detect_phase_jumps(self, wrapped_phase: np.ndarray, threshold: float = 0.5 * np.pi) -> np.ndarray:
+        """检测相位跳变位置。
+
+        Args:
+            wrapped_phase: 包裹相位
+            threshold: 跳变检测阈值
+
+        Returns:
+            布尔掩模，True表示跳变边缘
+        """
+        return PhaseWrapOptimizer.detect_jumps(wrapped_phase, threshold)
+
+    def calculate_diffraction_efficiency(self, phase: np.ndarray) -> float:
+        """计算衍射效率估计。
+
+        Args:
+            phase: 相位图
+
+        Returns:
+            衍射效率 [0, 1]
+        """
+        return PhaseWrapOptimizer.calculate_diffraction_efficiency(phase)
