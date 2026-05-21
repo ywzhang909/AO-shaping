@@ -8,7 +8,7 @@ AO-Shaping是一个基于强化学习的自适应光学(AO)系统，用于波前
 
 - **多优化算法**: 支持基于波前传感器的RMS优化和无波前的PIB优化
 - **强化学习集成**: 使用SAC算法进行波前优化
-- **硬件支持**: 兼容Thorlabs WFS波前传感器、NLight变形镜、大恒相机、MIICAM和Santec SLM200
+- **硬件支持**: 兼容Thorlabs WFS波前传感器、NLight变形镜、R50Power MicroDM、大恒相机、MIICAM和Santec SLM200
 - **可视化工具**: 提供实时波前和电压可视化功能
 - **数据处理**: 集成Dask进行高性能数据处理和分析
 - **实验跟踪**: 支持WandB和SwanLab进行实验管理和可视化
@@ -29,7 +29,7 @@ AO-shaping/
 │   │   ├── algorithm/           # 优化算法 (Adam, SGD, Muon等)
 │   │   ├── drivers/             # 硬件驱动
 │   │   │   ├── ccd/             # 相机 (Daheng, MiiCam)
-│   │   │   ├── dm/              # 变形镜 (NLight)
+│   │   │   ├── dm/              # 变形镜 (NLight, R50Power MicroDM)
 │   │   │   ├── slm/             # 空间光调制器 (Santec)
 │   │   │   ├── wfs/             # 波前传感器 (Thorlabs)
 │   │   │   ├── tm/              # 定时模块 (Serial/FSM)
@@ -345,6 +345,32 @@ streamlit run src/ao_shaping/gui/app.py
 
 ### 变形镜
 - **NLight系列**: 支持电压控制和电压差安全检查
+- **R50Power MicroDM**: 通过异步 TCP 控制多路 R50Power 控制器（每路 50 通道，-20V~120V）
+  - 自动从 `libs/micro_drive1300/wiring_map.json` 加载控制器 IP 和通道映射
+  - 支持 39×39 阵列坐标 `(x, y)` 到控制器通道的双向查询
+  - 支持 `(ip_suffix, payload_position)` 到物理位置的映射查询
+  - 类型安全的 WiringMap dataclass 解析（`WiringMap`, `ChannelEntry`, `ChannelInfo`）
+  - 可通过 `use_wiring_map=False` 回退到默认 IP 配置
+
+  ```python
+  from ao_shaping.drivers.dm.MicroDM import MicroDM
+
+  # 默认加载 wiring map，自动识别 5 个控制器 IP
+  dm = MicroDM()
+
+  # 通过 39×39 阵列坐标查询通道信息
+  info = dm.get_channel_by_xy(x=1, y=3)
+  print(info.ip_address, info.payload_position, info.physical_label)
+
+  # 通过控制器 IP 和通道标号查询
+  info = dm.get_channel_by_ip_position(ip_suffix=101, payload_position=13)
+  print(info.physical_position, info.physical_label)
+
+  # 发送电压指令
+  dm.open()
+  dm.send_voltages(np.zeros(dm.DM_Num))
+  dm.close()
+  ```
 
 ### 相机
 - **大恒相机系列**: DahengCamManager，支持14位和16位模式
