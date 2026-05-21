@@ -351,12 +351,19 @@ streamlit run src/ao_shaping/gui/app.py
   - 支持 `(ip_suffix, payload_position)` 到物理位置的映射查询
   - 类型安全的 WiringMap dataclass 解析（`WiringMap`, `ChannelEntry`, `ChannelInfo`）
   - 可通过 `use_wiring_map=False` 回退到默认 IP 配置
+  - **容错连接**: `open()` 允许个别控制器连接失败，记录 warning 后继续，仅当全部失败时抛出异常
+  - **连接状态检查**: `get_connection_status()` 返回所有控制器的 ping 可达性和 TCP 连接状态
+  - **单控制器管理**: 支持 `connect_controller(id)`、`disconnect_controller(id)`、`reconnect_controller(id)` 独立控制
+  - **排除控制器**: 初始化时可通过 `exclude_ips` 或 `exclude_ids` 跳过指定控制器
 
   ```python
   from ao_shaping.drivers.dm.MicroDM import MicroDM
 
-  # 默认加载 wiring map，自动识别 5 个控制器 IP
+  # 默认加载 wiring map，自动识别控制器 IP
   dm = MicroDM()
+
+  # 排除特定控制器（按 IP 或 ID）
+  dm = MicroDM(exclude_ips=["192.168.0.103"], exclude_ids=[4, 5])
 
   # 通过 39×39 阵列坐标查询通道信息
   info = dm.get_channel_by_xy(x=1, y=3)
@@ -369,6 +376,17 @@ streamlit run src/ao_shaping/gui/app.py
   # 发送电压指令
   dm.open()
   dm.send_voltages(np.zeros(dm.DM_Num))
+
+  # 检查所有控制器连接状态
+  for status in dm.get_connection_status():
+      print(f"ID={status.controller_id} IP={status.ip} "
+            f"ping={status.ping_reachable} tcp={status.tcp_connected}")
+
+  # 单独管理控制器
+  dm.connect_controller(3)       # 连接控制器 3
+  dm.disconnect_controller(2)    # 断开控制器 2
+  dm.reconnect_controller(1)     # 重连控制器 1
+
   dm.close()
   ```
 
@@ -434,6 +452,13 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 - [drivers/AGENTS.md](src/ao_shaping/drivers/AGENTS.md): 硬件驱动文档
 
 ## 近期更新
+
+### v0.3.0 (2026-05)
+- MicroDM 容错连接: `open()` 允许个别控制器连接失败，记录 warning 后继续
+- MicroDM 连接状态检查: `get_connection_status()` 返回 ping 可达性和 TCP 连接状态
+- MicroDM 单控制器管理: `connect_controller()` / `disconnect_controller()` / `reconnect_controller()`
+- MicroDM 排除控制器: 初始化支持 `exclude_ips` 和 `exclude_ids` 参数
+- MicroDM 新增 `ControllerStatus` dataclass 和 `_ping_host()` 静态方法
 
 ### v0.2.0 (2026-03)
 - 新增SLM (Santec SLM200) 支持
