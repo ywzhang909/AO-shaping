@@ -21,7 +21,7 @@ from ao_shaping.drivers.dm.MicroDM import (
     HEADER,
     MAX_CHANNELS,
     R50Controller,
-    voltage_to_bytes_clipped,
+    voltages_to_payload,
 )
 
 # Import the port listener for protocol verification tests
@@ -44,11 +44,11 @@ class TestR50Controller:
     
     def test_sends(self, controller: R50Controller):
         assert controller.open()
-        # assert controller.set_relay(True)
-        # assert controller.set_all_channel_voltage(20)
+        assert controller.set_relay(True)
+        assert controller.set_all_channel_voltage(20)
         assert controller.set_all_voltage_array(list(range(1, 51)))
-        # assert controller.set_channel_voltage(1, 20)
-        # assert controller.set_relay(False)
+        assert controller.set_channel_voltage(1, 20)
+        assert controller.set_relay(False)
         
     async def test_sends_async(self, controller: R50Controller):
         assert controller.open()
@@ -169,8 +169,8 @@ class TestR50Controller:
         result = controller.set_all_channel_voltage(0.0)
         
         assert result is True
-        hv, lv = voltage_to_bytes_clipped(0.0)
-        expected_cmd = HEADER + bytes([CMD_SET_ALL_CHANNEL_VOLTAGE, hv, lv]) + FOOTER
+        payload = voltages_to_payload(0.0)
+        expected_cmd = HEADER + bytes([CMD_SET_ALL_CHANNEL_VOLTAGE, payload[0], payload[1]]) + FOOTER
         mock_sock.sendall.assert_called_once_with(expected_cmd)
 
     def test_set_relay_off(self, controller):
@@ -297,10 +297,10 @@ class TestR50ControllerProtocol:
                 assert cmd_data[2] == CMD_SET_ALL_CHANNEL_VOLTAGE, \
                     f"Expected command 0x08, got 0x{cmd_data[2]:02x}"
 
-                # Check voltage bytes for 0V (should be 0x16, 0xD1 based on voltage_to_bytes_clipped)
-                hv, lv = voltage_to_bytes_clipped(0.0)
-                assert cmd_data[3] == hv, f"Expected high byte 0x{hv:02x}, got 0x{cmd_data[3]:02x}"
-                assert cmd_data[4] == lv, f"Expected low byte 0x{lv:02x}, got 0x{cmd_data[4]:02x}"
+                # Check voltage bytes for 0V (should be 0x16, 0xD1)
+                payload = voltages_to_payload(0.0)
+                assert cmd_data[3] == payload[0], f"Expected high byte 0x{payload[0]:02x}, got 0x{cmd_data[3]:02x}"
+                assert cmd_data[4] == payload[1], f"Expected low byte 0x{payload[1]:02x}, got 0x{cmd_data[4]:02x}"
 
             finally:
                 # Cleanup controller (sync call)
@@ -345,9 +345,9 @@ class TestR50ControllerProtocol:
                 assert cmd_data[3] == 0, f"Expected channel 0, got {cmd_data[3]}"
 
                 # Check voltage bytes for 5.0V
-                hv, lv = voltage_to_bytes_clipped(5.0)
-                assert cmd_data[4] == hv, f"Expected high byte 0x{hv:02x}, got 0x{cmd_data[4]:02x}"
-                assert cmd_data[5] == lv, f"Expected low byte 0x{lv:02x}, got 0x{cmd_data[5]:02x}"
+                payload = voltages_to_payload(5.0)
+                assert cmd_data[4] == payload[0], f"Expected high byte 0x{payload[0]:02x}, got 0x{cmd_data[4]:02x}"
+                assert cmd_data[5] == payload[1], f"Expected low byte 0x{payload[1]:02x}, got 0x{cmd_data[5]:02x}"
 
             finally:
                 # Cleanup controller (sync call)
@@ -394,13 +394,13 @@ class TestR50ControllerProtocol:
                     f"Expected {expected_length} bytes, got {len(cmd_data)}: {cmd_data.hex()}"
 
                 # Verify each pair of bytes corresponds to 0V
-                hv, lv = voltage_to_bytes_clipped(0.0)
+                payload = voltages_to_payload(0.0)
                 for i in range(MAX_CHANNELS):
                     byte_index = 3 + (i * 2)
-                    assert cmd_data[byte_index] == hv, \
-                        f"Byte pair {i}: expected high byte 0x{hv:02x}, got 0x{cmd_data[byte_index]:02x}"
-                    assert cmd_data[byte_index + 1] == lv, \
-                        f"Byte pair {i}: expected low byte 0x{lv:02x}, got 0x{cmd_data[byte_index + 1]:02x}"
+                    assert cmd_data[byte_index] == payload[0], \
+                        f"Byte pair {i}: expected high byte 0x{payload[0]:02x}, got 0x{cmd_data[byte_index]:02x}"
+                    assert cmd_data[byte_index + 1] == payload[1], \
+                        f"Byte pair {i}: expected low byte 0x{payload[1]:02x}, got 0x{cmd_data[byte_index + 1]:02x}"
 
             finally:
                 # Cleanup controller (sync call)
@@ -421,8 +421,8 @@ class TestR50ControllerProtocol:
 
             try:
                 # Build a valid command: set all channels to 0V
-                hv, lv = voltage_to_bytes_clipped(0.0)
-                cmd = HEADER + bytes([CMD_SET_ALL_CHANNEL_VOLTAGE, hv, lv]) + FOOTER
+                payload = voltages_to_payload(0.0)
+                cmd = HEADER + bytes([CMD_SET_ALL_CHANNEL_VOLTAGE, payload[0], payload[1]]) + FOOTER
 
                 # Send via the async method
                 result = await controller.send_command_async(cmd)
@@ -449,8 +449,8 @@ class TestR50ControllerProtocol:
                 assert len(cmd_data) == 7, f"Expected 7 bytes, got {len(cmd_data)}: {cmd_data.hex()}"
                 assert cmd_data[2] == CMD_SET_ALL_CHANNEL_VOLTAGE, \
                     f"Expected command 0x08, got 0x{cmd_data[2]:02x}"
-                assert cmd_data[3] == hv, f"Expected high byte 0x{hv:02x}, got 0x{cmd_data[3]:02x}"
-                assert cmd_data[4] == lv, f"Expected low byte 0x{lv:02x}, got 0x{cmd_data[4]:02x}"
+                assert cmd_data[3] == payload[0], f"Expected high byte 0x{payload[0]:02x}, got 0x{cmd_data[3]:02x}"
+                assert cmd_data[4] == payload[1], f"Expected low byte 0x{payload[1]:02x}, got 0x{cmd_data[4]:02x}"
 
             finally:
                 # Cleanup controller (sync call)

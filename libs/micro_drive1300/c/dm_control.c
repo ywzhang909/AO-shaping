@@ -146,13 +146,25 @@ static int GetDefaultPort(int controllerId) {
 /*============================================================================
  * Convert Voltage to High/Low Bytes
  * Protocol: value = (voltage + 20) / 20 / 3.4 / 3.3 * 65535.0
- *===========================================================================*/
+ *============================================================================*/
 static void ConvertVoltage(float voltage, uint8_t* highByte, uint8_t* lowByte) {
     double value = (voltage + 20.0) / 20.0 / 3.4 / 3.3 * 65535.0;
     uint16_t raw = (uint16_t)(value + 0.5); /* Round */
     *highByte = (uint8_t)(raw / 256);
     *lowByte = (uint8_t)(raw % 256);
 }
+/* NOTE: This implementation uses consistent base-256 byte extraction:
+ *   high = raw / 256, low = raw % 256
+ * This is THEORETICALLY CORRECT and ensures high * 256 + low == raw.
+ *
+ * However, the MATLAB reference (R50PowerV1.m) uses inconsistent extraction:
+ *   high = floor(value / 255), low = floor(mod(value, 256))
+ * This creates a non-injective mapping due to inconsistent bases.
+ *
+ * The MATLAB behavior is preserved in Python for hardware compatibility,
+ * but this C implementation follows the cleaner, mathematically correct
+ * approach. Be aware of this discrepancy when comparing implementations.
+ */
 
 /*============================================================================
  * Validate Voltage

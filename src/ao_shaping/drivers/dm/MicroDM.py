@@ -75,55 +75,40 @@ DEFAULT_IPS = [f"192.168.0.{100 + i}" for i in range(1, MAX_CONTROLLERS + 1)]
 # Voltage Conversion
 # =============================================================================
 
-def voltage_to_bytes(voltage: float) -> tuple[int, int]:
-    """Convert voltage to high/low bytes per the R50Power protocol.
+def voltages_to_payload(voltages: np.ndarray | list[float] | float) -> bytes:
+    """Convert voltage(s) to the 0x09 command payload.
 
-    Formula (from MATLAB R50PowerV1.m):
+    Supports single float (returns 2 bytes) or array (returns 2*N bytes).
+    Vectorized numpy version — clips, scales, and interleaves
+    high/low bytes in one pass.
+
+    Protocol reference (from R50PowerV1.m MATLAB):
         value = (voltage + 20) / 20 / 3.4 / 3.3 * 65535.0
-        high_byte = floor(value / 255)
-        low_byte = floor(mod(value, 256))
+        highByte = floor(value / 255)
+        lowByte = floor(mod(value, 256))
 
-    The C/Python reference rounds: raw = int(value + 0.5), then raw // 256 / % 256.
+    # NOTO
+    THEORETICAL CORRECT IMPLEMENTATION (consistent byte extraction):
+        The MATLAB implementation has an inconsistency: it uses 255 for high byte
+        division but 256 for low byte (via mod). Theoretically correct would be:
+            raw = round(value)  # proper rounding to nearest integer
+            high = raw // 256   # consistent with low = raw % 256
+            low = raw % 256
+        This ensures high * 256 + low == raw for the full value range.
+        However, the MATLAB behavior is preserved for hardware compatibility.
 
     Args:
-        voltage: Voltage in volts (-20 to 120).
+        voltages: Single voltage (float) or array of voltages (list/np.ndarray).
 
     Returns:
-        Tuple of (high_byte, low_byte).
+        Interleaved high/low bytes as bytes object.
     """
-    value = (voltage + 20.0) / 20.0 / 3.4 / 3.3 * 65535.0
-    raw = int(value + 0.5)  # Round, matching C/Python reference
-    return raw // 256, raw % 256
-
-
-def voltage_to_bytes_clipped(voltage: float) -> tuple[int, int]:
-    """Convert voltage with hard clipping to [-20, 120] range."""
-    return voltage_to_bytes(max(VOLTAGE_MIN, min(VOLTAGE_MAX, voltage)))
-
-
-def voltages_to_payload(voltages: np.ndarray | list[float]) -> bytes:
-    """Convert a voltage array to the 0x09 command payload (100 bytes).
-
-    Vectorized numpy version — clips, scales, rounds, and interleaves
-    high/low bytes in one pass.  Accepts both ``list[float]`` and
-    ``np.ndarray``, so callers (sync and async) can pass data in whatever
-    form they already have without an extra conversion step.
-
-    Compared to a per-element loop::
-
-        for v in voltages:                             # 50 Python calls
-            hv, lv = voltage_to_bytes_clipped(v)       # 50 clip + convert
-            cmd += bytes([hv, lv])                     # 50 small allocations
-
-    this function replaces all 150+ intermediate operations with a single
-    numpy vectorised pass.
-    """
-    v = np.asarray(voltages, dtype=np.float64)
-    np.clip(v, VOLTAGE_MIN, VOLTAGE_MAX, out=v)  # in-place, no copy
-    value = (v + 20.0) / (20.0 * 3.4 * 3.3) * 65535.0
-    raw = np.round(value).astype(np.int32)
-    high = (raw // 256).astype(np.uint8)
-    low = (raw % 256).astype(np.uint8)
+    v = np.atleast_1d(np.asarray(voltages, dtype=np.float64))
+    np.clip(v, VOLTAGE_MIN, VOLTAGE_MAX, out=v)
+    value = (v + 20.0) / 20.0 / 3.4 / 3.3 * 65535.0
+    raw = np.floor(value).astype(np.int32)
+    high = np.floor(raw / 255).astype(np.uint8)
+    low = np.mod(raw, 256).astype(np.uint8)
     interleaved = np.empty(2 * len(v), dtype=np.uint8)
     interleaved[0::2] = high
     interleaved[1::2] = low
@@ -287,7 +272,8 @@ class R50Controller:
         Returns:
             True on success.
         """
-        hv, lv = voltage_to_bytes_clipped(voltage)
+        payload = voltages_to_payload(voltage)
+        hv, lv = payload[0], payload[1]
         cmd = HEADER + bytes([CMD_SET_ALL_CHANNEL_VOLTAGE, hv, lv]) + FOOTER
         return self.send_command(cmd)
 
@@ -306,7 +292,8 @@ class R50Controller:
                 f"R50Controller[{self.controller_id}] invalid channel: {channel}"
             )
             return False
-        hv, lv = voltage_to_bytes_clipped(voltage)
+        payload = voltages_to_payload(voltage)
+        hv, lv = payload[0], payload[1]
         cmd = HEADER + bytes([CMD_SET_CHANNEL_VOLTAGE, channel, hv, lv]) + FOOTER
         return self.send_command(cmd)
 
@@ -326,11 +313,7 @@ class R50Controller:
             )
             return False
 
-        cmd = HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR])
-        for v in voltages:
-            hv, lv = voltage_to_bytes_clipped(v)
-            cmd += bytes([hv, lv])
-        cmd += FOOTER
+        cmd = HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR]) + voltages_to_payload(voltages) + FOOTER
         return self.send_command(cmd)
 
     async def set_all_voltage_array_async(
@@ -720,17 +703,12 @@ class MicroDM(DM, Device):
             end = start + MAX_CHANNELS
             if start >= len(vs):
                 break
-            chunk = vs[start:end].tolist()
+            chunk = vs[start:end]
             # Pad with zeros if the last controller has fewer than 50
             if len(chunk) < MAX_CHANNELS:
-                chunk.extend([0.0] * (MAX_CHANNELS - len(chunk)))
+                chunk = np.pad(chunk, (0, MAX_CHANNELS - len(chunk)), constant_values=0.0)
 
-            # Build full 0x09 command bytes synchronously, then async send
-            cmd = HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR])
-            for v in chunk:
-                hv, lv = voltage_to_bytes_clipped(v)
-                cmd += bytes([hv, lv])
-            cmd += FOOTER
+            cmd = HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR]) + voltages_to_payload(chunk) + FOOTER
             tasks.append(ctrl.send_command_async(cmd))
 
         if tasks:

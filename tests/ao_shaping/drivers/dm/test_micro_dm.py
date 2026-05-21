@@ -19,8 +19,7 @@ from ao_shaping.drivers.dm.MicroDM import (
     MicroDMConnectionError,
     MicroDMVoltageError,
     RelayState,
-    voltage_to_bytes,
-    voltage_to_bytes_clipped,
+    voltages_to_payload,
     VOLTAGE_MIN,
     VOLTAGE_MAX,
     MAX_CHANNELS,
@@ -43,39 +42,39 @@ class TestVoltageConversion:
 
     def test_voltage_minus_20(self):
         """At -20 V the raw value should be ~0 → high=0, low=0."""
-        hv, lv = voltage_to_bytes(-20.0)
-        assert hv == 0
-        assert lv == 0
+        payload = voltages_to_payload(-20.0)
+        assert payload[0] == 0
+        assert payload[1] == 0
 
     def test_voltage_zero(self):
         """At 0 V the conversion should produce reasonable byte values."""
-        hv, lv = voltage_to_bytes(0.0)
+        payload = voltages_to_payload(0.0)
         # value = 20 / 20 / 3.4 / 3.3 * 65535 ≈ 5840.8
         # raw = int(5840.8 + 0.5) = 5841
         # high = 5841 // 256 = 22, low = 5841 % 256 = 209
-        assert hv == 22
-        assert lv == 209
+        assert payload[0] == 22
+        assert payload[1] == 209
 
     def test_voltage_120(self):
         """At 120 V the conversion should produce reasonable byte values."""
-        hv, lv = voltage_to_bytes(120.0)
+        payload = voltages_to_payload(120.0)
         # value = 140 / 20 / 3.4 / 3.3 * 65535 ≈ 40886.6
         # raw = int(40886.6 + 0.5) = 40886 (note: float precision)
         # high = 40886 // 256 = 159, low = 40886 % 256 = 182
-        assert hv == 159
-        assert lv == 182
+        assert payload[0] == 159
+        assert payload[1] == 182
 
     def test_voltage_clipped_low(self):
         """Values below -20 V should be clipped to -20 V."""
-        hv, lv = voltage_to_bytes_clipped(-30.0)
-        assert hv == 0
-        assert lv == 0
+        payload = voltages_to_payload(-30.0)
+        assert payload[0] == 0
+        assert payload[1] == 0
 
     def test_voltage_clipped_high(self):
         """Values above 120 V should be clipped to 120 V."""
-        hv, lv = voltage_to_bytes_clipped(150.0)
-        assert hv == 159
-        assert lv == 182
+        payload = voltages_to_payload(150.0)
+        assert payload[0] == 159
+        assert payload[1] == 182
 
 
 # =============================================================================

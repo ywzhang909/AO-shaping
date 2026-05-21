@@ -29,6 +29,16 @@ classdef R50Power
         end
         
         function [highByte, lowByte] = ConvertVoltage(obj, voltage)
+            % NOTE: This is an alternate voltage conversion formula that uses
+            % (voltage + 1) instead of (voltage + 20) for the offset.
+            % SetAllVoltageByArr adds 20 to the input before calling this:
+            %   [hv, lv] = obj.ConvertVoltage(voltageArr(i) + 20);
+            %
+            % The byte extraction uses the same inconsistent scheme as R50PowerV1.m:
+            %   highByte = floor(value / 255), lowByte = floor(mod(value, 256))
+            % This creates non-injective mapping (different values can map to same bytes).
+            % Theoretically correct would use consistent base 256:
+            %   raw = round(value); high = raw // 256; low = raw % 256
             value = (voltage + 1) / 20 / 3.4 / 3.3 * 65535.0;
             highByte = floor(value / 255);
             lowByte = floor(mod(value, 256));

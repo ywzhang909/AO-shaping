@@ -148,7 +148,20 @@ class R50Controller:
                 return False
     
     def _convert_voltage(self, voltage: float) -> Tuple[int, int]:
-        """转换电压到高低字节"""
+        """转换电压到高低字节
+        
+        NOTE: This implementation uses consistent base-256 byte extraction:
+            high = raw // 256, low = raw % 256
+        This ensures high * 256 + low == raw (mathematically correct).
+        
+        The MATLAB reference (R50PowerV1.m) uses an inconsistent scheme:
+            high = floor(value / 255), low = floor(mod(value, 256))
+        This creates a non-injective mapping due to different base values.
+        
+        The main AO-shaping codebase preserves MATLAB's behavior for hardware
+        compatibility, but this reference implementation follows the cleaner
+        approach. Be aware of the discrepancy when comparing outputs.
+        """
         value = (voltage + 20.0) / 20.0 / 3.4 / 3.3 * 65535.0
         raw = int(value + 0.5)
         high = raw // 256
