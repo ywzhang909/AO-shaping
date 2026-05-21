@@ -25,15 +25,20 @@ class ZernikeDM(DM):
         resolution: tuple[int, int] = (1920, 1080),
         radius: float | None = None,
         bits: int = 10,
+        safety_mode: bool = True,
     ):
         self.n_max = n_max
         self.resolution = resolution
         self.bits = bits
 
+        # Initialize generator BEFORE super().__init__
+        # because DM_NUM property depends on _generator
         self._generator = ZernikeGenerator(
             resolution=resolution, radius=radius, n_orders=n_max
         )
         self._generator.set_bits(bits)
+
+        super().__init__(safety_mode=safety_mode)
 
         self._current_coeffs: dict[tuple[int, int], float] = {}
         self._current_phase: np.ndarray | None = None
@@ -170,12 +175,15 @@ class ZernikeDM(DM):
         return self.is_open
 
     def get_hardware_info(self) -> dict:
-        return {
-            "type": "ZernikeDM",
-            "n_max": self.n_max,
-            "resolution": self.resolution,
-            "radius": self._generator.radius,
-        }
+        info = super().get_hardware_info()
+        info.update(
+            {
+                "n_max": self.n_max,
+                "resolution": self.resolution,
+                "radius": self._generator.radius,
+            }
+        )
+        return info
 
     def __enter__(self):
         self.open()

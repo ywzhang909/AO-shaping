@@ -22,11 +22,17 @@ class NLight(DM):
 
     Units_Adj_Mat = _load_adj_txt()
 
-    def __init__(self, max_iter_diff=20, max_neibor_diff=200, keep_when_exit=True):
+    def __init__(
+        self,
+        max_iter_diff=20,
+        max_neibor_diff=200,
+        keep_when_exit=True,
+        safety_mode=True,
+    ):
         assert max_iter_diff <= 200
         assert max_neibor_diff <= 300
 
-        self.__last_v = np.zeros(self.DM_NUM)
+        super().__init__(safety_mode=safety_mode)
         self.max_iter_diff = max_iter_diff
         self._max_neibor_diff = max_neibor_diff
 
@@ -63,18 +69,11 @@ class NLight(DM):
 
     def transform(self, cmd: np.ndarray) -> np.ndarray:
         """Transform command to DM actuators"""
-        cmd = np.clip(cmd, -1, 1)
-        return (cmd + 1) * (self.V_Max - self.V_Min) / 2 + self.V_Min
-
-    def send(self, cmd):
-        """Send command to DM - accepts voltage array"""
-        if isinstance(cmd, np.ndarray):
-            return self.send_voltages(cmd)
-        raise ValueError("Unsupported command type. Expected numpy array of voltages.")
+        return self.transform_voltage(cmd)
 
     def get_actuator_positions(self) -> np.ndarray:
         """Get positions of DM actuators"""
-        return self.__last_v.copy()
+        return self._last_voltages.copy()
 
     def get_hardware_info(self) -> dict:
         return {
@@ -84,32 +83,32 @@ class NLight(DM):
             "V_Max": self.V_Max,
             "max_neibor_diff": self.max_neibor_diff,
             "max_iter_diff": self.max_iter_diff,
+            "safety_mode": self._safety_mode,
         }
+
+    def _apply_voltages(self, vs: np.ndarray) -> np.ndarray:
+        """Low-level voltage application via UDP driver."""
+        vs = np.clip(vs, self.V_Min, self.V_Max)
+        if self.max_iter_diff > 0:
+            gap = vs - self._last_voltages
+            direction = np.sign(gap)
+            abs_gap = np.abs(gap)
+            while abs_gap.any():
+                abs_gap = np.clip(abs_gap - self.max_iter_diff, 0, self.V_Max)
+                self.udp_driver.set_voltages(vs + direction * abs_gap)
+        self.udp_driver.set_voltages(vs)
+        self._last_voltages = vs.copy()
+        return self._last_voltages
 
     def initialize(self) -> None:
         self.set_hv(hv=True)
 
     def reset_all(self):
         self.send_voltages(np.zeros(self.DM_NUM), 0.01)
-
         if (ret := self.c_driver.reset_all()) == 0:
-            self.__last_v = np.zeros_like(self.__last_v)
+            self._last_voltages = np.zeros_like(self._last_voltages)
         time.sleep(0.5)
         return ret
-
-    def send_voltages(self, vs: np.ndarray, wait_time_s=0.001):
-        vs = np.clip(vs, -300, 499)
-        __gap = vs - self.__last_v
-        if self.max_iter_diff > 0:
-            _direction = np.sign(__gap)
-            _abs_gap = np.abs(__gap)
-            while _abs_gap.any():
-                _abs_gap = np.clip(_abs_gap - self.max_iter_diff, 0, 499)
-                self.udp_driver.set_voltages(vs + _direction * _abs_gap)
-        self.udp_driver.set_voltages(vs)
-        self.__last_v = vs
-        time.sleep(wait_time_s)
-        return self.__last_v
 
     def set_hv(self, hv: bool = True):
         ret = self.c_driver.set_hv(hv)

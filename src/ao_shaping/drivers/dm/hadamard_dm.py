@@ -37,18 +37,17 @@ class HadamardDM(DM):
         radius: float | None = None,
         bits: int = 10,
         mask_type: str = "circular",
+        safety_mode: bool = True,
     ):
         """Initialize the Hadamard DM.
 
         Args:
             mode_order: The order N of the Hadamard matrix. Must be a power of 2.
-                       Default is 8, giving 64 total 2D modes.
             resolution: Output phase resolution as (width, height).
-                       Default is (1920, 1080).
-            radius: Aperture radius in normalized coordinates. Default is 1.0.
-            bits: SLM bit depth (e.g., 10 for 0-1023 range). Default is 10.
+            radius: Aperture radius in normalized coordinates.
+            bits: SLM bit depth (e.g., 10 for 0-1023 range).
             mask_type: Pupil mask type ("circular" or "rectangular").
-                      Default is "circular".
+            safety_mode: Accepted for interface consistency (no effect for phase DMs).
         """
         self.mode_order = mode_order
         self.resolution = resolution
@@ -56,7 +55,8 @@ class HadamardDM(DM):
         self.mask_type = mask_type
         self._radius = radius
 
-        # Initialize the Hadamard generator
+        # Initialize the Hadamard generator BEFORE super().__init__
+        # because DM_NUM property depends on _generator
         self._generator = HadamardGenerator(
             resolution=resolution,
             mode_order=mode_order,
@@ -64,6 +64,8 @@ class HadamardDM(DM):
             radius=radius,
         )
         self._generator.set_bits(bits)
+
+        super().__init__(safety_mode=safety_mode)
 
         # Track current state
         self._current_coeffs: np.ndarray | None = None
@@ -212,20 +214,18 @@ class HadamardDM(DM):
         return self.is_open
 
     def get_hardware_info(self) -> dict:
-        """Get hardware information about this DM.
-
-        Returns:
-            Dictionary with hardware specifications.
-        """
-        return {
-            "type": "HadamardDM",
-            "mode_order": self.mode_order,
-            "n_modes": self.DM_NUM,
-            "resolution": self.resolution,
-            "radius": self._generator.radius,
-            "mask_type": self.mask_type,
-            "bits": self.bits,
-        }
+        info = super().get_hardware_info()
+        info.update(
+            {
+                "mode_order": self.mode_order,
+                "n_modes": self.DM_NUM,
+                "resolution": self.resolution,
+                "radius": self._generator.radius,
+                "mask_type": self.mask_type,
+                "bits": self.bits,
+            }
+        )
+        return info
 
     def __enter__(self):
         """Context manager entry."""

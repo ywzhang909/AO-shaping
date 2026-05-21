@@ -15,6 +15,12 @@ class TestHadamardDM:
         assert hdm.bits == 10
         assert hdm.mask_type == "circular"
         assert not hdm.is_open
+        assert hdm._safety_mode is True
+
+    def test_safety_mode_off(self):
+        """Test initialization with safety_mode=False."""
+        hdm = HadamardDM(safety_mode=False)
+        assert hdm._safety_mode is False
 
     def test_init_custom_params(self):
         """Test initialization with custom parameters."""

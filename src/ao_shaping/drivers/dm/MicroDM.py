@@ -770,6 +770,7 @@ class MicroDM(DM, Device):
         use_wiring_map: bool = True,
         exclude_ips: list[str] | None = None,
         exclude_ids: list[int] | None = None,
+        safety_mode: bool = True,
     ):
         """Initialize the MicroDM driver.
 
@@ -786,7 +787,10 @@ class MicroDM(DM, Device):
                 Controllers with these IPs will not be created.
             exclude_ids: Controller IDs (1-based) to skip during initialization.
                 Controllers with these IDs will not be created.
+            safety_mode: If True (default), send_voltages ramps from current
+                state to target in steps bounded by max_neibor_diff.
         """
+        DM.__init__(self, safety_mode=safety_mode)
         Device.__init__(self, device_id)
 
         # Load wiring map if enabled
@@ -825,8 +829,6 @@ class MicroDM(DM, Device):
 
         self._timeout = timeout
 
-        # Current voltage state (logical actuator voltages)
-        self._voltages: np.ndarray = np.zeros(self.DM_Num)
         self._relay_state = RelayState.OFF
 
         # Build async controllers, skipping excluded IDs
@@ -1211,7 +1213,7 @@ class MicroDM(DM, Device):
         Returns:
             Copy of the current voltage array (DM_Num elements).
         """
-        return self._voltages.copy()
+        return self._last_voltages.copy()
 
     # ---- DM Interface -------------------------------------------------------
 
@@ -1247,10 +1249,19 @@ class MicroDM(DM, Device):
             return self.set_all_channel_voltage(float(cmd))
         raise MicroDMVoltageError(f"Unsupported command type: {type(cmd)}")
 
+    def _apply_voltages(self, vs: np.ndarray) -> np.ndarray:
+        """Low-level voltage application via async TCP to all controllers."""
+        vs = np.clip(vs, self.V_Min, self.V_Max)
+        self._run_async(self._send_voltages_async(vs))
+        self._last_voltages = vs.copy()
+        return self._last_voltages
+
     def send_voltages(self, vs: np.ndarray, wait_time_s: float = 0.001) -> np.ndarray:
         """Send a voltage array to all channels using async parallel TCP.
 
         Voltages are distributed across R50Power controllers automatically.
+        When safety_mode is True (default), voltages are ramped from current
+        state to target in steps bounded by max_neibor_diff.
 
         Args:
             vs: Voltage array for all logical channels.
@@ -1267,12 +1278,8 @@ class MicroDM(DM, Device):
             raise MicroDMVoltageError(
                 f"Expected {self.DM_Num} voltages, got {vs.shape}"
             )
-
-        vs = np.clip(vs, self.V_Min, self.V_Max)
-        self._run_async(self._send_voltages_async(vs))
-        self._voltages = vs.copy()
-        time.sleep(wait_time_s)
-        return self._voltages.copy()
+        result = super().send_voltages(vs, wait_time_s=wait_time_s)
+        return result
 
     # ---- Async Internal Methods ---------------------------------------------
 
@@ -1369,7 +1376,7 @@ class MicroDM(DM, Device):
             ctrl = self._controllers[ctrl_idx]
             voltage_clipped = max(self.V_Min, min(self.V_Max, float(voltage)))
             ctrl.set_channel_voltage(ch_idx, voltage_clipped)
-            self._voltages[channel] = voltage_clipped
+            self._last_voltages[channel] = voltage_clipped
 
     def set_all_voltage_by_arr(self, voltages: np.ndarray) -> None:
         """Set all logical channels by array.
@@ -1394,10 +1401,9 @@ class MicroDM(DM, Device):
         """
         voltage = max(self.V_Min, min(self.V_Max, float(voltage)))
         vs = np.full(self.DM_Num, voltage)
-        self._run_async(self._send_voltages_async(vs))
-        self._voltages = vs.copy()
+        self.send_voltages(vs)
         logger.debug(f"Set all channels to {voltage} V")
-        return self._voltages.copy()
+        return self._last_voltages.copy()
 
     def set_relay_state(self, state: bool) -> None:
         """Set relay state on all connected controllers in parallel.
