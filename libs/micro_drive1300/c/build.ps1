@@ -1,33 +1,35 @@
 # Build Script for DM Control DLL
-# Run: .\build.ps1
+# Supports: clang-cl (default) or MSVC cl
+# Run: .\build.ps1 [-UseMSVC] [-Debug]
 
 param(
+    [switch]$UseMSVC,
     [switch]$Debug
 )
 
 $ErrorActionPreference = "Stop"
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  DM Control DLL Build Script" -ForegroundColor Cyan
+Write-Host "  DM ControlDLL Build Script" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
 # Configuration
-$ProjectDir = "D:\Projects\TIFO\ao\SDKs\微驱动器\软件\c"
-$VSInstallDir = "C:\Program Files\Microsoft Visual Studio\2022\Community"
-$VCVarsPath = "$VSInstallDir\VC\Auxiliary\Build\vcvars64.bat"
+$ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 
-# Check if VS exists
-if (-not (Test-Path $VCVarsPath)) {
-    Write-Error "Visual Studio 2022 not found at $VSInstallDir"
-    exit 1
-}
+if ($UseMSVC) {
+    Write-Host "Using MSVC (cl.exe)" -ForegroundColor Yellow
+    $VSInstallDir = "C:\Program Files\Microsoft Visual Studio\2022\Community"
+    $VCVarsPath = "$VSInstallDir\VC\Auxiliary\Build\vcvars64.bat"
 
-Write-Host "Setting up Visual Studio environment..." -ForegroundColor Yellow
+    if (-not (Test-Path $VCVarsPath)) {
+        Write-Error "Visual Studio 2022 not found at $VSInstallDir"
+        exit 1
+    }
 
-# Call vcvars via cmd
-$env:Path = "C:\Windows\System32;C:\Windows;$env:Path"  # Reset PATH
-$cmdScript = @"
+    Write-Host "Setting up Visual Studio environment..." -ForegroundColor Yellow
+    $env:Path = "C:\Windows\System32;C:\Windows;$env:Path"
+    $cmdScript = @"
 cd /d "$ProjectDir"
 call "$VCVarsPath"
 if exist dm_control.dll del /f dm_control.dll
@@ -49,9 +51,47 @@ if exist dm_test.exe (
     echo EXE build FAILED!
 )
 "@
+    cmd /c $cmdScript
+} else {
+    Write-Host "Using Clang (clang-cl.exe)" -ForegroundColor Yellow
 
-# Run via cmd
-cmd /c $cmdScript
+    $LlvmDir = "$env:USERPROFILE\scoop\apps\llvm\current\bin"
+    $ClangCl = "$LlvmDir\clang-cl.exe"
+
+    if (-not (Test-Path $ClangCl)) {
+        Write-Error "clang-cl not found at $ClangCl"
+        exit 1
+    }
+
+    $env:Path = "$LlvmDir;$env:Path"
+
+    Write-Host ""
+    & clang-cl --version | Select-Object -First 2
+    Write-Host ""
+
+    # Clean old artifacts
+    @("dm_control.dll", "dm_control.lib", "dm_control.exp", "dm_control.obj", "dm_test.exe", "main.obj") | ForEach-Object {
+        if (Test-Path $_) { Remove-Item $_ -Force }
+    }
+
+    Write-Host "Building dm_control.dll with clang-cl..." -ForegroundColor Yellow
+    $extraFlags = if ($Debug) { "/Zi /Od" } else { "" }
+    & clang-cl /LD /I. /Fe:dm_control.dll dm_control.c ws2_32.lib /DM_CONTROL_EXPORTS /EHsc /MD /W4 $extraFlags.Split(" ", [System.StringSplitOptions]::RemoveEmptyEntries) /link /DEF:dm_control.def
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "DLL build FAILED!"
+        exit 1
+    }
+    Write-Host "DLL built successfully!" -ForegroundColor Green
+
+    Write-Host ""
+    Write-Host "Building dm_test.exe with clang-cl..." -ForegroundColor Yellow
+    & clang-cl /Fe:dm_test.exe main.c /I. dm_control.lib ws2_32.lib /EHsc /MD /W4 $extraFlags.Split(" ", [System.StringSplitOptions]::RemoveEmptyEntries)
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "EXE build FAILED!"
+        exit 1
+    }
+    Write-Host "EXE built successfully!" -ForegroundColor Green
+}
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan

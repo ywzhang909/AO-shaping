@@ -77,3 +77,7 @@ libs/miicamsdk.20240728*
 libs/SLM_DLL_ver.2.51/sample*
 libs/SLM_DLL_ver.2.51/tool*
 scripts/_test*
+libs/micro_drive1300/**/*.dll
+libs/micro_drive1300/**/*.lib
+libs/micro_drive1300/**/*.exe
+libs/micro_drive1300/c/std*.txt
