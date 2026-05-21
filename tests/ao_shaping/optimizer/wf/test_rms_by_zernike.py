@@ -150,43 +150,54 @@ class TestOptimizerReturnsRecorder:
 
 
 class TestScheduleLearningRate:
-    """Test learning rate scheduling function."""
+    """Test learning rate and delta scheduling functions."""
 
-    def test_schedule_lr_delta_high_rms(self):
-        """Test schedule with high RMS values."""
-        from ao_shaping.optimizer.wf.rms_by_zernike import schedule_lr_delta
+    def test_cosine_annealing_lr(self):
+        """Test cosine annealing LR schedule."""
+        from ao_shaping.optimizer.wf.rms_by_zernike import cosine_annealing_lr
 
-        lr, delta = schedule_lr_delta(rms=0.20)
-        assert lr == 1
-        assert delta == 1
+        lr_max = 0.01
+        lr_min = 1e-6
 
-        lr, delta = schedule_lr_delta(rms=0.16)
-        assert lr == 1
-        assert delta == 1
+        lr_start = cosine_annealing_lr(0, 100, lr_max, lr_min)
+        assert lr_start == lr_max
 
-    def test_schedule_lr_delta_medium_rms(self):
-        """Test schedule with medium RMS values."""
-        from ao_shaping.optimizer.wf.rms_by_zernike import schedule_lr_delta
+        lr_mid = cosine_annealing_lr(50, 100, lr_max, lr_min)
+        assert lr_mid < lr_max
 
-        lr, delta = schedule_lr_delta(rms=0.12)
-        assert lr == 1
-        assert delta == 0.5
+        lr_end = cosine_annealing_lr(100, 100, lr_max, lr_min)
+        assert abs(lr_end - lr_min) < 1e-5
 
-        lr, delta = schedule_lr_delta(rms=0.11)
-        assert lr == 1
-        assert delta == 0.5
+    def test_cosine_annealing_delta(self):
+        """Test cosine annealing delta schedule."""
+        from ao_shaping.optimizer.wf.rms_by_zernike import cosine_annealing_delta
 
-    def test_schedule_lr_delta_low_rms(self):
-        """Test schedule with low RMS values."""
-        from ao_shaping.optimizer.wf.rms_by_zernike import schedule_lr_delta
+        delta_max = 1e-5
+        delta_min = 1e-7
 
-        lr, delta = schedule_lr_delta(rms=0.07)
-        assert lr == 0.8
-        assert delta == 0.3
+        delta_start = cosine_annealing_delta(0, 100, delta_max, delta_min)
+        assert delta_start == delta_max
 
-        lr, delta = schedule_lr_delta(rms=0.05)
-        assert lr == 0.5
-        assert delta == 0.1
+        delta_end = cosine_annealing_delta(100, 100, delta_max, delta_min)
+        assert abs(delta_end - delta_min) < 1e-10
+
+    def test_early_stopping_check(self):
+        """Test early stopping check function."""
+        from ao_shaping.optimizer.wf.rms_by_zernike import early_stopping_check
+
+        rms_history = [0.2, 0.19, 0.18, 0.17, 0.16, 0.15, 0.14, 0.13, 0.12, 0.11]
+
+        should_stop, window_mean = early_stopping_check(
+            rms_history, window=5, min_epochs=0, patience=10
+        )
+        assert not should_stop
+
+        rms_history_worse = [0.2, 0.19, 0.18, 0.17, 0.16, 0.16, 0.16, 0.16, 0.16, 0.16,
+                            0.16, 0.16, 0.16, 0.16, 0.16, 0.16, 0.16, 0.16, 0.16, 0.16]
+        should_stop, window_mean = early_stopping_check(
+            rms_history_worse, window=10, min_epochs=5, patience=2
+        )
+        assert should_stop
 
 
 class TestConstants:
@@ -199,8 +210,8 @@ class TestConstants:
             ZERNIKE_MAX,
         )
 
-        assert ZERNIKE_MIN == -50.0
-        assert ZERNIKE_MAX == 50.0
+        assert ZERNIKE_MIN == -500.0
+        assert ZERNIKE_MAX == 500.0
 
     def test_slm_wavelength_default(self):
         """Test default SLM wavelength."""
