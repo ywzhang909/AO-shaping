@@ -474,6 +474,16 @@ def calibrate_zernike_response_matrix(
     set_slm_flat(zslm._slm)
     time.sleep(wait_time)
 
+    # Capture initial intensity baseline at flat state
+    wfs.take_image(5)
+    initial_intensity, _ = wfs.get_spots_statics()
+    initial_valid_mask = ~np.isnan(initial_intensity)
+    initial_valid_positions = np.argwhere(initial_valid_mask)
+    logger.info(
+        f"Initial intensity baseline captured: "
+        f"{np.sum(initial_valid_mask)}/{initial_valid_mask.size} valid spots"
+    )
+
     # Initialize display window if provided
     if display is not None:
         display.init_window()
@@ -523,6 +533,20 @@ def calibrate_zernike_response_matrix(
             cancel_tile=cancel_tile,
         )
         logger.debug(f'iter {i} rms = {np.sqrt(np.mean(mean_resp ** 2))}')
+
+        # Check intensity for NaN at initially valid positions
+        wfs.take_image(3)
+        current_intensity, _ = wfs.get_spots_statics()
+        nan_at_valid = np.isnan(current_intensity) & initial_valid_mask
+        if np.any(nan_at_valid):
+            nan_positions = np.argwhere(nan_at_valid)
+            nan_amplitudes = current_intensity[nan_at_valid]
+            logger.warning(
+                f"Mode {i}: Intensity NaN detected at {len(nan_positions)} initially valid positions. "
+                f"Shape: {current_intensity.shape}, "
+                f"NaN positions (y,x): {nan_positions.tolist()}, "
+                f"Current amplitude: {coeff_value}λ"
+            )
 
         response_matrix[:, i] = mean_resp
         variance_matrix[:, i] = var_resp
