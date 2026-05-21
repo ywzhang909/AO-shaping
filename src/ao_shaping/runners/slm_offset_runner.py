@@ -20,6 +20,13 @@ def _get_wfs_res(res_str: str) -> MlaRes:
     return res_map.get(res_str, MlaRes.Res1024)
 
 
+def measure_rms(wfs: Thorlab_WFS) -> float:
+    """Measure wavefront RMS from WFS."""
+    wfs.take_image(3)
+    wf, statics = wfs.get_wavefront(cancel_tile=False)
+    return statics.get('rms', np.inf)
+
+
 def measure_defocus_coefficient(wfs: Thorlab_WFS, remove_tilt: bool = False) -> float:
     """Measure Zernike defocus coefficient from WFS.
     
@@ -118,6 +125,181 @@ def search_offset_by_defocus(
         'best_defocus': best_defocus,
         'results': results,
     }
+
+
+def optimize_defocus(
+    slm: ZernikeSLM,
+    wfs: Thorlab_WFS,
+    offset_x: int,
+    offset_y: int,
+    defocus_range: float = 10.0,
+    defocus_step: float = 0.5,
+    n_samples: int = 3,
+) -> tuple[float, float, dict]:
+    """Search for optimal defocus value that minimizes wavefront RMS.
+    
+    At the given XY offset, search through different defocus amplitudes
+    and find the one that gives minimum RMS (flattest wavefront).
+    
+    Args:
+        slm: ZernikeSLM instance
+        wfs: Thorlab_WFS instance
+        offset_x: SLM X offset
+        offset_y: SLM Y offset
+        defocus_range: Search range for defocus amplitude (+/-)
+        defocus_step: Step size for defocus search
+        n_samples: Number of samples per position
+        
+    Returns:
+        (best_defocus, min_rms, results_dict)
+    """
+    click.echo(f"\n{'='*60}")
+    click.echo("Phase 2: Defocus Optimization")
+    click.echo(f"At offset: ({offset_x}, {offset_y})")
+    click.echo(f"Defocus range: +/-{defocus_range}, step: {defocus_step}")
+    click.echo(f"{'='*60}\n")
+    
+    slm.set_shift(offset_x, offset_y)
+    
+    baseline_rms = measure_rms(wfs)
+    click.echo(f"Baseline RMS (no defocus): {baseline_rms:.4f}")
+    
+    results = []
+    best_rms = np.inf
+    best_defocus = 0.0
+    
+    defocus_values = np.arange(-defocus_range, defocus_range + defocus_step, defocus_step)
+    
+    for defocus_amp in defocus_values:
+        slm.send_zernike({(2, 0): float(defocus_amp)})
+        
+        rms_measurements = []
+        for _ in range(n_samples):
+            rms = measure_rms(wfs)
+            rms_measurements.append(rms)
+        
+        avg_rms = np.mean(rms_measurements)
+        std_rms = np.std(rms_measurements)
+        
+        results.append({
+            'defocus': defocus_amp,
+            'rms': avg_rms,
+            'std': std_rms,
+        })
+        
+        click.echo(f"Defocus={defocus_amp:6.2f}: RMS={avg_rms:.4f}±{std_rms:.4f}")
+        
+        if avg_rms < best_rms:
+            best_rms = avg_rms
+            best_defocus = defocus_amp
+    
+    slm.send_zernike({(2, 0): 0})
+    
+    click.echo(f"\n{'='*60}")
+    click.echo(f"Best defocus: {best_defocus:.2f} (RMS: {best_rms:.4f})")
+    click.echo(f"{'='*60}\n")
+    
+    return float(best_defocus), float(best_rms), {
+        'baseline_rms': baseline_rms,
+        'best_rms': best_rms,
+        'results': results,
+    }
+
+
+def search_offset_by_defocus_with_optimization(
+    slm: ZernikeSLM,
+    wfs: Thorlab_WFS,
+    defocus_amplitude: float = 5.0,
+    search_range: int = 100,
+    search_step: int = 10,
+    n_samples: int = 3,
+    defocus_range: float = 10.0,
+    defocus_step: float = 0.5,
+) -> tuple[int, int, float, float, dict]:
+    """Two-phase search: XY offset + optimal defocus.
+    
+    Phase 1: Find optimal XY offset using defocus method
+    Phase 2: Find optimal defocus value that minimizes RMS
+    
+    Args:
+        slm: ZernikeSLM instance
+        wfs: Thorlab_WFS instance
+        defocus_amplitude: Defocus amplitude for phase 1
+        search_range: XY search range
+        search_step: XY search step
+        n_samples: Samples per position
+        defocus_range: Defocus search range for phase 2
+        defocus_step: Defocus search step for phase 2
+        
+    Returns:
+        (best_x, best_y, best_defocus, min_rms, results_dict)
+    """
+    click.echo(f"\n{'='*60}")
+    click.echo("SLM Offset & Defocus Optimization")
+    click.echo("=" * 60)
+    click.echo("Phase 1: XY Offset Search")
+    click.echo(f"{'='*60}\n")
+    
+    baseline_defocus = measure_defocus_coefficient(wfs)
+    baseline_rms = measure_rms(wfs)
+    click.echo(f"Baseline - defocus: {baseline_defocus:.4f}, RMS: {baseline_rms:.4f}")
+    
+    results = {'phase1': [], 'phase2': {}}
+    best_x, best_y = 0, 0
+    best_phase1_defocus = -np.inf
+    
+    for offset_y in range(-search_range, search_range + 1, search_step):
+        for offset_x in range(-search_range, search_range + 1, search_step):
+            slm.set_shift(offset_x, offset_y)
+            slm.send_zernike({(2, 0): defocus_amplitude})
+            
+            defocus_measurements = []
+            for _ in range(n_samples):
+                d = measure_defocus_coefficient(wfs)
+                defocus_measurements.append(d)
+            
+            avg_defocus = np.mean(defocus_measurements)
+            
+            results['phase1'].append({
+                'offset_x': offset_x,
+                'offset_y': offset_y,
+                'defocus': avg_defocus,
+            })
+            
+            if avg_defocus > best_phase1_defocus:
+                best_phase1_defocus = avg_defocus
+                best_x, best_y = offset_x, offset_y
+    
+    click.echo(f"\nPhase 1 complete: best offset=({best_x}, {best_y}), defocus={best_phase1_defocus:.4f}")
+    
+    click.echo(f"\n{'='*60}")
+    click.echo("Phase 2: Defocus Optimization")
+    click.echo(f"{'='*60}\n")
+    
+    best_defocus, min_rms, phase2_results = optimize_defocus(
+        slm=slm,
+        wfs=wfs,
+        offset_x=best_x,
+        offset_y=best_y,
+        defocus_range=defocus_range,
+        defocus_step=defocus_step,
+        n_samples=n_samples,
+    )
+    
+    results['phase2'] = phase2_results
+    
+    slm.set_shift(0, 0)
+    slm.send_zernike({(2, 0): 0})
+    
+    click.echo(f"\n{'='*60}")
+    click.echo("Final Results:")
+    click.echo(f"  XY Offset: ({best_x}, {best_y})")
+    click.echo(f"  Optimal Defocus: {best_defocus:.2f}")
+    click.echo(f"  Minimum RMS: {min_rms:.4f}")
+    click.echo(f"  RMS Improvement: {baseline_rms - min_rms:.4f}")
+    click.echo(f"{'='*60}\n")
+    
+    return best_x, best_y, best_defocus, min_rms, results
 
 
 def search_offset_by_vortex(
@@ -228,15 +410,17 @@ def search_offset_by_vortex(
 @click.option("--slm-number", default=1, help="SLM设备编号 (default: 1)")
 @click.option("--remove-tilt", is_flag=True, help="移除波前测量中的倾斜项")
 @click.option("--method", type=click.Choice(['defocus', 'vortex']), default='defocus', help="搜索方法 (default: defocus)")
-@click.option("--defocus-amp", default=5.0, help="离焦幅度(波长, default: 5.0)")
+@click.option("--defocus-amp", default=5.0, help="离焦幅度用于偏移搜索(波长, default: 5.0)")
 @click.option("--vortex-charge", default=1, help="涡旋电荷数 (default: 1)")
-@click.option("--search-range", default=50, help="搜索范围像素 (default: 50)")
-@click.option("--search-step", default=5, help="搜索步长像素 (default: 5)")
+@click.option("--search-range", default=50, help="XY搜索范围像素 (default: 50)")
+@click.option("--search-step", default=10, help="XY搜索步长像素 (default: 10)")
+@click.option("--defocus-range", default=10.0, help="离焦优化范围(波长, default: 10.0)")
+@click.option("--defocus-step", default=0.5, help="离焦优化步长 (default: 0.5)")
 @click.option("--n-samples", default=3, help="每个位置采样次数 (default: 3)")
 @click.option("--save-csv", is_flag=True, help="保存结果到CSV")
 def run(dir, wfs_res, pupil_diameter, pupil_center, wavelength, slm_number,
         remove_tilt, method, defocus_amp, vortex_charge, search_range,
-        search_step, n_samples, save_csv):
+        search_step, n_samples, defocus_range, defocus_step, save_csv):
     """SLM XY偏移自动搜索工具
     
     使用两种方法搜索最优SLM XY偏移:
@@ -263,14 +447,22 @@ def run(dir, wfs_res, pupil_diameter, pupil_center, wavelength, slm_number,
         ) as wfs,
     ):
         if method == 'defocus':
-            best_x, best_y, results = search_offset_by_defocus(
+            best_x, best_y, best_defocus, min_rms, results = search_offset_by_defocus_with_optimization(
                 slm=slm,
                 wfs=wfs,
                 defocus_amplitude=defocus_amp,
                 search_range=search_range,
                 search_step=search_step,
                 n_samples=n_samples,
+                defocus_range=defocus_range,
+                defocus_step=defocus_step,
             )
+            click.echo(f"最优偏移量: shift_x={best_x}, shift_y={best_y}")
+            click.echo(f"最优离焦值: {best_defocus:.2f} 波长")
+            click.echo(f"最小RMS: {min_rms:.4f}")
+            click.echo(f"\n建议: 使用参数 --shift-x {best_x} --shift-y {best_y} 运行优化器")
+            if best_defocus != 0:
+                click.echo(f"或固定离焦: --shift-x {best_x} --shift-y {best_y} 并在优化器中设置初始离焦系数")
         else:
             best_x, best_y, results = search_offset_by_vortex(
                 slm=slm,
@@ -280,22 +472,36 @@ def run(dir, wfs_res, pupil_diameter, pupil_center, wavelength, slm_number,
                 search_step=search_step,
                 n_samples=n_samples,
             )
-        
-        click.echo(f"最优偏移量: shift_x={best_x}, shift_y={best_y}")
-        click.echo(f"\n建议: 使用参数 --shift-x {best_x} --shift-y {best_y} 运行优化器")
+            click.echo(f"最优偏移量: shift_x={best_x}, shift_y={best_y}")
+            click.echo(f"\n建议: 使用参数 --shift-x {best_x} --shift-y {best_y} 运行优化器")
         
         if save_csv:
             import csv
             save_dir = Path(dir) / "slm_offset" / get_date_dir_name()
             save_dir.mkdir(parents=True, exist_ok=True)
-            csv_path = save_dir / f"{method}_offset_results.csv"
             
-            with open(csv_path, 'w', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=results['results'][0].keys())
-                writer.writeheader()
-                writer.writerows(results['results'])
-            
-            click.echo(f"结果已保存: {csv_path}")
+            if method == 'defocus':
+                csv_path = save_dir / f"{method}_phase1_results.csv"
+                with open(csv_path, 'w', newline='') as f:
+                    writer = csv.DictWriter(f, fieldnames=results['phase1'][0].keys())
+                    writer.writeheader()
+                    writer.writerows(results['phase1'])
+                click.echo(f"XY偏移搜索结果已保存: {csv_path}")
+                
+                if results['phase2']['results']:
+                    csv_path = save_dir / f"{method}_phase2_defocus.csv"
+                    with open(csv_path, 'w', newline='') as f:
+                        writer = csv.DictWriter(f, fieldnames=results['phase2']['results'][0].keys())
+                        writer.writeheader()
+                        writer.writerows(results['phase2']['results'])
+                    click.echo(f"离焦优化结果已保存: {csv_path}")
+            else:
+                csv_path = save_dir / f"{method}_offset_results.csv"
+                with open(csv_path, 'w', newline='') as f:
+                    writer = csv.DictWriter(f, fieldnames=results['results'][0].keys())
+                    writer.writeheader()
+                    writer.writerows(results['results'])
+                click.echo(f"结果已保存: {csv_path}")
 
 
 if __name__ == "__main__":
