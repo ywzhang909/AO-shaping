@@ -4,6 +4,16 @@ Controls one or more R50Power controllers via TCP/IP using asyncio.
 Each controller manages 50 channels in the range -20V to 120V.
 Supports up to 26 controllers (1296 actuators) with IP-based addressing.
 
+Wiring Map:
+    Controller IPs and channel mappings are loaded from
+    ``libs/micro_drive1300/wiring_map.json`` by default.
+    The wiring map defines the relationship between:
+    - Physical positions in the 39×39 actuator array
+    - Controller IP addresses and payload positions (1-50)
+    - Needle IDs and physical labels
+
+    Disable with ``use_wiring_map=False`` to use default IPs.
+
 Protocol:
     Header: 0xAA 0xBB, Footer: 0xCC 0xDD
     Commands:
@@ -28,16 +38,27 @@ Example:
     >>> dm.open()
     >>> dm.send_voltages(np.zeros(50))
     >>> dm.set_relay_state(True)
+    >>> print(dm.get_actuator_positions())
     >>> dm.close()
+
+Channel Lookup:
+    >>> dm = MicroDM()
+    >>> info = dm.get_channel_by_xy(x=1, y=3)  # 39x39 array coordinates
+    >>> print(info.ip_address, info.payload_position)
+    >>> info = dm.get_channel_by_ip_position(ip_suffix=101, payload_position=13)
+    >>> print(info.physical_label, info.physical_position)
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import socket
 import threading
 import time
+from dataclasses import dataclass, field
 from enum import IntEnum
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -69,6 +90,283 @@ DEFAULT_TIMEOUT = 10.0
 
 # Default IPs: 192.168.0.101 .. 192.168.0.126
 DEFAULT_IPS = [f"192.168.0.{100 + i}" for i in range(1, MAX_CONTROLLERS + 1)]
+
+# Wiring map path (relative to project root)
+WIRING_MAP_PATH = Path(__file__).parent.parent.parent.parent.parent / "libs" / "micro_drive1300" / "wiring_map.json"
+
+
+# =============================================================================
+# Wiring Map Data Classes (type-safe JSON schema definition)
+# =============================================================================
+
+@dataclass(frozen=True)
+class SourceFiles:
+    """Source Excel files used to generate the wiring map."""
+    wiring_table: str
+    device_mapping: str
+
+
+@dataclass(frozen=True)
+class Metadata:
+    """Wiring map metadata."""
+    description: str
+    generated_at: str
+    source_files: SourceFiles
+    array_size: str
+    total_channels: int
+
+
+@dataclass(frozen=True)
+class ChannelSchemaDoc:
+    """Documentation for channel fields (from wiring_map.json schema.channel)."""
+    needle_id: str
+    physical_label: str
+    mapping_row: str
+    physical_position: str
+    ip_suffix: str
+    payload_position: str
+
+
+@dataclass(frozen=True)
+class SchemaDoc:
+    """Schema documentation section."""
+    channel: ChannelSchemaDoc
+
+
+@dataclass(frozen=True)
+class ChannelEntry:
+    """Single channel mapping entry from the wiring map.
+
+    Represents one needle pin (277-330) and its mapping to:
+    - Physical position in the 39×39 actuator array
+    - Controller IP address (via ip_suffix)
+    - Payload byte position within the controller's 50-channel frame
+    """
+    needle_id: int | None
+    physical_label: str | None
+    mapping_row: int | None
+    physical_position: int | None
+    ip_suffix: int | None
+    payload_position: int | None
+
+    @property
+    def is_valid(self) -> bool:
+        """Check if this entry has meaningful data (not all null)."""
+        return self.physical_position is not None
+
+    @property
+    def ip_address(self) -> str | None:
+        """Full IP address (assumes 192.168.0.x subnet)."""
+        if self.ip_suffix is not None:
+            return f"192.168.0.{self.ip_suffix}"
+        return None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ChannelEntry:
+        """Parse a ChannelEntry from a JSON dict."""
+        return cls(
+            needle_id=data.get("needle_id"),
+            physical_label=data.get("physical_label"),
+            mapping_row=data.get("mapping_row"),
+            physical_position=data.get("physical_position"),
+            ip_suffix=data.get("ip_suffix"),
+            payload_position=data.get("payload_position"),
+        )
+
+
+@dataclass(frozen=True)
+class Group:
+    """A group of channels (e.g., "一组", "二组")."""
+    name: str
+    channel_count: int
+    channels: list[ChannelEntry] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, key: str, data: dict[str, Any]) -> Group:
+        """Parse a Group from a JSON dict.
+
+        Args:
+            key: Group key from JSON (e.g., "group_1").
+            data: Group data dict.
+        """
+        channels = [
+            ChannelEntry.from_dict(ch)
+            for ch in data.get("channels", [])
+        ]
+        return cls(
+            name=data.get("name", key),
+            channel_count=data.get("channel_count", len(channels)),
+            channels=channels,
+        )
+
+
+@dataclass(frozen=True)
+class RangeInfo:
+    """Min/max range for a numeric field."""
+    min: int
+    max: int
+
+
+@dataclass(frozen=True)
+class Summary:
+    """Wiring map summary statistics."""
+    unique_ip_suffixes: list[int]
+    needle_id_range: RangeInfo
+    physical_position_range: RangeInfo
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Summary:
+        """Parse a Summary from a JSON dict."""
+        nid = data.get("needle_id_range", {})
+        ppr = data.get("physical_position_range", {})
+        return cls(
+            unique_ip_suffixes=data.get("unique_ip_suffixes", []),
+            needle_id_range=RangeInfo(min=nid.get("min", 0), max=nid.get("max", 0)),
+            physical_position_range=RangeInfo(min=ppr.get("min", 0), max=ppr.get("max", 0)),
+        )
+
+
+@dataclass(frozen=True)
+class WiringMap:
+    """Complete wiring map for the 1300-channel DM cabinet.
+
+    Parsed from ``libs/micro_drive1300/wiring_map.json``.
+    Maps each needle pin (277-330) across multiple groups to:
+    - Physical positions in a 39×39 actuator array
+    - Controller IPs (via ip_suffix)
+    - Payload byte positions (1-50) within each controller's frame
+    """
+    schema_version: str
+    metadata: Metadata
+    schema: SchemaDoc
+    groups: dict[str, Group]
+    summary: Summary
+
+    @property
+    def all_channels(self) -> list[ChannelEntry]:
+        """Flattened list of all valid channel entries across all groups."""
+        return [
+            ch
+            for group in self.groups.values()
+            for ch in group.channels
+            if ch.is_valid
+        ]
+
+    @property
+    def unique_ips(self) -> list[str]:
+        """Sorted list of unique controller IP addresses."""
+        return [f"192.168.0.{s}" for s in sorted(self.summary.unique_ip_suffixes)]
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> WiringMap:
+        """Parse a complete WiringMap from a JSON dict."""
+        meta_data = data.get("metadata", {})
+        sf_data = meta_data.get("source_files", {})
+        meta = Metadata(
+            description=meta_data.get("description", ""),
+            generated_at=meta_data.get("generated_at", ""),
+            source_files=SourceFiles(
+                wiring_table=sf_data.get("wiring_table", ""),
+                device_mapping=sf_data.get("device_mapping", ""),
+            ),
+            array_size=meta_data.get("array_size", ""),
+            total_channels=meta_data.get("total_channels", 0),
+        )
+
+        ch_schema = data.get("schema", {}).get("channel", {})
+        schema = SchemaDoc(
+            channel=ChannelSchemaDoc(
+                needle_id=ch_schema.get("needle_id", ""),
+                physical_label=ch_schema.get("physical_label", ""),
+                mapping_row=ch_schema.get("mapping_row", ""),
+                physical_position=ch_schema.get("physical_position", ""),
+                ip_suffix=ch_schema.get("ip_suffix", ""),
+                payload_position=ch_schema.get("payload_position", ""),
+            ),
+        )
+
+        groups = {
+            key: Group.from_dict(key, val)
+            for key, val in data.get("groups", {}).items()
+        }
+
+        summary = Summary.from_dict(data.get("summary", {}))
+
+        return cls(
+            schema_version=data.get("$schema", ""),
+            metadata=meta,
+            schema=schema,
+            groups=groups,
+            summary=summary,
+        )
+
+    @classmethod
+    def from_file(cls, path: Path) -> WiringMap | None:
+        """Load a WiringMap from a JSON file.
+
+        Args:
+            path: Path to the wiring_map.json file.
+
+        Returns:
+            Parsed WiringMap, or None if file not found or invalid.
+        """
+        if not path.exists():
+            logger.warning(f"Wiring map not found: {path}")
+            return None
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            result = cls.from_dict(data)
+            logger.info(
+                f"Loaded wiring map: {result.metadata.description} "
+                f"({len(result.groups)} groups, {result.metadata.total_channels} channels)"
+            )
+            return result
+        except (json.JSONDecodeError, OSError, KeyError) as exc:
+            logger.warning(f"Failed to load wiring map: {exc}")
+            return None
+
+
+# =============================================================================
+# Runtime Channel Index (built from WiringMap for fast lookup)
+# =============================================================================
+
+@dataclass(frozen=True)
+class ChannelInfo:
+    """Runtime lookup view of a channel, built from WiringMap.
+
+    Includes group context and pre-computed indices for fast lookup.
+    """
+    needle_id: int | None
+    physical_label: str | None
+    mapping_row: int | None
+    physical_position: int | None
+    ip_suffix: int | None
+    payload_position: int | None
+    group_name: str | None = None
+    group_key: str | None = None
+
+    @property
+    def ip_address(self) -> str | None:
+        """Full IP address (assumes 192.168.0.x subnet)."""
+        if self.ip_suffix is not None:
+            return f"192.168.0.{self.ip_suffix}"
+        return None
+
+    @classmethod
+    def from_entry(cls, entry: ChannelEntry, group_name: str, group_key: str) -> ChannelInfo:
+        """Create a ChannelInfo from a ChannelEntry with group context."""
+        return cls(
+            needle_id=entry.needle_id,
+            physical_label=entry.physical_label,
+            mapping_row=entry.mapping_row,
+            physical_position=entry.physical_position,
+            ip_suffix=entry.ip_suffix,
+            payload_position=entry.payload_position,
+            group_name=group_name,
+            group_key=group_key,
+        )
 
 
 # =============================================================================
@@ -420,19 +718,41 @@ class MicroDM(DM, Device):
         ips: list[str] | None = None,
         timeout: float = DEFAULT_TIMEOUT,
         device_id: str = "",
+        use_wiring_map: bool = True,
     ):
         """Initialize the MicroDM driver.
 
         Args:
             ips: IP addresses of R50Power controllers.
-                Default: ``["192.168.0.101"]`` (single controller).
+                Default: loaded from wiring map if ``use_wiring_map=True``,
+                otherwise ``["192.168.0.101"]`` (single controller).
                 Pass multiple IPs for multi-controller setups.
             timeout: TCP connection/send timeout in seconds.
             device_id: Unique device identifier (auto-generated if empty).
+            use_wiring_map: If True (default), load controller IPs from
+                ``libs/micro_drive1300/wiring_map.json``.
         """
         Device.__init__(self, device_id)
 
-        self._ips = ips or [DEFAULT_IPS[0]]
+        # Load wiring map if enabled
+        self._wiring_map: WiringMap | None = None
+        self._channel_by_position: dict[int, ChannelInfo] = {}  # physical_position → info
+        self._channel_by_ip_payload: dict[tuple[int, int], ChannelInfo] = {}  # (ip_suffix, payload_pos) → info
+        self._channel_by_xy: dict[tuple[int, int], ChannelInfo] = {}  # (x, y) in 39x39 → info
+
+        if use_wiring_map:
+            self._wiring_map = WiringMap.from_file(WIRING_MAP_PATH)
+            if self._wiring_map is not None:
+                self._build_channel_indices(self._wiring_map)
+
+        # Determine IPs from wiring map or use defaults
+        if ips is not None:
+            self._ips = ips
+        elif self._wiring_map is not None:
+            self._ips = self._wiring_map.unique_ips
+        else:
+            self._ips = [DEFAULT_IPS[0]]
+
         self._timeout = timeout
 
         # Current voltage state (logical actuator voltages)
@@ -481,6 +801,79 @@ class MicroDM(DM, Device):
             "n_controllers", len(self._controllers),
             description="Number of physical R50Power controllers",
         )
+
+    # ---- Wiring Map Methods -------------------------------------------------
+
+    def _build_channel_indices(self, wiring_map: WiringMap) -> None:
+        """Build lookup indices from a parsed WiringMap.
+
+        Creates three indices for O(1) channel lookup:
+        - _channel_by_position: physical_position → ChannelInfo
+        - _channel_by_ip_payload: (ip_suffix, payload_position) → ChannelInfo
+        - _channel_by_xy: (x, y) in 39x39 grid → ChannelInfo
+        """
+        for group_key, group in wiring_map.groups.items():
+            for entry in group.channels:
+                if not entry.is_valid:
+                    continue
+
+                info = ChannelInfo.from_entry(entry, group.name, group_key)
+
+                # Index by physical position (safe: is_valid guarantees non-None)
+                assert entry.physical_position is not None
+                self._channel_by_position[entry.physical_position] = info
+
+                # Index by (ip_suffix, payload_position)
+                if entry.ip_suffix is not None and entry.payload_position is not None:
+                    self._channel_by_ip_payload[(entry.ip_suffix, entry.payload_position)] = info
+
+                # Index by (x, y) from physical_label (format: "group-row-col")
+                if entry.physical_label is not None:
+                    parts = entry.physical_label.split("-")
+                    if len(parts) == 3:
+                        try:
+                            row = int(parts[1])  # y coordinate (1-based)
+                            col = int(parts[2])  # x coordinate (1-based)
+                            self._channel_by_xy[(col, row)] = info
+                        except ValueError:
+                            pass
+
+        logger.debug(
+            f"Built channel indices: {len(self._channel_by_position)} by position, "
+            f"{len(self._channel_by_ip_payload)} by ip/payload, "
+            f"{len(self._channel_by_xy)} by xy"
+        )
+
+    @property
+    def wiring_map(self) -> WiringMap | None:
+        """Access the loaded wiring map (read-only)."""
+        return self._wiring_map
+
+    def get_channel_by_xy(self, x: int, y: int) -> ChannelInfo | None:
+        """Get channel info by x, y coordinates in the 39×39 array.
+
+        Args:
+            x: Column index (1-based, 1-39).
+            y: Row index (1-based, 1-39).
+
+        Returns:
+            ChannelInfo if found, None otherwise.
+        """
+        return self._channel_by_xy.get((x, y))
+
+    def get_channel_by_ip_position(
+        self, ip_suffix: int, payload_position: int
+    ) -> ChannelInfo | None:
+        """Get channel info by controller IP suffix and payload position.
+
+        Args:
+            ip_suffix: IP address suffix (e.g., 101 for 192.168.0.101).
+            payload_position: Channel position within the controller (1-50).
+
+        Returns:
+            ChannelInfo if found, None otherwise.
+        """
+        return self._channel_by_ip_payload.get((ip_suffix, payload_position))
 
     # ---- Async Infrastructure -----------------------------------------------
 
