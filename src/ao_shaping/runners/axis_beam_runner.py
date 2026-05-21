@@ -1,5 +1,6 @@
 import os
 import json
+import socket
 from pathlib import Path
 
 import click
@@ -18,6 +19,74 @@ from ao_shaping.utils.display import plot_funcs
 from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name
 from ao_shaping.config import DM_N_ACTUATORS
 from ao_shaping.utils.cli_helpers import get_debug_mode
+from ao_shaping.drivers.dm.base import DM
+
+
+DM_TYPES = ["nlight", "micro", "zernike", "hadamard"]
+
+# Default IPs for reachability check
+_NLIGHT_IP = "192.168.6.10"
+_MICRO_IP_PREFIX = "192.168.0."
+
+
+def _ping_host(ip: str, timeout: float = 1.0) -> bool:
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((ip, 1001))
+        sock.close()
+        return result == 0
+    except OSError:
+        return False
+
+
+def _detect_online_dms() -> list[str]:
+    online: list[str] = []
+    if _ping_host(_NLIGHT_IP):
+        online.append("nlight")
+    for suffix in range(101, 127):
+        ip = f"{_MICRO_IP_PREFIX}{suffix}"
+        if _ping_host(ip):
+            if "micro" not in online:
+                online.append("micro")
+            break
+    return online
+
+
+def _create_dm(dm_type: str, **kwargs) -> DM:
+    if dm_type == "nlight":
+        from ao_shaping.drivers import NlightDM
+
+        return NlightDM(
+            keep_when_exit=kwargs.get("keep_when_exit", True),
+            max_neibor_diff=kwargs.get("dm_neibor_diff", 200),
+        )
+    if dm_type == "micro":
+        from ao_shaping.drivers.dm.MicroDM import MicroDM
+
+        return MicroDM(
+            **{
+                k: v
+                for k, v in kwargs.items()
+                if k
+                in ("ips", "timeout", "use_wiring_map", "exclude_ips", "exclude_ids")
+            }
+        )
+    if dm_type == "zernike":
+        from ao_shaping.drivers.dm.zernike_dm import ZernikeDM
+
+        return ZernikeDM(
+            n_max=kwargs.get("zernike_n_max", 4),
+            resolution=kwargs.get("zernike_resolution", (1920, 1080)),
+        )
+    if dm_type == "hadamard":
+        from ao_shaping.drivers.dm.hadamard_dm import HadamardDM
+
+        return HadamardDM(
+            mode_order=kwargs.get("hadamard_mode_order", 8),
+            resolution=kwargs.get("hadamard_resolution", (1920, 1080)),
+        )
+    raise ValueError(f"Unknown DM type: {dm_type}")
 
 
 @click.command()
@@ -121,6 +190,12 @@ from ao_shaping.utils.cli_helpers import get_debug_mode
 @click.option(
     "--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)"
 )
+@click.option(
+    "--dm_type",
+    type=click.Choice(DM_TYPES, case_sensitive=False),
+    default=None,
+    help="变形镜类型 (default: auto-detect). 若未指定且仅一个DM在线则自动选取，否则报错.",
+)
 def run(
     root_dir,
     load_file,
@@ -146,6 +221,7 @@ def run(
     target_max_brightness,
     objective,
     show,
+    dm_type,
 ):
     """轴向光束优化器
 
@@ -191,9 +267,31 @@ def run(
     }
     logger.info(config)
 
+    # DM selection: explicit type, auto-detect, or error
+    if dm_type is not None:
+        dm_type = dm_type.lower()
+        logger.info(f"Using specified DM type: {dm_type}")
+    else:
+        online_dms = _detect_online_dms()
+        if len(online_dms) == 1:
+            dm_type = online_dms[0]
+            logger.info(f"Auto-detected online DM: {dm_type}")
+        elif len(online_dms) == 0:
+            raise RuntimeError(
+                "No DM detected online. Specify --dm_type explicitly or connect a DM."
+            )
+        else:
+            raise RuntimeError(
+                f"Multiple DMs online ({', '.join(online_dms)}). "
+                f"Specify --dm_type explicitly to choose one."
+            )
+
+    dm = _create_dm(dm_type, dm_neibor_diff=300)
+
     dm_unit_mask = np.ones(DM_N_ACTUATORS, dtype=bool)
     dm_unit_mask[0] = False
     res_list = optimize_pib(
+        dm=dm,
         center=center,
         r_bucket=r_bucket,
         epochs=epochs,

@@ -75,6 +75,22 @@ class HadamardDM(DM):
         """Number of actuators (modes) for this DM."""
         return self._generator.n_modes
 
+    @property
+    def V_Min(self) -> float:
+        return 0.0
+
+    @property
+    def V_Max(self) -> float:
+        return float(2**self.bits - 1)
+
+    @property
+    def max_neibor_diff(self) -> float:
+        return float("inf")
+
+    @property
+    def default_dm_unit_mask(self) -> np.ndarray:
+        return np.ones(self.DM_NUM, dtype=bool)
+
     def generate_phase(self, coefficients: np.ndarray) -> np.ndarray:
         """根据Hadamard系数生成相位面型（弧度）
 
@@ -127,7 +143,9 @@ class HadamardDM(DM):
         """
         if isinstance(cmd, np.ndarray):
             return self.generate_phase_2pi(cmd)
-        raise ValueError(f"Unsupported command type: {type(cmd)}. Expected numpy array.")
+        raise ValueError(
+            f"Unsupported command type: {type(cmd)}. Expected numpy array."
+        )
 
     def send(self, cmd) -> np.ndarray:
         """Send command to DM and return phase pattern.

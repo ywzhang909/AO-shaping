@@ -17,17 +17,6 @@ class ZernikeDM(DM):
         n_max: Zernike多项式的最大阶数
         resolution: 输出相位图的分辨率 (width, height)
         radius: 归一化半径（像素）
-
-    Example:
-        >>> zdm = ZernikeDM(n_max=4, resolution=(1920, 1080))
-        >>> zdm.open()
-        >>> coeffs = {  # (n, m): coefficient
-        ...     (1, -1): 0.5,  # tilt X
-        ...     (1, 1): 0.3,   # tilt Y
-        ...     (2, 0): 0.2,   # defocus
-        ... }
-        >>> phase = zdm.send_zernike(coeffs)
-        >>> zdm.close()
     """
 
     def __init__(
@@ -41,12 +30,34 @@ class ZernikeDM(DM):
         self.resolution = resolution
         self.bits = bits
 
-        self._generator = ZernikeGenerator(resolution=resolution, radius=radius, n_orders=n_max)
+        self._generator = ZernikeGenerator(
+            resolution=resolution, radius=radius, n_orders=n_max
+        )
         self._generator.set_bits(bits)
 
         self._current_coeffs: dict[tuple[int, int], float] = {}
         self._current_phase: np.ndarray | None = None
         self.is_open = False
+
+    @property
+    def DM_NUM(self) -> int:
+        return self._generator.n_modes
+
+    @property
+    def V_Min(self) -> float:
+        return 0.0
+
+    @property
+    def V_Max(self) -> float:
+        return float(2**self.bits - 1)
+
+    @property
+    def max_neibor_diff(self) -> float:
+        return float("inf")
+
+    @property
+    def default_dm_unit_mask(self) -> np.ndarray:
+        return np.ones(self.DM_NUM, dtype=bool)
 
     def generate_phase(
         self,
@@ -141,7 +152,9 @@ class ZernikeDM(DM):
 
     def open(self) -> None:
         self.is_open = True
-        logger.info(f"ZernikeDM opened: n_max={self.n_max}, resolution={self.resolution}")
+        logger.info(
+            f"ZernikeDM opened: n_max={self.n_max}, resolution={self.resolution}"
+        )
 
     def close(self) -> None:
         self.is_open = False

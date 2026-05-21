@@ -749,12 +749,18 @@ class MicroDM(DM, Device):
     """
 
     DM_Num: int = 39 * 39
+    DM_NUM: int = 39 * 39  # Alias for base class compatibility
     V_Min: float = VOLTAGE_MIN
     V_Max: float = VOLTAGE_MAX
+    max_neibor_diff: float = float("inf")  # No neighbor constraint
 
     device_type = DeviceType.DM
     manufacturer = "R50Power"
     model = "MicroDM"
+
+    @property
+    def default_dm_unit_mask(self) -> np.ndarray:
+        return np.ones(self.DM_NUM, dtype=bool)
 
     def __init__(
         self,

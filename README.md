@@ -344,6 +344,7 @@ streamlit run src/ao_shaping/gui/app.py
 - **Thorlabs WFS系列**: 支持自动图像采集和倾斜去除
 
 ### 变形镜
+- **统一 DM 接口**: 所有变形镜继承自 `ao_shaping.drivers.dm.base.DM`，提供 `transform`/`send`/`open`/`close`/`is_connected`/`get_actuator_positions` 等标准方法
 - **NLight系列**: 支持电压控制和电压差安全检查
 - **R50Power MicroDM**: 通过异步 TCP 控制多路 R50Power 控制器（每路 50 通道，-20V~120V）
   - 自动从 `libs/micro_drive1300/wiring_map.json` 加载控制器 IP 和通道映射
@@ -389,6 +390,12 @@ streamlit run src/ao_shaping/gui/app.py
 
   dm.close()
   ```
+
+- **ZernikeDM**: Zernike 系数驱动的 DM/SLM 接口，支持 Zernike 多项式相位生成
+- **HadamardDM**: Hadamard 系数驱动的 DM/SLM 接口，支持 Walsh-Hadamard 模式相位生成
+- **PIB 优化器多 DM 支持**: `optimize_pib` 现接受任意 `DM` 子类实例，命令行支持 `--dm_type` 参数
+  - 支持类型: `nlight`, `micro`, `zernike`, `hadamard`
+  - 自动检测: 未指定 `--dm_type` 时自动探测在线 DM，仅一个时自动选取，多个时报错提示
 
 ### 相机
 - **大恒相机系列**: DahengCamManager，支持14位和16位模式
@@ -454,11 +461,14 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 ## 近期更新
 
 ### v0.3.0 (2026-05)
+- **DM 统一接口重构**: 所有 DM 继承自 `base.DM`，提供标准方法 (V_Min/V_Max, DM_NUM, default_dm_unit_mask, check_dm_unit_grad_safe, send_voltages)
 - MicroDM 容错连接: `open()` 允许个别控制器连接失败，记录 warning 后继续
 - MicroDM 连接状态检查: `get_connection_status()` 返回 ping 可达性和 TCP 连接状态
 - MicroDM 单控制器管理: `connect_controller()` / `disconnect_controller()` / `reconnect_controller()`
 - MicroDM 排除控制器: 初始化支持 `exclude_ips` 和 `exclude_ids` 参数
 - MicroDM 新增 `ControllerStatus` dataclass 和 `_ping_host()` 静态方法
+- PIB 优化器多 DM 支持: `optimize_pib` 接受 `dm` 参数，兼容任意 DM 子类
+- 轴向光束优化器 `--dm_type` 参数: 支持 nlight/micro/zernike/hadamard，自动检测在线 DM
 
 ### v0.2.0 (2026-03)
 - 新增SLM (Santec SLM200) 支持
