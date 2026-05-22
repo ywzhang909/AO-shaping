@@ -5,8 +5,9 @@ import tqdm
 import numpy as np
 import matplotlib.pylab as plt
 
-from ao_shaping.drivers import NlightDM, CameraStreamManager
+from ao_shaping.drivers import CameraStreamManager
 from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm._registry import get_dm_registry
 from ao_shaping.algorithm.adam import AdaMOD, Adam, AdamW, Base, Muno, MunoW, SGD
 from ao_shaping.utils import ImageVoltagesDisplay, logger, Recorder
 from ao_shaping.utils.spots_calc import centroid, radius
@@ -330,8 +331,10 @@ def optimize_pib(
         ) as cam,
     ):
         if dm is None:
-            dm = NlightDM(
-                keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT, max_neibor_diff=dm_neibor_diff
+            dm = get_dm_registry().create(
+                "nlight",
+                keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT,
+                max_neibor_diff=dm_neibor_diff,
             )
             dm.open()
             _dm_owned = True

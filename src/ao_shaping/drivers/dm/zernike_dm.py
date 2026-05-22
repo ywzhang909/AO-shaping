@@ -4,9 +4,11 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm._registry import register_dm
 from ao_shaping.utils.zernike_calc import ZernikeGenerator
 
 
+@register_dm("zernike")
 class ZernikeDM(DM):
     """Zernike系数驱动的变形镜接口
 
@@ -18,6 +20,10 @@ class ZernikeDM(DM):
         resolution: 输出相位图的分辨率 (width, height)
         radius: 归一化半径（像素）
     """
+
+    @classmethod
+    def is_reachable(cls) -> bool:
+        return True
 
     def __init__(
         self,

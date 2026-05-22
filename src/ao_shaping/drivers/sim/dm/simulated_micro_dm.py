@@ -8,6 +8,7 @@ from loguru import logger
 
 from ao_shaping.drivers.device_base import DeviceState, DeviceType
 from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm._registry import register_dm
 from ao_shaping.drivers.dm.MicroDM import (
     MicroDMVoltageError,
     RelayState,
@@ -16,6 +17,7 @@ from ao_shaping.drivers.dm.MicroDM import (
 )
 
 
+@register_dm("sim_micro")
 class SimMicroDM(DM):
     """Simulation mode for MicroDM without hardware.
 
@@ -27,6 +29,10 @@ class SimMicroDM(DM):
         V_Min: Minimum voltage (-20.0 V).
         V_Max: Maximum voltage (120.0 V).
     """
+
+    @classmethod
+    def is_reachable(cls) -> bool:
+        return True
 
     DM_Num: int = 50
     V_Min: float = VOLTAGE_MIN

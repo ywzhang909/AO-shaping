@@ -67,6 +67,7 @@ from loguru import logger
 
 from ao_shaping.drivers.device_base import Device, DeviceState, DeviceType
 from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm._registry import register_dm
 
 # =============================================================================
 # Protocol Constants
@@ -720,6 +721,7 @@ class R50Controller:
 # =============================================================================
 
 
+@register_dm("micro")
 class MicroDM(DM, Device):
     """Micro DM (R50Power) deformable mirror driver.
 
@@ -757,6 +759,21 @@ class MicroDM(DM, Device):
     device_type = DeviceType.DM
     manufacturer = "R50Power"
     model = "MicroDM"
+
+    @classmethod
+    def is_reachable(cls) -> bool:
+        for suffix in range(101, 127):
+            ip = f"192.168.0.{suffix}"
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(1.0)
+                result = sock.connect_ex((ip, 10000 + (suffix - 100)))
+                sock.close()
+                if result == 0:
+                    return True
+            except OSError:
+                continue
+        return False
 
     @property
     def default_dm_unit_mask(self) -> np.ndarray:

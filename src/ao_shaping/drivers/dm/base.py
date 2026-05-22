@@ -19,12 +19,12 @@ class DM(ABC):
 
     DM_NUM: int
 
-    # Voltage range — subclasses override
-    V_Min: float = -300.0
-    V_Max: float = 500.0
+    # Voltage range — subclasses override with hardware-specific limits
+    V_Min: float = float("-inf")
+    V_Max: float = float("inf")
 
     # Neighbor voltage safety step — subclasses override if applicable
-    max_neibor_diff: float = 200.0
+    max_neibor_diff: float = float("inf")
 
     def __init__(self, safety_mode: bool = True) -> None:
         """Initialize DM with optional safety mode.
@@ -44,6 +44,15 @@ class DM(ABC):
         return np.ones(self.DM_NUM, dtype=bool)
 
     # ---- Abstract interface ----
+
+    @classmethod
+    def is_reachable(cls) -> bool:
+        """Check if this DM type's hardware is reachable on the network.
+
+        Returns True if at least one device of this type can be contacted.
+        Subclasses must override with type-specific discovery logic.
+        """
+        return False
 
     @abstractmethod
     def transform(self, cmd) -> np.ndarray:

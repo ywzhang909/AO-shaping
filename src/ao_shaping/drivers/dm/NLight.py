@@ -7,20 +7,36 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm._registry import register_dm
 
 
 def _load_adj_txt():
     return np.loadtxt("data/dm_adj.txt")
 
 
+@register_dm("nlight")
 class NLight(DM):
     DM_NUM: int = 64
     V_Min: float = -300.0
     V_Max: float = 499.0
 
+    _IP = "192.168.6.10"
+    _PORT = 1001
+
     disabled_actuators: list[int] = [0]
 
     Units_Adj_Mat = _load_adj_txt()
+
+    @classmethod
+    def is_reachable(cls) -> bool:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1.0)
+            result = sock.connect_ex((cls._IP, cls._PORT))
+            sock.close()
+            return result == 0
+        except OSError:
+            return False
 
     def __init__(
         self,

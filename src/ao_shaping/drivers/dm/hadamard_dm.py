@@ -4,9 +4,11 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm._registry import register_dm
 from ao_shaping.utils.hadamard_calc import HadamardGenerator
 
 
+@register_dm("hadamard")
 class HadamardDM(DM):
     """Hadamard系数驱动的变形镜/SLM接口.
 
@@ -14,21 +16,15 @@ class HadamardDM(DM):
     内部使用 HadamardGenerator 进行相位计算。
 
     Attributes:
-        mode_order: Hadamard矩阵阶数 (2的幂次)
-        resolution: 输出相位图分辨率 (width, height)
+        mode_order: Hadamard模式阶数
+        resolution: 输出相位图的分辨率 (width, height)
+        mask_type: 掩码类型
         radius: 归一化半径（像素）
-        mask_type: 光瞳掩码类型 ("circular" 或 "rectangular")
-        bits: SLM位深度
-
-    Example:
-        >>> hdm = HadamardDM(mode_order=8, resolution=(1920, 1080))
-        >>> hdm.open()
-        >>> coeffs = np.zeros(64)  # 8x8 = 64 modes
-        >>> coeffs[0] = 0.5  # First Hadamard mode
-        >>> coeffs[5] = 0.3  # Another mode
-        >>> phase = hdm.send(coeffs)
-        >>> hdm.close()
     """
+
+    @classmethod
+    def is_reachable(cls) -> bool:
+        return True
 
     def __init__(
         self,

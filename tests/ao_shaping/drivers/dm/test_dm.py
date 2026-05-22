@@ -66,3 +66,78 @@ class TestDMBase:
 
         dm = SimMicroDM()
         assert dm.DM_Num == dm.DM_NUM
+
+
+class TestDMRegistry:
+    """Tests for the DM registry system."""
+
+    def test_registry_has_types(self):
+        """Test registry lists registered DM types."""
+        from ao_shaping.drivers.dm._registry import get_dm_registry
+
+        registry = get_dm_registry()
+        types = registry.list_types()
+        assert "nlight" in types
+        assert "micro" in types
+        assert "zernike" in types
+        assert "hadamard" in types
+        assert "sim_micro" in types
+
+    def test_registry_has_type(self):
+        """Test has_type validation."""
+        from ao_shaping.drivers.dm._registry import get_dm_registry
+
+        registry = get_dm_registry()
+        assert registry.has_type("nlight")
+        assert registry.has_type("NLIGHT")
+        assert not registry.has_type("unknown")
+
+    def test_registry_create(self):
+        """Test creating DM via registry."""
+        from ao_shaping.drivers.dm._registry import get_dm_registry
+
+        registry = get_dm_registry()
+        dm = registry.create("sim_micro")
+        assert dm.DM_NUM == 50
+
+    def test_registry_create_unknown(self):
+        """Test creating unknown DM type raises ValueError."""
+        from ao_shaping.drivers.dm._registry import get_dm_registry
+
+        registry = get_dm_registry()
+        with pytest.raises(ValueError, match="Unknown DM type"):
+            registry.create("nonexistent")
+
+    def test_create_dm_filters_kwargs(self):
+        """Test create_dm filters kwargs per type."""
+        from ao_shaping.drivers.dm import create_dm
+
+        dm = create_dm("sim_micro", device_id="test", safety_mode=False, bogus=999)
+        assert dm._device_id == "test"
+        assert dm._safety_mode is False
+
+    def test_create_dm_alias(self):
+        """Test create_dm maps legacy dm_neibor_diff → max_neibor_diff for nlight."""
+        from ao_shaping.drivers.dm._registry import _KWARG_ALIASES
+
+        assert "dm_neibor_diff" in _KWARG_ALIASES.get("nlight", {})
+        assert _KWARG_ALIASES["nlight"]["dm_neibor_diff"] == "max_neibor_diff"
+
+    def test_is_reachable_software_dm(self):
+        """Test software-only DMs always report reachable."""
+        from ao_shaping.drivers.dm.zernike_dm import ZernikeDM
+        from ao_shaping.drivers.dm.hadamard_dm import HadamardDM
+        from ao_shaping.drivers.sim.dm import SimMicroDM
+
+        assert ZernikeDM.is_reachable() is True
+        assert HadamardDM.is_reachable() is True
+        assert SimMicroDM.is_reachable() is True
+
+    def test_list_reachable_types(self):
+        """Test list_reachable_dm_types returns software DMs at minimum."""
+        from ao_shaping.drivers.dm import list_reachable_dm_types
+
+        reachable = list_reachable_dm_types()
+        assert "zernike" in reachable
+        assert "hadamard" in reachable
+        assert "sim_micro" in reachable
