@@ -293,27 +293,58 @@ class SantecSLM200:
 
         # 按序列号加载配置文件（如有）
         config: dict = self.load_config()
+        config_loaded = bool(config)
 
-        # 应用参数优先级：__init__ 显式参数 > config文件 > 默认值
-        # wavelength: None=请用配置/设备；其他值（含默认1064）=显式设置
-        if self._init_wavelength is not None:
-            self.wavelength = self._init_wavelength
-        elif "wavelength" in config:
-            cfg_wl = config["wavelength"]
-            self.wavelength = int(cfg_wl)
+        # 应用参数优先级：
+        # 如果有配置文件且匹配成功，则仅使用配置文件中的值（不使用__init__显式参数）
+        # 否则：__init__ 显式参数 > config文件 > 默认值
+        if config_loaded:
+            # 仅使用配置文件中的值
+            if "wavelength" in config:
+                self.wavelength = int(config["wavelength"])
+            else:
+                self.wavelength = None
+                 
+            if "shift_x" in config:
+                self._shift_x = config["shift_x"]
+            else:
+                self._shift_x = 0
+                 
+            if "shift_y" in config:
+                self._shift_y = config["shift_y"]
+            else:
+                self._shift_y = 0
+                 
+            if "use_120hz" in config:
+                self._use_120hz = bool(config["use_120hz"])
+            else:
+                self._use_120hz = False
+            self.flags = FLAGS_RATE120 if self._use_120hz else 0
         else:
-            self.wavelength = None
+            # 没有配置文件时使用原有优先级逻辑
+            # wavelength: None=请用配置/设备；其他值（含默认1064）=显式设置
+            if self._init_wavelength is not None:
+                self.wavelength = self._init_wavelength
+            else:
+                self.wavelength = None
 
-        # shift_x/shift_y: 优先使用init参数，否则从配置加载
-        if self._init_shift_x is not None:
-            self._shift_x = self._init_shift_x
-        elif "shift_x" in config:
-            self._shift_x = config["shift_x"]
+            # shift_x/shift_y: 优先使用init参数，否则从配置加载
+            if self._init_shift_x is not None:
+                self._shift_x = self._init_shift_x
+            else:
+                self._shift_x = 0
 
-        if self._init_shift_y is not None:
-            self._shift_y = self._init_shift_y
-        elif "shift_y" in config:
-            self._shift_y = config["shift_y"]
+            if self._init_shift_y is not None:
+                self._shift_y = self._init_shift_y
+            else:
+                self._shift_y = 0
+
+            # use_120hz: 优先使用init参数，否则从配置加载
+            if 'use_120hz' in self.__dict__ and self._use_120hz is not None:  # Check if explicitly set in __init__
+                pass  # Keep the __init__ value
+            else:
+                self._use_120hz = False
+            self.flags = FLAGS_RATE120 if self._use_120hz else 0
 
         logger.info(
             f"SLM #{self.slm_number} 参数: "

@@ -1,27 +1,32 @@
 # refreces docs : https://github.com/nvladimus/WFS/blob/master/python/Thorlabs-WFS-read-average-wavefront.ipynb
 
 from __future__ import annotations
-from enum import IntEnum
 
+import ctypes
 import os
 import shutil
 from copy import deepcopy
-from functools import wraps
-from loguru import logger
-from pathlib import Path
+from ctypes import (
+    byref,
+    c_bool,
+    c_double,
+    c_float,
+    c_int32,
+    c_uint8,
+    c_ulong,
+    create_string_buffer,
+)
 from datetime import datetime
+from enum import IntEnum
+from functools import wraps
+from pathlib import Path
 
 import numpy as np
+from loguru import logger
 
 from ao_shaping.utils.file import DeviceConfigManager
-import ctypes
-from ctypes import (
-    c_double, c_uint8, c_int32, c_bool, c_float, c_ulong, create_string_buffer, byref
-)
 
-from ._thorlab_wfs import (
-    load_dll, np2c, VI_NULL, ViInt32, ViStatus)
-from ._thorlab_wfs import MAX_SPOTS
+from ._thorlab_wfs import MAX_SPOTS, VI_NULL, ViInt32, ViStatus, load_dll, np2c
 
 WFS_DEBUG_MODE = os.environ.get("WFS_DEBUG", "0") == "1"
 
@@ -29,9 +34,16 @@ EXP_TIME_LOW = 0.002
 EXP_TIME_HIGH = 86
 
 def require_take_image(func):
-    """
-    装饰器：确保在调用需要图像的方法前，已执行过 take_image。
-    如果未拍摄，会自动调用 take_image()。
+    """Decorator ensuring take_image() is called before the wrapped method.
+
+    If no image has been captured yet, automatically calls take_image() first.
+
+    **File transformations**: None. Ensures the DLL has a current spotfield
+    image and centroid data before functions that depend on it.
+
+    Note:
+        After auto-calling take_image(), sets ``_image_captured = False`` so
+        the function itself can set it to ``True`` after its own image capture.
     """
     @wraps(func)
     def wrapper(self:WFSManager, *args, **kwargs):
@@ -416,43 +428,104 @@ class WFSManager:
     def set_ref_plane(self, custom: bool) -> None:
         """Set reference plane for wavefront measurement.
 
+        **DLL calls** (in order when ``custom=True``):
+        1. ``WFS_SetReferencePlane(handle, 1)`` → switch to custom ref plane
+        2. ``WFS_LoadUserRefFile(handle)`` → load ``.ref`` file from DLL-managed dir
+
+        **DLL calls** (when ``custom=False``):
+        1. ``WFS_SetReferencePlane(handle, 0)`` → switch to factory default
+
+        **File transformations**:
+        - When ``custom=True``:
+          DLL reads ``<Ref_Dir>/<filename>.ref`` (created by ``save_user_ref()``).
+          No files are written or modified.
+        - When ``custom=False``:
+          No file operations. Only DLL internal state change.
+
+        **Fallback behavior**:
+        If ``WFS_LoadUserRefFile`` fails (no ``.ref`` file exists yet),
+        falls back to default reference with a warning instead of raising.
+
         Args:
             custom: If True, load custom user reference file; otherwise use default reference
-
-        Raises:
-            Exception: If loading custom reference file fails
         """
         _select = 1 if custom else 0
         if err := self._lib.WFS_SetReferencePlane(
             self._instrument_handle, c_int32(_select)
         ):
-            self.handle_error(err)
+            self.handle_error(err, no_raise=True)
+            logger.warning(
+                "WFS_SetReferencePlane failed, falling back to default reference"
+            )
+            self.use_custom_ref = False
+            return
 
-        elif custom:
+        if custom:
             if err := self._lib.WFS_LoadUserRefFile(self._instrument_handle):
-                self.handle_error(err)
+                self.handle_error(err, no_raise=True)
+                logger.warning(
+                    "No user reference file available (use save_user_ref() first). "
+                    "Falling back to default reference."
+                )
+                # Fall back to default reference
+                self._lib.WFS_SetReferencePlane(self._instrument_handle, c_int32(0))
+                self.use_custom_ref = False
             else:
                 self.use_custom_ref = True
-                return
+        else:
+            self.use_custom_ref = False
 
-        self.use_custom_ref = False
+    @require_take_image
+    def create_default_user_ref(self) -> bool:
+        """Create a default user reference from the current spotfield image.
 
-    def get_mla_name(self, mla_index: MlaRes | None = None) -> str:
-        """Get MLA name string (e.g., 'MLA150M-5C') for the specified MLA index.
+        **DLL calls**:
+        1. ``WFS_CreateDefaultUserReference(handle)`` — computes reference spot
+           positions from the most recently captured spotfield image.
 
-        Args:
-            mla_index: MLA index. If None, uses self.mla_index.
+        **File transformations**: None.
+        The reference is only set in DLL internal memory. To persist to disk,
+        call ``save_user_ref()`` afterwards (which writes ``.ref`` file).
+
+        **Typical workflow**:
+        ``take_image()`` → ``create_default_user_ref()`` → ``save_user_ref()``
 
         Returns:
-            MLA name string, or empty string on failure.
+            True on success, False on failure.
         """
-        if mla_index is None:
-            mla_index = self.mla_index
+        if err := self._lib.WFS_CreateDefaultUserReference(self._instrument_handle):
+            self.handle_error(err, no_raise=True)
+            logger.error("Failed to create default user reference")
+            return False
+        logger.info("Default user reference created from current spotfield image")
+        return True
+
+    def get_mla_name(self) -> str:
+        """Get the currently selected MLA name (e.g., 'MLA150M-5C').
+
+        Calls ``WFS_GetMlaData(handle, 0, ...)`` to retrieve the name of
+        the Microlens Array that was selected by ``WFS_SelectMla(handle, 0)``
+        during initialization.
+
+        .. important::
+
+           The ``MLAIndex`` parameter of ``WFS_GetMlaData`` is **not** the
+           camera resolution code (0=1280, 1=1024, 2=768, 3=512, 4=320).
+           It is the ``MLA`` **selection index** (0 to ``MLACount-1``),
+           which corresponds to the same value passed to ``WFS_SelectMla``.
+           Since the driver always selects MLA 0 via ``WFS_SelectMla(handle, 0)``,
+           we pass index 0 here.
+
+        Returns:
+            MLA name string (e.g. ``"MLA150M-5C"``), or empty string if the
+            DLL call fails.
+        """
         mla_name_buffer = create_string_buffer(256)
         err = self._lib.WFS_GetMlaData(
             self._instrument_handle,
-            c_int32(int(mla_index)),
+            c_int32(0),  # MLA index = 0 (the selected MLA)
             mla_name_buffer,
+            byref(c_double()),
             byref(c_double()),
             byref(c_double()),
             byref(c_double()),
@@ -462,11 +535,52 @@ class WFSManager:
         )
         if err != 0:
             self.handle_error(err, no_raise=True)
-            return ""
+            name = self._try_get_mla_name_fallback()
+            if name:
+                logger.warning(
+                    f"WFS_GetMlaData failed for index 0, "
+                    f"falling back to alternative index: '{name}'"
+                )
+            return name
         name = mla_name_buffer.value
         if isinstance(name, bytes):
             name = name.decode("utf-8")
         return name.strip("\x00").strip()
+
+    def _try_get_mla_name_fallback(self) -> str:
+        """Try alternative MLA indices (1, 2, ... up to 15) for a name.
+
+        If the primary MLA index (0) is not available, this searches higher
+        indices as a safety net. The WFS typically has 1-2 calibrated MLAs.
+
+        Returns:
+            MLA name string, or empty string if all attempts fail.
+        """
+        for alt_idx in range(1, 16):  # try indices 1..15
+            buf = create_string_buffer(256)
+            err = self._lib.WFS_GetMlaData(
+                self._instrument_handle,
+                c_int32(alt_idx),
+                buf,
+                byref(c_double()),
+                byref(c_double()),
+                byref(c_double()),
+                byref(c_double()),
+                byref(c_double()),
+                byref(c_double()),
+                byref(c_double()),
+            )
+            if err == 0:
+                name = buf.value
+                if isinstance(name, bytes):
+                    name = name.decode("utf-8")
+                name = name.strip("\x00").strip()
+                if name:
+                    logger.warning(
+                        f"_try_get_mla_name_fallback found name '{name}' at index {alt_idx}"
+                    )
+                    return name
+        return ""
 
     @staticmethod
     def _get_ref_default_dir() -> Path:
@@ -484,11 +598,17 @@ class WFSManager:
         system = platform.system()
         
         if system == "Windows":
-            user_docs = Path(os.environ.get("USERPROFILE", ""))
-            if not user_docs:
-                logger.warning("USERPROFILE not set on Windows, using Documents")
-                user_docs = Path.home() / "Documents"
-            return user_docs / "Thorlabs" / "Wavefront Sensor" / "Reference"
+            # Use Path.home() which reliably resolves C:\Users\<username>
+            # Fall back to USERPROFILE if home() fails
+            home = Path.home()
+            if not home or not home.exists():
+                user_profile = os.environ.get("USERPROFILE")
+                if user_profile:
+                    home = Path(user_profile)
+                else:
+                    logger.warning("Cannot determine user home directory")
+                    home = Path("C:/Users/Public")
+            return home / "Documents" / "Thorlabs" / "Wavefront Sensor" / "Reference"
         else:
             # Linux/macOS fallback: use XDG_DATA_HOME or project data directory
             xdg_data = os.environ.get("XDG_DATA_HOME", "")
@@ -508,16 +628,34 @@ class WFSManager:
             
             return ref_dir
 
-    def _get_ref_filename(self) -> str:
-        """Construct the .ref filename that the WFS DLL expects.
+    def _get_ref_filename(self, fallback_if_empty: bool = True) -> str:
+        """Construct the ``.ref`` filename that the WFS DLL expects.
 
-        Filename pattern from Thorlabs docs:
-            WFS_<serial_number>_<mla_name>_<cam_resol_idx>.ref
+        **Filename pattern** (from Thorlabs SDK):
+            ``WFS_<serial_number>_<mla_name>_<cam_resol_idx>.ref``
+
+        This filename is used by both ``save_user_ref()`` (to know where the
+        DLL wrote the file) and ``load_user_ref()`` (to locate the file for
+        copying or reading). It matches what the DLL expects internally.
+
+        **No file transformations** — pure string construction.
+
+        Args:
+            fallback_if_empty: If True and ``mla_name`` is empty, use
+                ``"unknown"`` as a placeholder so the filename is still valid.
 
         Returns:
-            Filename string like 'WFS_M00224955_MLA150M-5C_0.ref'.
+            Filename string like ``WFS_M00224955_MLA150M-5C_0.ref``,
+            or ``WFS_M00224955_unknown_3.ref`` if MLA name unavailable.
         """
         mla_name = self.get_mla_name()
+        if not mla_name and fallback_if_empty:
+            mla_name = "unknown"
+            logger.warning(
+                f"Cannot determine MLA name (WFS_GetMlaData failed), "
+                f"using fallback filename with 'unknown': "
+                f"WFS_{self.serial_num}_unknown_{int(self.mla_index)}.ref"
+            )
         # cam_resol_idx is the MLA resolution index (self.mla_index value)
         cam_resol_idx = int(self.mla_index)
         filename = f"WFS_{self.serial_num}_{mla_name}_{cam_resol_idx}.ref"
@@ -527,20 +665,45 @@ class WFSManager:
     def save_user_ref(self, backup_dir: str | Path | None = None) -> Path | None:
         """Save user reference file and create a timestamped backup.
 
-        This calls WFS_SaveUserRefFile to save to the DLL-managed location,
-        then copies the saved file to the project backup directory with a timestamp.
+        **DLL calls** (in order):
+        1. ``WFS_SetSpotsToUserReference(handle)`` — promotes current spot
+           centroids as the reference (internal DLL memory only).
+        2. ``WFS_SaveUserRefFile(handle)`` — writes ``.ref`` file to the
+           DLL-managed location on disk.
+
+        **File transformations** (step by step):
+        ::
+
+            ┌─ DLL writes to:  <Ref_Dir>/<filename>.ref        (CREATED)
+            └─ shutil.copy2 →  <backup_dir>/<filename>_<ts>.ref (CREATED)
+
+        - **Ref_Dir** = ``%USERPROFILE%/Documents/Thorlabs/Wavefront Sensor/Reference``
+        - **filename** = ``WFS_{serial}_{mla_name}_{res_index}``
+        - If the MLA name cannot be determined (``WFS_GetMlaData`` fails), uses
+          ``"unknown"`` as fallback in the filename.
+        - If the expected filename is not found after DLL save, searches the
+          ref directory for any ``WFS_{serial}_*.ref`` file as fallback.
+        - The DLL-managed copy may be silently overwritten on next save;
+          the timestamped backup preserves history.
 
         Args:
-            backup_dir: Directory to store backup. Defaults to 'data/calibration/'.
+            backup_dir: Directory to store backup. Defaults to ``data/calibration/``.
 
         Returns:
-            Path to the backup file, or None on failure.
+            Path to the timestamped backup file, or None on failure.
         """
         if backup_dir is None:
             backup_dir = Path("data/calibration")
         else:
             backup_dir = Path(backup_dir)
         backup_dir.mkdir(parents=True, exist_ok=True)
+
+        # Explicitly set current spot positions as the reference before saving.
+        # Without this call, WFS_SaveUserRefFile may have nothing to persist,
+        # resulting in a "No User Reference available!" error on subsequent load.
+        if err := self._lib.WFS_SetSpotsToUserReference(self._instrument_handle):
+            self.handle_error(err, no_raise=True)
+            return None
 
         # Call DLL to save reference file to its default location
         if err := self._lib.WFS_SaveUserRefFile(self._instrument_handle):
@@ -553,8 +716,25 @@ class WFSManager:
         src_path = ref_dir / ref_filename
 
         if not src_path.exists():
-            logger.error(f"Reference file not found at expected path: {src_path}")
-            return None
+            # Fallback: search ref_dir for any .ref file matching the serial number.
+            # The DLL may choose a different filename when MLA name is unavailable.
+            logger.warning(
+                f"Reference file not found at expected path: {src_path}\n"
+                f"Searching {ref_dir} for files matching serial {self.serial_num}..."
+            )
+            candidates = []
+            if ref_dir.exists():
+                pattern = f"WFS_{self.serial_num}_*.ref"
+                candidates = sorted(ref_dir.glob(pattern))
+            if candidates:
+                src_path = candidates[0]
+                logger.info(f"Found alternative reference file: {src_path}")
+            else:
+                logger.error(
+                    f"No .ref file found for serial {self.serial_num} in {ref_dir}. "
+                    f"The DLL (WFS_SaveUserRefFile) may have saved to a different location."
+                )
+                return None
 
         # Create timestamped backup filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -574,15 +754,34 @@ class WFSManager:
     def load_user_ref(self, backup_path: str | Path | None = None) -> bool:
         """Load user reference file from a backup or default location.
 
-        If backup_path is provided:
-        1. Copy the backup file to the DLL's expected location
-        2. Then call WFS_LoadUserRefFile to load it
+        **DLL calls** (in order):
+        1. ``WFS_LoadUserRefFile(handle)`` — loads ``.ref`` file from DLL dir
+        2. ``WFS_SetReferencePlane(handle, 1)`` — switches to custom ref plane
 
-        If backup_path is None:
-        - Directly call WFS_LoadUserRefFile to load from DLL's default location
+        **File transformations** (step by step):
+
+        **With ``backup_path`` provided**::
+        ::
+
+            shutil.copy2(backup_path → <Ref_Dir>/<filename>.ref)  (COPIED)
+            DLL reads ←  <Ref_Dir>/<filename>.ref                  (READ)
+
+        **Without ``backup_path``**::
+        ::
+
+            DLL reads ←  <Ref_Dir>/<filename>.ref                  (READ)
+
+        - **Ref_Dir** = ``%USERPROFILE%/Documents/Thorlabs/Wavefront Sensor/Reference``
+        - If ``backup_path`` is given, the file is first copied to the DLL's
+          expected location so ``WFS_LoadUserRefFile`` can find it.
+        - If the file does not exist at the expected path, the DLL returns an
+          error (previously "No User Reference available!") — see ``save_user_ref()``
+          to create it.
 
         Args:
-            backup_path: Optional path to a backup .ref file to load.
+            backup_path: Optional path to a backup ``.ref`` file to load.
+                If provided, the file is copied to the DLL-managed directory
+                before calling ``WFS_LoadUserRefFile``.
 
         Returns:
             True on success, False on failure.
@@ -617,7 +816,7 @@ class WFSManager:
                 return False
 
         # Call DLL to load reference file from its default location
-        logger.debug(f"[WFS load_user_ref] Calling WFS_LoadUserRefFile...")
+        logger.debug("[WFS load_user_ref] Calling WFS_LoadUserRefFile...")
         if err := self._lib.WFS_LoadUserRefFile(self._instrument_handle):
             self.handle_error(err, no_raise=True)
             logger.error("Failed to load user reference file via WFS_LoadUserRefFile")
@@ -637,7 +836,7 @@ class WFSManager:
             return False
 
         # Also update the reference plane setting
-        logger.debug(f"[WFS load_user_ref] Setting reference plane to custom...")
+        logger.debug("[WFS load_user_ref] Setting reference plane to custom...")
         if err := self._lib.WFS_SetReferencePlane(self._instrument_handle, c_int32(1)):
             self.handle_error(err, no_raise=True)
             logger.warning("WFS_SetReferencePlane returned error but continuing")
@@ -971,59 +1170,7 @@ class WFSManager:
             "rms": rms_val.value if not self.stable_sample_enable else float(np.std(wavefront)),
             "wighted_rms": wighted_rms_val.value if not self.stable_sample_enable else float(np.std(wavefront)),
         }
-        adaptive_pupil = 0 if (self.d_x and self.d_y) else 1
-        wavefront = np.empty(MAX_SPOTS, dtype=c_float)
-        # wavefrontType: 0=Measured Wavefront (direct from spot deviations),
-        #                1=Reconstructed Wavefront (requires WFS_CalcReconstrDeviations),
-        #                2=Difference (requires WFS_CalcReconstrDeviations)
-        # Use 0 (Measured) since it doesn't require reconstruction step
-        wavefront_type = 0
-        if err := self._lib.WFS_CalcWavefront(
-            self._instrument_handle,
-            ViInt32(wavefront_type),
-            ViInt32(adaptive_pupil),
-            wavefront,
-        ):
-            self.handle_error(err)
-        else:
-            min, max, diff, mean = c_double(), c_double(), c_double(), c_double()
-            rms, wighted_rms = c_double(), c_double()
-            self._lib.WFS_CalcWavefrontStatistics(
-                self._instrument_handle,
-                byref(min),
-                byref(max),
-                byref(diff),
-                byref(mean),
-                byref(rms),
-                byref(wighted_rms),
-            )
-            wavefront = deepcopy(wavefront)[: self.num_spots_x, : self.num_spots_y]
-            if np.all(wavefront == 0):
-                logger.warning("WFS_CalcWavefront returned zero-filled buffer — DLL may not have written data")
-
-            if WFS_DEBUG_MODE:
-                wf_variance = np.var(wavefront)
-                wf_std = np.std(wavefront)
-                logger.debug(f"WFS wavefront stats: var={wf_variance:.6f}, std={wf_std:.6f}, shape={wavefront.shape}")
-
-            # wavefront = np.where(wavefront==np.nan, 0, wavefront)
-            return wavefront, {
-                "min": min.value,
-                "max": max.value,
-                "diff": diff.value,
-                "mean": mean.value,
-                "rms": rms.value,
-                "wighted_rms": wighted_rms.value if wighted_rms.value > 0 else rms.value
-            }
-        return wavefront, {
-            "min": np.nan,
-            "max": np.nan,
-            "diff": np.nan,
-            "mean": np.nan,
-            "rms": np.nan,
-            "wighted_rms": np.nan,
-        }
-
+        
     def _remove_tilt(self, wavefront: np.ndarray) -> np.ndarray:
         """Remove tilt (tip/tilt) from wavefront by fitting a plane and subtracting it.
 
