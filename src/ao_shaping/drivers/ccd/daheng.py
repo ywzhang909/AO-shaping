@@ -1,11 +1,13 @@
 import numpy as np
 
-import gxipy as gx
-
 from ao_shaping.drivers.ccd import BaseCamera
 from ao_shaping.drivers.ccd.common import ExposureTime
 from ao_shaping.utils.file import logger
 
+try:
+    import gxipy as gx
+except OSError as e:
+    logger.error("Daheng DLL set errror.")
 
 class DahengCamManager(BaseCamera):
     def __init__(

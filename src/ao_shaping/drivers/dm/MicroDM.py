@@ -125,6 +125,7 @@ class ChannelSchemaDoc:
     physical_position: str
     ip_suffix: str
     payload_position: str
+    port: str
 
 
 @dataclass(frozen=True)
@@ -141,6 +142,7 @@ class ChannelEntry:
     - Physical position in the 39×39 actuator array
     - Controller IP address (via ip_suffix)
     - Payload byte position within the controller's 50-channel frame
+    - TCP port (10000 + ip_suffix)
     """
     needle_id: int | None
     physical_label: str | None
@@ -148,6 +150,7 @@ class ChannelEntry:
     physical_position: int | None
     ip_suffix: int | None
     payload_position: int | None
+    port: int | None = None
 
     @property
     def is_valid(self) -> bool:
@@ -171,6 +174,7 @@ class ChannelEntry:
             physical_position=data.get("physical_position"),
             ip_suffix=data.get("ip_suffix"),
             payload_position=data.get("payload_position"),
+            port=data.get("port"),
         )
 
 
@@ -282,6 +286,7 @@ class WiringMap:
                 physical_position=ch_schema.get("physical_position", ""),
                 ip_suffix=ch_schema.get("ip_suffix", ""),
                 payload_position=ch_schema.get("payload_position", ""),
+                port=ch_schema.get("port", ""),
             ),
         )
 
@@ -344,6 +349,7 @@ class ChannelInfo:
     physical_position: int | None
     ip_suffix: int | None
     payload_position: int | None
+    port: int | None = None
     group_name: str | None = None
     group_key: str | None = None
 
@@ -364,6 +370,7 @@ class ChannelInfo:
             physical_position=entry.physical_position,
             ip_suffix=entry.ip_suffix,
             payload_position=entry.payload_position,
+            port=entry.port,
             group_name=group_name,
             group_key=group_key,
         )
@@ -404,9 +411,9 @@ def voltages_to_payload(voltages: np.ndarray | list[float] | float) -> bytes:
     v = np.atleast_1d(np.asarray(voltages, dtype=np.float64))
     np.clip(v, VOLTAGE_MIN, VOLTAGE_MAX, out=v)
     value = (v + 20.0) / 20.0 / 3.4 / 3.3 * 65535.0
-    raw = np.floor(value).astype(np.int32)
-    high = np.floor(raw / 255).astype(np.uint8)
-    low = np.mod(raw, 256).astype(np.uint8)
+    raw = np.round(value).astype(np.int32)
+    high = (raw >> 8).astype(np.uint8)
+    low = (raw & 0xFF).astype(np.uint8)
     interleaved = np.empty(2 * len(v), dtype=np.uint8)
     interleaved[0::2] = high
     interleaved[1::2] = low
@@ -762,12 +769,12 @@ class MicroDM(DM, Device):
         # Build async controllers
         self._controllers: list[R50Controller] = [
             R50Controller(
-                controller_id=i + 1,
+                controller_id=i,
                 ip=ip_str,
-                port=10000 + i + 1,  # 10101, 10102, ...
+                port=10000 + int(ip_str.split(".")[-1]),  # 10000 + ip_suffix
                 timeout=timeout,
             )
-            for i, ip_str in enumerate(self._ips)
+            for i, ip_str in enumerate(self._ips, start=1)
         ]
 
         # Async event loop running in a background thread
@@ -1202,3 +1209,23 @@ class MicroDM(DM, Device):
             f")"
         )
 
+
+if __name__ == '__main__':
+    CONTROLLER_IP = '192.168.0.101'
+    CONTROLLER_PORT = 10101
+    controller = R50Controller(controller_id=1, ip=CONTROLLER_IP, port=CONTROLLER_PORT)
+    if controller.open():
+        controller.set_relay(True)
+        # controller.set_all_channel_voltage(5.0)
+        volts = [0.0 for i in range(50)]
+        volts[0] = 15.0
+        controller.set_all_voltage_array(volts)
+
+        volts[0] = 10.0
+        controller.set_all_voltage_array(volts)
+
+        volts[0] = 5.0
+        controller.set_all_voltage_array(volts)
+
+        controller.set_relay(False)
+        controller.close()

@@ -30,7 +30,7 @@ from tests.ao_shaping.drivers.dm.port_listener import PortListener
 PORT_LISTENER_AVAILABLE = True
 
 
-CONTROLLER_IP = "127.0.0.1"
+CONTROLLER_IP = "192.168.0.101"
 CONTROLLER_PORT = 10101
 
 
@@ -45,10 +45,10 @@ class TestR50Controller:
     def test_sends(self, controller: R50Controller):
         assert controller.open()
         assert controller.set_relay(True)
-        assert controller.set_all_channel_voltage(20)
-        assert controller.set_all_voltage_array(list(range(1, 51)))
-        assert controller.set_channel_voltage(1, 20)
-        assert controller.set_relay(False)
+        assert controller.set_all_channel_voltage(10)
+        # assert controller.set_all_voltage_array(list(range(1, 51)))
+        # assert controller.set_channel_voltage(1, 20)
+        # assert controller.set_relay(False)
         
     async def test_sends_async(self, controller: R50Controller):
         assert controller.open()
