@@ -33,7 +33,7 @@ AO-shaping/
 │   │   │   ├── wfless/           # Wavefront-sensorless (PIB)
 │   │   │   └── rl/               # Reinforcement learning (SAC)
 │   │   ├── utils/                # Utilities (spots_calc, wavefront_calc, zernike_calc, wfs_utils)
-│   │   ├── ml/                  # Machine learning (U-Net+GAN, training, models)
+│   │   ├── ml/                  # Machine learning (U-Net+GAN, training, models) — NOTE: lives at src/ml/ as a separate standalone package
 │   │   │   ├── trainer/         # Training utilities
 │   │   │   ├── models/          # Neural network models
 │   │   │   └── wandb_logger.py  # WandB integration
@@ -59,7 +59,7 @@ AO-shaping/
 | RL training | `src/ao_shaping/optimizer/rl/` | SAC, LR-WFS |
 | Simulation | `src/ao_shaping/drivers/sim/` | Digital twin devices |
 | Utilities | `src/ao_shaping/utils/` | spots_calc, wavefront_calc, zernike_calc, display |
-| ML training | `src/ao_shaping/ml/` | U-Net+GAN, trainer, wandb_logger |
+| ML training | `src/ml/` (standalone, not inside `ao_shaping/`) | U-Net+GAN, trainer, wandb_logger |
 | Standalone tools | `src/ao_shaping/tools/` | SLM phase capture, train data collection |
 | Visualization | `src/ao_shaping/display/` | Windows, frames for GUI |
 | GUI | `src/ao_shaping/gui/` | Streamlit components |
@@ -522,3 +522,30 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
 - **No requirements.txt**: Only `pyproject.toml` and `uv.lock`
 
 Consider adding: `.github/workflows/ci.yml`, `ruff.toml`, `.pre-commit-config.yaml`
+
+---
+
+## CodeGraph (Pre-indexed Knowledge Graph)
+
+This project has CodeGraph initialized (`.codegraph/` exists, 6,111 nodes, 12,339 edges).
+
+### For Explore agents
+Use `codegraph_explore` as your PRIMARY tool — it returns full source code sections from all relevant files in one call.
+
+**Rules:**
+1. Follow the explore call budget in the `codegraph_explore` tool description.
+2. Do NOT re-read files that `codegraph_explore` already returned source code for.
+3. Only fall back to grep/glob/read for files listed under "Additional relevant files" if you need more detail.
+
+### For the main session
+Only use these lightweight tools directly:
+
+| Tool | Use For |
+|------|---------|
+| `codegraph_search` | Find symbols by name |
+| `codegraph_callers` / `codegraph_callees` | Trace call flow |
+| `codegraph_impact` | Check what's affected before editing |
+| `codegraph_node` | Get a single symbol's details |
+| `codegraph_context` | Build relevant context for a task |
+| `codegraph_files` | Get indexed file structure |
+| `codegraph_status` | Check index health

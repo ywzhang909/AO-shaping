@@ -32,8 +32,8 @@ Calibration Example:
     >>> plot_calibration_result(result)
 """
 
-from .santec_slm200 import SantecSLM200, SantecSLM200Error
-from .zernike_slm import ZernikeSLM, ZernikeSLMError
+from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200, SantecSLM200Error
+from ao_shaping.drivers.slm.zernike_slm import ZernikeSLM, ZernikeSLMError
 
 __all__ = [
     "SantecSLM200",
@@ -45,15 +45,16 @@ __all__ = [
 # Note: PatternHelper is in ao_shaping.utils.pattern_helper
 
 # 可选导入 PyVISA 兼容类
+from loguru import logger
+
 try:
-    from .santec_slm200_visa import SantecSLM200Visa, create_slm_visa_instrument
+    from ao_shaping.drivers.slm.santec_slm200_visa import SantecSLM200Visa, create_slm_visa_instrument
     __all__ += ["SantecSLM200Visa", "create_slm_visa_instrument"]
 except ImportError as e:
-    import logging
-    logging.getLogger(__name__).debug(f"SantecSLM200Visa not available: {e}")
+    logger.debug(f"SantecSLM200Visa not available: {e}")
 
 # 导入标定模块
-from .slm_calibration import (
+from ao_shaping.drivers.slm.slm_calibration import (
     SLMCalibratorBase,
     SantecSLM200Calibrator,
     CalibrationResult,

@@ -6,6 +6,7 @@ from ao_shaping.runners.pipeline_runner import run as pipeline_run
 from ao_shaping.runners.zernike_matrix_runner import run as zernike_matrix_run
 from ao_shaping.runners.rms_zernike_runner import run as rms_zernike_run
 from ao_shaping.runners.ga_zernike_runner import run as ga_zernike_run
+from ao_shaping.runners.combined_runner import run as combined_run
 
 
 @click.group()
@@ -31,6 +32,9 @@ main.add_command(rms_zernike_run, name='rms-zernike')
 
 # 添加ga-zernike命令 (遗传算法Zernike优化)
 main.add_command(ga_zernike_run, name='ga-zernike')
+
+# 添加combined命令 (AdaMOD综合PIB优化器)
+main.add_command(combined_run, name='combined')
 
 
 if __name__ == '__main__':

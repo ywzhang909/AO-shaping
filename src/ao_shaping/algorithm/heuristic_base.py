@@ -124,13 +124,13 @@ class HeuristicOptimizer(ABC):
         Raises:
             ValueError: If optimizer type is unknown.
         """
-        from .ga import GeneticAlgorithm, GAParams
-        from .pso import ParticleSwarmOptimizer, PSOParams
-        from .simulated_annealing import SimulatedAnnealing, SAParams, TempSchedule
-        from .hill_climbing import HillClimbing
-        from .random_search import RandomSearch
-        from .cross_entropy import CrossEntropyMethod
-        from .differential_evolution import DifferentialEvolution
+        from ao_shaping.algorithm.ga import GeneticAlgorithm, GAParams
+        from ao_shaping.algorithm.pso import ParticleSwarmOptimizer, PSOParams
+        from ao_shaping.algorithm.simulated_annealing import SimulatedAnnealing, SAParams, TempSchedule
+        from ao_shaping.algorithm.hill_climbing import HillClimbing
+        from ao_shaping.algorithm.random_search import RandomSearch
+        from ao_shaping.algorithm.cross_entropy import CrossEntropyMethod
+        from ao_shaping.algorithm.differential_evolution import DifferentialEvolution
         
         config = OptimizerConfig(
             n_iterations=kwargs.pop('n_iterations', 1000),

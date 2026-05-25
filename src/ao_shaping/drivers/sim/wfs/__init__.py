@@ -1,0 +1,1 @@
+"""Simulated wavefront sensor (placeholder)."""

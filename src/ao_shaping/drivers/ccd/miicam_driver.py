@@ -1,9 +1,8 @@
 import os
 import sys
 import ctypes
-import logging
 
-_logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 def _find_miicam_sdk_path() -> str | None:
@@ -52,7 +51,7 @@ def _setup_miicam_sdk() -> bool:
     """
     sdk_path = _find_miicam_sdk_path()
     if sdk_path is None:
-        _logger.warning(
+        logger.warning(
             "MIICAM SDK not found. Tried: "
             "1) MIICAM_SDK_PATH env var, "
             "2) bundled '_miicam_sdk', "
@@ -76,7 +75,7 @@ def _setup_miicam_sdk() -> bool:
             # Fall back to adding to PATH
             os.environ["PATH"] = sdk_path + os.pathsep + os.environ.get("PATH", "")
 
-    _logger.debug(f"MIICAM SDK set up successfully from: {sdk_path}")
+    logger.debug(f"MIICAM SDK set up successfully from: {sdk_path}")
     return True
 
 
@@ -88,13 +87,10 @@ if _MIICAM_AVAILABLE:
 
     import miicam
 
-    from ao_shaping.utils.file import logger
     from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
 else:
-    # Provide stubs so the module can still be imported for testing
     np = None
     miicam = None
-    logger = logging.getLogger(__name__)
 
     class CameraError(Exception):
         pass
