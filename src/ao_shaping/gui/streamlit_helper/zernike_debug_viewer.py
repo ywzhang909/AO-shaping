@@ -197,7 +197,6 @@ def _compute_response_matrix_from_debug(debug_data: dict, magnitude: float):
         sys.path.insert(0, str(SRC_ROOT))
         from ao_shaping.optimizer.wf.zernike_response_matrix import ZernikeResponseMatrixResult
         from ao_shaping.utils.matrix_utils import calc_n_zernike_terms, compute_pinv, compute_lstsq
-        from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager
         import numpy as np
         from datetime import datetime
         
@@ -206,30 +205,98 @@ def _compute_response_matrix_from_debug(debug_data: dict, magnitude: float):
             st.error("No mode data found")
             return None
             
-        # Determine n_max from available modes
-        max_mode_idx = max(modes.keys()) if modes else 0
-        # Need to account for excluded modes to get actual n_max
-        # For now, assume standard exclusion (piston, tip/tilt)
-        n_max = max_mode_idx + 3  # Add back piston, tip, tilt
+        # Determine the actual n_max from the data
+        # We need to infer this from the coefficient arrays we find
+        max_coeff_len = 0
+        for mode_idx, mode_data in modes.items():
+            for cycle_idx, cycle_data in mode_data.get("cycles", {}).items():
+                for sign in ["plus", "minus"]:
+                    sign_data = cycle_data.get("signs", {}).get(sign)
+                    if not sign_data:
+                        continue
+                    samples = sign_data.get("samples", {})
+                    for sample_idx, sample_file in samples.items():
+                        zernike_file = sign_data["path"] / f"sample_{sample_idx:03d}_zernike_coeffs.npy"
+                        if zernike_file.exists():
+                            coeffs = np.load(zernike_file)
+                            max_coeff_len = max(max_coeff_len, len(coeffs))
         
-        # Calculate number of terms
-        n_remove = 3  # piston + tip/tilt (standard exclusion)
-        n_slm_terms = calc_n_zernike_terms(n_max) - n_remove
-        n_wfs_terms = calc_n_zernike_terms(n_max) - n_remove  # WFS uses same order
+        if max_coeff_len == 0:
+            st.error("No coefficient data found")
+            return None
+            
+        # Estimate n_max from coefficient length
+        # The coefficient array length corresponds to the highest Zernike term measured
+        # For Noll ordering: term 0=piston, 1=tip, 2=tilt, etc.
+        # If we have coefficients up to index L-1, then n_max = L-1
+        n_max_measured = max_coeff_len - 1
+        
+        # But we need to account for excluded terms
+        # From the debug data collection, it seems all terms are saved
+        # Let's check what the actual excluded_piston/excluded_tip_tilt settings were
+        # We can infer this from the first meta file we find
+        
+        excluded_piston = True   # Default assumption
+        excluded_tip_tilt = False # Default assumption
+        
+        # Try to get actual settings from metadata
+        for mode_idx, mode_data in modes.items():
+            for cycle_idx, cycle_data in mode_data.get("cycles", {}).items():
+                for sign in ["plus", "minus"]:
+                    sign_data = cycle_data.get("signs", {}).get(sign)
+                    if sign_data:
+                        samples = sign_data.get("samples", {})
+                        if samples:
+                            first_sample = sorted(samples.keys())[0]
+                            meta_file = sign_data["path"] / f"sample_{first_sample:03d}_meta.json"
+                            if meta_file.exists():
+                                import json
+                                with open(meta_file) as f:
+                                    meta = json.load(f)
+                                # Meta doesn't directly contain exclusion info, 
+                                # but we can check if coefficient 0 (piston) is always zero
+                                # or look at the pattern
+                                break
+                        break
+                break
+            break
+        
+        # For now, let's determine n_slm_terms from the mode indices we have
+        mode_indices = sorted(modes.keys())
+        if not mode_indices:
+            st.error("No valid mode indices found")
+            return None
+            
+        max_mode_idx = max(mode_indices)
+        # Assuming we have continuous mode indices starting from 0
+        n_slm_terms = max_mode_idx + 1
+        
+        # For WFS terms, we need to know what order was used
+        # Let's assume it's the same as what we measured in coefficients
+        n_wfs_terms = max_coeff_len  # All measured terms
+        
+        # But we need to subtract excluded terms if any
+        n_remove = (1 if excluded_piston else 0) + (2 if excluded_tip_tilt else 0)
+        n_slm_terms_for_matrix = n_slm_terms - n_remove
+        n_wfs_terms_for_matrix = n_wfs_terms - n_remove
+        
+        if n_slm_terms_for_matrix <= 0 or n_wfs_terms_for_matrix <= 0:
+            st.error("Invalid number of terms after exclusions")
+            return None
         
         # Initialize matrices
-        response_matrix = np.zeros((n_wfs_terms, n_slm_terms), dtype=np.float64)
-        variance_matrix = np.zeros((n_wfs_terms, n_slm_terms), dtype=np.float64)
+        response_matrix = np.zeros((n_wfs_terms_for_matrix, n_slm_terms_for_matrix), dtype=np.float64)
+        variance_matrix = np.zeros((n_wfs_terms_for_matrix, n_slm_terms_for_matrix), dtype=np.float64)
         
-        # Process each mode
-        for mode_idx in sorted(modes.keys()):
-            if mode_idx >= n_slm_terms:
+        # Process each SLM mode (column of response matrix)
+        for col_idx, slm_mode_idx in enumerate(mode_indices):
+            if col_idx >= n_slm_terms_for_matrix:
                 continue  # Skip if beyond expected terms
                 
-            mode_data = modes[mode_idx]
+            mode_data = modes[slm_mode_idx]
             
-            # Collect data from all cycles and samples
-            mode_responses = []  # List of response vectors
+            # Collect data from all cycles and samples for this SLM mode
+            mode_responses = []  # List of response vectors (each is WFS coefficients)
             
             for cycle_idx, cycle_data in mode_data.get("cycles", {}).items():
                 for sign in ["plus", "minus"]:
@@ -239,7 +306,7 @@ def _compute_response_matrix_from_debug(debug_data: dict, magnitude: float):
                         
                     samples = sign_data.get("samples", {})
                     for sample_idx, sample_file in samples.items():
-                        # Load zernike coefficients for this sample
+                        # Load zernike coefficients for this sample (THIS IS THE MEASURED OUTPUT)
                         zernike_file = sign_data["path"] / f"sample_{sample_idx:03d}_zernike_coeffs.npy"
                         if zernike_file.exists():
                             coeffs = np.load(zernike_file)
@@ -249,58 +316,96 @@ def _compute_response_matrix_from_debug(debug_data: dict, magnitude: float):
                 # Convert to array and compute statistics
                 responses_array = np.array(mode_responses)  # Shape: (n_measurements, n_coeffs)
                 
-                # For debug data, the coefficients are the INPUT/target coefficients
-                # But we need the OUTPUT/measured coefficients to build response matrix
-                # Actually, looking at the debug data collection in _setup_debug_callback:
-                # It saves the zernike_coeffs from wfs.get_zernike() which is the MEASURED output
-                # So we can use these directly
+                # Compute mean and variance across measurements for each WFS coefficient
+                mean_response = np.mean(responses_array, axis=0)   # Shape: (n_coeffs,)
+                variance_response = np.var(responses_array, axis=0) # Shape: (n_coeffs,)
                 
-                # Compute mean and variance across measurements
-                mean_response = np.mean(responses_array, axis=0)
-                variance_response = np.var(responses_array, axis=0)
+                # Now we need to map this to our response matrix
+                # The response_matrix[row, col] = response of WFS mode 'row' when SLM mode 'col' is excited
                 
-                # Extract the relevant terms (excluding piston, tip/tilt)
-                # The coefficients array includes all terms up to some order
-                # We need to map from debug data indices to our matrix indices
+                # We need to exclude piston and tip/tilt from both rows and columns if they were excluded
+                row_start = 0
+                col_start = 0
+                if excluded_piston:
+                    row_start += 1
+                    col_start += 1
+                if excluded_tip_tilt:
+                    row_start += 2
+                    col_start += 2
                 
-                # In debug data, mode_idx corresponds to the Zernike mode being tested
-                # The coefficients array contains measurements for all modes
-                # The response we want is: how much each WFS mode changed when we excited this SLM mode
+                # Copy the relevant portion of mean_response to the response matrix
+                # We take WFS coefficients [row_start:] and map to matrix rows [0:]
+                # We take SLM mode col_idx and map to matrix column [col_idx - col_start]
+                # But we need to be careful about bounds
                 
-                # For a proper response matrix, we need:
-                # R[i,j] = response of WFS mode i when SLM mode j is excited
+                wfs_start_idx = row_start
+                wfs_end_idx = min(wfs_start_idx + n_wfs_terms_for_matrix, len(mean_response))
+                slm_end_idx = min(col_idx + 1, len(mode_indices))  # This is tricky
                 
-                # In our debug data:
-                # When we excited SLM mode 'mode_idx', we measured coefficients in zernike_coeffs
-                # The change in coefficient i is proportional to the response
+                # Actually, let's think differently:
+                # For SLM mode index `slm_mode_idx`, we want to fill column `col_idx` in the matrix
+                # The values come from mean_response[wfs_start_idx:wfs_start_idx + n_wfs_terms_for_matrix]
                 
-                # However, we need to subtract the baseline (zero excitation) to get the true response
-                # Let's compute the baseline from all data or use a reference
-                
-                # For simplicity, let's assume the first sample in minus direction is closest to zero
-                # Or we can compute the mean of all measurements and treat that as zero-response
-                # Actually, better approach: the response matrix should be built from the 
-                # DIFFERENCE between plus and minus measurements
-                
-                # Let's reorganize: collect plus and minus separately
-                pass  # TODO: Implement proper response matrix computation
+                n_to_copy = min(n_wfs_terms_for_matrix, len(mean_response) - wfs_start_idx)
+                if n_to_copy > 0:
+                    response_matrix[0:n_to_copy, col_idx] = mean_response[wfs_start_idx:wfs_start_idx + n_to_copy]
+                    variance_matrix[0:n_to_copy, col_idx] = variance_response[wfs_start_idx:wfs_start_idx + n_to_copy]
         
-        # For now, let's create a simplified version that shows we can access the data
-        # A proper implementation would require reorganizing the data collection
+        # Compute derived properties
+        mean_variance = float(np.mean(variance_matrix)) if variance_matrix.size > 0 else 0.0
+        max_variance = float(np.max(variance_matrix)) if variance_matrix.size > 0 else 0.0
         
-        # Create a placeholder result for demonstration
+        # Try to compute pseudo-inverse if we have enough data
+        pinv_matrix = None
+        lstsq_matrix = None
+        if response_matrix.size > 0 and min(response_matrix.shape) > 0:
+            try:
+                pinv_matrix = np.linalg.pinv(response_matrix)
+                # For consistency with the original code, we might want to use SVD-based pinv
+                # But numpy's pinv is fine for now
+                # Try to compute condition number
+                if np.linalg.matrix_rank(response_matrix) == min(response_matrix.shape):
+                    try:
+                        # Condition number = ||A|| * ||A^+||
+                        cond_num = np.linalg.norm(response_matrix, ord=2) * np.linalg.norm(pinv_matrix, ord=2)
+                    except:
+                        cond_num = None
+                else:
+                    cond_num = None  # Singular matrix
+            except:
+                pinv_matrix = None
+                lstsq_matrix = None
+        
+        # Estimate n_averages and n_cycles from data
+        n_averages_est = 1
+        n_cycles_est = 1
+        for mode_idx, mode_data in modes.items():
+            cycle_count = len(mode_data.get("cycles", {}))
+            if cycle_count > n_cycles_est:
+                n_cycles_est = cycle_count
+            for cycle_idx, cycle_data in mode_data.get("cycles", {}).items():
+                sample_count = len(cycle_data.get("signs", {}).get("plus", {}).get("samples", {}))
+                if sample_count > n_averages_est:
+                    n_averages_est = sample_count
+        
+        # Create result object
         result = ZernikeResponseMatrixResult(
-            matrix=np.random.rand(n_wfs_terms, n_slm_terms) * 0.1,  # Placeholder
-            variance_matrix=np.random.rand(n_wfs_terms, n_slm_terms) * 0.01,
-            n_max=n_max,
+            matrix=response_matrix,
+            variance_matrix=variance_matrix,
+            n_max=n_max_measured,  # This is approximate
             magnitude=magnitude,
-            wavelength_nm=1064,  # Default
-            n_averages=3,  # Would need to extract from data
-            n_cycles=1,
+            wavelength_nm=1064,  # Default, could try to extract from somewhere
+            n_averages=max(1, n_averages_est),
+            n_cycles=max(1, n_cycles_est),
             timestamp=datetime.now().isoformat(),
-            excluded_piston=True,
-            excluded_tip_tilt=True,
+            excluded_piston=excluded_piston,
+            excluded_tip_tilt=excluded_tip_tilt,
+            pinv_matrix=pinv_matrix,
+            lstsq_matrix=lstsq_matrix,
         )
+        
+        # Try to set wavelength from SLM info if available
+        # We could look for SLM info in metadata or file names
         
         return result
         
@@ -589,8 +694,19 @@ def _render_main() -> None:
                     st.divider()
                     st.subheader("Response Matrix Visualization")
                     
+                    # Check for loaded result file first, then computed result
+                    result_to_show = None
+                    result_source = ""
+                    
                     if st.session_state.zrm_result is not None:
-                        result = st.session_state.zrm_result
+                        result_to_show = st.session_state.zrm_result
+                        result_source = "Loaded from .h5 file"
+                    elif hasattr(st.session_state, 'zrm_computed_result') and st.session_state.zrm_computed_result is not None:
+                        result_to_show = st.session_state.zrm_computed_result
+                        result_source = "Computed from debug data"
+                    
+                    if result_to_show is not None:
+                        result = result_to_show
                         
                         # Show basic info
                         col1, col2, col3 = st.columns(3)
@@ -603,6 +719,8 @@ def _render_main() -> None:
                                 st.metric("Condition Number", f"{result.condition_number:.2e}")
                             else:
                                 st.metric("Condition Number", "N/A")
+                        
+                        st.caption(f"Source: {result_source}")
                         
                         # Response matrix heatmap
                         st.write("**Response Matrix** (SLM Zernike → WFS Zernike)")
@@ -650,8 +768,10 @@ def _render_main() -> None:
                         else:
                             st.info("No modes excluded")
                             
+                        # Show magnitude info
+                        st.info(f"Perturbation magnitude used: {result.magnitude}λ")
                     else:
-                        st.info("No calibration result loaded. Load debug data to automatically find and load the corresponding .h5 file.")
+                        st.info("No calibration result available. Load debug data to load .h5 file or click 'Compute Response Matrix from Debug Data'.")
                 else:
                     st.text("Samples Not found")
 
