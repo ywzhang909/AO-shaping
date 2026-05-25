@@ -31,6 +31,7 @@ from ao_shaping.optimizer.wf.dm_response_matrix import (
 from ao_shaping.drivers.dm.NLight import NLight
 from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager, MlaRes
 from ao_shaping.utils.cli_helpers import parse_tuple, get_debug_mode, setup_coredumpy, get_timestamp_str
+from ao_shaping.utils.wfs_utils import make_actuator_debug_callback
 
 
 @click.command("dm-matrix")
@@ -136,37 +137,7 @@ def run(
         debug_data_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Debug mode enabled, saving raw data to: {debug_data_dir}")
 
-        def debug_callback(
-            actuator_idx: int,
-            cycle: int,
-            sample: int,
-            deviation_x: np.ndarray | None,
-            deviation_y: np.ndarray | None,
-            voltage: float,
-            is_plus: bool,
-        ) -> None:
-            """Save debug data for each actuator measurement."""
-            sign_str = "plus" if is_plus else "minus"
-            act_dir = debug_data_dir / f"actuator_{actuator_idx:03d}" / f"cycle_{cycle}" / sign_str
-            act_dir.mkdir(parents=True, exist_ok=True)
-
-            if deviation_x is not None:
-                np.save(act_dir / f"sample_{sample:03d}_deviation_x.npy", deviation_x)
-            if deviation_y is not None:
-                np.save(act_dir / f"sample_{sample:03d}_deviation_y.npy", deviation_y)
-
-            import json
-            meta = {
-                "actuator_idx": actuator_idx,
-                "cycle": cycle,
-                "sample": sample,
-                "voltage": voltage,
-                "is_plus": is_plus,
-            }
-            with open(act_dir / f"sample_{sample:03d}_meta.json", "w") as f:
-                json.dump(meta, f)
-
-        debug_data_callback = debug_callback
+        debug_data_callback = make_actuator_debug_callback(debug_data_dir)
 
     # Warn about display mode (not yet implemented for DM calibration)
     if display:

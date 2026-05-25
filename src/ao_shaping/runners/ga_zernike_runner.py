@@ -14,9 +14,9 @@ import matplotlib.pyplot as plt
 
 from ao_shaping.drivers import MlaRes
 from ao_shaping.optimizer.wf.ga_zernike import optimizer_ga
-from ao_shaping.utils import gen_date_dir, gen_file_path_uuid
 from ao_shaping.utils.display import plot_funcs
 from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name, get_debug_mode
+from ao_shaping.runners.runner_common import build_debug_save_paths, save_optimization_debug_artifacts
 
 
 @click.command(name="ga-zernike")
@@ -199,21 +199,21 @@ def run(
     root_dir = Path(dir)
 
     if debug or show:
-        save_dir = gen_date_dir(root_dir / "ga_zernike")
-        saved_file_name = gen_file_path_uuid(save_dir, 'pkl')
+        save_dir, saved_file = build_debug_save_paths(root_dir, "ga_zernike")
 
-        fig, ax = plt.subplots(2, 2, figsize=(12, 9))
-        rms_values = recorder.get_sublist()
-        plot_funcs["rms_history"](rms_values, ax[0, 0], min_gen, min_rms)
-        plot_funcs["voltages"](best_zernike, ax[0, 1], f"Min RMS: {min_rms:.3f} @ gen {min_gen}")
-        im = plot_funcs["wavefront"](recorder.first["_wavefront"][0], ax[1, 0], "初始波前")
-        plt.colorbar(im, ax=ax[1, 0], orientation='horizontal')
-        im = plot_funcs["wavefront"](min_iter["_wavefront"][0], ax[1, 1], "最优波前")
-        plt.colorbar(im, ax=ax[1, 1], orientation='horizontal')
-
-        plt.savefig(saved_file_name.with_suffix('.png'))
-        plt.close()
-        recorder.save_dataframe(saved_file_name.with_suffix('.zip'), compression='zip')
+        save_optimization_debug_artifacts(
+            records=recorder,
+            save_dir=save_dir,
+            saved_file_name=saved_file,
+            min_epoch=min_gen,
+            min_metric=min_rms,
+            best_coeff_key="_c",
+            init_wavefront=recorder.first["_wavefront"][0],
+            opt_wavefront=min_iter["_wavefront"][0],
+            init_title="初始波前",
+            opt_title="最优波前",
+            plot_params_note=f"Min RMS: {min_rms:.3f} @ gen {min_gen}",
+        )
 
     flatten_dir = root_dir / "flatten_zernike" / get_date_dir_name()
     recorder.save_best(saved_dir=flatten_dir, target="_c", process_fn=np.round, fmt="%.6f")

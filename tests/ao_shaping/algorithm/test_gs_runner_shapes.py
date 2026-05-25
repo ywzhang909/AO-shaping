@@ -18,7 +18,7 @@ _src_root = Path(__file__).resolve().parents[3] / "src"
 if str(_src_root) not in sys.path:
     sys.path.insert(0, str(_src_root))
 
-from ao_shaping.gs_hologram_runner import create_target_shape, phase_to_slm_grayscale
+from ao_shaping.runners.gs_hologram_runner import create_target_shape, phase_to_slm_grayscale
 
 
 class TestCreateTargetShape:

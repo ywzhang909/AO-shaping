@@ -4,23 +4,12 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 
-from ao_shaping.utils import gen_date_dir, gen_file_path_uuid
 from ao_shaping.optimizer.wf.greedy_zernike import optimizer_greedy
 from ao_shaping.utils.display import plot_funcs
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
-from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name, get_debug_mode
+from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name, get_debug_mode, _get_wfs_res
 from ao_shaping.drivers import MlaRes
-
-
-def _get_wfs_res(res_str: str) -> MlaRes:
-    res_map = {
-        '320': MlaRes.Res320,
-        '512': MlaRes.Res512,
-        '768': MlaRes.Res768,
-        '1024': MlaRes.Res1024,
-        '1280': MlaRes.Res1280,
-    }
-    return res_map.get(res_str, MlaRes.Res1024)
+from ao_shaping.runners.runner_common import build_debug_save_paths, save_optimization_debug_artifacts
 
 
 @click.command()
@@ -76,21 +65,21 @@ def run(dir, epochs, n_max, wfs_res, pupil_diameter, pupil_center, early_stop_th
     min_iter, (min_epoch, min_rms) = records.get_best_iter()
 
     if debug:
-        save_dir = gen_date_dir(root_dir / "greedy_zernike")
-        saved_file_name = gen_file_path_uuid(save_dir, 'pkl')
+        save_dir, saved_file = build_debug_save_paths(root_dir, "greedy_zernike")
 
-        fig, ax = plt.subplots(2, 2, figsize=(12, 9))
-        rms_values = records.get_sublist()
-        plot_funcs["rms_history"](rms_values, ax[0, 0], min_epoch, min_rms)
-        plot_funcs["voltages"](min_iter["_c"], ax[0, 1], f"Min RMS: {min_rms:.3f} @ epoch {min_epoch}")
-        im = plot_funcs["wavefront"](records.first["_wavefront"][0], ax[1, 0], "初始波前")
-        plt.colorbar(im, ax=ax[1, 0], orientation='horizontal')
-        im = plot_funcs["wavefront"](min_iter["_wavefront"][1], ax[1, 1], "最优波前")
-        plt.colorbar(im, ax=ax[1, 1], orientation='horizontal')
-
-        plt.savefig(saved_file_name.with_suffix('.png'))
-        plt.close()
-        records.save_dataframe(saved_file_name.with_suffix('.zip'), compression='zip')
+        save_optimization_debug_artifacts(
+            records=records,
+            save_dir=save_dir,
+            saved_file_name=saved_file,
+            min_epoch=min_epoch,
+            min_metric=min_rms,
+            best_coeff_key="_c",
+            init_wavefront=records.first["_wavefront"][0],
+            opt_wavefront=min_iter["_wavefront"][1],
+            init_title="初始波前",
+            opt_title="最优波前",
+            plot_params_note=f"Min RMS: {min_rms:.3f} @ epoch {min_epoch}",
+        )
 
     save_dir = root_dir / "flatten_zernike" / get_date_dir_name()
     records.save_best(saved_dir=save_dir, target="_c", process_fn=np.round, fmt="%.6f")

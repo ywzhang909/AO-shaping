@@ -5,19 +5,8 @@ from pathlib import Path
 from ao_shaping.drivers import MlaRes, Thorlab_WFS
 from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.utils.zernike_calc import calc_n_zernike_terms
-from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name
+from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name, _get_wfs_res
 from loguru import logger
-
-
-def _get_wfs_res(res_str: str) -> MlaRes:
-    res_map = {
-        '320': MlaRes.Res320,
-        '512': MlaRes.Res512,
-        '768': MlaRes.Res768,
-        '1024': MlaRes.Res1024,
-        '1280': MlaRes.Res1280,
-    }
-    return res_map.get(res_str, MlaRes.Res1024)
 
 
 def measure_rms(wfs: Thorlab_WFS) -> float:

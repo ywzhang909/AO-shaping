@@ -21,8 +21,7 @@ from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager, MlaRes
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
 from ao_shaping.utils.display import ZernikeCalibrationDisplay
 from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_timestamp_str
-from ao_shaping.utils.wfs_utils import flatten_slopes
-from ao_shaping.utils.wfs_utils import DitheredReference
+from ao_shaping.utils.wfs_utils import flatten_slopes, make_mode_debug_callback, DitheredReference
 from ao_shaping.runners.closed_loop import AOClosedLoop
 from ao_shaping.algorithm.controller import ControlLaw, LoopConfig, HardwareConfig
 
@@ -129,45 +128,33 @@ def run(
         debug_data_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Debug mode enabled, saving raw data to: {debug_data_dir}")
 
-        def debug_callback(
-            mode_index: int,
-            cycle: int,
-            sample: int,
-            slm_phase: np.ndarray,
-            shift_x: int,
-            shift_y: int,
-            deviation_x: np.ndarray,
-            deviation_y: np.ndarray,
-            zernike_coeffs: np.ndarray,
-            is_plus: bool,
-        ) -> None:
-            """Save debug data for each measurement."""
-            sign_str = "plus" if is_plus else "minus"
-            mode_dir = debug_data_dir / f"mode_{mode_index:03d}" / f"cycle_{cycle}" / sign_str
-            mode_dir.mkdir(parents=True, exist_ok=True)
-
-            np.save(mode_dir / f"sample_{sample:03d}_slm_phase.npy", slm_phase)
-
-            if deviation_x is not None and len(deviation_x) > 0:
-                np.save(mode_dir / f"sample_{sample:03d}_deviation_x.npy", deviation_x)
-                np.save(mode_dir / f"sample_{sample:03d}_deviation_y.npy", deviation_y)
-
-            if zernike_coeffs is not None and len(zernike_coeffs) > 0:
-                np.save(mode_dir / f"sample_{sample:03d}_zernike_coeffs.npy", zernike_coeffs)
-
-            import json
-            meta = {
-                "mode_index": mode_index,
-                "cycle": cycle,
-                "sample": sample,
-                "shift_x": shift_x,
-                "shift_y": shift_y,
-                "is_plus": is_plus,
+        def get_arrays(slm_phase, shift_x, shift_y,
+                       deviation_x, deviation_y, zernike_coeffs):
+            return {
+                "slm_phase": slm_phase,
+                "deviation_x": deviation_x
+                               if deviation_x is not None and len(deviation_x) > 0
+                               else None,
+                "deviation_y": deviation_y
+                               if deviation_y is not None and len(deviation_y) > 0
+                               else None,
+                "zernike_coeffs": zernike_coeffs
+                                  if zernike_coeffs is not None
+                                  and len(zernike_coeffs) > 0
+                                  else None,
             }
-            with open(mode_dir / f"sample_{sample:03d}_meta.json", "w") as f:
-                json.dump(meta, f)
 
-        debug_data_callback = debug_callback
+        def get_meta(mode_index, cycle, sample, shift_x, shift_y):
+            return {
+                "shift_x_rad": float(shift_x * np.deg2rad(1)),
+                "shift_y_rad": float(shift_y * np.deg2rad(1)),
+            }
+
+        debug_data_callback = make_mode_debug_callback(
+            debug_data_dir,
+            get_arrays=get_arrays,
+            get_meta=get_meta,
+        )
 
     # Calculate n_slm_terms and n_wfs_terms before calibration
     n_remove = (1 if excluded_piston else 0) + (2 if excluded_tip_tilt else 0)

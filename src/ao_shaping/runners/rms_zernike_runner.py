@@ -2,28 +2,14 @@ from pathlib import Path
 
 import click
 import numpy as np
-import matplotlib.pyplot as plt
-from tqdm import tqdm
 
-from ao_shaping.utils import gen_file_path_uuid
-from ao_shaping.utils.display import plot_funcs
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
-from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name, get_debug_mode
+from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_debug_mode, _get_wfs_res
 from ao_shaping.drivers import MlaRes, Thorlab_WFS
 from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.algorithm.adam import search_optimal_delta
 from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms
-
-
-def _get_wfs_res(res_str: str) -> MlaRes:
-    res_map = {
-        '320': MlaRes.Res320,
-        '512': MlaRes.Res512,
-        '768': MlaRes.Res768,
-        '1024': MlaRes.Res1024,
-        '1280': MlaRes.Res1280,
-    }
-    return res_map.get(res_str, MlaRes.Res1024)
+from ao_shaping.runners.runner_common import build_debug_save_paths, save_optimization_debug_artifacts
 
 
 def _auto_delta_detect_rms(
@@ -209,23 +195,26 @@ def run(dir, epochs, lr, delta, n_max, wfs_res, pupil_diameter, pupil_center, ea
     root_dir = Path(dir)
 
     min_iter, (min_epoch, min_rms) = records.get_best_iter()
-    save_dir = root_dir / "flatten_zernike" / get_date_dir_name()
+    save_dir = build_debug_save_paths(root_dir, "flatten_zernike")
     records.save_best(saved_dir=save_dir, target="_c", process_fn=np.round, fmt="%.6f")
     records.save_array_sidecars(save_dir)
     if debug:
-        saved_file_name = gen_file_path_uuid(save_dir, 'pkl')
-        fig, ax = plt.subplots(2, 2, figsize=(12, 9))
-        rms_values = records.get_sublist()
-        plot_funcs["rms_history"](rms_values, ax[0, 0], min_epoch, min_rms)
-        plot_funcs["voltages"](min_iter["_c"], ax[0, 1], f"Min RMS: {min_rms:.3f} @ epoch {min_epoch}")
-        im = plot_funcs["wavefront"](records.first["_wavefront"][0], ax[1, 0], "Init wavefront")
-        plt.colorbar(im, ax=ax[1, 0], orientation='horizontal')
-        im = plot_funcs["wavefront"](min_iter["_wavefront"][1], ax[1, 1], "Opt wavefront")
-        plt.colorbar(im, ax=ax[1, 1], orientation='horizontal')
+        _, saved_file_name = build_debug_save_paths(root_dir, "flatten_zernike")
 
-        plt.savefig(saved_file_name.with_suffix('.png'))
-        plt.close()
-        records.save_dataframe(saved_file_name.with_suffix('.zip'), sidecar_dir=save_dir, compression='zip')
+        save_optimization_debug_artifacts(
+            records=records,
+            save_dir=save_dir,
+            saved_file_name=saved_file_name,
+            min_epoch=min_epoch,
+            min_metric=min_rms,
+            best_coeff_key="_c",
+            init_wavefront=records.first["_wavefront"][0],
+            opt_wavefront=min_iter["_wavefront"][1],
+            init_title="Init wavefront",
+            opt_title="Opt wavefront",
+            plot_params_note=f"Min RMS: {min_rms:.3f} @ epoch {min_epoch}",
+            sidecar_dir=save_dir,
+        )
 
         has_intensity = "_pos_intensity" in records.first
         if has_intensity:
