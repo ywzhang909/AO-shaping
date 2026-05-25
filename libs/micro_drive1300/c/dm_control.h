@@ -2,10 +2,10 @@
  * DM Control Library - Cross-Platform Deformable Mirror Control
  * 
  * Controls 26 R50 Power controllers via TCP/IP
- * Each controller has 50 channels, total 1296 actuators (36x36 array)
- * 
+ * Each controller has 50 channels, total 1296 actuators (39x39 array, 1521 logical)
+ *
  * IP Address Range: 192.168.0.101 - 192.168.0.126
- * Port: IP + 10100 (e.g., 192.168.0.101:10101)
+ * Port: 10000 + ip_suffix (e.g., 192.168.0.101:10101)
  * 
  * Compile:
  *   Windows: cl /LD dm_control.c /I. /Ws2_32.lib
