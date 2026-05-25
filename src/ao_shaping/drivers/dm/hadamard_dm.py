@@ -4,9 +4,11 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm._registry import register_dm
 from ao_shaping.utils.hadamard_calc import HadamardGenerator
 
 
+@register_dm("hadamard")
 class HadamardDM(DM):
     """Hadamard系数驱动的变形镜/SLM接口.
 
@@ -14,21 +16,15 @@ class HadamardDM(DM):
     内部使用 HadamardGenerator 进行相位计算。
 
     Attributes:
-        mode_order: Hadamard矩阵阶数 (2的幂次)
-        resolution: 输出相位图分辨率 (width, height)
+        mode_order: Hadamard模式阶数
+        resolution: 输出相位图的分辨率 (width, height)
+        mask_type: 掩码类型
         radius: 归一化半径（像素）
-        mask_type: 光瞳掩码类型 ("circular" 或 "rectangular")
-        bits: SLM位深度
-
-    Example:
-        >>> hdm = HadamardDM(mode_order=8, resolution=(1920, 1080))
-        >>> hdm.open()
-        >>> coeffs = np.zeros(64)  # 8x8 = 64 modes
-        >>> coeffs[0] = 0.5  # First Hadamard mode
-        >>> coeffs[5] = 0.3  # Another mode
-        >>> phase = hdm.send(coeffs)
-        >>> hdm.close()
     """
+
+    @classmethod
+    def is_reachable(cls) -> bool:
+        return True
 
     def __init__(
         self,
@@ -37,18 +33,17 @@ class HadamardDM(DM):
         radius: float | None = None,
         bits: int = 10,
         mask_type: str = "circular",
+        safety_mode: bool = True,
     ):
         """Initialize the Hadamard DM.
 
         Args:
             mode_order: The order N of the Hadamard matrix. Must be a power of 2.
-                       Default is 8, giving 64 total 2D modes.
             resolution: Output phase resolution as (width, height).
-                       Default is (1920, 1080).
-            radius: Aperture radius in normalized coordinates. Default is 1.0.
-            bits: SLM bit depth (e.g., 10 for 0-1023 range). Default is 10.
+            radius: Aperture radius in normalized coordinates.
+            bits: SLM bit depth (e.g., 10 for 0-1023 range).
             mask_type: Pupil mask type ("circular" or "rectangular").
-                      Default is "circular".
+            safety_mode: Accepted for interface consistency (no effect for phase DMs).
         """
         self.mode_order = mode_order
         self.resolution = resolution
@@ -56,7 +51,8 @@ class HadamardDM(DM):
         self.mask_type = mask_type
         self._radius = radius
 
-        # Initialize the Hadamard generator
+        # Initialize the Hadamard generator BEFORE super().__init__
+        # because DM_NUM property depends on _generator
         self._generator = HadamardGenerator(
             resolution=resolution,
             mode_order=mode_order,
@@ -64,6 +60,8 @@ class HadamardDM(DM):
             radius=radius,
         )
         self._generator.set_bits(bits)
+
+        super().__init__(safety_mode=safety_mode)
 
         # Track current state
         self._current_coeffs: np.ndarray | None = None
@@ -74,6 +72,22 @@ class HadamardDM(DM):
     def DM_NUM(self) -> int:
         """Number of actuators (modes) for this DM."""
         return self._generator.n_modes
+
+    @property
+    def V_Min(self) -> float:
+        return 0.0
+
+    @property
+    def V_Max(self) -> float:
+        return float(2**self.bits - 1)
+
+    @property
+    def max_neibor_diff(self) -> float:
+        return float("inf")
+
+    @property
+    def default_dm_unit_mask(self) -> np.ndarray:
+        return np.ones(self.DM_NUM, dtype=bool)
 
     def generate_phase(self, coefficients: np.ndarray) -> np.ndarray:
         """根据Hadamard系数生成相位面型（弧度）
@@ -127,7 +141,9 @@ class HadamardDM(DM):
         """
         if isinstance(cmd, np.ndarray):
             return self.generate_phase_2pi(cmd)
-        raise ValueError(f"Unsupported command type: {type(cmd)}. Expected numpy array.")
+        raise ValueError(
+            f"Unsupported command type: {type(cmd)}. Expected numpy array."
+        )
 
     def send(self, cmd) -> np.ndarray:
         """Send command to DM and return phase pattern.
@@ -194,20 +210,18 @@ class HadamardDM(DM):
         return self.is_open
 
     def get_hardware_info(self) -> dict:
-        """Get hardware information about this DM.
-
-        Returns:
-            Dictionary with hardware specifications.
-        """
-        return {
-            "type": "HadamardDM",
-            "mode_order": self.mode_order,
-            "n_modes": self.DM_NUM,
-            "resolution": self.resolution,
-            "radius": self._generator.radius,
-            "mask_type": self.mask_type,
-            "bits": self.bits,
-        }
+        info = super().get_hardware_info()
+        info.update(
+            {
+                "mode_order": self.mode_order,
+                "n_modes": self.DM_NUM,
+                "resolution": self.resolution,
+                "radius": self._generator.radius,
+                "mask_type": self.mask_type,
+                "bits": self.bits,
+            }
+        )
+        return info
 
     def __enter__(self):
         """Context manager entry."""

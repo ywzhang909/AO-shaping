@@ -18,6 +18,15 @@ from ao_shaping.utils.display import plot_funcs
 from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name
 from ao_shaping.config import DM_N_ACTUATORS
 from ao_shaping.utils.cli_helpers import get_debug_mode
+from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm import create_dm, list_reachable_dm_types
+
+
+DM_TYPES = list_reachable_dm_types()
+
+
+def _create_dm(dm_type: str, **kwargs) -> DM:
+    return create_dm(dm_type, **kwargs)
 
 
 @click.command()
@@ -121,6 +130,12 @@ from ao_shaping.utils.cli_helpers import get_debug_mode
 @click.option(
     "--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)"
 )
+@click.option(
+    "--dm_type",
+    type=click.Choice(DM_TYPES, case_sensitive=False),
+    default=None,
+    help="变形镜类型 (default: auto-detect). 若未指定且仅一个DM在线则自动选取，否则报错.",
+)
 def run(
     root_dir,
     load_file,
@@ -146,6 +161,7 @@ def run(
     target_max_brightness,
     objective,
     show,
+    dm_type,
 ):
     """轴向光束优化器
 
@@ -191,9 +207,31 @@ def run(
     }
     logger.info(config)
 
+    # DM selection: explicit type, auto-detect, or error
+    if dm_type is not None:
+        dm_type = dm_type.lower()
+        logger.info(f"Using specified DM type: {dm_type}")
+    else:
+        reachable = DM_TYPES
+        if len(reachable) == 1:
+            dm_type = reachable[0]
+            logger.info(f"Auto-detected reachable DM: {dm_type}")
+        elif len(reachable) == 0:
+            raise RuntimeError(
+                "No DM reachable. Specify --dm_type explicitly or connect a DM."
+            )
+        else:
+            raise RuntimeError(
+                f"Multiple DMs reachable ({', '.join(reachable)}). "
+                f"Specify --dm_type explicitly to choose one."
+            )
+
+    dm = _create_dm(dm_type, dm_neibor_diff=300)
+
     dm_unit_mask = np.ones(DM_N_ACTUATORS, dtype=bool)
     dm_unit_mask[0] = False
     res_list = optimize_pib(
+        dm=dm,
         center=center,
         r_bucket=r_bucket,
         epochs=epochs,

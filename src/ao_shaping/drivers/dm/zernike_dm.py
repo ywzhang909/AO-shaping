@@ -4,9 +4,11 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm._registry import register_dm
 from ao_shaping.utils.zernike_calc import ZernikeGenerator
 
 
+@register_dm("zernike")
 class ZernikeDM(DM):
     """Zernike系数驱动的变形镜接口
 
@@ -17,18 +19,11 @@ class ZernikeDM(DM):
         n_max: Zernike多项式的最大阶数
         resolution: 输出相位图的分辨率 (width, height)
         radius: 归一化半径（像素）
-
-    Example:
-        >>> zdm = ZernikeDM(n_max=4, resolution=(1920, 1080))
-        >>> zdm.open()
-        >>> coeffs = {  # (n, m): coefficient
-        ...     (1, -1): 0.5,  # tilt X
-        ...     (1, 1): 0.3,   # tilt Y
-        ...     (2, 0): 0.2,   # defocus
-        ... }
-        >>> phase = zdm.send_zernike(coeffs)
-        >>> zdm.close()
     """
+
+    @classmethod
+    def is_reachable(cls) -> bool:
+        return True
 
     def __init__(
         self,
@@ -36,17 +31,44 @@ class ZernikeDM(DM):
         resolution: tuple[int, int] = (1920, 1080),
         radius: float | None = None,
         bits: int = 10,
+        safety_mode: bool = True,
     ):
         self.n_max = n_max
         self.resolution = resolution
         self.bits = bits
 
-        self._generator = ZernikeGenerator(resolution=resolution, radius=radius, n_orders=n_max)
+        # Initialize generator BEFORE super().__init__
+        # because DM_NUM property depends on _generator
+        self._generator = ZernikeGenerator(
+            resolution=resolution, radius=radius, n_orders=n_max
+        )
         self._generator.set_bits(bits)
+
+        super().__init__(safety_mode=safety_mode)
 
         self._current_coeffs: dict[tuple[int, int], float] = {}
         self._current_phase: np.ndarray | None = None
         self.is_open = False
+
+    @property
+    def DM_NUM(self) -> int:
+        return self._generator.n_modes
+
+    @property
+    def V_Min(self) -> float:
+        return 0.0
+
+    @property
+    def V_Max(self) -> float:
+        return float(2**self.bits - 1)
+
+    @property
+    def max_neibor_diff(self) -> float:
+        return float("inf")
+
+    @property
+    def default_dm_unit_mask(self) -> np.ndarray:
+        return np.ones(self.DM_NUM, dtype=bool)
 
     def generate_phase(
         self,
@@ -141,7 +163,9 @@ class ZernikeDM(DM):
 
     def open(self) -> None:
         self.is_open = True
-        logger.info(f"ZernikeDM opened: n_max={self.n_max}, resolution={self.resolution}")
+        logger.info(
+            f"ZernikeDM opened: n_max={self.n_max}, resolution={self.resolution}"
+        )
 
     def close(self) -> None:
         self.is_open = False
@@ -157,12 +181,15 @@ class ZernikeDM(DM):
         return self.is_open
 
     def get_hardware_info(self) -> dict:
-        return {
-            "type": "ZernikeDM",
-            "n_max": self.n_max,
-            "resolution": self.resolution,
-            "radius": self._generator.radius,
-        }
+        info = super().get_hardware_info()
+        info.update(
+            {
+                "n_max": self.n_max,
+                "resolution": self.resolution,
+                "radius": self._generator.radius,
+            }
+        )
+        return info
 
     def __enter__(self):
         self.open()

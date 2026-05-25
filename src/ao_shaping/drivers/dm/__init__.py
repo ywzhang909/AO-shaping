@@ -1,4 +1,12 @@
 from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm._registry import (
+    DMRegistry,
+    create_dm,
+    get_dm_registry,
+    list_dm_types,
+    list_reachable_dm_types,
+    register_dm,
+)
 from ao_shaping.drivers.dm.hadamard_dm import HadamardDM
 from ao_shaping.drivers.dm.zernike_dm import ZernikeDM
 from ao_shaping.drivers.dm.MicroDM import (
@@ -7,12 +15,11 @@ from ao_shaping.drivers.dm.MicroDM import (
     MicroDMConnectionError,
     MicroDMVoltageError,
 )
-
-# Re-export simulated DM from sim package (moved out of hardware driver files)
 from ao_shaping.drivers.sim.dm import SimMicroDM, SimulateDM
 
 __all__ = [
     "DM",
+    "DMRegistry",
     "HadamardDM",
     "MicroDM",
     "MicroDMConnectionError",
@@ -20,4 +27,9 @@ __all__ = [
     "MicroDMVoltageError",
     "SimMicroDM",
     "ZernikeDM",
+    "create_dm",
+    "get_dm_registry",
+    "list_dm_types",
+    "list_reachable_dm_types",
+    "register_dm",
 ]

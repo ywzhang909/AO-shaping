@@ -8,9 +8,16 @@ from loguru import logger
 
 from ao_shaping.drivers.device_base import DeviceState, DeviceType
 from ao_shaping.drivers.dm.base import DM
-from ao_shaping.drivers.dm.MicroDM import MicroDMVoltageError, RelayState, VOLTAGE_MIN, VOLTAGE_MAX
+from ao_shaping.drivers.dm._registry import register_dm
+from ao_shaping.drivers.dm.MicroDM import (
+    MicroDMVoltageError,
+    RelayState,
+    VOLTAGE_MIN,
+    VOLTAGE_MAX,
+)
 
 
+@register_dm("sim_micro")
 class SimMicroDM(DM):
     """Simulation mode for MicroDM without hardware.
 
@@ -23,24 +30,34 @@ class SimMicroDM(DM):
         V_Max: Maximum voltage (120.0 V).
     """
 
+    @classmethod
+    def is_reachable(cls) -> bool:
+        return True
+
     DM_Num: int = 50
     V_Min: float = VOLTAGE_MIN
     V_Max: float = VOLTAGE_MAX
+
+    @property
+    def DM_NUM(self) -> int:
+        """Alias for DM_Num (base class expects uppercase)."""
+        return self.DM_Num
 
     device_type = DeviceType.DM
     manufacturer = "R50Power"
     model = "MicroDM-50-Sim"
 
-    def __init__(self, device_id: str = ""):
+    def __init__(self, device_id: str = "", safety_mode: bool = True):
         """Initialize simulated MicroDM.
 
         Args:
             device_id: Unique device identifier.
+            safety_mode: If True, send_voltages ramps from current to target.
         """
+        super().__init__(safety_mode=safety_mode)
         self._device_id = device_id
 
         self._state = DeviceState.DISCONNECTED
-        self._last_voltages: np.ndarray = np.zeros(self.DM_Num)
         self._relay_state = RelayState.OFF
 
         logger.debug("SimMicroDM initialized")
@@ -90,16 +107,20 @@ class SimMicroDM(DM):
             return self.set_all_channel_voltage(float(cmd))
         raise MicroDMVoltageError(f"Unsupported command type: {type(cmd)}")
 
+    def _apply_voltages(self, vs: np.ndarray) -> np.ndarray:
+        """Apply voltages to simulated DM."""
+        vs = np.clip(vs, self.V_Min, self.V_Max)
+        self._last_voltages = vs.copy()
+        return self._last_voltages
+
     def send_voltages(self, vs: np.ndarray, wait_time_s: float = 0.0) -> np.ndarray:
-        """Send simulated voltage array."""
+        """Send simulated voltage array with optional safety ramping."""
         vs = np.asarray(vs, dtype=np.float64)
         if vs.shape != (self.DM_Num,):
             raise MicroDMVoltageError(
                 f"Expected {self.DM_Num} voltages, got {vs.shape}"
             )
-        vs = np.clip(vs, self.V_Min, self.V_Max)
-        self._last_voltages = vs.copy()
-        return self._last_voltages.copy()
+        return super().send_voltages(vs, wait_time_s=wait_time_s)
 
     def set_channel_voltage(self, channel: int, voltage: float) -> None:
         """Set simulated channel voltage."""

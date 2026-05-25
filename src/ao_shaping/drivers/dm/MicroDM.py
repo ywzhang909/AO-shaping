@@ -54,6 +54,7 @@ from __future__ import annotations
 import asyncio
 import json
 import socket
+import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
@@ -66,6 +67,7 @@ from loguru import logger
 
 from ao_shaping.drivers.device_base import Device, DeviceState, DeviceType
 from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm._registry import register_dm
 
 # =============================================================================
 # Protocol Constants
@@ -92,16 +94,23 @@ DEFAULT_TIMEOUT = 10.0
 DEFAULT_IPS = [f"192.168.0.{100 + i}" for i in range(1, MAX_CONTROLLERS + 1)]
 
 # Wiring map path (relative to project root)
-WIRING_MAP_PATH = Path(__file__).parent.parent.parent.parent.parent / "libs" / "micro_drive1300" / "wiring_map.json"
+WIRING_MAP_PATH = (
+    Path(__file__).parent.parent.parent.parent.parent
+    / "libs"
+    / "micro_drive1300"
+    / "wiring_map.json"
+)
 
 
 # =============================================================================
 # Wiring Map Data Classes (type-safe JSON schema definition)
 # =============================================================================
 
+
 @dataclass(frozen=True)
 class SourceFiles:
     """Source Excel files used to generate the wiring map."""
+
     wiring_table: str
     device_mapping: str
 
@@ -109,6 +118,7 @@ class SourceFiles:
 @dataclass(frozen=True)
 class Metadata:
     """Wiring map metadata."""
+
     description: str
     generated_at: str
     source_files: SourceFiles
@@ -119,6 +129,7 @@ class Metadata:
 @dataclass(frozen=True)
 class ChannelSchemaDoc:
     """Documentation for channel fields (from wiring_map.json schema.channel)."""
+
     needle_id: str
     physical_label: str
     mapping_row: str
@@ -131,6 +142,7 @@ class ChannelSchemaDoc:
 @dataclass(frozen=True)
 class SchemaDoc:
     """Schema documentation section."""
+
     channel: ChannelSchemaDoc
 
 
@@ -144,6 +156,7 @@ class ChannelEntry:
     - Payload byte position within the controller's 50-channel frame
     - TCP port (10000 + ip_suffix)
     """
+
     needle_id: int | None
     physical_label: str | None
     mapping_row: int | None
@@ -181,6 +194,7 @@ class ChannelEntry:
 @dataclass(frozen=True)
 class Group:
     """A group of channels (e.g., "一组", "二组")."""
+
     name: str
     channel_count: int
     channels: list[ChannelEntry] = field(default_factory=list)
@@ -193,10 +207,7 @@ class Group:
             key: Group key from JSON (e.g., "group_1").
             data: Group data dict.
         """
-        channels = [
-            ChannelEntry.from_dict(ch)
-            for ch in data.get("channels", [])
-        ]
+        channels = [ChannelEntry.from_dict(ch) for ch in data.get("channels", [])]
         return cls(
             name=data.get("name", key),
             channel_count=data.get("channel_count", len(channels)),
@@ -207,6 +218,7 @@ class Group:
 @dataclass(frozen=True)
 class RangeInfo:
     """Min/max range for a numeric field."""
+
     min: int
     max: int
 
@@ -214,6 +226,7 @@ class RangeInfo:
 @dataclass(frozen=True)
 class Summary:
     """Wiring map summary statistics."""
+
     unique_ip_suffixes: list[int]
     needle_id_range: RangeInfo
     physical_position_range: RangeInfo
@@ -226,7 +239,9 @@ class Summary:
         return cls(
             unique_ip_suffixes=data.get("unique_ip_suffixes", []),
             needle_id_range=RangeInfo(min=nid.get("min", 0), max=nid.get("max", 0)),
-            physical_position_range=RangeInfo(min=ppr.get("min", 0), max=ppr.get("max", 0)),
+            physical_position_range=RangeInfo(
+                min=ppr.get("min", 0), max=ppr.get("max", 0)
+            ),
         )
 
 
@@ -240,6 +255,7 @@ class WiringMap:
     - Controller IPs (via ip_suffix)
     - Payload byte positions (1-50) within each controller's frame
     """
+
     schema_version: str
     metadata: Metadata
     schema: SchemaDoc
@@ -250,10 +266,7 @@ class WiringMap:
     def all_channels(self) -> list[ChannelEntry]:
         """Flattened list of all valid channel entries across all groups."""
         return [
-            ch
-            for group in self.groups.values()
-            for ch in group.channels
-            if ch.is_valid
+            ch for group in self.groups.values() for ch in group.channels if ch.is_valid
         ]
 
     @property
@@ -337,12 +350,14 @@ class WiringMap:
 # Runtime Channel Index (built from WiringMap for fast lookup)
 # =============================================================================
 
+
 @dataclass(frozen=True)
 class ChannelInfo:
     """Runtime lookup view of a channel, built from WiringMap.
 
     Includes group context and pre-computed indices for fast lookup.
     """
+
     needle_id: int | None
     physical_label: str | None
     mapping_row: int | None
@@ -361,7 +376,9 @@ class ChannelInfo:
         return None
 
     @classmethod
-    def from_entry(cls, entry: ChannelEntry, group_name: str, group_key: str) -> ChannelInfo:
+    def from_entry(
+        cls, entry: ChannelEntry, group_name: str, group_key: str
+    ) -> ChannelInfo:
         """Create a ChannelInfo from a ChannelEntry with group context."""
         return cls(
             needle_id=entry.needle_id,
@@ -379,6 +396,7 @@ class ChannelInfo:
 # =============================================================================
 # Voltage Conversion
 # =============================================================================
+
 
 def voltages_to_payload(voltages: np.ndarray | list[float] | float) -> bytes:
     """Convert voltage(s) to the 0x09 command payload.
@@ -424,6 +442,7 @@ def voltages_to_payload(voltages: np.ndarray | list[float] | float) -> bytes:
 # Exceptions
 # =============================================================================
 
+
 class MicroDMError(Exception):
     """Base exception for MicroDM errors."""
 
@@ -440,15 +459,34 @@ class MicroDMVoltageError(MicroDMError):
 # Relay State
 # =============================================================================
 
+
 class RelayState(IntEnum):
     """Relay open/close state."""
+
     OFF = 0
     ON = 1
+
+
+@dataclass(frozen=True)
+class ControllerStatus:
+    """Connection and reachability status for a single controller."""
+
+    controller_id: int
+    ip: str
+    port: int
+    ping_reachable: bool
+    tcp_connected: bool
+
+    @property
+    def is_available(self) -> bool:
+        """Controller is reachable via ping and has an active TCP connection."""
+        return self.ping_reachable and self.tcp_connected
 
 
 # =============================================================================
 # Low-Level Async R50 Controller
 # =============================================================================
+
 
 class R50Controller:
     """Async TCP client for a single R50Power controller (50 channels).
@@ -618,7 +656,12 @@ class R50Controller:
             )
             return False
 
-        cmd = HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR]) + voltages_to_payload(voltages) + FOOTER
+        cmd = (
+            HEADER
+            + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR])
+            + voltages_to_payload(voltages)
+            + FOOTER
+        )
         return self.send_command(cmd)
 
     async def set_all_voltage_array_async(
@@ -684,6 +727,8 @@ class R50Controller:
 # Main MicroDM Driver
 # =============================================================================
 
+
+@register_dm("micro")
 class MicroDM(DM, Device):
     """Micro DM (R50Power) deformable mirror driver.
 
@@ -713,12 +758,33 @@ class MicroDM(DM, Device):
     """
 
     DM_Num: int = 39 * 39
+    DM_NUM: int = 39 * 39  # Alias for base class compatibility
     V_Min: float = VOLTAGE_MIN
     V_Max: float = VOLTAGE_MAX
+    max_neibor_diff: float = float("inf")  # No neighbor constraint
 
     device_type = DeviceType.DM
     manufacturer = "R50Power"
     model = "MicroDM"
+
+    @classmethod
+    def is_reachable(cls) -> bool:
+        for suffix in range(101, 127):
+            ip = f"192.168.0.{suffix}"
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(1.0)
+                result = sock.connect_ex((ip, 10000 + (suffix - 100)))
+                sock.close()
+                if result == 0:
+                    return True
+            except OSError:
+                continue
+        return False
+
+    @property
+    def default_dm_unit_mask(self) -> np.ndarray:
+        return np.ones(self.DM_NUM, dtype=bool)
 
     def __init__(
         self,
@@ -726,6 +792,9 @@ class MicroDM(DM, Device):
         timeout: float = DEFAULT_TIMEOUT,
         device_id: str = "",
         use_wiring_map: bool = True,
+        exclude_ips: list[str] | None = None,
+        exclude_ids: list[int] | None = None,
+        safety_mode: bool = True,
     ):
         """Initialize the MicroDM driver.
 
@@ -738,14 +807,27 @@ class MicroDM(DM, Device):
             device_id: Unique device identifier (auto-generated if empty).
             use_wiring_map: If True (default), load controller IPs from
                 ``libs/micro_drive1300/wiring_map.json``.
+            exclude_ips: IP addresses to skip during initialization.
+                Controllers with these IPs will not be created.
+            exclude_ids: Controller IDs (1-based) to skip during initialization.
+                Controllers with these IDs will not be created.
+            safety_mode: If True (default), send_voltages ramps from current
+                state to target in steps bounded by max_neibor_diff.
         """
+        DM.__init__(self, safety_mode=safety_mode)
         Device.__init__(self, device_id)
 
         # Load wiring map if enabled
         self._wiring_map: WiringMap | None = None
-        self._channel_by_position: dict[int, ChannelInfo] = {}  # physical_position → info
-        self._channel_by_ip_payload: dict[tuple[int, int], ChannelInfo] = {}  # (ip_suffix, payload_pos) → info
-        self._channel_by_xy: dict[tuple[int, int], ChannelInfo] = {}  # (x, y) in 39x39 → info
+        self._channel_by_position: dict[
+            int, ChannelInfo
+        ] = {}  # physical_position → info
+        self._channel_by_ip_payload: dict[
+            tuple[int, int], ChannelInfo
+        ] = {}  # (ip_suffix, payload_pos) → info
+        self._channel_by_xy: dict[
+            tuple[int, int], ChannelInfo
+        ] = {}  # (x, y) in 39x39 → info
 
         if use_wiring_map:
             self._wiring_map = WiringMap.from_file(WIRING_MAP_PATH)
@@ -760,13 +842,21 @@ class MicroDM(DM, Device):
         else:
             self._ips = [DEFAULT_IPS[0]]
 
+        # Filter out excluded IPs
+        exclude_ip_set = set(exclude_ips or [])
+        self._ips = [ip for ip in self._ips if ip not in exclude_ip_set]
+
+        if exclude_ip_set:
+            excluded_found = exclude_ip_set & set(self._ips)
+            for ip in excluded_found:
+                logger.warning(f"Excluded controller IP: {ip}")
+
         self._timeout = timeout
 
-        # Current voltage state (logical actuator voltages)
-        self._voltages: np.ndarray = np.zeros(self.DM_Num)
         self._relay_state = RelayState.OFF
 
-        # Build async controllers
+        # Build async controllers, skipping excluded IDs
+        exclude_id_set = set(exclude_ids or [])
         self._controllers: list[R50Controller] = [
             R50Controller(
                 controller_id=i,
@@ -775,7 +865,12 @@ class MicroDM(DM, Device):
                 timeout=timeout,
             )
             for i, ip_str in enumerate(self._ips, start=1)
+            if (i + 1) not in exclude_id_set
         ]
+
+        if exclude_id_set:
+            for cid in exclude_id_set:
+                logger.warning(f"Excluded controller ID: {cid}")
 
         # Async event loop running in a background thread
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -795,17 +890,23 @@ class MicroDM(DM, Device):
     def _register_parameters(self) -> None:
         """Register device parameters for the parameter management system."""
         self.register_parameter(
-            "voltage_min", self.V_Min, description="Minimum allowed voltage (V)",
+            "voltage_min",
+            self.V_Min,
+            description="Minimum allowed voltage (V)",
         )
         self.register_parameter(
-            "voltage_max", self.V_Max, description="Maximum allowed voltage (V)",
+            "voltage_max",
+            self.V_Max,
+            description="Maximum allowed voltage (V)",
         )
         self.register_parameter(
-            "channel_count", self.DM_Num,
+            "channel_count",
+            self.DM_Num,
             description="Total logical channel count",
         )
         self.register_parameter(
-            "n_controllers", len(self._controllers),
+            "n_controllers",
+            len(self._controllers),
             description="Number of physical R50Power controllers",
         )
 
@@ -832,7 +933,9 @@ class MicroDM(DM, Device):
 
                 # Index by (ip_suffix, payload_position)
                 if entry.ip_suffix is not None and entry.payload_position is not None:
-                    self._channel_by_ip_payload[(entry.ip_suffix, entry.payload_position)] = info
+                    self._channel_by_ip_payload[
+                        (entry.ip_suffix, entry.payload_position)
+                    ] = info
 
                 # Index by (x, y) from physical_label (format: "group-row-col")
                 if entry.physical_label is not None:
@@ -918,7 +1021,9 @@ class MicroDM(DM, Device):
         """Open connections to all R50Power controllers.
 
         Starts the async event loop in a background thread, then connects
-        to every controller in parallel.
+        to every controller in parallel. Individual connection failures
+        are logged as warnings but do not prevent other controllers from
+        connecting.
 
         Raises:
             MicroDMConnectionError: If no controller can be reached.
@@ -931,8 +1036,11 @@ class MicroDM(DM, Device):
         while self._loop is None or not self._loop.is_running():
             time.sleep(0.001)
 
-        # Connect all controllers in parallel
-        connected = self._run_async(self._connect_all())
+        # Connect all controllers in parallel, allowing partial failures
+        connected, failed = self._run_async(self._connect_all())
+
+        for ctrl_id, ip in failed:
+            logger.warning(f"Controller[{ctrl_id}] {ip} connection failed")
 
         if connected == 0:
             self._set_state(DeviceState.ERROR, "No controllers connected")
@@ -974,6 +1082,135 @@ class MicroDM(DM, Device):
             and any(ctrl.is_connected for ctrl in self._controllers)
         )
 
+    # ---- Per-Controller Connection Management --------------------------------
+
+    @staticmethod
+    def _ping_host(ip: str, timeout: float = 2.0) -> bool:
+        """Check if a host is reachable via ICMP ping.
+
+        Args:
+            ip: IP address or hostname to ping.
+            timeout: Timeout in seconds.
+
+        Returns:
+            True if the host responds to ping, False otherwise.
+        """
+        param = "-n" if subprocess.os.name == "nt" else "-c"
+        timeout_arg = (
+            str(int(timeout * 1000))
+            if subprocess.os.name == "nt"
+            else str(int(timeout))
+        )
+        try:
+            result = subprocess.run(
+                ["ping", param, "1", "-W", timeout_arg, ip],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout + 1,
+            )
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, OSError):
+            return False
+
+    def get_connection_status(self) -> list[ControllerStatus]:
+        """Get connection and reachability status for all controllers.
+
+        Checks both ICMP ping reachability and TCP connection state.
+
+        Returns:
+            List of ControllerStatus, one per controller.
+        """
+        statuses: list[ControllerStatus] = []
+        for ctrl in self._controllers:
+            ping_ok = self._ping_host(ctrl.ip, timeout=self._timeout)
+            tcp_ok = ctrl.is_connected
+            statuses.append(
+                ControllerStatus(
+                    controller_id=ctrl.controller_id,
+                    ip=ctrl.ip,
+                    port=ctrl.port,
+                    ping_reachable=ping_ok,
+                    tcp_connected=tcp_ok,
+                )
+            )
+        return statuses
+
+    def connect_controller(self, controller_id: int) -> bool:
+        """Connect a single controller by its ID.
+
+        Args:
+            controller_id: 1-based controller identifier.
+
+        Returns:
+            True if connection succeeded, False otherwise.
+
+        Raises:
+            MicroDMError: If controller ID not found.
+        """
+        ctrl = self._find_controller(controller_id)
+        if ctrl.is_connected:
+            logger.debug(f"Controller[{controller_id}] already connected")
+            return True
+        result = ctrl.open()
+        if result:
+            logger.info(f"Controller[{controller_id}] {ctrl.ip} connected")
+        else:
+            logger.warning(f"Controller[{controller_id}] {ctrl.ip} connection failed")
+        return result
+
+    def disconnect_controller(self, controller_id: int) -> None:
+        """Disconnect a single controller by its ID.
+
+        Args:
+            controller_id: 1-based controller identifier.
+
+        Raises:
+            MicroDMError: If controller ID not found.
+        """
+        ctrl = self._find_controller(controller_id)
+        ctrl.close()
+        logger.info(f"Controller[{controller_id}] {ctrl.ip} disconnected")
+
+    def reconnect_controller(self, controller_id: int) -> bool:
+        """Reconnect a single controller by its ID.
+
+        Disconnects first if already connected, then reconnects.
+
+        Args:
+            controller_id: 1-based controller identifier.
+
+        Returns:
+            True if reconnection succeeded, False otherwise.
+
+        Raises:
+            MicroDMError: If controller ID not found.
+        """
+        ctrl = self._find_controller(controller_id)
+        ctrl.close()
+        result = ctrl.open()
+        if result:
+            logger.info(f"Controller[{controller_id}] {ctrl.ip} reconnected")
+        else:
+            logger.warning(f"Controller[{controller_id}] {ctrl.ip} reconnection failed")
+        return result
+
+    def _find_controller(self, controller_id: int) -> R50Controller:
+        """Find a controller by its ID.
+
+        Args:
+            controller_id: 1-based controller identifier.
+
+        Returns:
+            The matching R50Controller.
+
+        Raises:
+            MicroDMError: If controller ID not found.
+        """
+        for ctrl in self._controllers:
+            if ctrl.controller_id == controller_id:
+                return ctrl
+        raise MicroDMError(f"Controller ID {controller_id} not found")
+
     def get_hardware_info(self) -> dict[str, Any]:
         """Get hardware-specific information.
 
@@ -1000,7 +1237,7 @@ class MicroDM(DM, Device):
         Returns:
             Copy of the current voltage array (DM_Num elements).
         """
-        return self._voltages.copy()
+        return self._last_voltages.copy()
 
     # ---- DM Interface -------------------------------------------------------
 
@@ -1036,10 +1273,19 @@ class MicroDM(DM, Device):
             return self.set_all_channel_voltage(float(cmd))
         raise MicroDMVoltageError(f"Unsupported command type: {type(cmd)}")
 
+    def _apply_voltages(self, vs: np.ndarray) -> np.ndarray:
+        """Low-level voltage application via async TCP to all controllers."""
+        vs = np.clip(vs, self.V_Min, self.V_Max)
+        self._run_async(self._send_voltages_async(vs))
+        self._last_voltages = vs.copy()
+        return self._last_voltages
+
     def send_voltages(self, vs: np.ndarray, wait_time_s: float = 0.001) -> np.ndarray:
         """Send a voltage array to all channels using async parallel TCP.
 
         Voltages are distributed across R50Power controllers automatically.
+        When safety_mode is True (default), voltages are ramped from current
+        state to target in steps bounded by max_neibor_diff.
 
         Args:
             vs: Voltage array for all logical channels.
@@ -1056,36 +1302,32 @@ class MicroDM(DM, Device):
             raise MicroDMVoltageError(
                 f"Expected {self.DM_Num} voltages, got {vs.shape}"
             )
-
-        vs = np.clip(vs, self.V_Min, self.V_Max)
-        self._run_async(self._send_voltages_async(vs))
-        self._voltages = vs.copy()
-        time.sleep(wait_time_s)
-        return self._voltages.copy()
+        result = super().send_voltages(vs, wait_time_s=wait_time_s)
+        return result
 
     # ---- Async Internal Methods ---------------------------------------------
 
-    async def _connect_all(self) -> int:
+    async def _connect_all(self) -> tuple[int, list[tuple[int, str]]]:
         """Connect to all controllers in parallel.
 
         Returns:
-            Number of successfully connected controllers.
+            Tuple of (connected_count, list_of_(controller_id, ip) for failures).
         """
         loop = asyncio.get_running_loop()
-        tasks = [
-            loop.run_in_executor(None, ctrl.open)
-            for ctrl in self._controllers
-        ]
+        tasks = [loop.run_in_executor(None, ctrl.open) for ctrl in self._controllers]
         results = await asyncio.gather(*tasks)
-        return sum(1 for r in results if r)
+        connected = sum(1 for r in results if r)
+        failed = [
+            (ctrl.controller_id, ctrl.ip)
+            for ctrl, ok in zip(self._controllers, results)
+            if not ok
+        ]
+        return connected, failed
 
     async def _disconnect_all(self) -> None:
         """Disconnect all controllers in parallel."""
         loop = asyncio.get_running_loop()
-        tasks = [
-            loop.run_in_executor(None, ctrl.close)
-            for ctrl in self._controllers
-        ]
+        tasks = [loop.run_in_executor(None, ctrl.close) for ctrl in self._controllers]
         await asyncio.gather(*tasks)
 
     async def _send_voltages_async(self, vs: np.ndarray) -> None:
@@ -1106,9 +1348,16 @@ class MicroDM(DM, Device):
             chunk = vs[start:end]
             # Pad with zeros if the last controller has fewer than 50
             if len(chunk) < MAX_CHANNELS:
-                chunk = np.pad(chunk, (0, MAX_CHANNELS - len(chunk)), constant_values=0.0)
+                chunk = np.pad(
+                    chunk, (0, MAX_CHANNELS - len(chunk)), constant_values=0.0
+                )
 
-            cmd = HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR]) + voltages_to_payload(chunk) + FOOTER
+            cmd = (
+                HEADER
+                + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR])
+                + voltages_to_payload(chunk)
+                + FOOTER
+            )
             tasks.append(ctrl.send_command_async(cmd))
 
         if tasks:
@@ -1151,7 +1400,7 @@ class MicroDM(DM, Device):
             ctrl = self._controllers[ctrl_idx]
             voltage_clipped = max(self.V_Min, min(self.V_Max, float(voltage)))
             ctrl.set_channel_voltage(ch_idx, voltage_clipped)
-            self._voltages[channel] = voltage_clipped
+            self._last_voltages[channel] = voltage_clipped
 
     def set_all_voltage_by_arr(self, voltages: np.ndarray) -> None:
         """Set all logical channels by array.
@@ -1176,10 +1425,9 @@ class MicroDM(DM, Device):
         """
         voltage = max(self.V_Min, min(self.V_Max, float(voltage)))
         vs = np.full(self.DM_Num, voltage)
-        self._run_async(self._send_voltages_async(vs))
-        self._voltages = vs.copy()
+        self.send_voltages(vs)
         logger.debug(f"Set all channels to {voltage} V")
-        return self._voltages.copy()
+        return self._last_voltages.copy()
 
     def set_relay_state(self, state: bool) -> None:
         """Set relay state on all connected controllers in parallel.
@@ -1208,7 +1456,6 @@ class MicroDM(DM, Device):
             f"state={self._state.name}"
             f")"
         )
-
 
 if __name__ == '__main__':
     CONTROLLER_IP = '192.168.0.101'

@@ -31,6 +31,7 @@ from ao_shaping.drivers.sim.dm import SimMicroDM
 # Voltage Conversion
 # =============================================================================
 
+
 class TestVoltageConversion:
     """Tests for the voltage-to-byte conversion formula.
 
@@ -81,6 +82,7 @@ class TestVoltageConversion:
 # Exception Classes
 # =============================================================================
 
+
 class TestMicroDMExceptions:
     def test_micro_dm_error(self):
         with pytest.raises(MicroDMError):
@@ -99,6 +101,7 @@ class TestMicroDMExceptions:
 # SimMicroDM Tests
 # =============================================================================
 
+
 class TestSimMicroDM:
     @pytest.fixture
     def dm(self):
@@ -108,6 +111,11 @@ class TestSimMicroDM:
         assert dm.DM_Num == MAX_CHANNELS
         assert dm.V_Min == VOLTAGE_MIN
         assert dm.V_Max == VOLTAGE_MAX
+        assert dm._safety_mode is True
+
+    def test_safety_mode_off(self):
+        dm = SimMicroDM(safety_mode=False)
+        assert dm._safety_mode is False
 
     def test_transform(self, dm):
         cmd = np.array([0.0, 0.5, -0.5, 1.0, -1.0])
@@ -195,10 +203,32 @@ class TestSimMicroDM:
         expected = np.array([-20.0, 120.0])
         np.testing.assert_array_equal(voltages, expected)
 
+    def test_safety_mode_ramping(self):
+        """Safety mode should ramp voltages in bounded steps."""
+        dm = SimMicroDM(safety_mode=True)
+        dm.open()
+        dm.max_neibor_diff = 10.0
+
+        # Send large voltage jump
+        target = np.full(50, 50.0)
+        result = dm.send_voltages(target)
+        np.testing.assert_array_equal(result, target)
+        # _last_voltages should match target
+        np.testing.assert_array_equal(dm._last_voltages, target)
+
+    def test_safety_mode_off_direct(self):
+        """Safety mode off should apply voltages directly."""
+        dm = SimMicroDM(safety_mode=False)
+        dm.open()
+        target = np.full(50, 100.0)
+        result = dm.send_voltages(target)
+        np.testing.assert_array_equal(result, target)
+
 
 # =============================================================================
 # Integration / Import Tests
 # =============================================================================
+
 
 class TestMicroDMIntegration:
     def test_import_from_package(self):

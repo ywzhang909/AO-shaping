@@ -7,33 +7,69 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm._registry import register_dm
 
 
 def _load_adj_txt():
-    return np.loadtxt('data/dm_adj.txt')
+    return np.loadtxt("data/dm_adj.txt")
 
+
+@register_dm("nlight")
 class NLight(DM):
     DM_NUM: int = 64
+    V_Min: float = -300.0
+    V_Max: float = 499.0
+
+    _IP = "192.168.6.10"
+    _PORT = 1001
+
     disabled_actuators: list[int] = [0]
 
-    V_Min, V_Max = -300, 499
     Units_Adj_Mat = _load_adj_txt()
 
-    def __init__(self, max_iter_diff=20, max_neibor_diff=200, keep_when_exit=True):
+    @classmethod
+    def is_reachable(cls) -> bool:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1.0)
+            result = sock.connect_ex((cls._IP, cls._PORT))
+            sock.close()
+            return result == 0
+        except OSError:
+            return False
+
+    def __init__(
+        self,
+        max_iter_diff=20,
+        max_neibor_diff=200,
+        keep_when_exit=True,
+        safety_mode=True,
+    ):
         assert max_iter_diff <= 200
         assert max_neibor_diff <= 300
 
-        self.__last_v = np.zeros(self.DM_NUM)
+        super().__init__(safety_mode=safety_mode)
         self.max_iter_diff = max_iter_diff
-        self.max_neibor_diff = max_neibor_diff
-
-        self.default_dm_unit_mask = np.ones(self.DM_NUM)
-        self.default_dm_unit_mask[0] = 0
+        self._max_neibor_diff = max_neibor_diff
 
         self.c_driver = DMSdk()
         self.udp_driver = DMUdp()
 
         self.__keep_when_exit = keep_when_exit
+
+    @property
+    def max_neibor_diff(self) -> float:
+        return self._max_neibor_diff
+
+    @max_neibor_diff.setter
+    def max_neibor_diff(self, value: float) -> None:
+        self._max_neibor_diff = value
+
+    @property
+    def default_dm_unit_mask(self) -> np.ndarray:
+        mask = np.ones(self.DM_NUM, dtype=bool)
+        mask[0] = False
+        return mask
 
     def open(self) -> None:
         """Open connection to DM and initialize"""
@@ -47,45 +83,48 @@ class NLight(DM):
             logger.info("DM Turn off high voltages.")
         self.udp_driver.sock.close()
 
-    def transform(self, cmd:np.ndarray) -> np.ndarray:
+    def transform(self, cmd: np.ndarray) -> np.ndarray:
         """Transform command to DM actuators"""
-        cmd = np.clip(cmd, -1, 1)
-        return (cmd + 1) * (self.V_Max - self.V_Min) / 2 + self.V_Min
-
-    def send(self, cmd):
-        """Send command to DM - accepts voltage array"""
-        if isinstance(cmd, np.ndarray):
-            return self.send_voltages(cmd)
-        raise ValueError("Unsupported command type. Expected numpy array of voltages.")
+        return self.transform_voltage(cmd)
 
     def get_actuator_positions(self) -> np.ndarray:
         """Get positions of DM actuators"""
-        return self.__last_v.copy()
+        return self._last_voltages.copy()
+
+    def get_hardware_info(self) -> dict:
+        return {
+            "type": "NLight",
+            "DM_NUM": self.DM_NUM,
+            "V_Min": self.V_Min,
+            "V_Max": self.V_Max,
+            "max_neibor_diff": self.max_neibor_diff,
+            "max_iter_diff": self.max_iter_diff,
+            "safety_mode": self._safety_mode,
+        }
+
+    def _apply_voltages(self, vs: np.ndarray) -> np.ndarray:
+        """Low-level voltage application via UDP driver."""
+        vs = np.clip(vs, self.V_Min, self.V_Max)
+        if self.max_iter_diff > 0:
+            gap = vs - self._last_voltages
+            direction = np.sign(gap)
+            abs_gap = np.abs(gap)
+            while abs_gap.any():
+                abs_gap = np.clip(abs_gap - self.max_iter_diff, 0, self.V_Max)
+                self.udp_driver.set_voltages(vs + direction * abs_gap)
+        self.udp_driver.set_voltages(vs)
+        self._last_voltages = vs.copy()
+        return self._last_voltages
 
     def initialize(self) -> None:
         self.set_hv(hv=True)
 
     def reset_all(self):
         self.send_voltages(np.zeros(self.DM_NUM), 0.01)
-
         if (ret := self.c_driver.reset_all()) == 0:
-            self.__last_v = np.zeros_like(self.__last_v)
+            self._last_voltages = np.zeros_like(self._last_voltages)
         time.sleep(0.5)
         return ret
-
-    def send_voltages(self, vs: np.ndarray, wait_time_s=0.001):
-        vs = np.clip(vs, -300, 499)
-        __gap = vs - self.__last_v
-        if self.max_iter_diff > 0:
-            _direction = np.sign(__gap)
-            _abs_gap = np.abs(__gap)
-            while _abs_gap.any():
-                _abs_gap = np.clip(_abs_gap - self.max_iter_diff, 0, 499)
-                self.udp_driver.set_voltages(vs + _direction * _abs_gap)
-        self.udp_driver.set_voltages(vs)
-        self.__last_v = vs
-        time.sleep(wait_time_s)
-        return self.__last_v
 
     def set_hv(self, hv: bool = True):
         ret = self.c_driver.set_hv(hv)
@@ -98,13 +137,16 @@ class NLight(DM):
     def check_dm_unit_grad_safe(self, vs):
         if self.max_iter_diff <= 0:
             return True
-        diff_mat = (vs[:,None] - vs[None,:]) * self.Units_Adj_Mat
+        diff_mat = (vs[:, None] - vs[None, :]) * self.Units_Adj_Mat
         return not np.any(diff_mat[diff_mat > self.max_neibor_diff])
 
     def _reset_nerbors_voltage_in_range(self, unit_id, voltages, checked_mask=None):
         if checked_mask is None:
             checked_mask = np.zeros_like(self.Units_Adj_Mat, dtype=bool)
-        min_v, max_v = voltages[unit_id]-self.max_neibor_diff, voltages[unit_id]+self.max_neibor_diff
+        min_v, max_v = (
+            voltages[unit_id] - self.max_neibor_diff,
+            voltages[unit_id] + self.max_neibor_diff,
+        )
         for nerbor in self.get_neighbors(unit_id):
             if not checked_mask[unit_id, nerbor]:
                 voltages[nerbor] = np.clip(voltages[nerbor], min_v, max_v)
@@ -112,12 +154,12 @@ class NLight(DM):
                 self._reset_nerbors_voltage_in_range(nerbor, voltages, checked_mask)
         return voltages
 
-class DMUdp:
 
+class DMUdp:
     global HEAD_WITH_ECHO, HEAD, REG_IDS
-    HEAD_WITH_ECHO = '10 01 2c'.split(' ')
-    HEAD = '30 01 2c'.split(' ')
-    REG_IDS = [0, 16384, 32768, 49152] # 0x00, 0x40, 0x80, 0xc0 to dec
+    HEAD_WITH_ECHO = "10 01 2c".split(" ")
+    HEAD = "30 01 2c".split(" ")
+    REG_IDS = [0, 16384, 32768, 49152]  # 0x00, 0x40, 0x80, 0xc0 to dec
 
     def __init__(self):
         self.ip = "192.168.6.10"
@@ -131,16 +173,16 @@ class DMUdp:
         self.dm_num = 64
 
     @staticmethod
-    def _num_hex(num:int):
+    def _num_hex(num: int):
         hex_16 = hex(int(num))[2:].zfill(4)
-        return hex_16[:2]+' '+hex_16[2:]
+        return hex_16[:2] + " " + hex_16[2:]
 
     @staticmethod
-    def _voltage_hex(num:float, registry:int):
-        _num = int((num+500)/1000*4096)
+    def _voltage_hex(num: float, registry: int):
+        _num = int((num + 500) / 1000 * 4096)
         _num = min(_num, 4095)
         _num = max(_num, 820)
-        _num += REG_IDS[registry%4]
+        _num += REG_IDS[registry % 4]
         hex_16 = DMUdp._num_hex(_num)
         return hex_16
 
@@ -150,22 +192,30 @@ class DMUdp:
 
     def set_voltages(self, vs, with_echo=False):
         _head = HEAD_WITH_ECHO if with_echo else HEAD
-        send_data = ' '.join(_head+[self._num_hex(self.dm_num)]+[self._voltage_hex(v,i) for i,v in enumerate(vs)])
+        send_data = " ".join(
+            _head
+            + [self._num_hex(self.dm_num)]
+            + [self._voltage_hex(v, i) for i, v in enumerate(vs)]
+        )
         return self._send(send_data)
 
     def reset_all(self):
         vs = np.zeros(256)
-        send_data = ' '.join(HEAD_WITH_ECHO+[self._num_hex(256)]+[self._voltage_hex(v,i) for i,v in enumerate(vs)])
+        send_data = " ".join(
+            HEAD_WITH_ECHO
+            + [self._num_hex(256)]
+            + [self._voltage_hex(v, i) for i, v in enumerate(vs)]
+        )
         return self._send(send_data) & self._send("10 00 00 00 01 00 03")
 
-    def set_hv(self, hv:bool):
+    def set_hv(self, hv: bool):
         raise NotImplementedError("set_hv func not Implement")
 
-class DMSdk:
 
+class DMSdk:
     def __init__(self):
         self.dm_num = 64
-        path = findlibs.find('Drv_UDPST')
+        path = findlibs.find("Drv_UDPST")
         if path is None:
             raise Exception("Drv_UDPST.dll not found.")
 
@@ -176,30 +226,39 @@ class DMSdk:
 
         dll.SetVoltages.restype = c_bool
         dll.SetVoltages.argtypes = [
-            np.ctypeslib.ndpointer(dtype=np.double, ndim=1, shape=(self.dm_num)), c_int32, c_int32]
+            np.ctypeslib.ndpointer(dtype=np.double, ndim=1, shape=(self.dm_num)),
+            c_int32,
+            c_int32,
+        ]
 
         dll.SetVoltagesNoEcho.restype = c_bool
         dll.SetVoltagesNoEcho.argtypes = [
-            np.ctypeslib.ndpointer(dtype=np.double, ndim=1, shape=(self.dm_num)), c_int32, c_int32]
+            np.ctypeslib.ndpointer(dtype=np.double, ndim=1, shape=(self.dm_num)),
+            c_int32,
+            c_int32,
+        ]
 
         dll.SetHV.restype = c_bool
         dll.SetHV.argtypes = [c_bool, c_bool]
 
         dll.GetVoltages.restype = c_bool
         dll.GetVoltages.argtypes = [
-            np.ctypeslib.ndpointer(dtype=np.double, ndim=1, shape=(self.dm_num)), c_int32, c_int32]
+            np.ctypeslib.ndpointer(dtype=np.double, ndim=1, shape=(self.dm_num)),
+            c_int32,
+            c_int32,
+        ]
 
         self._dll = dll
         assert self._dll.GetConnection2(), "device connection error."
 
-    def set_voltages(self, vs:np.ndarray, with_echo=False):
+    def set_voltages(self, vs: np.ndarray, with_echo=False):
         func = self._dll.SetVoltages if with_echo else self._dll.SetVoltagesNoEcho
         return func(vs, c_int32(0), c_int32(self.dm_num))
 
     def reset_all(self):
         return self._dll.ResetAll()
 
-    def set_hv(self, hv:bool):
+    def set_hv(self, hv: bool):
         return self._dll.SetHV(c_bool(hv), c_bool(True))
 
     def get_hv(self):
