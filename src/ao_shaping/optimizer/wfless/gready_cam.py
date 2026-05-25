@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 
 import tqdm
-import pygame
 from ao_shaping.utils import centroid
 from ao_shaping.drivers import CameraStreamManager, NlightDM
 
@@ -50,6 +49,7 @@ def check_dm_unit_grad_safe(vs, adj_mat=DM_Adj, tolerance=Tolerance):
 
 
 def render(window, img, log, center, r, info="") -> None:
+    import pygame
     canvas = pygame.surfarray.make_surface(img.transpose())
     pygame.draw.circle(canvas, (255, 0, 0), center, r, 1)
     pygame.display.set_caption(info)
@@ -124,6 +124,7 @@ def optimizer(
         fix_r_mask = imgmesh_dist < 20**2
 
         if show:
+            import pygame
             total_height = VOLT_HEIGHT + LOG_J_HEIGHT + cam.cam_height
             pygame.init()
             window = pygame.display.set_mode((cam.cam_width, total_height))

@@ -16,12 +16,15 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
-import json
 
 import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
+from plotly.subplots import make_subplots
 
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 SRC_ROOT = PROJECT_ROOT / "src"
@@ -197,7 +200,7 @@ def _render_main() -> None:
             sign = None
             st.warning("No sign data")
 
-    if mode_idx in data["modes"] and cycle_idx and sign:
+    if mode_idx in data["modes"] and cycle_idx is not None and sign is not None:
         mode_data = data["modes"][mode_idx]
         if cycle_idx in mode_data["cycles"]:
             cycle_data = mode_data["cycles"][cycle_idx]
@@ -238,18 +241,16 @@ def _render_main() -> None:
                         with col3:
                             st.metric("Max", f"{phase.max()}")
 
-                        try:
-                            import matplotlib.pyplot as plt
-                            fig, ax = plt.subplots(figsize=(8, 6))
-                            im = ax.imshow(phase, cmap="viridis", aspect="auto")
-                            ax.set_title(f"SLM Phase (Mode {mode_idx}, {sign})")
-                            ax.set_xlabel("X (pixels)")
-                            ax.set_ylabel("Y (pixels)")
-                            fig.colorbar(im, ax=ax, label="Gray Value (0-1023)")
-                            st.pyplot(fig)
-                        except ImportError:
-                            st.warning("matplotlib not installed, showing raw data")
-                            st.write(phase)
+                        fig = px.imshow(
+                            phase,
+                            color_continuous_scale="gray",
+                            aspect="equal",
+                            title=f"SLM Phase (Mode {mode_idx}, {sign})",
+                            labels={"x": "X (pixels)", "y": "Y (pixels)", "color": "Gray Value (0-1023)"},
+                        )
+                        fig.update_layout(coloraxis_colorbar=dict(title="Gray Value (0-1023)"))
+                        fig.update_yaxes(scaleanchor="x", scaleratio=1)
+                        st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.error(f"Phase file not found: {phase_file}")
 
@@ -271,27 +272,24 @@ def _render_main() -> None:
                             st.metric("Deviation Y Shape", f"{dev_y.shape}")
                             st.metric("Deviation Y Range", f"{dev_y.min():.3f} ~ {dev_y.max():.3f}")
 
-                        try:
-                            import matplotlib.pyplot as plt
-                            fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-
-                            im1 = axes[0].imshow(dev_x, cmap="RdBu_r", aspect="auto")
-                            axes[0].set_title("Deviation X")
-                            axes[0].set_xlabel("X")
-                            axes[0].set_ylabel("Y")
-                            fig.colorbar(im1, ax=axes[0], label=" deviation (μm)")
-
-                            im2 = axes[1].imshow(dev_y, cmap="RdBu_r", aspect="auto")
-                            axes[1].set_title("Deviation Y")
-                            axes[1].set_xlabel("X")
-                            axes[1].set_ylabel("Y")
-                            fig.colorbar(im2, ax=axes[1], label="deviation (μm)")
-
-                            st.pyplot(fig)
-                        except ImportError:
-                            st.warning("matplotlib not installed")
-                            st.write("Deviation X:", dev_x)
-                            st.write("Deviation Y:", dev_y)
+                        fig = make_subplots(
+                            rows=1, cols=2,
+                            subplot_titles=("Deviation X", "Deviation Y"),
+                            shared_yaxes=True,
+                        )
+                        fig.add_trace(
+                            go.Heatmap(z=dev_x, colorscale="RdBu_r", colorbar=dict(title="deviation (μm)")),
+                            row=1, col=1,
+                        )
+                        fig.add_trace(
+                            go.Heatmap(z=dev_y, colorscale="RdBu_r", colorbar=dict(title="deviation (μm)")),
+                            row=1, col=2,
+                        )
+                        fig.update_xaxes(title_text="X", row=1, col=1)
+                        fig.update_yaxes(title_text="Y", row=1, col=1)
+                        fig.update_xaxes(title_text="X", row=1, col=2)
+                        fig.update_layout(height=400)
+                        st.plotly_chart(fig, width='stretch')
                     else:
                         st.info("Deviation data not available")
 
@@ -304,23 +302,16 @@ def _render_main() -> None:
 
                         st.metric("Coefficients Shape", f"{zernike_coeffs.shape}")
 
-                        try:
-                            import matplotlib.pyplot as plt
-                            fig, ax = plt.subplots(figsize=(10, 4))
-
-                            zernike_labels = [zernike_names.get(i, f"Z{i+1}") for i in range(len(zernike_coeffs))]
-                            ax.bar(range(len(zernike_coeffs)), zernike_coeffs)
-                            ax.set_xticks(range(len(zernike_coeffs)))
-                            ax.set_xticklabels(zernike_labels, rotation=45, ha="right")
-                            ax.set_xlabel("Zernike Mode")
-                            ax.set_ylabel("Coefficient (μm)")
-                            ax.set_title("Raw Zernike Coefficients (before averaging)")
-                            ax.grid(True, alpha=0.3)
-
-                            st.pyplot(fig)
-                        except ImportError:
-                            st.warning("matplotlib not installed")
-                            st.write(zernike_coeffs)
+                        zernike_labels = [zernike_names.get(i, f"Z{i+1}") for i in range(len(zernike_coeffs))]
+                        fig = go.Figure(data=go.Bar(x=zernike_labels, y=zernike_coeffs))
+                        fig.update_layout(
+                            title="Raw Zernike Coefficients (before averaging)",
+                            xaxis_title="Zernike Mode",
+                            yaxis_title="Coefficient (μm)",
+                            height=350,
+                        )
+                        fig.update_xaxes(tickangle=45)
+                        st.plotly_chart(fig, width='stretch')
                     else:
                         st.info("Zernike coefficients not available")
 
@@ -340,27 +331,28 @@ def _render_main() -> None:
                         if comp_zernike_file.exists():
                             comp_zernike = np.load(comp_zernike_file)
 
-                            try:
-                                import matplotlib.pyplot as plt
-                                fig, ax = plt.subplots(figsize=(10, 4))
-
-                                width = 0.35
-                                x = np.arange(len(zernike_coeffs))
-                                ax.bar(x - width/2, zernike_coeffs, width, label=f"Sample {sample_idx}")
-                                ax.bar(x + width/2, comp_zernike, width, label=f"Sample {compare_sample}")
-
-                                ax.set_xticks(x)
-                                ax.set_xticklabels(zernike_labels, rotation=45, ha="right")
-                                ax.set_xlabel("Zernike Mode")
-                                ax.set_ylabel("Coefficient (μm)")
-                                ax.set_title(f"Compare Sample {sample_idx} vs Sample {compare_sample}")
-                                ax.legend()
-                                ax.grid(True, alpha=0.3)
-
-                                st.pyplot(fig)
-                            except ImportError:
-                                st.warning("matplotlib not installed")
-
+                            fig = go.Figure()
+                            fig.add_trace(go.Bar(
+                                name=f"Sample {sample_idx}",
+                                x=zernike_labels,
+                                y=zernike_coeffs,
+                            ))
+                            fig.add_trace(go.Bar(
+                                name=f"Sample {compare_sample}",
+                                x=zernike_labels,
+                                y=comp_zernike,
+                            ))
+                            fig.update_layout(
+                                title=f"Compare Sample {sample_idx} vs Sample {compare_sample}",
+                                xaxis_title="Zernike Mode",
+                                yaxis_title="Coefficient (μm)",
+                                barmode="group",
+                                height=350,
+                            )
+                            fig.update_xaxes(tickangle=45)
+                            st.plotly_chart(fig, width='stretch')
+                else:
+                    st.text("Samples Not found")
 
 def main():
     st.set_page_config(

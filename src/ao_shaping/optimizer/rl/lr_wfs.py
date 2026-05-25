@@ -19,7 +19,6 @@ from ao_shaping.drivers import NlightDM, WFSManager
 from ao_shaping.drivers.wfs.thorlab_wfs import MlaRes
 
 import matplotlib.pyplot as plt
-import pygame
 import numpy as np
 
 
@@ -93,6 +92,7 @@ class LaserCastEnv(gym.Env):
         self.init_voltages = deepcopy(self.last_voltage)
 
     def render(self)->Any:
+        import pygame
         if self.window is None and self.render_mode == 'human':
             pygame.init()
             self.window = pygame.display.set_mode(self.img_size)

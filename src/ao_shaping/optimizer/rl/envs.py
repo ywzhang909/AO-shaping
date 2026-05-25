@@ -4,7 +4,6 @@ from typing import Any
 
 import gymnasium as gym
 from gymnasium import spaces
-import pygame
 import numpy as np
 
 from ao_shaping.drivers import CameraStreamManager, NlightDM
@@ -200,6 +199,8 @@ class LaserCastEnv(gym.Env):
         return np.sum(self.wighted_mask*self.img) / (self.img_size[0]*self.img_size[1])
 
     def render(self)->Any:
+        import pygame
+
         if not self.window and self.render_mode == 'human':
             pygame.init()
             self.window = pygame.display.set_mode(self.img_size)
@@ -483,6 +484,8 @@ class TraditionalAOEnv(gym.Env):
 
     def _render(self):
         """备用渲染实现"""
+        import pygame
+
         intensity = (self.current_image * 255).astype(np.uint8)
 
         if not self.window:
@@ -505,6 +508,8 @@ class TraditionalAOEnv(gym.Env):
 
     def close(self):
         """关闭环境"""
+        import pygame
+
         if self.window:
             pygame.quit()
             self.window = None

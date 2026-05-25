@@ -13,7 +13,6 @@ requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.2.6",
     "pandas>=2.3.2",
-    "pygame>=2.6.1",
     "tqdm>=4.67.1",
     "matplotlib>=3.9.2",
     "pyserial>=3.5",
@@ -56,6 +55,12 @@ ml = [
 rl = [
     "gymnasium>=1.2.1",
     "stable-baselines3>=2.7.0",
+]
+disp = [
+    "plotly>=6.7.0",
+]
+data = [
+    "ipython>=9.2.0",
 ]
 
 [[tool.uv.index]]

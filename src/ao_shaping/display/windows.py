@@ -2,7 +2,6 @@ from abc import ABC
 from collections import namedtuple
 from loguru import logger
 
-import pygame
 import importlib
 
 from . import  Image2DFrame, VoltageFrame
@@ -16,6 +15,7 @@ class BaseDisplay(ABC):
         self.total_size = total_size
 
     def render(self, info:str='') -> bool:
+        import pygame
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
@@ -27,10 +27,12 @@ class BaseDisplay(ABC):
         return True
 
     def init_window(self) -> None:
+        import pygame
         pygame.init()
         self.window = pygame.display.set_mode(self.total_size)
 
     def close(self) -> None:
+        import pygame
         for frame in self._frames.values():
             frame.close()
         pygame.quit()

@@ -6,7 +6,6 @@ dmunitcompute.m 的Python实现
 
 import numpy as np
 from pathlib import Path
-import pygame
 from contextlib import contextmanager
 
 from ao_shaping.drivers import Thorlab_WFS, MlaRes, NlightDM
@@ -165,6 +164,7 @@ def visualize_with_pygame(title="Image Visualization"):
     title: 窗口标题
     """
     # 初始化pygame
+    import pygame
     pygame.init()
     calculator = ZernikeCentroidCalculator()
     # 设置窗口大小（根据矩阵大小调整）

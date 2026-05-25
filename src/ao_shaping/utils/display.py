@@ -1,6 +1,12 @@
-import pygame
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import numpy as np
 import matplotlib.pyplot as plt
+
+if TYPE_CHECKING:
+    import pygame
 
 from ao_shaping.utils.handler import Register
 
@@ -15,16 +21,19 @@ LINE_COLOR = (0, 255, 0)
 
 class ImageVoltagesDisplay:
     def __init__(self, img_size, volt_height=VOLT_HEIGHT, background_color=BACKGROUND_COLOR):
+        import pygame
         self.img_size = img_size
         self.volt_height = volt_height
         self.plot_area = pygame.Rect(0, img_size[1], img_size[0], volt_height)
         self.background_color = background_color
 
     def init_window(self) -> None:
+        import pygame
         pygame.init()
         self.window = pygame.display.set_mode((self.img_size[1], self.img_size[0] + self.volt_height*2))
 
     def render(self, img, volts, v_min, v_max, center, r, info="") -> bool:
+        import pygame
         '''
         渲染图像到窗口，同时绘制电压图
         Parameters:
@@ -62,6 +71,7 @@ class ImageVoltagesDisplay:
         return True
 
     def close(self) -> None:
+        import pygame
         pygame.quit()
 
 plot_funcs = Register()
@@ -236,6 +246,7 @@ class ZernikeCalibrationDisplay:
         self.chart_area_height = self.window_height - self.header_height - self.footer_height
         self.chart_area_width = self.window_width // 2 - 20
 
+        import pygame
         # Initialize font as None (set in init_window)
         self.font: pygame.font.Font | None = None
         self.title_font: pygame.font.Font | None = None
@@ -244,6 +255,7 @@ class ZernikeCalibrationDisplay:
 
     def init_window(self) -> None:
         '''Initialize pygame window for display.'''
+        import pygame
         pygame.init()
         self.window = pygame.display.set_mode((self.window_width, self.window_height))
         pygame.display.set_caption("Zernike Response Matrix Calibration")
@@ -277,6 +289,7 @@ class ZernikeCalibrationDisplay:
         Returns:
         True to continue, False if user quit
         '''
+        import pygame
         # Handle pygame quit event
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -328,6 +341,7 @@ class ZernikeCalibrationDisplay:
 
     def _render_text(self, text: str, font: pygame.font.Font, color: tuple) -> pygame.Surface:
         '''Render text to a surface.'''
+        import pygame
         return font.render(text, True, color)
 
     def _draw_horizontal_bars(
@@ -347,6 +361,8 @@ class ZernikeCalibrationDisplay:
         title: Chart title
         '''
         x_origin, y_origin = origin
+
+        import pygame
 
         # Draw title
         title_surf = self._render_text(title, self.font, ZERN_TEXT_COLOR)
@@ -401,6 +417,8 @@ class ZernikeCalibrationDisplay:
         title: Chart title
         '''
         x_origin, y_origin = origin
+
+        import pygame
 
         # Draw title
         title_surf = self._render_text(title, self.font, ZERN_TEXT_COLOR)
@@ -464,6 +482,8 @@ class ZernikeCalibrationDisplay:
         '''
         x_center, y_pos = origin
 
+        import pygame
+
         # Bar dimensions
         bar_width = self.window_width - 40
         bar_height = 20
@@ -491,6 +511,7 @@ class ZernikeCalibrationDisplay:
 
     def close(self) -> None:
         '''Close pygame and release resources.'''
+        import pygame
         pygame.quit()
 
     def __enter__(self) -> "ZernikeCalibrationDisplay":

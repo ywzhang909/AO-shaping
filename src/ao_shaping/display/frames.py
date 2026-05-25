@@ -1,6 +1,5 @@
 from abc import ABC
 
-import pygame
 import numpy as np
 from scipy.ndimage import zoom
 
@@ -27,6 +26,7 @@ def register_frame(frame_name:str):
 
 class BaseFrame(ABC):
     def __init__(self, window, render_pos, frame_size, title:str="") -> None:
+        import pygame
         self.window = window
         self.top, self.left = render_pos
         self.width, self.height = frame_size
@@ -42,6 +42,7 @@ class BaseFrame(ABC):
         pass
 
     def _render_title(self):
+        import pygame
         font = pygame.font.Font(None, Title_height-6)
         text = font.render(self.title, True, (0, 255, 255))
         self.window.blit(text, (self.left, self.top - Title_height))
@@ -52,6 +53,7 @@ class BaseFrame(ABC):
 @register_frame("Image2D")
 class Image2DFrame(BaseFrame):
     def render(self, img:np.ndarray):
+        import pygame
         assert img.ndim == 2, "ImageFrame only supports 2D images"
         img_h, img_w = img.shape
         zoom_factors = (self.height / img_h, self.width / img_w)
@@ -65,6 +67,7 @@ class Image2DFrame(BaseFrame):
 @register_frame("Image2DWithBucket")
 class Image2DWithBucketFrame(BaseFrame):
     def render(self, img:np.ndarray, center:tuple[int,int], r:int):
+        import pygame
         assert img.ndim == 2, "ImageFrame only supports 2D images"
         img_h, img_w = img.shape
         zoom_factors = (self.height / img_h, self.width / img_w)
@@ -88,6 +91,7 @@ class VoltageFrame(BaseFrame):
         self.v_hight = lambda v: int(v * max_hight_ratio)
 
     def render(self, volts):
+        import pygame
         _volts = np.clip(volts, self.v_min, self.v_max)
         self.window.fill(self.background_color, self.plot_area)
         bar_width = int(self.width / len(_volts))
@@ -111,6 +115,7 @@ class LogFrame(BaseFrame):
         self.__recorder = []
 
     def render(self, value):
+        import pygame
         self.window.fill(self.background_color, self.plot_area)
         self.__recorder.append(value)
         if len(self.__recorder) > 1:
@@ -146,6 +151,7 @@ class TextFrame(BaseFrame):
             logger.info("Font size not specified, using dynamic font size")
 
     def render(self, text:str, font_size:int=0):
+        import pygame
         self.window.fill(self.background_color, self.plot_area)
 
         lines = text.splitlines()
