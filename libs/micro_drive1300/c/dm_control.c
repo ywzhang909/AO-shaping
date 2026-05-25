@@ -140,31 +140,27 @@ static void BuildDefaultIP(int controllerId, char* ipBuf, int bufSize) {
  * Build Default Port
  *===========================================================================*/
 static int GetDefaultPort(int controllerId) {
-    return 10000 + controllerId; /* 10101 - 10126 */
+    return 10100 + controllerId; /* 10101 - 10126, matches 10000 + ip_suffix */
 }
 
 /*============================================================================
  * Convert Voltage to High/Low Bytes
  * Protocol: value = (voltage + 20) / 20 / 3.4 / 3.3 * 65535.0
+ *
+ * Byte extraction (consistent base-256):
+ *   raw  = round(value)
+ *   high = raw / 256  (equivalent to raw >> 8)
+ *   low  = raw % 256  (equivalent to raw & 0xFF)
+ *
+ * This ensures high * 256 + low == raw for the full value range.
+ * Matches Python: voltages_to_payload() in MicroDM.py.
  *============================================================================*/
 static void ConvertVoltage(float voltage, uint8_t* highByte, uint8_t* lowByte) {
     double value = (voltage + 20.0) / 20.0 / 3.4 / 3.3 * 65535.0;
-    uint16_t raw = (uint16_t)(value + 0.5); /* Round */
+    uint16_t raw = (uint16_t)(value + 0.5); /* Round to nearest */
     *highByte = (uint8_t)(raw / 256);
     *lowByte = (uint8_t)(raw % 256);
 }
-/* NOTE: This implementation uses consistent base-256 byte extraction:
- *   high = raw / 256, low = raw % 256
- * This is THEORETICALLY CORRECT and ensures high * 256 + low == raw.
- *
- * However, the MATLAB reference (R50PowerV1.m) uses inconsistent extraction:
- *   high = floor(value / 255), low = floor(mod(value, 256))
- * This creates a non-injective mapping due to inconsistent bases.
- *
- * The MATLAB behavior is preserved in Python for hardware compatibility,
- * but this C implementation follows the cleaner, mathematically correct
- * approach. Be aware of this discrepancy when comparing implementations.
- */
 
 /*============================================================================
  * Validate Voltage
@@ -262,33 +258,30 @@ static int SendCommand(SOCKET_TYPE socket, const uint8_t* data, int dataLen) {
 }
 
 /*============================================================================
- * Build Actuator Mapping (Default 36x36 to 26 controllers)
+ * Build Actuator Mapping (Default 39x39 to 26 controllers)
  * Each controller handles ~50 channels, mapping 1296 actuators
+ *
+ * NOTE: This is a PLACEHOLDER mapping for basic testing.
+ * The production mapping is defined in libs/micro_drive1300/wiring_map.json
+ * which maps each needle pin (277-330) across multiple groups to:
+ *   - Physical positions in a 39x39 actuator array
+ *   - Controller IPs (via ip_suffix)
+ *   - Payload byte positions (1-50) within each controller's frame
+ *
+ * For production use, load the wiring map and populate g_actuatorMap
+ * from ChannelEntry data (see Python: MicroDM._build_channel_indices).
  *===========================================================================*/
 static void BuildDefaultMapping(void) {
-    /* Default mapping: 36x36 grid distributed to 16 controllers */
-    /* Controller 1-6: 81 actuators each (9x9)
-       Controller 7-16: ~50 actuators each
-       Note: Only controllers 1-6, 11-26 are actually used in MATLAB
-    */
-    int act = 1;
-    for (int i = 0; i < 36; i++) {
-        for (int j = 0; j < 36; j++) {
-            int idx = act - 1;
-            if (idx >= DM_MAX_ACTUATORS) break;
-            
-            /* Simple distribution: map based on position */
-            /* This is a placeholder - real mapping comes from Excel */
-            int regionX = i / 9;  /* 0-3 */
-            int regionY = j / 9;  /* 0-3 */
-            int region = regionY * 4 + regionX; /* 0-15 */
-            
-            /* Map to controller 1-16 */
-            g_actuatorMap[idx].controllerId = (region % 16) + 1;
-            g_actuatorMap[idx].channel = (i * 36 + j) % 50;
-            
-            act++;
-        }
+    /* Default placeholder mapping: sequential distribution
+     * actuator 1-50   → controller 1, channel 0-49
+     * actuator 51-100 → controller 2, channel 0-49
+     * ...
+     * This matches the Python MicroDM default behavior when
+     * use_wiring_map=False.
+     */
+    for (int act = 0; act < DM_MAX_ACTUATORS; act++) {
+        g_actuatorMap[act].controllerId = (act / DM_MAX_CHANNELS) + 1;
+        g_actuatorMap[act].channel = act % DM_MAX_CHANNELS;
     }
 }
 
