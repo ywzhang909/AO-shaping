@@ -10,8 +10,8 @@
 import numpy as np
 from loguru import logger
 
-from .santec_slm200 import SantecSLM200, SantecSLM200Error
-from ..visa_base import VisaError
+from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200, SantecSLM200Error
+from ao_shaping.drivers.visa_base import VisaError
 
 
 class SantecSLM200Visa:

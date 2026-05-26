@@ -1,21 +1,25 @@
+from __future__ import annotations
+
 from abc import ABC
 from collections import namedtuple
 from loguru import logger
 
 import importlib
 
-from . import  Image2DFrame, VoltageFrame
-from .frames import BaseFrame
+from ao_shaping.display import Image2DFrame, VoltageFrame
+from ao_shaping.display.frames import BaseFrame
 
-FrameInfo = namedtuple('FrameInfo', ['name', 'title', 'frame', "kwargs"], defaults=[None, None, None, {}])
+FrameInfo = namedtuple("FrameInfo", ["name", "title", "frame", "kwargs"], defaults=[None, None, None, {}])
 
 
 class BaseDisplay(ABC):
     def __init__(self, total_size) -> None:
         self.total_size = total_size
 
-    def render(self, info:str='') -> bool:
+    def render(self, info: str = "") -> bool:
         import pygame
+
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
@@ -28,11 +32,15 @@ class BaseDisplay(ABC):
 
     def init_window(self) -> None:
         import pygame
+
+
         pygame.init()
         self.window = pygame.display.set_mode(self.total_size)
 
     def close(self) -> None:
         import pygame
+
+
         for frame in self._frames.values():
             frame.close()
         pygame.quit()
@@ -48,9 +56,9 @@ class BaseDisplay(ABC):
 class ImageVoltagesDisplay(BaseDisplay):
     def __init__(self, img_size, volt_height=200, v_min=-300, v_max=500):
         img_w, img_h = img_size
-        super().__init__((img_w, img_h + volt_height*2))
-        self.img_frame = Image2DFrame(self.window, (0,0), img_size)
-        self.volt_frame = VoltageFrame(self.window, (0, img_h), (img_w, volt_height*2), v_min, v_max)
+        super().__init__((img_w, img_h + volt_height * 2))
+        self.img_frame = Image2DFrame(self.window, (0, 0), img_size)
+        self.volt_frame = VoltageFrame(self.window, (0, img_h), (img_w, volt_height * 2), v_min, v_max)
 
     def render(self, img, volts, center, r, info="") -> None:
         self.img_frame.render(img, center, r)
@@ -59,13 +67,15 @@ class ImageVoltagesDisplay(BaseDisplay):
 
 
 class AutoDisplay(BaseDisplay):
-    def __init__(self, frame_list:list[FrameInfo], frame_size=(300, 300), display_size=(1280, 720), margin=10) -> None:
+    def __init__(self, frame_list: list[FrameInfo], frame_size=(300, 300), display_size=(1280, 720), margin=10) -> None:
         self.total_size = display_size
         self.frame_size = frame_size
         self.frame_list = frame_list
         self.margin = margin
 
     def init_window(self) -> None:
+        import pygame
+
         super().init_window()
         screen_w, screen_h = self.total_size
         frame_w, frame_h = self.frame_size
@@ -75,9 +85,8 @@ class AutoDisplay(BaseDisplay):
             n_rows = screen_h // frame_h
             n_cols = len(self.frame_list) // n_rows + 1
 
-        logger.info(f"AutoDisplay: {n_cols} x {n_rows} = {n_cols*n_rows} frames")
-        total_size = (n_cols * frame_w,
-                      n_rows * frame_h)
+        logger.info(f"AutoDisplay: {n_cols} x {n_rows} = {n_cols * n_rows} frames")
+        total_size = (n_cols * frame_w, n_rows * frame_h)
         super().__init__(total_size)
 
         self._frames = {}
@@ -85,18 +94,19 @@ class AutoDisplay(BaseDisplay):
             name, title, frame_class_name = frame_info.name, frame_info.title, frame_info.frame
             _row, _col = divmod(i, n_cols)
             _frame = self.__get_frame_by_name(frame_class_name)
-            top = _row*(frame_h + self.margin)
-            left = _col*(frame_w + self.margin)
+            top = _row * (frame_h + self.margin)
+            left = _col * (frame_w + self.margin)
             assert name not in self._frames, f"Frame name {name} is duplicated"
-            self._frames[name] = _frame(window=self.window, render_pos=(top, left), frame_size=self.frame_size, title=title, **frame_info.kwargs)
+            self._frames[name] = _frame(
+                window=self.window, render_pos=(top, left), frame_size=self.frame_size, title=title, **frame_info.kwargs
+            )
 
-    def render(self, frame_data:dict[str, dict], info:str='') -> bool:
+    def render(self, frame_data: dict[str, dict], info: str = "") -> bool:
         for name, frame in self._frames.items():
             frame.render(**frame_data.get(name))
-            # frame.top, frame.left = frame.render_pos
         return super().render(info)
 
     @staticmethod
-    def __get_frame_by_name(name:str) -> BaseFrame:
-        module = importlib.import_module('ao_shaping.display.frames')
+    def __get_frame_by_name(name: str) -> BaseFrame:
+        module = importlib.import_module("ao_shaping.display.frames")
         return getattr(module, name)

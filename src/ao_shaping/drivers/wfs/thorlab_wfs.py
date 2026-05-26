@@ -26,7 +26,9 @@ from loguru import logger
 
 from ao_shaping.utils.file import DeviceConfigManager
 
-from ._thorlab_wfs import MAX_SPOTS, VI_NULL, ViInt32, ViStatus, load_dll, np2c
+from ao_shaping.drivers.wfs._thorlab_wfs import (
+    load_dll, np2c, VI_NULL, ViInt32, ViStatus)
+from ao_shaping.drivers.wfs._thorlab_wfs import MAX_SPOTS
 
 WFS_DEBUG_MODE = os.environ.get("WFS_DEBUG", "0") == "1"
 

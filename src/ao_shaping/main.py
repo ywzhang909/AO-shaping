@@ -48,10 +48,12 @@ from ao_shaping.runners import (
     ga_zernike_run,
     greedy_zernike_run,
     dm_matrix_run,
+    combined_run,
 )
 
 
 from ao_shaping.utils.cli_helpers import get_debug_mode
+from ao_shaping.profiler import maybe_profile
 
 
 @click.group()
@@ -87,12 +89,14 @@ cli.add_command(ga_zernike_run, name="ga-zernike")
 cli.add_command(greedy_zernike_run, name="greedy-zernike")
 cli.add_command(zernike_closed_loop_run, name="closed-loop")
 cli.add_command(dm_matrix_run, name="dm-matrix")
+cli.add_command(combined_run, name="combined")
 
 
 # Entry point
 if __name__ == "__main__":
-    try:
-        cli()
-    except Exception as e:
-        logger.error(f"CLI error: {e}")
-        raise
+    with maybe_profile():
+        try:
+            cli()
+        except Exception as e:
+            logger.error(f"CLI error: {e}")
+            raise

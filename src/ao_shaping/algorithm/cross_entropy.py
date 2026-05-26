@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .heuristic_base import HeuristicOptimizer, OptimizerConfig
+from ao_shaping.algorithm.heuristic_base import HeuristicOptimizer, OptimizerConfig
 
 
 @dataclass
