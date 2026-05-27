@@ -43,7 +43,7 @@ class TestWFSHardware:
             from ao_shaping.drivers import Thorlab_WFS
 
             wfs = Thorlab_WFS(MlaRes.Res768, use_custom_ref=False, high_speed=True)
-            wfs.initialize()
+            wfs.open()
             print(f"\n[WFS] Connected: {wfs.device_name}, SN: {wfs.serial_num}")
             print(f"[WFS] MLA: {wfs.mla_index}, Spots: {wfs.num_spots_x}x{wfs.num_spots_y}")
             yield wfs
@@ -492,7 +492,7 @@ class TestFullPipeline:
             print("\n[Pipeline] Initializing all devices...")
 
             setup['wfs'] = Thorlab_WFS(MlaRes.Res768, use_custom_ref=False, high_speed=True)
-            setup['wfs'].initialize()
+            setup['wfs'].open()
             print(f"[Pipeline] WFS: {setup['wfs'].device_name}")
 
             setup['slm'] = ZernikeSLM(slm_number=1, wavelength=532, n_max=4)

@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from ao_shaping.drivers import MlaRes, Thorlab_WFS
-from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager
+from ao_shaping.drivers.wfs.thorlab_wfs import ThorlabWFS, WFSManager
 
 # ---------------------------------------------------------------------------
 # Hardware-dependent tests (skipped if WFS not available)
@@ -22,7 +22,7 @@ def wfs_instance():
     """Create a WFS instance for hardware testing. Skip if not available."""
     try:
         wfs = Thorlab_WFS(MlaRes.Res768)
-        wfs.initialize()
+        wfs.open()
         yield wfs
         wfs.close()
     except Exception as e:

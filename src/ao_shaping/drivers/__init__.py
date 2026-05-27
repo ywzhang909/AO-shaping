@@ -22,7 +22,8 @@ from ao_shaping.drivers.device_registry import (
     get_global_registry,
 )
 
-from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager as Thorlab_WFS
+from ao_shaping.drivers.wfs.thorlab_wfs import ThorlabWFS, WFSManager
+Thorlab_WFS = WFSManager  # backward compat alias
 from ao_shaping.drivers.wfs.thorlab_wfs import MlaRes
 from ao_shaping.drivers.dm.NLight import NLight as NlightDM
 
@@ -40,6 +41,7 @@ __all__ = [
     "RegisteredDevice",
     "get_global_registry",
     # Hardware
+    "ThorlabWFS",
     "Thorlab_WFS",
     "MlaRes",
     "NlightDM",

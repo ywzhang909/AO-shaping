@@ -183,7 +183,7 @@ class WFSLaserCastEnv(gym.Env):
         self.dm.initialize()
 
         # 初始化 WFS 设备
-        self.wfs.initialize()
+        self.wfs.open()
 
         # 设置初始电压
         self.v = np.random.rand(self.dm.DM_Num,) * (self.v_high-self.v_low) + self.v_low

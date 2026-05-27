@@ -5,8 +5,8 @@
 """
 
 import ctypes
-import time
 import os
+import time
 from pathlib import Path
 from typing import Union
 
@@ -868,6 +868,26 @@ class SantecSLM200:
     def shift_y(self) -> int:
         """Y方向平移像素数"""
         return self._shift_y
+    
+    @property
+    def temperature(self):
+        """
+        Read the drive board and option board temperatures.
+
+        Returns
+        -------
+        (float, float)
+            Temperature in Celsius of the drive and option board
+        """
+        # Note that the Santec documentation suggests using signed
+        # integers, but the header requests unsigned integers.
+        drive_temp = ctypes.c_uint32(0)
+        option_temp = ctypes.c_uint32(0)
+
+        if (res := self._slm.SLM_Ctrl_ReadT(self.slm_number, drive_temp, option_temp)) != SLM_OK:
+            raise SantecSLM200Error(code=res)
+
+        return (drive_temp.value / 10.0, option_temp.value / 10.0)
 
     def _ensure_open(self) -> None:
         """确保设备已打开

@@ -323,7 +323,7 @@ def connect_wfs() -> bool:
             pupil_center=(st.session_state.zrm_wfs_pupil_center_x, st.session_state.zrm_wfs_pupil_center_y),
             use_custom_ref=st.session_state.zrm_wfs_use_user_ref,
         )
-        wfs.initialize()
+        wfs.open()
         
         # Apply user reference setting after initialization
         if st.session_state.zrm_wfs_use_user_ref:

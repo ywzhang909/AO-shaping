@@ -195,7 +195,7 @@ def visualize_with_pygame(title="Image Visualization"):
     
     # WFS init
     wfs = Thorlab_WFS(MlaRes.Res768)
-    wfs.initialize()
+    wfs.open()
     
     exposure_time, gain = wfs.optimize_exposure_time_and_gain()
     wfs.exposure_time = exposure_time

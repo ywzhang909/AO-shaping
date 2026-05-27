@@ -56,7 +56,7 @@ def wfs():
     try:
         from ao_shaping.drivers import Thorlab_WFS, MlaRes
         wfs = Thorlab_WFS(MlaRes.Res768, use_custom_ref=False, high_speed=True)
-        wfs.initialize()
+        wfs.open()
         yield wfs
         wfs.close()
     except Exception as e:
@@ -69,7 +69,7 @@ def wfs_with_custom_ref():
     try:
         from ao_shaping.drivers import Thorlab_WFS, MlaRes
         wfs = Thorlab_WFS(MlaRes.Res768, use_custom_ref=True, high_speed=False)
-        wfs.initialize()
+        wfs.open()
         yield wfs
         wfs.close()
     except Exception as e:
@@ -90,7 +90,7 @@ def wfs_stable_sampling():
             stable_variance_threshold=0.5,
             stable_max_attempts=20,
         )
-        wfs.initialize()
+        wfs.open()
         yield wfs
         wfs.close()
     except Exception as e:
