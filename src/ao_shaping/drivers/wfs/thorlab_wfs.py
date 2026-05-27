@@ -24,11 +24,15 @@ from pathlib import Path
 import numpy as np
 from loguru import logger
 
-from ao_shaping.utils.file import DeviceConfigManager
-
 from ao_shaping.drivers.wfs._thorlab_wfs import (
-    load_dll, np2c, VI_NULL, ViInt32, ViStatus)
-from ao_shaping.drivers.wfs._thorlab_wfs import MAX_SPOTS
+    MAX_SPOTS,
+    VI_NULL,
+    ViInt32,
+    ViStatus,
+    load_dll,
+    np2c,
+)
+from ao_shaping.utils.file import DeviceConfigManager
 
 WFS_DEBUG_MODE = os.environ.get("WFS_DEBUG", "0") == "1"
 
@@ -908,7 +912,7 @@ class WFSManager:
             self.handle_error(res)
 
     @require_take_image
-    def get_spotfiled_image(self, image_loop_counter: int = -1) -> np.ndarray:
+    def get_spotfiled_image(self) -> np.ndarray:
         """Retrieve the captured spotfield image from the WFS device.
 
         Args:
@@ -921,7 +925,7 @@ class WFSManager:
             RuntimeError: If WFS_GetSpotfieldImageCopy fails
         """
         spots_filed_img = np.empty(MAX_SPOTS, np.uint8)
-        if err := self._lib.WFS_GetSpotfieldImageCopy(
+        if err := self._lib.WFS_GetSpotfieldImage(
             self._instrument_handle,
             spots_filed_img.ctypes.data_as(ctypes.POINTER(c_uint8)),
             byref(c_int32(MAX_SPOTS[0])),
