@@ -1,34 +1,78 @@
+"""Zernike响应矩阵标定与闭环控制 Runner
+
+包含两个 CLI 入口:
+  - run()          : Zernike响应矩阵标定
+  - closed_loop_run(): 基于响应矩阵的闭环波前优化
+
+=== run() 执行顺序 ===
+
+  1. _normalize_run_options       — 归一化CLI参数, 计算 n_slm_terms/n_wfs_terms
+  2. _setup_debug_callback        — 条件创建调试数据保存回调
+  3. ZernikeCalibrationDisplay     — 条件创建pygame实时显示
+  4. ZernikeSLM / WFSManager       — 设备初始化 (上下文管理器)
+  5. DitheredReference.measure     — 可选: 亚波长抖动参考
+  6. _capture_init_state           — 捕获出厂/用户参考状态
+    -> _capture_wfs_full_state     —   take_image -> get_spot_deviation -> get_zernike -> get_wavefront
+  7. _save_init_state_hdf5         — 保存初始状态到HDF5
+  8. _compute_calibration_magnitudes — 计算扰动幅度列表
+  9. [循环: 每个幅度]
+    a. _make_wavefront_tracking_callback — 创建波前跟踪回调
+    b. calibrate_zernike_response_matrix  — 执行标定
+    c. _attach_device_config              — 附加硬件配置快照
+    d. save_zernike_response_matrix        — 保存标定结果HDF5
+    e. _save_wavefront_log_hdf5            — 保存全过程波前跟踪数据
+  10. _print_calibration_summary      — 打印结果摘要
+
+=== closed_loop_run() 执行顺序 ===
+
+  1. load_zernike_response_matrix  — 加载 .h5 响应矩阵
+  2. HardwareConfig.from_dict      — 恢复硬件配置
+  3. LoopConfig                    — 构建控制配置
+  4. ZernikeSLM / WFSManager       — 设备初始化
+  5. from_response_matrix          — 构建 AOClosedLoop 控制器
+    -> 斜率空间 (deviation_response_matrix) 或 模态空间 (pinv_matrix)
+  6. measure_func  (_measure_wfs_step):
+    -> get_spot_deviation -> flatten_slopes -> delta_s -> D_pinv@delta_s -> RMS
+  7. apply_func  (_expand_to_noll):
+    -> 控制器系数补零 -> 完整Noll顺序 -> zslm.send_zernike
+  8. loop.run(control_law)         — 迭代闭环优化
+  9. 保存 history.npz / final_coefficients.txt / meta.json / convergence.png
+"""
+
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from time import sleep
 from typing import Literal
 
-import h5py
-import json
 import click
+import h5py
 import numpy as np
 from loguru import logger
 
+from ao_shaping.algorithm.controller import ControlLaw, HardwareConfig, LoopConfig
+from ao_shaping.drivers.slm import ZernikeSLM
+from ao_shaping.drivers.wfs.thorlab_wfs import MlaRes, WFSManager
 from ao_shaping.optimizer.wf.zernike_response_matrix import (
-    ZernikeResponseMatrixResult,
-    calibrate_zernike_response_matrix,
-    save_zernike_response_matrix,
-    DEFAULT_N_MAX,
     DEFAULT_MAGNITUDE,
     DEFAULT_N_AVERAGES,
     DEFAULT_N_CYCLES,
+    DEFAULT_N_MAX,
     DEFAULT_WAIT_TIME,
+    ZernikeResponseMatrixResult,
+    calibrate_zernike_response_matrix,
+    save_zernike_response_matrix,
 )
-from ao_shaping.drivers.slm import ZernikeSLM
-from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager, MlaRes
-from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
-from ao_shaping.utils.display import ZernikeCalibrationDisplay
-from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_timestamp_str
-from ao_shaping.utils.wfs_utils import flatten_slopes, make_mode_debug_callback, DitheredReference
 from ao_shaping.runners.closed_loop import AOClosedLoop
-from ao_shaping.algorithm.controller import ControlLaw, LoopConfig, HardwareConfig
-
+from ao_shaping.utils.cli_helpers import get_timestamp_str, parse_tuple, setup_coredumpy
+from ao_shaping.utils.display import ZernikeCalibrationDisplay
+from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
+from ao_shaping.utils.wfs_utils import (
+    DitheredReference,
+    flatten_slopes,
+    make_mode_debug_callback,
+)
 
 # ==================== 数据类 ====================
 
@@ -196,9 +240,10 @@ def _capture_wfs_full_state(
     """
     wfs.take_image()
     dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=cancel_tile)
+    # FIXME:读取的数据似乎一样
     zernike_coeffs = wfs.get_zernike(zernike_order=zernike_order)
     wf_2d, stats = wfs.get_wavefront(cancel_tile=cancel_tile)
-    rms = float(stats.get("rms", 0.0)) if stats else 0.0
+    rms = float(stats.get("rms", np.nan)) if stats else np.nan
     return WfsStateSnapshot(
         dev_x=dev_x,
         dev_y=dev_y,
@@ -842,18 +887,22 @@ def closed_loop_run(
     载入已保存的Zernike响应矩阵 (.h5), 恢复硬件参数,
     使用指定控制律进行闭环优化, 保存优化结果。
     """
-    from pathlib import Path
     import json
-    import numpy as np
+    from pathlib import Path
+
     import matplotlib
+    import numpy as np
     matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
     from datetime import datetime
+
+    import matplotlib.pyplot as plt
     from loguru import logger
 
-    from ao_shaping.optimizer.wf.zernike_response_matrix import load_zernike_response_matrix
     from ao_shaping.drivers.slm import ZernikeSLM
-    from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager, MlaRes
+    from ao_shaping.drivers.wfs.thorlab_wfs import MlaRes, WFSManager
+    from ao_shaping.optimizer.wf.zernike_response_matrix import (
+        load_zernike_response_matrix,
+    )
     from ao_shaping.utils.cli_helpers import get_timestamp_str
 
     # 加载响应矩阵

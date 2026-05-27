@@ -213,3 +213,7 @@ class ZernikeSLM:
     def __repr__(self) -> str:
         status = "connected" if self.is_open else "disconnected"
         return f"ZernikeSLM(slm_number={self.slm_number}, wavelength={self.wavelength}nm, n_max={self.n_max}, status={status})"
+
+    @property
+    def length(self):
+        return self._zernike_dm.DM_NUM

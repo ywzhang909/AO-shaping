@@ -3,15 +3,15 @@
 Note: Tests that require actual WFS hardware are skipped when hardware is not available.
 Mock-based tests are used for logic verification without hardware.
 """
-import pytest
-from pathlib import Path
-from unittest.mock import MagicMock, patch, call
 from ctypes import c_int32
+from pathlib import Path
+from unittest.mock import MagicMock, call, patch
+
 import numpy as np
+import pytest
 
-from ao_shaping.drivers import Thorlab_WFS, MlaRes
+from ao_shaping.drivers import MlaRes, Thorlab_WFS
 from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager
-
 
 # ---------------------------------------------------------------------------
 # Hardware-dependent tests (skipped if WFS not available)
@@ -595,7 +595,3 @@ class TestGetStableSpotDeviation:
 
         # With threshold=0.0, nothing should be zeroed
         assert not np.any(dev_x == 0.0) or np.any(dev_x != 0.0)
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
