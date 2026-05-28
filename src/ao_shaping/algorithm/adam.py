@@ -27,13 +27,13 @@ def learning_schedule(
 
 
 class Base(ABC):
-    def __init__(self, dim:int, lr=1.0):
+    def __init__(self, dim: int, lr=1.0):
         self.dim = dim
         self.lr = lr
-        self.t:int = 0
+        self.t: int = 0
 
     @abstractmethod
-    def update(self, grad:np.ndarray) -> np.ndarray:
+    def update(self, grad: np.ndarray) -> np.ndarray:
         pass
 
     def scale_momentum(self, scaler):
@@ -41,12 +41,12 @@ class Base(ABC):
 
 
 class SGD(Base):
-    def __init__(self, dim:int, lr=1.0):
+    def __init__(self, dim: int, lr=1.0):
         self.dim = dim
         self.lr = lr
-        self.t:int = 0
+        self.t: int = 0
 
-    def update(self, grad:np.ndarray):
+    def update(self, grad: np.ndarray):
         self.t += 1
         return self.lr * grad
 
@@ -56,7 +56,7 @@ class Adam(Base):
     使用 EMA 来估计二阶矩。这意味着它会遗忘早期的梯度信息。这使得 Adam 的自适应性更强，可以快速适应梯度的局部变化。
     """
 
-    def __init__(self, dim:int, lr=1.0, beta1 = 0.9, beta2 = 0.99):
+    def __init__(self, dim: int, lr=1.0, beta1=0.9, beta2=0.99):
         self.dim = dim
         self.lr = lr
         self.beta1 = beta1
@@ -64,9 +64,9 @@ class Adam(Base):
 
         self.m = np.zeros(self.dim, dtype=np.float32)
         self.v = np.zeros(self.dim, dtype=np.float32)
-        self.t:int = 0
+        self.t: int = 0
 
-    def update(self, grad:np.ndarray):
+    def update(self, grad: np.ndarray):
         self.t += 1
         self.m = self.beta1 * self.m + (1 - self.beta1) * grad
         self.v = self.beta2 * self.v + (1 - self.beta2) * grad**2
@@ -74,52 +74,57 @@ class Adam(Base):
         v_hat = self.v / (1 - self.beta2**self.t)
         return self.lr * m_hat / (np.sqrt(v_hat) + 1e-8)
 
-    def scale_momentum(self, scaler:float):
+    def scale_momentum(self, scaler: float):
         self.m *= scaler
         self.v *= scaler**2
 
+
 class AdamW(Adam):
-    def __init__(self, dim:int, lr=1.0, beta1 = 0.9, beta2 = 0.99, weight_decay=1e-2):
+    def __init__(self, dim: int, lr=1.0, beta1=0.9, beta2=0.99, weight_decay=1e-2):
         super().__init__(dim, lr, beta1, beta2)
         self.weight_decay = weight_decay
 
-    def update(self, grad:np.ndarray):
+    def update(self, grad: np.ndarray):
         self.t += 1
         self.m = self.beta1 * self.m + (1 - self.beta1) * grad
         self.v = self.beta2 * self.v + (1 - self.beta2) * grad**2
         m_hat = self.m / (1 - self.beta1**self.t)
         v_hat = self.v / (1 - self.beta2**self.t)
-        return self.lr * m_hat / (np.sqrt(v_hat) + 1e-8) + self.weight_decay * self.lr * self.m
+        return (
+            self.lr * m_hat / (np.sqrt(v_hat) + 1e-8)
+            + self.weight_decay * self.lr * self.m
+        )
 
 
 class AdaMOD(Adam):
     """
-    AdaMod 是一个基于 Adam 的新的深度学习优化器，但它提供了自动warmup heuristic和长期学习率缓冲。 
+    AdaMod 是一个基于 Adam 的新的深度学习优化器，但它提供了自动warmup heuristic和长期学习率缓冲。
     从最初的测试来看，AdaMod 是top 5的优化器，很容易击败或超过普通的 Adam，且对学习率超参数不那么敏感，训练曲线更平滑，不需要warmup模式。
 
     Pros:
-    AdaMod保持了自适应学习率自身的指数长期平均值，并在整个训练过程中用这个值来clip任何过高的适应率。 
+    AdaMod保持了自适应学习率自身的指数长期平均值，并在整个训练过程中用这个值来clip任何过高的适应率。
     结果改善了收敛性，不需要warmup，对实际学习率选择的敏感性较低。 记忆的程度由一个新的参数 Beta3控制。
 
     Cons:
     虽然AdaMod通常比普通的Adam表现更好，但是在更长的训练条件下，SGDM 仍然可能比AdaMod表现更好。
 
     """
-    def __init__(self, dim:int, lr=1.0, beta1 = 0.9, beta2 = 0.99, beta3 = 0.9995, **kwargs):
+
+    def __init__(self, dim: int, lr=1.0, beta1=0.9, beta2=0.99, beta3=0.9995, **kwargs):
         super().__init__(dim, lr, beta1, beta2)
         self.beta3 = beta3
         self.s = 0.0
 
-    def update(self, grad:np.ndarray):
+    def update(self, grad: np.ndarray):
         self.t += 1
         self.m = self.beta1 * self.m + (1 - self.beta1) * grad
         self.v = self.beta2 * self.v + (1 - self.beta2) * grad**2
-        m_hat = self.m / (1 - self.beta1 ** self.t)
-        v_hat = self.v / (1 - self.beta2 ** self.t)
+        m_hat = self.m / (1 - self.beta1**self.t)
+        v_hat = self.v / (1 - self.beta2**self.t)
 
         gamma = self.lr / (np.sqrt(v_hat) + 1e-8)
         self.s = self.beta3 * self.s + (1 - self.beta3) * gamma
-        learning_rate = np.where(gamma<self.s, gamma, self.s)
+        learning_rate = np.where(gamma < self.s, gamma, self.s)
         return learning_rate * m_hat
 
 
@@ -130,7 +135,9 @@ class Muno(Base):
     同时引入了额外的机制来稳定训练过程。
     """
 
-    def __init__(self, dim:int, lr=1.0, beta1=0.9, beta2=0.999, eps=1e-8, amsgrad=False):
+    def __init__(
+        self, dim: int, lr=1.0, beta1=0.9, beta2=0.999, eps=1e-8, amsgrad=False
+    ):
         """
         初始化 Muno 优化器
 
@@ -153,7 +160,7 @@ class Muno(Base):
         self.v = np.zeros(self.dim, dtype=np.float32)  # 梯度平方的累积
         self.v_max = np.zeros(self.dim, dtype=np.float32)  # AMSGrad 中的最大梯度平方
 
-    def update(self, grad:np.ndarray):
+    def update(self, grad: np.ndarray):
         """
         更新参数
 
@@ -191,8 +198,16 @@ class MunoW(Muno):
     带权重衰减的 Muno 优化器 (MunoW)
     """
 
-    def __init__(self, dim:int, lr=1.0, beta1=0.9, beta2=0.999, eps=1e-8,
-                 weight_decay=1e-2, amsgrad=False):
+    def __init__(
+        self,
+        dim: int,
+        lr=1.0,
+        beta1=0.9,
+        beta2=0.999,
+        eps=1e-8,
+        weight_decay=1e-2,
+        amsgrad=False,
+    ):
         """
         初始化 MunoW 优化器
 
@@ -208,7 +223,7 @@ class MunoW(Muno):
         super().__init__(dim, lr, beta1, beta2, eps, amsgrad)
         self.weight_decay = weight_decay
 
-    def update(self, grad:np.ndarray):
+    def update(self, grad: np.ndarray):
         """
         更新参数
 
@@ -238,17 +253,20 @@ class MunoW(Muno):
             v_hat = self.v / (1 - self.beta2**self.t)
 
         # 计算更新步长，包含权重衰减
-        return self.lr * m_hat / (np.sqrt(v_hat) + self.eps) + self.weight_decay * self.lr * self.m
+        return (
+            self.lr * m_hat / (np.sqrt(v_hat) + self.eps)
+            + self.weight_decay * self.lr * self.m
+        )
 
 
 def zeropower_via_newtonschulz5(G, steps: int = 5):
     """
-    Newton-Schulz iteration to compute the zeroth power / orthogonalization of G. We opt to use a 
-    quintic iteration whose coefficients are selected to maximize the slope at zero. For the purpose 
-    of minimizing steps, it turns out to be empirically effective to keep increasing the slope at 
-    zero even beyond the point where the iteration no longer converges all the way to one everywhere 
-    on the interval. This iteration therefore does not produce UV^T but rather something like US'V^T 
-    where S' is diagonal with S_{ii}' ~ Uniform(0.5, 1.5), which turns out not to hurt model 
+    Newton-Schulz iteration to compute the zeroth power / orthogonalization of G. We opt to use a
+    quintic iteration whose coefficients are selected to maximize the slope at zero. For the purpose
+    of minimizing steps, it turns out to be empirically effective to keep increasing the slope at
+    zero even beyond the point where the iteration no longer converges all the way to one everywhere
+    on the interval. This iteration therefore does not produce UV^T but rather something like US'V^T
+    where S' is diagonal with S_{ii}' ~ Uniform(0.5, 1.5), which turns out not to hurt model
     performance at all relative to UV^T, where USV^T = G is the SVD.
     """
     assert G.ndim >= 2, "G must be at least 2-dimensional"
@@ -367,9 +385,7 @@ class Muon(Base):
 
         # Apply Muon update
         update, self.momentum_buffer = muon_update(
-            grad, self.momentum_buffer,
-            beta=self.momentum,
-            ns_steps=self.ns_steps
+            grad, self.momentum_buffer, beta=self.momentum, ns_steps=self.ns_steps
         )
 
         # Scale by learning rate
@@ -472,7 +488,7 @@ def search_optimal_delta(
     2. Fine scan: test within best magnitude range
 
     A valid delta should produce consistent RMS improvement in both +/- directions.
-    
+
     Args:
         param_dim: Dimension of parameter vector to optimize.
         objective_fn: Function that takes parameters and returns scalar objective.
@@ -490,167 +506,184 @@ def search_optimal_delta(
         Tuple of (optimal_delta, info_dict)
     """
     if verbose:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("Auto Delta Detection (Magnitude Scan)")
-        print(f"Range: [{min_delta}, {max_delta}], Magnitude steps: {n_magnitude_steps}")
+        print(
+            f"Range: [{min_delta}, {max_delta}], Magnitude steps: {n_magnitude_steps}"
+        )
         print(f"Samples per delta: {n_samples_per_delta}")
-        print(f"{'='*60}\n")
-    
+        print(f"{'=' * 60}\n")
+
     init_params = np.zeros(param_dim, dtype=np.float64)
     apply_fn(init_params)
-    
+
     baseline_obj = objective_fn(init_params)
     if verbose:
         print(f"Baseline objective: {baseline_obj:.4f}")
-    
+
     magnitude_results = []
     magnitude_values = np.linspace(-2, 2, n_magnitude_steps)
-    
+
     if verbose:
         print("\n--- Phase 1: Magnitude Scan ---")
-    
+
     for mag in magnitude_values:
-        test_delta = 10.0 ** mag
+        test_delta = 10.0**mag
         if test_delta < min_delta or test_delta > max_delta:
             continue
-            
+
         if verbose:
             print(f"\nTesting magnitude 10^{mag:.1f} (delta={test_delta:.4f}):")
-        
+
         pos_improvements = []
         neg_improvements = []
-        
+
         for sample_idx in range(n_samples_per_delta):
             apply_fn(init_params)
-            
+
             disturb = np.random.randn(param_dim).astype(np.float64)
             disturb *= test_delta
-            
+
             if perturb_mask is not None:
                 disturb *= perturb_mask
-            
+
             pos_params = np.clip(init_params + disturb, clip_min, clip_max)
             neg_params = np.clip(init_params - disturb, clip_min, clip_max)
-            
+
             apply_fn(pos_params)
             pos_obj = objective_fn(pos_params)
-            
+
             apply_fn(neg_params)
             neg_obj = objective_fn(neg_params)
-            
+
             pos_imp = baseline_obj - pos_obj
             neg_imp = baseline_obj - neg_obj
             pos_improvements.append(pos_imp)
             neg_improvements.append(neg_imp)
-            
+
             if verbose:
-                print(f"  Sample {sample_idx + 1}: pos_imp={pos_imp:.4f}, neg_imp={neg_imp:.4f}")
-        
+                print(
+                    f"  Sample {sample_idx + 1}: pos_imp={pos_imp:.4f}, neg_imp={neg_imp:.4f}"
+                )
+
         avg_pos_imp = np.mean(pos_improvements)
         avg_neg_imp = np.mean(neg_improvements)
-        consistency = min(avg_pos_imp, avg_neg_imp) / (max(avg_pos_imp, avg_neg_imp) + 1e-8)
-        
-        magnitude_results.append({
-            'magnitude': mag,
-            'delta': test_delta,
-            'avg_pos_imp': avg_pos_imp,
-            'avg_neg_imp': avg_neg_imp,
-            'avg_improvement': (avg_pos_imp + avg_neg_imp) / 2,
-            'consistency': consistency,
-        })
-        
+        consistency = min(avg_pos_imp, avg_neg_imp) / (
+            max(avg_pos_imp, avg_neg_imp) + 1e-8
+        )
+
+        magnitude_results.append(
+            {
+                "magnitude": mag,
+                "delta": test_delta,
+                "avg_pos_imp": avg_pos_imp,
+                "avg_neg_imp": avg_neg_imp,
+                "avg_improvement": (avg_pos_imp + avg_neg_imp) / 2,
+                "consistency": consistency,
+            }
+        )
+
         if verbose:
-            print(f"  Summary: avg_pos={avg_pos_imp:.4f}, avg_neg={avg_neg_imp:.4f}, consistency={consistency:.2f}")
-    
-    best_mag_result = max(magnitude_results, key=lambda x: x['avg_improvement'])
-    best_magnitude = best_mag_result['magnitude']
-    
+            print(
+                f"  Summary: avg_pos={avg_pos_imp:.4f}, avg_neg={avg_neg_imp:.4f}, consistency={consistency:.2f}"
+            )
+
+    best_mag_result = max(magnitude_results, key=lambda x: x["avg_improvement"])
+    best_magnitude = best_mag_result["magnitude"]
+
     if verbose:
-        print(f"\nBest magnitude: 10^{best_magnitude:.1f} (delta={best_mag_result['delta']:.4f})")
+        print(
+            f"\nBest magnitude: 10^{best_magnitude:.1f} (delta={best_mag_result['delta']:.4f})"
+        )
         print("\n--- Phase 2: Fine Scan ---")
-    
+
     fine_delta_min = 10.0 ** (best_magnitude - 0.5)
     fine_delta_max = 10.0 ** (best_magnitude + 0.5)
     fine_delta_min = max(fine_delta_min, min_delta)
     fine_delta_max = min(fine_delta_max, max_delta)
-    
+
     n_fine_steps = 10
     fine_deltas = np.linspace(fine_delta_min, fine_delta_max, n_fine_steps)
-    
+
     fine_results = []
-    
+
     for delta in fine_deltas:
         if verbose:
             print(f"\nTesting delta = {delta:.4f}:")
-        
+
         pos_improvements = []
         neg_improvements = []
-        
+
         for sample_idx in range(n_samples_per_delta):
             apply_fn(init_params)
-            
+
             disturb = np.random.randn(param_dim).astype(np.float64)
             disturb *= delta
-            
+
             if perturb_mask is not None:
                 disturb *= perturb_mask
-            
+
             pos_params = np.clip(init_params + disturb, clip_min, clip_max)
             neg_params = np.clip(init_params - disturb, clip_min, clip_max)
-            
+
             apply_fn(pos_params)
             pos_obj = objective_fn(pos_params)
-            
+
             apply_fn(neg_params)
             neg_obj = objective_fn(neg_params)
-            
+
             pos_imp = baseline_obj - pos_obj
             neg_imp = baseline_obj - neg_obj
             pos_improvements.append(pos_imp)
             neg_improvements.append(neg_imp)
-        
+
         avg_pos_imp = np.mean(pos_improvements)
         avg_neg_imp = np.mean(neg_improvements)
-        
+
         both_positive = avg_pos_imp > 0 and avg_neg_imp > 0
         avg_improvement = (avg_pos_imp + avg_neg_imp) / 2
-        
-        fine_results.append({
-            'delta': delta,
-            'avg_pos_imp': avg_pos_imp,
-            'avg_neg_imp': avg_neg_imp,
-            'avg_improvement': avg_improvement,
-            'both_positive': both_positive,
-            'std_pos': np.std(pos_improvements),
-            'std_neg': np.std(neg_improvements),
-        })
-        
+
+        fine_results.append(
+            {
+                "delta": delta,
+                "avg_pos_imp": avg_pos_imp,
+                "avg_neg_imp": avg_neg_imp,
+                "avg_improvement": avg_improvement,
+                "both_positive": both_positive,
+                "std_pos": np.std(pos_improvements),
+                "std_neg": np.std(neg_improvements),
+            }
+        )
+
         status = "✓" if both_positive else "✗"
         if verbose:
-            print(f"  pos_imp={avg_pos_imp:.4f}±{np.std(pos_improvements):.4f}, neg_imp={avg_neg_imp:.4f}±{np.std(neg_improvements):.4f} {status}")
-    
-    valid_results = [r for r in fine_results if r['both_positive']]
-    
+            print(
+                f"  pos_imp={avg_pos_imp:.4f}±{np.std(pos_improvements):.4f}, neg_imp={avg_neg_imp:.4f}±{np.std(neg_improvements):.4f} {status}"
+            )
+
+    valid_results = [r for r in fine_results if r["both_positive"]]
+
     if valid_results:
-        best_result = max(valid_results, key=lambda x: x['avg_improvement'])
-        optimal_delta = best_result['delta']
+        best_result = max(valid_results, key=lambda x: x["avg_improvement"])
+        optimal_delta = best_result["delta"]
     else:
-        best_result = max(fine_results, key=lambda x: x['avg_improvement'])
-        optimal_delta = best_result['delta']
-    
+        best_result = max(fine_results, key=lambda x: x["avg_improvement"])
+        optimal_delta = best_result["delta"]
+
     apply_fn(init_params)
-    
+
     if verbose:
-        print(f"\n{'='*60}")
+        print("\n{'='*60}")
         print("Auto Delta Detection Complete")
         print(f"Optimal delta: {optimal_delta:.4f}")
-        print(f"Improvement: pos={best_result['avg_pos_imp']:.4f}, neg={best_result['avg_neg_imp']:.4f}")
-        print(f"{'='*60}\n")
-    
-    return float(optimal_delta), {
-        'baseline_obj': float(baseline_obj),
-        'optimal_delta': float(optimal_delta),
-        'magnitude_results': magnitude_results,
-        'fine_results': fine_results,
-    }
+        print(
+            f"Improvement: pos={best_result['avg_pos_imp']:.4f}, neg={best_result['avg_neg_imp']:.4f}"
+        )
+        print(f"{'=' * 60}\n")
 
+    return float(optimal_delta), {
+        "baseline_obj": float(baseline_obj),
+        "optimal_delta": float(optimal_delta),
+        "magnitude_results": magnitude_results,
+        "fine_results": fine_results,
+    }

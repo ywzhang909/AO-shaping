@@ -66,14 +66,15 @@ class SantecSLM200Error(Exception):
             super().__init__(full_message)
         else:
             super().__init__(message)
-            
-def _is_retryable_slant_error(exception) -> bool:
-        """Determine if an exception is retryable for SLM operations.
 
-        Retry on SantecSLM200Error as these often indicate transient USB issues
-        that may succeed on retry.
-        """
-        return isinstance(exception, SantecSLM200Error)
+
+def _is_retryable_slant_error(exception) -> bool:
+    """Determine if an exception is retryable for SLM operations.
+
+    Retry on SantecSLM200Error as these often indicate transient USB issues
+    that may succeed on retry.
+    """
+    return isinstance(exception, SantecSLM200Error)
 
 
 class SantecSLM200:
@@ -763,16 +764,16 @@ class SantecSLM200:
     def create_phase_from_array(
         self, phase_rad: np.ndarray, max_grayscale: int | None = None
     ) -> np.ndarray:
-        """将弧度相位值转换为SLM灰度值
+        """Convert radian phase values to SLM grayscale values.
 
-        将弧度为单位的相位值（0-2π）转换为SLM的灰度值（0-1023）。
+        Converts phase values in radians (0-2π) to SLM grayscale (0-1023).
 
         Args:
-            phase_rad: 相位值数组（弧度，0-2π）
-            max_grayscale: 2π对应的灰度值，默认为自动计算
+            phase_rad: Phase array in radians (0-2π), shape (height, width).
+            max_grayscale: Grayscale value for 2π radians. Auto-calculated if None.
 
         Returns:
-            灰度值数组，dtype为uint16
+            Grayscale phase array, dtype=uint16.
         """
         if max_grayscale is None:
             max_grayscale = self._max_gray
@@ -825,7 +826,7 @@ class SantecSLM200:
         # 应用平移
         grayscale = self._apply_shift(grayscale)
 
-        return grayscale
+        return grayscale.astype(np.uint16)
 
     def _resize_to_panel(self, data: np.ndarray) -> np.ndarray:
         """将数组裁切或补零至SLM面板分辨率

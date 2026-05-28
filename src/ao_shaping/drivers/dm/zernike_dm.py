@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from warnings import deprecated
+
 import numpy as np
 from loguru import logger
 
@@ -20,6 +22,7 @@ class ZernikeDM(DM):
         resolution: 输出相位图的分辨率 (width, height)
         radius: 归一化半径（像素）
     """
+
     def __init__(
         self,
         n_max: int = 4,
@@ -44,7 +47,7 @@ class ZernikeDM(DM):
         self._current_coeffs: dict[tuple[int, int], float] = {}
         self._current_phase: np.ndarray | None = None
         self.is_open = False
-    
+
     @classmethod
     def is_reachable(cls) -> bool:
         return True
@@ -72,43 +75,56 @@ class ZernikeDM(DM):
     def generate_phase(
         self,
         coefficients: dict[tuple[int, int], float] | np.ndarray,
+        output_mode: str = "rad",
     ) -> np.ndarray:
-        """根据Zernike系数生成相位面型（弧度）
+        """根据Zernike系数生成相位面型
 
         Args:
             coefficients: Zernike系数，可以是:
                 - dict: {(n, m): value} 形式的系数
                 - np.ndarray: 按Noll顺序排列的系数向量
+            output_mode: 输出模式:
+                - "rad": 返回弧度相位 (0-2π)，用于波形计算
+                - "gray": 返回灰度相位 (0-1023)，用于SLM显示
 
         Returns:
-            相位面型（弧度），shape为 (height, width)
+            相位面型，shape为 (height, width)
+            output_mode="rad" 时 dtype=float64，output_mode="gray" 时 dtype=uint16
         """
         if isinstance(coefficients, np.ndarray):
-            coefficients = self._noll_to_dict(coefficients)
+            coeffs_dict = self._noll_to_dict(coefficients)
+        else:
+            coeffs_dict = coefficients
 
-        phase_rad = self._generate_phase_rad(coefficients)
-
-        self._current_coeffs = coefficients
-        self._current_phase = phase_rad.copy()
-        return phase_rad
-
-    def _generate_phase_rad(
-        self,
-        coefficients: dict[tuple[int, int], float],
-    ) -> np.ndarray:
-        """使用ZernikeGenerator生成弧度相位"""
         height, width = self.resolution[1], self.resolution[0]
-        phase_total = np.zeros((height, width), dtype=np.float64)
+        max_val = float(2**self.bits - 1)
 
-        for (n, m), amp in coefficients.items():
-            if abs(amp) < 1e-10:
-                continue
-            single_phase = self._generator.generate(n, m, amplitude=amp)
-            phase_rad = single_phase.astype(np.float64) / (2**self.bits - 1) * 2 * np.pi
-            phase_total += phase_rad
+        # Generate phase using ZernikeGenerator's generate_polynomial
+        phase_raw = self._generator.generate_polynomial(coeffs_dict)
 
-        return phase_total
+        # phase_raw is in arbitrary units (typically -2.5 to +2.5)
+        # Normalize to [0, 1] range then scale appropriately
+        phase_min = np.nanmin(phase_raw)
+        phase_max = np.nanmax(phase_raw)
+        phase_range = phase_max - phase_min
 
+        if phase_range > 1e-10:
+            phase_normalized = (phase_raw - phase_min) / phase_range
+        else:
+            phase_normalized = np.zeros_like(phase_raw)
+
+        # Set outputs
+        self._current_coeffs = coeffs_dict
+        if output_mode == "rad":
+            phase_out = phase_normalized * 2 * np.pi
+            self._current_phase = phase_out.copy()
+            return phase_out
+        else:
+            phase_out = (phase_normalized * max_val).astype(np.uint16)
+            self._current_phase = phase_out.copy()
+            return phase_out
+
+    @deprecated("Use generate_phase with output_mode='gray'")
     def generate_phase_2pi(
         self,
         coefficients: dict[tuple[int, int], float] | np.ndarray,
@@ -123,15 +139,7 @@ class ZernikeDM(DM):
         Returns:
             灰度相位图，dtype=uint16
         """
-        if isinstance(coefficients, np.ndarray):
-            phase_gray = self._generator.generate_noll(coefficients)
-            self._current_coeffs = self._noll_to_dict(coefficients)
-        else:
-            phase_gray = self._generator.generate_polynomial(coefficients)
-            self._current_coeffs = coefficients
-
-        self._current_phase = phase_gray.copy()
-        return phase_gray
+        return self.generate_phase(coefficients, output_mode="gray")
 
     def _noll_to_dict(self, coeffs: np.ndarray) -> dict[tuple[int, int], float]:
         """将Noll顺序的系数向量转换为字典形式"""
