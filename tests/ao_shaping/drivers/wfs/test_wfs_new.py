@@ -9,9 +9,9 @@ from unittest.mock import MagicMock, call, patch
 
 import numpy as np
 import pytest
+from ao_shaping.drivers.wfs.ThorlabWFS import ThorlabWFS, WFSManager
 
-from ao_shaping.drivers import MlaRes, Thorlab_WFS
-from ao_shaping.drivers.wfs.thorlab_wfs import ThorlabWFS, WFSManager
+from ao_shaping.drivers import MlaRes, ThorlabWFS
 
 # ---------------------------------------------------------------------------
 # Hardware-dependent tests (skipped if WFS not available)
@@ -21,7 +21,7 @@ from ao_shaping.drivers.wfs.thorlab_wfs import ThorlabWFS, WFSManager
 def wfs_instance():
     """Create a WFS instance for hardware testing. Skip if not available."""
     try:
-        wfs = Thorlab_WFS(MlaRes.Res768)
+        wfs = ThorlabWFS(MlaRes.Res768)
         wfs.open()
         yield wfs
         wfs.close()

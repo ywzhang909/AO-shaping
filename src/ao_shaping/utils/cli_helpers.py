@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import os
 import re
-import click
 from datetime import datetime
 from pathlib import Path
+
+import click
 
 
 def get_debug_mode() -> bool:
@@ -21,7 +22,7 @@ def get_debug_mode() -> bool:
     debug_mode = os.environ.get("DEBUG", "").lower() in ("1", "true", "yes")
     return debug_mode
 
-
+# TODO 移动到ThorlabWFS.py去
 def _get_wfs_res(res_str: str) -> type:
     """Convert WFS resolution string to :class:`MlaRes` enum value.
 

@@ -24,31 +24,29 @@ Example:
 from __future__ import annotations
 
 import json
-import h5py
-
 import time
-from dataclasses import dataclass, asdict
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
-from collections.abc import Callable
 
+import h5py
 import numpy as np
 from loguru import logger
 from tqdm import tqdm
 
+from ao_shaping.utils.display import ZernikeCalibrationDisplay
 from ao_shaping.utils.matrix_utils import (
     calc_n_zernike_terms,
     compute_lstsq,
     compute_pinv,
 )
 from ao_shaping.utils.wfs_utils import flatten_slopes
-from ao_shaping.utils.display import ZernikeCalibrationDisplay
-
 
 if TYPE_CHECKING:
     from ao_shaping.drivers.slm.zernike_slm import ZernikeSLM
-    from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager
+    from ao_shaping.drivers.wfs.ThorlabWFS import WFSManager
     from ao_shaping.utils.display import ZernikeCalibrationDisplay
 
 

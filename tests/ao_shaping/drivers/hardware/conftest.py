@@ -11,9 +11,10 @@ Usage:
 
 Run with actual hardware connected. Tests skip automatically if devices unavailable.
 """
-import pytest
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+import pytest
 
 
 def pytest_addoption(parser):
@@ -54,8 +55,8 @@ def tmp_hardware_dir(tmp_path_factory):
 def wfs():
     """Thorlabs WFS instance. Skips if hardware unavailable."""
     try:
-        from ao_shaping.drivers import Thorlab_WFS, MlaRes
-        wfs = Thorlab_WFS(MlaRes.Res768, use_custom_ref=False, high_speed=True)
+        from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
+        wfs = ThorlabWFS(MlaRes.Res768, use_custom_ref=False, high_speed=True)
         wfs.open()
         yield wfs
         wfs.close()
@@ -67,8 +68,8 @@ def wfs():
 def wfs_with_custom_ref():
     """WFS with custom reference plane. Skips if hardware unavailable."""
     try:
-        from ao_shaping.drivers import Thorlab_WFS, MlaRes
-        wfs = Thorlab_WFS(MlaRes.Res768, use_custom_ref=True, high_speed=False)
+        from ao_shaping.drivers import MlaRes, ThorlabWFS
+        wfs = ThorlabWFS(MlaRes.Res768, use_custom_ref=True, high_speed=False)
         wfs.open()
         yield wfs
         wfs.close()
@@ -80,8 +81,8 @@ def wfs_with_custom_ref():
 def wfs_stable_sampling():
     """WFS with stable sampling enabled."""
     try:
-        from ao_shaping.drivers import Thorlab_WFS, MlaRes
-        wfs = Thorlab_WFS(
+        from ao_shaping.drivers import MlaRes, ThorlabWFS
+        wfs = ThorlabWFS(
             MlaRes.Res768,
             use_custom_ref=False,
             high_speed=True,

@@ -25,7 +25,7 @@ from loguru import logger
 
 # Import drivers
 from ao_shaping.drivers.slm.zernike_slm import ZernikeSLM
-from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager
+from ao_shaping.drivers.wfs.ThorlabWFS import WFSManager
 from ao_shaping.optimizer.wf.zernike_response_matrix import (
     DEFAULT_MAGNITUDE,
     DEFAULT_N_AVERAGES,

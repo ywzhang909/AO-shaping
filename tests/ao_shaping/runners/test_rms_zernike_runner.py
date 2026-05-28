@@ -1,8 +1,9 @@
 """Tests for rms_zernike_runner module."""
 
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pytest
-from unittest.mock import MagicMock, patch
 
 from ao_shaping.drivers import MlaRes
 
@@ -61,7 +62,7 @@ class TestAutoDeltaDetectRms:
             "ao_shaping.runners.rms_zernike_runner.ZernikeSLM",
             return_value=mock_slm,
         ), patch(
-            "ao_shaping.runners.rms_zernike_runner.Thorlab_WFS",
+            "ao_shaping.runners.rms_zernike_runner.ThorlabWFS",
             return_value=mock_wfs,
         ), patch(
             "ao_shaping.runners.rms_zernike_runner.search_optimal_delta",
@@ -87,7 +88,7 @@ class TestAutoDeltaDetectRms:
             assert 'best_delta' in info
 
     def test_auto_delta_detect_passes_exposure_time(self):
-        """Test that exposure_time is passed to Thorlab_WFS."""
+        """Test that exposure_time is passed to ThorlabWFS."""
         from ao_shaping.runners.rms_zernike_runner import _auto_delta_detect_rms
 
         mock_slm = self._make_mock_slm()
@@ -97,7 +98,7 @@ class TestAutoDeltaDetectRms:
             "ao_shaping.runners.rms_zernike_runner.ZernikeSLM",
             return_value=mock_slm,
         ), patch(
-            "ao_shaping.runners.rms_zernike_runner.Thorlab_WFS",
+            "ao_shaping.runners.rms_zernike_runner.ThorlabWFS",
             return_value=mock_wfs,
         ), patch(
             "ao_shaping.runners.rms_zernike_runner.search_optimal_delta",
@@ -112,9 +113,9 @@ class TestAutoDeltaDetectRms:
                 n_max=4,
             )
 
-            # Verify Thorlab_WFS was called with exposure_time
-            Thorlab_WFS_mock = patch(
-                "ao_shaping.runners.rms_zernike_runner.Thorlab_WFS",
+            # Verify ThorlabWFS was called with exposure_time
+            ThorlabWFS_mock = patch(
+                "ao_shaping.runners.rms_zernike_runner.ThorlabWFS",
                 return_value=mock_wfs,
             )
             # The mock was already patched above, check call args
@@ -190,8 +191,9 @@ class TestRunFunction:
 
     def test_run_with_mocked_hardware(self):
         """Test run function with fully mocked hardware."""
-        from ao_shaping.runners.rms_zernike_runner import run
         from click.testing import CliRunner
+
+        from ao_shaping.runners.rms_zernike_runner import run
 
         mock_slm = self._make_mock_slm()
         mock_wfs = self._make_mock_wfs()
@@ -202,7 +204,7 @@ class TestRunFunction:
             "ao_shaping.runners.rms_zernike_runner.ZernikeSLM",
             return_value=mock_slm,
         ), patch(
-            "ao_shaping.runners.rms_zernike_runner.Thorlab_WFS",
+            "ao_shaping.runners.rms_zernike_runner.ThorlabWFS",
             return_value=mock_wfs,
         ), patch(
             "ao_shaping.runners.rms_zernike_runner.search_optimal_delta",
@@ -240,8 +242,9 @@ class TestRunFunction:
 
     def test_run_passes_exposure_time_ms_to_optimizer(self):
         """Test that exposure_time_ms is correctly passed to optimizer_rms."""
-        from ao_shaping.runners.rms_zernike_runner import run
         from click.testing import CliRunner
+
+        from ao_shaping.runners.rms_zernike_runner import run
 
         mock_slm = self._make_mock_slm()
         mock_wfs = self._make_mock_wfs()
@@ -268,7 +271,7 @@ class TestRunFunction:
             "ao_shaping.runners.rms_zernike_runner.ZernikeSLM",
             return_value=mock_slm,
         ), patch(
-            "ao_shaping.runners.rms_zernike_runner.Thorlab_WFS",
+            "ao_shaping.runners.rms_zernike_runner.ThorlabWFS",
             return_value=mock_wfs,
         ), patch(
             "ao_shaping.runners.rms_zernike_runner.optimizer_rms",

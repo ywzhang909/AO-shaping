@@ -26,15 +26,14 @@ from __future__ import annotations
 import os
 from collections.abc import Sequence
 
-import tqdm
 import numpy as np
+import tqdm
 
-from ao_shaping.drivers import MlaRes, Thorlab_WFS
-from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.algorithm.adam import AdaMOD, AdamW
-from ao_shaping.utils import logger, Recorder
+from ao_shaping.drivers import MlaRes, ThorlabWFS
+from ao_shaping.drivers.slm import ZernikeSLM
+from ao_shaping.utils import Recorder, logger
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
-
 
 # =============================================================================
 # Scheduling utilities for LR and delta
@@ -260,7 +259,7 @@ def early_stopping_check(
 def compute_mini_batch_gradient(
     current_c: np.ndarray,
     slm: ZernikeSLM,
-    wfs: Thorlab_WFS,
+    wfs: ThorlabWFS,
     delta: float,
     perturb_weights: np.ndarray,
     n_zernike: int,
@@ -573,7 +572,7 @@ def optimizer_rms(
             shift_x=shift_x,
             shift_y=shift_y,
         ) as slm,
-        Thorlab_WFS(
+        ThorlabWFS(
             wfs_res,
             exposure_time=wfs_exposure_time,
             use_custom_ref=False,

@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 import numpy as np
-from scipy.ndimage import gaussian_filter
 from loguru import logger
+from scipy.ndimage import gaussian_filter
 
 if TYPE_CHECKING:
-    from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager
     from ao_shaping.drivers.slm import ZernikeSLM
+    from ao_shaping.drivers.wfs import ThorlabWFS
 
 
 def flatten_slopes(dev_x: np.ndarray, dev_y: np.ndarray) -> np.ndarray:
@@ -88,7 +89,7 @@ class DitheredReference:
 
     def measure(
         self,
-        wfs: WFSManager,
+        wfs: ThorlabWFS,
         base_phase: np.ndarray | None = None,
         n_averages: int | None = None,
     ) -> tuple[np.ndarray, dict]:

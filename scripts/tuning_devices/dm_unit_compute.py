@@ -4,12 +4,14 @@ dmunitcompute.m 的Python实现
 用于计算100mm×100mm对应的像素尺寸，并处理stdWavefront目录下的矩阵文件
 """
 
-import numpy as np
-from pathlib import Path
 from contextlib import contextmanager
+from pathlib import Path
 
-from ao_shaping.drivers import Thorlab_WFS, MlaRes, NlightDM
-from ao_shaping.utils import get_init_V_by_rms, get_init_V_by_energy
+import numpy as np
+
+from ao_shaping.drivers import MlaRes, NlightDM, ThorlabWFS
+from ao_shaping.utils import get_init_V_by_energy, get_init_V_by_rms
+
 
 def normalize_01(matrix):
     """
@@ -194,7 +196,7 @@ def visualize_with_pygame(title="Image Visualization"):
     clock = pygame.time.Clock()
     
     # WFS init
-    wfs = Thorlab_WFS(MlaRes.Res768)
+    wfs = ThorlabWFS(MlaRes.Res768)
     wfs.open()
     
     exposure_time, gain = wfs.optimize_exposure_time_and_gain()

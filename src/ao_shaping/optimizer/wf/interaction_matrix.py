@@ -2,11 +2,11 @@
 """
 获取响应矩阵 (Interaction Matrix) for adaptive optics using slope-based method.
 
-This module calculates the interaction matrix that maps DM actuator commands to 
+This module calculates the interaction matrix that maps DM actuator commands to
 wavefront sensor spot deviations. The matrix is used in closed-loop adaptive optics
 control systems to determine the optimal DM shape for correcting wavefront aberrations.
 
-This module also provides Zernike-based SLM response matrix measurement and 
+This module also provides Zernike-based SLM response matrix measurement and
 wavefront correction using SantecSLM200 and ThorlabWFS.
 """
 
@@ -21,20 +21,20 @@ from loguru import logger
 from tqdm import tqdm
 
 from ao_shaping.drivers.dm.NLight import NLight
-from ao_shaping.drivers import Thorlab_WFS, MlaRes
+from ao_shaping.drivers import MlaRes
 from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
-from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager
+from ao_shaping.drivers.wfs import ThorlabWFS as WFSManager
 from ao_shaping.utils.zernike_calc import generate_noll_polynomial
 from ao_shaping.utils.matrix_utils import compute_pinv
 from ao_shaping.utils.wfs_utils import flatten_slopes
 
 
 def calculate_interaction_matrix(
-    wfs_res: str = '1024',
+    wfs_res: str = "1024",
     disturb_voltage: float = 1.0,
     wait_time_s: float = 0.01,
     pupil_diameter: float = 2.24,
-    save_path: str | Path = "data/interaction_matrix.txt"
+    save_path: str | Path = "data/interaction_matrix.txt",
 ) -> np.ndarray:
     """
     Calculate the interaction matrix for adaptive optics using the slope method.
@@ -58,7 +58,16 @@ def calculate_interaction_matrix(
     # Select WFS resolution
     wfs_res_config = MlaRes.from_str(wfs_res)
 
-    with NLight() as dm, Thorlab_WFS(wfs_res_config, use_custom_ref=False, high_speed=False, pupil_diameter=pupil_diameter) as wfs:
+    with (
+        NLight() as dm,
+        NLight() as dm,
+        WFSManager(
+            wfs_res_config,
+            use_custom_ref=False,
+            high_speed=False,
+            pupil_diameter=pupil_diameter,
+        ) as wfs,
+    ):
         num_actuators = dm.DM_Num
         logger.info(f"DM has {num_actuators} actuators")
 
@@ -123,7 +132,9 @@ def calculate_interaction_matrix(
         return interaction_matrix
 
 
-def load_interaction_matrix(path: str | Path = "data/interaction_matrix.txt") -> np.ndarray:
+def load_interaction_matrix(
+    path: str | Path = "data/interaction_matrix.txt",
+) -> np.ndarray:
     """
     Load a previously calculated interaction matrix.
 
@@ -141,9 +152,7 @@ def load_interaction_matrix(path: str | Path = "data/interaction_matrix.txt") ->
 
 
 def apply_interaction_matrix(
-    slopes: np.ndarray,
-    interaction_matrix: np.ndarray,
-    regularization: float = 1e-6
+    slopes: np.ndarray, interaction_matrix: np.ndarray, regularization: float = 1e-6
 ) -> np.ndarray:
     """
     Apply the interaction matrix to calculate DM commands from slopes.
@@ -176,15 +185,15 @@ def apply_interaction_matrix(
 # (n, m) tuples - excluding piston (0, 0)
 DEFAULT_SLM_ZERNIKE_MODES: list[tuple[int, int]] = [
     (1, -1),  # Tip
-    (1, 1),   # Tilt
-    (2, 0),   # Defocus
+    (1, 1),  # Tilt
+    (2, 0),  # Defocus
     (2, -2),  # Astigmatism 45°
-    (2, 2),   # Astigmatism 0°
+    (2, 2),  # Astigmatism 0°
     (3, -1),  # Coma Y
-    (3, 1),   # Coma X
+    (3, 1),  # Coma X
     (3, -3),  # Trefoil Y
-    (3, 3),   # Trefoil X
-    (4, 0),   # Spherical
+    (3, 3),  # Trefoil X
+    (4, 0),  # Spherical
 ]
 
 
@@ -743,11 +752,11 @@ if __name__ == "__main__":
     try:
         # Calculate and save interaction matrix
         matrix = calculate_interaction_matrix(
-            wfs_res='768',
+            wfs_res="768",
             disturb_voltage=50.0,
             wait_time_s=0.1,
             pupil_diameter=2.27,
-            save_path="data/interaction_matrix.txt"
+            save_path="data/interaction_matrix.txt",
         )
         print(f"Interaction matrix shape: {matrix.shape}")
 

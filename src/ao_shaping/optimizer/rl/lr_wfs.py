@@ -1,31 +1,33 @@
-from typing import Any
 import os
+from typing import Any
+
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
-from glob import glob
 import time
 from copy import deepcopy
+from glob import glob
 
 import gymnasium as gym
-from gymnasium import spaces
-
-import torch as th
-from torch import nn
-from stable_baselines3 import SAC
-from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, CallbackList
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
-from stable_baselines3.common.logger import Image, Figure
-
-from ao_shaping.drivers import NlightDM, WFSManager
-from ao_shaping.drivers.wfs.thorlab_wfs import MlaRes
-
 import matplotlib.pyplot as plt
 import numpy as np
+import torch as th
+from gymnasium import spaces
+from stable_baselines3 import SAC
+from stable_baselines3.common.callbacks import (
+    BaseCallback,
+    CallbackList,
+    CheckpointCallback,
+)
+from stable_baselines3.common.logger import Figure, Image
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+from torch import nn
+
+from ao_shaping.drivers import MlaRes, NlightDM, ThorlabWFS
 
 
 class WFS():
 
     def __init__(self, pupil_diameter):
-        self.wfs = WFSManager(MlaRes.Res768, use_custom_ref=True, high_speed=True, pupil_diameter=pupil_diameter)
+        self.wfs = ThorlabWFS(MlaRes.Res768, use_custom_ref=True, high_speed=True, pupil_diameter=pupil_diameter)
 
     def calc_j(self):
         self.wfs.take_image()

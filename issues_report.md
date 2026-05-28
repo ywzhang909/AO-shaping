@@ -13,7 +13,7 @@
 
 | 文件 | 违规导入 | 修复方案 |
 |------|----------|----------|
-| `src/ao_shaping/utils/wfs_utils.py:13` | `from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager` | 已使用 `TYPE_CHECKING` 保护（运行时无实际导入） |
+| `src/ao_shaping/utils/wfs_utils.py:13` | `from ao_shaping.drivers.wfs.ThorlabWFS import WFSManager` | 已使用 `TYPE_CHECKING` 保护（运行时无实际导入） |
 | `src/ao_shaping/utils/gs_visualization.py:296` | `from ao_shaping.algorithm.gerchberg_saxton import ...` | 已使用 deferred local import（函数内 `import`） |
 | `src/ao_shaping/utils/pattern_helper.py:8` | `from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer` | ✅ 已修复: 改为 `TYPE_CHECKING` + 9 处函数的 lazy import |
 
@@ -31,11 +31,11 @@
 
 | 文件 | 修复方案 |
 |------|----------|
-| `drivers/__init__.py` | 全部改为 `from ao_shaping.drivers.wfs.thorlab_wfs import ...` 形式 |
+| `drivers/__init__.py` | 全部改为 `from ao_shaping.drivers.wfs.ThorlabWFS import ...` 形式 |
 | `drivers/slm/__init__.py` | 改为绝对导入 |
 | `drivers/slm/santec_slm200_visa.py` | 改为绝对导入 |
 | `drivers/tm/__init__.py` | 改为绝对导入 |
-| `drivers/wfs/thorlab_wfs.py` | 改为绝对导入（`from ao_shaping.drivers.wfs._thorlab_wfs import ...`） |
+| `drivers/wfs/ThorlabWFS.py` | 改为绝对导入（`from ao_shaping.drivers.wfs._ThorlabWFS import ...`） |
 | `algorithm/__init__.py` | 全部改为绝对导入，保留 Cython try/except 回退 |
 | `algorithm/heuristic_base.py` | 改为绝对导入 |
 | `algorithm/random_search.py` | 改为绝对导入 |
@@ -188,7 +188,7 @@
 |------|------|------|
 | `drivers/ccd/miicam_driver.py` | 13 | SDK 调用中宽泛捕获可能掩盖真实错误 |
 | `drivers/ccd/ffmpeg.py` | 2 | FFmpeg 子进程调用 |
-| `drivers/wfs/thorlab_wfs.py` | 1 | WFS SDK 调用 |
+| `drivers/wfs/ThorlabWFS.py` | 1 | WFS SDK 调用 |
 | `drivers/dm/MicroDM.py` | 1 | 网络连接 |
 | `drivers/visa_base.py` | 1 | VISA 设备通信 |
 | `gui/streamlit_helper/micro_dm_ui.py` | 2 | GUI 回调 |
@@ -221,7 +221,7 @@
 
 | 文件 | 行数 | 建议 |
 |------|------|------|
-| `drivers/wfs/thorlab_wfs.py` | 1661 | 可拆分为: SDK 接口层、参考管理、测量逻辑 |
+| `drivers/wfs/ThorlabWFS.py` | 1661 | 可拆分为: SDK 接口层、参考管理、测量逻辑 |
 | `gui/streamlit_helper/zernike_response_matrix_ui.py` | 1604 | 可拆分为: UI 组件、业务逻辑、回调处理 |
 | `drivers/mock_devices.py` | 1524 | 每个设备一个文件（已有多设备类） |
 | `drivers/dm/MicroDM.py` | 1477 | 可拆分为: 协议层、通道管理、控制器管理 |

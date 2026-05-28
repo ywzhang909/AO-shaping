@@ -1813,8 +1813,3 @@ class ThorlabWFS(Device):
                 self.hs_window_startpos_y = windowStartposY
 
         logger.info("high speed mode is " + "on" if self.enable_high_speed else "off")
-
-
-# Backward compatibility aliases
-WFSManager = ThorlabWFS
-Thorlab_WFS = ThorlabWFS

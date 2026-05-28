@@ -21,11 +21,8 @@ from ao_shaping.drivers.device_registry import (
     RegisteredDevice,
     get_global_registry,
 )
-
-from ao_shaping.drivers.wfs.thorlab_wfs import ThorlabWFS, WFSManager
-Thorlab_WFS = WFSManager  # backward compat alias
-from ao_shaping.drivers.wfs.thorlab_wfs import MlaRes
 from ao_shaping.drivers.dm.NLight import NLight as NlightDM
+from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
 
 __all__ = [
     # Base classes
@@ -42,7 +39,6 @@ __all__ = [
     "get_global_registry",
     # Hardware
     "ThorlabWFS",
-    "Thorlab_WFS",
     "MlaRes",
     "NlightDM",
 ]
@@ -90,10 +86,10 @@ except ImportError as e:
 
 try:
     from ao_shaping.drivers.visa_base import (
-        VisaResourceManager,
+        VisaError,
         VisaInstrument,
         VisaInstrumentFactory,
-        VisaError,
+        VisaResourceManager,
         is_pyvisa_available,
         list_visa_resources,
         open_visa_instrument,
@@ -119,7 +115,10 @@ except ImportError as e:
     open_visa_instrument = None
 
 try:
-    from ao_shaping.drivers.slm.santec_slm200_visa import SantecSLM200Visa, create_slm_visa_instrument
+    from ao_shaping.drivers.slm.santec_slm200_visa import (
+        SantecSLM200Visa,
+        create_slm_visa_instrument,
+    )
 
     __all__ += ["SantecSLM200Visa", "create_slm_visa_instrument"]
 except ImportError as e:
@@ -162,16 +161,16 @@ __all__ += [
 ]
 
 from ao_shaping.drivers.sim import (
-    SimulatedCCD,
-    SimulatedLaser,
-    SimulatedSLM,
-    SimulatedLens,
-    SimulatedAperture,
-    SimulatedTurbulentScreen,
-    SimulatedThermalScreen,
-    SimulatedATP,
-    SimulatedDevice,
     OpticalDevice,
+    SimulatedAperture,
+    SimulatedATP,
+    SimulatedCCD,
+    SimulatedDevice,
+    SimulatedLaser,
+    SimulatedLens,
+    SimulatedSLM,
+    SimulatedThermalScreen,
+    SimulatedTurbulentScreen,
     WavefrontProcessor,
 )
 

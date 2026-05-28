@@ -9,7 +9,7 @@
   1. _normalize_run_options       — 归一化CLI参数, 计算 n_slm_terms/n_wfs_terms
   2. _setup_debug_callback        — 条件创建调试数据保存回调
   3. ZernikeCalibrationDisplay     — 条件创建pygame实时显示
-  4. ZernikeSLM / WFSManager       — 设备初始化 (上下文管理器)
+  4. ZernikeSLM / ThorlabWFS       — 设备初始化 (上下文管理器)
   5. DitheredReference.measure     — 可选: 亚波长抖动参考
   6. _capture_init_state           — 捕获出厂/用户参考状态
     -> _capture_wfs_full_state     —   take_image -> get_spot_deviation -> get_zernike -> get_wavefront
@@ -28,7 +28,7 @@
   1. load_zernike_response_matrix  — 加载 .h5 响应矩阵
   2. HardwareConfig.from_dict      — 恢复硬件配置
   3. LoopConfig                    — 构建控制配置
-  4. ZernikeSLM / WFSManager       — 设备初始化
+  4. ZernikeSLM / ThorlabWFS       — 设备初始化
   5. from_response_matrix          — 构建 AOClosedLoop 控制器
     -> 斜率空间 (deviation_response_matrix) 或 模态空间 (pinv_matrix)
   6. measure_func  (_measure_wfs_step):
@@ -53,7 +53,7 @@ from loguru import logger
 
 from ao_shaping.algorithm.controller import ControlLaw, HardwareConfig, LoopConfig
 from ao_shaping.drivers.slm import ZernikeSLM
-from ao_shaping.drivers.wfs.thorlab_wfs import MlaRes, WFSManager
+from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
 from ao_shaping.optimizer.wf.zernike_response_matrix import (
     DEFAULT_MAGNITUDE,
     DEFAULT_N_AVERAGES,
@@ -224,14 +224,14 @@ def _compute_calibration_magnitudes(
 
 
 def _capture_wfs_full_state(
-    wfs: WFSManager,
+    wfs: ThorlabWFS,
     cancel_tile: bool = False,
     zernike_order: int = 10,
 ) -> WfsStateSnapshot:
     """捕获WFS完整状态: deviations, Zernike系数, 2D波前, RMS
 
     Args:
-        wfs: WFSManager实例
+        wfs: ThorlabWFS实例
         cancel_tile: 是否去除WFS tip/tilt
         zernike_order: Zernike阶数
 
@@ -255,7 +255,7 @@ def _capture_wfs_full_state(
 
 def _capture_init_state(
     zslm: ZernikeSLM,
-    wfs: WFSManager,
+    wfs: ThorlabWFS,
     cancel_tile: bool = False,
     zernike_order: int = 10,
     wait_time: float = 0.5,
@@ -270,7 +270,7 @@ def _capture_init_state(
 
     Args:
         zslm: ZernikeSLM实例
-        wfs: WFSManager实例
+        wfs: ThorlabWFS实例
         cancel_tile: 是否去除WFS tip/tilt
         zernike_order: Zernike阶数
         wait_time: 等待时间(秒)
@@ -359,7 +359,7 @@ def _save_init_state_hdf5(
 
 
 def _make_wavefront_tracking_callback(
-    wfs: WFSManager,
+    wfs: ThorlabWFS,
     cancel_tile: bool = False,
     zernike_order: int = 10,
 ) -> tuple[Callable[[int, int, np.ndarray, np.ndarray], None], list[WfsStateSnapshot]]:
@@ -369,7 +369,7 @@ def _make_wavefront_tracking_callback(
     累积到返回的列表中供后续保存.
 
     Args:
-        wfs: WFSManager实例
+        wfs: ThorlabWFS实例
         cancel_tile: 是否去除WFS tip/tilt
         zernike_order: Zernike阶数
 
@@ -611,7 +611,7 @@ def run(
             shift_y=shift_y,
             correction_csv_path=correction_csv_path,
         ) as zslm:
-            with WFSManager(
+            with ThorlabWFS(
                 mla_index=params["mla_index_enum"],
                 exposure_time=params["effective_exp_time"],
                 high_speed=high_speed,
@@ -798,7 +798,7 @@ def _measure_wfs_step(
     """单次WFS测量: 获取斜率残差并估计RMS
 
     Args:
-        wfs: WFSManager 实例
+        wfs: ThorlabWFS 实例
         mask_indices: 有效子孔径索引
         s_ref: 参考斜率 [n_meas]
         D_pinv: 响应矩阵伪逆 [n_modes, n_meas]
@@ -899,7 +899,7 @@ def closed_loop_run(
     from loguru import logger
 
     from ao_shaping.drivers.slm import ZernikeSLM
-    from ao_shaping.drivers.wfs.thorlab_wfs import MlaRes, WFSManager
+    from ao_shaping.drivers.wfs.ThorlabWFS import MlaRes, ThorlabWFS
     from ao_shaping.optimizer.wf.zernike_response_matrix import (
         load_zernike_response_matrix,
     )
@@ -942,7 +942,7 @@ def closed_loop_run(
     if gain is not None:
         loop_cfg.gain_schedule = [(0, max_iter, gain, loop_cfg.leak)]
 
-    click.echo(f"\n闭环配置:")
+    click.echo("\n闭环配置:")
     click.echo(f"  控制律: {control_law}, DT={dt}s")
     click.echo(f"  目标RMS: {rms_target}λ, 最大迭代: {max_iter}")
 
@@ -981,7 +981,7 @@ def closed_loop_run(
             click.echo(f"  SLM已初始化: shift=({device_cfg.shift_x}, {device_cfg.shift_y})")
 
             click.echo("初始化WFS...")
-            with WFSManager(
+            with ThorlabWFS(
                 mla_index=MlaRes(device_cfg.mla_index),
                 exposure_time=device_cfg.exposure_time,
                 high_speed=device_cfg.high_speed,

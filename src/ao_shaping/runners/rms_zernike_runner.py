@@ -3,13 +3,21 @@ from pathlib import Path
 import click
 import numpy as np
 
-from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
-from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_debug_mode, _get_wfs_res
-from ao_shaping.drivers import MlaRes, Thorlab_WFS
-from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.algorithm.adam import search_optimal_delta
+from ao_shaping.drivers import MlaRes, ThorlabWFS
+from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms
-from ao_shaping.runners.runner_common import build_debug_save_paths, save_optimization_debug_artifacts
+from ao_shaping.runners.runner_common import (
+    build_debug_save_paths,
+    save_optimization_debug_artifacts,
+)
+from ao_shaping.utils.cli_helpers import (
+    _get_wfs_res,
+    get_debug_mode,
+    parse_tuple,
+    setup_coredumpy,
+)
+from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
 
 
 def _auto_delta_detect_rms(
@@ -38,7 +46,7 @@ def _auto_delta_detect_rms(
             shift_x=shift_x,
             shift_y=shift_y,
         ) as slm,
-        Thorlab_WFS(
+        ThorlabWFS(
             wfs_res,
             exposure_time=wfs_exposure_time,
             use_custom_ref=False,

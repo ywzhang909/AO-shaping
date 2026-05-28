@@ -642,7 +642,7 @@ def search_optimal_delta(
     
     if verbose:
         print(f"\n{'='*60}")
-        print(f"Auto Delta Detection Complete")
+        print("Auto Delta Detection Complete")
         print(f"Optimal delta: {optimal_delta:.4f}")
         print(f"Improvement: pos={best_result['avg_pos_imp']:.4f}, neg={best_result['avg_neg_imp']:.4f}")
         print(f"{'='*60}\n")

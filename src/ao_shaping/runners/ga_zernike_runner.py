@@ -218,7 +218,7 @@ def run(
     flatten_dir = root_dir / "flatten_zernike" / get_date_dir_name()
     recorder.save_best(saved_dir=flatten_dir, target="_c", process_fn=np.round, fmt="%.6f")
 
-    click.echo(f"\nGA-Zernike优化完成!")
+    click.echo("\nGA-Zernike优化完成!")
     click.echo(f"  最佳RMS: {min_rms:.4f} @ generation {min_gen}")
 
 

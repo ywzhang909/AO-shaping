@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+
 @dataclass(frozen=True)
 class DeviceSpec:
     """Registered device metadata."""
@@ -96,7 +98,7 @@ def build_default_registry() -> DeviceRegistry:
         DeviceSpec(
             name="thorlabs_wfs",
             device_type="wfs",
-            implementation="ao_shaping.drivers.wfs.thorlab_wfs.WFS20",
+            implementation="ao_shaping.drivers.wfs.ThorlabWFS.WFS20",
             is_virtual=False,
             description="Physical Thorlabs wavefront sensor.",
         )
