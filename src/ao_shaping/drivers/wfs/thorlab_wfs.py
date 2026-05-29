@@ -13,7 +13,7 @@ from datetime import datetime
 
 import numpy as np
 
-from ao_shaping.utils.file import DeviceConfigManager
+from ao_shaping.utils.file import DeviceConfigManager, ROOT_DIR as PROJECT_ROOT
 import ctypes
 from ctypes import (
     c_double, c_uint8, c_int32, c_bool, c_float, c_ulong, create_string_buffer, byref
@@ -188,8 +188,7 @@ class WFSManager:
         """初始化WFS配置管理器"""
         if self._config_manager is None:
             # 默认配置目录: data/wfs_configs/
-            project_root = Path(__file__).resolve().parents[4]
-            config_dir = project_root / "data" / "wfs_configs"
+            config_dir = PROJECT_ROOT / "data" / "wfs_configs"
             self._config_manager = DeviceConfigManager(config_dir, device_type="wfs")
 
     def load_config(self) -> dict:

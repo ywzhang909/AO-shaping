@@ -17,13 +17,14 @@ Usage:
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 import json
+from pathlib import Path
 
 import numpy as np
 import streamlit as st
 
-PROJECT_ROOT = Path(__file__).resolve().parents[4]
+from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+
 SRC_ROOT = PROJECT_ROOT / "src"
 
 if str(PROJECT_ROOT) not in sys.path:

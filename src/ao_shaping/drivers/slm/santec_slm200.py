@@ -35,12 +35,10 @@ from ao_shaping.drivers.slm.santec_slm200_constants import (
     get_max_grayscale,
     get_slm_error_message,
 )
-from ao_shaping.utils.file import SLMConfigManager
+from ao_shaping.utils.file import SLMConfigManager, ROOT_DIR as PROJECT_ROOT
 
 # Config directory: <project_root>/data/slm_configs/ or from SLM_CONFIG_DIR env var
-# Project root = 4 levels up from this file: src/ao_shaping/drivers/slm/
-_DEFAULT_SLM_CONFIG_DIR = Path(__file__).resolve().parents[4] / "data" / "slm_configs"
-_SLM_CONFIG_DIR = Path(os.environ.get("SLM_CONFIG_DIR", _DEFAULT_SLM_CONFIG_DIR))
+_SLM_CONFIG_DIR = Path(os.environ.get("SLM_CONFIG_DIR", PROJECT_ROOT / "data" / "slm_configs"))
 
 
 class SantecSLM200Error(Exception):

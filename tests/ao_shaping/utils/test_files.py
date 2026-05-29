@@ -2,7 +2,14 @@ from pathlib import Path
 
 import pandas as pd
 
-from ao_shaping.utils.file import Recorder, save_history
+from ao_shaping.utils.file import Recorder, ROOT_DIR, save_history
+
+
+def test_root_dir_exists():
+    """Test that ROOT_DIR points to the project root."""
+    assert ROOT_DIR.exists()
+    assert (ROOT_DIR / "src").exists()
+    assert (ROOT_DIR / "libs").exists()
 
 
 def test_save_history_from_list(tmp_path):

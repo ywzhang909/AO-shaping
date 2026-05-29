@@ -13,6 +13,9 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+# Project root directory (workspace root)
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
+
 
 def gen_file_path_inc(dir: str | Path, postfix: str = ""):
     if isinstance(dir, str):

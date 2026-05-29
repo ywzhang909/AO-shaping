@@ -68,6 +68,7 @@ from loguru import logger
 from ao_shaping.drivers.device_base import Device, DeviceState, DeviceType
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.dm._registry import register_dm
+from ao_shaping.utils.file import ROOT_DIR
 
 # =============================================================================
 # Protocol Constants
@@ -94,12 +95,7 @@ DEFAULT_TIMEOUT = 10.0
 DEFAULT_IPS = [f"192.168.0.{100 + i}" for i in range(1, MAX_CONTROLLERS + 1)]
 
 # Wiring map path (relative to project root)
-WIRING_MAP_PATH = (
-    Path(__file__).parent.parent.parent.parent.parent
-    / "libs"
-    / "micro_drive1300"
-    / "wiring_map.json"
-)
+WIRING_MAP_PATH = ROOT_DIR / "libs" / "micro_drive1300" / "wiring_map.json"
 
 
 # =============================================================================

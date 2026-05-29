@@ -10,16 +10,14 @@ Features:
 
 import streamlit as st
 import numpy as np
-from pathlib import Path
 import sys
-import time
 
 # Add the src directory to the path when running this file directly via Streamlit.
 import types
 
-# ccd_analyzer.py is at: src/ao_shaping/gui/steamlit_helper/ccd_analyzer.py
-SRC_ROOT = Path(__file__).resolve().parents[3]  # src/
-PROJECT_ROOT = Path(__file__).resolve().parents[4]  # AO-shaping/
+from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+
+SRC_ROOT = PROJECT_ROOT / "src"
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))

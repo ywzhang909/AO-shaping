@@ -3,6 +3,8 @@ import sys
 import ctypes
 import logging
 
+from ao_shaping.utils.file import ROOT_DIR
+
 _logger = logging.getLogger(__name__)
 
 
@@ -22,14 +24,14 @@ def _find_miicam_sdk_path() -> str | None:
     if env_sdk_path and os.path.isdir(env_sdk_path):
         return env_sdk_path
 
-    _current_file = os.path.abspath(__file__)
-    # _current_file -> src/ao_shaping/drivers/ccd/miicam_driver.py
-    # Go up 5 levels: ccd -> drivers -> ao_shaping -> src -> project_root
-    _project_root = os.path.dirname(
-        os.path.dirname(
-            os.path.dirname(os.path.dirname(os.path.dirname(_current_file)))
-        )
-    )
+    _project_root = str(ROOT_DIR)
+
+    _MII_SDK_PATHS = [
+        # Option 1: Bundled in project (for development)
+        os.path.join(os.path.dirname(__file__), "_miicam_sdk"),
+        # Option 2: External libs directory
+        os.path.join(_project_root, "libs", "miicamsdk.20240728", "python"),
+    ]
 
     _MII_SDK_PATHS = [
         # Option 1: Bundled in project (for development)

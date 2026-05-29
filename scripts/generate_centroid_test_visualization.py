@@ -17,6 +17,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from ao_shaping.utils.file import ROOT_DIR
 from ao_shaping.utils.spots_calc import centroid
 
 
@@ -42,7 +43,7 @@ def generate_test_visualization():
     """生成测试可视化图像"""
     
     # 创建输出目录
-    output_dir = Path(__file__).parent.parent / "reports" / "centroid_test_visualization"
+    output_dir = ROOT_DIR / "reports" / "centroid_test_visualization"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # 测试用例配置

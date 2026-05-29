@@ -26,6 +26,8 @@ import os
 import platform
 import findlibs
 
+from ao_shaping.utils.file import ROOT_DIR
+
 STRING = c_char_p
 pf = platform.system()
 
@@ -75,9 +77,7 @@ if pf == "Darwin":
     _FILENAME = STRING
 elif pf == "Windows":
     _libname = "SLMFunc"
-    repo_root = os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-    )
+    repo_root = str(ROOT_DIR)
     arch_dir = "x64" if platform.architecture()[0] == "64bit" else "x86"
 
     candidate_dirs = []

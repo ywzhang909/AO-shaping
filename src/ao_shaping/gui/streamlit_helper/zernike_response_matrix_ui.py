@@ -25,6 +25,8 @@ import time
 
 from loguru import logger
 
+from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+
 # Import drivers
 from ao_shaping.drivers.slm.zernike_slm import ZernikeSLM
 from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager
@@ -41,8 +43,7 @@ from ao_shaping.optimizer.wf.zernike_response_matrix import (
 )
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
 
-# Determine project root (file is at src/ao_shaping/gui/streamlit_helper/zernike_response_matrix_ui.py)
-PROJECT_ROOT = Path(__file__).resolve().parents[4]  # AO-shaping/
+# Determine project root
 SRC_ROOT = PROJECT_ROOT / "src"
 
 if str(PROJECT_ROOT) not in sys.path:

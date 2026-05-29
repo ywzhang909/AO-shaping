@@ -31,11 +31,12 @@ import numpy as np
 import streamlit as st
 from loguru import logger
 
+from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+
 # =============================================================================
 # Path Setup
 # =============================================================================
 
-PROJECT_ROOT = Path(__file__).resolve().parents[4]  # AO-shaping/
 SRC_ROOT = PROJECT_ROOT / "src"
 
 if str(PROJECT_ROOT) not in sys.path:
