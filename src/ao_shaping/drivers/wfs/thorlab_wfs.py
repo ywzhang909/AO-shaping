@@ -33,8 +33,6 @@ from ao_shaping.drivers.wfs._thorlab_wfs import (
     load_dll,
     np2c,
 )
-from ao_shaping.utils.file import DeviceConfigManager
-
 from ao_shaping.utils.file import DeviceConfigManager, ROOT_DIR as PROJECT_ROOT
 
 WFS_DEBUG_MODE = os.environ.get("WFS_DEBUG", "0") == "1"
@@ -491,8 +489,7 @@ class ThorlabWFS(Device):
         """Initialize WFS configuration manager."""
         if self._config_manager is None:
             # Default config directory: data/wfs_configs/
-            project_root = Path(__file__).resolve().parents[4]
-            config_dir = project_root / "data" / "wfs_configs"
+            config_dir = PROJECT_ROOT / "data" / "wfs_configs"
             self._config_manager = DeviceConfigManager(config_dir, device_type="wfs")
 
     def load_config(self) -> dict:
