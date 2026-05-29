@@ -1,24 +1,28 @@
-from typing import Any
 import os
+from typing import Any
+
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
-from glob import glob
 import time
+from glob import glob
 
 import gymnasium as gym
-from gymnasium import spaces
-
-import torch as th
-from torch import nn
-from stable_baselines3 import SAC
-from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, CallbackList
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
-from stable_baselines3.common.logger import Figure
-
-from ao_shaping.drivers import NlightDM as DM
-from ao_shaping.drivers.wfs.thorlab_wfs import Thorlab_WFS as WFS, MlaRes
-
 import matplotlib.pyplot as plt
 import numpy as np
+import torch as th
+from gymnasium import spaces
+from stable_baselines3 import SAC
+from stable_baselines3.common.callbacks import (
+    BaseCallback,
+    CallbackList,
+    CheckpointCallback,
+)
+from stable_baselines3.common.logger import Figure
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+from torch import nn
+
+from ao_shaping.drivers import NlightDM as DM
+from ao_shaping.drivers.wfs import MlaRes
+from ao_shaping.drivers.wfs import ThorlabWFS as WFS
 
 
 class WFSLaserCastEnv(gym.Env):
@@ -180,10 +184,10 @@ class WFSLaserCastEnv(gym.Env):
         5. 初始化历史电压、RMS和波前数据数组。
         """
         # 初始化 DM 设备
-        self.dm.initialize()
+        self.dm.open()
 
         # 初始化 WFS 设备
-        self.wfs.initialize()
+        self.wfs.open()
 
         # 设置初始电压
         self.v = np.random.rand(self.dm.DM_Num,) * (self.v_high-self.v_low) + self.v_low

@@ -9,7 +9,7 @@ This module implements a greedy local search optimizer that:
 
 Key features:
 - ZernikeSLM for phase modulation via Zernike polynomial coefficients
-- Thorlab_WFS for wavefront sensing and RMS measurement
+- ThorlabWFS for wavefront sensing and RMS measurement
 - Multi-start greedy search with directional sampling
 - Early stopping based on RMS threshold
 
@@ -31,9 +31,9 @@ from collections.abc import Sequence
 import numpy as np
 import tqdm
 
-from ao_shaping.drivers import MlaRes, Thorlab_WFS
+from ao_shaping.drivers import MlaRes, ThorlabWFS
 from ao_shaping.drivers.slm import ZernikeSLM
-from ao_shaping.utils import logger, Recorder
+from ao_shaping.utils import Recorder, logger
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
 
 # SLM parameters
@@ -189,7 +189,7 @@ def optimizer_greedy(
             shift_x=shift_x,
             shift_y=shift_y,
         ) as slm,
-        Thorlab_WFS(
+        ThorlabWFS(
             wfs_res,
             use_custom_ref=False,
             high_speed=True,

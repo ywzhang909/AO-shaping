@@ -1,26 +1,27 @@
-from typing import Literal
 from collections.abc import Sequence
-import tqdm
+from typing import Literal
 
 import numpy as np
+import tqdm
 
-from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS
 from ao_shaping.algorithm.adam import AdaMOD
-from ao_shaping.utils import logger, Recorder
+from ao_shaping.drivers import MlaRes, NlightDM
+from ao_shaping.drivers.wfs import ThorlabWFS
+from ao_shaping.utils import Recorder, logger
 
 KEEP_VOLTAGES = True
 
 
 def schedule_lr_delta(rms):
-    '''
+    """
     schedule the learning rate and momentum factor based on the rms of the wavefront
-    
+
     Args:
         rms (float): rms of the wavefront
-    
+
     Returns:
         tuple: A tuple containing the learning rate (lr) and delta (disturb voltage).
-    '''
+    """
     if rms > 0.3:
         return 2, 3
     elif rms > 0.25:
@@ -36,16 +37,17 @@ def schedule_lr_delta(rms):
     else:
         return 0.7, 0.7
 
+
 def optimizer_rms(
     epochs,
-    wfs_res: Literal['512', '768'] = '768',
-    init_v: Sequence[float | int]=[],
-    pupil_center:tuple[float, float]=(0,0),
-    pupil_diameter:float=2.24,
-    early_stop_threshold:float=0.12,
+    wfs_res: Literal["512", "768"] = "768",
+    init_v: Sequence[float | int] = [],
+    pupil_center: tuple[float, float] = (0, 0),
+    pupil_diameter: float = 2.24,
+    early_stop_threshold: float = 0.12,
 ) -> Recorder:
     epochs = int(epochs)
-    recorder = Recorder(mark='rms', mode='min')
+    recorder = Recorder(mark="rms", mode="min")
 
     with NlightDM(keep_when_exit=KEEP_VOLTAGES) as dm:
         if not init_v:
@@ -56,10 +58,13 @@ def optimizer_rms(
 
         wfs_res_config = MlaRes.from_str(wfs_res)
 
-        with Thorlab_WFS(wfs_res_config,
-                         use_custom_ref=False, high_speed=True,
-                         pupil_diameter=pupil_diameter,
-                         pupil_center=pupil_center) as wfs:
+        with ThorlabWFS(
+            wfs_res_config,
+            use_custom_ref=False,
+            high_speed=True,
+            pupil_diameter=pupil_diameter,
+            pupil_center=pupil_center,
+        ) as wfs:
 
             def calc_j():
                 wfs.take_image(5)
@@ -67,53 +72,62 @@ def optimizer_rms(
                 return wf, statics
 
             wf, statics = calc_j()
-            lr, delta = schedule_lr_delta(statics['wighted_rms'])
+            lr, delta = schedule_lr_delta(statics["wighted_rms"])
             optimizer = AdaMOD(dim=dm.DM_Num, lr=lr, beta3=0.9999)
 
             recorder.append(
                 {
-                    "rms": statics['rms'],
+                    "rms": statics["rms"],
                     "_v": _init_v,
                     "_diff": 0,
                     "_gamma": lr,
                     "delta": delta,
                     "_epoch": 0,
                     "_wavefront": wf[np.newaxis, ...],
-                    "_statics": statics
+                    "_statics": statics,
                 }
             )
 
             with tqdm.tqdm(
-                total=epochs, desc=f"{statics['rms']:.3f} iter {epochs}", dynamic_ncols=True
+                total=epochs,
+                desc=f"{statics['rms']:.3f} iter {epochs}",
+                dynamic_ncols=True,
             ) as bar:
-                for epoch in range(1, epochs+1):
-                    disturb_v = np.random.binomial(1, 0.5, (dm.DM_Num,)).astype(float) * 2.0 - 1.0
+                for epoch in range(1, epochs + 1):
+                    disturb_v = (
+                        np.random.binomial(1, 0.5, (dm.DM_Num,)).astype(float) * 2.0
+                        - 1.0
+                    )
 
                     disturb_v = disturb_v * delta
                     disturb_v[0] = 0
 
                     pos_vs = dm.send_voltages(_init_v + disturb_v)
                     pos_wf, pos_statics = calc_j()
-                    pos_j = pos_statics['rms']
+                    pos_j = pos_statics["rms"]
 
                     ng_vs = dm.send_voltages(_init_v - disturb_v)
                     neg_wf, neg_statics = calc_j()
-                    neg_j = neg_statics['rms']
+                    neg_j = neg_statics["rms"]
 
-                    diff = pos_statics['rms'] - neg_statics['rms']
+                    diff = pos_statics["rms"] - neg_statics["rms"]
                     gradient = -diff * disturb_v
 
                     avg_j = (pos_j + neg_j) / 2
                     lr, delta = schedule_lr_delta(avg_j)
                     optimizer.lr = lr
                     update = optimizer.update(gradient)
-                    update = np.clip(update, -dm.max_iter_diff+delta, dm.max_iter_diff-delta)
+                    update = np.clip(
+                        update, -dm.max_iter_diff + delta, dm.max_iter_diff - delta
+                    )
                     _to_update_v = np.clip(_init_v - update, dm.V_Min, dm.V_Max)
 
                     if dm.check_dm_unit_grad_safe(_to_update_v):
                         _init_v = _to_update_v
                     else:
-                        logger.warning(f"相邻单元压差大于{dm.max_neibor_diff}，放弃本次结果")
+                        logger.warning(
+                            f"相邻单元压差大于{dm.max_neibor_diff}，放弃本次结果"
+                        )
 
                     log = {
                         "rms": avg_j,
@@ -137,7 +151,7 @@ def optimizer_rms(
 
                 # end iter
             if KEEP_VOLTAGES:
-                best_voltage, _ = recorder.get_best_target('_v')
+                best_voltage, _ = recorder.get_best_target("_v")
                 dm.send_voltages(best_voltage)
 
         return recorder

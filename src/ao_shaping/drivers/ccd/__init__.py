@@ -3,11 +3,9 @@
 This package provides camera drivers with a unified interface.
 """
 
-import logging
+from loguru import logger
 
 from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
-
-logger = logging.getLogger(__name__)
 
 MIICamera = None
 MIICAMError = None

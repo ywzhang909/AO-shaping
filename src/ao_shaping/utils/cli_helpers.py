@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import os
 import re
-import click
 from datetime import datetime
 from pathlib import Path
+
+import click
+
 
 def get_debug_mode() -> bool:
     """从环境变量读取DEBUG模式
@@ -19,6 +21,29 @@ def get_debug_mode() -> bool:
     """
     debug_mode = os.environ.get("DEBUG", "").lower() in ("1", "true", "yes")
     return debug_mode
+
+# TODO 移动到ThorlabWFS.py去
+def _get_wfs_res(res_str: str) -> type:
+    """Convert WFS resolution string to :class:`MlaRes` enum value.
+
+    Args:
+        res_str: Resolution string, one of ``'320'``, ``'512'``,
+            ``'768'``, ``'1024'``, ``'1280'``.
+
+    Returns:
+        The matching :class:`MlaRes` member; falls back to
+        :attr:`MlaRes.Res1024` on unrecognised input.
+    """
+    from ao_shaping.drivers import MlaRes  # lazy import, avoid circular
+
+    res_map = {
+        "320": MlaRes.Res320,
+        "512": MlaRes.Res512,
+        "768": MlaRes.Res768,
+        "1024": MlaRes.Res1024,
+        "1280": MlaRes.Res1280,
+    }
+    return res_map.get(res_str, MlaRes.Res1024)
 
 
 def parse_tuple(ctx, param, value):

@@ -14,9 +14,10 @@ Environment variables to control which devices to test:
 """
 
 import os
-import pytest
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+import pytest
 
 # Check which hardware tests to enable
 ENABLE_WFS = os.environ.get("TEST_WFS", "1") == "1"
@@ -39,11 +40,12 @@ class TestWFSHardware:
             pytest.skip("WFS tests disabled (set TEST_WFS=1 to enable)")
 
         try:
-            from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager, MlaRes
-            from ao_shaping.drivers import Thorlab_WFS
+            from ao_shaping.drivers.wfs.ThorlabWFS import MlaRes, WFSManager
 
-            wfs = Thorlab_WFS(MlaRes.Res768, use_custom_ref=False, high_speed=True)
-            wfs.initialize()
+            from ao_shaping.drivers import ThorlabWFS
+
+            wfs = ThorlabWFS(MlaRes.Res768, use_custom_ref=False, high_speed=True)
+            wfs.open()
             print(f"\n[WFS] Connected: {wfs.device_name}, SN: {wfs.serial_num}")
             print(f"[WFS] MLA: {wfs.mla_index}, Spots: {wfs.num_spots_x}x{wfs.num_spots_y}")
             yield wfs
@@ -178,10 +180,11 @@ class TestWFSHardware:
 
     def test_context_manager(self):
         """Test WFS context manager protocol."""
-        from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager, MlaRes
-        from ao_shaping.drivers import Thorlab_WFS
+        from ao_shaping.drivers.wfs.ThorlabWFS import MlaRes, WFSManager
 
-        with Thorlab_WFS(MlaRes.Res768, use_custom_ref=False) as wfs:
+        from ao_shaping.drivers import ThorlabWFS
+
+        with ThorlabWFS(MlaRes.Res768, use_custom_ref=False) as wfs:
             print(f"  Context manager: Connected to {wfs.device_name}")
             wfs.take_image()
             wf, stats = wfs.get_wavefront()
@@ -485,14 +488,14 @@ class TestFullPipeline:
 
         setup = {}
         try:
-            from ao_shaping.drivers import Thorlab_WFS, MlaRes
-            from ao_shaping.drivers.slm import ZernikeSLM
+            from ao_shaping.drivers import MlaRes, ThorlabWFS
             from ao_shaping.drivers.dm.NLight import NLight
+            from ao_shaping.drivers.slm import ZernikeSLM
 
             print("\n[Pipeline] Initializing all devices...")
 
-            setup['wfs'] = Thorlab_WFS(MlaRes.Res768, use_custom_ref=False, high_speed=True)
-            setup['wfs'].initialize()
+            setup['wfs'] = ThorlabWFS(MlaRes.Res768, use_custom_ref=False, high_speed=True)
+            setup['wfs'].open()
             print(f"[Pipeline] WFS: {setup['wfs'].device_name}")
 
             setup['slm'] = ZernikeSLM(slm_number=1, wavelength=532, n_max=4)

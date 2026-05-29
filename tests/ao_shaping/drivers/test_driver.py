@@ -5,18 +5,17 @@ import pytest
 
 from ao_shaping.utils.spots_calc import centroid
 
-
-pytestmark = pytest.mark.skip(reason="Requires NlightDM + CameraStreamManager + Thorlab_WFS hardware")
+pytestmark = pytest.mark.skip(reason="Requires NlightDM + CameraStreamManager + ThorlabWFS hardware")
 
 
 def test_all():
-    from ao_shaping.drivers import CameraStreamManager, NlightDM, Thorlab_WFS
+    from ao_shaping.drivers import CameraStreamManager, NlightDM, ThorlabWFS
     from ao_shaping.utils import get_init_V_by_rms
 
     vs = get_init_V_by_rms()
     with NlightDM(keep_when_exit=True) as dm, \
         CameraStreamManager(cam_id=os.environ.get('Far_Cam_ID', 0), exposure_time_ms=500) as cam_in, \
-        Thorlab_WFS() as wfs:
+        ThorlabWFS() as wfs:
         assert vs.shape == (dm.DM_Num,)
         dm.send_voltages(vs, 0.1)
 

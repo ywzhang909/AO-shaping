@@ -81,3 +81,4 @@ libs/micro_drive1300/**/*.dll
 libs/micro_drive1300/**/*.lib
 libs/micro_drive1300/**/*.exe
 libs/micro_drive1300/c/std*.txt
+performance_comparison.md

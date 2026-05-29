@@ -12,34 +12,31 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import sys
+import time
 import types
 from datetime import datetime
 from pathlib import Path
-import json
 
 import numpy as np
 import streamlit as st
-
-import time
-
 from loguru import logger
 
 from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
 
 # Import drivers
 from ao_shaping.drivers.slm.zernike_slm import ZernikeSLM
-from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager
-
+from ao_shaping.drivers.wfs.ThorlabWFS import WFSManager
 from ao_shaping.optimizer.wf.zernike_response_matrix import (
-    calibrate_zernike_response_matrix,
-    load_zernike_response_matrix,
-    save_zernike_response_matrix,
-    DEFAULT_N_MAX,
     DEFAULT_MAGNITUDE,
     DEFAULT_N_AVERAGES,
     DEFAULT_N_CYCLES,
+    DEFAULT_N_MAX,
     DEFAULT_WAIT_TIME,
+    calibrate_zernike_response_matrix,
+    load_zernike_response_matrix,
+    save_zernike_response_matrix,
 )
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
 
@@ -327,7 +324,7 @@ def connect_wfs() -> bool:
             pupil_center=(st.session_state.zrm_wfs_pupil_center_x, st.session_state.zrm_wfs_pupil_center_y),
             use_custom_ref=st.session_state.zrm_wfs_use_user_ref,
         )
-        wfs.initialize()
+        wfs.open()
         
         # Apply user reference setting after initialization
         if st.session_state.zrm_wfs_use_user_ref:
@@ -1177,7 +1174,9 @@ def render_calibrate_mode() -> None:
 
                     # Load and display result
                     try:
-                        from ao_shaping.optimizer.wf.zernike_response_matrix import load_zernike_response_matrix
+                        from ao_shaping.optimizer.wf.zernike_response_matrix import (
+                            load_zernike_response_matrix,
+                        )
 
                         result = load_zernike_response_matrix(str(save_path))
                         st.session_state.zrm_calibration_result = result
@@ -1198,7 +1197,9 @@ def render_calibrate_mode() -> None:
 
                         # Auto-plot
                         try:
-                            from ao_shaping.optimizer.wf.zernike_response_matrix import plot_response_matrix
+                            from ao_shaping.optimizer.wf.zernike_response_matrix import (
+                                plot_response_matrix,
+                            )
 
                             plot_response_matrix(result, save_path.parent)
                             st.success("可视化图表已生成")
@@ -1325,7 +1326,7 @@ def _render_interactive_measurement() -> None:
                 _send_current_zernike_phase_interactive(coeff=new_coeff)
             st.rerun()
 
-        if st.button("上一个 ◀️", key="zrm_int_prev", use_container_width=True):
+        if st.button("上一个 ◀️", key="zrm_int_prev", width='stretch'):
             if current_mode > 0:
                 st.session_state.zrm_interactive_current_mode = current_mode - 1
             coeff = st.session_state.zrm_interactive_current_coeff if "zrm_interactive_current_coeff" in st.session_state else 1.0
@@ -1333,7 +1334,7 @@ def _render_interactive_measurement() -> None:
             st.rerun()
 
         next_disabled = current_mode >= total_modes - 1
-        if st.button("下一个泽尼克 ▶️", key="zrm_int_next", type="primary", use_container_width=True, disabled=next_disabled):
+        if st.button("下一个泽尼克 ▶️", key="zrm_int_next", type="primary", width='stretch', disabled=next_disabled):
             if current_mode < total_modes - 1:
                 st.session_state.zrm_interactive_current_mode = current_mode + 1
             coeff = st.session_state.zrm_interactive_current_coeff if "zrm_interactive_current_coeff" in st.session_state else 1.0
@@ -1343,15 +1344,15 @@ def _render_interactive_measurement() -> None:
     with col_acq:
         st.markdown("**测量控制**")
 
-        if st.button("WFS采集 📷", key="zrm_int_capture", type="primary", use_container_width=True):
+        if st.button("WFS采集 📷", key="zrm_int_capture", type="primary", width='stretch'):
             _capture_wfs_data_interactive()
             st.rerun()
 
-        if st.button("平相位", key="zrm_int_flat", use_container_width=True):
+        if st.button("平相位", key="zrm_int_flat", width='stretch'):
             _set_slm_flat_interactive()
             st.rerun()
 
-        if st.button("重置所有", key="zrm_int_reset", use_container_width=True):
+        if st.button("重置所有", key="zrm_int_reset", width='stretch'):
             st.session_state.zrm_interactive_captures = []
             st.session_state.zrm_interactive_current_mode = 0
             st.session_state.zrm_interactive_phase_sent = False

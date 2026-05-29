@@ -1,37 +1,32 @@
-import click
-import numpy as np
 from pathlib import Path
 
-from ao_shaping.drivers import MlaRes, Thorlab_WFS
-from ao_shaping.drivers.slm import ZernikeSLM
-from ao_shaping.utils.zernike_calc import calc_n_zernike_terms
-from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name
+import click
+import numpy as np
 from loguru import logger
 
+from ao_shaping.drivers import MlaRes, ThorlabWFS
+from ao_shaping.drivers.slm import ZernikeSLM
+from ao_shaping.utils.cli_helpers import (
+    _get_wfs_res,
+    get_date_dir_name,
+    parse_tuple,
+    setup_coredumpy,
+)
+from ao_shaping.utils.zernike_calc import calc_n_zernike_terms
 
-def _get_wfs_res(res_str: str) -> MlaRes:
-    res_map = {
-        '320': MlaRes.Res320,
-        '512': MlaRes.Res512,
-        '768': MlaRes.Res768,
-        '1024': MlaRes.Res1024,
-        '1280': MlaRes.Res1280,
-    }
-    return res_map.get(res_str, MlaRes.Res1024)
 
-
-def measure_rms(wfs: Thorlab_WFS) -> float:
+def measure_rms(wfs: ThorlabWFS) -> float:
     """Measure wavefront RMS from WFS."""
     wfs.take_image(3)
     wf, statics = wfs.get_wavefront(cancel_tile=False)
     return statics.get('rms', np.inf)
 
 
-def measure_defocus_coefficient(wfs: Thorlab_WFS, remove_tilt: bool = False) -> float:
+def measure_defocus_coefficient(wfs: ThorlabWFS, remove_tilt: bool = False) -> float:
     """Measure Zernike defocus coefficient from WFS.
     
     Args:
-        wfs: Thorlab_WFS instance
+        wfs: ThorlabWFS instance
         remove_tilt: Whether to remove tilt before fitting
         
     Returns:
@@ -50,7 +45,7 @@ def measure_defocus_coefficient(wfs: Thorlab_WFS, remove_tilt: bool = False) -> 
 
 def search_offset_by_defocus(
     slm: ZernikeSLM,
-    wfs: Thorlab_WFS,
+    wfs: ThorlabWFS,
     defocus_amplitude: float = 5.0,
     search_range: int = 100,
     search_step: int = 10,
@@ -63,7 +58,7 @@ def search_offset_by_defocus(
     
     Args:
         slm: ZernikeSLM instance
-        wfs: Thorlab_WFS instance
+        wfs: ThorlabWFS instance
         defocus_amplitude: Zernike defocus amplitude (wavelengths)
         search_range: Search range in pixels (+/-)
         search_step: Step size in pixels
@@ -129,7 +124,7 @@ def search_offset_by_defocus(
 
 def optimize_defocus(
     slm: ZernikeSLM,
-    wfs: Thorlab_WFS,
+    wfs: ThorlabWFS,
     offset_x: int,
     offset_y: int,
     defocus_range: float = 10.0,
@@ -143,7 +138,7 @@ def optimize_defocus(
     
     Args:
         slm: ZernikeSLM instance
-        wfs: Thorlab_WFS instance
+        wfs: ThorlabWFS instance
         offset_x: SLM X offset
         offset_y: SLM Y offset
         defocus_range: Search range for defocus amplitude (+/-)
@@ -208,7 +203,7 @@ def optimize_defocus(
 
 def search_offset_by_defocus_with_optimization(
     slm: ZernikeSLM,
-    wfs: Thorlab_WFS,
+    wfs: ThorlabWFS,
     defocus_amplitude: float = 5.0,
     search_range: int = 100,
     search_step: int = 10,
@@ -223,7 +218,7 @@ def search_offset_by_defocus_with_optimization(
     
     Args:
         slm: ZernikeSLM instance
-        wfs: Thorlab_WFS instance
+        wfs: ThorlabWFS instance
         defocus_amplitude: Defocus amplitude for phase 1
         search_range: XY search range
         search_step: XY search step
@@ -304,7 +299,7 @@ def search_offset_by_defocus_with_optimization(
 
 def search_offset_by_vortex(
     slm: ZernikeSLM,
-    wfs: Thorlab_WFS,
+    wfs: ThorlabWFS,
     vortex_charge: int = 1,
     search_range: int = 50,
     search_step: int = 5,
@@ -318,7 +313,7 @@ def search_offset_by_vortex(
     
     Args:
         slm: ZernikeSLM instance
-        wfs: Thorlab_WFS instance
+        wfs: ThorlabWFS instance
         vortex_charge: Topological charge of vortex (1, 2, 3, ...)
         search_range: Search range in pixels (+/-)
         search_step: Step size in pixels
@@ -438,7 +433,7 @@ def run(dir, wfs_res, pupil_diameter, pupil_center, wavelength, slm_number,
             shift_x=0,
             shift_y=0,
         ) as slm,
-        Thorlab_WFS(
+        ThorlabWFS(
             _get_wfs_res(wfs_res),
             use_custom_ref=False,
             high_speed=True,

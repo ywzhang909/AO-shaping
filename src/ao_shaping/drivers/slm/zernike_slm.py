@@ -36,17 +36,19 @@ class ZernikeSLM:
     def __init__(
         self,
         slm_number: int = 1,
-        wavelength: int|None = None,
+        wavelength: int | None = None,
         n_max: int = 4,
         slm_resolution: tuple[int, int] | None = None,
         use_120hz: bool = False,
         shift_x: int = 0,
         shift_y: int = 0,
         correction_csv_path: str | Path | None = None,
+        wait_time_s: float = 0.2,
     ):
         self.slm_number = slm_number
         self.wavelength = wavelength
         self.n_max = n_max
+        self.wait_time_s = wait_time_s
 
         if slm_resolution is None:
             slm_resolution = SantecSLM200.Panel_Res  # (1920, 1200)
@@ -118,10 +120,10 @@ class ZernikeSLM:
         """Y方向平移像素数"""
         return self._slm.shift_y
 
+    # TODO wait_time移动到init中去
     def send_zernike(
         self,
         coefficients: dict[tuple[int, int], float] | np.ndarray,
-        wait_time_s:float = 0.2
     ) -> np.ndarray:
         """发送Zernike系数到SLM
 
@@ -134,14 +136,15 @@ class ZernikeSLM:
         Returns:
             发送的灰度相位图
         """
-        phase_rad = self._zernike_dm.generate_phase_2pi(coefficients)
+        phase_rad = self._zernike_dm.generate_phase(coefficients, output_mode="rad")
         self._current_phase = self._slm.create_phase_from_array(phase_rad)
 
         self._current_coeffs = (
-            coefficients if isinstance(coefficients, dict)
+            coefficients
+            if isinstance(coefficients, dict)
             else self._zernike_dm._noll_to_dict(coefficients)
         )
-        self._slm.display_data(self._current_phase, wait_time_s)
+        self._slm.display_data(self._current_phase, self.wait_time_s)
 
         return self._current_phase
 
@@ -161,7 +164,7 @@ class ZernikeSLM:
         """
         self._ensure_open()
 
-        phase_gray = self._zernike_dm.generate_phase_2pi(coefficients)
+        phase_gray = self._zernike_dm.generate_phase(coefficients, output_mode="gray")
         self._slm.display_data(phase_gray)
 
         return phase_gray
@@ -213,3 +216,7 @@ class ZernikeSLM:
     def __repr__(self) -> str:
         status = "connected" if self.is_open else "disconnected"
         return f"ZernikeSLM(slm_number={self.slm_number}, wavelength={self.wavelength}nm, n_max={self.n_max}, status={status})"
+
+    @property
+    def n_modes(self):
+        return self._zernike_dm.DM_NUM

@@ -1,15 +1,15 @@
-import time
-from typing import Literal
 import asyncio
 import concurrent.futures
+import time
+from typing import Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-
 import tqdm
-from ao_shaping.drivers import MlaRes, NlightDM, Thorlab_WFS, CameraStreamManager
-from ao_shaping.utils import gen_file_path_uuid, gen_file_path_inc
+
+from ao_shaping.drivers import CameraStreamManager, MlaRes, NlightDM, ThorlabWFS
+from ao_shaping.utils import gen_file_path_inc, gen_file_path_uuid
 
 ROOT_DIR = "./data/img2img"
 
@@ -72,7 +72,7 @@ def optimizer(
     delta = abs(delta)
     epochs = int(epochs)
 
-    with Thorlab_WFS(MlaRes.Res512, use_custom_ref=False, high_speed=False, pupil_diameter=0.0) as wfs,\
+    with ThorlabWFS(MlaRes.Res512, use_custom_ref=False, high_speed=False, pupil_diameter=0.0) as wfs,\
             NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm, \
             CameraStreamManager(cam_id=1, exposure_time_ms=20) as cam_axis, \
             CameraStreamManager(cam_id=0, exposure_time_ms=20) as cam_focal:

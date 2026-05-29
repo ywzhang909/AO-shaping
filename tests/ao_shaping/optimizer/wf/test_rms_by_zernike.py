@@ -1,8 +1,9 @@
 """Tests for rms_by_zernike optimizer module."""
 
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pytest
-from unittest.mock import MagicMock, patch
 
 
 class TestImport:
@@ -90,7 +91,7 @@ class TestOptimizerReturnsRecorder:
             "ao_shaping.optimizer.wf.rms_by_zernike.ZernikeSLM",
             return_value=mock_slm,
         ), patch(
-            "ao_shaping.optimizer.wf.rms_by_zernike.Thorlab_WFS",
+            "ao_shaping.optimizer.wf.rms_by_zernike.ThorlabWFS",
             return_value=mock_wfs,
         ), patch(
             "ao_shaping.optimizer.wf.rms_by_zernike.tqdm"
@@ -133,7 +134,7 @@ class TestOptimizerReturnsRecorder:
             "ao_shaping.optimizer.wf.rms_by_zernike.ZernikeSLM",
             return_value=mock_slm,
         ), patch(
-            "ao_shaping.optimizer.wf.rms_by_zernike.Thorlab_WFS",
+            "ao_shaping.optimizer.wf.rms_by_zernike.ThorlabWFS",
             return_value=mock_wfs,
         ), patch(
             "ao_shaping.optimizer.wf.rms_by_zernike.tqdm"
@@ -206,8 +207,8 @@ class TestConstants:
     def test_zernike_bounds(self):
         """Test Zernike coefficient bounds."""
         from ao_shaping.optimizer.wf.rms_by_zernike import (
-            ZERNIKE_MIN,
             ZERNIKE_MAX,
+            ZERNIKE_MIN,
         )
 
         assert ZERNIKE_MIN == -500.0
@@ -252,7 +253,7 @@ class TestZernikeCoefficientHandling:
             "ao_shaping.optimizer.wf.rms_by_zernike.ZernikeSLM",
             return_value=mock_slm,
         ), patch(
-            "ao_shaping.optimizer.wf.rms_by_zernike.Thorlab_WFS",
+            "ao_shaping.optimizer.wf.rms_by_zernike.ThorlabWFS",
             return_value=mock_wfs,
         ), patch(
             "ao_shaping.optimizer.wf.rms_by_zernike.tqdm"
@@ -291,7 +292,7 @@ class TestZernikeCoefficientHandling:
             "ao_shaping.optimizer.wf.rms_by_zernike.ZernikeSLM",
             return_value=mock_slm,
         ), patch(
-            "ao_shaping.optimizer.wf.rms_by_zernike.Thorlab_WFS",
+            "ao_shaping.optimizer.wf.rms_by_zernike.ThorlabWFS",
             return_value=mock_wfs,
         ), patch(
             "ao_shaping.optimizer.wf.rms_by_zernike.tqdm"

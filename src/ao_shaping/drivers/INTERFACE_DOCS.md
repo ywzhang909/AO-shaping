@@ -300,7 +300,7 @@ WFS 驱动通常需要实现以下功能（参考 [`MockWFS`](src/ao_shaping/dri
 
 | 驱动 | 文件 | 说明 |
 |------|------|------|
-| [`Thorlab_WFS`](src/ao_shaping/drivers/wfs/thorlab_wfs.py) | `wfs/thorlab_wfs.py` | Thorlabs WFS |
+| [`ThorlabWFS`](src/ao_shaping/drivers/wfs/ThorlabWFS.py) | `wfs/ThorlabWFS.py` | Thorlabs WFS |
 | [`MockWFS`](src/ao_shaping/drivers/mock_devices.py:693) | `mock_devices.py` | 模拟 WFS |
 
 ### 5. 其他驱动

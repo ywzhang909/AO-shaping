@@ -1,25 +1,15 @@
 import sys
-import pytest
-
-pytestmark = pytest.mark.skip(reason="Requires Thorlabs WFS hardware (Windows DLL)")
 
 import matplotlib.pyplot as plt
-from matplotlib import animation
 import numpy as np
+import pytest
+from matplotlib import animation
 
-from ao_shaping.drivers import Thorlab_WFS, MlaRes
+from ao_shaping.drivers import MlaRes, ThorlabWFS
 
 
 def test_get_image():
-    with Thorlab_WFS(MlaRes.Res1024, exposure_time=4) as wfs:
-        opt_exp_time, _ = wfs.optimize_exposure_time_and_gain()
-        if 0.001 < opt_exp_time < 87:
-            wfs.exposure_time = opt_exp_time
-        else:
-            print("no usable image. exit now..")
-            sys.exit()
-
-        print(f"optimize_pupil: {wfs.optimize_pupil()}")
+    with ThorlabWFS(MlaRes.Res1024) as wfs:
         wfs.take_image()
         # Create figure with multiple subplots
         image = wfs.get_spotfiled_image()
@@ -28,7 +18,7 @@ def test_get_image():
 
 
 def test_calc_wf():
-    with Thorlab_WFS(MlaRes.Res1024, exposure_time=4) as wfs:
+    with ThorlabWFS(MlaRes.Res1024, exposure_time=4) as wfs:
         opt_exp_time, _ = wfs.optimize_exposure_time_and_gain()
         if 0.001 < opt_exp_time < 87:
             wfs.exposure_time = opt_exp_time
@@ -69,7 +59,7 @@ def test_calc_wf():
 
 def test_rms():
     rms_hist = []
-    with Thorlab_WFS(MlaRes.Res1024, use_custom_ref=False) as wfs:
+    with ThorlabWFS(MlaRes.Res1024, use_custom_ref=False) as wfs:
         for _ in range(10):
             wfs.take_image(n_sample=1)
             dx, dy = wfs.get_spot_deviation()
@@ -83,7 +73,7 @@ def test_rms():
 
 def test_zernike():
     rms_hist = []
-    with Thorlab_WFS(MlaRes.Res1024, use_custom_ref=False) as wfs:
+    with ThorlabWFS('768', use_custom_ref=False) as wfs:
         for _ in range(10):
             zernike_coeff = wfs.get_zernike(10)
             rms_hist.append(np.mean(np.sqrt(np.sum(zernike_coeff**2))))
@@ -94,7 +84,7 @@ def test_zernike():
 
 def test_high_speed_d():
     rms_hist = []
-    with Thorlab_WFS(MlaRes.Res768) as wfs:
+    with ThorlabWFS(MlaRes.Res768) as wfs:
         last_dx, last_dy = None, None
         for _ in range(100):
             wfs.take_image(n_sample=10)
@@ -105,7 +95,7 @@ def test_high_speed_d():
             last_dx, last_dy = dx, dy
 
 def test_spot_deviation():
-    with Thorlab_WFS(MlaRes.Res512, pupil_diameter=2.5, high_speed=True) as wfs:
+    with ThorlabWFS(MlaRes.Res512, pupil_diameter=2.5, high_speed=True) as wfs:
         # Create figure for animation
         fig, [ax1, ax2] = plt.subplots(2, 1, figsize=(8, 10))
 

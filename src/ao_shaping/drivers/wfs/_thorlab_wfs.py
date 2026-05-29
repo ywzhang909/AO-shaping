@@ -1,19 +1,19 @@
 import ctypes
 from ctypes import (
+    POINTER,
     byref,
-    c_double,
-    create_string_buffer,
     c_bool,
-    c_uint8,
-    c_int16,
-    c_int32,
-    c_ulong,
-    c_float,
     c_char,
     c_char_p,
+    c_double,
+    c_float,
+    c_int16,
+    c_int32,
+    c_uint8,
+    c_ulong,
     cdll,
+    create_string_buffer,
 )
-from ctypes import POINTER
 
 import numpy as np
 
@@ -239,7 +239,7 @@ def load_dll():
     dll.WFS_GetSpotfieldImageCopy.restype = ViStatus
     dll.WFS_GetSpotfieldImageCopy.argtypes = [
         ViSession,
-        ctypes.POINTER(c_uint8),
+        POINTER(c_uint8),
         POINTER(ViInt32),
         POINTER(ViInt32),
     ]  # ViUInt8[]

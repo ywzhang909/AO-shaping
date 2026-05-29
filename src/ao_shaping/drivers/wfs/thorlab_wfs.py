@@ -1,40 +1,64 @@
 # refreces docs : https://github.com/nvladimus/WFS/blob/master/python/Thorlabs-WFS-read-average-wavefront.ipynb
 
 from __future__ import annotations
-from enum import IntEnum
 
+import ctypes
 import os
 import shutil
 from copy import deepcopy
-from functools import wraps
-from loguru import logger
-from pathlib import Path
+from ctypes import (
+    byref,
+    c_bool,
+    c_double,
+    c_float,
+    c_int32,
+    c_uint8,
+    c_ulong,
+    create_string_buffer,
+)
 from datetime import datetime
+from enum import IntEnum
+from functools import wraps
+from pathlib import Path
 
 import numpy as np
+from loguru import logger
+
+from ao_shaping.drivers.device_base import Device, DeviceState, DeviceType
+from ao_shaping.drivers.wfs._thorlab_wfs import (
+    MAX_SPOTS,
+    VI_NULL,
+    ViInt32,
+    ViStatus,
+    load_dll,
+    np2c,
+)
+from ao_shaping.utils.file import DeviceConfigManager
 
 from ao_shaping.utils.file import DeviceConfigManager, ROOT_DIR as PROJECT_ROOT
-import ctypes
-from ctypes import (
-    c_double, c_uint8, c_int32, c_bool, c_float, c_ulong, create_string_buffer, byref
-)
-
-from ._thorlab_wfs import (
-    load_dll, np2c, VI_NULL, ViInt32, ViStatus)
-from ._thorlab_wfs import MAX_SPOTS
 
 WFS_DEBUG_MODE = os.environ.get("WFS_DEBUG", "0") == "1"
 
 EXP_TIME_LOW = 0.002
 EXP_TIME_HIGH = 86
+MAX_AUTOEXPOSE_ATTEMPTS = 10
+MAX_MLA_INDICES = 16
+
 
 def require_take_image(func):
-    """
-    装饰器：确保在调用需要图像的方法前，已执行过 take_image。
-    如果未拍摄，会自动调用 take_image()。
+    """Decorator ensuring take_image() is called before the wrapped method.
+
+    If no image has been captured yet, automatically calls take_image() first.
+
+    **File transformations**: None. Ensures the DLL has a current spotfield
+    image and centroid data before functions that depend on it.
+
+    Note:
+        After auto-calling take_image(), sets ``_image_captured = False`` so
+        the function itself can set it to ``True`` after its own image capture.
     """
     @wraps(func)
-    def wrapper(self:WFSManager, *args, **kwargs):
+    def wrapper(self: ThorlabWFS, *args, **kwargs):
         if not self._image_captured:
             logger.debug(
                 f"{func.__name__} requires take_image() to be called first. "
@@ -44,6 +68,7 @@ def require_take_image(func):
             self._image_captured = False
         return func(self, *args, **kwargs)
     return wrapper
+
 
 # define  CAM_RES_1280                  (0) // 1280x1024
 # define  CAM_RES_1024                  (1) // 1024x1024
@@ -102,7 +127,6 @@ class MlaRes(IntEnum):
         raise ValueError(f"Invalid resolution '{value}'. Must be one of: '320', '512', '768', '1024', '1280'")
 
 
-
 Mla_pix = {
     MlaRes.Res1280: (1280, 1024),
     MlaRes.Res1024: (1024, 1024),
@@ -111,8 +135,25 @@ Mla_pix = {
     MlaRes.Res320: (320, 320),
 }
 
-class WFSManager:
-    """Wavefront Sensor Manager"""
+
+class ThorlabWFS(Device):
+    """Thorlabs Wavefront Sensor (WFS) device driver.
+
+    Provides comprehensive control over Thorlabs WFS hardware including
+    spotfield image capture, wavefront reconstruction, Zernike fitting,
+    and reference management.
+
+    Attributes:
+        device_type: DeviceType.WFS
+        manufacturer: "Thorlabs"
+        model: "WFS"
+        version: "1.0.0"
+    """
+
+    device_type = DeviceType.WFS
+    manufacturer = "Thorlabs"
+    model = "WFS"
+    version = "1.0.0"
 
     def __init__(
         self,
@@ -126,20 +167,27 @@ class WFSManager:
         stable_sample_n: int = 5,
         stable_variance_threshold: float = 0.1,
         stable_max_attempts: int = 50,
+        device_id: str = "",
     ):
+        """Initialize Thorlabs WFS driver.
+
+        Args:
+            mla_index: MLA resolution (if None, loaded from config).
+                Positional arg for backward compatibility with WFSManager.
+            exposure_time: Exposure time in ms; 0 means auto (if None, loaded from config).
+            high_speed: Enable high speed mode (if None, loaded from config).
+            use_custom_ref: Use custom reference file (if None, loaded from config).
+            pupil_diameter: Pupil diameter in mm (if None, loaded from config).
+            pupil_center: (cx, cy) center position (if None, loaded from config).
+            stable_sample_enable: Enable automatic stable sample filtering.
+            stable_sample_n: Number of stable samples to collect.
+            stable_variance_threshold: Variance threshold for stability.
+            stable_max_attempts: Max attempts before giving up.
+            device_id: Unique device identifier (passed to Device base class).
         """
-        mla_index: MlaRes (如果为None，从配置文件加载)
-        exp_time: exposure time in ms, 0 means auto (如果为None，从配置文件加载)
-        high_speed: enable high speed mode (如果为None，从配置文件加载)
-        use_custom_ref: use custom reference file (如果为None，从配置文件加载)
-        pupil_diameter: pupil diameter in mm (如果为None，从配置文件加载)
-        pupil_center: (cx, cy) center position (如果为None，从配置文件加载)
-        stable_sample_enable: enable automatic stable sample filtering (默认: False)
-        stable_sample_n: number of stable samples to collect (默认: 5)
-        stable_variance_threshold: variance threshold for stability (默认: 0.1)
-        stable_max_attempts: max attempts before giving up (默认: 50)
-        """
-        # 不做参数验证，延迟到 initialize() 中处理
+        super().__init__(device_id)
+
+        # Store initialization parameters (deferred to open())
         if isinstance(mla_index, str):
             mla_index = MlaRes.from_str(mla_index)
         self._init_mla_index: MlaRes | None = mla_index
@@ -153,13 +201,14 @@ class WFSManager:
         self._init_stable_variance_threshold: float = stable_variance_threshold
         self._init_stable_max_attempts: int = stable_max_attempts
 
+        # Load DLL and initialize instrument handle
         self._lib = load_dll()
-        self.device_id = c_int32()
+        self._wfs_instrument_index = c_int32()
         self.device_name = ''
         self.serial_num = ''
         self._instrument_handle = c_ulong(0)
 
-        # 初始化实例属性（将在 initialize() 中根据配置更新）
+        # Instance attributes (will be updated in open())
         self.use_custom_ref: bool = False
         self.mla_index: MlaRes = MlaRes.Res768
         self.image_pix = Mla_pix[self.mla_index]
@@ -175,80 +224,115 @@ class WFSManager:
         self.enable_high_speed: bool = False
         self._image_captured = False
 
-        # 稳定采样参数
+        # Stable sampling parameters
         self.stable_sample_enable: bool = False
         self.stable_sample_n: int = 5
         self.stable_variance_threshold: float = 0.1
         self.stable_max_attempts: int = 50
 
-        # 配置管理器
+        # Configuration manager
         self._config_manager: DeviceConfigManager | None = None
 
-    def _init_config_manager(self) -> None:
-        """初始化WFS配置管理器"""
-        if self._config_manager is None:
-            # 默认配置目录: data/wfs_configs/
-            config_dir = PROJECT_ROOT / "data" / "wfs_configs"
-            self._config_manager = DeviceConfigManager(config_dir, device_type="wfs")
+        # Register parameters and capabilities
+        self._register_parameters()
+        self._register_capabilities()
 
-    def load_config(self) -> dict:
-        """根据序列号加载JSON配置文件
+    def _register_parameters(self) -> None:
+        """Register WFS-specific parameters."""
+        self.register_parameter(
+            "exposure_time_ms",
+            default_value=0.0,
+            min_value=EXP_TIME_LOW,
+            max_value=EXP_TIME_HIGH,
+            unit="ms",
+            description="Camera exposure time in milliseconds",
+        )
+        self.register_parameter(
+            "master_gain",
+            default_value=1.0,
+            min_value=1.0,
+            max_value=24.0,
+            unit="",
+            description="Master gain for the WFS camera",
+        )
+        self.register_parameter(
+            "high_speed_mode",
+            default_value=False,
+            unit="",
+            description="Enable high speed camera mode",
+        )
+        self.register_parameter(
+            "use_custom_ref",
+            default_value=False,
+            unit="",
+            description="Use custom user reference file",
+        )
+        self.register_parameter(
+            "mla_resolution",
+            default_value=MlaRes.Res768,
+            unit="",
+            description="Microlens array resolution setting",
+        )
+        self.register_parameter(
+            "black_level",
+            default_value=c_int32(100),
+            min_value=0,
+            max_value=255,
+            unit="",
+            description="Black level offset for camera",
+        )
+        self.register_parameter(
+            "trigger_mode",
+            default_value=c_int32(0),
+            min_value=0,
+            max_value=3,
+            unit="",
+            description="Camera trigger mode (0=internal, 1-3=external)",
+        )
 
-        Returns:
-            配置字典；无序列号或文件不存在时返回空字典
+    def _register_capabilities(self) -> None:
+        """Register WFS capabilities."""
+        self.register_capability(
+            "measure_wavefront",
+            description="Measure wavefront from current spotfield image",
+            return_type=np.ndarray,
+        )
+        self.register_capability(
+            "fit_zernike",
+            description="Fit Zernike polynomials to measured wavefront",
+            return_type=np.ndarray,
+        )
+        self.register_capability(
+            "get_spot_image",
+            description="Get current spotfield image",
+            return_type=np.ndarray,
+        )
+        self.register_capability(
+            "get_spot_deviations",
+            description="Get spot deviations from reference positions",
+            return_type=tuple,
+        )
+        self.register_capability(
+            "save_reference",
+            description="Save user reference file",
+            return_type=Path,
+        )
+        self.register_capability(
+            "load_reference",
+            description="Load user reference file",
+            return_type=bool,
+        )
+
+    # ==================== Device Base Class Overrides ====================
+
+    def open(self) -> None:
+        """Open connection to the WFS device and initialize.
+
+        Raises:
+            ConnectionError: If WFS is already in use or initialization fails.
         """
-        if not self.serial_num:
-            logger.warning("WFS序列号未获取，跳过配置加载")
-            return {}
-        self._init_config_manager()
-        assert self._config_manager is not None
-        return self._config_manager.load_config(self.serial_num)
+        self._set_state(DeviceState.CONNECTING)
 
-    def save_config(self) -> None:
-        """将当前参数保存到JSON配置文件
-
-        配置项包括: serial_number, mla_index, exposure_time, high_speed,
-        pupil_center, pupil_diameter, use_custom_ref
-        """
-        if not self.serial_num:
-            logger.warning("WFS序列号未获取，跳过配置保存")
-            return
-
-        self._init_config_manager()
-        assert self._config_manager is not None
-
-        config = {
-            "mla_index": int(self.mla_index),
-            "exposure_time": self._explosure_time,
-            "high_speed": self.enable_high_speed,
-            "pupil_center": (self.c_x, self.c_y),
-            "pupil_diameter": (self.d_x, self.d_y),
-            "use_custom_ref": self.use_custom_ref,
-        }
-        self._config_manager.save_config(self.serial_num, config)
-        config_file = self._config_manager._get_config_file(self.serial_num)
-        logger.info(f"WFS配置已保存: {config_file}")
-
-    def __enter__(self) -> WFSManager:
-        """Enter context manager, initialize the device connection.
-
-        Returns:
-            WFSManager: self instance for use in with statement
-        """
-        self.initialize()
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        """Exit context manager, close the device connection.
-
-        Args:
-            exc_type: Exception type if an exception occurred
-            exc_value: Exception value if an exception occurred
-            traceback: Traceback if an exception occurred
-        """
-        self.close()
-
-    def initialize(self):
         device_in_use = ViInt32()
         device_name = create_string_buffer(256)
         serial_number = create_string_buffer(256)
@@ -256,7 +340,7 @@ class WFSManager:
         self._lib.WFS_GetInstrumentListInfo(
             VI_NULL(),
             ViInt32(0),
-            byref(self.device_id),
+            byref(self._wfs_instrument_index),
             byref(device_in_use),
             device_name,
             serial_number,
@@ -277,7 +361,7 @@ class WFSManager:
             f"Connected to {self.device_name} with Serial Number {self.serial_num}"
         )
 
-        # 加载配置（优先使用init参数，否则使用配置值）
+        # Load configuration (init params take priority, then config values)
         config = self.load_config()
 
         # MLA index
@@ -296,7 +380,7 @@ class WFSManager:
         else:
             self._explosure_time = 0.0
 
-        # 验证 exposure time
+        # Validate exposure time
         if not (self._explosure_time == 0.0 or EXP_TIME_LOW <= self._explosure_time <= EXP_TIME_HIGH):
             logger.warning(
                 f"exp_time {self._explosure_time} out of range, resetting to auto"
@@ -362,22 +446,101 @@ class WFSManager:
             else self.optimize_pupil()
         )
 
+        self._set_state(DeviceState.READY)
+        logger.info(f"WFS device {self.device_id} ready")
+
     def close(self) -> None:
         """Close the WFS device connection and release resources."""
         if self._instrument_handle.value > 0:
-            # 保存配置
+            # Save configuration
             self.save_config()
             self.enable_high_speed = False
 
             self._lib.WFS_close(self._instrument_handle)
             self._instrument_handle = c_ulong(0)
 
+        self._set_state(DeviceState.DISCONNECTED)
+        logger.info(f"WFS device {self.device_id} closed")
+
+    def is_connected(self) -> bool:
+        """Check if the WFS device is connected and ready.
+
+        Returns:
+            True if instrument handle is valid and state is READY.
+        """
+        return self._instrument_handle.value > 0 and self._state == DeviceState.READY
+
+    def get_hardware_info(self) -> dict:
+        """Get hardware-specific information.
+
+        Returns:
+            Dictionary with serial_number, device_name, manufacturer, model,
+            and firmware version.
+        """
+        return {
+            "serial_number": self.serial_num,
+            "device_name": self.device_name,
+            "manufacturer": self.manufacturer,
+            "model": self.model,
+            "firmware_version": "N/A",
+        }
+
+    # ==================== Config Management ====================
+
+    def _init_config_manager(self) -> None:
+        """Initialize WFS configuration manager."""
+        if self._config_manager is None:
+            # Default config directory: data/wfs_configs/
+            project_root = Path(__file__).resolve().parents[4]
+            config_dir = project_root / "data" / "wfs_configs"
+            self._config_manager = DeviceConfigManager(config_dir, device_type="wfs")
+
+    def load_config(self) -> dict:
+        """Load JSON configuration file based on serial number.
+
+        Returns:
+            Configuration dict; empty dict if no serial number or file missing.
+        """
+        if not self.serial_num:
+            logger.warning("WFS serial number not available, skipping config load")
+            return {}
+        self._init_config_manager()
+        assert self._config_manager is not None
+        return self._config_manager.load_config(self.serial_num)
+
+    def save_config(self) -> None:
+        """Save current parameters to JSON configuration file.
+
+        Config items include: serial_number, mla_index, exposure_time, high_speed,
+        pupil_center, pupil_diameter, use_custom_ref.
+        """
+        if not self.serial_num:
+            logger.warning("WFS serial number not available, skipping config save")
+            return
+
+        self._init_config_manager()
+        assert self._config_manager is not None
+
+        config = {
+            "mla_index": int(self.mla_index),
+            "exposure_time": self._explosure_time,
+            "high_speed": self.enable_high_speed,
+            "pupil_center": (self.c_x, self.c_y),
+            "pupil_diameter": (self.d_x, self.d_y),
+            "use_custom_ref": self.use_custom_ref,
+        }
+        self._config_manager.save_config(self.serial_num, config)
+        config_file = self._config_manager._get_config_file(self.serial_num)
+        logger.info(f"WFS configuration saved: {config_file}")
+
+    # ==================== Error Handling ====================
+
     def handle_error(self, err: ViStatus, no_raise: bool = False) -> None:
         """Handle WFS error by retrieving and logging error message.
 
         Args:
-            err: Error code returned from WFS library
-            no_raise: If True, only log error without raising exception
+            err: Error code returned from WFS library.
+            no_raise: If True, only log error without raising exception.
         """
         info = create_string_buffer(256)
         self._lib.WFS_error_message(self._instrument_handle, err, byref(info))
@@ -385,14 +548,16 @@ class WFSManager:
         if not no_raise:
             raise Exception(info.value)
 
+    # ==================== MLA Configuration ====================
+
     def select_mla(self, mla_index: MlaRes) -> None:
         """Select and configure MLA (Micro Lens Array) holographic element.
 
         Args:
-            mla_index: MLA resolution enum value
+            mla_index: MLA resolution enum value.
 
         Note:
-            This resets the camera configuration and updates num_spots_x/y
+            This resets the camera configuration and updates num_spots_x/y.
         """
         self._lib.WFS_SelectMla(self._instrument_handle, 0)
         num_spots_x = c_int32()
@@ -415,43 +580,104 @@ class WFSManager:
     def set_ref_plane(self, custom: bool) -> None:
         """Set reference plane for wavefront measurement.
 
-        Args:
-            custom: If True, load custom user reference file; otherwise use default reference
+        **DLL calls** (in order when ``custom=True``):
+        1. ``WFS_SetReferencePlane(handle, 1)`` → switch to custom ref plane
+        2. ``WFS_LoadUserRefFile(handle)`` → load ``.ref`` file from DLL-managed dir
 
-        Raises:
-            Exception: If loading custom reference file fails
+        **DLL calls** (when ``custom=False``):
+        1. ``WFS_SetReferencePlane(handle, 0)`` → switch to factory default
+
+        **File transformations**:
+        - When ``custom=True``:
+          DLL reads ``<Ref_Dir>/<filename>.ref`` (created by ``save_user_ref()``).
+          No files are written or modified.
+        - When ``custom=False``:
+          No file operations. Only DLL internal state change.
+
+        **Fallback behavior**:
+        If ``WFS_LoadUserRefFile`` fails (no ``.ref`` file exists yet),
+        falls back to default reference with a warning instead of raising.
+
+        Args:
+            custom: If True, load custom user reference file; otherwise use default reference.
         """
         _select = 1 if custom else 0
         if err := self._lib.WFS_SetReferencePlane(
             self._instrument_handle, c_int32(_select)
         ):
-            self.handle_error(err)
+            self.handle_error(err, no_raise=True)
+            logger.warning(
+                "WFS_SetReferencePlane failed, falling back to default reference"
+            )
+            self.use_custom_ref = False
+            return
 
-        elif custom:
+        if custom:
             if err := self._lib.WFS_LoadUserRefFile(self._instrument_handle):
-                self.handle_error(err)
+                self.handle_error(err, no_raise=True)
+                logger.warning(
+                    "No user reference file available (use save_user_ref() first). "
+                    "Falling back to default reference."
+                )
+                # Fall back to default reference
+                self._lib.WFS_SetReferencePlane(self._instrument_handle, c_int32(0))
+                self.use_custom_ref = False
             else:
                 self.use_custom_ref = True
-                return
+        else:
+            self.use_custom_ref = False
 
-        self.use_custom_ref = False
+    @require_take_image
+    def create_default_user_ref(self) -> bool:
+        """Create a default user reference from the current spotfield image.
 
-    def get_mla_name(self, mla_index: MlaRes | None = None) -> str:
-        """Get MLA name string (e.g., 'MLA150M-5C') for the specified MLA index.
+        **DLL calls**:
+        1. ``WFS_CreateDefaultUserReference(handle)`` — computes reference spot
+           positions from the most recently captured spotfield image.
 
-        Args:
-            mla_index: MLA index. If None, uses self.mla_index.
+        **File transformations**: None.
+        The reference is only set in DLL internal memory. To persist to disk,
+        call ``save_user_ref()`` afterwards (which writes ``.ref`` file).
+
+        **Typical workflow**:
+        ``take_image()`` → ``create_default_user_ref()`` → ``save_user_ref()``
 
         Returns:
-            MLA name string, or empty string on failure.
+            True on success, False on failure.
         """
-        if mla_index is None:
-            mla_index = self.mla_index
+        if err := self._lib.WFS_CreateDefaultUserReference(self._instrument_handle):
+            self.handle_error(err, no_raise=True)
+            logger.error("Failed to create default user reference")
+            return False
+        logger.info("Default user reference created from current spotfield image")
+        return True
+
+    def get_mla_name(self) -> str:
+        """Get the currently selected MLA name (e.g., 'MLA150M-5C').
+
+        Calls ``WFS_GetMlaData(handle, 0, ...)`` to retrieve the name of
+        the Microlens Array that was selected by ``WFS_SelectMla(handle, 0)``
+        during initialization.
+
+        .. important::
+
+           The ``MLAIndex`` parameter of ``WFS_GetMlaData`` is **not** the
+           camera resolution code (0=1280, 1=1024, 2=768, 3=512, 4=320).
+           It is the ``MLA`` **selection index** (0 to ``MLACount-1``),
+           which corresponds to the same value passed to ``WFS_SelectMla``.
+           Since the driver always selects MLA 0 via ``WFS_SelectMla(handle, 0)``,
+           we pass index 0 here.
+
+        Returns:
+            MLA name string (e.g. ``"MLA150M-5C"``), or empty string if the
+            DLL call fails.
+        """
         mla_name_buffer = create_string_buffer(256)
         err = self._lib.WFS_GetMlaData(
             self._instrument_handle,
-            c_int32(int(mla_index)),
+            c_int32(0),  # MLA index = 0 (the selected MLA)
             mla_name_buffer,
+            byref(c_double()),
             byref(c_double()),
             byref(c_double()),
             byref(c_double()),
@@ -461,11 +687,52 @@ class WFSManager:
         )
         if err != 0:
             self.handle_error(err, no_raise=True)
-            return ""
+            name = self._try_get_mla_name_fallback()
+            if name:
+                logger.warning(
+                    f"WFS_GetMlaData failed for index 0, "
+                    f"falling back to alternative index: '{name}'"
+                )
+            return name
         name = mla_name_buffer.value
         if isinstance(name, bytes):
             name = name.decode("utf-8")
         return name.strip("\x00").strip()
+
+    def _try_get_mla_name_fallback(self) -> str:
+        """Try alternative MLA indices (1, 2, ... up to 15) for a name.
+
+        If the primary MLA index (0) is not available, this searches higher
+        indices as a safety net. The WFS typically has 1-2 calibrated MLAs.
+
+        Returns:
+            MLA name string, or empty string if all attempts fail.
+        """
+        for alt_idx in range(1, MAX_MLA_INDICES):  # try indices 1..MAX_MLA_INDICES-1
+            buf = create_string_buffer(256)
+            err = self._lib.WFS_GetMlaData(
+                self._instrument_handle,
+                c_int32(alt_idx),
+                buf,
+                byref(c_double()),
+                byref(c_double()),
+                byref(c_double()),
+                byref(c_double()),
+                byref(c_double()),
+                byref(c_double()),
+                byref(c_double()),
+            )
+            if err == 0:
+                name = buf.value
+                if isinstance(name, bytes):
+                    name = name.decode("utf-8")
+                name = name.strip("\x00").strip()
+                if name:
+                    logger.warning(
+                        f"_try_get_mla_name_fallback found name '{name}' at index {alt_idx}"
+                    )
+                    return name
+        return ""
 
     @staticmethod
     def _get_ref_default_dir() -> Path:
@@ -481,13 +748,19 @@ class WFSManager:
         """
         import platform
         system = platform.system()
-        
+
         if system == "Windows":
-            user_docs = Path(os.environ.get("USERPROFILE", ""))
-            if not user_docs:
-                logger.warning("USERPROFILE not set on Windows, using Documents")
-                user_docs = Path.home() / "Documents"
-            return user_docs / "Thorlabs" / "Wavefront Sensor" / "Reference"
+            # Use Path.home() which reliably resolves C:\Users\<username>
+            # Fall back to USERPROFILE if home() fails
+            home = Path.home()
+            if not home or not home.exists():
+                user_profile = os.environ.get("USERPROFILE")
+                if user_profile:
+                    home = Path(user_profile)
+                else:
+                    logger.warning("Cannot determine user home directory")
+                    home = Path("C:/Users/Public")
+            return home / "Documents" / "Thorlabs" / "Wavefront Sensor" / "Reference"
         else:
             # Linux/macOS fallback: use XDG_DATA_HOME or project data directory
             xdg_data = os.environ.get("XDG_DATA_HOME", "")
@@ -495,28 +768,46 @@ class WFSManager:
                 base = Path(xdg_data)
             else:
                 base = Path.home() / ".local" / "share"
-            
+
             ref_dir = base / "Thorlabs" / "WFS" / "Ref"
             logger.debug(f"[WFS _get_ref_default_dir] Linux fallback: {ref_dir}")
-            
+
             # Fallback to project data/calibration if not writable
             project_fallback = Path("data") / "calibration" / "wfs_ref"
             if not ref_dir.parent.exists():
                 logger.debug(f"[WFS _get_ref_default_dir] XDG path not accessible, using project fallback: {project_fallback}")
                 return project_fallback
-            
+
             return ref_dir
 
-    def _get_ref_filename(self) -> str:
-        """Construct the .ref filename that the WFS DLL expects.
+    def _get_ref_filename(self, fallback_if_empty: bool = True) -> str:
+        """Construct the ``.ref`` filename that the WFS DLL expects.
 
-        Filename pattern from Thorlabs docs:
-            WFS_<serial_number>_<mla_name>_<cam_resol_idx>.ref
+        **Filename pattern** (from Thorlabs SDK):
+            ``WFS_<serial_number>_<mla_name>_<cam_resol_idx>.ref``
+
+        This filename is used by both ``save_user_ref()`` (to know where the
+        DLL wrote the file) and ``load_user_ref()`` (to locate the file for
+        copying or reading). It matches what the DLL expects internally.
+
+        **No file transformations** — pure string construction.
+
+        Args:
+            fallback_if_empty: If True and ``mla_name`` is empty, use
+                ``"unknown"`` as a placeholder so the filename is still valid.
 
         Returns:
-            Filename string like 'WFS_M00224955_MLA150M-5C_0.ref'.
+            Filename string like ``WFS_M00224955_MLA150M-5C_0.ref``,
+            or ``WFS_M00224955_unknown_3.ref`` if MLA name unavailable.
         """
         mla_name = self.get_mla_name()
+        if not mla_name and fallback_if_empty:
+            mla_name = "unknown"
+            logger.warning(
+                f"Cannot determine MLA name (WFS_GetMlaData failed), "
+                f"using fallback filename with 'unknown': "
+                f"WFS_{self.serial_num}_unknown_{int(self.mla_index)}.ref"
+            )
         # cam_resol_idx is the MLA resolution index (self.mla_index value)
         cam_resol_idx = int(self.mla_index)
         filename = f"WFS_{self.serial_num}_{mla_name}_{cam_resol_idx}.ref"
@@ -526,20 +817,45 @@ class WFSManager:
     def save_user_ref(self, backup_dir: str | Path | None = None) -> Path | None:
         """Save user reference file and create a timestamped backup.
 
-        This calls WFS_SaveUserRefFile to save to the DLL-managed location,
-        then copies the saved file to the project backup directory with a timestamp.
+        **DLL calls** (in order):
+        1. ``WFS_SetSpotsToUserReference(handle)`` — promotes current spot
+           centroids as the reference (internal DLL memory only).
+        2. ``WFS_SaveUserRefFile(handle)`` — writes ``.ref`` file to the
+           DLL-managed location on disk.
+
+        **File transformations** (step by step):
+        ::
+
+            ┌─ DLL writes to:  <Ref_Dir>/<filename>.ref        (CREATED)
+            └─ shutil.copy2 →  <backup_dir>/<filename>_<ts>.ref (CREATED)
+
+        - **Ref_Dir** = ``%USERPROFILE%/Documents/Thorlabs/Wavefront Sensor/Reference``
+        - **filename** = ``WFS_{serial}_{mla_name}_{res_index}``
+        - If the MLA name cannot be determined (``WFS_GetMlaData`` fails), uses
+          ``"unknown"`` as fallback in the filename.
+        - If the expected filename is not found after DLL save, searches the
+          ref directory for any ``WFS_{serial}_*.ref`` file as fallback.
+        - The DLL-managed copy may be silently overwritten on next save;
+          the timestamped backup preserves history.
 
         Args:
-            backup_dir: Directory to store backup. Defaults to 'data/calibration/'.
+            backup_dir: Directory to store backup. Defaults to ``data/calibration/``.
 
         Returns:
-            Path to the backup file, or None on failure.
+            Path to the timestamped backup file, or None on failure.
         """
         if backup_dir is None:
             backup_dir = Path("data/calibration")
         else:
             backup_dir = Path(backup_dir)
         backup_dir.mkdir(parents=True, exist_ok=True)
+
+        # Explicitly set current spot positions as the reference before saving.
+        # Without this call, WFS_SaveUserRefFile may have nothing to persist,
+        # resulting in a "No User Reference available!" error on subsequent load.
+        if err := self._lib.WFS_SetSpotsToUserReference(self._instrument_handle):
+            self.handle_error(err, no_raise=True)
+            return None
 
         # Call DLL to save reference file to its default location
         if err := self._lib.WFS_SaveUserRefFile(self._instrument_handle):
@@ -552,8 +868,25 @@ class WFSManager:
         src_path = ref_dir / ref_filename
 
         if not src_path.exists():
-            logger.error(f"Reference file not found at expected path: {src_path}")
-            return None
+            # Fallback: search ref_dir for any .ref file matching the serial number.
+            # The DLL may choose a different filename when MLA name is unavailable.
+            logger.warning(
+                f"Reference file not found at expected path: {src_path}\n"
+                f"Searching {ref_dir} for files matching serial {self.serial_num}..."
+            )
+            candidates = []
+            if ref_dir.exists():
+                pattern = f"WFS_{self.serial_num}_*.ref"
+                candidates = sorted(ref_dir.glob(pattern))
+            if candidates:
+                src_path = candidates[0]
+                logger.info(f"Found alternative reference file: {src_path}")
+            else:
+                logger.error(
+                    f"No .ref file found for serial {self.serial_num} in {ref_dir}. "
+                    f"The DLL (WFS_SaveUserRefFile) may have saved to a different location."
+                )
+                return None
 
         # Create timestamped backup filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -573,24 +906,43 @@ class WFSManager:
     def load_user_ref(self, backup_path: str | Path | None = None) -> bool:
         """Load user reference file from a backup or default location.
 
-        If backup_path is provided:
-        1. Copy the backup file to the DLL's expected location
-        2. Then call WFS_LoadUserRefFile to load it
+        **DLL calls** (in order):
+        1. ``WFS_LoadUserRefFile(handle)`` — loads ``.ref`` file from DLL dir
+        2. ``WFS_SetReferencePlane(handle, 1)`` — switches to custom ref plane
 
-        If backup_path is None:
-        - Directly call WFS_LoadUserRefFile to load from DLL's default location
+        **File transformations** (step by step):
+
+        **With ``backup_path`` provided**::
+        ::
+
+            shutil.copy2(backup_path → <Ref_Dir>/<filename>.ref)  (COPIED)
+            DLL reads ←  <Ref_Dir>/<filename>.ref                  (READ)
+
+        **Without ``backup_path``**::
+        ::
+
+            DLL reads ←  <Ref_Dir>/<filename>.ref                  (READ)
+
+        - **Ref_Dir** = ``%USERPROFILE%/Documents/Thorlabs/Wavefront Sensor/Reference``
+        - If ``backup_path`` is given, the file is first copied to the DLL's
+          expected location so ``WFS_LoadUserRefFile`` can find it.
+        - If the file does not exist at the expected path, the DLL returns an
+          error (previously "No User Reference available!") — see ``save_user_ref()``
+          to create it.
 
         Args:
-            backup_path: Optional path to a backup .ref file to load.
+            backup_path: Optional path to a backup ``.ref`` file to load.
+                If provided, the file is copied to the DLL-managed directory
+                before calling ``WFS_LoadUserRefFile``.
 
         Returns:
             True on success, False on failure.
         """
-        # Debug: 打印当前系统信息
+        # Debug: print current system information
         import platform
         logger.debug(f"[WFS load_user_ref] Platform: {platform.system()}")
         logger.debug(f"[WFS load_user_ref] USERPROFILE: {os.environ.get('USERPROFILE', 'NOT_SET')}")
-        
+
         if backup_path is not None:
             backup_path = Path(backup_path)
             if not backup_path.exists():
@@ -602,7 +954,7 @@ class WFSManager:
             logger.debug(f"[WFS load_user_ref] ref_dir: {ref_dir}")
             logger.debug(f"[WFS load_user_ref] ref_dir exists: {ref_dir.exists()}")
             logger.debug(f"[WFS load_user_ref] ref_dir parent exists: {ref_dir.parent.exists() if ref_dir.parent != ref_dir else 'N/A'}")
-            
+
             ref_dir.mkdir(parents=True, exist_ok=True)
             ref_filename = self._get_ref_filename()
             dst_path = ref_dir / ref_filename
@@ -616,18 +968,18 @@ class WFSManager:
                 return False
 
         # Call DLL to load reference file from its default location
-        logger.debug(f"[WFS load_user_ref] Calling WFS_LoadUserRefFile...")
+        logger.debug("[WFS load_user_ref] Calling WFS_LoadUserRefFile...")
         if err := self._lib.WFS_LoadUserRefFile(self._instrument_handle):
             self.handle_error(err, no_raise=True)
             logger.error("Failed to load user reference file via WFS_LoadUserRefFile")
-            # Additional debug: 列出DLL认为的参考文件路径
+            # Additional debug: list the DLL's expected reference file path
             ref_dir = self._get_ref_default_dir()
             ref_filename = self._get_ref_filename()
             expected_path = ref_dir / ref_filename
             logger.debug(f"[WFS load_user_ref] Expected path: {expected_path}")
             logger.debug(f"[WFS load_user_ref] Expected path exists: {expected_path.exists()}")
             if not expected_path.exists():
-                # 列出目录内容帮助调试
+                # List directory contents to help debugging
                 try:
                     files = list(ref_dir.glob("*")) if ref_dir.exists() else []
                     logger.debug(f"[WFS load_user_ref] Files in ref_dir: {files}")
@@ -636,7 +988,7 @@ class WFSManager:
             return False
 
         # Also update the reference plane setting
-        logger.debug(f"[WFS load_user_ref] Setting reference plane to custom...")
+        logger.debug("[WFS load_user_ref] Setting reference plane to custom...")
         if err := self._lib.WFS_SetReferencePlane(self._instrument_handle, c_int32(1)):
             self.handle_error(err, no_raise=True)
             logger.warning("WFS_SetReferencePlane returned error but continuing")
@@ -645,11 +997,17 @@ class WFSManager:
         logger.info("User reference file loaded successfully")
         return True
 
-    def optimize_pupil(self):
-        """
-        This function help to optimize pupil.
+    # ==================== Pupil / Image Capture ====================
+
+    def optimize_pupil(self) -> tuple[float, float, float, float]:
+        """Optimize pupil detection.
+
+        This function calculates the beam centroid and diameter from the
+        current spotfield data.
+
         Returns:
-            tuple[float, float, float, float]: beam centroid x, beam centroid y, beam diameter x, beam diameter y
+            tuple[float, float, float, float]: beam centroid x, beam centroid y,
+                beam diameter x, beam diameter y
         """
         assert not self.enable_high_speed, "turn off high speed mode first"
         self._lib.WFS_CalcSpotsCentrDiaIntens(
@@ -677,8 +1035,8 @@ class WFSManager:
         """Capture spotfield image and calculate spot centroids/diameters/intensities.
 
         Args:
-            n_sample: Number of auto-exposure samples to take (used when exposure_time <= 0)
-            dynamicNoiseCut: Enable dynamic noise floor cutoff for spot calculation
+            n_sample: Number of auto-exposure samples to take (used when exposure_time <= 0).
+            dynamicNoiseCut: Enable dynamic noise floor cutoff for spot calculation.
 
         Note:
             Sets self._image_captured flag to True upon successful capture.
@@ -706,20 +1064,17 @@ class WFSManager:
             self.handle_error(res)
 
     @require_take_image
-    def get_spotfiled_image(self, image_loop_counter: int = -1) -> np.ndarray:
+    def get_spotfiled_image(self) -> np.ndarray:
         """Retrieve the captured spotfield image from the WFS device.
-
-        Args:
-            image_loop_counter: Image loop counter (-1 for latest image)
 
         Returns:
             np.ndarray: 2D uint8 image array of shape (512, 512)
 
         Raises:
-            RuntimeError: If WFS_GetSpotfieldImageCopy fails
+            RuntimeError: If WFS_GetSpotfieldImage fails.
         """
         spots_filed_img = np.empty(MAX_SPOTS, np.uint8)
-        if err := self._lib.WFS_GetSpotfieldImageCopy(
+        if err := self._lib.WFS_GetSpotfieldImage(
             self._instrument_handle,
             spots_filed_img.ctypes.data_as(ctypes.POINTER(c_uint8)),
             byref(c_int32(MAX_SPOTS[0])),
@@ -773,10 +1128,10 @@ class WFSManager:
         """Build valid subaperture mask for WFS40-5C.
 
         Args:
-            n_avg: Number of frames to average for noise suppression
-            threshold_ratio: Intensity threshold as ratio of max intensity (0.2-0.4 typical)
-            edge_clip: Number of lenslet rows/cols to clip from edges (1-2 recommended)
-            plot: If True, display visualization
+            n_avg: Number of frames to average for noise suppression.
+            threshold_ratio: Intensity threshold as ratio of max intensity (0.2-0.4 typical).
+            edge_clip: Number of lenslet rows/cols to clip from edges (1-2 recommended).
+            plot: If True, display visualization.
 
         Returns:
             tuple: (mask_bool, valid_indices_flat)
@@ -842,12 +1197,12 @@ class WFSManager:
         """Collect stable samples based on variance threshold.
 
         Args:
-            n_samples: Number of stable samples to collect
-            variance_threshold: Maximum allowed variance for a sample to be considered stable
-            max_attempts: Maximum number of attempts before giving up
+            n_samples: Number of stable samples to collect.
+            variance_threshold: Maximum allowed variance for a sample to be considered stable.
+            max_attempts: Maximum number of attempts before giving up.
 
         Returns:
-            List of stable sample arrays
+            List of stable sample arrays.
         """
         stable_samples = []
         attempts = 0
@@ -889,12 +1244,14 @@ class WFSManager:
 
         return stable_samples
 
+    # ==================== Wavefront Measurement ====================
+
     @require_take_image
     def get_wavefront(self, cancel_tile: bool = False) -> tuple[np.ndarray, dict]:
         """Calculate wavefront from spot deviations.
 
         Args:
-            cancel_tile: If True, remove tip/tilt from wavefront measurement
+            cancel_tile: If True, remove tip/tilt from wavefront measurement.
 
         Returns:
             tuple[np.ndarray, dict]: (wavefront array, statistics dict)
@@ -925,7 +1282,8 @@ class WFSManager:
                 }
         else:
             if res := self._lib.WFS_CalcSpotToReferenceDeviations(
-                self._instrument_handle, c_int32(1 if cancel_tile else 0)):
+                self._instrument_handle, c_int32(1 if cancel_tile else 0)
+            ):
                 self.handle_error(res)
             adaptive_pupil = 0 if (self.d_x and self.d_y) else 1
             wavefront = np.empty(MAX_SPOTS, dtype=c_float)
@@ -970,67 +1328,15 @@ class WFSManager:
             "rms": rms_val.value if not self.stable_sample_enable else float(np.std(wavefront)),
             "wighted_rms": wighted_rms_val.value if not self.stable_sample_enable else float(np.std(wavefront)),
         }
-        adaptive_pupil = 0 if (self.d_x and self.d_y) else 1
-        wavefront = np.empty(MAX_SPOTS, dtype=c_float)
-        # wavefrontType: 0=Measured Wavefront (direct from spot deviations),
-        #                1=Reconstructed Wavefront (requires WFS_CalcReconstrDeviations),
-        #                2=Difference (requires WFS_CalcReconstrDeviations)
-        # Use 0 (Measured) since it doesn't require reconstruction step
-        wavefront_type = 0
-        if err := self._lib.WFS_CalcWavefront(
-            self._instrument_handle,
-            ViInt32(wavefront_type),
-            ViInt32(adaptive_pupil),
-            wavefront,
-        ):
-            self.handle_error(err)
-        else:
-            min, max, diff, mean = c_double(), c_double(), c_double(), c_double()
-            rms, wighted_rms = c_double(), c_double()
-            self._lib.WFS_CalcWavefrontStatistics(
-                self._instrument_handle,
-                byref(min),
-                byref(max),
-                byref(diff),
-                byref(mean),
-                byref(rms),
-                byref(wighted_rms),
-            )
-            wavefront = deepcopy(wavefront)[: self.num_spots_x, : self.num_spots_y]
-            if np.all(wavefront == 0):
-                logger.warning("WFS_CalcWavefront returned zero-filled buffer — DLL may not have written data")
-
-            if WFS_DEBUG_MODE:
-                wf_variance = np.var(wavefront)
-                wf_std = np.std(wavefront)
-                logger.debug(f"WFS wavefront stats: var={wf_variance:.6f}, std={wf_std:.6f}, shape={wavefront.shape}")
-
-            # wavefront = np.where(wavefront==np.nan, 0, wavefront)
-            return wavefront, {
-                "min": min.value,
-                "max": max.value,
-                "diff": diff.value,
-                "mean": mean.value,
-                "rms": rms.value,
-                "wighted_rms": wighted_rms.value if wighted_rms.value > 0 else rms.value
-            }
-        return wavefront, {
-            "min": np.nan,
-            "max": np.nan,
-            "diff": np.nan,
-            "mean": np.nan,
-            "rms": np.nan,
-            "wighted_rms": np.nan,
-        }
 
     def _remove_tilt(self, wavefront: np.ndarray) -> np.ndarray:
         """Remove tilt (tip/tilt) from wavefront by fitting a plane and subtracting it.
 
         Args:
-            wavefront: 2D wavefront array
+            wavefront: 2D wavefront array.
 
         Returns:
-            Wavefront with tilt removed
+            Wavefront with tilt removed.
         """
         # Create coordinate grids (normalized to [-1, 1] for numerical stability)
         ny, nx = wavefront.shape
@@ -1040,7 +1346,6 @@ class WFSManager:
         z = wavefront.flatten()
 
         # Build design matrix for plane: z = a*x + b*y + c
-        # Use simple least squares
         A = np.column_stack([x.flatten(), y.flatten(), np.ones_like(x.flatten())])
 
         # Solve for coefficients using least squares
@@ -1061,7 +1366,15 @@ class WFSManager:
         return wavefront_no_tilt
 
     @staticmethod
-    def calc_n_zernike_terms(n):
+    def calc_n_zernike_terms(n: int) -> int:
+        """Calculate the number of Zernike terms for a given order.
+
+        Args:
+            n: Zernike order.
+
+        Returns:
+            Number of Zernike terms.
+        """
         return (n + 1) * (n + 2) // 2 + 1
 
     @require_take_image
@@ -1069,23 +1382,26 @@ class WFSManager:
         """Calculate Zernike polynomial coefficients from spot deviations.
 
         Args:
-            zernike_order: Zernike order (max 10, indexed from 0)
+            zernike_order: Zernike order (max 10, indexed from 0).
 
         Returns:
-            np.ndarray: Zernike coefficients array
+            np.ndarray: Zernike coefficients array.
 
         Raises:
-            AssertionError: If zernike_order exceeds 10
+            AssertionError: If zernike_order exceeds 10.
         """
-        assert zernike_order <= 10, "zernike order must be less than or equal to 10"
+        assert zernike_order <= 10, (
+            f"zernike order must be less than or equal to 10, got {zernike_order}"
+        )
         roc_mm = c_double()
         coeff_num = self.calc_n_zernike_terms(zernike_order)
         zernike_order_c = c_int32(zernike_order)
         zernike_um = np.empty((coeff_num,), c_float)
-        zernike_orders_rms_um = np.empty((11,), c_float)
+        zernike_orders_rms_um = np.empty((zernike_order + 1,), c_float)
 
         if res := self._lib.WFS_CalcSpotToReferenceDeviations(
-            self._instrument_handle, c_int32(0)):
+            self._instrument_handle, c_int32(0)
+        ):
             self.handle_error(res)
 
         if err := self._lib.WFS_ZernikeLsf(
@@ -1099,16 +1415,18 @@ class WFSManager:
             return np.empty_like(zernike_um)
         return zernike_um
 
+    # ==================== Spot Deviation ====================
+
     @require_take_image
     def get_spot_deviation(self, cancel_tile: bool = False) -> tuple[np.ndarray, np.ndarray]:
         """Get spot deviation from reference positions.
 
         Args:
-            cancel_tile: If True, remove tip/tilt from deviations
+            cancel_tile: If True, remove tip/tilt from deviations.
 
         Returns:
             tuple[np.ndarray, np.ndarray]: (deviation_x, deviation_y) arrays
-               each of shape (num_spots_x, num_spots_y)
+               each of shape (num_spots_x, num_spots_y).
 
         Note:
             When stable_sample_enable is True, collects multiple stable samples and returns mean.
@@ -1269,6 +1587,8 @@ class WFSManager:
 
         return x, y
 
+    # ==================== Exposure / Gain Management ====================
+
     def optimize_exposure_time_and_gain(self) -> tuple[float, float]:
         """Automatically optimize exposure time and gain for clear spotfield images.
 
@@ -1286,7 +1606,7 @@ class WFSManager:
         actual_exposure = c_double()
         actual_gain = c_double()
         device_status = c_int32()
-        for i in range(10):
+        for i in range(MAX_AUTOEXPOSE_ATTEMPTS):
             lib.WFS_TakeSpotfieldImageAutoExpos(
                 instrument_handle, byref(actual_exposure), byref(actual_gain)
             )
@@ -1344,13 +1664,11 @@ class WFSManager:
         )
         return self._exposure_time_range
 
+    # ==================== Properties ====================
+
     @property
     def exposure_time(self) -> c_double:
-        """Get current exposure time.
-
-        Returns:
-            c_double: Exposure time in milliseconds
-        """
+        """Get current exposure time in milliseconds."""
         actual_exposure = c_double()
         self._lib.WFS_GetExposureTime(self._instrument_handle, actual_exposure)
         return actual_exposure
@@ -1360,10 +1678,10 @@ class WFSManager:
         """Set exposure time.
 
         Args:
-            value: Exposure time in milliseconds
+            value: Exposure time in milliseconds.
 
         Raises:
-            AssertionError: If value is outside valid range [0.002, 86] ms
+            AssertionError: If value is outside valid range [0.002, 86] ms.
         """
         assert EXP_TIME_LOW <= value <= EXP_TIME_HIGH, (
             f"exposure time must be in range [{EXP_TIME_LOW}, {EXP_TIME_HIGH}] ms"
@@ -1379,7 +1697,7 @@ class WFSManager:
         """Get current pupil configuration.
 
         Returns:
-            tuple[float, float, float, float]: (centroid_x, centroid_y, diameter_x, diameter_y) in mm
+            tuple[float, float, float, float]: (centroid_x, centroid_y, diameter_x, diameter_y) in mm.
         """
         beam_centroid_x = c_double()
         beam_centroid_y = c_double()
@@ -1401,7 +1719,7 @@ class WFSManager:
         """Set pupil configuration.
 
         Args:
-            center_and_diameter: (centroid_x, centroid_y, diameter_x, diameter_y) in mm
+            center_and_diameter: (centroid_x, centroid_y, diameter_x, diameter_y) in mm.
 
         Note:
             If diameter_x or diameter_y is <= 0, optimize_pupil() is called instead.
@@ -1422,7 +1740,7 @@ class WFSManager:
         """Check if high speed mode is enabled.
 
         Returns:
-            bool: True if high speed mode is active
+            bool: True if high speed mode is active.
         """
         enable_high_speed = self._lib.WFS_CheckHighspeedCentroids(
             self._instrument_handle
@@ -1430,26 +1748,15 @@ class WFSManager:
         return enable_high_speed.value
 
     @high_speed.setter
-    def high_speed(self, enable: bool):
+    def high_speed(self, enable: bool) -> None:
         """Enable or disable high speed mode.
 
         Args:
-            enable: True to enable high speed mode, False to disable
+            enable: True to enable high speed mode, False to disable.
 
         Note:
             High speed mode only supports 512x512 resolution and requires auto exposure.
             Automatically re-optimizes pupil after enabling.
-        """
-        """
-        instrumentHandle	ViSession	This parameter accepts the Instrument Handle returned by the Init function to select the desired instrument driver session.
-        highspeedMode	ViInt32	This parameter determines if the camera's Highspeed Mode is switched on or off.
-        adaptCentroids	ViInt32	When Highspeed Mode is selected, this parameter determines if the centroid positions measured in Normal Mode should be used to adapt the spot search windows for Highspeed Mode.
-        Otherwise, a rigid grid based on reference spot positions is used in Highspeed Mode.
-        substractOffset	ViInt32	This parameter defines an offset level for Highspeed Mode only. All camera pixels will be subtracted by this level before the centroids are being calculated, which increases accuracy.
-        Valid range: 0 ... 255
-        Note: The offset is only valid in Highspeed Mode and must not set too high to clear the spots within the camera image!
-        allowAutoExposure	ViInt32	When Highspeed Mode is selected, this parameter determines if the camera should also calculate the image saturation in order enable the auto exposure feature using function WFS_TakeSpotfieldImageAutoExpos() instead of WFS_TakeSpotfieldImage().
-        This option leads to a somewhat reduced measurement speed when enabled.
         """
         if self.device_name.upper() == 'WFS40-5C':
             logger.warning(f'{self.device_name} not support high speed mode!')
@@ -1508,4 +1815,3 @@ class WFSManager:
                 self.hs_window_startpos_y = windowStartposY
 
         logger.info("high speed mode is " + "on" if self.enable_high_speed else "off")
-

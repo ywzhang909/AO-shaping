@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-
 from zernike import RZern
 
 # Zernike polynomial naming (Noll's scheme)
@@ -321,3 +320,7 @@ class ZernikeGenerator:
             2D array of radial distances.
         """
         return np.sqrt(self.xv**2 + self.yv**2)
+    
+    @property
+    def n_modes(self) -> int:
+        return self._cart.nk

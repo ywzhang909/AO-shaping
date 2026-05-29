@@ -26,7 +26,7 @@ drivers/
 │   ├── zernike_slm.py  # Zernike coefficient-driven SLM
 │   └── _slm_win.py    # SDK bindings (internal)
 ├── wfs/                 # Wavefront Sensors
-│   └── thorlab_wfs.py  # Thorlabs WFS
+│   └── ThorlabWFS.py  # Thorlabs WFS
 ├── tm/                  # Timing Modules
 │   └── serial_port_fsm.py
 └── sim/                 # Simulation (digital twin)
@@ -46,7 +46,7 @@ drivers/
 | `DeviceType` | device_base.py | Type enum (CAMERA, SLM, DM, WFS, etc.) |
 | `NLightDM` | dm/NLight.py | DM control |
 | `BaseDM` | dm/base.py | DM abstract base |
-| `ThorlabWFS` | wfs/thorlab_wfs.py | WFS control |
+| `ThorlabWFS` | wfs/ThorlabWFS.py | WFS control |
 
 ## REQUIRED INTERFACE
 

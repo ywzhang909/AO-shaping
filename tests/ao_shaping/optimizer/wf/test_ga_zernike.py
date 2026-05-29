@@ -1,11 +1,13 @@
 """Tests for ga_zernike optimizer module."""
 
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pytest
-from unittest.mock import MagicMock, patch
 
 # Ensure Recorder.append doesn't fail when records miss the explicit 'ga_zernike' mark
 from ao_shaping.utils.file import Recorder
+
 _orig_recorder_append = Recorder.append
 def _ensure_mark_in_record(self, record):
     if 'ga_zernike' not in record:
@@ -79,9 +81,9 @@ class TestGAParameters:
     def test_default_parameters(self):
         """Test that default parameters are set correctly."""
         from ao_shaping.optimizer.wf.ga_zernike import (
-            ZERNIKE_MIN,
-            ZERNIKE_MAX,
             SLM_WAVELENGTH_DEFAULT,
+            ZERNIKE_MAX,
+            ZERNIKE_MIN,
         )
 
         assert ZERNIKE_MIN == -50.0
@@ -124,7 +126,11 @@ class TestBlendCrossover:
 
     def test_blend_crossover_bounds(self):
         """Test that children are within reasonable bounds."""
-        from ao_shaping.optimizer.wf.ga_zernike import _blend_crossover, ZERNIKE_MIN, ZERNIKE_MAX
+        from ao_shaping.optimizer.wf.ga_zernike import (
+            ZERNIKE_MAX,
+            ZERNIKE_MIN,
+            _blend_crossover,
+        )
 
         parent1 = np.array([10.0, 20.0, 30.0])
         parent2 = np.array([15.0, 25.0, 35.0])
@@ -151,9 +157,9 @@ class TestGaussianMutation:
     def test_gaussian_mutation_bounds(self):
         """Test mutation respects bounds."""
         from ao_shaping.optimizer.wf.ga_zernike import (
-            _gaussian_mutation,
-            ZERNIKE_MIN,
             ZERNIKE_MAX,
+            ZERNIKE_MIN,
+            _gaussian_mutation,
         )
 
         individual = np.array([0.0, 0.0, 0.0])
@@ -191,7 +197,7 @@ class TestOptimizerReturnsRecorder:
             "ao_shaping.optimizer.wf.ga_zernike.ZernikeSLM",
             return_value=mock_slm,
         ) as mock_slm_ctx, patch(
-            "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
+            "ao_shaping.optimizer.wf.ga_zernike.ThorlabWFS",
             return_value=mock_wfs,
         ) as mock_wfs_ctx, patch(
             "ao_shaping.optimizer.wf.ga_zernike.tqdm"
@@ -239,7 +245,7 @@ class TestOptimizerReturnsRecorder:
                 return_value=mock_slm,
             ) as mock_slm_ctx,
             patch(
-                "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
+                "ao_shaping.optimizer.wf.ga_zernike.ThorlabWFS",
                 return_value=mock_wfs,
             ) as mock_wfs_ctx,
             patch(
@@ -284,7 +290,7 @@ class TestGAPopulation:
                 return_value=mock_slm,
             ) as mock_slm_ctx,
             patch(
-                "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
+                "ao_shaping.optimizer.wf.ga_zernike.ThorlabWFS",
                 return_value=mock_wfs,
             ) as mock_wfs_ctx,
             patch(
@@ -330,7 +336,7 @@ class TestGAElitism:
                 return_value=mock_slm,
             ) as mock_slm_ctx,
             patch(
-                "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
+                "ao_shaping.optimizer.wf.ga_zernike.ThorlabWFS",
                 return_value=mock_wfs,
             ) as mock_wfs_ctx,
             patch(
@@ -381,7 +387,7 @@ class TestGACrossoverAndMutation:
                 return_value=mock_slm,
             ) as mock_slm_ctx,
             patch(
-                "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
+                "ao_shaping.optimizer.wf.ga_zernike.ThorlabWFS",
                 return_value=mock_wfs,
             ) as mock_wfs_ctx,
             patch(
@@ -422,7 +428,7 @@ class TestGACrossoverAndMutation:
                 return_value=mock_slm,
             ) as mock_slm_ctx,
             patch(
-                "ao_shaping.optimizer.wf.ga_zernike.Thorlab_WFS",
+                "ao_shaping.optimizer.wf.ga_zernike.ThorlabWFS",
                 return_value=mock_wfs,
             ) as mock_wfs_ctx,
             patch(

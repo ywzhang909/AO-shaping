@@ -15,7 +15,7 @@ Supports:
 Example:
     >>> from ao_shaping.optimizer.wf.dm_response_matrix import calibrate_dm_response_matrix
     >>> from ao_shaping.drivers.dm.NLight import NLight
-    >>> from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager
+    >>> from ao_shaping.drivers.wfs.ThorlabWFS import WFSManager
     >>>
     >>> with NLight() as dm:
     ...     with WFSManager() as wfs:
@@ -28,23 +28,23 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass, asdict
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
-from collections.abc import Callable
 
 import h5py
 import numpy as np
 from loguru import logger
 from tqdm import tqdm
 
-from ao_shaping.utils.matrix_utils import compute_pinv, compute_lstsq
+from ao_shaping.utils.matrix_utils import compute_lstsq, compute_pinv
 from ao_shaping.utils.wfs_utils import flatten_slopes
 
 if TYPE_CHECKING:
     from ao_shaping.drivers.dm.NLight import NLight
-    from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager
+    from ao_shaping.drivers.wfs import ThorlabWFS
 
 
 # Default calibration parameters
@@ -162,7 +162,7 @@ class DMResponseMatrixResult:
 
 def measure_actuator_response(
     dm: "NLight",
-    wfs: "WFSManager",
+    wfs: ThorlabWFS,
     actuator_idx: int,
     disturb_voltage: float,
     n_averages: int = DEFAULT_N_AVERAGES,
@@ -301,7 +301,7 @@ def measure_actuator_response(
 
 def _optimize_perturbation_voltage(
     dm: "NLight",
-    wfs: "WFSManager",
+    wfs: ThorlabWFS,
     actuator_idx: int,
     test_voltages: np.ndarray,
     n_avg: int = 10,
@@ -373,7 +373,7 @@ def _optimize_perturbation_voltage(
 
 def _build_device_config(
     dm: "NLight",
-    wfs: "WFSManager",
+    wfs: ThorlabWFS,
 ) -> dict:
     """Capture hardware configuration snapshot for metadata."""
     config: dict = {}
@@ -416,7 +416,7 @@ def _build_device_config(
 
 def calibrate_dm_response_matrix(
     dm: "NLight",
-    wfs: "WFSManager",
+    wfs: ThorlabWFS,
     disturb_voltage: float | None = DEFAULT_DISTURB_VOLTAGE,
     n_cycles: int = DEFAULT_N_CYCLES,
     n_averages: int = DEFAULT_N_AVERAGES,

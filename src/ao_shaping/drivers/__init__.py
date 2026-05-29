@@ -4,7 +4,8 @@ This package provides unified interfaces for various hardware devices,
 including cameras, SLMs, DMs, and wavefront sensors.
 """
 
-# Device base classes for digital twin management
+from loguru import logger
+
 from ao_shaping.drivers.device_base import (
     Device,
     DeviceCapability,
@@ -20,11 +21,8 @@ from ao_shaping.drivers.device_registry import (
     RegisteredDevice,
     get_global_registry,
 )
-
-# Hardware-specific imports
-from .wfs.thorlab_wfs import WFSManager as Thorlab_WFS
-from .wfs.thorlab_wfs import MlaRes
-from .dm.NLight import NLight as NlightDM
+from ao_shaping.drivers.dm.NLight import NLight as NlightDM
+from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
 
 __all__ = [
     # Base classes
@@ -40,48 +38,36 @@ __all__ = [
     "RegisteredDevice",
     "get_global_registry",
     # Hardware
-    "Thorlab_WFS",
+    "ThorlabWFS",
     "MlaRes",
     "NlightDM",
 ]
 
-import logging
-
-
-logger = logging.getLogger(__name__)
-
-# Pre-define CameraStreamManager for backward compatibility
 CameraStreamManager = None
 
-# Try to import CameraStreamManager, preferring Daheng and falling back to MIICAM.
 try:
-    from .ccd.daheng import DahengCamManager
+    from ao_shaping.drivers.ccd.daheng import DahengCamManager
 
     __all__ += ["DahengCamManager"]
-    # Backward compatibility alias
     CameraStreamManager = DahengCamManager
     __all__ += ["CameraStreamManager"]
 except Exception as daheng_error:
     try:
-        from .ccd.miicam import CameraStreamManager
+        from ao_shaping.drivers.ccd.miicam import CameraStreamManager
 
         __all__ += ["CameraStreamManager"]
         logger.warning(
-            "Daheng CameraStreamManager not available; using MIICAM fallback: %s",
-            daheng_error,
+            f"Daheng CameraStreamManager not available; using MIICAM fallback: {daheng_error}"
         )
     except Exception as miicam_error:
         logger.warning(
-            "CameraStreamManager not available. Daheng import failed: %s; "
-            "MIICAM import failed: %s",
-            daheng_error,
-            miicam_error,
+            f"CameraStreamManager not available. Daheng import failed: {daheng_error}; "
+            f"MIICAM import failed: {miicam_error}"
         )
         CameraStreamManager = None
 
-# Try to import FFmpegCamera, but make it optional
 try:
-    from .ccd.ffmpeg import FFmpegCamera, FFmpegCameraError
+    from ao_shaping.drivers.ccd.ffmpeg import FFmpegCamera, FFmpegCameraError
 
     __all__ += ["FFmpegCamera", "FFmpegCameraError"]
 except ImportError as e:
@@ -89,9 +75,8 @@ except ImportError as e:
     FFmpegCamera = None
     FFmpegCameraError = None
 
-# Try to import SantecSLM200, but make it optional
 try:
-    from .slm.santec_slm200 import SantecSLM200, SantecSLM200Error
+    from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200, SantecSLM200Error
 
     __all__ += ["SantecSLM200", "SantecSLM200Error"]
 except ImportError as e:
@@ -99,13 +84,12 @@ except ImportError as e:
     SantecSLM200 = None
     SantecSLM200Error = None
 
-# Try to import PyVISA base components, but make them optional
 try:
-    from .visa_base import (
-        VisaResourceManager,
+    from ao_shaping.drivers.visa_base import (
+        VisaError,
         VisaInstrument,
         VisaInstrumentFactory,
-        VisaError,
+        VisaResourceManager,
         is_pyvisa_available,
         list_visa_resources,
         open_visa_instrument,
@@ -130,9 +114,11 @@ except ImportError as e:
     list_visa_resources = None
     open_visa_instrument = None
 
-# Try to import SLM VISA wrapper, but make it optional
 try:
-    from .slm.santec_slm200_visa import SantecSLM200Visa, create_slm_visa_instrument
+    from ao_shaping.drivers.slm.santec_slm200_visa import (
+        SantecSLM200Visa,
+        create_slm_visa_instrument,
+    )
 
     __all__ += ["SantecSLM200Visa", "create_slm_visa_instrument"]
 except ImportError as e:
@@ -140,7 +126,6 @@ except ImportError as e:
     SantecSLM200Visa = None
     create_slm_visa_instrument = None
 
-# Import mock devices for testing
 from ao_shaping.drivers.mock_devices import (
     MockCamera,
     MockCameraError,
@@ -175,24 +160,21 @@ __all__ += [
     "MockWFSError",
 ]
 
-# Import simulated devices (wrapping sim.digitaltwin)
 from ao_shaping.drivers.sim import (
-    SimulatedCCD,
-    SimulatedLaser,
-    SimulatedSLM,
-    SimulatedLens,
-    SimulatedAperture,
-    SimulatedTurbulentScreen,
-    SimulatedThermalScreen,
-    SimulatedATP,
-    # Base classes
-    SimulatedDevice,
     OpticalDevice,
+    SimulatedAperture,
+    SimulatedATP,
+    SimulatedCCD,
+    SimulatedDevice,
+    SimulatedLaser,
+    SimulatedLens,
+    SimulatedSLM,
+    SimulatedThermalScreen,
+    SimulatedTurbulentScreen,
     WavefrontProcessor,
 )
 
 __all__ += [
-    # Simulated devices
     "SimulatedCCD",
     "SimulatedLaser",
     "SimulatedSLM",
@@ -201,7 +183,6 @@ __all__ += [
     "SimulatedTurbulentScreen",
     "SimulatedThermalScreen",
     "SimulatedATP",
-    # Base classes
     "SimulatedDevice",
     "OpticalDevice",
     "WavefrontProcessor",

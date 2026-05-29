@@ -5,13 +5,14 @@
 """
 
 import ctypes
-import time
 import os
+import time
 from pathlib import Path
 from typing import Union
 
 import numpy as np
 from loguru import logger
+from retrying import retry
 from scipy import ndimage
 
 from ao_shaping.drivers.slm.santec_slm200_constants import (
@@ -55,10 +56,23 @@ class SantecSLM200Error(Exception):
         self.code = code
         if code is not None:
             error_detail = get_slm_error_message(code)
-            full_message = f"{message} (错误码: {code}, {error_detail})" if message else f"错误码: {code}, {error_detail}"
+            full_message = (
+                f"{message} (错误码: {code}, {error_detail})"
+                if message
+                else f"错误码: {code}, {error_detail}"
+            )
             super().__init__(full_message)
         else:
             super().__init__(message)
+
+
+def _is_retryable_slant_error(exception) -> bool:
+    """Determine if an exception is retryable for SLM operations.
+
+    Retry on SantecSLM200Error as these often indicate transient USB issues
+    that may succeed on retry.
+    """
+    return isinstance(exception, SantecSLM200Error)
 
 
 class SantecSLM200:
@@ -183,18 +197,24 @@ class SantecSLM200:
         self._ensure_open()
         # 使用正确的大小初始化buffer (256字节 + null terminator)
         device_id = ctypes.create_string_buffer(256)
-        logger.debug(f"SLM #{self.slm_number} 正在读取序列号, buffer size: {len(device_id)}")
-        
+        logger.debug(
+            f"SLM #{self.slm_number} 正在读取序列号, buffer size: {len(device_id)}"
+        )
+
         ret = self._slm.SLM_Ctrl_ReadSD(self.slm_number, device_id)
         logger.debug(f"SLM #{self.slm_number} ReadSD 返回码: {ret} (OK={SLM_OK})")
-        
+
         if ret != SLM_OK:
             # 尝试使用备用方法 SLM_Ctrl_ReadSDO
-            logger.warning(f"SLM_Ctrl_ReadSD 失败: {get_slm_error_message(ret)}, 尝试备用方法...")
+            logger.warning(
+                f"SLM_Ctrl_ReadSD 失败: {get_slm_error_message(ret)}, 尝试备用方法..."
+            )
             try:
                 device_id2 = ctypes.create_string_buffer(256)
                 option_id = ctypes.create_string_buffer(256)
-                ret2 = self._slm.SLM_Ctrl_ReadSDO(self.slm_number, device_id2, option_id)
+                ret2 = self._slm.SLM_Ctrl_ReadSDO(
+                    self.slm_number, device_id2, option_id
+                )
                 logger.debug(f"SLM_Ctrl_ReadSDO 返回码: {ret2}")
                 if ret2 == SLM_OK:
                     serial = device_id2.value.decode("utf-8").strip()
@@ -202,10 +222,10 @@ class SantecSLM200:
                     return serial
             except Exception as e:
                 logger.debug(f"备用方法也失败: {e}")
-            
+
             logger.warning(f"读取SLM序列号失败: {get_slm_error_message(ret)}")
             return None
-        
+
         try:
             serial = device_id.value.decode("utf-8").strip()
             logger.debug(f"SLM #{self.slm_number} 序列号: {serial}")
@@ -291,27 +311,60 @@ class SantecSLM200:
 
         # 按序列号加载配置文件（如有）
         config: dict = self.load_config()
+        config_loaded = bool(config)
 
-        # 应用参数优先级：__init__ 显式参数 > config文件 > 默认值
-        # wavelength: None=请用配置/设备；其他值（含默认1064）=显式设置
-        if self._init_wavelength is not None:
-            self.wavelength = self._init_wavelength
-        elif "wavelength" in config:
-            cfg_wl = config["wavelength"]
-            self.wavelength = int(cfg_wl)
+        # 应用参数优先级：
+        # 如果有配置文件且匹配成功，则仅使用配置文件中的值（不使用__init__显式参数）
+        # 否则：__init__ 显式参数 > config文件 > 默认值
+        if config_loaded:
+            # 仅使用配置文件中的值
+            if "wavelength" in config:
+                self.wavelength = int(config["wavelength"])
+            else:
+                self.wavelength = None
+
+            if "shift_x" in config:
+                self._shift_x = config["shift_x"]
+            else:
+                self._shift_x = 0
+
+            if "shift_y" in config:
+                self._shift_y = config["shift_y"]
+            else:
+                self._shift_y = 0
+
+            if "use_120hz" in config:
+                self._use_120hz = bool(config["use_120hz"])
+            else:
+                self._use_120hz = False
+            self.flags = FLAGS_RATE120 if self._use_120hz else 0
         else:
-            self.wavelength = None
+            # 没有配置文件时使用原有优先级逻辑
+            # wavelength: None=请用配置/设备；其他值（含默认1064）=显式设置
+            if self._init_wavelength is not None:
+                self.wavelength = self._init_wavelength
+            else:
+                self.wavelength = None
 
-        # shift_x/shift_y: 优先使用init参数，否则从配置加载
-        if self._init_shift_x is not None:
-            self._shift_x = self._init_shift_x
-        elif "shift_x" in config:
-            self._shift_x = config["shift_x"]
+            # shift_x/shift_y: 优先使用init参数，否则从配置加载
+            if self._init_shift_x is not None:
+                self._shift_x = self._init_shift_x
+            else:
+                self._shift_x = 0
 
-        if self._init_shift_y is not None:
-            self._shift_y = self._init_shift_y
-        elif "shift_y" in config:
-            self._shift_y = config["shift_y"]
+            if self._init_shift_y is not None:
+                self._shift_y = self._init_shift_y
+            else:
+                self._shift_y = 0
+
+            # use_120hz: 优先使用init参数，否则从配置加载
+            if (
+                "use_120hz" in self.__dict__ and self._use_120hz is not None
+            ):  # Check if explicitly set in __init__
+                pass  # Keep the __init__ value
+            else:
+                self._use_120hz = False
+            self.flags = FLAGS_RATE120 if self._use_120hz else 0
 
         logger.info(
             f"SLM #{self.slm_number} 参数: "
@@ -458,8 +511,9 @@ class SantecSLM200:
         wavelength = ctypes.c_uint32(0)
         phase = ctypes.c_uint32(0)
 
-        res = self._slm.SLM_Ctrl_ReadWL(self.slm_number,
-                                         ctypes.byref(wavelength), ctypes.byref(phase))
+        res = self._slm.SLM_Ctrl_ReadWL(
+            self.slm_number, ctypes.byref(wavelength), ctypes.byref(phase)
+        )
         if res != SLM_OK:
             raise SantecSLM200Error("读取波长信息失败", code=res)
 
@@ -521,9 +575,7 @@ class SantecSLM200:
         )
 
         if ret != SLM_OK:
-            raise SantecSLM200Error(
-                f"写入相位数据到内存#{memory_number}失败", code=ret
-            )
+            raise SantecSLM200Error(f"写入相位数据到内存#{memory_number}失败", code=ret)
 
         self._memory_phase_cache[memory_number] = phase.copy()
         logger.debug(f"相位数据已写入SLM #{self.slm_number} 内存#{memory_number}")
@@ -573,14 +625,10 @@ class SantecSLM200:
         dat = (ctypes.c_ushort * (width * height))()
         ctypes.memmove(dat, phase.ctypes.data, phase.nbytes)
 
-        ret = self._slm.SLM_Disp_Data(
-            self.slm_number, width, height, 0, dat
-        )
+        ret = self._slm.SLM_Disp_Data(self.slm_number, width, height, 0, dat)
 
         if ret != SLM_OK:
-            raise SantecSLM200Error(
-                "显示相位数据失败", code=ret
-            )
+            raise SantecSLM200Error("显示相位数据失败", code=ret)
 
         self._displayed_memory_number = None
         self._displayed_phase_cache = phase.copy()
@@ -593,9 +641,23 @@ class SantecSLM200:
 
         elif self.video_mode == VideoMode.Memory:
             self._current_memory_slot = (self._current_memory_slot + 1) % MAX_MEM_SLOTS
-            self.write_phase(phase, self._current_memory_slot+1)
-            self.display_memory(self._current_memory_slot+1)
+            self._write_phase_with_retry(phase, self._current_memory_slot + 1)
+            self.display_memory(self._current_memory_slot + 1)
         time.sleep(wait_time_s)
+
+    @retry(
+        stop_max_attempt_number=3,
+        wait_fixed=100,
+        retry_on_exception=_is_retryable_slant_error,
+    )
+    def _write_phase_with_retry(self, phase: np.ndarray, memory_number: int) -> None:
+        """Write phase data with retry logic for transient errors.
+
+        Args:
+            phase: Phase data to write
+            memory_number: Memory slot to write to (1-128)
+        """
+        self.write_phase(phase, memory_number)
 
     def set_grayscale(self, gs: int) -> None:
         """设置SLM灰度值（均匀显示）
@@ -700,16 +762,16 @@ class SantecSLM200:
     def create_phase_from_array(
         self, phase_rad: np.ndarray, max_grayscale: int | None = None
     ) -> np.ndarray:
-        """将弧度相位值转换为SLM灰度值
+        """Convert radian phase values to SLM grayscale values.
 
-        将弧度为单位的相位值（0-2π）转换为SLM的灰度值（0-1023）。
+        Converts phase values in radians (0-2π) to SLM grayscale (0-1023).
 
         Args:
-            phase_rad: 相位值数组（弧度，0-2π）
-            max_grayscale: 2π对应的灰度值，默认为自动计算
+            phase_rad: Phase array in radians (0-2π), shape (height, width).
+            max_grayscale: Grayscale value for 2π radians. Auto-calculated if None.
 
         Returns:
-            灰度值数组，dtype为uint16
+            Grayscale phase array, dtype=uint16.
         """
         if max_grayscale is None:
             max_grayscale = self._max_gray
@@ -729,7 +791,9 @@ class SantecSLM200:
                 # 计算裁切起始位置
                 start_y = (h - target_h) // 2
                 start_x = (w - target_w) // 2
-                phase_rad = phase_rad[start_y : start_y + target_h, start_x : start_x + target_w]
+                phase_rad = phase_rad[
+                    start_y : start_y + target_h, start_x : start_x + target_w
+                ]
             else:
                 # 过小：四周补0
                 logger.warning(
@@ -746,12 +810,12 @@ class SantecSLM200:
         # 确保 max_grayscale 有有效值
         assert max_grayscale is not None, "max_grayscale should be calculated"
         np.nan_to_num(phase_rad, copy=False, nan=0)
-        phase_rad = np.mod(phase_rad, 2*np.pi)
+        phase_rad = np.mod(phase_rad, 2 * np.pi)
         # 确保输入是float类型以便计算
         phase_rad = phase_rad.astype(np.float64)
 
         # 将弧度转换为灰度值
-        grayscale = (phase_rad / (2 * np.pi) * max_grayscale)
+        grayscale = phase_rad / (2 * np.pi) * max_grayscale
 
         # 叠加误差矫正（如有）
         if self._correction_phase is not None:
@@ -760,7 +824,7 @@ class SantecSLM200:
         # 应用平移
         grayscale = self._apply_shift(grayscale)
 
-        return grayscale
+        return grayscale.astype(np.uint16)
 
     def _resize_to_panel(self, data: np.ndarray) -> np.ndarray:
         """将数组裁切或补零至SLM面板分辨率
@@ -783,12 +847,12 @@ class SantecSLM200:
         if h > target_h or w > target_w:
             start_y = (h - target_h) // 2
             start_x = (w - target_w) // 2
-            result = data[start_y:start_y + target_h, start_x:start_x + target_w]
+            result = data[start_y : start_y + target_h, start_x : start_x + target_w]
         else:
             result = np.zeros((target_h, target_w), dtype=data.dtype)
             start_y = (target_h - h) // 2
             start_x = (target_w - w) // 2
-            result[start_y:start_y + h, start_x:start_x + w] = data
+            result[start_y : start_y + h, start_x : start_x + w] = data
 
         return result.astype(np.float64)
 
@@ -824,7 +888,9 @@ class SantecSLM200:
         """
         self._shift_x = shift_x
         self._shift_y = shift_y
-        logger.info(f"SLM #{self.slm_number} 平移参数已更新: shift_x={shift_x}, shift_y={shift_y}")
+        logger.info(
+            f"SLM #{self.slm_number} 平移参数已更新: shift_x={shift_x}, shift_y={shift_y}"
+        )
 
     @property
     def shift_x(self) -> int:
@@ -835,6 +901,28 @@ class SantecSLM200:
     def shift_y(self) -> int:
         """Y方向平移像素数"""
         return self._shift_y
+
+    @property
+    def temperature(self):
+        """
+        Read the drive board and option board temperatures.
+
+        Returns
+        -------
+        (float, float)
+            Temperature in Celsius of the drive and option board
+        """
+        # Note that the Santec documentation suggests using signed
+        # integers, but the header requests unsigned integers.
+        drive_temp = ctypes.c_uint32(0)
+        option_temp = ctypes.c_uint32(0)
+
+        if (
+            res := self._slm.SLM_Ctrl_ReadT(self.slm_number, drive_temp, option_temp)
+        ) != SLM_OK:
+            raise SantecSLM200Error(code=res)
+
+        return (drive_temp.value / 10.0, option_temp.value / 10.0)
 
     def _ensure_open(self) -> None:
         """确保设备已打开

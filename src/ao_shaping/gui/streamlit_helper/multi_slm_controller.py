@@ -1,10 +1,11 @@
 import json
-import streamlit as st
-import numpy as np
-from pathlib import Path
 import sys
-from loguru import logger
+from pathlib import Path
 from typing import Any
+
+import numpy as np
+import streamlit as st
+from loguru import logger
 
 # Config file path for sidebar settings persistence
 CONFIG_DIR = Path.home() / ".config" / "ao_shaping"
@@ -80,7 +81,7 @@ def save_slm_config(config: dict) -> None:
 def apply_config_to_session(config: dict) -> None:
     """Apply loaded config to session state."""
     # Widget types that cannot be set via session_state (use suffix matching)
-    toggle_suffixes = ("_btn", "_toggle", "_file")
+    toggle_suffixes = ("_btn", "_toggle", "_file", "_phase_preview", "_phase_source")
     for key, value in config.items():
         if key.startswith(("slm1_", "slm2_", "cam1_", "cam2_")):
             # Skip toggle widgets (buttons, checkboxes, radio toggles)
@@ -92,15 +93,20 @@ def apply_config_to_session(config: dict) -> None:
 def collect_config_from_session() -> dict:
     """Collect current SLM configuration from session state."""
     config = {}
-    toggle_suffixes = ("_btn", "_toggle", "_file")
+    toggle_suffixes = ("_btn", "_toggle", "_file", "_phase_preview", "_phase_source")
     for key in st.session_state:
         if key.startswith(("slm1_", "slm2_", "cam1_", "cam2_")):
             value = st.session_state[key]
             # Skip toggle widgets (buttons, checkboxes, etc.)
             if any(key.endswith(suffix) for suffix in toggle_suffixes):
                 continue
-            if not callable(value):
+            # Skip non-JSON-serializable values (like numpy arrays)
+            try:
+                json.dumps(value)
                 config[key] = value
+            except (TypeError, OverflowError):
+                # Skip values that can't be JSON serialized
+                continue
     return config
 
 
@@ -165,7 +171,7 @@ def render_phase_preview(slm_num: int) -> None:
         preview,
         caption=f"SLM {slm_num} 当前显示相位预览",
         clamp=True,
-        use_container_width=True,
+        width='stretch',
     )
 
 
@@ -339,9 +345,9 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
         params["pixel_pitch_um"] = st.number_input(
             "像素间距 (um)",
             value=default_pixel_pitch,
-            min_value=0.1,
-            max_value=100.0,
-            step=0.1,
+            min_value=1,
+            max_value=100,
+            step=1,
             key=f"{prefix}_vortex_pixel_pitch",
         )
         params["wrap_phase"] = st.checkbox(
@@ -752,7 +758,7 @@ def render_camera_panel(cam_num: int) -> None:
                 frame,
                 caption=f"相机 {cam_num} 实时图像",
                 clamp=True,
-                use_container_width=True,
+                width='stretch',
             )
             st.write(
                 f"形状: {frame.shape}, dtype: {frame.dtype}, min/max: {frame.min()}/{frame.max()}"
@@ -767,13 +773,19 @@ def connect_slm(slm_num: int):
     prefix = f"slm{slm_num}"
     wavelength_key = f"{prefix}_wavelength"
     video_mode_key = f"{prefix}_video_mode"
+    shift_x_key = f"{prefix}_shift_x"
+    shift_y_key = f"{prefix}_shift_y"
     wavelength = st.session_state[wavelength_key]
     video_mode = st.session_state[video_mode_key]
+    shift_x = st.session_state[shift_x_key]
+    shift_y = st.session_state[shift_y_key]
     try:
         slm = SantecSLM200(
             slm_number=slm_num,
             wavelength=wavelength,
             video_mode=video_mode,
+            shift_x=shift_x,
+            shift_y=shift_y,
         )
         slm.open()
         st.session_state[prefix] = slm
@@ -883,6 +895,7 @@ def render_slm_sidebar(slm_num: int):
             st.write(f"像素间距: {st.session_state[f'{prefix}_pixel_pitch_um']} μm")
         with col_info2:
             st.write(f"Bit数: {st.session_state[f'{prefix}_bits']}")
+            # TODO 改成显示sn
             st.write(f"SLM编号: {st.session_state[prefix].slm_number}")
 
         st.divider()
@@ -934,7 +947,18 @@ def render_slm_sidebar(slm_num: int):
         if st.button("保存配置", key=f"{prefix}_save_config_btn"):
             config = collect_config_from_session()
             save_slm_config(config)
-            st.success(f"SLM {slm_num} 配置已保存")
+            
+            # Also save to SLM device if connected
+            slm = st.session_state.get(prefix)
+            if slm is not None:
+                try:
+                    slm.save_config()
+                    st.success(f"SLM {slm_num} 配置已保存到会话和设备")
+                except Exception as e:
+                    st.warning(f"SLM {slm_num} 会话配置已保存，但保存到设备失败: {e}")
+                    logger.warning(f"Failed to save SLM {slm_num} config to device: {e}")
+            else:
+                st.success(f"SLM {slm_num} 配置已保存")
 
 
 def render_phase_control(slm_num: int):

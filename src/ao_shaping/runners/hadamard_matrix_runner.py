@@ -15,19 +15,18 @@ Example:
 
 from __future__ import annotations
 
-import click
 from pathlib import Path
 from time import sleep
 
+import click
 import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.dm.hadamard_dm import HadamardDM
-from ao_shaping.drivers.wfs.thorlab_wfs import WFSManager, MlaRes
-from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_timestamp_str
-from ao_shaping.utils.wfs_utils import flatten_slopes
+from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
+from ao_shaping.utils.cli_helpers import get_timestamp_str, parse_tuple, setup_coredumpy
 from ao_shaping.utils.hadamard_calc import calc_n_hadamard_modes
-
+from ao_shaping.utils.wfs_utils import flatten_slopes
 
 DEFAULT_MODE_ORDER = 8
 DEFAULT_MAGNITUDE = 0.5
@@ -106,9 +105,9 @@ def run(
         )
         logger.info(f"HadamardDM initialized: {hdm.DM_NUM} modes")
 
-        with WFSManager(
+        with ThorlabWFS(
             mla_index=mla_index_enum,
-            exp_time=effective_exp_time,
+            exposure_time=effective_exp_time,
             high_speed=high_speed,
             use_custom_ref=use_custom_ref,
             pupil_diameter=pupil_diameter,

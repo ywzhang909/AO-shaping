@@ -52,6 +52,15 @@ from ao_shaping.drivers.device_registry import (
     get_global_registry,
 )
 
+# Mock devices for testing
+from ao_shaping.drivers.mock_devices import (
+    MockCamera,
+    MockDM,
+    MockSLM,
+    MockWFS,
+)
+from ao_shaping.drivers.sim.atmos.screens import SimulatedTurbulentScreen
+
 # Simulated devices
 from ao_shaping.drivers.sim.base import (
     OpticalDevice,
@@ -62,33 +71,24 @@ from ao_shaping.drivers.sim.base import (
 from ao_shaping.drivers.sim.ccd import SimulatedCCD
 from ao_shaping.drivers.sim.laser import SimulatedLaser
 from ao_shaping.drivers.sim.optics import SimulatedSLM
-from ao_shaping.drivers.sim.atmos.screens import SimulatedTurbulentScreen
-
-# Mock devices for testing
-from ao_shaping.drivers.mock_devices import (
-    MockCamera,
-    MockDM,
-    MockSLM,
-    MockWFS,
-)
 
 # Hardware device aliases (gracefully skip if SDK not available)
 try:
     from ao_shaping.drivers import (
         CameraStreamManager,
         DahengCamManager,
-        NlightDM,
-        Thorlab_WFS,
-        SantecSLM200,
         FFmpegCamera,
         MlaRes,
+        NlightDM,
+        SantecSLM200,
+        ThorlabWFS,
     )
 except ImportError:
     # SDK not available - provide None aliases
     CameraStreamManager = None
     DahengCamManager = None
     NlightDM = None
-    Thorlab_WFS = None
+    ThorlabWFS = None
     SantecSLM200 = None
     FFmpegCamera = None
     MlaRes = None
@@ -96,27 +96,26 @@ except ImportError:
 # Optimizers (loaded here to expose in package namespace)
 from ao_shaping.optimizer.wf.rms import optimizer_rms
 from ao_shaping.optimizer.wfless.pib import optimize_pib
+from ao_shaping.utils.display import ImageVoltagesDisplay
 
 # Utilities
-from ao_shaping.utils.file import logger, Recorder
-from ao_shaping.utils.display import ImageVoltagesDisplay
+from ao_shaping.utils.file import Recorder, logger
 from ao_shaping.utils.spots_calc import (
+    calculate_sharpness,
     centroid,
     radius,
-    calculate_sharpness,
-)
-from ao_shaping.utils.zernike_calc import (
-    ZernikeGenerator,
-    zernike_radial,
-    generate_noll_polynomial,
-    calc_n_zernike_terms,
 )
 from ao_shaping.utils.wavefront_calc import (
     ZernikeCentroidCalculator,
     normalize_01,
     to_color,
 )
-
+from ao_shaping.utils.zernike_calc import (
+    ZernikeGenerator,
+    calc_n_zernike_terms,
+    generate_noll_polynomial,
+    zernike_radial,
+)
 
 # ============================================================================
 # Public API - Explicit __all__ for clear interface
@@ -153,7 +152,7 @@ __all__ = [
     "CameraStreamManager",
     "DahengCamManager",
     "NlightDM",
-    "Thorlab_WFS",
+    "ThorlabWFS",
     "SantecSLM200",
     "FFmpegCamera",
     "MlaRes",
