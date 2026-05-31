@@ -110,7 +110,29 @@ cdef class ImageTargetFunc:
         return denoised_img
     
     def intelligen_center(self, cnp.ndarray[DTYPE_t, ndim=2] img):
-        # TODO 如果环围半径较小，使用质心而非形心;如果中间存在空洞使用形心，否则质心
+        # 如果环围半径较小，使用质心而非形心;如果中间存在空洞使用形心，否则质心
+        # 计算环围半径（包含90%能量的半径）
+        radius = self.radius(img, 0.9)
+        # 如果半径较小（小于10个像素），使用质心
+        if radius < 10:
+            return self.center_of_brightness(img)
+        # 检查中间是否存在空洞（中心区域强度低于周边平均值的30%）
+        center_intensity = img[img.shape[0]//2, img.shape[1]//2]
+        # 计算周边平均强度（排除中心区域）
+        edge_sum = 0
+        edge_count = 0
+        for i in range(img.shape[0]):
+            for j in range(img.shape[1]):
+                # 距离中心超过半径的一半但不到半径的位置作为边缘样本
+                dist_from_center = sqrt((i - img.shape[0]//2)**2 + (j - img.shape[1]//2)**2)
+                if radius/2 < dist_from_center <= radius:
+                    edge_sum += img[i, j]
+                    edge_count += 1
+        edge_avg = edge_sum / edge_count if edge_count > 0 else 0
+        # 如果中心强度显著低于边缘平均强度，认为存在空洞
+        if edge_avg > 0 and center_intensity < edge_avg * 0.3:
+            return self.center_of_mass(img)
+        # 否则使用质心
         return self.center_of_brightness(img)
     
     def center_of_brightness(self, cnp.ndarray[DTYPE_t, ndim=2] img):

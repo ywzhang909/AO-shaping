@@ -637,6 +637,14 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 
 ## 近期更新
 
+### v0.3.1 (2026-05-31)
+- 修复TODO标记：`_get_wfs_res` 功能迁移至 `MlaRes.from_str`，支持默认回退值
+- ZernikeSLM 重构：`wait_time_s` 移至 `__init__`，`send_zernike` 不再接受该参数
+- MicroDM `loadIPAddresses` 实现文件加载：支持从配置文件读取控制器 IP 和端口
+- Cython `target_func.pyx` 实现 `intelligen_center`：自动选择质心/形心
+- GUI 显示SLM序列号替代SLM编号
+- ruff LSP 配置完成
+
 ### v0.3.0 (2026-05)
 - **DM 统一接口重构**: 所有 DM 继承自 `base.DM`，提供标准方法 (V_Min/V_Max, DM_NUM, default_dm_unit_mask, check_dm_unit_grad_safe, send_voltages)
 - MicroDM 容错连接: `open()` 允许个别控制器连接失败，记录 warning 后继续

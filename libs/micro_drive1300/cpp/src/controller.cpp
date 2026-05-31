@@ -281,8 +281,61 @@ void DM::Controller::loadIPAddresses(const char* filePath) {
     }
     
     // TODO: Load from file
-    // For now, use defaults
-    for (int i = 0; i < DM_CONTROLLER_COUNT; i++) {
+    FILE* file = fopen(filePath, "r");
+    if (file == nullptr) {
+        // If file doesn't exist, fall back to defaults
+        for (int i = 0; i < DM_CONTROLLER_COUNT; i++) {
+            char ip[32];
+            buildDefaultIP(i + 1, ip, sizeof(ip));
+            controllers_[i].ip = ip;
+            controllers_[i].port = getDefaultPort(i + 1);
+        }
+        return;
+    }
+    
+    // Read file line by line
+    char line[256];
+    int controllerIndex = 0;
+    while (fgets(line, sizeof(line), file) != nullptr && controllerIndex < DM_CONTROLLER_COUNT) {
+        // Skip comments and empty lines
+        if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') {
+            continue;
+        }
+        
+        // Parse line: expect format "IP PORT" or "CONTROLLER_ID IP PORT"
+        int parsedControllerId = controllerIndex + 1; // Default to sequential
+        char ip[32] = "";
+        int port = 0;
+        
+        // Try to parse as "CONTROLLER_ID IP PORT"
+        if (sscanf(line, "%d %31s %d", &parsedControllerId, ip, &port) == 3) {
+            // Successfully parsed controller ID, IP, and port
+            // Validate controller ID
+            if (parsedControllerId < 1 || parsedControllerId > DM_CONTROLLER_COUNT) {
+                // Invalid controller ID, treat as sequential
+                parsedControllerId = controllerIndex + 1;
+            }
+        } else if (sscanf(line, "%31s %d", ip, &port) == 2) {
+            // Parsed as "IP PORT", use sequential controller ID
+            parsedControllerId = controllerIndex + 1;
+        } else {
+            // Failed to parse line, skip it
+            continue;
+        }
+        
+        // Validate parsed controller ID
+        if (parsedControllerId >= 1 && parsedControllerId <= DM_CONTROLLER_COUNT) {
+            int index = parsedControllerId - 1; // Convert to 0-based index
+            controllers_[index].ip = ip;
+            controllers_[index].port = port;
+            controllerIndex++;
+        }
+    }
+    
+    fclose(file);
+    
+    // Fill any remaining controllers with defaults
+    for (int i = controllerIndex; i < DM_CONTROLLER_COUNT; i++) {
         char ip[32];
         buildDefaultIP(i + 1, ip, sizeof(ip));
         controllers_[i].ip = ip;

@@ -55,6 +55,7 @@ def require_take_image(func):
         After auto-calling take_image(), sets ``_image_captured = False`` so
         the function itself can set it to ``True`` after its own image capture.
     """
+
     @wraps(func)
     def wrapper(self: ThorlabWFS, *args, **kwargs):
         if not self._image_captured:
@@ -65,6 +66,7 @@ def require_take_image(func):
             self.take_image()
             self._image_captured = False
         return func(self, *args, **kwargs)
+
     return wrapper
 
 
@@ -81,18 +83,21 @@ class MlaRes(IntEnum):
     Res320 = 4
 
     @classmethod
-    def from_str(cls, value: str | int | MlaRes) -> MlaRes:
+    def from_str(
+        cls, value: str | int | MlaRes, default: MlaRes | None = None
+    ) -> MlaRes:
         """Convert a string or integer to MlaRes enum member.
 
         Args:
             value: Resolution string ('512', '768', '1024', '1280', '320'),
                    integer (512, 768, 1024, 1280, 320), or MlaRes instance
+            default: Default MlaRes to return on invalid input (default: None, raise on invalid)
 
         Returns:
             MlaRes enum member
 
         Raises:
-            ValueError: If value is not a supported resolution
+            ValueError: If value is not a supported resolution and no default provided
         """
         # If already a MlaRes instance, return as-is
         if isinstance(value, cls):
@@ -108,10 +113,16 @@ class MlaRes(IntEnum):
             }
             if value in mapping:
                 return mapping[value]
-            raise ValueError(f"Invalid resolution {value}. Must be one of: 320, 512, 768, 1024, 1280")
+            if default is not None:
+                return default
+            raise ValueError(
+                f"Invalid resolution {value}. Must be one of: 320, 512, 768, 1024, 1280"
+            )
 
         if not isinstance(value, str):
-            raise ValueError(f"Value must be str, int, or MlaRes, got {type(value).__name__}")
+            raise ValueError(
+                f"Value must be str, int, or MlaRes, got {type(value).__name__}"
+            )
 
         mapping = {
             "1280": cls.Res1280,
@@ -122,7 +133,11 @@ class MlaRes(IntEnum):
         }
         if value in mapping:
             return mapping[value]
-        raise ValueError(f"Invalid resolution '{value}'. Must be one of: '320', '512', '768', '1024', '1280'")
+        if default is not None:
+            return default
+        raise ValueError(
+            f"Invalid resolution '{value}'. Must be one of: '320', '512', '768', '1024', '1280'"
+        )
 
 
 Mla_pix = {
@@ -202,8 +217,8 @@ class ThorlabWFS(Device):
         # Load DLL and initialize instrument handle
         self._lib = load_dll()
         self._wfs_instrument_index = c_int32()
-        self.device_name = ''
-        self.serial_num = ''
+        self.device_name = ""
+        self.serial_num = ""
         self._instrument_handle = c_ulong(0)
 
         # Instance attributes (will be updated in open())
@@ -353,8 +368,8 @@ class ThorlabWFS(Device):
         self._lib.WFS_init(
             resource_name, c_bool(False), c_bool(True), byref(self._instrument_handle)
         )
-        self.device_name = str(device_name.value, encoding='utf8')
-        self.serial_num = str(serial_number.value, encoding='utf8')
+        self.device_name = str(device_name.value, encoding="utf8")
+        self.serial_num = str(serial_number.value, encoding="utf8")
         logger.info(
             f"Connected to {self.device_name} with Serial Number {self.serial_num}"
         )
@@ -379,7 +394,10 @@ class ThorlabWFS(Device):
             self._explosure_time = 0.0
 
         # Validate exposure time
-        if not (self._explosure_time == 0.0 or EXP_TIME_LOW <= self._explosure_time <= EXP_TIME_HIGH):
+        if not (
+            self._explosure_time == 0.0
+            or EXP_TIME_LOW <= self._explosure_time <= EXP_TIME_HIGH
+        ):
             logger.warning(
                 f"exp_time {self._explosure_time} out of range, resetting to auto"
             )
@@ -744,6 +762,7 @@ class ThorlabWFS(Device):
             Path object for the reference directory.
         """
         import platform
+
         system = platform.system()
 
         if system == "Windows":
@@ -772,7 +791,9 @@ class ThorlabWFS(Device):
             # Fallback to project data/calibration if not writable
             project_fallback = Path("data") / "calibration" / "wfs_ref"
             if not ref_dir.parent.exists():
-                logger.debug(f"[WFS _get_ref_default_dir] XDG path not accessible, using project fallback: {project_fallback}")
+                logger.debug(
+                    f"[WFS _get_ref_default_dir] XDG path not accessible, using project fallback: {project_fallback}"
+                )
                 return project_fallback
 
             return ref_dir
@@ -937,8 +958,11 @@ class ThorlabWFS(Device):
         """
         # Debug: print current system information
         import platform
+
         logger.debug(f"[WFS load_user_ref] Platform: {platform.system()}")
-        logger.debug(f"[WFS load_user_ref] USERPROFILE: {os.environ.get('USERPROFILE', 'NOT_SET')}")
+        logger.debug(
+            f"[WFS load_user_ref] USERPROFILE: {os.environ.get('USERPROFILE', 'NOT_SET')}"
+        )
 
         if backup_path is not None:
             backup_path = Path(backup_path)
@@ -950,7 +974,9 @@ class ThorlabWFS(Device):
             ref_dir = self._get_ref_default_dir()
             logger.debug(f"[WFS load_user_ref] ref_dir: {ref_dir}")
             logger.debug(f"[WFS load_user_ref] ref_dir exists: {ref_dir.exists()}")
-            logger.debug(f"[WFS load_user_ref] ref_dir parent exists: {ref_dir.parent.exists() if ref_dir.parent != ref_dir else 'N/A'}")
+            logger.debug(
+                f"[WFS load_user_ref] ref_dir parent exists: {ref_dir.parent.exists() if ref_dir.parent != ref_dir else 'N/A'}"
+            )
 
             ref_dir.mkdir(parents=True, exist_ok=True)
             ref_filename = self._get_ref_filename()
@@ -974,7 +1000,9 @@ class ThorlabWFS(Device):
             ref_filename = self._get_ref_filename()
             expected_path = ref_dir / ref_filename
             logger.debug(f"[WFS load_user_ref] Expected path: {expected_path}")
-            logger.debug(f"[WFS load_user_ref] Expected path exists: {expected_path.exists()}")
+            logger.debug(
+                f"[WFS load_user_ref] Expected path exists: {expected_path.exists()}"
+            )
             if not expected_path.exists():
                 # List directory contents to help debugging
                 try:
@@ -1269,7 +1297,9 @@ class ThorlabWFS(Device):
             if stable_wfs:
                 wavefront = np.mean(stable_wfs, axis=0)
             else:
-                return np.zeros((self.num_spots_x, self.num_spots_y), dtype=np.float32), {
+                return np.zeros(
+                    (self.num_spots_x, self.num_spots_y), dtype=np.float32
+                ), {
                     "min": np.nan,
                     "max": np.nan,
                     "diff": np.nan,
@@ -1292,12 +1322,19 @@ class ThorlabWFS(Device):
                 wavefront,
             ):
                 self.handle_error(err)
-                wavefront = np.zeros((self.num_spots_x, self.num_spots_y), dtype=np.float32)
+                wavefront = np.zeros(
+                    (self.num_spots_x, self.num_spots_y), dtype=np.float32
+                )
             else:
                 wavefront = deepcopy(wavefront)[: self.num_spots_x, : self.num_spots_y]
 
         # Calculate statistics from the wavefront (regardless of how it was obtained)
-        min_val, max_val, diff_val, mean_val = c_double(), c_double(), c_double(), c_double()
+        min_val, max_val, diff_val, mean_val = (
+            c_double(),
+            c_double(),
+            c_double(),
+            c_double(),
+        )
         rms_val, wighted_rms_val = c_double(), c_double()
         self._lib.WFS_CalcWavefrontStatistics(
             self._instrument_handle,
@@ -1310,20 +1347,36 @@ class ThorlabWFS(Device):
         )
 
         if np.all(wavefront == 0):
-            logger.warning("WFS_CalcWavefront returned zero-filled buffer — DLL may not have written data")
+            logger.warning(
+                "WFS_CalcWavefront returned zero-filled buffer — DLL may not have written data"
+            )
 
         if WFS_DEBUG_MODE:
             wf_variance = np.var(wavefront)
             wf_std = np.std(wavefront)
-            logger.debug(f"WFS wavefront stats: var={wf_variance:.6f}, std={wf_std:.6f}, shape={wavefront.shape}")
+            logger.debug(
+                f"WFS wavefront stats: var={wf_variance:.6f}, std={wf_std:.6f}, shape={wavefront.shape}"
+            )
 
         return wavefront, {
-            "min": min_val.value if not self.stable_sample_enable else float(np.min(wavefront)),
-            "max": max_val.value if not self.stable_sample_enable else float(np.max(wavefront)),
-            "diff": diff_val.value if not self.stable_sample_enable else float(np.max(wavefront) - np.min(wavefront)),
-            "mean": mean_val.value if not self.stable_sample_enable else float(np.mean(wavefront)),
-            "rms": rms_val.value if not self.stable_sample_enable else float(np.std(wavefront)),
-            "wighted_rms": wighted_rms_val.value if not self.stable_sample_enable else float(np.std(wavefront)),
+            "min": min_val.value
+            if not self.stable_sample_enable
+            else float(np.min(wavefront)),
+            "max": max_val.value
+            if not self.stable_sample_enable
+            else float(np.max(wavefront)),
+            "diff": diff_val.value
+            if not self.stable_sample_enable
+            else float(np.max(wavefront) - np.min(wavefront)),
+            "mean": mean_val.value
+            if not self.stable_sample_enable
+            else float(np.mean(wavefront)),
+            "rms": rms_val.value
+            if not self.stable_sample_enable
+            else float(np.std(wavefront)),
+            "wighted_rms": wighted_rms_val.value
+            if not self.stable_sample_enable
+            else float(np.std(wavefront)),
         }
 
     def _remove_tilt(self, wavefront: np.ndarray) -> np.ndarray:
@@ -1337,7 +1390,9 @@ class ThorlabWFS(Device):
         """
         # Create coordinate grids (normalized to [-1, 1] for numerical stability)
         ny, nx = wavefront.shape
-        y, x = np.meshgrid(np.linspace(-1, 1, ny), np.linspace(-1, 1, nx), indexing="ij")
+        y, x = np.meshgrid(
+            np.linspace(-1, 1, ny), np.linspace(-1, 1, nx), indexing="ij"
+        )
 
         # Flatten for fitting
         z = wavefront.flatten()
@@ -1415,7 +1470,9 @@ class ThorlabWFS(Device):
     # ==================== Spot Deviation ====================
 
     @require_take_image
-    def get_spot_deviation(self, cancel_tile: bool = False) -> tuple[np.ndarray, np.ndarray]:
+    def get_spot_deviation(
+        self, cancel_tile: bool = False
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Get spot deviation from reference positions.
 
         Args:
@@ -1434,7 +1491,10 @@ class ThorlabWFS(Device):
             stable_y_list = []
             attempts = 0
 
-            while len(stable_x_list) < self.stable_sample_n and attempts < self.stable_max_attempts:
+            while (
+                len(stable_x_list) < self.stable_sample_n
+                and attempts < self.stable_max_attempts
+            ):
                 self.take_image(n_sample=1, dynamicNoiseCut=True)
 
                 _spots_dev_x = np.empty(MAX_SPOTS, dtype=np.float32)
@@ -1503,7 +1563,9 @@ class ThorlabWFS(Device):
             y = _spots_deviation_y[: self.num_spots_x, : self.num_spots_y]
 
         if np.all(x == 0) and np.all(y == 0):
-            logger.warning("WFS_GetSpotDeviations returned zero-filled buffers — DLL may not have written data")
+            logger.warning(
+                "WFS_GetSpotDeviations returned zero-filled buffers — DLL may not have written data"
+            )
 
         return x, y
 
@@ -1755,8 +1817,8 @@ class ThorlabWFS(Device):
             High speed mode only supports 512x512 resolution and requires auto exposure.
             Automatically re-optimizes pupil after enabling.
         """
-        if self.device_name.upper() == 'WFS40-5C':
-            logger.warning(f'{self.device_name} not support high speed mode!')
+        if self.device_name.upper() == "WFS40-5C":
+            logger.warning(f"{self.device_name} not support high speed mode!")
             return
 
         def __set_high_speed():
