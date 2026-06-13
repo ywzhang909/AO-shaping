@@ -6,8 +6,8 @@ import findlibs
 import numpy as np
 from loguru import logger
 
-from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.dm._registry import register_dm
+from ao_shaping.drivers.dm.base import DM
 
 
 def _load_adj_txt():
@@ -19,6 +19,7 @@ class NLight(DM):
     DM_NUM: int = 64
     V_Min: float = -300.0
     V_Max: float = 499.0
+    MIN_TIME_DELAY = 0.01
 
     _IP = "192.168.6.10"
     _PORT = 1001
@@ -105,13 +106,14 @@ class NLight(DM):
     def _apply_voltages(self, vs: np.ndarray) -> np.ndarray:
         """Low-level voltage application via UDP driver."""
         vs = np.clip(vs, self.V_Min, self.V_Max)
-        if self.max_iter_diff > 0:
+        if _enable_check_max_voltage_gap := self.max_iter_diff > 0:
             gap = vs - self._last_voltages
             direction = np.sign(gap)
             abs_gap = np.abs(gap)
             while abs_gap.any():
                 abs_gap = np.clip(abs_gap - self.max_iter_diff, 0, self.V_Max)
                 self.udp_driver.set_voltages(vs + direction * abs_gap)
+                time.sleep(self.MIN_TIME_DELAY)
         self.udp_driver.set_voltages(vs)
         self._last_voltages = vs.copy()
         return self._last_voltages
