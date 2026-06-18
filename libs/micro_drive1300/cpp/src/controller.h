@@ -6,7 +6,8 @@
 #ifndef CONTROLLER_H
 #define CONTROLLER_H
 
-#include "dm_control.h"
+#include <cstdint>  // For uint64_t
+#include "dm_control.h"  // Must include the public header
 #include "thread_pool.h"
 #include <string>
 #include <vector>
@@ -124,7 +125,7 @@ private:
     int getDefaultPort(int controllerId);
     
     int connectController(ControllerInfo& ctrl);
-    int sendCommand(int socket, const uint8_t* data, int dataLen);
+    int sendCommand(int socket, const uint8_t* data, int dataLen);  // int works for both SOCKET and int
     
     void loadIPAddresses(const char* filePath);
     void buildDefaultMapping();

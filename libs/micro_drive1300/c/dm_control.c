@@ -140,7 +140,10 @@ static void BuildDefaultIP(int controllerId, char* ipBuf, int bufSize) {
  * Build Default Port
  *===========================================================================*/
 static int GetDefaultPort(int controllerId) {
-    return 10100 + controllerId; /* 10101 - 10126, matches 10000 + ip_suffix */
+    /* Port: 10000 + ip_suffix, where ip_suffix = 100 + controllerId */
+    /* Controller 1 -> IP 192.168.0.101 -> port 10101 */
+    /* Controller 26 -> IP 192.168.0.126 -> port 10126 */
+    return 10000 + (100 + controllerId); /* = 10100 + controllerId */
 }
 
 /*============================================================================
@@ -272,16 +275,20 @@ static int SendCommand(SOCKET_TYPE socket, const uint8_t* data, int dataLen) {
  * from ChannelEntry data (see Python: MicroDM._build_channel_indices).
  *===========================================================================*/
 static void BuildDefaultMapping(void) {
-    /* Default placeholder mapping: sequential distribution
-     * actuator 1-50   → controller 1, channel 0-49
-     * actuator 51-100 → controller 2, channel 0-49
-     * ...
-     * This matches the Python MicroDM default behavior when
-     * use_wiring_map=False.
+    /* Default mapping: 36x36 grid distributed to 26 controllers
+     * Same algorithm as libs/dm_control.py and cpp/src/controller.cpp
      */
     for (int act = 0; act < DM_MAX_ACTUATORS; act++) {
-        g_actuatorMap[act].controllerId = (act / DM_MAX_CHANNELS) + 1;
-        g_actuatorMap[act].channel = act % DM_MAX_CHANNELS;
+        int row = act / 36;
+        int col = act % 36;
+
+        /* Divide 36x36 into 16 regions */
+        int regionX = col / 9;
+        int regionY = row / 9;
+        int region = regionY * 4 + regionX;
+
+        g_actuatorMap[act].controllerId = (region % 16) + 1;
+        g_actuatorMap[act].channel = (act % 50);
     }
 }
 

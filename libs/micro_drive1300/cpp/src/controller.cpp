@@ -292,22 +292,18 @@ void DM::Controller::loadIPAddresses(const char* filePath) {
 
 void DM::Controller::buildDefaultMapping() {
     // Default mapping: 36x36 grid distributed to 26 controllers
-    int act = 1;
-    for (int i = 0; i < 36; i++) {
-        for (int j = 0; j < 36; j++) {
-            int idx = act - 1;
-            if (idx >= DM_MAX_ACTUATORS) break;
-            
-            // Simple distribution based on position
-            int regionX = i / 9;
-            int regionY = j / 9;
-            int region = regionY * 4 + regionX;
-            
-            actuatorMap_[idx].controllerId = (region % 16) + 1;
-            actuatorMap_[idx].channel = (i * 36 + j) % 50;
-            
-            act++;
-        }
+    // Same algorithm as libs/dm_control.py
+    for (int act = 0; act < DM_MAX_ACTUATORS; act++) {
+        int row = act / 36;
+        int col = act % 36;
+
+        // Divide 36x36 into 16 regions
+        int regionX = col / 9;
+        int regionY = row / 9;
+        int region = regionY * 4 + regionX;
+
+        actuatorMap_[act].controllerId = (region % 16) + 1;
+        actuatorMap_[act].channel = (act % 50);
     }
 }
 

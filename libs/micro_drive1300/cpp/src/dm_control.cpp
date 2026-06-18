@@ -3,7 +3,7 @@
  * Provides C-compatible interface to C++ Controller class
  */
 
-#include "dm_control.h"
+#include "dm_control.h"  // Public header (already includes cstdint for C++)
 #include "controller.h"
 #include <map>
 #include <mutex>

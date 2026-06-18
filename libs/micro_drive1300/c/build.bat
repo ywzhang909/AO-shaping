@@ -84,4 +84,4 @@ for %%F in (dm_control.dll dm_control.lib dm_test.exe) do (
 )
 
 :pause_end
-pause
+exit /b %errorlevel%
