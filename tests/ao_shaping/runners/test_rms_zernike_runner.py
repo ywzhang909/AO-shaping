@@ -13,20 +13,20 @@ class TestGetWfsRes:
 
     def test_all_resolutions(self):
         """Test all supported WFS resolutions."""
-        from ao_shaping.runners.rms_zernike_runner import _get_wfs_res
+        from ao_shaping.drivers.wfs.thorlab_wfs import MlaRes
 
-        assert _get_wfs_res('320') == MlaRes.Res320
-        assert _get_wfs_res('512') == MlaRes.Res512
-        assert _get_wfs_res('768') == MlaRes.Res768
-        assert _get_wfs_res('1024') == MlaRes.Res1024
-        assert _get_wfs_res('1280') == MlaRes.Res1280
+        assert MlaRes.from_str("320") == MlaRes.Res320
+        assert MlaRes.from_str("512") == MlaRes.Res512
+        assert MlaRes.from_str("768") == MlaRes.Res768
+        assert MlaRes.from_str("1024") == MlaRes.Res1024
+        assert MlaRes.from_str("1280") == MlaRes.Res1280
 
     def test_default_fallback(self):
         """Test unknown resolution falls back to Res1024."""
-        from ao_shaping.runners.rms_zernike_runner import _get_wfs_res
+        from ao_shaping.drivers.wfs.thorlab_wfs import MlaRes
 
-        assert _get_wfs_res('999') == MlaRes.Res1024
-        assert _get_wfs_res('invalid') == MlaRes.Res1024
+        assert MlaRes.from_str("999", default=MlaRes.Res1024) == MlaRes.Res1024
+        assert MlaRes.from_str("invalid", default=MlaRes.Res1024) == MlaRes.Res1024
 
 
 class TestAutoDeltaDetectRms:
@@ -44,7 +44,7 @@ class TestAutoDeltaDetectRms:
         mock_wfs = MagicMock()
         mock_wfs.get_wavefront.return_value = (
             np.zeros((64, 64)),
-            {"rms": rms_value, "strehl": 0.8}
+            {"rms": rms_value, "strehl": 0.8},
         )
         mock_wfs.take_image.return_value = None
         mock_wfs.__enter__.return_value = mock_wfs
@@ -58,19 +58,26 @@ class TestAutoDeltaDetectRms:
         mock_slm = self._make_mock_slm()
         mock_wfs = self._make_mock_wfs()
 
-        with patch(
-            "ao_shaping.runners.rms_zernike_runner.ZernikeSLM",
-            return_value=mock_slm,
-        ), patch(
-            "ao_shaping.runners.rms_zernike_runner.ThorlabWFS",
-            return_value=mock_wfs,
-        ), patch(
-            "ao_shaping.runners.rms_zernike_runner.search_optimal_delta",
-            return_value=(0.5, {
-                'baseline_obj': 0.15,
-                'optimal_delta': 0.5,
-                'fine_results': [],
-            }),
+        with (
+            patch(
+                "ao_shaping.runners.rms_zernike_runner.ZernikeSLM",
+                return_value=mock_slm,
+            ),
+            patch(
+                "ao_shaping.runners.rms_zernike_runner.ThorlabWFS",
+                return_value=mock_wfs,
+            ),
+            patch(
+                "ao_shaping.runners.rms_zernike_runner.search_optimal_delta",
+                return_value=(
+                    0.5,
+                    {
+                        "baseline_obj": 0.15,
+                        "optimal_delta": 0.5,
+                        "fine_results": [],
+                    },
+                ),
+            ),
         ):
             delta, info = _auto_delta_detect_rms(
                 min_delta=0.01,
@@ -83,9 +90,9 @@ class TestAutoDeltaDetectRms:
 
             assert isinstance(delta, float)
             assert isinstance(info, dict)
-            assert 'baseline_rms' in info
-            assert 'best_rms' in info
-            assert 'best_delta' in info
+            assert "baseline_rms" in info
+            assert "best_rms" in info
+            assert "best_delta" in info
 
     def test_auto_delta_detect_passes_exposure_time(self):
         """Test that exposure_time is passed to ThorlabWFS."""
@@ -94,19 +101,26 @@ class TestAutoDeltaDetectRms:
         mock_slm = self._make_mock_slm()
         mock_wfs = self._make_mock_wfs()
 
-        with patch(
-            "ao_shaping.runners.rms_zernike_runner.ZernikeSLM",
-            return_value=mock_slm,
-        ), patch(
-            "ao_shaping.runners.rms_zernike_runner.ThorlabWFS",
-            return_value=mock_wfs,
-        ), patch(
-            "ao_shaping.runners.rms_zernike_runner.search_optimal_delta",
-            return_value=(0.5, {
-                'baseline_obj': 0.15,
-                'optimal_delta': 0.5,
-                'fine_results': [],
-            }),
+        with (
+            patch(
+                "ao_shaping.runners.rms_zernike_runner.ZernikeSLM",
+                return_value=mock_slm,
+            ),
+            patch(
+                "ao_shaping.runners.rms_zernike_runner.ThorlabWFS",
+                return_value=mock_wfs,
+            ),
+            patch(
+                "ao_shaping.runners.rms_zernike_runner.search_optimal_delta",
+                return_value=(
+                    0.5,
+                    {
+                        "baseline_obj": 0.15,
+                        "optimal_delta": 0.5,
+                        "fine_results": [],
+                    },
+                ),
+            ),
         ):
             _auto_delta_detect_rms(
                 wfs_exposure_time=50.0,
@@ -131,7 +145,7 @@ class TestCliOptions:
         """Test that the run command is a Click command."""
         from ao_shaping.runners.rms_zernike_runner import run
 
-        assert hasattr(run, 'callback')
+        assert hasattr(run, "callback")
         assert callable(run)
 
     def test_exposure_time_ms_option_exists(self):
@@ -139,9 +153,9 @@ class TestCliOptions:
         from ao_shaping.runners.rms_zernike_runner import run
 
         param_names = [p.name for p in run.params]
-        assert 'exposure_time_ms' in param_names
+        assert "exposure_time_ms" in param_names
         # Old option should NOT exist
-        assert 'exposure_time' not in param_names
+        assert "exposure_time" not in param_names
 
     def test_all_expected_options_exist(self):
         """Test that all expected CLI options are present."""
@@ -149,19 +163,44 @@ class TestCliOptions:
 
         param_names = [p.name for p in run.params]
         expected = [
-            'dir', 'epochs', 'lr', 'delta', 'n_max', 'wfs_res',
-            'pupil_diameter', 'pupil_center', 'early_stop_threshold',
-            'exposure_time_ms', 'wavelength', 'shift_x', 'shift_y',
-            'slm_number', 'remove_tilt', 'wait_time',
-            'min_delta', 'max_delta', 'delta_step', 'n_directions',
-            'n_init_positions', 'init_range',
-            'lr_schedule', 'lr_min', 'delta_schedule', 'delta_min',
-            'optimizer', 'beta1', 'weight_decay',
-            'mini_batch', 'gradient_clip',
-            'stagnation_patience', 'stagnation_delta_boost',
-            'freeze_threshold',
-            'early_stop_window', 'early_stop_min_epochs', 'early_stop_patience',
-            'n_frames',
+            "dir",
+            "epochs",
+            "lr",
+            "delta",
+            "n_max",
+            "wfs_res",
+            "pupil_diameter",
+            "pupil_center",
+            "early_stop_threshold",
+            "exposure_time_ms",
+            "wavelength",
+            "shift_x",
+            "shift_y",
+            "slm_number",
+            "remove_tilt",
+            "wait_time",
+            "min_delta",
+            "max_delta",
+            "delta_step",
+            "n_directions",
+            "n_init_positions",
+            "init_range",
+            "lr_schedule",
+            "lr_min",
+            "delta_schedule",
+            "delta_min",
+            "optimizer",
+            "beta1",
+            "weight_decay",
+            "mini_batch",
+            "gradient_clip",
+            "stagnation_patience",
+            "stagnation_delta_boost",
+            "freeze_threshold",
+            "early_stop_window",
+            "early_stop_min_epochs",
+            "early_stop_patience",
+            "n_frames",
         ]
         for name in expected:
             assert name in param_names, f"Missing CLI option: {name}"
@@ -182,7 +221,7 @@ class TestRunFunction:
         mock_wfs = MagicMock()
         mock_wfs.get_wavefront.return_value = (
             np.zeros((64, 64)),
-            {"rms": rms_value, "strehl": 0.8}
+            {"rms": rms_value, "strehl": 0.8},
         )
         mock_wfs.take_image.return_value = None
         mock_wfs.__enter__.return_value = mock_wfs
@@ -200,45 +239,75 @@ class TestRunFunction:
 
         runner = CliRunner()
 
-        with patch(
-            "ao_shaping.runners.rms_zernike_runner.ZernikeSLM",
-            return_value=mock_slm,
-        ), patch(
-            "ao_shaping.runners.rms_zernike_runner.ThorlabWFS",
-            return_value=mock_wfs,
-        ), patch(
-            "ao_shaping.runners.rms_zernike_runner.search_optimal_delta",
-            return_value=(1.0, {
-                'baseline_obj': 0.15,
-                'optimal_delta': 1.0,
-                'fine_results': [],
-            }),
-        ), patch(
-            "ao_shaping.runners.rms_zernike_runner.optimizer_rms",
-            return_value=MagicMock(
-                get_best_iter=MagicMock(return_value=(
-                    {"_c": np.zeros(15), "_wavefront": [np.zeros((64, 64)), np.zeros((64, 64))]},
-                    (1, 0.10)
-                )),
-                get_best_target=MagicMock(return_value=(np.zeros(15), 0.10)),
-                history=[{"_c": np.zeros(15), "_wavefront": [np.zeros((64, 64)), np.zeros((64, 64))], "_pos_intensity": None}],
-                first={"_c": np.zeros(15), "_wavefront": [np.zeros((64, 64)), np.zeros((64, 64))]},
-                save_best=MagicMock(),
-                save_array_sidecars=MagicMock(),
-                save_dataframe=MagicMock(),
+        with (
+            patch(
+                "ao_shaping.runners.rms_zernike_runner.ZernikeSLM",
+                return_value=mock_slm,
+            ),
+            patch(
+                "ao_shaping.runners.rms_zernike_runner.ThorlabWFS",
+                return_value=mock_wfs,
+            ),
+            patch(
+                "ao_shaping.runners.rms_zernike_runner.search_optimal_delta",
+                return_value=(
+                    1.0,
+                    {
+                        "baseline_obj": 0.15,
+                        "optimal_delta": 1.0,
+                        "fine_results": [],
+                    },
+                ),
+            ),
+            patch(
+                "ao_shaping.runners.rms_zernike_runner.optimizer_rms",
+                return_value=MagicMock(
+                    get_best_iter=MagicMock(
+                        return_value=(
+                            {
+                                "_c": np.zeros(15),
+                                "_wavefront": [np.zeros((64, 64)), np.zeros((64, 64))],
+                            },
+                            (1, 0.10),
+                        )
+                    ),
+                    get_best_target=MagicMock(return_value=(np.zeros(15), 0.10)),
+                    history=[
+                        {
+                            "_c": np.zeros(15),
+                            "_wavefront": [np.zeros((64, 64)), np.zeros((64, 64))],
+                            "_pos_intensity": None,
+                        }
+                    ],
+                    first={
+                        "_c": np.zeros(15),
+                        "_wavefront": [np.zeros((64, 64)), np.zeros((64, 64))],
+                    },
+                    save_best=MagicMock(),
+                    save_array_sidecars=MagicMock(),
+                    save_dataframe=MagicMock(),
+                ),
             ),
         ):
-            result = runner.invoke(run, [
-                '--epochs', '2',
-                '--n-max', '4',
-                '--delta', '1.0',  # Skip auto-delta by providing positive value
-                '--wfs_res', '1024',
-                '--exposure-time-ms', '50.0',
-            ])
+            result = runner.invoke(
+                run,
+                [
+                    "--epochs",
+                    "2",
+                    "--n-max",
+                    "4",
+                    "--delta",
+                    "1.0",  # Skip auto-delta by providing positive value
+                    "--wfs_res",
+                    "1024",
+                    "--exposure-time-ms",
+                    "50.0",
+                ],
+            )
 
             # Should complete without error
             assert result.exit_code == 0, f"CLI failed: {result.output}"
-            assert '完成' in result.output or 'RMS' in result.output
+            assert "完成" in result.output or "RMS" in result.output
 
     def test_run_passes_exposure_time_ms_to_optimizer(self):
         """Test that exposure_time_ms is correctly passed to optimizer_rms."""
@@ -253,13 +322,27 @@ class TestRunFunction:
         def capture_optimizer_rms(**kwargs):
             captured_kwargs.update(kwargs)
             return MagicMock(
-                get_best_iter=MagicMock(return_value=(
-                    {"_c": np.zeros(15), "_wavefront": [np.zeros((64, 64)), np.zeros((64, 64))]},
-                    (1, 0.10)
-                )),
+                get_best_iter=MagicMock(
+                    return_value=(
+                        {
+                            "_c": np.zeros(15),
+                            "_wavefront": [np.zeros((64, 64)), np.zeros((64, 64))],
+                        },
+                        (1, 0.10),
+                    )
+                ),
                 get_best_target=MagicMock(return_value=(np.zeros(15), 0.10)),
-                history=[{"_c": np.zeros(15), "_wavefront": [np.zeros((64, 64)), np.zeros((64, 64))], "_pos_intensity": None}],
-                first={"_c": np.zeros(15), "_wavefront": [np.zeros((64, 64)), np.zeros((64, 64))]},
+                history=[
+                    {
+                        "_c": np.zeros(15),
+                        "_wavefront": [np.zeros((64, 64)), np.zeros((64, 64))],
+                        "_pos_intensity": None,
+                    }
+                ],
+                first={
+                    "_c": np.zeros(15),
+                    "_wavefront": [np.zeros((64, 64)), np.zeros((64, 64))],
+                },
                 save_best=MagicMock(),
                 save_array_sidecars=MagicMock(),
                 save_dataframe=MagicMock(),
@@ -267,26 +350,38 @@ class TestRunFunction:
 
         runner = CliRunner()
 
-        with patch(
-            "ao_shaping.runners.rms_zernike_runner.ZernikeSLM",
-            return_value=mock_slm,
-        ), patch(
-            "ao_shaping.runners.rms_zernike_runner.ThorlabWFS",
-            return_value=mock_wfs,
-        ), patch(
-            "ao_shaping.runners.rms_zernike_runner.optimizer_rms",
-            side_effect=capture_optimizer_rms,
+        with (
+            patch(
+                "ao_shaping.runners.rms_zernike_runner.ZernikeSLM",
+                return_value=mock_slm,
+            ),
+            patch(
+                "ao_shaping.runners.rms_zernike_runner.ThorlabWFS",
+                return_value=mock_wfs,
+            ),
+            patch(
+                "ao_shaping.runners.rms_zernike_runner.optimizer_rms",
+                side_effect=capture_optimizer_rms,
+            ),
         ):
-            result = runner.invoke(run, [
-                '--epochs', '2',
-                '--n-max', '4',
-                '--delta', '1.0',
-                '--wfs_res', '1024',
-                '--exposure-time-ms', '75.0',
-            ])
+            result = runner.invoke(
+                run,
+                [
+                    "--epochs",
+                    "2",
+                    "--n-max",
+                    "4",
+                    "--delta",
+                    "1.0",
+                    "--wfs_res",
+                    "1024",
+                    "--exposure-time-ms",
+                    "75.0",
+                ],
+            )
 
             assert result.exit_code == 0, f"CLI failed: {result.output}"
-            assert captured_kwargs.get('wfs_exposure_time') == 75.0
+            assert captured_kwargs.get("wfs_exposure_time") == 75.0
 
 
 class TestImports:
@@ -297,17 +392,22 @@ class TestImports:
         from ao_shaping.runners import rms_zernike_runner
 
         # Verify key functions exist
-        assert hasattr(rms_zernike_runner, 'run')
-        assert hasattr(rms_zernike_runner, '_get_wfs_res')
-        assert hasattr(rms_zernike_runner, '_auto_delta_detect_rms')
+        assert hasattr(rms_zernike_runner, "run")
+        # _get_wfs_res has been moved to MlaRes.from_str
+        assert hasattr(rms_zernike_runner, "_auto_delta_detect_rms")
 
     def test_no_email_import(self):
         """Verify the unused email.policy import was removed."""
         import ao_shaping.runners.rms_zernike_runner as module
+
         source_lines = open(module.__file__).readlines()
         for line in source_lines[:20]:
-            assert 'email.policy' not in line, "Unused email.policy import should be removed"
-            assert 'from tqdm import cli' not in line, "Unused 'from tqdm import cli' should be removed"
+            assert "email.policy" not in line, (
+                "Unused email.policy import should be removed"
+            )
+            assert "from tqdm import cli" not in line, (
+                "Unused 'from tqdm import cli' should be removed"
+            )
 
 
 if __name__ == "__main__":

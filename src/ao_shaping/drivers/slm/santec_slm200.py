@@ -161,6 +161,7 @@ class SantecSLM200:
         self._init_shift_x: int | None = shift_x
         self._init_shift_y: int | None = shift_y
         self._init_use_120hz: bool = use_120hz
+        self._init_correction_csv_path: Union[str, Path, None] = correction_csv_path
 
         # 实际运行时值（立即生效，供属性和测试使用）
         self.wavelength: int | None = wavelength
@@ -177,15 +178,6 @@ class SantecSLM200:
 
         # 误差矫正数据（从CSV加载，在create_phase_from_array中叠加）
         self._correction_phase: np.ndarray | None = None
-        if correction_csv_path is not None:
-            correction_path = Path(correction_csv_path)
-            if not correction_path.exists():
-                raise FileNotFoundError(f"误差矫正文件不存在: {correction_path}")
-            raw_correction = self.load_phase_from_csv(correction_path)
-            self._correction_phase = self._resize_to_panel(raw_correction)
-            logger.info(
-                f"SLM #{self.slm_number} 已加载误差矫正数据: {correction_path.name}, "
-            )
 
         # 延迟导入SLM SDK
         try:
@@ -430,6 +422,41 @@ class SantecSLM200:
             f"shift_x={self._shift_x}, shift_y={self._shift_y}, "
             f"use_120hz={self._use_120hz}"
         )
+
+        # 加载误差矫正数据
+        correction_path = None
+        # 优先级: __init__显式参数 > 配置文件 > 默认路径
+        if self._init_correction_csv_path is not None:
+            correction_path = Path(self._init_correction_csv_path)
+            logger.debug(f"使用__init__中指定的误差矫正路径: {correction_path}")
+        elif config_loaded and "correction_csv_path" in config:
+            correction_path = Path(config["correction_csv_path"])
+            logger.debug(f"使用配置文件中的误差矫正路径: {correction_path}")
+        else:
+            # 默认路径
+            correction_path = (
+                PROJECT_ROOT
+                / "data"
+                / "calibration"
+                / "Wavefront_correction_Data_240236000006(520nm).csv"
+            )
+            logger.debug(f"使用默认误差矫正路径: {correction_path}")
+
+        # 加载误差矫正数据（如果路径存在）
+        if correction_path is not None and correction_path.exists():
+            try:
+                raw_correction = self.load_phase_from_csv(correction_path)
+                self._correction_phase = self._resize_to_panel(raw_correction)
+                logger.info(
+                    f"SLM #{self.slm_number} 已加载误差矫正数据: {correction_path.name}, "
+                    f"形状: {self._correction_phase.shape}"
+                )
+            except Exception as e:
+                logger.warning(f"加载误差矫正数据失败: {e}")
+                self._correction_phase = None
+        else:
+            logger.debug(f"未找到误差矫正文件: {correction_path}")
+            self._correction_phase = None
 
         # 读取并验证设备状态，必要时从设备读取波长
         if self._check_status():

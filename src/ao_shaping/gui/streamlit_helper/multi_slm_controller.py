@@ -57,8 +57,9 @@ def _apply_shift(phase_gray: np.ndarray, shift_x: int, shift_y: int) -> np.ndarr
     x_dst_start = max(0, shift_x)
     x_dst_end = min(phase_gray.shape[1], phase_gray.shape[1] + shift_x)
     if y_src_end > y_src_start and x_src_end > x_src_start:
-        shifted[y_dst_start:y_dst_end, x_dst_start:x_dst_end] = \
-            phase_gray[y_src_start:y_src_end, x_src_start:x_src_end]
+        shifted[y_dst_start:y_dst_end, x_dst_start:x_dst_end] = phase_gray[
+            y_src_start:y_src_end, x_src_start:x_src_end
+        ]
     return shifted
 
 
@@ -92,7 +93,7 @@ def render_phase_preview(slm_num: int) -> None:
         preview,
         caption=f"SLM {slm_num} 当前显示相位预览",
         clamp=True,
-        width='stretch',
+        width="stretch",
     )
 
 
@@ -475,7 +476,9 @@ def generate_phase_gray(
     if pattern_type == "涡旋相位":
         # Convert parameters to appropriate units
         wavelength_m = float(params["wavelength_nm"]) * 1e-9  # nm -> m
-        pixel_pitch_m = float(params.get("pixel_pitch_um", pattern_pitch_um)) * 1e-6  # um -> m
+        pixel_pitch_m = (
+            float(params.get("pixel_pitch_um", pattern_pitch_um)) * 1e-6
+        )  # um -> m
         wrap_phase = bool(params.get("wrap_phase", True))
         topological_charge = int(params["topological_charge"])
 
@@ -491,7 +494,7 @@ def generate_phase_gray(
         if not wrap_phase:
             phase_wrapped = np.mod(phase_gray, 2 * np.pi)
             phase_gray = (phase_wrapped / (2 * np.pi) * (2**bits - 1)).astype(np.uint16)
-            
+
         return phase_gray
     raise ValueError(f"未知相位图类型: {pattern_type}")
 
@@ -686,7 +689,7 @@ def render_camera_panel(cam_num: int) -> None:
                 frame,
                 caption=f"相机 {cam_num} 实时图像",
                 clamp=True,
-                width='stretch',
+                width="stretch",
             )
             st.write(
                 f"形状: {frame.shape}, dtype: {frame.dtype}, min/max: {frame.min()}/{frame.max()}"
@@ -846,7 +849,10 @@ def render_slm_sidebar(slm_num: int):
             st.write(f"像素间距: {st.session_state[f'{prefix}_pixel_pitch_um']} μm")
         with col_info2:
             st.write(f"Bit数: {st.session_state[f'{prefix}_bits']}")
-            # TODO 改成显示sn
+            sn_display = getattr(
+                st.session_state[prefix].slm, "get_serial_number", lambda: "-"
+            )()
+            st.write(f"SLM序列号: {sn_display}")
             st.write(f"SLM编号: {st.session_state[prefix].slm_number}")
 
         st.divider()
@@ -985,7 +991,9 @@ def render_phase_control(slm_num: int):
             logger.exception(f"Failed to generate/display phase for SLM {slm_num}: {e}")
 
     # Option to load from CSV
-    uploaded_file = st.file_uploader("上传CSV相位文件", type=["csv"], key=f"{prefix}_csv_file")
+    uploaded_file = st.file_uploader(
+        "上传CSV相位文件", type=["csv"], key=f"{prefix}_csv_file"
+    )
     if uploaded_file is not None:
         if st.button("从CSV加载相位", key=f"{prefix}_load_csv_btn"):
             try:

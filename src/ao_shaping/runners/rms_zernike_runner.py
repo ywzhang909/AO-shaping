@@ -12,7 +12,6 @@ from ao_shaping.runners.runner_common import (
     save_optimization_debug_artifacts,
 )
 from ao_shaping.utils.cli_helpers import (
-    _get_wfs_res,
     get_debug_mode,
     parse_tuple,
     setup_coredumpy,
@@ -37,7 +36,7 @@ def _auto_delta_detect_rms(
     slm_number: int = 1,
 ) -> tuple[float, dict]:
     n_zernike = calc_n_zernike_terms(n_max)
-    
+
     with (
         ZernikeSLM(
             slm_number=slm_number,
@@ -55,18 +54,19 @@ def _auto_delta_detect_rms(
             pupil_center=pupil_center,
         ) as wfs,
     ):
+
         def objective_fn(params: np.ndarray) -> float:
             wfs.take_image(3)
             wf, statics = wfs.get_wavefront(cancel_tile=remove_tilt)
-            return statics.get('rms', np.inf)
-        
+            return statics.get("rms", np.inf)
+
         def apply_fn(params: np.ndarray) -> None:
             slm.send_zernike(params)
-        
+
         perturb_mask = np.ones(n_zernike, dtype=np.float64)
         if n_zernike > 0:
             perturb_mask[0] = 0
-        
+
         best_delta, info = search_optimal_delta(
             param_dim=n_zernike,
             objective_fn=objective_fn,
@@ -80,12 +80,14 @@ def _auto_delta_detect_rms(
             perturb_mask=perturb_mask,
             verbose=True,
         )
-        
+
         return best_delta, {
-            'baseline_rms': info['baseline_obj'],
-            'best_rms': info.get('best_obj', info['baseline_obj'] - info.get('optimal_delta', 0)),
-            'best_delta': info['optimal_delta'],
-            'all_results': info.get('fine_results', []),
+            "baseline_rms": info["baseline_obj"],
+            "best_rms": info.get(
+                "best_obj", info["baseline_obj"] - info.get("optimal_delta", 0)
+            ),
+            "best_delta": info["optimal_delta"],
+            "all_results": info.get("fine_results", []),
         }
 
 
@@ -95,47 +97,147 @@ def _auto_delta_detect_rms(
 @click.option("-n", "--n-max", default=4, help="Zernike最大阶数 (default: 4)")
 @click.option("--lr", default=0.01, help="学习率 (default: 0.01)")
 @click.option("--delta", default=0.0, help="初始delta值 (default: 0.0)")
-@click.option("-r", "--wfs_res", default='1024', help="WFS分辨率 (default: 1024)")
+@click.option("-r", "--wfs_res", default="1024", help="WFS分辨率 (default: 1024)")
 @click.option("-p", "--pupil_diameter", default=2.7, help="瞳孔直径 (default: 2.7)")
-@click.option("-c", "--pupil_center", callback=parse_tuple, default="(0,0)", help="瞳孔中心坐标 (default: (0,0))")
-@click.option("--exposure-time-ms", default=0.0, type=float, help="WFS曝光时间 (毫秒, default: 0.0=自动曝光)")
-@click.option("-t", "--early_stop_threshold", default=0.12, help="早停阈值 (default: 0.12)")
+@click.option(
+    "-c",
+    "--pupil_center",
+    callback=parse_tuple,
+    default="(0,0)",
+    help="瞳孔中心坐标 (default: (0,0))",
+)
+@click.option(
+    "--exposure-time-ms",
+    default=0.0,
+    type=float,
+    help="WFS曝光时间 (毫秒, default: 0.0=自动曝光)",
+)
+@click.option(
+    "-t", "--early_stop_threshold", default=0.12, help="早停阈值 (default: 0.12)"
+)
 @click.option("--wavelength", default=532, help="SLM波长 (nm, default: 532)")
 @click.option("--shift-x", default=0, help="SLM X方向平移 (像素, default: 0)")
 @click.option("--shift-y", default=0, help="SLM Y方向平移 (像素, default: 0)")
-@click.option("--wait-time", default=0.3, help="SLM 液晶翻转等待时间(秒, default: 0.3) ")
+@click.option(
+    "--wait-time", default=0.3, help="SLM 液晶翻转等待时间(秒, default: 0.3) "
+)
 @click.option("--slm-number", default=1, help="SLM设备编号 (default: 1)")
 @click.option("--remove-tilt", is_flag=True, help="移除波前测量中的倾斜项")
-@click.option("--min-delta", default=0.01, help="自动检测最小delta (数量级扫描, default: 0.01)")
-@click.option("--max-delta", default=100.0, help="自动检测最大delta (数量级扫描, default: 100.0)")
-@click.option("--delta-step", default=5, help="数量级扫描步数 (用于细粒度扫描, default: 5)")
+@click.option(
+    "--min-delta", default=0.01, help="自动检测最小delta (数量级扫描, default: 0.01)"
+)
+@click.option(
+    "--max-delta", default=100.0, help="自动检测最大delta (数量级扫描, default: 100.0)"
+)
+@click.option(
+    "--delta-step", default=5, help="数量级扫描步数 (用于细粒度扫描, default: 5)"
+)
 @click.option("--n-directions", default=5, help="每个delta采样次数防噪声 (default: 5)")
-@click.option("--n-init-positions", default=0, help="多起点优化：随机初始位置数量 (default: 0, 禁用)")
+@click.option(
+    "--n-init-positions",
+    default=0,
+    help="多起点优化：随机初始位置数量 (default: 0, 禁用)",
+)
 @click.option("--init-range", default=1.0, help="多起点初始化的随机范围 (default: 1.0)")
-@click.option("--lr-schedule", default="static", type=click.Choice(["static", "cosine", "exp", "linear"]), help="学习率调度类型 (default: static)")
+@click.option(
+    "--lr-schedule",
+    default="static",
+    type=click.Choice(["static", "cosine", "exp", "linear"]),
+    help="学习率调度类型 (default: static)",
+)
 @click.option("--lr-min", default=1e-6, type=float, help="学习率最小值 (default: 1e-6)")
-@click.option("--delta-schedule", default="static", type=click.Choice(["static", "cosine", "exp", "linear"]), help="Delta调度类型 (default: static)")
-@click.option("--delta-min", default=1e-7, type=float, help="Delta最小值 (default: 1e-7)")
-@click.option("--optimizer", default="adamod", type=click.Choice(["adamod", "adamw"]), help="优化器类型 (default: adamod)")
-@click.option("--beta1", default=0.95, type=float, help="Adam beta1参数 (default: 0.95)")
-@click.option("--weight-decay", default=1e-2, type=float, help="AdamW权重衰减 (default: 1e-2)")
-@click.option("--mini-batch", default=1, type=int, help="SPGD mini-batch大小 (default: 1)")
-@click.option("--gradient-clip", default=0.0, type=float, help="梯度裁剪阈值 (default: 0.0, 禁用)")
-@click.option("--stagnation-patience", default=30, type=int, help="停滞检测轮数 (default: 30)")
-@click.option("--stagnation-delta-boost", default=1.5, type=float, help="停滞时delta倍增 (default: 1.5)")
-@click.option("--freeze-threshold", default=None, type=float, help="冻结高阶模式阈值 (default: None)")
-@click.option("--early-stop-window", default=0, type=int, help="早停滑动窗口大小 (default: 0)")
-@click.option("--early-stop-min-epochs", default=0, type=int, help="早停最小轮数 (default: 0)")
-@click.option("--early-stop-patience", default=0, type=int, help="早停耐心值 (default: 0)")
+@click.option(
+    "--delta-schedule",
+    default="static",
+    type=click.Choice(["static", "cosine", "exp", "linear"]),
+    help="Delta调度类型 (default: static)",
+)
+@click.option(
+    "--delta-min", default=1e-7, type=float, help="Delta最小值 (default: 1e-7)"
+)
+@click.option(
+    "--optimizer",
+    default="adamod",
+    type=click.Choice(["adamod", "adamw"]),
+    help="优化器类型 (default: adamod)",
+)
+@click.option(
+    "--beta1", default=0.95, type=float, help="Adam beta1参数 (default: 0.95)"
+)
+@click.option(
+    "--weight-decay", default=1e-2, type=float, help="AdamW权重衰减 (default: 1e-2)"
+)
+@click.option(
+    "--mini-batch", default=1, type=int, help="SPGD mini-batch大小 (default: 1)"
+)
+@click.option(
+    "--gradient-clip", default=0.0, type=float, help="梯度裁剪阈值 (default: 0.0, 禁用)"
+)
+@click.option(
+    "--stagnation-patience", default=30, type=int, help="停滞检测轮数 (default: 30)"
+)
+@click.option(
+    "--stagnation-delta-boost",
+    default=1.5,
+    type=float,
+    help="停滞时delta倍增 (default: 1.5)",
+)
+@click.option(
+    "--freeze-threshold",
+    default=None,
+    type=float,
+    help="冻结高阶模式阈值 (default: None)",
+)
+@click.option(
+    "--early-stop-window", default=0, type=int, help="早停滑动窗口大小 (default: 0)"
+)
+@click.option(
+    "--early-stop-min-epochs", default=0, type=int, help="早停最小轮数 (default: 0)"
+)
+@click.option(
+    "--early-stop-patience", default=0, type=int, help="早停耐心值 (default: 0)"
+)
 @click.option("--n-frames", default=10, type=int, help="WFS帧平均数 (default: 10)")
-def run(dir, epochs, lr, delta, n_max, wfs_res, pupil_diameter, pupil_center, early_stop_threshold,
-        exposure_time_ms, wavelength, shift_x, shift_y, slm_number, remove_tilt, wait_time,
-        min_delta, max_delta, delta_step, n_directions,
-        n_init_positions, init_range,
-        lr_schedule, lr_min, delta_schedule, delta_min,
-        optimizer, beta1, weight_decay, mini_batch, gradient_clip,
-        stagnation_patience, stagnation_delta_boost, freeze_threshold,
-        early_stop_window, early_stop_min_epochs, early_stop_patience, n_frames):
+def run(
+    dir,
+    epochs,
+    lr,
+    delta,
+    n_max,
+    wfs_res,
+    pupil_diameter,
+    pupil_center,
+    early_stop_threshold,
+    exposure_time_ms,
+    wavelength,
+    shift_x,
+    shift_y,
+    slm_number,
+    remove_tilt,
+    wait_time,
+    min_delta,
+    max_delta,
+    delta_step,
+    n_directions,
+    n_init_positions,
+    init_range,
+    lr_schedule,
+    lr_min,
+    delta_schedule,
+    delta_min,
+    optimizer,
+    beta1,
+    weight_decay,
+    mini_batch,
+    gradient_clip,
+    stagnation_patience,
+    stagnation_delta_boost,
+    freeze_threshold,
+    early_stop_window,
+    early_stop_min_epochs,
+    early_stop_patience,
+    n_frames,
+):
     """Zernike波前优化器 (基于SLM的RMS最小化)
 
     使用Zernike多项式通过SLM进行波前校正，最小化WFS测量的波前RMS值。
@@ -156,12 +258,16 @@ def run(dir, epochs, lr, delta, n_max, wfs_res, pupil_diameter, pupil_center, ea
             shift_x=shift_x,
             shift_y=shift_y,
             n_max=n_max,
-            wfs_res=_get_wfs_res(wfs_res),
+            wfs_res=MlaRes.from_str(wfs_res),
             remove_tilt=remove_tilt,
             slm_number=slm_number,
         )
-        click.echo(f"Detected optimal delta: {delta:.2f} (baseline RMS: {delta_info['baseline_rms']:.4f}, best RMS: {delta_info['best_rms']:.4f})")
-        click.echo("Note: The optimizer will use its internal scheduler, but this detection provides guidance on optimal perturbation amplitudes.")
+        click.echo(
+            f"Detected optimal delta: {delta:.2f} (baseline RMS: {delta_info['baseline_rms']:.4f}, best RMS: {delta_info['best_rms']:.4f})"
+        )
+        click.echo(
+            "Note: The optimizer will use its internal scheduler, but this detection provides guidance on optimal perturbation amplitudes."
+        )
 
     init_v = [0 for _ in range(calc_n_zernike_terms(n_max))]
     records = optimizer_rms(

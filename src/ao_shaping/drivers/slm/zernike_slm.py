@@ -120,7 +120,6 @@ class ZernikeSLM:
         """Y方向平移像素数"""
         return self._slm.shift_y
 
-    # TODO wait_time移动到init中去
     def send_zernike(
         self,
         coefficients: dict[tuple[int, int], float] | np.ndarray,
@@ -216,6 +215,11 @@ class ZernikeSLM:
     def __repr__(self) -> str:
         status = "connected" if self.is_open else "disconnected"
         return f"ZernikeSLM(slm_number={self.slm_number}, wavelength={self.wavelength}nm, n_max={self.n_max}, status={status})"
+
+    @property
+    def serial_number(self) -> str | None:
+        """SLM序列号"""
+        return self._slm.get_serial_number()
 
     @property
     def n_modes(self):
