@@ -1,4 +1,3 @@
-import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -6,15 +5,6 @@ from typing import Any
 import numpy as np
 import streamlit as st
 from loguru import logger
-
-# Config file path for sidebar settings persistence
-CONFIG_DIR = Path.home() / ".config" / "ao_shaping"
-CONFIG_FILE = CONFIG_DIR / "multi_slm_config.json"
-
-# Add the src directory to the path when running this file directly via Streamlit.
-SRC_ROOT = Path(__file__).resolve().parents[3]
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
 
 from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
 from ao_shaping.utils.pattern_helper import PatternHelper
@@ -30,7 +20,7 @@ def _initialize_slm_state() -> None:
             st.session_state[prefix] = None
             st.session_state[f"{prefix}_connected"] = False
             st.session_state[f"{prefix}_wavelength"] = 532
-            st.session_state[f"{prefix}_video_mode"] = 0
+            st.session_state[f"{prefix}_video_mode"] = "内存模式"
             st.session_state[f"{prefix}_next_memory"] = np.random.randint(1, 128)
             st.session_state[f"{prefix}_phase_preview"] = None
             st.session_state[f"{prefix}_phase_source"] = "暂无"
@@ -56,76 +46,7 @@ def _phase_to_preview(phase_gray: np.ndarray) -> np.ndarray:
     return np.clip(normalized, 0.0, 1.0)
 
 
-def load_slm_config() -> dict:
-    """Load SLM configuration from JSON file."""
-    if CONFIG_FILE.exists():
-        try:
-            with open(CONFIG_FILE, encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            logger.warning(f"Failed to load SLM config: {e}")
-            return {}
-    return {}
-
-
-def save_slm_config(config: dict) -> None:
-    """Save SLM configuration to JSON file."""
-    try:
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(config, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.error(f"Failed to save SLM config: {e}")
-
-
-def apply_config_to_session(config: dict) -> None:
-    """Apply loaded config to session state."""
-    # Widget types that cannot be set via session_state (use suffix matching)
-    toggle_suffixes = ("_btn", "_toggle", "_file", "_phase_preview", "_phase_source")
-    for key, value in config.items():
-        if key.startswith(("slm1_", "slm2_", "cam1_", "cam2_")):
-            # Skip toggle widgets (buttons, checkboxes, radio toggles)
-            if any(key.endswith(suffix) for suffix in toggle_suffixes):
-                continue
-            st.session_state[key] = value
-
-
-def collect_config_from_session() -> dict:
-    """Collect current SLM configuration from session state."""
-    config = {}
-    toggle_suffixes = ("_btn", "_toggle", "_file", "_phase_preview", "_phase_source")
-    for key in st.session_state:
-        if key.startswith(("slm1_", "slm2_", "cam1_", "cam2_")):
-            value = st.session_state[key]
-            # Skip toggle widgets (buttons, checkboxes, etc.)
-            if any(key.endswith(suffix) for suffix in toggle_suffixes):
-                continue
-            # Skip non-JSON-serializable values (like numpy arrays)
-            try:
-                json.dumps(value)
-                config[key] = value
-            except (TypeError, OverflowError):
-                # Skip values that can't be JSON serialized
-                continue
-    return config
-
-
 def _apply_shift(phase_gray: np.ndarray, shift_x: int, shift_y: int) -> np.ndarray:
-    """Apply pixel shift to a phase pattern with zero-padding.
-
-    Shifts the pattern by the given offsets, filling exposed edges with zeros
-    instead of wrapping around.
-
-    Args:
-        phase_gray: Input phase pattern as 2D array.
-        shift_x: Horizontal shift in pixels (positive = right).
-        shift_y: Vertical shift in pixels (positive = down).
-
-    Returns:
-        Shifted phase pattern with same shape as input.
-    """
-    if shift_x == 0 and shift_y == 0:
-        return phase_gray
     shifted = np.zeros_like(phase_gray)
     y_src_start = max(0, -shift_y)
     y_src_end = min(phase_gray.shape[0], phase_gray.shape[0] - shift_y)
@@ -199,7 +120,15 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
 
     params: dict[str, Any] = {}
 
-    if pattern_type in {"线性光栅", "全息光栅"}:
+    if pattern_type == "平场":
+        params["flat_gray"] = st.number_input(
+            "灰度",
+            min_value=0,
+            max_value=1024,
+            step=1,
+            key=f"{prefix}_{pattern_type}_gray"
+        )
+    elif pattern_type in {"线性光栅", "全息光栅"}:
         params["period"] = st.number_input(
             "周期 (像素)",
             min_value=1.0,
@@ -464,12 +393,13 @@ def generate_phase_gray(
 
     # Phase pattern generation mapping
     if pattern_type == "平场":
-        phase_rad = np.zeros((height, width))
+        _gray = int(params["flat_gray"])
+        phase_rad = np.ones((height, width)) * _gray
         return slm.create_phase_from_array(phase_rad)
     if pattern_type == "线性光栅":
         phase_rad = helper.linear_grating(
             period=float(params["period"]),
-            phase_range=float(params["phase_range"]),
+            phase_range=float(params["phase_range"]),                                                                                                                                                           
             wrap_phase=False,
         )
         return slm.create_phase_from_array(phase_rad)
@@ -569,10 +499,8 @@ def generate_phase_gray(
 def main():
     st.title("双SLM200控制器")
 
-    # Initialize state with defaults only
     _initialize_slm_state()
 
-    # Sidebar for controls
     with st.sidebar:
         render_slm_sidebar(1)
         st.divider()
@@ -670,7 +598,7 @@ def connect_camera(cam_num: int) -> None:
         st.success(f"相机 {cam_num} 连接成功（{driver_name}）")
     except Exception as e:
         st.error(f"相机 {cam_num} 连接失败: {e}")
-        logger.error(f"Failed to connect camera {cam_num}: {e}")
+        logger.exception(f"Failed to connect camera {cam_num}: {e}")
 
 
 def disconnect_camera(cam_num: int) -> None:
@@ -684,7 +612,7 @@ def disconnect_camera(cam_num: int) -> None:
         st.success(f"相机 {cam_num} 已断开")
     except Exception as e:
         st.error(f"相机 {cam_num} 断开失败: {e}")
-        logger.error(f"Failed to disconnect camera {cam_num}: {e}")
+        logger.exception(f"Failed to disconnect camera {cam_num}: {e}")
 
 
 def render_camera_panel(cam_num: int) -> None:
@@ -738,7 +666,7 @@ def render_camera_panel(cam_num: int) -> None:
             )
         except Exception as e:
             st.error(f"设置曝光失败: {e}")
-            logger.error(f"Failed to set exposure for camera {cam_num}: {e}")
+            logger.exception(f"Failed to set exposure for camera {cam_num}: {e}")
 
     sample_count = st.number_input(
         "平均帧数",
@@ -765,45 +693,67 @@ def render_camera_panel(cam_num: int) -> None:
             )
         except Exception as e:
             st.error(f"采集图像失败: {e}")
-            logger.error(f"Failed to capture image for camera {cam_num}: {e}")
+            logger.exception(f"Failed to capture image for camera {cam_num}: {e}")
 
 
 def connect_slm(slm_num: int):
-    """Connect to the specified SLM"""
+    """Connect to the specified SLM
+
+    Creates the :class:`SantecSLM200` instance with only the SLM number,
+    then calls ``open()`` which handles its own init flow:
+    reading serial → loading config file (if any) → applying device
+    defaults.  After ``open()`` all resolved SLM state is synced back to
+    session state so the UI widgets always reflect reality.
+    """
     prefix = f"slm{slm_num}"
     wavelength_key = f"{prefix}_wavelength"
     video_mode_key = f"{prefix}_video_mode"
     shift_x_key = f"{prefix}_shift_x"
     shift_y_key = f"{prefix}_shift_y"
-    wavelength = st.session_state[wavelength_key]
-    video_mode = st.session_state[video_mode_key]
-    shift_x = st.session_state[shift_x_key]
-    shift_y = st.session_state[shift_y_key]
+    mismatch_key = f"{prefix}_wavelength_mismatch"
     try:
-        slm = SantecSLM200(
-            slm_number=slm_num,
-            wavelength=wavelength,
-            video_mode=video_mode,
-            shift_x=shift_x,
-            shift_y=shift_y,
-        )
+        # Let the SLM class handle its own init flow — no init params that
+        # could interfere with config-file loading or device defaults.
+        slm = SantecSLM200(slm_number=slm_num)
         slm.open()
+
         st.session_state[prefix] = slm
         st.session_state[f"{prefix}_connected"] = True
-        # Update wavelength and mode from the object (in case they changed during open)
+
+        # Sync ALL resolved SLM state back to session state so the UI
+        # widgets (sidebar shift, wavelength, mode) match the device.
+        st.session_state[video_mode_key] = "内存模式" if slm.video_mode == 0 else "DVI模式"
+        st.session_state[shift_x_key] = slm.shift_x
+        st.session_state[shift_y_key] = slm.shift_y
         st.session_state[wavelength_key] = slm.wavelength
-        st.session_state[video_mode_key] = slm.video_mode
         st.session_state[f"{prefix}_phase_preview"] = None
         st.session_state[f"{prefix}_phase_source"] = "连接成功，等待读取或下发相位"
-        # Store SLM properties from driver
         st.session_state[f"{prefix}_width"] = slm.Panel_Res[0]
         st.session_state[f"{prefix}_height"] = slm.Panel_Res[1]
         st.session_state[f"{prefix}_pixel_pitch_um"] = slm.Pitch_um
         st.session_state[f"{prefix}_bits"] = slm.Gray_Scale_bits
+        st.session_state[f"{prefix}_use_120hz"] = slm._use_120hz
+
+        serial = slm._serial_number
+        if serial:
+            st.session_state[mismatch_key] = {
+                "serial": serial,
+                "wavelength": slm.wavelength,
+            }
+            st.toast(
+                f"SLM {slm_num} 已连接（序列号: {serial}，波长 {slm.wavelength}nm）",
+                icon="ℹ️",
+            )
+        else:
+            st.session_state[mismatch_key] = None
+            st.toast(
+                f"SLM {slm_num} 已连接（波长 {slm.wavelength}nm，序列号未读取）",
+                icon="ℹ️",
+            )
         st.success(f"SLM {slm_num} 连接成功")
     except Exception as e:
         st.error(f"SLM {slm_num} 连接失败: {e}")
-        logger.error(f"Failed to connect SLM {slm_num}: {e}")
+        logger.exception(f"Failed to connect SLM {slm_num}: {e}")
 
 
 def disconnect_slm(slm_num: int):
@@ -820,7 +770,7 @@ def disconnect_slm(slm_num: int):
             st.success(f"SLM {slm_num} 已断开")
     except Exception as e:
         st.error(f"SLM {slm_num} 断开失败: {e}")
-        logger.error(f"Failed to disconnect SLM {slm_num}: {e}")
+        logger.exception(f"Failed to disconnect SLM {slm_num}: {e}")
 
 
 def set_wavelength(slm_num: int):
@@ -835,22 +785,23 @@ def set_wavelength(slm_num: int):
             st.success(f"SLM {slm_num} 波长设置为 {wavelength} nm")
     except Exception as e:
         st.error(f"设置波长失败: {e}")
-        logger.error(f"Failed to set wavelength for SLM {slm_num}: {e}")
+        logger.exception(f"Failed to set wavelength for SLM {slm_num}: {e}")
 
 
-def set_video_mode(slm_num: int, mode: int):
+def set_video_mode(slm_num: int, mode_label: str):
     """Set video mode for the specified SLM"""
     prefix = f"slm{slm_num}"
     video_mode_key = f"{prefix}_video_mode"
+    mode = 0 if mode_label == "内存模式" else 1
     try:
         slm = st.session_state.get(prefix)
         if slm is not None:
             slm._set_memory_mode(mode)
-            st.session_state[video_mode_key] = mode
-            st.success(f"SLM {slm_num} 模式设置为 {'内存模式' if mode == 0 else 'DVI模式'}")
+            st.session_state[video_mode_key] = mode_label
+            st.success(f"SLM {slm_num} 模式设置为 {mode_label}")
     except Exception as e:
         st.error(f"设置模式失败: {e}")
-        logger.error(f"Failed to set video mode for SLM {slm_num}: {e}")
+        logger.exception(f"Failed to set video mode for SLM {slm_num}: {e}")
 
 
 def display_slm_status(slm_num: int):
@@ -912,14 +863,11 @@ def render_slm_sidebar(slm_num: int):
 
         st.selectbox(
             "视频模式",
-            options=[0, 1],
-            format_func=lambda x: "内存模式" if x == 0 else "DVI模式",
+            options=["内存模式", "DVI模式"],
             key=f"{prefix}_video_mode",
         )
         if st.button("设置模式", key=f"{prefix}_set_mode_btn"):
             set_video_mode(slm_num, st.session_state[f"{prefix}_video_mode"])
-
-        st.divider()
 
         # Shift X/Y configuration
         st.caption("Pattern Shift (像素)")
@@ -941,24 +889,63 @@ def render_slm_sidebar(slm_num: int):
                 key=f"{prefix}_shift_y",
             )
 
+        # Config file info
+        config_info = st.session_state.get(f"{prefix}_wavelength_mismatch")
+        if config_info and slm_obj is not None:
+            st.caption(f"序列号: {config_info['serial']}")
+            loaded_cfg = slm_obj.load_config() if slm_obj._serial_number else {}
+            if loaded_cfg:
+                st.caption("已加载配置文件:")
+                st.json(loaded_cfg)
+            else:
+                st.caption("未找到匹配的配置文件（使用设备默认值）")
+
         st.divider()
 
         # Save configuration button
         if st.button("保存配置", key=f"{prefix}_save_config_btn"):
-            config = collect_config_from_session()
-            save_slm_config(config)
-            
-            # Also save to SLM device if connected
             slm = st.session_state.get(prefix)
-            if slm is not None:
-                try:
-                    slm.save_config()
-                    st.success(f"SLM {slm_num} 配置已保存到会话和设备")
-                except Exception as e:
-                    st.warning(f"SLM {slm_num} 会话配置已保存，但保存到设备失败: {e}")
-                    logger.warning(f"Failed to save SLM {slm_num} config to device: {e}")
+            if slm is None:
+                st.info("SLM未连接，配置将在连接后写入设备")
             else:
-                st.success(f"SLM {slm_num} 配置已保存")
+                try:
+                    # Sync UI widget values to the SLM object before saving,
+                    # so the persisted config reflects what the user sees.
+                    ui_shift_x = st.session_state.get(f"{prefix}_shift_x", 0)
+                    ui_shift_y = st.session_state.get(f"{prefix}_shift_y", 0)
+                    if (ui_shift_x, ui_shift_y) != (slm.shift_x, slm.shift_y):
+                        slm.set_shift(shift_x=ui_shift_x, shift_y=ui_shift_y)
+                    slm.save_config()
+                    st.success(
+                        f"SLM {slm_num} 配置已保存"
+                        f"（序列号: {slm._serial_number or '未知'}）"
+                    )
+                except Exception as e:
+                    st.error(f"保存配置到设备失败: {e}")
+
+        # Save current phase to CSV
+        if st.button("保存当前相位到CSV", key=f"{prefix}_save_csv_btn"):
+            try:
+                slm = st.session_state.get(prefix)
+                if slm is None:
+                    st.warning("SLM未连接，无法保存相位")
+                else:
+                    phase, _ = slm.get_displayed_phase()
+                    if phase is None:
+                        st.warning("无法获取当前显示的相位数据")
+                    else:
+                        save_path = Path.home() / ".config" / "ao_shaping" / f"slm{slm_num}_phase.csv"
+                        save_path.parent.mkdir(parents=True, exist_ok=True)
+                        np.savetxt(
+                            str(save_path),
+                            phase.astype(np.uint16),
+                            fmt="%d",
+                            delimiter=",",
+                        )
+                        st.success(f"SLM {slm_num} 相位已保存到 {save_path}")
+            except Exception as e:
+                st.error(f"保存相位CSV失败: {e}")
+                logger.exception(f"Failed to save phase CSV for SLM {slm_num}: {e}")
 
 
 def render_phase_control(slm_num: int):
@@ -995,7 +982,7 @@ def render_phase_control(slm_num: int):
             st.success(f"相位已写入内存槽 {mem_slot} 并显示")
         except Exception as e:
             st.error(f"生成或显示相位失败: {e}")
-            logger.error(f"Failed to generate/display phase for SLM {slm_num}: {e}")
+            logger.exception(f"Failed to generate/display phase for SLM {slm_num}: {e}")
 
     # Option to load from CSV
     uploaded_file = st.file_uploader("上传CSV相位文件", type=["csv"], key=f"{prefix}_csv_file")
@@ -1033,7 +1020,7 @@ def render_phase_control(slm_num: int):
                 temp_path.unlink()
             except Exception as e:
                 st.error(f"加载CSV相位失败: {e}")
-                logger.error(f"Failed to load CSV phase for SLM {slm_num}: {e}")
+                logger.exception(f"Failed to load CSV phase for SLM {slm_num}: {e}")
 
 
 if __name__ == "__main__":

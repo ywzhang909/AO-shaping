@@ -40,9 +40,9 @@ class TestR50Controller:
         hv, lv = ctrl._convert_voltage(0.0)
         assert hv > 0
 
-        # 测试 120V -> 最大值
+        # 测试 120V -> 最大值 (40886 -> high=159, low=182)
         hv, lv = ctrl._convert_voltage(120.0)
-        assert hv == 255 and lv == 255
+        assert hv == 159 and lv == 182
 
     @patch('dm_control.socket.socket')
     def test_connect_success(self, mock_socket_class):

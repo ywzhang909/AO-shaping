@@ -6,6 +6,7 @@
 
 import ctypes
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Union
@@ -40,6 +41,19 @@ from ao_shaping.utils.file import SLMConfigManager, ROOT_DIR as PROJECT_ROOT
 
 # Config directory: <project_root>/data/slm_configs/ or from SLM_CONFIG_DIR env var
 _SLM_CONFIG_DIR = Path(os.environ.get("SLM_CONFIG_DIR", PROJECT_ROOT / "data" / "slm_configs"))
+
+# Parameter specification for data-driven configuration in open()
+# Each entry: (config_key, attr_name, type_cast_fn, default_value)
+#   config_key: key in JSON config file and config.get()
+#   attr_name:  attribute to set via setattr()
+#   type_cast_fn: callable to cast the value (None = no casting)
+#   default_value: fallback when key is missing or init value is None
+_PARAM_SPEC = [
+    ("wavelength", "wavelength", int, None),
+    ("shift_x", "_shift_x", None, 0),
+    ("shift_y", "_shift_y", None, 0),
+    ("use_120hz", "_use_120hz", bool, False),
+]
 
 
 class SantecSLM200Error(Exception):
@@ -121,8 +135,8 @@ class SantecSLM200:
         Args:
             slm_number: SLM设备编号（1-8），默认为1
             use_120hz: 是否使用120Hz刷新率，默认为False
-            wavelength: 工作波长（nm），默认为1064；
-                设为None则从配置文件或设备读取
+            wavelength: 工作波长（nm），默认为None；
+                设为None则在open()时从配置文件或设备读取
             video_mode: 视频模式 (0=内存模式, 1=DVI模式)，默认为0
             shift_x: X方向平移像素数（正=右，负=左），设为None从配置文件加载
             shift_y: Y方向平移像素数（正=下，负=上），设为None从配置文件加载
@@ -146,6 +160,7 @@ class SantecSLM200:
         self._init_wavelength: int | None = wavelength
         self._init_shift_x: int | None = shift_x
         self._init_shift_y: int | None = shift_y
+        self._init_use_120hz: bool = use_120hz
 
         # 实际运行时值（立即生效，供属性和测试使用）
         self.wavelength: int | None = wavelength
@@ -182,14 +197,19 @@ class SantecSLM200:
                 f"无法导入SLM SDK (_slm_win): {e}. 请确保已安装Santec SLM驱动程序。"
             )
 
-    def get_serial_number(self) -> str | None:
+    def get_serial_number(self, timeout: float = 5.0) -> str | None:
         """读取SLM设备的序列号。
 
         通过SDK函数 SLM_Ctrl_ReadSD 获取设备唯一序列号。
         必须在设备打开后调用。
 
+        Args:
+            timeout: SDK调用超时秒数。设为0或负数则禁用超时。
+                某些异常情况下SLM_Ctrl_ReadSD可能挂起（如快速连续的open/close），
+                超时机制防止整个线程被阻塞。
+
         Returns:
-            设备序列号字符串，失败时返回None
+            设备序列号字符串，失败或超时时返回None
 
         Raises:
             RuntimeError: 设备未打开
@@ -201,7 +221,18 @@ class SantecSLM200:
             f"SLM #{self.slm_number} 正在读取序列号, buffer size: {len(device_id)}"
         )
 
-        ret = self._slm.SLM_Ctrl_ReadSD(self.slm_number, device_id)
+        if timeout and timeout > 0:
+            ret = self._read_serial_with_timeout(device_id, timeout)
+        else:
+            ret = self._slm.SLM_Ctrl_ReadSD(self.slm_number, device_id)
+
+        if ret is None:
+            logger.warning(
+                f"SLM #{self.slm_number} 读取序列号超时 ({timeout}s)，"
+                "SDK可能已挂起。请尝试 reboot() 或重新连接USB。"
+            )
+            return None
+
         logger.debug(f"SLM #{self.slm_number} ReadSD 返回码: {ret} (OK={SLM_OK})")
 
         if ret != SLM_OK:
@@ -233,6 +264,62 @@ class SantecSLM200:
         except Exception as e:
             logger.error(f"解析序列号失败: {e}, raw value: {device_id.value}")
             return None
+
+    def _read_serial_with_timeout(
+        self, device_id: ctypes.Array[ctypes.c_char], timeout: float
+    ) -> int | None:
+        """在独立线程中调用SLM_Ctrl_ReadSD，支持超时。
+
+        SDK的SLM_Ctrl_ReadSD在快速连续open/close后可能挂起。
+        此方法在守护线程中调用SDK函数，若超时则返回None（线程继续运行
+        直至USB超时返回，不会阻塞主线程或影响进程退出）。
+
+        Args:
+            device_id: 用于接收序列号的ctypes buffer
+            timeout: 超时秒数
+
+        Returns:
+            SDK返回码(int)，超时时返回None
+        """
+        result: list[int | None] = [None]
+
+        def worker() -> None:
+            try:
+                ret = self._slm.SLM_Ctrl_ReadSD(self.slm_number, device_id)
+                result[0] = ret
+            except Exception:
+                logger.exception(
+                    f"SLM #{self.slm_number} 读取序列号时发生异常"
+                )
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+        t.join(timeout=timeout)
+
+        # 如果线程仍在运行，说明SDK调用超时未返回
+        if t.is_alive():
+            return None
+
+        return result[0]
+
+    def reboot(self) -> None:
+        """重新启动SLM设备。
+
+        调用SDK的SLM_Ctrl_Reboot函数复位设备USB/控制器状态。
+        当设备因快速连续open/close等操作导致SLM_Ctrl_ReadSD挂起时，
+        调用此方法可使设备恢复正常通信。
+
+        Raises:
+            SantecSLM200Error: 重启失败
+        """
+        ret = self._slm.SLM_Ctrl_Reboot(self.slm_number)
+        if ret != SLM_OK:
+            raise SantecSLM200Error(
+                f"SLM #{self.slm_number} 重启失败", code=ret
+            )
+        logger.info(f"SLM #{self.slm_number} 已重启")
+        # 重启后设备需要重新打开
+        self.is_open = False
 
     def _init_config_manager(self) -> None:
         """初始化配置管理器"""
@@ -317,54 +404,25 @@ class SantecSLM200:
         # 如果有配置文件且匹配成功，则仅使用配置文件中的值（不使用__init__显式参数）
         # 否则：__init__ 显式参数 > config文件 > 默认值
         if config_loaded:
-            # 仅使用配置文件中的值
-            if "wavelength" in config:
-                self.wavelength = int(config["wavelength"])
-            else:
-                self.wavelength = None
-
-            if "shift_x" in config:
-                self._shift_x = config["shift_x"]
-            else:
-                self._shift_x = 0
-
-            if "shift_y" in config:
-                self._shift_y = config["shift_y"]
-            else:
-                self._shift_y = 0
-
-            if "use_120hz" in config:
-                self._use_120hz = bool(config["use_120hz"])
-            else:
-                self._use_120hz = False
-            self.flags = FLAGS_RATE120 if self._use_120hz else 0
+            # 仅使用配置文件中的值（数据驱动）
+            for key, attr, cast_fn, default in _PARAM_SPEC:
+                value = config.get(key, default)
+                if cast_fn is not None and value is not None:
+                    value = cast_fn(value)
+                setattr(self, attr, value)
         else:
             # 没有配置文件时使用原有优先级逻辑
-            # wavelength: None=请用配置/设备；其他值（含默认1064）=显式设置
-            if self._init_wavelength is not None:
-                self.wavelength = self._init_wavelength
-            else:
-                self.wavelength = None
+            init_map = {
+                "wavelength": self._init_wavelength,
+                "_shift_x": self._init_shift_x,
+                "_shift_y": self._init_shift_y,
+                "_use_120hz": self._init_use_120hz,
+            }
+            for _, attr, _, default in _PARAM_SPEC:
+                init_val = init_map.get(attr)
+                setattr(self, attr, init_val if init_val is not None else default)
 
-            # shift_x/shift_y: 优先使用init参数，否则从配置加载
-            if self._init_shift_x is not None:
-                self._shift_x = self._init_shift_x
-            else:
-                self._shift_x = 0
-
-            if self._init_shift_y is not None:
-                self._shift_y = self._init_shift_y
-            else:
-                self._shift_y = 0
-
-            # use_120hz: 优先使用init参数，否则从配置加载
-            if (
-                "use_120hz" in self.__dict__ and self._use_120hz is not None
-            ):  # Check if explicitly set in __init__
-                pass  # Keep the __init__ value
-            else:
-                self._use_120hz = False
-            self.flags = FLAGS_RATE120 if self._use_120hz else 0
+        self.flags = FLAGS_RATE120 if self._use_120hz else 0
 
         logger.info(
             f"SLM #{self.slm_number} 参数: "
@@ -519,6 +577,10 @@ class SantecSLM200:
 
         wavelength = int(wavelength.value)
         phase_pi = phase.value / 100.0
+        if phase_pi <= 0:
+            logger.warning(f"SLM #{self.slm_number}: SLM_Ctrl_ReadWL returned phase=0; device wavelength not set")
+            self._max_gray = self.MAX_GRAYSCALE_VALUE
+            return self.wavelength if self.wavelength is not None else 1064, self._max_gray
         self._max_gray = int(2.0 / phase_pi * self.MAX_GRAYSCALE_VALUE)
         logger.info(f"当前波长: {wavelength}nm, 2π对应灰度值: {self._max_gray}")
 

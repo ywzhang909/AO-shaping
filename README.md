@@ -25,7 +25,10 @@ AO-shaping/
 │   │   │   ├── wf_runner.py     # 波前RMS优化器
 │   │   │   ├── axis_beam_runner.py  # PIB优化器
 │   │   │   ├── pipeline_runner.py  # 串行 WF→PIB 流水线
-│   │   │   └── zernike_matrix_runner.py  # Zernike响应矩阵校准
+│   │   │   ├── zernike_matrix_runner.py  # Zernike响应矩阵校准与闭环控制
+│   │   │   ├── gs_hologram_runner.py   # Gerchberg-Saxton全息图生成器
+│   │   │   ├── dm_matrix_runner.py     # DM响应矩阵标定
+│   │   │   └── combined_runner.py      # [已废弃] 使用pipeline_runner代わり
 │   │   ├── algorithm/           # 优化算法 (Adam, SGD, Muon等)
 │   │   ├── drivers/             # 硬件驱动
 │   │   │   ├── ccd/             # 相机 (Daheng, MiiCam)
@@ -226,6 +229,101 @@ python src/ao_shaping/main.py greedy-zernike [OPTIONS]
 DEBUG=1 python src/ao_shaping/main.py greedy-zernike --n-init 20 --n-directions 8
 ```
 
+#### 全息图生成器 (gs)
+```bash
+python src/ao_shaping/main.py gs [OPTIONS]
+```
+等同于: `python -m ao_shaping.runners.gs_hologram_runner`
+
+基于Gerchberg-Saxton算法的全息图生成和优化。使用Santec SLM200空间光调制器和Daheng CCD相机。
+
+选项:
+- `--target-image`: 目标图像路径 (灰度图，将转为振幅分布)
+- `--target-shape`: 预设目标形状 (gaussian, circle, square, annular, grid, cross) (默认: gaussian)
+- `-i, --iterations`: GS算法迭代次数 (默认: 50)
+- `-d, --distance`: 传播距离 (米) (默认: 0.1)
+- `-l, --wavelength`: 激光波长 (纳米) (默认: 1064)
+- `--slm-wavelength`: SLM工作波长 (纳米) (默认: 1064)
+- `--slm-number`: SLM设备编号 (默认: 1)
+- `--cam-id`: CCD相机ID (默认: FAR_CAM_ID/0)
+- `--cam-center`: CCD中心位置 'x,y' (默认: 自动检测)
+- `--cam-size`: CCD开窗大小 (像素) (默认: 400)
+- `--cam-exposure`: CCD曝光时间 (毫秒) (默认: 50)
+- `-s, --save-dir`: 结果保存目录 (默认: data/gs_hologram)
+- `--use-hardware`: 使用实际硬件 (SLM+CCD)，否则仅模拟计算
+- `--adaptive`: 启用自适应GS (使用CCD反馈迭代优化)
+- `--adaptive-iterations`: 自适应迭代次数 (默认: 3)
+- `--show`: 显示结果图像
+
+示例:
+```bash
+DEBUG=1 python src/ao_shaping/main.py gs --target-shape gaussian --iterations 100 --use-hardware
+```
+
+#### 闭环波前优化 (closed-loop)
+```bash
+python src/ao_shaping/main.py closed-loop [OPTIONS]
+```
+等同于: `python -m ao_shaping.runners.zernike_matrix_runner closed-loop`
+
+基于已保存的Zernike响应矩阵进行闭环波前优化。
+
+选项:
+- `--load-file`: 已保存的响应矩阵 .h5 文件路径 (必需)
+- `--output`: 结果保存路径 (默认: 在load-file同目录生成)
+- `--control-law`: 控制律 (pid, leaky, qg, lqg, mpc, adaptive) (默认: leaky)
+- `--gain`: 控制增益覆盖 (控制律依赖)
+- `--leak`: 泄漏因子覆盖
+- `--kp`: PID比例增益
+- `--ki`: PID积分增益
+- `--kd`: PID微分增益
+- `--dt`: 采样周期 [s] (默认: 0.067)
+- `--rms-target`: 目标RMS [λ] (默认: 0.05)
+- `--max-iter`: 最大迭代次数 (默认: 100)
+- `--delay-steps`: 延时补偿步数 (默认: 1)
+- `--cancel-tile/--no-cancel-tile`: 测量时去除WFS tip/tilt (默认: False)
+- `--display/--no-display`: 显示实时pygame显示 (默认: False)
+- `--debug`: 启用调试模式
+
+示例:
+```bash
+DEBUG=1 python src/ao_shaping/main.py closed-loop --load-file data/zm.h5 --control-law leaky --max-iter 50
+```
+
+#### DM响应矩阵标定 (dm-matrix)
+```bash
+python src/ao_shaping/main.py dm-matrix [OPTIONS]
+```
+等同于: `python -m ao_shaping.runners.dm_matrix_runner`
+
+通过推拉电压扰动测量DM-to-WFS响应矩阵。
+
+选项:
+- `--voltage`: 扰动电压 (0=自动优化, 默认: 0.1)
+- `--n-averages`: 每次WFS读取次数 M (默认: 10)
+- `--n-cycles`: 正负交替循环次数 N (默认: 10)
+- `--wait`: 电压施加后等待时间 (秒, 默认: 0.1)
+- `--output`: 输出文件路径 (默认: data/dm_response_matrix)
+- `--dm-unit-mask`: DM单元掩码 (逗号分隔的0/1列表, 默认: 全部有效)
+- `--mla-index`: MLA分辨率 (512, 540, 600, 768, 1280) (默认: 512)
+- `--exp-time`: WFS曝光时间 (ms, 0=自动)
+- `--auto-exposure/--no-auto-exposure`: 启用WFS自动曝光 (默认: True)
+- `--high-speed`: 启用高速模式
+- `--use-custom-ref`: 使用自定义参考文件
+- `--pupil-diameter`: 瞳孔直径 (mm, 默认: 2.0)
+- `--pupil-center`: 瞳孔中心坐标 (默认: (0,0))
+- `--no-inverses`: 不计算逆矩阵 (默认: False)
+- `--cancel-tile`: 测量时去除WFS的tip/tilt (默认: False)
+- `--auto-optimize/--no-auto-optimize`: 自动优化每路扰动电压 (voltage=0时, 默认: True)
+- `--optimize-n-avg`: 电压优化时的WFS读取次数 (默认: 10)
+- `--display/--no-display`: 显示实时pygame显示 (暂未实现)
+- `--debug`: 启用调试模式 (保存原始测量数据)
+
+示例:
+```bash
+DEBUG=1 python src/ao_shaping/main.py dm-matrix --voltage 0.2 --n-averages 5 --output data/dm_response.h5
+```
+
 ### 串行流水线优化器处理流程详解
 
 串行流水线优化器采用分阶段优化策略，集成了波前传感器和CCD相机的优势，通过两个阶段的优化实现高质量的光束输出。
@@ -314,6 +412,16 @@ python -m ao_shaping.runners.pipeline_runner [OPTIONS]
 4. Zernike校准:
 ```bash
 python -m ao_shaping.runners.zernike_matrix_runner [OPTIONS]
+```
+
+5. 全息图生成:
+```bash
+python -m ao_shaping.runners.gs_hologram_runner [OPTIONS]
+```
+
+6. DM响应矩阵标定:
+```bash
+python -m ao_shaping.runners.dm_matrix_runner [OPTIONS]
 ```
 
 注意: `combined_runner.py` 已废弃，请使用 `pipeline_runner`
@@ -636,6 +744,13 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 - [drivers/AGENTS.md](src/ao_shaping/drivers/AGENTS.md): 硬件驱动文档
 
 ## 近期更新
+
+### v0.4.0 (2026-05)
+- **根目录访问重构**: 引入 `ROOT_DIR` 常量，统一项目根目录访问，替代多处 `Path(__file__).resolve().parents[N]` 写法
+- **WFS配置管理器简化**: 使用 `PROJECT_ROOT` 简化 WFS 配置管理器初始化
+- **ZernikeSLM增强**: 添加 `length` 属性，返回 Zernike 多项式数量
+- **文档完善**: 更新 Zernike 响应矩阵标定与闭环控制的文档，新增响应矩阵测试用例
+- **编码规范更新**: 在 README 中添加详细的编码指南和最佳实践
 
 ### v0.3.0 (2026-05)
 - **DM 统一接口重构**: 所有 DM 继承自 `base.DM`，提供标准方法 (V_Min/V_Max, DM_NUM, default_dm_unit_mask, check_dm_unit_grad_safe, send_voltages)
