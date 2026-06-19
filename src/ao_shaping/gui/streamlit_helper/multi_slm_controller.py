@@ -26,6 +26,11 @@ def _initialize_slm_state() -> None:
             st.session_state[f"{prefix}_phase_source"] = "暂无"
             st.session_state[f"{prefix}_shift_x"] = 0
             st.session_state[f"{prefix}_shift_y"] = 0
+        else:
+            slm = st.session_state[prefix]
+            if slm is not None and not getattr(slm, "is_open", False):
+                st.session_state[prefix] = None
+                st.session_state[f"{prefix}_connected"] = False
 
     for cam_num in (1, 2):
         prefix = f"cam{cam_num}"
@@ -395,8 +400,10 @@ def generate_phase_gray(
     # Phase pattern generation mapping
     if pattern_type == "平场":
         _gray = int(params["flat_gray"])
-        phase_rad = np.ones((height, width)) * _gray
-        return slm.create_phase_from_array(phase_rad)
+        # Return raw grayscale uint16 — bypass create_phase_from_array which
+        # interprets input as radians (mod 2π) and would map the gray value
+        # through an unwanted radian-to-grayscale conversion.
+        return np.full((height, width), _gray, dtype=np.uint16)
     if pattern_type == "线性光栅":
         phase_rad = helper.linear_grating(
             period=float(params["period"]),
@@ -714,17 +721,27 @@ def connect_slm(slm_num: int):
     shift_x_key = f"{prefix}_shift_x"
     shift_y_key = f"{prefix}_shift_y"
     mismatch_key = f"{prefix}_wavelength_mismatch"
+
+    # Clean up any stale SLM object before connecting
+    old_slm = st.session_state.get(prefix)
+    if old_slm is not None:
+        try:
+            # Only try to close if the device thinks it's open
+            if getattr(old_slm, "is_open", False):
+                old_slm.close()
+        except Exception:
+            pass  # Ignore errors when cleaning up stale state
+        # Always reset state in session
+        st.session_state[prefix] = None
+        st.session_state[f"{prefix}_connected"] = False
+
     try:
-        # Let the SLM class handle its own init flow — no init params that
-        # could interfere with config-file loading or device defaults.
         slm = SantecSLM200(slm_number=slm_num)
         slm.open()
 
         st.session_state[prefix] = slm
         st.session_state[f"{prefix}_connected"] = True
 
-        # Sync ALL resolved SLM state back to session state so the UI
-        # widgets (sidebar shift, wavelength, mode) match the device.
         st.session_state[video_mode_key] = "内存模式" if slm.video_mode == 0 else "DVI模式"
         st.session_state[shift_x_key] = slm.shift_x
         st.session_state[shift_y_key] = slm.shift_y
@@ -755,6 +772,9 @@ def connect_slm(slm_num: int):
             )
         st.success(f"SLM {slm_num} 连接成功")
     except Exception as e:
+        # Clean up state on failure
+        st.session_state[prefix] = None
+        st.session_state[f"{prefix}_connected"] = False
         st.error(f"SLM {slm_num} 连接失败: {e}")
         logger.exception(f"Failed to connect SLM {slm_num}: {e}")
 
@@ -762,18 +782,19 @@ def connect_slm(slm_num: int):
 def disconnect_slm(slm_num: int):
     """Disconnect from the specified SLM"""
     prefix = f"slm{slm_num}"
+    slm = st.session_state.get(prefix)
     try:
-        slm = st.session_state.get(prefix)
-        if slm is not None:
+        if slm is not None and getattr(slm, "is_open", False):
             slm.close()
-            st.session_state[prefix] = None
-            st.session_state[f"{prefix}_connected"] = False
-            st.session_state[f"{prefix}_phase_preview"] = None
-            st.session_state[f"{prefix}_phase_source"] = "暂无"
             st.success(f"SLM {slm_num} 已断开")
     except Exception as e:
         st.error(f"SLM {slm_num} 断开失败: {e}")
         logger.exception(f"Failed to disconnect SLM {slm_num}: {e}")
+    finally:
+        st.session_state[prefix] = None
+        st.session_state[f"{prefix}_connected"] = False
+        st.session_state[f"{prefix}_phase_preview"] = None
+        st.session_state[f"{prefix}_phase_source"] = "暂无"
 
 
 def set_wavelength(slm_num: int):
@@ -828,13 +849,16 @@ def render_slm_sidebar(slm_num: int):
     connected_key = f"{prefix}_connected"
 
     st.header(f"SLM {slm_num} 设置")
-    conn_button = st.button(f"连接 SLM {slm_num}", key=f"{prefix}_connect_btn")
-    disc_button = st.button(f"断开 SLM {slm_num}", key=f"{prefix}_disconnect_btn")
 
-    if conn_button:
-        connect_slm(slm_num)
-    if disc_button:
-        disconnect_slm(slm_num)
+    is_connected = st.session_state.get(connected_key, False)
+    button_label = f"断开 SLM {slm_num}" if is_connected else f"连接 SLM {slm_num}"
+    action_button = st.button(button_label, key=f"{prefix}_action_btn")
+
+    if action_button:
+        if is_connected:
+            disconnect_slm(slm_num)
+        else:
+            connect_slm(slm_num)
 
     # Only show wavelength and mode settings if connected
     slm_obj = st.session_state.get(prefix)
@@ -849,10 +873,8 @@ def render_slm_sidebar(slm_num: int):
             st.write(f"像素间距: {st.session_state[f'{prefix}_pixel_pitch_um']} μm")
         with col_info2:
             st.write(f"Bit数: {st.session_state[f'{prefix}_bits']}")
-            sn_display = getattr(
-                st.session_state[prefix].slm, "get_serial_number", lambda: "-"
-            )()
-            st.write(f"SLM序列号: {sn_display}")
+            sn_display = st.session_state[prefix]._serial_number
+            st.write(f"SLM序列号: {sn_display if sn_display else '-'}")
             st.write(f"SLM编号: {st.session_state[prefix].slm_number}")
 
         st.divider()
@@ -905,6 +927,27 @@ def render_slm_sidebar(slm_num: int):
                 st.json(loaded_cfg)
             else:
                 st.caption("未找到匹配的配置文件（使用设备默认值）")
+
+        st.divider()
+
+        st.caption("灰度设置")
+        max_gray = int(getattr(slm_obj, "_max_gray", SantecSLM200.MAX_GRAYSCALE_VALUE))
+        max_gray_abs = int(SantecSLM200.MAX_GRAYSCALE_VALUE)
+        st.caption(f"最大灰度值 (2π对应): **{max_gray}** / {max_gray_abs}")
+        new_max_gray = st.number_input(
+            "2π 灰度值",
+            min_value=1,
+            max_value=max_gray_abs,
+            step=1,
+            value=max_gray,
+            key=f"{prefix}_max_gray",
+        )
+        if st.button("应用灰度设置", key=f"{prefix}_apply_gray_btn"):
+            try:
+                slm_obj._max_gray = int(new_max_gray)
+                st.success(f"SLM {slm_num} 灰度值已更新为 {new_max_gray}")
+            except Exception as e:
+                st.error(f"更新灰度设置失败: {e}")
 
         st.divider()
 
