@@ -312,6 +312,8 @@ class SantecSLM200:
         logger.info(f"SLM #{self.slm_number} 已重启")
         # 重启后设备需要重新打开
         self.is_open = False
+        # Allow device time to stabilize after reboot
+        time.sleep(0.5)
 
     def _init_config_manager(self) -> None:
         """初始化配置管理器"""
@@ -366,11 +368,29 @@ class SantecSLM200:
             SantecSLM200Error: 设备连接失败
         """
         if self.is_open:
-            logger.warning(f"SLM #{self.slm_number} 已经处于打开状态")
-            return
+            # SDK may be in inconsistent state - try to verify and recover
+            try:
+                self._check_status()
+                logger.warning(f"SLM #{self.slm_number} 已经处于打开状态")
+                return
+            except SantecSLM200Error:
+                # Device in bad state, force reset
+                logger.warning(f"SLM #{self.slm_number} 状态异常，尝试复位")
+                self.is_open = False
+                # Try to close and recover
+                try:
+                    self._slm.SLM_Ctrl_Close(self.slm_number)
+                except Exception:
+                    pass
+                time.sleep(0.2)
 
         # 先尝试关闭（确保干净状态）
-        self._slm.SLM_Ctrl_Close(self.slm_number)
+        try:
+            self._slm.SLM_Ctrl_Close(self.slm_number)
+        except Exception:
+            pass
+        # Small delay for SDK state to settle
+        time.sleep(0.1)
 
         # 打开设备
         ret = self._slm.SLM_Ctrl_Open(self.slm_number)
@@ -379,6 +399,9 @@ class SantecSLM200:
 
         self.is_open = True
         logger.info(f"成功打开SLM #{self.slm_number}")
+
+        # 等待设备就绪（参考官方demo，应在读序列号前进行）
+        self._wait_for_ready()
 
         # 读取设备序列号
         try:
@@ -458,24 +481,28 @@ class SantecSLM200:
             logger.debug(f"未找到误差矫正文件: {correction_path}")
             self._correction_phase = None
 
-        # 读取并验证设备状态，必要时从设备读取波长
-        if self._check_status():
-            if self.wavelength is None:
-                self.wavelength, self._max_gray = self.get_wavelength_info()
+        # 设备状态检查已在open()开头进行，此处跳过
+
+        if self.wavelength is None:
+            self.wavelength, self._max_gray = self.get_wavelength_info()
+        else:
+            # 先获取设备当前波长，比较后再决定是否设置
+            device_wavelength, device_max_gray = self.get_wavelength_info()
+            if device_wavelength == self.wavelength:
+                logger.info(
+                    f"SLM #{self.slm_number} 波长与设备当前值相同，跳过设置 "
+                    f"(wavelength={self.wavelength})"
+                )
+                self._max_gray = device_max_gray
             else:
-                # 先获取设备当前波长，比较后再决定是否设置
-                device_wavelength, device_max_gray = self.get_wavelength_info()
-                if device_wavelength == self.wavelength:
-                    logger.info(
-                        f"SLM #{self.slm_number} 波长与设备当前值相同，跳过设置 "
-                        f"(wavelength={self.wavelength})"
-                    )
-                    self._max_gray = device_max_gray
-                else:
-                    self.set_wavelength(self.wavelength, save_to_device=True)
+                self.set_wavelength(self.wavelength, save_to_device=True)
 
         # 设置内存模式
-        self._set_memory_mode(self.video_mode)
+        try:
+            self._set_memory_mode(self.video_mode)
+        except SantecSLM200Error as e:
+            self.is_open = False
+            raise SantecSLM200Error(f"设置内存模式失败: {e}") from e
 
     def close(self) -> None:
         """关闭SLM设备连接
@@ -507,6 +534,34 @@ class SantecSLM200:
             raise SantecSLM200Error(f"SLM #{self.slm_number} 状态异常", code=ret)
         logger.debug(f"SLM #{self.slm_number} 状态正常")
         return True
+
+    def _wait_for_ready(self, max_retries: int = 10, retry_delay: float = 0.1) -> bool:
+        """等待设备就绪（参考官方demo）
+
+        Args:
+            max_retries: 最大重试次数，默认10次 (~1s)
+            retry_delay: 重试间隔秒数，默认0.1秒
+
+        Returns:
+            True if device becomes ready
+
+        Raises:
+            SantecSLM200Error: if device never becomes ready
+        """
+        for attempt in range(max_retries):
+            try:
+                self._check_status()
+                if attempt > 0:
+                    logger.info(f"SLM #{self.slm_number} 在 {attempt + 1} 次尝试后就绪")
+                return True
+            except SantecSLM200Error:
+                if attempt < max_retries - 1:
+                    logger.debug(f"等待设备就绪... ({attempt + 1}/{max_retries})")
+                    time.sleep(retry_delay)
+                else:
+                    logger.error(f"SLM #{self.slm_number} 在 {max_retries} 次尝试后仍未就绪")
+                    raise
+        return False
 
     def _set_memory_mode(self, mode: int | VideoMode) -> None:
         """设置SLM工作模式
