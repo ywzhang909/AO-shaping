@@ -8,6 +8,7 @@ from loguru import logger
 
 from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
 from ao_shaping.utils.pattern_helper import PatternHelper
+from ao_shaping.utils.zernike_calc import get_zernike_name
 
 # Global pattern helpers (will be recreated per-SLM based on resolution)
 # Note: Resolution and bit depth now come from the SLM object when generating patterns
@@ -311,42 +312,21 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
         st.caption("各阶系数 (n, m):")
         coefficients = {}
 
-        # Zernike polynomial naming (Noll's scheme)
-        zernike_names = {
-            (0, 0): "Piston",
-            (1, -1): "Tip",
-            (1, 1): "Tilt",
-            (2, 0): "Defocus",
-            (2, -2): "Astigmatism 45°",
-            (2, 2): "Astigmatism 0°",
-            (3, -1): "Coma Y",
-            (3, 1): "Coma X",
-            (3, -3): "Trefoil Y",
-            (3, 3): "Trefoil X",
-            (4, 0): "Spherical",
-            (4, -2): "Secondary Astig 45°",
-            (4, 2): "Secondary Astig 0°",
-            (4, -4): "Tetrafoil Y",
-            (4, 4): "Tetrafoil X",
-        }
-
         # Generate all valid (n, m) pairs for orders up to n_max
         for n in range(n_max + 1):
             for m in range(-n, n + 1):
                 if (n - abs(m)) % 2 == 0:  # Valid Zernike order
                     key = f"{prefix}_zernike_{n}_{m}"
 
-                    # Default value: 1.0 for piston (0,0), 0.0 for others
                     default_val = 1.0 if n == 0 and m == 0 else 0.0
 
-                    # Get value from session state if exists, otherwise use default
                     st.session_state.get(key, default_val)
 
                     col1, col2, col3 = st.columns([1, 2, 2])
                     with col1:
                         st.write(f"Z{n},{m}")
                     with col2:
-                        name = zernike_names.get((n, m), "")
+                        name = get_zernike_name(n, m)
                         st.caption(name if name else f"n={n},m={m}")
                     with col3:
                         st.number_input(

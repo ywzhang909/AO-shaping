@@ -33,7 +33,7 @@ AO-shaping/
 │   │   ├── drivers/             # 硬件驱动
 │   │   │   ├── ccd/             # 相机 (Daheng, MiiCam)
 │   │   │   ├── dm/              # 变形镜 (NLight, R50Power MicroDM)
-│   │   │   ├── slm/             # 空间光调制器 (Santec)
+│   │   │   ├── slm/             # 空间光调制器 (Santec, WavefrontCorrection)
 │   │   │   ├── wfs/             # 波前传感器 (Thorlabs)
 │   │   │   ├── tm/              # 定时模块 (Serial/FSM)
 │   │   │   ├── sim/             # 数字孪生仿真
@@ -511,6 +511,9 @@ streamlit run src/ao_shaping/gui/app.py
 
 ### 空间光调制器
 - **Santec SLM200**: 支持相位图案生成、缓存和CSV加载
+  - `open()` 方法已重构为子方法 (`_apply_config_params`, `_load_correction`, `_setup_wavelength`)，逻辑更清晰
+  - 波前误差矫正通过独立 `WavefrontCorrection` 类管理（CSV加载→异常点检测→矫正映射图）
+  - 矫正数据自动按优先级加载: `__init__` 显式指定 > 配置文件 > 默认路径
 
 > **⚠️ SLM 平场灰度生成注意事项**
 >
@@ -757,6 +760,11 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 - [drivers/AGENTS.md](src/ao_shaping/drivers/AGENTS.md): 硬件驱动文档
 
 ## 近期更新
+
+### v0.5.0 (未发布)
+- **SLM波前误差矫正重构**: 引入独立 `WavefrontCorrection` 类，封装CSV加载、异常点检测（Z-score）、中值滤波剔除和矫正映射图计算
+- **SLM open() 方法重构**: 拆分为 `_apply_config_params`, `_load_correction`, `_setup_wavelength` 三个子方法，提升可维护性
+- **矫正数据加载优先级**: `__init__` 显式指定 > 配置文件 > 默认路径，支持自定义 `calc_fn` 工厂方法
 
 ### v0.4.0 (2026-05)
 - **根目录访问重构**: 引入 `ROOT_DIR` 常量，统一项目根目录访问，替代多处 `Path(__file__).resolve().parents[N]` 写法

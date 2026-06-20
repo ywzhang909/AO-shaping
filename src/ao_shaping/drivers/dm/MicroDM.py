@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import socket
 import subprocess
 import threading
@@ -68,6 +69,7 @@ from loguru import logger
 from ao_shaping.drivers.device_base import Device, DeviceState, DeviceType
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.dm._registry import register_dm
+from ao_shaping.utils.device_config import ConfigHandler, DeviceParam, param
 from ao_shaping.utils.file import ROOT_DIR
 
 # =============================================================================
@@ -96,6 +98,24 @@ DEFAULT_IPS = [f"192.168.0.{100 + i}" for i in range(1, MAX_CONTROLLERS + 1)]
 
 # Wiring map path (relative to project root)
 WIRING_MAP_PATH = ROOT_DIR / "libs" / "micro_drive1300" / "wiring_map.json"
+
+# ── MicroDM 配置参数 ──────────────────────────────────────
+
+_MICRO_DM_CONFIG_DIR = Path(
+    os.environ.get("MICRO_DM_CONFIG_DIR", ROOT_DIR / "data" / "micro_dm_configs")
+)
+
+
+@dataclass
+class MicroDMParams(DeviceParam):
+    """MicroDM 配置参数（可持久化的标量参数）。"""
+    timeout: float = param(default=DEFAULT_TIMEOUT, cast=float)
+    use_wiring_map: bool = param(default=True, cast=bool)
+    safety_mode: bool = param(default=True, cast=bool)
+
+
+# 模块级单例，所有 MicroDM 实例共用
+MICRO_DM_CONFIG = ConfigHandler(_MICRO_DM_CONFIG_DIR, "micro_dm", MicroDMParams)
 
 
 # =============================================================================
@@ -810,7 +830,15 @@ class MicroDM(DM, Device):
             safety_mode: If True (default), send_voltages ramps from current
                 state to target in steps bounded by max_neibor_diff.
         """
-        DM.__init__(self, safety_mode=safety_mode)
+        self._init_values = {
+            "timeout": timeout,
+            "use_wiring_map": use_wiring_map,
+            "safety_mode": safety_mode,
+        }
+        # 使用 defaults + __init__ 参数解析可持久化的标量参数
+        params = MICRO_DM_CONFIG.resolve_from_config({}, init_values=self._init_values)
+
+        DM.__init__(self, safety_mode=params.safety_mode)
         Device.__init__(self, device_id)
 
         # Load wiring map if enabled
@@ -825,7 +853,7 @@ class MicroDM(DM, Device):
             tuple[int, int], ChannelInfo
         ] = {}  # (x, y) in 39x39 → info
 
-        if use_wiring_map:
+        if params.use_wiring_map:
             self._wiring_map = WiringMap.from_file(WIRING_MAP_PATH)
             if self._wiring_map is not None:
                 self._build_channel_indices(self._wiring_map)
@@ -847,7 +875,7 @@ class MicroDM(DM, Device):
             for ip in excluded_found:
                 logger.warning(f"Excluded controller IP: {ip}")
 
-        self._timeout = timeout
+        self._timeout = params.timeout
 
         self._relay_state = RelayState.OFF
 

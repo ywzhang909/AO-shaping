@@ -1,78 +1,114 @@
 """测试Santec SLM-200驱动的误差矫正CSV载入功能"""
 
-import pytest
-import numpy as np
-import tempfile
-import os
+import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import numpy as np
+import pytest
+
+# 在 import SantecSLM200 之前 mock SLM SDK 模块
+# （_slm_win 仅在 Windows + SDK installed 时可用）
+sys.modules["ao_shaping.drivers.slm._slm_win"] = MagicMock()
 
 from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+from ao_shaping.drivers.slm.wavefront_correction import WavefrontCorrection
+
+
+# 确保所有测试都使用 mock 的 SLM SDK
+@pytest.fixture(autouse=True)
+def _ensure_mock_slm_sdk() -> None:
+    with patch.dict(
+        "sys.modules",
+        {"ao_shaping.drivers.slm._slm_win": MagicMock()},
+        clear=False,
+    ):
+        yield
 
 
 class TestCorrectionCSVLoading:
     """测试误差矫正CSV载入功能"""
 
-    def test_default_correction_loading(self):
-        """测试默认载入误差矫正数据"""
-        # 创建SLM实例，不指定correction_csv_path
-        # 应该自动从配置文件载入data/calibration/Wavefront_correction_Data_240236000006(520nm).csv
+    # ── WavefrontCorrection + 初始化 ───────────────────
+
+    def test_init_without_correction(self):
+        """不指定 correction_csv_path → is_valid=False"""
         slm = SantecSLM200(slm_number=1)
-        # 不打开设备，因为我们只想测试初始化和配置载入逻辑
-        # 实际的矫正数据载入发生在open()方法中
+        assert isinstance(slm._correction, WavefrontCorrection)
+        assert not slm._correction.is_valid
 
-        # 验证初始状态
-        assert slm._init_correction_csv_path is None
-        assert slm._correction_phase is None  # 尚未打开，所以尚未载入
+    def test_init_with_nonexistent_path(self):
+        """指定不存在的路径 → is_valid=False"""
+        slm = SantecSLM200(slm_number=1, correction_csv_path="/nonexistent/path.csv")
+        assert isinstance(slm._correction, WavefrontCorrection)
+        assert not slm._correction.is_valid
 
-    def test_manual_correction_path_override(self, tmp_path):
-        """测试手动指定correction_csv_path覆盖自动载入"""
-        # 创建一个测试用的CSV文件
-        csv_content = "Y/X,0,1,2\n0,100,200,300\n1,400,500,600\n"
-        csv_file = tmp_path / "test_correction.csv"
-        csv_file.write_text(csv_content)
+    def test_init_with_empty_path(self):
+        """correction_csv_path="" → is_valid=False"""
+        slm = SantecSLM200(slm_number=1, correction_csv_path="")
+        assert isinstance(slm._correction, WavefrontCorrection)
+        assert not slm._correction.is_valid
 
-        # 创建SLM实例并指定自定义的correction_csv_path
-        slm = SantecSLM200(slm_number=1, correction_csv_path=str(csv_file))
+    def test_init_with_existing_csv(self, tmp_path: Path):
+        """指定存在的 CSV 路径 → WavefrontCorrection 实例（lazy load, raw_data=None）"""
+        csv = tmp_path / "test.csv"
+        csv.write_text("Y/X,0,1,2\n0,100,200,300\n1,400,500,600\n")
 
-        # 验证参数被正确保存
-        assert slm._init_correction_csv_path == str(csv_file)
-        assert slm._correction_phase is None  # 尚未打开，所以尚未载入
+        slm = SantecSLM200(slm_number=1, correction_csv_path=str(csv))
+        assert slm._correction.is_valid
+        assert slm._correction.csv_path == Path(csv)
+        assert slm._correction.raw_data is None  # 懒加载
 
-        # 测试空字符串和None的情况
-        slm_none = SantecSLM200(slm_number=1, correction_csv_path=None)
-        slm_empty = SantecSLM200(slm_number=1, correction_csv_path="")
+    def test_wavefront_correction_standalone(self, tmp_path: Path):
+        """单独测试 WavefrontCorrection 类"""
+        csv = tmp_path / "test.csv"
+        csv.write_text("Y/X,0,1,2\n0,100,200,300\n1,400,500,600\n")
 
-        assert slm_none._init_correction_csv_path is None
-        assert slm_empty._init_correction_csv_path == ""
+        wc = WavefrontCorrection(str(csv))
+        wc.load_csv()
+        assert wc.raw_data is not None
+        assert wc.raw_data.shape == (2, 3)
+        assert wc.raw_data.dtype == np.uint16
 
-    def test_correction_application_unaffected_by_shift(self):
-        """测试误差矫正应用不受shiftx/y影响"""
-        # 创建测试用的相位数据
+    # ── Backward compatibility: 旧 wrapper ─────────────
+
+    def test_load_phase_from_csv_backward_compat(self, tmp_path: Path):
+        """load_phase_from_csv 仍可正常工作"""
+        csv = tmp_path / "test.csv"
+        csv.write_text("Y/X,0,1,2\n0,100,200,300\n1,400,500,600\n")
+
+        slm = SantecSLM200(slm_number=1)
+        data = slm.load_phase_from_csv(csv)
+        assert data.shape == (2, 3)
+        assert data.dtype == np.uint16
+
+    def test_resize_to_panel_backward_compat(self):
+        """_resize_to_panel 委托至 WavefrontCorrection.resize_to_panel"""
+        data = np.array([[100, 200], [300, 400]], dtype=np.uint16)
+        slm = SantecSLM200(slm_number=1)
+        resized = slm._resize_to_panel(data)
+        assert resized.shape == (1200, 1920)
+        assert resized.dtype == np.float64
+        # 验证右上角 2×2 区域保留原值
+        assert resized[599, 959] == 100  # 居中后的位置
+
+    # ── Shift 参数 ────────────────────────────────────
+
+    def test_shift_parameters_set_in_init(self):
+        """shift_x/y 在 __init__ 时立即生效"""
+        slm_no = SantecSLM200(slm_number=1, shift_x=0, shift_y=0)
+        assert slm_no.shift_x == 0
+        assert slm_no.shift_y == 0
+
+        slm_shift = SantecSLM200(slm_number=1, shift_x=10, shift_y=-5)
+        assert slm_shift.shift_x == 10
+        assert slm_shift.shift_y == -5
+
+    def test_create_phase_with_shift_no_correction(self):
+        """create_phase_from_array 在有 shift 无 correction 时正常工作"""
         phase_rad = np.linspace(0, 2 * np.pi, 100).reshape(10, 10)
-
-        # 创建两个SLM实例，一个有shift，一个没有
-        slm_no_shift = SantecSLM200(slm_number=1, shift_x=0, shift_y=0)
-        slm_with_shift = SantecSLM200(slm_number=1, shift_x=10, shift_y=-5)
-
-        # 验证shift参数被正确设置
-        assert slm_no_shift.shift_x == 0
-        assert slm_no_shift.shift_y == 0
-        assert slm_with_shift.shift_x == 10
-        assert slm_with_shift.shift_y == -5
-
-        # 测试创建相位的基本功能
-        try:
-            grayscale_no_shift = slm_no_shift.create_phase_from_array(phase_rad)
-            grayscale_with_shift = slm_with_shift.create_phase_from_array(phase_rad)
-
-            # 基本验证：输应为uint16且在有效范围内
-            assert grayscale_no_shift.dtype == np.uint16
-            assert grayscale_with_shift.dtype == np.uint16
-            assert np.all(grayscale_no_shift >= 0)
-            assert np.all(grayscale_no_shift <= 1023)
-            assert np.all(grayscale_with_shift >= 0)
-            assert np.all(grayscale_with_shift <= 1023)
-        except Exception:
-            # 如果没有可用的矫正数据，可能会失败，但这不是我们想测试的
-            # 我们主要是在测试参数是否被正确处理
-            pass
+        slm = SantecSLM200(slm_number=1, shift_x=5, shift_y=-3)
+        grayscale = slm.create_phase_from_array(phase_rad)
+        assert grayscale.dtype == np.uint16
+        assert np.all(grayscale >= 0)
+        assert np.all(grayscale <= 1023)

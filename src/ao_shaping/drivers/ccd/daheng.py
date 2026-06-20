@@ -1,22 +1,56 @@
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
 import numpy as np
 
 from ao_shaping.drivers.ccd import BaseCamera
 from ao_shaping.drivers.ccd.common import ExposureTime
+from ao_shaping.utils.device_config import ConfigHandler, DeviceParam, param
+from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
 from ao_shaping.utils.file import logger
 
 try:
     import gxipy as gx
-except OSError as e:
-    logger.error("Daheng DLL set errror.")
+except (ImportError, OSError) as e:
+    logger.error(f"Daheng SDK import failed: {e}")
+
+# ── CCD 配置参数 ─────────────────────────────────────────
+
+
+_CCD_CONFIG_DIR = Path(
+    os.environ.get("CCD_CONFIG_DIR", PROJECT_ROOT / "data" / "ccd_configs")
+)
+
+
+@dataclass
+class CCDParams(DeviceParam):
+    """Daheng 相机配置参数。"""
+    cam_id: int = param(default=0, cast=int)
+    exposure_time_ms: float = param(default=0.0, cast=float)
+    skip_sampling: bool = param(default=False, cast=bool)
+
+
+# 模块级单例，所有 DahengCamManager 实例共用
+CCD_CONFIG = ConfigHandler(_CCD_CONFIG_DIR, "ccd", CCDParams)
+
 
 class DahengCamManager(BaseCamera):
     def __init__(
         self, cam_id: int = 0, exposure_time_ms: float = 0.0, skip_sampling=False
     ):
+        self._init_values = {
+            "cam_id": cam_id,
+            "exposure_time_ms": exposure_time_ms,
+            "skip_sampling": skip_sampling,
+        }
+        # 使用 defaults + __init__ 参数解析（尚未连接，无序列号）
+        params = CCD_CONFIG.resolve_from_config({}, init_values=self._init_values)
+
         self.device_manager = gx.DeviceManager()
-        self.cam_id = int(cam_id)
-        self.__exposure_time_ms = ExposureTime(exposure_time_ms)
-        self.skip_sampling = skip_sampling
+        self.cam_id = params.cam_id
+        self.__exposure_time_ms = ExposureTime(params.exposure_time_ms)
+        self.skip_sampling = params.skip_sampling
 
         self.cam = None
         self._sn: str | None = None
@@ -43,6 +77,26 @@ class DahengCamManager(BaseCamera):
     def is_connected(self) -> bool:
         """Check if camera is connected and ready."""
         return self.cam is not None and self._sn is not None
+
+    def load_config(self) -> dict:
+        """加载当前设备的配置文件。
+
+        Returns:
+            配置字典；无序列号或文件不存在时返回空字典。
+        """
+        if not self._sn:
+            return {}
+        return CCD_CONFIG._manager.load_config(self._sn)
+
+    def save_config(self) -> None:
+        """将当前参数保存到 JSON 配置文件。"""
+        if not self._sn:
+            logger.warning("未获取到序列号，跳过配置保存")
+            return
+        config = CCD_CONFIG.collect(self)
+        CCD_CONFIG._manager.save_config(self._sn, config)
+        config_file = CCD_CONFIG._manager._get_config_file(self._sn)
+        logger.info(f"相机配置已保存: {config_file}")
 
     def __enter__(self):
         self.initialize()
@@ -125,6 +179,13 @@ class DahengCamManager(BaseCamera):
         self.cam.Height.set(self.cam.HeightMax.get())
 
         self._sn = sn
+
+        # 按序列号加载并应用配置文件（不覆盖 __init__ 显式参数）
+        config = self.load_config()
+        CCD_CONFIG.apply_from_config(self, config, init_values=self._init_values)
+        # 重新应用曝光时间（配置可能覆盖了 exposure_time_ms）
+        self.cam.ExposureTime.set(self.__exposure_time_ms.ms)
+
         self.__update_properties()
         self.cam.stream_on()
 

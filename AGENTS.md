@@ -1,6 +1,6 @@
 # AGENTS.md - AO-Shaping Development Guide
 
-**Generated:** 2026-06-19
+**Generated:** 2026-06-20
 
 ## Project Overview
 
@@ -23,7 +23,7 @@ AO-shaping/
 │   │   ├── drivers/              # Hardware drivers (see drivers/AGENTS.md)
 │   │   │   ├── ccd/              # Cameras (Daheng, MiiCam)
 │   │   │   ├── dm/               # Deformable Mirrors (NLight)
-│   │   │   ├── slm/              # Spatial Light Modulators (Santec)
+│   │   │   ├── slm/              # Spatial Light Modulators (Santec, WavefrontCorrection)
 │   │   │   ├── wfs/              # Wavefront Sensors (Thorlabs)
 │   │   │   ├── tm/               # Timing modules (Serial/FSM)
 │   │   │   ├── sim/              # Digital twin simulation
