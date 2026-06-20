@@ -1,6 +1,6 @@
 # AGENTS.md - AO-Shaping Development Guide
 
-**Generated:** 2026-04-25
+**Generated:** 2026-06-19
 
 ## Project Overview
 
@@ -501,6 +501,8 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
 | Empty catch blocks | Always handle exceptions or log |
 | Deleting failing tests | Fix the code, not the test |
 | `combined_runner.py` with main CLI | Use `pipeline_runner.py` instead |
+| Passing uint16 grayscale through `create_phase_from_array()` | `create_phase_from_array()` treats input as **radians** (mod 2π → grayscale = rad/2π × 1023). uint16 grayscale values get silently corrupted. Use `np.full((h,w), gray, dtype=np.uint16)` for flat phase or direct grayscale patterns. |
+| Consecutive `write_phase` + `display_memory` to the **same** memory slot | Santec SLM firmware treats `display_memory(slot)` as a no-op when that slot is already being displayed — the LCOS panel does **not** refresh. Consecutive writes must ALWAYS target different slots (e.g., rotate through 3,4,5 via `itertools.cycle([3,4,5])`). The built-in `display_data()` cycles through all 127 slots. |
 
 ---
 
@@ -511,6 +513,8 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
 - **Recorder pattern**: Optimization tests validate history dictionaries with expected fields
 - **Optional backend testing**: CuPy/Numba tested conditionally with try/except guards
 - **No fixtures**: No `conftest.py`, fixtures defined inline in test methods
+- **SLM flat-phase gray RAW path**: Always send raw uint16 grayscale values to SLM via `np.full((h,w), gray, dtype=np.uint16)`. Never route flat phase through `create_phase_from_array()` (radian conversion). The SLM has amplitude coupling: different flat-phase gray levels produce different camera intensities at 1064nm (periodic with 2π ≈ 993 gray). Use `scripts/validate_flat_phase_gray.py` to verify. Parameters for stable observation: `--exposure-ms 0.8 --wait-time-s 0.3 --discard-count 3`.
+- **SLM memory-slot rotation**: When writing consecutive phases to memory mode, always rotate through different slots (`itertools.cycle([3,4,5])`). Calling `display_memory(slot)` for the slot already displayed is a no-op — the LCOS panel will not refresh, and the previous phase pattern remains on screen. This also applies to `display_data()` (which cycles through all 127 slots internally).
 
 ---
 
