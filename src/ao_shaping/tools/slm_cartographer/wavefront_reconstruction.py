@@ -258,7 +258,7 @@ def interpolate_sparse_to_dense(
 
         dense_x = spline_x(y_dense, x_dense)
         dense_y = spline_y(y_dense, x_dense)
-    except Exception as e:
+    except (ValueError, RuntimeError) as e:
         logger.warning(f"Spline interpolation failed ({e}), falling back to bilinear")
         from scipy.interpolate import RegularGridInterpolator
 
