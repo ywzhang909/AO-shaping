@@ -1,6 +1,9 @@
+import os
 import socket
 import time
 from ctypes import byref, c_bool, c_int32, cdll
+from dataclasses import dataclass
+from pathlib import Path
 
 import findlibs
 import numpy as np
@@ -8,6 +11,36 @@ from loguru import logger
 
 from ao_shaping.drivers.dm._registry import register_dm
 from ao_shaping.drivers.dm.base import DM
+from ao_shaping.utils.device_config import ConfigHandler, DeviceParam, param
+from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+
+
+# ── NLight 配置参数 ──────────────────────────────────────
+
+
+_DM_CONFIG_DIR = Path(
+    os.environ.get("DM_CONFIG_DIR", PROJECT_ROOT / "data" / "dm_configs")
+)
+
+
+@dataclass
+class NLightParams(DeviceParam):
+    """NLight DM 配置参数。
+
+    属性名 (attr) 与实际 NLight 实例属性一致:
+      - ``max_iter_diff`` → ``self.max_iter_diff``
+      - ``max_neibor_diff`` → ``self._max_neibor_diff`` (property)
+      - ``keep_when_exit`` → ``self._NLight__keep_when_exit`` (name-mangled)
+      - ``safety_mode`` → ``self._safety_mode``
+    """
+    max_iter_diff: int = param(default=20, cast=int)
+    max_neibor_diff: float = param(default=200.0, cast=float, attr="_max_neibor_diff")
+    keep_when_exit: bool = param(default=True, cast=bool, attr="_NLight__keep_when_exit")
+    safety_mode: bool = param(default=True, cast=bool, attr="_safety_mode")
+
+
+# 模块级单例，所有 NLight 实例共用
+NLIGHT_CONFIG = ConfigHandler(_DM_CONFIG_DIR, "nlight", NLightParams)
 
 
 def _load_adj_txt():
@@ -46,17 +79,26 @@ class NLight(DM):
         keep_when_exit=True,
         safety_mode=True,
     ):
-        assert max_iter_diff <= 200
-        assert max_neibor_diff <= 300
+        self._init_values = {
+            "max_iter_diff": max_iter_diff,
+            "max_neibor_diff": max_neibor_diff,
+            "keep_when_exit": keep_when_exit,
+            "safety_mode": safety_mode,
+        }
+        # 使用 defaults + __init__ 参数解析（NLight 无序列号，使用默认配置）
+        params = NLIGHT_CONFIG.resolve_from_config({}, init_values=self._init_values)
 
-        super().__init__(safety_mode=safety_mode)
-        self.max_iter_diff = max_iter_diff
-        self._max_neibor_diff = max_neibor_diff
+        assert params.max_iter_diff <= 200
+        assert params.max_neibor_diff <= 300
+
+        super().__init__(safety_mode=params.safety_mode)
+        self.max_iter_diff = params.max_iter_diff
+        self._max_neibor_diff = params.max_neibor_diff
 
         self.c_driver = DMSdk()
         self.udp_driver = DMUdp()
 
-        self.__keep_when_exit = keep_when_exit
+        self.__keep_when_exit = params.keep_when_exit
 
     @property
     def max_neibor_diff(self) -> float:
@@ -71,6 +113,20 @@ class NLight(DM):
         mask = np.ones(self.DM_NUM, dtype=bool)
         mask[0] = False
         return mask
+
+    def load_config(self) -> dict:
+        """加载当前设备的配置文件。
+
+        NLight 无硬件序列号，使用固定标识 ``"default"`` 作为配置 key。
+        """
+        return NLIGHT_CONFIG._manager.load_config("default")
+
+    def save_config(self) -> None:
+        """将当前参数保存到 JSON 配置文件。"""
+        config = NLIGHT_CONFIG.collect(self)
+        NLIGHT_CONFIG._manager.save_config("default", config)
+        config_file = NLIGHT_CONFIG._manager._get_config_file("default")
+        logger.info(f"NLight 配置已保存: {config_file}")
 
     def open(self) -> None:
         """Open connection to DM and initialize"""

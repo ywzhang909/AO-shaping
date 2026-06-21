@@ -24,6 +24,7 @@ drivers/
 │   ├── santec_slm200_visa.py
 │   ├── slm_calibration.py
 │   ├── zernike_slm.py  # Zernike coefficient-driven SLM
+│   ├── wavefront_correction.py  # Wavefront error correction (CSV → correction map)
 │   └── _slm_win.py    # SDK bindings (internal)
 ├── wfs/                 # Wavefront Sensors
 │   └── ThorlabWFS.py  # Thorlabs WFS
@@ -47,6 +48,7 @@ drivers/
 | `NLightDM` | dm/NLight.py | DM control |
 | `BaseDM` | dm/base.py | DM abstract base |
 | `ThorlabWFS` | wfs/ThorlabWFS.py | WFS control |
+| `WavefrontCorrection` | slm/wavefront_correction.py | SLM wavefront error correction (CSV loading, outlier detection, correction map) |
 
 ## REQUIRED INTERFACE
 

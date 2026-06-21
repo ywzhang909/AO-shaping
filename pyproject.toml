@@ -41,6 +41,14 @@ dependencies = [
 [project.scripts]
 ao-train = "ml.train:cli"
 
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["ao_shaping*", "ml*"]
+
 [dependency-groups]
 dev = [
     "ipywidgets>=8.1.8",

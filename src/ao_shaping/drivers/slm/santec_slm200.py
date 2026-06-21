@@ -4,12 +4,15 @@
 支持相位图显示、波长设置、内存模式等功能。
 """
 
+from __future__ import annotations
+
 import ctypes
 import os
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Union
+from typing import Any, Union
 
 import numpy as np
 from loguru import logger
@@ -37,23 +40,44 @@ from ao_shaping.drivers.slm.santec_slm200_constants import (
     get_max_grayscale,
     get_slm_error_message,
 )
-from ao_shaping.utils.file import SLMConfigManager, ROOT_DIR as PROJECT_ROOT
+from ao_shaping.drivers.slm.wavefront_correction import WavefrontCorrection
+from ao_shaping.utils.device_config import ConfigHandler, DeviceParam, param
+from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
 
 # Config directory: <project_root>/data/slm_configs/ or from SLM_CONFIG_DIR env var
 _SLM_CONFIG_DIR = Path(os.environ.get("SLM_CONFIG_DIR", PROJECT_ROOT / "data" / "slm_configs"))
 
-# Parameter specification for data-driven configuration in open()
-# Each entry: (config_key, attr_name, type_cast_fn, default_value)
-#   config_key: key in JSON config file and config.get()
-#   attr_name:  attribute to set via setattr()
-#   type_cast_fn: callable to cast the value (None = no casting)
-#   default_value: fallback when key is missing or init value is None
-_PARAM_SPEC = [
-    ("wavelength", "wavelength", int, None),
-    ("shift_x", "_shift_x", None, 0),
-    ("shift_y", "_shift_y", None, 0),
-    ("use_120hz", "_use_120hz", bool, False),
-]
+
+# ── SLM 配置参数 dataclass ──────────────────────────────
+
+
+def _to_int_or_none(v: Any) -> int | None:
+    """Convert value to int, returning None if None or empty."""
+    if v is None:
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+@dataclass
+class SLMParams(DeviceParam):
+    """SLM 设备参数（加载/检查/应用均基于此 dataclass）。
+
+    字段定义同时充当:
+      - :attr:`config_key` — JSON 配置文件的 key
+      - :attr:`attr` — 设备实例的属性名
+      - :attr:`cast` — 从 JSON 读入时的类型转换
+    """
+    wavelength: int | None = param(default=None, cast=_to_int_or_none)
+    shift_x: int = param(default=0, attr="_shift_x")
+    shift_y: int = param(default=0, attr="_shift_y")
+    use_120hz: bool = param(default=False, cast=bool, attr="_use_120hz")
+
+
+# 模块级单例，所有 SantecSLM200 实例共用
+SLM_CONFIG = ConfigHandler(_SLM_CONFIG_DIR, "slm", SLMParams)
 
 
 class SantecSLM200Error(Exception):
@@ -157,27 +181,27 @@ class SantecSLM200:
         self._displayed_phase_cache: np.ndarray | None = None
 
         # 保存init参数，用于open()中优先级判断
-        self._init_wavelength: int | None = wavelength
-        self._init_shift_x: int | None = shift_x
-        self._init_shift_y: int | None = shift_y
-        self._init_use_120hz: bool = use_120hz
-        self._init_correction_csv_path: Union[str, Path, None] = correction_csv_path
+        # 与 ConfigHandler 兼容的字典形式
+        self._init_values: dict[str, Any] = {
+            "wavelength": wavelength,
+            "_shift_x": shift_x,
+            "_shift_y": shift_y,
+            "_use_120hz": use_120hz,
+        }
 
         # 实际运行时值（立即生效，供属性和测试使用）
         self.wavelength: int | None = wavelength
-        self._shift_x: int = 0
-        self._shift_y: int = 0
+        self._shift_x: int = shift_x if shift_x is not None else 0
+        self._shift_y: int = shift_y if shift_y is not None else 0
 
         self._current_memory_slot = 1
 
         # 设备序列号（open后获取）
         self._serial_number: str | None = None
 
-        # 配置管理器
-        self._config_manager: SLMConfigManager | None = None
-
-        # 误差矫正数据（从CSV加载，在create_phase_from_array中叠加）
-        self._correction_phase: np.ndarray | None = None
+        # 波前误差矫正工具（从CSV加载，在create_phase_from_array中叠加）
+        # 文件有效性由 WavefrontCorrection.__init__ 内部判断
+        self._correction = WavefrontCorrection(correction_csv_path)
 
         # 延迟导入SLM SDK
         try:
@@ -312,11 +336,8 @@ class SantecSLM200:
         logger.info(f"SLM #{self.slm_number} 已重启")
         # 重启后设备需要重新打开
         self.is_open = False
-
-    def _init_config_manager(self) -> None:
-        """初始化配置管理器"""
-        if self._config_manager is None:
-            self._config_manager = SLMConfigManager(_SLM_CONFIG_DIR)
+        # Allow device time to stabilize after reboot
+        time.sleep(0.5)
 
     def load_config(self) -> dict:
         """加载当前设备的配置文件
@@ -326,32 +347,101 @@ class SantecSLM200:
         """
         if not self._serial_number:
             return {}
-        self._init_config_manager()
-        assert self._config_manager is not None, "Config manager should be initialized"
-        return self._config_manager.load_config(self._serial_number)
+        return SLM_CONFIG._manager.load_config(self._serial_number)
 
     def save_config(self) -> None:
         """将当前参数保存到JSON配置文件
 
-        配置项包括: serial_number, wavelength, shift_x, shift_y, use_120hz, video_mode
+        配置项包括: serial_number, wavelength, shift_x, shift_y, use_120hz,
+        video_mode, max_gray (extra fields 直接附加).
         """
         if not self._serial_number:
             logger.warning("未获取到序列号，跳过配置保存")
             return
 
-        self._init_config_manager()
-        assert self._config_manager is not None, "Config manager should be initialized"
-        config = {
-            "wavelength": self.wavelength,
-            "max_gray": self._max_gray,
-            "shift_x": self._shift_x,
-            "shift_y": self._shift_y,
-            "use_120hz": self._use_120hz,
-            "video_mode": self.video_mode,
-        }
-        self._config_manager.save_config(self._serial_number, config)
-        config_file = self._config_manager._get_config_file(self._serial_number)
+        # 从 SLM_CONFIG 收集已注册的参数字段
+        config = SLM_CONFIG.collect(self)
+        # 附加 SLMParams 之外的额外字段
+        config["max_gray"] = self._max_gray
+        config["video_mode"] = self.video_mode
+
+        SLM_CONFIG._manager.save_config(self._serial_number, config)
+        config_file = SLM_CONFIG._manager._get_config_file(self._serial_number)
         logger.info(f"SLM配置已保存: {config_file}")
+
+    # ── open() 拆分子方法 ────────────────────────────
+
+    def _apply_config_params(self, config: dict) -> None:
+        """应用配置参数（open() 子步骤，委托至 ConfigHandler）
+
+        参数优先级（由 ConfigHandler.resolve 保证）:
+          1. __init__ 显式参数 (_init_values)
+          2. JSON 配置文件 (序列号匹配)
+          3. SLMParams 字段默认值
+
+        Args:
+            config: 从 load_config() 获取的配置字典
+        """
+        params = SLM_CONFIG.apply_from_config(
+            self,
+            config,
+            init_values=self._init_values,
+        )
+        self.flags = FLAGS_RATE120 if self._use_120hz else 0
+
+        logger.info(
+            f"SLM #{self.slm_number} 参数: "
+            f"wavelength={params.wavelength}, "
+            f"shift_x={params.shift_x}, shift_y={params.shift_y}, "
+            f"use_120hz={params.use_120hz}"
+        )
+
+    def _load_correction(self, config: dict) -> None:
+        """加载波前误差矫正数据（委托至 WavefrontCorrection.resolve）
+
+        优先级（由工具类 resolve() 处理）:
+          __init__ 显式路径 → 配置文件路径 → 默认路径
+
+        Args:
+            config: 从 load_config() 获取的配置字典
+        """
+        default_path = (
+            PROJECT_ROOT
+            / "data"
+            / "calibration"
+            / "Wavefront_correction_Data_240236000006(520nm).csv"
+        )
+        resolved = WavefrontCorrection.resolve(
+            explicit_path=self._correction.csv_path if self._correction.is_valid else None,
+            config=config,
+            panel_resolution=self.Panel_Res,
+            default_path=default_path,
+        )
+        if resolved is not None:
+            self._correction = resolved
+            logger.info(
+                f"SLM #{self.slm_number} 已加载矫正数据: {resolved.csv_path.name}"
+            )
+        else:
+            self._correction = WavefrontCorrection()  # 空实例（is_valid=False）
+            logger.info(f"SLM #{self.slm_number} 未加载矫正数据")
+
+    def _setup_wavelength(self) -> None:
+        """设置工作波长（open() 子步骤）"""
+        if self.wavelength is None:
+            self.wavelength, self._max_gray = self.get_wavelength_info()
+        else:
+            device_wavelength, device_max_gray = self.get_wavelength_info()
+            if device_wavelength == self.wavelength:
+                logger.info(
+                    f"SLM #{self.slm_number} 波长与设备当前值相同，跳过设置 "
+                    f"(wavelength={self.wavelength})"
+                )
+                self._max_gray = device_max_gray
+            else:
+                self.set_wavelength(self.wavelength, save_to_device=True)
+
+    # ── open / close ──────────────────────────────────
 
     def open(self) -> None:
         """打开SLM设备连接
@@ -366,11 +456,29 @@ class SantecSLM200:
             SantecSLM200Error: 设备连接失败
         """
         if self.is_open:
-            logger.warning(f"SLM #{self.slm_number} 已经处于打开状态")
-            return
+            # SDK may be in inconsistent state - try to verify and recover
+            try:
+                self._check_status()
+                logger.warning(f"SLM #{self.slm_number} 已经处于打开状态")
+                return
+            except SantecSLM200Error:
+                # Device in bad state, force reset
+                logger.warning(f"SLM #{self.slm_number} 状态异常，尝试复位")
+                self.is_open = False
+                # Try to close and recover
+                try:
+                    self._slm.SLM_Ctrl_Close(self.slm_number)
+                except Exception:
+                    pass
+                time.sleep(0.2)
 
         # 先尝试关闭（确保干净状态）
-        self._slm.SLM_Ctrl_Close(self.slm_number)
+        try:
+            self._slm.SLM_Ctrl_Close(self.slm_number)
+        except Exception:
+            pass
+        # Small delay for SDK state to settle
+        time.sleep(0.1)
 
         # 打开设备
         ret = self._slm.SLM_Ctrl_Open(self.slm_number)
@@ -380,6 +488,9 @@ class SantecSLM200:
         self.is_open = True
         logger.info(f"成功打开SLM #{self.slm_number}")
 
+        # 等待设备就绪（参考官方demo，应在读序列号前进行）
+        self._wait_for_ready()
+
         # 读取设备序列号
         try:
             self._serial_number = self.get_serial_number()
@@ -388,94 +499,24 @@ class SantecSLM200:
             logger.warning(f"无法读取SLM序列号: {e}")
             self._serial_number = None
 
-        # 按序列号加载配置文件（如有）
+        # 按序列号加载配置文件
         config: dict = self.load_config()
-        config_loaded = bool(config)
 
-        # 应用参数优先级：
-        # 如果有配置文件且匹配成功，则仅使用配置文件中的值（不使用__init__显式参数）
-        # 否则：__init__ 显式参数 > config文件 > 默认值
-        if config_loaded:
-            # 仅使用配置文件中的值（数据驱动）
-            for key, attr, cast_fn, default in _PARAM_SPEC:
-                value = config.get(key, default)
-                if cast_fn is not None and value is not None:
-                    value = cast_fn(value)
-                setattr(self, attr, value)
-        else:
-            # 没有配置文件时使用原有优先级逻辑
-            init_map = {
-                "wavelength": self._init_wavelength,
-                "_shift_x": self._init_shift_x,
-                "_shift_y": self._init_shift_y,
-                "_use_120hz": self._init_use_120hz,
-            }
-            for _, attr, _, default in _PARAM_SPEC:
-                init_val = init_map.get(attr)
-                setattr(self, attr, init_val if init_val is not None else default)
+        # 应用配置参数（波长、平移、刷新率等）
+        self._apply_config_params(config)
 
-        self.flags = FLAGS_RATE120 if self._use_120hz else 0
+        # 加载波前误差矫正数据
+        self._load_correction(config)
 
-        logger.info(
-            f"SLM #{self.slm_number} 参数: "
-            f"wavelength={self.wavelength}, "
-            f"shift_x={self._shift_x}, shift_y={self._shift_y}, "
-            f"use_120hz={self._use_120hz}"
-        )
-
-        # 加载误差矫正数据
-        correction_path = None
-        # 优先级: __init__显式参数 > 配置文件 > 默认路径
-        if self._init_correction_csv_path is not None:
-            correction_path = Path(self._init_correction_csv_path)
-            logger.debug(f"使用__init__中指定的误差矫正路径: {correction_path}")
-        elif config_loaded and "correction_csv_path" in config:
-            correction_path = Path(config["correction_csv_path"])
-            logger.debug(f"使用配置文件中的误差矫正路径: {correction_path}")
-        else:
-            # 默认路径
-            correction_path = (
-                PROJECT_ROOT
-                / "data"
-                / "calibration"
-                / "Wavefront_correction_Data_240236000006(520nm).csv"
-            )
-            logger.debug(f"使用默认误差矫正路径: {correction_path}")
-
-        # 加载误差矫正数据（如果路径存在）
-        if correction_path is not None and correction_path.exists():
-            try:
-                raw_correction = self.load_phase_from_csv(correction_path)
-                self._correction_phase = self._resize_to_panel(raw_correction)
-                logger.info(
-                    f"SLM #{self.slm_number} 已加载误差矫正数据: {correction_path.name}, "
-                    f"形状: {self._correction_phase.shape}"
-                )
-            except Exception as e:
-                logger.warning(f"加载误差矫正数据失败: {e}")
-                self._correction_phase = None
-        else:
-            logger.debug(f"未找到误差矫正文件: {correction_path}")
-            self._correction_phase = None
-
-        # 读取并验证设备状态，必要时从设备读取波长
-        if self._check_status():
-            if self.wavelength is None:
-                self.wavelength, self._max_gray = self.get_wavelength_info()
-            else:
-                # 先获取设备当前波长，比较后再决定是否设置
-                device_wavelength, device_max_gray = self.get_wavelength_info()
-                if device_wavelength == self.wavelength:
-                    logger.info(
-                        f"SLM #{self.slm_number} 波长与设备当前值相同，跳过设置 "
-                        f"(wavelength={self.wavelength})"
-                    )
-                    self._max_gray = device_max_gray
-                else:
-                    self.set_wavelength(self.wavelength, save_to_device=True)
+        # 设置波长（如需要）
+        self._setup_wavelength()
 
         # 设置内存模式
-        self._set_memory_mode(self.video_mode)
+        try:
+            self._set_memory_mode(self.video_mode)
+        except SantecSLM200Error as e:
+            self.is_open = False
+            raise SantecSLM200Error(f"设置内存模式失败: {e}") from e
 
     def close(self) -> None:
         """关闭SLM设备连接
@@ -507,6 +548,34 @@ class SantecSLM200:
             raise SantecSLM200Error(f"SLM #{self.slm_number} 状态异常", code=ret)
         logger.debug(f"SLM #{self.slm_number} 状态正常")
         return True
+
+    def _wait_for_ready(self, max_retries: int = 10, retry_delay: float = 0.1) -> bool:
+        """等待设备就绪（参考官方demo）
+
+        Args:
+            max_retries: 最大重试次数，默认10次 (~1s)
+            retry_delay: 重试间隔秒数，默认0.1秒
+
+        Returns:
+            True if device becomes ready
+
+        Raises:
+            SantecSLM200Error: if device never becomes ready
+        """
+        for attempt in range(max_retries):
+            try:
+                self._check_status()
+                if attempt > 0:
+                    logger.info(f"SLM #{self.slm_number} 在 {attempt + 1} 次尝试后就绪")
+                return True
+            except SantecSLM200Error:
+                if attempt < max_retries - 1:
+                    logger.debug(f"等待设备就绪... ({attempt + 1}/{max_retries})")
+                    time.sleep(retry_delay)
+                else:
+                    logger.error(f"SLM #{self.slm_number} 在 {max_retries} 次尝试后仍未就绪")
+                    raise
+        return False
 
     def _set_memory_mode(self, mode: int | VideoMode) -> None:
         """设置SLM工作模式
@@ -906,9 +975,9 @@ class SantecSLM200:
         # 将弧度转换为灰度值
         grayscale = phase_rad / (2 * np.pi) * max_grayscale
 
-        # 叠加误差矫正（如有）
-        if self._correction_phase is not None:
-            grayscale = np.mod(grayscale + self._correction_phase, max_grayscale + 1)
+        # 叠加波前误差矫正（如有）
+        if self._correction is not None and self._correction.correction_map is not None:
+            grayscale = self._correction.map_error(grayscale, max_grayscale)
 
         # 应用平移
         grayscale = self._apply_shift(grayscale)
@@ -916,7 +985,7 @@ class SantecSLM200:
         return grayscale.astype(np.uint16)
 
     def _resize_to_panel(self, data: np.ndarray) -> np.ndarray:
-        """将数组裁切或补零至SLM面板分辨率
+        """将数组裁切或补零至SLM面板分辨率（委托至 WavefrontCorrection）
 
         若输入尺寸超过面板分辨率，从中心裁切；
         若不足，则居中补零。
@@ -925,25 +994,9 @@ class SantecSLM200:
             data: 输入数组，shape为(height, width)
 
         Returns:
-            调整后的数组，shape为(Panel_Res[1], Panel_Res[0])
+            调整后的数组，shape为(Panel_Res[1], Panel_Res[0])，dtype float64
         """
-        target_h, target_w = self.Panel_Res[1], self.Panel_Res[0]  # (1200, 1920)
-        h, w = data.shape
-
-        if (h, w) == (target_h, target_w):
-            return data.astype(np.float64)
-
-        if h > target_h or w > target_w:
-            start_y = (h - target_h) // 2
-            start_x = (w - target_w) // 2
-            result = data[start_y : start_y + target_h, start_x : start_x + target_w]
-        else:
-            result = np.zeros((target_h, target_w), dtype=data.dtype)
-            start_y = (target_h - h) // 2
-            start_x = (target_w - w) // 2
-            result[start_y : start_y + h, start_x : start_x + w] = data
-
-        return result.astype(np.float64)
+        return WavefrontCorrection.resize_to_panel(data, self.Panel_Res)
 
     def _apply_shift(self, phase: np.ndarray) -> np.ndarray:
         """应用X/Y平移到相位图，空白区域填0

@@ -16,10 +16,12 @@ from ctypes import (
     c_ulong,
     create_string_buffer,
 )
+from dataclasses import dataclass
 from datetime import datetime
 from enum import IntEnum
 from functools import wraps
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from loguru import logger
@@ -33,7 +35,8 @@ from ao_shaping.drivers.wfs._thorlab_wfs import (
     load_dll,
     np2c,
 )
-from ao_shaping.utils.file import DeviceConfigManager, ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.device_config import ConfigHandler, DeviceParam, param
+from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
 
 WFS_DEBUG_MODE = os.environ.get("WFS_DEBUG", "0") == "1"
 
@@ -149,6 +152,42 @@ Mla_pix = {
 }
 
 
+# ── WFS 配置参数 dataclass ──────────────────────────────
+
+
+def _to_mla_res(v: Any) -> MlaRes:
+    """Convert int/str/MlaRes values to MlaRes enum."""
+    if isinstance(v, MlaRes):
+        return v
+    if isinstance(v, str):
+        return MlaRes.from_str(v)
+    return MlaRes(int(v))
+
+
+@dataclass
+class WFSParams(DeviceParam):
+    """WFS 设备参数 dataclass。
+
+    字段定义同时充当:
+      - :attr:`config_key` — JSON 配置文件的 key
+      - :attr:`attr` — 设备实例的属性名
+      - :attr:`cast` — 从 JSON 读入时的类型转换
+
+    Note:
+        ``pupil_center`` 和 ``pupil_diameter`` 是复合字段
+        (config→tuple, instance→scalar)，在 ``open()`` 中手动处理。
+    """
+    mla_index: MlaRes = param(default=MlaRes.Res768, cast=_to_mla_res)
+    exposure_time: float = param(default=0.0, cast=float, attr="_explosure_time")
+    high_speed: bool = param(default=False, cast=bool, attr="enable_high_speed")
+    use_custom_ref: bool = param(default=False, cast=bool)
+
+
+# 模块级单例，所有 ThorlabWFS 实例共用
+_WFS_CONFIG_DIR = PROJECT_ROOT / "data" / "wfs_configs"
+WFS_CONFIG = ConfigHandler(_WFS_CONFIG_DIR, "wfs", WFSParams)
+
+
 class ThorlabWFS(Device):
     """Thorlabs Wavefront Sensor (WFS) device driver.
 
@@ -203,12 +242,15 @@ class ThorlabWFS(Device):
         # Store initialization parameters (deferred to open())
         if isinstance(mla_index, str):
             mla_index = MlaRes.from_str(mla_index)
-        self._init_mla_index: MlaRes | None = mla_index
-        self._init_exp_time: float | None = exposure_time
-        self._init_high_speed: bool | None = high_speed
-        self._init_use_custom_ref: bool | None = use_custom_ref
-        self._init_pupil_diameter: float | None = pupil_diameter
-        self._init_pupil_center: tuple | None = pupil_center
+        # 用于 ConfigHandler.apply_from_config() 的 init_values
+        self._init_values: dict[str, Any] = {
+            "mla_index": mla_index,
+            "_explosure_time": exposure_time,
+            "enable_high_speed": high_speed,
+            "use_custom_ref": use_custom_ref,
+            "_pupil_center": pupil_center,   # 保留原始 tuple，手动处理
+            "_pupil_diameter": pupil_diameter,  # 保留原始 float，手动处理
+        }
         self._init_stable_sample_enable: bool = stable_sample_enable
         self._init_stable_sample_n: int = stable_sample_n
         self._init_stable_variance_threshold: float = stable_variance_threshold
@@ -242,9 +284,6 @@ class ThorlabWFS(Device):
         self.stable_sample_n: int = 5
         self.stable_variance_threshold: float = 0.1
         self.stable_max_attempts: int = 50
-
-        # Configuration manager
-        self._config_manager: DeviceConfigManager | None = None
 
         # Register parameters and capabilities
         self._register_parameters()
@@ -377,21 +416,8 @@ class ThorlabWFS(Device):
         # Load configuration (init params take priority, then config values)
         config = self.load_config()
 
-        # MLA index
-        if self._init_mla_index is not None:
-            self.mla_index = self._init_mla_index
-        elif "mla_index" in config:
-            self.mla_index = MlaRes(config["mla_index"])
-        else:
-            self.mla_index = MlaRes.Res768
-
-        # exposure time
-        if self._init_exp_time is not None:
-            self._explosure_time = self._init_exp_time
-        elif "exposure_time" in config:
-            self._explosure_time = float(config["exposure_time"])
-        else:
-            self._explosure_time = 0.0
+        # 通过 ConfigHandler 应用简单字段 (mla_index, exposure_time, high_speed, use_custom_ref)
+        WFS_CONFIG.apply_from_config(self, config, init_values=self._init_values)
 
         # Validate exposure time
         if not (
@@ -403,33 +429,19 @@ class ThorlabWFS(Device):
             )
             self._explosure_time = 0.0
 
-        # high speed
-        if self._init_high_speed is not None:
-            self.enable_high_speed = self._init_high_speed
-        elif "high_speed" in config:
-            self.enable_high_speed = bool(config["high_speed"])
-        else:
-            self.enable_high_speed = False
-
-        # use custom ref
-        if self._init_use_custom_ref is not None:
-            self.use_custom_ref = self._init_use_custom_ref
-        elif "use_custom_ref" in config:
-            self.use_custom_ref = bool(config["use_custom_ref"])
-        else:
-            self.use_custom_ref = False
-
-        # pupil center
-        if self._init_pupil_center is not None:
-            self.c_x, self.c_y = self._init_pupil_center
+        # pupil center (复合字段: config→tuple(cx,cy), instance→scalars)
+        init_pupil_center = self._init_values.get("_pupil_center")
+        if init_pupil_center is not None:
+            self.c_x, self.c_y = init_pupil_center
         elif "pupil_center" in config:
             self.c_x, self.c_y = config["pupil_center"]
         else:
             self.c_x, self.c_y = 0.0, 0.0
 
-        # pupil diameter
-        if self._init_pupil_diameter is not None:
-            self.d_x, self.d_y = self._init_pupil_diameter, self._init_pupil_diameter
+        # pupil diameter (复合字段: config→tuple(dx,dy), instance→scalars)
+        init_pupil_diameter = self._init_values.get("_pupil_diameter")
+        if init_pupil_diameter is not None:
+            self.d_x, self.d_y = init_pupil_diameter, init_pupil_diameter
         elif "pupil_diameter" in config:
             self.d_x, self.d_y = config["pupil_diameter"]
         else:
@@ -503,13 +515,6 @@ class ThorlabWFS(Device):
 
     # ==================== Config Management ====================
 
-    def _init_config_manager(self) -> None:
-        """Initialize WFS configuration manager."""
-        if self._config_manager is None:
-            # Default config directory: data/wfs_configs/
-            config_dir = PROJECT_ROOT / "data" / "wfs_configs"
-            self._config_manager = DeviceConfigManager(config_dir, device_type="wfs")
-
     def load_config(self) -> dict:
         """Load JSON configuration file based on serial number.
 
@@ -519,9 +524,7 @@ class ThorlabWFS(Device):
         if not self.serial_num:
             logger.warning("WFS serial number not available, skipping config load")
             return {}
-        self._init_config_manager()
-        assert self._config_manager is not None
-        return self._config_manager.load_config(self.serial_num)
+        return WFS_CONFIG._manager.load_config(self.serial_num)
 
     def save_config(self) -> None:
         """Save current parameters to JSON configuration file.
@@ -533,19 +536,14 @@ class ThorlabWFS(Device):
             logger.warning("WFS serial number not available, skipping config save")
             return
 
-        self._init_config_manager()
-        assert self._config_manager is not None
+        # 从 WFS_CONFIG 收集已注册的参数字段
+        config = WFS_CONFIG.collect(self)
+        # 附加复合字段（WFSParams 不包含的 scalar→tuple 转换）
+        config["pupil_center"] = (self.c_x, self.c_y)
+        config["pupil_diameter"] = (self.d_x, self.d_y)
 
-        config = {
-            "mla_index": int(self.mla_index),
-            "exposure_time": self._explosure_time,
-            "high_speed": self.enable_high_speed,
-            "pupil_center": (self.c_x, self.c_y),
-            "pupil_diameter": (self.d_x, self.d_y),
-            "use_custom_ref": self.use_custom_ref,
-        }
-        self._config_manager.save_config(self.serial_num, config)
-        config_file = self._config_manager._get_config_file(self.serial_num)
+        WFS_CONFIG._manager.save_config(self.serial_num, config)
+        config_file = WFS_CONFIG._manager._get_config_file(self.serial_num)
         logger.info(f"WFS configuration saved: {config_file}")
 
     # ==================== Error Handling ====================

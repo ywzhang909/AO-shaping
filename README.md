@@ -33,7 +33,7 @@ AO-shaping/
 │   │   ├── drivers/             # 硬件驱动
 │   │   │   ├── ccd/             # 相机 (Daheng, MiiCam)
 │   │   │   ├── dm/              # 变形镜 (NLight, R50Power MicroDM)
-│   │   │   ├── slm/             # 空间光调制器 (Santec)
+│   │   │   ├── slm/             # 空间光调制器 (Santec, WavefrontCorrection)
 │   │   │   ├── wfs/             # 波前传感器 (Thorlabs)
 │   │   │   ├── tm/              # 定时模块 (Serial/FSM)
 │   │   │   ├── sim/             # 数字孪生仿真
@@ -511,6 +511,22 @@ streamlit run src/ao_shaping/gui/app.py
 
 ### 空间光调制器
 - **Santec SLM200**: 支持相位图案生成、缓存和CSV加载
+  - `open()` 方法已重构为子方法 (`_apply_config_params`, `_load_correction`, `_setup_wavelength`)，逻辑更清晰
+  - 波前误差矫正通过独立 `WavefrontCorrection` 类管理（CSV加载→异常点检测→矫正映射图）
+  - 矫正数据自动按优先级加载: `__init__` 显式指定 > 配置文件 > 默认路径
+
+> **⚠️ SLM 平场灰度生成注意事项**
+>
+> Santec SLM200在1064nm附近存在**振幅耦合**效应——SLM加载不同灰度值的平场相位时，相机采集到的光斑亮度会随灰度值变化（周期 ≈ 2π，即约993灰度值）。这是SLM的固有特性，已在实验中验证（参见 `scripts/validate_flat_phase_gray.py`）。
+>
+> **关键规则1（灰度值路径）**: 平场相位（以及其他直接灰度图案）**必须**使用 `np.full((height, width), gray, dtype=np.uint16)` 生成，**不能**通过 `create_phase_from_array()` 传递。因为 `create_phase_from_array()` 将输入作为**弧度**处理（mod 2π → 弧度/2π × 1023），uint16灰度值会经过不必要的弧度转换而被静默损坏。
+>
+> **关键规则2（内存模式槽轮换）**: Santec SLM 在内存模式下，**前后两次写入不能使用同一个内存槽**（memory slot）。当 `display_memory(slot)` 被调用时，如果该槽已经在显示，设备会将此调用视为空操作（no-op），LCOS 面板不会刷新，屏幕上仍显示上一次的相位图案。连续写入时必须轮换不同的槽位（例如通过 `itertools.cycle([3,4,5])` 在 3→4→5→3→4→5 间循环）。`display_data()` 内置的 127 槽循环机制就是为了满足这一约束。
+>
+> 验证命令:
+> ```bash
+> python scripts/validate_flat_phase_gray.py --exposure-ms 0.8 --wait-time-s 0.3
+> ```
 
 ### 数据采集卡
 - **NI DAQ设备**: 用于多设备同步控制
@@ -744,6 +760,11 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 - [drivers/AGENTS.md](src/ao_shaping/drivers/AGENTS.md): 硬件驱动文档
 
 ## 近期更新
+
+### v0.5.0 (未发布)
+- **SLM波前误差矫正重构**: 引入独立 `WavefrontCorrection` 类，封装CSV加载、异常点检测（Z-score）、中值滤波剔除和矫正映射图计算
+- **SLM open() 方法重构**: 拆分为 `_apply_config_params`, `_load_correction`, `_setup_wavelength` 三个子方法，提升可维护性
+- **矫正数据加载优先级**: `__init__` 显式指定 > 配置文件 > 默认路径，支持自定义 `calc_fn` 工厂方法
 
 ### v0.4.0 (2026-05)
 - **根目录访问重构**: 引入 `ROOT_DIR` 常量，统一项目根目录访问，替代多处 `Path(__file__).resolve().parents[N]` 写法
