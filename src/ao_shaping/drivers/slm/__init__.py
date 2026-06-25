@@ -4,7 +4,6 @@
 
 目前支持:
 - Santec SLM-200系列（SDK原生）
-- Santec SLM-200系列（PyVISA兼容）
 - SLM闪耀光栅标定
 
 Example:
@@ -17,12 +16,6 @@ Example:
     ...     slm.write_phase(phase, memory_number=1)
     ...     slm.display_memory(1)
 
-PyVISA Example:
-    >>> from ao_shaping.drivers.slm import SantecSLM200Visa
-    >>> 
-    >>> with SantecSLM200Visa('SLM::1::INSTR') as slm:
-    ...     slm.write('WAVELENGTH 1064')
-    ...     slm.query('*IDN?')
 
 Calibration Example:
     >>> from ao_shaping.drivers.slm import SantecSLM200Calibrator, plot_calibration_result
@@ -44,14 +37,7 @@ __all__ = [
 
 # Note: PatternHelper is in ao_shaping.utils.pattern_helper
 
-# 可选导入 PyVISA 兼容类
-from loguru import logger
 
-try:
-    from ao_shaping.drivers.slm.santec_slm200_visa import SantecSLM200Visa, create_slm_visa_instrument
-    __all__ += ["SantecSLM200Visa", "create_slm_visa_instrument"]
-except ImportError as e:
-    logger.debug(f"SantecSLM200Visa not available: {e}")
 
 # 导入标定模块
 from ao_shaping.drivers.slm.slm_calibration import (

@@ -114,17 +114,7 @@ except ImportError as e:
     list_visa_resources = None
     open_visa_instrument = None
 
-try:
-    from ao_shaping.drivers.slm.santec_slm200_visa import (
-        SantecSLM200Visa,
-        create_slm_visa_instrument,
-    )
 
-    __all__ += ["SantecSLM200Visa", "create_slm_visa_instrument"]
-except ImportError as e:
-    logger.debug(f"SantecSLM200Visa not available: {e}")
-    SantecSLM200Visa = None
-    create_slm_visa_instrument = None
 
 from ao_shaping.drivers.mock_devices import (
     MockCamera,
