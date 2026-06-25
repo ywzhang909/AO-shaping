@@ -11,6 +11,8 @@ from pathlib import Path
 
 import numpy as np
 
+from loguru import logger
+
 # __file__ is relative or absolute; resolve to absolute then walk up
 _file = Path(__file__).resolve()
 # file: .../src/ao_shaping/tools/slm_cartographer/test_smoke.py
@@ -28,27 +30,27 @@ def test_cosine_pattern() -> None:
         estimate_phase_from_pattern,
     )
 
-    print("=== Cosine Pattern Tests ===")
+    logger.info("=== Cosine Pattern Tests ===")
     config = CosinePatternConfig(center_x=960, center_y=540, radius_pixels=40.0)
     pattern = generate_center_cosine_pattern(config=config)
     assert pattern.shape == (1200, 1920)
     assert pattern.dtype == np.uint16
     assert pattern.min() >= 0 and pattern.max() <= 1023
-    print(
+    logger.info(
         f"  Pattern OK: shape={pattern.shape}, range=[{pattern.min()}, {pattern.max()}]"
     )
 
     gradient = generate_traditional_gradient_pattern(config=config, direction="x")
     assert gradient.shape == pattern.shape
-    print(f"  Gradient OK: shape={gradient.shape}")
+    logger.info(f"  Gradient OK: shape={gradient.shape}")
 
     py, px = get_pattern_peak_position(pattern)
     assert pattern[py, px] == pattern.max()
-    print(f"  Peak at (x={px}, y={py}), value={pattern[py, px]}")
+    logger.info(f"  Peak at (x={px}, y={py}), value={pattern[py, px]}")
 
     phase_rad = estimate_phase_from_pattern(pattern)
     assert abs(phase_rad[py, px] - 2 * np.pi) < 0.01
-    print("  Phase estimation OK")
+    logger.info("  Phase estimation OK")
 
 
 def test_wavefront_reconstruction() -> None:
@@ -58,7 +60,7 @@ def test_wavefront_reconstruction() -> None:
         reconstruct_from_displacements,
     )
 
-    print("\n=== Wavefront Reconstruction Tests ===")
+    logger.info("\n=== Wavefront Reconstruction Tests ===")
     np.random.seed(42)
     num_spots = (10, 10)
     dx = np.random.randn(*num_spots) * 0.1
@@ -70,7 +72,9 @@ def test_wavefront_reconstruction() -> None:
     wf = reconstructor.reconstruct(dx, dy)
     assert wf.ndim == 2
     assert np.isfinite(wf).all()
-    print(f"  Reconstructed wavefront: shape={wf.shape}, RMS={np.std(wf):.6f} rad")
+    logger.info(
+        f"  Reconstructed wavefront: shape={wf.shape}, RMS={np.std(wf):.6f} rad"
+    )
 
 
 def test_lut_data_structures() -> None:
@@ -79,7 +83,7 @@ def test_lut_data_structures() -> None:
         LUTCalibrationResult,
     )
 
-    print("\n=== LUT Data Structure Tests ===")
+    logger.info("\n=== LUT Data Structure Tests ===")
     result = LUTCalibrationResult(
         grayscale_values=[0, 256, 512, 768, 1023],
         measured_phases=[0.0, 1.57, 3.14, 4.71, 6.28],
@@ -89,16 +93,16 @@ def test_lut_data_structures() -> None:
 
     phase = result.get_phase(512)
     assert abs(phase - 3.14) < 0.5
-    print(f"  Phase at gs=512: {phase:.4f} rad (expected ~3.14)")
+    logger.info(f"  Phase at gs=512: {phase:.4f} rad (expected ~3.14)")
 
     gs = result.get_grayscale_for_phase(np.pi)
     assert isinstance(gs, int)
-    print(f"  Grayscale for phase=π: {gs} (expected ~400-550)")
+    logger.info(f"  Grayscale for phase=π: {gs} (expected ~400-550)")
 
     lut_copy = result.to_dict()
     restored = LUTCalibrationResult.from_dict(lut_copy)
     assert restored.grayscale_values == result.grayscale_values
-    print("  Serialize/deserialize OK")
+    logger.info("  Serialize/deserialize OK")
 
 
 def test_compensation_data_structures() -> None:
@@ -107,7 +111,7 @@ def test_compensation_data_structures() -> None:
         CompensationResult,
     )
 
-    print("\n=== Compensation Data Structure Tests ===")
+    logger.info("\n=== Compensation Data Structure Tests ===")
     config = CompensationConfig(slm_wavelength_nm=532, n_correction_iterations=1)
 
     result = CompensationResult(
@@ -120,7 +124,7 @@ def test_compensation_data_structures() -> None:
     assert d["initial_wavefront_rms"] == 0.1
     assert d["final_wavefront_rms"] == 0.05
     assert d["converged"] is True
-    print(
+    logger.info(
         f"  Compensation result: RMS {d['initial_wavefront_rms']:.3f} -> {d['final_wavefront_rms']:.3f}"
     )
 
@@ -130,13 +134,13 @@ def test_fourier_reconstruction_function() -> None:
         interpolate_sparse_to_dense,
     )
 
-    print("\n=== Interpolation Test ===")
+    logger.info("\n=== Interpolation Test ===")
     sparse_x = np.random.randn(5, 5).astype(np.float32)
     sparse_y = np.random.randn(5, 5).astype(np.float32)
     dx, dy = interpolate_sparse_to_dense(sparse_x, sparse_y)
     assert dx.shape[0] > sparse_x.shape[0]
     assert dx.shape[1] > sparse_x.shape[1]
-    print(f"  Interpolated: {sparse_x.shape} -> {dx.shape}")
+    logger.info(f"  Interpolated: {sparse_x.shape} -> {dx.shape}")
 
 
 if __name__ == "__main__":
@@ -145,4 +149,4 @@ if __name__ == "__main__":
     test_lut_data_structures()
     test_compensation_data_structures()
     test_fourier_reconstruction_function()
-    print("\n=== All tests passed ===")
+    logger.info("\n=== All tests passed ===")

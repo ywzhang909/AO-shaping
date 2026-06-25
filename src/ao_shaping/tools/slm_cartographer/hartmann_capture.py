@@ -363,7 +363,7 @@ class HartmannCapture:
         """Capture current configuration as a dictionary."""
         try:
             wfs_info = self._wfs.get_hardware_info()
-        except Exception:
+        except (RuntimeError, OSError, AttributeError):
             wfs_info = {}
 
         return {
