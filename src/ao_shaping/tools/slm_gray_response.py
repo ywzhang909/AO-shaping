@@ -110,6 +110,8 @@ def _fit_and_plot(
     max_gray: int,
     csv_path: Path,
     exposure_ms: float,
+    serial_number: str | None = None,
+    timestamp: str | None = None,
 ) -> None:
     """Fit a sine curve and save a scatter + fit plot alongside the CSV."""
     if not HAS_PLOT:
@@ -156,10 +158,12 @@ def _fit_and_plot(
     # Labels and styling
     ax.set_xlabel("SLM Gray Value", fontsize=12)
     ax.set_ylabel("Max Brightness (ADU)", fontsize=12)
-    ax.set_title(
-        f"SLM Amplitude Coupling Response  (exp={exposure_ms:.1f}ms,  λ={csv_path.stem.split('_')[-1] if '_' in csv_path.stem else ''}nm)",
-        fontsize=14,
-    )
+    title_parts = [f"SLM Amplitude Coupling Response  (exp={exposure_ms:.1f}ms)"]
+    if serial_number:
+        title_parts.append(f"SLM={serial_number}")
+    if timestamp:
+        title_parts.append(timestamp)
+    ax.set_title("  |  ".join(title_parts), fontsize=14)
     ax.legend(fontsize=11)
     ax.grid(True, alpha=0.3)
     ax.set_xlim(0, max_gray)
@@ -189,14 +193,15 @@ def acquire_gray_response(
 
     with SantecSLM200(
         slm_number=slm_number,
-        wavelength=wavelength,
         video_mode=0,
     ) as slm, CameraStreamManager(
         cam_id=miicam_id,
         exposure_time_ms=exposure_ms,
         bit_depth=bit_depth,
     ) as camera:
-        wavelength_nm, max_gray = slm.get_wavelength_info()
+        # 只读当前波长，不触发 set_wavelength() → 避免 SLM 固件的 2π 校准
+        wavelength_nm = slm.wavelength  # _setup_wavelength 已在 open() 中读取
+        max_gray = slm.MAX_GRAYSCALE_VALUE  # 硬件最大灰度值 (1023)，非 2π 锁定值
         gray_values = _gray_values(gray_step, max_gray)
 
         logger.info(
@@ -210,7 +215,16 @@ def acquire_gray_response(
         recorded_gray: list[int] = []
         recorded_max: list[int] = []
 
+        start_time = datetime.now()
         with csv_path.open("w", newline="", encoding="utf-8") as f:
+            # Metadata comment row for quick visual inspection
+            f.write(
+                f"# SLM Serial: {slm._serial_number or 'unknown'}"
+                f"  |  Started: {start_time.isoformat(timespec='seconds')}"
+                f"  |  Wavelength: {wavelength_nm}nm"
+                f"  |  Max Gray: {max_gray}"
+                f"  |  Exposure: {exposure_ms}ms\n"
+            )
             writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
             writer.writeheader()
 
@@ -259,8 +273,16 @@ def acquire_gray_response(
                     f"sum={sum_brightness:.3f}, dtype={frame_dtype}, shape={frame_shape}"
                 )
 
-    # Generate plot after devices are closed
-    _fit_and_plot(recorded_gray, recorded_max, max_gray, csv_path, exposure_ms)
+    # Generate plot with metadata after devices are closed
+    _fit_and_plot(
+        recorded_gray,
+        recorded_max,
+        max_gray,
+        csv_path,
+        exposure_ms,
+        serial_number=slm._serial_number,
+        timestamp=datetime.now().isoformat(timespec="seconds"),
+    )
 
     return csv_path
 

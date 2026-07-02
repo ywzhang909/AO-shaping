@@ -352,16 +352,18 @@ class SantecSLM200:
     def save_config(self) -> None:
         """将当前参数保存到JSON配置文件
 
-        配置项包括: serial_number, wavelength, shift_x, shift_y, use_120hz,
-        video_mode, max_gray (extra fields 直接附加).
+        先加载已有配置（保留额外字段如 correction_csv_path），
+        再更新 SLMParams 字段 + max_gray + video_mode。
         """
         if not self._serial_number:
             logger.warning("未获取到序列号，跳过配置保存")
             return
 
-        # 从 SLM_CONFIG 收集已注册的参数字段
-        config = SLM_CONFIG.collect(self)
-        # 附加 SLMParams 之外的额外字段
+        # 从现有配置文件加载（保留 correction_csv_path 等额外字段）
+        config = SLM_CONFIG._manager.load_config(self._serial_number)
+        # 覆盖 SLMParams 已注册字段
+        config.update(SLM_CONFIG.collect(self))
+        # 覆盖额外字段
         config["max_gray"] = self._max_gray
         config["video_mode"] = self.video_mode
 
@@ -677,10 +679,86 @@ class SantecSLM200:
             logger.warning(f"SLM #{self.slm_number}: SLM_Ctrl_ReadWL returned phase=0; device wavelength not set")
             self._max_gray = self.MAX_GRAYSCALE_VALUE
             return self.wavelength if self.wavelength is not None else 1064, self._max_gray
-        self._max_gray = int(2.0 / phase_pi * self.MAX_GRAYSCALE_VALUE)
-        logger.info(f"当前波长: {wavelength}nm, 2π对应灰度值: {self._max_gray}")
+        raw = int(2.0 / phase_pi * self.MAX_GRAYSCALE_VALUE)
+        self._max_gray = max(1, min(raw, self.MAX_GRAYSCALE_VALUE))
+        if raw != self._max_gray:
+            logger.warning(
+                f"SLM #{self.slm_number}: 计算2π灰度值 {raw} 超出硬件范围 "
+                f"[1, {self.MAX_GRAYSCALE_VALUE}]，已钳位至 {self._max_gray}"
+            )
+            logger.info(
+                f"当前波长: {wavelength}nm, 2π对应灰度值: {self._max_gray}"
+            )
+        else:
+            logger.debug(
+                f"当前波长: {wavelength}nm, 2π对应灰度值: {self._max_gray}"
+            )
 
         return wavelength, self._max_gray
+
+    def calibrate_wavelength(
+        self, wavelength: int, save_to_device: bool = False
+    ) -> tuple[int, int]:
+        """自校正波长，正确计算 2π 对应的灰度值并更新内部状态。
+
+        将设备设为指定波长 + 2π 相位范围，从设备读取实际相位响应并
+        计算校正后的 2π 灰度值（即 _max_gray）。
+
+        与 :meth:`set_wavelength` 的区别:
+          - 默认**不写 EEPROM** (``save_to_device=False``)，
+            避免不必要的 ~40 秒 EEPROM 写入
+          - 返回校正后的 ``(wavelength_nm, max_grayscale_for_2pi)`` 元组
+
+        Args:
+            wavelength: 工作波长（nm），取值范围 450-1600。
+            save_to_device: 是否将波长设置保存到 SLM 控制器 EEPROM，
+                默认 ``False``。
+
+        Returns:
+            校正后的 ``(wavelength_nm, max_grayscale_for_2pi)`` 元组。
+
+        Raises:
+            SantecSLM200Error: 自校正失败（SDK 通信错误、参数无效等）。
+            RuntimeError: 设备未打开。
+        """
+        self._ensure_open()
+        wavelength = int(wavelength)
+        if not WAVELENGTH_MIN <= wavelength <= WAVELENGTH_MAX:
+            raise SantecSLM200Error(
+                f"波长必须在 {WAVELENGTH_MIN}-{WAVELENGTH_MAX}nm 之间，"
+                f"当前: {wavelength}"
+            )
+
+        logger.info(f"波长自校正: {wavelength}nm (0~2π 相位范围)...")
+
+        # 写入波长 + 2π 相位范围到设备 RAM（200 = 2*pi）
+        phase_range = 200
+        res = self._slm.SLM_Ctrl_WriteWL(self.slm_number, wavelength, phase_range)
+        if res != SLM_OK:
+            raise SantecSLM200Error(
+                f"自校正失败: SLM_Ctrl_WriteWL 返回错误 "
+                f"(wavelength={wavelength})",
+                code=res,
+            )
+
+        # 可选：保存到 EEPROM
+        if save_to_device:
+            ret = self._slm.SLM_Ctrl_WriteAW(self.slm_number)
+            if ret != SLM_OK:
+                raise SantecSLM200Error(
+                    "自校正失败: SLM_Ctrl_WriteAW (EEPROM) 返回错误", code=ret
+                )
+
+        # 读取设备实际值，计算并校正 _max_gray
+        self.wavelength = wavelength
+        wavelength_nm, max_gray = self.get_wavelength_info()
+
+        logger.info(
+            f"波长自校正完成: {wavelength_nm}nm, "
+            f"2π 对应灰度值: {max_gray}"
+        )
+
+        return wavelength_nm, max_gray
 
     def write_phase(
         self,
@@ -720,6 +798,12 @@ class SantecSLM200:
 
         if phase.ndim != 2:
             raise ValueError(f"相位数据必须是2D数组，当前维度: {phase.ndim}")
+
+        # 自动叠加波前误差矫正（模 MAX_GRAYSCALE_VALUE+1 环绕）
+        if self._correction.is_valid and self._correction.correction_map is not None:
+            phase = self._correction.map_error(
+                phase, max_grayscale=self.MAX_GRAYSCALE_VALUE
+            ).astype(np.uint16)
 
         height, width = phase.shape
 
