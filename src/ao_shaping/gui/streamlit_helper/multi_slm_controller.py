@@ -7,7 +7,7 @@ import streamlit as st
 from loguru import logger
 
 from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
-from ao_shaping.utils.pattern_helper import PatternHelper
+from ao_shaping.utils.pattern_helper import PatternHelper, calc_blazed_grating_period
 from ao_shaping.utils.zernike_calc import get_zernike_name
 
 # Global pattern helpers (will be recreated per-SLM based on resolution)
@@ -114,6 +114,7 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "圆形光栅",
             "透镜",
             "全息光栅",
+            "闪耀光栅",
             "棋盘格",
             "二元光栅",
             "微透镜阵列",
@@ -121,6 +122,7 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             "Zernike",
             "达曼光栅",
             "涡旋相位",
+            "半半相位",
         ],
         key=f"{prefix}_pattern_type",
     )
@@ -149,6 +151,82 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             max_value=float(2 * np.pi),
             step=0.1,
             key=f"{prefix}_{pattern_type}_phase_range",
+        )
+    elif pattern_type == "闪耀光栅":
+        period_mode = st.radio(
+            "周期设置方式",
+            options=["direct", "angle"],
+            format_func=lambda x: "直接设置周期(像素)" if x == "direct" else "根据衍射角度和波长计算",
+            key=f"{prefix}_blazed_period_mode",
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+
+        if period_mode == "angle":
+            default_wl = st.session_state.get(f"{prefix}_wavelength", 1064)
+            default_pitch = st.session_state.get(f"{prefix}_pixel_pitch_um", 8.0)
+
+            col_a1, col_a2 = st.columns(2)
+            with col_a1:
+                angle_deg = st.number_input(
+                    "衍射角度 θ (度)",
+                    min_value=0.1,
+                    max_value=89.0,
+                    value=10.0,
+                    step=0.5,
+                    key=f"{prefix}_blazed_calc_angle",
+                )
+            with col_a2:
+                calc_wl = st.number_input(
+                    "波长 λ (nm)",
+                    min_value=400,
+                    max_value=1600,
+                    value=default_wl,
+                    step=1,
+                    key=f"{prefix}_blazed_calc_wl",
+                )
+
+            calc_pitch = st.number_input(
+                "像素间距 (μm)",
+                min_value=0.1,
+                max_value=100.0,
+                value=default_pitch,
+                step=0.1,
+                key=f"{prefix}_blazed_calc_pitch",
+            )
+
+            period_pixels = calc_blazed_grating_period(angle_deg, calc_wl, calc_pitch)
+
+            # Sync to the linked session state key for seamless mode switching
+            st.session_state[f"{prefix}_blazed_period"] = period_pixels
+
+            st.metric(
+                "计算周期",
+                f"{period_pixels:.1f} 像素",
+                help=f"d = λ / sin(θ)，像素间距 {calc_pitch} μm",
+            )
+            params["period"] = period_pixels
+        else:
+            params["period"] = st.number_input(
+                "周期 (像素)",
+                min_value=1.0,
+                max_value=10000.0,
+                step=1.0,
+                key=f"{prefix}_blazed_period",
+            )
+
+        params["phase_range"] = st.number_input(
+            "相位范围 (rad)",
+            min_value=0.1,
+            max_value=float(2 * np.pi),
+            step=0.1,
+            key=f"{prefix}_blazed_phase_range",
+        )
+        params["direction"] = st.selectbox(
+            "光栅方向",
+            options=["vertical", "horizontal"],
+            format_func=lambda x: "竖条纹（垂直）" if x == "vertical" else "横条纹（水平）",
+            key=f"{prefix}_blazed_direction",
         )
     elif pattern_type == "圆形光栅":
         params["radius"] = st.number_input(
@@ -354,6 +432,47 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
             step=0.1,
             key=f"{prefix}_dammann_fill_factor",
         )
+    elif pattern_type == "半半相位":
+        params["flat_gray"] = st.number_input(
+            "平面灰度",
+            min_value=0,
+            max_value=1024,
+            step=1,
+            key=f"{prefix}_halfhalf_flat_gray",
+        )
+        params["split_direction"] = st.selectbox(
+            "划分方向",
+            options=["左右", "上下"],
+            format_func=lambda x: "左半平面+右半闪耀光栅" if x == "左右" else "上半平面+下半闪耀光栅",
+            key=f"{prefix}_halfhalf_split",
+        )
+        st.caption("闪耀光栅参数")
+        params["period"] = st.number_input(
+            "光栅周期 (像素)",
+            min_value=1.0,
+            max_value=1000.0,
+            step=1.0,
+            key=f"{prefix}_halfhalf_period",
+        )
+        params["phase_range"] = st.number_input(
+            "相位范围 (rad)",
+            min_value=0.1,
+            max_value=float(2 * np.pi),
+            step=0.1,
+            key=f"{prefix}_halfhalf_phase_range",
+        )
+        # Direction selector — only meaningful for top/bottom split (left/right forces vertical)
+        split = st.session_state.get(f"{prefix}_halfhalf_split", "左右")
+        if split == "上下":
+            params["blaze_direction"] = st.selectbox(
+                "闪耀光栅方向",
+                options=["horizontal", "vertical"],
+                format_func=lambda x: "横条纹（水平）" if x == "horizontal" else "竖条纹（垂直）",
+                key=f"{prefix}_halfhalf_blaze_dir",
+            )
+        else:
+            st.caption("左右划分时闪耀光栅固定为竖条纹方向")
+            params["blaze_direction"] = "vertical"
 
     return pattern_type, params
 
@@ -483,6 +602,44 @@ def generate_phase_gray(
             phase_gray = (phase_wrapped / (2 * np.pi) * (2**bits - 1)).astype(np.uint16)
 
         return phase_gray
+    if pattern_type == "闪耀光栅":
+        phase_rad = helper.linear_grating(
+            period=float(params["period"]),
+            phase_range=float(params["phase_range"]),
+            wrap_phase=False,
+            direction=str(params["direction"]),
+        )
+        return slm.create_phase_from_array(phase_rad)
+    if pattern_type == "半半相位":
+        flat_gray = int(params["flat_gray"])
+        period = float(params["period"])
+        phase_range = float(params["phase_range"])
+        split_dir = str(params["split_direction"])
+        blaze_dir = str(params.get("blaze_direction", "vertical"))
+
+        # Generate full-frame blazed grating (radians → grayscale via SLM)
+        blaze_rad = helper.linear_grating(
+            period=period,
+            phase_range=phase_range,
+            wrap_phase=False,
+            direction=blaze_dir,
+        )
+        blaze_gray = slm.create_phase_from_array(blaze_rad)
+
+        # Generate flat half (direct uint16 grayscale — bypass radian conversion)
+        flat_full = np.full((height, width), flat_gray, dtype=np.uint16)
+
+        # Stitch: half flat + half blaze
+        if split_dir == "左右":
+            mid = width // 2
+            return np.concatenate(
+                [flat_full[:, :mid], blaze_gray[:, mid:]], axis=1
+            )
+        else:  # 上下
+            mid = height // 2
+            return np.concatenate(
+                [flat_full[:mid, :], blaze_gray[mid:, :]], axis=0
+            )
     raise ValueError(f"未知相位图类型: {pattern_type}")
 
 
