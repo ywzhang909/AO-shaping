@@ -95,6 +95,31 @@ class PhaseUnwrapperHelper:
         return unwrapper.unwrap_fast(wrapped)
 
 
+def calc_blazed_grating_period(
+    angle_deg: float,
+    wavelength_nm: float,
+    pixel_pitch_um: float,
+) -> float:
+    """Calculate blazed grating period (pixels) from first-order diffraction angle.
+
+    Uses the grating equation: d * sin(θ) = λ
+        where d  = grating period (same unit as λ)
+              θ  = diffraction angle
+              λ  = wavelength
+
+    Args:
+        angle_deg: Desired first-order diffraction angle in degrees.
+        wavelength_nm: Wavelength in nanometers.
+        pixel_pitch_um: SLM pixel pitch in micrometers.
+
+    Returns:
+        Grating period in pixels (always ≥ 1.0).
+    """
+    theta_rad = np.radians(angle_deg)
+    d_um = (wavelength_nm / 1000.0) / np.sin(theta_rad)  # λ nm → μm
+    return max(1.0, d_um / pixel_pitch_um)
+
+
 class PatternHelper:
     """光学相位图案生成工具类。
 
@@ -499,6 +524,7 @@ class PatternHelper:
         period: float,
         phase_range: float = 2 * np.pi,
         wrap_phase: bool = True,
+        direction: str = "vertical",
     ) -> np.ndarray:
         """生成线性（闪耀）光栅。
 
@@ -506,12 +532,16 @@ class PatternHelper:
             period: 光栅周期
             phase_range: 最大相位范围 (弧度)
             wrap_phase: 是否包裹相位
+            direction: 光栅方向，"vertical"（竖条纹）或 "horizontal"（横条纹）
 
         Returns:
             线性光栅图案
         """
         max_val = self._max_val
-        phase = (self.xx / period) * phase_range
+        if direction == "horizontal":
+            phase = (self.yy / period) * phase_range
+        else:
+            phase = (self.xx / period) * phase_range
 
         if not wrap_phase:
             return np.mod(phase, phase_range)
@@ -580,17 +610,25 @@ class PatternHelper:
 
         return np.mod(phase, 2 * np.pi)
 
-    def hologram(self, period: float, phase_range: float = 2 * np.pi) -> np.ndarray:
+    def hologram(
+        self,
+        period: float,
+        phase_range: float = 2 * np.pi,
+        direction: str = "vertical",
+    ) -> np.ndarray:
         """生成全息图（线性光栅的别名）。
 
         Args:
             period: 光栅周期 (像素)
             phase_range: 最大相位范围 (弧度)
+            direction: 光栅方向，"vertical"（竖条纹）或 "horizontal"（横条纹）
 
         Returns:
             相位图案 (弧度)
         """
-        return self.linear_grating(period=period, phase_range=phase_range, wrap_phase=False)
+        return self.linear_grating(
+            period=period, phase_range=phase_range, wrap_phase=False, direction=direction
+        )
 
     def generate_vortex(
         self,
