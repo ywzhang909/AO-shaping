@@ -30,8 +30,8 @@ from tests.ao_shaping.drivers.dm.port_listener import PortListener
 PORT_LISTENER_AVAILABLE = True
 
 
-CONTROLLER_IP = "192.168.0.101"
-CONTROLLER_PORT = 10101
+CONTROLLER_IP = "192.168.0.108"
+CONTROLLER_PORT = 10108
 
 
 class TestR50Controller:
@@ -40,7 +40,7 @@ class TestR50Controller:
     @pytest.fixture
     def controller(self):
         """Create an R50Controller instance for testing."""
-        return R50Controller(controller_id=1, ip=CONTROLLER_IP, port=CONTROLLER_PORT)
+        return R50Controller(controller_id=8, ip=CONTROLLER_IP, port=CONTROLLER_PORT)
     
     def test_sends(self, controller: R50Controller):
         assert controller.open()
@@ -52,7 +52,7 @@ class TestR50Controller:
         
     async def test_sends_async(self, controller: R50Controller):
         assert controller.open()
-        assert await controller.set_all_voltage_array_async([30.0]*50)
+        assert await controller.set_all_voltage_array_async([10.0]*50)
         
     def test_initialization(self, controller):
         """Test controller initialization."""

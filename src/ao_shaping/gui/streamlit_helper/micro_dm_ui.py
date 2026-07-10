@@ -1,19 +1,12 @@
 """
-Micro DM 39×39 矩阵控制 UI (Streamlit) - 优化版
+Micro DM 微驱动器控制 UI (Streamlit)
 
 功能:
-1. Tab 1 - 单控制单元连接: 参数配置、连接状态显示、持续发送正弦电压/01电压
-2. Tab 2 - 39×39 矩阵直接控制: 交互式网格界面、单元格点击修改、区域批量调整、
-   数值热力图可视化、一键应用/重置操作
+1. Tab 1 - 单个微驱动器单元: 配置 IP/端口、测试连通性、下发固定电压、
+   周期波形发送 (正弦/方波)、实时可视化当前下发电压
+2. Tab 2 - 联合控制所有单元: 39×39 矩阵批量控制、热力图可视化、一键应用
 
-优化点:
-- 连接状态置顶，操作反馈集中管理
-- 使用 expander 折叠连续发送区域，减少页面长度
-- 使用 segmented_control 替代 radio，更紧凑的编辑模式选择
-- 危险操作增加确认对话框
-- 使用 st.form 减少不必要的 rerun
-- 侧边栏精简，移除重复操作
-- 热力图渲染优化
+两个 Tab 均可独立设置电压的上下限 (安全范围)。
 
 使用方式:
     streamlit run src/ao_shaping/gui/streamlit_helper/micro_dm_ui.py
@@ -21,7 +14,10 @@ Micro DM 39×39 矩阵控制 UI (Streamlit) - 优化版
 
 from __future__ import annotations
 
+import collections
 import io
+import socket
+import subprocess
 import sys
 import threading
 import time
@@ -32,27 +28,25 @@ import streamlit as st
 from loguru import logger
 
 from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
-
-# =============================================================================
-# Path Setup
-# =============================================================================
-
-SRC_ROOT = PROJECT_ROOT / "src"
-
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
+from ao_shaping.drivers.dm.MicroDM import R50Controller
 # =============================================================================
 # Constants
 # =============================================================================
 
 GRID_SIZE = 39
-VOLTAGE_MIN = -20.0
-VOLTAGE_MAX = 120.0
 TOTAL_CHANNELS = GRID_SIZE * GRID_SIZE  # 1521
+SINGLE_CHANNELS = 50  # 单个 R50Power 控制器通道数
 
+# 硬件物理极限 (不可超越)
+HW_VOLTAGE_MIN = -20.0
+HW_VOLTAGE_MAX = 120.0
+
+# 实时可视化刷新间隔 (s)
+REFRESH_INTERVAL = 0.15
+# 电压历史缓存最大长度
+HISTORY_LEN = 600
+
+DEFAULT_PORT = 10101
 
 # =============================================================================
 # Session State Initialization
@@ -60,22 +54,39 @@ TOTAL_CHANNELS = GRID_SIZE * GRID_SIZE  # 1521
 
 def _initialize_state() -> None:
     """初始化所有 session_state 变量。"""
-    # ---- 设备连接状态 ----
-    st.session_state.setdefault("mdm_dm", None)
-    st.session_state.setdefault("mdm_connected", False)
-    st.session_state.setdefault("mdm_connection_error", "")
 
-    # ---- Tab 1: 单控制单元参数 ----
+    # ---- 全局电压安全范围 (两个 Tab 共享) ----
+    st.session_state.setdefault("mdm_vmin", HW_VOLTAGE_MIN)
+    st.session_state.setdefault("mdm_vmax", HW_VOLTAGE_MAX)
+
+    # ---- Tab 1: 单单元连接 ----
+    st.session_state.setdefault("mdm_single_ip", "192.168.0.101")
+    st.session_state.setdefault("mdm_single_port", DEFAULT_PORT)
+    st.session_state.setdefault("mdm_single_controller", None)
+    st.session_state.setdefault("mdm_single_connected", False)
+    st.session_state.setdefault("mdm_single_test", "")
+    st.session_state.setdefault("mdm_single_test_type", "info")
+    st.session_state.setdefault("mdm_single_connection_error", "")
+
+    # ---- Tab 1: 单单元发送参数 ----
     st.session_state.setdefault("mdm_single_channel", 0)
-    st.session_state.setdefault("mdm_single_voltage", 0.0)
-    st.session_state.setdefault("mdm_sine_amplitude", 50.0)
-    st.session_state.setdefault("mdm_sine_frequency", 1.0)
-    st.session_state.setdefault("mdm_sine_offset", 50.0)
-    st.session_state.setdefault("mdm_sine_running", False)
-    st.session_state.setdefault("mdm_01_running", False)
-    st.session_state.setdefault("mdm_01_high_voltage", 100.0)
-    st.session_state.setdefault("mdm_01_low_voltage", 0.0)
-    st.session_state.setdefault("mdm_01_interval", 1.0)
+    st.session_state.setdefault("mdm_single_apply_all", False)
+    st.session_state.setdefault("mdm_single_fixed_voltage", 0.0)
+    st.session_state.setdefault("mdm_single_fixed_hold", False)
+    st.session_state.setdefault("mdm_single_mode", "fixed")  # fixed / periodic
+    st.session_state.setdefault("mdm_single_wave_type", "sine")  # sine / square
+    st.session_state.setdefault("mdm_single_period", 2.0)
+    st.session_state.setdefault("mdm_single_amp", 40.0)
+    st.session_state.setdefault("mdm_single_offset", 50.0)
+    st.session_state.setdefault("mdm_single_high", 100.0)
+    st.session_state.setdefault("mdm_single_low", 0.0)
+    st.session_state.setdefault("mdm_single_running", False)
+    st.session_state.setdefault(
+        "mdm_single_history", collections.deque(maxlen=HISTORY_LEN)
+    )
+    st.session_state.setdefault(
+        "mdm_single_history_t", collections.deque(maxlen=HISTORY_LEN)
+    )
 
     # ---- 反馈 (Tab 独立) ----
     st.session_state.setdefault("mdm_tab1_feedback", "")
@@ -84,24 +95,21 @@ def _initialize_state() -> None:
     st.session_state.setdefault("mdm_tab2_feedback_type", "")
 
     # ---- Tab 2: 39×39 矩阵参数 ----
+    st.session_state.setdefault("mdm_dm", None)
+    st.session_state.setdefault("mdm_connected", False)
+    st.session_state.setdefault("mdm_connection_error", "")
     st.session_state.setdefault("mdm_matrix", np.zeros((GRID_SIZE, GRID_SIZE), dtype=np.float64))
     st.session_state.setdefault("mdm_matrix_loaded", False)
-    st.session_state.setdefault("mdm_heatmap_vmin", VOLTAGE_MIN)
-    st.session_state.setdefault("mdm_heatmap_vmax", VOLTAGE_MAX)
+    st.session_state.setdefault("mdm_heatmap_vmin", HW_VOLTAGE_MIN)
+    st.session_state.setdefault("mdm_heatmap_vmax", HW_VOLTAGE_MAX)
     st.session_state.setdefault("mdm_colormap", "coolwarm")
     st.session_state.setdefault("mdm_edit_mode", "single")
     st.session_state.setdefault("mdm_fill_value", 0.0)
-
-    # ---- Tab 2: 矩阵动态持续电压 ----
     st.session_state.setdefault("mdm_matrix_continuous_voltage", 0.0)
     st.session_state.setdefault("mdm_matrix_continuous_interval", 0.1)
     st.session_state.setdefault("mdm_matrix_continuous_running", False)
-
-    # ---- 连接参数 ----
     st.session_state.setdefault("mdm_use_wiring_map", True)
     st.session_state.setdefault("mdm_custom_ips", "")
-
-    # ---- 确认对话框状态 ----
     st.session_state.setdefault("mdm_confirm_action", None)
 
 
@@ -136,19 +144,474 @@ def show_and_clear_feedback(tab: str = "tab1") -> None:
             st.warning(message)
         else:
             st.info(message)
-        # 清除反馈
         st.session_state[fb_key] = ""
         st.session_state[ft_key] = ""
 
 
 # =============================================================================
-# Device Connection
+# 电压范围 (两个 Tab 共享)
+# =============================================================================
+
+def render_voltage_limits(key_prefix: str) -> None:
+    """在两个 Tab 中渲染可编辑的电压上下限控件，写入共享 session_state。"""
+    with st.container(border=True):
+        st.markdown("##### 电压上下限 (安全范围)")
+        col_min, col_max = st.columns(2)
+        with col_min:
+            vmin = st.number_input(
+                "下限 (V)",
+                min_value=HW_VOLTAGE_MIN,
+                max_value=HW_VOLTAGE_MAX,
+                value=st.session_state.mdm_vmin,
+                step=1.0,
+                format="%.1f",
+                key=f"{key_prefix}_vmin",
+            )
+        with col_max:
+            vmax = st.number_input(
+                "上限 (V)",
+                min_value=HW_VOLTAGE_MIN,
+                max_value=HW_VOLTAGE_MAX,
+                value=st.session_state.mdm_vmax,
+                step=1.0,
+                format="%.1f",
+                key=f"{key_prefix}_vmax",
+            )
+        if vmin >= vmax:
+            st.warning("⚠️ 电压下限必须小于上限")
+        st.session_state.mdm_vmin = vmin
+        st.session_state.mdm_vmax = vmax
+
+
+# =============================================================================
+# 连通性测试 / 单单元连接
+# =============================================================================
+
+def _tcp_reachable(ip: str, port: int, timeout: float = 2.0) -> bool:
+    """TCP 端口连通性测试。"""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((ip, port))
+        sock.close()
+        return result == 0
+    except OSError:
+        return False
+
+
+def _ping_reachable(ip: str, timeout: float = 2.0) -> bool:
+    """ICMP ping 可达性测试。"""
+    param = "-n" if subprocess.os.name == "nt" else "-c"
+    timeout_arg = str(int(timeout * 1000)) if subprocess.os.name == "nt" else str(int(timeout))
+    try:
+        result = subprocess.run(
+            ["ping", param, "1", "-W", timeout_arg, ip],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout + 1,
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+
+
+def test_single_connectivity() -> None:
+    """测试单个单元 IP/端口连通性，写入反馈。"""
+    ip = st.session_state.mdm_single_ip.strip()
+    port = int(st.session_state.mdm_single_port)
+    tcp_ok = _tcp_reachable(ip, port)
+    ping_ok = _ping_reachable(ip)
+    if tcp_ok:
+        msg = f"✅ TCP {ip}:{port} 可连通" + ("" if ping_ok else " (ICMP ping 未响应)")
+        set_tab1_feedback(msg, "success")
+    else:
+        detail = "TCP 端口不可达" + ("" if ping_ok else "，且 ICMP ping 未响应")
+        set_tab1_feedback(f"❌ {ip}:{port} {detail}", "error")
+
+
+def connect_single() -> None:
+    """连接单个微驱动器单元 (单台 R50Power 控制器)。"""
+    try:
+        if st.session_state.mdm_single_controller is not None:
+            try:
+                st.session_state.mdm_single_controller.close()
+            except Exception as e:
+                logger.warning(f"close warning: {e}")
+            st.session_state.mdm_single_controller = None
+            st.session_state.mdm_single_connected = False
+
+        ip = st.session_state.mdm_single_ip.strip()
+        port = int(st.session_state.mdm_single_port)
+        ctrl = R50Controller(controller_id=1, ip=ip, port=port)
+        if not ctrl.open():
+            raise ConnectionError(f"无法建立 TCP 连接到 {ip}:{port}")
+        st.session_state.mdm_single_controller = ctrl
+        st.session_state.mdm_single_connected = True
+        st.session_state.mdm_single_connection_error = ""
+        logger.info(f"Single unit connected: {ip}:{port}")
+    except Exception as e:
+        st.session_state.mdm_single_connection_error = f"连接失败: {e}"
+        st.session_state.mdm_single_connected = False
+        st.session_state.mdm_single_controller = None
+        logger.exception(f"Single unit connect failed: {e}")
+
+
+def disconnect_single() -> None:
+    """断开单个单元连接。"""
+    st.session_state.mdm_single_running = False
+    try:
+        if st.session_state.mdm_single_controller is not None:
+            st.session_state.mdm_single_controller.close()
+    except Exception as e:
+        logger.exception(f"disconnect warning: {e}")
+    st.session_state.mdm_single_controller = None
+    st.session_state.mdm_single_connected = False
+    st.session_state.mdm_single_connection_error = ""
+    logger.info("Single unit disconnected")
+
+
+# =============================================================================
+# Tab 1: 单单元发送线程
+# =============================================================================
+
+def _single_send_v(ctrl, channel: int, voltage: float, apply_all: bool) -> None:
+    """向单单元下发电压 (单通道或全部通道)。"""
+    v = float(np.clip(voltage, st.session_state.mdm_vmin, st.session_state.mdm_vmax))
+    v = float(np.clip(v, HW_VOLTAGE_MIN, HW_VOLTAGE_MAX))
+    if ctrl is None:
+        return
+    if apply_all:
+        ctrl.set_all_channel_voltage(v)
+    else:
+        ctrl.set_channel_voltage(channel, v)
+    st.session_state.mdm_single_history.append(v)
+    st.session_state.mdm_single_history_t.append(time.time())
+
+
+def _single_fixed_loop(channel: int, voltage: float, apply_all: bool, interval: float) -> None:
+    """固定电压持续下发线程。"""
+    ctrl = st.session_state.mdm_single_controller
+    try:
+        while st.session_state.mdm_single_running:
+            _single_send_v(ctrl, channel, voltage, apply_all)
+            time.sleep(interval)
+    except Exception as e:
+        st.session_state.mdm_single_running = False
+        logger.exception(f"固定电压下发异常: {e}")
+        set_tab1_feedback(f"固定电压下发异常: {e}", "error")
+
+
+def _single_periodic_loop(
+    channel: int, apply_all: bool, wave_type: str,
+    amp: float, offset: float, high: float, low: float,
+    period: float, dt: float,
+) -> None:
+    """周期波形下发线程，并记录下发电压用于可视化。"""
+    ctrl = st.session_state.mdm_single_controller
+    if ctrl is None:
+        return
+    period = max(period, 0.05)
+    t0 = time.time()
+    try:
+        while st.session_state.mdm_single_running:
+            elapsed = time.time() - t0
+            phase = elapsed % period
+            if wave_type == "sine":
+                v = offset + amp * np.sin(2 * np.pi * phase / period)
+            else:  # square
+                v = high if phase < period / 2 else low
+            _single_send_v(ctrl, channel, v, apply_all)
+            time.sleep(dt)
+    except Exception as e:
+        st.session_state.mdm_single_running = False
+        logger.exception(f"周期波形下发异常: {e}")
+        set_tab1_feedback(f"周期波形下发异常: {e}", "error")
+
+
+# =============================================================================
+# Tab 1: 下发电压可视化
+# =============================================================================
+
+def _render_voltage_history() -> None:
+    """绘制当前下发电压的实时历史曲线。"""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "DejaVu Sans"]
+    plt.rcParams["axes.unicode_minus"] = False
+
+    history = list(st.session_state.mdm_single_history)
+    t_hist = list(st.session_state.mdm_single_history_t)
+    vmin = st.session_state.mdm_vmin
+    vmax = st.session_state.mdm_vmax
+
+    fig, ax = plt.subplots(figsize=(7, 3))
+    if len(history) > 1:
+        t0 = t_hist[0]
+        t_rel = [tt - t0 for tt in t_hist]
+        ax.plot(t_rel, history, linewidth=1.5, color="#1f77b4", label="下发电压")
+    else:
+        ax.plot([0], history if history else [0], "o", color="#1f77b4")
+    ax.axhline(y=vmax, color="red", linestyle=":", alpha=0.5, label=f"上限 {vmax:.0f}V")
+    ax.axhline(y=vmin, color="red", linestyle=":", alpha=0.5, label=f"下限 {vmin:.0f}V")
+    ax.set_xlabel("时间 (s)")
+    ax.set_ylabel("电压 (V)")
+    ax.set_ylim(vmin - 2, vmax + 2)
+    ax.set_title("当前下发电压")
+    ax.legend(fontsize=8, loc="upper right")
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
+def _render_waveform_preview(period: float, wave_type: str,
+                             amp: float, offset: float, high: float, low: float) -> None:
+    """渲染周期波形预览图。"""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "DejaVu Sans"]
+    plt.rcParams["axes.unicode_minus"] = False
+
+    fig, ax = plt.subplots(figsize=(6, 2.5))
+    t = np.linspace(0, period * 1.5, 500)
+    if wave_type == "sine":
+        v = offset + amp * np.sin(2 * np.pi * t / period)
+    else:
+        v = np.where((t % period) < period / 2, high, low)
+    ax.plot(t, v, linewidth=1.5, color="#1f77b4")
+    ax.axhline(y=st.session_state.mdm_vmax, color="red", linestyle=":", alpha=0.4, label=f"上限 {st.session_state.mdm_vmax:.0f}V")
+    ax.axhline(y=st.session_state.mdm_vmin, color="red", linestyle=":", alpha=0.4, label=f"下限 {st.session_state.mdm_vmin:.0f}V")
+    ax.set_xlabel("时间 (s)")
+    ax.set_ylabel("电压 (V)")
+    ax.set_title("周期波形预览")
+    ax.legend(fontsize=8, loc="upper right")
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    st.pyplot(fig)
+    plt.close(fig)
+
+
+# =============================================================================
+# Tab 1: 单单元控制
+# =============================================================================
+
+def render_tab_single_unit() -> None:
+    """渲染 Tab 1: 单个微驱动器单元控制。"""
+
+    # ---- 顶部状态栏 ----
+    col_status1, col_status2 = st.columns([1, 4])
+    with col_status1:
+        if st.session_state.mdm_single_connected:
+            st.success("✅ 已连接")
+        else:
+            st.error("❌ 未连接")
+    with col_status2:
+        if st.session_state.mdm_single_connection_error:
+            st.caption(f"错误: {st.session_state.mdm_single_connection_error}")
+
+    show_and_clear_feedback("tab1")
+
+    # ---- 连接配置 ----
+    with st.container(border=True):
+        st.markdown("##### 连接配置")
+        col_ip, col_port, col_test, col_conn = st.columns([3, 1, 1, 1])
+        with col_ip:
+            st.text_input("IP 地址", value=st.session_state.mdm_single_ip,
+                          key="mdm_single_ip")
+        with col_port:
+            st.number_input("端口", min_value=1, max_value=65535,
+                            value=st.session_state.mdm_single_port, step=1,
+                            key="mdm_single_port")
+        with col_test:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("📡 测试连通性", use_container_width=True, key="mdm_single_test_btn"):
+                test_single_connectivity()
+                st.rerun()
+        with col_conn:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if not st.session_state.mdm_single_connected:
+                if st.button("🔌 连接", type="primary", use_container_width=True, key="mdm_single_connect"):
+                    with st.spinner("连接中..."):
+                        connect_single()
+                    st.rerun()
+            else:
+                if st.button("⏏ 断开", use_container_width=True, key="mdm_single_disconnect"):
+                    disconnect_single()
+                    st.rerun()
+
+    # ---- 电压上下限 (两个 Tab 共享) ----
+    with st.container(border=True):
+        render_voltage_limits("single")
+
+    # ---- 通道选择 ----
+    col_ch1, col_ch2 = st.columns([2, 2])
+    with col_ch1:
+        channel = st.number_input(
+            "通道号", min_value=0, max_value=SINGLE_CHANNELS - 1,
+            value=st.session_state.mdm_single_channel, step=1, key="mdm_single_channel",
+        )
+    with col_ch2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.checkbox("应用到全部通道 (50)", value=st.session_state.mdm_single_apply_all,
+                    key="mdm_single_apply_all")
+
+    # ---- 发送模式 ----
+    with st.container(border=True):
+        st.markdown("##### 发送模式")
+        mode = st.segmented_control(
+            "模式", options=["fixed", "periodic"], default="fixed",
+            selection_mode="single", key="mdm_single_mode_seg",
+        )
+        if isinstance(mode, list):
+            mode = mode[0] if mode else "fixed"
+        st.session_state.mdm_single_mode = mode
+
+        if mode == "fixed":
+            voltage = st.number_input(
+                "固定电压 (V)",
+                min_value=st.session_state.mdm_vmin, max_value=st.session_state.mdm_vmax,
+                value=st.session_state.mdm_single_fixed_voltage, step=1.0, format="%.1f",
+                key="mdm_single_fixed_voltage",
+            )
+            col_send1, col_send2 = st.columns(2)
+            with col_send1:
+                if st.button("⚡ 发送一次", type="primary", use_container_width=True,
+                             disabled=not st.session_state.mdm_single_connected,
+                             key="mdm_single_send_once"):
+                    if not st.session_state.mdm_single_connected:
+                        set_tab1_feedback("设备未连接", "error")
+                    else:
+                        try:
+                            _single_send_v(st.session_state.mdm_single_controller,
+                                           int(channel), voltage, st.session_state.mdm_single_apply_all)
+                            set_tab1_feedback(f"已下发 {voltage:.1f} V", "success")
+                        except Exception as e:
+                            set_tab1_feedback(f"发送失败: {e}", "error")
+                    st.rerun()
+            with col_send2:
+                running = st.session_state.mdm_single_running
+                if not running:
+                    if st.button("🔁 持续保持", use_container_width=True, type="secondary",
+                                 disabled=not st.session_state.mdm_single_connected,
+                                 key="mdm_single_hold_start"):
+                        if not st.session_state.mdm_single_connected:
+                            set_tab1_feedback("设备未连接", "error")
+                        else:
+                            st.session_state.mdm_single_running = True
+                            threading.Thread(
+                                target=_single_fixed_loop,
+                                args=(int(channel), voltage,
+                                      st.session_state.mdm_single_apply_all, 0.1),
+                                daemon=True,
+                            ).start()
+                            set_tab1_feedback(f"持续下发 {voltage:.1f} V", "success")
+                            st.rerun()
+                else:
+                    if st.button("⏹ 停止", use_container_width=True, type="secondary",
+                                 key="mdm_single_hold_stop"):
+                        st.session_state.mdm_single_running = False
+                        set_tab1_feedback("已停止持续下发", "info")
+                        st.rerun()
+        else:
+            wave_type = st.segmented_control(
+                "波形", options=["sine", "square"], default="sine",
+                selection_mode="single", key="mdm_single_wave_seg",
+            )
+            if isinstance(wave_type, list):
+                wave_type = wave_type[0] if wave_type else "sine"
+            st.session_state.mdm_single_wave_type = wave_type
+
+            period = st.number_input(
+                "周期 (s)", min_value=0.1, max_value=60.0,
+                value=st.session_state.mdm_single_period, step=0.1, format="%.1f",
+                key="mdm_single_period",
+            )
+
+            if wave_type == "sine":
+                col_a, col_o = st.columns(2)
+                with col_a:
+                    amp = st.number_input("振幅 (V)", min_value=0.0, max_value=140.0,
+                                          value=st.session_state.mdm_single_amp, step=1.0,
+                                          format="%.1f", key="mdm_single_amp")
+                with col_o:
+                    offset = st.number_input("偏置 (V)", min_value=st.session_state.mdm_vmin,
+                                             max_value=st.session_state.mdm_vmax,
+                                             value=st.session_state.mdm_single_offset, step=1.0,
+                                             format="%.1f", key="mdm_single_offset")
+                high = low = 0.0
+                vmax_wave = offset + amp
+                vmin_wave = offset - amp
+                if vmax_wave > st.session_state.mdm_vmax or vmin_wave < st.session_state.mdm_vmin:
+                    st.warning(f"⚠️ 波形范围 [{vmin_wave:.1f}, {vmax_wave:.1f}] V 超出安全范围，将自动截断")
+            else:
+                col_h, col_l = st.columns(2)
+                with col_h:
+                    high = st.number_input("高电平 (V)", min_value=st.session_state.mdm_vmin,
+                                           max_value=st.session_state.mdm_vmax,
+                                           value=st.session_state.mdm_single_high, step=1.0,
+                                           format="%.1f", key="mdm_single_high")
+                with col_l:
+                    low = st.number_input("低电平 (V)", min_value=st.session_state.mdm_vmin,
+                                          max_value=st.session_state.mdm_vmax,
+                                          value=st.session_state.mdm_single_low, step=1.0,
+                                          format="%.1f", key="mdm_single_low")
+                amp = offset = 0.0
+
+            _render_waveform_preview(period, wave_type, amp, offset, high, low)
+
+            running = st.session_state.mdm_single_running
+            if not running:
+                if st.button("▶ 开始周期下发", type="primary", use_container_width=True,
+                             disabled=not st.session_state.mdm_single_connected,
+                             key="mdm_single_period_start"):
+                    if not st.session_state.mdm_single_connected:
+                        set_tab1_feedback("设备未连接", "error")
+                    else:
+                        st.session_state.mdm_single_running = True
+                        threading.Thread(
+                            target=_single_periodic_loop,
+                            args=(int(channel), st.session_state.mdm_single_apply_all,
+                                  wave_type, amp, offset, high, low, period, 0.05),
+                            daemon=True,
+                        ).start()
+                        set_tab1_feedback(f"周期下发中: {wave_type}, 周期{period}s", "success")
+                        st.rerun()
+            else:
+                if st.button("⏹ 停止", type="primary", use_container_width=True,
+                             key="mdm_single_period_stop"):
+                    st.session_state.mdm_single_running = False
+                    set_tab1_feedback("周期下发已停止", "info")
+                    st.rerun()
+
+    # ---- 实时电压可视化 ----
+    st.divider()
+    st.markdown("##### 当前下发电压")
+    chart_placeholder = st.empty()
+    fig = _render_voltage_history()
+    chart_placeholder.pyplot(fig)
+    plt_close_safe(fig)
+
+    if st.session_state.mdm_single_running:
+        time.sleep(REFRESH_INTERVAL)
+        st.rerun()
+
+
+def plt_close_safe(fig) -> None:
+    """关闭 matplotlib 图像释放内存。"""
+    import matplotlib.pyplot as plt
+    plt.close(fig)
+
+
+# =============================================================================
+# Tab 2: 联合控制所有单元 (39×39 矩阵)
 # =============================================================================
 
 def connect_dm() -> bool:
-    """连接 MicroDM 设备。"""
+    """连接 MicroDM (所有单元)。"""
     try:
-        # 先断开已有连接
         if st.session_state.mdm_dm is not None:
             try:
                 st.session_state.mdm_dm.close()
@@ -174,14 +637,12 @@ def connect_dm() -> bool:
         st.session_state.mdm_connected = True
         st.session_state.mdm_connection_error = ""
 
-        # 加载当前电压到矩阵
         voltages = dm.get_actuator_positions()
         st.session_state.mdm_matrix = voltages.reshape((GRID_SIZE, GRID_SIZE))
         st.session_state.mdm_matrix_loaded = True
 
         logger.info("MicroDM connected successfully")
         return True
-
     except Exception as e:
         error_msg = f"MicroDM 连接失败: {e}"
         st.session_state.mdm_connection_error = error_msg
@@ -192,7 +653,7 @@ def connect_dm() -> bool:
 
 
 def disconnect_dm() -> None:
-    """断开 MicroDM 设备连接。"""
+    """断开 MicroDM 连接。"""
     try:
         if st.session_state.mdm_dm is not None:
             st.session_state.mdm_dm.close()
@@ -205,277 +666,14 @@ def disconnect_dm() -> None:
         logger.exception(f"MicroDM disconnect failed: {e}")
 
 
-# =============================================================================
-# Tab 1: 单控制单元控制
-# =============================================================================
-
-def _sine_wave_loop(channel: int, amplitude: float, frequency: float, offset: float) -> None:
-    """正弦电压发送后台线程。"""
-    dm = st.session_state.mdm_dm
-    if dm is None:
-        return
-
-    t = 0.0
-    dt = 0.05  # 50ms 更新间隔
-    try:
-        while st.session_state.mdm_sine_running:
-            voltage = offset + amplitude * np.sin(2 * np.pi * frequency * t)
-            voltage = np.clip(voltage, VOLTAGE_MIN, VOLTAGE_MAX)
-            dm.set_channel_voltage(channel, voltage)
-            t += dt
-            time.sleep(dt)
-    except Exception as e:
-        st.session_state.mdm_sine_running = False
-        logger.exception(f"正弦电压发送异常: {e}")
-        set_tab1_feedback(f"正弦发送异常: {e}", "error")
-
-
-def _01_voltage_loop(channel: int, high: float, low: float, interval: float) -> None:
-    """01电压切换后台线程。"""
-    dm = st.session_state.mdm_dm
-    if dm is None:
-        return
-
-    state = True
-    try:
-        while st.session_state.mdm_01_running:
-            voltage = high if state else low
-            voltage = np.clip(voltage, VOLTAGE_MIN, VOLTAGE_MAX)
-            dm.set_channel_voltage(channel, voltage)
-            state = not state
-            time.sleep(interval)
-    except Exception as e:
-        st.session_state.mdm_01_running = False
-        logger.exception(f"01电压切换异常: {e}")
-        set_tab1_feedback(f"01切换异常: {e}", "error")
-
-
-def _render_waveform_preview(amplitude: float, frequency: float, offset: float) -> None:
-    """渲染正弦波形预览图。"""
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "DejaVu Sans"]
-    plt.rcParams["axes.unicode_minus"] = False
-
-    fig, ax = plt.subplots(figsize=(6, 2.5))
-    t = np.linspace(0, 3 / max(frequency, 0.1), 500)
-    v = offset + amplitude * np.sin(2 * np.pi * frequency * t)
-    ax.plot(t, v, linewidth=1.5, color="#1f77b4")
-    ax.axhline(y=offset, color="gray", linestyle="--", alpha=0.5, label=f"偏置 {offset:.0f}V")
-    ax.axhline(y=VOLTAGE_MAX, color="red", linestyle=":", alpha=0.4, label=f"上限 {VOLTAGE_MAX:.0f}V")
-    ax.axhline(y=VOLTAGE_MIN, color="red", linestyle=":", alpha=0.4, label=f"下限 {VOLTAGE_MIN:.0f}V")
-    ax.set_xlabel("时间 (s)")
-    ax.set_ylabel("电压 (V)")
-    ax.set_title("正弦波形预览")
-    ax.legend(fontsize=8, loc="upper right")
-    ax.grid(True, alpha=0.3)
-    fig.tight_layout()
-    st.pyplot(fig)
-    plt.close(fig)
-
-
-def render_tab_single_unit() -> None:
-    """渲染 Tab 1: 单控制单元连接与控制。"""
-
-    # ---- 顶部状态栏 ----
-    col_status1, col_status2, col_status3 = st.columns([1, 2, 2])
-    with col_status1:
-        if st.session_state.mdm_connected:
-            st.success("✅ 已连接")
-        else:
-            st.error("❌ 未连接")
-    with col_status2:
-        if st.session_state.mdm_connected:
-            try:
-                info = st.session_state.mdm_dm.get_hardware_info()
-                st.caption(
-                    f"控制器 {info.get('connected_controllers', 0)}/{info.get('n_controllers', 0)} | "
-                    f"通道 {info.get('total_channels', 0)} | "
-                    f"电压 [{info.get('voltage_range', [VOLTAGE_MIN, VOLTAGE_MAX])[0]:.0f}, "
-                    f"{info.get('voltage_range', [VOLTAGE_MIN, VOLTAGE_MAX])[1]:.0f}] V"
-                )
-            except Exception:
-                pass
-    with col_status3:
-        if st.session_state.mdm_connection_error:
-            st.caption(f"错误: {st.session_state.mdm_connection_error}")
-
-    show_and_clear_feedback("tab1")
-
-    # ---- 参数配置 + 手动发送 (Form 减少 rerun) ----
-    with st.form("mdm_single_form", border=True):
-        st.markdown("##### 参数配置")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            channel = st.number_input(
-                "通道号",
-                min_value=0,
-                max_value=TOTAL_CHANNELS - 1,
-                value=st.session_state.mdm_single_channel,
-                step=1,
-                key="mdm_input_channel",
-            )
-        with col2:
-            voltage = st.number_input(
-                "目标电压 (V)",
-                min_value=VOLTAGE_MIN,
-                max_value=VOLTAGE_MAX,
-                value=st.session_state.mdm_single_voltage,
-                step=1.0,
-                format="%.1f",
-                key="mdm_input_voltage",
-            )
-        with col3:
-            st.markdown("<br>", unsafe_allow_html=True)
-            send_clicked = st.form_submit_button("⚡ 发送电压", type="primary", use_container_width=True)
-
-        if send_clicked:
-            if not st.session_state.mdm_connected:
-                set_tab1_feedback("设备未连接", "error")
-            else:
-                try:
-                    st.session_state.mdm_dm.set_channel_voltage(channel, voltage)
-                    st.session_state.mdm_single_channel = channel
-                    st.session_state.mdm_single_voltage = voltage
-                    set_tab1_feedback(f"通道 {channel} → {voltage} V", "success")
-                except Exception as e:
-                    set_tab1_feedback(f"发送失败: {e}", "error")
-            st.rerun()
-
-    # ---- 读取当前电压 ----
-    col_read1, col_read2 = st.columns([1, 4])
-    with col_read1:
-        if st.button("📖 读取电压", use_container_width=True, key="mdm_btn_read_voltage"):
-            if not st.session_state.mdm_connected:
-                set_tab1_feedback("设备未连接", "error")
-            else:
-                try:
-                    voltages = st.session_state.mdm_dm.get_actuator_positions()
-                    current_v = voltages[channel]
-                    set_tab1_feedback(f"通道 {channel} 当前: {current_v:.2f} V", "info")
-                except Exception as e:
-                    set_tab1_feedback(f"读取失败: {e}", "error")
-            st.rerun()
-
-    # ---- 连续发送区域 (Expander 折叠) ----
-    st.divider()
-
-    # 正弦电压
-    with st.expander("🌊 正弦电压发送", expanded=False):
-        col_sin1, col_sin2, col_sin3 = st.columns(3)
-        with col_sin1:
-            amplitude = st.number_input(
-                "振幅 (V)", min_value=0.0, max_value=70.0,
-                value=st.session_state.mdm_sine_amplitude, step=1.0, format="%.1f",
-                key="mdm_sin_amplitude",
-            )
-        with col_sin2:
-            frequency = st.number_input(
-                "频率 (Hz)", min_value=0.1, max_value=10.0,
-                value=st.session_state.mdm_sine_frequency, step=0.1, format="%.1f",
-                key="mdm_sin_frequency",
-            )
-        with col_sin3:
-            offset = st.number_input(
-                "偏置 (V)", min_value=VOLTAGE_MIN, max_value=VOLTAGE_MAX,
-                value=st.session_state.mdm_sine_offset, step=1.0, format="%.1f",
-                key="mdm_sin_offset",
-            )
-
-        # 波形预览
-        _render_waveform_preview(amplitude, frequency, offset)
-
-        # 参数验证
-        sin_max = offset + amplitude
-        sin_min = offset - amplitude
-        if sin_max > VOLTAGE_MAX or sin_min < VOLTAGE_MIN:
-            st.warning(f"⚠️ 电压范围 [{sin_min:.1f}, {sin_max:.1f}] V 超出硬件限制，将自动截断")
-
-        col_sin_btn1, col_sin_btn2 = st.columns(2)
-        with col_sin_btn1:
-            if st.button("▶ 开始", type="primary", disabled=st.session_state.mdm_sine_running,
-                         use_container_width=True, key="mdm_sin_start"):
-                if not st.session_state.mdm_connected:
-                    set_tab1_feedback("设备未连接", "error")
-                else:
-                    st.session_state.mdm_sine_running = True
-                    threading.Thread(
-                        target=_sine_wave_loop,
-                        args=(channel, amplitude, frequency, offset), daemon=True,
-                    ).start()
-                    set_tab1_feedback(f"正弦发送中: Ch{channel}, {amplitude}V, {frequency}Hz, 偏置{offset}V", "success")
-                    st.rerun()
-        with col_sin_btn2:
-            if st.button("⏹ 停止", disabled=not st.session_state.mdm_sine_running,
-                         use_container_width=True, type="secondary", key="mdm_sin_stop"):
-                st.session_state.mdm_sine_running = False
-                set_tab1_feedback("正弦发送已停止", "info")
-                st.rerun()
-
-        if st.session_state.mdm_sine_running:
-            st.success("🔵 正弦发送中...")
-
-    # 01 电压切换
-    with st.expander("🔲 01 电压切换", expanded=False):
-        col_01_1, col_01_2, col_01_3 = st.columns(3)
-        with col_01_1:
-            high_v = st.number_input(
-                "高电平 (V)", min_value=VOLTAGE_MIN, max_value=VOLTAGE_MAX,
-                value=st.session_state.mdm_01_high_voltage, step=1.0, format="%.1f",
-                key="mdm_01_high",
-            )
-        with col_01_2:
-            low_v = st.number_input(
-                "低电平 (V)", min_value=VOLTAGE_MIN, max_value=VOLTAGE_MAX,
-                value=st.session_state.mdm_01_low_voltage, step=1.0, format="%.1f",
-                key="mdm_01_low",
-            )
-        with col_01_3:
-            interval = st.number_input(
-                "间隔 (s)", min_value=0.1, max_value=60.0,
-                value=st.session_state.mdm_01_interval, step=0.1, format="%.1f",
-                key="mdm_01_interval_input",
-            )
-
-        col_01_btn1, col_01_btn2 = st.columns(2)
-        with col_01_btn1:
-            if st.button("▶ 开始", type="primary", disabled=st.session_state.mdm_01_running,
-                         use_container_width=True, key="mdm_01_start"):
-                if not st.session_state.mdm_connected:
-                    set_tab1_feedback("设备未连接", "error")
-                else:
-                    st.session_state.mdm_01_running = True
-                    threading.Thread(
-                        target=_01_voltage_loop,
-                        args=(channel, high_v, low_v, interval), daemon=True,
-                    ).start()
-                    set_tab1_feedback(f"01切换中: Ch{channel}, 高{high_v}V/低{low_v}V, {interval}s", "success")
-                    st.rerun()
-        with col_01_btn2:
-            if st.button("⏹ 停止", disabled=not st.session_state.mdm_01_running,
-                         use_container_width=True, type="secondary", key="mdm_01_stop"):
-                st.session_state.mdm_01_running = False
-                set_tab1_feedback("01切换已停止", "info")
-                st.rerun()
-
-        if st.session_state.mdm_01_running:
-            st.success("🔵 01切换中...")
-
-
-# =============================================================================
-# Tab 2: 39×39 矩阵控制
-# =============================================================================
-
 def _matrix_continuous_loop(voltage: float, interval: float) -> None:
     """矩阵持续电压发送后台线程。"""
     dm = st.session_state.mdm_dm
     if dm is None:
         return
-
     try:
-        voltage_clipped = np.clip(voltage, VOLTAGE_MIN, VOLTAGE_MAX)
+        voltage_clipped = float(np.clip(voltage, st.session_state.mdm_vmin, st.session_state.mdm_vmax))
+        voltage_clipped = float(np.clip(voltage_clipped, HW_VOLTAGE_MIN, HW_VOLTAGE_MAX))
         voltages = np.full(TOTAL_CHANNELS, voltage_clipped, dtype=np.float64)
         while st.session_state.mdm_matrix_continuous_running:
             dm.send_voltages(voltages)
@@ -487,7 +685,7 @@ def _matrix_continuous_loop(voltage: float, interval: float) -> None:
 
 
 def _render_heatmap(matrix, vmin, vmax, colormap):
-    """渲染热力图（独立函数便于缓存）。"""
+    """渲染热力图。"""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -506,14 +704,29 @@ def _render_heatmap(matrix, vmin, vmax, colormap):
     return fig
 
 
-def render_tab_matrix() -> None:
-    """渲染 Tab 2: 39×39 矩阵直接控制。"""
+def _hw_reset_action() -> None:
+    """硬件归零回调。"""
+    try:
+        st.session_state.mdm_dm.reset_all()
+        st.session_state.mdm_matrix = np.zeros((GRID_SIZE, GRID_SIZE), dtype=np.float64)
+        set_tab2_feedback("硬件已归零", "success")
+    except Exception as e:
+        set_tab2_feedback(f"归零失败: {e}", "error")
 
-    # ---- 顶部状态提示 ----
+
+def render_tab_matrix() -> None:
+    """渲染 Tab 2: 39×39 矩阵联合控制。"""
+    vmin = st.session_state.mdm_vmin
+    vmax = st.session_state.mdm_vmax
+
     if not st.session_state.mdm_connected:
         st.warning("⚠️ 设备未连接，矩阵操作仅在本地预览")
 
     show_and_clear_feedback("tab2")
+
+    # ---- 电压上下限 (两个 Tab 共享) ----
+    with st.container(border=True):
+        render_voltage_limits("matrix")
 
     # ---- 确认对话框 ----
     if st.session_state.mdm_confirm_action:
@@ -535,13 +748,12 @@ def render_tab_matrix() -> None:
     col_left, col_right = st.columns([3, 2])
 
     with col_left:
-        # 热力图
         matrix = st.session_state.mdm_matrix.copy()
         fig = _render_heatmap(matrix, st.session_state.mdm_heatmap_vmin,
                               st.session_state.mdm_heatmap_vmax, st.session_state.mdm_colormap)
         st.pyplot(fig)
+        plt_close_safe(fig)
 
-        # 统计信息
         col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
         with col_stat1:
             st.metric("最小", f"{np.min(matrix):.1f} V")
@@ -553,19 +765,18 @@ def render_tab_matrix() -> None:
             st.metric("非零", f"{np.count_nonzero(matrix)}")
 
     with col_right:
-        # 热力图参数
         with st.container(border=True):
             st.markdown("##### 热力图设置")
             col_h1, col_h2 = st.columns(2)
             with col_h1:
                 st.number_input(
-                    "最小值", min_value=VOLTAGE_MIN, max_value=VOLTAGE_MAX,
+                    "最小值", min_value=HW_VOLTAGE_MIN, max_value=HW_VOLTAGE_MAX,
                     value=st.session_state.mdm_heatmap_vmin, step=5.0, format="%.1f",
                     key="mdm_vmin",
                 )
             with col_h2:
                 st.number_input(
-                    "最大值", min_value=VOLTAGE_MIN, max_value=VOLTAGE_MAX,
+                    "最大值", min_value=HW_VOLTAGE_MIN, max_value=HW_VOLTAGE_MAX,
                     value=st.session_state.mdm_heatmap_vmax, step=5.0, format="%.1f",
                     key="mdm_vmax",
                 )
@@ -578,31 +789,24 @@ def render_tab_matrix() -> None:
                 index=2, key="mdm_colormap",
             )
 
-        # 编辑模式 (segmented_control)
         with st.container(border=True):
             st.markdown("##### 编辑模式")
-
             edit_mode_raw = st.segmented_control(
-                "模式",
-                options=["single", "rect", "row", "col"],
-                default="single",
-                selection_mode="single",
-                key="mdm_edit_mode_seg",
+                "模式", options=["single", "rect", "row", "col"],
+                default="single", selection_mode="single", key="mdm_edit_mode_seg",
             )
-            # segmented_control 返回字符串列表，取第一个
             if isinstance(edit_mode_raw, list):
                 edit_mode = edit_mode_raw[0] if edit_mode_raw else "single"
             else:
                 edit_mode = edit_mode_raw if edit_mode_raw else "single"
 
             fill_value = st.number_input(
-                "填充值 (V)", min_value=VOLTAGE_MIN, max_value=VOLTAGE_MAX,
+                "填充值 (V)", min_value=vmin, max_value=vmax,
                 value=st.session_state.mdm_fill_value, step=1.0, format="%.1f",
                 key="mdm_fill_value_input",
             )
             st.session_state.mdm_fill_value = fill_value
 
-            # 根据模式显示不同输入
             if edit_mode == "single":
                 col_s1, col_s2 = st.columns(2)
                 with col_s1:
@@ -613,7 +817,6 @@ def render_tab_matrix() -> None:
                     st.session_state.mdm_matrix[row, col] = fill_value
                     set_tab2_feedback(f"[{row},{col}] → {fill_value} V", "success")
                     st.rerun()
-
             elif edit_mode == "rect":
                 st.markdown("**区域范围**")
                 col_r1, col_r2 = st.columns(2)
@@ -630,14 +833,12 @@ def render_tab_matrix() -> None:
                     cnt = (re - rs + 1) * (ce - cs + 1)
                     set_tab2_feedback(f"区域 [{rs}:{re+1}, {cs}:{ce+1}] ({cnt}单元) → {fill_value} V", "success")
                     st.rerun()
-
             elif edit_mode == "row":
                 row_idx = st.number_input("行号", 0, 38, 0, key="mdm_edit_row_idx")
                 if st.button(f"设置第 {row_idx} 行", type="primary", use_container_width=True, key="mdm_btn_set_row"):
                     st.session_state.mdm_matrix[row_idx, :] = fill_value
                     set_tab2_feedback(f"第 {row_idx} 行 ({GRID_SIZE}单元) → {fill_value} V", "success")
                     st.rerun()
-
             elif edit_mode == "col":
                 col_idx = st.number_input("列号", 0, 38, 0, key="mdm_edit_col_idx")
                 if st.button(f"设置第 {col_idx} 列", type="primary", use_container_width=True, key="mdm_btn_set_col"):
@@ -648,7 +849,6 @@ def render_tab_matrix() -> None:
     # ---- 批量操作 ----
     st.divider()
     st.markdown("##### 图案生成")
-
     col_batch1, col_batch2, col_batch3, col_batch4, col_batch5, col_batch6 = st.columns(6)
     with col_batch1:
         if st.button("🔄 归零", use_container_width=True, key="mdm_btn_reset_zero"):
@@ -662,7 +862,7 @@ def render_tab_matrix() -> None:
             st.rerun()
     with col_batch3:
         if st.button("🎲 随机", use_container_width=True, key="mdm_btn_random"):
-            st.session_state.mdm_matrix = np.random.uniform(VOLTAGE_MIN, VOLTAGE_MAX, (GRID_SIZE, GRID_SIZE))
+            st.session_state.mdm_matrix = np.random.uniform(vmin, vmax, (GRID_SIZE, GRID_SIZE))
             set_tab2_feedback("矩阵已随机生成", "success")
             st.rerun()
     with col_batch4:
@@ -670,7 +870,7 @@ def render_tab_matrix() -> None:
             x = np.linspace(0, 4 * np.pi, GRID_SIZE)
             y = np.linspace(0, 4 * np.pi, GRID_SIZE)
             X, Y = np.meshgrid(x, y)
-            pattern = np.clip(50.0 + 50.0 * np.sin(X) * np.cos(Y), VOLTAGE_MIN, VOLTAGE_MAX)
+            pattern = np.clip(((vmin + vmax) / 2.0) + ((vmax - vmin) / 2.0) * np.sin(X) * np.cos(Y), vmin, vmax)
             st.session_state.mdm_matrix = pattern
             set_tab2_feedback("正弦图案已生成", "success")
             st.rerun()
@@ -679,13 +879,13 @@ def render_tab_matrix() -> None:
             x = np.linspace(-3, 3, GRID_SIZE)
             y = np.linspace(-3, 3, GRID_SIZE)
             X, Y = np.meshgrid(x, y)
-            pattern = np.clip(50.0 + 70.0 * np.exp(-(X ** 2 + Y ** 2) / 2.0), VOLTAGE_MIN, VOLTAGE_MAX)
+            pattern = np.clip(vmax - (vmax - vmin) * (1.0 - np.exp(-(X ** 2 + Y ** 2) / 2.0)), vmin, vmax)
             st.session_state.mdm_matrix = pattern
             set_tab2_feedback("高斯图案已生成", "success")
             st.rerun()
     with col_batch6:
         if st.button("📐 渐变", use_container_width=True, key="mdm_btn_gradient"):
-            pattern = np.tile(np.linspace(VOLTAGE_MIN, VOLTAGE_MAX, GRID_SIZE), (GRID_SIZE, 1)).T
+            pattern = np.tile(np.linspace(vmin, vmax, GRID_SIZE), (GRID_SIZE, 1)).T
             st.session_state.mdm_matrix = pattern
             set_tab2_feedback("渐变图案已生成", "success")
             st.rerun()
@@ -693,7 +893,6 @@ def render_tab_matrix() -> None:
     # ---- 硬件操作 ----
     st.divider()
     st.markdown("##### 硬件操作")
-
     col_hw1, col_hw2, col_hw3 = st.columns(3)
     with col_hw1:
         if st.button("⬆ 应用到硬件", type="primary", use_container_width=True, key="mdm_btn_apply"):
@@ -722,7 +921,6 @@ def render_tab_matrix() -> None:
             if not st.session_state.mdm_connected:
                 set_tab2_feedback("设备未连接", "error")
             else:
-                # 使用确认对话框
                 st.session_state.mdm_confirm_action = {
                     "message": "将所有通道电压归零。此操作将立即发送到硬件。",
                     "callback": lambda: _hw_reset_action(),
@@ -738,7 +936,7 @@ def render_tab_matrix() -> None:
             try:
                 data = np.load(uploaded)
                 if data.shape == (GRID_SIZE, GRID_SIZE):
-                    st.session_state.mdm_matrix = data.astype(np.float64)
+                    st.session_state.mdm_matrix = np.clip(data.astype(np.float64), vmin, vmax)
                     set_tab2_feedback(f"矩阵已加载 ({data.shape})", "success")
                     st.rerun()
                 else:
@@ -762,29 +960,19 @@ def render_tab_matrix() -> None:
     st.divider()
     with st.expander("🔄 动态持续电压", expanded=False):
         st.markdown("持续将当前矩阵电压发送到硬件，适用于需要稳定电压输出的场景。")
-
         col_cv1, col_cv2 = st.columns(2)
         with col_cv1:
             continuous_voltage = st.number_input(
-                "持续电压值 (V)",
-                min_value=VOLTAGE_MIN,
-                max_value=VOLTAGE_MAX,
-                value=st.session_state.mdm_matrix_continuous_voltage,
-                step=1.0,
-                format="%.1f",
+                "持续电压值 (V)", min_value=vmin, max_value=vmax,
+                value=st.session_state.mdm_matrix_continuous_voltage, step=1.0, format="%.1f",
                 key="mdm_cv_voltage",
             )
         with col_cv2:
             continuous_interval = st.number_input(
-                "发送间隔 (s)",
-                min_value=0.01,
-                max_value=10.0,
-                value=st.session_state.mdm_matrix_continuous_interval,
-                step=0.01,
-                format="%.2f",
+                "发送间隔 (s)", min_value=0.01, max_value=10.0,
+                value=st.session_state.mdm_matrix_continuous_interval, step=0.01, format="%.2f",
                 key="mdm_cv_interval",
             )
-
         col_cv_btn1, col_cv_btn2 = st.columns(2)
         with col_cv_btn1:
             if st.button("▶ 开始持续发送", type="primary",
@@ -809,31 +997,19 @@ def render_tab_matrix() -> None:
                 st.session_state.mdm_matrix_continuous_running = False
                 set_tab2_feedback("矩阵持续发送已停止", "info")
                 st.rerun()
-
         if st.session_state.mdm_matrix_continuous_running:
             st.success(f"🔵 持续发送中: {continuous_voltage} V, 间隔 {continuous_interval} s")
 
 
-def _hw_reset_action() -> None:
-    """硬件归零回调。"""
-    try:
-        st.session_state.mdm_dm.reset_all()
-        st.session_state.mdm_matrix = np.zeros((GRID_SIZE, GRID_SIZE), dtype=np.float64)
-        set_tab2_feedback("硬件已归零", "success")
-    except Exception as e:
-        set_tab2_feedback(f"归零失败: {e}", "error")
-
-
 # =============================================================================
-# Sidebar: 设备连接
+# Sidebar: 矩阵设备连接 (Tab 2)
 # =============================================================================
 
 def render_sidebar() -> None:
-    """渲染侧边栏: 设备连接与全局设置。"""
+    """渲染侧边栏: 矩阵设备 (MicroDM) 连接与全局设置。"""
     with st.sidebar:
-        st.header("🔌 设备连接")
+        st.header("🔌 矩阵设备连接 (所有单元)")
 
-        # 连接设置
         with st.container(border=True):
             st.session_state.mdm_use_wiring_map = st.checkbox(
                 "使用 Wiring Map",
@@ -847,7 +1023,6 @@ def render_sidebar() -> None:
                     placeholder="192.168.0.101,192.168.0.102",
                 )
 
-        # 连接/断开
         if not st.session_state.mdm_connected:
             if st.button("连接 MicroDM", type="primary", use_container_width=True, key="mdm_connect_btn"):
                 with st.spinner("连接中..."):
@@ -858,8 +1033,6 @@ def render_sidebar() -> None:
             if st.button("断开连接", use_container_width=True, key="mdm_disconnect_btn"):
                 disconnect_dm()
                 st.rerun()
-
-            # 硬件信息
             try:
                 info = st.session_state.mdm_dm.get_hardware_info()
                 st.caption(f"控制器: {info.get('connected_controllers', 0)}/{info.get('n_controllers', 0)}")
@@ -867,16 +1040,16 @@ def render_sidebar() -> None:
             except Exception:
                 pass
 
-        # 错误信息
         if st.session_state.mdm_connection_error:
             st.error(st.session_state.mdm_connection_error)
 
-        # 硬件信息
         with st.container(border=True):
             st.markdown("##### 硬件规格")
             st.caption(f"矩阵: {GRID_SIZE} × {GRID_SIZE}")
             st.caption(f"通道: {TOTAL_CHANNELS}")
-            st.caption(f"电压: [{VOLTAGE_MIN}, {VOLTAGE_MAX}] V")
+            st.caption(f"单控制器通道: {SINGLE_CHANNELS}")
+            st.caption(f"硬件电压极限: [{HW_VOLTAGE_MIN}, {HW_VOLTAGE_MAX}] V")
+            st.caption("安全范围可在各 Tab 内调整")
 
 
 # =============================================================================
@@ -892,13 +1065,13 @@ def main() -> None:
         initial_sidebar_state="expanded",
     )
 
-    st.title("🔬 Micro DM 39×39 矩阵控制面板")
-    st.caption("自适应光学变形镜控制 | 单单元控制 · 矩阵批量操作 · 实时可视化")
+    st.title("🔬 Micro DM 微驱动器控制面板")
+    st.caption("自适应光学变形镜控制 | 单单元控制 · 联合矩阵控制 · 实时电压可视化")
 
     _initialize_state()
     render_sidebar()
 
-    tab1, tab2 = st.tabs(["单控制单元", "39×39 矩阵"])
+    tab1, tab2 = st.tabs(["单驱动器单元", "联合控制所有单元"])
 
     with tab1:
         render_tab_single_unit()
