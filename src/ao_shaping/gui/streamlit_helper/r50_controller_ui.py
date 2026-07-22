@@ -23,10 +23,12 @@ R50Power 单控制器控制 UI (Streamlit)
 from __future__ import annotations
 
 import collections
+import json
 import socket
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -43,6 +45,12 @@ from ao_shaping.drivers.dm.MicroDM import (
     CMD_RELAY_OFF,
     voltages_to_payload,
 )
+from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+
+# wiring_map.json 路径 (单元物理信息对照)
+WIRING_MAP_PATH = PROJECT_ROOT / "libs" / "micro_drive1300" / "wiring_map.json"
+# (ip_suffix, payload_position) → {"group": str, "needle_id": int, "label": str}
+_WIRING_INDEX: dict[tuple[int, int], dict] = {}
 
 # 调试日志最大行数
 DEBUG_LOG_MAX = 300
@@ -67,11 +75,78 @@ P = "r50c"
 
 
 # =============================================================================
+# Wiring Map Index (针脚 ↔ 组别 映射)
+# =============================================================================
+
+def _build_wiring_index() -> dict[tuple[int, int], dict]:
+    """从 wiring_map.json 构建 (ip_suffix, payload_position) → 针脚信息的索引。
+
+    用于在电压下发时提示用户当前通道对应的组别和针脚号。
+    payload_position 在 JSON 中是 1-based, 索引 key 也保持 1-based。
+    """
+    index: dict[tuple[int, int], dict] = {}
+    if not WIRING_MAP_PATH.exists():
+        return index
+    try:
+        with open(WIRING_MAP_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for group_key, group in data.get("groups", {}).items():
+            group_name = group.get("name", group_key)
+            for ch in group.get("channels", []):
+                ip_suffix = ch.get("ip_suffix")
+                payload_pos = ch.get("payload_position")
+                needle_id = ch.get("needle_id")
+                if ip_suffix is None or payload_pos is None:
+                    continue
+                index[(int(ip_suffix), int(payload_pos))] = {
+                    "group": group_name,
+                    "needle_id": needle_id,
+                    "label": ch.get("physical_label", ""),
+                }
+    except Exception as e:
+        logger.warning(f"Failed to build wiring index: {e}")
+    return index
+
+
+def _get_needle_info(channel: int) -> str:
+    """根据当前控制器 IP 和通道号 (0-based) 返回针脚信息字符串。
+
+    返回格式示例: "一组 针脚#277 (3-3-1)" 或 "" (无映射时)。
+    """
+    ip = st.session_state.get(f"{P}_ip", "").strip()
+    if not ip or not _WIRING_INDEX:
+        return ""
+    try:
+        ip_suffix = int(ip.split(".")[-1])
+    except (ValueError, IndexError):
+        return ""
+    payload_pos = channel + 1  # UI channel 0-based → payload_position 1-based
+    info = _WIRING_INDEX.get((ip_suffix, payload_pos))
+    if info is None:
+        return ""
+    needle = info["needle_id"]
+    label = info["label"]
+    group = info["group"]
+    return f"{group} 针脚#{needle} ({label})" if needle else f"{group} ({label})"
+
+
+def _channel_label(ch: int) -> str:
+    """格式化通道号, 附加针脚映射信息 (供 multiselect format_func 使用)。"""
+    info = _get_needle_info(ch)
+    return f"{ch} | {info}" if info else str(ch)
+
+
+# =============================================================================
 # Session State Initialization
 # =============================================================================
 
 def _initialize_state() -> None:
     """初始化所有 session_state 变量。"""
+
+    # ---- Wiring map 索引 (仅构建一次) ----
+    global _WIRING_INDEX
+    if not _WIRING_INDEX:
+        _WIRING_INDEX = _build_wiring_index()
 
     # ---- 连接配置 ----
     st.session_state.setdefault(f"{P}_ip", "192.168.0.101")
@@ -451,11 +526,16 @@ def main() -> None:
         # ---- 连接配置 ----
         with st.container(border=True):
             st.markdown("##### 连接配置")
-            st.text_input("IP 地址", value=st.session_state[f"{P}_ip"], key=f"{P}_ip_input")
+            _connected = st.session_state[f"{P}_connected"]
+            st.text_input(
+                "IP 地址", value=st.session_state[f"{P}_ip"],
+                disabled=_connected, key=f"{P}_ip_input",
+            )
             st.session_state[f"{P}_ip"] = st.session_state[f"{P}_ip_input"]
             st.number_input(
                 "端口", min_value=1, max_value=65535,
-                value=st.session_state[f"{P}_port"], step=1, key=f"{P}_port_input",
+                value=st.session_state[f"{P}_port"], step=1,
+                disabled=_connected, key=f"{P}_port_input",
             )
             st.session_state[f"{P}_port"] = int(st.session_state[f"{P}_port_input"])
             col_test, col_conn = st.columns(2)
@@ -578,6 +658,7 @@ def main() -> None:
                     "指定单元 (可多选, 0-49)",
                     options=list(range(SINGLE_CHANNELS)),
                     default=st.session_state[f"{P}_channels"],
+                    format_func=_channel_label,
                 )
                 st.session_state[f"{P}_channels"] = [int(c) for c in sel]
             with col_btn:
@@ -594,6 +675,14 @@ def main() -> None:
                             i for i in range(SINGLE_CHANNELS) if i not in cur
                         ]
                         st.rerun()
+
+            # 显示已选单元的针脚映射信息
+            if st.session_state[f"{P}_channels"]:
+                _infos = []
+                for _ch in st.session_state[f"{P}_channels"]:
+                    _ni = _get_needle_info(int(_ch))
+                    _infos.append(f"ch{_ch}: {_ni}" if _ni else f"ch{_ch}: 无映射")
+                st.caption("针脚映射: " + " ｜ ".join(_infos))
 
         voltage = st.number_input(
             "电压 (V)", min_value=st.session_state[f"{P}_vmin"],
@@ -616,10 +705,23 @@ def main() -> None:
                         try:
                             _send_channels(voltage)
                             if st.session_state[f"{P}_all_mode"]:
-                                set_feedback(f"已向全部 50 通道下发 {voltage:.1f} V", "success")
+                                # 显示当前 IP 下所有有映射的通道
+                                _mapped = []
+                                for _ch in range(SINGLE_CHANNELS):
+                                    _ni = _get_needle_info(_ch)
+                                    if _ni:
+                                        _mapped.append(f"ch{_ch}:{_ni}")
+                                _extra = f" (映射通道: {', '.join(_mapped[:5])}{'...' if len(_mapped) > 5 else ''})" if _mapped else ""
+                                set_feedback(f"已向全部 50 通道下发 {voltage:.1f} V{_extra}", "success")
                             else:
+                                ch_list = st.session_state[f"{P}_channels"]
+                                _detail_parts = []
+                                for _ch in ch_list:
+                                    _ni = _get_needle_info(int(_ch))
+                                    _detail_parts.append(f"{_ch}({_ni})" if _ni else str(_ch))
+                                _detail = ", ".join(_detail_parts)
                                 set_feedback(
-                                    f"已向 {len(st.session_state[f'{P}_channels'])} 个指定单元下发 {voltage:.1f} V",
+                                    f"已向 {len(ch_list)} 个单元下发 {voltage:.1f} V: {_detail}",
                                     "success",
                                 )
                         except Exception as e:
@@ -700,6 +802,9 @@ def main() -> None:
                 value=st.session_state[f"{P}_channel"], step=1, key=f"{P}_sine_channel_input",
             )
             st.session_state[f"{P}_channel"] = int(sine_ch)
+            _sine_ni = _get_needle_info(int(sine_ch))
+            if _sine_ni:
+                st.caption(f"针脚映射: {_sine_ni}")
 
         if not st.session_state[f"{P}_sine_running"]:
             if st.button(
