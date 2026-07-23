@@ -20,8 +20,11 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.drivers.dm.NLight import NLight
+from ao_shaping.drivers.dm import create_dm, list_reachable_dm_types
 from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
+
+
+DM_TYPES = list_reachable_dm_types()
 from ao_shaping.optimizer.wf.dm_response_matrix import (
     DEFAULT_DISTURB_VOLTAGE,
     DEFAULT_N_AVERAGES,
@@ -80,6 +83,12 @@ from ao_shaping.utils.wfs_utils import make_actuator_debug_callback
               help="显示实时pygame显示 (暂未实现)")
 @click.option("--debug", "debug", is_flag=True, default=None,
               help="启用调试模式 (保存原始测量数据)")
+@click.option(
+    "--dm_type",
+    type=click.Choice(DM_TYPES, case_sensitive=False),
+    default=None,
+    help="变形镜类型 (default: auto-detect). 若未指定且仅一个DM在线则自动选取，否则报错.",
+)
 def run(
     ctx: click.Context,
     disturb_voltage: float,
@@ -101,6 +110,7 @@ def run(
     optimize_n_avg: int,
     display: bool,
     debug: bool | None,
+    dm_type: str | None,
 ):
     """获取DM变形镜响应矩阵
 
@@ -148,81 +158,103 @@ def run(
     if display:
         click.echo("Note: --display mode is not yet implemented for DM calibration.")
 
+    # DM selection
+    if dm_type is not None:
+        dm_type = dm_type.lower()
+        logger.info("Using specified DM type: {}", dm_type)
+    else:
+        reachable = DM_TYPES
+        if len(reachable) == 1:
+            dm_type = reachable[0]
+            logger.info("Auto-detected reachable DM: {}", dm_type)
+        elif len(reachable) == 0:
+            raise RuntimeError(
+                "No DM reachable. Specify --dm_type explicitly or connect a DM."
+            )
+        else:
+            raise RuntimeError(
+                f"Multiple DMs reachable ({', '.join(reachable)}). "
+                f"Specify --dm_type explicitly to choose one."
+            )
+
+    dm = create_dm(dm_type)
     try:
-        with NLight() as dm:
-            with ThorlabWFS(
-                mla_index=mla_index_enum,
-                exposure_time=effective_exp_time,
-                high_speed=high_speed,
-                use_custom_ref=use_custom_ref,
-                pupil_diameter=pupil_diameter,
-                pupil_center=pupil_center,
-            ) as wfs:
-                # Set flat DM and refresh WFS reference
-                click.echo("Setting flat DM and refreshing WFS reference...")
-                voltages_zero = np.zeros(dm.DM_NUM, dtype=np.float64)
-                dm.send_voltages(voltages_zero, wait_time_s=wait_time)
-                sleep(0.3)
+        dm.open()
+        with ThorlabWFS(
+            mla_index=mla_index_enum,
+            exposure_time=effective_exp_time,
+            high_speed=high_speed,
+            use_custom_ref=use_custom_ref,
+            pupil_diameter=pupil_diameter,
+            pupil_center=pupil_center,
+        ) as wfs:
+            # Set flat DM and refresh WFS reference
+            click.echo("Setting flat DM and refreshing WFS reference...")
+            voltages_zero = np.zeros(dm.DM_NUM, dtype=np.float64)
+            dm.send_voltages(voltages_zero, wait_time_s=wait_time)
+            sleep(0.3)
 
-                if not use_custom_ref:
-                    wfs.save_user_ref()
-                    wfs.load_user_ref()
-                    logger.debug("WFS reference updated to flat DM.")
+            if not use_custom_ref:
+                wfs.save_user_ref()
+                wfs.load_user_ref()
+                logger.debug("WFS reference updated to flat DM.")
 
-                # Run calibration
-                click.echo("\n=== Starting DM response matrix calibration ===")
-                click.echo(f"  Actuators: {dm.DM_NUM} total")
-                click.echo(f"  Voltage: {disturb_voltage}" +
-                           (" (auto-optimize)" if disturb_voltage == 0 else ""))
-                click.echo(f"  Averages: {n_averages}, Cycles: {n_cycles}")
-                click.echo(f"  Inverses: {'yes' if compute_inverses else 'no'}")
-                click.echo(f"  Cancel tile: {cancel_tile}")
-                click.echo(f"  Auto-optimize voltage: {auto_optimize_voltage}")
+            # Run calibration
+            click.echo("\n=== Starting DM response matrix calibration ===")
+            click.echo(f"  Actuators: {dm.DM_NUM} total")
+            click.echo(f"  Voltage: {disturb_voltage}" +
+                       (" (auto-optimize)" if disturb_voltage == 0 else ""))
+            click.echo(f"  Averages: {n_averages}, Cycles: {n_cycles}")
+            click.echo(f"  Inverses: {'yes' if compute_inverses else 'no'}")
+            click.echo(f"  Cancel tile: {cancel_tile}")
+            click.echo(f"  Auto-optimize voltage: {auto_optimize_voltage}")
 
-                result = calibrate_dm_response_matrix(
-                    dm=dm,
-                    wfs=wfs,
-                    disturb_voltage=disturb_voltage,
-                    n_averages=n_averages,
-                    n_cycles=n_cycles,
-                    wait_time=wait_time,
-                    compute_inverses=compute_inverses,
-                    verbose=True,
-                    dm_unit_mask=dm_unit_mask,
-                    cancel_tile=cancel_tile,
-                    auto_optimize_voltage=auto_optimize_voltage,
-                    optimize_n_avg=optimize_n_avg,
-                    debug_data_callback=debug_data_callback,
-                )
+            result = calibrate_dm_response_matrix(
+                dm=dm,
+                wfs=wfs,
+                disturb_voltage=disturb_voltage,
+                n_averages=n_averages,
+                n_cycles=n_cycles,
+                wait_time=wait_time,
+                compute_inverses=compute_inverses,
+                verbose=True,
+                dm_unit_mask=dm_unit_mask,
+                cancel_tile=cancel_tile,
+                auto_optimize_voltage=auto_optimize_voltage,
+                optimize_n_avg=optimize_n_avg,
+                debug_data_callback=debug_data_callback,
+            )
 
-                # Build device config snapshot
-                result.device_config = {
-                    "mla_index": int(mla_index_enum),
-                    "exposure_time": effective_exp_time,
-                    "high_speed": high_speed,
-                    "use_custom_ref": use_custom_ref,
-                    "pupil_center": list(pupil_center),
-                    "pupil_diameter": pupil_diameter,
-                }
+            # Build device config snapshot
+            result.device_config = {
+                "mla_index": int(mla_index_enum),
+                "exposure_time": effective_exp_time,
+                "high_speed": high_speed,
+                "use_custom_ref": use_custom_ref,
+                "pupil_center": list(pupil_center),
+                "pupil_diameter": pupil_diameter,
+            }
 
-                # Save
-                save_dm_response_matrix(
-                    result, output_path, include_inverses=compute_inverses
-                )
-                click.echo(f"\n响应矩阵已保存到: {output_path}.h5")
-                click.echo(f"  矩阵形状: {result.matrix.shape}")
-                click.echo(f"  有效单元数: {result.n_actuators_valid}")
-                click.echo(f"  斜率维数: {result.n_slopes}")
-                click.echo(f"  平均方差: {result.mean_variance:.6e}")
-                click.echo(f"  最大方差: {result.max_variance:.6e}")
-                if result.condition_number is not None:
-                    click.echo(f"  条件数: {result.condition_number:.2e}")
-                if debug_data_dir is not None:
-                    click.echo(f"  调试数据已保存到: {debug_data_dir}")
+            # Save
+            save_dm_response_matrix(
+                result, output_path, include_inverses=compute_inverses
+            )
+            click.echo(f"\n响应矩阵已保存到: {output_path}.h5")
+            click.echo(f"  矩阵形状: {result.matrix.shape}")
+            click.echo(f"  有效单元数: {result.n_actuators_valid}")
+            click.echo(f"  斜率维数: {result.n_slopes}")
+            click.echo(f"  平均方差: {result.mean_variance:.6e}")
+            click.echo(f"  最大方差: {result.max_variance:.6e}")
+            if result.condition_number is not None:
+                click.echo(f"  条件数: {result.condition_number:.2e}")
+            if debug_data_dir is not None:
+                click.echo(f"  调试数据已保存到: {debug_data_dir}")
 
     except Exception as e:
-        logger.error(f"Calibration failed: {e}")
+        logger.error("Calibration failed: {}", e)
         raise
+    finally:
+        dm.close()
 
 
 if __name__ == "__main__":

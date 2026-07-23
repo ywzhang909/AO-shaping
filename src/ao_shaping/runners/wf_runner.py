@@ -1,15 +1,19 @@
+from __future__ import annotations
+
 import click
 from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
 
-from ao_shaping.utils import gen_date_dir, gen_file_path_uuid
+from ao_shaping.utils import gen_date_dir, gen_file_path_uuid, logger
 from ao_shaping.optimizer.wf.rms import optimizer_rms
 from ao_shaping.utils.display import plot_funcs
 from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name, get_debug_mode
-from ao_shaping import config as ao_config
-DM_N_ACTUATORS = ao_config.DM_N_ACTUATORS
+from ao_shaping.drivers.dm import create_dm, list_reachable_dm_types
+
+
+DM_TYPES = list_reachable_dm_types()
 
 
 @click.command()
@@ -20,21 +24,54 @@ DM_N_ACTUATORS = ao_config.DM_N_ACTUATORS
 @click.option("-c", "--pupil_center", callback=parse_tuple, default="(0,0)", help="瞳孔中心坐标 (default: (0,0))")
 @click.option("-t", "--early_stop_threshold", default=0.0, help="早停阈值 (default: 0.0)")
 @click.option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)")
-def run(dir, epochs, wfs_res, pupil_diameter, pupil_center, early_stop_threshold, show):
+@click.option(
+    "--dm_type",
+    type=click.Choice(DM_TYPES, case_sensitive=False),
+    default=None,
+    help="变形镜类型 (default: auto-detect). 若未指定且仅一个DM在线则自动选取，否则报错.",
+)
+def run(dir, epochs, wfs_res, pupil_diameter, pupil_center, early_stop_threshold, show, dm_type):
     """波前优化器
 
     DEBUG环境变量控制调试模式。
     """
     debug = get_debug_mode()
-    init_v = [0 for _ in range(DM_N_ACTUATORS)]
-    records = optimizer_rms(
-        init_v=init_v,
-        epochs=epochs,
-        wfs_res=wfs_res,
-        pupil_diameter=pupil_diameter,
-        pupil_center=pupil_center,
-        early_stop_threshold=early_stop_threshold,
-    )
+
+    # DM selection
+    if dm_type is not None:
+        dm_type = dm_type.lower()
+        logger.info("Using specified DM type: {}", dm_type)
+    else:
+        reachable = DM_TYPES
+        if len(reachable) == 1:
+            dm_type = reachable[0]
+            logger.info("Auto-detected reachable DM: {}", dm_type)
+        elif len(reachable) == 0:
+            raise RuntimeError(
+                "No DM reachable. Specify --dm_type explicitly or connect a DM."
+            )
+        else:
+            raise RuntimeError(
+                f"Multiple DMs reachable ({', '.join(reachable)}). "
+                f"Specify --dm_type explicitly to choose one."
+            )
+
+    dm = create_dm(dm_type)
+    try:
+        dm.open()
+        init_v = [0 for _ in range(dm.DM_NUM)]
+        records = optimizer_rms(
+            init_v=init_v,
+            epochs=epochs,
+            wfs_res=wfs_res,
+            pupil_diameter=pupil_diameter,
+            pupil_center=pupil_center,
+            early_stop_threshold=early_stop_threshold,
+            dm=dm,
+        )
+    finally:
+        dm.close()
+
     root_dir = Path(dir)
 
     min_iter, (min_epoch, min_rms) = records.get_best_iter()

@@ -12,20 +12,40 @@ from typing import Literal
 
 
 def _resolve_dm_n_actuators() -> int:
-    """Resolve DM actuator count from device driver."""
+    """Resolve DM actuator count from device driver.
+
+    Uses the DM registry to find the first reachable DM type.
+    Falls back to 64 (NLight default) if no DM is reachable.
+    """
     try:
-        from ao_shaping.drivers.dm.NLight import NLight
-        return NLight.DM_NUM
-    except (ImportError, AttributeError):
+        from ao_shaping.drivers.dm._registry import get_dm_registry
+        registry = get_dm_registry()
+        reachable = registry.list_reachable_types()
+        if len(reachable) >= 1:
+            cls = registry.get_class(reachable[0])
+            if hasattr(cls, "DM_NUM"):
+                return cls.DM_NUM
+        return 64
+    except (ImportError, Exception):
         return 64
 
 
 def _resolve_disabled_actuators() -> list[int]:
-    """Resolve disabled actuators from device driver."""
+    """Resolve disabled actuators from device driver.
+
+    Uses the DM registry to find the first reachable DM type.
+    Falls back to [0] if no DM is reachable.
+    """
     try:
-        from ao_shaping.drivers.dm.NLight import NLight
-        return NLight.disabled_actuators
-    except ImportError:
+        from ao_shaping.drivers.dm._registry import get_dm_registry
+        registry = get_dm_registry()
+        reachable = registry.list_reachable_types()
+        if len(reachable) >= 1:
+            cls = registry.get_class(reachable[0])
+            if hasattr(cls, "disabled_actuators"):
+                return cls.disabled_actuators
+        return [0]
+    except (ImportError, Exception):
         return [0]
 
 

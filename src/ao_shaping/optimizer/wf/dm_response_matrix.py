@@ -43,7 +43,7 @@ from ao_shaping.utils.matrix_utils import compute_lstsq, compute_pinv
 from ao_shaping.utils.wfs_utils import flatten_slopes
 
 if TYPE_CHECKING:
-    from ao_shaping.drivers.dm.NLight import NLight
+    from ao_shaping.drivers.dm.base import DM
     from ao_shaping.drivers.wfs import ThorlabWFS
 
 
@@ -161,7 +161,7 @@ class DMResponseMatrixResult:
 
 
 def measure_actuator_response(
-    dm: "NLight",
+    dm: "DM",
     wfs: ThorlabWFS,
     actuator_idx: int,
     disturb_voltage: float,
@@ -300,7 +300,7 @@ def measure_actuator_response(
 
 
 def _optimize_perturbation_voltage(
-    dm: "NLight",
+    dm: "DM",
     wfs: ThorlabWFS,
     actuator_idx: int,
     test_voltages: np.ndarray,
@@ -372,7 +372,7 @@ def _optimize_perturbation_voltage(
 
 
 def _build_device_config(
-    dm: "NLight",
+    dm: "DM",
     wfs: ThorlabWFS,
 ) -> dict:
     """Capture hardware configuration snapshot for metadata."""
@@ -415,7 +415,7 @@ def _build_device_config(
 
 
 def calibrate_dm_response_matrix(
-    dm: "NLight",
+    dm: "DM",
     wfs: ThorlabWFS,
     disturb_voltage: float | None = DEFAULT_DISTURB_VOLTAGE,
     n_cycles: int = DEFAULT_N_CYCLES,
