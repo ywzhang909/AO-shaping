@@ -1,0 +1,918 @@
+{
+  "$schema": "wiring-map-v1",
+  "metadata": {
+    "description": "1300路机柜多路控制器线序映射表",
+    "generated_at": "2026-05-21T11:21:27.083740",
+    "source_files": {
+      "wiring_table": "1300路机柜输出线序表(1).xlsx",
+      "device_mapping": "1300-5.xlsx"
+    },
+    "array_size": "39x39",
+    "total_channels": 108
+  },
+  "schema": {
+    "channel": {
+      "needle_id": "针头引脚编号 (来自330针插头布局)",
+      "physical_label": "物理位置标签 (格式: 组-行-列)",
+      "mapping_row": "在1300-5.xlsx中的行号",
+      "physical_position": "39x39阵列中的物理位置编号 (1-1521)",
+      "ip_suffix": "控制IP地址后缀 (如 192.168.1.X)",
+      "payload_position": "控制payload中的字节位置 (1-based index)"
+    }
+  },
+  "groups": {
+    "group_1": {
+      "name": "一组",
+      "channel_count": 54,
+      "channels": [
+        {
+          "needle_id": 277,
+          "physical_label": "3-3-1",
+          "mapping_row": 221,
+          "physical_position": 581,
+          "ip_suffix": 101,
+          "payload_position": 13
+        },
+        {
+          "needle_id": 278,
+          "physical_label": "3-3-3",
+          "mapping_row": 222,
+          "physical_position": 617,
+          "ip_suffix": 105,
+          "payload_position": 20
+        },
+        {
+          "needle_id": 279,
+          "physical_label": "3-3-5",
+          "mapping_row": 223,
+          "physical_position": 618,
+          "ip_suffix": 105,
+          "payload_position": 22
+        },
+        {
+          "needle_id": 280,
+          "physical_label": "3-3-7",
+          "mapping_row": 224,
+          "physical_position": 653,
+          "ip_suffix": 105,
+          "payload_position": 23
+        },
+        {
+          "needle_id": 281,
+          "physical_label": "3-3-9",
+          "mapping_row": 225,
+          "physical_position": 833,
+          "ip_suffix": 105,
+          "payload_position": 24
+        },
+        {
+          "needle_id": 282,
+          "physical_label": "3-3-11",
+          "mapping_row": 226,
+          "physical_position": 834,
+          "ip_suffix": 105,
+          "payload_position": 25
+        },
+        {
+          "needle_id": 283,
+          "physical_label": "3-3-13",
+          "mapping_row": 227,
+          "physical_position": 798,
+          "ip_suffix": 105,
+          "payload_position": 26
+        },
+        {
+          "needle_id": 284,
+          "physical_label": "3-3-15",
+          "mapping_row": 228,
+          "physical_position": 835,
+          "ip_suffix": 105,
+          "payload_position": 27
+        },
+        {
+          "needle_id": 285,
+          "physical_label": "3-3-17",
+          "mapping_row": 229,
+          "physical_position": 836,
+          "ip_suffix": 105,
+          "payload_position": 28
+        },
+        {
+          "needle_id": 286,
+          "physical_label": "3-3-19",
+          "mapping_row": 230,
+          "physical_position": 800,
+          "ip_suffix": 105,
+          "payload_position": 29
+        },
+        {
+          "needle_id": 287,
+          "physical_label": "3-4-1",
+          "mapping_row": 231,
+          "physical_position": 799,
+          "ip_suffix": 105,
+          "payload_position": 30
+        },
+        {
+          "needle_id": 288,
+          "physical_label": "3-4-3",
+          "mapping_row": 232,
+          "physical_position": 764,
+          "ip_suffix": 105,
+          "payload_position": 31
+        },
+        {
+          "needle_id": 289,
+          "physical_label": "3-4-5",
+          "mapping_row": 233,
+          "physical_position": 728,
+          "ip_suffix": 105,
+          "payload_position": 32
+        },
+        {
+          "needle_id": 290,
+          "physical_label": "3-4-7",
+          "mapping_row": 234,
+          "physical_position": 727,
+          "ip_suffix": 105,
+          "payload_position": 33
+        },
+        {
+          "needle_id": 291,
+          "physical_label": "3-4-9",
+          "mapping_row": 235,
+          "physical_position": 763,
+          "ip_suffix": 105,
+          "payload_position": 34
+        },
+        {
+          "needle_id": 292,
+          "physical_label": "3-4-11",
+          "mapping_row": 236,
+          "physical_position": 726,
+          "ip_suffix": 105,
+          "payload_position": 35
+        },
+        {
+          "needle_id": 293,
+          "physical_label": "3-4-13",
+          "mapping_row": 237,
+          "physical_position": 725,
+          "ip_suffix": 105,
+          "payload_position": 36
+        },
+        {
+          "needle_id": 294,
+          "physical_label": "3-4-15",
+          "mapping_row": 238,
+          "physical_position": 761,
+          "ip_suffix": 105,
+          "payload_position": 37
+        },
+        {
+          "needle_id": 295,
+          "physical_label": "3-4-17",
+          "mapping_row": 239,
+          "physical_position": 762,
+          "ip_suffix": 105,
+          "payload_position": 38
+        },
+        {
+          "needle_id": 296,
+          "physical_label": "3-4-19",
+          "mapping_row": 240,
+          "physical_position": 797,
+          "ip_suffix": 105,
+          "payload_position": 39
+        },
+        {
+          "needle_id": 297,
+          "physical_label": "3-5-1",
+          "mapping_row": 241,
+          "physical_position": 977,
+          "ip_suffix": 105,
+          "payload_position": 40
+        },
+        {
+          "needle_id": 298,
+          "physical_label": "3-5-3",
+          "mapping_row": 242,
+          "physical_position": 978,
+          "ip_suffix": 105,
+          "payload_position": 41
+        },
+        {
+          "needle_id": 299,
+          "physical_label": "3-5-5",
+          "mapping_row": 243,
+          "physical_position": 942,
+          "ip_suffix": 105,
+          "payload_position": 42
+        },
+        {
+          "needle_id": 300,
+          "physical_label": "3-5-7",
+          "mapping_row": 244,
+          "physical_position": 979,
+          "ip_suffix": 105,
+          "payload_position": 43
+        },
+        {
+          "needle_id": 301,
+          "physical_label": "3-5-9",
+          "mapping_row": 245,
+          "physical_position": 980,
+          "ip_suffix": 105,
+          "payload_position": 44
+        },
+        {
+          "needle_id": 302,
+          "physical_label": "3-5-11",
+          "mapping_row": 246,
+          "physical_position": 944,
+          "ip_suffix": 105,
+          "payload_position": 45
+        },
+        {
+          "needle_id": 303,
+          "physical_label": "3-5-13",
+          "mapping_row": 247,
+          "physical_position": 943,
+          "ip_suffix": 105,
+          "payload_position": 46
+        },
+        {
+          "needle_id": 304,
+          "physical_label": "3-5-15",
+          "mapping_row": 248,
+          "physical_position": 908,
+          "ip_suffix": 105,
+          "payload_position": 47
+        },
+        {
+          "needle_id": 305,
+          "physical_label": "3-5-17",
+          "mapping_row": 249,
+          "physical_position": 872,
+          "ip_suffix": 105,
+          "payload_position": 48
+        },
+        {
+          "needle_id": 306,
+          "physical_label": "3-5-19",
+          "mapping_row": 250,
+          "physical_position": 871,
+          "ip_suffix": 105,
+          "payload_position": 49
+        },
+        {
+          "needle_id": 307,
+          "physical_label": "3-6-1",
+          "mapping_row": 251,
+          "physical_position": 907,
+          "ip_suffix": 106,
+          "payload_position": null
+        },
+        {
+          "needle_id": 308,
+          "physical_label": "3-6-3",
+          "mapping_row": 252,
+          "physical_position": 870,
+          "ip_suffix": 106,
+          "payload_position": 1
+        },
+        {
+          "needle_id": 309,
+          "physical_label": "3-6-5",
+          "mapping_row": 253,
+          "physical_position": 869,
+          "ip_suffix": 106,
+          "payload_position": 2
+        },
+        {
+          "needle_id": 310,
+          "physical_label": "3-6-7",
+          "mapping_row": 254,
+          "physical_position": 905,
+          "ip_suffix": 106,
+          "payload_position": 3
+        },
+        {
+          "needle_id": 311,
+          "physical_label": "3-6-9",
+          "mapping_row": 255,
+          "physical_position": 906,
+          "ip_suffix": 106,
+          "payload_position": 4
+        },
+        {
+          "needle_id": 312,
+          "physical_label": "3-6-11",
+          "mapping_row": 256,
+          "physical_position": 941,
+          "ip_suffix": 106,
+          "payload_position": 5
+        },
+        {
+          "needle_id": 313,
+          "physical_label": "3-6-13",
+          "mapping_row": 257,
+          "physical_position": 1293,
+          "ip_suffix": 106,
+          "payload_position": 6
+        },
+        {
+          "needle_id": 314,
+          "physical_label": "3-6-15",
+          "mapping_row": 258,
+          "physical_position": 1294,
+          "ip_suffix": 106,
+          "payload_position": 7
+        },
+        {
+          "needle_id": 315,
+          "physical_label": "3-6-17",
+          "mapping_row": 259,
+          "physical_position": 1258,
+          "ip_suffix": 106,
+          "payload_position": 8
+        },
+        {
+          "needle_id": 316,
+          "physical_label": "3-6-19",
+          "mapping_row": 260,
+          "physical_position": 1295,
+          "ip_suffix": 106,
+          "payload_position": 9
+        },
+        {
+          "needle_id": 317,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 318,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 319,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 320,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 321,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 322,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 323,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 324,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 325,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 326,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 327,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 328,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 329,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 330,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        }
+      ]
+    },
+    "group_2": {
+      "name": "二组",
+      "channel_count": 54,
+      "channels": [
+        {
+          "needle_id": 277,
+          "physical_label": "5-9-1",
+          "mapping_row": 481,
+          "physical_position": 301,
+          "ip_suffix": 110,
+          "payload_position": 30
+        },
+        {
+          "needle_id": 278,
+          "physical_label": "5-9-3",
+          "mapping_row": 482,
+          "physical_position": 337,
+          "ip_suffix": 110,
+          "payload_position": 31
+        },
+        {
+          "needle_id": 279,
+          "physical_label": "5-9-5",
+          "mapping_row": 483,
+          "physical_position": 338,
+          "ip_suffix": 110,
+          "payload_position": 32
+        },
+        {
+          "needle_id": 280,
+          "physical_label": "5-9-7",
+          "mapping_row": 484,
+          "physical_position": 373,
+          "ip_suffix": 110,
+          "payload_position": 33
+        },
+        {
+          "needle_id": 281,
+          "physical_label": "5-9-9",
+          "mapping_row": 485,
+          "physical_position": 553,
+          "ip_suffix": 110,
+          "payload_position": 34
+        },
+        {
+          "needle_id": 282,
+          "physical_label": "5-9-11",
+          "mapping_row": 486,
+          "physical_position": 554,
+          "ip_suffix": 110,
+          "payload_position": 35
+        },
+        {
+          "needle_id": 283,
+          "physical_label": "5-9-13",
+          "mapping_row": 487,
+          "physical_position": 518,
+          "ip_suffix": 110,
+          "payload_position": 36
+        },
+        {
+          "needle_id": 284,
+          "physical_label": "5-9-15",
+          "mapping_row": 488,
+          "physical_position": 555,
+          "ip_suffix": 110,
+          "payload_position": 37
+        },
+        {
+          "needle_id": 285,
+          "physical_label": "5-9-17",
+          "mapping_row": 489,
+          "physical_position": 556,
+          "ip_suffix": 110,
+          "payload_position": 38
+        },
+        {
+          "needle_id": 286,
+          "physical_label": "5-9-19",
+          "mapping_row": 490,
+          "physical_position": 520,
+          "ip_suffix": 110,
+          "payload_position": 39
+        },
+        {
+          "needle_id": 287,
+          "physical_label": "5-10-1",
+          "mapping_row": 491,
+          "physical_position": 519,
+          "ip_suffix": 110,
+          "payload_position": 40
+        },
+        {
+          "needle_id": 288,
+          "physical_label": "5-10-3",
+          "mapping_row": 492,
+          "physical_position": 484,
+          "ip_suffix": 110,
+          "payload_position": 41
+        },
+        {
+          "needle_id": 289,
+          "physical_label": "5-10-5",
+          "mapping_row": 493,
+          "physical_position": 448,
+          "ip_suffix": 110,
+          "payload_position": 42
+        },
+        {
+          "needle_id": 290,
+          "physical_label": "5-10-7",
+          "mapping_row": 494,
+          "physical_position": 447,
+          "ip_suffix": 110,
+          "payload_position": 43
+        },
+        {
+          "needle_id": 291,
+          "physical_label": "5-10-9",
+          "mapping_row": 495,
+          "physical_position": 483,
+          "ip_suffix": 110,
+          "payload_position": 44
+        },
+        {
+          "needle_id": 292,
+          "physical_label": "5-10-11",
+          "mapping_row": 496,
+          "physical_position": 446,
+          "ip_suffix": 110,
+          "payload_position": 45
+        },
+        {
+          "needle_id": 293,
+          "physical_label": "5-10-13",
+          "mapping_row": 497,
+          "physical_position": 445,
+          "ip_suffix": 110,
+          "payload_position": 46
+        },
+        {
+          "needle_id": 294,
+          "physical_label": "5-10-15",
+          "mapping_row": 498,
+          "physical_position": 481,
+          "ip_suffix": 110,
+          "payload_position": 47
+        },
+        {
+          "needle_id": 295,
+          "physical_label": "5-10-17",
+          "mapping_row": 499,
+          "physical_position": 482,
+          "ip_suffix": 110,
+          "payload_position": 48
+        },
+        {
+          "needle_id": 296,
+          "physical_label": "5-10-19",
+          "mapping_row": 500,
+          "physical_position": 517,
+          "ip_suffix": 110,
+          "payload_position": 49
+        },
+        {
+          "needle_id": 297,
+          "physical_label": "6-1-1",
+          "mapping_row": 501,
+          "physical_position": 697,
+          "ip_suffix": 101,
+          "payload_position": 11
+        },
+        {
+          "needle_id": 298,
+          "physical_label": "6-1-3",
+          "mapping_row": 502,
+          "physical_position": 698,
+          "ip_suffix": 111,
+          "payload_position": 1
+        },
+        {
+          "needle_id": 299,
+          "physical_label": "6-1-5",
+          "mapping_row": 503,
+          "physical_position": 662,
+          "ip_suffix": 111,
+          "payload_position": 2
+        },
+        {
+          "needle_id": 300,
+          "physical_label": "6-1-7",
+          "mapping_row": 504,
+          "physical_position": 699,
+          "ip_suffix": 111,
+          "payload_position": 4
+        },
+        {
+          "needle_id": 301,
+          "physical_label": "6-1-9",
+          "mapping_row": 505,
+          "physical_position": 700,
+          "ip_suffix": 111,
+          "payload_position": 3
+        },
+        {
+          "needle_id": 302,
+          "physical_label": "6-1-11",
+          "mapping_row": 506,
+          "physical_position": 664,
+          "ip_suffix": 111,
+          "payload_position": 5
+        },
+        {
+          "needle_id": 303,
+          "physical_label": "6-1-13",
+          "mapping_row": 507,
+          "physical_position": 663,
+          "ip_suffix": 111,
+          "payload_position": 6
+        },
+        {
+          "needle_id": 304,
+          "physical_label": "6-1-15",
+          "mapping_row": 508,
+          "physical_position": 628,
+          "ip_suffix": 111,
+          "payload_position": 7
+        },
+        {
+          "needle_id": 305,
+          "physical_label": "6-1-17",
+          "mapping_row": 509,
+          "physical_position": 592,
+          "ip_suffix": 111,
+          "payload_position": 8
+        },
+        {
+          "needle_id": 306,
+          "physical_label": "6-1-19",
+          "mapping_row": 510,
+          "physical_position": 591,
+          "ip_suffix": 111,
+          "payload_position": 9
+        },
+        {
+          "needle_id": 307,
+          "physical_label": "6-2-1",
+          "mapping_row": 511,
+          "physical_position": 627,
+          "ip_suffix": 111,
+          "payload_position": 10
+        },
+        {
+          "needle_id": 308,
+          "physical_label": "6-2-3",
+          "mapping_row": 512,
+          "physical_position": 590,
+          "ip_suffix": 111,
+          "payload_position": 11
+        },
+        {
+          "needle_id": 309,
+          "physical_label": "6-2-5",
+          "mapping_row": 513,
+          "physical_position": 589,
+          "ip_suffix": 111,
+          "payload_position": 12
+        },
+        {
+          "needle_id": 310,
+          "physical_label": "6-2-7",
+          "mapping_row": 514,
+          "physical_position": 625,
+          "ip_suffix": 111,
+          "payload_position": 13
+        },
+        {
+          "needle_id": 311,
+          "physical_label": "6-2-9",
+          "mapping_row": 515,
+          "physical_position": 626,
+          "ip_suffix": 111,
+          "payload_position": 14
+        },
+        {
+          "needle_id": 312,
+          "physical_label": "6-2-11",
+          "mapping_row": 516,
+          "physical_position": 661,
+          "ip_suffix": 111,
+          "payload_position": 15
+        },
+        {
+          "needle_id": 313,
+          "physical_label": "6-2-13",
+          "mapping_row": 517,
+          "physical_position": 1296,
+          "ip_suffix": 106,
+          "payload_position": 6
+        },
+        {
+          "needle_id": 314,
+          "physical_label": "6-2-15",
+          "mapping_row": 518,
+          "physical_position": 1260,
+          "ip_suffix": 111,
+          "payload_position": 17
+        },
+        {
+          "needle_id": 315,
+          "physical_label": "6-2-17",
+          "mapping_row": 519,
+          "physical_position": 1259,
+          "ip_suffix": 111,
+          "payload_position": 18
+        },
+        {
+          "needle_id": 316,
+          "physical_label": "6-2-19",
+          "mapping_row": 520,
+          "physical_position": 1224,
+          "ip_suffix": 111,
+          "payload_position": 19
+        },
+        {
+          "needle_id": 317,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 318,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 319,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 320,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 321,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 322,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 323,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 324,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 325,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 326,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 327,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 328,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 329,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        },
+        {
+          "needle_id": 330,
+          "physical_label": null,
+          "mapping_row": null,
+          "physical_position": null,
+          "ip_suffix": null,
+          "payload_position": null
+        }
+      ]
+    }
+  },
+  "summary": {
+    "unique_ip_suffixes": [
+      101,
+      105,
+      106,
+      110,
+      111
+    ],
+    "needle_id_range": {
+      "min": 277,
+      "max": 330
+    },
+    "physical_position_range": {
+      "min": 301,
+      "max": 1296
+    }
+  }
+}

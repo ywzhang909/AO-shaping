@@ -82,3 +82,4 @@ libs/micro_drive1300/**/*.lib
 libs/micro_drive1300/**/*.exe
 libs/micro_drive1300/c/std*.txt
 performance_comparison.md
+docs/micro deformable mirror/docs/shiliang_extracted*
