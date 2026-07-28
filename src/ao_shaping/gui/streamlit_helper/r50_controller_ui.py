@@ -204,6 +204,9 @@ def _initialize_state() -> None:
     # ---- Joint Control (JC) session state ----
     _init_jc_state()
 
+    # ---- Group Control (GC) session state ----
+    _init_gc_state()
+
 
 def _init_jc_state() -> None:
     """初始化联合控制 (36×36 矩阵) 的 session_state 变量。"""
@@ -1161,6 +1164,517 @@ def _render_current_voltages() -> pd.DataFrame:
 
 
 # =============================================================================
+# Group Control: Wiring Map Groups
+# =============================================================================
+
+def _gc_build_groups() -> dict[str, dict[int, list[dict]]]:
+    """wiring_map.json → {group_name: {ip_suffix: [channel_info]}} for group control."""
+    groups: dict[str, dict[int, list[dict]]] = {}
+    if not WIRING_MAP_PATH.exists():
+        return groups
+    try:
+        with open(WIRING_MAP_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for group_key, group in data.get("groups", {}).items():
+            group_name = group.get("name", group_key)
+            channels_by_ip: dict[int, list[dict]] = {}
+            for ch in group.get("channels", []):
+                ip_suffix = ch.get("ip_suffix")
+                payload_pos = ch.get("payload_position")
+                if ip_suffix is None or payload_pos is None:
+                    continue
+                ip_suffix = int(ip_suffix)
+                channel_info = {
+                    "payload_position": int(payload_pos),
+                    "needle_id": ch.get("needle_id"),
+                    "physical_label": ch.get("physical_label", ""),
+                    "physical_position": ch.get("physical_position"),
+                }
+                channels_by_ip.setdefault(ip_suffix, []).append(channel_info)
+            for ip_suffix in channels_by_ip:
+                channels_by_ip[ip_suffix].sort(key=lambda c: c["payload_position"])
+            groups[group_name] = channels_by_ip
+    except Exception as e:
+        logger.warning(f"Failed to build group index: {e}")
+    return groups
+
+
+# =============================================================================
+# Group Control Session State
+# =============================================================================
+
+def _init_gc_state() -> None:
+    """初始化分组控制 (Group Control) 的 session_state 变量。"""
+    gc = f"{P}_gc"
+
+    groups = _gc_build_groups()
+    group_names = sorted(groups.keys())
+
+    st.session_state.setdefault(f"{gc}_groups", groups)
+    st.session_state.setdefault(f"{gc}_group_names", group_names)
+    st.session_state.setdefault(
+        f"{gc}_selected_group", group_names[0] if group_names else None
+    )
+
+    st.session_state.setdefault(f"{gc}_controllers", {})
+    st.session_state.setdefault(f"{gc}_connected", False)
+    st.session_state.setdefault(f"{gc}_relay_on", False)
+    st.session_state.setdefault(f"{gc}_connection_error", "")
+
+    st.session_state.setdefault(f"{gc}_voltage", 0.0)
+    st.session_state.setdefault(f"{gc}_selected_channels", [])
+
+    st.session_state.setdefault(f"{gc}_feedback", "")
+    st.session_state.setdefault(f"{gc}_feedback_type", "")
+
+
+# =============================================================================
+# Group Control: Feedback
+# =============================================================================
+
+def _gc_show_feedback() -> None:
+    """显示分组控制反馈信息。"""
+    gc = f"{P}_gc"
+    message = st.session_state.get(f"{gc}_feedback", "")
+    msg_type = st.session_state.get(f"{gc}_feedback_type", "")
+    if message:
+        if msg_type == "success":
+            st.success(message)
+        elif msg_type == "error":
+            st.error(message)
+        elif msg_type == "warning":
+            st.warning(message)
+        else:
+            st.info(message)
+        st.session_state[f"{gc}_feedback"] = ""
+        st.session_state[f"{gc}_feedback_type"] = ""
+
+
+def _gc_set_feedback(message: str, msg_type: str = "info") -> None:
+    """设置分组控制反馈信息。"""
+    gc = f"{P}_gc"
+    st.session_state[f"{gc}_feedback"] = message
+    st.session_state[f"{gc}_feedback_type"] = msg_type
+
+
+# =============================================================================
+# Group Control: Connect / Disconnect
+# =============================================================================
+
+def _gc_connect() -> None:
+    """连接所选组的所有控制器。"""
+    gc = f"{P}_gc"
+    selected = st.session_state.get(f"{gc}_selected_group")
+    groups = st.session_state.get(f"{gc}_groups", {})
+
+    if not selected or selected not in groups:
+        _gc_set_feedback("未选择有效组别", "error")
+        return
+
+    channels_by_ip = groups[selected]
+    controllers: dict[int, R50Controller] = {}
+    connected_count = 0
+    total_count = len(channels_by_ip)
+    errors: list[str] = []
+
+    for ip_suffix in sorted(channels_by_ip.keys()):
+        ip = f"192.168.0.{ip_suffix}"
+        port = 10000 + ip_suffix
+        try:
+            ctrl = R50Controller(controller_id=ip_suffix, ip=ip, port=port)
+            if ctrl.open():
+                controllers[ip_suffix] = ctrl
+                connected_count += 1
+                logger.info(f"Group control connected: {ip}:{port}")
+            else:
+                errors.append(f"{ip}:{port} 打开失败")
+        except Exception as e:
+            errors.append(f"{ip}:{port} {e}")
+            logger.exception(f"Group control connect failed for {ip}:{port}: {e}")
+
+    st.session_state[f"{gc}_controllers"] = controllers
+    st.session_state[f"{gc}_connected"] = connected_count > 0
+    st.session_state[f"{gc}_relay_on"] = False
+
+    if connected_count == total_count:
+        _gc_set_feedback(
+            f"✅ 已连接 {selected} 全部 {connected_count} 个控制器",
+            "success",
+        )
+    elif connected_count > 0:
+        error_detail = "; ".join(errors) if errors else ""
+        _gc_set_feedback(
+            f"⚠️ 已连接 {connected_count}/{total_count} 个控制器"
+            + (f" ({error_detail})" if error_detail else ""),
+            "warning",
+        )
+    else:
+        error_detail = "; ".join(errors) if errors else "未知错误"
+        _gc_set_feedback(f"❌ 连接失败: {error_detail}", "error")
+
+
+def _gc_disconnect() -> None:
+    """断开所选组的所有控制器连接。"""
+    gc = f"{P}_gc"
+    controllers: dict[int, R50Controller] = st.session_state.get(f"{gc}_controllers", {})
+
+    for ip_suffix, ctrl in controllers.items():
+        try:
+            if st.session_state.get(f"{gc}_relay_on", False):
+                ctrl.set_relay(False)
+            ctrl.close()
+        except Exception as e:
+            logger.warning(f"Group control disconnect warning for ip={ip_suffix}: {e}")
+
+    st.session_state[f"{gc}_controllers"] = {}
+    st.session_state[f"{gc}_connected"] = False
+    st.session_state[f"{gc}_relay_on"] = False
+    st.session_state[f"{gc}_connection_error"] = ""
+    _gc_set_feedback("已断开所有控制器 (已先下电)", "info")
+    logger.info("Group control disconnected all controllers")
+
+
+# =============================================================================
+# Group Control: Relay / Voltage
+# =============================================================================
+
+def _gc_set_relay(on: bool) -> None:
+    """所有控制器继电器上下电。"""
+    gc = f"{P}_gc"
+    controllers: dict[int, R50Controller] = st.session_state.get(f"{gc}_controllers", {})
+
+    if not controllers:
+        _gc_set_feedback("设备未连接", "error")
+        return
+
+    success_count = 0
+    error_count = 0
+    for ip_suffix, ctrl in controllers.items():
+        try:
+            if ctrl.set_relay(on):
+                success_count += 1
+            else:
+                error_count += 1
+        except Exception as e:
+            error_count += 1
+            logger.exception(f"Group control relay failed for ip={ip_suffix}: {e}")
+
+    if error_count == 0:
+        st.session_state[f"{gc}_relay_on"] = on
+        label = "上电 (输出接通)" if on else "下电 (输出断开)"
+        _gc_set_feedback(
+            f"✅ 所有控制器继电器已{label} ({success_count} 个控制器)",
+            "success" if on else "info",
+        )
+        logger.info(f"Group control relay {'ON' if on else 'OFF'}: {success_count} controllers")
+    else:
+        _gc_set_feedback(
+            f"⚠️ 继电器操作: {success_count} 成功, {error_count} 失败",
+            "warning",
+        )
+
+
+def _gc_apply_voltage() -> None:
+    """向所选通道下发电压。"""
+    gc = f"{P}_gc"
+    controllers: dict[int, R50Controller] = st.session_state.get(f"{gc}_controllers", {})
+
+    if not controllers:
+        _gc_set_feedback("设备未连接", "error")
+        return
+    if not st.session_state.get(f"{gc}_relay_on", False):
+        _gc_set_feedback("⚠️ 请先继电器上电后再下发电压", "error")
+        return
+
+    voltage = float(st.session_state.get(f"{gc}_voltage", 0.0))
+    clipped = _clip_voltage(voltage)
+
+    selected_group = st.session_state.get(f"{gc}_selected_group")
+    groups = st.session_state.get(f"{gc}_groups", {})
+
+    if not selected_group or selected_group not in groups:
+        _gc_set_feedback("未选择有效组别", "error")
+        return
+
+    channels_by_ip = groups[selected_group]
+    selected_channels = st.session_state.get(f"{gc}_selected_channels", [])
+
+    sent_count = 0
+    error_count = 0
+
+    for ip_suffix, channel_list in channels_by_ip.items():
+        ctrl = controllers.get(ip_suffix)
+        if ctrl is None:
+            continue
+        for ch_info in channel_list:
+            pp = ch_info["payload_position"]
+            if selected_channels and pp not in selected_channels:
+                continue
+            try:
+                ctrl.set_channel_voltage(pp - 1, clipped)
+                sent_count += 1
+            except Exception as e:
+                error_count += 1
+                logger.exception(
+                    f"Group control voltage failed: ip={ip_suffix} ch={pp}: {e}"
+                )
+
+    if error_count == 0:
+        _gc_set_feedback(
+            f"✅ 已向 {sent_count} 个通道下发 {clipped:.1f} V ({selected_group})",
+            "success",
+        )
+    else:
+        _gc_set_feedback(
+            f"⚠️ 下发完成: {sent_count} 成功, {error_count} 失败",
+            "warning",
+        )
+
+
+def _gc_apply_all_voltage() -> None:
+    """向组内全部通道统一下发电压。"""
+    gc = f"{P}_gc"
+    controllers: dict[int, R50Controller] = st.session_state.get(f"{gc}_controllers", {})
+
+    if not controllers:
+        _gc_set_feedback("设备未连接", "error")
+        return
+    if not st.session_state.get(f"{gc}_relay_on", False):
+        _gc_set_feedback("⚠️ 请先继电器上电后再下发电压", "error")
+        return
+
+    voltage = float(st.session_state.get(f"{gc}_voltage", 0.0))
+    clipped = _clip_voltage(voltage)
+
+    selected_group = st.session_state.get(f"{gc}_selected_group")
+    groups = st.session_state.get(f"{gc}_groups", {})
+
+    if not selected_group or selected_group not in groups:
+        _gc_set_feedback("未选择有效组别", "error")
+        return
+
+    channels_by_ip = groups[selected_group]
+    sent_count = 0
+    error_count = 0
+
+    for ip_suffix, channel_list in channels_by_ip.items():
+        ctrl = controllers.get(ip_suffix)
+        if ctrl is None:
+            continue
+        for ch_info in channel_list:
+            pp = ch_info["payload_position"]
+            try:
+                ctrl.set_channel_voltage(pp - 1, clipped)
+                sent_count += 1
+            except Exception as e:
+                error_count += 1
+                logger.exception(
+                    f"Group control voltage failed: ip={ip_suffix} ch={pp}: {e}"
+                )
+
+    if error_count == 0:
+        _gc_set_feedback(
+            f"✅ 已向 {selected_group} 全部 {sent_count} 个通道下发 {clipped:.1f} V",
+            "success",
+        )
+    else:
+        _gc_set_feedback(
+            f"⚠️ 下发完成: {sent_count} 成功, {error_count} 失败",
+            "warning",
+        )
+
+
+# =============================================================================
+# Group Control: Main Tab Renderer
+# =============================================================================
+
+def render_tab_group_control() -> None:
+    """渲染分组控制 Tab。"""
+    gc = f"{P}_gc"
+
+    _gc_show_feedback()
+
+    groups = st.session_state.get(f"{gc}_groups", {})
+    group_names = st.session_state.get(f"{gc}_group_names", [])
+    connected = st.session_state.get(f"{gc}_connected", False)
+    relay_on = st.session_state.get(f"{gc}_relay_on", False)
+
+    if not group_names:
+        st.warning("未找到 wiring_map.json 或无有效组别定义")
+        return
+
+    selected = st.session_state.get(f"{gc}_selected_group", group_names[0])
+    if selected not in group_names:
+        selected = group_names[0]
+
+    with st.container(border=True):
+        st.markdown("##### 组别选择")
+        sel_idx = group_names.index(selected) if selected in group_names else 0
+        selected = st.selectbox(
+            "选择组别",
+            options=group_names,
+            index=sel_idx,
+            key=f"{gc}_group_select",
+        )
+        st.session_state[f"{gc}_selected_group"] = selected
+
+        if selected and selected in groups:
+            channels_by_ip = groups[selected]
+            total_channels = sum(len(chs) for chs in channels_by_ip.values())
+            st.caption(
+                f"**{selected}** — {len(channels_by_ip)} 个控制器, "
+                f"{total_channels} 个通道"
+            )
+
+            rows = []
+            for ip_suffix in sorted(channels_by_ip.keys()):
+                for ch_info in channels_by_ip[ip_suffix]:
+                    rows.append({
+                        "控制器 IP": f"192.168.0.{ip_suffix}",
+                        "通道号": ch_info["payload_position"],
+                        "针脚 ID": ch_info.get("needle_id", ""),
+                        "物理标签": ch_info.get("physical_label", ""),
+                    })
+            if rows:
+                with st.expander("📋 通道详情", expanded=False):
+                    st.dataframe(
+                        pd.DataFrame(rows), use_container_width=True, hide_index=True,
+                    )
+
+    with st.container(border=True):
+        col_status, col_actions = st.columns([1, 1])
+        with col_status:
+            st.markdown("##### 连接状态")
+            if connected:
+                n_ctrl = len(st.session_state.get(f"{gc}_controllers", {}))
+                st.success(f"✅ 已连接 {selected} ({n_ctrl} 个控制器)")
+                if relay_on:
+                    st.success("⚡ 继电器已上电 (输出接通)")
+                else:
+                    st.warning("⏻ 继电器已下电 (输出断开)")
+            else:
+                st.error("❌ 未连接")
+
+        with col_actions:
+            st.markdown("##### 操作")
+            if not connected:
+                if st.button(
+                    "🔌 连接组控制器", type="primary", use_container_width=True,
+                    key=f"{gc}_connect_btn",
+                ):
+                    with st.spinner("连接中..."):
+                        _gc_connect()
+                    st.rerun()
+            else:
+                col_r1, col_r2, col_disc = st.columns(3)
+                with col_r1:
+                    if st.button(
+                        "⚡ 上电", type="primary", use_container_width=True,
+                        disabled=relay_on, key=f"{gc}_relay_on_btn",
+                    ):
+                        _gc_set_relay(True)
+                        st.rerun()
+                with col_r2:
+                    if st.button(
+                        "⏻ 下电", use_container_width=True,
+                        disabled=not relay_on, key=f"{gc}_relay_off_btn",
+                    ):
+                        _gc_set_relay(False)
+                        st.rerun()
+                with col_disc:
+                    if st.button("⏏ 断开", use_container_width=True, key=f"{gc}_disconnect_btn"):
+                        _gc_disconnect()
+                        st.rerun()
+
+    if not connected:
+        st.info("💡 请先连接组控制器以进行控制操作。")
+        return
+
+    st.divider()
+    st.markdown("##### 电压控制")
+
+    channels_by_ip = groups.get(selected, {})
+    all_payload_positions = sorted(
+        ch["payload_position"]
+        for chs in channels_by_ip.values()
+        for ch in chs
+    )
+
+    if not st.session_state.get(f"{gc}_selected_channels"):
+        st.session_state[f"{gc}_selected_channels"] = all_payload_positions.copy()
+
+    col_v, col_ch = st.columns([1, 2])
+    with col_v:
+        voltage = st.number_input(
+            "电压 (V)",
+            min_value=HW_VOLTAGE_MIN, max_value=HW_VOLTAGE_MAX,
+            value=float(st.session_state.get(f"{gc}_voltage", 0.0)),
+            step=1.0, format="%.1f",
+            key=f"{gc}_voltage_input",
+        )
+        st.session_state[f"{gc}_voltage"] = float(voltage)
+
+    with col_ch:
+        ch_labels: dict[int, str] = {}
+        for ip_suffix in sorted(channels_by_ip.keys()):
+            for ch_info in channels_by_ip[ip_suffix]:
+                pp = ch_info["payload_position"]
+                nid = ch_info.get("needle_id", "")
+                label = ch_info.get("physical_label", "")
+                desc = f"ch{pp}"
+                if nid:
+                    desc += f" 针脚#{nid}"
+                if label:
+                    desc += f" ({label})"
+                desc += f" [192.168.0.{ip_suffix}]"
+                ch_labels[pp] = desc
+
+        selected_chs = st.multiselect(
+            "选择通道 (payload_position)",
+            options=all_payload_positions,
+            default=st.session_state.get(f"{gc}_selected_channels", all_payload_positions),
+            format_func=lambda pp: ch_labels.get(pp, str(pp)),
+            key=f"{gc}_channel_select",
+        )
+        st.session_state[f"{gc}_selected_channels"] = selected_chs
+
+    col_apply, col_apply_all, col_sel, col_desel = st.columns(4)
+    with col_apply:
+        if st.button(
+            "⚡ 下发电压", type="primary", use_container_width=True,
+            key=f"{gc}_apply_btn", disabled=not relay_on,
+        ):
+            _gc_apply_voltage()
+            st.rerun()
+    with col_apply_all:
+        if st.button(
+            "⚡ 全部通道下发", type="secondary", use_container_width=True,
+            key=f"{gc}_apply_all_btn", disabled=not relay_on,
+        ):
+            st.session_state[f"{gc}_selected_channels"] = all_payload_positions.copy()
+            _gc_apply_all_voltage()
+            st.rerun()
+    with col_sel:
+        if st.button("全选通道", use_container_width=True, key=f"{gc}_select_all_btn"):
+            st.session_state[f"{gc}_selected_channels"] = all_payload_positions.copy()
+            st.rerun()
+    with col_desel:
+        if st.button("清空选择", use_container_width=True, key=f"{gc}_deselect_all_btn"):
+            st.session_state[f"{gc}_selected_channels"] = []
+            st.rerun()
+
+    st.divider()
+    st.markdown("##### 通道统计")
+    n_selected = len(st.session_state.get(f"{gc}_selected_channels", []))
+    n_total = len(all_payload_positions)
+    st.metric("已选通道", f"{n_selected} / {n_total}")
+    st.caption(
+        f"安全范围: [{HW_VOLTAGE_MIN}, {HW_VOLTAGE_MAX}] V | "
+        f"当前设定电压: {st.session_state.get(f'{gc}_voltage', 0.0):.1f} V"
+    )
+
+
+# =============================================================================
 # Main App
 # =============================================================================
 
@@ -1174,13 +1688,16 @@ def main() -> None:
 
     _initialize_state()
 
-    tab1, tab2 = st.tabs(["🔌 单控制器", "🔗 联合控制 (36×36)"])
+    tab1, tab2, tab3 = st.tabs(["🔌 单控制器", "🔗 联合控制 (36×36)", "🧪 分组控制"])
 
     with tab1:
         _render_tab_single_controller()
 
     with tab2:
         render_tab_joint_control()
+
+    with tab3:
+        render_tab_group_control()
 
 
 def _render_tab_single_controller() -> None:
