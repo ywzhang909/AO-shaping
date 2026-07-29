@@ -186,6 +186,11 @@ def _initialize_state() -> None:
     st.session_state.setdefault(f"{P}_sine_apply_all", True)
     st.session_state.setdefault(f"{P}_sine_running", False)
 
+    # ---- 交替电压 (0V ↔ Input) ----
+    st.session_state.setdefault(f"{P}_alt_running", False)
+    st.session_state.setdefault(f"{P}_alt_voltage", 20.0)
+    st.session_state.setdefault(f"{P}_alt_freq", 1.0)
+
     # ---- 反馈 ----
     st.session_state.setdefault(f"{P}_feedback", "")
     st.session_state.setdefault(f"{P}_feedback_type", "")
@@ -490,6 +495,66 @@ def _jc_refresh_from_hardware() -> None:
 
 
 # =============================================================================
+# Joint Control: Batch Power On/Off (with Ping Test)
+# =============================================================================
+
+
+def _jc_batch_power_on() -> None:
+    """批量上电: 先 ping 测试所有控制器, 再继电器上电。"""
+    jc = f"{P}_jc"
+    dm: MicroDM | None = st.session_state[f"{jc}_dm"]
+    if not isinstance(dm, MicroDM):
+        st.session_state[f"{jc}_feedback"] = "设备未连接"
+        st.session_state[f"{jc}_feedback_type"] = "error"
+        return
+
+    sorted_ips = st.session_state.get(f"{jc}_sorted_ips", [])
+    if not sorted_ips:
+        st.session_state[f"{jc}_feedback"] = "无控制器 IP 信息"
+        st.session_state[f"{jc}_feedback_type"] = "error"
+        return
+
+    reachable = []
+    unreachable = []
+    for ip in sorted_ips:
+        if _ping_reachable(ip, timeout=1.0):
+            reachable.append(ip)
+        else:
+            unreachable.append(ip)
+
+    if not reachable:
+        st.session_state[f"{jc}_feedback"] = (
+            f"❌ 所有控制器均不可达: {', '.join(unreachable)}"
+        )
+        st.session_state[f"{jc}_feedback_type"] = "error"
+        return
+
+    try:
+        dm.set_relay_state(True)
+        st.session_state[f"{jc}_relay_on"] = True
+        if not unreachable:
+            st.session_state[f"{jc}_feedback"] = (
+                f"✅ 批量上电成功 ({len(reachable)} 个控制器全部可达)"
+            )
+            st.session_state[f"{jc}_feedback_type"] = "success"
+        else:
+            st.session_state[f"{jc}_feedback"] = (
+                f"⚠️ 部分上电: {len(reachable)} 可达并已上电, "
+                f"{len(unreachable)} 不可达 ({', '.join(unreachable)})"
+            )
+            st.session_state[f"{jc}_feedback_type"] = "warning"
+    except Exception as e:
+        st.session_state[f"{jc}_feedback"] = f"批量上电失败: {e}"
+        st.session_state[f"{jc}_feedback_type"] = "error"
+        logger.exception(f"Batch power on failed: {e}")
+
+
+def _jc_batch_power_off() -> None:
+    """批量下电: 所有控制器继电器下电。"""
+    _jc_set_relay(False)
+
+
+# =============================================================================
 # Joint Control: Matrix Editing
 # =============================================================================
 
@@ -732,6 +797,22 @@ def render_tab_joint_control() -> None:
     if not connected:
         st.info("💡 请先连接 MicroDM 以查看和编辑 36×36 矩阵。")
         return
+
+    # ===== 批量上下电 =====
+    st.divider()
+    st.markdown("##### 批量上下电 (Ping 测试)")
+    col_bon, col_boff = st.columns(2)
+    with col_bon:
+        if st.button("⚡ 批量上电 (先Ping)", type="primary", use_container_width=True,
+                     disabled=relay_on, key=f"{jc}_batch_on_btn"):
+            _jc_batch_power_on()
+            st.rerun()
+    with col_boff:
+        if st.button("⏻ 批量下电", use_container_width=True,
+                     disabled=not relay_on, key=f"{jc}_batch_off_btn"):
+            _jc_batch_power_off()
+            st.rerun()
+    st.caption("上电前自动 Ping 测试所有控制器连通性")
 
     # ===== 矩阵可视化 =====
     st.divider()
@@ -1151,6 +1232,31 @@ def _sine_loop(amp: float, offset: float, freq: float, apply_all: bool, dt: floa
         set_feedback(f"正弦下发异常: {e}", "error")
 
 
+def _alt_loop(voltage: float, freq: float, dt: float) -> None:
+    """交替下发 0V 和 input 电压的循环线程。"""
+    ctrl = st.session_state[f"{P}_controller"]
+    if ctrl is None:
+        return
+    try:
+        state = 0  # 0 = sending 0V, 1 = sending input voltage
+        while (
+            st.session_state[f"{P}_alt_running"]
+            and st.session_state[f"{P}_relay_on"]
+            and not st.session_state[f"{P}_hold"]
+            and not st.session_state[f"{P}_sine_running"]
+        ):
+            if state == 0:
+                _send_all(0.0)
+            else:
+                _send_all(voltage)
+            state = 1 - state
+            time.sleep(1.0 / (2.0 * max(freq, 0.01)))
+    except Exception as e:
+        st.session_state[f"{P}_alt_running"] = False
+        logger.exception(f"交替下发异常: {e}")
+        set_feedback(f"交替下发异常: {e}", "error")
+
+
 # =============================================================================
 # 电压历史可视化
 # =============================================================================
@@ -1485,6 +1591,72 @@ def _gc_apply_all_voltage() -> None:
 
 
 # =============================================================================
+# Group Control: Batch Power On/Off (with Ping Test)
+# =============================================================================
+
+
+def _gc_batch_power_on() -> None:
+    """批量上电: 先 ping 测试组内所有控制器, 再继电器上电。"""
+    gc = f"{P}_gc"
+    controllers: dict[int, R50Controller] = st.session_state.get(
+        f"{gc}_controllers", {}
+    )
+    if not controllers:
+        _gc_set_feedback("设备未连接", "error")
+        return
+
+    reachable = []
+    unreachable = []
+    for ip_suffix in sorted(controllers.keys()):
+        ip = f"192.168.0.{ip_suffix}"
+        if _ping_reachable(ip, timeout=1.0):
+            reachable.append(ip_suffix)
+        else:
+            unreachable.append(ip_suffix)
+
+    if not reachable:
+        _gc_set_feedback("❌ 所有控制器均不可达", "error")
+        return
+
+    success_count = 0
+    error_count = 0
+    for ip_suffix in reachable:
+        ctrl = controllers.get(ip_suffix)
+        if ctrl is None:
+            continue
+        try:
+            if ctrl.set_relay(True):
+                success_count += 1
+            else:
+                error_count += 1
+        except Exception as e:
+            error_count += 1
+            logger.exception(f"Batch relay on failed for ip={ip_suffix}: {e}")
+
+    if error_count == 0:
+        st.session_state[f"{gc}_relay_on"] = True
+        if not unreachable:
+            _gc_set_feedback(
+                f"✅ 批量上电成功 ({success_count} 个控制器全部可达)", "success"
+            )
+        else:
+            _gc_set_feedback(
+                f"⚠️ 部分上电: {success_count} 可达并已上电, "
+                f"{len(unreachable)} 不可达",
+                "warning",
+            )
+    else:
+        _gc_set_feedback(
+            f"⚠️ 批量上电: {success_count} 成功, {error_count} 失败", "warning"
+        )
+
+
+def _gc_batch_power_off() -> None:
+    """批量下电: 所有控制器继电器下电。"""
+    _gc_set_relay(False)
+
+
+# =============================================================================
 # Group Control: Main Tab Renderer
 # =============================================================================
 
@@ -1589,6 +1761,22 @@ def render_tab_group_control() -> None:
     if not connected:
         st.info("💡 请先连接组控制器以进行控制操作。")
         return
+
+    # ===== 批量上下电 =====
+    st.divider()
+    st.markdown("##### 批量上下电 (Ping 测试)")
+    col_bon, col_boff = st.columns(2)
+    with col_bon:
+        if st.button("⚡ 批量上电 (先Ping)", type="primary", use_container_width=True,
+                     disabled=relay_on, key=f"{gc}_batch_on_btn"):
+            _gc_batch_power_on()
+            st.rerun()
+    with col_boff:
+        if st.button("⏻ 批量下电", use_container_width=True,
+                     disabled=not relay_on, key=f"{gc}_batch_off_btn"):
+            _gc_batch_power_off()
+            st.rerun()
+    st.caption("上电前自动 Ping 测试组内所有控制器连通性")
 
     st.divider()
     st.markdown("##### 电压控制")
@@ -2035,6 +2223,61 @@ def _render_tab_single_controller() -> None:
                 set_feedback("正弦下发已停止", "info")
                 st.rerun()
 
+    # ---- 交替电压 (0V ↔ Input) ----
+    with st.container(border=True):
+        st.markdown("##### 交替电压 (0V ↔ Input)")
+        st.caption("在 0V 和设定电压之间循环交替发送到全部 50 个单元")
+
+        col_alt_v, col_alt_f = st.columns(2)
+        with col_alt_v:
+            alt_voltage = st.number_input(
+                "Input 电压 (V)", min_value=st.session_state[f"{P}_vmin"],
+                max_value=st.session_state[f"{P}_vmax"],
+                value=st.session_state[f"{P}_alt_voltage"], step=1.0, format="%.1f",
+                key=f"{P}_alt_voltage_input",
+            )
+            st.session_state[f"{P}_alt_voltage"] = float(alt_voltage)
+        with col_alt_f:
+            alt_freq = st.number_input(
+                "交替频率 (Hz)", min_value=0.01, max_value=50.0,
+                value=st.session_state[f"{P}_alt_freq"], step=0.05, format="%.2f",
+                key=f"{P}_alt_freq_input",
+            )
+            st.session_state[f"{P}_alt_freq"] = float(alt_freq)
+
+        if not st.session_state[f"{P}_alt_running"]:
+            if st.button(
+                "▶ 开始交替下发", type="primary", use_container_width=True,
+                disabled=(
+                    not st.session_state[f"{P}_connected"]
+                    or st.session_state[f"{P}_hold"]
+                    or st.session_state[f"{P}_sine_running"]
+                ),
+                key=f"{P}_alt_start",
+            ):
+                if _require_relay_on():
+                    st.session_state[f"{P}_hold"] = False
+                    st.session_state[f"{P}_sine_running"] = False
+                    st.session_state[f"{P}_alt_running"] = True
+                    threading.Thread(
+                        target=_alt_loop,
+                        args=(alt_voltage, alt_freq, 0.01),
+                        daemon=True,
+                    ).start()
+                    set_feedback(
+                        f"交替下发中: 0V ↔ {alt_voltage:.1f}V, f={alt_freq:.2f}Hz",
+                        "success",
+                    )
+                    st.rerun()
+        else:
+            if st.button(
+                "⏹ 停止交替", type="primary", use_container_width=True,
+                key=f"{P}_alt_stop",
+            ):
+                st.session_state[f"{P}_alt_running"] = False
+                set_feedback("交替下发已停止", "info")
+                st.rerun()
+
     # ---- 各单元当前电压 ----
     st.divider()
     st.markdown("##### 当前各单元电压 (50 路)")
@@ -2064,6 +2307,7 @@ def _render_tab_single_controller() -> None:
     if (
         st.session_state[f"{P}_hold"]
         or st.session_state[f"{P}_sine_running"]
+        or st.session_state[f"{P}_alt_running"]
     ):
         time.sleep(REFRESH_INTERVAL)
         st.rerun()
