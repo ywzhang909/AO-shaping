@@ -10,6 +10,7 @@ from ao_shaping.runners.rms_zernike_runner import run as rms_zernike_run
 from ao_shaping.runners.ga_zernike_runner import run as ga_zernike_run
 from ao_shaping.runners.greedy_zernike_runner import run as greedy_zernike_run
 from ao_shaping.runners.dm_matrix_runner import run as dm_matrix_run
+from ao_shaping.runners.alt_voltage_runner import run as alt_voltage_run
 from ao_shaping.runners.combined_runner import run as combined_run
 
 __all__ = [
@@ -23,5 +24,6 @@ __all__ = [
     "ga_zernike_run",
     "greedy_zernike_run",
     "dm_matrix_run",
+    "alt_voltage_run",
     "combined_run",
 ]
