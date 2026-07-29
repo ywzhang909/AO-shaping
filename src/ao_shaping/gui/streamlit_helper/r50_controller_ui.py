@@ -23,7 +23,6 @@ R50Power 单控制器控制 UI (Streamlit)
 from __future__ import annotations
 
 import collections
-import json
 import socket
 import subprocess
 import threading
@@ -45,17 +44,19 @@ from ao_shaping.drivers.dm.MicroDM import (
     CMD_RELAY_OFF,
     voltages_to_payload,
     MicroDM,
-    WiringMap,
 )
 from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
 
-# wiring_map.json 路径 (单元物理信息对照)
-WIRING_MAP_PATH = PROJECT_ROOT / "libs" / "micro_drive1300" / "wiring_map.json"
+# 1300-5-enriched.csv 路径 (单元物理信息对照)
+CSV_PATH = PROJECT_ROOT / "data" / "1300-5-enriched.csv"
 # (ip_suffix, payload_position) → {"group": str, "needle_id": int, "label": str}
 _WIRING_INDEX: dict[tuple[int, int], dict] = {}
 
 # 调试日志最大行数
 DEBUG_LOG_MAX = 300
+
+DEBUG_HOST = "127.0.0.1"
+DEBUG_PORT = 9999
 
 # =============================================================================
 # Constants
@@ -80,40 +81,50 @@ P = "r50c"
 # =============================================================================
 
 GRID_SIZE = 36  # 36×36 压电陶瓷矩阵
-DM_NUM_WIRING = 1296  # wiring_map 中的物理位置数 (36×36)
+DM_NUM_ACTUATORS = GRID_SIZE * GRID_SIZE  # 36×36 = 1296 单元
 
 
 # =============================================================================
-# Wiring Map Index (针脚 ↔ 组别 映射)
+# CSV Wiring Index (针脚 ↔ 组别 映射, 使用 1300-5-enriched.csv)
 # =============================================================================
 
-def _build_wiring_index() -> dict[tuple[int, int], dict]:
-    """从 wiring_map.json 构建 (ip_suffix, payload_position) → 针脚信息的索引。
+def _load_csv() -> pd.DataFrame:
+    """加载 1300-5-enriched.csv, 返回 DataFrame."""
+    if not CSV_PATH.exists():
+        logger.warning(f"CSV not found: {CSV_PATH}")
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(CSV_PATH)
+    except Exception as e:
+        logger.warning(f"Failed to load CSV: {e}")
+        return pd.DataFrame()
 
-    用于在电压下发时提示用户当前通道对应的组别和针脚号。
-    payload_position 在 JSON 中是 1-based, 索引 key 也保持 1-based。
+
+def _build_csv_index(df: pd.DataFrame | None = None) -> dict[tuple[int, int], dict]:
+    """从 1300-5-enriched.csv 构建 (ip_suffix, payload_position) → 针脚信息索引。
+
+    输出 payload_position 是 1-based (与旧 wiring_map.json 兼容)。
+    CSV 中 ``序号`` 为 0-based, 转换时 +1。
     """
+    if df is None:
+        df = _load_csv()
     index: dict[tuple[int, int], dict] = {}
-    if not WIRING_MAP_PATH.exists():
+    if df.empty:
         return index
     try:
-        with open(WIRING_MAP_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        for group_key, group in data.get("groups", {}).items():
-            group_name = group.get("name", group_key)
-            for ch in group.get("channels", []):
-                ip_suffix = ch.get("ip_suffix")
-                payload_pos = ch.get("payload_position")
-                needle_id = ch.get("needle_id")
-                if ip_suffix is None or payload_pos is None:
-                    continue
-                index[(int(ip_suffix), int(payload_pos))] = {
-                    "group": group_name,
-                    "needle_id": needle_id,
-                    "label": ch.get("physical_label", ""),
-                }
+        for _, row in df.iterrows():
+            ip_suffix = int(row["IP组"])
+            payload_pos = int(row["序号"]) + 1
+            key = (ip_suffix, payload_pos)
+            if key in index:
+                continue
+            index[key] = {
+                "group": str(row["组"]),
+                "needle_id": int(row["引脚编号"]),
+                "label": str(row["连接器"]),
+            }
     except Exception as e:
-        logger.warning(f"Failed to build wiring index: {e}")
+        logger.warning(f"Failed to build CSV index: {e}")
     return index
 
 
@@ -152,10 +163,10 @@ def _channel_label(ch: int) -> str:
 def _initialize_state() -> None:
     """初始化所有 session_state 变量。"""
 
-    # ---- Wiring map 索引 (仅构建一次) ----
+    # ---- CSV 索引 (仅构建一次) ----
     global _WIRING_INDEX
     if not _WIRING_INDEX:
-        _WIRING_INDEX = _build_wiring_index()
+        _WIRING_INDEX = _build_csv_index()
 
     # ---- 连接配置 ----
     st.session_state.setdefault(f"{P}_ip", "192.168.0.101")
@@ -195,10 +206,22 @@ def _initialize_state() -> None:
     st.session_state.setdefault(f"{P}_feedback", "")
     st.session_state.setdefault(f"{P}_feedback_type", "")
 
-    # ---- 调试模式 ----
+    # ---- 连接模式 (sidebar) ----
+    st.session_state.setdefault(f"{P}_connection_mode", "single")  # "single" | "joint" | "group"
+
+    # ---- 调试模式 (packet hex log) ----
     st.session_state.setdefault(f"{P}_debug", False)
     st.session_state.setdefault(
         f"{P}_debug_log", collections.deque(maxlen=DEBUG_LOG_MAX)
+    )
+
+    # ---- TCP 调试客户端 ----
+    st.session_state.setdefault(f"{P}_debug_tcp_enabled", False)
+    st.session_state.setdefault(f"{P}_debug_tcp_host", DEBUG_HOST)
+    st.session_state.setdefault(f"{P}_debug_tcp_port", DEBUG_PORT)
+    st.session_state.setdefault(f"{P}_debug_tcp_sock", None)
+    st.session_state.setdefault(
+        f"{P}_debug_op_log", collections.deque(maxlen=DEBUG_LOG_MAX)
     )
 
     # ---- 各单元当前电压 (可视化, 本地跟踪) ----
@@ -256,40 +279,41 @@ def _init_jc_state() -> None:
 
 
 # =============================================================================
-# Joint Control: Wiring Map Index
+# Joint Control: CSV Wiring Index (1300-5-enriched.csv)
 # =============================================================================
 
-def _jc_build_wiring_index() -> dict[int, tuple[int, int]]:
-    """从 wiring_map.json 构建 physical_position → (ip_suffix, payload_position) 映射。
+def _jc_build_wiring_index(df: pd.DataFrame | None = None) -> dict[int, tuple[int, int]]:
+    """从 1300-5-enriched.csv 构建 physical_position → (ip_suffix, payload_position) 映射。
 
-    physical_position (1-1296) 对应 36×36 矩阵位置: row=(pos-1)//36, col=(pos-1)%36
+    physical_position (1-1296) 对应 36×36 矩阵位置: row=36×36行, col=36×36列。
+    payload_position 输出为 1-based (序号 0-based → +1)。
     """
+    if df is None:
+        df = _load_csv()
     pos_to_hw: dict[int, tuple[int, int]] = {}
-    if not WIRING_MAP_PATH.exists():
+    if df.empty:
         return pos_to_hw
     try:
-        wm = WiringMap.from_file(WIRING_MAP_PATH)
-        if wm is None:
-            return pos_to_hw
-        for ch in wm.all_channels:
-            if ch.is_valid and ch.physical_position is not None and ch.ip_suffix is not None and ch.payload_position is not None:
-                pos_to_hw[ch.physical_position] = (ch.ip_suffix, ch.payload_position)
+        for _, row in df.iterrows():
+            ip_s = int(row["IP组"])
+            pp = int(row["序号"]) + 1
+            r = int(row["36×36行"])
+            c = int(row["36×36列"])
+            pos = r * GRID_SIZE + c + 1
+            pos_to_hw[pos] = (ip_s, pp)
     except Exception as e:
-        logger.warning(f"Failed to build joint control wiring index: {e}")
+        logger.warning(f"Failed to build joint control CSV index: {e}")
     return pos_to_hw
 
 
-def _jc_build_ip_index(wm: WiringMap) -> dict[int, int]:
-    """构建 ip_suffix → controller_index 映射 (flat array 顺序)。"""
-    ips = wm.unique_ips
-    ip_to_idx: dict[int, int] = {}
-    for idx, ip_str in enumerate(ips):
-        try:
-            suffix = int(ip_str.split(".")[-1])
-            ip_to_idx[suffix] = idx
-        except (ValueError, IndexError):
-            pass
-    return ip_to_idx
+def _jc_build_ip_index(df: pd.DataFrame | None = None) -> dict[int, int]:
+    """从 CSV 构建 ip_suffix → controller_index 映射 (flat array 顺序)。"""
+    if df is None:
+        df = _load_csv()
+    if df.empty:
+        return {}
+    sorted_ips = sorted(df["IP组"].unique())
+    return {ip: idx for idx, ip in enumerate(sorted_ips)}
 
 
 # =============================================================================
@@ -354,17 +378,18 @@ def _jc_connect() -> None:
         st.session_state[f"{jc}_connection_error"] = ""
         st.session_state[f"{jc}_controller_count"] = len(dm._controllers)  # type: ignore
 
-        # 构建索引
-        pos_to_hw = _jc_build_wiring_index()
-        wm = WiringMap.from_file(WIRING_MAP_PATH)
-        if wm is None:
-            st.session_state[f"{jc}_connection_error"] = "wiring_map.json 加载失败"
+        # 从 CSV 构建索引
+        csv_df = _load_csv()
+        if csv_df.empty:
+            st.session_state[f"{jc}_connection_error"] = "1300-5-enriched.csv 加载失败"
             st.session_state[f"{jc}_connected"] = False
             return
-        ip_to_ctrl_idx = _jc_build_ip_index(wm)
+        pos_to_hw = _jc_build_wiring_index(csv_df)
+        ip_to_ctrl_idx = _jc_build_ip_index(csv_df)
+        sorted_ips = [f"192.168.0.{s}" for s in sorted(csv_df["IP组"].unique())]
         st.session_state[f"{jc}_pos_to_hw"] = pos_to_hw
         st.session_state[f"{jc}_ip_to_controller_idx"] = ip_to_ctrl_idx
-        st.session_state[f"{jc}_sorted_ips"] = wm.unique_ips
+        st.session_state[f"{jc}_sorted_ips"] = sorted_ips
         st.session_state[f"{jc}_dm_num"] = dm.DM_Num
         st.session_state[f"{jc}_matrix_init"] = True
 
@@ -376,9 +401,9 @@ def _jc_connect() -> None:
             f"✅ 已连接 MicroDM: {st.session_state[f'{jc}_controller_count']} 个控制器"
         )
         st.session_state[f"{jc}_feedback_type"] = "success"
-        logger.info(
-            f"MicroDM connected: {st.session_state[f'{jc}_controller_count']} controllers"
-        )
+        n_ctrl = st.session_state[f"{jc}_controller_count"]
+        logger.info(f"MicroDM connected: {n_ctrl} controllers")
+        _debug_add_op("connect", f"joint ({n_ctrl} controllers)", "all")
     except Exception as e:
         st.session_state[f"{jc}_connection_error"] = f"连接失败: {e}"
         st.session_state[f"{jc}_connected"] = False
@@ -406,6 +431,7 @@ def _jc_disconnect() -> None:
     st.session_state[f"{jc}_feedback"] = "已断开连接 (已先下电)"
     st.session_state[f"{jc}_feedback_type"] = "info"
     logger.info("MicroDM disconnected")
+    _debug_add_op("disconnect", "joint", "all")
 
 
 # =============================================================================
@@ -427,10 +453,12 @@ def _jc_set_relay(on: bool) -> None:
             st.session_state[f"{jc}_feedback"] = "✅ 所有控制器继电器已上电 (输出接通)"
             st.session_state[f"{jc}_feedback_type"] = "success"
             logger.info("MicroDM relay ON (all controllers)")
+            _debug_add_op("relay_on", "joint", "all")
         else:
             st.session_state[f"{jc}_feedback"] = "⏻ 所有控制器继电器已下电 (输出断开)"
             st.session_state[f"{jc}_feedback_type"] = "info"
             logger.info("MicroDM relay OFF (all controllers)")
+            _debug_add_op("relay_off", "joint", "all")
     except Exception as e:
         st.session_state[f"{jc}_feedback"] = f"继电器操作失败: {e}"
         st.session_state[f"{jc}_feedback_type"] = "error"
@@ -459,10 +487,11 @@ def _jc_apply_matrix() -> None:
         # 统计非零通道数
         non_zero = np.count_nonzero(matrix)
         st.session_state[f"{jc}_feedback"] = (
-            f"✅ 已下发 36×36 矩阵电压 (非零通道: {non_zero}/{DM_NUM_WIRING})"
+            f"✅ 已下发 36×36 矩阵电压 (非零通道: {non_zero}/{DM_NUM_ACTUATORS})"
         )
         st.session_state[f"{jc}_feedback_type"] = "success"
         logger.info(f"MicroDM voltage applied: {non_zero} non-zero channels")
+        _debug_add_op("set_voltage", f"matrix {non_zero} non-zero channels", "all")
     except Exception as e:
         st.session_state[f"{jc}_feedback"] = f"电压下发失败: {e}"
         st.session_state[f"{jc}_feedback_type"] = "error"
@@ -642,7 +671,7 @@ def _jc_render_matrix_image(matrix: np.ndarray) -> None:
     vmin = st.session_state.get(f"{P}_vmin", HW_VOLTAGE_MIN)
     vmax = st.session_state.get(f"{P}_vmax", HW_VOLTAGE_MAX)
     img = _jc_colormap_image(matrix, vmin, vmax)
-    st.image(img, caption="36×36 电压分布 (蓝色低 · 红色高)", use_container_width=True)
+    st.image(img, caption="36×36 电压分布 (蓝色低 · 红色高)", width='stretch')
 
 
 def _jc_render_matrix_dataframe(matrix: np.ndarray) -> None:
@@ -679,7 +708,7 @@ def _jc_render_matrix_dataframe(matrix: np.ndarray) -> None:
                 df_block,
                 column_config=col_config,
                 height=min(36 * 35 + 40, 800),
-                use_container_width=True,
+                width='stretch',
             )
 
 
@@ -693,10 +722,10 @@ def _jc_render_profile(matrix: np.ndarray) -> None:
         tab_r, tab_c = st.tabs(["📊 行均值", "📊 列均值"])
         with tab_r:
             df_row = pd.DataFrame({"行号": list(range(1, GRID_SIZE + 1)), "均值 (V)": row_means}).set_index("行号")
-            st.bar_chart(df_row, height=200, use_container_width=True)
+            st.bar_chart(df_row, height=200, width='stretch')
         with tab_c:
             df_col = pd.DataFrame({"列号": list(range(1, GRID_SIZE + 1)), "均值 (V)": col_means}).set_index("列号")
-            st.bar_chart(df_col, height=200, use_container_width=True)
+            st.bar_chart(df_col, height=200, width='stretch')
 
 
 def _jc_render_stats(matrix: np.ndarray) -> None:
@@ -718,7 +747,7 @@ def _jc_render_stats(matrix: np.ndarray) -> None:
     with col4:
         st.metric("标准差", f"{vstd:.1f} V")
     with col5:
-        st.metric("非零通道", f"{non_zero_count}/{DM_NUM_WIRING}")
+        st.metric("非零通道", f"{non_zero_count}/{DM_NUM_ACTUATORS}")
 
 
 def _jc_show_feedback() -> None:
@@ -743,76 +772,28 @@ def _jc_show_feedback() -> None:
 # Joint Control: Main Tab Renderer
 # =============================================================================
 
-def render_tab_joint_control() -> None:
-    """渲染联合控制 Tab (36×36 矩阵)。"""
+def render_tab_all_control() -> None:
+    """全部控制 Tab: 36×36 联合矩阵全量控制。"""
+    st.title("🔗 全部控制")
+    st.caption("MicroDM 36×36 压电陶瓷矩阵 · 全量联合编辑与下发")
+
     jc = f"{P}_jc"
     matrix: np.ndarray = st.session_state[f"{jc}_matrix"]
-    connected = st.session_state[f"{jc}_connected"]
-    relay_on = st.session_state[f"{jc}_relay_on"]
+    connected = st.session_state.get(f"{jc}_connected", False)
+    relay_on = st.session_state.get(f"{jc}_relay_on", False)
 
-    _jc_show_feedback()
-
-    # ===== 连接面板 =====
-    with st.container(border=True):
-        col_status, col_actions = st.columns([1, 1])
-        with col_status:
-            st.markdown("##### 连接状态")
-            if connected:
-                n_ctrl = st.session_state[f"{jc}_controller_count"]
-                n_ips = len(st.session_state[f"{jc}_sorted_ips"])
-                st.success(f"✅ MicroDM 已连接 ({n_ctrl} 控制器, {n_ips} IP)")
-                if relay_on:
-                    st.success("⚡ 继电器已上电 (输出接通)")
-                else:
-                    st.warning("⏻ 继电器已下电 (输出断开)")
-            else:
-                st.error("❌ MicroDM 未连接")
-            if st.session_state[f"{jc}_connection_error"]:
-                st.caption(f"错误: {st.session_state[f'{jc}_connection_error']}")
-
-        with col_actions:
-            st.markdown("##### 操作")
-            if not connected:
-                if st.button("🔌 连接 MicroDM", type="primary", use_container_width=True, key=f"{jc}_connect_btn"):
-                    with st.spinner("连接所有控制器..."):
-                        _jc_connect()
-                    st.rerun()
-            else:
-                col_r1, col_r2, col_disc = st.columns(3)
-                with col_r1:
-                    if st.button("⚡ 上电", type="primary", use_container_width=True,
-                                 disabled=relay_on, key=f"{jc}_relay_on_btn"):
-                        _jc_set_relay(True)
-                        st.rerun()
-                with col_r2:
-                    if st.button("⏻ 下电", use_container_width=True,
-                                 disabled=not relay_on, key=f"{jc}_relay_off_btn"):
-                        _jc_set_relay(False)
-                        st.rerun()
-                with col_disc:
-                    if st.button("⏏ 断开", use_container_width=True, key=f"{jc}_disconnect_btn"):
-                        _jc_disconnect()
-                        st.rerun()
-
+    # 检查连接模式
+    if st.session_state.get(f"{P}_connection_mode") != "joint":
+        st.info("💡 当前未在「联合控制」连接模式。请在侧边栏切换到「联合控制」并连接。")
+        return
     if not connected:
-        st.info("💡 请先连接 MicroDM 以查看和编辑 36×36 矩阵。")
+        st.info("💡 请先在侧边栏「联合控制」模式下连接 MicroDM。")
+        return
+    if not relay_on:
+        st.warning("⚠️ 继电器未上电，请在侧边栏先上电")
         return
 
-    # ===== 批量上下电 =====
-    st.divider()
-    st.markdown("##### 批量上下电 (Ping 测试)")
-    col_bon, col_boff = st.columns(2)
-    with col_bon:
-        if st.button("⚡ 批量上电 (先Ping)", type="primary", use_container_width=True,
-                     disabled=relay_on, key=f"{jc}_batch_on_btn"):
-            _jc_batch_power_on()
-            st.rerun()
-    with col_boff:
-        if st.button("⏻ 批量下电", use_container_width=True,
-                     disabled=not relay_on, key=f"{jc}_batch_off_btn"):
-            _jc_batch_power_off()
-            st.rerun()
-    st.caption("上电前自动 Ping 测试所有控制器连通性")
+    _jc_show_feedback()
 
     # ===== 矩阵可视化 =====
     st.divider()
@@ -838,7 +819,7 @@ def render_tab_joint_control() -> None:
                 value=0.0, step=1.0, format="%.1f",
                 key=f"{jc}_fill_all_input",
             )
-            if st.button("填充全部", use_container_width=True, key=f"{jc}_fill_all_btn"):
+            if st.button("填充全部", width='stretch', key=f"{jc}_fill_all_btn"):
                 _jc_fill_all(fill_all_v)
                 st.rerun()
 
@@ -856,7 +837,7 @@ def render_tab_joint_control() -> None:
                 value=0.0, step=1.0, format="%.1f",
                 key=f"{jc}_edit_v_input",
             )
-            if st.button("设置单元", use_container_width=True, key=f"{jc}_set_cell_btn"):
+            if st.button("设置单元", width='stretch', key=f"{jc}_set_cell_btn"):
                 _jc_set_cell(int(edit_row), int(edit_col), edit_v)
                 st.rerun()
 
@@ -872,12 +853,12 @@ def render_tab_joint_control() -> None:
             col_fr, col_fc = st.columns(2)
             with col_fr:
                 fill_row = st.number_input("目标行", 0, GRID_SIZE - 1, 0, 1, key=f"{jc}_fill_row_input")
-                if st.button("填充行", use_container_width=True, key=f"{jc}_fill_row_btn"):
+                if st.button("填充行", width='stretch', key=f"{jc}_fill_row_btn"):
                     _jc_fill_row(int(fill_row), fill_v)
                     st.rerun()
             with col_fc:
                 fill_col = st.number_input("目标列", 0, GRID_SIZE - 1, 0, 1, key=f"{jc}_fill_col_input")
-                if st.button("填充列", use_container_width=True, key=f"{jc}_fill_col_btn"):
+                if st.button("填充列", width='stretch', key=f"{jc}_fill_col_btn"):
                     _jc_fill_col(int(fill_col), fill_v)
                     st.rerun()
 
@@ -900,7 +881,7 @@ def render_tab_joint_control() -> None:
                 rx2 = st.number_input("列结束", 0, GRID_SIZE - 1, GRID_SIZE - 1, 1, key=f"{jc}_rx2_input")
             with col_ry2:
                 ry2 = st.number_input("行结束", 0, GRID_SIZE - 1, GRID_SIZE - 1, 1, key=f"{jc}_ry2_input")
-            if st.button("填充矩形", use_container_width=True, key=f"{jc}_rect_btn"):
+            if st.button("填充矩形", width='stretch', key=f"{jc}_rect_btn"):
                 _jc_fill_rect(int(rx1), int(ry1), int(rx2), int(ry2), rect_v)
                 st.rerun()
 
@@ -909,7 +890,7 @@ def render_tab_joint_control() -> None:
     st.markdown("##### 硬件操作")
     col_send, col_reset, col_refresh = st.columns(3)
     with col_send:
-        if st.button("⚡ 下发全部电压到硬件", type="primary", use_container_width=True,
+        if st.button("⚡ 下发全部电压到硬件", type="primary", width='stretch',
                      disabled=not connected, key=f"{jc}_apply_btn"):
             if not relay_on:
                 st.warning("⚠️ 请先继电器上电")
@@ -917,12 +898,12 @@ def render_tab_joint_control() -> None:
                 _jc_apply_matrix()
                 st.rerun()
     with col_reset:
-        if st.button("🔄 清零矩阵", use_container_width=True,
+        if st.button("🔄 清零矩阵", width='stretch',
                      key=f"{jc}_reset_btn"):
             _jc_reset_matrix()
             st.rerun()
     with col_refresh:
-        if st.button("📡 从硬件刷新", use_container_width=True,
+        if st.button("📡 从硬件刷新", width='stretch',
                      disabled=not connected, key=f"{jc}_refresh_btn"):
             _jc_refresh_from_hardware()
             st.rerun()
@@ -938,7 +919,7 @@ def render_tab_joint_control() -> None:
         st.markdown("##### 矩阵说明")
         pos_to_hw = st.session_state.get(f"{jc}_pos_to_hw", {})
         st.caption(
-            f"36×36 矩阵共 {DM_NUM_WIRING} 个压电陶瓷单元 · "
+            f"36×36 矩阵共 {DM_NUM_ACTUATORS} 个压电陶瓷单元 · "
             f"wiring_map 已映射 {len(pos_to_hw)} 个物理位置 · "
             f"排序顺序: {', '.join(st.session_state.get(f'{jc}_sorted_ips', []))[:80]}..."
         )
@@ -983,6 +964,137 @@ def _debug_log_packet(cmd_name: str, packet: bytes) -> None:
     ts = time.strftime("%H:%M:%S", time.localtime())
     hexstr = " ".join(f"{b:02X}" for b in packet)
     st.session_state[f"{P}_debug_log"].append(f"[{ts}] {cmd_name}: {hexstr}")
+
+
+def _debug_tcp_connect() -> socket.socket | None:
+    """连接 TCP 调试客户端, 返回 socket 或 None."""
+    if not st.session_state.get(f"{P}_debug_tcp_enabled"):
+        return None
+    host = st.session_state.get(f"{P}_debug_tcp_host", DEBUG_HOST)
+    port = st.session_state.get(f"{P}_debug_tcp_port", DEBUG_PORT)
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(3.0)
+        sock.connect((host, port))
+        st.session_state[f"{P}_debug_tcp_sock"] = sock
+        _debug_add_op("debug", f"已连接到调试客户端 {host}:{port}")
+        return sock
+    except (socket.timeout, ConnectionRefusedError, OSError) as e:
+        logger.warning(f"Debug TCP connect failed: {e}")
+        st.session_state[f"{P}_debug_tcp_sock"] = None
+        return None
+
+
+def _debug_tcp_disconnect() -> None:
+    """断开 TCP 调试客户端连接。"""
+    sock: socket.socket | None = st.session_state.get(f"{P}_debug_tcp_sock")
+    if sock is not None:
+        try:
+            sock.close()
+        except OSError:
+            pass
+    st.session_state[f"{P}_debug_tcp_sock"] = None
+
+
+def _debug_add_op(operation: str, detail: str = "", ip: str = "") -> None:
+    """记录一条操作日志到本地 log 并发送到 TCP 调试客户端。
+
+    Args:
+        operation: 操作名称 (connect / disconnect / relay_on / relay_off / set_voltage 等)
+        detail: 操作详情
+        ip: 目标 IP 地址
+    """
+    ts = time.strftime("%H:%M:%S", time.localtime())
+    # 本地日志
+    log_line = f"[{ts}] {operation}"
+    if ip:
+        log_line += f"  IP={ip}"
+    if detail:
+        log_line += f"  {detail}"
+    st.session_state[f"{P}_debug_op_log"].append(log_line)
+
+    # TCP 推送
+    if st.session_state.get(f"{P}_debug_tcp_enabled"):
+        sock: socket.socket | None = st.session_state.get(f"{P}_debug_tcp_sock")
+        if sock is None:
+            sock = _debug_tcp_connect()
+        if sock is not None:
+            try:
+                import json as _json
+                msg = _json.dumps({
+                    "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "operation": operation,
+                    "ip": ip,
+                    "detail": detail,
+                }, ensure_ascii=False)
+                sock.sendall((msg + "\n").encode("utf-8"))
+            except (BrokenPipeError, OSError) as e:
+                logger.warning(f"Debug TCP send failed: {e}")
+                _debug_tcp_disconnect()
+
+
+def _sidebar_debug_panel() -> None:
+    """Sidebar 调试面板: TCP 调试客户端 + 操作日志显示。"""
+    with st.container(border=True):
+        st.markdown("##### 🐛 调试面板")
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            tcp_enabled = st.checkbox(
+                "TCP 调试客户端",
+                value=st.session_state[f"{P}_debug_tcp_enabled"],
+                key=f"{P}_debug_tcp_enable_sb",
+                help="启用后连接到本地 TCP 调试客户端接收操作日志",
+            )
+        with col2:
+            st.checkbox(
+                "指令日志",
+                value=st.session_state[f"{P}_debug"],
+                key=f"{P}_debug_pkt_enable_sb",
+                help="显示下发的指令包十六进制内容",
+            )
+        st.session_state[f"{P}_debug_tcp_enabled"] = tcp_enabled
+        st.session_state[f"{P}_debug"] = st.session_state[f"{P}_debug_pkt_enable_sb"]
+
+        if tcp_enabled:
+            c1, c2 = st.columns([2, 1])
+            with c1:
+                host = st.text_input(
+                    "主机地址", value=st.session_state[f"{P}_debug_tcp_host"],
+                    key=f"{P}_debug_tcp_host_sb",
+                )
+            with c2:
+                port = st.number_input(
+                    "端口", min_value=1, max_value=65535,
+                    value=st.session_state[f"{P}_debug_tcp_port"],
+                    key=f"{P}_debug_tcp_port_sb",
+                )
+            st.session_state[f"{P}_debug_tcp_host"] = host
+            st.session_state[f"{P}_debug_tcp_port"] = int(port)
+
+            sock = st.session_state.get(f"{P}_debug_tcp_sock")
+            if sock is not None:
+                st.caption("🟢 已连接到调试客户端")
+                if st.button("断开", key=f"{P}_debug_tcp_disconnect_sb", use_container_width=True):
+                    _debug_tcp_disconnect()
+                    st.rerun()
+            else:
+                st.caption("🔴 未连接")
+                if st.button("连接", key=f"{P}_debug_tcp_connect_sb", use_container_width=True):
+                    _debug_tcp_connect()
+                    st.rerun()
+        else:
+            _debug_tcp_disconnect()
+
+        # 操作日志折叠区
+        with st.expander("操作日志", expanded=False):
+            op_log: collections.deque = st.session_state.get(f"{P}_debug_op_log", collections.deque())
+            if op_log:
+                st.code("\n".join(op_log), language="text")
+            else:
+                st.caption("暂无操作日志")
+            if st.button("清空日志", key=f"{P}_debug_op_clear_sb", use_container_width=True):
+                st.session_state[f"{P}_debug_op_log"].clear()
+                st.rerun()
 
 
 # =============================================================================
@@ -1064,6 +1176,7 @@ def connect() -> None:
         st.session_state[f"{P}_connection_error"] = ""
         logger.info(f"R50Controller connected: {ip}:{port}")
         set_feedback(f"已连接到 {ip}:{port}", "success")
+        _debug_add_op("connect", f"port={port}", ip)
     except Exception as e:
         st.session_state[f"{P}_connection_error"] = f"连接失败: {e}"
         st.session_state[f"{P}_connected"] = False
@@ -1089,6 +1202,7 @@ def disconnect() -> None:
             ctrl.close()
     except Exception as e:
         logger.exception(f"disconnect warning: {e}")
+    ip = st.session_state.get(f"{P}_ip", "")
     st.session_state[f"{P}_controller"] = None
     st.session_state[f"{P}_connected"] = False
     st.session_state[f"{P}_relay_on"] = False
@@ -1096,6 +1210,7 @@ def disconnect() -> None:
     st.session_state[f"{P}_connection_error"] = ""
     logger.info("R50Controller disconnected")
     set_feedback("已断开连接 (已先下电)", "info")
+    _debug_add_op("disconnect", "", ip)
 
 
 # =============================================================================
@@ -1112,11 +1227,13 @@ def set_relay_power(on: bool) -> None:
     if ctrl is None:
         set_feedback("设备未连接", "error")
         return
+    ip = st.session_state.get(f"{P}_ip", "")
     try:
         packet = HEADER + bytes([CMD_RELAY_ON if on else CMD_RELAY_OFF]) + FOOTER
         if ctrl.set_relay(on):
             st.session_state[f"{P}_relay_on"] = on
             _debug_log_packet(f"RELAY {'ON(上电)' if on else 'OFF(下电)'}", packet)
+            _debug_add_op("relay_on" if on else "relay_off", "", ip)
             if on:
                 set_feedback("✅ 继电器已上电 (输出接通)", "success")
                 logger.info("Relay powered ON")
@@ -1270,38 +1387,37 @@ def _render_current_voltages() -> pd.DataFrame:
 
 
 # =============================================================================
-# Group Control: Wiring Map Groups
+# Group Control: CSV Wiring Groups (1300-5-enriched.csv)
 # =============================================================================
 
-def _gc_build_groups() -> dict[str, dict[int, list[dict]]]:
-    """wiring_map.json → {group_name: {ip_suffix: [channel_info]}} for group control."""
+def _gc_build_groups(df: pd.DataFrame | None = None) -> dict[str, dict[int, list[dict]]]:
+    """1300-5-enriched.csv → {group_name: {ip_suffix: [channel_info]}} for group control."""
+    if df is None:
+        df = _load_csv()
     groups: dict[str, dict[int, list[dict]]] = {}
-    if not WIRING_MAP_PATH.exists():
+    if df.empty:
         return groups
     try:
-        with open(WIRING_MAP_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        for group_key, group in data.get("groups", {}).items():
-            group_name = group.get("name", group_key)
+        for group_name, grp_df in df.groupby("组"):
             channels_by_ip: dict[int, list[dict]] = {}
-            for ch in group.get("channels", []):
-                ip_suffix = ch.get("ip_suffix")
-                payload_pos = ch.get("payload_position")
-                if ip_suffix is None or payload_pos is None:
-                    continue
-                ip_suffix = int(ip_suffix)
+            for _, row in grp_df.iterrows():
+                ip_s = int(row["IP组"])
+                pp = int(row["序号"]) + 1
+                r = int(row["36×36行"])
+                c = int(row["36×36列"])
+                pos = r * GRID_SIZE + c + 1
                 channel_info = {
-                    "payload_position": int(payload_pos),
-                    "needle_id": ch.get("needle_id"),
-                    "physical_label": ch.get("physical_label", ""),
-                    "physical_position": ch.get("physical_position"),
+                    "payload_position": pp,
+                    "needle_id": int(row["引脚编号"]),
+                    "physical_label": str(row["连接器"]),
+                    "physical_position": pos,
                 }
-                channels_by_ip.setdefault(ip_suffix, []).append(channel_info)
-            for ip_suffix in channels_by_ip:
-                channels_by_ip[ip_suffix].sort(key=lambda c: c["payload_position"])
+                channels_by_ip.setdefault(ip_s, []).append(channel_info)
+            for ip_s in channels_by_ip:
+                channels_by_ip[ip_s].sort(key=lambda ch: ch["payload_position"])
             groups[group_name] = channels_by_ip
     except Exception as e:
-        logger.warning(f"Failed to build group index: {e}")
+        logger.warning(f"Failed to build group index from CSV: {e}")
     return groups
 
 
@@ -1418,6 +1534,9 @@ def _gc_connect() -> None:
         error_detail = "; ".join(errors) if errors else "未知错误"
         _gc_set_feedback(f"❌ 连接失败: {error_detail}", "error")
 
+    if selected:
+        _debug_add_op("connect", f"group={selected} ({connected_count}/{total_count})", "")
+
 
 def _gc_disconnect() -> None:
     """断开所选组的所有控制器连接。"""
@@ -1438,6 +1557,7 @@ def _gc_disconnect() -> None:
     st.session_state[f"{gc}_connection_error"] = ""
     _gc_set_feedback("已断开所有控制器 (已先下电)", "info")
     logger.info("Group control disconnected all controllers")
+    _debug_add_op("disconnect", "group", "")
 
 
 # =============================================================================
@@ -1473,6 +1593,7 @@ def _gc_set_relay(on: bool) -> None:
             "success" if on else "info",
         )
         logger.info(f"Group control relay {'ON' if on else 'OFF'}: {success_count} controllers")
+        _debug_add_op("relay_on" if on else "relay_off", f"group, {success_count} ok", "")
     else:
         _gc_set_feedback(
             f"⚠️ 继电器操作: {success_count} 成功, {error_count} 失败",
@@ -1530,6 +1651,7 @@ def _gc_apply_voltage() -> None:
             f"✅ 已向 {sent_count} 个通道下发 {clipped:.1f} V ({selected_group})",
             "success",
         )
+        _debug_add_op("set_voltage", f"group {selected_group} {sent_count}ch {clipped:.1f}V", "")
     else:
         _gc_set_feedback(
             f"⚠️ 下发完成: {sent_count} 成功, {error_count} 失败",
@@ -1660,16 +1782,30 @@ def _gc_batch_power_off() -> None:
 # Group Control: Main Tab Renderer
 # =============================================================================
 
-def render_tab_group_control() -> None:
-    """渲染分组控制 Tab。"""
+def render_tab_single_group() -> None:
+    """单组控制 Tab: 按 wiring map 组别选择控制器并下发电压。"""
+    st.title("🧩 单组控制")
+    st.caption("按 wiring map 组别同时控制多个控制器")
+
     gc = f"{P}_gc"
+
+    # 检查连接模式
+    if st.session_state.get(f"{P}_connection_mode") != "group":
+        st.info("💡 当前未在「分组控制」连接模式。请在侧边栏切换到「分组控制」并连接。")
+        return
+    if not st.session_state.get(f"{gc}_connected", False):
+        st.info("💡 请先在侧边栏「分组控制」模式下连接控制器。")
+        return
+
+    relay_on = st.session_state.get(f"{gc}_relay_on", False)
+    if not relay_on:
+        st.warning("⚠️ 继电器未上电，请在侧边栏先上电")
+        return
 
     _gc_show_feedback()
 
     groups = st.session_state.get(f"{gc}_groups", {})
     group_names = st.session_state.get(f"{gc}_group_names", [])
-    connected = st.session_state.get(f"{gc}_connected", False)
-    relay_on = st.session_state.get(f"{gc}_relay_on", False)
 
     if not group_names:
         st.warning("未找到 wiring_map.json 或无有效组别定义")
@@ -1686,7 +1822,7 @@ def render_tab_group_control() -> None:
             "选择组别",
             options=group_names,
             index=sel_idx,
-            key=f"{gc}_group_select",
+            key=f"{gc}_group_select_main",
         )
         st.session_state[f"{gc}_selected_group"] = selected
 
@@ -1697,7 +1833,6 @@ def render_tab_group_control() -> None:
                 f"**{selected}** — {len(channels_by_ip)} 个控制器, "
                 f"{total_channels} 个通道"
             )
-
             rows = []
             for ip_suffix in sorted(channels_by_ip.keys()):
                 for ch_info in channels_by_ip[ip_suffix]:
@@ -1710,73 +1845,8 @@ def render_tab_group_control() -> None:
             if rows:
                 with st.expander("📋 通道详情", expanded=False):
                     st.dataframe(
-                        pd.DataFrame(rows), use_container_width=True, hide_index=True,
+                        pd.DataFrame(rows), width='stretch', hide_index=True,
                     )
-
-    with st.container(border=True):
-        col_status, col_actions = st.columns([1, 1])
-        with col_status:
-            st.markdown("##### 连接状态")
-            if connected:
-                n_ctrl = len(st.session_state.get(f"{gc}_controllers", {}))
-                st.success(f"✅ 已连接 {selected} ({n_ctrl} 个控制器)")
-                if relay_on:
-                    st.success("⚡ 继电器已上电 (输出接通)")
-                else:
-                    st.warning("⏻ 继电器已下电 (输出断开)")
-            else:
-                st.error("❌ 未连接")
-
-        with col_actions:
-            st.markdown("##### 操作")
-            if not connected:
-                if st.button(
-                    "🔌 连接组控制器", type="primary", use_container_width=True,
-                    key=f"{gc}_connect_btn",
-                ):
-                    with st.spinner("连接中..."):
-                        _gc_connect()
-                    st.rerun()
-            else:
-                col_r1, col_r2, col_disc = st.columns(3)
-                with col_r1:
-                    if st.button(
-                        "⚡ 上电", type="primary", use_container_width=True,
-                        disabled=relay_on, key=f"{gc}_relay_on_btn",
-                    ):
-                        _gc_set_relay(True)
-                        st.rerun()
-                with col_r2:
-                    if st.button(
-                        "⏻ 下电", use_container_width=True,
-                        disabled=not relay_on, key=f"{gc}_relay_off_btn",
-                    ):
-                        _gc_set_relay(False)
-                        st.rerun()
-                with col_disc:
-                    if st.button("⏏ 断开", use_container_width=True, key=f"{gc}_disconnect_btn"):
-                        _gc_disconnect()
-                        st.rerun()
-
-    if not connected:
-        st.info("💡 请先连接组控制器以进行控制操作。")
-        return
-
-    # ===== 批量上下电 =====
-    st.divider()
-    st.markdown("##### 批量上下电 (Ping 测试)")
-    col_bon, col_boff = st.columns(2)
-    with col_bon:
-        if st.button("⚡ 批量上电 (先Ping)", type="primary", use_container_width=True,
-                     disabled=relay_on, key=f"{gc}_batch_on_btn"):
-            _gc_batch_power_on()
-            st.rerun()
-    with col_boff:
-        if st.button("⏻ 批量下电", use_container_width=True,
-                     disabled=not relay_on, key=f"{gc}_batch_off_btn"):
-            _gc_batch_power_off()
-            st.rerun()
-    st.caption("上电前自动 Ping 测试组内所有控制器连通性")
 
     st.divider()
     st.markdown("##### 电压控制")
@@ -1829,25 +1899,25 @@ def render_tab_group_control() -> None:
     col_apply, col_apply_all, col_sel, col_desel = st.columns(4)
     with col_apply:
         if st.button(
-            "⚡ 下发电压", type="primary", use_container_width=True,
+            "⚡ 下发电压", type="primary", width='stretch',
             key=f"{gc}_apply_btn", disabled=not relay_on,
         ):
             _gc_apply_voltage()
             st.rerun()
     with col_apply_all:
         if st.button(
-            "⚡ 全部通道下发", type="secondary", use_container_width=True,
+            "⚡ 全部通道下发", type="secondary", width='stretch',
             key=f"{gc}_apply_all_btn", disabled=not relay_on,
         ):
             st.session_state[f"{gc}_selected_channels"] = all_payload_positions.copy()
             _gc_apply_all_voltage()
             st.rerun()
     with col_sel:
-        if st.button("全选通道", use_container_width=True, key=f"{gc}_select_all_btn"):
+        if st.button("全选通道", width='stretch', key=f"{gc}_select_all_btn"):
             st.session_state[f"{gc}_selected_channels"] = all_payload_positions.copy()
             st.rerun()
     with col_desel:
-        if st.button("清空选择", use_container_width=True, key=f"{gc}_deselect_all_btn"):
+        if st.button("清空选择", width='stretch', key=f"{gc}_deselect_all_btn"):
             st.session_state[f"{gc}_selected_channels"] = []
             st.rerun()
 
@@ -1863,42 +1933,336 @@ def render_tab_group_control() -> None:
 
 
 # =============================================================================
-# Main App
+# 单单元控制 Tab
 # =============================================================================
 
-def main() -> None:
-    """Streamlit 应用主入口。"""
-    st.set_page_config(
-        page_title="R50 控制器控制面板",
-        page_icon="🔌",
-        layout="wide",
+
+def _build_all_units() -> list[dict]:
+    """构建全量物理单元扁平列表 (用于单单元控制 Tab, 基于 1300-5-enriched.csv)。"""
+    all_units: list[dict] = []
+    if not _WIRING_INDEX:
+        return all_units
+    df = _load_csv()
+    if df.empty:
+        return all_units
+    seen: set[tuple[int, int]] = set()
+    try:
+        for _, row in df.iterrows():
+            ip_s = int(row["IP组"])
+            pp = int(row["序号"]) + 1
+            key = (ip_s, pp)
+            if key in seen:
+                continue
+            seen.add(key)
+            r = int(row["36×36行"])
+            c = int(row["36×36列"])
+            pos = r * GRID_SIZE + c + 1
+            all_units.append({
+                "ip_suffix": ip_s,
+                "payload_position": pp,
+                "physical_position": pos,
+                "group": str(row["组"]),
+                "needle_id": int(row["引脚编号"]),
+                "physical_label": str(row["连接器"]),
+                "ip": f"192.168.0.{ip_s}",
+            })
+    except Exception as e:
+        logger.warning(f"Failed to build all units index: {e}")
+        return all_units
+
+    all_units.sort(key=lambda u: (u["group"], u["ip_suffix"], u["payload_position"]))
+    return all_units
+
+
+def render_tab_single_unit() -> None:
+    """单单元控制 Tab: 跨控制器选择个別物理单元并下发电压。"""
+    st.title("💠 单单元控制")
+    st.caption("从 1300-5 映射表中选择单个物理单元并设置电压 (支持跨控制器)")
+
+    # 构建全量单元列表 (cached)
+    if "r50c_single_unit_list" not in st.session_state:
+        st.session_state["r50c_single_unit_list"] = _build_all_units()
+    all_units: list[dict] = st.session_state["r50c_single_unit_list"]
+
+    if not all_units:
+        st.warning("⚠️ wiring_map.json 加载失败或无有效物理单元数据")
+        return
+
+    # ---- 分组 ----
+    group_names = sorted(set(u["group"] for u in all_units if u["group"]))
+    selected_group = st.selectbox(
+        "按组别筛选", ["全部"] + group_names,
+        key="r50c_su_group_filter",
     )
 
-    _initialize_state()
+    filtered = all_units
+    if selected_group != "全部":
+        filtered = [u for u in filtered if u["group"] == selected_group]
 
-    tab1, tab2, tab3 = st.tabs(["🔌 单控制器", "🔗 联合控制 (36×36)", "🧪 分组控制"])
+    # 搜索
+    search = st.text_input("🔍 搜索针脚 ID / 物理标签", "", key="r50c_su_search")
+    if search.strip():
+        q = search.strip().lower()
+        filtered = [
+            u for u in filtered
+            if q in str(u["needle_id"]).lower()
+            or q in str(u["physical_label"]).lower()
+            or q in str(u["ip_suffix"])
+        ]
 
-    with tab1:
-        _render_tab_single_controller()
+    if not filtered:
+        st.info("无匹配的物理单元")
+        return
 
-    with tab2:
-        render_tab_joint_control()
+    # ---- 选择显示 ----
+    st.markdown(f"**匹配 {len(filtered)} 个单元**")
+    df = pd.DataFrame(filtered)
+    # 友好列名
+    df_display = df.rename(columns={
+        "ip": "控制器 IP",
+        "payload_position": "通道号",
+        "group": "组别",
+        "needle_id": "针脚 ID",
+        "physical_label": "物理标签",
+        "physical_position": "物理位置",
+    })
+    # 只显示关键列
+    display_cols = ["控制器 IP", "通道号", "组别", "针脚 ID", "物理标签"]
+    if "physical_position" in df_display.columns:
+        display_cols.append("物理位置")
 
-    with tab3:
-        render_tab_group_control()
+    with st.container(border=True):
+        selected_indices = st.dataframe(
+            df_display[display_cols],
+            use_container_width=True,
+            hide_index=True,
+            on_select="rerun",
+            selection_mode="multi-row",
+            key="r50c_su_unit_select",
+        )
+
+    sel_rows = selected_indices.get("rows", []) if selected_indices else []
+    if not sel_rows:
+        st.info("请在上方表格中选择单元")
+        return
+
+    selected_units = [filtered[i] for i in sel_rows]
+
+    # ---- 电压下发 ----
+    st.divider()
+    st.markdown(f"**已选 {len(selected_units)} 个单元**")
+    # 展示已选
+    df_sel = pd.DataFrame(selected_units).rename(columns={
+        "ip": "控制器 IP",
+        "payload_position": "通道号",
+        "group": "组别",
+        "needle_id": "针脚 ID",
+        "physical_label": "物理标签",
+    })
+    st.dataframe(df_sel[display_cols[:4]], use_container_width=True, hide_index=True)
+
+    voltage = st.number_input(
+        "电压 (V)",
+        min_value=st.session_state[f"{P}_vmin"],
+        max_value=st.session_state[f"{P}_vmax"],
+        value=0.0, step=1.0, format="%.1f",
+        key="r50c_su_voltage",
+    )
+
+    # 检查连接状态并发送
+    mode = st.session_state.get(f"{P}_connection_mode", "single")
+    jc_connected = st.session_state.get(f"{P}_jc_connected", False)
+    single_connected = st.session_state.get(f"{P}_connected", False)
+    gc_connected = st.session_state.get(f"{P}_gc_connected", False)
+
+    has_connection = jc_connected or single_connected or gc_connected
+
+    if not has_connection:
+        st.warning("⚠️ 请先在侧边栏连接控制器")
+        return
+
+    # 检查继电器
+    relay_ok = False
+    if mode == "single" and single_connected:
+        relay_ok = st.session_state.get(f"{P}_relay_on", False)
+    elif mode == "joint" and jc_connected:
+        relay_ok = st.session_state.get(f"{P}_jc_relay_on", False)
+    elif mode == "group" and gc_connected:
+        relay_ok = st.session_state.get(f"{P}_gc_relay_on", False)
+
+    if not relay_ok:
+        st.warning("⚠️ 继电器未上电, 请先在侧边栏上电")
+        return
+
+    # 按 mode 分类选择并计算可下发数量
+    can_send = True
+    if mode == "single":
+        # 有限制: 只能发到当前单控制器的 IP
+        current_ip = st.session_state.get(f"{P}_ip", "")
+        try:
+            current_suffix = int(current_ip.split(".")[-1]) if current_ip else -1
+        except ValueError:
+            current_suffix = -1
+        valid = [u for u in selected_units if u["ip_suffix"] == current_suffix]
+        invalid = [u for u in selected_units if u["ip_suffix"] != current_suffix]
+        if invalid:
+            st.warning(
+                f"当前为单控制器模式 (IP: {current_ip}), "
+                f"仅有 {len(valid)}/{len(selected_units)} 个单元属于此控制器"
+            )
+        if not valid:
+            st.error("所选单元均不属于当前控制器, 无法下发")
+            can_send = False
+        else:
+            selected_units = valid
+
+    if not can_send or not selected_units:
+        return
+
+    if st.button(
+        "⚡ 下发电压到所选单元", type="primary", use_container_width=True,
+        key="r50c_su_apply",
+    ):
+        clipped = _clip_voltage(voltage)
+        success = 0
+        errors = 0
+
+        if mode == "joint" and jc_connected:
+            # 使用 MicroDM 发送
+            dm: MicroDM | None = st.session_state.get(f"{P}_jc_dm")
+            if dm is not None:
+                pos_to_hw = st.session_state.get(f"{P}_jc_pos_to_hw", {})
+                ip_to_ctrl = st.session_state.get(f"{P}_jc_ip_to_controller_idx", {})
+                dm_num = st.session_state.get(f"{P}_jc_dm_num", 0)
+                flat = np.zeros(dm_num, dtype=np.float64) if dm_num > 0 else None
+                if flat is not None:
+                    for u in selected_units:
+                        pp = u["physical_position"]
+                        if pp is not None and pp in pos_to_hw:
+                            ip_suffix, payload_pos = pos_to_hw[pp]
+                            ctrl_idx = ip_to_ctrl.get(ip_suffix)
+                            if ctrl_idx is not None:
+                                flat_idx = ctrl_idx * 50 + (payload_pos - 1)
+                                if flat_idx < dm_num:
+                                    flat[flat_idx] = clipped
+                                    success += 1
+                    try:
+                        dm.send_voltages(flat)
+                        st.success(f"✅ 已向 {success} 个单元下发 {clipped:.1f} V")
+                    except Exception as e:
+                        st.error(f"下发失败: {e}")
+                        logger.exception(f"Single unit apply (joint mode) failed: {e}")
+                else:
+                    st.error("DM flat array 构建失败")
+            else:
+                st.error("MicroDM 实例不可用")
+
+        elif mode == "single" and single_connected:
+            ctrl = st.session_state.get(f"{P}_controller")
+            if ctrl is not None:
+                for u in selected_units:
+                    try:
+                        ctrl.set_channel_voltage(u["payload_position"] - 1, clipped)
+                        success += 1
+                    except Exception as e:
+                        errors += 1
+                        logger.exception(f"Single unit apply (single mode) failed: {e}")
+                msg = f"✅ 已向 {success} 个单元下发 {clipped:.1f} V"
+                msg += f" ({errors} 失败)" if errors else ""
+                st.success(msg)
+
+        elif mode == "group" and gc_connected:
+            controllers: dict = st.session_state.get(f"{P}_gc_controllers", {})
+            for u in selected_units:
+                ctrl = controllers.get(u["ip_suffix"])
+                if ctrl is not None:
+                    try:
+                        ctrl.set_channel_voltage(u["payload_position"] - 1, clipped)
+                        success += 1
+                    except Exception as e:
+                        errors += 1
+                        logger.exception(f"Single unit apply (group mode) failed: {e}")
+            msg = f"✅ 已向 {success} 个单元下发 {clipped:.1f} V"
+            msg += f" ({errors} 失败)" if errors else ""
+            st.success(msg)
+
+        # 更新电压跟踪
+        if mode == "single" and single_connected:
+            for u in selected_units:
+                ch = u["payload_position"] - 1
+                if 0 <= ch < SINGLE_CHANNELS:
+                    st.session_state[f"{P}_current_voltages"][ch] = clipped
+            st.rerun()
 
 
-def _render_tab_single_controller() -> None:
-    """渲染单控制器 Tab (原有功能)。"""
-    st.title("🔌 R50Power 单控制器控制面板")
-    st.caption("单个 R50Controller (单 IP) 控制 | 连通性检测 · 继电器上下电 · 电压下发")
+# =============================================================================
+# Sidebar: 连接配置 (统一入口)
+# =============================================================================
 
-    # =================== Sidebar: 当前状态 / 连接 / 继电器 / 安全范围 ===================
+
+def _sidebar_connection_config() -> None:
+    """Sidebar 连接配置: 三种连接模式的统一入口。"""
+    # ---- 连接模式选择 ----
     with st.sidebar:
-        # ---- 当前状态 ----
         with st.container(border=True):
+            st.markdown("##### 连接配置")
+            mode = st.radio(
+                "连接模式",
+                options=["single", "joint", "group"],
+                format_func={
+                    "single": "🔌 单控制器",
+                    "joint": "🔗 联合控制 (所有控制器)",
+                    "group": "🧩 分组控制",
+                }.get,
+                index=["single", "joint", "group"].index(
+                    st.session_state.get(f"{P}_connection_mode", "single")
+                ),
+                key=f"{P}_conn_mode_radio",
+            )
+            st.session_state[f"{P}_connection_mode"] = mode
+        st.divider()
+
+        if mode == "single":
+            _sidebar_single_connection()
+        elif mode == "joint":
+            _sidebar_joint_connection()
+        elif mode == "group":
+            _sidebar_group_connection()
+
+        # ---- 电压安全范围 (通用) ----
+        with st.sidebar:
+            st.divider()
+            with st.container(border=True):
+                st.markdown("##### 电压安全范围 (允许范围)")
+                col_min, col_max = st.columns(2)
+                with col_min:
+                    vmin = st.number_input(
+                        "下限 (V)", min_value=HW_VOLTAGE_MIN, max_value=HW_VOLTAGE_MAX,
+                        value=st.session_state[f"{P}_vmin"], step=1.0, format="%.1f",
+                        key=f"{P}_vmin_input_sb",
+                    )
+                with col_max:
+                    vmax = st.number_input(
+                        "上限 (V)", min_value=HW_VOLTAGE_MIN, max_value=HW_VOLTAGE_MAX,
+                        value=st.session_state[f"{P}_vmax"], step=1.0, format="%.1f",
+                        key=f"{P}_vmax_input_sb",
+                    )
+                if vmin >= vmax:
+                    st.warning("⚠️ 电压下限必须小于上限")
+                st.session_state[f"{P}_vmin"] = vmin
+                st.session_state[f"{P}_vmax"] = vmax
+
+            # ---- 调试面板 (TCP 调试客户端 + 操作日志) ----
+            _sidebar_debug_panel()
+
+
+def _sidebar_single_connection() -> None:
+    """Sidebar 单控制器连接配置。"""
+    with st.sidebar:
+        with st.container(border=True):
+            _connected = st.session_state[f"{P}_connected"]
             st.markdown("##### 当前状态")
-            if st.session_state[f"{P}_connected"]:
+            if _connected:
                 st.success(
                     f"✅ 已连接  {st.session_state[f'{P}_ip']}:{st.session_state[f'{P}_port']}"
                 )
@@ -1911,117 +2275,283 @@ def _render_tab_single_controller() -> None:
             if st.session_state[f"{P}_connection_error"]:
                 st.caption(f"错误: {st.session_state[f'{P}_connection_error']}")
 
-        # ---- 连接配置 ----
         with st.container(border=True):
-            st.markdown("##### 连接配置")
-            _connected = st.session_state[f"{P}_connected"]
+            st.markdown("##### 连接")
             st.text_input(
                 "IP 地址", value=st.session_state[f"{P}_ip"],
-                disabled=_connected, key=f"{P}_ip_input",
+                disabled=_connected, key=f"{P}_ip_input_sb",
             )
-            st.session_state[f"{P}_ip"] = st.session_state[f"{P}_ip_input"]
+            st.session_state[f"{P}_ip"] = st.session_state[f"{P}_ip_input_sb"]
             st.number_input(
                 "端口", min_value=1, max_value=65535,
                 value=st.session_state[f"{P}_port"], step=1,
-                disabled=_connected, key=f"{P}_port_input",
+                disabled=_connected, key=f"{P}_port_input_sb",
             )
-            st.session_state[f"{P}_port"] = int(st.session_state[f"{P}_port_input"])
+            st.session_state[f"{P}_port"] = int(st.session_state[f"{P}_port_input_sb"])
             col_test, col_conn = st.columns(2)
             with col_test:
-                if st.button("📡 检测连通性", use_container_width=True, key=f"{P}_test_btn"):
+                if st.button("📡 检测连通性", use_container_width=True, key=f"{P}_test_btn_sb"):
                     test_connectivity()
                     st.rerun()
             with col_conn:
-                if not st.session_state[f"{P}_connected"]:
-                    if st.button("🔌 连接", type="primary", use_container_width=True, key=f"{P}_connect"):
+                if not _connected:
+                    if st.button("🔌 连接", type="primary", use_container_width=True, key=f"{P}_connect_sb"):
                         with st.spinner("连接中..."):
                             connect()
                         st.rerun()
                 else:
-                    if st.button("⏏ 断开", use_container_width=True, key=f"{P}_disconnect"):
+                    if st.button("⏏ 断开", use_container_width=True, key=f"{P}_disconnect_sb"):
                         if st.session_state[f"{P}_relay_on"]:
-                            # 继电器仍上电: 需二次确认
                             st.session_state[f"{P}_confirm_disconnect"] = True
                             st.rerun()
                         else:
                             disconnect()
                             st.rerun()
 
-            # 断开确认 (继电器仍上电保护)
             if st.session_state[f"{P}_confirm_disconnect"]:
                 st.warning("⚠️ 继电器仍处于**上电**状态, 断开连接前会先自动下电。确认继续?")
                 col_y, col_n = st.columns(2)
                 with col_y:
-                    if st.button("确认断开", type="primary", use_container_width=True, key=f"{P}_disconnect_confirm"):
+                    if st.button("确认断开", type="primary", use_container_width=True, key=f"{P}_disconnect_confirm_sb"):
                         disconnect()
                         st.rerun()
                 with col_n:
-                    if st.button("取消", use_container_width=True, key=f"{P}_disconnect_cancel"):
+                    if st.button("取消", use_container_width=True, key=f"{P}_disconnect_cancel_sb"):
                         st.session_state[f"{P}_confirm_disconnect"] = False
                         st.rerun()
 
-        # ---- 继电器上下电 ----
         with st.container(border=True):
             st.markdown("##### 继电器上下电")
             col_r1, col_r2 = st.columns(2)
             with col_r1:
                 if st.button(
                     "⚡ 上电 (接通输出)", type="primary", use_container_width=True,
-                    disabled=not st.session_state[f"{P}_connected"] or st.session_state[f"{P}_relay_on"],
-                    key=f"{P}_relay_on_btn",
+                    disabled=not _connected or st.session_state[f"{P}_relay_on"],
+                    key=f"{P}_relay_on_btn_sb",
                 ):
                     set_relay_power(True)
                     st.rerun()
             with col_r2:
                 if st.button(
                     "⏻ 下电 (断开输出)", use_container_width=True,
-                    disabled=not st.session_state[f"{P}_connected"] or not st.session_state[f"{P}_relay_on"],
-                    key=f"{P}_relay_off_btn",
+                    disabled=not _connected or not st.session_state[f"{P}_relay_on"],
+                    key=f"{P}_relay_off_btn_sb",
                 ):
                     set_relay_power(False)
                     st.rerun()
-            relay_ok = st.session_state[f"{P}_relay_on"]
-            st.caption(
-                "上电后输出接通, 方可下发电压; 下电立即断开高压输出。"
-                if not relay_ok
-                else "✅ 继电器已上电, 可下发电压。"
-            )
 
-        # ---- 电压安全范围 ----
+
+def _sidebar_joint_connection() -> None:
+    """Sidebar 联合控制连接配置(批量Ping/连接/上下电)。"""
+    jc = f"{P}_jc"
+    with st.sidebar:
+        jc_connected = st.session_state.get(f"{jc}_connected", False)
+        jc_relay_on = st.session_state.get(f"{jc}_relay_on", False)
+
         with st.container(border=True):
-            st.markdown("##### 电压安全范围 (允许范围)")
-            col_min, col_max = st.columns(2)
-            with col_min:
-                vmin = st.number_input(
-                    "下限 (V)", min_value=HW_VOLTAGE_MIN, max_value=HW_VOLTAGE_MAX,
-                    value=st.session_state[f"{P}_vmin"], step=1.0, format="%.1f",
-                    key=f"{P}_vmin_input",
-                )
-            with col_max:
-                vmax = st.number_input(
-                    "上限 (V)", min_value=HW_VOLTAGE_MIN, max_value=HW_VOLTAGE_MAX,
-                    value=st.session_state[f"{P}_vmax"], step=1.0, format="%.1f",
-                    key=f"{P}_vmax_input",
-                )
-            if vmin >= vmax:
-                st.warning("⚠️ 电压下限必须小于上限")
-            st.session_state[f"{P}_vmin"] = vmin
-            st.session_state[f"{P}_vmax"] = vmax
+            st.markdown("##### 当前状态")
+            if jc_connected:
+                n_ctrl = st.session_state.get(f"{jc}_controller_count", 0)
+                n_ips = len(st.session_state.get(f"{jc}_sorted_ips", []))
+                st.success(f"✅ MicroDM 已连接 ({n_ctrl} 控制器, {n_ips} IP)")
+                if jc_relay_on:
+                    st.success("⚡ 继电器已上电 (输出接通)")
+                else:
+                    st.warning("⏻ 继电器已下电 (输出断开)")
+            else:
+                st.error("❌ MicroDM 未连接")
+            if st.session_state.get(f"{jc}_connection_error", ""):
+                st.caption(f"错误: {st.session_state[f'{jc}_connection_error']}")
 
-        # ---- 调试模式 ----
         with st.container(border=True):
-            st.markdown("##### 调试模式")
-            st.checkbox(
-                "显示指令与下发包日志",
-                value=st.session_state[f"{P}_debug"],
-                key=f"{P}_debug_input",
-            )
-            st.session_state[f"{P}_debug"] = st.session_state[f"{P}_debug_input"]
-            if st.button("清空日志", use_container_width=True, key=f"{P}_debug_clear"):
-                st.session_state[f"{P}_debug_log"].clear()
-                st.rerun()
+            st.markdown("##### 操作")
+            if not jc_connected:
+                if st.button("🔌 连接 MicroDM", type="primary", use_container_width=True, key=f"{jc}_connect_btn_sb"):
+                    with st.spinner("连接所有控制器..."):
+                        _jc_connect()
+                    st.rerun()
+            else:
+                col_r1, col_r2, col_disc = st.columns(3)
+                with col_r1:
+                    if st.button("⚡ 上电", type="primary", use_container_width=True,
+                                 disabled=jc_relay_on, key=f"{jc}_relay_on_btn_sb"):
+                        _jc_set_relay(True)
+                        st.rerun()
+                with col_r2:
+                    if st.button("⏻ 下电", use_container_width=True,
+                                 disabled=not jc_relay_on, key=f"{jc}_relay_off_btn_sb"):
+                        _jc_set_relay(False)
+                        st.rerun()
+                with col_disc:
+                    if st.button("⏏ 断开", use_container_width=True, key=f"{jc}_disconnect_btn_sb"):
+                        _jc_disconnect()
+                        st.rerun()
 
-    # =================== Main: 反馈 + 电压下发 ===================
+        with st.container(border=True):
+            st.markdown("##### 批量上下电 (Ping 测试)")
+            col_bon, col_boff = st.columns(2)
+            with col_bon:
+                if st.button("⚡ 批量上电 (先Ping)", type="primary", use_container_width=True,
+                             disabled=jc_relay_on, key=f"{jc}_batch_on_btn_sb"):
+                    _jc_batch_power_on()
+                    st.rerun()
+            with col_boff:
+                if st.button("⏻ 批量下电", use_container_width=True,
+                             disabled=not jc_relay_on, key=f"{jc}_batch_off_btn_sb"):
+                    _jc_batch_power_off()
+                    st.rerun()
+            st.caption("上电前自动 Ping 测试所有控制器连通性")
+
+
+def _sidebar_group_connection() -> None:
+    """Sidebar 分组控制连接配置。"""
+    gc = f"{P}_gc"
+    with st.sidebar:
+        groups = st.session_state.get(f"{gc}_groups", {})
+        group_names = st.session_state.get(f"{gc}_group_names", [])
+        gc_connected = st.session_state.get(f"{gc}_connected", False)
+        gc_relay_on = st.session_state.get(f"{gc}_relay_on", False)
+
+        if not group_names:
+            st.warning("未找到 wiring_map.json 或无有效组别定义")
+            return
+
+        selected = st.session_state.get(f"{gc}_selected_group", group_names[0])
+        if selected not in group_names:
+            selected = group_names[0]
+
+        with st.container(border=True):
+            st.markdown("##### 组别选择")
+            sel_idx = group_names.index(selected) if selected in group_names else 0
+            selected = st.selectbox(
+                "选择组别",
+                options=group_names,
+                index=sel_idx,
+                key=f"{gc}_group_select_sb",
+            )
+            st.session_state[f"{gc}_selected_group"] = selected
+
+            if selected and selected in groups:
+                channels_by_ip = groups[selected]
+                total_channels = sum(len(chs) for chs in channels_by_ip.values())
+                st.caption(
+                    f"**{selected}** — {len(channels_by_ip)} 个控制器, "
+                    f"{total_channels} 个通道"
+                )
+                rows = []
+                for ip_suffix in sorted(channels_by_ip.keys()):
+                    for ch_info in channels_by_ip[ip_suffix]:
+                        rows.append({
+                            "控制器 IP": f"192.168.0.{ip_suffix}",
+                            "通道号": ch_info["payload_position"],
+                            "针脚 ID": ch_info.get("needle_id", ""),
+                            "物理标签": ch_info.get("physical_label", ""),
+                        })
+                if rows:
+                    with st.expander("📋 通道详情", expanded=False):
+                        st.dataframe(
+                            pd.DataFrame(rows), use_container_width=True, hide_index=True,
+                        )
+
+        with st.container(border=True):
+            st.markdown("##### 当前状态")
+            if gc_connected:
+                n_ctrl = len(st.session_state.get(f"{gc}_controllers", {}))
+                st.success(f"✅ 已连接 {selected} ({n_ctrl} 个控制器)")
+                if gc_relay_on:
+                    st.success("⚡ 继电器已上电 (输出接通)")
+                else:
+                    st.warning("⏻ 继电器已下电 (输出断开)")
+            else:
+                st.error("❌ 未连接")
+
+        with st.container(border=True):
+            st.markdown("##### 操作")
+            if not gc_connected:
+                if st.button("🔌 连接组控制器", type="primary", use_container_width=True, key=f"{gc}_connect_btn_sb"):
+                    with st.spinner("连接中..."):
+                        _gc_connect()
+                    st.rerun()
+            else:
+                col_r1, col_r2, col_disc = st.columns(3)
+                with col_r1:
+                    if st.button("⚡ 上电", type="primary", use_container_width=True,
+                                 disabled=gc_relay_on, key=f"{gc}_relay_on_btn_sb"):
+                        _gc_set_relay(True)
+                        st.rerun()
+                with col_r2:
+                    if st.button("⏻ 下电", use_container_width=True,
+                                 disabled=not gc_relay_on, key=f"{gc}_relay_off_btn_sb"):
+                        _gc_set_relay(False)
+                        st.rerun()
+                with col_disc:
+                    if st.button("⏏ 断开", use_container_width=True, key=f"{gc}_disconnect_btn_sb"):
+                        _gc_disconnect()
+                        st.rerun()
+
+        with st.container(border=True):
+            st.markdown("##### 批量上下电 (Ping 测试)")
+            col_bon, col_boff = st.columns(2)
+            with col_bon:
+                if st.button("⚡ 批量上电 (先Ping)", type="primary", use_container_width=True,
+                             disabled=gc_relay_on, key=f"{gc}_batch_on_btn_sb"):
+                    _gc_batch_power_on()
+                    st.rerun()
+            with col_boff:
+                if st.button("⏻ 批量下电", use_container_width=True,
+                             disabled=not gc_relay_on, key=f"{gc}_batch_off_btn_sb"):
+                    _gc_batch_power_off()
+                    st.rerun()
+            st.caption("上电前自动 Ping 测试组内所有控制器连通性")
+
+
+def main() -> None:
+    """Streamlit 应用主入口。"""
+    st.set_page_config(
+        page_title="R50 控制器控制面板",
+        page_icon="🔌",
+        layout="wide",
+    )
+
+    _initialize_state()
+
+    # Sidebar: 统一连接配置 (三种模式)
+    _sidebar_connection_config()
+
+    # 主窗口: 四个控制粒度 Tab
+    tab_su, tab_sc, tab_sg, tab_ac = st.tabs([
+        "💠 单单元控制",
+        "🔌 单控制器控制",
+        "🧩 单组控制",
+        "🔗 全部控制",
+    ])
+
+    with tab_su:
+        render_tab_single_unit()
+
+    with tab_sc:
+        render_tab_single_controller()
+
+    with tab_sg:
+        render_tab_single_group()
+
+    with tab_ac:
+        render_tab_all_control()
+
+
+def render_tab_single_controller() -> None:
+    """单控制器控制 Tab: 完整 50 通道电压下发、正弦/交替/保持。"""
+    st.title("🔌 单控制器控制")
+    st.caption("单个 R50Controller (50 通道) 电压控制 | 持续保持 · 正弦 · 交替 · 可视化")
+
+    # 检查连接模式
+    if st.session_state.get(f"{P}_connection_mode") != "single":
+        st.info("💡 当前未在「单控制器」连接模式。请在侧边栏切换到「单控制器」并连接。")
+        return
+    if not st.session_state.get(f"{P}_connected", False):
+        st.info("💡 请先在侧边栏「单控制器」连接模式下连接控制器。")
+        return
+
     show_and_clear_feedback()
 
     # ---- 电压下发 (指定单元 / 全部单元 合并) ----
@@ -2053,11 +2583,11 @@ def _render_tab_single_controller() -> None:
                 st.markdown("<br>", unsafe_allow_html=True)
                 b_all, b_inv = st.columns(2)
                 with b_all:
-                    if st.button("全选", use_container_width=True, key=f"{P}_sel_all"):
+                    if st.button("全选", width='stretch', key=f"{P}_sel_all"):
                         st.session_state[f"{P}_channels"] = list(range(SINGLE_CHANNELS))
                         st.rerun()
                 with b_inv:
-                    if st.button("反选", use_container_width=True, key=f"{P}_sel_inv"):
+                    if st.button("反选", width='stretch', key=f"{P}_sel_inv"):
                         cur = set(st.session_state[f"{P}_channels"])
                         st.session_state[f"{P}_channels"] = [
                             i for i in range(SINGLE_CHANNELS) if i not in cur
@@ -2083,7 +2613,7 @@ def _render_tab_single_controller() -> None:
         col_send1, col_send2 = st.columns(2)
         with col_send1:
             if st.button(
-                "⚡ 发送一次", type="primary", use_container_width=True,
+                "⚡ 发送一次", type="primary", width='stretch',
                 disabled=not st.session_state[f"{P}_connected"], key=f"{P}_send_once",
             ):
                 if _require_relay_on():
@@ -2118,7 +2648,7 @@ def _render_tab_single_controller() -> None:
         with col_send2:
             if not st.session_state[f"{P}_hold"]:
                 if st.button(
-                    "🔁 持续保持", use_container_width=True, type="secondary",
+                    "🔁 持续保持", width='stretch', type="secondary",
                     disabled=not st.session_state[f"{P}_connected"] or st.session_state[f"{P}_sine_running"],
                     key=f"{P}_hold_start",
                 ):
@@ -2136,7 +2666,7 @@ def _render_tab_single_controller() -> None:
                             st.rerun()
             else:
                 if st.button(
-                    "⏹ 停止", use_container_width=True, type="secondary",
+                    "⏹ 停止", width='stretch', type="secondary",
                     key=f"{P}_hold_stop",
                 ):
                     st.session_state[f"{P}_hold"] = False
@@ -2196,7 +2726,7 @@ def _render_tab_single_controller() -> None:
 
         if not st.session_state[f"{P}_sine_running"]:
             if st.button(
-                "▶ 开始正弦下发", type="primary", use_container_width=True,
+                "▶ 开始正弦下发", type="primary", width='stretch',
                 disabled=not st.session_state[f"{P}_connected"] or st.session_state[f"{P}_hold"],
                 key=f"{P}_sine_start",
             ):
@@ -2216,7 +2746,7 @@ def _render_tab_single_controller() -> None:
                     st.rerun()
         else:
             if st.button(
-                "⏹ 停止", type="primary", use_container_width=True,
+                "⏹ 停止", type="primary", width='stretch',
                 key=f"{P}_sine_stop",
             ):
                 st.session_state[f"{P}_sine_running"] = False
@@ -2247,7 +2777,7 @@ def _render_tab_single_controller() -> None:
 
         if not st.session_state[f"{P}_alt_running"]:
             if st.button(
-                "▶ 开始交替下发", type="primary", use_container_width=True,
+                "▶ 开始交替下发", type="primary", width='stretch',
                 disabled=(
                     not st.session_state[f"{P}_connected"]
                     or st.session_state[f"{P}_hold"]
@@ -2271,7 +2801,7 @@ def _render_tab_single_controller() -> None:
                     st.rerun()
         else:
             if st.button(
-                "⏹ 停止交替", type="primary", use_container_width=True,
+                "⏹ 停止交替", type="primary", width='stretch',
                 key=f"{P}_alt_stop",
             ):
                 st.session_state[f"{P}_alt_running"] = False
@@ -2282,7 +2812,7 @@ def _render_tab_single_controller() -> None:
     st.divider()
     st.markdown("##### 当前各单元电压 (50 路)")
     df = _render_current_voltages()
-    st.bar_chart(df, height=300, use_container_width=True)
+    st.bar_chart(df, height=300, width='stretch')
     vols = np.asarray(st.session_state[f"{P}_current_voltages"], dtype=np.float64)
     col_m1, col_m2, col_m3 = st.columns(3)
     with col_m1:

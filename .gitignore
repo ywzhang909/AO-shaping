@@ -2,6 +2,8 @@
 *.npz
 *.pkl
 *.docx
+.~*
+**/.omo/
 *.csv
 *.pyc
 *.so
