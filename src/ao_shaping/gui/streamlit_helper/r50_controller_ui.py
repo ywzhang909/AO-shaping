@@ -483,6 +483,15 @@ def _initialize_state() -> None:
     st.session_state.setdefault(f"{P}_alt_voltage", 20.0)
     st.session_state.setdefault(f"{P}_alt_freq", 1.0)
 
+    # ---- 方波电压 (A/B) ----
+    st.session_state.setdefault(f"{P}_square_running", False)
+    st.session_state.setdefault(f"{P}_square_voltage_a", 20.0)
+    st.session_state.setdefault(f"{P}_square_voltage_b", 0.0)
+    st.session_state.setdefault(f"{P}_square_freq", 1.0)
+
+    # ---- 下发模式选择 ----
+    st.session_state.setdefault(f"{P}_send_mode", "clear")
+
     # ---- 反馈 ----
     st.session_state.setdefault(f"{P}_feedback", "")
     st.session_state.setdefault(f"{P}_feedback_type", "")
@@ -1531,6 +1540,7 @@ def disconnect() -> None:
     """断开控制器连接 (若继电器仍上电则先自动下电)。"""
     ctrl = st.session_state[f"{P}_controller"]
     st.session_state[f"{P}_sine_running"] = False
+    st.session_state[f"{P}_square_running"] = False
     st.session_state[f"{P}_hold"] = False
     # 安全保护: 断开前先下电, 避免带电断开
     if st.session_state[f"{P}_relay_on"] and ctrl is not None:
@@ -1688,8 +1698,8 @@ def _hold_loop(voltage: float, interval: float) -> None:
         _set_feedback(f"持续下发异常: {e}", "error")
 
 
-def _sine_loop(amp: float, offset: float, freq: float, apply_all: bool, dt: float) -> None:
-    """正弦电压持续下发线程。"""
+def _sine_loop(amp: float, offset: float, freq: float, dt: float) -> None:
+    """正弦电压持续下发线程。使用当前单元选择 (all_mode / channels)。"""
     ctrl = st.session_state[f"{P}_controller"]
     if ctrl is None:
         return
@@ -1700,14 +1710,11 @@ def _sine_loop(amp: float, offset: float, freq: float, apply_all: bool, dt: floa
         while (
             st.session_state[f"{P}_sine_running"]
             and st.session_state[f"{P}_relay_on"]
-            and not st.session_state[f"{P}_hold"]
+            and not st.session_state[f"{P}_square_running"]
         ):
             elapsed = time.time() - t0
             v = offset + amp * np.sin(omega * elapsed)
-            if apply_all:
-                _send_all(v)
-            else:
-                _send_single(int(st.session_state[f"{P}_channel"]), v)
+            _send_channels(v)
             time.sleep(dt)
     except Exception as e:
         st.session_state[f"{P}_sine_running"] = False
@@ -1738,6 +1745,30 @@ def _alt_loop(voltage: float, freq: float, dt: float) -> None:
         st.session_state[f"{P}_alt_running"] = False
         logger.exception(f"交替下发异常: {e}")
         _set_feedback(f"交替下发异常: {e}", "error")
+
+
+def _square_loop(voltage_a: float, voltage_b: float, freq: float, dt: float) -> None:
+    """A/B 方波电压持续下发线程。使用当前单元选择 (all_mode / channels)。"""
+    ctrl = st.session_state[f"{P}_controller"]
+    if ctrl is None:
+        return
+    try:
+        half_period = 1.0 / (2.0 * max(freq, 0.01))
+        while (
+            st.session_state[f"{P}_square_running"]
+            and st.session_state[f"{P}_relay_on"]
+            and not st.session_state[f"{P}_sine_running"]
+        ):
+            _send_channels(voltage_a)
+            time.sleep(half_period)
+            if not st.session_state[f"{P}_square_running"]:
+                break
+            _send_channels(voltage_b)
+            time.sleep(half_period)
+    except Exception as e:
+        st.session_state[f"{P}_square_running"] = False
+        logger.exception(f"方波下发异常: {e}")
+        _set_feedback(f"方波下发异常: {e}", "error")
 
 
 # =============================================================================
@@ -2860,9 +2891,9 @@ def main() -> None:
 
 
 def render_tab_single_controller() -> None:
-    """单控制器控制 Tab: 完整 50 通道电压下发、正弦/交替/保持。"""
+    """单控制器控制 Tab: 完整 50 通道电压控制。"""
     st.title("🔌 单控制器控制")
-    st.caption("单个 R50Controller (50 通道) 电压控制 | 持续保持 · 正弦 · 交替 · 可视化")
+    st.caption("单个 R50Controller (50 通道) 电压控制 | 单元选择与下发方式分离")
 
     # 检查连接模式
     if st.session_state.get(f"{P}_connection_mode") != "single":
@@ -2874,9 +2905,10 @@ def render_tab_single_controller() -> None:
 
     _show_feedback()
 
-    # ---- 电压下发 (指定单元 / 全部单元 合并) ----
+    # ===== 1. 单元选择 (沿用现有逻辑) =====
     with st.container(border=True):
-        st.markdown("##### 电压下发")
+        st.markdown("##### 单元选择")
+        st.caption("选择下发目标单元，所有下发方式共用此选择 (除「全部清 0」强制所有通道外)")
 
         # 全部单元 (50) 开关
         st.checkbox(
@@ -2922,19 +2954,54 @@ def render_tab_single_controller() -> None:
                     _infos.append(_channel_label(int(_ch)) if _ci else f"ch{_ch}: 无映射")
                 st.caption("针脚映射: " + " ｜ ".join(_infos))
 
-        voltage = st.number_input(
-            "电压 (V)", min_value=st.session_state[f"{P}_vmin"],
-            max_value=st.session_state[f"{P}_vmax"],
-            value=st.session_state[f"{P}_voltage"], step=1.0, format="%.1f",
-            key=f"{P}_voltage_input",
-        )
-        st.session_state[f"{P}_voltage"] = float(voltage)
+    # ===== 2. 电压下发方式 (四种模式) =====
+    with st.container(border=True):
+        st.markdown("##### 电压下发方式")
+        st.caption("选择下发模式后配置对应参数并执行")
 
-        col_send1, col_send2 = st.columns(2)
-        with col_send1:
+        send_mode = st.radio(
+            "选择模式",
+            options=["clear", "fixed", "sine", "square"],
+            format_func={
+                "clear": "🧹 全部清 0",
+                "fixed": "⚡ 下发固定电压",
+                "sine": "〰️ 持续正弦电压",
+                "square": "⬆️⬇️ 持续方波电压",
+            }.get,
+            key=f"{P}_send_mode",
+            horizontal=False,
+        )
+
+        # ========== 模式 1: 全部清 0 ==========
+        if send_mode == "clear":
+            st.caption("将所有 50 个单元电压设置为 0V (不依赖单元选择)")
             if st.button(
-                "⚡ 发送一次", type="primary", width='stretch',
-                disabled=not st.session_state[f"{P}_connected"], key=f"{P}_send_once",
+                "🧹 全部清 0", type="primary", width='stretch',
+                disabled=not st.session_state[f"{P}_connected"],
+                key=f"{P}_clear_all_btn",
+            ):
+                if _require_relay_on():
+                    _send_all(0.0)
+                    st.session_state[f"{P}_voltage"] = 0.0
+                    _set_feedback("✅ 所有单元已清零", "success")
+                    st.rerun()
+
+        # ========== 模式 2: 下发固定电压 ==========
+        elif send_mode == "fixed":
+            voltage = st.number_input(
+                "电压 (V)",
+                min_value=st.session_state[f"{P}_vmin"],
+                max_value=st.session_state[f"{P}_vmax"],
+                value=st.session_state[f"{P}_voltage"],
+                step=1.0, format="%.1f",
+                key=f"{P}_voltage_input",
+            )
+            st.session_state[f"{P}_voltage"] = float(voltage)
+
+            if st.button(
+                "⚡ 下发固定电压", type="primary", width='stretch',
+                disabled=not st.session_state[f"{P}_connected"],
+                key=f"{P}_fixed_send_btn",
             ):
                 if _require_relay_on():
                     if not st.session_state[f"{P}_all_mode"] and not st.session_state[f"{P}_channels"]:
@@ -2946,168 +3013,129 @@ def render_tab_single_controller() -> None:
                         except Exception as e:
                             _set_feedback(f"发送失败: {e}", "error")
                     st.rerun()
-        with col_send2:
-            if not st.session_state[f"{P}_hold"]:
+
+        # ========== 模式 3: 持续正弦电压 ==========
+        elif send_mode == "sine":
+            col_a, col_o, col_f = st.columns(3)
+            with col_a:
+                amp = st.number_input(
+                    "振幅 (V)", min_value=0.0, max_value=140.0,
+                    value=st.session_state[f"{P}_sine_amp"], step=1.0, format="%.1f",
+                    key=f"{P}_sine_amp_input",
+                )
+                st.session_state[f"{P}_sine_amp"] = float(amp)
+            with col_o:
+                offset = st.number_input(
+                    "偏置 (V)", min_value=st.session_state[f"{P}_vmin"],
+                    max_value=st.session_state[f"{P}_vmax"],
+                    value=st.session_state[f"{P}_sine_offset"], step=1.0, format="%.1f",
+                    key=f"{P}_sine_offset_input",
+                )
+                st.session_state[f"{P}_sine_offset"] = float(offset)
+            with col_f:
+                freq = st.number_input(
+                    "频率 (Hz)", min_value=0.01, max_value=50.0,
+                    value=st.session_state[f"{P}_sine_freq"], step=0.05, format="%.2f",
+                    key=f"{P}_sine_freq_input",
+                )
+                st.session_state[f"{P}_sine_freq"] = float(freq)
+
+            vmax_wave = offset + amp
+            vmin_wave = offset - amp
+            if vmax_wave > st.session_state[f"{P}_vmax"] or vmin_wave < st.session_state[f"{P}_vmin"]:
+                st.warning(
+                    f"⚠️ 正弦范围 [{vmin_wave:.1f}, {vmax_wave:.1f}] V 超出安全范围, "
+                    "将自动截断到允许范围"
+                )
+
+            if not st.session_state[f"{P}_sine_running"]:
                 if st.button(
-                    "🔁 持续保持", width='stretch', type="secondary",
-                    disabled=not st.session_state[f"{P}_connected"] or st.session_state[f"{P}_sine_running"],
-                    key=f"{P}_hold_start",
+                    "▶ 开始正弦下发", type="primary", width='stretch',
+                    disabled=(
+                        not st.session_state[f"{P}_connected"]
+                        or st.session_state[f"{P}_square_running"]
+                    ),
+                    key=f"{P}_sine_start",
                 ):
                     if _require_relay_on():
-                        if not st.session_state[f"{P}_all_mode"] and not st.session_state[f"{P}_channels"]:
-                            _set_feedback("未选择任何指定单元", "warning")
-                        else:
-                            # 避免与正弦下发线程竞争同一 socket
-                            st.session_state[f"{P}_sine_running"] = False
-                            st.session_state[f"{P}_hold"] = True
-                            threading.Thread(
-                                target=_hold_loop, args=(voltage, 0.1), daemon=True,
-                            ).start()
-                            _set_feedback("持续下发中", "success")
-                            st.rerun()
+                        st.session_state[f"{P}_square_running"] = False
+                        st.session_state[f"{P}_sine_running"] = True
+                        threading.Thread(
+                            target=_sine_loop,
+                            args=(amp, offset, freq, 0.05),
+                            daemon=True,
+                        ).start()
+                        _set_feedback(
+                            f"正弦下发中: amp={amp}V, offset={offset}V, f={freq}Hz",
+                            "success",
+                        )
+                        st.rerun()
             else:
                 if st.button(
-                    "⏹ 停止", width='stretch', type="secondary",
-                    key=f"{P}_hold_stop",
+                    "⏹ 停止正弦", type="primary", width='stretch',
+                    key=f"{P}_sine_stop",
                 ):
-                    st.session_state[f"{P}_hold"] = False
-                    _set_feedback("已停止持续下发", "info")
-                    st.rerun()
-
-    # ---- 正弦电压 ----
-    with st.container(border=True):
-        st.markdown("##### 正弦电压")
-        col_a, col_o, col_f = st.columns(3)
-        with col_a:
-            amp = st.number_input(
-                "振幅 (V)", min_value=0.0, max_value=140.0,
-                value=st.session_state[f"{P}_sine_amp"], step=1.0, format="%.1f",
-                key=f"{P}_sine_amp_input",
-            )
-            st.session_state[f"{P}_sine_amp"] = float(amp)
-        with col_o:
-            offset = st.number_input(
-                "偏置 (V)", min_value=st.session_state[f"{P}_vmin"],
-                max_value=st.session_state[f"{P}_vmax"],
-                value=st.session_state[f"{P}_sine_offset"], step=1.0, format="%.1f",
-                key=f"{P}_sine_offset_input",
-            )
-            st.session_state[f"{P}_sine_offset"] = float(offset)
-        with col_f:
-            freq = st.number_input(
-                "频率 (Hz)", min_value=0.01, max_value=50.0,
-                value=st.session_state[f"{P}_sine_freq"], step=0.05, format="%.2f",
-                key=f"{P}_sine_freq_input",
-            )
-            st.session_state[f"{P}_sine_freq"] = float(freq)
-
-        vmax_wave = offset + amp
-        vmin_wave = offset - amp
-        if vmax_wave > st.session_state[f"{P}_vmax"] or vmin_wave < st.session_state[f"{P}_vmin"]:
-            st.warning(
-                f"⚠️ 正弦范围 [{vmin_wave:.1f}, {vmax_wave:.1f}] V 超出安全范围, "
-                "将自动截断到允许范围"
-            )
-
-        st.checkbox(
-            "应用到全部单元 (50 通道)", value=st.session_state[f"{P}_sine_apply_all"],
-            key=f"{P}_sine_apply_all_input",
-        )
-        st.session_state[f"{P}_sine_apply_all"] = st.session_state[f"{P}_sine_apply_all_input"]
-
-        if not st.session_state[f"{P}_sine_apply_all"]:
-            sine_ch = st.number_input(
-                "指定单元 (0-49)", min_value=0, max_value=SINGLE_CHANNELS - 1,
-                value=st.session_state[f"{P}_channel"], step=1, key=f"{P}_sine_channel_input",
-            )
-            st.session_state[f"{P}_channel"] = int(sine_ch)
-            _sine_ci = _get_channel_info(int(sine_ch))
-            if _sine_ci:
-                st.caption(f"针脚映射: {_channel_label(int(sine_ch))}")
-
-        if not st.session_state[f"{P}_sine_running"]:
-            if st.button(
-                "▶ 开始正弦下发", type="primary", width='stretch',
-                disabled=not st.session_state[f"{P}_connected"] or st.session_state[f"{P}_hold"],
-                key=f"{P}_sine_start",
-            ):
-                if _require_relay_on():
-                    # 避免与持续保持线程竞争同一 socket
-                    st.session_state[f"{P}_hold"] = False
-                    st.session_state[f"{P}_sine_running"] = True
-                    threading.Thread(
-                        target=_sine_loop,
-                        args=(amp, offset, freq, st.session_state[f"{P}_sine_apply_all"], 0.05),
-                        daemon=True,
-                    ).start()
-                    _set_feedback(
-                        f"正弦下发中: amp={amp}V, offset={offset}V, f={freq}Hz",
-                        "success",
-                    )
-                    st.rerun()
-        else:
-            if st.button(
-                "⏹ 停止", type="primary", width='stretch',
-                key=f"{P}_sine_stop",
-            ):
-                st.session_state[f"{P}_sine_running"] = False
-                _set_feedback("正弦下发已停止", "info")
-                st.rerun()
-
-    # ---- 交替电压 (0V ↔ Input) ----
-    with st.container(border=True):
-        st.markdown("##### 交替电压 (0V ↔ Input)")
-        st.caption("在 0V 和设定电压之间循环交替发送到全部 50 个单元")
-
-        col_alt_v, col_alt_f = st.columns(2)
-        with col_alt_v:
-            alt_voltage = st.number_input(
-                "Input 电压 (V)", min_value=st.session_state[f"{P}_vmin"],
-                max_value=st.session_state[f"{P}_vmax"],
-                value=st.session_state[f"{P}_alt_voltage"], step=1.0, format="%.1f",
-                key=f"{P}_alt_voltage_input",
-            )
-            st.session_state[f"{P}_alt_voltage"] = float(alt_voltage)
-        with col_alt_f:
-            alt_freq = st.number_input(
-                "交替频率 (Hz)", min_value=0.01, max_value=50.0,
-                value=st.session_state[f"{P}_alt_freq"], step=0.05, format="%.2f",
-                key=f"{P}_alt_freq_input",
-            )
-            st.session_state[f"{P}_alt_freq"] = float(alt_freq)
-
-        if not st.session_state[f"{P}_alt_running"]:
-            if st.button(
-                "▶ 开始交替下发", type="primary", width='stretch',
-                disabled=(
-                    not st.session_state[f"{P}_connected"]
-                    or st.session_state[f"{P}_hold"]
-                    or st.session_state[f"{P}_sine_running"]
-                ),
-                key=f"{P}_alt_start",
-            ):
-                if _require_relay_on():
-                    st.session_state[f"{P}_hold"] = False
                     st.session_state[f"{P}_sine_running"] = False
-                    st.session_state[f"{P}_alt_running"] = True
-                    threading.Thread(
-                        target=_alt_loop,
-                        args=(alt_voltage, alt_freq, 0.01),
-                        daemon=True,
-                    ).start()
-                    _set_feedback(
-                        f"交替下发中: 0V ↔ {alt_voltage:.1f}V, f={alt_freq:.2f}Hz",
-                        "success",
-                    )
+                    _set_feedback("正弦下发已停止", "info")
                     st.rerun()
-        else:
-            if st.button(
-                "⏹ 停止交替", type="primary", width='stretch',
-                key=f"{P}_alt_stop",
-            ):
-                st.session_state[f"{P}_alt_running"] = False
-                _set_feedback("交替下发已停止", "info")
-                st.rerun()
+
+        # ========== 模式 4: 持续方波电压 (A/B) ==========
+        elif send_mode == "square":
+            col_a, col_b, col_f = st.columns(3)
+            with col_a:
+                sq_a = st.number_input(
+                    "电压 A (V)", min_value=st.session_state[f"{P}_vmin"],
+                    max_value=st.session_state[f"{P}_vmax"],
+                    value=st.session_state[f"{P}_square_voltage_a"], step=1.0, format="%.1f",
+                    key=f"{P}_square_a_input",
+                )
+                st.session_state[f"{P}_square_voltage_a"] = float(sq_a)
+            with col_b:
+                sq_b = st.number_input(
+                    "电压 B (V)", min_value=st.session_state[f"{P}_vmin"],
+                    max_value=st.session_state[f"{P}_vmax"],
+                    value=st.session_state[f"{P}_square_voltage_b"], step=1.0, format="%.1f",
+                    key=f"{P}_square_b_input",
+                )
+                st.session_state[f"{P}_square_voltage_b"] = float(sq_b)
+            with col_f:
+                sq_f = st.number_input(
+                    "频率 (Hz)", min_value=0.01, max_value=50.0,
+                    value=st.session_state[f"{P}_square_freq"], step=0.05, format="%.2f",
+                    key=f"{P}_square_freq_input",
+                )
+                st.session_state[f"{P}_square_freq"] = float(sq_f)
+
+            if not st.session_state[f"{P}_square_running"]:
+                if st.button(
+                    "▶ 开始方波下发", type="primary", width='stretch',
+                    disabled=(
+                        not st.session_state[f"{P}_connected"]
+                        or st.session_state[f"{P}_sine_running"]
+                    ),
+                    key=f"{P}_square_start",
+                ):
+                    if _require_relay_on():
+                        st.session_state[f"{P}_sine_running"] = False
+                        st.session_state[f"{P}_square_running"] = True
+                        threading.Thread(
+                            target=_square_loop,
+                            args=(sq_a, sq_b, sq_f, 0.01),
+                            daemon=True,
+                        ).start()
+                        _set_feedback(
+                            f"方波下发中: A={sq_a}V, B={sq_b}V, f={sq_f}Hz",
+                            "success",
+                        )
+                        st.rerun()
+            else:
+                if st.button(
+                    "⏹ 停止方波", type="primary", width='stretch',
+                    key=f"{P}_square_stop",
+                ):
+                    st.session_state[f"{P}_square_running"] = False
+                    _set_feedback("方波下发已停止", "info")
+                    st.rerun()
 
     # ---- 各单元当前电压 ----
     st.divider()
@@ -3136,9 +3164,8 @@ def render_tab_single_controller() -> None:
         st.code("\n".join(log_lines) if log_lines else "(无记录)", language="text")
 
     if (
-        st.session_state[f"{P}_hold"]
-        or st.session_state[f"{P}_sine_running"]
-        or st.session_state[f"{P}_alt_running"]
+        st.session_state[f"{P}_sine_running"]
+        or st.session_state[f"{P}_square_running"]
     ):
         time.sleep(REFRESH_INTERVAL)
         st.rerun()

@@ -117,6 +117,8 @@ except ImportError as e:
 
 
 from ao_shaping.drivers.mock_devices import (
+    MockADC,
+    MockADCError,
     MockCamera,
     MockCameraError,
     MockDM,
@@ -134,6 +136,8 @@ from ao_shaping.drivers.mock_devices import (
 )
 
 __all__ += [
+    "MockADC",
+    "MockADCError",
     "MockCamera",
     "MockCameraError",
     "MockDM",
@@ -149,6 +153,19 @@ __all__ += [
     "MockWFS",
     "MockWFSError",
 ]
+
+# ---------------------------------------------------------------------------
+# ADC driver (NI DAQ)
+# ---------------------------------------------------------------------------
+try:
+    from ao_shaping.drivers.adc import NidaqADC, NidaqADCError, NidaqADCNotFoundError
+
+    __all__ += ["NidaqADC", "NidaqADCError", "NidaqADCNotFoundError"]
+except ImportError as e:
+    logger.debug(f"NidaqADC not available: {e}")
+    NidaqADC = None
+    NidaqADCError = None
+    NidaqADCNotFoundError = None
 
 from ao_shaping.drivers.sim import (
     OpticalDevice,

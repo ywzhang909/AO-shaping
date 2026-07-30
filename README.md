@@ -8,7 +8,7 @@ AO-Shaping是一个基于强化学习的自适应光学(AO)系统，用于波前
 
 - **多优化算法**: 支持基于波前传感器的RMS优化和无波前的PIB优化
 - **强化学习集成**: 使用SAC算法进行波前优化
-- **硬件支持**: 兼容Thorlabs WFS波前传感器、NLight变形镜、R50Power MicroDM、大恒相机、MIICAM和Santec SLM200
+- **硬件支持**: 兼容Thorlabs WFS波前传感器、NLight变形镜、R50Power MicroDM、大恒相机、MIICAM、Santec SLM200和NI DAQ ADC
 - **可视化工具**: 提供实时波前和电压可视化功能
 - **数据处理**: 集成Dask进行高性能数据处理和分析
 - **实验跟踪**: 支持WandB和SwanLab进行实验管理和可视化
@@ -28,6 +28,7 @@ AO-shaping/
 │   │   │   ├── zernike_matrix_runner.py  # Zernike响应矩阵校准与闭环控制
 │   │   │   ├── gs_hologram_runner.py   # Gerchberg-Saxton全息图生成器
 │   │   │   ├── dm_matrix_runner.py     # DM响应矩阵标定
+│   │   │   ├── alt_voltage_runner.py   # 交替电压下发 (R50Power + ADC采集)
 │   │   │   └── combined_runner.py      # [已废弃] 使用pipeline_runner代わり
 │   │   ├── algorithm/           # 优化算法 (Adam, SGD, Muon等)
 │   │   ├── drivers/             # 硬件驱动
@@ -35,6 +36,7 @@ AO-shaping/
 │   │   │   ├── dm/              # 变形镜 (NLight, R50Power MicroDM)
 │   │   │   ├── slm/             # 空间光调制器 (Santec, WavefrontCorrection)
 │   │   │   ├── wfs/             # 波前传感器 (Thorlabs)
+│   │   │   ├── adc/             # NI DAQ ADC 电压采集
 │   │   │   ├── tm/              # 定时模块 (Serial/FSM)
 │   │   │   ├── sim/             # 数字孪生仿真
 │   │   │   └── mock_devices.py  # 测试用模拟设备
@@ -290,6 +292,40 @@ python src/ao_shaping/main.py closed-loop [OPTIONS]
 DEBUG=1 python src/ao_shaping/main.py closed-loop --load-file data/zm.h5 --control-law leaky --max-iter 50
 ```
 
+#### 交替电压下发 (alt-voltage)
+```bash
+python src/ao_shaping/main.py alt-voltage [OPTIONS]
+```
+等同于: `python -m ao_shaping.runners.alt_voltage_runner`
+
+在 0V 和指定电压之间循环交替发送到 R50Power 控制器的指定单元。可选同步采集 NI DAQ ADC 信号。
+
+选项:
+- `-i, --ip`: R50Power 控制器 IP 地址 (默认: 192.168.0.101)
+- `-p, --port`: 控制器端口 (默认: 8080)
+- `-v, --voltage`: 高电平电压 (V, 默认: 20.0)
+- `-f, --freq`: 交替频率 (Hz, 默认: 1.0)
+- `-d, --duration`: 运行时长 (秒, 0=持续运行直到 Ctrl+C) (默认: 0)
+- `-c, --channels`: 通道列表 (逗号分隔, 默认: 全部 50 通道)
+- `--no-ping-first`: 跳过启动前 ping 检查
+- `--no-relay-on`: 跳过自动上电 (relay on)
+- `--adc-enabled`: 启用 NI DAQ ADC 同步采集
+- `--adc-device`: NI DAQ 设备名 (默认: Dev1)
+- `--adc-channel`: 模拟输入通道 (默认: ai0)
+- `--adc-sample-rate`: ADC 采样率 (Hz, 默认: 5000)
+- `--adc-samples-per-read`: 每次读取的样本数 (默认: 10)
+
+ADC 采集数据自动保存到 `data/alt_voltage_adc_<timestamp>.csv`。
+
+示例:
+```bash
+# 全部50个通道交替 20V, 1Hz, 持续运行
+python src/ao_shaping/main.py alt-voltage --ip 192.168.0.101 --voltage 20
+
+# 通道 0-5, 30V, 2Hz, 持续 10 秒, 同步 ADC 采集
+python src/ao_shaping/main.py alt-voltage --ip 192.168.0.101 --voltage 30 --freq 2.0 --duration 10 --channels 0,1,2,3,4,5 --adc-enabled
+```
+
 #### DM响应矩阵标定 (dm-matrix)
 ```bash
 python src/ao_shaping/main.py dm-matrix [OPTIONS]
@@ -419,7 +455,12 @@ python -m ao_shaping.runners.zernike_matrix_runner [OPTIONS]
 python -m ao_shaping.runners.gs_hologram_runner [OPTIONS]
 ```
 
-6. DM响应矩阵标定:
+6. 交替电压下发:
+```bash
+python -m ao_shaping.runners.alt_voltage_runner [OPTIONS]
+```
+
+7. DM响应矩阵标定:
 ```bash
 python -m ao_shaping.runners.dm_matrix_runner [OPTIONS]
 ```
@@ -529,7 +570,20 @@ streamlit run src/ao_shaping/gui/app.py
 > ```
 
 ### 数据采集卡
-- **NI DAQ设备**: 用于多设备同步控制
+- **NI DAQ (nidaqmx)**: 用于多设备同步控制和模拟电压采集
+- **ADC Driver** (`ao_shaping.drivers.adc.NidaqADC`): NI DAQ模拟输入电压采集驱动
+  - 基于 nidaqmx 的 `HW_TIMED_SINGLE_POINT` 采样模式
+  - 可配置设备名 (Dev1)、通道 (ai0)、采样率和每批采样数
+  - 提供 `read(samples)` 返回原始电压数组和 `read_mean()` 返回均值
+  - 无硬件时可使用 `MockADC` 进行开发和测试
+
+  ```python
+  from ao_shaping.drivers.adc import NidaqADC
+
+  with NidaqADC(device_name="Dev1", channel="ai0", sample_rate=5000, samples_per_channel=10) as adc:
+      voltages = adc.read()        # shape (10,) array of voltages
+      mean_v = adc.read_mean()     # float
+  ```
 
 ## 仿真环境
 

@@ -1522,3 +1522,182 @@ class MockFilter(Device):
             "current_filter": self.get_current_filter(),
         }
         return state
+
+
+class MockADCError(DeviceError):
+    """Exception raised for mock ADC errors."""
+    pass
+
+
+class MockADC(Device):
+    """Mock NI DAQ ADC device for testing.
+
+    Simulates analog voltage acquisition with optional noise and
+    configurable baseline voltage.
+
+    Attributes:
+        device_type: DeviceType.OTHER
+        manufacturer: "Mock"
+        model: "Simulated ADC"
+
+    Example:
+        >>> adc = MockADC(device_id="mock_adc_001", noise_std=0.01)
+        >>> with adc:
+        ...     voltages = adc.read(samples=10)
+        ...     mean_v = adc.read_mean()
+    """
+
+    device_type = DeviceType.OTHER
+    manufacturer = "Mock"
+    model = "Simulated ADC"
+
+    def __init__(
+        self,
+        device_id: str = "",
+        device_name: str = "Dev1",
+        channel: str = "ai0",
+        sample_rate: int = 5000,
+        samples_per_channel: int = 10,
+        base_voltage: float = 0.0,
+        noise_std: float = 0.01,
+        random_seed: int | None = None,
+    ):
+        """Initialize mock ADC.
+
+        Args:
+            device_id: Unique device identifier.
+            device_name: Simulated NI DAQ device name.
+            channel: Simulated analog input channel.
+            sample_rate: Simulated sample rate (Hz).
+            samples_per_channel: Number of samples per read.
+            base_voltage: Baseline voltage output (V).
+            noise_std: Standard deviation of Gaussian noise added to readings.
+            random_seed: Random seed for reproducible output.
+        """
+        super().__init__(device_id)
+
+        self._device_name = device_name
+        self._channel = channel
+        self._sample_rate = sample_rate
+        self._samples_per_channel = samples_per_channel
+        self._base_voltage = base_voltage
+        self._noise_std = noise_std
+        self._rng = np.random.default_rng(random_seed)
+
+        self._register_parameters()
+
+    def _register_parameters(self) -> None:
+        """Register ADC-specific parameters."""
+        self.register_parameter(
+            "device_name",
+            self._device_name,
+            description="Simulated NI DAQ device name",
+        )
+        self.register_parameter(
+            "channel",
+            self._channel,
+            description="Simulated analog input channel",
+        )
+        self.register_parameter(
+            "sample_rate",
+            self._sample_rate,
+            min_value=1,
+            max_value=1_000_000,
+            unit="Hz",
+            description="Simulated acquisition sample rate",
+        )
+        self.register_parameter(
+            "samples_per_channel",
+            self._samples_per_channel,
+            min_value=1,
+            max_value=1_000_000,
+            description="Simulated samples per read",
+        )
+        self.register_parameter(
+            "base_voltage",
+            self._base_voltage,
+            unit="V",
+            description="Baseline voltage output",
+        )
+        self.register_parameter(
+            "noise_std",
+            self._noise_std,
+            min_value=0.0,
+            unit="V",
+            description="Noise standard deviation",
+        )
+
+    def open(self) -> None:
+        """Open mock ADC connection."""
+        self._set_state(DeviceState.CONNECTING)
+        time.sleep(0.05)
+        self._set_state(DeviceState.READY)
+        logger.info(f"Mock ADC {self.device_id} opened ({self._device_name}/{self._channel})")
+
+    def close(self) -> None:
+        """Close mock ADC connection."""
+        self._set_state(DeviceState.DISCONNECTED)
+        logger.info(f"Mock ADC {self.device_id} closed")
+
+    def is_connected(self) -> bool:
+        """Check if ADC is connected."""
+        return self._state == DeviceState.READY
+
+    def get_hardware_info(self) -> dict[str, Any]:
+        """Get mock hardware information."""
+        return {
+            "serial_number": f"MOCK_ADC_{self.device_id[:8]}",
+            "firmware_version": "1.0.0-mock",
+            "device_name": self._device_name,
+            "channel": self._channel,
+            "sample_rate": self._sample_rate,
+            "samples_per_channel": self._samples_per_channel,
+        }
+
+    def read(self, samples: int | None = None) -> np.ndarray:
+        """Read simulated voltage samples.
+
+        Args:
+            samples: Number of samples to return. Defaults to ``samples_per_channel``.
+
+        Returns:
+            1-D array of simulated voltage readings in volts.
+        """
+        if not self.is_connected():
+            raise RuntimeError("ADC not connected")
+
+        n = samples or self._samples_per_channel
+        base = self.get_parameter_value("base_voltage")
+        noise = self.get_parameter_value("noise_std")
+
+        self._set_state(DeviceState.BUSY)
+        try:
+            time.sleep(0.001)  # Simulate read delay
+            data = base + self._rng.normal(0, noise, n)
+            return data.astype(np.float64)
+        finally:
+            self._set_state(DeviceState.READY)
+
+    def read_mean(self, samples: int | None = None) -> float:
+        """Read simulated voltage samples and return the mean.
+
+        Args:
+            samples: Number of samples. Defaults to ``samples_per_channel``.
+
+        Returns:
+            Mean voltage in volts.
+        """
+        return float(np.mean(self.read(samples=samples)))
+
+    def get_twin_state(self) -> dict[str, Any]:
+        """Get state for digital twin synchronization."""
+        state = super().get_twin_state()
+        state["hardware"] = {
+            "device_name": self._device_name,
+            "channel": self._channel,
+            "sample_rate": self._sample_rate,
+            "samples_per_channel": self._samples_per_channel,
+            "base_voltage": self._base_voltage,
+            "noise_std": self._noise_std,
+        }
+        return state
