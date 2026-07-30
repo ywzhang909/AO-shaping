@@ -12,18 +12,84 @@
 from __future__ import annotations
 
 import colorsys
+import json
+from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+from st_aggrid import AgGrid, GridOptionsBuilder
+from st_aggrid.shared import JsCode
+
 
 # =============================================================================
-# Constants
+# Configuration
 # =============================================================================
 
-GRID_SIZE = 36
-DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "data"
-ENRICHED_CSV = DATA_DIR / "1300-5-enriched.csv"
+class Config:
+    """应用常数配置。"""
+    GRID_SIZE = 36
+    IP_MIN = 101
+    IP_MAX = 126
+    SEQ_MIN = 0
+    SEQ_MAX = 49
+    PIN_MAX = 316
+    DEFAULT_IP = 101
+    DEFAULT_SEQ = 0
+    COLOR_SCHEMES = ("无", "按IP组", "按所属组", "按序号", "按引脚编号")
+
+    GROUP_COLORS = {
+        "一组": "#4CAF50",
+        "二组": "#2196F3",
+        "三组": "#FF9800",
+        "四组": "#9C27B0",
+        "五组": "#F44336",
+    }
+
+    DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "data"
+    DEFAULT_CSV = "1300-5-enriched.csv"
+
+
+# =============================================================================
+# Data Structures
+# =============================================================================
+
+@dataclass
+class CellInfo:
+    """单个陶瓷单元的数据。"""
+    row: int
+    col: int
+    position: int
+    ip_group: int
+    seq: int
+    group: str
+    pin: int
+    connector: str
+
+    @classmethod
+    def from_df(cls, df: pd.DataFrame, row: int, col: int) -> CellInfo | None:
+        """从 DataFrame 按 [row, col] 查找并构造 CellInfo。"""
+        cell = df[(df["36×36行"] == row) & (df["36×36列"] == col)]
+        if cell.empty:
+            return None
+        c = cell.iloc[0]
+        pos = row * Config.GRID_SIZE + col + 1
+        return cls(
+            row=row, col=col, position=pos,
+            ip_group=int(c["IP组"]), seq=int(c["序号"]),
+            group=c["组"], pin=int(c["引脚编号"]), connector=c["连接器"],
+        )
+
+
+@dataclass
+class ConflictInfo:
+    """冲突信息，保存时检测到 IP组+序号 重复时使用。"""
+    row: int
+    col: int
+    new_ip: int
+    new_seq: int
+    conflicts: list[dict]
+
 
 # =============================================================================
 # Session State Initialization
@@ -31,18 +97,31 @@ ENRICHED_CSV = DATA_DIR / "1300-5-enriched.csv"
 
 def _initialize_state() -> None:
     """初始化 session_state 变量。"""
+    # 选择状态
     st.session_state.setdefault("cv_selected_row", 0)
     st.session_state.setdefault("cv_selected_col", 0)
-    st.session_state.setdefault("cv_edit_ip", 101)
-    st.session_state.setdefault("cv_edit_seq", 0)
-    st.session_state.setdefault("cv_lookup_ip", 101)
-    st.session_state.setdefault("cv_lookup_seq", 0)
-    st.session_state.setdefault("cv_lookup_result", None)
-    st.session_state.setdefault("cv_data", None)
-    st.session_state.setdefault("cv_error", "")
-    st.session_state.setdefault("cv_confirm_save", False)
+    # 编辑状态
+    st.session_state.setdefault("cv_edit_ip", Config.DEFAULT_IP)
+    st.session_state.setdefault("cv_edit_seq", Config.DEFAULT_SEQ)
     st.session_state.setdefault("cv_conflict_info", None)
     st.session_state.setdefault("cv_save_feedback", "")
+    # 查询状态
+    st.session_state.setdefault("cv_lookup_ip", Config.DEFAULT_IP)
+    st.session_state.setdefault("cv_lookup_seq", Config.DEFAULT_SEQ)
+    st.session_state.setdefault("cv_lookup_result", None)
+    # 数据
+    st.session_state.setdefault("cv_data", None)
+    st.session_state.setdefault("cv_csv_filename", Config.DEFAULT_CSV)
+    st.session_state.setdefault("cv_dirty", False)
+
+
+# =============================================================================
+# CSV Path Helpers
+# =============================================================================
+
+def _current_csv_path() -> Path:
+    """返回当前配置的 CSV 完整路径。"""
+    return Config.DATA_DIR / st.session_state.cv_csv_filename
 
 
 # =============================================================================
@@ -50,13 +129,14 @@ def _initialize_state() -> None:
 # =============================================================================
 
 @st.cache_data
-def load_enriched_data() -> pd.DataFrame:
+def load_enriched_data(csv_path: str) -> pd.DataFrame:
     """加载已处理的 1300 陶瓷单元数据。"""
-    if not ENRICHED_CSV.exists():
-        st.error(f"数据文件不存在: {ENRICHED_CSV}")
+    path = Path(csv_path)
+    if not path.exists():
+        st.error(f"数据文件不存在: {path}")
         st.info("请先运行 scripts/process_1300_data.py 生成数据文件")
         return pd.DataFrame()
-    df = pd.read_csv(ENRICHED_CSV)
+    df = pd.read_csv(path)
     return df
 
 
@@ -65,10 +145,11 @@ def load_enriched_data() -> pd.DataFrame:
 # =============================================================================
 
 def _apply_edit(df: pd.DataFrame, row: int, col: int, new_ip: int, new_seq: int) -> None:
-    """Apply IP组/序号 edit to the dataframe in place."""
+    """Apply IP组/序号 edit to the dataframe in place and mark dirty."""
     mask = (df["36×36行"] == row) & (df["36×36列"] == col)
     df.loc[mask, "IP组"] = new_ip
     df.loc[mask, "序号"] = new_seq
+    st.session_state.cv_dirty = True
 
 
 def _check_conflict(df: pd.DataFrame, row: int, col: int,
@@ -83,14 +164,15 @@ def _check_conflict(df: pd.DataFrame, row: int, col: int,
 
 def _render_conflict_section(df: pd.DataFrame, current_row: int, current_col: int) -> None:
     """Show conflict warning with confirm/cancel when a save conflict exists."""
-    conflict = st.session_state.cv_conflict_info
-    if not conflict:
+    raw = st.session_state.cv_conflict_info
+    if not raw:
         return
+    conflict = ConflictInfo(**raw)
 
     st.divider()
     st.warning("⚠️ **检测到 IP组+序号 冲突**")
 
-    for i, c in enumerate(conflict.get("conflicts", [])):
+    for c in conflict.conflicts:
         st.markdown(
             f"- 单元格 **[{c['36×36行']}, {c['36×36列']}]** "
             f"(位置序号 {c['位置序号']}) — "
@@ -100,18 +182,13 @@ def _render_conflict_section(df: pd.DataFrame, current_row: int, current_col: in
     col_cfm1, col_cfm2, _ = st.columns([1, 1, 4])
     with col_cfm1:
         if st.button("✅ 确认覆盖", type="primary", use_container_width=True, key="cv_confirm_overwrite"):
-            _apply_edit(
-                df,
-                conflict["row"], conflict["col"],
-                conflict["new_ip"], conflict["new_seq"],
-            )
+            _apply_edit(df, conflict.row, conflict.col, conflict.new_ip, conflict.new_seq)
             st.session_state.cv_conflict_info = None
             st.session_state.cv_save_feedback = "已保存 (冲突覆盖)"
             st.rerun()
     with col_cfm2:
         if st.button("❌ 取消", use_container_width=True, key="cv_cancel_overwrite"):
             st.session_state.cv_conflict_info = None
-            # Reset edit fields to original values
             orig = df[(df["36×36行"] == current_row) & (df["36×36列"] == current_col)]
             if not orig.empty:
                 st.session_state.cv_edit_ip = int(orig.iloc[0]["IP组"])
@@ -121,48 +198,38 @@ def _render_conflict_section(df: pd.DataFrame, current_row: int, current_col: in
 
 def _render_cell_editor(df: pd.DataFrame, sel_row: int, sel_col: int, position_num: int) -> None:
     """Show cell details + editable IP组/序号 + save button with conflict detection."""
-    cell_data = df[(df["36×36行"] == sel_row) & (df["36×36列"] == sel_col)]
-    if cell_data.empty:
+    info = CellInfo.from_df(df, sel_row, sel_col)
+    if info is None:
         st.info(f"位置 [{sel_row}, {sel_col}] (序号 {position_num}) 无对应数据")
         return
 
-    cell = cell_data.iloc[0]
-    orig_ip = int(cell["IP组"])
-    orig_seq = int(cell["序号"])
-    orig_group = cell["组"]
-    orig_pin = int(cell["引脚编号"])
-    orig_conn = cell["连接器"]
-
     st.divider()
-    st.markdown(f"##### 📍 单元格 [{sel_row}, {sel_col}] (位置序号 {position_num})")
+    st.markdown(f"##### 📍 单元格 [{info.row}, {info.col}] (位置序号 {info.position})")
 
-    # Read-only info
     meta_cols = st.columns(4)
     with meta_cols[0]:
-        st.metric("所属组", orig_group)
+        st.metric("所属组", info.group)
     with meta_cols[1]:
-        st.metric("引脚编号", orig_pin)
+        st.metric("引脚编号", info.pin)
     with meta_cols[2]:
-        st.metric("连接器", orig_conn)
+        st.metric("连接器", info.connector)
     with meta_cols[3]:
-        st.metric("位置序号", position_num)
+        st.metric("位置序号", info.position)
 
-    # Editable fields — use cell-dependent keys to avoid stale widget state
     st.markdown("**编辑 IP组 / 序号:**")
     edit_col1, edit_col2, edit_col3 = st.columns([1, 1, 1])
 
     key_suffix = f"_{sel_row}_{sel_col}"
 
     with edit_col1:
-        new_ip = st.number_input("IP组", min_value=101, max_value=126,
-                                  value=orig_ip, step=1,
+        new_ip = st.number_input("IP组", min_value=Config.IP_MIN, max_value=Config.IP_MAX,
+                                  value=info.ip_group, step=1,
                                   key=f"cv_ip{key_suffix}")
     with edit_col2:
-        new_seq = st.number_input("序号", min_value=0, max_value=49,
-                                   value=orig_seq, step=1,
+        new_seq = st.number_input("序号", min_value=Config.SEQ_MIN, max_value=Config.SEQ_MAX,
+                                   value=info.seq, step=1,
                                    key=f"cv_seq{key_suffix}")
 
-    # Feedback message
     fb = st.session_state.cv_save_feedback
     if fb:
         if "冲突" in fb:
@@ -175,10 +242,9 @@ def _render_cell_editor(df: pd.DataFrame, sel_row: int, sel_col: int, position_n
 
     with edit_col3:
         st.markdown("<br>", unsafe_allow_html=True)
-        changed = (new_ip != orig_ip) or (new_seq != orig_seq)
+        changed = (new_ip != info.ip_group) or (new_seq != info.seq)
         if st.button("💾 保存修改", type="primary", use_container_width=True,
                      disabled=not changed, key=f"cv_save{key_suffix}"):
-            # Check conflicts
             conflicts = _check_conflict(df, sel_row, sel_col, new_ip, new_seq)
             if not conflicts.empty:
                 st.session_state.cv_conflict_info = {
@@ -198,16 +264,84 @@ def _render_cell_editor(df: pd.DataFrame, sel_row: int, sel_col: int, position_n
         st.caption("⚠️ 存在未解决的冲突，请在上方确认或取消")
 
 
+# ── Cached helpers for render_tab_grid ────────────────────────────────────
+
+@st.cache_data
+def _cv_grid_matrix(df: pd.DataFrame) -> np.ndarray:
+    """Compute the 36×36 position-number matrix from raw data."""
+    return df.pivot_table(
+        index="36×36行", columns="36×36列", values="位置序号", aggfunc="first"
+    ).values
+
+
+@st.cache_data
+def _cv_tooltip_map(df: pd.DataFrame) -> dict[str, str]:
+    """Build position → 'IP组: X | 序号: Y' tooltip map."""
+    pos_info = df.set_index("位置序号")
+    return {
+        str(int(pos)): f"IP组: {int(pos_info.loc[pos, 'IP组'])} | 序号: {int(pos_info.loc[pos, '序号'])}"
+        for pos in pos_info.index
+    }
+
+
+@st.cache_data
+def _cv_group_color_map(df: pd.DataFrame) -> dict[int, str]:
+    """Position → color for '按所属组'."""
+    pos_group = df.set_index("位置序号")["组"].to_dict()
+    return {k: Config.GROUP_COLORS.get(v, "#ffffff") for k, v in pos_group.items()}
+
+
+@st.cache_data
+def _cv_ip_color_map(df: pd.DataFrame) -> dict[int, str]:
+    """Position → color for '按IP组' (sampled hues by actual IP groups)."""
+    pos_ip = df.set_index("位置序号")["IP组"].to_dict()
+    ip_values = sorted(df["IP组"].unique())
+    n_ip = len(ip_values)
+    ip_color_map: dict[int, str] = {}
+    for idx, ip in enumerate(ip_values):
+        hue = idx / max(n_ip - 1, 1) * 0.85
+        r, g, b = colorsys.hsv_to_rgb(hue, 0.6, 0.9)
+        ip_color_map[int(ip)] = f"rgb({r*255:.0f},{g*255:.0f},{b*255:.0f})"
+    return {pos: ip_color_map.get(int(ip), "#ffffff") for pos, ip in pos_ip.items()}
+
+
+@st.cache_data
+def _cv_seq_color_map(df: pd.DataFrame) -> dict[int, str]:
+    """Position → color for '按序号' (blue-green intensity)."""
+    pos_seq = df.set_index("位置序号")["序号"].to_dict()
+    color_map: dict[int, str] = {}
+    for pos, s in pos_seq.items():
+        intensity = s / Config.SEQ_MAX
+        gr = int(200 - intensity * 180)
+        b = int(200 - intensity * 120)
+        color_map[pos] = f"rgb({gr},{b},{255 - int(intensity * 100)})"
+    return color_map
+
+
+@st.cache_data
+def _cv_pin_color_map(df: pd.DataFrame) -> dict[int, str]:
+    """Position → color for '按引脚编号' (red scale)."""
+    pos_pin = df.set_index("位置序号")["引脚编号"].to_dict()
+    color_map: dict[int, str] = {}
+    for pos, p in pos_pin.items():
+        t = min(p / Config.PIN_MAX, 1.0)
+        r = int(50 + t * 200)
+        color_map[pos] = f"rgb({r},{int(180*(1-t))},{int(80*(1-t))})"
+    return color_map
+
+
+# ── Tab 1: Grid Renderer ────────────────────────────────────
+
+@st.fragment()
 def render_tab_grid() -> None:
-    """渲染 Tab 1: 36×36 网格浏览。"""
+    """渲染 Tab 1: 36×36 网格浏览 (fragment, 点击单元格不会 rerun 全应用)。"""
     df = st.session_state.cv_data
     if df.empty:
         return
 
     st.markdown("##### 36×36 陶瓷单元网格")
-    st.caption("点击网格行选择单元格，用列选择器精确定位列，下方可编辑 IP组/序号")
+    st.caption("点击网格单元格选择，下方可编辑 IP组/序号")
 
-    # ---- Selection: grid click + position / row+col inputs ----
     col_sel1, col_sel2, col_sel3 = st.columns([1, 1, 1])
     with col_sel1:
         use_position = st.checkbox("按位置序号输入", value=False,
@@ -217,51 +351,79 @@ def render_tab_grid() -> None:
             st.session_state.cv_selected_row = 0
             st.session_state.cv_selected_col = 0
             st.session_state.cv_conflict_info = None
-            st.session_state.cv_edit_ip = 101
-            st.session_state.cv_edit_seq = 0
+            st.session_state.cv_edit_ip = Config.DEFAULT_IP
+            st.session_state.cv_edit_seq = Config.DEFAULT_SEQ
+            st.session_state.cv_grid_click_count += 1
             st.rerun()
     with col_sel3:
-        if st.button("🗑️ 放弃编辑", use_container_width=True):
+        if st.button("🗑️ 放弃编辑", use_container_width=True, key="cv_discard_grid"):
             st.session_state.cv_conflict_info = None
             st.rerun()
 
+    G = Config.GRID_SIZE
+
+    # ── Manual input callbacks ──────────────────────────────────────────
+    if "cv_grid_click_count" not in st.session_state:
+        st.session_state.cv_grid_click_count = 0
+
+    def _on_row_input() -> None:
+        key = f"cv_row_{st.session_state.cv_grid_click_count}"
+        st.session_state.cv_selected_row = st.session_state[key]
+
+    def _on_col_input() -> None:
+        key = f"cv_col_{st.session_state.cv_grid_click_count}"
+        st.session_state.cv_selected_col = st.session_state[key]
+
+    def _on_pos_input() -> None:
+        key = f"cv_pos_{st.session_state.cv_grid_click_count}"
+        pos = st.session_state[key]
+        st.session_state.cv_selected_row = (pos - 1) // G
+        st.session_state.cv_selected_col = (pos - 1) % G
+
+    _row_key = f"cv_row_{st.session_state.cv_grid_click_count}"
+    _col_key = f"cv_col_{st.session_state.cv_grid_click_count}"
+    _pos_key = f"cv_pos_{st.session_state.cv_grid_click_count}"
+
     if use_position:
-        position = st.number_input("位置序号", min_value=1, max_value=GRID_SIZE * GRID_SIZE,
-                                    value=st.session_state.cv_selected_row * GRID_SIZE
-                                    + st.session_state.cv_selected_col + 1,
-                                    step=1, key="cv_pos_input")
-        sel_row = (position - 1) // GRID_SIZE
-        sel_col = (position - 1) % GRID_SIZE
+        st.number_input("位置序号", min_value=1, max_value=G * G,
+                         value=st.session_state.cv_selected_row * G
+                         + st.session_state.cv_selected_col + 1,
+                         step=1, key=_pos_key, on_change=_on_pos_input)
     else:
         col_r1, col_r2 = st.columns([1, 1])
         with col_r1:
-            sel_row = st.number_input("行 (0~35)", min_value=0, max_value=GRID_SIZE - 1,
-                                       value=st.session_state.cv_selected_row, step=1,
-                                       key="cv_row_input")
+            st.number_input("行 (0~35)", min_value=0, max_value=G - 1,
+                             value=st.session_state.cv_selected_row, step=1,
+                             key=_row_key, on_change=_on_row_input)
         with col_r2:
-            sel_col = st.number_input("列 (0~35)", min_value=0, max_value=GRID_SIZE - 1,
-                                       value=st.session_state.cv_selected_col, step=1,
-                                       key="cv_col_input")
+            st.number_input("列 (0~35)", min_value=0, max_value=G - 1,
+                             value=st.session_state.cv_selected_col, step=1,
+                             key=_col_key, on_change=_on_col_input)
 
-    st.session_state.cv_selected_row = sel_row
-    st.session_state.cv_selected_col = sel_col
-    position_num = sel_row * GRID_SIZE + sel_col + 1
+    sel_row = st.session_state.cv_selected_row
+    sel_col = st.session_state.cv_selected_col
+    position_num = sel_row * G + sel_col + 1
 
-    # ---- Conflict resolution section (shown when conflict detected) ----
-    _render_conflict_section(df, sel_row, sel_col)
-
-    # ---- Detail + Edit section ----
-    _render_cell_editor(df, sel_row, sel_col, position_num)
-
-    # ---- 36×36 网格 ----
     st.divider()
     st.markdown("##### 36×36 网格概览")
+    st.markdown("""
+        <style>
+        /* AG Grid 行选中：只有文字加粗，无背景色 */
+        .ag-row-selected {
+            font-weight: bold !important;
+            background: none !important;
+        }
+        .ag-row-selected .ag-cell {
+            font-weight: bold !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
     col_grid_ctrl1, col_grid_ctrl2 = st.columns([2, 1])
     with col_grid_ctrl1:
         color_scheme = st.selectbox(
             "网格着色方案",
-            ["无", "按IP组", "按所属组", "按序号", "按引脚编号"],
+            Config.COLOR_SCHEMES,
             index=0,
             key="cv_color_scheme",
         )
@@ -270,148 +432,144 @@ def render_tab_grid() -> None:
         if st.button("🔄 重置选择", use_container_width=True, key="cv_reset_grid"):
             st.session_state.cv_selected_row = 0
             st.session_state.cv_selected_col = 0
+            st.session_state.cv_grid_click_count += 1
             st.rerun()
 
-    # Build 36×36 grid: position numbers
-    grid_matrix = df.pivot_table(
-        index="36×36行", columns="36×36列", values="位置序号", aggfunc="first"
-    ).values
+    grid_matrix = _cv_grid_matrix(df)
     grid_df = pd.DataFrame(grid_matrix)
-    grid_df.columns = [f"C{c}" for c in range(GRID_SIZE)]
-    grid_df.index = [f"R{r}" for r in range(GRID_SIZE)]
-
-    # ---- Build color lookup ----
-    GROUP_COLORS = {
-        "一组": "#4CAF50", "二组": "#2196F3",
-        "三组": "#FF9800", "四组": "#9C27B0", "五组": "#F44336",
-    }
+    grid_df.columns = [f"C{c}" for c in range(G)]
+    grid_df.index = [f"R{r}" for r in range(G)]
 
     if color_scheme == "无":
-        def _style_fn(val: int) -> str:
-            if val == position_num:
-                return "background-color: #ffeb3b; font-weight: bold; color: black"
-            return ""
-    elif color_scheme == "按所属组":
-        pos_group = df.set_index("位置序号")["组"].to_dict()
-        def _style_fn(val: int) -> str:
-            g = pos_group.get(val)
-            bg = GROUP_COLORS.get(g, "#ffffff")
-            if val == position_num:
-                return f"background-color: {bg}; border: 2px solid black; font-weight: bold"
-            return f"background-color: {bg}; color: white"
-    elif color_scheme == "按IP组":
-        pos_ip = df.set_index("位置序号")["IP组"].to_dict()
-        # Evenly spaced hues in HSV for 26 values (101-126)
-        def _ip_color(ip_val: int) -> str:
-            t = (ip_val - 101) / 25.0  # 0..1
-            r, g, b = colorsys.hsv_to_rgb(t * 0.8, 0.6, 0.9)
-            return f"rgb({r*255:.0f},{g*255:.0f},{b*255:.0f})"
-        def _style_fn(val: int) -> str:
-            ip = pos_ip.get(val)
-            bg = _ip_color(ip) if ip is not None else "#ffffff"
-            if val == position_num:
-                return f"background-color: {bg}; border: 2px solid black; font-weight: bold"
-            return f"background-color: {bg}"
-    elif color_scheme == "按序号":
-        pos_seq = df.set_index("位置序号")["序号"].to_dict()
-        def _style_fn(val: int) -> str:
-            s = pos_seq.get(val, 0)
-            intensity = s / 49.0
-            g = int(200 - intensity * 180)
-            b = int(200 - intensity * 120)
-            bg = f"rgb({g},{b},{255 - int(intensity * 100)})"
-            if val == position_num:
-                return f"background-color: {bg}; border: 2px solid black; font-weight: bold"
-            return f"background-color: {bg}"
-    elif color_scheme == "按引脚编号":
-        pos_pin = df.set_index("位置序号")["引脚编号"].to_dict()
-        def _style_fn(val: int) -> str:
-            p = pos_pin.get(val, 0)
-            t = min(p / 316.0, 1.0)
-            r = int(50 + t * 200)
-            bg = f"rgb({r},{int(180*(1-t))},{int(80*(1-t))})"
-            if val == position_num:
-                return f"background-color: {bg}; border: 2px solid black; font-weight: bold"
-            return f"background-color: {bg}"
+        cell_style_js = None
     else:
-        def _style_fn(val: int) -> str:
-            return "background-color: #ffeb3b" if val == position_num else ""
+        if color_scheme == "按所属组":
+            color_map_json = json.dumps({str(k): v for k, v in _cv_group_color_map(df).items()})
+        elif color_scheme == "按IP组":
+            color_map_json = json.dumps({str(k): v for k, v in _cv_ip_color_map(df).items()})
+        elif color_scheme == "按序号":
+            color_map_json = json.dumps({str(k): v for k, v in _cv_seq_color_map(df).items()})
+        elif color_scheme == "按引脚编号":
+            color_map_json = json.dumps({str(k): v for k, v in _cv_pin_color_map(df).items()})
+        cell_style_js = JsCode(f"""
+            function(params) {{
+                var val = params.value;
+                if (val == null) return null;
+                var map = {color_map_json};
+                return {{'background-color': map[String(val)] || '#ffffff'}};
+            }}
+        """)
 
-    styled = grid_df.style.map(_style_fn)
+    tooltip_map = _cv_tooltip_map(df)
+    tooltip_js = JsCode(f"""
+        function(params) {{
+            var map = {json.dumps(tooltip_map)};
+            return map[String(params.value)] || '';
+        }}
+    """)
+    
+    gb = GridOptionsBuilder.from_dataframe(grid_df)
+    col_def_kwargs = {
+        "resizable": True,
+        "sortable": False,
+        "filter": False,
+        "editable": False,
+        "tooltipValueGetter": tooltip_js,
+    }
+    if cell_style_js is not None:
+        col_def_kwargs["cellStyle"] = cell_style_js
+    gb.configure_default_column(**col_def_kwargs)
+    gb.configure_grid_options(
+        rowHeight=28,
+        headerHeight=30,
+        suppressMovableColumns=True,
+        enableBrowserTooltips=False,
+    )
+    gb.configure_selection(selection_mode="single", use_checkbox=False)
+    grid_opts = gb.build()
 
-    grid_event = st.dataframe(
-        styled,
-        height=520,
-        use_container_width=True,
-        on_select="rerun",
-        selection_mode="single-cell",
-        key="cv_grid_main",
+    def _on_grid_click(response) -> None:
+        ed = response.event_data
+        if not ed:
+            return
+        row = ed.get("rowIndex")
+        col_id = ed.get("column", {}).get("colId", "")
+        if not col_id or not col_id.startswith("C"):
+            return
+        try:
+            col = int(col_id[1:])
+        except ValueError:
+            return
+        if 0 <= row < G and 0 <= col < G:
+            if row != st.session_state.cv_selected_row or col != st.session_state.cv_selected_col:
+                st.session_state.cv_selected_row = row
+                st.session_state.cv_selected_col = col
+                st.session_state.cv_grid_click_count += 1
+
+    AgGrid(
+        grid_df,
+        gridOptions=grid_opts,
+        height=940,
+        update_on=["cellClicked"],
+        callback=_on_grid_click,
+        allow_unsafe_jscode=True,
+        key="cv_grid_aggrid",
+        try_to_keep_selection_when_data_changes=False,
     )
 
-    # Capture click selection from grid — click highlights the cell in the grid,
-    # updates session state, and reruns so the cell editor / number_inputs refresh.
-    sel = grid_event.selection if grid_event else None
-    if sel and sel.get("rows") and sel.get("columns"):
-        clicked_row = sel["rows"][0]
-        clicked_col = sel["columns"][0]
-        if isinstance(clicked_row, str) and clicked_row.startswith("R"):
-            clicked_row = int(clicked_row[1:])
-        if isinstance(clicked_col, str) and clicked_col.startswith("C"):
-            clicked_col = int(clicked_col[1:])
-        if (0 <= clicked_row < GRID_SIZE and 0 <= clicked_col < GRID_SIZE
-            and (clicked_row != st.session_state.cv_selected_row
-                 or clicked_col != st.session_state.cv_selected_col)):
-            st.session_state.cv_selected_row = clicked_row
-            st.session_state.cv_selected_col = clicked_col
-            # Force number_inputs to re-initialize from cv_selected_row/col
-            st.session_state.pop("cv_row_input", None)
-            st.session_state.pop("cv_col_input", None)
-            st.session_state.pop("cv_pos_input", None)
-            st.rerun()
-
-    # ---- Legend ----
-    def _swatch(bg: str, label: str) -> str:
-        return f"<span style='display:inline-block;width:14px;height:14px;background:{bg};border-radius:3px;border:1px solid #999;vertical-align:middle'></span> <span style='font-size:0.85em'>{label}</span>"
+    def _legend_html(items: list[tuple[str, str]]) -> str:
+        """Build a flexbox row of (background_color, label) pairs."""
+        swatches = "".join(
+            f"<span style='display:inline-flex;align-items:center;gap:4px;"
+            f"white-space:nowrap;margin:2px 0'>"
+            f"<span style='display:inline-block;width:14px;height:14px;"
+            f"background:{bg};border-radius:3px;border:1px solid #999'></span>"
+            f"<span style='font-size:0.85em'>{label}</span></span>"
+            for bg, label in items
+        )
+        return f"<div style='display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center'>{swatches}</div>"
 
     if color_scheme == "按所属组":
         st.markdown("**图例 — 所属组:**")
-        leg_cols = st.columns(5)
-        for i, (g, c) in enumerate(GROUP_COLORS.items()):
-            with leg_cols[i]:
-                st.markdown(_swatch(c, g), unsafe_allow_html=True)
+        st.markdown(_legend_html([(c, g) for g, c in Config.GROUP_COLORS.items()]), unsafe_allow_html=True)
     elif color_scheme == "按IP组":
-        st.markdown("**图例 — IP组 (HSV 色调渐变):**")
-        samples = [101, 106, 111, 116, 121, 126]
-        leg_cols = st.columns(len(samples))
-        for i, ip in enumerate(samples):
-            t = (ip - 101) / 25.0
-            r, g, b = colorsys.hsv_to_rgb(t * 0.8, 0.6, 0.9)
-            bg = f"rgb({r*255:.0f},{g*255:.0f},{b*255:.0f})"
-            with leg_cols[i]:
-                st.markdown(_swatch(bg, str(ip)), unsafe_allow_html=True)
+        st.markdown("**图例 — IP组 (基于实际 IP 数量采样颜色):**")
+        ip_values = sorted(df["IP组"].unique())
+        items = []
+        for idx, ip in enumerate(ip_values):
+            hue = idx / max(len(ip_values) - 1, 1) * 0.85
+            r_c, g_c, b_c = colorsys.hsv_to_rgb(hue, 0.6, 0.9)
+            bg = f"rgb({r_c*255:.0f},{g_c*255:.0f},{b_c*255:.0f})"
+            items.append((bg, str(int(ip))))
+        st.markdown(_legend_html(items), unsafe_allow_html=True)
     elif color_scheme == "按序号":
         st.markdown("**图例 — 序号 (蓝绿色阶):**")
-        samples = [0, 12, 25, 37, 49]
-        leg_cols = st.columns(len(samples))
-        for i, s in enumerate(samples):
-            intensity = s / 49.0
+        items = []
+        for s in [0, 12, 25, 37, 49]:
+            intensity = s / Config.SEQ_MAX
             gr = int(200 - intensity * 180)
             b = int(200 - intensity * 120)
             bg = f"rgb({gr},{b},{255 - int(intensity * 100)})"
-            with leg_cols[i]:
-                st.markdown(_swatch(bg, str(s)), unsafe_allow_html=True)
+            items.append((bg, str(s)))
+        st.markdown(_legend_html(items), unsafe_allow_html=True)
     elif color_scheme == "按引脚编号":
         st.markdown("**图例 — 引脚编号 (红色阶):**")
-        samples = [1, 80, 158, 237, 316]
-        leg_cols = st.columns(len(samples))
-        for i, p in enumerate(samples):
-            t = min(p / 316.0, 1.0)
+        items = []
+        for p in [1, 80, 158, 237, 316]:
+            t = min(p / Config.PIN_MAX, 1.0)
             r = int(50 + t * 200)
             bg = f"rgb({r},{int(180*(1-t))},{int(80*(1-t))})"
-            with leg_cols[i]:
-                st.markdown(_swatch(bg, str(p)), unsafe_allow_html=True)
+            items.append((bg, str(p)))
+        st.markdown(_legend_html(items), unsafe_allow_html=True)
     elif color_scheme == "无":
-        st.caption("黄色高亮 = 当前位置 (行 {}, 列 {}, 序号 {})".format(sel_row, sel_col, position_num))
+        st.caption("粗体行 = 当前位置 (行 {}, 列 {}, 序号 {})".format(sel_row, sel_col, position_num))
+
+    sel_row = st.session_state.cv_selected_row
+    sel_col = st.session_state.cv_selected_col
+    position_num = sel_row * G + sel_col + 1
+
+    _render_conflict_section(df, sel_row, sel_col)
+    _render_cell_editor(df, sel_row, sel_col, position_num)
 
 
 # =============================================================================
@@ -420,8 +578,7 @@ def render_tab_grid() -> None:
 
 def lookup_by_ip_seq(df: pd.DataFrame, ip_group: int, seq: int) -> pd.DataFrame:
     """根据 IP 组和序号查询对应单元信息，可能返回多条。"""
-    matches = df[(df["IP组"] == ip_group) & (df["序号"] == seq)]
-    return matches
+    return df[(df["IP组"] == ip_group) & (df["序号"] == seq)]
 
 
 def render_tab_lookup() -> None:
@@ -435,10 +592,10 @@ def render_tab_lookup() -> None:
 
     col_ip, col_seq = st.columns([1, 1])
     with col_ip:
-        ip_group = st.number_input("IP组 (101~126)", min_value=101, max_value=126,
-                                   value=st.session_state.cv_lookup_ip, step=1, key="cv_lookup_ip_input")
+        ip_group = st.number_input("IP组 (101~126)", min_value=Config.IP_MIN, max_value=Config.IP_MAX,
+                                    value=st.session_state.cv_lookup_ip, step=1, key="cv_lookup_ip_input")
     with col_seq:
-        seq = st.number_input("序号 (0~49)", min_value=0, max_value=49,
+        seq = st.number_input("序号 (0~49)", min_value=Config.SEQ_MIN, max_value=Config.SEQ_MAX,
                               value=st.session_state.cv_lookup_seq, step=1, key="cv_lookup_seq_input")
 
     st.session_state.cv_lookup_ip = ip_group
@@ -450,10 +607,8 @@ def render_tab_lookup() -> None:
             result = lookup_by_ip_seq(df, ip_group, seq)
             st.session_state.cv_lookup_result = result
 
-    # ---- 显示查询结果 ----
     result = st.session_state.cv_lookup_result
     if result is not None and not result.empty:
-        # Check if the displayed result matches current query
         if len(result) > 0 and int(result.iloc[0]["IP组"]) == ip_group and int(result.iloc[0]["序号"]) == seq:
             st.divider()
             n_results = len(result)
@@ -462,7 +617,7 @@ def render_tab_lookup() -> None:
             for i, (_, row_data) in enumerate(result.iterrows()):
                 r = int(row_data["36×36行"])
                 c = int(row_data["36×36列"])
-                pos = r * GRID_SIZE + c + 1
+                pos = r * Config.GRID_SIZE + c + 1
 
                 if n_results > 1:
                     st.markdown(f"**匹配 {i+1}:**")
@@ -492,7 +647,6 @@ def render_tab_lookup() -> None:
     else:
         st.info("请输入 IP 组和序号，点击查询")
 
-        # Show available IPs
         st.divider()
         st.markdown("##### 可用 IP 组")
         ip_list = sorted(df["IP组"].unique())
@@ -508,6 +662,28 @@ def render_tab_lookup() -> None:
 # Sidebar
 # =============================================================================
 
+def _save_to_csv() -> None:
+    """将当前 DataFrame 保存到 CSV，成功后清理 dirty 标记。"""
+    df = st.session_state.cv_data
+    if df.empty:
+        return
+    path = _current_csv_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(path, index=False)
+        st.session_state.cv_dirty = False
+        st.success(f"✅ 已保存到 `{path}`")
+    except Exception as e:
+        st.error(f"❌ 保存失败: {e}")
+
+
+def _reload_data() -> None:
+    """重新加载 CSV 数据，清除缓存。"""
+    load_enriched_data.clear()
+    csv_path_str = str(_current_csv_path())
+    st.session_state.cv_data = load_enriched_data(csv_path_str)
+
+
 def render_sidebar() -> None:
     """渲染侧边栏信息。"""
     with st.sidebar:
@@ -516,7 +692,7 @@ def render_sidebar() -> None:
         df = st.session_state.cv_data
         if not df.empty:
             st.metric("陶瓷单元总数", len(df))
-            st.metric("网格大小", f"{GRID_SIZE} × {GRID_SIZE}")
+            st.metric("网格大小", f"{Config.GRID_SIZE} × {Config.GRID_SIZE}")
 
             with st.container(border=True):
                 st.markdown("##### 数据列说明")
@@ -544,10 +720,34 @@ def render_sidebar() -> None:
                         st.caption(f"IP{int(ip):>3}: {cnt} 单元")
 
             with st.container(border=True):
-                st.markdown("##### 数据源")
-                st.caption(f"文件: `{ENRICHED_CSV.name}`")
-                if ENRICHED_CSV.exists():
-                    st.caption(f"大小: {ENRICHED_CSV.stat().st_size / 1024:.1f} KB")
+                st.markdown("##### 数据源配置")
+                prev_filename = st.session_state.cv_csv_filename
+                new_filename = st.text_input("CSV 文件名", value=prev_filename, key="cv_csv_name_input",
+                                              help="文件名 (位于 data/ 目录下)")
+                if new_filename != prev_filename:
+                    st.session_state.cv_csv_filename = new_filename
+                    _reload_data()
+                    st.rerun()
+
+                path = _current_csv_path()
+                st.caption(f"完整路径: `{path}`")
+                if path.exists():
+                    st.caption(f"文件大小: {path.stat().st_size / 1024:.1f} KB")
+
+                col_save1, col_save2 = st.columns([1, 1])
+                with col_save1:
+                    dirty = st.session_state.cv_dirty
+                    if st.button("💾 保存到 CSV", type="primary" if dirty else "secondary",
+                                 use_container_width=True, disabled=not dirty, key="cv_save_csv"):
+                        _save_to_csv()
+                        st.rerun()
+                with col_save2:
+                    if st.button("🔄 重新加载", use_container_width=True, key="cv_reload_data"):
+                        _reload_data()
+                        st.rerun()
+
+                if dirty:
+                    st.warning("⚠️ 有未保存的修改")
         else:
             st.error("数据加载失败")
             st.info("运行 scripts/process_1300_data.py 生成数据")
@@ -571,9 +771,8 @@ def main() -> None:
 
     _initialize_state()
 
-    # Load data
     if st.session_state.cv_data is None:
-        st.session_state.cv_data = load_enriched_data()
+        _reload_data()
 
     render_sidebar()
 

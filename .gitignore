@@ -26,6 +26,7 @@ __pycache__*
 history.png
 
 data/*
+!data/1300-5-enriched.csv
 ckpts*
 !data/data_analysis.py
 .marscode*
