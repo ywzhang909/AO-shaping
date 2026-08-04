@@ -24,6 +24,7 @@ class DeviceType(Enum):
     SLM = auto()
     DM = auto()  # Deformable Mirror
     WFS = auto()  # Wavefront Sensor
+    POWER_METER = auto()  # Optical power meter (e.g., Thorlabs PM100)
     STAGE = auto()  # Motion stage
     LASER = auto()
     FILTER = auto()

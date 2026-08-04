@@ -85,6 +85,27 @@ except ImportError as e:
     SantecSLM200Error = None
 
 try:
+    from ao_shaping.drivers.powermeter import (
+        PM100Error,
+        PM100NotFoundError,
+        PM100NotConnectedError,
+        ThorlabsPM100,
+    )
+
+    __all__ += [
+        "ThorlabsPM100",
+        "PM100Error",
+        "PM100NotFoundError",
+        "PM100NotConnectedError",
+    ]
+except ImportError as e:
+    logger.debug(f"ThorlabsPM100 not available: {e}")
+    ThorlabsPM100 = None
+    PM100Error = None
+    PM100NotFoundError = None
+    PM100NotConnectedError = None
+
+try:
     from ao_shaping.drivers.visa_base import (
         VisaError,
         VisaInstrument,

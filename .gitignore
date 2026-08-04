@@ -66,9 +66,11 @@ docs/slm-200*
 data_adam/
 docs/WFS20_Manual*
 .opencode/
+.ocx/
+.sisyphus/
+.agents/
 # Binary assets
 *.png
-.agents/skills*
 nul
 checkpoints*
 wandb*
