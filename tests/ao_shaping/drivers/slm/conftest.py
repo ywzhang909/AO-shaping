@@ -1,7 +1,4 @@
-"""SLM hardware test configuration.
-
-Adds --hardware flag gating for SLM hardware integration tests.
-"""
+"""SLM hardware test gating."""
 
 from __future__ import annotations
 
@@ -9,12 +6,15 @@ import pytest
 
 
 def pytest_addoption(parser):
-    parser.addoption(
-        "--hardware",
-        action="store_true",
-        default=False,
-        help="Run hardware integration tests (requires connected devices)",
-    )
+    try:
+        parser.addoption(
+            "--hardware",
+            action="store_true",
+            default=False,
+            help="Run hardware integration tests (requires connected devices)",
+        )
+    except ValueError:
+        pass  # Already registered by tests/ao_shaping/drivers/hardware/conftest.py
 
 
 def pytest_collection_modifyitems(config, items):

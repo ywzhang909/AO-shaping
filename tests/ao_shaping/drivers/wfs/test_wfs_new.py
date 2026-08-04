@@ -9,8 +9,6 @@ from unittest.mock import MagicMock, call, patch
 
 import numpy as np
 import pytest
-from ao_shaping.drivers.wfs.ThorlabWFS import ThorlabWFS, WFSManager
-
 from ao_shaping.drivers import MlaRes, ThorlabWFS
 
 # ---------------------------------------------------------------------------
@@ -53,12 +51,12 @@ def test_get_ref_filename(wfs_instance):
 
 def test_get_ref_default_dir(wfs_instance):
     """Test _get_ref_default_dir() returns a valid Path."""
-    ref_dir = WFSManager._get_ref_default_dir()
+    ref_dir = ThorlabWFS._get_ref_default_dir()
     assert isinstance(ref_dir, Path), "Should return a Path object"
-    # The path should contain "Thorlabs" and "Reference"
-    path_str = str(ref_dir)
-    assert "Thorlabs" in path_str or "thorlabs" in path_str.lower()
-    assert "Reference" in path_str
+    # Valid locations: Thorlabs default (Windows/XDG) or project fallback
+    path_str = str(ref_dir).lower()
+    valid = "thorlabs" in path_str or path_str.endswith("wfs_ref")
+    assert valid, f"Unexpected reference directory: {ref_dir}"
     print(f"Reference directory: {ref_dir}")
 
 
@@ -130,13 +128,13 @@ def test_get_stable_spot_deviation_with_threshold(wfs_instance):
 
 
 # ---------------------------------------------------------------------------
-# Helper to create a mock WFS bound to a real WFSManager method.
+# Helper to create a mock WFS bound to a real ThorlabWFS method.
 # Handles the @require_take_image decorator by setting _image_captured=True.
 # ---------------------------------------------------------------------------
 
 def _make_mock_wfs() -> MagicMock:
-    """Create a MagicMock with WFSManager spec and _image_captured preset."""
-    wfs = MagicMock(spec=WFSManager)
+    """Create a MagicMock with ThorlabWFS spec and _image_captured preset."""
+    wfs = MagicMock(spec=ThorlabWFS)
     wfs._lib = MagicMock()
     wfs._instrument_handle = 1
     wfs._image_captured = True  # Bypass @require_take_image decorator
@@ -164,7 +162,7 @@ class TestGetMlaName:
 
     def test_get_mla_name_success(self):
         """Test get_mla_name returns a string on success."""
-        wfs = MagicMock(spec=WFSManager)
+        wfs = MagicMock(spec=ThorlabWFS)
         wfs.get_mla_name.return_value = "MLA150M-5C"
         name = wfs.get_mla_name()
         assert name == "MLA150M-5C"
@@ -175,60 +173,62 @@ class TestGetRefDefaultDir:
     """Tests for _get_ref_default_dir()."""
 
     def test_returns_path_object(self):
-        result = WFSManager._get_ref_default_dir()
+        result = ThorlabWFS._get_ref_default_dir()
         assert isinstance(result, Path)
 
     def test_path_contains_thorlabs(self):
-        result = WFSManager._get_ref_default_dir()
+        result = ThorlabWFS._get_ref_default_dir()
         path_str = str(result).lower()
-        assert "thorlabs" in path_str
+        valid = "thorlabs" in path_str or path_str.endswith("wfs_ref")
+        assert valid
 
     def test_path_contains_reference(self):
-        result = WFSManager._get_ref_default_dir()
+        result = ThorlabWFS._get_ref_default_dir()
         path_str = str(result)
-        assert "Reference" in path_str
+        valid = "Reference" in path_str or path_str.endswith("wfs_ref")
+        assert valid
 
 
 class TestGetRefFilename:
     """Tests for _get_ref_filename()."""
 
     def test_returns_string(self):
-        wfs = MagicMock(spec=WFSManager)
+        wfs = MagicMock(spec=ThorlabWFS)
         wfs.serial_num = "M00224955"
         wfs.mla_index = MlaRes.Res768
         wfs.get_mla_name = MagicMock(return_value="MLA150M-5C")
-        wfs._get_ref_filename = WFSManager._get_ref_filename.__get__(wfs)
+        wfs._get_ref_filename = ThorlabWFS._get_ref_filename.__get__(wfs)
 
         filename = wfs._get_ref_filename()
         assert isinstance(filename, str)
 
     def test_ends_with_ref(self):
-        wfs = MagicMock(spec=WFSManager)
+        wfs = MagicMock(spec=ThorlabWFS)
         wfs.serial_num = "M00224955"
         wfs.mla_index = MlaRes.Res768
         wfs.get_mla_name = MagicMock(return_value="MLA150M-5C")
-        wfs._get_ref_filename = WFSManager._get_ref_filename.__get__(wfs)
+        wfs._get_ref_filename = ThorlabWFS._get_ref_filename.__get__(wfs)
 
         filename = wfs._get_ref_filename()
         assert filename.endswith(".ref")
 
     def test_starts_with_wfs(self):
-        wfs = MagicMock(spec=WFSManager)
+        wfs = MagicMock(spec=ThorlabWFS)
         wfs.serial_num = "M00224955"
         wfs.mla_index = MlaRes.Res768
         wfs.get_mla_name = MagicMock(return_value="MLA150M-5C")
-        wfs._get_ref_filename = WFSManager._get_ref_filename.__get__(wfs)
+        wfs._get_ref_filename = ThorlabWFS._get_ref_filename.__get__(wfs)
 
         filename = wfs._get_ref_filename()
         assert filename.startswith("WFS_")
 
     def test_pattern_correct(self):
         """Verify filename pattern: WFS_<serial>_<mla>_<res>.ref."""
-        wfs = MagicMock(spec=WFSManager)
+        wfs = MagicMock(spec=ThorlabWFS)
         wfs.serial_num = "M00224955"
         wfs.mla_index = MlaRes.Res768
         wfs.get_mla_name = MagicMock(return_value="MLA150M-5C")
-        wfs._get_ref_filename = WFSManager._get_ref_filename.__get__(wfs)
+        wfs._get_ref_filename = ThorlabWFS._get_ref_filename.__get__(wfs)
 
         filename = wfs._get_ref_filename()
         # MlaRes.Res768 has value 2 (enum index, not pixel size)
@@ -237,11 +237,11 @@ class TestGetRefFilename:
 
     def test_empty_mla_name_fallback(self):
         """Empty mla_name uses 'unknown' fallback in filename."""
-        wfs = MagicMock(spec=WFSManager)
+        wfs = MagicMock(spec=ThorlabWFS)
         wfs.serial_num = "M00224955"
         wfs.mla_index = MlaRes.Res512  # value 3
         wfs.get_mla_name = MagicMock(return_value="")
-        wfs._get_ref_filename = WFSManager._get_ref_filename.__get__(wfs)
+        wfs._get_ref_filename = ThorlabWFS._get_ref_filename.__get__(wfs)
 
         filename = wfs._get_ref_filename(fallback_if_empty=True)
         assert "unknown" in filename
@@ -250,11 +250,11 @@ class TestGetRefFilename:
 
     def test_empty_mla_name_no_fallback(self):
         """Without fallback, empty mla_name produces double underscore."""
-        wfs = MagicMock(spec=WFSManager)
+        wfs = MagicMock(spec=ThorlabWFS)
         wfs.serial_num = "M00224955"
         wfs.mla_index = MlaRes.Res512
         wfs.get_mla_name = MagicMock(return_value="")
-        wfs._get_ref_filename = WFSManager._get_ref_filename.__get__(wfs)
+        wfs._get_ref_filename = ThorlabWFS._get_ref_filename.__get__(wfs)
 
         filename = wfs._get_ref_filename(fallback_if_empty=False)
         expected = "WFS_M00224955__3.ref"
@@ -271,7 +271,7 @@ class TestSaveUserRef:
         wfs._lib.WFS_SaveUserRefFile.return_value = 0
         wfs._get_ref_default_dir.return_value = tmp_path
         wfs._get_ref_filename.return_value = "WFS_M00224955_MLA150M-5C_0.ref"
-        wfs.save_user_ref = WFSManager.save_user_ref.__get__(wfs)
+        wfs.save_user_ref = ThorlabWFS.save_user_ref.__get__(wfs)
 
         # Create the source file that the DLL is supposed to have saved
         src_path = tmp_path / "WFS_M00224955_MLA150M-5C_0.ref"
@@ -295,7 +295,7 @@ class TestSaveUserRef:
         wfs._lib.WFS_SaveUserRefFile.return_value = 0
         wfs._get_ref_default_dir.return_value = tmp_path
         wfs._get_ref_filename.return_value = "WFS_M00224955_MLA150M-5C_0.ref"
-        wfs.save_user_ref = WFSManager.save_user_ref.__get__(wfs)
+        wfs.save_user_ref = ThorlabWFS.save_user_ref.__get__(wfs)
 
         # Create source file at DLL path
         src_path = tmp_path / "WFS_M00224955_MLA150M-5C_0.ref"
@@ -316,7 +316,7 @@ class TestSaveUserRef:
         """Test save when WFS_SetSpotsToUserReference fails returns None."""
         wfs = _make_mock_wfs()
         wfs._lib.WFS_SetSpotsToUserReference.return_value = 1  # DLL error
-        wfs.save_user_ref = WFSManager.save_user_ref.__get__(wfs)
+        wfs.save_user_ref = ThorlabWFS.save_user_ref.__get__(wfs)
 
         result = wfs.save_user_ref()
         assert result is None, "Should return None when SetSpotsToUserReference fails"
@@ -328,7 +328,7 @@ class TestSaveUserRef:
         wfs = _make_mock_wfs()
         wfs._lib.WFS_SetSpotsToUserReference.return_value = 0
         wfs._lib.WFS_SaveUserRefFile.return_value = 1  # DLL error
-        wfs.save_user_ref = WFSManager.save_user_ref.__get__(wfs)
+        wfs.save_user_ref = ThorlabWFS.save_user_ref.__get__(wfs)
 
         result = wfs.save_user_ref()
         assert result is None, "Should return None when SaveUserRefFile fails"
@@ -342,7 +342,7 @@ class TestSaveUserRef:
         wfs._lib.WFS_SaveUserRefFile.return_value = 0
         wfs._get_ref_default_dir.return_value = tmp_path
         wfs._get_ref_filename.return_value = "WFS_M00224955_MLA150M-5C_0.ref"
-        wfs.save_user_ref = WFSManager.save_user_ref.__get__(wfs)
+        wfs.save_user_ref = ThorlabWFS.save_user_ref.__get__(wfs)
 
         # Don't create the source file — simulate DLL not writing it
         result = wfs.save_user_ref(backup_dir=tmp_path)
@@ -360,7 +360,7 @@ class TestSaveUserRef:
         wfs._lib.WFS_SaveUserRefFile.return_value = 0
         wfs._get_ref_default_dir.return_value = tmp_path
         wfs._get_ref_filename.return_value = "WFS_M01219666_MLA150M-5C_3.ref"
-        wfs.save_user_ref = WFSManager.save_user_ref.__get__(wfs)
+        wfs.save_user_ref = ThorlabWFS.save_user_ref.__get__(wfs)
 
         # Simulate: DLL saved a file but with a different name than expected
         # (matching serial number but different MLA name)
@@ -386,7 +386,7 @@ class TestLoadUserRef:
         wfs._lib.WFS_SetReferencePlane.return_value = 0
         wfs._get_ref_default_dir.return_value = tmp_path
         wfs._get_ref_filename.return_value = "WFS_M00224955_MLA150M-5C_0.ref"
-        wfs.load_user_ref = WFSManager.load_user_ref.__get__(wfs)
+        wfs.load_user_ref = ThorlabWFS.load_user_ref.__get__(wfs)
 
         # Create a fake backup file
         backup_file = tmp_path / "test_backup.ref"
@@ -409,7 +409,7 @@ class TestLoadUserRef:
         wfs = _make_mock_wfs()
         wfs._lib.WFS_LoadUserRefFile.return_value = 0
         wfs._lib.WFS_SetReferencePlane.return_value = 0
-        wfs.load_user_ref = WFSManager.load_user_ref.__get__(wfs)
+        wfs.load_user_ref = ThorlabWFS.load_user_ref.__get__(wfs)
 
         result = wfs.load_user_ref()  # No backup_path
         assert result is True
@@ -419,7 +419,7 @@ class TestLoadUserRef:
     def test_load_nonexistent_file(self):
         """Test load with nonexistent file returns False."""
         wfs = _make_mock_wfs()
-        wfs.load_user_ref = WFSManager.load_user_ref.__get__(wfs)
+        wfs.load_user_ref = ThorlabWFS.load_user_ref.__get__(wfs)
 
         result = wfs.load_user_ref(backup_path="nonexistent.ref")
         assert result is False
@@ -430,7 +430,7 @@ class TestLoadUserRef:
         wfs._lib.WFS_LoadUserRefFile.return_value = 0
         wfs._get_ref_default_dir.return_value = tmp_path
         wfs._get_ref_filename.return_value = "WFS_M00224955_MLA150M-5C_0.ref"
-        wfs.load_user_ref = WFSManager.load_user_ref.__get__(wfs)
+        wfs.load_user_ref = ThorlabWFS.load_user_ref.__get__(wfs)
 
         # Create backup in a non-writable location? No, just test with path that
         # doesn't exist — handled by the `if not backup_path.exists()` check
@@ -444,7 +444,7 @@ class TestLoadUserRef:
         wfs._lib.WFS_SetReferencePlane.return_value = 0
         wfs._get_ref_default_dir.return_value = tmp_path
         wfs._get_ref_filename.return_value = "WFS_M00224955_MLA150M-5C_0.ref"
-        wfs.load_user_ref = WFSManager.load_user_ref.__get__(wfs)
+        wfs.load_user_ref = ThorlabWFS.load_user_ref.__get__(wfs)
 
         backup_file = tmp_path / "test_backup.ref"
         backup_file.write_bytes(b"fake ref data")
@@ -460,7 +460,7 @@ class TestCreateDefaultUserRef:
         """Test successful creation."""
         wfs = _make_mock_wfs()
         wfs._lib.WFS_CreateDefaultUserReference.return_value = 0
-        wfs.create_default_user_ref = WFSManager.create_default_user_ref.__get__(wfs)
+        wfs.create_default_user_ref = ThorlabWFS.create_default_user_ref.__get__(wfs)
 
         result = wfs.create_default_user_ref()
         assert result is True
@@ -470,7 +470,7 @@ class TestCreateDefaultUserRef:
         """Test creation failure returns False."""
         wfs = _make_mock_wfs()
         wfs._lib.WFS_CreateDefaultUserReference.return_value = 1
-        wfs.create_default_user_ref = WFSManager.create_default_user_ref.__get__(wfs)
+        wfs.create_default_user_ref = ThorlabWFS.create_default_user_ref.__get__(wfs)
 
         result = wfs.create_default_user_ref()
         assert result is False
@@ -483,7 +483,7 @@ class TestSetRefPlane:
         """Test setting default reference plane."""
         wfs = _make_mock_wfs()
         wfs._lib.WFS_SetReferencePlane.return_value = 0
-        wfs.set_ref_plane = WFSManager.set_ref_plane.__get__(wfs)
+        wfs.set_ref_plane = ThorlabWFS.set_ref_plane.__get__(wfs)
 
         wfs.set_ref_plane(custom=False)
         # Should call SetReferencePlane
@@ -496,7 +496,7 @@ class TestSetRefPlane:
         wfs = _make_mock_wfs()
         wfs._lib.WFS_SetReferencePlane.return_value = 0
         wfs._lib.WFS_LoadUserRefFile.return_value = 0
-        wfs.set_ref_plane = WFSManager.set_ref_plane.__get__(wfs)
+        wfs.set_ref_plane = ThorlabWFS.set_ref_plane.__get__(wfs)
 
         wfs.set_ref_plane(custom=True)
         # Should call SetReferencePlane with custom mode
@@ -511,7 +511,7 @@ class TestSetRefPlane:
         wfs = _make_mock_wfs()
         wfs._lib.WFS_SetReferencePlane.return_value = 0
         wfs._lib.WFS_LoadUserRefFile.return_value = 1  # File not found
-        wfs.set_ref_plane = WFSManager.set_ref_plane.__get__(wfs)
+        wfs.set_ref_plane = ThorlabWFS.set_ref_plane.__get__(wfs)
 
         # Should not raise, should fall back
         wfs.set_ref_plane(custom=True)
@@ -523,7 +523,7 @@ class TestSetRefPlane:
         """Test when WFS_SetReferencePlane itself fails."""
         wfs = _make_mock_wfs()
         wfs._lib.WFS_SetReferencePlane.return_value = 1  # API error
-        wfs.set_ref_plane = WFSManager.set_ref_plane.__get__(wfs)
+        wfs.set_ref_plane = ThorlabWFS.set_ref_plane.__get__(wfs)
 
         # Should not raise exception
         wfs.set_ref_plane(custom=True)
@@ -536,7 +536,7 @@ class TestGetStableSpotDeviation:
 
     def test_returns_two_arrays(self):
         """Test that function returns two numpy arrays."""
-        wfs = MagicMock(spec=WFSManager)
+        wfs = MagicMock(spec=ThorlabWFS)
         wfs.num_spots_x = 40
         wfs.num_spots_y = 40
         wfs._lib = MagicMock()
@@ -555,7 +555,7 @@ class TestGetStableSpotDeviation:
 
     def test_intensity_threshold_zeroes_low_intensity(self):
         """Test that low-intensity subapertures get zeroed out."""
-        wfs = MagicMock(spec=WFSManager)
+        wfs = MagicMock(spec=ThorlabWFS)
         wfs.num_spots_x = 40
         wfs.num_spots_y = 40
 
@@ -579,7 +579,7 @@ class TestGetStableSpotDeviation:
 
     def test_default_threshold_no_filtering(self):
         """Test that threshold=0.0 means no filtering."""
-        wfs = MagicMock(spec=WFSManager)
+        wfs = MagicMock(spec=ThorlabWFS)
         wfs.num_spots_x = 40
         wfs.num_spots_y = 40
 
