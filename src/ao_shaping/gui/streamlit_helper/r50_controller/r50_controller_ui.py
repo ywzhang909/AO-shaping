@@ -9,7 +9,7 @@ Run: ``streamlit run src/ao_shaping/gui/streamlit_helper/r50_controller/r50_cont
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -206,11 +206,15 @@ def _render_units_tab(client: R50ServiceClient) -> None:
         },
         disabled=["IP", "通道", "组", "针脚", "连接器"],
     )
-    if edited is not None and not edited.empty:
-        sel = edited[edited["选中"] == True]  # noqa: E712
-        st.session_state["r50c_selected_units"] = [
-            (int(r.IP), int(r.通道)) for r in sel.itertuples(index=False)
-        ]
+    if edited is not None:
+        edited_df = cast(pd.DataFrame, edited)
+        if not edited_df.empty:
+            mask = edited_df["选中"].to_numpy(dtype=bool)
+            ips = edited_df["IP"].to_numpy()
+            chs = edited_df["通道"].to_numpy()
+            st.session_state["r50c_selected_units"] = [
+                (int(a), int(b)) for a, b in zip(ips[mask], chs[mask])
+            ]
     selected = _selected_units()
     st.caption(f"已选 {len(selected)} 个单元")
     c1, c2, c3 = st.columns([1, 1, 2])
@@ -286,7 +290,7 @@ def _render_waveform_tab(client: R50ServiceClient) -> None:
     if targets:
         t = np.arange(0.0, 2.0, 0.01)
         cfg = WaveformConfig(targets=targets, **params)
-        preview = np.array([_waveform_value(cfg, x) for x in t])
+        preview = np.array([_waveform_value(cfg, float(x)) for x in t])
         st.line_chart(pd.DataFrame({"V": preview}))
     c1, c2 = st.columns(2)
     if c1.button("启动波形", key="wf_start", use_container_width=True, disabled=not targets):
@@ -321,8 +325,10 @@ def _render_joint_tab(client: R50ServiceClient) -> None:
     if not (status and status.joint_connected):
         st.info("联合控制未连接, 请在左侧连接")
         return
+    matrix_df = pd.DataFrame(np.asarray(_default_matrix(), dtype=np.float64))
+    matrix_df.columns = [str(i) for i in range(GRID_SIZE)]
     matrix = st.data_editor(
-        pd.DataFrame(_default_matrix(), columns=[str(i) for i in range(GRID_SIZE)]),
+        matrix_df,
         key="joint_matrix",
         height=420,
         column_config={

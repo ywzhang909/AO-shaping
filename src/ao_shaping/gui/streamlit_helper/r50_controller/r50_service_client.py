@@ -8,6 +8,7 @@ threading — the service process owns all IO.
 from __future__ import annotations
 
 import queue
+from typing import Any
 
 from loguru import logger
 
@@ -22,11 +23,11 @@ from ao_shaping.gui.streamlit_helper.r50_controller.r50_control_service import (
 class R50ServiceClient:
     """Command sender + status poller for one service process."""
 
-    def __init__(self, cmd_queue: queue.Queue, status_queue: queue.Queue) -> None:
+    def __init__(self, cmd_queue: Any, status_queue: Any) -> None:
         self.cmd_queue = cmd_queue
         self.status_queue = status_queue
 
-    def _send(self, action: str, **kwargs: object) -> None:
+    def _send(self, action: str, **kwargs: Any) -> None:
         self.cmd_queue.put(ServiceCommand(action=action, **kwargs))
 
     def connect_single(self, ip: str, port: int = CFG.DEFAULT_PORT, simulate: bool = False, controller_id: int = 1) -> None:

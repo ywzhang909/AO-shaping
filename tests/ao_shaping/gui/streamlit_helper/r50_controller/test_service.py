@@ -55,6 +55,7 @@ class TestSingleMode:
             await _cmd(service, "set_voltage_direct", voltage=12.0, targets=[(101, 3)])
             arr = service._current_array(101)
             assert arr[2] == pytest.approx(12.0)
+            assert service.single is not None
             assert service.single._voltages[2] == pytest.approx(12.0)
 
         asyncio.run(_run())
@@ -90,8 +91,10 @@ class TestJointMode:
             matrix = np.zeros((36, 36), dtype=np.float64)
             matrix[0, 0] = 5.0
             await _cmd(service, "set_joint_matrix", matrix=matrix)
+            assert service._joint_matrix is not None
             assert service._joint_matrix[0, 0] == pytest.approx(5.0)
             # flat array of first controller carries the value
+            assert service.joint is not None
             assert service._current_array(service.joint.ip_suffixes[0]).max() >= 0.0
 
         asyncio.run(_run())

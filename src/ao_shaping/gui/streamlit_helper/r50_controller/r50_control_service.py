@@ -44,6 +44,7 @@ for _p in (str(_PROJECT_ROOT), str(_PROJECT_ROOT / "src")):
 import numpy as np
 
 from loguru import logger
+from multiprocessing.context import SpawnProcess
 
 from ao_shaping.drivers.dm.MicroDM import MicroDM
 from ao_shaping.gui.streamlit_helper.r50_controller.r50_channel_select import (
@@ -428,8 +429,8 @@ class R50ControlService:
 
     def __init__(
         self,
-        cmd_queue: mp.Queue,
-        status_queue: mp.Queue,
+        cmd_queue: Any,
+        status_queue: Any,
         watchdog_timeout: float = 30.0,
     ) -> None:
         self.cmd_queue = cmd_queue
@@ -868,7 +869,7 @@ class R50ControlService:
 # =============================================================================
 
 
-def start_service(watchdog_timeout: float = 30.0) -> tuple[mp.Queue, mp.Queue, mp.Process]:
+def start_service(watchdog_timeout: float = 30.0) -> tuple[Any, Any, SpawnProcess]:
     """Spawn the control service child process; returns (cmd_queue, status_queue, proc)."""
     ctx = mp.get_context("spawn")
     cmd_q = ctx.Queue()
@@ -884,7 +885,7 @@ def start_service(watchdog_timeout: float = 30.0) -> tuple[mp.Queue, mp.Queue, m
     return cmd_q, status_q, proc
 
 
-def _service_main(cmd_q: mp.Queue, status_q: mp.Queue, watchdog_timeout: float) -> None:
+def _service_main(cmd_q: Any, status_q: Any, watchdog_timeout: float) -> None:
     logger.info(f"R50ControlService started, PID={os.getpid()}")
     service = R50ControlService(cmd_q, status_q, watchdog_timeout=watchdog_timeout)
     try:

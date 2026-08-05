@@ -6,6 +6,8 @@ hardware-voltage clipping contract.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pytest
 
@@ -16,8 +18,8 @@ from ao_shaping.gui.streamlit_helper.r50_controller.r50_control_service import (
 )
 
 
-def _cfg(**kw) -> WaveformConfig:
-    defaults = dict(
+def _cfg(**kw: Any) -> WaveformConfig:
+    defaults: dict[str, Any] = dict(
         type=WaveformType.DC,
         voltage=10.0,
         amp=10.0,
