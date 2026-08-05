@@ -14,9 +14,9 @@ import time
 
 import numpy as np
 
-from ao_shaping.gui.streamlit_helper import r50_channel_select as cs
-from ao_shaping.gui.streamlit_helper import r50_connection as conn
-from ao_shaping.gui.streamlit_helper import r50_voltage_send as vs
+from ao_shaping.gui.streamlit_helper.r50_controller import r50_channel_select as cs
+from ao_shaping.gui.streamlit_helper.r50_controller import r50_connection as conn
+from ao_shaping.gui.streamlit_helper.r50_controller import r50_voltage_send as vs
 
 
 def _sim_controllers(ips: list[int]) -> dict[int, object]:

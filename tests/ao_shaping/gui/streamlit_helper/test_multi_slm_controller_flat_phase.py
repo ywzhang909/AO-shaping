@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from ao_shaping.gui.streamlit_helper.multi_slm_controller import generate_phase_gray
+from ao_shaping.gui.streamlit_helper.slm.multi_slm_controller import generate_phase_gray
 
 
 # ---------------------------------------------------------------------------

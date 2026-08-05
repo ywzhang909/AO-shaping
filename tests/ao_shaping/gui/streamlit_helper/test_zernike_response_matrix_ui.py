@@ -68,7 +68,7 @@ class TestSLMShiftParameters:
         mock_state = self._create_mock_session_state()
 
         with patch.object(st, 'session_state', mock_state):
-            from ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui import _initialize_state
+            from ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui import _initialize_state
 
             _initialize_state()
 
@@ -77,7 +77,7 @@ class TestSLMShiftParameters:
 
     def test_shift_inputs_in_slm_settings(self):
         """Test that shift_x and shift_y number_inputs exist in SLM Settings"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "streamlit_helper" / "zernike_response_matrix_ui.py"
+        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "streamlit_helper" / "zernike" / "zernike_response_matrix_ui.py"
 
         with open(ui_file_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -104,8 +104,8 @@ class TestSLMShiftParameters:
         )
 
         with patch.object(st, 'session_state', mock_state):
-            with patch("ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui.ZernikeSLM", mock_zernikeslm):
-                from ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui import connect_slm
+            with patch("ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui.ZernikeSLM", mock_zernikeslm):
+                from ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui import connect_slm
 
                 connect_slm()
 
@@ -123,7 +123,7 @@ class TestSLMShiftParameters:
         mock_state = self._create_mock_session_state()
 
         with patch.object(st, 'session_state', mock_state):
-            from ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui import _initialize_state
+            from ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui import _initialize_state
 
             _initialize_state()
 
@@ -147,8 +147,8 @@ class TestSLMShiftParameters:
         )
 
         with patch.object(st, 'session_state', mock_state):
-            with patch("ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui.ZernikeSLM", mock_zernikeslm):
-                from ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui import connect_slm
+            with patch("ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui.ZernikeSLM", mock_zernikeslm):
+                from ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui import connect_slm
 
                 connect_slm()
 
@@ -201,7 +201,7 @@ class TestWFSSettings:
         mock_state = self._create_mock_session_state()
 
         with patch.object(st, 'session_state', mock_state):
-            from ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui import _initialize_state
+            from ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui import _initialize_state
 
             _initialize_state()
 
@@ -213,7 +213,7 @@ class TestWFSSettings:
 
     def test_wfs_settings_section_exists(self):
         """Test that WFS设置 section exists in sidebar"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "streamlit_helper" / "zernike_response_matrix_ui.py"
+        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "streamlit_helper" / "zernike" / "zernike_response_matrix_ui.py"
 
         with open(ui_file_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -242,8 +242,8 @@ class TestWFSSettings:
         )
 
         with patch.object(st, 'session_state', mock_state):
-            with patch("ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui.WFSManager", mock_wfsmanager):
-                from ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui import connect_wfs
+            with patch("ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui.WFSManager", mock_wfsmanager):
+                from ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui import connect_wfs
 
                 connect_wfs()
 
@@ -257,7 +257,7 @@ class TestWFSSettings:
 
     def test_mla_res_options(self):
         """Test that MLA resolution selectbox has correct options"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "streamlit_helper" / "zernike_response_matrix_ui.py"
+        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "streamlit_helper" / "zernike" / "zernike_response_matrix_ui.py"
 
         with open(ui_file_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -315,7 +315,7 @@ class TestCalibrationParameters:
         mock_state = self._create_mock_session_state()
 
         with patch.object(st, 'session_state', mock_state):
-            from ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui import _initialize_state
+            from ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui import _initialize_state
 
             _initialize_state()
 
@@ -326,7 +326,7 @@ class TestCalibrationParameters:
         mock_state = self._create_mock_session_state()
 
         with patch.object(st, 'session_state', mock_state):
-            from ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui import _initialize_state
+            from ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui import _initialize_state
 
             _initialize_state()
 
@@ -337,7 +337,7 @@ class TestCalibrationParameters:
         mock_state = self._create_mock_session_state()
 
         with patch.object(st, 'session_state', mock_state):
-            from ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui import _initialize_state
+            from ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui import _initialize_state
 
             _initialize_state()
 
@@ -345,7 +345,7 @@ class TestCalibrationParameters:
 
     def test_excluded_piston_checkbox_exists(self):
         """Test that excluded_piston checkbox exists in Calibration Parameters"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "streamlit_helper" / "zernike_response_matrix_ui.py"
+        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "streamlit_helper" / "zernike" / "zernike_response_matrix_ui.py"
 
         with open(ui_file_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -355,7 +355,7 @@ class TestCalibrationParameters:
 
     def test_compute_inverses_checkbox_exists(self):
         """Test that compute_inverses checkbox exists"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "streamlit_helper" / "zernike_response_matrix_ui.py"
+        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "streamlit_helper" / "zernike" / "zernike_response_matrix_ui.py"
 
         with open(ui_file_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -365,7 +365,7 @@ class TestCalibrationParameters:
 
     def test_verbose_checkbox_exists(self):
         """Test that verbose checkbox exists (optional)"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "streamlit_helper" / "zernike_response_matrix_ui.py"
+        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "streamlit_helper" / "zernike" / "zernike_response_matrix_ui.py"
 
         with open(ui_file_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -401,13 +401,13 @@ class TestCalibrationParameters:
         mock_state.zrm_wfs = mock_wfs
 
         with patch.object(st, 'session_state', mock_state):
-            with patch("ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui.calibrate_zernike_response_matrix", mock_calibrate):
-                from ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui import render_calibrate_mode
+            with patch("ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui.calibrate_zernike_response_matrix", mock_calibrate):
+                from ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui import render_calibrate_mode
 
                 # Call the function (it checks for button click, we need to mock st.button)
                 with patch.object(st, 'button', return_value=True):
                     with patch.object(st, 'text_input', return_value="test_file"):
-                        with patch("ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui.save_zernike_response_matrix"):
+                        with patch("ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui.save_zernike_response_matrix"):
                             with patch.object(st, 'success'):
                                 with patch.object(st, 'error'):
                                     with patch.object(st, 'warning'):
@@ -473,7 +473,7 @@ class TestProgressVisualization:
         mock_state = self._create_mock_session_state()
 
         with patch.object(st, 'session_state', mock_state):
-            from ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui import _initialize_state
+            from ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui import _initialize_state
 
             _initialize_state()
 
@@ -484,7 +484,7 @@ class TestProgressVisualization:
 
     def test_progress_bar_placeholder_exists(self):
         """Test that progress_bar = st.empty() is created"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "streamlit_helper" / "zernike_response_matrix_ui.py"
+        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "streamlit_helper" / "zernike" / "zernike_response_matrix_ui.py"
 
         with open(ui_file_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -507,7 +507,7 @@ class TestProgressVisualization:
             mock_state = self._create_mock_session_state(zrm_progress_file=progress_file)
 
             with patch.object(st, 'session_state', mock_state):
-                from ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui import _progress_callback
+                from ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui import _progress_callback
 
                 # Call the callback with test data
                 test_data = {
@@ -575,7 +575,7 @@ class TestProgressVisualization:
                 with patch.object(st, 'empty', side_effect=[mock_progress_bar, mock_status_text, mock_plot_placeholder]):
                     with patch.object(st, 'rerun'):
                         with patch("time.sleep"):
-                            from ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui import render_calibrate_mode
+                            from ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui import render_calibrate_mode
 
                             # Mock file exists check
                             with patch("pathlib.Path.exists", return_value=True):
@@ -591,7 +591,7 @@ class TestProgressVisualization:
                                     pass
 
             # Verify the UI file contains polling logic
-            ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "streamlit_helper" / "zernike_response_matrix_ui.py"
+            ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "streamlit_helper" / "zernike" / "zernike_response_matrix_ui.py"
             with open(ui_file_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
@@ -633,10 +633,10 @@ class TestProgressVisualization:
         mock_state.zrm_wfs = mock_wfs
 
         with patch.object(st, 'session_state', mock_state):
-            with patch("ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui.threading") as mock_threading:
+            with patch("ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui.threading") as mock_threading:
                 mock_threading.Thread.return_value = mock_thread_instance
 
-                from ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui import render_calibrate_mode
+                from ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui import render_calibrate_mode
 
                 # Mock UI elements
                 with patch.object(st, 'button', return_value=True):
@@ -674,7 +674,7 @@ class TestProgressVisualization:
             mock_state = self._create_mock_session_state(zrm_progress_file=progress_file)
 
             with patch.object(st, 'session_state', mock_state):
-                from ao_shaping.gui.streamlit_helper.zernike_response_matrix_ui import _progress_callback
+                from ao_shaping.gui.streamlit_helper.zernike.zernike_response_matrix_ui import _progress_callback
 
                 # Test with completion status
                 completion_data = {

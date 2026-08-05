@@ -52,6 +52,7 @@ AO-shaping/
 │   │   ├── tools/               # 独立工具 (SLM相位捕获, 数据采集)
 │   │   ├── display/             # 可视化 (窗口, GUI帧)
 │   │   └── gui/                 # GUI组件 (Streamlit)
+│   │       └── streamlit_helper/  # 按受控设备分包的 Streamlit 应用
 │   ├── calculators/             # Cython扩展 (独立)
 │   └── optical_ui/              # [已废弃]
 ├── tests/ao_shaping/             # 测试 (镜像src结构)
@@ -481,11 +482,25 @@ python scripts/inference_phase.py --model models/best_model.pth --input input.pn
 
 ### GUI界面 (Streamlit)
 
-项目提供了基于Streamlit的图形界面：
+Streamlit 应用按受控设备/用途分包于 `src/ao_shaping/gui/streamlit_helper/`：
+
+| 包 | 应用 | 受控设备 |
+|----|------|---------|
+| `r50_controller/` | `r50_controller_ui.py`（**新主界面**）、`micro_dm_ui.py`、`ceramic_viewer.py` | R50Power MicroDM（50通道高压电源，26台） |
+| `slm/` | `multi_slm_controller.py`、`slm_calibration_ui.py` | Santec SLM200 空间光调制器 |
+| `zernike/` | `zernike_response_matrix_ui.py`、`zernike_debug_viewer.py` | Zernike 响应矩阵校准/调试 |
+| `ccd/` | `ccd_analyzer.py` | 大恒/MIICAM CCD 相机 |
 
 ```bash
-streamlit run src/ao_shaping/gui/app.py
+# R50 控制器新主界面（双进程架构：UI 进程只发命令，独立服务进程独占硬件 IO）
+streamlit run src/ao_shaping/gui/streamlit_helper/r50_controller/r50_controller_ui.py
+
+# 其他应用
+streamlit run src/ao_shaping/gui/streamlit_helper/slm/multi_slm_controller.py
+streamlit run src/ao_shaping/gui/streamlit_helper/ccd/ccd_analyzer.py
 ```
+
+> 旧路径文件保留为向后兼容 shim（`*` 再导出）。每个包的 `README.md` 含运行说明与界面截图（`screenshots/`）。
 
 ## 硬件支持
 
