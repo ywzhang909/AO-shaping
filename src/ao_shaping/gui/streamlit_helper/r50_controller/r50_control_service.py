@@ -88,7 +88,10 @@ class WaveformType(Enum):
 
 @dataclass
 class WaveformConfig:
-    """Parameters for a waveform run. ``targets`` are ``(ip_suffix, payload_position)`` 1-based."""
+    """Parameters for a waveform run. ``targets`` are ``(ip_suffix, payload_position)`` 1-based.
+
+    ``duration`` in seconds; 0.0 (default) means run until explicitly stopped.
+    """
 
     type: WaveformType = WaveformType.DC
     targets: list[tuple[int, int]] = field(default_factory=list)
@@ -99,6 +102,7 @@ class WaveformConfig:
     voltage_a: float = 0.0
     voltage_b: float = 0.0
     dt: float = WAVEFORM_DEFAULT_DT
+    duration: float = 0.0
     vmin: float = CFG.HW_VOLTAGE_MIN
     vmax: float = CFG.HW_VOLTAGE_MAX
 
@@ -134,6 +138,8 @@ class ServiceStatus:
     group_name: str = ""
     waveform_running: bool = False
     waveform_type: str | None = None
+    waveform_duration: float = 0.0
+    waveform_remaining: float = 0.0
     current_voltages: dict[int, list[float]] = field(default_factory=dict)
     joint_matrix: list[list[float]] | None = None
     last_error: str = ""
@@ -252,6 +258,7 @@ class SingleControllerAdapter(ControllerAdapter):
             "relay_on": self.relay_on,
             "simulate": self.simulate,
             "mode": "single",
+            "http_port": getattr(self.ctrl, "http_port", None),
         }
 
 
@@ -353,6 +360,7 @@ class JointControllerAdapter(ControllerAdapter):
             "relay_on": self.relay_on,
             "simulate": self.simulate,
             "mode": "joint",
+            "http_ports": getattr(self.dm, "http_ports", None),
         }
 
 
@@ -416,6 +424,7 @@ class GroupControllerAdapter(ControllerAdapter):
             "simulate": self.simulate,
             "mode": "group",
             "group_name": self.group_name,
+            "http_port": getattr(next(iter(self.controllers.values()), None), "http_port", None),
         }
 
 
@@ -441,6 +450,7 @@ class R50ControlService:
         self.group: GroupControllerAdapter | None = None
         self._waveform_task: asyncio.Task | None = None
         self._waveform_cfg: WaveformConfig | None = None
+        self._waveform_started_at = 0.0
         self._last_command = time.time()
         self._running = True
         self._parent_pid = os.getppid()
@@ -523,6 +533,11 @@ class R50ControlService:
             )
 
         ctrl = await loop.run_in_executor(None, _blocking)
+        if cmd.simulate:
+            try:
+                await loop.run_in_executor(None, ctrl.start_http_server)
+            except Exception as exc:  # noqa: BLE001 — HTTP observability must never block a connection
+                logger.warning(f"Sim HTTP server start failed: {exc}")
         suffix = int(cmd.ip.rsplit(".", 1)[-1])
         self.single = SingleControllerAdapter(suffix, ctrl, simulate=cmd.simulate)
         logger.info(f"Connected single controller: {cmd.ip}:{cmd.port} simulate={cmd.simulate}")
@@ -545,6 +560,10 @@ class R50ControlService:
         if cmd.simulate:
             dm: Any = await loop.run_in_executor(None, SimulatedMicroDM, ip_suffixes)
             await loop.run_in_executor(None, dm.open)
+            try:
+                await loop.run_in_executor(None, dm.start_http_servers)
+            except Exception as exc:  # noqa: BLE001 — HTTP observability must never block a connection
+                logger.warning(f"Sim HTTP servers start failed: {exc}")
         else:
             dm = MicroDM(use_wiring_map=True)
             await loop.run_in_executor(None, dm.open)
@@ -601,6 +620,16 @@ class R50ControlService:
                 controllers[int(ip_suffix)] = await loop.run_in_executor(None, _blocking)
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"Group connect failed for {ip}: {exc}")
+        if cmd.simulate:
+            try:
+                await asyncio.gather(
+                    *(
+                        loop.run_in_executor(None, ctrl.start_http_server)
+                        for ctrl in controllers.values()
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 — HTTP observability must never block a connection
+                logger.warning(f"Group sim HTTP servers start failed: {exc}")
         if not controllers:
             self._last_error = "组内所有控制器连接失败"
             raise RuntimeError(self._last_error)
@@ -640,9 +669,12 @@ class R50ControlService:
         if self._waveform_task is not None and not self._waveform_task.done():
             await self._waveform_stop()
         cfg = cmd.waveform
+        cfg.duration = max(0.0, float(cfg.duration))
         self._waveform_cfg = cfg
+        self._waveform_started_at = time.time()
         self._waveform_task = asyncio.create_task(self._waveform_loop(cfg))
-        logger.info(f"Waveform started: {cfg.type.name} targets={len(cfg.targets)}")
+        run_info = f"duration={cfg.duration}s" if cfg.duration > 0.0 else "持续运行"
+        logger.info(f"Waveform started: {cfg.type.name} targets={len(cfg.targets)} {run_info} dt={cfg.dt}")
 
     async def _waveform_stop(self) -> None:
         if self._waveform_task is None or self._waveform_task.done():
@@ -666,8 +698,17 @@ class R50ControlService:
         n = 0
         try:
             while True:
-                t = time.time() - t0
-                voltage = WaveformEngine.compute(cfg, t)
+                elapsed = time.time() - t0
+                if cfg.duration > 0.0 and elapsed >= cfg.duration:
+                    self._waveform_cfg = None
+                    self._waveform_task = None
+                    logger.info(
+                        f"Waveform {cfg.type.name} auto-completed after {elapsed:.2f}s "
+                        f"(duration={cfg.duration:.2f}s), sending 0V to {len(cfg.targets)} targets"
+                    )
+                    await self._send_targets_zero(cfg.targets)
+                    return
+                voltage = WaveformEngine.compute(cfg, elapsed)
                 await self._send_targets_voltage(cfg.targets, voltage)
                 n += 1
                 next_tick = t0 + n * cfg.dt
@@ -834,6 +875,12 @@ class R50ControlService:
         if self._joint_matrix is not None:
             matrix = self._joint_matrix.tolist()
         running = self._waveform_task is not None and not self._waveform_task.done()
+        duration = 0.0
+        remaining = 0.0
+        if running and self._waveform_cfg is not None:
+            duration = self._waveform_cfg.duration
+            if duration > 0.0:
+                remaining = max(0.0, duration - (time.time() - self._waveform_started_at))
         return ServiceStatus(
             controllers=controllers,
             joint_connected=self.joint is not None,
@@ -844,6 +891,8 @@ class R50ControlService:
             group_name=self.group.group_name if self.group else "",
             waveform_running=running,
             waveform_type=self._waveform_cfg.type.name if self._waveform_cfg and running else None,
+            waveform_duration=duration,
+            waveform_remaining=remaining,
             current_voltages=current,
             joint_matrix=matrix,
             last_error=self._last_error,

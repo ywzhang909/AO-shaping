@@ -26,7 +26,12 @@ from ao_shaping.gui.streamlit_helper.r50_controller.r50_channel_select import CF
 
 
 class SimulatedR50Controller:
-    """In-memory R50Controller twin with the same send surface + readback()."""
+    """In-memory R50Controller twin with the same send surface + readback().
+
+    Logs every state change through loguru (so simulation activity is visible
+    in the service console) and can expose a JSON HTTP API on localhost via
+    :meth:`start_http_server` for external verification.
+    """
 
     def __init__(self, controller_id: int, ip: str, port: int) -> None:
         self.controller_id = controller_id
@@ -35,13 +40,17 @@ class SimulatedR50Controller:
         self._opened = False
         self._relay_on = False
         self._voltages = np.zeros(SINGLE_CHANNELS, dtype=np.float64)
+        self._http: Any = None
 
     def open(self) -> bool:
         self._opened = True
+        logger.info(f"[SIM {self.ip}] opened")
         return True
 
     def close(self) -> None:
+        self.stop_http_server()
         self._opened = False
+        logger.info(f"[SIM {self.ip}] closed")
 
     def is_connected(self) -> bool:
         return self._opened
@@ -50,18 +59,21 @@ class SimulatedR50Controller:
         if not self._opened:
             return False
         self._relay_on = bool(on)
+        logger.info(f"[SIM {self.ip}] relay -> {'ON' if on else 'OFF'}")
         return True
 
     def set_channel_voltage(self, channel: int, voltage: float) -> bool:
         if not self._opened or not (0 <= int(channel) < SINGLE_CHANNELS):
             return False
         self._voltages[int(channel)] = float(voltage)
+        logger.debug(f"[SIM {self.ip}] ch{int(channel) + 1} -> {float(voltage):.2f}V")
         return True
 
     def set_all_channel_voltage(self, voltage: float) -> bool:
         if not self._opened:
             return False
         self._voltages[:] = float(voltage)
+        logger.debug(f"[SIM {self.ip}] all channels -> {float(voltage):.2f}V")
         return True
 
     def set_all_voltage_array(self, voltages: list[float]) -> bool:
@@ -71,11 +83,38 @@ class SimulatedR50Controller:
         if arr.size != SINGLE_CHANNELS:
             return False
         self._voltages[:] = arr
+        logger.debug(
+            f"[SIM {self.ip}] array sent: min={arr.min():.2f} max={arr.max():.2f} mean={arr.mean():.2f}V"
+        )
         return True
 
     def readback(self) -> np.ndarray:
         """Copy of current per-channel voltages (sim inspection / tests)."""
         return self._voltages.copy()
+
+    def start_http_server(self, port: int | None = None) -> int:
+        """Expose the simulation on a localhost JSON HTTP API; returns the port.
+
+        Default port is ``18000 + ip_suffix`` (e.g. 192.168.0.101 -> 18101);
+        falls back to an ephemeral port when the derived one is taken.
+        """
+        from ao_shaping.gui.streamlit_helper.r50_controller.r50_sim_http import SimHttpServer
+
+        if self._http is not None:
+            return self._http.port
+        derived = 18000 + int(self.ip.rsplit(".", 1)[-1])
+        self._http = SimHttpServer(self, port if port is not None else derived)
+        return self._http.start()
+
+    def stop_http_server(self) -> None:
+        if self._http is not None:
+            self._http.stop()
+            self._http = None
+
+    @property
+    def http_port(self) -> int | None:
+        """Bound HTTP API port, or None when the API is not running."""
+        return self._http.port if self._http is not None else None
 
 
 class SimulatedMicroDM:
@@ -120,6 +159,23 @@ class SimulatedMicroDM:
 
     def readback(self, ip_suffix: int) -> np.ndarray:
         return self._controllers[int(ip_suffix)].readback()
+
+    def start_http_servers(self) -> dict[int, int]:
+        """Expose every inner controller on its own localhost JSON HTTP API.
+
+        Returns ``{ip_suffix: port}``; ports derive from each controller's IP
+        (18000 + suffix) with ephemeral fallback when taken.
+        """
+        return {int(ip): ctrl.start_http_server() for ip, ctrl in self._controllers.items()}
+
+    def stop_http_servers(self) -> None:
+        for ctrl in self._controllers.values():
+            ctrl.stop_http_server()
+
+    @property
+    def http_ports(self) -> dict[int, int]:
+        """Per-IP HTTP API ports, or an empty dict when not running."""
+        return {int(ip): ctrl.http_port for ip, ctrl in self._controllers.items() if ctrl.http_port is not None}
 
     @property
     def ip_suffixes(self) -> list[int]:

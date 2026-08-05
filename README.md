@@ -500,7 +500,7 @@ streamlit run src/ao_shaping/gui/streamlit_helper/slm/multi_slm_controller.py
 streamlit run src/ao_shaping/gui/streamlit_helper/ccd/ccd_analyzer.py
 ```
 
-> 旧路径文件保留为向后兼容 shim（`*` 再导出）。每个包的 `README.md` 含运行说明与界面截图（`screenshots/`）。
+> 旧路径的迁移前单体文件已删除；应用与逻辑统一位于子包内（`r50_controller/`、`slm/`、`zernike/`、`ccd/`）。每个包的 `README.md` 含运行说明与界面截图（`screenshots/`）。
 
 ## 硬件支持
 

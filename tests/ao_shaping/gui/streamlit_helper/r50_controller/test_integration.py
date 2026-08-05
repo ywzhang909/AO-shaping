@@ -69,6 +69,35 @@ def test_service_lifecycle_and_simulated_control() -> None:
             proc.join(timeout=5.0)
 
 
+def test_waveform_auto_stop_with_duration() -> None:
+    cmd_q, status_q, proc = start_service()
+    try:
+        client = R50ServiceClient(cmd_q, status_q)
+        client.connect_single("192.168.0.101", simulate=True)
+        _wait_status(client, lambda s: 101 in s.controllers)
+
+        client.start_waveform(
+            WaveformConfig(
+                type=WaveformType.DC, targets=[(101, 3)], voltage=20.0, dt=0.05, duration=1.2
+            )
+        )
+        status = _wait_status(client, lambda s: s.waveform_running)
+        assert status.waveform_duration == pytest.approx(1.2)
+        assert 0.0 < status.waveform_remaining <= 1.2
+
+        status = _wait_status(client, lambda s: not s.waveform_running, timeout=10.0)
+        assert status.waveform_running is False
+        assert status.current_voltages[101][2] == pytest.approx(0.0)
+    finally:
+        if proc.is_alive():
+            client = R50ServiceClient(cmd_q, status_q)
+            client.stop_service()
+            proc.join(timeout=10.0)
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(timeout=5.0)
+
+
 def test_respawn_after_process_death() -> None:
     cmd_q, status_q, proc = start_service()
     client = R50ServiceClient(cmd_q, status_q)

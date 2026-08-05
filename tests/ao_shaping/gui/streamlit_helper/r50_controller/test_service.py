@@ -80,6 +80,8 @@ class TestJointMode:
             assert service.joint is not None
             assert service.joint.ip_suffixes
             assert service._joint_matrix is not None
+            await _cmd(service, "disconnect_joint")
+            assert service.joint is None
 
         asyncio.run(_run())
 
@@ -96,6 +98,7 @@ class TestJointMode:
             # flat array of first controller carries the value
             assert service.joint is not None
             assert service._current_array(service.joint.ip_suffixes[0]).max() >= 0.0
+            await _cmd(service, "disconnect_joint")
 
         asyncio.run(_run())
 
@@ -165,6 +168,74 @@ class TestWaveform:
             await _cmd(service, "set_voltage_direct", voltage=1.0, targets=[(101, 1)])
             assert "波形运行中" in service._last_error
             assert service._current_array(101)[0] != pytest.approx(1.0)
+            await _cmd(service, "waveform_stop")
+
+        asyncio.run(_run())
+
+
+class TestWaveformDuration:
+    def test_waveform_auto_stops_after_duration_and_zeroes_targets(self) -> None:
+        service = _make_service()
+
+        async def _run() -> None:
+            await _cmd(service, "connect_single", ip="192.168.0.101", simulate=True)
+            cfg = WaveformConfig(
+                type=WaveformType.DC,
+                targets=[(101, 5)],
+                voltage=20.0,
+                dt=0.01,
+                duration=0.15,
+            )
+            await _cmd(service, "waveform_start", waveform=cfg)
+            assert service._waveform_task is not None
+            await asyncio.sleep(0.05)
+            assert service._waveform_task is not None and not service._waveform_task.done()
+            assert service._current_array(101)[4] == pytest.approx(20.0)
+            await asyncio.sleep(0.35)
+            assert service._waveform_task is None
+            assert service._waveform_cfg is None
+            assert service._current_array(101)[4] == pytest.approx(0.0)
+
+        asyncio.run(_run())
+
+    def test_duration_zero_runs_until_stopped(self) -> None:
+        service = _make_service()
+
+        async def _run() -> None:
+            await _cmd(service, "connect_single", ip="192.168.0.101", simulate=True)
+            cfg = WaveformConfig(
+                type=WaveformType.DC,
+                targets=[(101, 5)],
+                voltage=20.0,
+                dt=0.01,
+                duration=0.0,
+            )
+            await _cmd(service, "waveform_start", waveform=cfg)
+            await asyncio.sleep(0.25)
+            assert service._waveform_task is not None and not service._waveform_task.done()
+            await _cmd(service, "waveform_stop")
+            assert service._waveform_task is None
+            assert service._current_array(101)[4] == pytest.approx(0.0)
+
+        asyncio.run(_run())
+
+    def test_status_reports_duration_and_remaining(self) -> None:
+        service = _make_service()
+
+        async def _run() -> None:
+            await _cmd(service, "connect_single", ip="192.168.0.101", simulate=True)
+            cfg = WaveformConfig(
+                type=WaveformType.DC,
+                targets=[(101, 1)],
+                voltage=10.0,
+                dt=0.02,
+                duration=5.0,
+            )
+            await _cmd(service, "waveform_start", waveform=cfg)
+            status = service._build_status()
+            assert status.waveform_running is True
+            assert status.waveform_duration == pytest.approx(5.0)
+            assert 0.0 < status.waveform_remaining <= 5.0
             await _cmd(service, "waveform_stop")
 
         asyncio.run(_run())

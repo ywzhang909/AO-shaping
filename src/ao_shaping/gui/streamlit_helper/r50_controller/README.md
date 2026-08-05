@@ -36,7 +36,7 @@ R50Power 控制器（MicroDM / 50通道高压电源）的 Streamlit 控制界面
 | `micro_dm_ui.py` | 旧单体 MicroDM UI（原样保留） |
 | `ceramic_viewer.py` | 陶瓷件查看器 |
 
-> `streamlit_helper/` 下的旧路径文件为**向后兼容 shim**（`*` 再导出），保证旧测试与旧入口继续可用。
+> `streamlit_helper/` 旧路径的迁移前单体文件已删除；所有应用与逻辑均位于各子包内（`r50_controller/`、`slm/`、`zernike/`、`ccd/`）。
 
 ## 运行
 

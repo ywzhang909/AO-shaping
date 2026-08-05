@@ -51,6 +51,12 @@ def _ensure_service() -> tuple[R50ServiceClient, Any]:
 
 
 def _status() -> Any:
+    """Return the status cached by the monitor fragment.
+
+    The service publishes into a single status queue that the monitor
+    fragment drains; reading the fragment's session_state cache here
+    (instead of polling the queue again) avoids racing that drain.
+    """
     return st.session_state.get("r50c_status")
 
 
@@ -143,6 +149,8 @@ def _render_devices_tab(client: R50ServiceClient) -> None:
     rows: list[dict[str, Any]] = []
     for ip_suffix in ALL_IP_SUFFIXES:
         info = (status.controllers.get(ip_suffix) if status else None) or {}
+        http_ports = info.get("http_ports") or {}
+        http_display = http_ports.get(ip_suffix) if http_ports else info.get("http_port")
         rows.append(
             {
                 "IP": f"192.168.0.{ip_suffix}",
@@ -150,6 +158,7 @@ def _render_devices_tab(client: R50ServiceClient) -> None:
                 "模式": info.get("mode", "-"),
                 "继电器": "开" if info.get("relay_on") else "关",
                 "模拟": "是" if info.get("simulate") else "否",
+                "HTTP端口": http_display if http_display else "-",
             }
         )
     st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
@@ -254,6 +263,10 @@ def _waveform_params() -> dict[str, Any]:
         params["voltage_b"] = st.number_input("低电平 (V)", -20.0, 120.0, 0.0, key="wf_sq_b")
         params["freq"] = st.number_input("频率 (Hz)", 0.01, 100.0, 1.0, key="wf_sq_freq")
     params["dt"] = st.number_input("步长 dt (s)", 0.01, 1.0, 0.05, key="wf_dt")
+    params["duration"] = st.number_input(
+        "发送持续时长 (s, 0 = 持续运行)", 0.0, 3600.0, 0.0, 1.0, key="wf_duration",
+        help="波形连续发送该时长后自动停止并下发 0V；0 表示持续运行直到手动停止",
+    )
     return params
 
 
@@ -281,6 +294,7 @@ def _build_targets(status: Any) -> list[tuple[int, int]]:
     return [(int(ip), pp) for ip in status.controllers for pp in range(1, SINGLE_CHANNELS + 1)]
 
 
+@st.fragment(run_every=0.5)
 def _render_waveform_tab(client: R50ServiceClient) -> None:
     st.subheader("波形配置")
     params = _waveform_params()
@@ -298,7 +312,10 @@ def _render_waveform_tab(client: R50ServiceClient) -> None:
     if c2.button("停止波形", key="wf_stop", use_container_width=True, disabled=not (status and status.waveform_running)):
         client.stop_waveform()
     if status and status.waveform_running:
-        st.success(f"波形运行中: {status.waveform_type}")
+        if status.waveform_duration > 0.0:
+            st.success(f"波形运行中: {status.waveform_type}, 剩余 {status.waveform_remaining:.1f}s / {status.waveform_duration:.1f}s")
+        else:
+            st.success(f"波形运行中: {status.waveform_type} (持续运行)")
 
 
 def _waveform_value(cfg: WaveformConfig, t: float) -> float:
