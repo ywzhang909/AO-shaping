@@ -43,20 +43,48 @@ class TestR50Controller:
         return R50Controller(controller_id=8, ip=CONTROLLER_IP, port=CONTROLLER_PORT)
     
     def test_sends(self, controller: R50Controller):
-        assert controller.open()
-        assert controller.set_relay(True)
-        assert controller.set_all_channel_voltage(10)
-        # assert controller.set_all_voltage_array(list(range(1, 51)))
-        # assert controller.set_channel_voltage(1, 20)
-        # assert controller.set_relay(False)
-        
+        """Smoke test a command sequence with a mocked socket (no hardware)."""
+        with patch("socket.socket") as mock_socket_cls:
+            mock_sock_instance = Mock()
+            mock_socket_cls.return_value = mock_sock_instance
+
+            assert controller.open()
+            assert controller.set_relay(True)
+            assert controller.set_all_channel_voltage(10)
+
+            # 2 commands sent: relay on + set all channel voltage
+            assert mock_sock_instance.sendall.call_count == 2
+            relay_cmd = HEADER + bytes([CMD_RELAY_ON]) + FOOTER
+            payload = voltages_to_payload(10.0)
+            voltage_cmd = (
+                HEADER
+                + bytes([CMD_SET_ALL_CHANNEL_VOLTAGE, payload[0], payload[1]])
+                + FOOTER
+            )
+            assert mock_sock_instance.sendall.call_args_list[0].args[0] == relay_cmd
+            assert mock_sock_instance.sendall.call_args_list[1].args[0] == voltage_cmd
+
+    @pytest.mark.asyncio
     async def test_sends_async(self, controller: R50Controller):
-        assert controller.open()
-        assert await controller.set_all_voltage_array_async([10.0]*50)
+        """Test the async voltage-array command with a mocked socket."""
+        with patch("socket.socket") as mock_socket_cls:
+            mock_sock_instance = Mock()
+            mock_socket_cls.return_value = mock_sock_instance
+
+            assert controller.open()
+            assert await controller.set_all_voltage_array_async([10.0] * 50)
+
+            expected = (
+                HEADER
+                + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR])
+                + voltages_to_payload([10.0] * 50)
+                + FOOTER
+            )
+            mock_sock_instance.sendall.assert_called_once_with(expected)
         
     def test_initialization(self, controller):
         """Test controller initialization."""
-        assert controller.controller_id == 1
+        assert controller.controller_id == 8  # fixture uses controller_id=8
         assert controller.ip == CONTROLLER_IP
         assert controller.port == CONTROLLER_PORT
         assert controller._timeout == 10.0  # DEFAULT_TIMEOUT
@@ -86,7 +114,9 @@ class TestR50Controller:
                 socket_module.AF_INET, socket_module.SOCK_STREAM
             )
             mock_sock_instance.settimeout.assert_called_once_with(10.0)
-            mock_sock_instance.connect.assert_called_once_with(("127.0.0.1", 10101))
+            mock_sock_instance.connect.assert_called_once_with(
+                (CONTROLLER_IP, CONTROLLER_PORT)
+            )
 
     def test_open_timeout(self, controller):
         """Test connection timeout."""
@@ -243,10 +273,10 @@ class TestR50ControllerSendCommandAsync:
 class TestR50ControllerProtocol:
     """Tests for R50Controller protocol compliance using a real port listener."""
     
-    async def _create_port_listener(self):
-        """Create and start a port listener."""
+    def _create_port_listener(self):
+        """Create and start a port listener (PortListener.start is synchronous)."""
         listener = PortListener()
-        await listener.start()
+        listener.start()
         return listener
     
     async def _create_controller(self, port_listener):
@@ -268,7 +298,7 @@ class TestR50ControllerProtocol:
     async def test_set_all_channel_voltage_protocol(self):
         """Test that set_all_channel_voltage sends correct protocol bytes."""
         # Create and start port listener
-        port_listener = await self._create_port_listener()
+        port_listener = self._create_port_listener()
 
         try:
             # Create controller pointing to our listener
@@ -307,13 +337,13 @@ class TestR50ControllerProtocol:
                 controller.close()
         finally:
             # Cleanup port listener
-            await port_listener.stop()
+            port_listener.stop()
 
     @pytest.mark.asyncio
     async def test_set_channel_voltage_protocol(self):
         """Test that set_channel_voltage sends correct protocol bytes."""
         # Create and start port listener
-        port_listener = await self._create_port_listener()
+        port_listener = self._create_port_listener()
 
         try:
             # Create controller pointing to our listener
@@ -354,13 +384,13 @@ class TestR50ControllerProtocol:
                 controller.close()
         finally:
             # Cleanup port listener
-            await port_listener.stop()
+            port_listener.stop()
 
     @pytest.mark.asyncio
     async def test_set_all_voltage_array_protocol(self):
         """Test that set_all_voltage_array sends correct protocol bytes."""
         # Create and start port listener
-        port_listener = await self._create_port_listener()
+        port_listener = self._create_port_listener()
 
         try:
             # Create controller pointing to our listener
@@ -407,13 +437,13 @@ class TestR50ControllerProtocol:
                 controller.close()
         finally:
             # Cleanup port listener
-            await port_listener.stop()
+            port_listener.stop()
 
     @pytest.mark.asyncio
     async def test_send_command_async_protocol(self):
         """Test that send_command_async sends correct protocol bytes."""
         # Create and start port listener
-        port_listener = await self._create_port_listener()
+        port_listener = self._create_port_listener()
 
         try:
             # Create controller pointing to our listener
@@ -457,4 +487,4 @@ class TestR50ControllerProtocol:
                 controller.close()
         finally:
             # Cleanup port listener
-            await port_listener.stop()
+            port_listener.stop()
