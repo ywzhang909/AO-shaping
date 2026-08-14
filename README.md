@@ -49,7 +49,7 @@ AO-shaping/
 │   │   │   ├── trainer/         # 训练器
 │   │   │   ├── models/          # 神经网络模型
 │   │   │   └── wandb_logger.py  # WandB日志
-│   │   ├── tools/               # 独立工具 (SLM相位捕获, 数据采集)
+│   │   ├── tools/               # 独立工具 (SLM相位捕获, Micro-DM逐单元图像采集)
 │   │   ├── display/             # 可视化 (窗口, GUI帧)
 │   │   └── gui/                 # GUI组件 (Streamlit)
 │   ├── calculators/             # Cython扩展 (独立)
@@ -463,6 +463,41 @@ python -m ao_shaping.runners.alt_voltage_runner [OPTIONS]
 7. DM响应矩阵标定:
 ```bash
 python -m ao_shaping.runners.dm_matrix_runner [OPTIONS]
+```
+
+8. Micro-DM 逐单元图像采集:
+```bash
+python -m ao_shaping.tools.micro_dm_image_collect [OPTIONS]
+```
+
+遍历一个或多个 R50Power 控制器, 对每个通道 (单元) 依次下发电压并用 MiiCam 相机采集图像, 每通道采集后归位。未指定 `--ip` 时遍历所有控制器 (wiring map 或默认 192.168.0.101-126), 某个控制器连接失败则跳过并继续下一个。
+
+常用选项:
+- `--ip`: 控制器 IP, 可多次指定; 不指定则遍历所有控制器
+- `-v, --voltage`: 下发电压 V (必需, -20~120)
+- `--home-voltage`: 归位电压 V (默认: 0.0)
+- `--channels`: 通道列表 逗号分隔 或 'all' 全部 50 通道 (默认: all)
+- `-o, --output`: 输出目录 (默认: data/micro_dm_images)
+- `--cam-id`: MiiCam 相机 ID (默认: config 中 far_cam_id)
+- `--exposure-ms`: MiiCam 曝光时间 ms (默认: 20)
+- `--bit-depth`: 输出位深 8 或 16 (默认: 8)
+- `--n-sample`: 每帧平均采样数 (默认: 1)
+- `--n-frames`: 每通道采集图像张数 (默认: 1)
+- `--settle-time`: 电压下发后等待时间 s (默认: 0.5)
+- `--ping-first/--no-ping-first`: 连接前先 ping 测试 (默认: 开启)
+- `--relay-on/--no-relay-on`: 连接后自动继电器上电 (默认: 开启)
+- `--save-npy`: 额外保存 .npy 原始数组
+
+示例:
+```bash
+# 单控制器, 全部 50 通道 20V
+python -m ao_shaping.tools.micro_dm_image_collect --ip 192.168.0.101 --voltage 20 -o data/micro_dm_images
+
+# 不指定 IP → 遍历所有控制器
+python -m ao_shaping.tools.micro_dm_image_collect --voltage 20
+
+# 每通道采集 3 张
+python -m ao_shaping.tools.micro_dm_image_collect --ip 192.168.0.101 --voltage 20 --n-frames 3
 ```
 
 注意: `combined_runner.py` 已废弃，请使用 `pipeline_runner`

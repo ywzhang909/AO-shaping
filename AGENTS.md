@@ -37,7 +37,7 @@ AO-shaping/
 │   │   │   ├── trainer/         # Training utilities
 │   │   │   ├── models/          # Neural network models
 │   │   │   └── wandb_logger.py  # WandB integration
-│   │   ├── tools/                # Standalone tools (SLM phase capture, data collection)
+│   │   ├── tools/                # Standalone tools (SLM phase capture, Micro-DM image collection, data collection)
 │   │   ├── display/              # Visualization (Windows, frames for GUI)
 │   │   └── gui/                  # GUI components (Streamlit)
 │   ├── calculators/               # Cython extensions (standalone)
@@ -60,7 +60,7 @@ AO-shaping/
 | Simulation | `src/ao_shaping/drivers/sim/` | Digital twin devices |
 | Utilities | `src/ao_shaping/utils/` | spots_calc, wavefront_calc, zernike_calc, display |
 | ML training | `src/ml/` (standalone, not inside `ao_shaping/`) | U-Net+GAN, trainer, wandb_logger |
-| Standalone tools | `src/ao_shaping/tools/` | SLM phase capture, train data collection |
+| Standalone tools | `src/ao_shaping/tools/` | SLM phase capture, Micro-DM per-channel image collection, train data collection |
 | Visualization | `src/ao_shaping/display/` | Windows, frames for GUI |
 | GUI | `src/ao_shaping/gui/` | Streamlit components |
 | Tests | `tests/ao_shaping/` | Mirror of src structure |
