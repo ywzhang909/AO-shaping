@@ -8,8 +8,6 @@ surface plus readback() for tests and scripted self-verification.
 from __future__ import annotations
 
 import socket
-import subprocess
-import sys
 from typing import Any
 
 import numpy as np
@@ -18,6 +16,7 @@ from loguru import logger
 
 from ao_shaping.drivers.dm.MicroDM import DEFAULT_TIMEOUT, R50Controller
 from ao_shaping.gui.streamlit_helper.r50_channel_select import CFG, SINGLE_CHANNELS
+from ao_shaping.utils.network import ping_reachable
 
 
 # =============================================================================
@@ -202,15 +201,3 @@ def tcp_reachable(ip: str, port: int, timeout: float = 1.0) -> bool:
     except OSError:
         return False
 
-
-def ping_reachable(ip: str, timeout: float = 2.0) -> bool:
-    """Ping a host via system ping; used by the connectivity test panel."""
-    try:
-        if sys.platform.startswith("win"):
-            cmd = ["ping", "-n", "1", "-w", str(int(timeout * 1000)), ip]
-        else:
-            cmd = ["ping", "-c", "1", "-W", str(int(timeout)), ip]
-        result = subprocess.run(cmd, capture_output=True, timeout=timeout + 2.0)
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, OSError):
-        return False

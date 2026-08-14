@@ -55,7 +55,6 @@ import asyncio
 import json
 import os
 import socket
-import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
@@ -71,6 +70,7 @@ from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.dm._registry import register_dm
 from ao_shaping.utils.device_config import ConfigHandler, DeviceParam, param
 from ao_shaping.utils.file import ROOT_DIR
+from ao_shaping.utils.network import ping_reachable
 
 # =============================================================================
 # Protocol Constants
@@ -1119,22 +1119,7 @@ class MicroDM(DM, Device):
         Returns:
             True if the host responds to ping, False otherwise.
         """
-        param = "-n" if subprocess.os.name == "nt" else "-c"
-        timeout_arg = (
-            str(int(timeout * 1000))
-            if subprocess.os.name == "nt"
-            else str(int(timeout))
-        )
-        try:
-            result = subprocess.run(
-                ["ping", param, "1", "-W", timeout_arg, ip],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=timeout + 1,
-            )
-            return result.returncode == 0
-        except (subprocess.TimeoutExpired, OSError):
-            return False
+        return ping_reachable(ip, timeout)
 
     def get_connection_status(self) -> list[ControllerStatus]:
         """Get connection and reachability status for all controllers.

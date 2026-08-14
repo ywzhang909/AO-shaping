@@ -53,6 +53,7 @@ from ao_shaping.drivers.dm.MicroDM import (
     WiringMap,
 )
 from ao_shaping.utils.cli_helpers import setup_coredumpy
+from ao_shaping.utils.network import ping_reachable
 
 # 硬件限制
 HW_VOLTAGE_MIN = -20.0
@@ -68,37 +69,6 @@ def _signal_handler(signum: int, frame: object | None) -> None:
     global _running
     _running = False
     click.echo("\n⏹  收到中断信号, 正在安全关闭...")
-
-
-def _ping_reachable(ip: str, timeout: float = 2.0) -> bool:
-    """对控制器 IP 直接执行 ICMP ping 可达性测试。
-
-    注意: Windows 下 ping 超时参数为小写 ``-w`` (毫秒), Linux/macOS 为大写
-    ``-W`` (秒), 必须按平台区分, 否则 ping 会报 "Bad option" 而失败。
-
-    Args:
-        ip: 控制器 IP 地址
-        timeout: 超时时间 (s)
-
-    Returns:
-        ping 可达返回 True, 否则 False
-    """
-    import subprocess
-
-    if sys.platform.startswith("win"):
-        cmd = ["ping", "-n", "1", "-w", str(int(timeout * 1000)), ip]
-    else:
-        cmd = ["ping", "-c", "1", "-W", str(int(timeout)), ip]
-    try:
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=timeout + 1,
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, OSError):
-        return False
 
 
 def _get_miicam_camera(cam_id: int, exposure_ms: float, bit_depth: int = 8) -> CameraStreamManager:
@@ -528,7 +498,7 @@ def run(
             # 可选 ping 测试
             if ping_first:
                 click.echo(f"📡 Ping 测试 {ip_addr}... ", nl=False)
-                if _ping_reachable(ip_addr, timeout=2.0):
+                if ping_reachable(ip_addr, timeout=2.0):
                     click.echo("✅ 可达")
                 else:
                     click.echo("❌ 不可达, 跳过该控制器")

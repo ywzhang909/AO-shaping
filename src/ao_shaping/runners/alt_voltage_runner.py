@@ -27,6 +27,7 @@ from loguru import logger
 
 from ao_shaping.drivers.dm.MicroDM import R50Controller
 from ao_shaping.utils.cli_helpers import setup_coredumpy
+from ao_shaping.utils.network import ping_reachable
 
 # Optional ADC driver — TYPE_CHECKING lets us annotate while handling runtime absence
 if TYPE_CHECKING:
@@ -54,28 +55,6 @@ def _signal_handler(signum: int, frame) -> None:
     global _running
     _running = False
     click.echo("\n⏹  收到中断信号, 正在安全关闭...")
-
-
-def _ping_reachable(ip: str, timeout: float = 2.0) -> bool:
-    """ICMP ping 可达性测试。"""
-    import subprocess
-
-    param = "-n" if sys.platform.startswith("win") else "-c"
-    timeout_arg = (
-        str(int(timeout * 1000))
-        if sys.platform.startswith("win")
-        else str(int(timeout))
-    )
-    try:
-        result = subprocess.run(
-            ["ping", param, "1", "-W", timeout_arg, ip],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=timeout + 1,
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, OSError):
-        return False
 
 
 def _adc_worker(
@@ -188,7 +167,7 @@ def run(
     # Ping check
     if ping_first:
         click.echo(f"📡 Ping 测试 {ip}... ", nl=False)
-        if _ping_reachable(ip, timeout=2.0):
+        if ping_reachable(ip, timeout=2.0):
             click.echo("✅ 可达")
         else:
             click.echo("❌ 不可达")

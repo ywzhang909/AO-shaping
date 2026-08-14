@@ -17,7 +17,6 @@ from __future__ import annotations
 import collections
 import io
 import socket
-import subprocess
 import sys
 import threading
 import time
@@ -27,8 +26,9 @@ import numpy as np
 import streamlit as st
 from loguru import logger
 
-from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
 from ao_shaping.drivers.dm.MicroDM import R50Controller
+from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.network import ping_reachable
 # =============================================================================
 # Constants
 # =============================================================================
@@ -199,28 +199,12 @@ def _tcp_reachable(ip: str, port: int, timeout: float = 2.0) -> bool:
         return False
 
 
-def _ping_reachable(ip: str, timeout: float = 2.0) -> bool:
-    """ICMP ping 可达性测试。"""
-    param = "-n" if subprocess.os.name == "nt" else "-c"
-    timeout_arg = str(int(timeout * 1000)) if subprocess.os.name == "nt" else str(int(timeout))
-    try:
-        result = subprocess.run(
-            ["ping", param, "1", "-W", timeout_arg, ip],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=timeout + 1,
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, OSError):
-        return False
-
-
 def test_single_connectivity() -> None:
     """测试单个单元 IP/端口连通性，写入反馈。"""
     ip = st.session_state.mdm_single_ip.strip()
     port = int(st.session_state.mdm_single_port)
     tcp_ok = _tcp_reachable(ip, port)
-    ping_ok = _ping_reachable(ip)
+    ping_ok = ping_reachable(ip)
     if tcp_ok:
         msg = f"✅ TCP {ip}:{port} 可连通" + ("" if ping_ok else " (ICMP ping 未响应)")
         set_tab1_feedback(msg, "success")
