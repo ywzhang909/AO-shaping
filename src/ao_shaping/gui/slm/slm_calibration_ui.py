@@ -1,4 +1,4 @@
-"""SLM LUT (Look-Up Table) Calibration UI
+﻿"""SLM LUT (Look-Up Table) Calibration UI
 
 Features:
 1. Connect to SLM and camera devices
@@ -8,7 +8,7 @@ Features:
 5. Save/load calibration results
 
 Usage:
-    streamlit run src/ao_shaping/gui/streamlit_helper/slm_calibration_ui.py
+    streamlit run src/ao_shaping/gui/slm/slm_calibration_ui.py
 """
 
 from __future__ import annotations

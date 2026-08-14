@@ -1,4 +1,4 @@
-"""
+﻿"""
 1300陶瓷单元查看工具 (Streamlit)
 
 功能:
@@ -6,7 +6,7 @@
 2. Tab 2 - IP+序号查询: 通过 IP+序号反查引脚编号和 36×36 位置
 
 使用方式:
-    streamlit run src/ao_shaping/gui/streamlit_helper/ceramic_viewer.py
+    streamlit run src/ao_shaping/gui/dm/ceramic_viewer.py
 """
 
 from __future__ import annotations

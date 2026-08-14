@@ -1,4 +1,4 @@
-"""RED tests for r50_voltage_send (pure logic, no streamlit).
+﻿"""RED tests for r50_voltage_send (pure logic, no streamlit).
 
 Contract covered (Wave 1):
 - S1: multi-channel send -> single correct bulk array, sim controller matches
@@ -19,17 +19,17 @@ import time
 import numpy as np
 import pytest
 
-from ao_shaping.gui.streamlit_helper.r50_channel_select import (
+from ao_shaping.gui.r50.r50_channel_select import (
     CFG,
     ChannelInfo,
     ChannelSelection,
     GroupDef,
 )
-from ao_shaping.gui.streamlit_helper.r50_connection import (
+from ao_shaping.gui.r50.r50_connection import (
     SimulatedMicroDM,
     SimulatedR50Controller,
 )
-from ao_shaping.gui.streamlit_helper.r50_voltage_send import (
+from ao_shaping.gui.r50.r50_voltage_send import (
     SendResult,
     alt_tick,
     apply_group_controllers,

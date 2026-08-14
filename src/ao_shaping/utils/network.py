@@ -7,6 +7,7 @@ gui/tools to import. All controller connectivity checks should use
 
 from __future__ import annotations
 
+import socket
 import subprocess
 import sys
 
@@ -38,4 +39,35 @@ def ping_reachable(ip: str, timeout: float = 2.0) -> bool:
         )
         return result.returncode == 0
     except (subprocess.TimeoutExpired, OSError):
+        return False
+
+
+def ip_last_octet(ip: str) -> int | None:
+    """Extract the last octet of an IPv4 address (192.168.0.101 -> 101).
+
+    Returns None when the input has no parseable trailing octet.
+    """
+    parts = ip.rsplit(".", 1)
+    if len(parts) == 2 and parts[1].isdigit():
+        return int(parts[1])
+    return None
+
+
+def controller_tcp_port(ip: str, default: int | None = None) -> int | None:
+    """R50Power controller TCP port: 10000 + last IP octet (192.168.0.101 -> 10101).
+
+    Returns ``default`` when the IP has no parseable last octet.
+    """
+    octet = ip_last_octet(ip)
+    if octet is None:
+        return default
+    return 10000 + octet
+
+
+def tcp_reachable(ip: str, port: int, timeout: float = 2.0) -> bool:
+    """Probe a TCP port; returns reachable or not."""
+    try:
+        with socket.create_connection((ip, int(port)), timeout=timeout):
+            return True
+    except OSError:
         return False

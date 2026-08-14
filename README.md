@@ -516,10 +516,20 @@ python scripts/inference_phase.py --model models/best_model.pth --input input.pn
 
 ### GUI界面 (Streamlit)
 
-项目提供了基于Streamlit的图形界面：
+项目提供了基于Streamlit的图形界面，按设备域分包于 `src/ao_shaping/gui/` 下，各 UI 独立运行：
 
 ```bash
-streamlit run src/ao_shaping/gui/app.py
+# R50 控制器 (单单元/单控制器/组/联合控制)
+streamlit run src/ao_shaping/gui/r50/r50_controller_ui.py
+
+# Micro-DM 驱动控制
+streamlit run src/ao_shaping/gui/dm/micro_dm_ui.py
+
+# Zernike 响应矩阵校准
+streamlit run src/ao_shaping/gui/zernike/zernike_response_matrix_ui.py
+
+# SLM 校准
+streamlit run src/ao_shaping/gui/slm/slm_calibration_ui.py
 ```
 
 ## 硬件支持

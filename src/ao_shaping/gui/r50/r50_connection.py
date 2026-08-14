@@ -1,4 +1,4 @@
-"""R50 controller connection layer: simulated controllers, factory, power safety.
+﻿"""R50 controller connection layer: simulated controllers, factory, power safety.
 
 No top-level streamlit import. Hardware mode uses the real R50Controller /
 MicroDM drivers; simulation mode provides twin classes with an identical send
@@ -7,7 +7,6 @@ surface plus readback() for tests and scripted self-verification.
 
 from __future__ import annotations
 
-import socket
 from typing import Any
 
 import numpy as np
@@ -15,8 +14,8 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.dm.MicroDM import DEFAULT_TIMEOUT, R50Controller
-from ao_shaping.gui.streamlit_helper.r50_channel_select import CFG, SINGLE_CHANNELS
-from ao_shaping.utils.network import ping_reachable
+from ao_shaping.gui.r50.r50_channel_select import CFG, SINGLE_CHANNELS
+from ao_shaping.utils.network import ping_reachable, tcp_reachable
 
 
 # =============================================================================
@@ -75,6 +74,13 @@ class SimulatedR50Controller:
     def readback(self) -> np.ndarray:
         """Copy of current per-channel voltages (sim inspection / tests)."""
         return self._voltages.copy()
+
+    def power_off_and_close(self, home_voltage: float = 0.0) -> None:
+        """Twin of :meth:`R50Controller.power_off_and_close`: home, relay off,
+        then close — keeps the simulated send surface identical."""
+        self.set_all_channel_voltage(home_voltage)
+        self.set_relay(False)
+        self.close()
 
 
 class SimulatedMicroDM:
@@ -175,9 +181,21 @@ def set_relay(ctrl: Any | None, on: bool) -> bool:
 
 
 def power_off_and_close(ctrl: Any | None) -> None:
-    """Relay OFF first, then close controller. None-safe, exception-safe."""
+    """Safe power-off: relay OFF first, then close controller.
+
+    Real R50Controller instances use the driver's safe shutdown sequence
+    (home voltages -> relay OFF -> close); simulated/twin surfaces fall
+    back to relay OFF + close. None-safe, exception-safe.
+    """
     if ctrl is None:
         return
+    fn = getattr(ctrl, "power_off_and_close", None)
+    if callable(fn):
+        try:
+            fn()
+            return
+        except Exception as e:
+            logger.warning(f"power_off_and_close failed: {e}")
     try:
         set_relay(ctrl, False)
     except Exception:
@@ -188,16 +206,5 @@ def power_off_and_close(ctrl: Any | None) -> None:
         logger.warning(f"close failed: {e}")
 
 
-# =============================================================================
-# Connectivity Probes
-# =============================================================================
-
-
-def tcp_reachable(ip: str, port: int, timeout: float = 1.0) -> bool:
-    """Probe a TCP port; returns reachable or not."""
-    try:
-        with socket.create_connection((ip, int(port)), timeout=timeout):
-            return True
-    except OSError:
-        return False
+# tcp_reachable is re-exported from ao_shaping.utils.network (imported above).
 

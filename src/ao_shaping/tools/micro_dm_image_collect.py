@@ -48,17 +48,15 @@ from ao_shaping.config import DEVICES
 from ao_shaping.drivers.ccd.miicam_driver import CameraStreamManager
 from ao_shaping.drivers.dm.MicroDM import (
     DEFAULT_IPS,
+    MAX_CHANNELS,
     R50Controller,
+    VOLTAGE_MAX,
+    VOLTAGE_MIN,
     WIRING_MAP_PATH,
     WiringMap,
 )
 from ao_shaping.utils.cli_helpers import setup_coredumpy
-from ao_shaping.utils.network import ping_reachable
-
-# 硬件限制
-HW_VOLTAGE_MIN = -20.0
-HW_VOLTAGE_MAX = 120.0
-SINGLE_CHANNELS = 50
+from ao_shaping.utils.network import controller_tcp_port, ping_reachable
 
 # 全局运行标志 (信号处理器修改)
 _running = True
@@ -108,14 +106,14 @@ def _parse_channels(channel_str: str) -> list[int]:
         SystemExit: 通道格式错误或超出范围时退出 (退出码 1)
     """
     if channel_str.strip().lower() == "all":
-        return list(range(SINGLE_CHANNELS))
+        return list(range(MAX_CHANNELS))
     try:
         channels = [int(c.strip()) for c in channel_str.split(",")]
     except ValueError:
         click.echo("❌ 通道格式错误, 请使用逗号分隔 (如 0,1,2)")
         sys.exit(1)
-    if not all(0 <= c < SINGLE_CHANNELS for c in channels):
-        click.echo(f"❌ 通道号必须在 0-{SINGLE_CHANNELS - 1} 范围内")
+    if not all(0 <= c < MAX_CHANNELS for c in channels):
+        click.echo(f"❌ 通道号必须在 0-{MAX_CHANNELS - 1} 范围内")
         sys.exit(1)
     return channels
 
@@ -171,8 +169,10 @@ def _resolve_ip_port(ip_str: str, port: int | None) -> tuple[str, int]:
         raise ValueError(f"IP 格式无效: {ip_str}") from None
     if not all(0 <= o <= 255 for o in octets):
         raise ValueError(f"IP 地址超出范围: {ip_str}")
-    resolved_port = 10000 + octets[-1] if port is None else port
-    return ip_str, resolved_port
+    resolved = controller_tcp_port(ip_str) if port is None else port
+    if resolved is None:
+        raise ValueError(f"无法解析端口: {ip_str}")
+    return ip_str, resolved
 
 
 def _save_frame(
@@ -329,31 +329,18 @@ def _collect_for_ip(
 
 
 def _safe_shutdown(ctrl: R50Controller, home_voltage: float) -> None:
-    """安全关闭单个控制器: 全部通道归位 → 继电器下电 → 关闭连接。"""
+    """安全关闭单个控制器: 全部通道归位 → 继电器下电 → 关闭连接。
+
+    实际关闭序列由 :meth:`R50Controller.power_off_and_close` 驱动,
+    本函数只负责用户反馈输出。
+    """
     click.echo("")
     click.echo("⏹  安全关闭中...")
-
-    # 全部通道归位
     try:
-        ctrl.set_all_channel_voltage(home_voltage)
-        click.echo(f"  ✅ 已下发 {home_voltage:g}V 到所有通道")
+        ctrl.power_off_and_close(home_voltage)
+        click.echo(f"  ✅ 已下发 {home_voltage:g}V 归位, 继电器已下电, 连接已关闭")
     except Exception as e:
-        click.echo(f"  ⚠️  下发 {home_voltage:g}V 失败: {e}")
-
-    # 继电器下电
-    try:
-        ctrl.set_relay(False)
-        click.echo("  ✅ 继电器已下电")
-    except Exception as e:
-        click.echo(f"  ⚠️  继电器下电失败: {e}")
-
-    # 关闭连接
-    try:
-        ctrl.close()
-        click.echo("  ✅ 连接已关闭")
-    except Exception as e:
-        click.echo(f"  ⚠️  关闭连接失败: {e}")
-
+        click.echo(f"  ⚠️  安全关闭失败: {e}")
     click.echo("🏁 控制器已退出")
 
 
@@ -433,10 +420,10 @@ def run(
         logger.add(sys.stderr, level="DEBUG")
 
     # 校验电压范围
-    if voltage < HW_VOLTAGE_MIN or voltage > HW_VOLTAGE_MAX:
+    if voltage < VOLTAGE_MIN or voltage > VOLTAGE_MAX:
         click.echo(
             f"❌ 电压 {voltage} V 超出硬件范围 "
-            f"[{HW_VOLTAGE_MIN}, {HW_VOLTAGE_MAX}] V"
+            f"[{VOLTAGE_MIN}, {VOLTAGE_MAX}] V"
         )
         sys.exit(1)
 

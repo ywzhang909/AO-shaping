@@ -1,4 +1,4 @@
-"""
+﻿"""
 Zernike Response Matrix Debug Data Viewer (Streamlit)
 
 Features:
@@ -12,7 +12,7 @@ Features:
 8. Visualize the calibrated response matrix (from .h5 file)
 
 Usage:
-    streamlit run src/ao_shaping/gui/streamlit_helper/zernike_debug_viewer.py
+    streamlit run src/ao_shaping/gui/zernike/zernike_debug_viewer.py
 """
 
 from __future__ import annotations

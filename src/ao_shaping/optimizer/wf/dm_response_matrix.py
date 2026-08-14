@@ -15,10 +15,10 @@ Supports:
 Example:
     >>> from ao_shaping.optimizer.wf.dm_response_matrix import calibrate_dm_response_matrix
     >>> from ao_shaping.drivers.dm.NLight import NLight
-    >>> from ao_shaping.drivers.wfs.ThorlabWFS import WFSManager
+    >>> from ao_shaping.drivers.wfs import ThorlabWFS
     >>>
     >>> with NLight() as dm:
-    ...     with WFSManager() as wfs:
+    ...     with ThorlabWFS() as wfs:
     ...         result = calibrate_dm_response_matrix(dm, wfs, n_cycles=3, n_averages=5)
     ...         print(f"Matrix shape: {result.matrix.shape}")
     ...         print(f"Condition number: {result.condition_number}")

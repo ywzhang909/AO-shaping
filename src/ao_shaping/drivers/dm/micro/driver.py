@@ -721,6 +721,17 @@ class R50Controller:
         cmd = HEADER + bytes([CMD_RELAY_ON if state else CMD_RELAY_OFF]) + FOOTER
         return self.send_command(cmd)
 
+    def power_off_and_close(self, home_voltage: float = 0.0) -> None:
+        """Safe shutdown: home all channels, relay OFF, then close connection.
+
+        Homes (zeroes) the output voltages before cutting relay power so the
+        mirror surface returns to its reference position while the controller
+        is still energised. Single call shared by CLI tools and the GUI.
+        """
+        self.set_all_channel_voltage(home_voltage)
+        self.set_relay(False)
+        self.close()
+
     async def send_command_async(self, data: bytes) -> bool:
         """Non-blocking version of send_command, runs the TCP send in a thread pool.
 

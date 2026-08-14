@@ -1,4 +1,4 @@
-"""
+﻿"""
 Micro DM 微驱动器控制 UI (Streamlit)
 
 功能:
@@ -9,14 +9,13 @@ Micro DM 微驱动器控制 UI (Streamlit)
 两个 Tab 均可独立设置电压的上下限 (安全范围)。
 
 使用方式:
-    streamlit run src/ao_shaping/gui/streamlit_helper/micro_dm_ui.py
+    streamlit run src/ao_shaping/gui/dm/micro_dm_ui.py
 """
 
 from __future__ import annotations
 
 import collections
 import io
-import socket
 import sys
 import threading
 import time
@@ -28,7 +27,7 @@ from loguru import logger
 
 from ao_shaping.drivers.dm.MicroDM import R50Controller
 from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
-from ao_shaping.utils.network import ping_reachable
+from ao_shaping.utils.network import ping_reachable, tcp_reachable
 # =============================================================================
 # Constants
 # =============================================================================
@@ -187,23 +186,11 @@ def render_voltage_limits(key_prefix: str) -> None:
 # 连通性测试 / 单单元连接
 # =============================================================================
 
-def _tcp_reachable(ip: str, port: int, timeout: float = 2.0) -> bool:
-    """TCP 端口连通性测试。"""
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(timeout)
-        result = sock.connect_ex((ip, port))
-        sock.close()
-        return result == 0
-    except OSError:
-        return False
-
-
 def test_single_connectivity() -> None:
     """测试单个单元 IP/端口连通性，写入反馈。"""
     ip = st.session_state.mdm_single_ip.strip()
     port = int(st.session_state.mdm_single_port)
-    tcp_ok = _tcp_reachable(ip, port)
+    tcp_ok = tcp_reachable(ip, port)
     ping_ok = ping_reachable(ip)
     if tcp_ok:
         msg = f"✅ TCP {ip}:{port} 可连通" + ("" if ping_ok else " (ICMP ping 未响应)")

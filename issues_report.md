@@ -1,4 +1,4 @@
-# AO-Shaping 项目问题报告
+﻿# AO-Shaping 项目问题报告
 
 > 生成时间: 2026-05-25 (初版) / 2026-05-26 (更新)
 > 扫描范围: `src/ao_shaping/` 全目录依赖分析 + 代码规范检查
@@ -61,7 +61,7 @@
 | `src/ao_shaping/optimizer/rl/` | 添加 `__init__.py` |
 | `src/ao_shaping/optimizer/wfless/` | 添加 `__init__.py` |
 | `src/ao_shaping/gui/` | 添加 `__init__.py` |
-| `src/ao_shaping/gui/streamlit_helper/` | 添加 `__init__.py` |
+| `src/ao_shaping/gui/` | 添加 `__init__.py` |
 | `src/ao_shaping/drivers/sim/wfs/` | 添加 `__init__.py` |
 | `src/ao_shaping/drivers/sim/slm/` | 添加 `__init__.py` |
 
@@ -191,10 +191,10 @@
 | `drivers/wfs/ThorlabWFS.py` | 1 | WFS SDK 调用 |
 | `drivers/dm/MicroDM.py` | 1 | 网络连接 |
 | `drivers/visa_base.py` | 1 | VISA 设备通信 |
-| `gui/streamlit_helper/micro_dm_ui.py` | 2 | GUI 回调 |
-| `gui/streamlit_helper/ccd_analyzer.py` | 1 | GUI 回调 |
-| `gui/streamlit_helper/zernike_debug_viewer.py` | 2 | **bare `except:` 无异常类型** |
-| `gui/streamlit_helper/zernike_response_matrix_ui.py` | 1 | GUI 回调 |
+| `gui/dm/micro_dm_ui.py` | 2 | GUI 回调 |
+| `gui/ccd/ccd_analyzer.py` | 1 | GUI 回调 |
+| `gui/zernike/zernike_debug_viewer.py` | 2 | **bare `except:` 无异常类型** |
+| `gui/zernike/zernike_response_matrix_ui.py` | 1 | GUI 回调 |
 | `algorithm/target_func.py` | 1 | 目标函数计算 |
 | `runners/gs_hologram_runner.py` | 1 | Runner 错误处理 |
 | `utils/cli_helpers.py` | 2 | CLI 辅助 |
@@ -222,13 +222,13 @@
 | 文件 | 行数 | 建议 |
 |------|------|------|
 | `drivers/wfs/ThorlabWFS.py` | 1661 | 可拆分为: SDK 接口层、参考管理、测量逻辑 |
-| `gui/streamlit_helper/zernike_response_matrix_ui.py` | 1604 | 可拆分为: UI 组件、业务逻辑、回调处理 |
+| `gui/zernike/zernike_response_matrix_ui.py` | 1604 | 可拆分为: UI 组件、业务逻辑、回调处理 |
 | `drivers/mock_devices.py` | 1524 | 每个设备一个文件（已有多设备类） |
 | `drivers/dm/MicroDM.py` | 1477 | 可拆分为: 协议层、通道管理、控制器管理 |
 | `drivers/slm/slm_calibration.py` | 1420 | 可拆分为: 标定算法、GUI 辅助、数据处理 |
 | `runners/zernike_matrix_runner.py` | 1072 | 可拆分为: 矩阵计算、可视化、文件 I/O |
-| `gui/streamlit_helper/multi_slm_controller.py` | 1040 | 可拆分为: UI 面板、SLM 控制逻辑 |
-| `gui/streamlit_helper/micro_dm_ui.py` | 910 | 可拆分为: UI 组件、DM 控制 |
+| `gui/slm/multi_slm_controller.py` | 1040 | 可拆分为: UI 面板、SLM 控制逻辑 |
+| `gui/dm/micro_dm_ui.py` | 910 | 可拆分为: UI 组件、DM 控制 |
 | `optimizer/wfless/sim_spgd.py` | 907 | 监控和优化逻辑分离 |
 | `optimizer/wfless/pib.py` | 867 | 优化循环和工具函数分离 |
 | `optimizer/wf/zernike_response_matrix.py` | 840 | 矩阵计算和可视化分离 |
@@ -259,7 +259,7 @@
 
 | 位置 | 内容 |
 |------|------|
-| `src/ao_shaping/gui/streamlit_helper/multi_slm_controller.py:898` | `# TODO 改成显示sn` |
+| `src/ao_shaping/gui/slm/multi_slm_controller.py:898` | `# TODO 改成显示sn` |
 
 仅 1 处 TODO 在 `src/ao_shaping/` 中。
 

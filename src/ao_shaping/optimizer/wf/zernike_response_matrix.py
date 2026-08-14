@@ -46,7 +46,7 @@ from ao_shaping.utils.wfs_utils import flatten_slopes
 
 if TYPE_CHECKING:
     from ao_shaping.drivers.slm.zernike_slm import ZernikeSLM
-    from ao_shaping.drivers.wfs.ThorlabWFS import WFSManager
+    from ao_shaping.drivers.wfs import ThorlabWFS as WFSManager
     from ao_shaping.utils.display import ZernikeCalibrationDisplay
 
 

@@ -1,4 +1,4 @@
-"""Unit tests for multi_slm_controller — flat phase (平场) generation fix.
+﻿"""Unit tests for multi_slm_controller — flat phase (平场) generation fix.
 
 The bug: ``generate_phase_gray("平场", gray=N)`` previously routed through
 ``create_phase_from_array()`` which treats input as **radians** and applies
@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from ao_shaping.gui.streamlit_helper.multi_slm_controller import generate_phase_gray
+from ao_shaping.gui.slm.multi_slm_controller import generate_phase_gray
 
 
 # ---------------------------------------------------------------------------

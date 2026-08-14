@@ -1,4 +1,4 @@
-"""RED tests for r50_channel_select + r50_connection (pure logic, no streamlit).
+﻿"""RED tests for r50_channel_select + r50_connection (pure logic, no streamlit).
 
 Contract covered (Wave 1):
 - S1 basis: ChannelInfo / ChannelSelection / CSV wiring index semantics
@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ao_shaping.gui.streamlit_helper.r50_channel_select import (
+from ao_shaping.gui.r50.r50_channel_select import (
     CFG,
     ChannelInfo,
     ChannelSelection,
@@ -27,7 +27,7 @@ from ao_shaping.gui.streamlit_helper.r50_channel_select import (
     load_csv,
     row_to_channel_info,
 )
-from ao_shaping.gui.streamlit_helper.r50_connection import (
+from ao_shaping.gui.r50.r50_connection import (
     SimulatedMicroDM,
     SimulatedR50Controller,
     create_controller,

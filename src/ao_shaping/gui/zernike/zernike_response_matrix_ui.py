@@ -1,4 +1,4 @@
-"""
+﻿"""
 Zernike Response Matrix Calibration UI (Streamlit)
 
 Features:
@@ -7,7 +7,7 @@ Features:
 3. Load and view saved calibration results
 
 Usage:
-    streamlit run src/ao_shaping/gui/streamlit_helper/zernike_response_matrix_ui.py
+    streamlit run src/ao_shaping/gui/zernike/zernike_response_matrix_ui.py
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
 
 # Import drivers
 from ao_shaping.drivers.slm.zernike_slm import ZernikeSLM
-from ao_shaping.drivers.wfs.ThorlabWFS import WFSManager
+from ao_shaping.drivers.wfs import ThorlabWFS
 from ao_shaping.optimizer.wf.zernike_response_matrix import (
     DEFAULT_MAGNITUDE,
     DEFAULT_N_AVERAGES,
@@ -316,7 +316,7 @@ def connect_wfs() -> bool:
         # Determine exposure time: auto-exposure uses 0, otherwise use configured value
         exp_time = 0.0 if st.session_state.zrm_wfs_auto_exposure else st.session_state.zrm_wfs_exp_time
 
-        wfs = WFSManager(
+        wfs = ThorlabWFS(
             mla_index=st.session_state.zrm_wfs_mla_res,
             exposure_time=exp_time,
             high_speed=False,

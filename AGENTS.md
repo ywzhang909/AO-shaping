@@ -39,7 +39,12 @@ AO-shaping/
 │   │   │   └── wandb_logger.py  # WandB integration
 │   │   ├── tools/                # Standalone tools (SLM phase capture, Micro-DM image collection, data collection)
 │   │   ├── display/              # Visualization (Windows, frames for GUI)
-│   │   └── gui/                  # GUI components (Streamlit)
+│   │   └── gui/                  # GUI components (Streamlit), 按设备域分包:
+│   │       ├── r50/              #   R50Power 控制器 UI (r50_controller_ui.py 入口)
+│   │       ├── dm/               #   变形镜 UI (micro_dm_ui.py, ceramic_viewer.py)
+│   │       ├── slm/              #   SLM UI (multi_slm_controller.py, slm_calibration_ui.py)
+│   │       ├── zernike/          #   Zernike UI (response matrix 校准/调试查看)
+│   │       └── ccd/              #   CCD 图像分析 UI (ccd_analyzer.py)
 │   ├── calculators/               # Cython extensions (standalone)
 │   └── optical_ui/                # [DEPRECATED] Empty package
 ├── tests/ao_shaping/              # Tests (mirrors src structure)
@@ -62,7 +67,7 @@ AO-shaping/
 | ML training | `src/ml/` (standalone, not inside `ao_shaping/`) | U-Net+GAN, trainer, wandb_logger |
 | Standalone tools | `src/ao_shaping/tools/` | SLM phase capture, Micro-DM per-channel image collection, train data collection |
 | Visualization | `src/ao_shaping/display/` | Windows, frames for GUI |
-| GUI | `src/ao_shaping/gui/` | Streamlit components |
+| GUI | `src/ao_shaping/gui/{r50,dm,slm,zernike,ccd}/` | Streamlit components, 按设备域分包 (见上方目录树) |
 | Tests | `tests/ao_shaping/` | Mirror of src structure |
 
 ---
@@ -553,3 +558,14 @@ Only use these lightweight tools directly:
 | `codegraph_context` | Build relevant context for a task |
 | `codegraph_files` | Get indexed file structure |
 | `codegraph_status` | Check index health
+
+<!-- CODEGRAPH_START -->
+## CodeGraph
+
+In repositories indexed by CodeGraph (a `.codegraph/` directory exists at the repo root), reach for it BEFORE grep/find or reading files when you need to understand or locate code:
+
+- **MCP tools** (when available): `codegraph_explore` answers most code questions in one call — the relevant symbols' verbatim source plus the call paths between them. `codegraph_node` returns one symbol's source + callers, or reads a whole file with line numbers. If the tools are listed but deferred, load them by name via tool search.
+- **Shell** (always works): `codegraph explore "<symbol names or question>"` and `codegraph node <symbol-or-file>` print the same output.
+
+If there is no `.codegraph/` directory, skip CodeGraph entirely — indexing is the user's decision.
+<!-- CODEGRAPH_END -->

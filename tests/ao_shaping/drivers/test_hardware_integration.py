@@ -40,9 +40,7 @@ class TestWFSHardware:
             pytest.skip("WFS tests disabled (set TEST_WFS=1 to enable)")
 
         try:
-            from ao_shaping.drivers.wfs.ThorlabWFS import MlaRes, WFSManager
-
-            from ao_shaping.drivers import ThorlabWFS
+            from ao_shaping.drivers import MlaRes, ThorlabWFS
 
             wfs = ThorlabWFS(MlaRes.Res768, use_custom_ref=False, high_speed=True)
             wfs.open()
@@ -180,9 +178,7 @@ class TestWFSHardware:
 
     def test_context_manager(self):
         """Test WFS context manager protocol."""
-        from ao_shaping.drivers.wfs.ThorlabWFS import MlaRes, WFSManager
-
-        from ao_shaping.drivers import ThorlabWFS
+        from ao_shaping.drivers import MlaRes, ThorlabWFS
 
         with ThorlabWFS(MlaRes.Res768, use_custom_ref=False) as wfs:
             print(f"  Context manager: Connected to {wfs.device_name}")
