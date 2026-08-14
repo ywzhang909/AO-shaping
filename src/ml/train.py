@@ -44,6 +44,8 @@ matplotlib.use("Agg")
 from ml.phase.dataset import (
     PhasePredictionDataset,
     create_dataloaders,
+)
+from ml.zernike.dataset import (
     create_zernike_loaders,
 )
 from ml.zernike.models import (
@@ -353,17 +355,21 @@ def train_model(
 @click.option("--device", default=None, help="设备 (auto)")
 @click.option("--seed", default=42, help="随机种子")
 @click.option("--target-size", default="256x256", help="目标尺寸 HxW")
-# Zernike-specific options
 @click.option(
     "--input-mode",
     "input_mode",
     type=click.Choice(["focus", "pupil", "combined"]),
     default="combined",
-    help="输入模式 (Zernike模型)",
+    help="输入模式: focus(Daheng远场), pupil(MiiCam近场), combined(二者结合)",
 )
-@click.option("--n-zernike-terms", "n_zernike_terms", default=55, help="Zernike项数")
-@click.option("--n-max", "n_max", default=10, help="Zernike径向阶")
-# UNet-specific options
+@click.option(
+    "--output-mode",
+    type=click.Choice(["phase", "coeffs"]),
+    default="phase",
+    help="输出模式: phase(二维相位图), coeffs(Zernike系数)",
+)
+@click.option("--n-zernike-terms", "n_zernike_terms", default=55, help="Zernike项数 (coeffs模式)")
+@click.option("--n-max", "n_max", default=10, help="Zernike径向阶 (UNet)")
 @click.option("--lambda-l1", default=100.0, help="L1损失权重 (UNet)")
 @click.option("--lambda-adv", default=1.0, help="对抗损失权重 (UNet)")
 @click.option(
@@ -372,43 +378,15 @@ def train_model(
     default="lsgan",
     help="GAN模式 (UNet)",
 )
-@click.option("--epochs", default=100, help="训练轮数 (default: 100)")
-@click.option("--batch-size", default=8, help="批次大小 (default: 8)")
-@click.option("--lr", default=2e-4, help="学习率 (default: 2e-4)")
-@click.option("--lambda-l1", default=100.0, help="L1损失权重 (default: 100.0)")
-@click.option("--lambda-adv", default=1.0, help="对抗损失权重 (default: 1.0)")
-@click.option("--target-size", default=None, help="目标尺寸 HxW (default: 原始尺寸)")
-@click.option("--train-split", default=0.8, help="训练集比例 (default: 0.8)")
-@click.option("--num-workers", default=0, help="DataLoader工作进程数 (default: 0)")
-@click.option(
-    "--input-mode",
-    type=click.Choice(["focus", "pupil", "combined"]),
-    default="combined",
-    help="输入模式: focus(Daheng远场), pupil(MiiCam近场), combined(二者结合) (default: combined)",
-)
-@click.option(
-    "--output-mode",
-    type=click.Choice(["phase", "coeffs"]),
-    default="phase",
-    help="输出模式: phase(二维相位图), coeffs(Zernike系数) (default: phase)",
-)
-@click.option(
-    "--n-zernike-terms",
-    default=55,
-    help="Zernike项数量, 仅用于coeffs模式 (default: 55)",
-)
-@click.option("--use-daheng/--no-daheng", default=True, help="使用Daheng相机数据")
-@click.option("--use-miicam/--no-miicam", default=True, help="使用MiiCam相机数据")
-@click.option("--device", default=None, help="设备 (default: auto cuda/cpu)")
-@click.option("--seed", default=42, help="随机种子 (default: 42)")
-@click.option("--gan-mode", type=click.Choice(["vanilla", "lsgan"]), default="lsgan")
 @click.option(
     "--loss-type",
     type=click.Choice(["l1", "angular"]),
     default="angular",
-    help=" (UNet)",
+    help="损失类型 (UNet)",
 )
-# Logging options
+@click.option("--use-daheng/--no-daheng", default=True, help="使用Daheng相机数据")
+@click.option("--use-miicam/--no-miicam", default=True, help="使用MiiCam相机数据")
+@click.option("--log-images/--no-log-images", default=True, help="记录图像到wandb")
 @click.option("--use-wandb/--no-wandb", default=False, help="使用wandb")
 @click.option("--wandb-project", default="ao-shaping", help="项目名")
 @click.option("--wandb-name", default=None, help="run名")
@@ -432,13 +410,12 @@ def train(
     device: str | None,
     seed: int,
     target_size: str,
-    input_mode: str,
-    n_zernike_terms: int,
     n_max: int,
     lambda_l1: float,
     lambda_adv: float,
     gan_mode: str,
     loss_type: str,
+    log_images: bool,
     use_wandb: bool,
     wandb_project: str,
     wandb_name: str | None,
@@ -448,10 +425,6 @@ def train(
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    # Parse target size
-    h, w = map(int, target_size.split("x"))
-    target_size_tuple = (h, w)
-
     # Device
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -460,7 +433,6 @@ def train(
     logger.info(f"Input mode: {input_mode}, Output mode: {output_mode}")
 
     # Parse target size
-    target_size_tuple = None
     if target_size:
         h, w = map(int, target_size.split("x"))
         target_size_tuple = (h, w)
@@ -489,11 +461,12 @@ def train(
             epochs=epochs,
             batch_size=batch_size,
             lr=lr,
-            weight_decay=1e-4,
+            weight_decay=weight_decay,
             train_split=train_split,
-            val_split=0.1,  # Default for 2-way split
+            val_split=val_split,
             num_workers=num_workers,
             input_mode=input_mode,
+            model_type=model_type,
             n_zernike_terms=n_zernike_terms,
             target_size=target_size_tuple,
             device=device,
@@ -688,6 +661,7 @@ def _train_coeffs_mode(
     val_split: float,
     num_workers: int,
     input_mode: str,
+    model_type: str,
     n_zernike_terms: int,
     target_size: tuple[int, int],
     device: torch.device,
@@ -721,15 +695,14 @@ def _train_coeffs_mode(
     logger.info(f"Dataset: train={n_train}, val={n_val}, test={n_test} samples")
     logger.info(f"Batch size: {batch_size}, steps per epoch: {n_batches}")
 
-    # Build model (default to resnet18 for coeffs mode)
     model = build_model(
-        "resnet18",
+        model_type,
         in_channels=in_channels,
         n_coeffs=n_zernike_terms,
         device=device,
     )
     logger.info(
-        f"Model: resnet18, params: {sum(p.numel() for p in model.parameters()):,}"
+        f"Model: {model_type}, params: {sum(p.numel() for p in model.parameters()):,}"
     )
 
     # Optimizer
@@ -749,7 +722,7 @@ def _train_coeffs_mode(
                 project=wandb_project,
                 name=wandb_name,
                 config={
-                    "model_type": "resnet18",
+                    "model_type": model_type,
                     "input_mode": input_mode,
                     "n_zernike_terms": n_zernike_terms,
                     "target_size": target_size,
@@ -779,7 +752,7 @@ def _train_coeffs_mode(
     # Save config
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     config = {
-        "model_type": "resnet18",
+        "model_type": model_type,
         "input_mode": input_mode,
         "n_zernike_terms": n_zernike_terms,
         "target_size": target_size,
@@ -928,6 +901,14 @@ def _train_coeffs_mode(
     test_loss /= n_test
     history["test_loss"] = test_loss
     logger.info(f"Test loss: {test_loss:.6f}")
+
+    if wandb_run:
+        wandb_run.log(
+            {
+                "test_loss": test_loss,
+                "best_val_loss": best_val_loss,
+            }
+        )
 
     # Save final with scheduler state
     torch.save(

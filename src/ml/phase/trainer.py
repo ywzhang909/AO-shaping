@@ -30,7 +30,7 @@ def angular_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 
     Returns:
         Mean squared angular difference
-    """if pred.shape[1] != target.shape[1]:
+    """
     # Ensure same shape
     if pred.shape != target.shape and pred.ndim == 4 and target.ndim == 4:
         if pred.shape[1] == 1:
