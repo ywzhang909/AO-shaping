@@ -611,7 +611,15 @@ def recover_labels(
         f"recovering labels under {data_root} runs={rids} "
         f"refine={refine} overwrite={overwrite}"
     )
-    recover_run(data_root=data_root, run_ids=rids, refine=refine, overwrite=overwrite)
+    summaries = []
+    for rid in rids:
+        click.echo(f"--- run {rid} ---")
+        summaries.append(recover_run(data_root=data_root, run_id=rid, refine=refine, overwrite=overwrite))
+    for s in summaries:
+        click.echo(
+            f"run {s['run_id']}: {s['recovered']} recovered, "
+            f"{len(s['failed'])} failed, {s['skipped']} skipped"
+        )
 
 
 if __name__ == "__main__":
