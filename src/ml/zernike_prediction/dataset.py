@@ -361,6 +361,7 @@ class ZernikeDualDataset(Dataset):
         normalize: str = "per_image",
         max_samples: int | None = None,
         require_labels: bool = True,
+        skip_unlabeled: bool = False,
         seed: int = 0,
         return_meta: bool = False,
     ) -> None:
@@ -378,6 +379,7 @@ class ZernikeDualDataset(Dataset):
         self.input_mode = input_mode
         self.normalize = normalize
         self.require_labels = require_labels
+        self.skip_unlabeled = skip_unlabeled
         self.seed = seed
         self.return_meta = return_meta
 
@@ -390,6 +392,8 @@ class ZernikeDualDataset(Dataset):
         missing: list[str] = []
         for entry in raw:
             label = _resolve_label(entry)
+            if skip_unlabeled and label is None:
+                continue  # drop samples that cannot be labeled
             self._labels.append(label)
             self.samples.append(
                 {
@@ -585,6 +589,7 @@ def create_zernike_loaders(
     *,
     normalize: str = "per_image",
     require_labels: bool = True,
+    skip_unlabeled: bool = False,
     return_meta: bool = False,
 ) -> dict[str, Any]:
     """Build train/val/test DataLoaders over the dual-camera dataset.
@@ -625,6 +630,7 @@ def create_zernike_loaders(
         "normalize": normalize,
         "max_samples": max_samples,
         "require_labels": require_labels,
+        "skip_unlabeled": skip_unlabeled,
         "seed": seed,
         "return_meta": return_meta,
     }
