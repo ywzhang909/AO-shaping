@@ -324,6 +324,7 @@ def sweep(
             in_channels=in_channels, val_split=val_split, test_split=test_split,
             seed=seed, target_size=target_size, num_workers=num_workers,
             dev=dev, ckpt_dir=ckpt_dir, split_mode=split_mode,
+            skip_unlabeled=skip_unlabeled,
         )
         return
 
@@ -400,6 +401,7 @@ def _random_sweep(
     dev: str,
     ckpt_dir: Path,
     split_mode: str,
+    skip_unlabeled: bool,
 ) -> None:
     """wandb-free random-search fallback over the same hyperparameter space."""
     rng = np.random.default_rng(seed)
