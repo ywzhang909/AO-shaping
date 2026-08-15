@@ -42,6 +42,7 @@ dependencies = [
 
 [project.scripts]
 ao-train = "ml.train:cli"
+ao-zernike = "ml.zernike_prediction.cli:main"
 
 [build-system]
 requires = ["setuptools>=64"]

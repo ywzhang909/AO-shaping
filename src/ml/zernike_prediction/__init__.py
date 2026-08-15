@@ -4,7 +4,9 @@ This package implements capture-exact Zernike phase math (reproduces stored
 ``phase.csv`` files with a 100% exact match) and DCT-based 2D least-squares
 phase unwrapping, forming the data-preparation layer (T1) of the
 Zernike-coefficient regression pipeline. Also exposes the T2 regression-metrics
-API (``metrics.py``) for evaluating predicted vs. true coefficient vectors.
+API (``metrics.py``) for evaluating predicted vs. true coefficient vectors, the
+T6 training loop (``trainer.py``), and the T7 Click CLI (``cli.py``,
+``ao-zernike``).
 """
 
 from ml.zernike_prediction.metrics import (
@@ -49,6 +51,13 @@ from ml.zernike_prediction.plots import (
     phase_grid,
     predict_true_scatter,
 )
+from ml.zernike_prediction.trainer import (
+    evaluate_regressor,
+    make_run_name,
+    predict_coeffs,
+    train_regressor,
+)
+from ml.zernike_prediction.cli import main as cli_main
 
 __all__ = [
     "COEFF_ORDER_NAMES",
@@ -63,11 +72,13 @@ __all__ = [
     "collate_with_meta",
     "count_zernike_terms",
     "create_zernike_loaders",
+    "evaluate_regressor",
     "gray_to_wrapped",
     "iter_nm_terms",
     "load_stored_gray",
     "loss_curves",
     "mae",
+    "make_run_name",
     "metadata_order_to_noll",
     "metrics_summary",
     "mse",
@@ -80,9 +91,11 @@ __all__ = [
     "phase_grid",
     "phase_mae",
     "phase_rmse",
+    "predict_coeffs",
     "predict_true_scatter",
     "r2",
     "rmse",
+    "train_regressor",
     "unwrap_phase_lsq",
     "zernike_radial",
 ]
