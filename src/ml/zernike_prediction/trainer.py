@@ -412,6 +412,27 @@ def train_regressor(
                         title=f"{run_name} sample predictions",
                     )
                     wandb.log({"phase_grid": wandb.Image(str(grid_path))})
+
+                    scatter_path = plots.predict_true_scatter(
+                        final_pred, final_true,
+                        Path(tmpdir) / "predict_true_scatter.png",
+                        title=f"{run_name} predict vs true (per Zernike term)",
+                    )
+                    wandb.log({"predict_true_scatter": wandb.Image(str(scatter_path))})
+
+                    coeff_mae_path = plots.per_coeff_mae_bar(
+                        final_pred, final_true,
+                        Path(tmpdir) / "per_coeff_mae.png",
+                        title=f"{run_name} per-coefficient MAE",
+                    )
+                    wandb.log({"per_coeff_mae": wandb.Image(str(coeff_mae_path))})
+
+                    order_mae_path = plots.per_order_mae_bar(
+                        final_pred, final_true,
+                        Path(tmpdir) / "per_order_mae.png",
+                        title=f"{run_name} per-order MAE",
+                    )
+                    wandb.log({"per_order_mae": wandb.Image(str(order_mae_path))})
         wandb.finish()
 
     return {
