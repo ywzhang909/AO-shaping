@@ -161,6 +161,8 @@ def _common_options(f: Callable[..., Any]) -> Callable[..., Any]:
                      help="auto | cuda:N | cpu (auto: cuda:1 if available else cuda:0 else cpu).")(f)
     f = click.option("--split-mode", type=click.Choice(["sample", "run"]), default="sample",
                      show_default=True, help="Split by random sample or whole runs.")(f)
+    f = click.option("--skip-unlabeled/--no-skip-unlabeled", default=False, show_default=True,
+                     help="Drop samples without labels (recovered 0402 failures).")(f)
     return f
 
 
@@ -208,6 +210,7 @@ def train(
     checkpoint_dir: str,
     device: str,
     split_mode: str,
+    skip_unlabeled: bool,
     epochs: int,
     wandb_run_id: str | None,
 ) -> None:
@@ -221,7 +224,7 @@ def train(
     loaders = create_zernike_loaders(
         data_root, batch_size=batch_size, val_split=val_split, test_split=test_split,
         seed=seed, input_mode=input_mode, target_size=target_size, run_ids=rids,
-        split_mode=split_mode, num_workers=num_workers,
+        split_mode=split_mode, num_workers=num_workers, skip_unlabeled=skip_unlabeled,
     )
     model = build_model(model_type, in_channels=in_channels, n_coeffs=_N_COEFFS, device=dev)
 
@@ -306,6 +309,7 @@ def sweep(
     checkpoint_dir: str,
     device: str,
     split_mode: str,
+    skip_unlabeled: bool,
 ) -> None:
     """Hyperparameter sweep over lr / batch_size / weight_decay / model_type."""
     rids = _parse_run_ids(run_ids)
@@ -358,7 +362,7 @@ def sweep(
         loaders = create_zernike_loaders(
             data_root, batch_size=bs, val_split=val_split, test_split=test_split,
             seed=seed, input_mode=input_mode, target_size=target_size, run_ids=rids,
-            split_mode=split_mode, num_workers=num_workers,
+            split_mode=split_mode, num_workers=num_workers, skip_unlabeled=skip_unlabeled,
         )
         model = build_model(mt, in_channels=in_channels, n_coeffs=_N_COEFFS, device=dev)
         result = train_regressor(
