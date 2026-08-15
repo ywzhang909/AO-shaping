@@ -116,8 +116,12 @@ def _build_gradient_system(
     return G, b
 
 
-def _gradient_irls(G: np.ndarray, b: np.ndarray, iters: int = 25) -> np.ndarray:
+def _gradient_irls(G: np.ndarray, b: np.ndarray, iters: int = 70) -> np.ndarray:
     """Iteratively reweighted least squares with Huber weights.
+
+    Iteration count matters: the Huber weight switching can take a long time
+    to escape a bad basin. Observed convergence iterations: 29 (155508/0025),
+    56 (164456/0000). 70 iterations covers the observed spread with margin.
 
     Returns the 65 non-piston coefficients (metadata order, piston excluded).
     """
@@ -217,23 +221,35 @@ def _wrapped_gn_refine(
     a = coeffs.copy()
     sigma = 0.1  # Huber scale in radians
     reg = 1e-8 * np.eye(_N_TERMS)
+    lam = 1e-3  # Levenberg-Marquardt damping
     for _ in range(iters):
-        phase = Z @ a
+        phase = (Z @ a) * _TWO_PI  # generator: phase_total = sum Z_k * amp_k * 2pi
         r = np.mod(target - phase + np.pi, _TWO_PI) - np.pi
+        cost = float(np.sqrt((r**2).mean()))
+        if cost < 1e-3:  # already at quantization floor — stop
+            break
         w = np.where(np.abs(r) < sigma, 1.0, sigma / np.abs(r))
         w = np.where(np.abs(r) > 0.5 * np.pi, 1e-4, w)  # keep ambiguous px weakly
         # Piston column held fixed: zero out its row/col in the normal equations
         Zw = Z * w[:, None]
-        H = Zw.T @ Zw + reg
+        H = Zw.T @ Zw + lam * np.eye(_N_TERMS) + reg
         H[0, :] = 0.0
         H[:, 0] = 0.0
         H[0, 0] = 1.0
         g = Zw.T @ r
         g[0] = 0.0
         delta = np.linalg.solve(H, g)
-        a += delta
-        if np.abs(delta).max() < 1e-7:
+        a_new = a + delta
+        phase_new = (Z @ a_new) * _TWO_PI
+        r_new = np.mod(target - phase_new + np.pi, _TWO_PI) - np.pi
+        cost_new = float(np.sqrt((r_new**2).mean()))
+        if cost_new >= cost and np.abs(delta).max() < 1e-5:
             break
+        if cost_new < cost:
+            a = a_new
+            lam = max(lam / 3.0, 1e-6)
+        else:
+            lam *= 3.0  # reject step, damp harder
     a[0] = 1.0
     return a
 
