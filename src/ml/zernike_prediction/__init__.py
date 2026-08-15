@@ -42,6 +42,12 @@ from ml.zernike_prediction.dataset import (
     collate_with_meta,
     create_zernike_loaders,
 )
+from ml.zernike_prediction.labels import (
+    acceptance_check,
+    fit_error_metrics,
+    recover_coefficients,
+    recover_run,
+)
 from ml.zernike_prediction.plots import (
     all_plots,
     loss_curves,
@@ -62,6 +68,7 @@ from ml.zernike_prediction.cli import main as cli_main
 __all__ = [
     "COEFF_ORDER_NAMES",
     "ZernikeDualDataset",
+    "acceptance_check",
     "alignment_ok",
     "all_plots",
     "build_basis_maps",
@@ -72,7 +79,7 @@ __all__ = [
     "collate_with_meta",
     "count_zernike_terms",
     "create_zernike_loaders",
-    "evaluate_regressor",
+    "fit_error_metrics",
     "gray_to_wrapped",
     "iter_nm_terms",
     "load_stored_gray",
@@ -94,6 +101,8 @@ __all__ = [
     "predict_coeffs",
     "predict_true_scatter",
     "r2",
+    "recover_coefficients",
+    "recover_run",
     "rmse",
     "train_regressor",
     "unwrap_phase_lsq",
