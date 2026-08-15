@@ -307,17 +307,22 @@ def phase_grid(
     ax_list = np.atleast_1d(axes).ravel()
 
     im = None
-    visible = ax_list[: len(coefficients_list)].tolist()
     for ax, coeffs, label in zip(ax_list, coefficients_list, labels_list):
         phase = coefficients_to_phase_radians(coeffs, n_max=N_MAX, size=size, radius=radius)
         im = ax.imshow(phase, cmap=cmap, vmin=0.0, vmax=_TWO_PI)
         ax.set_title(label, fontsize=9)
-        ax.set_axis_off()
+        # Hide frame/ticks via spines (tight_layout-compatible; set_axis_off is not)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_visible(False)
     for ax in ax_list[len(coefficients_list) :]:
         ax.set_visible(False)
 
     if im is not None:
-        cbar = fig.colorbar(im, ax=visible, fraction=0.02, pad=0.03)
+        # Single-ax colorbar keeps a SubplotSpec (ax-list spans via make_axes,
+        # which tight_layout flags as incompatible).
+        cbar = fig.colorbar(im, ax=ax_list[0], fraction=0.03, pad=0.03)
         cbar.set_label("wrapped phase (rad)", fontsize=8)
         cbar.ax.tick_params(labelsize=7)
     return _finalize(fig, title, save_path)
