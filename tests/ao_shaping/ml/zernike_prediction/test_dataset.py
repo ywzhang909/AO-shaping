@@ -354,3 +354,64 @@ def test_build_label_manifest(tmp_path: Path) -> None:
     assert len(mf_tmp) == 2
     assert not mf_tmp["has_metadata_labels"].any()
     assert all(p is not None and Path(p).name == "labels.npy" for p in mf_tmp["labels_path"])
+
+
+# ---------------------------------------------------------------------------
+# 11. FFT input modes (fft / fft_ratio) — shapes + spectral sanity (real data)
+# ---------------------------------------------------------------------------
+
+
+def test_fft_mode_shapes_and_range() -> None:
+    _require_real_data()
+    ds = ZernikeDualDataset(_REAL_ROOT, run_ids=["20260414_171241"], input_mode="fft")
+    img, label = ds[0]
+    assert img.shape == (2, 256, 256)  # dual-channel log-magnitude spectra
+    assert img.dtype == torch.float32
+    assert float(img.min()) >= 0.0 and float(img.max()) <= 1.0
+    assert not bool(torch.isnan(img).any())
+    assert label.shape == (65,)
+
+
+def test_fft_ratio_mode_shape_and_range() -> None:
+    _require_real_data()
+    ds = ZernikeDualDataset(_REAL_ROOT, run_ids=["20260414_171241"], input_mode="fft_ratio")
+    img, label = ds[0]
+    assert img.shape == (1, 256, 256)  # single-channel log magnitude ratio
+    assert img.dtype == torch.float32
+    assert float(img.min()) >= 0.0 and float(img.max()) <= 1.0
+    assert not bool(torch.isnan(img).any())
+    assert label.shape == (65,)
+
+
+def test_fft_ratio_center_peak() -> None:
+    """DC/center of the ratio spectrum dominates — physical sanity (beam energy)."""
+    _require_real_data()
+    ds = ZernikeDualDataset(_REAL_ROOT, run_ids=["20260414_171241"], input_mode="fft_ratio")
+    img = ds[0][0].numpy()[0]  # (256,256)
+    # With per_image normalization the absolute scale is hidden; just verify the
+    # center-of-mass of the rescaled spectrum sits near the image center.
+    ys, xs = np.mgrid[0:256, 0:256]
+    total = img.sum() + 1e-9
+    cx = float((xs * img).sum() / total)
+    cy = float((ys * img).sum() / total)
+    assert abs(cx - 127.5) < 30.0
+    assert abs(cy - 127.5) < 30.0
+
+
+def test_fft_ratio_requires_both_cameras() -> None:
+    """fft_ratio needs daheng + miicam; focus/pupil modes still single-channel."""
+    _require_real_data()
+    fft_ratio_ds = ZernikeDualDataset(_REAL_ROOT, run_ids=["20260414_171241"], input_mode="fft_ratio")
+    assert fft_ratio_ds[0][0].shape[0] == 1
+    focus_ds = ZernikeDualDataset(_REAL_ROOT, run_ids=["20260414_171241"], input_mode="focus")
+    assert focus_ds[0][0].shape[0] == 1
+    pupil_ds = ZernikeDualDataset(_REAL_ROOT, run_ids=["20260414_171241"], input_mode="pupil")
+    assert pupil_ds[0][0].shape[0] == 1
+    combined_ds = ZernikeDualDataset(_REAL_ROOT, run_ids=["20260414_171241"], input_mode="combined")
+    assert combined_ds[0][0].shape[0] == 2
+
+
+def test_invalid_input_mode_rejected() -> None:
+    _require_real_data()
+    with pytest.raises(ValueError, match="input_mode"):
+        ZernikeDualDataset(_REAL_ROOT, run_ids=["20260414_171241"], input_mode="not_a_mode")

@@ -29,6 +29,7 @@ from torch.utils.data import DataLoader
 
 from ml.zernike_prediction.dataset import (
     ZernikeDualDataset,
+    _INPUT_MODES,
     collate_with_meta,
     create_zernike_loaders,
 )
@@ -48,7 +49,6 @@ except ImportError:  # pragma: no cover - depends on env
 __all__ = ["main"]
 
 _N_COEFFS = 65
-_INPUT_MODES = ("combined", "focus", "pupil")
 _MODEL_TYPES = ("resnet18", "resnet34", "simple_cnn")
 _PHASE_SIZE = (192, 192)
 
@@ -214,7 +214,7 @@ def train(
     """Train a regressor and evaluate the best checkpoint on the test split."""
     rids = _parse_run_ids(run_ids)
     dev = _resolve_device(device)
-    in_channels = 2 if input_mode == "combined" else 1
+    in_channels = 2 if input_mode in ("combined", "fft") else 1
     ckpt_dir = Path(checkpoint_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
@@ -310,7 +310,7 @@ def sweep(
     """Hyperparameter sweep over lr / batch_size / weight_decay / model_type."""
     rids = _parse_run_ids(run_ids)
     dev = _resolve_device(device)
-    in_channels = 2 if input_mode == "combined" else 1
+    in_channels = 2 if input_mode in ("combined", "fft") else 1
     ckpt_dir = Path(checkpoint_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
@@ -476,7 +476,7 @@ def predict(
     if not ckpt.exists():
         raise click.ClickException(f"checkpoint not found: {ckpt}")
     mt = model_type or _infer_model_type(ckpt)
-    in_channels = 2 if input_mode == "combined" else 1
+    in_channels = 2 if input_mode in ("combined", "fft") else 1
 
     model = build_model(mt, in_channels=in_channels, n_coeffs=_N_COEFFS, device=dev)
     model.load_state_dict(torch.load(ckpt, map_location=dev, weights_only=True))
@@ -550,7 +550,7 @@ def eval(
     if not ckpt.exists():
         raise click.ClickException(f"checkpoint not found: {ckpt}")
     mt = model_type or _infer_model_type(ckpt)
-    in_channels = 2 if input_mode == "combined" else 1
+    in_channels = 2 if input_mode in ("combined", "fft") else 1
 
     model = build_model(mt, in_channels=in_channels, n_coeffs=_N_COEFFS, device=dev)
     model.load_state_dict(torch.load(ckpt, map_location=dev, weights_only=True))

@@ -69,8 +69,10 @@ _N_TARGET = len(non_piston_indices(_N_MAX))  # 65 non-piston regression targets
 _NON_PISTON = non_piston_indices(_N_MAX)  # [1, 2, ..., 65]
 _EPS = 1e-6
 
-_INPUT_MODES = ("combined", "focus", "pupil")
+_INPUT_MODES = ("combined", "focus", "pupil", "fft", "fft_ratio")
 _NORMALIZE_MODES = ("per_image", "none", "standardize")
+
+_FFT_EPS = 1e-6
 
 __all__ = [
     "ZernikeDualDataset",
@@ -205,10 +207,38 @@ def _load_frames(sample_dir: str | Path, input_mode: str) -> tuple[np.ndarray, l
             daheng.dtype,
             miicam.dtype,
         ]
+    if input_mode in ("fft", "fft_ratio"):
+        # Both spectra need both cameras; caller applies the FFT after resizing.
+        return [daheng.astype(np.float32, copy=False), miicam.astype(np.float32, copy=False)], [
+            daheng.dtype,
+            miicam.dtype,
+        ]
     if input_mode == "focus":
         return [daheng.astype(np.float32, copy=False)], [daheng.dtype]
     # pupil
     return [miicam.astype(np.float32, copy=False)], [miicam.dtype]
+
+
+def _fft_log_magnitude(frame: np.ndarray) -> np.ndarray:
+    """Log-scaled centered FFT magnitude of a 2D frame.
+
+    ``log(1 + |fftshift(fft2(x))|)`` — preserves dynamic range of the power
+    spectrum while keeping values finite. Input is a single (H, W) float32 frame.
+    """
+    spectrum = np.fft.fftshift(np.fft.fft2(frame))
+    return np.log1p(np.abs(spectrum))
+
+
+def _fft_ratio(frames: Sequence[np.ndarray]) -> np.ndarray:
+    """Log-scaled magnitude ratio of the two cameras' spectra.
+
+    ``log(1 + |FFT(daheng)| / (|FFT(miicam)| + eps))`` — a single channel whose
+    local structure captures the relative spectral content between the focus
+    (daheng) and pupil (miicam) planes.
+    """
+    daheng_fft = np.abs(np.fft.fftshift(np.fft.fft2(frames[0])))
+    miicam_fft = np.abs(np.fft.fftshift(np.fft.fft2(frames[1])))
+    return np.log1p(daheng_fft / (miicam_fft + _FFT_EPS))
 
 
 # ---------------------------------------------------------------------------
@@ -394,7 +424,15 @@ class ZernikeDualDataset(Dataset):
     def _load_image(self, sample_dir: str | Path) -> torch.Tensor:
         """Load, resize and normalize the ``(C, H, W)`` float32 image tensor."""
         frames, dtypes = _load_frames(sample_dir, self.input_mode)
-        frames = np.stack([_resize_frames(f, self.target_size) for f in frames])
+        resized = [_resize_frames(f, self.target_size) for f in frames]
+        if self.input_mode == "fft":
+            frames = np.stack([_fft_log_magnitude(f) for f in resized])
+            dtypes = [np.dtype("float32")] * len(resized)
+        elif self.input_mode == "fft_ratio":
+            frames = _fft_ratio(resized)[np.newaxis]
+            dtypes = [np.dtype("float32")]
+        else:
+            frames = np.stack(resized)
         frames = normalize_frames(frames, self.normalize, dtypes)
         img = torch.from_numpy(frames)
         if self.transform is not None:
