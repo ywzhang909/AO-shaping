@@ -422,7 +422,7 @@ def _random_sweep(
         loaders = create_zernike_loaders(
             data_root, batch_size=cfg["batch_size"], val_split=val_split, test_split=test_split,
             seed=seed, input_mode=input_mode, target_size=target_size, run_ids=rids,
-            split_mode=split_mode, num_workers=num_workers,
+            split_mode=split_mode, num_workers=num_workers, skip_unlabeled=skip_unlabeled,
         )
         model = build_model(cfg["model_type"], in_channels=in_channels, n_coeffs=_N_COEFFS, device=dev)
         result = train_regressor(
