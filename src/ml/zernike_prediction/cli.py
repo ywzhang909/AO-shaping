@@ -106,6 +106,11 @@ def _infer_model_type(checkpoint: Path) -> str:
     )
 
 
+def _n_channels(input_mode: str) -> int:
+    """Number of input channels for an input mode (2 for combined-like modes)."""
+    return 2 if input_mode in ("combined", "fft", "combined_zoom") else 1
+
+
 def _metrics_to_json(metrics: dict[str, Any]) -> dict[str, Any]:
     """Make a metrics dict JSON-serializable (arrays -> lists, nan -> None)."""
     out: dict[str, Any] = {}
@@ -163,7 +168,42 @@ def _common_options(f: Callable[..., Any]) -> Callable[..., Any]:
                      show_default=True, help="Split by random sample or whole runs.")(f)
     f = click.option("--skip-unlabeled/--no-skip-unlabeled", default=False, show_default=True,
                      help="Drop samples without labels (recovered 0402 failures).")(f)
+    f = click.option("--focus-window-size", type=int, default=384, show_default=True,
+                     help="Square window (native px) cropped around the daheng spot centroid "
+                          "for focus_zoom / combined_zoom input modes.")(f)
+    f = click.option("--focus-crop-center", type=str, default=None, show_default=True,
+                     help="Fixed 'row,col' crop center (native px) for focus_zoom / combined_zoom. "
+                          "Default: per-image spot centroid (re-centers and removes the "
+                          "tilt-displacement signal).")(f)
+    f = click.option("--focus-gamma", type=float, default=1.0, show_default=True,
+                     help="Gamma on the normalized zoomed focus channel (<1 brightens faint "
+                          "PSF structure; 1.0 disables).")(f)
+    f = click.option("--repair-saturation-value", type=float, default=None, show_default=True,
+                     help="Bilinearly repair daheng overexposure (pixels >= this value, e.g. 255 "
+                          "for the MONO8 clamp) before resize/crop. None disables.")(f)
+    f = click.option("--n-target", type=int, default=65, show_default=True,
+                     help="Number of leading (lowest-order) coefficients used as regression "
+                          "targets. Fewer targets = easier task (e.g. 8 = tilt/defocus/astig).")(f)
+    f = click.option("--target-indices", type=str, default=None, show_default=True,
+                     help="Comma-separated explicit coefficient indices (0-based, into the 65 "
+                          "non-piston vector in (n,m) metadata order). Overrides --n-target; "
+                          "use for per-coefficient models (e.g. '3').")(f)
     return f
+
+
+def _parse_target_indices(value: str | None) -> list[int] | None:
+    """Split a comma-separated coefficient-index string into a list of ints."""
+    if value is None:
+        return None
+    try:
+        indices = [int(p) for p in value.split(",") if p.strip()]
+    except ValueError as exc:
+        raise click.BadParameter(
+            f"target_indices must be comma-separated ints, got {value!r}"
+        ) from exc
+    if not indices:
+        raise click.BadParameter(f"target_indices must be non-empty, got {value!r}")
+    return indices
 
 
 # ---------------------------------------------------------------------------
@@ -213,20 +253,40 @@ def train(
     skip_unlabeled: bool,
     epochs: int,
     wandb_run_id: str | None,
+    focus_window_size: int,
+    focus_crop_center: str | None,
+    focus_gamma: float,
+    repair_saturation_value: float | None,
+    n_target: int,
+    target_indices: str | None,
 ) -> None:
     """Train a regressor and evaluate the best checkpoint on the test split."""
     rids = _parse_run_ids(run_ids)
     dev = _resolve_device(device)
-    in_channels = 2 if input_mode in ("combined", "fft") else 1
+    in_channels = _n_channels(input_mode)
     ckpt_dir = Path(checkpoint_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
+    center = None
+    if focus_crop_center is not None:
+        try:
+            r_str, c_str = focus_crop_center.split(",")
+            center = (int(r_str), int(c_str))
+        except ValueError:
+            raise click.BadParameter(
+                f"focus_crop_center must be 'row,col', got {focus_crop_center!r}"
+            )
+    tidx = _parse_target_indices(target_indices)
+    n_out = len(tidx) if tidx is not None else n_target
 
     loaders = create_zernike_loaders(
         data_root, batch_size=batch_size, val_split=val_split, test_split=test_split,
         seed=seed, input_mode=input_mode, target_size=target_size, run_ids=rids,
         split_mode=split_mode, num_workers=num_workers, skip_unlabeled=skip_unlabeled,
+        focus_window_size=focus_window_size, focus_crop_center=center,
+        focus_gamma=focus_gamma, repair_saturation_value=repair_saturation_value,
+        n_target=n_out, target_indices=tidx,
     )
-    model = build_model(model_type, in_channels=in_channels, n_coeffs=_N_COEFFS, device=dev)
+    model = build_model(model_type, in_channels=in_channels, n_coeffs=n_out, device=dev)
 
     run_id = wandb_run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
     logger.info(
@@ -310,11 +370,14 @@ def sweep(
     device: str,
     split_mode: str,
     skip_unlabeled: bool,
+    focus_window_size: int,
+    focus_gamma: float,
+    repair_saturation_value: float | None,
 ) -> None:
     """Hyperparameter sweep over lr / batch_size / weight_decay / model_type."""
     rids = _parse_run_ids(run_ids)
     dev = _resolve_device(device)
-    in_channels = 2 if input_mode in ("combined", "fft") else 1
+    in_channels = _n_channels(input_mode)
     ckpt_dir = Path(checkpoint_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
@@ -325,6 +388,8 @@ def sweep(
             seed=seed, target_size=target_size, num_workers=num_workers,
             dev=dev, ckpt_dir=ckpt_dir, split_mode=split_mode,
             skip_unlabeled=skip_unlabeled,
+            focus_window_size=focus_window_size, focus_gamma=focus_gamma,
+            repair_saturation_value=repair_saturation_value,
         )
         return
 
@@ -364,6 +429,8 @@ def sweep(
             data_root, batch_size=bs, val_split=val_split, test_split=test_split,
             seed=seed, input_mode=input_mode, target_size=target_size, run_ids=rids,
             split_mode=split_mode, num_workers=num_workers, skip_unlabeled=skip_unlabeled,
+            focus_window_size=focus_window_size, focus_gamma=focus_gamma,
+            repair_saturation_value=repair_saturation_value,
         )
         model = build_model(mt, in_channels=in_channels, n_coeffs=_N_COEFFS, device=dev)
         result = train_regressor(
@@ -402,6 +469,9 @@ def _random_sweep(
     ckpt_dir: Path,
     split_mode: str,
     skip_unlabeled: bool,
+    focus_window_size: int,
+    focus_gamma: float,
+    repair_saturation_value: float | None,
 ) -> None:
     """wandb-free random-search fallback over the same hyperparameter space."""
     rng = np.random.default_rng(seed)
@@ -423,6 +493,8 @@ def _random_sweep(
             data_root, batch_size=cfg["batch_size"], val_split=val_split, test_split=test_split,
             seed=seed, input_mode=input_mode, target_size=target_size, run_ids=rids,
             split_mode=split_mode, num_workers=num_workers, skip_unlabeled=skip_unlabeled,
+            focus_window_size=focus_window_size, focus_gamma=focus_gamma,
+            repair_saturation_value=repair_saturation_value,
         )
         model = build_model(cfg["model_type"], in_channels=in_channels, n_coeffs=_N_COEFFS, device=dev)
         result = train_regressor(
@@ -465,6 +537,15 @@ def _random_sweep(
               show_default=True, help="Output .npy path (predictions.csv written alongside).")
 @click.option("--device", type=str, default="auto", show_default=True,
               help="auto | cuda:N | cpu.")
+@click.option("--focus-window-size", type=int, default=384, show_default=True,
+              help="Square window (native px) cropped around the daheng spot centroid "
+                   "for focus_zoom / combined_zoom input modes.")
+@click.option("--focus-gamma", type=float, default=1.0, show_default=True,
+              help="Gamma on the normalized zoomed focus channel (<1 brightens faint "
+                   "PSF structure; 1.0 disables).")
+@click.option("--repair-saturation-value", type=float, default=None, show_default=True,
+              help="Bilinearly repair daheng overexposure (pixels >= this value, e.g. 255 "
+                   "for the MONO8 clamp) before resize/crop. None disables.")
 def predict(
     checkpoint: str,
     data_root: str,
@@ -474,6 +555,9 @@ def predict(
     model_type: str | None,
     output: str,
     device: str,
+    focus_window_size: int,
+    focus_gamma: float,
+    repair_saturation_value: float | None,
 ) -> None:
     """Predict (N, 65) coefficients from a checkpoint for the selected runs."""
     rids = _parse_run_ids(run_ids)
@@ -482,7 +566,7 @@ def predict(
     if not ckpt.exists():
         raise click.ClickException(f"checkpoint not found: {ckpt}")
     mt = model_type or _infer_model_type(ckpt)
-    in_channels = 2 if input_mode in ("combined", "fft") else 1
+    in_channels = _n_channels(input_mode)
 
     model = build_model(mt, in_channels=in_channels, n_coeffs=_N_COEFFS, device=dev)
     model.load_state_dict(torch.load(ckpt, map_location=dev, weights_only=True))
@@ -491,6 +575,8 @@ def predict(
     ds = ZernikeDualDataset(
         data_root, run_ids=rids, target_size=target_size, input_mode=input_mode,
         require_labels=False, return_meta=True, seed=0,
+        focus_window_size=focus_window_size, focus_gamma=focus_gamma,
+        repair_saturation_value=repair_saturation_value,
     )
     loader = DataLoader(ds, batch_size=32, shuffle=False, num_workers=0, collate_fn=collate_with_meta)
 
@@ -539,6 +625,15 @@ def predict(
               help="Directory for plots + eval_summary.json.")
 @click.option("--device", type=str, default="auto", show_default=True,
               help="auto | cuda:N | cpu.")
+@click.option("--focus-window-size", type=int, default=384, show_default=True,
+              help="Square window (native px) cropped around the daheng spot centroid "
+                   "for focus_zoom / combined_zoom input modes.")
+@click.option("--focus-gamma", type=float, default=1.0, show_default=True,
+              help="Gamma on the normalized zoomed focus channel (<1 brightens faint "
+                   "PSF structure; 1.0 disables).")
+@click.option("--repair-saturation-value", type=float, default=None, show_default=True,
+              help="Bilinearly repair daheng overexposure (pixels >= this value, e.g. 255 "
+                   "for the MONO8 clamp) before resize/crop. None disables.")
 def eval(
     checkpoint: str,
     data_root: str,
@@ -548,6 +643,9 @@ def eval(
     model_type: str | None,
     out_dir: str,
     device: str,
+    focus_window_size: int,
+    focus_gamma: float,
+    repair_saturation_value: float | None,
 ) -> None:
     """Evaluate a checkpoint on all labeled samples of the selected runs."""
     rids = _parse_run_ids(run_ids)
@@ -556,7 +654,7 @@ def eval(
     if not ckpt.exists():
         raise click.ClickException(f"checkpoint not found: {ckpt}")
     mt = model_type or _infer_model_type(ckpt)
-    in_channels = 2 if input_mode in ("combined", "fft") else 1
+    in_channels = _n_channels(input_mode)
 
     model = build_model(mt, in_channels=in_channels, n_coeffs=_N_COEFFS, device=dev)
     model.load_state_dict(torch.load(ckpt, map_location=dev, weights_only=True))
@@ -564,6 +662,8 @@ def eval(
     ds = ZernikeDualDataset(
         data_root, run_ids=rids, target_size=target_size, input_mode=input_mode,
         require_labels=True, seed=0,
+        focus_window_size=focus_window_size, focus_gamma=focus_gamma,
+        repair_saturation_value=repair_saturation_value,
     )
     loader = DataLoader(ds, batch_size=32, shuffle=False, num_workers=0)
 

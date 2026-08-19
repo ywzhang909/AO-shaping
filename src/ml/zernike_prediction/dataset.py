@@ -69,8 +69,9 @@ _N_TARGET = len(non_piston_indices(_N_MAX))  # 65 non-piston regression targets
 _NON_PISTON = non_piston_indices(_N_MAX)  # [1, 2, ..., 65]
 _EPS = 1e-6
 
-_INPUT_MODES = ("combined", "focus", "pupil", "fft", "fft_ratio")
+_INPUT_MODES = ("combined", "focus", "pupil", "fft", "fft_ratio", "focus_zoom", "combined_zoom")
 _NORMALIZE_MODES = ("per_image", "none", "standardize")
+_FOCUS_ZOOM_MODES = ("focus_zoom", "combined_zoom")  # centroid-window + zoom + gamma focus path
 
 _FFT_EPS = 1e-6
 
@@ -149,6 +150,61 @@ def normalize_frames(frames: np.ndarray, mode: str, dtypes: Sequence[np.dtype]) 
     raise ValueError(f"unknown normalize mode {mode!r}; expected one of {_NORMALIZE_MODES}")
 
 
+def _fill_sat_runs_1d(values: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Fill saturated runs in a 1D slice with linear interpolation.
+
+    Each maximal run of ``mask==True`` is replaced by linear interpolation
+    between its nearest non-saturated left/right neighbors; runs touching an
+    edge take the value of the available neighbor. Runs that span the whole
+    slice are left untouched (the orthogonal pass or the fallback covers them).
+    """
+    out = np.asarray(values, dtype=np.float32).copy()
+    n = out.shape[0]
+    idx = np.flatnonzero(mask)
+    if idx.size == 0:
+        return out
+    starts = idx[np.concatenate(([True], idx[1:] != idx[:-1] + 1))]
+    ends = idx[np.concatenate((idx[:-1] != idx[1:] - 1, [True]))]
+    for lo_run, hi_run in zip(starts, ends):
+        lo, hi = int(lo_run) - 1, int(hi_run) + 1
+        if lo < 0 or hi >= n:
+            continue
+        a, b = float(out[lo]), float(out[hi])
+        pos = np.arange(lo_run, hi_run + 1, dtype=np.float64)
+        out[lo_run:hi_run + 1] = a + (b - a) * (pos - lo) / (hi - lo)
+    return out
+
+
+def repair_saturation(frame: np.ndarray, sat_value: float = 255.0) -> np.ndarray:
+    """Bilinearly interpolate the saturated (overexposed) region of a focus frame.
+
+    The daheng doctorates are 8-bit-clamped (MONO8) yet saved as uint16, so the
+    spot core saturates at 255. Saturated pixels are masked (``>= sat_value``)
+    and replaced by the average of a row-wise and a column-wise linear
+    interpolation between their nearest non-saturated neighbors — a bilinear
+    reconstruction of the clipped PSF core.
+
+    Args:
+        frame: ``(H, W)`` numeric array (daheng native resolution).
+        sat_value: Gray level above which pixels count as overexposed.
+
+    Returns:
+        ``(H, W)`` float32 copy with saturated values replaced; frames without
+        any saturated pixel are returned unchanged (cheap early exit).
+    """
+    f = np.asarray(frame, dtype=np.float32)
+    mask = f >= sat_value
+    if not mask.any():
+        return f
+    h, w = f.shape
+    row_fill = np.stack([_fill_sat_runs_1d(f[y], mask[y]) for y in range(h)])
+    col_fill = np.stack([_fill_sat_runs_1d(f[:, x], mask[:, x]) for x in range(w)], axis=1)
+    repaired = 0.5 * (row_fill + col_fill)
+    out = f.copy()
+    out[mask] = np.minimum(repaired[mask], sat_value - 1.0)
+    return out
+
+
 def _dtype_scale(dtype: np.dtype) -> float:
     """Numeric max used for dtype-aware raw scaling (falls back to 1.0)."""
     if np.issubdtype(dtype, np.unsignedinteger) and dtype.itemsize >= 2:
@@ -200,23 +256,84 @@ def _load_frames(sample_dir: str | Path, input_mode: str) -> tuple[np.ndarray, l
     sample_dir = Path(sample_dir)
     daheng = np.load(sample_dir / "daheng_frame.npy")  # focus camera, uint16
     miicam = np.load(sample_dir / "miicam_frame.npy")  # pupil camera, uint8
-    if input_mode == "combined":
+    if input_mode in ("combined", "fft", "fft_ratio", "combined_zoom"):
         # Return as a list of frames with per-channel dtypes; caller stacks
         # after resize (native shapes differ: 1024x1280 vs 1520x2688).
         return [daheng.astype(np.float32, copy=False), miicam.astype(np.float32, copy=False)], [
             daheng.dtype,
             miicam.dtype,
         ]
-    if input_mode in ("fft", "fft_ratio"):
-        # Both spectra need both cameras; caller applies the FFT after resizing.
-        return [daheng.astype(np.float32, copy=False), miicam.astype(np.float32, copy=False)], [
-            daheng.dtype,
-            miicam.dtype,
-        ]
-    if input_mode == "focus":
+    if input_mode in ("focus", "focus_zoom"):
         return [daheng.astype(np.float32, copy=False)], [daheng.dtype]
     # pupil
     return [miicam.astype(np.float32, copy=False)], [miicam.dtype]
+
+
+def _spot_centroid(frame: np.ndarray, threshold_frac: float = 0.2) -> tuple[int, int]:
+    """Intensity-weighted centroid (row, col) of bright pixels on the daheng frame.
+
+    Thresholds at ``max * threshold_frac`` (never below 1.0 gray level), so the
+    saturated spot core dominates. Falls back to the frame center when no pixel
+    exceeds the threshold (e.g. flat/blank 0402 frames), keeping the window in
+    bounds.
+
+    Args:
+        frame: Any 2D numeric array (native-resolution daheng uint16 works).
+        threshold_frac: Fraction of ``frame.max()`` used as the mask cutoff.
+
+    Returns:
+        ``(row, col)`` clamped to the frame bounds.
+    """
+    f = np.asarray(frame, dtype=np.float32)
+    h, w = f.shape[-2:]
+    thr = max(float(f.max()) * threshold_frac, 1.0)
+    ys, xs = np.nonzero(f >= thr)
+    if len(ys) == 0:
+        return h // 2, w // 2
+    weights = f[ys, xs].astype(np.float64)
+    cy = int(np.average(ys, weights=weights))
+    cx = int(np.average(xs, weights=weights))
+    return min(max(cy, 0), h - 1), min(max(cx, 0), w - 1)
+
+
+def _window_zoom_focus(
+    frame: np.ndarray,
+    cy: int,
+    cx: int,
+    window: int,
+    target_size: tuple[int, int],
+) -> np.ndarray:
+    """Crop a ``window x window`` region around ``(cy, cx)`` and resize to ``target_size``.
+
+    Uses torchvision ``F.resized_crop`` (BILINEAR + antialias), which zero-pads
+    out-of-bounds crop boxes — safe for spots near the frame edge. This zooms the
+    PSF from a small fraction of the native 1024x1280 frame (spot ~1-2%) into the
+    full 256x256 output, the "zoom" requested for focus preprocessing.
+
+    Args:
+        frame: Native-resolution daheng frame (H, W).
+        cy, cx: Centroid row/col.
+        window: Square crop side in native pixels.
+        target_size: Output ``(H, W)``.
+
+    Returns:
+        ``(target_size)`` float32 frame (single channel).
+    """
+    if not _HAS_TORCHVISION:
+        raise RuntimeError("focus_zoom input_mode requires torchvision (F.resized_crop)")
+    half = window // 2
+    t = torch.from_numpy(np.asarray(frame, dtype=np.float32)).unsqueeze(0)  # (1, H, W)
+    out = _TF.resized_crop(
+        t,
+        top=cy - half,
+        left=cx - half,
+        height=window,
+        width=window,
+        size=(int(target_size[0]), int(target_size[1])),
+        interpolation=_TF.InterpolationMode.BILINEAR,
+        antialias=True,
+    )
+    return out.squeeze(0).numpy()
 
 
 def _fft_log_magnitude(frame: np.ndarray) -> np.ndarray:
@@ -281,8 +398,23 @@ def _scan_samples(data_root: str | Path, run_ids: list[str] | None) -> list[dict
     return entries
 
 
-def _resolve_label(entry: dict[str, Any]) -> np.ndarray | None:
-    """``(65,)`` float32 label from metadata coefficients, else the labels.npy sidecar."""
+def _resolve_label(
+    entry: dict[str, Any],
+    n_target: int = _N_TARGET,
+    target_indices: Sequence[int] | None = None,
+) -> np.ndarray | None:
+    """``(n_target,)`` float32 label from metadata coefficients, else the sidecar.
+
+    Args:
+        entry: Scan entry dict (``sample_dir``, ``metadata_path``, ``labels_path``).
+        n_target: Number of leading non-piston coefficients kept (when
+            ``target_indices`` is None); must equal ``len(target_indices)``
+            when explicit indices are given.
+        target_indices: Optional explicit positions into the 65 non-piston
+            vector (metadata ``(n, m)`` order, index 0 = ``(1,-1)``). Selecting
+            a single index yields a single-coefficient label, enabling
+            per-coefficient models. ``None`` keeps the leading ``n_target``.
+    """
     label: np.ndarray | None = None
     if entry["metadata_path"] is not None:
         try:
@@ -296,18 +428,24 @@ def _resolve_label(entry: dict[str, Any]) -> np.ndarray | None:
             n_max = int(phase_params.get("n_max", _N_MAX))
             arr = np.asarray(coeffs, dtype=np.float32)
             if arr.ndim == 1 and len(arr) >= len(non_piston_indices(n_max)):
-                label = arr[non_piston_indices(n_max)].astype(np.float32)
-                if label.shape != (_N_TARGET,):
+                non_piston = arr[non_piston_indices(n_max)]
+                if target_indices is not None:
+                    label = non_piston[np.asarray(target_indices, dtype=np.int64)].astype(np.float32)
+                else:
+                    label = non_piston[:n_target].astype(np.float32)
+                if label.shape != (n_target,):
                     logger.warning(
                         f"{entry['sample_dir']}: metadata n_max={n_max} yields {len(label)} "
-                        f"non-piston terms, expected {_N_TARGET}; trying sidecar"
+                        f"non-piston terms, expected {n_target}; trying sidecar"
                     )
                     label = None
     if label is None and entry["labels_path"] is not None:
         try:
             label = np.load(entry["labels_path"]).astype(np.float32)
-            if label.shape != (_N_TARGET,):
-                raise ValueError(f"expected ({_N_TARGET},), got {label.shape}")
+            if target_indices is not None:
+                label = label[np.asarray(target_indices, dtype=np.int64)]
+            if label.shape != (n_target,):
+                raise ValueError(f"expected ({n_target},), got {label.shape}")
         except (OSError, ValueError) as exc:
             logger.warning(f"invalid sidecar labels {entry['labels_path']}: {exc}; ignoring")
             label = None
@@ -339,13 +477,27 @@ class ZernikeDualDataset(Dataset):
         run_ids: Restrict to these run dirs; ``None`` scans all run dirs.
         transform: Optional callable applied to the normalized image tensor.
         target_size: Resized ``(H, W)`` (default 256x256).
-        input_mode: "combined" (2-channel), "focus" or "pupil" (1-channel).
+        input_mode: "combined" (2-channel), "focus" or "pupil" (1-channel),
+            or "focus_zoom" / "combined_zoom" (centroid-window + zoom + gamma
+            focus preprocessing).
         normalize: "per_image", "none", or "standardize".
         max_samples: Cap the total number of samples (first N in scan order).
         require_labels: Raise at construction listing samples without labels.
         seed: Stored for reproducibility bookkeeping (used by the loader helper
             for deterministic splitting); the scan order is always sorted.
         return_meta: Also return the sample dir from ``__getitem__``.
+        focus_window_size: Side (native px) of the square window cropped around
+            the daheng spot before resizing (focus_zoom/combined_zoom).
+        focus_crop_center: Fixed ``(row, col)`` crop center in native pixels.
+            ``None`` (default) locates the centroid per-image and re-centers the
+            spot, which removes the tilt-displacement signal; a fixed center
+            preserves spot position as a learnable feature. Both axes must be
+            >= focus_window_size // 2 to keep the crop in bounds.
+        focus_gamma: Gamma correction applied to the normalized zoomed focus
+            channel (gamma < 1 brightens faint PSF structure; 1.0 disables).
+        repair_saturation_value: When not None, bilinearly repairs the daheng
+            overexposed core (pixels >= this value, e.g. 255 for the MONO8
+            clamp) before resizing/cropping. None disables repairing.
 
     Attributes:
         samples: ``[{run_id, sample_idx, sample_dir, has_label}, ...]``.
@@ -364,6 +516,12 @@ class ZernikeDualDataset(Dataset):
         skip_unlabeled: bool = False,
         seed: int = 0,
         return_meta: bool = False,
+        focus_window_size: int = 384,
+        focus_crop_center: tuple[int, int] | None = None,
+        focus_gamma: float = 1.0,
+        repair_saturation_value: float | None = None,
+        n_target: int = _N_TARGET,
+        target_indices: Sequence[int] | None = None,
     ) -> None:
         if input_mode not in _INPUT_MODES:
             raise ValueError(f"input_mode must be one of {_INPUT_MODES}, got {input_mode!r}")
@@ -371,6 +529,30 @@ class ZernikeDualDataset(Dataset):
             raise ValueError(f"normalize must be one of {_NORMALIZE_MODES}, got {normalize!r}")
         if max_samples is not None and max_samples < 0:
             raise ValueError(f"max_samples must be >= 0, got {max_samples}")
+        if focus_window_size < 8:
+            raise ValueError(f"focus_window_size must be >= 8, got {focus_window_size}")
+        if focus_gamma <= 0:
+            raise ValueError(f"focus_gamma must be > 0, got {focus_gamma}")
+        if repair_saturation_value is not None and repair_saturation_value <= 0:
+            raise ValueError(
+                f"repair_saturation_value must be > 0, got {repair_saturation_value}"
+            )
+        if focus_crop_center is not None:
+            half = focus_window_size // 2
+            if focus_crop_center[0] < half or focus_crop_center[1] < half:
+                raise ValueError(
+                    f"focus_crop_center {focus_crop_center} too close to frame edge "
+                    f"for focus_window_size {focus_window_size} (need >= {half})"
+                )
+        if target_indices is not None:
+            idx = [int(i) for i in target_indices]
+            if not idx or any(i < 0 or i >= _N_TARGET for i in idx):
+                raise ValueError(
+                    f"target_indices must be non-empty ints in [0, {_N_TARGET}), got {target_indices}"
+                )
+            n_target = len(idx)  # explicit indices override the leading-n semantics
+        if n_target < 1 or n_target > _N_TARGET:
+            raise ValueError(f"n_target must be in [1, {_N_TARGET}], got {n_target}")
 
         self.data_root = Path(data_root)
         self.run_ids = sorted(run_ids) if run_ids is not None else None
@@ -382,6 +564,12 @@ class ZernikeDualDataset(Dataset):
         self.skip_unlabeled = skip_unlabeled
         self.seed = seed
         self.return_meta = return_meta
+        self.focus_window_size = focus_window_size
+        self.focus_crop_center = focus_crop_center
+        self.focus_gamma = focus_gamma
+        self.repair_saturation_value = repair_saturation_value
+        self.n_target = n_target
+        self.target_indices = tuple(int(i) for i in target_indices) if target_indices is not None else None
 
         raw = _scan_samples(self.data_root, run_ids)
         if max_samples is not None:
@@ -391,7 +579,7 @@ class ZernikeDualDataset(Dataset):
         self._labels: list[np.ndarray | None] = []
         missing: list[str] = []
         for entry in raw:
-            label = _resolve_label(entry)
+            label = _resolve_label(entry, n_target=self.n_target, target_indices=self.target_indices)
             if skip_unlabeled and label is None:
                 continue  # drop samples that cannot be labeled
             self._labels.append(label)
@@ -428,20 +616,55 @@ class ZernikeDualDataset(Dataset):
     def _load_image(self, sample_dir: str | Path) -> torch.Tensor:
         """Load, resize and normalize the ``(C, H, W)`` float32 image tensor."""
         frames, dtypes = _load_frames(sample_dir, self.input_mode)
-        resized = [_resize_frames(f, self.target_size) for f in frames]
-        if self.input_mode == "fft":
-            frames = np.stack([_fft_log_magnitude(f) for f in resized])
-            dtypes = [np.dtype("float32")] * len(resized)
-        elif self.input_mode == "fft_ratio":
-            frames = _fft_ratio(resized)[np.newaxis]
-            dtypes = [np.dtype("float32")]
+        if self.repair_saturation_value is not None:
+            frames = [repair_saturation(f, self.repair_saturation_value) if i == 0 else f
+                      for i, f in enumerate(frames)]
+        if self.input_mode in _FOCUS_ZOOM_MODES:
+            frames = self._focus_zoom_image(frames, dtypes)
         else:
-            frames = np.stack(resized)
-        frames = normalize_frames(frames, self.normalize, dtypes)
+            resized = [_resize_frames(f, self.target_size) for f in frames]
+            if self.input_mode == "fft":
+                frames = np.stack([_fft_log_magnitude(f) for f in resized])
+                dtypes = [np.dtype("float32")] * len(resized)
+            elif self.input_mode == "fft_ratio":
+                frames = _fft_ratio(resized)[np.newaxis]
+                dtypes = [np.dtype("float32")]
+            else:
+                frames = np.stack(resized)
+            frames = normalize_frames(frames, self.normalize, dtypes)
         img = torch.from_numpy(frames)
         if self.transform is not None:
             img = self.transform(img)
         return img
+
+    def _focus_zoom_image(
+        self, frames: list[np.ndarray], dtypes: list[np.dtype]
+    ) -> np.ndarray:
+        """Centroid-window + zoom + gamma preprocessing for the ``*_zoom`` modes.
+
+        ``frames[0]`` is the native-resolution daheng focus frame. The crop
+        center is ``focus_crop_center`` when set (fixed, preserving the spot's
+        tilt displacement), otherwise the per-image bright-spot centroid (which
+        re-centers the spot and removes that signal). The window is cropped and
+        resized to ``target_size``, then per-image normalization and gamma.
+        """
+        if self.focus_crop_center is not None:
+            cy, cx = self.focus_crop_center
+        else:
+            cy, cx = _spot_centroid(frames[0])
+        focus_zoom = _window_zoom_focus(frames[0], cy, cx, self.focus_window_size, self.target_size)
+        if self.input_mode == "combined_zoom":
+            pupil = _resize_frames(frames[1], self.target_size)
+            stacked = np.stack([focus_zoom, pupil])
+            dtypes_out = [np.dtype("float32"), dtypes[1]]
+        else:
+            stacked = focus_zoom[np.newaxis]
+            dtypes_out = [np.dtype("float32")]
+        stacked = normalize_frames(stacked, self.normalize, dtypes_out)
+        if self.focus_gamma != 1.0:
+            stacked = stacked.copy()
+            stacked[0] = stacked[0] ** self.focus_gamma
+        return stacked
 
 
 # ---------------------------------------------------------------------------
@@ -591,6 +814,12 @@ def create_zernike_loaders(
     require_labels: bool = True,
     skip_unlabeled: bool = False,
     return_meta: bool = False,
+    focus_window_size: int = 384,
+    focus_crop_center: tuple[int, int] | None = None,
+    focus_gamma: float = 1.0,
+    repair_saturation_value: float | None = None,
+    n_target: int = _N_TARGET,
+    target_indices: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     """Build train/val/test DataLoaders over the dual-camera dataset.
 
@@ -606,6 +835,10 @@ def create_zernike_loaders(
             (test/val take entire run dirs; leakage-free evaluation).
         normalize / require_labels / return_meta: Extra dataset options
             (defaults match ``ZernikeDualDataset``).
+        n_target / target_indices: Regression-target selection — ``n_target``
+            keeps the leading low-order coefficients; ``target_indices``
+            selects explicit positions into the 65 non-piston vector (useful
+            for per-coefficient models) and overrides ``n_target``.
 
     Returns:
         Dict with keys ``train``, ``val``, ``test`` (DataLoaders),
@@ -633,6 +866,12 @@ def create_zernike_loaders(
         "skip_unlabeled": skip_unlabeled,
         "seed": seed,
         "return_meta": return_meta,
+        "focus_window_size": focus_window_size,
+        "focus_crop_center": focus_crop_center,
+        "focus_gamma": focus_gamma,
+        "repair_saturation_value": repair_saturation_value,
+        "n_target": n_target,
+        "target_indices": target_indices,
     }
 
     if split_mode == "sample":

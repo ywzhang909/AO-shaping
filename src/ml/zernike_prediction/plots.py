@@ -77,6 +77,14 @@ _NON_PISTON_LABELS = COEFF_ORDER_NAMES(N_MAX)[1:]
 _N_NON_PISTON = count_zernike_terms(N_MAX) - 1  # 65
 
 
+def _pad_coeffs(coeffs: np.ndarray) -> np.ndarray:
+    """Zero-pad a (possibly truncated) coefficient vector to the full 65 terms."""
+    arr = np.asarray(coeffs, dtype=np.float64).ravel()
+    if arr.size >= _N_NON_PISTON:
+        return arr[:_N_NON_PISTON]
+    return np.pad(arr, (0, _N_NON_PISTON - arr.size))
+
+
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
@@ -95,10 +103,10 @@ def _as_float_pair(
         )
     if pred.ndim != 2:
         raise ValueError(f"pred/true must be 2-D (N, C), got shape {pred.shape}")
-    if pred.shape[1] not in (_N_NON_PISTON, _N_NON_PISTON + 1):
+    if not (1 <= pred.shape[1] <= _N_NON_PISTON + 1):
         raise ValueError(
-            f"expected {_N_NON_PISTON} or {_N_NON_PISTON + 1} coefficients per "
-            f"sample (n_max={N_MAX}), got {pred.shape[1]}"
+            f"expected 1..{_N_NON_PISTON + 1} coefficients per sample (n_max={N_MAX}), "
+            f"got {pred.shape[1]}"
         )
     return pred, true
 
@@ -308,7 +316,7 @@ def phase_grid(
 
     im = None
     for ax, coeffs, label in zip(ax_list, coefficients_list, labels_list):
-        phase = coefficients_to_phase_radians(coeffs, n_max=N_MAX, size=size, radius=radius)
+        phase = coefficients_to_phase_radians(_pad_coeffs(coeffs), n_max=N_MAX, size=size, radius=radius)
         im = ax.imshow(phase, cmap=cmap, vmin=0.0, vmax=_TWO_PI)
         ax.set_title(label, fontsize=9)
         # Hide frame/ticks via spines (tight_layout-compatible; set_axis_off is not)
@@ -349,8 +357,8 @@ def phase_error_map(
         radius: Unit-disk radius in pixels (default ``min(size) // 2``).
         title: Figure suptitle.
     """
-    pred_phase = coefficients_to_phase_radians(pred_coeffs, n_max=N_MAX, size=size, radius=radius)
-    true_phase = coefficients_to_phase_radians(true_coeffs, n_max=N_MAX, size=size, radius=radius)
+    pred_phase = coefficients_to_phase_radians(_pad_coeffs(pred_coeffs), n_max=N_MAX, size=size, radius=radius)
+    true_phase = coefficients_to_phase_radians(_pad_coeffs(true_coeffs), n_max=N_MAX, size=size, radius=radius)
     err = (pred_phase - true_phase + np.pi) % _TWO_PI - np.pi  # wrap to [-pi, pi)
 
     _, mask = build_basis_maps(n_max=N_MAX, height=size[0], width=size[1], radius=radius)

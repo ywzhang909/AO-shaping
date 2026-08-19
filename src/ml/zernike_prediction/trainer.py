@@ -217,10 +217,13 @@ def train_regressor(
     early_stop_patience: int | None = None,
     num_warmup_epochs: int = 1,
     test_loader: DataLoader | None = None,
+    loss_fn: str = "mse",
 ) -> dict[str, Any]:
     """Train a Zernike-coefficient regressor with best-checkpointing.
 
-    Loss is plain MSE on the 65 non-piston coefficients. Optimizer is AdamW;
+    Loss is MSE ("mse") or Huber ("huber", delta=1.0) on the 65 non-piston
+    coefficients; Huber is more robust to the large-coefficient tail present
+    in recovered labels. Optimizer is AdamW;
     the scheduler is ``ReduceLROnPlateau(patience=10, factor=0.5)`` on val MAE.
     An optional linear warmup scales the LR up over the first
     ``num_warmup_epochs`` epochs. The best model (lowest val MAE) is saved to
@@ -262,7 +265,7 @@ def train_regressor(
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     best_path = ckpt_dir / f"{run_name}-best.pt"
 
-    criterion = nn.MSELoss()
+    criterion = nn.MSELoss() if loss_fn == "mse" else nn.HuberLoss(delta=1.0)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", patience=10, factor=0.5
@@ -279,6 +282,7 @@ def train_regressor(
         "seed": seed,
         "early_stop_patience": early_stop_patience,
         "num_warmup_epochs": num_warmup_epochs,
+        "loss_fn": loss_fn,
         "phase_size": phase_size,
     }
     if use_wandb and wandb is not None:

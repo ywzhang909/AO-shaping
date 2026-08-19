@@ -35,6 +35,7 @@ from ml.zernike_prediction.phase_gen import (
     COEFF_ORDER_NAMES,
     build_basis_maps,
     coefficients_to_phase_radians,
+    count_zernike_terms,
     iter_nm_terms,
 )
 
@@ -173,14 +174,18 @@ def per_order_mae(pred: np.ndarray, true: np.ndarray) -> dict[int, float]:
 
     Grouping follows ``phase_gen.iter_nm_terms(10)``, skipping the piston
     ``(0, 0)`` term; ``per_order_mae[n]`` is the mean of ``per_coeff_mae`` over
-    the terms with radial degree ``n``.
+    the terms with radial degree ``n``. Only orders fully covered by the
+    available target dimension are reported (supports ``n_target < 65``).
     """
     pcm = per_coeff_mae(pred, true)
+    n_coeffs = pcm.shape[0]
     terms = iter_nm_terms(_N_MAX)
-    return {
-        n: float(np.mean([pcm[i - 1] for i, (nn, _m) in enumerate(terms) if i >= 1 and nn == n]))
-        for n in range(1, _N_MAX + 1)
-    }
+    out: dict[int, float] = {}
+    for n in range(1, _N_MAX + 1):
+        idxs = [i - 1 for i, (nn, _m) in enumerate(terms) if i >= 1 and nn == n and i - 1 < n_coeffs]
+        if idxs:
+            out[n] = float(np.mean([pcm[i] for i in idxs]))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -192,8 +197,10 @@ def _single_phase_diff(
     pred_coeffs: np.ndarray, true_coeffs: np.ndarray, size: tuple[int, int]
 ) -> np.ndarray:
     """Circular wrapped-phase difference (radians) inside the aperture disk."""
-    pred_phase = coefficients_to_phase_radians(pred_coeffs, n_max=_N_MAX, size=size)
-    true_phase = coefficients_to_phase_radians(true_coeffs, n_max=_N_MAX, size=size)
+    n_terms = count_zernike_terms(_N_MAX) - 1  # 65 non-piston
+    pad = lambda c: np.pad(np.asarray(c, dtype=np.float64), (0, max(0, n_terms - len(c))))[:n_terms]
+    pred_phase = coefficients_to_phase_radians(pad(pred_coeffs), n_max=_N_MAX, size=size)
+    true_phase = coefficients_to_phase_radians(pad(true_coeffs), n_max=_N_MAX, size=size)
     diff = np.angle(np.exp(1j * (pred_phase - true_phase)))  # (-pi, pi]
     height, width = size
     _basis, mask = build_basis_maps(n_max=_N_MAX, height=height, width=width)

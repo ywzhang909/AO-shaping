@@ -114,9 +114,13 @@ def test_dataset_scans_and_lengths() -> None:
     assert len(capped) == 10
 
     # run_ids=None -> all run dirs; 0402 runs have no labels yet (recovered in
-    # T8), so scan-only requires require_labels=False
+    # T8), so scan-only requires require_labels=False.
     all_runs = ZernikeDualDataset(_REAL_ROOT, require_labels=False)
-    assert len(all_runs) == 333 + 100 + 51
+    expected = sum(
+        len([p for p in run_dir.glob("sample_*") if p.is_dir()])
+        for run_dir in _REAL_ROOT.iterdir() if run_dir.is_dir()
+    )
+    assert len(all_runs) == expected
 
     # __init__.py re-export points at the same class
     assert ZernikeDualDataset is dataset_mod.ZernikeDualDataset
@@ -415,3 +419,152 @@ def test_invalid_input_mode_rejected() -> None:
     _require_real_data()
     with pytest.raises(ValueError, match="input_mode"):
         ZernikeDualDataset(_REAL_ROOT, run_ids=["20260414_171241"], input_mode="not_a_mode")
+
+
+# ---------------------------------------------------------------------------
+# 12. focus_zoom / combined_zoom modes — centroid-window + zoom + gamma
+# ---------------------------------------------------------------------------
+
+
+def _make_spot_frame(
+    shape: tuple[int, int] = (128, 128),
+    spot_center: tuple[int, int] = (96, 40),
+    spot_radius: int = 12,
+    bg: int = 5,
+    peak: int = 40000,
+    seed: int = 0,
+) -> np.ndarray:
+    """uint16 frame with a bright disk + faint speckle background."""
+    rng = np.random.default_rng(seed)
+    f = rng.integers(0, 16, size=shape, dtype=np.uint16).astype(np.float32) + bg
+    ys, xs = np.ogrid[: shape[0], : shape[1]]
+    disk = (ys - spot_center[0]) ** 2 + (xs - spot_center[1]) ** 2 <= spot_radius**2
+    f[disk] = peak
+    return f.astype(np.uint16)
+
+
+def test_spot_centroid_located_and_fallback() -> None:
+    frame = _make_spot_frame()
+    cy, cx = dataset_mod._spot_centroid(frame)
+    assert abs(cy - 96) <= 2 and abs(cx - 40) <= 2
+
+    flat = np.full((64, 64), 200, dtype=np.uint16)
+    # uniform frame: everything above threshold -> centroid of the whole frame
+    assert dataset_mod._spot_centroid(flat) == (31, 31)
+
+
+def test_focus_zoom_mode_shapes_and_range() -> None:
+    _require_real_data()
+    ds = ZernikeDualDataset(_REAL_ROOT, run_ids=["20260414_171241"], input_mode="focus_zoom")
+    img, label = ds[0]
+    assert img.shape == (1, 256, 256)
+    assert img.dtype == torch.float32
+    assert float(img.min()) >= 0.0 and float(img.max()) <= 1.0
+    assert not bool(torch.isnan(img).any())
+    assert label.shape == (65,)
+
+    combined = ZernikeDualDataset(_REAL_ROOT, run_ids=["20260414_171241"], input_mode="combined_zoom")
+    img2, _ = combined[0]
+    assert img2.shape == (2, 256, 256)
+    assert float(img2.min()) >= 0.0 and float(img2.max()) <= 1.0
+    assert not bool(torch.isnan(img2).any())
+
+
+def test_focus_zoom_magnifies_spot_fraction() -> None:
+    """The zoomed window must make the spot occupy a much larger pixel fraction.
+
+    The saturated spot is ~0.02-0.05% of the native frame; after the 384px
+    centroid window is zoomed to 256px it must dominate the frame.
+    """
+    _require_real_data()
+    focus = ZernikeDualDataset(_REAL_ROOT, run_ids=["20260414_171241"], input_mode="focus")
+    zoom = ZernikeDualDataset(_REAL_ROOT, run_ids=["20260414_171241"], input_mode="focus_zoom")
+    for i in (0, 50, 100):
+        f_img = focus[i][0].numpy()[0]
+        z_img = zoom[i][0].numpy()[0]
+        f_frac = float((f_img > 0.5).mean())
+        z_frac = float((z_img > 0.5).mean())
+        assert z_frac > f_frac * 3.0
+
+
+def test_focus_zoom_gamma_brightens() -> None:
+    """Gamma < 1 on the normalized live channel must brighten faint structure."""
+    _require_real_data()
+    plain = ZernikeDualDataset(
+        _REAL_ROOT, run_ids=["20260414_171241"], input_mode="focus_zoom", focus_gamma=1.0
+    )[0][0].numpy()[0]
+    bright = ZernikeDualDataset(
+        _REAL_ROOT, run_ids=["20260414_171241"], input_mode="focus_zoom", focus_gamma=0.5
+    )[0][0].numpy()[0]
+    # power < 1 raises low values toward 1: elementwise >= (float equality)
+    assert bool((bright >= plain - 1e-6).all())
+    assert float(bright.mean()) > float(plain.mean())
+
+
+def test_focus_zoom_invalid_params_rejected() -> None:
+    with pytest.raises(ValueError, match="focus_window_size"):
+        ZernikeDualDataset("x", input_mode="focus_zoom", focus_window_size=4)
+    with pytest.raises(ValueError, match="focus_gamma"):
+        ZernikeDualDataset("x", input_mode="focus_zoom", focus_gamma=0.0)
+
+
+def test_loaders_pass_through_focus_params(tmp_path: Path) -> None:
+    _make_run(tmp_path, "run_a", 2, labeled=True)
+    res = create_zernike_loaders(
+        tmp_path, run_ids=["run_a"], input_mode="focus_zoom",
+        focus_window_size=64, focus_gamma=0.7, num_workers=0,
+    )
+    assert res["dataset_kwargs"]["focus_window_size"] == 64
+    assert res["dataset_kwargs"]["focus_gamma"] == 0.7
+    img, label = res["train"].dataset[0]
+    assert img.shape == (1, 256, 256)
+    assert isinstance(label, torch.Tensor)
+
+
+def test_repair_saturation_interpolates_core() -> None:
+    y, x = np.mgrid[0:128, 0:128].astype(np.float32)
+    grad = 100.0 - 0.3 * np.abs(y - 64) - 0.3 * np.abs(x - 64)
+    frame = grad.copy()
+    core = (y - 64) ** 2 + (x - 64) ** 2 <= 8**2
+    frame[core] = 255.0
+    repaired = dataset_mod.repair_saturation(frame, 255.0)
+    assert repaired.shape == frame.shape and repaired.dtype == np.float32
+    assert not bool((repaired >= 255.0).any())
+    # interior values restored toward the underlying gradient, not left clipped
+    assert float(repaired[64, 64]) < 150.0
+    assert repaired[64, 64] >= repaired[55, 64]  # still peaked near center
+
+
+def test_repair_saturation_no_op_without_saturation() -> None:
+    frame = np.full((64, 64), 100.0, dtype=np.float32)
+    repaired = dataset_mod.repair_saturation(frame, 255.0)
+    assert repaired is frame  # early exit returns the same object
+
+
+def test_repair_saturation_restores_plateau_on_real_data() -> None:
+    _require_real_data()
+    frame = np.load(Path(ds_sample_dir := _REAL_0414 / "sample_0000" / "daheng_frame.npy"))
+    sat = int((frame >= 255).sum())
+    if sat == 0:
+        pytest.skip("sample_0000 has no saturated pixels")
+    repaired = dataset_mod.repair_saturation(frame, 255.0)
+    assert not bool((repaired >= 255.0).any())
+    assert float(repaired.max()) < 255.0
+
+
+def test_repair_saturation_value_applied_in_getitem(tmp_path: Path) -> None:
+    d = tmp_path / "run_a" / "sample_0000"
+    d.mkdir(parents=True)
+    meta = {"phase_params": {"n_max": 10, "coefficients": [1.0] + [0.1] * 65}}
+    (d / "metadata.json").write_text(json.dumps(meta))
+    daheng = np.full((64, 64), 120, dtype=np.uint16)
+    daheng[28:36, 28:36] = 255
+    np.save(d / "daheng_frame.npy", daheng)
+    np.save(d / "miicam_frame.npy", np.full((64, 64), 50, dtype=np.uint8))
+
+    ds = ZernikeDualDataset(
+        tmp_path, run_ids=["run_a"], input_mode="focus", repair_saturation_value=255.0
+    )
+    img = ds[0][0].numpy()[0]
+    assert float(img.max()) <= 1.0  # repaired, normalized
+    assert not bool((img >= 1.0).all())  # not a flat-white frame
