@@ -198,6 +198,158 @@ python scripts/visualize_sac_runs.py
   - Rollout metrics and frames
 - Saves output to timestamped directory under `logs/sac_visual_report_*`
 
+## Micro-DM Diff Analysis Pipeline
+
+Analysis pipeline for per-channel Micro-DM (R50Power) response images. For each
+controller IP, one camera image is acquired per DM channel while that channel is
+driven at a fixed voltage (the remaining channels at 0 V). Each image is reduced
+to a localized diff signal against the channel-`000` (0 V) reference of the same
+IP, then visualized either as a merged overlay or as per-IP animated GIFs:
+
+```bash
+# 1. Diff computation, denoising & centroid (per channel)
+python scripts/md_img_diff_centroid.py --ref <ref.png> --input data/md_test/md_img-100v \
+    --output data/md_test/md_img-100v_diff --threshold 15
+
+# 2a. Merge analysis: pixel-wise maximum over all diff images
+python scripts/md_img_diff_overlay.py --input data/md_test/md_img-100v_diff \
+    --output data/md_test/md_img-100v_overlay.png
+
+# 2b. Per-IP animation: 50 per-channel diff PNGs -> one animated GIF per IP
+python scripts/md_img_diff_to_gif.py --input data/md_test/md_img-100v_diff_jet \
+    --output data/md_test/md_img-100v_gif --scale 0.25 --fps 8
+```
+
+### md_img_diff_centroid.py — diff computation, denoising & centroid
+
+The core analysis script. For every image under `--input` (recursively scanned),
+it computes the signed difference against a single reference image, denoises by
+thresholding, saves the rendered diff, and appends the intensity-weighted
+centroid of the dominant dark blob to the output filename.
+
+**Algorithm (per image):**
+
+1. **FFT notch filter** (`--notch`, default ON) — the raw camera frames carry
+   fixed-pattern interference fringes with frequency peaks at
+   `±(19,4), ±(19,7), ±(6,-2), ±(5,2), ±(2,7)` in fftshifted space (fringe
+   period ≈ 141 px along x). A Gaussian notch mask
+   (`1 - exp(-d²/2w²)`, with the exact center of each peak zeroed) is applied to
+   the spectrum of the **raw reference and image before diffing**, then the
+   inverse FFT restores real space. With `width=1.0` the fringe energy is fully
+   removed (validated: fringe energy 15.6M → 0) while the localized DM response
+   is preserved (validated: the centroid of channel 119-030 stays at
+   (1790, 1241)). The mask depends only on the image shape, so it is built once
+   and cached per shape (rebuilding costs ~2 s, ≈ 3× the FFT itself). Disable
+   with `--no-notch`.
+
+2. **Signed difference** — `diff = reference - image` (float64). A positive diff
+   means the image is darker than the reference, i.e. the DM has pushed the spot
+   away from its rest position — this is the per-channel response signal.
+
+3. **Threshold denoising** — keep only pixels where `|diff| >= threshold`,
+   zeroing everything else. See *Threshold calculation method* below.
+
+4. **Dominant dark-blob centroid** (`dominant_blob_centroid`) — build the mask
+   `diff > threshold` (pixels significantly darker than the reference), label
+   8-connected components with `scipy.ndimage.label`, keep the **largest**
+   component, and compute its intensity-weighted centroid:
+   `cx = Σ(x·w)/Σw`, `cy = Σ(y·w)/Σw` where `w = diff` at those pixels. Returns
+   `(cx, cy)` in (x, y) order. A whole-image centroid is deliberately NOT used —
+   the diff is dominated by noise, so the largest connected blob is the real
+   localized per-channel signal.
+
+5. **Colormap rendering** — `--cmap gray` outputs plain grayscale `|diff|`
+   (0–255); `--cmap jet` (default) maps values in `[threshold, vmax]` through the
+   jet colormap with the background left black, so differences pop as
+   blue→cyan→green→yellow→red as `|diff|` grows. `vmax` defaults to the per-image
+   max `|diff|` (floored at `threshold + 1`) to use the full jet range; pass
+   `--vmax` for a fixed scale comparable across images.
+
+6. **Filename convention** — the centroid is written into the output name:
+   `<stem>_cx<X>_cy<Y>.png` (1-decimal floats); images with no pixel above
+   threshold are saved as `<stem>_cxNone_cyNone.png` so they stay visible in the
+   pipeline instead of failing it.
+
+After processing, the script prints a sanity overview: total count, centroid
+x/y range and spread, and the number of distinct centroids per controller
+subfolder.
+
+**Threshold calculation method:**
+
+The default threshold is `--threshold 15` (empirically derived, not statistical).
+Rationale from the code comments:
+
+- The per-channel DM response is a **localized** signal — at the moved spot the
+  `|diff|` values sit at 15–25 gray levels.
+- A statistical threshold such as `3σ` of the whole-image diff is useless here:
+  it still retains 88–97% of all pixels because the difference image is
+  dominated by noise, and the resulting whole-image centroid is meaningless.
+- Hence the threshold is chosen empirically just below the observed signal
+  floor (15) so that only genuine response pixels survive, and the centroid is
+  computed on the **largest connected component** rather than the whole image.
+
+**Usage:**
+```bash
+python scripts/md_img_diff_centroid.py --ref <reference.png> \
+    --input data/md_test/md_img-100v \
+    --output data/md_test/md_img-100v_diff \
+    --threshold 15 --cmap jet
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--ref` | (required) | Reference image path (per-IP channel-000 frame) |
+| `--input` | `data/md_test/md_img-100v` | Input directory (recursively scanned) |
+| `--output` | `data/md_test/md_img-100v_diff` | Output directory (mirrors input structure) |
+| `--threshold` | `15.0` | Dark-blob threshold on diff; empirically the signal sits at \|diff\| 15–25 |
+| `--cmap` | `jet` | Output colormap: `jet` (black bg + blue→red enhancement) or `gray` |
+| `--vmax` | per-image max | Fixed jet color scale maximum, for comparable scales across images |
+| `--notch/--no-notch` | on | FFT-notch raw frames to remove fixed-pattern fringes before diffing |
+
+### md_img_diff_overlay.py — merged analysis (pixel-wise maximum)
+
+Loads **all** diff images under `--input` (recursively), computes the pixel-wise
+**maximum** across the stack (`np.maximum`), and saves one merged overlay image.
+This answers "which pixels are ever perturbed by any channel" — the union of all
+channel responses. Shape-mismatched images are skipped with a warning. The
+script prints the found image count, image shape (RGB vs grayscale), the
+**coverage** (percentage of pixels with signal, i.e. `> 0` after the max merge)
+and the max intensity.
+
+**Usage:**
+```bash
+python scripts/md_img_diff_overlay.py \
+    --input data/md_test/md_img-100v_diff \
+    --output data/md_test/md_img-100v_overlay.png
+```
+
+### md_img_diff_to_gif.py — per-IP animated GIFs
+
+For every subfolder under `--input` (one per controller IP), combines the
+per-channel diff PNGs into an animated GIF, one per IP. Key mechanics:
+
+- **Channel sorting** — the channel number is parsed from the filename with
+  `-(\d{3})_cx` (the 3-digit number right after the last dash of the base name);
+  frames are sorted by channel number, not by lexicographic order.
+- **Centroid labels** — the centroid is parsed from `_cx<X>_cy<Y>` in the
+  filename and drawn as `ch NN (cx, cy)` in the top-left corner of each frame
+  (Windows system fonts with graceful fallback).
+- **Downscaling** — frames are resized by `--scale` (default 0.25, LANCZOS) to
+  keep the GIF size reasonable; the label font scales with it.
+- **Palette** — each frame is quantized to an adaptive 256-color palette, and the
+  GIF is saved with `save_all`, `duration = 1000/fps`, infinite loop and
+  `optimize=True`.
+- **Fault tolerance** — a failing IP is reported and skipped without aborting the
+  rest; the script prints the byte size of each GIF and the total written.
+
+**Usage:**
+```bash
+python scripts/md_img_diff_to_gif.py \
+    --input data/md_test/md_img-100v_diff_jet \
+    --output data/md_test/md_img-100v_gif \
+    --scale 0.25 --fps 8
+```
+
 ## Subdirectories
 
 ### dm_sim/
