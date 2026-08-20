@@ -5,8 +5,8 @@ Tests the low-level TCP controller for R50Power devices.
 
 from __future__ import annotations
 
-import asyncio
 import socket as socket_module
+import time
 from unittest.mock import Mock, patch
 
 import pytest
@@ -64,15 +64,14 @@ class TestR50Controller:
             assert mock_sock_instance.sendall.call_args_list[0].args[0] == relay_cmd
             assert mock_sock_instance.sendall.call_args_list[1].args[0] == voltage_cmd
 
-    @pytest.mark.asyncio
-    async def test_sends_async(self, controller: R50Controller):
-        """Test the async voltage-array command with a mocked socket."""
+    def test_sends_voltage_array(self, controller: R50Controller):
+        """Test the voltage-array command with a mocked socket."""
         with patch("socket.socket") as mock_socket_cls:
             mock_sock_instance = Mock()
             mock_socket_cls.return_value = mock_sock_instance
 
             assert controller.open()
-            assert await controller.set_all_voltage_array_async([10.0] * 50)
+            assert controller.set_all_voltage_array([10.0] * 50)
 
             expected = (
                 HEADER
@@ -168,14 +167,14 @@ class TestR50Controller:
         controller._socket = mock_sock
         
         test_data = b'\xAA\xBB\x04\x00\x00\x11\xCC\xDD'
-        result = controller.send_command(test_data)
+        result = controller.send(test_data)
         
         assert result is True
         mock_sock.sendall.assert_called_once_with(test_data)
 
     def test_send_command_not_connected(self, controller):
         """Test command sending when not connected."""
-        result = controller.send_command(b'test')
+        result = controller.send(b'test')
         
         assert result is False
 
@@ -185,7 +184,7 @@ class TestR50Controller:
         mock_sock.sendall.side_effect = OSError("Send failed")
         controller._socket = mock_sock
         
-        result = controller.send_command(b'test')
+        result = controller.send(b'test')
         
         assert result is False
         assert controller._socket is None  # Should be marked as disconnected
@@ -215,61 +214,44 @@ class TestR50Controller:
         mock_sock.sendall.assert_called_once_with(expected_cmd)
 
 
-@pytest.mark.asyncio
-class TestR50ControllerSendCommandAsync:
-    """Tests for the send_command_async method (the only async method on R50Controller)."""
+class TestR50ControllerSendCommand:
+    """Tests for the send method on R50Controller."""
 
     @pytest.fixture
     def controller(self):
         """Create an R50Controller instance for testing."""
         return R50Controller(controller_id=1, ip=CONTROLLER_IP, port=CONTROLLER_PORT)
 
-    async def test_send_command_async_success(self, controller):
-        """Test successful async command sending."""
+    def test_send_command_success(self, controller):
+        """Test successful command sending."""
         mock_sock = Mock()
         controller._socket = mock_sock
 
         test_data = b'\xAA\xBB\x04\x00\x00\x11\xCC\xDD'
-        result = await controller.send_command_async(test_data)
+        result = controller.send(test_data)
 
         assert result is True
         mock_sock.sendall.assert_called_once_with(test_data)
 
-    async def test_send_command_async_not_connected(self, controller):
-        """Test async command sending when not connected."""
-        result = await controller.send_command_async(b'test')
+    def test_send_command_not_connected(self, controller):
+        """Test command sending when not connected."""
+        result = controller.send(b'test')
 
         assert result is False
 
-    async def test_send_command_async_os_error(self, controller):
-        """Test async command sending with OS error."""
+    def test_send_command_os_error(self, controller):
+        """Test command sending with OS error."""
         mock_sock = Mock()
         mock_sock.sendall.side_effect = OSError("Send failed")
         controller._socket = mock_sock
 
-        result = await controller.send_command_async(b'test')
+        result = controller.send(b'test')
 
         assert result is False
         assert controller._socket is None  # Should be marked as disconnected
 
-    async def test_send_command_async_returns_coroutine(self, controller):
-        """Verify send_command_async returns an awaitable coroutine."""
-        mock_sock = Mock()
-        controller._socket = mock_sock
-
-        test_data = b'\xAA\xBB\xCC\xDD'
-        coro = controller.send_command_async(test_data)
-
-        # Should be a coroutine (not yet awaited)
-        assert asyncio.iscoroutine(coro), "send_command_async should return a coroutine"
-
-        result = await coro
-        assert result is True
-        mock_sock.sendall.assert_called_once_with(test_data)
-
 
 @pytest.mark.skipif(not PORT_LISTENER_AVAILABLE, reason="PortListener not available")
-@pytest.mark.asyncio
 class TestR50ControllerProtocol:
     """Tests for R50Controller protocol compliance using a real port listener."""
     
@@ -279,7 +261,7 @@ class TestR50ControllerProtocol:
         listener.start()
         return listener
     
-    async def _create_controller(self, port_listener):
+    def _create_controller(self, port_listener):
         """Create an R50Controller connected to the port listener."""
         controller = R50Controller(
             controller_id=1,
@@ -294,15 +276,14 @@ class TestR50ControllerProtocol:
 
         return controller
 
-    @pytest.mark.asyncio
-    async def test_set_all_channel_voltage_protocol(self):
+    def test_set_all_channel_voltage_protocol(self):
         """Test that set_all_channel_voltage sends correct protocol bytes."""
         # Create and start port listener
         port_listener = self._create_port_listener()
 
         try:
             # Create controller pointing to our listener
-            controller = await self._create_controller(port_listener)
+            controller = self._create_controller(port_listener)
 
             try:
                 # Send command to set all channels to 0V
@@ -310,7 +291,7 @@ class TestR50ControllerProtocol:
                 assert result is True, "Failed to send command"
 
                 # Give it a moment to transmit
-                await asyncio.sleep(0.1)
+                time.sleep(0.1)
 
                 # Check what was captured
                 commands = port_listener.get_captured_commands()
@@ -339,15 +320,14 @@ class TestR50ControllerProtocol:
             # Cleanup port listener
             port_listener.stop()
 
-    @pytest.mark.asyncio
-    async def test_set_channel_voltage_protocol(self):
+    def test_set_channel_voltage_protocol(self):
         """Test that set_channel_voltage sends correct protocol bytes."""
         # Create and start port listener
         port_listener = self._create_port_listener()
 
         try:
             # Create controller pointing to our listener
-            controller = await self._create_controller(port_listener)
+            controller = self._create_controller(port_listener)
 
             try:
                 # Send command to set channel 0 to 5.0V
@@ -355,7 +335,7 @@ class TestR50ControllerProtocol:
                 assert result is True, "Failed to send command"
 
                 # Give it a moment to transmit
-                await asyncio.sleep(0.1)
+                time.sleep(0.1)
 
                 # Check what was captured
                 commands = port_listener.get_captured_commands()
@@ -386,15 +366,14 @@ class TestR50ControllerProtocol:
             # Cleanup port listener
             port_listener.stop()
 
-    @pytest.mark.asyncio
-    async def test_set_all_voltage_array_protocol(self):
+    def test_set_all_voltage_array_protocol(self):
         """Test that set_all_voltage_array sends correct protocol bytes."""
         # Create and start port listener
         port_listener = self._create_port_listener()
 
         try:
             # Create controller pointing to our listener
-            controller = await self._create_controller(port_listener)
+            controller = self._create_controller(port_listener)
 
             try:
                 # Send command to set all channels to 0V using array
@@ -403,7 +382,7 @@ class TestR50ControllerProtocol:
                 assert result is True, "Failed to send command"
 
                 # Give it a moment to transmit
-                await asyncio.sleep(0.1)
+                time.sleep(0.1)
 
                 # Check what was captured
                 commands = port_listener.get_captured_commands()
@@ -439,27 +418,26 @@ class TestR50ControllerProtocol:
             # Cleanup port listener
             port_listener.stop()
 
-    @pytest.mark.asyncio
-    async def test_send_command_async_protocol(self):
-        """Test that send_command_async sends correct protocol bytes."""
+    def test_send_command_protocol(self):
+        """Test that send sends correct protocol bytes."""
         # Create and start port listener
         port_listener = self._create_port_listener()
 
         try:
             # Create controller pointing to our listener
-            controller = await self._create_controller(port_listener)
+            controller = self._create_controller(port_listener)
 
             try:
                 # Build a valid command: set all channels to 0V
                 payload = voltages_to_payload(0.0)
                 cmd = HEADER + bytes([CMD_SET_ALL_CHANNEL_VOLTAGE, payload[0], payload[1]]) + FOOTER
 
-                # Send via the async method
-                result = await controller.send_command_async(cmd)
-                assert result is True, "Failed to send command via send_command_async"
+                # Send via the sync method
+                result = controller.send(cmd)
+                assert result is True, "Failed to send command via send"
 
                 # Give it a moment to transmit
-                await asyncio.sleep(0.1)
+                time.sleep(0.1)
 
                 # Check what was captured
                 commands = port_listener.get_captured_commands()

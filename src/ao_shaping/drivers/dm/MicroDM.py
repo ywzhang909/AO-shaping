@@ -1,6 +1,6 @@
-"""Micro DM (R50Power) driver for deformable mirror control via async TCP.
+"""Micro DM (R50Power) driver for deformable mirror control via synchronous TCP.
 
-Controls one or more R50Power controllers via TCP/IP using asyncio.
+Controls one or more R50Power controllers via TCP/IP (blocking sockets).
 Each controller manages 50 channels in the range -20V to 120V.
 Supports up to 26 controllers (1296 actuators) with IP-based addressing.
 
@@ -51,12 +51,9 @@ Channel Lookup:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import socket
-import threading
-import time
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
@@ -66,11 +63,10 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.device_base import Device, DeviceState, DeviceType
-from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.dm._registry import register_dm
+from ao_shaping.drivers.dm.base import DM
 from ao_shaping.utils.device_config import ConfigHandler, DeviceParam, param
 from ao_shaping.utils.file import ROOT_DIR
-from ao_shaping.utils.network import ping_reachable
 
 # =============================================================================
 # Protocol Constants
@@ -109,6 +105,7 @@ _MICRO_DM_CONFIG_DIR = Path(
 @dataclass
 class MicroDMParams(DeviceParam):
     """MicroDM 配置参数（可持久化的标量参数）。"""
+
     timeout: float = param(default=DEFAULT_TIMEOUT, cast=float)
     use_wiring_map: bool = param(default=True, cast=bool)
     safety_mode: bool = param(default=True, cast=bool)
@@ -412,6 +409,8 @@ class ChannelInfo:
 # =============================================================================
 # Voltage Conversion
 # =============================================================================
+_SCALE = 65535.0 / (20.0 * 3.4 * 3.3)     # = 292.741...
+_OFFSET = 20.0 * _SCALE
 
 
 def voltages_to_payload(voltages: np.ndarray | list[float] | float) -> bytes:
@@ -442,16 +441,18 @@ def voltages_to_payload(voltages: np.ndarray | list[float] | float) -> bytes:
     Returns:
         Interleaved high/low bytes as bytes object.
     """
-    v = np.atleast_1d(np.asarray(voltages, dtype=np.float64))
+    v = np.asarray(voltages, dtype=np.float32)
+    if v.ndim == 0:
+        v = v.reshape(1)
+    elif not v.flags["C_CONTIGUOUS"]:
+        v = np.ascontiguousarray(v, dtype=np.float32)
     np.clip(v, VOLTAGE_MIN, VOLTAGE_MAX, out=v)
-    value = (v + 20.0) / 20.0 / 3.4 / 3.3 * 65535.0
-    raw = np.round(value).astype(np.int32)
-    high = (raw >> 8).astype(np.uint8)
-    low = (raw & 0xFF).astype(np.uint8)
-    interleaved = np.empty(2 * len(v), dtype=np.uint8)
-    interleaved[0::2] = high
-    interleaved[1::2] = low
-    return interleaved.tobytes()
+    v *= _SCALE
+    v += _OFFSET
+    raw = np.round(v).astype(np.uint16)
+    # 转换为 big-endian 字节序，使 uint16 内存布局为 [high_byte, low_byte]
+    raw_be = raw.byteswap().view(np.uint8)
+    return raw_be.tobytes()
 
 
 # =============================================================================
@@ -483,29 +484,13 @@ class RelayState(IntEnum):
     ON = 1
 
 
-@dataclass(frozen=True)
-class ControllerStatus:
-    """Connection and reachability status for a single controller."""
-
-    controller_id: int
-    ip: str
-    port: int
-    ping_reachable: bool
-    tcp_connected: bool
-
-    @property
-    def is_available(self) -> bool:
-        """Controller is reachable via ping and has an active TCP connection."""
-        return self.ping_reachable and self.tcp_connected
-
-
 # =============================================================================
-# Low-Level Async R50 Controller
+# Low-Level Sync R50 Controller
 # =============================================================================
 
 
 class R50Controller:
-    """Async TCP client for a single R50Power controller (50 channels).
+    """Sync TCP client for a single R50Power controller (50 channels).
 
     Low-level helper used internally by MicroDM. Each instance manages a
     persistent TCP connection to one physical power supply unit.
@@ -570,6 +555,8 @@ class R50Controller:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(self._timeout)
             sock.connect((self.ip, self.port))
+            # 禁用 Nagle算法（减少小包延迟，适合低延迟控制）
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             self._socket = sock
             logger.debug(
                 f"R50Controller[{self.controller_id}] connected to {self.ip}:{self.port}"
@@ -593,17 +580,6 @@ class R50Controller:
     # ---- Command Sending ----------------------------------------------------
 
     def send(self, data: bytes) -> bool:
-        """Send raw command bytes (DM-compatible alias for :meth:`send_command`).
-
-        Args:
-            data: Complete command packet (header + payload + footer).
-
-        Returns:
-            True on success.
-        """
-        return self.send_command(data)
-
-    def send_command(self, data: bytes) -> bool:
         """Send raw command bytes to the controller.
 
         Args:
@@ -634,7 +610,7 @@ class R50Controller:
         payload = voltages_to_payload(voltage)
         hv, lv = payload[0], payload[1]
         cmd = HEADER + bytes([CMD_SET_ALL_CHANNEL_VOLTAGE, hv, lv]) + FOOTER
-        return self.send_command(cmd)
+        return self.send(cmd)
 
     def set_channel_voltage(self, channel: int, voltage: float) -> bool:
         """Set a single channel voltage (command 0x04).
@@ -654,7 +630,7 @@ class R50Controller:
         payload = voltages_to_payload(voltage)
         hv, lv = payload[0], payload[1]
         cmd = HEADER + bytes([CMD_SET_CHANNEL_VOLTAGE, channel, hv, lv]) + FOOTER
-        return self.send_command(cmd)
+        return self.send(cmd)
 
     def set_all_voltage_array(self, voltages: list[float]) -> bool:
         """Set all 50 channels by array (command 0x09, fastest method).
@@ -678,40 +654,7 @@ class R50Controller:
             + voltages_to_payload(voltages)
             + FOOTER
         )
-        return self.send_command(cmd)
-
-    async def set_all_voltage_array_async(
-        self, voltages: np.ndarray | list[float]
-    ) -> bool:
-        """Non-blocking version of :meth:`set_all_voltage_array`.
-
-        Builds the command packet using the vectorised
-        :func:`voltages_to_payload` helper, then offloads the TCP send
-        to a thread-pool executor.
-
-        Accepts both ``list[float]`` and ``np.ndarray`` — callers can
-        pass data directly without converting.
-
-        Args:
-            voltages: Exactly 50 voltage values, as a list or array.
-
-        Returns:
-            True on success, False if array length is not 50.
-        """
-        if len(voltages) != MAX_CHANNELS:
-            logger.warning(
-                f"R50Controller[{self.controller_id}] expected {MAX_CHANNELS} voltages, "
-                f"got {len(voltages)}"
-            )
-            return False
-
-        cmd = (
-            HEADER
-            + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR])
-            + voltages_to_payload(voltages)
-            + FOOTER
-        )
-        return await self.send_command_async(cmd)
+        return self.send(cmd)
 
     def set_relay(self, state: bool) -> bool:
         """Open (True) or close (False) the relay.
@@ -719,7 +662,7 @@ class R50Controller:
         Command 0x06 = open, 0x07 = close.
         """
         cmd = HEADER + bytes([CMD_RELAY_ON if state else CMD_RELAY_OFF]) + FOOTER
-        return self.send_command(cmd)
+        return self.send(cmd)
 
     def power_off_and_close(self, home_voltage: float = 0.0) -> None:
         """Safe shutdown: home all channels, relay OFF, then close connection.
@@ -732,23 +675,6 @@ class R50Controller:
         self.set_relay(False)
         self.close()
 
-    async def send_command_async(self, data: bytes) -> bool:
-        """Non-blocking version of send_command, runs the TCP send in a thread pool.
-
-        Unlike the sync :meth:`send_command`, this method does not block the
-        calling coroutine.  It offloads the blocking ``socket.sendall()`` to a
-        default thread-pool executor so that multiple sends (e.g. to different
-        controllers) can run concurrently via ``asyncio.gather``.
-
-        Args:
-            data: Complete command packet (header + payload + footer).
-
-        Returns:
-            True on success. On failure, marks the controller as disconnected.
-        """
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self.send_command, data)
-
 
 # =============================================================================
 # Main MicroDM Driver
@@ -759,7 +685,7 @@ class R50Controller:
 class MicroDM(DM, Device):
     """Micro DM (R50Power) deformable mirror driver.
 
-    Controls one or more R50Power controllers via async TCP.
+    Controls one or more R50Power controllers via synchronous TCP.
     Defaults to a single 50-channel controller at 192.168.0.101:10101.
 
     When multiple IPs are supplied, channels are assigned sequentially::
@@ -768,7 +694,8 @@ class MicroDM(DM, Device):
         controller 1  →  channels  50-99
         ...
 
-    All TCP communication to all controllers happens in parallel via asyncio.
+    All TCP communication to all controllers happens synchronously,
+    without an async event loop.
 
     Attributes:
         DM_Num: Total logical channel count (50 per controller).
@@ -796,6 +723,7 @@ class MicroDM(DM, Device):
 
     @classmethod
     def is_reachable(cls) -> bool:
+        """Check if at least one R50Power controller is reachable on TCP."""
         for suffix in range(101, 127):
             ip = f"192.168.0.{suffix}"
             try:
@@ -890,14 +818,14 @@ class MicroDM(DM, Device):
 
         self._relay_state = RelayState.OFF
 
-        # Build async controllers, skipping excluded IDs
+        # Build sync controllers, skipping excluded IDs
         exclude_id_set = set(exclude_ids or [])
         self._controllers: list[R50Controller] = [
             R50Controller(
                 controller_id=i,
                 ip=ip_str,
                 port=10000 + int(ip_str.split(".")[-1]),  # 10000 + ip_suffix
-                timeout=timeout,
+                timeout=params.timeout,
             )
             for i, ip_str in enumerate(self._ips, start=1)
             if (i + 1) not in exclude_id_set
@@ -906,10 +834,6 @@ class MicroDM(DM, Device):
         if exclude_id_set:
             for cid in exclude_id_set:
                 logger.warning(f"Excluded controller ID: {cid}")
-
-        # Async event loop running in a background thread
-        self._loop: asyncio.AbstractEventLoop | None = None
-        self._loop_thread: threading.Thread | None = None
 
         # Register device parameters
         self._register_parameters()
@@ -1020,59 +944,26 @@ class MicroDM(DM, Device):
         """
         return self._channel_by_ip_payload.get((ip_suffix, payload_position))
 
-    # ---- Async Infrastructure -----------------------------------------------
-
-    def _run_async(self, coro: Any) -> Any:
-        """Schedule a coroutine on the background event loop and wait for it.
-
-        Args:
-            coro: The coroutine to execute.
-
-        Returns:
-            The return value of the coroutine.
-
-        Raises:
-            RuntimeError: If the event loop is not running.
-            TimeoutError: If the operation exceeds the configured timeout.
-        """
-        if self._loop is None or not self._loop.is_running():
-            raise RuntimeError("MicroDM event loop is not running")
-        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        return future.result(timeout=self._timeout)
-
-    def _run_loop(self) -> None:
-        """Target for the background thread: run the asyncio event loop."""
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-        try:
-            self._loop.run_forever()
-        finally:
-            self._loop.close()
-            self._loop = None
-
     # ---- Device Interface ---------------------------------------------------
 
     def open(self) -> None:
         """Open connections to all R50Power controllers.
 
-        Starts the async event loop in a background thread, then connects
-        to every controller in parallel. Individual connection failures
-        are logged as warnings but do not prevent other controllers from
-        connecting.
+        Connects to every controller synchronously. Individual connection
+        failures are logged as warnings but do not prevent other controllers
+        from connecting.
 
         Raises:
             MicroDMConnectionError: If no controller can be reached.
         """
-        # Start the background event loop
-        self._loop_thread = threading.Thread(target=self._run_loop, daemon=True)
-        self._loop_thread.start()
+        self._set_state(DeviceState.CONNECTING)
 
-        # Wait until the loop is actually running
-        while self._loop is None or not self._loop.is_running():
-            time.sleep(0.001)
-
-        # Connect all controllers in parallel, allowing partial failures
-        connected, failed = self._run_async(self._connect_all())
+        connected, failed = 0, []
+        for ctrl in self._controllers:
+            if ctrl.open():
+                connected += 1
+            else:
+                failed.append((ctrl.controller_id, ctrl.ip))
 
         for ctrl_id, ip in failed:
             logger.warning(f"Controller[{ctrl_id}] {ip} connection failed")
@@ -1089,18 +980,12 @@ class MicroDM(DM, Device):
         )
 
     def close(self) -> None:
-        """Close all controller connections and stop the event loop."""
-        if self._controllers:
+        """Close all controller connections."""
+        for ctrl in self._controllers:
             try:
-                self._run_async(self._disconnect_all())
+                ctrl.close()
             except Exception as exc:
-                logger.warning(f"Error disconnecting MicroDM: {exc}")
-
-        if self._loop is not None:
-            self._loop.call_soon_threadsafe(self._loop.stop)
-
-        if self._loop_thread is not None:
-            self._loop_thread.join(timeout=5)
+                logger.warning(f"Error closing controller: {exc}")
 
         self._set_state(DeviceState.DISCONNECTED)
         logger.info("MicroDM disconnected")
@@ -1113,123 +998,8 @@ class MicroDM(DM, Device):
         """
         return (
             self._state == DeviceState.READY
-            and self._loop is not None
             and any(ctrl.is_connected for ctrl in self._controllers)
         )
-
-    # ---- Per-Controller Connection Management --------------------------------
-
-    @staticmethod
-    def _ping_host(ip: str, timeout: float = 2.0) -> bool:
-        """Check if a host is reachable via ICMP ping.
-
-        Args:
-            ip: IP address or hostname to ping.
-            timeout: Timeout in seconds.
-
-        Returns:
-            True if the host responds to ping, False otherwise.
-        """
-        return ping_reachable(ip, timeout)
-
-    def get_connection_status(self) -> list[ControllerStatus]:
-        """Get connection and reachability status for all controllers.
-
-        Checks both ICMP ping reachability and TCP connection state.
-
-        Returns:
-            List of ControllerStatus, one per controller.
-        """
-        statuses: list[ControllerStatus] = []
-        for ctrl in self._controllers:
-            ping_ok = self._ping_host(ctrl.ip, timeout=self._timeout)
-            tcp_ok = ctrl.is_connected
-            statuses.append(
-                ControllerStatus(
-                    controller_id=ctrl.controller_id,
-                    ip=ctrl.ip,
-                    port=ctrl.port,
-                    ping_reachable=ping_ok,
-                    tcp_connected=tcp_ok,
-                )
-            )
-        return statuses
-
-    def connect_controller(self, controller_id: int) -> bool:
-        """Connect a single controller by its ID.
-
-        Args:
-            controller_id: 1-based controller identifier.
-
-        Returns:
-            True if connection succeeded, False otherwise.
-
-        Raises:
-            MicroDMError: If controller ID not found.
-        """
-        ctrl = self._find_controller(controller_id)
-        if ctrl.is_connected:
-            logger.debug(f"Controller[{controller_id}] already connected")
-            return True
-        result = ctrl.open()
-        if result:
-            logger.info(f"Controller[{controller_id}] {ctrl.ip} connected")
-        else:
-            logger.warning(f"Controller[{controller_id}] {ctrl.ip} connection failed")
-        return result
-
-    def disconnect_controller(self, controller_id: int) -> None:
-        """Disconnect a single controller by its ID.
-
-        Args:
-            controller_id: 1-based controller identifier.
-
-        Raises:
-            MicroDMError: If controller ID not found.
-        """
-        ctrl = self._find_controller(controller_id)
-        ctrl.close()
-        logger.info(f"Controller[{controller_id}] {ctrl.ip} disconnected")
-
-    def reconnect_controller(self, controller_id: int) -> bool:
-        """Reconnect a single controller by its ID.
-
-        Disconnects first if already connected, then reconnects.
-
-        Args:
-            controller_id: 1-based controller identifier.
-
-        Returns:
-            True if reconnection succeeded, False otherwise.
-
-        Raises:
-            MicroDMError: If controller ID not found.
-        """
-        ctrl = self._find_controller(controller_id)
-        ctrl.close()
-        result = ctrl.open()
-        if result:
-            logger.info(f"Controller[{controller_id}] {ctrl.ip} reconnected")
-        else:
-            logger.warning(f"Controller[{controller_id}] {ctrl.ip} reconnection failed")
-        return result
-
-    def _find_controller(self, controller_id: int) -> R50Controller:
-        """Find a controller by its ID.
-
-        Args:
-            controller_id: 1-based controller identifier.
-
-        Returns:
-            The matching R50Controller.
-
-        Raises:
-            MicroDMError: If controller ID not found.
-        """
-        for ctrl in self._controllers:
-            if ctrl.controller_id == controller_id:
-                return ctrl
-        raise MicroDMError(f"Controller ID {controller_id} not found")
 
     def get_hardware_info(self) -> dict[str, Any]:
         """Get hardware-specific information.
@@ -1272,8 +1042,7 @@ class MicroDM(DM, Device):
         Returns:
             Voltage array in the device range.
         """
-        cmd = np.clip(cmd, -1.0, 1.0)
-        return (cmd + 1.0) * (self.V_Max - self.V_Min) / 2.0 + self.V_Min
+        return self.transform_voltage(cmd)
 
     def send(self, cmd: np.ndarray | float) -> np.ndarray:
         """Send a voltage command to all channels.
@@ -1294,14 +1063,40 @@ class MicroDM(DM, Device):
         raise MicroDMVoltageError(f"Unsupported command type: {type(cmd)}")
 
     def _apply_voltages(self, vs: np.ndarray) -> np.ndarray:
-        """Low-level voltage application via async TCP to all controllers."""
+        """Low-level voltage application via sync TCP to all controllers.
+
+        Channels are distributed round-robin across controllers:
+
+            controller 0  →  vs[0:50]
+            controller 1  →  vs[50:100]
+            ...
+        """
         vs = np.clip(vs, self.V_Min, self.V_Max)
-        self._run_async(self._send_voltages_async(vs))
+        for ctrl_idx, ctrl in enumerate(self._controllers):
+            start = ctrl_idx * MAX_CHANNELS
+            end = start + MAX_CHANNELS
+            if start >= len(vs):
+                break
+            chunk = vs[start:end]
+            # Pad with zeros if the last controller has fewer than 50
+            if len(chunk) < MAX_CHANNELS:
+                chunk = np.pad(
+                    chunk, (0, MAX_CHANNELS - len(chunk)), constant_values=0.0
+                )
+
+            cmd = (
+                HEADER
+                + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR])
+                + voltages_to_payload(chunk)
+                + FOOTER
+            )
+            ctrl.send(cmd)
+
         self._last_voltages = vs.copy()
         return self._last_voltages
 
     def send_voltages(self, vs: np.ndarray, wait_time_s: float = 0.001) -> np.ndarray:
-        """Send a voltage array to all channels using async parallel TCP.
+        """Send a voltage array to all channels using sync parallel TCP.
 
         Voltages are distributed across R50Power controllers automatically.
         When safety_mode is True (default), voltages are ramped from current
@@ -1322,77 +1117,7 @@ class MicroDM(DM, Device):
             raise MicroDMVoltageError(
                 f"Expected {self.DM_Num} voltages, got {vs.shape}"
             )
-        result = super().send_voltages(vs, wait_time_s=wait_time_s)
-        return result
-
-    # ---- Async Internal Methods ---------------------------------------------
-
-    async def _connect_all(self) -> tuple[int, list[tuple[int, str]]]:
-        """Connect to all controllers in parallel.
-
-        Returns:
-            Tuple of (connected_count, list_of_(controller_id, ip) for failures).
-        """
-        loop = asyncio.get_running_loop()
-        tasks = [loop.run_in_executor(None, ctrl.open) for ctrl in self._controllers]
-        results = await asyncio.gather(*tasks)
-        connected = sum(1 for r in results if r)
-        failed = [
-            (ctrl.controller_id, ctrl.ip)
-            for ctrl, ok in zip(self._controllers, results)
-            if not ok
-        ]
-        return connected, failed
-
-    async def _disconnect_all(self) -> None:
-        """Disconnect all controllers in parallel."""
-        loop = asyncio.get_running_loop()
-        tasks = [loop.run_in_executor(None, ctrl.close) for ctrl in self._controllers]
-        await asyncio.gather(*tasks)
-
-    async def _send_voltages_async(self, vs: np.ndarray) -> None:
-        """Send voltage array to all controllers in parallel.
-
-        Channels are distributed round-robin across controllers:
-
-            controller 0  →  vs[0:50]
-            controller 1  →  vs[50:100]
-            ...
-        """
-        tasks: list[Any] = []
-        for ctrl_idx, ctrl in enumerate(self._controllers):
-            start = ctrl_idx * MAX_CHANNELS
-            end = start + MAX_CHANNELS
-            if start >= len(vs):
-                break
-            chunk = vs[start:end]
-            # Pad with zeros if the last controller has fewer than 50
-            if len(chunk) < MAX_CHANNELS:
-                chunk = np.pad(
-                    chunk, (0, MAX_CHANNELS - len(chunk)), constant_values=0.0
-                )
-
-            cmd = (
-                HEADER
-                + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR])
-                + voltages_to_payload(chunk)
-                + FOOTER
-            )
-            tasks.append(ctrl.send_command_async(cmd))
-
-        if tasks:
-            await asyncio.gather(*tasks)
-
-    async def _set_relay_async(self, state: bool) -> None:
-        """Send relay command to all connected controllers in parallel."""
-        cmd = HEADER + bytes([CMD_RELAY_ON if state else CMD_RELAY_OFF]) + FOOTER
-        tasks = [
-            ctrl.send_command_async(cmd)
-            for ctrl in self._controllers
-            if ctrl.is_connected
-        ]
-        if tasks:
-            await asyncio.gather(*tasks)
+        return super().send_voltages(vs, wait_time_s=wait_time_s)
 
     # ---- Protocol Commands --------------------------------------------------
 
@@ -1422,20 +1147,10 @@ class MicroDM(DM, Device):
             ctrl.set_channel_voltage(ch_idx, voltage_clipped)
             self._last_voltages[channel] = voltage_clipped
 
-    def set_all_voltage_by_arr(self, voltages: np.ndarray) -> None:
-        """Set all logical channels by array.
-
-        Delegates to :meth:`send_voltages`.
-
-        Args:
-            voltages: Voltage array for all channels.
-        """
-        self.send_voltages(voltages)
-
     def set_all_channel_voltage(self, voltage: float) -> np.ndarray:
         """Set all logical channels to the same voltage.
 
-        Sends to all controllers in parallel.
+        Sends to all controllers.
 
         Args:
             voltage: Voltage in volts for all channels.
@@ -1450,12 +1165,15 @@ class MicroDM(DM, Device):
         return self._last_voltages.copy()
 
     def set_relay_state(self, state: bool) -> None:
-        """Set relay state on all connected controllers in parallel.
+        """Set relay state on all connected controllers.
 
         Args:
             state: True to open relay, False to close.
         """
-        self._run_async(self._set_relay_async(state))
+        cmd = HEADER + bytes([CMD_RELAY_ON if state else CMD_RELAY_OFF]) + FOOTER
+        for ctrl in self._controllers:
+            if ctrl.is_connected:
+                ctrl.send(cmd)
         self._relay_state = RelayState.ON if state else RelayState.OFF
         logger.info(f"Relay {'opened' if state else 'closed'} on all controllers")
 
@@ -1476,6 +1194,7 @@ class MicroDM(DM, Device):
             f"state={self._state.name}"
             f")"
         )
+
 
 if __name__ == '__main__':
     CONTROLLER_IP = '192.168.0.101'
