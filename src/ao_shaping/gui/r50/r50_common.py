@@ -139,6 +139,11 @@ def _initialize_state() -> None:
     st.session_state.setdefault(f"{P}_alt_voltage", 20.0)
     st.session_state.setdefault(f"{P}_alt_freq", 1.0)
 
+    # ---- 逐序下发 (sequential per-channel) ----
+    st.session_state.setdefault(f"{P}_seq_running", False)
+    st.session_state.setdefault(f"{P}_seq_voltage", 20.0)
+    st.session_state.setdefault(f"{P}_seq_interval", 1.0)
+
     # ---- 方波电压 (A/B) ----
     st.session_state.setdefault(f"{P}_square_running", False)
     st.session_state.setdefault(f"{P}_square_voltage_a", 20.0)
@@ -178,6 +183,7 @@ def _initialize_state() -> None:
     st.session_state.setdefault(f"{P}_sine_freq", 1.0)
     st.session_state.setdefault(f"{P}_alt_voltage", 20.0)
     st.session_state.setdefault(f"{P}_alt_freq", 1.0)
+    st.session_state.setdefault(f"{P}_seq_running", False)
     st.session_state.setdefault(f"{P}_loop_stop_event", None)
     st.session_state.setdefault(f"{P}_loop_feedback_q", None)
     # ---- 联合控制 (JC) ----
@@ -245,6 +251,7 @@ def _loop_stop_all() -> None:
     st.session_state[f"{P}_hold"] = False
     st.session_state[f"{P}_sine_running"] = False
     st.session_state[f"{P}_alt_running"] = False
+    st.session_state[f"{P}_seq_running"] = False
     ev = st.session_state.get(f"{P}_loop_stop_event")
     if ev is not None:
         stop_loop(ev)
@@ -265,6 +272,7 @@ def _loop_start(loop_fn: Any, params: dict[str, Any]) -> None:
     params.setdefault("vmin", st.session_state[f"{P}_vmin"])
     params.setdefault("vmax", st.session_state[f"{P}_vmax"])
     params.setdefault("selection", ChannelSelection(all_mode=True))
+    params["feedback_q"] = q
     start_loop(
         loop_fn,
         ctrl,

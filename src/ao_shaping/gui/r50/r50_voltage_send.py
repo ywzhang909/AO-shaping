@@ -342,6 +342,47 @@ def alt_tick(ctrl: Any, current: np.ndarray, p: dict) -> None:
     send_selection(ctrl, current, p["selection"], v, p["vmin"], p["vmax"])
 
 
+def seq_tick(ctrl: Any, current: np.ndarray, p: dict) -> None:
+    """Sequential: for each channel in order, send voltage X then 0V with T interval.
+
+    State tracked in ``p``:
+        seq_channels  – ordered list of 0-based channel indices
+        seq_index     – current channel position
+        seq_phase     – 0 = send voltage X, 1 = send 0V
+        seq_last_tick – timestamp of last operation
+        seq_interval  – seconds between each operation
+        voltage       – the voltage X to apply
+        seq_done      – set True when all channels are swept
+    """
+    now = time.time()
+    if now - p["seq_last_tick"] < p["seq_interval"]:
+        return
+    p["seq_last_tick"] = now
+
+    idx = p["seq_index"]
+    channels: list[int] = p["seq_channels"]
+
+    if idx >= len(channels):
+        p["seq_done"] = True
+        try:
+            q: queue.Queue = p["feedback_q"]  # type: ignore[assignment]
+            q.put(("info", "逐序下发已完成"))
+        except Exception:
+            pass
+        return
+
+    ch = channels[idx]
+    sel = ChannelSelection(all_mode=False, channels=[ch])
+
+    if p["seq_phase"] == 0:
+        send_selection(ctrl, current, sel, p["voltage"], p["vmin"], p["vmax"])
+        p["seq_phase"] = 1
+    else:
+        send_selection(ctrl, current, sel, 0.0, p["vmin"], p["vmax"])
+        p["seq_phase"] = 0
+        p["seq_index"] = idx + 1
+
+
 def run_loop(
     loop_fn: Callable[[Any, np.ndarray, dict], None],
     ctrl: Any,

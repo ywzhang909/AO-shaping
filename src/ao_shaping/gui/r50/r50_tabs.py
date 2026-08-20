@@ -59,6 +59,7 @@ from ao_shaping.gui.r50.r50_units import (
 from ao_shaping.gui.r50.r50_voltage_send import (
     alt_tick,
     hold_tick,
+    seq_tick,
     sine_tick,
 )
 
@@ -150,7 +151,7 @@ def render_tab_single_controller() -> None:
             if not st.session_state[f"{P}_hold"]:
                 if st.button(
                     "🔁 持续保持", width='stretch', type="secondary",
-                    disabled=not st.session_state[f"{P}_connected"] or st.session_state[f"{P}_sine_running"],
+                    disabled=not st.session_state[f"{P}_connected"] or st.session_state[f"{P}_sine_running"] or st.session_state[f"{P}_seq_running"],
                     key=f"{P}_hold_start",
                 ):
                     if _require_relay_on():
@@ -227,7 +228,7 @@ def render_tab_single_controller() -> None:
         if not st.session_state[f"{P}_sine_running"]:
             if st.button(
                 "▶ 开始正弦下发", type="primary", width='stretch',
-                disabled=not st.session_state[f"{P}_connected"] or st.session_state[f"{P}_hold"],
+                disabled=not st.session_state[f"{P}_connected"] or st.session_state[f"{P}_hold"] or st.session_state[f"{P}_seq_running"],
                 key=f"{P}_sine_start",
             ):
                 if _require_relay_on():
@@ -289,6 +290,7 @@ def render_tab_single_controller() -> None:
                     not st.session_state[f"{P}_connected"]
                     or st.session_state[f"{P}_hold"]
                     or st.session_state[f"{P}_sine_running"]
+                    or st.session_state[f"{P}_seq_running"]
                 ),
                 key=f"{P}_alt_start",
             ):
@@ -314,6 +316,76 @@ def render_tab_single_controller() -> None:
             ):
                 _loop_stop_all()
                 _set_feedback("交替下发已停止", "info")
+                st.rerun()
+
+    with st.container(border=True):
+        st.markdown("##### 逐序下发 (按通道序号)")
+        st.caption("依次对选中通道: 发送X电压 → 发送0V → 下一通道 (每步间隔T秒)")
+
+        col_seq_v, col_seq_t = st.columns(2)
+        with col_seq_v:
+            seq_voltage = st.number_input(
+                "电压 (V)", min_value=st.session_state[f"{P}_vmin"],
+                max_value=st.session_state[f"{P}_vmax"],
+                value=st.session_state[f"{P}_seq_voltage"], step=1.0, format="%.1f",
+                key=f"{P}_seq_voltage_input",
+            )
+            st.session_state[f"{P}_seq_voltage"] = float(seq_voltage)
+        with col_seq_t:
+            seq_interval = st.number_input(
+                "间隔 (s)", min_value=0.01, max_value=60.0,
+                value=st.session_state[f"{P}_seq_interval"], step=0.1, format="%.2f",
+                key=f"{P}_seq_interval_input",
+            )
+            st.session_state[f"{P}_seq_interval"] = float(seq_interval)
+
+        if not st.session_state[f"{P}_seq_running"]:
+            if st.button(
+                "▶ 开始逐序下发", type="primary", width='stretch',
+                disabled=(
+                    not st.session_state[f"{P}_connected"]
+                    or st.session_state[f"{P}_hold"]
+                    or st.session_state[f"{P}_sine_running"]
+                    or st.session_state[f"{P}_alt_running"]
+                ),
+                key=f"{P}_seq_start",
+            ):
+                if _require_relay_on():
+                    if not st.session_state[f"{P}_all_mode"] and not st.session_state[f"{P}_channels"]:
+                        _set_feedback("未选择任何指定单元", "warning")
+                    else:
+                        channels = (
+                            list(range(SINGLE_CHANNELS))
+                            if st.session_state[f"{P}_all_mode"]
+                            else list(st.session_state[f"{P}_channels"])
+                        )
+                        _loop_start(
+                            seq_tick,
+                            {
+                                "voltage": float(seq_voltage),
+                                "seq_interval": float(seq_interval),
+                                "seq_channels": channels,
+                                "seq_index": 0,
+                                "seq_phase": 0,
+                                "seq_last_tick": time.time(),
+                                "seq_done": False,
+                                "dt": 0.01,
+                                "selection": ChannelSelection(all_mode=True),
+                            },
+                        )
+                        st.session_state[f"{P}_seq_running"] = True
+                        _set_feedback(
+                            f"逐序下发中: {len(channels)} 通道, V={seq_voltage:.1f}V, T={seq_interval:.2f}s",
+                            "success",
+                        )
+                        st.rerun()
+        else:
+            if st.button(
+                "⏹ 停止逐序下发", type="primary", width='stretch',
+                key=f"{P}_seq_stop",
+            ):
+                _loop_stop_all()
+                _set_feedback("逐序下发已停止", "info")
                 st.rerun()
 
     st.divider()
@@ -344,6 +416,7 @@ def render_tab_single_controller() -> None:
         st.session_state[f"{P}_hold"]
         or st.session_state[f"{P}_sine_running"]
         or st.session_state[f"{P}_alt_running"]
+        or st.session_state[f"{P}_seq_running"]
     ):
         time.sleep(REFRESH_INTERVAL)
         st.rerun()
