@@ -1,0 +1,27 @@
+# =============================================================================
+# ca-gateway/config/gateway.kdl - CA Gateway 启动参数定义
+#
+# 本文件声明网关运行参数(供 compose 与文档引用)。
+# pklaus/ca-gateway 镜像的 ENTRYPOINT 为 /epics/gateway,参数以命令行传入,
+# 实际生效参数见 services/compose.yml 中 ca-gateway 服务的 command 段。
+#
+# 关键参数说明:
+#   -pvlist  PV 白名单文件(见 ./pvlist)
+#   -access  访问安全规则文件(见 ./access)
+#   -sip     网关 CA 服务端监听地址 = WSL_IP(客户端连接此地址)
+#   -cip     网关 CA 客户端连接的真实 IOC 地址 = HOST_IP(192.168.1.100)
+#            IOC 位于 Windows Host,多个 IOC 各自使用独立 CA 端口
+#            (5064-5068),网关按需向各端口发起搜索。
+#   -sport   网关服务端 CA 端口(客户端经此端口连接,默认 5062)
+#   -cport   网关客户端 CA 端口(访问真实 IOC 用,默认 5061)
+#   -debug   日志详细度 0-100
+# =============================================================================
+gateway {
+    pvlist = "/config/pvlist"
+    access = "/config/access"
+    sip    = "172.26.56.202"     # WSL_IP - 与 environment.sh 保持一致
+    cip    = "192.168.1.100"     # HOST_IP - Windows Host 硬件网卡
+    sport  = 5062
+    cport  = 5061
+    debug  = 1
+}

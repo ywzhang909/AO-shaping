@@ -1,0 +1,55 @@
+# ioc-wfs 配置:Thorlabs 波前传感器 (WFS) 软 IOC
+# 运行:
+#   .venv\Scripts\python -m ioc_runner wfs --config iocs\ioc-wfs\config\ioc.yaml
+# 或(手动,等价):
+#   .venv\Scripts\python -m caproto.server.ioc_examples --list-pvs \
+#     iocs\ioc-wfs\src\wfs_ioc.py  # 仅列 PV,不起服务
+
+ioc:
+  name: ioc-wfs
+  # 前缀用于命令行默认,实际以 device.prefix 为准
+  prefix: "WFS-01:"
+  ca_port: 5069
+  # ca_addr_list / ca_server_port 留空则由 EPICS_CA_ADDR_LIST / EPICS_CA_SERVER_PORT 环境变量提供
+  ca_addr_list: ""
+  ca_server_port: 0
+
+devices:
+  - name: wfs
+    type: thorlab
+    prefix: "WFS-01:"
+    # 设备枚举与启动参数(全部可选,缺省走驱动自动优化)
+    params:
+      # 离线环境无需改此项:SDK DLL 缺失时 IOC 自动降级离线模式(仅注册 PV)
+      # mla_index: 768            # 320 / 512 / 768 / 1024 / 1280
+      # exposure_time: 10.0       # 曝光时间(ms);留空则 open() 内自动优化(慢)
+      # high_speed: false         # 高速模式(注意 get_spots_statics 需要高速模式关闭)
+      # use_custom_ref: false     # 使用自定义参考面
+      # pupil_diameter: 2.0       # 瞳面直径(mm);留空则自动寻瞳
+      # pupil_center: [0.0, 0.0]  # 瞳面中心 (cx, cy)(mm)
+      n_sample: 5                 # take_image 平均帧数
+
+pvs:
+  # ---- 控制(可写) ----
+  - { name: "Acquire",        type: int,    description: "写 1 采集一帧" }
+  - { name: "ExposureTime",   type: double, description: "曝光时间(ms)" }
+  - { name: "HighSpeed",      type: enum,   enums: ["off", "on"], description: "高速模式" }
+  - { name: "MlaIndex",       type: int,    description: "MLA 分辨率(320/512/768/1024/1280)" }
+  - { name: "PupilX",         type: double, description: "瞳面中心 x(mm)" }
+  - { name: "PupilY",         type: double, description: "瞳面中心 y(mm)" }
+  - { name: "PupilDiameter",  type: double, description: "瞳面直径(mm)" }
+  - { name: "AutoExpose",     type: int,    description: "写 1 触发自动曝光,刷新 ExposureTime/Gain" }
+  # ---- 状态(只读) ----
+  - { name: "Connected",        type: enum,   enums: ["Disconnected", "Connected"], description: "设备连接状态" }
+  - { name: "SerialNumber",     type: string, description: "设备序列号" }
+  - { name: "DeviceName",       type: string, description: "设备名" }
+  - { name: "Image",            type: waveform, count: 262144, dtype: int32, description: "最近一帧 spotfield(int32,上限 512x512)" }
+  - { name: "ImageWidth",       type: int,    description: "spotfield 宽度(px)" }
+  - { name: "ImageHeight",      type: int,    description: "spotfield 高度(px)" }
+  - { name: "NumSpotsX",        type: int,    description: "有效子孔径数 x" }
+  - { name: "NumSpotsY",        type: int,    description: "有效子孔径数 y" }
+  - { name: "MeanIntensity",    type: double, description: "帧平均亮度" }
+  - { name: "MaxIntensity",     type: double, description: "帧峰值亮度" }
+  - { name: "SpotMaxIntensity", type: double, description: "最强子孔径强度" }
+  - { name: "Gain",             type: double, description: "最近一次自动曝光的增益" }
+  - { name: "FrameCounter",     type: int,    description: "采集帧计数" }

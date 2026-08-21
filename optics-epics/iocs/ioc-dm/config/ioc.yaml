@@ -1,0 +1,22 @@
+ioc:
+  name: ioc-dm
+  description: "NLight / MicroDM deformable mirror soft IOC"
+  prefix: "NLight-DM:"
+  ca_port: 5066
+  devices:
+    - name: dm
+      type: nlight            # nlight | micro
+      params:
+        actuator_count: 64    # NLight=64; MicroDM=1521
+        vmin: -300.0          # NLight [-300, 499]; MicroDM [-20, 120]
+        vmax: 499.0
+  pvs:
+    - {name: Voltages, type: waveform}
+    - {name: Zero, type: int}
+    - {name: Relay, type: int}
+    - {name: HV, type: int}
+    - {name: Connected, type: enum}
+    - {name: ActuatorCount, type: int}
+    - {name: VMin, type: double}
+    - {name: VMax, type: double}
+    - {name: Type, type: string}

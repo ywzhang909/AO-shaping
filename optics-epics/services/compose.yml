@@ -1,0 +1,165 @@
+# =============================================================================
+# services/compose.yml - WSL 内的 EPICS 服务编排
+#
+# 部署:
+#   cd services
+#   docker compose up -d --build
+#   docker compose ps
+#
+# 拓扑:
+#   - ca-gateway : network_mode: host,桥接 Windows Host(IOC)与 WSL(客户端)
+#   - phoebus    : bridged,HTTP 服务(无头 OPI 服务端模式)
+#   - archiver   : bridged,MariaDB + Archiver Appliance
+#   - data-api   : bridged,HTTP 网关(经 CA Gateway 读取 PV)
+# =============================================================================
+name: optics-epics
+
+x-ca-common: &ca-common
+  environment:
+    - EPICS_CA_ADDR_LIST=${EPICS_CA_ADDR_LIST:-172.26.56.202}
+    - EPICS_CA_AUTO_ADDR_LIST=${EPICS_CA_AUTO_ADDR_LIST:-NO}
+    - EPICS_CA_MAX_ARRAY_BYTES=${EPICS_CA_MAX_ARRAY_BYTES:-10000000}
+
+services:
+  # ---------------------------------------------------------------------------
+  # CA Gateway:唯一连接 Windows Host IOC 与 WSL 客户端的中继
+  # 必须 network_mode: host - WSL2 NAT 下 bridged 网络无法访问 Host 的 CA UDP
+  # ---------------------------------------------------------------------------
+  ca-gateway:
+    image: pklaus/ca-gateway:latest
+    container_name: ca-gateway
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./ca-gateway/config:/config:ro
+    command:
+      - -pvlist=/config/pvlist
+      - -access=/config/access
+      - -sip=${WSL_IP:-172.26.56.202}
+      - -cip=${HOST_IP:-192.168.1.100}
+      - -sport=${GATEWAY_PORT:-5062}
+      - -cport=${GATEWAY_CPORT:-5061}
+      - -log=/config/gateway.log
+      - -report=/config/gateway.report
+      - -debug=1
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /config/gateway.report || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  # Phoebus:OPI 界面工具
+  # 说明:默认以 X11 图形模式运行(需 WSLg);headless 模式下仅托管 OPI 文件服务。
+  # 图形模式启用时取消注释 DISPLAY / X11 挂载,并注释掉 headless command。
+  # ---------------------------------------------------------------------------
+  phoebus:
+    image: ghcr.io/epics-containers/ec-phoebus:5.0.2ec2
+    container_name: phoebus
+    restart: unless-stopped
+    # 图形模式(需 WSLg / X11):
+    # environment:
+    #   - DISPLAY=${DISPLAY:-:0}
+    # volumes:
+    #   - /tmp/.X11-unix:/tmp/.X11-unix:ro
+    #   - ./phoebus/settings/settings.ini:/settings/settings.ini:ro
+    #   - ./phoebus/opi/auto-generated:/tmp/opi/auto-generated:ro
+    #   - ./phoebus/opi/custom:/tmp/opi/custom:ro
+    # headless 模式:不做图形渲染,保留容器供 OPI 资源挂载/开发
+    entrypoint: ["/bin/sh", "-c", "echo 'Phoebus (headless) ready - enable DISPLAY for GUI mode'; sleep infinity"]
+    logging:
+      options:
+        max-size: 5m
+        max-file: "2"
+
+  # ---------------------------------------------------------------------------
+  # Archiver Appliance:PV 归档(经 CA Gateway 订阅)
+  # ---------------------------------------------------------------------------
+  archiver-mysql:
+    image: mariadb:10.11
+    container_name: archiver-mysql
+    restart: unless-stopped
+    environment:
+      - MARIADB_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-archiver}
+      - MARIADB_DATABASE=archappl
+      - MARIADB_USER=archappl
+      - MARIADB_PASSWORD=archappl
+    volumes:
+      - archiver-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h localhost -u root -p${MYSQL_ROOT_PASSWORD:-archiver} --silent"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  archiver:
+    image: slaclab/epics-archiver-appliance:latest
+    container_name: archiver
+    restart: unless-stopped
+    depends_on:
+      archiver-mysql:
+        condition: service_healthy
+    ports:
+      - "${ARCHIVER_PORT:-17665}:17665"   # retrieval
+      - "17666:17666"                     # mgmt
+      - "17667:17667"                     # engine
+      - "17668:17668"                     # etl
+    environment:
+      <<: *ca-common
+      - MYSQL_HOST=archiver-mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=archappl
+      - MYSQL_PASSWORD=archappl
+      - MYSQL_DATABASE=archappl
+      - ARCHAPPL_MGMT_URL=http://localhost:17666/mgmt/bpl
+      - ARCHAPPL_RETRIEVAL_URL=http://localhost:17665/retrieval/bpl
+      - ARCHAPPL_ENGINE_URL=http://localhost:17667/engine/bpl
+      - ARCHAPPL_ETL_URL=http://localhost:17668/etl/bpl
+      # 经 CA Gateway 访问 IOC(WSL 内通过 host 网络访问网关)
+      - EPICS_CA_ADDR_LIST=${WSL_IP:-172.26.56.202}:${GATEWAY_PORT:-5062}
+    volumes:
+      - archiver-data:/archappl
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  # data-api:HTTP API 暴露 PV 数据(经 CA Gateway 读取)
+  # 镜像由 ./data-api/Dockerfile 构建
+  # ---------------------------------------------------------------------------
+  data-api:
+    build: ./data-api
+    container_name: data-api
+    restart: unless-stopped
+    ports:
+      - "${DATA_API_PORT:-8000}:8000"
+    environment:
+      <<: *ca-common
+      - EPICS_CA_ADDR_LIST=${WSL_IP:-172.26.56.202}:${GATEWAY_PORT:-5062}
+    volumes:
+      - ./data-api/src:/app/src:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request;urllib.request.urlopen(\"http://localhost:8000/health\")'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  archiver-mysql-data:
+  archiver-data:

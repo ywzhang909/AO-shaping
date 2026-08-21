@@ -1,0 +1,28 @@
+ioc:
+  name: ioc-dhcam
+  description: "Daheng GigE camera soft IOC"
+  prefix: "DH-CAM-01:"
+  ca_port: 5067
+  devices:
+    - name: cam
+      type: daheng
+      params:
+        cam_id: 0
+        exposure_time_ms: 20.0
+        max_pixels: 262144        # Acquire 接受的帧像素上限(512x512);全幅 1920x1200 需 2304000
+  pvs:
+    - {name: Acquire, type: int}
+    - {name: ExposureTime, type: double}
+    - {name: CenterX, type: int}
+    - {name: CenterY, type: int}
+    - {name: Width, type: int}
+    - {name: Height, type: int}
+    - {name: AutoExposure, type: int}
+    - {name: Connected, type: enum}
+    - {name: SerialNumber, type: string}
+    - {name: CamType, type: string}
+    - {name: Image, type: waveform}
+    - {name: ImageWidth, type: int}
+    - {name: ImageHeight, type: int}
+    - {name: FrameCounter, type: int}
+    - {name: MeanIntensity, type: double}

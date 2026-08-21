@@ -1,0 +1,22 @@
+# iocs/common - 公共软 IOC 框架包配置
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ao-epics-common"
+version = "0.1.0"
+description = "AO-Shaping EPICS soft IOC common framework (caproto)"
+requires-python = ">=3.12"
+dependencies = [
+    "caproto>=1.0",
+    "numpy",
+    "pyyaml",
+]
+
+[tool.setuptools]
+packages = ["ao_epics_common"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

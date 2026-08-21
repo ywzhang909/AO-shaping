@@ -1,0 +1,26 @@
+# ioc-slm 声明式配置(ibek 风格)
+# 运行时 = Windows Host 原生 Python 进程(caproto soft IOC)
+ioc:
+  name: ioc-slm
+  description: "Santec SLM-200 spatial light modulator (USB/FTDI, SLMFunc.dll)"
+  prefix: "SLM-01:"
+  ca_port: 5065
+  devices:
+    - name: slm
+      type: santec_slm200
+      params:
+        slm_number: 1              # SLM_Ctrl_Open(SLMNumber), 1-8
+        wavelength: 1064           # 默认工作波长(nm)
+        memory_slots: [3, 4, 5]    # 内存槽轮换集合(规则 2)
+        panel_width: 1920
+        panel_height: 1200
+  pvs:
+    - {name: Wavelength, type: int, desc: "工作波长(nm),写后调用 set_wavelength"}
+    - {name: PhasePattern, type: waveform, dtype: uint16, desc: "相位灰度图(1920x1200),写后 write_phase+display_memory(自动槽位轮换)"}
+    - {name: FlatGray, type: int, desc: "平坦相位灰度值(0-1023),写后生成 uint16 全灰图下发(规则 1)"}
+    - {name: DisplaySlot, type: int, desc: "最近使用的内存槽位(只读)"}
+    - {name: MemorySlotCycle, type: int, desc: "轮换槽位总数(只读)"}
+    - {name: SerialNumber, type: string, desc: "SLM 序列号(只读)"}
+    - {name: Connected, type: bool, desc: "设备连接状态(只读)"}
+    - {name: DisplayedPhase, type: string, desc: "当前显示内容描述(只读)"}
+    - {name: Temperature, type: float, desc: "LCOS 温度(只读,若驱动支持)"}
