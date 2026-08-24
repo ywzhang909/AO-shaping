@@ -14,18 +14,18 @@ import numpy as np
 import pytest
 
 from ao_shaping.drivers.dm.MicroDM import (
+    MAX_CHANNELS,
+    VOLTAGE_MAX,
+    VOLTAGE_MIN,
     MicroDM,
-    MicroDMError,
     MicroDMConnectionError,
+    MicroDMError,
     MicroDMVoltageError,
     RelayState,
+    WiringMap,
     voltages_to_payload,
-    VOLTAGE_MIN,
-    VOLTAGE_MAX,
-    MAX_CHANNELS,
 )
 from ao_shaping.drivers.sim.dm import SimMicroDM
-
 
 # =============================================================================
 # Voltage Conversion
@@ -226,6 +226,96 @@ class TestSimMicroDM:
 
 
 # =============================================================================
+# WiringMap Tests
+# =============================================================================
+
+
+class TestWiringMap:
+    """Tests for WiringMap parsing and unique_ips derivation.
+
+    Regression test: the wiring_map.json file does NOT contain a ``summary``
+    section. ``unique_ips`` must derive controller IPs from the channel data
+    in the groups, not from the optional summary field.
+    """
+
+    def test_unique_ips_from_groups_without_summary(self):
+        """unique_ips should derive from channel data when summary is missing."""
+        data = {
+            "groups": {
+                "group_1": {
+                    "name": "一组",
+                    "channels": [
+                        {
+                            "physical_position": 1,
+                            "ip_suffix": 101,
+                            "payload_position": 1,
+                            "needle_id": 1,
+                            "physical_label": "1-1-1",
+                            "mapping_row": 1,
+                        },
+                        {
+                            "physical_position": 2,
+                            "ip_suffix": 102,
+                            "payload_position": 1,
+                            "needle_id": 2,
+                            "physical_label": "1-1-2",
+                            "mapping_row": 2,
+                        },
+                    ],
+                },
+                "group_2": {
+                    "name": "二组",
+                    "channels": [
+                        {
+                            "physical_position": 3,
+                            "ip_suffix": 101,
+                            "payload_position": 2,
+                            "needle_id": 3,
+                            "physical_label": "1-1-3",
+                            "mapping_row": 3,
+                        },
+                    ],
+                },
+            }
+        }
+        wm = WiringMap.from_dict(data)
+        ips = wm.unique_ips
+        assert ips == ["192.168.0.101", "192.168.0.102"]
+
+    def test_unique_ips_falls_back_to_summary(self):
+        """unique_ips should fall back to summary when groups have no IPs."""
+        data = {
+            "groups": {
+                "group_1": {
+                    "name": "一组",
+                    "channels": [
+                        {
+                            "physical_position": 1,
+                            "ip_suffix": None,
+                            "payload_position": None,
+                            "needle_id": None,
+                            "physical_label": None,
+                            "mapping_row": None,
+                        },
+                    ],
+                },
+            },
+            "summary": {
+                "unique_ip_suffixes": [101, 102, 103],
+            },
+        }
+        wm = WiringMap.from_dict(data)
+        ips = wm.unique_ips
+        assert ips == ["192.168.0.101", "192.168.0.102", "192.168.0.103"]
+
+    def test_unique_ips_empty_when_no_data(self):
+        """unique_ips should return empty list when no IPs available."""
+        data = {"groups": {}}
+        wm = WiringMap.from_dict(data)
+        assert wm.unique_ips == []
+
+
+# =============================================================================
 # Integration / Import Tests
 # =============================================================================
 
@@ -239,8 +329,8 @@ class TestMicroDMIntegration:
 
     def test_exception_imports(self):
         from ao_shaping.drivers.dm import (
-            MicroDMError,
             MicroDMConnectionError,
+            MicroDMError,
             MicroDMVoltageError,
         )
 

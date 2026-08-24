@@ -284,8 +284,21 @@ class WiringMap:
 
     @property
     def unique_ips(self) -> list[str]:
-        """Sorted list of unique controller IP addresses."""
-        return [f"192.168.0.{s}" for s in sorted(self.summary.unique_ip_suffixes)]
+        """Sorted list of unique controller IP addresses.
+
+        Derives IPs from the actual channel data in the groups, falling back
+        to the summary field if present. This ensures the wiring map works
+        even when the optional ``summary`` section is missing from the JSON.
+        """
+        suffixes = {
+            ch.ip_suffix
+            for group in self.groups.values()
+            for ch in group.channels
+            if ch.is_valid and ch.ip_suffix is not None
+        }
+        if not suffixes:
+            suffixes = set(self.summary.unique_ip_suffixes)
+        return [f"192.168.0.{s}" for s in sorted(suffixes)]
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WiringMap:

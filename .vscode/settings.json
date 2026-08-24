@@ -115,5 +115,9 @@
         ".coverage",
         ".kilocodemodes",
         "wandb"
+    ],
+    "python.analysis.exclude": [
+        "**/libs",
+        "**/docs"
     ]
 }
