@@ -32,6 +32,11 @@ _KWARG_FILTERS: dict[str, set[str]] = {
         "safety_mode",
     },
     "sim_micro": {"device_id", "safety_mode"},
+    "asyn_micro": {
+        "ips",
+        "timeout",
+        "safety_mode",
+    },
 }
 
 # Legacy kwarg aliases: (old_name) → (new_name)

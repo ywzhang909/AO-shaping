@@ -540,7 +540,7 @@ streamlit run src/ao_shaping/gui/slm/slm_calibration_ui.py
 ### 变形镜
 - **统一 DM 接口**: 所有变形镜继承自 `ao_shaping.drivers.dm.base.DM`，提供 `transform`/`send`/`open`/`close`/`is_connected`/`get_actuator_positions` 等标准方法
 - **NLight系列**: 支持电压控制和电压差安全检查
-- **R50Power MicroDM**: 通过异步 TCP 控制多路 R50Power 控制器（每路 50 通道，-20V~120V）
+- **R50Power MicroDM (同步)**: 通过 TCP 控制多路 R50Power 控制器（每路 50 通道，-20V~120V）
   - 自动从 `libs/micro_drive1300/wiring_map.json` 加载控制器 IP 和通道映射
   - 支持 39×39 阵列坐标 `(x, y)` 到控制器通道的双向查询
   - 支持 `(ip_suffix, payload_position)` 到物理位置的映射查询
@@ -585,10 +585,37 @@ streamlit run src/ao_shaping/gui/slm/slm_calibration_ui.py
   dm.close()
   ```
 
+- **R50Power AsyncMicroDM (异步)**: 基于 asyncio 的高性能异步 TCP 驱动，专为 AO 快速闭环优化
+  - LUT-based 预查表电压转换，零 GC 稳态运行（`VoltageConverter`）
+  - `asyncio.StreamReader/StreamWriter` 非阻塞 TCP 通信
+  - 预分配命令缓冲区，避免帧间内存分配
+  - 支持同步/异步双模式使用（`open()`/`close()` 同步桥接）
+  - 并行控制器通信，独立超时控制
+
+  ```python
+  from ao_shaping.drivers.dm.asyn_micro_dm import AsyncMicroDM
+
+  # 同步用法（内部桥接到异步）
+  dm = AsyncMicroDM(ips=["192.168.0.101", "192.168.0.102"])
+  dm.open()
+  dm.send_voltages(np.zeros(dm.DM_Num))
+  dm.close()
+
+  # 异步用法（原生 asyncio）
+  dm = AsyncMicroDM(ips=["192.168.0.101"])
+  await dm.connect_all()
+  await dm.send_frame(np.zeros(dm.DM_Num))
+  await dm.shutdown()
+
+  # 工厂创建
+  from ao_shaping.drivers.dm._registry import create_dm
+  dm = create_dm("asyn_micro", ips=["192.168.0.101"])
+  ```
+
 - **ZernikeDM**: Zernike 系数驱动的 DM/SLM 接口，支持 Zernike 多项式相位生成
 - **HadamardDM**: Hadamard 系数驱动的 DM/SLM 接口，支持 Walsh-Hadamard 模式相位生成
 - **PIB 优化器多 DM 支持**: `optimize_pib` 现接受任意 `DM` 子类实例，命令行支持 `--dm_type` 参数
-  - 支持类型: `nlight`, `micro`, `zernike`, `hadamard`
+  - 支持类型: `nlight`, `micro`, `asyn_micro`, `zernike`, `hadamard`
   - 自动检测: 未指定 `--dm_type` 时自动探测在线 DM，仅一个时自动选取，多个时报错提示
 
 ### 相机
@@ -860,7 +887,15 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 
 ## 近期更新
 
-### v0.6.0 (2026-08)
+### v0.6.0 (2026-08-25)
+- **AsyncMicroDM 异步驱动**: 新增 `asyn_micro_dm.py`，基于 asyncio 的高性能异步 TCP 驱动
+  - LUT-based 预查表电压转换（`VoltageConverter`），零 GC 稳态运行
+  - `AsyncR50Controller` 使用 `asyncio.StreamReader/StreamWriter` 非阻塞 TCP
+  - 预分配命令缓冲区，避免帧间内存分配
+  - 支持同步/异步双模式使用（`open()`/`close()` 同步桥接到异步内部）
+  - 并行控制器通信，独立超时控制
+  - 复用 `WiringMap` 接线映射系统
+  - 注册为 `"asyn_micro"` 类型，支持 `create_dm()` 工厂创建
 - **Micro-DM 逐通道响应分析脚本**: 新增 `scripts/md_img_diff_centroid.py`（FFT 去条纹 → signed diff → 阈值去噪 → 主暗斑质心 → jet 伪彩色渲染）、`scripts/md_img_diff_overlay.py`（逐像素最大值合并分析，输出覆盖率统计）、`scripts/md_img_diff_to_gif.py`（按控制器 IP 将 50 通道 diff 图合成为动画 GIF，帧标注通道号与质心坐标）
 - **文档完善**: `scripts/README.md` 新增 Micro-DM Diff Analysis Pipeline 章节，详细阐述 diff 计算与合并分析的算法、处理流程和阈值选取方法（经验阈值 15、主暗斑质心替代全图质心的原因、jet 色标 vmax 归一化）
 
