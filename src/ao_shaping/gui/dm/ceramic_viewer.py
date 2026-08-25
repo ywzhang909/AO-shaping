@@ -16,11 +16,11 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder
 from st_aggrid.shared import JsCode
-
 
 # =============================================================================
 # Configuration
@@ -37,6 +37,8 @@ class Config:
     DEFAULT_IP = 101
     DEFAULT_SEQ = 0
     COLOR_SCHEMES = ("无", "按IP组", "按所属组", "按序号", "按引脚编号")
+    DISPLAY_MODES = ("IP-IP内序号", "序号", "group-线序")
+    DEFAULT_DISPLAY_MODE = "IP-IP内序号"
 
     GROUP_COLORS = {
         "一组": "#4CAF50",
@@ -275,6 +277,30 @@ def _cv_grid_matrix(df: pd.DataFrame) -> np.ndarray:
 
 
 @st.cache_data
+def _cv_grid_matrix_ip_seq(df: pd.DataFrame) -> np.ndarray:
+    """Compute the 36×36 'IP组-序号' matrix (e.g. '101-3')."""
+    work = df.copy()
+    work["_display"] = (
+        work["IP组"].astype(int).astype(str) + "-" + work["序号"].astype(int).astype(str)
+    )
+    return work.pivot_table(
+        index="36×36行", columns="36×36列", values="_display", aggfunc="first"
+    ).values
+
+
+@st.cache_data
+def _cv_grid_matrix_group_pin(df: pd.DataFrame) -> np.ndarray:
+    """Compute the 36×36 '组-引脚编号' matrix (e.g. '一组-12')."""
+    work = df.copy()
+    work["_display"] = (
+        work["组"].astype(str) + "-" + work["引脚编号"].astype(int).astype(str)
+    )
+    return work.pivot_table(
+        index="36×36行", columns="36×36列", values="_display", aggfunc="first"
+    ).values
+
+
+@st.cache_data
 def _cv_tooltip_map(df: pd.DataFrame) -> dict[str, str]:
     """Build position → 'IP组: X | 序号: Y' tooltip map."""
     pos_info = df.set_index("位置序号")
@@ -285,14 +311,14 @@ def _cv_tooltip_map(df: pd.DataFrame) -> dict[str, str]:
 
 
 @st.cache_data
-def _cv_group_color_map(df: pd.DataFrame) -> dict[int, str]:
+def _cv_group_color_map(df: pd.DataFrame):
     """Position → color for '按所属组'."""
     pos_group = df.set_index("位置序号")["组"].to_dict()
     return {k: Config.GROUP_COLORS.get(v, "#ffffff") for k, v in pos_group.items()}
 
 
 @st.cache_data
-def _cv_ip_color_map(df: pd.DataFrame) -> dict[int, str]:
+def _cv_ip_color_map(df: pd.DataFrame):
     """Position → color for '按IP组' (sampled hues by actual IP groups)."""
     pos_ip = df.set_index("位置序号")["IP组"].to_dict()
     ip_values = sorted(df["IP组"].unique())
@@ -419,7 +445,7 @@ def render_tab_grid() -> None:
         </style>
     """, unsafe_allow_html=True)
 
-    col_grid_ctrl1, col_grid_ctrl2 = st.columns([2, 1])
+    col_grid_ctrl1, col_grid_ctrl2, col_grid_ctrl3 = st.columns([2, 2, 1])
     with col_grid_ctrl1:
         color_scheme = st.selectbox(
             "网格着色方案",
@@ -428,6 +454,13 @@ def render_tab_grid() -> None:
             key="cv_color_scheme",
         )
     with col_grid_ctrl2:
+        display_mode = st.selectbox(
+            "网格显示内容",
+            Config.DISPLAY_MODES,
+            index=Config.DISPLAY_MODES.index(Config.DEFAULT_DISPLAY_MODE),
+            key="cv_display_mode",
+        )
+    with col_grid_ctrl3:
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🔄 重置选择", use_container_width=True, key="cv_reset_grid"):
             st.session_state.cv_selected_row = 0
@@ -435,7 +468,12 @@ def render_tab_grid() -> None:
             st.session_state.cv_grid_click_count += 1
             st.rerun()
 
-    grid_matrix = _cv_grid_matrix(df)
+    if display_mode == "序号":
+        grid_matrix = _cv_grid_matrix(df)
+    elif display_mode == "IP-IP内序号":
+        grid_matrix = _cv_grid_matrix_ip_seq(df)
+    else:  # group-线序
+        grid_matrix = _cv_grid_matrix_group_pin(df)
     grid_df = pd.DataFrame(grid_matrix)
     grid_df.columns = [f"C{c}" for c in range(G)]
     grid_df.index = [f"R{r}" for r in range(G)]
@@ -453,18 +491,26 @@ def render_tab_grid() -> None:
             color_map_json = json.dumps({str(k): v for k, v in _cv_pin_color_map(df).items()})
         cell_style_js = JsCode(f"""
             function(params) {{
-                var val = params.value;
-                if (val == null) return null;
+                var row = params.node ? params.node.rowIndex : -1;
+                var colId = params.colDef ? params.colDef.field : '';
+                if (row < 0 || !colId || colId.charAt(0) !== 'C') return null;
+                var col = parseInt(colId.substring(1), 10);
+                var pos = row * {G} + col + 1;
                 var map = {color_map_json};
-                return {{'background-color': map[String(val)] || '#ffffff'}};
+                return {{'background-color': map[String(pos)] || '#ffffff'}};
             }}
         """)
 
     tooltip_map = _cv_tooltip_map(df)
     tooltip_js = JsCode(f"""
         function(params) {{
+            var row = params.node ? params.node.rowIndex : -1;
+            var colId = params.colDef ? params.colDef.field : '';
+            if (row < 0 || !colId || colId.charAt(0) !== 'C') return '';
+            var col = parseInt(colId.substring(1), 10);
+            var pos = row * {G} + col + 1;
             var map = {json.dumps(tooltip_map)};
-            return map[String(params.value)] || '';
+            return map[String(pos)] || '';
         }}
     """)
     

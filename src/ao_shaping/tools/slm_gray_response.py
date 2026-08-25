@@ -30,7 +30,7 @@ SRC_ROOT = Path(__file__).resolve().parents[2]
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from ao_shaping.drivers.ccd.miicam_driver import CameraStreamManager
+from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
 from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
 
 FIELDNAMES = [

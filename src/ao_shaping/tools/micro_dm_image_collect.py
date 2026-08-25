@@ -48,7 +48,7 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.config import DEVICES
-from ao_shaping.drivers.ccd.miicam_driver import CameraStreamManager
+from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
 from ao_shaping.drivers.ccd.daheng import DahengCamManager
 from ao_shaping.drivers.dm.MicroDM import (
     DEFAULT_IPS,

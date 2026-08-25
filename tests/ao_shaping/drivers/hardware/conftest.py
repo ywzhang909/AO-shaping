@@ -166,7 +166,7 @@ def daheng_cam():
 def miicam():
     """MiiCam instance. Skips if hardware unavailable."""
     try:
-        from ao_shaping.drivers.ccd.miicam_driver import CameraStreamManager
+        from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
         cam = CameraStreamManager(cam_id=0, exposure_time_ms=100)
         cam.initialize()
         yield cam

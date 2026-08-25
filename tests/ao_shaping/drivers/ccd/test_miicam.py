@@ -14,7 +14,7 @@ class TestMIICAMCamera:
     def miicam_module(self):
         """Import MIICAM module, skip if not available."""
         try:
-            from ao_shaping.drivers.ccd import miicam_driver as miicam
+            from ao_shaping.drivers.ccd.miicam import driver as miicam
 
             return miicam
         except ImportError:
@@ -251,7 +251,7 @@ class TestMIICAMCamera:
 def test_quick_capture():
     """Quick test to verify camera works without hardware."""
     try:
-        from ao_shaping.drivers.ccd.miicam_driver import CameraStreamManager
+        from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
 
         cam_list = CameraStreamManager.get_cam_list()
         print(f"\nFound {len(cam_list)} camera(s)")

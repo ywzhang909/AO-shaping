@@ -420,7 +420,7 @@ class TestCCDHardware:
             pytest.skip("CCD tests disabled (set TEST_CCD=1 to enable)")
 
         try:
-            from ao_shaping.drivers.ccd.miicam_driver import CameraStreamManager
+            from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
 
             cam = CameraStreamManager(cam_id=0)
             cam.initialize()

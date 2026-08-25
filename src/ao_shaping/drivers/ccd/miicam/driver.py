@@ -1,19 +1,20 @@
+import ctypes
+import threading
+from typing import Callable
+
+import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.ccd.miicam._sdk_setup import _setup_miicam_sdk
-
 
 # Set up MIICAM SDK before importing
 _MIICAM_AVAILABLE = _setup_miicam_sdk()
 
 if _MIICAM_AVAILABLE:
-    import numpy as np
-
     import miicam
 
     from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
 else:
-    np = None
     miicam = None
 
     class CameraError(Exception):
@@ -99,8 +100,6 @@ class CameraStreamManager(BaseCamera):
             self.cam_width = 0
             self.cam_height = 0
             self.cam = None
-            self._frame_buffer = None
-            self._frame_buffer_lock = False
 
             # Give the camera hardware a moment to settle before re-opening
             time.sleep(0.5)
@@ -300,37 +299,7 @@ class CameraStreamManager(BaseCamera):
         except Exception:
             self._sn = f"MIICAM_{self.cam_id}"
 
-        # Start streaming (pull mode with callback) with retry
-        # Use a minimal callback that just stores the image
-        self._frame_buffer = None
-        self._frame_buffer_lock = False  # Lock to prevent reading while updating
-
-        # Calculate callback buffer size based on bit depth
-        if self._bit_depth == 8:
-            callback_bits = 8
-            callback_bufsize = self.cam_width * self.cam_height
-        else:
-            callback_bits = 16
-            callback_bufsize = self.cam_width * self.cam_height * 2
-
-        def frame_callback(nEvent, ctx):
-            if nEvent == miicam.MIICAM_EVENT_IMAGE:
-                try:
-                    # Wait for buffer to be free
-                    while ctx._frame_buffer_lock:
-                        pass
-                    ctx._frame_buffer_lock = True
-                    try:
-                        buffer = (ctypes.c_char * callback_bufsize)()
-                        ctx.cam.PullImageV4(buffer, 0, callback_bits, 0, None)
-                        ctx._frame_buffer = buffer
-                    finally:
-                        ctx._frame_buffer_lock = False
-                except Exception:
-                    pass
-
-        # Retry StartPullModeWithCallback - the camera may need time to
-        # fully stop the previous streaming session (from this or a prior process)
+        # Start streaming (pull mode without callback - we use WaitImageV3)
         import time as _time
 
         # Pre-emptively try to stop any stale stream from a previous session
@@ -343,11 +312,10 @@ class CameraStreamManager(BaseCamera):
         max_retries = 10
         for attempt in range(max_retries):
             try:
-                self.cam.StartPullModeWithCallback(frame_callback, self)
+                self.cam.StartPullModeWithCallback(None, None)
                 break
             except miicam.HRESULTException:
                 if attempt < max_retries - 1:
-                    # Try to stop again and wait with increasing delay
                     try:
                         self.cam.Stop()
                     except Exception:
@@ -535,137 +503,388 @@ class CameraStreamManager(BaseCamera):
 
         self.__update_properties()
 
-        # Restart streaming
-        self._frame_buffer = None
-        self._frame_buffer_lock = False
-
-        # Calculate callback buffer size based on bit depth
-        if self._bit_depth == 8:
-            callback_bits = 8
-            callback_bufsize = self.cam_width * self.cam_height
-        else:
-            callback_bits = 16
-            callback_bufsize = self.cam_width * self.cam_height * 2
-
-        def frame_callback(nEvent, ctx):
-            if nEvent == miicam.MIICAM_EVENT_IMAGE:
-                try:
-                    while ctx._frame_buffer_lock:
-                        pass
-                    ctx._frame_buffer_lock = True
-                    try:
-                        buffer = (ctypes.c_char * callback_bufsize)()
-                        ctx.cam.PullImageV4(buffer, 0, callback_bits, 0, None)
-                        ctx._frame_buffer = buffer
-                    finally:
-                        ctx._frame_buffer_lock = False
-                except Exception:
-                    pass
-
-        self.cam.StartPullModeWithCallback(frame_callback, self)
+        # Restart streaming (pull mode without callback - we use WaitImageV3)
+        self.cam.StartPullModeWithCallback(None, None)
 
         # Return new window size and center
         return (width, height), (width // 2, height // 2)
 
     def __take_one_shot(self) -> np.ndarray:
         """
-        Capture a single camera image.
+        Capture a single camera image using WaitImageV3.
 
         Returns:
             np.ndarray: Captured image data as uint8 (8-bit mode) or uint16 (14-bit mode) array.
         """
+        import ctypes
         import time
 
-        # Determine bits parameter for PullImageV4 based on bit depth
-        # bits: 8=Grey8, 16=Grey16
-        if self._bit_depth == 8:
-            bits_param = 8
+        # Determine buffer size and bit depth
+        if getattr(self, "_pixel_format", None) == "YUV422":
+            bufsize = self.cam_width * self.cam_height * 2
+            bits = 8
+            dtype = np.uint8
+        elif self._bit_depth == 8:
+            bufsize = self.cam_width * self.cam_height
+            bits = 8
             dtype = np.uint8
         else:
-            bits_param = 16
+            bufsize = self.cam_width * self.cam_height * 2
+            bits = 16
             dtype = np.uint16
 
-        # Try to get image from callback buffer first
-        max_wait = 1.0  # Wait up to 1 second for a new frame
-        start_time = time.time()
-
-        while time.time() - start_time < max_wait:
-            # Check if we have a valid buffer
-            if self._frame_buffer is not None and not self._frame_buffer_lock:
-                try:
-                    # Convert buffer to numpy array
-                    img_data = np.frombuffer(self._frame_buffer, dtype=dtype)
-
-                    # Handle YUV422 format - extract Y channel (luminance)
-                    if getattr(self, "_pixel_format", None) == "YUV422":
-                        # YUV422: 2 bytes per pixel (Y0 U0 Y1 V0 ...)
-                        img_yuv = img_data.reshape(
-                            (self.cam_height, self.cam_width * 2)
-                        )
-                        img = img_yuv[
-                            :, ::2
-                        ]  # Take every other column (Y channel only)
-                    else:
-                        # MONO8/MONO14 or other formats
-                        img = img_data.reshape((self.cam_height, self.cam_width))
-
-                    return img
-                except Exception:
-                    pass
-
-            time.sleep(0.01)  # Wait a bit before retrying
-
-        # Fallback: If callback buffer not available, use direct pull
-        import ctypes
-
-        # Calculate buffer size based on pixel format and bit depth
-        if getattr(self, "_pixel_format", None) == "YUV422":
-            # YUV422: 2 bytes per pixel (Y0 U0 Y1 V0 ...)
-            bufsize = self.cam_width * self.cam_height * 2
-        elif self._bit_depth == 8:
-            # 8-bit mono: 1 byte per pixel
-            bufsize = self.cam_width * self.cam_height
-        else:
-            # 14/16-bit mono: 2 bytes per pixel
-            bufsize = self.cam_width * self.cam_height * 2
-
-        # Create a ctypes buffer
+        # Allocate buffer and frame info
         buffer = (ctypes.c_char * bufsize)()
+        frame_info = miicam.MiicamFrameInfoV3()
 
-        # Give the camera a moment to capture a frame
-        time.sleep(0.05)
-
-        # Pull image with retry logic
+        # Wait for frame with retry logic
+        # WaitImageV3: blocks until frame arrives or timeout (1000ms)
+        # Returns E_PENDING (0x8000000A) or 0x8001011f on timeout
         max_retries = 5
-        retry_count = 0
-        while retry_count < max_retries:
+        for attempt in range(max_retries):
             try:
-                self.cam.PullImageV4(buffer, 0, bits_param, 0, None)
-                break  # Success
-            except miicam.HRESULTException:
-                retry_count += 1
-                if retry_count >= max_retries:
-                    raise  # Re-raise after max retries
-                time.sleep(0.05)  # Wait before retry
+                self.cam.WaitImageV3(1000, buffer, 0, bits, 0, frame_info)
+                # Success
+                break
+            except miicam.HRESULTException as e:
+                # Check if it's a timeout error
+                hr = e.hr if hasattr(e, "hr") else e.winerror if hasattr(e, "winerror") else 0
+                if hr in (0x8000000A, 0x8001011f):
+                    # Timeout - retry
+                    if attempt < max_retries - 1:
+                        time.sleep(0.05)
+                        continue
+                    raise MIICAMError(
+                        f"WaitImageV3 timeout after {max_retries} retries"
+                    ) from e
+                # Other error - retry
+                if attempt < max_retries - 1:
+                    time.sleep(0.05)
+                    continue
+                raise MIICAMError(
+                    f"WaitImageV3 failed: hr=0x{hr & 0xFFFFFFFF:08x}"
+                ) from e
 
-        # Convert to numpy array
+        # Convert buffer to numpy array
         img_data = np.frombuffer(buffer, dtype=dtype)
 
         # Handle YUV422 format - extract Y channel (luminance)
         if getattr(self, "_pixel_format", None) == "YUV422":
-            # YUV422 stores Y0 U0 Y1 V0, so Y is at even indices (0, 2, 4, ...)
-            # Reshape and take every other column
             img_yuv = img_data.reshape((self.cam_height, self.cam_width * 2))
             img = img_yuv[:, ::2]  # Take every other column (Y channel only)
         else:
-            # MONO8 or MONO14
+            # MONO8/MONO16 or other formats
             img = img_data.reshape((self.cam_height, self.cam_width))
 
         return img
 
-    def get_numpy_image(self, n_sample: int = 1, skip_first: bool = True) -> np.ndarray:
+    # =========================================================================
+    # Callback-based capture (for high-FPS or continuous streaming)
+    # =========================================================================
+
+    def start_callback_mode(
+        self,
+        callback = None,
+    ) -> None:
+        """Start pull mode with a callback function for frame notification.
+
+        The callback runs in an internal SDK thread. Keep it fast — do NOT
+        perform heavy processing or call back into the SDK from within it.
+
+        Args:
+            callback: Function called on each new frame with (image, frame_info).
+                      If None, uses the internal buffer callback.
         """
-        Get camera image data with averaging.
+        assert self.cam, "camera not initialized"
+        self._stop_streaming()
+
+        self._callback_user = callback
+        self._callback_buffer_lock = threading.Lock()
+        self._callback_buffer = None
+        self._callback_frame_info = None
+        self._callback_new_frame = threading.Event()
+
+        if callback is None:
+            cb = self.__frame_callback
+        else:
+            cb = lambda nEvent, ctx: ctx.__frame_callback(nEvent, ctx, callback)
+
+        self.cam.StartPullModeWithCallback(cb, self)
+        logger.info("Callback mode started")
+
+    def stop_callback_mode(self) -> None:
+        """Stop callback mode and release callback resources."""
+        self._stop_streaming()
+        self._callback_user = None
+        self._callback_buffer = None
+        self._callback_frame_info = None
+        logger.info("Callback mode stopped")
+
+    def __frame_callback(
+        self,
+        nEvent: int,
+        ctx: object,
+        user_callback: Callable[[np.ndarray, miicam.MiicamFrameInfoV3], None] | None = None,
+    ) -> None:
+        """Internal SDK callback: called when a new frame is available."""
+        if nEvent == miicam.MIICAM_EVENT_IMAGE:
+            try:
+                bufsize, bits, dtype = self.__get_buffer_params()
+                buffer = (ctypes.c_char * bufsize)()
+                frame_info = miicam.MiicamFrameInfoV3()
+                self.cam.PullImageV4(buffer, 0, bits, 0, frame_info)
+                img_data = np.frombuffer(buffer, dtype=dtype)
+                img = self.__decode_image(img_data)
+
+                if user_callback is not None:
+                    user_callback(img, frame_info)
+                else:
+                    with self._callback_buffer_lock:
+                        self._callback_buffer = img
+                        self._callback_frame_info = frame_info
+                        self._callback_new_frame.set()
+            except Exception:
+                pass
+        elif nEvent == miicam.MIICAM_EVENT_STILLIMAGE:
+            try:
+                bufsize, bits, dtype = self.__get_buffer_params()
+                buffer = (ctypes.c_char * bufsize)()
+                frame_info = miicam.MiicamFrameInfoV3()
+                self.cam.PullStillImageV2(buffer, bits, frame_info)
+                img_data = np.frombuffer(buffer, dtype=dtype)
+                img = self.__decode_image(img_data)
+
+                if user_callback is not None:
+                    user_callback(img, frame_info)
+                else:
+                    with self._callback_buffer_lock:
+                        self._callback_buffer = img
+                        self._callback_frame_info = frame_info
+                        self._callback_new_frame.set()
+            except Exception:
+                pass
+
+    def get_callback_frame(
+        self, timeout: float = 1.0
+    ) -> tuple[np.ndarray, miicam.MiicamFrameInfoV3] | None:
+        """Get the latest frame from callback mode.
+
+        Args:
+            timeout: Maximum time to wait for a new frame in seconds.
+
+        Returns:
+            Tuple of (image, frame_info) or None if timeout.
+        """
+        if self._callback_new_frame.wait(timeout=timeout):
+            with self._callback_buffer_lock:
+                self._callback_new_frame.clear()
+                return (self._callback_buffer, self._callback_frame_info)
+        return None
+
+    # =========================================================================
+    # Trigger mode (software trigger)
+    # =========================================================================
+
+    def set_trigger_mode(self, mode: int) -> None:
+        """Set camera trigger mode.
+
+        Args:
+            mode: 0 = video mode (default)
+                  1 = software / simulated trigger
+                  2 = external trigger (rising edge)
+                  3 = external + software trigger
+        """
+        assert self.cam, "camera not initialized"
+        self._stop_streaming()
+        self.cam.put_Option(miicam.MIICAM_OPTION_TRIGGER, mode)
+        logger.info("Trigger mode set to {}", mode)
+
+    def get_trigger_mode(self) -> int:
+        """Get current trigger mode.
+
+        Returns:
+            Current trigger mode (0=video, 1=software, 2=external, 3=both).
+        """
+        assert self.cam, "camera not initialized"
+        return self.cam.get_Option(miicam.MIICAM_OPTION_TRIGGER)
+
+    def trigger(self, n_images: int = 1) -> None:
+        """Send a software trigger.
+
+        The camera must be in trigger mode (set_trigger_mode(1)) and
+        streaming (StartPullModeWithCallback) before calling this.
+
+        Args:
+            n_images: Number of images to capture.
+                      0 = cancel trigger, 0xFFFF = continuous.
+        """
+        assert self.cam, "camera not initialized"
+        self.cam.Trigger(n_images)
+
+    def trigger_sync(
+        self,
+        n_images: int = 1,
+        timeout_ms: int = 0,
+    ) -> np.ndarray:
+        """Software trigger and wait for image synchronously.
+
+        Combines Trigger + WaitImageV3 in one call. The camera must be
+        in trigger mode and streaming.
+
+        Args:
+            n_images: Number of images to capture (1 for single trigger).
+            timeout_ms: Timeout in ms. 0 = default (exposure * 102% + 4000ms),
+                       0xFFFFFFFF = infinite wait.
+
+        Returns:
+            Captured image as numpy array.
+        """
+        assert self.cam, "camera not initialized"
+        import ctypes as _ctypes
+        import time as _time
+
+        self.cam.Trigger(n_images)
+
+        bufsize, bits, dtype = self.__get_buffer_params()
+        buffer = (_ctypes.c_char * bufsize)()
+        frame_info = miicam.MiicamFrameInfoV3()
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                self.cam.WaitImageV3(timeout_ms if timeout_ms else 1000, buffer, 0, bits, 0, frame_info)
+                break
+            except miicam.HRESULTException as e:
+                hr = getattr(e, "hr", 0)
+                if hr in (0x8000000A, 0x8001011f) and attempt < max_retries - 1:
+                    _time.sleep(0.05)
+                    continue
+                raise MIICAMError(f"trigger_sync timeout: hr=0x{hr & 0xFFFFFFFF:08x}") from e
+
+        img_data = np.frombuffer(buffer, dtype=dtype)
+        return self.__decode_image(img_data)
+
+    # =========================================================================
+    # Still image (Snap) - high-resolution capture
+    # =========================================================================
+
+    def snap(self, resolution_index: int = 0xFFFFFFFF) -> None:
+        """Trigger a still image capture (Snap).
+
+        The camera temporarily switches to the specified resolution,
+        captures one frame, then switches back to the preview resolution.
+
+        Args:
+            resolution_index: Resolution index to snap. 0xFFFFFFFF = current
+                            preview resolution. Use get_still_resolution_count()
+                            to see available options.
+        """
+        assert self.cam, "camera not initialized"
+        self.cam.Snap(resolution_index)
+
+    def pull_still_image(self) -> tuple[np.ndarray, miicam.MiicamFrameInfoV3]:
+        """Pull a still image after Snap event.
+
+        Call this after receiving MIICAM_EVENT_STILLIMAGE (in callback mode)
+        or after snap() to retrieve the still image data.
+
+        Returns:
+            Tuple of (image, frame_info).
+        """
+        assert self.cam, "camera not initialized"
+        import ctypes as _ctypes
+
+        bufsize, bits, dtype = self.__get_buffer_params()
+        buffer = (_ctypes.c_char * bufsize)()
+        frame_info = miicam.MiicamFrameInfoV3()
+
+        self.cam.PullStillImageV2(buffer, bits, frame_info)
+
+        img_data = np.frombuffer(buffer, dtype=dtype)
+        img = self.__decode_image(img_data)
+        return img, frame_info
+
+    def get_still_resolution_count(self) -> int:
+        """Get number of available still image resolutions.
+
+        Returns:
+            Number of still resolutions (0 = not supported).
+        """
+        assert self.cam, "camera not initialized"
+        return self.cam.StillResolutionNumber()
+
+    def get_still_resolution(self, index: int) -> tuple[int, int]:
+        """Get dimensions of a still image resolution.
+
+        Args:
+            index: Resolution index.
+
+        Returns:
+            (width, height) tuple.
+        """
+        assert self.cam, "camera not initialized"
+        return self.cam.get_StillResolution(index)
+
+    # =========================================================================
+    # Stream control
+    # =========================================================================
+
+    def pause(self, b_pause: bool = True) -> None:
+        """Pause or resume the video stream.
+
+        Args:
+            b_pause: True to pause, False to resume.
+        """
+        assert self.cam, "camera not initialized"
+        self.cam.Pause(1 if b_pause else 0)
+
+    def _stop_streaming(self) -> None:
+        """Stop streaming (internal helper)."""
+        if self.cam:
+            try:
+                self.cam.Stop()
+            except Exception:
+                pass
+            import time as _time
+            _time.sleep(0.3)
+
+    # =========================================================================
+    # Internal helpers
+    # =========================================================================
+
+    def __get_buffer_params(self) -> tuple[int, int, type]:
+        """Get buffer size, bits, and numpy dtype based on current format.
+
+        Returns:
+            (bufsize, bits, dtype) tuple.
+        """
+        if getattr(self, "_pixel_format", None) == "YUV422":
+            return (self.cam_width * self.cam_height * 2, 8, np.uint8)
+        elif self._bit_depth == 8:
+            return (self.cam_width * self.cam_height, 8, np.uint8)
+        else:
+            return (self.cam_width * self.cam_height * 2, 16, np.uint16)
+
+    def __decode_image(self, img_data: np.ndarray) -> np.ndarray:
+        """Decode raw image data based on pixel format.
+
+        Args:
+            img_data: Raw image buffer as 1D numpy array.
+
+        Returns:
+            Decoded 2D image array.
+        """
+        if getattr(self, "_pixel_format", None) == "YUV422":
+            img_yuv = img_data.reshape((self.cam_height, self.cam_width * 2))
+            return img_yuv[:, ::2]
+        return img_data.reshape((self.cam_height, self.cam_width))
+
+    def get_numpy_image(
+        self,
+        n_sample: int = 1,
+        skip_first: bool = True,
+    ) -> np.ndarray:
+        """Get camera image data with averaging.
 
         Args:
             n_sample (int): Number of samples for averaging. Must be > 0.

@@ -48,7 +48,7 @@ from ao_shaping.utils.spots_calc import centroid
 
 # ── Camera type import (optional) ────────────────────────────────────────────
 try:
-    from ao_shaping.drivers.ccd.miicam_driver import (
+    from ao_shaping.drivers.ccd.miicam.driver import (
         CameraStreamManager as MIICamManager,
     )
 except Exception:
@@ -457,10 +457,6 @@ def main() -> None:
                 try:
                     if hasattr(st.session_state.camera, "reset_exposure_time"):
                         st.session_state.camera.reset_exposure_time(new_exposure)
-                    else:
-                        st.session_state.camera._CameraStreamManager__reset_exposure_time(
-                            new_exposure
-                        )
                     logger.info("Exposure time updated to {}ms", new_exposure)
                     st.rerun()
                 except Exception as exc:

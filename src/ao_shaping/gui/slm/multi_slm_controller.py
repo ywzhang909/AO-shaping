@@ -686,7 +686,7 @@ def main():
 def _get_camera_class(driver_name: str):
     if driver_name == "MIICAM":
         try:
-            from ao_shaping.drivers.ccd.miicam_driver import CameraStreamManager
+            from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
 
             return CameraStreamManager
         except ImportError as e:

@@ -570,6 +570,7 @@ class R50Controller:
             sock.connect((self.ip, self.port))
             # 禁用 Nagle算法（减少小包延迟，适合低延迟控制）
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            sock.setblocking(False)
             self._socket = sock
             logger.debug(
                 f"R50Controller[{self.controller_id}] connected to {self.ip}:{self.port}"

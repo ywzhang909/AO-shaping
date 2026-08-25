@@ -13,7 +13,7 @@ DahengCamera = None
 CameraStreamManager = None
 
 try:
-    from ao_shaping.drivers.ccd.miicam_driver import CameraStreamManager as MIICamera, MIICAMError
+    from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager as MIICamera, MIICAMError
 except Exception as e:
     logger.debug(f"MIICAM driver not available: {e}")
 

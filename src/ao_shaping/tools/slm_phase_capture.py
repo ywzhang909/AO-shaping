@@ -44,7 +44,7 @@ def _get_daheng_camera(cam_id: int, exposure_ms: int):
 def _get_miicam_camera(cam_id: int, exposure_ms: int, bit_depth: int = 8):
     """Import and create MiiCam camera instance."""
     try:
-        from ao_shaping.drivers.ccd.miicam_driver import CameraStreamManager
+        from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
 
         cam = CameraStreamManager(
             cam_id=cam_id, exposure_time_ms=exposure_ms, bit_depth=bit_depth
