@@ -204,7 +204,50 @@ Analysis pipeline for per-channel Micro-DM (R50Power) response images. For each
 controller IP, one camera image is acquired per DM channel while that channel is
 driven at a fixed voltage (the remaining channels at 0 V). Each image is reduced
 to a localized diff signal against the channel-`000` (0 V) reference of the same
-IP, then visualized either as a merged overlay or as per-IP animated GIFs:
+IP, then visualized either as a merged overlay or as per-IP animated GIFs.
+
+### Quick Start (Recommended)
+
+Use `md_img_pipeline.py` for the complete workflow — it handles per-IP references
+automatically and generates all outputs in one command:
+
+```bash
+# Complete pipeline for a voltage group
+python scripts/md_img_pipeline.py --input data/md_test/md_img-80v
+python scripts/md_img_pipeline.py --input data/md_test/md_img-100v
+
+# Skip FFT notch filter (faster, ~30s per IP vs ~2min)
+python scripts/md_img_pipeline.py --input data/md_test/md_img-80v --no-notch
+
+# Custom parameters
+python scripts/md_img_pipeline.py --input data/md_test/md_img-100v \
+    --threshold 12 --scale 0.5 --fps 10
+
+# Re-run GIF/overlay only (skip diff computation)
+python scripts/md_img_pipeline.py --input data/md_test/md_img-80v --skip-diff
+```
+
+**Output structure:**
+```
+<output>/
+├── diff/                  # Per-IP diff images with centroids
+│   ├── 192.168.0.101/
+│   │   ├── 192.168.0.101-001_cx821.0_cy245.6.png
+│   │   └── ...
+│   └── ...
+├── overlay/               # Per-IP max aggregation overlays
+│   ├── 192.168.0.101_overlay.png
+│   └── ...
+├── gif/                   # Per-IP animated GIFs
+│   ├── 192.168.0.101.gif
+│   └── ...
+├── global_overlay.png     # Max aggregation across all IPs
+└── combined.gif           # All IPs merged with labels
+```
+
+### Manual Steps (Advanced)
+
+For more control, run each step individually:
 
 ```bash
 # 1. Diff computation, denoising & centroid (per channel)
@@ -349,6 +392,50 @@ python scripts/md_img_diff_to_gif.py \
     --output data/md_test/md_img-100v_gif \
     --scale 0.25 --fps 8
 ```
+
+### md_img_pipeline.py — complete pipeline (recommended)
+
+End-to-end pipeline that orchestrates all steps with proper per-IP reference
+handling. For each controller IP, uses the channel-000 image as reference (instead
+of a single global reference), then generates diff images, per-IP overlays, per-IP
+GIFs, global overlay, and a combined master GIF with IP labels and metadata.
+
+**Key features:**
+- **Per-IP references** — automatically uses `<IP>-000.png` as reference for each IP
+- **Complete pipeline** — diff computation → per-IP overlay → per-IP GIF → combined GIF
+- **Global overlay** — pixel-wise maximum across all IPs for coverage analysis
+- **Combined GIF** — all IPs merged with red IP-index labels (bottom-left) and
+  metadata labels (top-left)
+- **Fault tolerance** — failing IPs are reported and skipped
+- **Skip diff mode** — `--skip-diff` reuses existing diff images for faster GIF/overlay regeneration
+
+**Usage:**
+```bash
+# Full pipeline
+python scripts/md_img_pipeline.py --input data/md_test/md_img-80v
+
+# Custom parameters
+python scripts/md_img_pipeline.py --input data/md_test/md_img-100v \
+    --threshold 12 --scale 0.5 --fps 10
+
+# Skip FFT notch filter (faster)
+python scripts/md_img_pipeline.py --input data/md_test/md_img-80v --no-notch
+
+# Re-run GIF/overlay only
+python scripts/md_img_pipeline.py --input data/md_test/md_img-80v --skip-diff
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--input` | (required) | Input directory with per-IP subfolders |
+| `--output` | `<input>_processed` | Output root directory |
+| `--threshold` | `15.0` | Dark-blob threshold for diff computation |
+| `--cmap` | `jet` | Colormap for diff images (`jet` or `gray`) |
+| `--vmax` | per-image max | Fixed jet color scale maximum |
+| `--notch/--no-notch` | on | FFT-notch to remove fringes |
+| `--scale` | `0.25` | Downscale factor for GIFs |
+| `--fps` | `8` | GIF frame rate |
+| `--skip-diff` | off | Skip diff computation, use existing diff images |
 
 ## Subdirectories
 
