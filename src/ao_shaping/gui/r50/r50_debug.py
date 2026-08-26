@@ -142,6 +142,20 @@ def _debug_add_op(operation: str, detail: str, ip: str = "") -> None:
     st.session_state[f"{P}_debug_op_log"].append(line)
 
 
+def _debug_log_voltage_command(cmd_name: str, ip: str, channels: str, voltage: float) -> None:
+    """Human-readable voltage command log entry.
+
+    Appends a timestamped line to the debug log:
+        ``[HH:MM:SS] CMD_NAME @IP | ch=CHANNELS V=VOLTAGE``
+
+    Always writes regardless of debug toggle.
+    """
+    ts = time.strftime("%H:%M:%S", time.localtime())
+    line = f"[{ts}] {cmd_name} @{ip} | ch={channels} V={voltage:.2f}"
+    st.session_state[f"{P}_debug_log"].append(line)
+    _debug_add_op(cmd_name, f"@{ip} ch={channels} V={voltage:.2f}", ip)
+
+
 # ---------------------------------------------------------------------------
 # 本地调试 TCP 服务器 (捕获外部客户端发来的调试日志)
 # 注意: 后台线程不读取 session_state — 用 threading.Event 控制启停。

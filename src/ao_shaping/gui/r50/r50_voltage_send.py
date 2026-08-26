@@ -352,7 +352,9 @@ def seq_tick(ctrl: Any, current: np.ndarray, p: dict) -> None:
         seq_last_tick – timestamp of last operation
         seq_interval  – seconds between each operation
         voltage       – the voltage X to apply
-        seq_done      – set True when all channels are swept
+        seq_done      – set True when all channels are swept (unless auto-loop)
+        seq_auto_loop – bool, if True restart sweep from channel 0 when done
+        seq_round     – current sweep round number (incremented on each complete sweep)
     """
     now = time.time()
     if now - p["seq_last_tick"] < p["seq_interval"]:
@@ -361,14 +363,25 @@ def seq_tick(ctrl: Any, current: np.ndarray, p: dict) -> None:
 
     idx = p["seq_index"]
     channels: list[int] = p["seq_channels"]
+    total = len(channels)
 
-    if idx >= len(channels):
-        p["seq_done"] = True
-        try:
-            q: queue.Queue = p["feedback_q"]  # type: ignore[assignment]
-            q.put(("info", "逐序下发已完成"))
-        except Exception:
-            pass
+    if idx >= total:
+        if p.get("seq_auto_loop"):
+            p["seq_round"] = p.get("seq_round", 0) + 1
+            p["seq_index"] = 0
+            p["seq_phase"] = 0
+            try:
+                q: queue.Queue = p["feedback_q"]  # type: ignore[assignment]
+                q.put(("info", f"逐序下发第 {p['seq_round']} 轮完成，开始下一轮"))
+            except Exception:
+                pass
+        else:
+            p["seq_done"] = True
+            try:
+                q: queue.Queue = p["feedback_q"]  # type: ignore[assignment]
+                q.put(("info", "逐序下发已完成"))
+            except Exception:
+                pass
         return
 
     ch = channels[idx]
@@ -381,6 +394,12 @@ def seq_tick(ctrl: Any, current: np.ndarray, p: dict) -> None:
         send_selection(ctrl, current, sel, 0.0, p["vmin"], p["vmax"])
         p["seq_phase"] = 0
         p["seq_index"] = idx + 1
+        # Report progress after completing one channel
+        try:
+            q: queue.Queue = p["feedback_q"]  # type: ignore[assignment]
+            q.put(("progress", f"{idx + 1}/{total}"))
+        except Exception:
+            pass
 
 
 def run_loop(

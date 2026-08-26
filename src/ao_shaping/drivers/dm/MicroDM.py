@@ -570,7 +570,6 @@ class R50Controller:
             sock.connect((self.ip, self.port))
             # 禁用 Nagle算法（减少小包延迟，适合低延迟控制）
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            sock.setblocking(False)
             self._socket = sock
             logger.debug(
                 f"R50Controller[{self.controller_id}] connected to {self.ip}:{self.port}"
@@ -678,16 +677,20 @@ class R50Controller:
         cmd = HEADER + bytes([CMD_RELAY_ON if state else CMD_RELAY_OFF]) + FOOTER
         return self.send(cmd)
 
-    def power_off_and_close(self, home_voltage: float = 0.0) -> None:
+    def power_off_and_close(self, home_voltage: float = 0.0) -> bool:
         """Safe shutdown: home all channels, relay OFF, then close connection.
 
         Homes (zeroes) the output voltages before cutting relay power so the
         mirror surface returns to its reference position while the controller
         is still energised. Single call shared by CLI tools and the GUI.
+
+        Returns:
+            True if both voltage and relay commands succeeded.
         """
-        self.set_all_channel_voltage(home_voltage)
-        self.set_relay(False)
+        ok1 = self.set_all_channel_voltage(home_voltage)
+        ok2 = self.set_relay(False)
         self.close()
+        return bool(ok1 and ok2)
 
 
 # =============================================================================
@@ -1086,13 +1089,13 @@ class MicroDM(DM, Device):
             ...
         """
         vs = np.clip(vs, self.V_Min, self.V_Max)
+        failed: list[str] = []
         for ctrl_idx, ctrl in enumerate(self._controllers):
             start = ctrl_idx * MAX_CHANNELS
             end = start + MAX_CHANNELS
             if start >= len(vs):
                 break
             chunk = vs[start:end]
-            # Pad with zeros if the last controller has fewer than 50
             if len(chunk) < MAX_CHANNELS:
                 chunk = np.pad(
                     chunk, (0, MAX_CHANNELS - len(chunk)), constant_values=0.0
@@ -1104,7 +1107,14 @@ class MicroDM(DM, Device):
                 + voltages_to_payload(chunk)
                 + FOOTER
             )
-            ctrl.send(cmd)
+            ok = ctrl.send(cmd)
+            if not ok:
+                failed.append(ctrl.ip)
+
+        if failed:
+            raise MicroDMConnectionError(
+                f"电压下发失败 (控制器未响应): {', '.join(failed)}"
+            )
 
         self._last_voltages = vs.copy()
         return self._last_voltages

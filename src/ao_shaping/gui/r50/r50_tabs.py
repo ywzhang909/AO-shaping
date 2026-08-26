@@ -45,8 +45,11 @@ from ao_shaping.gui.r50.r50_joint import (
     _jc_render_matrix_image,
     _jc_render_profile,
     _jc_render_stats,
+    _jc_render_styled_matrix,
     _jc_reset_matrix,
+    _jc_reset_to_applied,
     _jc_set_cell,
+    _jc_disconnect,
 )
 from ao_shaping.gui.r50.r50_single import (
     _require_relay_on,
@@ -339,6 +342,14 @@ def render_tab_single_controller() -> None:
             )
             st.session_state[f"{P}_seq_interval"] = float(seq_interval)
 
+        st.checkbox(
+            "完成后自动循环",
+            value=st.session_state[f"{P}_seq_auto_loop"],
+            help="一轮全部通道扫描完成后自动从头开始下一轮",
+            key=f"{P}_seq_auto_loop_input",
+        )
+        st.session_state[f"{P}_seq_auto_loop"] = st.session_state[f"{P}_seq_auto_loop_input"]
+
         if not st.session_state[f"{P}_seq_running"]:
             if st.button(
                 "▶ 开始逐序下发", type="primary", width='stretch',
@@ -359,6 +370,7 @@ def render_tab_single_controller() -> None:
                             if st.session_state[f"{P}_all_mode"]
                             else list(st.session_state[f"{P}_channels"])
                         )
+                        auto_loop = st.session_state[f"{P}_seq_auto_loop"]
                         _loop_start(
                             seq_tick,
                             {
@@ -369,17 +381,21 @@ def render_tab_single_controller() -> None:
                                 "seq_phase": 0,
                                 "seq_last_tick": time.time(),
                                 "seq_done": False,
+                                "seq_auto_loop": auto_loop,
+                                "seq_round": 0,
                                 "dt": 0.01,
                                 "selection": ChannelSelection(all_mode=True),
                             },
                         )
                         st.session_state[f"{P}_seq_running"] = True
+                        mode_label = "循环扫描" if auto_loop else "单次扫描"
                         _set_feedback(
-                            f"逐序下发中: {len(channels)} 通道, V={seq_voltage:.1f}V, T={seq_interval:.2f}s",
+                            f"逐序下发中 ({mode_label}): {len(channels)} 通道, V={seq_voltage:.1f}V, T={seq_interval:.2f}s",
                             "success",
                         )
                         st.rerun()
         else:
+            st.caption("运行中 — 请等待或点击停止")
             if st.button(
                 "⏹ 停止逐序下发", type="primary", width='stretch',
                 key=f"{P}_seq_stop",
@@ -406,11 +422,10 @@ def render_tab_single_controller() -> None:
         f"未连接时显示上次下发值"
     )
 
-    if st.session_state[f"{P}_debug"]:
-        st.divider()
-        st.markdown("##### 调试日志 (指令 / 下发包)")
-        log_lines = list(st.session_state[f"{P}_debug_log"])
-        st.code("\n".join(log_lines) if log_lines else "(无记录)", language="text")
+    st.divider()
+    st.markdown("##### 指令日志 (下发包记录)")
+    log_lines = list(st.session_state[f"{P}_debug_log"])
+    st.code("\n".join(log_lines) if log_lines else "(无记录)", language="text")
 
     if (
         st.session_state[f"{P}_hold"]
@@ -461,6 +476,7 @@ def render_tab_single_group() -> None:
     with st.container(border=True):
         st.markdown("##### 组别选择")
         sel_idx = group_names.index(selected) if selected in group_names else 0
+        prev_selected = selected
         selected = st.selectbox(
             "选择组别",
             options=group_names,
@@ -468,6 +484,13 @@ def render_tab_single_group() -> None:
             key=f"{gc}_group_select_main",
         )
         st.session_state[f"{gc}_selected_group"] = selected
+
+        # Reset channels when group changes
+        if selected != prev_selected:
+            new_group = groups.get(selected)
+            new_positions = new_group.all_payload_positions if new_group else []
+            st.session_state[f"{gc}_selected_channels"] = new_positions.copy()
+            st.session_state[f"{gc}_all_mode"] = True
 
         if selected and selected in groups:
             group_def = groups[selected]
@@ -491,10 +514,12 @@ def render_tab_single_group() -> None:
     group_def = groups.get(selected)
     all_payload_positions = group_def.all_payload_positions if group_def else []
 
-    if not st.session_state.get(f"{gc}_selected_channels"):
+    # Ensure selected_channels initialized for current group
+    if f"{gc}_selected_channels" not in st.session_state or not st.session_state[f"{gc}_selected_channels"]:
         st.session_state[f"{gc}_selected_channels"] = all_payload_positions.copy()
+    st.session_state.setdefault(f"{gc}_all_mode", True)
 
-    col_v, col_ch = st.columns([1, 2])
+    col_v, col_mode = st.columns(2)
     with col_v:
         voltage = st.number_input(
             "电压 (V)",
@@ -505,43 +530,46 @@ def render_tab_single_group() -> None:
         )
         st.session_state[f"{gc}_voltage"] = float(voltage)
 
-    with col_ch:
-        ch_labels: dict[int, str] = {}
-        for ip_suffix in sorted(group_def.channels_by_ip.keys()) if group_def else []:
-            for ch_info in group_def.channels_by_ip[ip_suffix]:
-                pp = ch_info.payload_position
-                desc = f"ch{pp}"
-                if ch_info.needle_id:
-                    desc += f" 针脚#{ch_info.needle_id}"
-                if ch_info.physical_label:
-                    desc += f" ({ch_info.physical_label})"
-                desc += f" [192.168.0.{ip_suffix}]"
-                ch_labels[pp] = desc
-
-        selected_chs = st.multiselect(
-            "选择通道 (payload_position)",
-            options=all_payload_positions,
-            default=st.session_state.get(f"{gc}_selected_channels", all_payload_positions),
-            format_func=lambda pp: ch_labels.get(pp, str(pp)),
-            key=f"{gc}_channel_select",
+    with col_mode:
+        all_mode = st.checkbox(
+            "全部通道模式",
+            value=st.session_state[f"{gc}_all_mode"],
+            help="开启后下发到组内全部通道; 关闭后仅下发到下方选中的通道",
+            key=f"{gc}_all_mode_input",
         )
+        st.session_state[f"{gc}_all_mode"] = all_mode
+
+    # Channel selector (visible always for reference, but only used when all_mode=False)
+    ch_labels: dict[int, str] = {}
+    for ip_suffix in sorted(group_def.channels_by_ip.keys()) if group_def else []:
+        for ch_info in group_def.channels_by_ip[ip_suffix]:
+            pp = ch_info.payload_position
+            desc = f"ch{pp}"
+            if ch_info.needle_id:
+                desc += f" 针脚#{ch_info.needle_id}"
+            if ch_info.physical_label:
+                desc += f" ({ch_info.physical_label})"
+            desc += f" [192.168.0.{ip_suffix}]"
+            ch_labels[pp] = desc
+
+    selected_chs = st.multiselect(
+        "选择通道 (payload_position) — 仅「指定通道」模式生效",
+        options=all_payload_positions,
+        default=st.session_state.get(f"{gc}_selected_channels", all_payload_positions),
+        format_func=lambda pp: ch_labels.get(pp, str(pp)),
+        key=f"{gc}_channel_select",
+        disabled=all_mode,
+    )
+    if not all_mode:
         st.session_state[f"{gc}_selected_channels"] = selected_chs
 
-    col_apply, col_apply_all, col_sel, col_desel = st.columns(4)
+    col_apply, col_sel, col_desel = st.columns(3)
     with col_apply:
         if st.button(
             "⚡ 下发电压", type="primary", width='stretch',
             key=f"{gc}_apply_btn", disabled=not relay_on,
         ):
             _gc_apply_voltage()
-            st.rerun()
-    with col_apply_all:
-        if st.button(
-            "⚡ 全部通道下发", type="secondary", width='stretch',
-            key=f"{gc}_apply_all_btn", disabled=not relay_on,
-        ):
-            st.session_state[f"{gc}_selected_channels"] = all_payload_positions.copy()
-            _gc_apply_voltage(all_channels=True)
             st.rerun()
     with col_sel:
         if st.button("全选通道", width='stretch', key=f"{gc}_select_all_btn"):
@@ -554,7 +582,7 @@ def render_tab_single_group() -> None:
 
     st.divider()
     st.markdown("##### 通道统计")
-    n_selected = len(st.session_state.get(f"{gc}_selected_channels", []))
+    n_selected = len(all_payload_positions) if all_mode else len(st.session_state.get(f"{gc}_selected_channels", []))
     n_total = len(all_payload_positions)
     st.metric("已选通道", f"{n_selected} / {n_total}")
     st.caption(
@@ -568,12 +596,13 @@ def render_tab_single_group() -> None:
 # =============================================================================
 
 def render_tab_all_control() -> None:
-    """全部控制 Tab: 36×36 联合矩阵全量控制。"""
+    """全部控制 Tab: 36×36 联合矩阵全量编辑与下发。"""
     st.title("🔗 全部控制")
     st.caption("MicroDM 36×36 压电陶瓷矩阵 · 全量联合编辑与下发")
 
     jc = f"{P}_jc"
-    matrix: np.ndarray = st.session_state[f"{jc}_matrix"]
+    matrix: np.ndarray | None = st.session_state.get(f"{jc}_matrix")
+    applied: np.ndarray | None = st.session_state.get(f"{jc}_applied_matrix")
     connected = st.session_state.get(f"{jc}_connected", False)
     relay_on = st.session_state.get(f"{jc}_relay_on", False)
 
@@ -586,17 +615,42 @@ def render_tab_all_control() -> None:
     if not relay_on:
         st.warning("⚠️ 继电器未上电，请在侧边栏先上电")
         return
+    if matrix is None:
+        st.info("💡 矩阵尚未初始化，请先连接 MicroDM 后重试。")
+        return
 
     _show_feedback(prefix="jc")
 
-    st.divider()
-    st.markdown("##### 36×36 电压矩阵 (Streamlit 原生控件)")
+    vmin = st.session_state.get(f"{P}_vmin", HW_VOLTAGE_MIN)
+    vmax = st.session_state.get(f"{P}_vmax", HW_VOLTAGE_MAX)
+
+    with st.container(border=True):
+        st.markdown("##### 行列选择")
+        col_row, col_col = st.columns(2)
+        with col_row:
+            sel_row = st.selectbox(
+                "查看行 (0=全部)", options=list(range(0, GRID_SIZE)),
+                format_func=lambda r: f"全部" if r == 0 else f"行 {r}",
+                key=f"{jc}_view_row_select",
+            )
+        with col_col:
+            sel_col = st.selectbox(
+                "查看列 (0=全部)", options=list(range(0, GRID_SIZE)),
+                format_func=lambda c: f"全部" if c == 0 else f"列 {c}",
+                key=f"{jc}_view_col_select",
+            )
 
     col_img, col_edit = st.columns([3, 1])
 
     with col_img:
         _jc_render_matrix_image(matrix)
-        _jc_render_matrix_dataframe(matrix)
+        blocks = 6
+        cols_per_block = 6
+        for block_idx in range(blocks):
+            start_col = block_idx * cols_per_block
+            end_col = min(start_col + cols_per_block, GRID_SIZE)
+            with st.expander(f"📍 第 {start_col + 1}–{end_col} 列 (编辑缓冲区)", expanded=(block_idx == 0)):
+                _jc_render_styled_matrix(matrix, applied, vmin, vmax, start_col, end_col)
 
     with col_edit:
         with st.container(border=True):
@@ -673,8 +727,8 @@ def render_tab_all_control() -> None:
 
     st.divider()
     st.markdown("##### 硬件操作")
-    col_send, col_reset, col_refresh = st.columns(3)
-    with col_send:
+    col_apply, col_reset, col_disconnect = st.columns(3)
+    with col_apply:
         if st.button("⚡ 下发全部电压到硬件", type="primary", width='stretch',
                      disabled=not connected, key=f"{jc}_apply_btn"):
             if not relay_on:
@@ -683,14 +737,14 @@ def render_tab_all_control() -> None:
                 _jc_apply_matrix()
                 st.rerun()
     with col_reset:
-        if st.button("🔄 清零矩阵", width='stretch',
+        if st.button("🔄 重置编辑", width='stretch',
                      key=f"{jc}_reset_btn"):
-            _jc_reset_matrix()
+            _jc_reset_to_applied()
             st.rerun()
-    with col_refresh:
-        if st.button("📡 从硬件刷新", width='stretch',
-                     disabled=not connected, key=f"{jc}_refresh_btn"):
-            _jc_refresh_from_hardware()
+    with col_disconnect:
+        if st.button("🔌 断开并归零", width='stretch',
+                     key=f"{jc}_disconnect_btn"):
+            _jc_disconnect()
             st.rerun()
 
     st.divider()
@@ -708,6 +762,7 @@ def render_tab_all_control() -> None:
         )
         st.caption(
             f"电压安全范围: [{HW_VOLTAGE_MIN}, {HW_VOLTAGE_MAX}] V<br>"
-            "矩阵坐标: 行=(物理位置-1)//36, 列=(物理位置-1)%36",
+            "矩阵坐标: 行=(物理位置-1)//36, 列=(物理位置-1)%36<br>"
+            "<b>粗体</b> = 编辑缓冲区与上次下发不同 (未发送的更改)",
             unsafe_allow_html=True,
         )

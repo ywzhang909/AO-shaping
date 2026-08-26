@@ -143,6 +143,7 @@ def _initialize_state() -> None:
     st.session_state.setdefault(f"{P}_seq_running", False)
     st.session_state.setdefault(f"{P}_seq_voltage", 20.0)
     st.session_state.setdefault(f"{P}_seq_interval", 1.0)
+    st.session_state.setdefault(f"{P}_seq_auto_loop", False)
 
     # ---- 方波电压 (A/B) ----
     st.session_state.setdefault(f"{P}_square_running", False)
@@ -201,6 +202,7 @@ def _init_jc_state() -> None:
     st.session_state.setdefault(f"{p}_connection_error", "")
     st.session_state.setdefault(f"{p}_relay_on", False)
     st.session_state.setdefault(f"{p}_matrix", None)
+    st.session_state.setdefault(f"{p}_applied_matrix", None)
     st.session_state.setdefault(f"{p}_row_count", 0)
     st.session_state.setdefault(f"{p}_col_count", 0)
     st.session_state.setdefault(f"{p}_current_flat", np.zeros(0, dtype=np.float64))

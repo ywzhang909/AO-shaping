@@ -138,14 +138,19 @@ class DM(ABC):
             return self._apply_voltages(target)
 
         current = self._last_voltages.copy()
-        gap = target - current
-        direction = np.sign(gap)
-        abs_gap = np.abs(gap)
 
-        while abs_gap.any():
-            abs_gap = np.clip(abs_gap - step_size, 0, self.V_Max - self.V_Min)
-            intermediate = current + direction * abs_gap
+        # Inf step = no ramp needed, apply directly
+        if not np.isfinite(step_size):
+            result = self._apply_voltages(target)
+            self._last_voltages = target.copy()
+            return result
+
+        while np.any(np.abs(target - current) > 1e-10):
+            gap = target - current
+            step = np.minimum(np.abs(gap), step_size)
+            intermediate = current + np.sign(gap) * step
             self._apply_voltages(intermediate)
+            current = intermediate
 
         self._last_voltages = target.copy()
         return self._last_voltages
