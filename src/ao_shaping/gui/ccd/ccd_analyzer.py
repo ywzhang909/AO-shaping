@@ -12,10 +12,12 @@ Features:
 from __future__ import annotations
 
 import queue
+import socketserver
 import sys
 import threading
 import time
 import types
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
 import numpy as np
@@ -55,7 +57,168 @@ except Exception:
     MIICamManager = None
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-_REFRESH_INTERVAL = 0.15  # seconds – UI rerun cadence while capture loop runs
+_REFRESH_INTERVAL = 0.08  # seconds – UI rerun cadence while capture loop runs
+_MJPEG_PORT = 0  # 0 = auto-assign available port
+
+
+# =============================================================================
+# MJPEG streaming server (low-latency live preview)
+# =============================================================================
+
+
+class _MJPEGHandler(BaseHTTPRequestHandler):
+    """HTTP handler that serves MJPEG frames from a shared queue."""
+
+    streamer: "_MJPEGStreamer | None" = None
+
+    def do_GET(self) -> None:
+        if self.path != "/video_feed":
+            self.send_error(404)
+            return
+        if _MJPEGHandler.streamer is None:
+            self.send_error(503)
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+        self.end_headers()
+
+        try:
+            while not _MJPEGHandler.streamer.stop_event.is_set():
+                frame = _MJPEGHandler.streamer.frame_queue.get(timeout=1.0)
+                if frame is None:
+                    continue
+                jpeg = _encode_jpeg(frame)
+                if jpeg is None:
+                    continue
+                self.wfile.write(b"--frame\r\n")
+                self.wfile.write(f"Content-Type: image/jpeg\r\n".encode())
+                self.wfile.write(f"Content-Length: {len(jpeg)}\r\n".encode())
+                self.wfile.write(b"\r\n")
+                self.wfile.write(jpeg)
+                self.wfile.write(b"\r\n")
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception:
+            pass
+
+    def log_message(self, format, *args):  # noqa: A002
+        pass  # suppress server logs
+
+
+class _MJPEGStreamer:
+    """Lightweight MJPEG streaming server for low-latency live preview."""
+
+    def __init__(self) -> None:
+        self.frame_queue: queue.Queue[Any] = queue.Queue(maxsize=2)
+        self.stop_event = threading.Event()
+        self._server: HTTPServer | None = None
+        self._thread: threading.Thread | None = None
+        self._port: int | None = None
+
+    def start(self) -> int:
+        """Start the MJPEG server. Returns the assigned port."""
+        _MJPEGHandler.streamer = self
+        self._server = HTTPServer(("127.0.0.1", _MJPEG_PORT), _MJPEGHandler)
+        self._port = self._server.server_address[1]
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+        logger.info("MJPEG streamer started on port {}", self._port)
+        return self._port
+
+    def stop(self) -> None:
+        """Stop the MJPEG server."""
+        self.stop_event.set()
+        if self._server:
+            try:
+                self._server.shutdown()
+            except Exception:
+                pass
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=1.0)
+        _MJPEGHandler.streamer = None
+        logger.info("MJPEG streamer stopped")
+
+    def put_frame(self, frame: np.ndarray | None) -> None:
+        """Push a new frame to the stream (non-blocking, drops oldest)."""
+        if frame is None:
+            return
+        if self.frame_queue.full():
+            try:
+                self.frame_queue.get_nowait()
+            except queue.Empty:
+                pass
+        try:
+            self.frame_queue.put(frame, block=False)
+        except queue.Full:
+            pass
+
+    def _serve(self) -> None:
+        if self._server:
+            self._server.serve_forever(poll_interval=0.05)
+
+
+_mjpeg_streamer: _MJPEGStreamer | None = None
+_mjpeg_port: int | None = None
+
+
+def _encode_jpeg(img: np.ndarray) -> bytes | None:
+    """Encode a grayscale or RGB image to JPEG bytes."""
+    try:
+        import cv2  # type: ignore[import-untyped]
+
+        if img.ndim == 2:
+            success, encoded = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+        else:
+            success, encoded = cv2.imencode(
+                ".jpg", cv2.cvtColor(img, cv2.COLOR_RGB2BGR),
+                [int(cv2.IMWRITE_JPEG_QUALITY), 80],
+            )
+        if success:
+            return encoded.tobytes()
+    except Exception:
+        pass
+
+    # Fallback: use PIL
+    try:
+        if img.ndim == 2:
+            pil_img = Image.fromarray(img)
+        else:
+            pil_img = Image.fromarray(img)
+        buf = BytesIO()
+        pil_img.save(buf, format="JPEG", quality=80)
+        return buf.getvalue()
+    except Exception:
+        return None
+
+
+def _start_mjpeg_streamer() -> int:
+    """Start the MJPEG streaming server. Returns the port number."""
+    global _mjpeg_streamer, _mjpeg_port
+    if _mjpeg_streamer is not None:
+        return _mjpeg_port or 0
+    _mjpeg_streamer = _MJPEGStreamer()
+    _mjpeg_port = _mjpeg_streamer.start()
+    return _mjpeg_port
+
+
+def _stop_mjpeg_streamer() -> None:
+    """Stop the MJPEG streaming server."""
+    global _mjpeg_streamer, _mjpeg_port
+    if _mjpeg_streamer is not None:
+        _mjpeg_streamer.stop()
+        _mjpeg_streamer = None
+        _mjpeg_port = None
+
+
+def _get_mjpeg_url() -> str | None:
+    """Return the MJPEG stream URL, or None if not running."""
+    if _mjpeg_port is not None:
+        return f"http://127.0.0.1:{_mjpeg_port}/video_feed"
+    return None
 
 
 # =============================================================================
@@ -63,18 +226,55 @@ _REFRESH_INTERVAL = 0.15  # seconds – UI rerun cadence while capture loop runs
 # =============================================================================
 
 
+class _CaptureLoopResult:
+    def __init__(self, analysis: dict[str, Any] | None = None, error: str | None = None):
+        self.analysis = analysis
+        self.error = error
+
+
+def _analyze_image(img: np.ndarray) -> dict[str, Any]:
+    """Analyze image and return results dict.
+
+    Runs CPU-intensive fits off the main thread so UI reruns stay fast.
+    """
+    cx, cy = centroid(img, moment=1, threshold=0.01)
+    ellipse_params = calculate_enclosing_ellipse(img)
+    x_profile, y_profile = get_cross_sections(img, (cx, cy))
+    x = np.arange(len(x_profile))
+    y_arr = np.arange(len(y_profile))
+    x_popt, _ = fit_gaussian(x, x_profile)
+    y_popt, _ = fit_gaussian(y_arr, y_profile)
+    return {
+        "img": img,
+        "ellipse_params": ellipse_params,
+        "cx": cx,
+        "cy": cy,
+        "x_profile": x_profile,
+        "y_profile": y_profile,
+        "x_popt": x_popt,
+        "y_popt": y_popt,
+        "x": x,
+        "y": y_arr,
+        "capture_time": time.time(),
+    }
+
+
 def _camera_capture_tick(
     camera: Any, img_queue: queue.Queue[Any], params: dict[str, Any]
 ) -> None:
-    """One tick of the capture loop: grab a frame, push to queue.
+    """One tick of the capture loop: grab a frame, analyze, push to queue.
 
-    Runs inside the daemon thread.  Must NOT touch session_state.
+    Also pushes raw frames to the MJPEG streamer for low-latency live preview.
     """
     try:
         img = camera.get_numpy_image(
             n_sample=params.get("n_sample", 1),
             skip_first=params.get("skip_first", False),
         )
+        # Feed raw frame to MJPEG streamer (non-blocking)
+        if _mjpeg_streamer is not None:
+            _mjpeg_streamer.put_frame(img)
+        result = _analyze_image(img)
         # Non-blocking: drop the oldest frame if the queue is full so the main
         # thread always sees the freshest image.
         if img_queue.full():
@@ -82,7 +282,7 @@ def _camera_capture_tick(
                 img_queue.get_nowait()
             except queue.Empty:
                 pass
-        img_queue.put(img, block=False)
+        img_queue.put(result, block=False)
     except Exception as exc:
         try:
             img_queue.put(("error", str(exc)), block=False)
@@ -161,13 +361,13 @@ def _stop_capture_loop() -> None:
 def _drain_capture_feedback() -> None:
     """Main-thread consumer: drain the image queue on every rerun.
 
-    Latest image (or error) is stored in ``st.session_state["current_image"]``.
+    Latest analysis result (or error) is stored in ``st.session_state["current_image"]``.
     Called unconditionally at the top of ``main()``.
     """
     q = st.session_state.get("ccd_img_queue")
     if q is None:
         return
-    latest_img: np.ndarray | None = None
+    latest_result: dict[str, Any] | None = None
     latest_error: str | None = None
     while True:
         try:
@@ -176,35 +376,16 @@ def _drain_capture_feedback() -> None:
             break
         if isinstance(item, tuple) and len(item) == 2 and item[0] == "error":
             latest_error = item[1]
-        elif isinstance(item, np.ndarray):
-            latest_img = item
+        elif isinstance(item, dict) and "img" in item:
+            latest_result = item
     if latest_error:
         st.session_state["ccd_last_error"] = latest_error
-    if latest_img is not None:
-        # --- Analysis (runs in main thread, fast) ---
-        img = latest_img
-        cx, cy = centroid(img, moment=1, threshold=0.01)
-        ellipse_params = calculate_enclosing_ellipse(img)
-        x_profile, y_profile = get_cross_sections(img, (cx, cy))
-        x = np.arange(len(x_profile))
-        y_arr = np.arange(len(y_profile))
-        x_popt, _ = fit_gaussian(x, x_profile)
-        y_popt, _ = fit_gaussian(y_arr, y_profile)
-
-        st.session_state["current_image"] = {
-            "img": img,
-            "ellipse_params": ellipse_params,
-            "cx": cx,
-            "cy": cy,
-            "x_profile": x_profile,
-            "y_profile": y_profile,
-            "x_popt": x_popt,
-            "y_popt": y_popt,
-            "x": x,
-            "y": y_arr,
-            "capture_time": time.time(),
-        }
+    if latest_result is not None:
+        st.session_state["current_image"] = latest_result
         st.session_state["last_update_time"] = time.time()
+        st.session_state["ccd_frame_count"] = (
+            st.session_state.get("ccd_frame_count", 0) + 1
+        )
 
 
 # =============================================================================
@@ -218,6 +399,7 @@ def _initialize_camera_state() -> None:
     st.session_state.setdefault("camera_connected", False)
     st.session_state.setdefault("camera_id", 0)
     st.session_state.setdefault("camera_type", "Daheng")  # "Daheng" | "MiiCam"
+    st.session_state.setdefault("miicam_capture_mode", "wait")  # "wait" | "callback"
     st.session_state.setdefault("exposure_time_ms", 50)
     st.session_state.setdefault("auto_exposure", False)
     st.session_state.setdefault("update_interval", _REFRESH_INTERVAL)
@@ -232,6 +414,10 @@ def _initialize_camera_state() -> None:
     st.session_state.setdefault("ccd_img_queue", None)
     st.session_state.setdefault("ccd_capture_loop_running", False)
     st.session_state.setdefault("ccd_last_error", "")
+    st.session_state.setdefault("ccd_frame_count", 0)
+    st.session_state.setdefault("ccd_fps", 0.0)
+    st.session_state.setdefault("ccd_fps_last_time", time.time())
+    st.session_state.setdefault("ccd_fps_last_count", 0)
 
 
 # =============================================================================
@@ -377,7 +563,41 @@ def get_cross_sections(
 # =============================================================================
 
 
-def _create_camera(camera_type: str, cam_id: int, exposure_ms: float) -> Any:
+def _discover_available_cameras() -> dict[str, list[Any]]:
+    """Return a mapping of camera type to list of available devices.
+
+    Example: {"Daheng": [<cam0>, ...], "MiiCam": [<cam0>, ...]}
+    """
+    result: dict[str, list[Any]] = {"Daheng": [], "MiiCam": []}
+
+    # Daheng
+    try:
+        daheng_list = DahengCamManager.get_cam_list()
+        if daheng_list:
+            # Filter out obviously invalid entries (e.g. negative IDs from virtual devices)
+            valid = [d for d in daheng_list if getattr(d, "cam_id", -1) >= 0]
+            result["Daheng"] = valid
+    except Exception:
+        pass
+
+    # MiiCam
+    if MIICamManager is not None:
+        try:
+            miicam_list = MIICamManager.get_cam_list()
+            if miicam_list:
+                result["MiiCam"] = list(miicam_list)
+        except Exception:
+            pass
+
+    return result
+
+
+def _create_camera(
+    camera_type: str,
+    cam_id: int,
+    exposure_ms: float,
+    capture_mode: str = "wait",
+) -> Any:
     """Instantiate the selected camera driver."""
     if camera_type == "MiiCam":
         if MIICamManager is None:
@@ -385,7 +605,11 @@ def _create_camera(camera_type: str, cam_id: int, exposure_ms: float) -> Any:
                 "MiiCam driver is not available. "
                 "Ensure the MIICAM SDK is installed (set MIICAM_SDK_PATH)."
             )
-        return MIICamManager(cam_id=cam_id, exposure_time_ms=exposure_ms)
+        return MIICamManager(
+            cam_id=cam_id,
+            exposure_time_ms=exposure_ms,
+            capture_mode=capture_mode,
+        )
     # Default: Daheng
     return DahengCamManager(cam_id=cam_id, exposure_time_ms=exposure_ms)
 
@@ -404,6 +628,21 @@ def _safe_close_camera(camera: Any) -> None:
             camera.cam.close_device()  # type: ignore[union-attr]
 
 
+def _update_fps() -> None:
+    """Calculate and store current FPS based on frame count."""
+    frame_count = st.session_state.get("ccd_frame_count", 0)
+    last_time = st.session_state.get("ccd_fps_last_time", time.time())
+    last_count = st.session_state.get("ccd_fps_last_count", 0)
+
+    now = time.time()
+    elapsed = now - last_time
+    if elapsed >= 1.0:
+        fps = (frame_count - last_count) / elapsed
+        st.session_state["ccd_fps"] = fps
+        st.session_state["ccd_fps_last_time"] = now
+        st.session_state["ccd_fps_last_count"] = frame_count
+
+
 # =============================================================================
 # Main
 # =============================================================================
@@ -415,6 +654,9 @@ def main() -> None:
     _initialize_camera_state()
     _drain_capture_feedback()  # consume latest frame from background thread
 
+    # Calculate FPS
+    _update_fps()
+
     st.title("📷 CCD Real-time Image Analyzer")
     st.markdown("Real-time CCD camera display and beam analysis")
 
@@ -422,15 +664,41 @@ def main() -> None:
     with st.sidebar:
         st.header("Camera Settings")
 
-        # Camera type selector
+        # Discover available cameras and auto-select type
+        available_cameras = _discover_available_cameras()
+        detected_types = [t for t, devices in available_cameras.items() if devices]
+
+        if detected_types:
+            # If the previously selected type is no longer available, pick the first detected
+            if st.session_state.camera_type not in detected_types:
+                st.session_state.camera_type = detected_types[0]
+        else:
+            # No cameras detected, keep default
+            detected_types = ["Daheng"]
+
+        # Camera type selector (driven by discovered cameras)
         cam_type = st.selectbox(
             "Camera Type",
-            options=["Daheng", "MiiCam"],
-            index=0 if st.session_state.camera_type == "Daheng" else 1,
-            help="Select camera driver",
+            options=detected_types,
+            index=detected_types.index(st.session_state.camera_type)
+            if st.session_state.camera_type in detected_types
+            else 0,
+            help="Auto-detected camera driver",
             key="ccd_cam_type_select",
         )
         st.session_state.camera_type = cam_type
+
+        # MiiCam-specific: capture mode selector
+        if cam_type == "MiiCam" and MIICamManager is not None:
+            st.session_state.miicam_capture_mode = st.selectbox(
+                "MiiCam Capture Mode",
+                options=["wait", "callback"],
+                index=0
+                if st.session_state.miicam_capture_mode == "wait"
+                else 1,
+                help="wait=WaitImageV3 (blocking pull), callback=StartPullModeWithCallback + Trigger",
+                key="ccd_miicam_capture_mode",
+            )
 
         st.session_state.camera_id = st.number_input(
             "Camera ID",
@@ -502,10 +770,13 @@ def main() -> None:
                         st.session_state.camera_type,
                         st.session_state.camera_id,
                         st.session_state.exposure_time_ms,
+                        capture_mode=st.session_state.get("miicam_capture_mode", "wait"),
                     )
                     cam.initialize()
                     st.session_state.camera = cam
                     st.session_state.camera_connected = True
+                    # Start MJPEG streamer for low-latency live preview
+                    _start_mjpeg_streamer()
                     st.success(
                         f"{st.session_state.camera_type} camera connected"
                     )
@@ -515,14 +786,20 @@ def main() -> None:
             if st.button("Disconnect Camera", type="secondary"):
                 try:
                     _stop_capture_loop()
+                    _stop_mjpeg_streamer()
                     _safe_close_camera(st.session_state.camera)
                     st.session_state.camera = None
                     st.session_state.camera_connected = False
                     st.session_state.current_image = None
+                    st.session_state["ccd_frame_count"] = 0
+                    st.session_state["ccd_fps"] = 0.0
+                    st.session_state["ccd_fps_last_time"] = time.time()
+                    st.session_state["ccd_fps_last_count"] = 0
                     st.info("Camera disconnected")
                 except Exception as exc:
                     logger.error("Disconnect failed: {}", exc)
                     _stop_capture_loop()
+                    _stop_mjpeg_streamer()
                     st.session_state.camera = None
                     st.session_state.camera_connected = False
                     st.error(f"Disconnect failed: {exc}")
@@ -546,12 +823,16 @@ def main() -> None:
 
         with col_status:
             ci = st.session_state.current_image
+            fps = st.session_state.get("ccd_fps", 0.0)
             if ci is not None:
                 capture_time = ci.get("capture_time", 0)
                 if capture_time > 0:
                     from datetime import datetime
                     ts = datetime.fromtimestamp(capture_time)
-                    st.success(f"✓ Live at {ts.strftime('%H:%M:%S.%f')[:-3]}")
+                    st.success(
+                        f"✓ Live at {ts.strftime('%H:%M:%S.%f')[:-3]} "
+                        f"({fps:.1f} FPS)"
+                    )
             else:
                 st.info("Click to capture")
 
@@ -570,22 +851,7 @@ def main() -> None:
                 img = st.session_state.camera.get_numpy_image(
                     n_sample=1, skip_first=False
                 )
-                cx, cy = centroid(img, moment=1, threshold=0.01)
-                ellipse_params = calculate_enclosing_ellipse(img)
-                x_profile, y_profile = get_cross_sections(img, (cx, cy))
-                x = np.arange(len(x_profile))
-                y_arr = np.arange(len(y_profile))
-                x_popt, _ = fit_gaussian(x, x_profile)
-                y_popt, _ = fit_gaussian(y_arr, y_profile)
-                st.session_state.current_image = {
-                    "img": img,
-                    "ellipse_params": ellipse_params,
-                    "cx": cx, "cy": cy,
-                    "x_profile": x_profile, "y_profile": y_profile,
-                    "x_popt": x_popt, "y_popt": y_popt,
-                    "x": x, "y": y_arr,
-                    "capture_time": time.time(),
-                }
+                st.session_state.current_image = _analyze_image(img)
                 st.session_state.last_update_time = time.time()
             except Exception as exc:
                 st.error(f"Failed to get image: {exc}")
@@ -616,12 +882,21 @@ def main() -> None:
             col1, col2 = st.columns([2, 1])
 
             with col1:
-                pil_img = Image.fromarray(img.astype("uint8"))
-                st.image(
-                    pil_img,
-                    caption=f"Raw CCD Image ({img.shape[1]}×{img.shape[0]})",
-                    width="stretch",
-                )
+                # Use MJPEG stream for low-latency live preview
+                mjpeg_url = _get_mjpeg_url()
+                if mjpeg_url is not None:
+                    st.markdown(
+                        f"<img src=\"{mjpeg_url}\" "
+                        f"style=\"width: 100%; height: auto;\" />",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    pil_img = Image.fromarray(img.astype("uint8"))
+                    st.image(
+                        pil_img,
+                        caption=f"Raw CCD Image ({img.shape[1]}×{img.shape[0]})",
+                        width="stretch",
+                    )
 
             with col2:
                 st.markdown("### 📊 Analysis Results")
@@ -688,26 +963,16 @@ def main() -> None:
         st.info("Please connect camera in sidebar to start real-time monitoring")
 
         st.subheader("Available Cameras")
-        try:
-            cam_list = DahengCamManager.get_cam_list()
+        available_cameras = _discover_available_cameras()
+        has_any = False
+        for cam_type, cam_list in available_cameras.items():
             if cam_list:
-                st.write(f"Found {len(cam_list)} Daheng camera device(s)")
+                has_any = True
+                st.write(f"Found {len(cam_list)} {cam_type} camera device(s)")
                 for i, cam_info in enumerate(cam_list):
-                    st.write(f"  - Camera {i}: {cam_info}")
-            else:
-                st.warning("No Daheng camera devices found")
-        except Exception as exc:
-            st.warning(f"Cannot get camera list: {exc}")
-
-        if MIICamManager is not None:
-            try:
-                miicam_list = MIICamManager.get_cam_list()
-                if miicam_list:
-                    st.write(f"Found {len(miicam_list)} MiiCam device(s)")
-                    for i, cam_info in enumerate(miicam_list):
-                        st.write(f"  - MiiCam {i}: {cam_info}")
-            except Exception:
-                pass
+                    st.write(f"  - {cam_type} {i}: {cam_info}")
+        if not has_any:
+            st.warning("No camera devices found. Please connect a camera.")
 
 
 if __name__ == "__main__":
