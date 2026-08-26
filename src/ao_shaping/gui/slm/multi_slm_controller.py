@@ -1,4 +1,9 @@
-import sys
+from __future__ import annotations
+
+import itertools
+import time
+import tkinter as tk
+from tkinter import filedialog
 from pathlib import Path
 from typing import Any
 
@@ -27,22 +32,12 @@ def _initialize_slm_state() -> None:
             st.session_state[f"{prefix}_phase_source"] = "暂无"
             st.session_state[f"{prefix}_shift_x"] = 0
             st.session_state[f"{prefix}_shift_y"] = 0
+            st.session_state[f"{prefix}_use_correction"] = True
         else:
             slm = st.session_state[prefix]
             if slm is not None and not getattr(slm, "is_open", False):
                 st.session_state[prefix] = None
                 st.session_state[f"{prefix}_connected"] = False
-
-    for cam_num in (1, 2):
-        prefix = f"cam{cam_num}"
-        if prefix not in st.session_state:
-            st.session_state[prefix] = None
-            st.session_state[f"{prefix}_connected"] = False
-            st.session_state[f"{prefix}_driver"] = "MIICAM"
-            st.session_state[f"{prefix}_id"] = cam_num - 1
-            st.session_state[f"{prefix}_exposure_ms"] = 20
-            st.session_state[f"{prefix}_exposure_min_ms"] = 1
-            st.session_state[f"{prefix}_exposure_max_ms"] = 1000
 
 
 def _phase_to_preview(phase_gray: np.ndarray) -> np.ndarray:
@@ -103,7 +98,7 @@ def render_phase_preview(slm_num: int) -> None:
     )
 
 
-def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | str]]:
+def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
     prefix = f"slm{slm_num}"
 
     pattern_type = st.selectbox(
@@ -480,7 +475,7 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, int | float | 
 def generate_phase_gray(
     slm: SantecSLM200,
     pattern_type: str,
-    params: dict[str, int | float | str],
+    params: dict[str, Any],
 ) -> np.ndarray:
     """Generate phase pattern using SLM properties.
 
@@ -492,6 +487,7 @@ def generate_phase_gray(
     pattern_pitch_um = slm.Pitch_um
     bits = slm.Gray_Scale_bits
     wavelength_nm = slm.wavelength
+    assert wavelength_nm is not None, "SLM波长未设置，无法生成相位图"
 
     # Create unified pattern helper
     helper = PatternHelper((width, height), bits=bits)
@@ -555,12 +551,16 @@ def generate_phase_gray(
     if pattern_type == "湍流相位屏":
         # Use pixel pitch (center-to-center spacing) for diffraction geometry
         pattern_pitch = params.get("pixel_pitch_um", pattern_pitch_um)
-        return helper.generate_turbulence_screen(
-            Cn2=float(params["Cn2"]),
-            L=float(params["L"]),
-            wavelength=float(wavelength_nm) * 1e-9,
-            pixel_size=float(pattern_pitch) * 1e-6,
-        )
+        pixel_scale = float(pattern_pitch) * 1e-6  # um -> m
+        # Compute Fried parameter r0 from Cn2, L, and wavelength
+        # r0 = (0.423 * k^2 * Cn2 * L)^(-3/5), k = 2π/λ
+        k_wave = 2.0 * np.pi / (float(wavelength_nm) * 1e-9)
+        Cn2 = float(params["Cn2"])
+        L = float(params["L"])
+        r0 = (0.423 * k_wave**2 * Cn2 * L) ** (-3.0 / 5.0)
+        L0 = 10.0  # outer scale (m), typical atmospheric value
+        helper.init_turbulence_screen(r0=r0, L0=L0, pixel_scale=pixel_scale)
+        return helper.generate_turbulence_screen()
     if pattern_type == "Zernike":
         raw_coeffs = params.get("coefficients")
         coefficients: dict[tuple[int, int], float] | None = None
@@ -673,174 +673,6 @@ def main():
                 refresh_phase_preview(2)
             render_phase_preview(2)
             render_phase_control(2)
-
-    st.divider()
-    st.header("相机可视化")
-    cam_col1, cam_col2 = st.columns(2)
-    with cam_col1:
-        render_camera_panel(1)
-    with cam_col2:
-        render_camera_panel(2)
-
-
-def _get_camera_class(driver_name: str):
-    if driver_name == "MIICAM":
-        try:
-            from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
-
-            return CameraStreamManager
-        except ImportError as e:
-            raise ImportError(
-                f"MIICAM 驱动不可用: {e}. 请确保已安装 MIICAM SDK 或将 SDK 文件放置在正确的位置。"
-            )
-    if driver_name == "Daheng":
-        try:
-            from ao_shaping.drivers.ccd.daheng import DahengCamManager
-
-            return DahengCamManager
-        except ImportError as e:
-            raise ImportError(f"Daheng 驱动不可用: {e}. 请确保已安装 GxIPy 库。")
-    raise ValueError(f"未知相机驱动: {driver_name}")
-
-
-def _detect_exposure_range(camera: Any, driver_name: str) -> tuple[int, int]:
-    if driver_name == "Daheng" and getattr(camera, "cam", None) is not None:
-        try:
-            float_range = camera.cam.ExposureTime.get_range()
-            if float_range:
-                return int(float_range["min"]), int(float_range["max"])
-        except Exception as e:
-            logger.warning(f"Daheng曝光范围读取失败，使用默认范围: {e}")
-        return 20, 1_000_000
-
-    if driver_name == "MIICAM" and getattr(camera, "cam", None) is not None:
-        try:
-            max_us, min_us, _, _ = camera.cam.get_ExpTimeRange()
-            return max(int(min_us / 1000), 1), max(int(max_us / 1000), 1)
-        except Exception as e:
-            logger.warning(f"MIICAM曝光范围读取失败，使用默认范围: {e}")
-        return 1, 1000
-
-    return 1, 1000
-
-
-def connect_camera(cam_num: int) -> None:
-    prefix = f"cam{cam_num}"
-    driver_name = st.session_state[f"{prefix}_driver"]
-    cam_id = st.session_state[f"{prefix}_id"]
-    exposure_ms = st.session_state[f"{prefix}_exposure_ms"]
-    try:
-        camera_class = _get_camera_class(driver_name)
-        camera = camera_class(cam_id=cam_id, exposure_time_ms=exposure_ms)
-        camera.open()
-        exposure_min_ms, exposure_max_ms = _detect_exposure_range(camera, driver_name)
-
-        st.session_state[prefix] = camera
-        st.session_state[f"{prefix}_connected"] = True
-        st.session_state[f"{prefix}_exposure_min_ms"] = exposure_min_ms
-        st.session_state[f"{prefix}_exposure_max_ms"] = exposure_max_ms
-        st.session_state[f"{prefix}_exposure_ms"] = int(
-            min(max(exposure_ms, exposure_min_ms), exposure_max_ms)
-        )
-        st.success(f"相机 {cam_num} 连接成功（{driver_name}）")
-    except Exception as e:
-        st.error(f"相机 {cam_num} 连接失败: {e}")
-        logger.exception(f"Failed to connect camera {cam_num}: {e}")
-
-
-def disconnect_camera(cam_num: int) -> None:
-    prefix = f"cam{cam_num}"
-    camera = st.session_state.get(prefix)
-    try:
-        if camera is not None:
-            camera.close()
-        st.session_state[prefix] = None
-        st.session_state[f"{prefix}_connected"] = False
-        st.success(f"相机 {cam_num} 已断开")
-    except Exception as e:
-        st.error(f"相机 {cam_num} 断开失败: {e}")
-        logger.exception(f"Failed to disconnect camera {cam_num}: {e}")
-
-
-def render_camera_panel(cam_num: int) -> None:
-    prefix = f"cam{cam_num}"
-    st.subheader(f"相机 {cam_num}")
-    st.selectbox(
-        "驱动类型",
-        options=["MIICAM", "Daheng"],
-        key=f"{prefix}_driver",
-    )
-    st.number_input(
-        "相机ID",
-        min_value=0,
-        max_value=8,
-        step=1,
-        key=f"{prefix}_id",
-    )
-
-    action_col1, action_col2 = st.columns(2)
-    with action_col1:
-        if st.button("连接", key=f"{prefix}_connect_btn"):
-            connect_camera(cam_num)
-    with action_col2:
-        if st.button("断开", key=f"{prefix}_disconnect_btn"):
-            disconnect_camera(cam_num)
-
-    if not st.session_state.get(f"{prefix}_connected", False):
-        st.info("相机未连接")
-        return
-
-    exposure_min = int(st.session_state.get(f"{prefix}_exposure_min_ms", 1))
-    exposure_max = int(st.session_state.get(f"{prefix}_exposure_max_ms", 1000))
-    st.caption(f"曝光范围：{exposure_min} ~ {exposure_max} ms（不同相机范围不同）")
-    st.slider(
-        "曝光时间 (ms)",
-        min_value=exposure_min,
-        max_value=exposure_max,
-        key=f"{prefix}_exposure_ms",
-    )
-
-    camera = st.session_state[prefix]
-    if st.button("设置曝光", key=f"{prefix}_set_exp_btn"):
-        try:
-            actual_exposure = camera.reset_exposure_time(
-                st.session_state[f"{prefix}_exposure_ms"]
-            )
-            # Note: Cannot modify session_state for widgets after instantiation in Streamlit
-            # Just show the actual value that was set
-            st.success(
-                f"曝光设置成功: 期望值={st.session_state[f'{prefix}_exposure_ms']}ms, 实际值={actual_exposure}ms"
-            )
-        except Exception as e:
-            st.error(f"设置曝光失败: {e}")
-            logger.exception(f"Failed to set exposure for camera {cam_num}: {e}")
-
-    sample_count = st.number_input(
-        "平均帧数",
-        min_value=1,
-        max_value=16,
-        step=1,
-        key=f"{prefix}_sample_count",
-    )
-    skip_first = st.checkbox("跳过首帧", key=f"{prefix}_skip_first_toggle")
-
-    if st.button("采集并显示图像", key=f"{prefix}_capture_btn"):
-        try:
-            frame = camera.get_numpy_image(
-                n_sample=int(sample_count), skip_first=bool(skip_first)
-            )
-            st.image(
-                frame,
-                caption=f"相机 {cam_num} 实时图像",
-                clamp=True,
-                width="stretch",
-            )
-            st.write(
-                f"形状: {frame.shape}, dtype: {frame.dtype}, min/max: {frame.min()}/{frame.max()}"
-            )
-        except Exception as e:
-            st.error(f"采集图像失败: {e}")
-            logger.exception(f"Failed to capture image for camera {cam_num}: {e}")
 
 
 def connect_slm(slm_num: int):
@@ -965,6 +797,33 @@ def set_video_mode(slm_num: int, mode_label: str):
         logger.exception(f"Failed to set video mode for SLM {slm_num}: {e}")
 
 
+def toggle_correction(slm_num: int, enabled: bool) -> None:
+    """启用或禁用SLM波前误差矫正叠加
+
+    启用时从配置文件重新加载矫正数据；
+    禁用时清空矫正对象（write_phase 不再叠加矫正）。
+    """
+    prefix = f"slm{slm_num}"
+    slm = st.session_state.get(prefix)
+    if slm is None:
+        return
+
+    from ao_shaping.drivers.slm.wavefront_correction import WavefrontCorrection
+
+    if enabled:
+        config = slm.load_config()
+        slm._load_correction(config)
+        if slm._correction.is_valid:
+            st.success(
+                f"SLM {slm_num} 矫正已启用: {slm._correction.csv_path.name}"
+            )
+        else:
+            st.warning(f"SLM {slm_num} 矫正已启用，但未找到有效矫正文件")
+    else:
+        slm._correction = WavefrontCorrection()
+        st.info(f"SLM {slm_num} 矫正已禁用")
+
+
 def display_slm_status(slm_num: int):
     """Display the current status of the specified SLM"""
     prefix = f"slm{slm_num}"
@@ -1085,6 +944,34 @@ def render_slm_sidebar(slm_num: int):
                 st.success(f"SLM {slm_num} 灰度值已更新为 {new_max_gray}")
             except Exception as e:
                 st.error(f"更新灰度设置失败: {e}")
+
+        if st.button("获取当前2π灰度", key=f"{prefix}_read_max_gray_btn"):
+            try:
+                _wl, current_max_gray = slm_obj.get_wavelength_info()
+                slm_obj._max_gray = int(current_max_gray)
+                st.success(f"SLM {slm_num} 当前2π灰度: {current_max_gray}")
+                st.rerun()
+            except Exception as e:
+                st.error(f"读取灰度失败: {e}")
+
+        st.divider()
+
+        # 波前误差矫正开关
+        st.caption("波前误差矫正")
+        use_correction = st.checkbox(
+            "叠加矫正CSV",
+            value=st.session_state.get(f"{prefix}_use_correction", True),
+            key=f"{prefix}_use_correction_cb",
+            help="启用时，写入相位会自动叠加波前误差矫正数据",
+        )
+        if use_correction != st.session_state.get(f"{prefix}_use_correction", True):
+            st.session_state[f"{prefix}_use_correction"] = use_correction
+            toggle_correction(slm_num, use_correction)
+
+        if slm_obj._correction.is_valid:
+            st.caption(f"当前矫正文件: {slm_obj._correction.csv_path.name}")
+        else:
+            st.caption("未加载矫正文件")
 
         st.divider()
 
