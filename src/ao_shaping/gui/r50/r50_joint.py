@@ -94,6 +94,7 @@ def _jc_connect() -> None:
         else:
             matrix = np.zeros((GRID_SIZE, GRID_SIZE), dtype=np.float64)
         st.session_state[f"{jc}_matrix"] = matrix
+        st.session_state[f"{jc}_applied_matrix"] = matrix.copy()
         st.session_state[f"{jc}_current_flat"] = matrix.flatten().copy()
         n_ctrl = st.session_state[f"{jc}_controller_count"]
         st.session_state[f"{jc}_feedback"] = f"{feedback_prefix}已连接 MicroDM: {n_ctrl} 个控制器"
@@ -175,6 +176,7 @@ def _jc_apply_matrix() -> None:
         flat = jc_matrix_to_flat(matrix, pos_to_hw, ip_to_ctrl, dm_num)
         dm.send_voltages(flat)
         st.session_state[f"{jc}_current_flat"] = flat.copy()
+        st.session_state[f"{jc}_applied_matrix"] = matrix.copy()
         non_zero = np.count_nonzero(matrix)
         st.session_state[f"{jc}_feedback"] = (
             f"✅ 已下发 36×36 矩阵电压 (非零通道: {non_zero}/{DM_NUM_ACTUATORS})"
@@ -189,14 +191,24 @@ def _jc_apply_matrix() -> None:
 
 
 def _jc_reset_matrix() -> None:
-    """将矩阵清零并下发。"""
+    """将矩阵清零 (仅编辑缓冲区, 不下发到硬件)。"""
     jc = f"{P}_jc"
     st.session_state[f"{jc}_matrix"] = np.zeros((GRID_SIZE, GRID_SIZE), dtype=np.float64)
-    if st.session_state.get(f"{jc}_connected", False) and st.session_state.get(f"{jc}_relay_on", False):
-        _jc_apply_matrix()
+    st.session_state[f"{jc}_feedback"] = "矩阵已清零 (仅编辑缓冲区)"
+    st.session_state[f"{jc}_feedback_type"] = "info"
+
+
+def _jc_reset_to_applied() -> None:
+    """将编辑缓冲区恢复为上次下发的矩阵 (edit-only, 不下发)。"""
+    jc = f"{P}_jc"
+    applied = st.session_state.get(f"{jc}_applied_matrix")
+    if applied is None:
+        st.session_state[f"{jc}_matrix"] = np.zeros((GRID_SIZE, GRID_SIZE), dtype=np.float64)
+        st.session_state[f"{jc}_feedback"] = "无已下发矩阵，已重置为全零"
     else:
-        st.session_state[f"{jc}_feedback"] = "矩阵已清零 (未下发到硬件)"
-        st.session_state[f"{jc}_feedback_type"] = "info"
+        st.session_state[f"{jc}_matrix"] = applied.copy()
+        st.session_state[f"{jc}_feedback"] = "编辑缓冲区已恢复为上次下发状态"
+    st.session_state[f"{jc}_feedback_type"] = "info"
 
 
 def _jc_refresh_from_hardware() -> None:
@@ -214,6 +226,7 @@ def _jc_refresh_from_hardware() -> None:
         ip_to_ctrl = st.session_state[f"{jc}_ip_to_controller_idx"]
         matrix = _jc_read_matrix_from_dm(dm, pos_to_hw, ip_to_ctrl)
         st.session_state[f"{jc}_matrix"] = matrix
+        st.session_state[f"{jc}_applied_matrix"] = matrix.copy()
         st.session_state[f"{jc}_current_flat"] = matrix.flatten().copy()
         st.session_state[f"{jc}_feedback"] = "已从硬件刷新电压矩阵"
         st.session_state[f"{jc}_feedback_type"] = "info"
@@ -421,3 +434,57 @@ def _jc_render_stats(matrix: np.ndarray) -> None:
         st.metric("标准差", f"{np.std(vals):.1f} V")
     with col5:
         st.metric("非零通道", f"{non_zero_count}/{DM_NUM_ACTUATORS}")
+
+
+def _jc_render_styled_matrix(
+    matrix: np.ndarray,
+    applied: np.ndarray | None,
+    vmin: float,
+    vmax: float,
+    chunk_start: int,
+    chunk_end: int,
+) -> None:
+    """Render columns [chunk_start, chunk_end) with blue gradient + bold unsent cells."""
+    n_cols = chunk_end - chunk_start
+    if n_cols <= 0:
+        return
+
+    def _bg_gradient(val: float) -> str:
+        if vmax <= vmin:
+            ratio = 0.0
+        else:
+            ratio = max(0.0, min(1.0, (val - vmin) / (vmax - vmin)))
+        r = int(255 - (255 - 30) * ratio)
+        g = int(255 - (255 - 100) * ratio)
+        b = int(255 - (255 - 220) * ratio)
+        return f"background-color: rgb({r},{g},{b})"
+
+    chunk_data = matrix[:, chunk_start:chunk_end]
+    df = pd.DataFrame(
+        chunk_data,
+        index=[str(r + 1) for r in range(GRID_SIZE)],
+        columns=[str(c + 1) for c in range(chunk_start, chunk_end)],
+    )
+
+    styler = df.style.applymap(_bg_gradient)
+    if applied is not None:
+        applied_chunk = applied[:, chunk_start:chunk_end]
+
+        def _row_bold(row: pd.Series) -> list[str]:
+            row_idx = int(row.name) - 1
+            styles = []
+            for c_i, val in enumerate(row):
+                col_idx = chunk_start + c_i
+                if row_idx < applied_chunk.shape[0] and col_idx < applied_chunk.shape[1]:
+                    if abs(float(val) - float(applied_chunk[row_idx, col_idx])) > 1e-9:
+                        styles.append("font-weight: bold")
+                    else:
+                        styles.append("")
+                else:
+                    styles.append("")
+            return styles
+
+        styler = styler.apply(_row_bold, axis=1)
+
+    styler = styler.format("{:.1f}")
+    st.dataframe(styler, height=min(GRID_SIZE * 35 + 40, 800), width='stretch')

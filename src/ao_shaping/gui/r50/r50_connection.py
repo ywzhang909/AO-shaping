@@ -75,12 +75,16 @@ class SimulatedR50Controller:
         """Copy of current per-channel voltages (sim inspection / tests)."""
         return self._voltages.copy()
 
-    def power_off_and_close(self, home_voltage: float = 0.0) -> None:
+    def power_off_and_close(self, home_voltage: float = 0.0) -> bool:
         """Twin of :meth:`R50Controller.power_off_and_close`: home, relay off,
-        then close — keeps the simulated send surface identical."""
+        then close — keeps the simulated send surface identical.
+
+        Returns True on success.
+        """
         self.set_all_channel_voltage(home_voltage)
         self.set_relay(False)
         self.close()
+        return True
 
 
 class SimulatedMicroDM:
@@ -180,30 +184,38 @@ def set_relay(ctrl: Any | None, on: bool) -> bool:
         return False
 
 
-def power_off_and_close(ctrl: Any | None) -> None:
+def power_off_and_close(ctrl: Any | None) -> bool:
     """Safe power-off: relay OFF first, then close controller.
 
     Real R50Controller instances use the driver's safe shutdown sequence
     (home voltages -> relay OFF -> close); simulated/twin surfaces fall
     back to relay OFF + close. None-safe, exception-safe.
+
+    Returns True on success, False on failure.
     """
     if ctrl is None:
-        return
+        return True
     fn = getattr(ctrl, "power_off_and_close", None)
     if callable(fn):
         try:
-            fn()
-            return
+            result = fn()
+            return True if result is None else bool(result)
         except Exception as e:
             logger.warning(f"power_off_and_close failed: {e}")
+            return False
+    ok = True
     try:
-        set_relay(ctrl, False)
-    except Exception:
-        pass
+        if not set_relay(ctrl, False):
+            ok = False
+    except Exception as exc:
+        logger.warning(f"set_relay(False) failed: {exc}")
+        ok = False
     try:
         ctrl.close()
-    except Exception as e:
-        logger.warning(f"close failed: {e}")
+    except Exception as exc:
+        logger.warning(f"close failed: {exc}")
+        ok = False
+    return ok
 
 
 # tcp_reachable is re-exported from ao_shaping.utils.network (imported above).

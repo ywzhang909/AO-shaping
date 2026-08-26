@@ -98,12 +98,16 @@ def disconnect() -> None:
     ctrl = st.session_state.get(f"{P}_controller")
     if ctrl is not None:
         try:
-            power_off_and_close(ctrl)
+            ok = power_off_and_close(ctrl)
+            if not ok:
+                logger.warning("power_off_and_close returned False")
+                st.toast("⚠️ 下电或关闭过程存在异常，请检查设备状态", icon="⚠️")
         except Exception as exc:
             logger.error(f"关闭控制器异常: {exc}")
     st.session_state[f"{P}_controller"] = None
     st.session_state[f"{P}_connected"] = False
     st.session_state[f"{P}_relay_on"] = False
+    st.session_state[f"{P}_confirm_disconnect"] = False
     st.session_state[f"{P}_feedback"] = "已断开连接 (继电器已下电)"
     st.session_state[f"{P}_feedback_type"] = "info"
 
@@ -193,11 +197,10 @@ def _send_channels(voltage: float) -> SendResult:
     if selection.is_empty:
         _set_feedback("未选择任何通道", "warning")
         return SendResult(fail=1, failed_targets=["无选中通道"])
-    if st.session_state.get(f"{P}_debug", False):
-        if all_mode:
-            _log_all_packet(voltage)
-        else:
-            _log_bulk_packet(voltage, selection)
+    if all_mode:
+        _log_all_packet(voltage)
+    else:
+        _log_bulk_packet(voltage, selection)
     current, result = apply_single_controller(
         ctrl,
         st.session_state[f"{P}_current_voltages"],

@@ -10,6 +10,8 @@ on SimMicroDM unless explicitly added.
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pytest
 
@@ -21,10 +23,12 @@ from ao_shaping.drivers.dm.MicroDM import (
     MicroDMConnectionError,
     MicroDMError,
     MicroDMVoltageError,
+    R50Controller,
     RelayState,
     WiringMap,
     voltages_to_payload,
 )
+from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.sim.dm import SimMicroDM
 
 # =============================================================================
@@ -345,3 +349,92 @@ class TestMicroDMIntegration:
 
     def test_relay_state_enum(self):
         assert RelayState.OFF.value != RelayState.ON.value
+
+
+# =============================================================================
+# Ramp Tests (base._ramp_voltages via a minimal concrete DM)
+# =============================================================================
+
+
+class _TrackableDM(DM):
+    """Minimal DM subclass that records every _apply_voltages call."""
+
+    DM_NUM: int = 50
+    V_Min: float = -20.0
+    V_Max: float = 120.0
+
+    def __init__(self, safety_mode: bool = True) -> None:
+        super().__init__(safety_mode=safety_mode)
+        self.apply_log: list[np.ndarray] = []
+
+    def transform(self, cmd: np.ndarray) -> np.ndarray:
+        return self.transform_voltage(cmd)
+
+    def open(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+    def get_actuator_positions(self) -> np.ndarray:
+        return self._last_voltages.copy()
+
+    def _apply_voltages(self, vs: np.ndarray) -> np.ndarray:
+        vs = np.clip(vs, self.V_Min, self.V_Max)
+        self.apply_log.append(vs.copy())
+        self._last_voltages = vs.copy()
+        return self._last_voltages
+
+
+class TestRampVoltages:
+    """Tests for the fixed _ramp_voltages in DM base class."""
+
+    def test_ramp_inf_step_applies_target_directly(self) -> None:
+        dm = _TrackableDM(safety_mode=True)
+        dm.max_neibor_diff = float("inf")
+        target = np.full(50, 30.0)
+        result = dm.send_voltages(target)
+        np.testing.assert_array_equal(result, target)
+        np.testing.assert_array_equal(dm._last_voltages, target)
+        assert len(dm.apply_log) == 1
+        np.testing.assert_array_equal(dm.apply_log[0], target)
+
+    def test_ramp_finite_step_reaches_target(self) -> None:
+        dm = _TrackableDM(safety_mode=True)
+        dm.max_neibor_diff = 10.0
+        target = np.full(50, 50.0)
+        result = dm.send_voltages(target)
+        np.testing.assert_array_equal(result, target)
+        np.testing.assert_array_equal(dm._last_voltages, target)
+        expected_steps = [10.0, 20.0, 30.0, 40.0, 50.0]
+        assert len(dm.apply_log) == len(expected_steps)
+        for i, expected_v in enumerate(expected_steps):
+            np.testing.assert_array_equal(
+                dm.apply_log[i], np.full(50, expected_v),
+                err_msg=f"Step {i} should be {expected_v}V",
+            )
+
+    def test_ramp_no_change_no_apply(self) -> None:
+        dm = _TrackableDM(safety_mode=True)
+        dm.max_neibor_diff = 10.0
+        target = np.full(50, 0.0)
+        dm.send_voltages(target)
+        assert len(dm.apply_log) == 0
+
+    def test_apply_voltages_raises_on_send_failure(self) -> None:
+        dm = MicroDM(ips=["192.168.0.101"], use_wiring_map=False, safety_mode=False)
+        ctrl = MagicMock(spec=R50Controller)
+        ctrl.ip = "192.168.0.101"
+        ctrl.send.return_value = False
+        dm._controllers = [ctrl]
+        with pytest.raises(MicroDMConnectionError, match="192.168.0.101"):
+            dm._apply_voltages(np.full(dm.DM_Num, 10.0))
+        np.testing.assert_array_equal(dm._last_voltages, np.zeros(dm.DM_Num))
+
+    def test_power_off_and_close_returns_bool(self) -> None:
+        ctrl = R50Controller(controller_id=1, ip="127.0.0.1", port=19999)
+        ctrl._socket = MagicMock()
+        ctrl._socket.sendall = MagicMock()
+        result = ctrl.power_off_and_close()
+        assert result is True
+        assert ctrl._socket is None
