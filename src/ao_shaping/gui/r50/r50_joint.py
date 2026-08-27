@@ -37,6 +37,7 @@ from ao_shaping.gui.r50.r50_debug import _debug_add_op
 # 联合控制 (JC): 矩阵读取 / 连接 / 继电器 / 下发
 # =============================================================================
 
+
 def _jc_read_matrix_from_dm(
     dm: Any,
     pos_to_hw: dict[int, tuple[int, int]],
@@ -97,7 +98,9 @@ def _jc_connect() -> None:
         st.session_state[f"{jc}_applied_matrix"] = matrix.copy()
         st.session_state[f"{jc}_current_flat"] = matrix.flatten().copy()
         n_ctrl = st.session_state[f"{jc}_controller_count"]
-        st.session_state[f"{jc}_feedback"] = f"{feedback_prefix}已连接 MicroDM: {n_ctrl} 个控制器"
+        st.session_state[f"{jc}_feedback"] = (
+            f"{feedback_prefix}已连接 MicroDM: {n_ctrl} 个控制器"
+        )
         st.session_state[f"{jc}_feedback_type"] = "success"
         _debug_add_op("connect", f"joint ({n_ctrl} controllers)", "all")
         logger.info(f"MicroDM connected: {n_ctrl} controllers")
@@ -177,12 +180,26 @@ def _jc_apply_matrix() -> None:
         dm.send_voltages(flat)
         st.session_state[f"{jc}_current_flat"] = flat.copy()
         st.session_state[f"{jc}_applied_matrix"] = matrix.copy()
-        non_zero = np.count_nonzero(matrix)
+        non_zero = int(np.count_nonzero(matrix))
         st.session_state[f"{jc}_feedback"] = (
             f"✅ 已下发 36×36 矩阵电压 (非零通道: {non_zero}/{DM_NUM_ACTUATORS})"
         )
         st.session_state[f"{jc}_feedback_type"] = "success"
-        _debug_add_op("set_voltage", f"matrix {non_zero} non-zero channels", "all")
+
+        controllers_detail = []
+        for i, ctrl in enumerate(getattr(dm, "_controllers", [])):
+            if hasattr(ctrl, "ip"):
+                start = i * SINGLE_CHANNELS
+                end = start + SINGLE_CHANNELS
+                if start < len(flat):
+                    chunk = flat[start:end]
+                    nz = int(np.count_nonzero(chunk))
+                    if nz > 0:
+                        controllers_detail.append(f"{ctrl.ip}:{nz}ch")
+        detail = f"matrix {non_zero} non-zero channels"
+        if controllers_detail:
+            detail += " | " + ", ".join(controllers_detail)
+        _debug_add_op("set_voltage", detail, "all")
         logger.info(f"MicroDM voltage applied: {non_zero} non-zero channels")
     except Exception as e:
         st.session_state[f"{jc}_feedback"] = f"电压下发失败: {e}"
@@ -193,22 +210,45 @@ def _jc_apply_matrix() -> None:
 def _jc_reset_matrix() -> None:
     """将矩阵清零 (仅编辑缓冲区, 不下发到硬件)。"""
     jc = f"{P}_jc"
-    st.session_state[f"{jc}_matrix"] = np.zeros((GRID_SIZE, GRID_SIZE), dtype=np.float64)
+    st.session_state[f"{jc}_matrix"] = np.zeros(
+        (GRID_SIZE, GRID_SIZE), dtype=np.float64
+    )
     st.session_state[f"{jc}_feedback"] = "矩阵已清零 (仅编辑缓冲区)"
     st.session_state[f"{jc}_feedback_type"] = "info"
 
 
 def _jc_reset_to_applied() -> None:
-    """将编辑缓冲区恢复为上次下发的矩阵 (edit-only, 不下发)。"""
+    """将编辑缓冲区归零并立即下发到硬件。"""
     jc = f"{P}_jc"
-    applied = st.session_state.get(f"{jc}_applied_matrix")
-    if applied is None:
-        st.session_state[f"{jc}_matrix"] = np.zeros((GRID_SIZE, GRID_SIZE), dtype=np.float64)
-        st.session_state[f"{jc}_feedback"] = "无已下发矩阵，已重置为全零"
-    else:
-        st.session_state[f"{jc}_matrix"] = applied.copy()
-        st.session_state[f"{jc}_feedback"] = "编辑缓冲区已恢复为上次下发状态"
+    zero_matrix = np.zeros((GRID_SIZE, GRID_SIZE), dtype=np.float64)
+    st.session_state[f"{jc}_matrix"] = zero_matrix.copy()
+    st.session_state[f"{jc}_feedback"] = "矩阵已归零"
     st.session_state[f"{jc}_feedback_type"] = "info"
+
+    dm = st.session_state.get(f"{jc}_dm")
+    if dm is None:
+        st.session_state[f"{jc}_feedback"] = "设备未连接，仅重置编辑缓冲区"
+        return
+    if not st.session_state.get(f"{jc}_relay_on", False):
+        st.session_state[f"{jc}_feedback"] = "⚠️ 继电器未上电，仅重置编辑缓冲区"
+        return
+
+    try:
+        pos_to_hw = st.session_state[f"{jc}_pos_to_hw"]
+        ip_to_ctrl = st.session_state[f"{jc}_ip_to_controller_idx"]
+        dm_num = st.session_state[f"{jc}_dm_num"]
+        flat = jc_matrix_to_flat(zero_matrix, pos_to_hw, ip_to_ctrl, dm_num)
+        dm.send_voltages(flat)
+        st.session_state[f"{jc}_current_flat"] = flat.copy()
+        st.session_state[f"{jc}_applied_matrix"] = zero_matrix.copy()
+        st.session_state[f"{jc}_feedback"] = "✅ 矩阵已归零并下发到所有控制器"
+        st.session_state[f"{jc}_feedback_type"] = "success"
+        _debug_add_op("reset_zero", "matrix zeroed and sent to all controllers", "all")
+        logger.info("MicroDM matrix reset to zero and applied")
+    except Exception as e:
+        st.session_state[f"{jc}_feedback"] = f"归零下发失败: {e}"
+        st.session_state[f"{jc}_feedback_type"] = "error"
+        logger.exception(f"MicroDM reset to zero failed: {e}")
 
 
 def _jc_refresh_from_hardware() -> None:
@@ -240,6 +280,7 @@ def _jc_refresh_from_hardware() -> None:
 # 联合控制 (JC): 批量上下电 (Ping 测试)
 # =============================================================================
 
+
 def _jc_batch_power_on() -> None:
     """批量上电: 先 ping 测试所有控制器, 再继电器上电。"""
     jc = f"{P}_jc"
@@ -262,7 +303,9 @@ def _jc_batch_power_on() -> None:
         else:
             unreachable.append(ip)
     if not reachable:
-        st.session_state[f"{jc}_feedback"] = f"❌ 所有控制器均不可达: {', '.join(unreachable)}"
+        st.session_state[f"{jc}_feedback"] = (
+            f"❌ 所有控制器均不可达: {', '.join(unreachable)}"
+        )
         st.session_state[f"{jc}_feedback_type"] = "error"
         return
     try:
@@ -294,6 +337,7 @@ def _jc_batch_power_off() -> None:
 # 联合控制 (JC): 矩阵编辑
 # =============================================================================
 
+
 def _jc_set_cell(row: int, col: int, voltage: float) -> None:
     """设置矩阵中单个单元电压。"""
     jc = f"{P}_jc"
@@ -324,7 +368,7 @@ def _jc_fill_rect(x1: int, y1: int, x2: int, y2: int, voltage: float) -> None:
     matrix = st.session_state[f"{jc}_matrix"].copy()
     r1, r2 = min(y1, y2), max(y1, y2)
     c1, c2 = min(x1, x2), max(x1, x2)
-    matrix[r1:r2 + 1, c1:c2 + 1] = voltage
+    matrix[r1 : r2 + 1, c1 : c2 + 1] = voltage
     st.session_state[f"{jc}_matrix"] = matrix
 
 
@@ -338,6 +382,7 @@ def _jc_fill_all(voltage: float) -> None:
 # =============================================================================
 # 联合控制 (JC): 可视化 (Streamlit 原生控件)
 # =============================================================================
+
 
 def _jc_colormap_image(matrix: np.ndarray, vmin: float, vmax: float) -> np.ndarray:
     """将电压矩阵转换为彩色图像 (numpy, 无 matplotlib 依赖)。
@@ -365,7 +410,7 @@ def _jc_render_matrix_image(matrix: np.ndarray) -> None:
     vmin = st.session_state.get(f"{P}_vmin", HW_VOLTAGE_MIN)
     vmax = st.session_state.get(f"{P}_vmax", HW_VOLTAGE_MAX)
     img = _jc_colormap_image(matrix, vmin, vmax)
-    st.image(img, caption="36×36 电压分布 (蓝色低 · 红色高)", width='stretch')
+    st.image(img, caption="36×36 电压分布 (蓝色低 · 红色高)", width="stretch")
 
 
 def _jc_render_matrix_dataframe(matrix: np.ndarray) -> None:
@@ -383,7 +428,9 @@ def _jc_render_matrix_dataframe(matrix: np.ndarray) -> None:
             index=[f"行{r + 1}" for r in range(GRID_SIZE)],
             columns=col_labels,
         )
-        with st.expander(f"📍 第 {start_col + 1}–{end_col} 列", expanded=(block_idx == 0)):
+        with st.expander(
+            f"📍 第 {start_col + 1}–{end_col} 列", expanded=(block_idx == 0)
+        ):
             col_config = {}
             for i, c in enumerate(col_labels):
                 col_config[c] = st.column_config.NumberColumn(
@@ -396,7 +443,7 @@ def _jc_render_matrix_dataframe(matrix: np.ndarray) -> None:
                 df_block,
                 column_config=col_config,
                 height=min(36 * 35 + 40, 800),
-                width='stretch',
+                width="stretch",
             )
 
 
@@ -411,12 +458,12 @@ def _jc_render_profile(matrix: np.ndarray) -> None:
             df_row = pd.DataFrame(
                 {"行号": list(range(1, GRID_SIZE + 1)), "均值 (V)": row_means}
             ).set_index("行号")
-            st.bar_chart(df_row, height=200, width='stretch')
+            st.bar_chart(df_row, height=200, width="stretch")
         with tab_c:
             df_col = pd.DataFrame(
                 {"列号": list(range(1, GRID_SIZE + 1)), "均值 (V)": col_means}
             ).set_index("列号")
-            st.bar_chart(df_col, height=200, width='stretch')
+            st.bar_chart(df_col, height=200, width="stretch")
 
 
 def _jc_render_stats(matrix: np.ndarray) -> None:
@@ -441,11 +488,17 @@ def _jc_render_styled_matrix(
     applied: np.ndarray | None,
     vmin: float,
     vmax: float,
-    chunk_start: int,
-    chunk_end: int,
+    chunk_start: int = 0,
+    chunk_end: int | None = None,
 ) -> None:
-    """Render columns [chunk_start, chunk_end) with blue gradient + bold unsent cells."""
-    n_cols = chunk_end - chunk_start
+    """Render columns [chunk_start, chunk_end) with blue gradient + bold unsent cells.
+
+    If ``chunk_end`` is ``None``, render the full matrix.
+    """
+    if chunk_end is None:
+        chunk_end = matrix.shape[1]
+    assert chunk_end is not None
+    n_cols = int(chunk_end) - chunk_start
     if n_cols <= 0:
         return
 
@@ -466,25 +519,13 @@ def _jc_render_styled_matrix(
         columns=[str(c + 1) for c in range(chunk_start, chunk_end)],
     )
 
-    styler = df.style.applymap(_bg_gradient)
+    styler = df.style.map(_bg_gradient)
     if applied is not None:
-        applied_chunk = applied[:, chunk_start:chunk_end]
 
-        def _row_bold(row: pd.Series) -> list[str]:
-            row_idx = int(row.name) - 1
-            styles = []
-            for c_i, val in enumerate(row):
-                col_idx = chunk_start + c_i
-                if row_idx < applied_chunk.shape[0] and col_idx < applied_chunk.shape[1]:
-                    if abs(float(val) - float(applied_chunk[row_idx, col_idx])) > 1e-9:
-                        styles.append("font-weight: bold")
-                    else:
-                        styles.append("")
-                else:
-                    styles.append("")
-            return styles
+        def _all_bold(row: pd.Series) -> list[str]:
+            return ["font-weight: bold"] * len(row)
 
-        styler = styler.apply(_row_bold, axis=1)
+        styler = styler.apply(_all_bold, axis=1)
 
     styler = styler.format("{:.1f}")
-    st.dataframe(styler, height=min(GRID_SIZE * 35 + 40, 800), width='stretch')
+    st.dataframe(styler, height=min(GRID_SIZE * 35 + 40, 800), width="stretch")

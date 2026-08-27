@@ -42,6 +42,7 @@ from ao_shaping.gui.r50.r50_units import _channel_info_to_dict
 # Sidebar: 调试面板
 # =============================================================================
 
+
 def _sidebar_debug_panel() -> None:
     """Sidebar 调试面板: 仿真状态 + 指令日志 + 操作日志。"""
     with st.container(border=True):
@@ -71,19 +72,36 @@ def _sidebar_debug_panel() -> None:
         st.session_state[f"{P}_debug"] = _debug_enabled
 
         with st.expander("操作日志", expanded=False):
-            op_log: collections.deque = st.session_state.get(f"{P}_debug_op_log", collections.deque())
+            op_log: collections.deque = st.session_state.get(
+                f"{P}_debug_op_log", collections.deque()
+            )
             if op_log:
                 st.code("\n".join(op_log), language="text")
             else:
                 st.caption("暂无操作日志")
-            if st.button("清空日志", key=f"{P}_debug_op_clear_sb", use_container_width=True):
+            if st.button(
+                "清空日志", key=f"{P}_debug_op_clear_sb", use_container_width=True
+            ):
                 st.session_state[f"{P}_debug_op_log"].clear()
+                st.rerun()
+
+        with st.expander("指令日志 (下发包记录)", expanded=False):
+            log_lines = list(st.session_state.get(f"{P}_debug_log", []))
+            if log_lines:
+                st.code("\n".join(log_lines), language="text")
+            else:
+                st.caption("暂无指令记录")
+            if st.button(
+                "清空指令日志", key=f"{P}_debug_log_clear_sb", use_container_width=True
+            ):
+                st.session_state[f"{P}_debug_log"].clear()
                 st.rerun()
 
 
 # =============================================================================
 # Sidebar: 连接配置 (三种模式统一入口)
 # =============================================================================
+
 
 def _sidebar_connection_config() -> None:
     """Sidebar 连接配置: 三种连接模式的统一入口。"""
@@ -119,14 +137,22 @@ def _sidebar_connection_config() -> None:
             col_min, col_max = st.columns(2)
             with col_min:
                 vmin = st.number_input(
-                    "下限 (V)", min_value=HW_VOLTAGE_MIN, max_value=HW_VOLTAGE_MAX,
-                    value=st.session_state[f"{P}_vmin"], step=1.0, format="%.1f",
+                    "下限 (V)",
+                    min_value=HW_VOLTAGE_MIN,
+                    max_value=HW_VOLTAGE_MAX,
+                    value=st.session_state[f"{P}_vmin"],
+                    step=1.0,
+                    format="%.1f",
                     key=f"{P}_vmin_input_sb",
                 )
             with col_max:
                 vmax = st.number_input(
-                    "上限 (V)", min_value=HW_VOLTAGE_MIN, max_value=HW_VOLTAGE_MAX,
-                    value=st.session_state[f"{P}_vmax"], step=1.0, format="%.1f",
+                    "上限 (V)",
+                    min_value=HW_VOLTAGE_MIN,
+                    max_value=HW_VOLTAGE_MAX,
+                    value=st.session_state[f"{P}_vmax"],
+                    step=1.0,
+                    format="%.1f",
                     key=f"{P}_vmax_input_sb",
                 )
             if vmin >= vmax:
@@ -144,9 +170,10 @@ def _sidebar_single_connection() -> None:
             _connected = st.session_state[f"{P}_connected"]
             st.markdown("##### 当前状态")
             if _connected:
-                st.success(
-                    f"✅ 已连接  {st.session_state[f'{P}_ip']}:{st.session_state[f'{P}_port']}"
-                )
+                _ip = st.session_state.get(f"{P}_ip", "")
+                _port = st.session_state.get(f"{P}_port", 0)
+                _ctrl_num = st.session_state.get(f"{P}_controller_num", 1)
+                st.success(f"✅ 已连接  {_ip}:{_port} (控制器 #{_ctrl_num})")
             else:
                 st.error("❌ 未连接")
             if st.session_state[f"{P}_relay_on"]:
@@ -158,17 +185,22 @@ def _sidebar_single_connection() -> None:
 
         with st.container(border=True):
             st.markdown("##### 连接")
-            _ip = st.text_input(
-                "IP 地址", value=st.session_state[f"{P}_ip"],
-                disabled=_connected, key=f"{P}_ip_input_sb",
+            _controller_num = st.number_input(
+                "控制器序号 (1-26)",
+                min_value=1,
+                max_value=26,
+                value=1,
+                step=1,
+                disabled=_connected,
+                key=f"{P}_controller_num_input_sb",
+                help="控制器序号 1-26，对应 IP 192.168.0.101 ~ 192.168.0.126，端口 10101 ~ 10126",
             )
+            st.session_state[f"{P}_controller_num"] = int(_controller_num)
+            _ip = f"192.168.0.{100 + int(_controller_num)}"
+            _port = 10100 + int(_controller_num)
             st.session_state[f"{P}_ip"] = _ip
-            _port = st.number_input(
-                "端口", min_value=1, max_value=65535,
-                value=st.session_state[f"{P}_port"], step=1,
-                disabled=_connected, key=f"{P}_port_input_sb",
-            )
-            st.session_state[f"{P}_port"] = int(_port)
+            st.session_state[f"{P}_port"] = _port
+            st.caption(f"自动设置 IP: **{_ip}**  端口: **{_port}**")
             _sim = st.checkbox(
                 "🟡 仿真模式 (无硬件)",
                 value=st.session_state.get(f"{P}_simulate", False),
@@ -179,17 +211,26 @@ def _sidebar_single_connection() -> None:
             st.session_state[f"{P}_simulate"] = _sim
             col_test, col_conn = st.columns(2)
             with col_test:
-                if st.button("📡 检测连通性", use_container_width=True, key=f"{P}_test_btn_sb"):
+                if st.button(
+                    "📡 检测连通性", use_container_width=True, key=f"{P}_test_btn_sb"
+                ):
                     test_connectivity()
                     st.rerun()
             with col_conn:
                 if not _connected:
-                    if st.button("🔌 连接", type="primary", use_container_width=True, key=f"{P}_connect_sb"):
+                    if st.button(
+                        "🔌 连接",
+                        type="primary",
+                        use_container_width=True,
+                        key=f"{P}_connect_sb",
+                    ):
                         with st.spinner("连接中..."):
                             connect()
                         st.rerun()
                 else:
-                    if st.button("⏏ 断开", use_container_width=True, key=f"{P}_disconnect_sb"):
+                    if st.button(
+                        "⏏ 断开", use_container_width=True, key=f"{P}_disconnect_sb"
+                    ):
                         if st.session_state[f"{P}_relay_on"]:
                             st.session_state[f"{P}_confirm_disconnect"] = True
                             st.rerun()
@@ -198,14 +239,25 @@ def _sidebar_single_connection() -> None:
                             st.rerun()
 
             if st.session_state[f"{P}_confirm_disconnect"]:
-                st.warning("⚠️ 继电器仍处于**上电**状态, 断开连接前会先自动下电。确认继续?")
+                st.warning(
+                    "⚠️ 继电器仍处于**上电**状态, 断开连接前会先自动下电。确认继续?"
+                )
                 col_y, col_n = st.columns(2)
                 with col_y:
-                    if st.button("确认断开", type="primary", use_container_width=True, key=f"{P}_disconnect_confirm_sb"):
+                    if st.button(
+                        "确认断开",
+                        type="primary",
+                        use_container_width=True,
+                        key=f"{P}_disconnect_confirm_sb",
+                    ):
                         disconnect()
                         st.rerun()
                 with col_n:
-                    if st.button("取消", use_container_width=True, key=f"{P}_disconnect_cancel_sb"):
+                    if st.button(
+                        "取消",
+                        use_container_width=True,
+                        key=f"{P}_disconnect_cancel_sb",
+                    ):
                         st.session_state[f"{P}_confirm_disconnect"] = False
                         st.rerun()
 
@@ -214,7 +266,9 @@ def _sidebar_single_connection() -> None:
             col_r1, col_r2 = st.columns(2)
             with col_r1:
                 if st.button(
-                    "⚡ 上电 (接通输出)", type="primary", use_container_width=True,
+                    "⚡ 上电 (接通输出)",
+                    type="primary",
+                    use_container_width=True,
                     disabled=not _connected or st.session_state[f"{P}_relay_on"],
                     key=f"{P}_relay_on_btn_sb",
                 ):
@@ -222,7 +276,8 @@ def _sidebar_single_connection() -> None:
                     st.rerun()
             with col_r2:
                 if st.button(
-                    "⏻ 下电 (断开输出)", use_container_width=True,
+                    "⏻ 下电 (断开输出)",
+                    use_container_width=True,
                     disabled=not _connected or not st.session_state[f"{P}_relay_on"],
                     key=f"{P}_relay_off_btn_sb",
                 ):
@@ -263,24 +318,42 @@ def _sidebar_joint_connection() -> None:
             st.session_state[f"{P}_jc_simulate"] = _jc_sim
             st.markdown("##### 操作")
             if not jc_connected:
-                if st.button("🔌 连接 MicroDM", type="primary", use_container_width=True, key=f"{jc}_connect_btn_sb"):
+                if st.button(
+                    "🔌 连接 MicroDM",
+                    type="primary",
+                    use_container_width=True,
+                    key=f"{jc}_connect_btn_sb",
+                ):
                     with st.spinner("连接所有控制器..."):
                         _jc_connect()
                     st.rerun()
             else:
                 col_r1, col_r2, col_disc = st.columns(3)
                 with col_r1:
-                    if st.button("⚡ 上电", type="primary", use_container_width=True,
-                                 disabled=jc_relay_on, key=f"{jc}_relay_on_btn_sb"):
+                    if st.button(
+                        "⚡ 上电",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=jc_relay_on,
+                        key=f"{jc}_relay_on_btn_sb",
+                    ):
                         _jc_set_relay(True)
                         st.rerun()
                 with col_r2:
-                    if st.button("⏻ 下电", use_container_width=True,
-                                 disabled=not jc_relay_on, key=f"{jc}_relay_off_btn_sb"):
+                    if st.button(
+                        "⏻ 下电",
+                        use_container_width=True,
+                        disabled=not jc_relay_on,
+                        key=f"{jc}_relay_off_btn_sb",
+                    ):
                         _jc_set_relay(False)
                         st.rerun()
                 with col_disc:
-                    if st.button("⏏ 断开", use_container_width=True, key=f"{jc}_disconnect_btn_sb"):
+                    if st.button(
+                        "⏏ 断开",
+                        use_container_width=True,
+                        key=f"{jc}_disconnect_btn_sb",
+                    ):
                         _jc_disconnect()
                         st.rerun()
 
@@ -288,13 +361,22 @@ def _sidebar_joint_connection() -> None:
             st.markdown("##### 批量上下电 (Ping 测试)")
             col_bon, col_boff = st.columns(2)
             with col_bon:
-                if st.button("⚡ 批量上电 (先Ping)", type="primary", use_container_width=True,
-                             disabled=jc_relay_on, key=f"{jc}_batch_on_btn_sb"):
+                if st.button(
+                    "⚡ 批量上电 (先Ping)",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=jc_relay_on,
+                    key=f"{jc}_batch_on_btn_sb",
+                ):
                     _jc_batch_power_on()
                     st.rerun()
             with col_boff:
-                if st.button("⏻ 批量下电", use_container_width=True,
-                             disabled=not jc_relay_on, key=f"{jc}_batch_off_btn_sb"):
+                if st.button(
+                    "⏻ 批量下电",
+                    use_container_width=True,
+                    disabled=not jc_relay_on,
+                    key=f"{jc}_batch_off_btn_sb",
+                ):
                     _jc_batch_power_off()
                     st.rerun()
             st.caption("上电前自动 Ping 测试所有控制器连通性")
@@ -341,7 +423,9 @@ def _sidebar_group_connection() -> None:
                 if rows:
                     with st.expander("📋 通道详情", expanded=False):
                         st.dataframe(
-                            pd.DataFrame(rows), width='stretch', hide_index=True,
+                            pd.DataFrame(rows),
+                            width="stretch",
+                            hide_index=True,
                         )
 
         with st.container(border=True):
@@ -367,24 +451,42 @@ def _sidebar_group_connection() -> None:
             st.session_state[f"{P}_gc_simulate"] = _gc_sim
             st.markdown("##### 操作")
             if not gc_connected:
-                if st.button("🔌 连接组控制器", type="primary", use_container_width=True, key=f"{gc}_connect_btn_sb"):
+                if st.button(
+                    "🔌 连接组控制器",
+                    type="primary",
+                    use_container_width=True,
+                    key=f"{gc}_connect_btn_sb",
+                ):
                     with st.spinner("连接中..."):
                         _gc_connect()
                     st.rerun()
             else:
                 col_r1, col_r2, col_disc = st.columns(3)
                 with col_r1:
-                    if st.button("⚡ 上电", type="primary", use_container_width=True,
-                                 disabled=gc_relay_on, key=f"{gc}_relay_on_btn_sb"):
+                    if st.button(
+                        "⚡ 上电",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=gc_relay_on,
+                        key=f"{gc}_relay_on_btn_sb",
+                    ):
                         _gc_set_relay(True)
                         st.rerun()
                 with col_r2:
-                    if st.button("⏻ 下电", use_container_width=True,
-                                 disabled=not gc_relay_on, key=f"{gc}_relay_off_btn_sb"):
+                    if st.button(
+                        "⏻ 下电",
+                        use_container_width=True,
+                        disabled=not gc_relay_on,
+                        key=f"{gc}_relay_off_btn_sb",
+                    ):
                         _gc_set_relay(False)
                         st.rerun()
                 with col_disc:
-                    if st.button("⏏ 断开", use_container_width=True, key=f"{gc}_disconnect_btn_sb"):
+                    if st.button(
+                        "⏏ 断开",
+                        use_container_width=True,
+                        key=f"{gc}_disconnect_btn_sb",
+                    ):
                         _gc_disconnect()
                         st.rerun()
 
@@ -392,13 +494,22 @@ def _sidebar_group_connection() -> None:
             st.markdown("##### 批量上下电 (Ping 测试)")
             col_bon, col_boff = st.columns(2)
             with col_bon:
-                if st.button("⚡ 批量上电 (先Ping)", type="primary", use_container_width=True,
-                             disabled=gc_relay_on, key=f"{gc}_batch_on_btn_sb"):
+                if st.button(
+                    "⚡ 批量上电 (先Ping)",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=gc_relay_on,
+                    key=f"{gc}_batch_on_btn_sb",
+                ):
                     _gc_batch_power_on()
                     st.rerun()
             with col_boff:
-                if st.button("⏻ 批量下电", use_container_width=True,
-                             disabled=not gc_relay_on, key=f"{gc}_batch_off_btn_sb"):
+                if st.button(
+                    "⏻ 批量下电",
+                    use_container_width=True,
+                    disabled=not gc_relay_on,
+                    key=f"{gc}_batch_off_btn_sb",
+                ):
                     _gc_batch_power_off()
                     st.rerun()
             st.caption("上电前自动 Ping 测试组内所有控制器连通性")

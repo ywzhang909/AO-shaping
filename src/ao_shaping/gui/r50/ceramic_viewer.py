@@ -2,11 +2,11 @@
 1300陶瓷单元查看工具 (Streamlit)
 
 功能:
-1. Tab 1 - 36×36 网格浏览: 查看任意陶瓷单元的 IP、序号、引脚位置
-2. Tab 2 - IP+序号查询: 通过 IP+序号反查引脚编号和 36×36 位置
+1. 36×36 网格浏览: 查看任意陶瓷单元的 IP、序号、引脚位置
+2. 自动图片展示: 根据 IP组+序号自动推导并展示对应图片
 
 使用方式:
-    streamlit run src/ao_shaping/gui/dm/ceramic_viewer.py
+    streamlit run src/ao_shaping/gui/r50/ceramic_viewer.py
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import streamlit as st
-
 
 # =============================================================================
 # Configuration
@@ -48,6 +47,8 @@ class Config:
 
     DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "data"
     DEFAULT_CSV = "1300-5-enriched.csv"
+    DEFAULT_IMG_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "data" / "md_test" / "md_img"
+    DEFAULT_IMG_DIR_DIFF = Path(__file__).resolve().parent.parent.parent.parent.parent / "data" / "md_test" / "md_img-100v_processed" / "diff"
 
 
 # =============================================================================
@@ -114,18 +115,13 @@ def _initialize_state() -> None:
     st.session_state.setdefault("cv_edit_seq", Config.DEFAULT_SEQ)
     st.session_state.setdefault("cv_conflict_info", None)
     st.session_state.setdefault("cv_save_feedback", "")
-    # 查询状态
-    st.session_state.setdefault("cv_lookup_ip", Config.DEFAULT_IP)
-    st.session_state.setdefault("cv_lookup_seq", Config.DEFAULT_SEQ)
-    st.session_state.setdefault("cv_lookup_result", None)
-    st.session_state.setdefault("cv_lookup_positions", None)
+    # 图片配置
+    st.session_state.setdefault("cv_img_dir", str(Config.DEFAULT_IMG_DIR))
+    st.session_state.setdefault("cv_img_dir_diff", str(Config.DEFAULT_IMG_DIR_DIFF))
     # 网格显示模式
     st.session_state.setdefault("cv_grid_display_mode", "位置序号")
     st.session_state.setdefault("cv_grid_color_mode", "不着色")
-    # 高亮列表
-    st.session_state.setdefault("cv_highlight_mode", "位置序号")
-    st.session_state.setdefault("cv_highlight_input", "")
-    st.session_state.setdefault("cv_highlight_positions", None)
+    st.session_state.setdefault("cv_input_mode", "行-列")
     # 数据
     st.session_state.setdefault("cv_data", None)
     st.session_state.setdefault("cv_csv_filename", Config.DEFAULT_CSV)
@@ -160,9 +156,27 @@ def load_enriched_data(csv_path: str) -> pd.DataFrame:
 
 
 # =============================================================================
-# Tab 1: 36×36 网格浏览
+# Image Utilities
 # =============================================================================
 
+
+def _auto_image_path(ip_group: int, seq: int, img_dir: str) -> Path | None:
+    """根据 IP组+序号自动推导图片路径 (兼容多种命名格式)。"""
+    from ao_shaping.utils.file import find_cell_image
+    return find_cell_image(img_dir, ip_group, seq)
+
+
+# =============================================================================
+# Highlight Utilities
+# =============================================================================
+
+
+
+# =============================================================================
+# Sidebar
+# =============================================================================
+# Tab 1: 36×36 网格浏览
+# =============================================================================
 
 def _apply_edit(
     df: pd.DataFrame, row: int, col: int, new_ip: int, new_seq: int
@@ -237,7 +251,6 @@ def _render_cell_editor(
         st.info(f"位置 [{sel_row}, {sel_col}] (序号 {position_num}) 无对应数据")
         return
 
-    st.divider()
     st.markdown(f"##### 📍 单元格 [{info.row}, {info.col}] (位置序号 {info.position})")
 
     meta_cols = st.columns(4)
@@ -378,30 +391,33 @@ def _apply_grid_color(
     df: pd.DataFrame,
     color_mode: str,
     highlight_positions: set[int] | None,
-) -> pd.DataFrame:
-    """Apply background colors to the grid DataFrame based on color mode and highlights."""
-    if color_mode == "不着色" and not highlight_positions:
-        return grid_df
-
+    selected_position: int | None = None,
+) -> pd.io.formats.style.Styler:
+    """Return a Styler with background colors applied based on color mode and highlights."""
     pos_matrix = _cv_grid_matrix(df)
     color_map = _cv_color_scheme_map(df, color_mode)
 
-    styled = grid_df.copy()
+    def _style_cell(val: object, r: int, c: int) -> str:
+        pos = int(pos_matrix[r, c])
+        # Selected cell gets highest priority highlight
+        if selected_position and pos == selected_position:
+            return "background-color: #FFD700; font-weight: bold; border: 2px solid #FF6600"
+        if highlight_positions and pos in highlight_positions:
+            return "background-color: #FFD700; font-weight: bold"
+        if color_mode != "不着色" and pos in color_map:
+            return f"background-color: {color_map[pos]}"
+        return ""
 
-    for r in range(Config.GRID_SIZE):
-        for c in range(Config.GRID_SIZE):
-            pos = int(pos_matrix[r, c])
-            cell_value = styled.iat[r, c]
-            bg = ""
-            if highlight_positions and pos in highlight_positions:
-                bg = "background-color: #FFD700; font-weight: bold"
-            elif color_mode != "不着色" and pos in color_map:
-                bg = f"background-color: {color_map[pos]}"
-            styled.iat[r, c] = (
-                f"<div style='{bg}'>{cell_value}</div>" if bg else cell_value
-            )
-
-    return styled
+    styler = grid_df.style
+    css_matrix = [
+        [_style_cell(grid_df.iat[r, c], r, c) for c in range(Config.GRID_SIZE)]
+        for r in range(Config.GRID_SIZE)
+    ]
+    styler = styler.apply(
+        lambda _: pd.DataFrame(css_matrix, index=grid_df.index, columns=grid_df.columns),
+        axis=None,
+    )
+    return styler
 
 
 # ── Tab 1: Grid Renderer ────────────────────────────────────
@@ -415,108 +431,11 @@ def render_tab_grid() -> None:
         return
 
     st.markdown("##### 36×36 陶瓷单元网格")
-    st.caption("点击网格单元格选择，下方可编辑 IP组/序号")
-
-    col_sel1, col_sel2, col_sel3 = st.columns([1, 1, 1])
-    with col_sel1:
-        use_position = st.checkbox(
-            "按位置序号输入", value=False, help="勾选后用 1~1296 序号选择"
-        )
-    with col_sel2:
-        if st.button("🔄 重置选择", use_container_width=True, key="cv_reset_lookup"):
-            st.session_state.cv_selected_row = 0
-            st.session_state.cv_selected_col = 0
-            st.session_state.cv_conflict_info = None
-            st.session_state.cv_edit_ip = Config.DEFAULT_IP
-            st.session_state.cv_edit_seq = Config.DEFAULT_SEQ
-            st.session_state.cv_grid_click_count += 1
-            st.rerun()
-    with col_sel3:
-        if st.button("🗑️ 放弃编辑", use_container_width=True, key="cv_discard_grid"):
-            st.session_state.cv_conflict_info = None
-            st.rerun()
+    st.caption("点击表格行选择，或在下方输入位置/编号精确定位")
 
     G = Config.GRID_SIZE
 
-    # ── Manual input callbacks ──────────────────────────────────────────
-    if "cv_grid_click_count" not in st.session_state:
-        st.session_state.cv_grid_click_count = 0
-
-    def _on_row_input() -> None:
-        key = f"cv_row_{st.session_state.cv_grid_click_count}"
-        st.session_state.cv_selected_row = st.session_state[key]
-
-    def _on_col_input() -> None:
-        key = f"cv_col_{st.session_state.cv_grid_click_count}"
-        st.session_state.cv_selected_col = st.session_state[key]
-
-    def _on_pos_input() -> None:
-        key = f"cv_pos_{st.session_state.cv_grid_click_count}"
-        pos = st.session_state[key]
-        st.session_state.cv_selected_row = (pos - 1) // G
-        st.session_state.cv_selected_col = (pos - 1) % G
-
-    _row_key = f"cv_row_{st.session_state.cv_grid_click_count}"
-    _col_key = f"cv_col_{st.session_state.cv_grid_click_count}"
-    _pos_key = f"cv_pos_{st.session_state.cv_grid_click_count}"
-
-    if use_position:
-        st.number_input(
-            "位置序号",
-            min_value=1,
-            max_value=G * G,
-            value=st.session_state.cv_selected_row * G
-            + st.session_state.cv_selected_col
-            + 1,
-            step=1,
-            key=_pos_key,
-            on_change=_on_pos_input,
-        )
-    else:
-        col_r1, col_r2 = st.columns([1, 1])
-        with col_r1:
-            st.number_input(
-                "行 (0~35)",
-                min_value=0,
-                max_value=G - 1,
-                value=st.session_state.cv_selected_row,
-                step=1,
-                key=_row_key,
-                on_change=_on_row_input,
-            )
-        with col_r2:
-            st.number_input(
-                "列 (0~35)",
-                min_value=0,
-                max_value=G - 1,
-                value=st.session_state.cv_selected_col,
-                step=1,
-                key=_col_key,
-                on_change=_on_col_input,
-            )
-
-    sel_row = st.session_state.cv_selected_row
-    sel_col = st.session_state.cv_selected_col
-    position_num = sel_row * G + sel_col + 1
-
-    st.divider()
-    st.markdown("##### 36×36 网格概览")
-    st.markdown(
-        """
-        <style>
-        /* AG Grid 行选中：只有文字加粗，无背景色 */
-        .ag-row-selected {
-            font-weight: bold !important;
-            background: none !important;
-        }
-        .ag-row-selected .ag-cell {
-            font-weight: bold !important;
-        }
-        </style>
-    """,
-        unsafe_allow_html=True,
-    )
-
+    # ── Grid display controls (top) ──────────────────────────────────────
     col_grid_ctrl1, col_grid_ctrl2, col_grid_ctrl3, col_grid_ctrl4 = st.columns(
         [2, 1, 1, 1]
     )
@@ -558,44 +477,28 @@ def render_tab_grid() -> None:
                 key="cv_download_csv",
             )
 
+    # ── Grid table ───────────────────────────────────────────────────────
     grid_df = _cv_grid_display_df(df, st.session_state.cv_grid_display_mode)
 
-    st.caption("点击表格行选择，或使用上方行/列输入框精确定位")
-
-    highlight_positions = st.session_state.get("cv_lookup_positions")
-    highlight_list = st.session_state.get("cv_highlight_positions")
-    if highlight_positions and highlight_list:
-        all_highlights = highlight_positions | highlight_list
-    elif highlight_positions:
-        all_highlights = highlight_positions
-    elif highlight_list:
-        all_highlights = highlight_list
-    else:
-        all_highlights = None
+    sel_row = st.session_state.cv_selected_row
+    sel_col = st.session_state.cv_selected_col
+    selected_position = sel_row * G + sel_col + 1
 
     color_mode = st.session_state.cv_grid_color_mode
-    styled_grid_df = _apply_grid_color(grid_df, df, color_mode, all_highlights)
+    needs_color = color_mode != "不着色"
+    styled_grid = (
+        _apply_grid_color(grid_df, df, color_mode, None, selected_position)
+        if needs_color
+        else _apply_grid_color(grid_df, df, "不着色", None, selected_position)
+    )
 
-    if (
-        all_highlights
-        or color_mode != "不着色"
-        or st.session_state.cv_grid_display_mode != "位置序号"
-    ):
-        selected = st.dataframe(
-            styled_grid_df,
-            use_container_width=True,
-            height=600,
-            on_select="rerun",
-            selection_mode="single-row",
-        )
-    else:
-        selected = st.dataframe(
-            grid_df,
-            use_container_width=True,
-            height=600,
-            on_select="rerun",
-            selection_mode="single-row",
-        )
+    selected = st.dataframe(
+        styled_grid,
+        use_container_width=True,
+        height=600,
+        on_select="rerun",
+        selection_mode="single-row",
+    )
 
     if selected and hasattr(selected, "selection") and selected.selection.rows:
         clicked_row_idx = selected.selection.rows[0]
@@ -603,173 +506,170 @@ def render_tab_grid() -> None:
             st.session_state.cv_selected_row = clicked_row_idx
             st.rerun()
 
-    sel_row = st.session_state.cv_selected_row
-    sel_col = st.session_state.cv_selected_col
-    position_num = sel_row * G + sel_col + 1
+    # ── Selection controls + Cell editor (below table, side by side) ─────
+    st.divider()
 
-    _render_conflict_section(df, sel_row, sel_col)
-    _render_cell_editor(df, sel_row, sel_col, position_num)
+    col定位, col编辑 = st.columns([1, 1])
 
+    with col定位:
+        st.markdown("##### 单元格定位")
 
-# =============================================================================
-# Tab 2: IP+序号查询
-# =============================================================================
+        # Manual input callbacks
+        if "cv_grid_click_count" not in st.session_state:
+            st.session_state.cv_grid_click_count = 0
 
+        def _on_row_input() -> None:
+            key = f"cv_row_{st.session_state.cv_grid_click_count}"
+            st.session_state.cv_selected_row = st.session_state[key]
 
-def lookup_by_ip_seq(df: pd.DataFrame, ip_group: int, seq: int) -> pd.DataFrame:
-    """根据 IP 组和序号查询对应单元信息，可能返回多条。"""
-    return df[(df["IP组"] == ip_group) & (df["序号"] == seq)]
+        def _on_col_input() -> None:
+            key = f"cv_col_{st.session_state.cv_grid_click_count}"
+            st.session_state.cv_selected_col = st.session_state[key]
 
+        def _on_pos_input() -> None:
+            key = f"cv_pos_{st.session_state.cv_grid_click_count}"
+            pos = st.session_state[key]
+            st.session_state.cv_selected_row = (pos - 1) // G
+            st.session_state.cv_selected_col = (pos - 1) % G
 
-def parse_highlight_input(
-    df: pd.DataFrame, raw_input: str, mode: str
-) -> set[int] | None:
-    """Parse highlight input string into a set of position numbers."""
-    if not raw_input.strip():
-        return None
-    pos_info = df.set_index("位置序号")
-    positions: set[int] = set()
-    for token in raw_input.split(","):
-        token = token.strip()
-        if not token:
-            continue
-        try:
-            if mode == "位置序号":
-                pos = int(token)
-                if 1 <= pos <= Config.GRID_SIZE * Config.GRID_SIZE:
-                    positions.add(pos)
-            elif mode == "IP-序号":
-                parts = token.split("-")
-                if len(parts) == 2:
-                    ip = int(parts[0])
-                    seq = int(parts[1])
-                    matched = df[(df["IP组"] == ip) & (df["序号"] == seq)]
-                    for _, row_data in matched.iterrows():
-                        positions.add(int(row_data["位置序号"]))
-            elif mode == "组-针脚":
-                parts = token.split("-")
-                if len(parts) == 2:
-                    group = parts[0]
-                    pin = int(parts[1])
-                    matched = df[(df["组"] == group) & (df["引脚编号"] == pin)]
-                    for _, row_data in matched.iterrows():
-                        positions.add(int(row_data["位置序号"]))
-        except (ValueError, KeyError):
-            continue
-    return positions if positions else None
+        def _on_ip_seq_input() -> None:
+            key = f"cv_ipseq_{st.session_state.cv_grid_click_count}"
+            raw = st.session_state[key].strip()
+            parts = raw.split("-")
+            if len(parts) == 2:
+                ip = int(parts[0])
+                seq = int(parts[1])
+                matched = df[(df["IP组"] == ip) & (df["序号"] == seq)]
+                if not matched.empty:
+                    row_val = int(matched.iloc[0]["36×36行"])
+                    col_val = int(matched.iloc[0]["36×36列"])
+                    st.session_state.cv_selected_row = row_val
+                    st.session_state.cv_selected_col = col_val
 
+        def _on_group_pin_input() -> None:
+            key = f"cv_grouppin_{st.session_state.cv_grid_click_count}"
+            raw = st.session_state[key].strip()
+            parts = raw.split("-")
+            if len(parts) == 2:
+                group = parts[0]
+                pin = int(parts[1])
+                matched = df[(df["组"] == group) & (df["引脚编号"] == pin)]
+                if not matched.empty:
+                    row_val = int(matched.iloc[0]["36×36行"])
+                    col_val = int(matched.iloc[0]["36×36列"])
+                    st.session_state.cv_selected_row = row_val
+                    st.session_state.cv_selected_col = col_val
 
-def render_tab_lookup() -> None:
-    """渲染 Tab 2: IP+序号查询。"""
-    df = st.session_state.cv_data
-    if df.empty:
-        return
+        _row_key = f"cv_row_{st.session_state.cv_grid_click_count}"
+        _col_key = f"cv_col_{st.session_state.cv_grid_click_count}"
+        _pos_key = f"cv_pos_{st.session_state.cv_grid_click_count}"
+        _ipseq_key = f"cv_ipseq_{st.session_state.cv_grid_click_count}"
+        _grouppin_key = f"cv_grouppin_{st.session_state.cv_grid_click_count}"
 
-    st.markdown("##### IP + 序号查询")
-    st.caption("通过 IP 组号和序号查询对应的引脚编号和 36×36 网格位置")
-
-    col_ip, col_seq = st.columns([1, 1])
-    with col_ip:
-        ip_group = st.number_input(
-            "IP组 (101~126)",
-            min_value=Config.IP_MIN,
-            max_value=Config.IP_MAX,
-            value=st.session_state.cv_lookup_ip,
-            step=1,
-            key="cv_lookup_ip_input",
-        )
-    with col_seq:
-        seq = st.number_input(
-            "序号 (0~49)",
-            min_value=Config.SEQ_MIN,
-            max_value=Config.SEQ_MAX,
-            value=st.session_state.cv_lookup_seq,
-            step=1,
-            key="cv_lookup_seq_input",
+        # 3 input modes
+        input_mode = st.radio(
+            "输入模式",
+            ["行-列", "位置序号", "IP-序号", "组-针脚"],
+            index=0,
+            horizontal=True,
+            key="cv_input_mode",
         )
 
-    st.session_state.cv_lookup_ip = ip_group
-    st.session_state.cv_lookup_seq = seq
-
-    col_btn, clear_btn, _ = st.columns([1, 1, 2])
-    with col_btn:
-        if st.button(
-            "🔍 查询", type="primary", use_container_width=True, key="cv_lookup_btn"
-        ):
-            result = lookup_by_ip_seq(df, ip_group, seq)
-            st.session_state.cv_lookup_result = result
-            if not result.empty:
-                highlight_positions = set()
-                for _, row_data in result.iterrows():
-                    r = int(row_data["36×36行"])
-                    c = int(row_data["36×36列"])
-                    pos = r * Config.GRID_SIZE + c + 1
-                    highlight_positions.add(pos)
-                st.session_state.cv_lookup_positions = highlight_positions
-            else:
-                st.session_state.cv_lookup_positions = set()
-    with clear_btn:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🗑️ 清除高亮", use_container_width=True, key="cv_clear_highlight"):
-            st.session_state.cv_lookup_positions = None
-            st.session_state.cv_lookup_result = None
-            st.rerun()
-
-    result = st.session_state.cv_lookup_result
-    if result is not None and not result.empty:
-        if (
-            len(result) > 0
-            and int(result.iloc[0]["IP组"]) == ip_group
-            and int(result.iloc[0]["序号"]) == seq
-        ):
-            st.divider()
-            n_results = len(result)
-            st.markdown(
-                f"##### ✅ 查询结果 ({n_results} 条{'记录' if n_results > 1 else ''})"
+        if input_mode == "行-列":
+            col_r1, col_r2 = st.columns([1, 1])
+            with col_r1:
+                st.number_input(
+                    "行 (0~35)",
+                    min_value=0,
+                    max_value=G - 1,
+                    value=st.session_state.cv_selected_row,
+                    step=1,
+                    key=_row_key,
+                    on_change=_on_row_input,
+                )
+            with col_r2:
+                st.number_input(
+                    "列 (0~35)",
+                    min_value=0,
+                    max_value=G - 1,
+                    value=st.session_state.cv_selected_col,
+                    step=1,
+                    key=_col_key,
+                    on_change=_on_col_input,
+                )
+        elif input_mode == "位置序号":
+            st.number_input(
+                "位置序号 (1~1296)",
+                min_value=1,
+                max_value=G * G,
+                value=st.session_state.cv_selected_row * G
+                + st.session_state.cv_selected_col
+                + 1,
+                step=1,
+                key=_pos_key,
+                on_change=_on_pos_input,
+            )
+        elif input_mode == "IP-序号":
+            current_ip = df[
+                (df["36×36行"] == st.session_state.cv_selected_row)
+                & (df["36×36列"] == st.session_state.cv_selected_col)
+            ]
+            default_val = ""
+            if not current_ip.empty:
+                default_val = f"{int(current_ip.iloc[0]['IP组'])}-{int(current_ip.iloc[0]['序号'])}"
+            st.text_input(
+                "IP-序号 (如: 101-00)",
+                value=default_val,
+                key=_ipseq_key,
+                on_change=_on_ip_seq_input,
+            )
+        elif input_mode == "组-针脚":
+            current_gp = df[
+                (df["36×36行"] == st.session_state.cv_selected_row)
+                & (df["36×36列"] == st.session_state.cv_selected_col)
+            ]
+            default_val = ""
+            if not current_gp.empty:
+                default_val = f"{current_gp.iloc[0]['组']}-{int(current_gp.iloc[0]['引脚编号'])}"
+            st.text_input(
+                "组-针脚 (如: 一组-1)",
+                value=default_val,
+                key=_grouppin_key,
+                on_change=_on_group_pin_input,
             )
 
-            for i, (_, row_data) in enumerate(result.iterrows()):
-                r = int(row_data["36×36行"])
-                c = int(row_data["36×36列"])
-                pos = r * Config.GRID_SIZE + c + 1
+    with col编辑:
+        sel_row = st.session_state.cv_selected_row
+        sel_col = st.session_state.cv_selected_col
+        position_num = sel_row * G + sel_col + 1
 
-                if n_results > 1:
-                    st.markdown(f"**匹配 {i + 1}:**")
-                else:
-                    st.markdown("")
+        _render_conflict_section(df, sel_row, sel_col)
+        _render_cell_editor(df, sel_row, sel_col, position_num)
 
-                meta_c1, meta_c2, meta_c3 = st.columns(3)
-                with meta_c1:
-                    st.metric("36×36位置", f"[{r}, {c}]")
-                with meta_c2:
-                    st.metric("位置序号", pos)
-                with meta_c3:
-                    st.metric("所属组", row_data["组"])
+    # ── 图片展示（下方）──────────────────────────────────────────────────
+    info = CellInfo.from_df(df, sel_row, sel_col)
+    if info:
+        img_path = _auto_image_path(info.ip_group, info.seq, st.session_state.cv_img_dir)
+        img_path_diff = _auto_image_path(info.ip_group, info.seq, st.session_state.cv_img_dir_diff)
 
-                meta_c4, meta_c5 = st.columns(2)
-                with meta_c4:
-                    st.metric("引脚编号", int(row_data["引脚编号"]))
-                with meta_c5:
-                    st.metric("连接器", row_data["连接器"])
+        if img_path or img_path_diff:
+            st.divider()
+            img_width = st.session_state.get("cv_img_width", 400)
 
-                if i < n_results - 1:
-                    st.divider()
-        else:
-            st.info("请点击「查询」按钮查看结果")
-    elif result is not None and result.empty:
-        st.warning(f"未找到 IP组={ip_group}, 序号={seq} 的对应记录")
-    else:
-        st.info("请输入 IP 组和序号，点击查询")
-
-        st.divider()
-        st.markdown("##### 可用 IP 组")
-        ip_list = sorted(df["IP组"].unique())
-        ip_cols = st.columns(7)
-        for idx, ip in enumerate(ip_list):
-            col_idx = idx % 7
-            count = len(df[df["IP组"] == ip])
-            with ip_cols[col_idx]:
-                st.caption(f"**{int(ip)}** ({count}单元)")
+            if img_path and img_path_diff:
+                col_img1, col_img2 = st.columns(2)
+                with col_img1:
+                    st.markdown(f"**📷 原始图片:** `{img_path.name}`")
+                    st.image(str(img_path), caption=f"原始 [{info.ip_group}-{info.seq}]", width=img_width)
+                with col_img2:
+                    st.markdown(f"**📷 处理后:** `{img_path_diff.name}`")
+                    st.image(str(img_path_diff), caption=f"处理后 [{info.ip_group}-{info.seq}]", width=img_width)
+            elif img_path:
+                st.markdown(f"**📷 图片:** `{img_path.name}`")
+                st.image(str(img_path), caption=f"[{info.ip_group}-{info.seq}] {img_path.name}", width=img_width)
+            else:
+                st.markdown(f"**📷 处理后图片:** `{img_path_diff.name}`")
+                st.image(str(img_path_diff), caption=f"[{info.ip_group}-{info.seq}] {img_path_diff.name}", width=img_width)
 
 
 # =============================================================================
@@ -810,81 +710,42 @@ def render_sidebar() -> None:
             st.metric("网格大小", f"{Config.GRID_SIZE} × {Config.GRID_SIZE}")
 
             with st.container(border=True):
-                st.markdown("##### 数据列说明")
-                st.caption("**位置序号**: 1~1296 的排列位置")
-                st.caption("**36×36行/列**: 在 36×36 网格中的行列坐标")
-                st.caption("**IP组**: 单元所属 IP 组 (101~126)")
-                st.caption("**序号**: 组内序号 (0~49)")
-                st.caption("**所属组**: 对应输出线序表组别 (一组~五组)")
-                st.caption("**引脚编号**: 机柜输出引脚编号")
-                st.caption("**连接器**: 连接器标识")
+                st.markdown("##### 🖼️ 图片目录")
 
-            with st.container(border=True):
-                st.markdown("##### 数据分布 — 所属组")
-                for group_name in ["一组", "二组", "三组", "四组", "五组"]:
-                    cnt = len(df[df["组"] == group_name])
-                    st.caption(f"{group_name}: {cnt} 单元")
-
-            with st.container(border=True):
-                st.markdown("##### 数据分布 — IP组")
-                ip_groups = sorted(df["IP组"].unique())
-                ip_cols = st.columns(3)
-                for idx, ip in enumerate(ip_groups):
-                    cnt = len(df[df["IP组"] == int(ip)])
-                    with ip_cols[idx % 3]:
-                        st.caption(f"IP{int(ip):>3}: {cnt} 单元")
-
-            with st.container(border=True):
-                st.markdown("##### 高亮列表")
-                st.caption("输入值列表，在表格中高亮显示对应单元格")
-
-                highlight_mode = st.selectbox(
-                    "输入模式",
-                    ["位置序号", "IP-序号", "组-针脚"],
-                    index=["位置序号", "IP-序号", "组-针脚"].index(
-                        st.session_state.cv_highlight_mode
-                    ),
-                    key="cv_highlight_mode",
+                prev_img_dir = st.session_state.cv_img_dir
+                new_img_dir = st.text_input(
+                    "原始图片目录", value=prev_img_dir, key="cv_img_dir_input",
+                    help="根据 IP组+序号自动推导图片路径",
                 )
-
-                highlight_input = st.text_area(
-                    "输入列表（逗号分隔）",
-                    value=st.session_state.cv_highlight_input,
-                    height=100,
-                    key="cv_highlight_input",
-                    placeholder="例如：\n1, 5, 10\n或 101-00, 101-01\n或 一组-1, 二组-2",
-                )
-
-                col_hl1, col_hl2 = st.columns([1, 1])
-                with col_hl1:
-                    if st.button(
-                        "🔍 应用高亮",
-                        type="primary",
-                        use_container_width=True,
-                        key="cv_apply_highlight",
-                    ):
-                        positions = parse_highlight_input(
-                            df,
-                            st.session_state.cv_highlight_input,
-                            st.session_state.cv_highlight_mode,
-                        )
-                        st.session_state.cv_highlight_positions = positions
-                        st.rerun()
-                with col_hl2:
-                    if st.button(
-                        "🗑️ 清除高亮",
-                        use_container_width=True,
-                        key="cv_clear_highlight_list",
-                    ):
-                        st.session_state.cv_highlight_positions = None
-                        st.session_state.cv_highlight_input = ""
-                        st.rerun()
-
-                current_hl = st.session_state.cv_highlight_positions
-                if current_hl:
-                    st.caption(f"当前高亮 {len(current_hl)} 个单元格")
+                if new_img_dir != prev_img_dir:
+                    st.session_state.cv_img_dir = str(new_img_dir)
+                img_dir = Path(st.session_state.cv_img_dir or str(Config.DEFAULT_IMG_DIR))
+                if img_dir.exists():
+                    st.caption(f"✅ `{img_dir}`")
                 else:
-                    st.caption("暂无高亮")
+                    st.warning(f"⚠️ 目录不存在: `{img_dir}`")
+
+                prev_img_dir_diff = st.session_state.cv_img_dir_diff
+                new_img_dir_diff = st.text_input(
+                    "处理后图片目录", value=prev_img_dir_diff, key="cv_img_dir_diff_input",
+                    help="diff/叠加等处理后的图片目录",
+                )
+                if new_img_dir_diff != prev_img_dir_diff:
+                    st.session_state.cv_img_dir_diff = str(new_img_dir_diff)
+                img_dir_diff = Path(st.session_state.cv_img_dir_diff)
+                if img_dir_diff.exists():
+                    st.caption(f"✅ `{img_dir_diff}`")
+                else:
+                    st.warning(f"⚠️ 目录不存在: `{img_dir_diff}`")
+
+                st.session_state.cv_img_width = st.slider(
+                    "图片显示宽度 (px)",
+                    min_value=100,
+                    max_value=800,
+                    value=st.session_state.get("cv_img_width", 400),
+                    step=50,
+                    key="cv_img_width_slider",
+                )
 
             with st.container(border=True):
                 st.markdown("##### 数据源配置")
@@ -926,6 +787,29 @@ def render_sidebar() -> None:
 
                 if dirty:
                     st.warning("⚠️ 有未保存的修改")
+
+            # ── 折叠信息 ──────────────────────────────────────────────
+            with st.expander("📖 数据列说明", expanded=False):
+                st.caption("**位置序号**: 1~1296 的排列位置")
+                st.caption("**36×36行/列**: 在 36×36 网格中的行列坐标")
+                st.caption("**IP组**: 单元所属 IP 组 (101~126)")
+                st.caption("**序号**: 组内序号 (0~49)")
+                st.caption("**所属组**: 对应输出线序表组别 (一组~五组)")
+                st.caption("**引脚编号**: 机柜输出引脚编号")
+                st.caption("**连接器**: 连接器标识")
+
+            with st.expander("📊 数据分布 — 所属组", expanded=False):
+                for group_name in ["一组", "二组", "三组", "四组", "五组"]:
+                    cnt = len(df[df["组"] == group_name])
+                    st.caption(f"{group_name}: {cnt} 单元")
+
+            with st.expander("📊 数据分布 — IP组", expanded=False):
+                ip_groups = sorted(df["IP组"].unique())
+                ip_cols = st.columns(3)
+                for idx, ip in enumerate(ip_groups):
+                    cnt = len(df[df["IP组"] == int(ip)])
+                    with ip_cols[idx % 3]:
+                        st.caption(f"IP{int(ip):>3}: {cnt} 单元")
         else:
             st.error("数据加载失败")
             st.info("运行 scripts/process_1300_data.py 生成数据")
@@ -946,7 +830,7 @@ def main() -> None:
     )
 
     st.title("🔬 1300 陶瓷单元查看工具")
-    st.caption("Adaptive Optics 陶瓷驱动器 | 36×36 网格浏览 · IP+序号查询引脚关系")
+    st.caption("Adaptive Optics 陶瓷驱动器 | 36×36 网格浏览 · 单元格图片配置")
 
     _initialize_state()
 
@@ -954,14 +838,7 @@ def main() -> None:
         _reload_data()
 
     render_sidebar()
-
-    tab1, tab2 = st.tabs(["36×36 网格浏览", "IP+序号查询"])
-
-    with tab1:
-        render_tab_grid()
-
-    with tab2:
-        render_tab_lookup()
+    render_tab_grid()
 
 
 if __name__ == "__main__":

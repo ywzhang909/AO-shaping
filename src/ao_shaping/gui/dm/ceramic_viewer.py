@@ -2,8 +2,8 @@
 1300陶瓷单元查看工具 (Streamlit)
 
 功能:
-1. Tab 1 - 36×36 网格浏览: 查看任意陶瓷单元的 IP、序号、引脚位置
-2. Tab 2 - IP+序号查询: 通过 IP+序号反查引脚编号和 36×36 位置
+1. 36×36 网格浏览: 查看任意陶瓷单元的 IP、序号、引脚位置
+2. 自动图片展示: 根据 IP组+序号自动推导并展示对应图片
 
 使用方式:
     streamlit run src/ao_shaping/gui/dm/ceramic_viewer.py
@@ -50,6 +50,7 @@ class Config:
 
     DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "data"
     DEFAULT_CSV = "1300-5-enriched.csv"
+    DEFAULT_IMG_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "data" / "md_test" / "md_img"
 
 
 # =============================================================================
@@ -107,10 +108,8 @@ def _initialize_state() -> None:
     st.session_state.setdefault("cv_edit_seq", Config.DEFAULT_SEQ)
     st.session_state.setdefault("cv_conflict_info", None)
     st.session_state.setdefault("cv_save_feedback", "")
-    # 查询状态
-    st.session_state.setdefault("cv_lookup_ip", Config.DEFAULT_IP)
-    st.session_state.setdefault("cv_lookup_seq", Config.DEFAULT_SEQ)
-    st.session_state.setdefault("cv_lookup_result", None)
+    # 图片配置
+    st.session_state.setdefault("cv_img_dir", str(Config.DEFAULT_IMG_DIR))
     # 数据
     st.session_state.setdefault("cv_data", None)
     st.session_state.setdefault("cv_csv_filename", Config.DEFAULT_CSV)
@@ -140,6 +139,17 @@ def load_enriched_data(csv_path: str) -> pd.DataFrame:
         return pd.DataFrame()
     df = pd.read_csv(path)
     return df
+
+
+# =============================================================================
+# Image Utilities
+# =============================================================================
+
+
+def _auto_image_path(ip_group: int, seq: int, img_dir: str) -> Path | None:
+    """根据 IP组+序号自动推导图片路径 (兼容多种命名格式)。"""
+    from ao_shaping.utils.file import find_cell_image
+    return find_cell_image(img_dir, ip_group, seq)
 
 
 # =============================================================================
@@ -264,6 +274,13 @@ def _render_cell_editor(df: pd.DataFrame, sel_row: int, sel_col: int, position_n
         st.caption("值未改变，无需保存")
     elif st.session_state.cv_conflict_info is not None:
         st.caption("⚠️ 存在未解决的冲突，请在上方确认或取消")
+
+    # ── 图片展示（自动推导）──────────────────────────────────────────────
+    img_path = _auto_image_path(info.ip_group, info.seq, st.session_state.cv_img_dir)
+    if img_path:
+        st.divider()
+        st.markdown(f"**📷 图片:** `{img_path.name}`")
+        st.image(str(img_path), caption=f"[{info.ip_group}-{info.seq}] {img_path.name}", width=400)
 
 
 # ── Cached helpers for render_tab_grid ────────────────────────────────────
@@ -619,92 +636,6 @@ def render_tab_grid() -> None:
 
 
 # =============================================================================
-# Tab 2: IP+序号查询
-# =============================================================================
-
-def lookup_by_ip_seq(df: pd.DataFrame, ip_group: int, seq: int) -> pd.DataFrame:
-    """根据 IP 组和序号查询对应单元信息，可能返回多条。"""
-    return df[(df["IP组"] == ip_group) & (df["序号"] == seq)]
-
-
-def render_tab_lookup() -> None:
-    """渲染 Tab 2: IP+序号查询。"""
-    df = st.session_state.cv_data
-    if df.empty:
-        return
-
-    st.markdown("##### IP + 序号查询")
-    st.caption("通过 IP 组号和序号查询对应的引脚编号和 36×36 网格位置")
-
-    col_ip, col_seq = st.columns([1, 1])
-    with col_ip:
-        ip_group = st.number_input("IP组 (101~126)", min_value=Config.IP_MIN, max_value=Config.IP_MAX,
-                                    value=st.session_state.cv_lookup_ip, step=1, key="cv_lookup_ip_input")
-    with col_seq:
-        seq = st.number_input("序号 (0~49)", min_value=Config.SEQ_MIN, max_value=Config.SEQ_MAX,
-                              value=st.session_state.cv_lookup_seq, step=1, key="cv_lookup_seq_input")
-
-    st.session_state.cv_lookup_ip = ip_group
-    st.session_state.cv_lookup_seq = seq
-
-    col_btn, _ = st.columns([1, 3])
-    with col_btn:
-        if st.button("🔍 查询", type="primary", use_container_width=True, key="cv_lookup_btn"):
-            result = lookup_by_ip_seq(df, ip_group, seq)
-            st.session_state.cv_lookup_result = result
-
-    result = st.session_state.cv_lookup_result
-    if result is not None and not result.empty:
-        if len(result) > 0 and int(result.iloc[0]["IP组"]) == ip_group and int(result.iloc[0]["序号"]) == seq:
-            st.divider()
-            n_results = len(result)
-            st.markdown(f"##### ✅ 查询结果 ({n_results} 条{'记录' if n_results > 1 else ''})")
-
-            for i, (_, row_data) in enumerate(result.iterrows()):
-                r = int(row_data["36×36行"])
-                c = int(row_data["36×36列"])
-                pos = r * Config.GRID_SIZE + c + 1
-
-                if n_results > 1:
-                    st.markdown(f"**匹配 {i+1}:**")
-                else:
-                    st.markdown("")
-
-                meta_c1, meta_c2, meta_c3 = st.columns(3)
-                with meta_c1:
-                    st.metric("36×36位置", f"[{r}, {c}]")
-                with meta_c2:
-                    st.metric("位置序号", pos)
-                with meta_c3:
-                    st.metric("所属组", row_data["组"])
-
-                meta_c4, meta_c5 = st.columns(2)
-                with meta_c4:
-                    st.metric("引脚编号", int(row_data["引脚编号"]))
-                with meta_c5:
-                    st.metric("连接器", row_data["连接器"])
-
-                if i < n_results - 1:
-                    st.divider()
-        else:
-            st.info("请点击「查询」按钮查看结果")
-    elif result is not None and result.empty:
-        st.warning(f"未找到 IP组={ip_group}, 序号={seq} 的对应记录")
-    else:
-        st.info("请输入 IP 组和序号，点击查询")
-
-        st.divider()
-        st.markdown("##### 可用 IP 组")
-        ip_list = sorted(df["IP组"].unique())
-        ip_cols = st.columns(7)
-        for idx, ip in enumerate(ip_list):
-            col_idx = idx % 7
-            count = len(df[df["IP组"] == ip])
-            with ip_cols[col_idx]:
-                st.caption(f"**{int(ip)}** ({count}单元)")
-
-
-# =============================================================================
 # Sidebar
 # =============================================================================
 
@@ -741,29 +672,19 @@ def render_sidebar() -> None:
             st.metric("网格大小", f"{Config.GRID_SIZE} × {Config.GRID_SIZE}")
 
             with st.container(border=True):
-                st.markdown("##### 数据列说明")
-                st.caption("**位置序号**: 1~1296 的排列位置")
-                st.caption("**36×36行/列**: 在 36×36 网格中的行列坐标")
-                st.caption("**IP组**: 单元所属 IP 组 (101~126)")
-                st.caption("**序号**: 组内序号 (0~49)")
-                st.caption("**所属组**: 对应输出线序表组别 (一组~五组)")
-                st.caption("**引脚编号**: 机柜输出引脚编号")
-                st.caption("**连接器**: 连接器标识")
-
-            with st.container(border=True):
-                st.markdown("##### 数据分布 — 所属组")
-                for group_name in ["一组", "二组", "三组", "四组", "五组"]:
-                    cnt = len(df[df["组"] == group_name])
-                    st.caption(f"{group_name}: {cnt} 单元")
-
-            with st.container(border=True):
-                st.markdown("##### 数据分布 — IP组")
-                ip_groups = sorted(df["IP组"].unique())
-                ip_cols = st.columns(3)
-                for idx, ip in enumerate(ip_groups):
-                    cnt = len(df[df["IP组"] == int(ip)])
-                    with ip_cols[idx % 3]:
-                        st.caption(f"IP{int(ip):>3}: {cnt} 单元")
+                st.markdown("##### 🖼️ 图片目录")
+                prev_img_dir = st.session_state.cv_img_dir
+                new_img_dir = st.text_input(
+                    "图片目录", value=prev_img_dir, key="cv_img_dir_input",
+                    help="根据 IP组+序号自动推导图片路径",
+                )
+                if new_img_dir != prev_img_dir:
+                    st.session_state.cv_img_dir = str(new_img_dir)
+                img_dir = Path(st.session_state.cv_img_dir or str(Config.DEFAULT_IMG_DIR))
+                if img_dir.exists():
+                    st.caption(f"✅ `{img_dir}`")
+                else:
+                    st.warning(f"⚠️ 目录不存在: `{img_dir}`")
 
             with st.container(border=True):
                 st.markdown("##### 数据源配置")
@@ -794,6 +715,29 @@ def render_sidebar() -> None:
 
                 if dirty:
                     st.warning("⚠️ 有未保存的修改")
+
+            # ── 折叠信息 ──────────────────────────────────────────────
+            with st.expander("📖 数据列说明", expanded=False):
+                st.caption("**位置序号**: 1~1296 的排列位置")
+                st.caption("**36×36行/列**: 在 36×36 网格中的行列坐标")
+                st.caption("**IP组**: 单元所属 IP 组 (101~126)")
+                st.caption("**序号**: 组内序号 (0~49)")
+                st.caption("**所属组**: 对应输出线序表组别 (一组~五组)")
+                st.caption("**引脚编号**: 机柜输出引脚编号")
+                st.caption("**连接器**: 连接器标识")
+
+            with st.expander("📊 数据分布 — 所属组", expanded=False):
+                for group_name in ["一组", "二组", "三组", "四组", "五组"]:
+                    cnt = len(df[df["组"] == group_name])
+                    st.caption(f"{group_name}: {cnt} 单元")
+
+            with st.expander("📊 数据分布 — IP组", expanded=False):
+                ip_groups = sorted(df["IP组"].unique())
+                ip_cols = st.columns(3)
+                for idx, ip in enumerate(ip_groups):
+                    cnt = len(df[df["IP组"] == int(ip)])
+                    with ip_cols[idx % 3]:
+                        st.caption(f"IP{int(ip):>3}: {cnt} 单元")
         else:
             st.error("数据加载失败")
             st.info("运行 scripts/process_1300_data.py 生成数据")
@@ -813,7 +757,7 @@ def main() -> None:
     )
 
     st.title("🔬 1300 陶瓷单元查看工具")
-    st.caption("Adaptive Optics 陶瓷驱动器 | 36×36 网格浏览 · IP+序号查询引脚关系")
+    st.caption("Adaptive Optics 陶瓷驱动器 | 36×36 网格浏览 · 自动图片展示")
 
     _initialize_state()
 
@@ -821,14 +765,7 @@ def main() -> None:
         _reload_data()
 
     render_sidebar()
-
-    tab1, tab2 = st.tabs(["36×36 网格浏览", "IP+序号查询"])
-
-    with tab1:
-        render_tab_grid()
-
-    with tab2:
-        render_tab_lookup()
+    render_tab_grid()
 
 
 if __name__ == "__main__":

@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import streamlit as st
 from loguru import logger
@@ -40,15 +42,43 @@ from ao_shaping.gui.r50.r50_voltage_send import (
 )
 
 
+def _get_active_controller() -> Any | None:
+    """获取当前模式下的活跃控制器。
+
+    - single 模式: 返回 session_state 中的单控制器。
+    - joint 模式: 从 MicroDM 中按选中的 IP 返回对应的 R50Controller。
+    """
+    mode = st.session_state.get(f"{P}_connection_mode", "single")
+    if mode == "single":
+        return st.session_state.get(f"{P}_controller")
+    if mode == "joint":
+        dm = st.session_state.get(f"{P}_jc_dm")
+        if dm is None:
+            return None
+        selected_ip = st.session_state.get(f"{P}_jc_selected_ip", "")
+        if not selected_ip:
+            return None
+        target_suffix = int(selected_ip.split(".")[-1])
+        for ctrl in getattr(dm, "_controllers", []):
+            if hasattr(ctrl, "ip") and ctrl.ip == selected_ip:
+                return ctrl
+            if hasattr(ctrl, "controller_id") and ctrl.controller_id == target_suffix:
+                return ctrl
+        return None
+    return None
+
+
 # =============================================================================
 # 连通性测试
 # =============================================================================
+
 
 def test_connectivity() -> None:
     """测试与 192.168.0.x 控制器网络的连通性 (Ping + TCP)。"""
     ip = st.session_state.get(f"{P}_ip", "192.168.0.101").strip()
     port = int(st.session_state.get(f"{P}_port", CFG.DEFAULT_PORT))
-    st.write(f"#### 测试目标: {ip}:{port}")
+    controller_num = int(st.session_state.get(f"{P}_controller_num", 1))
+    st.write(f"#### 测试目标: 控制器 #{controller_num} ({ip}:{port})")
     ping_ok = ping_reachable(ip, timeout=1.0)
     st.write(f"**Ping {ip}** → {'✅ 可达' if ping_ok else '❌ 不可达'}")
     tcp_ok = tcp_reachable(ip, port, timeout=1.0)
@@ -63,11 +93,13 @@ def test_connectivity() -> None:
 # 连接 / 断开 / 继电器 (单控制器)
 # =============================================================================
 
+
 def connect() -> None:
     """连接单控制器 (真实或仿真)。"""
     ip = st.session_state[f"{P}_ip"].strip()
     port = int(st.session_state[f"{P}_port"])
     simulate = st.session_state.get(f"{P}_simulate", False)
+    controller_num = int(st.session_state.get(f"{P}_controller_num", 1))
     # 清理旧连接
     old = st.session_state.get(f"{P}_controller")
     if old is not None:
@@ -79,17 +111,23 @@ def connect() -> None:
         st.session_state[f"{P}_connected"] = False
     st.session_state[f"{P}_connection_error"] = ""
     try:
-        ctrl = create_controller(controller_id=1, ip=ip, port=port, simulate=simulate)
+        ctrl = create_controller(
+            controller_id=controller_num, ip=ip, port=port, simulate=simulate
+        )
     except ConnectionError as exc:
-        st.session_state[f"{P}_connection_error"] = f"无法建立 TCP 连接到 {ip}:{port} ({exc})"
+        st.session_state[f"{P}_connection_error"] = (
+            f"无法建立 TCP 连接到 {ip}:{port} ({exc})"
+        )
         st.session_state[f"{P}_connected"] = False
         logger.error(st.session_state[f"{P}_connection_error"])
         return
     st.session_state[f"{P}_controller"] = ctrl
     st.session_state[f"{P}_connected"] = True
-    st.session_state[f"{P}_feedback"] = f"已连接 {ip}:{port} {'(仿真)' if simulate else ''}"
+    st.session_state[f"{P}_feedback"] = (
+        f"已连接 控制器 #{controller_num} ({ip}:{port}) {'(仿真)' if simulate else ''}"
+    )
     st.session_state[f"{P}_feedback_type"] = "success"
-    logger.info(f"R50 控制器已连接: {ip}:{port} simulate={simulate}")
+    logger.info(f"R50 控制器已连接: #{controller_num} {ip}:{port} simulate={simulate}")
 
 
 def disconnect() -> None:
@@ -138,9 +176,12 @@ def set_relay_power(on: bool) -> None:
 # 下发保护 / 单次下发
 # =============================================================================
 
+
 def _require_relay_on() -> bool:
     """下发前强制检查继电器状态。"""
-    if not st.session_state.get(f"{P}_relay_on", False):
+    mode = st.session_state.get(f"{P}_connection_mode", "single")
+    relay_key = f"{P}_relay_on" if mode == "single" else f"{P}_jc_relay_on"
+    if not st.session_state.get(relay_key, False):
         _set_feedback("⚠️ 请先开启继电器 (否则控制器不会输出)", "warning")
         return False
     return True
@@ -163,7 +204,11 @@ def _send_success_feedback(voltage: float, result: SendResult) -> None:
 def _log_all_packet(voltage: float) -> None:
     """调试日志: 全选 0x08 数据包。"""
     payload = voltages_to_payload(np.asarray([voltage], dtype=np.float64))
-    packet = HEADER + bytes([CMD_SET_ALL_CHANNEL_VOLTAGE, int(payload[0]), int(payload[1])]) + FOOTER
+    packet = (
+        HEADER
+        + bytes([CMD_SET_ALL_CHANNEL_VOLTAGE, int(payload[0]), int(payload[1])])
+        + FOOTER
+    )
     _debug_log_packet("CMD_SET_ALL_CHANNEL_VOLTAGE", packet)
 
 
@@ -177,13 +222,15 @@ def _log_bulk_packet(voltage: float, selection: ChannelSelection) -> None:
         st.session_state[f"{P}_vmin"],
         st.session_state[f"{P}_vmax"],
     )
-    packet = HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR]) + voltages_to_payload(arr) + FOOTER
+    packet = (
+        HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR]) + voltages_to_payload(arr) + FOOTER
+    )
     _debug_log_packet("CMD_SET_ALL_VOLTAGE_BY_ARR", packet)
 
 
 def _send_channels(voltage: float) -> SendResult:
     """单次下发当前选择 (全选或勾选通道), 更新当前电压表并反馈。"""
-    ctrl = st.session_state.get(f"{P}_controller")
+    ctrl = _get_active_controller()
     if ctrl is None:
         _set_feedback("请先连接控制器", "error")
         return SendResult(fail=1, failed_targets=["未连接"])

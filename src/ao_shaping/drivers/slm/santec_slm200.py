@@ -45,7 +45,9 @@ from ao_shaping.utils.device_config import ConfigHandler, DeviceParam, param
 from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
 
 # Config directory: <project_root>/data/slm_configs/ or from SLM_CONFIG_DIR env var
-_SLM_CONFIG_DIR = Path(os.environ.get("SLM_CONFIG_DIR", PROJECT_ROOT / "data" / "slm_configs"))
+_SLM_CONFIG_DIR = Path(
+    os.environ.get("SLM_CONFIG_DIR", PROJECT_ROOT / "data" / "slm_configs")
+)
 
 
 # ── SLM 配置参数 dataclass ──────────────────────────────
@@ -70,6 +72,7 @@ class SLMParams(DeviceParam):
       - :attr:`attr` — 设备实例的属性名
       - :attr:`cast` — 从 JSON 读入时的类型转换
     """
+
     wavelength: int | None = param(default=None, cast=_to_int_or_none)
     shift_x: int = param(default=0, attr="_shift_x")
     shift_y: int = param(default=0, attr="_shift_y")
@@ -304,9 +307,7 @@ class SantecSLM200:
                 ret = self._slm.SLM_Ctrl_ReadSD(self.slm_number, device_id)
                 result[0] = ret
             except Exception:
-                logger.exception(
-                    f"SLM #{self.slm_number} 读取序列号时发生异常"
-                )
+                logger.exception(f"SLM #{self.slm_number} 读取序列号时发生异常")
 
         t = threading.Thread(target=worker, daemon=True)
         t.start()
@@ -330,9 +331,7 @@ class SantecSLM200:
         """
         ret = self._slm.SLM_Ctrl_Reboot(self.slm_number)
         if ret != SLM_OK:
-            raise SantecSLM200Error(
-                f"SLM #{self.slm_number} 重启失败", code=ret
-            )
+            raise SantecSLM200Error(f"SLM #{self.slm_number} 重启失败", code=ret)
         logger.info(f"SLM #{self.slm_number} 已重启")
         # 重启后设备需要重新打开
         self.is_open = False
@@ -414,7 +413,9 @@ class SantecSLM200:
             / "Wavefront_correction_Data_240236000006(520nm).csv"
         )
         resolved = WavefrontCorrection.resolve(
-            explicit_path=self._correction.csv_path if self._correction.is_valid else None,
+            explicit_path=self._correction.csv_path
+            if self._correction.is_valid
+            else None,
             config=config,
             panel_resolution=self.Panel_Res,
             default_path=default_path,
@@ -575,7 +576,9 @@ class SantecSLM200:
                     logger.debug(f"等待设备就绪... ({attempt + 1}/{max_retries})")
                     time.sleep(retry_delay)
                 else:
-                    logger.error(f"SLM #{self.slm_number} 在 {max_retries} 次尝试后仍未就绪")
+                    logger.error(
+                        f"SLM #{self.slm_number} 在 {max_retries} 次尝试后仍未就绪"
+                    )
                     raise
         return False
 
@@ -676,9 +679,14 @@ class SantecSLM200:
         wavelength = int(wavelength.value)
         phase_pi = phase.value / 100.0
         if phase_pi <= 0:
-            logger.warning(f"SLM #{self.slm_number}: SLM_Ctrl_ReadWL returned phase=0; device wavelength not set")
+            logger.warning(
+                f"SLM #{self.slm_number}: SLM_Ctrl_ReadWL returned phase=0; device wavelength not set"
+            )
             self._max_gray = self.MAX_GRAYSCALE_VALUE
-            return self.wavelength if self.wavelength is not None else 1064, self._max_gray
+            return (
+                self.wavelength if self.wavelength is not None else 1064,
+                self._max_gray,
+            )
         raw = int(2.0 / phase_pi * self.MAX_GRAYSCALE_VALUE)
         self._max_gray = max(1, min(raw, self.MAX_GRAYSCALE_VALUE))
         if raw != self._max_gray:
@@ -686,13 +694,9 @@ class SantecSLM200:
                 f"SLM #{self.slm_number}: 计算2π灰度值 {raw} 超出硬件范围 "
                 f"[1, {self.MAX_GRAYSCALE_VALUE}]，已钳位至 {self._max_gray}"
             )
-            logger.info(
-                f"当前波长: {wavelength}nm, 2π对应灰度值: {self._max_gray}"
-            )
+            logger.info(f"当前波长: {wavelength}nm, 2π对应灰度值: {self._max_gray}")
         else:
-            logger.debug(
-                f"当前波长: {wavelength}nm, 2π对应灰度值: {self._max_gray}"
-            )
+            logger.debug(f"当前波长: {wavelength}nm, 2π对应灰度值: {self._max_gray}")
 
         return wavelength, self._max_gray
 
@@ -736,8 +740,7 @@ class SantecSLM200:
         res = self._slm.SLM_Ctrl_WriteWL(self.slm_number, wavelength, phase_range)
         if res != SLM_OK:
             raise SantecSLM200Error(
-                f"自校正失败: SLM_Ctrl_WriteWL 返回错误 "
-                f"(wavelength={wavelength})",
+                f"自校正失败: SLM_Ctrl_WriteWL 返回错误 (wavelength={wavelength})",
                 code=res,
             )
 
@@ -753,10 +756,7 @@ class SantecSLM200:
         self.wavelength = wavelength
         wavelength_nm, max_gray = self.get_wavelength_info()
 
-        logger.info(
-            f"波长自校正完成: {wavelength_nm}nm, "
-            f"2π 对应灰度值: {max_gray}"
-        )
+        logger.info(f"波长自校正完成: {wavelength_nm}nm, 2π 对应灰度值: {max_gray}")
 
         return wavelength_nm, max_gray
 
@@ -1104,6 +1104,58 @@ class SantecSLM200:
             cval=0,
         )
         return shifted.astype(phase.dtype)
+
+    @property
+    def correction_enabled(self) -> bool:
+        """当前是否已加载有效的波前误差矫正数据"""
+        return (
+            self._correction is not None
+            and self._correction.is_valid
+            and self._correction.correction_map is not None
+        )
+
+    @property
+    def correction_csv_path(self) -> Path | None:
+        """当前矫正 CSV 文件路径（None 表示未加载）"""
+        return self._correction.csv_path if self._correction is not None else None
+
+    def load_correction_from_csv(
+        self,
+        csv_path: str | Path | None = None,
+    ) -> bool:
+        """运行时重新加载波前误差矫正 CSV 文件。
+
+        Args:
+            csv_path: 矫正 CSV 文件路径。为 None 时使用当前已加载的路径重新计算，
+                或清空矫正（当前路径无效时）。
+
+        Returns:
+            True 表示已成功加载并计算矫正映射，False 表示未加载有效矫正。
+        """
+        if csv_path is not None:
+            resolved = WavefrontCorrection.resolve(
+                explicit_path=csv_path,
+                config=None,
+                panel_resolution=self.Panel_Res,
+            )
+        else:
+            current = self.correction_csv_path
+            resolved = WavefrontCorrection.resolve(
+                explicit_path=current if current is not None else "",
+                config=None,
+                panel_resolution=self.Panel_Res,
+            )
+
+        if resolved is not None:
+            self._correction = resolved
+            logger.info(
+                f"SLM #{self.slm_number} 矫正数据已重新加载: {resolved.csv_path.name}"
+            )
+            return True
+
+        self._correction = WavefrontCorrection()
+        logger.info(f"SLM #{self.slm_number} 已清除矫正数据")
+        return False
 
     def set_shift(self, shift_x: int, shift_y: int) -> None:
         """设置平移参数

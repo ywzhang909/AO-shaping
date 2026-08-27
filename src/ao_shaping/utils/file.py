@@ -16,6 +16,38 @@ import matplotlib.pyplot as plt
 # Project root directory (workspace root)
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
+# Image file extensions to search
+_IMG_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
+
+
+def find_cell_image(base_dir: str | Path, ip_group: int, seq: int) -> Path | None:
+    """根据 IP组+序号 在目录中查找对应的单元格图片。
+
+    支持两种命名格式:
+    - 旧格式: {ip}-{seq:03d}.png
+    - 新格式: {ip}-{seq:03d}_cx*_cy*.png (含质心坐标后缀)
+
+    目录结构: {base_dir}/192.168.0.{ip}/{ip}-{seq:03d}*.png
+
+    Args:
+        base_dir: 图片根目录 (如 data/md_test/md_img 或 data/md_test/md_img-100v_processed/diff)
+        ip_group: IP 组号 (101~126)
+        seq: 序号 (0~49)
+
+    Returns:
+        匹配的图片 Path，未找到则返回 None
+    """
+    base = Path(base_dir)
+    ip_dir = base / f"192.168.0.{ip_group}"
+    if not ip_dir.exists():
+        return None
+
+    prefix = f"192.168.0.{ip_group}-{seq:03d}"
+    for f in ip_dir.iterdir():
+        if f.is_file() and f.stem.startswith(prefix) and f.suffix.lower() in _IMG_EXTENSIONS:
+            return f
+    return None
+
 
 def gen_file_path_inc(dir: str | Path, postfix: str = ""):
     if isinstance(dir, str):

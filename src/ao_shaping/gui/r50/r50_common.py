@@ -41,6 +41,7 @@ from ao_shaping.utils.network import ip_last_octet
 # 反馈助手 (单控制器 / 联合 / 分组共用, 前缀区分)
 # =============================================================================
 
+
 def _set_feedback(message: str, msg_type: str = "info", prefix: str = "") -> None:
     """写入反馈消息。prefix ("jc"/"gc") 为空时使用单控制器前缀。"""
     p = f"{P}_{prefix}" if prefix else P
@@ -70,6 +71,7 @@ def _show_feedback(prefix: str = "") -> None:
 # 通道标签助手 (单控制器 IP 下)
 # =============================================================================
 
+
 def _current_ip_suffix() -> int | None:
     """当前单控制器 IP 的末段 (int), 解析失败返回 None。"""
     ip = st.session_state.get(f"{P}_ip", "").strip()
@@ -94,13 +96,19 @@ def _channel_label(ch: int) -> str:
 # Session State 初始化
 # =============================================================================
 
+
 def _initialize_state() -> None:
     """初始化所有 session_state 变量 (幂等, 每次 rerun 调用)。"""
     # ---- 单控制器 ----
-    st.session_state.setdefault(f"{P}_connection_mode", "single")  # "single" | "joint" | "group"
+    st.session_state.setdefault(
+        f"{P}_connection_mode", "single"
+    )  # "single" | "joint" | "group"
     # NOTE: 不能用 setdefault — 旧版 UI 可能残留 None/错误类型, 会导致 widget 创建失败
     # (st.text_input(value=None) 抛异常, widget key 不注册, 后续读取直接 KeyError)。
-    if not isinstance(st.session_state.get(f"{P}_ip"), str) or not st.session_state[f"{P}_ip"].strip():
+    if (
+        not isinstance(st.session_state.get(f"{P}_ip"), str)
+        or not st.session_state[f"{P}_ip"].strip()
+    ):
         st.session_state[f"{P}_ip"] = "192.168.0.101"
     if not isinstance(st.session_state.get(f"{P}_port"), int):
         st.session_state[f"{P}_port"] = CFG.DEFAULT_PORT
@@ -121,8 +129,8 @@ def _initialize_state() -> None:
         st.session_state[f"{P}_confirm_disconnect"] = False
 
     # ---- 单元选择 / 电压下发 (指定单元 + 全部单元 合并) ----
-    st.session_state.setdefault(f"{P}_channel", 0)       # 正弦单通道目标
-    st.session_state.setdefault(f"{P}_channels", [0])    # 指定单元多选
+    st.session_state.setdefault(f"{P}_channel", 0)  # 正弦单通道目标
+    st.session_state.setdefault(f"{P}_channels", [0])  # 指定单元多选
     st.session_state.setdefault(f"{P}_all_mode", False)  # 全部单元(50)开关
     st.session_state.setdefault(f"{P}_voltage", 0.0)
     st.session_state.setdefault(f"{P}_hold", False)
@@ -155,14 +163,20 @@ def _initialize_state() -> None:
     st.session_state.setdefault(f"{P}_send_mode", "clear")
 
     # ---- 反馈 ----
-    st.session_state.setdefault(f"{P}_current_voltages", np.zeros(SINGLE_CHANNELS, dtype=np.float64))
+    st.session_state.setdefault(
+        f"{P}_current_voltages", np.zeros(SINGLE_CHANNELS, dtype=np.float64)
+    )
     st.session_state.setdefault(f"{P}_feedback", "")
     st.session_state.setdefault(f"{P}_feedback_type", "info")
     # ---- 调试日志 ----
     st.session_state.setdefault(f"{P}_debug", False)
     st.session_state.setdefault(f"{P}_debug_pkt_enable_sb", False)
-    st.session_state.setdefault(f"{P}_debug_log", collections.deque(maxlen=DEBUG_LOG_MAX))
-    st.session_state.setdefault(f"{P}_debug_op_log", collections.deque(maxlen=DEBUG_LOG_MAX))
+    st.session_state.setdefault(
+        f"{P}_debug_log", collections.deque(maxlen=DEBUG_LOG_MAX)
+    )
+    st.session_state.setdefault(
+        f"{P}_debug_op_log", collections.deque(maxlen=DEBUG_LOG_MAX)
+    )
     st.session_state.setdefault(f"{P}_debug_tcp_client", DebugTcpClient())
     st.session_state.setdefault(f"{P}_debug_tcp_enabled", False)
     st.session_state.setdefault(f"{P}_debug_tcp_host", DEBUG_HOST)
@@ -175,6 +189,8 @@ def _initialize_state() -> None:
     st.session_state.setdefault(f"{P}_channel", 0)
     st.session_state.setdefault(f"{P}_voltage", 0.0)
     st.session_state.setdefault(f"{P}_hold", False)
+    st.session_state.setdefault(f"{P}_controller_num", 1)
+    st.session_state.setdefault(f"{P}_jc_selected_ip", "")
     st.session_state.setdefault(f"{P}_sine_running", False)
     st.session_state.setdefault(f"{P}_alt_running", False)
     st.session_state.setdefault(f"{P}_sine_apply_all", True)
@@ -247,6 +263,7 @@ def _init_gc_state() -> None:
 # =============================================================================
 # 发送循环管理 (后台线程不触碰 session_state; 反馈经 queue 回传)
 # =============================================================================
+
 
 def _loop_stop_all() -> None:
     """停止所有运行中的发送循环。"""

@@ -130,7 +130,7 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
             min_value=0,
             max_value=1024,
             step=1,
-            key=f"{prefix}_{pattern_type}_gray"
+            key=f"{prefix}_{pattern_type}_gray",
         )
     elif pattern_type in {"线性光栅", "全息光栅"}:
         params["period"] = st.number_input(
@@ -151,7 +151,9 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
         period_mode = st.radio(
             "周期设置方式",
             options=["direct", "angle"],
-            format_func=lambda x: "直接设置周期(像素)" if x == "direct" else "根据衍射角度和波长计算",
+            format_func=lambda x: (
+                "直接设置周期(像素)" if x == "direct" else "根据衍射角度和波长计算"
+            ),
             key=f"{prefix}_blazed_period_mode",
             horizontal=True,
             label_visibility="collapsed",
@@ -220,7 +222,9 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
         params["direction"] = st.selectbox(
             "光栅方向",
             options=["vertical", "horizontal"],
-            format_func=lambda x: "竖条纹（垂直）" if x == "vertical" else "横条纹（水平）",
+            format_func=lambda x: (
+                "竖条纹（垂直）" if x == "vertical" else "横条纹（水平）"
+            ),
             key=f"{prefix}_blazed_direction",
         )
     elif pattern_type == "圆形光栅":
@@ -438,7 +442,9 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
         params["split_direction"] = st.selectbox(
             "划分方向",
             options=["左右", "上下"],
-            format_func=lambda x: "左半平面+右半闪耀光栅" if x == "左右" else "上半平面+下半闪耀光栅",
+            format_func=lambda x: (
+                "左半平面+右半闪耀光栅" if x == "左右" else "上半平面+下半闪耀光栅"
+            ),
             key=f"{prefix}_halfhalf_split",
         )
         st.caption("闪耀光栅参数")
@@ -462,7 +468,9 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
             params["blaze_direction"] = st.selectbox(
                 "闪耀光栅方向",
                 options=["horizontal", "vertical"],
-                format_func=lambda x: "横条纹（水平）" if x == "horizontal" else "竖条纹（垂直）",
+                format_func=lambda x: (
+                    "横条纹（水平）" if x == "horizontal" else "竖条纹（垂直）"
+                ),
                 key=f"{prefix}_halfhalf_blaze_dir",
             )
         else:
@@ -502,7 +510,7 @@ def generate_phase_gray(
     if pattern_type == "线性光栅":
         phase_rad = helper.linear_grating(
             period=float(params["period"]),
-            phase_range=float(params["phase_range"]),                                                                                                                                                           
+            phase_range=float(params["phase_range"]),
             wrap_phase=False,
         )
         return slm.create_phase_from_array(phase_rad)
@@ -632,14 +640,10 @@ def generate_phase_gray(
         # Stitch: half flat + half blaze
         if split_dir == "左右":
             mid = width // 2
-            return np.concatenate(
-                [flat_full[:, :mid], blaze_gray[:, mid:]], axis=1
-            )
+            return np.concatenate([flat_full[:, :mid], blaze_gray[:, mid:]], axis=1)
         else:  # 上下
             mid = height // 2
-            return np.concatenate(
-                [flat_full[:mid, :], blaze_gray[mid:, :]], axis=0
-            )
+            return np.concatenate([flat_full[:mid, :], blaze_gray[mid:, :]], axis=0)
     raise ValueError(f"未知相位图类型: {pattern_type}")
 
 
@@ -711,7 +715,9 @@ def connect_slm(slm_num: int):
         st.session_state[prefix] = slm
         st.session_state[f"{prefix}_connected"] = True
 
-        st.session_state[video_mode_key] = "内存模式" if slm.video_mode == 0 else "DVI模式"
+        st.session_state[video_mode_key] = (
+            "内存模式" if slm.video_mode == 0 else "DVI模式"
+        )
         st.session_state[shift_x_key] = slm.shift_x
         st.session_state[shift_y_key] = slm.shift_y
         st.session_state[wavelength_key] = slm.wavelength
@@ -814,9 +820,7 @@ def toggle_correction(slm_num: int, enabled: bool) -> None:
         config = slm.load_config()
         slm._load_correction(config)
         if slm._correction.is_valid:
-            st.success(
-                f"SLM {slm_num} 矫正已启用: {slm._correction.csv_path.name}"
-            )
+            st.success(f"SLM {slm_num} 矫正已启用: {slm._correction.csv_path.name}")
         else:
             st.warning(f"SLM {slm_num} 矫正已启用，但未找到有效矫正文件")
     else:
@@ -975,6 +979,63 @@ def render_slm_sidebar(slm_num: int):
 
         st.divider()
 
+        st.caption("波前矫正")
+        correction_enabled = bool(getattr(slm_obj, "correction_enabled", False))
+        correction_path = getattr(slm_obj, "correction_csv_path", None)
+        if correction_enabled and correction_path is not None:
+            st.success(
+                f"矫正已启用: {correction_path.name}",
+                icon="✅",
+            )
+        else:
+            st.info("矫正未加载", icon="ℹ️")
+
+        uploaded_correction = st.file_uploader(
+            "加载矫正 CSV 文件",
+            type=["csv"],
+            key=f"{prefix}_correction_csv",
+        )
+        col_corr1, col_corr2 = st.columns(2)
+        with col_corr1:
+            if st.button("应用矫正", key=f"{prefix}_apply_corr_btn"):
+                try:
+                    slm = st.session_state.get(prefix)
+                    if slm is None:
+                        st.warning("SLM未连接，无法应用矫正")
+                    elif uploaded_correction is None:
+                        st.warning("请先选择矫正 CSV 文件")
+                    else:
+                        import tempfile
+
+                        with tempfile.NamedTemporaryFile(
+                            delete=False, suffix=".csv"
+                        ) as tmp:
+                            tmp.write(uploaded_correction.getbuffer())
+                            tmp_path = tmp.name
+                        ok = slm.load_correction_from_csv(tmp_path)
+                        if ok:
+                            st.success(f"矫正已应用: {uploaded_correction.name}")
+                        else:
+                            st.warning("矫正文件加载失败")
+                except Exception as e:
+                    st.error(f"应用矫正失败: {e}")
+                    logger.exception(
+                        f"Failed to apply correction for SLM {slm_num}: {e}"
+                    )
+        with col_corr2:
+            if st.button("清除矫正", key=f"{prefix}_clear_corr_btn"):
+                try:
+                    slm = st.session_state.get(prefix)
+                    if slm is None:
+                        st.warning("SLM未连接")
+                    else:
+                        slm.load_correction_from_csv(None)
+                        st.success("矫正已清除")
+                except Exception as e:
+                    st.error(f"清除矫正失败: {e}")
+
+        st.divider()
+
         # Save configuration button
         if st.button("保存配置", key=f"{prefix}_save_config_btn"):
             slm = st.session_state.get(prefix)
@@ -1007,7 +1068,12 @@ def render_slm_sidebar(slm_num: int):
                     if phase is None:
                         st.warning("无法获取当前显示的相位数据")
                     else:
-                        save_path = Path.home() / ".config" / "ao_shaping" / f"slm{slm_num}_phase.csv"
+                        save_path = (
+                            Path.home()
+                            / ".config"
+                            / "ao_shaping"
+                            / f"slm{slm_num}_phase.csv"
+                        )
                         save_path.parent.mkdir(parents=True, exist_ok=True)
                         np.savetxt(
                             str(save_path),
@@ -1019,6 +1085,21 @@ def render_slm_sidebar(slm_num: int):
             except Exception as e:
                 st.error(f"保存相位CSV失败: {e}")
                 logger.exception(f"Failed to save phase CSV for SLM {slm_num}: {e}")
+
+
+def _verify_phase_displayed(slm: SantecSLM200, expected_slot: int) -> bool:
+    try:
+        actual_slot = slm.get_displayed_memory_number()
+        if actual_slot == expected_slot:
+            logger.debug(f"相位显示验证成功: 内存槽 {expected_slot}")
+            return True
+        logger.warning(
+            f"相位显示验证失败: 期望槽 {expected_slot}, 实际槽 {actual_slot}"
+        )
+        return False
+    except Exception as e:
+        logger.warning(f"相位显示验证异常: {e}")
+        return False
 
 
 def render_phase_control(slm_num: int):
@@ -1045,6 +1126,7 @@ def render_phase_control(slm_num: int):
             mem_slot = int(st.session_state[f"{prefix}_next_memory"])
             slm.write_phase(phase_gray, memory_number=mem_slot)
             slm.display_memory(mem_slot)
+            display_ok = _verify_phase_displayed(slm, mem_slot)
             refresh_phase_preview(slm_num)
 
             # Update next memory slot (avoid using same slot consecutively)
@@ -1052,7 +1134,12 @@ def render_phase_control(slm_num: int):
                 st.session_state[f"{prefix}_next_memory"] % 128
             ) + 1
 
-            st.success(f"相位已写入内存槽 {mem_slot} 并显示")
+            if display_ok:
+                st.success(f"相位已写入内存槽 {mem_slot} 并显示（验证通过）")
+            else:
+                st.warning(
+                    f"相位已写入内存槽 {mem_slot}，但显示验证失败（设备可能未刷新）"
+                )
         except Exception as e:
             st.error(f"生成或显示相位失败: {e}")
             logger.exception(f"Failed to generate/display phase for SLM {slm_num}: {e}")
@@ -1082,6 +1169,7 @@ def render_phase_control(slm_num: int):
                 mem_slot = st.session_state[f"{prefix}_next_memory"]
                 slm.write_phase(phase_gray, memory_number=mem_slot)
                 slm.display_memory(mem_slot)
+                display_ok = _verify_phase_displayed(slm, mem_slot)
                 refresh_phase_preview(slm_num)
 
                 # Update next memory slot
@@ -1089,7 +1177,12 @@ def render_phase_control(slm_num: int):
                     st.session_state[f"{prefix}_next_memory"] % 128
                 ) + 1
 
-                st.success(f"相位已从CSV加载到内存槽 {mem_slot} 并显示")
+                if display_ok:
+                    st.success(f"相位已从CSV加载到内存槽 {mem_slot} 并显示（验证通过）")
+                else:
+                    st.warning(
+                        f"相位已从CSV加载到内存槽 {mem_slot}，但显示验证失败（设备可能未刷新）"
+                    )
 
                 # Clean up temp file
                 temp_path.unlink()
