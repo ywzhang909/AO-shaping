@@ -500,6 +500,24 @@ python -m ao_shaping.tools.micro_dm_image_collect --voltage 20
 python -m ao_shaping.tools.micro_dm_image_collect --ip 192.168.0.101 --voltage 20 --n-frames 3
 ```
 
+### Micro-DM 数据目录
+
+采集的图像数据存储在 `data/md_test/` 目录下，结构如下：
+
+```
+data/md_test/
+├── md_img/                          # 原始灰度图像
+│   └── 192.168.0.{101~126}/         # 按 IP 分组
+│       └── 192.168.0.{ip}-{seq:03d}.png
+├── md_img-100v_processed/diff/      # 100V 差分图像 (FFT 去条纹)
+│   └── 192.168.0.{ip}/{ip}-{seq:03d}_cx{X}_cy{Y}.png
+└── md_img-100v_gif/                 # GIF 动画 (逐通道)
+```
+
+**映射关系**: 网格坐标 (row, col) → CSV/Excel → IP 组 + 序号 → 图像文件
+
+详细说明见: `data/md_test/README.md`
+
 注意: `combined_runner.py` 已废弃，请使用 `pipeline_runner`
 
 ### ML训练 (U-Net+GAN相位预测)
@@ -530,6 +548,9 @@ streamlit run src/ao_shaping/gui/zernike/zernike_response_matrix_ui.py
 
 # SLM 校准
 streamlit run src/ao_shaping/gui/slm/slm_calibration_ui.py
+
+# 1300 陶瓷单元查看器 (网格浏览 + 图片标注)
+streamlit run src/ao_shaping/gui/r50/ceramic_viewer.py
 ```
 
 ## 硬件支持
@@ -898,6 +919,17 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 - **波形下发优化**: 持续保持 / 正弦 / 交替 / 逐序模式统一按钮状态管理，仿真/正式模式均可正常下发
 - **矩阵可视化统一**: 36×36 表格全部加粗逻辑统一，下发后（含归零）所有单元格均为粗体
 - **Styler 兼容性修复**: 修复 pandas 2.1+ `Styler.applymap` 移除导致的 AttributeError
+
+### v0.8.0 (2026-08-27)
+- **1300 陶瓷单元查看器** (`ceramic_viewer.py`):
+  - 36×36 网格浏览，点击单元格查看详细信息
+  - 原始图像 + 差分图像双列显示
+  - **Circle 标注模式**: 在原始图像上绘制圆形标注缺陷区域
+  - **Transform 模式**: 移动/调整已绘制圆的位置和大小
+  - 标注坐标自动映射回原图尺寸 (支持缩放显示)
+  - CSV 导出标注数据
+- **Micro-DM 数据文档**: 新增 `data/md_test/README.md` 和 `docs/micro deformable mirror/docs/README.md`，详细说明 1300 单元映射关系
+- **streamlit-drawable-canvas 集成**: 安装并修补兼容 Streamlit 1.56+ 的绘图组件
 
 ### v0.6.0 (2026-08-25)
 - **AsyncMicroDM 异步驱动**: 新增 `asyn_micro_dm.py`，基于 asyncio 的高性能异步 TCP 驱动

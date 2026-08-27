@@ -18,6 +18,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import streamlit as st
+from PIL import Image
+from streamlit_drawable_canvas import st_canvas
 
 # =============================================================================
 # Configuration
@@ -126,6 +128,9 @@ def _initialize_state() -> None:
     st.session_state.setdefault("cv_data", None)
     st.session_state.setdefault("cv_csv_filename", Config.DEFAULT_CSV)
     st.session_state.setdefault("cv_dirty", False)
+    # 标注状态
+    st.session_state.setdefault("cv_annotation_mode", "circle")
+    st.session_state.setdefault("cv_show_annotations", True)
 
 
 # =============================================================================
@@ -164,6 +169,87 @@ def _auto_image_path(ip_group: int, seq: int, img_dir: str) -> Path | None:
     """根据 IP组+序号自动推导图片路径 (兼容多种命名格式)。"""
     from ao_shaping.utils.file import find_cell_image
     return find_cell_image(img_dir, ip_group, seq)
+
+
+def _render_annotation_canvas(
+    img_path: Path, ip_group: int, seq: int,
+) -> None:
+    """Render drawable canvas over image for circle annotations.
+
+    Shows a circle drawing canvas on top of the image, extracts drawn
+    circles, displays them in a dataframe, and provides CSV export.
+    Canvas is scaled to fit within MAX_CANVAS_WIDTH while preserving aspect ratio.
+    """
+    MAX_CANVAS_WIDTH = 500
+
+    bg_image = Image.open(str(img_path))
+    orig_w, orig_h = bg_image.size
+
+    # Scale canvas to fit display width
+    scale = min(MAX_CANVAS_WIDTH / orig_w, 1.0)
+    canvas_w = int(orig_w * scale)
+    canvas_h = int(orig_h * scale)
+    # Resize image for canvas display
+    if scale < 1.0:
+        bg_image = bg_image.resize((canvas_w, canvas_h), Image.LANCZOS)
+
+    annotation_mode = st.radio(
+        "标注模式",
+        ["circle", "transform"],
+        index=["circle", "transform"].index(
+            st.session_state.get("cv_annotation_mode", "circle"),
+        ),
+        horizontal=True,
+        key="cv_annotation_mode",
+    )
+
+    canvas_key = f"cv_canvas_{ip_group}_{seq}"
+
+    canvas_result = st_canvas(
+        fill_color="rgba(255, 0, 0, 0.3)",
+        stroke_width=3,
+        stroke_color="red",
+        background_image=bg_image,
+        update_streamlit=True,
+        height=canvas_h,
+        width=canvas_w,
+        drawing_mode=annotation_mode,
+        key=canvas_key,
+    )
+
+    if canvas_result.json_data is not None:
+        objects = canvas_result.json_data.get("objects", [])
+        circles: list[dict] = []
+        for obj in objects:
+            if obj.get("type") == "circle":
+                # Coordinates in scaled canvas space → map back to original
+                center_x = (obj["left"] + obj["radius"]) / scale
+                center_y = (obj["top"] + obj["radius"]) / scale
+                radius = obj["radius"] / scale
+                circles.append({
+                    "cell_ip": ip_group,
+                    "cell_seq": seq,
+                    "circle_center_x": round(center_x, 1),
+                    "circle_center_y": round(center_y, 1),
+                    "circle_radius": round(radius, 1),
+                })
+
+        if circles:
+            ann_df = pd.DataFrame(circles)
+            st.caption(f"已标注 {len(circles)} 个圆 (坐标已映射回原图)")
+            st.dataframe(ann_df, use_container_width=True, hide_index=True)
+
+            export_key = f"cv_export_ann_{ip_group}_{seq}"
+            if st.button("📥 导出标注", key=export_key):
+                timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+                csv_name = f"annotations_{ip_group}_{seq}_{timestamp}.csv"
+                csv_path = img_path.parent / csv_name
+                export_df = ann_df.copy()
+                export_df["timestamp"] = timestamp
+                export_df.to_csv(csv_path, index=False, encoding="utf-8-sig")
+                st.success(f"已保存到 `{csv_path}`")
+        elif st.session_state.get("cv_annotation_mode") == "circle":
+            st.caption("在画布上绘制圆以标注缺陷区域")
 
 
 # =============================================================================
@@ -660,14 +746,19 @@ def render_tab_grid() -> None:
                 col_img1, col_img2 = st.columns(2)
                 with col_img1:
                     st.markdown(f"**📷 原始图片:** `{img_path.name}`")
-                    st.image(str(img_path), caption=f"原始 [{info.ip_group}-{info.seq}]", width=img_width)
+                    _render_annotation_canvas(
+                        img_path, info.ip_group, info.seq,
+                    )
                 with col_img2:
                     st.markdown(f"**📷 处理后:** `{img_path_diff.name}`")
                     st.image(str(img_path_diff), caption=f"处理后 [{info.ip_group}-{info.seq}]", width=img_width)
             elif img_path:
                 st.markdown(f"**📷 图片:** `{img_path.name}`")
-                st.image(str(img_path), caption=f"[{info.ip_group}-{info.seq}] {img_path.name}", width=img_width)
+                _render_annotation_canvas(
+                    img_path, info.ip_group, info.seq,
+                )
             else:
+                assert img_path_diff is not None  # guaranteed by outer `or` guard
                 st.markdown(f"**📷 处理后图片:** `{img_path_diff.name}`")
                 st.image(str(img_path_diff), caption=f"[{info.ip_group}-{info.seq}] {img_path_diff.name}", width=img_width)
 

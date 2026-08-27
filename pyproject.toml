@@ -39,6 +39,7 @@ dependencies = [
     "openpyxl>=3.1.5",
     "streamlit-aggrid>=1.2.1.post2",
     "plotly>=6.7.0",
+    "streamlit-drawable-canvas>=0.9.3",
 ]
 
 [project.scripts]
