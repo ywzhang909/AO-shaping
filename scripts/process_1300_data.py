@@ -39,7 +39,9 @@ def read_1300_5_data(path: Path) -> pd.DataFrame:
     for i, row in enumerate(ws.iter_rows(min_row=1, max_row=ws.max_row, values_only=True), 1):
         a, b, c, *_ = row if len(row) >= 3 else (row[0], row[1] if len(row) > 1 else None, None)
         if a is not None:
-            rows.append({"row_id": i, "position": int(a), "ip_group": b, "seq": c})
+            # 位置序号改为使用行号 i (1-indexed)，而非 xlsx 第一列的值。
+            # 过滤 a is not None 后，恰好保留第 1-1296 行作为 36×36 阵面。
+            rows.append({"row_id": i, "position": i, "ip_group": b, "seq": c})
 
     df = pd.DataFrame(rows)
     # Add 36×36 grid coordinates

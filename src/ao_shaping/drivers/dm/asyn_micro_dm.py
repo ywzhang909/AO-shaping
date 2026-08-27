@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import socket
 import time
 from dataclasses import dataclass, field
 
@@ -168,6 +169,14 @@ class AsyncR50Controller:
                 asyncio.open_connection(self.ip, self.port),
                 timeout=self._timeout,
             )
+            # Disable Nagle: frames are small and written one-shot, so delayed
+            # ACK/Nagle buffering would add tens of ms per frame.
+            sock = self._writer.get_extra_info("socket")
+            if sock is not None:
+                try:
+                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                except OSError:
+                    pass
             logger.debug(
                 f"AsyncR50Controller[{self.controller_id}] connected to "
                 f"{self.ip}:{self.port}"
@@ -414,6 +423,23 @@ class AsyncMicroDM(DM):
             tasks.append(ctrl.send_voltages(chunk))
 
         return list(await asyncio.gather(*tasks))
+
+    async def set_relay(self, state: bool) -> dict[int, SendResult]:
+        """Open (True) or close (False) the relay on all controllers concurrently.
+
+        Args:
+            state: True to power on the relay, False to power off.
+
+        Returns:
+            Dict mapping controller_id (1-based) → SendResult.
+        """
+        results = await asyncio.gather(
+            *[ctrl.send_relay(state) for ctrl in self._controllers]
+        )
+        return {
+            ctrl.controller_id: result
+            for ctrl, result in zip(self._controllers, results)
+        }
 
     async def shutdown(self, home_voltage: float = 0.0) -> None:
         """Safe shutdown: home voltages, relay off, disconnect all.

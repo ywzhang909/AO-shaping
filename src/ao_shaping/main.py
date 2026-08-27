@@ -49,6 +49,7 @@ from ao_shaping.runners import (
     greedy_zernike_run,
     dm_matrix_run,
     alt_voltage_run,
+    full_voltage_run,
     combined_run,
 )
 
@@ -91,6 +92,7 @@ cli.add_command(greedy_zernike_run, name="greedy-zernike")
 cli.add_command(zernike_closed_loop_run, name="closed-loop")
 cli.add_command(dm_matrix_run, name="dm-matrix")
 cli.add_command(alt_voltage_run, name="alt-voltage")
+cli.add_command(full_voltage_run, name="full-voltage")
 cli.add_command(combined_run, name="combined")
 
 

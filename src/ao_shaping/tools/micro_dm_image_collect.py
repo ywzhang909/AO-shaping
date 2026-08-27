@@ -65,6 +65,12 @@ from ao_shaping.utils.network import controller_tcp_port, ping_reachable
 # 全局运行标志 (信号处理器修改)
 _running = True
 
+# 电压下发方式静态变量:
+#   True  → 使用 set_all_voltage_array (命令 0x09, 一次性下发全部 50 通道,
+#           其余通道固定为 home_voltage, 速度最快)
+#   False → 使用 set_channel_voltage (逐通道下发, 仅修改目标通道)
+USE_SET_ALL_VOLTAGE_ARRAY = True
+
 
 def _signal_handler(signum: int, frame: object | None) -> None:
     """信号处理器: 收到 SIGINT/SIGTERM 后置运行标志为 False 并提示安全关闭。"""
@@ -281,6 +287,46 @@ def _save_frame(
     return filename
 
 
+def _voltage_array(ch: int | None, voltage: float, home_voltage: float) -> list[float]:
+    """构建 50 通道电压数组: 目标通道为 voltage, 其余通道为 home_voltage。
+
+    Args:
+        ch: 目标通道号; None 时全部通道均为 home_voltage (归位用)
+        voltage: 目标通道电压 (V)
+        home_voltage: 其余通道电压 (V)
+
+    Returns:
+        长度为 MAX_CHANNELS 的电压列表
+    """
+    volts = [home_voltage] * MAX_CHANNELS
+    if ch is not None:
+        volts[ch] = voltage
+    return volts
+
+
+def _send_voltage(
+    ctrl: R50Controller, ch: int, voltage: float, home_voltage: float
+) -> bool:
+    """下发单通道电压, 按 USE_SET_ALL_VOLTAGE_ARRAY 选择下发方式。
+
+    True 时使用 :meth:`R50Controller.set_all_voltage_array` (0x09 命令,
+    全部 50 通道一次性下发, 其余通道固定为 home_voltage);
+    False 时使用 :meth:`R50Controller.set_channel_voltage` 逐通道下发。
+    """
+    if USE_SET_ALL_VOLTAGE_ARRAY:
+        return ctrl.set_all_voltage_array(_voltage_array(ch, voltage, home_voltage))
+    return ctrl.set_channel_voltage(ch, voltage)
+
+
+def _home_channel(ctrl: R50Controller, ch: int, home_voltage: float) -> bool:
+    """单通道归位, 按 USE_SET_ALL_VOLTAGE_ARRAY 选择下发方式。"""
+    if USE_SET_ALL_VOLTAGE_ARRAY:
+        return ctrl.set_all_voltage_array(
+            _voltage_array(None, home_voltage, home_voltage)
+        )
+    return ctrl.set_channel_voltage(ch, home_voltage)
+
+
 def _collect_for_ip(
     ctrl: R50Controller,
     cam: CameraStreamManager,
@@ -322,7 +368,7 @@ def _collect_for_ip(
             break
 
         click.echo(f"  ▶ 通道 {ch:02d}: 下发 {voltage:g}V ... ", nl=False)
-        if not ctrl.set_channel_voltage(ch, voltage):
+        if not _send_voltage(ctrl, ch, voltage, home_voltage):
             click.echo("❌ 电压下发失败, 跳过采集")
             logger.warning("通道 {} 电压下发失败, 跳过采集", ch)
             continue
@@ -342,7 +388,7 @@ def _collect_for_ip(
         finally:
             # 归位
             try:
-                ctrl.set_channel_voltage(ch, home_voltage)
+                _home_channel(ctrl, ch, home_voltage)
             except Exception as e:
                 logger.warning("通道 {} 归位失败: {}", ch, e)
 
