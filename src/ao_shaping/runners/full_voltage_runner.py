@@ -97,10 +97,13 @@ async def _amain(
 
     half_period = 1.0 / (2.0 * alt_freq)
 
-    # Pre-allocate the two uniform frames — avoids per-cycle array allocation
-    # (no GC churn in the hot loop).
+    # Pre-encode the two uniform states into raw command bytes (one per
+    # controller).  The hot loop then replays these cached bytes via
+    # send_frame_commands — zero numpy conversion / buffer fill / allocation.
     vs_off = np.zeros(dm.DM_Num)
     vs_on = np.full(dm.DM_Num, alt_voltage)
+    cmd_off = dm.build_frame_commands(vs_off)
+    cmd_on = dm.build_frame_commands(vs_on)
 
     state = 0  # 0 = sending 0V, 1 = sending input voltage
     cycle_count = 0
@@ -120,8 +123,8 @@ async def _amain(
             # start, so send/print duration never accumulates phase drift.
             deadline = t_start + n_frames * half_period
 
-            vs = vs_off if state == 0 else vs_on
-            send_results = await dm.send_frame(vs)
+            cmds = cmd_off if state == 0 else cmd_on
+            send_results = await dm.send_frame_commands(cmds)
             n_frames += 1
             n_sent += len(send_results)
 

@@ -204,6 +204,53 @@ class AsyncR50Controller:
                 f"AsyncR50Controller[{self.controller_id}] disconnected"
             )
 
+    def prebuild_command(self, voltages: np.ndarray) -> bytes:
+        """Pre-compute the full 0x09 command bytes for a 50-channel frame.
+
+        Encodes exactly like :meth:`send_voltages` but performs no network
+        I/O, so the caller can cache the result and replay it zero-cost in a
+        hot loop via :meth:`send_bytes`.
+
+        Args:
+            voltages: Array of 50 float voltages.
+
+        Returns:
+            The complete command byte-string (header + opcode + payload + footer).
+        """
+        buf = bytearray(MAX_CHANNELS * 2)
+        self._converter.fill_buffer(voltages, buf)
+        return bytes(HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR]) + buf + FOOTER)
+
+    async def send_bytes(
+        self, cmd: bytes, timeout: float | None = None
+    ) -> SendResult:
+        """Write pre-built command bytes and drain, measuring latency.
+
+        Args:
+            cmd: Raw command byte-string (e.g. from :meth:`prebuild_command`).
+            timeout: Optional per-send timeout (seconds). Falls back to
+                ``self._timeout`` when *None*.
+
+        Returns:
+            A :class:`SendResult` describing the outcome.
+        """
+        if self._writer is None:
+            return SendResult(success=False, error="not_connected")
+
+        t0 = time.perf_counter()
+        try:
+            self._writer.write(cmd)
+            await asyncio.wait_for(
+                self._writer.drain(),
+                timeout=timeout or self._timeout,
+            )
+            latency = (time.perf_counter() - t0) * 1e6
+            return SendResult(success=True, latency_us=latency)
+        except asyncio.TimeoutError:
+            return SendResult(success=False, error="drain_timeout")
+        except (OSError, ConnectionError) as exc:
+            return SendResult(success=False, error=str(exc))
+
     async def send_voltages(
         self, voltages: np.ndarray, timeout: float | None = None
     ) -> SendResult:
@@ -219,24 +266,7 @@ class AsyncR50Controller:
         """
         if self._writer is None:
             return SendResult(success=False, error="not_connected")
-
-        buf = bytearray(MAX_CHANNELS * 2)
-        self._converter.fill_buffer(voltages, buf)
-        cmd = HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR]) + bytes(buf) + FOOTER
-
-        t0 = time.perf_counter()
-        try:
-            self._writer.write(cmd)
-            await asyncio.wait_for(
-                self._writer.drain(),
-                timeout=timeout or self._timeout,
-            )
-            latency = (time.perf_counter() - t0) * 1e6
-            return SendResult(success=True, latency_us=latency)
-        except asyncio.TimeoutError:
-            return SendResult(success=False, error="drain_timeout")
-        except (OSError, ConnectionError) as exc:
-            return SendResult(success=False, error=str(exc))
+        return await self.send_bytes(self.prebuild_command(voltages), timeout=timeout)
 
     async def send_relay(self, state: bool) -> SendResult:
         """Open (True) or close (False) the relay."""
@@ -423,6 +453,63 @@ class AsyncMicroDM(DM):
             tasks.append(ctrl.send_voltages(chunk))
 
         return list(await asyncio.gather(*tasks))
+
+    def build_frame_commands(self, voltages: np.ndarray) -> list[bytes]:
+        """Pre-compute per-controller command bytes for a full voltage frame.
+
+        Chunks the logical channel array exactly like :meth:`send_frame` and
+        returns one fully encoded command byte-string per controller, ready
+        for zero-allocation replay via :meth:`send_frame_commands`.
+
+        Args:
+            voltages: Voltage array for all logical channels.
+
+        Returns:
+            List of pre-built command byte-strings, aligned with
+            ``self._controllers``.
+        """
+        vs = np.clip(np.asarray(voltages, dtype=np.float64), self.V_Min, self.V_Max)
+        commands = []
+        for idx, ctrl in enumerate(self._controllers):
+            start = idx * MAX_CHANNELS
+            end = start + MAX_CHANNELS
+            chunk = vs[start:end]
+            if len(chunk) < MAX_CHANNELS:
+                chunk = np.pad(chunk, (0, MAX_CHANNELS - len(chunk)), constant_values=0.0)
+            commands.append(ctrl.prebuild_command(chunk))
+        return commands
+
+    async def send_frame_commands(
+        self,
+        commands: list[bytes],
+        voltages: np.ndarray | None = None,
+    ) -> list[SendResult]:
+        """Send pre-built per-controller command bytes concurrently.
+
+        The hot-loop fast path of :meth:`send_frame`: no voltage encoding,
+        no chunking, no allocation — just one ``write``+``drain`` per
+        controller on the cached bytes.
+
+        Args:
+            commands: One pre-built command byte-string per controller, as
+                returned by :meth:`build_frame_commands`.
+            voltages: If provided, recorded as ``self._last_voltages``.
+
+        Returns:
+            List of :class:`SendResult`, one per controller.
+        """
+        if voltages is not None:
+            self._last_voltages = np.clip(
+                np.asarray(voltages, dtype=np.float64), self.V_Min, self.V_Max
+            ).copy()
+        return list(
+            await asyncio.gather(
+                *[
+                    ctrl.send_bytes(cmd)
+                    for ctrl, cmd in zip(self._controllers, commands)
+                ]
+            )
+        )
 
     async def set_relay(self, state: bool) -> dict[int, SendResult]:
         """Open (True) or close (False) the relay on all controllers concurrently.

@@ -29,6 +29,7 @@ AO-shaping/
 │   │   │   ├── gs_hologram_runner.py   # Gerchberg-Saxton全息图生成器
 │   │   │   ├── dm_matrix_runner.py     # DM响应矩阵标定
 │   │   │   ├── alt_voltage_runner.py   # 交替电压下发 (R50Power + ADC采集)
+│   │   │   ├── full_voltage_runner.py  # 全量交替电压下发 (AsyncMicroDM)
 │   │   │   └── combined_runner.py      # [已废弃] 使用pipeline_runner代わり
 │   │   ├── algorithm/           # 优化算法 (Adam, SGD, Muon等)
 │   │   ├── drivers/             # 硬件驱动
@@ -326,6 +327,42 @@ python src/ao_shaping/main.py alt-voltage --ip 192.168.0.101 --voltage 20
 python src/ao_shaping/main.py alt-voltage --ip 192.168.0.101 --voltage 30 --freq 2.0 --duration 10 --channels 0,1,2,3,4,5 --adc-enabled
 ```
 
+#### 全量交替电压下发 (full-voltage)
+```bash
+python src/ao_shaping/main.py full-voltage [OPTIONS]
+```
+等同于: `python -m ao_shaping.runners.full_voltage_runner`
+
+基于 **AsyncMicroDM 异步驱动**的全量交替电压工具：所有单元的电压**同时、均匀**地在 0V 和指定电压之间交替（无逐通道选择），可用于变形镜老化测试、寿命验证等场景。
+
+高实时性设计:
+- asyncio 非阻塞 TCP + `TCP_NODELAY`（禁用 Nagle，消除延迟 ACK 引入的每帧几十 ms 等待）
+- 两种状态 (0V / 指定电压) 的命令字节**一次性预构建**，热循环零编码、零分配，只做 `write`+`drain`
+- deadline 节拍调度，下发/打印耗时不累积相位漂移；Ctrl+C 响应 ≤50ms
+- 进度输出节流 + 实时打印每帧平均下发延迟 (µs)
+
+选项:
+- `--ips`: 控制器 IP 列表 (逗号分隔, 默认: 192.168.0.101)
+- `--voltage`: 高电平电压 (V, -20~120, 必需)
+- `--freq`: 交替频率 (Hz, 默认: 1.0)
+- `--duration`: 运行时长 (秒, 0=持续运行直到 Ctrl+C) (默认: 0)
+- `--relay-on/--no-relay-on`: 自动继电器上电 (默认: True)
+- `--home-voltage`: 关闭时归位电压 (V, 默认: 0.0)
+- `--timeout`: 控制器连接/下发超时 (秒, 默认: 10.0)
+- `--debug`: 启用调试日志
+
+示例:
+```bash
+# 单个控制器全部单元交替 20V, 1Hz, 持续运行
+python src/ao_shaping/main.py full-voltage --voltage 20
+
+# 两个控制器, 30V, 2Hz, 持续 10 秒
+python src/ao_shaping/main.py full-voltage --ips 192.168.0.101,192.168.0.102 --voltage 30 --freq 2.0 --duration 10
+
+# 关闭自动上电, 5V, 0.5Hz
+python src/ao_shaping/main.py full-voltage --voltage 5 --freq 0.5 --no-relay-on
+```
+
 #### DM响应矩阵标定 (dm-matrix)
 ```bash
 python src/ao_shaping/main.py dm-matrix [OPTIONS]
@@ -460,12 +497,17 @@ python -m ao_shaping.runners.gs_hologram_runner [OPTIONS]
 python -m ao_shaping.runners.alt_voltage_runner [OPTIONS]
 ```
 
-7. DM响应矩阵标定:
+7. 全量交替电压下发 (AsyncMicroDM):
+```bash
+python -m ao_shaping.runners.full_voltage_runner [OPTIONS]
+```
+
+8. DM响应矩阵标定:
 ```bash
 python -m ao_shaping.runners.dm_matrix_runner [OPTIONS]
 ```
 
-8. Micro-DM 逐单元图像采集:
+9. Micro-DM 逐单元图像采集:
 ```bash
 python -m ao_shaping.tools.micro_dm_image_collect [OPTIONS]
 ```
@@ -609,7 +651,9 @@ streamlit run src/ao_shaping/gui/r50/ceramic_viewer.py
 - **R50Power AsyncMicroDM (异步)**: 基于 asyncio 的高性能异步 TCP 驱动，专为 AO 快速闭环优化
   - LUT-based 预查表电压转换，零 GC 稳态运行（`VoltageConverter`）
   - `asyncio.StreamReader/StreamWriter` 非阻塞 TCP 通信
+  - **TCP_NODELAY**：连接时禁用 Nagle，消除延迟 ACK 对小火花的缓冲延迟
   - 预分配命令缓冲区，避免帧间内存分配
+  - **内联命令字节快路径**：`prebuild_command()` / `build_frame_commands()` 将电压帧一次性编码为命令字节，热循环用 `send_bytes()` / `send_frame_commands()` 直接重放——零编码、零分配、仅 `write`+`drain`（见 `full-voltage` 工具）
   - 支持同步/异步双模式使用（`open()`/`close()` 同步桥接）
   - 并行控制器通信，独立超时控制
 
@@ -627,6 +671,12 @@ streamlit run src/ao_shaping/gui/r50/ceramic_viewer.py
   await dm.connect_all()
   await dm.send_frame(np.zeros(dm.DM_Num))
   await dm.shutdown()
+
+  # 内联快路径：预构建状态字节，热循环零开销重放
+  cmd_off = dm.build_frame_commands(np.zeros(dm.DM_Num))
+  cmd_on = dm.build_frame_commands(np.full(dm.DM_Num, 20.0))
+  await dm.send_frame_commands(cmd_off)  # 仅 write + drain
+  await dm.send_frame_commands(cmd_on)
 
   # 工厂创建
   from ao_shaping.drivers.dm._registry import create_dm
@@ -907,6 +957,14 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 - [drivers/AGENTS.md](src/ao_shaping/drivers/AGENTS.md): 硬件驱动文档
 
 ## 近期更新
+
+### v0.9.0 (2026-08-27)
+- **全量交替电压工具** (`full-voltage`): 新增 `full_voltage_runner.py`，基于 AsyncMicroDM 异步驱动，所有单元电压同时、均匀地在 0V 与指定电压间交替（无逐通道选择），用于老化/寿命测试
+- **AsyncMicroDM 延迟优化**:
+  - `TCP_NODELAY`: 连接时禁用 Nagle，消除延迟 ACK 引入的每帧几十 ms 缓冲
+  - **内联命令字节快路径**: `prebuild_command()` / `build_frame_commands()` 预编码电压帧为命令字节，`send_bytes()` / `send_frame_commands()` 在热循环中零编码、零分配重放（仅 `write`+`drain`）
+  - `send_voltages()` 重构为复用预构建+发送快路径（字节级兼容）
+- **full-voltage runner 高实时性设计**: deadline 节拍调度（无相位漂移）、进度输出节流 + 平均下发延迟统计、分片睡眠保证 Ctrl+C 响应 ≤50ms
 
 ### v0.7.0 (2026-08-27)
 - **R50 GUI 全面重构**: 单控制器 / 分组控制 / 全部控制 (联合) 三大 Tab 模块化拆分
