@@ -314,6 +314,55 @@ def jc_build_ip_index(df: pd.DataFrame | None = None) -> dict[int, int]:
     return {int(ip): idx for idx, ip in enumerate(sorted_ips)}
 
 
+# =============================================================================
+# CSV Cache Invalidation
+# =============================================================================
+
+
+def invalidate_wiring_cache() -> None:
+    """Clear the module-level lazy CSV cache so the next lookup re-reads disk."""
+    if hasattr(get_wiring_index, "_cache"):
+        delattr(get_wiring_index, "_cache")
+
+
+def build_position_ip_table(df: pd.DataFrame | None = None) -> pd.DataFrame:
+    """位置序号 ↔ (IP组, 序号) 对应表, from 1300-5-enriched.csv.
+
+    Each row is one physical position of the 36×36 matrix with its controller
+    IP and 0-based payload 序号. Pure logic — rendering/caching happens in the
+    UI layer.
+    """
+    if df is None:
+        df = load_csv()
+    if df.empty:
+        return pd.DataFrame()
+    rows: list[dict[str, Any]] = []
+    try:
+        for _, r in df.iterrows():
+            r36 = int(r["36×36行"])
+            c36 = int(r["36×36列"])
+            ip_s = int(r["IP组"])
+            seq = int(r["序号"])  # 0-based payload position
+            pos = r36 * GRID_SIZE + c36 + 1  # 1-based physical position
+            rows.append(
+                {
+                    "位置序号": pos,
+                    "36×36行": r36,
+                    "36×36列": c36,
+                    "IP": f"192.168.0.{ip_s}",
+                    "IP组": ip_s,
+                    "序号": seq,
+                    "组": str(r["组"]),
+                    "引脚编号": int(r["引脚编号"]),
+                    "连接器": str(r["连接器"]),
+                }
+            )
+    except Exception as e:  # noqa: BLE001 - malformed CSV -> empty table
+        logger.warning(f"Failed to build position/IP table: {e}")
+        return pd.DataFrame()
+    return pd.DataFrame(rows)
+
+
 def jc_matrix_to_flat(
     matrix: np.ndarray,
     pos_to_hw: dict[int, tuple[int, int]],

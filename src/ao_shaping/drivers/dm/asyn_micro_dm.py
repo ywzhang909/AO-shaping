@@ -118,11 +118,16 @@ class SendResult:
         success: Whether the data was written to the TCP stream.
         error: Human-readable error string (``None`` on success).
         latency_us: Wall-clock round-trip latency in microseconds.
+        controller_id: 1-based controller id this result belongs to
+            (``None`` when constructed by callers without controller context).
+        ip: Controller IP this result belongs to (same fallback semantics).
     """
 
     success: bool
     error: str | None = None
     latency_us: float = 0.0
+    controller_id: int | None = None
+    ip: str | None = None
 
 
 # =============================================================================
@@ -235,7 +240,12 @@ class AsyncR50Controller:
             A :class:`SendResult` describing the outcome.
         """
         if self._writer is None:
-            return SendResult(success=False, error="not_connected")
+            return SendResult(
+                success=False,
+                error="not_connected",
+                controller_id=self.controller_id,
+                ip=self.ip,
+            )
 
         t0 = time.perf_counter()
         try:
@@ -245,11 +255,26 @@ class AsyncR50Controller:
                 timeout=timeout or self._timeout,
             )
             latency = (time.perf_counter() - t0) * 1e6
-            return SendResult(success=True, latency_us=latency)
+            return SendResult(
+                success=True,
+                latency_us=latency,
+                controller_id=self.controller_id,
+                ip=self.ip,
+            )
         except asyncio.TimeoutError:
-            return SendResult(success=False, error="drain_timeout")
+            return SendResult(
+                success=False,
+                error="drain_timeout",
+                controller_id=self.controller_id,
+                ip=self.ip,
+            )
         except (OSError, ConnectionError) as exc:
-            return SendResult(success=False, error=str(exc))
+            return SendResult(
+                success=False,
+                error=str(exc),
+                controller_id=self.controller_id,
+                ip=self.ip,
+            )
 
     async def send_voltages(
         self, voltages: np.ndarray, timeout: float | None = None
@@ -271,14 +296,28 @@ class AsyncR50Controller:
     async def send_relay(self, state: bool) -> SendResult:
         """Open (True) or close (False) the relay."""
         if self._writer is None:
-            return SendResult(success=False, error="not_connected")
+            return SendResult(
+                success=False,
+                error="not_connected",
+                controller_id=self.controller_id,
+                ip=self.ip,
+            )
         cmd = HEADER + bytes([CMD_RELAY_ON if state else CMD_RELAY_OFF]) + FOOTER
         try:
             self._writer.write(cmd)
             await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
-            return SendResult(success=True)
+            return SendResult(
+                success=True,
+                controller_id=self.controller_id,
+                ip=self.ip,
+            )
         except (OSError, asyncio.TimeoutError) as exc:
-            return SendResult(success=False, error=str(exc))
+            return SendResult(
+                success=False,
+                error=str(exc),
+                controller_id=self.controller_id,
+                ip=self.ip,
+            )
 
 
 # =============================================================================
@@ -330,7 +369,8 @@ class AsyncMicroDM(DM):
 
         logger.debug(
             f"AsyncMicroDM initialized: {len(self._controllers)} controller(s), "
-            f"{self.DM_Num} channels"
+            f"{self.DM_Num} channels, endpoints="
+            f"{[(c.ip, c.port) for c in self._controllers]}"
         )
 
     # ---- Sync ↔ Async Bridge ------------------------------------------------
@@ -413,19 +453,31 @@ class AsyncMicroDM(DM):
 
     # ---- Async-specific methods ---------------------------------------------
 
+    @property
+    def controller_info(self) -> list[tuple[int, str, int, bool]]:
+        """Per-controller introspection: ``(controller_id, ip, port, is_connected)``.
+
+        Useful for diagnostics — lets callers report exactly which endpoints
+        were attempted and which are currently connected.
+        """
+        return [
+            (c.controller_id, c.ip, c.port, c.is_connected)
+            for c in self._controllers
+        ]
+
     async def connect_all(self) -> dict[int, bool]:
         """Connect all controllers concurrently.
 
         Returns:
             Dict mapping controller_id (1-based) → success.
         """
-        tasks = {
-            ctrl.controller_id: ctrl.connect() for ctrl in self._controllers
+        results = await asyncio.gather(
+            *(ctrl.connect() for ctrl in self._controllers)
+        )
+        return {
+            ctrl.controller_id: ok
+            for ctrl, ok in zip(self._controllers, results)
         }
-        results: dict[int, bool] = {}
-        for cid, coro in tasks.items():
-            results[cid] = await coro
-        return results
 
     async def send_frame(self, voltages: np.ndarray | None = None) -> list[SendResult]:
         """Send a voltage frame to all controllers concurrently.
