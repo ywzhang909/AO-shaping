@@ -1221,21 +1221,31 @@ class MicroDM(DM, Device):
 
 
 if __name__ == '__main__':
-    CONTROLLER_IP = '192.168.0.101'
-    CONTROLLER_PORT = 10101
-    controller = R50Controller(controller_id=1, ip=CONTROLLER_IP, port=CONTROLLER_PORT)
+    import time
+    
+    CONTROLLER_IP = '192.168.0.114'
+    CONTROLLER_PORT = 10114
+    controller = R50Controller(controller_id=14, ip=CONTROLLER_IP, port=CONTROLLER_PORT)
     if controller.open():
         controller.set_relay(True)
         # controller.set_all_channel_voltage(5.0)
         volts = [0.0 for i in range(50)]
-        volts[0] = 15.0
+        volts[5] = 15.0
         controller.set_all_voltage_array(volts)
 
-        volts[0] = 10.0
+        time.sleep(2)
+        volts[5] = 40.0
         controller.set_all_voltage_array(volts)
 
-        volts[0] = 5.0
+        time.sleep(2)
+        volts[5] = 0
         controller.set_all_voltage_array(volts)
 
+        time.sleep(2)
+        controller.set_channel_voltage(5, 40)
+        
+        time.sleep(2)
+        controller.set_channel_voltage(5, 0)
+        
         controller.set_relay(False)
         controller.close()
