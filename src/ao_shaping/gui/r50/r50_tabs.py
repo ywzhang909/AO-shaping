@@ -17,23 +17,23 @@ from ao_shaping.gui.r50.r50_channel_select import (
     GRID_SIZE,
     HW_VOLTAGE_MAX,
     HW_VOLTAGE_MIN,
-    P,
     REFRESH_INTERVAL,
     SINGLE_CHANNELS,
     ChannelSelection,
+    P,
+    build_position_ip_table,
 )
 from ao_shaping.gui.r50.r50_common import (
     _channel_label,
+    _get_cached_csv_df,
     _get_channel_info,
     _loop_start,
     _loop_stop_all,
+    _reload_csv,
     _set_feedback,
     _show_feedback,
 )
-from ao_shaping.gui.r50.r50_group import (
-    _gc_apply_voltage,
-    _gc_show_feedback,
-)
+from ao_shaping.gui.r50.r50_group import _gc_apply_voltage, _gc_show_feedback
 from ao_shaping.gui.r50.r50_joint import (
     _jc_apply_matrix,
     _jc_disconnect,
@@ -47,23 +47,10 @@ from ao_shaping.gui.r50.r50_joint import (
     _jc_reset_matrix,
     _jc_reset_to_applied,
     _jc_set_cell,
-    _jc_disconnect,
 )
-from ao_shaping.gui.r50.r50_single import (
-    _require_relay_on,
-    _send_channels,
-)
-from ao_shaping.gui.r50.r50_units import (
-    _channel_info_to_dict,
-    _render_current_voltages,
-)
-from ao_shaping.gui.r50.r50_voltage_send import (
-    alt_tick,
-    hold_tick,
-    seq_tick,
-    sine_tick,
-)
-
+from ao_shaping.gui.r50.r50_single import _require_relay_on, _send_channels
+from ao_shaping.gui.r50.r50_units import _channel_info_to_dict, _render_current_voltages
+from ao_shaping.gui.r50.r50_voltage_send import alt_tick, hold_tick, seq_tick, sine_tick
 
 # =============================================================================
 # 单控制器 Tab — 子模块渲染器
@@ -896,7 +883,7 @@ def render_tab_all_control() -> None:
                     st.rerun()
             with col_fc:
                 fill_col = st.number_input(
-                    "目标列", 0, GRID_SIZE - 1, 0, 1, key=f"{jc}_fill_col_btn"
+                    "目标列", 0, GRID_SIZE - 1, 0, 1, key=f"{jc}_fill_col_input"
                 )
                 if st.button("填充列", width="stretch", key=f"{jc}_fill_col_btn"):
                     _jc_fill_col(int(fill_col), fill_v)
@@ -979,3 +966,19 @@ def render_tab_all_control() -> None:
             "<b>粗体</b> = 已下发到硬件 (仿真/正式均加粗)",
             unsafe_allow_html=True,
         )
+
+    st.divider()
+    with st.container(border=True):
+        st.markdown("##### 📋 位置 ↔ IP+序号 对应表")
+        col_rc, col_info = st.columns([1, 3])
+        with col_rc:
+            if st.button("🔄 重新加载 CSV", width="stretch", key=f"{jc}_reload_csv_btn"):
+                _reload_csv()
+                st.rerun()
+        with col_info:
+            st.caption("来源: data/1300-5-enriched.csv · 内存缓存, 仅重载时重新读取")
+        pos_table = build_position_ip_table(_get_cached_csv_df())
+        if pos_table.empty:
+            st.warning("⚠️ 1300-5-enriched.csv 加载失败或为空")
+        else:
+            st.dataframe(pos_table, height=450, width="stretch")

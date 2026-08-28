@@ -13,13 +13,19 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from ao_shaping.drivers.dm.MicroDM import (
+    CMD_SET_ALL_VOLTAGE_BY_ARR,
+    FOOTER,
+    HEADER,
+    voltages_to_payload,
+)
 from ao_shaping.gui.r50.r50_channel_select import (
     P,
     SINGLE_CHANNELS,
     ChannelInfo,
     build_all_units,
 )
-from ao_shaping.gui.r50.r50_debug import _debug_add_op
+from ao_shaping.gui.r50.r50_debug import _debug_add_op, _debug_log_packet
 from ao_shaping.gui.r50.r50_voltage_send import (
     SendResult,
     apply_joint,
@@ -97,6 +103,15 @@ def _show_units_result(mode: str, result: SendResult, voltage: float) -> None:
     if result.ok:
         st.success(f"✅ 已向 {result.ok} 个单元下发 {clipped:.1f} V")
         _debug_add_op("set_voltage", f"single_unit {mode} {result.ok}ch {clipped:.1f}V", "all")
+
+
+def _log_units_bulk_packet(ip: str, arr: np.ndarray) -> None:
+    """记录单单元下发实际发送的 0x09 数据包 (指令日志 / 下发包记录)。"""
+    packet = (
+        HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR]) + voltages_to_payload(arr) + FOOTER
+    )
+    _debug_log_packet("SINGLE_UNIT_SET_VOLTAGE", packet)
+    _debug_add_op("set_voltage", f"single_unit packet to {ip}", ip)
 
 
 def render_tab_single_unit() -> None:
@@ -243,6 +258,10 @@ def render_tab_single_unit() -> None:
             )
             st.session_state[f"{P}_jc_current_flat"] = flat
             _show_units_result("joint", result, voltage)
+            if result.ok:
+                _log_units_bulk_packet(
+                    ",".join(sorted(f"192.168.0.{s}" for s in ip_to_ctrl)), flat
+                )
         elif mode == "single" and single_connected:
             ctrl = st.session_state.get(f"{P}_controller")
             result = apply_units_via_controller(
@@ -252,9 +271,19 @@ def render_tab_single_unit() -> None:
                 voltage, vmin, vmax,
             )
             _show_units_result("single", result, voltage)
+            if result.ok:
+                _log_units_bulk_packet(
+                    getattr(ctrl, "ip", "single"),
+                    st.session_state[f"{P}_current_voltages"],
+                )
         elif mode == "group" and gc_connected:
             controllers = st.session_state.get(f"{P}_gc_controllers", {})
             current_map = st.session_state.setdefault(f"{P}_gc_current_map", {})
             result = _apply_units_group_mode(controllers, selected_units, voltage, current_map)
             _show_units_result("group", result, voltage)
+            if result.ok:
+                for ip_suffix in sorted(controllers):
+                    arr = current_map.get(int(ip_suffix))
+                    if arr is not None and np.any(arr):
+                        _log_units_bulk_packet(f"192.168.0.{ip_suffix}", arr)
         st.rerun()

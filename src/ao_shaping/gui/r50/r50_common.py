@@ -16,6 +16,7 @@ import threading
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import streamlit as st
 
 from ao_shaping.gui.r50.r50_channel_select import (
@@ -31,6 +32,8 @@ from ao_shaping.gui.r50.r50_channel_select import (
     ChannelSelection,
     build_groups,
     get_channel_info,
+    invalidate_wiring_cache,
+    load_csv,
 )
 from ao_shaping.gui.r50.r50_debug import DebugTcpClient
 from ao_shaping.gui.r50.r50_voltage_send import start_loop, stop_loop
@@ -65,6 +68,34 @@ def _show_feedback(prefix: str = "") -> None:
             st.info(msg)
         st.session_state[f"{p}_feedback"] = ""
         st.session_state[f"{p}_feedback_type"] = "info"
+
+
+# =============================================================================
+# CSV 缓存 (1300-5-enriched.csv) — 一次读取, 重载按钮才重新读磁盘
+# =============================================================================
+
+CSV_DF_KEY = f"{P}_csv_df"
+
+
+def _get_cached_csv_df() -> pd.DataFrame:
+    """Return the raw 1300-5-enriched.csv DataFrame, read once per session.
+
+    Reading happens only the first time (or after ``_reload_csv``), so a plain
+    rerun does not hit the disk again.
+    """
+    df = st.session_state.get(CSV_DF_KEY)
+    if df is None:
+        df = load_csv()
+        st.session_state[CSV_DF_KEY] = df
+    return df
+
+
+def _reload_csv() -> None:
+    """Force re-reading the CSV and invalidate all derived caches."""
+    st.session_state[CSV_DF_KEY] = load_csv()
+    st.session_state[f"{P}_gc_groups"] = None
+    st.session_state["r50c_single_unit_list"] = None
+    invalidate_wiring_cache()
 
 
 # =============================================================================
@@ -249,7 +280,7 @@ def _init_gc_state() -> None:
     st.session_state.setdefault(f"{p}_feedback_type", "info")
     st.session_state.setdefault(f"{p}_current_map", {})
     if st.session_state.get(f"{p}_groups") is None:
-        groups = build_groups()
+        groups = build_groups(_get_cached_csv_df())
         # 与旧版一致: 每组内按 payload_position 排序
         for g in groups.values():
             for ip_s, chs in g.channels_by_ip.items():

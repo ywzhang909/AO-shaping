@@ -24,6 +24,8 @@ from ao_shaping.gui.r50.r50_channel_select import (
     ChannelInfo,
     ChannelSelection,
     GroupDef,
+    build_position_ip_table,
+    load_csv,
 )
 from ao_shaping.gui.r50.r50_connection import (
     SimulatedMicroDM,
@@ -50,6 +52,7 @@ from ao_shaping.gui.r50.r50_voltage_send import (
 VMIN = CFG.HW_VOLTAGE_MIN
 VMAX = CFG.HW_VOLTAGE_MAX
 N = CFG.SINGLE_CHANNELS
+GRID_1296 = 36 * 36  # joint-control 36×36 matrix flat length
 
 
 def _ci(ip_suffix: int, pp: int, pos: int, label: str = "1-1-1") -> ChannelInfo:
@@ -433,6 +436,30 @@ class TestApplyJoint:
         _, res = apply_joint(dm, np.zeros(50), units, 5.0, VMIN, VMAX, pos_to_hw, ip_to_ctrl)
         assert res.ok == 0
 
+    def test_oversize_36x36_flat_resized_to_dm_num(self):
+        # UI regression: the single-unit tab passes the 36×36 matrix flat array
+        # (1296 elements) even when the controller pool is much smaller. Real
+        # MicroDM.send_voltages requires exactly (DM_Num,) and raises otherwise,
+        # so apply_joint must resize before sending.
+        dm = SimulatedMicroDM(ips=[101, 102])
+        dm.open()
+        pos_to_hw = {5: (101, 1), 50: (102, 1)}
+        ip_to_ctrl = {101: 0, 102: 1}
+        units = [_ci(101, 1, 5), _ci(102, 1, 50)]
+        current_flat = np.zeros(GRID_1296)
+        current_flat[50] = 9.0  # pre-existing state on controller 2 channel 1
+
+        new_flat, res = apply_joint(
+            dm, current_flat, units, 7.0, VMIN, VMAX, pos_to_hw, ip_to_ctrl
+        )
+        assert res.ok == 2
+        assert res.fail == 0
+        assert new_flat.shape == (2 * N,)
+        assert new_flat[0] == 7.0
+        assert new_flat[50] == 7.0
+        assert dm.readback(101)[0] == 7.0
+        assert dm.readback(102)[0] == 7.0
+
 
 # ---------------------------------------------------------------------------
 # Send loops (threads)
@@ -518,3 +545,58 @@ class TestSendResult:
         res = SendResult()
         assert (res.ok, res.fail) == (0, 0)
         assert res.failed_targets == []
+
+
+class TestPositionIpTable:
+    """位置序号 ↔ IP+序号 对应表 (from 1300-5-enriched.csv)."""
+
+    def test_reads_real_csv(self):
+        df = load_csv()
+        if df.empty:
+            pytest.skip("1300-5-enriched.csv not available")
+        t = build_position_ip_table(df)
+        assert t.shape == (1296, 9)
+        assert list(t.columns) == [
+            "位置序号",
+            "36×36行",
+            "36×36列",
+            "IP",
+            "IP组",
+            "序号",
+            "组",
+            "引脚编号",
+            "连接器",
+        ]
+        # first physical position -> IP 124, 序号 26 per CSV row 1
+        assert t.iloc[0]["位置序号"] == 1
+        assert t.iloc[0]["IP组"] == 124
+        assert t.iloc[0]["序号"] == 26
+        # last physical position -> IP 103, 序号 28 per CSV row 1296
+        assert t.iloc[-1]["位置序号"] == 1296
+        assert t.iloc[-1]["IP组"] == 103
+        assert t.iloc[-1]["序号"] == 28
+        # IP column is the full dotted address
+        assert t.iloc[0]["IP"] == "192.168.0.124"
+
+    def test_uses_row_col_when_position_col_absent(self):
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "36×36行": [0, 0, 1],
+                "36×36列": [0, 1, 0],
+                "IP组": [101, 101, 102],
+                "序号": [0, 1, 2],
+                "组": ["一组", "一组", "二组"],
+                "引脚编号": [1, 2, 3],
+                "连接器": ["1-1-1", "1-1-3", "1-2-1"],
+            }
+        )
+        t = build_position_ip_table(df)
+        assert list(t["位置序号"]) == [1, 2, 37]  # 0*36+0+1, 0*36+1+1, 1*36+0+1
+        assert t.iloc[2]["IP组"] == 102
+
+    def test_empty_df_returns_empty(self):
+        import pandas as pd
+
+        assert build_position_ip_table(pd.DataFrame()).empty

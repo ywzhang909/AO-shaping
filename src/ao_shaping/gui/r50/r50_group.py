@@ -8,12 +8,20 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import streamlit as st
 from loguru import logger
 
 from ao_shaping.gui.r50.r50_channel_select import (
     CFG,
     P,
+    SINGLE_CHANNELS,
+)
+from ao_shaping.drivers.dm.MicroDM import (
+    CMD_SET_ALL_VOLTAGE_BY_ARR,
+    FOOTER,
+    HEADER,
+    voltages_to_payload,
 )
 from ao_shaping.gui.r50.r50_common import _set_feedback, _show_feedback
 from ao_shaping.gui.r50.r50_connection import (
@@ -22,7 +30,7 @@ from ao_shaping.gui.r50.r50_connection import (
     power_off_and_close,
     set_relay,
 )
-from ao_shaping.gui.r50.r50_debug import _debug_add_op
+from ao_shaping.gui.r50.r50_debug import _debug_add_op, _debug_log_packet
 from ao_shaping.gui.r50.r50_voltage_send import (
     apply_group_controllers,
     clip_voltage,
@@ -186,6 +194,24 @@ def _gc_apply_voltage(all_channels: bool = False) -> None:
         selected_payloads = [int(c) for c in selected_channels]
 
     current_map = st.session_state.setdefault(f"{gc}_current_map", {})
+    # 记录实际下发的 0x09 批量包到指令日志 (与 apply_group_controllers 相同的
+    # touched / 单包每控制器逻辑, 保证字节一致)。
+    sel = {int(p) for p in selected_payloads}
+    for ip_suffix, ch_list in group_def.channels_by_ip.items():
+        arr = np.zeros(SINGLE_CHANNELS, dtype=np.float64)
+        touched = False
+        for ci in ch_list:
+            if ci.payload_position in sel:
+                arr[ci.payload_position - 1] = clipped
+                touched = True
+        if touched:
+            packet = (
+                HEADER
+                + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR])
+                + voltages_to_payload(arr)
+                + FOOTER
+            )
+            _debug_log_packet(f"GROUP_SET_VOLTAGE@192.168.0.{ip_suffix}", packet)
     result = apply_group_controllers(
         controllers,
         group_def,
