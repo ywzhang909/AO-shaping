@@ -27,11 +27,15 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.drivers.dm.MicroDM import VOLTAGE_MAX, VOLTAGE_MIN
+from ao_shaping.drivers.dm.MicroDM import (
+    DEFAULT_IPS,
+    MAX_CHANNELS,
+    VOLTAGE_MAX,
+    VOLTAGE_MIN,
+)
 from ao_shaping.drivers.dm.asyn_micro_dm import AsyncMicroDM
 from ao_shaping.utils.cli_helpers import setup_coredumpy
 
-DEFAULT_IPS = ["192.168.0.101"]
 DEFAULT_TIMEOUT = 10.0
 
 # Global state for signal handler
@@ -63,8 +67,24 @@ async def _amain(
     ok_ids = [cid for cid, ok in results.items() if ok]
     if not ok_ids:
         click.echo("❌ 全部控制器连接失败")
+        for cid, ip, port, _conn in dm.controller_info:
+            logger.error(
+                "控制器 {} ({}:{}) 连接失败", cid, ip, port
+            )
         return 1
     click.echo(f"✅ 已连接 {len(ok_ids)}/{len(ips)} 个控制器")
+
+    # 逐控制器连接状态回显 (ip:port + 是否可用), 便于定位"哪个控制器没连上".
+    for cid, ip, port, connected in dm.controller_info:
+        mark = "✅" if connected else "❌"
+        click.echo(f"    {mark} #{cid} {ip}:{port}")
+        if not connected:
+            logger.warning("控制器 {} ({}:{}) 未连接, 该控制器通道将被跳过", cid, ip, port)
+    n_active = sum(1 for _, _, _, connected in dm.controller_info if connected)
+    click.echo(
+        f"    ↳ 实际下发通道: {n_active} 控制器 × {MAX_CHANNELS} 通道"
+        f" = {n_active * MAX_CHANNELS} 通道 (逻辑总数 {dm.DM_Num})"
+    )
 
     # Relay on
     if relay_on:
@@ -74,6 +94,12 @@ async def _amain(
             click.echo("✅")
         else:
             click.echo("❌ 失败")
+            for r in relay_results.values():
+                if not r.success:
+                    logger.warning(
+                        "控制器继电器上电失败: id={} ip={} err={}",
+                        r.controller_id, r.ip, r.error,
+                    )
             await dm.shutdown(home_voltage=home_voltage)
             return 1
 
@@ -105,6 +131,11 @@ async def _amain(
     cmd_off = dm.build_frame_commands(vs_off)
     cmd_on = dm.build_frame_commands(vs_on)
 
+    logger.debug(
+        "预构建指令: {} 控制器 × {} 通道/控制器 = {} 通道/帧",
+        len(cmd_off), MAX_CHANNELS, len(cmd_off) * MAX_CHANNELS,
+    )
+
     state = 0  # 0 = sending 0V, 1 = sending input voltage
     cycle_count = 0
     t_start = time.monotonic()
@@ -130,7 +161,10 @@ async def _amain(
 
             for r in send_results:
                 if not r.success:
-                    logger.warning("控制器下发失败: {}", r.error)
+                    logger.warning(
+                        "控制器下发失败: id={} ip={} err={}",
+                        r.controller_id, r.ip, r.error,
+                    )
                 else:
                     total_latency_us += r.latency_us
 
@@ -170,7 +204,7 @@ async def _amain(
 
 @click.command("full-voltage")
 @click.option("--ips", "ips_str", default=None, type=str,
-              help="Controller IPs, comma-separated (default: 192.168.0.101)")
+              help="Controller IPs, comma-separated (default: 192.168.0.101~126, 全部 26 台)")
 @click.option("--voltage", "alt_voltage", required=True, type=float,
               help="Voltage for ALL units (V, [-20, 120])")
 @click.option("--freq", "alt_freq", default=1.0, type=float,
@@ -200,7 +234,7 @@ def run(
 
     Examples:
 
-        # 单个控制器全部单元交替 20V, 1Hz, 持续运行直到 Ctrl+C
+        # 全部 26 台控制器 (.101~.126) 全部单元交替 20V, 1Hz, 持续运行直到 Ctrl+C
         python -m ao_shaping.runners.full_voltage_runner --voltage 20
 
         # 两个控制器, 30V, 2Hz, 持续 10 秒
@@ -226,11 +260,16 @@ def run(
 
     if ips_str is None:
         ip_list = list(DEFAULT_IPS)
+        ip_source = "默认值 (静态 IP .101~.126)"
     else:
         ip_list = [s.strip() for s in ips_str.split(",") if s.strip()]
+        ip_source = "--ips 参数"
         if not ip_list:
             click.echo("❌ IP 列表为空")
             sys.exit(1)
+
+    click.echo(f"🖥️  控制器列表: {', '.join(ip_list)}  (来源: {ip_source}, {len(ip_list)} 个)")
+    logger.debug("IP 来源: {} → {}", ip_source, ip_list)
 
     rc = asyncio.run(
         _amain(ip_list, alt_voltage, alt_freq, alt_duration, relay_on, home_voltage, timeout)

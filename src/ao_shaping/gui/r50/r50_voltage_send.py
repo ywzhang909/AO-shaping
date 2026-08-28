@@ -292,8 +292,25 @@ def apply_joint(
         pos_to_hw = {}
     if ip_to_ctrl is None:
         ip_to_ctrl = {}
-    flat = np.asarray(current_flat, dtype=np.float64).copy()
-    if not units or dm is None:
+    cur = np.asarray(current_flat, dtype=np.float64)
+    # Size the flat array to match the real controller layout (DM_Num), NOT the
+    # 36×36 matrix size. The single-unit tab hands in ``jc_current_flat`` which is
+    # 36×36=1296 long, but ``MicroDM.send_voltages`` requires exactly ``(DM_Num,)``
+    # = (n_controllers × 50,). Sending 1296 against a smaller DM_Num raises
+    # MicroDMVoltageError, so we rebuild at the correct length and seed any
+    # overlapping tail from the caller's current state to preserve it.
+    if dm is not None:
+        dm_num = int(getattr(dm, "DM_Num", 0) or 0)
+    else:
+        dm_num = 0
+    if dm_num <= 0:
+        dm_num = len(ip_to_ctrl) * SINGLE_CHANNELS
+    if dm_num <= 0:
+        dm_num = int(cur.size)
+    flat = np.zeros(dm_num, dtype=np.float64)
+    n = min(int(cur.size), dm_num)
+    flat[:n] = cur[:n]
+    if not units:
         return flat, SendResult()
     v = clip_voltage(voltage, vmin, vmax)
     applied = 0

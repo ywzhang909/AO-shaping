@@ -13,7 +13,13 @@ import pandas as pd
 import streamlit as st
 from loguru import logger
 
-from ao_shaping.drivers.dm.MicroDM import MicroDM
+from ao_shaping.drivers.dm.MicroDM import (
+    CMD_SET_ALL_VOLTAGE_BY_ARR,
+    FOOTER,
+    HEADER,
+    MicroDM,
+    voltages_to_payload,
+)
 from ao_shaping.gui.r50.r50_channel_select import (
     DM_NUM_ACTUATORS,
     GRID_SIZE,
@@ -24,13 +30,13 @@ from ao_shaping.gui.r50.r50_channel_select import (
     jc_build_ip_index,
     jc_build_wiring_index,
     jc_matrix_to_flat,
-    load_csv,
 )
+from ao_shaping.gui.r50.r50_common import _get_cached_csv_df
 from ao_shaping.gui.r50.r50_connection import (
     SimulatedMicroDM,
     ping_reachable,
 )
-from ao_shaping.gui.r50.r50_debug import _debug_add_op
+from ao_shaping.gui.r50.r50_debug import _debug_add_op, _debug_log_packet
 
 
 # =============================================================================
@@ -62,7 +68,7 @@ def _jc_connect() -> None:
     jc = f"{P}_jc"
     try:
         simulate = st.session_state.get(f"{P}_jc_simulate", False)
-        csv_df = load_csv()
+        csv_df = _get_cached_csv_df()
         if csv_df.empty:
             st.session_state[f"{jc}_connection_error"] = "1300-5-enriched.csv 加载失败"
             st.session_state[f"{jc}_connected"] = False
@@ -178,6 +184,10 @@ def _jc_apply_matrix() -> None:
         dm_num = st.session_state[f"{jc}_dm_num"]
         flat = jc_matrix_to_flat(matrix, pos_to_hw, ip_to_ctrl, dm_num)
         dm.send_voltages(flat)
+        packet = (
+            HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR]) + voltages_to_payload(flat) + FOOTER
+        )
+        _debug_log_packet("MICRODM_SET_VOLTAGE", packet)
         st.session_state[f"{jc}_current_flat"] = flat.copy()
         st.session_state[f"{jc}_applied_matrix"] = matrix.copy()
         non_zero = int(np.count_nonzero(matrix))
