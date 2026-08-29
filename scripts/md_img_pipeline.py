@@ -1,10 +1,14 @@
-"""Complete Micro-DM diff analysis pipeline with per-IP reference handling.
+"""Complete Micro-DM diff analysis pipeline with shared per-IP reference.
 
 This script orchestrates the full pipeline for each controller IP:
-  1. Diff computation (using channel-000 as per-IP reference)
+  1. Diff computation against a SHARED reference (default:
+     ``<input>/192.168.0.101/192.168.0.101-000.png`` — one common baseline for
+     all IPs; override with ``--ref``)
   2. Max aggregation overlay (per-IP and global)
   3. Per-IP animated GIF generation
   4. Combined GIF with IP labels and metadata
+
+Every source image including channel 000 is diffed (1:1 filename mapping).
 
 Usage:
     python scripts/md_img_pipeline.py --input data/md_test/md_img-80v
@@ -145,36 +149,34 @@ def _format_metadata(meta: dict) -> str:
 def process_ip_diff(
     ip_dir: Path,
     diff_dir: Path,
+    ref: np.ndarray,
     threshold: float,
     cmap: str,
     vmax: float | None,
     notch: bool,
 ) -> list[tuple[Path, Path, tuple[float, float] | None]]:
-    """Compute diff images for one IP using its channel-000 as reference.
+    """Compute diff images for one IP against a SHARED reference.
 
-    Output images keep the EXACT original filename (1:1 with the source), and
-    the per-channel centroids are written to ``centroids.csv`` inside the IP's
-    diff folder.
+    The reference is the pre-loaded (and optionally notch-filtered) grayscale
+    array passed in — by default the channel-000 frame of the first controller
+    (``192.168.0.101-000``) is used for ALL IPs, giving one common baseline
+    across the whole dataset.
+
+    Every source image (including channel 000 of each IP) gets a diff, so the
+    output keeps a full 1:1 channel correspondence with the source (000..N).
+    Output images keep the EXACT original filename, and the per-channel
+    centroids are written to ``centroids.csv`` inside the IP's diff folder.
 
     Returns a list of (src, out, centroid_or_None).
     """
-    ref_path = ip_dir / f"{ip_dir.name}-000.png"
-    if not ref_path.is_file():
-        raise FileNotFoundError(f"Reference (channel-000) not found: {ref_path}")
-
-    ref = load_gray(ref_path)
-    if notch:
-        ref = notch_fft(ref)
-
+    ref_shape = ref.shape
     out_dir = diff_dir / ip_dir.name
     out_dir.mkdir(parents=True, exist_ok=True)
 
     results: list[tuple[Path, Path, tuple[float, float] | None]] = []
     for src in sorted(ip_dir.glob("*.png")):
-        if src == ref_path:
-            continue  # skip reference itself
         img = load_gray(src)
-        if img.shape != ref.shape:
+        if img.shape != ref_shape:
             continue
         if notch:
             img = notch_fft(img)
@@ -399,6 +401,11 @@ def main() -> None:
         "--skip-diff", action="store_true",
         help="Skip diff computation (use existing diff images)",
     )
+    parser.add_argument(
+        "--ref", type=Path, default=None,
+        help="Shared reference image for ALL IPs (default: "
+             "<input>/<first-ip>/<first-ip>-000.png, i.e. 192.168.0.101-000)",
+    )
     args = parser.parse_args()
 
     if not args.input.is_dir():
@@ -414,6 +421,22 @@ def main() -> None:
     ip_dirs = sorted(p for p in args.input.iterdir() if p.is_dir())
     print(f"Found {len(ip_dirs)} controller IPs")
 
+    # Load the SHARED reference once: channel-000 of the first controller
+    # (192.168.0.101) is used for ALL IPs so every diff shares one baseline.
+    shared_ref: np.ndarray | None = None
+    if not args.skip_diff and ip_dirs:
+        if args.ref is not None:
+            ref_path = args.ref
+        else:
+            ref_path = ip_dirs[0] / f"{ip_dirs[0].name}-000.png"
+        if ref_path.is_file():
+            shared_ref = load_gray(ref_path)
+            if args.notch:
+                shared_ref = notch_fft(shared_ref)
+            print(f"Shared reference: {ref_path.name} (from {ref_path.parent.name})")
+        else:
+            print(f"WARNING: shared reference not found: {ref_path}")
+
     for ip_idx, ip_dir in enumerate(ip_dirs):
         ip_name = ip_dir.name
         print(f"\n[{ip_idx + 1}/{len(ip_dirs)}] Processing {ip_name}...")
@@ -421,8 +444,11 @@ def main() -> None:
         # Step 1: Diff computation
         if not args.skip_diff:
             try:
+                if shared_ref is None:
+                    raise FileNotFoundError("No shared reference available")
                 results = process_ip_diff(
-                    ip_dir, diff_root, args.threshold, args.cmap, args.vmax, args.notch
+                    ip_dir, diff_root, shared_ref,
+                    args.threshold, args.cmap, args.vmax, args.notch
                 )
                 n_valid = sum(1 for _, _, c in results if c is not None)
                 print(f"  Diff: {len(results)} images, {n_valid} with valid centroids")

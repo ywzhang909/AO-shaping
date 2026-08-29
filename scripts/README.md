@@ -409,7 +409,10 @@ of a single global reference), then generates diff images, per-IP overlays, per-
 GIFs, global overlay, and a combined master GIF with IP labels and metadata.
 
 **Key features:**
-- **Per-IP references** — automatically uses `<IP>-000.png` as reference for each IP
+- **Shared reference** — by default ALL IPs are diffed against the single common
+  baseline `192.168.0.101-000.png` (channel-000 of the first controller); override
+  with `--ref <path>`. Channel 000 of every IP is also diffed (not skipped), so the
+  output keeps a full 000..N correspondence with the source.
 - **1:1 filename mapping** — diff images keep the exact source filename; centroids
   stored in `centroids.csv` per IP
 - **Complete pipeline** — diff computation → per-IP overlay → per-IP GIF → combined GIF
@@ -446,6 +449,7 @@ python scripts/md_img_pipeline.py --input data/md_test/md_img-80v --skip-diff
 | `--scale` | `0.25` | Downscale factor for GIFs |
 | `--fps` | `8` | GIF frame rate |
 | `--skip-diff` | off | Skip diff computation, use existing diff images |
+| `--ref` | first IP's `-000.png` | Shared reference image for ALL IPs |
 
 ## Subdirectories
 
