@@ -50,6 +50,7 @@ from ao_shaping.gui.r50.r50_joint import (
     _jc_reset_matrix,
     _jc_reset_to_applied,
     _jc_set_cell,
+    _jc_sync_matrix_from_global_state,
     _jc_disconnect,
 )
 from ao_shaping.gui.r50.r50_single import (
@@ -786,6 +787,8 @@ def render_tab_all_control() -> None:
     """全部控制 Tab: 36×36 联合矩阵全量编辑与下发。"""
     st.title("🔗 全部控制")
     st.caption("MicroDM 36×36 压电陶瓷矩阵 · 全量联合编辑与下发")
+
+    _jc_sync_matrix_from_global_state()
 
     jc = f"{P}_jc"
     matrix: np.ndarray | None = st.session_state.get(f"{jc}_matrix")

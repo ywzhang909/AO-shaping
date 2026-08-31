@@ -25,7 +25,13 @@ from ao_shaping.gui.r50.r50_channel_select import (
     ChannelInfo,
     build_all_units,
 )
-from ao_shaping.gui.r50.r50_debug import _debug_add_op, _debug_log_packet
+from ao_shaping.gui.r50.r50_command import (
+    INF,
+    Packet,
+    get_unit_voltage,
+    r50_command,
+)
+from ao_shaping.gui.r50.r50_debug import _debug_add_op
 from ao_shaping.gui.r50.r50_voltage_send import (
     SendResult,
     apply_joint,
@@ -103,15 +109,6 @@ def _show_units_result(mode: str, result: SendResult, voltage: float) -> None:
     if result.ok:
         st.success(f"✅ 已向 {result.ok} 个单元下发 {clipped:.1f} V")
         _debug_add_op("set_voltage", f"single_unit {mode} {result.ok}ch {clipped:.1f}V", "all")
-
-
-def _log_units_bulk_packet(ip: str, arr: np.ndarray) -> None:
-    """记录单单元下发实际发送的 0x09 数据包 (指令日志 / 下发包记录)。"""
-    packet = (
-        HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR]) + voltages_to_payload(arr) + FOOTER
-    )
-    _debug_log_packet("SINGLE_UNIT_SET_VOLTAGE", packet)
-    _debug_add_op("set_voltage", f"single_unit packet to {ip}", ip)
 
 
 def render_tab_single_unit() -> None:
@@ -192,7 +189,13 @@ def render_tab_single_unit() -> None:
     st.divider()
     st.markdown(f"**已选 {len(selected_units)} 个单元**")
     df_sel = pd.DataFrame([_channel_info_to_dict(u) for u in selected_units])
-    st.dataframe(df_sel[INFO_DISPLAY_COLS[:4]], width='stretch', hide_index=True)
+    df_sel["电压状态"] = [
+        "未上电"
+        if get_unit_voltage(u.ip_suffix, u.payload_position) == INF
+        else f"{get_unit_voltage(u.ip_suffix, u.payload_position):.1f} V"
+        for u in selected_units
+    ]
+    st.dataframe(df_sel[INFO_DISPLAY_COLS[:4] + ["电压状态"]], width='stretch', hide_index=True)
 
     voltage = st.number_input(
         "电压 (V)",
@@ -245,45 +248,56 @@ def render_tab_single_unit() -> None:
     ):
         vmin = st.session_state[f"{P}_vmin"]
         vmax = st.session_state[f"{P}_vmax"]
-        if mode == "joint" and jc_connected:
-            dm = st.session_state.get(f"{P}_jc_dm")
-            pos_to_hw = st.session_state.get(f"{P}_jc_pos_to_hw", {})
-            ip_to_ctrl = st.session_state.get(f"{P}_jc_ip_to_controller_idx", {})
-            flat, result = apply_joint(
-                dm,
-                st.session_state[f"{P}_jc_current_flat"],
-                selected_units,
-                voltage, vmin, vmax,
-                pos_to_hw, ip_to_ctrl,
-            )
-            st.session_state[f"{P}_jc_current_flat"] = flat
-            _show_units_result("joint", result, voltage)
-            if result.ok:
-                _log_units_bulk_packet(
-                    ",".join(sorted(f"192.168.0.{s}" for s in ip_to_ctrl)), flat
+        units = [(u.ip_suffix, u.payload_position) for u in selected_units]
+
+        def _send() -> tuple[SendResult, list[Packet]]:
+            if mode == "joint" and jc_connected:
+                dm = st.session_state.get(f"{P}_jc_dm")
+                pos_to_hw = st.session_state.get(f"{P}_jc_pos_to_hw", {})
+                ip_to_ctrl = st.session_state.get(f"{P}_jc_ip_to_controller_idx", {})
+                flat, result = apply_joint(
+                    dm,
+                    st.session_state[f"{P}_jc_current_flat"],
+                    selected_units,
+                    voltage, vmin, vmax,
+                    pos_to_hw, ip_to_ctrl,
                 )
-        elif mode == "single" and single_connected:
-            ctrl = st.session_state.get(f"{P}_controller")
-            result = apply_units_via_controller(
-                ctrl,
-                st.session_state[f"{P}_current_voltages"],
-                selected_units,
-                voltage, vmin, vmax,
-            )
-            _show_units_result("single", result, voltage)
-            if result.ok:
-                _log_units_bulk_packet(
-                    getattr(ctrl, "ip", "single"),
+                st.session_state[f"{P}_jc_current_flat"] = flat
+                pkt = (
+                    HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR]) + voltages_to_payload(flat) + FOOTER
+                )
+                ips = ",".join(sorted(f"192.168.0.{s}" for s in ip_to_ctrl))
+                return result, [("SINGLE_UNIT_SET_VOLTAGE", ips, pkt)]
+            if mode == "single" and single_connected:
+                ctrl = st.session_state.get(f"{P}_controller")
+                result = apply_units_via_controller(
+                    ctrl,
                     st.session_state[f"{P}_current_voltages"],
+                    selected_units,
+                    voltage, vmin, vmax,
                 )
-        elif mode == "group" and gc_connected:
-            controllers = st.session_state.get(f"{P}_gc_controllers", {})
-            current_map = st.session_state.setdefault(f"{P}_gc_current_map", {})
-            result = _apply_units_group_mode(controllers, selected_units, voltage, current_map)
-            _show_units_result("group", result, voltage)
-            if result.ok:
+                arr = np.asarray(st.session_state[f"{P}_current_voltages"], dtype=np.float64)
+                pkt = (
+                    HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR]) + voltages_to_payload(arr) + FOOTER
+                )
+                return result, [("SINGLE_UNIT_SET_VOLTAGE", getattr(ctrl, "ip", "single"), pkt)]
+            if mode == "group" and gc_connected:
+                controllers = st.session_state.get(f"{P}_gc_controllers", {})
+                current_map = st.session_state.setdefault(f"{P}_gc_current_map", {})
+                result = _apply_units_group_mode(controllers, selected_units, voltage, current_map)
+                packets: list[Packet] = []
                 for ip_suffix in sorted(controllers):
                     arr = current_map.get(int(ip_suffix))
                     if arr is not None and np.any(arr):
-                        _log_units_bulk_packet(f"192.168.0.{ip_suffix}", arr)
+                        pkt = (
+                            HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR]) + voltages_to_payload(arr) + FOOTER
+                        )
+                        packets.append(("SINGLE_UNIT_SET_VOLTAGE", f"192.168.0.{ip_suffix}", pkt))
+                return result, packets
+            return SendResult(fail=1, failed_targets=["未知模式"]), []
+
+        result = r50_command(
+            mode, "SINGLE_UNIT_SET_VOLTAGE", units, voltage, vmin, vmax, _send
+        )
+        _show_units_result(mode, result, voltage)
         st.rerun()

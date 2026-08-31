@@ -32,11 +32,21 @@ from ao_shaping.gui.r50.r50_channel_select import (
     jc_matrix_to_flat,
 )
 from ao_shaping.gui.r50.r50_common import _get_cached_csv_df
+from ao_shaping.gui.r50.r50_command import (
+    Packet,
+    consume_unit_refresh_flag,
+    get_unit_voltage,
+    refresh_unit_displays,
+    reset_unit_states,
+    set_unit_voltage,
+    r50_command,
+)
 from ao_shaping.gui.r50.r50_connection import (
     SimulatedMicroDM,
     ping_reachable,
 )
-from ao_shaping.gui.r50.r50_debug import _debug_add_op, _debug_log_packet
+from ao_shaping.gui.r50.r50_debug import _debug_add_op
+from ao_shaping.gui.r50.r50_voltage_send import SendResult
 
 
 # =============================================================================
@@ -136,6 +146,7 @@ def _jc_disconnect() -> None:
     st.session_state[f"{jc}_connection_error"] = ""
     st.session_state[f"{jc}_feedback"] = "已断开连接 (已先下电)"
     st.session_state[f"{jc}_feedback_type"] = "info"
+    reset_unit_states()
     _debug_add_op("disconnect", "joint", "all")
     logger.info("MicroDM disconnected")
 
@@ -158,6 +169,7 @@ def _jc_set_relay(on: bool) -> None:
         else:
             st.session_state[f"{jc}_feedback"] = "⏻ 所有控制器继电器已下电 (输出断开)"
             st.session_state[f"{jc}_feedback_type"] = "info"
+            reset_unit_states()
             _debug_add_op("relay_off", "joint", "all")
     except Exception as e:
         st.session_state[f"{jc}_feedback"] = f"继电器操作失败: {e}"
@@ -166,55 +178,106 @@ def _jc_set_relay(on: bool) -> None:
 
 
 def _jc_apply_matrix() -> None:
-    """将当前 36×36 矩阵电压下发到所有控制器。"""
+    """下发 36×36 矩阵电压 (统一走 r50_command, 各单元按格值写状态)。"""
     jc = f"{P}_jc"
     dm = st.session_state.get(f"{jc}_dm")
     if dm is None:
         st.session_state[f"{jc}_feedback"] = "设备未连接"
         st.session_state[f"{jc}_feedback_type"] = "error"
         return
-    if not st.session_state.get(f"{jc}_relay_on", False):
-        st.session_state[f"{jc}_feedback"] = "⚠️ 请先继电器上电后再下发电压"
-        st.session_state[f"{jc}_feedback_type"] = "error"
-        return
-    try:
-        matrix = st.session_state[f"{jc}_matrix"]
-        pos_to_hw = st.session_state[f"{jc}_pos_to_hw"]
-        ip_to_ctrl = st.session_state[f"{jc}_ip_to_controller_idx"]
-        dm_num = st.session_state[f"{jc}_dm_num"]
-        flat = jc_matrix_to_flat(matrix, pos_to_hw, ip_to_ctrl, dm_num)
-        dm.send_voltages(flat)
-        packet = (
+    matrix = st.session_state[f"{jc}_matrix"]
+    pos_to_hw = st.session_state[f"{jc}_pos_to_hw"]
+    ip_to_ctrl = st.session_state[f"{jc}_ip_to_controller_idx"]
+    dm_num = st.session_state[f"{jc}_dm_num"]
+    flat = jc_matrix_to_flat(matrix, pos_to_hw, ip_to_ctrl, dm_num)
+    units = list(dict.fromkeys(
+        (int(suffix), int(pos)) for (suffix, pos) in pos_to_hw.values()
+    ))
+
+    def _state_updater() -> None:
+        # 逐格按矩阵值写全局单元状态 (联合控制各单元电压可不同)
+        for phys_pos, (suffix, pos) in pos_to_hw.items():
+            row = (phys_pos - 1) // GRID_SIZE
+            col = (phys_pos - 1) % GRID_SIZE
+            set_unit_voltage(suffix, pos, float(matrix[row, col]))
+        refresh_unit_displays()
+
+    def _send() -> tuple[SendResult, list[Packet]]:
+        try:
+            dm.send_voltages(flat)
+        except Exception as e:
+            logger.exception(f"MicroDM apply failed: {e}")
+            return SendResult(fail=1, failed_targets=[str(e)]), []
+        pkt = (
             HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR]) + voltages_to_payload(flat) + FOOTER
         )
-        _debug_log_packet("MICRODM_SET_VOLTAGE", packet)
-        st.session_state[f"{jc}_current_flat"] = flat.copy()
-        st.session_state[f"{jc}_applied_matrix"] = matrix.copy()
-        non_zero = int(np.count_nonzero(matrix))
-        st.session_state[f"{jc}_feedback"] = (
-            f"✅ 已下发 36×36 矩阵电压 (非零通道: {non_zero}/{DM_NUM_ACTUATORS})"
-        )
-        st.session_state[f"{jc}_feedback_type"] = "success"
+        return SendResult(ok=1), [("MICRODM_SET_VOLTAGE", "joint", pkt)]
 
-        controllers_detail = []
-        for i, ctrl in enumerate(getattr(dm, "_controllers", [])):
-            if hasattr(ctrl, "ip"):
-                start = i * SINGLE_CHANNELS
-                end = start + SINGLE_CHANNELS
-                if start < len(flat):
-                    chunk = flat[start:end]
-                    nz = int(np.count_nonzero(chunk))
-                    if nz > 0:
-                        controllers_detail.append(f"{ctrl.ip}:{nz}ch")
-        detail = f"matrix {non_zero} non-zero channels"
-        if controllers_detail:
-            detail += " | " + ", ".join(controllers_detail)
-        _debug_add_op("set_voltage", detail, "all")
-        logger.info(f"MicroDM voltage applied: {non_zero} non-zero channels")
-    except Exception as e:
-        st.session_state[f"{jc}_feedback"] = f"电压下发失败: {e}"
+    result = r50_command(
+        "joint",
+        "MICRODM_SET_VOLTAGE",
+        units,
+        float(np.max(matrix)) if matrix.size else 0.0,
+        st.session_state.get(f"{P}_vmin", HW_VOLTAGE_MIN),
+        st.session_state.get(f"{P}_vmax", HW_VOLTAGE_MAX),
+        _send,
+        state_updater=_state_updater,
+    )
+    if result.fail:
+        st.session_state[f"{jc}_feedback"] = (
+            "电压下发失败: " + ", ".join(str(t) for t in result.failed_targets[:3])
+        )
         st.session_state[f"{jc}_feedback_type"] = "error"
-        logger.exception(f"MicroDM apply failed: {e}")
+        return
+    if not result.ok:
+        return
+
+    st.session_state[f"{jc}_current_flat"] = flat.copy()
+    st.session_state[f"{jc}_applied_matrix"] = matrix.copy()
+    non_zero = int(np.count_nonzero(matrix))
+    st.session_state[f"{jc}_feedback"] = (
+        f"✅ 已下发 36×36 矩阵电压 (非零通道: {non_zero}/{DM_NUM_ACTUATORS})"
+    )
+    st.session_state[f"{jc}_feedback_type"] = "success"
+
+    controllers_detail = []
+    for i, ctrl in enumerate(getattr(dm, "_controllers", [])):
+        if hasattr(ctrl, "ip"):
+            start = i * SINGLE_CHANNELS
+            end = start + SINGLE_CHANNELS
+            if start < len(flat):
+                chunk = flat[start:end]
+                nz = int(np.count_nonzero(chunk))
+                if nz > 0:
+                    controllers_detail.append(f"{ctrl.ip}:{nz}ch")
+    detail = f"matrix {non_zero} non-zero channels"
+    if controllers_detail:
+        detail += " | " + ", ".join(controllers_detail)
+    _debug_add_op("set_voltage", detail, "all")
+    logger.info(f"MicroDM voltage applied: {non_zero} non-zero channels")
+
+
+def _jc_sync_matrix_from_global_state() -> None:
+    """从全局单元状态重建 36×36 矩阵 (其他路径下发后保持显示一致)。
+
+    仅在 :func:`consume_unit_refresh_flag` 指示有下发完成时执行。
+    """
+    if not consume_unit_refresh_flag():
+        return
+    jc = f"{P}_jc"
+    pos_to_hw = st.session_state.get(f"{jc}_pos_to_hw")
+    if not pos_to_hw:
+        return
+    matrix = np.zeros((GRID_SIZE, GRID_SIZE), dtype=np.float64)
+    for phys_pos, (suffix, pos) in pos_to_hw.items():
+        row = (phys_pos - 1) // GRID_SIZE
+        col = (phys_pos - 1) % GRID_SIZE
+        v = get_unit_voltage(suffix, pos)
+        if v != float("inf"):
+            matrix[row, col] = v
+    st.session_state[f"{jc}_matrix"] = matrix
+    st.session_state[f"{jc}_applied_matrix"] = matrix.copy()
+    st.session_state[f"{jc}_current_flat"] = matrix.flatten().copy()
 
 
 def _jc_reset_matrix() -> None:
@@ -228,7 +291,7 @@ def _jc_reset_matrix() -> None:
 
 
 def _jc_reset_to_applied() -> None:
-    """将编辑缓冲区归零并立即下发到硬件。"""
+    """将编辑缓冲区归零并立即下发到硬件 (统一走 r50_command)。"""
     jc = f"{P}_jc"
     zero_matrix = np.zeros((GRID_SIZE, GRID_SIZE), dtype=np.float64)
     st.session_state[f"{jc}_matrix"] = zero_matrix.copy()
@@ -239,26 +302,55 @@ def _jc_reset_to_applied() -> None:
     if dm is None:
         st.session_state[f"{jc}_feedback"] = "设备未连接，仅重置编辑缓冲区"
         return
-    if not st.session_state.get(f"{jc}_relay_on", False):
-        st.session_state[f"{jc}_feedback"] = "⚠️ 继电器未上电，仅重置编辑缓冲区"
-        return
 
-    try:
-        pos_to_hw = st.session_state[f"{jc}_pos_to_hw"]
-        ip_to_ctrl = st.session_state[f"{jc}_ip_to_controller_idx"]
-        dm_num = st.session_state[f"{jc}_dm_num"]
-        flat = jc_matrix_to_flat(zero_matrix, pos_to_hw, ip_to_ctrl, dm_num)
-        dm.send_voltages(flat)
-        st.session_state[f"{jc}_current_flat"] = flat.copy()
-        st.session_state[f"{jc}_applied_matrix"] = zero_matrix.copy()
-        st.session_state[f"{jc}_feedback"] = "✅ 矩阵已归零并下发到所有控制器"
-        st.session_state[f"{jc}_feedback_type"] = "success"
-        _debug_add_op("reset_zero", "matrix zeroed and sent to all controllers", "all")
-        logger.info("MicroDM matrix reset to zero and applied")
-    except Exception as e:
-        st.session_state[f"{jc}_feedback"] = f"归零下发失败: {e}"
+    pos_to_hw = st.session_state.get(f"{jc}_pos_to_hw", {})
+    ip_to_ctrl = st.session_state.get(f"{jc}_ip_to_controller_idx", {})
+    dm_num = st.session_state.get(f"{jc}_dm_num", 0)
+    flat = jc_matrix_to_flat(zero_matrix, pos_to_hw, ip_to_ctrl, dm_num)
+    units = list(dict.fromkeys(
+        (int(suffix), int(pos)) for (suffix, pos) in pos_to_hw.values()
+    ))
+
+    def _state_updater() -> None:
+        for (suffix, pos) in pos_to_hw.values():
+            set_unit_voltage(suffix, pos, 0.0)
+        refresh_unit_displays()
+
+    def _send() -> tuple[SendResult, list[Packet]]:
+        try:
+            dm.send_voltages(flat)
+        except Exception as e:
+            logger.exception(f"MicroDM reset to zero failed: {e}")
+            return SendResult(fail=1, failed_targets=[str(e)]), []
+        pkt = (
+            HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR]) + voltages_to_payload(flat) + FOOTER
+        )
+        return SendResult(ok=1), [("MICRODM_SET_VOLTAGE", "joint", pkt)]
+
+    result = r50_command(
+        "joint",
+        "MICRODM_SET_VOLTAGE",
+        units,
+        0.0,
+        st.session_state.get(f"{P}_vmin", HW_VOLTAGE_MIN),
+        st.session_state.get(f"{P}_vmax", HW_VOLTAGE_MAX),
+        _send,
+        state_updater=_state_updater,
+    )
+    if result.fail:
+        st.session_state[f"{jc}_feedback"] = (
+            "归零下发失败: " + ", ".join(str(t) for t in result.failed_targets[:3])
+        )
         st.session_state[f"{jc}_feedback_type"] = "error"
-        logger.exception(f"MicroDM reset to zero failed: {e}")
+        return
+    if not result.ok:
+        return
+    st.session_state[f"{jc}_current_flat"] = flat.copy()
+    st.session_state[f"{jc}_applied_matrix"] = zero_matrix.copy()
+    st.session_state[f"{jc}_feedback"] = "✅ 矩阵已归零并下发到所有控制器"
+    st.session_state[f"{jc}_feedback_type"] = "success"
+    _debug_add_op("reset_zero", "matrix zeroed and sent to all controllers", "all")
+    logger.info("MicroDM matrix reset to zero and applied")
 
 
 def _jc_refresh_from_hardware() -> None:
