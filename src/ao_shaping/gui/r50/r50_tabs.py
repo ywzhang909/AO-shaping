@@ -17,10 +17,10 @@ from ao_shaping.gui.r50.r50_channel_select import (
     GRID_SIZE,
     HW_VOLTAGE_MAX,
     HW_VOLTAGE_MIN,
-    P,
     REFRESH_INTERVAL,
     SINGLE_CHANNELS,
     ChannelSelection,
+    P,
     build_position_ip_table,
 )
 from ao_shaping.gui.r50.r50_common import (
@@ -33,10 +33,7 @@ from ao_shaping.gui.r50.r50_common import (
     _set_feedback,
     _show_feedback,
 )
-from ao_shaping.gui.r50.r50_group import (
-    _gc_apply_voltage,
-    _gc_show_feedback,
-)
+from ao_shaping.gui.r50.r50_group import _gc_apply_voltage, _gc_show_feedback
 from ao_shaping.gui.r50.r50_joint import (
     _jc_apply_matrix,
     _jc_disconnect,
@@ -53,21 +50,9 @@ from ao_shaping.gui.r50.r50_joint import (
     _jc_sync_matrix_from_global_state,
     _jc_disconnect,
 )
-from ao_shaping.gui.r50.r50_single import (
-    _require_relay_on,
-    _send_channels,
-)
-from ao_shaping.gui.r50.r50_units import (
-    _channel_info_to_dict,
-    _render_current_voltages,
-)
-from ao_shaping.gui.r50.r50_voltage_send import (
-    alt_tick,
-    hold_tick,
-    seq_tick,
-    sine_tick,
-)
-
+from ao_shaping.gui.r50.r50_single import _require_relay_on, _send_channels
+from ao_shaping.gui.r50.r50_units import _channel_info_to_dict, _render_current_voltages
+from ao_shaping.gui.r50.r50_voltage_send import alt_tick, hold_tick, seq_tick, sine_tick
 
 # =============================================================================
 # 单控制器 Tab — 子模块渲染器
