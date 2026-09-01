@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+import threading
 import time
 import tkinter as tk
 from tkinter import filedialog
@@ -33,11 +34,26 @@ def _initialize_slm_state() -> None:
             st.session_state[f"{prefix}_shift_x"] = 0
             st.session_state[f"{prefix}_shift_y"] = 0
             st.session_state[f"{prefix}_use_correction"] = True
+            st.session_state[f"{prefix}_toggle_phase_a"] = None
+            st.session_state[f"{prefix}_toggle_phase_b"] = None
+            st.session_state[f"{prefix}_toggle_active"] = False
+            st.session_state[f"{prefix}_toggle_frequency"] = 1.0
+            st.session_state[f"{prefix}_toggle_thread"] = None
+            st.session_state[f"{prefix}_toggle_stop_event"] = None
+            st.session_state[f"{prefix}_toggle_freq_ref"] = None
+            st.session_state[f"{prefix}_toggle_slm_container"] = None
         else:
             slm = st.session_state[prefix]
             if slm is not None and not getattr(slm, "is_open", False):
                 st.session_state[prefix] = None
                 st.session_state[f"{prefix}_connected"] = False
+                st.session_state[f"{prefix}_toggle_active"] = False
+                st.session_state[f"{prefix}_toggle_phase_a"] = None
+                st.session_state[f"{prefix}_toggle_phase_b"] = None
+                st.session_state[f"{prefix}_toggle_thread"] = None
+                st.session_state[f"{prefix}_toggle_stop_event"] = None
+                st.session_state[f"{prefix}_toggle_freq_ref"] = None
+                st.session_state[f"{prefix}_toggle_slm_container"] = None
 
 
 def _phase_to_preview(phase_gray: np.ndarray) -> np.ndarray:
@@ -770,6 +786,16 @@ def disconnect_slm(slm_num: int):
         st.session_state[f"{prefix}_connected"] = False
         st.session_state[f"{prefix}_phase_preview"] = None
         st.session_state[f"{prefix}_phase_source"] = "暂无"
+        stop_event = st.session_state.get(f"{prefix}_toggle_stop_event")
+        if stop_event is not None:
+            stop_event.set()
+        st.session_state[f"{prefix}_toggle_active"] = False
+        st.session_state[f"{prefix}_toggle_phase_a"] = None
+        st.session_state[f"{prefix}_toggle_phase_b"] = None
+        st.session_state[f"{prefix}_toggle_thread"] = None
+        st.session_state[f"{prefix}_toggle_stop_event"] = None
+        st.session_state[f"{prefix}_toggle_freq_ref"] = None
+        st.session_state[f"{prefix}_toggle_slm_container"] = None
 
 
 def set_wavelength(slm_num: int):
@@ -1102,6 +1128,46 @@ def _verify_phase_displayed(slm: SantecSLM200, expected_slot: int) -> bool:
         return False
 
 
+def _toggle_phases_task(
+    slm_container: list,
+    phase_a: np.ndarray,
+    phase_b: np.ndarray,
+    stop_event: threading.Event,
+    freq_ref: list,
+) -> None:
+    """Background toggle loop — mirrors R50 `run_loop` + `alt_tick` pattern.
+
+    Alternates between ``phase_a`` and ``phase_b`` at ``freq_ref[0]`` Hz
+    using wall-clock timing.  Never touches ``st.session_state``.
+    """
+    slots = [3, 4]
+    t0 = time.time()
+
+    while not stop_event.is_set():
+        freq = freq_ref[0] if freq_ref else 1.0
+        if freq <= 0:
+            time.sleep(0.05)
+            continue
+
+        slm = slm_container[0] if slm_container else None
+        if slm is None or not getattr(slm, "is_open", False):
+            time.sleep(0.05)
+            continue
+
+        elapsed = time.time() - t0
+        use_phase_a = int(elapsed * 2.0 * freq) % 2 == 0
+        target_phase = phase_a if use_phase_a else phase_b
+        slot = slots[0] if use_phase_a else slots[1]
+
+        try:
+            slm.write_phase(target_phase, memory_number=slot)
+            slm.display_memory(slot)
+        except Exception as e:
+            logger.warning(f"周期切换失败: {e}")
+
+        time.sleep(max(0.01, 1.0 / (2.0 * freq)))
+
+
 def render_phase_control(slm_num: int):
     """Phase control UI for SLM (parameterized)"""
     prefix = f"slm{slm_num}"
@@ -1110,6 +1176,17 @@ def render_phase_control(slm_num: int):
 
     if st.button("从模式生成器生成相位", key=f"{prefix}_gen_pattern_btn"):
         try:
+            stop_event = st.session_state.get(f"{prefix}_toggle_stop_event")
+            if stop_event is not None:
+                stop_event.set()
+            st.session_state[f"{prefix}_toggle_active"] = False
+            st.session_state[f"{prefix}_toggle_thread"] = None
+            st.session_state[f"{prefix}_toggle_stop_event"] = None
+            st.session_state[f"{prefix}_toggle_freq_ref"] = None
+            st.session_state[f"{prefix}_toggle_slm_container"] = None
+            if st.session_state.get(f"{prefix}_toggle_active", False):
+                st.info("已停止周期切换")
+
             slm = st.session_state[prefix]
             phase_gray = generate_phase_gray(
                 slm,
@@ -1144,6 +1221,92 @@ def render_phase_control(slm_num: int):
             st.error(f"生成或显示相位失败: {e}")
             logger.exception(f"Failed to generate/display phase for SLM {slm_num}: {e}")
 
+    st.divider()
+    st.subheader("周期切换")
+    st.caption("在相位 A 与相位 B 之间持续来回切换")
+
+    col_ph_a, col_ph_b = st.columns(2)
+    with col_ph_a:
+        if st.button("设为相位 A", key=f"{prefix}_set_phase_a"):
+            slm = st.session_state.get(prefix)
+            if slm is not None and getattr(slm, "is_open", False):
+                phase, _ = slm.get_displayed_phase()
+                if phase is not None:
+                    st.session_state[f"{prefix}_toggle_phase_a"] = phase
+                    st.success(f"相位 A 已设置 ({phase.shape})")
+                else:
+                    st.warning("无法获取当前显示相位")
+            else:
+                st.warning("SLM 未连接")
+    with col_ph_b:
+        if st.button("设为相位 B", key=f"{prefix}_set_phase_b"):
+            slm = st.session_state.get(prefix)
+            if slm is not None and getattr(slm, "is_open", False):
+                phase, _ = slm.get_displayed_phase()
+                if phase is not None:
+                    st.session_state[f"{prefix}_toggle_phase_b"] = phase
+                    st.success(f"相位 B 已设置 ({phase.shape})")
+                else:
+                    st.warning("无法获取当前显示相位")
+            else:
+                st.warning("SLM 未连接")
+
+    freq = st.number_input(
+        "切换频率 (Hz)",
+        min_value=0.1,
+        max_value=100.0,
+        value=1.0,
+        step=0.1,
+        key=f"{prefix}_toggle_frequency",
+    )
+
+    col_start, col_stop = st.columns(2)
+    with col_start:
+        if st.button("开始周期切换", key=f"{prefix}_start_toggle"):
+            phase_a = st.session_state.get(f"{prefix}_toggle_phase_a")
+            phase_b = st.session_state.get(f"{prefix}_toggle_phase_b")
+            slm = st.session_state.get(prefix)
+            if phase_a is None or phase_b is None:
+                st.warning("请先设置相位 A 和相位 B")
+            elif slm is None or not getattr(slm, "is_open", False):
+                st.warning("SLM 未连接")
+            else:
+                old_stop = st.session_state.get(f"{prefix}_toggle_stop_event")
+                if old_stop is not None:
+                    old_stop.set()
+                st.session_state[f"{prefix}_toggle_active"] = True
+                stop_event = threading.Event()
+                freq_ref = [st.session_state.get(f"{prefix}_toggle_frequency", 1.0)]
+                slm_container = [st.session_state.get(prefix)]
+                st.session_state[f"{prefix}_toggle_stop_event"] = stop_event
+                st.session_state[f"{prefix}_toggle_freq_ref"] = freq_ref
+                st.session_state[f"{prefix}_toggle_slm_container"] = slm_container
+                thread = threading.Thread(
+                    target=_toggle_phases_task,
+                    args=(
+                        slm_container,
+                        st.session_state.get(f"{prefix}_toggle_phase_a"),
+                        st.session_state.get(f"{prefix}_toggle_phase_b"),
+                        stop_event,
+                        freq_ref,
+                    ),
+                    daemon=True,
+                )
+                st.session_state[f"{prefix}_toggle_thread"] = thread
+                thread.start()
+                st.success("周期切换已开始")
+    with col_stop:
+        if st.button("停止周期切换", key=f"{prefix}_stop_toggle"):
+            stop_event = st.session_state.get(f"{prefix}_toggle_stop_event")
+            if stop_event is not None:
+                stop_event.set()
+            st.session_state[f"{prefix}_toggle_active"] = False
+            st.session_state[f"{prefix}_toggle_thread"] = None
+            st.session_state[f"{prefix}_toggle_stop_event"] = None
+            st.session_state[f"{prefix}_toggle_freq_ref"] = None
+            st.session_state[f"{prefix}_toggle_slm_container"] = None
+            st.success("周期切换已停止")
+
     # Option to load from CSV
     uploaded_file = st.file_uploader(
         "上传CSV相位文件", type=["csv"], key=f"{prefix}_csv_file"
@@ -1151,6 +1314,17 @@ def render_phase_control(slm_num: int):
     if uploaded_file is not None:
         if st.button("从CSV加载相位", key=f"{prefix}_load_csv_btn"):
             try:
+                stop_event = st.session_state.get(f"{prefix}_toggle_stop_event")
+                if stop_event is not None:
+                    stop_event.set()
+                st.session_state[f"{prefix}_toggle_active"] = False
+                st.session_state[f"{prefix}_toggle_thread"] = None
+                st.session_state[f"{prefix}_toggle_stop_event"] = None
+                st.session_state[f"{prefix}_toggle_freq_ref"] = None
+                st.session_state[f"{prefix}_toggle_slm_container"] = None
+                if st.session_state.get(f"{prefix}_toggle_active", False):
+                    st.info("已停止周期切换")
+
                 # Save uploaded file temporarily
                 temp_path = Path(f"temp_{prefix}_phase.csv")
                 with open(temp_path, "wb") as f:

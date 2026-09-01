@@ -230,9 +230,11 @@ python scripts/md_img_pipeline.py --input data/md_test/md_img-80v --skip-diff
 **Output structure:**
 ```
 <output>/
-├── diff/                  # Per-IP diff images with centroids
+├── diff/                  # Per-IP diff images (1:1 filenames with source)
 │   ├── 192.168.0.101/
-│   │   ├── 192.168.0.101-001_cx821.0_cy245.6.png
+│   │   ├── 192.168.0.101-001.png     # same name as original input image
+│   │   ├── 192.168.0.101-002.png
+│   │   ├── centroids.csv             # filename, channel, cx, cy table
 │   │   └── ...
 │   └── ...
 ├── overlay/               # Per-IP max aggregation overlays
@@ -244,6 +246,12 @@ python scripts/md_img_pipeline.py --input data/md_test/md_img-80v --skip-diff
 ├── global_overlay.png     # Max aggregation across all IPs
 └── combined.gif           # All IPs merged with labels
 ```
+
+**1:1 filename mapping** — diff output images keep the exact original filename
+(`192.168.0.101-001.png` → `.../diff/192.168.0.101/192.168.0.101-001.png`), so IP,
+channel number and source image correspond one-to-one. Centroid coordinates are
+no longer embedded in the filename; they are stored in `centroids.csv` per IP
+(columns: `filename, channel, cx, cy`) and looked up for GIF labels.
 
 ### Manual Steps (Advanced)
 
@@ -401,7 +409,12 @@ of a single global reference), then generates diff images, per-IP overlays, per-
 GIFs, global overlay, and a combined master GIF with IP labels and metadata.
 
 **Key features:**
-- **Per-IP references** — automatically uses `<IP>-000.png` as reference for each IP
+- **Shared reference** — by default ALL IPs are diffed against the single common
+  baseline `192.168.0.101-000.png` (channel-000 of the first controller); override
+  with `--ref <path>`. Channel 000 of every IP is also diffed (not skipped), so the
+  output keeps a full 000..N correspondence with the source.
+- **1:1 filename mapping** — diff images keep the exact source filename; centroids
+  stored in `centroids.csv` per IP
 - **Complete pipeline** — diff computation → per-IP overlay → per-IP GIF → combined GIF
 - **Global overlay** — pixel-wise maximum across all IPs for coverage analysis
 - **Combined GIF** — all IPs merged with red IP-index labels (bottom-left) and
@@ -436,6 +449,7 @@ python scripts/md_img_pipeline.py --input data/md_test/md_img-80v --skip-diff
 | `--scale` | `0.25` | Downscale factor for GIFs |
 | `--fps` | `8` | GIF frame rate |
 | `--skip-diff` | off | Skip diff computation, use existing diff images |
+| `--ref` | first IP's `-000.png` | Shared reference image for ALL IPs |
 
 ## Subdirectories
 
