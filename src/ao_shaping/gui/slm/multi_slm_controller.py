@@ -176,8 +176,8 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
         )
 
         if period_mode == "angle":
-            default_wl = st.session_state.get(f"{prefix}_wavelength", 1064)
-            default_pitch = st.session_state.get(f"{prefix}_pixel_pitch_um", 8.0)
+            default_wl = int(st.session_state.get(f"{prefix}_wavelength", 1064))
+            default_pitch = float(st.session_state.get(f"{prefix}_pixel_pitch_um", 8.0))
 
             col_a1, col_a2 = st.columns(2)
             with col_a1:
@@ -362,8 +362,10 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
             key=f"{prefix}_vortex_charge",
         )
         # 从sidebar设置读取默认值
-        default_wavelength = st.session_state.get(f"{prefix}_wavelength", 1064)
-        default_pixel_pitch = st.session_state.get(f"{prefix}_pixel_pitch_um", 8.0)
+        default_wavelength = int(st.session_state.get(f"{prefix}_wavelength", 1064))
+        default_pixel_pitch = float(
+            st.session_state.get(f"{prefix}_pixel_pitch_um", 8.0)
+        )
 
         params["wavelength_nm"] = st.number_input(
             "波长 (nm)",
@@ -664,8 +666,6 @@ def generate_phase_gray(
 
 
 def main():
-    st.title("双SLM200控制器")
-
     _initialize_slm_state()
 
     with st.sidebar:
@@ -673,22 +673,42 @@ def main():
         st.divider()
         render_slm_sidebar(2)
 
-    # Main area: Phase control for each SLM
-    col1, col2 = st.columns(2)
+    connected_slms = [
+        slm_num
+        for slm_num in (1, 2)
+        if st.session_state.get(f"slm{slm_num}_connected")
+        and st.session_state.get(f"slm{slm_num}") is not None
+    ]
 
-    with col1:
-        st.header("SLM 1 相位控制")
-        display_slm_status(1)
-        if st.session_state.slm1_connected:
+    count = len(connected_slms)
+    if count == 0:
+        st.title("SLM200 控制器")
+        st.info("请在左侧连接至少一个 SLM")
+        return
+
+    st.title(f"{'双' if count == 2 else '单'}SLM200 控制器")
+
+    if count == 1:
+        slm_num = connected_slms[0]
+        st.header(f"SLM {slm_num} 相位控制")
+        display_slm_status(slm_num)
+        if st.button("刷新当前显示相位", key=f"slm{slm_num}_refresh_phase_btn"):
+            refresh_phase_preview(slm_num)
+        render_phase_preview(slm_num)
+        render_phase_control(slm_num)
+    else:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.header("SLM 1 相位控制")
+            display_slm_status(1)
             if st.button("刷新当前显示相位", key="slm1_refresh_phase_btn"):
                 refresh_phase_preview(1)
             render_phase_preview(1)
             render_phase_control(1)
 
-    with col2:
-        st.header("SLM 2 相位控制")
-        display_slm_status(2)
-        if st.session_state.slm2_connected:
+        with col2:
+            st.header("SLM 2 相位控制")
+            display_slm_status(2)
             if st.button("刷新当前显示相位", key="slm2_refresh_phase_btn"):
                 refresh_phase_preview(2)
             render_phase_preview(2)
