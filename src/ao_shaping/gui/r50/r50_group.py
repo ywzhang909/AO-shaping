@@ -24,14 +24,16 @@ from ao_shaping.drivers.dm.MicroDM import (
     voltages_to_payload,
 )
 from ao_shaping.gui.r50.r50_common import _set_feedback, _show_feedback
+from ao_shaping.gui.r50.r50_command import Packet, reset_unit_states, r50_command
 from ao_shaping.gui.r50.r50_connection import (
     create_controller,
     ping_reachable,
     power_off_and_close,
     set_relay,
 )
-from ao_shaping.gui.r50.r50_debug import _debug_add_op, _debug_log_packet
+from ao_shaping.gui.r50.r50_debug import _debug_add_op
 from ao_shaping.gui.r50.r50_voltage_send import (
+    SendResult,
     apply_group_controllers,
     clip_voltage,
 )
@@ -124,6 +126,7 @@ def _gc_disconnect() -> None:
     st.session_state[f"{gc}_connected"] = False
     st.session_state[f"{gc}_relay_on"] = False
     st.session_state[f"{gc}_connection_error"] = ""
+    reset_unit_states()
     _gc_set_feedback("已断开所有控制器 (已先下电)", "info")
     _debug_add_op("disconnect", "group", "")
     logger.info("Group control disconnected all controllers")
@@ -153,6 +156,8 @@ def _gc_set_relay(on: bool) -> None:
     if error_count == 0:
         st.session_state[f"{gc}_relay_on"] = on
         label = "上电 (输出接通)" if on else "下电 (输出断开)"
+        if not on:
+            reset_unit_states()
         _gc_set_feedback(
             f"✅ 所有控制器继电器已{label} ({success_count} 个控制器)",
             "success" if on else "info",
@@ -167,14 +172,14 @@ def _gc_set_relay(on: bool) -> None:
 
 
 def _gc_apply_voltage(all_channels: bool = False) -> None:
-    """向所选组下发电压 (每控制器一个 0x09 批量包, 一次点击全部送达)。"""
+    """向所选组下发电压 (每控制器一个 0x09 批量包, 一次点击全部送达)。
+
+    统一走 :func:`r50_command`: 上电检查 / 发送日志 / 全局单元状态更新。
+    """
     gc = f"{P}_gc"
     controllers: dict[int, Any] = st.session_state.get(f"{gc}_controllers", {})
     if not controllers:
         _gc_set_feedback("设备未连接", "error")
-        return
-    if not st.session_state.get(f"{gc}_relay_on", False):
-        _gc_set_feedback("⚠️ 请先继电器上电后再下发电压", "error")
         return
 
     voltage = float(st.session_state.get(f"{gc}_voltage", 0.0))
@@ -192,36 +197,56 @@ def _gc_apply_voltage(all_channels: bool = False) -> None:
         selected_payloads = group_def.all_payload_positions
     else:
         selected_payloads = [int(c) for c in selected_channels]
+    sel_set = set(selected_payloads)
+
+    units: list[tuple[int, int]] = []
+    for ip_suffix, ch_list in group_def.channels_by_ip.items():
+        for ci in ch_list:
+            if ci.payload_position in sel_set:
+                units.append((ip_suffix, ci.payload_position))
+    if not units:
+        _gc_set_feedback("所选组别无匹配通道", "warning")
+        return
 
     current_map = st.session_state.setdefault(f"{gc}_current_map", {})
-    # 记录实际下发的 0x09 批量包到指令日志 (与 apply_group_controllers 相同的
-    # touched / 单包每控制器逻辑, 保证字节一致)。
-    sel = {int(p) for p in selected_payloads}
-    for ip_suffix, ch_list in group_def.channels_by_ip.items():
-        arr = np.zeros(SINGLE_CHANNELS, dtype=np.float64)
-        touched = False
-        for ci in ch_list:
-            if ci.payload_position in sel:
-                arr[ci.payload_position - 1] = clipped
-                touched = True
-        if touched:
-            packet = (
-                HEADER
-                + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR])
-                + voltages_to_payload(arr)
-                + FOOTER
-            )
-            _debug_log_packet(f"GROUP_SET_VOLTAGE@192.168.0.{ip_suffix}", packet)
-    result = apply_group_controllers(
-        controllers,
-        group_def,
-        selected_payloads,
+
+    def _send() -> tuple[SendResult, list[Packet]]:
+        sel = {int(p) for p in selected_payloads}
+        packets: list[Packet] = []
+        for ip_suffix, ch_list in group_def.channels_by_ip.items():
+            arr = np.zeros(SINGLE_CHANNELS, dtype=np.float64)
+            touched = False
+            for ci in ch_list:
+                if ci.payload_position in sel:
+                    arr[ci.payload_position - 1] = clipped
+                    touched = True
+            if touched:
+                pkt = (
+                    HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR]) + voltages_to_payload(arr) + FOOTER
+                )
+                ip = f"192.168.0.{ip_suffix}"
+                packets.append((f"GROUP_SET_VOLTAGE@{ip}", ip, pkt))
+        result = apply_group_controllers(
+            controllers,
+            group_def,
+            selected_payloads,
+            clipped,
+            st.session_state[f"{P}_vmin"],
+            st.session_state[f"{P}_vmax"],
+            current_map,
+        )
+        st.session_state[f"{gc}_current_map"] = current_map
+        return result, packets
+
+    result = r50_command(
+        "group",
+        "GROUP_SET_VOLTAGE",
+        units,
         clipped,
         st.session_state[f"{P}_vmin"],
         st.session_state[f"{P}_vmax"],
-        current_map,
+        _send,
     )
-    st.session_state[f"{gc}_current_map"] = current_map
 
     if result.fail:
         targets = ", ".join(str(t) for t in result.failed_targets[:10])
@@ -231,7 +256,6 @@ def _gc_apply_voltage(all_channels: bool = False) -> None:
         )
         return
 
-    sel_set = set(selected_payloads)
     n_ch = sum(
         1
         for chs in group_def.channels_by_ip.values()

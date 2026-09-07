@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import itertools
 import threading
 import time
@@ -12,8 +13,10 @@ import numpy as np
 import streamlit as st
 from loguru import logger
 
+from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
 from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
 from ao_shaping.utils.pattern_helper import PatternHelper, calc_blazed_grating_period
+from ao_shaping.utils.spots_calc import centroid, radius
 from ao_shaping.utils.zernike_calc import get_zernike_name
 
 # Global pattern helpers (will be recreated per-SLM based on resolution)
@@ -134,6 +137,7 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
             "达曼光栅",
             "涡旋相位",
             "半半相位",
+            "GS方形整形",
         ],
         key=f"{prefix}_pattern_type",
     )
@@ -495,7 +499,232 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
             st.caption("左右划分时闪耀光栅固定为竖条纹方向")
             params["blaze_direction"] = "vertical"
 
+    elif pattern_type == "GS方形整形":
+        uploaded = st.file_uploader(
+            "上传远场光斑图片 (用于自动计算方形大小)",
+            type=["png", "jpg", "jpeg", "bmp", "tif", "tiff"],
+            key=f"{prefix}_gs_spot_image",
+        )
+        st.caption("GS 算法将输入光斑整形为方形；方形边长 = 光斑直径 × 尺寸因子")
+        if uploaded is not None:
+            try:
+                params["intensity_cam"] = _upload_to_intensity(uploaded)
+            except Exception as e:
+                st.error(f"图片解码失败: {e}")
+                logger.exception(f"Failed to decode GS spot image: {e}")
+        else:
+            st.warning("请先上传远场光斑图片")
+
+        col_g1, col_g2 = st.columns(2)
+        with col_g1:
+            params["gs_factor"] = st.number_input(
+                "方形边长/光斑直径 因子",
+                min_value=0.5,
+                max_value=5.0,
+                value=1.5,
+                step=0.1,
+                key=f"{prefix}_gs_factor",
+            )
+        with col_g2:
+            params["gs_focal_length_mm"] = st.number_input(
+                "焦距 (mm)",
+                min_value=1.0,
+                max_value=5000.0,
+                value=100.0,
+                step=1.0,
+                key=f"{prefix}_gs_focal_mm",
+            )
+
+        col_g3, col_g4 = st.columns(2)
+        with col_g3:
+            params["gs_iterations"] = st.number_input(
+                "GS 迭代次数",
+                min_value=1,
+                max_value=5000,
+                value=100,
+                step=1,
+                key=f"{prefix}_gs_iterations",
+            )
+        with col_g4:
+            params["gs_energy"] = st.number_input(
+                "光斑能量占比 (0~1)",
+                min_value=0.1,
+                max_value=0.999,
+                value=0.90,
+                step=0.05,
+                key=f"{prefix}_gs_energy",
+            )
+
+        p_cam_input = st.number_input(
+            "相机像素间距 (μm，留空使用 SLM 像素间距)",
+            min_value=0.0,
+            value=0.0,
+            step=0.1,
+            key=f"{prefix}_gs_p_cam",
+            help="输入相机像素间距(μm)。为 0 时默认与 SLM 像素间距一致。",
+        )
+        if p_cam_input > 0:
+            params["gs_p_cam"] = p_cam_input * 1e-6
+
     return pattern_type, params
+
+
+def _upload_to_intensity(uploaded: Any) -> np.ndarray:
+    """Decode an uploaded image file into a 2D float intensity array.
+
+    Args:
+        uploaded: A Streamlit ``UploadedFile`` (or any file-like with ``getvalue``).
+
+    Returns:
+        2D float intensity array (grayscale; color images converted via luminance).
+    """
+    from PIL import Image
+
+    raw = uploaded.getvalue()
+    img = Image.open(io.BytesIO(raw)).convert("L")
+    return np.asarray(img, dtype=np.float64)
+
+
+def measure_spot_diameter_cam(intensity: np.ndarray, energy: float = 0.90) -> float:
+    """Measure far-field beam spot diameter (pixels) from an intensity image.
+
+    Uses the intensity centroid as center and the encircled-energy radius
+    (default 90%) to derive a spot diameter.
+
+    Args:
+        intensity: 2D far-field intensity image.
+        energy: Encircled-energy fraction (0~1) for the radius (default 0.90).
+
+    Returns:
+        Spot diameter in camera pixels.
+    """
+    cx, cy = centroid(intensity)
+    r = radius(intensity, center=(cx, cy), energy=energy, use_aotools=False)
+    return 2.0 * float(r)
+
+
+def compute_square_side(
+    spot_diameter_cam_px: float,
+    factor: float = 1.5,
+    p_cam: float = 8e-6,
+    d_slm: float = 8e-6,
+) -> int:
+    """Auto-compute square side (SLM-grid pixels) from the beam spot size.
+
+    The requested physical beam size is ``factor`` times the measured spot
+    diameter. If the camera pixel pitch differs from the SLM pixel pitch the
+    size is rescaled accordingly::
+
+        side = factor * spot_diameter_cam * (p_cam / d_slm)
+
+    Args:
+        spot_diameter_cam_px: Measured spot diameter in camera pixels.
+        factor: Square-to-spot size factor (default 1.5).
+        p_cam: Camera pixel pitch in meters (default matches SLM pitch).
+        d_slm: SLM pixel pitch in meters (default 8e-6).
+
+    Returns:
+        Square side length in SLM-grid pixels.
+    """
+    return int(round(float(factor) * float(spot_diameter_cam_px) * (p_cam / d_slm)))
+
+
+def build_square_target_amplitude(
+    height: int,
+    width: int,
+    side: int,
+) -> np.ndarray:
+    """Build a centered square target amplitude on an (height, width) grid.
+
+    Args:
+        height: Grid height in pixels.
+        width: Grid width in pixels.
+        side: Square side length in pixels.
+
+    Returns:
+        Float array (height, width) with 1 inside the square, 0 outside.
+    """
+    target = np.zeros((height, width), dtype=np.float64)
+    half = side // 2
+    cy = height // 2
+    cx = width // 2
+    y0 = max(cy - half, 0)
+    y1 = min(cy + side - half, height)
+    x0 = max(cx - half, 0)
+    x1 = min(cx + side - half, width)
+    target[y0:y1, x0:x1] = 1.0
+    return target
+
+
+def generate_gs_square_phase(
+    slm: SantecSLM200,
+    intensity_cam: np.ndarray,
+    factor: float = 1.5,
+    focal_length_m: float = 0.1,
+    iterations: int = 100,
+    energy: float = 0.90,
+    p_cam: float | None = None,
+) -> np.ndarray:
+    """Full GS beam-shaping pipeline: measure spot -> size square -> GS phase.
+
+    Measures the beam spot from ``intensity_cam``, auto-sizes a square target
+    on the SLM grid, runs Gerchberg-Saxton at SLM resolution, and returns the
+    uint16 grayscale phase for the SLM.
+
+    Args:
+        slm: SLM object (reads resolution, pitch, bits, wavelength).
+        intensity_cam: 2D far-field intensity image used to size the square.
+        factor: Square-to-spot size factor (default 1.5).
+        focal_length_m: Focal length / propagation distance in meters.
+        iterations: GS iteration count (default 100).
+        energy: Encircled-energy fraction for spot measurement (default 0.90).
+        p_cam: Camera pixel pitch in meters; defaults to the SLM pitch.
+
+    Returns:
+        uint16 phase grayscale array with shape (height, width).
+    """
+    width = slm.Panel_Res[0]
+    height = slm.Panel_Res[1]
+    d_slm = float(slm.Pitch_um) * 1e-6  # um -> m
+    p_cam_eff = d_slm if p_cam is None else float(p_cam)
+    wavelength_nm = slm.wavelength
+    assert wavelength_nm is not None, "SLM波长未设置，无法生成相位图"
+
+    spot_d = measure_spot_diameter_cam(intensity_cam, energy=energy)
+    side = compute_square_side(spot_d, factor=factor, p_cam=p_cam_eff, d_slm=d_slm)
+
+    # Clamp the square so it fits on the SLM grid with a small margin.
+    max_side = min(height, width) - 8
+    if side > max_side:
+        logger.warning(
+            "Beam-derived square side {}px exceeds SLM grid, clamped to {}px",
+            side,
+            max_side,
+        )
+        side = max_side
+    if side < 8:
+        side = 8
+
+    source = np.ones((height, width), dtype=np.float64)
+    target = build_square_target_amplitude(height, width, side)
+
+    logger.info(
+        "GS square shaping: spot_d={:.1f}px, side={}px, f={:.3f}m, iters={}",
+        spot_d,
+        side,
+        focal_length_m,
+        iterations,
+    )
+
+    result = gerchberg_saxton(
+        source_amplitude=source,
+        target_amplitude=target,
+        iterations=iterations,
+        cell_spacing=d_slm,
+        distance=focal_length_m,
+        wavelength=float(wavelength_nm) * 1e-9,
+    )
+    return slm.create_phase_from_array(result.phase)
 
 
 def generate_phase_gray(
@@ -662,6 +891,19 @@ def generate_phase_gray(
         else:  # 上下
             mid = height // 2
             return np.concatenate([flat_full[:mid, :], blaze_gray[mid:, :]], axis=0)
+    if pattern_type == "GS方形整形":
+        intensity_cam = params.get("intensity_cam")
+        if intensity_cam is None:
+            raise ValueError("GS方形整形需要先上传远场光斑图片")
+        return generate_gs_square_phase(
+            slm,
+            intensity_cam,
+            factor=float(params.get("gs_factor", 1.5)),
+            focal_length_m=float(params["gs_focal_length_mm"]) * 1e-3,
+            iterations=int(params.get("gs_iterations", 100)),
+            energy=float(params.get("gs_energy", 0.90)),
+            p_cam=params.get("gs_p_cam"),
+        )
     raise ValueError(f"未知相位图类型: {pattern_type}")
 
 
