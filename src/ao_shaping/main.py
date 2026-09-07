@@ -10,6 +10,7 @@ Commands:
     pib             轴向光束PIB优化器
     pipeline        串行WF→PIB流水线优化器
     gs              Gerchberg-Saxton全息图生成器
+    gs-square       GS闭环光束整形优化器
     zernike-matrix  Zernike响应矩阵校准
     rms-zernike     Zernike RMS优化器
     ga-zernike      GA Zernike优化器
@@ -51,6 +52,7 @@ from ao_shaping.runners import (
     alt_voltage_run,
     full_voltage_run,
     combined_run,
+    gs_square_run,
 )
 
 
@@ -94,6 +96,7 @@ cli.add_command(dm_matrix_run, name="dm-matrix")
 cli.add_command(alt_voltage_run, name="alt-voltage")
 cli.add_command(full_voltage_run, name="full-voltage")
 cli.add_command(combined_run, name="combined")
+cli.add_command(gs_square_run, name="gs-square")
 
 
 # Entry point

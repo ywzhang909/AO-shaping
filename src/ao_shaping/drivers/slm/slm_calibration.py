@@ -33,8 +33,8 @@ from typing import Protocol, Union
 
 import numpy as np
 from loguru import logger
-
 from scipy.interpolate import UnivariateSpline
+
 
 def lrange(a, b, step):
     return list(range(a, b, step))

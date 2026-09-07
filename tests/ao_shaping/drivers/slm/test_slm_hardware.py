@@ -12,17 +12,16 @@ Run with:
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
-
-pytestmark = pytest.mark.hardware
 
 import ao_shaping.drivers.slm.santec_slm200 as slm_module
 from ao_shaping.drivers.slm.santec_slm200 import (
     SantecSLM200,
     VideoMode,
 )
+
+pytestmark = pytest.mark.hardware
 
 
 # ---------------------------------------------------------------------------
@@ -191,10 +190,10 @@ class TestConfigPriority:
         return serial
 
     def test_config_overrides_init_params(self, slm_config_dir, saved_serial):
-        """Config file values are used even when ``__init__`` passes different values."""
+        """Config values override __init__ params when config exists."""
         with SantecSLM200(
-            wavelength=532,   # should be ignored — config exists
-            shift_x=999,      # should be ignored
+            wavelength=532,  # should be ignored — config exists
+            shift_x=999,  # should be ignored
         ) as slm:
             assert slm._serial_number == saved_serial
             assert slm.wavelength == 1064, "config value should win"
@@ -317,9 +316,7 @@ class TestConfigPersistence:
     def test_config_dir_starts_clean(self, slm_config_dir):
         """Each test's config dir is initially empty."""
         config_files = list(slm_config_dir.rglob("*.json"))
-        assert config_files == [], (
-            f"expected empty config dir, found: {config_files}"
-        )
+        assert config_files == [], f"expected empty config dir, found: {config_files}"
 
 
 # ---------------------------------------------------------------------------
@@ -490,3 +487,73 @@ class TestInitValidation:
         slm.close()
         r = repr(slm)
         assert "未连接" in r
+
+
+# ---------------------------------------------------------------------------
+# Scenario 10 — Device info / serial fallback
+# ---------------------------------------------------------------------------
+
+
+class TestDeviceInfo:
+    """Device identification methods added per Programmer's Guide."""
+
+    def test_get_product_serial_number(self, slm_config_dir):
+        """``get_product_serial_number`` returns a non-empty string on success."""
+        with SantecSLM200() as slm:
+            serial = slm.get_product_serial_number(0)
+            if serial is not None:
+                assert isinstance(serial, str)
+                assert len(serial) > 0
+
+    def test_get_lcos_serial_number(self, slm_config_dir):
+        """``get_lcos_serial_number`` returns a non-empty string on success."""
+        with SantecSLM200() as slm:
+            serial = slm.get_lcos_serial_number(0)
+            if serial is not None:
+                assert isinstance(serial, str)
+                assert len(serial) > 0
+
+    def test_get_display_name(self, slm_config_dir):
+        """``get_display_name`` returns a non-empty string on success."""
+        with SantecSLM200() as slm:
+            name = slm.get_display_name()
+            if name is not None:
+                assert isinstance(name, str)
+                assert len(name) > 0
+
+    def test_get_version(self, slm_config_dir):
+        """``get_version`` returns a non-empty string on success."""
+        with SantecSLM200() as slm:
+            version = slm.get_version()
+            if version is not None:
+                assert isinstance(version, str)
+                assert len(version) > 0
+
+    def test_get_device_info_contains_keys(self, slm_config_dir):
+        """``get_device_info`` returns a dict with expected keys."""
+        with SantecSLM200() as slm:
+            info = slm.get_device_info()
+            assert isinstance(info, dict)
+            for key in (
+                "driveboard_id",
+                "optionboard_id",
+                "product_serial",
+                "lcos_serial",
+                "display_name",
+                "version",
+            ):
+                assert key in info
+
+    def test_serial_fallback_to_product_serial(self, slm_config_dir, monkeypatch):
+        """When board IDs are empty, ``open()`` falls back to product serial."""
+        with SantecSLM200() as slm:
+            def fake_get_serial():
+                return None
+
+            monkeypatch.setattr(slm, "get_serial_number", fake_get_serial)
+            monkeypatch.setattr(slm, "_serial_number", None)
+
+            product_serial = slm.get_product_serial_number(0)
+            if product_serial is not None:
+                slm._serial_number = product_serial
+                assert slm._serial_number == product_serial

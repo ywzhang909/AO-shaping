@@ -2,17 +2,20 @@
 
 提供对Santec SLM-200系列空间光调制器的控制接口，
 支持相位图显示、波长设置、内存模式等功能。
+
+Agent Wiki: docs/slm-200/agent_wiki.md
 """
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import os
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
 import numpy as np
 from loguru import logger
@@ -155,7 +158,7 @@ class SantecSLM200:
         video_mode: int | VideoMode = VideoMode.Memory,
         shift_x: int | None = None,
         shift_y: int | None = None,
-        correction_csv_path: Union[str, Path, None] = None,
+        correction_csv_path: str | Path | None = None,
     ):
         """初始化SLM驱动
 
@@ -214,75 +217,56 @@ class SantecSLM200:
         except ImportError as e:
             raise SantecSLM200Error(
                 f"无法导入SLM SDK (_slm_win): {e}. 请确保已安装Santec SLM驱动程序。"
-            )
+            ) from e
 
-    def get_serial_number(self, timeout: float = 5.0) -> str | None:
-        """读取SLM设备的序列号。
+    def get_serial_number(self, timeout: float = 0.0) -> str | None:
+        """读取SLM设备标识。
 
-        通过SDK函数 SLM_Ctrl_ReadSD 获取设备唯一序列号。
-        必须在设备打开后调用。
+        参考官方文档与 C++ 样例，依次尝试：
+        1. SLM_Ctrl_ReadSDO 读取 Drive board / Option board ID
+        2. SLM_Ctrl_ReadSD 读取 Drive board ID
+        3. SLM_Ctrl_ReadSO 读取 Option board ID
 
         Args:
-            timeout: SDK调用超时秒数。设为0或负数则禁用超时。
-                某些异常情况下SLM_Ctrl_ReadSD可能挂起（如快速连续的open/close），
-                超时机制防止整个线程被阻塞。
+            timeout: 已弃用（保留参数兼容旧调用）。
 
         Returns:
-            设备序列号字符串，失败或超时时返回None
-
-        Raises:
-            RuntimeError: 设备未打开
+            设备标识字符串，失败时返回 None
         """
         self._ensure_open()
-        # 使用正确的大小初始化buffer (256字节 + null terminator)
-        device_id = ctypes.create_string_buffer(256)
-        logger.debug(
-            f"SLM #{self.slm_number} 正在读取序列号, buffer size: {len(device_id)}"
-        )
 
-        if timeout and timeout > 0:
-            ret = self._read_serial_with_timeout(device_id, timeout)
-        else:
-            ret = self._slm.SLM_Ctrl_ReadSD(self.slm_number, device_id)
+        drive_id = ctypes.create_string_buffer(16)
+        option_id = ctypes.create_string_buffer(16)
 
-        if ret is None:
-            logger.warning(
-                f"SLM #{self.slm_number} 读取序列号超时 ({timeout}s)，"
-                "SDK可能已挂起。请尝试 reboot() 或重新连接USB。"
-            )
-            return None
+        ret = self._slm.SLM_Ctrl_ReadSDO(self.slm_number, drive_id, option_id)
+        if ret == SLM_OK:
+            serial = drive_id.value.decode("utf-8").strip()
+            if serial:
+                logger.debug(f"SLM #{self.slm_number} driveboardID: {serial}")
+                return serial
+            serial = option_id.value.decode("utf-8").strip()
+            if serial:
+                logger.debug(f"SLM #{self.slm_number} optionboardID: {serial}")
+                return serial
 
-        logger.debug(f"SLM #{self.slm_number} ReadSD 返回码: {ret} (OK={SLM_OK})")
-
-        if ret != SLM_OK:
-            # 尝试使用备用方法 SLM_Ctrl_ReadSDO
-            logger.warning(
-                f"SLM_Ctrl_ReadSD 失败: {get_slm_error_message(ret)}, 尝试备用方法..."
-            )
-            try:
-                device_id2 = ctypes.create_string_buffer(256)
-                option_id = ctypes.create_string_buffer(256)
-                ret2 = self._slm.SLM_Ctrl_ReadSDO(
-                    self.slm_number, device_id2, option_id
-                )
-                logger.debug(f"SLM_Ctrl_ReadSDO 返回码: {ret2}")
-                if ret2 == SLM_OK:
-                    serial = device_id2.value.decode("utf-8").strip()
-                    logger.info(f"SLM #{self.slm_number} 序列号(备用方法): {serial}")
-                    return serial
-            except Exception as e:
-                logger.debug(f"备用方法也失败: {e}")
-
-            logger.warning(f"读取SLM序列号失败: {get_slm_error_message(ret)}")
-            return None
-
-        try:
+        device_id = ctypes.create_string_buffer(16)
+        ret = self._slm.SLM_Ctrl_ReadSD(self.slm_number, device_id)
+        if ret == SLM_OK:
             serial = device_id.value.decode("utf-8").strip()
-            logger.debug(f"SLM #{self.slm_number} 序列号: {serial}")
-            return serial
-        except Exception as e:
-            logger.error(f"解析序列号失败: {e}, raw value: {device_id.value}")
-            return None
+            if serial:
+                logger.debug(f"SLM #{self.slm_number} driveboardID(ReadSD): {serial}")
+                return serial
+
+        option_only = ctypes.create_string_buffer(16)
+        ret = self._slm.SLM_Ctrl_ReadSO(self.slm_number, option_only)
+        if ret == SLM_OK:
+            serial = option_only.value.decode("utf-8").strip()
+            if serial:
+                logger.debug(f"SLM #{self.slm_number} optionboardID(ReadSO): {serial}")
+                return serial
+
+        logger.warning(f"SLM #{self.slm_number} 无法读取设备标识")
+        return None
 
     def _read_serial_with_timeout(
         self, device_id: ctypes.Array[ctypes.c_char], timeout: float
@@ -319,6 +303,124 @@ class SantecSLM200:
 
         return result[0]
 
+    def get_product_serial_number(self, board: int = 0) -> str | None:
+        """读取产品序列号（标签上的 12 位数字）。
+
+        Args:
+            board: 0=Drive board, 1=Option board
+
+        Returns:
+            12 位产品序列号字符串，失败时返回 None
+        """
+        self._ensure_open()
+        buf = ctypes.create_string_buffer(16)
+        ret = self._slm.SLM_Ctrl_ReadPS(self.slm_number, board, buf)
+        if ret == SLM_OK:
+            serial = buf.value.decode("utf-8").strip()
+            if serial:
+                return serial
+        return None
+
+    def get_lcos_serial_number(self, board: int = 0) -> str | None:
+        """读取 LCOS 产品序列号（最长 20 位数字）。
+
+        Args:
+            board: 0=Drive board, 1=Option board
+
+        Returns:
+            LCOS 序列号字符串，失败时返回 None
+        """
+        self._ensure_open()
+        buf = ctypes.create_string_buffer(32)
+        ret = self._slm.SLM_Ctrl_ReadLS(self.slm_number, board, buf)
+        if ret == SLM_OK:
+            serial = buf.value.decode("utf-8").strip()
+            if serial:
+                return serial
+        return None
+
+    def get_display_name(self) -> str | None:
+        """读取 Display Name（EDID 信息，最长 13 位）。
+
+        Returns:
+            Display Name 字符串，失败时返回 None
+        """
+        self._ensure_open()
+        buf = ctypes.create_string_buffer(16)
+        ret = self._slm.SLM_Ctrl_ReadPN(self.slm_number, buf)
+        if ret == SLM_OK:
+            name = buf.value.decode("utf-8").strip()
+            if name:
+                return name
+        return None
+
+    def get_version(self) -> str | None:
+        """读取版本信息。
+
+        Returns:
+            版本字符串，格式如 "DLL:2.5.0,Drive:0322,Option:0321,FPGA:0110"
+        """
+        self._ensure_open()
+        buf = ctypes.create_string_buffer(64)
+        ret = self._slm.SLM_Ctrl_ReadVR(self.slm_number, buf)
+        if ret == SLM_OK:
+            version = buf.value.decode("utf-8").strip()
+            if version:
+                return version
+        return None
+
+    def get_device_info(self) -> dict[str, Any]:
+        """收集所有可用的设备标识信息。
+
+        Returns:
+            包含 driveboard_id, optionboard_id, product_serial,
+            lcos_serial, display_name, version 的字典
+        """
+        info: dict[str, Any] = {}
+        try:
+            info["driveboard_id"] = self.get_serial_number()
+        except Exception as e:
+            logger.debug(f"读取 driveboard_id 失败: {e}")
+
+        try:
+            info["optionboard_id"] = self._read_option_id()
+        except Exception as e:
+            logger.debug(f"读取 optionboard_id 失败: {e}")
+
+        try:
+            info["product_serial"] = self.get_product_serial_number(0)
+            if not info["product_serial"]:
+                info["product_serial"] = self.get_product_serial_number(1)
+        except Exception as e:
+            logger.debug(f"读取 product_serial 失败: {e}")
+
+        try:
+            info["lcos_serial"] = self.get_lcos_serial_number(0)
+            if not info["lcos_serial"]:
+                info["lcos_serial"] = self.get_lcos_serial_number(1)
+        except Exception as e:
+            logger.debug(f"读取 lcos_serial 失败: {e}")
+
+        try:
+            info["display_name"] = self.get_display_name()
+        except Exception as e:
+            logger.debug(f"读取 display_name 失败: {e}")
+
+        try:
+            info["version"] = self.get_version()
+        except Exception as e:
+            logger.debug(f"读取 version 失败: {e}")
+
+        return info
+
+    def _read_option_id(self) -> str | None:
+        """读取 Option board ID（内部辅助方法）。"""
+        buf = ctypes.create_string_buffer(16)
+        ret = self._slm.SLM_Ctrl_ReadSO(self.slm_number, buf)
+        if ret == SLM_OK:
+            return buf.value.decode("utf-8").strip() or None
+        return None
+
     def reboot(self) -> None:
         """重新启动SLM设备。
 
@@ -354,20 +456,21 @@ class SantecSLM200:
         先加载已有配置（保留额外字段如 correction_csv_path），
         再更新 SLMParams 字段 + max_gray + video_mode。
         """
-        if not self._serial_number:
+        serial = self._serial_number
+        if not serial:
             logger.warning("未获取到序列号，跳过配置保存")
             return
 
         # 从现有配置文件加载（保留 correction_csv_path 等额外字段）
-        config = SLM_CONFIG._manager.load_config(self._serial_number)
+        config = SLM_CONFIG._manager.load_config(serial)
         # 覆盖 SLMParams 已注册字段
         config.update(SLM_CONFIG.collect(self))
         # 覆盖额外字段
         config["max_gray"] = self._max_gray
         config["video_mode"] = self.video_mode
 
-        SLM_CONFIG._manager.save_config(self._serial_number, config)
-        config_file = SLM_CONFIG._manager._get_config_file(self._serial_number)
+        SLM_CONFIG._manager.save_config(serial, config)
+        config_file = SLM_CONFIG._manager._get_config_file(serial)
         logger.info(f"SLM配置已保存: {config_file}")
 
     # ── open() 拆分子方法 ────────────────────────────
@@ -469,17 +572,13 @@ class SantecSLM200:
                 logger.warning(f"SLM #{self.slm_number} 状态异常，尝试复位")
                 self.is_open = False
                 # Try to close and recover
-                try:
+                with contextlib.suppress(Exception):
                     self._slm.SLM_Ctrl_Close(self.slm_number)
-                except Exception:
-                    pass
                 time.sleep(0.2)
 
         # 先尝试关闭（确保干净状态）
-        try:
+        with contextlib.suppress(Exception):
             self._slm.SLM_Ctrl_Close(self.slm_number)
-        except Exception:
-            pass
         # Small delay for SDK state to settle
         time.sleep(0.1)
 
@@ -494,15 +593,38 @@ class SantecSLM200:
         # 等待设备就绪（参考官方demo，应在读序列号前进行）
         self._wait_for_ready()
 
-        # 读取设备序列号
+        # 读取设备标识信息（参考官方文档 3.2.41-3.2.48）
         try:
             self._serial_number = self.get_serial_number()
-            logger.info(f"SLM 序列号: {self._serial_number}")
+            logger.info(f"SLM #{self.slm_number} 标识: {self._serial_number}")
         except SantecSLM200Error as e:
-            logger.warning(f"无法读取SLM序列号: {e}")
+            logger.warning(f"无法读取SLM标识: {e}")
             self._serial_number = None
 
-        # 按序列号加载配置文件
+        # 如果 board ID 为空，尝试读取产品序列号作为备用标识
+        if not self._serial_number:
+            try:
+                self._serial_number = self.get_product_serial_number(0)
+                if self._serial_number:
+                    logger.info(
+                        f"SLM #{self.slm_number} 产品序列号(drive):"
+                        f" {self._serial_number}"
+                    )
+            except Exception as e:
+                logger.debug(f"读取产品序列号(drive)失败: {e}")
+
+        if not self._serial_number:
+            try:
+                self._serial_number = self.get_product_serial_number(1)
+                if self._serial_number:
+                    logger.info(
+                        f"SLM #{self.slm_number} 产品序列号(option):"
+                        f" {self._serial_number}"
+                    )
+            except Exception as e:
+                logger.debug(f"读取产品序列号(option)失败: {e}")
+
+        # 按标识加载配置文件
         config: dict = self.load_config()
 
         # 应用配置参数（波长、平移、刷新率等）
@@ -680,7 +802,8 @@ class SantecSLM200:
         phase_pi = phase.value / 100.0
         if phase_pi <= 0:
             logger.warning(
-                f"SLM #{self.slm_number}: SLM_Ctrl_ReadWL returned phase=0; device wavelength not set"
+                f"SLM #{self.slm_number}: SLM_Ctrl_ReadWL returned phase=0;"
+                " device wavelength not set"
             )
             self._max_gray = self.MAX_GRAYSCALE_VALUE
             return (
@@ -789,7 +912,8 @@ class SantecSLM200:
         # 在设备控制函数中进行参数验证
         if not MEMORY_NUMBER_MIN <= memory_number <= MEMORY_NUMBER_MAX:
             raise ValueError(
-                f"内存编号必须在{MEMORY_NUMBER_MIN}-{MEMORY_NUMBER_MAX}之间，当前: {memory_number}"
+                f"内存编号必须在{MEMORY_NUMBER_MIN}-{MEMORY_NUMBER_MAX}"
+                f"之间，当前: {memory_number}"
             )
 
         # 验证数据类型和形状
@@ -840,7 +964,8 @@ class SantecSLM200:
         # 在设备控制函数中进行参数验证
         if not MEMORY_NUMBER_MIN <= memory_number <= MEMORY_NUMBER_MAX:
             raise ValueError(
-                f"内存编号必须在{MEMORY_NUMBER_MIN}-{MEMORY_NUMBER_MAX}之间，当前: {memory_number}"
+                f"内存编号必须在{MEMORY_NUMBER_MIN}-{MEMORY_NUMBER_MAX}"
+                f"之间，当前: {memory_number}"
             )
 
         ret = self._slm.SLM_Ctrl_WriteDS(self.slm_number, memory_number)
@@ -977,7 +1102,7 @@ class SantecSLM200:
         return None, "当前显示相位未缓存，且 SDK 不支持直接读回显存图像"
 
     def load_phase_from_csv(
-        self, filepath: Union[str, Path], skiprows: int = 1, delimiter: str = ","
+        self, filepath: str | Path, skiprows: int = 1, delimiter: str = ","
     ) -> np.ndarray:
         """从CSV文件加载相位数据
 
@@ -1167,7 +1292,8 @@ class SantecSLM200:
         self._shift_x = shift_x
         self._shift_y = shift_y
         logger.info(
-            f"SLM #{self.slm_number} 平移参数已更新: shift_x={shift_x}, shift_y={shift_y}"
+            f"SLM #{self.slm_number} 平移参数已更新:"
+            f" shift_x={shift_x}, shift_y={shift_y}"
         )
 
     @property

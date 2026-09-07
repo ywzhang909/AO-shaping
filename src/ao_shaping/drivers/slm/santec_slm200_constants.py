@@ -6,7 +6,6 @@
 
 from enum import IntEnum
 
-
 # SDK基础常量
 SLM_OK = 0
 FLAGS_RATE120 = 1

@@ -60,7 +60,12 @@ src/calculators/build/temp*
 src/calculators/*.html
 docs/SLM_DLL_ver*
 src/ao_shaping/drivers/ccd/_miicam_sdk*
-docs/slm-200*
+docs/slm-200/*.dll
+docs/slm-200/*.pdf
+docs/slm-200/*.ipynb
+docs/slm-200/main.py
+docs/slm-200/_slm_win.py
+docs/slm-200/*.csv
 
 # Simulation data
 data_adam/

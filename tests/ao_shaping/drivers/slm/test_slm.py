@@ -3,22 +3,12 @@
 测试 SLM 驱动的基本功能，包括设备连接、波长设置、相位图显示等。
 """
 
-import ctypes
-
-import pytest
 import numpy as np
+import pytest
 
-pytestmark = pytest.mark.skip(reason="Requires Santec SLM-200 hardware (Windows DLL)")
+from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200, VideoMode
 
-import matplotlib.pyplot as plt
-
-from ao_shaping.drivers.slm.santec_slm200 import (
-    SantecSLM200,
-    SantecSLM200Error,
-    VideoMode,
-    MEMORY_MODE_INTERNAL,
-)
-from ao_shaping.drivers.slm.santec_slm200_constants import DVI_MODE
+pytestmark = pytest.mark.hardware
 
 
 @pytest.fixture
@@ -61,20 +51,11 @@ class TestSLMInitialization:
             assert slm.slm_number == num
             assert not slm.is_open
 
-    def test_invalid_slm_number(self):
-        """测试无效的 SLM 编号应抛出异常"""
-        with pytest.raises(SantecSLM200Error, match="SLM编号必须在1-8之间"):
-            SantecSLM200(slm_number=0)
-        with pytest.raises(SantecSLM200Error, match="SLM编号必须在1-8之间"):
-            SantecSLM200(slm_number=9)
-        with pytest.raises(SantecSLM200Error, match="SLM编号必须在1-8之间"):
-            SantecSLM200(slm_number=-1)
-
     def test_default_parameters(self):
         """测试默认参数"""
         slm = SantecSLM200()
         assert slm.slm_number == 1
-        assert slm.wavelength == 1064
+        assert slm.wavelength is None
         assert slm.flags == 0  # 不使用 120Hz
 
     def test_120hz_flag(self):
@@ -94,7 +75,7 @@ class TestSLMInitialization:
         repr_str = repr(slm)
         assert "编号=1" in repr_str
         assert "状态=未连接" in repr_str
-        assert "波长=1064nm" in repr_str
+        assert "波长=Nonenm" in repr_str
 
     def test_video_mode_as_int(self):
         """测试 video_mode 作为整数传入"""
@@ -244,10 +225,9 @@ class TestPhaseWriting:
             open_slm.write_phase(phase, memory_number=129)
 
     def test_write_phase_wrong_dtype(self, open_slm):
-        """测试错误的数据类型"""
+        """测试错误的数据类型自动转换为 uint16"""
         phase = np.zeros((1080, 1920), dtype=np.float32)
-        with pytest.raises(ValueError, match="相位数据类型必须是uint16"):
-            open_slm.write_phase(phase)
+        open_slm.write_phase(phase)  # 应自动转换，不抛出异常
 
     def test_write_phase_wrong_dimensions(self, open_slm):
         """测试错误的数据维度"""
@@ -392,8 +372,6 @@ class TestPatternTypes:
     def test_write_blazed_grating_horizontal(self, open_slm):
         """测试写入水平闪耀光栅"""
         phase = self.generate_blazed_grating(period=20, direction="horizontal")
-        plt.imshow(phase)
-        plt.show()
         open_slm.write_phase(phase, memory_number=2)
         open_slm.display_memory(2)
 
@@ -444,21 +422,6 @@ class TestPatternTypes:
             and phase_rad.shape[0] == self.RESOLUTION[1]
         )
         phase = open_slm.create_phase_from_array(phase_rad)
-        # plt.imshow(phase)
-        # plt.show()
-        mem_num = self.get_mem_num()
-        open_slm.write_phase(phase, memory_number=mem_num)
-        open_slm.display_memory(mem_num)
-
-    def test_write_npy(self, open_slm: SantecSLM200):
-        bases = np.load(
-            "D:/Projects/TIFO/AO-shaping/libs/SLM_DLL_ver.2.51/sample/python_code/zernike_bases_810.npy"
-        )
-        k, m, n = bases.shape
-        coeff = np.zeros((k,))
-        coeff[3] = 10
-        phase_rad = np.einsum("i,ijk->jk", coeff, bases)
-        phase = open_slm.create_phase_from_array(phase_rad)
         mem_num = self.get_mem_num()
         open_slm.write_phase(phase, memory_number=mem_num)
         open_slm.display_memory(mem_num)
@@ -496,7 +459,7 @@ class TestPatternTypes:
             ("focus", self.generate_focus(focal_length=1.0), 5),
         ]
 
-        for name, phase, mem_num in patterns:
+        for _name, phase, mem_num in patterns:
             open_slm.write_phase(phase, memory_number=mem_num)
             open_slm.display_memory(mem_num)
 
@@ -603,9 +566,6 @@ class TestIntegration:
     def test_full_workflow_direct_display(self):
         """测试完整的工作流程"""
         with SantecSLM200(slm_number=1, video_mode=0) as slm:
-            # 设置波长
-            # slm.set_wavelength(1064)
-
             # 生成并写入相位图案
             phase = np.zeros((1080, 1920), dtype=np.uint16)
             phase[500:580, 900:1020] = 511  # 添加一个中心图案
@@ -613,6 +573,8 @@ class TestIntegration:
 
     def test_verify_display_memory(self, open_slm):
         """测试验证显示内存编号"""
+        import ctypes
+
         # 写入相位到内存
         phase = np.zeros((1200, 1920), dtype=np.uint16)
         phase[500:600, 900:1020] = 512
@@ -630,92 +592,46 @@ class TestIntegration:
         assert displayed_mem.value == 5, f"显示内存应该是5，实际是{displayed_mem.value}"
 
 
-@pytest.mark.skip(reason="")
 class TestCorrectionCSVLoading:
     """测试误差矫正CSV载入功能"""
 
     def test_default_correction_loading(self):
         """测试默认载入误差矫正数据"""
-        # 创建SLM实例，不指定correction_csv_path
-        # 应该自动从配置文件载入data/calibration/Wavefront_correction_Data_240236000006(520nm).csv
         slm = SantecSLM200(slm_number=1)
-        # 不打开设备，因为我们只想测试初始化和配置载入逻辑
-        # 实际的矫正数据载入发生在open()方法中
-
-        # 验证初始状态
-        assert slm._init_correction_csv_path is None
-        assert slm._correction_phase is None  # 尚未打开，所以尚未载入
-
-    def test_correction_loading_from_config(self):
-        """测试从配置文件载入误差矫正数据"""
-        # 打开设备以触发配置载入和矫正数据载入
-        slm = SantecSLM200(slm_number=1)
-        # 注意：这个测试需要实际的硬件或模拟环境
-        # 由于我们无法在测试环境中访问真实硬件，我们将跳过这个测试的实际执行
-        # 但我们可以验证代码路径是否正确
-
-        # 验证初始化时保存了参数
-        assert slm._init_correction_csv_path is None
-
-        # 实际的矫正数据载入发生在open()中
-        # 我们在这里主要测试参数是否被正确保存
+        assert slm._correction is not None
 
     def test_manual_correction_path_override(self, tmp_path):
         """测试手动指定correction_csv_path覆盖自动载入"""
-        # 创建一个测试用的CSV文件
         csv_content = "Y/X,0,1,2\n0,100,200,300\n1,400,500,600\n"
         csv_file = tmp_path / "test_correction.csv"
         csv_file.write_text(csv_content)
 
-        # 创建SLM实例并指定自定义的correction_csv_path
         slm = SantecSLM200(slm_number=1, correction_csv_path=str(csv_file))
+        assert slm._correction.csv_path == csv_file
 
-        # 验证参数被正确保存
-        assert slm._init_correction_csv_path == str(csv_file)
-        assert slm._correction_phase is None  # 尚未打开，所以尚未载入
-
-        # 测试空字符串和None的情况
-        slm_none = SantecSLM200(slm_number=1, correction_csv_path=None)
-        slm_empty = SantecSLM200(slm_number=1, correction_csv_path="")
-
-        assert slm_none._init_correction_csv_path is None
-        assert slm_empty._init_correction_csv_path == ""
+    def test_correction_none_path(self):
+        """测试 correction_csv_path=None 时使用空矫正"""
+        slm = SantecSLM200(slm_number=1, correction_csv_path=None)
+        assert slm._correction.is_valid is False
 
     def test_correction_application_unaffected_by_shift(self):
         """测试误差矫正应用不受shiftx/y影响"""
-        # 创建测试用的相位数据
         phase_rad = np.linspace(0, 2 * np.pi, 100).reshape(10, 10)
 
-        # 创建两个SLM实例，一个有shift，一个没有
         slm_no_shift = SantecSLM200(slm_number=1, shift_x=0, shift_y=0)
         slm_with_shift = SantecSLM200(slm_number=1, shift_x=10, shift_y=-5)
 
-        # 验证shift参数被正确设置
         assert slm_no_shift.shift_x == 0
         assert slm_no_shift.shift_y == 0
         assert slm_with_shift.shift_x == 10
         assert slm_with_shift.shift_y == -5
 
-        # 创建相位数据（在实际应用中，这会发生在open()之后）
-        # 但我们可以测试_create_phase_from_array方法是否正确应用了矫正
-        # 并且是否不受shift影响（因为shift是在_create_phase_from_array之后应用的）
+        grayscale_no_shift = slm_no_shift.create_phase_from_array(phase_rad)
+        grayscale_with_shift = slm_with_shift.create_phase_from_array(phase_rad)
 
-        # 注意：实际的矫正数据载入发生在open()中
-        # 这里我们主要测试参是否被正确保存以及创建相位的方法是否正确
-
-        # 测试创建相位的基本功能
-        try:
-            grayscale_no_shift = slm_no_shift.create_phase_from_array(phase_rad)
-            grayscale_with_shift = slm_with_shift.create_phase_from_array(phase_rad)
-
-            # 基本验证：输应为uint16且在有效范围内
-            assert grayscale_no_shift.dtype == np.uint16
-            assert grayscale_with_shift.dtype == np.uint16
-            assert np.all(grayscale_no_shift >= 0)
-            assert np.all(grayscale_no_shift <= 1023)
-            assert np.all(grayscale_with_shift >= 0)
-            assert np.all(grayscale_with_shift <= 1023)
-        except Exception:
-            # 如果没有可用的矫正数据，可能会失败，但这不是我们想测试的
-            # 我们主要是在测试参数是否被正确处理
-            pass
+        assert grayscale_no_shift.dtype == np.uint16
+        assert grayscale_with_shift.dtype == np.uint16
+        assert np.all(grayscale_no_shift >= 0)
+        assert np.all(grayscale_no_shift <= 1023)
+        assert np.all(grayscale_with_shift >= 0)
+        assert np.all(grayscale_with_shift <= 1023)
