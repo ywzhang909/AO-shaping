@@ -8,7 +8,6 @@ Hardware SDK wrappers for SLM, DM, WFS, CCD, TM devices.
 drivers/
 ├── device_base.py       # Device base class (Device, DeviceState, DeviceType)
 ├── device_registry.py    # Device registration and management
-├── visa_base.py         # VISA communication layer
 ├── mock_devices.py      # Mock devices for testing
 ├── ccd/                 # Cameras
 │   ├── base.py          # BaseCamera abstract class

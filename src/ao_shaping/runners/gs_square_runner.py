@@ -38,6 +38,7 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+from ao_shaping.utils.file import Recorder
 
 if TYPE_CHECKING:
     import pygame
@@ -403,6 +404,38 @@ def _centroid(intensity: np.ndarray) -> tuple[float, float]:
     return cx, cy
 
 
+def _resample_to_grid(img: np.ndarray, target_shape: tuple[int, int]) -> np.ndarray:
+    """将相机图像重采样到SLM网格尺寸 (height, width), 作为GS光源振幅.
+
+    以光斑峰值为中心, 按目标宽高比裁剪相机帧后双线性缩放, 避免整帧
+    直接缩放产生的比例失真 (相机与SLM宽高比不同).
+    """
+    from scipy.ndimage import zoom
+
+    th, tw = target_shape
+    img = np.asarray(img, dtype=np.float64)
+    ih, iw = img.shape
+    if (ih, iw) == (th, tw):
+        return img
+
+    cy, cx = np.unravel_index(int(np.argmax(img)), img.shape)
+    target_ar = tw / th
+
+    if iw / ih > target_ar:
+        # 相机过宽: 裁剪宽度以匹配目标宽高比
+        crop_w = max(1, int(ih * target_ar))
+        x0 = max(0, min(iw - crop_w, int(cx - crop_w / 2)))
+        crop = img[:, x0 : x0 + crop_w]
+    else:
+        # 相机过高: 裁剪高度以匹配目标宽高比
+        crop_h = max(1, int(iw / target_ar))
+        y0 = max(0, min(ih - crop_h, int(cy - crop_h / 2)))
+        crop = img[y0 : y0 + crop_h, :]
+
+    zoom_y, zoom_x = th / crop.shape[0], tw / crop.shape[1]
+    return np.asarray(zoom(crop, (zoom_y, zoom_x), order=1), dtype=np.float64)
+
+
 # ==================== 闭环核心 ====================
 
 def _run_closed_loop(
@@ -508,6 +541,9 @@ def _run_closed_loop(
         side = max_side
     logger.info("测得光斑直径 {:.1f}px, 方形边长 {}px", spot_d, side)
 
+    # 迭代记录器: 每次迭代保存相位/图片/指标为 pkl record (:ref:`axis_beam_runner` 保存 record 模式)
+    recorder = Recorder(mark="quality_score", mode="max")
+
     for outer_iter in range(outer_iterations):
         if not _running:
             logger.info("检测到停止信号, 提前终止 (iter={})", outer_iter + 1)
@@ -606,6 +642,29 @@ def _run_closed_loop(
         with (iter_dir / "metrics.json").open("w", encoding="utf-8") as f:
             json.dump(metrics, f, ensure_ascii=False, indent=2)
 
+        # 追加本次迭代 record (相位/图片/目标/指标) 并增量保存 pkl, Ctrl+C 也不丢数据
+        recorder.append(
+            {
+                "quality_score": float(score),
+                "iteration": outer_iter + 1,
+                "side": int(side),
+                "spot_d": float(spot_d),
+                "center": [float(cx), float(cy)],
+                "gs_final_error": (
+                    float(result.error_history[-1]) if result.error_history else None
+                ),
+                "aspect_ratio": float(metrics["aspect_ratio"]),
+                "squareness": float(metrics["squareness"]),
+                "uniformity_cv": float(metrics["uniformity_cv"]),
+                "encircled_energy": float(metrics["encircled_energy"]),
+                "phase": np.asarray(result.phase, dtype=np.float64),
+                "phase_gray": np.asarray(phase_gray, dtype=np.uint16),
+                "image": np.asarray(new_image, dtype=np.float64),
+                "target": np.asarray(target_amplitude, dtype=np.float64),
+            }
+        )
+        recorder.dataframe.to_pickle(output_dir / "gs_square_records.pkl", compression="zip")
+
         # --- 8. 跟踪最优 ---
         if score > best_score:
             best_score = float(score)
@@ -620,7 +679,9 @@ def _run_closed_loop(
             break
 
         # 更新光源振幅为当前实测光强 (闭环核心: 使用实测作为下一次GS源)
-        source_amplitude = new_image / (np.max(new_image) + 1e-10)
+        # 相机帧需先重采样到SLM网格尺寸, 与GS目标网格一致
+        source_amplitude = _resample_to_grid(new_image, (height, width))
+        source_amplitude = source_amplitude / (np.max(source_amplitude) + 1e-10)
 
     # 汇总结果
     result = {

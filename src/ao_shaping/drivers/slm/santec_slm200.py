@@ -419,6 +419,8 @@ class SantecSLM200:
 
         先加载已有配置（保留额外字段如 correction_csv_path），
         再更新 SLMParams 字段 + max_gray + video_mode。
+        同时记录矫正文件的启用状态与当前生效路径，使下次启动时
+        保持与上次一致的矫正行为。
         """
         serial = self._serial_number
         if not serial:
@@ -432,6 +434,14 @@ class SantecSLM200:
         # 覆盖额外字段
         config["max_gray"] = self._max_gray
         config["video_mode"] = self.video_mode
+        # 记录矫正文件启用状态与当前生效路径，
+        # 使下次 open() 时保持与上次一致的矫正行为。
+        config["correction_enabled"] = self._correction.is_valid
+        config["correction_csv_path"] = (
+            str(self._correction.csv_path)
+            if self._correction.is_valid and self._correction.csv_path is not None
+            else None
+        )
 
         SLM_CONFIG._manager.save_config(serial, config)
         config_file = SLM_CONFIG._manager._get_config_file(serial)
@@ -470,9 +480,19 @@ class SantecSLM200:
         优先级（由工具类 resolve() 处理）:
           __init__ 显式路径 → 配置文件路径 → 默认路径
 
+        若配置文件记录了 correction_enabled=False，则跳过加载，
+        保持矫正禁用状态（与上次关闭时一致）。
+
         Args:
             config: 从 load_config() 获取的配置字典
         """
+        # 配置文件中记录的矫正启用状态（默认 True，向后兼容）
+        correction_enabled = config.get("correction_enabled", True)
+        if not correction_enabled:
+            self._correction = WavefrontCorrection()  # 空实例（is_valid=False）
+            logger.info(f"SLM #{self.slm_number} 矫正已禁用（配置文件记录）")
+            return
+
         default_path = (
             PROJECT_ROOT
             / "data"

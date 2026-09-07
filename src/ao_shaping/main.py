@@ -57,7 +57,6 @@ from ao_shaping.runners import (
 
 
 from ao_shaping.utils.cli_helpers import get_debug_mode
-from ao_shaping.profiler import maybe_profile
 
 
 @click.group()
@@ -101,9 +100,8 @@ cli.add_command(gs_square_run, name="gs-square")
 
 # Entry point
 if __name__ == "__main__":
-    with maybe_profile():
-        try:
-            cli()
-        except Exception as e:
-            logger.error(f"CLI error: {e}")
-            raise
+    try:
+        cli()
+    except Exception as e:
+        logger.error(f"CLI error: {e}")
+        raise
