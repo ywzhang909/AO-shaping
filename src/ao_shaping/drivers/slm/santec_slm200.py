@@ -11,7 +11,6 @@ from __future__ import annotations
 import contextlib
 import ctypes
 import os
-import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -267,41 +266,6 @@ class SantecSLM200:
 
         logger.warning(f"SLM #{self.slm_number} 无法读取设备标识")
         return None
-
-    def _read_serial_with_timeout(
-        self, device_id: ctypes.Array[ctypes.c_char], timeout: float
-    ) -> int | None:
-        """在独立线程中调用SLM_Ctrl_ReadSD，支持超时。
-
-        SDK的SLM_Ctrl_ReadSD在快速连续open/close后可能挂起。
-        此方法在守护线程中调用SDK函数，若超时则返回None（线程继续运行
-        直至USB超时返回，不会阻塞主线程或影响进程退出）。
-
-        Args:
-            device_id: 用于接收序列号的ctypes buffer
-            timeout: 超时秒数
-
-        Returns:
-            SDK返回码(int)，超时时返回None
-        """
-        result: list[int | None] = [None]
-
-        def worker() -> None:
-            try:
-                ret = self._slm.SLM_Ctrl_ReadSD(self.slm_number, device_id)
-                result[0] = ret
-            except Exception:
-                logger.exception(f"SLM #{self.slm_number} 读取序列号时发生异常")
-
-        t = threading.Thread(target=worker, daemon=True)
-        t.start()
-        t.join(timeout=timeout)
-
-        # 如果线程仍在运行，说明SDK调用超时未返回
-        if t.is_alive():
-            return None
-
-        return result[0]
 
     def get_product_serial_number(self, board: int = 0) -> str | None:
         """读取产品序列号（标签上的 12 位数字）。

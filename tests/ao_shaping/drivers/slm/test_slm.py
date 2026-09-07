@@ -95,6 +95,7 @@ class TestSLMInitialization:
 class TestSLMOpenClose:
     """测试 SLM 打开和关闭功能"""
 
+    @pytest.mark.hardware
     def test_open_success(self, slm):
         """测试成功打开设备"""
         assert not slm.is_open
@@ -134,6 +135,7 @@ class TestSLMOpenClose:
 class TestWavelengthSetting:
     """测试波长设置功能"""
 
+    @pytest.mark.hardware
     def test_set_wavelength_success(self, open_slm):
         """测试成功设置波长"""
         open_slm.set_wavelength(532)
@@ -159,6 +161,7 @@ class TestWavelengthSetting:
 class TestDisplayMemory:
     """测试显示内存功能"""
 
+    @pytest.mark.hardware
     def test_display_memory_success(self, open_slm):
         """测试成功显示内存"""
         open_slm.display_memory(1)
@@ -179,6 +182,7 @@ class TestDisplayMemory:
 class TestGrayscale:
     """测试灰度设置功能"""
 
+    @pytest.mark.hardware
     def test_set_grayscale_success(self, open_slm):
         """测试成功设置灰度值"""
         open_slm.set_grayscale(512)
@@ -194,6 +198,7 @@ class TestGrayscale:
 class TestGetWavelengthInfo:
     """测试获取波长信息功能"""
 
+    @pytest.mark.hardware
     def test_get_wavelength_info_success(self, open_slm):
         """测试成功获取波长信息"""
         wavelength, max_grayscale = open_slm.get_wavelength_info()
@@ -211,6 +216,7 @@ class TestGetWavelengthInfo:
 class TestPhaseWriting:
     """测试相位写入功能"""
 
+    @pytest.mark.hardware
     def test_write_phase_success(self, open_slm):
         """测试成功写入相位数据"""
         phase = np.zeros((1080, 1920), dtype=np.uint16)
@@ -239,6 +245,7 @@ class TestPhaseWriting:
 class TestPhasePatternGeneration:
     """测试相位图案生成功能（参考 notebooks/slm_test.py）"""
 
+    @pytest.mark.hardware
     def test_create_phase_from_array_default(self, open_slm):
         """测试从弧度数组创建相位图（使用默认参数）"""
         # 创建 0-2π 的相位
@@ -363,30 +370,35 @@ class TestPatternTypes:
 
         return img
 
+    @pytest.mark.hardware
     def test_write_checkerboard_pattern(self, open_slm):
         """测试写入棋盘格相位图"""
         phase = self.generate_checkerboard(period=50)
         open_slm.write_phase(phase, memory_number=1)
         open_slm.display_memory(1)
 
+    @pytest.mark.hardware
     def test_write_blazed_grating_horizontal(self, open_slm):
         """测试写入水平闪耀光栅"""
         phase = self.generate_blazed_grating(period=20, direction="horizontal")
         open_slm.write_phase(phase, memory_number=2)
         open_slm.display_memory(2)
 
+    @pytest.mark.hardware
     def test_write_blazed_grating_vertical(self, open_slm):
         """测试写入垂直闪耀光栅"""
         phase = self.generate_blazed_grating(period=20, direction="vertical")
         open_slm.write_phase(phase, memory_number=3)
         open_slm.display_memory(3)
 
+    @pytest.mark.hardware
     def test_write_binary_grating(self, open_slm):
         """测试写入二元光栅"""
         phase = self.generate_binary_grating(b=5, a=10, direction="horizontal")
         open_slm.write_phase(phase, memory_number=4)
         open_slm.display_memory(4)
 
+    @pytest.mark.hardware
     def test_write_focus_pattern(self, open_slm: SantecSLM200):
         """测试写入聚焦相位图"""
         phase = self.generate_focus(focal_length=0.01, wavelength=532e-9)
@@ -395,6 +407,7 @@ class TestPatternTypes:
         open_slm.write_phase(phase, memory_number=mem_num)
         open_slm.display_memory(mem_num)
 
+    @pytest.mark.hardware
     def test_helper_to_circle_pattern(self, open_slm):
         from ao_shaping.utils.pattern_helper import PatternHelper
 
@@ -412,6 +425,7 @@ class TestPatternTypes:
         open_slm.write_phase(phase, memory_number=6)
         open_slm.display_memory(6)
 
+    @pytest.mark.hardware
     def test_helper_to_zernike(self, open_slm: SantecSLM200):
         from ao_shaping.utils.pattern_helper import PatternHelper
 
@@ -426,6 +440,7 @@ class TestPatternTypes:
         open_slm.write_phase(phase, memory_number=mem_num)
         open_slm.display_memory(mem_num)
 
+    @pytest.mark.hardware
     def test_write_black_phase(self, open_slm: SantecSLM200):
         phase_rad = np.zeros(self.RESOLUTION[::-1])
         phase = open_slm.create_phase_from_array(phase_rad)
@@ -437,6 +452,7 @@ class TestPatternTypes:
         open_slm.write_phase(phase, memory_number=mem_num)
         open_slm.display_memory(mem_num)
 
+    @pytest.mark.hardware
     def test_full_pattern_workflow(self, open_slm):
         """测试完整的相位图案工作流程"""
         patterns = [
@@ -549,6 +565,7 @@ class TestShiftCorrection:
 class TestIntegration:
     """集成测试"""
 
+    @pytest.mark.hardware
     def test_full_workflow(self):
         """测试完整的工作流程"""
         with SantecSLM200(slm_number=1) as slm:
@@ -563,6 +580,7 @@ class TestIntegration:
             # 显示相位图
             slm.display_memory(1)
 
+    @pytest.mark.hardware
     def test_full_workflow_direct_display(self):
         """测试完整的工作流程"""
         with SantecSLM200(slm_number=1, video_mode=0) as slm:
@@ -571,6 +589,7 @@ class TestIntegration:
             phase[500:580, 900:1020] = 511  # 添加一个中心图案
             slm.display_data(phase)
 
+    @pytest.mark.hardware
     def test_verify_display_memory(self, open_slm):
         """测试验证显示内存编号"""
         import ctypes

@@ -216,6 +216,13 @@ class SantecSLM200:
     def get_serial_number(self, timeout: float = 5.0) -> str | None:
         """读取SLM设备的序列号。
 
+        .. deprecated:: 0.2.0
+            This legacy implementation uses a 256-byte buffer and a thread-based
+            timeout.  New code should use :class:`SantecSLM200` from
+            :mod:`ao_shaping.drivers.slm.santec_slm200`, whose
+            ``get_serial_number`` follows the official Programmer's Guide
+            (ReadSDO -> ReadSD -> ReadSO, 16-byte buffers).
+
         通过SDK函数 SLM_Ctrl_ReadSD 获取设备唯一序列号。
         必须在设备打开后调用。
 

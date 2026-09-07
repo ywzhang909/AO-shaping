@@ -21,6 +21,11 @@ from ao_shaping.utils.zernike_calc import get_zernike_name
 # Global pattern helpers (will be recreated per-SLM based on resolution)
 # Note: Resolution and bit depth now come from the SLM object when generating patterns
 
+# Timeout (s) for probing a single SLM during device discovery.  The Santec SDK
+# has historically hung on SLM_Ctrl_ReadSD after rapid open/close cycles, so the
+# probe runs in a daemon thread and is abandoned after this interval.
+SLM_PROBE_TIMEOUT_S = 3.0
+
 
 def _initialize_slm_state() -> None:
     for slm_num in (1, 2):
@@ -58,6 +63,79 @@ def _initialize_slm_state() -> None:
                 st.session_state[f"{prefix}_toggle_slm_container"] = None
 
 
+def _probe_slm(slm_num: int) -> dict | None:
+    """Probe a single SLM by number; return device dict or None.
+
+    Returns ``None`` when no device is attached to ``slm_num``.  When a device
+    is attached but already open (by this or another instance) the returned
+    dict carries ``in_use=True`` / ``status="使用中"`` so the UI can show it
+    without attempting a second ``SLM_Ctrl_Open``.
+
+    Runs in a daemon thread with a timeout so a hung SDK call cannot block
+    the Streamlit server (the Santec SDK has historically hung on
+    ``SLM_Ctrl_ReadSD`` after rapid open/close cycles).
+    """
+    import ao_shaping.drivers.slm._slm_win as slm_sdk
+
+    result: list[dict | None] = [None]
+
+    def worker() -> None:
+        try:
+            ret = slm_sdk.SLM_Ctrl_Open(slm_num)
+            if ret == 0:
+                # Device is free — read its serial then release it.
+                device_id = ctypes.create_string_buffer(256)
+                ret2 = slm_sdk.SLM_Ctrl_ReadSD(slm_num, device_id)
+                serial = (
+                    device_id.value.decode("utf-8").strip()
+                    if ret2 == 0
+                    else None
+                )
+                result[0] = {
+                    "slm_number": slm_num,
+                    "serial": serial,
+                    "connected": False,
+                    "in_use": False,
+                    "status": "未连接",
+                }
+            elif ret > 0:
+                # Positive return codes (SLM_NG=1, SLM_IS_BUSY=2, …) mean the
+                # SDK recognised a device at this index but could not open it
+                # — almost always because another instance already holds it.
+                # Negative codes (SLM_NOT_OPEN_USB=-200,
+                # FT_DEVICE_NOT_FOUND=-10002, …) mean no device is attached.
+                logger.debug(
+                    f"SLM #{slm_num} 已被占用 (返回码 {ret})"
+                )
+                result[0] = {
+                    "slm_number": slm_num,
+                    "serial": None,
+                    "connected": False,
+                    "in_use": True,
+                    "status": "使用中",
+                }
+            else:
+                logger.debug(
+                    f"SLM #{slm_num} 无设备 (返回码 {ret})"
+                )
+        except Exception:
+            logger.debug(f"扫描 SLM #{slm_num} 时发生异常", exc_info=True)
+        finally:
+            try:
+                slm_sdk.SLM_Ctrl_Close(slm_num)
+            except Exception:
+                pass
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+    t.join(timeout=SLM_PROBE_TIMEOUT_S)
+    if t.is_alive():
+        logger.warning(
+            f"SLM #{slm_num} 扫描超时 ({SLM_PROBE_TIMEOUT_S}s)，跳过"
+        )
+    return result[0]
+
+
 def _scan_available_slms(max_slms: int = 8) -> list[dict]:
     """Scan for available SLM devices without disrupting existing connections."""
     available: list[dict] = []
@@ -66,34 +144,29 @@ def _scan_available_slms(max_slms: int = 8) -> list[dict]:
         connected = bool(st.session_state.get(f"{prefix}_connected"))
         slm_obj = st.session_state.get(prefix)
 
-        if connected and slm_obj is not None and getattr(slm_obj, "is_open", False):
+        if connected:
+            # This session already controls the SLM — always list it, even if
+            # the cached object has since been closed (e.g. by a prior rerun
+            # cleanup).  Dropping the ``is_open`` guard here was the root cause
+            # of connected SLMs disappearing from the device table.
             available.append(
                 {
                     "slm_number": slm_num,
-                    "serial": getattr(slm_obj, "_serial_number", None),
+                    "serial": getattr(slm_obj, "_serial_number", None)
+                    if slm_obj is not None
+                    else None,
                     "connected": True,
+                    "in_use": bool(getattr(slm_obj, "is_open", False))
+                    if slm_obj is not None
+                    else False,
+                    "status": "已连接",
                 }
             )
             continue
 
-        try:
-            import ao_shaping.drivers.slm._slm_win as slm_sdk
-
-            ret = slm_sdk.SLM_Ctrl_Open(slm_num)
-            if ret == 0:
-                device_id = ctypes.create_string_buffer(256)
-                ret2 = slm_sdk.SLM_Ctrl_ReadSD(slm_num, device_id)
-                serial = device_id.value.decode("utf-8").strip() if ret2 == 0 else None
-                slm_sdk.SLM_Ctrl_Close(slm_num)
-                available.append(
-                    {
-                        "slm_number": slm_num,
-                        "serial": serial,
-                        "connected": False,
-                    }
-                )
-        except Exception:
-            pass
+        device = _probe_slm(slm_num)
+        if device is not None:
+            available.append(device)
     return available
 
 
@@ -610,6 +683,22 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
         if p_cam_input > 0:
             params["gs_p_cam"] = p_cam_input * 1e-6
 
+        params["gs_live_display"] = st.checkbox(
+            "实时显示到 SLM（每轮迭代同步下发相位）",
+            value=st.session_state.get(f"{prefix}_gs_live_display", False),
+            key=f"{prefix}_gs_live_display",
+            help="勾选后 GS 每轮迭代都会把当前相位写入 SLM，方便实时观察整形收敛过程。\n"
+            "写入会自动轮换内存槽，避免同槽重复写入被固件判为无操作。",
+        )
+        params["gs_live_interval"] = st.number_input(
+            "实时显示间隔（每 N 轮迭代下发一次）",
+            min_value=1,
+            max_value=50,
+            value=int(st.session_state.get(f"{prefix}_gs_live_interval", 1)),
+            step=1,
+            key=f"{prefix}_gs_live_interval",
+        )
+
     return pattern_type, params
 
 
@@ -709,6 +798,8 @@ def generate_gs_square_phase(
     energy: float = 0.90,
     p_cam: float | None = None,
     progress_cb: Callable[[int, int, float], None] | None = None,
+    live_display: bool = False,
+    live_display_interval: int = 1,
 ) -> np.ndarray:
     """Full GS beam-shaping pipeline: measure spot -> size square -> GS phase.
 
@@ -727,6 +818,13 @@ def generate_gs_square_phase(
         progress_cb: Optional callback ``fn(iteration, total, mse)`` invoked
             after each GS iteration (1-based iteration, total iterations,
             current mean-squared error). Enables live progress in the UI.
+        live_display: When True, push the evolving phase to the SLM hardware on
+            every iteration so the beam-shaping progress is visible in real
+            time.  Writes rotate through memory slots automatically (the Santec
+            firmware treats a repeat ``display_memory`` on the same slot as a
+            no-op, so consecutive writes MUST target different slots).
+        live_display_interval: Push to hardware every N-th iteration when
+            ``live_display`` is True (default 1 = every iteration).
 
     Returns:
         uint16 phase grayscale array with shape (height, width).
@@ -764,6 +862,24 @@ def generate_gs_square_phase(
         iterations,
     )
 
+    # Live hardware display — converts the current source-plane phase (radians)
+    # to uint16 grayscale and pushes it to the SLM.  ``display_data`` rotates
+    # memory slots internally so the LCOS panel actually refreshes.
+    def _live_phase_cb(iteration: int, phase_rad: np.ndarray) -> None:
+        if not live_display:
+            return
+        if live_display_interval > 1 and (iteration % live_display_interval) != 0:
+            return
+        try:
+            gray = slm.create_phase_from_array(phase_rad)
+            slm.display_data(gray, wait_time_s=0.0)
+            logger.debug(
+                "GS live display: iteration {} phase 已发送到 SLM",
+                iteration + 1,
+            )
+        except Exception as e:
+            logger.warning(f"GS live display 失败 (iteration {iteration + 1}): {e}")
+
     result = gerchberg_saxton(
         source_amplitude=source,
         target_amplitude=target,
@@ -776,6 +892,7 @@ def generate_gs_square_phase(
             if progress_cb is not None
             else None
         ),
+        phase_callback=_live_phase_cb,
     )
     return slm.create_phase_from_array(result.phase)
 
@@ -967,6 +1084,8 @@ def generate_phase_gray(
             energy=float(params.get("gs_energy", 0.90)),
             p_cam=params.get("gs_p_cam"),
             progress_cb=progress_cb,
+            live_display=bool(params.get("gs_live_display", False)),
+            live_display_interval=int(params.get("gs_live_interval", 1)),
         )
     raise ValueError(f"未知相位图类型: {pattern_type}")
 
@@ -1220,6 +1339,8 @@ def render_slm_sidebar():
         slm_num = device["slm_number"]
         prefix = f"slm{slm_num}"
         is_connected = device["connected"]
+        in_use = device.get("in_use", False)
+        status = device.get("status", "未连接" if not is_connected else "已连接")
 
         col1, col2, col3, col4 = st.columns([1, 2, 1, 1])
         with col1:
@@ -1228,9 +1349,11 @@ def render_slm_sidebar():
             st.write(device["serial"] or "-")
         with col3:
             if is_connected:
-                st.success("已连接")
+                st.success(status)
+            elif in_use:
+                st.warning(status)
             else:
-                st.caption("未连接")
+                st.caption(status)
         with col4:
             if is_connected:
                 if st.button(
@@ -1238,6 +1361,10 @@ def render_slm_sidebar():
                 ):
                     disconnect_slm(slm_num)
                     _refresh_device_list()
+            elif in_use:
+                # Physical device exists but is held by another instance —
+                # cannot take over without closing the other handle first.
+                st.caption("已被占用")
             else:
                 if st.button("连接", key=f"{prefix}_connect_table"):
                     connect_slm(slm_num)
@@ -1569,6 +1696,10 @@ def render_phase_control(slm_num: int):
                 )
                 status_ctx.write("准备 GS 迭代…")
                 progress_bar = status_ctx.progress(0.0)
+                if params.get("gs_live_display"):
+                    status_ctx.write(
+                        "实时显示已启用：每轮迭代都会把当前相位下发到 SLM"
+                    )
 
                 def _gs_progress(iteration: int, total: int, mse: float) -> None:
                     # Runs synchronously on the main Streamlit thread.
@@ -1625,6 +1756,19 @@ def render_phase_control(slm_num: int):
     st.subheader("周期切换")
     st.caption("在相位 A 与相位 B 之间持续来回切换")
 
+    def _export_phase_csv(phase: np.ndarray, default_name: str) -> None:
+        """Save a uint16 phase array as CSV and offer it for download."""
+        buf = io.BytesIO()
+        np.savetxt(buf, phase, fmt="%d", delimiter=",")
+        buf.seek(0)
+        st.download_button(
+            f"导出 {default_name}",
+            data=buf,
+            file_name=default_name,
+            mime="text/csv",
+            key=f"{prefix}_export_{default_name}",
+        )
+
     col_ph_a, col_ph_b = st.columns(2)
     with col_ph_a:
         if st.button("设为相位 A", key=f"{prefix}_set_phase_a"):
@@ -1638,6 +1782,9 @@ def render_phase_control(slm_num: int):
                     st.warning("无法获取当前显示相位")
             else:
                 st.warning("SLM 未连接")
+        phase_a = st.session_state.get(f"{prefix}_toggle_phase_a")
+        if phase_a is not None:
+            _export_phase_csv(phase_a, f"slm{slm_num}_phase_a.csv")
     with col_ph_b:
         if st.button("设为相位 B", key=f"{prefix}_set_phase_b"):
             slm = st.session_state.get(prefix)
@@ -1650,6 +1797,9 @@ def render_phase_control(slm_num: int):
                     st.warning("无法获取当前显示相位")
             else:
                 st.warning("SLM 未连接")
+        phase_b = st.session_state.get(f"{prefix}_toggle_phase_b")
+        if phase_b is not None:
+            _export_phase_csv(phase_b, f"slm{slm_num}_phase_b.csv")
 
     _freq = st.number_input(
         "切换频率 (Hz)",
