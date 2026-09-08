@@ -16,9 +16,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import lru_cache
 
 import numpy as np
-from numpy.fft import fft2, ifft2, ifftshift
+from numpy.fft import fft2, fftshift, ifft2, ifftshift
 from loguru import logger
 
 
@@ -38,6 +39,33 @@ class GSResult:
     error_history: list[float]
     iterations: int
     converged: bool
+
+
+@lru_cache(maxsize=32)
+def _compute_propagator(
+    ny: int,
+    nx: int,
+    dx: float,
+    z: float,
+    wavelength: float,
+) -> np.ndarray:
+    """预计算 ASM 传播子 (已 ifftshift 对齐 fft2 输出), 跨调用复用.
+
+    传播子只依赖 (网格形状, 像素间距, 距离, 波长), 与输入场无关. GS 迭代中
+    正/反向传播反复调用 ``angular_spectrum_propagate``, 缓存避免每迭代重复
+    构建 meshgrid 与 exp 传播因子 (2.3M 像素网格上的纯标量浪费).
+    """
+    k = 2 * np.pi / wavelength
+    fx = np.fft.fftfreq(nx, dx)
+    fy = np.fft.fftfreq(ny, dx)
+    FX, FY = np.meshgrid(fx, fy)
+    kx = 2 * np.pi * FX
+    ky = 2 * np.pi * FY
+    kz_squared = k**2 - kx**2 - ky**2
+    kz = np.sqrt(np.maximum(kz_squared, 0))
+    H = np.exp(1j * kz * z)
+    H[kz_squared < 0] = 0  # Evanescent waves
+    return ifftshift(H)
 
 
 def angular_spectrum_propagate(
@@ -68,33 +96,10 @@ def angular_spectrum_propagate(
     if field.ndim != 2:
         raise ValueError(f"Field must be 2D array, got {field.ndim}D")
 
-    Ny, Nx = field.shape
-    k = 2 * np.pi / wavelength
-
-    # Spatial frequencies
-    fx = np.fft.fftfreq(Nx, dx)
-    fy = np.fft.fftfreq(Ny, dx)
-    FX, FY = np.meshgrid(fx, fy)
-
-    # Propagator: H = exp(i * kz * z)
-    # kz = sqrt(k^2 - (2π*fx)^2 - (2π*fy)^2)
-    kx = 2 * np.pi * FX
-    ky = 2 * np.pi * FY
-
-    # Evanescent wave filtering (optional but recommended)
-    kz_squared = k**2 - kx**2 - ky**2
-    kz = np.sqrt(np.maximum(kz_squared, 0))  # Clip negative values (evanescent waves)
-
-    # Propagator phase factor
-    H = np.exp(1j * kz * z)
-
-    # Handle evanescent waves (damped propagation)
-    evanescent_mask = kz_squared < 0
-    H[evanescent_mask] = 0
-
     # FFT → multiply by propagator → IFFT
     F = fft2(field)
-    F_propagated = F * ifftshift(H)  # ifftshift aligns with fft2 output
+    H = _compute_propagator(field.shape[0], field.shape[1], dx, z, wavelength)
+    F_propagated = F * H
 
     return ifft2(F_propagated)
 
@@ -109,6 +114,7 @@ def gerchberg_saxton(
     error_threshold: float | None = None,
     progress_callback: Callable[[int, float], None] | None = None,
     phase_callback: Callable[[int, np.ndarray], None] | None = None,
+    propagation: str = "asm",
 ) -> GSResult:
     """Gerchberg-Saxton algorithm for phase retrieval.
     
@@ -138,6 +144,11 @@ def gerchberg_saxton(
         phase_callback: Optional callback function(iteration, phase) invoked with the
             current source-plane phase (radians) after each iteration.  Enables
             live hardware display of the evolving phase pattern.
+        propagation: Propagation model, ``"asm"`` (Angular Spectrum Method,
+            default) or ``"fft"`` (single-FFT Fraunhofer plane — the focal
+            plane is treated as the Fourier transform of the source plane).
+            ``"fft"`` drops the per-iteration propagator construction entirely,
+            matching the far-field GS speed of a single FFT/IFFT pair.
     
     Returns:
         GSResult containing computed phase, amplitude, error history, and convergence info
@@ -182,10 +193,14 @@ def gerchberg_saxton(
     if cell_spacing <= 0 or distance <= 0 or wavelength <= 0:
         raise ValueError("Physical parameters must be positive")
 
+    if propagation not in ("asm", "fft"):
+        raise ValueError(f"propagation must be 'asm' or 'fft', got {propagation!r}")
+
     logger.info(
         f"Starting Gerchberg-Saxton algorithm: "
         f"iterations={iterations}, distance={distance*1000:.1f}mm, "
-        f"λ={wavelength*1e9:.0f}nm, pixel={cell_spacing*1e6:.1f}µm"
+        f"λ={wavelength*1e9:.0f}nm, pixel={cell_spacing*1e6:.1f}µm, "
+        f"propagation={propagation}"
     )
 
     Ny, Nx = source_amplitude.shape
@@ -193,12 +208,16 @@ def gerchberg_saxton(
     # Initialize field A with target back-propagated to source plane
     # This gives a better starting point than random initialization
     logger.debug("Initializing field with back-propagated target")
-    A = angular_spectrum_propagate(
-        target_amplitude.astype(np.complex128),
-        cell_spacing,
-        -distance,  # Backward propagation
-        wavelength,
-    )
+    if propagation == "asm":
+        A = angular_spectrum_propagate(
+            target_amplitude.astype(np.complex128),
+            cell_spacing,
+            -distance,  # Backward propagation
+            wavelength,
+        )
+    else:
+        # Fraunhofer backward propagation: inverse FFT of the target plane
+        A = ifft2(ifftshift(target_amplitude.astype(np.complex128)))
 
     error_history = []
 
@@ -209,16 +228,24 @@ def gerchberg_saxton(
         phase_A = np.angle(A)
         B = source_amplitude * np.exp(1j * phase_A)
 
-        # Step 2: Forward propagate to target plane
-        C = angular_spectrum_propagate(B, cell_spacing, distance, wavelength)
+        if propagation == "asm":
+            # Step 2: Forward propagate to target plane
+            C = angular_spectrum_propagate(B, cell_spacing, distance, wavelength)
+        else:
+            # Step 2: Forward to Fraunhofer (focal) plane — single FFT
+            C = fftshift(fft2(B))
 
         # Step 3: Apply target plane amplitude constraint
         # D = target_amplitude * exp(i * phase(C))
         phase_C = np.angle(C)
         D = target_amplitude * np.exp(1j * phase_C)
 
-        # Step 4: Backward propagate to source plane
-        A = angular_spectrum_propagate(D, cell_spacing, -distance, wavelength)
+        if propagation == "asm":
+            # Step 4: Backward propagate to source plane
+            A = angular_spectrum_propagate(D, cell_spacing, -distance, wavelength)
+        else:
+            # Step 4: Backward to source plane — single IFFT
+            A = ifft2(ifftshift(D))
 
         # Calculate error (mean squared error between |C| and target)
         amplitude_C = np.abs(C)
@@ -247,7 +274,10 @@ def gerchberg_saxton(
 
     # Forward propagate one more time to get target plane amplitude
     final_B = source_amplitude * np.exp(1j * final_phase)
-    final_C = angular_spectrum_propagate(final_B, cell_spacing, distance, wavelength)
+    if propagation == "asm":
+        final_C = angular_spectrum_propagate(final_B, cell_spacing, distance, wavelength)
+    else:
+        final_C = fftshift(fft2(final_B))
     final_amplitude = np.abs(final_C)
 
     # Check if we converged

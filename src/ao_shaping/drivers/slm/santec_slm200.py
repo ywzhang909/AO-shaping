@@ -46,6 +46,26 @@ from ao_shaping.drivers.slm.wavefront_correction import WavefrontCorrection
 from ao_shaping.utils.device_config import ConfigHandler, DeviceParam, param
 from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
 
+
+def apply_lut_remap(gray: np.ndarray, lut: np.ndarray) -> np.ndarray:
+    """Apply phase→gray compensation lookup table to a grayscale array.
+
+    Maps each pixel's ideal gray value (0..1023) through the inverse_gray LUT
+    to obtain the corrected gray value that produces the intended phase.
+
+    The LUT index uses the same truncation as the final ``astype(np.uint16)``
+    cast in ``create_phase_from_array``, so an identity LUT is a true no-op.
+
+    Args:
+        gray: Grayscale array (float or int) with values in 0..1023.
+        lut: Inverse gray table (uint16, length ≥ 1024).
+
+    Returns:
+        Corrected grayscale array with the same shape as *gray*, dtype float64.
+    """
+    idx = np.clip(gray.astype(np.int64), 0, lut.size - 1)
+    return lut[idx].astype(np.float64)
+
 # Config directory: <project_root>/data/slm_configs/ or from SLM_CONFIG_DIR env var
 _SLM_CONFIG_DIR = Path(
     os.environ.get("SLM_CONFIG_DIR", PROJECT_ROOT / "data" / "slm_configs")
@@ -138,6 +158,22 @@ class SantecSLM200:
         ...     phase_data = np.zeros((1080, 1920), dtype=np.uint16)
         ...     slm.write_phase(phase_data, memory_number=1)
         ...     slm.display_memory(1)
+
+    硬件规格与实验经验（2026-09 实测确认）:
+      - 面板: 1920×1200, 像素间距 8µm（PITCH_UM；制造商标称 10µm 方格含电极间隙，
+        实际可调制有效口径 8µm）。GS/相位网格以 PITCH_UM=8µm 作为 SLM 平面采样间距。
+      - 内存模式（Memory）: 对同一 slot 连续 ``display_memory`` 是 no-op —— 当目标 slot
+        已在显示时设备不刷新 LCOS 面板，屏幕保留上一相位。连续写入必须轮换不同 slot
+        （如 ``itertools.cycle([3,4,5])``），或直接使用 ``display_data()``（内置 127 槽轮换）。
+      - 平场相位（及任何直接灰度图案）必须以原值 uint16 灰度写入
+        （``np.full((h, w), gray, dtype=np.uint16)``），禁止经 ``create_phase_from_array()``
+        —— 该函数按弧度处理输入（mod 2π），会把 uint16 灰度值静默损坏。
+      - 振幅耦合: 1064nm 下不同平场灰度值产生不同相机亮度，周期 ≈2π ≈993 灰度
+        （见 ``scripts/validate_flat_phase_gray.py``）。
+      - 像素标定（GS 方形整形）: SLM→相机物理距离约 1000mm，但实测
+        k = SLM 网格边长 / 相机亮区宽度 ≈ 0.414（每 SLM 8µm 像素 ≈ 2.417 相机像素，
+        等效成像距离 ≈115mm）—— 光路中存在成像元件或非标称傅里叶配置。光路调整后
+        必须重新标定（``gs-square --pixel-scale`` 自动标定模式）。
     """
 
     # 从常量模块导入硬件参数
@@ -207,6 +243,10 @@ class SantecSLM200:
         # 波前误差矫正工具（从CSV加载，在create_phase_from_array中叠加）
         # 文件有效性由 WavefrontCorrection.__init__ 内部判断
         self._correction = WavefrontCorrection(correction_csv_path)
+
+        # 相位→灰度补偿查找表（load_lut 加载，create_phase_from_array 中应用）
+        self._lut: np.ndarray | None = None
+        self._lut_dir: Path | None = None
 
         # 延迟导入SLM SDK
         try:
@@ -1172,6 +1212,10 @@ class SantecSLM200:
         if self._correction is not None and self._correction.correction_map is not None:
             grayscale = self._correction.map_error(grayscale, max_grayscale)
 
+        # 应用相位→灰度补偿查找表（如有）
+        if self._lut is not None:
+            grayscale = apply_lut_remap(grayscale, self._lut)
+
         # 应用平移
         grayscale = self._apply_shift(grayscale)
 
@@ -1265,6 +1309,121 @@ class SantecSLM200:
         self._correction = WavefrontCorrection()
         logger.info(f"SLM #{self.slm_number} 已清除矫正数据")
         return False
+
+    # ── LUT (phase→gray compensation) ─────────────────────
+
+    @property
+    def lut(self) -> np.ndarray | None:
+        """Loaded inverse_gray compensation table (uint16, len ~1024) or None."""
+        return self._lut
+
+    @property
+    def lut_dir(self) -> Path | None:
+        """Directory the LUT was loaded from, or None."""
+        return self._lut_dir
+
+    def load_lut(self, lut_dir: str | Path | None) -> None:
+        """Load phase→gray compensation table from a LUT directory.
+
+        The directory must contain ``lut.npz`` (preferred) or
+        ``lut_inverse.csv`` as produced by ``ao_shaping.utils.slm_lut.save_lut()``.
+
+        Args:
+            lut_dir: Path to the LUT directory.  ``None`` clears the loaded LUT.
+                A missing or malformed directory logs a warning and leaves the
+                previous state unchanged.
+        """
+        if lut_dir is None:
+            self._lut = None
+            self._lut_dir = None
+            logger.info(f"SLM #{self.slm_number} LUT 已清除")
+            return
+
+        lut_path = Path(lut_dir)
+
+        if not lut_path.is_dir():
+            logger.warning(
+                f"SLM #{self.slm_number} LUT 目录不存在: {lut_path}，保持当前状态"
+            )
+            return
+
+        # Try npz first
+        npz_file = lut_path / "lut.npz"
+        if npz_file.is_file():
+            try:
+                data = np.load(str(npz_file), allow_pickle=False)
+                if "inverse_gray" not in data:
+                    logger.warning(
+                        f"SLM #{self.slm_number} lut.npz 缺少 'inverse_gray' 键，"
+                        f"可用键: {list(data.keys())}，保持当前状态"
+                    )
+                    return
+                inverse_gray = np.asarray(data["inverse_gray"])
+            except (OSError, ValueError) as e:
+                logger.warning(
+                    f"SLM #{self.slm_number} 读取 lut.npz 失败: {e}，保持当前状态"
+                )
+                return
+
+            if inverse_gray.ndim != 1 or inverse_gray.size < 1024:
+                logger.warning(
+                    f"SLM #{self.slm_number} inverse_gray 形状无效 "
+                    f"(ndim={inverse_gray.ndim}, size={inverse_gray.size})，"
+                    f"保持当前状态"
+                )
+                return
+
+            self._lut = inverse_gray.astype(np.uint16)
+            self._lut_dir = lut_path
+            logger.info(
+                f"SLM #{self.slm_number} LUT 已从 {npz_file} 加载 "
+                f"(len={self._lut.size})"
+            )
+            return
+
+        # Fallback: lut_inverse.csv
+        csv_file = lut_path / "lut_inverse.csv"
+        if csv_file.is_file():
+            try:
+                raw = np.genfromtxt(
+                    str(csv_file), delimiter=",", dtype=np.uint16, skip_header=1
+                )
+                if raw.ndim == 2 and raw.shape[1] >= 2:
+                    inverse_gray = raw[:, 1]  # second column: gray
+                elif raw.ndim == 1:
+                    inverse_gray = raw
+                else:
+                    logger.warning(
+                        f"SLM #{self.slm_number} lut_inverse.csv 列数无效 "
+                        f"(shape={raw.shape})，保持当前状态"
+                    )
+                    return
+            except (OSError, ValueError) as e:
+                logger.warning(
+                    f"SLM #{self.slm_number} 读取 lut_inverse.csv 失败: {e}，"
+                    f"保持当前状态"
+                )
+                return
+
+            if inverse_gray.ndim != 1 or inverse_gray.size < 1024:
+                logger.warning(
+                    f"SLM #{self.slm_number} lut_inverse.csv 数据长度不足 "
+                    f"(len={inverse_gray.size})，保持当前状态"
+                )
+                return
+
+            self._lut = inverse_gray.astype(np.uint16)
+            self._lut_dir = lut_path
+            logger.info(
+                f"SLM #{self.slm_number} LUT 已从 {csv_file} 加载 "
+                f"(len={self._lut.size})"
+            )
+            return
+
+        logger.warning(
+            f"SLM #{self.slm_number} LUT 目录中未找到 lut.npz 或 "
+            f"lut_inverse.csv，保持当前状态"
+        )
 
     def set_shift(self, shift_x: int, shift_y: int) -> None:
         """设置平移参数

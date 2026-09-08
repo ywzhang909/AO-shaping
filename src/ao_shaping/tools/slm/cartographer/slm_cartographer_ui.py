@@ -32,7 +32,7 @@ if __name__ == "__main__":
         sys.path.insert(0, str(project_root))
 
 # Import calibration package
-from ao_shaping.tools.slm_cartographer import (
+from ao_shaping.tools.slm.cartographer import (
     LUTCalibrationConfig,
     LUTCalibrationResult,
     PhaseGrayscaleLUT,

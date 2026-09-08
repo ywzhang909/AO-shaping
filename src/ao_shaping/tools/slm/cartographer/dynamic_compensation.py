@@ -146,7 +146,7 @@ class DynamicCompensator:
         logger.info(f"LUT updated: {len(lut)} points")
 
     def _load_capture_dependencies(self) -> Any:
-        from ao_shaping.tools.slm_cartographer.hartmann_capture import (
+        from ao_shaping.tools.slm.cartographer.hartmann_capture import (
             HartmannCapture,
             HartmannCaptureConfig,
         )
@@ -342,7 +342,7 @@ class DynamicCompensator:
 
         logger.info("Starting dynamic aberration compensation...")
 
-        from ao_shaping.tools.slm_cartographer.cosine_pattern import (
+        from ao_shaping.tools.slm.cartographer.cosine_pattern import (
             CosinePatternConfig,
             generate_center_cosine_pattern,
             get_pattern_peak_position,

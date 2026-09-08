@@ -178,7 +178,7 @@ class PhaseGrayscaleLUT:
         self._storage_dir = Path(storage_dir)
         self._storage_dir.mkdir(parents=True, exist_ok=True)
 
-        from ao_shaping.tools.slm_cartographer.cosine_pattern import (
+        from ao_shaping.tools.slm.cartographer.cosine_pattern import (
             CosinePatternConfig,
             generate_center_cosine_pattern,
             get_pattern_peak_position,
@@ -208,16 +208,16 @@ class PhaseGrayscaleLUT:
         Returns:
             LUTCalibrationResult with complete lookup table.
         """
-        from ao_shaping.tools.slm_cartographer.hartmann_capture import (
+        from ao_shaping.tools.slm.cartographer.hartmann_capture import (
             HartmannCapture,
             HartmannCaptureConfig,
             HartmannMeasurement,
         )
-        from ao_shaping.tools.slm_cartographer.wavefront_reconstruction import (
+        from ao_shaping.tools.slm.cartographer.wavefront_reconstruction import (
             FourierWavefrontReconstructor,
             FourierReconstructionConfig,
         )
-        from ao_shaping.tools.slm_cartographer.cosine_pattern import (
+        from ao_shaping.tools.slm.cartographer.cosine_pattern import (
             generate_center_cosine_pattern,
             generate_traditional_gradient_pattern,
         )

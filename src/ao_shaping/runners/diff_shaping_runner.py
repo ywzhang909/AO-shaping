@@ -1,22 +1,22 @@
-"""GS闭环光束整形优化器
+"""可微分闭环光束整形优化器
 
-利用Gerchberg-Saxton(GS)算法 + CCD反馈，迭代优化SLM相位图案，
-将远场光斑整形为方形。
+利用 PyTorch 可微分优化 (梯度下降) + CCD 反馈，迭代优化 SLM 相位图案，
+将远场光斑整形为方形/圆形/高斯/聚焦光斑。
 
 闭环流程 (每个外迭代):
-    1. CCD采集当前光束图像
+    1. CCD 采集当前光束图像
     2. 测量光斑直径
-    3. 计算方形目标尺寸 (factor × 光斑直径)
-    4. 运行GS算法 (内迭代) 生成相位
-    5. 下发相位到SLM (内存槽轮换)
-    6. 等待SLM稳定
+    3. 构建目标强度掩模 (circle/square/gaussian/spot)
+    4. 运行可微分梯度优化 (内迭代) 生成相位
+    5. 下发相位到 SLM (内存槽轮换)
+    6. 等待 SLM 稳定
     7. 重新采集光束图像
-    8. 计算方形质量指标 (长宽比、均匀性、环围能量)
+    8. 计算质量指标 (长宽比、均匀性、环围能量)
     9. 记录进度并检查收敛
 
 用法:
-    python -m ao_shaping.runners.gs_square_runner --camera-type daheng --outer-iterations 10
-    python -m ao_shaping.runners.gs_square_runner --camera-type miicam --gs-iterations 150 -o data/gs_square
+    python -m ao_shaping.runners.diff_shaping_runner --target-shape square --outer-iterations 10
+    python -m ao_shaping.runners.diff_shaping_runner --target-shape gaussian --dl-iterations 500 --optimizer lbfgs
 """
 
 from __future__ import annotations
@@ -97,20 +97,21 @@ def _get_miicam_camera(cam_id: int, exposure_ms: float, bit_depth: int = 8):
 
 # ==================== pygame 可视化 ====================
 
-class _GSDisplay:
-    """GS迭代过程pygame可视化窗口.
+class _DiffDisplay:
+    """可微分迭代过程 pygame 可视化窗口.
 
     显示四个面板:
-        - 左上: GS相位图案 (0~1 归一化)
-        - 右上: 目标方形振幅
-        - 左下: 远场光斑图像 (CCD采集)
-        - 右下: GS误差收敛曲线
+        - 左上: 当前相位图案 (0~1 归一化)
+        - 右上: 目标强度掩模
+        - 左下: 远场光斑图像 (CCD 采集)
+        - 右下: 损失收敛曲线
 
     用法:
-        with _GSDisplay() as disp:
+        with _DiffDisplay() as disp:
             disp.update_phase(phase)
-            disp.update_target(target_amplitude)
+            disp.update_target(target_mask)
             disp.update_image(captured_image)
+            disp.update_loss(iteration, loss)
             disp.update_status(score, side, spot_d)
     """
 
@@ -124,20 +125,19 @@ class _GSDisplay:
         w = self.PANEL_W * 2 + self.PAD * 3
         h = self.PANEL_H * 2 + self.PAD * 3 + self.TITLE_H
 
-        # 缓存的当前状态
         self._phase: np.ndarray | None = None
         self._target: np.ndarray | None = None
         self._image: np.ndarray | None = None
-        self._error_curve: list[float] = []
+        self._loss_curve: list[float] = []
         self._status_lines: list[str] = []
-        self._gs_iter = 0
+        self._dl_iter = 0
         self._window_size = (w, h)
 
-    def __enter__(self) -> "_GSDisplay":
+    def __enter__(self) -> _DiffDisplay:
         import pygame
 
         pygame.init()
-        pygame.display.set_caption("GS Square 闭环优化")
+        pygame.display.set_caption("Diff Shaping 闭环优化")
         self._screen = pygame.display.set_mode(self._window_size)
         self._font = pygame.font.SysFont("consolas", 16)
         self._clock = pygame.time.Clock()
@@ -167,16 +167,13 @@ class _GSDisplay:
         x = self.PAD + col * (self.PANEL_W + self.PAD)
         y = self.TITLE_H + self.PAD + row * (self.PANEL_H + self.PAD)
 
-        # 标题
         title_surf = self._font.render(title, True, (255, 255, 0))
         self._screen.blit(title_surf, (x + 4, y - self.TITLE_H + 2))
 
-        # 图像
         scaled = pygame.transform.scale(
             surface, (self.PANEL_W, self.PANEL_H)
         )
         self._screen.blit(scaled, (x, y))
-        # 边框
         pygame.draw.rect(self._screen, (120, 120, 120), (x, y, self.PANEL_W, self.PANEL_H), 1)
 
     @staticmethod
@@ -193,7 +190,6 @@ class _GSDisplay:
         else:
             norm = ((arr - vmin) / (vmax - vmin) * 255.0).astype(np.uint8)
         if cmap == "heat" and norm.ndim == 2:
-            # 伪彩色 (jet 简化近似)
             f = norm.astype(np.float64) / 255.0
             r = np.clip(1.5 - np.abs(4 * f - 3.0), 0.0, 1.0)
             g = np.clip(1.5 - np.abs(4 * f - 2.0), 0.0, 1.0)
@@ -206,28 +202,28 @@ class _GSDisplay:
         return pygame.surfarray.make_surface(norm.swapaxes(0, 1))
 
     def update_phase(self, phase: np.ndarray) -> None:
-        """更新GS相位图案面板."""
+        """更新相位图案面板."""
         self._phase = np.asarray(phase)
 
     def update_target(self, target: np.ndarray) -> None:
-        """更新目标方形振幅面板."""
+        """更新目标强度掩模面板."""
         self._target = np.asarray(target)
 
     def update_image(self, image: np.ndarray) -> None:
         """更新远场光斑图像面板."""
         self._image = np.asarray(image)
 
-    def update_error(self, iteration: int, error: float) -> None:
-        """更新GS误差收敛曲线 (在progress_callback中调用)."""
-        self._gs_iter = iteration
-        self._error_curve.append(float(error))
+    def update_loss(self, iteration: int, loss: float) -> None:
+        """更新损失收敛曲线 (在 progress_callback 中调用)."""
+        self._dl_iter = iteration
+        self._loss_curve.append(float(loss))
         self._render()
 
     def update_status(self, score: float, side: int, spot_d: float) -> None:
         """更新状态文本 (评分, 边长, 光斑直径)."""
         self._status_lines = [
             f"外迭代评分: {score:.4f}",
-            f"方形边长: {side} px",
+            f"目标边长: {side} px",
             f"光斑直径: {spot_d:.1f} px",
         ]
 
@@ -235,7 +231,7 @@ class _GSDisplay:
         """渲染当前所有面板 (每次外迭代后调用)."""
         self._render()
 
-    def _draw_error_curve(self) -> None:
+    def _draw_loss_curve(self) -> None:
         import pygame
 
         col = 1
@@ -245,10 +241,9 @@ class _GSDisplay:
         area = pygame.Rect(x, y, self.PANEL_W, self.PANEL_H)
         self._screen.fill((0, 0, 0), area)
 
-        curve = self._error_curve
+        curve = self._loss_curve
         if len(curve) < 2:
-            # 显示占位文本
-            t = self._font.render("GS error curve...", True, (150, 150, 150))
+            t = self._font.render("Diff loss curve...", True, (150, 150, 150))
             self._screen.blit(t, (x + 20, y + 20))
             return
 
@@ -261,9 +256,8 @@ class _GSDisplay:
             points.append((px, py))
         pygame.draw.lines(self._screen, (0, 255, 0), False, points, 2)
 
-        # 当前迭代文本
         t = self._font.render(
-            f"GS iter {self._gs_iter + 1}, MSE={curve[-1]:.2e}", True, (255, 255, 255)
+            f"DL iter {self._dl_iter + 1}, loss={curve[-1]:.2e}", True, (255, 255, 255)
         )
         self._screen.blit(t, (x + 10, y + 6))
 
@@ -273,18 +267,17 @@ class _GSDisplay:
 
         self._screen.fill(self.BG)
 
-        # 标题栏 (总进度)
-        header = " | ".join(self._status_lines) if self._status_lines else "GS Square 闭环优化"
+        header = " | ".join(self._status_lines) if self._status_lines else "Diff Shaping 闭环优化"
         head_surf = self._font.render(header, True, (0, 255, 255))
         self._screen.blit(head_surf, (self.PAD, 6))
 
         if self._phase is not None:
-            self._draw_panel(0, "GS Phase", self._to_surface(self._phase, "gray"))
+            self._draw_panel(0, "DL Phase", self._to_surface(self._phase, "gray"))
         if self._target is not None:
-            self._draw_panel(1, "Target Square", self._to_surface(self._target, "gray"))
+            self._draw_panel(1, "Target Mask", self._to_surface(self._target, "gray"))
         if self._image is not None:
             self._draw_panel(2, "Far-field Image", self._to_surface(self._image, "heat"))
-        self._draw_error_curve()
+        self._draw_loss_curve()
 
         pygame.display.update()
         self._clock.tick(30)
@@ -441,45 +434,80 @@ def _run_closed_loop(
     slm: SantecSLM200,
     camera,
     *,
-    gs_iterations: int,
+    target_shape: str,
+    target_size: int,
+    target_cam_px: int | None,
     gs_factor: float,
     focal_length_m: float,
     gs_energy: float,
     p_cam: float | None,
     pixel_scale: float | None,
-    target_cam_px: int | None,
     propagation: str,
+    dl_iterations: int,
+    optimizer: str,
+    lr: float,
+    w_uniformity: float,
+    w_efficiency: float,
+    w_zero_order: float,
+    w_smoothness: float,
+    cell_spacing_um: float,
+    wavelength_nm: int,
+    seed: int | None,
     outer_iterations: int,
     convergence_threshold: float,
     settle_time: float,
     n_sample: int,
+    refine: bool,
     output_dir: Path,
     display: bool = False,
 ) -> dict:
-    """执行GS闭环光束整形.
+    """执行可微分闭环光束整形.
 
     Args:
         slm: 已打开的SLM实例.
         camera: 已打开的相机实例.
-        gs_iterations: GS内迭代次数.
-        gs_factor: 方形/光斑尺寸因子 (仅当 target_cam_px 未指定时使用).
+        target_shape: 目标形状 ("square", "circle", "gaussian", "spot").
+        target_size: 目标尺寸 (SLM 网格像素).
+        target_cam_px: 目标在相机上的像素宽度; None=按 gs_factor×光斑直径.
+        gs_factor: 目标/光斑尺寸因子 (仅当 target_cam_px 未指定时使用).
         focal_length_m: 焦距/传播距离 (米).
         gs_energy: 光斑测量的环围能量.
         p_cam: 相机像素间距 (米); None=使用SLM间距.
         pixel_scale: 像素缩放比 k=SLM网格边长/相机亮区宽度; None=自动标定.
-        target_cam_px: 目标方形在相机上的像素宽度; None=按 gs_factor×光斑直径.
-        propagation: GS传播模型 ("asm"=角谱法, "fft"=单FFT夫琅禾费).
+        propagation: 传播模型 ("asm"=角谱法, "fft"=单FFT夫琅禾费).
+        dl_iterations: 每次外迭代的梯度优化内迭代次数.
+        optimizer: 梯度优化器 ("adam" 或 "lbfgs").
+        lr: 梯度优化学习率.
+        w_uniformity: 均匀性损失权重.
+        w_efficiency: 效率损失权重.
+        w_zero_order: 零级损失权重.
+        w_smoothness: 平滑损失权重.
+        cell_spacing_um: SLM 像素间距 (微米).
+        wavelength_nm: 工作波长 (纳米).
+        seed: 随机种子.
         outer_iterations: 最大外迭代次数.
         convergence_threshold: 收敛评分阈值 (0~1).
         settle_time: SLM稳定等待时间 (秒).
         n_sample: 相机每次采样平均帧数.
+        refine: 是否在每次外迭代后运行额外细化梯度通道.
         output_dir: 输出目录.
         display: 是否启用pygame实时可视化.
 
     Returns:
         结果字典, 包含 best_phase, best_score, convergence_history 等.
     """
-    from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
+    # Lazy import: torch 可选, 仅在进入硬件循环时检查
+    try:
+        from ao_shaping.algorithm.differentiable_shaping import (
+            create_target_mask,
+            train_beam_shaping,
+        )
+    except ImportError as e:
+        raise RuntimeError(
+            "PyTorch 未安装或 differentiable_shaping 模块不可用. "
+            "请运行 'uv sync --extra ml' 安装 PyTorch 后重试."
+        ) from e
+
     from ao_shaping.gui.slm.multi_slm_controller import (
         build_square_target_amplitude,
         measure_spot_diameter_cam,
@@ -490,16 +518,17 @@ def _run_closed_loop(
     d_slm = float(slm.Pitch_um) * 1e-6  # um -> m
     wavelength = float(slm.wavelength) if slm.wavelength is not None else 1064.0
     wavelength_m = wavelength * 1e-9
+    cell_spacing_m = cell_spacing_um * 1e-6
 
     # SLM内存槽轮换 (禁止连续使用同一槽位)
     slot_cycle = itertools.cycle([3, 4, 5])
 
-    # 可选pygame实时显示 (需上下文管理器管理窗口生命周期)
+    # 可选pygame实时显示
     display_stack = contextlib.ExitStack()
-    display_ctx: _GSDisplay | None = None
+    display_ctx: _DiffDisplay | None = None
     if display:
         try:
-            display_ctx = _GSDisplay()
+            display_ctx = _DiffDisplay()
             display_stack.enter_context(display_ctx)
         except Exception as e:
             logger.warning("pygame显示初始化失败, 本次运行禁用显示: {}", e)
@@ -512,18 +541,21 @@ def _run_closed_loop(
             return
         try:
             display_ctx.render_static()
-        except Exception as e:  # 显示失败不应中断实验
+        except Exception as e:
             logger.warning("pygame渲染失败: {}", e)
 
     # 初始光源振幅: 均匀 (SLM分辨率)
-    source_amplitude = np.ones((height, width), dtype=np.float64)
+    source_amplitude: np.ndarray | None = None
+    initial_phase: np.ndarray | None = None
 
     convergence_history: list[dict] = []
+    loss_history: list[float] = []
     all_images: list[np.ndarray] = []
     all_phases: list[np.ndarray] = []
     all_metrics: list[dict] = []
 
     best_phase = None
+    best_phase_rad = None
     best_score = -1.0
     best_image = None
     best_iter = -1
@@ -538,26 +570,20 @@ def _run_closed_loop(
     logger.info("初始光斑: center=({:.1f}, {:.1f}), max={}", cx, cy, init_image.max())
     spot_d = measure_spot_diameter_cam(init_image, energy=gs_energy)
 
-    # 目标方形尺寸 (相机像素宽):
-    #   1) --target-px 显式给定 (推荐, 方形直接以相机像素指定, 不受光斑测量失真影响)
+    # 目标尺寸 (相机像素宽):
+    #   1) --target-px 显式给定
     #   2) 未给定: 兼容旧语义 target_px = gs_factor × spot_d
-    # 注意: 光斑 90% 环围能量直径 (spot_d) 在光束超出传感器时被裁剪而失真膨胀,
-    #       故 gs_factor×spot_d 可能把方形推到超过传感器尺寸 (全帧点亮/指标失真).
-    #       推荐显式 --target-px, 且目标应小于传感器高 (MiiCam 1520px).
     if target_cam_px is not None:
         target_px = float(target_cam_px)
-        logger.info("目标方形尺寸: {}px (相机像素宽)", int(target_px))
+        logger.info("目标尺寸: {}px (相机像素宽)", int(target_px))
     else:
         target_px = gs_factor * spot_d
         logger.info(
-            "目标方形尺寸: {:.0f}px = gs_factor {} × 光斑直径 {:.0f}px",
+            "目标尺寸: {:.0f}px = gs_factor {} × 光斑直径 {:.0f}px",
             target_px, gs_factor, spot_d,
         )
 
-    # 像素缩放比 k = side_slm_px / 亮区宽度_cam_px, 决定目标方形边长:
-    #   1) --pixel-scale 显式给定
-    #   2) --p-cam 给定: k = p_cam / d_slm (向后兼容, 假设相机像素在SLM投影面)
-    #   3) 均未给定: 自动标定 —— 首轮以安全探测边长运行GS, 采集后实测亮区宽度反推 k
+    # 像素缩放比 k = side_slm_px / 亮区宽度_cam_px
     if pixel_scale is not None:
         auto_calib = False
         side = _clamp_side(
@@ -569,11 +595,18 @@ def _run_closed_loop(
         side = _clamp_side(int(round(target_px * k_guess)), height, width)
     else:
         auto_calib = True
-        side = int(round(target_px * 0.4))  # k 初猜 0.4 (SLM网格/相机亮度比)
+        side = int(round(target_px * 0.4))  # k 初猜 0.4
         logger.info("自动标定像素缩放: 首轮以探测边长 {}px 运行, 采集后更新目标边长", side)
-    logger.info("测得光斑直径 {:.1f}px, 方形边长 {}px", spot_d, side)
 
-    # 迭代记录器: 每次迭代保存相位/图片/指标为 pkl record (:ref:`axis_beam_runner` 保存 record 模式)
+    # 如果用户直接指定 --target-size, 用它覆盖 side
+    if target_size > 0:
+        side = _clamp_side(target_size, height, width)
+        auto_calib = False
+        logger.info("使用指定目标尺寸: {}px (SLM 网格)", side)
+
+    logger.info("测得光斑直径 {:.1f}px, 目标边长 {}px", spot_d, side)
+
+    # 迭代记录器
     recorder = Recorder(mark="quality_score", mode="max")
 
     for outer_iter in range(outer_iterations):
@@ -584,31 +617,72 @@ def _run_closed_loop(
         logger.info("\n" + "=" * 60)
         logger.info("外迭代 {}/{}", outer_iter + 1, outer_iterations)
 
-        # --- 1. 构建方形目标 ---
-        target_amplitude = build_square_target_amplitude(height, width, side)
+        # --- 1. 构建目标强度掩模 ---
+        target_mask = create_target_mask(target_shape, (height, width), side)
 
-        # --- 2. 运行 GS ---
-        logger.info("运行GS ({}/{} 迭代)...", outer_iter + 1, outer_iterations)
+        # --- 2. 运行可微分梯度优化 ---
+        logger.info(
+            "运行可微分优化 ({}/{} 外迭代, {} 内迭代, {})...",
+            outer_iter + 1, outer_iterations, dl_iterations, optimizer,
+        )
 
-        def _gs_progress(iteration: int, error: float) -> None:
-            """GS内迭代进度回调 (更新pygame误差曲线)."""
+        def _dl_progress(iteration: int, loss: float) -> None:
+            """梯度优化内迭代进度回调 (更新pygame损失曲线)."""
             if display_ctx is None:
                 return
             try:
-                display_ctx.update_error(iteration, error)
-            except Exception:  # 显示失败不应中断GS
+                display_ctx.update_loss(iteration, loss)
+            except Exception:
                 pass
 
-        result = gerchberg_saxton(
+        def _dl_phase_callback(phase: np.ndarray) -> None:
+            """梯度优化相位回调 (可选: 实时写相位到SLM)."""
+            pass  # 不在内迭代中写SLM, 等求解完成后再写, 避免SLM磨损
+
+        result = train_beam_shaping(
+            target=target_mask,
+            grid_size=(height, width),
             source_amplitude=source_amplitude,
-            target_amplitude=target_amplitude,
-            iterations=gs_iterations,
-            cell_spacing=d_slm,
+            initial_phase=initial_phase,
+            propagation=propagation,
+            optimizer=optimizer,
+            iterations=dl_iterations,
+            lr=lr,
+            w_uniformity=w_uniformity,
+            w_efficiency=w_efficiency,
+            w_zero_order=w_zero_order,
+            w_smoothness=w_smoothness,
+            cell_spacing=cell_spacing_m,
             distance=focal_length_m,
             wavelength=wavelength_m,
-            propagation=propagation,
-            progress_callback=_gs_progress,
+            seed=seed,
+            progress_callback=_dl_progress,
+            phase_callback=_dl_phase_callback,
         )
+
+        # 可选: 额外细化梯度通道
+        if refine:
+            logger.info("运行细化梯度通道 ({}/{} 迭代)...", dl_iterations, optimizer)
+            result = train_beam_shaping(
+                target=target_mask,
+                grid_size=(height, width),
+                source_amplitude=source_amplitude,
+                initial_phase=result.phase,
+                propagation=propagation,
+                optimizer=optimizer,
+                iterations=dl_iterations,
+                lr=lr * 0.1,  # 细化阶段降低学习率
+                w_uniformity=w_uniformity,
+                w_efficiency=w_efficiency,
+                w_zero_order=w_zero_order,
+                w_smoothness=w_smoothness,
+                cell_spacing=cell_spacing_m,
+                distance=focal_length_m,
+                wavelength=wavelength_m,
+                seed=seed,
+                progress_callback=_dl_progress,
+                phase_callback=_dl_phase_callback,
+            )
 
         # --- 3. 转换相位为灰度并下发 ---
         phase_gray = slm.create_phase_from_array(result.phase)
@@ -638,31 +712,38 @@ def _run_closed_loop(
         metrics["quality_score"] = float(score)
         metrics["side"] = int(side)
         metrics["center"] = [float(cx), float(cy)]
-        metrics["gs_final_error"] = float(result.error_history[-1]) if result.error_history else None
+        metrics["dl_loss_final"] = (
+            float(result.loss_history[-1]) if result.loss_history else None
+        )
+        metrics["dl_converged"] = bool(result.converged)
 
         convergence_history.append(metrics)
         all_images.append(new_image)
         all_phases.append(phase_gray)
         all_metrics.append(metrics)
 
+        # 累积损失历史
+        if result.loss_history:
+            loss_history.extend(result.loss_history)
+
         logger.info(
-            "iter {}: 评分={:.4f} AR={:.3f} squareness={:.3f} CV={:.3f} EE={:.3f}",
+            "iter {}: 评分={:.4f} AR={:.3f} squareness={:.3f} CV={:.3f} EE={:.3f} dl_loss={}",
             outer_iter + 1,
             score,
             metrics["aspect_ratio"],
             metrics["squareness"],
             metrics["uniformity_cv"],
             metrics["encircled_energy"],
+            metrics["dl_loss_final"],
         )
 
         # --- 6.5 更新pygame显示面板 ---
         if display_ctx is not None:
             try:
                 display_ctx.update_phase(result.phase)
-                display_ctx.update_target(target_amplitude)
+                display_ctx.update_target(target_mask)
                 display_ctx.update_image(new_image)
                 display_ctx.update_status(score, int(side), float(spot_d))
-                # 单独绘制一次相位面板 (显示当前GS结果)
                 display_ctx.render_static()
             except Exception as e:
                 logger.warning("pygame显示更新失败: {}", e)
@@ -671,11 +752,17 @@ def _run_closed_loop(
         iter_dir = output_dir / f"iter_{outer_iter + 1:03d}"
         iter_dir.mkdir(parents=True, exist_ok=True)
         np.save(iter_dir / "captured_image.npy", new_image)
-        np.save(iter_dir / "gs_phase.npy", phase_gray)
+        np.save(iter_dir / "dl_phase.npy", phase_gray)
+        np.save(iter_dir / "target_mask.npy", target_mask)
+        if result.phase is not None:
+            np.save(iter_dir / "dl_phase_rad.npy", result.phase)
         with (iter_dir / "metrics.json").open("w", encoding="utf-8") as f:
             json.dump(metrics, f, ensure_ascii=False, indent=2)
+        if result.loss_history:
+            with (iter_dir / "dl_loss_history.json").open("w", encoding="utf-8") as f:
+                json.dump(result.loss_history, f)
 
-        # 追加本次迭代 record (相位/图片/目标/指标) 并增量保存 pkl, Ctrl+C 也不丢数据
+        # 追加本次迭代 record 并增量保存 pkl
         recorder.append(
             {
                 "quality_score": float(score),
@@ -683,9 +770,10 @@ def _run_closed_loop(
                 "side": int(side),
                 "spot_d": float(spot_d),
                 "center": [float(cx), float(cy)],
-                "gs_final_error": (
-                    float(result.error_history[-1]) if result.error_history else None
+                "dl_loss_final": (
+                    float(result.loss_history[-1]) if result.loss_history else None
                 ),
+                "dl_converged": bool(result.converged),
                 "aspect_ratio": float(metrics["aspect_ratio"]),
                 "squareness": float(metrics["squareness"]),
                 "uniformity_cv": float(metrics["uniformity_cv"]),
@@ -693,15 +781,16 @@ def _run_closed_loop(
                 "phase": np.asarray(result.phase, dtype=np.float64),
                 "phase_gray": np.asarray(phase_gray, dtype=np.uint16),
                 "image": np.asarray(new_image, dtype=np.float64),
-                "target": np.asarray(target_amplitude, dtype=np.float64),
+                "target": np.asarray(target_mask, dtype=np.float64),
             }
         )
-        recorder.dataframe.to_pickle(output_dir / "gs_square_records.pkl", compression="zip")
+        recorder.dataframe.to_pickle(output_dir / "diff_shaping_records.pkl", compression="zip")
 
         # --- 8. 跟踪最优 ---
         if score > best_score:
             best_score = float(score)
             best_phase = phase_gray
+            best_phase_rad = result.phase
             best_image = new_image
             best_iter = outer_iter + 1
             logger.info("更新最优: iter={}, score={:.4f}", best_iter, best_score)
@@ -711,13 +800,14 @@ def _run_closed_loop(
             logger.info("达到收敛阈值 {:.3f}, 停止迭代", convergence_threshold)
             break
 
-        # 更新光源振幅为当前实测光强 (闭环核心: 使用实测作为下一次GS源)
-        # 相机帧需先重采样到SLM网格尺寸, 与GS目标网格一致
+        # 更新光源振幅为当前实测光强 (闭环核心)
         source_amplitude = resample_to_grid(new_image, (height, width))
         source_amplitude = source_amplitude / (np.max(source_amplitude) + 1e-10)
 
-        # 自动标定模式: 用本轮图像实测亮区宽度, 更新像素缩放比与下次目标边长
-        # side_slm = target_px × k, 其中 k = side/bright_w 由本轮实测反推
+        # 梯度优化继续从当前相位开始 (相位延续)
+        initial_phase = result.phase
+
+        # 自动标定模式
         if auto_calib:
             bright_w, bright_h = _bright_span(new_image)
             bright_w = max(bright_w, bright_h)
@@ -740,12 +830,14 @@ def _run_closed_loop(
                 )
 
     # 汇总结果
-    result = {
+    result_dict = {
         "best_phase": best_phase,
+        "best_phase_rad": best_phase_rad if best_phase is not None else None,
         "best_score": float(best_score) if best_score >= 0 else 0.0,
         "best_iter": best_iter,
         "best_image": best_image,
         "convergence_history": convergence_history,
+        "loss_history": loss_history,
         "all_images": all_images,
         "all_phases": all_phases,
         "all_metrics": all_metrics,
@@ -754,7 +846,7 @@ def _run_closed_loop(
         "resolution": [width, height],
     }
     display_stack.close()
-    return result
+    return result_dict
 
 
 def _save_results(result: dict, output_dir: Path, params: dict) -> None:
@@ -763,11 +855,20 @@ def _save_results(result: dict, output_dir: Path, params: dict) -> None:
 
     if result["best_phase"] is not None:
         np.save(output_dir / "best_phase.npy", result["best_phase"])
+        if result.get("best_phase_rad") is not None:
+            np.save(output_dir / "best_phase_rad.npy", result["best_phase_rad"])
         if result["best_image"] is not None:
             np.save(output_dir / "best_image.npy", result["best_image"])
 
+    # 保存最优目标掩模和模拟强度 (如果有)
+    if result["all_images"]:
+        np.save(output_dir / "best_image.npy", result["all_images"][result["best_iter"]])
+
     with (output_dir / "convergence_history.json").open("w", encoding="utf-8") as f:
         json.dump(result["convergence_history"], f, ensure_ascii=False, indent=2)
+
+    with (output_dir / "loss_history.json").open("w", encoding="utf-8") as f:
+        json.dump(result["loss_history"], f)
 
     summary = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -776,6 +877,7 @@ def _save_results(result: dict, output_dir: Path, params: dict) -> None:
         "side": result["side"],
         "spot_diameter_px": result["spot_diameter_px"],
         "resolution": result["resolution"],
+        "converged": result["best_score"] >= params.get("convergence_threshold", 0.95),
         "params": params,
     }
     with (output_dir / "metadata.json").open("w", encoding="utf-8") as f:
@@ -801,83 +903,121 @@ def _save_results(result: dict, output_dir: Path, params: dict) -> None:
     help="相机ID (default: FAR_CAM_ID 环境变量或 0)",
 )
 @click.option("--exposure-ms", default=50.0, type=float,
-                      help="相机曝光时间 ms (default: 50); miicam 建议 ≥0.2ms, <0.1ms 信号淹没在噪声中")
+                      help="相机曝光时间 ms (default: 50)")
+@click.option("--cam-bit-depth", default=8, type=click.IntRange(8, 16),
+              help="MiiCam输出位深 (default: 8)")
 # SLM
 @click.option("--slm-number", default=1, type=int, help="SLM设备编号 1-8 (default: 1)")
 @click.option("--slm-wavelength", default=1064, type=int, help="SLM工作波长 nm (default: 1064)")
-# GS参数
-@click.option("--gs-iterations", "-i", default=100, type=int, help="GS内迭代次数 (default: 100)")
-@click.option("--gs-factor", default=1.5, type=float, help="方形/光斑尺寸因子 (default: 1.5)")
+# 目标参数
+@click.option(
+    "--target-shape",
+    type=click.Choice(["square", "circle", "gaussian", "spot"]),
+    default="square",
+    help="目标形状 (default: square)",
+)
+@click.option("--target-size", default=0, type=int,
+              help="目标尺寸 (SLM 网格 px); 0=自动 (default: 0)")
 @click.option(
     "--target-px",
     default=None,
     type=int,
-    help="目标方形在相机上的像素宽度; 推荐显式指定, 避免光斑测量失真 (default: 按 --gs-factor×光斑直径)",
+    help="目标在相机上的像素宽度; 推荐显式指定 (default: 按 --gs-factor×光斑直径)",
 )
+@click.option("--gs-factor", default=1.5, type=float,
+              help="目标/光斑尺寸因子 (default: 1.5)")
+# 物理参数
 @click.option("--focal-length", default=0.1, type=float, help="焦距/传播距离 m (default: 0.1)")
 @click.option("--gs-energy", default=0.90, type=float, help="光斑测量环围能量 (default: 0.90)")
-@click.option(
-    "--p-cam",
-    default=None,
-    type=float,
-    help="相机像素间距 m (default: 使用SLM间距)",
-)
-@click.option(
-    "--pixel-scale",
-    default=None,
-    type=float,
-    help="像素缩放比 k=SLM网格边长/相机亮区宽度; None=自动标定 (default: 自动标定)",
-)
+@click.option("--cell-spacing", default=8.0, type=float,
+              help="SLM 像素间距 um (default: 8)")
+@click.option("--p-cam", default=None, type=float,
+              help="相机像素间距 m (default: 使用SLM间距)")
+@click.option("--pixel-scale", default=None, type=float,
+              help="像素缩放比 k=SLM网格边长/相机亮区宽度; None=自动标定 (default: 自动)")
 @click.option(
     "--propagation",
-    type=click.Choice(["asm", "fft"], case_sensitive=False),
-    default="asm",
+    type=click.Choice(["fft", "asm"], case_sensitive=False),
+    default="fft",
     show_default=True,
-    help="GS传播模型: asm=角谱法(精确), fft=单FFT夫琅禾费(高速)",
+    help="传播模型: fft=单FFT夫琅禾费(高速), asm=角谱法(精确)",
 )
-# 闭环参数
-@click.option("--outer-iterations", "-n", default=10, type=int, help="最大外迭代次数 (default: 10)")
+# 可微分优化器参数
+@click.option("--dl-iterations", "-i", default=300, type=int,
+              help="每次外迭代的梯度优化内迭代次数 (default: 300)")
 @click.option(
-    "--convergence-threshold",
-    default=0.95,
-    type=float,
-    help="收敛评分阈值 0~1 (default: 0.95)",
+    "--optimizer",
+    type=click.Choice(["adam", "lbfgs"]),
+    default="adam",
+    show_default=True,
+    help="梯度优化器 (default: adam)",
 )
-@click.option("--settle-time", default=0.5, type=float, help="SLM稳定等待时间 s (default: 0.5)")
-@click.option("--n-sample", default=3, type=int, help="相机每次采样平均帧数 (default: 3)")
+@click.option("--lr", default=1e-2, type=float, help="梯度优化学习率 (default: 1e-2)")
+@click.option("--w-uniformity", default=0.4, type=float,
+              help="均匀性损失权重 (default: 0.4)")
+@click.option("--w-efficiency", default=0.4, type=float,
+              help="效率损失权重 (default: 0.4)")
+@click.option("--w-zero-order", default=0.1, type=float,
+              help="零级损失权重 (default: 0.1)")
+@click.option("--w-smoothness", default=0.1, type=float,
+              help="平滑损失权重 (default: 0.1)")
+@click.option("--seed", default=None, type=int, help="随机种子 (default: None)")
+# 闭环参数
+@click.option("--outer-iterations", "-n", default=10, type=int,
+              help="最大外迭代次数 (default: 10)")
+@click.option("--convergence-threshold", default=0.95, type=float,
+              help="收敛评分阈值 0~1 (default: 0.95)")
+@click.option("--settle-time", default=0.5, type=float,
+              help="SLM稳定等待时间 s (default: 0.5)")
+@click.option("--n-sample", default=3, type=int,
+              help="相机每次采样平均帧数 (default: 3)")
+@click.option("--refine/--no-refine", default=False,
+              help="每次外迭代后运行额外细化梯度通道 (default: False)")
 # 输出
-@click.option("-o", "--output", default="data/gs_square", help="输出目录 (default: data/gs_square)")
-@click.option("--cam-bit-depth", default=8, type=click.IntRange(8, 16), help="MiiCam输出位深 (default: 8)")
+@click.option("-o", "--output", default="data/diff_shaping",
+              help="输出目录 (default: data/diff_shaping)")
 @click.option(
     "--display/--no-display",
     default=False,
-    help="启用pygame实时可视化GS迭代过程 (default: False)",
+    help="启用pygame实时可视化迭代过程 (default: False)",
 )
 def run(
     camera_type: str,
     cam_id: int | None,
     exposure_ms: float,
+    cam_bit_depth: int,
     slm_number: int,
     slm_wavelength: int,
-    gs_iterations: int,
-    gs_factor: float,
+    target_shape: str,
+    target_size: int,
     target_px: int | None,
+    gs_factor: float,
     focal_length: float,
     gs_energy: float,
+    cell_spacing: float,
     p_cam: float | None,
     pixel_scale: float | None,
     propagation: str,
+    dl_iterations: int,
+    optimizer: str,
+    lr: float,
+    w_uniformity: float,
+    w_efficiency: float,
+    w_zero_order: float,
+    w_smoothness: float,
+    seed: int | None,
     outer_iterations: int,
     convergence_threshold: float,
     settle_time: float,
     n_sample: int,
+    refine: bool,
     output: str,
-    cam_bit_depth: int,
     display: bool,
 ) -> None:
-    """GS闭环光束整形优化器
+    """可微分闭环光束整形优化器
 
-    利用GS算法 + CCD反馈迭代优化SLM相位, 将远场光斑整形为方形.
+    利用 PyTorch 可微分优化 + CCD 反馈迭代优化 SLM 相位,
+    将远场光斑整形为目标形状 (square/circle/gaussian/spot).
     """
     global _running
     _running = True
@@ -922,20 +1062,32 @@ def run(
             "camera_type": camera_type,
             "cam_id": cam_id,
             "exposure_ms": exposure_ms,
+            "cam_bit_depth": cam_bit_depth,
             "slm_number": slm_number,
             "slm_wavelength": slm_wavelength,
-            "gs_iterations": gs_iterations,
-            "gs_factor": gs_factor,
+            "target_shape": target_shape,
+            "target_size": target_size,
             "target_px": target_px,
+            "gs_factor": gs_factor,
             "focal_length_m": focal_length,
             "gs_energy": gs_energy,
+            "cell_spacing_um": cell_spacing,
             "p_cam": p_cam,
             "pixel_scale": pixel_scale,
             "propagation": propagation,
+            "dl_iterations": dl_iterations,
+            "optimizer": optimizer,
+            "lr": lr,
+            "w_uniformity": w_uniformity,
+            "w_efficiency": w_efficiency,
+            "w_zero_order": w_zero_order,
+            "w_smoothness": w_smoothness,
+            "seed": seed,
             "outer_iterations": outer_iterations,
             "convergence_threshold": convergence_threshold,
             "settle_time": settle_time,
             "n_sample": n_sample,
+            "refine": refine,
             "display": display,
         }
 
@@ -943,18 +1095,30 @@ def run(
         result = _run_closed_loop(
             slm,
             camera,
-            gs_iterations=gs_iterations,
+            target_shape=target_shape,
+            target_size=target_size,
+            target_cam_px=target_px,
             gs_factor=gs_factor,
             focal_length_m=focal_length,
             gs_energy=gs_energy,
             p_cam=p_cam,
             pixel_scale=pixel_scale,
-            target_cam_px=target_px,
             propagation=propagation,
+            dl_iterations=dl_iterations,
+            optimizer=optimizer,
+            lr=lr,
+            w_uniformity=w_uniformity,
+            w_efficiency=w_efficiency,
+            w_zero_order=w_zero_order,
+            w_smoothness=w_smoothness,
+            cell_spacing_um=cell_spacing,
+            wavelength_nm=slm_wavelength,
+            seed=seed,
             outer_iterations=outer_iterations,
             convergence_threshold=convergence_threshold,
             settle_time=settle_time,
             n_sample=n_sample,
+            refine=refine,
             output_dir=output_dir,
             display=display,
         )
@@ -966,7 +1130,7 @@ def run(
         logger.info("闭环完成: 运行 {} 次迭代, 最优评分 {:.4f}", n_iters, result["best_score"])
 
     except Exception as e:
-        logger.error("GS square runner failed: {}", e)
+        logger.error("Diff shaping runner failed: {}", e)
         raise
     finally:
         logger.info("正在清理设备...")
@@ -992,7 +1156,7 @@ def main() -> None:
         raise
     except Exception as e:
         click.echo(f"Error: {e}")
-        logger.exception("GS square runner failed")
+        logger.exception("Diff shaping runner failed")
         sys.exit(1)
 
 

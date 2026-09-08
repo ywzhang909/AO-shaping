@@ -873,6 +873,10 @@ def generate_gs_square_phase(
         try:
             gray = slm.create_phase_from_array(phase_rad)
             slm.display_data(gray, wait_time_s=0.0)
+            # Refresh the phase preview so the UI reflects the latest
+            # displayed pattern without waiting for the user to press the
+            # manual refresh button.
+            refresh_phase_preview(slm.slm_number)
             logger.debug(
                 "GS live display: iteration {} phase 已发送到 SLM",
                 iteration + 1,
@@ -1259,6 +1263,48 @@ def set_wavelength(slm_num: int):
         logger.exception(f"Failed to set wavelength for SLM {slm_num}: {e}")
 
 
+def set_shift(slm_num: int):
+    """Apply shift values from the UI to the SLM driver.
+
+    Syncs the ``shift_x`` / ``shift_y`` values stored in ``st.session_state``
+    back to the driver instance so that subsequent ``save_config()`` calls
+    persist the latest user-entered values.  After updating the driver, the
+    currently displayed phase is re-shifted and pushed to the SLM so the
+    change takes effect immediately, and the preview is refreshed.
+    """
+    prefix = f"slm{slm_num}"
+    try:
+        slm = st.session_state.get(prefix)
+        if slm is not None:
+            sx = st.session_state.get(f"{prefix}_shift_x", 0)
+            sy = st.session_state.get(f"{prefix}_shift_y", 0)
+            slm.set_shift(shift_x=int(sx), shift_y=int(sy))
+
+            # Auto-apply the new shift to the currently displayed phase.
+            current_phase, source = slm.get_displayed_phase()
+            if current_phase is not None:
+                shifted = _apply_shift(current_phase, int(sx), int(sy))
+                mem_slot = int(st.session_state[f"{prefix}_next_memory"])
+                slm.write_phase(shifted, memory_number=mem_slot)
+                slm.display_memory(mem_slot)
+                st.session_state[f"{prefix}_next_memory"] = (
+                    st.session_state[f"{prefix}_next_memory"] % 128
+                ) + 1
+                refresh_phase_preview(slm_num)
+                st.success(
+                    f"SLM {slm_num} 平移已应用并自动下发: "
+                    f"shift_x={sx}, shift_y={sy} (来源: {source})"
+                )
+            else:
+                st.success(f"SLM {slm_num} 平移参数已更新: shift_x={sx}, shift_y={sy}")
+                st.info(
+                    "当前没有缓存的相位可自动下发；请先生成或捕获一个相位图案。"
+                )
+    except Exception as e:
+        st.error(f"应用平移失败: {e}")
+        logger.exception(f"Failed to set shift for SLM {slm_num}: {e}")
+
+
 def set_video_mode(slm_num: int, mode_label: str):
     """Set video mode for the specified SLM"""
     prefix = f"slm{slm_num}"
@@ -1447,6 +1493,8 @@ def _render_slm_settings(slm_num: int):
             step=1,
             key=f"{prefix}_shift_y",
         )
+    if st.button("应用平移", key=f"{prefix}_apply_shift_btn"):
+        set_shift(slm_num)
 
     config_info = st.session_state.get(f"{prefix}_wavelength_mismatch")
     if config_info and slm_obj is not None:
@@ -1475,7 +1523,10 @@ def _render_slm_settings(slm_num: int):
     if st.button("应用灰度设置", key=f"{prefix}_apply_gray_btn"):
         try:
             slm_obj._max_gray = int(new_max_gray)
-            st.success(f"SLM {slm_num} 灰度值已更新为 {new_max_gray}")
+            refresh_phase_preview(slm_num)
+            st.success(
+                f"SLM {slm_num} 灰度值已更新为 {new_max_gray}，预览已刷新"
+            )
         except Exception as e:
             st.error(f"更新灰度设置失败: {e}")
 
@@ -1483,6 +1534,7 @@ def _render_slm_settings(slm_num: int):
         try:
             _wl, current_max_gray = slm_obj.get_wavelength_info()
             slm_obj._max_gray = int(current_max_gray)
+            refresh_phase_preview(slm_num)
             st.success(f"SLM {slm_num} 当前2π灰度: {current_max_gray}")
             st.rerun()
         except Exception as e:

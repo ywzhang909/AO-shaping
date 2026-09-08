@@ -22,7 +22,7 @@ sys.path.insert(0, str(_file.parents[3]))
 
 
 def test_cosine_pattern() -> None:
-    from ao_shaping.tools.slm_cartographer.cosine_pattern import (
+    from ao_shaping.tools.slm.cartographer.cosine_pattern import (
         CosinePatternConfig,
         generate_center_cosine_pattern,
         generate_traditional_gradient_pattern,
@@ -54,7 +54,7 @@ def test_cosine_pattern() -> None:
 
 
 def test_wavefront_reconstruction() -> None:
-    from ao_shaping.tools.slm_cartographer.wavefront_reconstruction import (
+    from ao_shaping.tools.slm.cartographer.wavefront_reconstruction import (
         FourierReconstructionConfig,
         FourierWavefrontReconstructor,
         reconstruct_from_displacements,
@@ -78,7 +78,7 @@ def test_wavefront_reconstruction() -> None:
 
 
 def test_lut_data_structures() -> None:
-    from ao_shaping.tools.slm_cartographer.phase_grayscale_lut import (
+    from ao_shaping.tools.slm.cartographer.phase_grayscale_lut import (
         LUTCalibrationConfig,
         LUTCalibrationResult,
     )
@@ -106,7 +106,7 @@ def test_lut_data_structures() -> None:
 
 
 def test_compensation_data_structures() -> None:
-    from ao_shaping.tools.slm_cartographer.dynamic_compensation import (
+    from ao_shaping.tools.slm.cartographer.dynamic_compensation import (
         CompensationConfig,
         CompensationResult,
     )
@@ -130,7 +130,7 @@ def test_compensation_data_structures() -> None:
 
 
 def test_fourier_reconstruction_function() -> None:
-    from ao_shaping.tools.slm_cartographer.wavefront_reconstruction import (
+    from ao_shaping.tools.slm.cartographer.wavefront_reconstruction import (
         interpolate_sparse_to_dense,
     )
 

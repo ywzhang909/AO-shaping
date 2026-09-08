@@ -46,12 +46,12 @@ AO-shaping/
 │   │   │   ├── wf/              # 波前优化 (RMS)
 │   │   │   ├── wfless/          # 无波前优化 (PIB)
 │   │   │   └── rl/              # 强化学习 (SAC, LR-WFS)
-│   │   ├── utils/               # 工具函数 (spots_calc, wavefront_calc)
+│   │   ├── utils/               # 工具函数 (spots_calc, wavefront_calc, resample)
 │   │   ├── ml/                  # 机器学习 (U-Net+GAN, 训练, 模型)
 │   │   │   ├── trainer/         # 训练器
 │   │   │   ├── models/          # 神经网络模型
 │   │   │   └── wandb_logger.py  # WandB日志
-│   │   ├── tools/               # 独立工具 (SLM相位捕获, Micro-DM逐单元图像采集)
+│   │   ├── tools/               # 独立工具 (tools/slm 包: SLM相位捕获, LUT校准; Micro-DM逐单元图像采集)
 │   │   ├── display/             # 可视化 (窗口, GUI帧)
 │   │   └── gui/                 # GUI组件 (Streamlit)
 │   ├── calculators/             # Cython扩展 (独立)
@@ -275,14 +275,17 @@ python src/ao_shaping/main.py gs-square [OPTIONS]
 选项:
 - `--camera-type`: 相机类型 (daheng / miicam, 默认: daheng)
 - `--cam-id`: 相机 ID (默认: FAR_CAM_ID/0)
-- `--exposure-ms`: 相机曝光时间 (毫秒, 默认: 50)
+- `--exposure-ms`: 相机曝光时间 (毫秒, 默认: 50); **miicam 建议 ≥0.2ms** (<0.1ms 信号淹没在传感器噪声中)
 - `--slm-number`: SLM 设备编号 (默认: 1)
 - `--slm-wavelength`: SLM 工作波长 nm (默认: 1064)
 - `-i, --gs-iterations`: GS 内迭代次数 (默认: 100)
-- `--gs-factor`: 方形/光斑尺寸因子 (默认: 1.5)
+- `--gs-factor`: 方形/光斑尺寸因子 (默认: 1.5) — 仅当未指定 `--target-px` 时使用
+- `--target-px`: **目标方形在相机上的像素宽度** (推荐显式指定, 默认: 按 `--gs-factor×光斑直径`)。光斑 90% 环围能量直径 (spot_d) 在光束超出传感器时被裁剪而失真膨胀, 依它计算会把方形推到超过传感器尺寸 (全帧点亮/指标失真)。应选一个小于传感器高度 (MiiCam 1520px) 的像素宽度, 例如 1200。
 - `--focal-length`: 焦距/传播距离 m (默认: 0.1)
 - `--gs-energy`: 光斑测量环围能量 (默认: 0.90)
 - `--p-cam`: 相机像素间距 m (默认: 使用SLM间距)
+- `--pixel-scale`: 像素缩放比 k=SLM网格边长/相机亮区宽度 (默认: 自动标定)。实测 SLM→MiiCam k≈0.414 (每 SLM 8µm 像素 ≈2.417 相机像素)。**光路调整后必须重新标定**。
+- `--propagation`: GS 传播模型 (asm / fft, 默认: asm)
 - `-n, --outer-iterations`: 最大外迭代次数 (默认: 10)
 - `--convergence-threshold`: 收敛评分阈值 0~1 (默认: 0.95)
 - `--settle-time`: SLM 稳定等待时间 s (默认: 0.5)
@@ -292,6 +295,8 @@ python src/ao_shaping/main.py gs-square [OPTIONS]
 
 `--display` 启用后弹出 pygame 窗口，四面板实时显示: GS 相位图案、目标方形振幅、远场光斑图像（伪彩）、GS 误差收敛曲线，标题栏显示当前评分/边长/光斑直径。
 
+**每外迭代记录 (pkl)**: 每次迭代将相位、相机图像及质量指标增量保存为 `data/gs_square/gs_square_records.pkl` (zip 压缩)，Ctrl+C 中断也不丢失已保存记录。记录字段: `quality_score`, `iteration`, `side`, `spot_d`, `center`, `gs_final_error`, `aspect_ratio`, `squareness`, `uniformity_cv`, `encircled_energy`, `phase`(float64), `phase_gray`(uint16), `image`(float64), `target`(float64)。
+
 示例:
 ```bash
 # 基本闭环整形, 启用pygame可视化
@@ -299,7 +304,55 @@ DEBUG=1 python src/ao_shaping/main.py gs-square --outer-iterations 10 --display
 
 # MiiCam + 更多GS迭代, 不显示
 python src/ao_shaping/main.py gs-square --camera-type miicam --gs-iterations 150 -o data/gs_square
+
+# MiiCam 方形直接以相机像素指定 (推荐), 自动标定像素缩放
+python src/ao_shaping/main.py gs-square --camera-type miicam --exposure-ms 0.5 \
+    --gs-iterations 60 --outer-iterations 5 --target-px 1200 -o data/gs_square
 ```
+
+**GS 传播模型 (`propagation`)**: `gerchberg_saxton` 支持两种传播模型:
+- `asm` (默认): Angular Spectrum Method，精确的近/远场传播，逐迭代正向 + 反向各一次传播。传播子仅依赖 (网格形状, 间距, 距离, 波长)，已做 **lru_cache 预计算缓存**，避免逐迭代重建 meshgrid/exp 传播因子，数值不变但大幅提速。
+- `fft`: 单 FFT Fraunhofer 焦平面模型（同 differential_shaping 的 GS），焦平面视为光源平面的傅里叶变换，完全去除传播子构造开销，仅有单 FFT/IFFT 对，适合远场整形追求最高吞吐的场景。
+
+gs-square 的核心 GS 调用位于 `src/ao_shaping/algorithm/gerchberg_saxton.py`。
+
+#### SLM 灰度→相位 LUT 校准 (slm-lut)
+```bash
+python src/ao_shaping/main.py slm-lut [OPTIONS]
+```
+等同于: `python -m ao_shaping.tools.slm.slm_lut_runner`
+
+在 SLM 上同时写入**半屏参考光栅 + 半屏测试光栅**(上半屏恒定满深度闪耀参考, 下半屏扫描深度/偏移), 同帧测量两半 +1 级衍射效率的比值 (相互抵消激光漂移), 由 sinc² 效率曲线反演灰度→相位映射, 输出正向/逆向 LUT (`lut_forward.csv`/`lut_inverse.csv`/`lut.npz`), 之后可通过 `slm.load_lut(dir)` 加载, 由驱动在相位写入时自动补偿灰度↔相位非线性。
+
+选项:
+- `--method`: 扫描方法 (depth=缩放闪耀峰值灰度 / offset=均匀灰度偏移, 默认: depth)
+- `--period-ref`: 参考半屏闪耀光栅周期 (SLM px, 默认: 64)
+- `--period-test`: 测试半屏闪耀光栅周期 (SLM px, 默认: 32)
+- `--gray-step`: 灰度扫描步长 (默认: 16)
+- `--exposure-ms`: 初始相机曝光 (ms, 默认: 0.03)
+- `--n-frames`: 每灰度点平均帧数 (默认: 10)
+- `--camera-type`: 相机类型 (miicam/daheng, 默认: miicam)
+- `--cam-id`: 相机 ID (默认: 0)
+- `--settle-time`: SLM 写入后稳定等待 s (默认: 0.3)
+- `--slm-number`: SLM 设备编号 (默认: 1)
+- `--slm-wavelength`: SLM 工作波长 nm; 2π 对应灰度由设备动态查询, 禁硬编码 (默认: 1064)
+- `--spot-window`: 光斑 ROI 窗口 (奇数, 默认: 41)
+- `--bright-floor` / `--saturation-stop`: 联合自动曝光阈值 (默认: 0.02 / 0.9)
+- `-o, --output`: 输出目录 (默认: data/slm_lut)
+- `--display/--no-display`: 是否弹出 matplotlib 图窗 (默认: False)
+
+输出目录 `data/slm_lut/run-<时间戳>/`: `lut_calibration.png` (η/g、φ/g、逆LUT三图), `lut/` (LUT 文件), `calibration_frame.npy`, `records.pkl` (g/eta/phi/inverse_gray/meta/p_ref/p_test 全量记录)。
+
+示例:
+```bash
+# 默认 depth 扫描 (推荐)
+python src/ao_shaping/main.py slm-lut --period-ref 64 --period-test 32 -o data/slm_lut
+
+# offset 对照方法
+python src/ao_shaping/main.py slm-lut --method offset -o data/slm_lut
+```
+
+**注意**: 校准图案 (半屏闪耀光栅) 使用 uint16 原始灰度直接 `display_data` 写入, 严禁经过 `create_phase_from_array()` (弧度转换会损坏灰度值)。
 
 #### 闭环波前优化 (closed-loop)
 ```bash

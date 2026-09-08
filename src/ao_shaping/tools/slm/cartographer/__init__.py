@@ -11,34 +11,34 @@ Usage:
     streamlit run src/ao_shaping/tools/slm_cartographer/slm_cartographer_ui.py
 
 Or as a module:
-    python -m ao_shaping.tools.slm_cartographer
+    python -m ao_shaping.tools.slm.cartographer
 """
 
 from __future__ import annotations
 
-from ao_shaping.tools.slm_cartographer.cosine_pattern import (
+from ao_shaping.tools.slm.cartographer.cosine_pattern import (
     generate_center_cosine_pattern,
     generate_traditional_gradient_pattern,
     estimate_phase_from_pattern,
     CosinePatternConfig,
 )
-from ao_shaping.tools.slm_cartographer.hartmann_capture import (
+from ao_shaping.tools.slm.cartographer.hartmann_capture import (
     HartmannCapture,
     HartmannCaptureConfig,
     HartmannMeasurement,
 )
-from ao_shaping.tools.slm_cartographer.wavefront_reconstruction import (
+from ao_shaping.tools.slm.cartographer.wavefront_reconstruction import (
     FourierWavefrontReconstructor,
     FourierReconstructionConfig,
     reconstruct_from_displacements,
     interpolate_sparse_to_dense,
 )
-from ao_shaping.tools.slm_cartographer.phase_grayscale_lut import (
+from ao_shaping.tools.slm.cartographer.phase_grayscale_lut import (
     PhaseGrayscaleLUT,
     LUTCalibrationConfig,
     LUTCalibrationResult,
 )
-from ao_shaping.tools.slm_cartographer.dynamic_compensation import (
+from ao_shaping.tools.slm.cartographer.dynamic_compensation import (
     DynamicCompensator,
     CompensationConfig,
     CompensationResult,

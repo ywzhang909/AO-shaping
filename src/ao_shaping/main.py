@@ -53,10 +53,14 @@ from ao_shaping.runners import (
     full_voltage_run,
     combined_run,
     gs_square_run,
+    diff_shaping_run,
 )
 
 
 from ao_shaping.utils.cli_helpers import get_debug_mode
+
+# Tools commands (standalone tools under tools/)
+from ao_shaping.tools.slm.slm_lut_runner import run as slm_lut_run
 
 
 @click.group()
@@ -96,6 +100,8 @@ cli.add_command(alt_voltage_run, name="alt-voltage")
 cli.add_command(full_voltage_run, name="full-voltage")
 cli.add_command(combined_run, name="combined")
 cli.add_command(gs_square_run, name="gs-square")
+cli.add_command(diff_shaping_run, name="diff-shaping")
+cli.add_command(slm_lut_run, name="slm-lut")
 
 
 # Entry point

@@ -420,6 +420,16 @@ class CameraStreamManager(BaseCamera):
     def reset_exposure_time(self, time_ms: float) -> float:
         """Set the camera exposure time.
 
+        实验确认 (2026-09): 在视频流运行期间直接调用 ``put_ExpoTime`` **不会生效**——
+        抓到的图像仍是旧曝光的停滞/残帧（表现为 max 恒定、图像与历史帧雷同）。
+        修改曝光必须按 SDK 要求 **先 Stop 再设置再重启拉流**，并丢弃前 1-2 帧。
+        实现与 ``reset_window`` 一致（Stop → put_* → StartPullModeWithCallback）。
+
+        曝光量程经验（MiiCam + 1064nm 激光）:
+          - 曝光 <0.1ms 时信号淹没在传感器噪声中（max≤10，无光斑特征），不可用；
+          - 建议从 ≥0.2ms 起调节；亮区宽度/均值正确响应曝光，而峰值 (max) 可能被
+            锁在 ~85 —— 做质量指标时应优先 mean / 亮区包围盒而非 max。
+
         Args:
             time_ms: New exposure time in milliseconds.
                 Valid range: 0.011ms to 10000ms. Values outside this range are clamped.
@@ -436,7 +446,38 @@ class CameraStreamManager(BaseCamera):
             logger.warning("exposure time must <= 10000ms. clamped to 10000ms.")
         else:
             self.exposure_time_ms = time_ms
+
+        # 关键: 流运行中 put_ExpoTime 不生效, 必须先 Stop
+        try:
+            self.cam.Stop()
+        except Exception:
+            pass
+        time.sleep(0.1)
+
         self.cam.put_ExpoTime(int(self.exposure_time_ms * 1000))
+
+        # 保持自动曝光关闭 (防止 AGC 覆盖手动曝光)
+        try:
+            self.cam.put_AutoExpoEnable(0)
+        except miicam.HRESULTException:
+            pass
+
+        # 重启拉流 (带短暂重试, 仿 _init_streaming)
+        for attempt in range(3):
+            try:
+                self.cam.StartPullModeWithCallback(None, None)
+                break
+            except miicam.HRESULTException:
+                if attempt < 2:
+                    try:
+                        self.cam.Stop()
+                    except Exception:
+                        pass
+                    time.sleep(0.3 * (attempt + 1))
+                else:
+                    raise
+        # 丢弃切换后的前几帧 (可能仍为旧曝光残留)
+        time.sleep(0.15)
         return self.exposure_time_ms
 
     def enable_auto_exposure(self, enable: bool = True, mode: int = 1) -> bool:
