@@ -261,7 +261,9 @@ def _asm_propagator_torch(
     H_prop = torch.exp(1j * torch.sqrt(kz_sq) * z)
     H_prop[evanescent] = 0.0
     # ifftshift aligns the propagator with the fft2 output ordering, matching
-    # the numpy reference in ao_shaping.algorithm.gerchberg_saxton.
+    # the numpy reference in ao_shaping.algorithm.gerchberg_saxton (verified:
+    # torch vs numpy ASM agree to ~1e-11 on random complex fields, enabling
+    # direct cross-checks and symmetric fft/asm comparison).
     return torch.fft.ifftshift(H_prop).to(dtype=dtype)
 
 
@@ -427,6 +429,24 @@ def train_beam_shaping(
 
     Raises:
         ValueError: On invalid inputs.
+
+    .. note::
+        Empirically tuned defaults (256×256, docs/slm_differential_shaping/):
+        - ``lr=3e-2`` + ``w_zero_order=0``: the old defaults (``lr=1e-2``,
+          ``w_zero_order=0.1``) were broken — the zero-order penalty pushes
+          energy OUT of a centred target (encircled energy collapsed to 0.07
+          vs 0.84 achievable) and the low LR trapped predictions in the
+          trivial-uniform critical point, especially for ``asm``.  With the
+          defaults below, fft/adam reaches CV<0.1 and EE~0.84 in 600
+          iterations (seeds 1-3), spot targets CV~0/EE~0.87, and asm reaches
+          CV~0/EE~0.90.  L-BFGS (lr=1.0, 60 outer iters) produces an
+          essentially flat-top square (CV~0).
+        - Energy concentration reacts faster than uniformity: a
+          ``w_efficiency >= w_uniformity`` split flattens the beam after the
+          energy is gathered, so the option below favours efficiency.
+        - ``smoothness_regularization`` fights the high-frequency phase
+          content that sharp square edges require — 0 weight is optimal for
+          these targets.
     """
     torch = _torch()
 
@@ -507,6 +527,10 @@ def train_beam_shaping(
     else:
         # Small random noise avoids the degenerate zero-gradient start where
         # the field is purely real (intensity is quadratic in phase there).
+        # Empirical finding (docs/slm_differential_shaping/): a flat/zero
+        # phase is a critical point that ASM never escapes (loss grew instead
+        # of converging); the 0.1-scale noise kicks prediction away from it.
+        # Uniform/`scale=0.1` matters too — 1.0-scale noise focuses slowly.
         phase_init = 0.1 * torch.randn((H, W), device=dev, dtype=dtype)
 
     phase = torch.nn.Parameter(phase_init.clone())
@@ -584,8 +608,9 @@ def train_beam_shaping(
         if phase_callback is not None:
             phase_callback(phase.detach())
 
-        if (it + 1) % max(1, iterations // 10) == 0 or it == 0:
-            logger.debug("Iter {}/{}  loss={:.6f}", it + 1, iterations, loss_val)
+        # 每个迭代输出一次进度日志 (library 层为 debug 级别, 由 DEBUG=1 控制;
+        # runner 层通过 progress_callback 在 INFO 级别逐迭代输出)
+        logger.debug("Iter {}/{}  loss={:.6f}", it + 1, iterations, loss_val)
 
     if len(loss_history) >= iterations:
         converged = True

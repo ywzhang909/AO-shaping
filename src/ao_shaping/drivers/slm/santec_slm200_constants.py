@@ -158,6 +158,7 @@ PITCH_UM = 8  # 像素间距 (微米)
 PANEL_SIZE_MM = (15.36, 9.60)  # 面板尺寸 (mm, 宽x高)
 PANEL_RES = (1920, 1200)  # 面板分辨率 (宽x高)
 RESPONSE_TIME_MS = 300  # 响应时间 (毫秒)
+MAX_PIXEL_FLIP_TIME_MS = 200  # LCOS 像素翻转最大耗时 (毫秒)；0→2π(满相位) 量程翻转
 GRAY_SCALE_BITS = 10  # 灰度位数
 
 

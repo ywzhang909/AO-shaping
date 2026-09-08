@@ -43,7 +43,7 @@ class ZernikeSLM:
         shift_x: int = 0,
         shift_y: int = 0,
         correction_csv_path: str | Path | None = None,
-        wait_time_s: float = 0.2,
+        wait_time_s: float | None = None,
     ):
         self.slm_number = slm_number
         self.wavelength = wavelength

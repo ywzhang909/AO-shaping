@@ -22,10 +22,10 @@
 from __future__ import annotations
 
 import contextlib
-import itertools
 import json
 import math
 import os
+import random
 import signal
 import sys
 import time
@@ -491,8 +491,26 @@ def _run_closed_loop(
     wavelength = float(slm.wavelength) if slm.wavelength is not None else 1064.0
     wavelength_m = wavelength * 1e-9
 
-    # SLM内存槽轮换 (禁止连续使用同一槽位)
-    slot_cycle = itertools.cycle([3, 4, 5])
+    # SLM内存槽随机选取 (2~125, 禁止连续使用同一槽位, 含跨进程重启边界)
+    # 驱动固件: display_memory(同一槽) 是 no-op, LCOS 不刷新 → 前后两次相位
+    # 写入必须落在不同槽。在 2~125 大范围内随机选槽, 单次运行内相邻两次写入
+    # 几乎必然不同; 启动时读取 SLM 当前显示的槽号 (memory 模式 SLM_Ctrl_ReadDS
+    # 有效) 并排除之, 使跨进程重启第一轮也不会与上次末槽相同。
+    _SLOT_MIN, _SLOT_MAX = 2, 125
+    _last_slot_used: int | None = None
+    try:
+        _last_slot_used = slm.get_displayed_memory_number()
+        logger.info("SLM当前显示槽: {}", _last_slot_used)
+    except Exception:
+        _last_slot_used = None
+
+    def _pick_next_slot() -> int:
+        """从 2~125 随机选取一个与上次写入不同的 SLM 内存槽 (防连续同槽 no-op)."""
+        nonlocal _last_slot_used
+        candidates = [s for s in range(_SLOT_MIN, _SLOT_MAX + 1) if s != _last_slot_used]
+        slot = random.choice(candidates)
+        _last_slot_used = slot
+        return slot
 
     # 可选pygame实时显示 (需上下文管理器管理窗口生命周期)
     display_stack = contextlib.ExitStack()
@@ -612,7 +630,7 @@ def _run_closed_loop(
 
         # --- 3. 转换相位为灰度并下发 ---
         phase_gray = slm.create_phase_from_array(result.phase)
-        slot = next(slot_cycle)
+        slot = _pick_next_slot()
         slm.write_phase(phase_gray, memory_number=slot)
         time.sleep(0.05)
         slm.display_memory(slot)

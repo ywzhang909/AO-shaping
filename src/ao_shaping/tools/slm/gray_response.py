@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import csv
-import itertools
+import random
 import sys
 import time
 from datetime import datetime
@@ -228,15 +228,26 @@ def acquire_gray_response(
             writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
             writer.writeheader()
 
-            # Rotate through memory slots 3,4,5 so that consecutive writes
+            # Rotate through SLM memory slots so that consecutive writes
             # NEVER target the same slot.  Santec SLM firmware treats
             # display_memory(slot) as a no-op when the slot is already
             # being displayed, so reusing the same slot back-to-back
-            # causes the LCOS panel to not refresh.
-            _slot_cycle = itertools.cycle([3, 4, 5])
+            # causes the LCOS panel to not refresh.  Pick a RANDOM slot
+            # in 2..125 excluding the currently displayed one (read on
+            # start, so restarts also never collide with the last slot).
+            _SLOT_MIN, _SLOT_MAX = 2, 125
+            _last_slot: int | None = None
+            try:
+                _last_slot = slm.get_displayed_memory_number()
+            except Exception:
+                _last_slot = None
             for index, gray_value in enumerate(gray_values, start=1):
                 phase = _flat_phase(slm, gray_value)
-                slot = next(_slot_cycle)
+                candidates = [
+                    s for s in range(_SLOT_MIN, _SLOT_MAX + 1) if s != _last_slot
+                ]
+                slot = random.choice(candidates)
+                _last_slot = slot
                 _display_rotate_slot(slm, phase, slot, wait_time_s)
 
                 frame = _capture_brightness(camera, n_sample=n_sample, skip_first=skip_first, discard_count=discard_count)

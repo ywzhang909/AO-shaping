@@ -22,10 +22,10 @@
 from __future__ import annotations
 
 import contextlib
-import itertools
 import json
 import math
 import os
+import random
 import signal
 import sys
 import time
@@ -453,6 +453,7 @@ def _run_closed_loop(
     cell_spacing_um: float,
     wavelength_nm: int,
     seed: int | None,
+    device: str | None = None,
     outer_iterations: int,
     convergence_threshold: float,
     settle_time: float,
@@ -520,8 +521,27 @@ def _run_closed_loop(
     wavelength_m = wavelength * 1e-9
     cell_spacing_m = cell_spacing_um * 1e-6
 
-    # SLM内存槽轮换 (禁止连续使用同一槽位)
-    slot_cycle = itertools.cycle([3, 4, 5])
+    # SLM内存槽随机选取 (2~125, 禁止连续使用同一槽位, 含跨进程重启边界)
+    # 驱动固件: display_memory(同一槽) 是 no-op, LCOS 不刷新 → 前后两次相位
+    # 写入必须落在不同槽。在 2~125 大范围内随机选槽, 单次运行内相邻两次写入
+    # 几乎必然不同; 启动时读取 SLM 当前显示的槽号 (memory 模式 SLM_Ctrl_ReadDS
+    # 有效) 并排除之, 使跨进程重启第一轮也不会与上次末槽相同。
+    _SLOT_MIN, _SLOT_MAX = 2, 125
+    _last_slot_used: int | None = None
+    try:
+        _last_slot_used = slm.get_displayed_memory_number()
+        logger.info("SLM当前显示槽: {}", _last_slot_used)
+    except Exception:
+        # 读取失败 (如 set_grayscale 模式, 无内存槽概念), 首次随机选取即可
+        _last_slot_used = None
+
+    def _pick_next_slot() -> int:
+        """从 2~125 随机选取一个与上次写入不同的 SLM 内存槽 (防连续同槽 no-op)."""
+        nonlocal _last_slot_used
+        candidates = [s for s in range(_SLOT_MIN, _SLOT_MAX + 1) if s != _last_slot_used]
+        slot = random.choice(candidates)
+        _last_slot_used = slot
+        return slot
 
     # 可选pygame实时显示
     display_stack = contextlib.ExitStack()
@@ -606,6 +626,22 @@ def _run_closed_loop(
 
     logger.info("测得光斑直径 {:.1f}px, 目标边长 {}px", spot_d, side)
 
+    # 亮度基线提示 (启动诊断): 当前亮度 vs 理想整形后的目标最优亮度.
+    # 假设光总能量不变 (sum 守恒): 若能量均匀分布于目标方形亮区
+    # (target_px × target_px 相机像素), 理论最大亮度 = E / target_px².
+    # 若当前 max ≪ 该值, 说明能量仍集中在零级/未展开, 或曝光过暗.
+    _total_energy = float(init_image.sum())
+    _ideal_max = _total_energy / (target_px * target_px) if target_px > 0 else 0.0
+    logger.info(
+        "亮度基线: 当前max={:.0f} mean={:.3f} 总能量E={:.0f}; "
+        "目标最优最大亮度(总能量不变, 均匀分布于{:.0f}px方形)={:.1f}",
+        init_image.max(),
+        init_image.mean(),
+        _total_energy,
+        target_px,
+        _ideal_max,
+    )
+
     # 迭代记录器
     recorder = Recorder(mark="quality_score", mode="max")
 
@@ -627,7 +663,11 @@ def _run_closed_loop(
         )
 
         def _dl_progress(iteration: int, loss: float) -> None:
-            """梯度优化内迭代进度回调 (更新pygame损失曲线)."""
+            """梯度优化内迭代进度回调 (每个迭代输出日志 + 更新pygame损失曲线)."""
+            logger.info(
+                "内迭代 {:4d}/{:d} loss={:.6f}",
+                iteration + 1, dl_iterations, loss,
+            )
             if display_ctx is None:
                 return
             try:
@@ -635,7 +675,7 @@ def _run_closed_loop(
             except Exception:
                 pass
 
-        def _dl_phase_callback(phase: np.ndarray) -> None:
+        def _dl_phase_callback(phase) -> None:
             """梯度优化相位回调 (可选: 实时写相位到SLM)."""
             pass  # 不在内迭代中写SLM, 等求解完成后再写, 避免SLM磨损
 
@@ -656,6 +696,7 @@ def _run_closed_loop(
             distance=focal_length_m,
             wavelength=wavelength_m,
             seed=seed,
+            device=device,
             progress_callback=_dl_progress,
             phase_callback=_dl_phase_callback,
         )
@@ -686,7 +727,7 @@ def _run_closed_loop(
 
         # --- 3. 转换相位为灰度并下发 ---
         phase_gray = slm.create_phase_from_array(result.phase)
-        slot = next(slot_cycle)
+        slot = _pick_next_slot()
         slm.write_phase(phase_gray, memory_number=slot)
         time.sleep(0.05)
         slm.display_memory(slot)
@@ -902,8 +943,8 @@ def _save_results(result: dict, output_dir: Path, params: dict) -> None:
     type=int,
     help="相机ID (default: FAR_CAM_ID 环境变量或 0)",
 )
-@click.option("--exposure-ms", default=50.0, type=float,
-                      help="相机曝光时间 ms (default: 50)")
+@click.option("--exposure-ms", default=None, type=float,
+              help="相机曝光时间 ms (default: 自动 miicam=0.02 / daheng=50)")
 @click.option("--cam-bit-depth", default=8, type=click.IntRange(8, 16),
               help="MiiCam输出位深 (default: 8)")
 # SLM
@@ -943,8 +984,15 @@ def _save_results(result: dict, output_dir: Path, params: dict) -> None:
     help="传播模型: fft=单FFT夫琅禾费(高速), asm=角谱法(精确)",
 )
 # 可微分优化器参数
-@click.option("--dl-iterations", "-i", default=300, type=int,
-              help="每次外迭代的梯度优化内迭代次数 (default: 300)")
+# ---------------------------------------------------------------------------
+# 默认权重/学习率经实验标定 (docs/slm_differential_shaping/):
+#   * w_zero_order=0 是必须的 —— 零级惩罚会把能量从居中目标推出
+#     (默认 [.4,.4,.1,.1] 下 EE 崩到 0.07, 而 w=[.4,.6,0,0] 达 EE≈0.84)
+#   * lr=3e-2 + 600 次内迭代: fft/adam 方形 CV<0.1 EE≈0.84 (seed 1-3 稳健),
+#     asm 亦能收敛 (CV≈0.001 EE≈0.90); lbfgs (lr=1.0) 60 步即近平顶
+#   * 若想手动校验, 可用 --dl-iterations 500+ 或 --optimizer lbfgs
+@click.option("--dl-iterations", "-i", default=500, type=int,
+              help="每次外迭代的梯度优化内迭代次数 (default: 500; 600 达 CV<0.1)")
 @click.option(
     "--optimizer",
     type=click.Choice(["adam", "lbfgs"]),
@@ -952,16 +1000,22 @@ def _save_results(result: dict, output_dir: Path, params: dict) -> None:
     show_default=True,
     help="梯度优化器 (default: adam)",
 )
-@click.option("--lr", default=1e-2, type=float, help="梯度优化学习率 (default: 1e-2)")
+@click.option("--lr", default=3e-2, type=float, help="梯度优化学习率 (default: 3e-2)")
 @click.option("--w-uniformity", default=0.4, type=float,
               help="均匀性损失权重 (default: 0.4)")
-@click.option("--w-efficiency", default=0.4, type=float,
-              help="效率损失权重 (default: 0.4)")
-@click.option("--w-zero-order", default=0.1, type=float,
-              help="零级损失权重 (default: 0.1)")
-@click.option("--w-smoothness", default=0.1, type=float,
-              help="平滑损失权重 (default: 0.1)")
+@click.option("--w-efficiency", default=0.6, type=float,
+              help="效率损失权重 (default: 0.6; >= 均匀性权重先集中能量再展平)")
+@click.option("--w-zero-order", default=0.0, type=float,
+              help="零级损失权重 (default: 0.0; 非零会把能量推出居中目标)")
+@click.option("--w-smoothness", default=0.0, type=float,
+              help="平滑损失权重 (default: 0.0; 抑制方形锐边所需的高频相位)")
 @click.option("--seed", default=None, type=int, help="随机种子 (default: None)")
+@click.option(
+    "--device",
+    type=click.Choice(["auto", "cuda", "cpu"]),
+    default="auto",
+    help="计算设备: auto=有CUDA则用GPU否则CPU (default: auto)",
+)
 # 闭环参数
 @click.option("--outer-iterations", "-n", default=10, type=int,
               help="最大外迭代次数 (default: 10)")
@@ -1006,6 +1060,7 @@ def run(
     w_zero_order: float,
     w_smoothness: float,
     seed: int | None,
+    device: str,
     outer_iterations: int,
     convergence_threshold: float,
     settle_time: float,
@@ -1027,6 +1082,16 @@ def run(
     # 相机ID默认值
     if cam_id is None:
         cam_id = int(os.environ.get("FAR_CAM_ID", "0"))
+
+    # 曝光时间默认值: miicam 按本光路实测近饱和基线 0.02ms (1064nm 2f 傅里叶光路),
+    # daheng 保持 50ms
+    if exposure_ms is None:
+        exposure_ms = 0.02 if camera_type == "miicam" else 50.0
+        logger.info("曝光时间默认: {}ms (camera_type={})", exposure_ms, camera_type)
+    elif camera_type == "miicam" and exposure_ms > 50.0:
+        logger.warning(
+            "miicam 曝光 {:.3f}ms 偏大, 建议 0.02~1ms 避免饱和", exposure_ms
+        )
 
     output_dir = Path(output)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1050,6 +1115,15 @@ def run(
             video_mode=0,  # 内存模式
         )
         slm.open()
+        # 2026-09-08 实测 (与相机无关的运维记录):
+        #   diff-shaping 硬件闭环可能在此行之后无限阻塞 —— 日志止于 SLM open 成功,
+        #   而下方首次 camera.get_numpy_image() 无任何输出挂死 (本例 900s 超时被强杀)。
+        #   WaitImageV3 的原生等待由 SDK 内部驱动, 不受 Python 侧超时保护; 排查挂点
+        #   请用分步计时的最小探针脚本逐调用计时, 不要直接跑完整闭环。
+        #   强杀 (外部 timeout/硬断) 不会经过本函数 finally 的 close, SLM 控制器可能
+        #   残留异常状态; 重跑前先确认无残留 python 进程 (Get-Process python*),
+        #   若 memory 模式 open() 超过数秒无日志, 对 SLM 控制器物理断电重置
+        #   (与 DVI 模式挂起同一处置)。
         logger.info(
             "SLM #{} 已连接, 分辨率: {}x{}, 位深: {}bit",
             slm_number,
@@ -1083,6 +1157,7 @@ def run(
             "w_zero_order": w_zero_order,
             "w_smoothness": w_smoothness,
             "seed": seed,
+            "device": device,
             "outer_iterations": outer_iterations,
             "convergence_threshold": convergence_threshold,
             "settle_time": settle_time,
@@ -1114,6 +1189,7 @@ def run(
             cell_spacing_um=cell_spacing,
             wavelength_nm=slm_wavelength,
             seed=seed,
+            device=None if device == "auto" else device,
             outer_iterations=outer_iterations,
             convergence_threshold=convergence_threshold,
             settle_time=settle_time,

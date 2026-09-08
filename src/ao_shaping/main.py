@@ -60,6 +60,7 @@ from ao_shaping.runners import (
 from ao_shaping.utils.cli_helpers import get_debug_mode
 
 # Tools commands (standalone tools under tools/)
+from ao_shaping.tools.slm.slm_diagnose import main as slm_diagnose_run
 from ao_shaping.tools.slm.slm_lut_runner import run as slm_lut_run
 
 
@@ -102,6 +103,7 @@ cli.add_command(combined_run, name="combined")
 cli.add_command(gs_square_run, name="gs-square")
 cli.add_command(diff_shaping_run, name="diff-shaping")
 cli.add_command(slm_lut_run, name="slm-lut")
+cli.add_command(slm_diagnose_run, name="slm-diagnose")
 
 
 # Entry point

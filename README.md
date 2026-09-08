@@ -28,11 +28,12 @@ AO-shaping/
 │   │   │   ├── zernike_matrix_runner.py  # Zernike响应矩阵校准与闭环控制
 │   │   │   ├── gs_hologram_runner.py   # Gerchberg-Saxton全息图生成器
 │   │   │   ├── gs_square_runner.py     # GS闭环光束整形优化器 (方形)
+│   │   │   ├── diff_shaping_runner.py  # 可微分闭环光束整形优化器 (PyTorch)
 │   │   │   ├── dm_matrix_runner.py     # DM响应矩阵标定
 │   │   │   ├── alt_voltage_runner.py   # 交替电压下发 (R50Power + ADC采集)
 │   │   │   ├── full_voltage_runner.py  # 全量交替电压下发 (AsyncMicroDM)
 │   │   │   └── combined_runner.py      # [已废弃] 使用pipeline_runner代わり
-│   │   ├── algorithm/           # 优化算法 (Adam, SGD, Muon等)
+│   │   ├── algorithm/           # 优化算法 (Adam, SGD, Muon, 可微分光束整形等)
 │   │   ├── drivers/             # 硬件驱动
 │   │   │   ├── ccd/             # 相机 (Daheng, MiiCam)
 │   │   │   ├── dm/              # 变形镜 (NLight, R50Power MicroDM)
@@ -316,6 +317,66 @@ python src/ao_shaping/main.py gs-square --camera-type miicam --exposure-ms 0.5 \
 
 gs-square 的核心 GS 调用位于 `src/ao_shaping/algorithm/gerchberg_saxton.py`。
 
+#### 可微分光束整形 (diff-shaping)
+```bash
+python src/ao_shaping/main.py diff-shaping [OPTIONS]
+```
+等同于: `python -m ao_shaping.runners.diff_shaping_runner`
+
+基于 **PyTorch 可微分优化 + CCD 反馈**的闭环光束整形：将远场光斑整形为 square / circle / gaussian / spot 目标形状。核心算法 `src/ao_shaping/algorithm/differentiable_shaping.py` 用梯度下降直接优化 SLM 相位图，损失 = 均匀性(CV) + 效率(EE) + 零级惩罚 + 平滑正则的加权和，支持 `fft` (单 FFT 夫琅禾费焦平面, 高速) 与 `asm` (角谱法, 精确) 两种传播模型; CCD 实测光束反馈到目标/质量评分, 形成闭环。
+
+选项:
+- `--camera-type`: 相机类型 (daheng / miicam, 默认: daheng)
+- `--cam-id`: 相机 ID (默认: FAR_CAM_ID/0)
+- `--exposure-ms`: 相机曝光时间 (毫秒, 默认: 自动解析 — **miicam=0.02ms (1064nm 近饱和基线)**, daheng=50ms); miicam 建议 ≥0.011ms 且通常 0.02~1ms 防饱和
+- `--cam-bit-depth`: MiiCam 输出位深 (默认: 8)
+- `--slm-number`: SLM 设备编号 (默认: 1)
+- `--slm-wavelength`: SLM 工作波长 nm (默认: 1064)
+- `--target-shape`: 目标形状 (square / circle / gaussian / spot, 默认: square)
+- `--target-size`: 目标尺寸 (SLM 网格 px); 0=自动 (默认: 0)
+- `--target-px`: 目标在相机上的像素宽度; 推荐显式指定 (默认: 按 `--gs-factor×光斑直径`)
+- `--gs-factor`: 目标/光斑尺寸因子 (默认: 1.5)
+- `--focal-length`: 焦距/传播距离 m (默认: 0.1)
+- `--gs-energy`: 光斑测量环围能量 (默认: 0.90)
+- `--cell-spacing`: SLM 像素间距 um (默认: 8)
+- `--p-cam`: 相机像素间距 m (默认: 使用SLM间距)
+- `--pixel-scale`: 像素缩放比 k=SLM网格边长/相机亮区宽度 (默认: 自动标定)。**光路调整后必须重新标定**。
+- `--propagation`: 传播模型 (fft / asm, 默认: fft)
+- `-i, --dl-iterations`: 每次外迭代的梯度优化内迭代次数 (默认: 500; **600 达 CV<0.1**)
+- `--optimizer`: 梯度优化器 (adam / lbfgs, 默认: adam)
+- `--lr`: 梯度优化学习率 (默认: 3e-2)
+- `--w-uniformity`: 均匀性损失权重 (默认: 0.4)
+- `--w-efficiency`: 效率损失权重 (默认: 0.6; 取 ≥ 均匀性权重可先集中能量再展平)
+- `--w-zero-order`: 零级损失权重 (默认: **0.0**; 非零会把能量推出居中目标, 详见下)
+- `--w-smoothness`: 平滑损失权重 (默认: **0.0**; 抑制方形锐边所需的高频相位)
+- `--seed`: 随机种子 (默认: None)
+- `--device`: 计算设备 (auto / cuda / cpu, 默认: auto, 自动用本机 GPU 否则 CPU)
+- `-n, --outer-iterations`: 最大外迭代次数 (默认: 10)
+- `--convergence-threshold`: 收敛评分阈值 0~1 (默认: 0.95)
+- `--settle-time`: SLM 稳定等待时间 s (默认: 0.5)
+- `--n-sample`: 相机每次采样平均帧数 (默认: 3)
+- `--refine/--no-refine`: 每次外迭代后运行额外细化梯度通道 (默认: False)
+- `-o, --output`: 输出目录 (默认: data/diff_shaping)
+- `--display/--no-display`: 启用 pygame 实时可视化迭代过程 (默认: False)
+
+**权重默认值经实验标定** (详见 `docs/slm_differential_shaping/` 验证报告):
+- 默认权重 `[.4,.4,.1,.1]` + `lr=1e-2` 曾经是坏的: 零级惩罚把能量从居中目标推出 (EE 0.84→0.07), 平滑项抑制方形锐边所需高频相位, 低学习率还使 `asm` 困在平凡均匀临界点 (loss 不降反升)。
+- 成功配置 `w=[.4,.6,0,0]`, `lr=3e-2`, 600 内迭代: fft/adam 方形 CV<0.1 / EE≈0.84 (seed 1-3 稳健), asm CV≈0.001 / EE≈0.90, spot CV≈0 / EE≈0.87; `--optimizer lbfgs --lr 1.0` 60 步即近平顶 (CV≈0)。
+- 相位初始化使用 0.1×randn 小噪声, 逃离零相位处的零梯度退化点; torch 版 ASM 与 numpy 参考实现数值一致 (~1e-11), 可互换对比。
+
+示例:
+```bash
+# 方形成形 (默认配置)
+python src/ao_shaping/main.py diff-shaping
+
+# spot 聚焦, MiiCam, 更多内迭代达高均匀性
+python src/ao_shaping/main.py diff-shaping --camera-type miicam --target-shape spot \
+    --dl-iterations 600 -o data/diff_shaping
+
+# lbfgs 快速近平顶方形
+python src/ao_shaping/main.py diff-shaping --optimizer lbfgs --lr 1.0 -o data/diff_shaping
+```
+
 #### SLM 灰度→相位 LUT 校准 (slm-lut)
 ```bash
 python src/ao_shaping/main.py slm-lut [OPTIONS]
@@ -353,6 +414,39 @@ python src/ao_shaping/main.py slm-lut --method offset -o data/slm_lut
 ```
 
 **注意**: 校准图案 (半屏闪耀光栅) 使用 uint16 原始灰度直接 `display_data` 写入, 严禁经过 `create_phase_from_array()` (弧度转换会损坏灰度值)。
+
+#### SLM 硬件自检 (slm-diagnose)
+```bash
+python src/ao_shaping/main.py slm-diagnose [OPTIONS]
+```
+等同于: `python -m ao_shaping.tools.slm.slm_diagnose`
+
+在 2f Fourier 光路下对 SLM + MiiCam 做逐级硬件自检, 定位"面板不调制光"类故障 (2026-09 诊断固化, 三步证据链):
+
+1. **freeze (面板冻结检测)**: flat/全屏光栅/上下半屏光栅写入**轮换内存槽**, 对比各帧是否随图案变化 — 全同 ⇒ LCOS 冻结。
+2. **modulate (调制能力检测)**: `set_grayscale` 0→1023 扫描, 0 级桶能量须有 ~993 灰度周期 — 无周期 ⇒ 面板不调制光。此模式下 `get_displayed_memory_number` 报错码 1 是**正常**行为。
+3. **linearity (到达光强检测)**: 曝光 ×4/×20, 峰值亮度须增长 — 恒定峰值 ⇒ 到达相机光强比已知 ~0.02ms 近饱和基线弱 >100×。
+
+选项:
+- `--slm-number`: SLM 设备编号 (默认: 1)
+- `--slm-wavelength`: SLM 工作波长 nm (默认: 1064)
+- `--cam-id`: MiiCam 相机 ID (默认: 0)
+- `--period-ref` / `--period-test`: 光栅周期 px (默认: 64 / 32)
+- `--exposure-ms`: 自检曝光 ms (默认: 2.0)
+- `--settle-s`: SLM/相机稳定等待 s (默认: 1.0)
+- `--step`: 只跑某步 freeze/modulate/linearity (默认: all)
+- `-o, --output`: 保存诊断报告目录 (默认: 不保存)
+
+**已知约束**: DVI 模式 (`video_mode=1`) 的 `open()` 可能挂起, 且挂起后 memory 模式也挂直到**物理断电** —— 本工具只用 memory 模式, 绝不自动尝试 DVI。
+
+示例:
+```bash
+# 全量三步自检
+python src/ao_shaping/main.py slm-diagnose
+
+# 只查面板是否冻结
+python src/ao_shaping/main.py slm-diagnose --step freeze
+```
 
 #### 闭环波前优化 (closed-loop)
 ```bash
@@ -588,17 +682,22 @@ python -m ao_shaping.runners.gs_hologram_runner [OPTIONS]
 python -m ao_shaping.runners.gs_square_runner [OPTIONS]
 ```
 
-7. 交替电压下发:
+7. 可微分闭环光束整形 (PyTorch):
+```bash
+python -m ao_shaping.runners.diff_shaping_runner [OPTIONS]
+```
+
+8. 交替电压下发:
 ```bash
 python -m ao_shaping.runners.alt_voltage_runner [OPTIONS]
 ```
 
-8. 全量交替电压下发 (AsyncMicroDM):
+9. 全量交替电压下发 (AsyncMicroDM):
 ```bash
 python -m ao_shaping.runners.full_voltage_runner [OPTIONS]
 ```
 
-9. DM响应矩阵标定:
+10. DM响应矩阵标定:
 ```bash
 python -m ao_shaping.runners.dm_matrix_runner [OPTIONS]
 ```
@@ -801,7 +900,7 @@ streamlit run src/ao_shaping/gui/r50/ceramic_viewer.py
 >
 > **关键规则1（灰度值路径）**: 平场相位（以及其他直接灰度图案）**必须**使用 `np.full((height, width), gray, dtype=np.uint16)` 生成，**不能**通过 `create_phase_from_array()` 传递。因为 `create_phase_from_array()` 将输入作为**弧度**处理（mod 2π → 弧度/2π × 1023），uint16灰度值会经过不必要的弧度转换而被静默损坏。
 >
-> **关键规则2（内存模式槽轮换）**: Santec SLM 在内存模式下，**前后两次写入不能使用同一个内存槽**（memory slot）。当 `display_memory(slot)` 被调用时，如果该槽已经在显示，设备会将此调用视为空操作（no-op），LCOS 面板不会刷新，屏幕上仍显示上一次的相位图案。连续写入时必须轮换不同的槽位（例如通过 `itertools.cycle([3,4,5])` 在 3→4→5→3→4→5 间循环）。`display_data()` 内置的 127 槽循环机制就是为了满足这一约束。
+> **关键规则2（内存模式槽轮换）**: Santec SLM 在内存模式下，**前后两次写入不能使用同一个内存槽**（memory slot）。当 `display_memory(slot)` 被调用时，如果该槽已经在显示，设备会将此调用视为空操作（no-op），LCOS 面板不会刷新，屏幕上仍显示上一次的相位图案。连续写入时必须使用不同的槽位——diff-shaping runner 在 **2~125 槽范围内随机选取**并排除当前显示槽（启动时 `get_displayed_memory_number()` 续接，跨进程也不冲突）。`display_data()` 内置的 127 槽循环机制同样满足这一约束。
 >
 > 验证命令:
 > ```bash

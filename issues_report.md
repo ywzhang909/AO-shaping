@@ -33,7 +33,7 @@
 |------|----------|
 | `drivers/__init__.py` | 全部改为 `from ao_shaping.drivers.wfs.ThorlabWFS import ...` 形式 |
 | `drivers/slm/__init__.py` | 改为绝对导入 |
-| `drivers/slm/santec_slm200_visa.py` | 改为绝对导入 |
+| `drivers/slm/santec_slm200_visa.py` | 改为绝对导入（注: 该文件已在后续重构中移除, 当前 Santec SLM 驱动仅为 `santec_slm200.py`） |
 | `drivers/tm/__init__.py` | 改为绝对导入 |
 | `drivers/wfs/ThorlabWFS.py` | 改为绝对导入（`from ao_shaping.drivers.wfs._ThorlabWFS import ...`） |
 | `algorithm/__init__.py` | 全部改为绝对导入，保留 Cython try/except 回退 |

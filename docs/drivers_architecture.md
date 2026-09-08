@@ -54,7 +54,6 @@
 │  │  slm/                      ║      │  │  SimulatedLens                                         │ │
 │  │  ├── santec_slm200.py      ║      │  │  ├── 物理: 透镜相位                                     │ │
 │  │  │   SantecSLM200          ║      │  │  └── 仿真: 焦距可调                                    │ │
-│  │  └── santec_slm200_visa.py ║      │  │                                                       │ │
 │  │                            ║      │  │  SimulatedAperture                                     │ │
 │  │  wfs/                     ║      │  │  ├── 物理: 光阑遮挡                                    │ │
 │  │  └── ThorlabWFS.py        ║      │  │  └── 仿真: 半径/遮挡切换                               │ │
@@ -135,7 +134,7 @@ Device (ABC)                          DeviceRegistry
 |----------|----------|----------|----------|
 | **相机 (CCD)** | `CameraStreamManager` (Daheng)<br>`MiiCamDevice` (MiiCam) | `SimulatedCCD` | 噪声叠加<br>高斯斑点生成<br>曝光响应 |
 | **变形镜 (DM)** | `NLightDM` (UDP) | `SimulateDM` | 电压→变形矩阵<br>邻接耦合<br>电压爬升限制 |
-| **SLM** | `SantecSLM200` (SDK)<br>`SantecSLM200Visa` (VISA) | `SimulatedSLM` | 相位调制<br>Gamma校正<br>波前传播 |
+| **SLM** | `SantecSLM200` (SDK) | `SimulatedSLM` | 相位调制<br>Gamma校正<br>波前传播 |
 | **透镜** | -- | `SimulatedLens` | 抛物线相位 |
 | **光阑** | -- | `SimulatedAperture` | 圆形遮挡 |
 | **激光器** | -- | `SimulatedLaser` | 功率衰减 |
@@ -346,7 +345,6 @@ def clear_display(self) -> None: ...
 
 **实现子类**：
 - `SantecSLM200` (SDK)
-- `SantecSLM200Visa` (VISA)
 
 ### 5.4 波前传感器 (WFS)
 

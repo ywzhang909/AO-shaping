@@ -27,6 +27,7 @@ from ao_shaping.drivers.slm.santec_slm200_constants import (
     GRAYSCALE_MAX,
     GRAYSCALE_MIN,
     MAX_MEM_SLOTS,
+    MAX_PIXEL_FLIP_TIME_MS,
     MEMORY_MODE_INTERNAL,
     MEMORY_NUMBER_MAX,
     MEMORY_NUMBER_MIN,
@@ -45,6 +46,11 @@ from ao_shaping.drivers.slm.santec_slm200_constants import (
 from ao_shaping.drivers.slm.wavefront_correction import WavefrontCorrection
 from ao_shaping.utils.device_config import ConfigHandler, DeviceParam, param
 from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+
+# LCOS 像素翻转时序常量
+# 0→2π（满相位量程，_max_gray 灰度）翻转耗时至多 200ms（厂商规格）。
+# display_data 的自动等待按最大灰度变化 / 满量程 正比线性估算。
+MAX_PIXEL_FLIP_TIME_S = MAX_PIXEL_FLIP_TIME_MS / 1000.0
 
 
 def apply_lut_remap(gray: np.ndarray, lut: np.ndarray) -> np.ndarray:
@@ -162,6 +168,9 @@ class SantecSLM200:
     硬件规格与实验经验（2026-09 实测确认）:
       - 面板: 1920×1200, 像素间距 8µm（PITCH_UM；制造商标称 10µm 方格含电极间隙，
         实际可调制有效口径 8µm）。GS/相位网格以 PITCH_UM=8µm 作为 SLM 平面采样间距。
+      - 像素翻转时序: LCOS 像素 0→2π 满量程翻转耗时至多 200ms
+        （``MAX_PIXEL_FLIP_TIME_MS``）。``display_data()`` 在等待时间未指定或为负时，
+        按相邻两帧最大灰度变化相对满量程的正比自动等待（首帧保守取最大值）。
       - 内存模式（Memory）: 对同一 slot 连续 ``display_memory`` 是 no-op —— 当目标 slot
         已在显示时设备不刷新 LCOS 面板，屏幕保留上一相位。连续写入必须轮换不同 slot
         （如 ``itertools.cycle([3,4,5])``），或直接使用 ``display_data()``（内置 127 槽轮换）。
@@ -184,6 +193,8 @@ class SantecSLM200:
     Response_time_ms = RESPONSE_TIME_MS
     Gray_Scale_bits = GRAY_SCALE_BITS
     MAX_GRAYSCALE_VALUE = get_max_grayscale()
+    MAX_PIXEL_FLIP_TIME_MS = MAX_PIXEL_FLIP_TIME_MS  # 像素全量翻转(0→2π)最大耗时 (ms)
+    MAX_PIXEL_FLIP_TIME_S = MAX_PIXEL_FLIP_TIME_S  # 同上，单位秒
 
     def __init__(
         self,
@@ -996,6 +1007,16 @@ class SantecSLM200:
         if ret != SLM_OK:
             raise SantecSLM200Error(f"显示内存#{memory_number}失败", code=ret)
 
+        # 固件陷阱: display_memory 对"正在显示的同一槽位"被视为 no-op,
+        # LCOS 面板不会刷新——若刚对该槽重写了新相位, 新图案不会上屏。
+        if self._displayed_memory_number == memory_number:
+            logger.warning(
+                f"SLM #{self.slm_number} 连续两次 display_memory 同一内存槽 "
+                f"#{memory_number}: 固件视为 no-op, LCOS 面板不会刷新, "
+                "新写入的相位不会生效。请轮换到其他槽位"
+                "（display_data() 内部已自动轮换 127 个槽位）"
+            )
+
         self._displayed_memory_number = memory_number
         self._displayed_phase_cache = self._memory_phase_cache.get(memory_number)
 
@@ -1025,16 +1046,83 @@ class SantecSLM200:
         self._displayed_phase_cache = phase.copy()
         logger.debug("相位数据显示")
 
-    def display_data(self, phase: np.ndarray, wait_time_s=0.2):
+    def display_data(
+        self, phase: np.ndarray, wait_time_s: float | None = None
+    ) -> None:
+        """将相位数据写入内存并显示，等待像素翻转完成。
+
+        像素下发后的等待时间语义:
+          - ``wait_time_s=None`` 或 ``< 0``: 自动估算。按相邻两帧之间最大灰度变化
+            相对 2π 满量程（``_max_gray``）的比例线性推算翻转等待时间
+            （上限 ``MAX_PIXEL_FLIP_TIME_S``，见 :meth:`_estimate_pixel_flip_wait`）。
+            首帧（无上一帧基准）时保守等待最大翻转时间。
+          - ``wait_time_s=0``: 不等待，调用方自行负责时序。
+          - ``wait_time_s>0``: 使用给定的固定等待时间（秒）。
+
+        Args:
+            phase: 相位灰度数组，shape (h, w)，dtype uint16
+            wait_time_s: 显示后的等待时间（秒）；None 或负值表示自动估算
+
+        Raises:
+            SantecSLM200Error: 写入或显示失败
+            RuntimeError: 设备未打开
+        """
         self._ensure_open()
+        # 在显示前记录当前已显示相位，用于计算最大灰度变化
+        # （display_memory/display_video 会同步更新 _displayed_phase_cache）
+        prev_phase = self._displayed_phase_cache
+
         if self.video_mode == VideoMode.DVI:
             self.display_video(phase)
-
         elif self.video_mode == VideoMode.Memory:
             self._current_memory_slot = (self._current_memory_slot + 1) % MAX_MEM_SLOTS
             self._write_phase_with_retry(phase, self._current_memory_slot + 1)
             self.display_memory(self._current_memory_slot + 1)
-        time.sleep(wait_time_s)
+
+        if wait_time_s is None or wait_time_s < 0:
+            wait_time_s = self._estimate_pixel_flip_wait(phase, prev_phase)
+            logger.debug(
+                f"SLM #{self.slm_number} 自动等待 {wait_time_s * 1000:.1f}ms "
+                "(按最大灰度变化估算)"
+            )
+
+        if wait_time_s > 0:
+            time.sleep(wait_time_s)
+
+    def _estimate_pixel_flip_wait(
+        self, new_phase: np.ndarray, prev_phase: np.ndarray | None
+    ) -> float:
+        """按最大灰度变化估算 LCOS 像素翻转等待时间。
+
+        Santec SLM-200 的 LCOS 像素从 0 翻转到 2π（满量程 ``_max_gray`` 灰度）
+        耗时至多 ``MAX_PIXEL_FLIP_TIME_MS`` 毫秒（厂商规格）。等待时间线性正比:
+
+            wait = max_gray_change / _max_gray × MAX_PIXEL_FLIP_TIME_S
+
+        相邻帧灰度不变（最大变化为 0）时返回 0，不引入多余延时；
+        无上一帧基准（首帧/状态未知）时保守返回最大翻转时间。
+
+        Args:
+            new_phase: 即将显示的灰度相位图 (uint16)
+            prev_phase: 当前已显示的灰度相位图；None 表示无基准
+
+        Returns:
+            估算等待时间（秒），取值 [0, MAX_PIXEL_FLIP_TIME_S]
+        """
+        if prev_phase is None:
+            return self.MAX_PIXEL_FLIP_TIME_S
+
+        max_change = int(
+            np.abs(new_phase.astype(np.int32) - prev_phase.astype(np.int32)).max()
+        )
+        if max_change <= 0:
+            return 0.0
+
+        gray_full = self._max_gray if self._max_gray else GRAYSCALE_MAX
+        return min(
+            self.MAX_PIXEL_FLIP_TIME_S,
+            self.MAX_PIXEL_FLIP_TIME_S * max_change / gray_full,
+        )
 
     @retry(
         stop_max_attempt_number=3,
