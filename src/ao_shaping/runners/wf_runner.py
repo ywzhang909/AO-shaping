@@ -10,10 +10,10 @@ from ao_shaping.utils import gen_date_dir, gen_file_path_uuid, logger
 from ao_shaping.optimizer.wf.rms import optimizer_rms
 from ao_shaping.utils.display import plot_funcs
 from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name, get_debug_mode
-from ao_shaping.drivers.dm import create_dm, list_reachable_dm_types
+from ao_shaping.drivers.dm import create_dm, list_dm_types, list_reachable_dm_types
 
 
-DM_TYPES = list_reachable_dm_types()
+DM_TYPES = list_dm_types()
 
 
 @click.command()
@@ -42,7 +42,7 @@ def run(dir, epochs, wfs_res, pupil_diameter, pupil_center, early_stop_threshold
         dm_type = dm_type.lower()
         logger.info("Using specified DM type: {}", dm_type)
     else:
-        reachable = DM_TYPES
+        reachable = list_reachable_dm_types()
         if len(reachable) == 1:
             dm_type = reachable[0]
             logger.info("Auto-detected reachable DM: {}", dm_type)

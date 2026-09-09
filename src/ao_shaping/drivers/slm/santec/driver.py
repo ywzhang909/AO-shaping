@@ -216,6 +216,13 @@ class SantecSLM200:
     def get_serial_number(self, timeout: float = 5.0) -> str | None:
         """读取SLM设备的序列号。
 
+        .. deprecated:: 0.2.0
+            This legacy implementation uses a 256-byte buffer and a thread-based
+            timeout.  New code should use :class:`SantecSLM200` from
+            :mod:`ao_shaping.drivers.slm.santec_slm200`, whose
+            ``get_serial_number`` follows the official Programmer's Guide
+            (ReadSDO -> ReadSD -> ReadSO, 16-byte buffers).
+
         通过SDK函数 SLM_Ctrl_ReadSD 获取设备唯一序列号。
         必须在设备打开后调用。
 
@@ -354,6 +361,7 @@ class SantecSLM200:
 
         配置项包括: serial_number, wavelength, shift_x, shift_y, use_120hz,
         video_mode, max_gray (extra fields 直接附加).
+        同时记录矫正文件的启用状态与当前生效路径（与 santec_slm200.py 保持一致）。
         """
         if not self._serial_number:
             logger.warning("未获取到序列号，跳过配置保存")
@@ -364,6 +372,14 @@ class SantecSLM200:
         # 附加 SLMParams 之外的额外字段
         config["max_gray"] = self._max_gray
         config["video_mode"] = self.video_mode
+        # 记录矫正文件启用状态与当前生效路径（与 santec_slm200.py 保持一致）
+        config["correction_enabled"] = self._correction.is_valid
+        config["correction_csv_path"] = (
+            str(self._correction.csv_path)
+            if self._correction.is_valid
+            and self._correction.csv_path is not None
+            else None
+        )
 
         SLM_CONFIG._manager.save_config(self._serial_number, config)
         config_file = SLM_CONFIG._manager._get_config_file(self._serial_number)
@@ -402,9 +418,19 @@ class SantecSLM200:
         优先级（由工具类 resolve() 处理）:
           __init__ 显式路径 → 配置文件路径 → 默认路径
 
+        若配置文件记录了 correction_enabled=False，则跳过加载，
+        保持矫正禁用状态（与上次关闭时一致）。
+
         Args:
             config: 从 load_config() 获取的配置字典
         """
+        # 配置文件中记录的矫正启用状态（默认 True，向后兼容）
+        correction_enabled = config.get("correction_enabled", True)
+        if not correction_enabled:
+            self._correction = WavefrontCorrection()  # 空实例（is_valid=False）
+            logger.info(f"SLM #{self.slm_number} 矫正已禁用（配置文件记录）")
+            return
+
         default_path = (
             PROJECT_ROOT
             / "data"

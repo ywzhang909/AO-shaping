@@ -27,6 +27,7 @@ AO-shaping/
 │   │   │   ├── pipeline_runner.py  # 串行 WF→PIB 流水线
 │   │   │   ├── zernike_matrix_runner.py  # Zernike响应矩阵校准与闭环控制
 │   │   │   ├── gs_hologram_runner.py   # Gerchberg-Saxton全息图生成器
+│   │   │   ├── gs_square_runner.py     # GS闭环光束整形优化器 (方形)
 │   │   │   ├── dm_matrix_runner.py     # DM响应矩阵标定
 │   │   │   ├── alt_voltage_runner.py   # 交替电压下发 (R50Power + ADC采集)
 │   │   │   ├── full_voltage_runner.py  # 全量交替电压下发 (AsyncMicroDM)
@@ -263,6 +264,43 @@ python src/ao_shaping/main.py gs [OPTIONS]
 DEBUG=1 python src/ao_shaping/main.py gs --target-shape gaussian --iterations 100 --use-hardware
 ```
 
+#### GS闭环光束整形 (gs-square)
+```bash
+python src/ao_shaping/main.py gs-square [OPTIONS]
+```
+等同于: `python -m ao_shaping.runners.gs_square_runner`
+
+基于 **Gerchberg-Saxton 算法 + CCD 反馈**的闭环光束整形：迭代优化 SLM 相位图案，将远场光斑整形为方形。每个外迭代：CCD 采集 → 测光斑直径 → 计算方形目标尺寸 → 运行 GS 生成相位 → 下发 SLM（内存槽轮换）→ 重新采集 → 计算方形质量评分 → 收敛判断。实测光束成为下一次 GS 的光源振幅，形成真正闭环。
+
+选项:
+- `--camera-type`: 相机类型 (daheng / miicam, 默认: daheng)
+- `--cam-id`: 相机 ID (默认: FAR_CAM_ID/0)
+- `--exposure-ms`: 相机曝光时间 (毫秒, 默认: 50)
+- `--slm-number`: SLM 设备编号 (默认: 1)
+- `--slm-wavelength`: SLM 工作波长 nm (默认: 1064)
+- `-i, --gs-iterations`: GS 内迭代次数 (默认: 100)
+- `--gs-factor`: 方形/光斑尺寸因子 (默认: 1.5)
+- `--focal-length`: 焦距/传播距离 m (默认: 0.1)
+- `--gs-energy`: 光斑测量环围能量 (默认: 0.90)
+- `--p-cam`: 相机像素间距 m (默认: 使用SLM间距)
+- `-n, --outer-iterations`: 最大外迭代次数 (默认: 10)
+- `--convergence-threshold`: 收敛评分阈值 0~1 (默认: 0.95)
+- `--settle-time`: SLM 稳定等待时间 s (默认: 0.5)
+- `--n-sample`: 相机每次采样平均帧数 (默认: 3)
+- `-o, --output`: 输出目录 (默认: data/gs_square)
+- `--display/--no-display`: 启用 pygame 实时可视化 GS 迭代过程 (默认: False)
+
+`--display` 启用后弹出 pygame 窗口，四面板实时显示: GS 相位图案、目标方形振幅、远场光斑图像（伪彩）、GS 误差收敛曲线，标题栏显示当前评分/边长/光斑直径。
+
+示例:
+```bash
+# 基本闭环整形, 启用pygame可视化
+DEBUG=1 python src/ao_shaping/main.py gs-square --outer-iterations 10 --display
+
+# MiiCam + 更多GS迭代, 不显示
+python src/ao_shaping/main.py gs-square --camera-type miicam --gs-iterations 150 -o data/gs_square
+```
+
 #### 闭环波前优化 (closed-loop)
 ```bash
 python src/ao_shaping/main.py closed-loop [OPTIONS]
@@ -492,22 +530,27 @@ python -m ao_shaping.runners.zernike_matrix_runner [OPTIONS]
 python -m ao_shaping.runners.gs_hologram_runner [OPTIONS]
 ```
 
-6. 交替电压下发:
+6. GS闭环光束整形:
+```bash
+python -m ao_shaping.runners.gs_square_runner [OPTIONS]
+```
+
+7. 交替电压下发:
 ```bash
 python -m ao_shaping.runners.alt_voltage_runner [OPTIONS]
 ```
 
-7. 全量交替电压下发 (AsyncMicroDM):
+8. 全量交替电压下发 (AsyncMicroDM):
 ```bash
 python -m ao_shaping.runners.full_voltage_runner [OPTIONS]
 ```
 
-8. DM响应矩阵标定:
+9. DM响应矩阵标定:
 ```bash
 python -m ao_shaping.runners.dm_matrix_runner [OPTIONS]
 ```
 
-9. Micro-DM 逐单元图像采集:
+10. Micro-DM 逐单元图像采集:
 ```bash
 python -m ao_shaping.tools.micro_dm_image_collect [OPTIONS]
 ```

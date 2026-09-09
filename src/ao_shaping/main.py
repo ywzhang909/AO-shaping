@@ -10,6 +10,7 @@ Commands:
     pib             轴向光束PIB优化器
     pipeline        串行WF→PIB流水线优化器
     gs              Gerchberg-Saxton全息图生成器
+    gs-square       GS闭环光束整形优化器
     zernike-matrix  Zernike响应矩阵校准
     rms-zernike     Zernike RMS优化器
     ga-zernike      GA Zernike优化器
@@ -52,11 +53,11 @@ from ao_shaping.runners import (
     full_voltage_run,
     combined_run,
     diff_beam_run,
+    gs_square_run,
 )
 
 
 from ao_shaping.utils.cli_helpers import get_debug_mode
-from ao_shaping.profiler import maybe_profile
 
 
 @click.group()
@@ -96,13 +97,13 @@ cli.add_command(alt_voltage_run, name="alt-voltage")
 cli.add_command(full_voltage_run, name="full-voltage")
 cli.add_command(combined_run, name="combined")
 cli.add_command(diff_beam_run, name="diff-beam")
+cli.add_command(gs_square_run, name="gs-square")
 
 
 # Entry point
 if __name__ == "__main__":
-    with maybe_profile():
-        try:
-            cli()
-        except Exception as e:
-            logger.error(f"CLI error: {e}")
-            raise
+    try:
+        cli()
+    except Exception as e:
+        logger.error(f"CLI error: {e}")
+        raise

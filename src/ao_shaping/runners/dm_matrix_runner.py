@@ -20,11 +20,11 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.drivers.dm import create_dm, list_reachable_dm_types
+from ao_shaping.drivers.dm import create_dm, list_dm_types, list_reachable_dm_types
 from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
 
 
-DM_TYPES = list_reachable_dm_types()
+DM_TYPES = list_dm_types()
 from ao_shaping.optimizer.wf.dm_response_matrix import (
     DEFAULT_DISTURB_VOLTAGE,
     DEFAULT_N_AVERAGES,
@@ -163,7 +163,7 @@ def run(
         dm_type = dm_type.lower()
         logger.info("Using specified DM type: {}", dm_type)
     else:
-        reachable = DM_TYPES
+        reachable = list_reachable_dm_types()
         if len(reachable) == 1:
             dm_type = reachable[0]
             logger.info("Auto-detected reachable DM: {}", dm_type)

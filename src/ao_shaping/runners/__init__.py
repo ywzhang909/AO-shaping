@@ -14,6 +14,7 @@ from ao_shaping.runners.alt_voltage_runner import run as alt_voltage_run
 from ao_shaping.runners.full_voltage_runner import run as full_voltage_run
 from ao_shaping.runners.combined_runner import run as combined_run
 from ao_shaping.runners.diff_beam_runner import run as diff_beam_run
+from ao_shaping.runners.gs_square_runner import run as gs_square_run
 
 __all__ = [
     "wf_run",
@@ -30,4 +31,5 @@ __all__ = [
     "full_voltage_run",
     "combined_run",
     "diff_beam_run",
+    "gs_square_run",
 ]

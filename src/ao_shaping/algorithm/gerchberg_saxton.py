@@ -108,6 +108,7 @@ def gerchberg_saxton(
     wavelength: float = 1064e-9,
     error_threshold: float | None = None,
     progress_callback: Callable[[int, float], None] | None = None,
+    phase_callback: Callable[[int, np.ndarray], None] | None = None,
 ) -> GSResult:
     """Gerchberg-Saxton algorithm for phase retrieval.
     
@@ -134,6 +135,9 @@ def gerchberg_saxton(
         wavelength: Light wavelength in meters (default: 1064e-9 for YAG laser)
         error_threshold: Optional convergence threshold (mean squared error)
         progress_callback: Optional callback function(iteration, error) for monitoring
+        phase_callback: Optional callback function(iteration, phase) invoked with the
+            current source-plane phase (radians) after each iteration.  Enables
+            live hardware display of the evolving phase pattern.
     
     Returns:
         GSResult containing computed phase, amplitude, error history, and convergence info
@@ -224,6 +228,10 @@ def gerchberg_saxton(
         # Progress callback
         if progress_callback is not None:
             progress_callback(i, float(mse))
+
+        # Live phase callback — push the current source-plane phase to hardware
+        if phase_callback is not None:
+            phase_callback(i, phase_A)
 
         # Log progress every 10 iterations
         if (i + 1) % 10 == 0 or i == 0:

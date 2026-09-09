@@ -171,10 +171,13 @@ def _encode_jpeg(img: np.ndarray) -> bytes | None:
         import cv2  # type: ignore[import-untyped]
 
         if img.ndim == 2:
-            success, encoded = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+            success, encoded = cv2.imencode(
+                ".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 80]
+            )
         else:
             success, encoded = cv2.imencode(
-                ".jpg", cv2.cvtColor(img, cv2.COLOR_RGB2BGR),
+                ".jpg",
+                cv2.cvtColor(img, cv2.COLOR_RGB2BGR),
                 [int(cv2.IMWRITE_JPEG_QUALITY), 80],
             )
         if success:
@@ -227,7 +230,9 @@ def _get_mjpeg_url() -> str | None:
 
 
 class _CaptureLoopResult:
-    def __init__(self, analysis: dict[str, Any] | None = None, error: str | None = None):
+    def __init__(
+        self, analysis: dict[str, Any] | None = None, error: str | None = None
+    ):
         self.analysis = analysis
         self.error = error
 
@@ -260,11 +265,12 @@ def _analyze_image(img: np.ndarray) -> dict[str, Any]:
 
 
 def _camera_capture_tick(
-    camera: Any, img_queue: queue.Queue[Any], params: dict[str, Any]
+    camera: Any, raw_frame_queue: queue.Queue[Any], params: dict[str, Any]
 ) -> None:
-    """One tick of the capture loop: grab a frame, analyze, push to queue.
+    """One tick of the capture loop: grab a frame, push to MJPEG and raw queue.
 
-    Also pushes raw frames to the MJPEG streamer for low-latency live preview.
+    Analysis is intentionally omitted here so the background thread stays fast.
+    The main thread does analysis when draining ``raw_frame_queue``.
     """
     try:
         img = camera.get_numpy_image(
@@ -274,40 +280,38 @@ def _camera_capture_tick(
         # Feed raw frame to MJPEG streamer (non-blocking)
         if _mjpeg_streamer is not None:
             _mjpeg_streamer.put_frame(img)
-        result = _analyze_image(img)
-        # Non-blocking: drop the oldest frame if the queue is full so the main
-        # thread always sees the freshest image.
-        if img_queue.full():
+        # Push raw frame to main thread (non-blocking, drop oldest)
+        if raw_frame_queue.full():
             try:
-                img_queue.get_nowait()
+                raw_frame_queue.get_nowait()
             except queue.Empty:
                 pass
-        img_queue.put(result, block=False)
+        raw_frame_queue.put(img, block=False)
     except Exception as exc:
         try:
-            img_queue.put(("error", str(exc)), block=False)
+            raw_frame_queue.put(("error", str(exc)), block=False)
         except Exception:
             pass
 
 
 def _run_capture_loop(
     camera: Any,
-    img_queue: queue.Queue[Any],
+    raw_frame_queue: queue.Queue[Any],
     params: dict[str, Any],
     stop_event: threading.Event,
 ) -> None:
     """Daemon-thread entry: repeatedly call the capture tick until stopped.
 
     Mirrors ``r50_voltage_send.run_loop`` — never touches session_state;
-    all data crosses to the main thread via *img_queue*.
+    all data crosses to the main thread via *raw_frame_queue*.
     """
     try:
         while not stop_event.is_set():
-            _camera_capture_tick(camera, img_queue, params)
-            time.sleep(float(params.get("dt", _REFRESH_INTERVAL)))
+            _camera_capture_tick(camera, raw_frame_queue, params)
+            time.sleep(max(0.005, float(params.get("dt", _REFRESH_INTERVAL))))
     except Exception as exc:
         try:
-            img_queue.put(("error", f"Capture loop crashed: {exc}"), block=False)
+            raw_frame_queue.put(("error", f"Capture loop crashed: {exc}"), block=False)
         except Exception:
             pass
     finally:
@@ -335,7 +339,7 @@ def _start_capture_loop(
     ev = threading.Event()
     q: queue.Queue[Any] = queue.Queue(maxsize=3)
     st.session_state["ccd_loop_stop_event"] = ev
-    st.session_state["ccd_img_queue"] = q
+    st.session_state["ccd_raw_frame_queue"] = q
 
     thread = threading.Thread(
         target=_run_capture_loop,
@@ -354,20 +358,21 @@ def _stop_capture_loop() -> None:
     if ev is not None:
         ev.set()
         st.session_state["ccd_loop_stop_event"] = None
-    st.session_state["ccd_img_queue"] = None
+    st.session_state["ccd_raw_frame_queue"] = None
     st.session_state["ccd_capture_loop_running"] = False
 
 
 def _drain_capture_feedback() -> None:
-    """Main-thread consumer: drain the image queue on every rerun.
+    """Main-thread consumer: drain the raw frame queue on every rerun.
 
-    Latest analysis result (or error) is stored in ``st.session_state["current_image"]``.
+    Analysis is performed on the main thread so the background capture loop
+    stays fast.  Latest analysis result is stored in ``st.session_state["current_image"]``.
     Called unconditionally at the top of ``main()``.
     """
-    q = st.session_state.get("ccd_img_queue")
+    q = st.session_state.get("ccd_raw_frame_queue")
     if q is None:
         return
-    latest_result: dict[str, Any] | None = None
+    latest_frame: np.ndarray | None = None
     latest_error: str | None = None
     while True:
         try:
@@ -376,12 +381,12 @@ def _drain_capture_feedback() -> None:
             break
         if isinstance(item, tuple) and len(item) == 2 and item[0] == "error":
             latest_error = item[1]
-        elif isinstance(item, dict) and "img" in item:
-            latest_result = item
+        elif isinstance(item, np.ndarray):
+            latest_frame = item
     if latest_error:
         st.session_state["ccd_last_error"] = latest_error
-    if latest_result is not None:
-        st.session_state["current_image"] = latest_result
+    if latest_frame is not None:
+        st.session_state["current_image"] = _analyze_image(latest_frame)
         st.session_state["last_update_time"] = time.time()
         st.session_state["ccd_frame_count"] = (
             st.session_state.get("ccd_frame_count", 0) + 1
@@ -411,7 +416,7 @@ def _initialize_camera_state() -> None:
     st.session_state.setdefault("current_analysis", None)
     # Capture-loop bookkeeping
     st.session_state.setdefault("ccd_loop_stop_event", None)
-    st.session_state.setdefault("ccd_img_queue", None)
+    st.session_state.setdefault("ccd_raw_frame_queue", None)
     st.session_state.setdefault("ccd_capture_loop_running", False)
     st.session_state.setdefault("ccd_last_error", "")
     st.session_state.setdefault("ccd_frame_count", 0)
@@ -508,8 +513,13 @@ def draw_ellipse_on_image(
     ax.imshow(img_normalized, cmap="gray")
     center, axes, angle = ellipse_params
     ellipse = mpatches.Ellipse(
-        center, axes[0] * 2, axes[1] * 2, angle=angle,
-        fill=False, edgecolor="red", linewidth=2,
+        center,
+        axes[0] * 2,
+        axes[1] * 2,
+        angle=angle,
+        fill=False,
+        edgecolor="red",
+        linewidth=2,
     )
     ax.add_patch(ellipse)
     ax.plot(center[0], center[1], "r+", markersize=10, markeredgewidth=2)
@@ -693,9 +703,7 @@ def main() -> None:
             st.session_state.miicam_capture_mode = st.selectbox(
                 "MiiCam Capture Mode",
                 options=["wait", "callback"],
-                index=0
-                if st.session_state.miicam_capture_mode == "wait"
-                else 1,
+                index=0 if st.session_state.miicam_capture_mode == "wait" else 1,
                 help="wait=WaitImageV3 (blocking pull), callback=StartPullModeWithCallback + Trigger",
                 key="ccd_miicam_capture_mode",
             )
@@ -770,16 +778,16 @@ def main() -> None:
                         st.session_state.camera_type,
                         st.session_state.camera_id,
                         st.session_state.exposure_time_ms,
-                        capture_mode=st.session_state.get("miicam_capture_mode", "wait"),
+                        capture_mode=st.session_state.get(
+                            "miicam_capture_mode", "wait"
+                        ),
                     )
                     cam.initialize()
                     st.session_state.camera = cam
                     st.session_state.camera_connected = True
                     # Start MJPEG streamer for low-latency live preview
                     _start_mjpeg_streamer()
-                    st.success(
-                        f"{st.session_state.camera_type} camera connected"
-                    )
+                    st.success(f"{st.session_state.camera_type} camera connected")
                 except Exception as exc:
                     st.error(f"Connection failed: {exc}")
         else:
@@ -828,10 +836,10 @@ def main() -> None:
                 capture_time = ci.get("capture_time", 0)
                 if capture_time > 0:
                     from datetime import datetime
+
                     ts = datetime.fromtimestamp(capture_time)
                     st.success(
-                        f"✓ Live at {ts.strftime('%H:%M:%S.%f')[:-3]} "
-                        f"({fps:.1f} FPS)"
+                        f"✓ Live at {ts.strftime('%H:%M:%S.%f')[:-3]} ({fps:.1f} FPS)"
                     )
             else:
                 st.info("Click to capture")
@@ -860,7 +868,11 @@ def main() -> None:
             # Start the background capture loop (r50 pattern)
             _start_capture_loop(
                 st.session_state.camera,
-                params={"dt": st.session_state.update_interval, "n_sample": 1, "skip_first": False},
+                params={
+                    "dt": st.session_state.update_interval,
+                    "n_sample": 1,
+                    "skip_first": False,
+                },
             )
             loop_running = True
 
@@ -886,8 +898,7 @@ def main() -> None:
                 mjpeg_url = _get_mjpeg_url()
                 if mjpeg_url is not None:
                     st.markdown(
-                        f"<img src=\"{mjpeg_url}\" "
-                        f"style=\"width: 100%; height: auto;\" />",
+                        f'<img src="{mjpeg_url}" style="width: 100%; height: auto;" />',
                         unsafe_allow_html=True,
                     )
                 else:
@@ -928,7 +939,9 @@ def main() -> None:
             if x_popt is not None:
                 x_fit = gaussian(x, *x_popt)
                 ax1.plot(
-                    x_fit, "r--", linewidth=1.5,
+                    x_fit,
+                    "r--",
+                    linewidth=1.5,
                     label=f"Gaussian Fit (σ={x_popt[2]:.2f})",
                 )
             ax1.set_xlabel("X pixels")
@@ -941,7 +954,9 @@ def main() -> None:
             if y_popt is not None:
                 y_fit = gaussian(y_arr, *y_popt)
                 ax2.plot(
-                    y_fit, "r--", linewidth=1.5,
+                    y_fit,
+                    "r--",
+                    linewidth=1.5,
                     label=f"Gaussian Fit (σ={y_popt[2]:.2f})",
                 )
             ax2.set_xlabel("Y pixels")
@@ -963,6 +978,12 @@ def main() -> None:
         st.info("Please connect camera in sidebar to start real-time monitoring")
 
         st.subheader("Available Cameras")
+        col_refresh, col_info = st.columns([1, 3])
+        with col_refresh:
+            if st.button("🔄 Refresh", key="ccd_refresh_cameras"):
+                st.rerun()
+        with col_info:
+            st.caption("Click refresh to re-scan connected cameras")
         available_cameras = _discover_available_cameras()
         has_any = False
         for cam_type, cam_list in available_cameras.items():
