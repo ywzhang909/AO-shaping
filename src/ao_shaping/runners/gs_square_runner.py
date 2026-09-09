@@ -59,6 +59,7 @@ def _signal_handler(signum, frame) -> None:
 
 # ==================== 相机工厂 ====================
 
+
 def _get_daheng_camera(cam_id: int, exposure_ms: float):
     """Import and create Daheng camera instance."""
     try:
@@ -96,6 +97,7 @@ def _get_miicam_camera(cam_id: int, exposure_ms: float, bit_depth: int = 8):
 
 
 # ==================== pygame 可视化 ====================
+
 
 class _GSDisplay:
     """GS迭代过程pygame可视化窗口.
@@ -157,9 +159,7 @@ class _GSDisplay:
                 return True
         return False
 
-    def _draw_panel(
-        self, index: int, title: str, surface: "pygame.Surface"
-    ) -> None:
+    def _draw_panel(self, index: int, title: str, surface: "pygame.Surface") -> None:
         import pygame
 
         col = index % 2
@@ -172,12 +172,12 @@ class _GSDisplay:
         self._screen.blit(title_surf, (x + 4, y - self.TITLE_H + 2))
 
         # 图像
-        scaled = pygame.transform.scale(
-            surface, (self.PANEL_W, self.PANEL_H)
-        )
+        scaled = pygame.transform.scale(surface, (self.PANEL_W, self.PANEL_H))
         self._screen.blit(scaled, (x, y))
         # 边框
-        pygame.draw.rect(self._screen, (120, 120, 120), (x, y, self.PANEL_W, self.PANEL_H), 1)
+        pygame.draw.rect(
+            self._screen, (120, 120, 120), (x, y, self.PANEL_W, self.PANEL_H), 1
+        )
 
     @staticmethod
     def _to_surface(arr: np.ndarray, cmap: str = "gray") -> "pygame.Surface":
@@ -274,7 +274,11 @@ class _GSDisplay:
         self._screen.fill(self.BG)
 
         # 标题栏 (总进度)
-        header = " | ".join(self._status_lines) if self._status_lines else "GS Square 闭环优化"
+        header = (
+            " | ".join(self._status_lines)
+            if self._status_lines
+            else "GS Square 闭环优化"
+        )
         head_surf = self._font.render(header, True, (0, 255, 255))
         self._screen.blit(head_surf, (self.PAD, 6))
 
@@ -283,7 +287,9 @@ class _GSDisplay:
         if self._target is not None:
             self._draw_panel(1, "Target Square", self._to_surface(self._target, "gray"))
         if self._image is not None:
-            self._draw_panel(2, "Far-field Image", self._to_surface(self._image, "heat"))
+            self._draw_panel(
+                2, "Far-field Image", self._to_surface(self._image, "heat")
+            )
         self._draw_error_curve()
 
         pygame.display.update()
@@ -291,6 +297,7 @@ class _GSDisplay:
 
 
 # ==================== 质量指标 (纯函数, 可独立测试) ====================
+
 
 def compute_square_metrics(
     intensity: np.ndarray,
@@ -340,7 +347,9 @@ def compute_square_metrics(
         ys, xs = np.nonzero(bright)
         width_bright = int(xs.max()) - int(xs.min()) + 1
         height_bright = int(ys.max()) - int(ys.min()) + 1
-        aspect_ratio = max(width_bright, height_bright) / max(min(width_bright, height_bright), 1)
+        aspect_ratio = max(width_bright, height_bright) / max(
+            min(width_bright, height_bright), 1
+        )
     else:
         aspect_ratio = 1.0
 
@@ -386,8 +395,8 @@ def compute_quality_score(metrics: dict[str, float]) -> float:
     Returns:
         0~1 的综合评分.
     """
-    f_ar = math.exp(-((metrics["aspect_ratio"] - 1.0) / 0.3) ** 2)
-    f_uni = math.exp(-(metrics["uniformity_cv"] / 0.3) ** 2)
+    f_ar = math.exp(-(((metrics["aspect_ratio"] - 1.0) / 0.3) ** 2))
+    f_uni = math.exp(-((metrics["uniformity_cv"] / 0.3) ** 2))
     f_ee = float(np.clip(metrics["encircled_energy"], 0.0, 1.0))
     return float(0.3 * f_ar + 0.4 * f_uni + 0.3 * f_ee)
 
@@ -437,6 +446,7 @@ def _clamp_side(side: int, height: int, width: int) -> int:
 
 # ==================== 闭环核心 ====================
 
+
 def _run_closed_loop(
     slm: SantecSLM200,
     camera,
@@ -479,11 +489,12 @@ def _run_closed_loop(
     Returns:
         结果字典, 包含 best_phase, best_score, convergence_history 等.
     """
-    from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
-    from ao_shaping.gui.slm.multi_slm_controller import (
+    from ao_shaping.algorithm.beam_shaping_utils import (
         build_square_target_amplitude,
         measure_spot_diameter_cam,
     )
+    from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
+    from ao_shaping.utils.spots_calc import centroid
 
     width = slm.Panel_Res[0]
     height = slm.Panel_Res[1]
@@ -507,7 +518,9 @@ def _run_closed_loop(
     def _pick_next_slot() -> int:
         """从 2~125 随机选取一个与上次写入不同的 SLM 内存槽 (防连续同槽 no-op)."""
         nonlocal _last_slot_used
-        candidates = [s for s in range(_SLOT_MIN, _SLOT_MAX + 1) if s != _last_slot_used]
+        candidates = [
+            s for s in range(_SLOT_MIN, _SLOT_MAX + 1) if s != _last_slot_used
+        ]
         slot = random.choice(candidates)
         _last_slot_used = slot
         return slot
@@ -551,7 +564,7 @@ def _run_closed_loop(
         camera.get_numpy_image(n_sample=n_sample, skip_first=True), dtype=np.float64
     )
     all_images.append(init_image)
-    cx, cy = _centroid(init_image)
+    cx, cy = centroid(init_image, return_float=True)
 
     logger.info("初始光斑: center=({:.1f}, {:.1f}), max={}", cx, cy, init_image.max())
     spot_d = measure_spot_diameter_cam(init_image, energy=gs_energy)
@@ -569,7 +582,9 @@ def _run_closed_loop(
         target_px = gs_factor * spot_d
         logger.info(
             "目标方形尺寸: {:.0f}px = gs_factor {} × 光斑直径 {:.0f}px",
-            target_px, gs_factor, spot_d,
+            target_px,
+            gs_factor,
+            spot_d,
         )
 
     # 像素缩放比 k = side_slm_px / 亮区宽度_cam_px, 决定目标方形边长:
@@ -578,9 +593,7 @@ def _run_closed_loop(
     #   3) 均未给定: 自动标定 —— 首轮以安全探测边长运行GS, 采集后实测亮区宽度反推 k
     if pixel_scale is not None:
         auto_calib = False
-        side = _clamp_side(
-            int(round(target_px * float(pixel_scale))), height, width
-        )
+        side = _clamp_side(int(round(target_px * float(pixel_scale))), height, width)
     elif p_cam is not None:
         auto_calib = False
         k_guess = float(p_cam) / d_slm
@@ -588,7 +601,9 @@ def _run_closed_loop(
     else:
         auto_calib = True
         side = int(round(target_px * 0.4))  # k 初猜 0.4 (SLM网格/相机亮度比)
-        logger.info("自动标定像素缩放: 首轮以探测边长 {}px 运行, 采集后更新目标边长", side)
+        logger.info(
+            "自动标定像素缩放: 首轮以探测边长 {}px 运行, 采集后更新目标边长", side
+        )
     logger.info("测得光斑直径 {:.1f}px, 方形边长 {}px", spot_d, side)
 
     # 迭代记录器: 每次迭代保存相位/图片/指标为 pkl record (:ref:`axis_beam_runner` 保存 record 模式)
@@ -644,7 +659,7 @@ def _run_closed_loop(
         new_image = np.asarray(
             camera.get_numpy_image(n_sample=n_sample, skip_first=True), dtype=np.float64
         )
-        cx, cy = _centroid(new_image)
+        cx, cy = centroid(new_image, return_float=True)
 
         # --- 6. 计算质量 ---
         metrics: dict[str, Any] = compute_square_metrics(
@@ -656,7 +671,9 @@ def _run_closed_loop(
         metrics["quality_score"] = float(score)
         metrics["side"] = int(side)
         metrics["center"] = [float(cx), float(cy)]
-        metrics["gs_final_error"] = float(result.error_history[-1]) if result.error_history else None
+        metrics["gs_final_error"] = (
+            float(result.error_history[-1]) if result.error_history else None
+        )
 
         convergence_history.append(metrics)
         all_images.append(new_image)
@@ -714,7 +731,9 @@ def _run_closed_loop(
                 "target": np.asarray(target_amplitude, dtype=np.float64),
             }
         )
-        recorder.dataframe.to_pickle(output_dir / "gs_square_records.pkl", compression="zip")
+        recorder.dataframe.to_pickle(
+            output_dir / "gs_square_records.pkl", compression="zip"
+        )
 
         # --- 8. 跟踪最优 ---
         if score > best_score:
@@ -741,9 +760,7 @@ def _run_closed_loop(
             bright_w = max(bright_w, bright_h)
             if bright_w > 5:
                 k_meas = side / bright_w
-                next_side = _clamp_side(
-                    int(round(target_px * k_meas)), height, width
-                )
+                next_side = _clamp_side(int(round(target_px * k_meas)), height, width)
                 logger.info(
                     "像素标定: k={:.4f} (边长{}px→亮区{:.0f}px), 下次目标边长 {}px",
                     k_meas,
@@ -754,7 +771,9 @@ def _run_closed_loop(
                 side = next_side
             else:
                 logger.warning(
-                    "本轮亮区过小/未检测到 ({:.0f}px), 保持目标边长 {}px", bright_w, side
+                    "本轮亮区过小/未检测到 ({:.0f}px), 保持目标边长 {}px",
+                    bright_w,
+                    side,
                 )
 
     # 汇总结果
@@ -804,6 +823,7 @@ def _save_results(result: dict, output_dir: Path, params: dict) -> None:
 
 # ==================== CLI ====================
 
+
 @click.command()
 # 相机
 @click.option(
@@ -818,22 +838,36 @@ def _save_results(result: dict, output_dir: Path, params: dict) -> None:
     type=int,
     help="相机ID (default: FAR_CAM_ID 环境变量或 0)",
 )
-@click.option("--exposure-ms", default=50.0, type=float,
-                      help="相机曝光时间 ms (default: 50); miicam 建议 ≥0.2ms, <0.1ms 信号淹没在噪声中")
+@click.option(
+    "--exposure-ms",
+    default=50.0,
+    type=float,
+    help="相机曝光时间 ms (default: 50); miicam 建议 ≥0.2ms, <0.1ms 信号淹没在噪声中",
+)
 # SLM
 @click.option("--slm-number", default=1, type=int, help="SLM设备编号 1-8 (default: 1)")
-@click.option("--slm-wavelength", default=1064, type=int, help="SLM工作波长 nm (default: 1064)")
+@click.option(
+    "--slm-wavelength", default=1064, type=int, help="SLM工作波长 nm (default: 1064)"
+)
 # GS参数
-@click.option("--gs-iterations", "-i", default=100, type=int, help="GS内迭代次数 (default: 100)")
-@click.option("--gs-factor", default=1.5, type=float, help="方形/光斑尺寸因子 (default: 1.5)")
+@click.option(
+    "--gs-iterations", "-i", default=100, type=int, help="GS内迭代次数 (default: 100)"
+)
+@click.option(
+    "--gs-factor", default=1.5, type=float, help="方形/光斑尺寸因子 (default: 1.5)"
+)
 @click.option(
     "--target-px",
     default=None,
     type=int,
     help="目标方形在相机上的像素宽度; 推荐显式指定, 避免光斑测量失真 (default: 按 --gs-factor×光斑直径)",
 )
-@click.option("--focal-length", default=0.1, type=float, help="焦距/传播距离 m (default: 0.1)")
-@click.option("--gs-energy", default=0.90, type=float, help="光斑测量环围能量 (default: 0.90)")
+@click.option(
+    "--focal-length", default=0.1, type=float, help="焦距/传播距离 m (default: 0.1)"
+)
+@click.option(
+    "--gs-energy", default=0.90, type=float, help="光斑测量环围能量 (default: 0.90)"
+)
 @click.option(
     "--p-cam",
     default=None,
@@ -854,18 +888,38 @@ def _save_results(result: dict, output_dir: Path, params: dict) -> None:
     help="GS传播模型: asm=角谱法(精确), fft=单FFT夫琅禾费(高速)",
 )
 # 闭环参数
-@click.option("--outer-iterations", "-n", default=10, type=int, help="最大外迭代次数 (default: 10)")
+@click.option(
+    "--outer-iterations",
+    "-n",
+    default=10,
+    type=int,
+    help="最大外迭代次数 (default: 10)",
+)
 @click.option(
     "--convergence-threshold",
     default=0.95,
     type=float,
     help="收敛评分阈值 0~1 (default: 0.95)",
 )
-@click.option("--settle-time", default=0.5, type=float, help="SLM稳定等待时间 s (default: 0.5)")
-@click.option("--n-sample", default=3, type=int, help="相机每次采样平均帧数 (default: 3)")
+@click.option(
+    "--settle-time", default=0.5, type=float, help="SLM稳定等待时间 s (default: 0.5)"
+)
+@click.option(
+    "--n-sample", default=3, type=int, help="相机每次采样平均帧数 (default: 3)"
+)
 # 输出
-@click.option("-o", "--output", default="data/gs_square", help="输出目录 (default: data/gs_square)")
-@click.option("--cam-bit-depth", default=8, type=click.IntRange(8, 16), help="MiiCam输出位深 (default: 8)")
+@click.option(
+    "-o",
+    "--output",
+    default="data/gs_square",
+    help="输出目录 (default: data/gs_square)",
+)
+@click.option(
+    "--cam-bit-depth",
+    default=8,
+    type=click.IntRange(8, 16),
+    help="MiiCam输出位深 (default: 8)",
+)
 @click.option(
     "--display/--no-display",
     default=False,
@@ -981,7 +1035,9 @@ def run(
         _save_results(result, output_dir, params)
 
         n_iters = len(result["convergence_history"])
-        logger.info("闭环完成: 运行 {} 次迭代, 最优评分 {:.4f}", n_iters, result["best_score"])
+        logger.info(
+            "闭环完成: 运行 {} 次迭代, 最优评分 {:.4f}", n_iters, result["best_score"]
+        )
 
     except Exception as e:
         logger.error("GS square runner failed: {}", e)

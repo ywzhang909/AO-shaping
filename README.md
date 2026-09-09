@@ -34,6 +34,9 @@ AO-shaping/
 │   │   │   ├── full_voltage_runner.py  # 全量交替电压下发 (AsyncMicroDM)
 │   │   │   └── combined_runner.py      # [已废弃] 使用pipeline_runner代わり
 │   │   ├── algorithm/           # 优化算法 (Adam, SGD, Muon, 可微分光束整形等)
+│   │   │   ├── gerchberg_saxton.py     # Gerchberg-Saxton 相位恢复算法
+│   │   │   ├── differentiable_beam.py  # 可微光束整形 (双向传播模拟)
+│   │   │   └── beam_shaping_utils.py   # 光束整形共享工具 (目标生成/指标/方形尺寸)
 │   │   ├── drivers/             # 硬件驱动
 │   │   │   ├── ccd/             # 相机 (Daheng, MiiCam)
 │   │   │   ├── dm/              # 变形镜 (NLight, R50Power MicroDM)
@@ -448,6 +451,44 @@ python src/ao_shaping/main.py slm-diagnose
 python src/ao_shaping/main.py slm-diagnose --step freeze
 ```
 
+#### 可微光束整形 (diff-beam)
+```bash
+python src/ao_shaping/main.py diff-beam [OPTIONS]
+```
+等同于: `python -m ao_shaping.runners.diff_beam_runner`
+
+双算法可微光束整形：**backprop**（PyTorch 前向/反向传播，角谱衍射模拟 + Adam 优化相位）或 **gs**（Gerchberg-Saxton）。将 SLM 相位优化为任意目标强度图案（高斯、圆形、或自定义图片）。相同指标定义（`beam_shaping_utils.compute_metrics`）保证两算法结果可直接对比。
+
+选项:
+- `--algorithm`: 优化算法 (backprop / gs, 默认: backprop)
+- `--target-image`: 目标图像路径 (灰度图 / .npy，归一化后作为目标强度)
+- `--target-shape`: 预设目标形状 (gaussian / circle, 默认: gaussian)
+- `-e, --epochs`: backprop 的 Adam 优化步数 (默认: 200)
+- `--lr`: backprop 学习率 (默认: 0.01)
+- `-i, --iterations`: gs 迭代次数 (默认: 50)
+- `-d, --distance`: 传播距离 m (默认: 0.1)
+- `-l, --wavelength`: 激光波长 nm (默认: 1064)
+- `--cam-id`: CCD 相机 ID (默认: FAR_CAM_ID/0)
+- `--cam-center`: CCD 中心 'x,y' (默认: 自动检测)
+- `--cam-size`: CCD 开窗大小 像素 (默认: 400)
+- `--adaptive`: gs 算法启用 CCD 反馈自适应 (需 --use-hardware)
+- `--seed`: backprop 初始相位随机种子 (默认: 0，可复现)
+- `-s, --save-dir`: 结果保存目录 (默认: data/diff_beam)
+- `--use-hardware`: 使用实际硬件 (SLM+CCD)，否则仅模拟
+- `--show`: 显示结果图像
+
+示例:
+```bash
+# 纯模拟: backprop 整形为高斯目标
+python src/ao_shaping/main.py diff-beam --target-shape gaussian -e 200 --show
+
+# 自定义目标图片 + GS 算法
+python src/ao_shaping/main.py diff-beam --algorithm gs --target-image target.png -i 100 --show
+
+# 硬件闭环: CCD 反馈自适应
+python src/ao_shaping/main.py diff-beam --algorithm gs --adaptive --use-hardware
+```
+
 #### 闭环波前优化 (closed-loop)
 ```bash
 python src/ao_shaping/main.py closed-loop [OPTIONS]
@@ -786,9 +827,14 @@ streamlit run src/ao_shaping/gui/zernike/zernike_response_matrix_ui.py
 # SLM 校准
 streamlit run src/ao_shaping/gui/slm/slm_calibration_ui.py
 
+# 多 SLM 控制器 (相位图案生成/下发, 含 GS方形整形)
+streamlit run src/ao_shaping/gui/slm/multi_slm_controller.py
+
 # 1300 陶瓷单元查看器 (网格浏览 + 图片标注)
 streamlit run src/ao_shaping/gui/r50/ceramic_viewer.py
 ```
+
+`multi_slm_controller.py` 提供多种全息相位图案生成：平场、闪耀光栅、达曼光栅、涡旋相位、**GS方形整形**等。其中 GS方形整形模式：上传远场光斑图片 → 自动测量光斑直径并计算方形边长（边长 = 光斑直径 × 尺寸因子，自动换算相机/SLM 像素间距）→ 在 SLM 分辨率网格上运行 Gerchberg-Saxton → 下发 uint16 相位到 SLM。支持实时迭代进度显示与逐轮相位下发（内存槽自动轮换）。方形尺寸/相位正确性由仿真测试验证（`tests/ao_shaping/gui/slm/test_gs_square_shaping.py`，角谱传播断言）。
 
 ## 硬件支持
 

@@ -12,10 +12,14 @@ import numpy as np
 import streamlit as st
 from loguru import logger
 
+from ao_shaping.algorithm.beam_shaping_utils import (
+    build_square_target_amplitude,
+    compute_square_side,
+    measure_spot_diameter_cam,
+)
 from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
 from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
 from ao_shaping.utils.pattern_helper import PatternHelper, calc_blazed_grating_period
-from ao_shaping.utils.spots_calc import centroid, radius
 from ao_shaping.utils.zernike_calc import get_zernike_name
 
 # Global pattern helpers (will be recreated per-SLM based on resolution)
@@ -717,77 +721,6 @@ def _upload_to_intensity(uploaded: Any) -> np.ndarray:
     raw = uploaded.getvalue()
     img = Image.open(io.BytesIO(raw)).convert("L")
     return np.asarray(img, dtype=np.float64)
-
-
-def measure_spot_diameter_cam(intensity: np.ndarray, energy: float = 0.90) -> float:
-    """Measure far-field beam spot diameter (pixels) from an intensity image.
-
-    Uses the intensity centroid as center and the encircled-energy radius
-    (default 90%) to derive a spot diameter.
-
-    Args:
-        intensity: 2D far-field intensity image.
-        energy: Encircled-energy fraction (0~1) for the radius (default 0.90).
-
-    Returns:
-        Spot diameter in camera pixels.
-    """
-    cx, cy = centroid(intensity)
-    r = radius(intensity, center=(cx, cy), energy=energy, use_aotools=False)
-    return 2.0 * float(r)
-
-
-def compute_square_side(
-    spot_diameter_cam_px: float,
-    factor: float = 1.5,
-    p_cam: float = 8e-6,
-    d_slm: float = 8e-6,
-) -> int:
-    """Auto-compute square side (SLM-grid pixels) from the beam spot size.
-
-    The requested physical beam size is ``factor`` times the measured spot
-    diameter. If the camera pixel pitch differs from the SLM pixel pitch the
-    size is rescaled accordingly::
-
-        side = factor * spot_diameter_cam * (p_cam / d_slm)
-
-    Args:
-        spot_diameter_cam_px: Measured spot diameter in camera pixels.
-        factor: Square-to-spot size factor (default 1.5).
-        p_cam: Camera pixel pitch in meters (default matches SLM pitch).
-        d_slm: SLM pixel pitch in meters (default 8e-6).
-
-    Returns:
-        Square side length in SLM-grid pixels.
-    """
-    return int(round(float(factor) * float(spot_diameter_cam_px) * (p_cam / d_slm)))
-
-
-def build_square_target_amplitude(
-    height: int,
-    width: int,
-    side: int,
-) -> np.ndarray:
-    """Build a centered square target amplitude on an (height, width) grid.
-
-    Args:
-        height: Grid height in pixels.
-        width: Grid width in pixels.
-        side: Square side length in pixels.
-
-    Returns:
-        Float array (height, width) with 1 inside the square, 0 outside.
-    """
-    target = np.zeros((height, width), dtype=np.float64)
-    half = side // 2
-    cy = height // 2
-    cx = width // 2
-    y0 = max(cy - half, 0)
-    y1 = min(cy + side - half, height)
-    x0 = max(cx - half, 0)
-    x1 = min(cx + side - half, width)
-    target[y0:y1, x0:x1] = 1.0
-    return target
 
 
 def generate_gs_square_phase(
