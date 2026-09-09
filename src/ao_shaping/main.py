@@ -11,6 +11,7 @@ Commands:
     pipeline        串行WF→PIB流水线优化器
     gs              Gerchberg-Saxton全息图生成器
     gs-square       GS闭环光束整形优化器
+    diff-beam       可微光束整形优化器 (backprop/GS)
     zernike-matrix  Zernike响应矩阵校准
     rms-zernike     Zernike RMS优化器
     ga-zernike      GA Zernike优化器
