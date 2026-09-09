@@ -391,19 +391,6 @@ def compute_quality_score(metrics: dict[str, float]) -> float:
     return float(0.3 * f_ar + 0.4 * f_uni + 0.3 * f_ee)
 
 
-def _centroid(intensity: np.ndarray) -> tuple[float, float]:
-    """计算强度质心 (cx, cy)."""
-    intensity = np.asarray(intensity, dtype=np.float64)
-    total = float(np.sum(intensity))
-    if total <= 0:
-        h, w = intensity.shape
-        return w / 2.0, h / 2.0
-    ys, xs = np.mgrid[0 : intensity.shape[0], 0 : intensity.shape[1]]
-    cx = float(np.sum(xs * intensity) / total)
-    cy = float(np.sum(ys * intensity) / total)
-    return cx, cy
-
-
 def _resample_to_grid(img: np.ndarray, target_shape: tuple[int, int]) -> np.ndarray:
     """将相机图像重采样到SLM网格尺寸 (height, width), 作为GS光源振幅.
 
@@ -474,12 +461,13 @@ def _run_closed_loop(
     Returns:
         结果字典, 包含 best_phase, best_score, convergence_history 等.
     """
-    from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
-    from ao_shaping.gui.slm.multi_slm_controller import (
+    from ao_shaping.algorithm.beam_shaping_utils import (
         build_square_target_amplitude,
         compute_square_side,
         measure_spot_diameter_cam,
     )
+    from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
+    from ao_shaping.utils.spots_calc import centroid
 
     width = slm.Panel_Res[0]
     height = slm.Panel_Res[1]
@@ -530,7 +518,7 @@ def _run_closed_loop(
         camera.get_numpy_image(n_sample=n_sample, skip_first=True), dtype=np.float64
     )
     all_images.append(init_image)
-    cx, cy = _centroid(init_image)
+    cx, cy = centroid(init_image, return_float=True)
 
     logger.info("初始光斑: center=({:.1f}, {:.1f}), max={}", cx, cy, init_image.max())
     spot_d = measure_spot_diameter_cam(init_image, energy=gs_energy)
@@ -593,7 +581,7 @@ def _run_closed_loop(
         new_image = np.asarray(
             camera.get_numpy_image(n_sample=n_sample, skip_first=True), dtype=np.float64
         )
-        cx, cy = _centroid(new_image)
+        cx, cy = centroid(new_image, return_float=True)
 
         # --- 6. 计算质量 ---
         metrics: dict[str, Any] = compute_square_metrics(
