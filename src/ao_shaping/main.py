@@ -51,6 +51,7 @@ from ao_shaping.runners import (
     alt_voltage_run,
     full_voltage_run,
     combined_run,
+    diff_beam_run,
 )
 
 
@@ -94,6 +95,7 @@ cli.add_command(dm_matrix_run, name="dm-matrix")
 cli.add_command(alt_voltage_run, name="alt-voltage")
 cli.add_command(full_voltage_run, name="full-voltage")
 cli.add_command(combined_run, name="combined")
+cli.add_command(diff_beam_run, name="diff-beam")
 
 
 # Entry point
