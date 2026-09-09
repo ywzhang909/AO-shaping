@@ -99,13 +99,17 @@ class ZernikeDM(DM):
         height, width = self.resolution[1], self.resolution[0]
         max_val = float(2**self.bits - 1)
 
-        # Generate phase using ZernikeGenerator's generate_polynomial
+        # Generate phase using ZernikeGenerator's generate_polynomial.
+        # Outside the aperture the zernike package yields NaN; zero them so the
+        # normalization + uint16 cast are well-defined (matches
+        # pattern_helper._zernike_to_uint16).
         phase_raw = self._generator.generate_polynomial(coeffs_dict)
+        phase_raw = np.nan_to_num(phase_raw, nan=0.0, posinf=0.0, neginf=0.0)
 
         # phase_raw is in arbitrary units (typically -2.5 to +2.5)
         # Normalize to [0, 1] range then scale appropriately
-        phase_min = np.nanmin(phase_raw)
-        phase_max = np.nanmax(phase_raw)
+        phase_min = float(phase_raw.min())
+        phase_max = float(phase_raw.max())
         phase_range = phase_max - phase_min
 
         if phase_range > 1e-10:

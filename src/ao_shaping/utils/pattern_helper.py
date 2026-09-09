@@ -186,6 +186,9 @@ class PatternHelper:
         # Turbulence screen (lazy-initialized)
         self._turbulence_screen: PhaseScreenKolmogorov | None = None
 
+        # Zernike generators (lazy-cached per (radius, n_orders))
+        self._zernike_generators: dict[tuple[float, int], ZernikeGenerator] = {}
+
     @property
     def x(self) -> np.ndarray:
         """1D x coordinates (centered at 0)."""
@@ -399,6 +402,28 @@ class PatternHelper:
         img = (phase_normalized / (2 * np.pi) * max_val).astype(np.uint16)
         return img
 
+    def _get_zernike_generator(
+        self, radius: float | None, n_orders: int = 6,
+    ) -> ZernikeGenerator:
+        """Get (and lazily cache) a ZernikeGenerator for the given aperture.
+
+        Generators are keyed by ``(radius, n_orders)`` and reused across calls,
+        so the expensive ``RZern`` cart + coordinate grid is built only once per
+        aperture instead of on every generation.
+        """
+        if radius is None:
+            radius = min(self._height, self._width) / 2
+        key = (float(radius), n_orders)
+        gen = self._zernike_generators.get(key)
+        if gen is None:
+            gen = ZernikeGenerator(
+                resolution=(self._width, self._height),
+                radius=radius,
+                n_orders=n_orders,
+            )
+            self._zernike_generators[key] = gen
+        return gen
+
     def generate_zernike(
         self,
         n: int,
@@ -406,17 +431,18 @@ class PatternHelper:
         amplitude: float = 1.0,
         radius: float | None = None,
     ) -> np.ndarray:
-        gen = ZernikeGenerator(resolution=(self._width, self._height), radius=radius)
+        gen = self._get_zernike_generator(radius)
         gen.set_bits(self.bits)
         phase = gen.generate(n, m, amplitude)
-        return self._zernike_to_uint16(phase)
+        return self._zernike_to_uint16(phase, gen)
 
     def generate_zernike_polynomial(
         self,
         coefficients: dict[tuple[int, int], float] | None = None,
         radius: float | None = None,
+        n_max: int | None = None,
     ) -> np.ndarray:
-        gen = ZernikeGenerator(resolution=(self._width, self._height), radius=radius)
+        gen = self._get_zernike_generator(radius, n_orders=n_max or 6)
         gen.set_bits(self.bits)
 
         if coefficients is None:
@@ -425,12 +451,18 @@ class PatternHelper:
             return np.zeros((self._height, self._width), dtype=np.uint16)
 
         phase = gen.generate_polynomial(coefficients)
-        return self._zernike_to_uint16(phase)
+        return self._zernike_to_uint16(phase, gen)
 
-    def _zernike_to_uint16(self, phase: np.ndarray) -> np.ndarray:
+    def _zernike_to_uint16(
+        self, phase: np.ndarray, gen: ZernikeGenerator | None = None,
+    ) -> np.ndarray:
         result = np.nan_to_num(phase, nan=0.0)
         result = (result - result.min()) / (result.max() - result.min() + 1e-10)
-        return (result * self._max_val).astype(np.uint16)
+        img = (result * self._max_val).astype(np.uint16)
+        if gen is not None:
+            # Zero everything outside the circular aperture (radius px).
+            img = np.where(gen.mask.astype(bool), img, 0)
+        return img
 
     def to_uint16(self, phase_radians: np.ndarray) -> np.ndarray:
         """将弧度相位转换为uint16格式。

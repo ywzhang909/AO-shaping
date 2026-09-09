@@ -166,6 +166,42 @@ class TestZernikeGeneratorBasic:
         Theta = gen.Theta
         assert Theta.shape == (100, 100)
 
+    def test_radius_controls_aperture_size(self):
+        """『孔径半径』必须真正约束圆形孔径 (回归: 之前 radius 被忽略)."""
+        gen_small = ZernikeGenerator((100, 100), radius=25.0)
+        gen_small.set_bits(10)
+        gen_large = ZernikeGenerator((100, 100), radius=50.0)
+        gen_large.set_bits(10)
+        coeffs = {(0, 0): 1.0, (2, 0): 0.5}
+
+        small = gen_small.generate_polynomial(coeffs)
+        large = gen_large.generate_polynomial(coeffs)
+        assert small.shape == large.shape == (100, 100)
+        # 孔径区域 = 非 NaN 的像素; 半径 50 的孔径应约为半径 25 的 4x (π r²)
+        small_aperture = (~np.isnan(small)).sum()
+        large_aperture = (~np.isnan(large)).sum()
+        assert large_aperture > 3.5 * small_aperture
+        # 孔径中心区域应有非平凡相位 (非纯 flat)
+        assert not np.allclose(small[50, 50], small[0, 0])
+
+    def test_grid_cache_reused_across_instances(self):
+        """同参数重复生成应复用缓存 (回归: 之前每次生成重建 RZern 网格, ~2.7s)."""
+        import time
+        gen1 = ZernikeGenerator((100, 100), radius=50.0)
+        gen1.set_bits(10)
+        gen2 = ZernikeGenerator((100, 100), radius=50.0)
+        gen2.set_bits(10)
+        coeffs = {(0, 0): 1.0, (2, 0): 0.5}
+
+        # 首次 (冷) 与第二次 (缓存命中) 在第二次构造时共享 _build_cached_grid
+        a = gen1.generate_polynomial(coeffs)
+        b = gen2.generate_polynomial(coeffs)
+        # NaN (孔径外) 与数值 (孔径内) 都应逐元素一致
+        np.testing.assert_array_equal(a, b)
+        # 同一 (分辨率, radius, n_orders) 共享同一个 RZern cart + 网格缓存
+        assert gen1._cart is gen2._cart
+        assert np.array_equal(gen1.xv, gen2.xv)
+
 
 class TestFitZernike:
     def test_fit_zernike_default(self):

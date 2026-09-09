@@ -86,11 +86,7 @@ def _probe_slm(slm_num: int) -> dict | None:
                 # Device is free — read its serial then release it.
                 device_id = ctypes.create_string_buffer(256)
                 ret2 = slm_sdk.SLM_Ctrl_ReadSD(slm_num, device_id)
-                serial = (
-                    device_id.value.decode("utf-8").strip()
-                    if ret2 == 0
-                    else None
-                )
+                serial = device_id.value.decode("utf-8").strip() if ret2 == 0 else None
                 result[0] = {
                     "slm_number": slm_num,
                     "serial": serial,
@@ -104,9 +100,7 @@ def _probe_slm(slm_num: int) -> dict | None:
                 # — almost always because another instance already holds it.
                 # Negative codes (SLM_NOT_OPEN_USB=-200,
                 # FT_DEVICE_NOT_FOUND=-10002, …) mean no device is attached.
-                logger.debug(
-                    f"SLM #{slm_num} 已被占用 (返回码 {ret})"
-                )
+                logger.debug(f"SLM #{slm_num} 已被占用 (返回码 {ret})")
                 result[0] = {
                     "slm_number": slm_num,
                     "serial": None,
@@ -115,9 +109,7 @@ def _probe_slm(slm_num: int) -> dict | None:
                     "status": "使用中",
                 }
             else:
-                logger.debug(
-                    f"SLM #{slm_num} 无设备 (返回码 {ret})"
-                )
+                logger.debug(f"SLM #{slm_num} 无设备 (返回码 {ret})")
         except Exception:
             logger.debug(f"扫描 SLM #{slm_num} 时发生异常", exc_info=True)
         finally:
@@ -130,9 +122,7 @@ def _probe_slm(slm_num: int) -> dict | None:
     t.start()
     t.join(timeout=SLM_PROBE_TIMEOUT_S)
     if t.is_alive():
-        logger.warning(
-            f"SLM #{slm_num} 扫描超时 ({SLM_PROBE_TIMEOUT_S}s)，跳过"
-        )
+        logger.warning(f"SLM #{slm_num} 扫描超时 ({SLM_PROBE_TIMEOUT_S}s)，跳过")
     return result[0]
 
 
@@ -379,6 +369,13 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
             key=f"{prefix}_circular_phase_range",
         )
     elif pattern_type == "透镜":
+        # 从 sidebar (connect 时从硬件同步) 读取默认值, 用户只需填焦距;
+        # 像素间距/孔径半径默认即 SLM 硬件真实值 (8um / min(w,h)//2).
+        default_pitch = float(st.session_state.get(f"{prefix}_pixel_pitch_um", 8.0))
+        default_w = int(st.session_state.get(f"{prefix}_width", 1920))
+        default_h = int(st.session_state.get(f"{prefix}_height", 1200))
+        default_radius = min(default_w, default_h) // 2
+
         params["focal_length_mm"] = st.number_input(
             "焦距 (mm)",
             min_value=1.0,
@@ -390,6 +387,7 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
             "像素间距 (um)",
             min_value=0.1,
             max_value=100.0,
+            value=default_pitch,
             step=0.1,
             key=f"{prefix}_lens_pixel_pitch",
         )
@@ -397,6 +395,7 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
             "透镜半径 (像素)",
             min_value=1,
             max_value=2000,
+            value=default_radius,
             step=1,
             key=f"{prefix}_lens_radius",
         )
@@ -515,8 +514,12 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
             key=f"{prefix}_zernike_n_max",
         )
         params["n_max"] = n_max
+        # 默认孔径 = SLM 面板短边一半 (与透镜分支一致, 从 sidebar 硬件同步值读取)
+        default_w = int(st.session_state.get(f"{prefix}_width", 1920))
+        default_h = int(st.session_state.get(f"{prefix}_height", 1200))
         params["radius"] = st.number_input(
             "孔径半径 (像素)",
+            value=min(default_w, default_h) // 2,
             min_value=1,
             max_value=2000,
             step=1,
@@ -534,8 +537,6 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
                     key = f"{prefix}_zernike_{n}_{m}"
 
                     default_val = 1.0 if n == 0 and m == 0 else 0.0
-
-                    st.session_state.get(key, default_val)
 
                     col1, col2, col3 = st.columns([1, 2, 2])
                     with col1:
@@ -1009,9 +1010,11 @@ def generate_phase_gray(
                 if isinstance(k, tuple) and isinstance(v, (int, float))
             }
         radius = float(params.get("radius", min(width, height) // 2))
+        n_max = int(params.get("n_max", 6))
         return helper.generate_zernike_polynomial(
             coefficients=coefficients,
             radius=radius,
+            n_max=n_max,
         )
     if pattern_type == "达曼光栅":
         order = int(params.get("order", 3))
@@ -1201,19 +1204,11 @@ def connect_slm(slm_num: int):
                 "serial": serial,
                 "wavelength": slm.wavelength,
             }
-            st.toast(
-                f"SLM {slm_num} 已连接（序列号: {serial}，波长 {slm.wavelength}nm）",
-                icon="ℹ️",
-            )
         else:
             st.session_state[mismatch_key] = None
-            st.toast(
-                f"SLM {slm_num} 已连接（波长 {slm.wavelength}nm，序列号未读取）",
-                icon="ℹ️",
-            )
-        st.success(f"SLM {slm_num} 连接成功")
+
+        st.rerun()
     except Exception as e:
-        # Clean up state on failure
         st.session_state[prefix] = None
         st.session_state[f"{prefix}_connected"] = False
         st.error(f"SLM {slm_num} 连接失败: {e}")
@@ -1227,7 +1222,6 @@ def disconnect_slm(slm_num: int):
     try:
         if slm is not None and getattr(slm, "is_open", False):
             slm.close()
-            st.success(f"SLM {slm_num} 已断开")
     except Exception as e:
         st.error(f"SLM {slm_num} 断开失败: {e}")
         logger.exception(f"Failed to disconnect SLM {slm_num}: {e}")
@@ -1246,6 +1240,8 @@ def disconnect_slm(slm_num: int):
         st.session_state[f"{prefix}_toggle_stop_event"] = None
         st.session_state[f"{prefix}_toggle_freq_ref"] = None
         st.session_state[f"{prefix}_toggle_slm_container"] = None
+
+        st.rerun()
 
 
 def set_wavelength(slm_num: int):
@@ -1297,19 +1293,25 @@ def set_shift(slm_num: int):
                 )
             else:
                 st.success(f"SLM {slm_num} 平移参数已更新: shift_x={sx}, shift_y={sy}")
-                st.info(
-                    "当前没有缓存的相位可自动下发；请先生成或捕获一个相位图案。"
-                )
+                st.info("当前没有缓存的相位可自动下发；请先生成或捕获一个相位图案。")
     except Exception as e:
         st.error(f"应用平移失败: {e}")
         logger.exception(f"Failed to set shift for SLM {slm_num}: {e}")
 
 
 def set_video_mode(slm_num: int, mode_label: str):
-    """Set video mode for the specified SLM"""
+    """Set video mode for the specified SLM (memory mode only).
+
+    DVI mode (``video_mode=1``) is intentionally unsupported: its ``open()``
+    can hang for 120s/300s and a hung controller only recovers via physical
+    power cycle (see AGENTS.md). Only memory mode is offered.
+    """
     prefix = f"slm{slm_num}"
     video_mode_key = f"{prefix}_video_mode"
     mode = 0 if mode_label == "内存模式" else 1
+    if mode != 0:
+        st.error("DVI 模式已禁用: open() 已知挂起且需物理断电恢复, 仅支持内存模式")
+        return
     try:
         slm = st.session_state.get(prefix)
         if slm is not None:
@@ -1467,11 +1469,15 @@ def _render_slm_settings(slm_num: int):
     if st.button("设置波长", key=f"{prefix}_set_wl_btn"):
         set_wavelength(slm_num)
 
+    # DVI 模式已知挂起 (video_mode=1 open() 可挂 120s/300s, 且挂起后 memory 模式
+    # 也挂直到物理断电) —— 强制仅内存模式, 不提供 DVI 选项。
     st.selectbox(
         "视频模式",
-        options=["内存模式", "DVI模式"],
+        options=["内存模式"],
         key=f"{prefix}_video_mode",
+        disabled=True,
     )
+    st.caption("仅内存模式可用: DVI 模式 open() 已知挂起 (需物理断电恢复), 已禁用")
     if st.button("设置模式", key=f"{prefix}_set_mode_btn"):
         set_video_mode(slm_num, st.session_state[f"{prefix}_video_mode"])
 
@@ -1524,9 +1530,7 @@ def _render_slm_settings(slm_num: int):
         try:
             slm_obj._max_gray = int(new_max_gray)
             refresh_phase_preview(slm_num)
-            st.success(
-                f"SLM {slm_num} 灰度值已更新为 {new_max_gray}，预览已刷新"
-            )
+            st.success(f"SLM {slm_num} 灰度值已更新为 {new_max_gray}，预览已刷新")
         except Exception as e:
             st.error(f"更新灰度设置失败: {e}")
 
@@ -1749,20 +1753,14 @@ def render_phase_control(slm_num: int):
                 status_ctx.write("准备 GS 迭代…")
                 progress_bar = status_ctx.progress(0.0)
                 if params.get("gs_live_display"):
-                    status_ctx.write(
-                        "实时显示已启用：每轮迭代都会把当前相位下发到 SLM"
-                    )
+                    status_ctx.write("实时显示已启用：每轮迭代都会把当前相位下发到 SLM")
 
                 def _gs_progress(iteration: int, total: int, mse: float) -> None:
                     # Runs synchronously on the main Streamlit thread.
                     pct = iteration / total if total else 0.0
                     progress_bar.progress(pct)
-                    status_ctx.write(
-                        f"GS 迭代 {iteration}/{total} — MSE={mse:.6f}"
-                    )
-                    logger.debug(
-                        "GS iteration {}/{} MSE={:.6f}", iteration, total, mse
-                    )
+                    status_ctx.write(f"GS 迭代 {iteration}/{total} — MSE={mse:.6f}")
+                    logger.debug("GS iteration {}/{} MSE={:.6f}", iteration, total, mse)
 
                 progress_cb = _gs_progress
 
@@ -1916,57 +1914,57 @@ def render_phase_control(slm_num: int):
     if uploaded_file is not None and st.button(
         "从CSV加载相位", key=f"{prefix}_load_csv_btn"
     ):
-            try:
-                stop_event = st.session_state.get(f"{prefix}_toggle_stop_event")
-                if stop_event is not None:
-                    stop_event.set()
-                st.session_state[f"{prefix}_toggle_active"] = False
-                st.session_state[f"{prefix}_toggle_thread"] = None
-                st.session_state[f"{prefix}_toggle_stop_event"] = None
-                st.session_state[f"{prefix}_toggle_freq_ref"] = None
-                st.session_state[f"{prefix}_toggle_slm_container"] = None
-                if st.session_state.get(f"{prefix}_toggle_active", False):
-                    st.info("已停止周期切换")
+        try:
+            stop_event = st.session_state.get(f"{prefix}_toggle_stop_event")
+            if stop_event is not None:
+                stop_event.set()
+            st.session_state[f"{prefix}_toggle_active"] = False
+            st.session_state[f"{prefix}_toggle_thread"] = None
+            st.session_state[f"{prefix}_toggle_stop_event"] = None
+            st.session_state[f"{prefix}_toggle_freq_ref"] = None
+            st.session_state[f"{prefix}_toggle_slm_container"] = None
+            if st.session_state.get(f"{prefix}_toggle_active", False):
+                st.info("已停止周期切换")
 
-                # Save uploaded file temporarily
-                temp_path = Path(f"temp_{prefix}_phase.csv")
-                with open(temp_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
+            # Save uploaded file temporarily
+            temp_path = Path(f"temp_{prefix}_phase.csv")
+            with open(temp_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
 
-                # Load phase from CSV
-                slm = st.session_state[prefix]
-                phase_gray = slm.load_phase_from_csv(temp_path)
+            # Load phase from CSV
+            slm = st.session_state[prefix]
+            phase_gray = slm.load_phase_from_csv(temp_path)
 
-                # Apply shift if configured (with zero-padding instead of wrap-around)
-                shift_x = st.session_state.get(f"{prefix}_shift_x", 0)
-                shift_y = st.session_state.get(f"{prefix}_shift_y", 0)
-                phase_gray = _apply_shift(phase_gray, shift_x, shift_y)
+            # Apply shift if configured (with zero-padding instead of wrap-around)
+            shift_x = st.session_state.get(f"{prefix}_shift_x", 0)
+            shift_y = st.session_state.get(f"{prefix}_shift_y", 0)
+            phase_gray = _apply_shift(phase_gray, shift_x, shift_y)
 
-                # Write to next memory slot and immediately display
-                mem_slot = st.session_state[f"{prefix}_next_memory"]
-                slm.write_phase(phase_gray, memory_number=mem_slot)
-                slm.display_memory(mem_slot)
-                display_ok = _verify_phase_displayed(slm, mem_slot)
-                refresh_phase_preview(slm_num)
+            # Write to next memory slot and immediately display
+            mem_slot = st.session_state[f"{prefix}_next_memory"]
+            slm.write_phase(phase_gray, memory_number=mem_slot)
+            slm.display_memory(mem_slot)
+            display_ok = _verify_phase_displayed(slm, mem_slot)
+            refresh_phase_preview(slm_num)
 
-                # Update next memory slot
-                st.session_state[f"{prefix}_next_memory"] = (
-                    st.session_state[f"{prefix}_next_memory"] % 128
-                ) + 1
+            # Update next memory slot
+            st.session_state[f"{prefix}_next_memory"] = (
+                st.session_state[f"{prefix}_next_memory"] % 128
+            ) + 1
 
-                if display_ok:
-                    st.success(f"相位已从CSV加载到内存槽 {mem_slot} 并显示（验证通过）")
-                else:
-                    st.warning(
-                        "相位已从CSV加载到内存槽 "
-                        f"{mem_slot}，但显示验证失败（设备可能未刷新）"
-                    )
+            if display_ok:
+                st.success(f"相位已从CSV加载到内存槽 {mem_slot} 并显示（验证通过）")
+            else:
+                st.warning(
+                    "相位已从CSV加载到内存槽 "
+                    f"{mem_slot}，但显示验证失败（设备可能未刷新）"
+                )
 
-                # Clean up temp file
-                temp_path.unlink()
-            except Exception as e:
-                st.error(f"加载CSV相位失败: {e}")
-                logger.exception(f"Failed to load CSV phase for SLM {slm_num}: {e}")
+            # Clean up temp file
+            temp_path.unlink()
+        except Exception as e:
+            st.error(f"加载CSV相位失败: {e}")
+            logger.exception(f"Failed to load CSV phase for SLM {slm_num}: {e}")
 
 
 if __name__ == "__main__":

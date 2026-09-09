@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import functools
+from typing import TypeVar
+
 import numpy as np
 from zernike import RZern
 
@@ -21,6 +24,8 @@ ZERNIKE_NAMES: dict[tuple[int, int], str] = {
     (4, -4): "Tetrafoil Y",
     (4, 4): "Tetrafoil X",
 }
+
+_ZernikeT = TypeVar("_ZernikeT", bound="ZernikeGenerator")
 
 
 def get_zernike_name(n: int, m: int) -> str:
@@ -115,6 +120,34 @@ def generate_noll_polynomial(
     return cart.eval_grid(coeffs, matrix=True)
 
 
+@functools.lru_cache(maxsize=32)
+def _build_cached_grid(
+    width: int, height: int, radius: float, n_orders: int,
+) -> tuple[RZern, np.ndarray, np.ndarray]:
+    """Build (and cache) the RZern cart + normalized coordinate grid.
+
+    The grid is normalized in *units of radius*: ``(pixel - center) / radius``,
+    so the unit circle corresponds exactly to ``radius`` pixels, and the radial
+    coordinate ``R`` runs 0..1 across the aperture. Cached by
+    ``(width, height, radius, n_orders)``; repeated generation for the same
+    panel/aperture reuses the expensive ``RZern.make_cart_grid`` polar tables
+    instead of rebuilding them every call.
+
+    Returns:
+        ``(cart, xv, yv)`` where ``cart`` is the ``RZern`` instance whose
+        cartesian grid has been set, and ``xv``/``yv`` are the normalized
+        coordinate grids (shape ``(height, width)``).
+    """
+    radius = float(radius)
+    cart = RZern(n_orders)
+    # Pixel offsets from panel centre, normalized by the aperture radius.
+    ddx = (np.arange(width) - (width - 1) / 2.0) / radius
+    ddy = (np.arange(height) - (height - 1) / 2.0) / radius
+    xv, yv = np.meshgrid(ddx, ddy)
+    cart.make_cart_grid(xv, yv)
+    return cart, xv, yv
+
+
 class ZernikeGenerator:
     """Zernike polynomial generator using the zernike package.
 
@@ -133,7 +166,11 @@ class ZernikeGenerator:
 
         Args:
             resolution: Target resolution as (width, height).
-            radius: Aperture radius. Defaults to min(height, width) / 2.
+            radius: Aperture radius in *pixels*. Defaults to min(height, width) / 2.
+                The coordinate grid is normalized by this radius, so the unit
+                circle (``sqrt(x²+y²) <= 1`` from :attr:`mask`) corresponds
+                exactly to ``radius`` pixels — changing radius genuinely changes
+                the aperture size.
             square: If True and resolution is non-square, generate on square grid
                     (max dimension) then crop back to target resolution.
                     This ensures proper aspect ratio for circular patterns.
@@ -148,22 +185,19 @@ class ZernikeGenerator:
 
         self._height = height
         self._width = width
-        self._radius = radius
+        self._radius = float(radius)
         self._max_val: float | None = None
         self._n_orders: int = n_orders
         self._square = square
 
-        # Effective resolution for Zernike generation
-        scaler = self._height / self._width
-
-        # Create zernike RZern object
-        self._cart = RZern(self._n_orders)
-
-        # Create normalized coordinate grid (in units of radius)
-        self.ddx = np.linspace(-1.0, 1.0, self._width)
-        self.ddy = np.linspace(-1.0, 1.0, self._height) * scaler
-        self.xv, self.yv = np.meshgrid(self.ddx, self.ddy)
-        self._cart.make_cart_grid(self.xv, self.yv)
+        # Reuse the expensive RZern cart + coordinate grids across instances
+        # (keyed by resolution/radius/order). ``make_cart_grid`` builds the polar
+        # lookup tables over the full grid — the dominant cost when regenerating.
+        self._cart, self.xv, self.yv = _build_cached_grid(
+            self._width, self._height, self._radius, self._n_orders,
+        )
+        self.ddx = self.xv[0, :]
+        self.ddy = self.yv[:, 0]
 
     def nm_to_noll(self, n: int, m: int) -> int:
         """Convert (n, m) Zernike indices to Noll index.

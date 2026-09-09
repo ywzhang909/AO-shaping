@@ -27,11 +27,11 @@ except ImportError:
     MIICAM_AVAILABLE = False
     miicam_driver = None
 
-pytestmark = pytest.mark.hardware
-
 
 class TestMIICAMReport:
     """MIICAM camera hardware tests with visual report."""
+
+    pytestmark = pytest.mark.hardware
 
     @pytest.fixture
     def camera_module(self):

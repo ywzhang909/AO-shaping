@@ -19,11 +19,11 @@ import pytest
 from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200, VideoMode
 from tests.ao_shaping.utils.test_report import TestReport, TestWithReport
 
-pytestmark = pytest.mark.hardware
-
 
 class TestSLMReport:
     """SLM-200 hardware tests with visual report."""
+
+    pytestmark = pytest.mark.hardware
 
     @pytest.fixture
     def slm(self):
@@ -314,12 +314,23 @@ class TestSLMReport:
 
 
 def test_slm_standalone_report():
-    """Standalone test that can run without pytest."""
+    """Standalone test that can run without pytest (simulation mode)."""
     with TestReport("slm-200") as report:
-        report.add_section("SLM-200 Standalone Test", 2)
-        report.add_text("This test runs without pytest framework.")
+        report.add_section("SLM-200 Simulation Test", 2)
+        report.add_text("This test runs without hardware using simulated data.")
 
-        with SantecSLM200(slm_number=1) as slm:
+        # Try to connect to hardware, fall back to simulation
+        slm = None
+        try:
+            slm = SantecSLM200(slm_number=1)
+            slm.open()
+            report.add_key_value("Mode", "Hardware")
+        except Exception as e:
+            report.add_key_value("Mode", "Simulation (no hardware)")
+            report.add_key_value("Hardware Error", str(e))
+            slm = None
+
+        if slm is not None:
             with TestWithReport(report, "Basic Open/Close"):
                 assert slm.is_open
                 report.add_key_value("State", "Connected")
@@ -337,12 +348,86 @@ def test_slm_standalone_report():
                 slm.display_memory(1)
                 report.add_text("Pattern written and displayed successfully.")
 
-            # Generate test plot
-            fig, ax = plt.subplots()
-            x = np.linspace(0, 2 * np.pi, 100)
-            ax.plot(x, np.sin(x))
-            ax.set_title("Test Sine Wave")
-            report.add_plot(fig, "test_sine", "Test sine wave plot")
+            slm.close()
+        else:
+            # Simulation mode - generate synthetic data
+            with TestWithReport(report, "Simulated Pattern Generation"):
+                RESOLUTION = (1920, 1200)
+                height, width = RESOLUTION[1], RESOLUTION[0]
+
+                patterns = {}
+
+                # Checkerboard
+                period = 50
+                y = np.arange(height) // period
+                x = np.arange(width) // period
+                X, Y = np.meshgrid(x, y)
+                checker = (X + Y) % 2
+                patterns["Checkerboard"] = (checker * 1023).astype(np.uint16)
+
+                # Blazed grating
+                period = 20
+                x = np.arange(width)
+                grating = (x % period) / period * 1023
+                patterns["Blazed Grating"] = np.tile(grating, (height, 1)).astype(
+                    np.uint16
+                )
+
+                # Focus pattern
+                focal_length = 0.1
+                wavelength = 1064e-9
+                pixel_size = 8e-6
+                x = np.arange(width) - width // 2
+                y = np.arange(height) - height // 2
+                X, Y = np.meshgrid(x, y)
+                R2 = X**2 + Y**2
+                phase = (np.pi / wavelength / focal_length) * (R2 * pixel_size**2)
+                phase_wrapped = np.mod(phase, 2 * np.pi)
+                patterns["Focus (10cm)"] = (phase_wrapped / (2 * np.pi) * 1023).astype(
+                    np.uint16
+                )
+
+                # Display patterns
+                fig, axes = plt.subplots(2, 2, figsize=(10, 8))
+                axes = axes.flatten()
+                for idx, (name, pattern) in enumerate(patterns.items()):
+                    if idx < len(axes):
+                        im = axes[idx].imshow(pattern, cmap="gray", vmin=0, vmax=1023)
+                        axes[idx].set_title(name)
+                        axes[idx].axis("off")
+                        plt.colorbar(im, ax=axes[idx], fraction=0.046, pad=0.04)
+                plt.tight_layout()
+                report.add_plot(fig, "sim_phase_patterns", "Simulated phase patterns")
+
+                # Diffraction analysis
+                wavelength = 1064e-9
+                f = 0.125
+                pixel_pitch = 8e-6
+                periods = [10, 20, 40, 80, 160]
+                diff_data = []
+                for period in periods:
+                    d = period * pixel_pitch
+                    delta_x_m = wavelength * f / d
+                    delta_x_px = delta_x_m / pixel_pitch
+                    diff_data.append(
+                        [
+                            f"{period}px",
+                            f"{d * 1e6:.1f} µm",
+                            f"{delta_x_m * 1e3:.2f} mm",
+                            f"{delta_x_px:.1f} px",
+                        ]
+                    )
+                report.add_table(
+                    ["Period", "Grating Spacing", "Δx (mm)", "Δx (pixels)"],
+                    diff_data,
+                )
+
+        # Generate test plot
+        fig, ax = plt.subplots()
+        x = np.linspace(0, 2 * np.pi, 100)
+        ax.plot(x, np.sin(x))
+        ax.set_title("Test Sine Wave")
+        report.add_plot(fig, "test_sine", "Test sine wave plot")
 
         report.save()
         print(f"Report saved to: {report.report_path}")

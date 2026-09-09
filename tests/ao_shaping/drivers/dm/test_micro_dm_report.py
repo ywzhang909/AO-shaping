@@ -26,11 +26,11 @@ from ao_shaping.drivers.dm.MicroDM import (
 from ao_shaping.drivers.sim.dm import SimMicroDM
 from tests.ao_shaping.utils.test_report import TestReport, TestWithReport
 
-pytestmark = pytest.mark.hardware
-
 
 class TestMicroDMReport:
     """Micro DM hardware tests with visual report."""
+
+    pytestmark = pytest.mark.hardware
 
     @pytest.fixture
     def dm(self):

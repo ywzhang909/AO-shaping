@@ -27,11 +27,11 @@ except ImportError:
     WFS_AVAILABLE = False
     wfs_driver = None
 
-pytestmark = pytest.mark.hardware
-
 
 class TestWFSReport:
     """Thorlabs WFS hardware tests with visual report."""
+
+    pytestmark = pytest.mark.hardware
 
     @pytest.fixture
     def wfs_module(self):
