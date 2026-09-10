@@ -53,18 +53,22 @@ def _initialize_slm_state() -> None:
             st.session_state[f"{prefix}_toggle_stop_event"] = None
             st.session_state[f"{prefix}_toggle_freq_ref"] = None
             st.session_state[f"{prefix}_toggle_slm_container"] = None
+            st.session_state[f"{prefix}_base_phase"] = None
+            st.session_state[f"{prefix}_overlay_base"] = False
         else:
             slm = st.session_state[prefix]
             if slm is not None and not getattr(slm, "is_open", False):
                 st.session_state[prefix] = None
                 st.session_state[f"{prefix}_connected"] = False
-                st.session_state[f"{prefix}_toggle_active"] = False
-                st.session_state[f"{prefix}_toggle_phase_a"] = None
-                st.session_state[f"{prefix}_toggle_phase_b"] = None
-                st.session_state[f"{prefix}_toggle_thread"] = None
-                st.session_state[f"{prefix}_toggle_stop_event"] = None
-                st.session_state[f"{prefix}_toggle_freq_ref"] = None
-                st.session_state[f"{prefix}_toggle_slm_container"] = None
+            st.session_state[f"{prefix}_toggle_active"] = False
+            st.session_state[f"{prefix}_toggle_phase_a"] = None
+            st.session_state[f"{prefix}_toggle_phase_b"] = None
+            st.session_state[f"{prefix}_toggle_thread"] = None
+            st.session_state[f"{prefix}_toggle_stop_event"] = None
+            st.session_state[f"{prefix}_toggle_freq_ref"] = None
+            st.session_state[f"{prefix}_toggle_slm_container"] = None
+            st.session_state[f"{prefix}_base_phase"] = None
+            st.session_state[f"{prefix}_overlay_base"] = False
 
 
 def _stop_toggle(slm_num: int) -> None:
@@ -1411,6 +1415,8 @@ def disconnect_slm(slm_num: int):
         _stop_toggle(slm_num)
         st.session_state[f"{prefix}_toggle_phase_a"] = None
         st.session_state[f"{prefix}_toggle_phase_b"] = None
+        st.session_state[f"{prefix}_base_phase"] = None
+        st.session_state[f"{prefix}_overlay_base"] = False
 
         st.rerun()
 
@@ -2032,6 +2038,17 @@ def render_phase_control(slm_num: int):
                     st.warning("无法获取当前显示相位")
             else:
                 st.warning("SLM 未连接")
+        if st.button("设为全0相位 A", key=f"{prefix}_set_zero_phase_a"):
+            slm = st.session_state.get(prefix)
+            if slm is not None and getattr(slm, "is_open", False):
+                h = slm.Panel_Res[1]
+                w = slm.Panel_Res[0]
+                st.session_state[f"{prefix}_toggle_phase_a"] = np.zeros(
+                    (h, w), dtype=np.uint16
+                )
+                st.success(f"相位 A 已设为全0相位 ({h}×{w})")
+            else:
+                st.warning("SLM 未连接")
         phase_a = st.session_state.get(f"{prefix}_toggle_phase_a")
         if phase_a is not None:
             _export_phase_csv(phase_a, f"slm{slm_num}_phase_a.csv")
@@ -2045,6 +2062,17 @@ def render_phase_control(slm_num: int):
                     st.success(f"相位 B 已设置 ({phase.shape})")
                 else:
                     st.warning("无法获取当前显示相位")
+            else:
+                st.warning("SLM 未连接")
+        if st.button("设为全0相位 B", key=f"{prefix}_set_zero_phase_b"):
+            slm = st.session_state.get(prefix)
+            if slm is not None and getattr(slm, "is_open", False):
+                h = slm.Panel_Res[1]
+                w = slm.Panel_Res[0]
+                st.session_state[f"{prefix}_toggle_phase_b"] = np.zeros(
+                    (h, w), dtype=np.uint16
+                )
+                st.success(f"相位 B 已设为全0相位 ({h}×{w})")
             else:
                 st.warning("SLM 未连接")
         phase_b = st.session_state.get(f"{prefix}_toggle_phase_b")
@@ -2155,6 +2183,52 @@ def render_phase_control(slm_num: int):
         except Exception as e:
             st.error(f"加载CSV相位失败: {e}")
             logger.exception(f"Failed to load CSV phase for SLM {slm_num}: {e}")
+
+    st.divider()
+    st.subheader("底相位")
+    st.caption("将当前显示相位保存为底相位，后续发送相位时可自动叠加")
+
+    col_base1, col_base2 = st.columns(2)
+    with col_base1:
+        if st.button("保存当前相位为底相位", key=f"{prefix}_save_base_phase"):
+            slm = st.session_state.get(prefix)
+            if slm is not None and getattr(slm, "is_open", False):
+                phase, source = slm.get_displayed_phase()
+                if phase is not None:
+                    st.session_state[f"{prefix}_base_phase"] = phase.copy()
+                    overlay = st.session_state.get(f"{prefix}_overlay_base", False)
+                    slm._overlay_base_phase = overlay
+                    st.success(f"底相位已保存 ({phase.shape}, 来源: {source})")
+                else:
+                    st.warning("无法获取当前显示相位，请先显示一个相位图案")
+            else:
+                st.warning("SLM 未连接")
+    with col_base2:
+        overlay = st.checkbox(
+            "发送时自动叠加底相位",
+            value=st.session_state.get(f"{prefix}_overlay_base", False),
+            key=f"{prefix}_overlay_base_cb",
+            help="勾选后，写入SLM的相位会自动叠加已保存的底相位",
+        )
+        if overlay != st.session_state.get(f"{prefix}_overlay_base", False):
+            st.session_state[f"{prefix}_overlay_base"] = overlay
+            slm = st.session_state.get(prefix)
+            if slm is not None:
+                slm._overlay_base_phase = overlay
+                st.success(f"底相位叠加已{'启用' if overlay else '禁用'}")
+
+    base_phase = st.session_state.get(f"{prefix}_base_phase")
+    if base_phase is not None:
+        st.caption(f"当前底相位: 已保存，尺寸 {base_phase.shape}")
+        if st.button("清除底相位", key=f"{prefix}_clear_base_phase"):
+            st.session_state[f"{prefix}_base_phase"] = None
+            st.session_state[f"{prefix}_overlay_base"] = False
+            slm = st.session_state.get(prefix)
+            if slm is not None:
+                slm._overlay_base_phase = False
+            st.success("底相位已清除")
+    else:
+        st.caption("当前底相位: 未设置")
 
 
 if __name__ == "__main__":

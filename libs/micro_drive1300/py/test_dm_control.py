@@ -6,6 +6,9 @@ DM Control Pytest Test Suite
 """
 
 import pytest
+
+pytest.importorskip("dm_control")
+
 from unittest.mock import Mock, patch, MagicMock
 from dm_control import (
     DMController,

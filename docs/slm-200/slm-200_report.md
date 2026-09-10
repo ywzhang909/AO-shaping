@@ -1,5 +1,5 @@
 # SLM-200 Hardware Test Report
-**Generated:** 2026-09-09 00:33:17
+**Generated:** 2026-09-10 18:23:18
 **Device:** slm-200
 ---
 
@@ -8,7 +8,7 @@ This test runs without hardware using simulated data.
 
 **Mode:** Simulation (no hardware)
 
-**Hardware Error:** 无法打开SLM #1 (错误码: -10002, 未找到USB设备，请检查设备电源和连接)
+**Hardware Error:** 无法打开SLM #1 (错误码: <MagicMock name='mock.SLM_Ctrl_Open()' id='2469948692128'>, 未知错误码 (<MagicMock name='mock.SLM_Ctrl_Open()' id='2469948692128'>))
 
 ### Simulated Pattern Generation
 
@@ -25,7 +25,7 @@ This test runs without hardware using simulated data.
 
 **Status:** ✅ PASS
 
-**Duration:** 0.92s
+**Duration:** 0.81s
 
 ---
 

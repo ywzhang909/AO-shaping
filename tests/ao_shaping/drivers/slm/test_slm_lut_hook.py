@@ -23,6 +23,7 @@ from ao_shaping.drivers.slm.santec_slm200 import (
     apply_lut_remap,
 )
 
+
 # Ensure mock stays in place for every test in this module
 @pytest.fixture(autouse=True)
 def _ensure_mock_slm_sdk() -> Generator[None, None, None]:
@@ -37,6 +38,7 @@ def _ensure_mock_slm_sdk() -> Generator[None, None, None]:
 # ---------------------------------------------------------------------------
 # Helper: build a minimal LUT directory with lut.npz
 # ---------------------------------------------------------------------------
+
 
 def _write_identity_lut(directory: Path) -> None:
     """Write an identity inverse_gray LUT (gray maps to itself)."""
@@ -54,9 +56,9 @@ def _write_identity_lut(directory: Path) -> None:
 def _write_offset_lut(directory: Path, offset: int = 100) -> None:
     """Write an offset inverse_gray LUT (gray → gray+offset, clamped to 1023)."""
     directory.mkdir(parents=True, exist_ok=True)
-    inverse_gray = np.clip(
-        np.arange(1024, dtype=np.int64) + offset, 0, 1023
-    ).astype(np.uint16)
+    inverse_gray = np.clip(np.arange(1024, dtype=np.int64) + offset, 0, 1023).astype(
+        np.uint16
+    )
     np.savez_compressed(
         str(directory / "lut.npz"),
         inverse_gray=inverse_gray,
@@ -79,6 +81,7 @@ def _write_csv_lut(directory: Path, offset: int = 0) -> None:
 # ---------------------------------------------------------------------------
 # Tests: apply_lut_remap (module-level pure function)
 # ---------------------------------------------------------------------------
+
 
 class TestApplyLutRemap:
     """Unit tests for the standalone apply_lut_remap function."""
@@ -127,6 +130,7 @@ class TestApplyLutRemap:
 # ---------------------------------------------------------------------------
 # Tests: SantecSLM200 LUT integration
 # ---------------------------------------------------------------------------
+
 
 class TestLUTDefaultState:
     """Verify default LUT state and no-op behavior."""
@@ -363,7 +367,7 @@ class TestLUTInCreatePhaseFromArray:
         assert remapped.shape == baseline.shape
 
     def test_output_in_valid_range(self, tmp_path: Path) -> None:
-        """All output values must be in 0..1023 even with aggressive LUT."""
+        """Output follows linear mapping; SLM handles mod 2π wrapping."""
         lut_dir = tmp_path / "lut_extreme"
         _write_offset_lut(lut_dir, offset=200)
 
@@ -372,4 +376,7 @@ class TestLUTInCreatePhaseFromArray:
 
         result = slm.create_phase_from_array(phase_rad)
         assert np.all(result >= 0)
-        assert np.all(result <= 1023)
+        # Without software-side mod 2π, values can exceed 1023 for rad > 2π;
+        # the SLM firmware handles wrapping.
+        max_expected = int(phase_rad.max() / (2 * np.pi) * slm.MAX_GRAYSCALE_VALUE)
+        assert np.all(result <= max_expected)

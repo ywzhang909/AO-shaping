@@ -72,6 +72,7 @@ def apply_lut_remap(gray: np.ndarray, lut: np.ndarray) -> np.ndarray:
     idx = np.clip(gray.astype(np.int64), 0, lut.size - 1)
     return lut[idx].astype(np.float64)
 
+
 # Config directory: <project_root>/data/slm_configs/ or from SLM_CONFIG_DIR env var
 _SLM_CONFIG_DIR = Path(
     os.environ.get("SLM_CONFIG_DIR", PROJECT_ROOT / "data" / "slm_configs")
@@ -254,6 +255,10 @@ class SantecSLM200:
         # 波前误差矫正工具（从CSV加载，在create_phase_from_array中叠加）
         # 文件有效性由 WavefrontCorrection.__init__ 内部判断
         self._correction = WavefrontCorrection(correction_csv_path)
+
+        # 底相位叠加（UI 设置，write_phase 中自动叠加）
+        self._base_phase: np.ndarray | None = None
+        self._overlay_base_phase: bool = False
 
         # 相位→灰度补偿查找表（load_lut 加载，create_phase_from_array 中应用）
         self._lut: np.ndarray | None = None
@@ -958,6 +963,22 @@ class SantecSLM200:
         if phase.ndim != 2:
             raise ValueError(f"相位数据必须是2D数组，当前维度: {phase.ndim}")
 
+        # 自动叠加底相位（如有）
+        if (
+            getattr(self, "_overlay_base_phase", False)
+            and getattr(self, "_base_phase", None) is not None
+        ):
+            base = self._base_phase
+            if base.shape == phase.shape:
+                phase = np.mod(
+                    phase.astype(np.int32) + base.astype(np.int32),
+                    self.MAX_GRAYSCALE_VALUE + 1,
+                ).astype(np.uint16)
+            else:
+                logger.warning(
+                    f"底相位尺寸 {base.shape} 与当前相位 {phase.shape} 不匹配，跳过叠加"
+                )
+
         # 自动叠加波前误差矫正（模 MAX_GRAYSCALE_VALUE+1 环绕）
         if self._correction.is_valid and self._correction.correction_map is not None:
             phase = self._correction.map_error(
@@ -1046,9 +1067,7 @@ class SantecSLM200:
         self._displayed_phase_cache = phase.copy()
         logger.debug("相位数据显示")
 
-    def display_data(
-        self, phase: np.ndarray, wait_time_s: float | None = None
-    ) -> None:
+    def display_data(self, phase: np.ndarray, wait_time_s: float | None = None) -> None:
         """将相位数据写入内存并显示，等待像素翻转完成。
 
         像素下发后的等待时间语义:
@@ -1289,7 +1308,6 @@ class SantecSLM200:
         # 确保 max_grayscale 有有效值
         assert max_grayscale is not None, "max_grayscale should be calculated"
         np.nan_to_num(phase_rad, copy=False, nan=0)
-        phase_rad = np.mod(phase_rad, 2 * np.pi)
         # 确保输入是float类型以便计算
         phase_rad = phase_rad.astype(np.float64)
 

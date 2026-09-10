@@ -52,6 +52,39 @@ def calc_n_zernike_terms(n_max: int) -> int:
     return (n_max + 1) * (n_max + 2) // 2
 
 
+def noll_to_nm(j: int) -> tuple[int, int]:
+    """Convert Noll index to (n, m) Zernike indices (aotools convention).
+
+    Standalone function using the aotools RZern library for conversion.
+    Follows the standard Noll indexing convention (Noll 1976).
+    Supports any Noll index (not limited to 1-15).
+
+    NOTE: This is the canonical implementation. The hardcoded lookup tables
+    in `optimizer/wf/ga_zernike.py` and `optimizer/wf/rms_by_zernike.py`
+    only support indices 1-15.
+
+    Args:
+        j: Noll index (1-based).
+
+    Returns:
+        Tuple of (n, m) radial and azimuthal orders.
+
+    Raises:
+        ValueError: If j < 1.
+    """
+    if j < 1:
+        raise ValueError(f"Noll index must be >= 1, got {j}")
+    # Create a temporary RZern with enough orders to cover index j
+    # noll2nm needs at least ceil((sqrt(8*j-7)-1)/2) radial orders
+    import math
+    n_needed = max(1, math.ceil((math.sqrt(8 * j - 7) - 1) / 2))
+    cart = RZern(n_needed)
+    result = cart.noll2nm(j)
+    if isinstance(result, tuple):
+        return (int(result[0]), int(result[1]))
+    return (int(result[0][0]), int(result[1][0]))
+
+
 def fit_zernike(phase: np.ndarray, n_max: int = 10) -> np.ndarray:
     """Fit Zernike coefficients to a phase map.
 

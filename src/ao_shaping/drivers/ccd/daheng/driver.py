@@ -11,7 +11,7 @@ from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
 from ao_shaping.utils.file import logger
 
 try:
-    import gxipy as gx
+    import gxipy as gx  # type: ignore[import-untyped]
 except (ImportError, OSError) as e:
     logger.error(f"Daheng SDK import failed: {e}")
 
@@ -147,7 +147,7 @@ class DahengCamManager(BaseCamera):
         sn = dev_info_list[self.cam_id].get("sn")
         try:
             self.cam = self.device_manager.open_device_by_sn(sn)
-        except gx.gxiapi.InvalidAccess as e:
+        except gx.gxiapi.InvalidAccess as e:  # type: ignore[attr-defined]
             if "REPEAT_OPENED" in str(e) or "device has been open" in str(e):
                 logger.warning(
                     f"Device {sn} already opened, attempting to reinitialize..."
@@ -160,13 +160,23 @@ class DahengCamManager(BaseCamera):
         # 设置相机的曝光时间
         float_range = self.cam.ExposureTime.get_range()
         if float_range:
+            # gxipy SDK 的 ExposureTime 单位是微秒 (μs)，
+            # 转换为毫秒 (ms) 存入内部 ExposureTime，保证全驱动统一用 ms。
             self.__exposure_time_ms.min = float_range["min"] / 1000.0
             self.__exposure_time_ms.max = float_range["max"] / 1000.0
+            logger.info(
+                "Exposure time range: {:.1f}~{:.1f} µs ({:.3f}~{:.3f} ms)",
+                float_range["min"],
+                float_range["max"],
+                self.__exposure_time_ms.min,
+                self.__exposure_time_ms.max,
+            )
         else:
             logger.warning(
                 f"Exposure time range not found for camera {sn}. Using default value."
             )
-        self.cam.ExposureTime.set(self.__exposure_time_ms.ms)
+        # 写入 SDK 时再转回 µs
+        self.cam.ExposureTime.set(int(self.__exposure_time_ms.ms * 1000))
         # 设置相机的增益
         self.cam.Gain.set(0.0)
         # 设置相机的像素格式为MONO8
@@ -347,19 +357,19 @@ class DahengCamManager(BaseCamera):
         """
         assert self.cam, "camera not initialized"
 
-        target_val = target_mean * 255
-        min_exp = self.__exposure_time_ms.min
-        max_exp = self.__exposure_time_ms.max
+        target_val = float(target_mean * 255)
+        min_exp = float(self.__exposure_time_ms.min)
+        max_exp = float(self.__exposure_time_ms.max)
 
         logger.info(
             f"Auto exposure start: target={target_mean:.2f} ({target_val:.0f}), "
             f"range=[{min_exp}, {max_exp}]ms, max_iter={max_iterations}"
         )
 
-        current_exp = self.exposure_time
+        current_exp = float(self.exposure_time)
         for i in range(max_iterations):
             img = self.get_numpy_image(n_sample, skip_first=True)
-            mean_val = np.mean(img)
+            mean_val = float(np.mean(img))
 
             if abs(mean_val - target_val) <= tolerance * 255:
                 logger.info(
@@ -369,7 +379,7 @@ class DahengCamManager(BaseCamera):
                 return current_exp, mean_val / 255.0
 
             ratio = target_val / max(mean_val, 1)
-            new_exp = int(current_exp * ratio)
+            new_exp = current_exp * ratio
             new_exp = max(min_exp, min(max_exp, new_exp))
 
             if new_exp == current_exp:
@@ -388,7 +398,7 @@ class DahengCamManager(BaseCamera):
             )
 
         final_img = self.get_numpy_image(n_sample, skip_first=True)
-        final_mean = np.mean(final_img)
+        final_mean = float(np.mean(final_img))
         logger.warning(
             f"Auto exposure max iterations reached: "
             f"exp={current_exp}ms, mean={final_mean:.1f}"
@@ -455,8 +465,13 @@ class DahengCamManager(BaseCamera):
 
     def __update_properties(self):
         assert self.cam, "camera not initialized"
-        self.cam_width = self.cam.Width.get()
-        self.cam_height = self.cam.Height.get()
+        width_val = self.cam.Width.get()
+        height_val = self.cam.Height.get()
+        assert width_val is not None and height_val is not None, (
+            "camera size not available"
+        )
+        self.cam_width = int(width_val)
+        self.cam_height = int(height_val)
         logger.info(
             f"Open cam {self._sn} success. width={self.cam_width}, height={self.cam_height}"
         )

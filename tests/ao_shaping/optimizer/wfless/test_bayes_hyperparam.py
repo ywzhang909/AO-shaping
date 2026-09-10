@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+# skopt 是 bayes_hyperparam 的重型可选依赖；环境未安装时跳过全部用例
+pytest.importorskip("skopt")
+
 from ao_shaping.optimizer.wfless.bayes_hyperparam import (
     SearchParam,
     bayesian_search_hyperparams,

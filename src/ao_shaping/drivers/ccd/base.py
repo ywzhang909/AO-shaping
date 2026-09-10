@@ -17,6 +17,16 @@ class BaseCamera(ABC):
     All camera drivers should inherit from this class and implement
     the abstract methods. The class provides context manager support
     for automatic resource cleanup.
+
+    Units and conventions
+    ---------------------
+    * Exposure time: **milliseconds (ms)** in the Python layer.
+      Some SDKs (Daheng gxipy, MIICAM) internally use **microseconds (µs)**;
+      implementations must convert at the SDK boundary (`ms * 1000 -> µs`
+      when writing, `µs / 1000 -> ms` when reading).
+    * Brightness: raw pixel values; dtype depends on bit depth
+      (typically ``uint8`` or ``uint16``).
+    * ROI window: ``(width, height)`` and ``(center_x, center_y)`` in pixels.
     """
 
     def __init__(
@@ -30,7 +40,9 @@ class BaseCamera(ABC):
         Args:
             cam_id: Camera device index.
             exposure_time_ms: Initial exposure time in milliseconds.
-                Valid range: 0.011ms to 10000ms.
+                Common valid range across drivers: ``0.011 ms`` to
+                ``10000 ms``. Sub-ms values are allowed where the
+                hardware supports them.
             skip_sampling: Whether to enable binning/skipping for faster capture.
         """
         self.cam_id = int(cam_id)
@@ -89,9 +101,19 @@ class BaseCamera(ABC):
     def reset_exposure_time(self, time_ms: float) -> float:
         """Set the camera exposure time.
 
+        The exposure time is expressed in **milliseconds (ms)** at the
+        Python layer. Implementations may need to convert to the native
+        SDK unit (often microseconds) when writing to hardware.
+
+        Some cameras (e.g. MIICAM) require a ``Stop -> set -> Start``
+        cycle when changing exposure while streaming; the first frame
+        after the change may be stale, so callers should discard it
+        (``skip_first=True``).
+
         Args:
             time_ms: New exposure time in milliseconds.
-                Valid range: 0.011ms to 10000ms.
+                Typical valid range: ``0.011 ms`` to ``10000 ms``.
+                Values outside the hardware range should be clamped.
 
         Returns:
             float: Actual exposure time set in milliseconds.
@@ -132,10 +154,13 @@ class BaseCamera(ABC):
 
         Args:
             n_sample: Number of samples to average. Must be > 0.
-            skip_first: Whether to skip first frame (often unstable).
+            skip_first: Whether to skip first frame. This is especially
+                useful after exposure or ROI changes, where the first
+                returned frame can be stale or unstable.
 
         Returns:
-            np.ndarray: Captured image as uint8 array.
+            np.ndarray: Captured image as ``uint8`` or ``uint16`` array,
+            depending on the camera's current bit depth / pixel format.
 
         Raises:
             AssertionError: If n_sample is not positive.
@@ -152,22 +177,6 @@ class BaseCamera(ABC):
 
         Returns:
             bool: True if successful, False if not supported.
-        """
-        pass
-
-    @abstractmethod
-    def reset_exposure_time(self, time_ms: float) -> float:
-        """Set the camera exposure time.
-
-        Args:
-            time_ms: New exposure time in milliseconds.
-                Valid range: 0.011ms to 10000ms.
-
-        Returns:
-            float: Actual exposure time set in milliseconds.
-
-        Raises:
-            AssertionError: If camera is not initialized.
         """
         pass
 

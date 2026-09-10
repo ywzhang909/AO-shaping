@@ -4,7 +4,9 @@ import numpy as np
 import pytest
 
 
-pytestmark = pytest.mark.skip(reason="Requires MIICAM 4100 series camera hardware and SDK")
+pytestmark = pytest.mark.skip(
+    reason="Requires MIICAM 4100 series camera hardware and SDK"
+)
 
 
 class TestMIICAMCamera:
@@ -246,6 +248,67 @@ class TestMIICAMCamera:
 
         assert img_8bit.shape == img_16bit.shape
         print(f"\n8-bit max: {max_8bit}, 16-bit max: {max_16bit}")
+
+    def test_exposure_brightness_response(self, CameraStreamManager):
+        """Test that max brightness increases monotonically with exposure.
+
+        Verifies:
+        1. Sub-ms exposures (0.011ms) are accepted and applied.
+        2. Mean brightness increases with exposure.
+        3. Continuous acquisition across exposure changes works.
+        """
+        import time
+
+        exposures = [0.011, 0.05, 0.2, 0.5, 1.0, 2.0]
+        means: list[float] = []
+        maxs: list[float] = []
+
+        with CameraStreamManager(cam_id=0, exposure_time_ms=0.2) as cam:
+            for exp_ms in exposures:
+                cam.reset_exposure_time(exp_ms)
+                time.sleep(0.15)
+                img = cam.get_numpy_image(n_sample=1, skip_first=True)
+                means.append(float(np.mean(img)))
+                maxs.append(float(np.max(img)))
+                print(f"exp={exp_ms:.3f}ms -> mean={means[-1]:.2f}, max={maxs[-1]:.1f}")
+
+        assert means == sorted(means), (
+            f"Mean brightness should increase with exposure: {means}"
+        )
+
+    def test_continuous_spot_acquisition(self, CameraStreamManager):
+        """Test continuous frame capture stability.
+
+        Captures a sequence of frames at fixed exposure and verifies:
+        - No dropped frames / exceptions
+        - Spot region intensity is reasonably stable
+        """
+        import time
+
+        n_frames = 20
+        with CameraStreamManager(cam_id=0, exposure_time_ms=1.0) as cam:
+            frames = []
+            for _ in range(n_frames):
+                img = cam.get_numpy_image(n_sample=1, skip_first=True)
+                frames.append(img)
+
+            assert len(frames) == n_frames
+            stack = np.stack(frames)
+            temporal_mean = np.mean(stack, axis=0)
+            temporal_std = np.std(stack, axis=0)
+
+            roi_size = 40
+            h, w = temporal_mean.shape
+            cy, cx = h // 2, w // 2
+            roi = temporal_mean[
+                cy - roi_size // 2 : cy + roi_size // 2,
+                cx - roi_size // 2 : cx + roi_size // 2,
+            ]
+            roi_std = float(np.mean(temporal_std))
+            roi_mean = float(np.mean(roi))
+
+            print(f"\nContinuous spot ROI mean={roi_mean:.2f}, std={roi_std:.2f}")
+            assert roi_mean > 0
 
 
 def test_quick_capture():

@@ -384,7 +384,7 @@ class SLMCalibratorBase(ABC):
     def __init__(
         self,
         slm: SLMProtocol,
-        camera: CameraProtocol,
+        camera: CameraWithExposureProtocol,
         grating_period: int = 8,
         roi_center: tuple[int, int] | None = None,
         roi_size: tuple[int, int] = (100, 100),
@@ -688,7 +688,7 @@ class SantecSLM200Calibrator(SLMCalibratorBase):
     def __init__(
         self,
         slm,  # SantecSLM200实例
-        camera: CameraProtocol,
+        camera: CameraWithExposureProtocol,
         grating_period: int = 8,
         roi_center: tuple[int, int] | None = None,
         roi_size: tuple[int, int] = (100, 100),
@@ -1002,7 +1002,7 @@ class InterferometerCalibrator(SLMCalibratorBase):
     def __init__(
         self,
         slm: SLMProtocol,
-        camera: CameraProtocol,
+        camera: CameraWithExposureProtocol,
         roi_center: tuple[int, int] | None = None,
         roi_size: tuple[int, int] = (100, 100),
     ):
@@ -1050,7 +1050,7 @@ class InterferometerCalibrator(SLMCalibratorBase):
         diff = np.mean(img1) - np.mean(img2)
 
         # 转换为相位（假设线性响应）
-        return diff * np.pi / 128.0  # 简化转换
+        return float(diff * np.pi / 128.0)  # 简化转换
 
     def calibrate(
         self,
@@ -1140,7 +1140,7 @@ class DiffractionEfficiencyCalibrator(SLMCalibratorBase):
     def __init__(
         self,
         slm: SLMProtocol,
-        camera: CameraProtocol,
+        camera: CameraWithExposureProtocol,
         grating_period: int = 16,
         roi_center: tuple[int, int] | None = None,
         roi_size: tuple[int, int] = (50, 50),

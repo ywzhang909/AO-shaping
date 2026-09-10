@@ -90,11 +90,16 @@ name = "pytorch-cu124"
 url = "https://download.pytorch.org/whl/cu124"
 explicit = true
 
+[[tool.uv.index]]
+name = "pytorch-cu132"
+url = "https://download.pytorch.org/whl/cu132"
+explicit = true
+
 [tool.uv.sources]
 torch = [
-  { index = "pytorch-cu124", marker = "sys_platform == 'win32'" },
+  { index = "pytorch-cu132", marker = "sys_platform == 'win32'" },
 ]
 torchvision = [
-  { index = "pytorch-cu124", marker = "sys_platform == 'win32'" },
+  { index = "pytorch-cu132", marker = "sys_platform == 'win32'" },
 ]
 
