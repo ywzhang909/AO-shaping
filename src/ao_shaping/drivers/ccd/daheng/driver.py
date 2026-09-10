@@ -26,6 +26,7 @@ _CCD_CONFIG_DIR = Path(
 @dataclass
 class CCDParams(DeviceParam):
     """Daheng 相机配置参数。"""
+
     cam_id: int = param(default=0, cast=int)
     exposure_time_ms: float = param(default=0.0, cast=float)
     skip_sampling: bool = param(default=False, cast=bool)
@@ -159,8 +160,8 @@ class DahengCamManager(BaseCamera):
         # 设置相机的曝光时间
         float_range = self.cam.ExposureTime.get_range()
         if float_range:
-            self.__exposure_time_ms.min = float_range["min"]
-            self.__exposure_time_ms.max = float_range["max"]
+            self.__exposure_time_ms.min = float_range["min"] / 1000.0
+            self.__exposure_time_ms.max = float_range["max"] / 1000.0
         else:
             logger.warning(
                 f"Exposure time range not found for camera {sn}. Using default value."
@@ -188,22 +189,22 @@ class DahengCamManager(BaseCamera):
         config = self.load_config()
         CCD_CONFIG.apply_from_config(self, config, init_values=self._init_values)
         # 重新应用曝光时间（配置可能覆盖了 exposure_time_ms）
-        self.cam.ExposureTime.set(self.__exposure_time_ms.ms)
+        self.cam.ExposureTime.set(int(self.__exposure_time_ms.ms * 1000))
 
         self.__update_properties()
         self.cam.stream_on()
 
-    def reset_exposure_time(self, time_ms: int) -> int:
+    def reset_exposure_time(self, time_ms: float) -> float:
         """Reset the camera exposure time.
 
         Args:
-            time_ms: The new exposure time in milliseconds. Must be >= 20.
+            time_ms: The new exposure time in milliseconds.
 
         Returns:
-            int: The actual exposure time set in milliseconds.
+            float: The actual exposure time set in milliseconds.
         """
         assert self.cam, "camera not initialized"
-        time_ms = int(time_ms)
+        time_ms = float(time_ms)
         if time_ms < self.__exposure_time_ms.min:
             v = self.__exposure_time_ms.min
             logger.warning(
@@ -216,7 +217,7 @@ class DahengCamManager(BaseCamera):
             )
         else:
             v = time_ms
-        self.cam.ExposureTime.set(v)
+        self.cam.ExposureTime.set(int(v * 1000))
         self.__exposure_time_ms.ms = self.exposure_time
 
         return self.exposure_time
@@ -324,7 +325,7 @@ class DahengCamManager(BaseCamera):
         tolerance: float = 0.05,
         max_iterations: int = 10,
         n_sample: int = 1,
-    ) -> tuple[int, float]:
+    ) -> tuple[float, float]:
         """
         自动曝光调整 - 根据目标平均亮度迭代调整曝光时间。
 
@@ -342,7 +343,7 @@ class DahengCamManager(BaseCamera):
             n_sample: 每次迭代的采样次数 (默认1)
 
         Returns:
-            tuple[int, float]: (最终曝光时间ms, 最终平均亮度)
+            tuple[float, float]: (最终曝光时间ms, 最终平均亮度)
         """
         assert self.cam, "camera not initialized"
 
@@ -362,7 +363,7 @@ class DahengCamManager(BaseCamera):
 
             if abs(mean_val - target_val) <= tolerance * 255:
                 logger.info(
-                    f"Auto exposure converged at iter {i+1}: "
+                    f"Auto exposure converged at iter {i + 1}: "
                     f"exp={current_exp}ms, mean={mean_val:.1f}"
                 )
                 return current_exp, mean_val / 255.0
@@ -373,7 +374,7 @@ class DahengCamManager(BaseCamera):
 
             if new_exp == current_exp:
                 logger.info(
-                    f"Auto exposure stable at iter {i+1}: "
+                    f"Auto exposure stable at iter {i + 1}: "
                     f"exp={current_exp}ms, mean={mean_val:.1f}"
                 )
                 return current_exp, mean_val / 255.0
@@ -382,7 +383,7 @@ class DahengCamManager(BaseCamera):
             self.reset_exposure_time(current_exp)
 
             logger.debug(
-                f"Auto exposure iter {i+1}: mean={mean_val:.1f}, "
+                f"Auto exposure iter {i + 1}: mean={mean_val:.1f}, "
                 f"exp={current_exp}ms (target={target_val:.0f})"
             )
 
@@ -462,13 +463,13 @@ class DahengCamManager(BaseCamera):
         self.xv, self.yv = self.__get_grid(self.cam_width, self.cam_height)
 
     @property
-    def exposure_time(self) -> int:
+    def exposure_time(self) -> float:
         assert self.cam, "camera not initialized"
         _exp_time = self.cam.ExposureTime.get()
-        return int(_exp_time) if _exp_time else 0
+        return _exp_time / 1000.0 if _exp_time else 0.0
 
     @exposure_time.setter
-    def exposure_time(self, time_ms: int):
+    def exposure_time(self, time_ms: float):
         assert self.cam, "camera not initialized"
         self.reset_exposure_time(time_ms)
 

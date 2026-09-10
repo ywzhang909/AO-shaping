@@ -174,7 +174,7 @@ class FFmpegCamera(BaseCamera):
         self._frame_count = 0
         logger.info(f"Closed FFmpeg camera: {self.cam_id}")
 
-    def reset_exposure_time(self, time_ms: int) -> int:
+    def reset_exposure_time(self, time_ms: float) -> float:
         """Set the simulated exposure time.
 
         Note: This is a SIMULATED parameter - actual exposure depends on
@@ -185,7 +185,7 @@ class FFmpegCamera(BaseCamera):
             time_ms: New exposure time in milliseconds.
 
         Returns:
-            int: The exposure time that was set.
+            float: The exposure time that was set.
 
         Raises:
             AssertionError: If camera is not initialized.
@@ -480,7 +480,6 @@ class ImageFolderCamera(BaseCamera):
         # Close previously opened folder
         self.close()
 
-
         # Convert cam_id to Path
         self._folder_path = Path(self.cam_id)
 
@@ -571,7 +570,7 @@ class ImageFolderCamera(BaseCamera):
         self.cam_height = 0
         logger.info(f"Closed ImageFolder camera: {self.cam_id}")
 
-    def reset_exposure_time(self, time_ms: int) -> int:
+    def reset_exposure_time(self, time_ms: float) -> float:
         """Set the simulated exposure time (delay between reads).
 
         Note: This is a SIMULATED parameter - adds delay between frame reads.
@@ -581,13 +580,13 @@ class ImageFolderCamera(BaseCamera):
             time_ms: New delay time in milliseconds.
 
         Returns:
-            int: The time that was set.
+            float: The time that was set.
 
         Raises:
             AssertionError: If camera is not initialized.
         """
         assert self._folder_path is not None, "camera not initialized"
-        self.exposure_time_ms = max(0, int(time_ms))
+        self.exposure_time_ms = max(0.0, float(time_ms))
         logger.warning(
             f"[ImageFolderCamera] Delay is SIMULATED only - adds {self.exposure_time_ms}ms "
             f"delay between reads. Actual timing depends on file timestamps."
@@ -638,7 +637,6 @@ class ImageFolderCamera(BaseCamera):
         """
         assert self._folder_path is not None, "camera not initialized"
         assert n_sample > 0, "Sample count must be > 0"
-
 
         # Skip first image if requested
         if skip_first:
