@@ -67,6 +67,44 @@ def _initialize_slm_state() -> None:
                 st.session_state[f"{prefix}_toggle_slm_container"] = None
 
 
+def _stop_toggle(slm_num: int) -> None:
+    """Stop the background toggle thread and clear its session state.
+
+    Safe to call when no toggle is running (no-op). Extracted to avoid
+    duplicating the same 8-line cleanup block in three places.
+    """
+    prefix = f"slm{slm_num}"
+    stop_event = st.session_state.get(f"{prefix}_toggle_stop_event")
+    if stop_event is not None:
+        stop_event.set()
+    st.session_state[f"{prefix}_toggle_active"] = False
+    st.session_state[f"{prefix}_toggle_thread"] = None
+    st.session_state[f"{prefix}_toggle_stop_event"] = None
+    st.session_state[f"{prefix}_toggle_freq_ref"] = None
+    st.session_state[f"{prefix}_toggle_slm_container"] = None
+
+
+def _pick_next_memory(slm_num: int) -> int:
+    """Pick the next SLM memory slot in 2..125, excluding the currently
+    displayed one.
+
+    The Santec firmware treats ``display_memory(slot)`` as a no-op when
+    that slot is already displayed, so consecutive writes MUST target
+    different slots.  This helper survives process restarts because the
+    currently-displayed slot is queried from the device at call time.
+    """
+    prefix = f"slm{slm_num}"
+    slm = st.session_state.get(prefix)
+    last_slot: int | None = None
+    if slm is not None and getattr(slm, "is_open", False):
+        try:
+            last_slot = slm.get_displayed_memory_number()
+        except Exception:
+            last_slot = None
+    candidates = [s for s in range(2, 126) if s != last_slot]
+    return int(np.random.choice(candidates))
+
+
 def _probe_slm(slm_num: int) -> dict | None:
     """Probe a single SLM by number; return device dict or None.
 
@@ -248,6 +286,7 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
             "涡旋相位",
             "半半相位",
             "GS方形整形",
+            "稳像法整形",
         ],
         key=f"{prefix}_pattern_type",
     )
@@ -258,7 +297,7 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
         params["flat_gray"] = st.number_input(
             "灰度",
             min_value=0,
-            max_value=1024,
+            max_value=int(SantecSLM200.MAX_GRAYSCALE_VALUE),
             step=1,
             key=f"{prefix}_{pattern_type}_gray",
         )
@@ -530,34 +569,48 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
             key=f"{prefix}_zernike_radius",
         )
 
-        # Collect coefficients for all (n, m) pairs up to n_max
-        st.caption("各阶系数 (n, m):")
-        coefficients = {}
-
-        # Generate all valid (n, m) pairs for orders up to n_max
+        # Collect coefficients for all (n, m) pairs up to n_max.
+        # Rendered as a single st.data_editor table for performance: the old
+        # per-coefficient st.columns loop created ~3 containers per pair
+        # (48 for n_max=6, 90 for n_max=10) and was a bottleneck on rerun.
+        pairs: list[dict[str, Any]] = []
         for n in range(n_max + 1):
             for m in range(-n, n + 1):
                 if (n - abs(m)) % 2 == 0:  # Valid Zernike order
-                    key = f"{prefix}_zernike_{n}_{m}"
-
                     default_val = 1.0 if n == 0 and m == 0 else 0.0
+                    key = f"{prefix}_zernike_{n}_{m}"
+                    pairs.append(
+                        {
+                            "n": n,
+                            "m": m,
+                            "name": get_zernike_name(n, m) or f"n={n},m={m}",
+                            "coeff": float(st.session_state.get(key, default_val)),
+                        }
+                    )
 
-                    col1, col2, col3 = st.columns([1, 2, 2])
-                    with col1:
-                        st.write(f"Z{n},{m}")
-                    with col2:
-                        name = get_zernike_name(n, m)
-                        st.caption(name if name else f"n={n},m={m}")
-                    with col3:
-                        st.number_input(
-                            "系数",
-                            min_value=-100.0,
-                            max_value=100.0,
-                            step=0.001,
-                            key=key,
-                        )
-                    coefficients[(n, m)] = st.session_state.get(key, default_val)
+        edited = st.data_editor(
+            pairs,
+            key=f"{prefix}_zernike_table",
+            num_rows="fixed",
+            column_config={
+                "n": st.column_config.NumberColumn("n", disabled=True, width="small"),
+                "m": st.column_config.NumberColumn("m", disabled=True, width="small"),
+                "name": st.column_config.TextColumn(
+                    "名称", disabled=True, width="medium"
+                ),
+                "coeff": st.column_config.NumberColumn(
+                    "系数",
+                    min_value=-100.0,
+                    max_value=100.0,
+                    step=0.001,
+                ),
+            },
+            hide_index=True,
+        )
 
+        coefficients: dict[tuple[int, int], float] = {}
+        for row in edited:
+            coefficients[(int(row["n"]), int(row["m"]))] = float(row["coeff"])
         params["coefficients"] = coefficients
     elif pattern_type == "达曼光栅":
         params["order"] = st.number_input(
@@ -702,6 +755,144 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
             value=int(st.session_state.get(f"{prefix}_gs_live_interval", 1)),
             step=1,
             key=f"{prefix}_gs_live_interval",
+        )
+
+    elif pattern_type == "稳像法整形":
+        st.caption(
+            "稳像法 (Steady Phase Method) 生成方形平顶光束整形相位。"
+            "参考: 翟中生等, 应用光学 2023, 44(4), 711-719。"
+            "原理: 通过几何稳相法相位 φ(x,y) 将入射高斯光束整形为方形平顶光束, "
+            "叠加闪耀光栅使平顶偏移到一级衍射位置, 与零级光空间分离。"
+        )
+
+        # Read SLM parameters for Nyquist constraint display
+        slm_wavelength_nm = float(st.session_state.get(f"{prefix}_wavelength", 1064))
+        slm_pixel_pitch_um = float(
+            st.session_state.get(f"{prefix}_pixel_pitch_um", 8.0)
+        )
+
+        col_s1, col_s2 = st.columns(2)
+        with col_s1:
+            params["focal_length_mm"] = st.number_input(
+                "傅里叶透镜焦距 f (mm)",
+                min_value=10.0,
+                max_value=5000.0,
+                value=300.0,
+                step=10.0,
+                key=f"{prefix}_spm_focal_mm",
+                help=(
+                    "SLM 后方傅里叶透镜的焦距, 即 SLM 到 CCD 之间透镜的焦距。\n"
+                    "单位: mm。典型值: 100~500 mm。\n"
+                    "该透镜对 SLM 上的相位分布做傅里叶变换, "
+                    "CCD 放在其后焦面上接收远场衍射图样。"
+                ),
+            )
+        with col_s2:
+            params["waist_radius_um"] = st.number_input(
+                "高斯光束束腰半径 w₀ (μm)",
+                min_value=100.0,
+                max_value=50000.0,
+                value=3600.0,
+                step=100.0,
+                key=f"{prefix}_spm_waist_um",
+                help=(
+                    "入射到 SLM 表面的高斯光束 1/e² 束腰半径。\n"
+                    "单位: μm。典型值: 1~5 mm (1000~5000 μm)。\n"
+                    "测量方法: 用 CCD 采集光斑, 拟合高斯分布 I(r)=I₀·exp(-2r²/w₀²), "
+                    "或测量光斑直径 D 后取 w₀ ≈ D/2 (强度降至 1/e² 处)。\n"
+                    "注意: 此处是 SLM 面上的束腰, 非焦点处束腰。"
+                ),
+            )
+
+        col_s3, col_s4 = st.columns(2)
+        with col_s3:
+            params["flat_top_half_length_um"] = st.number_input(
+                "平顶光束半边长 L (μm)",
+                min_value=10.0,
+                max_value=5000.0,
+                value=150.0,
+                step=10.0,
+                key=f"{prefix}_spm_flat_top_um",
+                help=(
+                    "期望的方形平顶光束的半边长 (远场焦平面上)。\n"
+                    "单位: μm。平顶光束总边长 = 2L。\n"
+                    "⚠️ 奈奎斯特约束: L 必须满足 L < λ·f·w₀/(π·dx²), "
+                    "否则相位梯度过大导致采样混叠, 整形质量下降。\n"
+                    "参考代码中 f=300mm, w₀=3.6mm, λ=1064nm, dx=12.5μm 时, "
+                    "L_max ≈ 184 μm。"
+                ),
+            )
+        with col_s4:
+            params["blaze_period"] = st.number_input(
+                "闪耀光栅周期 T (像素)",
+                min_value=1.0,
+                max_value=1000.0,
+                value=4.0,
+                step=0.5,
+                key=f"{prefix}_spm_blaze_period",
+                help=(
+                    "用于分离零级光的闪耀光栅周期 (单位: SLM 像素)。\n"
+                    "偏转角 θ 满足 sin(θ) = λ/(T·dx)。\n"
+                    "• T=4 像素: 偏转角较大, 平顶远离零级\n"
+                    "• T=8 像素: 偏转角适中\n"
+                    "• T=16+ 像素: 偏转角较小, 平顶靠近零级\n"
+                    "较小的 T 值产生更大的偏转角, 但衍射效率可能降低。"
+                ),
+            )
+
+        params["blaze_angle_deg"] = st.number_input(
+            "闪耀光栅方向 θ (度)",
+            min_value=0.0,
+            max_value=360.0,
+            value=45.0,
+            step=1.0,
+            key=f"{prefix}_spm_blaze_angle",
+            help=(
+                "闪耀光栅的倾斜方向角 (单位: 度)。\n"
+                "控制平顶光束相对于零级光的偏转方向。\n"
+                "• 0°: 水平向右偏转\n"
+                "• 45°: 右上方偏转 (对角线方向)\n"
+                "• 90°: 垂直向上偏转\n"
+                "• 180°: 水平向左偏转\n"
+                "通常设为 45° 使平顶光束沿对角线方向偏移, "
+                "与零级光有最大空间分离。"
+            ),
+        )
+
+        # Nyquist constraint warning
+        wavelength_m = slm_wavelength_nm * 1e-9
+        f_m = params["focal_length_mm"] * 1e-3
+        w0_m = params["waist_radius_um"] * 1e-6
+        dx_m = slm_pixel_pitch_um * 1e-6
+        L_max_um = (wavelength_m * f_m * w0_m / (np.pi * dx_m**2)) * 1e6
+        L_input_um = params["flat_top_half_length_um"]
+
+        st.divider()
+        st.caption("📊 约束检查")
+        col_check1, col_check2 = st.columns(2)
+        with col_check1:
+            st.metric(
+                "奈奎斯特 L_max",
+                f"{L_max_um:.1f} μm",
+                help="L_max = λ·f·w₀/(π·dx²), 超过此值将产生采样混叠",
+            )
+        with col_check2:
+            if L_input_um >= L_max_um:
+                st.error(
+                    f"⚠️ L={L_input_um:.0f}μm ≥ L_max={L_max_um:.1f}μm, "
+                    "相位梯度过大, 将产生采样混叠!"
+                )
+            else:
+                st.success(
+                    f"✅ L={L_input_um:.0f}μm < L_max={L_max_um:.1f}μm, "
+                    "满足奈奎斯特条件"
+                )
+
+        st.caption(
+            f"当前参数: λ={slm_wavelength_nm}nm, "
+            f"dx={slm_pixel_pitch_um}μm, "
+            f"f={params['focal_length_mm']:.0f}mm, "
+            f"w₀={params['waist_radius_um']:.0f}μm"
         )
 
     return pattern_type, params
@@ -1027,6 +1218,52 @@ def generate_phase_gray(
             live_display=bool(params.get("gs_live_display", False)),
             live_display_interval=int(params.get("gs_live_interval", 1)),
         )
+    if pattern_type == "稳像法整形":
+        from scipy.special import erf
+
+        # Get SLM parameters
+        wavelength_m = float(wavelength_nm) * 1e-9  # nm -> m
+        pixel_pitch_m = float(pattern_pitch_um) * 1e-6  # μm -> m
+
+        # Get user parameters
+        f = float(params["focal_length_mm"]) * 1e-3  # mm -> m
+        w0 = float(params["waist_radius_um"]) * 1e-6  # μm -> m
+        L = float(params["flat_top_half_length_um"]) * 1e-6  # μm -> m
+        T = float(params["blaze_period"])  # pixels
+        theta = float(params["blaze_angle_deg"]) * np.pi / 180  # degrees -> radians
+
+        # Create coordinate grids (in meters)
+        x_m = (np.arange(width) - width // 2) * pixel_pitch_m
+        y_m = (np.arange(height) - height // 2) * pixel_pitch_m
+        X_m, Y_m = np.meshgrid(x_m, y_m)
+
+        # 1D steady phase φ(t)
+        def _steady_phase_1d(t, L, lam, f, w0):
+            return (
+                np.sqrt(np.pi)
+                * L
+                / (lam * f)
+                * (
+                    np.sqrt(np.pi) * t / (2 * w0) * erf(t / w0)
+                    + 0.5 * np.exp(-(t**2) / w0**2)
+                    - 0.5
+                )
+            )
+
+        # SPM phase (separable 2D)
+        phi_1d = _steady_phase_1d(x_m, L, wavelength_m, f, w0)
+        phi_spm = phi_1d[:, None] + phi_1d[None, :]
+
+        # Blazed grating phase
+        px = np.arange(width) - width // 2
+        py = np.arange(height) - height // 2
+        PX, PY = np.meshgrid(px, py)
+        phi_blaze = 2 * np.pi / T * np.mod(PX * np.cos(theta) + PY * np.sin(theta), T)
+
+        # Combined phase
+        phi_total = np.mod(phi_spm + phi_blaze, 2 * np.pi)
+
+        return slm.create_phase_from_array(phi_total)
     raise ValueError(f"未知相位图类型: {pattern_type}")
 
 
@@ -1163,16 +1400,9 @@ def disconnect_slm(slm_num: int):
         st.session_state[f"{prefix}_connected"] = False
         st.session_state[f"{prefix}_phase_preview"] = None
         st.session_state[f"{prefix}_phase_source"] = "暂无"
-        stop_event = st.session_state.get(f"{prefix}_toggle_stop_event")
-        if stop_event is not None:
-            stop_event.set()
-        st.session_state[f"{prefix}_toggle_active"] = False
+        _stop_toggle(slm_num)
         st.session_state[f"{prefix}_toggle_phase_a"] = None
         st.session_state[f"{prefix}_toggle_phase_b"] = None
-        st.session_state[f"{prefix}_toggle_thread"] = None
-        st.session_state[f"{prefix}_toggle_stop_event"] = None
-        st.session_state[f"{prefix}_toggle_freq_ref"] = None
-        st.session_state[f"{prefix}_toggle_slm_container"] = None
 
         st.rerun()
 
@@ -1187,6 +1417,7 @@ def set_wavelength(slm_num: int):
             wavelength = st.session_state[wavelength_key]
             slm.set_wavelength(wavelength)
             st.success(f"SLM {slm_num} 波长设置为 {wavelength} nm")
+            st.rerun()
     except Exception as e:
         st.error(f"设置波长失败: {e}")
         logger.exception(f"Failed to set wavelength for SLM {slm_num}: {e}")
@@ -1203,6 +1434,10 @@ def set_shift(slm_num: int):
     """
     prefix = f"slm{slm_num}"
     try:
+        # Stop any running toggle loop so the shift write cannot race
+        # with the background thread.
+        _stop_toggle(slm_num)
+
         slm = st.session_state.get(prefix)
         if slm is not None:
             sx = st.session_state.get(f"{prefix}_shift_x", 0)
@@ -1210,23 +1445,27 @@ def set_shift(slm_num: int):
             slm.set_shift(shift_x=int(sx), shift_y=int(sy))
 
             # Auto-apply the new shift to the currently displayed phase.
+            # The displayed phase is already the post-shift version (it was
+            # displaced by slm._apply_shift() when originally written via
+            # create_phase_from_array).  Re-applying the same shift here would
+            # double-displace the pattern.  Instead, call slm._apply_shift()
+            # directly on the raw cache so the new shift takes effect once.
             current_phase, source = slm.get_displayed_phase()
             if current_phase is not None:
-                shifted = _apply_shift(current_phase, int(sx), int(sy))
-                mem_slot = int(st.session_state[f"{prefix}_next_memory"])
+                shifted = slm._apply_shift(current_phase, int(sx), int(sy))
+                mem_slot = _pick_next_memory(slm_num)
                 slm.write_phase(shifted, memory_number=mem_slot)
                 slm.display_memory(mem_slot)
-                st.session_state[f"{prefix}_next_memory"] = (
-                    st.session_state[f"{prefix}_next_memory"] % 128
-                ) + 1
                 refresh_phase_preview(slm_num)
                 st.success(
                     f"SLM {slm_num} 平移已应用并自动下发: "
                     f"shift_x={sx}, shift_y={sy} (来源: {source})"
                 )
+                st.rerun()
             else:
                 st.success(f"SLM {slm_num} 平移参数已更新: shift_x={sx}, shift_y={sy}")
                 st.info("当前没有缓存的相位可自动下发；请先生成或捕获一个相位图案。")
+                st.rerun()
     except Exception as e:
         st.error(f"应用平移失败: {e}")
         logger.exception(f"Failed to set shift for SLM {slm_num}: {e}")
@@ -1251,6 +1490,7 @@ def set_video_mode(slm_num: int, mode_label: str):
             slm._set_memory_mode(mode)
             st.session_state[video_mode_key] = mode_label
             st.success(f"SLM {slm_num} 模式设置为 {mode_label}")
+            st.rerun()
     except Exception as e:
         st.error(f"设置模式失败: {e}")
         logger.exception(f"Failed to set video mode for SLM {slm_num}: {e}")
@@ -1279,6 +1519,7 @@ def toggle_correction(slm_num: int, enabled: bool) -> None:
     else:
         slm._correction = WavefrontCorrection()
         st.info(f"SLM {slm_num} 矫正已禁用")
+    st.rerun()
 
 
 def display_slm_status(slm_num: int):
@@ -1533,6 +1774,7 @@ def _render_slm_settings(slm_num: int):
                     ok = slm.load_correction_from_csv(tmp_path)
                     if ok:
                         st.success(f"矫正已应用: {uploaded_correction.name}")
+                        st.rerun()
                     else:
                         st.warning("矫正文件加载失败")
             except Exception as e:
@@ -1547,6 +1789,7 @@ def _render_slm_settings(slm_num: int):
                 else:
                     slm.load_correction_from_csv(None)
                     st.success("矫正已清除")
+                    st.rerun()
             except Exception as e:
                 st.error(f"清除矫正失败: {e}")
 
@@ -1645,6 +1888,17 @@ def _toggle_phases_task(
         target_phase = phase_a if use_phase_a else phase_b
         slot = slots[0] if use_phase_a else slots[1]
 
+        # Avoid the no-op trap: never write to the slot that is already
+        # displayed.  If the target slot happens to be the currently
+        # displayed one, pick an alternative in 2..125.
+        try:
+            current_slot = slm.get_displayed_memory_number()
+        except Exception:
+            current_slot = None
+        if slot == current_slot:
+            alt = [s for s in range(2, 126) if s != current_slot]
+            slot = int(np.random.choice(alt))
+
         try:
             slm.write_phase(target_phase, memory_number=slot)
             slm.display_memory(slot)
@@ -1662,14 +1916,7 @@ def render_phase_control(slm_num: int):
 
     if st.button("从模式生成器生成相位", key=f"{prefix}_gen_pattern_btn"):
         try:
-            stop_event = st.session_state.get(f"{prefix}_toggle_stop_event")
-            if stop_event is not None:
-                stop_event.set()
-            st.session_state[f"{prefix}_toggle_active"] = False
-            st.session_state[f"{prefix}_toggle_thread"] = None
-            st.session_state[f"{prefix}_toggle_stop_event"] = None
-            st.session_state[f"{prefix}_toggle_freq_ref"] = None
-            st.session_state[f"{prefix}_toggle_slm_container"] = None
+            _stop_toggle(slm_num)
             if st.session_state.get(f"{prefix}_toggle_active", False):
                 st.info("已停止周期切换")
 
@@ -1708,22 +1955,17 @@ def render_phase_control(slm_num: int):
                 status_ctx.write("GS 迭代完成")
                 status_ctx.update(state="complete")
 
-            # Apply shift if configured (with zero-padding instead of wrap-around)
-            shift_x = st.session_state.get(f"{prefix}_shift_x", 0)
-            shift_y = st.session_state.get(f"{prefix}_shift_y", 0)
-            phase_gray = _apply_shift(phase_gray, shift_x, shift_y)
+            # generate_phase_gray() already applies the configured shift
+            # internally via slm.create_phase_from_array() → _apply_shift().
+            # Do NOT apply a second shift here — that would double-displace
+            # the phase on the LCOS panel.
 
             # Write to next memory slot and immediately display
-            mem_slot = int(st.session_state[f"{prefix}_next_memory"])
+            mem_slot = _pick_next_memory(slm_num)
             slm.write_phase(phase_gray, memory_number=mem_slot)
             slm.display_memory(mem_slot)
             display_ok = _verify_phase_displayed(slm, mem_slot)
             refresh_phase_preview(slm_num)
-
-            # Update next memory slot (avoid using same slot consecutively)
-            st.session_state[f"{prefix}_next_memory"] = (
-                st.session_state[f"{prefix}_next_memory"] % 128
-            ) + 1
 
             if display_ok:
                 st.success(f"相位已写入内存槽 {mem_slot} 并显示（验证通过）")
@@ -1731,6 +1973,7 @@ def render_phase_control(slm_num: int):
                 st.warning(
                     f"相位已写入内存槽 {mem_slot}，但显示验证失败（设备可能未刷新）"
                 )
+            st.rerun()
         except Exception as e:
             st.error(f"生成或显示相位失败: {e}")
             logger.exception(f"Failed to generate/display phase for SLM {slm_num}: {e}")
@@ -1848,14 +2091,7 @@ def render_phase_control(slm_num: int):
         "从CSV加载相位", key=f"{prefix}_load_csv_btn"
     ):
         try:
-            stop_event = st.session_state.get(f"{prefix}_toggle_stop_event")
-            if stop_event is not None:
-                stop_event.set()
-            st.session_state[f"{prefix}_toggle_active"] = False
-            st.session_state[f"{prefix}_toggle_thread"] = None
-            st.session_state[f"{prefix}_toggle_stop_event"] = None
-            st.session_state[f"{prefix}_toggle_freq_ref"] = None
-            st.session_state[f"{prefix}_toggle_slm_container"] = None
+            _stop_toggle(slm_num)
             if st.session_state.get(f"{prefix}_toggle_active", False):
                 st.info("已停止周期切换")
 
@@ -1868,22 +2104,19 @@ def render_phase_control(slm_num: int):
             slm = st.session_state[prefix]
             phase_gray = slm.load_phase_from_csv(temp_path)
 
-            # Apply shift if configured (with zero-padding instead of wrap-around)
+            # CSV loading bypasses create_phase_from_array(), so the driver's
+            # internal _apply_shift() is NOT called here — the GUI-side shift
+            # is the only application of the configured shift.  Keep it.
             shift_x = st.session_state.get(f"{prefix}_shift_x", 0)
             shift_y = st.session_state.get(f"{prefix}_shift_y", 0)
             phase_gray = _apply_shift(phase_gray, shift_x, shift_y)
 
             # Write to next memory slot and immediately display
-            mem_slot = st.session_state[f"{prefix}_next_memory"]
+            mem_slot = _pick_next_memory(slm_num)
             slm.write_phase(phase_gray, memory_number=mem_slot)
             slm.display_memory(mem_slot)
             display_ok = _verify_phase_displayed(slm, mem_slot)
             refresh_phase_preview(slm_num)
-
-            # Update next memory slot
-            st.session_state[f"{prefix}_next_memory"] = (
-                st.session_state[f"{prefix}_next_memory"] % 128
-            ) + 1
 
             if display_ok:
                 st.success(f"相位已从CSV加载到内存槽 {mem_slot} 并显示（验证通过）")
@@ -1895,6 +2128,7 @@ def render_phase_control(slm_num: int):
 
             # Clean up temp file
             temp_path.unlink()
+            st.rerun()
         except Exception as e:
             st.error(f"加载CSV相位失败: {e}")
             logger.exception(f"Failed to load CSV phase for SLM {slm_num}: {e}")
