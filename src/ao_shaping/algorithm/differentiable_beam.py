@@ -106,7 +106,7 @@ def far_field_intensity(
         2D float tensor of shape ``(H, W)`` holding the far-field intensity.
     """
     e_far = differentiable_far_field(amplitude, phase)
-    return (e_far.real**2 + e_far.imag**2)
+    return e_far.real**2 + e_far.imag**2
 
 
 def differentiable_beam_optimize(
@@ -183,11 +183,8 @@ def differentiable_beam_optimize(
 
     # Seed the RNG for a reproducible random initialization.
     if seed is not None:
-        g = torch.Generator(device="cpu")
-        g.manual_seed(seed)
-        init_phase_np = np.random.default_rng(seed).random(
-            t.shape, dtype=np.float32
-        ) * (2 * np.pi)
+        rng = np.random.default_rng(seed)
+        init_phase_np = rng.random(t.shape, dtype=np.float32) * (2 * np.pi)
     else:
         init_phase_np = np.random.random(t.shape).astype(np.float32) * (2 * np.pi)
 
@@ -207,7 +204,9 @@ def differentiable_beam_optimize(
 
     logger.info(
         "Starting differentiable beam optimization: epochs={}, lr={}, device={}",
-        epochs, lr, dev,
+        epochs,
+        lr,
+        dev,
     )
 
     for step in range(epochs):
@@ -225,9 +224,7 @@ def differentiable_beam_optimize(
         loss_history.append(loss_val)
 
         if log_every and (step == 0 or (step + 1) % log_every == 0):
-            logger.debug(
-                "Step {}/{} loss={:.6f}", step + 1, epochs, loss_val
-            )
+            logger.debug("Step {}/{} loss={:.6f}", step + 1, epochs, loss_val)
 
         # Early stopping based on improvement.
         if early_stop_patience > 0:
@@ -239,7 +236,8 @@ def differentiable_beam_optimize(
                 if steps_without_improvement >= early_stop_patience:
                     logger.info(
                         "Early stopping at step {} (no improvement for {} steps)",
-                        step + 1, early_stop_patience,
+                        step + 1,
+                        early_stop_patience,
                     )
                     converged = True
                     break
@@ -249,7 +247,9 @@ def differentiable_beam_optimize(
 
     logger.info(
         "Differentiable beam optimization finished: steps={}, final_loss={:.6f}, converged={}",
-        len(loss_history), final_loss, converged,
+        len(loss_history),
+        final_loss,
+        converged,
     )
 
     return BeamOptimizeResult(
