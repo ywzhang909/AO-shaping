@@ -95,7 +95,7 @@ class _MJPEGHandler(BaseHTTPRequestHandler):
                 if jpeg is None:
                     continue
                 self.wfile.write(b"--frame\r\n")
-                self.wfile.write(f"Content-Type: image/jpeg\r\n".encode())
+                self.wfile.write("Content-Type: image/jpeg\r\n".encode())
                 self.wfile.write(f"Content-Length: {len(jpeg)}\r\n".encode())
                 self.wfile.write(b"\r\n")
                 self.wfile.write(jpeg)
@@ -654,6 +654,120 @@ def _update_fps() -> None:
 
 
 # =============================================================================
+# Live display fragment (auto-refreshes while capture loop runs)
+# =============================================================================
+
+
+@st.fragment(run_every=_REFRESH_INTERVAL)
+def _live_display_fragment() -> None:
+    """Display live CCD image analysis (fragment-scoped refresh).
+
+    Drains the frame queue, updates FPS, and delegates rendering to
+    ``_render_frame_display``.  Auto-reruns every ``_REFRESH_INTERVAL``
+    seconds while the fragment is mounted, replacing the former
+    ``time.sleep(); st.rerun()`` keep-alive loop.
+    """
+    _drain_capture_feedback()
+    _update_fps()
+    _render_frame_display()
+
+
+def _render_frame_display() -> None:
+    """Render the latest captured frame + analysis (static, non-fragment).
+
+    Used by the live fragment while the capture loop runs, and by ``main()``
+    after a manual single-shot capture (loop stopped) so the last frame stays
+    visible without an auto-refresh fragment mounted.
+    """
+    if st.session_state.current_image is None:
+        return
+
+    data = st.session_state.current_image
+    img = data["img"]
+    ellipse_params = data["ellipse_params"]
+    cx, cy = data["cx"], data["cy"]
+    x_profile, y_profile = data["x_profile"], data["y_profile"]
+    x_popt, y_popt = data["x_popt"], data["y_popt"]
+    x, y_arr = data["x"], data["y"]
+
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        mjpeg_url = _get_mjpeg_url()
+        if mjpeg_url is not None:
+            st.markdown(
+                f'<img src="{mjpeg_url}" style="width: 100%; height: auto;" />',
+                unsafe_allow_html=True,
+            )
+        else:
+            pil_img = Image.fromarray(img.astype("uint8"))
+            st.image(
+                pil_img,
+                caption=f"Raw CCD Image ({img.shape[1]}×{img.shape[0]})",
+                width="stretch",
+            )
+
+    with col2:
+        st.markdown("### 📊 Analysis Results")
+        st.markdown(f"**Centroid**: ({cx:.1f}, {cy:.1f})")
+        st.markdown(
+            f"**Ellipse Center**: ({ellipse_params[0][0]:.1f}, {ellipse_params[0][1]:.1f})"
+        )
+        st.markdown(
+            f"**Ellipse Axes**: Major={ellipse_params[1][0]:.1f}, Minor={ellipse_params[1][1]:.1f}"
+        )
+        st.markdown(f"**Rotation Angle**: {ellipse_params[2]:.1f}°")
+        st.markdown("---")
+        if x_popt is not None:
+            st.markdown("#### X-direction Gaussian Fit")
+            st.metric("Amplitude", f"{x_popt[0]:.2f}")
+            st.metric("Center", f"{x_popt[1]:.2f}")
+            st.metric("σ (Sigma)", f"{x_popt[2]:.2f}")
+        if y_popt is not None:
+            st.markdown("#### Y-direction Gaussian Fit")
+            st.metric("Amplitude", f"{y_popt[0]:.2f}")
+            st.metric("Center", f"{y_popt[1]:.2f}")
+            st.metric("σ (Sigma)", f"{y_popt[2]:.2f}")
+
+    # Intensity profile plot
+    st.markdown("### 📈 Intensity Profile")
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6))
+
+    ax1.plot(x_profile, "b-", linewidth=1.5, label="X-profile")
+    if x_popt is not None:
+        x_fit = gaussian(x, *x_popt)
+        ax1.plot(
+            x_fit,
+            "r--",
+            linewidth=1.5,
+            label=f"Gaussian Fit (σ={x_popt[2]:.2f})",
+        )
+    ax1.set_xlabel("X pixels")
+    ax1.set_ylabel("Intensity")
+    ax1.set_title("X-direction Intensity Profile")
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+
+    ax2.plot(y_profile, "b-", linewidth=1.5, label="Y-profile")
+    if y_popt is not None:
+        y_fit = gaussian(y_arr, *y_popt)
+        ax2.plot(
+            y_fit,
+            "r--",
+            linewidth=1.5,
+            label=f"Gaussian Fit (σ={y_popt[2]:.2f})",
+        )
+    ax2.set_xlabel("Y pixels")
+    ax2.set_ylabel("Intensity")
+    ax2.set_title("Y-direction Intensity Profile")
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    st.pyplot(fig)
+
+
+# =============================================================================
 # Main
 # =============================================================================
 
@@ -881,97 +995,13 @@ def main() -> None:
             _stop_capture_loop()
             loop_running = False
 
-        # ── Display results ──────────────────────────────────────────────────
-        if st.session_state.current_image is not None:
-            data = st.session_state.current_image
-            img = data["img"]
-            ellipse_params = data["ellipse_params"]
-            cx, cy = data["cx"], data["cy"]
-            x_profile, y_profile = data["x_profile"], data["y_profile"]
-            x_popt, y_popt = data["x_popt"], data["y_popt"]
-            x, y_arr = data["x"], data["y"]
-
-            col1, col2 = st.columns([2, 1])
-
-            with col1:
-                # Use MJPEG stream for low-latency live preview
-                mjpeg_url = _get_mjpeg_url()
-                if mjpeg_url is not None:
-                    st.markdown(
-                        f'<img src="{mjpeg_url}" style="width: 100%; height: auto;" />',
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    pil_img = Image.fromarray(img.astype("uint8"))
-                    st.image(
-                        pil_img,
-                        caption=f"Raw CCD Image ({img.shape[1]}×{img.shape[0]})",
-                        width="stretch",
-                    )
-
-            with col2:
-                st.markdown("### 📊 Analysis Results")
-                st.markdown(f"**Centroid**: ({cx:.1f}, {cy:.1f})")
-                st.markdown(
-                    f"**Ellipse Center**: ({ellipse_params[0][0]:.1f}, {ellipse_params[0][1]:.1f})"
-                )
-                st.markdown(
-                    f"**Ellipse Axes**: Major={ellipse_params[1][0]:.1f}, Minor={ellipse_params[1][1]:.1f}"
-                )
-                st.markdown(f"**Rotation Angle**: {ellipse_params[2]:.1f}°")
-                st.markdown("---")
-                if x_popt is not None:
-                    st.markdown("#### X-direction Gaussian Fit")
-                    st.metric("Amplitude", f"{x_popt[0]:.2f}")
-                    st.metric("Center", f"{x_popt[1]:.2f}")
-                    st.metric("σ (Sigma)", f"{x_popt[2]:.2f}")
-                if y_popt is not None:
-                    st.markdown("#### Y-direction Gaussian Fit")
-                    st.metric("Amplitude", f"{y_popt[0]:.2f}")
-                    st.metric("Center", f"{y_popt[1]:.2f}")
-                    st.metric("σ (Sigma)", f"{y_popt[2]:.2f}")
-
-            # Intensity profile plot
-            st.markdown("### 📈 Intensity Profile")
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6))
-
-            ax1.plot(x_profile, "b-", linewidth=1.5, label="X-profile")
-            if x_popt is not None:
-                x_fit = gaussian(x, *x_popt)
-                ax1.plot(
-                    x_fit,
-                    "r--",
-                    linewidth=1.5,
-                    label=f"Gaussian Fit (σ={x_popt[2]:.2f})",
-                )
-            ax1.set_xlabel("X pixels")
-            ax1.set_ylabel("Intensity")
-            ax1.set_title("X-direction Intensity Profile")
-            ax1.legend()
-            ax1.grid(True, alpha=0.3)
-
-            ax2.plot(y_profile, "b-", linewidth=1.5, label="Y-profile")
-            if y_popt is not None:
-                y_fit = gaussian(y_arr, *y_popt)
-                ax2.plot(
-                    y_fit,
-                    "r--",
-                    linewidth=1.5,
-                    label=f"Gaussian Fit (σ={y_popt[2]:.2f})",
-                )
-            ax2.set_xlabel("Y pixels")
-            ax2.set_ylabel("Intensity")
-            ax2.set_title("Y-direction Intensity Profile")
-            ax2.legend()
-            ax2.grid(True, alpha=0.3)
-
-            plt.tight_layout()
-            st.pyplot(fig)
-
-        # ── Keep-alive: rerun while capture loop is running (r50 pattern) ───
-        if loop_running:
-            time.sleep(_REFRESH_INTERVAL)
-            st.rerun()
+        # ── Display results ─────────────────────────────────────────────────
+        # 采集循环运行时挂载自动刷新 fragment; 循环停止后静态渲染最后一帧,
+        # 避免 fragment 在循环停止后仍以 0.08s 间隔空轮询 (S1)。
+        if st.session_state.ccd_capture_loop_running:
+            _live_display_fragment()
+        elif st.session_state.current_image is not None:
+            _render_frame_display()
 
     else:
         # Camera not connected

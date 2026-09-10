@@ -456,27 +456,17 @@ def render_sidebar() -> None:
             with col_run:
                 if st.button("▶ 运行流水线", type="primary", use_container_width=True, key="mdimg_run_btn"):
                     _start_pipeline()
-                    st.rerun()
             with col_stop:
                 if st.button("⏹ 停止", use_container_width=True, key="mdimg_stop_btn", disabled=not _is_running()):
                     _stop_pipeline()
-                    st.rerun()
 
 
 # =============================================================================
 # Tab 1: 运行流水线 (实时进度)
 # =============================================================================
 
-def render_run_tab() -> None:
-    """渲染运行页签: 实时进度 + 轮询刷新。"""
-    show_and_clear_feedback()
-
-    run_id = st.session_state.mdimg_run_id
-    if not run_id:
-        st.info("👈 在左侧选择数据集并点击「▶ 运行流水线」开始分析。")
-        return
-
-    prog = _get_progress(run_id)
+def _render_run_status(prog: dict) -> None:
+    """渲染流水线运行状态 (状态行 + 进度条 + 结束消息)。"""
     status = prog.get("status", "idle")
     message = prog.get("message", "")
     units_done = int(prog.get("units_done", 0))
@@ -504,9 +494,38 @@ def render_run_tab() -> None:
         output_dir = prog.get("output_dir", "")
         if output_dir:
             st.caption(f"输出目录: {output_dir}")
-    elif status in ("starting", "running"):
-        time.sleep(POLL_INTERVAL)
-        st.rerun()
+
+
+@st.fragment(run_every=POLL_INTERVAL)
+def _run_progress_fragment() -> None:
+    """轮询流水线进度 (fragment-scoped refresh)。
+
+    替代原先 ``time.sleep(POLL_INTERVAL); st.rerun()`` 的全页轮询。
+    """
+    run_id = st.session_state.mdimg_run_id
+    if not run_id:
+        return
+    _render_run_status(_get_progress(run_id))
+
+
+def render_run_tab() -> None:
+    """渲染运行页签: 实时进度 + 轮询刷新。"""
+    show_and_clear_feedback()
+
+    run_id = st.session_state.mdimg_run_id
+    if not run_id:
+        st.info("👈 在左侧选择数据集并点击「▶ 运行流水线」开始分析。")
+        return
+
+    prog = _get_progress(run_id)
+    status = prog.get("status", "idle")
+
+    if status in ("starting", "running"):
+        # 运行中: fragment 每 POLL_INTERVAL 秒轮询刷新
+        _run_progress_fragment()
+    else:
+        # 已结束: 一次性渲染最终状态
+        _render_run_status(prog)
 
 
 # =============================================================================
@@ -560,8 +579,7 @@ def render_browse_tab() -> None:
         selected_ip = st.selectbox("控制器 IP", options=ip_names, key="mdimg_browse_ip")
     with col_refresh:
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🔄 刷新", use_container_width=True, key="mdimg_refresh_btn"):
-            st.rerun()
+        st.button("🔄 刷新", use_container_width=True, key="mdimg_refresh_btn")
 
     ip_diff_dir = diff_root / selected_ip
     png_files = sorted(ip_diff_dir.glob("*.png"))

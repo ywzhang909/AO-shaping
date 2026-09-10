@@ -505,6 +505,107 @@ def render_sidebar() -> None:
                     disconnect_camera()
 
 
+@st.fragment(run_every=0.5)
+def _calibration_progress_fragment() -> None:
+    """Poll calibration progress (fragment-scoped).
+
+    Auto-re-executes every 0.5 seconds while calibration is running.
+    On completion, fires one full-app rerun (sentinel-guarded) so the
+    parent re-enables the 开始标定 button and renders the result
+    statically (S4/S5).
+    """
+    if not st.session_state.slm_cal_running:
+        # 完成检测: 触发一次全应用 rerun, 重新启用「开始标定」按钮
+        if st.session_state.slm_cal_result is not None:
+            if not st.session_state.get("slm_cal_full_rerun_done", False):
+                st.session_state.slm_cal_full_rerun_done = True
+                st.rerun(scope="app")
+        return
+
+    progress_bar = st.empty()
+    status_text = st.empty()
+
+    progress = st.session_state.slm_cal_progress
+
+    if "status" in progress and progress["status"] == "complete":
+        status_text.success("标定完成!")
+
+    elif "status" in progress and progress["status"] == "error":
+        status_text.error(progress.get("message", "标定失败"))
+
+    else:
+        percent = progress.get("percent", 0)
+        message = progress.get("message", "标定中...")
+        current_gs = progress.get("current_gs")
+        intensity = progress.get("intensity")
+
+        if percent > 0:
+            progress_bar.progress(min(percent / 100.0, 1.0), text=message)
+
+        if current_gs is not None:
+            st.caption(
+                f"当前灰度值: {current_gs}, 强度: {intensity:.2f}"
+                if intensity
+                else f"当前灰度值: {current_gs}"
+            )
+
+
+def _display_calibration_result(result) -> None:
+    """Display calibration result (metrics + curve + save button)."""
+    st.divider()
+    st.subheader("标定结果")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("2π相位灰度值", result.grayscale_2pi)
+    with col2:
+        st.metric("波长", f"{result.wavelength_nm} nm")
+    with col3:
+        st.metric("SLM型号", result.slm_model)
+
+    # Plot calibration curve
+    try:
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        gs_vals = result.grayscale_values
+        intensities = result.intensities
+
+        ax.plot(gs_vals, intensities, "b-", label="衍射效率", linewidth=2)
+        ax.axvline(
+            x=result.grayscale_2pi,
+            color="r",
+            linestyle="--",
+            label=f"2π相位 = {result.grayscale_2pi}",
+        )
+
+        ax.set_xlabel("灰度值", fontsize=12)
+        ax.set_ylabel("衍射光强 (a.u.)", fontsize=12)
+        ax.set_title("SLM相位-灰度标定曲线", fontsize=14)
+        ax.legend(fontsize=10)
+        ax.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        st.pyplot(fig)
+
+    except ImportError:
+        st.warning("matplotlib未安装，无法显示曲线图")
+
+    # Save button
+    storage_dir = Path(st.session_state.slm_cal_storage_dir)
+    storage_dir.mkdir(parents=True, exist_ok=True)
+
+    if st.button("保存结果"):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        save_path = (
+            storage_dir
+            / f"slm_calibration_{result.wavelength_nm}nm_{timestamp}.json"
+        )
+        result.save(save_path)
+        st.success(f"结果已保存到: {save_path}")
+
+
 def render_calibration() -> None:
     """Render calibration mode UI."""
     st.header("SLM相位-灰度标定")
@@ -535,12 +636,9 @@ def render_calibration() -> None:
     """)
 
     # Start calibration button
-    progress_bar = st.empty()
-    status_text = st.empty()
-    chart_placeholder = st.empty()
-
     if st.button("开始标定", type="primary", disabled=st.session_state.slm_cal_running):
         st.session_state.slm_cal_running = True
+        st.session_state.slm_cal_full_rerun_done = False
         st.session_state.slm_cal_progress = {
             "percent": 0,
             "message": "准备中...",
@@ -594,94 +692,12 @@ def render_calibration() -> None:
             daemon=True,
         )
         thread.start()
-        st.rerun()
 
-    # Poll progress if running
+    # 标定运行时挂载自动刷新 fragment; 结束后静态渲染结果 (S4/S5)
     if st.session_state.slm_cal_running:
-        progress = st.session_state.slm_cal_progress
-
-        if "status" in progress and progress["status"] == "complete":
-            status_text.success("标定完成!")
-
-        elif "status" in progress and progress["status"] == "error":
-            status_text.error(progress.get("message", "标定失败"))
-
-        else:
-            percent = progress.get("percent", 0)
-            message = progress.get("message", "标定中...")
-            current_gs = progress.get("current_gs")
-            intensity = progress.get("intensity")
-
-            if percent > 0:
-                progress_bar.progress(min(percent / 100.0, 1.0), text=message)
-
-            if current_gs is not None:
-                st.caption(
-                    f"当前灰度值: {current_gs}, 强度: {intensity:.2f}"
-                    if intensity
-                    else f"当前灰度值: {current_gs}"
-                )
-
-        time.sleep(0.5)
-        st.rerun()
-
-    # Display result if complete
-    if st.session_state.slm_cal_result is not None:
-        result = st.session_state.slm_cal_result
-
-        st.divider()
-        st.subheader("标定结果")
-
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("2π相位灰度值", result.grayscale_2pi)
-        with col2:
-            st.metric("波长", f"{result.wavelength_nm} nm")
-        with col3:
-            st.metric("SLM型号", result.slm_model)
-
-        # Plot calibration curve
-        try:
-            import matplotlib.pyplot as plt
-
-            fig, ax = plt.subplots(figsize=(10, 6))
-
-            # Raw data
-            gs_vals = result.grayscale_values
-            intensities = result.intensities
-
-            ax.plot(gs_vals, intensities, "b-", label="衍射效率", linewidth=2)
-            ax.axvline(
-                x=result.grayscale_2pi,
-                color="r",
-                linestyle="--",
-                label=f"2π相位 = {result.grayscale_2pi}",
-            )
-
-            ax.set_xlabel("灰度值", fontsize=12)
-            ax.set_ylabel("衍射光强 (a.u.)", fontsize=12)
-            ax.set_title("SLM相位-灰度标定曲线", fontsize=14)
-            ax.legend(fontsize=10)
-            ax.grid(True, alpha=0.3)
-
-            plt.tight_layout()
-            st.pyplot(fig)
-
-        except ImportError:
-            st.warning("matplotlib未安装，无法显示曲线图")
-
-        # Save button
-        storage_dir = Path(st.session_state.slm_cal_storage_dir)
-        storage_dir.mkdir(parents=True, exist_ok=True)
-
-        if st.button("保存结果"):
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            save_path = (
-                storage_dir
-                / f"slm_calibration_{result.wavelength_nm}nm_{timestamp}.json"
-            )
-            result.save(save_path)
-            st.success(f"结果已保存到: {save_path}")
+        _calibration_progress_fragment()
+    elif st.session_state.slm_cal_result is not None:
+        _display_calibration_result(st.session_state.slm_cal_result)
 
 
 def render_load_view() -> None:

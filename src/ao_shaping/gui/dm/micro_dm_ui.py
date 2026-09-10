@@ -151,8 +151,15 @@ def show_and_clear_feedback(tab: str = "tab1") -> None:
 # 电压范围 (两个 Tab 共享)
 # =============================================================================
 
-def render_voltage_limits(key_prefix: str) -> None:
-    """在两个 Tab 中渲染可编辑的电压上下限控件，写入共享 session_state。"""
+def render_voltage_limits(key_prefix: str, write_back: bool = True) -> None:
+    """在两个 Tab 中渲染可编辑的电压上下限控件，写入共享 session_state。
+
+    Args:
+        key_prefix: 控件 key 前缀 (``single`` / ``matrix``)。
+        write_back: 是否把控件值写回 ``mdm_vmin`` / ``mdm_vmax``。tab1 的
+            fragment 每 0.15s 轮询, 若也写回会与 tab2 的写回互相覆盖
+            (B1); 因此 tab1 传 ``write_back=False``, 仅 tab2 负责写回。
+    """
     with st.container(border=True):
         st.markdown("##### 电压上下限 (安全范围)")
         col_min, col_max = st.columns(2)
@@ -178,8 +185,9 @@ def render_voltage_limits(key_prefix: str) -> None:
             )
         if vmin >= vmax:
             st.warning("⚠️ 电压下限必须小于上限")
-        st.session_state.mdm_vmin = vmin
-        st.session_state.mdm_vmax = vmax
+        if write_back:
+            st.session_state.mdm_vmin = vmin
+            st.session_state.mdm_vmax = vmax
 
 
 # =============================================================================
@@ -369,8 +377,9 @@ def _render_waveform_preview(period: float, wave_type: str,
 # Tab 1: 单单元控制
 # =============================================================================
 
-def render_tab_single_unit() -> None:
-    """渲染 Tab 1: 单个微驱动器单元控制。"""
+@st.fragment(run_every=0.15)
+def _tab1_fragment():
+    """Tab 1 单单元控制 fragment — 按钮自动刷新 + run_every 实时电压可视化."""
 
     # ---- 顶部状态栏 ----
     col_status1, col_status2 = st.columns([1, 4])
@@ -400,7 +409,6 @@ def render_tab_single_unit() -> None:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("📡 测试连通性", use_container_width=True, key="mdm_single_test_btn"):
                 test_single_connectivity()
-                st.rerun()
         with col_conn:
             st.markdown("<br>", unsafe_allow_html=True)
             if not st.session_state.mdm_single_connected:
@@ -415,7 +423,8 @@ def render_tab_single_unit() -> None:
 
     # ---- 电压上下限 (两个 Tab 共享) ----
     with st.container(border=True):
-        render_voltage_limits("single")
+        # tab1 fragment 每 0.15s 轮询, 不写回共享状态 (由 tab2 负责写回)
+        render_voltage_limits("single", write_back=False)
 
     # ---- 通道选择 ----
     col_ch1, col_ch2 = st.columns([2, 2])
@@ -461,7 +470,6 @@ def render_tab_single_unit() -> None:
                             set_tab1_feedback(f"已下发 {voltage:.1f} V", "success")
                         except Exception as e:
                             set_tab1_feedback(f"发送失败: {e}", "error")
-                    st.rerun()
             with col_send2:
                 running = st.session_state.mdm_single_running
                 if not running:
@@ -479,13 +487,11 @@ def render_tab_single_unit() -> None:
                                 daemon=True,
                             ).start()
                             set_tab1_feedback(f"持续下发 {voltage:.1f} V", "success")
-                            st.rerun()
                 else:
                     if st.button("⏹ 停止", use_container_width=True, type="secondary",
                                  key="mdm_single_hold_stop"):
                         st.session_state.mdm_single_running = False
                         set_tab1_feedback("已停止持续下发", "info")
-                        st.rerun()
         else:
             wave_type = st.segmented_control(
                 "波形", options=["sine", "square"], default="sine",
@@ -549,13 +555,11 @@ def render_tab_single_unit() -> None:
                             daemon=True,
                         ).start()
                         set_tab1_feedback(f"周期下发中: {wave_type}, 周期{period}s", "success")
-                        st.rerun()
             else:
                 if st.button("⏹ 停止", type="primary", use_container_width=True,
                              key="mdm_single_period_stop"):
                     st.session_state.mdm_single_running = False
                     set_tab1_feedback("周期下发已停止", "info")
-                    st.rerun()
 
     # ---- 实时电压可视化 ----
     st.divider()
@@ -565,9 +569,10 @@ def render_tab_single_unit() -> None:
     chart_placeholder.pyplot(fig)
     plt_close_safe(fig)
 
-    if st.session_state.mdm_single_running:
-        time.sleep(REFRESH_INTERVAL)
-        st.rerun()
+
+def render_tab_single_unit() -> None:
+    """渲染 Tab 1: 单个微驱动器单元控制。"""
+    _tab1_fragment()
 
 
 def plt_close_safe(fig) -> None:
@@ -685,8 +690,9 @@ def _hw_reset_action() -> None:
         set_tab2_feedback(f"归零失败: {e}", "error")
 
 
-def render_tab_matrix() -> None:
-    """渲染 Tab 2: 39×39 矩阵联合控制。"""
+@st.fragment()
+def _tab2_fragment():
+    """Tab 2 矩阵联合控制 fragment — 按钮点击自动刷新."""
     vmin = st.session_state.mdm_vmin
     vmax = st.session_state.mdm_vmax
 
@@ -708,11 +714,9 @@ def render_tab_matrix() -> None:
             if st.button("✅ 确认", type="primary", use_container_width=True, key="mdm_confirm_yes"):
                 action["callback"]()
                 st.session_state.mdm_confirm_action = None
-                st.rerun()
         with col_confirm2:
             if st.button("❌ 取消", use_container_width=True, key="mdm_confirm_no"):
                 st.session_state.mdm_confirm_action = None
-                st.rerun()
         st.divider()
 
     # ---- 左侧热力图 + 右侧控制面板 ----
@@ -787,7 +791,6 @@ def render_tab_matrix() -> None:
                 if st.button("设置", type="primary", use_container_width=True, key="mdm_btn_set_cell"):
                     st.session_state.mdm_matrix[row, col] = fill_value
                     set_tab2_feedback(f"[{row},{col}] → {fill_value} V", "success")
-                    st.rerun()
             elif edit_mode == "rect":
                 st.markdown("**区域范围**")
                 col_r1, col_r2 = st.columns(2)
@@ -803,19 +806,16 @@ def render_tab_matrix() -> None:
                     st.session_state.mdm_matrix[rs:re + 1, cs:ce + 1] = fill_value
                     cnt = (re - rs + 1) * (ce - cs + 1)
                     set_tab2_feedback(f"区域 [{rs}:{re+1}, {cs}:{ce+1}] ({cnt}单元) → {fill_value} V", "success")
-                    st.rerun()
             elif edit_mode == "row":
                 row_idx = st.number_input("行号", 0, 38, 0, key="mdm_edit_row_idx")
                 if st.button(f"设置第 {row_idx} 行", type="primary", use_container_width=True, key="mdm_btn_set_row"):
                     st.session_state.mdm_matrix[row_idx, :] = fill_value
                     set_tab2_feedback(f"第 {row_idx} 行 ({GRID_SIZE}单元) → {fill_value} V", "success")
-                    st.rerun()
             elif edit_mode == "col":
                 col_idx = st.number_input("列号", 0, 38, 0, key="mdm_edit_col_idx")
                 if st.button(f"设置第 {col_idx} 列", type="primary", use_container_width=True, key="mdm_btn_set_col"):
                     st.session_state.mdm_matrix[:, col_idx] = fill_value
                     set_tab2_feedback(f"第 {col_idx} 列 ({GRID_SIZE}单元) → {fill_value} V", "success")
-                    st.rerun()
 
     # ---- 批量操作 ----
     st.divider()
@@ -825,17 +825,14 @@ def render_tab_matrix() -> None:
         if st.button("🔄 归零", use_container_width=True, key="mdm_btn_reset_zero"):
             st.session_state.mdm_matrix = np.zeros((GRID_SIZE, GRID_SIZE), dtype=np.float64)
             set_tab2_feedback("矩阵已归零", "success")
-            st.rerun()
     with col_batch2:
         if st.button("📋 全填充", use_container_width=True, key="mdm_btn_fill_all"):
             st.session_state.mdm_matrix[:, :] = fill_value
             set_tab2_feedback(f"全部 {TOTAL_CHANNELS} 单元 → {fill_value} V", "success")
-            st.rerun()
     with col_batch3:
         if st.button("🎲 随机", use_container_width=True, key="mdm_btn_random"):
             st.session_state.mdm_matrix = np.random.uniform(vmin, vmax, (GRID_SIZE, GRID_SIZE))
             set_tab2_feedback("矩阵已随机生成", "success")
-            st.rerun()
     with col_batch4:
         if st.button("🌊 正弦", use_container_width=True, key="mdm_btn_sine_pattern"):
             x = np.linspace(0, 4 * np.pi, GRID_SIZE)
@@ -844,7 +841,6 @@ def render_tab_matrix() -> None:
             pattern = np.clip(((vmin + vmax) / 2.0) + ((vmax - vmin) / 2.0) * np.sin(X) * np.cos(Y), vmin, vmax)
             st.session_state.mdm_matrix = pattern
             set_tab2_feedback("正弦图案已生成", "success")
-            st.rerun()
     with col_batch5:
         if st.button("🔺 高斯", use_container_width=True, key="mdm_btn_gaussian"):
             x = np.linspace(-3, 3, GRID_SIZE)
@@ -853,13 +849,11 @@ def render_tab_matrix() -> None:
             pattern = np.clip(vmax - (vmax - vmin) * (1.0 - np.exp(-(X ** 2 + Y ** 2) / 2.0)), vmin, vmax)
             st.session_state.mdm_matrix = pattern
             set_tab2_feedback("高斯图案已生成", "success")
-            st.rerun()
     with col_batch6:
         if st.button("📐 渐变", use_container_width=True, key="mdm_btn_gradient"):
             pattern = np.tile(np.linspace(vmin, vmax, GRID_SIZE), (GRID_SIZE, 1)).T
             st.session_state.mdm_matrix = pattern
             set_tab2_feedback("渐变图案已生成", "success")
-            st.rerun()
 
     # ---- 硬件操作 ----
     st.divider()
@@ -884,7 +878,6 @@ def render_tab_matrix() -> None:
                     voltages = st.session_state.mdm_dm.get_actuator_positions()
                     st.session_state.mdm_matrix = voltages.reshape((GRID_SIZE, GRID_SIZE))
                     set_tab2_feedback("矩阵已刷新", "success")
-                    st.rerun()
                 except Exception as e:
                     set_tab2_feedback(f"读取失败: {e}", "error")
     with col_hw3:
@@ -896,7 +889,6 @@ def render_tab_matrix() -> None:
                     "message": "将所有通道电压归零。此操作将立即发送到硬件。",
                     "callback": lambda: _hw_reset_action(),
                 }
-                st.rerun()
 
     # ---- 数据导入/导出 ----
     st.divider()
@@ -909,7 +901,6 @@ def render_tab_matrix() -> None:
                 if data.shape == (GRID_SIZE, GRID_SIZE):
                     st.session_state.mdm_matrix = np.clip(data.astype(np.float64), vmin, vmax)
                     set_tab2_feedback(f"矩阵已加载 ({data.shape})", "success")
-                    st.rerun()
                 else:
                     set_tab2_feedback(f"形状不匹配: 期望 ({GRID_SIZE},{GRID_SIZE}), 实际 {data.shape}", "error")
             except Exception as e:
@@ -960,16 +951,19 @@ def render_tab_matrix() -> None:
                         args=(continuous_voltage, continuous_interval), daemon=True,
                     ).start()
                     set_tab2_feedback(f"矩阵持续发送中: {continuous_voltage}V, 间隔{continuous_interval}s", "success")
-                    st.rerun()
         with col_cv_btn2:
             if st.button("⏹ 停止发送",
                          disabled=not st.session_state.mdm_matrix_continuous_running,
                          use_container_width=True, type="secondary", key="mdm_cv_stop"):
                 st.session_state.mdm_matrix_continuous_running = False
                 set_tab2_feedback("矩阵持续发送已停止", "info")
-                st.rerun()
         if st.session_state.mdm_matrix_continuous_running:
             st.success(f"🔵 持续发送中: {continuous_voltage} V, 间隔 {continuous_interval} s")
+
+
+def render_tab_matrix() -> None:
+    """渲染 Tab 2: 39×39 矩阵联合控制。"""
+    _tab2_fragment()
 
 
 # =============================================================================

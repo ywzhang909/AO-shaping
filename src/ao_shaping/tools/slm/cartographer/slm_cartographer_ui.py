@@ -17,6 +17,7 @@ Modules:
 from __future__ import annotations
 
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -50,6 +51,14 @@ from ao_shaping.tools.slm.cartographer import (
 from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
 from ao_shaping.drivers.wfs.thorlab_wfs import ThorlabWFS, MlaRes
 
+# Module-level state for the LUT calibration background thread.  The worker
+# appends progress dicts to ``_lut_progress_queue``; the progress fragment
+# polls it.  Hoisted to module scope so it survives fragment reruns (the old
+# code kept it as a local inside the button block, which raised NameError on
+# the rerun after thread start).
+_lut_progress_queue: list[dict] = []
+_lut_thread: threading.Thread | None = None
+
 
 def _init_session_state() -> None:
     """Initialize Streamlit session state variables."""
@@ -59,6 +68,7 @@ def _init_session_state() -> None:
         "cart_wfs": None,
         "cart_wfs_connected": False,
         "cart_lut_result": None,
+        "cart_lut_error": None,
         "cart_compensation_result": None,
         "cart_lut": None,
         "cart_lut_file": None,
@@ -302,12 +312,55 @@ def _lut_calibration_worker(
             ),
         )
         result = calibrator.calibrate(progress_callback=progress_cb)
+        st.session_state.cart_lut_result = result
         return result
 
     except Exception as e:
         logger.exception(f"LUT calibration failed: {e}")
+        st.session_state.cart_lut_error = str(e)
         progress_queue.append({"status": "error", "message": str(e)})
         return None
+
+
+@st.fragment(run_every=0.3)
+def _lut_progress_fragment() -> None:
+    """Poll LUT calibration progress (fragment-scoped refresh).
+
+    Replaces the former ``time.sleep(0.3); st.rerun()`` keep-alive loop.
+    Creates its own progress widgets so they only appear while a
+    calibration is running.
+    """
+    if not st.session_state.cart_running:
+        return
+
+    progress_bar = st.progress(0, text="Ready")
+    status_text = st.empty()
+
+    if (
+        _lut_progress_queue
+        and "status" in _lut_progress_queue[-1]
+        and _lut_progress_queue[-1]["status"] == "error"
+    ):
+        status_text.error(_lut_progress_queue[-1]["message"])
+        st.session_state.cart_running = False
+        # 完成检测: 触发一次全应用 rerun, 重新启用按钮 (S6)
+        if not st.session_state.get("cart_lut_full_rerun_done", False):
+            st.session_state.cart_lut_full_rerun_done = True
+            st.rerun(scope="app")
+    else:
+        latest = _lut_progress_queue[-1] if _lut_progress_queue else {}
+        pct = latest.get("percent", 0)
+        msg = latest.get("message", "Running...")
+        progress_bar.progress(min(pct / 100.0, 1.0), text=msg)
+        status_text.info(f"Current: gs={latest.get('gs', '?')}, {msg}")
+
+    if _lut_thread is not None and not _lut_thread.is_alive():
+        st.session_state.cart_running = False
+        progress_bar.progress(1.0, text="Complete!")
+        # 完成检测: 触发一次全应用 rerun, 重新启用按钮 (S6/N2)
+        if not st.session_state.get("cart_lut_full_rerun_done", False):
+            st.session_state.cart_lut_full_rerun_done = True
+            st.rerun(scope="app")
 
 
 def render_lut_calibration_module() -> None:
@@ -361,15 +414,14 @@ def render_lut_calibration_module() -> None:
     )
     st.session_state.cart_n_averages = n_averages
 
-    progress_bar = st.progress(0, text="Ready")
-    status_text = st.empty()
-
     if st.button(
         "Start LUT Calibration",
         type="primary",
         disabled=st.session_state.cart_running,
     ):
         st.session_state.cart_running = True
+        st.session_state.cart_lut_full_rerun_done = False
+        st.session_state.cart_lut_error = None
         st.session_state.cart_progress = {
             "percent": 0,
             "message": "Starting...",
@@ -389,40 +441,17 @@ def render_lut_calibration_module() -> None:
             mla_resolution=st.session_state.cart_mla,
         )
 
-        progress_queue: list[dict] = []
-
-        import threading
-
-        thread = threading.Thread(
+        global _lut_progress_queue, _lut_thread
+        _lut_progress_queue = []
+        _lut_thread = threading.Thread(
             target=_lut_calibration_worker,
-            args=(config, progress_queue),
+            args=(config, _lut_progress_queue),
             daemon=True,
         )
-        thread.start()
-        st.rerun()
+        _lut_thread.start()
 
     if st.session_state.cart_running:
-        if (
-            progress_queue
-            and "status" in progress_queue[-1]
-            and progress_queue[-1]["status"] == "error"
-        ):
-            status_text.error(progress_queue[-1]["message"])
-            st.session_state.cart_running = False
-        else:
-            latest = progress_queue[-1] if progress_queue else {}
-            pct = latest.get("percent", 0)
-            msg = latest.get("message", "Running...")
-            progress_bar.progress(min(pct / 100.0, 1.0), text=msg)
-            status_text.info(f"Current: gs={latest.get('gs', '?')}, {msg}")
-
-        if thread and not thread.is_alive():
-            st.session_state.cart_running = False
-            progress_bar.progress(1.0, text="Complete!")
-            st.rerun()
-        else:
-            time.sleep(0.3)
-            st.rerun()
+        _lut_progress_fragment()
 
     if st.session_state.cart_lut_result is not None:
         result = st.session_state.cart_lut_result
@@ -469,6 +498,9 @@ def render_lut_calibration_module() -> None:
             )
             st.session_state.cart_lut_file = str(save_path)
             st.success(f"LUT saved to {save_path}")
+
+    if st.session_state.cart_lut_error is not None:
+        st.error(f"校准失败: {st.session_state.cart_lut_error}")
 
 
 # ==================== Module 3: Dynamic Compensation ====================

@@ -247,7 +247,20 @@ def refresh_phase_preview(slm_num: int) -> None:
     st.session_state[source_key] = source
 
 
+@st.fragment(run_every=1.0)
 def render_phase_preview(slm_num: int) -> None:
+    """Display the current SLM phase preview, refreshing only this area.
+
+    Wrapped in ``@st.fragment(run_every=1.0)`` so that whenever a phase write
+    or SLM config change calls :func:`refresh_phase_preview` (updating the
+    session-state cache), this section re-renders automatically within ~1s —
+    no full-page ``st.rerun``, no manual click required. Widget interactions
+    inside this fragment (the refresh button) also rerun only this fragment.
+    """
+    if st.button("刷新当前显示相位", key=f"slm{slm_num}_refresh_phase_btn"):
+        refresh_phase_preview(slm_num)
+        st.rerun(scope="fragment")
+
     preview = st.session_state.get(f"slm{slm_num}_phase_preview")
     source = st.session_state.get(f"slm{slm_num}_phase_source", "暂无")
     st.caption(f"当前显示来源: {source}")
@@ -1251,8 +1264,9 @@ def generate_phase_gray(
             )
 
         # SPM phase (separable 2D)
-        phi_1d = _steady_phase_1d(x_m, L, wavelength_m, f, w0)
-        phi_spm = phi_1d[:, None] + phi_1d[None, :]
+        phi_1d_x = _steady_phase_1d(x_m, L, wavelength_m, f, w0)
+        phi_1d_y = _steady_phase_1d(y_m, L, wavelength_m, f, w0)
+        phi_spm = phi_1d_y[:, None] + phi_1d_x[None, :]
 
         # Blazed grating phase
         px = np.arange(width) - width // 2
@@ -1295,8 +1309,6 @@ def main():
         slm_num = connected_slms[0]
         st.header(f"SLM {slm_num} 相位控制")
         display_slm_status(slm_num)
-        if st.button("刷新当前显示相位", key=f"slm{slm_num}_refresh_phase_btn"):
-            refresh_phase_preview(slm_num)
         render_phase_preview(slm_num)
         render_phase_control(slm_num)
     else:
@@ -1304,16 +1316,12 @@ def main():
         with col1:
             st.header("SLM 1 相位控制")
             display_slm_status(1)
-            if st.button("刷新当前显示相位", key="slm1_refresh_phase_btn"):
-                refresh_phase_preview(1)
             render_phase_preview(1)
             render_phase_control(1)
 
         with col2:
             st.header("SLM 2 相位控制")
             display_slm_status(2)
-            if st.button("刷新当前显示相位", key="slm2_refresh_phase_btn"):
-                refresh_phase_preview(2)
             render_phase_preview(2)
             render_phase_control(2)
 
@@ -1417,7 +1425,7 @@ def set_wavelength(slm_num: int):
             wavelength = st.session_state[wavelength_key]
             slm.set_wavelength(wavelength)
             st.success(f"SLM {slm_num} 波长设置为 {wavelength} nm")
-            st.rerun()
+            refresh_phase_preview(slm_num)
     except Exception as e:
         st.error(f"设置波长失败: {e}")
         logger.exception(f"Failed to set wavelength for SLM {slm_num}: {e}")
@@ -1461,11 +1469,9 @@ def set_shift(slm_num: int):
                     f"SLM {slm_num} 平移已应用并自动下发: "
                     f"shift_x={sx}, shift_y={sy} (来源: {source})"
                 )
-                st.rerun()
             else:
                 st.success(f"SLM {slm_num} 平移参数已更新: shift_x={sx}, shift_y={sy}")
                 st.info("当前没有缓存的相位可自动下发；请先生成或捕获一个相位图案。")
-                st.rerun()
     except Exception as e:
         st.error(f"应用平移失败: {e}")
         logger.exception(f"Failed to set shift for SLM {slm_num}: {e}")
@@ -1490,7 +1496,7 @@ def set_video_mode(slm_num: int, mode_label: str):
             slm._set_memory_mode(mode)
             st.session_state[video_mode_key] = mode_label
             st.success(f"SLM {slm_num} 模式设置为 {mode_label}")
-            st.rerun()
+            refresh_phase_preview(slm_num)
     except Exception as e:
         st.error(f"设置模式失败: {e}")
         logger.exception(f"Failed to set video mode for SLM {slm_num}: {e}")
@@ -1519,7 +1525,7 @@ def toggle_correction(slm_num: int, enabled: bool) -> None:
     else:
         slm._correction = WavefrontCorrection()
         st.info(f"SLM {slm_num} 矫正已禁用")
-    st.rerun()
+    refresh_phase_preview(slm_num)
 
 
 def display_slm_status(slm_num: int):
@@ -1560,9 +1566,21 @@ def render_slm_sidebar():
     for device in available:
         slm_num = device["slm_number"]
         prefix = f"slm{slm_num}"
-        is_connected = device["connected"]
+        # ``available_slms`` is only (re)scanned at startup or via the manual
+        # "刷新设备列表" button — ``connect_slm`` / ``disconnect_slm`` end with
+        # ``st.rerun()``, so the ``_refresh_device_list()`` calls that used to
+        # follow them never ran and the cached entry's ``connected``/``status``/
+        # ``in_use`` went stale.  Connection state must always be read live from
+        # session state, never from the cached device entry.
+        is_connected = bool(st.session_state.get(f"{prefix}_connected", False))
         in_use = device.get("in_use", False)
-        status = device.get("status", "未连接" if not is_connected else "已连接")
+        # ``in_use=True`` recorded while WE held the handle (a scan performed
+        # during our own connection) describes our own handle, not an external
+        # holder — it becomes free the moment we disconnect.  Only trust
+        # ``in_use`` for entries the scan never marked as connected to us.
+        if device.get("connected"):
+            in_use = False
+        status = "已连接" if is_connected else ("使用中" if in_use else "未连接")
 
         col1, col2, col3, col4 = st.columns([1, 2, 1, 1])
         with col1:
@@ -1582,7 +1600,6 @@ def render_slm_sidebar():
                     "断开", key=f"{prefix}_disconnect_table", type="secondary"
                 ):
                     disconnect_slm(slm_num)
-                    _refresh_device_list()
             elif in_use:
                 # Physical device exists but is held by another instance —
                 # cannot take over without closing the other handle first.
@@ -1590,7 +1607,6 @@ def render_slm_sidebar():
             else:
                 if st.button("连接", key=f"{prefix}_connect_table"):
                     connect_slm(slm_num)
-                    _refresh_device_list()
 
     st.divider()
 
@@ -1607,6 +1623,43 @@ def render_slm_sidebar():
         ):
             with st.expander(f"SLM {slm_num} 设置", expanded=False):
                 _render_slm_settings(slm_num)
+
+
+@st.fragment(run_every=1.0)
+def _render_grayscale_config(slm_num: int, prefix: str, slm_obj: SantecSLM200) -> None:
+    """灰度设置区块（fragment 局部刷新）。
+
+    run_every=1.0 使"获取当前2π灰度 / 应用灰度设置"之后约 1s 内重新渲染本区块，
+    让 caption 显示最新的 slm_obj._max_gray；无需整页 st.rerun。
+    """
+    st.caption("灰度设置")
+    max_gray = int(getattr(slm_obj, "_max_gray", SantecSLM200.MAX_GRAYSCALE_VALUE))
+    max_gray_abs = int(SantecSLM200.MAX_GRAYSCALE_VALUE)
+    st.caption(f"最大灰度值 (2π对应): **{max_gray}** / {max_gray_abs}")
+    new_max_gray = st.number_input(
+        "2π 灰度值",
+        min_value=1,
+        max_value=max_gray_abs,
+        step=1,
+        value=max_gray,
+        key=f"{prefix}_max_gray",
+    )
+    if st.button("应用灰度设置", key=f"{prefix}_apply_gray_btn"):
+        try:
+            slm_obj._max_gray = int(new_max_gray)
+            refresh_phase_preview(slm_num)
+            st.success(f"SLM {slm_num} 灰度值已更新为 {new_max_gray}，预览已刷新")
+        except Exception as e:
+            st.error(f"更新灰度设置失败: {e}")
+
+    if st.button("获取当前2π灰度", key=f"{prefix}_read_max_gray_btn"):
+        try:
+            _wl, current_max_gray = slm_obj.get_wavelength_info()
+            slm_obj._max_gray = int(current_max_gray)
+            refresh_phase_preview(slm_num)
+            st.success(f"SLM {slm_num} 当前2π灰度: {current_max_gray}")
+        except Exception as e:
+            st.error(f"读取灰度失败: {e}")
 
 
 def _render_slm_settings(slm_num: int):
@@ -1688,35 +1741,7 @@ def _render_slm_settings(slm_num: int):
 
     st.divider()
 
-    st.caption("灰度设置")
-    max_gray = int(getattr(slm_obj, "_max_gray", SantecSLM200.MAX_GRAYSCALE_VALUE))
-    max_gray_abs = int(SantecSLM200.MAX_GRAYSCALE_VALUE)
-    st.caption(f"最大灰度值 (2π对应): **{max_gray}** / {max_gray_abs}")
-    new_max_gray = st.number_input(
-        "2π 灰度值",
-        min_value=1,
-        max_value=max_gray_abs,
-        step=1,
-        value=max_gray,
-        key=f"{prefix}_max_gray",
-    )
-    if st.button("应用灰度设置", key=f"{prefix}_apply_gray_btn"):
-        try:
-            slm_obj._max_gray = int(new_max_gray)
-            refresh_phase_preview(slm_num)
-            st.success(f"SLM {slm_num} 灰度值已更新为 {new_max_gray}，预览已刷新")
-        except Exception as e:
-            st.error(f"更新灰度设置失败: {e}")
-
-    if st.button("获取当前2π灰度", key=f"{prefix}_read_max_gray_btn"):
-        try:
-            _wl, current_max_gray = slm_obj.get_wavelength_info()
-            slm_obj._max_gray = int(current_max_gray)
-            refresh_phase_preview(slm_num)
-            st.success(f"SLM {slm_num} 当前2π灰度: {current_max_gray}")
-            st.rerun()
-        except Exception as e:
-            st.error(f"读取灰度失败: {e}")
+    _render_grayscale_config(slm_num, prefix, slm_obj)
 
     st.divider()
 
@@ -1774,7 +1799,7 @@ def _render_slm_settings(slm_num: int):
                     ok = slm.load_correction_from_csv(tmp_path)
                     if ok:
                         st.success(f"矫正已应用: {uploaded_correction.name}")
-                        st.rerun()
+                        refresh_phase_preview(slm_num)
                     else:
                         st.warning("矫正文件加载失败")
             except Exception as e:
@@ -1789,7 +1814,7 @@ def _render_slm_settings(slm_num: int):
                 else:
                     slm.load_correction_from_csv(None)
                     st.success("矫正已清除")
-                    st.rerun()
+                    refresh_phase_preview(slm_num)
             except Exception as e:
                 st.error(f"清除矫正失败: {e}")
 
@@ -1973,7 +1998,6 @@ def render_phase_control(slm_num: int):
                 st.warning(
                     f"相位已写入内存槽 {mem_slot}，但显示验证失败（设备可能未刷新）"
                 )
-            st.rerun()
         except Exception as e:
             st.error(f"生成或显示相位失败: {e}")
             logger.exception(f"Failed to generate/display phase for SLM {slm_num}: {e}")
@@ -2128,7 +2152,6 @@ def render_phase_control(slm_num: int):
 
             # Clean up temp file
             temp_path.unlink()
-            st.rerun()
         except Exception as e:
             st.error(f"加载CSV相位失败: {e}")
             logger.exception(f"Failed to load CSV phase for SLM {slm_num}: {e}")

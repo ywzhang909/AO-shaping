@@ -118,6 +118,50 @@ def _render_joint_ip_selector() -> str | None:
     return selected_ip
 
 
+@st.fragment(run_every=1.0)
+def _render_channel_selection_form() -> None:
+    """渲染通道多选 + 全选/反选, fragment-scoped 局部刷新。
+
+    全选/反选按钮写入 multiselect 的 widget key (``{P}_channels_sel``) 与
+    ``{P}_channels``; button 触发 fragment-only rerun → multiselect 从
+    widget key 读取新值并刷新显示 (S7)。下游 ``_render_sequential_controls``
+    也读取 ``{P}_channels``, 但不在本 fragment 内; 它在下一次 full-page
+    rerun (例如发送动作) 时才更新。
+    """
+    col_sel, col_btn = st.columns([3, 1])
+    with col_sel:
+        sel = st.multiselect(
+            "指定单元 (可多选, 0-49)",
+            options=list(range(SINGLE_CHANNELS)),
+            default=st.session_state[f"{P}_channels"],
+            format_func=_channel_label,
+            key=f"{P}_channels_sel",
+        )
+        st.session_state[f"{P}_channels"] = [int(c) for c in sel]
+    with col_btn:
+        st.markdown("<br>", unsafe_allow_html=True)
+        b_all, b_inv = st.columns(2)
+        with b_all:
+            if st.button("全选", width="stretch", key=f"{P}_sel_all"):
+                st.session_state[f"{P}_channels_sel"] = list(range(SINGLE_CHANNELS))
+                st.session_state[f"{P}_channels"] = list(range(SINGLE_CHANNELS))
+        with b_inv:
+            if st.button("反选", width="stretch", key=f"{P}_sel_inv"):
+                cur = set(st.session_state[f"{P}_channels"])
+                inv = [i for i in range(SINGLE_CHANNELS) if i not in cur]
+                st.session_state[f"{P}_channels_sel"] = inv
+                st.session_state[f"{P}_channels"] = inv
+
+    if st.session_state[f"{P}_channels"]:
+        _infos = []
+        for _ch in st.session_state[f"{P}_channels"]:
+            _ci = _get_channel_info(int(_ch))
+            _infos.append(
+                _channel_label(int(_ch)) if _ci else f"ch{_ch}: 无映射"
+            )
+        st.caption("针脚映射: " + " ｜ ".join(_infos))
+
+
 def _render_voltage_send_form(is_connected: bool) -> None:
     """渲染单次 / 持续保持 电压下发表单。"""
     with st.container(border=True):
@@ -131,38 +175,7 @@ def _render_voltage_send_form(is_connected: bool) -> None:
         st.session_state[f"{P}_all_mode"] = st.session_state[f"{P}_all_mode_input"]
 
         if not st.session_state[f"{P}_all_mode"]:
-            col_sel, col_btn = st.columns([3, 1])
-            with col_sel:
-                sel = st.multiselect(
-                    "指定单元 (可多选, 0-49)",
-                    options=list(range(SINGLE_CHANNELS)),
-                    default=st.session_state[f"{P}_channels"],
-                    format_func=_channel_label,
-                )
-                st.session_state[f"{P}_channels"] = [int(c) for c in sel]
-            with col_btn:
-                st.markdown("<br>", unsafe_allow_html=True)
-                b_all, b_inv = st.columns(2)
-                with b_all:
-                    if st.button("全选", width="stretch", key=f"{P}_sel_all"):
-                        st.session_state[f"{P}_channels"] = list(range(SINGLE_CHANNELS))
-                        st.rerun()
-                with b_inv:
-                    if st.button("反选", width="stretch", key=f"{P}_sel_inv"):
-                        cur = set(st.session_state[f"{P}_channels"])
-                        st.session_state[f"{P}_channels"] = [
-                            i for i in range(SINGLE_CHANNELS) if i not in cur
-                        ]
-                        st.rerun()
-
-            if st.session_state[f"{P}_channels"]:
-                _infos = []
-                for _ch in st.session_state[f"{P}_channels"]:
-                    _ci = _get_channel_info(int(_ch))
-                    _infos.append(
-                        _channel_label(int(_ch)) if _ci else f"ch{_ch}: 无映射"
-                    )
-                st.caption("针脚映射: " + " ｜ ".join(_infos))
+            _render_channel_selection_form()
 
         voltage = st.number_input(
             "电压 (V)",
@@ -599,6 +612,53 @@ def render_tab_single_controller() -> None:
 # =============================================================================
 
 
+@st.fragment(run_every=1.0)
+def _render_group_channel_selector(
+    all_payload_positions: list,
+    ch_labels: dict[int, str],
+    all_mode: bool,
+    relay_on: bool,
+) -> None:
+    """渲染分组通道选择器 + 操作按钮, fragment-scoped 局部刷新。
+
+    全选通道 / 清空选择 写入 multiselect 的 widget key (``{gc}_channel_select``)
+    与 ``{gc}_selected_channels``; 下发电压按钮保留显式 ``st.rerun()``
+    (默认 scope = full-app), 用于刷新硬件状态。
+    """
+    gc = f"{P}_gc"
+
+    selected_chs = st.multiselect(
+        "选择通道 (payload_position) — 仅「指定通道」模式生效",
+        options=all_payload_positions,
+        default=st.session_state.get(f"{gc}_selected_channels", all_payload_positions),
+        format_func=lambda pp: ch_labels.get(pp, str(pp)),
+        key=f"{gc}_channel_select",
+        disabled=all_mode,
+    )
+    if not all_mode:
+        st.session_state[f"{gc}_selected_channels"] = selected_chs
+
+    col_apply, col_sel, col_desel = st.columns(3)
+    with col_apply:
+        if st.button(
+            "⚡ 下发电压",
+            type="primary",
+            width="stretch",
+            key=f"{gc}_apply_btn",
+            disabled=not relay_on,
+        ):
+            _gc_apply_voltage()
+            st.rerun()  # KEEP: full-app rerun — refreshes hardware state
+    with col_sel:
+        if st.button("全选通道", width="stretch", key=f"{gc}_select_all_btn"):
+            st.session_state[f"{gc}_channel_select"] = all_payload_positions.copy()
+            st.session_state[f"{gc}_selected_channels"] = all_payload_positions.copy()
+    with col_desel:
+        if st.button("清空选择", width="stretch", key=f"{gc}_deselect_all_btn"):
+            st.session_state[f"{gc}_channel_select"] = []
+            st.session_state[f"{gc}_selected_channels"] = []
+
+
 def render_tab_single_group() -> None:
     """单组控制 Tab: 按 wiring map 组别选择控制器并下发电压。"""
     st.title("🧩 单组控制")
@@ -717,36 +777,7 @@ def render_tab_single_group() -> None:
             desc += f" [192.168.0.{ip_suffix}]"
             ch_labels[pp] = desc
 
-    selected_chs = st.multiselect(
-        "选择通道 (payload_position) — 仅「指定通道」模式生效",
-        options=all_payload_positions,
-        default=st.session_state.get(f"{gc}_selected_channels", all_payload_positions),
-        format_func=lambda pp: ch_labels.get(pp, str(pp)),
-        key=f"{gc}_channel_select",
-        disabled=all_mode,
-    )
-    if not all_mode:
-        st.session_state[f"{gc}_selected_channels"] = selected_chs
-
-    col_apply, col_sel, col_desel = st.columns(3)
-    with col_apply:
-        if st.button(
-            "⚡ 下发电压",
-            type="primary",
-            width="stretch",
-            key=f"{gc}_apply_btn",
-            disabled=not relay_on,
-        ):
-            _gc_apply_voltage()
-            st.rerun()
-    with col_sel:
-        if st.button("全选通道", width="stretch", key=f"{gc}_select_all_btn"):
-            st.session_state[f"{gc}_selected_channels"] = all_payload_positions.copy()
-            st.rerun()
-    with col_desel:
-        if st.button("清空选择", width="stretch", key=f"{gc}_deselect_all_btn"):
-            st.session_state[f"{gc}_selected_channels"] = []
-            st.rerun()
+    _render_group_channel_selector(all_payload_positions, ch_labels, all_mode, relay_on)
 
     st.divider()
     st.markdown("##### 通道统计")
@@ -766,6 +797,131 @@ def render_tab_single_group() -> None:
 # =============================================================================
 # 全部控制 Tab (联合控制)
 # =============================================================================
+
+
+@st.fragment(run_every=1.0)
+def _render_matrix_display_and_edit() -> None:
+    """渲染矩阵显示 + 编辑面板, fragment-scoped 局部刷新。
+
+    5 个编辑按钮 (填充全部/设置单元/填充行/填充列/填充矩形) 写入
+    ``r50c_jc_matrix``; 矩阵显示在同 fragment 内 col_img, run_every
+    定期 tick 使显示在 ~1 s 内刷新。硬件下发 / 重置 / 断开 按钮在
+    fragment 外部, 保留 full-app st.rerun()。
+    """
+    jc = f"{P}_jc"
+    vmin = st.session_state.get(f"{P}_vmin", HW_VOLTAGE_MIN)
+    vmax = st.session_state.get(f"{P}_vmax", HW_VOLTAGE_MAX)
+    matrix: np.ndarray | None = st.session_state.get(f"{jc}_matrix")
+    applied: np.ndarray | None = st.session_state.get(f"{jc}_applied_matrix")
+
+    if matrix is None:
+        st.info("💡 矩阵尚未初始化，请先连接 MicroDM 后重试。")
+        return
+
+    col_img, col_edit = st.columns([3, 1])
+
+    with col_img:
+        _jc_render_styled_matrix(matrix, applied, vmin, vmax)
+
+    with col_edit:
+        with st.container(border=True):
+            st.markdown("###### 编辑矩阵")
+
+            st.markdown("**全部填充**")
+            fill_all_v = st.number_input(
+                "电压 (V)",
+                min_value=HW_VOLTAGE_MIN,
+                max_value=HW_VOLTAGE_MAX,
+                value=0.0,
+                step=1.0,
+                format="%.1f",
+                key=f"{jc}_fill_all_input",
+            )
+            if st.button("填充全部", width="stretch", key=f"{jc}_fill_all_btn"):
+                _jc_fill_all(fill_all_v)
+
+            st.divider()
+
+            st.markdown("**单个单元**")
+            col_e_r, col_e_c = st.columns(2)
+            with col_e_r:
+                edit_row = st.number_input(
+                    "行 (0-35)", 0, GRID_SIZE - 1, 0, 1, key=f"{jc}_edit_row_input"
+                )
+            with col_e_c:
+                edit_col = st.number_input(
+                    "列 (0-35)", 0, GRID_SIZE - 1, 0, 1, key=f"{jc}_edit_col_input"
+                )
+            edit_v = st.number_input(
+                "电压 (V)",
+                min_value=HW_VOLTAGE_MIN,
+                max_value=HW_VOLTAGE_MAX,
+                value=0.0,
+                step=1.0,
+                format="%.1f",
+                key=f"{jc}_edit_v_input",
+            )
+            if st.button("设置单元", width="stretch", key=f"{jc}_set_cell_btn"):
+                _jc_set_cell(int(edit_row), int(edit_col), edit_v)
+
+            st.divider()
+
+            st.markdown("**行/列填充**")
+            fill_v = st.number_input(
+                "电压 (V)",
+                min_value=HW_VOLTAGE_MIN,
+                max_value=HW_VOLTAGE_MAX,
+                value=0.0,
+                step=1.0,
+                format="%.1f",
+                key=f"{jc}_fill_v_input",
+            )
+            col_fr, col_fc = st.columns(2)
+            with col_fr:
+                fill_row = st.number_input(
+                    "目标行", 0, GRID_SIZE - 1, 0, 1, key=f"{jc}_fill_row_input"
+                )
+                if st.button("填充行", width="stretch", key=f"{jc}_fill_row_btn"):
+                    _jc_fill_row(int(fill_row), fill_v)
+            with col_fc:
+                fill_col = st.number_input(
+                    "目标列", 0, GRID_SIZE - 1, 0, 1, key=f"{jc}_fill_col_input"
+                )
+                if st.button("填充列", width="stretch", key=f"{jc}_fill_col_btn"):
+                    _jc_fill_col(int(fill_col), fill_v)
+
+            st.divider()
+
+            st.markdown("**矩形区域**")
+            rect_v = st.number_input(
+                "电压 (V)",
+                min_value=HW_VOLTAGE_MIN,
+                max_value=HW_VOLTAGE_MAX,
+                value=0.0,
+                step=1.0,
+                format="%.1f",
+                key=f"{jc}_rect_v_input",
+            )
+            col_rx1, col_ry1 = st.columns(2)
+            with col_rx1:
+                rx1 = st.number_input(
+                    "列起始", 0, GRID_SIZE - 1, 0, 1, key=f"{jc}_rx1_input"
+                )
+            with col_ry1:
+                ry1 = st.number_input(
+                    "行起始", 0, GRID_SIZE - 1, 0, 1, key=f"{jc}_ry1_input"
+                )
+            col_rx2, col_ry2 = st.columns(2)
+            with col_rx2:
+                rx2 = st.number_input(
+                    "列结束", 0, GRID_SIZE - 1, GRID_SIZE - 1, 1, key=f"{jc}_rx2_input"
+                )
+            with col_ry2:
+                ry2 = st.number_input(
+                    "行结束", 0, GRID_SIZE - 1, GRID_SIZE - 1, 1, key=f"{jc}_ry2_input"
+                )
+            if st.button("填充矩形", width="stretch", key=f"{jc}_rect_btn"):
+                _jc_fill_rect(int(rx1), int(ry1), int(rx2), int(ry2), rect_v)
 
 
 def render_tab_all_control() -> None:
@@ -806,126 +962,18 @@ def render_tab_all_control() -> None:
             sel_row = st.selectbox(
                 "查看行 (0=全部)",
                 options=list(range(0, GRID_SIZE)),
-                format_func=lambda r: f"全部" if r == 0 else f"行 {r}",
+                format_func=lambda r: "全部" if r == 0 else f"行 {r}",
                 key=f"{jc}_view_row_select",
             )
         with col_col:
             sel_col = st.selectbox(
                 "查看列 (0=全部)",
                 options=list(range(0, GRID_SIZE)),
-                format_func=lambda c: f"全部" if c == 0 else f"列 {c}",
+                format_func=lambda c: "全部" if c == 0 else f"列 {c}",
                 key=f"{jc}_view_col_select",
             )
 
-    col_img, col_edit = st.columns([3, 1])
-
-    with col_img:
-        _jc_render_styled_matrix(matrix, applied, vmin, vmax)
-
-    with col_edit:
-        with st.container(border=True):
-            st.markdown("###### 编辑矩阵")
-
-            st.markdown("**全部填充**")
-            fill_all_v = st.number_input(
-                "电压 (V)",
-                min_value=HW_VOLTAGE_MIN,
-                max_value=HW_VOLTAGE_MAX,
-                value=0.0,
-                step=1.0,
-                format="%.1f",
-                key=f"{jc}_fill_all_input",
-            )
-            if st.button("填充全部", width="stretch", key=f"{jc}_fill_all_btn"):
-                _jc_fill_all(fill_all_v)
-                st.rerun()
-
-            st.divider()
-
-            st.markdown("**单个单元**")
-            col_e_r, col_e_c = st.columns(2)
-            with col_e_r:
-                edit_row = st.number_input(
-                    "行 (0-35)", 0, GRID_SIZE - 1, 0, 1, key=f"{jc}_edit_row_input"
-                )
-            with col_e_c:
-                edit_col = st.number_input(
-                    "列 (0-35)", 0, GRID_SIZE - 1, 0, 1, key=f"{jc}_edit_col_input"
-                )
-            edit_v = st.number_input(
-                "电压 (V)",
-                min_value=HW_VOLTAGE_MIN,
-                max_value=HW_VOLTAGE_MAX,
-                value=0.0,
-                step=1.0,
-                format="%.1f",
-                key=f"{jc}_edit_v_input",
-            )
-            if st.button("设置单元", width="stretch", key=f"{jc}_set_cell_btn"):
-                _jc_set_cell(int(edit_row), int(edit_col), edit_v)
-                st.rerun()
-
-            st.divider()
-
-            st.markdown("**行/列填充**")
-            fill_v = st.number_input(
-                "电压 (V)",
-                min_value=HW_VOLTAGE_MIN,
-                max_value=HW_VOLTAGE_MAX,
-                value=0.0,
-                step=1.0,
-                format="%.1f",
-                key=f"{jc}_fill_v_input",
-            )
-            col_fr, col_fc = st.columns(2)
-            with col_fr:
-                fill_row = st.number_input(
-                    "目标行", 0, GRID_SIZE - 1, 0, 1, key=f"{jc}_fill_row_input"
-                )
-                if st.button("填充行", width="stretch", key=f"{jc}_fill_row_btn"):
-                    _jc_fill_row(int(fill_row), fill_v)
-                    st.rerun()
-            with col_fc:
-                fill_col = st.number_input(
-                    "目标列", 0, GRID_SIZE - 1, 0, 1, key=f"{jc}_fill_col_input"
-                )
-                if st.button("填充列", width="stretch", key=f"{jc}_fill_col_btn"):
-                    _jc_fill_col(int(fill_col), fill_v)
-                    st.rerun()
-
-            st.divider()
-
-            st.markdown("**矩形区域**")
-            rect_v = st.number_input(
-                "电压 (V)",
-                min_value=HW_VOLTAGE_MIN,
-                max_value=HW_VOLTAGE_MAX,
-                value=0.0,
-                step=1.0,
-                format="%.1f",
-                key=f"{jc}_rect_v_input",
-            )
-            col_rx1, col_ry1 = st.columns(2)
-            with col_rx1:
-                rx1 = st.number_input(
-                    "列起始", 0, GRID_SIZE - 1, 0, 1, key=f"{jc}_rx1_input"
-                )
-            with col_ry1:
-                ry1 = st.number_input(
-                    "行起始", 0, GRID_SIZE - 1, 0, 1, key=f"{jc}_ry1_input"
-                )
-            col_rx2, col_ry2 = st.columns(2)
-            with col_rx2:
-                rx2 = st.number_input(
-                    "列结束", 0, GRID_SIZE - 1, GRID_SIZE - 1, 1, key=f"{jc}_rx2_input"
-                )
-            with col_ry2:
-                ry2 = st.number_input(
-                    "行结束", 0, GRID_SIZE - 1, GRID_SIZE - 1, 1, key=f"{jc}_ry2_input"
-                )
-            if st.button("填充矩形", width="stretch", key=f"{jc}_rect_btn"):
-                _jc_fill_rect(int(rx1), int(ry1), int(rx2), int(ry2), rect_v)
-                st.rerun()
+    _render_matrix_display_and_edit()
 
     st.divider()
     st.markdown("##### 硬件操作")

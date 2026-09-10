@@ -205,7 +205,7 @@ def _render_conflict_section(df: pd.DataFrame, current_row: int, current_col: in
             if not orig.empty:
                 st.session_state.cv_edit_ip = int(orig.iloc[0]["IP组"])
                 st.session_state.cv_edit_seq = int(orig.iloc[0]["序号"])
-            st.rerun()
+            st.rerun(scope="fragment")
 
 
 def _render_cell_editor(df: pd.DataFrame, sel_row: int, sel_col: int, position_num: int) -> None:
@@ -264,7 +264,7 @@ def _render_cell_editor(df: pd.DataFrame, sel_row: int, sel_col: int, position_n
                     "new_ip": new_ip, "new_seq": new_seq,
                     "conflicts": conflicts.to_dict("records"),
                 }
-                st.rerun()
+                st.rerun(scope="fragment")
             else:
                 _apply_edit(df, sel_row, sel_col, new_ip, new_seq)
                 st.session_state.cv_save_feedback = "已保存"
@@ -397,11 +397,11 @@ def render_tab_grid() -> None:
             st.session_state.cv_edit_ip = Config.DEFAULT_IP
             st.session_state.cv_edit_seq = Config.DEFAULT_SEQ
             st.session_state.cv_grid_click_count += 1
-            st.rerun()
+            st.rerun(scope="fragment")
     with col_sel3:
         if st.button("🗑️ 放弃编辑", use_container_width=True, key="cv_discard_grid"):
             st.session_state.cv_conflict_info = None
-            st.rerun()
+            st.rerun(scope="fragment")
 
     G = Config.GRID_SIZE
 
@@ -483,7 +483,7 @@ def render_tab_grid() -> None:
             st.session_state.cv_selected_row = 0
             st.session_state.cv_selected_col = 0
             st.session_state.cv_grid_click_count += 1
-            st.rerun()
+            st.rerun(scope="fragment")
 
     if display_mode == "序号":
         grid_matrix = _cv_grid_matrix(df)
