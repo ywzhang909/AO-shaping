@@ -16,10 +16,8 @@ import numpy as np
 import pytest
 from click.testing import CliRunner
 
-from ao_shaping.algorithm.beam_shaping_utils import (
-    compute_metrics,
-    square_target_from_measurement,
-)
+from ao_shaping.utils.beam_metrics import compute_metrics
+from ao_shaping.utils.targets import square_target_from_measurement
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _RUNNER_PATH = _REPO_ROOT / "src" / "ao_shaping" / "runners" / "diff_beam_runner.py"
@@ -60,7 +58,6 @@ class TestCliOptions:
             "target_shape",
             "target_size",
             "target_px",
-            "target_brightness",
             "epochs",
             "lr",
             "iterations",
@@ -450,8 +447,10 @@ class TestSquareShaping:
         assert cfg["effective_exposure_ms"] == 0.9  # 900 us = 0.9 ms
 
 
-class TestBrightnessSizing:
-    """Square sizing driven by measured brightness (质心定位 + 亮度总和定大小)."""
+class TestFixedSideSquare:
+    """CCD 图片空间固定边长方形 target: 固定边长 side_px (CCD 像素)、
+    质心定位、亮度 = 1/边长² (总和 = 1)。loss 用实测帧/总亮度 归一化
+    对比, 因此曝光/总亮度变化不影响 target square。"""
 
     def _make_spot_frame(self) -> tuple:
         """1000x1000 frame: constant background 100 + Gaussian spot (peak 1000)
@@ -466,25 +465,38 @@ class TestBrightnessSizing:
         )
         return frame.astype(np.float32), (cy, cx)
 
-    def test_default_brightness_is_max_over_10(self):
-        """Default average brightness must be max_brightness / 10 and the
-        square side must conserve energy: side = sqrt(total / avg)."""
+    def test_fixed_side_value_and_sum(self):
+        """固定边长 (CCD 像素): 值 = 1/side², CCD 空间方形总和 ≈ 1,
+        中心 = 实测质心。"""
         frame, (cy, cx) = self._make_spot_frame()
-        target, info = square_target_from_measurement(frame)
+        target, info = square_target_from_measurement(frame, side_px=20.0)
 
-        # Background subtraction and peak extraction.
+        # Background subtraction and peak extraction unchanged.
         assert info["background"] == pytest.approx(100.0, abs=0.5)
         assert info["max_brightness"] == pytest.approx(900.0, rel=1e-3)
-        # Default average brightness = 1/10 of the (de-backgrounded) max.
-        assert info["target_brightness"] == pytest.approx(90.0, rel=1e-3)
         # Centroid must follow the *measured* beam (off-center plant).
         assert info["centroid"][0] == pytest.approx(cy, abs=2.0)
         assert info["centroid"][1] == pytest.approx(cx, abs=2.0)
-        # Energy-conserving side (clamped to frame).
-        expected_side = math.sqrt(info["total_intensity"] / info["target_brightness"])
-        assert info["side_cam_px"] == pytest.approx(
-            min(expected_side, 1000.0), rel=1e-3
+
+        # Fixed side in CCD image space; value = 1/n_pixels so the square
+        # sums to exactly 1 — even with a sub-pixel centroid (floor/ceil can
+        # fill side or side+1 pixels per dimension).
+        assert info["side_cam_px"] == pytest.approx(20.0)
+        assert info["target_ccd"].shape == frame.shape
+        n_px = info["n_pixels"]
+        assert info["target_ccd"].max() == pytest.approx(1.0 / n_px, rel=1e-6)
+        assert info["target_ccd"].sum() == pytest.approx(1.0, rel=1e-6)
+        # Square spans ~side x side pixels around the centroid.
+        bright = info["target_ccd"] > 0
+        rows = np.where(bright.any(axis=1))[0]
+        cols = np.where(bright.any(axis=0))[0]
+        assert rows[-1] - rows[0] + 1 in (20, 21)
+        assert cols[-1] - cols[0] + 1 in (20, 21)
+        # Peak is uniform across the whole square (exactly 1/n_px everywhere).
+        assert np.allclose(
+            info["target_ccd"][bright], 1.0 / n_px, rtol=1e-6
         )
+
         # Grid-space target: full SLM200 panel, normalized to [0, 1].
         assert target.shape == (1200, 1920)
         assert target.min() >= 0.0
@@ -495,55 +507,91 @@ class TestBrightnessSizing:
             info["side_cam_px"] * 1200 / 625, rel=1e-3
         )
 
-    def test_explicit_brightness_wins(self):
-        """An explicit --target-brightness must override the max/10 default."""
+    def test_exposure_invariance(self):
+        """曝光/总亮度变化不改变 target square: 帧缩放后 (乘任意正因子)
+        得到的 CCD 空间 target 必须逐像素相同 (loss 用帧/总亮度对比)。"""
         frame, _ = self._make_spot_frame()
-        target, info = square_target_from_measurement(frame, target_brightness=200.0)
-        assert info["target_brightness"] == pytest.approx(200.0)
-        assert info["user_target_brightness"] == 200.0
-        assert info["side_cam_px"] == pytest.approx(
-            math.sqrt(info["total_intensity"] / 200.0), rel=1e-3
-        )
-        assert target.shape == (1200, 1920)
+        target_1, info_1 = square_target_from_measurement(frame, side_px=20.0)
+        target_2, info_2 = square_target_from_measurement(frame * 3.7, side_px=20.0)
+
+        assert np.array_equal(target_1, target_2)
+        assert info_1["side_cam_px"] == info_2["side_cam_px"]
+        assert np.array_equal(info_1["target_ccd"], info_2["target_ccd"])
+        # Normalized intensity (frame / total) is the comparison operand.
+        norm = frame / frame.sum()
+        assert norm.shape == info_2["target_ccd"].shape
+        assert norm.sum() == pytest.approx(1.0)
 
     def test_no_signal_raises(self):
         """A zero/dead frame must raise instead of producing a garbage target."""
         frame = np.zeros((100, 100), dtype=np.float32)
         with pytest.raises(ValueError, match="无有效信号"):
-            square_target_from_measurement(frame)
+            square_target_from_measurement(frame, side_px=20.0)
 
-    def test_cli_brightness_without_hardware_falls_back(self, runner_module, tmp_path):
-        """--target-brightness without --use-hardware warns and falls back."""
-        runner = CliRunner()
-        result = runner.invoke(
-            runner_module.run,
-            [
-                "--algorithm",
-                "gs",
-                "--target-shape",
-                "square",
-                "--target-brightness",
-                "100",
-                "--target-size",
-                "40",
-                "--iterations",
-                "3",
-                "--save-dir",
-                str(tmp_path),
-            ],
+    def test_invalid_side_raises(self):
+        """side_px <= 0 must raise."""
+        frame, _ = self._make_spot_frame()
+        with pytest.raises(ValueError, match="side_px"):
+            square_target_from_measurement(frame, side_px=0.0)
+
+    def _make_stray_light_frame(self) -> tuple:
+        """Regress 2026-09-11 hardware discovery (1200us flat frame): the Daheng
+        full-frame carries a pervasive *gray==1* stray-light layer (3.5% of
+        pixels, every row/col, ~62% of total energy) that drags any intensity
+        centroid hundreds of px off the real 0-order spot. Median == 0 so
+        percentile background subtraction leaves the layer untouched. Only
+        argmax survives; assert square_target_from_measurement keeps pinning
+        the planted spot.
+
+        Builds a 1944x2592 frame: 1-gray layer (3.51% random pixels) + Gaussian
+        spot (peak 255, sigma=9) planted at the measured-real-spot (689, 1776).
+        """
+        h, w = 1944, 2592
+        rng = np.random.default_rng(0)
+        frame = np.zeros((h, w), dtype=np.float32)
+        frame[rng.random((h, w)) < 0.0351] = 1.0  # 1-gray layer everywhere
+        cy, cx = 689.0, 1776.0
+        sigma = 9.0
+        y, x = np.mgrid[0:h, 0:w]
+        spot = 255.0 * np.exp(
+            -((x - cx) ** 2 + (y - cy) ** 2) / (2 * sigma**2)
         )
-        assert result.exit_code == 0, f"CLI failed: {result.output}"
+        frame = np.maximum(frame.astype(np.float32), spot.astype(np.float32))
+        return frame, (cy, cx)
 
-        import json
+    def test_stray_light_layer_does_not_drag_argmax(self):
+        """Regression for the 1200us flat-frame finding: a frame whose dominant
+        energy is a gray==1 stray layer (median 0 → background subtraction
+        ineffective) must still pin the target square on the real spot via
+        argmax, not on the drag-biased intensity centroid."""
+        frame, (cy, cx) = self._make_stray_light_frame()
 
-        dirs = [p for p in tmp_path.iterdir() if p.is_dir()]
-        assert len(dirs) == 1
-        cfg = json.loads((dirs[0] / "config.json").read_text())
-        # Fallback: --target-size kept; brightness sizing never engaged (no HW).
-        assert cfg["target_size"] == 40
-        assert cfg["target_brightness"] == 100
-        assert cfg["brightness_info"] is None
-        assert cfg["frames_recorded"] == 0
+        # Sanity: the layer really is there and median background is 0, i.e.
+        # percentile-based subtraction cannot remove it (measured 2026-09-11).
+        assert np.median(frame) == 0.0
+        assert (frame == 1.0).mean() == pytest.approx(0.0351, abs=1e-3)
+        bg = float(np.percentile(frame, 10))
+        assert bg == 0.0
+
+        # The raw intensity centroid IS dragged far off the spot (the whole
+        # reason argmax is used) — confirm the test frame reproduces the trap.
+        tot = float(frame.sum())
+        yy = (frame * np.arange(frame.shape[0])[:, None]).sum() / tot
+        xx = (frame * np.arange(frame.shape[1])[None, :]).sum() / tot
+        assert (yy - cy) ** 2 + (xx - cx) ** 2 > 50.0**2
+
+        # square_target_from_measurement must anchor on argmax == real spot.
+        target, info = square_target_from_measurement(frame, side_px=20.0)
+        assert info["centroid"][0] == pytest.approx(cy, abs=2.0)
+        assert info["centroid"][1] == pytest.approx(cx, abs=2.0)
+        # The square actually covers the spot → its max overlaps the planted
+        # location (argmax of target_ccd sits on the spot row/col span).
+        bright = info["target_ccd"] > 0
+        rows = np.where(bright.any(axis=1))[0]
+        cols = np.where(bright.any(axis=0))[0]
+        assert rows[0] <= cy <= rows[-1]
+        assert cols[0] <= cx <= cols[-1]
+        assert target.shape == (1200, 1920)
 
 
 class TestRunValidation:

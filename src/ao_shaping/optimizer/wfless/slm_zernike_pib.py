@@ -74,11 +74,9 @@ OPTIMIZER_MAP = {
 }
 
 
-
-
 def _zernike_indices(n_max: int) -> list[tuple[int, int]]:
     """Return list of (n, m) pairs for all valid Zernike modes up to n_max.
-    
+
     Uses noll_to_nm from zernike_calc for correctness.
     """
     n_terms = calc_n_zernike_terms(n_max)
@@ -317,8 +315,6 @@ def optimize_slm_zernike_pib(
         ) as cam,
         SantecSLM200(slm_number=slm_number, wavelength=slm_wavelength) as slm,
     ):
-        slm.set_wavelength(slm_wavelength)
-
         # Initialize Zernike coefficients
         if init_c is None or len(init_c) == 0:
             _init_c = np.zeros(nk, dtype=np.float64)

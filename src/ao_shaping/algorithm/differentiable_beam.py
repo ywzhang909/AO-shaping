@@ -37,7 +37,7 @@ from loguru import logger
 
 import torch
 
-from ao_shaping.algorithm.beam_shaping_utils import DEFAULT_WAVELENGTH
+from ao_shaping.utils.slm_utils import DEFAULT_WAVELENGTH
 
 
 @dataclass

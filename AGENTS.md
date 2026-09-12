@@ -18,7 +18,8 @@ AO-shaping/
 │   │   │   ├── wf_runner.py         # Wavefront RMS optimizer
 │   │   │   ├── axis_beam_runner.py  # PIB optimizer
 │   │   │   ├── pipeline_runner.py   # Serial WF→PIB pipeline
-│   │   │   └── zernike_matrix_runner.py  # Zernike response matrix
+│   │   │   ├── zernike_matrix_runner.py  # Zernike response matrix
+│   │   │   └── slm_square_runner.py  # SLM方形光斑 SPGD 整形 (spgd-square)
 │   │   ├── algorithm/            # Optimization algorithms (Adam, SGD, etc.)
 │   │   ├── drivers/              # Hardware drivers (see drivers/AGENTS.md)
 │   │   │   ├── ccd/              # Cameras (Daheng, MiiCam)
@@ -31,8 +32,9 @@ AO-shaping/
 │   │   ├── optimizer/            # High-level optimizers
 │   │   │   ├── wf/               # Wavefront-based (RMS)
 │   │   │   ├── wfless/           # Wavefront-sensorless (PIB)
+│   │   │   │   └── slm_square_shaping.py  # SLM方形光斑 SPGD 整形优化器
 │   │   │   └── rl/               # Reinforcement learning (SAC)
-│   │   ├── utils/                # Utilities (spots_calc, wavefront_calc, zernike_calc, wfs_utils)
+│   │   ├── utils/                # Utilities (spots_calc, wavefront_calc, zernike_calc, zernike_utils, wfs_utils)
 │   │   ├── ml/                  # Machine learning (U-Net+GAN, training, models) — NOTE: lives at src/ml/ as a separate standalone package
 │   │   │   ├── trainer/         # Training utilities
 │   │   │   ├── models/          # Neural network models
@@ -61,6 +63,8 @@ AO-shaping/
 | Wavefront optimizers | `src/ao_shaping/optimizer/wf/` | RMS optimization |
 | Zernike response matrix | `src/ao_shaping/optimizer/wf/zernike_response_matrix.py` | SLM→WFS Zernike校准 |
 | PIB optimizers | `src/ao_shaping/optimizer/wfless/` | Power-in-bucket |
+| SLM方形光斑整形 (SPGD) | `src/ao_shaping/optimizer/wfless/slm_square_shaping.py` + `runners/slm_square_runner.py` | SPGD 优化 Zernike 系数 → 均匀方形远场 (CLI: `spgd-square`) |
+| Zernike 工具 | `src/ao_shaping/utils/zernike_utils.py` | 系数解析 (Noll/(n,m)/数组) + 相位生成，Noll 1976 约定 |
 | RL training | `src/ao_shaping/optimizer/rl/` | SAC, LR-WFS |
 | Simulation | `src/ao_shaping/drivers/sim/` | Digital twin devices |
 | Utilities | `src/ao_shaping/utils/` | spots_calc, wavefront_calc, zernike_calc, display |
@@ -83,6 +87,7 @@ High-level optimizers for wavefront correction and beam shaping:
 | wf/ | `zernike_response_matrix.py` | Zernike calibration |
 | wfless/ | `pib.py` | Power-in-bucket optimization |
 | wfless/ | `sim_spgd.py` | Simulated SPGD |
+| wfless/ | `slm_square_shaping.py` | SLM 方形光斑 SPGD 整形 (均匀性 CV + 环围能量) |
 | rl/ | `sac_train.py` | SAC reinforcement learning |
 | rl/ | `lr_wfs.py` | Learning-based wavefront sensing |
 
@@ -97,6 +102,7 @@ Utility functions for image processing and calculations:
 | `spots_calc.py` | Centroid calculation, sharpness metrics |
 | `wavefront_calc.py` | Wavefront reconstruction from spots |
 | `zernike_calc.py` | Zernike polynomial generation |
+| `zernike_utils.py` | Zernike 系数解析/校验/相位生成 (独立于 PatternHelper，含 Noll 约定文档) |
 | `matrix_utils.py` | Matrix operations |
 | `display.py` | Visualization utilities |
 | `pattern_helper.py` | SLM pattern generation |
@@ -176,7 +182,8 @@ main (click.group)
 ├── pipeline       → pipeline_run()               [Serial WF→PIB pipeline]
 ├── zernike-matrix → zernike_matrix_run()         [Zernike响应矩阵校准]
 ├── rms-zernike    → rms_zernike_run()            [Zernike RMS optimization]
-└── ga-zernike     → ga_zernike_run()             [GA Zernike optimization]
+├── ga-zernike     → ga_zernike_run()             [GA Zernike optimization]
+└── spgd-square    → slm_square_run()             [SLM方形光斑 SPGD 整形]
 ```
 
 **Note:** `combined_runner.py` is DEPRECATED — use `pipeline_runner.py` instead.
@@ -512,12 +519,19 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
 | Treating `get_displayed_memory_number` error-code 1 as a fault | In `set_grayscale` mode there is no memory slot being displayed, so `SLM_Ctrl_ReadDS` returns error-code 1 — this is **normal**, not a failure. Slots only exist in memory mode. |
 | Assuming the 0-order spot sits at the camera frame center | In the 2f Fourier bench the optical axis (0-order = frame **global maximum**) lands at the camera center only by luck. Observed: frame center (1344,760) vs 0-order spot (1441-1443, 705-706). Always locate 0-order by `argmax`, never by geometry. |
 | diff-shaping 硬件闭环挂起（日志止于 `成功打开SLM #1`） | 2026-09-08 实测 (与相机无关): SLM open() 成功后, 首次 `camera.get_numpy_image()` 前无任何日志输出即无限阻塞 (900s 超时被强杀; 分步探针脚本同挂)。`WaitImageV3` 的原生等待由 SDK 内部驱动, 不受 Python 侧超时保护。处置: 强杀后先确认无残留 python 进程 (Get-Process python*)；重跑前 SLM memory 模式 open() 若超过数秒无日志, 对 SLM 控制器物理断电重置 (与 DVI 挂起同一处置)。见 `diff_shaping_runner.py` SLM 连接段注释与 `docs/slm_shaping_diff/readme.md` 故障排查。 |
+| Generating SLM phase via `PatternHelper._zernike_to_uint16` | It **min-max normalises** the phase (`(p-pmin)/(pmax-pmin)*1023`) instead of `mod 2π` radians→grayscale, making the pattern **scale-invariant** (coefficients ×1 and ×4 produce byte-identical patterns; verified `np.array_equal == True`). Always convert radian phase through the SLM driver `slm.create_phase_from_array()` (2π=993 + wavefront correction + LUT). See `docs/slm_square_spgd/README.md`. |
+| Square shaping with low-order Zernike (n≤4) | Zernike modes are a **circularly symmetric smooth** basis; they physically cannot synthesise a square far-field (needs 2D-sinc-like near field / high spatial frequencies). Use full-pixel phase freedom (GS / differentiable / free-form), not Zernike. |
+| Optimising `-CV` alone as the SPGD objective for square shaping | With no energy term the optimizer **empties the target box** to minimise CV (hardware observed EE→0.002). The objective must include encircled energy (use the combined quality score). |
+| Trusting `reset_window()`'s returned centre | When the spot is near the frame edge the ROI offset is clamped but the returned `(w//2, h//2)` is not the true spot position → the target box lands off the beam (hardware observed epoch-0 `mean_b=0.01`). Re-locate the spot by `argmax`/centroid on the **windowed** image. |
+
+> 方形光斑 SPGD 整形的完整分析、硬件实测与修复记录见 [`docs/slm_square_spgd/README.md`](docs/slm_square_spgd/README.md)。
 
 ---
 
 ## UNIQUE STYLES
 
 - **Mock-first testing**: Tests use simulation classes (`SimTurbulenceAOEnv`, `sim_spgd`) to avoid hardware
+- **Zernike Noll 约定统一** (aotools Noll 1976): Noll 4 = (2,0) defocus, Noll 5 = (2,-2) astig, Noll 11 = (4,0) spherical, Noll 13 = (4,-2)。**注意** `optimizer/wf/ga_zernike.py` / `rms_by_zernike.py` 里硬编码查表是另一套 (Noll 5 = (2,0)); 新代码一律用 `zernike_calc.noll_to_nm()` / `utils/zernike_utils.py`, 勿混用。zernike_utils 模块文档含完整前 15 阶映射表。
 - **Hardware skip pattern**: Tests requiring physical hardware use `pytest.skip("Requires DM hardware")`
 - **Recorder pattern**: Optimization tests validate history dictionaries with expected fields
 - **Optional backend testing**: CuPy/Numba tested conditionally with try/except guards

@@ -401,17 +401,34 @@ def compute_quality_score(metrics: dict[str, float]) -> float:
     return float(0.3 * f_ar + 0.4 * f_uni + 0.3 * f_ee)
 
 
-def _centroid(intensity: np.ndarray) -> tuple[float, float]:
-    """计算强度质心 (cx, cy)."""
-    intensity = np.asarray(intensity, dtype=np.float64)
-    total = float(np.sum(intensity))
-    if total <= 0:
-        h, w = intensity.shape
-        return w / 2.0, h / 2.0
-    ys, xs = np.mgrid[0 : intensity.shape[0], 0 : intensity.shape[1]]
-    cx = float(np.sum(xs * intensity) / total)
-    cy = float(np.sum(ys * intensity) / total)
-    return cx, cy
+def _detect_center(
+    intensity: np.ndarray, mode: str = "argmax"
+) -> tuple[float, float]:
+    """定位 0 级光斑中心 (cx, cy), 与 gui/ccd/target_shape_helper.py 一致.
+
+    用户已在 GUI 中验证 "亮度重心、峰值位置" 均合理, runner 同步支持两种方法.
+
+    Args:
+        intensity: 2D强度图像.
+        mode: 中心检测方法:
+            - "argmax": 峰值位置 (全局最大像素) —— 默认. AGENTS.md: 0 级光斑
+              用 argmax 定位, 绝不用几何默认 (杂散光会把质心拉偏).
+            - "centroid_thresh": 亮度重心 (阈值质心, threshold=0.1×max), 抗
+              杂散光优于无阈值质心.
+            - "centroid": 全图质心 (无阈值, 强度加权). 易被杂散光拉偏, 慎用.
+
+    Returns:
+        (cx, cy) 浮点中心坐标.
+    """
+    from ao_shaping.utils.spots_calc import center_of_brightness, centroid
+
+    if mode == "argmax":
+        return center_of_brightness(intensity)
+    if mode == "centroid_thresh":
+        return centroid(intensity, moment=1, threshold=0.1, return_float=True)
+    if mode == "centroid":
+        return centroid(intensity, moment=1, threshold=0.0, return_float=True)
+    raise ValueError(f"Unknown center mode: {mode}")
 
 
 def _bright_span(intensity: np.ndarray, peak_frac: float = 0.5) -> tuple[int, int]:
@@ -463,6 +480,7 @@ def _run_closed_loop(
     convergence_threshold: float,
     settle_time: float,
     n_sample: int,
+    center_mode: str = "argmax",
     output_dir: Path,
     display: bool = False,
 ) -> dict:
@@ -483,18 +501,16 @@ def _run_closed_loop(
         convergence_threshold: 收敛评分阈值 (0~1).
         settle_time: SLM稳定等待时间 (秒).
         n_sample: 相机每次采样平均帧数.
+        center_mode: 光斑中心检测方法 (argmax/centroid_thresh/centroid).
         output_dir: 输出目录.
         display: 是否启用pygame实时可视化.
 
     Returns:
         结果字典, 包含 best_phase, best_score, convergence_history 等.
     """
-    from ao_shaping.algorithm.beam_shaping_utils import (
-        build_square_target_amplitude,
-        measure_spot_diameter_cam,
-    )
+    from ao_shaping.utils.beam_metrics import measure_spot_diameter_cam
+    from ao_shaping.utils.targets import build_square_target_amplitude
     from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
-    from ao_shaping.utils.spots_calc import centroid
 
     width = slm.Panel_Res[0]
     height = slm.Panel_Res[1]
@@ -564,7 +580,7 @@ def _run_closed_loop(
         camera.get_numpy_image(n_sample=n_sample, skip_first=True), dtype=np.float64
     )
     all_images.append(init_image)
-    cx, cy = centroid(init_image, return_float=True)
+    cx, cy = _detect_center(init_image, center_mode)
 
     logger.info("初始光斑: center=({:.1f}, {:.1f}), max={}", cx, cy, init_image.max())
     spot_d = measure_spot_diameter_cam(init_image, energy=gs_energy)
@@ -659,7 +675,7 @@ def _run_closed_loop(
         new_image = np.asarray(
             camera.get_numpy_image(n_sample=n_sample, skip_first=True), dtype=np.float64
         )
-        cx, cy = centroid(new_image, return_float=True)
+        cx, cy = _detect_center(new_image, center_mode)
 
         # --- 6. 计算质量 ---
         metrics: dict[str, Any] = compute_square_metrics(
@@ -907,6 +923,14 @@ def _save_results(result: dict, output_dir: Path, params: dict) -> None:
 @click.option(
     "--n-sample", default=3, type=int, help="相机每次采样平均帧数 (default: 3)"
 )
+@click.option(
+    "--center-mode",
+    default="argmax",
+    type=click.Choice(["argmax", "centroid_thresh", "centroid"]),
+    help="光斑中心检测: argmax=峰值位置(默认,AGENTS.md 0级光斑规则)/"
+    "centroid_thresh=亮度重心(threshold=0.1,抗杂散光)/centroid=质心(易拉偏) "
+    "(default: argmax)",
+)
 # 输出
 @click.option(
     "-o",
@@ -943,6 +967,7 @@ def run(
     convergence_threshold: float,
     settle_time: float,
     n_sample: int,
+    center_mode: str,
     output: str,
     cam_bit_depth: int,
     display: bool,
@@ -1008,6 +1033,7 @@ def run(
             "convergence_threshold": convergence_threshold,
             "settle_time": settle_time,
             "n_sample": n_sample,
+            "center_mode": center_mode,
             "display": display,
         }
 
@@ -1027,6 +1053,7 @@ def run(
             convergence_threshold=convergence_threshold,
             settle_time=settle_time,
             n_sample=n_sample,
+            center_mode=center_mode,
             output_dir=output_dir,
             display=display,
         )

@@ -25,7 +25,7 @@ import streamlit as st
 from loguru import logger
 from plotly.subplots import make_subplots
 
-from ao_shaping.algorithm.beam_shaping_utils import create_target_shape
+from ao_shaping.utils.targets import create_target_shape, generate_target_mask
 from ao_shaping.drivers.ccd.daheng import DahengCamManager
 from ao_shaping.utils.spots_calc import center_of_brightness, centroid
 
@@ -101,77 +101,6 @@ def _generate_sim_frame() -> np.ndarray:
     noise = np.random.default_rng().normal(0.0, 1.5, size=(h, w))
     frame = gauss + background + noise
     return np.clip(frame, 0, 4095).astype(np.uint16)
-
-
-def _generate_target(
-    shape_type: str,
-    params: dict,
-    center: tuple[float, float] | None,
-    height: int,
-    width: int,
-) -> np.ndarray:
-    """Generate a binary target mask (float32, 0/1) at the given center.
-
-    When *center* is ``None`` the shape is centered on the frame and generated
-    via :func:`create_target_shape`.
-    """
-    if center is None:
-        if shape_type == "圆形":
-            radius = params["radius"]
-            radius_ratio = radius / (min(height, width) / 2)
-            return create_target_shape(
-                "circle", (height, width), radius_ratio=radius_ratio
-            )
-        if shape_type == "方形":
-            return create_target_shape(
-                "square", (height, width), side=params["side"]
-            )
-        # 长方形 — fall through to manual generation
-        return _make_rectangle(params["rect_w"], params["rect_h"], None, height, width)
-
-    cx, cy = center
-
-    if shape_type == "圆形":
-        radius = params["radius"]
-        yy, xx = np.ogrid[:height, :width]
-        mask = (xx - cx) ** 2 + (yy - cy) ** 2 <= radius**2
-        return mask.astype(np.float32)
-
-    if shape_type == "方形":
-        side = params["side"]
-        half = side / 2.0
-        target = np.zeros((height, width), dtype=np.float32)
-        y0 = max(0, int(cy - half))
-        y1 = min(height, int(cy + half))
-        x0 = max(0, int(cx - half))
-        x1 = min(width, int(cx + half))
-        target[y0:y1, x0:x1] = 1.0
-        return target
-
-    # 长方形
-    return _make_rectangle(params["rect_w"], params["rect_h"], center, height, width)
-
-
-def _make_rectangle(
-    rw: int,
-    rh: int,
-    center: tuple[float, float] | None,
-    height: int,
-    width: int,
-) -> np.ndarray:
-    """Generate a rectangle mask of size (rh, rw) centred at *center*."""
-    if center is None:
-        y0 = max(0, (height - rh) // 2)
-        x0 = max(0, (width - rw) // 2)
-    else:
-        cx, cy = center
-        y0 = max(0, int(cy - rh / 2))
-        x0 = max(0, int(cx - rw / 2))
-    y1 = min(height, y0 + rh)
-    x1 = min(width, x0 + rw)
-    target = np.zeros((height, width), dtype=np.float32)
-    target[y0:y1, x0:x1] = 1.0
-    return target
 
 
 def _compute_center(
@@ -635,7 +564,9 @@ def _render_overlay(
         primary_center = centers.get(label)
 
     # Generate target
-    target = _generate_target(shape_type, shape_params, primary_center, height, width)
+    target = generate_target_mask(
+        shape_type, shape_params, primary_center, height, width
+    )
     st.session_state.ts_target = target
 
     # Show computed centers

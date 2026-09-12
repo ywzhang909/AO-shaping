@@ -37,9 +37,27 @@ import numpy as np
 
 from loguru import logger
 
+from ao_shaping.utils.beam_metrics import (
+    clamp_side,
+    compute_quality_score,
+    compute_square_metrics,
+    measure_bright_span,
+)
+from ao_shaping.utils.hardware_utils import (
+    apply_auto_exposure,
+    auto_exposure_possible,
+    auto_exposure_target_ms,
+    call_with_timeout,
+    init_frame_recording,
+    record_frame,
+    save_frame_png,
+)
+from ao_shaping.utils.slm_utils import display_phase, pick_slm_slot
+from ao_shaping.utils.targets import create_target_mask
 from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
 from ao_shaping.utils.file import Recorder
 from ao_shaping.utils.resample import resample_to_grid
+from ao_shaping.utils.spots_calc import centroid
 
 if TYPE_CHECKING:
     import pygame
@@ -58,6 +76,7 @@ def _signal_handler(signum, frame) -> None:
 
 
 # ==================== 相机工厂 ====================
+
 
 def _get_daheng_camera(cam_id: int, exposure_ms: float):
     """Import and create Daheng camera instance."""
@@ -96,6 +115,7 @@ def _get_miicam_camera(cam_id: int, exposure_ms: float, bit_depth: int = 8):
 
 
 # ==================== pygame 可视化 ====================
+
 
 class _DiffDisplay:
     """可微分迭代过程 pygame 可视化窗口.
@@ -157,9 +177,7 @@ class _DiffDisplay:
                 return True
         return False
 
-    def _draw_panel(
-        self, index: int, title: str, surface: "pygame.Surface"
-    ) -> None:
+    def _draw_panel(self, index: int, title: str, surface: "pygame.Surface") -> None:
         import pygame
 
         col = index % 2
@@ -170,11 +188,11 @@ class _DiffDisplay:
         title_surf = self._font.render(title, True, (255, 255, 0))
         self._screen.blit(title_surf, (x + 4, y - self.TITLE_H + 2))
 
-        scaled = pygame.transform.scale(
-            surface, (self.PANEL_W, self.PANEL_H)
-        )
+        scaled = pygame.transform.scale(surface, (self.PANEL_W, self.PANEL_H))
         self._screen.blit(scaled, (x, y))
-        pygame.draw.rect(self._screen, (120, 120, 120), (x, y, self.PANEL_W, self.PANEL_H), 1)
+        pygame.draw.rect(
+            self._screen, (120, 120, 120), (x, y, self.PANEL_W, self.PANEL_H), 1
+        )
 
     @staticmethod
     def _to_surface(arr: np.ndarray, cmap: str = "gray") -> "pygame.Surface":
@@ -267,7 +285,11 @@ class _DiffDisplay:
 
         self._screen.fill(self.BG)
 
-        header = " | ".join(self._status_lines) if self._status_lines else "Diff Shaping 闭环优化"
+        header = (
+            " | ".join(self._status_lines)
+            if self._status_lines
+            else "Diff Shaping 闭环优化"
+        )
         head_surf = self._font.render(header, True, (0, 255, 255))
         self._screen.blit(head_surf, (self.PAD, 6))
 
@@ -276,159 +298,17 @@ class _DiffDisplay:
         if self._target is not None:
             self._draw_panel(1, "Target Mask", self._to_surface(self._target, "gray"))
         if self._image is not None:
-            self._draw_panel(2, "Far-field Image", self._to_surface(self._image, "heat"))
+            self._draw_panel(
+                2, "Far-field Image", self._to_surface(self._image, "heat")
+            )
         self._draw_loss_curve()
 
         pygame.display.update()
         self._clock.tick(30)
 
 
-# ==================== 质量指标 (纯函数, 可独立测试) ====================
-
-def compute_square_metrics(
-    intensity: np.ndarray,
-    target_side: int,
-    center: tuple[float, float],
-    energy: float = 0.90,
-) -> dict[str, float]:
-    """计算方形光束的质量指标.
-
-    Args:
-        intensity: 2D远场强度图像.
-        target_side: 目标方形边长 (像素).
-        center: 光束中心 (cx, cy).
-        energy: 环围能量分数 (default 0.90).
-
-    Returns:
-        包含以下指标的字典:
-            - aspect_ratio: 亮区长宽比 (>= 1, 1=完美方形)
-            - squareness: abs(1 - aspect_ratio) (0=完美方形)
-            - uniformity_cv: 方形区域内强度变异系数 (越小越均匀)
-            - encircled_energy: 目标方形内能量占总能量比例
-            - flatness_factor: 方形内均值 / 峰值 (平坦度)
-            - intensity_max: 图像最大强度
-            - intensity_mean: 图像平均强度
-    """
-    intensity = np.asarray(intensity, dtype=np.float64)
-    total = float(np.sum(intensity))
-    if total <= 0:
-        return {
-            "aspect_ratio": 1.0,
-            "squareness": 0.0,
-            "uniformity_cv": 0.0,
-            "encircled_energy": 0.0,
-            "flatness_factor": 0.0,
-            "intensity_max": 0.0,
-            "intensity_mean": 0.0,
-        }
-
-    cx, cy = int(round(center[0])), int(round(center[1]))
-    h, w = intensity.shape
-
-    # --- 长宽比: 亮区 (50%峰阈值) 的 x/y 跨度 ---
-    peak = float(np.max(intensity))
-    threshold = 0.5 * peak
-    bright = intensity >= threshold
-    if bright.any():
-        ys, xs = np.nonzero(bright)
-        width_bright = int(xs.max()) - int(xs.min()) + 1
-        height_bright = int(ys.max()) - int(ys.min()) + 1
-        aspect_ratio = max(width_bright, height_bright) / max(min(width_bright, height_bright), 1)
-    else:
-        aspect_ratio = 1.0
-
-    # --- 方形区域内均匀性 ---
-    half = max(target_side // 2, 1)
-    y0 = max(cy - half, 0)
-    y1 = min(cy + half, h)
-    x0 = max(cx - half, 0)
-    x1 = min(cx + half, w)
-    region = intensity[y0:y1, x0:x1]
-    region_mean = float(np.mean(region))
-    region_std = float(np.std(region))
-    uniformity_cv = region_std / max(region_mean, 1e-10) if region_mean > 0 else 0.0
-
-    # --- 环围能量: 目标方形内能量占比 ---
-    encircled_energy = float(np.sum(region)) / max(total, 1e-10)
-
-    # --- 平坦度 ---
-    flatness_factor = region_mean / max(peak, 1e-10) if peak > 0 else 0.0
-
-    return {
-        "aspect_ratio": float(aspect_ratio),
-        "squareness": float(abs(1.0 - aspect_ratio)),
-        "uniformity_cv": float(uniformity_cv),
-        "encircled_energy": float(encircled_energy),
-        "flatness_factor": float(flatness_factor),
-        "intensity_max": float(peak),
-        "intensity_mean": float(np.mean(intensity)),
-    }
-
-
-def compute_quality_score(metrics: dict[str, float]) -> float:
-    """由质量指标计算综合评分 (0~1, 越高越好).
-
-    加权组合三个主要指标:
-        - 长宽比 (aspect_ratio 接近 1)
-        - 均匀性 (uniformity_cv 接近 0)
-        - 环围能量 (encircled_energy 接近 1)
-
-    Args:
-        metrics: compute_square_metrics 返回的指标字典.
-
-    Returns:
-        0~1 的综合评分.
-    """
-    f_ar = math.exp(-((metrics["aspect_ratio"] - 1.0) / 0.3) ** 2)
-    f_uni = math.exp(-(metrics["uniformity_cv"] / 0.3) ** 2)
-    f_ee = float(np.clip(metrics["encircled_energy"], 0.0, 1.0))
-    return float(0.3 * f_ar + 0.4 * f_uni + 0.3 * f_ee)
-
-
-def _centroid(intensity: np.ndarray) -> tuple[float, float]:
-    """计算强度质心 (cx, cy)."""
-    intensity = np.asarray(intensity, dtype=np.float64)
-    total = float(np.sum(intensity))
-    if total <= 0:
-        h, w = intensity.shape
-        return w / 2.0, h / 2.0
-    ys, xs = np.mgrid[0 : intensity.shape[0], 0 : intensity.shape[1]]
-    cx = float(np.sum(xs * intensity) / total)
-    cy = float(np.sum(ys * intensity) / total)
-    return cx, cy
-
-
-def _bright_span(intensity: np.ndarray, peak_frac: float = 0.5) -> tuple[int, int]:
-    """50%峰阈值亮区的外接宽高, 用于像素缩放标定.
-
-    Args:
-        intensity: 2D强度图像.
-        peak_frac: 峰阈值比例 (default 0.5).
-
-    Returns:
-        (宽, 高) 亮区包围盒尺寸; 无亮区时返回 (0, 0).
-    """
-    intensity = np.asarray(intensity, dtype=np.float64)
-    peak = float(np.max(intensity))
-    if peak <= 0:
-        return 0, 0
-    bright = intensity >= peak_frac * peak
-    if not bright.any():
-        return 0, 0
-    ys, xs = np.nonzero(bright)
-    return int(xs.max()) - int(xs.min()) + 1, int(ys.max()) - int(ys.min()) + 1
-
-
-def _clamp_side(side: int, height: int, width: int) -> int:
-    """方形边长钳制到SLM网格内 (留8px边距)."""
-    max_side = min(height, width) - 8
-    if side > max_side:
-        logger.warning("方形边长 {}px 超出SLM网格, 钳制为 {}px", side, max_side)
-        return max_side
-    return side
-
-
 # ==================== 闭环核心 ====================
+
 
 def _run_closed_loop(
     slm: SantecSLM200,
@@ -499,10 +379,7 @@ def _run_closed_loop(
     """
     # Lazy import: torch 可选, 仅在进入硬件循环时检查
     try:
-        from ao_shaping.algorithm.differentiable_shaping import (
-            create_target_mask,
-            train_beam_shaping,
-        )
+        from ao_shaping.optimizer import train_beam_shaping
     except ImportError as e:
         raise RuntimeError(
             "PyTorch 未安装或 differentiable_shaping 模块不可用. "
@@ -520,28 +397,6 @@ def _run_closed_loop(
     wavelength = float(slm.wavelength) if slm.wavelength is not None else 1064.0
     wavelength_m = wavelength * 1e-9
     cell_spacing_m = cell_spacing_um * 1e-6
-
-    # SLM内存槽随机选取 (2~125, 禁止连续使用同一槽位, 含跨进程重启边界)
-    # 驱动固件: display_memory(同一槽) 是 no-op, LCOS 不刷新 → 前后两次相位
-    # 写入必须落在不同槽。在 2~125 大范围内随机选槽, 单次运行内相邻两次写入
-    # 几乎必然不同; 启动时读取 SLM 当前显示的槽号 (memory 模式 SLM_Ctrl_ReadDS
-    # 有效) 并排除之, 使跨进程重启第一轮也不会与上次末槽相同。
-    _SLOT_MIN, _SLOT_MAX = 2, 125
-    _last_slot_used: int | None = None
-    try:
-        _last_slot_used = slm.get_displayed_memory_number()
-        logger.info("SLM当前显示槽: {}", _last_slot_used)
-    except Exception:
-        # 读取失败 (如 set_grayscale 模式, 无内存槽概念), 首次随机选取即可
-        _last_slot_used = None
-
-    def _pick_next_slot() -> int:
-        """从 2~125 随机选取一个与上次写入不同的 SLM 内存槽 (防连续同槽 no-op)."""
-        nonlocal _last_slot_used
-        candidates = [s for s in range(_SLOT_MIN, _SLOT_MAX + 1) if s != _last_slot_used]
-        slot = random.choice(candidates)
-        _last_slot_used = slot
-        return slot
 
     # 可选pygame实时显示
     display_stack = contextlib.ExitStack()
@@ -585,7 +440,7 @@ def _run_closed_loop(
         camera.get_numpy_image(n_sample=n_sample, skip_first=True), dtype=np.float64
     )
     all_images.append(init_image)
-    cx, cy = _centroid(init_image)
+    cx, cy = centroid(init_image)
 
     logger.info("初始光斑: center=({:.1f}, {:.1f}), max={}", cx, cy, init_image.max())
     spot_d = measure_spot_diameter_cam(init_image, energy=gs_energy)
@@ -600,27 +455,29 @@ def _run_closed_loop(
         target_px = gs_factor * spot_d
         logger.info(
             "目标尺寸: {:.0f}px = gs_factor {} × 光斑直径 {:.0f}px",
-            target_px, gs_factor, spot_d,
+            target_px,
+            gs_factor,
+            spot_d,
         )
 
     # 像素缩放比 k = side_slm_px / 亮区宽度_cam_px
     if pixel_scale is not None:
         auto_calib = False
-        side = _clamp_side(
-            int(round(target_px * float(pixel_scale))), height, width
-        )
+        side = clamp_side(int(round(target_px * float(pixel_scale))), height, width)
     elif p_cam is not None:
         auto_calib = False
         k_guess = float(p_cam) / d_slm
-        side = _clamp_side(int(round(target_px * k_guess)), height, width)
+        side = clamp_side(int(round(target_px * k_guess)), height, width)
     else:
         auto_calib = True
         side = int(round(target_px * 0.4))  # k 初猜 0.4
-        logger.info("自动标定像素缩放: 首轮以探测边长 {}px 运行, 采集后更新目标边长", side)
+        logger.info(
+            "自动标定像素缩放: 首轮以探测边长 {}px 运行, 采集后更新目标边长", side
+        )
 
     # 如果用户直接指定 --target-size, 用它覆盖 side
     if target_size > 0:
-        side = _clamp_side(target_size, height, width)
+        side = clamp_side(target_size, height, width)
         auto_calib = False
         logger.info("使用指定目标尺寸: {}px (SLM 网格)", side)
 
@@ -659,14 +516,19 @@ def _run_closed_loop(
         # --- 2. 运行可微分梯度优化 ---
         logger.info(
             "运行可微分优化 ({}/{} 外迭代, {} 内迭代, {})...",
-            outer_iter + 1, outer_iterations, dl_iterations, optimizer,
+            outer_iter + 1,
+            outer_iterations,
+            dl_iterations,
+            optimizer,
         )
 
         def _dl_progress(iteration: int, loss: float) -> None:
             """梯度优化内迭代进度回调 (每个迭代输出日志 + 更新pygame损失曲线)."""
             logger.info(
                 "内迭代 {:4d}/{:d} loss={:.6f}",
-                iteration + 1, dl_iterations, loss,
+                iteration + 1,
+                dl_iterations,
+                loss,
             )
             if display_ctx is None:
                 return
@@ -727,11 +589,8 @@ def _run_closed_loop(
 
         # --- 3. 转换相位为灰度并下发 ---
         phase_gray = slm.create_phase_from_array(result.phase)
-        slot = _pick_next_slot()
-        slm.write_phase(phase_gray, memory_number=slot)
-        time.sleep(0.05)
-        slm.display_memory(slot)
-        logger.info("相位已写入SLM内存槽 {}", slot)
+        display_phase(slm, result.phase, settle_time)
+        logger.info("相位已写入SLM内存槽")
 
         # --- 4. 等待SLM稳定 ---
         if settle_time > 0:
@@ -741,7 +600,7 @@ def _run_closed_loop(
         new_image = np.asarray(
             camera.get_numpy_image(n_sample=n_sample, skip_first=True), dtype=np.float64
         )
-        cx, cy = _centroid(new_image)
+        cx, cy = centroid(new_image)
 
         # --- 6. 计算质量 ---
         metrics: dict[str, Any] = compute_square_metrics(
@@ -825,7 +684,9 @@ def _run_closed_loop(
                 "target": np.asarray(target_mask, dtype=np.float64),
             }
         )
-        recorder.dataframe.to_pickle(output_dir / "diff_shaping_records.pkl", compression="zip")
+        recorder.dataframe.to_pickle(
+            output_dir / "diff_shaping_records.pkl", compression="zip"
+        )
 
         # --- 8. 跟踪最优 ---
         if score > best_score:
@@ -850,13 +711,11 @@ def _run_closed_loop(
 
         # 自动标定模式
         if auto_calib:
-            bright_w, bright_h = _bright_span(new_image)
+            bright_w, bright_h = measure_bright_span(new_image)
             bright_w = max(bright_w, bright_h)
             if bright_w > 5:
                 k_meas = side / bright_w
-                next_side = _clamp_side(
-                    int(round(target_px * k_meas)), height, width
-                )
+                next_side = clamp_side(int(round(target_px * k_meas)), height, width)
                 logger.info(
                     "像素标定: k={:.4f} (边长{}px→亮区{:.0f}px), 下次目标边长 {}px",
                     k_meas,
@@ -867,7 +726,9 @@ def _run_closed_loop(
                 side = next_side
             else:
                 logger.warning(
-                    "本轮亮区过小/未检测到 ({:.0f}px), 保持目标边长 {}px", bright_w, side
+                    "本轮亮区过小/未检测到 ({:.0f}px), 保持目标边长 {}px",
+                    bright_w,
+                    side,
                 )
 
     # 汇总结果
@@ -903,7 +764,9 @@ def _save_results(result: dict, output_dir: Path, params: dict) -> None:
 
     # 保存最优目标掩模和模拟强度 (如果有)
     if result["all_images"]:
-        np.save(output_dir / "best_image.npy", result["all_images"][result["best_iter"]])
+        np.save(
+            output_dir / "best_image.npy", result["all_images"][result["best_iter"]]
+        )
 
     with (output_dir / "convergence_history.json").open("w", encoding="utf-8") as f:
         json.dump(result["convergence_history"], f, ensure_ascii=False, indent=2)
@@ -929,6 +792,7 @@ def _save_results(result: dict, output_dir: Path, params: dict) -> None:
 
 # ==================== CLI ====================
 
+
 @click.command()
 # 相机
 @click.option(
@@ -943,13 +807,23 @@ def _save_results(result: dict, output_dir: Path, params: dict) -> None:
     type=int,
     help="相机ID (default: FAR_CAM_ID 环境变量或 0)",
 )
-@click.option("--exposure-ms", default=None, type=float,
-              help="相机曝光时间 ms (default: 自动 miicam=0.02 / daheng=50)")
-@click.option("--cam-bit-depth", default=8, type=click.IntRange(8, 16),
-              help="MiiCam输出位深 (default: 8)")
+@click.option(
+    "--exposure-ms",
+    default=None,
+    type=float,
+    help="相机曝光时间 ms (default: 自动 miicam=0.02 / daheng=50)",
+)
+@click.option(
+    "--cam-bit-depth",
+    default=8,
+    type=click.IntRange(8, 16),
+    help="MiiCam输出位深 (default: 8)",
+)
 # SLM
 @click.option("--slm-number", default=1, type=int, help="SLM设备编号 1-8 (default: 1)")
-@click.option("--slm-wavelength", default=1064, type=int, help="SLM工作波长 nm (default: 1064)")
+@click.option(
+    "--slm-wavelength", default=1064, type=int, help="SLM工作波长 nm (default: 1064)"
+)
 # 目标参数
 @click.option(
     "--target-shape",
@@ -957,25 +831,40 @@ def _save_results(result: dict, output_dir: Path, params: dict) -> None:
     default="square",
     help="目标形状 (default: square)",
 )
-@click.option("--target-size", default=0, type=int,
-              help="目标尺寸 (SLM 网格 px); 0=自动 (default: 0)")
+@click.option(
+    "--target-size",
+    default=0,
+    type=int,
+    help="目标尺寸 (SLM 网格 px); 0=自动 (default: 0)",
+)
 @click.option(
     "--target-px",
     default=None,
     type=int,
     help="目标在相机上的像素宽度; 推荐显式指定 (default: 按 --gs-factor×光斑直径)",
 )
-@click.option("--gs-factor", default=1.5, type=float,
-              help="目标/光斑尺寸因子 (default: 1.5)")
+@click.option(
+    "--gs-factor", default=1.5, type=float, help="目标/光斑尺寸因子 (default: 1.5)"
+)
 # 物理参数
-@click.option("--focal-length", default=0.1, type=float, help="焦距/传播距离 m (default: 0.1)")
-@click.option("--gs-energy", default=0.90, type=float, help="光斑测量环围能量 (default: 0.90)")
-@click.option("--cell-spacing", default=8.0, type=float,
-              help="SLM 像素间距 um (default: 8)")
-@click.option("--p-cam", default=None, type=float,
-              help="相机像素间距 m (default: 使用SLM间距)")
-@click.option("--pixel-scale", default=None, type=float,
-              help="像素缩放比 k=SLM网格边长/相机亮区宽度; None=自动标定 (default: 自动)")
+@click.option(
+    "--focal-length", default=0.1, type=float, help="焦距/传播距离 m (default: 0.1)"
+)
+@click.option(
+    "--gs-energy", default=0.90, type=float, help="光斑测量环围能量 (default: 0.90)"
+)
+@click.option(
+    "--cell-spacing", default=8.0, type=float, help="SLM 像素间距 um (default: 8)"
+)
+@click.option(
+    "--p-cam", default=None, type=float, help="相机像素间距 m (default: 使用SLM间距)"
+)
+@click.option(
+    "--pixel-scale",
+    default=None,
+    type=float,
+    help="像素缩放比 k=SLM网格边长/相机亮区宽度; None=自动标定 (default: 自动)",
+)
 @click.option(
     "--propagation",
     type=click.Choice(["fft", "asm"], case_sensitive=False),
@@ -991,8 +880,13 @@ def _save_results(result: dict, output_dir: Path, params: dict) -> None:
 #   * lr=3e-2 + 600 次内迭代: fft/adam 方形 CV<0.1 EE≈0.84 (seed 1-3 稳健),
 #     asm 亦能收敛 (CV≈0.001 EE≈0.90); lbfgs (lr=1.0) 60 步即近平顶
 #   * 若想手动校验, 可用 --dl-iterations 500+ 或 --optimizer lbfgs
-@click.option("--dl-iterations", "-i", default=500, type=int,
-              help="每次外迭代的梯度优化内迭代次数 (default: 500; 600 达 CV<0.1)")
+@click.option(
+    "--dl-iterations",
+    "-i",
+    default=500,
+    type=int,
+    help="每次外迭代的梯度优化内迭代次数 (default: 500; 600 达 CV<0.1)",
+)
 @click.option(
     "--optimizer",
     type=click.Choice(["adam", "lbfgs"]),
@@ -1001,14 +895,27 @@ def _save_results(result: dict, output_dir: Path, params: dict) -> None:
     help="梯度优化器 (default: adam)",
 )
 @click.option("--lr", default=3e-2, type=float, help="梯度优化学习率 (default: 3e-2)")
-@click.option("--w-uniformity", default=0.4, type=float,
-              help="均匀性损失权重 (default: 0.4)")
-@click.option("--w-efficiency", default=0.6, type=float,
-              help="效率损失权重 (default: 0.6; >= 均匀性权重先集中能量再展平)")
-@click.option("--w-zero-order", default=0.0, type=float,
-              help="零级损失权重 (default: 0.0; 非零会把能量推出居中目标)")
-@click.option("--w-smoothness", default=0.0, type=float,
-              help="平滑损失权重 (default: 0.0; 抑制方形锐边所需的高频相位)")
+@click.option(
+    "--w-uniformity", default=0.4, type=float, help="均匀性损失权重 (default: 0.4)"
+)
+@click.option(
+    "--w-efficiency",
+    default=0.6,
+    type=float,
+    help="效率损失权重 (default: 0.6; >= 均匀性权重先集中能量再展平)",
+)
+@click.option(
+    "--w-zero-order",
+    default=0.0,
+    type=float,
+    help="零级损失权重 (default: 0.0; 非零会把能量推出居中目标)",
+)
+@click.option(
+    "--w-smoothness",
+    default=0.0,
+    type=float,
+    help="平滑损失权重 (default: 0.0; 抑制方形锐边所需的高频相位)",
+)
 @click.option("--seed", default=None, type=int, help="随机种子 (default: None)")
 @click.option(
     "--device",
@@ -1017,19 +924,37 @@ def _save_results(result: dict, output_dir: Path, params: dict) -> None:
     help="计算设备: auto=有CUDA则用GPU否则CPU (default: auto)",
 )
 # 闭环参数
-@click.option("--outer-iterations", "-n", default=10, type=int,
-              help="最大外迭代次数 (default: 10)")
-@click.option("--convergence-threshold", default=0.95, type=float,
-              help="收敛评分阈值 0~1 (default: 0.95)")
-@click.option("--settle-time", default=0.5, type=float,
-              help="SLM稳定等待时间 s (default: 0.5)")
-@click.option("--n-sample", default=3, type=int,
-              help="相机每次采样平均帧数 (default: 3)")
-@click.option("--refine/--no-refine", default=False,
-              help="每次外迭代后运行额外细化梯度通道 (default: False)")
+@click.option(
+    "--outer-iterations",
+    "-n",
+    default=10,
+    type=int,
+    help="最大外迭代次数 (default: 10)",
+)
+@click.option(
+    "--convergence-threshold",
+    default=0.95,
+    type=float,
+    help="收敛评分阈值 0~1 (default: 0.95)",
+)
+@click.option(
+    "--settle-time", default=0.5, type=float, help="SLM稳定等待时间 s (default: 0.5)"
+)
+@click.option(
+    "--n-sample", default=3, type=int, help="相机每次采样平均帧数 (default: 3)"
+)
+@click.option(
+    "--refine/--no-refine",
+    default=False,
+    help="每次外迭代后运行额外细化梯度通道 (default: False)",
+)
 # 输出
-@click.option("-o", "--output", default="data/diff_shaping",
-              help="输出目录 (default: data/diff_shaping)")
+@click.option(
+    "-o",
+    "--output",
+    default="data/diff_shaping",
+    help="输出目录 (default: data/diff_shaping)",
+)
 @click.option(
     "--display/--no-display",
     default=False,
@@ -1089,9 +1014,7 @@ def run(
         exposure_ms = 0.02 if camera_type == "miicam" else 50.0
         logger.info("曝光时间默认: {}ms (camera_type={})", exposure_ms, camera_type)
     elif camera_type == "miicam" and exposure_ms > 50.0:
-        logger.warning(
-            "miicam 曝光 {:.3f}ms 偏大, 建议 0.02~1ms 避免饱和", exposure_ms
-        )
+        logger.warning("miicam 曝光 {:.3f}ms 偏大, 建议 0.02~1ms 避免饱和", exposure_ms)
 
     output_dir = Path(output)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1203,7 +1126,9 @@ def run(
         _save_results(result, output_dir, params)
 
         n_iters = len(result["convergence_history"])
-        logger.info("闭环完成: 运行 {} 次迭代, 最优评分 {:.4f}", n_iters, result["best_score"])
+        logger.info(
+            "闭环完成: 运行 {} 次迭代, 最优评分 {:.4f}", n_iters, result["best_score"]
+        )
 
     except Exception as e:
         logger.error("Diff shaping runner failed: {}", e)

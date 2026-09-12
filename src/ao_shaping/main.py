@@ -40,30 +40,29 @@ from loguru import logger
 
 # Import all runners from runners package
 from ao_shaping.runners import (
-    wf_run,
-    pib_run,
-    pipeline_run,
-    gs_run,
-    zernike_matrix_run,
-    zernike_closed_loop_run,
-    rms_zernike_run,
-    ga_zernike_run,
-    greedy_zernike_run,
-    dm_matrix_run,
     alt_voltage_run,
-    full_voltage_run,
     combined_run,
     diff_beam_run,
-    gs_square_run,
     diff_shaping_run,
+    dm_matrix_run,
+    full_voltage_run,
+    ga_zernike_run,
+    greedy_zernike_run,
+    gs_run,
+    gs_square_run,
+    pib_run,
+    pipeline_run,
+    rms_zernike_run,
+    slm_square_run,
+    wf_run,
+    zernike_closed_loop_run,
+    zernike_matrix_run,
 )
-
-
-from ao_shaping.utils.cli_helpers import get_debug_mode
 
 # Tools commands (standalone tools under tools/)
 from ao_shaping.tools.slm.slm_diagnose import main as slm_diagnose_run
 from ao_shaping.tools.slm.slm_lut_runner import run as slm_lut_run
+from ao_shaping.utils.cli_helpers import get_debug_mode
 
 
 @click.group()
@@ -82,11 +81,14 @@ def cli(ctx: click.Context, dir: str):
     if _debug:
         logger.remove()
         logger.add(sys.stderr, level="DEBUG")
-        logger.debug("Debug mode enabled via DEBUG env var - DEBUG level logging active")
+        logger.debug(
+            "Debug mode enabled via DEBUG env var - DEBUG level logging active"
+        )
         logger.debug("Debug mode enabled")
     ctx.ensure_object(dict)
     ctx.obj["dir"] = dir
     ctx.obj["debug"] = _debug
+
 
 # Register subcommands
 cli.add_command(wf_run, name="wf")
@@ -107,6 +109,7 @@ cli.add_command(gs_square_run, name="gs-square")
 cli.add_command(diff_shaping_run, name="diff-shaping")
 cli.add_command(slm_lut_run, name="slm-lut")
 cli.add_command(slm_diagnose_run, name="slm-diagnose")
+cli.add_command(slm_square_run, name="spgd-square")
 
 
 # Entry point

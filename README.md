@@ -36,7 +36,7 @@ AO-shaping/
 │   │   ├── algorithm/           # 优化算法 (Adam, SGD, Muon, 可微分光束整形等)
 │   │   │   ├── gerchberg_saxton.py     # Gerchberg-Saxton 相位恢复算法
 │   │   │   ├── differentiable_beam.py  # 可微光束整形 (双向传播模拟)
-│   │   │   └── beam_shaping_utils.py   # 光束整形共享工具 (目标生成/指标/方形尺寸)
+│   │   │   └── beam_shaping_utils.py   # [兼容层] 迁移后 re-export (目标/指标/SLM/硬件工具)
 │   │   ├── drivers/             # 硬件驱动
 │   │   │   ├── ccd/             # 相机 (Daheng, MiiCam)
 │   │   │   ├── dm/              # 变形镜 (NLight, R50Power MicroDM)
@@ -50,7 +50,7 @@ AO-shaping/
 │   │   │   ├── wf/              # 波前优化 (RMS)
 │   │   │   ├── wfless/          # 无波前优化 (PIB)
 │   │   │   └── rl/              # 强化学习 (SAC, LR-WFS)
-│   │   ├── utils/               # 工具函数 (spots_calc, wavefront_calc, resample)
+│   │   ├── utils/               # 工具函数 (spots_calc, wavefront_calc, targets, beam_metrics, slm_utils, hardware_utils, resample)
 │   │   ├── ml/                  # 机器学习 (U-Net+GAN, 训练, 模型)
 │   │   │   ├── trainer/         # 训练器
 │   │   │   ├── models/          # 神经网络模型
@@ -457,21 +457,32 @@ python src/ao_shaping/main.py diff-beam [OPTIONS]
 ```
 等同于: `python -m ao_shaping.runners.diff_beam_runner`
 
-双算法可微光束整形：**backprop**（PyTorch 前向/反向传播，角谱衍射模拟 + Adam 优化相位）或 **gs**（Gerchberg-Saxton）。将 SLM 相位优化为任意目标强度图案（高斯、圆形、或自定义图片）。相同指标定义（`beam_shaping_utils.compute_metrics`）保证两算法结果可直接对比。
+双算法可微光束整形：**backprop**（PyTorch 前向/反向传播，角谱衍射模拟 + Adam 优化相位）或 **gs**（Gerchberg-Saxton）。将 SLM 相位优化为任意目标强度图案（高斯、圆形、方形、或自定义图片）。相同指标定义（`beam_shaping_utils.compute_metrics`）保证两算法结果可直接对比。**方形整形（硬件模式）采用 CCD 图片空间固定边长 target**：`--target-shape square` + `--target-px`（CCD 像素边长，推荐显式指定）；未指定 `--target-px` 时由 `--target-size`（SLM 网格 FFT bin）× 像素缩放换算并警告。目标方形 = **CCD 图片空间固定边长 + 实测质心定位中心 + 亮度均匀 1/边长²（总和 = 1）**，loss 用**实测帧 / 总亮度**归一化后对比，因此曝光/总亮度变化不影响 target square（曝光无关）。目标网格为 SLM200 全面板 (1200, 1920)。**硬件运行逐帧记录 CCD 图像**：`frames/` (每帧 .npy) + `frame_meta.jsonl`（逐帧峰值/总和/质心/曝光/相位描述），配合 `scripts/diff_beam_frame_analysis.py` 离线分析。
 
 选项:
 - `--algorithm`: 优化算法 (backprop / gs, 默认: backprop)
 - `--target-image`: 目标图像路径 (灰度图 / .npy，归一化后作为目标强度)
-- `--target-shape`: 预设目标形状 (gaussian / circle, 默认: gaussian)
+- `--target-shape`: 预设目标形状 (gaussian / circle / square, 默认: gaussian)
+- `--target-size`: 方形目标边长 (SLM 网格 FFT bin, 默认: 40; 硬件 square 未给 --target-px 时换算用)
+- `--target-px`: **方形目标在相机上的固定边长 (CCD 像素; 硬件 square 模式)**。目标方形 = CCD 图片空间: 边长 --target-px、中心 = 实测质心、亮度 = 1/边长² (总和=1)。loss 用实测帧/总亮度 归一化后对比, 曝光/总亮度变化不影响 target。默认: 由 --target-size 换算
 - `-e, --epochs`: backprop 的 Adam 优化步数 (默认: 200)
 - `--lr`: backprop 学习率 (默认: 0.01)
 - `-i, --iterations`: gs 迭代次数 (默认: 50)
 - `-d, --distance`: 传播距离 m (默认: 0.1)
 - `-l, --wavelength`: 激光波长 nm (默认: 1064)
+- `--slm-wavelength`: SLM 工作波长 nm (默认: 1064)
+- `--slm-number`: SLM 设备编号 (默认: 1)
 - `--cam-id`: CCD 相机 ID (默认: FAR_CAM_ID/0)
 - `--cam-center`: CCD 中心 'x,y' (默认: 自动检测)
 - `--cam-size`: CCD 开窗大小 像素 (默认: 400)
+- `--cam-exposure`: CCD 曝光时间 毫秒 (默认: 50)
+- `--cam-exposure-us`: CCD 曝光时间 微秒 (900=0.9ms; 与 --cam-exposure 二选一, 优先)
+- `--p-cam`: 相机像素间距 m (默认: 5.5e-6)
+- `--settle-time`: SLM 显示相位后等待时间 s (默认: 0.3)
+- `--capture-timeout`: SLM 打开与相机采集的看门狗超时 s (默认: 30.0)
 - `--adaptive`: gs 算法启用 CCD 反馈自适应 (需 --use-hardware)
+- `--adaptive-iterations`: gs 自适应外层迭代次数 (默认: 3)
+- `--device`: backprop 计算设备 (cpu / cuda, 默认: 自动选择)
 - `--seed`: backprop 初始相位随机种子 (默认: 0，可复现)
 - `-s, --save-dir`: 结果保存目录 (默认: data/diff_beam)
 - `--use-hardware`: 使用实际硬件 (SLM+CCD)，否则仅模拟
@@ -487,6 +498,15 @@ python src/ao_shaping/main.py diff-beam --algorithm gs --target-image target.png
 
 # 硬件闭环: CCD 反馈自适应
 python src/ao_shaping/main.py diff-beam --algorithm gs --adaptive --use-hardware
+
+# 硬件方形成形: 40 bin 方形目标, 900μs 曝光 (backprop)
+python src/ao_shaping/main.py diff-beam --algorithm backprop --target-shape square --target-size 40 --use-hardware -e 200 --cam-exposure-us 900
+
+# 硬件方形成形: 40 bin 方形目标, 900μs 曝光 (GS)
+python src/ao_shaping/main.py diff-beam --algorithm gs --target-shape square --target-size 40 --use-hardware -i 50 --cam-exposure-us 900
+
+# 硬件方形成形 (推荐): CCD 图片空间固定边长 20 px 方形, 质心定位, 曝光无关
+python src/ao_shaping/main.py diff-beam --algorithm backprop --target-shape square --target-px 20 --use-hardware -e 200 --cam-exposure-us 1200
 ```
 
 #### 闭环波前优化 (closed-loop)

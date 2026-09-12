@@ -59,4 +59,39 @@ __all__ = [
     "optimize_pso",
     "optimize_ga",
     "optimize_sa",
+    # Differentiable beam shaping (torch-dependent, lazy-exported)
+    "BeamOptimizeResult",
+    "differentiable_beam_optimize",
+    "far_field_intensity",
+    "DifferentiableShapingResult",
+    "create_target_mask",
+    "train_beam_shaping",
 ]
+
+
+def __getattr__(name: str):
+    """Lazily export the torch-dependent differentiable-shaping symbols.
+
+    ``differentiable_beam`` imports ``torch`` at module top level, so ``import
+    ao_shaping.optimizer`` in a torch-less environment must not touch it until
+    the symbol is actually accessed (PEP 562). Resolved once, then cached in
+    the module namespace.
+    """
+    if name in {"BeamOptimizeResult", "differentiable_beam_optimize", "far_field_intensity"}:
+        from ao_shaping.optimizer.wfless.differentiable_beam import __dict__ as _beam_dict
+
+        value = _beam_dict[name]
+    elif name in {
+        "DifferentiableShapingResult",
+        "create_target_mask",
+        "train_beam_shaping",
+    }:
+        from ao_shaping.optimizer.wfless.differentiable_shaping import (
+            __dict__ as _shaping_dict,
+        )
+
+        value = _shaping_dict[name]
+    else:
+        raise AttributeError(f"module 'ao_shaping.optimizer' has no attribute {name!r}")
+    globals()[name] = value
+    return value

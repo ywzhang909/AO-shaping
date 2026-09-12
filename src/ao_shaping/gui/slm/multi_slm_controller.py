@@ -12,14 +12,11 @@ import numpy as np
 import streamlit as st
 from loguru import logger
 
-from ao_shaping.algorithm.beam_shaping_utils import (
-    build_square_target_amplitude,
-    compute_square_side,
-    measure_spot_diameter_cam,
-)
 from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
 from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+from ao_shaping.utils.beam_metrics import measure_spot_diameter_cam
 from ao_shaping.utils.pattern_helper import PatternHelper, calc_blazed_grating_period
+from ao_shaping.utils.targets import build_square_target_amplitude, compute_square_side
 from ao_shaping.utils.zernike_calc import get_zernike_name
 
 # Global pattern helpers (will be recreated per-SLM based on resolution)

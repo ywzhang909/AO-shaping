@@ -1611,8 +1611,7 @@ class SantecSLM200:
 
 
 def test():
-    with SantecSLM200(slm_number=1) as slm:
-        slm.set_wavelength(1064)  # 1064nm, 2*pi相位
+    with SantecSLM200(slm_number=1, wavelength=1064) as slm:
         phase_data = np.zeros((1080, 1920), dtype=np.uint16)
         slm.write_phase(phase_data, memory_number=1)
         slm.display_memory(1)

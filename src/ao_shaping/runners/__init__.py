@@ -16,6 +16,8 @@ from ao_shaping.runners.combined_runner import run as combined_run
 from ao_shaping.runners.diff_beam_runner import run as diff_beam_run
 from ao_shaping.runners.gs_square_runner import run as gs_square_run
 from ao_shaping.runners.diff_shaping_runner import run as diff_shaping_run
+from ao_shaping.runners.slm_square_runner import run as slm_square_run
+from ao_shaping.runners.shaping_runner import run as shaping_run
 
 __all__ = [
     "wf_run",
@@ -34,4 +36,6 @@ __all__ = [
     "diff_beam_run",
     "gs_square_run",
     "diff_shaping_run",
+    "shaping_run",
+    "slm_square_run",
 ]
