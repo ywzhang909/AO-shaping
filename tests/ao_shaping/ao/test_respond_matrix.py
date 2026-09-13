@@ -1,5 +1,23 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import pytest
+
+# These tests require real SLM + WFS hardware (Windows-only SDKs: Santec SLM
+# DLL + Thorlabs WFS DLL). On non-Windows / SDK-less machines the bindings
+# cannot even be imported (ctypes.WinDLL does not exist on Linux), so skip
+# cleanly instead of failing at import/instantiation time.
+try:
+    import ctypes
+
+    if not hasattr(ctypes, "WinDLL"):
+        raise ImportError("ctypes.WinDLL unavailable (non-Windows platform)")
+
+    import ao_shaping.drivers.slm._slm_win  # noqa: F401  # Windows-only SLM SDK
+    from ao_shaping.drivers.wfs._thorlab_wfs import load_dll
+
+    load_dll()  # verify the Thorlabs WFS DLL is loadable
+except (ImportError, OSError) as e:
+    pytest.skip(f"SLM/WFS SDK not available: {e}", allow_module_level=True)
 
 from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.drivers.wfs import ThorlabWFS

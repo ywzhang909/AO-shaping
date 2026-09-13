@@ -474,7 +474,9 @@ class WavefrontCorrection:
         #     cos_ref > 0 (cos极大值) → 递减分支
         #     cos_ref < 0 (cos极小值) → 递增分支
         # ============================================================
-        if sin_ref > 0 or (sin_ref == 0 and cos_ref > 0):
+        # sin(θ_ref) 在 θ_ref = kπ 处因浮点误差不为精确 0 (如 sin(2π) ≈ -2.4e-16),
+        # 用容差判断"极值点"分支, 否则 θ_ref = 2π 时会被误判为递增分支导致 φ 符号反转。
+        if sin_ref > 1e-12 or (abs(sin_ref) <= 1e-12 and cos_ref > 0):
             theta_base = theta_principal  # θ ∈ [0, π]，cos递减
         else:
             theta_base = 2.0 * np.pi - theta_principal  # θ ∈ [π, 2π]，cos递增

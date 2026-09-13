@@ -93,6 +93,12 @@ class SimDM:
     def __exit__(self, exc_type, exc, tb) -> None:
         return None
 
+    def open(self) -> None:
+        """No-op: SimDM has no physical connection to establish."""
+
+    def close(self) -> None:
+        """No-op: SimDM has no physical connection to release."""
+
     def send_voltages(self, vs: np.ndarray, wait_time_s: float = 0.0) -> np.ndarray:
         clipped = np.clip(
             np.asarray(vs, dtype=np.float64), self.min_voltage, self.max_voltage
@@ -202,15 +208,27 @@ SIM_CASES: list[tuple[str, dict[str, object]]] = [
 ]
 
 
+class _SimDMRegistry:
+    """Stub DM registry: returns SimDM for the 'nlight' type.
+
+    pib.optimize_pib() builds its default DM via get_dm_registry().create("nlight", ...)
+    (pib.py:334), so the simulation patch must intercept the registry rather than a
+    module-level NlightDM attribute (which no longer exists in pib.py).
+    """
+
+    def create(self, dm_type: str, **kwargs) -> SimDM:
+        return SimDM(**kwargs)
+
+
 @contextmanager
 def patched_pib_simulation():
     """Temporarily replace physical devices/tqdm with deterministic simulation."""
     original_camera = pib_module.CameraStreamManager
-    original_dm = pib_module.NlightDM
+    original_get_dm_registry = pib_module.get_dm_registry
     original_tqdm = pib_module.tqdm.tqdm
     SimDM.current_voltages = np.zeros(8, dtype=np.float64)
     pib_module.CameraStreamManager = SimCamera
-    pib_module.NlightDM = SimDM
+    pib_module.get_dm_registry = lambda: _SimDMRegistry()
     pib_module.tqdm.tqdm = lambda *args, **kwargs: original_tqdm(
         *args, **({"disable": True} | kwargs)
     )
@@ -218,7 +236,7 @@ def patched_pib_simulation():
         yield
     finally:
         pib_module.CameraStreamManager = original_camera
-        pib_module.NlightDM = original_dm
+        pib_module.get_dm_registry = original_get_dm_registry
         pib_module.tqdm.tqdm = original_tqdm
 
 

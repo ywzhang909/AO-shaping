@@ -567,16 +567,17 @@ class TestPositionIpTable:
             "引脚编号",
             "连接器",
         ]
-        # first physical position -> IP 124, 序号 26 per CSV row 1
+        # table is position-ordered: row 0 ↔ position 1, last row ↔ position 1296
         assert t.iloc[0]["位置序号"] == 1
-        assert t.iloc[0]["IP组"] == 124
-        assert t.iloc[0]["序号"] == 26
-        # last physical position -> IP 103, 序号 28 per CSV row 1296
         assert t.iloc[-1]["位置序号"] == 1296
-        assert t.iloc[-1]["IP组"] == 103
-        assert t.iloc[-1]["序号"] == 28
+        # position 1 -> IP 106, 序号 6 (per current 1300-5-enriched.csv)
+        assert t.iloc[0]["IP组"] == 106
+        assert t.iloc[0]["序号"] == 6
+        # position 1296 -> IP 106, 序号 6 (per current 1300-5-enriched.csv)
+        assert t.iloc[-1]["IP组"] == 106
+        assert t.iloc[-1]["序号"] == 6
         # IP column is the full dotted address
-        assert t.iloc[0]["IP"] == "192.168.0.124"
+        assert t.iloc[0]["IP"] == "192.168.0.106"
 
     def test_uses_row_col_when_position_col_absent(self):
         import pandas as pd

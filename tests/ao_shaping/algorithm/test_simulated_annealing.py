@@ -196,10 +196,12 @@ class TestTemperatureSchedules:
         
         t0 = sa._get_temperature(0)
         t50 = sa._get_temperature(50)
+        t75 = sa._get_temperature(75)
         t100 = sa._get_temperature(100)
         
         assert t0 == 100.0
-        assert t50 < 50.0  # Cosine dips below linear
+        assert t50 == 50.0  # Standard cosine equals linear at midpoint
+        assert t75 < 25.0   # Cosine dips below linear in the second half
         assert t100 == 0.0
 
 

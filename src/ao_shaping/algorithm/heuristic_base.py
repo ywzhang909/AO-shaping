@@ -138,6 +138,8 @@ class HeuristicOptimizer(ABC):
             early_stop_threshold=kwargs.pop('early_stop_threshold', None),
             seed=kwargs.pop('seed', None),
         )
+        # 构造器只接受 np.random.Generator; 由 seed 派生同种子 rng 传给各分支。
+        rng = np.random.default_rng(config.seed) if config.seed is not None else None
         
         if optimizer_type == OptimizerType.GA:
             params = GAParams(
@@ -145,7 +147,7 @@ class HeuristicOptimizer(ABC):
                 n_generations=config.n_iterations,
                 bounds=config.bounds,
             )
-            return GeneticAlgorithm(dim=dim, params=params, random_state=config.seed)
+            return GeneticAlgorithm(dim=dim, params=params, random_state=rng)
         
         elif optimizer_type == OptimizerType.PSO:
             params = PSOParams(
@@ -153,25 +155,25 @@ class HeuristicOptimizer(ABC):
                 n_iterations=config.n_iterations,
                 bounds=config.bounds,
             )
-            return ParticleSwarmOptimizer(dim=dim, params=params, random_state=config.seed)
+            return ParticleSwarmOptimizer(dim=dim, params=params, random_state=rng)
         
         elif optimizer_type == OptimizerType.SA:
             params = SAParams(
                 n_iterations=config.n_iterations,
                 bounds=config.bounds,
             )
-            return SimulatedAnnealing(dim=dim, params=params, random_state=config.seed)
+            return SimulatedAnnealing(dim=dim, params=params, random_state=rng)
         
         elif optimizer_type == OptimizerType.HILL_CLIMBING:
-            return HillClimbing(dim=dim, config=config, random_state=config.seed, **kwargs)
+            return HillClimbing(dim=dim, config=config, random_state=rng, **kwargs)
         
         elif optimizer_type == OptimizerType.RANDOM_SEARCH:
-            return RandomSearch(dim=dim, config=config, random_state=config.seed, **kwargs)
+            return RandomSearch(dim=dim, config=config, random_state=rng, **kwargs)
         
         elif optimizer_type == OptimizerType.CROSS_ENTROPY:
-            return CrossEntropyMethod(dim=dim, config=config, random_state=config.seed, **kwargs)
+            return CrossEntropyMethod(dim=dim, config=config, random_state=rng, **kwargs)
         
         elif optimizer_type == OptimizerType.DIFFERENTIAL_EVOLUTION:
-            return DifferentialEvolution(dim=dim, config=config, random_state=config.seed, **kwargs)
+            return DifferentialEvolution(dim=dim, config=config, random_state=rng, **kwargs)
         
         raise ValueError(f"Unknown optimizer type: {optimizer_type}")

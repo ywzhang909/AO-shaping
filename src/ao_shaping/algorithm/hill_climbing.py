@@ -44,10 +44,15 @@ class HillClimbing(HeuristicOptimizer):
         config: OptimizerConfig | None = None,
         hc_config: HCConfig | None = None,
         random_state: np.random.Generator | None = None,
+        n_iterations: int = 1000,
+        bounds: tuple[float, float] = (-10.0, 10.0),
+        seed: int | None = None,
         step_size: float = 0.1,
         neighbor_std: float = 0.1,
     ):
         """Initialize Hill Climbing optimizer."""
+        if config is None:
+            config = OptimizerConfig(n_iterations=n_iterations, bounds=bounds, seed=seed)
         super().__init__(dim, config, random_state)
         
         if hc_config is None:

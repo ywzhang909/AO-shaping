@@ -9,6 +9,7 @@ import pytest
 
 pytest.importorskip("dm_control")
 
+import socket
 from unittest.mock import Mock, patch, MagicMock
 from dm_control import (
     DMController,
@@ -63,7 +64,7 @@ class TestR50Controller:
     def test_connect_failure(self, mock_socket_class):
         """测试连接失败"""
         mock_socket = Mock()
-        mock_socket.connect.side_effect = Exception("Connection refused")
+        mock_socket.connect.side_effect = ConnectionRefusedError("Connection refused")
         mock_socket_class.return_value = mock_socket
 
         ctrl = R50Controller(1, "192.168.0.101", 10101)

@@ -348,7 +348,14 @@ class TestNidaqADC:
         from ao_shaping.drivers.adc import NidaqADC, NidaqADCError
 
         adc = NidaqADC()
-        with pytest.raises(NidaqADCError, match="nidaqmx is not installed"):
+        # open() raises either when the nidaqmx package is missing
+        # ("nidaqmx is not installed") or when the NI-DAQmx runtime is
+        # unavailable ("Failed to open ADC task: Could not find an
+        # installation of NI-DAQmx...").
+        with pytest.raises(
+            NidaqADCError,
+            match=r"(nidaqmx is not installed|Failed to open ADC task)",
+        ):
             adc.open()
 
     def test_read_before_open_raises(self):
