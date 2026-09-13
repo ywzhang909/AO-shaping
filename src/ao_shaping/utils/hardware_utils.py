@@ -4,10 +4,10 @@ Migrated from :mod:`ao_shaping.algorithm.beam_shaping_utils`; the old module
 re-exports these names for backward compatibility.
 
 Contains:
-- ``capture_amplitude``: CCD far-field capture -> float32 amplitude.
-- ``call_with_timeout``: watchdog timeout for hardware SDK calls that can hang.
-- Auto-exposure helpers (pure target computation + camera application).
-- Frame recording (``frames/`` dir + PNG + JSONL metadata).
+- ``capture_amplitude``: CCD 远场采集 → float32 振幅。
+- ``call_with_timeout``: 硬件 SDK 调用 (可能挂起) 的看门狗超时。
+- Auto-exposure helpers (纯目标计算 + 相机应用)。
+- Frame recording (``frames/`` 目录 + PNG + JSONL 元数据)。
 
 ``utils`` is a leaf layer: hardware classes are only referenced under
 ``TYPE_CHECKING`` (or duck-typed via ``Any``), never imported at runtime.
@@ -40,6 +40,7 @@ __all__ = [
     "auto_exposure_possible",
     "apply_auto_exposure",
     "call_with_timeout",
+    "open_camera",
 ]
 
 
@@ -49,26 +50,25 @@ def capture_amplitude(
     size: Sequence[int] | None = None,
     n_sample: int = 1,
 ) -> np.ndarray:
-    """Capture the far-field intensity from a CCD and return the amplitude.
+    """从 CCD 采集远场强度并返回振幅。
 
-    If ``center``/``size`` are provided, the camera window is reset to that
-    region first (matching the target pattern's footprint). The captured
-    intensity (uint16) is converted to float amplitude ``sqrt(I)`` and
-    normalized to ``[0, 1]``.
+    若提供了 ``center``/``size``, 先将相机窗口重置到该区域 (与目标图案
+    的足迹匹配)。采集到的强度 (uint16) 转换为浮点振幅 ``sqrt(I)`` 并
+    归一化到 ``[0, 1]``。
 
     Args:
-        camera: An open CCD camera object (must expose ``get_numpy_image``
-            and optionally ``reset_window``).
-        center: ``(cx, cy)`` window center in pixels (None to leave as-is).
-        size: ``(h, w)`` window size in pixels (None to leave as-is).
-        n_sample: Number of frames to average.
+        camera: 已打开的 CCD 相机对象 (须暴露 ``get_numpy_image``, 可选
+            ``reset_window``)。
+        center: 窗口中心 ``(cx, cy)``, 单位像素 (None 表示保持原样)。
+        size: 窗口大小 ``(h, w)``, 单位像素 (None 表示保持原样)。
+        n_sample: 平均的帧数。
 
     Returns:
-        Float32 2D amplitude array, normalized to ``[0, 1]``.
+        归一化到 ``[0, 1]`` 的 Float32 二维振幅数组。
     """
     if center is not None and size is not None:
         try:
-            # Sequences may arrive as lists; the driver expects 2-tuples.
+            # 序列可能以列表形式传入; 驱动期望 2 元组。
             camera.reset_window(
                 (int(center[0]), int(center[1])),
                 (int(size[0]), int(size[1])),
@@ -94,10 +94,10 @@ _frame_counter: int = 0
 
 
 def init_frame_recording(out_dir: Path) -> None:
-    """Create the ``frames/`` directory under ``out_dir`` and reset the counter.
+    """在 ``out_dir`` 下创建 ``frames/`` 目录并重置计数器。
 
     Args:
-        out_dir: Result directory that will contain the ``frames/`` subdir.
+        out_dir: 将包含 ``frames/`` 子目录的结果目录。
     """
     global _frames_dir, _frame_counter
     _frames_dir = Path(out_dir) / "frames"
@@ -106,12 +106,12 @@ def init_frame_recording(out_dir: Path) -> None:
 
 
 def save_frame_png(frame: np.ndarray, path: Path, title: str) -> None:
-    """Render one CCD frame to a PNG (inferno colormap + colorbar).
+    """将一帧 CCD 图像渲染为 PNG (inferno 色图 + 色条)。
 
     Args:
-        frame: 2D array to render.
-        path: Output PNG path.
-        title: Figure title.
+        frame: 待渲染的二维数组。
+        path: 输出 PNG 路径。
+        title: 图像标题。
     """
     try:
         import matplotlib
@@ -134,18 +134,24 @@ def record_frame(
     raw: np.ndarray,
     phase_desc: str,
     exposure_ms: float,
+    *,
+    include_spot: bool = False,
 ) -> dict:
-    """Save one raw CCD frame plus a JSONL meta line; log per-frame stats.
+    """保存一帧原始 CCD 图像及一行 JSONL 元数据; 记录逐帧统计。
 
-    Also returns the meta dict so callers can reuse the recorded stats.
+    同时返回元数据字典, 供调用方复用已记录的统计值。
 
     Args:
-        raw: Raw CCD frame array.
-        phase_desc: Description of the phase that produced this frame.
-        exposure_ms: Exposure time in milliseconds.
+        raw: 原始 CCD 帧数组。
+        phase_desc: 产生该帧的相位描述。
+        exposure_ms: 曝光时间 (毫秒)。
+        include_spot: 为 True 时, 额外将真实 0 级光斑位置 (``argmax``)
+            记录为 ``meta["spot"]`` 并输出日志。在 2f 光路上强度质心并非
+            光斑位置, 弥漫的杂散光晕会将其拉偏 150-450 px (2026-09-10
+            实测)。
 
     Returns:
-        Metadata dict for this frame.
+        该帧的元数据字典。
     """
     global _frame_counter
     _frame_counter += 1
@@ -163,9 +169,15 @@ def record_frame(
         "exposure_ms": exposure_ms,
         "peak": peak,
         "sum": total,
-        "centroid": [float(cy), float(cx)],
-        "timestamp": datetime.now().isoformat(timespec="seconds"),
     }
+    if include_spot:
+        if frame.size:
+            sy, sx = np.unravel_index(np.argmax(frame), frame.shape)
+        else:
+            sy = sx = 0
+        meta["spot"] = [int(sy), int(sx)]
+    meta["centroid"] = [float(cy), float(cx)]
+    meta["timestamp"] = datetime.now().isoformat(timespec="seconds")
     frames_dir = _frames_dir
     if frames_dir is not None:
         np.save(frames_dir / f"frame_{idx:05d}.npy", np.asarray(raw))
@@ -176,15 +188,28 @@ def record_frame(
         )
         with open(frames_dir / "frame_meta.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps(meta, ensure_ascii=False) + "\n")
-    logger.info(
-        "帧 {:04d}: phase={} peak={:.1f} sum={:.0f} centroid=({:.1f}, {:.1f})",
-        idx,
-        phase_desc,
-        peak,
-        total,
-        cy,
-        cx,
-    )
+    if include_spot:
+        logger.info(
+            "帧 {:04d}: phase={} peak={:.1f} sum={:.0f} spot=({}, {}) centroid=({:.1f}, {:.1f})",
+            idx,
+            phase_desc,
+            peak,
+            total,
+            sy,
+            sx,
+            cy,
+            cx,
+        )
+    else:
+        logger.info(
+            "帧 {:04d}: phase={} peak={:.1f} sum={:.0f} centroid=({:.1f}, {:.1f})",
+            idx,
+            phase_desc,
+            peak,
+            total,
+            cy,
+            cx,
+        )
     return meta
 
 
@@ -203,24 +228,24 @@ def auto_exposure_target_ms(
     max_boost: float = 4.0,
     max_cut: float = 0.25,
 ) -> float:
-    """Compute the next exposure (ms) that drives ``peak`` into ``target ± tol``.
+    """计算将 ``peak`` 驱动到 ``target ± tol`` 的下一次曝光时间 (毫秒)。
 
-    Pure function — no hardware access. The caller applies the result via
-    ``camera.reset_exposure_time()``.
+    纯函数, 无硬件访问。调用方通过 ``camera.reset_exposure_time()`` 应用
+    结果。
 
     Args:
-        current_ms: Current exposure time in milliseconds.
-        peak: Measured peak brightness.
-        target_brightness: Target peak brightness (default 180).
-        tol: Relative tolerance band (default 0.2).
-        min_ms: Minimum exposure clamp.
-        max_ms: Maximum exposure clamp.
-        sat_floor: Hard saturation guard for 8-bit CCD.
-        max_boost: Maximum boost factor.
-        max_cut: Maximum cut factor.
+        current_ms: 当前曝光时间 (毫秒)。
+        peak: 实测峰值亮度。
+        target_brightness: 目标峰值亮度 (默认 180)。
+        tol: 相对容差带 (默认 0.2)。
+        min_ms: 曝光时间下限。
+        max_ms: 曝光时间上限。
+        sat_floor: 8 位 CCD 的硬饱和保护阈值。
+        max_boost: 最大提升倍数。
+        max_cut: 最大削减倍数。
 
     Returns:
-        Suggested exposure time in milliseconds.
+        建议的曝光时间 (毫秒)。
     """
     low, high = target_brightness * (1.0 - tol), target_brightness * (1.0 + tol)
     if low <= peak <= high:
@@ -235,7 +260,7 @@ def auto_exposure_target_ms(
 
 
 def auto_exposure_possible(camera: Any) -> bool:
-    """Return True if the camera supports runtime exposure adjustment."""
+    """若相机支持运行时曝光调整则返回 True。"""
     return callable(getattr(camera, "reset_exposure_time", None))
 
 
@@ -246,17 +271,17 @@ def apply_auto_exposure(
     target_brightness: float,
     tol: float,
 ) -> tuple[float, bool]:
-    """Adjust camera exposure toward the target peak band.
+    """将相机曝光调整到目标峰值区间。
 
     Args:
-        camera: Camera object with ``reset_exposure_time``.
-        peak: Current measured peak.
-        current_ms: Current exposure time.
-        target_brightness: Target peak brightness.
-        tol: Tolerance band.
+        camera: 具有 ``reset_exposure_time`` 的相机对象。
+        peak: 当前实测峰值。
+        current_ms: 当前曝光时间。
+        target_brightness: 目标峰值亮度。
+        tol: 容差带。
 
     Returns:
-        ``(actual_exposure_ms, changed)`` tuple.
+        ``(actual_exposure_ms, changed)`` 元组。
     """
     next_ms = auto_exposure_target_ms(current_ms, peak, target_brightness, tol)
     if abs(next_ms - current_ms) < 1e-9:
@@ -275,21 +300,21 @@ def apply_auto_exposure(
 # Hardware timeout helper
 # ---------------------------------------------------------------------------
 def call_with_timeout(fn: Any, timeout_s: float, desc: str) -> Any:
-    """Run ``fn`` in a daemon thread with a watchdog timeout.
+    """在守护线程中运行 ``fn`` 并施加看门狗超时。
 
-    Hardware SDK calls can hang forever; this bounds the wait and raises
-    ``TimeoutError`` if the call does not return in time.
+    硬件 SDK 调用可能无限挂起; 本函数限制等待时间, 若调用未及时返回则
+    抛出 ``TimeoutError``。
 
     Args:
-        fn: Callable to run.
-        timeout_s: Timeout in seconds.
-        desc: Description for error messages.
+        fn: 要运行的可调用对象。
+        timeout_s: 超时时间 (秒)。
+        desc: 用于错误消息的描述。
 
     Returns:
-        Return value of ``fn``.
+        ``fn`` 的返回值。
 
     Raises:
-        TimeoutError: If ``fn`` does not complete within ``timeout_s``.
+        TimeoutError: 当 ``fn`` 未在 ``timeout_s`` 内完成时。
     """
     result: list[Any] = []
     error: list[BaseException] = []
@@ -308,3 +333,66 @@ def call_with_timeout(fn: Any, timeout_s: float, desc: str) -> Any:
     if error:
         raise error[0]
     return result[0] if result else None
+
+
+# ---------------------------------------------------------------------------
+# Camera factory (shared by gs_square_runner and diff_shaping_runner)
+# ---------------------------------------------------------------------------
+def open_camera(
+    camera_type: str,
+    cam_id: int,
+    exposure_ms: float,
+    bit_depth: int = 8,
+) -> Any:
+    """按类型打开 CCD 相机并返回已连接的实例。
+
+    相机驱动仅在函数内部延迟导入 (``utils`` 是叶子层, 不在模块顶层导入
+    ``drivers``)。``daheng`` 使用 :class:`DahengCamManager`, ``miicam``
+    使用 :class:`CameraStreamManager`; 驱动缺失或初始化失败时记录日志并
+    重新抛出原异常。
+
+    Args:
+        camera_type: 相机类型, ``"daheng"`` 或 ``"miicam"``。
+        cam_id: 相机设备 ID。
+        exposure_ms: 曝光时间 (毫秒)。
+        bit_depth: MiiCam 输出位深 (仅 ``miicam`` 使用, 默认 8)。
+
+    Returns:
+        已打开的相机实例。
+
+    Raises:
+        ValueError: ``camera_type`` 不是 ``"daheng"``/``"miicam"``。
+        ImportError: 对应相机驱动不可用。
+        Exception: 相机初始化失败。
+    """
+    if camera_type == "daheng":
+        try:
+            from ao_shaping.drivers.ccd.daheng import DahengCamManager
+
+            cam = DahengCamManager(cam_id=cam_id, exposure_time_ms=exposure_ms)
+            cam.open()
+            return cam
+        except ImportError as e:
+            logger.warning("Daheng相机不可用: {}", e)
+            raise
+        except Exception as e:
+            logger.error("Daheng相机初始化失败: {}", e)
+            raise
+    if camera_type == "miicam":
+        try:
+            from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
+
+            cam = CameraStreamManager(
+                cam_id=cam_id,
+                exposure_time_ms=exposure_ms,
+                bit_depth=bit_depth,
+            )
+            cam.open()
+            return cam
+        except ImportError as e:
+            logger.warning("MiiCam相机不可用: {}", e)
+            raise
+        except Exception as e:
+            logger.error("MiiCam相机初始化失败: {}", e)
+            raise
+    raise ValueError(f"Unknown camera type: {camera_type}")

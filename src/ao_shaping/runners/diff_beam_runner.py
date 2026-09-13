@@ -35,11 +35,7 @@ from __future__ import annotations
 
 import json
 import os
-import random
-import re
 import sys
-import threading
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -60,7 +56,11 @@ from ao_shaping.utils.beam_metrics import (
     compute_metrics,
     intensity_to_amplitude,
 )
-from ao_shaping.utils.slm_utils import phase_to_slm_grayscale
+from ao_shaping.utils.slm_utils import (
+    display_phase as _display_phase,
+    phase_to_slm_grayscale,
+    pick_slm_slot as _pick_slm_slot,
+)
 from ao_shaping.utils.targets import (
     create_target_shape,
     crop_resize_to_grid,
@@ -74,11 +74,18 @@ from ao_shaping.algorithm.gerchberg_saxton import (
     adaptive_gerchberg_saxton,
     gerchberg_saxton,
 )
-from ao_shaping.utils.cli_helpers import get_debug_mode
+from ao_shaping.utils.cli_helpers import get_debug_mode, parse_tuple as _parse_tuple
 
-# Signal centroid for frame-by-frame recording (uses the same definition as
-# the beam-shaping utilities so recorded centroids are comparable with them).
-from ao_shaping.utils.spots_calc import centroid
+# Canonical hardware helpers; private-name aliases keep run() call sites unchanged.
+from ao_shaping.utils.hardware_utils import (
+    apply_auto_exposure as _apply_auto_exposure,
+    auto_exposure_possible as _auto_exposure_possible,
+    auto_exposure_target_ms,
+    call_with_timeout as _call_with_timeout,
+    init_frame_recording as _init_frame_recording,
+    record_frame,
+    save_frame_png as _save_frame_png,
+)
 
 get_debug_mode()
 
@@ -105,252 +112,26 @@ except ImportError:
     logger.debug("CCD driver not available")
 
 
-# SLM memory-slot rotation (2~125, never reuse the currently displayed slot).
-# The Santec firmware treats display_memory(same slot) as a no-op, so
-# consecutive writes must land on different slots.
-_SLOT_MIN, _SLOT_MAX = 2, 125
-_last_slot_used: int | None = None
-
-
-def _pick_slm_slot(slm: Any) -> int:
-    """Pick a random SLM memory slot in [2, 125] different from the last used.
-
-    On first use the currently displayed slot is read from the device so the
-    rotation also survives process restarts (memory mode only).
-    """
-    global _last_slot_used
-    if _last_slot_used is None:
-        try:
-            _last_slot_used = slm.get_displayed_memory_number()
-            logger.info("SLM当前显示槽: {}", _last_slot_used)
-        except Exception as exc:
-            logger.debug("读取 SLM 当前显示槽失败: {}", exc)
-            _last_slot_used = None
-    candidates = [s for s in range(_SLOT_MIN, _SLOT_MAX + 1) if s != _last_slot_used]
-    slot = random.choice(candidates)
-    _last_slot_used = slot
-    return slot
-
-
-def _display_phase(slm: Any, phase_rad: np.ndarray, settle_time_s: float) -> None:
-    """Display a radian phase pattern on the SLM using memory-slot rotation.
-
-    Uses ``create_phase_from_array`` (device-authentic 2π conversion +
-    correction/LUT) and the memory mode only (never DVI).
-    """
-    gray = slm.create_phase_from_array(phase_rad)
-    slot = _pick_slm_slot(slm)
-    slm.write_phase(gray, memory_number=slot)
-    time.sleep(0.05)
-    slm.display_memory(slot)
-    time.sleep(settle_time_s)
-
-
-def _call_with_timeout(fn: Any, timeout_s: float, desc: str) -> Any:
-    """Run ``fn`` in a daemon thread with a watchdog timeout.
-
-    Hardware SDK calls (SLM open, CCD capture) can hang forever with no
-    Python-visible timeout; this helper bounds the wait and raises
-    ``TimeoutError`` if the call does not return in time.
-    """
-    result: list[Any] = []
-    error: list[BaseException] = []
-
-    def _runner() -> None:
-        try:
-            result.append(fn())
-        except BaseException as exc:  # noqa: BLE001 - propagate any exception
-            error.append(exc)
-
-    thread = threading.Thread(target=_runner, daemon=True)
-    thread.start()
-    thread.join(timeout_s)
-    if thread.is_alive():
-        raise TimeoutError(f"{desc} 超时 ({timeout_s}s) — 原生 SDK 调用可能挂起")
-    if error:
-        raise error[0]
-    return result[0] if result else None
-
-
 # ---------------------------------------------------------------------------
 # Frame-by-frame recording (hardware runs only): every CCD frame is saved to
 # ``frames/frame_NNNNN.npy`` with a JSONL meta line for offline analysis.
+# The canonical implementation lives in ``utils/hardware_utils``; the local
+# wrapper below additionally records the true 0-order spot (argmax).
 # ---------------------------------------------------------------------------
-_frames_dir: Path | None = None
 _frame_counter: int = 0
-
-
-def _init_frame_recording(out_dir: Path) -> None:
-    """Create the ``frames/`` directory under ``out_dir`` and reset the counter."""
-    global _frames_dir, _frame_counter
-    _frames_dir = Path(out_dir) / "frames"
-    _frames_dir.mkdir(parents=True, exist_ok=True)
-    _frame_counter = 0
-
-
-def _save_frame_png(frame: np.ndarray, path: Path, title: str) -> None:
-    """Render one CCD frame to a PNG (inferno colormap + colorbar).
-
-    Cheap enough for the hardware loop (matplotlib import is cached after the
-    first call); each PNG lands next to its .npy in ``frames/``.
-    """
-    try:
-        import matplotlib
-
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-
-        fig, ax = plt.subplots(figsize=(6, 4.5))
-        im = ax.imshow(np.asarray(frame), cmap="inferno")
-        ax.set_title(title, fontsize=9)
-        fig.colorbar(im, ax=ax, fraction=0.046)
-        fig.tight_layout()
-        fig.savefig(path, dpi=100)
-        plt.close(fig)
-    except Exception:  # pragma: no cover - plotting must never break the loop
-        logger.warning("PNG 保存失败: {}", path.name)
 
 
 def _record_frame(raw: np.ndarray, phase_desc: str, exposure_ms: float) -> dict:
     """Save one raw CCD frame plus a JSONL meta line; log per-frame stats.
 
-    Also returns the meta dict so callers can reuse the recorded stats
-    (e.g. the brightness-driven target builder logs the same frame).
+    Thin wrapper over :func:`ao_shaping.utils.hardware_utils.record_frame`
+    that additionally records the true 0-order spot (argmax) — the intensity
+    centroid is NOT the spot on this bench (a stray-light halo drags it off).
     """
     global _frame_counter
-    _frame_counter += 1
-    idx = _frame_counter
-    frame = np.asarray(raw, dtype=np.float32)
-    peak = float(frame.max()) if frame.size else 0.0
-    total = float(frame.sum()) if frame.size else 0.0
-    if frame.size:
-        sy, sx = np.unravel_index(np.argmax(frame), frame.shape)
-        cx, cy = centroid(frame, return_float=True)
-    else:
-        sy = sx = 0
-        cx = cy = 0.0
-    meta = {
-        "frame": idx,
-        "phase": phase_desc,
-        "exposure_ms": exposure_ms,
-        "peak": peak,
-        "sum": total,
-        # True 0-order spot location (AGENTS.md rule: locate by argmax).
-        # The intensity centroid is NOT the spot on this bench — a pervasive
-        # stray-light halo drags it 150-450 px off (measured 2026-09-10).
-        "spot": [int(sy), int(sx)],
-        "centroid": [float(cy), float(cx)],
-        "timestamp": datetime.now().isoformat(timespec="seconds"),
-    }
-    frames_dir = _frames_dir
-    if frames_dir is not None:
-        np.save(frames_dir / f"frame_{idx:05d}.npy", np.asarray(raw))
-        _save_frame_png(
-            np.asarray(raw),
-            frames_dir / f"frame_{idx:05d}.png",
-            f"frame {idx:04d} - {phase_desc} (peak={peak:.0f})",
-        )
-        with open(frames_dir / "frame_meta.jsonl", "a", encoding="utf-8") as f:
-            f.write(json.dumps(meta, ensure_ascii=False) + "\n")
-    logger.info(
-        "帧 {:04d}: phase={} peak={:.1f} sum={:.0f} spot=({}, {}) centroid=({:.1f}, {:.1f})",
-        idx,
-        phase_desc,
-        peak,
-        total,
-        sy,
-        sx,
-        cy,
-        cx,
-    )
+    meta = record_frame(raw, phase_desc, exposure_ms, include_spot=True)
+    _frame_counter = meta["frame"]
     return meta
-
-
-def auto_exposure_target_ms(
-    current_ms: float,
-    peak: float,
-    target_brightness: float = 180.0,
-    tol: float = 0.2,
-    *,
-    min_ms: float = 0.02,
-    max_ms: float = 1000.0,
-    sat_floor: float = 245.0,
-    max_boost: float = 4.0,
-    max_cut: float = 0.25,
-) -> float:
-    """Compute the next exposure (ms) that drives ``peak`` into target±tol.
-
-    Pure function — no hardware access. The caller applies the result via
-    ``camera.reset_exposure_time()`` (Daheng clamps to its own [min, max] and
-    reports the actual value).
-
-    - Already inside ``[target*(1-tol), target*(1+tol)]`` → unchanged.
-    - ``peak >= sat_floor`` (hard saturation guard for 8-bit CCD) → scale down
-      by ``target/peak`` regardless of step caps.
-    - ``peak`` too low → boost by ``target/peak``, capped at ``max_boost``.
-    - ``peak`` too high → cut by ``target/peak``, floored at ``max_cut``.
-
-    Returns:
-        Suggested exposure time in ms, clamped to ``[min_ms, max_ms]``.
-    """
-    low, high = target_brightness * (1.0 - tol), target_brightness * (1.0 + tol)
-    if low <= peak <= high:
-        return float(current_ms)
-    if peak >= sat_floor:
-        scale = max(target_brightness / peak, 0.1)
-    elif peak < low:
-        scale = min(target_brightness / peak, max_boost)
-    else:  # peak > high
-        scale = max(target_brightness / peak, max_cut)
-    return float(np.clip(current_ms * scale, min_ms, max_ms))
-
-
-def _auto_exposure_possible(camera: Any) -> bool:
-    """True if the camera object supports runtime exposure adjustment."""
-    return callable(getattr(camera, "reset_exposure_time", None))
-
-
-def _apply_auto_exposure(
-    camera: Any,
-    peak: float,
-    current_ms: float,
-    target_brightness: float,
-    tol: float,
-) -> tuple[float, bool]:
-    """Adjust camera exposure toward the target peak band (匀化过程自动曝光).
-
-    Applies ``auto_exposure_target_ms`` via ``camera.reset_exposure_time`` and
-    returns the camera-reported actual exposure plus whether it changed.
-
-    Returns:
-        (actual_exposure_ms, changed)
-    """
-    next_ms = auto_exposure_target_ms(current_ms, peak, target_brightness, tol)
-    if abs(next_ms - current_ms) < 1e-9:
-        return current_ms, False
-    actual_ms = float(camera.reset_exposure_time(next_ms))
-    logger.info(
-        "自动曝光: peak={:.1f} -> 曝光 {:.3f} -> {:.3f} ms",
-        peak,
-        current_ms,
-        actual_ms,
-    )
-    return actual_ms, True
-
-
-def _parse_tuple(ctx, param, value: str | None) -> tuple[int, int] | None:
-    """Parse a Click ``"x,y"`` option into a 2-tuple."""
-    if value is None:
-        return None
-    s_clean = re.sub(r"[()\s]", "", str(value))
-    try:
-        parts = s_clean.split(",")
-        if len(parts) != 2:
-            raise ValueError("Must have exactly two integers")
-        x, y = map(int, parts)
-        return (x, y)
-    except Exception:
-        raise click.BadParameter(f"Invalid format: {value}. Expected: 'x,y' or '(x,y)'")
 
 
 @click.command(name="diff-beam")
