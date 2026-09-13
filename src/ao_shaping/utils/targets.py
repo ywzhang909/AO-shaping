@@ -29,14 +29,22 @@ from typing import Literal
 
 import numpy as np
 
+from ao_shaping.utils.spots_calc import centroid
+
 
 # ---------------------------------------------------------------------------
 # Parametric target pattern generation (SLM grid space)
 # ---------------------------------------------------------------------------
 def create_target_shape(
     shape: Literal[
-        "gaussian", "circle", "square", "annular", "grid", "cross",
-        "rectangle", "pentagon",
+        "gaussian",
+        "circle",
+        "square",
+        "annular",
+        "grid",
+        "cross",
+        "rectangle",
+        "pentagon",
     ],
     size: int | tuple[int, int],
     radius_ratio: float = 0.3,
@@ -580,9 +588,7 @@ def generate_target_mask(
                 "circle", (height, width), radius_ratio=radius_ratio
             )
         if shape == "square":
-            return create_target_shape(
-                "square", (height, width), side=params["side"]
-            )
+            return create_target_shape("square", (height, width), side=params["side"])
         # rectangle — fall through to manual generation
         return _rectangle_mask(params["rect_w"], params["rect_h"], None, height, width)
 
@@ -694,3 +700,124 @@ def build_ccd_target(
     if n_pixels > 0:
         target[y0:y1, x0:x1] = 1.0 / n_pixels
     return target
+
+
+# ---------------------------------------------------------------------------
+# Unified CCD-frame → SLM-grid target (all shapes, argmax-anchored)
+# ---------------------------------------------------------------------------
+def build_target_from_frame(
+    frame: np.ndarray,
+    shape: Literal["square", "circle", "rectangle"],
+    params: dict,
+    grid_h: int = 1200,
+    grid_w: int = 1920,
+    *,
+    center_method: Literal["argmax", "centroid", "centroid_thresh"] = "argmax",
+) -> tuple[np.ndarray, dict]:
+    """Build an exposure-invariant target from a raw CCD frame.
+
+    This is the single entry point used by both the hardware closed-loop
+    runner (``shaping_test.py``) and the SLM calibration GUI
+    (``target_shape_helper``). It wraps :func:`build_ccd_target` +
+    :func:`crop_resize_to_grid` and anchors the shape on the measured beam
+    centre.
+
+    Exposure/brightness invariant by construction:
+
+    1. Background = 10th percentile of the frame, subtracted.
+    2. Beam centre located by ``center_method`` (default ``"argmax"`` — the
+       project rule: 0-order = frame global max, never assume it sits at the
+       frame/ROI centre). ``"centroid"`` / ``"centroid_thresh"`` are provided
+       for the GUI comparison view.
+    3. The CCD-space mask is built with :func:`build_ccd_target`: value =
+       ``1 / n_pixels`` so the target sums to exactly 1 regardless of
+       sub-pixel centroid alignment.
+    4. The CCD-space mask is mapped to the SLM grid via
+       :func:`crop_resize_to_grid` and peak-normalised to ``[0, 1]``.
+
+    Args:
+        frame: Raw far-field CCD frame of the current beam (flat phase).
+        shape: ``"square"`` (params ``side``), ``"circle"``
+            (params ``radius``) or ``"rectangle"`` (params ``rect_w`` /
+            ``rect_h``).
+        params: Shape parameters (see ``shape``).
+        grid_h: SLM grid height (pixels).
+        grid_w: SLM grid width (pixels).
+        center_method: Centre-finding method — ``"argmax"`` (default, robust
+            to stray-light halo), ``"centroid"`` or ``"centroid_thresh"``.
+
+    Returns:
+        ``(target_intensity, info)`` — grid-space float32 target in ``[0, 1]``
+        for the optimization algorithms, plus a dict with keys:
+        ``target_ccd`` (CCD-space float32 normalised mask, sum == 1, same
+        shape as ``frame``), ``centroid`` ``[cy, cx]``, ``n_pixels``,
+        ``max_brightness``, ``background``, ``total_intensity``,
+        ``side_cam_px`` (the characteristic dimension in CCD px, for logging),
+        ``side_grid_bins`` ``[rows, cols]`` (mapped grid extent).
+
+    Raises:
+        ValueError: If no usable signal remains after background subtraction
+            or ``shape``/``params`` are invalid.
+    """
+    frame = np.asarray(frame, dtype=np.float32)
+    frame = np.nan_to_num(frame, nan=0.0, posinf=0.0, neginf=0.0)
+    frame_h, frame_w = frame.shape
+
+    bg = float(np.percentile(frame, 10))
+    signal = np.clip(frame - bg, 0.0, None)
+    smax = float(signal.max())
+    total = float(signal.sum())
+    if smax <= 0 or total <= 0:
+        raise ValueError("实测帧无有效信号 (去背景后总和/峰值 <= 0) — 请检查曝光或光束")
+
+    # Beam centre — argmax is the project default (robust to the stray-light
+    # halo that drags the intensity centroid hundreds of px away). The GUI
+    # may opt for centroid / thresholded-centroid for visual comparison.
+    if center_method == "argmax":
+        cy, cx = np.unravel_index(np.argmax(signal), signal.shape)
+    elif center_method == "centroid":
+        cx, cy = centroid(signal, moment=1, threshold=0.0, return_float=True)
+    elif center_method == "centroid_thresh":
+        cx, cy = centroid(signal, moment=1, threshold=0.1, return_float=True)
+    else:
+        raise ValueError(f"未知的中心计算方法: {center_method}")
+    cy, cx = int(cy), int(cx)
+
+    target_ccd = build_ccd_target(
+        frame_shape=frame.shape,
+        shape=shape,
+        params=params,
+        center=(float(cx), float(cy)),
+    )
+
+    target = crop_resize_to_grid(target_ccd, grid_h, grid_w)
+    tmax = target.max()
+    if tmax > 0:
+        target = target / tmax
+    target = target.astype(np.float32)
+
+    # Characteristic CCD-space dimension for logging.
+    if shape == "square":
+        side_cam_px = float(params["side"])
+    elif shape == "circle":
+        side_cam_px = float(params["radius"]) * 2.0
+    else:  # rectangle
+        side_cam_px = float(params["rect_w"])
+
+    crop_h = min(frame_h, round(frame_w * grid_h / grid_w))
+    crop_w = round(crop_h * grid_w / grid_h)
+    tmax_ccd = float(target_ccd.max())
+    info = {
+        "side_cam_px": side_cam_px,
+        "target_ccd": target_ccd,
+        "n_pixels": int(round(1.0 / tmax_ccd)) if tmax_ccd > 0 else 0,
+        "max_brightness": smax,
+        "background": bg,
+        "total_intensity": total,
+        "centroid": [cy, cx],
+        "side_grid_bins": [
+            side_cam_px * grid_h / crop_h,
+            side_cam_px * grid_w / crop_w,
+        ],
+    }
+    return target, info

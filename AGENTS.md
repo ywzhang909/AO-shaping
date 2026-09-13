@@ -78,22 +78,76 @@ AO-shaping/
 
 ## optimizer/ Module
 
-High-level optimizers for wavefront correction and beam shaping:
+高层次优化策略层, 负责实现特定优化目标 (RMS、PIB、Zernike 标定等) 并编排硬件与算法的协作。
 
-| Submodule | File | Purpose |
-|----------|------|---------|
-| wf/ | `rms.py` | Wavefront sensor-based RMS optimization |
-| wf/ | `interaction_matrix.py` | DM-WFS interaction matrix |
-| wf/ | `zernike_response_matrix.py` | Zernike calibration |
-| wfless/ | `pib.py` | Power-in-bucket optimization |
-| wfless/ | `sim_spgd.py` | Simulated SPGD |
-| wfless/ | `slm_square_shaping.py` | SLM 方形光斑 SPGD 整形 (均匀性 CV + 环围能量) |
-| rl/ | `sac_train.py` | SAC reinforcement learning |
-| rl/ | `lr_wfs.py` | Learning-based wavefront sensing |
+### 职责
 
-### algorithm/ Module — Class-based Optimizer Convention
+- 实现优化策略 (RMS via DM电压 / RMS via SLM Zernike / PIB / GA Zernike / 响应矩阵标定等)
+- 管理优化过程中的硬件状态 (电压/相位/图像记录)
+- 调用 algorithm 包中的基础算法进行参数更新
+- 子包:
+  - `wf/`: 基于波前传感器的优化 (DM 电压 RMS, SLM Zernike RMS, Zernike 响应矩阵, GA Zernike)
+  - `wfless/`: 无波前传感器优化 (PIB via DM电压, SPGD, 模拟 SPGD, 微分波束整形, SLM 方形光斑 SPGD)
+  - `rl/`: 强化学习优化 (SAC, LR-WFS)
+
+### 优化策略与 Runner 对应关系
+
+| Runner (main.py 命令) | Optimizer 函数 | 子包 | 优化方式 | 硬件 |
+|---|---|---|---|---|
+| `wf` | `optimizer.wf.rms:optimizer_rms_dm()` | wf | DM 电压 RMS (SPGD) | DM + WFS |
+| `pib` | `optimizer.wfless.pib:optimize_pib()` | wfless | DM 电压 PIB (SPGD) | DM + CCD |
+| `pipeline` | `wf.rms:optimizer_rms_dm()` + `wfless.pib:optimize_pib()` | wf + wfless | WF RMS → PIB 串行 | DM + WFS + CCD |
+| \zernike-matrix\ | \optimizer.wf.zernike_response_matrix:calibrate_zernike_response_matrix\ | wf | Zernike 响应矩阵标定 + 闭环优化 | SLM + WFS |
+| `rms-zernike` | `optimizer.wf.rms_by_zernike:optimizer_rms_slm()` | wf | SLM Zernike RMS | SLM + WFS |
+| `ga-zernike` | `optimizer.wf.ga_zernike:optimizer_ga()` | wf | GA Zernike | SLM + WFS |
+| `combined` | `optimizer.combined_optimizer:optimize_pib()` | wfless | AdaMOD + SPGD 混合 PIB | DM + CCD |
+
+> **注意**: `optimizer/wf/rms.py` 和 `optimizer/wf/rms_by_zernike.py` 的函数名冲突已通过重命名解决:
+> - `rms.py:optimizer_rms_dm()`: DM 电压控制 + WFS 测量 (用于 `wf` 和 `pipeline` 命令)
+> - `rms_by_zernike.py:optimizer_rms_slm()`: SLM Zernike 相位控制 + WFS 测量 (用于 `rms-zernike` 命令)
+
+---
+
+### algorithm/ Module — 基础算法层
+
+`src/ao_shaping/algorithm/` 提供纯数学优化算法, 不包含任何硬件知识。
+
+#### Class-based Optimizer Convention
 
 New optimizers added to `src/ao_shaping/algorithm/` MUST follow the class-based API: `__init__` does validation + state setup, `update()` performs one step and returns the next state/solution, and an optional `run()` returns a result dataclass. A one-shot function is kept only as a thin wrapper for backward compatibility. Torch/numpy **simulation-first tests are required before any hardware use**. Canonical example: `DifferentiableBeamOptimizer` (`src/ao_shaping/algorithm/differentiable_beam.py`). Full principle: `src/ao_shaping/algorithm/README.md`.
+
+#### 算法分类
+
+| 类别 | 算法 | 说明 |
+|------|------|------|
+| 梯度优化 | `Base`, `SGD`, `Adam`, `AdamW`, `AdaMOD`, `Muno`, `MuonW`, `AdamNS` | `update(grad) → next_step` 模式 |
+| 启发式搜索 | `GeneticAlgorithm`, `PSO`, `SA`, `CEM`, `DE`, `HC`, `RandomSearch` | 无梯度全局搜索 |
+| Tabu 搜索 | `TabuMemory`, `AdaptiveSearchState`, `TabuSearchRunner` | 禁忌搜索 |
+| 信号处理 | `PhaseWrapOptimizer`, `GerchbergSaxton`, `SLMPhaseController`, `ControlLaw` | 相位包裹/光强重建/控制律 |
+| 可微分 shaping | `DifferentiableBeamOptimizer`, `DifferentiableShapingResult` | PyTorch 可微分波前优化 (需 GPU) |
+| 目标函数 | `ImageTargetFunc` | 图像质量指标 |
+
+---
+
+### 三层架构关系
+
+```
+CLI (main.py Click 命令)
+  │
+  ├─ wf ──────────────→ runners/wf_runner.py ──→ optimizer/wf/rms.py:optimizer_rms_dm() ──→ algorithm: Adam/AdaMOD
+  ├─ pib ─────────────→ runners/axis_beam_runner.py ──→ optimizer/wfless/pib.py:optimize_pib() ──→ algorithm: AdaMOD/Adam/SGD/Muno
+  ├─ pipeline ────────→ runners/pipeline_runner.py ──→ optimizer/wf/rms.py:optimizer_rms_dm() + wfless/pib.py ──→ algorithm: Adam/AdaMOD
+  ├─ zernike-matrix ──→ runners/zernike_matrix_runner.py ──→ optimizer/wf/zernike_response_matrix.py ──→ (标定)
+  ├─ rms-zernike ────→ runners/rms_zernike_runner.py ──→ optimizer/wf/rms_by_zernike.py ──→ algorithm: Adam/AdaMOD
+  ├─ ga-zernike ─────→ runners/ga_zernike_runner.py ──→ optimizer/wf/ga_zernike.py ──→ algorithm: GA
+  └─ combined ────────→ runners/combined_runner.py ──→ optimizer/combined_optimizer.py ──→ algorithm: AdaMOD/SPGD
+
+runners/       硬件编排层  — Click CLI, 设备生命周期 (open/close), 结果保存
+optimizer/     策略实现层  — 优化流程编排, 硬件状态管理, 调用 algorithm 更新参数
+algorithm/     算法基础层  — 纯数学优化器 (update/grad), 无硬件知识
+```
+
+**调用链**: `Runner` 打开硬件 → 调用 `Optimizer` 函数 → `Optimizer` 创建 `Algorithm` 实例 → `Algorithm.update(grad)` 返回参数更新 → `Optimizer` 应用更新并记录历史 → `Runner` 关闭硬件并保存结果。
 
 ---
 
@@ -169,28 +223,33 @@ print(paths.root_dir)  # data/
 **CLI Commands (Click-based):**
 ```bash
 # Via main.py hub
-python src/ao_shaping/main.py [COMMAND]
-
-# Direct runners (standalone)
-python -m ao_shaping.runners.wf_runner
-python -m ao_shaping.runners.axis_beam_runner
-python -m ao_shaping.runners.pipeline_runner
-python -m ao_shaping.runners.zernike_matrix_runner
+python src/ao_shaping/main.py wf
+python src/ao_shaping/main.py pib
+python src/ao_shaping/main.py pipeline
+python src/ao_shaping/main.py zernike-matrix
+python src/ao_shaping/main.py rms-zernike
+python src/ao_shaping/main.py ga-zernike
+python src/ao_shaping/main.py combined
 ```
 
-**CLI Structure:**
+**CLI Structure (main.py 注册关系):**
 ```
 main (click.group)
-├── wf             → wf_runner.run()              [Wavefront RMS optimization]
-├── pib            → axis_beam_run()              [Power-in-Bucket optimization]
-├── pipeline       → pipeline_run()               [Serial WF→PIB pipeline]
-├── zernike-matrix → zernike_matrix_run()         [Zernike响应矩阵校准]
-├── rms-zernike    → rms_zernike_run()            [Zernike RMS optimization]
-├── ga-zernike     → ga_zernike_run()             [GA Zernike optimization]
-└── spgd-square    → slm_square_run()             [SLM方形光斑 SPGD 整形]
+├── wf             ← wf_runner.run        [Wavefront RMS via DM电压 + WFS]
+├── pib            ← axis_beam_runner.run  [Power-in-Bucket via DM电压 + CCD]
+├── pipeline       ← pipeline_runner.run   [Serial WF RMS → PIB]
+├── zernike-matrix ← zernike_matrix_runner.run [Zernike响应矩阵标定 + 闭环优化 (closed_loop_run)]
+├── rms-zernike    ← rms_zernike_runner.run    [SLM Zernike RMS]
+├── ga-zernike     ← ga_zernike_runner.run     [GA Zernike]
+└── combined       ← combined_runner.run       [AdaMOD+SPGD 混合 PIB]
 ```
 
-**Note:** `combined_runner.py` is DEPRECATED — use `pipeline_runner.py` instead.
+> **注意**: `spgd-square` 命令 (`runners/slm_square_runner.py:run`) 已存在但**未注册到 main.py**, 需直接运行 `python -m ao_shaping.runners.slm_square_runner`。
+
+**Note:** `combined_runner.py` 功能仍通过 `combined` 命令可用, 非废弃。`pipeline_runner.py` 是推荐的 WF→PIB 串行方案。
+
+> **未注册到 main.py 的独立 Runner** (需直接运行 `python -m ao_shaping.runners.xxx` 或 standalone 脚本):
+> `slm_square_runner` (spgd-square), `slm_offset_runner`, `shaping_runner`, `greedy_zernike_runner`, `gs_square_runner`, `gs_hologram_runner` (gs), `diff_shaping_runner`, `diff_beam_runner` (diff-beam), `dm_matrix_runner` (dm-matrix), `hadamard_matrix_runner` (hadamard-matrix), `full_voltage_runner` (full-voltage), `alt_voltage_runner` (alt-voltage)
 
 **Refactoring Notes:**
 - All runner scripts now use centralized config from `config.py` (DM_N_ACTUATORS, PATHS, DEFAULTS)

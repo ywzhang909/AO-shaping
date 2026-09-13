@@ -7,11 +7,12 @@ import pytest
 import torch
 
 from ao_shaping.algorithm.differentiable_beam import (
-    BeamOptimizeResult,
-    differentiable_beam_optimize,
+    DifferentiableBeamOptimizer,
     differentiable_far_field,
     far_field_intensity,
 )
+from ao_shaping.optimizer.wfless.differentiable_beam import optimize_beam_shaping
+from ao_shaping.utils import Recorder
 
 
 def _gaussian_target(size: int = 32) -> np.ndarray:
@@ -63,58 +64,64 @@ class TestDifferentiableFarField:
         assert np.allclose(e_far.cpu().numpy(), expected, atol=1e-3)
 
 
-class TestDifferentiableBeamOptimize:
-    """Test the full Adam optimization loop."""
+class TestDifferentiableBeamOptimizerRun:
+    """Test the full Adam optimization loop via ``optimize_beam_shaping``."""
 
     def test_loss_decreases(self):
         """Over enough steps the MSE loss must go down."""
         target = _gaussian_target(32)
-        result = differentiable_beam_optimize(
+        res_list = optimize_beam_shaping(
             target_intensity=target,
             lr=0.01,
-            epochs=40,
             device="cpu",
             seed=0,
+            epochs=40,
+            log_every=0,
         )
-        assert result.loss_history[0] > result.loss_history[-1]
-        assert result.final_loss == result.loss_history[-1]
+        loss_history = [r["loss"] for r in res_list.history]
+        assert loss_history[0] > loss_history[-1]
+        assert res_list.last["loss"] == loss_history[-1]
 
     def test_result_fields(self):
-        """BeamOptimizeResult must expose the documented fields."""
+        """The returned Recorder must expose the documented fields."""
         target = _gaussian_target(32)
-        result = differentiable_beam_optimize(
+        res_list = optimize_beam_shaping(
             target_intensity=target,
-            epochs=5,
             device="cpu",
             seed=0,
+            epochs=5,
+            log_every=0,
         )
-        assert isinstance(result, BeamOptimizeResult)
-        assert isinstance(result.phase, np.ndarray)
-        assert result.phase.shape == target.shape
-        assert isinstance(result.loss_history, list)
-        assert len(result.loss_history) == 5
-        assert isinstance(result.final_loss, float)
-        assert isinstance(result.converged, bool)
-        assert result.steps == 5
-        assert result.device == "cpu"
+        assert isinstance(res_list, Recorder)
+        best_iter, _ = res_list.get_best_iter()
+        assert isinstance(best_iter["best_phase"], np.ndarray)
+        assert best_iter["best_phase"].shape == target.shape
+        assert len(res_list.history) == 5
+        assert isinstance(res_list.last["loss"], float)
+        assert isinstance(res_list.last["converged"], bool)
+        assert res_list.last["device"] == "cpu"
+        assert isinstance(res_list.last["best_loss"], float)
+        assert isinstance(res_list.last["best_phase"], np.ndarray)
+        assert res_list.last["best_phase"].shape == target.shape
 
     def test_reproducibility_with_seed(self):
         """Same seed must give the same final loss."""
         target = _gaussian_target(32)
-        r1 = differentiable_beam_optimize(
-            target_intensity=target, epochs=10, device="cpu", seed=42
+        r1 = optimize_beam_shaping(
+            target_intensity=target, device="cpu", seed=42, epochs=10, log_every=0
         )
-        r2 = differentiable_beam_optimize(
-            target_intensity=target, epochs=10, device="cpu", seed=42
+        r2 = optimize_beam_shaping(
+            target_intensity=target, device="cpu", seed=42, epochs=10, log_every=0
         )
-        assert np.allclose(r1.phase, r2.phase)
-        assert r1.final_loss == r2.final_loss
+        best1, _ = r1.get_best_iter()
+        best2, _ = r2.get_best_iter()
+        assert np.allclose(best1["best_phase"], best2["best_phase"])
+        assert r1.last["loss"] == r2.last["loss"]
 
     def test_rejects_non_2d_target(self):
         with pytest.raises(ValueError):
-            differentiable_beam_optimize(
+            optimize_beam_shaping(
                 target_intensity=np.ones((10,)),
-                epochs=1,
                 device="cpu",
                 seed=0,
             )
@@ -123,9 +130,8 @@ class TestDifferentiableBeamOptimize:
         bad = _gaussian_target(16)
         bad[0, 0] = -1.0
         with pytest.raises(ValueError):
-            differentiable_beam_optimize(
+            optimize_beam_shaping(
                 target_intensity=bad,
-                epochs=1,
                 device="cpu",
                 seed=0,
             )

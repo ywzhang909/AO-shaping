@@ -1,8 +1,8 @@
 """SLM + CCD 硬件闭环光束整形最小测试脚本（仅在有设备时运行，无仿真分支）。
 
 流程: 连接 SLM/CCD → 显示 flat 相位 → 采集初始帧 → 基于初始光强构建
-方形目标 (曝光无关) → 微分优化器 (backprop+Adam) 得到整形相位 → 下发 →
-重采帧 → compute_metrics 评估 → Recorder 记录。
+方形目标 (曝光无关) → 硬件闭环微分优化 (backprop+Adam, 每步 CCD 实测帧
+驱动反向传播) → 下发最佳相位 → 重采帧 → compute_metrics 评估 → Recorder 记录。
 
 运行:  $env:PYTHONPATH="src;libs"; python shaping_test.py
 """
@@ -13,34 +13,33 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-
 from loguru import logger
 
 from ao_shaping.drivers.ccd import DahengCamera
 from ao_shaping.drivers.slm import SantecSLM200
-from ao_shaping.optimizer import differentiable_beam_optimize
+from ao_shaping.optimizer.wfless.differentiable_beam import optimize_beam_shaping
 from ao_shaping.utils.beam_metrics import compute_metrics
 from ao_shaping.utils.file import Recorder
 from ao_shaping.utils.hardware_utils import call_with_timeout
-from ao_shaping.utils.targets import square_target_from_measurement
+from ao_shaping.utils.targets import build_target_from_frame
 
 # ---------------------------------------------------------------------------
 # 可调参数 (调试时改这里即可)
 # ---------------------------------------------------------------------------
-EXPOSURE_MS = 1.2          # CCD 曝光 (ms)
-SIDE_PX = 30.0             # 目标方形在 CCD 上的边长 (px) — 按光斑大小调整
-EPOCHS = 200               # 微分优化器 Adam 迭代步数 (调试时先给 10-50)
-LR = 0.01                  # Adam 学习率
-SEED = 0                   # 初始相位随机种子 (可复现)
-SETTLE_S = 0.5             # SLM 显示后等待 (s)
-CAPTURE_TIMEOUT_S = 30.0   # SLM/CCD SDK 调用看门狗超时 (防原生挂起)
-N_SAMPLE = 3               # 相机每次采样的平均帧数
+EXPOSURE_MS = 1.2  # CCD 曝光 (ms)
+SIDE_PX = 30.0  # 目标方形在 CCD 上的边长 (px) — 按光斑大小调整
+EPOCHS = 200  # 微分优化器 Adam 迭代步数 (调试时先给 10-50)
+LR = 0.01  # Adam 学习率
+SEED = 0  # 初始相位随机种子 (可复现)
+SETTLE_S = 0.2  # SLM 显示后等待 (s)
+CAPTURE_TIMEOUT_S = 30.0  # SLM/CCD SDK 调用看门狗超时 (防原生挂起)
+N_SAMPLE = 3  # 相机每次采样的平均帧数
 OUT_DIR = Path("data/shaping_test")
 
 # --- pygame 可视化 (参考 ao_shaping.display 包) ---
-SHOW_DISPLAY = True        # 结束后打开 4 面板窗口对比 初始/目标/相位/结果
+SHOW_DISPLAY = True  # 结束后打开 4 面板窗口对比 初始/目标/相位/结果
 DISPLAY_SIZE = (1280, 640)  # 窗口总尺寸
-FRAME_SIZE = (300, 300)    # 单面板尺寸
+FRAME_SIZE = (300, 300)  # 单面板尺寸
 
 
 def _display_phase(slm: SantecSLM200, phase_rad: np.ndarray, settle_s: float) -> None:
@@ -82,10 +81,13 @@ def _show_result(init_img, target_ccd, phase, result_img, metrics) -> None:
         "phase": {"img": _norm_gray(phase)},
         "result": {"img": _norm_gray(result_img)},
     }
-    info = (f"mse={metrics['mse']:.4f} corr={metrics['correlation']:.4f} "
-            f"eff={metrics['efficiency']:.4f}  — 关闭窗口或 ESC 退出")
-    with AutoDisplay(frame_list, frame_size=FRAME_SIZE,
-                     display_size=DISPLAY_SIZE, margin=10) as win:
+    info = (
+        f"mse={metrics['mse']:.4f} corr={metrics['correlation']:.4f} "
+        f"eff={metrics['efficiency']:.4f}  — 关闭窗口或 ESC 退出"
+    )
+    with AutoDisplay(
+        frame_list, frame_size=FRAME_SIZE, display_size=DISPLAY_SIZE, margin=10
+    ) as win:
         win.render(frame_data, info=info)
         while True:
             for event in pygame.event.get():
@@ -108,57 +110,85 @@ def main() -> None:
     try:
         call_with_timeout(slm.open, CAPTURE_TIMEOUT_S, "SLM open")
         call_with_timeout(ccd.open, CAPTURE_TIMEOUT_S, "CCD open")
-        logger.info("设备已连接: SLM {}x{} / CCD 曝光 {}ms",
-                    grid_h, grid_w, EXPOSURE_MS)
+        logger.info(
+            "设备已连接: SLM {}x{} / CCD 曝光 {}ms", grid_h, grid_w, EXPOSURE_MS
+        )
 
         # 1) flat 相位 → 采集初始帧 (0-order 光斑 = 帧全局最大, 见 AGENTS.md)
         _display_phase(slm, np.zeros((grid_h, grid_w), dtype=np.float32), SETTLE_S)
         init_img = call_with_timeout(
-            lambda: ccd.get_numpy_image(n_sample=N_SAMPLE), CAPTURE_TIMEOUT_S, "CCD capture"
+            lambda: ccd.get_numpy_image(n_sample=N_SAMPLE),
+            CAPTURE_TIMEOUT_S,
+            "CCD capture",
         )
-        logger.info("初始帧 shape={} peak={:.0f}",
-                    init_img.shape, float(np.max(init_img)))
+        logger.info(
+            "初始帧 shape={} peak={:.0f}", init_img.shape, float(np.max(init_img))
+        )
 
         # 2) 基于初始光强构建方形目标 (曝光无关: target_ccd.sum()==1)
-        target_grid, info = square_target_from_measurement(
-            init_img, SIDE_PX, grid_h, grid_w,
+        target_grid, info = build_target_from_frame(
+            init_img,
+            shape="square",
+            params={"side": SIDE_PX},
+            grid_h=grid_h,
+            grid_w=grid_w,
         )
         y0, x0 = info["centroid"]
-        logger.info("target: side_cam_px={} 质心=({}, {}) target_ccd.sum()={:.4f}",
-                    info["side_cam_px"], y0, x0, float(info["target_ccd"].sum()))
+        logger.info(
+            "target: side_cam_px={} 质心=({}, {}) target_ccd.sum()={:.4f}",
+            info["side_cam_px"],
+            y0,
+            x0,
+            float(info["target_ccd"].sum()),
+        )
 
-        # 3) 微分优化器: 优化 SLM 相位匹配目标远场强度
+        # 3) 硬件闭环微分优化器: 每步 CCD 实测帧驱动反向传播 (SLM→CCD 正向)
         source_amp = np.ones((grid_h, grid_w), dtype=np.float32)
-        res = differentiable_beam_optimize(
+        res_list = optimize_beam_shaping(
             target_intensity=target_grid,
             source_amplitude=source_amp,
             lr=LR,
-            epochs=EPOCHS,
             seed=SEED,
+            epochs=EPOCHS,
             log_every=EPOCHS // 4,
+            slm=slm,
+            ccd=ccd,
+            wait_time_s=SETTLE_S,
+            discard_count=3,
         )
-        logger.info("优化完成: final_loss={:.4f} converged={}",
-                    res.final_loss, res.converged)
+        best_iter, (best_id, best_loss) = res_list.get_best_iter()
+        phase = best_iter["best_phase"]
+        logger.info(
+            "优化完成: final_loss={:.4f} converged={}",
+            res_list.last["loss"],
+            res_list.last["converged"],
+        )
 
         # 4) 下发整形相位 → 重采帧
-        _display_phase(slm, np.asarray(res.phase, dtype=np.float32), SETTLE_S)
+        _display_phase(slm, np.asarray(phase, dtype=np.float32), SETTLE_S)
         current_img = call_with_timeout(
-            lambda: ccd.get_numpy_image(n_sample=N_SAMPLE), CAPTURE_TIMEOUT_S, "CCD capture"
+            lambda: ccd.get_numpy_image(n_sample=N_SAMPLE),
+            CAPTURE_TIMEOUT_S,
+            "CCD capture",
         )
 
         # 5) 曝光无关评估: 实测帧/总亮度 vs target_ccd (sum==1)
         metrics = compute_metrics(current_img, info["target_ccd"])
-        logger.info("metrics: mse={:.5f} correlation={:.4f} efficiency={:.4f}",
-                    metrics["mse"], metrics["correlation"], metrics["efficiency"])
+        logger.info(
+            "metrics: mse={:.5f} correlation={:.4f} efficiency={:.4f}",
+            metrics["mse"],
+            metrics["correlation"],
+            metrics["efficiency"],
+        )
 
         # 6) 记录: Recorder(mark="mse") — record 含 metrics 即满足约束
-        recorder.append({"ccd": current_img, "phase": res.phase, **metrics})
+        recorder.append({"ccd": current_img, "phase": phase, **metrics})
         recorder.save_dataframe(out_dir / "history.csv", sidecar_dir=out_dir)
         logger.info("结果已保存: {}", out_dir)
 
         # 7) pygame 4 面板对比: 初始帧 / 目标方形 / 最终相位 / 整形结果
         if SHOW_DISPLAY:
-            _show_result(init_img, info["target_ccd"], res.phase, current_img, metrics)
+            _show_result(init_img, info["target_ccd"], phase, current_img, metrics)
 
     finally:
         call_with_timeout(slm.close, 10.0, "SLM close")

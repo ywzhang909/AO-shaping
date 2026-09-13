@@ -11,10 +11,10 @@ Main Features:
 - Hardware drivers for cameras, DMs, SLMs, WFS
 
 Example:
-    from ao_shaping import CameraStreamManager, NlightDM, optimizer_rms, optimize_pib
+    from ao_shaping import CameraStreamManager, NlightDM, optimizer_rms_dm, optimize_pib
 
     # Wavefront optimization
-    recorder = optimizer_rms(epochs=1000)
+    recorder = optimizer_rms_dm(epochs=1000)
 
     # PIB optimization
     recorder = optimize_pib(center="mass", epochs=4000)
@@ -30,7 +30,7 @@ __version__ = "0.2.0"
 # ============================================================================
 # Direct imports - no circular dependencies in this structure:
 # optimizer → drivers, utils, algorithm
-# drivers → utils  
+# drivers → utils
 # utils → (external only)
 # algorithm → utils
 # ============================================================================
@@ -94,7 +94,7 @@ except ImportError:
     MlaRes = None
 
 # Optimizers (loaded here to expose in package namespace)
-from ao_shaping.optimizer.wf.rms import optimizer_rms
+from ao_shaping.optimizer.wf.rms import optimizer_rms_dm
 from ao_shaping.optimizer.wfless.pib import optimize_pib
 from ao_shaping.utils.display import ImageVoltagesDisplay
 
@@ -125,7 +125,7 @@ __all__ = [
     "__version__",
     # Base device classes
     "Device",
-    "DeviceCapability", 
+    "DeviceCapability",
     "DeviceError",
     "DeviceMetadata",
     "DeviceNotFoundError",
@@ -157,9 +157,9 @@ __all__ = [
     "FFmpegCamera",
     "MlaRes",
     # Optimizers
-    "optimizer_rms",
+    "optimizer_rms_dm",
     "optimize_pib",
-# Utilities
+    # Utilities
     "logger",
     "Recorder",
     "ImageVoltagesDisplay",

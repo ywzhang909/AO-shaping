@@ -69,7 +69,7 @@ from ao_shaping.utils.targets import (
 )
 
 # Import the two algorithms
-from ao_shaping.optimizer import differentiable_beam_optimize
+from ao_shaping.optimizer.wfless.differentiable_beam import optimize_beam_shaping
 from ao_shaping.algorithm.gerchberg_saxton import (
     adaptive_gerchberg_saxton,
     gerchberg_saxton,
@@ -833,25 +833,35 @@ def run(
 
         if algorithm == "backprop":
             logger.info(
-                "Running backprop optimization: epochs={}, lr={}, device={}",
+                "Running backprop optimization: epochs={}, lr={}, device={}, "
+                "hardware={}",
                 epochs,
                 lr,
                 run_device,
+                use_hardware,
             )
-            result = differentiable_beam_optimize(
+            res_list = optimize_beam_shaping(
                 target_intensity=target_intensity,
                 source_amplitude=source_amplitude,
                 lr=lr,
-                epochs=epochs,
                 device=device,
                 seed=seed,
+                epochs=epochs,
+                # Hardware-closed-loop mode: the loop's forward pass goes
+                # through the real SLM -> CCD chain (each iteration captures
+                # the CCD image of the applied phase and backprops from it).
+                slm=slm if use_hardware else None,
+                ccd=camera if use_hardware else None,
+                wait_time_s=settle_time,
+                discard_count=3,
             )
-            phase = result.phase
-            loss_history = result.loss_history
-            final_loss = result.final_loss
-            converged = result.converged
-            steps = result.steps
-            run_device = result.device
+            best_iter, _ = res_list.get_best_iter()
+            phase = best_iter["best_phase"]
+            loss_history = [r["loss"] for r in res_list.history]
+            final_loss = res_list.last["loss"] if res_list.history else float("nan")
+            converged = res_list.last["converged"] if res_list.history else False
+            steps = len(res_list.history)
+            run_device = res_list.last["device"] if res_list.history else (device or "cpu")
         else:  # gs
             logger.info(
                 "Running Gerchberg-Saxton: iterations={}, adaptive={}",
