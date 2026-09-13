@@ -59,7 +59,7 @@ AO-shaping/
 | Task | Location | Notes |
 |------|----------|-------|
 | Hardware drivers | `src/ao_shaping/drivers/` | See drivers/AGENTS.md |
-| Optimization algorithms | `src/ao_shaping/algorithm/` | Adam, SGD, Muon, Tabu search, etc. |
+| Optimization algorithms | `src/ao_shaping/algorithm/` | Adam, SGD, Muon, Tabu search, etc. Class-based optimizer convention: see src/ao_shaping/algorithm/README.md |
 | Wavefront optimizers | `src/ao_shaping/optimizer/wf/` | RMS optimization |
 | Zernike response matrix | `src/ao_shaping/optimizer/wf/zernike_response_matrix.py` | SLM→WFS Zernike校准 |
 | PIB optimizers | `src/ao_shaping/optimizer/wfless/` | Power-in-bucket |
@@ -90,6 +90,10 @@ High-level optimizers for wavefront correction and beam shaping:
 | wfless/ | `slm_square_shaping.py` | SLM 方形光斑 SPGD 整形 (均匀性 CV + 环围能量) |
 | rl/ | `sac_train.py` | SAC reinforcement learning |
 | rl/ | `lr_wfs.py` | Learning-based wavefront sensing |
+
+### algorithm/ Module — Class-based Optimizer Convention
+
+New optimizers added to `src/ao_shaping/algorithm/` MUST follow the class-based API: `__init__` does validation + state setup, `update()` performs one step and returns the next state/solution, and an optional `run()` returns a result dataclass. A one-shot function is kept only as a thin wrapper for backward compatibility. Torch/numpy **simulation-first tests are required before any hardware use**. Canonical example: `DifferentiableBeamOptimizer` (`src/ao_shaping/algorithm/differentiable_beam.py`). Full principle: `src/ao_shaping/algorithm/README.md`.
 
 ---
 
@@ -523,6 +527,7 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
 | Square shaping with low-order Zernike (n≤4) | Zernike modes are a **circularly symmetric smooth** basis; they physically cannot synthesise a square far-field (needs 2D-sinc-like near field / high spatial frequencies). Use full-pixel phase freedom (GS / differentiable / free-form), not Zernike. |
 | Optimising `-CV` alone as the SPGD objective for square shaping | With no energy term the optimizer **empties the target box** to minimise CV (hardware observed EE→0.002). The objective must include encircled energy (use the combined quality score). |
 | Trusting `reset_window()`'s returned centre | When the spot is near the frame edge the ROI offset is clamped but the returned `(w//2, h//2)` is not the true spot position → the target box lands off the beam (hardware observed epoch-0 `mean_b=0.01`). Re-locate the spot by `argmax`/centroid on the **windowed** image. |
+| Function-only optimizers in ao_shaping/algorithm (no class API) | New optimizers must expose __init__ (validation + state) + update() (one step) + optional run() (result dataclass); one-shot functions are legacy/thin wrappers only. See src/ao_shaping/algorithm/README.md. |
 
 > 方形光斑 SPGD 整形的完整分析、硬件实测与修复记录见 [`docs/slm_square_spgd/README.md`](docs/slm_square_spgd/README.md)。
 
@@ -542,6 +547,7 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
 - **Timing in background loops**: Prefer `time.time()` wall-clock deltas over counters for state machines. Example: `int(elapsed * 2.0 * freq) % 2 == 0` toggles at exactly the requested frequency without drift, instead of sleeping fixed half-periods and accumulating error.
 - **2f Fourier bench geometry** (SLM front focus → f=125mm lens → CCD back focus): the lens Fourier-transforms the SLM field, so CCD coordinates represent **spatial frequency** — the +1 orders of an upper-half-grating and a lower-half-grating land on the **same CCD row (optical-axis row)**, differing only in x-offset. Expected diffraction offset `Δx_px = λ·f/(d_SLM·p_cam) ≈ 5021/Λ` (P64→78px, P32→157px, P96→52, P40→126). Do NOT assume half-screen gratings separate in y. 0-order = frame global max (`argmax`), re-check its location after any bench change.
 - **SLM panel "not modulating" diagnostic chain** (2026-09, encoded in `tools/slm/slm_diagnose.py`): ① freeze check — write flat/full-grating/top-half/bottom-half to **rotated memory slots**, frames must differ (all-identical ⇒ LCOS frozen); ② modulation check — `set_grayscale` sweep 0..1023, 0-order bucket must vary with ~993-gray period (flat ⇒ no amplitude coupling ⇒ panel not modulating); ③ linearity check — exposure ×4, ×20 must grow peak brightness (constant peak incl. at 0.1ms/2ms ⇒ light is >100× weaker than the known ~0.02ms near-saturation baseline). Verdict thresholds: freeze ≥2/3 frames differ, modulation bucket rel-spread >15%, linearity growth >2×.
+- **Class-based optimizer convention**: optimizers in ao_shaping/algorithm expose __init__ (validate + set state), update() (one step → next state), optional run() → result dataclass; the one-shot function stays a thin wrapper. Simulation-first (torch/numpy) tests before hardware. Canonical example: DifferentiableBeamOptimizer. See src/ao_shaping/algorithm/README.md.
 
 ---
 
