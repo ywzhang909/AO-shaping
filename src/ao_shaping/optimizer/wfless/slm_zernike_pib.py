@@ -36,13 +36,14 @@ import matplotlib.pylab as plt
 
 from ao_shaping.drivers import CameraStreamManager
 from ao_shaping.drivers.slm import SantecSLM200
+from ao_shaping.optimizer.wfless.slm_square_shaping import _zernike_indices
 from ao_shaping.utils.pattern_helper import PatternHelper
 from ao_shaping.algorithm.adam import AdaMOD, Adam, AdamW, Base, Muno, MunoW, SGD
 from ao_shaping.utils import logger, Recorder
 from ao_shaping.utils.file import gen_date_dir, gen_date_str
 from ao_shaping.utils.spots_calc import centroid, radius
 from ao_shaping.algorithm.target_func import ImageTargetFunc
-from ao_shaping.utils.zernike_calc import calc_n_zernike_terms, noll_to_nm
+from ao_shaping.utils.zernike_calc import calc_n_zernike_terms
 
 # adam parameters
 beta1 = 0.9
@@ -72,20 +73,6 @@ OPTIMIZER_MAP = {
     "muno": Muno,
     "munow": MunoW,
 }
-
-
-def _zernike_indices(n_max: int) -> list[tuple[int, int]]:
-    """Return list of (n, m) pairs for all valid Zernike modes up to n_max.
-
-    Uses noll_to_nm from zernike_calc for correctness.
-    """
-    n_terms = calc_n_zernike_terms(n_max)
-    modes = []
-    for j in range(1, n_terms + 1):
-        n, m = noll_to_nm(j)
-        if n <= n_max:
-            modes.append((n, m))
-    return modes
 
 
 def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs) -> Base:

@@ -1,15 +1,14 @@
-"""Beam-shaping quality metrics and pattern normalization helpers.
+"""光束整形质量指标与图案归一化辅助函数。
 
-Pure NumPy functions (no hardware access / no SLM / no camera). These were
-migrated from :mod:`ao_shaping.algorithm.beam_shaping_utils` so that metrics
-are computed in the leaf ``utils`` layer with a single source of truth.
-New code should import from here; the old module re-exports the names for
-backward compatibility.
+纯 NumPy 函数 (无硬件访问 / 无 SLM / 无相机)。这些函数从
+:mod:`ao_shaping.algorithm.beam_shaping_utils` 迁移而来, 使指标在叶子
+``utils`` 层计算, 保持单一事实来源。新代码应从这里导入; 旧模块为向后
+兼容重新导出这些名称。
 
-- Spot / beam measurement on a 2D intensity map.
-- Mask-aware shaping metrics (uniformity CV, encircled energy).
-- Square-beam metrics + combined quality score.
-- Pattern normalization / amplitude conversion.
+- 二维强度图上的光斑 / 光束测量。
+- 掩码感知整形指标 (均匀性变异系数, 环围能量)。
+- 方形光束指标 + 组合质量评分。
+- 图案归一化 / 振幅转换。
 """
 
 from __future__ import annotations
@@ -40,15 +39,14 @@ def intensity_to_amplitude(
     intensity: np.ndarray,
     normalize: bool = True,
 ) -> np.ndarray:
-    """Convert an intensity pattern to amplitude.
+    """将强度图案转换为振幅。
 
     Args:
-        intensity: 2D intensity array.
-        normalize: If True, normalize the amplitude to ``[0, 1]`` by the
-            maximum value.
+        intensity: 二维强度数组。
+        normalize: 若为 True, 按最大值将振幅归一化到 ``[0, 1]``。
 
     Returns:
-        Float32 amplitude array.
+        Float32 振幅数组。
     """
     amp = np.sqrt(np.asarray(intensity, dtype=np.float64))
     if normalize:
@@ -62,18 +60,18 @@ def normalize_pattern(
     pattern: np.ndarray,
     mode: Literal["peak", "sum"] = "peak",
 ) -> np.ndarray:
-    """Normalize a 2D pattern to ``[0, 1]`` (peak) or unit total energy.
+    """将二维图案归一化到 ``[0, 1]`` (峰值) 或单位总能量。
 
     Args:
-        pattern: 2D input array.
-        mode: ``"peak"`` scales so the maximum value is 1.
-            ``"sum"`` scales so the total sum is 1.
+        pattern: 二维输入数组。
+        mode: ``"peak"`` 按最大值缩放至 1。
+            ``"sum"`` 按总和缩放至 1。
 
     Returns:
-        Float32 normalized array with the same shape as ``pattern``.
+        与 ``pattern`` 同形状的 Float32 归一化数组。
 
     Raises:
-        ValueError: If ``mode`` is not recognized.
+        ValueError: 当 ``mode`` 无法识别时。
     """
     pattern = np.asarray(pattern, dtype=np.float64)
     pattern = np.nan_to_num(pattern, nan=0.0, posinf=0.0, neginf=0.0)
@@ -91,17 +89,16 @@ def normalize_pattern(
 
 
 def measure_spot_diameter_cam(intensity: np.ndarray, energy: float = 0.90) -> float:
-    """Measure far-field beam spot diameter (pixels) from an intensity image.
+    """从强度图像测量远场光束光斑直径 (像素)。
 
-    Uses the intensity centroid as center and the encircled-energy radius
-    (default 90%) to derive a spot diameter.
+    以强度质心为中心, 用环围能量半径 (默认 90%) 推导光斑直径。
 
     Args:
-        intensity: 2D far-field intensity image.
-        energy: Encircled-energy fraction (0~1) for the radius (default 0.90).
+        intensity: 二维远场强度图像。
+        energy: 环围能量比例 (0~1), 用于计算半径 (默认 0.90)。
 
     Returns:
-        Spot diameter in camera pixels.
+        以相机像素为单位的光斑直径。
     """
     cx, cy = centroid(intensity, return_float=True)
     r = radius(intensity, center=(cx, cy), energy=energy, use_aotools=False)
@@ -112,31 +109,29 @@ def compute_metrics(
     measured: np.ndarray,
     target: np.ndarray,
 ) -> dict[str, float]:
-    """Compute beam-shaping quality metrics between measured and target.
+    """计算实测与目标之间的光束整形质量指标。
 
-    Both ``measured`` and ``target`` are expected to be 2D intensity or
-    amplitude maps of the same shape. They are normalized to ``[0, 1]``
-    before comparison so that absolute scale does not matter (the SLM+CCD
-    pipeline has an unknown absolute gain).
+    ``measured`` 与 ``target`` 应为同形状的二维强度或振幅图。比较前两者
+    均归一化到 ``[0, 1]``, 因此绝对尺度无关紧要 (SLM+CCD 链路存在未知
+    的绝对增益)。
 
     Args:
-        measured: 2D measured intensity/amplitude map.
-        target: 2D target intensity/amplitude map (same shape).
+        measured: 二维实测强度/振幅图。
+        target: 二维目标强度/振幅图 (同形状)。
 
     Returns:
-        Dict with ``"mse"`` (normalized intensity MSE), ``"correlation"``
-        (Pearson correlation of the flattened maps), and ``"efficiency"``
-        (overlap energy ratio).
+        包含 ``"mse"`` (归一化强度均方误差), ``"correlation"`` (展平后
+        两图的 Pearson 相关系数) 与 ``"efficiency"`` (重叠能量比) 的字典。
 
     Raises:
-        ValueError: If shapes do not match.
+        ValueError: 当形状不匹配时。
     """
     m = np.asarray(measured, dtype=np.float64)
     t = np.asarray(target, dtype=np.float64)
     if m.shape != t.shape:
         raise ValueError(f"Shape mismatch: measured {m.shape} vs target {t.shape}")
 
-    # Normalize both to unit sum (energy) for scale-invariant comparison
+    # 将两者归一化为单位总和 (能量), 实现尺度无关比较
     m_sum = float(m.sum())
     t_sum = float(t.sum())
     if m_sum > 0:
@@ -146,14 +141,14 @@ def compute_metrics(
 
     mse = float(np.mean((m - t) ** 2))
 
-    # Pearson correlation (guard against zero variance)
+    # Pearson 相关系数 (防止零方差)
     mf, tf = m.flatten(), t.flatten()
     if mf.std() > 1e-8 and tf.std() > 1e-8:
         corr = float(np.corrcoef(mf, tf)[0, 1])
     else:
         corr = 1.0 if np.allclose(mf, tf) else 0.0
 
-    # Efficiency: symmetric overlap in [0, 1]
+    # 效率: [0, 1] 内的对称重叠
     total = float(m.sum() + t.sum())
     efficiency = (
         float(2.0 * float(np.minimum(m, t).sum()) / total) if total > 0 else 0.0
@@ -166,34 +161,32 @@ def compute_shaping_metrics(
     intensity: np.ndarray,
     mask: np.ndarray,
 ) -> dict[str, float]:
-    """Compute mask-aware beam-shaping quality metrics.
+    """计算掩码感知的光束整形质量指标。
 
-    Complements :func:`compute_metrics` with uniformity / encircled-energy
-    statistics evaluated only inside a boolean target mask.
+    在 :func:`compute_metrics` 基础上补充均匀性 / 环围能量统计, 且仅在
+    布尔目标掩码内部计算。
 
     Args:
-        intensity: 2D intensity array.
-        mask: Boolean 2D array of the same shape as ``intensity`` defining
-            the target region. If the mask is larger than ``intensity`` it is
-            clipped (centered) to the intensity bounds.
+        intensity: 二维强度数组。
+        mask: 与 ``intensity`` 同形状的布尔二维数组, 定义目标区域。若掩码
+            大于 ``intensity``, 则 (居中) 裁剪到强度边界内。
 
     Returns:
-        Dict with ``"uniformity_cv"`` (std/mean of the intensity within the
-        mask — 0 for a perfectly flat region), ``"encircled_energy"``
-        (``sum(intensity[mask]) / sum(intensity)``), ``"peak"`` (max
-        intensity, unnormalized) and ``"in_mask_mean"`` (mean intensity inside
-        the mask). All values are ``0.0`` when the mask is empty or the total
-        intensity is zero (never NaN/inf).
+        包含 ``"uniformity_cv"`` (掩码内强度的标准差/均值, 完全平坦区域
+        为 0), ``"encircled_energy"`` (``sum(intensity[mask]) /
+        sum(intensity)``), ``"peak"`` (未归一化的最大强度) 与
+        ``"in_mask_mean"`` (掩码内平均强度) 的字典。掩码为空或总强度为
+        零时所有值均为 ``0.0`` (绝不产生 NaN/inf)。
 
     Raises:
-        ValueError: If ``intensity`` or ``mask`` is not a 2D array.
+        ValueError: 当 ``intensity`` 或 ``mask`` 不是二维数组时。
     """
     intensity = np.asarray(intensity, dtype=np.float64)
     mask = np.asarray(mask, dtype=bool)
     if intensity.ndim != 2 or mask.ndim != 2:
         raise ValueError("intensity and mask must both be 2D arrays")
 
-    # Clip the mask region to the intensity bounds (centered overlap).
+    # 将掩码区域裁剪到强度边界内 (居中重叠)。
     if mask.shape != intensity.shape:
         h, w = intensity.shape
         mh, mw = mask.shape
@@ -238,18 +231,18 @@ def compute_square_metrics(
     center: tuple[float, float],
     energy: float = 0.90,
 ) -> dict[str, float]:
-    """Compute quality metrics for a square beam.
+    """计算方形光束的质量指标。
 
     Args:
-        intensity: 2D far-field intensity image.
-        target_side: Target square side length (pixels).
-        center: Beam center ``(cx, cy)``.
-        energy: Encircled-energy fraction (default 0.90).
+        intensity: 二维远场强度图像。
+        target_side: 目标方形边长 (像素)。
+        center: 光束中心 ``(cx, cy)``。
+        energy: 环围能量比例 (默认 0.90)。
 
     Returns:
-        Dict with ``aspect_ratio``, ``squareness``, ``uniformity_cv``,
+        包含 ``aspect_ratio``, ``squareness``, ``uniformity_cv``,
         ``encircled_energy``, ``flatness_factor``, ``intensity_max``,
-        ``intensity_mean``.
+        ``intensity_mean`` 的字典。
     """
     intensity = np.asarray(intensity, dtype=np.float64)
     total = float(np.sum(intensity))
@@ -305,15 +298,15 @@ def compute_square_metrics(
 
 
 def compute_quality_score(metrics: dict[str, float]) -> float:
-    """Compute a combined quality score from square metrics.
+    """由方形指标计算组合质量评分。
 
-    Weighted combination of aspect ratio, uniformity, and encircled energy.
+    长宽比、均匀性与环围能量的加权组合。
 
     Args:
-        metrics: Dict returned by :func:`compute_square_metrics`.
+        metrics: :func:`compute_square_metrics` 返回的字典。
 
     Returns:
-        Float quality score in ``[0, 1]`` (higher is better).
+        ``[0, 1]`` 范围内的浮点质量评分 (越高越好)。
     """
     f_ar = math.exp(-(((metrics["aspect_ratio"] - 1.0) / 0.3) ** 2))
     f_uni = math.exp(-((metrics["uniformity_cv"] / 0.3) ** 2))
@@ -325,15 +318,14 @@ def measure_bright_span(
     intensity: np.ndarray,
     peak_frac: float = 0.5,
 ) -> tuple[int, int]:
-    """Return the ``(width, height)`` of the bright region above ``peak_frac``.
+    """返回高于 ``peak_frac`` 的亮区 ``(width, height)``。
 
     Args:
-        intensity: 2D intensity image.
-        peak_frac: Threshold as a fraction of the peak (default 0.5).
+        intensity: 二维强度图像。
+        peak_frac: 以峰值比例表示的阈值 (默认 0.5)。
 
     Returns:
-        ``(width, height)`` of the bounding box; ``(0, 0)`` if no bright
-        region is found.
+        包围盒的 ``(width, height)``; 未找到亮区时返回 ``(0, 0)``。
     """
     intensity = np.asarray(intensity, dtype=np.float64)
     peak = float(np.max(intensity))
@@ -347,16 +339,16 @@ def measure_bright_span(
 
 
 def clamp_side(side: int, height: int, width: int, margin: int = 8) -> int:
-    """Clamp a square side length to fit inside a grid with margin.
+    """将方形边长限制在带边距的网格范围内。
 
     Args:
-        side: Requested side length.
-        height: Grid height.
-        width: Grid width.
-        margin: Minimum margin from each edge (default 8).
+        side: 请求的边长。
+        height: 网格高度。
+        width: 网格宽度。
+        margin: 距每条边的最小边距 (默认 8)。
 
     Returns:
-        Clamped side length.
+        限制后的边长。
     """
     max_side = min(height, width) - 2 * margin
     if side > max_side:

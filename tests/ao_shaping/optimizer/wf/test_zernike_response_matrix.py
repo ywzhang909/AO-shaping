@@ -24,6 +24,32 @@ def index_to_noll(i: int) -> int:
     return i + 1
 
 
+def _configure_mock_wfs(mock_wfs, n_max: int):
+    """Configure a MagicMock WFS with the attributes calibrate_zernike_response_matrix needs.
+
+    The production code (zernike_response_matrix.calibrate_zernike_response_matrix)
+    calls wfs.calc_n_zernike_terms, wfs.build_subaperture_mask, wfs.num_spots_x/y,
+    wfs.take_image and wfs.get_spots_statics. A bare MagicMock fails on the
+    tuple-unpacking calls (build_subaperture_mask / get_spots_statics) and on
+    np.zeros((2 * num_spots_x * num_spots_y, ...)).
+
+    Returns:
+        tuple: (subaperture_mask, n_deviation_terms) where n_deviation_terms is the
+            flattened slope length 2 * num_spots_x * num_spots_y.
+    """
+    mock_wfs.calc_n_zernike_terms.return_value = calc_n_zernike_terms(n_max)
+    mock_wfs.num_spots_x = 8
+    mock_wfs.num_spots_y = 8
+    mask = np.ones((8, 8), dtype=bool)
+    mock_wfs.build_subaperture_mask.return_value = (mask, np.arange(mask.size))
+    intensity = np.ones((8, 8))
+    mock_wfs.get_spots_statics.return_value = (
+        intensity,
+        (intensity.copy(), intensity.copy()),
+    )
+    return mask, 2 * mask.size
+
+
 class TestZernikeTerms:
     def test_calc_n_zernike_terms(self):
         assert calc_n_zernike_terms(0) == 1
@@ -228,10 +254,7 @@ class TestSaveLoadEnhanced:
 
             save_zernike_response_matrix(result, base, include_inverses=True)
 
-            assert base.with_suffix(".response.npy").exists()
-            assert base.with_suffix(".variance.npy").exists()
-            assert base.with_suffix(".pinv.npy").exists()
-            assert base.with_suffix(".json").exists()
+            assert base.with_suffix(".h5").exists()
 
             loaded = load_zernike_response_matrix(base)
 
@@ -381,7 +404,7 @@ class TestCallbackSupport:
         mock_zslm.wavelength = 1064
         mock_zslm._slm = MagicMock()
         mock_wfs = MagicMock()
-        mock_wfs.calc_n_zernike_terms.return_value = calc_n_zernike_terms(n_max)
+        _, n_dev = _configure_mock_wfs(mock_wfs, n_max)
 
         with patch(
             "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
@@ -393,6 +416,8 @@ class TestCallbackSupport:
             mock_measure.return_value = (
                 np.zeros(n_wfs_terms),
                 np.zeros(n_wfs_terms),
+                np.zeros(n_dev),
+                np.zeros(n_dev),
             )
 
             result = calibrate_zernike_response_matrix(
@@ -437,7 +462,7 @@ class TestCallbackSupport:
         mock_zslm.wavelength = 1064
         mock_zslm._slm = MagicMock()
         mock_wfs = MagicMock()
-        mock_wfs.calc_n_zernike_terms.return_value = calc_n_zernike_terms(n_max)
+        _, n_dev = _configure_mock_wfs(mock_wfs, n_max)
 
         with patch(
             "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
@@ -451,6 +476,8 @@ class TestCallbackSupport:
             mock_measure.return_value = (
                 np.zeros(n_wfs_terms),
                 np.zeros(n_wfs_terms),
+                np.zeros(n_dev),
+                np.zeros(n_dev),
             )
             mock_tqdm.side_effect = lambda x, **kwargs: x
 
@@ -487,7 +514,7 @@ class TestCallbackSupport:
         mock_zslm.wavelength = 1064
         mock_zslm._slm = MagicMock()
         mock_wfs = MagicMock()
-        mock_wfs.calc_n_zernike_terms.return_value = calc_n_zernike_terms(n_max)
+        _, n_dev = _configure_mock_wfs(mock_wfs, n_max)
 
         with patch(
             "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
@@ -501,6 +528,8 @@ class TestCallbackSupport:
             mock_measure.return_value = (
                 np.zeros(n_wfs_terms),
                 np.zeros(n_wfs_terms),
+                np.zeros(n_dev),
+                np.zeros(n_dev),
             )
             mock_tqdm.side_effect = lambda x, **kwargs: x
 
@@ -538,7 +567,7 @@ class TestCallbackSupport:
         mock_zslm.wavelength = 1064
         mock_zslm._slm = MagicMock()
         mock_wfs = MagicMock()
-        mock_wfs.calc_n_zernike_terms.return_value = calc_n_zernike_terms(n_max)
+        _, n_dev = _configure_mock_wfs(mock_wfs, n_max)
 
         mock_display = MagicMock(spec=ZernikeCalibrationDisplay)
         mock_display.update.return_value = True
@@ -553,6 +582,8 @@ class TestCallbackSupport:
             mock_measure.return_value = (
                 np.zeros(n_wfs_terms),
                 np.zeros(n_wfs_terms),
+                np.zeros(n_dev),
+                np.zeros(n_dev),
             )
 
             result = calibrate_zernike_response_matrix(
@@ -598,7 +629,7 @@ class TestMatrixShapeCorrectness:
         mock_zslm.wavelength = 1064
         mock_zslm._slm = MagicMock()
         mock_wfs = MagicMock()
-        mock_wfs.calc_n_zernike_terms.return_value = calc_n_zernike_terms(n_max)
+        _, n_dev = _configure_mock_wfs(mock_wfs, n_max)
 
         with patch(
             "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
@@ -610,6 +641,8 @@ class TestMatrixShapeCorrectness:
             mock_measure.return_value = (
                 np.zeros(n_wfs_terms),
                 np.zeros(n_wfs_terms),
+                np.zeros(n_dev),
+                np.zeros(n_dev),
             )
 
             result = calibrate_zernike_response_matrix(
@@ -649,7 +682,7 @@ class TestMatrixShapeCorrectness:
         mock_zslm.wavelength = 1064
         mock_zslm._slm = MagicMock()
         mock_wfs = MagicMock()
-        mock_wfs.calc_n_zernike_terms.return_value = calc_n_zernike_terms(n_max)
+        _, n_dev = _configure_mock_wfs(mock_wfs, n_max)
 
         with patch(
             "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
@@ -661,6 +694,8 @@ class TestMatrixShapeCorrectness:
             mock_measure.return_value = (
                 np.zeros(n_wfs_terms),
                 np.zeros(n_wfs_terms),
+                np.zeros(n_dev),
+                np.zeros(n_dev),
             )
 
             result = calibrate_zernike_response_matrix(
@@ -702,7 +737,7 @@ class TestMatrixShapeCorrectness:
         mock_zslm.shift_x = 0
         mock_zslm.shift_y = 0
         mock_wfs = MagicMock()
-        mock_wfs.calc_n_zernike_terms.return_value = calc_n_zernike_terms(n_max)
+        _, n_dev = _configure_mock_wfs(mock_wfs, n_max)
 
         with patch(
             "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
@@ -714,6 +749,8 @@ class TestMatrixShapeCorrectness:
             mock_measure.return_value = (
                 np.zeros(n_wfs_terms),
                 np.zeros(n_wfs_terms),
+                np.zeros(n_dev),
+                np.zeros(n_dev),
             )
 
             result = calibrate_zernike_response_matrix(
@@ -749,7 +786,7 @@ class TestMatrixShapeCorrectness:
         mock_zslm.wavelength = 1064
         mock_zslm._slm = MagicMock()
         mock_wfs = MagicMock()
-        mock_wfs.calc_n_zernike_terms.return_value = calc_n_zernike_terms(n_max)
+        _, n_dev = _configure_mock_wfs(mock_wfs, n_max)
 
         with patch(
             "ao_shaping.optimizer.wf.zernike_response_matrix.measure_zernike_mode_response"
@@ -760,7 +797,12 @@ class TestMatrixShapeCorrectness:
         ):
             response_vec = np.random.randn(n_wfs_terms) * 0.1
             variance_vec = np.random.rand(n_wfs_terms) * 0.01
-            mock_measure.return_value = (response_vec, variance_vec)
+            mock_measure.return_value = (
+                response_vec,
+                variance_vec,
+                np.zeros(n_dev),
+                np.zeros(n_dev),
+            )
 
             result = calibrate_zernike_response_matrix(
                 zslm=mock_zslm,

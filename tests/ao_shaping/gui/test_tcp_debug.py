@@ -22,6 +22,7 @@ def debug_server():
     """Start a TCP echo server on localhost, return (host, port, received)."""
     received: list[dict] = []
     server_ready = threading.Event()
+    port: int | None = None
 
     def handle_client(conn):
         buffer = b""
@@ -43,6 +44,7 @@ def debug_server():
         conn.close()
 
     def run_server():
+        nonlocal port
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("127.0.0.1", 0))  # random port
@@ -113,10 +115,21 @@ def test_tcp_debug_server_rejects_connection_refused():
     sock.close()
 
 
-def test_tcp_debug_malformed_json_not_crash():
+def test_tcp_debug_malformed_json_not_crash(debug_server):
     """Verify server handles non-JSON data gracefully."""
-    host, port, received = debug_server = next(
-        iter([pytest.fixture(lambda: None)(lambda: None).__wrapped__()])
+    host, port, received = debug_server
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(3.0)
+    sock.connect((host, port))
+    # malformed line first — must not crash the server
+    sock.sendall(b"this is not valid json\n")
+    # a valid line after it must still be received
+    msg = json.dumps(
+        {"operation": "ping", "ip": "127.0.0.1", "detail": ""},
+        ensure_ascii=False,
     )
-    # Use the fixture directly by building a simple server
-    pass  # tested by the normal flow
+    sock.sendall((msg + "\n").encode("utf-8"))
+    sock.close()
+    time.sleep(0.1)
+    assert len(received) == 1, f"Expected 1 message, got {len(received)}: {received}"
+    assert received[0]["operation"] == "ping"

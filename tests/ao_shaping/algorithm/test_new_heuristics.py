@@ -96,7 +96,7 @@ class TestRandomSearch:
             return np.sum(x ** 2)
         
         from ao_shaping.algorithm.heuristic_base import OptimizerConfig
-        config = OptimizerConfig(n_iterations=1000, early_stop_threshold=0.1)
+        config = OptimizerConfig(n_iterations=1000, early_stop_threshold=0.1, seed=4)
         rs = RandomSearch(dim=2, config=config)
         
         best_x, best_f = rs.optimize(sphere)

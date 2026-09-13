@@ -889,7 +889,7 @@ def optimize_slm_square(
             )
             if not _active_modes:
                 raise ValueError(
-                    f"zernike_mask 全为 0 (强制屏蔽 piston/tip/tilt 后): "
+                    "zernike_mask 全为 0 (强制屏蔽 piston/tip/tilt 后): "
                     "至少需要一个活动模式"
                 )
             logger.info(

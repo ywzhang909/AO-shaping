@@ -379,7 +379,7 @@ def run(
     # Save best coefficients
     best_c = best_iter.get("_c")
     if best_c is not None:
-        coeffs_file = save_dir / f"best_coefficients.csv"
+        coeffs_file = save_dir / "best_coefficients.csv"
         np.savetxt(coeffs_file, best_c, fmt="%.6f")
         click.echo(f"Best coefficients saved: {coeffs_file}")
 
@@ -402,7 +402,7 @@ def run(
                 s=20,
                 marker="+",
             )
-            img_file = save_dir / f"best_square.png"
+            img_file = save_dir / "best_square.png"
             plt.savefig(img_file, dpi=150, bbox_inches="tight")
             plt.close()
             click.echo(f"Best image saved: {img_file}")

@@ -49,6 +49,7 @@ from ao_shaping.utils.hardware_utils import (
     auto_exposure_target_ms,
     call_with_timeout,
     init_frame_recording,
+    open_camera,
     record_frame,
     save_frame_png,
 )
@@ -73,45 +74,6 @@ def _signal_handler(signum, frame) -> None:
     global _running
     _running = False
     logger.info("收到信号 {}，正在优雅退出...", signum)
-
-
-# ==================== 相机工厂 ====================
-
-
-def _get_daheng_camera(cam_id: int, exposure_ms: float):
-    """Import and create Daheng camera instance."""
-    try:
-        from ao_shaping.drivers.ccd.daheng import DahengCamManager
-
-        cam = DahengCamManager(cam_id=cam_id, exposure_time_ms=exposure_ms)
-        cam.open()
-        return cam
-    except ImportError as e:
-        logger.warning("Daheng相机不可用: {}", e)
-        raise
-    except Exception as e:
-        logger.error("Daheng相机初始化失败: {}", e)
-        raise
-
-
-def _get_miicam_camera(cam_id: int, exposure_ms: float, bit_depth: int = 8):
-    """Import and create MiiCam camera instance."""
-    try:
-        from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
-
-        cam = CameraStreamManager(
-            cam_id=cam_id,
-            exposure_time_ms=exposure_ms,
-            bit_depth=bit_depth,
-        )
-        cam.open()
-        return cam
-    except ImportError as e:
-        logger.warning("MiiCam相机不可用: {}", e)
-        raise
-    except Exception as e:
-        logger.error("MiiCam相机初始化失败: {}", e)
-        raise
 
 
 # ==================== pygame 可视化 ====================
@@ -1025,9 +987,9 @@ def run(
     try:
         # --- 打开相机 ---
         if camera_type == "daheng":
-            camera = _get_daheng_camera(cam_id, exposure_ms)
+            camera = open_camera("daheng", cam_id, exposure_ms)
         else:
-            camera = _get_miicam_camera(cam_id, exposure_ms, cam_bit_depth)
+            camera = open_camera("miicam", cam_id, exposure_ms, bit_depth=cam_bit_depth)
         logger.info("相机已连接: type={}, id={}", camera_type, cam_id)
 
         # --- 打开SLM ---

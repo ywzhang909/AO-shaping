@@ -1219,6 +1219,13 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 
 ## 近期更新
 
+### v0.10.0 (2026-09-13)
+- **代码整合 (runners/utils 去重)**: `gs_square_runner`/`diff_beam_runner` 复用的质量指标、SLM 相位下发/槽轮换、超时看门狗、自动曝光、帧记录等辅助逻辑统一迁入 `utils/beam_metrics.py`、`utils/slm_utils.py`、`utils/hardware_utils.py` (原 `algorithm/beam_shaping_utils` 保留为兼容 re-export 层)
+- **共享相机工厂**: 新增 `utils/hardware_utils.open_camera(camera_type, cam_id, exposure_ms, bit_depth)`，消除 `gs_square_runner`/`diff_shaping_runner` 中字节级重复的 daheng/miicam 初始化代码 (驱动延迟导入，保持 utils 叶子层约束)
+- **wfless 内部去重**: `slm_zernike_pib` 的 `_zernike_indices` 改为复用 `slm_square_shaping` 同源实现 (字节级一致性校验通过)
+- **回归锚点测试**: 新增 4 个 TDD 锚点测试文件 (`tests/ao_shaping/utils/test_{beam_metrics,slm_utils,hardware_utils,targets}.py`, 共 153 例)，锁定全部迁移函数行为；`record_frame` 新增 `include_spot` 参数记录真实 0 级光斑 (argmax) 位置
+- **代码评审修复**: ruff 清理、异常类型修正 (如 `ConnectionRefusedError`)、`SimDM` 补齐 `open/close` 接口并对齐 DM registry API；全套测试 1506 passed / 9 failed (仅限 Windows-only WFS/DM SDK 环境绑定用例) / 273 skipped
+
 ### v0.9.0 (2026-08-27)
 - **全量交替电压工具** (`full-voltage`): 新增 `full_voltage_runner.py`，基于 AsyncMicroDM 异步驱动，所有单元电压同时、均匀地在 0V 与指定电压间交替（无逐通道选择），用于老化/寿命测试
 - **AsyncMicroDM 延迟优化**:

@@ -78,14 +78,17 @@ class TestTournamentSelection:
     
     def test_selection_with_rng(self):
         """Test selection with custom random state."""
-        rng = np.random.default_rng(42)
         pop_size = 10
         dim = 5
         population = np.random.randn(pop_size, dim)
         fitness = np.random.randn(pop_size)
         
-        selected1 = tournament_selection(population, fitness, 3, rng)
-        selected2 = tournament_selection(population, fitness, 3, rng)
+        selected1 = tournament_selection(
+            population, fitness, 3, np.random.default_rng(42)
+        )
+        selected2 = tournament_selection(
+            population, fitness, 3, np.random.default_rng(42)
+        )
         
         np.testing.assert_array_equal(selected1, selected2)
 
@@ -119,12 +122,15 @@ class TestBlendCrossover:
     
     def test_crossover_with_rng(self):
         """Test crossover with custom random state."""
-        rng = np.random.default_rng(42)
         parent1 = np.array([1.0, 2.0, 3.0])
         parent2 = np.array([4.0, 5.0, 6.0])
         
-        child1a, child2a = blend_crossover(parent1, parent2, random_state=rng)
-        child1b, child2b = blend_crossover(parent1, parent2, random_state=rng)
+        child1a, child2a = blend_crossover(
+            parent1, parent2, random_state=np.random.default_rng(42)
+        )
+        child1b, child2b = blend_crossover(
+            parent1, parent2, random_state=np.random.default_rng(42)
+        )
         
         np.testing.assert_array_equal(child1a, child1b)
 
@@ -159,11 +165,14 @@ class TestGaussianMutation:
     
     def test_mutation_with_rng(self):
         """Test mutation with custom random state."""
-        rng = np.random.default_rng(42)
         individual = np.array([0.0, 0.0, 0.0])
         
-        mutated1 = gaussian_mutation(individual, 1.0, random_state=rng)
-        mutated2 = gaussian_mutation(individual, 1.0, random_state=rng)
+        mutated1 = gaussian_mutation(
+            individual, 1.0, random_state=np.random.default_rng(42)
+        )
+        mutated2 = gaussian_mutation(
+            individual, 1.0, random_state=np.random.default_rng(42)
+        )
         
         np.testing.assert_array_equal(mutated1, mutated2)
 

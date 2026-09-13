@@ -1,19 +1,19 @@
-"""SLM phase -> grayscale conversion and memory-slot rotation helpers.
+"""SLM 相位 → 灰度转换与内存槽轮换辅助函数。
 
-Pure helpers that operate on an SLM device object through duck-typing (any
-object exposing ``get_displayed_memory_number``, ``create_phase_from_array``,
-``write_phase`` and ``display_memory``). No hardware import is performed here;
-callers pass an open SLM device.
+纯辅助函数, 通过鸭子类型操作 SLM 设备对象 (任何暴露
+``get_displayed_memory_number``, ``create_phase_from_array``,
+``write_phase`` 与 ``display_memory`` 的对象)。此处不执行任何硬件导入;
+调用方传入已打开的 SLM 设备。
 
-Migrated from :mod:`ao_shaping.algorithm.beam_shaping_utils`; the old module
-re-exports these names for backward compatibility.
+从 :mod:`ao_shaping.algorithm.beam_shaping_utils` 迁移而来; 旧模块为向后
+兼容重新导出这些名称。
 
-Memory-slot rules (AGENTS.md iron rules):
-- Consecutive writes must ALWAYS target different slots; ``display_memory``
-  on the slot already displayed is a no-op and the LCOS panel will not refresh.
-- Preferred pattern: random slot in 2..125, excluding the currently displayed
-  one (``get_displayed_memory_number()`` on first call, survives restarts).
-- Memory mode only (``video_mode=0``); never auto-try DVI mode.
+内存槽规则 (AGENTS.md 铁律):
+- 连续写入必须始终指向不同槽位; 对已在显示的槽调用 ``display_memory``
+  是空操作, LCOS 面板不会刷新。
+- 推荐模式: 在 2..125 内随机选槽, 排除当前显示槽 (首次调用时通过
+  ``get_displayed_memory_number()`` 读取, 跨进程重启仍有效)。
+- 仅内存模式 (``video_mode=0``); 绝不自动尝试 DVI 模式。
 """
 
 from __future__ import annotations
@@ -47,18 +47,17 @@ def phase_to_slm_grayscale(
     phase: np.ndarray,
     max_grayscale: int = DEFAULT_MAX_GRAYSCALE,
 ) -> np.ndarray:
-    """Convert a phase map (radians) to an SLM uint16 grayscale map.
+    """将相位图 (弧度) 转换为 SLM uint16 灰度图。
 
-    Wraps phase into ``[0, 2*pi)`` and scales to the ``[0, max_grayscale]``
-    range. Values are clamped to the grayscale range and cast to ``uint16``.
+    将相位折叠到 ``[0, 2*pi)`` 并缩放到 ``[0, max_grayscale]`` 范围。数值
+    被限制在灰度范围内并转换为 ``uint16``。
 
     Args:
-        phase: 2D phase array in radians.
-        max_grayscale: The grayscale value that corresponds to ``2*pi``
-            (default 1023 for a 10-bit LCOS device).
+        phase: 以弧度表示的二维相位数组。
+        max_grayscale: 对应 ``2*pi`` 的灰度值 (10 位 LCOS 设备默认 1023)。
 
     Returns:
-        ``uint16`` 2D grayscale array.
+        ``uint16`` 二维灰度数组。
     """
     phase = np.asarray(phase, dtype=np.float32)
     phase = np.mod(phase, 2 * np.pi)
@@ -75,17 +74,17 @@ _last_slm_slot: int | None = None
 
 
 def pick_slm_slot(slm: Any) -> int:
-    """Pick a random SLM memory slot in ``[_SLOT_MIN, _SLOT_MAX]`` that differs
-    from the last used slot.
+    """在 ``[_SLOT_MIN, _SLOT_MAX]`` 内随机选取一个与上次使用槽位不同的
+    SLM 内存槽。
 
-    On first call the currently displayed slot is read from the device so the
-    rotation survives process restarts (memory mode only).
+    首次调用时从设备读取当前显示槽, 使轮换在进程重启后仍能延续 (仅内存
+    模式)。
 
     Args:
-        slm: Open SLM device object exposing ``get_displayed_memory_number``.
+        slm: 已打开的 SLM 设备对象, 暴露 ``get_displayed_memory_number``。
 
     Returns:
-        Slot number in ``[2, 125]``.
+        ``[2, 125]`` 范围内的槽号。
     """
     global _last_slm_slot
     if _last_slm_slot is None:
@@ -102,15 +101,15 @@ def pick_slm_slot(slm: Any) -> int:
 
 
 def display_phase(slm: Any, phase_rad: np.ndarray, settle_time_s: float) -> None:
-    """Display a radian phase pattern on the SLM using memory-slot rotation.
+    """使用内存槽轮换在 SLM 上显示弧度相位图案。
 
-    Uses ``create_phase_from_array`` (device-authentic 2π conversion +
-    correction/LUT) and memory mode only (never DVI).
+    使用 ``create_phase_from_array`` (设备原生的 2π 转换 + 矫正/LUT) 且
+    仅用内存模式 (绝不使用 DVI)。
 
     Args:
-        slm: Open SLM device.
-        phase_rad: 2D phase array in radians.
-        settle_time_s: Wait time after ``display_memory``.
+        slm: 已打开的 SLM 设备。
+        phase_rad: 以弧度表示的二维相位数组。
+        settle_time_s: ``display_memory`` 后的等待时间。
     """
     gray = slm.create_phase_from_array(phase_rad)
     slot = pick_slm_slot(slm)
