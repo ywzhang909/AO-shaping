@@ -273,6 +273,10 @@ class SantecSLM200:
             raise SantecSLM200Error(
                 f"无法导入SLM SDK (_slm_win): {e}. 请确保已安装Santec SLM驱动程序。"
             ) from e
+            
+    @property
+    def displayed_memory_number(self):
+        return self.get_displayed_memory_number()
 
     def get_serial_number(self, timeout: float = 0.0) -> str | None:
         """读取SLM设备标识。
@@ -1067,7 +1071,7 @@ class SantecSLM200:
         self._displayed_phase_cache = phase.copy()
         logger.debug("相位数据显示")
 
-    def display_data(self, phase: np.ndarray, wait_time_s: float | None = None) -> None:
+    def display_data(self, phase_gray: np.ndarray, wait_time_s: float | None = None) -> None:
         """将相位数据写入内存并显示，等待像素翻转完成。
 
         像素下发后的等待时间语义:
@@ -1090,16 +1094,16 @@ class SantecSLM200:
         # 在显示前记录当前已显示相位，用于计算最大灰度变化
         # （display_memory/display_video 会同步更新 _displayed_phase_cache）
         prev_phase = self._displayed_phase_cache
-
+        
         if self.video_mode == VideoMode.DVI:
-            self.display_video(phase)
+            self.display_video(phase_gray)
         elif self.video_mode == VideoMode.Memory:
             self._current_memory_slot = (self._current_memory_slot + 1) % MAX_MEM_SLOTS
-            self._write_phase_with_retry(phase, self._current_memory_slot + 1)
+            self._write_phase_with_retry(phase_gray, self._current_memory_slot + 1)
             self.display_memory(self._current_memory_slot + 1)
 
         if wait_time_s is None or wait_time_s < 0:
-            wait_time_s = self._estimate_pixel_flip_wait(phase, prev_phase)
+            wait_time_s = self._estimate_pixel_flip_wait(phase_gray, prev_phase)
             logger.debug(
                 f"SLM #{self.slm_number} 自动等待 {wait_time_s * 1000:.1f}ms "
                 "(按最大灰度变化估算)"
@@ -1107,6 +1111,25 @@ class SantecSLM200:
 
         if wait_time_s > 0:
             time.sleep(wait_time_s)
+
+    def display_phase(self, phase_rad: np.ndarray, wait_time_s: float | None = None) -> None:
+        """Display a radian phase matrix on the SLM.
+
+        Convenience wrapper that converts a radian phase array to SLM
+        grayscale via :meth:`create_phase_from_array` and then displays
+        it via :meth:`display_data`.
+
+        Args:
+            phase_rad: Phase array in radians (0–2π), shape (height, width).
+            wait_time_s: Display wait time (seconds); ``None`` = auto-estimate
+                (default).
+
+        Raises:
+            SantecSLM200Error: Write or display failed.
+            RuntimeError: Device not open.
+        """
+        phase_gray = self.create_phase_from_array(phase_rad)
+        self.display_data(phase_gray, wait_time_s=wait_time_s)
 
     def _estimate_pixel_flip_wait(
         self, new_phase: np.ndarray, prev_phase: np.ndarray | None

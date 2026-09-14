@@ -21,7 +21,7 @@ from unittest.mock import MagicMock
 import numpy as np
 
 from ao_shaping.algorithm.gerchberg_saxton import angular_spectrum_propagate
-from ao_shaping.gui.slm.multi_slm_controller import (
+from ao_shaping.gui.slm.pattern_controls import (
     build_square_target_amplitude,
     compute_square_side,
     generate_gs_square_phase,
@@ -32,6 +32,7 @@ from ao_shaping.utils.spots_calc import centroid, radius
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _mock_slm(
     width: int = 256,
@@ -84,7 +85,10 @@ def _propagate_to_focal(
 ) -> np.ndarray:
     """Propagate a unit-amplitude, phase-modulated field to the focal plane."""
     field = np.ones_like(phase_rad) * np.exp(1j * phase_rad)
-    return np.abs(angular_spectrum_propagate(field, cell_spacing, distance, wavelength)) ** 2
+    return (
+        np.abs(angular_spectrum_propagate(field, cell_spacing, distance, wavelength))
+        ** 2
+    )
 
 
 def _square_metrics(
@@ -108,8 +112,7 @@ def _square_metrics(
     above = bright_in_square > bright_fraction * peak
     flat_top_area = float(np.mean(above))
     cv = float(
-        bright_in_square[above].std()
-        / (bright_in_square[above].mean() + 1e-9)
+        bright_in_square[above].std() / (bright_in_square[above].mean() + 1e-9)
         if above.any()
         else 0.0
     )
@@ -131,6 +134,7 @@ def _square_metrics(
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestGSBeamShapingToSquare:
     """End-to-end check that GS square-shaping phase yields a square."""
@@ -156,12 +160,10 @@ class TestGSBeamShapingToSquare:
 
         cx, cy = centroid(spot)
         r = radius(spot, center=(cx, cy), energy=0.90, use_aotools=False)
-        side = compute_square_side(
-            2.0 * r, factor=cls.FACTOR, p_cam=8e-6, d_slm=8e-6
+        side = compute_square_side(2.0 * r, factor=cls.FACTOR, p_cam=8e-6, d_slm=8e-6)
+        square_mask = build_square_target_amplitude(cls.GRID, cls.GRID, side).astype(
+            bool
         )
-        square_mask = build_square_target_amplitude(
-            cls.GRID, cls.GRID, side
-        ).astype(bool)
 
         phase = _recover_phase(gray, slm.Gray_Scale_bits)
         intensity = _propagate_to_focal(phase)
