@@ -349,9 +349,7 @@ def calculate_zernike_slm_response_matrix(
 
     # Reset SLM to flat
     zero_phase = np.zeros(slm_resolution, dtype=np.float64)
-    zero_gray = slm.create_phase_from_array(zero_phase)
-    slm.write_phase(zero_gray, memory_number=1)
-    slm.display_memory(1)
+    slm.display_phase(zero_phase, memory_number=1)
     time.sleep(wait_time_s * 2)  # Extra wait for SLM to stabilize
 
     # Measure each Zernike mode
@@ -364,28 +362,22 @@ def calculate_zernike_slm_response_matrix(
         for cycle in range(n_cycles):
             # Positive perturbation
             phase_pos = generate_noll_polynomial(n, m, slm_resolution, magnitude_rad)
-            gray_pos = slm.create_phase_from_array(phase_pos)
-            slm.write_phase(gray_pos, memory_number=1)
-            slm.display_memory(1)
+            slm.display_phase(phase_pos, memory_number=1)
             time.sleep(wait_time_s)
             slopes_pos = measure_slopes()
 
             # Reset to flat briefly
-            slm.write_phase(zero_gray, memory_number=1)
-            slm.display_memory(1)
+            slm.display_phase(zero_phase, memory_number=1)
             time.sleep(wait_time_s)
 
             # Negative perturbation
             phase_neg = generate_noll_polynomial(n, m, slm_resolution, -magnitude_rad)
-            gray_neg = slm.create_phase_from_array(phase_neg)
-            slm.write_phase(gray_neg, memory_number=1)
-            slm.display_memory(1)
+            slm.display_phase(phase_neg, memory_number=1)
             time.sleep(wait_time_s)
             slopes_neg = measure_slopes()
 
             # Reset to flat
-            slm.write_phase(zero_gray, memory_number=1)
-            slm.display_memory(1)
+            slm.display_phase(zero_phase, memory_number=1)
             time.sleep(wait_time_s)
 
             # Calculate response for this cycle
@@ -576,9 +568,7 @@ def _apply_zernike_correction_single(
             correction_phase += mode_phase.T
 
         # Apply to SLM
-        gray_corr = slm.create_phase_from_array(correction_phase)
-        slm.write_phase(gray_corr, memory_number=1)
-        slm.display_memory(1)
+        slm.display_phase(correction_phase, memory_number=1)
         logger.info("Zernike correction applied to SLM")
 
     return a_hat, g
@@ -672,9 +662,7 @@ def _apply_zernike_correction_pid(
         current_correction += correction_phase
 
         # Apply to SLM
-        gray_corr = slm.create_phase_from_array(current_correction)
-        slm.write_phase(gray_corr, memory_number=1)
-        slm.display_memory(1)
+        slm.display_phase(current_correction, memory_number=1)
 
         # Wait time between iterations
         if wait_time_s > 0:

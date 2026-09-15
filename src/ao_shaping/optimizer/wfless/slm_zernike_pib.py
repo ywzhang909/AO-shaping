@@ -91,7 +91,7 @@ def _zernike_to_phase(
     n_max: int,
     pattern_helper: PatternHelper,
 ) -> np.ndarray:
-    """Convert a flat Zernike coefficient array to a uint16 phase pattern for SLM.
+    """Convert a flat Zernike coefficient array to a radian phase pattern.
 
     Args:
         coeffs: Flat array of Zernike coefficients (amplitudes in wavelengths).
@@ -99,7 +99,10 @@ def _zernike_to_phase(
         pattern_helper: PatternHelper instance for phase generation.
 
     Returns:
-        uint16 phase pattern array with shape (SLM_HEIGHT, SLM_WIDTH).
+        float64 radian phase pattern array with shape (SLM_HEIGHT, SLM_WIDTH),
+        wrapped to [0, 2π). The caller must convert to grayscale via
+        ``slm.create_phase_from_array()`` before ``slm.display_data()``
+        (2026-09: PatternHelper no longer performs phase→gray).
     """
     modes = _zernike_indices(n_max)
     coeffs_dict: dict[tuple[int, int], float] = {}
@@ -315,7 +318,9 @@ def optimize_slm_zernike_pib(
                 _init_c = _init_c[:nk]
 
         # Reset SLM to flat phase
-        initial_phase = _zernike_to_phase(_init_c, n_max, pattern_helper)
+        initial_phase = slm.create_phase_from_array(
+            _zernike_to_phase(_init_c, n_max, pattern_helper)
+        )
         slm.display_data(initial_phase)
         time.sleep(SLM_RESPONSE_TIME_S)
 
@@ -501,7 +506,9 @@ def optimize_slm_zernike_pib(
 
                 # Positive perturbation
                 _pos_c = np.clip(_init_c + disturb_c, -5.0, 5.0)
-                pos_phase = _zernike_to_phase(_pos_c, n_max, pattern_helper)
+                pos_phase = slm.create_phase_from_array(
+                    _zernike_to_phase(_pos_c, n_max, pattern_helper)
+                )
                 slm.display_data(pos_phase)
                 time.sleep(SLM_RESPONSE_TIME_S)
                 pos_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
@@ -509,7 +516,9 @@ def optimize_slm_zernike_pib(
 
                 # Negative perturbation
                 _neg_c = np.clip(_init_c - disturb_c, -5.0, 5.0)
-                neg_phase = _zernike_to_phase(_neg_c, n_max, pattern_helper)
+                neg_phase = slm.create_phase_from_array(
+                    _zernike_to_phase(_neg_c, n_max, pattern_helper)
+                )
                 slm.display_data(neg_phase)
                 time.sleep(SLM_RESPONSE_TIME_S)
                 neg_img = cam.get_numpy_image(CAM_SAMPLE_ITER)

@@ -494,11 +494,9 @@ def _run_closed_loop(
         )
 
         # --- 3. 转换相位为灰度并下发 ---
-        phase_gray = slm.create_phase_from_array(result.phase)
         slot = _pick_next_slot()
-        slm.write_phase(phase_gray, memory_number=slot)
+        slm.display_phase(result.phase, memory_number=slot)
         time.sleep(0.05)
-        slm.display_memory(slot)
         logger.info("相位已写入SLM内存槽 {}", slot)
 
         # --- 4. 等待SLM稳定 ---

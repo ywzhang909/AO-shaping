@@ -44,6 +44,7 @@ try:
     from ao_shaping.drivers.ccd.daheng import DahengCamManager
     from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
     from ao_shaping.utils.spots_calc import centroid as spots_centroid
+
     HARDWARE_AVAILABLE = True
 except ImportError:
     HARDWARE_AVAILABLE = False
@@ -102,11 +103,9 @@ def display_flat_phase(
     height = int(getattr(slm, "height", 1200))
     width = int(getattr(slm, "width", 1920))
     phase_rad = np.zeros((height, width), dtype=np.float64)
-    gray = slm.create_phase_from_array(phase_rad)  # type: ignore[attr-defined]
     slot, new_last = pick_slm_slot(slm, last_slot)
-    slm.write_phase(gray, memory_number=slot)  # type: ignore[attr-defined]
+    slm.display_phase(phase_rad, memory_number=slot)  # type: ignore[attr-defined]
     time.sleep(0.05)
-    slm.display_memory(slot)  # type: ignore[attr-defined]
     time.sleep(settle_time_s)
     return new_last
 
@@ -207,9 +206,7 @@ def main() -> None:
         # Capture the raw frame. Single frame keeps it truly "raw" (no averaging
         # blur from beam drift), but n_sample>1 reduces read noise; both are saved.
         frame = call_with_timeout(
-            lambda: camera.get_numpy_image(
-                n_sample=args.n_sample, skip_first=True
-            ),
+            lambda: camera.get_numpy_image(n_sample=args.n_sample, skip_first=True),
             args.capture_timeout,
             "CCD 采集",
         )
@@ -226,13 +223,22 @@ def main() -> None:
         logger.info("已保存: {} ({}), {}", tiff_path, img16.shape, npy_path)
 
         # ── centroid comparison on the SAME frame ──
-        logger.info("帧统计: shape={} dtype={} min={} max={} sum={:.0f}",
-                    img16.shape, img16.dtype, int(img16.min()),
-                    int(img16.max()), float(img16.sum()))
+        logger.info(
+            "帧统计: shape={} dtype={} min={} max={} sum={:.0f}",
+            img16.shape,
+            img16.dtype,
+            int(img16.min()),
+            int(img16.max()),
+            float(img16.sum()),
+        )
         bg = float(np.median(img16))
         nz_frac = float((img16 > bg).mean())
-        logger.info("背景中位数={:.2f} 非背景像素占比={:.1%} frame_sum={:.0f}",
-                    bg, nz_frac, float(img16.sum()))
+        logger.info(
+            "背景中位数={:.2f} 非背景像素占比={:.1%} frame_sum={:.0f}",
+            bg,
+            nz_frac,
+            float(img16.sum()),
+        )
 
         a_cy, a_cx = argmax_center(img16)
         raw_cy, raw_cx = intensity_centroid(img16)
@@ -266,13 +272,14 @@ def main() -> None:
             full.set_title(f"Full frame {img16.shape} (flat @ {exp_ms:.3f}ms)")
             fig.colorbar(im0, ax=full, fraction=0.046)
 
-# zoomed ROI around argmax
+            # zoomed ROI around argmax
             roi = 100
             y0, y1 = max(0, a_cy - roi), min(img16.shape[0], a_cy + roi)
             x0, x1 = max(0, a_cx - roi), min(img16.shape[1], a_cx + roi)
             zoom = axes[1]
-            zoom.imshow(img16[y0:y1, x0:x1], cmap="hot", aspect="equal",
-                        extent=[x0, x1, y1, y0])
+            zoom.imshow(
+                img16[y0:y1, x0:x1], cmap="hot", aspect="equal", extent=[x0, x1, y1, y0]
+            )
             zoom.set_title(f"Zoomed {2 * roi}px around argmax ({a_cy}, {a_cx})")
 
             marks = [
@@ -283,9 +290,16 @@ def main() -> None:
             ]
             for name, (cy, cx), color, mk in marks:
                 for ax in axes:
-                    ax.plot(cx, cy, marker=mk, color=color, markersize=8,
-                            markeredgewidth=1.5, linestyle="None",
-                            label=name if ax is axes[0] else None)
+                    ax.plot(
+                        cx,
+                        cy,
+                        marker=mk,
+                        color=color,
+                        markersize=8,
+                        markeredgewidth=1.5,
+                        linestyle="None",
+                        label=name if ax is axes[0] else None,
+                    )
             axes[0].legend(loc="upper right")
             fig.suptitle(
                 f"Centroid comparison — flat phase, {exp_ms:.3f}ms, "

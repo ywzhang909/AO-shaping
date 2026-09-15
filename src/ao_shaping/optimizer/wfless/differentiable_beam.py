@@ -84,9 +84,8 @@ def _display_phase(slm: Any, phase_rad: np.ndarray, wait_time_s: float) -> None:
     slots internally, satisfying the no-same-slot-twice rule). Mock SLMs
     (tests) only expose ``write_phase`` and take radians directly.
     """
-    if hasattr(slm, "create_phase_from_array"):
-        gray = slm.create_phase_from_array(phase_rad)
-        slm.display_data(gray, wait_time_s=wait_time_s)
+    if hasattr(slm, "display_phase"):
+        slm.display_phase(phase_rad, wait_time_s=wait_time_s)
     else:
         slm.write_phase(phase_rad)
 
@@ -229,9 +228,7 @@ def optimize_beam_shaping(
     early_stop_delta = abs(float(early_stop_delta))
     log_every = int(log_every)
     if not isinstance(progress, bool):
-        raise ValueError(
-            f"progress must be a bool, got {type(progress).__name__}"
-        )
+        raise ValueError(f"progress must be a bool, got {type(progress).__name__}")
 
     # Seed the RNG for reproducibility (mirrors optimize_pib). The Adam
     # loop itself is deterministic; the RNG is kept for parity with the
@@ -359,9 +356,7 @@ def optimize_beam_shaping(
             for step in range(epochs):
                 # 1. Capture the CCD image of the CURRENT applied phase.
                 frame = _capture_frame(ccd_dev, discard_count)
-                measured = crop_resize_to_grid(
-                    frame, grid_h=target_h, grid_w=target_w
-                )
+                measured = crop_resize_to_grid(frame, grid_h=target_h, grid_w=target_w)
 
                 # 2. One measurement-anchored backprop step. The recorded
                 #    loss is the MEASURED loss (evaluated at the CCD image).

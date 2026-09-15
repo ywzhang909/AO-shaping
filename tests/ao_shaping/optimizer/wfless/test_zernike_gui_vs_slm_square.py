@@ -1,16 +1,20 @@
 """Cross-check: Zernike phase generation between the GUI path and the
 ``slm_square_shaping`` path.
 
-After the 2026-09 fix, the ``spgd-square`` zernike basis generates its phase
-through the SAME code path as the GUI Zernike branch of
-``multi_slm_controller.py``: ``PatternHelper.generate_zernike_polynomial`` at
-the radius=600 px aperture, min-max normalised uint16 with a circular aperture
-mask, written via ``display_data``. Only Defocus (2,0) and Spherical (4,0) are
-optimised (``ZERNIKE_ACTIVE_MODES``), matching the GUI's two-mode Zernike
-branch.
+After the 2026-09 amplitude fix, BOTH the GUI Zernike branch
+(``pattern_controls.generate_phase_gray`` → ``generate_zernike_polynomial``
+→ ``slm.create_phase_from_array``) and ``PatternHelper.generate_zernike_polynomial``
+preserve the absolute coefficient magnitude. Since 2026-09-15, the helper
+returns the **raw unwrapped radian phase** (no mod-2π wrap, no uint16, no
+min-max normalisation) — wrapping to grayscale is the SLM driver's job
+(``create_phase_from_array``). The legacy min-max normalisation in
+``_zernike_to_uint16`` was removed — it made patterns scale-invariant
+(coefficient 0.1 and 10.0 produced byte-identical uint16).
+Both paths generate at the radius=600 px aperture with a circular aperture mask.
+Only Defocus (2,0) and Spherical (4,0) are optimised (``ZERNIKE_ACTIVE_MODES``).
 
-The raw Zernike polynomial / wrapped-radian helper (``_zernike_phase_radians``)
-is retained and still tested for polynomial correctness and the driver's linear
+The raw Zernike polynomial helper (``_zernike_phase_radians``) is retained and
+still tested for polynomial correctness and the driver's linear
 radian->grayscale mapping. No camera/CCD or SLM hardware is opened.
 """
 
@@ -41,7 +45,11 @@ BITS = 10
 
 
 def _gui_gray(coeffs: dict[tuple[int, int], float]) -> np.ndarray:
-    """GUI path: multi_slm_controller.py Zernike branch (min-max uint16)."""
+    """GUI path: multi_slm_controller.py Zernike branch.
+
+    Post-2026-09-15 contract: raw unwrapped radian phase preserving absolute
+    coefficient amplitude (no min-max normalisation, no mod-2π, no uint16).
+    """
     helper = PatternHelper(SLM_RESOLUTION, bits=BITS)
     return helper.generate_zernike_polynomial(
         coefficients=coeffs, radius=RADIUS, n_max=N_MAX
@@ -81,8 +89,8 @@ class TestZernikeGuiVsSlmSquareConsistency:
     def test_both_produce_panel_resolution(self, gui_gray, slm_square_gray):
         assert gui_gray.shape == (SLM_HEIGHT, SLM_WIDTH)
         assert slm_square_gray.shape == (SLM_HEIGHT, SLM_WIDTH)
-        assert gui_gray.dtype == np.uint16
-        assert slm_square_gray.dtype == np.uint16
+        assert gui_gray.dtype == np.float64
+        assert slm_square_gray.dtype == np.float64
 
     def test_runner_is_byte_identical_to_gui(self, gui_gray, slm_square_gray):
         """Post-fix both paths share PatternHelper.generate_zernike_polynomial
@@ -96,8 +104,7 @@ class TestZernikeGuiVsSlmSquareConsistency:
         assert np.any(gui_gray[mask] > 0)
 
     def test_defocus_is_monotonic_with_radius_in_raw_polynomial(self):
-        """Defocus (2,0) must be monotonic with radius in the RAW polynomial
-        (the polynomial the GUI min-max normalises internally)."""
+        """Defocus (2,0) must be monotonic with radius in the RAW polynomial."""
         gen = ZernikeGenerator(SLM_RESOLUTION, radius=RADIUS, n_orders=N_MAX)
         mask = gen.mask.astype(bool)
         raw = gen.generate_polynomial({(2, 0): 1.0})[mask].astype(np.float64)
@@ -120,7 +127,7 @@ class TestZernikeGuiVsSlmSquareConsistency:
 
     def test_driver_linear_mapping_before_wrap(self):
         """The SLM driver maps radians -> grayscale linearly (2pi = max_gray)
-        BEFORE the 2pi wrap (retained wrap path)."""
+        BEFORE the 2pi wrap."""
         gen = ZernikeGenerator(SLM_RESOLUTION, radius=RADIUS, n_orders=N_MAX)
         mask = gen.mask.astype(bool)
         raw = gen.generate_polynomial({(2, 0): 1.0})
@@ -144,26 +151,27 @@ class TestZernikeGuiVsSlmSquareConsistency:
             "Driver grayscale is not a pure mod-2pi wrap of the linear mapping"
         )
 
-    def test_unwrapped_phase_matches_gui_affine(self):
-        """The raw (unwrapped) Zernike polynomial must be affine-equivalent to
-        the GUI's min-max-normalised map inside the aperture — proving both
-        paths evaluate the same polynomial."""
+    def test_gui_gray_is_raw_unwrapped_polynomial(self):
+        """The helper must return the RAW unwrapped Zernike polynomial inside
+        the aperture — the post-2026-09-15 raw-only contract. The legacy
+        min-max normalised map was merely *affine* equivalent, i.e.
+        scale-invariant: ×1 and ×4 coefficients produced byte-identical
+        output — exactly the reported bug. The residual mod-2π wrap was also
+        removed: the SLM driver applies it on conversion to grayscale."""
         gen = ZernikeGenerator(SLM_RESOLUTION, radius=RADIUS, n_orders=N_MAX)
         mask = gen.mask.astype(bool)
-        raw = gen.generate_polynomial(COEFFS)
+        raw = gen.generate_polynomial(COEFFS).astype(np.float64)
         gui = _gui_gray(COEFFS)
 
-        g = gui[mask].astype(np.float64)
-        r = raw[mask].astype(np.float64)
-        assert g.std() > 0 and r.std() > 0
+        g = gui[mask]
+        e = raw[mask]
+        assert g.std() > 0 and e.std() > 0
 
-        A = np.vstack([r, np.ones_like(r)]).T
-        sol, *_ = np.linalg.lstsq(A, g, rcond=None)
-        residual = g - (A @ sol)
-        rel_err = float(np.linalg.norm(residual) / (g.std() * np.sqrt(len(g))))
-        assert rel_err < 1e-3, (
-            f"Unwrapped polynomial and GUI map are not affine-equivalent "
-            f"(rel_err={rel_err:.2e})"
+        # raw unwrapped equality — no wrap, no uint16, no min-max normalisation
+        max_phase_err = float(np.max(np.abs(g - e)))
+        assert max_phase_err <= 1e-9, (
+            f"Helper output is not the raw unwrapped polynomial "
+            f"(max phase err={max_phase_err:.3e})"
         )
 
 

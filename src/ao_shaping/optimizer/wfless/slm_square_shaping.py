@@ -1000,11 +1000,12 @@ def optimize_slm_square(
         def _params_to_gray(p: np.ndarray) -> np.ndarray:
             """Parameter vector -> uint16 grayscale phase map on the SLM panel.
 
-            zernike: ``PatternHelper.generate_zernike_polynomial`` (identical
-            to the GUI Zernike branch); freeform: wrapped radians converted by
-            the SLM driver. If rotation search is enabled the LAST element of
-            ``p`` is the rotation angle (degrees); the base pattern is generated
-            from the remaining elements and then rotated.
+            zernike: ``PatternHelper.generate_zernike_polynomial`` (radians,
+            identical to the GUI Zernike branch) then the SLM driver
+            ``slm.create_phase_from_array()``; freeform: wrapped radians
+            converted by the SLM driver. If rotation search is enabled the LAST
+            element of ``p`` is the rotation angle (degrees); the base pattern
+            is generated from the remaining elements and then rotated.
             """
             if _has_rotation:
                 _rot = float(p[-1])
@@ -1020,12 +1021,14 @@ def optimize_slm_square(
                     for i, m in enumerate(_active_modes)
                     if i < len(_head)
                 }
-                _gray = _pattern_helper.generate_zernike_polynomial(
+                _rad = _pattern_helper.generate_zernike_polynomial(
                     coefficients=coeffs_dict,
                     radius=float(zernike_radius),
                     n_max=n_max,
                 )
-                return _rotate_pattern(_gray, _rot) if _has_rotation else _gray
+                if _has_rotation:
+                    _rad = _rotate_pattern(_rad, _rot)
+                return slm.create_phase_from_array(_rad)
             _rad = _freeform_phase_radians(_head, SLM_RESOLUTION, int(phase_grid))
             if _has_rotation:
                 _rad = _rotate_pattern(_rad, _rot)
