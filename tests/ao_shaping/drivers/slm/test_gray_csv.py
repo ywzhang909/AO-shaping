@@ -9,7 +9,7 @@ import pytest
 
 sys.modules["ao_shaping.drivers.slm.santec._slm_win"] = MagicMock()
 
-from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.drivers.slm.santec import Santec, get_max_grayscale
 
 
 @pytest.fixture(autouse=True)
@@ -117,12 +117,19 @@ class TestCsvToPhase:
 
         np.testing.assert_array_equal(gray_orig, gray_roundtrip)
 
-    def test_csv_to_phase_with_custom_max_gray(self):
-        """使用自定义 max_grayscale 参数验证比例关系"""
-        phase_default = Santec.csv_to_phase(CSV_PATH, max_grayscale=1023)
-        phase_custom = Santec.csv_to_phase(CSV_PATH, max_grayscale=511)
-        ratio = phase_custom.max() / phase_default.max()
-        assert abs(ratio - 2.0) < 1e-2
+    def test_csv_to_phase_scaling_uses_device_max_gray(self, tmp_path: Path):
+        """灰度→弧度换算按设备常量 get_max_grayscale() 缩放（无自定义参数）"""
+        csv = tmp_path / "phase.csv"
+        csv.write_text("Y/X,0,1,2\n0,100,200,300\n1,400,500,600\n")
+
+        phase_rad = Santec.csv_to_phase(csv)
+        expected = (
+            np.array([[100.0, 200.0, 300.0], [400.0, 500.0, 600.0]])
+            / get_max_grayscale()
+            * 2
+            * np.pi
+        )
+        np.testing.assert_allclose(phase_rad, expected)
 
     def test_csv_to_phase_file_not_found(self):
         """文件不存在时应抛出 FileNotFoundError"""

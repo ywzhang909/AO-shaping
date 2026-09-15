@@ -71,3 +71,13 @@ slm/
 详细标定方法见 [`README.md`](./README.md) 和 [`slm_calibration.py`](./slm_calibration.py)。
 
 详细硬件实测与故障记录见 [`docs/slm_square_spgd/README.md`](../../../../docs/slm_square_spgd/README.md)。
+
+## GUI CSV 相位加载
+
+`multi_slm_controller.py` 的"从CSV加载相位"按钮走标准三步管线（详见 `docs/slm/slm_gui_manual.md` §5.7）：
+
+1. `slm.load_gray_from_csv(path)` — 驱动层格式校验（Y/X 标题、尺寸=PANEL_RES、值 0..1023）
+2. `Santec.csv_to_phase(path)` — 灰度 → 弧度制相位（静态，无硬件转换）
+3. `slm.display_phase(phase_rad)` — `create_phase_from_array()` 完成 弧度→灰度 + 矫正 + LUT + 平移，写入内存槽
+
+**注意**: CSV 灰度值必须走 `csv_to_phase`（视为原始灰度），**不能**直接当弧度传入 `create_phase_from_array()`。扁平相位仍须用 `np.full((h,w), gray, dtype=np.uint16)` 直接发送。

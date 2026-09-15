@@ -1240,15 +1240,14 @@ class Santec:
         skiprows: int = 1,
         delimiter: str = ",",
     ) -> np.ndarray:
-        """将CSV中的灰度矩阵（MAX_GRAY=1023）还原为弧度制相位数组。
+        """将CSV中的灰度矩阵（0~2^GRAY_SCALE_BITS-1）还原为弧度制相位数组。
 
-        将CSV文件中的原始灰度值（0~max_grayscale）转换为弧度制相位
-        （0~2π），然后可用于 :meth:`create_phase_from_array` 进行
-        最终的相位→灰度转换。
+        将CSV文件中的原始灰度值（0~1023）按设备常量 :func:`get_max_grayscale`
+        转换为弧度制相位（0~2π），然后可用于 :meth:`create_phase_from_array`
+        进行最终的相位→灰度转换。
 
         Args:
             filepath: CSV文件路径
-            max_grayscale: 最大灰度值，默认1023
             skiprows: 跳过的行数，默认为1（跳过标题行）
             delimiter: 分隔符，默认为逗号
 

@@ -273,8 +273,23 @@ class TestDefaultCalc:
 
     # ── Backward compatibility: 旧 wrapper ─────────────
 
-    def test_load_gray_from_csv_backward_compat(self, tmp_path: Path):
-        """load_gray_from_csv 仍可正常工作"""
+    def test_load_gray_from_csv_rejects_wrong_size(self, tmp_path: Path):
+        """load_gray_from_csv 要求 CSV 尺寸等于 SLM 面板分辨率 (1200×1920)"""
+        csv = tmp_path / "test.csv"
+        csv.write_text("Y/X,0,1,2\n0,100,200,300\n1,400,500,600\n")
+
+        slm = Santec(slm_number=1)
+        with pytest.raises(ValueError, match="尺寸错误"):
+            slm.load_gray_from_csv(csv)
+
+    def test_load_gray_from_csv_valid_panel_size(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """合法 PANEL_RES 尺寸 CSV 正常加载为 uint16 灰度矩阵"""
+        # 以 (3,2) 模拟 PANEL_RES=(宽,高)，则数据区应为 (2,3)
+        monkeypatch.setattr(
+            "ao_shaping.drivers.slm.santec.driver.PANEL_RES", (3, 2)
+        )
         csv = tmp_path / "test.csv"
         csv.write_text("Y/X,0,1,2\n0,100,200,300\n1,400,500,600\n")
 
@@ -282,6 +297,9 @@ class TestDefaultCalc:
         data = slm.load_gray_from_csv(csv)
         assert data.shape == (2, 3)
         assert data.dtype == np.uint16
+        np.testing.assert_array_equal(
+            data, np.array([[100, 200, 300], [400, 500, 600]], dtype=np.uint16)
+        )
 
     def test_resize_to_panel_backward_compat(self):
         """_resize_to_panel 委托至 WavefrontCorrection.resize_to_panel"""

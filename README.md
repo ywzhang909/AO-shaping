@@ -854,7 +854,7 @@ streamlit run src/ao_shaping/gui/slm/multi_slm_controller.py
 streamlit run src/ao_shaping/gui/r50/ceramic_viewer.py
 ```
 
-`multi_slm_controller.py` 提供多种全息相位图案生成：平场、闪耀光栅、达曼光栅、涡旋相位、**GS方形整形**等。其中 GS方形整形模式：上传远场光斑图片 → 自动测量光斑直径并计算方形边长（边长 = 光斑直径 × 尺寸因子，自动换算相机/SLM 像素间距）→ 在 SLM 分辨率网格上运行 Gerchberg-Saxton → 下发 uint16 相位到 SLM。支持实时迭代进度显示与逐轮相位下发（内存槽自动轮换）。方形尺寸/相位正确性由仿真测试验证（`tests/ao_shaping/gui/slm/test_gs_square_shaping.py`，角谱传播断言）。
+`multi_slm_controller.py` 提供多种全息相位图案生成：平场、闪耀光栅、达曼光栅、涡旋相位、**GS方形整形**等。支持**从 CSV 加载相位**（格式：1200×1920，值 0~1023，首行/首列为 Y/X 索引），走 `load_gray_from_csv` → `csv_to_phase` → `display_phase` 三步管线，与 GUI 预览共用 `create_phase_from_array()` 保证字节级一致。其中 GS方形整形模式：上传远场光斑图片 → 自动测量光斑直径并计算方形边长（边长 = 光斑直径 × 尺寸因子，自动换算相机/SLM 像素间距）→ 在 SLM 分辨率网格上运行 Gerchberg-Saxton → 下发 uint16 相位到 SLM。支持实时迭代进度显示与逐轮相位下发（内存槽自动轮换）。方形尺寸/相位正确性由仿真测试验证（`tests/ao_shaping/gui/slm/test_gs_square_shaping.py`，角谱传播断言）。
 
 ## 硬件支持
 
@@ -959,6 +959,7 @@ streamlit run src/ao_shaping/gui/r50/ceramic_viewer.py
   - `open()` 方法已重构为子方法 (`_apply_config_params`, `_load_correction`, `_setup_wavelength`)，逻辑更清晰
   - 波前误差矫正通过独立 `WavefrontCorrection` 类管理（CSV加载→异常点检测→矫正映射图）
   - 矫正数据自动按优先级加载: `__init__` 显式指定 > 配置文件 > 默认路径
+  - **CSV 相位加载**（`multi_slm_controller.py` GUI）：格式 1200×1920、值 0~1023、首行/首列为 `Y/X` 索引；管线为 `load_gray_from_csv`（驱动层格式校验）→ `csv_to_phase`（灰度→弧度）→ `display_phase`（`create_phase_from_array()` 弧度→灰度+矫正+LUT+平移），与 GUI 预览共用同一路径保证字节级一致。详见 `docs/slm/slm_gui_manual.md`。
 
 > **⚠️ SLM 平场灰度生成注意事项**
 >
