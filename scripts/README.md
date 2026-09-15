@@ -451,6 +451,71 @@ python scripts/md_img_pipeline.py --input data/md_test/md_img-80v --skip-diff
 | `--skip-diff` | off | Skip diff computation, use existing diff images |
 | `--ref` | first IP's `-000.png` | Shared reference image for ALL IPs |
 
+## Report Generation Scripts
+
+> **Repo rule**: all markdown/illustrated-report **generation** lives in `scripts/`
+> (naming `generate_*_report.py`), never in `src/ao_shaping/tools/` (reserved for
+> hardware-interaction tools). See `AGENTS.md` anti-patterns.
+
+### generate_zernike_wfs_report.py
+
+Generates the illustrated **Zernike phase → WFS readout distribution** report
+(needs hardware: Santec SLM-200 + Thorlabs WFS).
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src"
+python scripts/generate_zernike_wfs_report.py
+python scripts/generate_zernike_wfs_report.py -o docs/slm/zernike_wfs_report
+```
+
+**What it does:**
+- Loads a series of Zernike patterns (modes / radii / amplitudes) at the
+  calibrated SLM shift; a **flat-phase user reference** is created first so every
+  readout is the increment relative to flat
+- Per case writes two figures: **SLM phase** (radian source | actual displayed
+  grayscale pattern with mod 2π + shift) and **WFS readout** (spots / read phase
+  map / Zernike distribution / metrics)
+- Writes `report.md` + `phase/` + `wfs/` + `data.json` to the output dir
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--slm-number` / `--slm-wavelength` | `1` / `532` | SLM device / wavelength |
+| `--wfs-exposure-ms` | `4.0` | WFS exposure (capped at 7 ms) |
+| `--shift-x` / `--shift-y` | device config | SLM shift override |
+| `--settle-extra-s` | `0.1` | Extra settle beyond the pixel-flip estimate |
+| `-o, --output-dir` | `docs/slm/zernike_wfs_report` | Output directory |
+
+### generate_zernike_response_matrix_report.py
+
+Generates the illustrated **Zernike response matrix** report
+(creation / analysis / detection). **Fully offline** — reads saved artefacts, no
+hardware.
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src"
+python scripts/generate_zernike_response_matrix_report.py
+python scripts/generate_zernike_response_matrix_report.py --h5 <path> -o docs/slm/<dir>
+```
+
+**What it does** (writes `report.md` + `figures/`):
+- **Creation**: acquisition metadata (device, shift, Zernike radius, amplitude,
+  push-pull cycles/averages, DLL index ordering) + matrix shape
+- **Analysis**: response-matrix heatmap with diagonal markers, diagonal
+  dominance, singular-value spectrum / condition number, repeat-variance map,
+  and per-(mode, radius) linearity (**CV + direction cosine**, the correct
+  criterion — a normalised response is *constant* when linear, so slope/R² is
+  meaningless)
+- **Detection**: outlier diagnosis (`|resp|` vs amplitude per radius — shows the
+  WFS Zernike-fit collapse when R ≈ beam radius), offline inverse demo
+  (`c = pinv(M) @ w`, residual reduction), and the measured closed-loop
+  before/after
+
+Sources default to the latest `data/zernike_response_matrix/zm_*.h5`,
+`data/zernike_correction/report_*.json` and `raw_scan_*.json`; override with
+`--h5`, `--scan-report`, `--raw-scan`.
+
 ## Subdirectories
 
 ### dm_sim/

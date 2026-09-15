@@ -67,6 +67,52 @@ slm/
 - **2f Fourier 光路**: SLM 前焦面 125mm → f=125mm 透镜 → CCD 后焦面; CCD 坐标=空间频率; 0 级=帧全局最大 (argmax), 非相机几何中心。
 - **不要假设 0 级在相机帧中心**: 在 2f Fourier  benches 中光学轴 (0 级 = 帧全局最大值) 仅在巧合时落在相机中心。观测: 帧中心 (1344,760) vs 0 级 (1441-1443, 705-706)。始终用 `argmax` 定位 0 级。
 
+## 平移标定 (shift_x / shift_y) — defocus 零点法 (2026-09-15 实测固化)
+
+`shift_x`/`shift_y` 把相位图案在面板上平移, 用于让**图案中心对准光束光轴**。标定原理:
+
+- 图案平移 `(sx,sy)` 后光束感受到 `P(b−s+ξ)` (`b` = 光束光轴在 SLM 坐标中的偏移, 未知)。
+  对 defocus `P = D·u²` 有梯度 `∝ 2D(b−s)` → **WFS 读出的 tip/tilt 关于 shift 线性,
+  零点即 `s = b`**(图案中心与光束对齐)。
+- 判据必须用**相对纯平的"附加"倾斜**: `‖z_tilt(defocus@shift) − z_tilt(flat)‖` —— 系统
+  本身有静态倾斜 (实测 flat 下 tilt ≈ −0.14λ), 绝对归零是错的判据。
+
+**实测结果** (SLM#22030102 + WFS M01219666, 532nm): **`shift_x=106, shift_y=40`**
+(附加倾斜 0.854λ → 0.0245λ, **降低 97.1%**; 原值 (60,0) 附加倾斜 0.46λ)。
+标定脚本: `src/ao_shaping/tools/slm/slm_shift_calib.py`。
+
+### 三个必须遵守的参数约束 (踩过的坑)
+
+| 约束 | 原因 |
+|------|------|
+| **defocus 幅度 A 必须足够大** (实测 A=20 rad @ R=600) | A=2 时响应被 `(r_beam/R)²` 压制到噪声级, 扫描完全看不到趋势 (v1 失败根因) |
+| **Zernike 半径 R 必须 > 光束半径** (实测光束在 SLM 上半径 ≈200px ≈1.6mm) | R=200 响应最强但一平移就裁切光束; R=600 可平移 ±400px 不裁切 (光束尺寸由 R 扫描诊断得出: R=200 时 Δdefocus 最大 0.163λ) |
+| **shift 必须限制在 ±500** | defocus 盘中心 `(960+sx, 600+sy)` 超出 1920×1200 面板后光束几乎看不到图案 (v2 用 sx=1173 → 数据全废) |
+
+### ⚠️ SLM 轴 ↔ WFS 轴存在 90° 交换
+
+实测 (本机中继光路): **SLM-x 平移驱动 WFS Noll3 (y-tilt)**, **SLM-y 平移驱动 WFS Noll2 (x-tip)**。
+X 粗扫 tip 几乎不变 (+0.39→+0.22) 而 tilt 强线性 (+2.72→−1.50); Y 粗扫反之 (+2.41→−1.83)。
+→ 标定/对位时**不要假设 SLM 轴与 WFS 轴对应**, 用轴无关判据 `‖Δz_tilt‖` 或同时测两分量。
+
+## Zernike 响应矩阵标定 (Zernike 模式法波前矫正) — 2026-09-15 实测
+
+`tools/slm/slm_zernike_response.py`: 在标定后的 shift 下对每个 SLM Zernike 模式做 ±A 推拉扰动,
+测 WFS 的 Zernike 读数增量, 构建 `matrix[wfs_coeff, slm_mode] = Δ(WFS)/Δ(SLM幅度)` 并保存为
+项目标准 h5 格式 (`optimizer/wf/zernike_response_matrix.py` 的 `save/load_zernike_response_matrix`,
+含 `pinv_matrix` 逆矩阵 → 矫正控制律 `c = pinv @ w`)。
+
+**实测结果** (SLM#22030102 + WFS M01219666, 532nm, shift=(106,40), R=250px, A=5 rad):
+
+- `data/zernike_response_matrix/zm_slm22030102_wfsM01219666_532nm_*.h5` — shape (66, 14),
+  **强对角** (14/14 模式主导项为同索引 WFS 系数), 条件数 **5.12**, 平均方差 3.8e-6
+- 闭环反解验证: 合成像差 defocus[5]=0.30 + coma[9]=−0.20 → 反解 SLM[5]=−0.62, SLM[9]=−0.52,
+  残差降低 87%
+- 副产物 `*.json` 存全量原始读数 (baseline + 每模式响应)
+
+> ⚠️ **索引约定**: 矩阵行 = DLL 系数索引 (顺序 m 枚举, **非标准 Noll**), 详见
+> `docs/thorlab-wfs/agent.md` 与工具的模块 docstring。跨光束半径 (R=250px) 标定, 光路调整后需重标。
+
 ## SLM 标定
 
 详细标定方法见 [`README.md`](./README.md) 和 [`slm_calibration.py`](./slm_calibration.py)。

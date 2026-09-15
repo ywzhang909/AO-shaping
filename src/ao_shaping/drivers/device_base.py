@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Self
 from collections.abc import Callable
 
 from loguru import logger
@@ -230,8 +230,14 @@ class Device(ABC):
 
     # ==================== Context Manager ====================
 
-    def __enter__(self) -> Device:
-        """Context manager entry."""
+    def __enter__(self) -> Self:
+        """Context manager entry.
+
+        Returns:
+            Self (actual subclass instance, not base ``Device``) — enables
+            type-checkers to resolve subclass-specific attributes on
+            ``with SomeDevice(...) as dev:`` (e.g. ``wfs.optimize_pupil()``).
+        """
         self.open()
         return self
 

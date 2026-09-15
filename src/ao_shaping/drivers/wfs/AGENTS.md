@@ -2,6 +2,8 @@
 
 波前传感器 (Wavefront Sensor) 驱动模块, 目前支持 Thorlabs WFS。
 
+WFS Python SDK 驱动编写指南 (官方手册 API 全量清单 / ctypes 绑定约定 / 状态位与错误表 / 坑位清单): docs/thorlab-wfs/agent.md
+
 ## 结构
 
 ```
@@ -57,3 +59,16 @@ ThorlabWFS 在 `__init__` 中注册参数:
 |------|------|
 | `exposure_time_ms` | 曝光时间 |
 | `master_gain` | 主增益 |
+
+## 关键经验 (2026-09 硬件实测固化)
+
+> 详细分析与完整证据见 [`docs/thorlab-wfs/agent.md`](../../../../docs/thorlab-wfs/agent.md) §6.6/§8。
+
+| 经验 | 说明 |
+|------|------|
+| **pupil 必须 `wfs.pupil = wfs.optimize_pupil()`** | `optimize_pupil()` 只计算并返回, **不调用 `WFS_SetPupil`**, 忘记写回等于没设 pupil |
+| **勿硬编码 pupil** | 硬编码 `(0,0,8mm)` 与真实光束不符时, 边界无效子孔径污染 `WFS_ZernikeLsf` 全孔径 LSF 拟合 → 巨大假 tip/tilt (实测 \|z\|=4.6~12.8λ) |
+| **本机实测 pupil 参考** (SLM200 + WFS M01219666, 532nm) | 中心 ≈ (-0.148, +0.148) mm, 直径 ≈ 3.62 × 3.88 mm |
+| **zernike LSF 是最干净主度量** | 修正 pupil 后倾斜阶梯 0.10~3.20λ 读出 0.0061~0.2169λ, 线性度 R²=0.9603 (plane 度量小倾斜端受噪声干扰) |
+| **`get_zernike` 依赖 pupil 正确性** | 系数为 µm (µm/0.532=λ @532nm), Noll 1976 1-based 前 66 项, RoC=coeff[5]; 前置 `CalcSpotToReferenceDeviations(0)` |
+| **`WFS_ZernikeLsf` typed 绑定被注释仍可用** | `_sdk_bindings.py` L319-320 注释了 `restype/argtypes`, 驱动直接调用未声明函数 (ctypes 宽松传参) 正常工作 — 建议补绑以启用类型检查 |

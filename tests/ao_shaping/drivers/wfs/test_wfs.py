@@ -26,7 +26,10 @@ def test_calc_wf():
             print("no usable image. exit now..")
             sys.exit()
 
-        print(f"optimize_pupil: {wfs.optimize_pupil()}")
+        # 2026-09 实测教训: optimize_pupil 只计算不设置, 必须显式写回 wfs.pupil,
+        # 否则后续 get_wavefront/get_zernike 用默认 pupil 会得到污染结果
+        wfs.pupil = wfs.optimize_pupil()
+        print(f"optimize_pupil: {wfs.pupil}")
         wfs.take_image()
         # Create figure with multiple subplots
         fig = plt.figure(figsize=(12, 8))
@@ -74,8 +77,13 @@ def test_rms():
 def test_zernike():
     rms_hist = []
     with ThorlabWFS('768', use_custom_ref=False) as wfs:
+        # 2026-09 实测教训: get_zernike 依赖 pupil 正确性, 必须先自动获取并写回,
+        # 否则硬编码 pupil 会让边界无效子孔径污染 WFS_ZernikeLsf → 假 tip/tilt
+        wfs.take_image(n_sample=1, dynamicNoiseCut=True)
+        wfs.pupil = wfs.optimize_pupil()
         for _ in range(10):
             zernike_coeff = wfs.get_zernike(10)
+            assert np.isfinite(zernike_coeff).all()
             rms_hist.append(np.mean(np.sqrt(np.sum(zernike_coeff**2))))
     fig, [ax1, ax2] = plt.subplots(2,1)
     ax1.plot(rms_hist)

@@ -283,7 +283,11 @@ class TestWFSReport:
             with TestWithReport(report, "Pupil Optimization"):
                 if hasattr(wfs, "optimize_pupil"):
                     result = wfs.optimize_pupil()
+                    # 2026-09 实测教训: optimize_pupil 只计算不设置 (不调 WFS_SetPupil),
+                    # 必须显式写回 wfs.pupil, 否则后续测量用默认 pupil 会被污染
+                    wfs.pupil = result
                     report.add_key_value("Optimization Result", str(result))
+                    report.add_key_value("Pupil Applied", str(wfs.pupil))
 
             # Test 9: MLA info
             with TestWithReport(report, "MLA Information"):
