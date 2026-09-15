@@ -17,10 +17,13 @@ from loguru import logger
 from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.gui.slm.pattern_controls import (
     PATTERN_REGISTRY,
+    PREVIEW_COLORMAP_DEFAULT,
+    PREVIEW_COLORMAP_LABELS,
     PatternControl,
     generate_phase_gray,
     refresh_phase_preview,
 )
+from ao_shaping.utils.pattern_helper import PatternHelper
 
 # Timeout (s) for probing a single SLM during device discovery.  The Santec SDK
 # has historically hung on SLM_Ctrl_ReadSD after rapid open/close cycles, so the
@@ -33,13 +36,22 @@ SLM_PROBE_TIMEOUT_S = 3.0
 #
 # Streamlit rerun 触发机制:
 #   - 用户交互 (按钮/滑块/选择框) → 全页 rerun (main() 被调用)
-#   - @st.fragment(run_every=N) → fragment 每 N 秒自动 rerun (不影响全局)
 #   - st.rerun() → 立即全页 rerun
 #   - st.rerun(scope="fragment") → 立即 fragment rerun (仅限 fragment 内)
 #
 # 通用原则:
 #   - 修改了用户可见状态 (UI 显示或 session_state) → 需要 rerun
-#   - 仅修改了后台状态 (SLM 硬件/线程) 但不影响 UI → 可用 fragment 自动刷新代替
+#   - 仅修改了后台状态 (SLM 硬件/线程) 但不影响 UI → 无需 rerun
+#
+# 注意: 本模块的 fragment **不使用 run_every 定时器**。fragment ID 是
+#   "模块.函数名 + 调用点容器 delta path" 的哈希 (fragment.py / delta_generator.py):
+#   单/双 SLM 布局切换、设备连接/断开都会让调用点路径变化, fragment 在新 ID 下
+#   重新注册, 旧 ID 在 fragment storage.clear() 中被剪枝; 若仍挂 run_every 定时器,
+#   前端会每秒请求已被剪枝的旧 ID → 反复警告
+#   "The fragment with id ... does not exist anymore"。
+#   所有更新预览缓存的路径 (refresh_phase_preview 调用点) 都在各自已触发 rerun 的
+#   处理器内 (按钮→全页 rerun, fragment 内按钮/选择框→fragment rerun),
+#   故定时轮询完全冗余, 且是上述警告的唯一来源。
 # ============================================================================
 
 
@@ -54,6 +66,7 @@ def _initialize_slm_state() -> None:
             st.session_state[f"{prefix}_next_memory"] = np.random.randint(1, 128)
             st.session_state[f"{prefix}_phase_preview"] = None
             st.session_state[f"{prefix}_phase_source"] = "暂无"
+            st.session_state[f"{prefix}_preview_colormap"] = PREVIEW_COLORMAP_DEFAULT
             st.session_state[f"{prefix}_shift_x"] = 0
             st.session_state[f"{prefix}_shift_y"] = 0
             st.session_state[f"{prefix}_use_correction"] = True
@@ -67,6 +80,7 @@ def _initialize_slm_state() -> None:
             st.session_state[f"{prefix}_toggle_slm_container"] = None
             st.session_state[f"{prefix}_base_phase"] = None
             st.session_state[f"{prefix}_overlay_base"] = False
+            st.session_state[f"{prefix}_pattern_helper"] = None
         else:
             slm = st.session_state[prefix]
             if slm is not None and not getattr(slm, "is_open", False):
@@ -232,17 +246,40 @@ def _apply_shift(phase_gray: np.ndarray, shift_x: int, shift_y: int) -> np.ndarr
     return Santec.shift_phase(phase_gray, shift_x, shift_y)
 
 
-@st.fragment(run_every=1.0)
+@st.fragment()
 def render_phase_preview(slm_num: int) -> None:
     """Display the current SLM phase preview, refreshing only this area.
 
-    Wrapped in ``@st.fragment(run_every=1.0)`` so that whenever a phase write
-    or SLM config change calls :func:`refresh_phase_preview` (updating the
-    session-state cache), this section re-renders automatically within ~1s —
-    no full-page ``st.rerun``, no manual click required. Widget interactions
-    inside this fragment (the refresh button) also rerun only this fragment.
+    Wrapped in ``@st.fragment()`` so widget interactions inside this section
+    (refresh button / colormap selectbox) rerun only this fragment instead of
+    the whole app. There is **no ``run_every`` timer**: the preview cache
+    (:func:`refresh_phase_preview`) is only ever updated inside widget handlers
+    that already trigger their own rerun (full-page buttons) or a fragment-
+    scoped rerun (this section's own widgets), so the preview always refreshes
+    with the accompanying rerun. A periodic timer is not just redundant but
+    harmful: the fragment ID derives from the caller container's delta path,
+    which changes when the single/dual SLM layout flips — the old ID is pruned
+    from fragment storage while the timer keeps requesting it, spamming
+    "The fragment with id ... does not exist anymore".
     """
     if st.button("刷新当前显示相位", key=f"slm{slm_num}_refresh_phase_btn"):
+        refresh_phase_preview(slm_num)
+        st.rerun(scope="fragment")
+
+    colormap = st.selectbox(
+        "预览色图",
+        options=PREVIEW_COLORMAP_LABELS,
+        index=PREVIEW_COLORMAP_LABELS.index(
+            st.session_state.get(
+                f"slm{slm_num}_preview_colormap", PREVIEW_COLORMAP_DEFAULT
+            )
+        ),
+        key=f"slm{slm_num}_preview_colormap_widget",
+    )
+    if st.session_state.get(
+        f"slm{slm_num}_preview_colormap", PREVIEW_COLORMAP_DEFAULT
+    ) != colormap:
+        st.session_state[f"slm{slm_num}_preview_colormap"] = colormap
         refresh_phase_preview(slm_num)
         st.rerun(scope="fragment")
 
@@ -257,10 +294,20 @@ def render_phase_preview(slm_num: int) -> None:
 
     st.image(
         preview,
-        caption=f"SLM {slm_num} 当前显示相位预览",
+        caption=f"SLM {slm_num} 当前显示相位预览（{PREVIEW_COLORMAP_DEFAULT}）",
         clamp=True,
         width="stretch",
     )
+
+    slm = st.session_state.get(f"slm{slm_num}")
+    if slm is not None:
+        max_gray = int(
+            getattr(slm, "_max_gray", None) or Santec.MAX_GRAYSCALE_VALUE
+        )
+        st.caption(
+            f"2π 灰度值: {max_gray} | {PREVIEW_COLORMAP_DEFAULT}"
+            "（0→黑蓝, π→青, 2π→黑蓝，循环）"
+        )
 
 
 def _reset_context_widgets(slm_num: int) -> None:
@@ -285,6 +332,28 @@ def _reset_context_widgets(slm_num: int) -> None:
                 del st.session_state[key]
 
 
+def _get_slm_helper(slm_num: int, width: int, height: int, bits: int) -> PatternHelper:
+    """Return the per-SLM shared :class:`PatternHelper`.
+
+    One instance per SLM device is cached in session state; every pattern
+    type on that device receives it via ``PatternControl(helper=...)`` so the
+    expensive coordinate grids and Zernike generators are built once per
+    device instead of once per control per rerun. Rebuilds only when the
+    panel geometry or bit depth changed (e.g. reconnecting a different
+    device).
+    """
+    key = f"slm{slm_num}_pattern_helper"
+    helper = st.session_state.get(key)
+    if (
+        helper is None
+        or helper.resolution != (int(width), int(height))
+        or helper.bits != int(bits)
+    ):
+        helper = PatternHelper((int(width), int(height)), bits=int(bits))
+        st.session_state[key] = helper
+    return helper
+
+
 def _build_control(pattern_type: str, slm_num: int) -> PatternControl:
     """Build the ``PatternControl`` for ``pattern_type`` on SLM ``slm_num``.
 
@@ -293,30 +362,42 @@ def _build_control(pattern_type: str, slm_num: int) -> PatternControl:
     themselves never read ``st.session_state``.  The connected SLM object
     wins; before connection the widget defaults stored in
     ``st.session_state[f"slm{slm_num}_..."]`` (set by ``set_wavelength`` /
-    ``connect_slm``) are used.
+    ``connect_slm``) are used.  A per-SLM :class:`PatternHelper` (cached in
+    session state, see ``_get_slm_helper``) is injected so all pattern types
+    on the device share one set of coordinate/Zernike caches.
     """
     prefix = f"slm{slm_num}"
     slm = st.session_state.get(prefix)
     if slm is not None:
         panel_res = getattr(slm, "Panel_Res", (1920, 1200))
+        width, height = int(panel_res[0]), int(panel_res[1])
+        bits = int(getattr(slm, "Gray_Scale_bits", 10))
         raw_max_gray = getattr(slm, "_max_gray", None)
-        return PATTERN_REGISTRY[pattern_type](
+        kwargs: dict[str, Any] = dict(
             slm_id=slm_num,
             wavelength=float(getattr(slm, "wavelength", None) or 1064.0),
             pixel_pitch_um=float(getattr(slm, "Pitch_um", 8.0)),
-            width=int(panel_res[0]),
-            height=int(panel_res[1]),
-            bits=int(getattr(slm, "Gray_Scale_bits", 10)),
-            max_gray=int(raw_max_gray) if isinstance(raw_max_gray, int) else None,
+            width=width,
+            height=height,
+            bits=bits,
+            helper=_get_slm_helper(slm_num, width, height, bits),
         )
-    return PATTERN_REGISTRY[pattern_type](
-        slm_id=slm_num,
-        wavelength=float(st.session_state.get(f"{prefix}_wavelength", 1064)),
-        pixel_pitch_um=float(st.session_state.get(f"{prefix}_pixel_pitch_um", 8.0)),
-        width=int(st.session_state.get(f"{prefix}_width", 1920)),
-        height=int(st.session_state.get(f"{prefix}_height", 1200)),
-        bits=10,
-    )
+        if isinstance(raw_max_gray, int):
+            kwargs["max_gray"] = int(raw_max_gray)
+    else:
+        width = int(st.session_state.get(f"{prefix}_width", 1920))
+        height = int(st.session_state.get(f"{prefix}_height", 1200))
+        bits = 10
+        kwargs = dict(
+            slm_id=slm_num,
+            wavelength=float(st.session_state.get(f"{prefix}_wavelength", 1064)),
+            pixel_pitch_um=float(st.session_state.get(f"{prefix}_pixel_pitch_um", 8.0)),
+            width=width,
+            height=height,
+            bits=bits,
+            helper=_get_slm_helper(slm_num, width, height, bits),
+        )
+    return PATTERN_REGISTRY[pattern_type](**kwargs)
 
 
 def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
@@ -482,6 +563,9 @@ def disconnect_slm(slm_num: int):
         st.session_state[f"{prefix}_base_phase"] = None
         st.session_state[f"{prefix}_overlay_base"] = False
         st.session_state[f"{prefix}_loaded_config"] = None
+        # Drop the shared helper — it may hold large cached coordinate/Zernike
+        # arrays and is only needed while the device is connected.
+        st.session_state.pop(f"{prefix}_pattern_helper", None)
 
         st.rerun()
 
@@ -489,11 +573,11 @@ def disconnect_slm(slm_num: int):
 def set_wavelength(slm_num: int):
     """Set wavelength for the specified SLM.
 
-    Rerun: none directly — uses refresh_phase_preview() to update cache,
-    then @st.fragment(run_every=1.0) auto-refreshes UI within ~1s. The
-    sidebar button already triggers a full rerun, which re-initializes the
+    Rerun: none directly — the sidebar button already triggers a full rerun;
+    refresh_phase_preview() updates the cache and the preview fragment
+    re-renders on that same rerun. The rerun also re-initializes the
     context-derived control widgets (flat_gray / vortex_wavelength / ...)
-    from the new wavelength and 2π max-grayscale on the same rerun.
+    from the new wavelength and 2π max-grayscale.
     """
     prefix = f"slm{slm_num}"
     wavelength_key = f"{prefix}_wavelength"
@@ -518,8 +602,9 @@ def set_shift(slm_num: int):
     memory-slot rotation, settle wait and config save — identical semantics
     for every caller (runner, script, other UI).
 
-    Rerun: none directly — uses refresh_phase_preview() to update cache,
-    then @st.fragment(run_every=1.0) auto-refreshes UI within ~1s.
+    Rerun: none directly — the triggering button already causes a full rerun;
+    refresh_phase_preview() updates the cache and the preview fragment
+    re-renders on that same rerun.
     """
     prefix = f"slm{slm_num}"
     try:
@@ -552,8 +637,9 @@ def set_shift(slm_num: int):
 def set_video_mode(slm_num: int, mode_label: str):
     """Set video mode for the specified SLM (memory mode only).
 
-    Rerun: none directly — uses refresh_phase_preview() to update cache,
-    then @st.fragment(run_every=1.0) auto-refreshes UI within ~1s.
+    Rerun: none directly — the triggering button already causes a full rerun;
+    refresh_phase_preview() updates the cache and the preview fragment
+    re-renders on that same rerun.
 
     DVI mode (``video_mode=1``) is intentionally unsupported: its ``open()``
     can hang for 120s/300s and a hung controller only recovers via physical
@@ -580,8 +666,9 @@ def set_video_mode(slm_num: int, mode_label: str):
 def toggle_correction(slm_num: int, enabled: bool) -> None:
     """启用或禁用SLM波前误差矫正叠加
 
-    Rerun: none directly — uses refresh_phase_preview() to update cache,
-    then @st.fragment(run_every=1.0) auto-refreshes UI within ~1s.
+    Rerun: none directly — the triggering button already causes a full rerun;
+    refresh_phase_preview() updates the cache and the preview fragment
+    re-renders on that same rerun.
 
     启用时从配置文件重新加载矫正数据；
     禁用时清空矫正对象（write_phase 不再叠加矫正）。
@@ -703,14 +790,16 @@ def render_slm_sidebar():
                 _render_slm_settings(slm_num)
 
 
-@st.fragment(run_every=1.0)
+@st.fragment()
 def _render_grayscale_config(slm_num: int, prefix: str, slm_obj: Santec) -> None:
-    """灰度设置区块（fragment 局部刷新）。
+    """灰度设置区块（fragment 局部刷新，无 run_every 定时器）。
 
-    run_every=1.0 使"获取当前2π灰度 / 应用灰度设置"之后约 1s 内重新渲染本区块，
-    让 caption 显示最新的 slm_obj._max_gray。两个按钮处理器在更新 _max_gray 后
-    触发整页 rerun（st.rerun(scope="app")），使主区域的控制组件从新的 _max_gray
-    重新初始化（仅 fragment 级 rerun 会让 flat_gray 滑块保持旧值）。
+    两个按钮处理器在更新 _max_gray 后触发整页 rerun（st.rerun(scope="app")），
+    使主区域的控制组件从新的 _max_gray 重新初始化（仅 fragment 级 rerun 会让
+    flat_gray 滑块保持旧值）；本区块在同一次全页 rerun 中随之重渲染, caption
+    立即显示最新 _max_gray。不设 run_every: 定时器会在设备断开（本区块不再被
+    调用）后持续请求已被剪枝的旧 fragment ID, 触发
+    "The fragment with id ... does not exist anymore" 反复警告。
     """
     st.caption("灰度设置")
     max_gray = int(getattr(slm_obj, "_max_gray", Santec.MAX_GRAYSCALE_VALUE))

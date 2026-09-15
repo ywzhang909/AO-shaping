@@ -32,6 +32,11 @@ class PatternControl(ABC):
     ``generate_phase_rad()`` turns the returned params into the raw radian
     phase image. ``slm_id`` prefixes all widget keys, so rendering several SLMs
     on one page never collides.
+
+    A :class:`PatternHelper` may be injected via ``__init__(helper=...)`` so
+    every pattern type on one SLM device shares a single helper (coordinate
+    grids + Zernike generator caches) instead of building one per control per
+    rerun; when omitted the control lazily builds and reuses its own.
     """
 
     #: Per-control widget defaults — subclasses declare every interactive
@@ -59,7 +64,17 @@ class PatternControl(ABC):
         height: int = 1200,
         bits: int = 10,
         max_gray: int | None = None,
+        helper: PatternHelper | None = None,
     ) -> None:
+        #: Shared per-device :class:`PatternHelper`. When injected, its panel
+        #: geometry (resolution + bit depth) is authoritative and overrides
+        #: ``width``/``height``/``bits``; every pattern generation reuses its
+        #: cached coordinate grids and Zernike generators. When None one is
+        #: built lazily on first use (see :meth:`_new_helper`).
+        self._helper = helper
+        if helper is not None:
+            width, height = helper.resolution
+            bits = helper.bits
         self.slm_id = int(slm_id)
         self.wavelength = float(wavelength)
         self.pixel_pitch_um = float(pixel_pitch_um)
@@ -85,7 +100,17 @@ class PatternControl(ABC):
         return min(self.width, self.height) // 2
 
     def _new_helper(self) -> PatternHelper:
-        return PatternHelper((self.width, self.height), bits=self.bits)
+        """Return the :class:`PatternHelper` used by this control.
+
+        Reuses the instance injected via ``__init__(helper=...)`` (the
+        controller keeps one shared helper per SLM device in session state),
+        or lazily builds and caches one per control instance. Never a
+        throwaway per call — the coordinate grids and Zernike generators stay
+        reusable across ``render``/``generate_phase_rad`` invocations.
+        """
+        if self._helper is None:
+            self._helper = PatternHelper((self.width, self.height), bits=self.bits)
+        return self._helper
 
     @abstractmethod
     def render(self, prefix: str | None = None) -> dict[str, Any]:
@@ -1442,16 +1467,53 @@ PATTERN_REGISTRY: dict[str, type[PatternControl]] = {
 # ---------------------------------------------------------------------
 
 
-def _phase_to_preview(phase_gray: np.ndarray) -> np.ndarray:
-    normalized = phase_gray.astype(np.float32) / max(
-        Santec.MAX_GRAYSCALE_VALUE, 1
+#: Preview colormap choices shown in the SLM preview selectbox.
+PREVIEW_COLORMAP_LABELS: tuple[str, ...] = (
+    "相位色图 (twilight)",
+    "灰度",
+)
+PREVIEW_COLORMAP_DEFAULT: str = PREVIEW_COLORMAP_LABELS[0]
+
+
+def _phase_to_preview(
+    phase_gray: np.ndarray,
+    max_gray: int | None = None,
+    colormap: str | None = None,
+) -> np.ndarray:
+    """Convert raw SLM grayscale (uint16) to an RGB preview image.
+
+    ``colormap="相位色图 (twilight)"`` (default) maps normalized grayscale
+    through the cyclic ``twilight`` colormap — smooth, hue-based rendering that
+    keeps fine phase structure visible (0 ≈ 2π wrap at the same color).
+    ``colormap="灰度"`` falls back to a plain grayscale normalization
+    replicated over RGB. ``max_gray`` is the device's 2π maximum grayscale
+    value (``slm._max_gray``); when ``None``, falls back to
+    ``Santec.MAX_GRAYSCALE_VALUE`` (full 10-bit range).
+    """
+    if max_gray is None:
+        max_gray = Santec.MAX_GRAYSCALE_VALUE
+    max_gray = int(max(1, int(max_gray)))
+
+    normalized = np.clip(
+        np.asarray(phase_gray, dtype=np.float32) / float(max_gray),
+        0.0,
+        1.0,
     )
-    return np.clip(normalized, 0.0, 1.0)
+    if colormap == "灰度":
+        gray = np.minimum(1.0, normalized * (1023 / max_gray))
+        return np.stack([gray, gray, gray], axis=-1)
+
+    import matplotlib
+
+    cmap = matplotlib.colormaps["twilight"]
+    rgba = cmap(normalized)  # float64 in [0,1]
+    return np.asarray(rgba[:, :, :3], dtype=np.float32)
 
 
 def refresh_phase_preview(slm_num: int) -> None:
     phase_key = f"slm{slm_num}_phase_preview"
     source_key = f"slm{slm_num}_phase_source"
+    colormap_key = f"slm{slm_num}_preview_colormap"
     slm = st.session_state.get(f"slm{slm_num}")
     if slm is None:
         st.session_state[phase_key] = None
@@ -1459,8 +1521,14 @@ def refresh_phase_preview(slm_num: int) -> None:
         return
 
     phase_gray, source = slm.get_displayed_phase()
+    max_gray = getattr(slm, "_max_gray", Santec.MAX_GRAYSCALE_VALUE)
+    colormap = st.session_state.get(
+        colormap_key, PREVIEW_COLORMAP_DEFAULT
+    )
     st.session_state[phase_key] = (
-        None if phase_gray is None else _phase_to_preview(phase_gray)
+        None
+        if phase_gray is None
+        else _phase_to_preview(phase_gray, max_gray=max_gray, colormap=colormap)
     )
     st.session_state[source_key] = source
 

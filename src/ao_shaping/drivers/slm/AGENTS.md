@@ -40,6 +40,7 @@ slm/
 | `display_memory(memory_number)` | 显示内存中的相位图 |
 | `display_data(phase)` | 直接显示相位数据 |
 | `set_grayscale(gs)` | 设置灰度值 |
+| `save_phase_to_csv(phase_rad, destination)` | **导出弧度制相位 CSV**（保留 `Y/X` 行列索引；目标可为路径、`BytesIO` 或文本流） |
 | `shift_phase(phase, sx, sy)` | **纯函数**平移 (static; 平移数学唯一实现, 空白填0) |
 | `apply_shift(sx, sy, *, wait_time_s, save_config)` | **平移 + 自动重绘当前显示相位** (绝对定位不累积, 槽轮换, 配置保存) → 驱动层统一入口, 与多SLM控制器"应用平移"按钮一致 |
 
@@ -72,12 +73,19 @@ slm/
 
 详细硬件实测与故障记录见 [`docs/slm_square_spgd/README.md`](../../../../docs/slm_square_spgd/README.md)。
 
-## GUI CSV 相位加载
+## GUI CSV 相位加载与导出
 
 `multi_slm_controller.py` 的"从CSV加载相位"按钮走标准三步管线（详见 `docs/slm/slm_gui_manual.md` §5.7）：
 
 1. `slm.load_gray_from_csv(path)` — 驱动层格式校验（Y/X 标题、尺寸=PANEL_RES、值 0..1023）
 2. `Santec.csv_to_phase(path)` — 灰度 → 弧度制相位（静态，无硬件转换）
 3. `slm.display_phase(phase_rad)` — `create_phase_from_array()` 完成 弧度→灰度 + 矫正 + LUT + 平移，写入内存槽
+
+"导出相位"使用 `Santec.save_phase_to_csv(phase_rad, destination)`：
+
+- 输入必须是**弧度制**相位数组，shape 为 `(PANEL_RES[1], PANEL_RES[0])`，即 `(1200, 1920)`；函数拒绝非面板尺寸及 NaN/无穷值。
+- 输出保留 Santec 索引格式：首行首列为 `Y/X`，随后是列索引 `0..1919`；每行首列为行索引 `0..1199`，数据区为 float 弧度值。
+- `destination` 可为文件路径、`io.BytesIO` 或文本流；写入路径不存在时自动创建父目录。
+- GUI 导出前按当前设备的 `_max_gray` 将灰度相位转换为弧度，再调用该函数；导出的弧度 CSV **不能**交给 `load_gray_from_csv()` 或 `csv_to_phase()`，后两者只接受 0..1023 灰度 CSV。需要重新加载时，应读取数据区为弧度并传入 `create_phase_from_array()`。
 
 **注意**: CSV 灰度值必须走 `csv_to_phase`（视为原始灰度），**不能**直接当弧度传入 `create_phase_from_array()`。扁平相位仍须用 `np.full((h,w), gray, dtype=np.uint16)` 直接发送。

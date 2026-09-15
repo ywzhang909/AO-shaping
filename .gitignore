@@ -99,3 +99,4 @@ docs/benchmarks/device_less**
 scripts/dev**
 tmp_*
 docs/**/*.pdf
+docs/thorlab-wfs/Manual*

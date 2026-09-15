@@ -992,28 +992,6 @@ class Santec:
         if phase.ndim != 2:
             raise ValueError(f"相位数据必须是2D数组，当前维度: {phase.ndim}")
 
-        # 自动叠加底相位（如有）
-        if (
-            getattr(self, "_overlay_base_phase", False)
-            and getattr(self, "_base_phase", None) is not None
-        ):
-            base = self._base_phase
-            if base.shape == phase.shape:
-                phase = np.mod(
-                    phase.astype(np.int32) + base.astype(np.int32),
-                    self.MAX_GRAYSCALE_VALUE + 1,
-                ).astype(np.uint16)
-            else:
-                logger.warning(
-                    f"底相位尺寸 {base.shape} 与当前相位 {phase.shape} 不匹配，跳过叠加"
-                )
-
-        # 自动叠加波前误差矫正（模 MAX_GRAYSCALE_VALUE+1 环绕）
-        if self._correction.is_valid and self._correction.correction_map is not None:
-            phase = self._correction.map_error(
-                phase, max_grayscale=self.MAX_GRAYSCALE_VALUE
-            ).astype(np.uint16)
-
         # 原样写入内存 (raw 路径: 底相位/矫正叠加已在此完成, 不再重复处理)
         self._write_to_memory(phase, memory_number, memory_mode)
 
@@ -1401,7 +1379,7 @@ class Santec:
         # 应用平移
         grayscale = self._apply_shift(grayscale)
 
-        return grayscale.astype(np.uint16)
+        return np.mod(grayscale, max_grayscale).astype(np.uint16)
 
     def load_config(self) -> dict:
         """加载当前设备的配置文件

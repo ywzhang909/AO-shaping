@@ -294,6 +294,20 @@ class TestPhasePatternGeneration:
         with pytest.raises(FileNotFoundError):
             open_slm.load_gray_from_csv("/nonexistent/path.csv")
 
+    @pytest.mark.hardware
+    def test_save_phase_to_csv_roundtrip(self, open_slm, tmp_path):
+        """测试硬件会话中的弧度相位 CSV 导出与回读"""
+        phase_rad = np.zeros(Santec.Panel_Res[::-1], dtype=np.float64)
+        phase_rad[0, 0] = np.pi / 2
+        phase_rad[-1, -1] = 2 * np.pi
+        csv_file = tmp_path / "test_phase.csv"
+
+        open_slm.save_phase_to_csv(phase_rad, csv_file)
+
+        assert csv_file.exists()
+        exported = np.loadtxt(csv_file, delimiter=",", skiprows=1)[:, 1:]
+        np.testing.assert_allclose(exported, phase_rad)
+
 
 class TestPatternTypes:
     """测试不同类型的相位图案生成（参考 notebooks/slm_test.py）"""
@@ -426,9 +440,7 @@ class TestPatternTypes:
         # 弧度路径 (2026-09 fix + 2026-09-15 raw-only): generate_zernike_polynomial
         # 返回未包裹弧度相位, 直接喂给 create_phase_from_array (不做 uint16 转换,
         # AGENTS.md 反模式)。
-        phase_rad = helper.generate_zernike_polynomial(
-            coefficients={(2, 0): 15.0}
-        )
+        phase_rad = helper.generate_zernike_polynomial(coefficients={(2, 0): 15.0})
         assert (
             phase_rad.shape[1] == self.RESOLUTION[0]
             and phase_rad.shape[0] == self.RESOLUTION[1]
