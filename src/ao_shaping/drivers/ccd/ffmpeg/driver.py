@@ -1,4 +1,4 @@
-"""FFmpeg/OpenCV camera driver for video streams and virtual cameras.
+﻿"""FFmpeg/OpenCV camera driver for video streams and virtual cameras.
 
 This driver provides camera interface compatibility using OpenCV's FFmpeg backend.
 It supports:
@@ -20,8 +20,8 @@ from pathlib import Path
 import numpy as np
 
 from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
-from ao_shaping.utils.file import logger
-from ao_shaping.utils.timestamp import TimestampParser
+from ao_shaping.utils.filesystem.file import logger
+from ao_shaping.utils.filesystem.timestamp import TimestampParser
 
 
 class FFmpegCameraError(CameraError):

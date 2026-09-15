@@ -24,9 +24,9 @@ from ao_shaping.drivers.dm.NLight import NLight
 from ao_shaping.drivers import MlaRes
 from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.drivers.wfs import ThorlabWFS as WFSManager
-from ao_shaping.utils.zernike_calc import generate_noll_polynomial
-from ao_shaping.utils.matrix_utils import compute_pinv
-from ao_shaping.utils.wfs_utils import flatten_slopes
+from ao_shaping.utils.optics.zernike_calc import generate_noll_polynomial
+from ao_shaping.utils.optics.matrix_utils import compute_pinv
+from ao_shaping.utils.hardware.wfs_utils import flatten_slopes
 
 
 def calculate_interaction_matrix(

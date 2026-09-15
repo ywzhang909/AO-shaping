@@ -1,4 +1,4 @@
-"""Greedy optimization using SLM with Zernike coefficient control.
+﻿"""Greedy optimization using SLM with Zernike coefficient control.
 
 This module implements a greedy local search optimizer that:
 1. Initializes N random starting positions and picks the best one
@@ -33,8 +33,9 @@ import tqdm
 
 from ao_shaping.drivers import MlaRes, ThorlabWFS
 from ao_shaping.drivers.slm import ZernikeSLM
-from ao_shaping.utils import Recorder, logger
-from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
+from ao_shaping.utils.filesystem.file import Recorder
+from ao_shaping.utils import logger
+from ao_shaping.utils.optics.matrix_utils import calc_n_zernike_terms
 
 # SLM parameters
 SLM_WAVELENGTH_DEFAULT = 532  # nm

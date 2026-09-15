@@ -1,4 +1,4 @@
-"""通用设备配置工具
+﻿"""通用设备配置工具
 
 提供配置参数的加载、检查、应用和保存功能，与具体的参数定义解耦。
 
@@ -9,7 +9,7 @@
 
 使用示例:
     >>> from dataclasses import dataclass
-    >>> from ao_shaping.utils.device_config import DeviceParam, ConfigHandler, param
+    >>> from ao_shaping.utils.hardware.device_config import DeviceParam, ConfigHandler, param
     >>>
     >>> @dataclass
     >>> class MyParams(DeviceParam):
@@ -29,7 +29,7 @@ from typing import Any, Callable, Generic, TypeVar
 
 from loguru import logger
 
-from ao_shaping.utils.file import DeviceConfigManager
+from ao_shaping.utils.filesystem.file import DeviceConfigManager
 
 T = TypeVar("T")
 

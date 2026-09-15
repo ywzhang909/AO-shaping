@@ -20,7 +20,7 @@ import numpy as np
 
 from loguru import logger
 
-from ao_shaping.utils.spots_calc import centroid, radius
+from ao_shaping.utils.image.spots_calc import centroid, radius
 
 __all__ = [
     "intensity_to_amplitude",

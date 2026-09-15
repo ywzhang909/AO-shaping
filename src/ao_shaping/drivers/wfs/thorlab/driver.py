@@ -1,4 +1,4 @@
-# refreces docs : https://github.com/nvladimus/WFS/blob/master/python/Thorlabs-WFS-read-average-wavefront.ipynb
+﻿# refreces docs : https://github.com/nvladimus/WFS/blob/master/python/Thorlabs-WFS-read-average-wavefront.ipynb
 
 from __future__ import annotations
 
@@ -35,8 +35,8 @@ from ao_shaping.drivers.wfs.thorlab._sdk_bindings import (
     load_dll,
     np2c,
 )
-from ao_shaping.utils.device_config import ConfigHandler, DeviceParam, param
-from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.hardware.device_config import ConfigHandler, DeviceParam, param
+from ao_shaping.utils.filesystem.file import ROOT_DIR as PROJECT_ROOT
 
 WFS_DEBUG_MODE = os.environ.get("WFS_DEBUG", "0") == "1"
 

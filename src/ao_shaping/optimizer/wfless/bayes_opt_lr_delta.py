@@ -33,7 +33,7 @@ def objective_function(lr, delta, center=None, epochs=100, exposure_time_ms=80, 
                 _img = cam.get_numpy_image(10)
                 h, w = _img.shape
                 # 计算质心
-                from ao_shaping.utils.spots_calc import centroid
+                from ao_shaping.utils.image.spots_calc import centroid
                 center = centroid(np.where(_img > np.max(_img[:max(int(h//50), 2), :max(int(w//50), 2)]), 1, 0))
 
         # 运行优化

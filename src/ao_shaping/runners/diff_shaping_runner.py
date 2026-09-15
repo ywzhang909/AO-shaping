@@ -1,4 +1,4 @@
-"""可微分闭环光束整形优化器
+﻿"""可微分闭环光束整形优化器
 
 利用 PyTorch 可微分优化 (梯度下降) + CCD 反馈，迭代优化 SLM 相位图案，
 将远场光斑整形为方形/圆形/高斯/聚焦光斑。
@@ -37,13 +37,13 @@ import numpy as np
 
 from loguru import logger
 
-from ao_shaping.utils.beam_metrics import (
+from ao_shaping.utils.image.beam_metrics import (
     clamp_side,
     compute_quality_score,
     compute_square_metrics,
     measure_bright_span,
 )
-from ao_shaping.utils.hardware_utils import (
+from ao_shaping.utils.hardware.hardware_utils import (
     apply_auto_exposure,
     auto_exposure_possible,
     auto_exposure_target_ms,
@@ -53,12 +53,12 @@ from ao_shaping.utils.hardware_utils import (
     record_frame,
     save_frame_png,
 )
-from ao_shaping.utils.slm_utils import display_phase, pick_slm_slot
-from ao_shaping.utils.targets import create_target_mask
+from ao_shaping.utils.slm.slm_utils import display_phase, pick_slm_slot
+from ao_shaping.utils.image.targets import create_target_mask
 from ao_shaping.drivers.slm.santec import Santec
-from ao_shaping.utils.file import Recorder
-from ao_shaping.utils.resample import resample_to_grid
-from ao_shaping.utils.spots_calc import centroid
+from ao_shaping.utils.filesystem.file import Recorder
+from ao_shaping.utils.image.resample import resample_to_grid
+from ao_shaping.utils.image.spots_calc import centroid
 
 if TYPE_CHECKING:
     import pygame

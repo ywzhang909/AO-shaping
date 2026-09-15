@@ -1,4 +1,4 @@
-"""SLM (Spatial Light Modulator) 驱动模块
+﻿"""SLM (Spatial Light Modulator) 驱动模块
 
 提供空间光调制器设备的驱动支持。
 
@@ -35,7 +35,7 @@ __all__ = [
     "ZernikeSLMError",
 ]
 
-# Note: PatternHelper is in ao_shaping.utils.pattern_helper
+# Note: PatternHelper is in ao_shaping.utils.optics.pattern_helper
 
 
 # 导入标定模块

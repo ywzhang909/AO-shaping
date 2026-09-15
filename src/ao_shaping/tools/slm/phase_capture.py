@@ -21,7 +21,7 @@ import torch
 from loguru import logger
 
 from ao_shaping.drivers.slm.santec import Santec
-from ao_shaping.utils.pattern_helper import PatternHelper
+from ao_shaping.utils.optics.pattern_helper import PatternHelper
 
 
 def _get_daheng_camera(cam_id: int, exposure_ms: int):

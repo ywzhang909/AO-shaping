@@ -59,8 +59,8 @@ from ao_shaping.drivers.dm.MicroDM import (
     WIRING_MAP_PATH,
     WiringMap,
 )
-from ao_shaping.utils.cli_helpers import setup_coredumpy
-from ao_shaping.utils.network import controller_tcp_port, ping_reachable
+from ao_shaping.utils.cli.cli_helpers import setup_coredumpy
+from ao_shaping.utils.hardware.network import controller_tcp_port, ping_reachable
 
 # 全局运行标志 (信号处理器修改)
 _running = True

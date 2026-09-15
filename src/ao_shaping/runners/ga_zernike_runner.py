@@ -1,4 +1,4 @@
-"""GA Zernike优化器CLI命令.
+﻿"""GA Zernike优化器CLI命令.
 
 使用遗传算法(Genetic Algorithm)优化Zernike系数,
 通过SLM显示并使用WFS测量波前RMS进行优化.
@@ -14,8 +14,8 @@ import matplotlib.pyplot as plt
 
 from ao_shaping.drivers import MlaRes
 from ao_shaping.optimizer.wf.ga_zernike import optimizer_ga
-from ao_shaping.utils.display import plot_funcs
-from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name, get_debug_mode
+from ao_shaping.utils.viz.display import plot_funcs
+from ao_shaping.utils.cli.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name, get_debug_mode
 from ao_shaping.runners.runner_common import build_debug_save_paths, save_optimization_debug_artifacts
 
 

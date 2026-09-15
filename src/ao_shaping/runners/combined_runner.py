@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 import json
@@ -8,9 +8,9 @@ import click
 import numpy as np
 
 from ao_shaping.optimizer.combined_optimizer import optimize_pib
-from ao_shaping.utils.cli_helpers import get_debug_mode, setup_coredumpy, get_date_dir_name
-from ao_shaping.utils.file import gen_file_path_uuid, gen_date_dir, logger
-from ao_shaping.utils.display import plot_funcs
+from ao_shaping.utils.cli.cli_helpers import get_debug_mode, setup_coredumpy, get_date_dir_name
+from ao_shaping.utils.filesystem.file import gen_file_path_uuid, gen_date_dir, logger
+from ao_shaping.utils.viz.display import plot_funcs
 from ao_shaping.drivers.dm import create_dm, list_dm_types, list_reachable_dm_types
 
 import matplotlib.pyplot as plt

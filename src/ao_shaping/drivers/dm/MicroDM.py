@@ -1,4 +1,4 @@
-"""Micro DM (R50Power) driver for deformable mirror control via synchronous TCP.
+﻿"""Micro DM (R50Power) driver for deformable mirror control via synchronous TCP.
 
 Controls one or more R50Power controllers via TCP/IP (blocking sockets).
 Each controller manages 50 channels in the range -20V to 120V.
@@ -65,8 +65,8 @@ from loguru import logger
 from ao_shaping.drivers.device_base import Device, DeviceState, DeviceType
 from ao_shaping.drivers.dm._registry import register_dm
 from ao_shaping.drivers.dm.base import DM
-from ao_shaping.utils.device_config import ConfigHandler, DeviceParam, param
-from ao_shaping.utils.file import ROOT_DIR
+from ao_shaping.utils.hardware.device_config import ConfigHandler, DeviceParam, param
+from ao_shaping.utils.filesystem.file import ROOT_DIR
 
 # =============================================================================
 # Protocol Constants

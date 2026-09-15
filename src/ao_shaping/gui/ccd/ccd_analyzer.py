@@ -1,4 +1,4 @@
-"""
+﻿"""
 CCD Real-time Image Analyzer (Streamlit page)
 
 Features:
@@ -23,7 +23,7 @@ from typing import Any
 import numpy as np
 import streamlit as st
 
-from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.filesystem.file import ROOT_DIR as PROJECT_ROOT
 
 SRC_ROOT = PROJECT_ROOT / "src"
 
@@ -46,7 +46,7 @@ from scipy import ndimage
 from scipy.optimize import curve_fit
 
 from ao_shaping.drivers.ccd.daheng import DahengCamManager
-from ao_shaping.utils.spots_calc import centroid
+from ao_shaping.utils.image.spots_calc import centroid
 
 # ── Camera type import (optional) ────────────────────────────────────────────
 try:

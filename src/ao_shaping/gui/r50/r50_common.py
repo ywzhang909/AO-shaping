@@ -5,7 +5,7 @@
 
 依赖: ``r50_debug`` (DebugTcpClient), ``r50_channel_select`` (常量 /
 ChannelSelection / build_groups), ``r50_voltage_send`` (start_loop / stop_loop),
-``ao_shaping.utils.network`` (ip_last_octet)。
+``ao_shaping.utils.hardware.network`` (ip_last_octet)。
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ from ao_shaping.gui.r50.r50_channel_select import (
 )
 from ao_shaping.gui.r50.r50_debug import DebugTcpClient
 from ao_shaping.gui.r50.r50_voltage_send import start_loop, stop_loop
-from ao_shaping.utils.network import ip_last_octet
+from ao_shaping.utils.hardware.network import ip_last_octet
 
 
 # =============================================================================

@@ -1,4 +1,4 @@
-"""SPGD optimization for square beam uniformity using SLM with Zernike coefficient control.
+﻿"""SPGD optimization for square beam uniformity using SLM with Zernike coefficient control.
 
 This module optimizes Zernike coefficients displayed on an SLM to produce a
 uniform square intensity pattern in the far-field. The cost function minimizes
@@ -90,11 +90,12 @@ import numpy as np
 from ao_shaping.drivers import CameraStreamManager
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.algorithm.adam import AdaMOD, Adam, AdamW, Base, Muno, MunoW, SGD
-from ao_shaping.utils import logger, Recorder
-from ao_shaping.utils.file import gen_date_dir, gen_date_str
-from ao_shaping.utils.pattern_helper import PatternHelper
-from ao_shaping.utils.spots_calc import centroid, radius
-from ao_shaping.utils.zernike_calc import (
+from ao_shaping.utils import logger
+from ao_shaping.utils.filesystem.file import Recorder
+from ao_shaping.utils.filesystem.file import gen_date_dir, gen_date_str
+from ao_shaping.utils.optics.pattern_helper import PatternHelper
+from ao_shaping.utils.image.spots_calc import centroid, radius
+from ao_shaping.utils.optics.zernike_calc import (
     ZernikeGenerator,
     calc_n_zernike_terms,
     noll_to_nm,

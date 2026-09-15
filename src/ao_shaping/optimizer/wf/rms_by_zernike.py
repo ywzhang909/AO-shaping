@@ -1,4 +1,4 @@
-"""RMS optimization using SLM with Zernike coefficient control.
+﻿"""RMS optimization using SLM with Zernike coefficient control.
 
 This module replaces DM voltage control with SLM phase modulation via Zernike
 polynomial coefficients. The optimization perturbs Zernike coefficients,
@@ -32,8 +32,9 @@ import tqdm
 from ao_shaping.algorithm.adam import AdaMOD, AdamW
 from ao_shaping.drivers import MlaRes, ThorlabWFS
 from ao_shaping.drivers.slm import ZernikeSLM
-from ao_shaping.utils import Recorder, logger
-from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
+from ao_shaping.utils.filesystem.file import Recorder
+from ao_shaping.utils import logger
+from ao_shaping.utils.optics.matrix_utils import calc_n_zernike_terms
 
 # =============================================================================
 # Scheduling utilities for LR and delta

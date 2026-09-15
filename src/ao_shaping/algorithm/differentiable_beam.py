@@ -42,7 +42,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from ao_shaping.utils.slm_utils import DEFAULT_WAVELENGTH
+from ao_shaping.utils.slm.slm_utils import DEFAULT_WAVELENGTH
 
 
 def _to_tensor(x: np.ndarray, device: torch.device) -> torch.Tensor:

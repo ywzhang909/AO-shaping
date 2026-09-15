@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 import tqdm
-from ao_shaping.utils import centroid
+from ao_shaping.utils.image.spots_calc import centroid
 from ao_shaping.drivers import CameraStreamManager, NlightDM
 
 ROOT_DIR = r"D:\ao-project\data"

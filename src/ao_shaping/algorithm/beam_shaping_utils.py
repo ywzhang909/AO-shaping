@@ -1,4 +1,4 @@
-"""Shared beam-shaping utilities for SLM+CCD closed-loop runners (compat layer).
+﻿"""Shared beam-shaping utilities for SLM+CCD closed-loop runners (compat layer).
 
 .. deprecated::
    This module is now a **backward-compatibility re-export facade**. All
@@ -9,24 +9,24 @@
 Migration map:
 - Target-pattern generation (``create_target_shape`` / ``create_target_mask`` /
   ``load_target_image`` / ``square_target_from_measurement`` / ...) ->
-  :mod:`ao_shaping.utils.targets`.
+  :mod:`ao_shaping.utils.image.targets`.
 - Quality metrics (``compute_metrics`` / ``compute_shaping_metrics`` /
   ``compute_square_metrics`` / ``compute_quality_score`` /
   ``measure_spot_diameter_cam`` / ``measure_bright_span`` /
   ``normalize_pattern`` / ``intensity_to_amplitude`` / ``clamp_side``) ->
-  :mod:`ao_shaping.utils.beam_metrics`.
+  :mod:`ao_shaping.utils.image.beam_metrics`.
 - SLM phase conversion / memory-slot rotation (``phase_to_slm_grayscale`` /
   ``pick_slm_slot`` / ``display_phase`` + physical constants) ->
-  :mod:`ao_shaping.utils.slm_utils`.
+  :mod:`ao_shaping.utils.slm.slm_utils`.
 - Hardware helpers (``capture_amplitude`` / ``call_with_timeout`` /
-  auto-exposure / frame recording) -> :mod:`ao_shaping.utils.hardware_utils`.
+  auto-exposure / frame recording) -> :mod:`ao_shaping.utils.hardware.hardware_utils`.
 """
 
 from __future__ import annotations
 
 # fmt: off
-# Target-pattern generation -> ``ao_shaping.utils.targets``
-from ao_shaping.utils.targets import (
+# Target-pattern generation -> ``ao_shaping.utils.image.targets``
+from ao_shaping.utils.image.targets import (
     build_square_target_amplitude,
     compute_square_side,
     create_target_mask,
@@ -35,8 +35,8 @@ from ao_shaping.utils.targets import (
     load_target_image,
     square_target_from_measurement,
 )
-# Quality metrics -> ``ao_shaping.utils.beam_metrics``
-from ao_shaping.utils.beam_metrics import (
+# Quality metrics -> ``ao_shaping.utils.image.beam_metrics``
+from ao_shaping.utils.image.beam_metrics import (
     clamp_side,
     compute_metrics,
     compute_quality_score,
@@ -47,8 +47,8 @@ from ao_shaping.utils.beam_metrics import (
     measure_spot_diameter_cam,
     normalize_pattern,
 )
-# SLM phase / slot rotation + physical constants -> ``ao_shaping.utils.slm_utils``
-from ao_shaping.utils.slm_utils import (
+# SLM phase / slot rotation + physical constants -> ``ao_shaping.utils.slm.slm_utils``
+from ao_shaping.utils.slm.slm_utils import (
     DEFAULT_DISTANCE,
     DEFAULT_MAX_GRAYSCALE,
     DEFAULT_SLM_PIXEL_SIZE,
@@ -57,8 +57,8 @@ from ao_shaping.utils.slm_utils import (
     phase_to_slm_grayscale,
     pick_slm_slot,
 )
-# Hardware helpers -> ``ao_shaping.utils.hardware_utils``
-from ao_shaping.utils.hardware_utils import (
+# Hardware helpers -> ``ao_shaping.utils.hardware.hardware_utils``
+from ao_shaping.utils.hardware.hardware_utils import (
     apply_auto_exposure,
     auto_exposure_possible,
     auto_exposure_target_ms,
@@ -71,7 +71,7 @@ from ao_shaping.utils.hardware_utils import (
 # fmt: on
 
 # The legacy ``parse_tuple(value)`` helper had no callers after the CLI parse
-# helper (:func:`ao_shaping.utils.cli_helpers.parse_tuple`, click callback)
+# helper (:func:`ao_shaping.utils.cli.cli_helpers.parse_tuple`, click callback)
 # became the standard; it was removed during migration.
 
 __all__ = [

@@ -11,12 +11,12 @@ from ao_shaping.runners.runner_common import (
     build_debug_save_paths,
     save_optimization_debug_artifacts,
 )
-from ao_shaping.utils.cli_helpers import (
+from ao_shaping.utils.cli.cli_helpers import (
     get_debug_mode,
     parse_tuple,
     setup_coredumpy,
 )
-from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
+from ao_shaping.utils.optics.matrix_utils import calc_n_zernike_terms
 
 
 def _auto_delta_detect_rms(

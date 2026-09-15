@@ -1,4 +1,4 @@
-"""Zernike响应矩阵校准模块
+﻿"""Zernike响应矩阵校准模块
 
 使用ZernikeSLM逐一加载各阶Zernike相位，测量对应的Thorlab WFS Zernike系数，
 建立SLM Zernike命令到WFS响应的响应矩阵。
@@ -36,18 +36,18 @@ import numpy as np
 from loguru import logger
 from tqdm import tqdm
 
-from ao_shaping.utils.display import ZernikeCalibrationDisplay
-from ao_shaping.utils.matrix_utils import (
+from ao_shaping.utils.viz.display import ZernikeCalibrationDisplay
+from ao_shaping.utils.optics.matrix_utils import (
     calc_n_zernike_terms,
     compute_lstsq,
     compute_pinv,
 )
-from ao_shaping.utils.wfs_utils import flatten_slopes
+from ao_shaping.utils.hardware.wfs_utils import flatten_slopes
 
 if TYPE_CHECKING:
     from ao_shaping.drivers.slm.zernike_slm import ZernikeSLM
     from ao_shaping.drivers.wfs import ThorlabWFS as WFSManager
-    from ao_shaping.utils.display import ZernikeCalibrationDisplay
+    from ao_shaping.utils.viz.display import ZernikeCalibrationDisplay
 
 
 # 默认参数

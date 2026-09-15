@@ -1,4 +1,4 @@
-"""Simulation benchmark for SLM far-field beam-shaping algorithms (Unit B).
+﻿"""Simulation benchmark for SLM far-field beam-shaping algorithms (Unit B).
 
 Compares the three far-field shaping strategies on a *pure simulation*
 bundle — no SLM / CCD / DM hardware required:
@@ -42,8 +42,8 @@ from PIL import Image
 
 # Reuse the canonical algorithm + metrics implementations so the benchmark
 # measures exactly what the runners ship, not a re-implementation.
-from ao_shaping.utils.beam_metrics import compute_shaping_metrics
-from ao_shaping.utils.targets import create_target_shape
+from ao_shaping.utils.image.beam_metrics import compute_shaping_metrics
+from ao_shaping.utils.image.targets import create_target_shape
 from ao_shaping.optimizer import train_beam_shaping
 from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
 
@@ -187,7 +187,7 @@ def create_benchmark_target(
 ) -> tuple[np.ndarray, dict[str, Any]]:
     """Build a normalised target shape for a benchmark run.
 
-    Wraps :func:`~ao_shaping.utils.targets.create_target_shape`
+    Wraps :func:`~ao_shaping.utils.image.targets.create_target_shape`
     so the benchmark uses the exact same target factory as the runners.
 
     Args:

@@ -1,4 +1,4 @@
-"""AO-Shaping: Adaptive Optics Beam Shaping System.
+﻿"""AO-Shaping: Adaptive Optics Beam Shaping System.
 
 A reinforcement learning based adaptive optics system for wavefront
 correction and beam shaping. Integrates multiple optimization algorithms
@@ -96,21 +96,21 @@ except ImportError:
 # Optimizers (loaded here to expose in package namespace)
 from ao_shaping.optimizer.wf.rms import optimizer_rms_dm
 from ao_shaping.optimizer.wfless.pib import optimize_pib
-from ao_shaping.utils.display import ImageVoltagesDisplay
+from ao_shaping.utils.viz.display import ImageVoltagesDisplay
 
 # Utilities
-from ao_shaping.utils.file import Recorder, logger
-from ao_shaping.utils.spots_calc import (
+from ao_shaping.utils.filesystem.file import Recorder, logger
+from ao_shaping.utils.image.spots_calc import (
     calculate_sharpness,
     centroid,
     radius,
 )
-from ao_shaping.utils.wavefront_calc import (
+from ao_shaping.utils.optics.wavefront_calc import (
     ZernikeCentroidCalculator,
     normalize_01,
     to_color,
 )
-from ao_shaping.utils.zernike_calc import (
+from ao_shaping.utils.optics.zernike_calc import (
     ZernikeGenerator,
     calc_n_zernike_terms,
     generate_noll_polynomial,

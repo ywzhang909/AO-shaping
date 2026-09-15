@@ -29,7 +29,7 @@ from typing import Literal
 
 import numpy as np
 
-from ao_shaping.utils.spots_calc import centroid
+from ao_shaping.utils.image.spots_calc import centroid
 
 
 # ---------------------------------------------------------------------------

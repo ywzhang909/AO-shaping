@@ -1,4 +1,4 @@
-"""Santec 空间光调制器驱动模块
+﻿"""Santec 空间光调制器驱动模块
 
 提供对Santec系列空间光调制器(SLM-200/SLM-300 等)的控制接口，
 支持相位图显示、波长设置、内存模式等功能。
@@ -46,8 +46,8 @@ from ao_shaping.drivers.slm.santec.slm200_constants import (
     get_max_grayscale,
 )
 from ao_shaping.drivers.slm.santec.wavefront_correction import WavefrontCorrection
-from ao_shaping.utils.device_config import ConfigHandler, DeviceParam, param
-from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.hardware.device_config import ConfigHandler, DeviceParam, param
+from ao_shaping.utils.filesystem.file import ROOT_DIR as PROJECT_ROOT
 
 # LCOS 像素翻转时序常量
 # 0→2π（满相位量程，_max_gray 灰度）翻转耗时至多 200ms（厂商规格）。
@@ -1501,7 +1501,7 @@ class Santec:
         """Load phase→gray compensation table from a LUT directory.
 
         The directory must contain ``lut.npz`` (preferred) or
-        ``lut_inverse.csv`` as produced by ``ao_shaping.utils.slm_lut.save_lut()``.
+        ``lut_inverse.csv`` as produced by ``ao_shaping.utils.slm.slm_lut.save_lut()``.
 
         Args:
             lut_dir: Path to the LUT directory.  ``None`` clears the loaded LUT.

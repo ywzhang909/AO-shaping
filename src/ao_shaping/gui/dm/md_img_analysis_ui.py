@@ -1,4 +1,4 @@
-"""Micro-DM 差分分析 UI (Streamlit)
+﻿"""Micro-DM 差分分析 UI (Streamlit)
 
 包装 ``scripts/md_img_pipeline.py`` 的完整 diff→overlay→GIF→combined 流水线:
 
@@ -27,7 +27,7 @@ import streamlit as st
 from loguru import logger
 from PIL import Image
 
-from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.filesystem.file import ROOT_DIR as PROJECT_ROOT
 
 # =============================================================================
 # Constants

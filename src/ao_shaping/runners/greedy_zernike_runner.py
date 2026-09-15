@@ -1,13 +1,13 @@
-import click
+﻿import click
 from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
 
 from ao_shaping.optimizer.wf.greedy_zernike import optimizer_greedy
-from ao_shaping.utils.display import plot_funcs
-from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
-from ao_shaping.utils.cli_helpers import (
+from ao_shaping.utils.viz.display import plot_funcs
+from ao_shaping.utils.optics.matrix_utils import calc_n_zernike_terms
+from ao_shaping.utils.cli.cli_helpers import (
     parse_tuple,
     setup_coredumpy,
     get_date_dir_name,

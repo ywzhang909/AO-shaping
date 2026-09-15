@@ -1,4 +1,4 @@
-"""Differentiable (backpropagation) beam shaping — optimizer-level wrapper.
+﻿"""Differentiable (backpropagation) beam shaping — optimizer-level wrapper.
 
 This module hosts the pib-style top-level optimizer function
 :func:`optimize_beam_shaping`, which mirrors the structure of
@@ -53,10 +53,10 @@ from ao_shaping.algorithm.differentiable_beam import (
     differentiable_far_field,
     far_field_intensity,
 )
-from ao_shaping.utils import Recorder
-from ao_shaping.utils.hardware_utils import call_with_timeout
-from ao_shaping.utils.slm_utils import DEFAULT_WAVELENGTH
-from ao_shaping.utils.targets import crop_resize_to_grid
+from ao_shaping.utils.filesystem.file import Recorder
+from ao_shaping.utils.hardware.hardware_utils import call_with_timeout
+from ao_shaping.utils.slm.slm_utils import DEFAULT_WAVELENGTH
+from ao_shaping.utils.image.targets import crop_resize_to_grid
 
 # Hardware drivers are imported guarded: the SDKs are not installed on every
 # machine, and this module must stay importable without them. The auto-create

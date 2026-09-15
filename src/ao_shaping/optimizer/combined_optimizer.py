@@ -1,4 +1,4 @@
-"""Combined PIB optimization with adaptive bucket radius.
+﻿"""Combined PIB optimization with adaptive bucket radius.
 
 This module provides a variant of the PIB (Power-in-Bucket) optimizer that uses
 AdaMOD and an adaptive bucket radius strategy. It is registered as the 'combined'
@@ -23,8 +23,10 @@ from ao_shaping.algorithm.adam import AdaMOD
 from ao_shaping.drivers import CameraStreamManager
 from ao_shaping.drivers.dm._registry import get_dm_registry
 from ao_shaping.drivers.dm.base import DM
-from ao_shaping.utils import ImageVoltagesDisplay, Recorder, logger
-from ao_shaping.utils.spots_calc import (
+from ao_shaping.utils.viz.display import ImageVoltagesDisplay
+from ao_shaping.utils.filesystem.file import Recorder
+from ao_shaping.utils import logger
+from ao_shaping.utils.image.spots_calc import (
     centroid,
     pib_ratio_mask,
     power_in_bucket_mask,

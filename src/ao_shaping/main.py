@@ -62,7 +62,7 @@ from ao_shaping.runners import (
 # Tools commands (standalone tools under tools/)
 from ao_shaping.tools.slm.slm_diagnose import main as slm_diagnose_run
 from ao_shaping.tools.slm.slm_lut_runner import run as slm_lut_run
-from ao_shaping.utils.cli_helpers import get_debug_mode
+from ao_shaping.utils.cli.cli_helpers import get_debug_mode
 
 
 @click.group()

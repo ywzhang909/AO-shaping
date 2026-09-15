@@ -28,7 +28,7 @@ from ao_shaping.algorithm.beam_shaping_benchmark import (
     run_benchmark,
     run_benchmark_suite,
 )
-from ao_shaping.utils.cli_helpers import setup_coredumpy
+from ao_shaping.utils.cli.cli_helpers import setup_coredumpy
 
 
 def _split_csv(ctx: click.Context, param: click.Parameter, value: str | None):

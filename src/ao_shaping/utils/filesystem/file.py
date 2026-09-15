@@ -13,8 +13,19 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# Project root directory (workspace root)
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
+# Project root directory (workspace root).
+# Anchored on pyproject.toml so it survives the module moving deeper
+# into the package tree (e.g. utils/file.py -> utils/filesystem/file.py).
+def _find_project_root() -> Path:
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / "pyproject.toml").exists():
+            return parent
+    # Fallback: legacy position (src/ao_shaping/utils/filesystem/file.py)
+    return current.parents[4]
+
+
+ROOT_DIR = _find_project_root()
 
 # Image file extensions to search
 _IMG_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}

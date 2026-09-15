@@ -26,7 +26,7 @@ import numpy as np
 
 from loguru import logger
 
-from ao_shaping.utils.spots_calc import centroid
+from ao_shaping.utils.image.spots_calc import centroid
 
 if TYPE_CHECKING:  # pragma: no cover
     from ao_shaping.drivers.ccd import BaseCamera

@@ -1,4 +1,4 @@
-"""Dual-algorithm differentiable beam-shaping runner.
+﻿"""Dual-algorithm differentiable beam-shaping runner.
 
 Lets the user pick, via ``--algorithm {backprop,gs}``, between two
 algorithms that share the *same* SLM -> CCD closed-loop plumbing and the
@@ -52,16 +52,16 @@ import numpy as np
 from loguru import logger
 
 # Import shared beam-shaping helpers (single source of truth for metrics/IO)
-from ao_shaping.utils.beam_metrics import (
+from ao_shaping.utils.image.beam_metrics import (
     compute_metrics,
     intensity_to_amplitude,
 )
-from ao_shaping.utils.slm_utils import (
+from ao_shaping.utils.slm.slm_utils import (
     display_phase as _display_phase,
     phase_to_slm_grayscale,
     pick_slm_slot as _pick_slm_slot,
 )
-from ao_shaping.utils.targets import (
+from ao_shaping.utils.image.targets import (
     create_target_shape,
     crop_resize_to_grid,
     load_target_image,
@@ -74,10 +74,10 @@ from ao_shaping.algorithm.gerchberg_saxton import (
     adaptive_gerchberg_saxton,
     gerchberg_saxton,
 )
-from ao_shaping.utils.cli_helpers import get_debug_mode, parse_tuple as _parse_tuple
+from ao_shaping.utils.cli.cli_helpers import get_debug_mode, parse_tuple as _parse_tuple
 
 # Canonical hardware helpers; private-name aliases keep run() call sites unchanged.
-from ao_shaping.utils.hardware_utils import (
+from ao_shaping.utils.hardware.hardware_utils import (
     apply_auto_exposure as _apply_auto_exposure,
     auto_exposure_possible as _auto_exposure_possible,
     auto_exposure_target_ms,
@@ -124,7 +124,7 @@ _frame_counter: int = 0
 def _record_frame(raw: np.ndarray, phase_desc: str, exposure_ms: float) -> dict:
     """Save one raw CCD frame plus a JSONL meta line; log per-frame stats.
 
-    Thin wrapper over :func:`ao_shaping.utils.hardware_utils.record_frame`
+    Thin wrapper over :func:`ao_shaping.utils.hardware.hardware_utils.record_frame`
     that additionally records the true 0-order spot (argmax) — the intensity
     centroid is NOT the spot on this bench (a stray-light halo drags it off).
     """

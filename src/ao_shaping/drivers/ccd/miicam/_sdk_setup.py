@@ -1,4 +1,4 @@
-"""MIICAM SDK path finding and setup utilities."""
+﻿"""MIICAM SDK path finding and setup utilities."""
 
 import os
 import sys
@@ -6,7 +6,7 @@ import ctypes
 
 from loguru import logger
 
-from ao_shaping.utils.file import ROOT_DIR
+from ao_shaping.utils.filesystem.file import ROOT_DIR
 
 
 def _find_miicam_sdk_path() -> str | None:

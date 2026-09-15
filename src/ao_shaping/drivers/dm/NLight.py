@@ -1,4 +1,4 @@
-import os
+﻿import os
 import socket
 import time
 from ctypes import byref, c_bool, c_int32, cdll
@@ -11,8 +11,8 @@ from loguru import logger
 
 from ao_shaping.drivers.dm._registry import register_dm
 from ao_shaping.drivers.dm.base import DM
-from ao_shaping.utils.device_config import ConfigHandler, DeviceParam, param
-from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.hardware.device_config import ConfigHandler, DeviceParam, param
+from ao_shaping.utils.filesystem.file import ROOT_DIR as PROJECT_ROOT
 
 
 # ── NLight 配置参数 ──────────────────────────────────────

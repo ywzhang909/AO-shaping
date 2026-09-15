@@ -1,4 +1,4 @@
-"""
+﻿"""
 Simulation-based SPGD optimization for adaptive optics wavefront correction.
 
 Uses the ao_shaping.sim simulation tools, integrating Adam/Momentum optimizers
@@ -10,8 +10,9 @@ import tqdm
 
 from ao_shaping.drivers.sim.compat import AOConfig, TraditionalAOSystem
 from ao_shaping.algorithm.adam import Base, AdaMOD, Adam, AdamW, SGD, Muno, MunoW
-from ao_shaping.utils.spots_calc import power_bucket, radius
-from ao_shaping.utils import logger, Recorder
+from ao_shaping.utils.image.spots_calc import power_bucket, radius
+from ao_shaping.utils import logger
+from ao_shaping.utils.filesystem.file import Recorder
 
 OPTIMIZER_MAP = {
     "adam": Adam,

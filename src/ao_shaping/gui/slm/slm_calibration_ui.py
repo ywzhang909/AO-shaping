@@ -23,7 +23,7 @@ import numpy as np
 import streamlit as st
 from loguru import logger
 
-from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.filesystem.file import ROOT_DIR as PROJECT_ROOT
 
 # Mock miicam module before importing ccd package
 import types

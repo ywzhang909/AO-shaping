@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 if TYPE_CHECKING:
     import pygame
 
-from ao_shaping.utils.handler import Register
+from ao_shaping.utils.filesystem.handler import Register
 
 # display settings
 VOLT_HEIGHT = 200

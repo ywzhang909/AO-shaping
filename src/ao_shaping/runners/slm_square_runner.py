@@ -1,4 +1,4 @@
-"""Click CLI runner for SLM square beam uniformity optimization.
+﻿"""Click CLI runner for SLM square beam uniformity optimization.
 
 SPGD optimization of Zernike coefficients on an SLM to produce a uniform
 square intensity pattern, using camera feedback.
@@ -26,7 +26,7 @@ CLI 两种入口等价:
 
 配套模块:
 - 核心算法: `ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square`
-- Zernike 工具: `ao_shaping.utils.zernike_utils` (系数解析/相位生成, 含 Noll 约定说明)
+- Zernike 工具: `ao_shaping.utils.optics.zernike_utils` (系数解析/相位生成, 含 Noll 约定说明)
 
 结果输出 (默认 data/slm_square/<日期>/):
 - 最优迭代 CSV (recorder)
@@ -44,7 +44,7 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.utils.cli_helpers import get_debug_mode, get_date_dir_name
+from ao_shaping.utils.cli.cli_helpers import get_debug_mode, get_date_dir_name
 
 
 @click.command()
@@ -231,12 +231,12 @@ def run(
             parsed = json.loads(init_coeffs)
             if isinstance(parsed, dict):
                 # Noll index dict format, convert to list
-                from ao_shaping.utils.zernike_utils import parse_zernike_coefficients
+                from ao_shaping.utils.optics.zernike_utils import parse_zernike_coefficients
 
                 coeffs_dict = parse_zernike_coefficients(parsed, n_max=n_max)
                 nk_terms = (n_max + 1) * (n_max + 2) // 2
                 init_c = np.zeros(nk_terms, dtype=np.float64)
-                from ao_shaping.utils.zernike_calc import noll_to_nm
+                from ao_shaping.utils.optics.zernike_calc import noll_to_nm
 
                 for j_idx in range(nk_terms):
                     n, m = noll_to_nm(j_idx + 1)
@@ -252,7 +252,7 @@ def run(
         # 与 multi_slm_controller.py 的 Zernike 分支一致 (radius=600)
         nk_terms = (n_max + 1) * (n_max + 2) // 2
         init_c = np.zeros(nk_terms, dtype=np.float64)
-        from ao_shaping.utils.zernike_calc import noll_to_nm
+        from ao_shaping.utils.optics.zernike_calc import noll_to_nm
 
         for j_idx in range(nk_terms):
             n, m = noll_to_nm(j_idx + 1)
@@ -328,7 +328,7 @@ def run(
     click.echo("=" * 60)
 
     from ao_shaping.optimizer.wfless.slm_square_shaping import optimize_slm_square
-    from ao_shaping.utils.file import gen_date_dir, gen_date_str
+    from ao_shaping.utils.filesystem.file import gen_date_dir, gen_date_str
 
     recorder = optimize_slm_square(
         center=center_arg,

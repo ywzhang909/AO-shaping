@@ -11,16 +11,16 @@ from scipy.special import erf
 
 from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
 from ao_shaping.drivers.slm.santec import Santec
-from ao_shaping.utils.beam_metrics import measure_spot_diameter_cam
-from ao_shaping.utils.pattern_helper import (
+from ao_shaping.utils.image.beam_metrics import measure_spot_diameter_cam
+from ao_shaping.utils.optics.pattern_helper import (
     PatternHelper,
     calc_blazed_grating_period,
 )
-from ao_shaping.utils.targets import (
+from ao_shaping.utils.image.targets import (
     build_square_target_amplitude,
     compute_square_side,
 )
-from ao_shaping.utils.zernike_calc import get_zernike_name
+from ao_shaping.utils.optics.zernike_calc import get_zernike_name
 
 
 class PatternControl(ABC):

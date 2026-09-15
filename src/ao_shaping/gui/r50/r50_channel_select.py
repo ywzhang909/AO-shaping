@@ -1,4 +1,4 @@
-"""R50 controller UI — channel selection base module (pure logic + shared widgets).
+﻿"""R50 controller UI — channel selection base module (pure logic + shared widgets).
 
 Owns: configuration constants, ChannelInfo/GroupDef/ChannelSelection models,
 CSV wiring index (1300-5-enriched.csv), joint-control flat-array mapping,
@@ -20,7 +20,7 @@ import pandas as pd
 from loguru import logger
 
 from ao_shaping.drivers.dm.MicroDM import MAX_CHANNELS, VOLTAGE_MAX, VOLTAGE_MIN
-from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.filesystem.file import ROOT_DIR as PROJECT_ROOT
 
 
 # =============================================================================

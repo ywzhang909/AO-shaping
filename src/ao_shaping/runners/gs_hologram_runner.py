@@ -346,7 +346,7 @@ def run(
     adaptive_iterations: int,
     show: bool,
 ):
-    from ao_shaping.utils.cli_helpers import get_debug_mode
+    from ao_shaping.utils.cli.cli_helpers import get_debug_mode
 
     debug = get_debug_mode()
     """Gerchberg-Saxton全息图生成器

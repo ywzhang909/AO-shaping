@@ -1,4 +1,4 @@
-"""SPGD optimization for PIB using SLM with Zernike coefficient control.
+﻿"""SPGD optimization for PIB using SLM with Zernike coefficient control.
 
 This module replaces DM voltage control with SLM phase modulation via Zernike
 polynomial coefficients. The optimization perturbs Zernike coefficients,
@@ -37,13 +37,14 @@ import matplotlib.pylab as plt
 from ao_shaping.drivers import CameraStreamManager
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.optimizer.wfless.slm_square_shaping import _zernike_indices
-from ao_shaping.utils.pattern_helper import PatternHelper
+from ao_shaping.utils.optics.pattern_helper import PatternHelper
 from ao_shaping.algorithm.adam import AdaMOD, Adam, AdamW, Base, Muno, MunoW, SGD
-from ao_shaping.utils import logger, Recorder
-from ao_shaping.utils.file import gen_date_dir, gen_date_str
-from ao_shaping.utils.spots_calc import centroid, radius
+from ao_shaping.utils import logger
+from ao_shaping.utils.filesystem.file import Recorder
+from ao_shaping.utils.filesystem.file import gen_date_dir, gen_date_str
+from ao_shaping.utils.image.spots_calc import centroid, radius
 from ao_shaping.algorithm.target_func import ImageTargetFunc
-from ao_shaping.utils.zernike_calc import calc_n_zernike_terms
+from ao_shaping.utils.optics.zernike_calc import calc_n_zernike_terms
 
 # adam parameters
 beta1 = 0.9

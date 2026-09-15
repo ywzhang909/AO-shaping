@@ -1,4 +1,4 @@
-"""Shared helpers for AO-Shaping runner scripts.
+﻿"""Shared helpers for AO-Shaping runner scripts.
 
 A single place for the patterns that appear verbatim in 3+ runner files,
 keeping each runner focused on what makes it unique while pulling
@@ -15,7 +15,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from ao_shaping.utils.display import plot_funcs  # noqa: E402  (after matplotlib)
+from ao_shaping.utils.viz.display import plot_funcs  # noqa: E402  (after matplotlib)
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +45,7 @@ def build_debug_save_paths(
     Returns:
         Full :class:`~pathlib.Path` to the date-stamped save directory.
     """
-    from ao_shaping.utils import gen_date_dir
+    from ao_shaping.utils.filesystem.file import gen_date_dir
     return gen_date_dir(Path(root_dir) / context_subdir)
 
 

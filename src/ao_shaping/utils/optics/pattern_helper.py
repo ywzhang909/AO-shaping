@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ao_shaping.utils.phase_unwrap import PhaseUnwrapper, UnwrapStrategy, unwrap_phase
-from ao_shaping.utils.zernike_calc import ZernikeGenerator
+from ao_shaping.utils.optics.phase_unwrap import PhaseUnwrapper, UnwrapStrategy, unwrap_phase
+from ao_shaping.utils.optics.zernike_calc import ZernikeGenerator
 
 if TYPE_CHECKING:
     from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
@@ -127,7 +127,7 @@ class PatternHelper:
 
     用法示例:
     ```python
-    from ao_shaping.utils.pattern_helper import PatternHelper
+    from ao_shaping.utils.optics.pattern_helper import PatternHelper
 
     ph = PatternHelper(resolution=(256, 256), bits=10)
 
