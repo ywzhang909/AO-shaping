@@ -2,7 +2,7 @@
 
 纯辅助函数, 通过鸭子类型操作 SLM 设备对象 (任何暴露
 ``get_displayed_memory_number``, ``create_phase_from_array``,
-``write_phase`` 与 ``display_memory`` 的对象)。此处不执行任何硬件导入;
+``display_phase`` 的对象)。此处不执行任何硬件导入;
 调用方传入已打开的 SLM 设备。
 
 从 :mod:`ao_shaping.algorithm.beam_shaping_utils` 迁移而来; 旧模块为向后
@@ -109,11 +109,8 @@ def display_phase(slm: Any, phase_rad: np.ndarray, settle_time_s: float) -> None
     Args:
         slm: 已打开的 SLM 设备。
         phase_rad: 以弧度表示的二维相位数组。
-        settle_time_s: ``display_memory`` 后的等待时间。
+        settle_time_s: ``display_phase`` 后的等待时间。
     """
-    gray = slm.create_phase_from_array(phase_rad)
     slot = pick_slm_slot(slm)
-    slm.write_phase(gray, memory_number=slot)
-    time.sleep(0.05)
-    slm.display_memory(slot)
+    slm.display_phase(phase_rad, memory_number=slot)
     time.sleep(settle_time_s)

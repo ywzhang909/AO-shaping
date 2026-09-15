@@ -50,7 +50,7 @@ class TestPatternHelperZernikeCaching:
             radius=100.0,
         )
         assert img.shape == (200, 200)
-        assert img.dtype == np.uint16
+        assert img.dtype == np.float64  # 2026-09-15: 只返回原始弧度相位
         assert img[100, 100] > 0
 
     def test_generate_zernike_single_masked(self):
@@ -58,7 +58,7 @@ class TestPatternHelperZernikeCaching:
         ph = PatternHelper((200, 200), bits=10)
         img = ph.generate_zernike(2, 0, amplitude=1.0, radius=50.0)
         assert img.shape == (200, 200)
-        assert img.dtype == np.uint16
+        assert img.dtype == np.float64  # 2026-09-15: 只返回原始弧度相位
         assert img[0, 0] == 0  # 孔径外为 0
-        # 孔径内 (距中心 20px < 半径 50, 且非离焦零交叉点) 非零
-        assert img[100, 120] > 0
+        # 孔径内 (距中心 20px < 半径 50) 非零 (原始未包裹离焦在此处为负值)
+        assert img[100, 120] != 0

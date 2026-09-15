@@ -46,11 +46,23 @@ class MockSLM:
         self.calls.append(("create_phase_from_array", phase_rad))
         return "GRAY"
 
-    def write_phase(self, gray: str, memory_number: int | None = None) -> None:
+    def _write_phase(self, gray: str, memory_number: int | None = None) -> None:
         self.calls.append(("write_phase", gray, memory_number))
 
-    def display_memory(self, slot: int) -> None:
+    def _display_memory(self, slot: int) -> None:
         self.calls.append(("display_memory", slot))
+
+    def display_phase(
+        self,
+        phase_rad: np.ndarray,
+        wait_time_s: float | None = None,
+        memory_number: int | None = None,
+        memory_mode: int = 0,
+    ) -> None:
+        gray = self.create_phase_from_array(phase_rad)
+        slot = memory_number if memory_number is not None else 2
+        self._write_phase(gray, memory_number=slot)
+        self._display_memory(slot)
 
 
 @pytest.fixture(autouse=True)
@@ -133,7 +145,9 @@ class TestPhaseToSlmGrayscale:
         assert out.tolist() == [0, 511]
 
     def test_accepts_float64_input(self) -> None:
-        assert phase_to_slm_grayscale(np.array([[np.pi]], dtype=np.float64))[0, 0] == 511
+        assert (
+            phase_to_slm_grayscale(np.array([[np.pi]], dtype=np.float64))[0, 0] == 511
+        )
 
     def test_custom_max_grayscale(self) -> None:
         # 0.5 * 255 = 127.5, truncated -> 127
@@ -232,10 +246,12 @@ class TestDisplayPhase:
         assert slm.calls[1] == ("write_phase", "GRAY", 2)
         # display_memory receives the same slot.
         assert slm.calls[2] == ("display_memory", 2)
-        # Fixed 0.05s settle after write, then the requested settle time.
-        assert sleeps == [0.05, 0.7]
+        # Fixed settle time only (0.05s settle is now internal to display_phase)
+        assert sleeps == [0.7]
 
-    def test_slot_used_is_within_range(self, first_candidate: None, monkeypatch) -> None:
+    def test_slot_used_is_within_range(
+        self, first_candidate: None, monkeypatch
+    ) -> None:
         monkeypatch.setattr(slm_utils.time, "sleep", lambda _t: None)
         slm = MockSLM(displayed_slot=3)
         display_phase(slm, np.zeros((2, 2)), settle_time_s=0.1)
