@@ -62,3 +62,27 @@ class TestPatternHelperZernikeCaching:
         assert img[0, 0] == 0  # 孔径外为 0
         # 孔径内 (距中心 20px < 半径 50) 非零 (原始未包裹离焦在此处为负值)
         assert img[100, 120] != 0
+
+    def test_radius_change_clears_generators(self):
+        """半径变化 → 旧 generator 全部释放，字典只含新半径的条目 (完全重建)."""
+        ph = PatternHelper((200, 200), bits=10)
+        coeffs = {(0, 0): 1.0, (2, 0): 0.5}
+        ph.generate_zernike_polynomial(coefficients=coeffs, radius=100.0)
+        ph.generate_zernike_polynomial(coefficients=coeffs, radius=100.0, n_max=4)
+        assert len(ph._zernike_generators) == 2  # (100,6) + (100,4)
+
+        # 切换半径 → 旧的全部清空，只留新半径
+        ph.generate_zernike_polynomial(coefficients=coeffs, radius=150.0)
+        assert len(ph._zernike_generators) == 1
+        assert (150.0, 6) in ph._zernike_generators
+
+    def test_same_radius_reuses_generators(self):
+        """同半径重复生成 → 复用缓存，字典不增长."""
+        ph = PatternHelper((200, 200), bits=10)
+        coeffs = {(0, 0): 1.0}
+        a = ph.generate_zernike_polynomial(coefficients=coeffs, radius=80.0)
+        b = ph.generate_zernike_polynomial(coefficients=coeffs, radius=80.0)
+        c = ph.generate_zernike_polynomial(coefficients=coeffs, radius=80.0)
+        np.testing.assert_array_equal(a, b)
+        np.testing.assert_array_equal(b, c)
+        assert len(ph._zernike_generators) == 1  # 始终只有 1 个

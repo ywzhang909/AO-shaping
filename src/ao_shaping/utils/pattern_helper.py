@@ -186,8 +186,20 @@ class PatternHelper:
         # Turbulence screen (lazy-initialized)
         self._turbulence_screen: PhaseScreenKolmogorov | None = None
 
-        # Zernike generators (lazy-cached per (radius, n_orders))
+        # Zernike generators (lazy-cached per (radius, n_orders)).
+        # Radius acts as the rebuild key: a radius change clears all
+        # previously cached generators so the old basis (~500 MB ZZ at
+        # full panel resolution) is released; same-radius / different-
+        # orders generators are retained ("其余复用").
+        #
+        # 验证记录 (2026-09-15):
+        #   同 radius 多次生成 → dict 只含 (radius, n_orders) 组合 (复用, 不重建);
+        #   radius 变 → dict 清空重建 (旧 generator/基底释放); 半径回退到旧值
+        #   同样重建 (语义: radius 变即完全重建)。测试锚点见
+        #   tests/ao_shaping/utils/test_pattern_helper.py:
+        #   test_radius_change_clears_generators / test_same_radius_reuses_generators。
         self._zernike_generators: dict[tuple[float, int], ZernikeGenerator] = {}
+        self._zernike_radius: float | None = None  # last active radius
 
     @property
     def x(self) -> np.ndarray:
@@ -399,10 +411,22 @@ class PatternHelper:
         Generators are keyed by ``(radius, n_orders)`` and reused across calls,
         so the expensive ``RZern`` cart + coordinate grid is built only once per
         aperture instead of on every generation.
+
+        Radius is the **rebuild key**: when the radius changes, all previously
+        cached generators (and their underlying basis matrices) are released and
+        rebuilt from scratch (完全重建); same-radius generators with different
+        n_orders are still retained (其余复用).
         """
         if radius is None:
             radius = min(self._height, self._width) / 2
-        key = (float(radius), n_orders)
+        radius = float(radius)
+
+        # Radius changed → clear old generators (release old basis memory)
+        if radius != self._zernike_radius:
+            self._zernike_generators.clear()
+            self._zernike_radius = radius
+
+        key = (radius, n_orders)
         gen = self._zernike_generators.get(key)
         if gen is None:
             gen = ZernikeGenerator(

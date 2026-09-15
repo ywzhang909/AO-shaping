@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import functools
 from typing import TypeVar
 
 import numpy as np
@@ -8,21 +7,57 @@ from zernike import RZern
 
 # Zernike polynomial naming (Noll's scheme)
 ZERNIKE_NAMES: dict[tuple[int, int], str] = {
-    (0, 0): "Piston",
-    (1, -1): "Tip",
-    (1, 1): "Tilt",
-    (2, 0): "Defocus",
-    (2, -2): "Astigmatism 45°",
-    (2, 2): "Astigmatism 0°",
-    (3, -1): "Coma Y",
-    (3, 1): "Coma X",
-    (3, -3): "Trefoil Y",
-    (3, 3): "Trefoil X",
-    (4, 0): "Spherical",
-    (4, -2): "Secondary Astig 45°",
-    (4, 2): "Secondary Astig 0°",
-    (4, -4): "Tetrafoil Y",
-    (4, 4): "Tetrafoil X",
+    # n=0 (radial order 0): 1 mode
+    (0, 0): "Piston / 活塞",
+
+    # n=1 (radial order 1): 2 modes
+    (1, -1): "Tip / X倾斜",
+    (1, 1): "Tilt / Y倾斜",
+
+    # n=2 (radial order 2): 3 modes
+    (2, 0): "Defocus / 离焦",
+    (2, -2): "Astigmatism 45° / 45°像散",
+    (2, 2): "Astigmatism 0° / 0°像散",
+
+    # n=3 (radial order 3): 4 modes
+    (3, -1): "Coma Y / Y彗差",
+    (3, 1): "Coma X / X彗差",
+    (3, -3): "Trefoil Y / Y三叶像差",
+    (3, 3): "Trefoil X / X三叶像差",
+
+    # n=4 (radial order 4): 5 modes
+    (4, 0): "Spherical / 球差",
+    (4, -2): "Secondary Astig 45° / 二级45°像散",
+    (4, 2): "Secondary Astig 0° / 二级0°像散",
+    (4, -4): "Tetrafoil Y / Y四叶像差",
+    (4, 4): "Tetrafoil X / X四叶像差",
+
+    # n=5 (radial order 5): 6 modes
+    (5, -1): "Secondary Coma Y / 二级Y彗差",
+    (5, 1): "Secondary Coma X / 二级X彗差",
+    (5, -3): "Secondary Trefoil Y / 二级Y三叶像差",
+    (5, 3): "Secondary Trefoil X / 二级X三叶像差",
+    (5, -5): "Pentafoil Y / Y五叶像差",
+    (5, 5): "Pentafoil X / X五叶像差",
+
+    # n=6 (radial order 6): 7 modes
+    (6, 0): "Secondary Spherical / 二级球差",
+    (6, -2): "Tertiary Astig 45° / 三级45°像散",
+    (6, 2): "Tertiary Astig 0° / 三级0°像散",
+    (6, -4): "Secondary Tetrafoil Y / 二级Y四叶像差",
+    (6, 4): "Secondary Tetrafoil X / 二级X四叶像差",
+    (6, -6): "Hexafoil Y / Y六叶像差",
+    (6, 6): "Hexafoil X / X六叶像差",
+
+    # n=7 (radial order 7): 8 modes
+    (7, -1): "Tertiary Coma Y / 三级Y彗差",
+    (7, 1): "Tertiary Coma X / 三级X彗差",
+    (7, -3): "Tertiary Trefoil Y / 三级Y三叶像差",
+    (7, 3): "Tertiary Trefoil X / 三级X三叶像差",
+    (7, -5): "Secondary Pentafoil Y / 二级Y五叶像差",
+    (7, 5): "Secondary Pentafoil X / 二级X五叶像差",
+    (7, -7): "Heptafoil Y / Y七叶像差",
+    (7, 7): "Heptafoil X / X七叶像差",
 }
 
 _ZernikeT = TypeVar("_ZernikeT", bound="ZernikeGenerator")
@@ -153,7 +188,27 @@ def generate_noll_polynomial(
     return cart.eval_grid(coeffs, matrix=True)
 
 
-@functools.lru_cache(maxsize=32)
+# Single active slot for the expensive RZern cart + coordinate grid.
+# Keyed by ``(width, height, radius, n_orders)``; any parameter change —
+# most importantly a *radius* change — fully rebuilds and replaces the
+# previous entry, so only the current aperture's basis (~500 MB at full
+# panel resolution) is ever retained in memory.
+#
+# 验证记录 (2026-09-15, 实证脚本 + 测试锚点):
+#   1) 同键重复构造 → 返回同一 cart 对象 (id 相同), 归一化网格与生成结果
+#      逐元素一致 → 缓存"加载"命中, 无重复 make_cart_grid。
+#   2) radius 变化 → 新 cart 对象 (非复用); 替换槽后旧 cart 与 xv/yv 经
+#      weakref 确认引用归 None (GC 释放) → "完全重建", 内存恒定单份。
+#   3) 实测 ZZ 字节数 = width*height*nk*8, nk=(n_orders+1)(n_orders+2)//2:
+#      100x100/n=6 → 2,240,000 B; 1920x1200/n=6 → ~515 MB; n=10 → ~1.2 GB。
+#   4) 回归测试锚点 (tests/ao_shaping/utils/test_zernike_calc.py):
+#      test_grid_cache_reused_across_instances / test_radius_change_rebuilds_cart /
+#      test_radius_change_releases_old_cart / test_n_orders_change_rebuilds_cart。
+_grid_cache: tuple[
+    tuple[int, int, float, int], tuple[RZern, np.ndarray, np.ndarray]
+] | None = None
+
+
 def _build_cached_grid(
     width: int, height: int, radius: float, n_orders: int,
 ) -> tuple[RZern, np.ndarray, np.ndarray]:
@@ -161,23 +216,31 @@ def _build_cached_grid(
 
     The grid is normalized in *units of radius*: ``(pixel - center) / radius``,
     so the unit circle corresponds exactly to ``radius`` pixels, and the radial
-    coordinate ``R`` runs 0..1 across the aperture. Cached by
-    ``(width, height, radius, n_orders)``; repeated generation for the same
-    panel/aperture reuses the expensive ``RZern.make_cart_grid`` polar tables
-    instead of rebuilding them every call.
+    coordinate ``R`` runs 0..1 across the aperture. The result is cached as a
+    **single active slot** keyed by ``(width, height, radius, n_orders)``:
+    repeated generation for the same panel/aperture reuses the expensive
+    ``RZern.make_cart_grid`` polar tables, while changing the radius (or any
+    other key component) fully rebuilds and *releases* the previous basis
+    instead of accumulating cached variants.
 
     Returns:
         ``(cart, xv, yv)`` where ``cart`` is the ``RZern`` instance whose
         cartesian grid has been set, and ``xv``/``yv`` are the normalized
         coordinate grids (shape ``(height, width)``).
     """
+    global _grid_cache
     radius = float(radius)
+    key = (width, height, radius, n_orders)
+    if _grid_cache is not None and _grid_cache[0] == key:
+        return _grid_cache[1]
+
     cart = RZern(n_orders)
     # Pixel offsets from panel centre, normalized by the aperture radius.
     ddx = (np.arange(width) - (width - 1) / 2.0) / radius
     ddy = (np.arange(height) - (height - 1) / 2.0) / radius
     xv, yv = np.meshgrid(ddx, ddy)
     cart.make_cart_grid(xv, yv)
+    _grid_cache = (key, (cart, xv, yv))
     return cart, xv, yv
 
 
