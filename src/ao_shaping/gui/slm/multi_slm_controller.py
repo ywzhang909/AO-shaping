@@ -1,3 +1,6 @@
+"""see docs at docs[docs/slm_gui_manual.md]
+"""
+
 from __future__ import annotations
 
 import ctypes
@@ -14,14 +17,11 @@ from loguru import logger
 
 from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
 from ao_shaping.gui.slm.pattern_controls import (
+    PATTERN_REGISTRY,
+    PatternControl,
     generate_phase_gray,
     refresh_phase_preview,
 )
-from ao_shaping.utils.pattern_helper import PatternHelper, calc_blazed_grating_period
-from ao_shaping.utils.zernike_calc import get_zernike_name
-
-# Global pattern helpers (will be recreated per-SLM based on resolution)
-# Note: Resolution and bit depth now come from the SLM object when generating patterns
 
 # Timeout (s) for probing a single SLM during device discovery.  The Santec SDK
 # has historically hung on SLM_Ctrl_ReadSD after rapid open/close cycles, so the
@@ -225,20 +225,12 @@ def _refresh_device_list() -> None:
 
 
 def _apply_shift(phase_gray: np.ndarray, shift_x: int, shift_y: int) -> np.ndarray:
-    shifted = np.zeros_like(phase_gray)
-    y_src_start = max(0, -shift_y)
-    y_src_end = min(phase_gray.shape[0], phase_gray.shape[0] - shift_y)
-    y_dst_start = max(0, shift_y)
-    y_dst_end = min(phase_gray.shape[0], phase_gray.shape[0] + shift_y)
-    x_src_start = max(0, -shift_x)
-    x_src_end = min(phase_gray.shape[1], phase_gray.shape[1] - shift_x)
-    x_dst_start = max(0, shift_x)
-    x_dst_end = min(phase_gray.shape[1], phase_gray.shape[1] + shift_x)
-    if y_src_end > y_src_start and x_src_end > x_src_start:
-        shifted[y_dst_start:y_dst_end, x_dst_start:x_dst_end] = phase_gray[
-            y_src_start:y_src_end, x_src_start:x_src_end
-        ]
-    return shifted
+    """平移相位灰度图, 空白区域填 0.
+
+    平移数学的唯一实现位于驱动层 :meth:`SantecSLM200.shift_phase` ——
+    GUI 预览与驱动重下发共用同一函数, 保证预览与上屏字节级一致。
+    """
+    return SantecSLM200.shift_phase(phase_gray, shift_x, shift_y)
 
 
 @st.fragment(run_every=1.0)
@@ -272,651 +264,80 @@ def render_phase_preview(slm_num: int) -> None:
     )
 
 
+def _reset_context_widgets(slm_num: int) -> None:
+    """Reset control-space widget keys that mirror live SLM context.
+
+    After the driver's wavelength or 2π max-grayscale changes (set_wavelength,
+    grayscale apply/read), Streamlit would otherwise keep the stale
+    first-render values in session_state for keys such as ``slm{N}_flat_gray``
+    / ``slm{N}_vortex_wavelength`` — popping them makes the next rerun
+    re-initialize those widgets from the new control defaults (the controls
+    are rebuilt every rerun from the live SLM context in ``_build_control``).
+
+    Rerun: none directly — the caller decides; ``set_wavelength`` rides the
+    full rerun its sidebar button already triggers, the grayscale fragment
+    handlers call ``st.rerun(scope="app")`` explicitly.
+    """
+    prefix = f"slm{slm_num}"
+    for control_cls in PATTERN_REGISTRY.values():
+        for suffix in control_cls.CONTEXT_SYNCED_WIDGETS:
+            key = f"{prefix}_{suffix}"
+            if key in st.session_state:
+                del st.session_state[key]
+
+
+def _build_control(pattern_type: str, slm_num: int) -> PatternControl:
+    """Build the ``PatternControl`` for ``pattern_type`` on SLM ``slm_num``.
+
+    All device geometry (id, wavelength, pixel pitch, panel size, bit depth)
+    is resolved here and passed through ``__init__`` — the control classes
+    themselves never read ``st.session_state``.  The connected SLM object
+    wins; before connection the widget defaults stored in
+    ``st.session_state[f"slm{slm_num}_..."]`` (set by ``set_wavelength`` /
+    ``connect_slm``) are used.
+    """
+    prefix = f"slm{slm_num}"
+    slm = st.session_state.get(prefix)
+    if slm is not None:
+        panel_res = getattr(slm, "Panel_Res", (1920, 1200))
+        raw_max_gray = getattr(slm, "_max_gray", None)
+        return PATTERN_REGISTRY[pattern_type](
+            slm_id=slm_num,
+            wavelength=float(getattr(slm, "wavelength", None) or 1064.0),
+            pixel_pitch_um=float(getattr(slm, "Pitch_um", 8.0)),
+            width=int(panel_res[0]),
+            height=int(panel_res[1]),
+            bits=int(getattr(slm, "Gray_Scale_bits", 10)),
+            max_gray=int(raw_max_gray) if isinstance(raw_max_gray, int) else None,
+        )
+    return PATTERN_REGISTRY[pattern_type](
+        slm_id=slm_num,
+        wavelength=float(st.session_state.get(f"{prefix}_wavelength", 1064)),
+        pixel_pitch_um=float(st.session_state.get(f"{prefix}_pixel_pitch_um", 8.0)),
+        width=int(st.session_state.get(f"{prefix}_width", 1920)),
+        height=int(st.session_state.get(f"{prefix}_height", 1200)),
+        bits=10,
+    )
+
+
 def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
+    """Render the per-SLM pattern-type widgets and return ``(pattern_type, params)``.
+
+    The widget tree lives on the :class:`PatternControl` classes in
+    ``pattern_controls.py``; this function only picks the pattern type and
+    builds the control via ``__init__`` (so widget keys stay ``slm{N}_*`` and
+    defaults follow the connected SLM), then delegates the rendering.
+    """
     prefix = f"slm{slm_num}"
 
     pattern_type = st.selectbox(
         "选择相位图类型",
-        options=[
-            "平场",
-            "线性光栅",
-            "圆形光栅",
-            "透镜",
-            "全息光栅",
-            "闪耀光栅",
-            "棋盘格",
-            "二元光栅",
-            "微透镜阵列",
-            "湍流相位屏",
-            "Zernike",
-            "达曼光栅",
-            "涡旋相位",
-            "半半相位",
-            "GS方形整形",
-            "稳像法整形",
-        ],
+        options=list(PATTERN_REGISTRY.keys()),
         key=f"{prefix}_pattern_type",
     )
 
-    params: dict[str, Any] = {}
-
-    if pattern_type == "平场":
-        params["flat_gray"] = st.number_input(
-            "灰度",
-            min_value=0,
-            max_value=int(SantecSLM200.MAX_GRAYSCALE_VALUE),
-            step=1,
-            key=f"{prefix}_{pattern_type}_gray",
-        )
-    elif pattern_type in {"线性光栅", "全息光栅"}:
-        params["period"] = st.number_input(
-            "周期 (像素)",
-            min_value=1.0,
-            max_value=1000.0,
-            step=1.0,
-            key=f"{prefix}_{pattern_type}_period",
-        )
-        params["phase_range"] = st.number_input(
-            "相位范围 (rad)",
-            min_value=0.1,
-            max_value=float(2 * np.pi),
-            step=0.1,
-            key=f"{prefix}_{pattern_type}_phase_range",
-        )
-    elif pattern_type == "闪耀光栅":
-        period_mode = st.radio(
-            "周期设置方式",
-            options=["direct", "angle"],
-            format_func=lambda x: (
-                "直接设置周期(像素)" if x == "direct" else "根据衍射角度和波长计算"
-            ),
-            key=f"{prefix}_blazed_period_mode",
-            horizontal=True,
-            label_visibility="collapsed",
-        )
-
-        if period_mode == "angle":
-            default_wl = int(st.session_state.get(f"{prefix}_wavelength", 1064))
-            default_pitch = float(st.session_state.get(f"{prefix}_pixel_pitch_um", 8.0))
-
-            col_a1, col_a2 = st.columns(2)
-            with col_a1:
-                angle_deg = st.number_input(
-                    "衍射角度 θ (度)",
-                    min_value=0.1,
-                    max_value=89.0,
-                    value=10.0,
-                    step=0.5,
-                    key=f"{prefix}_blazed_calc_angle",
-                )
-            with col_a2:
-                calc_wl = st.number_input(
-                    "波长 λ (nm)",
-                    min_value=400,
-                    max_value=1600,
-                    value=default_wl,
-                    step=1,
-                    key=f"{prefix}_blazed_calc_wl",
-                )
-
-            calc_pitch = st.number_input(
-                "像素间距 (μm)",
-                min_value=0.1,
-                max_value=100.0,
-                value=default_pitch,
-                step=0.1,
-                key=f"{prefix}_blazed_calc_pitch",
-            )
-
-            period_pixels = calc_blazed_grating_period(angle_deg, calc_wl, calc_pitch)
-
-            # Sync to the linked session state key for seamless mode switching
-            st.session_state[f"{prefix}_blazed_period"] = period_pixels
-
-            st.metric(
-                "计算周期",
-                f"{period_pixels:.1f} 像素",
-                help=f"d = λ / sin(θ)，像素间距 {calc_pitch} μm",
-            )
-            params["period"] = period_pixels
-        else:
-            params["period"] = st.number_input(
-                "周期 (像素)",
-                min_value=1.0,
-                max_value=10000.0,
-                step=1.0,
-                key=f"{prefix}_blazed_period",
-            )
-
-        params["phase_range"] = st.number_input(
-            "相位范围 (rad)",
-            min_value=0.1,
-            max_value=float(2 * np.pi),
-            step=0.1,
-            key=f"{prefix}_blazed_phase_range",
-        )
-        params["direction"] = st.selectbox(
-            "光栅方向",
-            options=["vertical", "horizontal"],
-            format_func=lambda x: (
-                "竖条纹（垂直）" if x == "vertical" else "横条纹（水平）"
-            ),
-            key=f"{prefix}_blazed_direction",
-        )
-    elif pattern_type == "圆形光栅":
-        params["radius"] = st.number_input(
-            "圆形周期半径 (像素)",
-            min_value=1.0,
-            max_value=2000.0,
-            step=10.0,
-            key=f"{prefix}_circular_radius",
-        )
-        params["phase_range"] = st.number_input(
-            "相位范围 (rad)",
-            min_value=0.1,
-            max_value=float(2 * np.pi),
-            step=0.1,
-            key=f"{prefix}_circular_phase_range",
-        )
-    elif pattern_type == "透镜":
-        # 从 sidebar (connect 时从硬件同步) 读取默认值, 用户只需填焦距;
-        # 像素间距/孔径半径默认即 SLM 硬件真实值 (8um / min(w,h)//2).
-        default_pitch = float(st.session_state.get(f"{prefix}_pixel_pitch_um", 8.0))
-        default_w = int(st.session_state.get(f"{prefix}_width", 1920))
-        default_h = int(st.session_state.get(f"{prefix}_height", 1200))
-        default_radius = min(default_w, default_h) // 2
-
-        params["focal_length_mm"] = st.number_input(
-            "焦距 (mm)",
-            min_value=1.0,
-            max_value=100000.0,
-            step=10.0,
-            key=f"{prefix}_lens_focal_length",
-        )
-        params["pixel_pitch_um"] = st.number_input(
-            "像素间距 (um)",
-            min_value=0.1,
-            max_value=100.0,
-            value=default_pitch,
-            step=0.1,
-            key=f"{prefix}_lens_pixel_pitch",
-        )
-        params["lens_radius"] = st.number_input(
-            "透镜半径 (像素)",
-            min_value=1,
-            max_value=2000,
-            value=default_radius,
-            step=1,
-            key=f"{prefix}_lens_radius",
-        )
-    elif pattern_type == "棋盘格":
-        params["period"] = st.number_input(
-            "棋盘格周期 (像素)",
-            min_value=1,
-            max_value=1000,
-            step=1,
-            key=f"{prefix}_checker_period",
-        )
-    elif pattern_type == "二元光栅":
-        params["a"] = st.number_input(
-            "亮条纹宽度 a (像素)",
-            min_value=1,
-            max_value=1000,
-            step=1,
-            key=f"{prefix}_binary_a",
-        )
-        params["b"] = st.number_input(
-            "暗条纹宽度 b (像素)",
-            min_value=1,
-            max_value=1000,
-            step=1,
-            key=f"{prefix}_binary_b",
-        )
-        params["direction"] = st.selectbox(
-            "方向",
-            options=["horizontal", "vertical"],
-            format_func=lambda x: "水平" if x == "horizontal" else "垂直",
-            key=f"{prefix}_binary_direction",
-        )
-    elif pattern_type == "微透镜阵列":
-        params["lens_size"] = st.number_input(
-            "微透镜尺寸 (像素)",
-            min_value=8,
-            max_value=1000,
-            step=1,
-            key=f"{prefix}_microlens_size",
-        )
-        params["focal_length_mm"] = st.number_input(
-            "焦距 (mm)",
-            min_value=1.0,
-            max_value=100000.0,
-            step=1.0,
-            key=f"{prefix}_microlens_focal_length",
-        )
-        params["pixel_pitch_um"] = st.number_input(
-            "像素间距 (um)",
-            min_value=0.1,
-            max_value=100.0,
-            step=0.1,
-            key=f"{prefix}_microlens_pixel_pitch",
-        )
-    elif pattern_type == "湍流相位屏":
-        params["Cn2"] = st.number_input(
-            "Cn²",
-            min_value=1e-18,
-            max_value=1e-10,
-            format="%.1e",
-            key=f"{prefix}_turbulence_cn2",
-        )
-        params["L"] = st.number_input(
-            "传播距离 L (m)",
-            min_value=0.1,
-            max_value=1e6,
-            step=10.0,
-            key=f"{prefix}_turbulence_length",
-        )
-        params["pixel_pitch_um"] = st.number_input(
-            "像素间距 (um)",
-            min_value=0.1,
-            max_value=100.0,
-            step=0.1,
-            key=f"{prefix}_turbulence_pixel_pitch",
-        )
-    elif pattern_type == "涡旋相位":
-        params["topological_charge"] = st.number_input(
-            "拓扑荷",
-            min_value=-10,
-            max_value=10,
-            step=1,
-            key=f"{prefix}_vortex_charge",
-        )
-        # 从sidebar设置读取默认值
-        default_wavelength = int(st.session_state.get(f"{prefix}_wavelength", 1064))
-        default_pixel_pitch = float(
-            st.session_state.get(f"{prefix}_pixel_pitch_um", 8.0)
-        )
-
-        params["wavelength_nm"] = st.number_input(
-            "波长 (nm)",
-            value=default_wavelength,
-            step=1,
-            key=f"{prefix}_vortex_wavelength",
-        )
-        params["pixel_pitch_um"] = st.number_input(
-            "像素间距 (um)",
-            value=default_pixel_pitch,
-            min_value=1.0,
-            max_value=100.0,
-            step=1.0,
-            key=f"{prefix}_vortex_pixel_pitch",
-        )
-        params["wrap_phase"] = st.checkbox(
-            "包裹相位",
-            key=f"{prefix}_vortex_wrap_phase",
-        )
-    elif pattern_type == "Zernike":
-        # Maximum radial order
-        n_max = st.number_input(
-            "最大径向阶数 N",
-            min_value=1,
-            max_value=10,
-            step=1,
-            key=f"{prefix}_zernike_n_max",
-        )
-        params["n_max"] = n_max
-        # 默认孔径 = SLM 面板短边一半 (与透镜分支一致, 从 sidebar 硬件同步值读取)
-        default_w = int(st.session_state.get(f"{prefix}_width", 1920))
-        default_h = int(st.session_state.get(f"{prefix}_height", 1200))
-        params["radius"] = st.number_input(
-            "孔径半径 (像素)",
-            value=min(default_w, default_h) // 2,
-            min_value=1,
-            max_value=2000,
-            step=1,
-            key=f"{prefix}_zernike_radius",
-        )
-
-        # Collect coefficients for all (n, m) pairs up to n_max.
-        # Rendered as a single st.data_editor table for performance: the old
-        # per-coefficient st.columns loop created ~3 containers per pair
-        # (48 for n_max=6, 90 for n_max=10) and was a bottleneck on rerun.
-        pairs: list[dict[str, Any]] = []
-        for n in range(n_max + 1):
-            for m in range(-n, n + 1):
-                if (n - abs(m)) % 2 == 0:  # Valid Zernike order
-                    default_val = 1.0 if n == 0 and m == 0 else 0.0
-                    key = f"{prefix}_zernike_{n}_{m}"
-                    pairs.append(
-                        {
-                            "n": n,
-                            "m": m,
-                            "name": get_zernike_name(n, m) or f"n={n},m={m}",
-                            "coeff": float(st.session_state.get(key, default_val)),
-                        }
-                    )
-
-        edited = st.data_editor(
-            pairs,
-            key=f"{prefix}_zernike_table",
-            num_rows="fixed",
-            column_config={
-                "n": st.column_config.NumberColumn("n", disabled=True, width="small"),
-                "m": st.column_config.NumberColumn("m", disabled=True, width="small"),
-                "name": st.column_config.TextColumn(
-                    "名称", disabled=True, width="medium"
-                ),
-                "coeff": st.column_config.NumberColumn(
-                    "系数",
-                    step=0.001,
-                ),
-            },
-            hide_index=True,
-        )
-
-        coefficients: dict[tuple[int, int], float] = {}
-        for row in edited:
-            coefficients[(int(row["n"]), int(row["m"]))] = float(row["coeff"])
-        params["coefficients"] = coefficients
-    elif pattern_type == "达曼光栅":
-        params["order"] = st.number_input(
-            "衍射级数",
-            min_value=2,
-            max_value=8,
-            step=1,
-            key=f"{prefix}_dammann_order",
-        )
-        params["fill_factor"] = st.slider(
-            "填充因子",
-            min_value=0.1,
-            max_value=1.0,
-            step=0.1,
-            key=f"{prefix}_dammann_fill_factor",
-        )
-    elif pattern_type == "半半相位":
-        params["flat_gray"] = st.number_input(
-            "平面灰度",
-            min_value=0,
-            max_value=1024,
-            step=1,
-            key=f"{prefix}_halfhalf_flat_gray",
-        )
-        params["split_direction"] = st.selectbox(
-            "划分方向",
-            options=["左右", "上下"],
-            format_func=lambda x: (
-                "左半平面+右半闪耀光栅" if x == "左右" else "上半平面+下半闪耀光栅"
-            ),
-            key=f"{prefix}_halfhalf_split",
-        )
-        st.caption("闪耀光栅参数")
-        params["period"] = st.number_input(
-            "光栅周期 (像素)",
-            min_value=1.0,
-            max_value=1000.0,
-            step=1.0,
-            key=f"{prefix}_halfhalf_period",
-        )
-        params["phase_range"] = st.number_input(
-            "相位范围 (rad)",
-            min_value=0.1,
-            max_value=float(2 * np.pi),
-            step=0.1,
-            key=f"{prefix}_halfhalf_phase_range",
-        )
-        # Direction selector — only meaningful for top/bottom split
-        # (left/right split forces vertical direction).
-        split = st.session_state.get(f"{prefix}_halfhalf_split", "左右")
-        if split == "上下":
-            params["blaze_direction"] = st.selectbox(
-                "闪耀光栅方向",
-                options=["horizontal", "vertical"],
-                format_func=lambda x: (
-                    "横条纹（水平）" if x == "horizontal" else "竖条纹（垂直）"
-                ),
-                key=f"{prefix}_halfhalf_blaze_dir",
-            )
-        else:
-            st.caption("左右划分时闪耀光栅固定为竖条纹方向")
-            params["blaze_direction"] = "vertical"
-
-    elif pattern_type == "GS方形整形":
-        uploaded = st.file_uploader(
-            "上传远场光斑图片 (用于自动计算方形大小)",
-            type=["png", "jpg", "jpeg", "bmp", "tif", "tiff"],
-            key=f"{prefix}_gs_spot_image",
-        )
-        st.caption("GS 算法将输入光斑整形为方形；方形边长 = 光斑直径 × 尺寸因子")
-        if uploaded is not None:
-            try:
-                params["intensity_cam"] = _upload_to_intensity(uploaded)
-            except Exception as e:
-                st.error(f"图片解码失败: {e}")
-                logger.exception(f"Failed to decode GS spot image: {e}")
-        else:
-            st.warning("请先上传远场光斑图片")
-
-        col_g1, col_g2 = st.columns(2)
-        with col_g1:
-            params["gs_factor"] = st.number_input(
-                "方形边长/光斑直径 因子",
-                min_value=0.5,
-                max_value=5.0,
-                value=1.5,
-                step=0.1,
-                key=f"{prefix}_gs_factor",
-            )
-        with col_g2:
-            params["gs_focal_length_mm"] = st.number_input(
-                "焦距 (mm)",
-                min_value=1.0,
-                max_value=5000.0,
-                value=100.0,
-                step=1.0,
-                key=f"{prefix}_gs_focal_mm",
-            )
-
-        col_g3, col_g4 = st.columns(2)
-        with col_g3:
-            params["gs_iterations"] = st.number_input(
-                "GS 迭代次数",
-                min_value=1,
-                max_value=5000,
-                value=100,
-                step=1,
-                key=f"{prefix}_gs_iterations",
-            )
-        with col_g4:
-            params["gs_energy"] = st.number_input(
-                "光斑能量占比 (0~1)",
-                min_value=0.1,
-                max_value=0.999,
-                value=0.90,
-                step=0.05,
-                key=f"{prefix}_gs_energy",
-            )
-
-        p_cam_input = st.number_input(
-            "相机像素间距 (μm，留空使用 SLM 像素间距)",
-            min_value=0.0,
-            value=0.0,
-            step=0.1,
-            key=f"{prefix}_gs_p_cam",
-            help="输入相机像素间距(μm)。为 0 时默认与 SLM 像素间距一致。",
-        )
-        if p_cam_input > 0:
-            params["gs_p_cam"] = p_cam_input * 1e-6
-
-        params["gs_live_display"] = st.checkbox(
-            "实时显示到 SLM（每轮迭代同步下发相位）",
-            value=st.session_state.get(f"{prefix}_gs_live_display", False),
-            key=f"{prefix}_gs_live_display",
-            help="勾选后 GS 每轮迭代都会把当前相位写入 SLM，方便实时观察整形收敛过程。\n"
-            "写入会自动轮换内存槽，避免同槽重复写入被固件判为无操作。",
-        )
-        params["gs_live_interval"] = st.number_input(
-            "实时显示间隔（每 N 轮迭代下发一次）",
-            min_value=1,
-            max_value=50,
-            value=int(st.session_state.get(f"{prefix}_gs_live_interval", 1)),
-            step=1,
-            key=f"{prefix}_gs_live_interval",
-        )
-
-    elif pattern_type == "稳像法整形":
-        st.caption(
-            "稳像法 (Steady Phase Method) 生成方形平顶光束整形相位。"
-            "参考: 翟中生等, 应用光学 2023, 44(4), 711-719。"
-            "原理: 通过几何稳相法相位 φ(x,y) 将入射高斯光束整形为方形平顶光束, "
-            "叠加闪耀光栅使平顶偏移到一级衍射位置, 与零级光空间分离。"
-        )
-
-        # Read SLM parameters for Nyquist constraint display
-        slm_wavelength_nm = float(st.session_state.get(f"{prefix}_wavelength", 1064))
-        slm_pixel_pitch_um = float(
-            st.session_state.get(f"{prefix}_pixel_pitch_um", 8.0)
-        )
-
-        col_s1, col_s2 = st.columns(2)
-        with col_s1:
-            params["focal_length_mm"] = st.number_input(
-                "傅里叶透镜焦距 f (mm)",
-                min_value=10.0,
-                max_value=5000.0,
-                value=300.0,
-                step=10.0,
-                key=f"{prefix}_spm_focal_mm",
-                help=(
-                    "SLM 后方傅里叶透镜的焦距, 即 SLM 到 CCD 之间透镜的焦距。\n"
-                    "单位: mm。典型值: 100~500 mm。\n"
-                    "该透镜对 SLM 上的相位分布做傅里叶变换, "
-                    "CCD 放在其后焦面上接收远场衍射图样。"
-                ),
-            )
-        with col_s2:
-            params["waist_radius_um"] = st.number_input(
-                "高斯光束束腰半径 w₀ (μm)",
-                min_value=100.0,
-                max_value=50000.0,
-                value=3600.0,
-                step=100.0,
-                key=f"{prefix}_spm_waist_um",
-                help=(
-                    "入射到 SLM 表面的高斯光束 1/e² 束腰半径。\n"
-                    "单位: μm。典型值: 1~5 mm (1000~5000 μm)。\n"
-                    "测量方法: 用 CCD 采集光斑, 拟合高斯分布 I(r)=I₀·exp(-2r²/w₀²), "
-                    "或测量光斑直径 D 后取 w₀ ≈ D/2 (强度降至 1/e² 处)。\n"
-                    "注意: 此处是 SLM 面上的束腰, 非焦点处束腰。"
-                ),
-            )
-
-        col_s3, col_s4 = st.columns(2)
-        with col_s3:
-            params["flat_top_half_length_um"] = st.number_input(
-                "平顶光束半边长 L (μm)",
-                min_value=10.0,
-                max_value=5000.0,
-                value=150.0,
-                step=10.0,
-                key=f"{prefix}_spm_flat_top_um",
-                help=(
-                    "期望的方形平顶光束的半边长 (远场焦平面上)。\n"
-                    "单位: μm。平顶光束总边长 = 2L。\n"
-                    "⚠️ 奈奎斯特约束: L 必须满足 L < λ·f·w₀/(π·dx²), "
-                    "否则相位梯度过大导致采样混叠, 整形质量下降。\n"
-                    "参考代码中 f=300mm, w₀=3.6mm, λ=1064nm, dx=12.5μm 时, "
-                    "L_max ≈ 184 μm。"
-                ),
-            )
-        with col_s4:
-            params["blaze_period"] = st.number_input(
-                "闪耀光栅周期 T (像素)",
-                min_value=1.0,
-                max_value=1000.0,
-                value=4.0,
-                step=0.5,
-                key=f"{prefix}_spm_blaze_period",
-                help=(
-                    "用于分离零级光的闪耀光栅周期 (单位: SLM 像素)。\n"
-                    "偏转角 θ 满足 sin(θ) = λ/(T·dx)。\n"
-                    "• T=4 像素: 偏转角较大, 平顶远离零级\n"
-                    "• T=8 像素: 偏转角适中\n"
-                    "• T=16+ 像素: 偏转角较小, 平顶靠近零级\n"
-                    "较小的 T 值产生更大的偏转角, 但衍射效率可能降低。"
-                ),
-            )
-
-        params["blaze_angle_deg"] = st.number_input(
-            "闪耀光栅方向 θ (度)",
-            min_value=0.0,
-            max_value=360.0,
-            value=45.0,
-            step=1.0,
-            key=f"{prefix}_spm_blaze_angle",
-            help=(
-                "闪耀光栅的倾斜方向角 (单位: 度)。\n"
-                "控制平顶光束相对于零级光的偏转方向。\n"
-                "• 0°: 水平向右偏转\n"
-                "• 45°: 右上方偏转 (对角线方向)\n"
-                "• 90°: 垂直向上偏转\n"
-                "• 180°: 水平向左偏转\n"
-                "通常设为 45° 使平顶光束沿对角线方向偏移, "
-                "与零级光有最大空间分离。"
-            ),
-        )
-
-        # Nyquist constraint warning
-        wavelength_m = slm_wavelength_nm * 1e-9
-        f_m = params["focal_length_mm"] * 1e-3
-        w0_m = params["waist_radius_um"] * 1e-6
-        dx_m = slm_pixel_pitch_um * 1e-6
-        L_max_um = (wavelength_m * f_m * w0_m / (np.pi * dx_m**2)) * 1e6
-        L_input_um = params["flat_top_half_length_um"]
-
-        st.divider()
-        st.caption("📊 约束检查")
-        col_check1, col_check2 = st.columns(2)
-        with col_check1:
-            st.metric(
-                "奈奎斯特 L_max",
-                f"{L_max_um:.1f} μm",
-                help="L_max = λ·f·w₀/(π·dx²), 超过此值将产生采样混叠",
-            )
-        with col_check2:
-            if L_input_um >= L_max_um:
-                st.error(
-                    f"⚠️ L={L_input_um:.0f}μm ≥ L_max={L_max_um:.1f}μm, "
-                    "相位梯度过大, 将产生采样混叠!"
-                )
-            else:
-                st.success(
-                    f"✅ L={L_input_um:.0f}μm < L_max={L_max_um:.1f}μm, "
-                    "满足奈奎斯特条件"
-                )
-
-        st.caption(
-            f"当前参数: λ={slm_wavelength_nm}nm, "
-            f"dx={slm_pixel_pitch_um}μm, "
-            f"f={params['focal_length_mm']:.0f}mm, "
-            f"w₀={params['waist_radius_um']:.0f}μm"
-        )
-
-    return pattern_type, params
-
-
-def _upload_to_intensity(uploaded: Any) -> np.ndarray:
-    """Decode an uploaded image file into a 2D float intensity array.
-
-    Args:
-        uploaded: A Streamlit ``UploadedFile`` (or any file-like with ``getvalue``).
-
-    Returns:
-        2D float intensity array (grayscale; color images converted via luminance).
-    """
-    from PIL import Image
-
-    raw = uploaded.getvalue()
-    img = Image.open(io.BytesIO(raw)).convert("L")
-    return np.asarray(img, dtype=np.float64)
+    control = _build_control(pattern_type, slm_num)
+    return pattern_type, control.render(prefix)
 
 
 def main():
@@ -1070,7 +491,10 @@ def set_wavelength(slm_num: int):
     """Set wavelength for the specified SLM.
 
     Rerun: none directly — uses refresh_phase_preview() to update cache,
-    then @st.fragment(run_every=1.0) auto-refreshes UI within ~1s.
+    then @st.fragment(run_every=1.0) auto-refreshes UI within ~1s. The
+    sidebar button already triggers a full rerun, which re-initializes the
+    context-derived control widgets (flat_gray / vortex_wavelength / ...)
+    from the new wavelength and 2π max-grayscale on the same rerun.
     """
     prefix = f"slm{slm_num}"
     wavelength_key = f"{prefix}_wavelength"
@@ -1081,6 +505,7 @@ def set_wavelength(slm_num: int):
             slm.set_wavelength(wavelength)
             st.success(f"SLM {slm_num} 波长设置为 {wavelength} nm")
             refresh_phase_preview(slm_num)
+            _reset_context_widgets(slm_num)
     except Exception as e:
         st.error(f"设置波长失败: {e}")
         logger.exception(f"Failed to set wavelength for SLM {slm_num}: {e}")
@@ -1089,37 +514,33 @@ def set_wavelength(slm_num: int):
 def set_shift(slm_num: int):
     """Apply shift values from the UI to the SLM driver.
 
+    Delegates to the driver-level :meth:`SantecSLM200.apply_shift`, which
+    handles absolute-positioning re-display (undo old shift → apply new),
+    memory-slot rotation, settle wait and config save — identical semantics
+    for every caller (runner, script, other UI).
+
     Rerun: none directly — uses refresh_phase_preview() to update cache,
     then @st.fragment(run_every=1.0) auto-refreshes UI within ~1s.
     """
     prefix = f"slm{slm_num}"
     try:
-        # Stop any running toggle loop so the shift write cannot race
-        # with the background thread.
         _stop_toggle(slm_num)
 
         slm = st.session_state.get(prefix)
         if slm is not None:
             sx = st.session_state.get(f"{prefix}_shift_x", 0)
             sy = st.session_state.get(f"{prefix}_shift_y", 0)
-            slm.set_shift(shift_x=int(sx), shift_y=int(sy))
 
-            # Auto-apply the new shift to the currently displayed phase.
-            # The displayed phase is already the post-shift version (it was
-            # displaced by slm._apply_shift() when originally written via
-            # create_phase_from_array).  Re-applying the same shift here would
-            # double-displace the pattern.  Instead, call slm._apply_shift()
-            # directly on the raw cache so the new shift takes effect once.
-            current_phase, source = slm.get_displayed_phase()
-            if current_phase is not None:
-                shifted = slm._apply_shift(current_phase, int(sx), int(sy))
-                mem_slot = _pick_next_memory(slm_num)
-                slm.write_phase(shifted, memory_number=mem_slot)
-                slm.display_memory(mem_slot)
+            shifted = slm.apply_shift(
+                shift_x=int(sx),
+                shift_y=int(sy),
+                wait_time_s=0.3,
+                save_config=True,
+            )
+            if shifted is not None:
                 refresh_phase_preview(slm_num)
                 st.success(
-                    f"SLM {slm_num} 平移已应用并自动下发: "
-                    f"shift_x={sx}, shift_y={sy} (来源: {source})"
+                    f"SLM {slm_num} 平移已应用并自动下发: shift_x={sx}, shift_y={sy}"
                 )
             else:
                 st.success(f"SLM {slm_num} 平移参数已更新: shift_x={sx}, shift_y={sy}")
@@ -1288,7 +709,9 @@ def _render_grayscale_config(slm_num: int, prefix: str, slm_obj: SantecSLM200) -
     """灰度设置区块（fragment 局部刷新）。
 
     run_every=1.0 使"获取当前2π灰度 / 应用灰度设置"之后约 1s 内重新渲染本区块，
-    让 caption 显示最新的 slm_obj._max_gray；无需整页 st.rerun。
+    让 caption 显示最新的 slm_obj._max_gray。两个按钮处理器在更新 _max_gray 后
+    触发整页 rerun（st.rerun(scope="app")），使主区域的控制组件从新的 _max_gray
+    重新初始化（仅 fragment 级 rerun 会让 flat_gray 滑块保持旧值）。
     """
     st.caption("灰度设置")
     max_gray = int(getattr(slm_obj, "_max_gray", SantecSLM200.MAX_GRAYSCALE_VALUE))
@@ -1306,7 +729,8 @@ def _render_grayscale_config(slm_num: int, prefix: str, slm_obj: SantecSLM200) -
         try:
             slm_obj._max_gray = int(new_max_gray)
             refresh_phase_preview(slm_num)
-            st.success(f"SLM {slm_num} 灰度值已更新为 {new_max_gray}，预览已刷新")
+            _reset_context_widgets(slm_num)
+            st.rerun(scope="app")
         except Exception as e:
             st.error(f"更新灰度设置失败: {e}")
 
@@ -1315,7 +739,8 @@ def _render_grayscale_config(slm_num: int, prefix: str, slm_obj: SantecSLM200) -
             _wl, current_max_gray = slm_obj.get_wavelength_info()
             slm_obj._max_gray = int(current_max_gray)
             refresh_phase_preview(slm_num)
-            st.success(f"SLM {slm_num} 当前2π灰度: {current_max_gray}")
+            _reset_context_widgets(slm_num)
+            st.rerun(scope="app")
         except Exception as e:
             st.error(f"读取灰度失败: {e}")
 
@@ -1572,8 +997,7 @@ def _toggle_phases_task(
             slot = int(np.random.choice(alt))
 
         try:
-            slm.write_phase(target_phase, memory_number=slot)
-            slm.display_memory(slot)
+            slm.display_data(target_phase, memory_number=slot)
         except Exception as e:
             logger.warning(f"周期切换失败: {e}")
 
@@ -1787,9 +1211,9 @@ def render_phase_control(slm_num: int):
             with open(temp_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
 
-            # Load phase from CSV
+            # Load gray data from CSV
             slm = st.session_state[prefix]
-            phase_gray = slm.load_phase_from_csv(temp_path)
+            phase_gray = slm.load_gray_from_csv(temp_path)
 
             # CSV loading bypasses create_phase_from_array(), so the driver's
             # internal _apply_shift() is NOT called here — the GUI-side shift
@@ -1800,8 +1224,7 @@ def render_phase_control(slm_num: int):
 
             # Write to next memory slot and immediately display
             mem_slot = _pick_next_memory(slm_num)
-            slm.write_phase(phase_gray, memory_number=mem_slot)
-            slm.display_memory(mem_slot)
+            slm.display_data(phase_gray, memory_number=mem_slot)
             display_ok = _verify_phase_displayed(slm, mem_slot)
             refresh_phase_preview(slm_num)
 

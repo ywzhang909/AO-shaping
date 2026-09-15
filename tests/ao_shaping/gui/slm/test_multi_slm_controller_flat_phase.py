@@ -12,8 +12,13 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
+import streamlit as st
 
-from ao_shaping.gui.slm.multi_slm_controller import generate_phase_gray
+from ao_shaping.gui.slm.multi_slm_controller import (
+    _build_control,
+    _reset_context_widgets,
+    generate_phase_gray,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -146,3 +151,32 @@ class TestGeneratePhaseGrayOtherPatterns:
         )
         assert result.dtype == np.uint16
         assert result.shape == (1200, 1920)
+
+
+class TestResetContextWidgets:
+    """Context-synced widget keys are popped from session_state so the next
+    rerun re-initializes them from the new control defaults."""
+
+    def test_reset_context_widgets_pops_synced_keys(self, monkeypatch):
+        session = {
+            "slm1_flat_gray": 512,
+            "slm1_halfhalf_flat_gray": 512,
+            "slm1_blazed_calc_wl": 1064,
+            "slm1_vortex_wavelength": 1064,
+            "slm1_phase_source": "暂无",
+        }
+        monkeypatch.setattr(st, "session_state", session)
+        _reset_context_widgets(1)
+        assert "slm1_flat_gray" not in session
+        assert "slm1_halfhalf_flat_gray" not in session
+        assert "slm1_blazed_calc_wl" not in session
+        assert "slm1_vortex_wavelength" not in session
+        # Unrelated keys survive.
+        assert session["slm1_phase_source"] == "暂无"
+
+    def test_build_control_connected_propagates_max_gray(self, monkeypatch):
+        slm = _mock_slm(width=128, height=96)
+        slm._max_gray = 993
+        monkeypatch.setattr(st, "session_state", {"slm1": slm})
+        ctrl = _build_control("平场", 1)
+        assert ctrl.max_gray == 993
