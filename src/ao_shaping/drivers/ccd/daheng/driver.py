@@ -177,6 +177,11 @@ class DahengCamManager(BaseCamera):
             )
         # 写入 SDK 时再转回 µs
         self.cam.ExposureTime.set(int(self.__exposure_time_ms.ms * 1000))
+        # 关闭 SDK 原生自动曝光，确保手动曝光控制
+        try:
+            self.cam.ExposureAuto.set("Off")
+        except Exception:
+            pass
         # 设置相机的增益
         self.cam.Gain.set(0.0)
         # 设置相机的像素格式为MONO8
@@ -335,22 +340,32 @@ class DahengCamManager(BaseCamera):
         tolerance: float = 0.05,
         max_iterations: int = 10,
         n_sample: int = 1,
+        use_sdk_auto: bool = True,
+        sdk_settle_frames: int = 3,
     ) -> tuple[float, float]:
-        """
-        自动曝光调整 - 根据目标平均亮度迭代调整曝光时间。
+        """自动曝光调整 - 优先使用大恒 SDK 原生自动曝光，再用已有的曝光调整方法修正。
 
-        算法:
-        1. 拍摄图像并计算平均亮度
-        2. 如果平均亮度在目标值的tolerance范围内,停止
-        3. 否则，根据比例调整曝光时间: new_exp = current_exp * (target / current)
-        4. 裁剪到有效范围 [min, max]
-        5. 重复直到收敛或达到最大迭代次数
+        算法 (两阶段):
+        阶段 1 - SDK 原生自动曝光 (use_sdk_auto=True 时):
+          1. 启用 ExposureAuto="On"，设置 ExpectedGrayValue 为目标亮度
+          2. 采集 sdk_settle_frames 帧让 SDK 内部收敛
+          3. 读取 SDK 自动调整后的曝光时间作为初值
+          4. 关闭 SDK 自动曝光，切换到手动模式
+
+        阶段 2 - 已有曝光调整方法修正:
+          1. 拍摄图像并计算平均亮度
+          2. 如果平均亮度在目标值的 tolerance 范围内，停止
+          3. 否则，根据比例调整曝光时间: new_exp = current_exp * (target / current)
+          4. 裁剪到有效范围 [min, max]
+          5. 重复直到收敛或达到最大迭代次数
 
         Args:
             target_mean: 目标平均亮度 (0-1范围, 默认0.5)
             tolerance: 容差范围 (默认0.05, 即5%)
-            max_iterations: 最大迭代次数 (默认10)
+            max_iterations: 第二阶段最大迭代次数 (默认10)
             n_sample: 每次迭代的采样次数 (默认1)
+            use_sdk_auto: 是否优先使用 SDK 原生自动曝光 (默认True)
+            sdk_settle_frames: SDK 自动曝光收敛等待帧数 (默认3)
 
         Returns:
             tuple[float, float]: (最终曝光时间ms, 最终平均亮度)
@@ -361,12 +376,39 @@ class DahengCamManager(BaseCamera):
         min_exp = float(self.__exposure_time_ms.min)
         max_exp = float(self.__exposure_time_ms.max)
 
+        # ── 阶段 1: SDK 原生自动曝光 ──
+        if use_sdk_auto:
+            try:
+                sdk_target = int(max(0, min(255, target_val)))
+                self.cam.ExposureAuto.set("On")
+                self.cam.ExpectedGrayValue.set(sdk_target)
+                logger.info(
+                    f"[SDK auto-exposure] enabled, target={sdk_target}, "
+                    f"waiting {sdk_settle_frames} frames for convergence..."
+                )
+                # 采集若干帧让 SDK 内部自动曝光收敛
+                for _ in range(sdk_settle_frames):
+                    self.__take_one_shot()
+                # 读取 SDK 自动调整后的曝光时间
+                sdk_exp = float(self.exposure_time)
+                logger.info(f"[SDK auto-exposure] converged: exp={sdk_exp:.2f}ms")
+                # 切换到手动模式，后续用已有方法修正
+                self.cam.ExposureAuto.set("Off")
+                current_exp = sdk_exp
+            except Exception as e:
+                logger.warning(
+                    f"[SDK auto-exposure] not available, falling back to manual: {e}"
+                )
+                current_exp = float(self.exposure_time)
+        else:
+            current_exp = float(self.exposure_time)
+
         logger.info(
-            f"Auto exposure start: target={target_mean:.2f} ({target_val:.0f}), "
+            f"Auto exposure phase 2 start: target={target_mean:.2f} ({target_val:.0f}), "
             f"range=[{min_exp}, {max_exp}]ms, max_iter={max_iterations}"
         )
 
-        current_exp = float(self.exposure_time)
+        # ── 阶段 2: 已有曝光调整方法修正 ──
         for i in range(max_iterations):
             img = self.get_numpy_image(n_sample, skip_first=True)
             mean_val = float(np.mean(img))
@@ -406,18 +448,30 @@ class DahengCamManager(BaseCamera):
         return current_exp, final_mean / 255.0
 
     def autoset_exposure_time_ms(
-        self, target_max_brightness, threshold=5, twice_valid=True
+        self,
+        target_max_brightness,
+        threshold=5,
+        twice_valid=True,
+        use_sdk_auto: bool = True,
+        sdk_settle_frames: int = 3,
     ):
-        """
-        自动设置相机的曝光时间，以确保图像的最大亮度在指定的阈值范围内。
+        """自动设置相机的曝光时间，以确保图像的最大亮度在指定的阈值范围内。
+
+        两阶段策略:
+        阶段 1 (use_sdk_auto=True): 启用大恒 SDK 原生自动曝光
+          (ExposureAuto="On" + ExpectedGrayValue)，采集若干帧让 SDK 收敛，
+          读取 SDK 自动调整后的曝光时间作为初值，然后关闭 SDK 自动曝光。
+        阶段 2: 用已有曝光调整方法 (比例迭代) 修正到目标最大亮度。
 
         参数:
-        n_sample (int): 采样次数，用于计算平均图像。必须大于0，需要和闭环时的采样次数一致。
-        target_max_brightness (float): 目标最大亮度值。
-        threshold (float): 允许的最大亮度范围，默认值为0.1。必须在(0,1)之间。
+            target_max_brightness (float): 目标最大亮度值。
+            threshold (float): 允许的最大亮度范围，默认值为5。
+            twice_valid (bool): 是否需要连续两次验证通过。
+            use_sdk_auto (bool): 是否优先使用 SDK 原生自动曝光 (默认True)
+            sdk_settle_frames (int): SDK 自动曝光收敛等待帧数 (默认3)
 
         返回:
-        np.ndarray: 自动设置后的图像数据，数据类型为uint8。
+            np.ndarray: 自动设置后的图像数据，数据类型为uint8。
         """
         assert 0 < threshold, "threshold must larger than 0"
         assert self.cam, "camera not initialized"
@@ -425,6 +479,28 @@ class DahengCamManager(BaseCamera):
         low, high = target_max_brightness - threshold, target_max_brightness + threshold
         low, high = int(max(low, 10)), int(min(high, 254))
 
+        # ── 阶段 1: SDK 原生自动曝光 ──
+        if use_sdk_auto:
+            try:
+                sdk_target = int(max(0, min(255, target_max_brightness)))
+                self.cam.ExposureAuto.set("On")
+                self.cam.ExpectedGrayValue.set(sdk_target)
+                logger.info(
+                    f"[SDK auto-exposure] enabled, target={sdk_target}, "
+                    f"waiting {sdk_settle_frames} frames for convergence..."
+                )
+                for _ in range(sdk_settle_frames):
+                    self.__take_one_shot()
+                logger.info(
+                    f"[SDK auto-exposure] converged: exp={self.exposure_time:.2f}ms"
+                )
+                self.cam.ExposureAuto.set("Off")
+            except Exception as e:
+                logger.warning(
+                    f"[SDK auto-exposure] not available, falling back to manual: {e}"
+                )
+
+        # ── 阶段 2: 已有曝光调整方法修正 ──
         _twice_valid_flag = False
         _img = self.get_numpy_image(n_sample)
         cur_max_brightness = max(np.max(_img), 1)
@@ -502,22 +578,87 @@ class DahengCamManager(BaseCamera):
         return device_manager.update_device_list()
 
     def enable_auto_exposure(self, enable: bool = True, mode: int = 1) -> bool:
-        """Enable or disable auto exposure (not supported on Daheng)."""
-        logger.warning("Auto exposure not supported on Daheng camera")
-        return False
+        """Enable or disable auto exposure.
+
+        Uses Daheng SDK ``ExposureAuto`` enum (``"On"``/``"Off"``).
+        When enabling, the camera automatically adjusts exposure time and
+        gain to reach the target brightness set via ``ExpectedGrayValue``.
+
+        Args:
+            enable: True to enable, False to disable.
+            mode: Auto exposure mode (0=disable, 1=continuous, 2=once).
+                  Only meaningful when ``enable=True``; Daheng SDK does not
+                  expose a separate mode enum, so continuous is always used.
+
+        Returns:
+            bool: True if successful, False if not supported.
+        """
+        assert self.cam, "camera not initialized"
+        try:
+            if enable:
+                self.cam.ExposureAuto.set("On")
+                logger.info("Auto exposure enabled (continuous)")
+            else:
+                self.cam.ExposureAuto.set("Off")
+                logger.info("Auto exposure disabled")
+            return True
+        except Exception as e:
+            logger.warning(f"Auto exposure not supported on Daheng camera: {e}")
+            return False
 
     def set_auto_exposure_target(self, target: int) -> int:
-        """Set auto exposure target brightness (not supported on Daheng)."""
-        logger.warning("Auto exposure target not supported on Daheng camera")
-        raise NotImplementedError("Auto exposure not supported on Daheng camera")
+        """Set auto exposure target brightness.
+
+        Maps to Daheng SDK ``ExpectedGrayValue`` (IntFeature, 0-255,
+        default 120). Only effective when auto exposure is enabled.
+
+        Args:
+            target: Target brightness value. Range: 0-255, default: 120.
+
+        Returns:
+            The target value that was set.
+        """
+        assert self.cam, "camera not initialized"
+        target = max(0, min(255, target))
+        try:
+            self.cam.ExpectedGrayValue.set(target)
+            logger.info(f"Auto exposure target brightness set to {target}")
+        except Exception as e:
+            logger.warning(f"Auto exposure target not supported: {e}")
+        return target
 
     def get_auto_exposure_state(self) -> dict:
-        """Get current auto exposure state (not supported on Daheng)."""
-        return {
+        """Get current auto exposure state.
+
+        Reads ``ExposureAuto`` enum and ``ExpectedGrayValue`` from the
+        Daheng SDK.
+
+        Returns:
+            Dictionary containing:
+                - enabled: bool - Whether auto exposure is enabled
+                - mode: int - Current mode (1=continuous, 0=disabled)
+                - target: int - Current target brightness (0-255)
+                - exposure_time_ms: float - Current exposure time in ms
+        """
+        assert self.cam, "camera not initialized"
+        state: dict = {
             "enabled": False,
             "mode": 0,
             "target": 120,
+            "exposure_time_ms": 0.0,
         }
+        try:
+            _val, auto_key = self.cam.ExposureAuto.get()
+            state["enabled"] = auto_key == "On"
+            state["mode"] = 1 if auto_key == "On" else 0
+            try:
+                state["target"] = self.cam.ExpectedGrayValue.get()
+            except Exception:
+                pass
+            state["exposure_time_ms"] = self.exposure_time
+        except Exception as e:
+            logger.warning(f"Auto exposure state not supported: {e}")
+        return state
 
     def set_auto_exposure_range(
         self,
@@ -526,6 +667,45 @@ class DahengCamManager(BaseCamera):
         max_gain: int = 300,
         min_gain: int = 100,
     ) -> bool:
-        """Set auto exposure time and gain range (not supported on Daheng)."""
-        logger.warning("Auto exposure range not supported on Daheng camera")
-        return False
+        """Set auto exposure time and gain range.
+
+        Maps to Daheng SDK ``AutoExposureTimeMin``/``Max`` (FloatFeature,
+        µs) and ``AutoGainMin``/``Max`` (FloatFeature). These bounds
+        constrain the auto-exposure / auto-gain search space.
+
+        Args:
+            max_time_ms: Maximum exposure time in ms.
+            min_time_ms: Minimum exposure time in ms.
+            max_gain: Maximum gain value.
+            min_gain: Minimum gain value.
+
+        Returns:
+            bool: True if successful, False if not supported.
+        """
+        assert self.cam, "camera not initialized"
+        try:
+            self.cam.AutoExposureTimeMin.set(min_time_ms * 1000)
+            self.cam.AutoExposureTimeMax.set(max_time_ms * 1000)
+            self.cam.AutoGainMin.set(min_gain)
+            self.cam.AutoGainMax.set(max_gain)
+            logger.info(
+                f"Auto exposure range set: time=[{min_time_ms}, {max_time_ms}]ms, "
+                f"gain=[{min_gain}, {max_gain}]"
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"Auto exposure range not supported: {e}")
+            return False
+
+    @property
+    def auto_exposure_value(self) -> float:
+        """Current auto exposure numerical value (exposure time in ms).
+
+        When auto exposure is enabled, this returns the exposure time
+        the SDK has auto-adjusted to. When disabled, it returns the
+        manually-set exposure time.
+
+        Returns:
+            float: Current exposure time in milliseconds.
+        """
+        return self.exposure_time

@@ -98,3 +98,4 @@ docs/benchmarks/device_less**
 *.log
 scripts/dev**
 tmp_*
+docs/**/*.pdf

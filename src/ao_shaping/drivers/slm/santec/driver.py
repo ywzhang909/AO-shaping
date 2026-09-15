@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import ctypes
+import io
 import os
 import time
 from dataclasses import dataclass
@@ -1269,6 +1270,68 @@ class Santec:
             f"范围: [0, 2π]"
         )
         return phase_rad
+
+    @staticmethod
+    def save_phase_to_csv(
+        phase_rad: np.ndarray,
+        filepath: str | Path | io.BufferedIOBase | io.TextIOBase,
+        delimiter: str = ",",
+    ) -> None:
+        """将弧度制相位矩阵导出为带行列索引的 CSV。
+
+        CSV格式与 :meth:`load_gray_from_csv` 保持一致：首行首列为 ``Y/X``，
+        首列是行索引，首行其余列是列索引；数据区保存弧度制相位值。
+
+        Args:
+            phase_rad: 弧度制相位数组，shape 必须等于 ``PANEL_RES`` 的 ``(高, 宽)``
+            filepath: 输出文件路径，或可写入字节/文本的流
+            delimiter: CSV 分隔符，默认为逗号
+
+        Raises:
+            ValueError: 相位数组维度、尺寸或数值无效
+        """
+        phase = np.asarray(phase_rad, dtype=np.float64)
+        if phase.ndim != 2:
+            raise ValueError(f"相位数据必须是2D数组，当前维度: {phase.ndim}")
+
+        target_h, target_w = PANEL_RES[1], PANEL_RES[0]
+        if phase.shape != (target_h, target_w):
+            raise ValueError(
+                f"相位尺寸错误: {phase.shape}，应与 SLM 面板分辨率一致 "
+                f"({target_h}, {target_w})"
+            )
+        if not np.isfinite(phase).all():
+            raise ValueError("相位数据包含 NaN 或无穷值")
+
+        output = io.StringIO()
+        output.write(
+            delimiter.join(["Y/X", *(str(index) for index in range(target_w))])
+        )
+        output.write("\n")
+
+        indexed_phase = np.column_stack((np.arange(target_h, dtype=np.int64), phase))
+        np.savetxt(
+            output,
+            indexed_phase,
+            delimiter=delimiter,
+            fmt=["%d", *["%.12g"] * target_w],
+        )
+        content = output.getvalue()
+
+        if isinstance(filepath, (str, Path)):
+            path = Path(filepath)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        else:
+            if isinstance(filepath, io.TextIOBase):
+                filepath.write(content)
+            else:
+                filepath.write(content.encode("utf-8"))
+
+        logger.info(
+            f"弧度相位已导出: 形状={phase.shape}, "
+            f"范围=[{phase.min():.6f}, {phase.max():.6f}] rad"
+        )
 
     def create_phase_from_array(
         self, phase_rad: np.ndarray, max_grayscale: int | None = None

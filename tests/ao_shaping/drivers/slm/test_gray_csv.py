@@ -1,5 +1,6 @@
 """测试Santec SLM-200驱动的灰度CSV加载功能"""
 
+import io
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -135,6 +136,65 @@ class TestCsvToPhase:
         """文件不存在时应抛出 FileNotFoundError"""
         with pytest.raises(FileNotFoundError):
             Santec.csv_to_phase("nonexistent.csv")
+
+
+class TestSavePhaseToCsv:
+    """测试 save_phase_to_csv 静态方法"""
+
+    def test_save_phase_to_csv_roundtrip(self, tmp_path: Path):
+        """弧度相位导出后保留行列索引和相位值"""
+        csv = tmp_path / "phase.csv"
+        phase_rad = np.zeros(Santec.Panel_Res[::-1], dtype=np.float64)
+        phase_rad[0, 0] = np.pi / 2
+        phase_rad[-1, -1] = 2 * np.pi
+
+        Santec.save_phase_to_csv(phase_rad, csv)
+
+        header = csv.read_text(encoding="utf-8").splitlines()[0]
+        assert header == "Y/X," + ",".join(
+            str(index) for index in range(Santec.Panel_Res[0])
+        )
+        exported = np.loadtxt(csv, delimiter=",", skiprows=1)[:, 1:]
+        assert exported.shape == phase_rad.shape
+        np.testing.assert_allclose(exported, phase_rad)
+
+    def test_save_phase_to_csv_writes_to_buffer(self):
+        """导出函数可写入 Streamlit 下载使用的字节流"""
+        phase_rad = np.zeros(Santec.Panel_Res[::-1], dtype=np.float64)
+        phase_rad[10, 20] = np.pi
+
+        buffer = io.BytesIO()
+        Santec.save_phase_to_csv(phase_rad, buffer)
+        buffer.seek(0)
+
+        exported = np.loadtxt(buffer, delimiter=",", skiprows=1)[:, 1:]
+        assert exported.shape == phase_rad.shape
+        np.testing.assert_allclose(exported, phase_rad)
+
+    def test_save_phase_to_csv_creates_parent_directory(self, tmp_path: Path):
+        """导出函数自动创建输出文件父目录"""
+        csv = tmp_path / "nested" / "phase.csv"
+        phase_rad = np.zeros(Santec.Panel_Res[::-1], dtype=np.float64)
+
+        Santec.save_phase_to_csv(phase_rad, csv)
+
+        assert csv.exists()
+
+    def test_save_phase_to_csv_rejects_invalid_shape(self, tmp_path: Path):
+        """导出函数拒绝非面板尺寸的相位"""
+        csv = tmp_path / "phase.csv"
+
+        with pytest.raises(ValueError, match="相位尺寸错误"):
+            Santec.save_phase_to_csv(np.zeros((2, 3)), csv)
+
+    def test_save_phase_to_csv_rejects_non_finite_values(self, tmp_path: Path):
+        """导出函数拒绝 NaN 和无穷相位"""
+        csv = tmp_path / "phase.csv"
+        phase_rad = np.zeros(Santec.Panel_Res[::-1], dtype=np.float64)
+        phase_rad[0, 0] = np.nan
+
+        with pytest.raises(ValueError, match="NaN 或无穷值"):
+            Santec.save_phase_to_csv(phase_rad, csv)
 
 
 class TestGrayToPhasePipeline:

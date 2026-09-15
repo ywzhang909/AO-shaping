@@ -940,13 +940,11 @@ def _render_slm_settings(slm_num: int):
                         / "ao_shaping"
                         / f"slm{slm_num}_phase.csv"
                     )
-                    save_path.parent.mkdir(parents=True, exist_ok=True)
-                    np.savetxt(
-                        str(save_path),
-                        phase.astype(np.uint16),
-                        fmt="%d",
-                        delimiter=",",
+                    max_gray = (
+                        getattr(slm, "_max_gray", None) or Santec.MAX_GRAYSCALE_VALUE
                     )
+                    phase_rad = phase.astype(np.float64) / float(max_gray) * 2 * np.pi
+                    Santec.save_phase_to_csv(phase_rad, save_path)
                     st.success(f"SLM {slm_num} 相位已保存到 {save_path}")
         except Exception as e:
             st.error(f"保存相位CSV失败: {e}")
@@ -1071,9 +1069,12 @@ def render_phase_control(slm_num: int):
     st.caption("在相位 A 与相位 B 之间持续来回切换")
 
     def _export_phase_csv(phase: np.ndarray, default_name: str) -> None:
-        """Save a uint16 phase array as CSV and offer it for download."""
+        """Save a displayed phase as a radian CSV and offer it for download."""
+        slm = st.session_state.get(prefix)
+        max_gray = getattr(slm, "_max_gray", None) or Santec.MAX_GRAYSCALE_VALUE
+        phase_rad = np.asarray(phase, dtype=np.float64) / float(max_gray) * 2 * np.pi
         buf = io.BytesIO()
-        np.savetxt(buf, phase, fmt="%d", delimiter=",")
+        Santec.save_phase_to_csv(phase_rad, buf)
         buf.seek(0)
         st.download_button(
             f"导出 {default_name}",
