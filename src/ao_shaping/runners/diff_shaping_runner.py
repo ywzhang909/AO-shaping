@@ -55,7 +55,7 @@ from ao_shaping.utils.hardware_utils import (
 )
 from ao_shaping.utils.slm_utils import display_phase, pick_slm_slot
 from ao_shaping.utils.targets import create_target_mask
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.utils.file import Recorder
 from ao_shaping.utils.resample import resample_to_grid
 from ao_shaping.utils.spots_calc import centroid
@@ -273,7 +273,7 @@ class _DiffDisplay:
 
 
 def _run_closed_loop(
-    slm: SantecSLM200,
+    slm: Santec,
     camera,
     *,
     target_shape: str,
@@ -981,7 +981,7 @@ def run(
     output_dir = Path(output)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    slm: SantecSLM200 | None = None
+    slm: Santec | None = None
     camera = None
 
     try:
@@ -994,7 +994,7 @@ def run(
 
         # --- 打开SLM ---
         logger.info("正在连接SLM #{}...", slm_number)
-        slm = SantecSLM200(
+        slm = Santec(
             slm_number=slm_number,
             wavelength=slm_wavelength,
             video_mode=0,  # 内存模式

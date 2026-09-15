@@ -230,7 +230,7 @@ class DM(ABC):
 
 ### 3. 空间光调制器/SLM 接口
 
-SLM 驱动通常需要实现以下功能（参考 [`SantecSLM200`](src/ao_shaping/drivers/slm/santec_slm200.py:35)）：
+SLM 驱动通常需要实现以下功能（参考 [`Santec`](src/ao_shaping/drivers/slm/santec/driver.py:35)）：
 
 | 方法 | 说明 |
 |------|------|
@@ -284,7 +284,7 @@ WFS 驱动通常需要实现以下功能（参考 [`MockWFS`](src/ao_shaping/dri
 
 | 驱动 | 文件 | 说明 |
 |------|------|------|
-| [`SantecSLM200`](src/ao_shaping/drivers/slm/santec_slm200.py:35) | `slm/santec_slm200.py` | Santec SLM-200 SDK |
+| [`Santec`](src/ao_shaping/drivers/slm/santec/driver.py:35) | `slm/santec/driver.py` | Santec SLM-200 SDK |
 | [`MockSLM`](src/ao_shaping/drivers/mock_devices.py:250) | `mock_devices.py` | 模拟 SLM |
 
 ### 3. DM 驱动
@@ -945,7 +945,7 @@ class Device(ABC):
 
 | 设备类型 | 驱动实现 | 接口方式 |
 |---------|---------|---------|
-| SLM | SantecSLM200 | SDK (ctypes) |
+| SLM | Santec | SDK (ctypes) |
 | DM | NLight | SDK + UDP |
 | 相机 | Daheng (大恒) | GigE SDK |
 | 相机 | MiiCam | Miic SDK |
@@ -986,10 +986,10 @@ class Device(ABC):
 ### 5.1 基本使用
 
 ```python
-from ao_shaping.drivers import SantecSLM200, NLightDM
+from ao_shaping.drivers import Santec, NLightDM
 
 # SLM 控制
-with SantecSLM200(slm_number=1, wavelength=1064) as slm:
+with Santec(slm_number=1, wavelength=1064) as slm:
     phase = np.zeros((1080, 1920), dtype=np.uint16)
     slm.display_data(phase, memory_number=1)
     slm._display_memory(1)

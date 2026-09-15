@@ -31,7 +31,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+from ao_shaping.drivers.slm.santec import Santec
 
 FIELDNAMES = [
     "gray_value",
@@ -56,13 +56,13 @@ def _gray_values(gray_step: int, max_gray: int) -> list[int]:
     return values
 
 
-def _flat_phase(slm: SantecSLM200, gray_value: int) -> np.ndarray:
+def _flat_phase(slm: Santec, gray_value: int) -> np.ndarray:
     height, width = slm.Panel_Res[1], slm.Panel_Res[0]
     return np.full((height, width), gray_value, dtype=np.uint16)
 
 
 def _display_rotate_slot(
-    slm: SantecSLM200,
+    slm: Santec,
     phase: np.ndarray,
     memory_slot: int,
     wait_time_s: float,
@@ -190,7 +190,7 @@ def acquire_gray_response(
     if csv_path.parent != Path(""):
         csv_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with SantecSLM200(
+    with Santec(
         slm_number=slm_number,
         video_mode=0,
     ) as slm, CameraStreamManager(

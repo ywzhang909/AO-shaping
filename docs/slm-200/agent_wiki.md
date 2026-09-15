@@ -1,6 +1,6 @@
 # Santec SLM-200 驱动 Agent Wiki
 
-> 本文件专为 AI coding agent 设计，提炼自官方文档与项目实践，用于辅助修改、调试和扩展 `santec_slm200.py`。
+> 本文件专为 AI coding agent 设计，提炼自官方文档与项目实践，用于辅助修改、调试和扩展 `santec/driver.py`。
 
 ---
 
@@ -171,24 +171,24 @@ flowchart TD
 
 | 官方 API | Python 方法 | 文件位置 |
 |----------|-------------|----------|
-| `SLM_Ctrl_Open` | `open()` | `santec_slm200.py:548` |
-| `SLM_Ctrl_Close` | `close()` | `santec_slm200.py:645` |
-| `SLM_Ctrl_ReadSU` | `_check_status()` | `santec_slm200.py:664` |
-| `SLM_Ctrl_WriteVI` | `_set_memory_mode()` | `santec_slm200.py:706` |
-| `SLM_Ctrl_WriteWL` | `set_wavelength()` | `santec_slm200.py:731` |
-| `SLM_Ctrl_ReadWL` | `get_wavelength_info()` | `santec_slm200.py:779` |
-| `SLM_Ctrl_WriteGS` | `set_grayscale()` | `santec_slm200.py:1025` |
-| `SLM_Ctrl_ReadGS` | `get_current_grayscale()` | `santec_slm200.py:1065` |
-| `SLM_Ctrl_WriteMI` | `write_phase()` | `santec_slm200.py:884` |
-| `SLM_Ctrl_WriteDS` | `display_memory()` | `santec_slm200.py:946` |
-| `SLM_Ctrl_ReadDS` | `get_displayed_memory_number()` | `santec_slm200.py:1056` |
+| `SLM_Ctrl_Open` | `open()` | `santec/driver.py:548` |
+| `SLM_Ctrl_Close` | `close()` | `santec/driver.py:645` |
+| `SLM_Ctrl_ReadSU` | `_check_status()` | `santec/driver.py:664` |
+| `SLM_Ctrl_WriteVI` | `_set_memory_mode()` | `santec/driver.py:706` |
+| `SLM_Ctrl_WriteWL` | `set_wavelength()` | `santec/driver.py:731` |
+| `SLM_Ctrl_ReadWL` | `get_wavelength_info()` | `santec/driver.py:779` |
+| `SLM_Ctrl_WriteGS` | `set_grayscale()` | `santec/driver.py:1025` |
+| `SLM_Ctrl_ReadGS` | `get_current_grayscale()` | `santec/driver.py:1065` |
+| `SLM_Ctrl_WriteMI` | `write_phase()` | `santec/driver.py:884` |
+| `SLM_Ctrl_WriteDS` | `display_memory()` | `santec/driver.py:946` |
+| `SLM_Ctrl_ReadDS` | `get_displayed_memory_number()` | `santec/driver.py:1056` |
 | `SLM_Ctrl_WriteDR` | 内部连续显示逻辑 | |
-| `SLM_Ctrl_ReadSD` | `get_serial_number()` | `santec_slm200.py:219` |
-| `SLM_Ctrl_ReadSDO` | `get_serial_number()` | `santec_slm200.py:219` |
-| `SLM_Ctrl_ReadPS` | `get_product_serial_number()` | `santec_slm200.py:303` |
-| `SLM_Ctrl_ReadLS` | `get_lcos_serial_number()` | `santec_slm200.py:321` |
-| `SLM_Ctrl_ReadPN` | `get_display_name()` | `santec_slm200.py:339` |
-| `SLM_Ctrl_ReadVR` | `get_version()` | `santec_slm200.py:354` |
+| `SLM_Ctrl_ReadSD` | `get_serial_number()` | `santec/driver.py:219` |
+| `SLM_Ctrl_ReadSDO` | `get_serial_number()` | `santec/driver.py:219` |
+| `SLM_Ctrl_ReadPS` | `get_product_serial_number()` | `santec/driver.py:303` |
+| `SLM_Ctrl_ReadLS` | `get_lcos_serial_number()` | `santec/driver.py:321` |
+| `SLM_Ctrl_ReadPN` | `get_display_name()` | `santec/driver.py:339` |
+| `SLM_Ctrl_ReadVR` | `get_version()` | `santec/driver.py:354` |
 
 ---
 
@@ -208,4 +208,4 @@ flowchart TD
 
 - 官方文档：`docs/slm-200/SLMFuncDLL_Programmer's_Guide(v2.5).md`
 - 官方 C++ 样例：`D:/Projects/TIFO/ao/SDKs/SLM drivers/SLM_DLL_ver.2.51/sample/CPP/SLMDLLTestCPP2/SLMDLLTestCPP/SLMDLLTestCPP.cpp`
-- Python 驱动：`src/ao_shaping/drivers/slm/santec_slm200.py`
+- Python 驱动：`src/ao_shaping/drivers/slm/santec/driver.py`

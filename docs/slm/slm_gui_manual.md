@@ -15,7 +15,7 @@ streamlit run src/ao_shaping/gui/slm/multi_slm_controller.py
 
 ## 2. 类图
 
-mermaid
+```mermaid
 classDiagram
     class StreamlitApp {
         +main()
@@ -40,7 +40,7 @@ classDiagram
         +run()
     }
     class PatternControl {
-        <<abstract>>
+        <<abstract></abstract>>
         +render(prefix) dict
     }
     class FlatControl
@@ -60,7 +60,7 @@ classDiagram
     class GSSquareControl
     class SteadyPhaseControl
     class PatternHelper
-    class SantecSLM200 {
+    class Santec {
         +open()
         +close()
         +write_phase(phase, memory_number)
@@ -86,7 +86,7 @@ classDiagram
         +save_config(serial, config)
     }
 
-    StreamlitApp --> SLMController : 调用
+	StreamlitApp --> SLMController : 调用
     SLMController --> BackgroundToggle : 启动后台线程
     SLMController --> PatternControl : render_pattern_controls()
     PatternControl <|-- FlatControl
@@ -105,18 +105,19 @@ classDiagram
     PatternControl <|-- HalfHalfPhaseControl
     PatternControl <|-- GSSquareControl
     PatternControl <|-- SteadyPhaseControl
-    SLMController --> SantecSLM200 : 驱动
-    SantecSLM200 --> WavefrontCorrection : 使用
-    SantecSLM200 --> SLMConfigManager : 使用
-    PatternHelper --> SantecSLM200 : 读取 Panel_Res/Pitch_um
+    SLMController --> Santec : 驱动
+    Santec --> WavefrontCorrection : 使用
+    Santec --> SLMConfigManager : 使用
+    PatternHelper --> Santec : 读取 Panel_Res/Pitch_um
+```
 
 ## 3. 模块映射
 
-| 文件 | 职责 |
-|------|------|
+| 文件                    | 职责                                                       |
+| ----------------------- | ---------------------------------------------------------- |
 | multi_slm_controller.py | Streamlit 页面：设备发现、连接、相位控制、周期切换后台线程 |
-| pattern_controls.py | 图案类型注册表 + 相位生成流水线（generate_phase_gray） |
-| slm_calibration_ui.py | 独立的 LUT 标定页面（不在本说明书范围） |
+| pattern_controls.py     | 图案类型注册表 + 相位生成流水线（generate_phase_gray）     |
+| slm_calibration_ui.py   | 独立的 LUT 标定页面（不在本说明书范围）                    |
 
 ---
 
@@ -124,31 +125,31 @@ classDiagram
 
 每个 SLM 以 slm{N}（N = 1 或 2）为命名空间。
 
-| 键 | 类型 | 含义 |
-|-----|------|------|
-| slm{N} | SantecSLM200 | SLM 对象（断开时为 None） |
-| slm{N}_connected | bool | 连接标志 |
-| slm{N}_wavelength | int | 工作波长（nm） |
-| slm{N}_video_mode | str | 内存模式（DVI 已禁用） |
-| slm{N}_next_memory | int | 下一个内存槽提示 |
-| slm{N}_phase_preview | ndarray | 缓存的预览图像 |
-| slm{N}_phase_source | str | 缓存相位的来源标签 |
-| slm{N}_shift_x/y | int | 平移值 |
-| slm{N}_use_correction | bool | 波前矫正开关 |
-| slm{N}_toggle_phase_a/b | ndarray | 周期切换存储的相位 |
-| slm{N}_toggle_active | bool | 周期切换是否运行 |
-| slm{N}_toggle_frequency | float | 切换频率（Hz） |
-| slm{N}_toggle_thread | Thread | 后台线程句柄 |
-| slm{N}_toggle_stop_event | threading.Event | 停止信号 |
-| slm{N}_toggle_freq_ref | list | 可变频率引用（单元素） |
-| slm{N}_toggle_slm_container | list | 可变 SLM 引用（单元素） |
-| slm{N}_base_phase | ndarray | 用于叠加的底相位 |
-| slm{N}_overlay_base | bool | 叠加开关 |
-| slm{N}_width/height | int | 面板分辨率 |
-| slm{N}_pixel_pitch_um | float | 像素间距 |
-| slm{N}_bits | int | 位深 |
-| slm{N}_loaded_config | dict | 缓存的配置文件 |
-| available_slms | list[dict] | 设备发现缓存 |
+| 键                          | 类型            | 含义                      |
+| --------------------------- | --------------- | ------------------------- |
+| slm{N}                      | Santec    | SLM 对象（断开时为 None） |
+| slm{N}_connected            | bool            | 连接标志                  |
+| slm{N}_wavelength           | int             | 工作波长（nm）            |
+| slm{N}_video_mode           | str             | 内存模式（DVI 已禁用）    |
+| slm{N}_next_memory          | int             | 下一个内存槽提示          |
+| slm{N}_phase_preview        | ndarray         | 缓存的预览图像            |
+| slm{N}_phase_source         | str             | 缓存相位的来源标签        |
+| slm{N}_shift_x/y            | int             | 平移值                    |
+| slm{N}_use_correction       | bool            | 波前矫正开关              |
+| slm{N}_toggle_phase_a/b     | ndarray         | 周期切换存储的相位        |
+| slm{N}_toggle_active        | bool            | 周期切换是否运行          |
+| slm{N}_toggle_frequency     | float           | 切换频率（Hz）            |
+| slm{N}_toggle_thread        | Thread          | 后台线程句柄              |
+| slm{N}_toggle_stop_event    | threading.Event | 停止信号                  |
+| slm{N}_toggle_freq_ref      | list            | 可变频率引用（单元素）    |
+| slm{N}_toggle_slm_container | list            | 可变 SLM 引用（单元素）   |
+| slm{N}_base_phase           | ndarray         | 用于叠加的底相位          |
+| slm{N}_overlay_base         | bool            | 叠加开关                  |
+| slm{N}_width/height         | int             | 面板分辨率                |
+| slm{N}_pixel_pitch_um       | float           | 像素间距                  |
+| slm{N}_bits                 | int             | 位深                      |
+| slm{N}_loaded_config        | dict            | 缓存的配置文件            |
+| available_slms              | list[dict]      | 设备发现缓存              |
 
 ---
 
@@ -156,18 +157,18 @@ classDiagram
 
 ### 5.1 连接 SLM
 
-mermaid
+```mermaid
 sequenceDiagram
     participant U as 用户
     participant UI as render_slm_sidebar
     participant C as connect_slm
-    participant SLM as SantecSLM200
+    participant SLM as Santec
     participant SS as session_state
 
-    U->>UI: 点击"连接"
+	U->>UI: 点击"连接"
     UI->>C: connect_slm(slm_num)
     C->>SS: 清理旧 SLM 对象
-    C->>SLM: SantecSLM200(slm_number=N)
+    C->>SLM: Santec(slm_number=N)
     C->>SLM: slm.open()
     SLM-->>C: 序列号、Panel_Res、Pitch_um、波长
     C->>SS: 存储 slm 及所有解析出的参数
@@ -175,15 +176,17 @@ sequenceDiagram
     C->>C: _refresh_device_list()
     C->>C: st.rerun()
     C-->>U: 成功提示
+```
+
 
 ### 5.2 断开 SLM
 
-mermaid
+```mermaid
 sequenceDiagram
     participant U as 用户
     participant UI as render_slm_sidebar
     participant C as disconnect_slm
-    participant SLM as SantecSLM200
+    participant SLM as Santec
     participant SS as session_state
 
     U->>UI: 点击"断开"
@@ -196,15 +199,16 @@ sequenceDiagram
     C->>SS: loaded_config = None
     C->>C: st.rerun()
     C-->>U: 成功提示
+```
 
 ### 5.3 从模式生成器生成相位
 
-mermaid
+```mermaid
 sequenceDiagram
     participant U as 用户
     participant PC as render_phase_control
     participant C as generate_phase_gray
-    participant SLM as SantecSLM200
+    participant SLM as Santec
     participant SS as session_state
 
     U->>PC: 点击"从模式生成器生成相位"
@@ -218,7 +222,7 @@ sequenceDiagram
         C->>C: gerchberg_saxton(...)
         Note over C,SLM: 可选 live_display 回调每轮迭代推送相位
     else 其他图案
-        C->>C: PatternHelper.<method>()
+        C->>C: PatternHelper.<method></method>()
         C->>SLM: create_phase_from_array(phase_rad)
         Note over SLM: 内部叠加矫正 + LUT + 平移
     end
@@ -227,15 +231,16 @@ sequenceDiagram
     Note over SLM: 自动轮换内存槽，等待像素翻转
     PC->>SS: refresh_phase_preview(slm_num)
     PC->>PC: st.success(...)
+```
 
 ### 5.4 应用平移
 
-mermaid
+```mermaid
 sequenceDiagram
     participant U as 用户
     participant PC as render_phase_control
     participant S as set_shift
-    participant SLM as SantecSLM200
+    participant SLM as Santec
     participant SS as session_state
 
     U->>PC: 点击"应用平移"
@@ -246,15 +251,16 @@ sequenceDiagram
     SLM-->>S: 平移后的相位（或 None）
     S->>SS: refresh_phase_preview(slm_num)
     S->>PC: st.success / st.info
+```
 
 ### 5.5 周期切换（开始/停止）
 
-mermaid
+```mermaid
 sequenceDiagram
     participant U as 用户
     participant PC as render_phase_control
     participant T as _toggle_phases_task
-    participant SLM as SantecSLM200
+    participant SLM as Santec
     participant SS as session_state
 
     U->>PC: 点击"开始周期切换"
@@ -274,14 +280,15 @@ sequenceDiagram
     U->>PC: 点击"停止周期切换"
     PC->>SS: stop_event.set()
     PC->>SS: toggle_active = False, thread = None
+```
 
 ### 5.6 设为相位 A / B
 
-mermaid
+```mermaid
 sequenceDiagram
     participant U as 用户
     participant PC as render_phase_control
-    participant SLM as SantecSLM200
+    participant SLM as Santec
     participant SS as session_state
 
     U->>PC: 点击"设为相位 A"
@@ -298,30 +305,31 @@ sequenceDiagram
     U->>PC: 点击"导出 phase_a.csv"
     PC->>PC: np.savetxt 到 BytesIO
     PC->>PC: st.download_button
+```
 
 ### 5.7 从CSV加载相位
 
-mermaid
+```mermaid
 sequenceDiagram
     participant U as 用户
     participant PC as render_phase_control
-    participant SLM as SantecSLM200
+    participant SLM as Santec
     participant SS as session_state
-    participant FS as _apply_shift
 
     U->>PC: 上传 CSV + 点击"从CSV加载相位"
     PC->>PC: _stop_toggle(slm_num)
     PC->>PC: 写入字节到临时文件
     PC->>SLM: slm.load_gray_from_csv(temp_path)
-    SLM-->>PC: uint16 phase_gray
-    PC->>FS: _apply_shift(phase_gray, shift_x, shift_y)
-    FS->>SLM: SantecSLM200.shift_phase (静态)
-    PC->>SS: mem_slot = _pick_next_memory(slm_num)
-    PC->>SLM: slm.write_phase(phase, memory_number=mem_slot)
-    PC->>SLM: slm.display_memory(mem_slot)
+    SLM-->>PC: uint16 phase_gray（已校验格式）
+    PC->>SLM: Santec.csv_to_phase(temp_path)
+    SLM-->>PC: float64 phase_rad
+    PC->>SLM: slm.display_phase(phase_rad)
+    Note over SLM: create_phase_from_array()<br/>弧度→灰度 + 矫正 + LUT + 平移
+    SLM-->>PC: mem_slot
     PC->>SS: refresh_phase_preview(slm_num)
-    PC->>PC: st.success / st.warning
+    PC->>PC: st.success
     PC->>PC: temp_path.unlink()
+```
 
 ### 5.8 保存当前相位为底相位
 
@@ -329,7 +337,7 @@ mermaid
 sequenceDiagram
     participant U as 用户
     participant PC as render_phase_control
-    participant SLM as SantecSLM200
+    participant SLM as Santec
     participant SS as session_state
 
     U->>PC: 点击"保存当前相位为底相位"
@@ -356,7 +364,7 @@ mermaid
 sequenceDiagram
     participant U as 用户
     participant PC as _render_slm_settings
-    participant SLM as SantecSLM200
+    participant SLM as Santec
     participant SS as session_state
 
     U->>PC: 上传矫正 CSV + 点击"应用矫正"
@@ -379,7 +387,7 @@ sequenceDiagram
     participant U as 用户
     participant PC as _render_slm_settings
     participant S as set_wavelength
-    participant SLM as SantecSLM200
+    participant SLM as Santec
     participant SS as session_state
 
     U->>PC: 输入波长 + 点击"设置波长"
@@ -396,7 +404,7 @@ sequenceDiagram
     participant U as 用户
     participant PC as _render_slm_settings
     participant S as set_video_mode
-    participant SLM as SantecSLM200
+    participant SLM as Santec
     participant SS as session_state
 
     U->>PC: 点击"设置模式"
@@ -413,7 +421,7 @@ mermaid
 sequenceDiagram
     participant U as 用户
     participant PC as _render_grayscale_config
-    participant SLM as SantecSLM200
+    participant SLM as Santec
     participant SS as session_state
 
     U->>PC: 点击"应用灰度设置"
@@ -434,7 +442,7 @@ mermaid
 sequenceDiagram
     participant U as 用户
     participant PC as _render_slm_settings
-    participant SLM as SantecSLM200
+    participant SLM as Santec
 
     U->>PC: 点击"保存配置"
     PC->>SLM: 若 UI shift != slm.shift_x/y: slm.set_shift(...)
@@ -448,7 +456,7 @@ mermaid
 sequenceDiagram
     participant U as 用户
     participant PC as _render_slm_settings
-    participant SLM as SantecSLM200
+    participant SLM as Santec
     participant FS as 文件系统
 
     U->>PC: 点击"保存当前相位到CSV"
@@ -532,24 +540,24 @@ flowchart LR
 
 ## 7. 图案注册表
 
-| 图案 | 控制类 | `generate_phase_gray` 中的输出路径 |
-|------|--------|----------------------------------|
-| 平场 | `FlatControl` | `np.full((h,w), gray, uint16)`（原始灰度） |
-| 线性光栅 | `LinearGratingControl` | `PatternHelper.linear_grating` → `create_phase_from_array` |
-| 圆形光栅 | `CircularGratingControl` | `PatternHelper.circular_grating` → `create_phase_from_array` |
-| 透镜 | `LensControl` | `PatternHelper.lens` → `create_phase_from_array` |
-| 全息光栅 | `HologramGratingControl` | `PatternHelper.hologram` → `create_phase_from_array` |
-| 闪耀光栅 | `BlazedGratingControl` | `PatternHelper.linear_grating(direction=...)` → `create_phase_from_array` |
-| 棋盘格 | `CheckerboardControl` | `PatternHelper.generate_checkerboard`（原始 uint16） |
-| 二元光栅 | `BinaryGratingControl` | `PatternHelper.generate_binary_grating`（原始 uint16） |
-| 微透镜阵列 | `MicrolensArrayControl` | `PatternHelper.generate_microlens_array`（原始 uint16） |
+| 图案       | 控制类                      | `generate_phase_gray` 中的输出路径                                                     |
+| ---------- | --------------------------- | ---------------------------------------------------------------------------------------- |
+| 平场       | `FlatControl`             | `np.full((h,w), gray, uint16)`（原始灰度）                                             |
+| 线性光栅   | `LinearGratingControl`    | `PatternHelper.linear_grating` → `create_phase_from_array`                          |
+| 圆形光栅   | `CircularGratingControl`  | `PatternHelper.circular_grating` → `create_phase_from_array`                        |
+| 透镜       | `LensControl`             | `PatternHelper.lens` → `create_phase_from_array`                                    |
+| 全息光栅   | `HologramGratingControl`  | `PatternHelper.hologram` → `create_phase_from_array`                                |
+| 闪耀光栅   | `BlazedGratingControl`    | `PatternHelper.linear_grating(direction=...)` → `create_phase_from_array`           |
+| 棋盘格     | `CheckerboardControl`     | `PatternHelper.generate_checkerboard`（原始 uint16）                                   |
+| 二元光栅   | `BinaryGratingControl`    | `PatternHelper.generate_binary_grating`（原始 uint16）                                 |
+| 微透镜阵列 | `MicrolensArrayControl`   | `PatternHelper.generate_microlens_array`（原始 uint16）                                |
 | 湍流相位屏 | `TurbulenceScreenControl` | `PatternHelper.init_turbulence_screen` + `generate_turbulence_screen`（原始 uint16） |
-| Zernike | `ZernikeControl` | `PatternHelper.generate_zernike_polynomial` → `create_phase_from_array` |
-| 达曼光栅 | `DammannGratingControl` | `PatternHelper.generate_dammann_grating`（原始 uint16） |
-| 涡旋相位 | `VortexPhaseControl` | `PatternHelper.generate_vortex`（wrap 时 uint16，否则 rad→uint16） |
-| 半半相位 | `HalfHalfPhaseControl` | 平场半区（原始）+ 闪耀半区（`create_phase_from_array`）拼接 |
-| GS方形整形 | `GSSquareControl` | `generate_gs_square_phase` → GS → `create_phase_from_array` |
-| 稳像法整形 | `SteadyPhaseControl` | SPM + 闪耀光栅 → `create_phase_from_array` |
+| Zernike    | `ZernikeControl`          | `PatternHelper.generate_zernike_polynomial` → `create_phase_from_array`             |
+| 达曼光栅   | `DammannGratingControl`   | `PatternHelper.generate_dammann_grating`（原始 uint16）                                |
+| 涡旋相位   | `VortexPhaseControl`      | `PatternHelper.generate_vortex`（wrap 时 uint16，否则 rad→uint16）                    |
+| 半半相位   | `HalfHalfPhaseControl`    | 平场半区（原始）+ 闪耀半区（`create_phase_from_array`）拼接                            |
+| GS方形整形 | `GSSquareControl`         | `generate_gs_square_phase` → GS → `create_phase_from_array`                        |
+| 稳像法整形 | `SteadyPhaseControl`      | SPM + 闪耀光栅 →`create_phase_from_array`                                             |
 
 ---
 
@@ -558,7 +566,7 @@ flowchart LR
 1. **内存槽轮换**：对**同一**槽位连续 `write_phase` + `display_memory` 会被固件判为 no-op，LCOS 面板不刷新。`_pick_next_memory` 随机选取 2..125 中除当前显示槽外的槽位，进程重启后仍有效。
 2. **DVI 模式已禁用**：`video_mode=1` 的 `open()` 可能挂起 120s/300s，且挂起后 memory 模式 `open()` 也挂起，需物理断电恢复。仅提供内存模式。
 3. **平场灰度 RAW 路径**：始终通过 `np.full((h,w), gray, dtype=np.uint16)` 发送原始 uint16 灰度。切勿将平场相位走 `create_phase_from_array()`（弧度转换）。
-4. **平移数学**：唯一实现在驱动层的静态 `SantecSLM200.shift_phase`。重写缓存相位必须走驱动层 `apply_shift()`，绝不能对缓存相位再跑 `write_phase`（会二次叠加矫正）。
+4. **平移数学**：唯一实现在驱动层的静态 `Santec.shift_phase`。重写缓存相位必须走驱动层 `apply_shift()`，绝不能对缓存相位再跑 `write_phase`（会二次叠加矫正）。
 5. **后台线程**：绝不直接碰 `st.session_state`。`_toggle_phases_task` 使用 `slm_container`（列表）和 `freq_ref`（列表）作为可变快照，并用 `threading.Event` 传递停止信号。
 6. **时序**：优先用 `time.time()` 墙钟差值而非计数器 —— `int(elapsed * 2.0 * freq) % 2 == 0` 按精确频率切换，无累积误差。
 7. **0 级光斑**：绝不假设 0 级光斑位于相机画面中心 —— 用 `argmax` 定位。

@@ -16,7 +16,7 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.ccd import DahengCamera
-from ao_shaping.drivers.slm import SantecSLM200
+from ao_shaping.drivers.slm import Santec
 from ao_shaping.optimizer.wfless.differentiable_beam import optimize_beam_shaping
 from ao_shaping.utils.beam_metrics import compute_metrics
 from ao_shaping.utils.file import Recorder
@@ -42,7 +42,7 @@ DISPLAY_SIZE = (1280, 640)  # 窗口总尺寸
 FRAME_SIZE = (300, 300)  # 单面板尺寸
 
 
-def _display_phase(slm: SantecSLM200, phase_rad: np.ndarray, settle_s: float) -> None:
+def _display_phase(slm: Santec, phase_rad: np.ndarray, settle_s: float) -> None:
     """弧度相位 → 灰度下发 (create_phase_from_array 含波前矫正/LUT)。
 
     display_data 内部自动轮换内存槽, 满足 AGENTS.md 槽轮换约束。
@@ -102,7 +102,7 @@ def main() -> None:
     out_dir = OUT_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    slm = SantecSLM200()
+    slm = Santec()
     ccd = DahengCamera(exposure_time_ms=EXPOSURE_MS)
     recorder = Recorder("mse", "min")
     grid_h, grid_w = slm.Panel_Res  # (1200, 1920) SLM200 全面板

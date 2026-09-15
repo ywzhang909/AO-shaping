@@ -199,18 +199,18 @@ optimal_exposure = auto_expo.auto_adjust(n_samples=3)
 ### 闪耀光栅法标定（推荐）
 
 ```python
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
-from ao_shaping.drivers.slm.slm_calibration import SantecSLM200Calibrator
+from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.drivers.slm.slm_calibration import SantecCalibrator
 from ao_shaping.drivers.ccd.daheng import CameraStreamManager
 
 # 连接设备
-with SantecSLM200(slm_number=1) as slm:
+with Santec(slm_number=1) as slm:
     # 设置波长（相位范围固定为0~2π）
     slm.set_wavelength(1064)
     
     with CameraStreamManager(cam_id=0, exposure_time_ms=50) as camera:
         # 创建标定器
-        calibrator = SantecSLM200Calibrator(
+        calibrator = SantecCalibrator(
             slm=slm,
             camera=camera,
             grating_period=8
@@ -235,16 +235,16 @@ with SantecSLM200(slm_number=1) as slm:
 ### 零级光强比值法标定（更稳定）
 
 ```python
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
-from ao_shaping.drivers.slm.slm_calibration import SantecSLM200Calibrator
+from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.drivers.slm.slm_calibration import SantecCalibrator
 from ao_shaping.drivers.ccd.daheng import CameraStreamManager
 
-with SantecSLM200(slm_number=1) as slm:
+with Santec(slm_number=1) as slm:
     # 设置波长（相位范围固定为0~2π）
     slm.set_wavelength(1064)
     
     with CameraStreamManager(cam_id=0, exposure_time_ms=50) as camera:
-        calibrator = SantecSLM200Calibrator(
+        calibrator = SantecCalibrator(
             slm=slm,
             camera=camera,
             grating_period=8
@@ -383,7 +383,7 @@ result = diffraction_calib.calibrate()
 |------|------|
 | `slm_calibration.py` | 标定模块主文件 |
 | `slm_calibration.py::CalibrationResult` | 标定结果数据类 |
-| `slm_calibration.py::SantecSLM200Calibrator` | 闪耀光栅法/零级比值法标定器 |
+| `slm_calibration.py::SantecCalibrator` | 闪耀光栅法/零级比值法标定器 |
 | `slm_calibration.py::InterferometerCalibrator` | 干涉法标定器 |
 | `slm_calibration.py::DiffractionEfficiencyCalibrator` | 衍射效率法标定器 |
 | `slm_calibration.py::AutoExposureController` | 自动曝光控制器 |

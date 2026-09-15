@@ -20,10 +20,10 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+from ao_shaping.drivers.slm.santec import Santec
 
 
-def _flat_phase(slm: SantecSLM200, gray_value: int) -> np.ndarray:
+def _flat_phase(slm: Santec, gray_value: int) -> np.ndarray:
     height, width = slm.Panel_Res[1], slm.Panel_Res[0]
     return np.full((height, width), gray_value, dtype=np.uint16)
 
@@ -63,7 +63,7 @@ def run(
 ) -> None:
     """Test flat-phase gray values and verify camera sees different brightness."""
 
-    with SantecSLM200(
+    with Santec(
         slm_number=slm_number,
         wavelength=wavelength,
         video_mode=0,

@@ -23,8 +23,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
-from ao_shaping.drivers.slm.wavefront_correction import WavefrontCorrection
+from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.drivers.slm.santec.wavefront_correction import WavefrontCorrection
 from ao_shaping.optimizer.wfless.slm_square_shaping import (
     SLM_HEIGHT,
     SLM_RESOLUTION,
@@ -131,13 +131,13 @@ class TestZernikeGuiVsSlmSquareConsistency:
         gen = ZernikeGenerator(SLM_RESOLUTION, radius=RADIUS, n_orders=N_MAX)
         mask = gen.mask.astype(bool)
         raw = gen.generate_polynomial({(2, 0): 1.0})
-        expected_unwrapped = raw / (2.0 * np.pi) * SantecSLM200.MAX_GRAYSCALE_VALUE
+        expected_unwrapped = raw / (2.0 * np.pi) * Santec.MAX_GRAYSCALE_VALUE
 
         c = np.zeros(calc_n_zernike_terms(N_MAX), dtype=np.float64)
         c[3] = 1.0
         phase = _zernike_phase_radians(c, N_MAX, gen)
-        slm = SantecSLM200.__new__(SantecSLM200)
-        slm._max_gray = SantecSLM200.MAX_GRAYSCALE_VALUE
+        slm = Santec.__new__(Santec)
+        slm._max_gray = Santec.MAX_GRAYSCALE_VALUE
         slm._correction = WavefrontCorrection()
         slm._lut = None
         slm._shift_x = 0
@@ -145,7 +145,7 @@ class TestZernikeGuiVsSlmSquareConsistency:
         gray = slm.create_phase_from_array(phase)
 
         diff = gray[mask].astype(np.float64) - expected_unwrapped[mask]
-        ratios = diff / SantecSLM200.MAX_GRAYSCALE_VALUE
+        ratios = diff / Santec.MAX_GRAYSCALE_VALUE
         rounded = np.round(ratios)
         assert np.allclose(ratios, rounded, atol=1e-3), (
             "Driver grayscale is not a pure mod-2pi wrap of the linear mapping"

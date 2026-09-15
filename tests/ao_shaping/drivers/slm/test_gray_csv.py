@@ -7,16 +7,16 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-sys.modules["ao_shaping.drivers.slm._slm_win"] = MagicMock()
+sys.modules["ao_shaping.drivers.slm.santec._slm_win"] = MagicMock()
 
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+from ao_shaping.drivers.slm.santec import Santec
 
 
 @pytest.fixture(autouse=True)
 def _ensure_mock_slm_sdk() -> None:
     with patch.dict(
         "sys.modules",
-        {"ao_shaping.drivers.slm._slm_win": MagicMock()},
+        {"ao_shaping.drivers.slm.santec._slm_win": MagicMock()},
         clear=False,
     ):
         yield
@@ -34,7 +34,7 @@ class TestLoadGrayFromCSV:
     )
     def test_load_gray_shape_and_dtype(self):
         """加载CSV灰度矩阵，验证形状和数据类型"""
-        slm = SantecSLM200(slm_number=1)
+        slm = Santec(slm_number=1)
         gray = slm.load_gray_from_csv(CSV_PATH)
 
         assert gray.shape == (1200, 1920)
@@ -46,7 +46,7 @@ class TestLoadGrayFromCSV:
     )
     def test_load_gray_value_range(self):
         """灰度值应在 0~1023 范围内"""
-        slm = SantecSLM200(slm_number=1)
+        slm = Santec(slm_number=1)
         gray = slm.load_gray_from_csv(CSV_PATH)
 
         assert gray.min() >= 0
@@ -58,7 +58,7 @@ class TestLoadGrayFromCSV:
     )
     def test_load_gray_dimensions(self):
         """验证维度: 行0~1199, 列0~1919"""
-        slm = SantecSLM200(slm_number=1)
+        slm = Santec(slm_number=1)
         gray = slm.load_gray_from_csv(CSV_PATH)
 
         assert gray.shape[0] == 1200  # 行: 0~1199
@@ -66,7 +66,7 @@ class TestLoadGrayFromCSV:
 
     def test_load_gray_file_not_found(self):
         """文件不存在时应抛出 FileNotFoundError"""
-        slm = SantecSLM200(slm_number=1)
+        slm = Santec(slm_number=1)
         with pytest.raises(FileNotFoundError):
             slm.load_gray_from_csv("nonexistent.csv")
 
@@ -80,9 +80,9 @@ class TestCsvToPhase:
     )
     def test_csv_to_phase_shape(self):
         """灰度转弧度，相位数组形状应与原始数据一致"""
-        slm = SantecSLM200(slm_number=1)
+        slm = Santec(slm_number=1)
         gray = slm.load_gray_from_csv(CSV_PATH)
-        phase_rad = SantecSLM200.csv_to_phase(CSV_PATH)
+        phase_rad = Santec.csv_to_phase(CSV_PATH)
 
         assert phase_rad.shape == gray.shape
 
@@ -90,7 +90,7 @@ class TestCsvToPhase:
         """csv_to_phase 返回 float64 弧度数组"""
         if not CSV_PATH.exists():
             pytest.skip(f"CSV文件不存在: {CSV_PATH}")
-        phase_rad = SantecSLM200.csv_to_phase(CSV_PATH)
+        phase_rad = Santec.csv_to_phase(CSV_PATH)
         assert phase_rad.dtype == np.float64
 
     @pytest.mark.skipif(
@@ -99,7 +99,7 @@ class TestCsvToPhase:
     )
     def test_csv_to_phase_value_range(self):
         """弧度值应在 0~2π 范围内"""
-        phase_rad = SantecSLM200.csv_to_phase(CSV_PATH)
+        phase_rad = Santec.csv_to_phase(CSV_PATH)
         assert phase_rad.min() >= 0.0
         assert phase_rad.max() <= 2 * np.pi
 
@@ -109,9 +109,9 @@ class TestCsvToPhase:
     )
     def test_csv_to_phase_roundtrip(self):
         """灰度→弧度→灰度 往返一致（无矫正/LUT/平移）"""
-        slm = SantecSLM200(slm_number=1)
+        slm = Santec(slm_number=1)
         gray_orig = slm.load_gray_from_csv(CSV_PATH)
-        phase_rad = SantecSLM200.csv_to_phase(CSV_PATH)
+        phase_rad = Santec.csv_to_phase(CSV_PATH)
 
         gray_roundtrip = slm.create_phase_from_array(phase_rad)
 
@@ -119,15 +119,15 @@ class TestCsvToPhase:
 
     def test_csv_to_phase_with_custom_max_gray(self):
         """使用自定义 max_grayscale 参数验证比例关系"""
-        phase_default = SantecSLM200.csv_to_phase(CSV_PATH, max_grayscale=1023)
-        phase_custom = SantecSLM200.csv_to_phase(CSV_PATH, max_grayscale=511)
+        phase_default = Santec.csv_to_phase(CSV_PATH, max_grayscale=1023)
+        phase_custom = Santec.csv_to_phase(CSV_PATH, max_grayscale=511)
         ratio = phase_custom.max() / phase_default.max()
         assert abs(ratio - 2.0) < 1e-2
 
     def test_csv_to_phase_file_not_found(self):
         """文件不存在时应抛出 FileNotFoundError"""
         with pytest.raises(FileNotFoundError):
-            SantecSLM200.csv_to_phase("nonexistent.csv")
+            Santec.csv_to_phase("nonexistent.csv")
 
 
 class TestGrayToPhasePipeline:
@@ -139,9 +139,9 @@ class TestGrayToPhasePipeline:
     )
     def test_full_pipeline(self):
         """完整流程: CSV → csv_to_phase → create_phase_from_array"""
-        slm = SantecSLM200(slm_number=1)
+        slm = Santec(slm_number=1)
         gray = slm.load_gray_from_csv(CSV_PATH)
-        phase_rad = SantecSLM200.csv_to_phase(CSV_PATH)
+        phase_rad = Santec.csv_to_phase(CSV_PATH)
         gray_from_phase = slm.create_phase_from_array(phase_rad)
 
         assert gray_from_phase.shape == gray.shape

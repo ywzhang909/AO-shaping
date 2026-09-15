@@ -80,7 +80,7 @@ try:
         FFmpegCamera,
         MlaRes,
         NlightDM,
-        SantecSLM200,
+        Santec,
         ThorlabWFS,
     )
 except ImportError:
@@ -89,7 +89,7 @@ except ImportError:
     DahengCamManager = None
     NlightDM = None
     ThorlabWFS = None
-    SantecSLM200 = None
+    Santec = None
     FFmpegCamera = None
     MlaRes = None
 
@@ -153,7 +153,7 @@ __all__ = [
     "DahengCamManager",
     "NlightDM",
     "ThorlabWFS",
-    "SantecSLM200",
+    "Santec",
     "FFmpegCamera",
     "MlaRes",
     # Optimizers

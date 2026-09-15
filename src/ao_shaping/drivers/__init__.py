@@ -76,13 +76,13 @@ except ImportError as e:
     FFmpegCameraError = None
 
 try:
-    from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200, SantecSLM200Error
+    from ao_shaping.drivers.slm.santec import Santec, SantecError
 
-    __all__ += ["SantecSLM200", "SantecSLM200Error"]
+    __all__ += ["Santec", "SantecError"]
 except ImportError as e:
-    logger.warning(f"SantecSLM200 not available: {e}")
-    SantecSLM200 = None
-    SantecSLM200Error = None
+    logger.warning(f"Santec not available: {e}")
+    Santec = None
+    SantecError = None
 
 
 from ao_shaping.drivers.mock_devices import (

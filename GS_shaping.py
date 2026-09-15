@@ -25,7 +25,7 @@ import torch.nn.functional as F
 from loguru import logger
 
 from ao_shaping.drivers.ccd import DahengCamera
-from ao_shaping.drivers.slm import SantecSLM200
+from ao_shaping.drivers.slm import Santec
 from ao_shaping.utils.beam_metrics import compute_metrics
 from ao_shaping.utils.file import Recorder
 
@@ -75,11 +75,11 @@ def add_blaze(phi, n=N, period=BLAZE_PERIOD_PX):
     return phi + ramp[None, :].astype(np.float32)
 
 
-def display(slm:SantecSLM200, phi_n):
+def display(slm:Santec, phi_n):
     """phi_n: N×N 弧度相位矩阵 -> 上采样到SLM面板分辨率后直接发送.
     mod 2π 与灰度标定由 slm.display_data 内部完成, 这里不再处理."""
     full = F.interpolate(torch.from_numpy(phi_n.astype(np.float32))[None, None],
-                         size=SantecSLM200.Panel_Res, mode="bilinear",
+                         size=Santec.Panel_Res, mode="bilinear",
                          align_corners=False)[0, 0].numpy().transpose()
     slm.display_data(full)
 
@@ -137,8 +137,8 @@ def main():
     recorder = Recorder("mse", "min")
     A_src = make_source_amp(N)
 
-    with SantecSLM200() as slm, DahengCamera(exposure_time_ms=EXPOSURE_MS) as ccd:
-        logger.info("SLM {}x{} / CCD {}ms", *SantecSLM200.Panel_Res, EXPOSURE_MS)
+    with Santec() as slm, DahengCamera(exposure_time_ms=EXPOSURE_MS) as ccd:
+        logger.info("SLM {}x{} / CCD {}ms", *Santec.Panel_Res, EXPOSURE_MS)
 
         # 1) flat(+blaze) 采初始帧, 定位工作区
         display(slm, np.zeros((N, N), np.float32))

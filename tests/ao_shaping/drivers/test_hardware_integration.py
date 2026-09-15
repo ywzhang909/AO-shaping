@@ -202,9 +202,9 @@ class TestSLMHardware:
             pytest.skip("SLM tests disabled (set TEST_SLM=1 to enable)")
 
         try:
-            from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+            from ao_shaping.drivers.slm.santec import Santec
 
-            slm = SantecSLM200(slm_number=1, wavelength=532, phase_range=200)
+            slm = Santec(slm_number=1, wavelength=532, phase_range=200)
             slm.open()
             print(f"\n[SLM] Connected: SN={slm.serial_number}")
             yield slm
@@ -253,9 +253,9 @@ class TestSLMHardware:
 
     def test_context_manager(self):
         """Test SLM context manager protocol."""
-        from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+        from ao_shaping.drivers.slm.santec import Santec
 
-        with SantecSLM200(slm_number=1, wavelength=532) as slm:
+        with Santec(slm_number=1, wavelength=532) as slm:
             print(f"  Context manager: Connected to SLM SN={slm.serial_number}")
             slm.set_grayscale(256)
         print("  Context manager: Closed")

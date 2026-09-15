@@ -68,7 +68,7 @@ import torch.nn.functional as F
 from loguru import logger
 
 from ao_shaping.drivers.ccd import DahengCamera
-from ao_shaping.drivers.slm import SantecSLM200
+from ao_shaping.drivers.slm import Santec
 
 SETTLE_S = 0.2
 CAMERA_SAMPLES = 10
@@ -82,14 +82,14 @@ class SLMCCDCalibrator:
 
     Parameters
     ----------
-    slm          具有 display_data(panel_float32) 的SLM驱动 (如 SantecSLM200)
+    slm          具有 display_data(panel_float32) 的SLM驱动 (如 Santec)
     ccd          相机驱动
     acquire      callable(ccd) -> ndarray  采图回调 (建议含平均帧与超时保护)
-    panel_res    (h, w) SLM面板分辨率, 如 SantecSLM200.Panel_Res
+    panel_res    (h, w) SLM面板分辨率, 如 Santec.Panel_Res
     settle_s     SLM显示后稳定等待时间
     """
 
-    def __init__(self, slm:SantecSLM200, ccd:DahengCamera, settle_s: float = SETTLE_S):
+    def __init__(self, slm:Santec, ccd:DahengCamera, settle_s: float = SETTLE_S):
         self.slm = slm
         self.ccd = ccd
         self.panel_res = slm.Panel_Res[::-1]
@@ -441,7 +441,7 @@ class SLMLUTCalibrator:
                 逆映射 gray*(2π/factory_2pi) 绕过驱动自带LUT, 强制写入标定灰度
     """
 
-    def __init__(self, slm:SantecSLM200, ccd:DahengCamera, calib: dict | None = None,
+    def __init__(self, slm:Santec, ccd:DahengCamera, calib: dict | None = None,
                  settle_s: float = SETTLE_S, factory_2pi: float = 255.0,
                  window: int = 384):
         self.slm = slm
@@ -621,7 +621,7 @@ class SLMLUTCalibrator:
 def main(out_calib, out_lut, calib_path, lut_path, skip_align, skip_beam,
          geo_only, lut_only, verify_only, exposure_ms, settle_s):
     """SLM+CCD 一体化标定工具包: 装配 -> 光束位置 -> 几何标定 -> LUT标定 -> 验证."""
-    with SantecSLM200() as slm, DahengCamera(exposure_time_ms=exposure_ms) as ccd:
+    with Santec() as slm, DahengCamera(exposure_time_ms=exposure_ms) as ccd:
         geo = SLMCCDCalibrator(slm, ccd, settle_s=settle_s)
 
         # ---------- 仅验证 ----------

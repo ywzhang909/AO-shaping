@@ -52,8 +52,8 @@
 │  │  └── simulateDM.py          ║      │  │  └── 仿真: Gamma 校正 + 光学元件                        │ │
 │  │                            ║      │  │                                                       │ │
 │  │  slm/                      ║      │  │  SimulatedLens                                         │ │
-│  │  ├── santec_slm200.py      ║      │  │  ├── 物理: 透镜相位                                     │ │
-│  │  │   SantecSLM200          ║      │  │  └── 仿真: 焦距可调                                    │ │
+│  │  ├── santec/driver.py       ║      │  │  ├── 物理: 透镜相位                                     │ │
+│  │  │   Santec                ║      │  │  └── 仿真: 焦距可调                                    │ │
 │  │                            ║      │  │  SimulatedAperture                                     │ │
 │  │  wfs/                     ║      │  │  ├── 物理: 光阑遮挡                                    │ │
 │  │  └── ThorlabWFS.py        ║      │  │  └── 仿真: 半径/遮挡切换                               │ │
@@ -134,7 +134,7 @@ Device (ABC)                          DeviceRegistry
 |----------|----------|----------|----------|
 | **相机 (CCD)** | `CameraStreamManager` (Daheng)<br>`MiiCamDevice` (MiiCam) | `SimulatedCCD` | 噪声叠加<br>高斯斑点生成<br>曝光响应 |
 | **变形镜 (DM)** | `NLightDM` (UDP) | `SimulateDM` | 电压→变形矩阵<br>邻接耦合<br>电压爬升限制 |
-| **SLM** | `SantecSLM200` (SDK) | `SimulatedSLM` | 相位调制<br>Gamma校正<br>波前传播 |
+| **SLM** | `Santec` (SDK) | `SimulatedSLM` | 相位调制<br>Gamma校正<br>波前传播 |
 | **透镜** | -- | `SimulatedLens` | 抛物线相位 |
 | **光阑** | -- | `SimulatedAperture` | 圆形遮挡 |
 | **激光器** | -- | `SimulatedLaser` | 功率衰减 |
@@ -344,7 +344,7 @@ def clear_display(self) -> None: ...
 ```
 
 **实现子类**：
-- `SantecSLM200` (SDK)
+- `Santec` (SDK)
 
 ### 5.4 波前传感器 (WFS)
 
@@ -379,7 +379,7 @@ def get_rms(self) -> float: ...
 │  ┌──────────────┐                       ┌──────────────┐              │
 │  │ NLightDM     │ ◄───────对应─────────►  │ SimulateDM   │              │
 │  │ CameraStream │ ◄───────对应─────────►  │ SimulatedCCD │              │
-│  │ SantecSLM200 │ ◄───────对应─────────►  │ SimulatedSLM │              │
+│  │ Santec      │ ◄───────对应─────────►  │ SimulatedSLM │              │
 │  │ ThorlabWFS   │ ◄───────对应─────────►  │ SimulatedWFS │              │
 │  └──────────────┘                       └──────────────┘              │
 │                                                                         │
@@ -627,7 +627,7 @@ Device (ABC)
     └── 具体硬件设备
         ├── NLightDM
         ├── CameraStreamManager
-        └── SantecSLM200
+        └── Santec
 ```
 
 ### 6.5 数字孪生同步机制

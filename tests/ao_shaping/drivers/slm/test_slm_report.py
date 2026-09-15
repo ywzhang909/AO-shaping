@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200, VideoMode
+from ao_shaping.drivers.slm.santec import Santec, VideoMode
 from tests.ao_shaping.utils.test_report import TestReport, TestWithReport
 
 
@@ -28,7 +28,7 @@ class TestSLMReport:
     @pytest.fixture
     def slm(self):
         """Create SLM instance."""
-        return SantecSLM200(slm_number=1, shift_x=100, shift_y=-110)
+        return Santec(slm_number=1, shift_x=100, shift_y=-110)
 
     @pytest.fixture
     def open_slm(self, slm):
@@ -320,7 +320,7 @@ def test_slm_standalone_report():
         # Try to connect to hardware, fall back to simulation
         slm = None
         try:
-            slm = SantecSLM200(slm_number=1)
+            slm = Santec(slm_number=1)
             slm.open()
             report.add_key_value("Mode", "Hardware")
         except Exception as e:

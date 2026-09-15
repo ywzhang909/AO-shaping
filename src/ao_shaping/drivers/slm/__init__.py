@@ -3,13 +3,13 @@
 提供空间光调制器设备的驱动支持。
 
 目前支持:
-- Santec SLM-200系列（SDK原生）
+- Santec 系列 (SLM-200/SLM-300 等, SDK 原生)
 - SLM闪耀光栅标定
 
 Example:
-    >>> from ao_shaping.drivers.slm import SantecSLM200
+    >>> from ao_shaping.drivers.slm import Santec
     >>>
-    >>> with SantecSLM200(slm_number=1, wavelength=1064) as slm:
+    >>> with Santec(slm_number=1, wavelength=1064) as slm:
     ...     # 加载相位数据
     ...     phase = np.zeros((1080, 1920), dtype=np.uint16)
     ...     # 写入并显示
@@ -18,19 +18,19 @@ Example:
 
 
 Calibration Example:
-    >>> from ao_shaping.drivers.slm import SantecSLM200Calibrator, plot_calibration_result
+    >>> from ao_shaping.drivers.slm import SantecCalibrator, plot_calibration_result
     >>>
-    >>> calibrator = SantecSLM200Calibrator(slm=slm, camera=camera)
+    >>> calibrator = SantecCalibrator(slm=slm, camera=camera)
     >>> result = calibrator.calibrate_with_background()
     >>> plot_calibration_result(result)
 """
 
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200, SantecSLM200Error
+from ao_shaping.drivers.slm.santec import Santec, SantecError
 from ao_shaping.drivers.slm.zernike_slm import ZernikeSLM, ZernikeSLMError
 
 __all__ = [
-    "SantecSLM200",
-    "SantecSLM200Error",
+    "Santec",
+    "SantecError",
     "ZernikeSLM",
     "ZernikeSLMError",
 ]
@@ -41,16 +41,16 @@ __all__ = [
 # 导入标定模块
 from ao_shaping.drivers.slm.slm_calibration import (
     CalibrationResult,
-    SantecSLM200Calibrator,
+    SantecCalibrator,
     SLMCalibratorBase,
-    calibrate_santec_slm200,
+    calibrate_santec,
     plot_calibration_result,
 )
 
 __all__ += [
     "CalibrationResult",
     "SLMCalibratorBase",
-    "SantecSLM200Calibrator",
-    "calibrate_santec_slm200",
+    "SantecCalibrator",
+    "calibrate_santec",
     "plot_calibration_result",
 ]

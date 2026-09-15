@@ -1,6 +1,6 @@
-"""Santec SLM-200 空间光调制器驱动模块
+"""Santec 空间光调制器驱动模块
 
-提供对Santec SLM-200系列空间光调制器的控制接口，
+提供对Santec系列空间光调制器(SLM-200/SLM-300 等)的控制接口，
 支持相位图显示、波长设置、内存模式等功能。
 
 Agent Wiki: docs/slm-200/agent_wiki.md
@@ -21,29 +21,31 @@ from loguru import logger
 from retrying import retry
 from scipy import ndimage
 
-from ao_shaping.drivers.slm.santec_slm200_constants import (
+from ao_shaping.drivers.slm.santec.constants import (
     FLAGS_RATE120,
-    GRAY_SCALE_BITS,
     GRAYSCALE_MAX,
     GRAYSCALE_MIN,
     MAX_MEM_SLOTS,
-    MAX_PIXEL_FLIP_TIME_MS,
     MEMORY_MODE_INTERNAL,
     MEMORY_NUMBER_MAX,
     MEMORY_NUMBER_MIN,
+    SLM_OK,
+    WAVELENGTH_MAX,
+    WAVELENGTH_MIN,
+    VideoMode,
+    get_slm_error_message,
+)
+from ao_shaping.drivers.slm.santec.slm200_constants import (
+    GRAY_SCALE_BITS,
+    MAX_PIXEL_FLIP_TIME_MS,
     PANEL_RES,
     PANEL_SIZE_MM,
     PITCH_UM,
     PIXEL_SIZE_UM,
     RESPONSE_TIME_MS,
-    SLM_OK,
-    WAVELENGTH_MAX,
-    WAVELENGTH_MIN,
-    VideoMode,
     get_max_grayscale,
-    get_slm_error_message,
 )
-from ao_shaping.drivers.slm.wavefront_correction import WavefrontCorrection
+from ao_shaping.drivers.slm.santec.wavefront_correction import WavefrontCorrection
 from ao_shaping.utils.device_config import ConfigHandler, DeviceParam, param
 from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
 
@@ -108,12 +110,12 @@ class SLMParams(DeviceParam):
     use_120hz: bool = param(default=False, cast=bool, attr="_use_120hz")
 
 
-# 模块级单例，所有 SantecSLM200 实例共用
+# 模块级单例，所有 Santec 实例共用
 SLM_CONFIG = ConfigHandler(_SLM_CONFIG_DIR, "slm", SLMParams)
 
 
-class SantecSLM200Error(Exception):
-    """Santec SLM-200 驱动错误
+class SantecError(Exception):
+    """Santec SLM-X00 驱动错误
 
     包含错误码和可读错误消息，便于调试。
 
@@ -136,16 +138,16 @@ class SantecSLM200Error(Exception):
             super().__init__(message)
 
 
-def _is_retryable_slant_error(exception) -> bool:
+def _is_retryable_santec_error(exception) -> bool:
     """Determine if an exception is retryable for SLM operations.
 
-    Retry on SantecSLM200Error as these often indicate transient USB issues
+    Retry on SantecError as these often indicate transient USB issues
     that may succeed on retry.
     """
-    return isinstance(exception, SantecSLM200Error)
+    return isinstance(exception, SantecError)
 
 
-class SantecSLM200:
+class Santec:
     """Santec SLM-200 空间光调制器驱动类
 
     提供对SLM-200系列空间光调制器的完整控制，包括：
@@ -160,7 +162,7 @@ class SantecSLM200:
         is_open: 设备是否已连接
 
     Example:
-        >>> with SantecSLM200(slm_number=1) as slm:
+        >>> with Santec(slm_number=1) as slm:
         ...     slm.set_wavelength(1064)  # 1064nm, 0~2π相位
         ...     phase_data = np.zeros((1080, 1920), dtype=np.uint16)
         ...     slm._write_phase(phase_data, memory_number=1)
@@ -266,11 +268,11 @@ class SantecSLM200:
 
         # 延迟导入SLM SDK
         try:
-            import ao_shaping.drivers.slm._slm_win as slm_sdk
+            import ao_shaping.drivers.slm.santec._slm_win as slm_sdk
 
             self._slm = slm_sdk
         except ImportError as e:
-            raise SantecSLM200Error(
+            raise SantecError(
                 f"无法导入SLM SDK (_slm_win): {e}. 请确保已安装Santec SLM驱动程序。"
             ) from e
 
@@ -288,7 +290,7 @@ class SantecSLM200:
         status = "已连接" if self.is_open else "未连接"
         mode_str = "内存模式" if self.video_mode == 0 else "DVI模式"
         return (
-            f"SantecSLM200("
+            f"Santec("
             f"编号={self.slm_number}, "
             f"状态={status}, "
             f"波长={self.wavelength}nm, "
@@ -384,7 +386,7 @@ class SantecSLM200:
         if (
             res := self._slm.SLM_Ctrl_ReadT(self.slm_number, drive_temp, option_temp)
         ) != SLM_OK:
-            raise SantecSLM200Error(code=res)
+            raise SantecError(code=res)
 
         return (drive_temp.value / 10.0, option_temp.value / 10.0)
 
@@ -420,7 +422,7 @@ class SantecSLM200:
           3. 设备读取的默认值或代码默认值（最低）
 
         Raises:
-            SantecSLM200Error: 设备连接失败
+            SantecError: 设备连接失败
         """
         if self.is_open:
             # SDK may be in inconsistent state - try to verify and recover
@@ -428,7 +430,7 @@ class SantecSLM200:
                 self._check_status()
                 logger.warning(f"SLM #{self.slm_number} 已经处于打开状态")
                 return
-            except SantecSLM200Error:
+            except SantecError:
                 # Device in bad state, force reset
                 logger.warning(f"SLM #{self.slm_number} 状态异常，尝试复位")
                 self.is_open = False
@@ -446,7 +448,7 @@ class SantecSLM200:
         # 打开设备
         ret = self._slm.SLM_Ctrl_Open(self.slm_number)
         if ret != SLM_OK:
-            raise SantecSLM200Error(f"无法打开SLM #{self.slm_number}", code=ret)
+            raise SantecError(f"无法打开SLM #{self.slm_number}", code=ret)
 
         self.is_open = True
         logger.info(f"成功打开SLM #{self.slm_number}")
@@ -458,7 +460,7 @@ class SantecSLM200:
         try:
             self._serial_number = self.get_serial_number()
             logger.info(f"SLM #{self.slm_number} 标识: {self._serial_number}")
-        except SantecSLM200Error as e:
+        except SantecError as e:
             logger.warning(f"无法读取SLM标识: {e}")
             self._serial_number = None
 
@@ -500,9 +502,9 @@ class SantecSLM200:
         # 设置内存模式
         try:
             self._set_memory_mode(self.video_mode)
-        except SantecSLM200Error as e:
+        except SantecError as e:
             self.is_open = False
-            raise SantecSLM200Error(f"设置内存模式失败: {e}") from e
+            raise SantecError(f"设置内存模式失败: {e}") from e
 
     def close(self) -> None:
         """关闭SLM设备连接
@@ -531,11 +533,11 @@ class SantecSLM200:
         调用此方法可使设备恢复正常通信。
 
         Raises:
-            SantecSLM200Error: 重启失败
+            SantecError: 重启失败
         """
         ret = self._slm.SLM_Ctrl_Reboot(self.slm_number)
         if ret != SLM_OK:
-            raise SantecSLM200Error(f"SLM #{self.slm_number} 重启失败", code=ret)
+            raise SantecError(f"SLM #{self.slm_number} 重启失败", code=ret)
         logger.info(f"SLM #{self.slm_number} 已重启")
         # 重启后设备需要重新打开
         self.is_open = False
@@ -707,7 +709,7 @@ class SantecSLM200:
         memory_number = ctypes.c_uint32(0)
         ret = self._slm.SLM_Ctrl_ReadDS(self.slm_number, ctypes.byref(memory_number))
         if ret != SLM_OK:
-            raise SantecSLM200Error("读取当前显示内存失败", code=ret)
+            raise SantecError("读取当前显示内存失败", code=ret)
         return memory_number.value or None
 
     def get_current_grayscale(self) -> int:
@@ -716,7 +718,7 @@ class SantecSLM200:
         gray = ctypes.c_ushort(0)
         ret = self._slm.SLM_Ctrl_ReadGS(self.slm_number, ctypes.byref(gray))
         if ret != SLM_OK:
-            raise SantecSLM200Error("读取当前灰度值失败", code=ret)
+            raise SantecError("读取当前灰度值失败", code=ret)
         return gray.value
 
     def get_displayed_phase(self) -> tuple[np.ndarray | None, str]:
@@ -729,7 +731,7 @@ class SantecSLM200:
 
         try:
             memory_number = self.get_displayed_memory_number()
-        except SantecSLM200Error:
+        except SantecError:
             memory_number = self._displayed_memory_number
 
         if memory_number is not None:
@@ -756,14 +758,14 @@ class SantecSLM200:
             save_to_device: 是否保存到SLM控制器，默认为True
 
         Raises:
-            SantecSLM200Error: 设置失败或参数无效
+            SantecError: 设置失败或参数无效
             RuntimeError: 设备未打开
         """
         self._ensure_open()
         wavelength = int(wavelength)
         # 在设备控制函数中进行参数验证
         if not WAVELENGTH_MIN <= wavelength <= WAVELENGTH_MAX:
-            raise SantecSLM200Error(
+            raise SantecError(
                 f"波长必须在{WAVELENGTH_MIN}-{WAVELENGTH_MAX}nm之间，当前: {wavelength}"
             )
 
@@ -775,7 +777,7 @@ class SantecSLM200:
         # 设置波长和相位范围
         res = self._slm.SLM_Ctrl_WriteWL(self.slm_number, wavelength, phase_range)
         if res != SLM_OK:
-            raise SantecSLM200Error(
+            raise SantecError(
                 f"设置波长/相位范围失败，输入波长为{wavelength}", code=res
             )
 
@@ -783,7 +785,7 @@ class SantecSLM200:
         if save_to_device:
             ret = self._slm.SLM_Ctrl_WriteAW(self.slm_number)
             if ret != SLM_OK:
-                raise SantecSLM200Error("保存波长设置失败", code=ret)
+                raise SantecError("保存波长设置失败", code=ret)
 
         self.wavelength = wavelength
         self.get_wavelength_info()
@@ -800,7 +802,7 @@ class SantecSLM200:
             Tuple of (wavelength_nm, max_grayscale_for_2pi)
 
         Raises:
-            SantecSLM200Error: 读取失败
+            SantecError: 读取失败
             RuntimeError: 设备未打开
         """
         self._ensure_open()
@@ -812,7 +814,7 @@ class SantecSLM200:
             self.slm_number, ctypes.byref(wavelength), ctypes.byref(phase)
         )
         if res != SLM_OK:
-            raise SantecSLM200Error("读取波长信息失败", code=res)
+            raise SantecError("读取波长信息失败", code=res)
 
         wavelength = int(wavelength.value)
         phase_pi = phase.value / 100.0
@@ -861,13 +863,13 @@ class SantecSLM200:
             校正后的 ``(wavelength_nm, max_grayscale_for_2pi)`` 元组。
 
         Raises:
-            SantecSLM200Error: 自校正失败（SDK 通信错误、参数无效等）。
+            SantecError: 自校正失败（SDK 通信错误、参数无效等）。
             RuntimeError: 设备未打开。
         """
         self._ensure_open()
         wavelength = int(wavelength)
         if not WAVELENGTH_MIN <= wavelength <= WAVELENGTH_MAX:
-            raise SantecSLM200Error(
+            raise SantecError(
                 f"波长必须在 {WAVELENGTH_MIN}-{WAVELENGTH_MAX}nm 之间，"
                 f"当前: {wavelength}"
             )
@@ -878,7 +880,7 @@ class SantecSLM200:
         phase_range = 200
         res = self._slm.SLM_Ctrl_WriteWL(self.slm_number, wavelength, phase_range)
         if res != SLM_OK:
-            raise SantecSLM200Error(
+            raise SantecError(
                 f"自校正失败: SLM_Ctrl_WriteWL 返回错误 (wavelength={wavelength})",
                 code=res,
             )
@@ -887,7 +889,7 @@ class SantecSLM200:
         if save_to_device:
             ret = self._slm.SLM_Ctrl_WriteAW(self.slm_number)
             if ret != SLM_OK:
-                raise SantecSLM200Error(
+                raise SantecError(
                     "自校正失败: SLM_Ctrl_WriteAW (EEPROM) 返回错误", code=ret
                 )
 
@@ -921,7 +923,7 @@ class SantecSLM200:
 
         ret = self._slm.SLM_Ctrl_WriteGS(self.slm_number, gs)
         if ret != SLM_OK:
-            raise SantecSLM200Error("设置灰度值失败", code=ret)
+            raise SantecError("设置灰度值失败", code=ret)
         self._displayed_memory_number = None
         self._displayed_phase_cache = np.full(
             (self.Panel_Res[1], self.Panel_Res[0]),
@@ -947,7 +949,7 @@ class SantecSLM200:
     @retry(
         stop_max_attempt_number=3,
         wait_fixed=100,
-        retry_on_exception=_is_retryable_slant_error,
+        retry_on_exception=_is_retryable_santec_error,
     )
     def _write_phase(
         self,
@@ -966,7 +968,7 @@ class SantecSLM200:
             memory_mode: 内存模式，默认为内部内存模式
 
         Raises:
-            SantecSLM200Error: 写入失败
+            SantecError: 写入失败
             ValueError: 数据格式错误
             RuntimeError: 设备未打开
         """
@@ -1023,7 +1025,7 @@ class SantecSLM200:
             memory_number: 内存位置编号（1-128）
 
         Raises:
-            SantecSLM200Error: 显示失败
+            SantecError: 显示失败
             RuntimeError: 设备未打开
             ValueError: 内存编号无效
         """
@@ -1038,7 +1040,7 @@ class SantecSLM200:
 
         ret = self._slm.SLM_Ctrl_WriteDS(self.slm_number, memory_number)
         if ret != SLM_OK:
-            raise SantecSLM200Error(f"显示内存#{memory_number}失败", code=ret)
+            raise SantecError(f"显示内存#{memory_number}失败", code=ret)
 
         # 固件陷阱: display_memory 对"正在显示的同一槽位"被视为 no-op,
         # LCOS 面板不会刷新——若刚对该槽重写了新相位, 新图案不会上屏。
@@ -1073,7 +1075,7 @@ class SantecSLM200:
         ret = self._slm.SLM_Disp_Data(self.slm_number, width, height, 0, dat)
 
         if ret != SLM_OK:
-            raise SantecSLM200Error("显示相位数据失败", code=ret)
+            raise SantecError("显示相位数据失败", code=ret)
 
         self._displayed_memory_number = None
         self._displayed_phase_cache = phase.copy()
@@ -1103,7 +1105,7 @@ class SantecSLM200:
             memory_mode: 内存模式，默认为内部内存模式
 
         Raises:
-            SantecSLM200Error: 写入或显示失败
+            SantecError: 写入或显示失败
             RuntimeError: 设备未打开
         """
         self._ensure_open()
@@ -1157,7 +1159,7 @@ class SantecSLM200:
             memory_mode: 内存模式，默认为内部内存模式
 
         Raises:
-            SantecSLM200Error: Write or display failed.
+            SantecError: Write or display failed.
             RuntimeError: Device not open.
         """
         phase_gray = self.create_phase_from_array(phase_rad)
@@ -1168,15 +1170,16 @@ class SantecSLM200:
             memory_mode=memory_mode,
         )
 
+    @staticmethod
     def load_gray_from_csv(
-        self, filepath: str | Path, skiprows: int = 1, delimiter: str = ","
+        filepath: str | Path, skiprows: int = 1, delimiter: str = ","
     ) -> np.ndarray:
         """从CSV文件加载灰度数据
 
         CSV格式:
         - 第1行第1列: "Y/X" (标题), 第1行第2~1921列: 0~1919 (列索引)
         - 第2~1201行第1列: 0~1199 (行索引)
-        - 数据区域: 0~2^GRAY_SCALE_BITS-1 之间的整数 (默认最大1023)
+        - 数据区域: 0~2^GRAY_SCALE_BITS-1 之间的整数 (最大1023)
         - 示例文件: C:\\santec\\SLM-200\\Files\\All 1023.csv
 
         Args:
@@ -1186,15 +1189,47 @@ class SantecSLM200:
 
         Returns:
             灰度数据数组，shape=(1200, 1920)，dtype=uint16
+
+        Raises:
+            FileNotFoundError: 文件不存在
+            ValueError: CSV 格式校验失败（标题、尺寸、值范围）
         """
         filepath = Path(filepath)
         if not filepath.exists():
             raise FileNotFoundError(f"灰度文件不存在: {filepath}")
 
-        # 读取CSV文件，跳过第一列（行索引列）和第一行（标题行）
-        gray = np.loadtxt(filepath, delimiter=delimiter, skiprows=skiprows)[
-            :, 1:
-        ].astype(np.uint16)
+        # ── 格式校验 ──────────────────────────────────────────
+        # 1. 标题行首列必须为 "Y/X"
+        with open(filepath, "r", encoding="utf-8", errors="replace") as fh:
+            header_line = fh.readline().strip()
+        header_fields = header_line.split(delimiter)
+        if not header_fields or header_fields[0].strip().upper() != "Y/X":
+            raise ValueError(
+                f"CSV 格式错误: 首行首列应为 'Y/X' 标题，实际为 "
+                f"'{header_fields[0] if header_fields else ''}'"
+            )
+
+        # 2. 读取数据区域（跳过标题行与行索引列）
+        raw = np.loadtxt(filepath, delimiter=delimiter, skiprows=skiprows)
+        if raw.ndim != 2:
+            raise ValueError(f"CSV 格式错误: 数据区域应为 2D 矩阵，实际维度 {raw.ndim}")
+        data = raw[:, 1:]
+
+        # 3. 尺寸校验：必须与 SLM 面板分辨率一致
+        target_h, target_w = PANEL_RES[1], PANEL_RES[0]  # (1200, 1920)
+        if data.shape != (target_h, target_w):
+            raise ValueError(
+                f"CSV 尺寸错误: 数据区域 {data.shape}，"
+                f"应与 SLM 面板分辨率一致 ({target_h}, {target_w})"
+            )
+
+        # 4. 值范围校验：灰度必须在 0..GRAYSCALE_MAX 范围内
+        gray = data.astype(np.uint16)
+        if gray.max() > GRAYSCALE_MAX or gray.min() < GRAYSCALE_MIN:
+            raise ValueError(
+                f"CSV 灰度值越界: 范围 [{gray.min()}, {gray.max()}]，"
+                f"允许范围 [{GRAYSCALE_MIN}, {GRAYSCALE_MAX}]"
+            )
 
         logger.info(f"已从 {filepath} 加载灰度数据，形状: {gray.shape}")
         return gray
@@ -1202,7 +1237,6 @@ class SantecSLM200:
     @staticmethod
     def csv_to_phase(
         filepath: str | Path,
-        max_grayscale: int = 1023,
         skiprows: int = 1,
         delimiter: str = ",",
     ) -> np.ndarray:
@@ -1229,7 +1263,7 @@ class SantecSLM200:
             :, 1:
         ].astype(np.float64)
 
-        phase_rad = phase_gray / max_grayscale * 2 * np.pi
+        phase_rad = phase_gray / get_max_grayscale() * 2 * np.pi
         logger.info(
             f"CSV灰度数据已转换为弧度相位: {filepath.name}, "
             f"形状: {phase_rad.shape}, "
@@ -1602,11 +1636,11 @@ class SantecSLM200:
         """检查SLM设备状态
 
         Raises:
-            SantecSLM200Error: 设备状态异常
+            SantecError: 设备状态异常
         """
         ret = self._slm.SLM_Ctrl_ReadSU(self.slm_number)
         if ret != SLM_OK:
-            raise SantecSLM200Error(f"SLM #{self.slm_number} 状态异常", code=ret)
+            raise SantecError(f"SLM #{self.slm_number} 状态异常", code=ret)
         logger.debug(f"SLM #{self.slm_number} 状态正常")
         return True
 
@@ -1709,7 +1743,7 @@ class SantecSLM200:
         last_slot: int | None = None
         try:
             last_slot = self.get_displayed_memory_number()
-        except SantecSLM200Error:
+        except SantecError:
             # set_grayscale 模式下无内存槽显示, 报错码 1 是正常行为
             last_slot = None
         if last_slot is None:
@@ -1759,20 +1793,20 @@ class SantecSLM200:
             mode: 内存模式 (0=内部内存, 1=DVI)，支持int或VideoMode枚举
 
         Raises:
-            SantecSLM200Error: 模式设置失败
+            SantecError: 模式设置失败
         """
         # 转换为int以兼容SDK
         mode_int = int(mode)
 
         ret = self._slm.SLM_Ctrl_WriteVI(self.slm_number, mode_int)
         if ret != SLM_OK:
-            raise SantecSLM200Error("设置内存模式失败", code=ret)
+            raise SantecError("设置内存模式失败", code=ret)
 
         # 验证设置
         dat32 = ctypes.c_uint32(0)
         self._slm.SLM_Ctrl_ReadVI(self.slm_number, dat32)
         if dat32.value != mode_int:
-            raise SantecSLM200Error("内存模式设置验证失败")
+            raise SantecError("内存模式设置验证失败")
 
         mode_str = "内部内存" if mode_int == MEMORY_MODE_INTERNAL else "DVI"
         logger.info(f"SLM #{self.slm_number} 已设置为{mode_str}模式")
@@ -1803,7 +1837,7 @@ class SantecSLM200:
             True if device becomes ready
 
         Raises:
-            SantecSLM200Error: if device never becomes ready
+            SantecError: if device never becomes ready
         """
         for attempt in range(max_retries):
             try:
@@ -1811,7 +1845,7 @@ class SantecSLM200:
                 if attempt > 0:
                     logger.info(f"SLM #{self.slm_number} 在 {attempt + 1} 次尝试后就绪")
                 return True
-            except SantecSLM200Error:
+            except SantecError:
                 if attempt < max_retries - 1:
                     logger.debug(f"等待设备就绪... ({attempt + 1}/{max_retries})")
                     time.sleep(retry_delay)
@@ -1840,7 +1874,7 @@ class SantecSLM200:
             memory_mode: 内存模式，默认为内部内存模式
 
         Raises:
-            SantecSLM200Error: 写入失败
+            SantecError: 写入失败
             ValueError: 数据格式错误
             RuntimeError: 设备未打开
         """
@@ -1872,14 +1906,14 @@ class SantecSLM200:
         )
 
         if ret != SLM_OK:
-            raise SantecSLM200Error(f"写入相位数据到内存#{memory_number}失败", code=ret)
+            raise SantecError(f"写入相位数据到内存#{memory_number}失败", code=ret)
 
         self._memory_phase_cache[memory_number] = phase.copy()
         logger.debug(f"相位数据已写入SLM #{self.slm_number} 内存#{memory_number}")
 
 
 def test():
-    with SantecSLM200(slm_number=1, wavelength=1064) as slm:
+    with Santec(slm_number=1, wavelength=1064) as slm:
         phase_data = np.zeros((1080, 1920), dtype=np.uint16)
         slm._write_phase(phase_data, memory_number=1)
         slm._display_memory(1)

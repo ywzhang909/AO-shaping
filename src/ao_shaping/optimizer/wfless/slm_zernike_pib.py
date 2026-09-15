@@ -6,7 +6,7 @@ displays the resulting phase pattern on the SLM, and measures the PIB metric
 from the camera image.
 
 Key differences from pib.py:
-- DM (NlightDM) → SLM (SantecSLM200)
+- DM (NlightDM) → SLM (Santec)
 - Voltage vectors → Zernike coefficient vectors
 - dm.send_voltages(v) → slm.display_data(phase_pattern)
 - No neighbor voltage safety checks (SLM has no such constraint)
@@ -35,7 +35,7 @@ import numpy as np
 import matplotlib.pylab as plt
 
 from ao_shaping.drivers import CameraStreamManager
-from ao_shaping.drivers.slm import SantecSLM200
+from ao_shaping.drivers.slm import Santec
 from ao_shaping.optimizer.wfless.slm_square_shaping import _zernike_indices
 from ao_shaping.utils.pattern_helper import PatternHelper
 from ao_shaping.algorithm.adam import AdaMOD, Adam, AdamW, Base, Muno, MunoW, SGD
@@ -60,7 +60,7 @@ IDEAL_SPOT_RADIUS = int(os.environ.get("IDEAL_SPOT_RADIUS", 6))
 SLM_RESPONSE_TIME_S = 0.3  # Santec SLM-200 response time ~300ms
 SLM_RESET_ON_EXIT = True  # Reset SLM to flat phase on exit
 
-# SLM resolution (from SantecSLM200.Panel_Res = (1920, 1200))
+# SLM resolution (from Santec.Panel_Res = (1920, 1200))
 SLM_WIDTH = 1920
 SLM_HEIGHT = 1200
 SLM_RESOLUTION = (SLM_WIDTH, SLM_HEIGHT)
@@ -303,7 +303,7 @@ def optimize_slm_zernike_pib(
         CameraStreamManager(
             cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
         ) as cam,
-        SantecSLM200(slm_number=slm_number, wavelength=slm_wavelength) as slm,
+        Santec(slm_number=slm_number, wavelength=slm_wavelength) as slm,
     ):
         # Initialize Zernike coefficients
         if init_c is None or len(init_c) == 0:

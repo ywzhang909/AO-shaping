@@ -1,5 +1,4 @@
-"""see docs at docs[docs/slm_gui_manual.md]
-"""
+"""see docs at docs[docs/slm_gui_manual.md]"""
 
 from __future__ import annotations
 
@@ -15,7 +14,7 @@ import numpy as np
 import streamlit as st
 from loguru import logger
 
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.gui.slm.pattern_controls import (
     PATTERN_REGISTRY,
     PatternControl,
@@ -134,7 +133,7 @@ def _probe_slm(slm_num: int) -> dict | None:
     the Streamlit server (the Santec SDK has historically hung on
     ``SLM_Ctrl_ReadSD`` after rapid open/close cycles).
     """
-    import ao_shaping.drivers.slm._slm_win as slm_sdk
+    import ao_shaping.drivers.slm.santec._slm_win as slm_sdk
 
     result: list[dict | None] = [None]
 
@@ -227,10 +226,10 @@ def _refresh_device_list() -> None:
 def _apply_shift(phase_gray: np.ndarray, shift_x: int, shift_y: int) -> np.ndarray:
     """平移相位灰度图, 空白区域填 0.
 
-    平移数学的唯一实现位于驱动层 :meth:`SantecSLM200.shift_phase` ——
+    平移数学的唯一实现位于驱动层 :meth:`Santec.shift_phase` ——
     GUI 预览与驱动重下发共用同一函数, 保证预览与上屏字节级一致。
     """
-    return SantecSLM200.shift_phase(phase_gray, shift_x, shift_y)
+    return Santec.shift_phase(phase_gray, shift_x, shift_y)
 
 
 @st.fragment(run_every=1.0)
@@ -387,7 +386,7 @@ def main():
 def connect_slm(slm_num: int):
     """Connect to the specified SLM.
 
-    Creates the :class:`SantecSLM200` instance with only the SLM number,
+    Creates the :class:`Santec` instance with only the SLM number,
     then calls ``open()`` which handles its own init flow:
     reading serial → loading config file (if any) → applying device
     defaults.  After ``open()`` all resolved SLM state is synced back to
@@ -417,7 +416,7 @@ def connect_slm(slm_num: int):
         st.session_state[f"{prefix}_connected"] = False
 
     try:
-        slm = SantecSLM200(slm_number=slm_num)
+        slm = Santec(slm_number=slm_num)
         slm.open()
 
         st.session_state[prefix] = slm
@@ -514,7 +513,7 @@ def set_wavelength(slm_num: int):
 def set_shift(slm_num: int):
     """Apply shift values from the UI to the SLM driver.
 
-    Delegates to the driver-level :meth:`SantecSLM200.apply_shift`, which
+    Delegates to the driver-level :meth:`Santec.apply_shift`, which
     handles absolute-positioning re-display (undo old shift → apply new),
     memory-slot rotation, settle wait and config save — identical semantics
     for every caller (runner, script, other UI).
@@ -592,7 +591,7 @@ def toggle_correction(slm_num: int, enabled: bool) -> None:
     if slm is None:
         return
 
-    from ao_shaping.drivers.slm.wavefront_correction import WavefrontCorrection
+    from ao_shaping.drivers.slm.santec.wavefront_correction import WavefrontCorrection
 
     if enabled:
         config = slm.load_config()
@@ -705,7 +704,7 @@ def render_slm_sidebar():
 
 
 @st.fragment(run_every=1.0)
-def _render_grayscale_config(slm_num: int, prefix: str, slm_obj: SantecSLM200) -> None:
+def _render_grayscale_config(slm_num: int, prefix: str, slm_obj: Santec) -> None:
     """灰度设置区块（fragment 局部刷新）。
 
     run_every=1.0 使"获取当前2π灰度 / 应用灰度设置"之后约 1s 内重新渲染本区块，
@@ -714,8 +713,8 @@ def _render_grayscale_config(slm_num: int, prefix: str, slm_obj: SantecSLM200) -
     重新初始化（仅 fragment 级 rerun 会让 flat_gray 滑块保持旧值）。
     """
     st.caption("灰度设置")
-    max_gray = int(getattr(slm_obj, "_max_gray", SantecSLM200.MAX_GRAYSCALE_VALUE))
-    max_gray_abs = int(SantecSLM200.MAX_GRAYSCALE_VALUE)
+    max_gray = int(getattr(slm_obj, "_max_gray", Santec.MAX_GRAYSCALE_VALUE))
+    max_gray_abs = int(Santec.MAX_GRAYSCALE_VALUE)
     st.caption(f"最大灰度值 (2π对应): **{max_gray}** / {max_gray_abs}")
     new_max_gray = st.number_input(
         "2π 灰度值",
@@ -1016,7 +1015,7 @@ def render_phase_control(slm_num: int):
             if st.session_state.get(f"{prefix}_toggle_active", False):
                 st.info("已停止周期切换")
 
-            slm: SantecSLM200 = st.session_state[prefix]
+            slm: Santec = st.session_state[prefix]
 
             # Show live GS progress when generating a GS square-shaping phase.
             progress_cb = None
@@ -1211,30 +1210,29 @@ def render_phase_control(slm_num: int):
             with open(temp_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
 
-            # Load gray data from CSV
+            # 1. 从 CSV 加载灰度矩阵（驱动层已内置格式校验：
+            #    标题 "Y/X"、尺寸=面板分辨率、值范围 0..1023）
             slm = st.session_state[prefix]
             phase_gray = slm.load_gray_from_csv(temp_path)
 
-            # CSV loading bypasses create_phase_from_array(), so the driver's
-            # internal _apply_shift() is NOT called here — the GUI-side shift
-            # is the only application of the configured shift.  Keep it.
-            shift_x = st.session_state.get(f"{prefix}_shift_x", 0)
-            shift_y = st.session_state.get(f"{prefix}_shift_y", 0)
-            phase_gray = _apply_shift(phase_gray, shift_x, shift_y)
+            # 2. 灰度 → 弧度制相位图（静态方法，不做硬件相关转换）
+            phase_rad = Santec.csv_to_phase(temp_path)
 
-            # Write to next memory slot and immediately display
-            mem_slot = _pick_next_memory(slm_num)
-            slm.display_data(phase_gray, memory_number=mem_slot)
-            display_ok = _verify_phase_displayed(slm, mem_slot)
+            # 3. 走 display_phase 标准路径：
+            #    create_phase_from_array() 内部自动完成
+            #    弧度→灰度 + 矫正 + LUT + 平移（与 GUI 预览共用同一
+            #    shift_phase，保证预览与上屏字节级一致），再写入内存槽
+            #    并等待像素翻转完成。
+            slm.display_phase(phase_rad)
+
+            # 4. 验证相位确实已上屏（读回缓存对比）
+            mem_slot = slm.get_displayed_memory_number()
             refresh_phase_preview(slm_num)
 
-            if display_ok:
-                st.success(f"相位已从CSV加载到内存槽 {mem_slot} 并显示（验证通过）")
-            else:
-                st.warning(
-                    "相位已从CSV加载到内存槽 "
-                    f"{mem_slot}，但显示验证失败（设备可能未刷新）"
-                )
+            st.success(
+                f"相位已从CSV加载（灰度→弧度→create_phase_from_array"
+                f"→display_phase）并显示到内存槽 {mem_slot}"
+            )
 
             # Clean up temp file
             temp_path.unlink()

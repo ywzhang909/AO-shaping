@@ -22,7 +22,7 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.utils.slm_lut import (
     build_inverse_lut,
     depth_pattern,
@@ -489,7 +489,7 @@ def run(
     run_dir = output_dir / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    slm: SantecSLM200 | None = None
+    slm: Santec | None = None
     camera = None
     final_exposure_ms = exposure_ms
 
@@ -498,7 +498,7 @@ def run(
         # 1. Open SLM
         # ═══════════════════════════════════════════════════════════════════
         logger.info("Connecting to SLM #{} (wavelength={} nm)...", slm_number, slm_wavelength)
-        slm = SantecSLM200(
+        slm = Santec(
             slm_number=slm_number,
             wavelength=slm_wavelength,
             video_mode=0,  # memory mode
@@ -512,7 +512,7 @@ def run(
             slm_number, wl_device, gray_for_2pi,
         )
 
-        # Panel dimensions: Panel_Res = (width, height) for SantecSLM200
+        # Panel dimensions: Panel_Res = (width, height) for Santec
         slm_width, slm_height = slm.Panel_Res[0], slm.Panel_Res[1]
         logger.info("SLM panel: {}x{} ({} bit)", slm_width, slm_height, slm.Gray_Scale_bits)
 

@@ -67,9 +67,9 @@ except Exception:  # pragma: no cover - hardware SDK not installed
     CameraStreamManager = None  # type: ignore[assignment]
 
 try:
-    from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+    from ao_shaping.drivers.slm.santec import Santec
 except Exception:  # pragma: no cover - hardware SDK not installed
-    SantecSLM200 = None  # type: ignore[assignment]
+    Santec = None  # type: ignore[assignment]
 
 # Watchdog timeout for hardware SDK calls (SLM open, CCD capture) that can
 # hang forever with no Python-visible timeout (see diff_beam_runner).
@@ -114,9 +114,9 @@ def _capture_frame(ccd: Any, discard_count: int) -> np.ndarray:
 
 def _auto_create_slm() -> Any:
     """Create and open a default Santec SLM200 (memory mode only)."""
-    if SantecSLM200 is None:
+    if Santec is None:
         raise RuntimeError("SLM driver not available. Install Santec SLM SDK.")
-    slm = SantecSLM200(slm_number=1, wavelength=int(DEFAULT_WAVELENGTH * 1e9))
+    slm = Santec(slm_number=1, wavelength=int(DEFAULT_WAVELENGTH * 1e9))
     call_with_timeout(slm.open, _CAPTURE_TIMEOUT_S, "SLM open")
     return slm
 

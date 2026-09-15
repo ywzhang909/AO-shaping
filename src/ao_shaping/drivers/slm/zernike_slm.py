@@ -6,7 +6,7 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.dm.zernike_dm import ZernikeDM
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+from ao_shaping.drivers.slm.santec import Santec
 
 
 class ZernikeSLMError(Exception):
@@ -16,11 +16,11 @@ class ZernikeSLMError(Exception):
 class ZernikeSLM:
     """Zernike系数驱动的SLM接口
 
-    封装SantecSLM200，将Zernike系数转换为相位图并发送到SLM显示。
+    封装Santec，将Zernike系数转换为相位图并发送到SLM显示。
     内部使用ZernikeDM进行相位计算。
 
     Attributes:
-        slm: 底层的SantecSLM200实例
+        slm: 底层的Santec实例
         zernike_dm: Zernike相位计算器
 
     Example:
@@ -51,9 +51,9 @@ class ZernikeSLM:
         self.wait_time_s = wait_time_s
 
         if slm_resolution is None:
-            slm_resolution = SantecSLM200.Panel_Res  # (1920, 1200)
+            slm_resolution = Santec.Panel_Res  # (1920, 1200)
 
-        self._slm = SantecSLM200(
+        self._slm = Santec(
             slm_number=slm_number,
             use_120hz=use_120hz,
             wavelength=wavelength,
@@ -128,7 +128,7 @@ class ZernikeSLM:
         wait_time_s: float = 0.3,
         save_config: bool = True,
     ) -> np.ndarray | None:
-        """应用平移并重绘当前显示相位 (委托 :meth:`SantecSLM200.apply_shift`)."""
+        """应用平移并重绘当前显示相位 (委托 :meth:`Santec.apply_shift`)."""
         self._ensure_open()
         return self._slm.apply_shift(
             shift_x, shift_y, wait_time_s=wait_time_s, save_config=save_config

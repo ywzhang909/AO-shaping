@@ -29,7 +29,7 @@ from loguru import logger
 
 from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
 from ao_shaping.drivers.ccd import DahengCamera
-from ao_shaping.drivers.slm import SantecSLM200
+from ao_shaping.drivers.slm import Santec
 from ao_shaping.utils.beam_metrics import (
     clamp_side,
     compute_metrics,
@@ -106,31 +106,31 @@ def slm_panel_phase(phi_n: np.ndarray) -> np.ndarray:
     mod 2π 与灰度标定由 slm.display_data 内部完成, 这里只上采样."""
     return F.interpolate(
         torch.from_numpy(phi_n.astype(np.float32))[None, None],
-        size=SantecSLM200.Panel_Res[::-1], mode="nearest-exact",
+        size=Santec.Panel_Res[::-1], mode="nearest-exact",
     )[0, 0].numpy()
 
 
-def _display_with_retry(slm: SantecSLM200, gray: np.ndarray, retries: int = 2):
+def _display_with_retry(slm: Santec, gray: np.ndarray, retries: int = 2):
     """显示灰度相位, 对瞬时 USB/SDK 错误整路径重试.
 
     驱动内建 _write_phase_with_retry 只覆盖 write_phase; 这里再包一层,
     把 display_data (写入+display_memory) 作为整体重试, 抵御实测到的
     SLM 内存槽写入瞬时错误 (如 -10032)."""
-    from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200Error
+    from ao_shaping.drivers.slm.santec import SantecError
     for attempt in range(retries + 1):
         try:
             slm.display_data(gray)
             return
-        except SantecSLM200Error as e:
+        except SantecError as e:
             if attempt >= retries:
                 raise
             logger.warning("SLM 显示失败 ({}), 重试 {}/{}", e, attempt + 1, retries)
             time.sleep(0.5)
 
 
-def display_phase(slm: SantecSLM200, phi_n: np.ndarray):
+def display_phase(slm: Santec, phi_n: np.ndarray):
     """显示弧度相位: 全面板尺寸直接下发, 其他尺寸 nearest-exact 上采样."""
-    grid_w, grid_h = SantecSLM200.Panel_Res
+    grid_w, grid_h = Santec.Panel_Res
     if phi_n.shape != (grid_h, grid_w):
         phi_n = slm_panel_phase(phi_n)
     gray = slm.create_phase_from_array(phi_n.astype(np.float32))
@@ -272,7 +272,7 @@ class FourierGSNetLite(nn.Module):
 # =====================================================================
 # 4. 模式A: 全分辨率自适应 GS (无需训练, 相机=真实前向模型)
 # =====================================================================
-def adaptive_fullres_gs(slm: SantecSLM200, ccd, init_frame: np.ndarray, *,
+def adaptive_fullres_gs(slm: Santec, ccd, init_frame: np.ndarray, *,
                         target_px: float = SIDE_PX,
                         iters: int = GS_ITERS_FULLRES,
                         outer_iters: int = MODE_A_OUTER,
@@ -458,9 +458,9 @@ def main():
     run_dir = OUT_DIR / time.strftime("%Y%m%d_%H%M%S")
     run_dir.mkdir(parents=True, exist_ok=True)
     recorder = Recorder("uniformity", "max")
-    grid_w, grid_h = SantecSLM200.Panel_Res
+    grid_w, grid_h = Santec.Panel_Res
 
-    with SantecSLM200() as slm, DahengCamera(exposure_time_ms=EXPOSURE_MS) as ccd:
+    with Santec() as slm, DahengCamera(exposure_time_ms=EXPOSURE_MS) as ccd:
         logger.info("设备已连接: SLM {}x{} / CCD {}ms", grid_h, grid_w, EXPOSURE_MS)
 
         # 1) flat 相位 -> 初始帧

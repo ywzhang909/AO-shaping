@@ -8,7 +8,7 @@
 > - `src/ao_shaping/runners/slm_square_runner.py` (CLI)
 > - `src/ao_shaping/optimizer/wfless/slm_square_shaping.py` (核心算法)
 > - `src/ao_shaping/utils/pattern_helper.py` (`_zernike_to_uint16`)
-> - `src/ao_shaping/drivers/slm/santec_slm200.py` (`create_phase_from_array`, `display_data`)
+> - `src/ao_shaping/drivers/slm/santec/driver.py` (`create_phase_from_array`, `display_data`)
 
 ---
 
@@ -64,7 +64,7 @@ assert (g1.min(), g1.max()) == (0, 1022)  # 图案恒占满 10-bit 全域
 
 ### B3 证据：正确转换在驱动里
 
-`SantecSLM200.create_phase_from_array` (`santec_slm200.py:1315`):
+`Santec.create_phase_from_array` (`santec/driver.py:1315`):
 
 ```python
 grayscale = phase_rad / (2 * np.pi) * max_grayscale   # max_grayscale=993 @1064nm
@@ -141,7 +141,7 @@ grayscale = phase_rad / (2 * np.pi) * max_grayscale   # max_grayscale=993 @1064n
 ## 7. 经验教训（可复用结论）
 
 1. **相位生成必须走驱动**：任何"弧度相位→SLM 灰度"都必须经
-   `SantecSLM200.create_phase_from_array`（2π=993 + 矫正 + LUT），
+   `Santec.create_phase_from_array`（2π=993 + 矫正 + LUT），
    **禁止**用 `PatternHelper._zernike_to_uint16` 的 min-max 归一化。
 2. **低阶 Zernike 不能做方形**：方形整形需要 SLM 全像素自由度（GS / 可微 / 自由相位），
    Zernike 仅适合低阶像差补偿与圆对称整形。

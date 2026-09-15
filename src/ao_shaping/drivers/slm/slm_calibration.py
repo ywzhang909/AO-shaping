@@ -677,7 +677,7 @@ class SLMCalibratorBase(ABC):
         return self._result
 
 
-class SantecSLM200Calibrator(SLMCalibratorBase):
+class SantecCalibrator(SLMCalibratorBase):
     """Santec SLM-200 专用标定器
 
     针对Santec SLM-200的闪耀光栅标定实现。
@@ -685,7 +685,7 @@ class SantecSLM200Calibrator(SLMCalibratorBase):
 
     def __init__(
         self,
-        slm,  # SantecSLM200实例
+        slm,  # Santec实例
         camera: CameraWithExposureProtocol,
         grating_period: int = 8,
         roi_center: tuple[int, int] | None = None,
@@ -694,7 +694,7 @@ class SantecSLM200Calibrator(SLMCalibratorBase):
         """初始化Santec SLM-200标定器
 
         Args:
-            slm: SantecSLM200实例
+            slm: Santec实例
             camera: 相机设备实例
             grating_period: 闪耀光栅周期（像素）
             roi_center: ROI中心坐标
@@ -1366,7 +1366,7 @@ def plot_calibration_result(
 
 
 # 便捷函数
-def calibrate_santec_slm200(
+def calibrate_santec(
     slm,
     camera,
     wavelength: int = 1064,
@@ -1376,7 +1376,7 @@ def calibrate_santec_slm200(
     """Santec SLM-200 快速标定函数
 
     Args:
-        slm: SantecSLM200实例
+        slm: Santec实例
         camera: 相机实例
         wavelength: 工作波长（nm）
         grating_period: 光栅周期
@@ -1385,7 +1385,7 @@ def calibrate_santec_slm200(
     Returns:
         CalibrationResult: 标定结果
     """
-    calibrator = SantecSLM200Calibrator(
+    calibrator = SantecCalibrator(
         slm=slm, camera=camera, grating_period=grating_period
     )
 
@@ -1405,17 +1405,17 @@ if __name__ == "__main__":
     print("""
 使用示例:
 
-    from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
-    from ao_shaping.drivers.slm.slm_calibration import SantecSLM200Calibrator
+    from ao_shaping.drivers.slm.santec import Santec
+    from ao_shaping.drivers.slm.slm_calibration import SantecCalibrator
     from ao_shaping.drivers.ccd.daheng import CameraStreamManager
     
     # 连接设备
-    with SantecSLM200(slm_number=1) as slm:
+    with Santec(slm_number=1) as slm:
         slm.set_wavelength(1064, 200)
         
         with CameraStreamManager(cam_id=0, exposure_time_ms=50) as camera:
             # 创建标定器
-            calibrator = SantecSLM200Calibrator(
+            calibrator = SantecCalibrator(
                 slm=slm,
                 camera=camera,
                 grating_period=8

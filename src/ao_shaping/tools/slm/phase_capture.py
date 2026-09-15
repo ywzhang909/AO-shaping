@@ -20,7 +20,7 @@ import torch
 
 from loguru import logger
 
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.utils.pattern_helper import PatternHelper
 
 
@@ -194,7 +194,7 @@ def save_capture(
 
     # Save phase preview as PNG (normalized to 0-255)
     phase_preview = (
-        phase_gray.astype(np.float32) / max(SantecSLM200.MAX_GRAYSCALE_VALUE, 1) * 255
+        phase_gray.astype(np.float32) / max(Santec.MAX_GRAYSCALE_VALUE, 1) * 255
     ).astype(np.uint8)
     phase_png = sample_dir / "phase_preview.png"
     from PIL import Image
@@ -399,7 +399,7 @@ def run(
     logger.info(f"采集模式: {mode}, 样本数: {samples}")
 
     # Initialize devices
-    slm: SantecSLM200 | None = None
+    slm: Santec | None = None
     daheng_cam = None
     miicam_cam = None
 
@@ -407,7 +407,7 @@ def run(
     if not no_slm:
         try:
             logger.info(f"正在连接SLM #{slm_number}...")
-            slm = SantecSLM200(
+            slm = Santec(
                 slm_number=slm_number,
                 wavelength=wavelength,
                 video_mode=0,  # Memory mode

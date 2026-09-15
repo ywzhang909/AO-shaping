@@ -6,7 +6,7 @@
 import numpy as np
 import pytest
 
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200, VideoMode
+from ao_shaping.drivers.slm.santec import Santec, VideoMode
 
 pytestmark = pytest.mark.hardware
 
@@ -14,11 +14,11 @@ pytestmark = pytest.mark.hardware
 @pytest.fixture
 def slm():
     """创建并返回一个已初始化的 SLM 实例"""
-    return SantecSLM200(slm_number=1, shift_x=100, shift_y=-110)
+    return Santec(slm_number=1, shift_x=100, shift_y=-110)
 
 
 @pytest.fixture
-def open_slm(slm) -> SantecSLM200:
+def open_slm(slm) -> Santec:
     """创建并返回一个已打开的 SLM 实例"""
     slm.open()
     return slm
@@ -34,11 +34,11 @@ class TestSLMConstants:
 
     def test_class_constants(self):
         """测试类级别常量"""
-        assert SantecSLM200.Pixel_Size_um == 7.8
-        assert SantecSLM200.Pitch_um == 8
-        assert SantecSLM200.Panel_Res == (1920, 1200)
-        assert SantecSLM200.Gray_Scale_bits == 10
-        assert SantecSLM200.MAX_GRAYSCALE_VALUE == 1023
+        assert Santec.Pixel_Size_um == 7.8
+        assert Santec.Pitch_um == 8
+        assert Santec.Panel_Res == (1920, 1200)
+        assert Santec.Gray_Scale_bits == 10
+        assert Santec.MAX_GRAYSCALE_VALUE == 1023
 
 
 class TestSLMInitialization:
@@ -47,25 +47,25 @@ class TestSLMInitialization:
     def test_valid_slm_number(self):
         """测试有效的 SLM 编号"""
         for num in range(1, 9):
-            slm = SantecSLM200(slm_number=num)
+            slm = Santec(slm_number=num)
             assert slm.slm_number == num
             assert not slm.is_open
 
     def test_default_parameters(self):
         """测试默认参数"""
-        slm = SantecSLM200()
+        slm = Santec()
         assert slm.slm_number == 1
         assert slm.wavelength is None
         assert slm.flags == 0  # 不使用 120Hz
 
     def test_120hz_flag(self):
         """测试 120Hz 刷新率标志"""
-        slm = SantecSLM200(use_120hz=True)
+        slm = Santec(use_120hz=True)
         assert slm.flags == 1
 
     def test_custom_parameters(self):
         """测试自定义参数"""
-        slm = SantecSLM200(slm_number=2, wavelength=532, use_120hz=True)
+        slm = Santec(slm_number=2, wavelength=532, use_120hz=True)
         assert slm.slm_number == 2
         assert slm.wavelength == 532
         assert slm.flags == 1
@@ -79,16 +79,16 @@ class TestSLMInitialization:
 
     def test_video_mode_as_int(self):
         """测试 video_mode 作为整数传入"""
-        slm = SantecSLM200(slm_number=1, video_mode=0)
+        slm = Santec(slm_number=1, video_mode=0)
         assert slm.video_mode == 0
-        slm2 = SantecSLM200(slm_number=1, video_mode=1)
+        slm2 = Santec(slm_number=1, video_mode=1)
         assert slm2.video_mode == 1
 
     def test_video_mode_as_enum(self):
         """测试 video_mode 作为枚举传入"""
-        slm = SantecSLM200(slm_number=1, video_mode=VideoMode.Memory)
+        slm = Santec(slm_number=1, video_mode=VideoMode.Memory)
         assert slm.video_mode == 0
-        slm2 = SantecSLM200(slm_number=1, video_mode=VideoMode.DVI)
+        slm2 = Santec(slm_number=1, video_mode=VideoMode.DVI)
         assert slm2.video_mode == 1
 
 
@@ -395,7 +395,7 @@ class TestPatternTypes:
         open_slm.display_data(phase, memory_number=4)
 
     @pytest.mark.hardware
-    def test_write_focus_pattern(self, open_slm: SantecSLM200):
+    def test_write_focus_pattern(self, open_slm: Santec):
         """测试写入聚焦相位图"""
         phase = self.generate_focus(focal_length=0.01, wavelength=532e-9)
         phase = open_slm.create_phase_from_array(phase)
@@ -419,7 +419,7 @@ class TestPatternTypes:
         open_slm.display_data(phase, memory_number=6)
 
     @pytest.mark.hardware
-    def test_helper_to_zernike(self, open_slm: SantecSLM200):
+    def test_helper_to_zernike(self, open_slm: Santec):
         from ao_shaping.utils.pattern_helper import PatternHelper
 
         helper = PatternHelper(self.RESOLUTION)
@@ -438,7 +438,7 @@ class TestPatternTypes:
         open_slm.display_data(phase, memory_number=mem_num)
 
     @pytest.mark.hardware
-    def test_write_black_phase(self, open_slm: SantecSLM200):
+    def test_write_black_phase(self, open_slm: Santec):
         phase_rad = np.zeros(self.RESOLUTION[::-1])
         phase = open_slm.create_phase_from_array(phase_rad)
         assert (
@@ -480,26 +480,26 @@ class TestShiftCorrection:
 
     def test_shift_init_params(self):
         """测试初始化时的平移参数"""
-        slm = SantecSLM200(slm_number=1, shift_x=10, shift_y=-5)
+        slm = Santec(slm_number=1, shift_x=10, shift_y=-5)
         assert slm.shift_x == 10
         assert slm.shift_y == -5
 
     def test_shift_default_params(self):
         """测试默认平移参数为0"""
-        slm = SantecSLM200(slm_number=1)
+        slm = Santec(slm_number=1)
         assert slm.shift_x == 0
         assert slm.shift_y == 0
 
     def test_set_shift_runtime(self):
         """测试运行时设置平移参数"""
-        slm = SantecSLM200(slm_number=1)
+        slm = Santec(slm_number=1)
         slm.set_shift(shift_x=20, shift_y=30)
         assert slm.shift_x == 20
         assert slm.shift_y == 30
 
     def test_apply_shift_positive(self):
         """测试正向平移（shift_x=右，shift_y=下）"""
-        slm = SantecSLM200(slm_number=1, shift_x=5, shift_y=3)
+        slm = Santec(slm_number=1, shift_x=5, shift_y=3)
         phase = np.zeros((10, 10), dtype=np.uint16)
         phase[2:8, 2:8] = 100  # 中心6x6区域设为100
 
@@ -511,7 +511,7 @@ class TestShiftCorrection:
 
     def test_apply_shift_negative(self):
         """测试负向平移（shift_x=左，shift_y=上）"""
-        slm = SantecSLM200(slm_number=1, shift_x=-5, shift_y=-3)
+        slm = Santec(slm_number=1, shift_x=-5, shift_y=-3)
         phase = np.zeros((10, 10), dtype=np.uint16)
         phase[2:8, 2:8] = 100  # 中心6x6区域设为100
 
@@ -523,7 +523,7 @@ class TestShiftCorrection:
 
     def test_apply_shift_no_shift(self):
         """测试无平移时返回原数组"""
-        slm = SantecSLM200(slm_number=1, shift_x=0, shift_y=0)
+        slm = Santec(slm_number=1, shift_x=0, shift_y=0)
         phase = np.ones((10, 10), dtype=np.uint16) * 100
 
         shifted = slm._apply_shift(phase)
@@ -532,7 +532,7 @@ class TestShiftCorrection:
 
     def test_apply_shift_boundary(self):
         """测试边界情况：平移量大于数组尺寸"""
-        slm = SantecSLM200(slm_number=1, shift_x=15, shift_y=15)
+        slm = Santec(slm_number=1, shift_x=15, shift_y=15)
         phase = np.zeros((10, 10), dtype=np.uint16)
         phase[5, 5] = 100
 
@@ -543,7 +543,7 @@ class TestShiftCorrection:
 
     def test_apply_shift_partial_out_of_bounds(self):
         """测试部分超出边界的情况"""
-        slm = SantecSLM200(slm_number=1, shift_x=8, shift_y=0)
+        slm = Santec(slm_number=1, shift_x=8, shift_y=0)
         phase = np.zeros((10, 10), dtype=np.uint16)
         phase[0, 0] = 100  # (0,0) → shifted[0,8]=100
         phase[5, 5] = 200  # (5,5) → shifted[5,13] out of bounds → 0
@@ -563,7 +563,7 @@ class TestIntegration:
     @pytest.mark.hardware
     def test_full_workflow(self):
         """测试完整的工作流程"""
-        with SantecSLM200(slm_number=1) as slm:
+        with Santec(slm_number=1) as slm:
             # 设置波长
             slm.set_wavelength(1064)
 
@@ -578,7 +578,7 @@ class TestIntegration:
     @pytest.mark.hardware
     def test_full_workflow_direct_display(self):
         """测试完整的工作流程"""
-        with SantecSLM200(slm_number=1, video_mode=0) as slm:
+        with Santec(slm_number=1, video_mode=0) as slm:
             # 生成并写入相位图案
             phase = np.zeros((1080, 1920), dtype=np.uint16)
             phase[500:580, 900:1020] = 511  # 添加一个中心图案
@@ -611,7 +611,7 @@ class TestCorrectionCSVLoading:
 
     def test_default_correction_loading(self):
         """测试默认载入误差矫正数据"""
-        slm = SantecSLM200(slm_number=1)
+        slm = Santec(slm_number=1)
         assert slm._correction is not None
 
     def test_manual_correction_path_override(self, tmp_path):
@@ -620,20 +620,20 @@ class TestCorrectionCSVLoading:
         csv_file = tmp_path / "test_correction.csv"
         csv_file.write_text(csv_content)
 
-        slm = SantecSLM200(slm_number=1, correction_csv_path=str(csv_file))
+        slm = Santec(slm_number=1, correction_csv_path=str(csv_file))
         assert slm._correction.csv_path == csv_file
 
     def test_correction_none_path(self):
         """测试 correction_csv_path=None 时使用空矫正"""
-        slm = SantecSLM200(slm_number=1, correction_csv_path=None)
+        slm = Santec(slm_number=1, correction_csv_path=None)
         assert slm._correction.is_valid is False
 
     def test_correction_application_unaffected_by_shift(self):
         """测试误差矫正应用不受shiftx/y影响"""
         phase_rad = np.linspace(0, 2 * np.pi, 100).reshape(10, 10)
 
-        slm_no_shift = SantecSLM200(slm_number=1, shift_x=0, shift_y=0)
-        slm_with_shift = SantecSLM200(slm_number=1, shift_x=10, shift_y=-5)
+        slm_no_shift = Santec(slm_number=1, shift_x=0, shift_y=0)
+        slm_with_shift = Santec(slm_number=1, shift_x=10, shift_y=-5)
 
         assert slm_no_shift.shift_x == 0
         assert slm_no_shift.shift_y == 0

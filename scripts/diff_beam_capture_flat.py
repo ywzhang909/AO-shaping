@@ -42,7 +42,7 @@ except ImportError as exc:  # pragma: no cover - hardware path only
 
 try:
     from ao_shaping.drivers.ccd.daheng import DahengCamManager
-    from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+    from ao_shaping.drivers.slm.santec import Santec
     from ao_shaping.utils.spots_calc import centroid as spots_centroid
 
     HARDWARE_AVAILABLE = True
@@ -190,7 +190,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info("初始化 SLM #{} (lambda={}nm)…", args.slm_number, args.slm_wavelength)
-    slm = SantecSLM200(slm_number=args.slm_number)
+    slm = Santec(slm_number=args.slm_number)
     call_with_timeout(slm.open, args.capture_timeout, "SLM open")
     slm.set_wavelength(args.slm_wavelength)
 

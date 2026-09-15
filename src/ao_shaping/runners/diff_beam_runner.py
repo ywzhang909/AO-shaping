@@ -90,15 +90,15 @@ from ao_shaping.utils.hardware_utils import (
 get_debug_mode()
 
 # Import hardware drivers with graceful fallback
-SantecSLM200: Any = None
+Santec: Any = None
 DahengCamManager: Any = None
 SLM_AVAILABLE = False
 CCD_AVAILABLE = False
 
 try:
-    from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200 as _SantecSLM200
+    from ao_shaping.drivers.slm.santec import Santec as _Santec
 
-    SantecSLM200 = _SantecSLM200
+    Santec = _Santec
     SLM_AVAILABLE = True
 except ImportError:
     logger.debug("SLM driver not available")
@@ -523,7 +523,7 @@ def run(
                 raise RuntimeError("CCD driver not available. Install Daheng SDK.")
 
             logger.info("Initializing hardware...")
-            slm = SantecSLM200(slm_number=slm_number, wavelength=slm_wavelength)
+            slm = Santec(slm_number=slm_number, wavelength=slm_wavelength)
             _call_with_timeout(slm.open, capture_timeout, "SLM open")
             logger.info("SLM initialized: #{}, lambda={}nm", slm_number, slm_wavelength)
 

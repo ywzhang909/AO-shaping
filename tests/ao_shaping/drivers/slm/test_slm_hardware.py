@@ -15,9 +15,9 @@ import json
 
 import pytest
 
-import ao_shaping.drivers.slm.santec_slm200 as slm_module
-from ao_shaping.drivers.slm.santec_slm200 import (
-    SantecSLM200,
+import ao_shaping.drivers.slm.santec.driver as slm_module
+from ao_shaping.drivers.slm.santec import (
+    Santec,
     VideoMode,
 )
 
@@ -52,7 +52,7 @@ class TestDefaultInit:
 
     def test_open_close_default(self, slm_config_dir):
         """All defaults: wavelength read from device; shifts = 0; 120Hz off."""
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             assert slm.is_open
             assert slm.slm_number == 1
             assert slm.wavelength is not None, (
@@ -67,7 +67,7 @@ class TestDefaultInit:
 
     def test_wavelength_matches_device_reading(self, slm_config_dir):
         """Default-init wavelength equals the device's current wavelength."""
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             device_wl, device_mg = slm.get_wavelength_info()
             assert slm.wavelength == device_wl, (
                 f"open() wl ({slm.wavelength}) != device wl ({device_wl})"
@@ -75,7 +75,7 @@ class TestDefaultInit:
 
     def test_config_saved_on_close(self, slm_config_dir):
         """Default parameters are persisted to a JSON config file on close."""
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             serial = slm._serial_number
             assert serial is not None, "serial number should be readable"
 
@@ -102,7 +102,7 @@ class TestExplicitInit:
 
     def test_all_params(self, slm_config_dir):
         """All init parameters provided explicitly."""
-        with SantecSLM200(
+        with Santec(
             slm_number=1,
             wavelength=1064,
             use_120hz=True,
@@ -119,7 +119,7 @@ class TestExplicitInit:
 
     def test_wavelength_only(self, slm_config_dir):
         """Only wavelength provided; shifts and 120Hz get defaults."""
-        with SantecSLM200(wavelength=1064) as slm:
+        with Santec(wavelength=1064) as slm:
             assert slm.wavelength == 1064
             assert slm._use_120hz is False
             assert slm.flags == 0
@@ -128,38 +128,38 @@ class TestExplicitInit:
 
     def test_shifts_only(self, slm_config_dir):
         """Only shift parameters provided; wavelength read from device."""
-        with SantecSLM200(shift_x=50, shift_y=-30) as slm:
+        with Santec(shift_x=50, shift_y=-30) as slm:
             assert slm._shift_x == 50
             assert slm._shift_y == -30
             assert slm.wavelength is not None  # read from device
 
     def test_120hz_true(self, slm_config_dir):
         """``use_120hz=True`` sets ``flags`` to ``FLAGS_RATE120`` (1)."""
-        with SantecSLM200(use_120hz=True) as slm:
+        with Santec(use_120hz=True) as slm:
             assert slm._use_120hz is True
             assert slm.flags == 1
 
     def test_120hz_false(self, slm_config_dir):
         """``use_120hz=False`` keeps ``flags`` at 0."""
-        with SantecSLM200(use_120hz=False) as slm:
+        with Santec(use_120hz=False) as slm:
             assert slm._use_120hz is False
             assert slm.flags == 0
 
     def test_video_mode_memory(self, slm_config_dir):
         """``VideoMode.Memory`` is stored as integer 0."""
-        with SantecSLM200(video_mode=VideoMode.Memory) as slm:
+        with Santec(video_mode=VideoMode.Memory) as slm:
             assert slm.video_mode == 0
 
     def test_video_mode_dvi(self, slm_config_dir):
         """``VideoMode.DVI`` is stored as integer 1."""
-        with SantecSLM200(video_mode=VideoMode.DVI) as slm:
+        with Santec(video_mode=VideoMode.DVI) as slm:
             assert slm.video_mode == 1
 
     def test_video_mode_raw_int(self, slm_config_dir):
         """Raw integers for video_mode are accepted."""
-        with SantecSLM200(video_mode=0) as slm:
+        with Santec(video_mode=0) as slm:
             assert slm.video_mode == 0
-        with SantecSLM200(video_mode=1) as slm:
+        with Santec(video_mode=1) as slm:
             assert slm.video_mode == 1
 
 
@@ -180,7 +180,7 @@ class TestConfigPriority:
         The config on disk contains: wavelength=1064, use_120hz=True,
         shift_x=50, shift_y=30.
         """
-        with SantecSLM200(
+        with Santec(
             wavelength=1064,
             use_120hz=True,
             shift_x=50,
@@ -191,7 +191,7 @@ class TestConfigPriority:
 
     def test_config_overrides_init_params(self, slm_config_dir, saved_serial):
         """Config values override __init__ params when config exists."""
-        with SantecSLM200(
+        with Santec(
             wavelength=532,  # should be ignored — config exists
             shift_x=999,  # should be ignored
         ) as slm:
@@ -208,7 +208,7 @@ class TestConfigPriority:
         with open(config_file, "w") as f:
             json.dump({"wavelength": 532}, f)
 
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             assert slm.wavelength == 532
             # Missing keys get _PARAM_SPEC defaults
             assert slm._shift_x == 0, "missing key should default to 0"
@@ -217,14 +217,14 @@ class TestConfigPriority:
 
     def test_reopen_loads_saved_config(self, slm_config_dir):
         """After save-on-close, a fresh open loads the saved values."""
-        with SantecSLM200(wavelength=800, shift_x=42) as slm:
+        with Santec(wavelength=800, shift_x=42) as slm:
             serial = slm._serial_number
 
         config_file = slm_config_dir / "slm" / f"{serial}.json"
         assert config_file.exists()
 
         # Reopen with different params — saved config should win
-        with SantecSLM200(wavelength=633) as slm:
+        with Santec(wavelength=633) as slm:
             assert slm.wavelength == 800, "saved config should override init"
             assert slm._shift_x == 42
 
@@ -238,7 +238,7 @@ class TestConfigPriority:
         with open(config_file, "w") as f:
             json.dump(config, f, indent=2)
 
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             assert slm.wavelength == 780
             assert slm._shift_x == 99
             assert slm._shift_y == 30  # unchanged from original config
@@ -259,13 +259,13 @@ class TestWavelengthOnOpen:
 
     def test_wavelength_none(self, slm_config_dir):
         """``wavelength=None`` reads from device via ``get_wavelength_info()``."""
-        with SantecSLM200(wavelength=None) as slm:
+        with Santec(wavelength=None) as slm:
             device_wl, _ = slm.get_wavelength_info()
             assert slm.wavelength == device_wl
 
     def test_explicit_wavelength_set(self, slm_config_dir):
         """Opening with an explicit wavelength sets it correctly on the device."""
-        with SantecSLM200(wavelength=1064) as slm:
+        with Santec(wavelength=1064) as slm:
             current_wl, _ = slm.get_wavelength_info()
             assert slm.wavelength == current_wl
 
@@ -280,7 +280,7 @@ class TestConfigPersistence:
 
     def test_config_file_contents(self, slm_config_dir):
         """All relevant fields are saved to the config JSON."""
-        with SantecSLM200(
+        with Santec(
             wavelength=1064,
             use_120hz=True,
             shift_x=10,
@@ -303,13 +303,13 @@ class TestConfigPersistence:
 
     def test_config_not_saved_without_serial(self, slm_config_dir, monkeypatch):
         """When serial number cannot be read, config save is skipped (no crash)."""
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             monkeypatch.setattr(slm, "_serial_number", None)
             slm.save_config()  # should log warning, no error
 
     def test_open_close_once(self, slm_config_dir):
         """A single open/close cycle works correctly."""
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             assert slm.is_open
             slm.get_wavelength_info()
 
@@ -329,7 +329,7 @@ class TestSerialNumber:
 
     def test_get_serial_number_returns_string(self, slm_config_dir):
         """``get_serial_number()`` returns a non-empty string."""
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             serial = slm.get_serial_number()
             assert serial is not None
             assert isinstance(serial, str)
@@ -337,7 +337,7 @@ class TestSerialNumber:
 
     def test_serial_consistent_across_opens(self, slm_config_dir):
         """Serial number is the same when read twice in a single session."""
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             serial_a = slm._serial_number
             serial_b = slm.get_serial_number()
             assert serial_a == serial_b
@@ -345,14 +345,14 @@ class TestSerialNumber:
 
     def test_serial_double_read(self, slm_config_dir):
         """Two reads within the same session return the same serial."""
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             s1 = slm.get_serial_number()
             s2 = slm.get_serial_number()
             assert s1 == s2
 
     def test_serial_used_as_config_filename(self, slm_config_dir):
         """Config file is named ``<serial>.json``."""
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             serial = slm._serial_number
         config_file = slm_config_dir / "slm" / f"{serial}.json"
         assert config_file.exists()
@@ -369,7 +369,7 @@ class TestOpenCloseLifecycle:
 
     def test_double_open(self, slm_config_dir):
         """Opening an already-open SLM is safe (logs warning, returns)."""
-        slm = SantecSLM200()
+        slm = Santec()
         slm.open()
         assert slm.is_open
         slm.open()  # should log "already open" and return
@@ -378,13 +378,13 @@ class TestOpenCloseLifecycle:
 
     def test_close_not_open(self, slm_config_dir):
         """Closing an SLM that was never opened is a no-op."""
-        slm = SantecSLM200()
+        slm = Santec()
         slm.close()  # must not raise
         assert not slm.is_open
 
     def test_double_close(self, slm_config_dir):
         """Closing an already-closed SLM is a no-op."""
-        slm = SantecSLM200()
+        slm = Santec()
         slm.open()
         slm.close()
         slm.close()  # must not raise
@@ -392,13 +392,13 @@ class TestOpenCloseLifecycle:
 
     def test_context_manager(self, slm_config_dir):
         """Context manager opens and closes cleanly."""
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             assert slm.is_open
         assert not slm.is_open
 
     def test_config_saved_on_context_exit(self, slm_config_dir):
         """Config is saved when the context manager's ``__exit__`` calls ``close()``."""
-        with SantecSLM200(wavelength=532) as slm:
+        with Santec(wavelength=532) as slm:
             serial = slm._serial_number
         config_file = slm_config_dir / "slm" / f"{serial}.json"
         assert config_file.exists()
@@ -414,21 +414,21 @@ class TestShiftRuntime:
 
     def test_set_shift_positive(self, slm_config_dir):
         """Positive shifts are stored correctly."""
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             slm.set_shift(shift_x=50, shift_y=-30)
             assert slm.shift_x == 50
             assert slm.shift_y == -30
 
     def test_set_shift_zero(self, slm_config_dir):
         """``set_shift(0, 0)`` works."""
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             slm.set_shift(0, 0)
             assert slm.shift_x == 0
             assert slm.shift_y == 0
 
     def test_shift_saved_in_config(self, slm_config_dir):
         """Shift values set via ``set_shift()`` are persisted on close."""
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             slm.set_shift(shift_x=20, shift_y=-10)
             serial = slm._serial_number
 
@@ -440,7 +440,7 @@ class TestShiftRuntime:
 
     def test_shift_properties_readonly(self):
         """``shift_x`` / ``shift_y`` are read-only properties (no public setter)."""
-        slm = SantecSLM200()
+        slm = Santec()
         assert isinstance(type(slm).shift_x, property)
         assert isinstance(type(slm).shift_y, property)
 
@@ -455,34 +455,34 @@ class TestInitValidation:
 
     def test_default_slm_number(self):
         """Default SLM number is 1."""
-        slm = SantecSLM200()
+        slm = Santec()
         assert slm.slm_number == 1
 
     def test_custom_slm_number(self):
         """Non-default SLM number is stored."""
-        slm = SantecSLM200(slm_number=2)
+        slm = Santec(slm_number=2)
         assert slm.slm_number == 2
 
     def test_default_wavelength_is_none(self):
         """Default ``__init__`` wavelength is ``None`` before ``open()``."""
-        slm = SantecSLM200()
+        slm = Santec()
         assert slm.wavelength is None
 
     def test_repr_closed(self):
         """``repr()`` shows closed state before open."""
-        slm = SantecSLM200()
+        slm = Santec()
         r = repr(slm)
         assert "未连接" in r
 
     def test_repr_open(self, slm_config_dir):
         """``repr()`` shows connected state after open."""
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             r = repr(slm)
             assert "已连接" in r
 
     def test_repr_after_close(self, slm_config_dir):
         """``repr()`` shows closed state after close()."""
-        slm = SantecSLM200()
+        slm = Santec()
         slm.open()
         slm.close()
         r = repr(slm)
@@ -499,7 +499,7 @@ class TestDeviceInfo:
 
     def test_get_product_serial_number(self, slm_config_dir):
         """``get_product_serial_number`` returns a non-empty string on success."""
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             serial = slm.get_product_serial_number(0)
             if serial is not None:
                 assert isinstance(serial, str)
@@ -507,7 +507,7 @@ class TestDeviceInfo:
 
     def test_get_lcos_serial_number(self, slm_config_dir):
         """``get_lcos_serial_number`` returns a non-empty string on success."""
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             serial = slm.get_lcos_serial_number(0)
             if serial is not None:
                 assert isinstance(serial, str)
@@ -515,7 +515,7 @@ class TestDeviceInfo:
 
     def test_get_display_name(self, slm_config_dir):
         """``get_display_name`` returns a non-empty string on success."""
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             name = slm.get_display_name()
             if name is not None:
                 assert isinstance(name, str)
@@ -523,7 +523,7 @@ class TestDeviceInfo:
 
     def test_get_version(self, slm_config_dir):
         """``get_version`` returns a non-empty string on success."""
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             version = slm.get_version()
             if version is not None:
                 assert isinstance(version, str)
@@ -531,7 +531,7 @@ class TestDeviceInfo:
 
     def test_get_device_info_contains_keys(self, slm_config_dir):
         """``get_device_info`` returns a dict with expected keys."""
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             info = slm.get_device_info()
             assert isinstance(info, dict)
             for key in (
@@ -546,7 +546,7 @@ class TestDeviceInfo:
 
     def test_serial_fallback_to_product_serial(self, slm_config_dir, monkeypatch):
         """When board IDs are empty, ``open()`` falls back to product serial."""
-        with SantecSLM200() as slm:
+        with Santec() as slm:
             def fake_get_serial():
                 return None
 

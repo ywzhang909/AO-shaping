@@ -1,5 +1,5 @@
 # MIICAM Hardware Test Report
-**Generated:** 2026-09-15 14:31:51
+**Generated:** 2026-09-15 14:41:16
 **Device:** miicam
 ---
 
@@ -13,6 +13,6 @@ This test runs without hardware using simulated data.
 
 **Status:** ✅ PASS
 
-**Duration:** 1.41s
+**Duration:** 1.63s
 
 ---

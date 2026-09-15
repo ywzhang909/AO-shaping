@@ -6,13 +6,16 @@
 
 ```
 slm/
-├── santec_slm200.py           # Santec SLM-200 SDK (权威驱动)
-├── santec_slm200_constants.py # SLM-200 硬件常量 (翻转时间等)
-├── slm_calibration.py         # SLM 相位标定 (闪耀光栅法/零级比值法/干涉法/衍射效率法)
-├── zernike_slm.py             # Zernike 系数驱动 SLM
-├── wavefront_correction.py    # 波前误差校正 (CSV → correction map)
-├── _slm_win.py                # SDK bindings (internal, Windows)
-├── README.md                  # SLM 响应标定详细说明
+├── santec/                      # Santec 驱动子包 (SLM-200/300 共用)
+│   ├── __init__.py              # re-export (Santec, SantecError, 常量, WavefrontCorrection)
+│   ├── driver.py                # Santec SDK 权威驱动
+│   ├── constants.py             # 驱动常量 (SDK 协议/错误码/模式/范围)
+│   ├── slm200_constants.py      # SLM-200 设备硬件常量 (像素/面板/翻转时间)
+│   ├── _slm_win.py              # SDK bindings (internal, Windows)
+│   └── wavefront_correction.py  # 波前误差校正 (CSV → correction map)
+├── slm_calibration.py           # SLM 相位标定 (闪耀光栅法/零级比值法/干涉法/衍射效率法)
+├── zernike_slm.py               # Zernike 系数驱动 SLM
+├── README.md                    # SLM 响应标定详细说明
 └── __init__.py
 ```
 
@@ -20,13 +23,13 @@ slm/
 
 | 类 | 文件 | 说明 |
 |----|------|------|
-| `SantecSLM200` | `santec_slm200.py` | Santec SLM-200 主驱动 |
+| `Santec` | `santec/driver.py` | Santec 主驱动 (SLM-200/300 共用) |
 | `ZernikeSLM` | `zernike_slm.py` | Zernike 系数驱动 SLM |
-| `SantecSLM200Calibrator` | `slm_calibration.py` | 标定器 |
+| `SantecCalibrator` | `slm_calibration.py` | 标定器 |
 | `AutoExposureController` | `slm_calibration.py` | 自动曝光控制器 |
-| `WavefrontCorrection` | `wavefront_correction.py` | 波前误差校正 |
+| `WavefrontCorrection` | `santec/wavefront_correction.py` | 波前误差校正 |
 
-## SantecSLM200 接口
+## Santec 接口
 
 | 方法 | 说明 |
 |------|------|

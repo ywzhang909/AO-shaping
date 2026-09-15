@@ -111,7 +111,7 @@ def step_freezing(
     图案: flat / 全屏 P_ref / 上半 P_test+下半 flat / 上半 flat+下半 P_test.
     面板正常 => 各帧明显不同; 全同 => LCOS 冻结 (面板未被驱动).
     """
-    from ao_shaping.drivers.slm.santec_slm200 import MEMORY_MODE_INTERNAL
+    from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL
     from ao_shaping.utils.slm_lut import depth_pattern, stack_halves
 
     _, gray_for_2pi = slm.get_wavelength_info()
@@ -203,7 +203,7 @@ def step_linearity(
     全部曝光下亮度几乎不变 => 到达相机的光强异常 (知识库基线: ~0.02ms 应临界
     饱和) 或面板不调制。
     """
-    from ao_shaping.drivers.slm.santec_slm200 import MEMORY_MODE_INTERNAL
+    from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL
     from ao_shaping.utils.slm_lut import depth_pattern
 
     _, gray_for_2pi = slm.get_wavelength_info()
@@ -261,7 +261,7 @@ def main(
     output: str | None,
 ) -> None:
     """SLM 硬件自检: 逐级定位是否存在"面板不调制光"类故障。"""
-    from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+    from ao_shaping.drivers.slm.santec import Santec
     from ao_shaping.tools.slm.slm_lut_runner import _get_miicam_camera
 
     logger.info(
@@ -277,12 +277,12 @@ def main(
             "cycle. This tool uses memory mode (video_mode=0) only."
         )
 
-    slm: SantecSLM200 | None = None
+    slm: Santec | None = None
     camera = None
     results: dict[str, DiagnoseResult] = {}
     try:
         # 仅 memory 模式: 绝不自动进入 DVI 模式 (见 docstring 已知约束).
-        slm = SantecSLM200(slm_number=slm_number, wavelength=slm_wavelength, video_mode=0)
+        slm = Santec(slm_number=slm_number, wavelength=slm_wavelength, video_mode=0)
         slm.open()
         _, gray_for_2pi = slm.get_wavelength_info()
         serial = slm.get_serial_number()

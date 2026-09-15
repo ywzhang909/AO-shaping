@@ -20,7 +20,7 @@ from typing import Any
 import numpy as np
 from loguru import logger
 
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.drivers.wfs.thorlab_wfs import ThorlabWFS
 
 
@@ -116,7 +116,7 @@ class DynamicCompensator:
     matching compensation geometry to the measured aberration.
 
     Args:
-        slm: Connected SantecSLM200 instance.
+        slm: Connected Santec instance.
         wfs: Connected ThorlabWFS instance.
         config: Compensation configuration.
         lut: Phase-grayscale LUT (grayscale -> phase in radians).
@@ -125,7 +125,7 @@ class DynamicCompensator:
 
     def __init__(
         self,
-        slm: SantecSLM200,
+        slm: Santec,
         wfs: Any,
         config: CompensationConfig | None = None,
         lut: dict[int, float] | None = None,
@@ -251,7 +251,7 @@ class DynamicCompensator:
         else:
             comp_gs = np.zeros_like(compensation_phase)
 
-        comp_gs = np.clip(comp_gs, 0, SantecSLM200.MAX_GRAYSCALE_VALUE).astype(
+        comp_gs = np.clip(comp_gs, 0, Santec.MAX_GRAYSCALE_VALUE).astype(
             np.uint16
         )
 

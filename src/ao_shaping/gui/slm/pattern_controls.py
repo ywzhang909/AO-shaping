@@ -10,7 +10,7 @@ from loguru import logger
 from scipy.special import erf
 
 from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.utils.beam_metrics import measure_spot_diameter_cam
 from ao_shaping.utils.pattern_helper import (
     PatternHelper,
@@ -105,7 +105,7 @@ class PatternControl(ABC):
     def generate_phase_gray(
         self,
         params: dict[str, Any],
-        slm: SantecSLM200 | None = None,
+        slm: Santec | None = None,
         progress_cb: Callable[[int, int, float], None] | None = None,
     ) -> np.ndarray:
         """Default: convert ``generate_phase_rad`` output via the SLM driver.
@@ -158,7 +158,7 @@ class FlatControl(PatternControl):
     def generate_phase_gray(
         self,
         params: dict[str, Any],
-        slm: SantecSLM200 | None = None,
+        slm: Santec | None = None,
         progress_cb: Callable[[int, int, float], None] | None = None,
     ) -> np.ndarray:
         gray = int(params["flat_gray"])
@@ -979,7 +979,7 @@ class HalfHalfPhaseControl(PatternControl):
     def generate_phase_gray(
         self,
         params: dict[str, Any],
-        slm: SantecSLM200 | None = None,
+        slm: Santec | None = None,
         progress_cb: Callable[[int, int, float], None] | None = None,
     ) -> np.ndarray:
         if slm is None:
@@ -1147,7 +1147,7 @@ class GSSquareControl(PatternControl):
     def generate_phase_rad(
         self,
         params: dict[str, Any],
-        slm: SantecSLM200 | None = None,
+        slm: Santec | None = None,
     ) -> np.ndarray:
         """Raw radian GS phase — requires the SLM context (the pipeline
         measures the camera spot at panel resolution and may push live phase)."""
@@ -1181,7 +1181,7 @@ class GSSquareControl(PatternControl):
     def generate_phase_gray(
         self,
         params: dict[str, Any],
-        slm: SantecSLM200 | None = None,
+        slm: Santec | None = None,
         progress_cb: Callable[[int, int, float], None] | None = None,
     ) -> np.ndarray:
         if slm is None:
@@ -1444,7 +1444,7 @@ PATTERN_REGISTRY: dict[str, type[PatternControl]] = {
 
 def _phase_to_preview(phase_gray: np.ndarray) -> np.ndarray:
     normalized = phase_gray.astype(np.float32) / max(
-        SantecSLM200.MAX_GRAYSCALE_VALUE, 1
+        Santec.MAX_GRAYSCALE_VALUE, 1
     )
     return np.clip(normalized, 0.0, 1.0)
 
@@ -1466,7 +1466,7 @@ def refresh_phase_preview(slm_num: int) -> None:
 
 
 def _gs_square_phase_radians(
-    slm: SantecSLM200,
+    slm: Santec,
     intensity_cam: np.ndarray,
     factor: float = 1.5,
     focal_length_m: float = 0.1,
@@ -1585,7 +1585,7 @@ def _gs_square_phase_radians(
 
 
 def generate_gs_square_phase(
-    slm: SantecSLM200,
+    slm: Santec,
     intensity_cam: np.ndarray,
     factor: float = 1.5,
     focal_length_m: float = 0.1,
@@ -1621,7 +1621,7 @@ def generate_gs_square_phase(
     return slm.create_phase_from_array(phase_rad)
 
 
-def _build_control(pattern_type: str, slm: SantecSLM200) -> PatternControl:
+def _build_control(pattern_type: str, slm: Santec) -> PatternControl:
     """Construct the control for ``pattern_type`` from an SLM object's props."""
     cls = PATTERN_REGISTRY.get(pattern_type)
     if cls is None:
@@ -1640,7 +1640,7 @@ def _build_control(pattern_type: str, slm: SantecSLM200) -> PatternControl:
 
 
 def generate_phase_gray(
-    slm: SantecSLM200,
+    slm: Santec,
     pattern_type: str,
     params: dict[str, Any],
     progress_cb: Callable[[int, int, float], None] | None = None,

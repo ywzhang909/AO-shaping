@@ -88,7 +88,7 @@ import tqdm
 import numpy as np
 
 from ao_shaping.drivers import CameraStreamManager
-from ao_shaping.drivers.slm import SantecSLM200
+from ao_shaping.drivers.slm import Santec
 from ao_shaping.algorithm.adam import AdaMOD, Adam, AdamW, Base, Muno, MunoW, SGD
 from ao_shaping.utils import logger, Recorder
 from ao_shaping.utils.file import gen_date_dir, gen_date_str
@@ -118,7 +118,7 @@ IDEAL_SPOT_RADIUS = int(os.environ.get("IDEAL_SPOT_RADIUS", 6))
 SLM_RESPONSE_TIME_S = 0.3  # Santec SLM-200 response time ~300ms
 SLM_RESET_ON_EXIT = True
 
-# SLM resolution (from SantecSLM200.Panel_Res = (1920, 1200))
+# SLM resolution (from Santec.Panel_Res = (1920, 1200))
 SLM_WIDTH = 1920
 SLM_HEIGHT = 1200
 SLM_RESOLUTION = (SLM_WIDTH, SLM_HEIGHT)
@@ -950,7 +950,7 @@ def optimize_slm_square(
         CameraStreamManager(
             cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
         ) as cam,
-        SantecSLM200(slm_number=slm_number, wavelength=slm_wavelength) as slm,
+        Santec(slm_number=slm_number, wavelength=slm_wavelength) as slm,
     ):
         # Initialize parameter vector (zernike: mapped onto the active modes)
         if basis == "zernike":

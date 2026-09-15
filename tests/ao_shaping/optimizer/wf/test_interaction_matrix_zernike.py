@@ -291,7 +291,7 @@ class TestComputePinvIntegration:
 class TestCalculateZernikeSLMResponseMatrixMocked:
     """Test calculate_zernike_slm_response_matrix with mock devices.
 
-    Note: This requires mock devices that implement the SantecSLM200
+    Note: This requires mock devices that implement the Santec
     and WFSManager interfaces. The current MockSLM and MockWFS
     in mock_devices.py have simpler interfaces and need extension.
     """
@@ -299,7 +299,7 @@ class TestCalculateZernikeSLMResponseMatrixMocked:
     def test_cannot_run_without_proper_mocks(self):
         """Document that we need interface-compatible mocks."""
         pytest.skip(
-            "Integration test requires mock devices with SantecSLM200/WFSManager interfaces. "
+            "Integration test requires mock devices with Santec/WFSManager interfaces. "
             "Current MockSLM/MockWFS have simpler interfaces."
         )
 

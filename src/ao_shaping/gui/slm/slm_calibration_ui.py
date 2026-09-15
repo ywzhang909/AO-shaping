@@ -32,11 +32,11 @@ if "miicam" not in sys.modules:
     sys.modules["miicam"] = types.ModuleType("miicam")
 
 # Import drivers and calibration module
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.drivers.slm.slm_calibration import (
     CalibrationMethod,
     CalibrationResult,
-    SantecSLM200Calibrator,
+    SantecCalibrator,
 )
 from ao_shaping.drivers.ccd import CameraStreamManager
 
@@ -132,7 +132,7 @@ def connect_slm() -> bool:
             except Exception:
                 pass
 
-        slm = SantecSLM200(
+        slm = Santec(
             slm_number=st.session_state.slm_cal_slm_number,
             wavelength=st.session_state.slm_cal_wavelength,
         )
@@ -213,7 +213,7 @@ def disconnect_camera() -> None:
 
 
 def _calibration_worker(
-    calib: SantecSLM200Calibrator,
+    calib: SantecCalibrator,
     grayscale_range: tuple[int, int],
     step: int,
     n_samples: int,
@@ -656,7 +656,7 @@ def render_calibration() -> None:
         # ROI center (stored as tuple or None for auto-detect)
         roi_center = st.session_state.get("slm_cal_roi_center")
 
-        calib = SantecSLM200Calibrator(
+        calib = SantecCalibrator(
             slm=st.session_state.slm_cal_slm,
             camera=st.session_state.slm_cal_camera,
             grating_period=st.session_state.slm_cal_grating_period,

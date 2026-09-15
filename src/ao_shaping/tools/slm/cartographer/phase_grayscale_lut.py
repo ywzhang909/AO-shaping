@@ -15,7 +15,7 @@ from typing import Any
 import numpy as np
 from loguru import logger
 
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.drivers.wfs.thorlab_wfs import ThorlabWFS, MlaRes
 
 
@@ -159,7 +159,7 @@ class PhaseGrayscaleLUT:
     4. Build LUT from measured phases vs grayscale values
 
     Args:
-        slm: Connected SantecSLM200 instance.
+        slm: Connected Santec instance.
         wfs: Connected ThorlabWFS instance.
         config: Calibration configuration.
         storage_dir: Directory for saving results.
@@ -167,7 +167,7 @@ class PhaseGrayscaleLUT:
 
     def __init__(
         self,
-        slm: SantecSLM200,
+        slm: Santec,
         wfs: ThorlabWFS,
         config: LUTCalibrationConfig | None = None,
         storage_dir: str | Path = "data/slm_cartographer/calibration",

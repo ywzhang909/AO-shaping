@@ -36,7 +36,7 @@ import numpy as np
 
 from loguru import logger
 
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.utils.beam_metrics import (
     clamp_side,
     compute_quality_score,
@@ -297,7 +297,7 @@ def _detect_center(
 
 
 def _run_closed_loop(
-    slm: SantecSLM200,
+    slm: Santec,
     camera,
     *,
     gs_iterations: int,
@@ -822,7 +822,7 @@ def run(
     output_dir = Path(output)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    slm: SantecSLM200 | None = None
+    slm: Santec | None = None
     camera = None
 
     try:
@@ -835,7 +835,7 @@ def run(
 
         # --- 打开SLM ---
         logger.info("正在连接SLM #{}...", slm_number)
-        slm = SantecSLM200(
+        slm = Santec(
             slm_number=slm_number,
             wavelength=slm_wavelength,
             video_mode=0,  # 内存模式

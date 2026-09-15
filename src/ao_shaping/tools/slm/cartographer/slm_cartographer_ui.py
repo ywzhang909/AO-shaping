@@ -48,7 +48,7 @@ from ao_shaping.tools.slm.cartographer import (
     HartmannCaptureConfig,
     HartmannMeasurement,
 )
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.drivers.wfs.thorlab_wfs import ThorlabWFS, MlaRes
 
 # Module-level state for the LUT calibration background thread.  The worker
@@ -105,7 +105,7 @@ def _connect_slm() -> bool:
             except Exception:
                 pass
 
-        slm = SantecSLM200(
+        slm = Santec(
             slm_number=st.session_state.cart_slm_number,
             wavelength=st.session_state.cart_wavelength,
             video_mode=0,

@@ -46,15 +46,15 @@ from ao_shaping.algorithm.gerchberg_saxton import (
 )
 
 # Import hardware drivers with graceful fallback
-SantecSLM200: Any = None
+Santec: Any = None
 DahengCamManager: Any = None
 SLM_AVAILABLE = False
 CCD_AVAILABLE = False
 
 try:
-    from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200 as _SantecSLM200
+    from ao_shaping.drivers.slm.santec import Santec as _Santec
 
-    SantecSLM200 = _SantecSLM200
+    Santec = _Santec
     SLM_AVAILABLE = True
 except ImportError:
     logger.debug("SLM driver not available")
@@ -407,7 +407,7 @@ def run(
         logger.info("Initializing hardware...")
 
         # 初始化SLM
-        slm = SantecSLM200(slm_number=slm_number, wavelength=slm_wavelength)
+        slm = Santec(slm_number=slm_number, wavelength=slm_wavelength)
         slm.open()
         logger.info(f"SLM initialized: #{slm_number}, λ={slm_wavelength}nm")
 

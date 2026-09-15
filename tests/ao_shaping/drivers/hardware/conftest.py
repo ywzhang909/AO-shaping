@@ -106,8 +106,8 @@ def wfs_stable_sampling():
 def slm():
     """Santec SLM-200 instance. Skips if hardware unavailable."""
     try:
-        from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
-        slm = SantecSLM200(slm_number=1, wavelength=1064, phase_range=200)
+        from ao_shaping.drivers.slm.santec import Santec
+        slm = Santec(slm_number=1, wavelength=1064, phase_range=200)
         slm.open()
         yield slm
         slm.close()

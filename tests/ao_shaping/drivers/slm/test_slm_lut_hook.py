@@ -1,6 +1,6 @@
 """Tests for the SLM gray-level remapping LUT hook.
 
-Verifies that ``SantecSLM200.load_lut`` / ``create_phase_from_array``
+Verifies that ``Santec.load_lut`` / ``create_phase_from_array``
 correctly apply (or skip) a phase→gray compensation lookup table, with
 ZERO behaviour change when no LUT is loaded.
 """
@@ -16,10 +16,10 @@ import numpy as np
 import pytest
 
 # Mock the SLM SDK before importing the driver (same pattern as test_correction_csv.py)
-sys.modules["ao_shaping.drivers.slm._slm_win"] = MagicMock()
+sys.modules["ao_shaping.drivers.slm.santec._slm_win"] = MagicMock()
 
-from ao_shaping.drivers.slm.santec_slm200 import (
-    SantecSLM200,
+from ao_shaping.drivers.slm.santec import (
+    Santec,
     apply_lut_remap,
 )
 
@@ -29,7 +29,7 @@ from ao_shaping.drivers.slm.santec_slm200 import (
 def _ensure_mock_slm_sdk() -> Generator[None, None, None]:
     with patch.dict(
         "sys.modules",
-        {"ao_shaping.drivers.slm._slm_win": MagicMock()},
+        {"ao_shaping.drivers.slm.santec._slm_win": MagicMock()},
         clear=False,
     ):
         yield
@@ -128,7 +128,7 @@ class TestApplyLutRemap:
 
 
 # ---------------------------------------------------------------------------
-# Tests: SantecSLM200 LUT integration
+# Tests: Santec LUT integration
 # ---------------------------------------------------------------------------
 
 
@@ -136,13 +136,13 @@ class TestLUTDefaultState:
     """Verify default LUT state and no-op behavior."""
 
     def test_lut_is_none_by_default(self) -> None:
-        slm = SantecSLM200(slm_number=1)
+        slm = Santec(slm_number=1)
         assert slm.lut is None
         assert slm.lut_dir is None
 
     def test_create_phase_no_lut_matches_baseline(self) -> None:
         """With lut=None, output should be identical to the no-LUT baseline."""
-        slm = SantecSLM200(slm_number=1, shift_x=0, shift_y=0)
+        slm = Santec(slm_number=1, shift_x=0, shift_y=0)
         phase_rad = np.linspace(0, 2 * np.pi, 100).reshape(10, 10)
 
         # Baseline: no LUT
@@ -157,7 +157,7 @@ class TestLUTDefaultState:
 
     def test_lut_default_dont_affect_correction(self) -> None:
         """Default lut=None should not interfere with correction loading."""
-        slm = SantecSLM200(slm_number=1)
+        slm = Santec(slm_number=1)
         assert slm._correction is not None
         assert slm.lut is None
 
@@ -170,7 +170,7 @@ class TestLoadLUT:
         lut_dir = tmp_path / "lut_identity"
         _write_identity_lut(lut_dir)
 
-        slm = SantecSLM200(slm_number=1, shift_x=0, shift_y=0)
+        slm = Santec(slm_number=1, shift_x=0, shift_y=0)
         phase_rad = np.linspace(0, 2 * np.pi, 100).reshape(10, 10)
         baseline = slm.create_phase_from_array(phase_rad)
 
@@ -187,7 +187,7 @@ class TestLoadLUT:
         lut_dir = tmp_path / "lut_offset"
         _write_offset_lut(lut_dir, offset=100)
 
-        slm = SantecSLM200(slm_number=1, shift_x=0, shift_y=0)
+        slm = Santec(slm_number=1, shift_x=0, shift_y=0)
         phase_rad = np.linspace(0, 2 * np.pi, 100).reshape(10, 10)
         baseline = slm.create_phase_from_array(phase_rad)
 
@@ -202,7 +202,7 @@ class TestLoadLUT:
 
     def test_load_missing_directory(self, tmp_path: Path) -> None:
         """Loading from a missing directory should warn and keep lut=None."""
-        slm = SantecSLM200(slm_number=1)
+        slm = Santec(slm_number=1)
         assert slm.lut is None
 
         slm.load_lut(tmp_path / "nonexistent")
@@ -214,7 +214,7 @@ class TestLoadLUT:
         """Loading from a directory without npz/csv should warn and keep lut=None."""
         empty_dir = tmp_path / "empty_lut"
         empty_dir.mkdir()
-        slm = SantecSLM200(slm_number=1)
+        slm = Santec(slm_number=1)
 
         slm.load_lut(empty_dir)
         assert slm.lut is None
@@ -224,7 +224,7 @@ class TestLoadLUT:
         lut_dir = tmp_path / "lut_to_clear"
         _write_identity_lut(lut_dir)
 
-        slm = SantecSLM200(slm_number=1)
+        slm = Santec(slm_number=1)
         slm.load_lut(lut_dir)
         assert slm.lut is not None
 
@@ -237,7 +237,7 @@ class TestLoadLUT:
         lut_dir = tmp_path / "lut_csv"
         _write_csv_lut(lut_dir, offset=0)
 
-        slm = SantecSLM200(slm_number=1, shift_x=0, shift_y=0)
+        slm = Santec(slm_number=1, shift_x=0, shift_y=0)
         phase_rad = np.linspace(0, 2 * np.pi, 100).reshape(10, 10)
         baseline = slm.create_phase_from_array(phase_rad)
 
@@ -257,7 +257,7 @@ class TestLoadLUT:
         bad_npz = lut_dir_bad / "lut.npz"
         bad_npz.write_bytes(b"not a real npz file")
 
-        slm = SantecSLM200(slm_number=1)
+        slm = Santec(slm_number=1)
         slm.load_lut(lut_dir_good)
         assert slm.lut is not None
         good_lut = slm.lut.copy()
@@ -277,7 +277,7 @@ class TestLoadLUT:
             wrong_key=np.arange(1024, dtype=np.uint16),
         )
 
-        slm = SantecSLM200(slm_number=1)
+        slm = Santec(slm_number=1)
         slm.load_lut(lut_dir_good)
         assert slm.lut is not None
         good_lut = slm.lut.copy()
@@ -296,7 +296,7 @@ class TestLoadLUT:
             inverse_gray=np.zeros((10, 10), dtype=np.uint16),
         )
 
-        slm = SantecSLM200(slm_number=1)
+        slm = Santec(slm_number=1)
         slm.load_lut(lut_dir_good)
         assert slm.lut is not None
         good_lut = slm.lut.copy()
@@ -310,7 +310,7 @@ class TestLUTInCreatePhaseFromArray:
 
     def test_no_lut_vs_baseline_identical(self) -> None:
         """Critical: lut=None must produce byte-identical output to pre-LUT code."""
-        slm = SantecSLM200(slm_number=1, shift_x=0, shift_y=0)
+        slm = Santec(slm_number=1, shift_x=0, shift_y=0)
         phase_rad = np.linspace(0, 2 * np.pi, 400).reshape(20, 20)
 
         out1 = slm.create_phase_from_array(phase_rad)
@@ -322,8 +322,8 @@ class TestLUTInCreatePhaseFromArray:
         lut_dir = tmp_path / "lut_identity"
         _write_identity_lut(lut_dir)
 
-        slm_no_lut = SantecSLM200(slm_number=1, shift_x=0, shift_y=0)
-        slm_with_lut = SantecSLM200(slm_number=1, shift_x=0, shift_y=0)
+        slm_no_lut = Santec(slm_number=1, shift_x=0, shift_y=0)
+        slm_with_lut = Santec(slm_number=1, shift_x=0, shift_y=0)
         slm_with_lut.load_lut(lut_dir)
 
         phase_rad = np.linspace(0, 2 * np.pi, 400).reshape(20, 20)
@@ -337,7 +337,7 @@ class TestLUTInCreatePhaseFromArray:
         lut_dir = tmp_path / "lut_offset"
         _write_offset_lut(lut_dir, offset=100)
 
-        slm = SantecSLM200(slm_number=1, shift_x=0, shift_y=0)
+        slm = Santec(slm_number=1, shift_x=0, shift_y=0)
         phase_rad = np.linspace(0, 2 * np.pi, 400).reshape(20, 20)
 
         baseline = slm.create_phase_from_array(phase_rad)
@@ -354,7 +354,7 @@ class TestLUTInCreatePhaseFromArray:
         lut_dir = tmp_path / "lut_shift"
         _write_offset_lut(lut_dir, offset=50)
 
-        slm = SantecSLM200(slm_number=1, shift_x=3, shift_y=2)
+        slm = Santec(slm_number=1, shift_x=3, shift_y=2)
         phase_rad = np.linspace(0, 2 * np.pi, 400).reshape(20, 20)
 
         baseline = slm.create_phase_from_array(phase_rad)
@@ -371,7 +371,7 @@ class TestLUTInCreatePhaseFromArray:
         lut_dir = tmp_path / "lut_extreme"
         _write_offset_lut(lut_dir, offset=200)
 
-        slm = SantecSLM200(slm_number=1, shift_x=0, shift_y=0)
+        slm = Santec(slm_number=1, shift_x=0, shift_y=0)
         phase_rad = np.linspace(0, 4 * np.pi, 200).reshape(10, 20)
 
         result = slm.create_phase_from_array(phase_rad)

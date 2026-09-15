@@ -436,7 +436,7 @@ class SLMPhaseController:
     that applies wrapping optimization before sending the pattern.
 
     Example:
-        >>> with SantecSLM200(slm_number=1) as slm:
+        >>> with Santec(slm_number=1) as slm:
         ...     ctrl = SLMPhaseController(slm)
         ...     ctrl.load_zernike_coefficients(np.array([0.5, 0.3, 0.2]))
     """

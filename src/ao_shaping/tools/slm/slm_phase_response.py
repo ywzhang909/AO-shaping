@@ -47,7 +47,7 @@ matplotlib.use("Agg")  # 无界面后端, 只保存 PNG
 import matplotlib.pyplot as plt  # noqa: E402
 
 if TYPE_CHECKING:
-    from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+    from ao_shaping.drivers.slm.santec import Santec
 
 
 # ── 已确认的硬件/光路事实 (2026-09 诊断固化, 勿改) ──────────────────────────
@@ -79,13 +79,13 @@ class PhaseCase:
 
     name: str
     description: str
-    builder: Callable[["SantecSLM200"], np.ndarray]
+    builder: Callable[["Santec"], np.ndarray]
 
 
 # ── 相位用例生成 (纯函数, 与硬件采集解耦) ──────────────────────────────────
 
 
-def _defocus_normalized_builder(slm: "SantecSLM200") -> np.ndarray:
+def _defocus_normalized_builder(slm: "Santec") -> np.ndarray:
     """控制器同款 Zernike 离焦: generate_zernike_polynomial({(2,0): 1.0})。
 
     弧度相位 → ``slm.create_phase_from_array()`` 转换: 保留系数绝对幅度
@@ -103,7 +103,7 @@ def _defocus_normalized_builder(slm: "SantecSLM200") -> np.ndarray:
     return slm.create_phase_from_array(phase_rad)
 
 
-def _defocus_big_builder(slm: "SantecSLM200") -> np.ndarray:
+def _defocus_big_builder(slm: "Santec") -> np.ndarray:
     """大离焦 (多圈包裹): Z(2,0)=2ρ²-1 × 30 rad → to_uint16 包裹。"""
     from ao_shaping.utils.pattern_helper import PatternHelper
 
@@ -118,7 +118,7 @@ def _defocus_big_builder(slm: "SantecSLM200") -> np.ndarray:
     return helper.to_uint16(phase_rad)
 
 
-def _lens_builder(slm: "SantecSLM200", focal_length_m: float) -> np.ndarray:
+def _lens_builder(slm: "Santec", focal_length_m: float) -> np.ndarray:
     """透镜相位 (与 multi_slm_controller "透镜" 分支一致, 全尺寸)。"""
     from ao_shaping.utils.pattern_helper import PatternHelper
 
@@ -277,7 +277,7 @@ def build_sequence(cases: list[PhaseCase]) -> list[tuple[str, str, object]]:
 
 
 def _resolve_payload(
-    payload: object, slm: "SantecSLM200", w: int, h: int
+    payload: object, slm: "Santec", w: int, h: int
 ) -> np.ndarray:
     """把序列项 payload 解析为 uint16 灰度图。
 
@@ -295,7 +295,7 @@ def _resolve_payload(
 
 def run_phase_probe(
     camera,
-    slm: "SantecSLM200",
+    slm: "Santec",
     cases: list[PhaseCase],
     out: Path,
     n_sample: int,
@@ -477,7 +477,7 @@ def main(
 
     # 延迟导入硬件 (仅实物运行时; render-only 不依赖)。
     from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
-    from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+    from ao_shaping.drivers.slm.santec import Santec
 
     logger.info(
         "SLM phase probe: {} | slm#{} @{}nm | camera#{} exposure {:.3f}ms | "
@@ -493,10 +493,10 @@ def main(
         out.resolve(),
     )
 
-    slm: "SantecSLM200 | None" = None
+    slm: "Santec | None" = None
     camera = None
     try:
-        slm = SantecSLM200(
+        slm = Santec(
             slm_number=slm_number, wavelength=slm_wavelength, video_mode=0
         )
         slm.open()

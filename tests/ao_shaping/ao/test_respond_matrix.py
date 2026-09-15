@@ -12,7 +12,7 @@ try:
     if not hasattr(ctypes, "WinDLL"):
         raise ImportError("ctypes.WinDLL unavailable (non-Windows platform)")
 
-    import ao_shaping.drivers.slm._slm_win  # noqa: F401  # Windows-only SLM SDK
+    import ao_shaping.drivers.slm.santec._slm_win  # noqa: F401  # Windows-only SLM SDK
     from ao_shaping.drivers.wfs._thorlab_wfs import load_dll
 
     load_dll()  # verify the Thorlabs WFS DLL is loadable

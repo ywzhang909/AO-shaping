@@ -19,9 +19,9 @@ class TestSLMMIICAMJoint:
     def slm_module(self):
         """Import SLM module, skip if not available."""
         try:
-            from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+            from ao_shaping.drivers.slm.santec import Santec
 
-            return SantecSLM200
+            return Santec
         except ImportError:
             pytest.skip("SLM module not available")
 
@@ -249,11 +249,11 @@ class TestSLMMIICAMCalibration:
         """Basic calibration test placeholder."""
         # This test just verifies the modules can be imported together
         try:
-            from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+            from ao_shaping.drivers.slm.santec import Santec
             from ao_shaping.drivers.ccd.miicam import CameraStreamManager
 
             # Check SLM parameters
-            slm = SantecSLM200(slm_number=1, wavelength=1064)
+            slm = Santec(slm_number=1, wavelength=1064)
             assert slm.wavelength == 1064
             assert slm.phase_range == 200
 

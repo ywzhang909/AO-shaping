@@ -1,8 +1,8 @@
-"""SantecSLM200 平移功能非硬件测试.
+"""Santec 平移功能非硬件测试.
 
 覆盖:
-- ``SantecSLM200.shift_phase`` 静态纯函数 (平移数学唯一实现)
-- ``SantecSLM200.apply_shift`` 高层编排 (绝对定位/无累积/槽轮换/配置保存)
+- ``Santec.shift_phase`` 静态纯函数 (平移数学唯一实现)
+- ``Santec.apply_shift`` 高层编排 (绝对定位/无累积/槽轮换/配置保存)
 
 不触碰硬件: 构造时用 ``sys.modules`` stub 替换 ``_slm_win`` SDK 模块,
 编排测试 monkeypatch 驱动内部方法 (``_ensure_open``/``get_displayed_phase``/
@@ -17,7 +17,7 @@ import types
 import numpy as np
 import pytest
 
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200, VideoMode
+from ao_shaping.drivers.slm.santec import Santec, VideoMode
 
 
 # ---------------------------------------------------------------------------
@@ -26,9 +26,9 @@ from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200, VideoMode
 
 
 def _install_sdk_stub(monkeypatch: pytest.MonkeyPatch) -> None:
-    """用空模块替换 _slm_win, 使 SantecSLM200 构造不需要真实 SLM SDK DLL."""
-    stub = types.ModuleType("ao_shaping.drivers.slm._slm_win")
-    monkeypatch.setitem(sys.modules, "ao_shaping.drivers.slm._slm_win", stub)
+    """用空模块替换 _slm_win, 使 Santec 构造不需要真实 SLM SDK DLL."""
+    stub = types.ModuleType("ao_shaping.drivers.slm.santec._slm_win")
+    monkeypatch.setitem(sys.modules, "ao_shaping.drivers.slm.santec._slm_win", stub)
 
 
 def _phase_with_square(
@@ -75,17 +75,17 @@ def _reference_shift_slice(phase: np.ndarray, shift_x: int, shift_y: int) -> np.
 
 
 class TestShiftPhase:
-    """``SantecSLM200.shift_phase`` 静态纯函数."""
+    """``Santec.shift_phase`` 静态纯函数."""
 
     def test_zero_shift_returns_input_object(self) -> None:
         phase = _phase_with_square()
-        out = SantecSLM200.shift_phase(phase, 0, 0)
+        out = Santec.shift_phase(phase, 0, 0)
         assert out is phase  # (0,0) 原样返回, 与旧 _apply_shift 语义一致
 
     def test_positive_x_moves_right_zero_fill(self) -> None:
         phase = _phase_with_square()
         shift = 10
-        out = SantecSLM200.shift_phase(phase, shift, 0)
+        out = Santec.shift_phase(phase, shift, 0)
         assert out.dtype == np.uint16
         assert out.shape == phase.shape
         assert np.all(out[:, :shift] == 0)  # 左侧 vacated 填 0
@@ -96,14 +96,14 @@ class TestShiftPhase:
     def test_positive_y_moves_down_zero_fill(self) -> None:
         phase = _phase_with_square()
         shift = 10
-        out = SantecSLM200.shift_phase(phase, 0, shift)
+        out = Santec.shift_phase(phase, 0, shift)
         assert np.all(out[:shift, :] == 0)
         rows = _nonzero_rows(out)
         assert rows[0] == 568 + shift
 
     def test_negative_shifts(self) -> None:
         phase = _phase_with_square()
-        out = SantecSLM200.shift_phase(phase, -10, -10)
+        out = Santec.shift_phase(phase, -10, -10)
         cols = _nonzero_cols(out)
         rows = _nonzero_rows(out)
         assert cols[0] == 928 - 10
@@ -116,18 +116,18 @@ class TestShiftPhase:
     def test_matches_reference_slice_shift(self, sx: int, sy: int) -> None:
         """与旧 GUI slice-copy 平移语义字节级一致 (整数平移)."""
         phase = _phase_with_square()
-        out = SantecSLM200.shift_phase(phase, sx, sy)
+        out = Santec.shift_phase(phase, sx, sy)
         ref = _reference_shift_slice(phase, sx, sy)
         assert np.array_equal(out, ref)
 
     def test_dtype_preserved_for_float_input(self) -> None:
         phase = _phase_with_square().astype(np.float64)
-        out = SantecSLM200.shift_phase(phase, 3, 3)
+        out = Santec.shift_phase(phase, 3, 3)
         assert out.dtype == np.float64
 
     def test_large_shift_fully_zero(self) -> None:
         phase = _phase_with_square()
-        out = SantecSLM200.shift_phase(phase, 5000, 5000)
+        out = Santec.shift_phase(phase, 5000, 5000)
         assert np.all(out == 0)
 
 
@@ -137,7 +137,7 @@ class TestShiftPhase:
 
 
 class TestApplyShift:
-    """``SantecSLM200.apply_shift`` 高层编排测试."""
+    """``Santec.apply_shift`` 高层编排测试."""
 
     def _make_slm(
         self,
@@ -146,9 +146,9 @@ class TestApplyShift:
         shift_x: int = 0,
         shift_y: int = 0,
         video_mode: VideoMode = VideoMode.Memory,
-    ) -> tuple[SantecSLM200, dict[str, list]]:
+    ) -> tuple[Santec, dict[str, list]]:
         _install_sdk_stub(monkeypatch)
-        slm = SantecSLM200(slm_number=1, shift_x=shift_x, shift_y=shift_y)
+        slm = Santec(slm_number=1, shift_x=shift_x, shift_y=shift_y)
         slm.video_mode = video_mode
 
         monkeypatch.setattr(slm, "_ensure_open", lambda: None)
@@ -172,7 +172,7 @@ class TestApplyShift:
 
     @staticmethod
     def _set_displayed(
-        slm: SantecSLM200,
+        slm: Santec,
         phase: np.ndarray | None,
         source: str = "内存槽 5",
     ) -> None:
@@ -199,8 +199,8 @@ class TestApplyShift:
         assert slot == 7  # 轮换内存槽
 
         # 绝对定位: 从 current_phase (内含旧偏移 3,-2) 反移旧偏移再施加新偏移
-        expected = SantecSLM200.shift_phase(
-            SantecSLM200.shift_phase(phase, -3, 2), 8, 5
+        expected = Santec.shift_phase(
+            Santec.shift_phase(phase, -3, 2), 8, 5
         )
         assert np.array_equal(written, expected)
         assert calls["display"] == [7]
@@ -227,11 +227,11 @@ class TestApplyShift:
         assert slm.shift_x == 10 and slm.shift_y == 6
         assert r2 is not None
         # 第二次: displayed=含旧偏移(5,4)的相位, 反移→原始, 再施加新偏移(10,6)
-        expected = SantecSLM200.shift_phase(SantecSLM200.shift_phase(r1, -5, -4), 10, 6)
+        expected = Santec.shift_phase(Santec.shift_phase(r1, -5, -4), 10, 6)
         written, _slot = calls["write"][0]
         assert np.array_equal(written, expected)
         # 累积错误会得到 r1@(10,6)=P@(15,10), 与绝对定位结果不同
-        naive = SantecSLM200.shift_phase(r1, 10, 6)
+        naive = Santec.shift_phase(r1, 10, 6)
         assert not np.array_equal(written, naive)
 
     # ---- no cached phase → params only, no rewrite --------------------------
