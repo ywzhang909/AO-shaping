@@ -155,8 +155,7 @@ class TestSLMReport:
 
                 # Write patterns to SLM and display
                 for mem_num, (name, pattern) in enumerate(patterns.items(), 1):
-                    open_slm.write_phase(pattern, memory_number=mem_num)
-                    open_slm.display_memory(mem_num)
+                    open_slm.display_data(pattern, memory_number=mem_num)
                     time.sleep(0.5)
 
             # Test 5: Shift correction
@@ -195,8 +194,7 @@ class TestSLMReport:
                     phase = np.zeros((1200, 1920), dtype=np.uint16)
                     # Unique pattern per slot
                     phase[100:200, 100:200] = mem_num * 20
-                    open_slm.write_phase(phase, memory_number=mem_num)
-                    open_slm.display_memory(mem_num)
+                    open_slm.display_data(phase, memory_number=mem_num)
                     time.sleep(0.2)
 
                     # Verify
@@ -231,7 +229,7 @@ class TestSLMReport:
                     csv_path = f.name
 
                 try:
-                    phase = open_slm.load_phase_from_csv(csv_path)
+                    phase = open_slm.load_gray_from_csv(csv_path)
                     report.add_key_value("CSV Shape", str(phase.shape))
                     report.add_key_value("CSV Dtype", str(phase.dtype))
                     report.add_key_value(
@@ -344,8 +342,7 @@ def test_slm_standalone_report():
             with TestWithReport(report, "Pattern Generation"):
                 phase = np.zeros((1080, 1920), dtype=np.uint16)
                 phase[500:580, 900:1020] = 511
-                slm.write_phase(phase, memory_number=1)
-                slm.display_memory(1)
+                slm.display_data(phase, memory_number=1)
                 report.add_text("Pattern written and displayed successfully.")
 
             slm.close()

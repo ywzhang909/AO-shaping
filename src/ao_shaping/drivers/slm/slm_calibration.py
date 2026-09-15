@@ -468,8 +468,7 @@ class SLMCalibratorBase(ABC):
         """
         # 创建并显示闪耀光栅
         grating = self.create_blazed_grating(grayscale_depth)
-        self.slm.write_phase(grating, memory_number=memory_number)
-        self.slm.display_memory(memory_number)
+        self.slm.display_data(grating, memory_number=memory_number)
 
         # 等待SLM响应
         time.sleep(0.1)
@@ -511,8 +510,7 @@ class SLMCalibratorBase(ABC):
 
         # 测量光栅相位时的零级光强
         grating = self.create_blazed_grating(grayscale_depth)
-        self.slm.write_phase(grating, memory_number=memory_number)
-        self.slm.display_memory(memory_number)
+        self.slm.display_data(grating, memory_number=memory_number)
         time.sleep(0.1)
 
         grating_img = self.camera.get_numpy_image(n_sample=n_samples)
@@ -966,8 +964,7 @@ class SantecSLM200Calibrator(SLMCalibratorBase):
             )
             # 先显示一个测试图案来调整曝光
             test_grating = self.create_blazed_grating(512)  # 中等灰度值测试
-            self.slm.write_phase(test_grating, memory_number=1)
-            self.slm.display_memory(1)
+            self.slm.display_data(test_grating, memory_number=1)
             time.sleep(0.2)
 
             optimal_exposure = auto_expo_ctrl.auto_adjust(n_samples=3)

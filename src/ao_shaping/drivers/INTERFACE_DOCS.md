@@ -991,8 +991,8 @@ from ao_shaping.drivers import SantecSLM200, NLightDM
 # SLM 控制
 with SantecSLM200(slm_number=1, wavelength=1064) as slm:
     phase = np.zeros((1080, 1920), dtype=np.uint16)
-    slm.write_phase(phase, memory_number=1)
-    slm.display_memory(1)
+    slm.display_data(phase, memory_number=1)
+    slm._display_memory(1)
 
 # DM 控制
 with NLightDM() as dm:

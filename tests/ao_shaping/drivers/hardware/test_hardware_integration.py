@@ -180,7 +180,7 @@ class TestZernikeSLM:
         coeffs = np.zeros(zernike_slm._n_zernike)
         coeffs[5] = 1.0  # Add astigmatism
         zernike_slm.send_zernike_to_memory(coeffs, memory_number=1)
-        zernike_slm.display_memory(1)
+        zernike_slm._display_memory(1)
         print(f"\nSent to memory slot 1: {coeffs}")
 
     def test_grayscale(self, zernike_slm):

@@ -120,6 +120,20 @@ class ZernikeSLM:
         """Y方向平移像素数"""
         return self._slm.shift_y
 
+    def apply_shift(
+        self,
+        shift_x: int,
+        shift_y: int,
+        *,
+        wait_time_s: float = 0.3,
+        save_config: bool = True,
+    ) -> np.ndarray | None:
+        """应用平移并重绘当前显示相位 (委托 :meth:`SantecSLM200.apply_shift`)."""
+        self._ensure_open()
+        return self._slm.apply_shift(
+            shift_x, shift_y, wait_time_s=wait_time_s, save_config=save_config
+        )
+
     def send_zernike(
         self,
         coefficients: dict[tuple[int, int], float] | np.ndarray,
@@ -143,7 +157,7 @@ class ZernikeSLM:
             if isinstance(coefficients, dict)
             else self._zernike_dm._noll_to_dict(coefficients)
         )
-        self._slm.display_data(self._current_phase, self.wait_time_s)
+        self._slm.display_phase(phase_rad, wait_time_s=self.wait_time_s)
 
         return self._current_phase
 
@@ -171,7 +185,7 @@ class ZernikeSLM:
     def display_memory(self, memory_number: int) -> None:
         """显示指定内存的相位图"""
         self._ensure_open()
-        self._slm.display_memory(memory_number)
+        self._slm._display_memory(memory_number)
 
     def set_flat(self) -> None:
         """设置SLM为平相位（清零）"""

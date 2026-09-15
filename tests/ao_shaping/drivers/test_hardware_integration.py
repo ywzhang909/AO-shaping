@@ -236,12 +236,12 @@ class TestSLMHardware:
     def test_write_phase(self, slm):
         """Test phase writing to memory."""
         phase = np.zeros((1200, 1920), dtype=np.uint16)
-        slm.write_phase(phase, memory_number=1)
+        slm._write_phase(phase, memory_number=1)
         print("  Phase written to memory 1")
 
     def test_display_memory(self, slm):
         """Test displaying from memory."""
-        slm.display_memory(1)
+        slm._display_memory(1)
         mem_num = slm.get_displayed_memory_number()
         print(f"  Displaying memory: {mem_num}")
 

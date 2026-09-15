@@ -37,9 +37,14 @@ class TestDefaultCalc:
 
     @staticmethod
     def make_cosine_data(
-        height: int, width: int, *, phi_map: np.ndarray | None = None,
-        max_grayscale: int = 1023, measurement_gray: int = 1023,
-        amplitude: float = 200.0, offset: float = 128.0,
+        height: int,
+        width: int,
+        *,
+        phi_map: np.ndarray | None = None,
+        max_grayscale: int = 1023,
+        measurement_gray: int = 1023,
+        amplitude: float = 200.0,
+        offset: float = 128.0,
         noise_std: float = 0.0,
     ) -> np.ndarray:
         """生成符合物理模型的合成测量数据: B = A·cos(2π·g/MAX + φ) + C"""
@@ -82,16 +87,21 @@ class TestDefaultCalc:
         h, w = 5, 10
         phi = np.zeros((h, w))
         data, _ = self.make_cosine_data(
-            h, w, phi_map=phi, amplitude=100.0, offset=128.0)
+            h, w, phi_map=phi, amplitude=100.0, offset=128.0
+        )
         # 在非边界处插入极端值 — 会被替换
         data[2, 3] = 99999.0
         result_with_interior = WavefrontCorrection._default_calc(
-            data.copy(), outlier_threshold=3.0)
+            data.copy(), outlier_threshold=3.0
+        )
         # 在边界处插入—不会触发替换（但有异常）
         data[2, 0] = 99999.0
         result_with_boundary = WavefrontCorrection._default_calc(
-            data.copy(), outlier_threshold=3.0, max_grayscale=1023,
-            measurement_gray=1023)
+            data.copy(),
+            outlier_threshold=3.0,
+            max_grayscale=1023,
+            measurement_gray=1023,
+        )
         # 矫正映射不同（边界异常影响全局估计）
         assert not np.allclose(result_with_interior, result_with_boundary)
 
@@ -113,10 +123,12 @@ class TestDefaultCalc:
         """所有像素具有相同 φ → 矫正映射图为常数"""
         h, w = 20, 30
         phi_uniform = np.full((h, w), 0.3)
-        data, _ = self.make_cosine_data(h, w, phi_map=phi_uniform,
-                                        amplitude=200.0, offset=128.0)
+        data, _ = self.make_cosine_data(
+            h, w, phi_map=phi_uniform, amplitude=200.0, offset=128.0
+        )
         result = WavefrontCorrection._default_calc(
-            data, max_grayscale=1023, measurement_gray=1023)
+            data, max_grayscale=1023, measurement_gray=1023
+        )
         # 所有矫正值应相同
         assert np.std(result) < 1e-5
 
@@ -131,10 +143,17 @@ class TestDefaultCalc:
         # φ 限定在 [0, π/2] 以确保 arccos 唯一重建
         phi_gt = rng.random((h, w)) * np.pi / 2  # [0, π/2]
         data, _ = self.make_cosine_data(
-            h, w, phi_map=phi_gt, max_grayscale=1023,
-            measurement_gray=1023, amplitude=200.0, offset=128.0)
+            h,
+            w,
+            phi_map=phi_gt,
+            max_grayscale=1023,
+            measurement_gray=1023,
+            amplitude=200.0,
+            offset=128.0,
+        )
         result = WavefrontCorrection._default_calc(
-            data, max_grayscale=1023, measurement_gray=1023)
+            data, max_grayscale=1023, measurement_gray=1023
+        )
 
         # 从矫正映射反推 φ: φ_extracted = -result * 2π / max_grayscale
         phi_extracted = -result * 2 * np.pi / 1023
@@ -146,12 +165,15 @@ class TestDefaultCalc:
 
     def test_measurement_gray_affects_result(self):
         """不同的 measurement_gray 产生不同的矫正映射"""
-        data, _ = self.make_cosine_data(10, 20, max_grayscale=1023,
-                                        measurement_gray=512)
+        data, _ = self.make_cosine_data(
+            10, 20, max_grayscale=1023, measurement_gray=512
+        )
         r1 = WavefrontCorrection._default_calc(
-            data, max_grayscale=1023, measurement_gray=512)
+            data, max_grayscale=1023, measurement_gray=512
+        )
         r2 = WavefrontCorrection._default_calc(
-            data, max_grayscale=1023, measurement_gray=1023)
+            data, max_grayscale=1023, measurement_gray=1023
+        )
         assert not np.allclose(r1, r2)
 
     # ── 集成测试 ──────────────────────────────────────
@@ -173,6 +195,7 @@ class TestDefaultCalc:
 
     def test_calc_with_custom_fn_still_works(self):
         """calc_fn 保留向后兼容"""
+
         def dummy_fn(raw):
             return np.zeros_like(raw, dtype=np.float64)
 
@@ -250,13 +273,13 @@ class TestDefaultCalc:
 
     # ── Backward compatibility: 旧 wrapper ─────────────
 
-    def test_load_phase_from_csv_backward_compat(self, tmp_path: Path):
-        """load_phase_from_csv 仍可正常工作"""
+    def test_load_gray_from_csv_backward_compat(self, tmp_path: Path):
+        """load_gray_from_csv 仍可正常工作"""
         csv = tmp_path / "test.csv"
         csv.write_text("Y/X,0,1,2\n0,100,200,300\n1,400,500,600\n")
 
         slm = SantecSLM200(slm_number=1)
-        data = slm.load_phase_from_csv(csv)
+        data = slm.load_gray_from_csv(csv)
         assert data.shape == (2, 3)
         assert data.dtype == np.uint16
 

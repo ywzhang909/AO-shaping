@@ -164,19 +164,19 @@ class TestDisplayMemory:
     @pytest.mark.hardware
     def test_display_memory_success(self, open_slm):
         """测试成功显示内存"""
-        open_slm.display_memory(1)
+        open_slm._display_memory(1)
 
     def test_display_memory_invalid_number(self, open_slm):
         """测试无效的内存编号"""
         with pytest.raises(ValueError, match="内存编号必须在1-128之间"):
-            open_slm.display_memory(0)
+            open_slm._display_memory(0)
         with pytest.raises(ValueError, match="内存编号必须在1-128之间"):
-            open_slm.display_memory(129)
+            open_slm._display_memory(129)
 
     def test_display_memory_not_open(self, slm):
         """测试未打开设备时显示内存"""
         with pytest.raises(RuntimeError, match="SLM设备未打开"):
-            slm.display_memory(1)
+            slm._display_memory(1)
 
 
 class TestGrayscale:
@@ -220,26 +220,26 @@ class TestPhaseWriting:
     def test_write_phase_success(self, open_slm):
         """测试成功写入相位数据"""
         phase = np.zeros((1080, 1920), dtype=np.uint16)
-        open_slm.write_phase(phase, memory_number=1)
+        open_slm._write_phase(phase, memory_number=1)
 
     def test_write_phase_invalid_memory_number(self, open_slm):
         """测试无效的内存编号"""
         phase = np.zeros((1080, 1920), dtype=np.uint16)
         with pytest.raises(ValueError, match="内存编号必须在1-128之间"):
-            open_slm.write_phase(phase, memory_number=0)
+            open_slm._write_phase(phase, memory_number=0)
         with pytest.raises(ValueError, match="内存编号必须在1-128之间"):
-            open_slm.write_phase(phase, memory_number=129)
+            open_slm._write_phase(phase, memory_number=129)
 
     def test_write_phase_wrong_dtype(self, open_slm):
         """测试错误的数据类型自动转换为 uint16"""
         phase = np.zeros((1080, 1920), dtype=np.float32)
-        open_slm.write_phase(phase)  # 应自动转换，不抛出异常
+        open_slm._write_phase(phase)  # 应自动转换，不抛出异常
 
     def test_write_phase_wrong_dimensions(self, open_slm):
         """测试错误的数据维度"""
         phase = np.zeros((1080,), dtype=np.uint16)
         with pytest.raises(ValueError, match="相位数据必须是2D数组"):
-            open_slm.write_phase(phase)
+            open_slm._write_phase(phase)
 
 
 class TestPhasePatternGeneration:
@@ -272,8 +272,8 @@ class TestPhasePatternGeneration:
         grayscale = open_slm.create_phase_from_array(phase_rad)
         assert np.all(grayscale <= 1023)
 
-    def test_load_phase_from_csv(self, open_slm, tmp_path):
-        """测试从 CSV 文件加载相位数据"""
+    def test_load_gray_from_csv(self, open_slm, tmp_path):
+        """测试从 CSV 文件加载灰度数据"""
         # 创建测试 CSV 文件
         csv_content = "Y/X,0,1,2\n"
         csv_content += "0,100,200,300\n"
@@ -282,17 +282,17 @@ class TestPhasePatternGeneration:
         csv_file = tmp_path / "test_phase.csv"
         csv_file.write_text(csv_content)
 
-        phase = open_slm.load_phase_from_csv(str(csv_file))
+        phase = open_slm.load_gray_from_csv(str(csv_file))
 
         assert phase.dtype == np.uint16
         assert phase.shape == (2, 3)
         assert phase[0, 0] == 100
         assert phase[1, 2] == 600
 
-    def test_load_phase_from_csv_not_found(self, open_slm):
+    def test_load_gray_from_csv_not_found(self, open_slm):
         """测试加载不存在的 CSV 文件"""
         with pytest.raises(FileNotFoundError):
-            open_slm.load_phase_from_csv("/nonexistent/path.csv")
+            open_slm.load_gray_from_csv("/nonexistent/path.csv")
 
 
 class TestPatternTypes:
@@ -374,29 +374,25 @@ class TestPatternTypes:
     def test_write_checkerboard_pattern(self, open_slm):
         """测试写入棋盘格相位图"""
         phase = self.generate_checkerboard(period=50)
-        open_slm.write_phase(phase, memory_number=1)
-        open_slm.display_memory(1)
+        open_slm.display_data(phase, memory_number=1)
 
     @pytest.mark.hardware
     def test_write_blazed_grating_horizontal(self, open_slm):
         """测试写入水平闪耀光栅"""
         phase = self.generate_blazed_grating(period=20, direction="horizontal")
-        open_slm.write_phase(phase, memory_number=2)
-        open_slm.display_memory(2)
+        open_slm.display_data(phase, memory_number=2)
 
     @pytest.mark.hardware
     def test_write_blazed_grating_vertical(self, open_slm):
         """测试写入垂直闪耀光栅"""
         phase = self.generate_blazed_grating(period=20, direction="vertical")
-        open_slm.write_phase(phase, memory_number=3)
-        open_slm.display_memory(3)
+        open_slm.display_data(phase, memory_number=3)
 
     @pytest.mark.hardware
     def test_write_binary_grating(self, open_slm):
         """测试写入二元光栅"""
         phase = self.generate_binary_grating(b=5, a=10, direction="horizontal")
-        open_slm.write_phase(phase, memory_number=4)
-        open_slm.display_memory(4)
+        open_slm.display_data(phase, memory_number=4)
 
     @pytest.mark.hardware
     def test_write_focus_pattern(self, open_slm: SantecSLM200):
@@ -404,8 +400,7 @@ class TestPatternTypes:
         phase = self.generate_focus(focal_length=0.01, wavelength=532e-9)
         phase = open_slm.create_phase_from_array(phase)
         mem_num = 20
-        open_slm.write_phase(phase, memory_number=mem_num)
-        open_slm.display_memory(mem_num)
+        open_slm.display_data(phase, memory_number=mem_num)
 
     @pytest.mark.hardware
     def test_helper_to_circle_pattern(self, open_slm):
@@ -415,30 +410,32 @@ class TestPatternTypes:
         phase_rad = helper.circular_grating(
             radius=float(200),
             phase_range=float(2 * np.pi),
-            wrap_phase=False,
         )
         assert (
             phase_rad.shape[1] == self.RESOLUTION[0]
             and phase_rad.shape[0] == self.RESOLUTION[1]
         )
         phase = open_slm.create_phase_from_array(phase_rad)
-        open_slm.write_phase(phase, memory_number=6)
-        open_slm.display_memory(6)
+        open_slm.display_data(phase, memory_number=6)
 
     @pytest.mark.hardware
     def test_helper_to_zernike(self, open_slm: SantecSLM200):
         from ao_shaping.utils.pattern_helper import PatternHelper
 
         helper = PatternHelper(self.RESOLUTION)
-        phase_rad = helper.generate_zernike(n=2, m=0, amplitude=15)
+        # 弧度路径 (2026-09 fix + 2026-09-15 raw-only): generate_zernike_polynomial
+        # 返回未包裹弧度相位, 直接喂给 create_phase_from_array (不做 uint16 转换,
+        # AGENTS.md 反模式)。
+        phase_rad = helper.generate_zernike_polynomial(
+            coefficients={(2, 0): 15.0}
+        )
         assert (
             phase_rad.shape[1] == self.RESOLUTION[0]
             and phase_rad.shape[0] == self.RESOLUTION[1]
         )
         phase = open_slm.create_phase_from_array(phase_rad)
         mem_num = self.get_mem_num()
-        open_slm.write_phase(phase, memory_number=mem_num)
-        open_slm.display_memory(mem_num)
+        open_slm.display_data(phase, memory_number=mem_num)
 
     @pytest.mark.hardware
     def test_write_black_phase(self, open_slm: SantecSLM200):
@@ -449,8 +446,7 @@ class TestPatternTypes:
             and phase_rad.shape[0] == self.RESOLUTION[1]
         )
         mem_num = self.get_mem_num()
-        open_slm.write_phase(phase, memory_number=mem_num)
-        open_slm.display_memory(mem_num)
+        open_slm.display_data(phase, memory_number=mem_num)
 
     @pytest.mark.hardware
     def test_full_pattern_workflow(self, open_slm):
@@ -476,8 +472,7 @@ class TestPatternTypes:
         ]
 
         for _name, phase, mem_num in patterns:
-            open_slm.write_phase(phase, memory_number=mem_num)
-            open_slm.display_memory(mem_num)
+            open_slm.display_data(phase, memory_number=mem_num)
 
 
 class TestShiftCorrection:
@@ -575,10 +570,10 @@ class TestIntegration:
             # 生成并写入相位图案
             phase = np.zeros((1080, 1920), dtype=np.uint16)
             phase[500:580, 900:1020] = 511  # 添加一个中心图案
-            slm.write_phase(phase, memory_number=1)
+            slm._write_phase(phase, memory_number=1)
 
             # 显示相位图
-            slm.display_memory(1)
+            slm._display_memory(1)
 
     @pytest.mark.hardware
     def test_full_workflow_direct_display(self):
@@ -597,10 +592,10 @@ class TestIntegration:
         # 写入相位到内存
         phase = np.zeros((1200, 1920), dtype=np.uint16)
         phase[500:600, 900:1020] = 512
-        open_slm.write_phase(phase, memory_number=5)
+        open_slm._write_phase(phase, memory_number=5)
 
         # 显示内存
-        open_slm.display_memory(5)
+        open_slm._display_memory(5)
 
         # 验证显示的内存编号
         displayed_mem = ctypes.c_ulong(0)

@@ -37,6 +37,8 @@ slm/
 | `display_memory(memory_number)` | 显示内存中的相位图 |
 | `display_data(phase)` | 直接显示相位数据 |
 | `set_grayscale(gs)` | 设置灰度值 |
+| `shift_phase(phase, sx, sy)` | **纯函数**平移 (static; 平移数学唯一实现, 空白填0) |
+| `apply_shift(sx, sy, *, wait_time_s, save_config)` | **平移 + 自动重绘当前显示相位** (绝对定位不累积, 槽轮换, 配置保存) → 驱动层统一入口, 与多SLM控制器"应用平移"按钮一致 |
 
 ## SLM 故障排查 (2026-09 固化)
 
@@ -52,6 +54,7 @@ slm/
 - **diff-shaping 硬件闭环挂起 (2026-09-08)**: 日志止于 `成功打开SLM #1`, 之后首次 `get_numpy_image()` 前无限阻塞 (900s 强杀; 分步探针脚本同挂)。`WaitImageV3` 原生等待由 SDK 内部驱动, 不受 Python 超时保护。强杀不会走 finally close → SLM 控制器可能残留异常态; 重跑前确认无残留进程, memory 模式 open() >数秒无日志则物理断电重置 (与 DVI 挂起同一处置)。见 `diff_shaping_runner.py` SLM 连接段注释。
 - **`get_displayed_memory_number` 报错码 1 正常**: set_grayscale 模式无内存槽显示, SLM_Ctrl_ReadDS 返回 1 是合理行为, 非故障。
 - **同内存槽连续 `display_memory` 是 no-op**: 固件对"正在显示的同一槽位"的 `display_memory(slot)` 不刷新 LCOS 面板 (第二次写入的新相位不会上屏)。驱动已在 `display_memory()` 内置 warning: 检测到连续同槽位调用时 `logger.warning` 提示轮换槽位 (`display_data()` 内部自动轮换 127 槽, 不受影响; 工具类如 `gray_response._display_rotate_slot` 已自带轮换)。
+- **已缓存相位重写必须走 raw 路径 (`_write_to_memory`/`apply_shift`), 严禁再传 `write_phase`**: 缓存的显示相位 (`get_displayed_phase()`) 已包含底相位/矫正叠加, `write_phase` 会再次叠加 → 矫正被应用两次产生错误图案。平移后重写由 `apply_shift` 内部经 `_write_to_memory` 完成; 其他需要重写缓存相位的场景请直接调 raw 写入，勿用 `write_phase`。
 - **SLM flat-phase 严禁走 `create_phase_from_array()`**: 该函数对输入按 `mod 2π` → 灰度转换 (rad/2π × 1023), 导致 uint16 灰度值被静默破坏。扁平相位必须用 `np.full((h,w), gray, dtype=np.uint16)` 直接发送。
 - **方形光斑 SPGD 不能用低阶 Zernike (n≤4)**: Zernike 模态是圆对称平滑基, 物理上无法合成方形远场 (需要 2D-sinc 类近场/高频)。
 - **SPGD 目标函数不能只用 `-CV`**: 无能量项时优化器会清空目标盒 (硬件观测 EE→0.002)。目标函数必须包含环围能量。

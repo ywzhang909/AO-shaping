@@ -8,18 +8,18 @@
 
 Example:
     >>> from ao_shaping.drivers.slm import SantecSLM200
-    >>> 
+    >>>
     >>> with SantecSLM200(slm_number=1, wavelength=1064) as slm:
     ...     # 加载相位数据
     ...     phase = np.zeros((1080, 1920), dtype=np.uint16)
     ...     # 写入并显示
-    ...     slm.write_phase(phase, memory_number=1)
-    ...     slm.display_memory(1)
+    ...     slm.display_data(phase, memory_number=1)
+    ...     slm._display_memory(1)
 
 
 Calibration Example:
     >>> from ao_shaping.drivers.slm import SantecSLM200Calibrator, plot_calibration_result
-    >>> 
+    >>>
     >>> calibrator = SantecSLM200Calibrator(slm=slm, camera=camera)
     >>> result = calibrator.calibrate_with_background()
     >>> plot_calibration_result(result)
@@ -36,7 +36,6 @@ __all__ = [
 ]
 
 # Note: PatternHelper is in ao_shaping.utils.pattern_helper
-
 
 
 # 导入标定模块
