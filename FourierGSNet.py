@@ -5,12 +5,12 @@ FourierGSNet-lite 闭环束整形 + 真实硬件 (Santec SLM-200 / 大恒 CCD)
 流程:
   1) flat 相位采初始帧 -> 以 0 级光斑质心为中心裁剪 N×N 工作区
   2) 在工作区内构建方形 top-hat 目标 (单位能量)
-  3) 模式A(无需训练): 设备上的自适应 GS —— 每轮"显示相位->CCD 测幅值->替换幅值->反投影",
-     真实相机即真实前向模型, 物理保证收敛
-  4) 模式B(推荐): 在 phi0 上加已知 Zernike 扰动采数据 -> 微调 CNN 的 c_head
+  3) 模式A(无需训练): 全分辨率自适应 GS —— 每外轮"GS 生成全面板相位->显示->
+     CCD 实测->评分->源幅值/像素缩放自适应", 复刻 gs_square_runner 已验证机制
+  4) 模式B(推荐): 在 phi_full (全面板) 上加已知 Zernike 扰动采数据 -> 微调 CNN 的 c_head
      -> 之后每步闭环只需一次前馈推理 (毫秒级)
-  5) 闭环运行: 采图 -> 网络推理出上游像差系数 -> phi = phi_GS_unroll - c_hat*Z
-     -> 上采样到 SLM 面板显示 -> 循环, 每步记录 metrics
+  5) 闭环运行: 采图 -> 网络推理出上游像差系数 -> phi = phi_full - c_hat*Z_full
+     -> 全面板显示 -> 循环, 每步记录 metrics
 
 依赖: 与主项目相同的 ao_shaping 包 (drivers/optimizer/utils/display)
 """
@@ -27,12 +27,21 @@ import torch.nn as nn
 import torch.nn.functional as F
 from loguru import logger
 
+from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
 from ao_shaping.drivers.ccd import DahengCamera
 from ao_shaping.drivers.slm import SantecSLM200
-from ao_shaping.utils.beam_metrics import compute_metrics
+from ao_shaping.utils.beam_metrics import (
+    clamp_side,
+    compute_metrics,
+    compute_quality_score,
+    compute_square_metrics,
+    measure_bright_span,
+    measure_spot_diameter_cam,
+)
 from ao_shaping.utils.file import Recorder
 from ao_shaping.utils.hardware_utils import call_with_timeout
-from ao_shaping.utils.targets import build_target_from_frame
+from ao_shaping.utils.resample import resample_to_grid
+from ao_shaping.utils.targets import build_square_target_amplitude
 
 # ---------------------------------------------------------------------------
 # 可调参数
@@ -50,7 +59,12 @@ N_PERTURB = 200            # 微调用扰动样本数 (±0.6 rad)
 SETTLE_S = 0.0             # SLM 显示后等待 (s)
 CAPTURE_TIMEOUT_S = 30.0
 N_SAMPLE = 3               # 相机平均帧数
-GS_ITERS_DEVICE = 30       # 模式A 设备上 GS 迭代数
+GS_ITERS_FULLRES = 60          # 模式A 全分辨率 GS 内迭代数
+MODE_A_OUTER = 8               # 模式A 外闭环轮数 (GS相位->CCD反馈)
+MODE_A_CONVERGE_THRESH = 0.90  # 模式A 收敛质量评分阈值
+MODE_A_PROPAGATION = "fft"     # GS 传播模型: fft=Fraunhofer 单FFT; asm=角谱
+FOCAL_LENGTH_M = 0.125         # 2f 傅里叶透镜焦距 (m)
+GS_ENERGY = 0.90               # 光斑环围能量比例 (尺寸标定/指标)
 LOOP_STEPS = 50            # 闭环步数
 CKPT = Path("data/shaping_test/fouriergsnet_lite.pth")
 OUT_DIR = Path("data/shaping_test")
@@ -96,9 +110,43 @@ def slm_panel_phase(phi_n: np.ndarray) -> np.ndarray:
     )[0, 0].numpy()
 
 
+def _display_with_retry(slm: SantecSLM200, gray: np.ndarray, retries: int = 2):
+    """显示灰度相位, 对瞬时 USB/SDK 错误整路径重试.
+
+    驱动内建 _write_phase_with_retry 只覆盖 write_phase; 这里再包一层,
+    把 display_data (写入+display_memory) 作为整体重试, 抵御实测到的
+    SLM 内存槽写入瞬时错误 (如 -10032)."""
+    from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200Error
+    for attempt in range(retries + 1):
+        try:
+            slm.display_data(gray)
+            return
+        except SantecSLM200Error as e:
+            if attempt >= retries:
+                raise
+            logger.warning("SLM 显示失败 ({}), 重试 {}/{}", e, attempt + 1, retries)
+            time.sleep(0.5)
+
+
 def display_phase(slm: SantecSLM200, phi_n: np.ndarray):
-    gray = slm.create_phase_from_array(slm_panel_phase(phi_n))
-    slm.display_data(gray)
+    """显示弧度相位: 全面板尺寸直接下发, 其他尺寸 nearest-exact 上采样."""
+    grid_w, grid_h = SantecSLM200.Panel_Res
+    if phi_n.shape != (grid_h, grid_w):
+        phi_n = slm_panel_phase(phi_n)
+    gray = slm.create_phase_from_array(phi_n.astype(np.float32))
+    _display_with_retry(slm, gray)
+
+
+def _phase_thumbs(phi_full: torch.Tensor, n: int = N) -> np.ndarray:
+    """全分辨率弧度相位 -> n×n 缩略图 (bilinear 插值 cos/sin 再 atan2).
+
+    对已 wrap 的相位直接插值会在 2π 折痕处产生虚假值, 因此插值复数场."""
+    with torch.no_grad():
+        c = F.interpolate(torch.cos(phi_full)[None, None], size=(n, n),
+                          mode="bilinear", align_corners=False)
+        s = F.interpolate(torch.sin(phi_full)[None, None], size=(n, n),
+                          mode="bilinear", align_corners=False)
+        return torch.atan2(s, c)[0, 0].cpu().numpy()
 
 
 # =====================================================================
@@ -131,6 +179,31 @@ def zernike_basis(n, n_terms, device):
     ][:n_terms]
     Z = torch.stack(Z, 0)
     return Z * (r <= 1.0).float()
+
+
+def zernike_basis_panel(h: int, w: int, n_terms: int, device: str) -> torch.Tensor:
+    """(n_terms, h, w) Zernike 基, 在 SLM 面板网格上求值.
+
+    网格按较长边取 n 使 x,y∈[-1,1] 等比例, 垂直居中裁剪到 h 行 —
+    与 zernike_basis(n) 保持相同的圆形孔径约定; Zernike 系数分辨率无关,
+    c_hat 可直接用于面板分辨率相位合成."""
+    m = max(h, w)
+    t = torch.linspace(-1, 1, m, device=device)
+    y, x = torch.meshgrid(t, t, indexing="ij")
+    r = torch.sqrt(x * x + y * y)
+    th = torch.arctan2(y, x)
+    rc = torch.clamp(r, max=1.0)
+    Z = [
+        2 * rc**2 - 1,
+        rc**2 * torch.sin(2 * th), rc**2 * torch.cos(2 * th),
+        (3 * rc**3 - 2 * rc) * torch.sin(th), (3 * rc**3 - 2 * rc) * torch.cos(th),
+        rc**3 * torch.sin(3 * th), rc**3 * torch.cos(3 * th),
+        6 * rc**4 - 6 * rc**2 + 1,
+    ][:n_terms]
+    Z = torch.stack(Z, 0)
+    Z = Z * (r <= 1.0).float()
+    y0 = (m - h) // 2
+    return Z[:, y0:y0 + h, :]
 
 
 def aberration(Z, c):
@@ -197,92 +270,118 @@ class FourierGSNetLite(nn.Module):
 
 
 # =====================================================================
-# 4. 模式A: 设备上的自适应 GS (无需训练, 相机=真实前向模型)
+# 4. 模式A: 全分辨率自适应 GS (无需训练, 相机=真实前向模型)
 # =====================================================================
-def adaptive_gs_on_device(slm, ccd, A_src: torch.Tensor, A_tgt: torch.Tensor,
-                          phi0: torch.Tensor, roi_cy: float, roi_cx: float,
-                          iters: int = GS_ITERS_DEVICE, gamma: float = 0.6):
-    """设备上的自适应 GS: 模型 GS 半步 + 实测幅值反馈, 相机即真实前向.
+def adaptive_fullres_gs(slm: SantecSLM200, ccd, init_frame: np.ndarray, *,
+                        target_px: float = SIDE_PX,
+                        iters: int = GS_ITERS_FULLRES,
+                        outer_iters: int = MODE_A_OUTER,
+                        converge: float = MODE_A_CONVERGE_THRESH,
+                        propagation: str = MODE_A_PROPAGATION,
+                        gs_energy: float = GS_ENERGY) -> tuple[torch.Tensor, list[dict]]:
+    """模式A: 全分辨率 (SLM 面板网格) 自适应 GS, 相机即真实前向模型.
 
-    每轮:
-      1) 显示当前相位 φ_k, CCD 实测焦斑幅值 A_meas (真实前向)
-      2) 模型前向 G = prop(A_src·exp(iφ_k)), 取模型相位 ∠G
-      3) 目标幅值约束: A_n = A_tgt·(实测能量/目标能量), 并与实测混合:
-         A_n = (1-gamma)·A_meas + gamma·A_tgt·(ΣA_meas/ΣA_tgt)
-      4) 反投影 g = prop_inv(A_n·exp(i∠G)), φ_{k+1} = ∠g, 源平面全孔径自由
+    复刻 gs_square_runner 已验证的闭环机制 (docs/slm_square_spgd 同源):
+      每外轮: 采集->测光斑->定方形目标边长->GS 生成相位->显示->采集->评分->收敛判断;
+      实测帧重采样为下一轮 GS 的光源幅值 (源幅值追踪真实光束);
+      k = 方形边长/亮区宽度 自动标定 SLM->CCD 像素缩放, 使方形以相机像素尺度收敛.
+    传播用 fft (单 FFT Fraunhofer 焦平面, 2f 光路物理精确, 吞吐最高).
+    源幅值取实测**强度** (不 sqrt) — 与 gs_square_runner 一致的经验口径.
+    64×64 工作区指标 (uniformity/encircled/cv) 与闭环、存档同口径: 方形 roi 由
+    target_px 在 N×N 裁剪内的相对边长构建.
 
-    相位更新由**目标幅值**驱动 (而非把实测幅值反投影回去), 这才在物理上
-    等价于 GS; 实测幅值以 (1-gamma) 的权重混合进目标, 即 IFTA 阻尼:
-    与仓库已验证的 adaptive_gerchberg_saxton (feedback_weight=0.3) 同一机制.
-    纯模型目标 (gamma=1.0) 在硬件上有模型-实物失配时会把能量推到模型认为的
-    方形位置, 实际 CCD 上仍是中心峰 — 必须让实测幅值参与更新.
-
-    Parameters
-    ----------
-    A_src : 源平面幅值 (实测平场焦斑的 sqrt), 模型前向的入射场幅值
-    A_tgt : 远场目标幅值 (N×N, sqrt of unit-sum square)
-    gamma : 目标混合权重, A_fb = (1-gamma)·A_meas + gamma·A_tgt·scale
-            gamma=1.0 -> 纯目标约束; gamma=0.6 -> 40% 实测 + 60% 目标 (推荐)
-    roi_cy, roi_cx : CCD 全帧 0 级质心, 用于裁剪 N×N 工作区
+    Returns:
+        (phi_full, history): phi_full 为面板网格 (grid_h, grid_w) float32 弧度相位
+        (torch, DEVICE); history 为逐外轮记录 dict 列表.
     """
-    n = A_tgt.shape[0]
-    # 计算全程留在 GPU (与 gs_unroll / Z 一致), 显示侧维护一个持久 CPU 缓冲
-    phi = phi0.clone().to(A_tgt.device)
-    use_cuda = A_tgt.is_cuda
-    phi_cpu = torch.empty_like(phi0, device="cpu", pin_memory=use_cuda)
-    phi_cpu.copy_(phi0.detach())
-    roi = (A_tgt > 0).float()                         # 远场方形掩码 (评价口径)
-    src_mask = torch.ones(n, n, device=A_tgt.device)  # 源平面全孔径自由
-    tgt_sum = A_tgt.sum().clamp_min(1e-12)
+    grid_w, grid_h = slm.Panel_Res
+    pitch_um = slm.Pitch_um
+    if pitch_um is None:
+        raise RuntimeError("SLM 像素间距未初始化")
+    d_slm = float(pitch_um) * 1e-6          # SLM 像素间距 (m)
+    wl_nm = slm.wavelength
+    if wl_nm is None:
+        raise RuntimeError("SLM 工作波长未初始化")
+    wl = float(wl_nm) * 1e-9                # 工作波长 (m)
+    spot_d = measure_spot_diameter_cam(init_frame, energy=gs_energy)
+    side = clamp_side(int(round(target_px * 0.4)), grid_h, grid_w, margin=4)
+    logger.info("模式A全分辨率GS: 网格 {}x{} 光斑直径={:.1f}px 初始边长={}px 传播={}",
+                grid_h, grid_w, spot_d, side, propagation)
+    source_amplitude = resample_to_grid(init_frame, (grid_h, grid_w))  # 中心=峰值
+    src_max = float(source_amplitude.max())
+    if src_max > 0:
+        source_amplitude = source_amplitude / src_max
+    # 64×64 工作区方形 roi (与闭环/存档同口径)
+    half = (target_px / 2.0) / (N / 2.0)
+    roi_mask = (make_square_target(N, half, DEVICE) > 0).float().cpu().numpy()
     history: list[dict] = []
-    # 源幅值初始用平场实测 (sqrt(I0)); 之后每轮用**当前实测幅值**重新锚定,
-    # 与仓库已验证的 gs_square_runner 外层机制一致 — 源幅值追踪真实光束,
-    # 否则模型会用冻结源解出一个只在其内部成立的方形, 物理上不展平
-    src = A_src.clone()
-    for k in range(iters):
-        display_phase(slm, phi_cpu.numpy())
+    best_phase, best_score = None, -1.0
+    for rnd in range(outer_iters):
+        tgt_amp = build_square_target_amplitude(grid_h, grid_w, side)
+        gs = gerchberg_saxton(
+            source_amplitude=source_amplitude,
+            target_amplitude=tgt_amp,
+            iterations=iters,
+            cell_spacing=d_slm,
+            distance=FOCAL_LENGTH_M,
+            wavelength=wl,
+            propagation=propagation,
+        )
+        display_phase(slm, gs.phase.astype(np.float32))
         raw = acquire(ccd)
-        # 裁剪到 N×N 工作区 (与 main 中 I0 一致: 先裁剪后归一)
-        patch = crop_to_workzone(raw, roi_cy, roi_cx, n)
-        I = torch.from_numpy(norm_unit_sum(patch)).float().to(A_tgt.device)
-        A_meas = I.sqrt()                                     # 实测幅值 (真实前向输出)
-        src = A_meas.detach().clone()                          # 源幅值 = 当前实测光束
-        # 模型 GS 半步: 前向(源幅值×当前相位) -> 目标幅值(能量对齐实测) -> 反投影
-        G = prop(src * torch.exp(1j * phi))
-        A_n = A_tgt * (A_meas.sum() / tgt_sum)
-        if gamma < 1.0:
-            A_n = (1.0 - gamma) * A_meas + gamma * A_n
-        G = A_n * torch.exp(1j * torch.angle(G))
-        g = prop_inv(G)
-        phi = wrap_pi(torch.angle(g)) * src_mask              # 源面相位约束 (全孔径)
-        # 异步 H2D: 只写持久缓冲, 不产生新分配; 下次 display 前的 .numpy() 会同步
-        phi_cpu.copy_(phi.detach(), non_blocking=use_cuda)
-        # 与闭环同口径指标 (roi 内均匀度 + 封闭能量 + CV)
-        I_n = I / I.sum()
-        imin = torch.where(roi > 0, I_n, torch.full_like(I_n, float("inf"))).min()
-        uni = (imin / (I_n * roi).sum() * roi.sum()).item()
-        ee = (I_n * roi).sum().item()
-        roi_vals = I_n[roi > 0]
-        cv = (roi_vals.std() / roi_vals.mean().clamp_min(1e-12)).item()
-        history.append({"iter": k, "uniformity": uni, "encircled": ee,
-                        "cv": cv, "ccd": patch.astype(np.float32),
-                        "phase": phi_cpu.numpy().copy()})
-        logger.info("  设备GS iter {}/{}  均匀度={:.3f}  封闭能量={:.3f}  CV={:.3f}",
-                    k + 1, iters, uni, ee, cv)
-    return phi, history
+        # 全帧方形指标 (相机像素尺度, 中心=实测峰值)
+        ncy, ncx = (float(v) for v in np.unravel_index(np.argmax(raw), raw.shape))
+        mets = compute_square_metrics(raw, int(round(target_px)), (ncx, ncy), energy=gs_energy)
+        qscore = compute_quality_score(mets)
+        # 64×64 工作区口径指标
+        patch = crop_to_workzone(raw, ncy, ncx, N)
+        I_n = norm_unit_sum(patch)
+        vals = I_n[roi_mask > 0]
+        cv = float(vals.std() / max(float(vals.mean()), 1e-12))
+        ee = float(vals.sum())
+        uni = float(vals.min() / max(float(vals.mean()), 1e-12))
+        rec = {"iter": rnd, "uniformity": uni, "encircled": ee, "cv": cv,
+               "quality_score": qscore, "side": side, "spot_d": spot_d,
+               "center": (ncy, ncx), "gs_final_error": float(gs.error_history[-1]),
+               "aspect_ratio": mets["aspect_ratio"], "squareness": mets["squareness"],
+               "encircled_energy_full": mets["encircled_energy"],
+               "uniformity_cv_full": mets["uniformity_cv"],
+               "ccd": patch.astype(np.float32), "phase": gs.phase.astype(np.float32)}
+        history.append(rec)
+        logger.info("  模式A外轮 {}/{} 评分={:.3f} 均匀度={:.3f} EE={:.3f} CV={:.3f} 边长={}px",
+                    rnd + 1, outer_iters, qscore, uni, ee, cv, side)
+        if qscore > best_score:
+            best_score, best_phase = qscore, gs.phase.copy()
+        if qscore >= converge:
+            logger.info("  模式A收敛于外轮 {} (评分 {:.3f} >= {:.3f})", rnd + 1, qscore, converge)
+            break
+        # 下一轮: 实测帧重采样为源幅值 (源追踪真实光束) + 像素缩放自动标定
+        source_amplitude = resample_to_grid(raw, (grid_h, grid_w))
+        src_max = float(source_amplitude.max())
+        if src_max > 0:
+            source_amplitude = source_amplitude / src_max
+        bright_w, bright_h = measure_bright_span(raw)
+        k_meas = side / max(bright_w, bright_h) if max(bright_w, bright_h) > 0 else 1.0
+        side = clamp_side(int(round(target_px * k_meas)), grid_h, grid_w, margin=4)
+    if best_phase is None:
+        raise RuntimeError("模式A: 未产生任何外轮 GS 结果")
+    phi_full = torch.from_numpy(best_phase.astype(np.float32)).to(DEVICE)
+    return phi_full, history
 
 
 # =====================================================================
 # 5. 模式B: 扰动采样 + c_head 微调 (sim2real 轻量版)
 # =====================================================================
-def collect_finetune_data(slm, ccd, phi0, Z, roi_cy, roi_cx,
+def collect_finetune_data(slm, ccd, phi0_full, Z_full, roi_cy, roi_cx,
                           n_samples=N_PERTURB) -> tuple[list, list]:
-    """在 phi0 上加已知 Zernike 扰动, 记录 (I_meas, c); I_meas 裁剪为 N×N 工作区.
+    """在 phi0_full (全面板) 上加已知 Zernike 扰动, 记录 (I_meas, c).
+
+    I_meas 裁剪为 N×N 工作区. 显示全分辨率相位, 与闭环显示口径一致.
     返回 (data, samples): data 供微调, samples 用于落盘留档."""
     data, samples = [], []
     for i in range(n_samples):
-        c = (torch.rand(Z.shape[0]) * 1.2 - 0.6)              # ±0.6 rad
-        phi = wrap_pi(phi0 + aberration(Z, c.to(phi0.device)))
+        c = (torch.rand(Z_full.shape[0]) * 1.2 - 0.6)         # ±0.6 rad
+        phi = wrap_pi(phi0_full + aberration(Z_full, c.to(phi0_full.device)))
         display_phase(slm, phi.cpu().numpy())
         raw = norm_unit_sum(acquire(ccd))
         I = crop_to_workzone(raw, roi_cy, roi_cx, N)
@@ -318,32 +417,37 @@ def finetune_chead(net, data, A_tgt, A_src, phi0, Z, I_tgt):
 # =====================================================================
 # 6. 闭环主循环
 # =====================================================================
-def closed_loop(slm, ccd, net, A_tgt, A_src, phi, Z, I_tgt, roi, recorder,
-                roi_cy: float, roi_cx: float, steps: int = LOOP_STEPS):
+def closed_loop(slm, ccd, net, phi_full, Z_full, I_tgt, A_tgt, A_src, phi_lo,
+                Z, roi, recorder, roi_cy, roi_cx, steps=LOOP_STEPS):
     logger.info("进入闭环: {} 步, 每步=采图+一次前馈推理", steps)
     for step in range(steps):
         raw = norm_unit_sum(acquire(ccd))
         I = crop_to_workzone(raw, roi_cy, roi_cx, N)
         I_t = torch.from_numpy(I).float().to(DEVICE)
         t0 = time.time()
-        phi, c_hat = net(I_t.unsqueeze(0), I_tgt.unsqueeze(0), A_src.unsqueeze(0),
-                         A_tgt.unsqueeze(0), phi.unsqueeze(0), Z)
-        # 推理输出脱离计算图: 只用于显示/记录/下一轮输入, 且避免跨步图累积
-        phi = phi.squeeze(0).detach()
+        phi_lo, c_hat = net(I_t.unsqueeze(0), I_tgt.unsqueeze(0), A_src.unsqueeze(0),
+                            A_tgt.unsqueeze(0), phi_lo.unsqueeze(0), Z)
+        # 推理输出脱离计算图: 只用于显示/记录/下一轮输入, 避免跨步图累积
+        phi_lo = phi_lo.squeeze(0).detach()
         c_hat = c_hat.detach()
         dt = (time.time() - t0) * 1000
-        display_phase(slm, phi.cpu().numpy())
+        # 全面板合成: 显示相位 = phi_full - c_hat·Z_full (Zernike 系数分辨率无关)
+        phi_disp = wrap_pi(phi_full - aberration(Z_full, c_hat.squeeze(0)))
+        display_phase(slm, phi_disp.cpu().numpy())
 
         # 曝光无关评估 (裁剪区内, 与仿真指标一致)
         I_n = I_t / I_t.sum()
         imin = torch.where(roi > 0, I_n, torch.full_like(I_n, float("inf"))).min()
         uni = (imin / (I_n * roi).sum() * (roi > 0).sum()).item()
         ee = (I_n * roi).sum().item()
-        logger.info("step {:3d}  推理 {:5.1f}ms  均匀度={:.3f}  封闭能量={:.3f}  |c_hat|max={:.2f}",
-                    step + 1, dt, uni, ee, float(c_hat.abs().max()))
-        recorder.append({"step": step, "uniformity": uni, "encircled": ee,
-                         "inference_ms": dt, "ccd": I, "phase": phi.cpu().numpy()})
-    return phi
+        roi_vals = I_n[roi > 0]
+        cv = (roi_vals.std() / roi_vals.mean().clamp_min(1e-12)).item()
+        logger.info("step {:3d}  推理 {:5.1f}ms  均匀度={:.3f}  封闭能量={:.3f}  CV={:.3f}  |c_hat|max={:.2f}",
+                    step + 1, dt, uni, ee, cv, float(c_hat.abs().max()))
+        recorder.append({"step": step, "uniformity": uni, "encircled": ee, "cv": cv,
+                         "inference_ms": dt, "ccd": I,
+                         "phase": _phase_thumbs(phi_disp, N)})
+    return phi_disp
 
 
 # =====================================================================
@@ -375,54 +479,71 @@ def main():
         A_tgt = I_tgt.sqrt()
         roi = (I_tgt > 0).float()
         Z = zernike_basis(N, N_ZERN, DEVICE)
+        Z_full = zernike_basis_panel(grid_h, grid_w, N_ZERN, DEVICE)
         src_mask = (Z[0] != 0).float()
 
-        # 3) 初值: 优先加载已有模型+相位; 否则设备GS + 扰动微调 + 保存
+        # 3) 初值: 优先加载已有全分辨率相位; 否则全分辨率自适应GS + 保存.
+        #    模型 CKPT 存在则直接加载, 否则扰动采样 + 微调 c_head
         gs_history = []
         phi_path = OUT_DIR / "gs_phase.npy"
-        if CKPT.exists():
-            logger.info("加载模型 {}", CKPT)
-            net = FourierGSNetLite(K_UNROLL, N_ZERN, CH, src_mask).to(DEVICE)
-            net.load_state_dict(torch.load(CKPT, map_location=DEVICE))
-            if phi_path.exists():
-                phi = torch.from_numpy(np.load(phi_path)).float().to(DEVICE)
-                logger.info("已加载上次 GS 相位 {}", phi_path)
+        phi_full: torch.Tensor | None = None
+        if phi_path.exists():
+            phi_full = torch.from_numpy(np.load(phi_path)).float().to(DEVICE)
+            if phi_full.shape != (grid_h, grid_w):
+                logger.warning("gs_phase.npy 形状 {} 与面板 {}x{} 不符, 重新生成",
+                               tuple(phi_full.shape), grid_h, grid_w)
+                phi_full = None
             else:
-                phi = torch.zeros(N, N, device=DEVICE)
-        else:
-            logger.info("无模型: 先运行设备自适应GS求初值 ...")
-            phi, gs_history = adaptive_gs_on_device(slm, ccd, A_src, A_tgt,
-                                                    torch.zeros(N, N, device=DEVICE),
-                                                    roi_cy=cy, roi_cx=cx)
-            np.save(phi_path, phi.cpu().numpy())
+                logger.info("已加载上次全分辨率 GS 相位 {}", phi_path)
+        if phi_full is None:
+            logger.info("运行全分辨率自适应GS求初值 ...")
+            phi_full, gs_history = adaptive_fullres_gs(slm, ccd, init_img)
+            np.save(phi_path, phi_full.cpu().numpy())
             logger.info("GS 相位已保存 {}", phi_path)
-            with open(run_dir / "gs_device.pkl", "wb") as fh:
+            with open(run_dir / "gs_mode_a.pkl", "wb") as fh:
                 pickle.dump(gs_history, fh)
-            net = FourierGSNetLite(K_UNROLL, N_ZERN, CH, src_mask).to(DEVICE)
+        # 闭环/微调的 64×64 低分辨率相位输入 (全面板缩略图)
+        phi_lo = torch.from_numpy(_phase_thumbs(phi_full, N)).float().to(DEVICE)
+
+        net = FourierGSNetLite(K_UNROLL, N_ZERN, CH, src_mask).to(DEVICE)
+        if CKPT.exists():
+            net.load_state_dict(torch.load(CKPT, map_location=DEVICE))
+            logger.info("加载模型 {}", CKPT)
+        else:
             logger.info("扰动采样+微调 c_head ...")
-            data, samples = collect_finetune_data(slm, ccd, phi, Z, cy, cx)
+            data, samples = collect_finetune_data(slm, ccd, phi_full, Z_full, cy, cx)
             with open(run_dir / "finetune_samples.pkl", "wb") as fh:
                 pickle.dump(samples, fh)
-            net = finetune_chead(net, data, A_tgt, A_src, phi, Z, I_tgt)
+            net = finetune_chead(net, data, A_tgt, A_src, phi_lo, Z, I_tgt)
             torch.save(net.state_dict(), CKPT)
             logger.info("模型已保存 {}", CKPT)
 
         # 4) 闭环
-        phi = closed_loop(slm, ccd, net, A_tgt, A_src, phi, Z, I_tgt, roi,
-                          recorder, cy, cx)
+        phi_disp = closed_loop(slm, ccd, net, phi_full, Z_full, I_tgt, A_tgt, A_src,
+                               phi_lo, Z, roi, recorder, cy, cx)
 
-        # 5) 整帧评估 + 保存 (与闭环步同口径: roi 内均匀度 + 封闭能量)
-        final_img = crop_to_workzone(acquire(ccd), cy, cx, N)
-        metrics = compute_metrics(final_img, I_tgt.cpu().numpy() / I_tgt.sum().cpu())
-        I_f = torch.from_numpy(final_img).float().to(DEVICE)
+        # 5) 整帧评估 + 保存 (与闭环步同口径: roi 内均匀度 + 封闭能量 + 全帧方形指标)
+        final_img = acquire(ccd)
+        ncy, ncx = (float(v) for v in np.unravel_index(np.argmax(final_img), final_img.shape))
+        mets = compute_square_metrics(final_img, int(round(SIDE_PX)), (ncx, ncy), energy=GS_ENERGY)
+        qscore = compute_quality_score(mets)
+        patch = crop_to_workzone(final_img, ncy, ncx, N)
+        metrics = compute_metrics(patch, I_tgt.cpu().numpy() / I_tgt.sum().cpu())
+        I_f = torch.from_numpy(patch).float().to(DEVICE)
         I_fn = I_f / I_f.sum()
         imin = torch.where(roi > 0, I_fn, torch.full_like(I_fn, float("inf"))).min()
         uni = (imin / (I_fn * roi).sum() * (roi > 0).sum()).item()
         ee = (I_fn * roi).sum().item()
-        logger.info("整帧 metrics: mse={:.5f} corr={:.4f} eff={:.4f} 均匀度={:.3f} 封闭能量={:.3f}",
-                    metrics["mse"], metrics["correlation"], metrics["efficiency"], uni, ee)
-        recorder.append({"ccd": final_img, "phase": phi.cpu().numpy(),
-                         "uniformity": uni, "encircled": ee, **metrics})
+        roi_vals = I_fn[roi > 0]
+        cv = (roi_vals.std() / roi_vals.mean().clamp_min(1e-12)).item()
+        logger.info("整帧 metrics: mse={:.5f} corr={:.4f} eff={:.4f} 均匀度={:.3f} 封闭能量={:.3f} "
+                    "CV={:.3f} 方形评分={:.3f}", metrics["mse"], metrics["correlation"],
+                    metrics["efficiency"], uni, ee, cv, qscore)
+        recorder.append({"ccd": patch.astype(np.float32), "phase": _phase_thumbs(phi_disp, N),
+                         "uniformity": uni, "encircled": ee, "cv": cv,
+                         "quality_score": qscore, "squareness": mets["squareness"],
+                         "uniformity_cv_full": mets["uniformity_cv"],
+                         "encircled_energy_full": mets["encircled_energy"], **metrics})
 
         # 6) 运行归档: 参数快照 + 全量记录
         params = {k: v for k, v in globals().items()
@@ -430,9 +551,10 @@ def main():
         with open(run_dir / "params.json", "w", encoding="utf-8") as fh:
             json.dump({k: str(v) for k, v in params.items()}, fh, indent=2)
         archive = {"run_dir": str(run_dir), "init_frame": init_img.astype(np.float32),
-                   "centroid": (cy, cx), "gs_device": gs_history,
+                   "centroid": (cy, cx), "gs_mode_a": gs_history,
                    "loop": recorder.history,
-                   "final_frame": final_img.astype(np.float32),
+                   "final_frame": patch.astype(np.float32),
+                   "phi_full": phi_disp.cpu().numpy().astype(np.float32),
                    "target": I_tgt.cpu().numpy(), "params": params}
         with open(run_dir / "run.pkl", "wb") as fh:
             pickle.dump(archive, fh)
