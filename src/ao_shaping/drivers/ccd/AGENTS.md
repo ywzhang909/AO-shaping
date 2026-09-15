@@ -20,7 +20,6 @@ ccd/
 │   ├── driver.py
 │   ├── _sdk_setup.py
 │   └── __init__.py
-├── miicam_driver.py     # MIICAM 相机驱动 (BaseCamera 基类)
 └── __init__.py          # 包入口 (MIICamera, DahengCamera, FFmpegCamera 等)
 ```
 
