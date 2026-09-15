@@ -10,7 +10,7 @@ try:
 except (ImportError, AttributeError):
     CUPY_AVAILABLE = False
 
-from ao_shaping.utils.spots_calc import (
+from ao_shaping.utils.image.spots_calc import (
     calculate_sharpness,
     calculate_sharpness_numba,
     crop,
@@ -32,7 +32,7 @@ from ao_shaping.utils.spots_calc import (
 )
 
 if CUPY_AVAILABLE:
-    from ao_shaping.utils.spots_calc import (
+    from ao_shaping.utils.image.spots_calc import (
         calculate_sharpness_cupy,
         crop_cupy,
         center_of_mass_cupy,

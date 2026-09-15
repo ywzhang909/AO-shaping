@@ -23,8 +23,8 @@ from ao_shaping.runners.gs_hologram_runner import create_target_shape, phase_to_
 
 # The canonical target-shape generator lives in utils.targets; the runner
 # keeps its own local copy, so alias the utils version for the new tests.
-from ao_shaping.utils.beam_metrics import compute_shaping_metrics
-from ao_shaping.utils.targets import (
+from ao_shaping.utils.image.beam_metrics import compute_shaping_metrics
+from ao_shaping.utils.image.targets import (
     create_target_shape as create_target_shape_bsu,
 )
 

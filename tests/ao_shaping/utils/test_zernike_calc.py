@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.utils.zernike_calc import ZernikeGenerator, fit_zernike, zernike_radial
+from ao_shaping.utils.optics.zernike_calc import ZernikeGenerator, fit_zernike, zernike_radial
 
 
 class TestZernikeGeneratorSquare:

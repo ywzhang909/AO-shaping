@@ -1,16 +1,16 @@
-import os
+﻿import os
 
 import numpy as np
 import pytest
 
-from ao_shaping.utils.spots_calc import centroid
+from ao_shaping.utils.image.spots_calc import centroid
 
 pytestmark = pytest.mark.skip(reason="Requires NlightDM + CameraStreamManager + ThorlabWFS hardware")
 
 
 def test_all():
     from ao_shaping.drivers import CameraStreamManager, NlightDM, ThorlabWFS
-    from ao_shaping.utils import get_init_V_by_rms
+    from ao_shaping.utils.filesystem.file import get_init_V_by_rms
 
     vs = get_init_V_by_rms()
     with NlightDM(keep_when_exit=True) as dm, \

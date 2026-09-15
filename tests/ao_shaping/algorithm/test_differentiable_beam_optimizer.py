@@ -1,4 +1,4 @@
-"""Tests for the class-based API of ``DifferentiableBeamOptimizer``.
+﻿"""Tests for the class-based API of ``DifferentiableBeamOptimizer``.
 
 Covers input validation, seeded determinism, early stopping, edge cases
 (``epochs=0``, ``update()`` contract), result-field types, the
@@ -22,8 +22,8 @@ from ao_shaping.optimizer import (
     DifferentiableBeamOptimizer,
     optimize_beam_shaping,
 )
-from ao_shaping.utils import Recorder
-from ao_shaping.utils.targets import crop_resize_to_grid
+from ao_shaping.utils.filesystem.file import Recorder
+from ao_shaping.utils.image.targets import crop_resize_to_grid
 
 
 def _gaussian_target(size: int = 32) -> np.ndarray:

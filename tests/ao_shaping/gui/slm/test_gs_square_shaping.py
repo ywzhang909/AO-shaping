@@ -26,7 +26,7 @@ from ao_shaping.gui.slm.pattern_controls import (
     compute_square_side,
     generate_gs_square_phase,
 )
-from ao_shaping.utils.spots_calc import centroid, radius
+from ao_shaping.utils.image.spots_calc import centroid, radius
 
 
 # ---------------------------------------------------------------------------

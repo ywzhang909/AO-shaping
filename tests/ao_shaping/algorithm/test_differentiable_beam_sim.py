@@ -22,7 +22,7 @@ from ao_shaping.algorithm import (
     far_field_intensity,
 )
 from ao_shaping.optimizer import optimize_beam_shaping
-from ao_shaping.utils.targets import crop_resize_to_grid
+from ao_shaping.utils.image.targets import crop_resize_to_grid
 
 
 def _gaussian_target(shape: tuple[int, int], sigma: float | None = None) -> np.ndarray:

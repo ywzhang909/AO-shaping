@@ -1,4 +1,4 @@
-"""Verify that the slm_square_runner default parameters produce a Zernike
+﻿"""Verify that the slm_square_runner default parameters produce a Zernike
 basis matching the GUI (multi_slm_controller.py Zernike branch):
 
     radius = 600  (min(SLM_HEIGHT, SLM_WIDTH) / 2)
@@ -25,7 +25,7 @@ def _invoke(args: list[str]):
 
     def _fake_optimize(**kwargs):
         captured.update(kwargs)
-        from ao_shaping.utils.file import Recorder
+        from ao_shaping.utils.filesystem.file import Recorder
 
         rec = Recorder(mark="quality", mode="max")
         rec.append({"quality": 1.0})

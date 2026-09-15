@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from ao_shaping.utils.wavefront_calc import (
+from ao_shaping.utils.optics.wavefront_calc import (
     normalize_01,
     centroid_calculation,
     calculate_derotation,

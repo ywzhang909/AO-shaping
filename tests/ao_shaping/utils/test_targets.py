@@ -1,4 +1,4 @@
-"""Regression anchors for ``ao_shaping.utils.targets``.
+﻿"""Regression anchors for ``ao_shaping.utils.image.targets``.
 
 Pins the exact current behavior of the target-pattern generation module
 (parametric shapes, masks, image loading, square-target sizing and the
@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.utils.targets import (
+from ao_shaping.utils.image.targets import (
     build_square_target_amplitude,
     compute_square_side,
     create_target_mask,

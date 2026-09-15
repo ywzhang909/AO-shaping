@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ao_shaping.utils.pattern_helper import PatternHelper
+from ao_shaping.utils.optics.pattern_helper import PatternHelper
 
 
 class TestPatternHelperZernikeCaching:

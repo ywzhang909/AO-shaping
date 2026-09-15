@@ -1,4 +1,4 @@
-"""Tests for Gerchberg-Saxton algorithm with GIF animation output.
+﻿"""Tests for Gerchberg-Saxton algorithm with GIF animation output.
 
 These tests run GS algorithm and save the iteration process as animated GIFs
 to the logs/gs_viz folder for visual inspection.
@@ -18,7 +18,7 @@ _src_root = Path(__file__).resolve().parents[3] / "src"
 if str(_src_root) not in sys.path:
     sys.path.insert(0, str(_src_root))
 
-from ao_shaping.utils.gs_visualization import (
+from ao_shaping.utils.viz.gs_visualization import (
     gerchberg_saxton_with_visualization,
     create_gs_iteration_frame,
     save_frames_as_gif,

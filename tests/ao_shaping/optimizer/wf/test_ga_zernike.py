@@ -1,4 +1,4 @@
-"""Tests for ga_zernike optimizer module."""
+﻿"""Tests for ga_zernike optimizer module."""
 
 from unittest.mock import MagicMock, patch
 
@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 # Ensure Recorder.append doesn't fail when records miss the explicit 'ga_zernike' mark
-from ao_shaping.utils.file import Recorder
+from ao_shaping.utils.filesystem.file import Recorder
 
 _orig_recorder_append = Recorder.append
 def _ensure_mark_in_record(self, record):

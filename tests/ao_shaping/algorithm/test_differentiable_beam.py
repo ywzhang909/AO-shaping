@@ -1,4 +1,4 @@
-"""Tests for the differentiable (backprop) beam-shaping algorithm."""
+﻿"""Tests for the differentiable (backprop) beam-shaping algorithm."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from ao_shaping.algorithm.differentiable_beam import (
     far_field_intensity,
 )
 from ao_shaping.optimizer.wfless.differentiable_beam import optimize_beam_shaping
-from ao_shaping.utils import Recorder
+from ao_shaping.utils.filesystem.file import Recorder
 
 
 def _gaussian_target(size: int = 32) -> np.ndarray:

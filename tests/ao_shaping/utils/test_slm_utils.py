@@ -1,4 +1,4 @@
-"""Regression-anchor tests for :mod:`ao_shaping.utils.slm_utils`.
+﻿"""Regression-anchor tests for :mod:`ao_shaping.utils.slm.slm_utils`.
 
 Pins the EXACT current behavior of the SLM phase->grayscale conversion and
 memory-slot rotation helpers so future refactors of ``diff_beam_runner`` (which
@@ -15,8 +15,8 @@ import random
 import numpy as np
 import pytest
 
-from ao_shaping.utils import slm_utils
-from ao_shaping.utils.slm_utils import (
+from ao_shaping.utils.slm import slm_utils
+from ao_shaping.utils.slm.slm_utils import (
     DEFAULT_DISTANCE,
     DEFAULT_MAX_GRAYSCALE,
     DEFAULT_SLM_PIXEL_SIZE,

@@ -1,10 +1,10 @@
-"""Tests for ao_shaping.utils.timestamp — TimestampParser and helpers."""
+﻿"""Tests for ao_shaping.utils.filesystem.timestamp — TimestampParser and helpers."""
 
 from datetime import datetime
 
 import pytest
 
-from ao_shaping.utils.timestamp import (
+from ao_shaping.utils.filesystem.timestamp import (
     TimestampParser,
     parse_timestamp,
     sort_by_timestamp,
