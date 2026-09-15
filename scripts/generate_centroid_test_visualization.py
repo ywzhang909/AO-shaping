@@ -1,4 +1,4 @@
-"""质心计算测试可视化脚本
+﻿"""质心计算测试可视化脚本
 
 生成高斯分布测试图像和质心位置的可视化结果
 """
@@ -17,8 +17,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from ao_shaping.utils.file import ROOT_DIR
-from ao_shaping.utils.spots_calc import centroid
+from ao_shaping.utils.filesystem.file import ROOT_DIR
+from ao_shaping.utils.image.spots_calc import centroid
 
 
 def create_gaussian_2d(shape: tuple, center: tuple, sigma: float) -> np.ndarray:

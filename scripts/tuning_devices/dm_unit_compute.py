@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 dmunitcompute.m 的Python实现
 用于计算100mm×100mm对应的像素尺寸，并处理stdWavefront目录下的矩阵文件
@@ -10,8 +10,9 @@ from pathlib import Path
 import numpy as np
 
 from ao_shaping.drivers import MlaRes, NlightDM, ThorlabWFS
-from ao_shaping.utils import get_init_V_by_energy, get_init_V_by_rms
-from ao_shaping.utils.wavefront_calc import normalize_01
+from ao_shaping.utils.filesystem.file import get_init_V_by_energy
+from ao_shaping.utils.filesystem.file import get_init_V_by_rms
+from ao_shaping.utils.optics.wavefront_calc import normalize_01
 
 
 def centroid_calculation(matrix):
