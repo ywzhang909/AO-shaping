@@ -1,4 +1,4 @@
-"""
+﻿"""
 fouriergsnet_hardware.py
 FourierGSNet-lite 闭环束整形 + 真实硬件 (Santec SLM-200 / 大恒 CCD)
 
@@ -30,7 +30,7 @@ from loguru import logger
 from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
 from ao_shaping.drivers.ccd import DahengCamera
 from ao_shaping.drivers.slm import Santec
-from ao_shaping.utils.beam_metrics import (
+from ao_shaping.utils.image.beam_metrics import (
     clamp_side,
     compute_metrics,
     compute_quality_score,
@@ -38,10 +38,10 @@ from ao_shaping.utils.beam_metrics import (
     measure_bright_span,
     measure_spot_diameter_cam,
 )
-from ao_shaping.utils.file import Recorder
-from ao_shaping.utils.hardware_utils import call_with_timeout
-from ao_shaping.utils.resample import resample_to_grid
-from ao_shaping.utils.targets import build_square_target_amplitude
+from ao_shaping.utils.filesystem.file import Recorder
+from ao_shaping.utils.hardware.hardware_utils import call_with_timeout
+from ao_shaping.utils.image.resample import resample_to_grid
+from ao_shaping.utils.image.targets import build_square_target_amplitude
 
 # ---------------------------------------------------------------------------
 # 可调参数

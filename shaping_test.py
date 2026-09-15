@@ -1,4 +1,4 @@
-"""SLM + CCD 硬件闭环光束整形最小测试脚本（仅在有设备时运行，无仿真分支）。
+﻿"""SLM + CCD 硬件闭环光束整形最小测试脚本（仅在有设备时运行，无仿真分支）。
 
 流程: 连接 SLM/CCD → 显示 flat 相位 → 采集初始帧 → 基于初始光强构建
 方形目标 (曝光无关) → 硬件闭环微分优化 (backprop+Adam, 每步 CCD 实测帧
@@ -18,10 +18,10 @@ from loguru import logger
 from ao_shaping.drivers.ccd import DahengCamera
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.optimizer.wfless.differentiable_beam import optimize_beam_shaping
-from ao_shaping.utils.beam_metrics import compute_metrics
-from ao_shaping.utils.file import Recorder
-from ao_shaping.utils.hardware_utils import call_with_timeout
-from ao_shaping.utils.targets import build_target_from_frame
+from ao_shaping.utils.image.beam_metrics import compute_metrics
+from ao_shaping.utils.filesystem.file import Recorder
+from ao_shaping.utils.hardware.hardware_utils import call_with_timeout
+from ao_shaping.utils.image.targets import build_target_from_frame
 
 # ---------------------------------------------------------------------------
 # 可调参数 (调试时改这里即可)
