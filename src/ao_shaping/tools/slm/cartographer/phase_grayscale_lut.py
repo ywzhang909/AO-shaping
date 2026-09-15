@@ -300,8 +300,7 @@ class PhaseGrayscaleLUT:
                 cosine_pattern.astype(np.float64) + gs, 0, 1023
             ).astype(np.uint16)
 
-            self.slm.write_phase(display_pattern, memory_number=1)
-            self.slm.display_memory(1)
+            self.slm.display_data(display_pattern, memory_number=1)
             time.sleep(0.2)
 
             try:

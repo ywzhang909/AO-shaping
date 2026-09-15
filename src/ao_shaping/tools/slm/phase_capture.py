@@ -514,7 +514,7 @@ def run(
 
         # Generate random phase
         if mode == "turbulence":
-            phase_gray = generate_random_turbulence_phase(
+            phase_rad = generate_random_turbulence_phase(
                 pattern_helper,
                 cn2=cn2,
                 length=length,
@@ -523,17 +523,31 @@ def run(
             )
             phase_type = "turbulence"
             phase_params = {"Cn2": cn2, "L": length}
+            # 相位→灰度由 SLM 驱动完成 (PatternHelper 只生成弧度相位,
+            # 无 SLM 时用通用 to_uint16 供日志/记录)
+            phase_gray = (
+                slm.create_phase_from_array(phase_rad)
+                if slm is not None
+                else pattern_helper.to_uint16(phase_rad)
+            )
         else:
             kwargs = generate_random_zernike_coeffs(
                 n_max=n_max,
                 radius=zernike_radius,
                 max_coeff=max_coeff,
             )
-            phase_gray = pattern_helper.generate_zernike_polynomial(**kwargs)
+            phase_rad = pattern_helper.generate_zernike_polynomial(**kwargs)
             phase_type = "zernike"
             # Record actual coefficients used
             phase_params = kwargs
-            phase_params['coefficients'] = list(phase_params['coefficients'].values())
+            phase_params["coefficients"] = list(phase_params["coefficients"].values())
+            # 相位→灰度由 SLM 驱动完成 (2026-09: PatternHelper 只生成弧度相位,
+            # 不再做 min-max 归一化灰度转换; 无 SLM 时用通用 to_uint16 供日志/记录)
+            phase_gray = (
+                slm.create_phase_from_array(phase_rad)
+                if slm is not None
+                else pattern_helper.to_uint16(phase_rad)
+            )
 
         logger.info(
             f"相位生成完成: type={phase_type}, shape={phase_gray.shape}, "
@@ -544,8 +558,7 @@ def run(
         if slm is not None:
             try:
                 current_slot = (memory_slot + i - 1) % 128 + 1
-                slm.write_phase(phase_gray, memory_number=current_slot)
-                slm.display_memory(current_slot)
+                slm.display_phase(phase_rad, memory_number=current_slot)
                 logger.info(f"相位已写入SLM内存槽 {current_slot} 并显示")
             except Exception as e:
                 logger.warning(f"SLM相位显示失败: {e}")

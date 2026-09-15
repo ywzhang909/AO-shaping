@@ -130,8 +130,7 @@ def step_freezing(
     for tag, pat in [("flat", flat_full), ("grat", grat_full),
                      ("top", test_top), ("bot", test_bot)]:
         slot = 10 + len(frames)
-        slm.write_phase(pat, memory_number=slot, memory_mode=MEMORY_MODE_INTERNAL)
-        slm.display_memory(slot)
+        slm.display_data(pat, memory_number=slot, memory_mode=MEMORY_MODE_INTERNAL)
         time.sleep(settle_s)
         frames[tag] = _grab_frame(camera)
 
@@ -210,8 +209,7 @@ def step_linearity(
     _, gray_for_2pi = slm.get_wavelength_info()
     w, h = slm.Panel_Res[0], slm.Panel_Res[1]
     pat = depth_pattern(period_ref, gray_for_2pi, h, w)
-    slm.write_phase(pat, memory_number=12, memory_mode=MEMORY_MODE_INTERNAL)
-    slm.display_memory(12)
+    slm.display_data(pat, memory_number=12, memory_mode=MEMORY_MODE_INTERNAL)
     time.sleep(settle_s)
 
     values: list[float] = []

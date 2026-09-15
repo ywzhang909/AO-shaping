@@ -75,8 +75,7 @@ def _display_rotate_slot(
     when ``display_memory(slot)`` is called for the slot already being
     displayed.
     """
-    slm.write_phase(phase, memory_number=memory_slot)
-    slm.display_memory(memory_slot)
+    slm.display_data(phase, memory_number=memory_slot)
     time.sleep(wait_time_s)
 
 

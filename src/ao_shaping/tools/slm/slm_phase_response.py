@@ -88,15 +88,19 @@ class PhaseCase:
 def _defocus_normalized_builder(slm: "SantecSLM200") -> np.ndarray:
     """控制器同款 Zernike 离焦: generate_zernike_polynomial({(2,0): 1.0})。
 
-    返回 min-max 归一化 uint16 灰度 (整个瞳孔摆满 0~1023 灰度 ≈ 一个 2π 包裹)。
+    弧度相位 → ``slm.create_phase_from_array()`` 转换: 保留系数绝对幅度
+    (mod-2π 包裹, 整个瞳孔 0~1023 灰度 ≈ 一个 2π 周期) + 驱动波前校正/LUT。
+    (2026-09: 原实现经 PatternHelper min-max 归一化, 已删除)
     """
     from ao_shaping.utils.pattern_helper import PatternHelper
 
     w, h = int(slm.Panel_Res[0]), int(slm.Panel_Res[1])
     helper = PatternHelper((w, h), bits=slm.Gray_Scale_bits)
-    return helper.generate_zernike_polynomial(
-        coefficients={(2, 0): 1.0}, radius=min(h, w) // 2,
+    phase_rad = helper.generate_zernike_polynomial(
+        coefficients={(2, 0): 1.0},
+        radius=min(h, w) // 2,
     )
+    return slm.create_phase_from_array(phase_rad)
 
 
 def _defocus_big_builder(slm: "SantecSLM200") -> np.ndarray:
@@ -134,20 +138,32 @@ def _lens_builder(slm: "SantecSLM200", focal_length_m: float) -> np.ndarray:
 def defocus_cases() -> list[PhaseCase]:
     """离焦探针用例: Zernike 离焦 + 大离焦 (多圈包裹)。"""
     return [
-        PhaseCase("zernike_defocus", "Zernike Z(2,0) defocus (normalized)",
-                  _defocus_normalized_builder),
-        PhaseCase("big_defocus", f"big defocus ({_DEFOCUS_AMP_RAD}rad~multi-wrap)",
-                  _defocus_big_builder),
+        PhaseCase(
+            "zernike_defocus",
+            "Zernike Z(2,0) defocus (normalized)",
+            _defocus_normalized_builder,
+        ),
+        PhaseCase(
+            "big_defocus",
+            f"big defocus ({_DEFOCUS_AMP_RAD}rad~multi-wrap)",
+            _defocus_big_builder,
+        ),
     ]
 
 
 def lens_cases() -> list[PhaseCase]:
     """透镜探针用例: f=1000mm 与 f=250mm 全尺寸透镜。"""
     return [
-        PhaseCase("lens_1000mm", "lens f=1000mm full-size 8um",
-                  lambda slm: _lens_builder(slm, 1.0)),
-        PhaseCase("lens_250mm", "lens f=250mm full-size 8um",
-                  lambda slm: _lens_builder(slm, 0.25)),
+        PhaseCase(
+            "lens_1000mm",
+            "lens f=1000mm full-size 8um",
+            lambda slm: _lens_builder(slm, 1.0),
+        ),
+        PhaseCase(
+            "lens_250mm",
+            "lens f=250mm full-size 8um",
+            lambda slm: _lens_builder(slm, 0.25),
+        ),
     ]
 
 
@@ -157,7 +173,8 @@ def lens_cases() -> list[PhaseCase]:
 def _snapshot(camera, n_sample: int) -> np.ndarray:
     """取一帧平均图并转 float64。"""
     return np.asarray(
-        camera.get_numpy_image(n_sample=n_sample, skip_first=True), dtype=np.float64,
+        camera.get_numpy_image(n_sample=n_sample, skip_first=True),
+        dtype=np.float64,
     )
 
 
@@ -259,8 +276,9 @@ def build_sequence(cases: list[PhaseCase]) -> list[tuple[str, str, object]]:
     return seq
 
 
-def _resolve_payload(payload: object, slm: "SantecSLM200",
-                     w: int, h: int) -> np.ndarray:
+def _resolve_payload(
+    payload: object, slm: "SantecSLM200", w: int, h: int
+) -> np.ndarray:
     """把序列项 payload 解析为 uint16 灰度图。
 
     ``None`` → flat 基线 (raw uint16 平场, 严禁弧度转换); callable → 相位用例
@@ -275,9 +293,17 @@ def _resolve_payload(payload: object, slm: "SantecSLM200",
     return result
 
 
-def run_phase_probe(camera, slm: "SantecSLM200", cases: list[PhaseCase], out: Path,
-                    n_sample: int, settle_s: float, slot_min: int, slot_max: int,
-                    exposure_ms: float) -> dict:
+def run_phase_probe(
+    camera,
+    slm: "SantecSLM200",
+    cases: list[PhaseCase],
+    out: Path,
+    n_sample: int,
+    settle_s: float,
+    slot_min: int,
+    slot_max: int,
+    exposure_ms: float,
+) -> dict:
     """执行探针: 逐用例写相位 + 采集 + 统计 + 存档 + 渲染。
 
     返回 ``dict`` 含 ``{"noise", "metrics", "deltas", "verdict", "exposure_ms",
@@ -304,18 +330,22 @@ def run_phase_probe(camera, slm: "SantecSLM200", cases: list[PhaseCase], out: Pa
 
     def _write_display(gray: np.ndarray) -> int:
         slot = next_slot()
-        slm.write_phase(gray, memory_number=slot)
+        slm.display_data(gray, memory_number=slot)
         time.sleep(0.05)
-        slm.display_memory(slot)
         time.sleep(settle_s)
-        logger.info("写入槽 {} 灰度范围 [{}, {}]", slot, int(gray.min()), int(gray.max()))
+        logger.info(
+            "写入槽 {} 灰度范围 [{}, {}]", slot, int(gray.min()), int(gray.max())
+        )
         return slot
 
     # 噪声底 (A 态下 10 张单帧)。
     logger.info("估计帧间噪声底 (10x n_sample=1)...")
     noise = _noise_est(camera)
-    logger.info("噪声底 per-px std: mean={:.4f} max={:.4f}",
-                noise["per_px_std_mean"], noise["per_px_std_max"])
+    logger.info(
+        "噪声底 per-px std: mean={:.4f} max={:.4f}",
+        noise["per_px_std_mean"],
+        noise["per_px_std_max"],
+    )
 
     seq = build_sequence(cases)
     frames: dict[str, np.ndarray] = {}
@@ -329,9 +359,14 @@ def run_phase_probe(camera, slm: "SantecSLM200", cases: list[PhaseCase], out: Pa
         img = _snapshot(camera, n_sample)
         frames[name] = img
         metrics[name] = _metrics(img)
-        logger.info("[PROBE]   {}: total={:.0f} peak={:.2f} ee90_r={:.1f} argmax={}",
-                    name, metrics[name]["total"], metrics[name]["peak"],
-                    metrics[name]["ee90_r"], metrics[name]["argmax_rc"])
+        logger.info(
+            "[PROBE]   {}: total={:.0f} peak={:.2f} ee90_r={:.1f} argmax={}",
+            name,
+            metrics[name]["total"],
+            metrics[name]["peak"],
+            metrics[name]["ee90_r"],
+            metrics[name]["argmax_rc"],
+        )
 
     # 对比: 每个相位用例帧 vs A flat; D 复测作为对照 (应接近噪声级).
     noise_floor = float(noise["per_px_std_mean"])
@@ -368,7 +403,8 @@ def run_phase_probe(camera, slm: "SantecSLM200", cases: list[PhaseCase], out: Pa
         "n_sample": n_sample,
     }
     (out / "metrics.json").write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8",
+        json.dumps(payload, indent=2, ensure_ascii=False),
+        encoding="utf-8",
     )
     logger.info("产物已保存到 {}", out.resolve())
     return payload
@@ -389,21 +425,43 @@ def _render_only(cases: list[PhaseCase], out: Path) -> dict:
 
 
 @click.command()
-@click.option("--probe", type=click.Choice(["lens", "defocus"]), default="lens",
-              help="相位用例组 (默认 lens)")
+@click.option(
+    "--probe",
+    type=click.Choice(["lens", "defocus"]),
+    default="lens",
+    help="相位用例组 (默认 lens)",
+)
 @click.option("--slm-number", type=int, default=1, help="SLM 设备编号 (默认 1)")
-@click.option("--slm-wavelength", type=int, default=1064, help="SLM 工作波长 nm (默认 1064)")
+@click.option(
+    "--slm-wavelength", type=int, default=1064, help="SLM 工作波长 nm (默认 1064)"
+)
 @click.option("--cam-id", type=int, default=0, help="MiiCam 相机 ID (默认 0)")
 @click.option("--exposure-ms", type=float, default=0.02, help="相机曝光 ms (默认 0.02)")
 @click.option("--n-sample", type=int, default=10, help="每帧平均采样数 (默认 10)")
 @click.option("--slot-min", type=int, default=_SLOT_MIN, help="内存槽下限 (默认 2)")
 @click.option("--slot-max", type=int, default=_SLOT_MAX, help="内存槽上限 (默认 125)")
-@click.option("--settle-s", type=float, default=0.4, help="写相位后稳定等待 s (默认 0.4)")
-@click.option("-o", "--output", default=None, help="输出目录 (默认 docs/slm/<probe>_probe)")
-@click.option("--render-only", is_flag=True, help="仅从已保存结果离线重绘/判定 (不碰硬件)")
-def main(probe: str, slm_number: int, slm_wavelength: int, cam_id: int,
-         exposure_ms: float, n_sample: int, slot_min: int, slot_max: int,
-         settle_s: float, output: str | None, render_only: bool) -> None:
+@click.option(
+    "--settle-s", type=float, default=0.4, help="写相位后稳定等待 s (默认 0.4)"
+)
+@click.option(
+    "-o", "--output", default=None, help="输出目录 (默认 docs/slm/<probe>_probe)"
+)
+@click.option(
+    "--render-only", is_flag=True, help="仅从已保存结果离线重绘/判定 (不碰硬件)"
+)
+def main(
+    probe: str,
+    slm_number: int,
+    slm_wavelength: int,
+    cam_id: int,
+    exposure_ms: float,
+    n_sample: int,
+    slot_min: int,
+    slot_max: int,
+    settle_s: float,
+    output: str | None,
+    render_only: bool,
+) -> None:
     """SLM 相位→CCD 响应探针: 验证 SLM 相位调制是否真的作用于光。
 
     使用 memory 模式 (video_mode=0); 相位写到随机内存槽 (2~125, 排除当前槽)。
@@ -421,26 +479,44 @@ def main(probe: str, slm_number: int, slm_wavelength: int, cam_id: int,
     from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
     from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
 
-    logger.info("SLM phase probe: {} | slm#{} @{}nm | camera#{} exposure {:.3f}ms | "
-                "n_sample={} slots {}-{} | out={}",
-                probe, slm_number, slm_wavelength, cam_id, exposure_ms,
-                n_sample, slot_min, slot_max, out.resolve())
+    logger.info(
+        "SLM phase probe: {} | slm#{} @{}nm | camera#{} exposure {:.3f}ms | "
+        "n_sample={} slots {}-{} | out={}",
+        probe,
+        slm_number,
+        slm_wavelength,
+        cam_id,
+        exposure_ms,
+        n_sample,
+        slot_min,
+        slot_max,
+        out.resolve(),
+    )
 
     slm: "SantecSLM200 | None" = None
     camera = None
     try:
-        slm = SantecSLM200(slm_number=slm_number, wavelength=slm_wavelength, video_mode=0)
+        slm = SantecSLM200(
+            slm_number=slm_number, wavelength=slm_wavelength, video_mode=0
+        )
         slm.open()
-        logger.info("SLM 已打开: serial={} {}x{} {}bit",
-                    getattr(slm, "_serial_number", None), slm.Panel_Res[0],
-                    slm.Panel_Res[1], slm.Gray_Scale_bits)
+        logger.info(
+            "SLM 已打开: serial={} {}x{} {}bit",
+            getattr(slm, "_serial_number", None),
+            slm.Panel_Res[0],
+            slm.Panel_Res[1],
+            slm.Gray_Scale_bits,
+        )
 
-        camera = CameraStreamManager(cam_id=cam_id, exposure_time_ms=exposure_ms, bit_depth=8)
+        camera = CameraStreamManager(
+            cam_id=cam_id, exposure_time_ms=exposure_ms, bit_depth=8
+        )
         camera.open()
         logger.info("相机已打开: camera#{} exposure={:.3f}ms", cam_id, exposure_ms)
 
-        result = run_phase_probe(camera, slm, cases, out, n_sample, settle_s,
-                                 slot_min, slot_max, exposure_ms)
+        result = run_phase_probe(
+            camera, slm, cases, out, n_sample, settle_s, slot_min, slot_max, exposure_ms
+        )
 
         click.echo("=== SLM phase-response probe summary ===")
         # 相位用例下标 -> 序列前缀 (B_/C_); verdict 键为 "A_vs_<前缀>".
@@ -453,8 +529,10 @@ def main(probe: str, slm_number: int, slm_wavelength: int, cam_id: int,
                 f"= {d.get('x_noise_floor', 0):.1f}x noise floor"
             )
         dc = result["verdict"].get("A_vs_D_control", {})
-        click.echo(f"[{'CHANGED' if dc.get('changed') else 'no change (OK)'}] "
-                   f"flat-repeat control: rmse={dc.get('rmse', 0):.4f}")
+        click.echo(
+            f"[{'CHANGED' if dc.get('changed') else 'no change (OK)'}] "
+            f"flat-repeat control: rmse={dc.get('rmse', 0):.4f}"
+        )
         click.echo(f"[DONE] 产物已保存到 {out.resolve()}")
     except SystemExit:
         raise

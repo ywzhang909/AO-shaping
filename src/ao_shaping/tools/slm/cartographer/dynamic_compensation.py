@@ -273,8 +273,7 @@ class DynamicCompensator:
         """
         assert self.slm.is_open, "SLM must be opened"
         logger.info(f"Applying compensation to SLM memory slot {memory_slot}...")
-        self.slm.write_phase(compensation_grayscale, memory_number=memory_slot)
-        self.slm.display_memory(memory_slot)
+        self.slm.display_data(compensation_grayscale, memory_number=memory_slot)
         time.sleep(0.3)
         logger.info("Compensation applied.")
 
