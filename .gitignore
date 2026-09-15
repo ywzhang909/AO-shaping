@@ -97,3 +97,4 @@ docs/**/*.npy
 docs/benchmarks/device_less**
 *.log
 scripts/dev**
+tmp_*
