@@ -34,7 +34,7 @@ AO-shaping/
 │   │   │   ├── wfless/           # Wavefront-sensorless (PIB)
 │   │   │   │   └── slm_square_shaping.py  # SLM方形光斑 SPGD 整形优化器
 │   │   │   └── rl/               # Reinforcement learning (SAC)
-│   │   ├── utils/                # Utilities (spots_calc, wavefront_calc, zernike_calc, zernike_utils, wfs_utils)
+│   │   ├── utils/                # Utilities 按域拆分: image/ optics/ slm/ hardware/ filesystem/ cli/ viz/
 │   │   ├── ml/                  # Machine learning (U-Net+GAN, training, models) — NOTE: lives at src/ml/ as a separate standalone package
 │   │   │   ├── trainer/         # Training utilities
 │   │   │   ├── models/          # Neural network models
@@ -64,10 +64,10 @@ AO-shaping/
 | Zernike response matrix | `src/ao_shaping/optimizer/wf/zernike_response_matrix.py` | SLM→WFS Zernike校准 |
 | PIB optimizers | `src/ao_shaping/optimizer/wfless/` | Power-in-bucket |
 | SLM方形光斑整形 (SPGD) | `src/ao_shaping/optimizer/wfless/slm_square_shaping.py` + `runners/slm_square_runner.py` | SPGD 优化 Zernike 系数 → 均匀方形远场 (CLI: `spgd-square`) |
-| Zernike 工具 | `src/ao_shaping/utils/zernike_utils.py` | 系数解析 (Noll/(n,m)/数组) + 相位生成，Noll 1976 约定 |
+| Zernike 工具 | `src/ao_shaping/utils/optics/zernike_utils.py` | 系数解析 (Noll/(n,m)/数组) + 相位生成，Noll 1976 约定 |
 | RL training | `src/ao_shaping/optimizer/rl/` | SAC, LR-WFS |
 | Simulation | `src/ao_shaping/drivers/sim/` | Digital twin devices |
-| Utilities | `src/ao_shaping/utils/` | spots_calc, wavefront_calc, zernike_calc, display |
+| Utilities | `src/ao_shaping/utils/{image,optics,slm,hardware,filesystem,cli,viz}/` | spots_calc→image, zernike_calc→optics, display→viz 等, 按域寻址 |
 | ML training | `src/ml/` (standalone, not inside `ao_shaping/`) | U-Net+GAN, trainer, wandb_logger |
 | Standalone tools | `src/ao_shaping/tools/` | SLM phase capture, Micro-DM per-channel image collection, train data collection |
 | Visualization | `src/ao_shaping/display/` | Windows, frames for GUI |
@@ -153,20 +153,35 @@ algorithm/     算法基础层  — 纯数学优化器 (update/grad), 无硬件�
 
 ## utils/ Module
 
-Utility functions for image processing and calculations:
+Utility functions for image processing and calculations, organized into domain subpackages:
 
-| File | Purpose |
-|------|---------|
-| `spots_calc.py` | Centroid calculation, sharpness metrics |
-| `wavefront_calc.py` | Wavefront reconstruction from spots |
-| `zernike_calc.py` | Zernike polynomial generation |
-| `zernike_utils.py` | Zernike 系数解析/校验/相位生成 (独立于 PatternHelper，含 Noll 约定文档) |
-| `matrix_utils.py` | Matrix operations |
-| `display.py` | Visualization utilities |
-| `pattern_helper.py` | SLM pattern generation |
-| `file.py` | File I/O utilities |
-| `cli_helpers.py` | CLI common utilities (parse_tuple, coredumpy setup) |
-| `wfs_utils.py` | WFS utilities (flatten_slopes, compute_snr, DitheredReference) |
+| Subpackage | Module | Purpose |
+|------|---------|---------|
+| `image/` | `spots_calc.py` | Centroid calculation, sharpness metrics |
+| | `beam_metrics.py` | 质量指标 (CV/EE/方形度等) |
+| | `targets.py` | 目标图案生成 |
+| | `resample.py` | 图像重采样 |
+| `optics/` | `wavefront_calc.py` | Wavefront reconstruction from spots |
+| | `zernike_calc.py` | Zernike polynomial generation |
+| | `zernike_utils.py` | Zernike 系数解析/校验/相位生成 (独立于 PatternHelper，含 Noll 约定文档) |
+| | `matrix_utils.py` | Matrix operations |
+| | `phase_unwrap.py` | 相位解包裹 |
+| | `hadamard_calc.py` | Hadamard 模式生成 |
+| | `pattern_helper.py` | SLM pattern generation |
+| `slm/` | `slm_utils.py` | SLM 相位下发/槽轮换辅助 |
+| | `slm_lut.py` | SLM 灰度→相位 LUT |
+| `hardware/` | `hardware_utils.py` | 相机工厂等硬件辅助 |
+| | `device_config.py` | 设备参数配置 |
+| | `network.py` | 网络工具 |
+| | `wfs_utils.py` | WFS utilities (flatten_slopes, compute_snr, DitheredReference) |
+| `filesystem/` | `file.py` | File I/O utilities (含 ROOT_DIR) |
+| | `timestamp.py` | 时间戳工具 |
+| | `handler.py` | 文件处理 |
+| `cli/` | `cli_helpers.py` | CLI common utilities (parse_tuple, coredumpy setup) |
+| `viz/` | `display.py` | Visualization utilities |
+| | `gs_visualization.py` | GS 迭代可视化 |
+
+> 注: 原扁平模块已全部迁移至子包, 导入使用深路径 (如 `from ao_shaping.utils.image.spots_calc import centroid`)。`utils/__init__.py` 仅保留日志配置。
 
 ---
 
@@ -253,7 +268,7 @@ main (click.group)
 
 **Refactoring Notes:**
 - All runner scripts now use centralized config from `config.py` (DM_N_ACTUATORS, PATHS, DEFAULTS)
-- Common CLI helpers moved to `utils/cli_helpers.py` (parse_tuple, setup_coredumpy)
+- Common CLI helpers moved to `utils/cli/cli_helpers.py` (parse_tuple, setup_coredumpy)
 - Duplicate code eliminated across runner files
 
 ---
@@ -333,7 +348,7 @@ from loguru import logger
 ```python
 # Good
 from ao_shaping.drivers import CameraStreamManager
-from ao_shaping.utils.spots_calc import centroid
+from ao_shaping.utils.image.spots_calc import centroid
 
 # Avoid (unless necessary)
 from .drivers import ...
@@ -596,7 +611,7 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
 ## UNIQUE STYLES
 
 - **Mock-first testing**: Tests use simulation classes (`SimTurbulenceAOEnv`, `sim_spgd`) to avoid hardware
-- **Zernike Noll 约定统一** (aotools Noll 1976): Noll 4 = (2,0) defocus, Noll 5 = (2,-2) astig, Noll 11 = (4,0) spherical, Noll 13 = (4,-2)。**注意** `optimizer/wf/ga_zernike.py` / `rms_by_zernike.py` 里硬编码查表是另一套 (Noll 5 = (2,0)); 新代码一律用 `zernike_calc.noll_to_nm()` / `utils/zernike_utils.py`, 勿混用。zernike_utils 模块文档含完整前 15 阶映射表。
+- **Zernike Noll 约定统一** (aotools Noll 1976): Noll 4 = (2,0) defocus, Noll 5 = (2,-2) astig, Noll 11 = (4,0) spherical, Noll 13 = (4,-2)。**注意** `optimizer/wf/ga_zernike.py` / `rms_by_zernike.py` 里硬编码查表是另一套 (Noll 5 = (2,0)); 新代码一律用 `zernike_calc.noll_to_nm()` / `utils/optics/zernike_utils.py`, 勿混用。zernike_utils 模块文档含完整前 15 阶映射表。
 - **Hardware skip pattern**: Tests requiring physical hardware use `pytest.skip("Requires DM hardware")`
 - **Recorder pattern**: Optimization tests validate history dictionaries with expected fields
 - **Optional backend testing**: CuPy/Numba tested conditionally with try/except guards
