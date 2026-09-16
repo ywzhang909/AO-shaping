@@ -24,7 +24,14 @@ def get_debug_mode() -> bool:
 
 
 def parse_tuple(ctx, param, value):
-    """Parse tuple format parameter supporting 'x,y' or '(x,y)' formats."""
+    """Parse tuple format parameter supporting 'x,y' or '(x,y)' formats.
+
+    数值按 **float** 解析 —— WFS pupil 中心单位是 mm (实测常为小数, 如
+    ``(-0.14, 0.18)``), 旧的 ``int()`` 解析会拒绝这类值并迫使用户退回到
+    ``(0,0)``, 而构造函数传入的 pupil **会覆盖配置文件中的实测值**
+    (``thorlab_wfs.py:440-453``) → 用整数近似会造成 pupil 偏移、污染
+    ``WFS_ZernikeLsf`` 拟合。整数输入 (如像素中心) 仍可用, 只是返回 float。
+    """
     if value is None:
         return None
     if isinstance(value, str) and value.lower() in ["mass", "max", "shape"]:
@@ -34,8 +41,8 @@ def parse_tuple(ctx, param, value):
     try:
         parts = s_clean.split(",")
         if len(parts) != 2:
-            raise ValueError("Must have exactly two integers")
-        x, y = map(int, parts)
+            raise ValueError("Must have exactly two numbers")
+        x, y = map(float, parts)
         return (x, y)
     except Exception:
         raise click.BadParameter(

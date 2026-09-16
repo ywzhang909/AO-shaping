@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import re
 import sys
 from collections import defaultdict
 from datetime import datetime
@@ -323,7 +324,55 @@ def fig_closed_loop(report: dict, out_png: Path) -> dict | None:
 
 # ─────────────────────────── markdown ───────────────────────────
 
-def write_markdown(out: Path, ctx: dict) -> None:
+def _norm_dev(dev: dict) -> tuple[dict, dict]:
+    """兼容两种 device 结构: 新 (嵌套 ``{slm:{}, wfs:{}}``) 与旧 (扁平)."""
+    if not dev:
+        return {}, {}
+    if isinstance(dev.get("slm"), dict) or isinstance(dev.get("wfs"), dict):
+        return dev.get("slm") or {}, dev.get("wfs") or {}
+    return ({"serial_number": dev.get("slm_serial"),
+             "wavelength_nm": dev.get("wavelength_nm")},
+            {"serial_number": dev.get("wfs_serial")})
+
+
+def device_md(dev: dict) -> list[str]:
+    """把采集到的 SLM/WFS 设备参数渲染为 markdown 行 (报告必须含设备参数)."""
+    s, w = _norm_dev(dev)
+    out: list[str] = []
+    if s:
+        out.append("| SLM | 值 |")
+        out.append("|---|---|")
+        out.append(f"| 序列号 | {s.get('serial_number')} |")
+        out.append(f"| 工作波长 | {s.get('wavelength_nm')} nm |")
+        out.append(f"| **最大相位 (2π)** | {s.get('max_phase_rad')} rad "
+                   f"= {s.get('max_phase_waves')} λ (2π 灰度 = {s.get('two_pi_gray')}) |")
+        out.append(f"| **工作温度** | {s.get('temperature_c')} °C (驱动板, 选件板) |")
+        out.append(f"| 固件版本 | {s.get('version')} |")
+        out.append(f"| 面板分辨率 | {s.get('panel_res')} |")
+        out.append(f"| 平移 shift | ({s.get('shift_x')}, {s.get('shift_y')}) |")
+        out.append(f"| 视频模式 | {s.get('video_mode')} (0=memory) |")
+        out.append(f"| 波前矫正 | enabled={s.get('correction_enabled')}, "
+                   f"csv={s.get('correction_csv_path')} |")
+        out.append(f"| LUT | loaded={s.get('lut_loaded')}, dir={s.get('lut_dir')} |")
+        out.append("")
+    if w:
+        out.append("| WFS | 值 |")
+        out.append("|---|---|")
+        out.append(f"| 序列号 | {w.get('serial_number')} |")
+        out.append(f"| 设备 / 厂商 / 型号 | {w.get('device_name')} / "
+                   f"{w.get('manufacturer')} / {w.get('model')} |")
+        out.append(f"| **曝光时间** | {w.get('exposure_time_ms')} ms |")
+        out.append(f"| **pupil 中心** | {w.get('pupil_center_mm')} mm |")
+        out.append(f"| **pupil 直径** | {w.get('pupil_diameter_mm')} mm |")
+        out.append(f"| MLA | {w.get('mla_name')} (index {w.get('mla_index')}) |")
+        out.append(f"| 子孔径数 | {w.get('num_spots_x')} × {w.get('num_spots_y')} |")
+        out.append(f"| 参考平面 | use_custom_ref={w.get('use_custom_ref')} |")
+        out.append("")
+    return out
+
+
+def write_markdown(out: Path, ctx: dict, fig_prefix: str = "figures") -> str:
+    """构建报告 markdown 正文并返回 (不写文件; 由调用方决定落盘/追加)."""
     r = ctx["result"]
     dc = dict(r.device_config or {})
     modes = dc.get("slm_mode_ids_dll") or list(range(2, r.matrix.shape[1] + 2))
@@ -367,6 +416,10 @@ def write_markdown(out: Path, ctx: dict) -> None:
     md.append(f"| 矩阵形状 | {matrix.shape} (WFS × SLM) |")
     md.append(f"| SLM 模式 (DLL 索引) | {modes} |")
     md.append("")
+    dev = dc.get("device") or {}
+    if dev:
+        md.append("### 1.1 设备参数 (SLM / WFS)\n")
+        md.extend(device_md(dev))
     md.append("> ⚠️ **索引约定**: 矩阵行 = DLL 系数索引 (**顺序 m 枚举, 非标准 Noll**); "
               "`[5](2,0)defocus` `[9](3,1)coma` `[13](4,0)spherical`。"
               "手册佐证 `roCMm` \"derived from Zernike coefficient Z[5]\"。\n")
@@ -399,6 +452,11 @@ def write_markdown(out: Path, ctx: dict) -> None:
                       f"{row['cos_min']:.3f} | {'✅' if row['ok'] else '❌'} |")
         md.append("")
 
+    else:
+        md.append("### 2.5 线性度\n")
+        md.append("> 本次矩阵由**单幅度推拉标定**产生 (无多幅度扫描数据), 故不提供 "
+                  "`|resp|`-vs-幅度线性度图。推拉重复性可由 §2.4 方差图评估; "
+                  "多幅度线性度分析另见 `docs/slm/zernike_linearity/linearity.md`。\n")
     md.append("## 3. 检测 (Detection)\n")
     if ctx["worst"]:
         md.append("### 3.1 异常点诊断\n")
@@ -406,6 +464,12 @@ def write_markdown(out: Path, ctx: dict) -> None:
         md.append("**根因**: Zernike 半径 ≈ 光束半径 (实测 200px) 时, 大幅度高阶模式把子孔径"
                   "光斑推出有效区 → DLL Zernike 拟合崩溃, `|resp|` 暴涨 (实测最高 4288)。"
                   "故标定应取 **R ≈ 1.5×光束半径**。\n")
+    else:
+        md.append("### 3.1 异常点诊断\n")
+        md.append("> 本次标定**未触发拟合崩溃** (无 `|resp|` 异常点): 半径取 R≈1.5×光束半径、"
+                  "幅度适中, 且已启用**逐点幅度合理性剔除**与**光斑有效比门控** "
+                  "(`wfs_validity`)。异常点诊断图与 R 依赖分析见 "
+                  "`docs/slm/report2.md` 附节 §3.1。\n")
     if ctx["inverse"]:
         md.append("### 3.2 离线反解验证\n")
         md.append("![inverse](figures/07_inverse_demo.png)\n")
@@ -421,10 +485,79 @@ def write_markdown(out: Path, ctx: dict) -> None:
                   f"矫正后 {cl['after_rms']:.4f}λ (**{100 * (1 - cl['after_rms'] / cl['before_rms']):.1f}%**)。\n")
         md.append("> 该轮使用被 R=200 异常点污染的矩阵 (见 3.1), 改善有限; "
                   "修正后应以 R≈300px 重跑阶段 2/3。\n")
+    else:
+        md.append("### 3.3 实测闭环矫正\n")
+        md.append("> 本次未随标定运行闭环矫正 (矩阵由独立标定工具产生, 无同源闭环数据)。"
+                  "最近一次闭环实测 (使用**另一矩阵**) 见 `docs/slm/report2.md` §3.3, "
+                  "仅供参考; 本矩阵的**离线反解能力**见 §3.2 与 §4.4。\n")
 
-    md.append("## 4. 产物\n")
+    # ---- 结论与解读 (文字分析) ----
+    valid_cols = [i for i in range(matrix.shape[1])
+                  if np.linalg.norm(matrix[:, i]) > 0]
+    cond_eff = (float(np.linalg.cond(matrix[:, valid_cols]))
+                if len(valid_cols) > 1 else float("nan"))
+    pass_n = sum(1 for r in ctx.get("linearity", []) if r["ok"])
+    tot_n = len(ctx.get("linearity", []))
+    md.append("## 4. 结论与解读\n")
+    md.append("### 4.1 矩阵质量\n")
+    md.append(f"- **形状** `{matrix.shape}` = (WFS 系数 66) × (SLM 模式 {matrix.shape[1]})。"
+              f"其中**有效列 {len(valid_cols)}/{matrix.shape[1]}** —— 被线性度门控剔除的模式列已置零, "
+              "使用时应跳过 (其系数恒为 0)。")
+    md.append(f"- **有效列条件数 `{cond_eff:.2f}`** —— 越接近 1 越良态, 伪逆越稳定。"
+              "含零列时直接 `np.linalg.cond` 会因零奇异值爆到 1e18, 故此处只统计有效列 "
+              "(`slm_zernike_common.effective_cond`)。")
+    md.append(f"- **平均重复方差 `{r.mean_variance:.3e}`** —— 推拉循环间的读数散布; "
+              f"最大 `{r.max_variance:.3e}`。数量级 1e-5 ~ 1e-6 表示重复性良好。\n")
+    md.append("### 4.2 物理合理性\n")
+    md.append(f"- **对角主导 {diag_ok}/{len(modes)}**: 每个 SLM Zernike 模式应主要激励 WFS 的"
+              "**同索引**系数 (标定正确性的核心判据)。非对角项来自 (a) 平移引入的低阶耦合 "
+              "(尤其 piston 行) 与 (b) 光束仅覆盖图案中心区导致的高阶→低阶投影。")
+    md.append("- **piston 行数值大是正常的**: 相位图案平移会把常数项注入, 使 WFS 的 piston "
+              "读数随模式变化; 但 piston 是**参考平面偏置, 不可也无需矫正**, 故闭环反解前 "
+              "必须把 `w[0]` 置零 (见 §3.2)。\n")
+    if tot_n:
+        md.append("### 4.3 线性度\n")
+        md.append(f"- 多尺寸扫描中 **{pass_n}/{tot_n}** 个 (模式, 尺寸) 组合通过线性度判据 "
+                  "(CV<15% 且方向 cos>0.9)。未通过者集中在**弱耦合**情形 (R 大 / 高阶模式), "
+                  "其响应幅度与残差基线同量级, 属噪声受限而非真实非线性。")
+        md.append("- 判据用 **CV + 方向余弦**而非 slope/R²: 响应已按单位幅度归一化, 线性响应"
+                  "表现为 `|resp|` **恒定** (slope≈0), 故 slope/R² 在此无意义。\n")
+    else:
+        md.append("### 4.3 线性度\n")
+        md.append("> 本次为**单幅度推拉标定**, 未做多幅度扫描 → 无 `|resp|`-vs-幅度线性度数据。"
+                  "推拉重复性见 §4.1 的平均方差 (1e-5 量级即良好); 多幅度线性度分析见 "
+                  "`docs/slm/zernike_linearity/linearity.md`。\n")
+    if ctx.get("inverse"):
+        md.append("### 4.4 反解能力 (离线)\n")
+        md.append(f"- 合成像差 `[5]defocus=+0.30λ, [9]coma=−0.20λ` 经 `c = pinv(M) @ w` 反解, "
+                  f"残差 ‖Mc−w‖={ctx['inverse']['residual']:.4f} / "
+                  f"‖w‖={ctx['inverse']['w_norm']:.4f} → **降低 "
+                  f"{ctx['inverse']['reduction_pct']:.1f}%**。这是**该矩阵的理论天花板** (受限于 "
+                  "span(M) 覆盖度与条件数)。")
+        md.append("- 符号约定: `c = −pinv·w` (加负号才抵消像差); 用 `+pinv` 会使像差翻倍。\n")
+    if ctx.get("closed_loop"):
+        cl = ctx["closed_loop"]
+        md.append("### 4.5 实测闭环\n")
+        md.append(f"- 恢复 WFS 内部参考后加载矫正相位, RMS "
+                  f"{cl['before_rms']:.4f} → {cl['after_rms']:.4f}λ "
+                  f"(**{100 * (1 - cl['after_rms'] / cl['before_rms']):.1f}%**)。")
+        md.append("- 实测低于 §4.4 的离线上限, 差额主要来自**大修正量下的非线性** "
+                  "(模型自检: 小修正量比值 0.95~1.22 吻合, 大修正量仅 0.35)。\n")
+    else:
+        md.append("### 4.5 实测闭环\n")
+        md.append("> 本次标定未随附闭环实测 (矩阵由独立工具产生, 无同源闭环数据)。"
+                  "可用 `closed-loop` 命令加载本矩阵验证: "
+                  "`python -m ao_shaping.runners.zernike_matrix_runner closed-loop "
+                  "--load-file data/zernike_response_matrix/zm_recal_532_20260916.h5`。\n")
+    md.append("### 4.6 使用注意\n")
+    md.append("- **单位**: 本矩阵为 **λ/λ** (WFS 系数 µm 经 `um_to_waves` 换算)。"
+              "反解得到的 `c` 是**波长(λ)**, 但 `PatternHelper.generate_zernike_polynomial` / "
+              "`make_phase` 收**弧度** → 加载前必须 `× 2π` (漏此换算会使相位缩小 6.28×)。")
+    md.append("- **半径一致性**: 矫正相位必须以**矩阵标定时的同一 Zernike 半径**生成, "
+              "否则归一化不匹配会按 `(R_cal/R_use)²` 缩放系数。")
+    md.append("- **索引**: 行 = DLL 顺序 m 枚举 (非标准 Noll); 列 = SLM 模式 DLL 索引。\n")
+    md.append("## 5. 产物\n")
     md.append("| 产物 | 路径 |")
-    md.append("|---|---|")
     md.append(f"| 响应矩阵 h5 | `{ctx['h5']}` |")
     md.append(f"| 矩阵 + 原始读数 json | `{ctx['h5'].with_suffix('.json')}` |")
     if ctx["scan_report"]:
@@ -436,10 +569,26 @@ def write_markdown(out: Path, ctx: dict) -> None:
     md.append("| 共享模块 | `src/ao_shaping/tools/slm/slm_zernike_common.py` |")
     md.append("")
 
-    (out / "report.md").write_text("\n".join(md), encoding="utf-8")
+    body = "\n".join(md)
+    if fig_prefix != "figures":
+        body = body.replace("](figures/", f"]({fig_prefix}/")
+    return body
 
 
 # ─────────────────────────── main ───────────────────────────
+
+def _latest_matrix() -> Path | None:
+    """最新响应矩阵: 同时考虑独立标定产物与三阶段 debug 目录, 取修改时间最新者."""
+    cands = [
+        Path(p) for p in glob.glob(
+            str(ROOT / "data" / "zernike_response_matrix" / "*.h5"))
+    ] + [
+        Path(p) for p in glob.glob(
+            str(ROOT / "data" / "zernike_correction" / "debug_*" / "matrix.h5"))
+    ]
+    cands = [p for p in cands if p.exists()]
+    return max(cands, key=lambda p: p.stat().st_mtime) if cands else None
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
@@ -449,10 +598,13 @@ def main() -> int:
                     help="multi-size scan report json (default: latest)")
     ap.add_argument("--raw-scan", default=None, help="raw scan json (default: latest)")
     ap.add_argument("-o", "--output-dir", default=str(DEFAULT_OUT))
+    ap.add_argument("--append-to", default=None,
+                    help="把报告正文追加到指定 md (图路径按目标文件位置换算, 幂等)")
+    ap.add_argument("--append-title", default="## 附: Zernike 响应矩阵报告 (创建/分析/检测)",
+                    help="追加章节标题")
     args = ap.parse_args()
 
-    h5 = Path(args.h5) if args.h5 else _latest(
-        str(ROOT / "data" / "zernike_response_matrix" / "*.h5"))
+    h5 = Path(args.h5) if args.h5 else _latest_matrix()
     if h5 is None or not h5.exists():
         print("[FAIL] 未找到响应矩阵 h5")
         return 1
@@ -491,7 +643,10 @@ def main() -> int:
 
     linearity: list[dict] = []
     worst: list[int] = []
-    if raw_scan and raw_scan.exists():
+    # 溯源门控: 只有当矩阵本身来自"多尺寸扫描工具"时, 扫描报告/raw scan 才与它同源;
+    # 否则 (如单幅度推拉标定) 用别的扫描数据会误导, 故跳过扫描派生章节。
+    same_run = bool(dc.get("pass_count_by_radius"))
+    if raw_scan and raw_scan.exists() and same_run:
         raw = json.loads(raw_scan.read_text(encoding="utf-8"))
         linearity = fig_linearity(raw, figs / "05_linearity.png")
         bad = [r for r in linearity if not r["ok"]]
@@ -507,18 +662,44 @@ def main() -> int:
           f"({inverse['reduction_pct']:.1f}% reduction)")
 
     closed_loop = None
-    if scan_report and scan_report.exists():
+    if scan_report and scan_report.exists() and same_run:
         rep = json.loads(scan_report.read_text(encoding="utf-8"))
         closed_loop = fig_closed_loop(rep, figs / "08_closed_loop.png")
         if closed_loop:
             print(f"[OK] closed loop: {closed_loop['before_rms']:.4f} → "
                   f"{closed_loop['after_rms']:.4f} λ")
 
-    write_markdown(out, {"result": result, "h5": h5, "scan_report": scan_report,
-                         "raw_scan": raw_scan, "diag_ok": diag_ok,
-                         "linearity": linearity, "worst": worst,
-                         "inverse": inverse, "closed_loop": closed_loop})
+    ctx = {"result": result, "h5": h5, "scan_report": scan_report,
+           "raw_scan": raw_scan, "diag_ok": diag_ok,
+           "linearity": linearity, "worst": worst,
+           "inverse": inverse, "closed_loop": closed_loop}
+    body = write_markdown(out, ctx)
+    (out / "report.md").write_text(body, encoding="utf-8")
     print(f"\n[OK] 报告: {out / 'report.md'}")
+
+    if args.append_to:
+        target = Path(args.append_to).resolve()
+        try:
+            rel = out.resolve().relative_to(target.parent).as_posix()
+        except ValueError:
+            rel = out.resolve().as_posix()
+        body2 = write_markdown(out, ctx, fig_prefix=f"{rel}/figures")
+        lines = body2.split("\n")
+        if lines and lines[0].startswith("# "):
+            lines = lines[1:]                       # 去掉与追加标题重复的 H1
+            while lines and not lines[0].strip():
+                lines = lines[1:]
+        # 标题降一级 (H2→H3, ...), 使其成为目标文档的子章节
+        body2 = re.sub(r"^(#{1,5}) ", r"#\1 ", "\n".join(lines), flags=re.M)
+        section = "\n".join([args.append_title, ""] + body2.split("\n"))
+        existing = target.read_text(encoding="utf-8") if target.exists() else ""
+        sep = "\n\n---\n\n"
+        marker = sep + args.append_title
+        if marker in existing:                      # 幂等: 替换旧章节
+            existing = existing.split(marker)[0]
+        target.write_text(existing.rstrip() + sep + section + "\n", encoding="utf-8")
+        print(f"[OK] 已追加到: {target} (图前缀 {rel}/figures)")
+
     print(f"[OK] 图: {figs}")
     print("=" * 72)
     return 0

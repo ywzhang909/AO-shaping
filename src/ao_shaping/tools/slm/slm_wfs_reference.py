@@ -37,6 +37,7 @@ from ao_shaping.tools.slm.slm_zernike_common import (
     DEFAULT_EXPOSURE_MS,
     MAX_EXPOSURE_MS,
     SETTLE_REDUNDANCY_S,
+    collect_device_info,
     flat_gray,
     make_phase,
     measure_wavefront,
@@ -156,10 +157,17 @@ def main(slm_number, slm_wavelength, wfs_exposure_ms, wfs_order, zernike_radius,
         wl, max_gray = slm.get_wavelength_info()
         wfs.take_image(n_sample=1, dynamicNoiseCut=True)
         cx, cy, dx, dy = wfs.pupil = wfs.optimize_pupil()
-        report["device"] = {"slm": slm._serial_number, "wfs": wfs.serial_num,
-                            "wavelength_nm": slm_wavelength, "exposure_ms": exp,
-                            "2pi_gray": max_gray, "pupil_center_mm": [cx, cy],
-                            "pupil_diameter_mm": [dx, dy]}
+        report["device"] = collect_device_info(slm, wfs, slm_number)
+        _d = report["device"]
+        click.echo(f"[OK] 设备参数: SLM #{_d['slm'].get('serial_number')} "
+                   f"{_d['slm'].get('wavelength_nm')}nm 2π={_d['slm'].get('two_pi_gray')}gray "
+                   f"温度={_d['slm'].get('temperature_c')}°C "
+                   f"版本={_d['slm'].get('version')}")
+        click.echo(f"[OK]            WFS #{_d['wfs'].get('serial_number')} "
+                   f"曝光={_d['wfs'].get('exposure_time_ms')}ms "
+                   f"pupil={_d['wfs'].get('pupil_center_mm')}mm "
+                   f"d={_d['wfs'].get('pupil_diameter_mm')}mm "
+                   f"MLA={_d['wfs'].get('mla_name')}")
         click.echo(f"[OK] SLM #{slm._serial_number} {wl}nm 2π={max_gray}; "
                    f"WFS {wfs.serial_num} exp={exp:.3f}ms")
         click.echo(f"[OK] pupil auto: center=({cx:.3f},{cy:.3f})mm "

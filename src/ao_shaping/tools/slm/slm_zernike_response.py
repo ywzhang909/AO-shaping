@@ -20,7 +20,19 @@
     [11](4,-4) [12](4,-2) [13](4,0)spherical [14](4,2) [15](4,4)
 
 手册佐证: `roCMm` "derived from Zernike coefficient Z[5]" (球面波 RoC ← defocus)。
-实测佐证: 加载 (2,0)→[5], (2,2)→[6], (3,1)→[9], (4,0)→[13] 全部吻合。
+实测佐证: 加载 (2,0)→[5], (2,2)→[6], (3,1)→[9], (4,0)→[13]。
+
+⚠️ 消费约定 (闭环矫正时)
+------------------------
+矩阵行 0 = DLL [1] = **piston**, 它是 WFS 参考平面的整体偏置 (不可也无需矫正),
+且其行数值很大 (平移引入) → 用 `c = pinv(M) @ w` 反解前**必须把 `w[0]` 置零**,
+否则会污染整个解 (实测闭环脚本已如此处理)。
+
+⚠️ 半径一致性
+--------------
+本工具全矩阵使用**同一 Zernike 半径** (`--zernike-radius`), 这是必须的: 矫正相位
+由 `make_phase(..., radius=R)` 以单一 R 生成, 若标定列来自不同 R, Zernike 归一化
+不匹配会使系数被错误缩放 (R=300 标定按 R=200 加载 → 相位放大 (300/200)² = 2.25×)。
 
 用法
 ----
@@ -54,10 +66,13 @@ from ao_shaping.tools.slm.slm_zernike_common import (
     PANEL_W,
     SETTLE_REDUNDANCY_S,
     WFS_ZERNIKE_ORDER,
+    collect_device_info,
     flat_gray,
     make_phase,
     measure_zernike,
+    safe_pinv,
     show_phase,
+    um_to_waves,
     wfs_validity,
 )
 from ao_shaping.utils.pattern_helper import PatternHelper
@@ -91,7 +106,7 @@ def verify_response_matrix(path: str, top_n: int = 5) -> int:
                f"mode_ids={dc.get('slm_mode_ids_dll')}")
 
     ids = dc.get("slm_mode_ids_dll") or list(range(2, r.matrix.shape[1] + 2))
-    click.echo(f"\n--- 对角线检查 (SLM 模式 i → WFS 同索引) ---")
+    click.echo("\n--- 对角线检查 (SLM 模式 i → WFS 同索引) ---")
     diag_ok = 0
     for col, midx in enumerate(ids):
         row = midx - 1
@@ -115,7 +130,7 @@ def verify_response_matrix(path: str, top_n: int = 5) -> int:
     c = r.pinv_matrix @ w
     resid = r.matrix @ c - w
     red = 100 * (1 - float(np.linalg.norm(resid)) / float(np.linalg.norm(w)))
-    click.echo(f"\n--- 闭环反解演示 (合成像差 [5]=+0.30, [9]=−0.20) ---")
+    click.echo("\n--- 闭环反解演示 (合成像差 [5]=+0.30, [9]=−0.20) ---")
     for i, mid in enumerate(ids):
         if abs(c[i]) > 1e-3:
             click.echo(f"  SLM[{mid:2d}] = {c[i]:+.4f}")
@@ -209,6 +224,15 @@ def main(
         click.echo(f"[OK] WFS {wfs.serial_num} exp={exp:.3f}ms "
                    f"pupil=({cx:.3f},{cy:.3f})mm d=({dx:.3f},{dy:.3f})mm")
 
+        # 完整设备参数 (随 h5 的 device_config 一并落盘, 供复现与审计)
+        _dev = collect_device_info(slm, wfs, slm_number)
+        click.echo(f"[INFO] 设备参数: SLM 温度={(_dev.get('slm') or {}).get('temperature_c')}°C "
+                   f"版本={(_dev.get('slm') or {}).get('version')} "
+                   f"矫正={(_dev.get('slm') or {}).get('correction_enabled')} | "
+                   f"WFS MLA={(_dev.get('wfs') or {}).get('mla_name')} "
+                   f"{(_dev.get('wfs') or {}).get('num_spots_x')}x"
+                   f"{(_dev.get('wfs') or {}).get('num_spots_y')}")
+
         # 纯平用户参考 → 读数只反映加载相位
         flat = np.full((PANEL_H, PANEL_W), 0, dtype=np.uint16)
         slm.display_data(flat, wait_time_s=0.6)
@@ -260,8 +284,12 @@ def main(
                     zs[sign] = z
                 z_pos, z_neg = zs.get(+1), zs.get(-1)
                 if z_pos is not None and z_neg is not None:
-                    # 推拉差分 (λ 单位) / 幅度(λ) → 单位幅度响应
-                    cols.append((z_pos - z_neg) / 2.0 / amp_waves)
+                    # 推拉差分 → **µm 经 um_to_waves 换算为 λ** 再除以幅度(λ)
+                    # → 单位幅度响应 (λ/λ)。
+                    # ⚠️ 必须换算: 矩阵与矫正的 w 必须同单位, 否则反解系数被
+                    # 放大 1/0.532 = 1.88× (2026-09-16 实测定位的矫正失效根因)。
+                    diff_lam = um_to_waves((z_pos - z_neg) / 2.0)
+                    cols.append(diff_lam / amp_waves)
             if not cols:
                 click.echo(f"[WARN] 模式 [{midx}] {nm} 无有效响应, 置零")
                 continue
@@ -295,9 +323,14 @@ def main(
         click.echo("[FAIL] 未获得有效响应矩阵")
         return 1
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # 完整设备参数 (波长/2π灰度/工作温度/固件版本/矫正状态/LUT + WFS 曝光/pupil/MLA/子孔径)
+    device_info = collect_device_info(slm, wfs, slm_number)
+    _ds = device_info.get("slm") or {}
+    _dw = device_info.get("wfs") or {}
     device_config = {
-        "slm_serial": slm._serial_number,
-        "wfs_serial": wfs.serial_num,
+        "device": device_info,
+        "slm_serial": _ds.get("serial_number"),
+        "wfs_serial": _dw.get("serial_number"),
         "wavelength_nm": slm_wavelength,
         "slm_2pi_gray": max_gray,
         "wfs_exposure_ms": exp,
@@ -320,6 +353,7 @@ def main(
             f"matrix[wfs_coeff_index, slm_mode_index]; wfs_coeff_index 0..{n_wfs_terms - 1} "
             "对应 DLL [1..N] (非 Noll)"
         ),
+        "units": "λ/λ (WFS 系数 µm 经 um_to_waves 换算; 与矫正 w 同单位)",
         "method": "push-pull ±A, PatternHelper + display_phase (GUI 同链路)",
         "reference": "custom user ref @ flat phase (shift 已应用)",
     }
@@ -340,7 +374,7 @@ def main(
     )
     # 逆矩阵 (Zernike 模式法矫正控制律: c = pinv(M) @ w, c=(n_slm_modes,), w=(n_wfs_terms,))
     try:
-        result.pinv_matrix = np.linalg.pinv(matrix)
+        result.pinv_matrix = safe_pinv(matrix)
         result.lstsq_matrix = result.pinv_matrix
         device_config["inverse_layout"] = (
             f"pinv_matrix shape {result.pinv_matrix.shape} = (slm_modes, wfs_terms); "

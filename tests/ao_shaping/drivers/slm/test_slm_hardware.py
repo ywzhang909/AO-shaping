@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 
+import numpy as np
 import pytest
 
 import ao_shaping.drivers.slm.santec.driver as slm_module
@@ -359,6 +360,24 @@ class TestSerialNumber:
         assert config_file.stem == serial
 
 
+class TestPhaseCsvExport:
+    """Export radians from an initialized hardware session."""
+
+    def test_save_phase_to_csv_roundtrip(self, slm_config_dir, tmp_path):
+        """A hardware session can export and preserve a radian phase CSV."""
+        phase_rad = np.zeros(Santec.Panel_Res[::-1], dtype=np.float64)
+        phase_rad[0, 0] = np.pi / 2
+        phase_rad[-1, -1] = 2 * np.pi
+        csv_file = tmp_path / "phase.csv"
+
+        with Santec() as slm:
+            slm.save_phase_to_csv(phase_rad, csv_file)
+
+        assert csv_file.exists()
+        exported = np.loadtxt(csv_file, delimiter=",", skiprows=1)[:, 1:]
+        np.testing.assert_allclose(exported, phase_rad)
+
+
 # ---------------------------------------------------------------------------
 # Scenario 7 — Open/close lifecycle edge cases
 # ---------------------------------------------------------------------------
@@ -547,6 +566,7 @@ class TestDeviceInfo:
     def test_serial_fallback_to_product_serial(self, slm_config_dir, monkeypatch):
         """When board IDs are empty, ``open()`` falls back to product serial."""
         with Santec() as slm:
+
             def fake_get_serial():
                 return None
 

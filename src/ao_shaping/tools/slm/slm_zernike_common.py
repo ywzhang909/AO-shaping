@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -35,6 +36,18 @@ MAX_EXPOSURE_MS = 7.0
 DEFAULT_EXPOSURE_MS = 4.0
 SETTLE_REDUNDANCY_S = 0.1          # 像素翻转估算之外额外等待
 WFS_ZERNIKE_ORDER = 10             # orders 有效值 0=auto 或 2..10 (10 → 66 项); 15 非法!
+LAMBDA_UM = 0.532                  # 工作波长 (µm): WFS 系数单位 µm → λ 需 ÷ 此值
+
+# ⚠️ 单位一致性 (2026-09-16 实测定位的矫正失效根因):
+#   `get_zernike()` 返回**µm**; 响应矩阵必须与矫正时的 `w` 用**同一单位**。
+#   曾因矩阵用原始 µm 构建、而矫正用 `w = z/0.532` (λ), 反解系数被放大 1/0.532 = 1.88×,
+#   矫正过驱动 88% → 实测闭环仅 19.7% (离线最优可达 75%)。**一律经 `um_to_waves` 换算。**
+UM_TO_WAVES = 1.0 / LAMBDA_UM
+
+
+def um_to_waves(z: np.ndarray) -> np.ndarray:
+    """WFS Zernike 系数 µm → λ (工作波长 532nm)。矩阵与矫正**必须**用同一单位。"""
+    return np.asarray(z, dtype=float) * UM_TO_WAVES
 
 # DLL 顺序 m 枚举: 1-based index -> (n, m)
 DLL_ZERNIKE_ORDER: list[tuple[int, int]] = [
@@ -73,6 +86,200 @@ def name_of(index: int) -> str:
 def n_modes_upto(n_max: int) -> int:
     """含 piston 的模式总数 (n_max=4 → 15)."""
     return (n_max + 1) * (n_max + 2) // 2
+
+
+# ─────────────────────────── 设备参数采集 ───────────────────────────
+
+def collect_device_info(slm: Santec, wfs: ThorlabWFS | None = None,
+                        slm_number: int | None = None) -> dict[str, Any]:
+    """采集 SLM/WFS 完整设备参数供报告记录 (单点读取失败记 None, 不中断).
+
+    - **SLM**: 序列号 / DisplayName / 固件版本 (DLL·Drive·Option·FPGA) / 工作波长 /
+      **最大相位 (2π) 与对应灰度** / 面板分辨率 / shift / 视频模式 / **工作温度 (驱动板+选件板)**
+      / 波前矫正启用状态与 CSV / LUT / 当前灰度 / 响应时间与像素翻转上限
+    - **WFS**: 序列号 / 设备名·厂商·型号 / **曝光时间** / **pupil (中心+直径)** / MLA 名称
+      / 子孔径数 (27×27) / mla_index / 参考平面 (custom?) / 高速模式 / 主增益
+    """
+    info: dict[str, Any] = {"slm": {}, "wfs": {}}
+
+    def _get(obj: Any, attr: str) -> Any:
+        try:
+            return getattr(obj, attr)
+        except Exception as e:      # noqa: BLE001 - 单点读取失败不应中断
+            logger.debug("读取 {}.{} 失败: {}", type(obj).__name__, attr, e)
+            return None
+
+    s = info["slm"]
+    s["slm_number"] = slm_number if slm_number is not None else _get(slm, "slm_number")
+    s["serial_number"] = _get(slm, "serial_number") or _get(slm, "_serial_number")
+    s["display_name"] = _get(slm, "display_name")
+    s["version"] = _get(slm, "version")            # DLL/Drive/Option/FPGA
+    try:
+        wl, mg = slm.get_wavelength_info()
+        s["wavelength_nm"] = int(wl)
+        s["two_pi_gray"] = int(mg)
+        s["max_phase_rad"] = 2.0 * float(np.pi)    # 相位调制上限 = 2π
+        s["max_phase_waves"] = 1.0
+    except Exception as e:                          # noqa: BLE001
+        logger.debug("get_wavelength_info 失败: {}", e)
+    s["max_grayscale_value"] = _get(slm, "MAX_GRAYSCALE_VALUE")
+    pr = _get(slm, "Panel_Res")
+    s["panel_res"] = list(pr) if pr else None
+    s["shift_x"] = _get(slm, "shift_x")
+    s["shift_y"] = _get(slm, "shift_y")
+    vm = _get(slm, "video_mode")
+    s["video_mode"] = int(vm) if isinstance(vm, (int, np.integer)) else str(vm)
+    temp = _get(slm, "temperature")                 # (驱动板, 选件板) °C
+    s["temperature_c"] = (list(temp) if isinstance(temp, (tuple, list)) else temp)
+    s["correction_enabled"] = _get(slm, "correction_enabled")
+    cp = _get(slm, "correction_csv_path")
+    s["correction_csv_path"] = str(cp) if cp else None
+    ld = _get(slm, "lut_dir")
+    s["lut_dir"] = str(ld) if ld else None
+    s["lut_loaded"] = _get(slm, "lut") is not None
+    s["current_grayscale"] = _get(slm, "current_grayscale")
+    s["is_open"] = _get(slm, "is_open")
+    s["response_time_ms"] = _get(slm, "Response_time_ms")
+    s["max_pixel_flip_ms"] = _get(slm, "MAX_PIXEL_FLIP_TIME_MS")
+
+    if wfs is not None:
+        w = info["wfs"]
+        try:
+            w.update(wfs.get_hardware_info())
+        except Exception as e:                      # noqa: BLE001
+            logger.debug("wfs.get_hardware_info 失败: {}", e)
+        w["exposure_time_ms"] = _get(wfs, "exposure_time")
+        try:
+            cx, cy, dx, dy = wfs.pupil
+            w["pupil_center_mm"] = [float(cx), float(cy)]
+            w["pupil_diameter_mm"] = [float(dx), float(dy)]
+        except Exception as e:                      # noqa: BLE001
+            logger.debug("wfs.pupil 读取失败: {}", e)
+        try:
+            w["mla_name"] = wfs.get_mla_name()
+        except Exception as e:                      # noqa: BLE001
+            logger.debug("wfs.get_mla_name 失败: {}", e)
+        w["num_spots_x"] = _get(wfs, "num_spots_x")
+        w["num_spots_y"] = _get(wfs, "num_spots_y")
+        mi = _get(wfs, "mla_index")
+        w["mla_index"] = str(mi)
+        w["use_custom_ref"] = _get(wfs, "use_custom_ref")
+        w["high_speed"] = _get(wfs, "high_speed")
+        w["master_gain"] = _get(wfs, "master_gain")
+    return info
+
+
+def safe_pinv(matrix: np.ndarray) -> np.ndarray:
+    """对可能含**零列**的响应矩阵求伪逆 (零列对应行置 0, 仅对有效列求逆).
+
+    直接 ``np.linalg.pinv(M)`` 在含零列时条件数会爆到 1e18 (数值秩亏), 不稳定;
+    本函数先挑出有效列求伪逆再展开 —— 语义正确 (被线性度门控剔除的模式系数恒为 0)
+    且数值稳定。
+    """
+    m = np.asarray(matrix, dtype=float)
+    valid = [i for i in range(m.shape[1]) if np.linalg.norm(m[:, i]) > 0]
+    pinv = np.zeros((m.shape[1], m.shape[0]))
+    if valid:
+        pinv[valid, :] = np.linalg.pinv(m[:, valid])
+    return pinv
+
+
+def effective_cond(matrix: np.ndarray) -> float:
+    """有效列上的条件数 (忽略零列; 全零返回 nan)."""
+    m = np.asarray(matrix, dtype=float)
+    valid = [i for i in range(m.shape[1]) if np.linalg.norm(m[:, i]) > 0]
+    if len(valid) < 2:
+        return float("nan")
+    return float(np.linalg.cond(m[:, valid]))
+
+
+# ─────────────────────────── 产物命名 ───────────────────────────
+
+def correction_artifact_name(serial: str | None, wavelength_nm: int | None,
+                             shift_x: int | None, shift_y: int | None,
+                             zernike_radius: float | None,
+                             ts: str | None = None,
+                             prefix: str = "slm_corr") -> str:
+    """构造**可复原**的矫正相位 CSV 文件名.
+
+    文件名内嵌复原所需的关键参数 —— 序列号 · 波长 · shift_x/shift_y ·
+    Zernike 半径 · 时间戳, 使产物脱离上下文也能对应回设备与标定条件:
+
+        slm_corr_23020026_532nm_shift105_40_R300_20260916_011500.csv
+
+    Args:
+        serial: SLM 序列号 (None → ``unknown``)
+        wavelength_nm: 工作波长 nm
+        shift_x / shift_y: SLM 平移像素
+        zernike_radius: 标定/生成相位所用 Zernike 半径 px (必须与标定时一致)
+        ts: 时间戳字符串, 默认当前时间 ``%Y%m%d_%H%M%S``
+        prefix: 文件名前缀
+
+    Returns:
+        文件名 (不含目录), 扩展名 ``.csv``
+    """
+    from datetime import datetime as _dt
+
+    stamp = ts or _dt.now().strftime("%Y%m%d_%H%M%S")
+    s = serial or "unknown"
+    wl = f"{int(wavelength_nm)}nm" if wavelength_nm else "unknownnm"
+    sx = 0 if shift_x is None else int(shift_x)
+    sy = 0 if shift_y is None else int(shift_y)
+    r = f"R{int(round(float(zernike_radius)))}" if zernike_radius else "Rna"
+    return f"{prefix}_{s}_{wl}_shift{sx}_{sy}_{r}_{stamp}.csv"
+
+
+def export_correction_csv(slm: Santec, phase_rad: np.ndarray,
+                          meta: dict[str, Any],
+                          out_dir: str | Path = "data/slm_corrections",
+                          ts: str | None = None,
+                          prefix: str = "slm_corr") -> tuple[Path, Path]:
+    """用**驱动自带**的 `Santec.save_phase_to_csv` 导出矫正相位, 并写同名 sidecar JSON.
+
+    文件名内嵌可复原信息 (见 :func:`correction_artifact_name`); sidecar ``.json``
+    记录完整元数据 (设备参数 / 矩阵 / 系数 / 半径 / shift / 残差), 便于复现与审计。
+
+    Args:
+        slm: 已打开的 Santec 实例 (仅用于取序列号/波长/shift)
+        phase_rad: **弧度制**矫正相位, shape 必须为 (1200, 1920)
+        meta: 随 sidecar 落盘的元数据 (设备/矩阵/系数/指标等)
+        out_dir: 输出目录
+        ts / prefix: 传给 :func:`correction_artifact_name`
+
+    Returns:
+        (csv_path, json_path)
+    """
+    import json as _json
+    from datetime import datetime as _dt
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    stamp = ts or _dt.now().strftime("%Y%m%d_%H%M%S")
+    name = correction_artifact_name(
+        serial=getattr(slm, "_serial_number", None) or getattr(slm, "serial_number", None),
+        wavelength_nm=getattr(slm, "wavelength", None),
+        shift_x=getattr(slm, "shift_x", None),
+        shift_y=getattr(slm, "shift_y", None),
+        zernike_radius=meta.get("zernike_radius_px"),
+        ts=stamp, prefix=prefix,
+    )
+    csv_path = out / name
+    # 驱动自带导出 (弧度制 CSV, 保留 Y/X 行列索引)
+    Santec.save_phase_to_csv(phase_rad, csv_path)
+
+    sidecar = {
+        "csv_file": name,
+        "exported_at": _dt.now().isoformat(),
+        "phase_units": "radians (Santec.save_phase_to_csv 输出; 重新加载时按弧度读取, "
+                       "勿走 load_gray_from_csv/csv_to_phase —— 那两者只接受 0..1023 灰度)",
+        "phase_shape": list(np.asarray(phase_rad).shape),
+        "phase_range_rad": [float(np.min(phase_rad)), float(np.max(phase_rad))],
+        **meta,
+    }
+    json_path = csv_path.with_suffix(".json")
+    json_path.write_text(_json.dumps(sidecar, indent=2, ensure_ascii=False,
+                                     default=str), encoding="utf-8")
+    return csv_path, json_path
 
 
 # ─────────────────────────── 相位生成 / 下发 ───────────────────────────
@@ -153,12 +360,17 @@ def added_tilt(z: np.ndarray, base: np.ndarray) -> tuple[float, np.ndarray]:
 def diagnose_beam_radius(slm: Santec, wfs: ThorlabWFS, ph: PatternHelper,
                          radii: list[float], amp_rad: float = 20.0,
                          n_avg: int = 3, extra_sleep: float = SETTLE_REDUNDANCY_S,
+                         outlier_factor: float = 10.0,
                          verbose: bool = True) -> tuple[float, list[dict]]:
     """Zernike R 扫描 → WFS defocus 响应最大者 ≈ **光束在 SLM 上的半径**.
 
     原理: 半径 R 的 defocus 归一化后, 光束 (半径 r_beam) 感受到的相位幅度
-    ∝ A·(r_beam/R)² → R 越大响应越小; R < r_beam 时图案被裁切。故响应峰值出现在
-    R ≈ r_beam。
+    ∝ A·(r_beam/R)² → R 越大响应越小; R < r_beam 时图案被裁切。
+
+    ⚠️ **异常剔除 (实测必需)**: R < 光束半径 时 defocus 盘裁切光束 → 子孔径光斑丢失
+    → DLL Zernike 拟合崩溃, `defocus` 读数可暴涨到 10³ 量级 (实测 R=120 → +1266.73λ),
+    若直接取 `max(abs)` 会**误选到该异常点** (实测导致扫描半径 180/240 而非 300/400)。
+    故先用中位数 × ``outlier_factor`` 剔除异常, 再在剩余点中取响应最大者。
     """
     out: list[dict] = []
     for r in radii:
@@ -175,9 +387,25 @@ def diagnose_beam_radius(slm: Santec, wfs: ThorlabWFS, ph: PatternHelper,
             print(f"   R={r:5.0f}px  defocus[5]={d:+.4f}λ")
     if not out:
         raise RuntimeError("光束半径诊断无有效数据")
+
+    # 异常剔除 (R < 光束半径 → 盘裁切 → 拟合崩溃)
+    mags = np.array([abs(r["defocus_lam"]) for r in out], dtype=float)
+    med = float(np.median(mags))
+    if med > 0:
+        keep = mags <= outlier_factor * med
+        if not keep.all():
+            for r, kp in zip(out, keep):
+                if not kp:
+                    print(f"   [剔除异常] R={r['radius']:.0f}px "
+                          f"defocus={r['defocus_lam']:+.1f}λ (> {outlier_factor}×中位数 "
+                          f"{med:.3f}λ) — 盘裁切光束致拟合崩溃")
+            out = [r for r, kp in zip(out, keep) if kp]
+    if not out:
+        raise RuntimeError("光束半径诊断全部为异常值")
+
     best = max(out, key=lambda r: abs(r["defocus_lam"]))
     if verbose:
-        print(f"   → 光束半径 ≈ {best['radius']:.0f}px")
+        print(f"   → 光束半径 ≈ {best['radius']:.0f}px (剔除后 {len(out)} 个有效点)")
     return float(best["radius"]), out
 
 
