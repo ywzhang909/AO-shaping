@@ -50,7 +50,11 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.drivers.slm import Santec
+from ao_shaping.drivers.slm.santec import (
+    Santec,
+    WavefrontCorrection,
+    get_max_grayscale,
+)
 from ao_shaping.drivers.wfs import ThorlabWFS
 from ao_shaping.optimizer.wf.zernike_response_matrix import (
     ZernikeResponseMatrixResult,
@@ -71,6 +75,7 @@ from ao_shaping.tools.slm.slm_zernike_common import (
     make_phase,
     measure_zernike,
     safe_pinv,
+    save_driver_correction_csv,
     show_phase,
     um_to_waves,
     wfs_validity,
@@ -139,6 +144,173 @@ def verify_response_matrix(path: str, top_n: int = 5) -> int:
     return 0 if (diag_ok == len(ids) and red > 50) else 1
 
 
+def export_driver_correction(h5_path: str | Path,
+                             w_file: str | Path,
+                             out: str | Path | None = None,
+                             include_shift: bool = False,
+                             shift_x: int | None = None,
+                             shift_y: int | None = None) -> int:
+    """从已标定响应矩阵 h5 **离线**导出驱动可消费的灰度矫正 CSV.
+
+    流程 (与闭环脚本同解): 波前 w (λ) → ``w[0]`` 置零 (piston) →
+    ``c = pinv(M) @ w`` (λ) → 矫正相位 ``φ = make_phase({nm: c·2π}, R)`` →
+    灰度偏移 ``g = WavefrontCorrection.correction_gray_offsets(φ)``, 写驱动
+    `Santec.load_gray_from_csv` 格式 CSV + 侧车 JSON (含消费说明)。
+
+    **导出契约 (2026-09-16)**:
+    - **默认不含 shift**: 矫正相位 ``φ`` 为面板坐标 (Zernike 图案居中, 未经平移),
+      导出偏移图**不烘焙任何平移**; shift 由官方软件 shift 设置或驱动
+      ``Santec.apply_shift`` 在显示时单独应用。
+    - **可选烘焙 shift** (``include_shift=True``): 灰度编码**前**对 ``φ`` 施加
+      ``Santec.shift_phase(φ, sx, sy)`` (与驱动显示时同一平移数学, shift > 0
+      向右/下, vacated 区域填 0)。shift 默认取 h5 ``device_config`` 的
+      ``shift_x``/``shift_y`` (标定时实际生效的值), 可用参数 ``shift_x``/
+      ``shift_y`` 覆盖。烘焙后消费方**不得**再 apply shift (否则双平移),
+      见 sidecar ``consumption``。
+    - **满量程 2π = 1023**: ``max_gray`` 固定取设备常量
+      ``slm200_constants.get_max_grayscale()`` (= 1023, 官方软件约定), **不使用**
+      波长相关 ``two_pi_gray`` (如 532nm→998)。
+
+    该 CSV 与官方软件加载的 ``Wavefront_correction_Data_*.csv`` 同一格式
+    (首行 ``Y/X,0..1919``, 数据区 uint16 灰度偏移), 可交给官方软件或驱动
+    ``WavefrontCorrection(csv_path, calc_fn=lambda raw: raw.astype(np.float64))``
+    加载, `map_error` 将其**叠加**到显示灰度, 实现对实测像差 w 的预补偿。
+    不接触硬件。
+
+    Args:
+        h5_path: 已标定响应矩阵 h5 (含 pinv_matrix / device_config)
+        w_file: WFS 波前 JSON (66 长数组, 单位 λ；或含 ``w``/``w_before`` 键的字典;
+                67 长时自动跳到 index 1 起——DLL 约定 index 0 未用)
+        out: 矫正 CSV 输出路径 (默认: h5 同目录 ``<stem>_correction_gray.csv``,
+             烘焙 shift 时 ``<stem>_correction_gray_shift{sx}_{sy}.csv``)
+        include_shift: True 时把 config shift 烘焙进矫正偏移 (灰度编码前
+            ``Santec.shift_phase``); False 保持原 "不含 shift" 契约
+        shift_x: 烘焙平移 X (None → 读 h5 device_config.shift_x)
+        shift_y: 烘焙平移 Y (None → 读 h5 device_config.shift_y)
+
+    Returns:
+        退出码 (0 = 成功)
+    """
+    h5 = Path(h5_path)
+    if not h5.exists():
+        raise click.ClickException(f"h5 不存在: {h5}")
+    r = load_zernike_response_matrix(h5)
+    dc = dict(r.device_config or {})
+    ids = dc.get("slm_mode_ids_dll") or list(range(2, r.matrix.shape[1] + 2))
+    nm_list = dc.get("slm_mode_nm") or [list(DLL_ZERNIKE_ORDER[i - 1])
+                                        for i in ids]
+    if r.pinv_matrix is None:
+        raise click.ClickException("h5 无 pinv_matrix, 无法反解矫正系数")
+    radius = float(dc.get("zernike_radius_px") or 300.0)
+    # 导出满量程固定取设备常量 10 位满量程 (2π = 1023, 官方软件约定) ——
+    # 严禁用波长相关 two_pi_gray (如 532nm→998): 官方软件按 1023 换算
+    # 矫正偏移, 用 998 会使幅度被缩放 1023/998 ≈ 1.025×。
+    max_gray = get_max_grayscale()
+
+    w_raw = json.loads(Path(w_file).read_text(encoding="utf-8"))
+    if isinstance(w_raw, dict):
+        w_raw = w_raw.get("w") or w_raw.get("w_before") or w_raw.get("wavefront")
+    if w_raw is None:
+        raise click.ClickException("--w-file 需为 66 长数组或含 w/w_before 键的字典")
+    w = np.asarray(w_raw, dtype=float).reshape(-1)
+    if w.size == 67:
+        w = w[1:]                               # 67 长: index 0 未用
+    if w.size != r.pinv_matrix.shape[1]:
+        raise click.ClickException(
+            f"波前长度 {w.size} ≠ matrix 列数 {r.pinv_matrix.shape[1]}")
+    w = w.copy()
+    w[0] = 0.0                                  # piston 不可矫正
+
+    c_waves = -r.pinv_matrix @ w                # (n_modes,) λ — 矫正相位 = −反解 (抵消像差)
+    ph = PatternHelper(resolution=(PANEL_W, PANEL_H))
+    coeff: dict[tuple[int, int], float] = {}
+    for i, nm in enumerate(nm_list):
+        coeff[(int(nm[0]), int(nm[1]))] = float(c_waves[i]) * 2.0 * np.pi
+    phase_rad = make_phase(ph, coeff, radius=radius,
+                           n_max=int(getattr(r, "n_max", None) or 4))
+    # 可选: 把 config shift 烘焙进矫正相位 (与驱动显示时同一平移数学)。
+    # ⚠️ 烘焙后消费方不得再 apply shift (否则双平移)。
+    shift_baked: tuple[int, int] | None = None
+    if include_shift:
+        sx = int(shift_x) if shift_x is not None else int(dc.get("shift_x") or 0)
+        sy = int(shift_y) if shift_y is not None else int(dc.get("shift_y") or 0)
+        if sx == 0 and sy == 0:
+            raise click.ClickException(
+                "include_shift 需要非零 shift: 未传 --export-shift-x/y, "
+                "且 h5 device_config 无 shift_x/shift_y")
+        phase_rad = Santec.shift_phase(phase_rad, sx, sy)
+        shift_baked = (sx, sy)
+    gray = WavefrontCorrection.correction_gray_offsets(phase_rad,
+                                                       max_grayscale=max_gray)
+
+    if out:
+        dest = Path(out)
+    elif shift_baked:
+        dest = h5.with_name(
+            f"{h5.stem}_correction_gray_shift{shift_baked[0]}_{shift_baked[1]}.csv")
+    else:
+        dest = h5.with_name(f"{h5.stem}_correction_gray.csv")
+    save_driver_correction_csv(gray, dest)
+
+    sidecar = {
+        "correction_csv": dest.name,
+        "source_h5": str(h5),
+        "source_w_file": str(Path(w_file)),
+        "solver": "c = -pinv(M) @ w (抵消实测像差), w[0]=0 → φ = make_phase({nm: c·2π}, R)",
+        "gray_encoding": f"g = round(mod(φ/(2π)·{max_gray}, {max_gray} + 1)), uint16; "
+                         "面板坐标逐像素偏移"
+                         + (f"; 已烘焙 shift ({shift_baked[0]},{shift_baked[1]})"
+                            if shift_baked else "; 不含 shift"),
+        "max_gray": max_gray,
+        "shift_included": shift_baked is not None,
+        **({"shift_x": shift_baked[0], "shift_y": shift_baked[1]}
+           if shift_baked else {}),
+        "shift_note": (
+            f"矫正偏移已烘焙平移 ({shift_baked[0]},{shift_baked[1]}) (取自 "
+            "h5 device_config.shift_x/y); 消费方显示时**不得**再 apply shift "
+            "(否则双平移)"
+            if shift_baked
+            else "矫正偏移不含平移; 平移由官方软件 shift 设置 / 驱动 "
+                 "Santec.apply_shift 在显示时单独应用"
+        ),
+        "zernike_radius_px": radius,
+        "slm_mode_ids_dll": ids,
+        "coeff_waves": {f"DL{i}({nm[0]},{nm[1]})": round(float(v), 6)
+                        for i, nm, v in zip(ids, nm_list, c_waves)},
+        "consumption": (
+            "官方软件: 直接加载本 CSV (与 Wavefront_correction_Data_*.csv 同格式, "
+            f"满量程 2π = {max_gray} = 设备 10 位常量 get_max_grayscale())。"
+            "驱动加载: Santec.load_gray_from_csv(csv) → WavefrontCorrection("
+            "csv_path, calc_fn=lambda raw: raw.astype(np.float64)); map_error "
+            f"把偏移叠加到显示灰度 (max_grayscale={max_gray})。"
+            + (f"偏移已含 shift ({shift_baked[0]},{shift_baked[1]}), "
+               "显示时不要再用 apply_shift/set_shift 重复平移。"
+               if shift_baked
+               else "偏移不含 shift。")
+            + "勿用默认 _default_calc (余弦拟合)。"
+        ),
+        "exported_at": datetime.now().isoformat(),
+    }
+    sidecar_path = dest.with_suffix(".json")
+    sidecar_path.write_text(json.dumps(sidecar, indent=2, ensure_ascii=False),
+                            encoding="utf-8")
+
+    denom = max(float(np.linalg.norm(w)), 1e-12)
+    resid = float(np.linalg.norm(r.matrix @ c_waves + w) / denom)  # 抵消后残差 ‖M c + w‖/‖w‖
+    shift_tag = (f"含 shift ({shift_baked[0]},{shift_baked[1]})"
+                 if shift_baked else "不含 shift")
+    click.echo(f"[OK] 矫正 CSV: {dest}  ({gray.shape[0]}×{gray.shape[1]} uint16, "
+               f"max_gray={max_gray}, {shift_tag})")
+    click.echo(f"[OK] 侧车 JSON: {sidecar_path}")
+    active = [(i, nm, c) for i, nm, c in zip(ids, nm_list, c_waves)
+              if abs(float(c)) > 1e-3]
+    click.echo(f"[INFO] 矫正系数 (λ): "
+               + ", ".join(f"DL{i}({nm[0]},{nm[1]}) = {c:+.3f}" for i, nm, c in
+                           sorted(active, key=lambda t: -abs(t[2]))[:8]))
+    click.echo(f"[INFO] 矩阵残差 ‖M c + w‖/‖w‖ = {resid:.3f} (抵消后残差)")
+    return 0
+
+
 @click.command()
 @click.option("--slm-number", type=int, default=1, show_default=True)
 @click.option("--slm-wavelength", type=int, default=532, show_default=True, help="SLM 波长 nm")
@@ -164,6 +336,19 @@ def verify_response_matrix(path: str, top_n: int = 5) -> int:
 @click.option("-o", "--output", default=None, help="输出 h5 路径 (默认 data/zernike_response_matrix/)")
 @click.option("--verify", "verify_path", default=None,
               help="离线校验已保存的 h5 (不接触硬件); 指定后忽略其他选项")
+@click.option("--export-correction", "export_h5", default=None,
+              help="离线导出驱动可消费的灰度矫正 CSV (官方软件/驱动可直接加载; 不接触硬件); 需配合 --w-file")
+@click.option("--w-file", "w_file", default=None,
+              help="WFS 波前 JSON (66 长, 单位 λ; 或含 w/w_before 键的字典); 仅用于 --export-correction")
+@click.option("--out-correction", "export_out", default=None,
+              help="矫正 CSV 输出路径 (默认: 输入 h5 同目录 <stem>_correction_gray.csv)")
+@click.option("--export-shift", is_flag=True, default=False,
+              help="把 config shift 烘焙进矫正 CSV (灰度编码前 Santec.shift_phase; "
+                   "shift 默认取 h5 device_config.shift_x/y)")
+@click.option("--export-shift-x", type=int, default=None,
+              help="烘焙平移 shift_x (默认读 h5 device_config)")
+@click.option("--export-shift-y", type=int, default=None,
+              help="烘焙平移 shift_y (默认读 h5 device_config)")
 def main(
     slm_number: int,
     slm_wavelength: int,
@@ -180,10 +365,23 @@ def main(
     settle_extra_s: float,
     output: str | None,
     verify_path: str | None,
+    export_h5: str | None,
+    w_file: str | None,
+    export_out: str | None,
+    export_shift: bool,
+    export_shift_x: int | None,
+    export_shift_y: int | None,
 ) -> int:
     """SLM Zernike 模式 → WFS 读数 响应矩阵标定."""
     if verify_path:
         return verify_response_matrix(verify_path)
+    if export_h5:
+        if not w_file:
+            raise click.BadParameter("--export-correction 需要 --w-file (WFS 波前 JSON)")
+        return export_driver_correction(export_h5, w_file, export_out,
+                                        include_shift=export_shift,
+                                        shift_x=export_shift_x,
+                                        shift_y=export_shift_y)
     if wfs_exposure_ms > MAX_EXPOSURE_MS:
         raise click.BadParameter(f"WFS 曝光 {wfs_exposure_ms}ms > {MAX_EXPOSURE_MS}ms")
     if not 2 <= wfs_order <= 10:

@@ -99,10 +99,11 @@ def _zernike_to_phase(
         pattern_helper: PatternHelper instance for phase generation.
 
     Returns:
-        float64 radian phase pattern array with shape (SLM_HEIGHT, SLM_WIDTH),
-        wrapped to [0, 2π). The caller must convert to grayscale via
+        float64 raw radian phase pattern array with shape (SLM_HEIGHT, SLM_WIDTH).
+        No mod-2π here — the caller must convert to grayscale via
         ``slm.create_phase_from_array()`` before ``slm.display_data()``
-        (2026-09: PatternHelper no longer performs phase→gray).
+        (2026-09: PatternHelper no longer performs phase→gray; the SLM
+        driver applies the 2π wrap on radian→grayscale conversion).
     """
     modes = _zernike_indices(n_max)
     coeffs_dict: dict[tuple[int, int], float] = {}

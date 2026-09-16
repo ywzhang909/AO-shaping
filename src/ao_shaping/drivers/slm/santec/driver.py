@@ -1151,7 +1151,10 @@ class Santec:
 
     @staticmethod
     def load_gray_from_csv(
-        filepath: str | Path, skiprows: int = 1, delimiter: str = ","
+        filepath: str | Path,
+        skiprows: int = 1,
+        delimiter: str = ",",
+        panel_resolution: tuple[int, int] | None = None,
     ) -> np.ndarray:
         """从CSV文件加载灰度数据
 
@@ -1165,6 +1168,7 @@ class Santec:
             filepath: CSV文件路径
             skiprows: 跳过的行数，默认为1（跳过标题行）
             delimiter: 分隔符，默认为逗号
+            panel_resolution: 面板分辨率 (宽, 高)，默认取 PANEL_RES
 
         Returns:
             灰度数据数组，shape=(1200, 1920)，dtype=uint16
@@ -1173,45 +1177,14 @@ class Santec:
             FileNotFoundError: 文件不存在
             ValueError: CSV 格式校验失败（标题、尺寸、值范围）
         """
-        filepath = Path(filepath)
-        if not filepath.exists():
-            raise FileNotFoundError(f"灰度文件不存在: {filepath}")
-
-        # ── 格式校验 ──────────────────────────────────────────
-        # 1. 标题行首列必须为 "Y/X"
-        with open(filepath, "r", encoding="utf-8", errors="replace") as fh:
-            header_line = fh.readline().strip()
-        header_fields = header_line.split(delimiter)
-        if not header_fields or header_fields[0].strip().upper() != "Y/X":
-            raise ValueError(
-                f"CSV 格式错误: 首行首列应为 'Y/X' 标题，实际为 "
-                f"'{header_fields[0] if header_fields else ''}'"
-            )
-
-        # 2. 读取数据区域（跳过标题行与行索引列）
-        raw = np.loadtxt(filepath, delimiter=delimiter, skiprows=skiprows)
-        if raw.ndim != 2:
-            raise ValueError(f"CSV 格式错误: 数据区域应为 2D 矩阵，实际维度 {raw.ndim}")
-        data = raw[:, 1:]
-
-        # 3. 尺寸校验：必须与 SLM 面板分辨率一致
-        target_h, target_w = PANEL_RES[1], PANEL_RES[0]  # (1200, 1920)
-        if data.shape != (target_h, target_w):
-            raise ValueError(
-                f"CSV 尺寸错误: 数据区域 {data.shape}，"
-                f"应与 SLM 面板分辨率一致 ({target_h}, {target_w})"
-            )
-
-        # 4. 值范围校验：灰度必须在 0..GRAYSCALE_MAX 范围内
-        gray = data.astype(np.uint16)
-        if gray.max() > GRAYSCALE_MAX or gray.min() < GRAYSCALE_MIN:
-            raise ValueError(
-                f"CSV 灰度值越界: 范围 [{gray.min()}, {gray.max()}]，"
-                f"允许范围 [{GRAYSCALE_MIN}, {GRAYSCALE_MAX}]"
-            )
-
-        logger.info(f"已从 {filepath} 加载灰度数据，形状: {gray.shape}")
-        return gray
+        if panel_resolution is None:
+            panel_resolution = PANEL_RES
+        return WavefrontCorrection.load_gray_from_csv(
+            filepath,
+            skiprows=skiprows,
+            delimiter=delimiter,
+            panel_resolution=panel_resolution,
+        )
 
     @staticmethod
     def csv_to_phase(
@@ -1233,27 +1206,16 @@ class Santec:
         Returns:
             弧度制相位数组，dtype=float64，形状与CSV数据一致
         """
-        filepath = Path(filepath)
-        if not filepath.exists():
-            raise FileNotFoundError(f"相位文件不存在: {filepath}")
-
-        phase_gray = np.loadtxt(filepath, delimiter=delimiter, skiprows=skiprows)[
-            :, 1:
-        ].astype(np.float64)
-
-        phase_rad = phase_gray / get_max_grayscale() * 2 * np.pi
-        logger.info(
-            f"CSV灰度数据已转换为弧度相位: {filepath.name}, "
-            f"形状: {phase_rad.shape}, "
-            f"范围: [0, 2π]"
+        return WavefrontCorrection.csv_to_phase(
+            filepath, skiprows=skiprows, delimiter=delimiter
         )
-        return phase_rad
 
     @staticmethod
     def save_phase_to_csv(
         phase_rad: np.ndarray,
         filepath: str | Path | io.BufferedIOBase | io.TextIOBase,
         delimiter: str = ",",
+        panel_resolution: tuple[int, int] | None = None,
     ) -> None:
         """将弧度制相位矩阵导出为带行列索引的 CSV。
 
@@ -1264,51 +1226,18 @@ class Santec:
             phase_rad: 弧度制相位数组，shape 必须等于 ``PANEL_RES`` 的 ``(高, 宽)``
             filepath: 输出文件路径，或可写入字节/文本的流
             delimiter: CSV 分隔符，默认为逗号
+            panel_resolution: 面板分辨率 (宽, 高)，默认取 PANEL_RES
 
         Raises:
             ValueError: 相位数组维度、尺寸或数值无效
         """
-        phase = np.asarray(phase_rad, dtype=np.float64)
-        if phase.ndim != 2:
-            raise ValueError(f"相位数据必须是2D数组，当前维度: {phase.ndim}")
-
-        target_h, target_w = PANEL_RES[1], PANEL_RES[0]
-        if phase.shape != (target_h, target_w):
-            raise ValueError(
-                f"相位尺寸错误: {phase.shape}，应与 SLM 面板分辨率一致 "
-                f"({target_h}, {target_w})"
-            )
-        if not np.isfinite(phase).all():
-            raise ValueError("相位数据包含 NaN 或无穷值")
-
-        output = io.StringIO()
-        output.write(
-            delimiter.join(["Y/X", *(str(index) for index in range(target_w))])
-        )
-        output.write("\n")
-
-        indexed_phase = np.column_stack((np.arange(target_h, dtype=np.int64), phase))
-        np.savetxt(
-            output,
-            indexed_phase,
+        if panel_resolution is None:
+            panel_resolution = PANEL_RES
+        WavefrontCorrection.save_phase_to_csv(
+            phase_rad,
+            filepath,
             delimiter=delimiter,
-            fmt=["%d", *["%.12g"] * target_w],
-        )
-        content = output.getvalue()
-
-        if isinstance(filepath, (str, Path)):
-            path = Path(filepath)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8")
-        else:
-            if isinstance(filepath, io.TextIOBase):
-                filepath.write(content)
-            else:
-                filepath.write(content.encode("utf-8"))
-
-        logger.info(
-            f"弧度相位已导出: 形状={phase.shape}, "
-            f"范围=[{phase.min():.6f}, {phase.max():.6f}] rad"
+            panel_resolution=panel_resolution,
         )
 
     def create_phase_from_array(
@@ -1328,36 +1257,22 @@ class Santec:
         if max_grayscale is None:
             max_grayscale = self._max_gray
 
-        # 验证并调整矩阵shape为SLM面板分辨率 (height, width)
-        target_h, target_w = self.Panel_Res[1], self.Panel_Res[0]  # (1200, 1920)
-
+        # 调整矩阵shape为SLM面板分辨率 (height, width)
+        # 裁切/补零逻辑唯一实现在 _resize_to_panel → WavefrontCorrection.resize_to_panel
         h, w = phase_rad.shape
-
+        target_h, target_w = self.Panel_Res[1], self.Panel_Res[0]
         if (h, w) != (target_h, target_w):
             if h > target_h or w > target_w:
-                # 过大：从中心裁切
                 logger.warning(
                     f"输入相位图尺寸 ({h}, {w}) 超过SLM面板 ({target_h}, {target_w})，"
                     f"将从中心裁切"
                 )
-                # 计算裁切起始位置
-                start_y = (h - target_h) // 2
-                start_x = (w - target_w) // 2
-                phase_rad = phase_rad[
-                    start_y : start_y + target_h, start_x : start_x + target_w
-                ]
             else:
-                # 过小：四周补0
                 logger.warning(
                     f"输入相位图尺寸 ({h}, {w}) 小于SLM面板 ({target_h}, {target_w})，"
                     f"将在四周补0"
                 )
-                padded = np.zeros((target_h, target_w), dtype=phase_rad.dtype)
-                # 居中放置
-                start_y = (target_h - h) // 2
-                start_x = (target_w - w) // 2
-                padded[start_y : start_y + h, start_x : start_x + w] = phase_rad
-                phase_rad = padded
+        phase_rad = self._resize_to_panel(phase_rad)
 
         # 确保 max_grayscale 有有效值
         assert max_grayscale is not None, "max_grayscale should be calculated"

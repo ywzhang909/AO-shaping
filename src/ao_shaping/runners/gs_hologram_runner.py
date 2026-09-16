@@ -44,6 +44,7 @@ from ao_shaping.algorithm.gerchberg_saxton import (
     calculate_reconstruction_error,
     GSResult,
 )
+from ao_shaping.utils.slm_utils import phase_to_slm_grayscale
 
 # Import hardware drivers with graceful fallback
 Santec: Any = None
@@ -190,28 +191,6 @@ def create_target_shape(
     amplitude = np.sqrt(intensity)
     logger.info(f"Created target shape: {shape}, size: {size}")
     return amplitude
-
-
-def phase_to_slm_grayscale(
-    phase: np.ndarray,
-    max_grayscale: int = 1023,
-) -> np.ndarray:
-    """将弧度相位转换为SLM灰度值。
-
-    Args:
-        phase: 相位数组 (radians, typically 0-2π)
-        max_grayscale: 最大灰度值 (10-bit SLM = 1023)
-
-    Returns:
-        uint16灰度值数组
-    """
-    # Wrap phase to 0-2π
-    phase_wrapped = np.mod(phase, 2 * np.pi)
-
-    # Convert to grayscale
-    grayscale = (phase_wrapped / (2 * np.pi)) * max_grayscale
-
-    return grayscale.astype(np.uint16)
 
 
 def capture_amplitude_with_ccd(
@@ -441,8 +420,8 @@ def run(
 
                 def capture_callback(phase: np.ndarray) -> np.ndarray:
                     """Capture actual amplitude with CCD"""
-                    # Convert phase to SLM grayscale
-                    slm_phase = phase_to_slm_grayscale(phase)
+                    # 驱动统一实现: 弧度→灰度 (矫正+LUT+平移+mod 2π, 设备 _max_gray)
+                    slm_phase = slm_device.create_phase_from_array(phase)
 
                     # Display on SLM
                     slm_device.display_data(slm_phase)
@@ -484,7 +463,8 @@ def run(
                     raise RuntimeError("Hardware not properly initialized")
 
                 logger.info("Displaying phase pattern on SLM...")
-                slm_phase = phase_to_slm_grayscale(result.phase)
+                # 驱动统一实现: 弧度→灰度 (矫正+LUT+平移+mod 2π, 设备 _max_gray)
+                slm_phase = slm.create_phase_from_array(result.phase)
                 slm.display_data(slm_phase)
 
                 # Capture actual result
@@ -550,8 +530,8 @@ def run(
     with open(result_dir / "config.json", "w") as f:
         json.dump(config, f, indent=2)
 
-    # 保存相位图案 (灰度值)
-    slm_phase = phase_to_slm_grayscale(result.phase)
+    # 保存相位图案 (灰度值); 硬件模式走驱动统一实现 (与显示字节一致), 模拟模式纯函数回退
+    slm_phase = phase_to_slm_grayscale(result.phase, slm=slm)
     np.save(result_dir / "phase_pattern.npy", slm_phase)
 
     # 保存目标振幅

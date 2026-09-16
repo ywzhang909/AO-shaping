@@ -237,15 +237,6 @@ def _refresh_device_list() -> None:
     st.session_state["available_slms"] = _scan_available_slms()
 
 
-def _apply_shift(phase_gray: np.ndarray, shift_x: int, shift_y: int) -> np.ndarray:
-    """平移相位灰度图, 空白区域填 0.
-
-    平移数学的唯一实现位于驱动层 :meth:`Santec.shift_phase` ——
-    GUI 预览与驱动重下发共用同一函数, 保证预览与上屏字节级一致。
-    """
-    return Santec.shift_phase(phase_gray, shift_x, shift_y)
-
-
 @st.fragment()
 def render_phase_preview(slm_num: int) -> None:
     """Display the current SLM phase preview, refreshing only this area.
@@ -276,9 +267,10 @@ def render_phase_preview(slm_num: int) -> None:
         ),
         key=f"slm{slm_num}_preview_colormap_widget",
     )
-    if st.session_state.get(
-        f"slm{slm_num}_preview_colormap", PREVIEW_COLORMAP_DEFAULT
-    ) != colormap:
+    if (
+        st.session_state.get(f"slm{slm_num}_preview_colormap", PREVIEW_COLORMAP_DEFAULT)
+        != colormap
+    ):
         st.session_state[f"slm{slm_num}_preview_colormap"] = colormap
         refresh_phase_preview(slm_num)
         st.rerun(scope="fragment")
@@ -301,9 +293,7 @@ def render_phase_preview(slm_num: int) -> None:
 
     slm = st.session_state.get(f"slm{slm_num}")
     if slm is not None:
-        max_gray = int(
-            getattr(slm, "_max_gray", None) or Santec.MAX_GRAYSCALE_VALUE
-        )
+        max_gray = int(getattr(slm, "_max_gray", None) or Santec.MAX_GRAYSCALE_VALUE)
         st.caption(
             f"2π 灰度值: {max_gray} | {PREVIEW_COLORMAP_DEFAULT}"
             "（0→黑蓝, π→青, 2π→黑蓝，循环）"
@@ -1138,7 +1128,7 @@ def render_phase_control(slm_num: int):
                 status_ctx.update(state="complete")
 
             # generate_phase_gray() already applies the configured shift
-            # internally via slm.create_phase_from_array() → _apply_shift().
+            # internally via slm.create_phase_from_array() → Santec.shift_phase().
             # Do NOT apply a second shift here — that would double-displace
             # the phase on the LCOS panel.
 

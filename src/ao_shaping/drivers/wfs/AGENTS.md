@@ -72,3 +72,6 @@ ThorlabWFS 在 `__init__` 中注册参数:
 | **zernike LSF 是最干净主度量** | 修正 pupil 后倾斜阶梯 0.10~3.20λ 读出 0.0061~0.2169λ, 线性度 R²=0.9603 (plane 度量小倾斜端受噪声干扰) |
 | **`get_zernike` 依赖 pupil 正确性** | 系数为 µm (µm/0.532=λ @532nm), Noll 1976 1-based 前 66 项, RoC=coeff[5]; 前置 `CalcSpotToReferenceDeviations(0)` |
 | **`WFS_ZernikeLsf` typed 绑定被注释仍可用** | `_sdk_bindings.py` L319-320 注释了 `restype/argtypes`, 驱动直接调用未声明函数 (ctypes 宽松传参) 正常工作 — 建议补绑以启用类型检查 |
+| **`MlaRes` 枚举成员是 `Res512` 非 `RES_512`** (2026-09-16) | 实际成员: `Res320/Res512/Res768/Res1024/Res1280` (**无 540/600**); 驱动 `__init__` 传 `mla_index=MlaRes.Res512` |
+| **WFS 单独运行 80 次捕获无堆损坏 (2026-09-16 实测)** | n=5 zernike-matrix 3/3 崩溃 `0xC0000374` (faulthandler 检测点在 `get_zernike` L1493, 但检测点≠源头); WFS-only 隔离探针 (`scripts/wfs_probe.py`) 80 iter 零崩溃 → **WFS DLL 侧排除**, 嫌疑在 Santec SLM 写入路径 (4.6MB `dat` 缓冲生命周期)。详见 `docs/slm/daily_2026-09-16.md` |
+| **WFS 报 "currently in use" 处置** | `open()` 的 `WFS_GetInstrumentListInfo` 返回 `device_in_use=1` 时, 检查是否有 Thorlabs 官方软件 `wfs.exe` 进程 (或其崩溃残留会话) 占用设备 — 关闭后重试即可; 崩溃进程未 `close()` 可能留下 SDK 悬挂会话 |

@@ -916,7 +916,9 @@ def run(
     with open(result_dir / "config.json", "w") as f:
         json.dump(config, f, indent=2)
 
-    slm_phase = phase_to_slm_grayscale(phase)
+    # 硬件模式走驱动统一实现 (与显示字节一致: 矫正+LUT+平移+mod, 设备 _max_gray),
+    # 纯模拟 (slm=None) 回退到 slm_utils 纯数学转换。
+    slm_phase = phase_to_slm_grayscale(phase, slm=slm)
     np.save(result_dir / "phase_pattern.npy", slm_phase)
     np.save(result_dir / "target_intensity.npy", target_intensity)
     np.save(result_dir / "measured_intensity.npy", measured_intensity)

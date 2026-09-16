@@ -6,11 +6,17 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 from typing import Callable
 
 import numpy as np
 from loguru import logger
+
+from ao_shaping.drivers.slm.santec.slm200_constants import (
+    PANEL_RES,
+    get_max_grayscale,
+)
 
 
 class WavefrontCorrection:
@@ -87,9 +93,7 @@ class WavefrontCorrection:
         if self.csv_path is None:
             raise RuntimeError("未设置有效的矫正文件路径")
 
-        raw = np.loadtxt(
-            self.csv_path, delimiter=delimiter, skiprows=skiprows
-        )
+        raw = np.loadtxt(self.csv_path, delimiter=delimiter, skiprows=skiprows)
         # 跳过第一列（行索引列），CSV 存储的是 uint16 灰度偏移值
         if raw.ndim == 2:
             raw = raw[:, 1:]
@@ -177,9 +181,7 @@ class WavefrontCorrection:
             f"{np.nanmax(self._correction_map):.1f}]"
         )
 
-    def map_error(
-        self, grayscale: np.ndarray, max_grayscale: int = 1023
-    ) -> np.ndarray:
+    def map_error(self, grayscale: np.ndarray, max_grayscale: int = 1023) -> np.ndarray:
         """应用误差矫正到灰度相位图
 
         将计算好的矫正映射图叠加到输入灰度图上（模 max_grayscale+1 环绕）。
@@ -323,9 +325,7 @@ class WavefrontCorrection:
             # 从中心裁切
             start_y = (h - target_h) // 2
             start_x = (w - target_w) // 2
-            result = data[
-                start_y : start_y + target_h, start_x : start_x + target_w
-            ]
+            result = data[start_y : start_y + target_h, start_x : start_x + target_w]
         else:
             # 居中补零
             result = np.zeros((target_h, target_w), dtype=np.float64)
@@ -334,6 +334,288 @@ class WavefrontCorrection:
             result[start_y : start_y + h, start_x : start_x + w] = data
 
         return np.ascontiguousarray(result, dtype=np.float64)
+
+    # ── CSV I/O 静态工具 (SLM 相位/灰度 CSV 统一格式) ────
+
+    @staticmethod
+    def load_gray_from_csv(
+        filepath: str | Path,
+        skiprows: int = 1,
+        delimiter: str = ",",
+        panel_resolution: tuple[int, int] | None = None,
+    ) -> np.ndarray:
+        """从CSV文件加载灰度数据 (uint16)
+
+        CSV 格式:
+        - 第1行第1列: "Y/X" (标题), 第1行第2~1921列: 0~1919 (列索引)
+        - 第2~1201行第1列: 0~1199 (行索引)
+        - 数据区域: 0~2^GRAY_SCALE_BITS-1 之间的整数 (最大1023)
+        - 示例文件: C:\\santec\\SLM-200\\Files\\All 1023.csv
+
+        Args:
+            filepath: CSV文件路径
+            skiprows: 跳过的行数，默认为1（跳过标题行）
+            delimiter: 分隔符，默认为逗号
+            panel_resolution: 面板分辨率 (宽, 高)，默认 (1920, 1200)
+
+        Returns:
+            灰度数据数组，shape=(1200, 1920)，dtype=uint16
+
+        Raises:
+            FileNotFoundError: 文件不存在
+            ValueError: CSV 格式校验失败（标题、尺寸、值范围）
+        """
+        if panel_resolution is None:
+            panel_resolution = (1920, 1200)
+        filepath = Path(filepath)
+        if not filepath.exists():
+            raise FileNotFoundError(f"灰度文件不存在: {filepath}")
+
+        # ── 格式校验 ──────────────────────────────────────────
+        # 1. 标题行首列必须为 "Y/X"
+        with open(filepath, "r", encoding="utf-8", errors="replace") as fh:
+            header_line = fh.readline().strip()
+        header_fields = header_line.split(delimiter)
+        if not header_fields or header_fields[0].strip().upper() != "Y/X":
+            raise ValueError(
+                f"CSV 格式错误: 首行首列应为 'Y/X' 标题，实际为 "
+                f"'{header_fields[0] if header_fields else ''}'"
+            )
+
+        # 2. 读取数据区域（跳过标题行与行索引列）
+        raw = np.loadtxt(filepath, delimiter=delimiter, skiprows=skiprows)
+        if raw.ndim != 2:
+            raise ValueError(f"CSV 格式错误: 数据区域应为 2D 矩阵，实际维度 {raw.ndim}")
+        data = raw[:, 1:]
+
+        # 3. 尺寸校验：必须与 SLM 面板分辨率一致
+        target_h, target_w = panel_resolution[1], panel_resolution[0]
+        if data.shape != (target_h, target_w):
+            raise ValueError(
+                f"CSV 尺寸错误: 数据区域 {data.shape}，"
+                f"应与 SLM 面板分辨率一致 ({target_h}, {target_w})"
+            )
+
+        # 4. 值范围校验：灰度必须在 0..1023 范围内
+        gray = data.astype(np.uint16)
+        if gray.max() > 1023 or gray.min() < 0:
+            raise ValueError(
+                f"CSV 灰度值越界: 范围 [{gray.min()}, {gray.max()}]，允许范围 [0, 1023]"
+            )
+
+        logger.info(f"已从 {filepath} 加载灰度数据，形状: {gray.shape}")
+        return gray
+
+    @staticmethod
+    def csv_to_phase(
+        filepath: str | Path,
+        skiprows: int = 1,
+        delimiter: str = ",",
+    ) -> np.ndarray:
+        """将CSV中的灰度矩阵（0~2^GRAY_SCALE_BITS-1）还原为弧度制相位数组。
+
+        将CSV文件中的原始灰度值（0~1023）按设备常量 :func:`get_max_grayscale`
+        转换为弧度制相位（0~2π），然后可用于 :meth:`create_phase_from_array`
+        进行最终的相位→灰度转换。
+
+        Args:
+            filepath: CSV文件路径
+            skiprows: 跳过的行数，默认为1（跳过标题行）
+            delimiter: 分隔符，默认为逗号
+
+        Returns:
+            弧度制相位数组，dtype=float64，形状与CSV数据一致
+        """
+        filepath = Path(filepath)
+        if not filepath.exists():
+            raise FileNotFoundError(f"相位文件不存在: {filepath}")
+
+        phase_gray = np.loadtxt(filepath, delimiter=delimiter, skiprows=skiprows)[
+            :, 1:
+        ].astype(np.float64)
+
+        phase_rad = phase_gray / 1023 * 2 * np.pi
+        logger.info(
+            f"CSV灰度数据已转换为弧度相位: {filepath.name}, "
+            f"形状: {phase_rad.shape}, "
+            f"范围: [0, 2π]"
+        )
+        return phase_rad
+
+    @staticmethod
+    def save_phase_to_csv(
+        phase_rad: np.ndarray,
+        filepath: str | Path | io.BufferedIOBase | io.TextIOBase,
+        delimiter: str = ",",
+        panel_resolution: tuple[int, int] | None = None,
+    ) -> None:
+        """将弧度制相位矩阵导出为带行列索引的 CSV。
+
+        CSV格式与 :meth:`load_gray_from_csv` 保持一致：首行首列为 ``Y/X``，
+        首列是行索引，首行其余列是列索引；数据区保存弧度制相位值。
+
+        Args:
+            phase_rad: 弧度制相位数组，shape 必须等于 ``PANEL_RES`` 的 ``(高, 宽)``
+            filepath: 输出文件路径，或可写入字节/文本的流
+            delimiter: CSV 分隔符，默认为逗号
+            panel_resolution: 面板分辨率 (宽, 高)，默认 (1920, 1200)
+
+        Raises:
+            ValueError: 相位数组维度、尺寸或数值无效
+        """
+        if panel_resolution is None:
+            panel_resolution = (1920, 1200)
+        phase = np.asarray(phase_rad, dtype=np.float64)
+        if phase.ndim != 2:
+            raise ValueError(f"相位数据必须是2D数组，当前维度: {phase.ndim}")
+
+        target_h, target_w = panel_resolution[1], panel_resolution[0]
+        if phase.shape != (target_h, target_w):
+            raise ValueError(
+                f"相位尺寸错误: {phase.shape}，应与 SLM 面板分辨率一致 "
+                f"({target_h}, {target_w})"
+            )
+        if not np.isfinite(phase).all():
+            raise ValueError("相位数据包含 NaN 或无穷值")
+
+        output = io.StringIO()
+        output.write(
+            delimiter.join(["Y/X", *(str(index) for index in range(target_w))])
+        )
+        output.write("\n")
+
+        indexed_phase = np.column_stack((np.arange(target_h, dtype=np.int64), phase))
+        np.savetxt(
+            output,
+            indexed_phase,
+            delimiter=delimiter,
+            fmt=["%d", *["%.12g"] * target_w],
+        )
+        content = output.getvalue()
+
+        if isinstance(filepath, (str, Path)):
+            path = Path(filepath)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        else:
+            if isinstance(filepath, io.TextIOBase):
+                filepath.write(content)
+            else:
+                filepath.write(content.encode("utf-8"))
+
+        logger.info(
+            f"弧度相位已导出: 形状={phase.shape}, "
+            f"范围=[{phase.min():.6f}, {phase.max():.6f}] rad"
+        )
+
+    @staticmethod
+    def correction_gray_offsets(
+        phase_rad: np.ndarray,
+        max_grayscale: int | None = None,
+    ) -> np.ndarray:
+        """弧度矫正相位 → 灰度偏移 (10 位, 加法语义, mod 环绕, 不含 shift).
+
+        官方软件约定: **2π = max_grayscale**, 默认取设备常量
+        ``slm200_constants.get_max_grayscale()`` (= 1023) —— 与
+        :meth:`csv_to_phase` (``gray/1023·2π``) 与 :meth:`_default_calc`
+        (``correction = -φ·MAX/(2π)``) 的 1023 满量程约定一致。
+        ⚠️ **不能**用波长相关 ``two_pi_gray`` (如 532nm→998) 做满量程:
+        官方软件按 1023 换算会引入 ``1023/two_pi_gray ≈ 1.025×`` 缩放误差。
+
+        ⚠️ **不烘焙 shift**: 输入必须是面板坐标中**未平移**的矫正相位
+        (Zernike 图案居中于面板几何中心); shift 是显示时参数, 由官方软件
+        shift 设置或驱动 ``Santec.apply_shift`` 单独应用, 本函数不涉及任何平移。
+
+        Args:
+            phase_rad: 弧度矫正相位 (未 shift, 面板坐标), shape (H, W)
+            max_grayscale: 满量程灰度 (2π 对应), None → 设备常量 1023
+
+        Returns:
+            uint16 灰度偏移, shape 同 phase_rad, 范围 0..max_grayscale
+        """
+        if max_grayscale is None:
+            max_grayscale = get_max_grayscale()
+        # 加法语义下偏移运行在循环域 (mod max_grayscale+1): 先 mod 再 rint 时
+        # (max, max+1) 区间的值会被舍入到 max+1 → 溢出。故 rint 之后再 mod
+        # (max+1) 把 max+1 环绕回 0, 保证输出严格落在 0..max_grayscale。
+        scaled = phase_rad / (2.0 * np.pi) * max_grayscale
+        return np.mod(
+            np.rint(np.mod(scaled, max_grayscale + 1)),
+            max_grayscale + 1,
+        ).astype(np.uint16)
+
+    @staticmethod
+    def save_gray_correction_csv(
+        gray_offsets: np.ndarray,
+        filepath: str | Path | io.BufferedIOBase | io.TextIOBase,
+        delimiter: str = ",",
+        panel_resolution: tuple[int, int] | None = None,
+        max_grayscale: int | None = None,
+    ) -> None:
+        """导出灰度偏移矫正 CSV (官方 Wavefront_correction_Data 格式, 不含 shift).
+
+        与 :meth:`load_gray_from_csv` 完全互逆: 首行 ``Y/X,0..W-1``, 数据行
+        ``行索引, g_{i,0}..g_{i,W-1}``, 数据区为 0..max_grayscale 的 uint16
+        灰度偏移 (加法语义: ``displayed = mod(grayscale + corr, max_gray + 1)``)。
+
+        ⚠️ **不烘焙 shift**: 本函数只写出逐像素偏移图 (面板坐标), **不含任何
+        平移**; shift 由官方软件 / 驱动 ``Santec.apply_shift`` 在显示时单独应用。
+        导出的 CSV 可直接被官方软件作为 ``Wavefront_correction_Data`` 加载
+        (满量程 2π = max_grayscale, 默认设备常量 1023)。
+
+        Args:
+            gray_offsets: (H, W) 灰度偏移 (未 shift), 数值须在 0..max_grayscale
+            filepath: 输出路径, 或可写入字节/文本的流
+            delimiter: CSV 分隔符, 默认为逗号
+            panel_resolution: 面板分辨率 (宽, 高), 默认 PANEL_RES (1920, 1200)
+            max_grayscale: 满量程灰度, None → 设备常量 1023
+
+        Raises:
+            ValueError: 维度、尺寸或数值范围不合法
+        """
+        if panel_resolution is None:
+            panel_resolution = PANEL_RES
+        if max_grayscale is None:
+            max_grayscale = get_max_grayscale()
+        target_h, target_w = panel_resolution[1], panel_resolution[0]
+
+        f = np.rint(np.asarray(gray_offsets, dtype=np.float64))
+        if f.ndim != 2:
+            raise ValueError(f"矫正灰度必须是2D数组，当前维度: {f.ndim}")
+        if f.shape != (target_h, target_w):
+            raise ValueError(
+                f"矫正灰度尺寸必须为 ({target_h}, {target_w})，得到 {f.shape}"
+            )
+        if f.min() < 0 or f.max() > max_grayscale:
+            raise ValueError(
+                f"矫正灰度数值必须在 0..{max_grayscale}，"
+                f"得到范围 [{f.min():.1f}, {f.max():.1f}]"
+            )
+        arr = f.astype(np.uint16)
+
+        output = io.StringIO()
+        output.write(
+            delimiter.join(["Y/X", *(str(index) for index in range(target_w))])
+        )
+        output.write("\n")
+        body = np.column_stack((np.arange(target_h, dtype=np.uint16), arr))
+        np.savetxt(output, body, delimiter=delimiter, fmt="%d")
+        content = output.getvalue()
+
+        if isinstance(filepath, (str, Path)):
+            path = Path(filepath)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        else:
+            if isinstance(filepath, io.TextIOBase):
+                filepath.write(content)
+            else:
+                filepath.write(content.encode("utf-8"))
+
+        logger.info(
+            f"灰度矫正 CSV 已导出: shape={arr.shape}, max_grayscale={max_grayscale}, "
+            f"范围=[{arr.min()}, {arr.max()}], 不含 shift"
+        )
 
     # ── 内部方法 ──────────────────────────────────────
 
@@ -509,19 +791,19 @@ class WavefrontCorrection:
         if orig_std > 1e-10:
             fit_quality = float(np.std(clean_residual)) / orig_std
             fit_grade = (
-                "优" if fit_quality < 0.1
-                else "良" if fit_quality < 0.25
-                else "中" if fit_quality < 0.5
+                "优"
+                if fit_quality < 0.1
+                else "良"
+                if fit_quality < 0.25
+                else "中"
+                if fit_quality < 0.5
                 else "差"
             )
         else:
             fit_quality = 0.0
             fit_grade = "均匀数据"
 
-        logger.info(
-            f"矫正数据角度拟合评估: {fit_grade} "
-            f"(残差/原始={fit_quality:.3f})"
-        )
+        logger.info(f"矫正数据角度拟合评估: {fit_grade} (残差/原始={fit_quality:.3f})")
         logger.info(
             f"测量条件: measurement_gray={g_ref}, "
             f"max_grayscale={max_grayscale}, "
@@ -530,7 +812,7 @@ class WavefrontCorrection:
         logger.info(
             f"原始数据统计: mean={orig_mean:.2f}, std={orig_std:.2f}, "
             f"range=[{orig_min:.1f}, {orig_max:.1f}], "
-            f"异常点={n_outliers}/{n_total} ({100.0*n_outliers/n_total:.2f}%)"
+            f"异常点={n_outliers}/{n_total} ({100.0 * n_outliers / n_total:.2f}%)"
         )
         logger.info(
             f"矫正映射图统计: mean={correction_mean:.2f}, "

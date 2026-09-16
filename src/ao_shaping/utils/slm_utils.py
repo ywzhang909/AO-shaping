@@ -45,20 +45,31 @@ DEFAULT_MAX_GRAYSCALE: int = 1023  # grayscale value corresponding to 2*pi
 
 def phase_to_slm_grayscale(
     phase: np.ndarray,
-    max_grayscale: int = DEFAULT_MAX_GRAYSCALE,
+    max_grayscale: int | None = None,
+    slm: Any | None = None,
 ) -> np.ndarray:
     """将相位图 (弧度) 转换为 SLM uint16 灰度图。
 
-    将相位折叠到 ``[0, 2*pi)`` 并缩放到 ``[0, max_grayscale]`` 范围。数值
-    被限制在灰度范围内并转换为 ``uint16``。
+    优先走 SLM 驱动的统一实现 :meth:`create_phase_from_array` (弧度→灰度 +
+    波前矫正 + LUT + 平移 + mod 2π, 2π 灰度取设备波长相关的 ``_max_gray``);
+    ``slm`` 为 ``None`` (纯模拟/离线保存/单元测试) 时回退到本函数内置的
+    纯数学转换: 相位折叠到 ``[0, 2π)`` 后缩放到 ``[0, max_grayscale]``
+    并截断为 ``uint16``。
 
     Args:
         phase: 以弧度表示的二维相位数组。
         max_grayscale: 对应 ``2*pi`` 的灰度值 (10 位 LCOS 设备默认 1023)。
+            传给驱动时为 ``None`` 则使用设备波长相关的 ``_max_gray``。
+        slm: 已打开的 SLM 设备 (鸭子类型, 暴露 ``create_phase_from_array``),
+            可为 ``None`` 以使用纯数学转换。
 
     Returns:
         ``uint16`` 二维灰度数组。
     """
+    if slm is not None:
+        return slm.create_phase_from_array(phase, max_grayscale=max_grayscale)
+    if max_grayscale is None:
+        max_grayscale = DEFAULT_MAX_GRAYSCALE
     phase = np.asarray(phase, dtype=np.float32)
     phase = np.mod(phase, 2 * np.pi)
     gray = (phase / (2 * np.pi)) * max_grayscale

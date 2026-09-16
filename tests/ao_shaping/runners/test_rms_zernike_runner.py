@@ -260,7 +260,7 @@ class TestRunFunction:
                 ),
             ),
             patch(
-                "ao_shaping.runners.rms_zernike_runner.optimizer_rms",
+                "ao_shaping.runners.rms_zernike_runner.optimizer_rms_slm",
                 return_value=MagicMock(
                     get_best_iter=MagicMock(
                         return_value=(
@@ -360,7 +360,7 @@ class TestRunFunction:
                 return_value=mock_wfs,
             ),
             patch(
-                "ao_shaping.runners.rms_zernike_runner.optimizer_rms",
+                "ao_shaping.runners.rms_zernike_runner.optimizer_rms_slm",
                 side_effect=capture_optimizer_rms,
             ),
         ):

@@ -109,14 +109,26 @@ class TestCsvToPhase:
         reason=f"测试CSV文件不存在: {CSV_PATH}",
     )
     def test_csv_to_phase_roundtrip(self):
-        """灰度→弧度→灰度 往返一致（无矫正/LUT/平移）"""
+        """灰度→弧度→灰度 往返一致（无矫正/LUT/平移）
+
+        新契约 (2026-09): ``create_phase_from_array`` 末尾 ``mod max_grayscale``
+        (2π ≡ 0)。因此满灰度 1023 (= 相位 2π) roundtrip 折叠为 0 灰度 —
+        断言改为相位在 mod 2π 意义下等价。
+        """
         slm = Santec(slm_number=1)
         gray_orig = slm.load_gray_from_csv(CSV_PATH)
         phase_rad = Santec.csv_to_phase(CSV_PATH)
 
         gray_roundtrip = slm.create_phase_from_array(phase_rad)
 
-        np.testing.assert_array_equal(gray_orig, gray_roundtrip)
+        phase_roundtrip = (
+            gray_roundtrip.astype(np.float64) / slm._max_gray * 2 * np.pi
+        )
+        np.testing.assert_allclose(
+            np.mod(phase_roundtrip, 2 * np.pi),
+            np.mod(phase_rad, 2 * np.pi),
+            atol=1e-9,
+        )
 
     def test_csv_to_phase_scaling_uses_device_max_gray(self, tmp_path: Path):
         """灰度→弧度换算按设备常量 get_max_grayscale() 缩放（无自定义参数）"""
@@ -205,7 +217,11 @@ class TestGrayToPhasePipeline:
         reason=f"测试CSV文件不存在: {CSV_PATH}",
     )
     def test_full_pipeline(self):
-        """完整流程: CSV → csv_to_phase → create_phase_from_array"""
+        """完整流程: CSV → csv_to_phase → create_phase_from_array
+
+        新契约 (2026-09): ``create_phase_from_array`` 末尾 ``mod max_grayscale``
+        (2π ≡ 0)。灰度 roundtrip 断言改为相位在 mod 2π 意义下等价。
+        """
         slm = Santec(slm_number=1)
         gray = slm.load_gray_from_csv(CSV_PATH)
         phase_rad = Santec.csv_to_phase(CSV_PATH)
@@ -213,4 +229,11 @@ class TestGrayToPhasePipeline:
 
         assert gray_from_phase.shape == gray.shape
         assert gray_from_phase.dtype == np.uint16
-        np.testing.assert_array_equal(gray, gray_from_phase)
+        phase_roundtrip = (
+            gray_from_phase.astype(np.float64) / slm._max_gray * 2 * np.pi
+        )
+        np.testing.assert_allclose(
+            np.mod(phase_roundtrip, 2 * np.pi),
+            np.mod(phase_rad, 2 * np.pi),
+            atol=1e-9,
+        )

@@ -511,10 +511,56 @@ python scripts/generate_zernike_response_matrix_report.py --h5 <path> -o docs/sl
   WFS Zernike-fit collapse when R ≈ beam radius), offline inverse demo
   (`c = pinv(M) @ w`, residual reduction), and the measured closed-loop
   before/after
+- **Centering** (§3.4, only for same-run reports): shift-scan V-curve, raw WFS
+  wavefront maps before/after (µm, from `debug_<ts>/closed_loop/iter*`), Zernike
+  coefficient bars (before vs after vs applied c), and RMS/PV iteration history
+  with best-frame markers — shows **离心 (off-axis) correction** quantification
+
+**Same-run gating**: the scan/closed-loop/centering sections are only rendered
+when the report json and the matrix h5 are from the same run — detected via
+`pass_count_by_radius` in the h5 `device_config`, or (fallback) present in the
+report json **plus** matching SLM serial number (h5 `slm_serial` vs report
+`device.slm.serial_number`). This prevents mixing a matrix from a different
+calibration with unrelated scan data.
 
 Sources default to the latest `data/zernike_response_matrix/zm_*.h5`,
 `data/zernike_correction/report_*.json` and `raw_scan_*.json`; override with
 `--h5`, `--scan-report`, `--raw-scan`.
+
+## Verification Scripts
+
+### verify_correction_csv.py
+
+Offline verification for the `--export-correction` gray-offset CSV
+(2026-09-16 contract: **no baked shift** + full-scale 2π = `get_max_grayscale()`
+= 1023, NOT a wavelength-dependent `two_pi_gray`). **Fully offline** — reads
+saved artefacts, no hardware.
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src;libs"
+python scripts/verify_correction_csv.py
+python scripts/verify_correction_csv.py --h5 <matrix.h5> --w <w_before.json> --csv <corr.csv>
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--h5` | `data/zernike_response_matrix/zm_recal_532_20260916.h5` | Zernike response matrix h5 |
+| `--w` | `data/zernike_correction/_w_before_66.json` | WFS wavefront JSON (66-length, unit λ) |
+| `--csv` | `<h5> 同目录 <stem>_correction_gray.csv` | Exported correction gray CSV to verify |
+
+**Checks (all must pass):**
+- [0] Sidecar JSON: `max_gray == 1023`, `shift_included == false`, consumption
+  free of `two_pi_gray`
+- [1] CSV shape `(1200, 1920)`, value range ⊂ `0..1023`
+- [2] `Santec.load_gray_from_csv` / `WavefrontCorrection.load_gray_from_csv`
+  byte-identical to the raw CSV
+- [3] Recomputed production pipeline (`c = -pinv(M)@w` → `make_phase` →
+  `correction_gray_offsets(1023)`) byte-identical to the export → proves **no
+  baked shift**
+- [4] `WavefrontCorrection.map_error` additive semantics
+  (`displayed = mod(base + corr, 1024)`, incl. mod wrap at base=500)
+- [5] Quantization error ≤ 0.5 gray levels (circular distance)
 
 ## Subdirectories
 

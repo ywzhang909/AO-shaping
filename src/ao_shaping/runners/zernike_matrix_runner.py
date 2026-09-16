@@ -9,19 +9,30 @@
   1. _normalize_run_options       — 归一化CLI参数, 计算 n_slm_terms/n_wfs_terms
   2. _setup_debug_callback        — 条件创建调试数据保存回调
   3. ZernikeCalibrationDisplay     — 条件创建pygame实时显示
-  4. ZernikeSLM / ThorlabWFS       — 设备初始化 (上下文管理器)
-  5. DitheredReference.measure     — 可选: 亚波长抖动参考
-  6. _capture_init_state           — 捕获出厂/用户参考状态
-    -> _capture_wfs_full_state     —   take_image -> get_spot_deviation -> get_zernike -> get_wavefront
-  7. _save_init_state_hdf5         — 保存初始状态到HDF5
-  8. _compute_calibration_magnitudes — 计算扰动幅度列表
-  9. [循环: 每个幅度]
-    a. _make_wavefront_tracking_callback — 创建波前跟踪回调
-    b. calibrate_zernike_response_matrix  — 执行标定
-    c. _attach_device_config              — 附加硬件配置快照
-    d. save_zernike_response_matrix        — 保存标定结果HDF5
-    e. _save_wavefront_log_hdf5            — 保存全过程波前跟踪数据
-  10. _print_calibration_summary      — 打印结果摘要
+  4. Santec / PatternHelper / ThorlabWFS — 设备初始化
+     (2026-09-16 重写: 原 ZernikeSLM 链路实机原生崩溃 0xC0000005/0xC000041C,
+      改用与 tools/slm/slm_zernike_response.py 相同的 Santec 直控链路)
+  5. pupil 启发式                 — CLI 默认 pupil (2.0mm/(0,0)) 视为"未指定"
+     -> optimize_pupil() 自动获取并**写回** (硬编码 pupil 会污染 WFS_ZernikeLsf 拟合)
+  6. collect_device_info          — 完整 SLM/WFS 设备参数 (随 h5 device_config 落盘)
+  7. _capture_init_state          — 捕获出厂/用户参考状态 (display_data flat)
+    -> _capture_wfs_full_state    —   take_image -> get_spot_deviation -> get_zernike -> get_wavefront
+  8. _save_init_state_hdf5        — 保存初始状态到HDF5
+  9. _compute_calibration_magnitudes — 计算扰动幅度列表 (**弧度**, 默认 3.0 rad ≈0.48λ)
+  10. [循环: 每个幅度]
+    a. calibrate_response_matrix_pushpull — 推拉标定 (Santec + PatternHelper, -A/+A,
+        um_to_waves→λ, wfs_validity 门控, 逐点剔除, 统一半径)
+    b. 内联 device_config                 — 附加硬件配置快照
+    c. save_zernike_response_matrix        — 保存标定结果HDF5
+    d. _save_wavefront_log_hdf5            — 保存全过程波前跟踪数据
+  11. _print_calibration_summary      — 打印结果摘要
+
+  ✅ 标定/矫正链路 (tools/slm/slm_zernike_common.py 共享):
+    - 单位: WFS 系数 µm → um_to_waves → λ; 施加相位 = 系数(λ)×2π = 弧度
+      (2026-09-16 修复两个单位 bug: µm/λ 混用放大 1.88×, λ/rad 混用缩小 6.28×)
+    - ZernikeDM.generate_phase 已移除 min-max 归一化, 系数即弧度 (×1 与 ×4 PV 比 = 4.0)
+    - DLL Zernike 排序 = 顺序 m 枚举 (非标准 Noll 1976): [5](2,0) [9](3,1) [13](4,0)
+    - pupil 约定: 必须 optimize_pupil() 并写回; ThorlabWFS.__init__ 的 pupil 会覆盖配置实测值
 
 === closed_loop_run() 执行顺序 ===
 
@@ -37,6 +48,12 @@
     -> 控制器系数补零 -> 完整Noll顺序 -> zslm.send_zernike
   8. loop.run(control_law)         — 迭代闭环优化
   9. 保存 history.npz / final_coefficients.txt / meta.json / convergence.png
+
+TODO (实机待测试清单, 完整清单见 run() docstring):
+    ⚠️ 2026-09-16 重写后的标定内核 (λ/λ 单位 + n_max 透传) 已按已验证的
+    tools/slm/slm_zernike_response.py 对齐, 并新增「测完矩阵后自动离线矫正测试 +
+    施加相位经 export_correction_csv 导出」。以上改动**尚未上设备实测**,
+    待测项逐条列于 `run()` docstring 的 TODO 清单。
 """
 
 import json
@@ -44,7 +61,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from time import sleep
-from typing import Literal
+from typing import Any, Literal
 
 import click
 import h5py
@@ -55,13 +72,11 @@ from ao_shaping.algorithm.controller import ControlLaw, HardwareConfig, LoopConf
 from ao_shaping.drivers.slm import Santec, ZernikeSLM
 from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
 from ao_shaping.optimizer.wf.zernike_response_matrix import (
-    DEFAULT_MAGNITUDE,
     DEFAULT_N_AVERAGES,
     DEFAULT_N_CYCLES,
     DEFAULT_N_MAX,
     DEFAULT_WAIT_TIME,
     ZernikeResponseMatrixResult,
-    calibrate_zernike_response_matrix,
     save_zernike_response_matrix,
 )
 from ao_shaping.runners.closed_loop import AOClosedLoop
@@ -70,6 +85,8 @@ from ao_shaping.tools.slm.slm_zernike_common import (
     WFS_ZERNIKE_ORDER,
     collect_device_info,
     effective_cond,
+    export_correction_csv,
+    flat_gray,
     make_phase,
     measure_wavefront,
     measure_zernike,
@@ -84,7 +101,6 @@ from ao_shaping.utils.display import ZernikeCalibrationDisplay
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
 from ao_shaping.utils.pattern_helper import PatternHelper
 from ao_shaping.utils.wfs_utils import (
-    DitheredReference,
     flatten_slopes,
     make_mode_debug_callback,
 )
@@ -123,7 +139,8 @@ def _normalize_run_options(
 ) -> dict:
     """归一化CLI选项, 返回配置字典"""
     n_max = n_max or DEFAULT_N_MAX
-    magnitude = magnitude or DEFAULT_MAGNITUDE
+    magnitude = (magnitude if magnitude is not None
+                 else DEFAULT_MAGNITUDE_RAD)  # None → 默认; 0 → 保留给 _compute_... 的自动分支
     n_averages = n_averages or DEFAULT_N_AVERAGES
     n_cycles = n_cycles or DEFAULT_N_CYCLES
     wait_time = wait_time or DEFAULT_WAIT_TIME
@@ -140,7 +157,11 @@ def _normalize_run_options(
 
     n_remove = (1 if excluded_piston else 0) + (2 if excluded_tip_tilt else 0)
     n_slm_terms = calc_n_zernike_terms(n_max) - n_remove
-    n_wfs_terms = calc_n_zernike_terms(n_max) - n_remove
+    # WFS 侧通道数 = Noll 总数 (按 WFS 测量阶数 WFS_ZERNIKE_ORDER=10 → 66, 与 n_max
+    # 无关; 矩阵行固定 66, 见 calibrate_response_matrix_pushpull L655)。WFS 不从读数
+    # 里移除 piston (仅离线矫正时置零), 因此**不减 n_remove** —— 曾镜像 SLM 侧
+    # 写成 -n_remove 导致 65≠66, 同 L643 根因; 也曾按 n_max 计 (n_max<10 时 <66)。
+    n_wfs_terms = calc_n_zernike_terms(WFS_ZERNIKE_ORDER)
 
     return {
         "n_max": n_max,
@@ -223,7 +244,8 @@ def _compute_calibration_magnitudes(
         幅度列表, None 表示自动优化
     """
     if n_magnitudes > 0:
-        mags = np.linspace(0.1, 0.8, n_magnitudes).round(3).tolist()
+        # 多幅度扫描 (单位: **弧度**; 2026-09 重写后 magnitude 语义为弧度)
+        mags = np.linspace(2.0, 5.0, n_magnitudes).round(3).tolist()
         click.echo(
             f"Multi-magnitude mode: running {n_magnitudes} calibrations "
             f"with magnitudes {mags}"
@@ -541,8 +563,14 @@ DEFAULT_ZERNIKE_RADIUS_PX = 300.0
 
 def _mode_ids(n_max: int, excluded_piston: bool = True,
               excluded_tip_tilt: bool = False) -> list[int]:
-    """DLL 顺序 m 枚举下要标定的 SLM 模式索引 (1-based)."""
-    total = calc_n_zernike_terms(n_max) - 1          # 去掉 DLL[0] 占位
+    """DLL 顺序 m 枚举下要标定的 SLM 模式索引 (1-based).
+
+    ⚠️ matrix_utils.calc_n_zernike_terms 返回 **Noll 总数** (66 @ n=10, 含 piston,
+    **不含** DLL index-0 占位) —— 恰好是 DLL 有效索引上限。此前误减 1 → ids 2..65,
+    漏掉 Noll 66 (n=10 最后一个模式)。与 slm_zernike_response.py L321-323 对齐:
+    1..66 → 去 piston → **2..66** (65 个模式)。
+    """
+    total = calc_n_zernike_terms(n_max)              # 66 = Noll 总数 = DLL 索引上限
     ids = [i for i in range(1, total + 1)]
     if excluded_piston:
         ids = [i for i in ids if i != 1]
@@ -552,23 +580,33 @@ def _mode_ids(n_max: int, excluded_piston: bool = True,
 
 
 def _apply_mode_rad(slm: Santec, ph: PatternHelper, nm: tuple[int, int],
-                    amp_rad: float, radius: float, settle: float) -> np.ndarray:
+                    amp_rad: float, radius: float, settle: float,
+                    n_max: int = 4) -> np.ndarray:
     """加载单个 Zernike 模式 (系数单位 = **弧度**) 并等待像素翻转.
 
     ⚠️ 单位约定: `PatternHelper.generate_zernike_polynomial` 与 (2026-09-16 修复后的)
     `ZernikeDM.generate_phase` 的系数单位都是**弧度**, 且保留绝对幅度 —— 系数 ×4
     得到 ×4 的相位 PV。**不要**再传"波长"或归一化后的值。
+
+    Args:
+        n_max: 相位生成阶数。**必须与标定一致并透传** —— 曾硬编码 4,
+            导致 n≥5 的模式被截断成低阶混叠 (2026-09-16 按已验证脚本修复)。
     """
-    phase = make_phase(ph, {nm: float(amp_rad)}, float(radius), n_max=4)
+    phase = make_phase(ph, {nm: float(amp_rad)}, float(radius), n_max=n_max)
     show_phase(slm, phase, settle)
     return phase
 
 
 def _apply_coeffs_rad(slm: Santec, ph: PatternHelper,
                       coeffs_rad: dict[tuple[int, int], float],
-                      radius: float, settle: float) -> np.ndarray:
-    """加载多模式 Zernike 系数组合 (系数单位 = 弧度)."""
-    phase = make_phase(ph, coeffs_rad, float(radius), n_max=4)
+                      radius: float, settle: float,
+                      n_max: int = 4) -> np.ndarray:
+    """加载多模式 Zernike 系数组合 (系数单位 = 弧度).
+
+    Args:
+        n_max: 相位生成阶数, 必须与标定时一致 (同 `_apply_mode_rad`)。
+    """
+    phase = make_phase(ph, coeffs_rad, float(radius), n_max=n_max)
     show_phase(slm, phase, settle)
     return phase
 
@@ -612,7 +650,16 @@ def calibrate_response_matrix_pushpull(
         (2*n_spots, n_modes) 的展平 [dev_x; dev_y] 响应 (供斜率空间闭环)。
     """
     modes = _mode_ids(n_max, excluded_piston, excluded_tip_tilt)
-    n_wfs = calc_n_zernike_terms(WFS_ZERNIKE_ORDER) - 1      # 66
+    # WFS 通道数 = Noll 总数 (66 @ order 10) — get_zernike 返回 67 长数组 (index-0
+    # 占位, DLL 填 coeff[1..66]), 取 [1:] 即 66 通道。matrix_utils 版不含占位,
+    # 直接用 (不再 -1; 曾误减 → 65 行 vs 66 通道广播失败 L728)。
+    n_wfs = calc_n_zernike_terms(WFS_ZERNIKE_ORDER)      # 66
+
+    # 推拉单位幅度 (**λ**): 矩阵列 = Δ(WFS λ) / Δ(SLM 幅度 λ) → **λ/λ**。
+    # ⚠️ 与已验证脚本 tools/slm/slm_zernike_response.py 完全一致:
+    #   amp_waves = magnitude_rad/(2π), 除的是 amp_waves 而非 magnitude_rad。
+    #   (曾误除 magnitude_rad → λ/rad, 差 2π 因子 → 反解系数被放大 6.28×)
+    amp_waves = magnitude_rad / (2.0 * np.pi)
 
     matrix = np.zeros((n_wfs, len(modes)), dtype=np.float64)
     variance = np.zeros_like(matrix)
@@ -636,7 +683,7 @@ def calibrate_response_matrix_pushpull(
             devs_sign: dict[int, np.ndarray | None] = {}
             for sign in (+1, -1):
                 _apply_mode_rad(slm, ph, nm, sign * magnitude_rad,
-                                zernike_radius, settle)
+                                zernike_radius, settle, n_max=n_max)
 
                 # 光斑有效比门控: 大振幅下 DLL 拟合会崩溃 (|resp| 可暴涨到 10³)
                 val = wfs_validity(wfs)
@@ -666,11 +713,12 @@ def calibrate_response_matrix_pushpull(
 
             zp, zn = readings.get(+1), readings.get(-1)
             if zp is not None and zn is not None:
-                # µm → λ, 再除以幅度(rad) → λ/(rad·mode) 的每单位响应
-                vecs.append(um_to_waves((zp - zn) / 2.0) / magnitude_rad)
+                # µm → λ (um_to_waves), 再除以幅度(**λ** = rad/(2π)) → **λ/λ** 每单位响应。
+                # 与 slm_zernike_response.py 逐字一致; 曾除以 magnitude_rad (rad) → λ/rad。
+                vecs.append(um_to_waves((zp - zn) / 2.0) / amp_waves)
                 dp, dn = devs_sign.get(+1), devs_sign.get(-1)
                 if dp is not None and dn is not None:
-                    devs.append((dp - dn) / 2.0 / magnitude_rad)
+                    devs.append((dp - dn) / 2.0 / amp_waves)
 
         if not vecs:
             click.echo(f"[WARN] 模式 [{midx}] {nm} 无有效响应, 该列置零")
@@ -715,6 +763,170 @@ def calibrate_response_matrix_pushpull(
 
     dev_mat = (np.column_stack(dev_cols) if dev_cols else None)
     return matrix, variance, dev_mat, mask, wf_records
+
+
+# ==================== 离线矫正测试 ====================
+
+
+def offline_correction_test(
+    slm: Santec, wfs: ThorlabWFS, ph: PatternHelper,
+    matrix: np.ndarray,
+    modes: list[int],
+    *,
+    n_max: int,
+    zernike_radius: float,
+    n_avg: int,
+    settle: float,
+    device_info: dict,
+    matrix_path: str,
+    correction_csv_path: str | None = None,
+    amplitude_rad: float | None = None,
+    out_dir: str = "data/slm_corrections",
+    limit_amp: float = 3.0,
+) -> dict[str, Any]:
+    """测完响应矩阵后自动执行的**离线矫正测试** + 施加矫正相位导出.
+
+    与 `tools/slm/slm_zernike_correction.py` 的 `closed_loop_correct` 同语义,
+    但为**单次反解** (不迭代), 且在结束时强制把施加的矫正相位经
+    `export_correction_csv` 落盘 (文件名含 序列号/波长/shift/半径/时间 + sidecar).
+
+    流程:
+      1. 恢复 WFS **内部参考** (`set_ref_plane(custom=False)`) —— 参考已按用户要求
+         在标定前用 SLM 纯 0 相位建过自定义参考; 矫正必须基于内部参考读数
+      2. 平场读基线像差 ``w0`` (µm → λ, 67→66, **piston 置零**)
+      3. ``c = safe_pinv(matrix) @ w0`` (λ), 截断到 ±limit_amp (λ)
+      4. 系数 ×2π → 弧度 → `make_phase` (n_max 与标定一致) → `show_phase`
+      5. 复测残差 ``w1`` + 波前 RMS; **模型自检** ``||w0 + M·c|| vs ||w1||`` (比 0.7~1.4)
+      6. `export_correction_csv` 保存施加的矫正相位 (sidecar 键已 str 化, 防 json 报错)
+      7. 恢复平场, 交还干净状态
+
+    Args:
+        matrix: 标定响应矩阵 (λ/λ, 行 0..65 ↔ DLL [1..66])
+        modes: 标定模式 DLL 索引列表 (与 matrix 列一一对应)
+        n_max: 相位生成阶数 (**必须与标定一致**; 曾硬编码 4 → n≥5 截断)
+        zernike_radius: Zernike 归一化半径 px (**必须与标定一致**)
+        device_info: `collect_device_info` 结果 (随 sidecar 落盘)
+        matrix_path: 标定矩阵 h5 路径 (随 sidecar 记录)
+        correction_csv_path: SLM 误差矫正 CSV (仅记录)
+        amplitude_rad: 标定扰动幅度 rad (仅记录)
+        out_dir: 矫正相位 CSV 输出目录
+        limit_amp: 反解系数幅度上限, 单位 **λ** (同 closed_loop_correct 默认 3.0)
+
+    Returns:
+        dict: before/after RMS、|w|、模型自检 ratio、反解系数 (λ)、导出路径。
+        系数全零时跳过加载与导出。
+    """
+    import time as _time
+
+    wfs.set_ref_plane(custom=False)
+    click.echo(f"\n[离线矫正测试] 恢复内部参考: use_custom_ref={wfs.use_custom_ref}")
+
+    pinv = safe_pinv(matrix)
+
+    # --- 基线: 平场 → 内部参考下的当前像差 ---
+    slm.display_data(flat_gray(), wait_time_s=0.5)
+    _time.sleep(0.4)
+    z0 = measure_zernike(wfs, n_avg=max(n_avg, 3), order=WFS_ZERNIKE_ORDER)
+    wf0 = measure_wavefront(wfs, max(n_avg, 3))
+    if z0 is None or wf0 is None:
+        raise RuntimeError("内部参考下基线测量失败")
+    w0 = um_to_waves(z0[1:])
+    w0[0] = 0.0                      # piston: 参考面整体偏置, 不可矫正且污染反解
+    rms0 = float(wf0[1]["rms"])
+    click.echo(f"  矫正前: RMS={rms0:.4f}λ, PV={wf0[1]['diff']:.4f}λ, "
+               f"|w|={np.linalg.norm(w0):.4f}λ (piston 已置零)")
+
+    # --- 反解 (λ) → 截断 → ×2π 弧度 (make_phase 收弧度) ---
+    c_lam = np.clip(pinv @ w0, -limit_amp, limit_amp)
+    coeffs_lam = {nm: float(c_lam[i]) for i, nm in enumerate(map(nm_of, modes))
+                  if abs(c_lam[i]) > 1e-4}
+    n_pos = int((c_lam > 1e-4).sum())
+    n_neg = int((c_lam < -1e-4).sum())
+    click.echo(f"  反解系数 (λ): 正 {n_pos} / 负 {n_neg} / 零 "
+               f"{len(modes) - n_pos - n_neg}  |  "
+               + ", ".join(f"[{modes[i]}]{c_lam[i]:+.3f}"
+                           for i in range(len(modes)) if abs(c_lam[i]) > 1e-3))
+
+    summary: dict[str, Any] = {"before_rms": rms0,
+                               "before_z_norm": float(np.linalg.norm(w0)),
+                               "coeffs_lam": coeffs_lam}
+
+    if not coeffs_lam:
+        click.echo("  [WARN] 反解系数全为 0 → 跳过加载与导出")
+        slm.display_data(flat_gray(), wait_time_s=0.5)
+        return summary
+
+    coeffs_rad = {nm: v * 2.0 * np.pi for nm, v in coeffs_lam.items()}
+    # ⚠️ ×2π: make_phase 生成的是**弧度**相位; 曾漏换算 → 施加相位缩小 2π = 6.28×
+    phase_corr = _apply_coeffs_rad(slm, ph, coeffs_rad, zernike_radius,
+                                   settle, n_max=n_max)
+    _time.sleep(0.3)
+
+    # --- 复测残差 ---
+    z1 = measure_zernike(wfs, n_avg=max(n_avg, 3), order=WFS_ZERNIKE_ORDER)
+    wf1 = measure_wavefront(wfs, max(n_avg, 3))
+    if z1 is None or wf1 is None:
+        raise RuntimeError("矫正后测量失败")
+    w1 = um_to_waves(z1[1:])
+    rms1 = float(wf1[1]["rms"])
+
+    # --- 模型自检: 预测 ||w0 + M·c|| 必须与实测 ||w1|| 一致 (偏离 → 单位/符号错误) ---
+    pred_norm = float(np.linalg.norm(w0 + matrix @ c_lam))
+    meas_norm = float(np.linalg.norm(w1))
+    ratio = pred_norm / meas_norm if meas_norm > 0 else float("nan")
+    flag = "  <== 模型/实测不符, 检查单位/符号/半径!" if not (0.7 <= ratio <= 1.4) else ""
+    click.echo(f"  矫正后: RMS={rms1:.4f}λ, PV={wf1[1]['diff']:.4f}λ, "
+               f"|w|={meas_norm:.4f}λ  (改善 {100 * (1 - rms1 / rms0):.1f}%)")
+    click.echo(f"  模型自检: 预测|w|={pred_norm:.4f}λ vs 实测 {meas_norm:.4f}λ "
+               f"(比 {ratio:.2f}){flag}")
+    if flag:
+        logger.warning("模型自检失败: 预测 |w|={:.4f} vs 实测 {:.4f} (比 {:.2f})",
+                       pred_norm, meas_norm, ratio)
+
+    summary.update({
+        "after_rms": rms1, "after_z_norm": float(np.linalg.norm(w1)),
+        "after_pv": float(wf1[1]["diff"]),
+        "improvement_pct": 100 * (1 - rms1 / rms0),
+        "model_ratio": ratio, "pred_z_norm": pred_norm,
+        "n_modes_valid": int((np.abs(c_lam) > 1e-4).sum()),
+        "w_before": w0.tolist(), "w_after": w1.tolist(),
+    })
+
+    # --- 导出施加的矫正相位 (驱动自带 Santec.save_phase_to_csv) ---
+    dev = device_info or {}
+    meta = {
+        "purpose": "Zernike 模式法波前矫正相位 (SLM) — zernike-matrix 离线矫正测试",
+        "device": dev,
+        "slm_serial": (dev.get("slm") or {}).get("serial_number"),
+        "wavelength_nm": (dev.get("slm") or {}).get("wavelength_nm"),
+        "shift_x": (dev.get("slm") or {}).get("shift_x"),
+        "shift_y": (dev.get("slm") or {}).get("shift_y"),
+        "zernike_radius_px": float(zernike_radius),
+        "n_max": int(n_max),
+        "magnitude_rad": amplitude_rad,
+        "matrix_h5": matrix_path,
+        "correction_csv_path": correction_csv_path or "",
+        "reference": "internal (restored after calibration)",
+        "coefficients_lam": {str(k): float(v) for k, v in coeffs_lam.items()},
+        "coefficients_rad": {str(k): float(v) for k, v in coeffs_rad.items()},
+        "zernike_ordering": ("DLL 顺序 m 枚举 (m=-n..+n), 非标准 Noll 1976: "
+                             "[5](2,0)defocus [9](3,1)coma [13](4,0)spherical"),
+        "units": ("coefficients_lam 单位 λ (matrix λ/λ, w λ); coefficients_rad 单位 rad "
+                  "(= lam × 2π, make_phase 输入)"),
+        "offline_test": {k: v for k, v in summary.items()
+                         if k not in ("w_before", "w_after")},
+        "reproduce": ("读取本 CSV 数据区为**弧度** → create_phase_from_array(); "
+                      "勿走 load_gray_from_csv/csv_to_phase (只接受灰度)"),
+    }
+    csv_p, json_p = export_correction_csv(slm, phase_corr, meta,
+                                          out_dir=out_dir, prefix="slm_corr")
+    click.echo(f"  [OK] 矫正相位已导出: {csv_p}")
+    click.echo(f"  [OK]   元数据 sidecar: {json_p}")
+    summary["export"] = {"csv": str(csv_p), "json": str(json_p)}
+
+    # 恢复平场, 交还干净状态
+    slm.display_data(flat_gray(), wait_time_s=0.5)
+    return summary
 
 
 # ==================== CLI: zernike-matrix ====================
@@ -787,13 +999,34 @@ def run(
     支持 N 次正负交替循环测量 + M 次 WFS 读取取平均 + 方差跟踪 + 逆矩阵计算。
 
     多幅度模式 (--n-magnitudes N):
-        自动生成N个不同扰动幅度 (0.1到0.8λ)，分别标定并保存。
+        自动生成N个不同扰动幅度 (2~5 rad)，分别标定并保存。
 
     调试模式 (--debug):
         保存每次测量的原始数据:
         - SLM相位图 (灰度值, 已应用shift)
         - WFS deviation数据
         - WFS Zernike系数 (averaging前)
+
+    标定内核 (2026-09-16 按已验证的 tools/slm/slm_zernike_response.py 重写):
+        - 直控链路: Santec + PatternHelper (与原 ZernikeSLM 链路不同; 旧链路实机原生崩溃)
+        - 矩阵单位 **λ/λ**: 列 = Δ(WFS λ) / Δ(SLM 幅度 λ); 幅度 λ = rad/(2π)
+        - make_phase **透传 n_max** (不再硬编码 4 → n≥5 模式不再被截断)
+        - 测完矩阵后自动执行 offline_correction_test():
+            恢复内部参考 → 平场基线 → pinv 反解当前像差 (λ) → ×2π 弧度加载
+            → 复测残差 + 模型自检 (‖w0+M·c‖ vs ‖w1‖, 比 0.7~1.4)
+            → export_correction_csv 保存施加的矫正相位
+              (文件名含 序列号/波长/shift/半径/时间 + sidecar JSON)
+
+    TODO (实机待测试清单 —— 重写后尚未上设备实测):
+        [ ] 重标响应矩阵, 检查主导系数: [5](2,0)defocus [9](3,1)coma [13](4,0)spherical
+            应与理论形状对应; n≥5 模式不再被截断 (旧 bug: 硬编码 n_max=4)
+        [ ] 矩阵量纲: cond_eff 应仍 ≈8 量级; 反解系数幅值与推拉幅度 (λ) 同量级
+        [ ] 离线矫正测试: RMS 应有明显改善 (>20%); 模型自检比 ∈ 0.7~1.4
+            (偏离即 单位 λ/rad 或 zernike_radius 与标定不一致)
+        [ ] export_correction_csv 产物: 数据区为**弧度**; create_phase_from_array 重载
+            应还原矫正相位 (勿走 load_gray_from_csv/csv_to_phase 灰度读取管线)
+        [ ] closed-loop 用新矩阵: 收敛行为与离线反解一致, 控制系数无 6.28× 缩放
+        [ ] --n-magnitudes N: 各幅度结果应线性 (系数 / 幅度 ≈ 常数)
     """
     # === 1. 归一化选项 ===
     params = _normalize_run_options(
@@ -829,8 +1062,13 @@ def run(
         ph = PatternHelper(resolution=(slm.Panel_Res[0], slm.Panel_Res[1]))
 
         # 平移: CLI 非默认值时覆盖, 否则沿用设备配置 (避免把标定好的 shift 覆盖成 0)
-        if (int(shift_x), int(shift_y)) != (0, 0):
-            slm.set_shift(int(shift_x), int(shift_y))
+        # ⚠️ --shift-x/--shift-y 默认 None → 先归一为 0 再判跳过, 防止 int(None) 崩溃
+        shift_cli = (int(shift_x)
+                     if shift_x is not None else 0,
+                     int(shift_y)
+                     if shift_y is not None else 0)
+        if shift_cli != (0, 0):
+            slm.set_shift(*shift_cli)
         click.echo(f"[OK] SLM #{slm._serial_number} {slm.wavelength}nm "
                    f"2π={slm._max_gray} shift=({slm.shift_x},{slm.shift_y})")
 
@@ -879,6 +1117,9 @@ def run(
         # === 7. 标定循环 ===
         mode_ids = _mode_ids(params["n_max"], excluded_piston, excluded_tip_tilt)
         results: list[tuple[float | None, ZernikeResponseMatrixResult]] = []
+        # 跟踪最后一次标定, 供步骤 8 的离线矫正测试 (用最后矩阵; 测试会恢复 WFS
+        # 内部参考, 若放在循环内会破坏后续标定的自定义参考基准)
+        last_cal: tuple[float, np.ndarray, str] | None = None
 
         def _display_cb(i: int, n: int, resp: np.ndarray, var: np.ndarray) -> None:
             """适配 ZernikeCalibrationDisplay.update 的进度回调 (失败不中断标定)."""
@@ -923,7 +1164,9 @@ def run(
                 deviation_response_matrix=dev_mat,
                 subaperture_mask=mask,
                 n_max=params["n_max"],
-                magnitude=mag_rad,                 # 单位: 弧度 (系数即弧度)
+                # 单位: **λ** (waves) —— 与已验证脚本 slm_zernike_response.py 一致;
+                # verify_response_matrix / GUI 均按 "λ" 显示。曾误存弧度 (差 2π)。
+                magnitude=mag_rad / (2.0 * np.pi),
                 wavelength_nm=int(wavelength),
                 n_averages=params["n_averages"],
                 n_cycles=params["n_cycles"],
@@ -952,6 +1195,7 @@ def run(
                 "correction_csv_path": correction_csv_path,
                 "zernike_radius_px": float(zernike_radius),
                 "magnitude_rad": mag_rad,
+                "amplitude_waves": mag_rad / (2.0 * np.pi),
                 "slm_mode_ids_dll": mode_ids,
                 "zernike_ordering": ("DLL 顺序 m 枚举 (m=-n..+n), 非标准 Noll 1976: "
                                      "[5](2,0)defocus [9](3,1)coma [13](4,0)spherical"),
@@ -969,8 +1213,38 @@ def run(
                        f"(cond_eff={effective_cond(matrix):.2f})")
             _save_wavefront_log_hdf5(wf_records, mag_output_path)
             results.append((mag, result))
+            last_cal = (mag_rad, matrix, f"{mag_output_path}.h5")
 
-        # === 8. 打印结果摘要 ===
+        # === 8. 离线矫正测试 (测完响应矩阵后自动执行) ===
+        #     恢复内部参考 → 平场基线 → pinv 反解当前像差 → ×2π 弧度加载
+        #     → 复测残差 + 模型自检 → export_correction_csv 保存施加的矫正相位。
+        #     ⚠️ 需要实机验证: 基线 RMS→残差 RMS 应有明显改善且模型自检比 ∈ 0.7~1.4;
+        #     失败多半是单位 (λ/rad) 或 zernike_radius 与标定不一致。
+        if last_cal is not None:
+            try:
+                last_mag_rad, last_matrix, last_matrix_path = last_cal
+                offline_summary = offline_correction_test(
+                    slm, wfs, ph,
+                    last_matrix,
+                    mode_ids,
+                    n_max=params["n_max"],
+                    zernike_radius=float(zernike_radius),
+                    n_avg=params["n_averages"],
+                    settle=params["wait_time"],
+                    device_info=device_info,
+                    matrix_path=last_matrix_path,
+                    correction_csv_path=correction_csv_path,
+                    amplitude_rad=last_mag_rad,
+                )
+                if offline_summary.get("export"):
+                    click.echo(f"离线矫正: RMS {offline_summary['before_rms']:.4f}λ → "
+                               f"{offline_summary['after_rms']:.4f}λ "
+                               f"({offline_summary['improvement_pct']:.1f}%)")
+            except Exception as e:  # noqa: BLE001 - 矫正测试失败不使标定整体失败
+                logger.error("离线矫正测试失败: {}", e)
+                click.echo(f"[WARN] 离线矫正测试失败: {type(e).__name__}: {e}")
+
+        # === 9. 打印结果摘要 ===
         _print_calibration_summary(results, output_path, debug_dir)
     finally:
         for dev in (wfs, slm):
@@ -1161,7 +1435,7 @@ def closed_loop_run(
     from loguru import logger
 
     from ao_shaping.drivers.slm import ZernikeSLM
-    from ao_shaping.drivers.wfs.ThorlabWFS import MlaRes, ThorlabWFS
+    from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
     from ao_shaping.optimizer.wf.zernike_response_matrix import (
         load_zernike_response_matrix,
     )

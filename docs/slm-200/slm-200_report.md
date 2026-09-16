@@ -1,5 +1,5 @@
 # SLM-200 Hardware Test Report
-**Generated:** 2026-09-15 23:20:13
+**Generated:** 2026-09-16 12:41:44
 **Device:** slm-200
 ---
 
@@ -8,7 +8,7 @@ This test runs without hardware using simulated data.
 
 **Mode:** Simulation (no hardware)
 
-**Hardware Error:** 无法打开SLM #1 (错误码: <MagicMock name='mock.SLM_Ctrl_Open()' id='2137190938816'>, 未知错误码 (<MagicMock name='mock.SLM_Ctrl_Open()' id='2137190938816'>))
+**Hardware Error:** 无法打开SLM #1 (错误码: <MagicMock name='mock.SLM_Ctrl_Open()' id='2794943870160'>, 未知错误码 (<MagicMock name='mock.SLM_Ctrl_Open()' id='2794943870160'>))
 
 ### Simulated Pattern Generation
 
@@ -25,7 +25,7 @@ This test runs without hardware using simulated data.
 
 **Status:** ✅ PASS
 
-**Duration:** 0.96s
+**Duration:** 3.48s
 
 ---
 

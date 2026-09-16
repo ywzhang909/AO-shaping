@@ -1220,6 +1220,11 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 
 ## 近期更新
 
+### v0.11.0 (2026-09-16)
+- **SLM 相位生成 raw-only 契约**: 所有 SLM 相位生成函数只产生 **raw 未包裹弧度**，不再自行 `mod 2π`——唯一 wrap 点在驱动 `Santec.create_phase_from_array()` 的弧度→灰度转换 (`santec/driver.py` L1382)。涉及 `optimizer/wfless/slm_square_shaping.py: _freeform_phase_radians` 移除末尾 `np.mod`、`_params_to_gray` 与 `slm_zernike_pib._zernike_to_phase` docstring 同步为 raw-only (`_zernike_phase_radians` 保留 wrapped 输出仅作 test-only 参考实现)
+- **相位→灰度统一入口**: `utils/slm_utils.phase_to_slm_grayscale(phase, max_grayscale=None, slm=None)` — 传入已打开 SLM 时委托 `slm.create_phase_from_array()`（驱动统一管线：弧度→灰度 + 波前矫正 + LUT + 平移, 2π 灰度取设备波长相关 `_max_gray`）；`slm=None`（纯模拟/离线保存/单测）回退内置纯数学转换 (wrap→scale→clip→uint16, 默认 1023)。`gs_hologram_runner` / `diff_beam_runner` 保存路径迁移为 `phase_to_slm_grayscale(phase, slm=slm)`
+- **测试修复**: `test_rms_zernike_runner` / `test_rms_by_zernike` 旧函数名 `optimizer_rms` → `optimizer_rms_slm`（对 `rms_by_zernike.py` 既有重命名的同步，5 个预存 ImportError 修复）；`test_gray_csv` roundtrip 断言改为 **mod-2π 相位等价**（`slm._max_gray` 反向换算 roundtrip 相位）；全套 SLM 相关测试通过：drivers/slm+runners 185 passed / wfless+gui/slm 136 passed（各 1 个硬件 skip）/ optimizer-wf 99 passed
+
 ### v0.10.0 (2026-09-13)
 - **代码整合 (runners/utils 去重)**: `gs_square_runner`/`diff_beam_runner` 复用的质量指标、SLM 相位下发/槽轮换、超时看门狗、自动曝光、帧记录等辅助逻辑统一迁入 `utils/beam_metrics.py`、`utils/slm_utils.py`、`utils/hardware_utils.py` (原 `algorithm/beam_shaping_utils` 保留为兼容 re-export 层)
 - **共享相机工厂**: 新增 `utils/hardware_utils.open_camera(camera_type, cam_id, exposure_ms, bit_depth)`，消除 `gs_square_runner`/`diff_shaping_runner` 中字节级重复的 daheng/miicam 初始化代码 (驱动延迟导入，保持 utils 叶子层约束)

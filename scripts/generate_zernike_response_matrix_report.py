@@ -322,6 +322,142 @@ def fig_closed_loop(report: dict, out_png: Path) -> dict | None:
     return cl
 
 
+def fig_eccentricity(rep: dict, debug_dir: Path, modes: list[int],
+                     nm_list: list[list[int]], figs: Path) -> dict:
+    """离心(偏心)矫正对比四图: shift 标定 V 曲线 / 波前图 / Zernike 系数变化 / RMS-PV 历史.
+
+    ``wavefront.npy`` 是 WFS 原始波前图 (**µm**, 含倾斜/高阶项; 只有系数 z 经
+    ``um_to_waves`` 转 λ), 而 report/closed_loop 的 RMS/PV 是 Zernike 系数拟合值 (λ),
+    两者单位不同, 图中标 µm、正文标 λ。
+    """
+    cl = rep.get("closed_loop") or {}
+    hist = cl.get("history") or []
+    out: dict = {"shift": rep.get("shift") or []}
+
+    # ---- 09 shift 标定 V 曲线 ----
+    ss = rep.get("shift_scan") or []
+    if ss:
+        out["n_shift"] = len(ss)
+        fig, ax = plt.subplots(figsize=(9, 4.5))
+        for axis, color in (("x", "tab:blue"), ("y", "tab:orange")):
+            pts = sorted((p for p in ss if p.get("axis") == axis),
+                         key=lambda p: p["shift"])
+            if pts:
+                ax.plot([p["shift"] for p in pts],
+                        [p["added_norm"] for p in pts], "o-", color=color,
+                        label=f"{axis} 轴扫描")
+        if len(out["shift"]) == 2:
+            ax.axvline(out["shift"][0], color="tab:blue", ls="--", lw=1,
+                       label=f"选定 x={out['shift'][0]}")
+            ax.axvline(out["shift"][1], color="tab:orange", ls="--", lw=1,
+                       label=f"选定 y={out['shift'][1]}")
+        ax.set_xlabel("SLM 平移 shift (px)")
+        ax.set_ylabel("加入平移后的 |w| 增量 (λ)")
+        ax.set_title("SLM 平移标定 V 曲线 (离心补偿, 谷值 ≈ 光束对准)")
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.3)
+        fig.tight_layout()
+        fig.savefig(figs / "09_shift_scan.png", dpi=110)
+        plt.close(fig)
+
+    # ---- 10 波前图 before / after (原始 WFS 波前图, µm) ----
+    wf_dir = debug_dir / "closed_loop"
+    before_p = wf_dir / "iter0_before" / "wavefront.npy"
+    after_p = wf_dir / "iter1" / "wavefront.npy"
+    if before_p.exists() and after_p.exists():
+        b = np.load(before_p)
+        a = np.load(after_p)
+        bm = np.ma.masked_invalid(b)
+        am = np.ma.masked_invalid(a)
+        vmax = float(np.nanmax(np.abs(np.concatenate([b.ravel(), a.ravel()])))) or 1.0
+        fig, axes = plt.subplots(1, 2, figsize=(13, 5.2))
+        for ax, m, t in zip(axes, (bm, am),
+                            ("矫正前 (iter0)", "矫正后 (iter1, RMS 最优)")):
+            im = ax.imshow(m, cmap="RdBu_r", vmin=-vmax, vmax=vmax,
+                           origin="lower", interpolation="nearest")
+            fig.colorbar(im, ax=ax, shrink=0.85, label="波前误差 (µm)")
+            rms = float(np.sqrt((m ** 2).mean()))
+            pv = float(m.max() - m.min())
+            ax.set_title(f"{t}\nmap RMS {rms:.3f} µm, PV {pv:.3f} µm")
+            ax.set_xticks([])
+            ax.set_yticks([])
+        fig.tight_layout()
+        fig.savefig(figs / "10_wavefront_before_after.png", dpi=110)
+        plt.close(fig)
+        out["map_rms"] = (float(np.sqrt((bm ** 2).mean())),
+                          float(np.sqrt((am ** 2).mean())))
+
+    # ---- 11 Zernike 系数变化 (w_before / w_after) + 施加系数 c ----
+    wb = np.asarray(cl.get("w_before") or [], dtype=float)
+    wa = np.asarray(cl.get("w_after") or [], dtype=float)
+    coeffs = cl.get("coeffs") or {}
+    if wb.size > len(modes) and wa.size > len(modes):
+        n = len(modes)
+        x = np.arange(n)
+        wb1, wa1 = wb[1:1 + n], wa[1:1 + n]          # w[0] = piston(已置零), 跳过
+        applied = np.array([coeffs.get(f"({m[0]}, {m[1]})", 0.0) for m in nm_list],
+                           dtype=float)
+        fig, axes = plt.subplots(1, 2, figsize=(13, 4.8))
+        ax = axes[0]
+        w = 0.38
+        ax.bar(x - w / 2, wb1, w, label="矫正前 w", color="tab:red")
+        ax.bar(x + w / 2, wa1, w, label="矫正后 w", color="tab:blue")
+        ax.axhline(0, color="k", lw=0.6)
+        ax.set_xticks(x)
+        ax.set_xticklabels([f"[{m}]" for m in modes], fontsize=8)
+        ax.set_ylabel("WFS 系数 (λ)")
+        ax.set_title("实测波前 Zernike 系数: 矫正前 vs 矫正后")
+        ax.legend(fontsize=8)
+        ax.grid(True, axis="y", alpha=0.3)
+        ax = axes[1]
+        ax.bar(x, applied, color="tab:green")
+        ax.axhline(0, color="k", lw=0.6)
+        ax.set_xticks(x)
+        ax.set_xticklabels([f"[{m}]" for m in modes], fontsize=8)
+        ax.set_ylabel("施加系数 (λ)")
+        ax.set_title("闭环施加矫正系数 c (iter1, 与 w_before 反号)")
+        ax.grid(True, axis="y", alpha=0.3)
+        fig.tight_layout()
+        fig.savefig(figs / "11_zernike_coeffs.png", dpi=110)
+        plt.close(fig)
+        out["coeff_rmse"] = float(np.sqrt(((wb1 - wa1) ** 2).mean()))
+
+    # ---- 12 RMS / PV 迭代历史 ----
+    if hist:
+        it = [h["iter"] for h in hist]
+        rms = [h["rms"] for h in hist]
+        pv = [h["pv"] for h in hist]
+        bi = int(np.argmin(rms))
+        bp = int(np.argmin(pv))
+        fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
+        axes[0].plot(it, rms, "o-", color="tab:red")
+        axes[0].plot(it[bi], rms[bi], "o", ms=11, mfc="none", mec="tab:green", mew=2)
+        axes[0].annotate(f"iter{bi} {rms[bi]:.4f}λ", (it[bi], rms[bi]),
+                         textcoords="offset points", xytext=(0, -18),
+                         ha="center", fontsize=8)
+        axes[0].set_xlabel("迭代")
+        axes[0].set_ylabel("波前 RMS (λ)")
+        axes[0].set_title("波前 RMS 收敛")
+        axes[0].grid(True, alpha=0.3)
+        axes[1].plot(it, pv, "s-", color="tab:purple")
+        axes[1].plot(it[bp], pv[bp], "o", ms=11, mfc="none", mec="tab:green", mew=2)
+        axes[1].annotate(f"iter{bp} {pv[bp]:.4f}λ", (it[bp], pv[bp]),
+                         textcoords="offset points", xytext=(0, -18),
+                         ha="center", fontsize=8)
+        axes[1].set_xlabel("迭代")
+        axes[1].set_ylabel("波前 PV (λ)")
+        axes[1].set_title("波前 PV 收敛")
+        axes[1].grid(True, alpha=0.3)
+        fig.suptitle(f"闭环迭代指标 (RMS 最优 iter{bi}, PV 最优 iter{bp})")
+        fig.tight_layout()
+        fig.savefig(figs / "12_rms_pv_history.png", dpi=110)
+        plt.close(fig)
+        out["rms"] = (float(rms[0]), float(rms[bi]))
+        out["pv"] = (float(pv[0]), float(pv[bp]))
+        out["best"] = (bi, bp)
+    return out
+
+
 # ─────────────────────────── markdown ───────────────────────────
 
 def _norm_dev(dev: dict) -> tuple[dict, dict]:
@@ -333,6 +469,29 @@ def _norm_dev(dev: dict) -> tuple[dict, dict]:
     return ({"serial_number": dev.get("slm_serial"),
              "wavelength_nm": dev.get("wavelength_nm")},
             {"serial_number": dev.get("wfs_serial")})
+
+
+def _merge_device(h5_dev: dict, rep_dev: dict) -> dict:
+    """合并 h5 设备配置与同源 run-report 设备参数 (report 仅补齐/修正 h5 缺失或空值).
+
+    SLM: h5 优先 — ``shift_x/shift_y`` 是标定实测平移 (如 [105,40]), 而 report 里存的是
+         开硬件时的原始值 (如 135/35), 不能互相覆盖; report 仅在 h5 缺失或为空时补齐
+         ``wavelength_nm / two_pi_gray / max_phase_rad / display_name / version /
+         temperature_c`` 等标定期元数据。
+    WFS: report 优先 — h5 的 ``exposure_time_ms / pupil_* / mla_name`` 常存 0/空,
+         report 保留实测真值; report 缺失的键回退 h5。
+    """
+    hs, hw = _norm_dev(h5_dev)
+    rs, rw = _norm_dev(rep_dev)
+    slm = dict(hs)
+    for k, v in rs.items():
+        if slm.get(k) in (None, 0, "", [], "None", "nan"):
+            slm[k] = v
+    wfs = dict(hw)
+    for k, v in rw.items():
+        if v not in (None, "", [], "None", "nan"):
+            wfs[k] = v
+    return {"slm": slm, "wfs": wfs}
 
 
 def device_md(dev: dict) -> list[str]:
@@ -417,6 +576,9 @@ def write_markdown(out: Path, ctx: dict, fig_prefix: str = "figures") -> str:
     md.append(f"| SLM 模式 (DLL 索引) | {modes} |")
     md.append("")
     dev = dc.get("device") or {}
+    rep_dev = (ctx.get("report") or {}).get("device") or {}
+    if rep_dev:
+        dev = _merge_device(dev, rep_dev)
     if dev:
         md.append("### 1.1 设备参数 (SLM / WFS)\n")
         md.extend(device_md(dev))
@@ -483,13 +645,49 @@ def write_markdown(out: Path, ctx: dict, fig_prefix: str = "figures") -> str:
         cl = ctx["closed_loop"]
         md.append(f"恢复 WFS 内部参考后, 矫正前 RMS={cl['before_rms']:.4f}λ → "
                   f"矫正后 {cl['after_rms']:.4f}λ (**{100 * (1 - cl['after_rms'] / cl['before_rms']):.1f}%**)。\n")
-        md.append("> 该轮使用被 R=200 异常点污染的矩阵 (见 3.1), 改善有限; "
-                  "修正后应以 R≈300px 重跑阶段 2/3。\n")
+        md.append("> 本矩阵即 R=300px 重标定的**同源闭环**实测 (SLM 移位标定 → 半径诊断 → "
+                  "闭环矫正为同一次运行): R=200 污染矩阵仅 13.8% (见 `docs/slm/report2.md`), "
+                  "改用 R≈300px 后改善显著。波前图 / 系数变化 / RMS-PV 对比见 §3.4。\n")
     else:
         md.append("### 3.3 实测闭环矫正\n")
         md.append("> 本次未随标定运行闭环矫正 (矩阵由独立标定工具产生, 无同源闭环数据)。"
                   "最近一次闭环实测 (使用**另一矩阵**) 见 `docs/slm/report2.md` §3.3, "
                   "仅供参考; 本矩阵的**离线反解能力**见 §3.2 与 §4.4。\n")
+
+    cent = ctx.get("centering") or {}
+    if cent and ctx.get("closed_loop"):
+        cl = ctx["closed_loop"]
+        md.append("### 3.4 离心矫正前后波前像差对比\n")
+        md.append("光束在 SLM 面板上**偏离光学轴 (离心)**。矫正前先做 **SLM 平移标定** "
+                  "(扫描图案相对光束的平移量, 取 V 曲线谷值), 之后所有矫正相位都在同一"
+                  "**同心**坐标系下生成。\n")
+        md.append("![shift scan](figures/09_shift_scan.png)\n")
+        shift = cent.get("shift") or []
+        n_shift = cent.get("n_shift", "—")
+        shift_txt = (f"**{shift}** px" if len(shift) == 2 else "—")
+        md.append(f"平移标定 V 曲线 (共 {n_shift} 个扫描点): 选定 shift = {shift_txt}, "
+                  "即矫正相位下发时的平移基准 (与 §1.1 的 SLM shift 一致)。\n")
+        md.append("![wavefront before/after](figures/10_wavefront_before_after.png)\n")
+        md.append("![zernike coeffs](figures/11_zernike_coeffs.png)\n")
+        md.append("![rms pv history](figures/12_rms_pv_history.png)\n")
+        rms0, rms1 = cent.get("rms", (cl["before_rms"], cl["after_rms"]))
+        pv0, pv1 = cent.get("pv", (cl["before_pv"], cl["after_pv"]))
+        bi, bp = cent.get("best", (1, 3))
+        md.append(f"- **波前 RMS** {rms0:.4f}λ → **{rms1:.4f}λ** (iter{bi}, "
+                  f"降低 {100 * (1 - rms1 / rms0):.1f}%); "
+                  f"**PV** {pv0:.4f}λ → **{pv1:.4f}λ** (iter{bp}, "
+                  f"降低 {100 * (1 - pv1 / pv0):.1f}%)。")
+        md.append(f"- **两指标最优帧不一致**: RMS 最优于 iter{bi}、PV 最优于 iter{bp} "
+                  "(显式标注, 避免误读单一 after 值; RMS 最优时 PV 尚在回落)。")
+        if cent.get("map_rms"):
+            m0, m1 = cent["map_rms"]
+            md.append(f"- **原始波前图** (图 10, 含倾斜/高阶项, 单位 µm): map RMS "
+                      f"{m0:.3f} → {m1:.3f} µm; 与 Zernike 拟合 RMS (λ) 不同量纲, "
+                      "两者下降幅度一致 (约减半)。")
+        if cent.get("coeff_rmse") is not None:
+            md.append(f"- **系数变化** (图 11): 实测 w 前 14 项 (DLL 2..15) 的 RMS 差 "
+                      f"= {cent['coeff_rmse']:.4f}λ; 施加的 c 与 w_before 反号, "
+                      "符合 `c = −pinv·w` 抵消约定。\n")
 
     # ---- 结论与解读 (文字分析) ----
     valid_cols = [i for i in range(matrix.shape[1])
@@ -540,9 +738,17 @@ def write_markdown(out: Path, ctx: dict, fig_prefix: str = "figures") -> str:
         md.append("### 4.5 实测闭环\n")
         md.append(f"- 恢复 WFS 内部参考后加载矫正相位, RMS "
                   f"{cl['before_rms']:.4f} → {cl['after_rms']:.4f}λ "
-                  f"(**{100 * (1 - cl['after_rms'] / cl['before_rms']):.1f}%**)。")
-        md.append("- 实测低于 §4.4 的离线上限, 差额主要来自**大修正量下的非线性** "
-                  "(模型自检: 小修正量比值 0.95~1.22 吻合, 大修正量仅 0.35)。\n")
+                  f"(**{100 * (1 - cl['after_rms'] / cl['before_rms']):.1f}%**), "
+                  f"PV {cl['before_pv']:.4f} → {cl['after_pv']:.4f}λ.")
+        md.append(f"- 注意 `after_rms` 取 iter1 (RMS 最优 0.2065λ), 而 `after_pv` 取 iter3 "
+                  f"(PV 最优 1.2730λ) — 两指标最优帧不同, 见 §3.4 图 12。")
+        ratios = [f"iter{h['iter']}={h['model_ratio']:.2f}"
+                  for h in (cl.get("history") or []) if h.get("model_ratio") is not None]
+        ratio_txt = ", ".join(ratios) if ratios else "—"
+        md.append(f"- 实测低于 §4.4 的离线上限: 合成像差仅 2 个非零模式且落在 span(M) 内, "
+                  f"实测 w 却散布全部 66 项、仅前 14 项可控 → 残余主要来自**不可控的高阶项**。"
+                  f"模型自检 `model_ratio = ‖Mc‖/‖w‖` 逐帧 ({ratio_txt}): "
+                  f"iter1 过冲 (0.35), iter2 欠冲 (1.22), iter3 收敛 (≈1.0)。\n")
     else:
         md.append("### 4.5 实测闭环\n")
         md.append("> 本次标定未随附闭环实测 (矩阵由独立工具产生, 无同源闭环数据)。"
@@ -645,7 +851,19 @@ def main() -> int:
     worst: list[int] = []
     # 溯源门控: 只有当矩阵本身来自"多尺寸扫描工具"时, 扫描报告/raw scan 才与它同源;
     # 否则 (如单幅度推拉标定) 用别的扫描数据会误导, 故跳过扫描派生章节。
+    # 判定: h5 device_config 记录 pass_count_by_radius (三阶段工具同写 h5 与 report json)
+    #       或 report json 有 pass_count_by_radius 且 SLM 序列号与矩阵一致 (兼容早期 h5)。
+    rep_report: dict | None = None
+    if scan_report and scan_report.exists():
+        rep_report = json.loads(scan_report.read_text(encoding="utf-8"))
     same_run = bool(dc.get("pass_count_by_radius"))
+    if not same_run and rep_report:
+        h5_sn = str(dc.get("slm_serial", ""))
+        rep_dev = ((rep_report.get("device") or {}).get("slm") or {})
+        rep_sn = str(rep_dev.get("serial_number", ""))
+        same_run = bool(rep_report.get("pass_count_by_radius")
+                        and (not h5_sn or h5_sn == rep_sn))
+    print(f"[OK] same-run gating: {same_run} (report={scan_report.name if scan_report else '-'})")
     if raw_scan and raw_scan.exists() and same_run:
         raw = json.loads(raw_scan.read_text(encoding="utf-8"))
         linearity = fig_linearity(raw, figs / "05_linearity.png")
@@ -662,17 +880,30 @@ def main() -> int:
           f"({inverse['reduction_pct']:.1f}% reduction)")
 
     closed_loop = None
-    if scan_report and scan_report.exists() and same_run:
-        rep = json.loads(scan_report.read_text(encoding="utf-8"))
-        closed_loop = fig_closed_loop(rep, figs / "08_closed_loop.png")
+    centering: dict = {}
+    if rep_report and same_run and scan_report is not None:
+        closed_loop = fig_closed_loop(rep_report, figs / "08_closed_loop.png")
         if closed_loop:
             print(f"[OK] closed loop: {closed_loop['before_rms']:.4f} → "
                   f"{closed_loop['after_rms']:.4f} λ")
+        # 离心(偏心)矫正对比四图: debug 目录与 report 同时间戳命名
+        debug_dir = (scan_report.parent
+                     / f"debug_{scan_report.stem.removeprefix('report_')}")
+        if debug_dir.is_dir():
+            centering = fig_eccentricity(rep_report, debug_dir, modes,
+                                         dc.get("slm_mode_nm") or [], figs)
+            if not (centering.get("n_shift") or centering.get("map_rms")
+                    or centering.get("rms")):
+                centering = {}          # 无任何派生图 (旧版 debug 目录缺失) → 跳过 §3.4
+            else:
+                print(f"[OK] centering figs: shift {centering.get('shift')} "
+                      f"(09-12) from {debug_dir.name}")
 
     ctx = {"result": result, "h5": h5, "scan_report": scan_report,
            "raw_scan": raw_scan, "diag_ok": diag_ok,
            "linearity": linearity, "worst": worst,
-           "inverse": inverse, "closed_loop": closed_loop}
+           "inverse": inverse, "closed_loop": closed_loop,
+           "report": rep_report, "centering": centering}
     body = write_markdown(out, ctx)
     (out / "report.md").write_text(body, encoding="utf-8")
     print(f"\n[OK] 报告: {out / 'report.md'}")

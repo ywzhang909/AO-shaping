@@ -27,7 +27,7 @@ from typing import Any
 import numpy as np
 from loguru import logger
 
-from ao_shaping.drivers.slm import Santec
+from ao_shaping.drivers.slm.santec import Santec, WavefrontCorrection
 from ao_shaping.drivers.wfs import ThorlabWFS
 from ao_shaping.utils.pattern_helper import PatternHelper
 
@@ -49,12 +49,20 @@ def um_to_waves(z: np.ndarray) -> np.ndarray:
     """WFS Zernike 系数 µm → λ (工作波长 532nm)。矩阵与矫正**必须**用同一单位。"""
     return np.asarray(z, dtype=float) * UM_TO_WAVES
 
-# DLL 顺序 m 枚举: 1-based index -> (n, m)
+# DLL 顺序 m 枚举: 1-based index -> (n, m)。完整 66 项 (n=0..10, 每阶 n+1 项)。
+# ⚠️ 曾只到 n=5 (21 项) — 与 mode_ids 2..66 (n_max=10) 不匹配, 二阶以上 IndexError。
 DLL_ZERNIKE_ORDER: list[tuple[int, int]] = [
     (0, 0), (1, -1), (1, 1), (2, -2), (2, 0), (2, 2),
     (3, -3), (3, -1), (3, 1), (3, 3),
     (4, -4), (4, -2), (4, 0), (4, 2), (4, 4),
     (5, -5), (5, -3), (5, -1), (5, 1), (5, 3), (5, 5),
+    (6, -6), (6, -4), (6, -2), (6, 0), (6, 2), (6, 4), (6, 6),
+    (7, -7), (7, -5), (7, -3), (7, -1), (7, 1), (7, 3), (7, 5), (7, 7),
+    (8, -8), (8, -6), (8, -4), (8, -2), (8, 0), (8, 2), (8, 4), (8, 6), (8, 8),
+    (9, -9), (9, -7), (9, -5), (9, -3), (9, -1),
+    (9, 1), (9, 3), (9, 5), (9, 7), (9, 9),
+    (10, -10), (10, -8), (10, -6), (10, -4), (10, -2),
+    (10, 0), (10, 2), (10, 4), (10, 6), (10, 8), (10, 10),
 ]
 
 DLL_ZERNIKE_NAMES: dict[int, str] = {
@@ -229,6 +237,24 @@ def correction_artifact_name(serial: str | None, wavelength_nm: int | None,
     return f"{prefix}_{s}_{wl}_shift{sx}_{sy}_{r}_{stamp}.csv"
 
 
+def _jsonable(obj: Any) -> Any:
+    """递归将 dict 键归一为 JSON 允许的类型.
+
+    Zernike 系数字典的键是 ``(n, m)`` tuple, `json.dumps(default=str)` 只兜底
+    **value**, 对 tuple **key** 仍抛 TypeError ("keys must be str, int, float, bool
+    or None")。sidecar 序列化前统一 str 化非 JSON 键, 防止离线矫正等场景写入失败。
+    """
+    if isinstance(obj, dict):
+        return {
+            (k if isinstance(k, (str, int, float, bool)) and k is not None else str(k)):
+            _jsonable(v)
+            for k, v in obj.items()
+        }
+    if isinstance(obj, (list, tuple)):
+        return [_jsonable(v) for v in obj]
+    return obj
+
+
 def export_correction_csv(slm: Santec, phase_rad: np.ndarray,
                           meta: dict[str, Any],
                           out_dir: str | Path = "data/slm_corrections",
@@ -277,9 +303,43 @@ def export_correction_csv(slm: Santec, phase_rad: np.ndarray,
         **meta,
     }
     json_path = csv_path.with_suffix(".json")
-    json_path.write_text(_json.dumps(sidecar, indent=2, ensure_ascii=False,
+    json_path.write_text(_json.dumps(_jsonable(sidecar), indent=2, ensure_ascii=False,
                                      default=str), encoding="utf-8")
     return csv_path, json_path
+
+
+def save_driver_correction_csv(gray_offsets: np.ndarray,
+                               dest: str | Path) -> None:
+    """按驱动 `Santec.load_gray_from_csv` 的格式导出灰度(偏移)矫正 CSV.
+
+    薄 wrapper —— **唯一实现在 `WavefrontCorrection.save_gray_correction_csv`**
+    (CSV I/O 单一真源, 2026-09-16 导出契约):
+
+    - **不含 shift**: 只写面板坐标逐像素偏移, 平移由官方软件 / 驱动
+      ``Santec.apply_shift`` 在显示时单独应用;
+    - **满量程 2π = 1023**: 取设备常量 ``slm200_constants.get_max_grayscale()``,
+      严禁用波长相关 ``two_pi_gray`` (如 532nm→998), 否则官方软件按 1023
+      换算时矫正幅度被缩放 ``1023/two_pi_gray ≈ 1.025×``。
+
+    导出格式与 Santec 出厂矫正文件 (``Wavefront_correction_Data_*.csv``) 一致:
+
+    - 首行: ``Y/X,0,1,...,1919`` (列索引, 首字段固定 ``Y/X``)
+    - 数据行: ``行索引, g_{i,0},...,g_{i,1919}`` (共 1200 行 × 1921 字段)
+    - 数据区为 **0..1023 整数灰度偏移** (uint16), shape ``(1200, 1920)``
+
+    语义 (与 `WavefrontCorrection.map_error` 的加法一致): 导出值 = 待**叠加**
+    到任意显示灰度上的矫正量, ``displayed = mod(grayscale + corr, max_gray + 1)``。
+    驱动侧加载走 **identity 读取**: ``WavefrontCorrection(csv_path, calc_fn=lambda
+    raw: raw.astype(np.float64))``, 切勿套默认余弦拟合 ``_default_calc``。
+
+    Args:
+        gray_offsets: (1200, 1920) 灰度偏移, 数值须在 0..1023 (10 位)
+        dest: 输出 CSV 路径 (父目录自动创建)
+
+    Raises:
+        ValueError: shape 或取值范围不合法
+    """
+    WavefrontCorrection.save_gray_correction_csv(gray_offsets, dest)
 
 
 # ─────────────────────────── 相位生成 / 下发 ───────────────────────────

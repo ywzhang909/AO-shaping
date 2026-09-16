@@ -174,14 +174,30 @@ return np.mod(phase_raw / (2*np.pi) * max_val, max_val).astype(np.uint16)
   (回调有 try/except, 且其内部函数在探针中已单测通过)。
 - 与 `ZernikeDM` 归一化修复**无关** (探针已覆盖该路径)。
 
-**可疑方向** (留给后续):
-1. `_thorlab_wfs.py` 的 `MAX_SPOTS` 缓冲区是否按 32×32 设计 —— 第一轮 35×35=1225 斑点
-   超界可能造成堆损坏, 后续在别处爆发。
-2. `runners/zernike_matrix_runner.py` 与 SDK 的 ctypes 回调/数组传递。
-3. `--debug` 回调逐样本写 18MB `.npy` (实测每帧 18,432,128 B) 造成的时序/内存压力。
+**驱动层缓冲排查结论 (2026-09-16, 全量排除)**: 下列五处缓冲均已核对为**充分分配**,
+WFS Python 侧不存在数组尺寸不足/越界写:
 
-**当前处置**: 改用**等价的、已验证的** `tools/slm/slm_zernike_response.py` (同为推拉法,
-且已记录完整设备参数) 完成重标 → 见 `docs/slm/report3.md`。
+| 站点 | 分配 | 结论 |
+|---|---|---|
+| `MAX_SPOTS` (`_thorlab_wfs.py:44`) | `[80, 80]` = 6400 floats | 35×35=1225 << 6400, **"32×32 设计"假设不成立** (两处绑定文件一致) |
+| `ArrImg` (`_thorlab_wfs.py:59`) | `(512,512)` uint8 | **仅声明, 从未出现在任何 `argtypes`** → 死代码, 与崩溃无关 |
+| `get_spotfiled_image` (`thorlab_wfs.py:1130-1144`) | `(1024,1280)` 全量最大缓冲 | 覆盖最大 MLA (1280×1024), 返回按 rows×cols 切片 |
+| `get_spot_deviation` / `get_spots_statics` / `get_wavefront` | `(80,80)` float32 | 覆盖 80×80 子孔径上限 |
+| `get_zernike` (`thorlab_wfs.py:1493+`) | `calc_n_zernike_terms(order)` 精确项数 | `byref`/`data_as(POINTER(c_float))` 显式 ctypes, 无 numpy 自动转换 → 调用良构 |
+
+**残留假设** (驱动层之外, 按可能性排序):
+1. **Santec SLM DLL 写路径**: `0xC000041C` (用户回调内致命异常) 是 SLM/heap 被原生侧破坏后
+   随机延迟爆发的典型签名; 与"rms-zernike / dm-matrix 等 WFS 重负载工具稳定"不矛盾——
+   它们不同时高频写 SLM 内存槽。
+2. **h5py/HDF5 建文件瞬间崩溃** (三轮中第一轮 h5 留在 0 字节的指纹)。
+3. **旧 runner 编排时序**: 写 SLM 相位后未等 LCOS 稳定即连续采样; `--debug` 逐样本
+   写 18MB `.npy` (实测每帧 18,432,128 B) 的落盘压力。
+
+**重写后的状态**: `zernike-matrix` 已基于 `tools/slm/slm_zernike_response.py` 验证链路整体
+重写 (设备生命周期/推拉内核/pupil 自动与写回/弧度制/产物与 CLI 保持), runner 侧时序与
+`--debug` 落盘问题已消除; 残留假设中的 SLM DLL 侧问题只能由**实机重标**验证
+(待办项, 设备可用后执行)。**当前处置**: 改用**等价的、已验证的** `tools/slm/slm_zernike_response.py`
+(同为推拉法, 且已记录完整设备参数) 完成重标 → 见 `docs/slm/report3.md`。
 
 ### 2.7 ✅ 修复 `parse_tuple` 的整数限制
 

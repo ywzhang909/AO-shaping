@@ -234,11 +234,15 @@ def _freeform_phase_radians(
     resolution: tuple[int, int],
     grid: int,
 ) -> np.ndarray:
-    """Convert a flat free-form low-res phase grid to a wrapped radian phase map.
+    """Convert a flat free-form low-res phase grid to a raw radian phase map.
 
     Low-order Zernike modes are smooth and cannot synthesise a square
     far-field. A free-form phase grid (the SLM's native degree of freedom)
     can, so this is the default basis for square shaping.
+
+    Returns the RAW unwrapped radians — no mod-2π here: the SLM driver
+    ``create_phase_from_array`` applies the wrap on radian→grayscale
+    conversion (2026-09: raw-only contract, same as every phase generator).
 
     Args:
         flat_params: Flat array of length ``grid * grid`` (radians per cell).
@@ -246,7 +250,7 @@ def _freeform_phase_radians(
         grid: Side of the square parameter grid.
 
     Returns:
-        float64 phase map in [0, 2pi), shape (height, width).
+        float64 raw radian phase map, shape (height, width).
     """
     width, height = resolution
     cells = np.asarray(flat_params, dtype=np.float64).reshape(grid, grid)
@@ -258,7 +262,7 @@ def _freeform_phase_radians(
         padded = np.zeros((height, width), dtype=np.float64)
         padded[: upsampled.shape[0], : upsampled.shape[1]] = upsampled
         upsampled = padded
-    return np.mod(upsampled, 2.0 * np.pi)
+    return upsampled  # raw radians — the SLM driver wraps on conversion
 
 
 def square_uniformity_cost(
@@ -1002,7 +1006,7 @@ def optimize_slm_square(
 
             zernike: ``PatternHelper.generate_zernike_polynomial`` (radians,
             identical to the GUI Zernike branch) then the SLM driver
-            ``slm.create_phase_from_array()``; freeform: wrapped radians
+            ``slm.create_phase_from_array()``; freeform: raw radians
             converted by the SLM driver. If rotation search is enabled the LAST
             element of ``p`` is the rotation angle (degrees); the base pattern
             is generated from the remaining elements and then rotated.

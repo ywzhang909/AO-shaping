@@ -29,6 +29,39 @@ slm/
 | `AutoExposureController` | `slm_calibration.py` | 自动曝光控制器 |
 | `WavefrontCorrection` | `santec/wavefront_correction.py` | 波前误差校正 |
 
+## CSV I/O 统一格式 (2026-09-16 重构)
+
+SLM 相位/灰度 CSV 的导入导出**唯一实现在 `WavefrontCorrection`**（底层工具类，`driver.py` 委托调用，无循环导入）。`Santec.load_gray_from_csv` / `csv_to_phase` / `save_phase_to_csv` 均为薄 wrapper，保证：
+
+- **格式一致**: 灰度 CSV 与矫正 CSV（`libs/SLM_DLL_ver.2.51/Wavefront_correction_Data/*.csv`）共用同一 `Y/X` 标题 + 行列索引格式，可互相 round-trip。
+- **单一真源**: 所有尺寸校验、`Y/X` 标题校验、值范围校验、行列索引剥离/恢复逻辑只在 `WavefrontCorrection` 实现一次。
+
+```python
+from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.drivers.slm.santec.wavefront_correction import WavefrontCorrection
+
+# 三种等价调用（输出字节级一致）
+gray = Santec.load_gray_from_csv(path)          # → WavefrontCorrection.load_gray_from_csv
+phase = Santec.csv_to_phase(path)                 # → WavefrontCorrection.csv_to_phase
+Santec.save_phase_to_csv(phase, dest)            # → WavefrontCorrection.save_phase_to_csv
+```
+
+**矫正灰度偏移导出契约 (2026-09-16)**: 离线矫正导出 (`tools/slm/slm_zernike_response.py` 的
+`--export-correction`) 走 `WavefrontCorrection` 的静态方法
+`correction_gray_offsets(phase_rad, max_grayscale=None)` → `save_gray_correction_csv(gray_offsets, filepath)`：
+
+- **满量程 2π = 1023** (`slm200_constants.get_max_grayscale()`)；**严禁**用波长相关
+  `two_pi_gray`（如 532nm→998）——官方软件按 1023 换算矫正偏移，用 998 会把幅度
+  缩放 `1023/998 ≈ 1.025×`。
+- **不烘焙 shift**：只写面板坐标逐像素偏移图（Zernike 图案居中、未经平移）；平移由
+  官方软件 shift 设置 / `Santec.apply_shift` 在显示时单独应用。侧车 JSON 带
+  `shift_included: false`。
+- 数值 = `rint(mod(φ/(2π)·1023, 1024))` 再 `mod 1024`（环绕边界 1024≡0，循环域最近邻
+  量化），输出严格 `0..1023` uint16。
+- `tools/slm/slm_zernike_common.save_driver_correction_csv` 是薄 wrapper，唯一实现如上述。
+
+> 详见 `tests/ao_shaping/drivers/slm/test_gray_csv.py` 与 `test_correction_csv.py`。
+
 ## Santec 接口
 
 | 方法 | 说明 |
@@ -60,6 +93,7 @@ slm/
 - **同内存槽连续 `display_memory` 是 no-op**: 固件对"正在显示的同一槽位"的 `display_memory(slot)` 不刷新 LCOS 面板 (第二次写入的新相位不会上屏)。驱动已在 `display_memory()` 内置 warning: 检测到连续同槽位调用时 `logger.warning` 提示轮换槽位 (`display_data()` 内部自动轮换 127 槽, 不受影响; 工具类如 `gray_response._display_rotate_slot` 已自带轮换)。
 - **已缓存相位重写必须走 raw 路径 (`_write_to_memory`/`apply_shift`), 严禁再传 `write_phase`**: 缓存的显示相位 (`get_displayed_phase()`) 已包含底相位/矫正叠加, `write_phase` 会再次叠加 → 矫正被应用两次产生错误图案。平移后重写由 `apply_shift` 内部经 `_write_to_memory` 完成; 其他需要重写缓存相位的场景请直接调 raw 写入，勿用 `write_phase`。
 - **SLM flat-phase 严禁走 `create_phase_from_array()`**: 该函数对输入按 `mod 2π` → 灰度转换 (rad/2π × 1023), 导致 uint16 灰度值被静默破坏。扁平相位必须用 `np.full((h,w), gray, dtype=np.uint16)` 直接发送。
+- **相位生成 raw-only 契约 (2026-09)**: 所有相位生成函数只需产生 **raw 未包裹弧度**, 严禁自行 `mod 2π`; 唯一的 wrap 点在 `create_phase_from_array()` 的弧度→灰度转换 (L1382)。弧度→灰度统一经 `utils/slm_utils.phase_to_slm_grayscale(phase, slm=slm)` (传 SLM 委托驱动管线; `slm=None` 时纯数学 fallback)。
 - **方形光斑 SPGD 不能用低阶 Zernike (n≤4)**: Zernike 模态是圆对称平滑基, 物理上无法合成方形远场 (需要 2D-sinc 类近场/高频)。
 - **SPGD 目标函数不能只用 `-CV`**: 无能量项时优化器会清空目标盒 (硬件观测 EE→0.002)。目标函数必须包含环围能量。
 - **`reset_window()` 返回的中心不可信**: 当光斑靠近帧边缘时 ROI 偏移被 clamp 但返回的 `(w//2, h//2)` 不是真实光斑位置 → 目标框偏移。用 `argmax`/centroid 重新定位**窗口化**图像中的光斑。
