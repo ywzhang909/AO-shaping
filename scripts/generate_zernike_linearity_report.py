@@ -45,6 +45,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from ao_shaping.tools.slm.slm_zernike_common import DLL_ZERNIKE_NAMES  # noqa: E402
+from ao_shaping.tools.slm.slm_scan_analysis import (  # noqa: E402
+    LINEARITY_AMPS, analyze_linearity, group_raw_scan, latest_match)
 
 plt.rcParams["font.sans-serif"] = [
     "Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "DejaVu Sans",
@@ -52,67 +54,7 @@ plt.rcParams["font.sans-serif"] = [
 plt.rcParams["axes.unicode_minus"] = False
 
 DEFAULT_OUT = ROOT / "docs" / "slm" / "zernike_linearity"
-AMPS = (2.0, 5.0, 10.0)
-
-
-def _latest(pattern: str) -> Path | None:
-    hits = sorted(glob.glob(pattern))
-    return Path(hits[-1]) if hits else None
-
-
-def load_groups(raw_path: Path) -> dict:
-    raw = json.loads(raw_path.read_text(encoding="utf-8"))
-    g: dict[tuple[int, float], dict[float, dict[int, np.ndarray]]] = defaultdict(
-        lambda: defaultdict(dict))
-    for s in raw:
-        g[(s["dll_index"], float(s["radius"]))][float(s["amp_rad"])][int(s["sign"])] = \
-            np.asarray(s["readout_um"], dtype=float) / 0.532     # → λ
-    return g
-
-
-def analyze(g: dict) -> list[dict]:
-    rows: list[dict] = []
-    for (m, R) in sorted(g):
-        d = g[(m, R)]
-        diag, vec, base = [], [], []
-        ok = True
-        for a in AMPS:
-            zp, zn = d.get(a, {}).get(1), d.get(-a, {}).get(-1)
-            if zp is None or zn is None:
-                ok = False
-                break
-            diag.append(float((zp[m] - zn[m]) / 2.0))
-            vec.append(float(np.linalg.norm(zp[1:] - zn[1:]) / 2.0))
-            base.append(float(np.linalg.norm(zp[1:] + zn[1:]) / 2.0))
-        if not ok or len(diag) < 3:
-            continue
-        diag_a, vec_a, base_a = map(np.array, (diag, vec, base))
-        A = np.array(AMPS)
-        # 过原点线性拟合 diag = k·A
-        k = float(np.sum(A * diag_a) / np.sum(A * A))
-        pred = k * A
-        ss_res = float(np.sum((diag_a - pred) ** 2))
-        ss_tot = float(np.sum((diag_a - diag_a.mean()) ** 2))
-        r2 = 1 - ss_res / ss_tot if ss_tot > 0 else float("nan")
-        ratios = diag_a / A
-        cv = (float(np.std(ratios) / abs(np.mean(ratios)))
-              if np.mean(ratios) != 0 else float("inf"))
-        ratio_10_2 = (float(diag_a[2] / diag_a[0]) if diag_a[0] != 0 else np.nan)
-        floor = float(np.median(base_a))
-        snr = float(abs(diag_a[2]) / floor) if floor > 0 else float("inf")
-        # 判定: 主判据用**统计上稳健**的 R² + CV (三点拟合已含点间散布);
-        # `A10/A2` 在 A=2 时受基线噪声影响极大 (误差 ±0.1λ → 比值 ±2.4 不确定),
-        # 故仅作展示, 不作硬判据。SNR 用于标注"弱耦合"而非判失败。
-        if r2 > 0.98 and cv < 0.15:
-            verdict = "成比例" if snr >= 1.5 else "成比例 (弱耦合)"
-        elif snr < 1.5:
-            verdict = "噪声受限"
-        else:
-            verdict = "**不成比例**"
-        rows.append({"m": m, "R": R, "diag": diag_a.tolist(), "vec": vec_a.tolist(),
-                     "base": floor, "k": k, "r2": float(r2), "cv": cv,
-                     "ratio_10_2": ratio_10_2, "snr": snr, "verdict": verdict})
-    return rows
+AMPS = LINEARITY_AMPS
 
 
 def fig_response_vs_amp(g: dict, rows: list[dict], out_png: Path) -> None:
@@ -312,12 +254,12 @@ def main() -> int:
                     help="追加章节的标题")
     args = ap.parse_args()
 
-    raw = Path(args.raw_scan) if args.raw_scan else _latest(
+    raw = Path(args.raw_scan) if args.raw_scan else latest_match(
         str(ROOT / "data" / "zernike_correction" / "raw_scan_*.json"))
     if raw is None or not raw.exists():
         print("[FAIL] 未找到 raw_scan json")
         return 1
-    rep_path = Path(args.report) if args.report else _latest(
+    rep_path = Path(args.report) if args.report else latest_match(
         str(ROOT / "data" / "zernike_correction" / "report_*.json"))
     rep = json.loads(rep_path.read_text(encoding="utf-8")) if rep_path else {}
 
@@ -331,8 +273,8 @@ def main() -> int:
     print(f"  raw scan: {raw}")
     print(f"  report  : {rep_path}")
 
-    g = load_groups(raw)
-    rows = analyze(g)
+    g = group_raw_scan(json.loads(raw.read_text(encoding="utf-8")), to_waves=True)
+    rows = analyze_linearity(g)
     ok = [r for r in rows if r["verdict"].startswith("成比例")]
     bad = [r for r in rows if r["verdict"].startswith("**")]
     print(f"[OK] 成比例 {len(ok)}/{len(rows)}; 不成比例 {len(bad)}: "

@@ -457,6 +457,12 @@ python scripts/md_img_pipeline.py --input data/md_test/md_img-80v --skip-diff
 > (naming `generate_*_report.py`), never in `src/ao_shaping/tools/` (reserved for
 > hardware-interaction tools). See `AGENTS.md` anti-patterns.
 
+> **Shared analysis helpers**: `scripts/` report generators in the SLM/Zernike
+> family delegate measurement/analysis logic to
+> `src/ao_shaping/tools/slm/slm_scan_analysis.py` (`outlier_mask`, `clamp_shift`,
+> `parabolic_min`, `latest_match`, `group_raw_scan`, `analyze_linearity`,
+> `LINEARITY_AMPS`) — scripts keep only figure/markdown rendering.
+
 ### generate_zernike_wfs_report.py
 
 Generates the illustrated **Zernike phase → WFS readout distribution** report
@@ -526,6 +532,36 @@ calibration with unrelated scan data.
 Sources default to the latest `data/zernike_response_matrix/zm_*.h5`,
 `data/zernike_correction/report_*.json` and `raw_scan_*.json`; override with
 `--h5`, `--scan-report`, `--raw-scan`.
+
+### generate_zernike_linearity_report.py
+
+Generates the **Zernike response linearity** report — when the Zernike
+coefficient loaded on the SLM grows, does the WFS-read coefficient grow
+proportionally? **Fully offline** — reads saved scan artefacts, no hardware.
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src"
+python scripts/generate_zernike_linearity_report.py
+python scripts/generate_zernike_linearity_report.py -o docs/slm/zernike_linearity
+```
+
+**What it does** (writes `linearity.md` + `figures/`):
+- For every (mode, radius) in the raw scan, takes the WFS coefficient at the
+  **same DLL index** `diag = (z₊[m] − z₋[m])/2` and checks it is proportional to
+  the SLM amplitude A: `diag/A` constant (CV < 15%), through-origin linear fit
+  R² > 0.98, and `diag(A=10)/diag(A=2)` ≈ 5.0 (display only — noisy at A=2)
+- The residual baseline `|z₊ + z₋|/2` is the instability proxy: a combination is
+  judged on linearity only when its response rises above that floor (SNR < 1.5 →
+  `噪声受限`)
+- Verdicts: `成比例` / `成比例 (弱耦合)` / `噪声受限` / `不成比例`
+- Renders `01_response_vs_amplitude.png` (response vs amplitude with linear fit)
+  and `02_ratio_r2.png` (A10/A2 ratio + R² bars, color-coded by verdict)
+- `--append-to <md>` appends the section to an existing report (idempotent —
+  replaces the old section; figure paths recomputed relative to the target)
+
+Sources default to the latest `data/zernike_correction/raw_scan_*.json` and
+`data/zernike_correction/report_*.json`; override with `--raw-scan`, `--report`.
 
 ## Verification Scripts
 
