@@ -15,6 +15,7 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -67,7 +68,7 @@ class CrossEntropyMethod(HeuristicOptimizer):
     
     def optimize(
         self,
-        fitness_fn: callable,
+        fitness_fn: Callable[[np.ndarray], float],
         init_x: np.ndarray | None = None,
     ) -> tuple[np.ndarray, float]:
         """Run Cross-Entropy Method optimization."""
@@ -94,10 +95,6 @@ class CrossEntropyMethod(HeuristicOptimizer):
             
             best_idx = np.argmin(fitness)
             if fitness[best_idx] < (self._best_fitness if self._best_fitness is not None else float('inf')):
-                self._best_solution = samples[best_idx].copy()
-                self._best_fitness = fitness[best_idx]
-            
-            if self._best_fitness is None:
                 self._best_solution = samples[best_idx].copy()
                 self._best_fitness = fitness[best_idx]
             

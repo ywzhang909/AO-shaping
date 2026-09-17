@@ -10,6 +10,7 @@ from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.dm._registry import get_dm_registry
 from ao_shaping.algorithm.adam import AdaMOD, Adam, AdamW, Base, Muno, MunoW, SGD
 from ao_shaping.utils import ImageVoltagesDisplay, logger, Recorder
+from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils.spots_calc import centroid, radius
 from ao_shaping.algorithm.target_func import ImageTargetFunc
 
@@ -223,6 +224,24 @@ def learning_schedule(
     final_delta = base_delta * delta_factor
 
     return final_lr, final_delta
+
+
+def _objective_to_min(objective: str) -> int:
+    """SPGD sign factor for the DM PIB loop.
+
+    ``optimizer.update()`` (Adam/AdaMOD/SGD) returns a *descent* step, so the
+    parameter update ``v - update`` descends whatever gradient it is handed.
+    Maximisation objectives therefore need the negated gradient estimate.
+
+    Returns ``-1`` for objectives to maximise, ``+1`` for objectives to
+    minimise.
+
+    NOTE: this must stay a module-level function. Assigning ``to_min`` inside
+    the nested ``calc_objective`` closures makes it closure-local and silently
+    ineffective -- that mistake (commit 74c7d0f) inverted the PIB objective so
+    the optimizer *minimised* it.
+    """
+    return -1 if objective in ("pib", "avg_radiu") else 1
 
 
 def optimize_pib(
@@ -470,12 +489,11 @@ def optimize_pib(
             def test_pib(img):
                 return target_func.pib(img, IDEAL_SPOT_RADIUS)[1]
 
-            to_min = 1
+            to_min = _objective_to_min(objective)
             if objective == "pib":
 
                 def calc_objective(img):
                     pib, pib_ratio = target_func.pib(img, r_bucket)
-                    to_min = -1
                     return pib, pib_ratio
             elif objective == "radiu":
 
@@ -698,8 +716,14 @@ def optimize_pib(
                     # else:
                     #     pos_j, neg_j = pos_pib, neg_pib
                     pos_j, neg_j = pos_obj, neg_obj
-                    diff = (pos_j - neg_j) * to_min
-                    gradient = diff * disturb_v
+                    # `diff` is kept for logging; the SPGD sign comes from the
+                    # shared helper (optimizer/spgd.py) so it cannot be
+                    # hand-inverted again (this site minimised PIB until the
+                    # to_min fix). Cast to float: bucket sums are unsigned.
+                    diff = (float(pos_j) - float(neg_j)) * to_min
+                    gradient = spgd_gradient(
+                        pos_j, neg_j, disturb_v, maximize=(to_min == -1)
+                    )
                     update = optimizer.update(gradient)
                     _to_update_v = np.clip(_init_v - update, dm.V_Min, dm.V_Max)
                     if dm.check_dm_unit_grad_safe(_to_update_v):
@@ -759,7 +783,11 @@ def optimize_pib(
                         best_objective = float(objective_val)
                         best_j = float(J)
                         best_objective_ratio = float(objective_ratio)
-                        best_v = _init_v.copy()
+                        # objective_val / pos_img were measured on the PERTURBED
+                        # voltages (`_init_v + disturb_v`); saving the clean
+                        # `_init_v` wrote a configuration that was never measured,
+                        # so re-applying it did not reproduce the reported value.
+                        best_v = (_init_v + disturb_v).copy()
                         best_img = pos_img.copy()
                         last_best_epoch = epoch
 

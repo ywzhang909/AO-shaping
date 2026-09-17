@@ -36,7 +36,9 @@ import matplotlib.pylab as plt
 
 from ao_shaping.drivers import CameraStreamManager
 from ao_shaping.drivers.slm import Santec
+from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL
 from ao_shaping.optimizer.wfless.slm_square_shaping import _zernike_indices
+from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils.pattern_helper import PatternHelper
 from ao_shaping.algorithm.adam import AdaMOD, Adam, AdamW, Base, Muno, MunoW, SGD
 from ao_shaping.utils import logger, Recorder
@@ -56,9 +58,20 @@ ADVISE_EXPOSURE_TIME_BRIGHTNESS = int(255 / 3)
 TEST_EXPOSURE_TIME_BRIGHTNESS = 220
 IDEAL_SPOT_RADIUS = int(os.environ.get("IDEAL_SPOT_RADIUS", 6))
 
+# Safety caps for learning_schedule: a single SPGD step must not be able to
+# traverse the Zernike coefficient clip range (+/-5 in the loop). Uncapped the
+# schedule returned lr=6 / delta=5, which saturated the clip every step and
+# diverged on hardware (PIB 0.70 -> 0.08, peak brightness 199 -> 15).
+SCHEDULE_MAX_LR = 1.0
+SCHEDULE_MAX_DELTA = 0.5
+
 # slm parameters
 SLM_RESPONSE_TIME_S = 0.3  # Santec SLM-200 response time ~300ms
-SLM_RESET_ON_EXIT = True  # Reset SLM to flat phase on exit
+# On exit, leave the best-found phase on the SLM. The candidate set includes
+# the initial (flat when starting from zeros, or a loaded) phase: if the search
+# never improved on it, that phase is restored instead. Set False to skip
+# touching the SLM on exit.
+SLM_APPLY_BEST_ON_EXIT = True
 
 # SLM resolution (from Santec.Panel_Res = (1920, 1200))
 SLM_WIDTH = 1920
@@ -86,10 +99,50 @@ def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs) -> Bas
     return optimizer_cls(dim, lr=lr, **filtered_kwargs)
 
 
+ZERNIKE_APERTURE_RADIUS = 300.0
+"""Aperture radius (px) the Zernike phase is defined over.
+
+Must match the illuminated beam radius on the SLM. The panel is 1920x1200, so
+PatternHelper's default is half the short side = 600 px; this bench's beam
+radius is only ~300 px. With a 600 px aperture only the inner half of the
+polynomial lands on the beam, so every mode is nearly CONSTANT across the
+illuminated area -- and a constant phase does not change the far field, i.e.
+the correction silently does nothing (hardware-verified: flat vs a 2 rad
+defocus were indistinguishable until this was matched).
+"""
+
+
+# Memory-slot range used for phase writes (never repeat a slot consecutively).
+_SLOT_MIN, _SLOT_MAX = 2, 125
+_SLOT_STATE = {"slot": _SLOT_MIN - 1}
+
+
+def _display(slm, gray) -> int:
+    """Display ``gray`` on a **rotating explicit memory slot**.
+
+    ``slm.display_data(gray)`` (default slot handling) produced NO optical effect
+    on this bench: verified on BOTH cameras, a 5 rad tilt did not move the spot
+    and a uniform 0 vs 900 changed nothing. ``slm.display_data(gray,
+    memory_number=<distinct slot>, memory_mode=MEMORY_MODE_INTERNAL)`` -- the
+    mechanism ``tools/slm/slm_diagnose.py`` uses -- does refresh the LCOS. Since
+    writing the *same* slot twice is a firmware no-op, slots are rotated.
+    """
+    _SLOT_STATE["slot"] = (
+        _SLOT_MIN if _SLOT_STATE["slot"] >= _SLOT_MAX else _SLOT_STATE["slot"] + 1
+    )
+    slm.display_data(
+        gray,
+        memory_number=_SLOT_STATE["slot"],
+        memory_mode=MEMORY_MODE_INTERNAL,
+    )
+    return _SLOT_STATE["slot"]
+
+
 def _zernike_to_phase(
     coeffs: np.ndarray,
     n_max: int,
     pattern_helper: PatternHelper,
+    radius: float | None = None,
 ) -> np.ndarray:
     """Convert a flat Zernike coefficient array to a radian phase pattern.
 
@@ -113,6 +166,7 @@ def _zernike_to_phase(
     return pattern_helper.generate_zernike_polynomial(
         n_max=n_max,
         coefficients=coeffs_dict,
+        radius=ZERNIKE_APERTURE_RADIUS if radius is None else radius,
     )
 
 
@@ -149,9 +203,12 @@ def learning_schedule(
     else:
         base_lr, base_delta = 6, 5
 
-    # If no convergence history, return base parameters directly
+    # If no convergence history, return base parameters directly (still capped)
     if gradient_history is None or pib_history is None or len(gradient_history) < 5:
-        return base_lr, base_delta
+        return (
+            min(base_lr, SCHEDULE_MAX_LR),
+            min(base_delta, SCHEDULE_MAX_DELTA),
+        )
 
     # Convergence state detection
     recent_grads = (
@@ -213,8 +270,8 @@ def learning_schedule(
     lr_factor = np.clip(lr_factor, 0.2, 2.0)
     delta_factor = np.clip(delta_factor, 0.3, 2.5)
 
-    final_lr = base_lr * lr_factor
-    final_delta = base_delta * delta_factor
+    final_lr = min(base_lr * lr_factor, SCHEDULE_MAX_LR)
+    final_delta = min(base_delta * delta_factor, SCHEDULE_MAX_DELTA)
 
     return final_lr, final_delta
 
@@ -239,6 +296,9 @@ def optimize_slm_zernike_pib(
     optimizer_type: str = "adamod",
     random_seed: int | None = None,
     objective: str = "pib",
+    zernike_radius: float = ZERNIKE_APERTURE_RADIUS,
+    shift_x: int | None = 0,
+    shift_y: int | None = 0,
     **kwargs,
 ):
     """Optimize PIB (Power in Bucket) using SLM with Zernike coefficient control.
@@ -304,7 +364,12 @@ def optimize_slm_zernike_pib(
         CameraStreamManager(
             cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
         ) as cam,
-        Santec(slm_number=slm_number, wavelength=slm_wavelength) as slm,
+        Santec(
+            slm_number=slm_number,
+            wavelength=slm_wavelength,
+            shift_x=shift_x,
+            shift_y=shift_y,
+        ) as slm,
     ):
         # Initialize Zernike coefficients
         if init_c is None or len(init_c) == 0:
@@ -320,9 +385,9 @@ def optimize_slm_zernike_pib(
 
         # Reset SLM to flat phase
         initial_phase = slm.create_phase_from_array(
-            _zernike_to_phase(_init_c, n_max, pattern_helper)
+            _zernike_to_phase(_init_c, n_max, pattern_helper, zernike_radius)
         )
-        slm.display_data(initial_phase)
+        _display(slm, initial_phase)
         time.sleep(SLM_RESPONSE_TIME_S)
 
         # Auto-exposure for initial image
@@ -432,6 +497,10 @@ def optimize_slm_zernike_pib(
 
         to_min = 1
         if objective == "pib":
+            # Maximize PIB: negate the SPGD estimate so `_init_c - update`
+            # ascends the objective. Same convention as pib.py's intended
+            # `to_min = -1`; without this flip the loop minimizes PIB.
+            to_min = -1
 
             def calc_objective(img):
                 pib, pib_ratio = target_func.pib(img, r_bucket)
@@ -444,6 +513,8 @@ def optimize_slm_zernike_pib(
 
             calc_objective = calc_objective_radiu
         elif objective == "avg_radiu":
+            # Maximize average radius: same sign flip as PIB.
+            to_min = -1
 
             def calc_objective_avg(img):
                 return target_func.avg_radius(img, moment=1.0)
@@ -469,7 +540,14 @@ def optimize_slm_zernike_pib(
                 epoch=0,
             )
 
-        best_objective = float(test_pib(init_img))
+        # Track the objective's OWN value. For "pib" that is the exposure-
+        # independent bucket ratio (matches the logged column); for the other
+        # objectives it is the value the gradient uses -- e.g. the encircle
+        # radius, which must be MINIMISED (a `>` comparison would keep the worst).
+        best_objective = float(test_pib(init_img)) if objective == "pib" else float(j)
+        # Baseline objective of the initial phase (flat when ``init_c`` is
+        # empty). Used on exit to decide between the best phase and flat.
+        _initial_objective = best_objective
         best_j = float(j)
         best_objective_ratio = float(pib_ratio)
         best_c = _init_c.copy()
@@ -479,7 +557,7 @@ def optimize_slm_zernike_pib(
         recorder.append(
             {
                 "J": j,
-                objective: test_pib(init_img),
+                objective: best_objective,
                 "_p%": pib_ratio,
                 "_max_r": _init_r,
                 "_c": _init_c,
@@ -508,9 +586,9 @@ def optimize_slm_zernike_pib(
                 # Positive perturbation
                 _pos_c = np.clip(_init_c + disturb_c, -5.0, 5.0)
                 pos_phase = slm.create_phase_from_array(
-                    _zernike_to_phase(_pos_c, n_max, pattern_helper)
+                    _zernike_to_phase(_pos_c, n_max, pattern_helper, zernike_radius)
                 )
-                slm.display_data(pos_phase)
+                _display(slm, pos_phase)
                 time.sleep(SLM_RESPONSE_TIME_S)
                 pos_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
                 pos_obj, pos_obj_ratio = calc_objective(pos_img)
@@ -518,9 +596,9 @@ def optimize_slm_zernike_pib(
                 # Negative perturbation
                 _neg_c = np.clip(_init_c - disturb_c, -5.0, 5.0)
                 neg_phase = slm.create_phase_from_array(
-                    _zernike_to_phase(_neg_c, n_max, pattern_helper)
+                    _zernike_to_phase(_neg_c, n_max, pattern_helper, zernike_radius)
                 )
-                slm.display_data(neg_phase)
+                _display(slm, neg_phase)
                 time.sleep(SLM_RESPONSE_TIME_S)
                 neg_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
                 neg_obj, neg_obj_ratio = calc_objective(neg_img)
@@ -534,16 +612,26 @@ def optimize_slm_zernike_pib(
                     optimizer.scale_momentum(np.sum(_resample_img) / np.sum(pos_img))
 
                 pos_j, neg_j = pos_obj, neg_obj
-                diff = (pos_j - neg_j) * to_min
-                gradient = diff * disturb_c
+                # `diff` is kept for logging; the SPGD sign comes from the
+                # shared helper (optimizer/spgd.py) so it cannot be
+                # hand-inverted again (this site maximised/minimised the wrong
+                # way until the to_min fix). Cast to float: bucket sums are
+                # unsigned.
+                diff = (float(pos_j) - float(neg_j)) * to_min
+                gradient = spgd_gradient(
+                    pos_j, neg_j, disturb_c, maximize=(to_min == -1)
+                )
                 update = optimizer.update(gradient)
                 _to_update_c = np.clip(_init_c - update, -5.0, 5.0)
                 _init_c = _to_update_c
 
-                objective_val, objective_ratio = (
-                    test_pib(pos_img),
-                    (pos_obj_ratio + neg_obj_ratio) / 2,
+                # Value logged under the objective's own name and used by the
+                # Recorder to pick its best row: the bucket ratio for "pib",
+                # otherwise the objective the gradient optimises (e.g. radius).
+                objective_val = (
+                    float(test_pib(pos_img)) if objective == "pib" else float(pos_j)
                 )
+                objective_ratio = (pos_obj_ratio + neg_obj_ratio) / 2
                 J = (pos_j + neg_j) / 2
 
                 # Bucket radius shrink
@@ -577,12 +665,22 @@ def optimize_slm_zernike_pib(
                             epoch=epoch,
                         )
 
-                # Track best result
-                if objective_val > best_objective + 1e-4:
+                # Track best result in the objective's own direction.
+                improved = (
+                    objective_val > best_objective + 1e-4
+                    if objective_mode == "max"
+                    else objective_val < best_objective - 1e-4
+                )
+                if improved:
                     best_objective = float(objective_val)
                     best_j = float(J)
                     best_objective_ratio = float(objective_ratio)
-                    best_c = _init_c.copy()
+                    # objective_val / pos_img were measured on the PERTURBED
+                    # phase `_pos_c`, so the saved coefficients must be `_pos_c`
+                    # too. Saving the clean `_init_c` made `save_best` write a
+                    # configuration that was never measured -- re-applying it
+                    # did not reproduce the reported metric (hardware-verified).
+                    best_c = _pos_c.copy()
                     best_img = pos_img.copy()
                     last_best_epoch = epoch
 
@@ -607,9 +705,37 @@ def optimize_slm_zernike_pib(
                 bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
                 bar.update(1)
 
-        # Reset SLM to flat phase on exit
-        if SLM_RESET_ON_EXIT:
-            slm.set_grayscale(0)
+        # On exit, leave the SLM at the best phase found. The initial (flat or
+        # loaded) phase is one of the candidates: if the search never improved
+        # on it, restore that instead of a worse "best".
+        if SLM_APPLY_BEST_ON_EXIT:
+            improved = (
+                best_objective > _initial_objective + 1e-4
+                if objective_mode == "max"
+                else best_objective < _initial_objective - 1e-4
+            )
+            if improved:
+                best_phase = slm.create_phase_from_array(
+                    _zernike_to_phase(best_c, n_max, pattern_helper, zernike_radius)
+                )
+                _display(slm, best_phase)
+                time.sleep(SLM_RESPONSE_TIME_S)
+                logger.info(
+                    "SLM left at best {} phase: {:.4f} @ epoch {} "
+                    "(initial {:.4f})",
+                    objective,
+                    best_objective,
+                    last_best_epoch,
+                    _initial_objective,
+                )
+            else:
+                slm.set_grayscale(0)
+                logger.info(
+                    "No {} improvement over the initial phase ({:.4f}); "
+                    "SLM left at flat",
+                    objective,
+                    _initial_objective,
+                )
 
         return recorder
 

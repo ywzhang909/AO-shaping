@@ -32,6 +32,8 @@ from typing import Callable, Protocol
 
 import numpy as np
 
+from ao_shaping.algorithm.heuristic_base import HeuristicOptimizer, OptimizerConfig
+
 
 class FitnessFunction(Protocol):
     """Protocol for fitness function."""
@@ -165,7 +167,7 @@ class GAHistory:
     best_individual: np.ndarray | None = None
 
 
-class GeneticAlgorithm:
+class GeneticAlgorithm(HeuristicOptimizer):
     """Genetic Algorithm optimizer for continuous optimization.
     
     Attributes:
@@ -191,6 +193,12 @@ class GeneticAlgorithm:
         self.params = params if params is not None else GAParams()
         self.rng = random_state if random_state is not None else np.random.default_rng()
         self.history = GAHistory()
+        super().__init__(
+            dim=dim,
+            config=OptimizerConfig(n_iterations=self.params.n_generations, bounds=self.params.bounds),
+            random_state=random_state,
+        )
+        self._convergence_history = self.history.best_fitness
         
     def _initialize_population(self, init_x: np.ndarray | None = None) -> np.ndarray:
         """Initialize population.
@@ -331,11 +339,14 @@ class GeneticAlgorithm:
                 callback(gen, best_individual.copy(), best_fitness)
             
             # Early stopping
-            if early_stop_threshold is not None and best_fitness < early_stop_threshold:
+            threshold = self.config.early_stop_threshold if early_stop_threshold is None else early_stop_threshold
+            if threshold is not None and best_fitness < threshold:
                 break
         
         # Store final best
         self.history.best_individual = best_individual.copy()
+        self._best_solution = best_individual.copy()
+        self._best_fitness = best_fitness
         
         return best_individual.copy(), best_fitness
     

@@ -1147,6 +1147,19 @@ class Santec:
         self._displayed_phase_cache = phase.copy()
         logger.debug("相位数据显示")
 
+    def _read_displayed_slot_safe(self) -> int | None:
+        """Best-effort read of the currently displayed memory slot.
+
+        Returns ``None`` when unavailable — reading the slot raises error code 1
+        in ``set_grayscale`` mode, which is normal there (no memory slot is
+        being displayed).
+        """
+        try:
+            slot = self.get_displayed_memory_number()
+        except Exception:  # noqa: BLE001 - error code 1 is normal outside memory mode
+            return None
+        return int(slot) if isinstance(slot, int) else None
+
     def display_data(
         self,
         phase_gray: np.ndarray,
@@ -1189,10 +1202,22 @@ class Santec:
                 self._current_memory_slot = (
                     self._current_memory_slot + 1
                 ) % MAX_MEM_SLOTS
-                self._write_phase(
-                    phase_gray, self._current_memory_slot + 1, memory_mode
-                )
-                self._display_memory(self._current_memory_slot + 1)
+                target_slot = self._current_memory_slot + 1
+                # display_memory(slot) is a firmware NO-OP when that slot is
+                # already displayed. `_current_memory_slot` is a process-local
+                # counter (seeded to 1 at construction, NOT read from the
+                # device), so the first write after open can collide with
+                # whatever the panel is showing — e.g. a phase left there by
+                # another process/GUI — and silently do nothing. Skip the
+                # displayed slot so the rotation is guaranteed to change it.
+                displayed = self._read_displayed_slot_safe()
+                if displayed is not None and target_slot == displayed:
+                    self._current_memory_slot = (
+                        self._current_memory_slot + 1
+                    ) % MAX_MEM_SLOTS
+                    target_slot = self._current_memory_slot + 1
+                self._write_phase(phase_gray, target_slot, memory_mode)
+                self._display_memory(target_slot)
 
         if wait_time_s is None or wait_time_s < 0:
             wait_time_s = self._estimate_pixel_flip_wait(phase_gray, prev_phase)

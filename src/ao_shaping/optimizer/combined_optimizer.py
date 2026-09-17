@@ -24,6 +24,7 @@ from ao_shaping.drivers import CameraStreamManager
 from ao_shaping.drivers.dm._registry import get_dm_registry
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.utils import ImageVoltagesDisplay, Recorder, logger
+from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils.spots_calc import (
     centroid,
     pib_ratio_mask,
@@ -369,7 +370,9 @@ def optimize_pib(
                         pib_scaler = avg_brightness / max(np.max(_resampled_img), 1)
 
                     diff = pos_j - neg_j
-                    gradient = -diff * disturb_v
+                    # SPGD sign from the shared helper (optimizer/spgd.py):
+                    # PIB is maximised.
+                    gradient = spgd_gradient(pos_j, neg_j, disturb_v, maximize=True)
                     update = optimizer.update(gradient)
                     _to_update_v = np.clip(
                         _init_v - update,

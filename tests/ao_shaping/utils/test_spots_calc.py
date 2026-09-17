@@ -7,8 +7,22 @@ from scipy.ndimage import center_of_mass
 try:
     import cupy as cp
     CUPY_AVAILABLE = cp.cuda.is_available()
-except (ImportError, AttributeError):
+    CUPY_UNAVAILABLE_REASON = None
+except ImportError as exc:
+    cp = None
     CUPY_AVAILABLE = False
+    CUPY_UNAVAILABLE_REASON = (
+        f"CuPy is not installed in the active Python environment ({exc})"
+    )
+except Exception as exc:
+    cp = None
+    CUPY_AVAILABLE = False
+    CUPY_UNAVAILABLE_REASON = (
+        f"CuPy initialization failed ({type(exc).__name__}: {exc})"
+    )
+else:
+    if not CUPY_AVAILABLE:
+        CUPY_UNAVAILABLE_REASON = "No CUDA-capable GPU detected by CuPy"
 
 from ao_shaping.utils.spots_calc import (
     calculate_sharpness,
@@ -236,9 +250,9 @@ class TestCentroid:
         center = (50, 50)
         sigma = 10.0
         intensity = self._create_gaussian_2d((size, size), center, sigma)
-        
+
         cx, cy = centroid(intensity, return_float=True)
-        
+
         # 验证质心与高斯中心基本一致 (误差小于1像素)
         assert abs(cx - center[0]) < 1.0, f"x质心={cx}, 期望={center[0]}"
         assert abs(cy - center[1]) < 1.0, f"y质心={cy}, 期望={center[1]}"
@@ -249,9 +263,9 @@ class TestCentroid:
         center = (30, 70)
         sigma = 8.0
         intensity = self._create_gaussian_2d((size, size), center, sigma)
-        
+
         cx, cy = centroid(intensity, return_float=True)
-        
+
         # 验证质心与高斯中心基本一致 (误差小于1像素)
         assert abs(cx - center[0]) < 1.0, f"x质心={cx}, 期望={center[0]}"
         assert abs(cy - center[1]) < 1.0, f"y质心={cy}, 期望={center[1]}"
@@ -262,20 +276,20 @@ class TestCentroid:
         size = 100
         center = (45, 55)
         sigma = 12.0
-        
+
         # 创建高斯分布
         intensity = self._create_gaussian_2d((size, size), center, sigma)
-        
+
         # 添加高斯噪声
         noise_level = 0.05  # 噪声水平
         noise = np.random.normal(0, noise_level, (size, size))
         intensity = intensity + noise
-        
+
         # 确保没有负值
         intensity = np.clip(intensity, 0, None)
-        
+
         cx, cy = centroid(intensity, return_float=True)
-        
+
         # 验证质心与高斯中心基本一致 (误差小于2像素)
         assert abs(cx - center[0]) < 2.0, f"x质心={cx}, 期望={center[0]}"
         assert abs(cy - center[1]) < 2.0, f"y质心={cy}, 期望={center[1]}"
@@ -286,20 +300,20 @@ class TestCentroid:
         size = 120
         center = (60, 60)
         sigma = 15.0
-        
+
         # 创建高斯分布
         intensity = self._create_gaussian_2d((size, size), center, sigma)
-        
+
         # 添加较大高斯噪声
         noise_level = 0.1  # 较高的噪声水平
         noise = np.random.normal(0, noise_level, (size, size))
         intensity = intensity + noise
-        
+
         # 确保没有负值
         intensity = np.clip(intensity, 0, None)
-        
+
         cx, cy = centroid(intensity, return_float=True)
-        
+
         # 验证质心与高斯中心基本一致 (误差小于3像素)
         assert abs(cx - center[0]) < 3.0, f"x质心={cx}, 期望={center[0]}"
         assert abs(cy - center[1]) < 3.0, f"y质心={cy}, 期望={center[1]}"
@@ -310,9 +324,9 @@ class TestCentroid:
         center = (40, 60)
         sigma = 5.0  # 较小的sigma
         intensity = self._create_gaussian_2d((size, size), center, sigma)
-        
+
         cx, cy = centroid(intensity, return_float=True)
-        
+
         # 窄高斯应该更精确
         assert abs(cx - center[0]) < 0.5, f"x质心={cx}, 期望={center[0]}"
         assert abs(cy - center[1]) < 0.5, f"y质心={cy}, 期望={center[1]}"
@@ -323,9 +337,9 @@ class TestCentroid:
         center = (50, 50)
         sigma = 30.0  # 较大的sigma
         intensity = self._create_gaussian_2d((size, size), center, sigma)
-        
+
         cx, cy = centroid(intensity, return_float=True)
-        
+
         # 宽高斯质心应该仍然准确
         assert abs(cx - center[0]) < 1.0, f"x质心={cx}, 期望={center[0]}"
         assert abs(cy - center[1]) < 1.0, f"y质心={cy}, 期望={center[1]}"
@@ -336,12 +350,12 @@ class TestCentroid:
         center = (50, 50)
         sigma = 10.0
         intensity = self._create_gaussian_2d((size, size), center, sigma)
-        
+
         # 添加背景噪声
         intensity = intensity + 0.1
-        
+
         cx, cy = centroid(intensity, threshold=0.1, return_float=True)
-        
+
         # 使用threshold后应该忽略低于阈值的部分
         assert abs(cx - center[0]) < 2.0, f"x质心={cx}, 期望={center[0]}"
         assert abs(cy - center[1]) < 2.0, f"y质心={cy}, 期望={center[1]}"
@@ -352,9 +366,9 @@ class TestCentroid:
         center = (50, 50)
         sigma = 10.0
         intensity = self._create_gaussian_2d((size, size), center, sigma)
-        
+
         cx, cy = centroid(intensity, return_float=False)
-        
+
         # 验证返回整数
         assert isinstance(cx, int)
         assert isinstance(cy, int)
@@ -368,10 +382,10 @@ class TestCentroid:
         center = (50, 50)
         sigma = 10.0
         intensity = self._create_gaussian_2d((size, size), center, sigma)
-        
+
         # 测试moment=2
         cx, cy = centroid(intensity, moment=2, return_float=True)
-        
+
         # moment=2时质心应该更接近峰值中心
         assert abs(cx - center[0]) < 1.0, f"x质心={cx}, 期望={center[0]}"
         assert abs(cy - center[1]) < 1.0, f"y质心={cy}, 期望={center[1]}"
@@ -382,15 +396,15 @@ class TestCentroid:
         center = (75, 80)
         sigma = 15.0
         np.random.seed(456)
-        
+
         intensity = self._create_gaussian_2d((size, size), center, sigma)
-        
+
         # 添加噪声
         noise = np.random.normal(0, 0.03, (size, size))
         intensity = np.clip(intensity + noise, 0, None)
-        
+
         cx, cy = centroid(intensity, return_float=True)
-        
+
         assert abs(cx - center[0]) < 2.0, f"x质心={cx}, 期望={center[0]}"
         assert abs(cy - center[1]) < 2.0, f"y质心={cy}, 期望={center[1]}"
 
@@ -400,15 +414,15 @@ class TestCentroid:
         center = (100, 100)
         sigma = 20.0
         np.random.seed(789)
-        
+
         intensity = self._create_gaussian_2d((size, size), center, sigma)
-        
+
         # 添加噪声
         noise = np.random.normal(0, 0.02, (size, size))
         intensity = np.clip(intensity + noise, 0, None)
-        
+
         cx, cy = centroid(intensity, return_float=True)
-        
+
         assert abs(cx - center[0]) < 2.0, f"x质心={cx}, 期望={center[0]}"
         assert abs(cy - center[1]) < 2.0, f"y质心={cy}, 期望={center[1]}"
 
@@ -479,6 +493,29 @@ class TestRadius:
         radius_val = radius(psf, center=None, energy=0.5, use_aotools=True)
         assert radius_val > 0
 
+    def test_radius_non_square_roi_crops_instead_of_crashing(self):
+        """Non-square ROI must not break aotools encircled_energy.
+
+        aotools builds a square pupil mask, so a non-square frame (e.g. Daheng
+        quantises width to 4 and height to 2, turning 250 into 248x250) raised a
+        broadcast ValueError. The guard crops to the largest square centred on
+        the spot; the result must stay close to the square-ROI reference.
+        """
+        x = np.linspace(-10, 10, 100)
+        y = np.linspace(-10, 10, 100)
+        xx, yy = np.meshgrid(x, y)
+        psf = np.exp(-(xx**2 + yy**2) / 5)
+
+        non_square = psf[:, :-2]  # (100, 98)
+        assert non_square.shape[0] != non_square.shape[1]
+
+        r_non_square = radius(non_square, center=(49, 50), energy=0.5, use_aotools=True)
+        r_square = radius(psf, center=(50, 50), energy=0.5, use_aotools=True)
+
+        assert np.isfinite(r_non_square)
+        assert r_non_square > 0
+        assert abs(r_non_square - r_square) < 5.0
+
 
 class TestEffectiveRadius:
     def test_effective_radius(self):
@@ -542,6 +579,7 @@ class TestPerformance:
         xv, yv = np.meshgrid(np.arange(100), np.arange(100))
 
         results = {}
+        cupy_reasons = {}
 
         # Test calculate_sharpness
         def time_func(func, *args, n=100):
@@ -568,8 +606,10 @@ class TestPerformance:
                 results['calculate_sharpness_cupy'] = time_func(calculate_sharpness_cupy, img_cp)
             else:
                 results['calculate_sharpness_cupy'] = 'N/A'
-        except Exception:
+                cupy_reasons['calculate_sharpness'] = CUPY_UNAVAILABLE_REASON
+        except Exception as exc:
             results['calculate_sharpness_cupy'] = 'N/A'
+            cupy_reasons['calculate_sharpness'] = f"{type(exc).__name__}: {exc}"
 
         # Test crop
         crop(img, 10)  # warmup
@@ -584,8 +624,10 @@ class TestPerformance:
                 results['crop_cupy'] = time_func(crop_cupy, img_cp, 10)
             else:
                 results['crop_cupy'] = 'N/A'
-        except Exception:
+                cupy_reasons['crop'] = CUPY_UNAVAILABLE_REASON
+        except Exception as exc:
             results['crop_cupy'] = 'N/A'
+            cupy_reasons['crop'] = f"{type(exc).__name__}: {exc}"
 
         # Test center_of_mass
         centroid(img)  # warmup
@@ -603,8 +645,10 @@ class TestPerformance:
                 results['center_of_mass_cupy'] = time_func(center_of_mass_cupy, img_cp, xv_cp, yv_cp)
             else:
                 results['center_of_mass_cupy'] = 'N/A'
-        except Exception:
+                cupy_reasons['center_of_mass'] = CUPY_UNAVAILABLE_REASON
+        except Exception as exc:
             results['center_of_mass_cupy'] = 'N/A'
+            cupy_reasons['center_of_mass'] = f"{type(exc).__name__}: {exc}"
 
         # Test center_of_brightness
         center_of_brightness(img)  # warmup
@@ -620,8 +664,10 @@ class TestPerformance:
                 results['center_of_brightness_cupy'] = time_func(center_of_brightness_cupy, img_cp)
             else:
                 results['center_of_brightness_cupy'] = 'N/A'
-        except Exception:
+                cupy_reasons['center_of_brightness'] = CUPY_UNAVAILABLE_REASON
+        except Exception as exc:
             results['center_of_brightness_cupy'] = 'N/A'
+            cupy_reasons['center_of_brightness'] = f"{type(exc).__name__}: {exc}"
 
         # Generate markdown
         markdown = "# Performance Comparison\n\n"
@@ -640,6 +686,18 @@ class TestPerformance:
             numba_time = results.get(f'{func}_numba', 'N/A')
             cupy_time = results.get(f'{func}_cupy', 'N/A')
             markdown += f"| {func} | {numpy_time} | {numba_time} | {cupy_time} |\n"
+
+        markdown += "\n### CuPy availability\n\n"
+        na_reasons = [
+            (func, cupy_reasons.get(func, "CuPy benchmark unavailable"))
+            for func in functions
+            if results.get(f"{func}_cupy") == 'N/A'
+        ]
+        if na_reasons:
+            for func, reason in na_reasons:
+                markdown += f"- `{func}`: {reason}\n"
+        else:
+            markdown += "- No CuPy benchmark returned N/A.\n"
 
         print(markdown)
         # Save to docs/performance_comparison.md (repo-root based, CWD-independent)

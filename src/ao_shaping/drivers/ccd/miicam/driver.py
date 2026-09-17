@@ -157,9 +157,23 @@ class CameraStreamManager(BaseCamera):
         self._capture_mode = capture_mode
         self._callback_mode_active: bool = False
 
+        # Exposure limits (ms) - from SDK hardware constraints
+        self._min_exposure_ms = 0.011
+        self._max_exposure_ms = 10000.0
+
         # Helper objects (initialized after cam is opened)
         self._callback_session: _CallbackSession | None = None
         self._frame_puller: _FramePuller | None = None
+
+    @property
+    def min_exposure_ms(self) -> float:
+        """Minimum exposure time in milliseconds."""
+        return self._min_exposure_ms
+
+    @property
+    def max_exposure_ms(self) -> float:
+        """Maximum exposure time in milliseconds."""
+        return self._max_exposure_ms
 
     # =========================================================================
     # Context manager / lifecycle
@@ -591,6 +605,8 @@ class CameraStreamManager(BaseCamera):
 
         if size == (0, 0):
             width, height = self.cam.get_Resolution(0)
+            x_offset = 0
+            y_offset = 0
         else:
             width, height = int(size[0]), int(size[1])
             x_offset = max(0, center[0] - (width // 2))
@@ -823,9 +839,7 @@ class CameraStreamManager(BaseCamera):
         max_retries = 2
         for attempt in range(max_retries):
             try:
-                self.cam.WaitImageV3(
-                    timeout_ms, buffer, 0, bits, 0, frame_info
-                )
+                self.cam.WaitImageV3(timeout_ms, buffer, 0, bits, 0, frame_info)
                 break
             except miicam.HRESULTException as e:
                 hr = getattr(e, "hr", 0)

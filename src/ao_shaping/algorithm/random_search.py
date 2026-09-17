@@ -15,6 +15,7 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -44,7 +45,7 @@ class RandomSearch(HeuristicOptimizer):
     
     def optimize(
         self,
-        fitness_fn: callable,
+        fitness_fn: Callable[[np.ndarray], float],
         init_x: np.ndarray | None = None,
     ) -> tuple[np.ndarray, float]:
         """Run Random Search optimization."""

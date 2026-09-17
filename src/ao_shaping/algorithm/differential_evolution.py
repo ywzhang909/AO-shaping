@@ -15,6 +15,7 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -62,15 +63,17 @@ class DifferentialEvolution(HeuristicOptimizer):
             )
         
         self.de_config = de_config
+        if self.de_config.pop_size < 4:
+            raise ValueError(f"pop_size must be >= 4 for DE, got {self.de_config.pop_size}")
         self._population: np.ndarray | None = None
     
     def optimize(
         self,
-        fitness_fn: callable,
+        fitness_fn: Callable[[np.ndarray], float],
         init_x: np.ndarray | None = None,
     ) -> tuple[np.ndarray, float]:
         """Run Differential Evolution optimization."""
-        pop_size = max(10, self.de_config.pop_size)
+        pop_size = self.de_config.pop_size
         
         self._population = self.rng.uniform(
             self.config.bounds[0],

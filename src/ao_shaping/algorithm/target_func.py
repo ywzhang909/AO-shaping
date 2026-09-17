@@ -152,7 +152,14 @@ class ImageTargetFunc:
         # intensity 复制扩展成3D 与 masks 维度一致
         intensity_3d = np.repeat(intensity[np.newaxis, ...], len(self.masks), axis=0)
         power_in_masks = np.sum(intensity_3d * self.masks, axis=(1, 2))
-        return int(np.argmax(power_in_masks >= power_in_circle) + 1)
+        reached = np.flatnonzero(power_in_masks >= power_in_circle)
+        if reached.size == 0:
+            # The requested energy fraction is unreachable within the mask
+            # range (broad beam / background floor). ``np.argmax`` on an
+            # all-False array returns 0, which silently reported radius=1 and
+            # collapsed callers' bucket radius. Saturate to the largest mask.
+            return int(len(self.masks))
+        return int(reached[0] + 1)
 
     def __get_bucket_mask(self, radius):
         assert 0 < radius < len(self.masks), f"Radius {radius} out of range"

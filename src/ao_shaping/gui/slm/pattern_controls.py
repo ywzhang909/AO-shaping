@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import io
+import platform
+import sys
 from abc import ABC, abstractmethod
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Callable, ClassVar
 
 import numpy as np
@@ -21,6 +25,89 @@ from ao_shaping.utils.targets import (
     compute_square_side,
 )
 from ao_shaping.utils.zernike_calc import get_zernike_name
+
+
+def _pyarrow_version() -> str | None:
+    """Version of the importable ``pyarrow``, or ``None`` when it is broken."""
+    try:
+        import pyarrow
+    except ImportError:
+        return None
+    return str(getattr(pyarrow, "__version__", "未知"))
+
+
+@lru_cache(maxsize=1)
+def _data_editor_capability() -> tuple[bool, str]:
+    """Probe whether ``st.data_editor`` can run — returns ``(available, reason)``.
+
+    ``st.data_editor`` imports pyarrow lazily *inside* the widget call.  When
+    pyarrow is missing or built for another Python minor version (e.g. a
+    ``cp313`` wheel left in a ``cp314`` site-packages), that import raises
+    ``ModuleNotFoundError`` from within the widget, which aborts the whole
+    Streamlit script run — every element after the crashing widget disappears
+    and the page looks like it "exited" by itself.  Probes the capability once,
+    before any widget is called, so the control can fall back to plain
+    pyarrow-free widgets instead of taking the page down.
+
+    The returned ``reason`` is the exact import failure (empty when available)
+    and is surfaced in the control's debug panel so the cause is locatable.
+    """
+    try:
+        import pyarrow  # noqa: F401
+    except ImportError as exc:
+        reason = f"{type(exc).__name__}: {exc}"
+        logger.warning(
+            "st.data_editor 不可用 (pyarrow 导入失败: {}) — Zernike 系数回退为逐项输入控件",
+            reason,
+        )
+        return False, reason
+    logger.debug("st.data_editor 可用 (pyarrow {})", _pyarrow_version())
+    return True, ""
+
+
+def _pyarrow_diagnostics() -> list[tuple[str, str]]:
+    """``(label, value)`` rows pinpointing *why* pyarrow is unusable.
+
+    Separates "not installed" from "installed for another Python minor
+    version": the latter leaves e.g. ``lib.cp313-win_amd64.pyd`` in a ``cp314``
+    interpreter, whose import machinery only accepts ``.cp314-win_amd64.pyd``
+    and therefore reports ``ModuleNotFoundError: No module named
+    'pyarrow.lib'`` even though the package directory is present.
+    """
+    import importlib.machinery
+    import importlib.util
+
+    available, reason = _data_editor_capability()
+    rows: list[tuple[str, str]] = [
+        (
+            "系数编辑器",
+            "st.data_editor (系数表)" if available else "st.number_input (逐项回退)",
+        ),
+        ("pyarrow", _pyarrow_version() or f"导入失败 — {reason}"),
+        ("Python", f"{platform.python_version()} @ {sys.executable}"),
+        ("Streamlit", st.__version__),
+    ]
+    if available:
+        return rows
+
+    try:
+        spec = importlib.util.find_spec("pyarrow")
+    except (ImportError, ValueError):
+        spec = None
+    package_dir = (
+        Path(spec.origin).parent if spec is not None and spec.origin else None
+    )
+    rows.append(("pyarrow 包目录", str(package_dir) if package_dir else "未找到"))
+    if package_dir is not None and package_dir.is_dir():
+        binaries = sorted(p.name for p in package_dir.glob("lib*.pyd"))
+        rows.append(("已安装 lib*.pyd", ", ".join(binaries) or "无"))
+    rows.append(
+        ("解释器接受的扩展后缀", ", ".join(importlib.machinery.EXTENSION_SUFFIXES))
+    )
+    rows.append(
+        ("修复命令", "pip install --force-reinstall --only-binary :all: pyarrow")
+    )
+    return rows
 
 
 class PatternControl(ABC):
@@ -768,34 +855,49 @@ class ZernikeControl(PatternControl):
         "radius": (1, 2000),
     }
 
+    #: Bounds (radians) for the coefficient inputs — both editor variants share
+    #: them; 峰值相位差远低于此范围, 仅防止误输入导致的失控幅度.
+    COEFF_MIN: ClassVar[float] = -100.0
+    COEFF_MAX: ClassVar[float] = 100.0
+
+    #: Coefficients laid out per row in the pyarrow-free fallback editor.
+    COEFF_COLUMNS: ClassVar[int] = 3
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.defaults.update(radius=self.default_radius)
 
-    def render(self, prefix: str | None = None) -> dict[str, Any]:
-        prefix = prefix or self.prefix
-        n_max = st.number_input(
-            "最大径向阶数 N",
-            min_value=self.ranges["n_max"][0],
-            max_value=self.ranges["n_max"][1],
-            step=1,
-            value=self.defaults["n_max"],
-            key=f"{prefix}_zernike_n_max",
-        )
+    @staticmethod
+    def _modes(n_max: int) -> list[tuple[int, int]]:
+        """Valid (n, m) index pairs up to radial order ``n_max``.
 
-        pairs: list[dict[str, Any]] = []
-        for n in range(n_max + 1):
-            for m in range(-n, n + 1):
-                if (n - abs(m)) % 2 == 0:
-                    default_val = 1.0 if n == 0 and m == 0 else 0.0
-                    pairs.append(
-                        {
-                            "n": n,
-                            "m": m,
-                            "name": get_zernike_name(n, m) or f"n={n},m={m}",
-                            "coeff": default_val,
-                        }
-                    )
+        Parity rule: ``n - |m|`` must be even (m steps by 2 for each n).
+        """
+        return [
+            (n, m)
+            for n in range(int(n_max) + 1)
+            for m in range(-n, n + 1)
+            if (n - abs(m)) % 2 == 0
+        ]
+
+    @staticmethod
+    def _coefficient_default(n: int, m: int) -> float:
+        """Piston starts at 1.0 rad, every other mode at 0.0."""
+        return 1.0 if (n, m) == (0, 0) else 0.0
+
+    def _render_coefficient_table(
+        self, prefix: str, modes: list[tuple[int, int]]
+    ) -> dict[tuple[int, int], float]:
+        """Editable table (``st.data_editor``) — needs a working pyarrow."""
+        pairs: list[dict[str, Any]] = [
+            {
+                "n": n,
+                "m": m,
+                "name": get_zernike_name(n, m) or f"n={n},m={m}",
+                "coeff": self._coefficient_default(n, m),
+            }
+            for n, m in modes
+        ]
 
         edited = st.data_editor(
             pairs,
@@ -818,6 +920,118 @@ class ZernikeControl(PatternControl):
         coefficients: dict[tuple[int, int], float] = {}
         for row in edited:
             coefficients[(int(row["n"]), int(row["m"]))] = float(row["coeff"])
+        return coefficients
+
+    def _render_coefficient_grid(
+        self, prefix: str, modes: list[tuple[int, int]], reason: str = ""
+    ) -> dict[tuple[int, int], float]:
+        """pyarrow-free editor: one ``st.number_input`` per Zernike mode.
+
+        Same widget-key prefix scheme as the table variant so switching between
+        the two (pyarrow repaired / broken) never collides.
+        """
+        st.warning(
+            "pyarrow 不可用 — 「st.data_editor 系数表」已回退为逐项输入控件。"
+            "修复 pyarrow 后可恢复系数表（pip install --force-reinstall "
+            "--only-binary :all: pyarrow）。",
+            icon="⚠️",
+        )
+        if reason:
+            st.caption(f"pyarrow 导入失败原因: `{reason}`")
+        st.caption(
+            "Zernike 系数单位为弧度 (raw, 未包裹); 活塞默认 1.0, 其余默认 0.0。"
+        )
+
+        coefficients: dict[tuple[int, int], float] = {}
+        for start in range(0, len(modes), self.COEFF_COLUMNS):
+            columns = st.columns(self.COEFF_COLUMNS)
+            for column, (n, m) in zip(columns, modes[start : start + self.COEFF_COLUMNS]):
+                with column:
+                    coefficients[(n, m)] = float(
+                        st.number_input(
+                            f"{get_zernike_name(n, m)} (n={n}, m={m})",
+                            min_value=self.COEFF_MIN,
+                            max_value=self.COEFF_MAX,
+                            value=self._coefficient_default(n, m),
+                            step=0.001,
+                            format="%.3f",
+                            key=f"{prefix}_zernike_coeff_{n}_{m}",
+                        )
+                    )
+        return coefficients
+
+    def _render_debug_panel(
+        self,
+        n_max: int,
+        mode_count: int,
+        editor: str,
+        editor_reason: str,
+    ) -> None:
+        """Collapsed diagnostics panel for the Zernike editor selection.
+
+        Rendered on every Zernike selection so a failure (or an unexpected
+        editor backend) can be diagnosed from the UI alone — without hunting
+        through the Streamlit server log.
+        """
+        with st.expander("🔧 Zernike debug 信息 (定位问题用)", expanded=False):
+            st.markdown(
+                f"- **选择结果**: 已渲染 `Zernike` 控制, n_max={n_max}, "
+                f"{mode_count} 个模式"
+            )
+            st.markdown(f"- **编辑器路径**: `{editor}`")
+            for label, value in _pyarrow_diagnostics():
+                st.markdown(f"- **{label}**: `{value}`")
+            if editor_reason:
+                st.code(editor_reason, language="text")
+
+    def render(self, prefix: str | None = None) -> dict[str, Any]:
+        prefix = prefix or self.prefix
+        n_max = st.number_input(
+            "最大径向阶数 N",
+            min_value=self.ranges["n_max"][0],
+            max_value=self.ranges["n_max"][1],
+            step=1,
+            value=self.defaults["n_max"],
+            key=f"{prefix}_zernike_n_max",
+        )
+
+        modes = self._modes(int(n_max))
+        # Capability probe FIRST: st.data_editor importing a broken/mismatched
+        # pyarrow mid-widget aborts the script run and wipes the rest of the
+        # page (the "选择 Zernike 后页面自动退出" symptom), so pick the editor
+        # variant before calling any of them.
+        editor_available, editor_reason = _data_editor_capability()
+        editor = "st.data_editor (系数表)" if editor_available else "st.number_input (逐项回退)"
+        logger.debug(
+            "Zernike render: slm={} n_max={} modes={} editor={} pyarrow={} reason={}",
+            self.slm_id,
+            int(n_max),
+            len(modes),
+            editor,
+            _pyarrow_version() or "不可用",
+            editor_reason or "-",
+        )
+
+        if editor_available:
+            try:
+                coefficients = self._render_coefficient_table(prefix, modes)
+            except ImportError as exc:
+                # pyarrow went missing between the probe and the widget call
+                # (or another lazily imported dependency of data_editor is
+                # broken) — surface the real traceback in the UI and keep the
+                # page usable instead of aborting the script run.
+                editor_reason = f"{type(exc).__name__}: {exc}"
+                editor = "st.number_input (逐项回退, 系数表渲染失败)"
+                logger.exception("st.data_editor 渲染失败 — 回退逐项输入控件")
+                st.error(f"st.data_editor 渲染失败, 已回退为逐项输入控件: {editor_reason}")
+                st.exception(exc)
+                coefficients = self._render_coefficient_grid(
+                    prefix, modes, editor_reason
+                )
+        else:
+            coefficients = self._render_coefficient_grid(prefix, modes, editor_reason)
+
+        self._render_debug_panel(int(n_max), len(modes), editor, editor_reason)
 
         return {
             "n_max": int(n_max),

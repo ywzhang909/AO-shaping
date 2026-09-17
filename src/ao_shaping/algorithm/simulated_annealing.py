@@ -31,6 +31,8 @@ from typing import Callable, Protocol
 
 import numpy as np
 
+from ao_shaping.algorithm.heuristic_base import HeuristicOptimizer, OptimizerConfig
+
 
 class FitnessFunction(Protocol):
     """Protocol for fitness function."""
@@ -67,7 +69,7 @@ class SAHistory:
     temperature: list[float] = field(default_factory=list)
 
 
-class SimulatedAnnealing:
+class SimulatedAnnealing(HeuristicOptimizer):
     """Simulated Annealing optimizer.
     
     Attributes:
@@ -93,6 +95,12 @@ class SimulatedAnnealing:
         self.params = params if params is not None else SAParams()
         self.rng = random_state if random_state is not None else np.random.default_rng()
         self.history = SAHistory()
+        super().__init__(
+            dim=dim,
+            config=OptimizerConfig(n_iterations=self.params.n_iterations, bounds=self.params.bounds),
+            random_state=random_state,
+        )
+        self._convergence_history = self.history.best_fitness
         
     def _get_temperature(self, iteration: int) -> float:
         """Get temperature for current iteration.
@@ -217,9 +225,12 @@ class SimulatedAnnealing:
             if callback is not None:
                 callback(iteration, current.copy(), current_fitness, temperature)
             
-            if early_stop_threshold is not None and best_fitness < early_stop_threshold:
+            threshold = self.config.early_stop_threshold if early_stop_threshold is None else early_stop_threshold
+            if threshold is not None and best_fitness < threshold:
                 break
         
+        self._best_solution = best.copy()
+        self._best_fitness = best_fitness
         return best.copy(), best_fitness
     
     @property

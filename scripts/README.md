@@ -592,10 +592,11 @@ python scripts/generate_heuristic_pib_report.py
 - `spot_before_after.png` — 2×4 grid of initial vs best spot renders
   (`landscape.render`) with shared brightness normalization
 - `summary_bars.png` — horizontal bar chart of final PIB, sorted descending
-- `summary.csv` — `algorithm, final_pib, init_pib, best_x_0..3, n_evals`
+- `summary.csv` — `algorithm, final_pib, init_pib, best_x_0..3, n_loads`
 - `report.md` — results table (final PIB / improvement / **iters to max,
-  ≥ 0.9, ≥ 0.5** / n_evals) plus a per-algorithm basin interpretation (global
+  ≥ 0.9, ≥ 0.5** / n_loads) plus a per-algorithm basin interpretation (global
   center `[-4.8,-4.2,-4.5,-4.0]` vs local center `[2.5,3.2,2.2,2.8]`)
+- **设备加载语义**: 设备一次只能加载一个相位, 1 次设备加载 = 1 次相位加载 = 1 次目标函数 (PIB) 评估 = 1 次迭代 (evals_per_iter=1); 表格与 CSV 中的 n_loads 即设备相位加载次数/迭代数。
 
 ### generate_dm_response_matrix_report.py
 

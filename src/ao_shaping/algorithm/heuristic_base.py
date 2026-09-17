@@ -144,22 +144,36 @@ class HeuristicOptimizer(ABC):
         if optimizer_type == OptimizerType.GA:
             params = GAParams(
                 pop_size=kwargs.pop('pop_size', 30),
-                n_generations=config.n_iterations,
+                n_generations=kwargs.pop('n_generations', config.n_iterations),
+                crossover_prob=kwargs.pop('crossover_prob', 0.7),
+                mutation_prob=kwargs.pop('mutation_prob', 0.15),
+                tournament_size=kwargs.pop('tournament_size', 3),
+                elite_count=kwargs.pop('elite_count', 2),
                 bounds=config.bounds,
+                alpha=kwargs.pop('alpha', 0.5),
+                mutation_sigma=kwargs.pop('mutation_sigma', 5.0),
             )
             return GeneticAlgorithm(dim=dim, params=params, random_state=rng)
         
         elif optimizer_type == OptimizerType.PSO:
             params = PSOParams(
                 n_particles=kwargs.pop('n_particles', 30),
-                n_iterations=config.n_iterations,
+                n_iterations=kwargs.pop('n_iterations', config.n_iterations),
+                w=kwargs.pop('w', 0.729),
+                c1=kwargs.pop('c1', 1.49),
+                c2=kwargs.pop('c2', 1.49),
+                v_max=kwargs.pop('v_max', 2.0),
                 bounds=config.bounds,
             )
             return ParticleSwarmOptimizer(dim=dim, params=params, random_state=rng)
         
         elif optimizer_type == OptimizerType.SA:
             params = SAParams(
-                n_iterations=config.n_iterations,
+                n_iterations=kwargs.pop('n_iterations', config.n_iterations),
+                initial_temp=kwargs.pop('initial_temp', 100.0),
+                final_temp=kwargs.pop('final_temp', 0.01),
+                schedule=kwargs.pop('schedule', TempSchedule.EXPONENTIAL),
+                step_size=kwargs.pop('step_size', 0.5),
                 bounds=config.bounds,
             )
             return SimulatedAnnealing(dim=dim, params=params, random_state=rng)

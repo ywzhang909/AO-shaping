@@ -32,6 +32,8 @@ from typing import Callable, Protocol
 
 import numpy as np
 
+from ao_shaping.algorithm.heuristic_base import HeuristicOptimizer, OptimizerConfig
+
 
 class FitnessFunction(Protocol):
     """Protocol for fitness function."""
@@ -76,7 +78,7 @@ class Particle:
         self.best_fitness = fitness
 
 
-class ParticleSwarmOptimizer:
+class ParticleSwarmOptimizer(HeuristicOptimizer):
     """Particle Swarm Optimization optimizer.
     
     Attributes:
@@ -105,6 +107,12 @@ class ParticleSwarmOptimizer:
         self.particles: list[Particle] = []
         self.global_best_position: np.ndarray | None = None
         self.global_best_fitness: float = float('inf')
+        super().__init__(
+            dim=dim,
+            config=OptimizerConfig(n_iterations=self.params.n_iterations, bounds=self.params.bounds),
+            random_state=random_state,
+        )
+        self._convergence_history = self.history.best_fitness
         
     def _reset(self) -> None:
         """Reset optimizer state."""
@@ -227,11 +235,14 @@ class ParticleSwarmOptimizer:
                     self.global_best_fitness
                 )
             
-            if (early_stop_threshold is not None and 
-                self.global_best_fitness < early_stop_threshold):
+            threshold = self.config.early_stop_threshold if early_stop_threshold is None else early_stop_threshold
+            if (threshold is not None and 
+                self.global_best_fitness < threshold):
                 break
         
         assert self.global_best_position is not None
+        self._best_solution = self.global_best_position.copy()
+        self._best_fitness = self.global_best_fitness
         return self.global_best_position.copy(), self.global_best_fitness
     
     @property
