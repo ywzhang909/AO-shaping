@@ -2,6 +2,12 @@
 
 Builds a lookup table by measuring the phase-grayscale response across
 the dynamic range, using the center cosine pattern to minimize crosstalk.
+
+NOTE (research LUT, not canonical): 本模块是 cartographer 闭环内部的 WFS 实测
+研究用 LUT, 输出**不可**被 ``Santec.load_lut()`` 消费。驱动层唯一 canonical
+灰度↔相位 LUT 由 slm-lut 管线提供 (``tools/slm/slm_lut_runner.py`` +
+``utils/slm_lut.py``, 输出 lut_forward.csv/lut_inverse.csv)。不要在此设计
+驱动 LUT 加载路径。
 """
 
 from __future__ import annotations
@@ -97,6 +103,8 @@ class LUTCalibrationResult:
         for key in ["cosine_pattern", "gradient_pattern"]:
             if d.get(key) is not None:
                 d[key] = np.array(d[key])
+        if "lut" in d and isinstance(d["lut"], dict):
+            d["lut"] = {int(k): float(v) for k, v in d["lut"].items()}
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
     def save(self, path: str | Path) -> Path:

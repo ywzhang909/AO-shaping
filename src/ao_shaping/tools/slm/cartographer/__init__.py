@@ -8,10 +8,14 @@ A WFS-based calibration and dynamic aberration compensation method" using:
 - Fourier wavefront reconstruction from centroid displacements
 
 Usage:
-    streamlit run src/ao_shaping/tools/slm_cartographer/slm_cartographer_ui.py
+    streamlit run src/ao_shaping/tools/slm/cartographer/slm_cartographer_ui.py
 
 Or as a module:
     python -m ao_shaping.tools.slm.cartographer
+
+NOTE: 本包的 phase_grayscale_lut 是 WFS 实测研究用 LUT, 不可被
+``Santec.load_lut()`` 消费; 驱动层 canonical LUT 见 slm-lut 管线
+(``tools/slm/slm_lut_runner.py`` + ``utils/slm_lut.py``)。
 """
 
 from __future__ import annotations
