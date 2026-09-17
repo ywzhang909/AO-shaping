@@ -89,6 +89,18 @@ from ao_shaping.utils.wfs_utils import make_actuator_debug_callback
     default=None,
     help="变形镜类型 (default: auto-detect). 若未指定且仅一个DM在线则自动选取，否则报错.",
 )
+@click.option(
+    "--mode",
+    type=click.Choice(["sequential", "hadamard"]),
+    default="sequential",
+    help="校准模式: sequential=逐单元推拉; hadamard=哈达玛模式同时推拉 (测量次数更少, 所有单元同时扰动)",
+)
+@click.option(
+    "--hadamard-order",
+    type=int,
+    default=None,
+    help="哈达玛矩阵阶数 (mode=hadamard时使用); None=自动 (>=有效单元数的最小2的幂). mode=sequential时忽略",
+)
 def run(
     ctx: click.Context,
     disturb_voltage: float,
@@ -111,6 +123,8 @@ def run(
     display: bool,
     debug: bool | None,
     dm_type: str | None,
+    mode: Literal["sequential", "hadamard"],
+    hadamard_order: int | None,
 ):
     """获取DM变形镜响应矩阵
 
@@ -223,6 +237,8 @@ def run(
                 auto_optimize_voltage=auto_optimize_voltage,
                 optimize_n_avg=optimize_n_avg,
                 debug_data_callback=debug_data_callback,
+                mode=mode,
+                hadamard_order=hadamard_order,
             )
 
             # Build device config snapshot
@@ -233,6 +249,8 @@ def run(
                 "use_custom_ref": use_custom_ref,
                 "pupil_center": list(pupil_center),
                 "pupil_diameter": pupil_diameter,
+                "dm_type": type(dm).__name__,
+                "dm_num": dm.DM_NUM if hasattr(dm, "DM_NUM") else 64,
             }
 
             # Save
@@ -245,6 +263,9 @@ def run(
             click.echo(f"  斜率维数: {result.n_slopes}")
             click.echo(f"  平均方差: {result.mean_variance:.6e}")
             click.echo(f"  最大方差: {result.max_variance:.6e}")
+            click.echo(f"  校准模式: {mode}")
+            if result.hadamard_order is not None:
+                click.echo(f"  哈达玛阶数: {result.hadamard_order}")
             if result.condition_number is not None:
                 click.echo(f"  条件数: {result.condition_number:.2e}")
             if debug_data_dir is not None:
