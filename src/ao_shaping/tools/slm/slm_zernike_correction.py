@@ -67,6 +67,7 @@ from ao_shaping.tools.slm.slm_zernike_common import (
     um_to_waves,
     wfs_validity,
 )
+from ao_shaping.tools.slm.slm_scan_analysis import outlier_mask
 from ao_shaping.utils.pattern_helper import PatternHelper
 
 
@@ -190,10 +191,7 @@ def scan_response_matrix(slm: Santec, wfs: ThorlabWFS, ph: PatternHelper,
         if len(vecs) < 2:
             continue
         norms = np.array([float(np.linalg.norm(v)) for v in vecs])
-        med = float(np.median(norms))
-        if med <= 0:
-            continue
-        keep = norms <= outlier_factor * med
+        keep = outlier_mask(norms, outlier_factor)
         if not keep.all():
             click.echo(f"   逐点剔除 [{key[0]}] R={key[1]:.0f}: 保留 {int(keep.sum())}"
                        f"/{len(vecs)}  (|resp|={np.round(norms, 3).tolist()})")

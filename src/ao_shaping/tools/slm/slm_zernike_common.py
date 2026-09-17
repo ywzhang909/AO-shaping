@@ -29,6 +29,7 @@ from loguru import logger
 
 from ao_shaping.drivers.slm.santec import Santec, WavefrontCorrection
 from ao_shaping.drivers.wfs import ThorlabWFS
+from ao_shaping.tools.slm.slm_scan_analysis import outlier_mask
 from ao_shaping.utils.pattern_helper import PatternHelper
 
 PANEL_H, PANEL_W = 1200, 1920
@@ -415,6 +416,41 @@ def added_tilt(z: np.ndarray, base: np.ndarray) -> tuple[float, np.ndarray]:
     return float(np.linalg.norm(d)), d
 
 
+def measure_tilt_defocus(
+    wfs: ThorlabWFS, n_avg: int = 3, zernike_order: int = 10
+) -> tuple[np.ndarray | None, float | None]:
+    """多帧中位数聚合, 返回 ``(z_tilt[2] (λ, Noll 2/3), z_defocus (λ, Noll 4))``.
+
+    Verbatim from ``slm_shift_calib.measure_tilt`` (shift 标定共用原语)。
+    单帧失败不致命, 交由中位数容忍。
+
+    Args:
+        wfs: 已打开的 ThorlabWFS 实例
+        n_avg: 平均帧数
+        zernike_order: WFS Zernike 阶数 (默认 10 → 66 项)
+
+    Returns:
+        ``(zernike, defocus)``: 中位数聚合的 tip/tilt 数组 (λ, 2 分量) 与
+        defocus (λ); 全部帧失败时 ``(None, None)``。
+    """
+    tips: list[np.ndarray] = []
+    defoci: list[float] = []
+    for _ in range(n_avg):
+        wfs.take_image(n_sample=1, dynamicNoiseCut=True)
+        try:
+            z_um = wfs.get_zernike(zernike_order=zernike_order)
+        except Exception as e:  # 单帧失败不致命, 交由中位数容忍
+            logger.debug("get_zernike 失败: {}", e)
+            continue
+        if z_um is None or not np.isfinite(z_um[2:5]).all():
+            continue
+        tips.append(np.asarray(z_um[2:4], dtype=float) / 0.532)  # Noll 2,3 = tip/tilt
+        defoci.append(float(z_um[4]) / 0.532)  # Noll 4 = defocus
+    if not tips:
+        return None, None
+    return np.median(np.array(tips), axis=0), float(np.median(defoci))
+
+
 # ─────────────────────────── 自动定标 ───────────────────────────
 
 def diagnose_beam_radius(slm: Santec, wfs: ThorlabWFS, ph: PatternHelper,
@@ -451,15 +487,14 @@ def diagnose_beam_radius(slm: Santec, wfs: ThorlabWFS, ph: PatternHelper,
     # 异常剔除 (R < 光束半径 → 盘裁切 → 拟合崩溃)
     mags = np.array([abs(r["defocus_lam"]) for r in out], dtype=float)
     med = float(np.median(mags))
-    if med > 0:
-        keep = mags <= outlier_factor * med
-        if not keep.all():
-            for r, kp in zip(out, keep):
-                if not kp:
-                    print(f"   [剔除异常] R={r['radius']:.0f}px "
-                          f"defocus={r['defocus_lam']:+.1f}λ (> {outlier_factor}×中位数 "
-                          f"{med:.3f}λ) — 盘裁切光束致拟合崩溃")
-            out = [r for r, kp in zip(out, keep) if kp]
+    keep = outlier_mask(mags, outlier_factor)
+    if not keep.all():
+        for r, kp in zip(out, keep):
+            if not kp:
+                print(f"   [剔除异常] R={r['radius']:.0f}px "
+                      f"defocus={r['defocus_lam']:+.1f}λ (> {outlier_factor}×中位数 "
+                      f"{med:.3f}λ) — 盘裁切光束致拟合崩溃")
+        out = [r for r, kp in zip(out, keep) if kp]
     if not out:
         raise RuntimeError("光束半径诊断全部为异常值")
 

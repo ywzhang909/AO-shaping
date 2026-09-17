@@ -45,6 +45,8 @@ from loguru import logger
 
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.wfs import ThorlabWFS
+from ao_shaping.tools.slm.slm_scan_analysis import clamp_shift, parabolic_min
+from ao_shaping.tools.slm.slm_zernike_common import make_phase, measure_tilt_defocus
 from ao_shaping.utils.pattern_helper import PatternHelper
 
 PANEL_H, PANEL_W = 1200, 1920
@@ -55,57 +57,6 @@ DEFAULT_OUTPUT = Path("data/calibration/defocus_shift_calib.json")
 MAX_EXPOSURE_MS = 7.0
 DEFAULT_EXPOSURE_MS = 4.0
 DEFAULT_SHIFT_LIMIT = 500
-
-
-def measure_tilt(
-    wfs: ThorlabWFS, n_avg: int = 3, zernike_order: int = 10
-) -> tuple[np.ndarray | None, float | None]:
-    """多帧中位数聚合, 返回 ``(z_tilt[2] (λ, Noll 2/3), z_defocus (λ, Noll 4))``."""
-    tips: list[np.ndarray] = []
-    defoci: list[float] = []
-    for _ in range(n_avg):
-        wfs.take_image(n_sample=1, dynamicNoiseCut=True)
-        try:
-            z_um = wfs.get_zernike(zernike_order=zernike_order)
-        except Exception as e:  # 单帧失败不致命, 交由中位数容忍
-            logger.debug("get_zernike 失败: {}", e)
-            continue
-        if z_um is None or not np.isfinite(z_um[2:5]).all():
-            continue
-        tips.append(np.asarray(z_um[2:4], dtype=float) / 0.532)  # Noll 2,3 = tip/tilt
-        defoci.append(float(z_um[4]) / 0.532)  # Noll 4 = defocus
-    if not tips:
-        return None, None
-    return np.median(np.array(tips), axis=0), float(np.median(defoci))
-
-
-def parabolic_min(pts: list[tuple[float, float]]) -> float | None:
-    """三点抛物线插值细化最小值位置 (``pts`` 需按 x 升序)."""
-    if len(pts) < 3:
-        return None
-    i = int(np.argmin([p[1] for p in pts]))
-    if i == 0 or i == len(pts) - 1:
-        return pts[i][0]
-    (x0, y0), (x1, y1), (x2, y2) = pts[i - 1], pts[i], pts[i + 1]
-    denom = (x0 - x1) * (x0 - x2) * (x1 - x2)
-    if abs(denom) < 1e-12:
-        return x1
-    a = (x2 * (y1 - y0) + x1 * (y0 - y2) + x0 * (y2 - y1)) / denom
-    b = (x2 * x2 * (y0 - y1) + x1 * x1 * (y2 - y0) + x0 * x0 * (y1 - y2)) / denom
-    if abs(a) < 1e-12:
-        return x1
-    xv = -b / (2 * a)
-    return float(xv) if min(x0, x2) <= xv <= max(x0, x2) else x1
-
-
-def _clamp(v: float, limit: int) -> int:
-    return int(np.clip(round(v), -limit, limit))
-
-
-def _defocus_phase(ph: PatternHelper, amplitude: float, radius: float) -> np.ndarray:
-    return ph.generate_zernike_polynomial(
-        coefficients={(2, 0): amplitude}, radius=radius, n_max=5
-    )
 
 
 def diagnose_radius(
@@ -119,11 +70,11 @@ def diagnose_radius(
     """扫描 Zernike 半径, 找 WFS defocus 响应最大者 (≈ 光束半径)."""
     results: list[dict] = []
     for r in radii:
-        phase = _defocus_phase(ph, amplitude, r)
+        phase = make_phase(ph, {(2, 0): amplitude}, r, n_max=5)
         slm.set_shift(0, 0)
         slm.display_phase(phase, wait_time_s=0.5)
         time.sleep(0.25)
-        zt, zd = measure_tilt(wfs, n_avg=n_avg)
+        zt, zd = measure_tilt_defocus(wfs, n_avg=n_avg)
         rec = {"radius": r, "amplitude": amplitude,
                "defocus": None if zd is None else zd}
         if zt is not None:
@@ -244,22 +195,22 @@ def main(
         slm.set_shift(0, 0)
         slm.display_data(flat, wait_time_s=0.5)
         time.sleep(0.3)
-        base_tilt, base_def = measure_tilt(wfs, n_avg=n_avg_verify)
+        base_tilt, base_def = measure_tilt_defocus(wfs, n_avg=n_avg_verify)
         if base_tilt is None:
             raise RuntimeError("基线测量失败: 无有效 zernike")
         click.echo(f"[BASE] 纯平: tip={base_tilt[0]:+.4f}λ tilt={base_tilt[1]:+.4f}λ "
                    f"(defocus={base_def:+.4f}λ) ← 判据为相对此值的附加倾斜")
         report["baseline"] = {"tip": float(base_tilt[0]), "tilt": float(base_tilt[1])}
 
-        phase_rad = _defocus_phase(ph, defocus_a, zernike_radius)
+        phase_rad = make_phase(ph, {(2, 0): defocus_a}, zernike_radius, n_max=5)
         click.echo(f"[INFO] defocus R={zernike_radius:.0f}px A={defocus_a}rad, "
                    f"range=[{phase_rad.min():.1f},{phase_rad.max():.1f}] rad")
 
         def evaluate(sx: int, sy: int, n_avg: int, tag: str) -> float | None:
-            slm.set_shift(_clamp(sx, shift_limit), _clamp(sy, shift_limit))
+            slm.set_shift(clamp_shift(sx, shift_limit), clamp_shift(sy, shift_limit))
             slm.display_phase(phase_rad, wait_time_s=0.5)
             time.sleep(0.25)
-            zt, zd = measure_tilt(wfs, n_avg=n_avg)
+            zt, zd = measure_tilt_defocus(wfs, n_avg=n_avg)
             if zt is None:
                 logger.warning("{} shift=({},{}) 无有效 zernike", tag, sx, sy)
                 return None
@@ -296,30 +247,30 @@ def main(
             click.echo(f"[迭代 {it}/{iterations}]")
             click.echo("=" * 72)
 
-            bx, bm, _ = scan_axis("x", _clamp(sy_star, shift_limit), coarse, f"it{it}-x-coarse")
+            bx, bm, _ = scan_axis("x", clamp_shift(sy_star, shift_limit), coarse, f"it{it}-x-coarse")
             if bx is None:
                 raise RuntimeError("X 粗扫无有效点")
             fine_x = [bx + d for d in np.linspace(-fine_half, fine_half, 5)]
             click.echo(f"[X 粗扫] 最优 sx={bx:.0f} (‖Δ‖={bm:.4f}) → 细扫 "
                        f"{[round(v) for v in fine_x]}")
-            bx2, bm2, pts2 = scan_axis("x", _clamp(sy_star, shift_limit), fine_x,
+            bx2, bm2, pts2 = scan_axis("x", clamp_shift(sy_star, shift_limit), fine_x,
                                        f"it{it}-x-fine")
             if bx2 is not None:
                 px = parabolic_min(sorted(pts2))
-                sx_star = float(_clamp(px if px is not None else bx2, shift_limit))
+                sx_star = float(clamp_shift(px if px is not None else bx2, shift_limit))
                 click.echo(f"[X] → sx*={sx_star:.1f} (‖Δ‖={bm2:.4f})")
 
-            by, bmy, _ = scan_axis("y", _clamp(sx_star, shift_limit), coarse, f"it{it}-y-coarse")
+            by, bmy, _ = scan_axis("y", clamp_shift(sx_star, shift_limit), coarse, f"it{it}-y-coarse")
             if by is None:
                 raise RuntimeError("Y 粗扫无有效点")
             fine_y = [by + d for d in np.linspace(-fine_half, fine_half, 5)]
             click.echo(f"[Y 粗扫] 最优 sy={by:.0f} (‖Δ‖={bmy:.4f}) → 细扫 "
                        f"{[round(v) for v in fine_y]}")
-            by2, bmy2, ptsy2 = scan_axis("y", _clamp(sx_star, shift_limit), fine_y,
+            by2, bmy2, ptsy2 = scan_axis("y", clamp_shift(sx_star, shift_limit), fine_y,
                                          f"it{it}-y-fine")
             if by2 is not None:
                 py = parabolic_min(sorted(ptsy2))
-                sy_star = float(_clamp(py if py is not None else by2, shift_limit))
+                sy_star = float(clamp_shift(py if py is not None else by2, shift_limit))
                 click.echo(f"[Y] → sy*={sy_star:.1f} (‖Δ‖={bmy2:.4f})")
 
         # 校验: 标定 shift vs (0,0)

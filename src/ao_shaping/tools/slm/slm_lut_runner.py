@@ -23,6 +23,12 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.utils.slm_camera import (
+    open_daheng_camera as _get_daheng_camera,
+)
+from ao_shaping.utils.slm_camera import (
+    open_miicam_camera as _get_miicam_camera,
+)
 from ao_shaping.utils.slm_lut import (
     build_inverse_lut,
     depth_pattern,
@@ -32,47 +38,6 @@ from ao_shaping.utils.slm_lut import (
     save_lut,
     stack_halves,
 )
-
-# ── Camera factory (lazy import, matching gs_square_runner pattern) ─────────
-
-
-def _get_miicam_camera(cam_id: int, exposure_ms: float, bit_depth: int = 8):
-    """Import and create MiiCam camera instance (lazy)."""
-    try:
-        from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
-
-        cam = CameraStreamManager(
-            cam_id=cam_id,
-            exposure_time_ms=exposure_ms,
-            bit_depth=bit_depth,
-        )
-        cam.open()
-        return cam
-    except ImportError as exc:
-        logger.warning("MiiCam camera unavailable: {}", exc)
-        raise
-    except Exception as exc:
-        logger.error("MiiCam camera init failed: {}", exc)
-        raise
-
-
-def _get_daheng_camera(cam_id: int, exposure_ms: float):
-    """Import and create Daheng camera instance (lazy)."""
-    try:
-        from ao_shaping.drivers.ccd.daheng import DahengCamManager
-
-        cam = DahengCamManager(cam_id=cam_id, exposure_time_ms=exposure_ms)
-        cam.open()
-        return cam
-    except ImportError as exc:
-        logger.warning("Daheng camera unavailable: {}", exc)
-        raise
-    except Exception as exc:
-        logger.error("Daheng camera init failed: {}", exc)
-        raise
-
-
-# ── Spot detection helpers ──────────────────────────────────────────────────
 
 # λ=1064 nm, f=0.125 m, d=8 µm → p_cam ≈ 3.31 µm → scale ≈ 5021 px·period
 _DIFFRACTION_SCALE_PX = 5021.0  # λ·f / (d·p_cam) in px·period
@@ -182,7 +147,9 @@ def _locate_spots(
             return None
         return int(x0 + dx), int(y0 + dy), peak_val
 
-    def _side_candidates(x_off: int) -> tuple[tuple[int, int, float] | None, tuple[int, int, float] | None]:
+    def _side_candidates(
+        x_off: int,
+    ) -> tuple[tuple[int, int, float] | None, tuple[int, int, float] | None]:
         """Candidate +1 peaks at ``gx - x_off`` (left) and ``gx + x_off``."""
         left = _peak_at(gx - x_off)
         right = _peak_at(gx + x_off)
@@ -195,7 +162,8 @@ def _locate_spots(
         logger.error(
             "Cannot locate +1-order spot for REF half (period={}, expect ±{} px). "
             "Check laser alignment and SLM camera.",
-            period_ref, x_off_ref,
+            period_ref,
+            x_off_ref,
         )
         sys.exit(1)
 
@@ -209,7 +177,8 @@ def _locate_spots(
         logger.error(
             "Cannot locate +1-order spot for TEST half (period={}, expect ±{} px). "
             "Check laser alignment and SLM camera.",
-            period_test, x_off_test,
+            period_test,
+            x_off_test,
         )
         sys.exit(1)
     test_spot = (test_peak[0], test_peak[1])
@@ -217,7 +186,12 @@ def _locate_spots(
     logger.info(
         "Spots located — center(0th): {}, ref: {} (period={}, side={:+d}), "
         "test: {} (period={})",
-        (gx, gy), ref_spot, period_ref, side, test_spot, period_test,
+        (gx, gy),
+        ref_spot,
+        period_ref,
+        side,
+        test_spot,
+        period_test,
     )
 
     return {
@@ -290,7 +264,10 @@ def _joint_exposure_check(
         logger.info(
             "Auto-exposure: ROI max {:.3f} > saturation_stop {:.3f}, "
             "halving exposure {:.3f}→{:.3f} ms",
-            max_norm, saturation_stop, current_exposure_ms, new_exposure,
+            max_norm,
+            saturation_stop,
+            current_exposure_ms,
+            new_exposure,
         )
         adjusted = True
     elif mean_norm < bright_floor and current_exposure_ms < 10000:
@@ -298,7 +275,10 @@ def _joint_exposure_check(
         logger.info(
             "Auto-exposure: ROI mean {:.4f} < bright_floor {:.3f}, "
             "doubling exposure {:.3f}→{:.3f} ms",
-            mean_norm, bright_floor, current_exposure_ms, new_exposure,
+            mean_norm,
+            bright_floor,
+            current_exposure_ms,
+            new_exposure,
         )
         adjusted = True
 
@@ -306,7 +286,8 @@ def _joint_exposure_check(
         camera.reset_exposure_time(new_exposure)
         time.sleep(0.05)  # brief settle after exposure change
         new_frame = np.asarray(
-            camera.get_numpy_image(n_sample=1, skip_first=True), dtype=np.float64,
+            camera.get_numpy_image(n_sample=1, skip_first=True),
+            dtype=np.float64,
         )
         return new_frame, new_exposure, True
 
@@ -390,7 +371,8 @@ def _check_spot_drift(
 
     logger.warning(
         "Spot drift detected ({}, {}), re-locating within expected band",
-        drift_x, drift_y,
+        drift_x,
+        drift_y,
     )
 
     # Re-locate: search within a window around expected position
@@ -423,12 +405,20 @@ def _check_spot_drift(
     help="Scan method: depth=scale blaze peak gray; offset=uniform gray-offset scan.",
 )
 # Grating parameters
-@click.option("--period-ref", default=64, type=int, help="Reference half blaze period (SLM px).")
-@click.option("--period-test", default=32, type=int, help="Test half blaze period (SLM px).")
+@click.option(
+    "--period-ref", default=64, type=int, help="Reference half blaze period (SLM px)."
+)
+@click.option(
+    "--period-test", default=32, type=int, help="Test half blaze period (SLM px)."
+)
 @click.option("--gray-step", default=16, type=int, help="Scan step over gray values.")
 # Camera
-@click.option("--exposure-ms", default=0.03, type=float, help="Initial camera exposure (ms).")
-@click.option("--n-frames", default=10, type=int, help="Frames averaged per gray point.")
+@click.option(
+    "--exposure-ms", default=0.03, type=float, help="Initial camera exposure (ms)."
+)
+@click.option(
+    "--n-frames", default=10, type=int, help="Frames averaged per gray point."
+)
 @click.option(
     "--camera-type",
     type=click.Choice(["miicam", "daheng"], case_sensitive=False),
@@ -438,17 +428,28 @@ def _check_spot_drift(
 )
 @click.option("--cam-id", default=0, type=int, help="Camera device ID.")
 # SLM
-@click.option("--settle-time", default=0.3, type=float, help="SLM settle wait after write (s).")
+@click.option(
+    "--settle-time", default=0.3, type=float, help="SLM settle wait after write (s)."
+)
 @click.option("--slm-number", default=1, type=int, help="SLM device number.")
-@click.option("--slm-wavelength", default=1064, type=int, help="SLM working wavelength (nm).")
+@click.option(
+    "--slm-wavelength", default=1064, type=int, help="SLM working wavelength (nm)."
+)
 # Spot detection
-@click.option("--spot-window", default=41, type=int, help="Odd-sized pixel window around spot.")
+@click.option(
+    "--spot-window", default=41, type=int, help="Odd-sized pixel window around spot."
+)
 # Auto-exposure thresholds
-@click.option("--bright-floor", default=0.02, type=float, help="Min normalized ROI mean.")
-@click.option("--saturation-stop", default=0.9, type=float, help="Max normalized ROI max.")
+@click.option(
+    "--bright-floor", default=0.02, type=float, help="Min normalized ROI mean."
+)
+@click.option(
+    "--saturation-stop", default=0.9, type=float, help="Max normalized ROI max."
+)
 # Output
 @click.option(
-    "-o", "--output",
+    "-o",
+    "--output",
     type=click.Path(),
     default="data/slm_lut",
     show_default=True,
@@ -497,7 +498,9 @@ def run(
         # ═══════════════════════════════════════════════════════════════════
         # 1. Open SLM
         # ═══════════════════════════════════════════════════════════════════
-        logger.info("Connecting to SLM #{} (wavelength={} nm)...", slm_number, slm_wavelength)
+        logger.info(
+            "Connecting to SLM #{} (wavelength={} nm)...", slm_number, slm_wavelength
+        )
         slm = Santec(
             slm_number=slm_number,
             wavelength=slm_wavelength,
@@ -509,12 +512,16 @@ def run(
         wl_device, gray_for_2pi = slm.get_wavelength_info()
         logger.info(
             "SLM #{} connected — device wl={}nm, 2pi gray={}",
-            slm_number, wl_device, gray_for_2pi,
+            slm_number,
+            wl_device,
+            gray_for_2pi,
         )
 
         # Panel dimensions: Panel_Res = (width, height) for Santec
         slm_width, slm_height = slm.Panel_Res[0], slm.Panel_Res[1]
-        logger.info("SLM panel: {}x{} ({} bit)", slm_width, slm_height, slm.Gray_Scale_bits)
+        logger.info(
+            "SLM panel: {}x{} ({} bit)", slm_width, slm_height, slm.Gray_Scale_bits
+        )
 
         # Warn if WavefrontCorrection is active
         if slm._correction.is_valid:
@@ -530,7 +537,12 @@ def run(
         # ═══════════════════════════════════════════════════════════════════
         # 2. Open camera
         # ═══════════════════════════════════════════════════════════════════
-        logger.info("Opening {} camera (id={}, exposure={:.3f} ms)...", camera_type, cam_id, exposure_ms)
+        logger.info(
+            "Opening {} camera (id={}, exposure={:.3f} ms)...",
+            camera_type,
+            cam_id,
+            exposure_ms,
+        )
         if camera_type == "daheng":
             camera = _get_daheng_camera(cam_id, exposure_ms)
         else:
@@ -566,7 +578,8 @@ def run(
         )
         logger.info(
             "Calibration frame captured: shape={}, max={}",
-            calib_frame.shape, calib_frame.max(),
+            calib_frame.shape,
+            calib_frame.max(),
         )
 
         spots = _locate_spots(calib_frame, period_ref, period_test, spot_window)
@@ -577,12 +590,17 @@ def run(
         calib_frame, final_exposure_ms, _ = _joint_exposure_check(
             calib_frame,
             [(ref_center, spot_window), (test_center, spot_window)],
-            full_well, camera, final_exposure_ms, bright_floor, saturation_stop,
+            full_well,
+            camera,
+            final_exposure_ms,
+            bright_floor,
+            saturation_stop,
         )
 
         logger.info(
             "Spot centers — ref: {}, test: {}",
-            ref_center, test_center,
+            ref_center,
+            test_center,
         )
 
         # Save calibration frame
@@ -602,7 +620,13 @@ def run(
         if g_values[-1] != max_g:
             g_values = np.append(g_values, max_g)
 
-        logger.info("Scan: method={}, {} gray points from {} to {}", method, len(g_values), g_values[0], g_values[-1])
+        logger.info(
+            "Scan: method={}, {} gray points from {} to {}",
+            method,
+            len(g_values),
+            g_values[0],
+            g_values[-1],
+        )
 
         # ═══════════════════════════════════════════════════════════════════
         # 5. Scan loop
@@ -625,7 +649,12 @@ def run(
             else:
                 # Test half: offset blaze (full depth + gray_offset = g)
                 test_pattern = offset_pattern(
-                    period_test, gray_for_2pi, int(g), slm_bits, half_h, slm_width,
+                    period_test,
+                    gray_for_2pi,
+                    int(g),
+                    slm_bits,
+                    half_h,
+                    slm_width,
                 )
 
             combined = stack_halves(ref_pattern, test_pattern, axis=0)
@@ -639,17 +668,29 @@ def run(
 
             # Period-check: re-track spots if drift exceeds threshold
             ref_center = _check_spot_drift(
-                ref_center, frame, ref_calib_center, period_ref, spot_window,
+                ref_center,
+                frame,
+                ref_calib_center,
+                period_ref,
+                spot_window,
             )
             test_center = _check_spot_drift(
-                test_center, frame, test_calib_center, period_test, spot_window,
+                test_center,
+                frame,
+                test_calib_center,
+                period_test,
+                spot_window,
             )
 
             # Joint auto-exposure once — both spots measured from the SAME frame
             frame, final_exposure_ms, _ = _joint_exposure_check(
                 frame,
                 [(ref_center, spot_window), (test_center, spot_window)],
-                full_well, camera, final_exposure_ms, bright_floor, saturation_stop,
+                full_well,
+                camera,
+                final_exposure_ms,
+                bright_floor,
+                saturation_stop,
             )
 
             # Measure both powers from the same frame (drift-canceled ratio)
@@ -669,15 +710,26 @@ def run(
             if (i + 1) % max(1, len(g_values) // 10) == 0 or i == len(g_values) - 1:
                 logger.info(
                     "[{}/{}] g={}, eta={:.4f}, P_ref={:.1f}, P_test={:.1f}, exp={:.3f}ms",
-                    i + 1, len(g_values), g, eta[i], p_ref, p_test, final_exposure_ms,
+                    i + 1,
+                    len(g_values),
+                    g,
+                    eta[i],
+                    p_ref,
+                    p_test,
+                    final_exposure_ms,
                 )
 
-        logger.info("Scan complete — max eta={:.4f} at g={}", float(np.max(eta)), int(g_values[np.argmax(eta)]))
+        logger.info(
+            "Scan complete — max eta={:.4f} at g={}",
+            float(np.max(eta)),
+            int(g_values[np.argmax(eta)]),
+        )
 
         # ═══════════════════════════════════════════════════════════════════
         # 6. Inversion + artifacts
         # ═══════════════════════════════════════════════════════════════════
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
@@ -790,8 +842,7 @@ def run(
         )
         click.echo(summary)
         click.echo(
-            f"\nLUT saved to {lut_dir}. "
-            f"Load into SLM via: slm.load_lut('{lut_dir}')"
+            f"\nLUT saved to {lut_dir}. Load into SLM via: slm.load_lut('{lut_dir}')"
         )
 
     except Exception as exc:

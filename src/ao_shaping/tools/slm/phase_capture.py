@@ -22,42 +22,13 @@ from loguru import logger
 
 from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.utils.pattern_helper import PatternHelper
-
-
-def _get_daheng_camera(cam_id: int, exposure_ms: int):
-    """Import and create Daheng camera instance."""
-    try:
-        from ao_shaping.drivers.ccd.daheng import DahengCamManager
-
-        cam = DahengCamManager(cam_id=cam_id, exposure_time_ms=exposure_ms)
-        # cam.reset_window()
-        cam.open()
-        return cam
-    except ImportError as e:
-        logger.warning(f"Daheng相机不可用: {e}")
-        raise
-    except Exception as e:
-        logger.error(f"Daheng相机初始化失败: {e}")
-        raise
-
-
-def _get_miicam_camera(cam_id: int, exposure_ms: int, bit_depth: int = 8):
-    """Import and create MiiCam camera instance."""
-    try:
-        from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
-
-        cam = CameraStreamManager(
-            cam_id=cam_id, exposure_time_ms=exposure_ms, bit_depth=bit_depth
-        )
-        cam.open()
-        # cam.reset_window()
-        return cam
-    except ImportError as e:
-        logger.warning(f"MiiCam相机不可用: {e}")
-        raise
-    except Exception as e:
-        logger.error(f"MiiCam相机初始化失败: {e}")
-        raise
+from ao_shaping.utils.slm_camera import (
+    open_daheng_camera as _get_daheng_camera,
+)
+from ao_shaping.utils.slm_camera import (
+    open_miicam_camera as _get_miicam_camera,
+)
+from ao_shaping.utils.slm_phase import capture_frame
 
 
 def generate_random_turbulence_phase(
@@ -134,7 +105,7 @@ def capture_camera_frame(
     or below threshold.
     """
     try:
-        frame = camera.get_numpy_image(n_sample=n_sample, skip_first=skip_first)
+        frame = capture_frame(camera, n_sample=n_sample, skip_first=skip_first)
         max_val = int(frame.max())
         min_val = int(frame.min())
         mean_val = float(frame.mean())
