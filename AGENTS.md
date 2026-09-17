@@ -97,9 +97,10 @@ AO-shaping/
 | `wf` | `optimizer.wf.rms:optimizer_rms_dm()` | wf | DM 电压 RMS (SPGD) | DM + WFS |
 | `pib` | `optimizer.wfless.pib:optimize_pib()` | wfless | DM 电压 PIB (SPGD) | DM + CCD |
 | `pipeline` | `wf.rms:optimizer_rms_dm()` + `wfless.pib:optimize_pib()` | wf + wfless | WF RMS → PIB 串行 | DM + WFS + CCD |
-| \zernike-matrix\ | \optimizer.wf.zernike_response_matrix:calibrate_zernike_response_matrix\ | wf | Zernike 响应矩阵标定 + 闭环优化 | SLM + WFS |
+| `zernike-matrix` | `optimizer.wf.zernike_response_matrix:calibrate_zernike_response_matrix` | wf | Zernike 响应矩阵标定 + 闭环优化 | SLM + WFS |
 | `rms-zernike` | `optimizer.wf.rms_by_zernike:optimizer_rms_slm()` | wf | SLM Zernike RMS | SLM + WFS |
 | `ga-zernike` | `optimizer.wf.ga_zernike:optimizer_ga()` | wf | GA Zernike | SLM + WFS |
+| `dm-matrix` | `optimizer.wf.dm_response_matrix:calibrate_dm_response_matrix()` | wf | DM 响应矩阵标定 (sequential 逐单元推拉 / hadamard 电压域正交) | DM + WFS |
 | `combined` | `optimizer.combined_optimizer:optimize_pib()` | wfless | AdaMOD + SPGD 混合 PIB | DM + CCD |
 
 > **注意**: `optimizer/wf/rms.py` 和 `optimizer/wf/rms_by_zernike.py` 的函数名冲突已通过重命名解决:
@@ -235,21 +236,31 @@ python src/ao_shaping/main.py combined
 **CLI Structure (main.py 注册关系):**
 ```
 main (click.group)
-├── wf             ← wf_runner.run        [Wavefront RMS via DM电压 + WFS]
-├── pib            ← axis_beam_runner.run  [Power-in-Bucket via DM电压 + CCD]
-├── pipeline       ← pipeline_runner.run   [Serial WF RMS → PIB]
+├── wf             ← wf_runner.run            [Wavefront RMS via DM电压 + WFS]
+├── pib            ← axis_beam_runner.run      [Power-in-Bucket via DM电压 + CCD]
+├── pipeline       ← pipeline_runner.run       [Serial WF RMS → PIB]
 ├── zernike-matrix ← zernike_matrix_runner.run [Zernike响应矩阵标定 + 闭环优化 (closed_loop_run)]
 ├── rms-zernike    ← rms_zernike_runner.run    [SLM Zernike RMS]
 ├── ga-zernike     ← ga_zernike_runner.run     [GA Zernike]
+├── greedy-zernike ← greedy_zernike_runner.run [GA Zernike]
+├── gs             ← gs_hologram_runner.run    [GS 全息图生成]
+├── gs-square      ← gs_square_runner.run      [GS 闭环方形整形]
+├── diff-shaping   ← diff_shaping_runner.run   [可微分闭环光束整形]
+├── diff-beam      ← diff_beam_runner.run      [可微分光束整形 (backprop/GS)]
+├── spgd-square    ← slm_square_runner.run     [SLM 方形光斑 SPGD 整形]
+├── dm-matrix      ← dm_matrix_runner.run      [DM 响应矩阵标定 (sequential/hadamard)]
+├── alt-voltage    ← alt_voltage_runner.run    [交替电压下发]
+├── full-voltage   ← full_voltage_runner.run   [全量交替电压下发]
+├── closed-loop    ← zernike_matrix_runner.run [基于响应矩阵的闭环波前优化]
+├── slm-lut        ← slm_lut_runner.run        [SLM 灰度→相位 LUT 校准]
+├── slm-diagnose   ← tools/slm/slm_diagnose    [SLM 硬件自检]
 └── combined       ← combined_runner.run       [AdaMOD+SPGD 混合 PIB]
 ```
-
-> **注意**: `spgd-square` 命令 (`runners/slm_square_runner.py:run`) 已存在但**未注册到 main.py**, 需直接运行 `python -m ao_shaping.runners.slm_square_runner`。
 
 **Note:** `combined_runner.py` 功能仍通过 `combined` 命令可用, 非废弃。`pipeline_runner.py` 是推荐的 WF→PIB 串行方案。
 
 > **未注册到 main.py 的独立 Runner** (需直接运行 `python -m ao_shaping.runners.xxx` 或 standalone 脚本):
-> `slm_square_runner` (spgd-square), `slm_offset_runner`, `shaping_runner`, `greedy_zernike_runner`, `gs_square_runner`, `gs_hologram_runner` (gs), `diff_shaping_runner`, `diff_beam_runner` (diff-beam), `dm_matrix_runner` (dm-matrix), `hadamard_matrix_runner` (hadamard-matrix), `full_voltage_runner` (full-voltage), `alt_voltage_runner` (alt-voltage)
+> `slm_offset_runner`, `shaping_runner`, `hadamard_matrix_runner` (hadamard-matrix)
 
 **Refactoring Notes:**
 - All runner scripts now use centralized config from `config.py` (DM_N_ACTUATORS, PATHS, DEFAULTS)

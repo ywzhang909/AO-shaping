@@ -753,10 +753,16 @@ python src/ao_shaping/main.py dm-matrix [OPTIONS]
 - `--optimize-n-avg`: 电压优化时的WFS读取次数 (默认: 10)
 - `--display/--no-display`: 显示实时pygame显示 (暂未实现)
 - `--debug`: 启用调试模式 (保存原始测量数据)
+- `--mode [sequential|hadamard]`: 校准模式 (默认: sequential)。sequential=逐单元推拉; hadamard=哈达玛模式, 所有有效单元按哈达玛行同时推拉, 测量次数显著减少
+- `--hadamard-order`: 哈达玛矩阵阶数 (mode=hadamard 时使用, 默认: None=自动取 >= 有效单元数的最小 2 的幂; mode=sequential 时忽略)
 
 示例:
 ```bash
+# 默认逐单元推拉
 DEBUG=1 python src/ao_shaping/main.py dm-matrix --voltage 0.2 --n-averages 5 --output data/dm_response.h5
+
+# 哈达玛模式 (所有单元同时扰动, 测量次数更少)
+python src/ao_shaping/main.py dm-matrix --mode hadamard --output data/dm_response_had.h5
 ```
 
 #### AdaMOD+SPGD 混合 PIB 优化 (combined)
