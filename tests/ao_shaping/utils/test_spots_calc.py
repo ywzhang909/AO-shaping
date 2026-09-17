@@ -642,9 +642,10 @@ class TestPerformance:
             markdown += f"| {func} | {numpy_time} | {numba_time} | {cupy_time} |\n"
 
         print(markdown)
-        # Save to file
-        with open('performance_comparison.md', 'w') as f:
-            f.write(markdown)
+        # Save to docs/performance_comparison.md (repo-root based, CWD-independent)
+        from pathlib import Path
+        out_path = Path(__file__).resolve().parents[3] / "docs" / "performance_comparison.md"
+        out_path.write_text(markdown, encoding="utf-8")
 
 class TestPowerInBucketMask:
     def test_uniform_image_full_mask(self):
