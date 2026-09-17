@@ -6,9 +6,6 @@
 from __future__ import annotations
 
 import csv
-import random
-import sys
-import time
 from datetime import datetime
 from pathlib import Path
 
@@ -18,6 +15,7 @@ from loguru import logger
 
 try:
     import matplotlib
+
     matplotlib.use("Agg")  # non-interactive backend for headless use
     import matplotlib.pyplot as plt
     from scipy.optimize import curve_fit
@@ -26,12 +24,9 @@ try:
 except ImportError:
     HAS_PLOT = False
 
-SRC_ROOT = Path(__file__).resolve().parents[2]
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
 from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
-from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.drivers.slm.santec import Santec, SlotRotator
+from ao_shaping.utils.slm_phase import capture_frame, flat_gray
 
 FIELDNAMES = [
     "gray_value",
@@ -58,25 +53,7 @@ def _gray_values(gray_step: int, max_gray: int) -> list[int]:
 
 def _flat_phase(slm: Santec, gray_value: int) -> np.ndarray:
     height, width = slm.Panel_Res[1], slm.Panel_Res[0]
-    return np.full((height, width), gray_value, dtype=np.uint16)
-
-
-def _display_rotate_slot(
-    slm: Santec,
-    phase: np.ndarray,
-    memory_slot: int,
-    wait_time_s: float,
-) -> None:
-    """Write phase to a memory slot and display it.
-
-    ``memory_slot`` should be rotated (not the same as the previous call)
-    because writing + displaying the **same** slot twice in a row is a no-op
-    on Santec SLM firmware — the device does not refresh the LCOS panel
-    when ``display_memory(slot)`` is called for the slot already being
-    displayed.
-    """
-    slm.display_data(phase, memory_number=memory_slot)
-    time.sleep(wait_time_s)
+    return flat_gray((height, width), gray_value)
 
 
 def _capture_brightness(
@@ -85,20 +62,15 @@ def _capture_brightness(
     skip_first: bool,
     discard_count: int = 0,
 ) -> np.ndarray:
-    """Capture a camera frame, optionally discarding initial frames.
-
-    When *skip_first* is True and *n_sample* == 1, at least one frame is
-    taken and thrown away so the returned image is guaranteed *fresh* (not
-    from the previous SLM state).  *discard_count* can be increased if the
-    camera frame buffer is known to lag.
-    """
-    discard = 1 if skip_first and n_sample == 1 else 0
-    for _ in range(discard + discard_count):
-        camera.get_numpy_image(n_sample=1)  # discarded
-    return camera.get_numpy_image(n_sample=n_sample, skip_first=skip_first)
+    """Capture a camera frame, optionally discarding initial frames."""
+    return capture_frame(
+        camera, n_sample=n_sample, skip_first=skip_first, discard_count=discard_count
+    )
 
 
-def _sin_model(x: np.ndarray, offset: float, amplitude: float, period: float, phase: float) -> np.ndarray:
+def _sin_model(
+    x: np.ndarray, offset: float, amplitude: float, period: float, phase: float
+) -> np.ndarray:
     """Sinusoidal model for amplitude coupling:  y = offset + amplitude * sin(2πx/period + phase)"""
     return offset + amplitude * np.sin(2 * np.pi * x / period + phase)
 
@@ -142,7 +114,9 @@ def _fit_and_plot(
 
     # Sine fit curve
     if y_smooth is not None:
-        ax.plot(x_smooth, y_smooth, color="crimson", linewidth=2, zorder=2, label=fit_label)
+        ax.plot(
+            x_smooth, y_smooth, color="crimson", linewidth=2, zorder=2, label=fit_label
+        )
 
         # Annotate fit parameters
         text = (
@@ -151,8 +125,15 @@ def _fit_and_plot(
             f"$\\mathrm{{period}} = {period_fit:.1f}$  (2π gray = {max_gray})\n"
             f"$\\mathrm{{phase}} = {phase_fit:.3f}$"
         )
-        ax.text(0.02, 0.98, text, transform=ax.transAxes, va="top", fontsize=10,
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="wheat", alpha=0.8))
+        ax.text(
+            0.02,
+            0.98,
+            text,
+            transform=ax.transAxes,
+            va="top",
+            fontsize=10,
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="wheat", alpha=0.8),
+        )
 
     # Labels and styling
     ax.set_xlabel("SLM Gray Value", fontsize=12)
@@ -190,14 +171,17 @@ def acquire_gray_response(
     if csv_path.parent != Path(""):
         csv_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with Santec(
-        slm_number=slm_number,
-        video_mode=0,
-    ) as slm, CameraStreamManager(
-        cam_id=miicam_id,
-        exposure_time_ms=exposure_ms,
-        bit_depth=bit_depth,
-    ) as camera:
+    with (
+        Santec(
+            slm_number=slm_number,
+            video_mode=0,
+        ) as slm,
+        CameraStreamManager(
+            cam_id=miicam_id,
+            exposure_time_ms=exposure_ms,
+            bit_depth=bit_depth,
+        ) as camera,
+    ):
         # 只读当前波长，不触发 set_wavelength() → 避免 SLM 固件的 2π 校准
         wavelength_nm = slm.wavelength  # _setup_wavelength 已在 open() 中读取
         max_gray = slm.MAX_GRAYSCALE_VALUE  # 硬件最大灰度值 (1023)，非 2π 锁定值
@@ -227,30 +211,24 @@ def acquire_gray_response(
             writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
             writer.writeheader()
 
-            # Rotate through SLM memory slots so that consecutive writes
-            # NEVER target the same slot.  Santec SLM firmware treats
-            # display_memory(slot) as a no-op when the slot is already
-            # being displayed, so reusing the same slot back-to-back
-            # causes the LCOS panel to not refresh.  Pick a RANDOM slot
-            # in 2..125 excluding the currently displayed one (read on
-            # start, so restarts also never collide with the last slot).
-            _SLOT_MIN, _SLOT_MAX = 2, 125
-            _last_slot: int | None = None
-            try:
-                _last_slot = slm.get_displayed_memory_number()
-            except Exception:
-                _last_slot = None
+            slot_rotator = SlotRotator(slm)
             for index, gray_value in enumerate(gray_values, start=1):
                 phase = _flat_phase(slm, gray_value)
-                candidates = [
-                    s for s in range(_SLOT_MIN, _SLOT_MAX + 1) if s != _last_slot
-                ]
-                slot = random.choice(candidates)
-                _last_slot = slot
-                _display_rotate_slot(slm, phase, slot, wait_time_s)
+                slot_rotator.display_data(slm, phase, wait_time_s)
 
-                frame = _capture_brightness(camera, n_sample=n_sample, skip_first=skip_first, discard_count=discard_count)
-                max_brightness, min_brightness, sum_brightness, frame_dtype, frame_shape = (
+                frame = _capture_brightness(
+                    camera,
+                    n_sample=n_sample,
+                    skip_first=skip_first,
+                    discard_count=discard_count,
+                )
+                (
+                    max_brightness,
+                    min_brightness,
+                    sum_brightness,
+                    frame_dtype,
+                    frame_shape,
+                ) = (
                     int(frame.max()),
                     int(frame.min()),
                     float(frame.sum()),
@@ -326,14 +304,58 @@ def acquire_gray_response(
     show_default=True,
     help="CSV 输出文件路径",
 )
-@click.option("--slm-number", type=click.IntRange(min=1, max=8), default=1, show_default=True, help="SLM 设备编号")
-@click.option("--miicam-id", type=click.IntRange(min=0), default=0, show_default=True, help="MiiCam 相机 ID")
-@click.option("--wavelength", type=click.IntRange(min=450, max=1600), default=1064, show_default=True, help="SLM 工作波长 nm")
-@click.option("--wait-time-s", type=click.FloatRange(min=0.0), default=0.3, show_default=True, help="SLM 下发后等待时间 s")
-@click.option("--n-sample", type=click.IntRange(min=1), default=1, show_default=True, help="每点相机平均帧数")
-@click.option("--skip-first/--no-skip-first", default=True, show_default=True, help="是否跳过首帧")
-@click.option("--discard-count", type=click.IntRange(min=0), default=1, show_default=True, help="采集前额外丢弃帧数 (防相机帧缓存滞后)")
-@click.option("--bit-depth", type=click.Choice(["8", "16"]), default="8", show_default=True, help="MiiCam 输出位深")
+@click.option(
+    "--slm-number",
+    type=click.IntRange(min=1, max=8),
+    default=1,
+    show_default=True,
+    help="SLM 设备编号",
+)
+@click.option(
+    "--miicam-id",
+    type=click.IntRange(min=0),
+    default=0,
+    show_default=True,
+    help="MiiCam 相机 ID",
+)
+@click.option(
+    "--wavelength",
+    type=click.IntRange(min=450, max=1600),
+    default=1064,
+    show_default=True,
+    help="SLM 工作波长 nm",
+)
+@click.option(
+    "--wait-time-s",
+    type=click.FloatRange(min=0.0),
+    default=0.3,
+    show_default=True,
+    help="SLM 下发后等待时间 s",
+)
+@click.option(
+    "--n-sample",
+    type=click.IntRange(min=1),
+    default=1,
+    show_default=True,
+    help="每点相机平均帧数",
+)
+@click.option(
+    "--skip-first/--no-skip-first", default=True, show_default=True, help="是否跳过首帧"
+)
+@click.option(
+    "--discard-count",
+    type=click.IntRange(min=0),
+    default=1,
+    show_default=True,
+    help="采集前额外丢弃帧数 (防相机帧缓存滞后)",
+)
+@click.option(
+    "--bit-depth",
+    type=click.Choice(["8", "16"]),
+    default="8",
+    show_default=True,
+    help="MiiCam 输出位深",
+)
 def run(
     gray_step: int,
     exposure_ms: float,
