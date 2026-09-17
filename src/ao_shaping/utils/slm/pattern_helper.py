@@ -8,7 +8,9 @@ import numpy as np
 from ao_shaping.utils.wavefront.phase_unwrap import PhaseUnwrapper, UnwrapStrategy, unwrap_phase
 from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
+    # 仅类型标注用 (避免 utils 叶子层在运行期依赖 algorithm 包)。
+    # 运行期使用全部走函数内延迟导入 (见各 get_optimizer / detect_jumps 等)。
     from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
 
 from aotools.turbulence.infinitephasescreen import PhaseScreenKolmogorov
