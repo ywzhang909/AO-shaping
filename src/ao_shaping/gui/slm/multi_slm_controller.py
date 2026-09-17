@@ -1187,9 +1187,6 @@ def render_phase_control(slm_num: int):
                 st.success(f"相位 A 已设为全0相位 ({h}×{w})")
             else:
                 st.warning("SLM 未连接")
-        phase_a = st.session_state.get(f"{prefix}_toggle_phase_a")
-        if phase_a is not None:
-            _export_phase_csv(phase_a, f"slm{slm_num}_phase_a.csv")
     with col_ph_b:
         if st.button("设为相位 B", key=f"{prefix}_set_phase_b"):
             slm = st.session_state.get(prefix)
@@ -1213,10 +1210,6 @@ def render_phase_control(slm_num: int):
                 st.success(f"相位 B 已设为全0相位 ({h}×{w})")
             else:
                 st.warning("SLM 未连接")
-        phase_b = st.session_state.get(f"{prefix}_toggle_phase_b")
-        if phase_b is not None:
-            _export_phase_csv(phase_b, f"slm{slm_num}_phase_b.csv")
-
     _freq = st.number_input(
         "切换频率 (Hz)",
         min_value=0.1,

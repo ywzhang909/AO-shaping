@@ -800,7 +800,6 @@ class ZernikeControl(PatternControl):
         edited = st.data_editor(
             pairs,
             key=f"{prefix}_zernike_table",
-            num_rows="fixed",
             column_config={
                 "n": st.column_config.NumberColumn("n", disabled=True, width="small"),
                 "m": st.column_config.NumberColumn("m", disabled=True, width="small"),
