@@ -16,7 +16,7 @@ except ImportError:
 
     CYTHON_TARGET_FUNC_AVAILABLE = False
 
-from ao_shaping.algorithm.tabu_search import (
+from ao_shaping.algorithm.tabu.tabu_search import (
     TabuMemory,
     AdaptiveSearchState,
     generate_search_candidates,
@@ -25,7 +25,7 @@ from ao_shaping.algorithm.tabu_search import (
     create_tabu_search_runner,
 )
 
-from ao_shaping.algorithm.gerchberg_saxton import (
+from ao_shaping.algorithm.signal_processing.gerchberg_saxton import (
     gerchberg_saxton,
     adaptive_gerchberg_saxton,
     angular_spectrum_propagate,
@@ -33,18 +33,20 @@ from ao_shaping.algorithm.gerchberg_saxton import (
     GSResult,
 )
 
-from ao_shaping.algorithm.controller import (
+from ao_shaping.algorithm.signal_processing.controller import (
     ControlLaw,
     LoopConfig,
     HardwareConfig,
 )
 
-from ao_shaping.algorithm.phase_wrap import (
+from ao_shaping.algorithm.signal_processing.phase_wrap import (
     PhaseWrapOptimizer,
     SLMPhaseController,
 )
 
-from ao_shaping.algorithm.ga import (
+from ao_shaping.algorithm.signal_processing.iterative_base import IterativeOptimizer
+
+from ao_shaping.algorithm.heuristic.ga import (
     GeneticAlgorithm,
     GAParams,
     tournament_selection,
@@ -53,43 +55,43 @@ from ao_shaping.algorithm.ga import (
     minimize_ga,
 )
 
-from ao_shaping.algorithm.pso import (
+from ao_shaping.algorithm.heuristic.pso import (
     ParticleSwarmOptimizer,
     PSOParams,
     minimize_pso,
 )
 
-from ao_shaping.algorithm.simulated_annealing import (
+from ao_shaping.algorithm.heuristic.simulated_annealing import (
     SimulatedAnnealing,
     SAParams,
     TempSchedule,
     minimize_sa,
 )
 
-from ao_shaping.algorithm.heuristic_base import (
+from ao_shaping.algorithm.heuristic.heuristic_base import (
     HeuristicOptimizer,
     OptimizerConfig,
     OptimizerType,
 )
 
-from ao_shaping.algorithm.hill_climbing import (
+from ao_shaping.algorithm.heuristic.hill_climbing import (
     HillClimbing,
     HCConfig,
 )
 
-from ao_shaping.algorithm.random_search import RandomSearch
+from ao_shaping.algorithm.heuristic.random_search import RandomSearch
 
-from ao_shaping.algorithm.cross_entropy import (
+from ao_shaping.algorithm.heuristic.cross_entropy import (
     CrossEntropyMethod,
     CEMConfig,
 )
 
-from ao_shaping.algorithm.differential_evolution import (
+from ao_shaping.algorithm.heuristic.differential_evolution import (
     DifferentialEvolution,
     DEConfig,
 )
 
-from ao_shaping.algorithm.differentiable_beam import (
+from ao_shaping.algorithm.signal_processing.differentiable_beam import (
     DifferentiableBeamOptimizer,
     differentiable_far_field,
     far_field_intensity,
@@ -119,6 +121,7 @@ __all__ = [
     "HardwareConfig",
     "PhaseWrapOptimizer",
     "SLMPhaseController",
+    "IterativeOptimizer",
     "GeneticAlgorithm",
     "GAParams",
     "tournament_selection",

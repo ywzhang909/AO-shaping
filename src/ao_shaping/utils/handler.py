@@ -1,21 +1,9 @@
-class Register:
-    def __init__(self) -> None:
-        self.members = {}
+"""Backward-compat shim for :mod:`ao_shaping.utils.handler`.
 
-    def register(self, name: str):
-        def decorator(func):
-            self.members[name] = func
-            return func
+Real module moved to :mod:`ao_shaping.utils.io.handler`.
+"""
 
-        return decorator
+from __future__ import annotations
 
-    def __getitem__(self, name: str):
-        return self.members[name]
-
-    @property
-    def all_funcs(self):
-        return self.members.values()
-
-    @property
-    def all_names(self):
-        return self.members.keys()
+from ao_shaping.utils.io.handler import *  # noqa: F403,F401
+from ao_shaping.utils.io.handler import Register  # noqa: F401

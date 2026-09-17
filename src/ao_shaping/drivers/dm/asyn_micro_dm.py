@@ -17,10 +17,9 @@ Protocol constants and voltage conversion match MicroDM.py exactly.
 from __future__ import annotations
 
 import asyncio
-import itertools
 import socket
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 from loguru import logger
@@ -37,7 +36,6 @@ from ao_shaping.drivers.dm.MicroDM import (
     VOLTAGE_MAX,
     VOLTAGE_MIN,
     WiringMap,
-    voltages_to_payload,
 )
 
 # Re-export WiringMap so callers can import from asyn_micro_dm directly.
