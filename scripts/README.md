@@ -563,6 +563,43 @@ python scripts/generate_zernike_linearity_report.py -o docs/slm/zernike_linearit
 Sources default to the latest `data/zernike_correction/raw_scan_*.json` and
 `data/zernike_correction/report_*.json`; override with `--raw-scan`, `--report`.
 
+### generate_dm_response_matrix_report.py
+
+Generates the illustrated **DM response matrix** report
+(creation / analysis / detection). **Fully offline** — reads saved artefacts, no
+hardware.
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src"
+python scripts/generate_dm_response_matrix_report.py
+python scripts/generate_dm_response_matrix_report.py --h5 <path> -o docs/dm_response_matrix_report
+```
+
+**What it does** (writes `report.md` + `figures/`):
+- **Creation**: acquisition metadata (calibration mode `sequential`/`hadamard`,
+  hadamard order, n_actuators, valid actuator indices, disturb voltage,
+  averages/cycles, wait time, timestamp, mean/max variance, condition number)
+  + `device_config` dict rendered as a table (incl. `dm_type`/`dm_num` when
+  present)
+- **Analysis**: response-matrix heatmap, repeat-variance heatmap (log10),
+  per-actuator response magnitude (column Frobenius norm) with median + 5%
+  dead-threshold markers, per-subaperture slope-sensitivity spatial map
+  (reshaped from paired dx/dy slopes when the subaperture grid is derivable
+  from the mask; otherwise per-channel magnitude), and singular-value spectrum
+  / condition number
+- **Detection**: weak/dead actuator candidates (column norm < 5% of median)
+  and high-variance actuators (>10× median column variance), each with a
+  per-actuator table and interpretation notes
+
+Legacy `.h5` files without the `calibration_mode`/`hadamard_order` attrs are
+handled via `.get` defaults (`"sequential"` / `None`). The loader prefers
+`ao_shaping.optimizer.wf.dm_response_matrix.load_dm_response_matrix` with a
+graceful h5py fallback if the package import fails.
+
+Sources default to the latest `data/dm_response_matrix*.h5`; override with
+`--h5` and `-o/--output`.
+
 ## Verification Scripts
 
 ### verify_correction_csv.py
