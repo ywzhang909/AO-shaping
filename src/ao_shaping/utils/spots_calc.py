@@ -291,6 +291,21 @@ def radius(intensity, center, energy=0.99, use_aotools: bool = True) -> float:
             center = np.array(intensity.shape) // 2
         else:
             center = np.array(center)
+        intensity = np.asarray(intensity)
+        # aotools encircled_energy builds a square pupil mask, so a non-square
+        # ROI would raise a broadcast error. This happens with hardware whose
+        # ROI quantization differs per axis (e.g. Daheng clamps width to a
+        # multiple of 4 but height to 2, turning 250x250 into 248x250).
+        # Crop to the largest square centred on the spot to keep the metric
+        # isotropic.
+        h, w = intensity.shape
+        if h != w:
+            side = min(h, w)
+            cx, cy = int(round(center[0])), int(round(center[1]))
+            x0 = min(max(cx - side // 2, 0), w - side)
+            y0 = min(max(cy - side // 2, 0), h - side)
+            intensity = intensity[y0 : y0 + side, x0 : x0 + side]
+            center = np.array([cx - x0, cy - y0])
         diameter = aotools_ee(intensity, fraction=energy, center=center, eeDiameter=True)
         return float(diameter) / 2
     else:

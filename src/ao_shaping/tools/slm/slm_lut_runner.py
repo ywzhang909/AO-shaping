@@ -204,94 +204,88 @@ def _locate_spots(
 # ── Measurement helpers ─────────────────────────────────────────────────────
 
 
-def _joint_exposure_check(
-    frame: np.ndarray,
+def _joint_exposure_settle(
     rois: list[tuple[tuple[int, int], int]],
     full_well: float,
     camera,
-    current_exposure_ms: float,
+    exposure_ms: float,
     bright_floor: float,
     saturation_stop: float,
-) -> tuple[np.ndarray, float, bool]:
-    """Joint auto-exposure over all spot ROIs — keeps ref/test on ONE frame.
+    max_rounds: int = 8,
+    settle_s: float = 0.05,
+) -> float:
+    """Set exposure ONCE before the scan and iterate until all spot ROIs sit
+    in the safe band.  Returns the settled exposure.
 
-    The scan measures the ref/test power ratio from the same frame so laser
-    drift cancels.  Auto-exposure must therefore be applied JOINTLY: if ANY roi
-    saturates the exposure is halved; if the AVERAGE roi mean is underexposed
-    it is doubled.  At most one adjustment round is applied per call; the
-    caller re-captures as needed on the next iteration.
+    LUT calibration requires a CONSTANT exposure across every gray point — the
+    ``invert_depth_scan`` model assumes the ref/test ratio is drift-canceled
+    by measuring both halves from the same frame, but NOT by changing exposure
+    mid-scan.  Adjusting exposure inside the scan loop would silently invalidate
+    every ratio.  So exposure is fixed here, before the scan starts.
 
     Args:
-        frame: Current camera frame (uint8, uint16 or float64).
         rois: List of ``((cx, cy), window)`` spot regions to guard.
         full_well: Maximum pixel value (255 for 8-bit, 65535 for 16-bit).
         camera: Camera instance with ``reset_exposure_time``.
-        current_exposure_ms: Current exposure time.
+        exposure_ms: Initial exposure time.
         bright_floor: Minimum normalized ROI mean to avoid underexposure.
         saturation_stop: Maximum normalized ROI max to avoid saturation.
+        max_rounds: Max adjustment rounds.
+        settle_s: Sleep after each exposure change.
 
     Returns:
-        ``(frame, exposure_ms, adjusted)`` — a possibly re-captured frame and
-        the exposure that produced it.
+        Settled exposure in ms.
     """
-    h, w = frame.shape[:2]
-    max_norm = 0.0
-    mean_norm_sum = 0.0
-    n_rois = 0
+    if not rois:
+        return exposure_ms
 
-    for (cx, cy), win in rois:
-        half_win = win // 2
-        y0 = max(cy - half_win, 0)
-        y1 = min(cy + half_win + 1, h)
-        x0 = max(cx - half_win, 0)
-        x1 = min(cx + half_win + 1, w)
-        roi = frame[y0:y1, x0:x1]
-        if roi.size == 0:
-            continue
-        max_norm = max(max_norm, float(np.max(roi)) / full_well)
-        mean_norm_sum += float(np.mean(roi)) / full_well
-        n_rois += 1
-
-    if n_rois == 0:
-        return frame, current_exposure_ms, False
-
-    mean_norm = mean_norm_sum / n_rois
-    adjusted = False
-    new_exposure = current_exposure_ms
-
-    if max_norm > saturation_stop and current_exposure_ms > 0.01:
-        new_exposure = max(current_exposure_ms / 2.0, 0.01)
-        logger.info(
-            "Auto-exposure: ROI max {:.3f} > saturation_stop {:.3f}, "
-            "halving exposure {:.3f}→{:.3f} ms",
-            max_norm,
-            saturation_stop,
-            current_exposure_ms,
-            new_exposure,
-        )
-        adjusted = True
-    elif mean_norm < bright_floor and current_exposure_ms < 10000:
-        new_exposure = min(current_exposure_ms * 2.0, 10000.0)
-        logger.info(
-            "Auto-exposure: ROI mean {:.4f} < bright_floor {:.3f}, "
-            "doubling exposure {:.3f}→{:.3f} ms",
-            mean_norm,
-            bright_floor,
-            current_exposure_ms,
-            new_exposure,
-        )
-        adjusted = True
-
-    if adjusted:
-        camera.reset_exposure_time(new_exposure)
-        time.sleep(0.05)  # brief settle after exposure change
-        new_frame = np.asarray(
+    for rnd in range(max_rounds):
+        camera.reset_exposure_time(exposure_ms)
+        time.sleep(settle_s)
+        frame = np.asarray(
             camera.get_numpy_image(n_sample=1, skip_first=True),
             dtype=np.float64,
         )
-        return new_frame, new_exposure, True
-
-    return frame, current_exposure_ms, False
+        h, w = frame.shape[:2]
+        max_norm = 0.0
+        mean_norm_sum = 0.0
+        n_rois = 0
+        for (cx, cy), win in rois:
+            half_win = win // 2
+            y0 = max(cy - half_win, 0)
+            y1 = min(cy + half_win + 1, h)
+            x0 = max(cx - half_win, 0)
+            x1 = min(cx + half_win + 1, w)
+            roi = frame[y0:y1, x0:x1]
+            if roi.size == 0:
+                continue
+            max_norm = max(max_norm, float(np.max(roi)) / full_well)
+            mean_norm_sum += float(np.mean(roi)) / full_well
+            n_rois += 1
+        if n_rois == 0:
+            return exposure_ms
+        mean_norm = mean_norm_sum / n_rois
+        logger.info(
+            "曝光标定[{}/{}]: exp={:.3f}ms  ROI max={:.3f} mean={:.4f}",
+            rnd + 1,
+            max_rounds,
+            exposure_ms,
+            max_norm,
+            mean_norm,
+        )
+        if max_norm > saturation_stop and exposure_ms > 0.01:
+            exposure_ms = max(exposure_ms / 2.0, 0.01)
+            continue
+        if mean_norm < bright_floor and exposure_ms < 10000:
+            exposure_ms = min(exposure_ms * 2.0, 10000.0)
+            continue
+        return exposure_ms
+    logger.warning(
+        "曝光标定在 {} 轮后仍未收敛, 使用 exp={:.3f}ms 继续",
+        max_rounds,
+        exposure_ms,
+    )
+    return exposure_ms
 
 
 def _measure_power(
@@ -303,8 +297,9 @@ def _measure_power(
 
     Sums the spot_window×spot_window ROI centered on *spot_center* after
     subtracting a median background estimated from the 2-pixel border ring.
-    Exposure is managed OUTSIDE via ``_joint_exposure_check`` so that ref and
-    test are measured from the same frame (drift-canceled ratio).
+    Exposure is fixed for the whole scan by ``_joint_exposure_settle`` before
+    the loop starts, so ref and test are always measured from the same frame
+    with the same exposure — laser drift cancels in the ratio.
 
     Args:
         frame: Camera frame (uint8, uint16 or float64).
@@ -586,9 +581,9 @@ def run(
         ref_center = spots["ref"]
         test_center = spots["test"]
 
-        # Joint auto-exposure on the located spots (keeps both on ONE frame)
-        calib_frame, final_exposure_ms, _ = _joint_exposure_check(
-            calib_frame,
+        # Joint exposure settle BEFORE the scan — exposure must stay constant
+        # across every gray point so invert_depth_scan's model holds.
+        final_exposure_ms = _joint_exposure_settle(
             [(ref_center, spot_window), (test_center, spot_window)],
             full_well,
             camera,
@@ -682,16 +677,9 @@ def run(
                 spot_window,
             )
 
-            # Joint auto-exposure once — both spots measured from the SAME frame
-            frame, final_exposure_ms, _ = _joint_exposure_check(
-                frame,
-                [(ref_center, spot_window), (test_center, spot_window)],
-                full_well,
-                camera,
-                final_exposure_ms,
-                bright_floor,
-                saturation_stop,
-            )
+            # NOTE: exposure is fixed for the whole scan (set before the loop
+            # via _joint_exposure_settle).  Do NOT adjust exposure here —
+            # invert_depth_scan assumes a constant exposure across gray points.
 
             # Measure both powers from the same frame (drift-canceled ratio)
             p_ref, _ = _measure_power(frame, ref_center, spot_window)

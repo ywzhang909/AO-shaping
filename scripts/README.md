@@ -563,6 +563,40 @@ python scripts/generate_zernike_linearity_report.py -o docs/slm/zernike_linearit
 Sources default to the latest `data/zernike_correction/raw_scan_*.json` and
 `data/zernike_correction/report_*.json`; override with `--raw-scan`, `--report`.
 
+### generate_heuristic_pib_report.py
+
+Benchmarks all 7 heuristic optimizers in `ao_shaping.algorithm` (GA, PSO, SA,
+Hill Climbing, Random Search, Cross-Entropy, Differential Evolution) on the PIB
+(power-in-bucket) optimization problem. **Fully offline** — pure numpy, no
+hardware, using the synthetic landscape from
+`ao_shaping.optimizer.wfless.pib_sim_eval.SimLandscape` (dim=4, bounds ±12,
+seed 42).
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src;libs"
+python scripts/generate_heuristic_pib_report.py
+```
+
+**What it does** (writes to `docs/heuristic_pib/`):
+- Runs each optimizer via the `HeuristicOptimizer.create()` factory with its
+  spec config (GA/DE/CEM pop_size=30, PSO n_particles=30, per-algorithm
+  iteration budgets) and records the PIB convergence history
+- `pib_curves.png` — overlaid PIB iteration curves (log x-axis), with 0.5/0.9
+  threshold lines; a dot + `iter N` label marks each curve's first crossing
+  of 0.9 PIB, and each legend label shows `max@N` (first iteration reaching
+  final max PIB)
+- `convergence_speed.png` — grouped bar chart (log y-axis) showing the first
+  iteration each algorithm reaches PIB 0.5 / 0.9 / its final maximum, with
+  exact iteration values annotated above each bar
+- `spot_before_after.png` — 2×4 grid of initial vs best spot renders
+  (`landscape.render`) with shared brightness normalization
+- `summary_bars.png` — horizontal bar chart of final PIB, sorted descending
+- `summary.csv` — `algorithm, final_pib, init_pib, best_x_0..3, n_evals`
+- `report.md` — results table (final PIB / improvement / **iters to max,
+  ≥ 0.9, ≥ 0.5** / n_evals) plus a per-algorithm basin interpretation (global
+  center `[-4.8,-4.2,-4.5,-4.0]` vs local center `[2.5,3.2,2.2,2.8]`)
+
 ### generate_dm_response_matrix_report.py
 
 Generates the illustrated **DM response matrix** report
