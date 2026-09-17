@@ -8,6 +8,12 @@ Usage:
 
 Or via main CLI:
     python -m ao_shaping.main dm-matrix [OPTIONS]
+
+TODO (实机待测试清单, 完整清单见 run() docstring):
+    ⚠️ 2026-09-17: sequential/hadamard 双模式标定内核为新增代码, 已通过离线
+    仿真测试 (122 passed, 1 hardware-skip) 与合成数据冒烟, 但**尚未上设备
+    实测**。DM/WFS 当前不可达 (nlight/micro is_reachable()=False), 待测项
+    逐条列于 `run()` docstring 的 TODO 清单。
 """
 
 from __future__ import annotations
@@ -136,6 +142,17 @@ def run(
 
     调试模式 (--debug):
         保存每次测量的原始WFS deviation数据。
+
+    TODO (实机待测试清单 —— sequential/hadamard 双模式尚未上设备实测):
+        [ ] sequential 模式真实 DM+WFS n=5 重跑 (n-averages 10) + 自动电压优化:
+            矩阵形状/条件数与仿真一致, 平均方差正常 (无死执行器误报)
+        [ ] hadamard 模式自动阶数实测: 与 sequential 矩阵一致性 (相关性/条件数
+            同量级), 测量时间显著减少 (所有有效单元同时扰动)
+        [ ] hadamard 显式阶数: --hadamard-order 指定 ≥有效单元数的最小 2 的幂
+            时正常; 非合法值应报清晰错误
+        [ ] 矫正闭环验证: 以标定矩阵 (pinv_matrix) 做波前矫正, RMS 明显改善
+        [ ] report3: scripts/generate_dm_response_matrix_report.py 以真实 h5
+            生成报告 (图/表齐全), 结果写入 docs/slm 日报
     """
     if debug is None:
         debug = get_debug_mode()
