@@ -1,0 +1,95 @@
+{
+  "params": {
+    "slm_number": 1,
+    "wavelength": 1064.0,
+    "cam_id": 0,
+    "exposure_ms": 0.02,
+    "n_sample": 10,
+    "slot_min": 2,
+    "slot_max": 125,
+    "settle_s": 0.4,
+    "out_dir": "docs/slm/slm_lens_probe",
+    "render_only": false
+  },
+  "noise": {
+    "per_px_std_mean": 0.5769163801446099,
+    "per_px_std_max": 5.714017850864661
+  },
+  "metrics": {
+    "A_flat": {
+      "total": 11200347.0,
+      "peak": 25.0,
+      "centroid": [
+        758.32,
+        1346.07
+      ],
+      "ee90_r": 1286.6697947924642,
+      "argmax_rc": [
+        663,
+        1471
+      ]
+    },
+    "B_lens_1000mm": {
+      "total": 11254200.0,
+      "peak": 25.0,
+      "centroid": [
+        757.75,
+        1346.12
+      ],
+      "ee90_r": 1286.8773788983942,
+      "argmax_rc": [
+        666,
+        1445
+      ]
+    },
+    "C_lens_250mm": {
+      "total": 11203504.0,
+      "peak": 25.0,
+      "centroid": [
+        758.01,
+        1345.78
+      ],
+      "ee90_r": 1286.745050071684,
+      "argmax_rc": [
+        665,
+        1471
+      ]
+    },
+    "D_flat_again": {
+      "total": 11202866.0,
+      "peak": 25.0,
+      "centroid": [
+        757.93,
+        1345.85
+      ],
+      "ee90_r": 1286.613066441931,
+      "argmax_rc": [
+        663,
+        1474
+      ]
+    }
+  },
+  "deltas": {
+    "A_vs_B": 0.6190852250693137,
+    "A_vs_C": 0.6208349234012707,
+    "A_vs_D": 0.6296970665314957
+  },
+  "verdict": {
+    "A_vs_B": {
+      "rmse": 0.6190852250693137,
+      "x_noise_floor": 1.0730935129873307,
+      "changed": false
+    },
+    "A_vs_C": {
+      "rmse": 0.6208349234012707,
+      "x_noise_floor": 1.0761263586339014,
+      "changed": false
+    },
+    "A_vs_D": {
+      "rmse": 0.6296970665314957,
+      "x_noise_floor": 1.0914875850355572,
+      "changed": false
+    }
+  },
+  "total_A": 11200347.0
+}

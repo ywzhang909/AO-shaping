@@ -11,12 +11,12 @@ from ao_shaping.optimizer.combined_optimizer import optimize_pib
 from ao_shaping.utils.cli_helpers import get_debug_mode, setup_coredumpy, get_date_dir_name
 from ao_shaping.utils.file import gen_file_path_uuid, gen_date_dir, logger
 from ao_shaping.utils.display import plot_funcs
-from ao_shaping.drivers.dm import create_dm, list_reachable_dm_types
+from ao_shaping.drivers.dm import create_dm, list_dm_types, list_reachable_dm_types
 
 import matplotlib.pyplot as plt
 
 
-DM_TYPES = list_reachable_dm_types()
+DM_TYPES = list_dm_types()
 
 
 def _create_dm(dm_type: str, **kwargs):
@@ -92,7 +92,7 @@ def run(
         dm_type = dm_type.lower()
         logger.info(f"Using specified DM type: {dm_type}")
     else:
-        reachable = DM_TYPES
+        reachable = list_reachable_dm_types()
         if len(reachable) == 1:
             dm_type = reachable[0]
             logger.info(f"Auto-detected reachable DM: {dm_type}")

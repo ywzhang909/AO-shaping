@@ -317,7 +317,7 @@ def _render_conflict_section(
             )
             st.session_state.cv_conflict_info = None
             st.session_state.cv_save_feedback = "已保存 (冲突覆盖)"
-            st.rerun()
+            st.rerun(scope="fragment")
     with col_cfm2:
         if st.button("❌ 取消", use_container_width=True, key="cv_cancel_overwrite"):
             st.session_state.cv_conflict_info = None
@@ -325,7 +325,7 @@ def _render_conflict_section(
             if not orig.empty:
                 st.session_state.cv_edit_ip = int(orig.iloc[0]["IP组"])
                 st.session_state.cv_edit_seq = int(orig.iloc[0]["序号"])
-            st.rerun()
+            st.rerun(scope="fragment")
 
 
 def _render_cell_editor(
@@ -402,11 +402,11 @@ def _render_cell_editor(
                     "new_seq": new_seq,
                     "conflicts": conflicts.to_dict("records"),
                 }
-                st.rerun()
+                st.rerun(scope="fragment")
             else:
                 _apply_edit(df, sel_row, sel_col, new_ip, new_seq)
                 st.session_state.cv_save_feedback = "已保存"
-                st.rerun()
+                st.rerun(scope="fragment")
 
     if not changed:
         st.caption("值未改变，无需保存")
@@ -549,7 +549,7 @@ def render_tab_grid() -> None:
             st.session_state.cv_selected_row = 0
             st.session_state.cv_selected_col = 0
             st.session_state.cv_grid_click_count += 1
-            st.rerun()
+            st.rerun(scope="fragment")
     with col_grid_ctrl4:
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("📥 导出 CSV", use_container_width=True, key="cv_export_csv"):
@@ -582,7 +582,6 @@ def render_tab_grid() -> None:
         styled_grid,
         use_container_width=True,
         height=600,
-        on_select="rerun",
         selection_mode="single-row",
     )
 
@@ -590,7 +589,7 @@ def render_tab_grid() -> None:
         clicked_row_idx = selected.selection.rows[0]
         if 0 <= clicked_row_idx < G:
             st.session_state.cv_selected_row = clicked_row_idx
-            st.rerun()
+            st.rerun(scope="fragment")
 
     # ── Selection controls + Cell editor (below table, side by side) ─────
     st.divider()

@@ -1,4 +1,8 @@
 import numpy as np
+import pytest
+
+# gymnasium 是 RL 环境 (optimizer/rl/envs) 的重型可选依赖；环境未安装时跳过全部用例
+pytest.importorskip("gymnasium")
 
 from ao_shaping.optimizer.rl.envs import SimTurbulenceAOEnv, StaticAberrationAOEnv
 

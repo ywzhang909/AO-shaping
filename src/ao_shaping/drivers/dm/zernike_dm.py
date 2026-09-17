@@ -79,13 +79,17 @@ class ZernikeDM(DM):
     ) -> np.ndarray:
         """根据Zernike系数生成相位面型
 
+        ⚠️ **单位约定 (2026-09-16 修复后)**: ``coefficients`` 的数值**即弧度**,
+        输出保留**绝对幅度** —— 系数 ×4 得到 ×4 的相位 PV。
+        旧实现曾做 min-max 归一化, 使输出对系数缩放不变 (幅度不可控), 已移除。
+
         Args:
-            coefficients: Zernike系数，可以是:
+            coefficients: Zernike系数 (单位: 弧度)，可以是:
                 - dict: {(n, m): value} 形式的系数
                 - np.ndarray: 按Noll顺序排列的系数向量
             output_mode: 输出模式:
-                - "rad": 返回弧度相位 (0-2π)，用于波形计算
-                - "gray": 返回灰度相位 (0-1023)，用于SLM显示
+                - "rad": 返回**弧度**相位 (系数原值, 不归一化, 不 mod 2π)
+                - "gray": 返回灰度相位 (mod 2π → 0..2^bits−1)
 
         Returns:
             相位面型，shape为 (height, width)
@@ -99,30 +103,32 @@ class ZernikeDM(DM):
         height, width = self.resolution[1], self.resolution[0]
         max_val = float(2**self.bits - 1)
 
-        # Generate phase using ZernikeGenerator's generate_polynomial
+        # Generate phase using ZernikeGenerator's generate_polynomial.
+        # Outside the aperture the zernike package yields NaN; zero them.
         phase_raw = self._generator.generate_polynomial(coeffs_dict)
+        phase_raw = np.nan_to_num(phase_raw, nan=0.0, posinf=0.0, neginf=0.0)
 
-        # phase_raw is in arbitrary units (typically -2.5 to +2.5)
-        # Normalize to [0, 1] range then scale appropriately
-        phase_min = np.nanmin(phase_raw)
-        phase_max = np.nanmax(phase_raw)
-        phase_range = phase_max - phase_min
-
-        if phase_range > 1e-10:
-            phase_normalized = (phase_raw - phase_min) / phase_range
-        else:
-            phase_normalized = np.zeros_like(phase_raw)
-
-        # Set outputs
+        # ⚠️ 不做 min-max 归一化 (2026-09-16 修复)。
+        # 旧实现 `(raw−min)/(max−min) × 2π` 使输出**对系数缩放不变**
+        # (系数 ×1 与 ×4 产生逐字节相同相位, PV 恒为 2π, 实测
+        #  np.array_equal == True) → Zernike 系数的"幅度"维度被完全抹掉,
+        # 所有 ZernikeSLM 消费方 (zernike-matrix / rms-zernike / ga-zernike /
+        # greedy-zernike / GUI) 都无法控制相位幅度。
+        # 现改为: **系数即弧度**, 直接输出, 保留绝对幅度 (与
+        # PatternHelper.generate_zernike_polynomial 语义一致)。
         self._current_coeffs = coeffs_dict
         if output_mode == "rad":
-            phase_out = phase_normalized * 2 * np.pi
+            phase_out = phase_raw
             self._current_phase = phase_out.copy()
             return phase_out
-        else:
-            phase_out = (phase_normalized * max_val).astype(np.uint16)
-            self._current_phase = phase_out.copy()
-            return phase_out
+
+        # "gray": 弧度 → 灰度 (mod 2π), 语义与 SLM 驱动
+        # `create_phase_from_array` 一致 (2π 对应 max_val)
+        phase_out = np.mod(phase_raw / (2.0 * np.pi) * max_val, max_val).astype(
+            np.uint16
+        )
+        self._current_phase = phase_out.copy()
+        return phase_out
 
     @deprecated("Use generate_phase with output_mode='gray'")
     def generate_phase_2pi(

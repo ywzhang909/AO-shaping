@@ -41,7 +41,7 @@ def schedule_lr_delta(rms):
         return 0.7, 0.7
 
 
-def optimizer_rms(
+def optimizer_rms_dm(
     epochs,
     wfs_res: Literal["512", "768"] = "768",
     init_v: Sequence[float | int] = [],
@@ -117,8 +117,7 @@ def optimizer_rms(
         ) as bar:
             for epoch in range(1, epochs + 1):
                 disturb_v = (
-                    np.random.binomial(1, 0.5, (dm.DM_Num,)).astype(float) * 2.0
-                    - 1.0
+                    np.random.binomial(1, 0.5, (dm.DM_Num,)).astype(float) * 2.0 - 1.0
                 )
 
                 disturb_v = disturb_v * delta
@@ -140,9 +139,7 @@ def optimizer_rms(
                 optimizer.lr = lr
                 update = optimizer.update(gradient)
                 max_iter_diff = getattr(dm, "max_iter_diff", float("inf"))
-                update = np.clip(
-                    update, -max_iter_diff + delta, max_iter_diff - delta
-                )
+                update = np.clip(update, -max_iter_diff + delta, max_iter_diff - delta)
                 _to_update_v = np.clip(_init_v - update, dm.V_Min, dm.V_Max)
 
                 if dm.check_dm_unit_grad_safe(_to_update_v):

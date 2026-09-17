@@ -42,11 +42,16 @@ class DifferentialEvolution(HeuristicOptimizer):
         config: OptimizerConfig | None = None,
         de_config: DEConfig | None = None,
         random_state: np.random.Generator | None = None,
+        n_iterations: int = 1000,
+        bounds: tuple[float, float] = (-10.0, 10.0),
+        seed: int | None = None,
         pop_size: int = 30,
         crossover_prob: float = 0.9,
         mutation_factor: float = 0.8,
     ):
         """Initialize DE optimizer."""
+        if config is None:
+            config = OptimizerConfig(n_iterations=n_iterations, bounds=bounds, seed=seed)
         super().__init__(dim, config, random_state)
         
         if de_config is None:

@@ -43,6 +43,7 @@ from ao_shaping.gui.r50.r50_units import _channel_info_to_dict
 # =============================================================================
 
 
+@st.fragment
 def _sidebar_debug_panel() -> None:
     """Sidebar 调试面板: 仿真状态 + 指令日志 + 操作日志。"""
     with st.container(border=True):
@@ -83,7 +84,6 @@ def _sidebar_debug_panel() -> None:
                 "清空日志", key=f"{P}_debug_op_clear_sb", use_container_width=True
             ):
                 st.session_state[f"{P}_debug_op_log"].clear()
-                st.rerun()
 
         with st.expander("指令日志 (下发包记录)", expanded=False):
             log_lines = list(st.session_state.get(f"{P}_debug_log", []))
@@ -95,7 +95,6 @@ def _sidebar_debug_panel() -> None:
                 "清空指令日志", key=f"{P}_debug_log_clear_sb", use_container_width=True
             ):
                 st.session_state[f"{P}_debug_log"].clear()
-                st.rerun()
 
 
 # =============================================================================
@@ -163,6 +162,62 @@ def _sidebar_connection_config() -> None:
         _sidebar_debug_panel()
 
 
+@st.fragment
+def _single_connection_action_fragment() -> None:
+    """单控制器操作区: 检测连通性 / 连接 / 断开 / 确认弹窗。"""
+    _connected = st.session_state[f"{P}_connected"]
+    _relay_on = st.session_state[f"{P}_relay_on"]
+
+    col_test, col_conn = st.columns(2)
+    with col_test:
+        if st.button(
+            "📡 检测连通性", use_container_width=True, key=f"{P}_test_btn_sb"
+        ):
+            test_connectivity()
+    with col_conn:
+        if not _connected:
+            if st.button(
+                "🔌 连接",
+                type="primary",
+                use_container_width=True,
+                key=f"{P}_connect_sb",
+            ):
+                with st.spinner("连接中..."):
+                    connect()
+                st.rerun()
+        else:
+            if st.button(
+                "⏏ 断开", use_container_width=True, key=f"{P}_disconnect_sb"
+            ):
+                if _relay_on:
+                    st.session_state[f"{P}_confirm_disconnect"] = True
+                else:
+                    disconnect()
+                    st.rerun()
+
+    if st.session_state[f"{P}_confirm_disconnect"]:
+        st.warning(
+            "⚠️ 继电器仍处于**上电**状态, 断开连接前会先自动下电。确认继续?"
+        )
+        col_y, col_n = st.columns(2)
+        with col_y:
+            if st.button(
+                "确认断开",
+                type="primary",
+                use_container_width=True,
+                key=f"{P}_disconnect_confirm_sb",
+            ):
+                disconnect()
+                st.rerun()
+        with col_n:
+            if st.button(
+                "取消",
+                use_container_width=True,
+                key=f"{P}_disconnect_cancel_sb",
+            ):
+                st.session_state[f"{P}_confirm_disconnect"] = False
+
+
 def _sidebar_single_connection() -> None:
     """Sidebar 单控制器连接配置。"""
     with st.sidebar:
@@ -209,57 +264,7 @@ def _sidebar_single_connection() -> None:
                 key=f"{P}_simulate_sb",
             )
             st.session_state[f"{P}_simulate"] = _sim
-            col_test, col_conn = st.columns(2)
-            with col_test:
-                if st.button(
-                    "📡 检测连通性", use_container_width=True, key=f"{P}_test_btn_sb"
-                ):
-                    test_connectivity()
-                    st.rerun()
-            with col_conn:
-                if not _connected:
-                    if st.button(
-                        "🔌 连接",
-                        type="primary",
-                        use_container_width=True,
-                        key=f"{P}_connect_sb",
-                    ):
-                        with st.spinner("连接中..."):
-                            connect()
-                        st.rerun()
-                else:
-                    if st.button(
-                        "⏏ 断开", use_container_width=True, key=f"{P}_disconnect_sb"
-                    ):
-                        if st.session_state[f"{P}_relay_on"]:
-                            st.session_state[f"{P}_confirm_disconnect"] = True
-                            st.rerun()
-                        else:
-                            disconnect()
-                            st.rerun()
-
-            if st.session_state[f"{P}_confirm_disconnect"]:
-                st.warning(
-                    "⚠️ 继电器仍处于**上电**状态, 断开连接前会先自动下电。确认继续?"
-                )
-                col_y, col_n = st.columns(2)
-                with col_y:
-                    if st.button(
-                        "确认断开",
-                        type="primary",
-                        use_container_width=True,
-                        key=f"{P}_disconnect_confirm_sb",
-                    ):
-                        disconnect()
-                        st.rerun()
-                with col_n:
-                    if st.button(
-                        "取消",
-                        use_container_width=True,
-                        key=f"{P}_disconnect_cancel_sb",
-                    ):
-                        st.session_state[f"{P}_confirm_disconnect"] = False
-                        st.rerun()
+            _single_connection_action_fragment()
 
         with st.container(border=True):
             st.markdown("##### 继电器上下电")

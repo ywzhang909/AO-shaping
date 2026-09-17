@@ -1,0 +1,67 @@
+{
+  "metrics": {
+    "A_flat": {
+      "total": 11198893.0,
+      "peak": 25.0,
+      "peak_argmax": [
+        1436,
+        691
+      ],
+      "ee90_radius": 886.5372178764375
+    },
+    "B_zernike_defocus": {
+      "total": 11145994.0,
+      "peak": 25.0,
+      "peak_argmax": [
+        1437,
+        694
+      ],
+      "ee90_radius": 885.4626298104322
+    },
+    "C_big_defocus": {
+      "total": 11135851.0,
+      "peak": 25.0,
+      "peak_argmax": [
+        1436,
+        691
+      ],
+      "ee90_radius": 885.4150465297411
+    },
+    "D_flat_again": {
+      "total": 11164013.0,
+      "peak": 25.0,
+      "peak_argmax": [
+        1436,
+        691
+      ],
+      "ee90_radius": 886.4145973250437
+    }
+  },
+  "deltas": {
+    "A_vs_B": {
+      "total_rel": 0.9952764081235529,
+      "peak_rel": 1.0,
+      "rmse": 0.5859422253360004,
+      "max_abs_diff": 25.0
+    },
+    "A_vs_C": {
+      "total_rel": 0.9943706936033767,
+      "peak_rel": 1.0,
+      "rmse": 0.5880568136691869,
+      "max_abs_diff": 25.0
+    },
+    "A_vs_D": {
+      "total_rel": 0.9968854064415117,
+      "peak_rel": 1.0,
+      "rmse": 0.5876550380671165,
+      "max_abs_diff": 25.0
+    }
+  },
+  "noise": {
+    "per_px_std_mean": 0.571674334730294,
+    "per_px_std_max": 5.513619500836088,
+    "resid_single_vs_mean": 0.5982102866641479,
+    "resid_avg10_vs_mean": 0.0,
+    "noise_ratio_single_to_avg": 0.0
+  }
+}

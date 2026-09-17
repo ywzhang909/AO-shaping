@@ -19,9 +19,9 @@ class TestSLMMIICAMJoint:
     def slm_module(self):
         """Import SLM module, skip if not available."""
         try:
-            from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+            from ao_shaping.drivers.slm.santec import Santec
 
-            return SantecSLM200
+            return Santec
         except ImportError:
             pytest.skip("SLM module not available")
 
@@ -79,8 +79,7 @@ class TestSLMMIICAMJoint:
         phase[mask] = 512  # Half phase (π)
 
         # Write to SLM
-        open_slm.write_phase(phase, memory_number=1)
-        open_slm.display_memory(1)
+        open_slm.display_data(phase, memory_number=1)
 
         # Capture with camera
         with CameraStreamManager(cam_id=0, exposure_time_ms=20) as cam:
@@ -104,8 +103,7 @@ class TestSLMMIICAMJoint:
         phase = np.tile(grating[:, np.newaxis], (1, width)).astype(np.uint16)
 
         # Write to SLM
-        open_slm.write_phase(phase, memory_number=2)
-        open_slm.display_memory(2)
+        open_slm.display_data(phase, memory_number=2)
 
         # Capture with camera
         with CameraStreamManager(cam_id=0, exposure_time_ms=20) as cam:
@@ -143,8 +141,7 @@ class TestSLMMIICAMJoint:
         with CameraStreamManager(cam_id=0, exposure_time_ms=20) as cam:
             for name, phase, mem_num in patterns:
                 # Write to SLM
-                open_slm.write_phase(phase, memory_number=mem_num)
-                open_slm.display_memory(mem_num)
+                open_slm.display_data(phase, memory_number=mem_num)
 
                 # Small delay for SLM to settle
                 import time
@@ -165,8 +162,7 @@ class TestSLMMIICAMJoint:
 
             # Dark pattern first
             phase_dark = np.zeros((1200, 1920), dtype=np.uint16)
-            open_slm.write_phase(phase_dark, memory_number=20)
-            open_slm.display_memory(20)
+            open_slm.display_data(phase_dark, memory_number=20)
 
             import time
 
@@ -177,8 +173,7 @@ class TestSLMMIICAMJoint:
 
             # Bright pattern
             phase_bright = np.ones((1200, 1920), dtype=np.uint16) * 1023
-            open_slm.write_phase(phase_bright, memory_number=21)
-            open_slm.display_memory(21)
+            open_slm.display_data(phase_bright, memory_number=21)
 
             time.sleep(0.2)
 
@@ -203,21 +198,21 @@ class TestSLMMIICAMJoint:
         with CameraStreamManager(cam_id=0, exposure_time_ms=10) as cam:
             # Pattern 1
             p1 = np.zeros((1200, 1920), dtype=np.uint16)
-            open_slm.write_phase(p1, memory_number=50)
+            open_slm._write_phase(p1, memory_number=50)
 
             # Quick capture
             t0 = time.time()
-            open_slm.display_memory(50)
+            open_slm._display_memory(50)
             img1 = cam.get_numpy_image(n_sample=1, skip_first=False)
             t1 = time.time()
             print(f"\nPattern switch + capture time: {(t1 - t0) * 1000:.1f}ms")
 
             # Pattern 2
             p2 = np.ones((1200, 1920), dtype=np.uint16) * 1023
-            open_slm.write_phase(p2, memory_number=51)
+            open_slm._write_phase(p2, memory_number=51)
 
             t0 = time.time()
-            open_slm.display_memory(51)
+            open_slm._display_memory(51)
             img2 = cam.get_numpy_image(n_sample=1, skip_first=False)
             t1 = time.time()
             print(f"Pattern 2 switch + capture time: {(t1 - t0) * 1000:.1f}ms")
@@ -234,8 +229,7 @@ class TestSLMMIICAMJoint:
             # Generate pattern
             phase = np.zeros((1200, 1920), dtype=np.uint16)
             phase[500:700, 900:1100] = 512
-            slm.write_phase(phase, memory_number=1)
-            slm.display_memory(1)
+            slm.display_data(phase, memory_number=1)
 
         assert not slm.is_open
 
@@ -255,11 +249,11 @@ class TestSLMMIICAMCalibration:
         """Basic calibration test placeholder."""
         # This test just verifies the modules can be imported together
         try:
-            from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+            from ao_shaping.drivers.slm.santec import Santec
             from ao_shaping.drivers.ccd.miicam import CameraStreamManager
 
             # Check SLM parameters
-            slm = SantecSLM200(slm_number=1, wavelength=1064)
+            slm = Santec(slm_number=1, wavelength=1064)
             assert slm.wavelength == 1064
             assert slm.phase_range == 200
 

@@ -6,7 +6,7 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.dm.zernike_dm import ZernikeDM
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+from ao_shaping.drivers.slm.santec import Santec
 
 
 class ZernikeSLMError(Exception):
@@ -16,11 +16,11 @@ class ZernikeSLMError(Exception):
 class ZernikeSLM:
     """Zernike系数驱动的SLM接口
 
-    封装SantecSLM200，将Zernike系数转换为相位图并发送到SLM显示。
+    封装Santec，将Zernike系数转换为相位图并发送到SLM显示。
     内部使用ZernikeDM进行相位计算。
 
     Attributes:
-        slm: 底层的SantecSLM200实例
+        slm: 底层的Santec实例
         zernike_dm: Zernike相位计算器
 
     Example:
@@ -43,7 +43,7 @@ class ZernikeSLM:
         shift_x: int = 0,
         shift_y: int = 0,
         correction_csv_path: str | Path | None = None,
-        wait_time_s: float = 0.2,
+        wait_time_s: float | None = None,
     ):
         self.slm_number = slm_number
         self.wavelength = wavelength
@@ -51,9 +51,9 @@ class ZernikeSLM:
         self.wait_time_s = wait_time_s
 
         if slm_resolution is None:
-            slm_resolution = SantecSLM200.Panel_Res  # (1920, 1200)
+            slm_resolution = Santec.Panel_Res  # (1920, 1200)
 
-        self._slm = SantecSLM200(
+        self._slm = Santec(
             slm_number=slm_number,
             use_120hz=use_120hz,
             wavelength=wavelength,
@@ -120,6 +120,20 @@ class ZernikeSLM:
         """Y方向平移像素数"""
         return self._slm.shift_y
 
+    def apply_shift(
+        self,
+        shift_x: int,
+        shift_y: int,
+        *,
+        wait_time_s: float = 0.3,
+        save_config: bool = True,
+    ) -> np.ndarray | None:
+        """应用平移并重绘当前显示相位 (委托 :meth:`Santec.apply_shift`)."""
+        self._ensure_open()
+        return self._slm.apply_shift(
+            shift_x, shift_y, wait_time_s=wait_time_s, save_config=save_config
+        )
+
     def send_zernike(
         self,
         coefficients: dict[tuple[int, int], float] | np.ndarray,
@@ -143,7 +157,7 @@ class ZernikeSLM:
             if isinstance(coefficients, dict)
             else self._zernike_dm._noll_to_dict(coefficients)
         )
-        self._slm.display_data(self._current_phase, self.wait_time_s)
+        self._slm.display_phase(phase_rad, wait_time_s=self.wait_time_s)
 
         return self._current_phase
 
@@ -171,7 +185,7 @@ class ZernikeSLM:
     def display_memory(self, memory_number: int) -> None:
         """显示指定内存的相位图"""
         self._ensure_open()
-        self._slm.display_memory(memory_number)
+        self._slm._display_memory(memory_number)
 
     def set_flat(self) -> None:
         """设置SLM为平相位（清零）"""

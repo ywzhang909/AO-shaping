@@ -7,7 +7,7 @@ wavefront sensor spot deviations. The matrix is used in closed-loop adaptive opt
 control systems to determine the optimal DM shape for correcting wavefront aberrations.
 
 This module also provides Zernike-based SLM response matrix measurement and
-wavefront correction using SantecSLM200 and ThorlabWFS.
+wavefront correction using Santec and ThorlabWFS.
 """
 
 import json
@@ -22,7 +22,7 @@ from tqdm import tqdm
 
 from ao_shaping.drivers.dm.NLight import NLight
 from ao_shaping.drivers import MlaRes
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.drivers.wfs import ThorlabWFS as WFSManager
 from ao_shaping.utils.zernike_calc import generate_noll_polynomial
 from ao_shaping.utils.matrix_utils import compute_pinv
@@ -178,7 +178,7 @@ def apply_interaction_matrix(
 
 
 # =============================================================================
-# Zernike-based SLM Response Matrix (for SantecSLM200 + ThorlabWFS)
+# Zernike-based SLM Response Matrix (for Santec + ThorlabWFS)
 # =============================================================================
 
 # Default Zernike modes for SLM response matrix calibration
@@ -277,7 +277,7 @@ class ZernikeSLMResponseMatrixResult:
 
 
 def calculate_zernike_slm_response_matrix(
-    slm: SantecSLM200,
+    slm: Santec,
     wfs: WFSManager,
     slm_zernike_modes: list[tuple[int, int]] | None = None,
     magnitude_rad: float = 0.5,
@@ -299,7 +299,7 @@ def calculate_zernike_slm_response_matrix(
         D[:, i] = (slopes_plus - slopes_minus) / (2 * magnitude_rad)
 
     Args:
-        slm: SantecSLM200 instance (must be open, in Memory mode)
+        slm: Santec instance (must be open, in Memory mode)
         wfs: WFSManager instance (must be initialized)
         slm_zernike_modes: List of (n, m) Zernike modes to calibrate.
             Default: [(1,-1), (1,1), (2,0), (2,-2), (2,2), (3,-1), (3,1), (3,-3), (3,3), (4,0)]
@@ -349,9 +349,7 @@ def calculate_zernike_slm_response_matrix(
 
     # Reset SLM to flat
     zero_phase = np.zeros(slm_resolution, dtype=np.float64)
-    zero_gray = slm.create_phase_from_array(zero_phase)
-    slm.write_phase(zero_gray, memory_number=1)
-    slm.display_memory(1)
+    slm.display_phase(zero_phase, memory_number=1)
     time.sleep(wait_time_s * 2)  # Extra wait for SLM to stabilize
 
     # Measure each Zernike mode
@@ -364,28 +362,22 @@ def calculate_zernike_slm_response_matrix(
         for cycle in range(n_cycles):
             # Positive perturbation
             phase_pos = generate_noll_polynomial(n, m, slm_resolution, magnitude_rad)
-            gray_pos = slm.create_phase_from_array(phase_pos)
-            slm.write_phase(gray_pos, memory_number=1)
-            slm.display_memory(1)
+            slm.display_phase(phase_pos, memory_number=1)
             time.sleep(wait_time_s)
             slopes_pos = measure_slopes()
 
             # Reset to flat briefly
-            slm.write_phase(zero_gray, memory_number=1)
-            slm.display_memory(1)
+            slm.display_phase(zero_phase, memory_number=1)
             time.sleep(wait_time_s)
 
             # Negative perturbation
             phase_neg = generate_noll_polynomial(n, m, slm_resolution, -magnitude_rad)
-            gray_neg = slm.create_phase_from_array(phase_neg)
-            slm.write_phase(gray_neg, memory_number=1)
-            slm.display_memory(1)
+            slm.display_phase(phase_neg, memory_number=1)
             time.sleep(wait_time_s)
             slopes_neg = measure_slopes()
 
             # Reset to flat
-            slm.write_phase(zero_gray, memory_number=1)
-            slm.display_memory(1)
+            slm.display_phase(zero_phase, memory_number=1)
             time.sleep(wait_time_s)
 
             # Calculate response for this cycle
@@ -428,7 +420,7 @@ def calculate_zernike_slm_response_matrix(
 
 
 def apply_zernike_correction(
-    slm: SantecSLM200,
+    slm: Santec,
     wfs: WFSManager,
     response_matrix: ZernikeSLMResponseMatrixResult | np.ndarray,
     slm_zernike_modes: list[tuple[int, int]] | None = None,
@@ -455,7 +447,7 @@ def apply_zernike_correction(
     When pid=True, runs an iterative PID control loop to converge to target.
 
     Args:
-        slm: SantecSLM200 instance
+        slm: Santec instance
         wfs: WFSManager instance
         response_matrix: Pre-calibrated response matrix or result object
         slm_zernike_modes: List of (n, m) Zernike modes used in calibration.
@@ -545,7 +537,7 @@ def apply_zernike_correction(
 
 
 def _apply_zernike_correction_single(
-    slm: SantecSLM200,
+    slm: Santec,
     slm_resolution: tuple[int, int],
     wfs: WFSManager,
     pinv: np.ndarray,
@@ -576,16 +568,14 @@ def _apply_zernike_correction_single(
             correction_phase += mode_phase.T
 
         # Apply to SLM
-        gray_corr = slm.create_phase_from_array(correction_phase)
-        slm.write_phase(gray_corr, memory_number=1)
-        slm.display_memory(1)
+        slm.display_phase(correction_phase, memory_number=1)
         logger.info("Zernike correction applied to SLM")
 
     return a_hat, g
 
 
 def _apply_zernike_correction_pid(
-    slm: SantecSLM200,
+    slm: Santec,
     slm_resolution: tuple[int, int],
     wfs: WFSManager,
     pinv: np.ndarray,
@@ -672,9 +662,7 @@ def _apply_zernike_correction_pid(
         current_correction += correction_phase
 
         # Apply to SLM
-        gray_corr = slm.create_phase_from_array(current_correction)
-        slm.write_phase(gray_corr, memory_number=1)
-        slm.display_memory(1)
+        slm.display_phase(current_correction, memory_number=1)
 
         # Wait time between iterations
         if wait_time_s > 0:

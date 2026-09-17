@@ -18,6 +18,7 @@ from ao_shaping.drivers.device_base import Device, DeviceError, DeviceState, Dev
 
 class MockCameraError(DeviceError):
     """Exception raised for mock camera errors."""
+
     pass
 
 
@@ -172,16 +173,20 @@ class MockCamera(Device):
 
         # Synthetic pattern: combination of sine waves
         pattern = (
-            np.sin(xx) * np.cos(yy) * 50
-            + np.sin(xx * 0.5) * 30
-            + np.cos(yy * 0.3) * 20
+            np.sin(xx) * np.cos(yy) * 50 + np.sin(xx * 0.5) * 30 + np.cos(yy * 0.3) * 20
         )
 
         # Add some "objects" (gaussian blobs)
         for _ in range(5):
             cx, cy = self._rng.integers(0, width), self._rng.integers(0, height)
             sigma = self._rng.uniform(10, 50)
-            blob = np.exp(-((xx - cx * 4 * np.pi / width) ** 2 + (yy - cy * 4 * np.pi / height) ** 2) / (2 * sigma ** 2))
+            blob = np.exp(
+                -(
+                    (xx - cx * 4 * np.pi / width) ** 2
+                    + (yy - cy * 4 * np.pi / height) ** 2
+                )
+                / (2 * sigma**2)
+            )
             pattern += blob * 100
 
         # Apply brightness, contrast, gain
@@ -216,7 +221,9 @@ class MockCamera(Device):
                 img = self._generate_image()
             else:
                 # Average multiple frames
-                frames = [self._generate_image().astype(np.float32) for _ in range(n_samples)]
+                frames = [
+                    self._generate_image().astype(np.float32) for _ in range(n_samples)
+                ]
                 img = np.mean(frames, axis=0).astype(np.uint8)
 
             self._last_image = img
@@ -243,6 +250,7 @@ class MockCamera(Device):
 
 class MockSLMError(DeviceError):
     """Exception raised for mock SLM errors."""
+
     pass
 
 
@@ -401,7 +409,9 @@ class MockSLM(Device):
 
             # Convert to bit depth
             max_value = (1 << self._bit_depth) - 1
-            self._current_pattern = (normalized * max_value).astype(np.uint16 if self._bit_depth > 8 else np.uint8)
+            self._current_pattern = (normalized * max_value).astype(
+                np.uint16 if self._bit_depth > 8 else np.uint8
+            )
 
             self._frame_count += 1
             logger.debug(f"SLM pattern written (frame {self._frame_count})")
@@ -432,7 +442,9 @@ class MockSLM(Device):
 
     def get_current_pattern(self) -> np.ndarray | None:
         """Get the currently displayed pattern."""
-        return self._current_pattern.copy() if self._current_pattern is not None else None
+        return (
+            self._current_pattern.copy() if self._current_pattern is not None else None
+        )
 
     def get_resolution(self) -> tuple[int, int]:
         """Get SLM resolution."""
@@ -451,6 +463,7 @@ class MockSLM(Device):
 
 class MockDMError(DeviceError):
     """Exception raised for mock DM errors."""
+
     pass
 
 
@@ -561,11 +574,13 @@ class MockDM(Device):
         n_grid = int(np.sqrt(self._n_actuators))
         surface_size = n_grid * 10
 
-        act_pos = np.array([
-            [(i + 0.5) / n_grid * surface_size, (j + 0.5) / n_grid * surface_size]
-            for i in range(n_grid)
-            for j in range(n_grid)
-        ])
+        act_pos = np.array(
+            [
+                [(i + 0.5) / n_grid * surface_size, (j + 0.5) / n_grid * surface_size]
+                for i in range(n_grid)
+                for j in range(n_grid)
+            ]
+        )
 
         x = np.linspace(0, surface_size, surface_size)
         y = np.linspace(0, surface_size, surface_size)
@@ -575,7 +590,9 @@ class MockDM(Device):
         sigma = surface_size / n_grid * 0.8
 
         for i, (ax, ay) in enumerate(act_pos):
-            influence[:, :, i] = np.exp(-((xx - ax)**2 + (yy - ay)**2) / (2 * sigma**2))
+            influence[:, :, i] = np.exp(
+                -((xx - ax) ** 2 + (yy - ay) ** 2) / (2 * sigma**2)
+            )
 
         return influence.reshape(-1, self._n_actuators)
 
@@ -636,10 +653,14 @@ class MockDM(Device):
             hysteresis = self.get_parameter_value("hysteresis_factor")
             if hysteresis > 0:
                 direction = np.sign(voltages - self._current_voltages)
-                voltages = voltages + direction * hysteresis * np.abs(voltages - self._current_voltages)
+                voltages = voltages + direction * hysteresis * np.abs(
+                    voltages - self._current_voltages
+                )
 
             self._current_voltages = voltages
-            logger.debug(f"DM voltages applied: min={voltages.min():.2f}, max={voltages.max():.2f}")
+            logger.debug(
+                f"DM voltages applied: min={voltages.min():.2f}, max={voltages.max():.2f}"
+            )
         finally:
             self._set_state(DeviceState.READY)
 
@@ -686,6 +707,7 @@ class MockDM(Device):
 
 class MockWFSError(DeviceError):
     """Exception raised for mock WFS errors."""
+
     pass
 
 
@@ -794,7 +816,9 @@ class MockWFS(Device):
         self._set_state(DeviceState.CONNECTING)
         time.sleep(0.1)
         self._set_state(DeviceState.READY)
-        logger.info(f"Mock WFS {self.device_id} opened ({self._n_lenslets}x{self._n_lenslets} lenslets)")
+        logger.info(
+            f"Mock WFS {self.device_id} opened ({self._n_lenslets}x{self._n_lenslets} lenslets)"
+        )
 
     def close(self) -> None:
         """Close mock WFS connection."""
@@ -908,6 +932,7 @@ class MockWFS(Device):
 
 class MockStageError(DeviceError):
     """Exception raised for mock stage errors."""
+
     pass
 
 
@@ -1107,6 +1132,7 @@ class MockStage(Device):
 
 class MockLaserError(DeviceError):
     """Exception raised for mock laser errors."""
+
     pass
 
 
@@ -1262,9 +1288,7 @@ class MockLaser(Device):
             raise RuntimeError("Laser not connected")
 
         if not (self._power_range[0] <= power_mw <= self._power_range[1]):
-            raise ValueError(
-                f"Power {power_mw} mW out of range {self._power_range}"
-            )
+            raise ValueError(f"Power {power_mw} mW out of range {self._power_range}")
 
         self._set_state(DeviceState.BUSY)
         try:
@@ -1284,7 +1308,9 @@ class MockLaser(Device):
         if not self.is_connected():
             raise RuntimeError("Laser not connected")
 
-        if not (self._wavelength_range[0] <= wavelength_nm <= self._wavelength_range[1]):
+        if not (
+            self._wavelength_range[0] <= wavelength_nm <= self._wavelength_range[1]
+        ):
             raise ValueError(
                 f"Wavelength {wavelength_nm} nm out of range {self._wavelength_range}"
             )
@@ -1334,6 +1360,7 @@ class MockLaser(Device):
 
 class MockFilterError(DeviceError):
     """Exception raised for mock filter errors."""
+
     pass
 
 
@@ -1431,7 +1458,9 @@ class MockFilter(Device):
             self._current_position = 0
 
         self._set_state(DeviceState.READY)
-        logger.info(f"Mock filter wheel {self.device_id} opened ({self._n_positions} positions)")
+        logger.info(
+            f"Mock filter wheel {self.device_id} opened ({self._n_positions} positions)"
+        )
 
     def close(self) -> None:
         """Close mock filter connection."""
@@ -1476,14 +1505,16 @@ class MockFilter(Device):
             # Calculate rotation time (shortest path)
             distance = min(
                 abs(position - self._current_position),
-                self._n_positions - abs(position - self._current_position)
+                self._n_positions - abs(position - self._current_position),
             )
 
             move_time = distance / (speed * self._n_positions)
             time.sleep(move_time + settle_ms / 1000.0)
 
             self._current_position = position
-            logger.debug(f"Filter wheel moved to position {position} ({self._filters[position]})")
+            logger.debug(
+                f"Filter wheel moved to position {position} ({self._filters[position]})"
+            )
         finally:
             self._is_moving = False
             self._set_state(DeviceState.READY)
@@ -1495,7 +1526,9 @@ class MockFilter(Device):
             filter_name: Name of the filter to move to.
         """
         if filter_name not in self._filters:
-            raise ValueError(f"Filter '{filter_name}' not found. Available: {self._filters}")
+            raise ValueError(
+                f"Filter '{filter_name}' not found. Available: {self._filters}"
+            )
 
         position = self._filters.index(filter_name)
         self.move_to_position(position)
@@ -1526,6 +1559,7 @@ class MockFilter(Device):
 
 class MockADCError(DeviceError):
     """Exception raised for mock ADC errors."""
+
     pass
 
 
@@ -1632,7 +1666,9 @@ class MockADC(Device):
         self._set_state(DeviceState.CONNECTING)
         time.sleep(0.05)
         self._set_state(DeviceState.READY)
-        logger.info(f"Mock ADC {self.device_id} opened ({self._device_name}/{self._channel})")
+        logger.info(
+            f"Mock ADC {self.device_id} opened ({self._device_name}/{self._channel})"
+        )
 
     def close(self) -> None:
         """Close mock ADC connection."""

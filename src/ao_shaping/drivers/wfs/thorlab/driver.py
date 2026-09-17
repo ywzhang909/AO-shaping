@@ -1028,6 +1028,14 @@ class ThorlabWFS(Device):
         This function calculates the beam centroid and diameter from the
         current spotfield data.
 
+        Note:
+            **只计算并返回, 不写回设备** — 调用方必须显式
+            ``wfs.pupil = wfs.optimize_pupil()`` 才会调用 ``WFS_SetPupil`` 生效。
+            硬编码/未写回的 pupil 与真实光束不符时, 边界无效子孔径会污染
+            ``WFS_ZernikeLsf`` 全孔径 LSF 拟合 → 巨大的假 tip/tilt (2026-09 实测
+            (0,0,8mm) 硬编码产生 |z|=4.6~12.8λ, 自动 pupil ≈(±0.15, ±3.7)mm 后
+            恢复 0.006~0.217λ 并线性度 R²=0.9603)。
+
         Returns:
             tuple[float, float, float, float]: beam centroid x, beam centroid y,
                 beam diameter x, beam diameter y
@@ -1047,12 +1055,28 @@ class ThorlabWFS(Device):
             byref(beam_diameter_x),
             byref(beam_diameter_y),
         )
-        return (
+        cx_v, cy_v, dx_v, dy_v = (
             beam_centroid_x.value,
             beam_centroid_y.value,
             beam_diameter_x.value,
             beam_diameter_y.value,
         )
+        # 防御性检查 (2026-09 实测固化): 光斑场不可用/未对准时 DLL 可能返回
+        # 非有限值或 0 直径; 直接写回会污染后续 WFS_ZernikeLsf 拟合. 只报警, 不改语义.
+        if (
+            not np.isfinite([cx_v, cy_v, dx_v, dy_v]).all()
+            or dx_v <= 0
+            or dy_v <= 0
+            or dx_v > 12.0
+            or dy_v > 12.0
+        ):
+            logger.warning(
+                "optimize_pupil() returned suspicious beam "
+                "center=({:.3f},{:.3f})mm diameter=({:.3f},{:.3f})mm — "
+                "请确认曝光/对准后重跑; 勿将欠佳 pupil 写回设备",
+                cx_v, cy_v, dx_v, dy_v,
+            )
+        return (cx_v, cy_v, dx_v, dy_v)
 
     def take_image(self, n_sample: int = 10, dynamicNoiseCut: bool = True) -> None:
         """Capture spotfield image and calculate spot centroids/diameters/intensities.
@@ -1439,6 +1463,13 @@ class ThorlabWFS(Device):
 
         Raises:
             AssertionError: If zernike_order exceeds 10.
+
+        Note:
+            - 结果依赖 pupil 正确性: 调用前必须 ``wfs.pupil = wfs.optimize_pupil()``。
+              硬编码 pupil 与光束不符时, 边界无效子孔径会污染 LSF 拟合, 产生巨大的
+              假 tip/tilt 系数 (2026-09 实测: |z|=4.6~12.8λ → pupil 修正后 ≤0.22λ)。
+            - 系数为 Noll 1976 约定 (索引 1 起, 前 66 项), 输出单位 µm (µm/0.532 = λ @532nm),
+              RoC = coeff[5]。
         """
         assert zernike_order <= 10, (
             f"zernike order must be less than or equal to 10, got {zernike_order}"
@@ -1779,9 +1810,29 @@ class ThorlabWFS(Device):
             center_and_diameter: (centroid_x, centroid_y, diameter_x, diameter_y) in mm.
 
         Note:
-            If diameter_x or diameter_y is <= 0, optimize_pupil() is called instead.
+            pupil 应来自 ``optimize_pupil()`` 且必须显式写回:
+            ``wfs.pupil = wfs.optimize_pupil()`` (optimize_pupil 只计算不设置,
+            本 setter 也不会因直径 ≤ 0 自动调用它 — 直径 ≤ 0 / 中心 (0,0) 按
+            SDK 语义原样下发, 可能是 adaptive/pupil 自动模式)。
+            硬编码 pupil 与真实光束不符时, 边界无效子孔径会污染 WFS_ZernikeLsf
+            全孔径 LSF 拟合 → 巨大的假 tip/tilt (2026-09 实测)。
         """
         c_x, c_y, d_x, d_y = center_and_diameter
+        # 防御性检查 (2026-09 实测固化): SDK 约束 中心 ±5.0mm / 直径 0.1~10.0mm;
+        # 越界 pupil 只能拟合出垃圾 Zernike 系数. 只报警, 不改行为.
+        if (
+            not np.isfinite([c_x, c_y, d_x, d_y]).all()
+            or abs(c_x) > 5.0
+            or abs(c_y) > 5.0
+            or d_x > 10.0
+            or d_y > 10.0
+        ):
+            logger.warning(
+                "pupil out of SDK range (中心 ±5.0mm / 直径 0.1~10.0mm): "
+                "center=({:.3f},{:.3f})mm diameter=({:.3f},{:.3f})mm — "
+                "use wfs.pupil = wfs.optimize_pupil()",
+                c_x, c_y, d_x, d_y,
+            )
         self._lib.WFS_SetPupil(
             self._instrument_handle,
             c_double(c_x),

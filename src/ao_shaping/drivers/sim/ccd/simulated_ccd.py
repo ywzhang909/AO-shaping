@@ -92,7 +92,7 @@ class SimulatedCCD(BaseCamera):
         self.cam = None
         logger.info("SimulatedCCD closed")
 
-    def reset_exposure_time(self, time_ms: int) -> int:
+    def reset_exposure_time(self, time_ms: float) -> float:
         """Set exposure time.
 
         Args:
@@ -101,8 +101,8 @@ class SimulatedCCD(BaseCamera):
         Returns:
             Actual exposure time set.
         """
-        self.exposure_time_ms = time_ms
-        return time_ms
+        self.exposure_time_ms = float(time_ms)
+        return self.exposure_time_ms
 
     def reset_window(
         self,

@@ -230,7 +230,7 @@ class DM(ABC):
 
 ### 3. 空间光调制器/SLM 接口
 
-SLM 驱动通常需要实现以下功能（参考 [`SantecSLM200`](src/ao_shaping/drivers/slm/santec_slm200.py:35)）：
+SLM 驱动通常需要实现以下功能（参考 [`Santec`](src/ao_shaping/drivers/slm/santec/driver.py:35)）：
 
 | 方法 | 说明 |
 |------|------|
@@ -284,8 +284,7 @@ WFS 驱动通常需要实现以下功能（参考 [`MockWFS`](src/ao_shaping/dri
 
 | 驱动 | 文件 | 说明 |
 |------|------|------|
-| [`SantecSLM200`](src/ao_shaping/drivers/slm/santec_slm200.py:35) | `slm/santec_slm200.py` | Santec SLM-200 SDK |
-| [`SantecSLM200Visa`](src/ao_shaping/drivers/slm/santec_slm200_visa.py) | `slm/santec_slm200_visa.py` | Santec SLM-200 VISA |
+| [`Santec`](src/ao_shaping/drivers/slm/santec/driver.py:35) | `slm/santec/driver.py` | Santec SLM-200 SDK |
 | [`MockSLM`](src/ao_shaping/drivers/mock_devices.py:250) | `mock_devices.py` | 模拟 SLM |
 
 ### 3. DM 驱动
@@ -763,39 +762,6 @@ for dev_config in config["devices"]:
 
 ---
 
-## VISA 通信层
-
-使用 PyVISA 进行仪器控制：
-
-```python
-from ao_shaping.drivers.visa_base import (
-    VisaResourceManager,
-    VisaInstrument,
-    VisaInstrumentFactory
-)
-
-# 列出可用资源
-with VisaResourceManager() as rm:
-    resources = rm.list_resources()
-    print(resources)
-
-# 直接打开仪器
-with VisaInstrument('USB0::0x1234::0x5678::SN001::INSTR') as inst:
-    idn = inst.query('*IDN?')
-    inst.write('VOLT 12.0')
-
-# 使用工厂批量管理
-factory = VisaInstrumentFactory()
-factory.register('power_supply', 'GPIB0::12::INSTR')
-factory.register('multimeter', 'USB0::...')
-
-with factory.open_all() as instruments:
-    ps = instruments['power_supply']
-    ...
-```
-
----
-
 ## Mock 设备
 
 > **注意**: 有关更高级的数值仿真设备，请参见 [模拟设备 (sim/)](#模拟设备-sim-) 章节。
@@ -902,7 +868,6 @@ AO-Shaping 是一个基于 PyTorch 深度学习的自适应 Optics（AO）系统
 |------|------|------|
 | Device 基类 | `device_base.py` | 统一设备接口 |
 | 设备注册表 | `device_registry.py` | 设备集中管理 |
-| VISA 通信 | `visa_base.py` | 仪器控制 |
 | Mock 设备 | `mock_devices.py` | 测试模拟 |
 | 模拟设备 | `sim/` | 数字孪生仿真 |
 
@@ -980,8 +945,7 @@ class Device(ABC):
 
 | 设备类型 | 驱动实现 | 接口方式 |
 |---------|---------|---------|
-| SLM | SantecSLM200 | SDK (ctypes) |
-| SLM | SantecSLM200Visa | PyVISA |
+| SLM | Santec | SDK (ctypes) |
 | DM | NLight | SDK + UDP |
 | 相机 | Daheng (大恒) | GigE SDK |
 | 相机 | MiiCam | Miic SDK |
@@ -1022,13 +986,13 @@ class Device(ABC):
 ### 5.1 基本使用
 
 ```python
-from ao_shaping.drivers import SantecSLM200, NLightDM
+from ao_shaping.drivers import Santec, NLightDM
 
 # SLM 控制
-with SantecSLM200(slm_number=1, wavelength=1064) as slm:
+with Santec(slm_number=1, wavelength=1064) as slm:
     phase = np.zeros((1080, 1920), dtype=np.uint16)
-    slm.write_phase(phase, memory_number=1)
-    slm.display_memory(1)
+    slm.display_data(phase, memory_number=1)
+    slm._display_memory(1)
 
 # DM 控制
 with NLightDM() as dm:
@@ -1147,16 +1111,6 @@ class MySLM(WavefrontProcessor):
         return wave
 ```
 
-### 7.3 VISA 集成
-
-```python
-from ao_shaping.drivers.visa_base import VisaInstrument
-
-with VisaInstrument('GPIB0::1::INSTR') as inst:
-    inst.write('COMMAND')
-    response = inst.query('QUERY?')
-```
-
 ---
 
 ## 八、总结
@@ -1178,7 +1132,6 @@ with VisaInstrument('GPIB0::1::INSTR') as inst:
 
 - [device_base.py](src/ao_shaping/drivers/device_base.py) - Device 基类
 - [device_registry.py](src/ao_shaping/drivers/device_registry.py) - 设备注册表
-- [visa_base.py](src/ao_shaping/drivers/visa_base.py) - VISA 通信层
 - [mock_devices.py](src/ao_shaping/drivers/mock_devices.py) - Mock 设备
 - [sim/](src/ao_shaping/drivers/sim/) - 模拟设备 (数字孪生)
 - [ccd/base.py](src/ao_shaping/drivers/ccd/base.py) - 相机抽象基类

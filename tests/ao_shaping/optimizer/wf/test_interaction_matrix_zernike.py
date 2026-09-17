@@ -137,9 +137,7 @@ class TestZernikeSLMResponseMatrixResult:
         d = result.to_dict()
 
         # Simulate loading from dict + arrays
-        restored = ZernikeSLMResponseMatrixResult.from_dict(
-            d, matrix, variance, pinv
-        )
+        restored = ZernikeSLMResponseMatrixResult.from_dict(d, matrix, variance, pinv)
 
         assert np.allclose(restored.matrix, matrix)
         assert np.allclose(restored.variance_matrix, variance)
@@ -293,7 +291,7 @@ class TestComputePinvIntegration:
 class TestCalculateZernikeSLMResponseMatrixMocked:
     """Test calculate_zernike_slm_response_matrix with mock devices.
 
-    Note: This requires mock devices that implement the SantecSLM200
+    Note: This requires mock devices that implement the Santec
     and WFSManager interfaces. The current MockSLM and MockWFS
     in mock_devices.py have simpler interfaces and need extension.
     """
@@ -301,7 +299,7 @@ class TestCalculateZernikeSLMResponseMatrixMocked:
     def test_cannot_run_without_proper_mocks(self):
         """Document that we need interface-compatible mocks."""
         pytest.skip(
-            "Integration test requires mock devices with SantecSLM200/WFSManager interfaces. "
+            "Integration test requires mock devices with Santec/WFSManager interfaces. "
             "Current MockSLM/MockWFS have simpler interfaces."
         )
 
@@ -312,6 +310,7 @@ class TestApplyZernikeCorrectionPIDMocked:
     @pytest.fixture
     def mock_slm(self):
         """Create a mock SLM with required interface."""
+
         class MockSLM:
             Panel_Res = (1200, 1920)
             wavelength = 1064
@@ -326,11 +325,19 @@ class TestApplyZernikeCorrectionPIDMocked:
             def display_memory(self, memory_number):
                 pass
 
+            def display_phase(
+                self, phase_rad, wait_time_s=None, memory_number=None, memory_mode=0
+            ):
+                gray = self.create_phase_from_array(phase_rad)
+                self.write_phase(gray, memory_number=memory_number)
+                self.display_memory(memory_number)
+
         return MockSLM()
 
     @pytest.fixture
     def mock_wfs(self):
         """Create a mock WFS with required interface."""
+
         class MockWFS:
             num_spots_x = 10
             num_spots_y = 5
@@ -383,8 +390,8 @@ class TestApplyZernikeCorrectionPIDMocked:
     def _patch_generate_noll(self):
         """Patch generate_noll_polynomial to return transposed-zeros compatible with .T."""
         return patch(
-            'ao_shaping.optimizer.wf.interaction_matrix.generate_noll_polynomial',
-            side_effect=lambda n, m, res, v: np.zeros(res[::-1])
+            "ao_shaping.optimizer.wf.interaction_matrix.generate_noll_polynomial",
+            side_effect=lambda n, m, res, v: np.zeros(res[::-1]),
         )
 
     def test_pid_convergence(self, mock_slm, mock_wfs, response_matrix_file):
@@ -393,11 +400,17 @@ class TestApplyZernikeCorrectionPIDMocked:
 
         with self._patch_generate_noll():
             final_coeffs, history = apply_zernike_correction(
-                mock_slm, mock_wfs, response_matrix_file,
-                Kp=1.0, Ki=0.1, Kd=0.01,
+                mock_slm,
+                mock_wfs,
+                response_matrix_file,
+                Kp=1.0,
+                Ki=0.1,
+                Kd=0.01,
                 pid=True,
-                max_iterations=50, convergence_threshold=1e-6,
-                wait_time_s=0.01, n_averages=1,
+                max_iterations=50,
+                convergence_threshold=1e-6,
+                wait_time_s=0.01,
+                n_averages=1,
             )
 
         assert len(history) > 0
@@ -423,11 +436,17 @@ class TestApplyZernikeCorrectionPIDMocked:
 
         with self._patch_generate_noll():
             final_coeffs, history = apply_zernike_correction(
-                mock_slm, wfs, response_matrix_file,
-                Kp=1.0, Ki=0.1, Kd=0.01,
+                mock_slm,
+                wfs,
+                response_matrix_file,
+                Kp=1.0,
+                Ki=0.1,
+                Kd=0.01,
                 pid=True,
-                max_iterations=10, convergence_threshold=1e-10,
-                wait_time_s=0.01, n_averages=1,
+                max_iterations=10,
+                convergence_threshold=1e-10,
+                wait_time_s=0.01,
+                n_averages=1,
             )
 
         assert len(history) == 10
@@ -438,11 +457,17 @@ class TestApplyZernikeCorrectionPIDMocked:
 
         with self._patch_generate_noll():
             final_coeffs, history = apply_zernike_correction(
-                mock_slm, mock_wfs, response_matrix_file,
-                Kp=1.0, Ki=0.1, Kd=0.01,
+                mock_slm,
+                mock_wfs,
+                response_matrix_file,
+                Kp=1.0,
+                Ki=0.1,
+                Kd=0.01,
                 pid=True,
-                max_iterations=5, convergence_threshold=1e-10,
-                wait_time_s=0.01, n_averages=1,
+                max_iterations=5,
+                convergence_threshold=1e-10,
+                wait_time_s=0.01,
+                n_averages=1,
             )
 
         assert isinstance(history, list)
@@ -457,11 +482,17 @@ class TestApplyZernikeCorrectionPIDMocked:
 
         with self._patch_generate_noll():
             final_coeffs, history = apply_zernike_correction(
-                mock_slm, mock_wfs, response_matrix_file,
-                Kp=1.0, Ki=0.1, Kd=0.01,
+                mock_slm,
+                mock_wfs,
+                response_matrix_file,
+                Kp=1.0,
+                Ki=0.1,
+                Kd=0.01,
                 pid=True,
-                max_iterations=2, convergence_threshold=1e-10,
-                wait_time_s=0.01, n_averages=1,
+                max_iterations=2,
+                convergence_threshold=1e-10,
+                wait_time_s=0.01,
+                n_averages=1,
             )
 
         assert isinstance(final_coeffs, np.ndarray)
@@ -474,12 +505,18 @@ class TestApplyZernikeCorrectionPIDMocked:
 
         with self._patch_generate_noll():
             final_coeffs, history = apply_zernike_correction(
-                mock_slm, mock_wfs, response_matrix_file,
+                mock_slm,
+                mock_wfs,
+                response_matrix_file,
                 target=target,
-                Kp=1.0, Ki=0.1, Kd=0.01,
+                Kp=1.0,
+                Ki=0.1,
+                Kd=0.01,
                 pid=True,
-                max_iterations=2, convergence_threshold=1e-10,
-                wait_time_s=0.01, n_averages=1,
+                max_iterations=2,
+                convergence_threshold=1e-10,
+                wait_time_s=0.01,
+                n_averages=1,
             )
 
         assert isinstance(final_coeffs, np.ndarray)

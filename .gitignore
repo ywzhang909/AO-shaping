@@ -57,7 +57,12 @@ src/calculators/build/temp*
 src/calculators/*.html
 docs/SLM_DLL_ver*
 src/ao_shaping/drivers/ccd/_miicam_sdk*
-docs/slm-200*
+docs/slm-200/*.dll
+docs/slm-200/*.pdf
+docs/slm-200/*.ipynb
+docs/slm-200/main.py
+docs/slm-200/_slm_win.py
+docs/slm-200/*.csv
 
 # Simulation data
 data_adam/
@@ -86,3 +91,10 @@ libs/micro_drive1300/c/std*.txt
 performance_comparison.md
 docs/micro deformable mirror/docs/shiliang_extracted*
 !docs/**/*.png
+docs/**/*.npy
+docs/benchmarks/device_less**
+*.log
+scripts/dev**
+tmp_*
+docs/**/*.pdf
+docs/thorlab-wfs/Manual*

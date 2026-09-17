@@ -4,6 +4,7 @@ Tests DMResponseMatrixResult dataclass, HDF5 save/load roundtrips,
 and mock-based tests for measure_actuator_response and calibration.
 """
 
+import h5py
 import json
 import tempfile
 from pathlib import Path
@@ -58,6 +59,78 @@ def _make_result(
         subaperture_mask=subaperture_mask,
         device_config=device_config,
     )
+
+
+def _make_linear_dm_wfs(
+    n_actuators: int,
+    true_resp_full: np.ndarray,
+    n_spots_x: int,
+    n_spots_y: int,
+    noise_scale: float = 0.0,
+) -> tuple[MagicMock, MagicMock, dict]:
+    """Create a linear DM/WFS mock pair whose slope response is exact.
+
+    The WFS deviation for a full-length voltage vector ``vs`` is
+    ``vs @ true_resp_full.T`` (x-then-y flattened), so a push-pull sweep
+    recovers ``true_resp_full`` exactly. ``state["last_volts"]`` holds the
+    most recent full-length voltage vector sent to the DM.
+
+    Args:
+        n_actuators: Total DM actuators (``dm.DM_NUM``).
+        true_resp_full: Per-actuator slope response, shape
+            (2 * n_spots_x * n_spots_y, n_actuators).
+        n_spots_x: WFS spot grid width.
+        n_spots_y: WFS spot grid height.
+        noise_scale: Std-dev of Gaussian noise added per WFS read
+            (0 = deterministic). Also exposed as ``wfs.noise_scale`` so
+            tests can toggle it after creation.
+
+    Returns:
+        tuple: (dm, wfs, state) where state["last_volts"] is the last
+        full-length voltage vector sent to the DM.
+    """
+    state: dict = {"last_volts": np.zeros(n_actuators, dtype=np.float64)}
+
+    dm = MagicMock()
+    dm.DM_NUM = n_actuators
+    dm.send_voltages.return_value = None
+
+    def send_voltages(vs, wait_time):
+        state["last_volts"] = np.asarray(vs, dtype=np.float64).copy()
+
+    dm.send_voltages.side_effect = send_voltages
+
+    wfs = MagicMock()
+    wfs.num_spots_x = n_spots_x
+    wfs.num_spots_y = n_spots_y
+    wfs.noise_scale = noise_scale
+    wfs.take_image.return_value = None
+    wfs.save_user_ref.return_value = None
+    wfs.load_user_ref.return_value = None
+
+    def build_subaperture_mask(**kwargs):
+        mask = np.ones((n_spots_x, n_spots_y), dtype=bool)
+        valid_idx = np.where(mask.ravel())[0]
+        return mask, valid_idx
+
+    wfs.build_subaperture_mask.side_effect = build_subaperture_mask
+
+    rng = np.random.default_rng(12345)
+
+    def get_spot_deviation(cancel_tile=False):
+        dev = state["last_volts"] @ true_resp_full.T
+        n_spots_total = n_spots_x * n_spots_y
+        dev_x = dev[:n_spots_total].reshape(n_spots_x, n_spots_y)
+        dev_y = dev[n_spots_total:].reshape(n_spots_x, n_spots_y)
+        scale = float(getattr(wfs, "noise_scale", 0.0))
+        if scale > 0:
+            dev_x = dev_x + rng.normal(0.0, scale, dev_x.shape)
+            dev_y = dev_y + rng.normal(0.0, scale, dev_y.shape)
+        return dev_x, dev_y
+
+    wfs.get_spot_deviation.side_effect = get_spot_deviation
+
+    return dm, wfs, state
 
 
 # ===========================================================================
@@ -887,6 +960,366 @@ class TestLoadFailures:
             path = Path(tmpdir) / "does_not_exist.h5"
             with pytest.raises(FileNotFoundError):
                 load_dm_response_matrix(path)
+
+
+# ===========================================================================
+# TestHadamard  (Hadamard-mode calibration)
+# ===========================================================================
+
+
+class TestHadamard:
+    """Tests for Hadamard-mode DM response matrix calibration."""
+
+    @pytest.mark.parametrize("order", [1, 2, 4, 8])
+    def test_hadamard_matrix_orthogonal(self, order):
+        """Sylvester Hadamard matrices are orthogonal with +/-1 entries."""
+        from ao_shaping.optimizer.wf.dm_response_matrix import _hadamard_matrix
+
+        H = _hadamard_matrix(order)
+        assert H.shape == (order, order)
+        assert np.issubdtype(H.dtype, np.integer)
+        assert np.all((H == 1) | (H == -1))
+        assert np.allclose(H @ H.T, order * np.eye(order))
+
+    @pytest.mark.parametrize(
+        "n_valid,expected",
+        [(1, 1), (3, 4), (4, 4), (5, 8), (63, 64), (64, 64), (65, 128)],
+    )
+    def test_next_hadamard_order(self, n_valid, expected):
+        """Smallest power of two >= n_valid."""
+        from ao_shaping.optimizer.wf.dm_response_matrix import _next_hadamard_order
+
+        assert _next_hadamard_order(n_valid) == expected
+
+    def test_next_hadamard_order_invalid(self):
+        """n_valid < 1 raises ValueError."""
+        from ao_shaping.optimizer.wf.dm_response_matrix import _next_hadamard_order
+
+        with pytest.raises(ValueError):
+            _next_hadamard_order(0)
+        with pytest.raises(ValueError):
+            _next_hadamard_order(-3)
+
+    @pytest.mark.parametrize("order", [3, 6])
+    def test_hadamard_matrix_invalid_order(self, order):
+        """Non-power-of-two orders raise ValueError."""
+        from ao_shaping.optimizer.wf.dm_response_matrix import _hadamard_matrix
+
+        with pytest.raises(ValueError):
+            _hadamard_matrix(order)
+
+    def test_decode_hadamard_responses_correct(self):
+        """Decoding recovers the per-actuator response from a Hadamard sweep."""
+        from ao_shaping.optimizer.wf.dm_response_matrix import (
+            _decode_hadamard_responses,
+            _hadamard_matrix,
+        )
+
+        k, n_slopes = 8, 12
+        V = 50.0
+        H = _hadamard_matrix(k)
+        known_response = np.random.randn(n_slopes, k)
+
+        # rows[r, :] = response of pattern r = known_response @ H[r] * V
+        rows = (known_response @ H.T * V).T  # shape (k, n_slopes)
+
+        decoded = _decode_hadamard_responses(rows, H)
+
+        assert decoded.shape == (n_slopes, k)
+        assert np.allclose(decoded, known_response * V, atol=1e-12)
+
+    def test_calibrate_hadamard_recovers_true_response(self):
+        """Hadamard calibration recovers the true response matrix exactly."""
+        from ao_shaping.optimizer.wf.dm_response_matrix import (
+            _next_hadamard_order,
+            calibrate_dm_response_matrix,
+        )
+
+        n_actuators = 8
+        n_spots_x, n_spots_y = 3, 2
+        n_slopes = 2 * n_spots_x * n_spots_y
+        rng = np.random.default_rng(0)
+        true_resp_full = rng.standard_normal((n_slopes, n_actuators))
+
+        dm, wfs, _ = _make_linear_dm_wfs(
+            n_actuators, true_resp_full, n_spots_x, n_spots_y
+        )
+        dm_unit_mask = np.ones(n_actuators, dtype=bool)
+
+        result = calibrate_dm_response_matrix(
+            dm=dm,
+            wfs=wfs,
+            dm_unit_mask=dm_unit_mask,
+            disturb_voltage=50.0,
+            n_averages=1,
+            n_cycles=1,
+            wait_time=0.0,
+            compute_inverses=False,
+            mode="hadamard",
+        )
+
+        expected_k = _next_hadamard_order(n_actuators)
+        assert result.calibration_mode == "hadamard"
+        assert result.hadamard_order == expected_k
+        assert result.matrix.shape == (n_slopes, n_actuators)
+        assert np.allclose(result.matrix, true_resp_full, atol=1e-9)
+
+    def test_calibrate_hadamard_equivalent_to_sequential(self):
+        """Hadamard and sequential modes produce the same matrix."""
+        from ao_shaping.optimizer.wf.dm_response_matrix import calibrate_dm_response_matrix
+
+        n_actuators = 8
+        n_spots_x, n_spots_y = 3, 2
+        n_slopes = 2 * n_spots_x * n_spots_y
+        rng = np.random.default_rng(1)
+        true_resp_full = rng.standard_normal((n_slopes, n_actuators))
+        dm_unit_mask = np.ones(n_actuators, dtype=bool)
+
+        dm_seq, wfs_seq, _ = _make_linear_dm_wfs(
+            n_actuators, true_resp_full, n_spots_x, n_spots_y
+        )
+        seq_result = calibrate_dm_response_matrix(
+            dm=dm_seq,
+            wfs=wfs_seq,
+            dm_unit_mask=dm_unit_mask,
+            disturb_voltage=50.0,
+            n_averages=1,
+            n_cycles=1,
+            wait_time=0.0,
+            compute_inverses=False,
+        )
+
+        dm_had, wfs_had, _ = _make_linear_dm_wfs(
+            n_actuators, true_resp_full, n_spots_x, n_spots_y
+        )
+        had_result = calibrate_dm_response_matrix(
+            dm=dm_had,
+            wfs=wfs_had,
+            dm_unit_mask=dm_unit_mask,
+            disturb_voltage=50.0,
+            n_averages=1,
+            n_cycles=1,
+            wait_time=0.0,
+            compute_inverses=False,
+            mode="hadamard",
+        )
+
+        assert np.allclose(had_result.matrix, seq_result.matrix, atol=1e-9)
+
+    def test_calibrate_hadamard_multi_cycle_variance(self):
+        """Multi-cycle Hadamard calibration reports finite non-zero variance."""
+        from ao_shaping.optimizer.wf.dm_response_matrix import calibrate_dm_response_matrix
+
+        n_actuators = 8
+        n_spots_x, n_spots_y = 3, 2
+        n_slopes = 2 * n_spots_x * n_spots_y
+        rng = np.random.default_rng(2)
+        true_resp_full = rng.standard_normal((n_slopes, n_actuators))
+
+        dm, wfs, _ = _make_linear_dm_wfs(
+            n_actuators, true_resp_full, n_spots_x, n_spots_y, noise_scale=0.01
+        )
+        dm_unit_mask = np.ones(n_actuators, dtype=bool)
+
+        result = calibrate_dm_response_matrix(
+            dm=dm,
+            wfs=wfs,
+            dm_unit_mask=dm_unit_mask,
+            disturb_voltage=50.0,
+            n_averages=1,
+            n_cycles=3,
+            wait_time=0.0,
+            compute_inverses=False,
+            mode="hadamard",
+        )
+
+        assert np.all(np.isfinite(result.variance_matrix))
+        assert np.any(result.variance_matrix > 0)
+        assert np.allclose(result.matrix, true_resp_full, atol=1e-3)
+
+    def test_calibrate_hadamard_explicit_order(self):
+        """Explicit hadamard_order >= n_valid works; smaller orders raise."""
+        from ao_shaping.optimizer.wf.dm_response_matrix import calibrate_dm_response_matrix
+
+        n_actuators = 5
+        n_spots_x, n_spots_y = 3, 2
+        n_slopes = 2 * n_spots_x * n_spots_y
+        rng = np.random.default_rng(3)
+        true_resp_full = rng.standard_normal((n_slopes, n_actuators))
+        dm_unit_mask = np.ones(n_actuators, dtype=bool)
+
+        dm, wfs, _ = _make_linear_dm_wfs(
+            n_actuators, true_resp_full, n_spots_x, n_spots_y
+        )
+        result = calibrate_dm_response_matrix(
+            dm=dm,
+            wfs=wfs,
+            dm_unit_mask=dm_unit_mask,
+            disturb_voltage=50.0,
+            n_averages=1,
+            n_cycles=1,
+            wait_time=0.0,
+            compute_inverses=False,
+            mode="hadamard",
+            hadamard_order=8,
+        )
+
+        assert result.hadamard_order == 8
+        assert result.matrix.shape == (n_slopes, n_actuators)
+        assert np.allclose(result.matrix, true_resp_full, atol=1e-9)
+
+        dm_bad, wfs_bad, _ = _make_linear_dm_wfs(
+            n_actuators, true_resp_full, n_spots_x, n_spots_y
+        )
+        with pytest.raises(ValueError):
+            calibrate_dm_response_matrix(
+                dm=dm_bad,
+                wfs=wfs_bad,
+                dm_unit_mask=dm_unit_mask,
+                disturb_voltage=50.0,
+                n_averages=1,
+                n_cycles=1,
+                wait_time=0.0,
+                compute_inverses=False,
+                mode="hadamard",
+                hadamard_order=4,
+            )
+
+    def test_calibrate_hadamard_subap_mask_shape(self):
+        """Partial subaperture mask filters the Hadamard matrix rows."""
+        from ao_shaping.optimizer.wf.dm_response_matrix import calibrate_dm_response_matrix
+
+        n_actuators = 8
+        n_spots_x, n_spots_y = 4, 4
+        n_slopes = 2 * n_spots_x * n_spots_y
+        rng = np.random.default_rng(4)
+        true_resp_full = rng.standard_normal((n_slopes, n_actuators))
+
+        dm, wfs, _ = _make_linear_dm_wfs(
+            n_actuators, true_resp_full, n_spots_x, n_spots_y
+        )
+        dm_unit_mask = np.ones(n_actuators, dtype=bool)
+
+        subap_mask = np.ones((n_spots_x, n_spots_y), dtype=bool)
+        subap_mask[0, 0] = False
+        subap_mask[2, 3] = False
+
+        result = calibrate_dm_response_matrix(
+            dm=dm,
+            wfs=wfs,
+            dm_unit_mask=dm_unit_mask,
+            disturb_voltage=50.0,
+            n_averages=1,
+            n_cycles=1,
+            wait_time=0.0,
+            compute_inverses=False,
+            mode="hadamard",
+            subaperture_mask=subap_mask,
+        )
+
+        assert result.matrix.shape[0] == 2 * int(subap_mask.sum())
+        assert result.matrix.shape[1] == n_actuators
+
+    def test_calibrate_default_mode_is_sequential(self):
+        """Default calibration mode is sequential with no Hadamard order."""
+        from ao_shaping.optimizer.wf.dm_response_matrix import calibrate_dm_response_matrix
+
+        n_actuators = 8
+        n_spots_x, n_spots_y = 3, 2
+        n_slopes = 2 * n_spots_x * n_spots_y
+        rng = np.random.default_rng(5)
+        true_resp_full = rng.standard_normal((n_slopes, n_actuators))
+
+        dm, wfs, _ = _make_linear_dm_wfs(
+            n_actuators, true_resp_full, n_spots_x, n_spots_y
+        )
+        dm_unit_mask = np.ones(n_actuators, dtype=bool)
+
+        result = calibrate_dm_response_matrix(
+            dm=dm,
+            wfs=wfs,
+            dm_unit_mask=dm_unit_mask,
+            disturb_voltage=50.0,
+            n_averages=1,
+            n_cycles=1,
+            wait_time=0.0,
+            compute_inverses=False,
+        )
+
+        assert result.calibration_mode == "sequential"
+        assert result.hadamard_order is None
+
+
+# ===========================================================================
+# TestDMSaveLoadCompat  (calibration_mode / hadamard_order roundtrips)
+# ===========================================================================
+
+
+class TestDMSaveLoadCompat:
+    """Backward-compatible roundtrips for calibration_mode/hadamard_order."""
+
+    def test_calibration_mode_roundtrip(self, tmp_path):
+        """Save/load preserves calibration_mode and hadamard_order metadata."""
+        from ao_shaping.optimizer.wf.dm_response_matrix import (
+            DMResponseMatrixResult,
+            load_dm_response_matrix,
+            save_dm_response_matrix,
+        )
+
+        matrix = np.random.randn(100, 63)
+        variance = np.abs(np.random.randn(100, 63)) * 0.01
+
+        result = DMResponseMatrixResult(
+            matrix=matrix,
+            variance_matrix=variance,
+            n_actuators=64,
+            valid_actuator_indices=list(range(1, 64)),
+            calibration_mode="hadamard",
+            hadamard_order=64,
+        )
+
+        path = tmp_path / "dm_response_matrix.h5"
+        save_dm_response_matrix(result, path)
+
+        loaded = load_dm_response_matrix(path)
+
+        assert loaded.calibration_mode == "hadamard"
+        assert loaded.hadamard_order == 64
+        assert np.allclose(loaded.matrix, matrix)
+
+    def test_legacy_h5_loads_with_defaults(self, tmp_path):
+        """A legacy H5 without the new attrs loads with sequential/None defaults."""
+        from ao_shaping.optimizer.wf.dm_response_matrix import (
+            DMResponseMatrixResult,
+            load_dm_response_matrix,
+            save_dm_response_matrix,
+        )
+
+        matrix = np.random.randn(100, 63)
+        variance = np.abs(np.random.randn(100, 63)) * 0.01
+
+        result = DMResponseMatrixResult(
+            matrix=matrix,
+            variance_matrix=variance,
+            n_actuators=64,
+            valid_actuator_indices=list(range(1, 64)),
+        )
+
+        path = tmp_path / "legacy_dm_response_matrix.h5"
+        save_dm_response_matrix(result, path)
+
+        # Strip the new metadata attrs to emulate a file written by the
+        # pre-Hadamard save format.
+        with h5py.File(path, "a") as f:
+            meta = f["metadata"]
+            for attr in ("calibration_mode", "hadamard_order"):
+                if attr in meta.attrs:
+                    del meta.attrs[attr]
+
+        loaded = load_dm_response_matrix(path)
+
+        assert loaded.calibration_mode == "sequential"
+        assert loaded.hadamard_order is None
 
 
 if __name__ == "__main__":

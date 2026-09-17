@@ -6,7 +6,7 @@ import numpy as np
 from ao_shaping.algorithm.adam import search_optimal_delta
 from ao_shaping.drivers import MlaRes, ThorlabWFS
 from ao_shaping.drivers.slm import ZernikeSLM
-from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms
+from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms_slm
 from ao_shaping.runners.runner_common import (
     build_debug_save_paths,
     save_optimization_debug_artifacts,
@@ -270,7 +270,7 @@ def run(
         )
 
     init_v = [0 for _ in range(calc_n_zernike_terms(n_max))]
-    records = optimizer_rms(
+    records = optimizer_rms_slm(
         init_z=init_v,
         epochs=epochs,
         delta=delta,

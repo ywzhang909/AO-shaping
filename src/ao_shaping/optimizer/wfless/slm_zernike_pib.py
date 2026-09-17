@@ -6,7 +6,7 @@ displays the resulting phase pattern on the SLM, and measures the PIB metric
 from the camera image.
 
 Key differences from pib.py:
-- DM (NlightDM) → SLM (SantecSLM200)
+- DM (NlightDM) → SLM (Santec)
 - Voltage vectors → Zernike coefficient vectors
 - dm.send_voltages(v) → slm.display_data(phase_pattern)
 - No neighbor voltage safety checks (SLM has no such constraint)
@@ -35,14 +35,15 @@ import numpy as np
 import matplotlib.pylab as plt
 
 from ao_shaping.drivers import CameraStreamManager
-from ao_shaping.drivers.slm import SantecSLM200
+from ao_shaping.drivers.slm import Santec
+from ao_shaping.optimizer.wfless.slm_square_shaping import _zernike_indices
 from ao_shaping.utils.pattern_helper import PatternHelper
 from ao_shaping.algorithm.adam import AdaMOD, Adam, AdamW, Base, Muno, MunoW, SGD
 from ao_shaping.utils import logger, Recorder
 from ao_shaping.utils.file import gen_date_dir, gen_date_str
 from ao_shaping.utils.spots_calc import centroid, radius
 from ao_shaping.algorithm.target_func import ImageTargetFunc
-from ao_shaping.utils.zernike_calc import calc_n_zernike_terms, noll_to_nm
+from ao_shaping.utils.zernike_calc import calc_n_zernike_terms
 
 # adam parameters
 beta1 = 0.9
@@ -59,7 +60,7 @@ IDEAL_SPOT_RADIUS = int(os.environ.get("IDEAL_SPOT_RADIUS", 6))
 SLM_RESPONSE_TIME_S = 0.3  # Santec SLM-200 response time ~300ms
 SLM_RESET_ON_EXIT = True  # Reset SLM to flat phase on exit
 
-# SLM resolution (from SantecSLM200.Panel_Res = (1920, 1200))
+# SLM resolution (from Santec.Panel_Res = (1920, 1200))
 SLM_WIDTH = 1920
 SLM_HEIGHT = 1200
 SLM_RESOLUTION = (SLM_WIDTH, SLM_HEIGHT)
@@ -72,22 +73,6 @@ OPTIMIZER_MAP = {
     "muno": Muno,
     "munow": MunoW,
 }
-
-
-
-
-def _zernike_indices(n_max: int) -> list[tuple[int, int]]:
-    """Return list of (n, m) pairs for all valid Zernike modes up to n_max.
-    
-    Uses noll_to_nm from zernike_calc for correctness.
-    """
-    n_terms = calc_n_zernike_terms(n_max)
-    modes = []
-    for j in range(1, n_terms + 1):
-        n, m = noll_to_nm(j)
-        if n <= n_max:
-            modes.append((n, m))
-    return modes
 
 
 def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs) -> Base:
@@ -106,7 +91,7 @@ def _zernike_to_phase(
     n_max: int,
     pattern_helper: PatternHelper,
 ) -> np.ndarray:
-    """Convert a flat Zernike coefficient array to a uint16 phase pattern for SLM.
+    """Convert a flat Zernike coefficient array to a radian phase pattern.
 
     Args:
         coeffs: Flat array of Zernike coefficients (amplitudes in wavelengths).
@@ -114,7 +99,11 @@ def _zernike_to_phase(
         pattern_helper: PatternHelper instance for phase generation.
 
     Returns:
-        uint16 phase pattern array with shape (SLM_HEIGHT, SLM_WIDTH).
+        float64 raw radian phase pattern array with shape (SLM_HEIGHT, SLM_WIDTH).
+        No mod-2π here — the caller must convert to grayscale via
+        ``slm.create_phase_from_array()`` before ``slm.display_data()``
+        (2026-09: PatternHelper no longer performs phase→gray; the SLM
+        driver applies the 2π wrap on radian→grayscale conversion).
     """
     modes = _zernike_indices(n_max)
     coeffs_dict: dict[tuple[int, int], float] = {}
@@ -315,10 +304,8 @@ def optimize_slm_zernike_pib(
         CameraStreamManager(
             cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
         ) as cam,
-        SantecSLM200(slm_number=slm_number, wavelength=slm_wavelength) as slm,
+        Santec(slm_number=slm_number, wavelength=slm_wavelength) as slm,
     ):
-        slm.set_wavelength(slm_wavelength)
-
         # Initialize Zernike coefficients
         if init_c is None or len(init_c) == 0:
             _init_c = np.zeros(nk, dtype=np.float64)
@@ -332,7 +319,9 @@ def optimize_slm_zernike_pib(
                 _init_c = _init_c[:nk]
 
         # Reset SLM to flat phase
-        initial_phase = _zernike_to_phase(_init_c, n_max, pattern_helper)
+        initial_phase = slm.create_phase_from_array(
+            _zernike_to_phase(_init_c, n_max, pattern_helper)
+        )
         slm.display_data(initial_phase)
         time.sleep(SLM_RESPONSE_TIME_S)
 
@@ -518,7 +507,9 @@ def optimize_slm_zernike_pib(
 
                 # Positive perturbation
                 _pos_c = np.clip(_init_c + disturb_c, -5.0, 5.0)
-                pos_phase = _zernike_to_phase(_pos_c, n_max, pattern_helper)
+                pos_phase = slm.create_phase_from_array(
+                    _zernike_to_phase(_pos_c, n_max, pattern_helper)
+                )
                 slm.display_data(pos_phase)
                 time.sleep(SLM_RESPONSE_TIME_S)
                 pos_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
@@ -526,7 +517,9 @@ def optimize_slm_zernike_pib(
 
                 # Negative perturbation
                 _neg_c = np.clip(_init_c - disturb_c, -5.0, 5.0)
-                neg_phase = _zernike_to_phase(_neg_c, n_max, pattern_helper)
+                neg_phase = slm.create_phase_from_array(
+                    _zernike_to_phase(_neg_c, n_max, pattern_helper)
+                )
                 slm.display_data(neg_phase)
                 time.sleep(SLM_RESPONSE_TIME_S)
                 neg_img = cam.get_numpy_image(CAM_SAMPLE_ITER)

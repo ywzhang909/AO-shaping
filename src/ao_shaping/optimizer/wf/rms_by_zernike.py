@@ -13,8 +13,8 @@ Key changes from rms_by_zernike.py:
 - dm.DM_Num → calc_n_zernike_terms(n_max)
 
 Example:
-    >>> from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms
-    >>> recorder = optimizer_rms(
+    >>> from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms_slm
+    >>> recorder = optimizer_rms_slm(
     ...     epochs=2000,
     ...     n_max=4,
     ...     wavelength=1064,
@@ -47,13 +47,13 @@ def cosine_annealing_lr(
     lr_min: float = 1e-6,
 ) -> float:
     """Cosine annealing learning rate schedule.
-    
+
     Args:
         epoch: Current epoch (0-indexed).
         T_max: Total number of epochs.
         lr_max: Maximum learning rate.
         lr_min: Minimum learning rate.
-        
+
     Returns:
         Current learning rate.
     """
@@ -70,13 +70,13 @@ def cosine_annealing_delta(
     delta_min: float = 1e-7,
 ) -> float:
     """Cosine annealing delta (perturbation amplitude) schedule.
-    
+
     Args:
         epoch: Current epoch (0-indexed).
         T_max: Total number of epochs.
         delta_max: Maximum delta.
         delta_min: Minimum delta.
-        
+
     Returns:
         Current delta.
     """
@@ -93,14 +93,14 @@ def exponential_decay_lr(
     decay_factor: float = 0.01,
 ) -> float:
     """Exponential decay learning rate schedule.
-    
+
     Args:
         epoch: Current epoch (0-indexed).
         T_max: Total number of epochs.
         lr_max: Maximum learning rate.
         lr_min: Minimum learning rate.
         decay_factor: Decay factor (how much to decay over T_max).
-        
+
     Returns:
         Current learning rate.
     """
@@ -108,7 +108,9 @@ def exponential_decay_lr(
         return lr_max
     # Exponential decay: lr = lr_min + (lr_max - lr_min) * exp(-decay_factor * epoch / T_max)
     progress = epoch / T_max
-    return lr_min + (lr_max - lr_min) * np.exp(decay_factor * progress * np.log(lr_max / (lr_min + 1e-10)))
+    return lr_min + (lr_max - lr_min) * np.exp(
+        decay_factor * progress * np.log(lr_max / (lr_min + 1e-10))
+    )
 
 
 def linear_decay_lr(
@@ -118,13 +120,13 @@ def linear_decay_lr(
     lr_min: float = 1e-6,
 ) -> float:
     """Linear decay learning rate schedule.
-    
+
     Args:
         epoch: Current epoch (0-indexed).
         T_max: Total number of epochs.
         lr_max: Maximum learning rate.
         lr_min: Minimum learning rate.
-        
+
     Returns:
         Current learning rate.
     """
@@ -142,14 +144,14 @@ def get_lr_schedule(
     lr_min: float = 1e-6,
 ) -> float:
     """Get learning rate based on schedule type.
-    
+
     Args:
         schedule_type: Schedule type ("static", "cosine", "exp", "linear").
         epoch: Current epoch.
         T_max: Total epochs.
         lr_max: Maximum LR.
         lr_min: Minimum LR.
-        
+
     Returns:
         Current LR value.
     """
@@ -174,14 +176,14 @@ def get_delta_schedule(
     delta_min: float = 1e-7,
 ) -> float:
     """Get delta (perturbation amplitude) based on schedule type.
-    
+
     Args:
         schedule_type: Schedule type ("static", "cosine", "exp", "linear").
         epoch: Current epoch.
         T_max: Total epochs.
         delta_max: Maximum delta.
         delta_min: Minimum delta.
-        
+
     Returns:
         Current delta value.
     """
@@ -211,43 +213,43 @@ def early_stopping_check(
     improvement_threshold: float = 1e-4,
 ) -> tuple[bool, float]:
     """Check if optimization should stop based on sliding window validation.
-    
+
     Args:
         rms_history: List of RMS values over epochs.
         window: Sliding window size for validation.
         min_epochs: Minimum epochs before early stopping can trigger.
         patience: Number of consecutive non-improvement windows before stopping.
         improvement_threshold: Minimum improvement to count as improvement.
-        
+
     Returns:
         Tuple of (should_stop, window_mean_rms).
     """
     n_epochs = len(rms_history)
-    
+
     if n_epochs < min_epochs + window:
-        return False, float('inf')
-    
+        return False, float("inf")
+
     # Calculate recent window mean
     recent_window = rms_history[-window:]
     window_mean = sum(recent_window) / window
-    
+
     # Check if any previous window was significantly better
-    best_window_rms = float('inf')
+    best_window_rms = float("inf")
     consecutive_no_improve = 0
-    
+
     for i in range(min_epochs, n_epochs - window + 1):
-        past_window = rms_history[i:i + window]
+        past_window = rms_history[i : i + window]
         past_mean = sum(past_window) / window
-        
+
         if past_mean < best_window_rms - improvement_threshold:
             best_window_rms = past_mean
             consecutive_no_improve = 0
         else:
             consecutive_no_improve += 1
-    
+
     # Stop if too many consecutive non-improvement windows
     should_stop = consecutive_no_improve >= patience
-    
+
     return should_stop, window_mean
 
 
@@ -270,7 +272,7 @@ def compute_mini_batch_gradient(
     zernike_max: float = 500.0,
 ) -> tuple[np.ndarray, dict]:
     """Compute mini-batch SPGD gradient by averaging multiple perturbations.
-    
+
     Args:
         current_c: Current Zernike coefficients.
         slm: SLM device.
@@ -283,17 +285,17 @@ def compute_mini_batch_gradient(
         remove_tilt: Whether to remove tilt in WFS measurement.
         zernike_min: Minimum Zernike coefficient.
         zernike_max: Maximum Zernike coefficient.
-        
+
     Returns:
         Tuple of (averaged_gradient, info_dict with details).
     """
     if n_batches <= 0:
         n_batches = 1
-    
+
     gradients = []
     pos_rms_list = []
     neg_rms_list = []
-    
+
     for batch_idx in range(n_batches):
         # Generate random perturbation direction
         disturb_c = np.random.binomial(1, 0.5, (n_zernike,)).astype(float) * 2.0 - 1.0
@@ -301,39 +303,39 @@ def compute_mini_batch_gradient(
         # Zero piston mode
         if len(disturb_c) > 0:
             disturb_c[0] = 0
-        
+
         # Positive perturbation
         pos_c = np.clip(current_c + disturb_c, zernike_min, zernike_max)
         slm.send_zernike(pos_c, slm_wait_time)
         wfs.take_image(3)
         _, pos_statics = wfs.get_wavefront(cancel_tile=remove_tilt)
-        pos_rms = pos_statics.get('rms', np.inf)
-        
+        pos_rms = pos_statics.get("rms", np.inf)
+
         # Negative perturbation
         neg_c = np.clip(current_c - disturb_c, zernike_min, zernike_max)
         slm.send_zernike(neg_c, slm_wait_time)
         wfs.take_image(3)
         _, neg_statics = wfs.get_wavefront(cancel_tile=remove_tilt)
-        neg_rms = neg_statics.get('rms', np.inf)
-        
+        neg_rms = neg_statics.get("rms", np.inf)
+
         # Compute gradient for this batch
         diff = pos_rms - neg_rms
         gradient = diff * disturb_c
         gradients.append(gradient)
         pos_rms_list.append(pos_rms)
         neg_rms_list.append(neg_rms)
-    
+
     # Average gradients
     avg_gradient = np.mean(gradients, axis=0)
-    
+
     info = {
-        'n_batches': n_batches,
-        'avg_pos_rms': np.mean(pos_rms_list),
-        'avg_neg_rms': np.mean(neg_rms_list),
-        'pos_rms_std': np.std(pos_rms_list) if len(pos_rms_list) > 1 else 0.0,
-        'neg_rms_std': np.std(neg_rms_list) if len(neg_rms_list) > 1 else 0.0,
+        "n_batches": n_batches,
+        "avg_pos_rms": np.mean(pos_rms_list),
+        "avg_neg_rms": np.mean(neg_rms_list),
+        "pos_rms_std": np.std(pos_rms_list) if len(pos_rms_list) > 1 else 0.0,
+        "neg_rms_std": np.std(neg_rms_list) if len(neg_rms_list) > 1 else 0.0,
     }
-    
+
     return avg_gradient, info
 
 
@@ -353,25 +355,26 @@ def noll_to_nm(j: int) -> tuple[int, int]:
     """
     # Noll sequence for Zernike polynomials
     noll_sequence = [
-        (0, 0),   # 1: piston
+        (0, 0),  # 1: piston
         (1, -1),  # 2: tilt x
-        (1, 1),   # 3: tilt y
+        (1, 1),  # 3: tilt y
         (2, -2),  # 4: oblique astigmatism
-        (2, 0),   # 5: defocus
-        (2, 2),   # 6: oblique astigmatism
+        (2, 0),  # 5: defocus
+        (2, 2),  # 6: oblique astigmatism
         (3, -3),  # 7: vertical trefoil
         (3, -1),  # 8: vertical coma
-        (3, 1),   # 9: horizontal coma
-        (3, 3),   # 10: horizontal trefoil
+        (3, 1),  # 9: horizontal coma
+        (3, 3),  # 10: horizontal trefoil
         (4, -4),  # 11: quadrafoil
         (4, -2),  # 12: oblique trefoil
-        (4, 0),   # 13: primary spherical
-        (4, 2),   # 14: oblique trefoil
-        (4, 4),   # 15: quadrafoil
+        (4, 0),  # 13: primary spherical
+        (4, 2),  # 14: oblique trefoil
+        (4, 4),  # 15: quadrafoil
     ]
     if j < 1 or j > len(noll_sequence):
         raise ValueError(f"Noll index {j} out of valid range (1-{len(noll_sequence)})")
     return noll_sequence[j - 1]
+
 
 # SLM parameters
 SLM_WAVELENGTH_DEFAULT = 532  # nm
@@ -406,15 +409,21 @@ def _get_perturb_weights(n_zernike: int) -> np.ndarray:
     env_weights = os.environ.get("RMS_ZERNIKE_WEIGHTS", "")
     if env_weights:
         try:
-            weights = np.array([float(x.strip()) for x in env_weights.split(",")], dtype=np.float64)
+            weights = np.array(
+                [float(x.strip()) for x in env_weights.split(",")], dtype=np.float64
+            )
             if len(weights) == n_zernike:
                 logger.debug(f"Using custom Zernike weights from env: {weights}")
                 return weights
             elif len(weights) > n_zernike:
-                logger.debug(f"Using first {n_zernike} custom weights: {weights[:n_zernike]}")
+                logger.debug(
+                    f"Using first {n_zernike} custom weights: {weights[:n_zernike]}"
+                )
                 return weights[:n_zernike]
             else:
-                logger.warning(f"Custom weights count ({len(weights)}) != n_zernike ({n_zernike}), using default")
+                logger.warning(
+                    f"Custom weights count ({len(weights)}) != n_zernike ({n_zernike}), using default"
+                )
         except ValueError as e:
             logger.warning(f"Failed to parse RMS_ZERNIKE_WEIGHTS: {e}")
 
@@ -464,7 +473,7 @@ def _zernike_indices(n_max: int) -> list[tuple[int, int]]:
     return modes
 
 
-def optimizer_rms(
+def optimizer_rms_slm(
     epochs: int,
     init_z: Sequence[float | int] | dict[tuple[int, int], float] | None = None,
     lr: float = 0.01,
@@ -562,7 +571,7 @@ def optimizer_rms(
     n_zernike = calc_n_zernike_terms(n_max)
     zernike_modes = _zernike_indices(n_max)
 
-    recorder = Recorder(mark='rms', mode='min')
+    recorder = Recorder(mark="rms", mode="min")
 
     with (
         ZernikeSLM(
@@ -609,24 +618,26 @@ def optimizer_rms(
             slm.send_zernike(_init_c)
             wfs.take_image(3)
             wf, statics = wfs.get_wavefront(cancel_tile=remove_tilt)
-            best_rms = statics.get('rms', np.inf)
-            
+            best_rms = statics.get("rms", np.inf)
+
             for i in range(n_init_positions):
                 test_c = np.random.uniform(-init_range, init_range, size=n_zernike)
                 test_c[0] = 0
                 test_c = np.clip(test_c, ZERNIKE_MIN, ZERNIKE_MAX)
-                
+
                 slm.send_zernike(test_c)
                 wfs.take_image(3)
                 wf, statics = wfs.get_wavefront(cancel_tile=remove_tilt)
-                test_rms = statics.get('rms', np.inf)
-                
-                logger.debug(f"  Position {i+1}/{n_init_positions}: RMS={test_rms:.4f}")
-                
+                test_rms = statics.get("rms", np.inf)
+
+                logger.debug(
+                    f"  Position {i + 1}/{n_init_positions}: RMS={test_rms:.4f}"
+                )
+
                 if test_rms < best_rms:
                     best_rms = test_rms
                     best_init_c = test_c.copy()
-            
+
             _init_c = best_init_c
             logger.info(f"Multi-start: best position RMS={best_rms}")
             slm.send_zernike(_init_c)
@@ -649,10 +660,12 @@ def optimizer_rms(
             return wf, statics, extra
 
         wf, statics, init_extra = calc_j()
-        rms = statics.get('rms', np.inf)
+        rms = statics.get("rms", np.inf)
 
         if optimizer_type == "adamw":
-            optimizer = AdamW(dim=n_zernike, lr=lr, beta1=beta1, beta2=0.99, weight_decay=weight_decay)
+            optimizer = AdamW(
+                dim=n_zernike, lr=lr, beta1=beta1, beta2=0.99, weight_decay=weight_decay
+            )
         else:
             optimizer = AdaMOD(dim=n_zernike, lr=lr, beta1=beta1, beta3=0.9995)
 
@@ -662,12 +675,10 @@ def optimizer_rms(
         rms_history = [rms]
         freeze_mask = np.zeros(n_zernike, dtype=bool)
 
-        logger.info(
-            f"Initial RMS: {statics['rms']:.4f}, weight_rms: {rms:.4f}"
-        )
+        logger.info(f"Initial RMS: {statics['rms']:.4f}, weight_rms: {rms:.4f}")
 
         init_record = {
-            "rms": statics['rms'],
+            "rms": statics["rms"],
             "_c": _init_c,
             "_diff": 0,
             "_gamma": lr,
@@ -693,20 +704,32 @@ def optimizer_rms(
             for epoch in range(1, epochs + 1):
                 current_epoch = epoch - 1
 
-                current_lr = get_lr_schedule(lr_schedule, current_epoch, epochs, lr, lr_min)
-                current_delta = get_delta_schedule(delta_schedule, current_epoch, epochs, delta, delta_min)
+                current_lr = get_lr_schedule(
+                    lr_schedule, current_epoch, epochs, lr, lr_min
+                )
+                current_delta = get_delta_schedule(
+                    delta_schedule, current_epoch, epochs, delta, delta_min
+                )
                 optimizer.lr = current_lr
 
                 effective_weights = perturb_weights * (~freeze_mask).astype(float)
 
                 if mini_batch > 1:
                     gradient, mb_info = compute_mini_batch_gradient(
-                        _init_c, slm, wfs, current_delta, effective_weights,
-                        n_zernike, mini_batch, slm_wait_time, remove_tilt,
-                        ZERNIKE_MIN, ZERNIKE_MAX
+                        _init_c,
+                        slm,
+                        wfs,
+                        current_delta,
+                        effective_weights,
+                        n_zernike,
+                        mini_batch,
+                        slm_wait_time,
+                        remove_tilt,
+                        ZERNIKE_MIN,
+                        ZERNIKE_MAX,
                     )
-                    pos_j = mb_info['avg_pos_rms']
-                    neg_j = mb_info['avg_neg_rms']
+                    pos_j = mb_info["avg_pos_rms"]
+                    neg_j = mb_info["avg_neg_rms"]
                     _pos_c = _init_c
                     _neg_c = _init_c
                     pos_wf = np.zeros((64, 64))
@@ -719,7 +742,10 @@ def optimizer_rms(
                     pos_extra = {}
                     neg_extra = {}
                 else:
-                    disturb_c = np.random.binomial(1, 0.5, (n_zernike,)).astype(float) * 2.0 - 1.0
+                    disturb_c = (
+                        np.random.binomial(1, 0.5, (n_zernike,)).astype(float) * 2.0
+                        - 1.0
+                    )
                     disturb_c = disturb_c * current_delta * effective_weights
                     if len(disturb_c) > 0:
                         disturb_c[0] = 0
@@ -727,14 +753,14 @@ def optimizer_rms(
                     _pos_c = np.clip(_init_c + disturb_c, ZERNIKE_MIN, ZERNIKE_MAX)
                     pos_phase = slm.send_zernike(_pos_c, slm_wait_time)
                     pos_wf, pos_statics, pos_extra = calc_j()
-                    pos_j = pos_statics['rms']
+                    pos_j = pos_statics["rms"]
 
                     _neg_c = np.clip(_init_c - disturb_c, ZERNIKE_MIN, ZERNIKE_MAX)
                     neg_phase = slm.send_zernike(_neg_c, slm_wait_time)
                     neg_wf, neg_statics, neg_extra = calc_j()
-                    neg_j = neg_statics['rms']
+                    neg_j = neg_statics["rms"]
 
-                    diff = pos_statics['rms'] - neg_statics['rms']
+                    diff = pos_statics["rms"] - neg_statics["rms"]
                     gradient = diff * disturb_c
 
                 if gradient_clip > 0:
@@ -752,22 +778,37 @@ def optimizer_rms(
                 else:
                     stagnation_counter += 1
 
-                if stagnation_counter >= stagnation_patience and stagnation_patience > 0:
-                    logger.info(f"Stagnation detected at epoch {epoch}, boosting delta by {stagnation_delta_boost}x")
+                if (
+                    stagnation_counter >= stagnation_patience
+                    and stagnation_patience > 0
+                ):
+                    logger.info(
+                        f"Stagnation detected at epoch {epoch}, boosting delta by {stagnation_delta_boost}x"
+                    )
                     current_delta = current_delta * stagnation_delta_boost
                     stagnation_counter = 0
-                    if freeze_high_order_threshold is not None and best_rms > freeze_high_order_threshold:
+                    if (
+                        freeze_high_order_threshold is not None
+                        and best_rms > freeze_high_order_threshold
+                    ):
                         high_order_start = calc_n_zernike_terms(2)
                         freeze_mask[high_order_start:] = True
-                        logger.info(f"Freezing high-order Zernike modes (indices >= {high_order_start})")
+                        logger.info(
+                            f"Freezing high-order Zernike modes (indices >= {high_order_start})"
+                        )
 
                 rms_history.append(avg_j)
                 if early_stop_patience > 0 and early_stop_window > 0:
                     should_stop, window_mean = early_stopping_check(
-                        rms_history, early_stop_window, early_stop_min_epochs, early_stop_patience
+                        rms_history,
+                        early_stop_window,
+                        early_stop_min_epochs,
+                        early_stop_patience,
                     )
                     if should_stop:
-                        logger.info(f"Early stop at epoch {epoch} with window_mean={window_mean:.4f}")
+                        logger.info(
+                            f"Early stop at epoch {epoch} with window_mean={window_mean:.4f}"
+                        )
                         _init_c = best_c
                         break
 
@@ -785,14 +826,16 @@ def optimizer_rms(
                     "_statics": {"pos": pos_statics, "neg": neg_statics},
                 }
                 if DEBUG_MODE:
-                    log.update({
-                        "_pos_intensity": pos_extra.get("_intensity"),
-                        "_neg_intensity": neg_extra.get("_intensity"),
-                        "_pos_dev_x": pos_extra.get("_dev_x"),
-                        "_neg_dev_x": neg_extra.get("_dev_x"),
-                        "_pos_dev_y": pos_extra.get("_dev_y"),
-                        "_neg_dev_y": neg_extra.get("_dev_y"),
-                    })
+                    log.update(
+                        {
+                            "_pos_intensity": pos_extra.get("_intensity"),
+                            "_neg_intensity": neg_extra.get("_intensity"),
+                            "_pos_dev_x": pos_extra.get("_dev_x"),
+                            "_neg_dev_x": neg_extra.get("_dev_x"),
+                            "_pos_dev_y": pos_extra.get("_dev_y"),
+                            "_neg_dev_y": neg_extra.get("_dev_y"),
+                        }
+                    )
                 recorder.append(log)
                 bar.set_postfix(recorder.last_info_dict)
 
@@ -804,11 +847,11 @@ def optimizer_rms(
                 bar.update(1)
 
         # Restore best coefficients on exit
-        best_c, _ = recorder.get_best_target('_c')
+        best_c, _ = recorder.get_best_target("_c")
         if best_c is not None:
             slm.send_zernike(best_c)
-            logger.info(f"Restored best coefficients, RMS: {recorder.get_best_target('rms')}")
+            logger.info(
+                f"Restored best coefficients, RMS: {recorder.get_best_target('rms')}"
+            )
 
         return recorder
-
-

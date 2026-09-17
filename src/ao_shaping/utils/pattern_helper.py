@@ -1,17 +1,17 @@
 # Pattern Helper - 光学相位图案生成工具
 from __future__ import annotations
 
-import numpy as np
 from typing import TYPE_CHECKING
 
-from ao_shaping.utils.zernike_calc import ZernikeGenerator
+import numpy as np
+
 from ao_shaping.utils.phase_unwrap import PhaseUnwrapper, UnwrapStrategy, unwrap_phase
+from ao_shaping.utils.zernike_calc import ZernikeGenerator
 
 if TYPE_CHECKING:
     from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
 
 from aotools.turbulence.infinitephasescreen import PhaseScreenKolmogorov
-
 
 UNWRAP_STRATEGY = "iterative"
 WRAP_STRATEGY = "hybrid"
@@ -186,6 +186,21 @@ class PatternHelper:
         # Turbulence screen (lazy-initialized)
         self._turbulence_screen: PhaseScreenKolmogorov | None = None
 
+        # Zernike generators (lazy-cached per (radius, n_orders)).
+        # Radius acts as the rebuild key: a radius change clears all
+        # previously cached generators so the old basis (~500 MB ZZ at
+        # full panel resolution) is released; same-radius / different-
+        # orders generators are retained ("其余复用").
+        #
+        # 验证记录 (2026-09-15):
+        #   同 radius 多次生成 → dict 只含 (radius, n_orders) 组合 (复用, 不重建);
+        #   radius 变 → dict 清空重建 (旧 generator/基底释放); 半径回退到旧值
+        #   同样重建 (语义: radius 变即完全重建)。测试锚点见
+        #   tests/ao_shaping/utils/test_pattern_helper.py:
+        #   test_radius_change_clears_generators / test_same_radius_reuses_generators。
+        self._zernike_generators: dict[tuple[float, int], ZernikeGenerator] = {}
+        self._zernike_radius: float | None = None  # last active radius
+
     @property
     def x(self) -> np.ndarray:
         """1D x coordinates (centered at 0)."""
@@ -274,29 +289,26 @@ class PatternHelper:
         )
 
     def generate_checkerboard(self, period: int = 100) -> np.ndarray:
-        """生成棋盘格图案。
+        """生成棋盘格二值相位图案 (0/π 弧度)。
 
         Args:
             period: 棋盘格周期（像素）
 
         Returns:
-            棋盘格图案 (uint16)
+            2D float64 数组 (弧度), 二值 0/π。相位→灰度转换由
+            ``slm.create_phase_from_array()`` 或 :meth:`to_uint16` 完成。
         """
-        max_val = self._max_val
-
         y = np.arange(self._height) // period
         x = np.arange(self._width) // period
         X, Y = np.meshgrid(x, y)
 
         checker = (X + Y) % 2
-        img = (checker * max_val).astype(np.uint16)
-
-        return img
+        return (checker * np.pi).astype(np.float64)
 
     def generate_binary_grating(
         self, a: int = 2, b: int = 3, direction: str = "horizontal"
     ) -> np.ndarray:
-        """生成二值光栅。
+        """生成二值光栅相位图案 (0/π 弧度)。
 
         Args:
             a: 明条纹宽度
@@ -304,21 +316,21 @@ class PatternHelper:
             direction: "horizontal" 或 "vertical"
 
         Returns:
-            二值光栅图案 (uint16)
+            2D float64 数组 (弧度), 二值 0/π。相位→灰度转换由
+            ``slm.create_phase_from_array()`` 或 :meth:`to_uint16` 完成。
         """
         height, width = self._height, self._width
-        max_val = (2**self.bits - 1) // 2
 
         if direction == "horizontal":
             y = np.arange(height)
-            grating = np.where(y % (a + b) < b, 0, max_val)
+            grating = np.where(y % (a + b) < b, 0.0, np.pi)
             img = np.tile(grating[:, np.newaxis], (1, width))
         else:
             x = np.arange(width)
-            grating = np.where(x % (a + b) < b, 0, max_val)
+            grating = np.where(x % (a + b) < b, 0.0, np.pi)
             img = np.tile(grating[np.newaxis, :], (height, 1))
 
-        return img.astype(np.uint16)
+        return img.astype(np.float64)
 
     def generate_microlens_array(
         self,
@@ -336,10 +348,10 @@ class PatternHelper:
             pixel_size: 像素大小 (m)
 
         Returns:
-            微透镜阵列图案 (uint16)
+            微透镜阵列相位 (float64, 弧度, 未包裹)。相位→灰度转换由
+            ``slm.create_phase_from_array()`` 或 :meth:`to_uint16` 完成。
         """
         height, width = self._height, self._width
-        max_val = self._max_val
 
         x = (np.arange(lens_size, dtype=np.float64) - lens_size / 2) * pixel_size
         y = (np.arange(lens_size, dtype=np.float64) - lens_size / 2) * pixel_size
@@ -348,13 +360,11 @@ class PatternHelper:
 
         k = 2 * np.pi / wavelength
         phase = k * (focal_length - np.sqrt(r2 + focal_length**2))
-        phase_wrapped = np.mod(phase, 2 * np.pi)
-        lens_pattern = (phase_wrapped / (2 * np.pi) * max_val).astype(np.uint16)
 
         n_y = height // lens_size + 1
         n_x = width // lens_size + 1
 
-        array = np.tile(lens_pattern, (n_y, n_x))
+        array = np.tile(phase, (n_y, n_x))
 
         return array[:height, :width]
 
@@ -364,7 +374,8 @@ class PatternHelper:
         调用前必须先调用 init_turbulence_screen() 初始化湍流屏。
 
         Returns:
-            湍流相位屏 (uint16, 0 到 2^bits-1)
+            湍流相位屏 (float64, 弧度, 未包裹)。相位→灰度转换由
+            ``slm.create_phase_from_array()`` 或 :meth:`to_uint16` 完成。
 
         Raises:
             RuntimeError: 如果湍流屏未初始化
@@ -376,28 +387,55 @@ class PatternHelper:
             )
 
         height, width = self._height, self._width
-        max_val = self._max_val
 
         # Call add_row() to generate new phase and get updated screen
         self._turbulence_screen.add_row()
 
-        # Get phase from .scrn property (in radians)
+        # Get phase from .scrn property (in radians) — 原始相位直接返回
         phase_screen = self._turbulence_screen.scrn
 
         # Extract region matching our resolution
         phase_cropped = phase_screen[:height, :width]
 
-        # Normalize to [0, 2π) and convert to uint16
-        phase_min = phase_cropped.min()
-        phase_max = phase_cropped.max()
-        phase_normalized = (
-            (phase_cropped - phase_min)
-            / (phase_max - phase_min + 1e-10)
-            * 2 * np.pi
-        )
+        # 不包裹、不归一化: 保留真实的 r0/Cn2-dependent 幅度。
+        # (min-max normalization would re-scale every screen to full contrast,
+        #  destroying the physical turbulence strength — same bug class as
+        #  `_zernike_to_uint16` before the 2026-09 fix.)
+        return np.asarray(phase_cropped, dtype=np.float64)
 
-        img = (phase_normalized / (2 * np.pi) * max_val).astype(np.uint16)
-        return img
+    def _get_zernike_generator(
+        self, radius: float | None, n_orders: int = 6,
+    ) -> ZernikeGenerator:
+        """Get (and lazily cache) a ZernikeGenerator for the given aperture.
+
+        Generators are keyed by ``(radius, n_orders)`` and reused across calls,
+        so the expensive ``RZern`` cart + coordinate grid is built only once per
+        aperture instead of on every generation.
+
+        Radius is the **rebuild key**: when the radius changes, all previously
+        cached generators (and their underlying basis matrices) are released and
+        rebuilt from scratch (完全重建); same-radius generators with different
+        n_orders are still retained (其余复用).
+        """
+        if radius is None:
+            radius = min(self._height, self._width) / 2
+        radius = float(radius)
+
+        # Radius changed → clear old generators (release old basis memory)
+        if radius != self._zernike_radius:
+            self._zernike_generators.clear()
+            self._zernike_radius = radius
+
+        key = (radius, n_orders)
+        gen = self._zernike_generators.get(key)
+        if gen is None:
+            gen = ZernikeGenerator(
+                resolution=(self._width, self._height),
+                radius=radius,
+                n_orders=n_orders,
+            )
+            self._zernike_generators[key] = gen
+        return gen
 
     def generate_zernike(
         self,
@@ -406,31 +444,61 @@ class PatternHelper:
         amplitude: float = 1.0,
         radius: float | None = None,
     ) -> np.ndarray:
-        gen = ZernikeGenerator(resolution=(self._width, self._height), radius=radius)
+        """Generate a single Zernike mode phase in **radians** (float64, 未包裹).
+
+        相位→灰度转换是 SLM 驱动的职责 (``slm.create_phase_from_array()`` 或
+        通用 :meth:`to_uint16`), PatternHelper 只生成相位 —— 2026-09 移除
+        ``_zernike_to_uint16`` (原实现做 min-max 归一化, 抹掉系数绝对幅度)。
+
+        Returns:
+            2D float64 array in radians (not mod-2π wrapped), zero outside the
+            circular aperture.
+        """
+        gen = self._get_zernike_generator(radius)
         gen.set_bits(self.bits)
         phase = gen.generate(n, m, amplitude)
-        return self._zernike_to_uint16(phase)
+        phase = np.nan_to_num(phase, nan=0.0)
+        # 孔径外置 0 弧度 (与旧灰度行为一致: 孔外汇出)
+        phase = np.where(gen.mask.astype(bool), phase, 0.0)
+        return phase
 
     def generate_zernike_polynomial(
         self,
         coefficients: dict[tuple[int, int], float] | None = None,
         radius: float | None = None,
+        n_max: int | None = None,
     ) -> np.ndarray:
-        gen = ZernikeGenerator(resolution=(self._width, self._height), radius=radius)
+        """Generate Zernike polynomial phase in **radians** (float64, 未包裹).
+
+        绝对系数幅度保留 (不做 mod-2π 包裹, 孔径外置 0)。相位→灰度转换必须由
+        SLM 驱动 ``slm.create_phase_from_array()`` 完成 (2π = max_grayscale +
+        波前校正 + LUT), 不在本工具内做 —— 2026-09 移除
+        ``generate_zernike_polynomial_phase`` (冗余) 与 ``_zernike_to_uint16``
+        (min-max 归一化抹掉系数幅度), 本方法是唯一弧度相位入口。
+
+        Args:
+            coefficients: ``{(n, m): amplitude}`` dictionary.
+            radius: Aperture radius in pixels (default: half the short side).
+            n_max: Maximum radial order (default: 6).
+
+        Returns:
+            2D float64 array in radians (not mod-2π wrapped), zero outside the
+            circular aperture.
+        """
+        gen = self._get_zernike_generator(radius, n_orders=n_max or 6)
         gen.set_bits(self.bits)
 
         if coefficients is None:
             coefficients = {}
         if not coefficients:
-            return np.zeros((self._height, self._width), dtype=np.uint16)
+            return np.zeros((self._height, self._width), dtype=np.float64)
 
         phase = gen.generate_polynomial(coefficients)
-        return self._zernike_to_uint16(phase)
-
-    def _zernike_to_uint16(self, phase: np.ndarray) -> np.ndarray:
-        result = np.nan_to_num(phase, nan=0.0)
-        result = (result - result.min()) / (result.max() - result.min() + 1e-10)
-        return (result * self._max_val).astype(np.uint16)
+        phase = np.nan_to_num(phase, nan=0.0)
+        # 孔径外置 0 弧度 → create_phase_from_array 输出灰度 0 (与旧行为一致)
+        # 只返回原本的相位 (不包裹到 [0, 2π) — SLM 驱动负责 mod-2π)
+        phase = np.where(gen.mask.astype(bool), phase, 0.0)
+        return phase
 
     def to_uint16(self, phase_radians: np.ndarray) -> np.ndarray:
         """将弧度相位转换为uint16格式。
@@ -450,7 +518,6 @@ class PatternHelper:
         focal_length: float,
         wavelength: float = 532e-9,
         pixel_size: float = 8e-6,
-        wrap_phase: bool = True,
         lens_radius: float | None = None,
     ) -> np.ndarray:
         """生成聚焦图案（透镜相位）。
@@ -459,13 +526,12 @@ class PatternHelper:
             focal_length: 焦距 (m)
             wavelength: 波长 (m)
             pixel_size: 像素大小 (m)
-            wrap_phase: 是否包裹相位
             lens_radius: 透镜半径（像素），默认 min(height, width)/2
 
         Returns:
-            聚焦图案 (uint16 或弧度)，超出透镜半径的区域置为0
+            聚焦相位 (float64, 弧度, 未包裹)，超出透镜半径的区域置为0。
+            相位→灰度转换由 ``slm.create_phase_from_array()`` 或 :meth:`to_uint16` 完成。
         """
-        max_val = self._max_val
         R2 = self.xx**2 + self.yy**2
         phase = (np.pi / wavelength / focal_length) * (R2 * pixel_size**2)
 
@@ -475,27 +541,22 @@ class PatternHelper:
             mask = self.R <= lens_radius
             phase = phase * mask.astype(np.float64)
 
-        if not wrap_phase:
-            return phase
-
-        phase_wrapped = np.mod(phase, 2 * np.pi)
-        img = (phase_wrapped / (2 * np.pi) * max_val).astype(np.uint16)
-        return img
+        return phase
 
     def generate_dammann_grating(
         self, order: int = 3, fill_factor: float = 0.5
     ) -> np.ndarray:
-        """生成Dammann光栅。
+        """生成Dammann光栅二值相位图案 (0/π 弧度)。
 
         Args:
             order: 衍射级次数量 (通常 2, 3, 4)
             fill_factor: 填充因子 (0.0 到 1.0)
 
         Returns:
-            Dammann光栅图案 (uint16)
+            Dammann光栅相位 (float64, 弧度), 二值 0/π。相位→灰度转换由
+            ``slm.create_phase_from_array()`` 或 :meth:`to_uint16` 完成。
         """
         height, width = self.resolution[1], self.resolution[0]
-        max_val = 2**self.bits - 1
 
         if order <= 0:
             order = 1
@@ -503,7 +564,7 @@ class PatternHelper:
         elem_width = width // order
         elem_height = height // order
 
-        img = np.zeros((height, width), dtype=np.uint16)
+        img = np.zeros((height, width), dtype=np.float64)
 
         for i in range(order):
             for j in range(order):
@@ -513,9 +574,9 @@ class PatternHelper:
                 x_end = min((j + 1) * elem_width, width)
 
                 if (i + j) % 2 == 0:
-                    img[y_start:y_end, x_start:x_end] = max_val
+                    img[y_start:y_end, x_start:x_end] = np.pi
                 else:
-                    img[y_start:y_end, x_start:x_end] = 0
+                    img[y_start:y_end, x_start:x_end] = 0.0
 
         return img
 
@@ -523,59 +584,45 @@ class PatternHelper:
         self,
         period: float,
         phase_range: float = 2 * np.pi,
-        wrap_phase: bool = True,
         direction: str = "vertical",
     ) -> np.ndarray:
-        """生成线性（闪耀）光栅。
+        """生成线性（闪耀）光栅相位。
 
         Args:
             period: 光栅周期
             phase_range: 最大相位范围 (弧度)
-            wrap_phase: 是否包裹相位
             direction: 光栅方向，"vertical"（竖条纹）或 "horizontal"（横条纹）
 
         Returns:
-            线性光栅图案
+            线性光栅相位 (float64, 弧度, 未包裹)。相位→灰度转换由
+            ``slm.create_phase_from_array()`` 或 :meth:`to_uint16` 完成。
         """
-        max_val = self._max_val
         if direction == "horizontal":
             phase = (self.yy / period) * phase_range
         else:
             phase = (self.xx / period) * phase_range
 
-        if not wrap_phase:
-            return np.mod(phase, phase_range)
-
-        phase_wrapped = np.mod(phase, phase_range)
-        img = (phase_wrapped / phase_range * max_val).astype(np.uint16)
-        return img
+        return phase
 
     def circular_grating(
         self,
         radius: float,
         phase_range: float = 2 * np.pi,
-        wrap_phase: bool = True,
     ) -> np.ndarray:
-        """生成圆形（径向）光栅。
+        """生成圆形（径向）光栅相位。
 
         Args:
             radius: 光栅半径
             phase_range: 最大相位范围
-            wrap_phase: 是否包裹相位
 
         Returns:
-            圆形光栅图案
+            圆形光栅相位 (float64, 弧度, 未包裹)。相位→灰度转换由
+            ``slm.create_phase_from_array()`` 或 :meth:`to_uint16` 完成。
         """
-        max_val = self._max_val
         rr = np.sqrt(self.xx**2 + self.yy**2)
         phase = (rr / radius) * phase_range
 
-        if not wrap_phase:
-            return np.mod(phase, phase_range)
-
-        phase_wrapped = np.mod(phase, phase_range)
-        img = (phase_wrapped / phase_range * max_val).astype(np.uint16)
-        return img
+        return phase
 
     def lens(
         self,
@@ -593,7 +640,8 @@ class PatternHelper:
             lens_radius: 透镜半径（像素），默认 min(height, width)/2
 
         Returns:
-            透镜相位 (弧度, 未包裹)，超出透镜半径的区域置为0
+            透镜相位 (float64, 弧度, 未包裹)，超出透镜半径的区域置为0。
+            相位→灰度转换由 ``slm.create_phase_from_array()`` 或 :meth:`to_uint16` 完成。
         """
         xx = self.pixel_x * pixel_size
         yy = self.pixel_y * pixel_size
@@ -608,7 +656,7 @@ class PatternHelper:
             mask = np.sqrt(xx**2 + yy**2) <= (lens_radius * pixel_size)
             phase = phase * mask.astype(np.float64)
 
-        return np.mod(phase, 2 * np.pi)
+        return phase
 
     def hologram(
         self,
@@ -624,10 +672,10 @@ class PatternHelper:
             direction: 光栅方向，"vertical"（竖条纹）或 "horizontal"（横条纹）
 
         Returns:
-            相位图案 (弧度)
+            相位图案 (float64, 弧度, 未包裹)
         """
         return self.linear_grating(
-            period=period, phase_range=phase_range, wrap_phase=False, direction=direction
+            period=period, phase_range=phase_range, direction=direction
         )
 
     def generate_vortex(
@@ -635,7 +683,6 @@ class PatternHelper:
         topological_charge: int = 1,
         wavelength: float = 532e-9,
         pixel_size: float = 8e-6,
-        wrap_phase: bool = True,
     ) -> np.ndarray:
         """生成涡旋相位（螺旋相位）。
         
@@ -645,21 +692,13 @@ class PatternHelper:
             topological_charge: 拓扑荷 (l)，可以是正负整数
             wavelength: 波长 (m)
             pixel_size: 像素大小 (m)
-            wrap_phase: 是否包裹相位到[0, 2π)
             
         Returns:
-            涡旋相位图案 (uint16 或弧度)
+            涡旋相位 (float64, 弧度, 未包裹), 范围 [-|l|π, |l|π]。
+            相位→灰度转换由 ``slm.create_phase_from_array()`` 或 :meth:`to_uint16` 完成。
         """
         # 涡旋相位：phi = l * theta，其中theta是角坐标
-        phase = topological_charge * self.Theta
-
-        if not wrap_phase:
-            return phase
-
-        # 将相位包裹到[0, 2π)范围并转换为uint16
-        phase_wrapped = np.mod(phase, 2 * np.pi)
-        img = (phase_wrapped / (2 * np.pi) * self._max_val).astype(np.uint16)
-        return img
+        return topological_charge * self.Theta
 
     def dammann_grating(
         self,
@@ -674,10 +713,10 @@ class PatternHelper:
             width: 宽度
             height: 高度
             order: 衍射级次
-            phase_range: 相位范围
+            phase_range: 相位范围 (保留参数, 兼容调用方)
 
         Returns:
-            相位图案 (弧度)
+            相位图案 (float64, 弧度, 未包裹)
         """
         if order <= 1:
             order = 2
@@ -688,7 +727,7 @@ class PatternHelper:
         phase_x = (self.xx // period_x) % 2 * np.pi
         phase_y = (self.yy // period_y) % 2 * np.pi
 
-        return np.mod(phase_x + phase_y, phase_range)
+        return phase_x + phase_y
 
     def unwrap_phase(self, wrapped: np.ndarray, strategy: str | None = None) -> np.ndarray:
         """解包相位（将包裹相位转换为连续相位）。

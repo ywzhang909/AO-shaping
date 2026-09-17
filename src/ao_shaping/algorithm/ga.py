@@ -201,7 +201,7 @@ class GeneticAlgorithm:
         Returns:
             Initial population array of shape (pop_size, dim).
         """
-        pop = np.random.uniform(
+        pop = self.rng.uniform(
             self.params.bounds[0],
             self.params.bounds[1],
             (self.params.pop_size, self.dim)

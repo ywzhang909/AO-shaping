@@ -643,6 +643,20 @@ def _plot_capture_summary(captures: list, total_modes: int):
     return fig
 
 
+def _display_calibration_result_summary(result) -> None:
+    """Display calibration result summary metrics."""
+    st.subheader("校准结果摘要")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("矩阵形状", f"{result.matrix.shape}")
+    with col2:
+        st.metric("平均方差", f"{result.mean_variance:.6f}")
+    with col3:
+        st.metric("最大方差", f"{result.max_variance:.6f}")
+    with col4:
+        st.metric("条件数", f"{result.condition_number:.2e}" if result.condition_number else "N/A")
+
+
 # ── Progress callback ────────────────────────────────────────────────────────
 
 
@@ -747,6 +761,101 @@ def _run_calibration_thread(
         })
     finally:
         st.session_state.zrm_calibration_running = False
+
+
+@st.fragment(run_every=0.5)
+def _render_calibration_polling() -> None:
+    """Poll calibration progress (fragment-scoped refresh).
+
+    Auto-re-executes every 0.5 seconds while calibration is running.
+    On completion, fires one full-app rerun (sentinel-guarded) so the
+    parent re-enables the 开始校准 button and renders the result summary
+    statically (S2/S3).
+    """
+    progress_bar = st.empty()
+    status_text = st.empty()
+    status_text.warning("校准进行中...")
+
+    # Read progress from JSON file
+    progress_file = st.session_state.get("zrm_progress_file")
+    if progress_file and Path(progress_file).exists():
+        try:
+            with open(progress_file) as f:
+                progress_data = json.load(f)
+
+            percent = progress_data.get("percent", 0)
+            message = progress_data.get("message", "校准进行中...")
+            mode_name = progress_data.get("mode_name", "")
+
+            # Update progress bar
+            if percent >= 0:
+                progress_bar.progress(
+                    min(percent / 100.0, 1.0),
+                    text=f"{message} ({percent:.1f}%)" if mode_name else message,
+                )
+            else:
+                status_text.error(message)
+
+            # Check for completion
+            if progress_data.get("status") == "complete":
+                status_text.success("校准完成!")
+                progress_bar.empty()
+
+                # Load and display result
+                try:
+                    result_path = progress_data.get("result_path")
+                    result = load_zernike_response_matrix(result_path)
+                    st.session_state.zrm_calibration_result = result
+
+                    save_path = Path(result_path)
+                    st.success(f"校准完成! 结果已保存到: {save_path.parent}")
+
+                    _display_calibration_result_summary(result)
+
+                    # Auto-plot
+                    try:
+                        from ao_shaping.optimizer.wf.zernike_response_matrix import (
+                            plot_response_matrix,
+                        )
+
+                        plot_response_matrix(result, save_path.parent)
+                        st.success("可视化图表已生成")
+                    except Exception as e:
+                        logger.warning(f"可视化生成失败: {e}")
+
+                except Exception as e:
+                    st.error(f"加载结果失败: {e}")
+                    logger.exception(f"Failed to load calibration result: {e}")
+
+                st.session_state.zrm_calibration_running = False
+
+                # Clean up progress file
+                try:
+                    if Path(progress_file).exists():
+                        Path(progress_file).unlink()
+                except Exception:
+                    pass
+
+                # 完成检测: 触发一次全应用 rerun, 重新启用「开始校准」按钮
+                if not st.session_state.get("zrm_calib_full_rerun_done", False):
+                    st.session_state.zrm_calib_full_rerun_done = True
+                    st.rerun(scope="app")
+
+            elif progress_data.get("status") == "error":
+                status_text.error(f"校准失败: {message}")
+                progress_bar.empty()
+                st.session_state.zrm_calibration_running = False
+
+                # 完成检测: 触发一次全应用 rerun, 重新启用「开始校准」按钮
+                if not st.session_state.get("zrm_calib_full_rerun_done", False):
+                    st.session_state.zrm_calib_full_rerun_done = True
+                    st.rerun(scope="app")
+
+        except json.JSONDecodeError:
+            # File might be partially written, retry on next poll
+            pass
+        except Exception as e:
+            logger.warning(f"Failed to read progress file: {e}")
 
 
 def render_sidebar() -> None:
@@ -1092,11 +1201,6 @@ def render_calibrate_mode() -> None:
 
     save_path = storage_dir / filename
 
-    # Progress bar placeholder (created once, reused during polling)
-    progress_bar = st.empty()
-    status_text = st.empty()
-    plot_placeholder = st.empty()
-
     # Start calibration button
     if st.button("开始校准", type="primary", disabled=st.session_state.zrm_calibration_running):
         if filename.strip() == "":
@@ -1113,6 +1217,7 @@ def render_calibrate_mode() -> None:
             progress_file.unlink()
 
         st.session_state.zrm_calibration_running = True
+        st.session_state.zrm_calib_full_rerun_done = False
 
         # Start calibration in background thread
         import threading
@@ -1138,119 +1243,15 @@ def render_calibrate_mode() -> None:
         )
         calibration_thread.start()
 
-        # Trigger rerun to start polling
-        st.rerun()
-
-    # Polling: Check progress if calibration is running
+    # Poll calibration progress (fragment auto-polls while running)
     if st.session_state.zrm_calibration_running:
-        status_text.warning("校准进行中...")
-
-        # Read progress from JSON file
-        progress_file = st.session_state.get("zrm_progress_file")
-        if progress_file and Path(progress_file).exists():
-            try:
-                with open(progress_file) as f:
-                    progress_data = json.load(f)
-
-                percent = progress_data.get("percent", 0)
-                message = progress_data.get("message", "校准进行中...")
-                current_mode = progress_data.get("current_mode", 0)
-                total_modes = progress_data.get("total_modes", 1)
-                mode_name = progress_data.get("mode_name", "")
-
-                # Update progress bar
-                if percent >= 0:
-                    progress_bar.progress(
-                        min(percent / 100.0, 1.0),
-                        text=f"{message} ({percent:.1f}%)" if mode_name else message,
-                    )
-                else:
-                    status_text.error(message)
-
-                # Check for completion
-                if progress_data.get("status") == "complete":
-                    status_text.success("校准完成!")
-                    progress_bar.empty()
-
-                    # Load and display result
-                    try:
-                        from ao_shaping.optimizer.wf.zernike_response_matrix import (
-                            load_zernike_response_matrix,
-                        )
-
-                        result = load_zernike_response_matrix(str(save_path))
-                        st.session_state.zrm_calibration_result = result
-
-                        st.success(f"校准完成! 结果已保存到: {save_path.parent}")
-
-                        # Display summary
-                        st.subheader("校准结果摘要")
-                        col1, col2, col3, col4 = st.columns(4)
-                        with col1:
-                            st.metric("矩阵形状", f"{result.matrix.shape}")
-                        with col2:
-                            st.metric("平均方差", f"{result.mean_variance:.6f}")
-                        with col3:
-                            st.metric("最大方差", f"{result.max_variance:.6f}")
-                        with col4:
-                            st.metric("条件数", f"{result.condition_number:.2e}" if result.condition_number else "N/A")
-
-                        # Auto-plot
-                        try:
-                            from ao_shaping.optimizer.wf.zernike_response_matrix import (
-                                plot_response_matrix,
-                            )
-
-                            plot_response_matrix(result, save_path.parent)
-                            st.success("可视化图表已生成")
-                        except Exception as e:
-                            logger.warning(f"可视化生成失败: {e}")
-
-                    except Exception as e:
-                        st.error(f"加载结果失败: {e}")
-                        logger.exception(f"Failed to load calibration result: {e}")
-
-                    st.session_state.zrm_calibration_running = False
-
-                    # Clean up progress file
-                    try:
-                        if progress_file and Path(progress_file).exists():
-                            Path(progress_file).unlink()
-                    except Exception:
-                        pass
-
-                elif progress_data.get("status") == "error":
-                    status_text.error(f"校准失败: {message}")
-                    progress_bar.empty()
-                    st.session_state.zrm_calibration_running = False
-
-            except json.JSONDecodeError:
-                # File might be partially written, retry on next poll
-                pass
-            except Exception as e:
-                logger.warning(f"Failed to read progress file: {e}")
-
-        # Rerun to poll again (with a small delay to avoid excessive reruns)
-        import time
-        time.sleep(0.5)
-        st.rerun()
-
-    # Display result if already loaded (and not currently running)
-    if not st.session_state.zrm_calibration_running and st.session_state.zrm_calibration_result is not None:
-        result = st.session_state.zrm_calibration_result
-
-        st.subheader("校准结果摘要")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("矩阵形状", f"{result.matrix.shape}")
-        with col2:
-            st.metric("平均方差", f"{result.mean_variance:.6f}")
-        with col3:
-            st.metric("最大方差", f"{result.max_variance:.6f}")
-        with col4:
-            st.metric("条件数", f"{result.condition_number:.2e}" if result.condition_number else "N/A")
+        _render_calibration_polling()
+    elif st.session_state.get("zrm_calibration_result") is not None:
+        # 校准已结束: 静态渲染结果摘要, 避免 fragment 空轮询 (S3)
+        _display_calibration_result_summary(st.session_state.zrm_calibration_result)
 
 
+@st.fragment()
 def _render_interactive_measurement() -> None:
     """Render step-by-step interactive measurement UI.
 
@@ -1324,14 +1325,12 @@ def _render_interactive_measurement() -> None:
             # If phase was already sent, resend with new coefficient
             if st.session_state.zrm_interactive_phase_sent:
                 _send_current_zernike_phase_interactive(coeff=new_coeff)
-            st.rerun()
 
         if st.button("上一个 ◀️", key="zrm_int_prev", width='stretch'):
             if current_mode > 0:
                 st.session_state.zrm_interactive_current_mode = current_mode - 1
             coeff = st.session_state.zrm_interactive_current_coeff if "zrm_interactive_current_coeff" in st.session_state else 1.0
             _send_current_zernike_phase_interactive(coeff=coeff)
-            st.rerun()
 
         next_disabled = current_mode >= total_modes - 1
         if st.button("下一个泽尼克 ▶️", key="zrm_int_next", type="primary", width='stretch', disabled=next_disabled):
@@ -1339,18 +1338,15 @@ def _render_interactive_measurement() -> None:
                 st.session_state.zrm_interactive_current_mode = current_mode + 1
             coeff = st.session_state.zrm_interactive_current_coeff if "zrm_interactive_current_coeff" in st.session_state else 1.0
             _send_current_zernike_phase_interactive(coeff=coeff)
-            st.rerun()
 
     with col_acq:
         st.markdown("**测量控制**")
 
         if st.button("WFS采集 📷", key="zrm_int_capture", type="primary", width='stretch'):
             _capture_wfs_data_interactive()
-            st.rerun()
 
         if st.button("平相位", key="zrm_int_flat", width='stretch'):
             _set_slm_flat_interactive()
-            st.rerun()
 
         if st.button("重置所有", key="zrm_int_reset", width='stretch'):
             st.session_state.zrm_interactive_captures = []
@@ -1361,7 +1357,6 @@ def _render_interactive_measurement() -> None:
             st.session_state.zrm_interactive_last_zernike = None
             st.session_state.zrm_interactive_capture_count = 0
             _set_slm_flat_interactive()
-            st.rerun()
 
     st.divider()
 

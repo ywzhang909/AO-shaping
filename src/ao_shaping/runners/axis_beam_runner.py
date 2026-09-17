@@ -16,13 +16,13 @@ from ao_shaping.utils.file import (
 )
 from ao_shaping.utils.display import plot_funcs
 from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name
-from ao_shaping.config import DM_N_ACTUATORS
+from ao_shaping import config as ao_config
 from ao_shaping.utils.cli_helpers import get_debug_mode
 from ao_shaping.drivers.dm.base import DM
-from ao_shaping.drivers.dm import create_dm, list_reachable_dm_types
+from ao_shaping.drivers.dm import create_dm, list_dm_types, list_reachable_dm_types
 
 
-DM_TYPES = list_reachable_dm_types()
+DM_TYPES = list_dm_types()
 
 
 def _create_dm(dm_type: str, **kwargs) -> DM:
@@ -212,7 +212,7 @@ def run(
         dm_type = dm_type.lower()
         logger.info(f"Using specified DM type: {dm_type}")
     else:
-        reachable = DM_TYPES
+        reachable = list_reachable_dm_types()
         if len(reachable) == 1:
             dm_type = reachable[0]
             logger.info(f"Auto-detected reachable DM: {dm_type}")
@@ -228,7 +228,7 @@ def run(
 
     dm = _create_dm(dm_type, dm_neibor_diff=300)
 
-    dm_unit_mask = np.ones(DM_N_ACTUATORS, dtype=bool)
+    dm_unit_mask = np.ones(ao_config.DM_N_ACTUATORS, dtype=bool)
     dm_unit_mask[0] = False
     res_list = optimize_pib(
         dm=dm,

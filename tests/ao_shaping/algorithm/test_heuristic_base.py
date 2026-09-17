@@ -153,11 +153,8 @@ class TestHeuristicOptimizerFactory:
     
     def test_factory_unknown_type_raises(self):
         """Test unknown optimizer type raises ValueError."""
-        class UnknownType(OptimizerType):
-            pass
-        
         with np.testing.assert_raises(ValueError):
-            HeuristicOptimizer.create(UnknownType, dim=5)
+            HeuristicOptimizer.create("UNKNOWN_OPTIMIZER", dim=5)
 
 
 class TestOptimizerSwitching:

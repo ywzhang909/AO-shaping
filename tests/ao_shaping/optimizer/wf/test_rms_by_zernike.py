@@ -11,9 +11,9 @@ class TestImport:
 
     def test_import(self):
         """Test importing the optimizer function."""
-        from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms
+        from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms_slm
 
-        assert callable(optimizer_rms)
+        assert callable(optimizer_rms_slm)
 
 
 class TestHelperFunctions:
@@ -68,9 +68,9 @@ class TestHelperFunctions:
 class TestOptimizerReturnsRecorder:
     """Test that optimizer returns a Recorder object with expected fields."""
 
-    def test_optimizer_rms_returns_recorder(self):
-        """Test that optimizer_rms returns a Recorder with expected fields."""
-        from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms
+    def test_optimizer_rms_slm_returns_recorder(self):
+        """Test that optimizer_rms_slm returns a Recorder with expected fields."""
+        from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms_slm
 
         mock_slm = MagicMock()
         mock_slm.send_zernike.return_value = np.zeros((512, 512))
@@ -96,7 +96,7 @@ class TestOptimizerReturnsRecorder:
         ), patch(
             "ao_shaping.optimizer.wf.rms_by_zernike.tqdm"
         ):
-            recorder = optimizer_rms(
+            recorder = optimizer_rms_slm(
                 epochs=2,
                 n_max=4,
                 slm_number=1,
@@ -113,7 +113,7 @@ class TestOptimizerReturnsRecorder:
 
     def test_recorder_initial_state(self):
         """Test that initial state is recorded correctly."""
-        from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms
+        from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms_slm
 
         mock_slm = MagicMock()
         mock_slm.send_zernike.return_value = np.zeros((512, 512))
@@ -139,7 +139,7 @@ class TestOptimizerReturnsRecorder:
         ), patch(
             "ao_shaping.optimizer.wf.rms_by_zernike.tqdm"
         ):
-            recorder = optimizer_rms(
+            recorder = optimizer_rms_slm(
                 epochs=1,
                 n_max=2,
             )
@@ -228,7 +228,7 @@ class TestZernikeCoefficientHandling:
 
     def test_init_z_as_none(self):
         """Test initialization with None."""
-        from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms
+        from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms_slm
         from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
 
         n_max = 4
@@ -258,7 +258,7 @@ class TestZernikeCoefficientHandling:
         ), patch(
             "ao_shaping.optimizer.wf.rms_by_zernike.tqdm"
         ):
-            recorder = optimizer_rms(
+            recorder = optimizer_rms_slm(
                 epochs=1,
                 n_max=n_max,
                 init_z=None,
@@ -269,7 +269,7 @@ class TestZernikeCoefficientHandling:
 
     def test_init_z_as_dict(self):
         """Test initialization with dict {(n,m): value}."""
-        from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms
+        from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms_slm
 
         mock_slm = MagicMock()
         mock_slm.send_zernike.return_value = np.zeros((512, 512))
@@ -297,7 +297,7 @@ class TestZernikeCoefficientHandling:
         ), patch(
             "ao_shaping.optimizer.wf.rms_by_zernike.tqdm"
         ):
-            recorder = optimizer_rms(
+            recorder = optimizer_rms_slm(
                 epochs=1,
                 n_max=4,
                 init_z=init_dict,

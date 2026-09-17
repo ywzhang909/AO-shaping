@@ -1,10 +1,11 @@
 from dataclasses import dataclass
 
+
 @dataclass
-class ExposureTime():
-    current: int
-    _max: int = 100_000
-    _min: int = 0
+class ExposureTime:
+    current: float
+    _max: float = 100_000.0
+    _min: float = 0.0
     unit = "ms"
 
     @classmethod
@@ -20,12 +21,16 @@ class ExposureTime():
         """
         time_str = time_str.strip().lower()
         if time_str.endswith("ms"):
-            current = int(float(time_str[:-2]))
+            current = float(time_str[:-2])
         elif time_str.endswith("s"):
-            current = int(float(time_str[:-1]) * 1000)
+            current = float(time_str[:-1]) * 1000
         else:
             raise ValueError("Invalid time string format. Use 'ms' or 's' suffix.")
-        return cls(current=current, max=0, min=0,)
+        return cls(
+            current=current,
+            _max=current if current > 0 else 100_000.0,
+            _min=0.0,
+        )
 
     def __str__(self) -> str:
         return f"ExposureTime(current={self.current}{self.unit}, max={self.max}{self.unit}, min={self.min}{self.unit})"
@@ -36,8 +41,10 @@ class ExposureTime():
 
     @ms.setter
     def ms(self, value):
-        assert self.min <= value <= self.max, f"Exposure time must be between {self.min}ms and {self.max}ms"
-        self.current = int(value)
+        assert self.min <= value <= self.max, (
+            f"Exposure time must be between {self.min}ms and {self.max}ms"
+        )
+        self.current = float(value)
 
     @property
     def s(self):
@@ -45,7 +52,7 @@ class ExposureTime():
 
     @s.setter
     def s(self, value):
-        self.ms = int(value * 1000)
+        self.ms = float(value * 1000)
 
     @property
     def max(self):
@@ -55,21 +62,20 @@ class ExposureTime():
     @max.setter
     def max(self, value):
         assert value > 0, "Max exposure time must be positive"
-        self._max = int(value)
+        self._max = float(value)
 
     @property
     def min(self):
-        assert self._min > 0, "Min exposure time must be set"
         return self._min
 
     @min.setter
     def min(self, value):
-        assert value > 0, "Min exposure time must be positive"
-        self._min = int(value)
+        assert value >= 0, "Min exposure time must be non-negative"
+        self._min = float(value)
 
 
 @dataclass
-class WindowSize():
+class WindowSize:
     width: int
     height: int
     max_width: int

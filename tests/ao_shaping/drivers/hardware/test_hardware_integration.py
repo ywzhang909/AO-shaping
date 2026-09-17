@@ -41,11 +41,20 @@ class TestWFS:
         assert max_exp > min_exp
 
     def test_optimize_pupil(self, wfs):
-        """Test pupil optimization."""
+        """Test pupil optimization.
+
+        2026-09 实测教训: pupil 必须由 optimize_pupil() 自动获取并显式写回
+        (wfs.pupil = ...), 勿硬编码 — 硬编码 pupil 与真实光束不符时, 边界无效
+        子孔径会污染 WFS_ZernikeLsf 拟合 → 巨大假 tip/tilt。
+        """
         pupil = wfs.optimize_pupil()
         print(f"\nPupil: center=({pupil[0]:.2f}, {pupil[1]:.2f}), "
               f"diameter=({pupil[2]:.2f}, {pupil[3]:.2f})")
         assert len(pupil) == 4
+        assert np.isfinite(pupil).all()
+        assert 0.01 < pupil[2] <= 10.0 and 0.01 < pupil[3] <= 10.0
+        assert -5.0 <= pupil[0] <= 5.0 and -5.0 <= pupil[1] <= 5.0
+        wfs.pupil = pupil  # 写回设备 (optimize_pupil 只计算不设置)
 
     def test_take_image(self, wfs):
         """Test image capture."""
@@ -180,7 +189,7 @@ class TestZernikeSLM:
         coeffs = np.zeros(zernike_slm._n_zernike)
         coeffs[5] = 1.0  # Add astigmatism
         zernike_slm.send_zernike_to_memory(coeffs, memory_number=1)
-        zernike_slm.display_memory(1)
+        zernike_slm._display_memory(1)
         print(f"\nSent to memory slot 1: {coeffs}")
 
     def test_grayscale(self, zernike_slm):

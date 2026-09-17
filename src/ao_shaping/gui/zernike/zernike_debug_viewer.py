@@ -370,11 +370,11 @@ def _compute_response_matrix_from_debug(debug_data: dict, magnitude: float):
                     try:
                         # Condition number = ||A|| * ||A^+||
                         cond_num = np.linalg.norm(response_matrix, ord=2) * np.linalg.norm(pinv_matrix, ord=2)
-                    except:
+                    except Exception:
                         cond_num = None
                 else:
                     cond_num = None  # Singular matrix
-            except:
+            except Exception:
                 pinv_matrix = None
                 lstsq_matrix = None
         

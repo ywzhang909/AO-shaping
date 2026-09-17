@@ -360,7 +360,8 @@ def build_position_ip_table(df: pd.DataFrame | None = None) -> pd.DataFrame:
     except Exception as e:  # noqa: BLE001 - malformed CSV -> empty table
         logger.warning(f"Failed to build position/IP table: {e}")
         return pd.DataFrame()
-    return pd.DataFrame(rows)
+    # 位置序号 ↔ IP+序号 对应表按物理位置排序 (CSV 按引脚编号排列, 非位置序)
+    return pd.DataFrame(rows).sort_values("位置序号").reset_index(drop=True)
 
 
 def jc_matrix_to_flat(

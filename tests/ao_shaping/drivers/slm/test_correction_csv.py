@@ -7,12 +7,12 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-# 在 import SantecSLM200 之前 mock SLM SDK 模块
+# 在 import Santec 之前 mock SLM SDK 模块
 # （_slm_win 仅在 Windows + SDK installed 时可用）
-sys.modules["ao_shaping.drivers.slm._slm_win"] = MagicMock()
+sys.modules["ao_shaping.drivers.slm.santec._slm_win"] = MagicMock()
 
-from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
-from ao_shaping.drivers.slm.wavefront_correction import WavefrontCorrection
+from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.drivers.slm.santec.wavefront_correction import WavefrontCorrection
 
 
 # 确保所有测试都使用 mock 的 SLM SDK
@@ -20,7 +20,7 @@ from ao_shaping.drivers.slm.wavefront_correction import WavefrontCorrection
 def _ensure_mock_slm_sdk() -> None:
     with patch.dict(
         "sys.modules",
-        {"ao_shaping.drivers.slm._slm_win": MagicMock()},
+        {"ao_shaping.drivers.slm.santec._slm_win": MagicMock()},
         clear=False,
     ):
         yield
@@ -37,9 +37,14 @@ class TestDefaultCalc:
 
     @staticmethod
     def make_cosine_data(
-        height: int, width: int, *, phi_map: np.ndarray | None = None,
-        max_grayscale: int = 1023, measurement_gray: int = 1023,
-        amplitude: float = 200.0, offset: float = 128.0,
+        height: int,
+        width: int,
+        *,
+        phi_map: np.ndarray | None = None,
+        max_grayscale: int = 1023,
+        measurement_gray: int = 1023,
+        amplitude: float = 200.0,
+        offset: float = 128.0,
         noise_std: float = 0.0,
     ) -> np.ndarray:
         """生成符合物理模型的合成测量数据: B = A·cos(2π·g/MAX + φ) + C"""
@@ -82,16 +87,21 @@ class TestDefaultCalc:
         h, w = 5, 10
         phi = np.zeros((h, w))
         data, _ = self.make_cosine_data(
-            h, w, phi_map=phi, amplitude=100.0, offset=128.0)
+            h, w, phi_map=phi, amplitude=100.0, offset=128.0
+        )
         # 在非边界处插入极端值 — 会被替换
         data[2, 3] = 99999.0
         result_with_interior = WavefrontCorrection._default_calc(
-            data.copy(), outlier_threshold=3.0)
+            data.copy(), outlier_threshold=3.0
+        )
         # 在边界处插入—不会触发替换（但有异常）
         data[2, 0] = 99999.0
         result_with_boundary = WavefrontCorrection._default_calc(
-            data.copy(), outlier_threshold=3.0, max_grayscale=1023,
-            measurement_gray=1023)
+            data.copy(),
+            outlier_threshold=3.0,
+            max_grayscale=1023,
+            measurement_gray=1023,
+        )
         # 矫正映射不同（边界异常影响全局估计）
         assert not np.allclose(result_with_interior, result_with_boundary)
 
@@ -113,10 +123,12 @@ class TestDefaultCalc:
         """所有像素具有相同 φ → 矫正映射图为常数"""
         h, w = 20, 30
         phi_uniform = np.full((h, w), 0.3)
-        data, _ = self.make_cosine_data(h, w, phi_map=phi_uniform,
-                                        amplitude=200.0, offset=128.0)
+        data, _ = self.make_cosine_data(
+            h, w, phi_map=phi_uniform, amplitude=200.0, offset=128.0
+        )
         result = WavefrontCorrection._default_calc(
-            data, max_grayscale=1023, measurement_gray=1023)
+            data, max_grayscale=1023, measurement_gray=1023
+        )
         # 所有矫正值应相同
         assert np.std(result) < 1e-5
 
@@ -131,10 +143,17 @@ class TestDefaultCalc:
         # φ 限定在 [0, π/2] 以确保 arccos 唯一重建
         phi_gt = rng.random((h, w)) * np.pi / 2  # [0, π/2]
         data, _ = self.make_cosine_data(
-            h, w, phi_map=phi_gt, max_grayscale=1023,
-            measurement_gray=1023, amplitude=200.0, offset=128.0)
+            h,
+            w,
+            phi_map=phi_gt,
+            max_grayscale=1023,
+            measurement_gray=1023,
+            amplitude=200.0,
+            offset=128.0,
+        )
         result = WavefrontCorrection._default_calc(
-            data, max_grayscale=1023, measurement_gray=1023)
+            data, max_grayscale=1023, measurement_gray=1023
+        )
 
         # 从矫正映射反推 φ: φ_extracted = -result * 2π / max_grayscale
         phi_extracted = -result * 2 * np.pi / 1023
@@ -146,12 +165,15 @@ class TestDefaultCalc:
 
     def test_measurement_gray_affects_result(self):
         """不同的 measurement_gray 产生不同的矫正映射"""
-        data, _ = self.make_cosine_data(10, 20, max_grayscale=1023,
-                                        measurement_gray=512)
+        data, _ = self.make_cosine_data(
+            10, 20, max_grayscale=1023, measurement_gray=512
+        )
         r1 = WavefrontCorrection._default_calc(
-            data, max_grayscale=1023, measurement_gray=512)
+            data, max_grayscale=1023, measurement_gray=512
+        )
         r2 = WavefrontCorrection._default_calc(
-            data, max_grayscale=1023, measurement_gray=1023)
+            data, max_grayscale=1023, measurement_gray=1023
+        )
         assert not np.allclose(r1, r2)
 
     # ── 集成测试 ──────────────────────────────────────
@@ -173,6 +195,7 @@ class TestDefaultCalc:
 
     def test_calc_with_custom_fn_still_works(self):
         """calc_fn 保留向后兼容"""
+
         def dummy_fn(raw):
             return np.zeros_like(raw, dtype=np.float64)
 
@@ -211,19 +234,19 @@ class TestDefaultCalc:
 
     def test_init_without_correction(self):
         """不指定 correction_csv_path → is_valid=False"""
-        slm = SantecSLM200(slm_number=1)
+        slm = Santec(slm_number=1)
         assert isinstance(slm._correction, WavefrontCorrection)
         assert not slm._correction.is_valid
 
     def test_init_with_nonexistent_path(self):
         """指定不存在的路径 → is_valid=False"""
-        slm = SantecSLM200(slm_number=1, correction_csv_path="/nonexistent/path.csv")
+        slm = Santec(slm_number=1, correction_csv_path="/nonexistent/path.csv")
         assert isinstance(slm._correction, WavefrontCorrection)
         assert not slm._correction.is_valid
 
     def test_init_with_empty_path(self):
         """correction_csv_path="" → is_valid=False"""
-        slm = SantecSLM200(slm_number=1, correction_csv_path="")
+        slm = Santec(slm_number=1, correction_csv_path="")
         assert isinstance(slm._correction, WavefrontCorrection)
         assert not slm._correction.is_valid
 
@@ -232,7 +255,7 @@ class TestDefaultCalc:
         csv = tmp_path / "test.csv"
         csv.write_text("Y/X,0,1,2\n0,100,200,300\n1,400,500,600\n")
 
-        slm = SantecSLM200(slm_number=1, correction_csv_path=str(csv))
+        slm = Santec(slm_number=1, correction_csv_path=str(csv))
         assert slm._correction.is_valid
         assert slm._correction.csv_path == Path(csv)
         assert slm._correction.raw_data is None  # 懒加载
@@ -250,20 +273,38 @@ class TestDefaultCalc:
 
     # ── Backward compatibility: 旧 wrapper ─────────────
 
-    def test_load_phase_from_csv_backward_compat(self, tmp_path: Path):
-        """load_phase_from_csv 仍可正常工作"""
+    def test_load_gray_from_csv_rejects_wrong_size(self, tmp_path: Path):
+        """load_gray_from_csv 要求 CSV 尺寸等于 SLM 面板分辨率 (1200×1920)"""
         csv = tmp_path / "test.csv"
         csv.write_text("Y/X,0,1,2\n0,100,200,300\n1,400,500,600\n")
 
-        slm = SantecSLM200(slm_number=1)
-        data = slm.load_phase_from_csv(csv)
+        slm = Santec(slm_number=1)
+        with pytest.raises(ValueError, match="尺寸错误"):
+            slm.load_gray_from_csv(csv)
+
+    def test_load_gray_from_csv_valid_panel_size(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """合法 PANEL_RES 尺寸 CSV 正常加载为 uint16 灰度矩阵"""
+        # 以 (3,2) 模拟 PANEL_RES=(宽,高)，则数据区应为 (2,3)
+        monkeypatch.setattr(
+            "ao_shaping.drivers.slm.santec.driver.PANEL_RES", (3, 2)
+        )
+        csv = tmp_path / "test.csv"
+        csv.write_text("Y/X,0,1,2\n0,100,200,300\n1,400,500,600\n")
+
+        slm = Santec(slm_number=1)
+        data = slm.load_gray_from_csv(csv)
         assert data.shape == (2, 3)
         assert data.dtype == np.uint16
+        np.testing.assert_array_equal(
+            data, np.array([[100, 200, 300], [400, 500, 600]], dtype=np.uint16)
+        )
 
     def test_resize_to_panel_backward_compat(self):
         """_resize_to_panel 委托至 WavefrontCorrection.resize_to_panel"""
         data = np.array([[100, 200], [300, 400]], dtype=np.uint16)
-        slm = SantecSLM200(slm_number=1)
+        slm = Santec(slm_number=1)
         resized = slm._resize_to_panel(data)
         assert resized.shape == (1200, 1920)
         assert resized.dtype == np.float64
@@ -274,18 +315,18 @@ class TestDefaultCalc:
 
     def test_shift_parameters_set_in_init(self):
         """shift_x/y 在 __init__ 时立即生效"""
-        slm_no = SantecSLM200(slm_number=1, shift_x=0, shift_y=0)
+        slm_no = Santec(slm_number=1, shift_x=0, shift_y=0)
         assert slm_no.shift_x == 0
         assert slm_no.shift_y == 0
 
-        slm_shift = SantecSLM200(slm_number=1, shift_x=10, shift_y=-5)
+        slm_shift = Santec(slm_number=1, shift_x=10, shift_y=-5)
         assert slm_shift.shift_x == 10
         assert slm_shift.shift_y == -5
 
     def test_create_phase_with_shift_no_correction(self):
         """create_phase_from_array 在有 shift 无 correction 时正常工作"""
         phase_rad = np.linspace(0, 2 * np.pi, 100).reshape(10, 10)
-        slm = SantecSLM200(slm_number=1, shift_x=5, shift_y=-3)
+        slm = Santec(slm_number=1, shift_x=5, shift_y=-3)
         grayscale = slm.create_phase_from_array(phase_rad)
         assert grayscale.dtype == np.uint16
         assert np.all(grayscale >= 0)

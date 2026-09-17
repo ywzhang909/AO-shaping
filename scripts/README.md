@@ -451,6 +451,190 @@ python scripts/md_img_pipeline.py --input data/md_test/md_img-80v --skip-diff
 | `--skip-diff` | off | Skip diff computation, use existing diff images |
 | `--ref` | first IP's `-000.png` | Shared reference image for ALL IPs |
 
+## Report Generation Scripts
+
+> **Repo rule**: all markdown/illustrated-report **generation** lives in `scripts/`
+> (naming `generate_*_report.py`), never in `src/ao_shaping/tools/` (reserved for
+> hardware-interaction tools). See `AGENTS.md` anti-patterns.
+
+> **Shared analysis helpers**: `scripts/` report generators in the SLM/Zernike
+> family delegate measurement/analysis logic to
+> `src/ao_shaping/tools/slm/slm_scan_analysis.py` (`outlier_mask`, `clamp_shift`,
+> `parabolic_min`, `latest_match`, `group_raw_scan`, `analyze_linearity`,
+> `LINEARITY_AMPS`) — scripts keep only figure/markdown rendering.
+
+### generate_zernike_wfs_report.py
+
+Generates the illustrated **Zernike phase → WFS readout distribution** report
+(needs hardware: Santec SLM-200 + Thorlabs WFS).
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src"
+python scripts/generate_zernike_wfs_report.py
+python scripts/generate_zernike_wfs_report.py -o docs/slm/zernike_wfs_report
+```
+
+**What it does:**
+- Loads a series of Zernike patterns (modes / radii / amplitudes) at the
+  calibrated SLM shift; a **flat-phase user reference** is created first so every
+  readout is the increment relative to flat
+- Per case writes two figures: **SLM phase** (radian source | actual displayed
+  grayscale pattern with mod 2π + shift) and **WFS readout** (spots / read phase
+  map / Zernike distribution / metrics)
+- Writes `report.md` + `phase/` + `wfs/` + `data.json` to the output dir
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--slm-number` / `--slm-wavelength` | `1` / `532` | SLM device / wavelength |
+| `--wfs-exposure-ms` | `4.0` | WFS exposure (capped at 7 ms) |
+| `--shift-x` / `--shift-y` | device config | SLM shift override |
+| `--settle-extra-s` | `0.1` | Extra settle beyond the pixel-flip estimate |
+| `-o, --output-dir` | `docs/slm/zernike_wfs_report` | Output directory |
+
+### generate_zernike_response_matrix_report.py
+
+Generates the illustrated **Zernike response matrix** report
+(creation / analysis / detection). **Fully offline** — reads saved artefacts, no
+hardware.
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src"
+python scripts/generate_zernike_response_matrix_report.py
+python scripts/generate_zernike_response_matrix_report.py --h5 <path> -o docs/slm/<dir>
+```
+
+**What it does** (writes `report.md` + `figures/`):
+- **Creation**: acquisition metadata (device, shift, Zernike radius, amplitude,
+  push-pull cycles/averages, DLL index ordering) + matrix shape
+- **Analysis**: response-matrix heatmap with diagonal markers, diagonal
+  dominance, singular-value spectrum / condition number, repeat-variance map,
+  and per-(mode, radius) linearity (**CV + direction cosine**, the correct
+  criterion — a normalised response is *constant* when linear, so slope/R² is
+  meaningless)
+- **Detection**: outlier diagnosis (`|resp|` vs amplitude per radius — shows the
+  WFS Zernike-fit collapse when R ≈ beam radius), offline inverse demo
+  (`c = pinv(M) @ w`, residual reduction), and the measured closed-loop
+  before/after
+- **Centering** (§3.4, only for same-run reports): shift-scan V-curve, raw WFS
+  wavefront maps before/after (µm, from `debug_<ts>/closed_loop/iter*`), Zernike
+  coefficient bars (before vs after vs applied c), and RMS/PV iteration history
+  with best-frame markers — shows **离心 (off-axis) correction** quantification
+
+**Same-run gating**: the scan/closed-loop/centering sections are only rendered
+when the report json and the matrix h5 are from the same run — detected via
+`pass_count_by_radius` in the h5 `device_config`, or (fallback) present in the
+report json **plus** matching SLM serial number (h5 `slm_serial` vs report
+`device.slm.serial_number`). This prevents mixing a matrix from a different
+calibration with unrelated scan data.
+
+Sources default to the latest `data/zernike_response_matrix/zm_*.h5`,
+`data/zernike_correction/report_*.json` and `raw_scan_*.json`; override with
+`--h5`, `--scan-report`, `--raw-scan`.
+
+### generate_zernike_linearity_report.py
+
+Generates the **Zernike response linearity** report — when the Zernike
+coefficient loaded on the SLM grows, does the WFS-read coefficient grow
+proportionally? **Fully offline** — reads saved scan artefacts, no hardware.
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src"
+python scripts/generate_zernike_linearity_report.py
+python scripts/generate_zernike_linearity_report.py -o docs/slm/zernike_linearity
+```
+
+**What it does** (writes `linearity.md` + `figures/`):
+- For every (mode, radius) in the raw scan, takes the WFS coefficient at the
+  **same DLL index** `diag = (z₊[m] − z₋[m])/2` and checks it is proportional to
+  the SLM amplitude A: `diag/A` constant (CV < 15%), through-origin linear fit
+  R² > 0.98, and `diag(A=10)/diag(A=2)` ≈ 5.0 (display only — noisy at A=2)
+- The residual baseline `|z₊ + z₋|/2` is the instability proxy: a combination is
+  judged on linearity only when its response rises above that floor (SNR < 1.5 →
+  `噪声受限`)
+- Verdicts: `成比例` / `成比例 (弱耦合)` / `噪声受限` / `不成比例`
+- Renders `01_response_vs_amplitude.png` (response vs amplitude with linear fit)
+  and `02_ratio_r2.png` (A10/A2 ratio + R² bars, color-coded by verdict)
+- `--append-to <md>` appends the section to an existing report (idempotent —
+  replaces the old section; figure paths recomputed relative to the target)
+
+Sources default to the latest `data/zernike_correction/raw_scan_*.json` and
+`data/zernike_correction/report_*.json`; override with `--raw-scan`, `--report`.
+
+### generate_dm_response_matrix_report.py
+
+Generates the illustrated **DM response matrix** report
+(creation / analysis / detection). **Fully offline** — reads saved artefacts, no
+hardware.
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src"
+python scripts/generate_dm_response_matrix_report.py
+python scripts/generate_dm_response_matrix_report.py --h5 <path> -o docs/dm_response_matrix_report
+```
+
+**What it does** (writes `report.md` + `figures/`):
+- **Creation**: acquisition metadata (calibration mode `sequential`/`hadamard`,
+  hadamard order, n_actuators, valid actuator indices, disturb voltage,
+  averages/cycles, wait time, timestamp, mean/max variance, condition number)
+  + `device_config` dict rendered as a table (incl. `dm_type`/`dm_num` when
+  present)
+- **Analysis**: response-matrix heatmap, repeat-variance heatmap (log10),
+  per-actuator response magnitude (column Frobenius norm) with median + 5%
+  dead-threshold markers, per-subaperture slope-sensitivity spatial map
+  (reshaped from paired dx/dy slopes when the subaperture grid is derivable
+  from the mask; otherwise per-channel magnitude), and singular-value spectrum
+  / condition number
+- **Detection**: weak/dead actuator candidates (column norm < 5% of median)
+  and high-variance actuators (>10× median column variance), each with a
+  per-actuator table and interpretation notes
+
+Legacy `.h5` files without the `calibration_mode`/`hadamard_order` attrs are
+handled via `.get` defaults (`"sequential"` / `None`). The loader prefers
+`ao_shaping.optimizer.wf.dm_response_matrix.load_dm_response_matrix` with a
+graceful h5py fallback if the package import fails.
+
+Sources default to the latest `data/dm_response_matrix*.h5`; override with
+`--h5` and `-o/--output`.
+
+## Verification Scripts
+
+### verify_correction_csv.py
+
+Offline verification for the `--export-correction` gray-offset CSV
+(2026-09-16 contract: **no baked shift** + full-scale 2π = `get_max_grayscale()`
+= 1023, NOT a wavelength-dependent `two_pi_gray`). **Fully offline** — reads
+saved artefacts, no hardware.
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src;libs"
+python scripts/verify_correction_csv.py
+python scripts/verify_correction_csv.py --h5 <matrix.h5> --w <w_before.json> --csv <corr.csv>
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--h5` | `data/zernike_response_matrix/zm_recal_532_20260916.h5` | Zernike response matrix h5 |
+| `--w` | `data/zernike_correction/_w_before_66.json` | WFS wavefront JSON (66-length, unit λ) |
+| `--csv` | `<h5> 同目录 <stem>_correction_gray.csv` | Exported correction gray CSV to verify |
+
+**Checks (all must pass):**
+- [0] Sidecar JSON: `max_gray == 1023`, `shift_included == false`, consumption
+  free of `two_pi_gray`
+- [1] CSV shape `(1200, 1920)`, value range ⊂ `0..1023`
+- [2] `Santec.load_gray_from_csv` / `WavefrontCorrection.load_gray_from_csv`
+  byte-identical to the raw CSV
+- [3] Recomputed production pipeline (`c = -pinv(M)@w` → `make_phase` →
+  `correction_gray_offsets(1023)`) byte-identical to the export → proves **no
+  baked shift**
+- [4] `WavefrontCorrection.map_error` additive semantics
+  (`displayed = mod(base + corr, 1024)`, incl. mod wrap at base=500)
+- [5] Quantization error ≤ 0.5 gray levels (circular distance)
+
 ## Subdirectories
 
 ### dm_sim/

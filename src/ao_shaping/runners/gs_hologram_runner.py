@@ -9,7 +9,7 @@
 Usage:
     python gs_hologram_runner.py --target-image target.png --iterations 100
     python gs_hologram_runner.py --target-shape gaussian --slm-wavelength 1064
-    
+
     # 通过main.py调用
     python main.py gs --target-image target.png --distance 0.15
 """
@@ -44,22 +44,25 @@ from ao_shaping.algorithm.gerchberg_saxton import (
     calculate_reconstruction_error,
     GSResult,
 )
+from ao_shaping.utils.slm_utils import phase_to_slm_grayscale
 
 # Import hardware drivers with graceful fallback
-SantecSLM200: Any = None
+Santec: Any = None
 DahengCamManager: Any = None
 SLM_AVAILABLE = False
 CCD_AVAILABLE = False
 
 try:
-    from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200 as _SantecSLM200
-    SantecSLM200 = _SantecSLM200
+    from ao_shaping.drivers.slm.santec import Santec as _Santec
+
+    Santec = _Santec
     SLM_AVAILABLE = True
 except ImportError:
     logger.debug("SLM driver not available")
 
 try:
     from ao_shaping.drivers.ccd.daheng import DahengCamManager as _DahengCamManager
+
     DahengCamManager = _DahengCamManager
     CCD_AVAILABLE = True
 except ImportError:
@@ -87,9 +90,7 @@ def parse_tuple(ctx, param, value: str | None) -> tuple[int, int] | None:
         x, y = map(int, parts)
         return (x, y)
     except Exception:
-        raise click.BadParameter(
-            f"Invalid format: {value}. Expected: 'x,y' or '(x,y)'"
-        )
+        raise click.BadParameter(f"Invalid format: {value}. Expected: 'x,y' or '(x,y)'")
 
 
 def load_target_image(
@@ -98,12 +99,12 @@ def load_target_image(
     invert: bool = False,
 ) -> np.ndarray:
     """加载目标图像并预处理为振幅分布。
-    
+
     Args:
         image_path: 图像文件路径
         target_size: 目标尺寸 (width, height)
         invert: 是否反转图像 (黑底白字→白底黑字)
-    
+
     Returns:
         归一化的振幅分布数组 (0-1)
     """
@@ -136,12 +137,12 @@ def create_target_shape(
     **kwargs,
 ) -> np.ndarray:
     """生成预设的目标形状振幅分布。
-    
+
     Args:
         shape: 形状名称 ('gaussian', 'circle', 'square', 'annular', 'grid')
         size: 输出尺寸 (width, height)
         **kwargs: 形状特定参数
-    
+
     Returns:
         振幅分布数组
     """
@@ -161,7 +162,7 @@ def create_target_shape(
 
     elif shape == "square":
         side = kwargs.get("side", 0.8)
-        intensity = ((np.abs(X) <= side/2) & (np.abs(Y) <= side/2)).astype(float)
+        intensity = ((np.abs(X) <= side / 2) & (np.abs(Y) <= side / 2)).astype(float)
 
     elif shape == "annular":
         inner_r = kwargs.get("inner_radius", 0.2)
@@ -192,38 +193,16 @@ def create_target_shape(
     return amplitude
 
 
-def phase_to_slm_grayscale(
-    phase: np.ndarray,
-    max_grayscale: int = 1023,
-) -> np.ndarray:
-    """将弧度相位转换为SLM灰度值。
-    
-    Args:
-        phase: 相位数组 (radians, typically 0-2π)
-        max_grayscale: 最大灰度值 (10-bit SLM = 1023)
-    
-    Returns:
-        uint16灰度值数组
-    """
-    # Wrap phase to 0-2π
-    phase_wrapped = np.mod(phase, 2 * np.pi)
-
-    # Convert to grayscale
-    grayscale = (phase_wrapped / (2 * np.pi)) * max_grayscale
-
-    return grayscale.astype(np.uint16)
-
-
 def capture_amplitude_with_ccd(
     camera: Any,
     n_samples: int = 3,
 ) -> np.ndarray:
     """使用CCD捕获图像并转为振幅分布。
-    
+
     Args:
         camera: 已初始化的相机对象
         n_samples: 采样平均次数
-    
+
     Returns:
         振幅分布 (sqrt of normalized intensity)
     """
@@ -254,17 +233,20 @@ def capture_amplitude_with_ccd(
     help="预设目标形状 (当未指定--target-image时使用)",
 )
 @click.option(
-    "-i", "--iterations",
+    "-i",
+    "--iterations",
     default=50,
     help="GS算法迭代次数 (default: 50)",
 )
 @click.option(
-    "-d", "--distance",
+    "-d",
+    "--distance",
     default=0.1,
     help="传播距离 (米) (default: 0.1)",
 )
 @click.option(
-    "-l", "--wavelength",
+    "-l",
+    "--wavelength",
     default=1064.0,
     help="激光波长 (纳米) (default: 1064)",
 )
@@ -300,7 +282,8 @@ def capture_amplitude_with_ccd(
     help="CCD曝光时间 (毫秒) (default: 50)",
 )
 @click.option(
-    "-s", "--save-dir",
+    "-s",
+    "--save-dir",
     default="data/gs_hologram",
     help="结果保存目录 (default: data/gs_hologram)",
 )
@@ -343,6 +326,7 @@ def run(
     show: bool,
 ):
     from ao_shaping.utils.cli_helpers import get_debug_mode
+
     debug = get_debug_mode()
     """Gerchberg-Saxton全息图生成器
     
@@ -370,7 +354,7 @@ def run(
     logger.info("Gerchberg-Saxton Hologram Generator")
     logger.info("=" * 60)
     logger.info(f"Target: {target_image or target_shape}")
-    logger.info(f"Distance: {distance*1000:.1f} mm")
+    logger.info(f"Distance: {distance * 1000:.1f} mm")
     logger.info(f"Wavelength: {wavelength:.0f} nm")
     logger.info(f"Iterations: {iterations}")
     logger.info(f"Hardware: {'enabled' if use_hardware else 'disabled'}")
@@ -402,9 +386,8 @@ def run(
         logger.info("Initializing hardware...")
 
         # 初始化SLM
-        slm = SantecSLM200(slm_number=slm_number)
+        slm = Santec(slm_number=slm_number, wavelength=slm_wavelength)
         slm.open()
-        slm.set_wavelength(slm_wavelength)
         logger.info(f"SLM initialized: #{slm_number}, λ={slm_wavelength}nm")
 
         # 初始化CCD
@@ -434,20 +417,23 @@ def run(
 
             def make_capture_callback(slm_device: Any, cam_device: Any):
                 """Create capture callback with bound devices."""
+
                 def capture_callback(phase: np.ndarray) -> np.ndarray:
                     """Capture actual amplitude with CCD"""
-                    # Convert phase to SLM grayscale
-                    slm_phase = phase_to_slm_grayscale(phase)
+                    # 驱动统一实现: 弧度→灰度 (矫正+LUT+平移+mod 2π, 设备 _max_gray)
+                    slm_phase = slm_device.create_phase_from_array(phase)
 
                     # Display on SLM
                     slm_device.display_data(slm_phase)
 
                     # Wait for SLM response
                     import time
+
                     time.sleep(0.1)
 
                     # Capture with CCD
                     return capture_amplitude_with_ccd(cam_device)
+
                 return capture_callback
 
             result = adaptive_gerchberg_saxton(
@@ -477,12 +463,14 @@ def run(
                     raise RuntimeError("Hardware not properly initialized")
 
                 logger.info("Displaying phase pattern on SLM...")
-                slm_phase = phase_to_slm_grayscale(result.phase)
+                # 驱动统一实现: 弧度→灰度 (矫正+LUT+平移+mod 2π, 设备 _max_gray)
+                slm_phase = slm.create_phase_from_array(result.phase)
                 slm.display_data(slm_phase)
 
                 # Capture actual result
                 logger.info("Capturing result with CCD...")
                 import time
+
                 time.sleep(0.2)  # Wait for SLM
                 actual_amplitude = capture_amplitude_with_ccd(camera)
 
@@ -520,7 +508,9 @@ def run(
     save_path.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    result_name = f"gs_{target_shape if target_image is None else target_image.stem}_{timestamp}"
+    result_name = (
+        f"gs_{target_shape if target_image is None else target_image.stem}_{timestamp}"
+    )
     result_dir = save_path / result_name
     result_dir.mkdir(parents=True, exist_ok=True)
 
@@ -540,8 +530,8 @@ def run(
     with open(result_dir / "config.json", "w") as f:
         json.dump(config, f, indent=2)
 
-    # 保存相位图案 (灰度值)
-    slm_phase = phase_to_slm_grayscale(result.phase)
+    # 保存相位图案 (灰度值); 硬件模式走驱动统一实现 (与显示字节一致), 模拟模式纯函数回退
+    slm_phase = phase_to_slm_grayscale(result.phase, slm=slm)
     np.save(result_dir / "phase_pattern.npy", slm_phase)
 
     # 保存目标振幅
@@ -563,7 +553,7 @@ def run(
 
     # 计算相位 (0-2π)
     phase_display = np.mod(result.phase, 2 * np.pi)
-    im1 = axes[0, 1].imshow(phase_display, cmap="hsv", vmin=0, vmax=2*np.pi)
+    im1 = axes[0, 1].imshow(phase_display, cmap="hsv", vmin=0, vmax=2 * np.pi)
     axes[0, 1].set_title(f"SLM Phase Pattern ({result.iterations} iter)")
     plt.colorbar(im1, ax=axes[0, 1])
 
@@ -593,8 +583,14 @@ def run(
         f"Correlation: {metrics['correlation']:.4f}\\n"
         f"Efficiency: {metrics['efficiency']:.4f}"
     )
-    axes[1, 2].text(0.1, 0.5, metrics_text, fontsize=14, family="monospace",
-                    verticalalignment="center")
+    axes[1, 2].text(
+        0.1,
+        0.5,
+        metrics_text,
+        fontsize=14,
+        family="monospace",
+        verticalalignment="center",
+    )
 
     plt.tight_layout()
     plt.savefig(result_dir / "result_overview.png", dpi=150)

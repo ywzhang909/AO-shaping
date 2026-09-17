@@ -11,7 +11,7 @@ class TestPatternHelperTurbulence:
         ph.init_turbulence_screen(r0=10e-2, L0=1.0, pixel_scale=0.1/256, random_seed=42)
         screen = ph.generate_turbulence_screen()
         assert screen.shape == (256, 256)
-        assert screen.dtype == np.uint16
+        assert screen.dtype == np.float64  # 2026-09-15: 只返回原始弧度相位
         assert screen.max() > 0
 
     def test_generate_turbulence_screen_deterministic_with_seed(self):
@@ -50,15 +50,16 @@ class TestPatternHelperZernike:
         ph = PatternHelper((200, 200), bits=10)
         img = ph.generate_zernike(2, 0, amplitude=1)
         assert img.shape == (200, 200)
-        assert img.dtype == np.uint16
+        assert img.dtype == np.float64  # 2026-09-15: 只返回原始弧度相位
         assert img.max() > 0
-        assert img.min() == 0
+        assert img.min() < 0  # 原始未包裹离焦: 中心 -1, 边缘 +1 (跨零)
+        assert img[0, 0] == 0  # 孔径外置 0
 
     def test_generate_zernike_negative_m(self):
         ph = PatternHelper((200, 200), bits=10)
         img = ph.generate_zernike(1, -1, amplitude=0.5)
         assert img.shape == (200, 200)
-        assert img.dtype == np.uint16
+        assert img.dtype == np.float64  # 2026-09-15: 只返回原始弧度相位
         assert img.max() > 0
 
     def test_generate_zernike_polynomial(self):
@@ -66,13 +67,13 @@ class TestPatternHelperZernike:
         coeffs = {(0, 0): 1.0, (1, -1): 0.3, (2, 0): 0.2}
         img = ph.generate_zernike_polynomial(coefficients=coeffs)
         assert img.shape == (200, 200)
-        assert img.dtype == np.uint16
+        assert img.dtype == np.float64  # 2026-09-15: 只返回原始弧度相位
 
     def test_generate_zernike_polynomial_default(self):
         ph = PatternHelper((200, 200), bits=10)
         img = ph.generate_zernike_polynomial()
         assert img.shape == (200, 200)
-        assert img.dtype == np.uint16
+        assert img.dtype == np.float64  # 2026-09-15: 只返回原始弧度相位
 
 
 class TestPatternHelperBasics:

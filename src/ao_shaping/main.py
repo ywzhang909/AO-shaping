@@ -10,6 +10,8 @@ Commands:
     pib             轴向光束PIB优化器
     pipeline        串行WF→PIB流水线优化器
     gs              Gerchberg-Saxton全息图生成器
+    gs-square       GS闭环光束整形优化器
+    diff-beam       可微光束整形优化器 (backprop/GS)
     zernike-matrix  Zernike响应矩阵校准
     rms-zernike     Zernike RMS优化器
     ga-zernike      GA Zernike优化器
@@ -38,24 +40,29 @@ from loguru import logger
 
 # Import all runners from runners package
 from ao_shaping.runners import (
-    wf_run,
-    pib_run,
-    pipeline_run,
-    gs_run,
-    zernike_matrix_run,
-    zernike_closed_loop_run,
-    rms_zernike_run,
+    alt_voltage_run,
+    combined_run,
+    diff_beam_run,
+    diff_shaping_run,
+    dm_matrix_run,
+    full_voltage_run,
     ga_zernike_run,
     greedy_zernike_run,
-    dm_matrix_run,
-    alt_voltage_run,
-    full_voltage_run,
-    combined_run,
+    gs_run,
+    gs_square_run,
+    pib_run,
+    pipeline_run,
+    rms_zernike_run,
+    slm_square_run,
+    wf_run,
+    zernike_closed_loop_run,
+    zernike_matrix_run,
 )
 
-
+# Tools commands (standalone tools under tools/)
+from ao_shaping.tools.slm.slm_diagnose import main as slm_diagnose_run
+from ao_shaping.tools.slm.slm_lut_runner import run as slm_lut_run
 from ao_shaping.utils.cli_helpers import get_debug_mode
-from ao_shaping.profiler import maybe_profile
 
 
 @click.group()
@@ -74,11 +81,14 @@ def cli(ctx: click.Context, dir: str):
     if _debug:
         logger.remove()
         logger.add(sys.stderr, level="DEBUG")
-        logger.debug("Debug mode enabled via DEBUG env var - DEBUG level logging active")
+        logger.debug(
+            "Debug mode enabled via DEBUG env var - DEBUG level logging active"
+        )
         logger.debug("Debug mode enabled")
     ctx.ensure_object(dict)
     ctx.obj["dir"] = dir
     ctx.obj["debug"] = _debug
+
 
 # Register subcommands
 cli.add_command(wf_run, name="wf")
@@ -94,13 +104,18 @@ cli.add_command(dm_matrix_run, name="dm-matrix")
 cli.add_command(alt_voltage_run, name="alt-voltage")
 cli.add_command(full_voltage_run, name="full-voltage")
 cli.add_command(combined_run, name="combined")
+cli.add_command(diff_beam_run, name="diff-beam")
+cli.add_command(gs_square_run, name="gs-square")
+cli.add_command(diff_shaping_run, name="diff-shaping")
+cli.add_command(slm_lut_run, name="slm-lut")
+cli.add_command(slm_diagnose_run, name="slm-diagnose")
+cli.add_command(slm_square_run, name="spgd-square")
 
 
 # Entry point
 if __name__ == "__main__":
-    with maybe_profile():
-        try:
-            cli()
-        except Exception as e:
-            logger.error(f"CLI error: {e}")
-            raise
+    try:
+        cli()
+    except Exception as e:
+        logger.error(f"CLI error: {e}")
+        raise

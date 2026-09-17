@@ -89,6 +89,12 @@ from ao_shaping.algorithm.differential_evolution import (
     DEConfig,
 )
 
+from ao_shaping.algorithm.differentiable_beam import (
+    DifferentiableBeamOptimizer,
+    differentiable_far_field,
+    far_field_intensity,
+)
+
 __all__ = [
     "Base",
     "SGD",
@@ -136,6 +142,9 @@ __all__ = [
     "CEMConfig",
     "DifferentialEvolution",
     "DEConfig",
+    "DifferentiableBeamOptimizer",
+    "differentiable_far_field",
+    "far_field_intensity",
 ]
 
 

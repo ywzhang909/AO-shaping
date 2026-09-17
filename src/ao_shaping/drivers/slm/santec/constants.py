@@ -1,11 +1,12 @@
-"""Santec SLM-200 静态常量和错误码定义
+"""Santec 驱动常量定义
 
-此模块包含所有Santec SLM-200相关的静态常量，包括错误码、错误消息、
-枚举类型和设备参数常量。
+此模块包含 Santec 驱动层(非设备型号专属)的静态常量: SDK 基础常量、
+错误码与错误消息、视频模式枚举、内存槽与参数取值范围等。
+SLM-200 专属设备硬件参数见 ``slm200_constants`` (SLM-300 等后续型号
+提供各自的设备常量模块)。
 """
 
 from enum import IntEnum
-
 
 # SDK基础常量
 SLM_OK = 0
@@ -151,24 +152,6 @@ def get_slm_error_message(code: int) -> str:
         人类可读的错误消息，如果未知则返回"未知错误码"
     """
     return SLM_ERROR_MESSAGES.get(code, f"未知错误码 ({code})")
-
-
-# 设备硬件参数常量
-PIXEL_SIZE_UM = 7.8  # 像素尺寸 (微米)
-PITCH_UM = 8  # 像素间距 (微米)
-PANEL_SIZE_MM = (15.36, 9.60)  # 面板尺寸 (mm, 宽x高)
-PANEL_RES = (1920, 1200)  # 面板分辨率 (宽x高)
-RESPONSE_TIME_MS = 300  # 响应时间 (毫秒)
-GRAY_SCALE_BITS = 10  # 灰度位数
-
-
-def get_max_grayscale() -> int:
-    """Get maximum grayscale value (2^bits - 1).
-
-    Returns:
-        Maximum grayscale value based on GRAY_SCALE_BITS.
-    """
-    return 2 ** GRAY_SCALE_BITS - 1
 
 
 # 默认参数值

@@ -135,19 +135,41 @@ class TestWFSHardware:
         assert dev_x.shape == (wfs.num_spots_x, wfs.num_spots_y)
 
     def test_get_zernike(self, wfs):
-        """Test Zernike coefficient calculation."""
+        """Test Zernike coefficient calculation.
+
+        2026-09 实测教训: get_zernike 结果质量依赖 pupil 正确性 — 硬编码 pupil
+        (如 (0,0,8mm)) 与光束不符时, 边界无效子孔径污染 WFS_ZernikeLsf 全孔径
+        LSF 拟合, 产生巨大的假 tip/tilt (实测 |z|=4.6~12.8λ); pupil 修正后
+        (optimize_pupil 自动获取 ≈3.6mm) 平整基准的 LSF tip/tilt ≤0.3µm
+        (≈0.2λ@532nm)。
+        """
+        wfs.take_image()
+        # 先确保 pupil 正确: optimize_pupil 只计算不设置, 必须显式写回
+        wfs.pupil = wfs.optimize_pupil()
         wfs.take_image()
         zernike_coeffs = wfs.get_zernike(zernike_order=4)
         print(f"  Zernike coefficients: {len(zernike_coeffs)} terms")
         print(f"  First 5 coeffs: {zernike_coeffs[:5]}")
         assert isinstance(zernike_coeffs, np.ndarray)
         assert len(zernike_coeffs) > 0
+        assert np.isfinite(zernike_coeffs).all()
+        # 假 tip/tilt 界 (Noll 1..3): 正确 pupil 下平整基准 ≤0.3µm, 垃圾 pupil 曾达 2.4~6.8µm
+        assert np.linalg.norm(zernike_coeffs[:3]) < 5.0
 
     def test_optimize_pupil(self, wfs):
-        """Test pupil optimization."""
-        cx, cy, dx, dy = wfs.optimize_pupil()
+        """Test pupil optimization.
+
+        2026-09 实测教训: pupil 必须由 optimize_pupil() 自动获取并显式写回
+        (wfs.pupil = ...), 勿硬编码 — 硬编码 pupil 与真实光束不符时, 边界无效
+        子孔径会污染 WFS_ZernikeLsf 拟合 → 巨大假 tip/tilt。
+        """
+        pupil = wfs.optimize_pupil()
+        cx, cy, dx, dy = pupil
         print(f"  Pupil: center=({cx:.2f}, {cy:.2f}), diameter=({dx:.2f}, {dy:.2f})")
-        assert dx > 0 and dy > 0
+        assert np.isfinite(pupil).all()
+        assert 0.01 < dx <= 10.0 and 0.01 < dy <= 10.0
+        assert -5.0 <= cx <= 5.0 and -5.0 <= cy <= 5.0
+        wfs.pupil = pupil  # 写回设备 (optimize_pupil 只计算不设置)
 
     def test_stable_sampling(self, wfs):
         """Test stable sampling feature."""
@@ -202,9 +224,9 @@ class TestSLMHardware:
             pytest.skip("SLM tests disabled (set TEST_SLM=1 to enable)")
 
         try:
-            from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+            from ao_shaping.drivers.slm.santec import Santec
 
-            slm = SantecSLM200(slm_number=1, wavelength=532, phase_range=200)
+            slm = Santec(slm_number=1, wavelength=532, phase_range=200)
             slm.open()
             print(f"\n[SLM] Connected: SN={slm.serial_number}")
             yield slm
@@ -236,12 +258,12 @@ class TestSLMHardware:
     def test_write_phase(self, slm):
         """Test phase writing to memory."""
         phase = np.zeros((1200, 1920), dtype=np.uint16)
-        slm.write_phase(phase, memory_number=1)
+        slm._write_phase(phase, memory_number=1)
         print("  Phase written to memory 1")
 
     def test_display_memory(self, slm):
         """Test displaying from memory."""
-        slm.display_memory(1)
+        slm._display_memory(1)
         mem_num = slm.get_displayed_memory_number()
         print(f"  Displaying memory: {mem_num}")
 
@@ -253,9 +275,9 @@ class TestSLMHardware:
 
     def test_context_manager(self):
         """Test SLM context manager protocol."""
-        from ao_shaping.drivers.slm.santec_slm200 import SantecSLM200
+        from ao_shaping.drivers.slm.santec import Santec
 
-        with SantecSLM200(slm_number=1, wavelength=532) as slm:
+        with Santec(slm_number=1, wavelength=532) as slm:
             print(f"  Context manager: Connected to SLM SN={slm.serial_number}")
             slm.set_grayscale(256)
         print("  Context manager: Closed")
