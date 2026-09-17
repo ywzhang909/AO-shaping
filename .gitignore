@@ -34,7 +34,6 @@ ckpts*
 uv.lock
 notebooks/checkpoint
 notebooks/.ipynb_checkpoints*
-data/*.py
 
 NuitkaGUI.exe
 DM_combined.*
@@ -50,8 +49,6 @@ src/ao_shaping.egg-info*
 .trae*
 .coverage
 test_output*
-
-
 
 src/calculators/**/*.c
 
@@ -93,6 +90,7 @@ libs/micro_drive1300/**/*.exe
 libs/micro_drive1300/c/std*.txt
 performance_comparison.md
 docs/micro deformable mirror/docs/shiliang_extracted*
+!docs/**/*.png
 docs/**/*.npy
 docs/benchmarks/device_less**
 *.log

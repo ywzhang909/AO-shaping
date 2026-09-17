@@ -26,13 +26,17 @@ AO-shaping/
 │   │   │   ├── axis_beam_runner.py  # PIB优化器
 │   │   │   ├── pipeline_runner.py  # 串行 WF→PIB 流水线
 │   │   │   ├── zernike_matrix_runner.py  # Zernike响应矩阵校准与闭环控制
-│   │   │   ├── gs_hologram_runner.py   # Gerchberg-Saxton全息图生成器
-│   │   │   ├── gs_square_runner.py     # GS闭环光束整形优化器 (方形)
-│   │   │   ├── diff_shaping_runner.py  # 可微分闭环光束整形优化器 (PyTorch)
-│   │   │   ├── dm_matrix_runner.py     # DM响应矩阵标定
-│   │   │   ├── alt_voltage_runner.py   # 交替电压下发 (R50Power + ADC采集)
-│   │   │   ├── full_voltage_runner.py  # 全量交替电压下发 (AsyncMicroDM)
-│   │   │   └── combined_runner.py      # [已废弃] 使用pipeline_runner代わり
+│   │   │   ├── rms_zernike_runner.py     # SLM Zernike RMS 优化 (rms-zernike)
+│   │   │   ├── ga_zernike_runner.py      # 遗传算法 Zernike 优化 (ga-zernike)
+│   │   │   ├── gs_hologram_runner.py     # Gerchberg-Saxton全息图生成器
+│   │   │   ├── gs_square_runner.py       # GS闭环光束整形优化器 (方形)
+│   │   │   ├── diff_shaping_runner.py    # 可微分闭环光束整形优化器 (PyTorch)
+│   │   │   ├── diff_beam_runner.py       # 可微分光束整形 (backprop/GS)
+│   │   │   ├── slm_square_runner.py      # SLM 方形光斑 SPGD 整形 (spgd-square)
+│   │   │   ├── dm_matrix_runner.py       # DM响应矩阵标定
+│   │   │   ├── alt_voltage_runner.py     # 交替电压下发 (R50Power + ADC采集)
+│   │   │   ├── full_voltage_runner.py    # 全量交替电压下发 (AsyncMicroDM)
+│   │   │   └── combined_runner.py        # AdaMOD+SPGD 混合 PIB (DM+CCD)
 │   │   ├── algorithm/           # 优化算法 (Adam, SGD, Muon, 可微分光束整形等)
 │   │   │   ├── gerchberg_saxton.py     # Gerchberg-Saxton 相位恢复算法
 │   │   │   ├── differentiable_beam.py  # 可微光束整形 (双向传播模拟)
@@ -50,18 +54,19 @@ AO-shaping/
 │   │   │   ├── wf/              # 波前优化 (RMS)
 │   │   │   ├── wfless/          # 无波前优化 (PIB)
 │   │   │   └── rl/              # 强化学习 (SAC, LR-WFS)
-│   │   ├── utils/               # 工具函数 (spots_calc, wavefront_calc, targets, beam_metrics, slm_utils, hardware_utils, resample)
-│   │   ├── ml/                  # 机器学习 (U-Net+GAN, 训练, 模型)
-│   │   │   ├── trainer/         # 训练器
-│   │   │   ├── models/          # 神经网络模型
-│   │   │   └── wandb_logger.py  # WandB日志
-│   │   ├── tools/               # 独立工具 (tools/slm 包: SLM相位捕获, LUT校准; Micro-DM逐单元图像采集)
+│   │   ├── utils/               # 工具函数 (spots_calc, wavefront_calc, targets, beam_metrics, slm_utils, slm_camera, slm_phase, hardware_utils, resample)
+│   │   ├── tools/               # 独立工具 (tools/slm 包: SLM相位捕获, LUT校准, 扫描分析助手, 硬件自检; Micro-DM逐单元图像采集)
 │   │   ├── display/             # 可视化 (窗口, GUI帧)
 │   │   └── gui/                 # GUI组件 (Streamlit)
+│   ├── ml/                      # 机器学习独立包 (U-Net+GAN, 训练, 模型)
+│   │   ├── trainer/             # 训练器
+│   │   ├── models/              # 神经网络模型
+│   │   └── wandb_logger.py      # WandB日志
 │   ├── calculators/             # Cython扩展 (独立)
 │   └── optical_ui/              # [已废弃]
 ├── tests/ao_shaping/             # 测试 (镜像src结构)
-├── scripts/                      # 实用脚本
+├── scripts/                      # 实用脚本 (含报告生成 generate_*_report.py)
+├── docs/                         # 文档与报告 (slm/, wfs/, miicam/, slm-200/, micro-dm/ 等)
 ├── libs/                         # 第三方SDK二进制 (gxipy, Drv_UDPST)
 └── AGENTS.md                     # 开发指南
 ```
@@ -205,6 +210,70 @@ DEBUG=1 python src/ao_shaping/main.py pipeline --epochs 6000
 python src/ao_shaping/main.py zernike-matrix [OPTIONS]
 ```
 等同于: `python -m ao_shaping.runners.zernike_matrix_runner`
+
+#### SLM Zernike RMS 优化 (rms-zernike)
+```bash
+python src/ao_shaping/main.py rms-zernike [OPTIONS]
+```
+等同于: `python -m ao_shaping.runners.rms_zernike_runner`
+
+通过 SLM 加载 Zernike 相位, 以 WFS 测量的 RMS 为目标进行优化 (梯度法 SPGD), 实现波前校正。支持 delta 自动检测 (数量级扫描) 与多起点优化。
+
+选项:
+- `-d, --dir`: 数据保存根目录 (默认: data)
+- `-e, --epochs`: 优化迭代次数 (默认: 20000)
+- `-n, --n-max`: Zernike最大阶数 (默认: 4)
+- `--lr`: 学习率 (默认: 0.01)
+- `--delta`: 初始delta值 (默认: 0.0)
+- `-r, --wfs_res`: WFS分辨率 (默认: 1024)
+- `-p, --pupil_diameter`: 瞳孔直径 (默认: 2.7)
+- `-c, --pupil_center`: 瞳孔中心坐标 (默认: (0,0))
+- `--exposure-time-ms`: WFS曝光时间 (毫秒, 默认: 0.0=自动曝光)
+- `-t, --early_stop_threshold`: 早停阈值 (默认: 0.12)
+- `--wavelength`: SLM波长 (nm, 默认: 532)
+- `--shift-x` / `--shift-y`: SLM相位平移 (像素, 默认: 0)
+- `--wait-time`: SLM 液晶翻转等待时间 (秒, 默认: 0.3)
+- `--slm-number`: SLM设备编号 (默认: 1)
+- `--remove-tilt`: 移除波前测量中的倾斜项
+- `--min-delta` / `--max-delta` / `--delta-step`: 自动检测 delta 的数量级扫描范围与步数
+- `--n-directions`: 每个delta采样次数防噪声 (默认: 5)
+- `--n-init-positions`: 多起点优化的随机初始位置数量 (默认: 0, 禁用) / `--init-range`: 随机范围 (默认: 1.0)
+- `--lr-schedule` (static/cosine/exp/linear) / `--lr-min`; `--delta-schedule` / `--delta-min`: 学习率与delta调度
+- `--optimizer`: 优化器类型 (adamod/adamw, 默认: adamod)
+- `--beta1`: Adam beta1 (默认: 0.95) / `--weight-decay`: AdamW权重衰减 (默认: 1e-2)
+- `--mini-batch`: SPGD mini-batch大小 (默认: 1)
+- `--gradient-clip`: 梯度裁剪阈值 (默认: 0.0, 禁用)
+- `--stagnation-patience`: 停滞检测轮数 (默认: 30) / `--stagnation-delta-boost`: 停滞时delta倍增 (默认: 1.5)
+- `--freeze-threshold`: 冻结高阶模式阈值 (默认: None)
+- `--early-stop-window` / `--early-stop-min-epochs` / `--early-stop-patience`: 早停滑动窗口/最小轮数/耐心值
+- `--n-frames`: WFS帧平均数 (默认: 10)
+
+#### 遗传算法 Zernike 优化 (ga-zernike)
+```bash
+python src/ao_shaping/main.py ga-zernike [OPTIONS]
+```
+等同于: `python -m ao_shaping.runners.ga_zernike_runner`
+
+基于遗传算法 (GA) 搜索最优 Zernike 系数组合, 以 WFS 测量 RMS 为适应度。适合无梯度/多峰搜索场景。
+
+选项:
+- `-d, --dir`: 数据保存根目录 (默认: data)
+- `--population-size`: 种群大小 (默认: 50)
+- `--n-generations`: GA迭代代数 (默认: 2000)
+- `--crossover-prob`: 交叉概率 (默认: 0.7)
+- `--mutation-prob`: 变异概率 (默认: 0.15)
+- `--tournament-size`: 锦标赛选择大小 (默认: 3)
+- `--elite-count`: 精英个体数量 (默认: 2)
+- `-n, --n-max`: 最大Zernike径向阶数 (默认: 4)
+- `-w, --wavelength`: SLM波长 (nm, 默认: 532)
+- `--wfs-res`: WFS分辨率 (默认: 1024)
+- `--pupil-diameter`: WFS瞳孔直径 (默认: 4.6)
+- `-c, --pupil-center`: 瞳孔中心坐标 (默认: (0,0))
+- `--early-stop-threshold`: 早停RMS阈值 (默认: 0.01)
+- `--slm-number`: SLM设备编号 (默认: 1)
+- `--remove-tilt`: 去除波前倾斜 (默认: False)
+- `--shift-x` / `--shift-y`: SLM X/Y方向偏移 (像素, 默认: 0)
+- `--show`: 显示优化历史 (默认: False)
 
 #### Zernike波前优化器 - 贪婪局部搜索 (greedy-zernike)
 ```bash
@@ -451,6 +520,53 @@ python src/ao_shaping/main.py slm-diagnose
 python src/ao_shaping/main.py slm-diagnose --step freeze
 ```
 
+#### SLM 方形光斑 SPGD 整形 (spgd-square)
+```bash
+python src/ao_shaping/main.py spgd-square [OPTIONS]
+```
+等同于: `python -m ao_shaping.runners.slm_square_runner`
+
+通过 SPGD (随机并行梯度下降) 优化 Zernike 系数, 将远场光斑整形为**均匀方形** (SLM+CCD 闭环)。目标方形边长可由 `--target-side` 显式指定 (像素) 或由 `--target-mean-brightness` 按总亮度能量守恒自动推导。支持 `--basis zernike` (与 GUI 一致的 radius=600 + defocus + spherical 初始化) 与 `--basis freeform` (自由相位网格, 可合成方形)。
+
+选项:
+- `-e, --epochs`: 优化迭代次数 (默认: 2000)
+- `-n, --n-max`: Zernike最大径向阶数 (默认: 4)
+- `-c, --center`: 光斑中心检测 (shape=智能argmax锚定, 默认 / centroid_thresh=亮度重心 / max=峰值位置 / mass=质心, 易被杂散光拉偏 / 'x,y'=固定坐标)
+- `--target-side`: 目标方形边长 (像素, 默认: 0=自动; 与 --target-mean-brightness 互斥)
+- `--target-mean-brightness`: 目标方形平均亮度 (灰度, >0 时由总亮度能量守恒自动推导边长)
+- `--side-factor`: 自动边长倍率 (默认: 1.5)
+- `-d, --delta`: 扰动幅度 (默认: 0.1)
+- `--lr`: 学习率, 0=自动 (默认: 0)
+- `-t, --exposure-ms`: 相机曝光时间ms (默认: 80)
+- `--cam-id`: 相机设备ID (默认: 0)
+- `-s, --cam-size`: 相机开窗大小 (默认: 300)
+- `--slm-number`: SLM设备编号 (默认: 1)
+- `--slm-wavelength`: SLM波长nm (默认: 1064)
+- `--optimizer`: adam/adamod/sgd/muno (默认: adamod)
+- `--target-brightness`: 目标最大亮度 (默认: 200)
+- `--w-uniformity` (默认: 0.4) / `--w-efficiency` (默认: 0.6) / `--w-aspect` (默认: 0.0): 质量评分权重 (均匀性/能量效率/宽高比)
+- `--basis`: 相位参数化 (zernike=默认, 与GUI一致: radius=600 + defocus + spherical / freeform=自由相位, 可合成方形)
+- `--phase-grid`: freeform 相位网格边长 (dim=grid², 默认: 24)
+- `--zernike-radius`: Zernike 孔径半径 px (默认: 600 = SLM 面板短边一半, 与GUI一致)
+- `--zernike-mask`: 0/1 binary mask (逗号分隔), 指定参与优化的 Zernike 模式 (Noll 1-3 强制为 0; 覆盖 --basis zernike 默认)
+- `--rotation-search`: SLM↔相机相对旋转搜索范围 (度, 0~360; 0=关闭旋转校正)。>0 时旋转角作为额外 SPGD 自由度在 ±range/2 内搜索
+- `--init-defocus` (默认: 1.0) / `--init-spherical` (默认: 0.5): 初始 Defocus (2,0) / Spherical (4,0) 系数
+- `--init-coeffs`: 初始Zernike系数JSON (Noll 索引 dict 或 Noll 序数组); zernike 基只优化 Defocus(2,0)[Noll 4] 与 Spherical(4,0)[Noll 11], 例如 `'{"4":1.0,"11":0.5}'`
+- `--save-best-image`: 保存最优远场图 PNG
+- `--seed`: 随机种子 (默认: None)
+- `--show`: 显示中间图像
+
+**注意**: 目标函数必须包含能量项 (环绕能量 EE), 仅优化亮度均匀性 (-CV) 会把能量推出目标框 (硬件实测 EE→0.002)。方形整形应使用自由相位自由度 (full-pixel/freeform), 低阶 Zernike (n≤4) 无法合成方形远场。
+
+示例:
+```bash
+# 默认 zernike 参数化方形整形
+python src/ao_shaping/main.py spgd-square --epochs 2000
+
+# freeform 自由相位方形整形 (可合成方形)
+python src/ao_shaping/main.py spgd-square --basis freeform --phase-grid 24
+```
+
 #### 可微光束整形 (diff-beam)
 ```bash
 python src/ao_shaping/main.py diff-beam [OPTIONS]
@@ -637,10 +753,45 @@ python src/ao_shaping/main.py dm-matrix [OPTIONS]
 - `--optimize-n-avg`: 电压优化时的WFS读取次数 (默认: 10)
 - `--display/--no-display`: 显示实时pygame显示 (暂未实现)
 - `--debug`: 启用调试模式 (保存原始测量数据)
+- `--mode [sequential|hadamard]`: 校准模式 (默认: sequential)。sequential=逐单元推拉; hadamard=哈达玛模式, 所有有效单元按哈达玛行同时推拉, 测量次数显著减少
+- `--hadamard-order`: 哈达玛矩阵阶数 (mode=hadamard 时使用, 默认: None=自动取 >= 有效单元数的最小 2 的幂; mode=sequential 时忽略)
 
 示例:
 ```bash
+# 默认逐单元推拉
 DEBUG=1 python src/ao_shaping/main.py dm-matrix --voltage 0.2 --n-averages 5 --output data/dm_response.h5
+
+# 哈达玛模式 (所有单元同时扰动, 测量次数更少)
+python src/ao_shaping/main.py dm-matrix --mode hadamard --output data/dm_response_had.h5
+```
+
+#### AdaMOD+SPGD 混合 PIB 优化 (combined)
+```bash
+python src/ao_shaping/main.py combined [OPTIONS]
+```
+等同于: `python -m ao_shaping.runners.combined_runner`
+
+基于 AdaMOD + SPGD 混合策略的 PIB (桶内功率) 优化 (DM+CCD 无波前模式)。该 runner 功能仍通过 `combined` 命令可用，非废弃；`pipeline_runner` 是推荐的 WF→PIB 串行方案。
+
+选项:
+- `-d, --root_dir`: 数据保存根目录 (默认: data)
+- `-f, --load_file`: 加载初始电压文件
+- `--cam_id`: 远场光斑CCD设备ID (默认: Far_CAM_ID/0)
+- `-c, --center`: 场光斑CCD中心位置 (默认: mass 质心)
+- `-t, --exposure_time_ms`: 远场光斑CCD曝光时间 (毫秒, 默认: 80)
+- `-e, --epochs`: 优化迭代次数 (默认: 4000)
+- `-r, --r_bucket`: 半径桶大小 (默认: 0, 环围半径自动调整)
+- `--delta`: 优化步长 (默认: 1.0)
+- `--lr`: 优化学习率 (默认: 0.0, 动态学习率衰减)
+- `--shrink_iter` / `--shrink_ratio`: 收缩半径桶的迭代间隔 (默认: 0 不收缩) / 比例 (默认: 0.9)
+- `-s, --cam_size`: 相机开窗大小 (默认: 250)
+- `-b, --target_max_brightness`: 目标最大亮度值 (默认: 40)
+- `--show`: 显示远场光斑CCD图像和优化历史
+- `--dm_type`: 变形镜类型 (nlight/micro/asyn_micro/zernike/hadamard, 默认: auto-detect)
+
+示例:
+```bash
+DEBUG=1 python src/ao_shaping/main.py combined --epochs 2000 --cam_size 250
 ```
 
 ### 串行流水线优化器处理流程详解
@@ -733,37 +884,62 @@ python -m ao_shaping.runners.pipeline_runner [OPTIONS]
 python -m ao_shaping.runners.zernike_matrix_runner [OPTIONS]
 ```
 
-5. 全息图生成:
+5. SLM Zernike RMS 优化:
+```bash
+python -m ao_shaping.runners.rms_zernike_runner [OPTIONS]
+```
+
+6. 遗传算法 Zernike 优化:
+```bash
+python -m ao_shaping.runners.ga_zernike_runner [OPTIONS]
+```
+
+7. 全息图生成:
 ```bash
 python -m ao_shaping.runners.gs_hologram_runner [OPTIONS]
 ```
 
-6. GS闭环光束整形:
+8. GS闭环光束整形:
 ```bash
 python -m ao_shaping.runners.gs_square_runner [OPTIONS]
 ```
 
-7. 可微分闭环光束整形 (PyTorch):
+9. 可微分闭环光束整形 (PyTorch):
 ```bash
 python -m ao_shaping.runners.diff_shaping_runner [OPTIONS]
 ```
 
-8. 交替电压下发:
+10. SLM 方形光斑 SPGD 整形:
+```bash
+python -m ao_shaping.runners.slm_square_runner [OPTIONS]
+```
+
+11. 可微分光束整形 (backprop/GS):
+```bash
+python -m ao_shaping.runners.diff_beam_runner [OPTIONS]
+```
+
+12. 交替电压下发:
 ```bash
 python -m ao_shaping.runners.alt_voltage_runner [OPTIONS]
 ```
 
-9. 全量交替电压下发 (AsyncMicroDM):
+13. 全量交替电压下发 (AsyncMicroDM):
 ```bash
 python -m ao_shaping.runners.full_voltage_runner [OPTIONS]
 ```
 
-10. DM响应矩阵标定:
+14. DM响应矩阵标定:
 ```bash
 python -m ao_shaping.runners.dm_matrix_runner [OPTIONS]
 ```
 
-10. Micro-DM 逐单元图像采集:
+15. AdaMOD+SPGD 混合 PIB 优化:
+```bash
+python -m ao_shaping.runners.combined_runner [OPTIONS]
+```
+
+16. Micro-DM 逐单元图像采集:
 ```bash
 python -m ao_shaping.tools.micro_dm_image_collect [OPTIONS]
 ```
@@ -816,7 +992,7 @@ data/md_test/
 
 详细说明见: `data/md_test/README.md`
 
-注意: `combined_runner.py` 已废弃，请使用 `pipeline_runner`
+注意: `combined_runner.py` 功能仍通过 `combined` 命令可用，非废弃；`pipeline_runner` 是推荐的 WF→PIB 串行方案。
 
 ### ML训练 (U-Net+GAN相位预测)
 
@@ -1217,8 +1393,24 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 
 - [AGENTS.md](AGENTS.md): 开发指南和项目架构
 - [drivers/AGENTS.md](src/ao_shaping/drivers/AGENTS.md): 硬件驱动文档
+- [scripts/README.md](scripts/README.md): 脚本说明 (含报告生成架构)
+- [docs/](docs/): 项目文档与报告 (2026-09 起从根目录迁移集中):
+  - [SLM 相关](docs/slm/): 报告与攻关记录 (`report2.md`, `report3.md`, 日报 `daily_*.md`, 方形整形 `slm_square_spgd/README.md`, 可微整形 `slm_shaping_diff/readme.md`, Zernike 线性度 `zernike_linearity/linearity.md`, Zernike 响应矩阵报告 `zernike_response_matrix_report/report.md`)
+  - **硬件评测报告** (2026-09 重新生成): [WFS](docs/wfs/wfs_report.md) / [MiiCam](docs/miicam/miicam_report.md) / [SLM-200](docs/slm-200/slm-200_report.md) / [Micro-DM](docs/micro-dm/micro-dm_report.md)
+  - [性能对比](docs/performance_comparison.md)、[光束整形基准指标](docs/beam_shaping_benchmark_metrics.md)、[已知问题](docs/issues_report.md)
+  - [diff-beam 可微整形说明](docs/diff_beam/README.md)、[PIB 优化器功能报告](docs/reports/pib_optimizer_functional_report.md)
 
 ## 近期更新
+
+### v0.12.0 (2026-09-17)
+- **共享扫描分析助手** (`tools/slm/slm_scan_analysis.py`): 纯 numpy 提取 `outlier_mask` (Z-score 异常点剔除)、`group_raw_scan` (灰度扫描分批求均值/标准差)、`analyze_linearity` (线性度指标)、`LINEARITY_AMPS`、`latest_match` 等 7 个公共符号; `zernike_matrix_runner` 改用 `outlier_mask` 剔除伪影点; 报告生成脚本 (`generate_zernike_response_matrix_report.py` / `generate_zernike_linearity_report.py`) 委托同一助手, 消除 `calibration.py`/`slm_lut_runner` 中的复刻逻辑
+- **共享相机/相位工具** (`utils/slm_camera.py`, `utils/slm_phase.py`): `open_daheng_camera`/`open_miicam_camera` 工厂 + `flat_gray`/`capture_frame` 等; `micro_dm_image_collect` 迁移到 `slm_camera`, 消除重复初始化代码
+- **slm_slot 助手并入 Santec 驱动**: `utils/slm_slot.py` 删除, `SLOT_MIN`/`SLOT_MAX`、`SlotRotator`、`choose_slot`、`read_current_slot`、`apply_lut_remap` 移至驱动内部 (经 `santec/__init__.py` re-export 保持公共面)
+- **calibration.py 拆分**: 离散几何标定 (`SLMCCDCalibrator`, 现行主流程) 与 LUT 标定 (`SLMLUTCalibrator`, `DeprecationWarning` 废弃) 分离; LUT canonical 路径收敛到 `slm_lut_runner` + `utils/slm_lut` → `Santec.load_lut`
+- **tools/slm 迁移到 raw-grayscale 契约**: 扫描分析/校准工具统一走 uint16 直接灰度 (不经弧度转换, 2π=993 周期), 消除 `PatternHelper` 遗留 min-max 归一化
+- **回归锚点测试 + 硬件自检 pytest 包装** (`a715937`): 纯逻辑回归锚点 (scan/lut/zernike/calibration/cartographer) + `AO_RUN_HARDWARE` 环境变量门控硬件自检用例 (默认 skip, 避免 CI 挂起)
+- **文档迁移**: 根目录报告文档 (`beam_shaping_benchmark_metrics.md`, `issues_report.md`) 与 `performance_comparison` 输出迁移至 `docs/`; 重新生成硬件测试报告 (wfs/miicam/slm-200/micro-dm); `scripts/README.md` 补充报告生成架构文档
+- **README 同步**: 补全缺失 CLI 文档 (`rms-zernike`, `ga-zernike`, `combined`, `spgd-square`), 修正项目结构树 (`ml/` 独立包位置、新增共享模块), 修复 `combined_runner` 废弃标注矛盾与脚本编号重复
 
 ### v0.11.0 (2026-09-16)
 - **SLM 相位生成 raw-only 契约**: 所有 SLM 相位生成函数只产生 **raw 未包裹弧度**，不再自行 `mod 2π`——唯一 wrap 点在驱动 `Santec.create_phase_from_array()` 的弧度→灰度转换 (`santec/driver.py` L1382)。涉及 `optimizer/wfless/slm_square_shaping.py: _freeform_phase_radians` 移除末尾 `np.mod`、`_params_to_gray` 与 `slm_zernike_pib._zernike_to_phase` docstring 同步为 raw-only (`_zernike_phase_radians` 保留 wrapped 输出仅作 test-only 参考实现)

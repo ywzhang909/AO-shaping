@@ -8,6 +8,12 @@ Usage:
 
 Or via main CLI:
     python -m ao_shaping.main dm-matrix [OPTIONS]
+
+TODO (实机待测试清单, 完整清单见 run() docstring):
+    ⚠️ 2026-09-17: sequential/hadamard 双模式标定内核为新增代码, 已通过离线
+    仿真测试 (122 passed, 1 hardware-skip) 与合成数据冒烟, 但**尚未上设备
+    实测**。DM/WFS 当前不可达 (nlight/micro is_reachable()=False), 待测项
+    逐条列于 `run()` docstring 的 TODO 清单。
 """
 
 from __future__ import annotations
@@ -90,6 +96,18 @@ from ao_shaping.utils.wfs_utils import make_actuator_debug_callback
     default=None,
     help="变形镜类型 (default: auto-detect). 若未指定且仅一个DM在线则自动选取，否则报错.",
 )
+@click.option(
+    "--mode",
+    type=click.Choice(["sequential", "hadamard"]),
+    default="sequential",
+    help="校准模式: sequential=逐单元推拉; hadamard=哈达玛模式同时推拉 (测量次数更少, 所有单元同时扰动)",
+)
+@click.option(
+    "--hadamard-order",
+    type=int,
+    default=None,
+    help="哈达玛矩阵阶数 (mode=hadamard时使用); None=自动 (>=有效单元数的最小2的幂). mode=sequential时忽略",
+)
 def run(
     ctx: click.Context,
     disturb_voltage: float,
@@ -112,6 +130,8 @@ def run(
     display: bool,
     debug: bool | None,
     dm_type: str | None,
+    mode: Literal["sequential", "hadamard"],
+    hadamard_order: int | None,
 ):
     """获取DM变形镜响应矩阵
 
@@ -123,6 +143,17 @@ def run(
 
     调试模式 (--debug):
         保存每次测量的原始WFS deviation数据。
+
+    TODO (实机待测试清单 —— sequential/hadamard 双模式尚未上设备实测):
+        [ ] sequential 模式真实 DM+WFS n=5 重跑 (n-averages 10) + 自动电压优化:
+            矩阵形状/条件数与仿真一致, 平均方差正常 (无死执行器误报)
+        [ ] hadamard 模式自动阶数实测: 与 sequential 矩阵一致性 (相关性/条件数
+            同量级), 测量时间显著减少 (所有有效单元同时扰动)
+        [ ] hadamard 显式阶数: --hadamard-order 指定 ≥有效单元数的最小 2 的幂
+            时正常; 非合法值应报清晰错误
+        [ ] 矫正闭环验证: 以标定矩阵 (pinv_matrix) 做波前矫正, RMS 明显改善
+        [ ] report3: scripts/generate_dm_response_matrix_report.py 以真实 h5
+            生成报告 (图/表齐全), 结果写入 docs/slm 日报
     """
     if debug is None:
         debug = get_debug_mode()
@@ -224,6 +255,8 @@ def run(
                 auto_optimize_voltage=auto_optimize_voltage,
                 optimize_n_avg=optimize_n_avg,
                 debug_data_callback=debug_data_callback,
+                mode=mode,
+                hadamard_order=hadamard_order,
             )
 
             # Build device config snapshot
@@ -234,6 +267,8 @@ def run(
                 "use_custom_ref": use_custom_ref,
                 "pupil_center": list(pupil_center),
                 "pupil_diameter": pupil_diameter,
+                "dm_type": type(dm).__name__,
+                "dm_num": dm.DM_NUM if hasattr(dm, "DM_NUM") else 64,
             }
 
             # Save
@@ -246,6 +281,9 @@ def run(
             click.echo(f"  斜率维数: {result.n_slopes}")
             click.echo(f"  平均方差: {result.mean_variance:.6e}")
             click.echo(f"  最大方差: {result.max_variance:.6e}")
+            click.echo(f"  校准模式: {mode}")
+            if result.hadamard_order is not None:
+                click.echo(f"  哈达玛阶数: {result.hadamard_order}")
             if result.condition_number is not None:
                 click.echo(f"  条件数: {result.condition_number:.2e}")
             if debug_data_dir is not None:

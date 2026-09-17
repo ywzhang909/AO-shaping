@@ -34,6 +34,7 @@ from ao_shaping.drivers import MlaRes, ThorlabWFS
 from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.utils import Recorder, logger
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
+from ao_shaping.optimizer.spgd import spgd_gradient
 
 # =============================================================================
 # Scheduling utilities for LR and delta
@@ -320,7 +321,8 @@ def compute_mini_batch_gradient(
 
         # Compute gradient for this batch
         diff = pos_rms - neg_rms
-        gradient = diff * disturb_c
+        # SPGD sign from the shared helper (optimizer/spgd.py): RMS is minimised.
+        gradient = spgd_gradient(pos_rms, neg_rms, disturb_c, maximize=False)
         gradients.append(gradient)
         pos_rms_list.append(pos_rms)
         neg_rms_list.append(neg_rms)
@@ -761,7 +763,13 @@ def optimizer_rms_slm(
                     neg_j = neg_statics["rms"]
 
                     diff = pos_statics["rms"] - neg_statics["rms"]
-                    gradient = diff * disturb_c
+                    # SPGD sign from the shared helper (optimizer/spgd.py).
+                    gradient = spgd_gradient(
+                        pos_statics["rms"],
+                        neg_statics["rms"],
+                        disturb_c,
+                        maximize=False,
+                    )
 
                 if gradient_clip > 0:
                     gradient = np.clip(gradient, -gradient_clip, gradient_clip)

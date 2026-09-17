@@ -16,6 +16,7 @@ Commands:
     rms-zernike     Zernike RMS优化器
     ga-zernike      GA Zernike优化器
     greedy-zernike  贪婪局部搜索Zernike优化器
+    slm-pib         SLM Zernike PIB优化器
 
 Examples:
     python main.py --debug wf --epochs 10000
@@ -53,6 +54,7 @@ from ao_shaping.runners import (
     pib_run,
     pipeline_run,
     rms_zernike_run,
+    slm_pib_run,
     slm_square_run,
     wf_run,
     zernike_closed_loop_run,
@@ -110,6 +112,7 @@ cli.add_command(diff_shaping_run, name="diff-shaping")
 cli.add_command(slm_lut_run, name="slm-lut")
 cli.add_command(slm_diagnose_run, name="slm-diagnose")
 cli.add_command(slm_square_run, name="spgd-square")
+cli.add_command(slm_pib_run, name="slm-pib")
 
 
 # Entry point

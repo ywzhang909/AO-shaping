@@ -23,6 +23,12 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.utils.slm_camera import (
+    open_daheng_camera as _get_daheng_camera,
+)
+from ao_shaping.utils.slm_camera import (
+    open_miicam_camera as _get_miicam_camera,
+)
 from ao_shaping.utils.slm_lut import (
     build_inverse_lut,
     depth_pattern,
@@ -32,47 +38,6 @@ from ao_shaping.utils.slm_lut import (
     save_lut,
     stack_halves,
 )
-
-# ── Camera factory (lazy import, matching gs_square_runner pattern) ─────────
-
-
-def _get_miicam_camera(cam_id: int, exposure_ms: float, bit_depth: int = 8):
-    """Import and create MiiCam camera instance (lazy)."""
-    try:
-        from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
-
-        cam = CameraStreamManager(
-            cam_id=cam_id,
-            exposure_time_ms=exposure_ms,
-            bit_depth=bit_depth,
-        )
-        cam.open()
-        return cam
-    except ImportError as exc:
-        logger.warning("MiiCam camera unavailable: {}", exc)
-        raise
-    except Exception as exc:
-        logger.error("MiiCam camera init failed: {}", exc)
-        raise
-
-
-def _get_daheng_camera(cam_id: int, exposure_ms: float):
-    """Import and create Daheng camera instance (lazy)."""
-    try:
-        from ao_shaping.drivers.ccd.daheng import DahengCamManager
-
-        cam = DahengCamManager(cam_id=cam_id, exposure_time_ms=exposure_ms)
-        cam.open()
-        return cam
-    except ImportError as exc:
-        logger.warning("Daheng camera unavailable: {}", exc)
-        raise
-    except Exception as exc:
-        logger.error("Daheng camera init failed: {}", exc)
-        raise
-
-
-# ── Spot detection helpers ──────────────────────────────────────────────────
 
 # λ=1064 nm, f=0.125 m, d=8 µm → p_cam ≈ 3.31 µm → scale ≈ 5021 px·period
 _DIFFRACTION_SCALE_PX = 5021.0  # λ·f / (d·p_cam) in px·period
@@ -182,7 +147,9 @@ def _locate_spots(
             return None
         return int(x0 + dx), int(y0 + dy), peak_val
 
-    def _side_candidates(x_off: int) -> tuple[tuple[int, int, float] | None, tuple[int, int, float] | None]:
+    def _side_candidates(
+        x_off: int,
+    ) -> tuple[tuple[int, int, float] | None, tuple[int, int, float] | None]:
         """Candidate +1 peaks at ``gx - x_off`` (left) and ``gx + x_off``."""
         left = _peak_at(gx - x_off)
         right = _peak_at(gx + x_off)
@@ -195,7 +162,8 @@ def _locate_spots(
         logger.error(
             "Cannot locate +1-order spot for REF half (period={}, expect ±{} px). "
             "Check laser alignment and SLM camera.",
-            period_ref, x_off_ref,
+            period_ref,
+            x_off_ref,
         )
         sys.exit(1)
 
@@ -209,7 +177,8 @@ def _locate_spots(
         logger.error(
             "Cannot locate +1-order spot for TEST half (period={}, expect ±{} px). "
             "Check laser alignment and SLM camera.",
-            period_test, x_off_test,
+            period_test,
+            x_off_test,
         )
         sys.exit(1)
     test_spot = (test_peak[0], test_peak[1])
@@ -217,7 +186,12 @@ def _locate_spots(
     logger.info(
         "Spots located — center(0th): {}, ref: {} (period={}, side={:+d}), "
         "test: {} (period={})",
-        (gx, gy), ref_spot, period_ref, side, test_spot, period_test,
+        (gx, gy),
+        ref_spot,
+        period_ref,
+        side,
+        test_spot,
+        period_test,
     )
 
     return {
@@ -230,87 +204,88 @@ def _locate_spots(
 # ── Measurement helpers ─────────────────────────────────────────────────────
 
 
-def _joint_exposure_check(
-    frame: np.ndarray,
+def _joint_exposure_settle(
     rois: list[tuple[tuple[int, int], int]],
     full_well: float,
     camera,
-    current_exposure_ms: float,
+    exposure_ms: float,
     bright_floor: float,
     saturation_stop: float,
-) -> tuple[np.ndarray, float, bool]:
-    """Joint auto-exposure over all spot ROIs — keeps ref/test on ONE frame.
+    max_rounds: int = 8,
+    settle_s: float = 0.05,
+) -> float:
+    """Set exposure ONCE before the scan and iterate until all spot ROIs sit
+    in the safe band.  Returns the settled exposure.
 
-    The scan measures the ref/test power ratio from the same frame so laser
-    drift cancels.  Auto-exposure must therefore be applied JOINTLY: if ANY roi
-    saturates the exposure is halved; if the AVERAGE roi mean is underexposed
-    it is doubled.  At most one adjustment round is applied per call; the
-    caller re-captures as needed on the next iteration.
+    LUT calibration requires a CONSTANT exposure across every gray point — the
+    ``invert_depth_scan`` model assumes the ref/test ratio is drift-canceled
+    by measuring both halves from the same frame, but NOT by changing exposure
+    mid-scan.  Adjusting exposure inside the scan loop would silently invalidate
+    every ratio.  So exposure is fixed here, before the scan starts.
 
     Args:
-        frame: Current camera frame (uint8, uint16 or float64).
         rois: List of ``((cx, cy), window)`` spot regions to guard.
         full_well: Maximum pixel value (255 for 8-bit, 65535 for 16-bit).
         camera: Camera instance with ``reset_exposure_time``.
-        current_exposure_ms: Current exposure time.
+        exposure_ms: Initial exposure time.
         bright_floor: Minimum normalized ROI mean to avoid underexposure.
         saturation_stop: Maximum normalized ROI max to avoid saturation.
+        max_rounds: Max adjustment rounds.
+        settle_s: Sleep after each exposure change.
 
     Returns:
-        ``(frame, exposure_ms, adjusted)`` — a possibly re-captured frame and
-        the exposure that produced it.
+        Settled exposure in ms.
     """
-    h, w = frame.shape[:2]
-    max_norm = 0.0
-    mean_norm_sum = 0.0
-    n_rois = 0
+    if not rois:
+        return exposure_ms
 
-    for (cx, cy), win in rois:
-        half_win = win // 2
-        y0 = max(cy - half_win, 0)
-        y1 = min(cy + half_win + 1, h)
-        x0 = max(cx - half_win, 0)
-        x1 = min(cx + half_win + 1, w)
-        roi = frame[y0:y1, x0:x1]
-        if roi.size == 0:
+    for rnd in range(max_rounds):
+        camera.reset_exposure_time(exposure_ms)
+        time.sleep(settle_s)
+        frame = np.asarray(
+            camera.get_numpy_image(n_sample=1, skip_first=True),
+            dtype=np.float64,
+        )
+        h, w = frame.shape[:2]
+        max_norm = 0.0
+        mean_norm_sum = 0.0
+        n_rois = 0
+        for (cx, cy), win in rois:
+            half_win = win // 2
+            y0 = max(cy - half_win, 0)
+            y1 = min(cy + half_win + 1, h)
+            x0 = max(cx - half_win, 0)
+            x1 = min(cx + half_win + 1, w)
+            roi = frame[y0:y1, x0:x1]
+            if roi.size == 0:
+                continue
+            max_norm = max(max_norm, float(np.max(roi)) / full_well)
+            mean_norm_sum += float(np.mean(roi)) / full_well
+            n_rois += 1
+        if n_rois == 0:
+            return exposure_ms
+        mean_norm = mean_norm_sum / n_rois
+        logger.info(
+            "曝光标定[{}/{}]: exp={:.3f}ms  ROI max={:.3f} mean={:.4f}",
+            rnd + 1,
+            max_rounds,
+            exposure_ms,
+            max_norm,
+            mean_norm,
+        )
+        if max_norm > saturation_stop and exposure_ms > 0.01:
+            exposure_ms = max(exposure_ms / 2.0, 0.01)
             continue
-        max_norm = max(max_norm, float(np.max(roi)) / full_well)
-        mean_norm_sum += float(np.mean(roi)) / full_well
-        n_rois += 1
-
-    if n_rois == 0:
-        return frame, current_exposure_ms, False
-
-    mean_norm = mean_norm_sum / n_rois
-    adjusted = False
-    new_exposure = current_exposure_ms
-
-    if max_norm > saturation_stop and current_exposure_ms > 0.01:
-        new_exposure = max(current_exposure_ms / 2.0, 0.01)
-        logger.info(
-            "Auto-exposure: ROI max {:.3f} > saturation_stop {:.3f}, "
-            "halving exposure {:.3f}→{:.3f} ms",
-            max_norm, saturation_stop, current_exposure_ms, new_exposure,
-        )
-        adjusted = True
-    elif mean_norm < bright_floor and current_exposure_ms < 10000:
-        new_exposure = min(current_exposure_ms * 2.0, 10000.0)
-        logger.info(
-            "Auto-exposure: ROI mean {:.4f} < bright_floor {:.3f}, "
-            "doubling exposure {:.3f}→{:.3f} ms",
-            mean_norm, bright_floor, current_exposure_ms, new_exposure,
-        )
-        adjusted = True
-
-    if adjusted:
-        camera.reset_exposure_time(new_exposure)
-        time.sleep(0.05)  # brief settle after exposure change
-        new_frame = np.asarray(
-            camera.get_numpy_image(n_sample=1, skip_first=True), dtype=np.float64,
-        )
-        return new_frame, new_exposure, True
-
-    return frame, current_exposure_ms, False
+        if mean_norm < bright_floor and exposure_ms < 10000:
+            exposure_ms = min(exposure_ms * 2.0, 10000.0)
+            continue
+        return exposure_ms
+    logger.warning(
+        "曝光标定在 {} 轮后仍未收敛, 使用 exp={:.3f}ms 继续",
+        max_rounds,
+        exposure_ms,
+    )
+    return exposure_ms
 
 
 def _measure_power(
@@ -322,8 +297,9 @@ def _measure_power(
 
     Sums the spot_window×spot_window ROI centered on *spot_center* after
     subtracting a median background estimated from the 2-pixel border ring.
-    Exposure is managed OUTSIDE via ``_joint_exposure_check`` so that ref and
-    test are measured from the same frame (drift-canceled ratio).
+    Exposure is fixed for the whole scan by ``_joint_exposure_settle`` before
+    the loop starts, so ref and test are always measured from the same frame
+    with the same exposure — laser drift cancels in the ratio.
 
     Args:
         frame: Camera frame (uint8, uint16 or float64).
@@ -390,7 +366,8 @@ def _check_spot_drift(
 
     logger.warning(
         "Spot drift detected ({}, {}), re-locating within expected band",
-        drift_x, drift_y,
+        drift_x,
+        drift_y,
     )
 
     # Re-locate: search within a window around expected position
@@ -423,12 +400,20 @@ def _check_spot_drift(
     help="Scan method: depth=scale blaze peak gray; offset=uniform gray-offset scan.",
 )
 # Grating parameters
-@click.option("--period-ref", default=64, type=int, help="Reference half blaze period (SLM px).")
-@click.option("--period-test", default=32, type=int, help="Test half blaze period (SLM px).")
+@click.option(
+    "--period-ref", default=64, type=int, help="Reference half blaze period (SLM px)."
+)
+@click.option(
+    "--period-test", default=32, type=int, help="Test half blaze period (SLM px)."
+)
 @click.option("--gray-step", default=16, type=int, help="Scan step over gray values.")
 # Camera
-@click.option("--exposure-ms", default=0.03, type=float, help="Initial camera exposure (ms).")
-@click.option("--n-frames", default=10, type=int, help="Frames averaged per gray point.")
+@click.option(
+    "--exposure-ms", default=0.03, type=float, help="Initial camera exposure (ms)."
+)
+@click.option(
+    "--n-frames", default=10, type=int, help="Frames averaged per gray point."
+)
 @click.option(
     "--camera-type",
     type=click.Choice(["miicam", "daheng"], case_sensitive=False),
@@ -438,17 +423,28 @@ def _check_spot_drift(
 )
 @click.option("--cam-id", default=0, type=int, help="Camera device ID.")
 # SLM
-@click.option("--settle-time", default=0.3, type=float, help="SLM settle wait after write (s).")
+@click.option(
+    "--settle-time", default=0.3, type=float, help="SLM settle wait after write (s)."
+)
 @click.option("--slm-number", default=1, type=int, help="SLM device number.")
-@click.option("--slm-wavelength", default=1064, type=int, help="SLM working wavelength (nm).")
+@click.option(
+    "--slm-wavelength", default=1064, type=int, help="SLM working wavelength (nm)."
+)
 # Spot detection
-@click.option("--spot-window", default=41, type=int, help="Odd-sized pixel window around spot.")
+@click.option(
+    "--spot-window", default=41, type=int, help="Odd-sized pixel window around spot."
+)
 # Auto-exposure thresholds
-@click.option("--bright-floor", default=0.02, type=float, help="Min normalized ROI mean.")
-@click.option("--saturation-stop", default=0.9, type=float, help="Max normalized ROI max.")
+@click.option(
+    "--bright-floor", default=0.02, type=float, help="Min normalized ROI mean."
+)
+@click.option(
+    "--saturation-stop", default=0.9, type=float, help="Max normalized ROI max."
+)
 # Output
 @click.option(
-    "-o", "--output",
+    "-o",
+    "--output",
     type=click.Path(),
     default="data/slm_lut",
     show_default=True,
@@ -497,7 +493,9 @@ def run(
         # ═══════════════════════════════════════════════════════════════════
         # 1. Open SLM
         # ═══════════════════════════════════════════════════════════════════
-        logger.info("Connecting to SLM #{} (wavelength={} nm)...", slm_number, slm_wavelength)
+        logger.info(
+            "Connecting to SLM #{} (wavelength={} nm)...", slm_number, slm_wavelength
+        )
         slm = Santec(
             slm_number=slm_number,
             wavelength=slm_wavelength,
@@ -509,12 +507,16 @@ def run(
         wl_device, gray_for_2pi = slm.get_wavelength_info()
         logger.info(
             "SLM #{} connected — device wl={}nm, 2pi gray={}",
-            slm_number, wl_device, gray_for_2pi,
+            slm_number,
+            wl_device,
+            gray_for_2pi,
         )
 
         # Panel dimensions: Panel_Res = (width, height) for Santec
         slm_width, slm_height = slm.Panel_Res[0], slm.Panel_Res[1]
-        logger.info("SLM panel: {}x{} ({} bit)", slm_width, slm_height, slm.Gray_Scale_bits)
+        logger.info(
+            "SLM panel: {}x{} ({} bit)", slm_width, slm_height, slm.Gray_Scale_bits
+        )
 
         # Warn if WavefrontCorrection is active
         if slm._correction.is_valid:
@@ -530,7 +532,12 @@ def run(
         # ═══════════════════════════════════════════════════════════════════
         # 2. Open camera
         # ═══════════════════════════════════════════════════════════════════
-        logger.info("Opening {} camera (id={}, exposure={:.3f} ms)...", camera_type, cam_id, exposure_ms)
+        logger.info(
+            "Opening {} camera (id={}, exposure={:.3f} ms)...",
+            camera_type,
+            cam_id,
+            exposure_ms,
+        )
         if camera_type == "daheng":
             camera = _get_daheng_camera(cam_id, exposure_ms)
         else:
@@ -566,23 +573,29 @@ def run(
         )
         logger.info(
             "Calibration frame captured: shape={}, max={}",
-            calib_frame.shape, calib_frame.max(),
+            calib_frame.shape,
+            calib_frame.max(),
         )
 
         spots = _locate_spots(calib_frame, period_ref, period_test, spot_window)
         ref_center = spots["ref"]
         test_center = spots["test"]
 
-        # Joint auto-exposure on the located spots (keeps both on ONE frame)
-        calib_frame, final_exposure_ms, _ = _joint_exposure_check(
-            calib_frame,
+        # Joint exposure settle BEFORE the scan — exposure must stay constant
+        # across every gray point so invert_depth_scan's model holds.
+        final_exposure_ms = _joint_exposure_settle(
             [(ref_center, spot_window), (test_center, spot_window)],
-            full_well, camera, final_exposure_ms, bright_floor, saturation_stop,
+            full_well,
+            camera,
+            final_exposure_ms,
+            bright_floor,
+            saturation_stop,
         )
 
         logger.info(
             "Spot centers — ref: {}, test: {}",
-            ref_center, test_center,
+            ref_center,
+            test_center,
         )
 
         # Save calibration frame
@@ -602,7 +615,13 @@ def run(
         if g_values[-1] != max_g:
             g_values = np.append(g_values, max_g)
 
-        logger.info("Scan: method={}, {} gray points from {} to {}", method, len(g_values), g_values[0], g_values[-1])
+        logger.info(
+            "Scan: method={}, {} gray points from {} to {}",
+            method,
+            len(g_values),
+            g_values[0],
+            g_values[-1],
+        )
 
         # ═══════════════════════════════════════════════════════════════════
         # 5. Scan loop
@@ -625,7 +644,12 @@ def run(
             else:
                 # Test half: offset blaze (full depth + gray_offset = g)
                 test_pattern = offset_pattern(
-                    period_test, gray_for_2pi, int(g), slm_bits, half_h, slm_width,
+                    period_test,
+                    gray_for_2pi,
+                    int(g),
+                    slm_bits,
+                    half_h,
+                    slm_width,
                 )
 
             combined = stack_halves(ref_pattern, test_pattern, axis=0)
@@ -639,18 +663,23 @@ def run(
 
             # Period-check: re-track spots if drift exceeds threshold
             ref_center = _check_spot_drift(
-                ref_center, frame, ref_calib_center, period_ref, spot_window,
+                ref_center,
+                frame,
+                ref_calib_center,
+                period_ref,
+                spot_window,
             )
             test_center = _check_spot_drift(
-                test_center, frame, test_calib_center, period_test, spot_window,
+                test_center,
+                frame,
+                test_calib_center,
+                period_test,
+                spot_window,
             )
 
-            # Joint auto-exposure once — both spots measured from the SAME frame
-            frame, final_exposure_ms, _ = _joint_exposure_check(
-                frame,
-                [(ref_center, spot_window), (test_center, spot_window)],
-                full_well, camera, final_exposure_ms, bright_floor, saturation_stop,
-            )
+            # NOTE: exposure is fixed for the whole scan (set before the loop
+            # via _joint_exposure_settle).  Do NOT adjust exposure here —
+            # invert_depth_scan assumes a constant exposure across gray points.
 
             # Measure both powers from the same frame (drift-canceled ratio)
             p_ref, _ = _measure_power(frame, ref_center, spot_window)
@@ -669,15 +698,26 @@ def run(
             if (i + 1) % max(1, len(g_values) // 10) == 0 or i == len(g_values) - 1:
                 logger.info(
                     "[{}/{}] g={}, eta={:.4f}, P_ref={:.1f}, P_test={:.1f}, exp={:.3f}ms",
-                    i + 1, len(g_values), g, eta[i], p_ref, p_test, final_exposure_ms,
+                    i + 1,
+                    len(g_values),
+                    g,
+                    eta[i],
+                    p_ref,
+                    p_test,
+                    final_exposure_ms,
                 )
 
-        logger.info("Scan complete — max eta={:.4f} at g={}", float(np.max(eta)), int(g_values[np.argmax(eta)]))
+        logger.info(
+            "Scan complete — max eta={:.4f} at g={}",
+            float(np.max(eta)),
+            int(g_values[np.argmax(eta)]),
+        )
 
         # ═══════════════════════════════════════════════════════════════════
         # 6. Inversion + artifacts
         # ═══════════════════════════════════════════════════════════════════
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
@@ -790,8 +830,7 @@ def run(
         )
         click.echo(summary)
         click.echo(
-            f"\nLUT saved to {lut_dir}. "
-            f"Load into SLM via: slm.load_lut('{lut_dir}')"
+            f"\nLUT saved to {lut_dir}. Load into SLM via: slm.load_lut('{lut_dir}')"
         )
 
     except Exception as exc:

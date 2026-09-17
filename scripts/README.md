@@ -457,6 +457,12 @@ python scripts/md_img_pipeline.py --input data/md_test/md_img-80v --skip-diff
 > (naming `generate_*_report.py`), never in `src/ao_shaping/tools/` (reserved for
 > hardware-interaction tools). See `AGENTS.md` anti-patterns.
 
+> **Shared analysis helpers**: `scripts/` report generators in the SLM/Zernike
+> family delegate measurement/analysis logic to
+> `src/ao_shaping/tools/slm/slm_scan_analysis.py` (`outlier_mask`, `clamp_shift`,
+> `parabolic_min`, `latest_match`, `group_raw_scan`, `analyze_linearity`,
+> `LINEARITY_AMPS`) — scripts keep only figure/markdown rendering.
+
 ### generate_zernike_wfs_report.py
 
 Generates the illustrated **Zernike phase → WFS readout distribution** report
@@ -526,6 +532,108 @@ calibration with unrelated scan data.
 Sources default to the latest `data/zernike_response_matrix/zm_*.h5`,
 `data/zernike_correction/report_*.json` and `raw_scan_*.json`; override with
 `--h5`, `--scan-report`, `--raw-scan`.
+
+### generate_zernike_linearity_report.py
+
+Generates the **Zernike response linearity** report — when the Zernike
+coefficient loaded on the SLM grows, does the WFS-read coefficient grow
+proportionally? **Fully offline** — reads saved scan artefacts, no hardware.
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src"
+python scripts/generate_zernike_linearity_report.py
+python scripts/generate_zernike_linearity_report.py -o docs/slm/zernike_linearity
+```
+
+**What it does** (writes `linearity.md` + `figures/`):
+- For every (mode, radius) in the raw scan, takes the WFS coefficient at the
+  **same DLL index** `diag = (z₊[m] − z₋[m])/2` and checks it is proportional to
+  the SLM amplitude A: `diag/A` constant (CV < 15%), through-origin linear fit
+  R² > 0.98, and `diag(A=10)/diag(A=2)` ≈ 5.0 (display only — noisy at A=2)
+- The residual baseline `|z₊ + z₋|/2` is the instability proxy: a combination is
+  judged on linearity only when its response rises above that floor (SNR < 1.5 →
+  `噪声受限`)
+- Verdicts: `成比例` / `成比例 (弱耦合)` / `噪声受限` / `不成比例`
+- Renders `01_response_vs_amplitude.png` (response vs amplitude with linear fit)
+  and `02_ratio_r2.png` (A10/A2 ratio + R² bars, color-coded by verdict)
+- `--append-to <md>` appends the section to an existing report (idempotent —
+  replaces the old section; figure paths recomputed relative to the target)
+
+Sources default to the latest `data/zernike_correction/raw_scan_*.json` and
+`data/zernike_correction/report_*.json`; override with `--raw-scan`, `--report`.
+
+### generate_heuristic_pib_report.py
+
+Benchmarks all 7 heuristic optimizers in `ao_shaping.algorithm` (GA, PSO, SA,
+Hill Climbing, Random Search, Cross-Entropy, Differential Evolution) on the PIB
+(power-in-bucket) optimization problem. **Fully offline** — pure numpy, no
+hardware, using the synthetic landscape from
+`ao_shaping.optimizer.wfless.pib_sim_eval.SimLandscape` (dim=4, bounds ±12,
+seed 42).
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src;libs"
+python scripts/generate_heuristic_pib_report.py
+```
+
+**What it does** (writes to `docs/heuristic_pib/`):
+- Runs each optimizer via the `HeuristicOptimizer.create()` factory with its
+  spec config (GA/DE/CEM pop_size=30, PSO n_particles=30, per-algorithm
+  iteration budgets) and records the PIB convergence history
+- `pib_curves.png` — overlaid PIB iteration curves (log x-axis), with 0.5/0.9
+  threshold lines; a dot + `iter N` label marks each curve's first crossing
+  of 0.9 PIB, and each legend label shows `max@N` (first iteration reaching
+  final max PIB)
+- `convergence_speed.png` — grouped bar chart (log y-axis) showing the first
+  iteration each algorithm reaches PIB 0.5 / 0.9 / its final maximum, with
+  exact iteration values annotated above each bar
+- `spot_before_after.png` — 2×4 grid of initial vs best spot renders
+  (`landscape.render`) with shared brightness normalization
+- `summary_bars.png` — horizontal bar chart of final PIB, sorted descending
+- `summary.csv` — `algorithm, final_pib, init_pib, best_x_0..3, n_loads`
+- `report.md` — results table (final PIB / improvement / **iters to max,
+  ≥ 0.9, ≥ 0.5** / n_loads) plus a per-algorithm basin interpretation (global
+  center `[-4.8,-4.2,-4.5,-4.0]` vs local center `[2.5,3.2,2.2,2.8]`)
+- **设备加载语义**: 设备一次只能加载一个相位, 1 次设备加载 = 1 次相位加载 = 1 次目标函数 (PIB) 评估 = 1 次迭代 (evals_per_iter=1); 表格与 CSV 中的 n_loads 即设备相位加载次数/迭代数。
+
+### generate_dm_response_matrix_report.py
+
+Generates the illustrated **DM response matrix** report
+(creation / analysis / detection). **Fully offline** — reads saved artefacts, no
+hardware.
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src"
+python scripts/generate_dm_response_matrix_report.py
+python scripts/generate_dm_response_matrix_report.py --h5 <path> -o docs/dm_response_matrix_report
+```
+
+**What it does** (writes `report.md` + `figures/`):
+- **Creation**: acquisition metadata (calibration mode `sequential`/`hadamard`,
+  hadamard order, n_actuators, valid actuator indices, disturb voltage,
+  averages/cycles, wait time, timestamp, mean/max variance, condition number)
+  + `device_config` dict rendered as a table (incl. `dm_type`/`dm_num` when
+  present)
+- **Analysis**: response-matrix heatmap, repeat-variance heatmap (log10),
+  per-actuator response magnitude (column Frobenius norm) with median + 5%
+  dead-threshold markers, per-subaperture slope-sensitivity spatial map
+  (reshaped from paired dx/dy slopes when the subaperture grid is derivable
+  from the mask; otherwise per-channel magnitude), and singular-value spectrum
+  / condition number
+- **Detection**: weak/dead actuator candidates (column norm < 5% of median)
+  and high-variance actuators (>10× median column variance), each with a
+  per-actuator table and interpretation notes
+
+Legacy `.h5` files without the `calibration_mode`/`hadamard_order` attrs are
+handled via `.get` defaults (`"sequential"` / `None`). The loader prefers
+`ao_shaping.optimizer.wf.dm_response_matrix.load_dm_response_matrix` with a
+graceful h5py fallback if the package import fails.
+
+Sources default to the latest `data/dm_response_matrix*.h5`; override with
+`--h5` and `-o/--output`.
 
 ## Verification Scripts
 

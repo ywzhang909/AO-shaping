@@ -9,6 +9,7 @@ import tqdm
 from ao_shaping.algorithm.adam import AdaMOD
 from ao_shaping.drivers import MlaRes
 from ao_shaping.drivers.wfs import ThorlabWFS
+from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils import Recorder, logger
 
 if TYPE_CHECKING:
@@ -132,7 +133,12 @@ def optimizer_rms_dm(
                 neg_j = neg_statics["rms"]
 
                 diff = pos_statics["rms"] - neg_statics["rms"]
-                gradient = -diff * disturb_v
+                # Single source of truth for the SPGD sign (optimizer/spgd.py):
+                # RMS is MINIMISED, and `optimizer.update()` is a descent step
+                # paired with `param - update`, so the gradient must be the
+                # ASCENT estimate. A hand-rolled `-diff * disturb_v` here made
+                # the loop ascend RMS (sign-audit + Oracle verified).
+                gradient = spgd_gradient(pos_j, neg_j, disturb_v, maximize=False)
 
                 avg_j = (pos_j + neg_j) / 2
                 lr, delta = schedule_lr_delta(avg_j)

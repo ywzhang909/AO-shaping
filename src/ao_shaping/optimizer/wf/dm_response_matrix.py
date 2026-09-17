@@ -32,7 +32,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import h5py
 import numpy as np
@@ -52,6 +52,76 @@ DEFAULT_DISTURB_VOLTAGE: float = 50.0
 DEFAULT_N_AVERAGES: int = 20
 DEFAULT_N_CYCLES: int = 1
 DEFAULT_WAIT_TIME: float = 0.1
+
+
+# ---------------------------------------------------------------------------
+# Hadamard-pattern helpers
+# ---------------------------------------------------------------------------
+
+
+def _next_hadamard_order(n_valid: int) -> int:
+    """Smallest power of two >= n_valid.
+
+    Args:
+        n_valid: Number of valid actuators (must be >= 1).
+
+    Returns:
+        Smallest power of two that is greater than or equal to n_valid.
+
+    Raises:
+        ValueError: If n_valid < 1.
+    """
+    if n_valid < 1:
+        raise ValueError(f"n_valid must be >= 1, got {n_valid}")
+    order = 1
+    while order < n_valid:
+        order <<= 1
+    return order
+
+
+def _hadamard_matrix(order: int) -> np.ndarray:
+    """Construct a Sylvester Hadamard matrix of given order.
+
+    Builds the matrix via the recursive Sylvester construction:
+    H(1) = [[1]], H(2n) = [[H, H], [H, -H]].
+
+    Args:
+        order: Matrix order (must be a power of two, >= 1).
+
+    Returns:
+        Integer ndarray of shape (order, order) with entries +1/-1.
+
+    Raises:
+        ValueError: If order is not a positive power of two.
+    """
+    if order < 1 or (order & (order - 1)) != 0:
+        raise ValueError(f"order must be a positive power of two, got {order}")
+    H = np.array([[1]], dtype=np.intp)
+    while H.shape[0] < order:
+        H = np.block([[H, H], [H, -H]])
+    return H
+
+
+def _decode_hadamard_responses(
+    row_responses: np.ndarray, hadamard: np.ndarray
+) -> np.ndarray:
+    """Decode raw Hadamard-pattern push-pull responses to per-actuator responses.
+
+    Uses the inverse Hadamard transform: ``decoded = H.T @ row_responses.T / k``
+    (equivalently ``row_responses.T @ H / k`` since Sylvester Hadamard matrices are
+    symmetric).  The result's column *j* is the decoded response for Hadamard
+    pattern *j*.
+
+    Args:
+        row_responses: Raw push-pull responses, shape ``(k, n_slopes_unf)`` where
+            row *r* is the response measured when Hadamard pattern *r* was applied.
+        hadamard: Sylvester Hadamard matrix, shape ``(k, k)`` with ``+/-1`` entries.
+
+    Returns:
+        Decoded per-pattern response matrix, shape ``(n_slopes_unf, k)``.
+    """
+    k = hadamard.shape[0]
+    return np.matmul(row_responses.T, hadamard) / k
 
 
 @dataclass
@@ -76,6 +146,8 @@ class DMResponseMatrixResult:
         pinv_matrix: SVD pseudoinverse (n_valid, n_slopes).
         lstsq_matrix: Least-squares inverse (n_valid, n_slopes).
         amplitude_optimization: Per-actuator voltage optimization results.
+        calibration_mode: Calibration strategy used ("sequential" or "hadamard").
+        hadamard_order: Hadamard matrix order used in hadamard mode (None for sequential).
     """
 
     matrix: np.ndarray
@@ -92,6 +164,8 @@ class DMResponseMatrixResult:
     pinv_matrix: np.ndarray | None = None
     lstsq_matrix: np.ndarray | None = None
     amplitude_optimization: dict | None = None
+    calibration_mode: str = "sequential"
+    hadamard_order: int | None = None
 
     @property
     def n_slopes(self) -> int:
@@ -432,6 +506,8 @@ def calibrate_dm_response_matrix(
     auto_optimize_voltage: bool = True,
     optimize_n_avg: int = 10,
     debug_data_callback: Callable | None = None,
+    mode: Literal["sequential", "hadamard"] = "sequential",
+    hadamard_order: int | None = None,
 ) -> DMResponseMatrixResult:
     """Calibrate DM actuator response matrix.
 
@@ -465,10 +541,17 @@ def calibrate_dm_response_matrix(
         optimize_n_avg: WFS readings per voltage during optimization.
         debug_data_callback: Optional callback for raw measurement data.
             Signature depends on measure_actuator_response.
+        mode: Calibration strategy: "sequential" (one actuator at a time) or
+            "hadamard" (simultaneous Hadamard-pattern push-pull sweeps).
+        hadamard_order: Hadamard matrix order for mode="hadamard". If None,
+            uses the smallest power of two >= n_valid.
 
     Returns:
         DMResponseMatrixResult with response matrix, variance matrix, inverses, and metadata.
     """
+    if mode not in ("sequential", "hadamard"):
+        raise ValueError(f"mode must be 'sequential' or 'hadamard', got {mode!r}")
+
     # Resolve total actuator count
     total_actuators = dm.DM_NUM if hasattr(dm, "DM_NUM") else 64
 
@@ -550,39 +633,151 @@ def calibrate_dm_response_matrix(
     time.sleep(wait_time)
 
     # Calibrate each valid actuator
-    actuator_iter = valid_indices
-    if verbose:
-        actuator_iter = tqdm(valid_indices, desc="Actuators")
+    result_hadamard_order: int | None = None
+    if mode == "sequential":
+        actuator_iter = valid_indices
+        if verbose:
+            actuator_iter = tqdm(valid_indices, desc="Actuators")
 
-    for j, actuator_idx in enumerate(actuator_iter):
-        if verbose and not isinstance(actuator_iter, tqdm):
-            logger.info(f"Measuring actuator {actuator_idx + 1}/{total_actuators} "
-                        f"(index {j + 1}/{n_valid})")
+        for j, actuator_idx in enumerate(actuator_iter):
+            if verbose and not isinstance(actuator_iter, tqdm):
+                logger.info(f"Measuring actuator {actuator_idx + 1}/{total_actuators} "
+                            f"(index {j + 1}/{n_valid})")
 
-        mean_resp, var_resp, _, _ = measure_actuator_response(
-            dm=dm,
-            wfs=wfs,
-            actuator_idx=actuator_idx,
-            disturb_voltage=disturb_voltage,
-            n_averages=n_averages,
-            n_cycles=n_cycles,
-            wait_time=wait_time,
-            debug_data_callback=debug_data_callback,
-            cancel_tile=cancel_tile,
+            mean_resp, var_resp, _, _ = measure_actuator_response(
+                dm=dm,
+                wfs=wfs,
+                actuator_idx=actuator_idx,
+                disturb_voltage=disturb_voltage,
+                n_averages=n_averages,
+                n_cycles=n_cycles,
+                wait_time=wait_time,
+                debug_data_callback=debug_data_callback,
+                cancel_tile=cancel_tile,
+            )
+
+            # Apply subaperture mask filtering if available
+            if valid_rows is not None:
+                mean_resp = mean_resp[valid_rows]
+                var_resp = var_resp[valid_rows]
+
+            response_matrix[:, j] = mean_resp
+            variance_matrix[:, j] = var_resp
+
+            logger.debug(
+                f"Actuator {actuator_idx} response RMS = "
+                f"{float(np.sqrt(np.mean(mean_resp ** 2))):.6f}"
+            )
+    else:
+        # --- Hadamard mode: simultaneous push-pull sweeps over Hadamard patterns ---
+        order = _next_hadamard_order(n_valid) if hadamard_order is None else hadamard_order
+        if order < n_valid:
+            raise ValueError(
+                f"hadamard_order ({order}) must be >= n_valid ({n_valid})"
+            )
+        result_hadamard_order = order
+        H = _hadamard_matrix(order)
+
+        # Full-length voltage patterns. Zeros outside the valid columns are
+        # essential: the WFS mock computes last_volts @ true_resp_full.T over the
+        # FULL vector, so any non-zero entry outside valid columns would corrupt
+        # the measured response.
+        patterns_full = np.zeros((order, total_actuators), dtype=np.float64)
+        patterns_full[:, valid_indices] = H[:, :n_valid]
+
+        logger.info(
+            f"Hadamard calibration: order={order}, patterns={order}, "
+            f"valid_actuators={n_valid}"
+        )
+        logger.info(
+            "Per-actuator WFS debug data is sequential-only in Hadamard mode; "
+            "debug_data_callback receives negative actuator_idx sentinels per pattern row."
         )
 
-        # Apply subaperture mask filtering if available
-        if valid_rows is not None:
-            mean_resp = mean_resp[valid_rows]
-            var_resp = var_resp[valid_rows]
+        def measure_pattern_slopes() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+            """Take n_averages WFS readings and return truncated-mean slopes."""
+            all_dev_x = []
+            all_dev_y = []
+            for _ in range(n_averages):
+                wfs.take_image(n_sample=1)
+                dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=cancel_tile)
+                all_dev_x.append(dev_x)
+                all_dev_y.append(dev_y)
 
-        response_matrix[:, j] = mean_resp
-        variance_matrix[:, j] = var_resp
+            dev_x_arr = np.array(all_dev_x)
+            dev_y_arr = np.array(all_dev_y)
 
-        logger.debug(
-            f"Actuator {actuator_idx} response RMS = "
-            f"{float(np.sqrt(np.mean(mean_resp ** 2))):.6f}"
-        )
+            if n_averages > 5:
+                sorted_x = np.sort(dev_x_arr, axis=0)
+                sorted_y = np.sort(dev_y_arr, axis=0)
+                mean_dev_x = np.mean(sorted_x[1:-1], axis=0)
+                mean_dev_y = np.mean(sorted_y[1:-1], axis=0)
+            else:
+                mean_dev_x = np.mean(dev_x_arr, axis=0)
+                mean_dev_y = np.mean(dev_y_arr, axis=0)
+
+            slopes = flatten_slopes(mean_dev_x, mean_dev_y)
+            return slopes, mean_dev_x, mean_dev_y
+
+        # Per-cycle decoded responses: (n_cycles, n_slopes, n_valid)
+        cycle_decoded: list[np.ndarray] = []
+
+        for cycle in range(n_cycles):
+            row_responses = np.zeros(
+                (order, n_total_slopes_unfiltered), dtype=np.float64
+            )
+            for r in range(order):
+                # --- Positive perturbation ---
+                dm.send_voltages(+disturb_voltage * patterns_full[r], wait_time)
+                slopes_plus, dev_x_plus, dev_y_plus = measure_pattern_slopes()
+
+                if debug_data_callback is not None:
+                    debug_data_callback(
+                        actuator_idx=-(r + 1),
+                        cycle=cycle,
+                        sample=-1,
+                        dev_x=dev_x_plus,
+                        dev_y=dev_y_plus,
+                        is_plus=True,
+                    )
+
+                # Reset DM to zero
+                dm.send_voltages(np.zeros(total_actuators, dtype=np.float64), wait_time)
+
+                # --- Negative perturbation ---
+                dm.send_voltages(-disturb_voltage * patterns_full[r], wait_time)
+                slopes_minus, dev_x_minus, dev_y_minus = measure_pattern_slopes()
+
+                if debug_data_callback is not None:
+                    debug_data_callback(
+                        actuator_idx=-(r + 1),
+                        cycle=cycle,
+                        sample=-1,
+                        dev_x=dev_x_minus,
+                        dev_y=dev_y_minus,
+                        is_plus=False,
+                    )
+
+                # Reset DM to zero
+                dm.send_voltages(np.zeros(total_actuators, dtype=np.float64), wait_time)
+
+                # Compute response for this pattern row
+                row_responses[r, :] = (slopes_plus - slopes_minus) / (
+                    2.0 * disturb_voltage
+                )
+
+            # Decode: (n_slopes_unf, order) -> trim to n_valid columns
+            decoded = _decode_hadamard_responses(row_responses, H)[:, :n_valid]
+
+            # Apply subaperture mask filtering if available
+            if valid_rows is not None:
+                decoded = decoded[valid_rows]
+
+            cycle_decoded.append(decoded)
+
+        cycle_decoded_arr = np.array(cycle_decoded)  # (n_cycles, n_slopes, n_valid)
+        response_matrix = np.mean(cycle_decoded_arr, axis=0)
+        variance_matrix = np.var(cycle_decoded_arr, axis=0)
 
     # Compute inverse matrices (optional)
     pinv_matrix = None
@@ -613,6 +808,8 @@ def calibrate_dm_response_matrix(
         pinv_matrix=pinv_matrix,
         lstsq_matrix=lstsq_matrix,
         amplitude_optimization=amplitude_optimization,
+        calibration_mode=mode,
+        hadamard_order=result_hadamard_order,
     )
 
     logger.info(
@@ -680,6 +877,10 @@ def save_dm_response_matrix(
         if result.device_config is not None:
             meta.attrs["device_config"] = json.dumps(result.device_config)
 
+        meta.attrs["calibration_mode"] = result.calibration_mode
+        if result.hadamard_order is not None:
+            meta.attrs["hadamard_order"] = int(result.hadamard_order)
+
         if result.amplitude_optimization is not None:
             opt_grp = f.create_group("amplitude_optimization")
             for act_key, diag in result.amplitude_optimization.items():
@@ -745,6 +946,11 @@ def load_dm_response_matrix(path: str | Path) -> DMResponseMatrixResult:
             except (json.JSONDecodeError, TypeError) as e:
                 logger.warning(f"Failed to parse device_config: {e}")
 
+        calibration_mode = str(meta.attrs.get("calibration_mode", "sequential"))
+        hadamard_order: int | None = None
+        if "hadamard_order" in meta.attrs:
+            hadamard_order = int(meta.attrs["hadamard_order"])
+
         amplitude_optimization: dict | None = None
         if "amplitude_optimization" in f:
             amplitude_optimization = {}
@@ -772,6 +978,8 @@ def load_dm_response_matrix(path: str | Path) -> DMResponseMatrixResult:
             wait_time=wait_time,
             timestamp=timestamp,
             device_config=device_config,
+            calibration_mode=calibration_mode,
+            hadamard_order=hadamard_order,
             pinv_matrix=pinv_matrix,
             lstsq_matrix=lstsq_matrix,
             amplitude_optimization=amplitude_optimization,

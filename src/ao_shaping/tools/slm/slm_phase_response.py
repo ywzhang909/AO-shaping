@@ -46,6 +46,9 @@ import matplotlib
 matplotlib.use("Agg")  # 无界面后端, 只保存 PNG
 import matplotlib.pyplot as plt  # noqa: E402
 
+from ao_shaping.utils.slm_phase import flat_gray
+from ao_shaping.drivers.slm.santec import SlotRotator
+
 if TYPE_CHECKING:
     from ao_shaping.drivers.slm.santec import Santec
 
@@ -276,16 +279,14 @@ def build_sequence(cases: list[PhaseCase]) -> list[tuple[str, str, object]]:
     return seq
 
 
-def _resolve_payload(
-    payload: object, slm: "Santec", w: int, h: int
-) -> np.ndarray:
+def _resolve_payload(payload: object, slm: "Santec", w: int, h: int) -> np.ndarray:
     """把序列项 payload 解析为 uint16 灰度图。
 
     ``None`` → flat 基线 (raw uint16 平场, 严禁弧度转换); callable → 相位用例
     builder (接收 slm, 返回灰度图)。
     """
     if payload is None:
-        return np.full((h, w), _FLAT_GRAY, dtype=np.uint16)
+        return flat_gray((h, w), _FLAT_GRAY)
     if not callable(payload):
         raise TypeError(f"unexpected payload type: {type(payload)!r}")
     result = payload(slm)
@@ -312,24 +313,15 @@ def run_phase_probe(
     """
     w, h = int(slm.Panel_Res[0]), int(slm.Panel_Res[1])
 
-    # 槽轮换: 2~slot_max 随机, 排除当前显示槽 (防同槽 no-op 不刷新).
-    # 启动时读取当前显示槽, 跨进程续接 (survives process restart).
-    last_slot: int = 0
-    try:
-        cur = slm.get_displayed_memory_number()
-        last_slot = int(cur) if cur is not None else 0
-    except Exception:
-        last_slot = 0
-    logger.info("SLM 当前显示槽: {}", last_slot)
-
-    def next_slot() -> int:
-        nonlocal last_slot
-        cand = [s for s in range(slot_min, slot_max + 1) if s != last_slot]
-        last_slot = random.choice(cand)
-        return last_slot
+    slot_rotator = SlotRotator(
+        slm,
+        slot_min,
+        slot_max,
+        choice=random.choice,
+    )
 
     def _write_display(gray: np.ndarray) -> int:
-        slot = next_slot()
+        slot = slot_rotator.next_slot()
         slm.display_data(gray, memory_number=slot)
         time.sleep(0.05)
         time.sleep(settle_s)
@@ -380,9 +372,12 @@ def run_phase_probe(
 
     verdict: dict[str, dict] = {}
     for key, d in deltas.items():
+        noise_ratio = (
+            d / noise_floor if noise_floor > 0 else (0.0 if d == 0 else float("inf"))
+        )
         verdict[key] = {
             "rmse": d,
-            "x_noise_floor": d / noise_floor,
+            "x_noise_floor": noise_ratio,
             "changed": bool(d > _RMSE_FACTOR * noise_floor),
         }
 
@@ -496,9 +491,7 @@ def main(
     slm: "Santec | None" = None
     camera = None
     try:
-        slm = Santec(
-            slm_number=slm_number, wavelength=slm_wavelength, video_mode=0
-        )
+        slm = Santec(slm_number=slm_number, wavelength=slm_wavelength, video_mode=0)
         slm.open()
         logger.info(
             "SLM 已打开: serial={} {}x{} {}bit",

@@ -58,6 +58,10 @@ from ao_shaping.tools.slm.slm_zernike_common import (  # noqa: E402
     DLL_ZERNIKE_NAMES,
     linearity_metrics,
 )
+from ao_shaping.tools.slm.slm_scan_analysis import (  # noqa: E402
+    group_raw_scan,
+    latest_match,
+)
 
 # ---------------------------------------------------------------------------
 # Global matplotlib conventions (repo-wide)
@@ -68,11 +72,6 @@ plt.rcParams["font.sans-serif"] = [
 plt.rcParams["axes.unicode_minus"] = False
 
 DEFAULT_OUT = ROOT / "docs" / "slm" / "zernike_response_matrix_report"
-
-
-def _latest(pattern: str) -> Path | None:
-    hits = sorted(glob.glob(pattern))
-    return Path(hits[-1]) if hits else None
 
 
 def _short(name: str) -> str:
@@ -165,18 +164,9 @@ def fig_variance(variance: np.ndarray, modes: list[int], out_png: Path) -> None:
     plt.close(fig)
 
 
-def _raw_groups(raw: list[dict]) -> dict[tuple[int, float], dict[float, dict[int, np.ndarray]]]:
-    g: dict[tuple[int, float], dict[float, dict[int, np.ndarray]]] = defaultdict(
-        lambda: defaultdict(dict))
-    for s in raw:
-        g[(s["dll_index"], float(s["radius"]))][float(s["amp_rad"])][int(s["sign"])] = \
-            np.asarray(s["readout_um"], dtype=float)
-    return g
-
-
 def fig_linearity(raw: list[dict], out_png: Path) -> list[dict]:
     """CV + direction-cosine per (mode, radius) — the correct linearity criterion."""
-    g = _raw_groups(raw)
+    g = group_raw_scan(raw, to_waves=False)
     rows: list[dict] = []
     for (midx, R) in sorted(g):
         d = g[(midx, R)]
@@ -227,7 +217,7 @@ def fig_linearity(raw: list[dict], out_png: Path) -> list[dict]:
 
 def fig_outlier(raw: list[dict], out_png: Path, worst: list[int]) -> None:
     """|resp| vs amplitude for the worst modes — shows the WFS-fit blow-up."""
-    g = _raw_groups(raw)
+    g = group_raw_scan(raw, to_waves=False)
     radii = sorted({float(s["radius"]) for s in raw})
     n = len(worst)
     fig, axes = plt.subplots(1, n, figsize=(4.2 * n, 4.4), squeeze=False)
@@ -814,9 +804,9 @@ def main() -> int:
     if h5 is None or not h5.exists():
         print("[FAIL] 未找到响应矩阵 h5")
         return 1
-    scan_report = (Path(args.scan_report) if args.scan_report else _latest(
+    scan_report = (Path(args.scan_report) if args.scan_report else latest_match(
         str(ROOT / "data" / "zernike_correction" / "report_*.json")))
-    raw_scan = (Path(args.raw_scan) if args.raw_scan else _latest(
+    raw_scan = (Path(args.raw_scan) if args.raw_scan else latest_match(
         str(ROOT / "data" / "zernike_correction" / "raw_scan_*.json")))
 
     out = Path(args.output_dir)

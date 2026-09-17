@@ -12,10 +12,11 @@ import contextlib
 import ctypes
 import io
 import os
+import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 from loguru import logger
@@ -55,6 +56,14 @@ from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
 # display_data 的自动等待按最大灰度变化 / 满量程 正比线性估算。
 MAX_PIXEL_FLIP_TIME_S = MAX_PIXEL_FLIP_TIME_MS / 1000.0
 
+# ── SLM 内存槽轮换常量 ──────────────────────────────────────────────────────
+# 连续写入必须指向不同槽位: 固件对"正在显示的同一槽位"的 display_memory
+# 是 no-op, LCOS 面板不会刷新。推荐在 [SLOT_MIN, SLOT_MAX] 内随机选槽,
+# 排除当前显示槽 (首次调用时通过 get_displayed_memory_number() 读取,
+# 跨进程重启仍有效)。原 ``utils/slm_slot`` 模块已合并到此处。
+SLOT_MIN: int = 2
+SLOT_MAX: int = 125
+
 
 def apply_lut_remap(gray: np.ndarray, lut: np.ndarray) -> np.ndarray:
     """Apply phase→gray compensation lookup table to a grayscale array.
@@ -74,6 +83,84 @@ def apply_lut_remap(gray: np.ndarray, lut: np.ndarray) -> np.ndarray:
     """
     idx = np.clip(gray.astype(np.int64), 0, lut.size - 1)
     return lut[idx].astype(np.float64)
+
+
+# ── SLM 内存槽轮换 (驱动层唯一实现) ──────────────────────────────────────────
+def read_current_slot(slm: Any) -> int | None:
+    """Read the currently displayed memory slot without treating errors as fatal.
+
+    ``set_grayscale`` 模式下无内存槽显示, ``SLM_Ctrl_ReadDS`` 返回错误码 1
+    是正常行为, 此处一并吞掉, 返回 ``None`` 由调用方回退。
+    """
+    try:
+        value = slm.get_displayed_memory_number()
+    except Exception:
+        return None
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def choose_slot(
+    last_slot: int | None,
+    slot_min: int = SLOT_MIN,
+    slot_max: int = SLOT_MAX,
+    choice: Callable[[list[int]], int] = random.choice,
+) -> int:
+    """Choose a slot different from ``last_slot``."""
+    if slot_min > slot_max:
+        raise ValueError("slot_min must be less than or equal to slot_max")
+    candidates = [slot for slot in range(slot_min, slot_max + 1) if slot != last_slot]
+    if not candidates:
+        raise ValueError("no available SLM memory slots")
+    return int(choice(candidates))
+
+
+class SlotRotator:
+    """Rotate writes across SLM memory slots for one acquisition session.
+
+    Wraps a live SLM (duck-typed: exposes ``get_displayed_memory_number``,
+    ``display_data`` / ``display_phase`` with ``memory_number`` kwarg).
+    """
+
+    def __init__(
+        self,
+        slm: Any,
+        slot_min: int = SLOT_MIN,
+        slot_max: int = SLOT_MAX,
+        *,
+        initial_slot: int | None = None,
+        choice: Callable[[list[int]], int] = random.choice,
+    ) -> None:
+        current = read_current_slot(slm)
+        self.last_slot = initial_slot if current is None else current
+        self.slot_min = slot_min
+        self.slot_max = slot_max
+        self.choice = choice
+
+    def next_slot(self) -> int:
+        self.last_slot = choose_slot(
+            self.last_slot,
+            self.slot_min,
+            self.slot_max,
+            choice=self.choice,
+        )
+        return self.last_slot
+
+    def display_data(self, slm: Any, phase_gray: Any, wait_time_s: float) -> int:
+        slot = self.next_slot()
+        slm.display_data(phase_gray, memory_number=slot)
+        time.sleep(wait_time_s)
+        return slot
+
+    def display_phase(self, slm: Any, phase_rad: Any, wait_time_s: float) -> int:
+        slot = self.next_slot()
+        slm.display_phase(phase_rad, memory_number=slot)
+        time.sleep(wait_time_s)
+        return slot
 
 
 # Config directory: <project_root>/data/slm_configs/ or from SLM_CONFIG_DIR env var
@@ -1060,6 +1147,19 @@ class Santec:
         self._displayed_phase_cache = phase.copy()
         logger.debug("相位数据显示")
 
+    def _read_displayed_slot_safe(self) -> int | None:
+        """Best-effort read of the currently displayed memory slot.
+
+        Returns ``None`` when unavailable — reading the slot raises error code 1
+        in ``set_grayscale`` mode, which is normal there (no memory slot is
+        being displayed).
+        """
+        try:
+            slot = self.get_displayed_memory_number()
+        except Exception:  # noqa: BLE001 - error code 1 is normal outside memory mode
+            return None
+        return int(slot) if isinstance(slot, int) else None
+
     def display_data(
         self,
         phase_gray: np.ndarray,
@@ -1102,10 +1202,22 @@ class Santec:
                 self._current_memory_slot = (
                     self._current_memory_slot + 1
                 ) % MAX_MEM_SLOTS
-                self._write_phase(
-                    phase_gray, self._current_memory_slot + 1, memory_mode
-                )
-                self._display_memory(self._current_memory_slot + 1)
+                target_slot = self._current_memory_slot + 1
+                # display_memory(slot) is a firmware NO-OP when that slot is
+                # already displayed. `_current_memory_slot` is a process-local
+                # counter (seeded to 1 at construction, NOT read from the
+                # device), so the first write after open can collide with
+                # whatever the panel is showing — e.g. a phase left there by
+                # another process/GUI — and silently do nothing. Skip the
+                # displayed slot so the rotation is guaranteed to change it.
+                displayed = self._read_displayed_slot_safe()
+                if displayed is not None and target_slot == displayed:
+                    self._current_memory_slot = (
+                        self._current_memory_slot + 1
+                    ) % MAX_MEM_SLOTS
+                    target_slot = self._current_memory_slot + 1
+                self._write_phase(phase_gray, target_slot, memory_mode)
+                self._display_memory(target_slot)
 
         if wait_time_s is None or wait_time_s < 0:
             wait_time_s = self._estimate_pixel_flip_wait(phase_gray, prev_phase)

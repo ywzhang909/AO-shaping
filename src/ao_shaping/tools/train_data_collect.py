@@ -10,6 +10,7 @@ import tqdm
 
 from ao_shaping.drivers import CameraStreamManager, MlaRes, NlightDM, ThorlabWFS
 from ao_shaping.utils import gen_file_path_inc, gen_file_path_uuid
+from ao_shaping.optimizer.spgd import spgd_gradient
 
 ROOT_DIR = "./data/img2img"
 
@@ -149,7 +150,9 @@ def optimizer(
                 })
 
                 diff = pos_j - neg_j
-                gradient = diff * disturb_v
+                # SPGD sign from the shared helper (optimizer/spgd.py):
+                # wf_statics['rms'] is minimised.
+                gradient = spgd_gradient(pos_j, neg_j, disturb_v, maximize=False)
                 lr = learning_schedule(lr, epoch, epochs, method=lr_schedul)
                 if algorithm == "spgd":
                     update = lr * gradient - lr * weight_decay * _init_v

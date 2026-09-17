@@ -33,11 +33,16 @@ from ao_shaping.drivers.slm.santec.constants import (
 )
 from ao_shaping.drivers.slm.santec.driver import (
     MAX_PIXEL_FLIP_TIME_S,
+    SLOT_MAX,
+    SLOT_MIN,
+    SlotRotator,
     Santec,
     SantecError,
     SLM_CONFIG,
     SLMParams,
     apply_lut_remap,
+    choose_slot,
+    read_current_slot,
 )
 from ao_shaping.drivers.slm.santec.slm200_constants import (
     GRAY_SCALE_BITS,
@@ -78,13 +83,18 @@ __all__ = [
     "SLM_OK",
     "SLMErrorCode",
     "SLMParams",
+    "SLOT_MAX",
+    "SLOT_MIN",
     "Santec",
+    "SlotRotator",
     "SantecError",
     "VideoMode",
     "WAVELENGTH_MAX",
     "WAVELENGTH_MIN",
     "WavefrontCorrection",
     "apply_lut_remap",
+    "choose_slot",
     "get_max_grayscale",
     "get_slm_error_message",
+    "read_current_slot",
 ]

@@ -281,6 +281,21 @@ class TestRadius:
         # Should be small
         assert r <= 3
 
+    def test_radius_unreachable_energy_saturates(self):
+        """Unreachable energy fraction must saturate, not silently return 1.
+
+        For a uniform image the 99% disc never fits inside the mask range, so
+        no mask satisfies the threshold. ``np.argmax`` on an all-False array
+        returned 0 -> radius 1, which silently collapsed callers' bucket
+        radius (hardware-observed: bucket radius 0.9px). It must instead
+        saturate to the largest available mask.
+        """
+        img = np.ones((20, 20))
+        target = create_target_from_dims(20, 20, (10, 10))
+        r = target.radius(img, energy=0.99)
+        assert r == len(target.masks)
+        assert r > 1
+
 
 class TestMaskGeneration:
     """Test internal mask generation."""

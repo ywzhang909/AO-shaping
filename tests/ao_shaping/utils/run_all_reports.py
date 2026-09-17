@@ -19,6 +19,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Add project root to sys.path for imports
+PROJECT_ROOT = Path(__file__).parents[3]
+sys.path.insert(0, str(PROJECT_ROOT))
+
 
 def run_test_module(module_path: str, device_name: str, simulate: bool = False) -> bool:
     """Run a test module and return success status."""
@@ -55,9 +59,9 @@ def run_test_module(module_path: str, device_name: str, simulate: bool = False) 
             print(f"✓ {device_name} report generated successfully")
             return True
         elif (
-            hasattr(module, "test_miicam_standalone_report") and device_name == "miicam"
+            hasattr(module, "test_miicam_simulation_report") and device_name == "miicam"
         ):
-            module.test_miicam_standalone_report()
+            module.test_miicam_simulation_report()
             print(f"✓ {device_name} report generated successfully")
             return True
         elif hasattr(module, "test_wfs_standalone_report") and device_name == "wfs":
@@ -91,7 +95,8 @@ def run_pytest_test(module_path: str, device_name: str) -> bool:
                 "pytest",
                 module_path,
                 "-v",
-                "--hardware",
+                "-m",
+                "hardware",
                 "-s",
                 "--tb=short",
             ],
@@ -170,11 +175,19 @@ Examples:
 
     project_root = Path(__file__).parents[3]
 
-    # Test modules mapping
+    # Test modules mapping for hardware tests (pytest mode)
     test_modules = {
         "slm-200": "tests/ao_shaping/drivers/slm/test_slm_report.py",
         "micro-dm": "tests/ao_shaping/drivers/dm/test_micro_dm_report.py",
         "miicam": "tests/ao_shaping/drivers/ccd/test_miicam_report.py",
+        "wfs": "tests/ao_shaping/drivers/wfs/test_wfs_report.py",
+    }
+
+    # Test modules mapping for simulation mode
+    simulation_modules = {
+        "slm-200": "tests/ao_shaping/drivers/slm/test_slm_report.py",
+        "micro-dm": "tests/ao_shaping/drivers/dm/test_micro_dm_report.py",
+        "miicam": "tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py",
         "wfs": "tests/ao_shaping/drivers/wfs/test_wfs_report.py",
     }
 
@@ -186,7 +199,10 @@ Examples:
 
     results = {}
     for device in devices_to_run:
-        module_path = project_root / test_modules[device]
+        if args.pytest:
+            module_path = project_root / test_modules[device]
+        else:
+            module_path = project_root / simulation_modules[device]
 
         if not module_path.exists():
             print(f"✗ Module not found: {module_path}")

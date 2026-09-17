@@ -96,6 +96,7 @@ from ao_shaping.tools.slm.slm_zernike_common import (
     um_to_waves,
     wfs_validity,
 )
+from ao_shaping.tools.slm.slm_scan_analysis import outlier_mask
 from ao_shaping.utils.cli_helpers import get_timestamp_str, parse_tuple, setup_coredumpy
 from ao_shaping.utils.display import ZernikeCalibrationDisplay
 from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
@@ -727,14 +728,12 @@ def calibrate_response_matrix_pushpull(
         arr = np.array(vecs)[:, 1:]                     # 去 index 0 (piston 占位)
         # 逐点幅度合理性剔除 (抓不到拟合崩溃时兜底)
         norms = np.array([float(np.linalg.norm(v)) for v in arr])
-        med = float(np.median(norms))
-        if med > 0:
-            keep = norms <= outlier_factor * med
-            if not keep.all():
-                logger.warning("[{}] 逐点剔除 {}/{} (|resp|={})",
-                               midx, int((~keep).sum()), len(norms),
-                               np.round(norms, 3).tolist())
-                arr = arr[keep]
+        keep = outlier_mask(norms, outlier_factor)
+        if not keep.all():
+            logger.warning("[{}] 逐点剔除 {}/{} (|resp|={})",
+                           midx, int((~keep).sum()), len(norms),
+                           np.round(norms, 3).tolist())
+            arr = arr[keep]
         if arr.size == 0:
             continue
 

@@ -72,11 +72,14 @@ class DiagnoseResult:
 def _grab_frame(camera, n_sample: int = 5) -> np.ndarray:
     """取一帧平均图并转 float64。"""
     return np.asarray(
-        camera.get_numpy_image(n_sample=n_sample, skip_first=True), dtype=np.float64,
+        camera.get_numpy_image(n_sample=n_sample, skip_first=True),
+        dtype=np.float64,
     )
 
 
-def peak_and_bucket(frame: np.ndarray, radius: int = 30) -> tuple[int, int, float, float]:
+def peak_and_bucket(
+    frame: np.ndarray, radius: int = 30
+) -> tuple[int, int, float, float]:
     """``(px, py, peak_value, bucket_sum)`` —— 0 级光斑峰值位置与桶能量。
 
     0 级 = 帧内全局最大 (2f 光路的光轴落点), 不是相机中心。
@@ -93,6 +96,7 @@ def frames_same(a: np.ndarray, b: np.ndarray, tol: float = 1e-6) -> bool:
     if a.shape != b.shape:
         return False
     return bool(np.allclose(a, b, rtol=0, atol=max(1e-6, 1e-3 * float(a.max()))))
+
 
 # ── 各步骤 ──────────────────────────────────────────────────────────────────
 
@@ -127,8 +131,12 @@ def step_freezing(
 
     frames: dict[str, np.ndarray] = {}
     # 轮换槽位: 同一槽连续 display_memory 是 no-op (LCOS 不刷新).
-    for tag, pat in [("flat", flat_full), ("grat", grat_full),
-                     ("top", test_top), ("bot", test_bot)]:
+    for tag, pat in [
+        ("flat", flat_full),
+        ("grat", grat_full),
+        ("top", test_top),
+        ("bot", test_bot),
+    ]:
         slot = 10 + len(frames)
         slm.display_data(pat, memory_number=slot, memory_mode=MEMORY_MODE_INTERNAL)
         time.sleep(settle_s)
@@ -176,10 +184,14 @@ def step_modulation(
             )
         buckets.append(bucket)
         peaks.append(peak)
-        logger.debug("gs={} readback={} max={:.1f} bucket={:.1f}", gs, readback, peak, bucket)
+        logger.debug(
+            "gs={} readback={} max={:.1f} bucket={:.1f}", gs, readback, peak, bucket
+        )
 
     buckets_arr = np.asarray(buckets, dtype=np.float64)
-    spread = (float(buckets_arr.max()) - float(buckets_arr.min())) / (float(buckets_arr.mean()) or 1.0)
+    spread = (float(buckets_arr.max()) - float(buckets_arr.min())) / (
+        float(buckets_arr.mean()) or 1.0
+    )
     ok = spread > 0.15  # 桶能量相对变化 >15% 才算"有调制"
     msg = (
         f"set_grayscale 0..1023: bucket range={buckets_arr.min():.1f}..{buckets_arr.max():.1f} "
@@ -236,12 +248,20 @@ def step_linearity(
 
 @click.command()
 @click.option("--slm-number", type=int, default=1, help="SLM 设备编号 (默认 1)")
-@click.option("--slm-wavelength", type=int, default=1064, help="SLM 工作波长 nm (默认 1064)")
+@click.option(
+    "--slm-wavelength", type=int, default=1064, help="SLM 工作波长 nm (默认 1064)"
+)
 @click.option("--cam-id", type=int, default=0, help="MiiCam 相机 ID (默认 0)")
-@click.option("--period-ref", type=int, default=64, help="参考光栅周期 SLM px (默认 64)")
-@click.option("--period-test", type=int, default=32, help="测试光栅周期 SLM px (默认 32)")
+@click.option(
+    "--period-ref", type=int, default=64, help="参考光栅周期 SLM px (默认 64)"
+)
+@click.option(
+    "--period-test", type=int, default=32, help="测试光栅周期 SLM px (默认 32)"
+)
 @click.option("--exposure-ms", type=float, default=2.0, help="自检曝光 ms (默认 2.0)")
-@click.option("--settle-s", type=float, default=1.0, help="SLM/相机稳定等待 s (默认 1.0)")
+@click.option(
+    "--settle-s", type=float, default=1.0, help="SLM/相机稳定等待 s (默认 1.0)"
+)
 @click.option(
     "--step",
     type=click.Choice(["all", "freeze", "modulate", "linearity"]),
@@ -262,12 +282,17 @@ def main(
 ) -> None:
     """SLM 硬件自检: 逐级定位是否存在"面板不调制光"类故障。"""
     from ao_shaping.drivers.slm.santec import Santec
-    from ao_shaping.tools.slm.slm_lut_runner import _get_miicam_camera
+    from ao_shaping.utils.slm_camera import open_miicam_camera as _get_miicam_camera
 
     logger.info(
         "SLM self-check: slm#{} @{}nm, periods {}/{}px, camera#{} exposure {:.2f}ms "
         "(2f Fourier bench: SLM front-focus -> f=125mm lens -> CCD back-focus)",
-        slm_number, slm_wavelength, period_ref, period_test, cam_id, exposure_ms,
+        slm_number,
+        slm_wavelength,
+        period_ref,
+        period_test,
+        cam_id,
+        exposure_ms,
     )
 
     if step in ("all", "freeze"):
@@ -288,27 +313,46 @@ def main(
         serial = slm.get_serial_number()
         logger.info(
             "SLM connected: serial={} panel={}x{} 2pi_gray={} (wavelength={}nm)",
-            serial, slm.Panel_Res[0], slm.Panel_Res[1],
-            gray_for_2pi, slm_wavelength,
+            serial,
+            slm.Panel_Res[0],
+            slm.Panel_Res[1],
+            gray_for_2pi,
+            slm_wavelength,
         )
 
         camera = _get_miicam_camera(cam_id, exposure_ms)
         logger.info(
             "Camera opened: id={} exposure={:.2f}ms (frame readback on first grab)",
-            cam_id, exposure_ms,
+            cam_id,
+            exposure_ms,
         )
 
         if step in ("all", "freeze"):
             results["freeze"] = step_freezing(
-                slm, camera, period_ref, period_test, slm_wavelength, settle_s, exposure_ms,
+                slm,
+                camera,
+                period_ref,
+                period_test,
+                slm_wavelength,
+                settle_s,
+                exposure_ms,
             )
         if step in ("all", "modulate"):
             results["modulate"] = step_modulation(
-                slm, camera, slm_wavelength, settle_s, exposure_ms,
+                slm,
+                camera,
+                slm_wavelength,
+                settle_s,
+                exposure_ms,
             )
         if step in ("all", "linearity"):
             results["linearity"] = step_linearity(
-                slm, camera, period_ref, slm_wavelength, settle_s, exposure_ms,
+                slm,
+                camera,
+                period_ref,
+                slm_wavelength,
+                settle_s,
+                exposure_ms,
             )
     except SystemExit:
         raise
@@ -349,14 +393,18 @@ def main(
         click.echo("No step executed -- nothing to report (choose --step or 'all').")
         return
     if all_ok:
-        click.echo("RESULT: SLM panel responds to patterns/gray/exposure. If slm-lut "
-                   "still fails, check spot geometry (2f Fourier) before hardware.")
+        click.echo(
+            "RESULT: SLM panel responds to patterns/gray/exposure. If slm-lut "
+            "still fails, check spot geometry (2f Fourier) before hardware."
+        )
     else:
-        click.echo("RESULT: fault found. Panel does not modulate light OR light reaching "
-                   "camera is abnormal. Actions: 1) power-cycle SLM controller "
-                   "(DVI hang persists until physical reboot), 2) check polarization "
-                   "axis vs LCOS, 3) verify beam on panel with sensor card, "
-                   "4) confirm camera at back focal plane.")
+        click.echo(
+            "RESULT: fault found. Panel does not modulate light OR light reaching "
+            "camera is abnormal. Actions: 1) power-cycle SLM controller "
+            "(DVI hang persists until physical reboot), 2) check polarization "
+            "axis vs LCOS, 3) verify beam on panel with sensor card, "
+            "4) confirm camera at back focal plane."
+        )
 
 
 if __name__ == "__main__":

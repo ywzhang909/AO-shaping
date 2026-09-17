@@ -257,7 +257,7 @@ def render_phase_preview(slm_num: int) -> None:
         refresh_phase_preview(slm_num)
         st.rerun(scope="fragment")
 
-    colormap = st.selectbox(
+    colormap = st.radio(
         "预览色图",
         options=PREVIEW_COLORMAP_LABELS,
         index=PREVIEW_COLORMAP_LABELS.index(
@@ -404,6 +404,16 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
         "选择相位图类型",
         options=list(PATTERN_REGISTRY.keys()),
         key=f"{prefix}_pattern_type",
+    )
+
+    # Debug anchor for "页面在选择某个图案后中断" reports: the log line lands
+    # immediately before the crashing control renders, so the last entry in the
+    # server log names the pattern type that aborted the script run.
+    logger.debug(
+        "相位图类型选择: slm{} -> {} (control={})",
+        slm_num,
+        pattern_type,
+        PATTERN_REGISTRY[pattern_type].__name__,
     )
 
     control = _build_control(pattern_type, slm_num)
