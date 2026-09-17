@@ -15,7 +15,8 @@ from ao_shaping.utils.cli_helpers import (
     get_date_dir_name,
     get_debug_mode,
 )
-from ao_shaping.drivers.dm import create_dm, list_dm_types, list_reachable_dm_types
+from ao_shaping.drivers.dm import list_dm_types
+from ao_shaping.runners.runner_common import resolve_dm
 
 
 DM_TYPES = list_dm_types()
@@ -61,26 +62,7 @@ def run(
     """
     debug = get_debug_mode()
 
-    # DM selection
-    if dm_type is not None:
-        dm_type = dm_type.lower()
-        logger.info("Using specified DM type: {}", dm_type)
-    else:
-        reachable = list_reachable_dm_types()
-        if len(reachable) == 1:
-            dm_type = reachable[0]
-            logger.info("Auto-detected reachable DM: {}", dm_type)
-        elif len(reachable) == 0:
-            raise RuntimeError(
-                "No DM reachable. Specify --dm_type explicitly or connect a DM."
-            )
-        else:
-            raise RuntimeError(
-                f"Multiple DMs reachable ({', '.join(reachable)}). "
-                f"Specify --dm_type explicitly to choose one."
-            )
-
-    dm = create_dm(dm_type)
+    dm = resolve_dm(dm_type)
     try:
         dm.open()
         init_v = [0 for _ in range(dm.DM_NUM)]

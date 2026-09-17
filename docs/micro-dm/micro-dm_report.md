@@ -1,5 +1,5 @@
 # MICRO-DM Hardware Test Report
-**Generated:** 2026-09-15 16:46:30
+**Generated:** 2026-09-16 10:15:36
 **Device:** micro-dm
 ---
 
@@ -40,7 +40,7 @@
 
 **Status:** ✅ PASS
 
-**Duration:** 0.47s
+**Duration:** 0.28s
 
 ---
 
