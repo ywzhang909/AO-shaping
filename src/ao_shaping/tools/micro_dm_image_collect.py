@@ -40,27 +40,31 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn
 
 import click
 import numpy as np
-
 from loguru import logger
 
 from ao_shaping.config import DEVICES
-from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
-from ao_shaping.drivers.ccd.daheng import DahengCamManager
+from ao_shaping.drivers.ccd import BaseCamera
 from ao_shaping.drivers.dm.MicroDM import (
     DEFAULT_IPS,
     MAX_CHANNELS,
-    R50Controller,
     VOLTAGE_MAX,
     VOLTAGE_MIN,
     WIRING_MAP_PATH,
+    R50Controller,
     WiringMap,
 )
 from ao_shaping.utils.cli_helpers import setup_coredumpy
 from ao_shaping.utils.network import controller_tcp_port, ping_reachable
+from ao_shaping.utils.slm_camera import (
+    open_daheng_camera as _open_daheng_camera,
+)
+from ao_shaping.utils.slm_camera import (
+    open_miicam_camera as _open_miicam_camera,
+)
 
 # 全局运行标志 (信号处理器修改)
 _running = True
@@ -79,7 +83,7 @@ def _signal_handler(signum: int, frame: object | None) -> None:
     click.echo("\n⏹  收到中断信号, 正在安全关闭...")
 
 
-def _get_miicam_camera(cam_id: int, exposure_ms: float, bit_depth: int = 8) -> CameraStreamManager:
+def _get_miicam_camera(cam_id: int, exposure_ms: float, bit_depth: int = 8) -> Any:
     """创建并打开 MiiCam 相机实例。
 
     相机是本工具必需的硬件, 打开失败时抛异常, 由调用方决定退出。
@@ -93,17 +97,15 @@ def _get_miicam_camera(cam_id: int, exposure_ms: float, bit_depth: int = 8) -> C
         已打开的 CameraStreamManager 实例
     """
     try:
-        cam = CameraStreamManager(
-            cam_id=cam_id, exposure_time_ms=exposure_ms, bit_depth=bit_depth
+        return _open_miicam_camera(
+            cam_id=cam_id, exposure_ms=exposure_ms, bit_depth=bit_depth
         )
-        cam.open()
-        return cam
     except Exception as e:
         logger.error("MiiCam相机初始化失败: {}", e)
         raise
 
 
-def _get_daheng_camera(cam_id: int, exposure_ms: float) -> DahengCamManager:
+def _get_daheng_camera(cam_id: int, exposure_ms: float) -> Any:
     """创建并打开 Daheng 相机实例。
 
     相机是本工具必需的硬件, 打开失败时抛异常, 由调用方决定退出。
@@ -116,9 +118,7 @@ def _get_daheng_camera(cam_id: int, exposure_ms: float) -> DahengCamManager:
         已打开的 DahengCamManager 实例
     """
     try:
-        cam = DahengCamManager(cam_id=cam_id, exposure_time_ms=exposure_ms)
-        cam.open()
-        return cam
+        return _open_daheng_camera(cam_id=cam_id, exposure_ms=exposure_ms)
     except Exception as e:
         logger.error("Daheng相机初始化失败: {}", e)
         raise
@@ -329,7 +329,7 @@ def _home_channel(ctrl: R50Controller, ch: int, home_voltage: float) -> bool:
 
 def _collect_for_ip(
     ctrl: R50Controller,
-    cam: CameraStreamManager,
+    cam: BaseCamera,
     ip: str,
     channels: list[int],
     voltage: float,
@@ -423,8 +423,12 @@ def _safe_shutdown(ctrl: R50Controller, home_voltage: float) -> None:
 )
 @click.option("--port", default=None, type=int, help="TCP端口 (默认: 10000 + IP末段)")
 @click.option("--voltage", required=True, type=float, help="下发电压 V (手动输入)")
-@click.option("--home-voltage", default=0.0, type=float, help="归位电压 V (default: 0.0)")
-@click.option("--channels", default="all", type=str, help="通道列表 逗号分隔 或 'all' 全部50通道")
+@click.option(
+    "--home-voltage", default=0.0, type=float, help="归位电压 V (default: 0.0)"
+)
+@click.option(
+    "--channels", default="all", type=str, help="通道列表 逗号分隔 或 'all' 全部50通道"
+)
 @click.option(
     "--output",
     "-o",
@@ -437,13 +441,22 @@ def _safe_shutdown(ctrl: R50Controller, home_voltage: float) -> None:
     type=click.Choice(["miicam", "daheng"], case_sensitive=False),
     help="相机类型: miicam (默认) 或 daheng",
 )
-@click.option("--cam-id", default=None, type=int, help="相机ID (默认: config far_cam_id)")
+@click.option(
+    "--cam-id", default=None, type=int, help="相机ID (默认: config far_cam_id)"
+)
 @click.option("--exposure-ms", default=20.0, type=float, help="曝光时间 ms")
-@click.option("--bit-depth", default=8, type=click.IntRange(8, 16), help="MiiCam输出位深 8或16 (仅miicam有效)")
+@click.option(
+    "--bit-depth",
+    default=8,
+    type=click.IntRange(8, 16),
+    help="MiiCam输出位深 8或16 (仅miicam有效)",
+)
 @click.option("--n-sample", default=1, type=int, help="每帧平均采样数")
 @click.option("--n-frames", default=1, type=int, help="每通道采集图像张数 (default: 1)")
 @click.option("--skip-first/--no-skip-first", default=True, help="跳过首帧")
-@click.option("--settle-time", default=0.5, type=float, help="电压下发后等待时间 s (default: 0.5)")
+@click.option(
+    "--settle-time", default=0.5, type=float, help="电压下发后等待时间 s (default: 0.5)"
+)
 @click.option("--ping-first/--no-ping-first", default=True, help="连接前先 ping 测试")
 @click.option("--save-npy", is_flag=True, default=False, help="额外保存 .npy 原始数组")
 @click.option("--debug", is_flag=True, default=False, help="启用DEBUG日志")
@@ -503,10 +516,7 @@ def run(
 
     # 校验电压范围
     if voltage < VOLTAGE_MIN or voltage > VOLTAGE_MAX:
-        click.echo(
-            f"❌ 电压 {voltage} V 超出硬件范围 "
-            f"[{VOLTAGE_MIN}, {VOLTAGE_MAX}] V"
-        )
+        click.echo(f"❌ 电压 {voltage} V 超出硬件范围 [{VOLTAGE_MIN}, {VOLTAGE_MAX}] V")
         sys.exit(1)
 
     # 解析通道列表
@@ -569,9 +579,13 @@ def run(
             controller_id = index + 1
             click.echo("")
             click.echo("=" * 54)
-            click.echo(f"  控制器 {controller_id}/{len(ip_ports)}: {ip_addr}:{resolved_port}")
+            click.echo(
+                f"  控制器 {controller_id}/{len(ip_ports)}: {ip_addr}:{resolved_port}"
+            )
             click.echo("=" * 54)
-            logger.info("开始处理控制器 {}: {}:{}", controller_id, ip_addr, resolved_port)
+            logger.info(
+                "开始处理控制器 {}: {}:{}", controller_id, ip_addr, resolved_port
+            )
 
             if not _running:
                 click.echo("⏹  已收到中断信号, 跳过剩余控制器")
@@ -592,10 +606,14 @@ def run(
             try:
                 # 连接控制器
                 click.echo(f"🔌 连接 {ip_addr}:{resolved_port}... ", nl=False)
-                ctrl = R50Controller(controller_id=controller_id, ip=ip_addr, port=resolved_port)
+                ctrl = R50Controller(
+                    controller_id=controller_id, ip=ip_addr, port=resolved_port
+                )
                 if not ctrl.open():
                     click.echo("❌ 连接失败, 跳过该控制器")
-                    logger.warning("控制器 {}:{} 连接失败, 跳过", ip_addr, resolved_port)
+                    logger.warning(
+                        "控制器 {}:{} 连接失败, 跳过", ip_addr, resolved_port
+                    )
                     failed_ips.append(ip_addr)
                     continue
                 click.echo("✅ 已连接")
