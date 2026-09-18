@@ -53,7 +53,7 @@ class TestAutoDeltaDetectRms:
 
     def test_auto_delta_detect_returns_tuple(self):
         """Test that _auto_delta_detect_rms returns (delta, info_dict)."""
-        from ao_shaping.runners.rms_zernike_runner import _auto_delta_detect_rms
+        from ao_shaping.runners.slm.rms_zernike_runner import _auto_delta_detect_rms
 
         mock_slm = self._make_mock_slm()
         mock_wfs = self._make_mock_wfs()
@@ -96,7 +96,7 @@ class TestAutoDeltaDetectRms:
 
     def test_auto_delta_detect_passes_exposure_time(self):
         """Test that exposure_time is passed to ThorlabWFS."""
-        from ao_shaping.runners.rms_zernike_runner import _auto_delta_detect_rms
+        from ao_shaping.runners.slm.rms_zernike_runner import _auto_delta_detect_rms
 
         mock_slm = self._make_mock_slm()
         mock_wfs = self._make_mock_wfs()
@@ -143,14 +143,14 @@ class TestCliOptions:
 
     def test_command_exists(self):
         """Test that the run command is a Click command."""
-        from ao_shaping.runners.rms_zernike_runner import run
+        from ao_shaping.runners.slm.rms_zernike_runner import run
 
         assert hasattr(run, "callback")
         assert callable(run)
 
     def test_exposure_time_ms_option_exists(self):
         """Test that --exposure-time-ms option is defined (not --exposure-time)."""
-        from ao_shaping.runners.rms_zernike_runner import run
+        from ao_shaping.runners.slm.rms_zernike_runner import run
 
         param_names = [p.name for p in run.params]
         assert "exposure_time_ms" in param_names
@@ -159,7 +159,7 @@ class TestCliOptions:
 
     def test_all_expected_options_exist(self):
         """Test that all expected CLI options are present."""
-        from ao_shaping.runners.rms_zernike_runner import run
+        from ao_shaping.runners.slm.rms_zernike_runner import run
 
         param_names = [p.name for p in run.params]
         expected = [
@@ -232,7 +232,7 @@ class TestRunFunction:
         """Test run function with fully mocked hardware."""
         from click.testing import CliRunner
 
-        from ao_shaping.runners.rms_zernike_runner import run
+        from ao_shaping.runners.slm.rms_zernike_runner import run
 
         mock_slm = self._make_mock_slm()
         mock_wfs = self._make_mock_wfs()
@@ -313,7 +313,7 @@ class TestRunFunction:
         """Test that exposure_time_ms is correctly passed to optimizer_rms."""
         from click.testing import CliRunner
 
-        from ao_shaping.runners.rms_zernike_runner import run
+        from ao_shaping.runners.slm.rms_zernike_runner import run
 
         mock_slm = self._make_mock_slm()
         mock_wfs = self._make_mock_wfs()
@@ -389,7 +389,7 @@ class TestImports:
 
     def test_module_imports_clean(self):
         """Test that the module can be imported without errors."""
-        from ao_shaping.runners import rms_zernike_runner
+        from ao_shaping.runners.slm import rms_zernike_runner
 
         # Verify key functions exist
         assert hasattr(rms_zernike_runner, "run")
@@ -398,7 +398,7 @@ class TestImports:
 
     def test_no_email_import(self):
         """Verify the unused email.policy import was removed."""
-        import ao_shaping.runners.rms_zernike_runner as module
+        import ao_shaping.runners.slm.rms_zernike_runner as module
 
         source_lines = open(module.__file__).readlines()
         for line in source_lines[:20]:
