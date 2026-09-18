@@ -911,6 +911,12 @@ class Santec:
                 f"SLM #{self.slm_number}: SLM_Ctrl_ReadWL returned phase=0;"
                 " device wavelength not set"
             )
+            # The device's wavelength phase table is NOT programmed. Remember
+            # this so `_setup_wavelength()` forces a `set_wavelength()` write
+            # even when the requested wavelength numerically matches — otherwise
+            # the table stays unset and the panel applies no phase at all
+            # (CCD sees no change).
+            self._wavelength_phase_unset = True
             self._max_gray = self.MAX_GRAYSCALE_VALUE
             return (
                 self.wavelength if self.wavelength is not None else 1064,
@@ -918,6 +924,7 @@ class Santec:
             )
         raw = int(2.0 / phase_pi * self.MAX_GRAYSCALE_VALUE)
         self._max_gray = max(1, min(raw, self.MAX_GRAYSCALE_VALUE))
+        self._wavelength_phase_unset = False
         if raw != self._max_gray:
             logger.warning(
                 f"SLM #{self.slm_number}: 计算2π灰度值 {raw} 超出硬件范围 "
@@ -1884,13 +1891,22 @@ class Santec:
             self.wavelength, self._max_gray = self.get_wavelength_info()
         else:
             device_wavelength, device_max_gray = self.get_wavelength_info()
-            if device_wavelength == self.wavelength:
+            # A numerically-equal wavelength is NOT sufficient: if the device's
+            # phase table is unset (SLM_Ctrl_ReadWL returned phase=0) the panel
+            # applies no phase, so force the write.
+            if device_wavelength == self.wavelength and not getattr(
+                self, "_wavelength_phase_unset", False
+            ):
                 logger.info(
                     f"SLM #{self.slm_number} 波长与设备当前值相同，跳过设置 "
                     f"(wavelength={self.wavelength})"
                 )
                 self._max_gray = device_max_gray
             else:
+                logger.info(
+                    f"SLM #{self.slm_number} 设备相位表未设置(或波长不同)，"
+                    f"强制写入波长 {self.wavelength}nm 以编程相位表"
+                )
                 self.set_wavelength(self.wavelength, save_to_device=True)
 
     def _wait_for_ready(self, max_retries: int = 10, retry_delay: float = 0.1) -> bool:
