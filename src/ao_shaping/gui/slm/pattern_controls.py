@@ -913,8 +913,12 @@ class ZernikeControl(PatternControl):
                 key=f"{prefix}_zernike_table",
                 num_rows="fixed",
                 column_config={
-                    "n": st.column_config.NumberColumn("n", disabled=True, width="small"),
-                    "m": st.column_config.NumberColumn("m", disabled=True, width="small"),
+                    "n": st.column_config.NumberColumn(
+                        "n", disabled=True, width="small"
+                    ),
+                    "m": st.column_config.NumberColumn(
+                        "m", disabled=True, width="small"
+                    ),
                     "name": st.column_config.TextColumn(
                         "名称", disabled=True, width="medium"
                     ),
@@ -924,18 +928,19 @@ class ZernikeControl(PatternControl):
                     ),
                 },
                 hide_index=True,
-                disabled=['n', 'm', 'name']
+                disabled=["n", "m", "name"],
             )
         except Exception as e:
             st.exception(e)
 
         # 输入数据后不进行计算，仅存入 session_state；
         # 点击"生成相位"时才读取参数计算 zernike 相位。
+        # 使用 _raw 后缀避免与同 key 的 widget 冲突
         coefficients: dict[tuple[int, int], float] = {}
         for row in edited:
             coefficients[(int(row["n"]), int(row["m"]))] = float(row["coeff"])
         st.session_state[f"{prefix}_zernike_coeffs"] = coefficients
-        st.session_state[f"{prefix}_zernike_n_max"] = int(n_max)
+        st.session_state[f"{prefix}_zernike_n_max_raw"] = int(n_max)
 
         radius = float(
             st.number_input(
@@ -947,7 +952,7 @@ class ZernikeControl(PatternControl):
                 key=f"{prefix}_zernike_radius",
             )
         )
-        st.session_state[f"{prefix}_zernike_radius"] = radius
+        st.session_state[f"{prefix}_zernike_radius_raw"] = radius
 
         return {
             "n_max": int(n_max),
@@ -962,8 +967,8 @@ class ZernikeControl(PatternControl):
         prefix = self.prefix
         try:
             coefficients = st.session_state.get(f"{prefix}_zernike_coeffs")
-            n_max = st.session_state.get(f"{prefix}_zernike_n_max")
-            radius = st.session_state.get(f"{prefix}_zernike_radius")
+            n_max = st.session_state.get(f"{prefix}_zernike_n_max_raw")
+            radius = st.session_state.get(f"{prefix}_zernike_radius_raw")
         except Exception:
             coefficients = None
             n_max = None

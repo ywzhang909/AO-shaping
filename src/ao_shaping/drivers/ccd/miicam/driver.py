@@ -128,6 +128,18 @@ class CameraStreamManager(BaseCamera):
       ``PullImageV4`` (参考 C++ ``demosofttrigger``).
     """
 
+    MIN_EXPOSURE_MS = 0.011
+    MAX_EXPOSURE_MS = 10000.0
+
+    @staticmethod
+    def get_exposure_range() -> tuple[float, float]:
+        """Get the camera's supported exposure time range in ms.
+
+        Returns:
+            (min_exposure_ms, max_exposure_ms)
+        """
+        return CameraStreamManager.MIN_EXPOSURE_MS, CameraStreamManager.MAX_EXPOSURE_MS
+
     def __init__(
         self,
         cam_id: int = 0,
@@ -157,9 +169,9 @@ class CameraStreamManager(BaseCamera):
         self._capture_mode = capture_mode
         self._callback_mode_active: bool = False
 
-        # Exposure limits (ms) - from SDK hardware constraints
-        self._min_exposure_ms = 0.011
-        self._max_exposure_ms = 10000.0
+        # Exposure limits (ms) - SDK hardware constraints
+        self._min_exposure_ms = CameraStreamManager.MIN_EXPOSURE_MS
+        self._max_exposure_ms = CameraStreamManager.MAX_EXPOSURE_MS
 
         # Helper objects (initialized after cam is opened)
         self._callback_session: _CallbackSession | None = None
@@ -168,12 +180,12 @@ class CameraStreamManager(BaseCamera):
     @property
     def min_exposure_ms(self) -> float:
         """Minimum exposure time in milliseconds."""
-        return self._min_exposure_ms
+        return CameraStreamManager.MIN_EXPOSURE_MS
 
     @property
     def max_exposure_ms(self) -> float:
         """Maximum exposure time in milliseconds."""
-        return self._max_exposure_ms
+        return CameraStreamManager.MAX_EXPOSURE_MS
 
     # =========================================================================
     # Context manager / lifecycle
@@ -454,12 +466,20 @@ class CameraStreamManager(BaseCamera):
             Actual exposure time set in milliseconds.
         """
         assert self.cam, "camera not initialized"
-        if time_ms < 0.011:
-            self.exposure_time_ms = 0.011
-            logger.warning("exposure time must >= 0.011ms. clamped to 0.011ms.")
-        elif time_ms > 10000:
-            self.exposure_time_ms = 10000.0
-            logger.warning("exposure time must <= 10000ms. clamped to 10000ms.")
+        if time_ms < CameraStreamManager.MIN_EXPOSURE_MS:
+            self.exposure_time_ms = CameraStreamManager.MIN_EXPOSURE_MS
+            logger.warning(
+                "exposure time must >= {:.4f}ms. clamped to {:.4f}ms.",
+                CameraStreamManager.MIN_EXPOSURE_MS,
+                CameraStreamManager.MIN_EXPOSURE_MS,
+            )
+        elif time_ms > CameraStreamManager.MAX_EXPOSURE_MS:
+            self.exposure_time_ms = CameraStreamManager.MAX_EXPOSURE_MS
+            logger.warning(
+                "exposure time must <= {:.1f}ms. clamped to {:.1f}ms.",
+                CameraStreamManager.MAX_EXPOSURE_MS,
+                CameraStreamManager.MAX_EXPOSURE_MS,
+            )
         else:
             self.exposure_time_ms = time_ms
 

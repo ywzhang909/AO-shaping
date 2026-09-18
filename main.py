@@ -1,12 +1,12 @@
 import click
 
-from ao_shaping.runners.wf_runner import run as wf_run
-from ao_shaping.runners.axis_beam_runner import run as axis_beam_run
-from ao_shaping.runners.pipeline_runner import run as pipeline_run
-from ao_shaping.runners.zernike_matrix_runner import run as zernike_matrix_run
-from ao_shaping.runners.rms_zernike_runner import run as rms_zernike_run
 from ao_shaping.runners.ga_zernike_runner import run as ga_zernike_run
-from ao_shaping.runners.combined_runner import run as combined_run
+from ao_shaping.runners.nlight_dm.axis_beam_runner import run as axis_beam_run
+from ao_shaping.runners.nlight_dm.combined_runner import run as combined_run
+from ao_shaping.runners.nlight_dm.pipeline_runner import run as pipeline_run
+from ao_shaping.runners.nlight_dm.wf_runner import run as wf_run
+from ao_shaping.runners.slm.rms_zernike_runner import run as rms_zernike_run
+from ao_shaping.runners.slm.zernike_matrix_runner import run as zernike_matrix_run
 
 
 @click.group()

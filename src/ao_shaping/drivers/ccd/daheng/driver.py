@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 
 from ao_shaping.drivers.ccd import BaseCamera
 from ao_shaping.drivers.ccd.common import ExposureTime
@@ -296,7 +297,7 @@ class DahengCamManager(BaseCamera):
         # 返回新的窗口中心位置
         return (width, height), (center[0] - x_offset, center[1] - y_offset)
 
-    def __take_one_shot(self) -> np.ndarray:
+    def __take_one_shot(self) -> npt.NDArray[np.uint8]:
         """
         拍摄一张相机图像。
 
@@ -312,7 +313,7 @@ class DahengCamManager(BaseCamera):
             if raw_image and raw_image.get_status() == gx.GxFrameStatusList.SUCCESS:
                 return raw_image.get_numpy_array()
 
-    def get_numpy_image(self, n_sample=1, skip_first=True, denoise=False) -> np.ndarray:
+    def get_numpy_image(self, n_sample=1, skip_first=True, denoise=False) -> npt.NDArray[np.uint8]:
         """
         获取相机的图像数据，进行平均处理。
 
@@ -323,16 +324,16 @@ class DahengCamManager(BaseCamera):
         返回:
         np.ndarray: 处理后的平均图像，数据类型为uint8。
         """
-        numpy_image = np.zeros((n_sample, self.cam_height, self.cam_width))  # type: ignore # ignore
+        numpy_image = np.zeros((n_sample, self.cam_height, self.cam_width), dtype=float)
         if skip_first:
             self.__take_one_shot()
         for i in range(n_sample):
-            numpy_image[i] = self.__take_one_shot()
+            numpy_image[i] += self.__take_one_shot()
         avg_img = np.mean(numpy_image, axis=0)
         if denoise:
             avg_img = avg_img - np.median(avg_img)
             avg_img = np.where(avg_img < 0, 0, avg_img)
-        return avg_img.astype(np.uint16)
+        return avg_img.astype(np.uint8)
 
     def auto_exposure(
         self,
@@ -575,7 +576,17 @@ class DahengCamManager(BaseCamera):
     def get_cam_list():
         """Get list of available cameras."""
         device_manager = gx.DeviceManager()
-        return device_manager.update_device_list()
+        _, dev_info_list = device_manager.update_device_list()
+        return dev_info_list
+
+    def get_exposure_range(self) -> tuple[float, float]:
+        """Get the camera's supported exposure time range.
+
+        Returns:
+            (min_exposure_ms, max_exposure_ms)
+        """
+        assert self.cam, "camera not initialized"
+        return float(self.__exposure_time_ms.min), float(self.__exposure_time_ms.max)
 
     def enable_auto_exposure(self, enable: bool = True, mode: int = 1) -> bool:
         """Enable or disable auto exposure.

@@ -447,21 +447,21 @@ def main():
         slm_num = connected_slms[0]
         st.header(f"SLM {slm_num} 相位控制")
         display_slm_status(slm_num)
-        render_phase_preview(slm_num)
         render_phase_control(slm_num)
+        render_phase_preview(slm_num)
     else:
         col1, col2 = st.columns(2)
         with col1:
             st.header("SLM 1 相位控制")
             display_slm_status(1)
-            render_phase_preview(1)
             render_phase_control(1)
+            render_phase_preview(1)
 
         with col2:
             st.header("SLM 2 相位控制")
             display_slm_status(2)
-            render_phase_preview(2)
             render_phase_control(2)
+            render_phase_preview(2)
 
 
 def connect_slm(slm_num: int):

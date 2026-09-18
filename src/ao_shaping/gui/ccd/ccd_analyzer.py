@@ -406,6 +406,8 @@ def _initialize_camera_state() -> None:
     st.session_state.setdefault("camera_type", "Daheng")  # "Daheng" | "MiiCam"
     st.session_state.setdefault("miicam_capture_mode", "wait")  # "wait" | "callback"
     st.session_state.setdefault("exposure_time_ms", 50)
+    st.session_state.setdefault("ccd_exposure_range", None)
+    st.session_state.setdefault("ccd_exposure_lock_until", 0)
     st.session_state.setdefault("auto_exposure", False)
     st.session_state.setdefault("update_interval", _REFRESH_INTERVAL)
     st.session_state.setdefault("roi_size", 0)
@@ -584,8 +586,7 @@ def _discover_available_cameras() -> dict[str, list[Any]]:
     try:
         daheng_list = DahengCamManager.get_cam_list()
         if daheng_list:
-            # Filter out obviously invalid entries (e.g. negative IDs from virtual devices)
-            valid = [d for d in daheng_list if getattr(d, "cam_id", -1) >= 0]
+            valid = [d for d in daheng_list if d.get("index", -1) >= 0]
             result["Daheng"] = valid
     except Exception:
         pass
@@ -636,6 +637,28 @@ def _safe_close_camera(camera: Any) -> None:
         elif hasattr(camera, "cam") and camera.cam is not None:  # type: ignore[union-attr]
             camera.cam.stream_off()  # type: ignore[union-attr]
             camera.cam.close_device()  # type: ignore[union-attr]
+
+
+def _get_camera_exposure_range(camera: Any) -> tuple[float, float]:
+    """Query the camera's supported exposure time range.
+
+    Returns:
+        (min_exposure_ms, max_exposure_ms).  Falls back to (0.01, 1000)
+        if the camera does not expose a range.
+    """
+    try:
+        if hasattr(camera, "get_exposure_range"):
+            return camera.get_exposure_range()
+    except Exception:
+        pass
+    try:
+        min_exp = getattr(camera, "min_exposure_ms", None)
+        max_exp = getattr(camera, "max_exposure_ms", None)
+        if min_exp is not None and max_exp is not None:
+            return float(min_exp), float(max_exp)
+    except Exception:
+        pass
+    return 0.01, 1000.0
 
 
 def _update_fps() -> None:
@@ -829,11 +852,18 @@ def main() -> None:
             help="Camera device ID",
         )
 
+        _exp_range = st.session_state.get("ccd_exposure_range")
+        if _exp_range is not None:
+            _exp_min, _exp_max = _exp_range
+        else:
+            _exp_min, _exp_max = 0.01, 1000.0
+
         new_exposure = st.slider(
             "Exposure Time (ms)",
-            min_value=1,
-            max_value=1000,
-            value=st.session_state.exposure_time_ms,
+            min_value=_exp_min,
+            max_value=_exp_max,
+            value=float(st.session_state.exposure_time_ms),
+            step=0.01,
             help="Camera exposure time",
         )
 
@@ -844,13 +874,8 @@ def main() -> None:
                 st.session_state.camera is not None
                 and st.session_state.camera_connected
             ):
-                try:
-                    if hasattr(st.session_state.camera, "reset_exposure_time"):
-                        st.session_state.camera.reset_exposure_time(new_exposure)
-                    logger.info("Exposure time updated to {}ms", new_exposure)
-                    st.rerun()
-                except Exception as exc:
-                    logger.warning("Failed to update exposure time: {}", exc)
+                if hasattr(st.session_state.camera, "reset_exposure_time"):
+                    st.session_state.camera.reset_exposure_time(new_exposure)
 
         st.session_state.auto_exposure = st.checkbox(
             "Auto Exposure",
@@ -899,6 +924,12 @@ def main() -> None:
                     cam.initialize()
                     st.session_state.camera = cam
                     st.session_state.camera_connected = True
+                    cam_min, cam_max = _get_camera_exposure_range(cam)
+                    st.session_state["ccd_exposure_range"] = (cam_min, cam_max)
+                    st.session_state.exposure_time_ms = max(
+                        cam_min, min(cam_max, st.session_state.exposure_time_ms)
+                    )
+                    st.session_state["ccd_exposure_lock_until"] = time.time() + 1.0
                     # Start MJPEG streamer for low-latency live preview
                     _start_mjpeg_streamer()
                     st.success(f"{st.session_state.camera_type} camera connected")
@@ -924,6 +955,7 @@ def main() -> None:
                     _stop_mjpeg_streamer()
                     st.session_state.camera = None
                     st.session_state.camera_connected = False
+                    st.session_state["ccd_exposure_range"] = None
                     st.error(f"Disconnect failed: {exc}")
 
     # ── Main area ────────────────────────────────────────────────────────────
