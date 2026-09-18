@@ -21,6 +21,13 @@ import numpy as np
 import pytest
 
 from ao_shaping.gui.slm import pattern_controls
+from ao_shaping.gui.slm import pyarrow_probe
+from ao_shaping.gui.slm.pyarrow_probe import (
+    pyarrow_diagnostics,
+    pyarrow_pandas_compat_ok,
+    pyarrow_version,
+    probe_pyarrow,
+)
 from ao_shaping.gui.slm.pattern_controls import (
     PATTERN_REGISTRY,
     BinaryGratingControl,
@@ -39,6 +46,7 @@ from ao_shaping.gui.slm.pattern_controls import (
     _build_control,
     generate_phase_gray,
 )
+from ao_shaping.utils.zernike_calc import zernike_modes
 
 # The order rendered by the old multi_slm_controller selectbox — must be preserved.
 CANONICAL_REGISTRY_ORDER = [
@@ -122,7 +130,10 @@ class TestGeneratePhaseRad:
             ("线性光栅", {"period": 64.0, "phase_range": float(2 * np.pi)}),
             ("棋盘格", {"period": 50}),
             ("Zernike", {"n_max": 4, "radius": 55, "coefficients": {(2, 0): 1.0}}),
-            ("涡旋相位", {"topological_charge": 1, "wavelength_nm": 1064, "pixel_pitch_um": 8}),
+            (
+                "涡旋相位",
+                {"topological_charge": 1, "wavelength_nm": 1064, "pixel_pitch_um": 8},
+            ),
         ],
     )
     def test_rad_phase_is_float64_panel_shaped(
@@ -324,17 +335,26 @@ class TestZernikeEditorFallback:
     """
 
     def test_modes_parity_and_count(self) -> None:
-        modes = ZernikeControl._modes(5)
+        modes = zernike_modes(5)
         assert len(modes) == 21  # sum(n + 1) for n in 0..5
         assert (0, 0) in modes
         assert (2, 0) in modes and (2, 1) not in modes  # n - |m| must be even
+
+    def test_modes_is_canonical_zernike_math(self) -> None:
+        """``zernike_modes`` must live in utils.zernike_calc, not the GUI layer."""
+        from ao_shaping.utils import zernike_calc
+
+        assert hasattr(zernike_calc, "zernike_modes")
+        assert zernike_calc.zernike_modes is zernike_modes
+        # ZernikeControl no longer owns a _modes method.
+        assert not hasattr(ZernikeControl, "_modes")
 
     def test_render_falls_back_when_data_editor_unavailable(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            pattern_controls,
-            "_data_editor_capability",
+            pyarrow_probe,
+            "probe_pyarrow",
             lambda: (False, "ModuleNotFoundError: No module named 'pyarrow.lib'"),
         )
         ctrl = ZernikeControl(width=128, height=96)
@@ -342,14 +362,9 @@ class TestZernikeEditorFallback:
 
         assert params["n_max"] == 5
         assert params["radius"] == float(ctrl.default_radius) == 48.0
-        assert set(params["coefficients"]) == set(ZernikeControl._modes(5))
-        # Piston keeps its 1.0 rad default; every other mode starts at 0.
-        assert params["coefficients"][(0, 0)] == 1.0
-        assert all(
-            value == 0.0
-            for (n, m), value in params["coefficients"].items()
-            if (n, m) != (0, 0)
-        )
+        assert set(params["coefficients"]) == set(zernike_modes(5))
+        # Every mode defaults to 0.0 rad (no piston special-case).
+        assert all(value == 0.0 for (n, m), value in params["coefficients"].items())
 
     def test_data_editor_probe_matches_pyarrow_importability(self) -> None:
         """The probe must mirror the real pyarrow import state, not assume."""
@@ -359,34 +374,58 @@ class TestZernikeEditorFallback:
             expected, reason = False, f"{type(exc).__name__}: {exc}"
         else:
             expected, reason = True, ""
-        available, probe_reason = pattern_controls._data_editor_capability()
+        available, probe_reason = pyarrow_probe.probe_pyarrow()
         assert available is expected
         assert (probe_reason == "") is expected
         if not expected:
             assert reason.split(":")[0] in probe_reason  # e.g. ModuleNotFoundError
 
+    def test_pandas_compat_probe_matches_real_import_state(self) -> None:
+        """``pyarrow_pandas_compat_ok`` must mirror the real import state.
+
+        ``st.data_editor`` calls ``pa.Table.from_pandas`` internally, which
+        does ``from pyarrow.pandas_compat import ...``.  When that submodule
+        is missing the widget aborts the script run — the same fatal pattern
+        as a plain ``pyarrow.lib`` failure.  The probe must catch it.
+        """
+        try:
+            import pyarrow.pandas_compat  # noqa: F401
+        except ImportError:
+            expected = False
+        else:
+            expected = True
+        assert pyarrow_probe.pyarrow_pandas_compat_ok() is expected
+
+    def test_capability_fails_when_pandas_compat_missing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Even with pyarrow importable, a broken pandas_compat must fail the probe."""
+        monkeypatch.setattr(pyarrow_probe, "pyarrow_pandas_compat_ok", lambda: False)
+        available, reason = pyarrow_probe.probe_pyarrow()
+        assert available is False
+        assert "pandas_compat" in reason
+
     def test_diagnostics_report_reason_and_repair_when_unavailable(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         reason = "ModuleNotFoundError: No module named 'pyarrow.lib'"
-        monkeypatch.setattr(
-            pattern_controls, "_data_editor_capability", lambda: (False, reason)
-        )
-        # Force the "pyarrow unusable" view even in a healthy environment.
-        monkeypatch.setattr(pattern_controls, "_pyarrow_version", lambda: None)
-        rows = dict(pattern_controls._pyarrow_diagnostics())
+        monkeypatch.setattr(pyarrow_probe, "probe_pyarrow", lambda: (False, reason))
+        monkeypatch.setattr(pyarrow_probe, "pyarrow_version", lambda: None)
+        monkeypatch.setattr(pyarrow_probe, "pyarrow_pandas_compat_ok", lambda: False)
+        rows = dict(pyarrow_probe.pyarrow_diagnostics())
         assert reason in rows["pyarrow"]
+        assert rows["pyarrow.pandas_compat"] == "不可用"
         assert "Python" in rows and "解释器接受的扩展后缀" in rows
         assert "pip install" in rows["修复命令"]
 
     def test_debug_panel_lists_editor_path_when_available(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(
-            pattern_controls, "_data_editor_capability", lambda: (True, "")
-        )
-        rows = dict(pattern_controls._pyarrow_diagnostics())
+        monkeypatch.setattr(pyarrow_probe, "probe_pyarrow", lambda: (True, ""))
+        monkeypatch.setattr(pyarrow_probe, "pyarrow_pandas_compat_ok", lambda: True)
+        rows = dict(pyarrow_probe.pyarrow_diagnostics())
         assert rows["系数编辑器"] == "st.data_editor (系数表)"
+        assert rows["pyarrow.pandas_compat"] == "可用"
         assert "修复命令" not in rows  # nothing to repair
 
 

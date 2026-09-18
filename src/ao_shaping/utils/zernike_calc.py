@@ -9,29 +9,24 @@ from zernike import RZern
 ZERNIKE_NAMES: dict[tuple[int, int], str] = {
     # n=0 (radial order 0): 1 mode
     (0, 0): "Piston / 活塞",
-
     # n=1 (radial order 1): 2 modes
     (1, -1): "Tip / X倾斜",
     (1, 1): "Tilt / Y倾斜",
-
     # n=2 (radial order 2): 3 modes
     (2, 0): "Defocus / 离焦",
     (2, -2): "Astigmatism 45° / 45°像散",
     (2, 2): "Astigmatism 0° / 0°像散",
-
     # n=3 (radial order 3): 4 modes
     (3, -1): "Coma Y / Y彗差",
     (3, 1): "Coma X / X彗差",
     (3, -3): "Trefoil Y / Y三叶像差",
     (3, 3): "Trefoil X / X三叶像差",
-
     # n=4 (radial order 4): 5 modes
     (4, 0): "Spherical / 球差",
     (4, -2): "Secondary Astig 45° / 二级45°像散",
     (4, 2): "Secondary Astig 0° / 二级0°像散",
     (4, -4): "Tetrafoil Y / Y四叶像差",
     (4, 4): "Tetrafoil X / X四叶像差",
-
     # n=5 (radial order 5): 6 modes
     (5, -1): "Secondary Coma Y / 二级Y彗差",
     (5, 1): "Secondary Coma X / 二级X彗差",
@@ -39,7 +34,6 @@ ZERNIKE_NAMES: dict[tuple[int, int], str] = {
     (5, 3): "Secondary Trefoil X / 二级X三叶像差",
     (5, -5): "Pentafoil Y / Y五叶像差",
     (5, 5): "Pentafoil X / X五叶像差",
-
     # n=6 (radial order 6): 7 modes
     (6, 0): "Secondary Spherical / 二级球差",
     (6, -2): "Tertiary Astig 45° / 三级45°像散",
@@ -48,7 +42,6 @@ ZERNIKE_NAMES: dict[tuple[int, int], str] = {
     (6, 4): "Secondary Tetrafoil X / 二级X四叶像差",
     (6, -6): "Hexafoil Y / Y六叶像差",
     (6, 6): "Hexafoil X / X六叶像差",
-
     # n=7 (radial order 7): 8 modes
     (7, -1): "Tertiary Coma Y / 三级Y彗差",
     (7, 1): "Tertiary Coma X / 三级X彗差",
@@ -75,6 +68,7 @@ def get_zernike_name(n: int, m: int) -> str:
     """
     return ZERNIKE_NAMES.get((n, m), f"n={n},m={m}")
 
+
 def calc_n_zernike_terms(n_max: int) -> int:
     """Calculate the number of Zernike terms up to order n_max.
 
@@ -85,6 +79,34 @@ def calc_n_zernike_terms(n_max: int) -> int:
         Number of Zernike terms (including piston).
     """
     return (n_max + 1) * (n_max + 2) // 2
+
+
+def zernike_modes(n_max: int | str) -> list[tuple[int, int]]:
+    """Valid (n, m) index pairs up to radial order ``n_max``.
+
+    Parity rule: ``n - |m|`` must be even (m steps by 2 for each n).
+    This is the inverse of :func:`calc_n_zernike_terms` — given the radial
+    order it enumerates every (n, m) pair in the standard Noll ordering
+    (n ascending, m ascending within each n).
+
+    Pure Zernike math — no GUI / no session_state dependency, so it belongs
+    in :mod:`ao_shaping.utils.zernike_calc` alongside
+    :func:`get_zernike_name` and :func:`calc_n_zernike_terms`.
+
+    Args:
+        n_max: Maximum Zernike radial order. Coerced to ``int`` so a widget
+            string value (e.g. ``"5"``) is accepted transparently.
+
+    Returns:
+        List of ``(n, m)`` tuples. Length equals
+        :func:`calc_n_zernike_terms` ``= (n_max+1)(n_max+2)//2``.
+    """
+    return [
+        (n, m)
+        for n in range(int(n_max) + 1)
+        for m in range(-n, n + 1)
+        if (n - abs(m)) % 2 == 0
+    ]
 
 
 def noll_to_nm(j: int) -> tuple[int, int]:
@@ -112,6 +134,7 @@ def noll_to_nm(j: int) -> tuple[int, int]:
     # Create a temporary RZern with enough orders to cover index j
     # noll2nm needs at least ceil((sqrt(8*j-7)-1)/2) radial orders
     import math
+
     n_needed = max(1, math.ceil((math.sqrt(8 * j - 7) - 1) / 2))
     cart = RZern(n_needed)
     result = cart.noll2nm(j)
@@ -204,13 +227,16 @@ def generate_noll_polynomial(
 #   4) 回归测试锚点 (tests/ao_shaping/utils/test_zernike_calc.py):
 #      test_grid_cache_reused_across_instances / test_radius_change_rebuilds_cart /
 #      test_radius_change_releases_old_cart / test_n_orders_change_rebuilds_cart。
-_grid_cache: tuple[
-    tuple[int, int, float, int], tuple[RZern, np.ndarray, np.ndarray]
-] | None = None
+_grid_cache: (
+    tuple[tuple[int, int, float, int], tuple[RZern, np.ndarray, np.ndarray]] | None
+) = None
 
 
 def _build_cached_grid(
-    width: int, height: int, radius: float, n_orders: int,
+    width: int,
+    height: int,
+    radius: float,
+    n_orders: int,
 ) -> tuple[RZern, np.ndarray, np.ndarray]:
     """Build (and cache) the RZern cart + normalized coordinate grid.
 
@@ -290,7 +316,10 @@ class ZernikeGenerator:
         # (keyed by resolution/radius/order). ``make_cart_grid`` builds the polar
         # lookup tables over the full grid — the dominant cost when regenerating.
         self._cart, self.xv, self.yv = _build_cached_grid(
-            self._width, self._height, self._radius, self._n_orders,
+            self._width,
+            self._height,
+            self._radius,
+            self._n_orders,
         )
         self.ddx = self.xv[0, :]
         self.ddy = self.yv[:, 0]
@@ -306,7 +335,6 @@ class ZernikeGenerator:
             Noll index (1-based).
         """
         return self._cart.nm2noll(n, m)
-
 
     def noll_to_nm(self, j: int) -> tuple[int, int]:
         """Convert Noll index to (n, m) Zernike indices (aotools convention).
@@ -405,7 +433,7 @@ class ZernikeGenerator:
         max_val = self._max_val
         if max_val is None:
             raise ValueError("Call set_bits() first to configure output scale")
-        j = self._cart.nm2noll(n, m) - 1 # Convert to 0-based index
+        j = self._cart.nm2noll(n, m) - 1  # Convert to 0-based index
         coeffs = np.zeros(self._cart.nk, dtype=np.float64)
         if j < self._cart.nk:
             coeffs[j] = amplitude
@@ -450,7 +478,7 @@ class ZernikeGenerator:
             2D array of radial distances.
         """
         return np.sqrt(self.xv**2 + self.yv**2)
-    
+
     @property
     def n_modes(self) -> int:
         return self._cart.nk

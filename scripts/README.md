@@ -598,6 +598,50 @@ python scripts/generate_heuristic_pib_report.py
   center `[-4.8,-4.2,-4.5,-4.0]` vs local center `[2.5,3.2,2.2,2.8]`)
 - **设备加载语义**: 设备一次只能加载一个相位, 1 次设备加载 = 1 次相位加载 = 1 次目标函数 (PIB) 评估 = 1 次迭代 (evals_per_iter=1); 表格与 CSV 中的 n_loads 即设备相位加载次数/迭代数。
 
+### generate_strehl_benchmark_report.py
+
+Benchmarks the 7 heuristic optimizers in `ao_shaping.algorithm` (GA, PSO, SA,
+Hill Climbing, Random Search, Cross-Entropy, Differential Evolution) **and SPGD**
+on a common offline **Strehl** objective: correcting atmospheric turbulence in
+the physical simulation `TraditionalAOSystem` (DM influence functions + Fourier
+focal plane). **Fully offline** — pure numpy, no hardware, landscape from
+`ao_shaping.optimizer.wfless.strehl_sim_eval.StrehlLandscape` (dim=64, bounds
+±1, seed 42, turbulence screen fixed). SPGD participates here as the
+gradient-based reference that the PIB benchmark leaves out (it is not a
+`HeuristicOptimizer` algorithm).
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src;libs"
+python scripts/generate_strehl_benchmark_report.py              # n_grid=256 (~20 min)
+python scripts/generate_strehl_benchmark_report.py --n-grid 128 # fast smoke (~5 min)
+```
+
+**What it does** (writes to `docs/strehl_benchmark/`):
+- Runs the 7 heuristic optimizers via the `HeuristicOptimizer.create()` factory
+  with the same spec configs and load budgets as the PIB benchmark (GA/DE/CEM
+  pop_size=30, PSO n_particles=30, per-algorithm iteration budgets), plus SPGD
+  (fixed gain gamma=2.0, delta=0.1, momentum beta1=0.9, 4000 steps x 2 loads =
+  8000 loads) driven by the canonical `spgd_gradient()` helper; objective =
+  Strehl (simulator definition `clip(peak/_ideal_peak, 0, 1)`, so the plateau
+  at 1.0 is the metric's saturation, not a bug)
+- `strehl_curves.png` — overlaid Strehl curves vs device loads (log x-axis),
+  0.5/0.9 threshold lines; a dot + `load N` label marks each curve's first
+  crossing of 0.9 Strehl, and each legend label shows `max@N`
+- `convergence_speed.png` — grouped bar chart (log y-axis) of the first device
+  loads each algorithm takes to reach Strehl 0.5 / 0.9 / its final maximum,
+  with exact values annotated above each bar
+- `spot_before_after.png` — 2x4 grid (8 algorithms incl. SPGD) of initial vs
+  best spot renders (`landscape.render`) with shared brightness normalization
+- `summary_bars.png` — horizontal bar chart of final Strehl, sorted descending
+- `summary.csv` — `algorithm, final_strehl, init_strehl, n_loads, elapsed_s`
+- `report.md` — results table (final Strehl / improvement / **loads to max,
+  >= 0.9, >= 0.5** / n_loads) plus per-algorithm principles and a
+  cross-benchmark comparison table against `docs/heuristic_pib/summary.csv`
+  (rendered when that file is present)
+- **设备加载语义**: 设备一次只能加载一个相位, 1 次设备加载 = 1 次相位加载 = 1 次目标函数 (Strehl) 评估 = 1 次迭代 (SPGD 每步 2 次加载: v+δ 与 v−δ); 表格与 CSV 中的 n_loads 即设备相位加载次数/迭代数。本基准的 Strehl 为该仿真器定义 (高斯光瞳远场峰值为理想参考并裁剪至 [0,1]) — 原始比值在 n_grid=256 下可达 ~3.6, 因此裁剪后是否达到 1.0 的收敛速度 (而不是最终值) 才是可比指标。
+
+
 ### generate_dm_response_matrix_report.py
 
 Generates the illustrated **DM response matrix** report

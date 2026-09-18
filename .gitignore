@@ -98,3 +98,8 @@ scripts/dev**
 tmp_*
 docs/**/*.pdf
 docs/thorlab-wfs/Manual*
+docs/micro-dm/micro-dm_report.md
+docs/miicam_simulation/miicam_report.md
+docs/slm-200/slm-200_report.md
+docs/miicam_simulation/images/001_simulated_images.png
+docs/slm-200/images/001_test_sine.png

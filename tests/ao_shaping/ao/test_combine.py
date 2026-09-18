@@ -9,7 +9,7 @@ pytestmark = pytest.mark.skip(reason="Requires DM + WFS + Camera hardware")
 
 
 from ao_shaping.optimizer.wfless.pib import optimize_pib
-from ao_shaping.optimizer.wf.rms import optimizer_rms
+from ao_shaping.optimizer.wf.rms import optimizer_rms_dm
 from ao_shaping.utils.display import plot_funcs
 
 def test_optimize():
@@ -22,7 +22,7 @@ def test_optimize():
     pupil_dia = 2.7
     
     init_V = [0 for _ in range(64)]
-    wf_records = optimizer_rms(
+    wf_records = optimizer_rms_dm(
         init_v=init_V,
         pupil_diameter=pupil_dia,
         wfs_res='768',

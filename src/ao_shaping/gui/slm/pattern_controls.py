@@ -15,6 +15,11 @@ from scipy.special import erf
 
 from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
 from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.gui.slm.pyarrow_probe import (
+    probe_pyarrow,
+    pyarrow_diagnostics,
+    pyarrow_version,
+)
 from ao_shaping.utils.beam_metrics import measure_spot_diameter_cam
 from ao_shaping.utils.pattern_helper import (
     PatternHelper,
@@ -24,7 +29,30 @@ from ao_shaping.utils.targets import (
     build_square_target_amplitude,
     compute_square_side,
 )
-from ao_shaping.utils.zernike_calc import get_zernike_name
+from ao_shaping.utils.zernike_calc import get_zernike_name, zernike_modes
+
+# ============================================================================
+# pyarrow / st.data_editor 环境说明
+#
+# ⚠️  重要提示 (2026-09-18): 本项目在**全局 Python 3.14 + streamlit 1.57** 环境
+# 中曾出现 pyarrow wheels 与解释器版本不匹配 (cp313 wheels 装在 cp314 解释器),
+# 导致 `st.data_editor` 内部惰性导入 pyarrow 时抛出
+# `ModuleNotFoundError: No module named 'pyarrow.lib'`, Streamlit 的
+# ScriptRunContext 会直接 abort 整个脚本运行 —— 表现为"卡死至崩溃"
+# (页面元素全部消失, 看起来像应用退出了)。
+#
+# 同样致命的还有 `pyarrow.pandas_compat` 模块缺失:
+#   `ModuleNotFoundError: No module named 'pyarrow.pandas_compat'`
+# 它在 `pa.Table.from_pandas()` 调用时触发, 而该调用位于
+# `streamlit/elements/widgets/data_editor.py:1092`。
+#
+# 修复命令:
+#   pip install --force-reinstall --only-binary :all: pyarrow
+#
+# 探测逻辑已移至 `tests/ao_shaping/gui/slm/test_pyarrow_probe.py` (纯测试辅助),
+# 本模块的 `ZernikeControl.render()` 通过 try/except ImportError 直接回退,
+# 不依赖任何预探测函数。
+# ============================================================================
 
 
 class PatternControl(ABC):
@@ -771,9 +799,12 @@ class ZernikeControl(PatternControl):
         "n_max": (1, 10),
         "radius": (1, 2000),
     }
-    
+
     COEFF_MIN: ClassVar[float] = -100.0
     COEFF_MAX: ClassVar[float] = 100.0
+
+    #: Coefficients laid out per row in the pyarrow-free fallback editor.
+    COEFF_COLUMNS: ClassVar[int] = 3
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -1539,9 +1570,7 @@ def refresh_phase_preview(slm_num: int) -> None:
 
     phase_gray, source = slm.get_displayed_phase()
     max_gray = getattr(slm, "_max_gray", Santec.MAX_GRAYSCALE_VALUE)
-    colormap = st.session_state.get(
-        colormap_key, PREVIEW_COLORMAP_DEFAULT
-    )
+    colormap = st.session_state.get(colormap_key, PREVIEW_COLORMAP_DEFAULT)
     st.session_state[phase_key] = (
         None
         if phase_gray is None

@@ -6,9 +6,11 @@ import pytest
 from ao_shaping.utils.zernike_calc import (
     ZERNIKE_NAMES,
     ZernikeGenerator,
+    calc_n_zernike_terms,
     fit_zernike,
     get_zernike_name,
     noll_to_nm,
+    zernike_modes,
     zernike_radial,
 )
 
@@ -25,7 +27,9 @@ class TestZernikeGeneratorSquare:
         img = gen.generate(2, 0, amplitude=1.0)
 
         # Output must match requested resolution
-        assert img.shape == (height, width), f"Expected ({height}, {width}), got {img.shape}"
+        assert img.shape == (height, width), (
+            f"Expected ({height}, {width}), got {img.shape}"
+        )
 
     def test_square_taller_than_wide(self):
         """Test square mode with height > width (portrait)."""
@@ -36,7 +40,9 @@ class TestZernikeGeneratorSquare:
         img = gen.generate(2, 0, amplitude=1.0)
 
         # Output must match requested resolution
-        assert img.shape == (height, width), f"Expected ({height}, {width}), got {img.shape}"
+        assert img.shape == (height, width), (
+            f"Expected ({height}, {width}), got {img.shape}"
+        )
 
     def test_square_already_square(self):
         """Test square mode when already square (no cropping needed)."""
@@ -47,7 +53,9 @@ class TestZernikeGeneratorSquare:
         img = gen.generate(2, 0, amplitude=1.0)
 
         # Output must match requested resolution
-        assert img.shape == (height, width), f"Expected ({height}, {width}), got {img.shape}"
+        assert img.shape == (height, width), (
+            f"Expected ({height}, {width}), got {img.shape}"
+        )
 
     def test_square_false_preserves_aspect(self):
         """Test square=False preserves original non-square shape."""
@@ -58,7 +66,9 @@ class TestZernikeGeneratorSquare:
         img = gen.generate(2, 0, amplitude=1.0)
 
         # Output unchanged when square=False
-        assert img.shape == (height, width), f"Expected ({height}, {width}), got {img.shape}"
+        assert img.shape == (height, width), (
+            f"Expected ({height}, {width}), got {img.shape}"
+        )
 
     def test_square_generate_noll(self):
         """Test square mode with generate_noll."""
@@ -70,7 +80,9 @@ class TestZernikeGeneratorSquare:
         img = gen.generate_noll(coeffs)
 
         # Output must match requested resolution
-        assert img.shape == (height, width), f"Expected ({height}, {width}), got {img.shape}"
+        assert img.shape == (height, width), (
+            f"Expected ({height}, {width}), got {img.shape}"
+        )
 
     def test_square_generate_polynomial(self):
         """Test square mode with generate_polynomial."""
@@ -81,7 +93,9 @@ class TestZernikeGeneratorSquare:
         coeffs = {(0, 0): 1.0, (1, -1): 0.3, (2, 0): 0.2}
         img = gen.generate_polynomial(coeffs)
 
-        assert img.shape == (height, width), f"Expected ({height}, {width}), got {img.shape}"
+        assert img.shape == (height, width), (
+            f"Expected ({height}, {width}), got {img.shape}"
+        )
 
     def test_square_empty_coefficients(self):
         """Test square mode with empty coefficients."""
@@ -92,7 +106,9 @@ class TestZernikeGeneratorSquare:
         coeffs = {}
         img = gen.generate_polynomial(coeffs)
 
-        assert img.shape == (height, width), f"Expected ({height}, {width}), got {img.shape}"
+        assert img.shape == (height, width), (
+            f"Expected ({height}, {width}), got {img.shape}"
+        )
 
 
 class TestZernikeGeneratorBasic:
@@ -194,6 +210,7 @@ class TestZernikeGeneratorBasic:
     def test_grid_cache_reused_across_instances(self):
         """同参数重复生成应复用缓存 (回归: 之前每次生成重建 RZern 网格, ~2.7s)."""
         import time
+
         gen1 = ZernikeGenerator((100, 100), radius=50.0)
         gen1.set_bits(10)
         gen2 = ZernikeGenerator((100, 100), radius=50.0)
@@ -340,8 +357,57 @@ class TestZernikeNames:
         for n in orders:
             modes = sorted(m for (nn, m) in ZERNIKE_NAMES if nn == n)
             assert len(modes) == n + 1, f"n={n} 模式数应为 {n + 1}, 实为 {modes}"
-            assert all((m - n) % 2 == 0 and abs(m) <= n for m in modes), f"n={n}: {modes}"
+            assert all((m - n) % 2 == 0 and abs(m) <= n for m in modes), (
+                f"n={n}: {modes}"
+            )
 
     def test_unknown_mode_falls_back(self):
         """未收录模式回退为 n=,m= 格式."""
         assert get_zernike_name(99, 1) == "n=99,m=1"
+
+
+class TestZernikeModes:
+    """Tests for :func:`ao_shaping.utils.zernike_calc.zernike_modes`.
+
+    This function was extracted from ``ZernikeControl._modes`` in the GUI
+    layer (2026-09-18) — it is pure Zernike math (the parity rule
+    ``n - |m| == even``) and belongs in ``utils.zernike_calc`` alongside
+    :func:`get_zernike_name` and :func:`calc_n_zernike_terms`.
+    """
+
+    def test_modes_count_matches_calc_n_zernike_terms(self) -> None:
+        from ao_shaping.utils.zernike_calc import calc_n_zernike_terms
+
+        for n_max in (0, 1, 2, 5, 10):
+            assert len(zernike_modes(n_max)) == calc_n_zernike_terms(n_max), (
+                f"n_max={n_max}: 模式数应为 (n+1)(n+2)//2 = "
+                f"{calc_n_zernike_terms(n_max)}"
+            )
+
+    def test_modes_parity_rule(self) -> None:
+        """n - |m| must be even for every returned (n, m)."""
+        for n_max in (1, 5, 10):
+            for n, m in zernike_modes(n_max):
+                assert (n - abs(m)) % 2 == 0, f"({n},{m}) 违反奇偶规则"
+                assert abs(m) <= n, f"({n},{m}) 超出 |m|<=n"
+
+    def test_modes_contain_canonical_low_order(self) -> None:
+        modes = zernike_modes(5)
+        assert (0, 0) in modes  # piston
+        assert (2, 0) in modes  # defocus
+        assert (2, -2) in modes and (2, 2) in modes  # astigmatism
+        assert (4, 0) in modes  # spherical
+        assert (2, 1) not in modes  # parity violation excluded
+
+    def test_modes_n_max_zero(self) -> None:
+        assert zernike_modes(0) == [(0, 0)]
+
+    def test_modes_is_pure_function_no_side_effects(self) -> None:
+        a = zernike_modes(3)
+        b = zernike_modes(3)
+        assert a == b
+        assert a is not b  # new list each call, no caching at this layer
+
+    def test_modes_coerces_int(self) -> None:
+        """n_max may arrive as a string from a widget; coerce to int."""
+        assert zernike_modes("4") == zernike_modes(4)

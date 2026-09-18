@@ -5,13 +5,13 @@ import pytest
 pytestmark = pytest.mark.skip(reason="Requires DM + WFS hardware")
 
 
-from ao_shaping.optimizer.wf.rms import optimizer_rms
+from ao_shaping.optimizer.wf.rms import optimizer_rms_dm
 from ao_shaping.config import DM_N_ACTUATORS
 
 
 def test_wf_optimizer():
     init_V = [0 for _ in range(DM_N_ACTUATORS)]
-    res_list = optimizer_rms(
+    res_list = optimizer_rms_dm(
         init_v=init_V.copy(),
         epochs=20_000)
 
