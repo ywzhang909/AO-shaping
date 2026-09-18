@@ -146,59 +146,279 @@ class SLMCCDCalibrator:
         max_rounds: int = 10,
         center_tol_px: float = 30.0,
         blaze_period: float = 24.0,
+        window_margin_factor: float = 4.0,
+        period_candidates: tuple[int, ...] | None = None,
+        min_window_side: int = 128,
     ) -> dict:
-        """装配辅助: 检查0级与±1级是否都进入CCD视场, 并给出定心引导.
-        返回装配报告 dict(ok, rounds)."""
-        report = {"rounds": [], "ok": False}
-        for rnd in range(max_rounds):
+        """软件化装配辅助: 用相机开窗(ROI)自动把0级与+1级框入视场并定心.
+
+        阶段A 全幅检测  flat相位下0级质心c0与FWHM f0.
+        阶段B 周期选择  按 period_candidates 升序测±1级位移, 首个"0级/+1级
+                       在视场(边缘余量 margin=margin_factor*f0)且窗口
+                       (2*(half+margin), clamp>=min_window_side)不超传感器"
+                       的周期胜出; 全部不满足 -> 恢复全幅返回失败.
+        阶段C 窗口定心  每轮把窗口中心移到0级(全幅坐标, 边缘clamp), 窗口大小
+                       固定(sx/sy 按阶段B的half与margin). 收敛判据:
+                       窗口内0级 - 窗口返回中心 <= center_tol_px.
+        阶段D 收尾      成功: 保留窗口, 写 calib keys; 失败: 恢复全幅,
+                       清空align keys, align_ok=False.
+
+        写入 calib:
+          align_ok             bool
+          align_period         float 选中的闪耀周期
+          align_center_full    (cy, cx) 0级全幅像素坐标
+          align_window_center_xy (cx, cy) 最终窗口中心(驱动(x,y)序)
+          align_window_size_xy (sx, sy)  最终窗口尺寸(驱动序)
+        (align_window_* 存中心/尺寸而非offset: 真实驱动不返回offset,
+         offset由 reset_window 从(center,size)确定性推导.)
+        返回装配报告 dict(ok, reason, period, rounds, ...).
+        """
+        default_cands: tuple[int, ...] = (16, 24, 32, 48, 64, 96)
+        if period_candidates is not None:
+            cands = tuple(int(p) for p in period_candidates)
+        elif int(round(blaze_period)) in default_cands:
+            cands = default_cands
+        else:
+            cands = (int(round(blaze_period)),) + default_cands
+
+        report: dict = {"rounds": [], "ok": False, "period": None, "reason": "unknown"}
+
+        def restore_full() -> None:
+            try:
+                self.ccd.reset_window((0, 0), (0, 0))
+            except Exception:
+                logger.warning("恢复全幅窗口失败")
+
+        try:
+            # ---------- 阶段A: 全幅检测 ----------
             self._show(np.zeros(self.panel_res, np.float32))
             F0 = np.asarray(self.ccd.get_numpy_image(CAMERA_SAMPLES), np.float64)
+            H, W = F0.shape
             c0 = self._moments(F0)
             f0 = max(self.spot_fwhm(F0, c0), 3.0)
-            H, W = F0.shape
-            spots = {"0级": c0}
-            for axis, tag in (("x", "+1级x"), ("y", "+1级y")):
-                self._show(self._blaze(blaze_period, axis, self.panel_res))
-                F = np.asarray(self.ccd.get_numpy_image(CAMERA_SAMPLES), np.float64)
-                spots[tag] = self._moments(F, exclude=(c0, 3.0 * f0))
-            off = {k: v - np.array([H, W]) / 2.0 for k, v in spots.items()}
-            in_fov = {k: (0 <= v[0] < H and 0 <= v[1] < W) for k, v in spots.items()}
-            centered = all(abs(o).max() < center_tol_px for o in off.values())
-            report["rounds"].append({"spots": spots, "offsets": off, "in_fov": in_fov})
-            logger.info("装配检查[{}/{}]:", rnd + 1, max_rounds)
-            for k, o in off.items():
-                logger.info(
-                    "  {:5s} 位置=({:7.1f},{:7.1f}) 距视场中心=({:+6.1f},{:+6.1f}) {}",
-                    k,
-                    spots[k][0],
-                    spots[k][1],
-                    o[0],
-                    o[1],
-                    "在视场内" if in_fov[k] else "出视场!",
-                )
-            if all(in_fov.values()) and centered:
-                logger.info("装配满足要求: 所有级次在视场内且大致居中")
-                report["ok"] = True
-                return report
-            dy, dx = off["0级"]
-            sug = []
-            if abs(dx) > center_tol_px:
-                sug.append(
-                    f"{'←' if dx > 0 else '→'}平移CCD/光路使0级向视场中心(需移动{abs(dx):.0f}px)"
-                )
-            if abs(dy) > center_tol_px:
-                sug.append(
-                    f"{'↑' if dy > 0 else '↓'}俯仰调节使0级向视场中心(需移动{abs(dy):.0f}px)"
-                )
-            for k, ok_ in in_fov.items():
-                if not ok_:
-                    sug.append(
-                        f"{k}出视场: 减小闪耀周期(当前{blaze_period}px)或增大CCD视场/减小焦距"
-                    )
-            logger.info("建议: {}", " ; ".join(sug) if sug else "微调后复测")
+            margin = window_margin_factor * f0
+            logger.info(
+                "align 阶段A: 帧={}x{} 0级=({:.1f},{:.1f}) FWHM≈{:.1f}px",
+                W,
+                H,
+                c0[0],
+                c0[1],
+                f0,
+            )
 
-        logger.warning("装配辅助达到最大轮数仍未满足, 请人工检查光路")
-        return report
+            # ---------- 阶段B: 周期选择 ----------
+            period: float = 0.0
+            half_x = half_y = 0.0
+            for P in cands:
+                self._show(self._blaze(P, "x", self.panel_res))
+                s_x = self._moments(
+                    np.asarray(self.ccd.get_numpy_image(CAMERA_SAMPLES), np.float64),
+                    exclude=(c0, 3.0 * f0),
+                )
+                self._show(self._blaze(P, "y", self.panel_res))
+                s_y = self._moments(
+                    np.asarray(self.ccd.get_numpy_image(CAMERA_SAMPLES), np.float64),
+                    exclude=(c0, 3.0 * f0),
+                )
+                half_x = max(abs(s_x[1] - c0[1]), 0.0)
+                half_y = max(abs(s_y[0] - c0[0]), 0.0)
+                sx = max(2.0 * (half_x + margin), float(min_window_side))
+                sy = max(2.0 * (half_y + margin), float(min_window_side))
+                in_fov = {
+                    "0级": (
+                        margin <= c0[0] < H - margin and margin <= c0[1] < W - margin
+                    ),
+                    "+1级x": (
+                        margin <= s_x[0] < H - margin
+                        and margin <= s_x[1] < W - margin
+                    ),
+                    "+1级y": (
+                        margin <= s_y[0] < H - margin
+                        and margin <= s_y[1] < W - margin
+                    ),
+                }
+                fits = sx <= W - 1 and sy <= H - 1
+                report["rounds"].append(
+                    dict(
+                        stage="B",
+                        period=float(P),
+                        spots={"0级": c0, "+1级x": s_x, "+1级y": s_y},
+                        window_size=(sx, sy),
+                        in_fov=in_fov,
+                    )
+                )
+                logger.info(
+                    "align 阶段B P={:2d}px: +1级x=({:.0f},{:.0f}) +1级y=({:.0f},{:.0f}) "
+                    "窗口={:.0f}x{:.0f} {}",
+                    P,
+                    s_x[0],
+                    s_x[1],
+                    s_y[0],
+                    s_y[1],
+                    sx,
+                    sy,
+                    "采用" if (all(in_fov.values()) and fits) else "跳过",
+                )
+                if all(in_fov.values()) and fits:
+                    period = float(P)
+                    break
+            if period == 0.0:
+                report["reason"] = "no_period"
+                logger.warning(
+                    "align 阶段B: 无周期满足(级次出视场/窗口超传感器), 恢复全幅"
+                )
+                restore_full()
+                self._finalize_align(report, ok=False)
+                return report
+
+            # ---------- 阶段C: 窗口定心 ----------
+            sx = min(
+                max(2.0 * (half_x + margin), float(min_window_side)), float(W - 1)
+            )
+            sy = min(
+                max(2.0 * (half_y + margin), float(min_window_side)), float(H - 1)
+            )
+            win_offset = (0, 0)  # 驱动(x,y)序
+            returned_rc0 = np.array([0.0, 0.0])
+            last_center_full = np.array([c0[0], c0[1]])  # (cy,cx)
+            window_center: tuple[float, float] = (0.0, 0.0)
+            window_size: tuple[float, float] = (sx, sy)
+            first = True
+            for rnd in range(max_rounds):
+                self._show(np.zeros(self.panel_res, np.float32))
+                F = np.asarray(self.ccd.get_numpy_image(CAMERA_SAMPLES), np.float64)
+                c0_win = self._moments(F)
+                if not first and np.linalg.norm(c0_win - returned_rc0) <= center_tol_px:
+                    last_center_full = np.array(
+                        [win_offset[1] + c0_win[0], win_offset[0] + c0_win[1]]
+                    )
+                    logger.info(
+                        "align 阶段C 第{}轮: 0级窗口内偏移=({:.1f},{:.1f})px "
+                        "<= tol {:.1f}px, 收敛",
+                        rnd,
+                        c0_win[0] - returned_rc0[0],
+                        c0_win[1] - returned_rc0[1],
+                        center_tol_px,
+                    )
+                    break
+                cx_full = win_offset[0] + c0_win[1]
+                cy_full = win_offset[1] + c0_win[0]
+                last_center_full = np.array([cy_full, cx_full])
+                cx_c = float(np.clip(cx_full, sx / 2.0, W - 1 - sx / 2.0))
+                cy_c = float(np.clip(cy_full, sy / 2.0, H - 1 - sy / 2.0))
+                returned = self.ccd.reset_window(
+                    (int(round(cx_c)), int(round(cy_c))),
+                    (int(round(sx)), int(round(sy))),
+                )
+                window_size = (float(returned[0][0]), float(returned[0][1]))
+                window_center = (cx_c, cy_c)
+                win_offset = (
+                    int(round(cx_c)) - returned[1][0],
+                    int(round(cy_c)) - returned[1][1],
+                )
+                returned_rc0 = np.array([returned[1][1], returned[1][0]])  # (cy,cx)
+                report["rounds"].append(
+                    dict(
+                        stage="C",
+                        round=rnd,
+                        window_size=window_size,
+                        window_center=window_center,
+                        window_offset=win_offset,
+                        c0_window=c0_win,
+                        residual=c0_win - returned_rc0,
+                    )
+                )
+                first = False
+            else:
+                report["reason"] = "not_converged"
+                logger.warning("align 阶段C: {}轮未收敛, 恢复全幅", max_rounds)
+                restore_full()
+                self._finalize_align(report, ok=False)
+                return report
+
+            # ---------- 阶段D: 收尾 (成功, 保留窗口) ----------
+            report["ok"] = True
+            report["period"] = period
+            report["center_full"] = last_center_full
+            report["window_center"] = window_center
+            report["window_size"] = window_size
+            self._finalize_align(report, ok=True)
+            logger.info(
+                "align 完成: 周期={:.0f}px 0级全幅=({:.0f},{:.0f}) "
+                "窗口 中心=({:.0f},{:.0f}) 尺寸={:.0f}x{:.0f}px",
+                period,
+                last_center_full[0],
+                last_center_full[1],
+                window_center[0],
+                window_center[1],
+                window_size[0],
+                window_size[1],
+            )
+            return report
+        except RuntimeError as e:
+            report["reason"] = "no_spot"
+            logger.warning("align 失败(找不到光斑): {}", e)
+            restore_full()
+            self._finalize_align(report, ok=False)
+            return report
+
+    def _finalize_align(self, report: dict, ok: bool) -> None:
+        """把 align 结果写入/清理 self.calib 的 align_* keys."""
+        if self.calib is None:
+            self.calib = {}
+        self.calib["align_ok"] = bool(ok)
+        self.calib["align_period"] = report.get("period")
+        if ok:
+            self.calib["align_center_full"] = np.asarray(
+                report["center_full"], np.float64
+            )
+            self.calib["align_window_center_xy"] = np.asarray(
+                report["window_center"], np.float64
+            )
+            self.calib["align_window_size_xy"] = np.asarray(
+                report["window_size"], np.float64
+            )
+        else:
+            for k in (
+                "align_center_full",
+                "align_window_center_xy",
+                "align_window_size_xy",
+            ):
+                self.calib.pop(k, None)
+
+    def apply_stored_window(self) -> bool:
+        """把 calib 中保存的 align 窗口应用到相机 (center/size 形式恢复).
+
+        驱动 reset_window 由 (center, size) 确定性推导 offset, 因此恢复窗口
+        无需保存 offset. 无窗口信息或窗口不合法/超传感器时返回 False
+        (相机保持现状, 不主动复位).
+        """
+        if self.calib is None:
+            return False
+        size = self.calib.get("align_window_size_xy")
+        center = self.calib.get("align_window_center_xy")
+        if size is None or center is None:
+            return False
+        sx, sy = int(round(size[0])), int(round(size[1]))
+        if sx <= 0 or sy <= 0:
+            return False
+        try:
+            self.ccd.reset_window(
+                (int(round(center[0])), int(round(center[1]))), (sx, sy)
+            )
+        except AssertionError:
+            logger.warning(
+                "存储窗口超出传感器范围, 保持全幅: size={} center={}", size, center
+            )
+            return False
+        logger.info(
+            "已应用存储窗口: 中心=({:.0f},{:.0f}) 尺寸={}x{}",
+            center[0],
+            center[1],
+            sx,
+            sy,
+        )
+        return True
 
     # ------------------------------------------------------------ 阶段1.5: 光束在SLM上的位置
     def find_beam_on_slm(
@@ -362,7 +582,15 @@ class SLMCCDCalibrator:
             resid_y=resid["y"],
             crop_side=int(round(max(K["x"], K["y"]) * 1.15)),
         )
-        for k_src in ("beam_center", "beam_sigma"):  # 保留光束位置结果
+        for k_src in (  # 保留光束位置与对准结果
+            "beam_center",
+            "beam_sigma",
+            "align_ok",
+            "align_period",
+            "align_center_full",
+            "align_window_center_xy",
+            "align_window_size_xy",
+        ):
             if k_src in prev:
                 self.calib[k_src] = prev[k_src]
         logger.info(
@@ -785,6 +1013,18 @@ class SLMLUTCalibrator:
 @click.option(
     "--verify-only", is_flag=True, help="只验证已有几何标定(需 --calib)"
 )
+@click.option(
+    "--align-margin",
+    default=4.0,
+    show_default=True,
+    help="align 窗口边缘余量倍数(×FWHM)",
+)
+@click.option(
+    "--align-min-window",
+    default=128,
+    show_default=True,
+    help="align 最小窗口边长(px)",
+)
 @click.option("--exposure-ms", default=1.2, show_default=True, help="CCD曝光(ms)")
 @click.option("--settle-s", default=0.2, show_default=True, help="SLM显示稳定等待(s)")
 def main(
@@ -793,6 +1033,8 @@ def main(
     skip_align,
     skip_beam,
     verify_only,
+    align_margin,
+    align_min_window,
     exposure_ms,
     settle_s,
 ):
@@ -812,7 +1054,9 @@ def main(
         if calib_path and skip_align and skip_beam:
             geo.load(calib_path)  # 以已有标定为底, 增量复标
         if not skip_align:
-            geo.align()
+            geo.align(
+                window_margin_factor=align_margin, min_window_side=align_min_window
+            )
         if not skip_beam:
             geo.find_beam_on_slm()
         geo.calibrate()
