@@ -1,11 +1,7 @@
 from __future__ import annotations
 
 import io
-import platform
-import sys
 from abc import ABC, abstractmethod
-from functools import lru_cache
-from pathlib import Path
 from typing import Any, Callable, ClassVar
 
 import numpy as np
@@ -15,11 +11,6 @@ from scipy.special import erf
 
 from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
 from ao_shaping.drivers.slm.santec import Santec
-from ao_shaping.gui.slm.pyarrow_probe import (
-    probe_pyarrow,
-    pyarrow_diagnostics,
-    pyarrow_version,
-)
 from ao_shaping.utils.beam_metrics import measure_spot_diameter_cam
 from ao_shaping.utils.pattern_helper import (
     PatternHelper,
@@ -29,7 +20,7 @@ from ao_shaping.utils.targets import (
     build_square_target_amplitude,
     compute_square_side,
 )
-from ao_shaping.utils.zernike_calc import get_zernike_name, zernike_modes
+from ao_shaping.utils.zernike_calc import get_zernike_name
 
 # ============================================================================
 # pyarrow / st.data_editor 环境说明
@@ -223,15 +214,19 @@ class FlatControl(PatternControl):
 
 
 class LinearGratingControl(PatternControl):
-    """线性光栅 — period and phase range."""
+    """线性光栅 — period and phase range.
+
+    ``phase_range`` is in units of π (输入值为 N，表示 Nπ 弧度),
+    multiplied by π in ``generate_phase_rad`` before use.
+    """
 
     DEFAULTS: ClassVar[dict[str, Any]] = {
         "period": 64.0,
-        "phase_range": float(2 * np.pi),
+        "phase_range": 2.0,
     }
     RANGES: ClassVar[dict[str, Any]] = {
         "period": (1.0, 1000.0),
-        "phase_range": (0.1, float(2 * np.pi)),
+        "phase_range": (0.05, 2.0),
     }
 
     def render(self, prefix: str | None = None) -> dict[str, Any]:
@@ -246,32 +241,38 @@ class LinearGratingControl(PatternControl):
                 key=f"{prefix}_linear_period",
             ),
             "phase_range": st.number_input(
-                "相位范围 (rad)",
+                "相位范围 (π)",
                 min_value=self.ranges["phase_range"][0],
                 max_value=self.ranges["phase_range"][1],
                 value=self.defaults["phase_range"],
                 step=0.1,
                 key=f"{prefix}_linear_phase_range",
+                help="输入 N 表示 Nπ 弧度，发送时自动乘以 π",
             ),
         }
 
     def generate_phase_rad(self, params: dict[str, Any]) -> np.ndarray:
+        phase_range_rad = float(params["phase_range"]) * np.pi
         return self._new_helper().linear_grating(
             period=float(params["period"]),
-            phase_range=float(params["phase_range"]),
+            phase_range=phase_range_rad,
         )
 
 
 class HologramGratingControl(PatternControl):
-    """全息光栅 — period and phase range."""
+    """全息光栅 — period and phase range.
+
+    ``phase_range`` is in units of π (输入值为 N，表示 Nπ 弧度),
+    multiplied by π in ``generate_phase_rad`` before use.
+    """
 
     DEFAULTS: ClassVar[dict[str, Any]] = {
         "period": 64.0,
-        "phase_range": float(2 * np.pi),
+        "phase_range": 2.0,
     }
     RANGES: ClassVar[dict[str, Any]] = {
         "period": (1.0, 1000.0),
-        "phase_range": (0.1, float(2 * np.pi)),
+        "phase_range": (0.05, 2.0),
     }
 
     def render(self, prefix: str | None = None) -> dict[str, Any]:
@@ -286,39 +287,48 @@ class HologramGratingControl(PatternControl):
                 key=f"{prefix}_hologram_period",
             ),
             "phase_range": st.number_input(
-                "相位范围 (rad)",
+                "相位范围 (π)",
                 min_value=self.ranges["phase_range"][0],
                 max_value=self.ranges["phase_range"][1],
                 value=self.defaults["phase_range"],
                 step=0.1,
                 key=f"{prefix}_hologram_phase_range",
+                help="输入 N 表示 Nπ 弧度，发送时自动乘以 π",
             ),
         }
 
     def generate_phase_rad(self, params: dict[str, Any]) -> np.ndarray:
+        phase_range_rad = float(params["phase_range"]) * np.pi
         return self._new_helper().hologram(
             period=float(params["period"]),
-            phase_range=float(params["phase_range"]),
+            phase_range=phase_range_rad,
         )
 
 
 class BlazedGratingControl(PatternControl):
-    """闪耀光栅 — with angle/direct mode and direction."""
+    """闪耀光栅 — with angle/direct mode and direction.
+
+    All angle inputs are in degrees (角度制, 单位: 度).
+    All phase_range inputs are in units of π (输入值为 N，表示 Nπ 弧度),
+    multiplied by π in ``generate_phase_rad`` before use.
+    """
 
     DEFAULTS: ClassVar[dict[str, Any]] = {
         "period": 10.0,
-        "phase_range": float(2 * np.pi),
+        "phase_range": 2.0,
         "direction": "vertical",
         "angle_deg": 10.0,
         "calc_wl": 1064,
         "calc_pitch": 8.0,
+        "incident_angle_deg": 0.0,
     }
     RANGES: ClassVar[dict[str, Any]] = {
         "period": (1.0, 10000.0),
-        "phase_range": (0.1, float(2 * np.pi)),
+        "phase_range": (0.05, 2.0),
         "angle_deg": (0.1, 89.0),
         "calc_wl": (400, 1600),
         "calc_pitch": (0.1, 100.0),
+        "incident_angle_deg": (0.0, 89.0),
     }
     CONTEXT_SYNCED_WIDGETS: ClassVar[tuple[str, ...]] = ("blazed_calc_wl",)
 
@@ -372,7 +382,21 @@ class BlazedGratingControl(PatternControl):
                 key=f"{prefix}_blazed_calc_pitch",
             )
 
-            period_pixels = calc_blazed_grating_period(angle_deg, calc_wl, calc_pitch)
+            incident_angle_deg = st.number_input(
+                "倾斜入射角度 θ_i (度)",
+                min_value=self.ranges["incident_angle_deg"][0],
+                max_value=self.ranges["incident_angle_deg"][1],
+                value=self.defaults["incident_angle_deg"],
+                step=0.5,
+                key=f"{prefix}_blazed_calc_incident_angle",
+                help="斜入射时入射光与法线夹角(角度制, 度)；为 0 时退化为正入射公式 d·(sinθ_d−sinθ_i)=λ。",
+            )
+
+            # Conversion from degrees to radians happens inside
+            # calc_blazed_grating_period (PatternHelper layer).
+            period_pixels = calc_blazed_grating_period(
+                angle_deg, calc_wl, calc_pitch, incident_angle_deg
+            )
             # Deliberate widget-state write: keeps the direct-mode period widget
             # in sync with the freshly computed value (not a default read).
             st.session_state[f"{prefix}_blazed_period"] = period_pixels
@@ -380,7 +404,11 @@ class BlazedGratingControl(PatternControl):
             st.metric(
                 "计算周期",
                 f"{period_pixels:.1f} 像素",
-                help=f"d = λ / sin(θ)，像素间距 {calc_pitch} μm",
+                help=(
+                    "斜入射: d·(sinθ_d − sinθ_i)=λ; "
+                    "正入射: d·sinθ=λ; "
+                    f"像素间距 {calc_pitch} μm"
+                ),
             )
             period = period_pixels
         else:
@@ -394,12 +422,13 @@ class BlazedGratingControl(PatternControl):
             )
 
         phase_range = st.number_input(
-            "相位范围 (rad)",
+            "相位范围 (π)",
             min_value=self.ranges["phase_range"][0],
             max_value=self.ranges["phase_range"][1],
             value=self.defaults["phase_range"],
             step=0.1,
             key=f"{prefix}_blazed_phase_range",
+            help="输入 N 表示 Nπ 弧度，发送时自动乘以 π",
         )
         direction = st.selectbox(
             "光栅方向",
@@ -417,23 +446,29 @@ class BlazedGratingControl(PatternControl):
         }
 
     def generate_phase_rad(self, params: dict[str, Any]) -> np.ndarray:
+        # phase_range is in units of π; multiply by π to get radians
+        phase_range_rad = float(params["phase_range"]) * np.pi
         return self._new_helper().linear_grating(
             period=float(params["period"]),
-            phase_range=float(params["phase_range"]),
+            phase_range=phase_range_rad,
             direction=str(params["direction"]),
         )
 
 
 class CircularGratingControl(PatternControl):
-    """圆形光栅 — radius and phase range."""
+    """圆形光栅 — radius and phase range.
+
+    ``phase_range`` is in units of π (输入值为 N，表示 Nπ 弧度),
+    multiplied by π in ``generate_phase_rad`` before use.
+    """
 
     DEFAULTS: ClassVar[dict[str, Any]] = {
         "radius": 64.0,
-        "phase_range": float(2 * np.pi),
+        "phase_range": 2.0,
     }
     RANGES: ClassVar[dict[str, Any]] = {
         "radius": (1.0, 2000.0),
-        "phase_range": (0.1, float(2 * np.pi)),
+        "phase_range": (0.05, 2.0),
     }
 
     def render(self, prefix: str | None = None) -> dict[str, Any]:
@@ -448,19 +483,21 @@ class CircularGratingControl(PatternControl):
                 key=f"{prefix}_circular_radius",
             ),
             "phase_range": st.number_input(
-                "相位范围 (rad)",
+                "相位范围 (π)",
                 min_value=self.ranges["phase_range"][0],
                 max_value=self.ranges["phase_range"][1],
                 value=self.defaults["phase_range"],
                 step=0.1,
                 key=f"{prefix}_circular_phase_range",
+                help="输入 N 表示 Nπ 弧度，发送时自动乘以 π",
             ),
         }
 
     def generate_phase_rad(self, params: dict[str, Any]) -> np.ndarray:
+        phase_range_rad = float(params["phase_range"]) * np.pi
         return self._new_helper().circular_grating(
             radius=float(params["radius"]),
-            phase_range=float(params["phase_range"]),
+            phase_range=phase_range_rad,
         )
 
 
@@ -527,10 +564,20 @@ class LensControl(PatternControl):
 
 
 class CheckerboardControl(PatternControl):
-    """棋盘格 — period (binary 0/π phase)."""
+    """棋盘格 — period (binary 0/π phase).
 
-    DEFAULTS: ClassVar[dict[str, Any]] = {"period": 50}
-    RANGES: ClassVar[dict[str, Any]] = {"period": (1, 1000)}
+    ``white_phase`` is in units of π (输入值为 N，表示 Nπ 弧度),
+    multiplied by π in ``generate_phase_rad`` before use.
+    """
+
+    DEFAULTS: ClassVar[dict[str, Any]] = {
+        "period": 50,
+        "white_phase": 1.0,
+    }
+    RANGES: ClassVar[dict[str, Any]] = {
+        "period": (1, 1000),
+        "white_phase": (0.0, 2.0),
+    }
 
     def render(self, prefix: str | None = None) -> dict[str, Any]:
         prefix = prefix or self.prefix
@@ -542,11 +589,27 @@ class CheckerboardControl(PatternControl):
                 value=self.defaults["period"],
                 step=1,
                 key=f"{prefix}_checker_period",
-            )
+            ),
+            "white_phase": st.number_input(
+                "白格相位 (π)",
+                min_value=self.ranges["white_phase"][0],
+                max_value=self.ranges["white_phase"][1],
+                value=self.defaults["white_phase"],
+                step=0.1,
+                key=f"{prefix}_checker_white_phase",
+                help="输入 N 表示 Nπ 弧度，黑格保持 0",
+            ),
         }
 
     def generate_phase_rad(self, params: dict[str, Any]) -> np.ndarray:
-        return self._new_helper().generate_checkerboard(period=int(params["period"]))
+        # white_phase is in units of π; multiply by π to get radians
+        white_phase_rad = (
+            float(params.get("white_phase", self.defaults["white_phase"])) * np.pi
+        )
+        return self._new_helper().generate_checkerboard(
+            period=int(params["period"]),
+            white_phase=white_phase_rad,
+        )
 
 
 class BinaryGratingControl(PatternControl):
@@ -791,7 +854,7 @@ class ZernikeControl(PatternControl):
     """Zernike — n_max, radius, coefficient table."""
 
     DEFAULTS: ClassVar[dict[str, Any]] = {
-        "n_max": 5,
+        "n_max": 4,
         "coefficients": {(0, 0): 0.0},
         "radius": 600,
     }
@@ -809,7 +872,7 @@ class ZernikeControl(PatternControl):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.defaults.update(radius=self.default_radius)
-        
+
     @staticmethod
     def _modes(n_max: int) -> list[tuple[int, int]]:
         """Valid (n, m) index pairs up to radial order ``n_max``.
@@ -844,61 +907,102 @@ class ZernikeControl(PatternControl):
             }
             for n, m in modes
         ]
+        try:
+            edited = st.data_editor(
+                pairs,
+                key=f"{prefix}_zernike_table",
+                num_rows="fixed",
+                column_config={
+                    "n": st.column_config.NumberColumn("n", disabled=True, width="small"),
+                    "m": st.column_config.NumberColumn("m", disabled=True, width="small"),
+                    "name": st.column_config.TextColumn(
+                        "名称", disabled=True, width="medium"
+                    ),
+                    "coeff": st.column_config.NumberColumn(
+                        "系数",
+                        step=0.001,
+                    ),
+                },
+                hide_index=True,
+                disabled=['n', 'm', 'name']
+            )
+        except Exception as e:
+            st.exception(e)
 
-        edited = st.data_editor(
-            pairs,
-            key=f"{prefix}_zernike_table",
-            num_rows="fixed",
-            column_config={
-                "n": st.column_config.NumberColumn("n", disabled=True, width="small"),
-                "m": st.column_config.NumberColumn("m", disabled=True, width="small"),
-                "name": st.column_config.TextColumn(
-                    "名称", disabled=True, width="medium"
-                ),
-                "coeff": st.column_config.NumberColumn(
-                    "系数",
-                    step=0.001,
-                ),
-            },
-            hide_index=True,
-        )
-
+        # 输入数据后不进行计算，仅存入 session_state；
+        # 点击"生成相位"时才读取参数计算 zernike 相位。
         coefficients: dict[tuple[int, int], float] = {}
         for row in edited:
             coefficients[(int(row["n"]), int(row["m"]))] = float(row["coeff"])
+        st.session_state[f"{prefix}_zernike_coeffs"] = coefficients
+        st.session_state[f"{prefix}_zernike_n_max"] = int(n_max)
+
+        radius = float(
+            st.number_input(
+                "孔径半径 (像素)",
+                value=self.defaults["radius"],
+                min_value=self.ranges["radius"][0],
+                max_value=self.ranges["radius"][1],
+                step=1,
+                key=f"{prefix}_zernike_radius",
+            )
+        )
+        st.session_state[f"{prefix}_zernike_radius"] = radius
 
         return {
             "n_max": int(n_max),
             "coefficients": coefficients,
-            "radius": float(
-                st.number_input(
-                    "孔径半径 (像素)",
-                    value=self.defaults["radius"],
-                    min_value=self.ranges["radius"][0],
-                    max_value=self.ranges["radius"][1],
-                    step=1,
-                    key=f"{prefix}_zernike_radius",
-                )
-            ),
+            "radius": radius,
         }
 
     def generate_phase_rad(self, params: dict[str, Any]) -> np.ndarray:
-        raw_coeffs = params.get("coefficients", self.defaults["coefficients"])
-        coefficients: dict[tuple[int, int], float] | None = None
-        if raw_coeffs is not None and isinstance(raw_coeffs, dict):
-            coefficients = {
+        # 点击"生成相位"时才从 session_state 读取参数计算，
+        # 避免在 data_editor 输入时进行计算。
+        # 回退到 params 用于直接调用场景 (测试/headless)。
+        prefix = self.prefix
+        try:
+            coefficients = st.session_state.get(f"{prefix}_zernike_coeffs")
+            n_max = st.session_state.get(f"{prefix}_zernike_n_max")
+            radius = st.session_state.get(f"{prefix}_zernike_radius")
+        except Exception:
+            coefficients = None
+            n_max = None
+            radius = None
+
+        if coefficients is not None:
+            coeff_dict: dict[tuple[int, int], float] | None = {
                 k: float(v)
-                for k, v in raw_coeffs.items()
+                for k, v in coefficients.items()
                 if isinstance(k, tuple) and isinstance(v, (int, float))
             }
-        radius = float(params.get("radius", self.defaults["radius"]))
-        n_max = int(params.get("n_max", self.defaults["n_max"]))
+        else:
+            raw_coeffs = params.get("coefficients", self.defaults["coefficients"])
+            if raw_coeffs is not None and isinstance(raw_coeffs, dict):
+                coeff_dict = {
+                    k: float(v)
+                    for k, v in raw_coeffs.items()
+                    if isinstance(k, tuple) and isinstance(v, (int, float))
+                }
+            else:
+                coeff_dict = None
+
+        r = (
+            float(radius)
+            if radius is not None
+            else float(params.get("radius", self.defaults["radius"]))
+        )
+        n = (
+            int(n_max)
+            if n_max is not None
+            else int(params.get("n_max", self.defaults["n_max"]))
+        )
+
         # 原始弧度相位 (不 mod-2π, 不归一化) — 驱动 create_phase_from_array 负责
         # 弧度→灰度 (2π=1023 + 波前校正 + LUT), 保留系数绝对幅度 (2026-09)。
         return self._new_helper().generate_zernike_polynomial(
-            coefficients=coefficients,
-            radius=radius,
-            n_max=n_max,
+            coefficients=coeff_dict,
+            radius=r,
+            n_max=n,
         )
 
 
@@ -949,19 +1053,22 @@ class HalfHalfPhaseControl(PatternControl):
     RAW GRAY half: the flat side bypasses radian conversion (amplitude
     coupling), the blaze side goes through ``slm.create_phase_from_array``.
     ``generate_phase_rad`` returns the equivalent composition in radians.
+
+    ``phase_range`` is in units of π (输入值为 N，表示 Nπ 弧度),
+    multiplied by π in ``generate_phase_rad`` / ``generate_phase_gray`` before use.
     """
 
     DEFAULTS: ClassVar[dict[str, Any]] = {
         "flat_gray": 512,
         "split_direction": "左右",
         "period": 4.0,
-        "phase_range": float(2 * np.pi),
+        "phase_range": 2.0,
         "blaze_direction": "horizontal",
     }
     RANGES: ClassVar[dict[str, Any]] = {
         "flat_gray": (0, 1023),
         "period": (1.0, 1000.0),
-        "phase_range": (0.1, float(2 * np.pi)),
+        "phase_range": (0.05, 2.0),
     }
     CONTEXT_SYNCED_WIDGETS: ClassVar[tuple[str, ...]] = ("halfhalf_flat_gray",)
 
@@ -1000,12 +1107,13 @@ class HalfHalfPhaseControl(PatternControl):
                 key=f"{prefix}_halfhalf_period",
             ),
             "phase_range": st.number_input(
-                "相位范围 (rad)",
+                "相位范围 (π)",
                 min_value=self.ranges["phase_range"][0],
                 max_value=self.ranges["phase_range"][1],
                 value=self.defaults["phase_range"],
                 step=0.1,
                 key=f"{prefix}_halfhalf_phase_range",
+                help="输入 N 表示 Nπ 弧度，发送时自动乘以 π",
             ),
         }
 
@@ -1027,7 +1135,8 @@ class HalfHalfPhaseControl(PatternControl):
     def generate_phase_rad(self, params: dict[str, Any]) -> np.ndarray:
         flat_gray = int(params["flat_gray"])
         period = float(params["period"])
-        phase_range = float(params["phase_range"])
+        # phase_range is in units of π; multiply by π to get radians
+        phase_range = float(params["phase_range"]) * np.pi
         split_dir = str(params["split_direction"])
         blaze_dir = str(params.get("blaze_direction", "vertical"))
 
@@ -1059,7 +1168,8 @@ class HalfHalfPhaseControl(PatternControl):
             raise ValueError("半半相位 生成灰度相位需要 slm 对象")
         flat_gray = int(params["flat_gray"])
         period = float(params["period"])
-        phase_range = float(params["phase_range"])
+        # phase_range is in units of π; multiply by π to get radians
+        phase_range = float(params["phase_range"]) * np.pi
         split_dir = str(params["split_direction"])
         blaze_dir = str(params.get("blaze_direction", "vertical"))
 

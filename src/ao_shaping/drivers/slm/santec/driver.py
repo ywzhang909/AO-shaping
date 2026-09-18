@@ -1173,7 +1173,7 @@ class Santec:
         wait_time_s: float | None = None,
         memory_number: int | None = None,
         memory_mode: int = MEMORY_MODE_INTERNAL,
-    ) -> None:
+    ) -> int:
         """将相位数据写入内存并显示，等待像素翻转完成。
 
         像素下发后的等待时间语义:
@@ -1235,6 +1235,8 @@ class Santec:
 
         if wait_time_s > 0:
             time.sleep(wait_time_s)
+            
+        return memory_number if memory_number else target_slot
 
     def display_phase(
         self,
@@ -1242,7 +1244,7 @@ class Santec:
         wait_time_s: float | None = None,
         memory_number: int | None = None,
         memory_mode: int = MEMORY_MODE_INTERNAL,
-    ) -> None:
+    ) -> int:
         """Display a radian phase matrix on the SLM.
 
         Convenience wrapper that converts a radian phase array to SLM
@@ -1261,7 +1263,7 @@ class Santec:
             RuntimeError: Device not open.
         """
         phase_gray = self.create_phase_from_array(phase_rad)
-        self.display_data(
+        return self.display_data(
             phase_gray,
             wait_time_s=wait_time_s,
             memory_number=memory_number,

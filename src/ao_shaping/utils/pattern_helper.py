@@ -21,11 +21,22 @@ class PhaseWrapOptimizerHelper:
     _instance: PhaseWrapOptimizer | None = None
 
     @classmethod
-    def get_optimizer(cls, slm_height: int = 1600, slm_width: int = 2560, strategy: str = WRAP_STRATEGY) -> PhaseWrapOptimizer:
+    def get_optimizer(
+        cls,
+        slm_height: int = 1600,
+        slm_width: int = 2560,
+        strategy: str = WRAP_STRATEGY,
+    ) -> PhaseWrapOptimizer:
         from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
 
-        if cls._instance is None or cls._instance.slm_height != slm_height or cls._instance.slm_width != slm_width:
-            cls._instance = PhaseWrapOptimizer(slm_height=slm_height, slm_width=slm_width, oversample=2)
+        if (
+            cls._instance is None
+            or cls._instance.slm_height != slm_height
+            or cls._instance.slm_width != slm_width
+        ):
+            cls._instance = PhaseWrapOptimizer(
+                slm_height=slm_height, slm_width=slm_width, oversample=2
+            )
         return cls._instance
 
     @classmethod
@@ -34,34 +45,52 @@ class PhaseWrapOptimizerHelper:
         WRAP_STRATEGY = strategy
 
     @classmethod
-    def wrap(cls, phase_unwrapped: np.ndarray, strategy: str | None = None) -> np.ndarray:
+    def wrap(
+        cls, phase_unwrapped: np.ndarray, strategy: str | None = None
+    ) -> np.ndarray:
         s = strategy or WRAP_STRATEGY
-        optimizer = cls.get_optimizer(phase_unwrapped.shape[0], phase_unwrapped.shape[1], s)
+        optimizer = cls.get_optimizer(
+            phase_unwrapped.shape[0], phase_unwrapped.shape[1], s
+        )
         return optimizer.optimize(phase_unwrapped, strategy=s)
 
     @classmethod
     def min_jump_wrap(cls, phase_unwrapped: np.ndarray) -> np.ndarray:
-        optimizer = cls.get_optimizer(phase_unwrapped.shape[0], phase_unwrapped.shape[1])
+        optimizer = cls.get_optimizer(
+            phase_unwrapped.shape[0], phase_unwrapped.shape[1]
+        )
         return optimizer.min_jump_wrap(phase_unwrapped)
 
     @classmethod
-    def error_diffusion_wrap(cls, phase_unwrapped: np.ndarray, quantization_levels: int = 256) -> np.ndarray:
-        optimizer = cls.get_optimizer(phase_unwrapped.shape[0], phase_unwrapped.shape[1])
+    def error_diffusion_wrap(
+        cls, phase_unwrapped: np.ndarray, quantization_levels: int = 256
+    ) -> np.ndarray:
+        optimizer = cls.get_optimizer(
+            phase_unwrapped.shape[0], phase_unwrapped.shape[1]
+        )
         return optimizer.error_diffusion_wrap(phase_unwrapped, quantization_levels)
 
     @classmethod
-    def oversample_smooth(cls, phase_unwrapped: np.ndarray, sigma_pixels: float = 0.8) -> np.ndarray:
-        optimizer = cls.get_optimizer(phase_unwrapped.shape[0], phase_unwrapped.shape[1])
+    def oversample_smooth(
+        cls, phase_unwrapped: np.ndarray, sigma_pixels: float = 0.8
+    ) -> np.ndarray:
+        optimizer = cls.get_optimizer(
+            phase_unwrapped.shape[0], phase_unwrapped.shape[1]
+        )
         return optimizer.oversample_smooth(phase_unwrapped, sigma_pixels)
 
     @classmethod
-    def detect_jumps(cls, wrapped_phase: np.ndarray, threshold: float = 0.5 * np.pi) -> np.ndarray:
+    def detect_jumps(
+        cls, wrapped_phase: np.ndarray, threshold: float = 0.5 * np.pi
+    ) -> np.ndarray:
         from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
+
         return PhaseWrapOptimizer.detect_jumps(wrapped_phase, threshold)
 
     @classmethod
     def calculate_efficiency(cls, phase: np.ndarray) -> float:
         from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
+
         return PhaseWrapOptimizer.calculate_diffraction_efficiency(phase)
 
 
@@ -69,10 +98,18 @@ class PhaseUnwrapperHelper:
     _instance: PhaseUnwrapper | None = None
 
     @classmethod
-    def get_unwrapper(cls, resolution: tuple[int, int], strategy: str = UNWRAP_STRATEGY) -> PhaseUnwrapper:
+    def get_unwrapper(
+        cls, resolution: tuple[int, int], strategy: str = UNWRAP_STRATEGY
+    ) -> PhaseUnwrapper:
         if cls._instance is None or cls._instance.resolution != resolution:
-            strategy_enum = UnwrapStrategy[strategy.upper()] if strategy.upper() in [e.name for e in UnwrapStrategy] else UnwrapStrategy.ITERATIVE
-            cls._instance = PhaseUnwrapper(resolution=resolution, strategy=strategy_enum)
+            strategy_enum = (
+                UnwrapStrategy[strategy.upper()]
+                if strategy.upper() in [e.name for e in UnwrapStrategy]
+                else UnwrapStrategy.ITERATIVE
+            )
+            cls._instance = PhaseUnwrapper(
+                resolution=resolution, strategy=strategy_enum
+            )
         return cls._instance
 
     @classmethod
@@ -80,7 +117,11 @@ class PhaseUnwrapperHelper:
         global UNWRAP_STRATEGY
         UNWRAP_STRATEGY = strategy
         if cls._instance is not None:
-            strategy_enum = UnwrapStrategy[strategy.upper()] if strategy.upper() in [e.name for e in UnwrapStrategy] else UnwrapStrategy.ITERATIVE
+            strategy_enum = (
+                UnwrapStrategy[strategy.upper()]
+                if strategy.upper() in [e.name for e in UnwrapStrategy]
+                else UnwrapStrategy.ITERATIVE
+            )
             cls._instance.strategy = strategy_enum
 
     @classmethod
@@ -99,24 +140,31 @@ def calc_blazed_grating_period(
     angle_deg: float,
     wavelength_nm: float,
     pixel_pitch_um: float,
+    incident_angle_deg: float = 0.0,
 ) -> float:
     """Calculate blazed grating period (pixels) from first-order diffraction angle.
 
-    Uses the grating equation: d * sin(θ) = λ
-        where d  = grating period (same unit as λ)
-              θ  = diffraction angle
-              λ  = wavelength
+    For normal incidence (``incident_angle_deg=0``) uses ``d * sin(θ) = λ``.
+    For oblique incidence uses the generalized form
+    ``d * (sin(θ_d) - sin(θ_i)) = λ`` (generalized Snell's law), i.e.
+    the SLM phase gradient must compensate the incoming wavefront tilt
+    and provide the desired diffraction tilt.
 
     Args:
         angle_deg: Desired first-order diffraction angle in degrees.
         wavelength_nm: Wavelength in nanometers.
         pixel_pitch_um: SLM pixel pitch in micrometers.
+        incident_angle_deg: Incident (tilt) angle in degrees. Default 0 (normal incidence).
 
     Returns:
         Grating period in pixels (always ≥ 1.0).
     """
-    theta_rad = np.radians(angle_deg)
-    d_um = (wavelength_nm / 1000.0) / np.sin(theta_rad)  # λ nm → μm
+    theta_d = np.radians(angle_deg)
+    theta_i = np.radians(incident_angle_deg)
+    sin_diff = np.sin(theta_d) - np.sin(theta_i)
+    if sin_diff <= 0:
+        return 1.0
+    d_um = (wavelength_nm / 1000.0) / sin_diff  # λ nm → μm
     return max(1.0, d_um / pixel_pitch_um)
 
 
@@ -288,14 +336,18 @@ class PatternHelper:
             random_seed=random_seed,
         )
 
-    def generate_checkerboard(self, period: int = 100) -> np.ndarray:
-        """生成棋盘格二值相位图案 (0/π 弧度)。
+    def generate_checkerboard(
+        self, period: int = 100, white_phase: float = float(np.pi)
+    ) -> np.ndarray:
+        """生成棋盘格二值相位图案。
 
         Args:
             period: 棋盘格周期（像素）
+            white_phase: 白格相位值（弧度），默认 π。
+                控制层传入前已将 N*pi 单位乘以 π。
 
         Returns:
-            2D float64 数组 (弧度), 二值 0/π。相位→灰度转换由
+            2D float64 数组 (弧度), 二值 0/white_phase。相位→灰度转换由
             ``slm.create_phase_from_array()`` 或 :meth:`to_uint16` 完成。
         """
         y = np.arange(self._height) // period
@@ -303,7 +355,7 @@ class PatternHelper:
         X, Y = np.meshgrid(x, y)
 
         checker = (X + Y) % 2
-        return (checker * np.pi).astype(np.float64)
+        return (checker * white_phase).astype(np.float64)
 
     def generate_binary_grating(
         self, a: int = 2, b: int = 3, direction: str = "horizontal"
@@ -404,7 +456,9 @@ class PatternHelper:
         return np.asarray(phase_cropped, dtype=np.float64)
 
     def _get_zernike_generator(
-        self, radius: float | None, n_orders: int = 6,
+        self,
+        radius: float | None,
+        n_orders: int = 6,
     ) -> ZernikeGenerator:
         """Get (and lazily cache) a ZernikeGenerator for the given aperture.
 
@@ -685,14 +739,14 @@ class PatternHelper:
         pixel_size: float = 8e-6,
     ) -> np.ndarray:
         """生成涡旋相位（螺旋相位）。
-        
+
         生成具有拓扑荷的涡旋相位，位移与角度Theta成正比：phi = l * Theta
-        
+
         Args:
             topological_charge: 拓扑荷 (l)，可以是正负整数
             wavelength: 波长 (m)
             pixel_size: 像素大小 (m)
-            
+
         Returns:
             涡旋相位 (float64, 弧度, 未包裹), 范围 [-|l|π, |l|π]。
             相位→灰度转换由 ``slm.create_phase_from_array()`` 或 :meth:`to_uint16` 完成。
@@ -729,7 +783,9 @@ class PatternHelper:
 
         return phase_x + phase_y
 
-    def unwrap_phase(self, wrapped: np.ndarray, strategy: str | None = None) -> np.ndarray:
+    def unwrap_phase(
+        self, wrapped: np.ndarray, strategy: str | None = None
+    ) -> np.ndarray:
         """解包相位（将包裹相位转换为连续相位）。
 
         Args:
@@ -746,7 +802,9 @@ class PatternHelper:
         s = strategy if strategy is not None else UNWRAP_STRATEGY
         return unwrap_phase(wrapped, strategy=s, resolution=resolution)
 
-    def wrap_phase(self, phase_unwrapped: np.ndarray, strategy: str = WRAP_STRATEGY) -> np.ndarray:
+    def wrap_phase(
+        self, phase_unwrapped: np.ndarray, strategy: str = WRAP_STRATEGY
+    ) -> np.ndarray:
         """包裹相位（将连续相位转换为2π范围内的包裹相位）。
 
         使用 PhaseWrapOptimizer 进行包裹优化，减少2π跳变产生的高频衍射误差。
@@ -759,7 +817,10 @@ class PatternHelper:
             包裹相位 [0, 2π)
         """
         from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
-        optimizer = PhaseWrapOptimizer(slm_height=self._height, slm_width=self._width, oversample=2)
+
+        optimizer = PhaseWrapOptimizer(
+            slm_height=self._height, slm_width=self._width, oversample=2
+        )
         return optimizer.optimize(phase_unwrapped, strategy=strategy)
 
     def wrap_phase_min_jump(self, phase_unwrapped: np.ndarray) -> np.ndarray:
@@ -772,10 +833,13 @@ class PatternHelper:
             包裹相位
         """
         from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
+
         optimizer = PhaseWrapOptimizer(slm_height=self._height, slm_width=self._width)
         return optimizer.min_jump_wrap(phase_unwrapped)
 
-    def wrap_phase_error_diffusion(self, phase_unwrapped: np.ndarray, quantization_levels: int = 256) -> np.ndarray:
+    def wrap_phase_error_diffusion(
+        self, phase_unwrapped: np.ndarray, quantization_levels: int = 256
+    ) -> np.ndarray:
         """误差扩散包裹。
 
         Args:
@@ -786,10 +850,13 @@ class PatternHelper:
             包裹相位
         """
         from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
+
         optimizer = PhaseWrapOptimizer(slm_height=self._height, slm_width=self._width)
         return optimizer.error_diffusion_wrap(phase_unwrapped, quantization_levels)
 
-    def wrap_phase_oversample(self, phase_unwrapped: np.ndarray, sigma_pixels: float = 0.8) -> np.ndarray:
+    def wrap_phase_oversample(
+        self, phase_unwrapped: np.ndarray, sigma_pixels: float = 0.8
+    ) -> np.ndarray:
         """过采样平滑包裹。
 
         Args:
@@ -800,10 +867,15 @@ class PatternHelper:
             包裹相位
         """
         from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
-        optimizer = PhaseWrapOptimizer(slm_height=self._height, slm_width=self._width, oversample=2)
+
+        optimizer = PhaseWrapOptimizer(
+            slm_height=self._height, slm_width=self._width, oversample=2
+        )
         return optimizer.oversample_smooth(phase_unwrapped, sigma_pixels)
 
-    def detect_phase_jumps(self, wrapped_phase: np.ndarray, threshold: float = 0.5 * np.pi) -> np.ndarray:
+    def detect_phase_jumps(
+        self, wrapped_phase: np.ndarray, threshold: float = 0.5 * np.pi
+    ) -> np.ndarray:
         """检测相位跳变位置。
 
         Args:
@@ -814,6 +886,7 @@ class PatternHelper:
             布尔掩模，True表示跳变边缘
         """
         from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
+
         return PhaseWrapOptimizer.detect_jumps(wrapped_phase, threshold)
 
     def calculate_diffraction_efficiency(self, phase: np.ndarray) -> float:
@@ -826,4 +899,5 @@ class PatternHelper:
             衍射效率 [0, 1]
         """
         from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
+
         return PhaseWrapOptimizer.calculate_diffraction_efficiency(phase)

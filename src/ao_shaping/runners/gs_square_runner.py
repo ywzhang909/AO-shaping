@@ -33,7 +33,6 @@ from typing import TYPE_CHECKING, Any
 
 import click
 import numpy as np
-
 from loguru import logger
 
 from ao_shaping.drivers.slm.santec import Santec
@@ -263,9 +262,7 @@ class _GSDisplay:
         self._clock.tick(30)
 
 
-def _detect_center(
-    intensity: np.ndarray, mode: str = "argmax"
-) -> tuple[float, float]:
+def _detect_center(intensity: np.ndarray, mode: str = "argmax") -> tuple[float, float]:
     """定位 0 级光斑中心 (cx, cy), 与 gui/ccd/target_shape_helper.py 一致.
 
     用户已在 GUI 中验证 "亮度重心、峰值位置" 均合理, runner 同步支持两种方法.
@@ -340,9 +337,9 @@ def _run_closed_loop(
     Returns:
         结果字典, 包含 best_phase, best_score, convergence_history 等.
     """
+    from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
     from ao_shaping.utils.beam_metrics import measure_spot_diameter_cam
     from ao_shaping.utils.targets import build_square_target_amplitude
-    from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
 
     width = slm.Panel_Res[0]
     height = slm.Panel_Res[1]
@@ -494,9 +491,7 @@ def _run_closed_loop(
         )
 
         # --- 3. 转换相位为灰度并下发 ---
-        slot = _pick_next_slot()
-        slm.display_phase(result.phase, memory_number=slot)
-        time.sleep(0.05)
+        slot = slm.display_phase(result.phase)
         logger.info("相位已写入SLM内存槽 {}", slot)
 
         # --- 4. 等待SLM稳定 ---
@@ -525,7 +520,7 @@ def _run_closed_loop(
 
         convergence_history.append(metrics)
         all_images.append(new_image)
-        all_phases.append(phase_gray)
+        all_phases.append(result.phase)
         all_metrics.append(metrics)
 
         logger.info(
@@ -554,7 +549,16 @@ def _run_closed_loop(
         iter_dir = output_dir / f"iter_{outer_iter + 1:03d}"
         iter_dir.mkdir(parents=True, exist_ok=True)
         np.save(iter_dir / "captured_image.npy", new_image)
-        np.save(iter_dir / "gs_phase.npy", phase_gray)
+        np.save(iter_dir / "gs_phase.npy", result.phase)
+        # 保存当前迭代图片为PNG (归一化到0-255)
+        img_png = (
+            (new_image - new_image.min())
+            / (new_image.max() - new_image.min() + 1e-10)
+            * 255
+        ).astype(np.uint8)
+        from PIL import Image
+
+        Image.fromarray(img_png).save(iter_dir / "captured_image.png")
         with (iter_dir / "metrics.json").open("w", encoding="utf-8") as f:
             json.dump(metrics, f, ensure_ascii=False, indent=2)
 
@@ -574,7 +578,6 @@ def _run_closed_loop(
                 "uniformity_cv": float(metrics["uniformity_cv"]),
                 "encircled_energy": float(metrics["encircled_energy"]),
                 "phase": np.asarray(result.phase, dtype=np.float64),
-                "phase_gray": np.asarray(phase_gray, dtype=np.uint16),
                 "image": np.asarray(new_image, dtype=np.float64),
                 "target": np.asarray(target_amplitude, dtype=np.float64),
             }
@@ -586,7 +589,7 @@ def _run_closed_loop(
         # --- 8. 跟踪最优 ---
         if score > best_score:
             best_score = float(score)
-            best_phase = phase_gray
+            best_phase = result.phase
             best_image = new_image
             best_iter = outer_iter + 1
             logger.info("更新最优: iter={}, score={:.4f}", best_iter, best_score)
@@ -652,6 +655,16 @@ def _save_results(result: dict, output_dir: Path, params: dict) -> None:
         np.save(output_dir / "best_phase.npy", result["best_phase"])
         if result["best_image"] is not None:
             np.save(output_dir / "best_image.npy", result["best_image"])
+            # 保存最优图片为PNG
+            best_img = result["best_image"]
+            img_png = (
+                (best_img - best_img.min())
+                / (best_img.max() - best_img.min() + 1e-10)
+                * 255
+            ).astype(np.uint8)
+            from PIL import Image
+
+            Image.fromarray(img_png).save(output_dir / "best_image.png")
 
     with (output_dir / "convergence_history.json").open("w", encoding="utf-8") as f:
         json.dump(result["convergence_history"], f, ensure_ascii=False, indent=2)

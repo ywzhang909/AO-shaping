@@ -127,7 +127,8 @@ class TestGeneratePhaseRad:
     @pytest.mark.parametrize(
         "pattern_type, params",
         [
-            ("线性光栅", {"period": 64.0, "phase_range": float(2 * np.pi)}),
+            ("线性光栅", {"period": 64.0, "phase_range": 2.0}),
+            ("圆形光栅", {"radius": 64.0, "phase_range": 2.0}),
             ("棋盘格", {"period": 50}),
             ("Zernike", {"n_max": 4, "radius": 55, "coefficients": {(2, 0): 1.0}}),
             (
@@ -148,8 +149,9 @@ class TestGeneratePhaseRad:
 
     def test_linear_grating_is_unwrapped_raw_radians(self) -> None:
         ctrl = LinearGratingControl(width=128, height=128)
-        phase = ctrl.generate_phase_rad({"period": 64.0, "phase_range": 4.0})
-        # Centered grid: phase = (x/period)·phase_range ∈ [-w/2/period·pr, +w/2/period·pr].
+        phase = ctrl.generate_phase_rad({"period": 64.0, "phase_range": 4.0 / np.pi})
+        # Centered grid: phase = (x/period)·phase_range·π ∈ [-w/2/period·pr·π, +w/2/period·pr·π].
+        # phase_range=4.0/π means 4.0 radians of swing.
         # Raw radians: values are NOT grayscale and NOT mod-2pi-wrapped.
         assert phase.min() >= -4.0 - 1e-9 and phase.max() <= 4.0 + 1e-9
         assert phase.max() > 1.0  # modulated
@@ -203,7 +205,7 @@ class TestSlmRequiredPaths:
     def test_default_gray_requires_slm(self) -> None:
         ctrl = LinearGratingControl()
         with pytest.raises(ValueError, match="需要 slm 对象"):
-            ctrl.generate_phase_gray({"period": 64.0, "phase_range": 6.28})
+            ctrl.generate_phase_gray({"period": 64.0, "phase_range": 2.0})
 
     def test_gs_square_requires_slm(self) -> None:
         ctrl = GSSquareControl(width=128, height=128)
@@ -224,7 +226,7 @@ class TestSlmRequiredPaths:
     def test_dispatcher_linear_routes_through_driver(self) -> None:
         slm = _mock_slm()
         gray = generate_phase_gray(
-            slm, "线性光栅", {"period": 64.0, "phase_range": float(2 * np.pi)}
+            slm, "线性光栅", {"period": 64.0, "phase_range": 2.0}
         )
         assert gray.dtype == np.uint16
         assert gray.shape == (96, 128)
@@ -472,3 +474,104 @@ class TestMaxGrayOverride:
         slm_without = _mock_slm()
         ctrl2 = _build_control("平场", slm_without)
         assert ctrl2.max_gray == 1023
+
+
+class TestPhaseRangeNPiUnits:
+    """phase_range 输入框为 N*pi 单位，默认 2 (=2π)，发送时自动乘以 π。
+
+    验证:
+    - render 返回的 phase_range 默认为 2.0 (即 2π)
+    - generate_phase_rad 内部将 N*pi 乘以 π 得到弧度
+    - 转化为灰度后值域 [0, max_gray] 与 max_gray 一致
+    """
+
+    def test_phase_range_default_is_2pi(self) -> None:
+        """All phase_range controls default to 2.0 (= 2π)."""
+        for pattern_type, cls in PATTERN_REGISTRY.items():
+            if "phase_range" in cls.DEFAULTS:
+                ctrl = cls(width=128, height=96, wavelength=1064.0, pixel_pitch_um=8.0)
+                assert ctrl.defaults["phase_range"] == 2.0, (
+                    f"{pattern_type}: phase_range default "
+                    f"should be 2.0 (2π), got {ctrl.defaults['phase_range']}"
+                )
+
+    def test_linear_grating_phase_range_conversion(self) -> None:
+        """phase_range=2.0 (N*pi) → 2π radians in generate_phase_rad."""
+        ctrl = LinearGratingControl(width=128, height=128)
+        phase = ctrl.generate_phase_rad({"period": 64.0, "phase_range": 2.0})
+        assert phase.dtype == np.float64
+        # phase_range=2π means max phase = (63/64)*2π ≈ 6.22
+        assert float(np.max(np.abs(phase))) > 6.0
+
+    def test_circular_grating_phase_range_conversion(self) -> None:
+        ctrl = CircularGratingControl(width=128, height=128)
+        phase = ctrl.generate_phase_rad({"radius": 64.0, "phase_range": 2.0})
+        assert phase.dtype == np.float64
+        assert float(np.max(np.abs(phase))) > 6.0
+
+    def test_halfhalf_phase_range_conversion(self) -> None:
+        ctrl = HalfHalfPhaseControl(width=128, height=128)
+        phase = ctrl.generate_phase_rad(
+            {
+                "flat_gray": 512,
+                "split_direction": "左右",
+                "period": 4.0,
+                "phase_range": 2.0,
+                "blaze_direction": "vertical",
+            }
+        )
+        assert phase.dtype == np.float64
+        assert phase.shape == (128, 128)
+
+    def test_blazed_grating_phase_range_conversion(self) -> None:
+        ctrl = BlazedGratingControl(width=128, height=128)
+        phase = ctrl.generate_phase_rad(
+            {"period": 64.0, "phase_range": 2.0, "direction": "vertical"}
+        )
+        assert phase.dtype == np.float64
+        assert float(np.max(np.abs(phase))) > 6.0
+
+    def test_phase_to_gray_matches_max_gray(self) -> None:
+        """When phase_range=2π (N*pi=2.0), gray output fills [0, max_gray].
+
+        The driver's create_phase_from_array maps radian phase ∈ [0, 2π)
+        to grayscale ∈ [0, max_gray].  With phase_range=2π, the max phase
+        on the panel approaches 2π, so the max gray approaches max_gray.
+        """
+        max_gray = 993
+        slm = MagicMock()
+        slm._max_gray = max_gray
+        slm.create_phase_from_array = MagicMock(
+            side_effect=lambda rad: np.round(
+                np.mod(np.asarray(rad, dtype=np.float64), 2 * np.pi)
+                / (2 * np.pi)
+                * max_gray
+            ).astype(np.uint16)
+        )
+
+        ctrl = LinearGratingControl(width=128, height=128)
+        gray = ctrl.generate_phase_gray({"period": 64.0, "phase_range": 2.0}, slm=slm)
+        assert gray.dtype == np.uint16
+        # Max gray should approach max_gray (phase wraps near 2π)
+        assert gray.max() >= max_gray * 0.95, (
+            f"Expected gray max >= {max_gray * 0.95:.0f}, got {gray.max()}"
+        )
+        assert gray.min() == 0
+
+    def test_phase_range_render_defaults(self) -> None:
+        """render() should return phase_range=2.0 for all phase_range controls."""
+        for pattern_type in [
+            "线性光栅",
+            "圆形光栅",
+            "全息光栅",
+            "半半相位",
+            "闪耀光栅",
+        ]:
+            cls = PATTERN_REGISTRY[pattern_type]
+            ctrl = cls(width=128, height=96)
+            params = ctrl.render("slm0")
+            if "phase_range" in params:
+                assert params["phase_range"] == 2.0, (
+                    f"{pattern_type}: render phase_range should be 2.0, "
+                    f"got {params['phase_range']}"
+                )
