@@ -6,6 +6,7 @@ from ao_shaping.runners.dm_matrix_runner import run as dm_matrix_run
 from ao_shaping.runners.ga_zernike_runner import run as ga_zernike_run
 from ao_shaping.runners.greedy_zernike_runner import run as greedy_zernike_run
 from ao_shaping.runners.gs_hologram_runner import run as gs_run
+from ao_shaping.runners.hadamard_matrix_runner import run as hadamard_matrix_run
 from ao_shaping.runners.gs_square_runner import run as gs_square_run
 from ao_shaping.runners.micro_drive.alt_voltage_runner import run as alt_voltage_run
 from ao_shaping.runners.micro_drive.full_voltage_runner import run as full_voltage_run
@@ -35,6 +36,7 @@ __all__ = [
     "dm_matrix_run",
     "alt_voltage_run",
     "full_voltage_run",
+    "hadamard_matrix_run",
     "combined_run",
     "diff_beam_run",
     "gs_square_run",

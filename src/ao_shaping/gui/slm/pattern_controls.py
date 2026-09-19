@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import io
+import platform
+import sys
 from abc import ABC, abstractmethod
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Callable, ClassVar
 
 import numpy as np
@@ -22,28 +26,88 @@ from ao_shaping.utils.targets import (
 )
 from ao_shaping.utils.zernike_calc import get_zernike_name
 
-# ============================================================================
-# pyarrow / st.data_editor 环境说明
-#
-# ⚠️  重要提示 (2026-09-18): 本项目在**全局 Python 3.14 + streamlit 1.57** 环境
-# 中曾出现 pyarrow wheels 与解释器版本不匹配 (cp313 wheels 装在 cp314 解释器),
-# 导致 `st.data_editor` 内部惰性导入 pyarrow 时抛出
-# `ModuleNotFoundError: No module named 'pyarrow.lib'`, Streamlit 的
-# ScriptRunContext 会直接 abort 整个脚本运行 —— 表现为"卡死至崩溃"
-# (页面元素全部消失, 看起来像应用退出了)。
-#
-# 同样致命的还有 `pyarrow.pandas_compat` 模块缺失:
-#   `ModuleNotFoundError: No module named 'pyarrow.pandas_compat'`
-# 它在 `pa.Table.from_pandas()` 调用时触发, 而该调用位于
-# `streamlit/elements/widgets/data_editor.py:1092`。
-#
-# 修复命令:
-#   pip install --force-reinstall --only-binary :all: pyarrow
-#
-# 探测逻辑已移至 `tests/ao_shaping/gui/slm/test_pyarrow_probe.py` (纯测试辅助),
-# 本模块的 `ZernikeControl.render()` 通过 try/except ImportError 直接回退,
-# 不依赖任何预探测函数。
-# ============================================================================
+
+def _pyarrow_version() -> str | None:
+    """Version of the importable ``pyarrow``, or ``None`` when it is broken."""
+    try:
+        import pyarrow
+    except ImportError:
+        return None
+    return str(getattr(pyarrow, "__version__", "未知"))
+
+
+@lru_cache(maxsize=1)
+def _data_editor_capability() -> tuple[bool, str]:
+    """Probe whether ``st.data_editor`` can run — returns ``(available, reason)``.
+
+    ``st.data_editor`` imports pyarrow lazily *inside* the widget call.  When
+    pyarrow is missing or built for another Python minor version (e.g. a
+    ``cp313`` wheel left in a ``cp314`` site-packages), that import raises
+    ``ModuleNotFoundError`` from within the widget, which aborts the whole
+    Streamlit script run — every element after the crashing widget disappears
+    and the page looks like it "exited" by itself.  Probes the capability once,
+    before any widget is called, so the control can fall back to plain
+    pyarrow-free widgets instead of taking the page down.
+
+    The returned ``reason`` is the exact import failure (empty when available)
+    and is surfaced in the control's debug panel so the cause is locatable.
+    """
+    try:
+        import pyarrow  # noqa: F401
+    except ImportError as exc:
+        reason = f"{type(exc).__name__}: {exc}"
+        logger.warning(
+            "st.data_editor 不可用 (pyarrow 导入失败: {}) — Zernike 系数回退为逐项输入控件",
+            reason,
+        )
+        return False, reason
+    logger.debug("st.data_editor 可用 (pyarrow {})", _pyarrow_version())
+    return True, ""
+
+
+def _pyarrow_diagnostics() -> list[tuple[str, str]]:
+    """``(label, value)`` rows pinpointing *why* pyarrow is unusable.
+
+    Separates "not installed" from "installed for another Python minor
+    version": the latter leaves e.g. ``lib.cp313-win_amd64.pyd`` in a ``cp314``
+    interpreter, whose import machinery only accepts ``.cp314-win_amd64.pyd``
+    and therefore reports ``ModuleNotFoundError: No module named
+    'pyarrow.lib'`` even though the package directory is present.
+    """
+    import importlib.machinery
+    import importlib.util
+
+    available, reason = _data_editor_capability()
+    rows: list[tuple[str, str]] = [
+        (
+            "系数编辑器",
+            "st.data_editor (系数表)" if available else "st.number_input (逐项回退)",
+        ),
+        ("pyarrow", _pyarrow_version() or f"导入失败 — {reason}"),
+        ("Python", f"{platform.python_version()} @ {sys.executable}"),
+        ("Streamlit", st.__version__),
+    ]
+    if available:
+        return rows
+
+    try:
+        spec = importlib.util.find_spec("pyarrow")
+    except (ImportError, ValueError):
+        spec = None
+    package_dir = (
+        Path(spec.origin).parent if spec is not None and spec.origin else None
+    )
+    rows.append(("pyarrow 包目录", str(package_dir) if package_dir else "未找到"))
+    if package_dir is not None and package_dir.is_dir():
+        binaries = sorted(p.name for p in package_dir.glob("lib*.pyd"))
+        rows.append(("已安装 lib*.pyd", ", ".join(binaries) or "无"))
+    rows.append(
+        ("解释器接受的扩展后缀", ", ".join(importlib.machinery.EXTENSION_SUFFIXES))
+    )
+    rows.append(
+        ("修复命令", "pip install --force-reinstall --only-binary :all: pyarrow")
+    )
+    return rows
 
 
 class PatternControl(ABC):
@@ -214,19 +278,15 @@ class FlatControl(PatternControl):
 
 
 class LinearGratingControl(PatternControl):
-    """线性光栅 — period and phase range.
-
-    ``phase_range`` is in units of π (输入值为 N，表示 Nπ 弧度),
-    multiplied by π in ``generate_phase_rad`` before use.
-    """
+    """线性光栅 — period and phase range."""
 
     DEFAULTS: ClassVar[dict[str, Any]] = {
         "period": 64.0,
-        "phase_range": 2.0,
+        "phase_range": float(2 * np.pi),
     }
     RANGES: ClassVar[dict[str, Any]] = {
         "period": (1.0, 1000.0),
-        "phase_range": (0.05, 2.0),
+        "phase_range": (0.1, float(2 * np.pi)),
     }
 
     def render(self, prefix: str | None = None) -> dict[str, Any]:
@@ -241,38 +301,32 @@ class LinearGratingControl(PatternControl):
                 key=f"{prefix}_linear_period",
             ),
             "phase_range": st.number_input(
-                "相位范围 (π)",
+                "相位范围 (rad)",
                 min_value=self.ranges["phase_range"][0],
                 max_value=self.ranges["phase_range"][1],
                 value=self.defaults["phase_range"],
                 step=0.1,
                 key=f"{prefix}_linear_phase_range",
-                help="输入 N 表示 Nπ 弧度，发送时自动乘以 π",
             ),
         }
 
     def generate_phase_rad(self, params: dict[str, Any]) -> np.ndarray:
-        phase_range_rad = float(params["phase_range"]) * np.pi
         return self._new_helper().linear_grating(
             period=float(params["period"]),
-            phase_range=phase_range_rad,
+            phase_range=float(params["phase_range"]),
         )
 
 
 class HologramGratingControl(PatternControl):
-    """全息光栅 — period and phase range.
-
-    ``phase_range`` is in units of π (输入值为 N，表示 Nπ 弧度),
-    multiplied by π in ``generate_phase_rad`` before use.
-    """
+    """全息光栅 — period and phase range."""
 
     DEFAULTS: ClassVar[dict[str, Any]] = {
         "period": 64.0,
-        "phase_range": 2.0,
+        "phase_range": float(2 * np.pi),
     }
     RANGES: ClassVar[dict[str, Any]] = {
         "period": (1.0, 1000.0),
-        "phase_range": (0.05, 2.0),
+        "phase_range": (0.1, float(2 * np.pi)),
     }
 
     def render(self, prefix: str | None = None) -> dict[str, Any]:
@@ -287,48 +341,39 @@ class HologramGratingControl(PatternControl):
                 key=f"{prefix}_hologram_period",
             ),
             "phase_range": st.number_input(
-                "相位范围 (π)",
+                "相位范围 (rad)",
                 min_value=self.ranges["phase_range"][0],
                 max_value=self.ranges["phase_range"][1],
                 value=self.defaults["phase_range"],
                 step=0.1,
                 key=f"{prefix}_hologram_phase_range",
-                help="输入 N 表示 Nπ 弧度，发送时自动乘以 π",
             ),
         }
 
     def generate_phase_rad(self, params: dict[str, Any]) -> np.ndarray:
-        phase_range_rad = float(params["phase_range"]) * np.pi
         return self._new_helper().hologram(
             period=float(params["period"]),
-            phase_range=phase_range_rad,
+            phase_range=float(params["phase_range"]),
         )
 
 
 class BlazedGratingControl(PatternControl):
-    """闪耀光栅 — with angle/direct mode and direction.
-
-    All angle inputs are in degrees (角度制, 单位: 度).
-    All phase_range inputs are in units of π (输入值为 N，表示 Nπ 弧度),
-    multiplied by π in ``generate_phase_rad`` before use.
-    """
+    """闪耀光栅 — with angle/direct mode and direction."""
 
     DEFAULTS: ClassVar[dict[str, Any]] = {
         "period": 10.0,
-        "phase_range": 2.0,
+        "phase_range": float(2 * np.pi),
         "direction": "vertical",
         "angle_deg": 10.0,
         "calc_wl": 1064,
         "calc_pitch": 8.0,
-        "incident_angle_deg": 0.0,
     }
     RANGES: ClassVar[dict[str, Any]] = {
         "period": (1.0, 10000.0),
-        "phase_range": (0.05, 2.0),
+        "phase_range": (0.1, float(2 * np.pi)),
         "angle_deg": (0.1, 89.0),
         "calc_wl": (400, 1600),
         "calc_pitch": (0.1, 100.0),
-        "incident_angle_deg": (0.0, 89.0),
     }
     CONTEXT_SYNCED_WIDGETS: ClassVar[tuple[str, ...]] = ("blazed_calc_wl",)
 
@@ -382,21 +427,7 @@ class BlazedGratingControl(PatternControl):
                 key=f"{prefix}_blazed_calc_pitch",
             )
 
-            incident_angle_deg = st.number_input(
-                "倾斜入射角度 θ_i (度)",
-                min_value=self.ranges["incident_angle_deg"][0],
-                max_value=self.ranges["incident_angle_deg"][1],
-                value=self.defaults["incident_angle_deg"],
-                step=0.5,
-                key=f"{prefix}_blazed_calc_incident_angle",
-                help="斜入射时入射光与法线夹角(角度制, 度)；为 0 时退化为正入射公式 d·(sinθ_d−sinθ_i)=λ。",
-            )
-
-            # Conversion from degrees to radians happens inside
-            # calc_blazed_grating_period (PatternHelper layer).
-            period_pixels = calc_blazed_grating_period(
-                angle_deg, calc_wl, calc_pitch, incident_angle_deg
-            )
+            period_pixels = calc_blazed_grating_period(angle_deg, calc_wl, calc_pitch)
             # Deliberate widget-state write: keeps the direct-mode period widget
             # in sync with the freshly computed value (not a default read).
             st.session_state[f"{prefix}_blazed_period"] = period_pixels
@@ -404,11 +435,7 @@ class BlazedGratingControl(PatternControl):
             st.metric(
                 "计算周期",
                 f"{period_pixels:.1f} 像素",
-                help=(
-                    "斜入射: d·(sinθ_d − sinθ_i)=λ; "
-                    "正入射: d·sinθ=λ; "
-                    f"像素间距 {calc_pitch} μm"
-                ),
+                help=f"d = λ / sin(θ)，像素间距 {calc_pitch} μm",
             )
             period = period_pixels
         else:
@@ -422,13 +449,12 @@ class BlazedGratingControl(PatternControl):
             )
 
         phase_range = st.number_input(
-            "相位范围 (π)",
+            "相位范围 (rad)",
             min_value=self.ranges["phase_range"][0],
             max_value=self.ranges["phase_range"][1],
             value=self.defaults["phase_range"],
             step=0.1,
             key=f"{prefix}_blazed_phase_range",
-            help="输入 N 表示 Nπ 弧度，发送时自动乘以 π",
         )
         direction = st.selectbox(
             "光栅方向",
@@ -446,29 +472,23 @@ class BlazedGratingControl(PatternControl):
         }
 
     def generate_phase_rad(self, params: dict[str, Any]) -> np.ndarray:
-        # phase_range is in units of π; multiply by π to get radians
-        phase_range_rad = float(params["phase_range"]) * np.pi
         return self._new_helper().linear_grating(
             period=float(params["period"]),
-            phase_range=phase_range_rad,
+            phase_range=float(params["phase_range"]),
             direction=str(params["direction"]),
         )
 
 
 class CircularGratingControl(PatternControl):
-    """圆形光栅 — radius and phase range.
-
-    ``phase_range`` is in units of π (输入值为 N，表示 Nπ 弧度),
-    multiplied by π in ``generate_phase_rad`` before use.
-    """
+    """圆形光栅 — radius and phase range."""
 
     DEFAULTS: ClassVar[dict[str, Any]] = {
         "radius": 64.0,
-        "phase_range": 2.0,
+        "phase_range": float(2 * np.pi),
     }
     RANGES: ClassVar[dict[str, Any]] = {
         "radius": (1.0, 2000.0),
-        "phase_range": (0.05, 2.0),
+        "phase_range": (0.1, float(2 * np.pi)),
     }
 
     def render(self, prefix: str | None = None) -> dict[str, Any]:
@@ -483,21 +503,19 @@ class CircularGratingControl(PatternControl):
                 key=f"{prefix}_circular_radius",
             ),
             "phase_range": st.number_input(
-                "相位范围 (π)",
+                "相位范围 (rad)",
                 min_value=self.ranges["phase_range"][0],
                 max_value=self.ranges["phase_range"][1],
                 value=self.defaults["phase_range"],
                 step=0.1,
                 key=f"{prefix}_circular_phase_range",
-                help="输入 N 表示 Nπ 弧度，发送时自动乘以 π",
             ),
         }
 
     def generate_phase_rad(self, params: dict[str, Any]) -> np.ndarray:
-        phase_range_rad = float(params["phase_range"]) * np.pi
         return self._new_helper().circular_grating(
             radius=float(params["radius"]),
-            phase_range=phase_range_rad,
+            phase_range=float(params["phase_range"]),
         )
 
 
@@ -564,20 +582,10 @@ class LensControl(PatternControl):
 
 
 class CheckerboardControl(PatternControl):
-    """棋盘格 — period (binary 0/π phase).
+    """棋盘格 — period (binary 0/π phase)."""
 
-    ``white_phase`` is in units of π (输入值为 N，表示 Nπ 弧度),
-    multiplied by π in ``generate_phase_rad`` before use.
-    """
-
-    DEFAULTS: ClassVar[dict[str, Any]] = {
-        "period": 50,
-        "white_phase": 1.0,
-    }
-    RANGES: ClassVar[dict[str, Any]] = {
-        "period": (1, 1000),
-        "white_phase": (0.0, 2.0),
-    }
+    DEFAULTS: ClassVar[dict[str, Any]] = {"period": 50}
+    RANGES: ClassVar[dict[str, Any]] = {"period": (1, 1000)}
 
     def render(self, prefix: str | None = None) -> dict[str, Any]:
         prefix = prefix or self.prefix
@@ -589,27 +597,11 @@ class CheckerboardControl(PatternControl):
                 value=self.defaults["period"],
                 step=1,
                 key=f"{prefix}_checker_period",
-            ),
-            "white_phase": st.number_input(
-                "白格相位 (π)",
-                min_value=self.ranges["white_phase"][0],
-                max_value=self.ranges["white_phase"][1],
-                value=self.defaults["white_phase"],
-                step=0.1,
-                key=f"{prefix}_checker_white_phase",
-                help="输入 N 表示 Nπ 弧度，黑格保持 0",
-            ),
+            )
         }
 
     def generate_phase_rad(self, params: dict[str, Any]) -> np.ndarray:
-        # white_phase is in units of π; multiply by π to get radians
-        white_phase_rad = (
-            float(params.get("white_phase", self.defaults["white_phase"])) * np.pi
-        )
-        return self._new_helper().generate_checkerboard(
-            period=int(params["period"]),
-            white_phase=white_phase_rad,
-        )
+        return self._new_helper().generate_checkerboard(period=int(params["period"]))
 
 
 class BinaryGratingControl(PatternControl):
@@ -854,7 +846,7 @@ class ZernikeControl(PatternControl):
     """Zernike — n_max, radius, coefficient table."""
 
     DEFAULTS: ClassVar[dict[str, Any]] = {
-        "n_max": 4,
+        "n_max": 5,
         "coefficients": {(0, 0): 0.0},
         "radius": 600,
     }
@@ -863,6 +855,8 @@ class ZernikeControl(PatternControl):
         "radius": (1, 2000),
     }
 
+    #: Bounds (radians) for the coefficient inputs — both editor variants share
+    #: them; 峰值相位差远低于此范围, 仅防止误输入导致的失控幅度.
     COEFF_MIN: ClassVar[float] = -100.0
     COEFF_MAX: ClassVar[float] = 100.0
 
@@ -886,6 +880,109 @@ class ZernikeControl(PatternControl):
             if (n - abs(m)) % 2 == 0
         ]
 
+    @staticmethod
+    def _coefficient_default(n: int, m: int) -> float:
+        """Piston starts at 1.0 rad, every other mode at 0.0."""
+        return 1.0 if (n, m) == (0, 0) else 0.0
+
+    def _render_coefficient_table(
+        self, prefix: str, modes: list[tuple[int, int]]
+    ) -> dict[tuple[int, int], float]:
+        """Editable table (``st.data_editor``) — needs a working pyarrow."""
+        pairs: list[dict[str, Any]] = [
+            {
+                "n": n,
+                "m": m,
+                "name": get_zernike_name(n, m) or f"n={n},m={m}",
+                "coeff": self._coefficient_default(n, m),
+            }
+            for n, m in modes
+        ]
+
+        edited = st.data_editor(
+            pairs,
+            key=f"{prefix}_zernike_table",
+            column_config={
+                "n": st.column_config.NumberColumn("n", disabled=True, width="small"),
+                "m": st.column_config.NumberColumn("m", disabled=True, width="small"),
+                "name": st.column_config.TextColumn(
+                    "名称", disabled=True, width="medium"
+                ),
+                "coeff": st.column_config.NumberColumn(
+                    "系数",
+                    step=0.001,
+                ),
+            },
+            hide_index=True,
+        )
+
+        coefficients: dict[tuple[int, int], float] = {}
+        for row in edited:
+            coefficients[(int(row["n"]), int(row["m"]))] = float(row["coeff"])
+        return coefficients
+
+    def _render_coefficient_grid(
+        self, prefix: str, modes: list[tuple[int, int]], reason: str = ""
+    ) -> dict[tuple[int, int], float]:
+        """pyarrow-free editor: one ``st.number_input`` per Zernike mode.
+
+        Same widget-key prefix scheme as the table variant so switching between
+        the two (pyarrow repaired / broken) never collides.
+        """
+        st.warning(
+            "pyarrow 不可用 — 「st.data_editor 系数表」已回退为逐项输入控件。"
+            "修复 pyarrow 后可恢复系数表（pip install --force-reinstall "
+            "--only-binary :all: pyarrow）。",
+            icon="⚠️",
+        )
+        if reason:
+            st.caption(f"pyarrow 导入失败原因: `{reason}`")
+        st.caption(
+            "Zernike 系数单位为弧度 (raw, 未包裹); 活塞默认 1.0, 其余默认 0.0。"
+        )
+
+        coefficients: dict[tuple[int, int], float] = {}
+        for start in range(0, len(modes), self.COEFF_COLUMNS):
+            columns = st.columns(self.COEFF_COLUMNS)
+            for column, (n, m) in zip(columns, modes[start : start + self.COEFF_COLUMNS]):
+                with column:
+                    coefficients[(n, m)] = float(
+                        st.number_input(
+                            f"{get_zernike_name(n, m)} (n={n}, m={m})",
+                            min_value=self.COEFF_MIN,
+                            max_value=self.COEFF_MAX,
+                            value=self._coefficient_default(n, m),
+                            step=0.001,
+                            format="%.3f",
+                            key=f"{prefix}_zernike_coeff_{n}_{m}",
+                        )
+                    )
+        return coefficients
+
+    def _render_debug_panel(
+        self,
+        n_max: int,
+        mode_count: int,
+        editor: str,
+        editor_reason: str,
+    ) -> None:
+        """Collapsed diagnostics panel for the Zernike editor selection.
+
+        Rendered on every Zernike selection so a failure (or an unexpected
+        editor backend) can be diagnosed from the UI alone — without hunting
+        through the Streamlit server log.
+        """
+        with st.expander("🔧 Zernike debug 信息 (定位问题用)", expanded=False):
+            st.markdown(
+                f"- **选择结果**: 已渲染 `Zernike` 控制, n_max={n_max}, "
+                f"{mode_count} 个模式"
+            )
+            st.markdown(f"- **编辑器路径**: `{editor}`")
+            for label, value in _pyarrow_diagnostics():
+                st.markdown(f"- **{label}**: `{value}`")
+            if editor_reason:
+                st.code(editor_reason, language="text")
+
     def render(self, prefix: str | None = None) -> dict[str, Any]:
         prefix = prefix or self.prefix
         n_max = st.number_input(
@@ -896,118 +993,77 @@ class ZernikeControl(PatternControl):
             value=self.defaults["n_max"],
             key=f"{prefix}_zernike_n_max",
         )
+
         modes = self._modes(int(n_max))
-
-        pairs: list[dict[str, Any]] = [
-            {
-                "n": n,
-                "m": m,
-                "name": get_zernike_name(n, m) or f"n={n},m={m}",
-                "coeff": 0.0,
-            }
-            for n, m in modes
-        ]
-        try:
-            edited = st.data_editor(
-                pairs,
-                key=f"{prefix}_zernike_table",
-                num_rows="fixed",
-                column_config={
-                    "n": st.column_config.NumberColumn(
-                        "n", disabled=True, width="small"
-                    ),
-                    "m": st.column_config.NumberColumn(
-                        "m", disabled=True, width="small"
-                    ),
-                    "name": st.column_config.TextColumn(
-                        "名称", disabled=True, width="medium"
-                    ),
-                    "coeff": st.column_config.NumberColumn(
-                        "系数",
-                        step=0.001,
-                    ),
-                },
-                hide_index=True,
-                disabled=["n", "m", "name"],
-            )
-        except Exception as e:
-            st.exception(e)
-
-        # 输入数据后不进行计算，仅存入 session_state；
-        # 点击"生成相位"时才读取参数计算 zernike 相位。
-        # 使用 _raw 后缀避免与同 key 的 widget 冲突
-        coefficients: dict[tuple[int, int], float] = {}
-        for row in edited:
-            coefficients[(int(row["n"]), int(row["m"]))] = float(row["coeff"])
-        st.session_state[f"{prefix}_zernike_coeffs"] = coefficients
-        st.session_state[f"{prefix}_zernike_n_max_raw"] = int(n_max)
-
-        radius = float(
-            st.number_input(
-                "孔径半径 (像素)",
-                value=self.defaults["radius"],
-                min_value=self.ranges["radius"][0],
-                max_value=self.ranges["radius"][1],
-                step=1,
-                key=f"{prefix}_zernike_radius",
-            )
+        # Capability probe FIRST: st.data_editor importing a broken/mismatched
+        # pyarrow mid-widget aborts the script run and wipes the rest of the
+        # page (the "选择 Zernike 后页面自动退出" symptom), so pick the editor
+        # variant before calling any of them.
+        editor_available, editor_reason = _data_editor_capability()
+        editor = "st.data_editor (系数表)" if editor_available else "st.number_input (逐项回退)"
+        logger.debug(
+            "Zernike render: slm={} n_max={} modes={} editor={} pyarrow={} reason={}",
+            self.slm_id,
+            int(n_max),
+            len(modes),
+            editor,
+            _pyarrow_version() or "不可用",
+            editor_reason or "-",
         )
-        st.session_state[f"{prefix}_zernike_radius_raw"] = radius
+
+        if editor_available:
+            try:
+                coefficients = self._render_coefficient_table(prefix, modes)
+            except ImportError as exc:
+                # pyarrow went missing between the probe and the widget call
+                # (or another lazily imported dependency of data_editor is
+                # broken) — surface the real traceback in the UI and keep the
+                # page usable instead of aborting the script run.
+                editor_reason = f"{type(exc).__name__}: {exc}"
+                editor = "st.number_input (逐项回退, 系数表渲染失败)"
+                logger.exception("st.data_editor 渲染失败 — 回退逐项输入控件")
+                st.error(f"st.data_editor 渲染失败, 已回退为逐项输入控件: {editor_reason}")
+                st.exception(exc)
+                coefficients = self._render_coefficient_grid(
+                    prefix, modes, editor_reason
+                )
+        else:
+            coefficients = self._render_coefficient_grid(prefix, modes, editor_reason)
+
+        self._render_debug_panel(int(n_max), len(modes), editor, editor_reason)
 
         return {
             "n_max": int(n_max),
             "coefficients": coefficients,
-            "radius": radius,
+            "radius": float(
+                st.number_input(
+                    "孔径半径 (像素)",
+                    value=self.defaults["radius"],
+                    min_value=self.ranges["radius"][0],
+                    max_value=self.ranges["radius"][1],
+                    step=1,
+                    key=f"{prefix}_zernike_radius",
+                )
+            ),
         }
 
     def generate_phase_rad(self, params: dict[str, Any]) -> np.ndarray:
-        # 点击"生成相位"时才从 session_state 读取参数计算，
-        # 避免在 data_editor 输入时进行计算。
-        # 回退到 params 用于直接调用场景 (测试/headless)。
-        prefix = self.prefix
-        try:
-            coefficients = st.session_state.get(f"{prefix}_zernike_coeffs")
-            n_max = st.session_state.get(f"{prefix}_zernike_n_max_raw")
-            radius = st.session_state.get(f"{prefix}_zernike_radius_raw")
-        except Exception:
-            coefficients = None
-            n_max = None
-            radius = None
-
-        if coefficients is not None:
-            coeff_dict: dict[tuple[int, int], float] | None = {
+        raw_coeffs = params.get("coefficients", self.defaults["coefficients"])
+        coefficients: dict[tuple[int, int], float] | None = None
+        if raw_coeffs is not None and isinstance(raw_coeffs, dict):
+            coefficients = {
                 k: float(v)
-                for k, v in coefficients.items()
+                for k, v in raw_coeffs.items()
                 if isinstance(k, tuple) and isinstance(v, (int, float))
             }
-        else:
-            raw_coeffs = params.get("coefficients", self.defaults["coefficients"])
-            if raw_coeffs is not None and isinstance(raw_coeffs, dict):
-                coeff_dict = {
-                    k: float(v)
-                    for k, v in raw_coeffs.items()
-                    if isinstance(k, tuple) and isinstance(v, (int, float))
-                }
-            else:
-                coeff_dict = None
-
-        r = (
-            float(radius)
-            if radius is not None
-            else float(params.get("radius", self.defaults["radius"]))
-        )
-        n = (
-            int(n_max)
-            if n_max is not None
-            else int(params.get("n_max", self.defaults["n_max"]))
-        )
-
+        radius = float(params.get("radius", self.defaults["radius"]))
+        n_max = int(params.get("n_max", self.defaults["n_max"]))
         # 原始弧度相位 (不 mod-2π, 不归一化) — 驱动 create_phase_from_array 负责
         # 弧度→灰度 (2π=1023 + 波前校正 + LUT), 保留系数绝对幅度 (2026-09)。
         return self._new_helper().generate_zernike_polynomial(
-            coefficients=coeff_dict,
-            radius=r,
-            n_max=n,
+            coefficients=coefficients,
+            radius=radius,
+            n_max=n_max,
         )
 
 
@@ -1058,22 +1114,19 @@ class HalfHalfPhaseControl(PatternControl):
     RAW GRAY half: the flat side bypasses radian conversion (amplitude
     coupling), the blaze side goes through ``slm.create_phase_from_array``.
     ``generate_phase_rad`` returns the equivalent composition in radians.
-
-    ``phase_range`` is in units of π (输入值为 N，表示 Nπ 弧度),
-    multiplied by π in ``generate_phase_rad`` / ``generate_phase_gray`` before use.
     """
 
     DEFAULTS: ClassVar[dict[str, Any]] = {
         "flat_gray": 512,
         "split_direction": "左右",
         "period": 4.0,
-        "phase_range": 2.0,
+        "phase_range": float(2 * np.pi),
         "blaze_direction": "horizontal",
     }
     RANGES: ClassVar[dict[str, Any]] = {
         "flat_gray": (0, 1023),
         "period": (1.0, 1000.0),
-        "phase_range": (0.05, 2.0),
+        "phase_range": (0.1, float(2 * np.pi)),
     }
     CONTEXT_SYNCED_WIDGETS: ClassVar[tuple[str, ...]] = ("halfhalf_flat_gray",)
 
@@ -1112,13 +1165,12 @@ class HalfHalfPhaseControl(PatternControl):
                 key=f"{prefix}_halfhalf_period",
             ),
             "phase_range": st.number_input(
-                "相位范围 (π)",
+                "相位范围 (rad)",
                 min_value=self.ranges["phase_range"][0],
                 max_value=self.ranges["phase_range"][1],
                 value=self.defaults["phase_range"],
                 step=0.1,
                 key=f"{prefix}_halfhalf_phase_range",
-                help="输入 N 表示 Nπ 弧度，发送时自动乘以 π",
             ),
         }
 
@@ -1140,8 +1192,7 @@ class HalfHalfPhaseControl(PatternControl):
     def generate_phase_rad(self, params: dict[str, Any]) -> np.ndarray:
         flat_gray = int(params["flat_gray"])
         period = float(params["period"])
-        # phase_range is in units of π; multiply by π to get radians
-        phase_range = float(params["phase_range"]) * np.pi
+        phase_range = float(params["phase_range"])
         split_dir = str(params["split_direction"])
         blaze_dir = str(params.get("blaze_direction", "vertical"))
 
@@ -1173,8 +1224,7 @@ class HalfHalfPhaseControl(PatternControl):
             raise ValueError("半半相位 生成灰度相位需要 slm 对象")
         flat_gray = int(params["flat_gray"])
         period = float(params["period"])
-        # phase_range is in units of π; multiply by π to get radians
-        phase_range = float(params["phase_range"]) * np.pi
+        phase_range = float(params["phase_range"])
         split_dir = str(params["split_direction"])
         blaze_dir = str(params.get("blaze_direction", "vertical"))
 
@@ -1685,7 +1735,9 @@ def refresh_phase_preview(slm_num: int) -> None:
 
     phase_gray, source = slm.get_displayed_phase()
     max_gray = getattr(slm, "_max_gray", Santec.MAX_GRAYSCALE_VALUE)
-    colormap = st.session_state.get(colormap_key, PREVIEW_COLORMAP_DEFAULT)
+    colormap = st.session_state.get(
+        colormap_key, PREVIEW_COLORMAP_DEFAULT
+    )
     st.session_state[phase_key] = (
         None
         if phase_gray is None

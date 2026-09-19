@@ -1361,6 +1361,80 @@ class Santec:
             panel_resolution=panel_resolution,
         )
 
+    @staticmethod
+    def save_gray_to_csv(
+        gray: np.ndarray,
+        filepath: str | Path | io.BufferedIOBase | io.TextIOBase,
+        delimiter: str = ",",
+    ) -> None:
+        """将灰度矩阵导出为 Santec 校正文件格式的 CSV。
+
+        输出可直接交给 :meth:`load_gray_from_csv` 加载（往返一致），与
+        :meth:`save_phase_to_csv` 保留相同的 ``Y/X`` 行列索引布局，但数据区
+        保存的是 **原始灰度整数**（0~1023）而非弧度——这是 Santec 校正文件
+        （如 ``All 1023.csv``）的格式，与弧度导出互补。
+
+        Args:
+            gray: 灰度数组（uint16 或整数 dtype），shape 必须等于
+                ``PANEL_RES`` 的 ``(高, 宽)``
+            filepath: 输出文件路径，或可写入字节/文本的流
+            delimiter: CSV 分隔符，默认为逗号
+
+        Raises:
+            ValueError: 灰度数组维度、尺寸、数值类型或取值范围无效
+        """
+        phase = np.asarray(gray)
+        if phase.ndim != 2:
+            raise ValueError(f"灰度数据必须是2D数组，当前维度: {phase.ndim}")
+
+        target_h, target_w = PANEL_RES[1], PANEL_RES[0]
+        if phase.shape != (target_h, target_w):
+            raise ValueError(
+                f"灰度尺寸错误: {phase.shape}，应与 SLM 面板分辨率一致 "
+                f"({target_h}, {target_w})"
+            )
+        if not np.issubdtype(phase.dtype, np.integer):
+            raise ValueError(
+                f"灰度值必须是整数，当前 dtype: {phase.dtype}"
+            )
+        if phase.min() < GRAYSCALE_MIN or phase.max() > GRAYSCALE_MAX:
+            raise ValueError(
+                f"灰度值越界: 范围 [{phase.min()}, {phase.max()}]，"
+                f"允许范围 [{GRAYSCALE_MIN}, {GRAYSCALE_MAX}]"
+            )
+
+        output = io.StringIO()
+        output.write(
+            delimiter.join(["Y/X", *(str(index) for index in range(target_w))])
+        )
+        output.write("\n")
+
+        indexed_gray = np.column_stack(
+            (np.arange(target_h, dtype=np.int64), phase.astype(np.int64))
+        )
+        np.savetxt(
+            output,
+            indexed_gray,
+            delimiter=delimiter,
+            fmt=["%d", *["%d"] * target_w],
+        )
+        content = output.getvalue()
+
+        if isinstance(filepath, (str, Path)):
+            path = Path(filepath)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        else:
+            if isinstance(filepath, io.TextIOBase):
+                filepath.write(content)
+            else:
+                filepath.write(content.encode("utf-8"))
+
+        logger.info(
+            f"灰度数据已导出: 形状={phase.shape}, "
+            f"范围=[{phase.min()}, {phase.max()}]"
+        )
+
     def create_phase_from_array(
         self, phase_rad: np.ndarray, max_grayscale: int | None = None
     ) -> np.ndarray:

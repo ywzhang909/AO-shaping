@@ -13,6 +13,8 @@ from ao_shaping.config import (
     DEFAULT_OPTIMIZATION_DEFAULTS,
     DEFAULT_PATHS,
     DEFAULT_DEVICE_CONFIG,
+    _resolve_class_attribute,
+    _resolve_dm_n_actuators,
     get_dm_unit_mask,
     get_init_voltages,
     get_coredumpy_directory,
@@ -140,6 +142,83 @@ class TestGetInitVoltages:
         voltages = get_init_voltages()
         mask = get_dm_unit_mask("all")
         assert len(voltages) == len(mask)
+
+
+class TestResolveClassAttribute:
+    """Anchor the property-descriptor resolution semantics of the helper."""
+
+    def test_plain_class_attribute_passthrough(self):
+        class Dummy:
+            DM_NUM = 64
+
+        assert _resolve_class_attribute(Dummy, "DM_NUM") == 64
+
+    def test_instance_property_resolves_to_value(self):
+        class Dummy:
+            @property
+            def DM_NUM(self):
+                return 64
+
+        assert _resolve_class_attribute(Dummy, "DM_NUM") == 64
+
+    def test_missing_attribute_returns_none(self):
+        class Dummy:
+            pass
+
+        assert _resolve_class_attribute(Dummy, "DM_NUM") is None
+
+    def test_property_instantiation_failure_returns_none(self):
+        class Dummy:
+            @property
+            def DM_NUM(self):
+                raise RuntimeError("cannot instantiate")
+
+        assert _resolve_class_attribute(Dummy, "DM_NUM") is None
+
+
+class TestResolveDmWithPropertyDm:
+    """Regression: ZernikeDM/HadamardDM expose ``DM_NUM`` as an instance
+    ``@property``; ``config._resolve_dm_n_actuators()`` previously returned the
+    property descriptor object (not an int) when such a DM was the first
+    reachable type, breaking ``get_dm_unit_mask`` with a TypeError in
+    ``[True] * n_actuators`` (self-registering modules populate the registry).
+
+    Uses a fake registry that resolves to the REAL HadamardDM class, so the
+    exact production code path (lazy import -> registry.get_class ->
+    _resolve_class_attribute -> instantiate) is exercised without hitting
+    network probes for unreachable hardware DMs."""
+
+    def test_registry_property_dm_resolves_to_consistent_mask(self, monkeypatch):
+        import ao_shaping.drivers.dm.hadamard_dm  # noqa: F401  (注册 HadamardDM)
+        import ao_shaping.drivers.dm.zernike_dm  # noqa: F401  (注册 ZernikeDM)
+        from ao_shaping.drivers.dm.hadamard_dm import HadamardDM
+
+        assert isinstance(getattr(HadamardDM, "DM_NUM"), property)
+
+        class FakeRegistry:
+            def list_reachable_types(self):
+                return ["hadamard"]
+
+            def get_class(self, name):
+                return HadamardDM
+
+        monkeypatch.setattr(
+            "ao_shaping.drivers.dm._registry.get_dm_registry",
+            lambda: FakeRegistry(),
+        )
+
+        n = _resolve_dm_n_actuators()
+        assert isinstance(n, int)
+        assert n == HadamardDM().DM_NUM
+
+        mask = get_dm_unit_mask("all")
+        assert isinstance(mask, list)
+        assert len(mask) == n
+        assert all(isinstance(m, bool) for m in mask)
+
+        voltages = get_init_voltages()
+        assert len(voltages) == n
+        assert all(v == 0.0 for v in voltages)
 
 
 class TestGetCoredumpyDirectory:

@@ -1,30 +1,27 @@
 """Utility functions for AO-Shaping system.
 
-This package provides various utility modules:
-- spots_calc: Image spot analysis (centroid, sharpness, crop, etc.)
-- file: File operations and recording
-- display: Pygame visualization displays
-- timestamp: Timestamp parsing utilities
-- matrix_utils: Matrix operations for Zernike response matrix
-- pattern_helper: Optical pattern generation
-- wavefront_calc: Wavefront calculations
-- zernike_calc: Zernike polynomial generation
-- hadamard_calc: Walsh-Hadamard mode generation
+This package is organized into domain subpackages:
+- ``io``: File operations, timestamps, config, networking (file, timestamp,
+  cli_helpers, device_config, network, handler)
+- ``image``: Spot analysis and visualization (spots_calc, beam_metrics,
+  targets, resample, display, gs_visualization, hardware_utils)
+- ``wavefront``: Wavefront and mode-mixing math (zernike_calc, zernike_utils,
+  wavefront_calc, wfs_utils, phase_unwrap, hadamard_calc, matrix_utils, vi)
+- ``slm``: SLM pattern generation (pattern_helper, slm_lut, slm_utils)
+
+Legacy top-level paths (``ao_shaping.utils.spots_calc`` etc.) remain importable
+via backward-compat shims.
 """
 
-from ao_shaping.utils import spots_calc
-from ao_shaping.utils import file
-from ao_shaping.utils import display
-from ao_shaping.utils import timestamp
-from ao_shaping.utils import matrix_utils
-from ao_shaping.utils import pattern_helper
-from ao_shaping.utils import wavefront_calc
-from ao_shaping.utils import zernike_calc
-from ao_shaping.utils.handler import Register
+from ao_shaping.utils.image import display, spots_calc
+from ao_shaping.utils.io import file, timestamp
+from ao_shaping.utils.io.handler import Register
+from ao_shaping.utils.slm import pattern_helper
+from ao_shaping.utils.wavefront import hadamard_calc, matrix_utils, wavefront_calc, zernike_calc
 
 
 # Explicit exports from spots_calc
-from ao_shaping.utils.spots_calc import (
+from ao_shaping.utils.image.spots_calc import (
     calculate_sharpness,
     calculate_sharpness_cupy,
     calculate_sharpness_numba,
@@ -51,7 +48,7 @@ from ao_shaping.utils.spots_calc import (
 )
 
 # Explicit exports from file
-from ao_shaping.utils.file import (
+from ao_shaping.utils.io.file import (
     gen_file_path_inc,
     gen_file_path_uuid,
     gen_date_str,
@@ -63,7 +60,7 @@ from ao_shaping.utils.file import (
 )
 
 # Explicit exports from display
-from ao_shaping.utils.display import (
+from ao_shaping.utils.image.display import (
     ImageVoltagesDisplay,
     ZernikeCalibrationDisplay,
     plot_funcs,
@@ -83,14 +80,14 @@ from ao_shaping.utils.display import (
 )
 
 # Explicit exports from timestamp
-from ao_shaping.utils.timestamp import (
+from ao_shaping.utils.io.timestamp import (
     TimestampParser,
     parse_timestamp,
     sort_by_timestamp,
 )
 
 # Explicit exports from matrix_utils
-from ao_shaping.utils.matrix_utils import (
+from ao_shaping.utils.wavefront.matrix_utils import (
     compute_pinv,
     compute_lstsq,
     calc_n_zernike_terms,
@@ -99,10 +96,10 @@ from ao_shaping.utils.matrix_utils import (
 )
 
 # Explicit exports from pattern_helper
-from ao_shaping.utils.pattern_helper import PatternHelper
+from ao_shaping.utils.slm.pattern_helper import PatternHelper
 
 # Explicit exports from wavefront_calc
-from ao_shaping.utils.wavefront_calc import (
+from ao_shaping.utils.wavefront.wavefront_calc import (
     normalize_01,
     centroid_calculation,
     calculate_derotation,
@@ -112,7 +109,7 @@ from ao_shaping.utils.wavefront_calc import (
 )
 
 # Explicit exports from hadamard_calc
-from ao_shaping.utils.hadamard_calc import (
+from ao_shaping.utils.wavefront.hadamard_calc import (
     HadamardGenerator,
     calc_n_hadamard_modes,
     hadamard_mode_2d,
@@ -120,7 +117,7 @@ from ao_shaping.utils.hadamard_calc import (
 )
 
 # Explicit exports from zernike_calc
-from ao_shaping.utils.zernike_calc import (
+from ao_shaping.utils.wavefront.zernike_calc import (
     ZernikeGenerator,
     fit_zernike,
     zernike_radial,
@@ -129,7 +126,7 @@ from ao_shaping.utils.zernike_calc import (
 )
 
 # Explicit exports from cli_helpers
-from ao_shaping.utils.cli_helpers import (
+from ao_shaping.utils.io.cli_helpers import (
     parse_tuple,
     setup_coredumpy,
     get_date_dir_name,
