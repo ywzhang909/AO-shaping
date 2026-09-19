@@ -1,34 +1,25 @@
-"""Hardware helpers for SLM+CCD closed-loop runners.
+"""Backward-compat alias for :mod:`ao_shaping.utils.image.hardware_utils`.
 
-Migrated from :mod:`ao_shaping.algorithm.beam_shaping_utils`; the old module
-re-exports these names for backward compatibility.
+Real module moved to :mod:`ao_shaping.utils.image.hardware_utils`.
 
-Contains:
-- ``capture_amplitude``: CCD 远场采集 → float32 振幅。
-- ``call_with_timeout``: 硬件 SDK 调用 (可能挂起) 的看门狗超时。
-- Auto-exposure helpers (纯目标计算 + 相机应用)。
-- Frame recording (``frames/`` 目录 + PNG + JSONL 元数据)。
-
-``utils`` is a leaf layer: hardware classes are only referenced under
-``TYPE_CHECKING`` (or duck-typed via ``Any``), never imported at runtime.
+An alias (not a copy) is REQUIRED: tests reset module-global recording state
+via the legacy name (``hardware_utils._frames_dir`` / ``_frame_counter``), so
+the legacy path must resolve to the SAME module object.
 """
 
 from __future__ import annotations
 
 import json
 import threading
-import time
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import Any, Sequence
 
 import numpy as np
 from loguru import logger
 
+from ao_shaping.drivers.ccd import BaseCamera
 from ao_shaping.utils.spots_calc import centroid
-
-if TYPE_CHECKING:  # pragma: no cover
-    from ao_shaping.drivers.ccd import BaseCamera
 
 __all__ = [
     "capture_amplitude",

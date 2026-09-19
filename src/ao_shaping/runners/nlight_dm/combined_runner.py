@@ -11,16 +11,13 @@ from ao_shaping.optimizer.combined_optimizer import optimize_pib
 from ao_shaping.utils.cli_helpers import get_debug_mode, setup_coredumpy, get_date_dir_name
 from ao_shaping.utils.file import gen_file_path_uuid, gen_date_dir, logger
 from ao_shaping.utils.display import plot_funcs
-from ao_shaping.drivers.dm import create_dm, list_dm_types, list_reachable_dm_types
+from ao_shaping.drivers.dm import list_dm_types
+from ao_shaping.runners.runner_common import resolve_dm
 
 import matplotlib.pyplot as plt
 
 
 DM_TYPES = list_dm_types()
-
-
-def _create_dm(dm_type: str, **kwargs):
-    return create_dm(dm_type, **kwargs)
 
 
 @click.command()
@@ -88,23 +85,7 @@ def run(
     }
     logger.info(config)
 
-    if dm_type is not None:
-        dm_type = dm_type.lower()
-        logger.info(f"Using specified DM type: {dm_type}")
-    else:
-        reachable = list_reachable_dm_types()
-        if len(reachable) == 1:
-            dm_type = reachable[0]
-            logger.info(f"Auto-detected reachable DM: {dm_type}")
-        elif len(reachable) == 0:
-            raise RuntimeError("No DM reachable. Specify --dm_type explicitly or connect a DM.")
-        else:
-            raise RuntimeError(
-                f"Multiple DMs reachable ({', '.join(reachable)}). "
-                f"Specify --dm_type explicitly to choose one."
-            )
-
-    dm = _create_dm(dm_type, keep_when_exit=True, max_neibor_diff=200)
+    dm = resolve_dm(dm_type, keep_when_exit=True, max_neibor_diff=200)
 
     res_list = optimize_pib(
         dm=dm,

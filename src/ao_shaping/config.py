@@ -8,7 +8,24 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
+
+
+def _resolve_class_attribute(cls: type, name: str) -> Any:
+    """Read a class attribute, resolving instance-level ``@property`` descriptors.
+
+    Some DM types (ZernikeDM, HadamardDM) expose ``DM_NUM`` as an instance
+    ``@property`` derived from the generator, so ``cls.DM_NUM`` returns the
+    descriptor object instead of the value.  Instantiate the class to read the
+    real value; returns ``None`` if the attribute is absent or cannot be read.
+    """
+    value = getattr(cls, name, None)
+    if isinstance(value, property):
+        try:
+            value = getattr(cls(), name)
+        except Exception:
+            return None
+    return value
 
 
 def _resolve_dm_n_actuators() -> int:
@@ -23,10 +40,11 @@ def _resolve_dm_n_actuators() -> int:
         reachable = registry.list_reachable_types()
         if len(reachable) >= 1:
             cls = registry.get_class(reachable[0])
-            if hasattr(cls, "DM_NUM"):
-                return cls.DM_NUM
+            dm_num = _resolve_class_attribute(cls, "DM_NUM")
+            if isinstance(dm_num, int):
+                return dm_num
         return 64
-    except (ImportError, Exception):
+    except Exception:
         return 64
 
 
@@ -42,10 +60,11 @@ def _resolve_disabled_actuators() -> list[int]:
         reachable = registry.list_reachable_types()
         if len(reachable) >= 1:
             cls = registry.get_class(reachable[0])
-            if hasattr(cls, "disabled_actuators"):
-                return cls.disabled_actuators
+            disabled = _resolve_class_attribute(cls, "disabled_actuators")
+            if isinstance(disabled, list):
+                return disabled
         return [0]
-    except (ImportError, Exception):
+    except Exception:
         return [0]
 
 

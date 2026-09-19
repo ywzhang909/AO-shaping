@@ -48,6 +48,7 @@ from ao_shaping.runners import (
     dm_matrix_run,
     full_voltage_run,
     ga_zernike_run,
+    hadamard_matrix_run,
     greedy_zernike_run,
     gs_run,
     gs_square_run,
@@ -113,6 +114,7 @@ cli.add_command(slm_lut_run, name="slm-lut")
 cli.add_command(slm_diagnose_run, name="slm-diagnose")
 cli.add_command(slm_square_run, name="spgd-square")
 cli.add_command(slm_pib_run, name="slm-pib")
+cli.add_command(hadamard_matrix_run, name="hadamard-matrix")
 
 
 # Entry point

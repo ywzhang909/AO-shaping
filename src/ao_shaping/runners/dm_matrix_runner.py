@@ -26,8 +26,9 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.drivers.dm import create_dm, list_dm_types, list_reachable_dm_types
+from ao_shaping.drivers.dm import list_dm_types
 from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
+from ao_shaping.runners.runner_common import resolve_dm
 
 
 DM_TYPES = list_dm_types()

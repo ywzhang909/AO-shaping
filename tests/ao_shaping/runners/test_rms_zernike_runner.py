@@ -60,15 +60,15 @@ class TestAutoDeltaDetectRms:
 
         with (
             patch(
-                "ao_shaping.runners.rms_zernike_runner.ZernikeSLM",
+                "ao_shaping.runners.slm.rms_zernike_runner.ZernikeSLM",
                 return_value=mock_slm,
             ),
             patch(
-                "ao_shaping.runners.rms_zernike_runner.ThorlabWFS",
+                "ao_shaping.runners.slm.rms_zernike_runner.ThorlabWFS",
                 return_value=mock_wfs,
             ),
             patch(
-                "ao_shaping.runners.rms_zernike_runner.search_optimal_delta",
+                "ao_shaping.runners.slm.rms_zernike_runner.search_optimal_delta",
                 return_value=(
                     0.5,
                     {
@@ -103,15 +103,15 @@ class TestAutoDeltaDetectRms:
 
         with (
             patch(
-                "ao_shaping.runners.rms_zernike_runner.ZernikeSLM",
+                "ao_shaping.runners.slm.rms_zernike_runner.ZernikeSLM",
                 return_value=mock_slm,
             ),
             patch(
-                "ao_shaping.runners.rms_zernike_runner.ThorlabWFS",
+                "ao_shaping.runners.slm.rms_zernike_runner.ThorlabWFS",
                 return_value=mock_wfs,
             ),
             patch(
-                "ao_shaping.runners.rms_zernike_runner.search_optimal_delta",
+                "ao_shaping.runners.slm.rms_zernike_runner.search_optimal_delta",
                 return_value=(
                     0.5,
                     {
@@ -129,7 +129,7 @@ class TestAutoDeltaDetectRms:
 
             # Verify ThorlabWFS was called with exposure_time
             ThorlabWFS_mock = patch(
-                "ao_shaping.runners.rms_zernike_runner.ThorlabWFS",
+                "ao_shaping.runners.slm.rms_zernike_runner.ThorlabWFS",
                 return_value=mock_wfs,
             )
             # The mock was already patched above, check call args
@@ -241,15 +241,15 @@ class TestRunFunction:
 
         with (
             patch(
-                "ao_shaping.runners.rms_zernike_runner.ZernikeSLM",
+                "ao_shaping.runners.slm.rms_zernike_runner.ZernikeSLM",
                 return_value=mock_slm,
             ),
             patch(
-                "ao_shaping.runners.rms_zernike_runner.ThorlabWFS",
+                "ao_shaping.runners.slm.rms_zernike_runner.ThorlabWFS",
                 return_value=mock_wfs,
             ),
             patch(
-                "ao_shaping.runners.rms_zernike_runner.search_optimal_delta",
+                "ao_shaping.runners.slm.rms_zernike_runner.search_optimal_delta",
                 return_value=(
                     1.0,
                     {
@@ -260,7 +260,7 @@ class TestRunFunction:
                 ),
             ),
             patch(
-                "ao_shaping.runners.rms_zernike_runner.optimizer_rms_slm",
+                "ao_shaping.runners.slm.rms_zernike_runner.optimizer_rms_slm",
                 return_value=MagicMock(
                     get_best_iter=MagicMock(
                         return_value=(
@@ -352,15 +352,15 @@ class TestRunFunction:
 
         with (
             patch(
-                "ao_shaping.runners.rms_zernike_runner.ZernikeSLM",
+                "ao_shaping.runners.slm.rms_zernike_runner.ZernikeSLM",
                 return_value=mock_slm,
             ),
             patch(
-                "ao_shaping.runners.rms_zernike_runner.ThorlabWFS",
+                "ao_shaping.runners.slm.rms_zernike_runner.ThorlabWFS",
                 return_value=mock_wfs,
             ),
             patch(
-                "ao_shaping.runners.rms_zernike_runner.optimizer_rms_slm",
+                "ao_shaping.runners.slm.rms_zernike_runner.optimizer_rms_slm",
                 side_effect=capture_optimizer_rms,
             ),
         ):

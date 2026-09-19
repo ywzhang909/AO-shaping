@@ -30,6 +30,36 @@ Batch file for building Cython extensions.
 2. Builds Cython extensions using `python setup.py build_ext --build-lib ../ao_shaping/algorithm`
 3. Displays confirmation message and pauses
 
+### setup_pytorch.py
+Installs a CUDA-version-matched PyTorch into the current environment.
+
+**Usage:**
+```bash
+python scripts/setup_pytorch.py
+```
+
+**What it does:**
+- Detects the GPU compute capability via `torch.cuda.get_device_capability(0)`
+- Installs torch/torchvision from the matching PyTorch wheel index:
+  - sm >= 120 (RTX 50xx) -> `cu130`
+  - sm >= 90 (RTX 40xx) -> `cu124`
+  - no CUDA -> `cpu`
+- Runs `pip install --index https://download.pytorch.org/whl/<tag> torch torchvision`
+
+### setup_pytorch.sh
+Bash counterpart of `setup_pytorch.py` for CUDA-version-matched PyTorch installs.
+
+**Usage:**
+```bash
+bash scripts/setup_pytorch.sh
+```
+
+**What it does:**
+- Reads the GPU name from `nvidia-smi`
+- RTX 50xx -> `cu130`; GTX 10/16 series and RTX 20/30/40 series -> `cu124`; unknown -> `cu124`
+- Installs torch/torchvision from the matching PyTorch wheel index
+- Verifies the install with a final `import torch` check
+
 ## Simulation Scripts
 
 ### simulate_atmospheric_comparison.py
@@ -77,6 +107,39 @@ python scripts/generate_sim_visual_report.py
   - Turbulence metrics trends
   - Optimizer histories and summary
   - RL rollout metrics and frames
+
+### optimize_pib_reference.py
+Reference implementation of PIB (power-in-bucket) optimization on a simulated
+turbulence + DM bench.
+
+**Usage:**
+```bash
+python scripts/optimize_pib_reference.py
+```
+
+**What it does:**
+- Simulates a 128x128 pupil with a 5 mm aperture, 1550 nm wavelength, 0.5 m
+  focal length and a 1000 m propagation distance under Cn2 = 1e-9 turbulence
+- Optimizes an 8-actuator DM with SPGD (200 epochs) and heuristic search
+  (100 epochs) toward a 0.80 target PIB ratio (seed 42)
+- Saves `pib_convergence.png` (dpi 150) and `pib_spots.png` to the current
+  working directory
+
+### run_device_less_full.py
+Runs the full device-less benchmark suite and GIF generation in one shot.
+
+**Usage:**
+```bash
+python scripts/run_device_less_full.py
+```
+
+**What it does:**
+- Runs the canonical `run_benchmark_suite` (9-row grid) covering GS and SPGD
+  simulation across square, circle and gaussian targets
+- Generates 6 animated GIFs (gs/spgd-sim x square/circle/gaussian) with
+  iterations=300, seed=42, max_frames=30
+- Saves everything (including `suite_stdout.txt`) under
+  `docs/benchmarks/device_less_full/`
 
 ## Training Scripts
 
@@ -151,6 +214,19 @@ python scripts/sweep_stage3_target.py
 - Ranks candidates based on convergence metrics and performance
 - Output saved to timestamped directory under `logs/stage3_target_sweep_*`
 
+### train_ml.ps1
+PowerShell launcher for ML training that forwards arguments to the canonical
+trainer.
+
+**Usage:**
+```powershell
+.\scripts\train_ml.ps1 [args...]
+```
+
+**What it does:**
+- Sets `PYTHONPATH` to `src;libs` and switches to the script directory
+- Forwards all arguments to `uv run python src/ao_shaping/ml/train.py $args`
+
 ## Analysis and Tuning Scripts
 
 ### eval_pib_hybrid_sim.py
@@ -197,6 +273,23 @@ python scripts/visualize_sac_runs.py
   - Evaluation curves (reward, episode length)
   - Rollout metrics and frames
 - Saves output to timestamped directory under `logs/sac_visual_report_*`
+
+### process_1300_data.py
+Enriches the 1300-channel Micro-DM wiring data with grid and connector
+information.
+
+**Usage:**
+```bash
+python scripts/process_1300_data.py
+```
+
+**What it does:**
+- Reads `1300-5.xlsx` and `1300路机柜输出线序表(1).xlsx` from
+  `docs/micro deformable mirror/docs`
+- Maps each channel to its 36x36 grid position, IP group, sequence number,
+  connector group and pin number
+- Writes `data/1300-5-enriched.xlsx` and `data/1300-5-enriched.csv`
+- Prints warnings for rows with missing grid positions
 
 ## Micro-DM Diff Analysis Pipeline
 
@@ -451,6 +544,65 @@ python scripts/md_img_pipeline.py --input data/md_test/md_img-80v --skip-diff
 | `--skip-diff` | off | Skip diff computation, use existing diff images |
 | `--ref` | first IP's `-000.png` | Shared reference image for ALL IPs |
 
+## Diff-Beam Shaping Pipeline
+
+Capture and analysis scripts for the diff-beam (differentiable beam shaping)
+hardware runs. `diff_beam_capture_flat.py` acquires flat-phase reference frames
+from the SLM + camera bench; `diff_beam_frame_analysis.py` renders the per-frame
+records saved by the `diff-beam` runner.
+
+### diff_beam_capture_flat.py
+
+Captures flat-phase reference frames for the diff-beam bench (needs hardware:
+Santec SLM + MiiCam).
+
+**Usage:**
+```bash
+uv run --group ml python scripts/diff_beam_capture_flat.py --exposure-us 1200 --output data/diff_beam/flat_tiff
+```
+
+**What it does:**
+- Opens the SLM in memory mode and writes a flat phase to a randomly picked
+  memory slot (excluding the currently displayed one)
+- Captures `--n-sample` averaged frames at the given exposure with a
+  `--capture-timeout` watchdog
+- Saves `flat_<exposure_us>us.tiff` and `flat_<exposure_us>us.npy` per sample
+- Computes the 0-order spot centroid with four algorithms (argmax center,
+  intensity centroid, debg centroid, binary centroid) and prints them
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--slm-number` | `1` | SLM device number |
+| `--slm-wavelength` | `1064` | SLM wavelength (nm) |
+| `--cam-id` | `0` | MiiCam camera ID |
+| `--exposure-us` | `1200` | Camera exposure (us) |
+| `--n-sample` | `3` | Averaged frames per capture |
+| `--settle-time` | `0.3` | Settle time after SLM write (s) |
+| `--capture-timeout` | `30.0` | Watchdog timeout for SLM open + capture (s) |
+| `-o, --output` | `data/diff_beam/flat_tiff` | Output directory |
+
+### diff_beam_frame_analysis.py
+
+Offline analysis of a `diff-beam` hardware run directory. **Fully offline** —
+reads saved artefacts, no hardware.
+
+**Usage:**
+```bash
+python scripts/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts>
+python scripts/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts> --plot
+```
+
+**What it does:**
+- Reads `config.json`, `frames/*.npy` and `frame_meta.jsonl` from the run dir
+- Renders `frames_overview.png` (frame grid) and `spot_vs_target.png`
+  (measured spot vs target square)
+- Exits with an error if `config.json` is missing
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--run-dir` | (required) | Run directory produced by the `diff-beam` runner |
+| `--plot` | off | Also render per-frame plots |
+
 ## Report Generation Scripts
 
 > **Repo rule**: all markdown/illustrated-report **generation** lives in `scripts/`
@@ -679,6 +831,59 @@ graceful h5py fallback if the package import fails.
 Sources default to the latest `data/dm_response_matrix*.h5`; override with
 `--h5` and `-o/--output`.
 
+### generate_centroid_test_visualization.py
+
+Generates the centroid algorithm test visualization report. **Fully offline** —
+pure numpy, no hardware.
+
+**Usage:**
+```bash
+python scripts/generate_centroid_test_visualization.py
+```
+
+**What it does:**
+- Runs 9 Gaussian spot cases through the centroid algorithms
+- Writes `centroid_test_report.md` and figures to
+  `scripts/reports/centroid_test_visualization/`
+
+### generate_diff_shaping_report.py
+
+Generates the illustrated differential beam shaping report (GS vs
+differentiable shaping). GPU recommended, CPU fallback available.
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src"
+python scripts/generate_diff_shaping_report.py
+```
+
+**What it does** (writes to `docs/slm_differential_shaping/`):
+- Compares Gerchberg-Saxton and differentiable (PyTorch) beam shaping on
+  square / circle / gaussian targets
+- Writes `README.md` plus `figures/`, `gifs/`, `charts/` and `data/`
+  subdirectories
+
+### generate_models_report.py
+
+Generates the ML model training analysis report from TensorBoard event files.
+**Fully offline** — reads saved training logs, no hardware.
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src"
+python scripts/generate_models_report.py
+```
+
+**What it does** (writes to `docs/models_analysis/`):
+- Maps run names to experiment stages (stage1_easy -> 阶段1, stage2_medium ->
+  阶段2, stage3_ -> 阶段3, static_long -> 静态湍流-长训练, static_focus ->
+  静态聚焦, turbulence_long / turbulence_mamba_best / turbulence_long_retry ->
+  湍流-长训练, turb_focus -> 湍流聚焦, sac_ -> 冒烟/架构对比实验,
+  tmp_sac_run -> 临时调试)
+- Reads TensorBoard tags `rollout/ep_rew_mean`, `ao/best_pib`,
+  `ao/best_strehl`, `ao/pib`, `ao/rms`
+- Renders training curves at DPI 130 and writes the analysis report
+
 ## Verification Scripts
 
 ### verify_correction_csv.py
@@ -714,6 +919,95 @@ python scripts/verify_correction_csv.py --h5 <matrix.h5> --w <w_before.json> --c
   (`displayed = mod(base + corr, 1024)`, incl. mod wrap at base=500)
 - [5] Quantization error ≤ 0.5 gray levels (circular distance)
 
+### validate_flat_phase_gray.py
+
+Validates the SLM flat-phase gray level response (needs hardware: Santec SLM +
+MiiCam). The SLM has amplitude coupling at 1064 nm: different flat-phase gray
+levels produce different camera intensities, periodic with 2π ≈ 993 gray.
+
+**Usage:**
+```bash
+python scripts/validate_flat_phase_gray.py --exposure-ms 0.8 --wait-time-s 0.3 --discard-count 3
+python scripts/validate_flat_phase_gray.py --scan --gray-step 50
+```
+
+**What it does:**
+- Opens the SLM in memory mode (`video_mode=0`) and the MiiCam via
+  `CameraStreamManager`
+- Writes flat phases at the quick gray values `[0, g_pi2, g_pi, g_3pi2, g_2pi,
+  1023]` (or a full `--scan` sweep in `--gray-step` increments) using raw
+  uint16 grayscale (`np.full`, never through `create_phase_from_array()`)
+- Captures frames and reports the 0-order bucket brightness per gray level
+- Verdict: ≥ 2 distinct brightness levels pass, ≥ 5 is excellent
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--slm-number` | `1` | SLM device number (1-8) |
+| `--miicam-id` | `0` | MiiCam camera ID |
+| `--wavelength` | `1064` | SLM wavelength (nm, 450-1600) |
+| `--exposure-ms` | `3.0` | Camera exposure (ms) |
+| `--wait-time-s` | `0.3` | Settle time after SLM write (s) |
+| `--discard-count` | `3` | Frames discarded before measurement |
+| `--bit-depth` | `8` | Camera output bit depth (`8` or `16`) |
+| `--scan` | off | Full gray sweep instead of the quick 6-point check |
+| `--gray-step` | `50` | Gray step for `--scan` |
+
+### wfs_compare_image_functions.py
+
+Compares the old and new Thorlabs WFS spot-field image functions (needs
+hardware: Thorlabs WFS).
+
+**Usage:**
+```bash
+python scripts/wfs_compare_image_functions.py
+```
+
+**What it does:**
+- Runs 6 tests comparing the NEW bound `WFS_GetSpotfieldImageCopy`
+  (1024x1280) against the OLD unbound `WFS_GetSpotfieldImage`
+- Verifies error handling: `handle_error(-120)` raises `WfsError`
+
+### wfs_driver_hw_test.py
+
+Hardware smoke test for the Thorlabs WFS driver (needs hardware: Thorlabs WFS).
+
+**Usage:**
+```powershell
+.venv\Scripts\python.exe scripts\wfs_driver_hw_test.py
+```
+
+**What it does:**
+- Opens `ThorlabWFS(mla_index="512", high_speed=False,
+  stable_sample_enable=False)`
+- Runs a PASS/FAIL checklist over the driver API (open, read, exposure,
+  reference, close)
+
+### wfs_probe.py
+
+Probes the Thorlabs WFS driver for stability and crash reproduction (needs
+hardware: Thorlabs WFS).
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src"
+python -X faulthandler scripts/wfs_probe.py --iters 80 --mla 512 --exp 4.0
+```
+
+**What it does:**
+- Runs `--iters` WFS read cycles with garbage collection every 20 iterations
+- Reproduces the 0xC0000374 heap-corruption crash for diagnosis
+- Supports custom reference, tilt cancellation and Zernike readout options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--iters` | `80` | Number of read cycles |
+| `--mla` | `512` | MLA resolution |
+| `--exp` | `4.0` | Exposure time (ms) |
+| `--high-speed` | off | Enable high-speed mode |
+| `--use-custom-ref` | off | Use a custom reference file |
+| `--cancel-tile` | off | Cancel tip/tilt in measurements |
+| `--zernike-order` | `10` | Zernike fit order |
+
 ## Subdirectories
 
 ### dm_sim/
@@ -733,6 +1027,11 @@ Contains scripts for device tuning and calibration:
 - `centroidcaculation.m` - Calculates centroids
 - `stdWavefront/` - Standard wavefront reference data
 - Various utility scripts for device tuning
+
+### reports/
+Contains generated report artefacts from `scripts/` report generators:
+- `centroid_test_visualization/` - centroid algorithm test report and figures
+  (from `generate_centroid_test_visualization.py`)
 
 ## Common Patterns
 

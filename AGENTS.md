@@ -59,15 +59,17 @@ AO-shaping/
 | Task | Location | Notes |
 |------|----------|-------|
 | Hardware drivers | `src/ao_shaping/drivers/` | See drivers/AGENTS.md |
-| Optimization algorithms | `src/ao_shaping/algorithm/` | Adam, SGD, Muon, Tabu search, etc. Class-based optimizer convention: see src/ao_shaping/algorithm/README.md |
+| CLI runner scripts | `src/ao_shaping/runners/` | 硬件编排层: Click CLI 命令注册, 设备生命周期 (open/close), 结果保存 |
+| Optimization algorithms | `src/ao_shaping/algorithm/` | 5 子包: gradient/, heuristic/, signal_processing/, tabu/, goal_functions/. Class-based optimizer convention: see src/ao_shaping/algorithm/README.md |
 | Wavefront optimizers | `src/ao_shaping/optimizer/wf/` | RMS optimization |
 | Zernike response matrix | `src/ao_shaping/optimizer/wf/zernike_response_matrix.py` | SLM→WFS Zernike校准 |
 | PIB optimizers | `src/ao_shaping/optimizer/wfless/` | Power-in-bucket |
 | SLM方形光斑整形 (SPGD) | `src/ao_shaping/optimizer/wfless/slm_square_shaping.py` + `runners/slm_square_runner.py` | SPGD 优化 Zernike 系数 → 均匀方形远场 (CLI: `spgd-square`) |
-| Zernike 工具 | `src/ao_shaping/utils/zernike_utils.py` | 系数解析 (Noll/(n,m)/数组) + 相位生成，Noll 1976 约定 |
+| Zernike 工具 | `src/ao_shaping/utils/wavefront/zernike_utils.py` | 系数解析 (Noll/(n,m)/数组) + 相位生成，Noll 1976 约定 |
 | RL training | `src/ao_shaping/optimizer/rl/` | SAC, LR-WFS |
 | Simulation | `src/ao_shaping/drivers/sim/` | Digital twin devices |
-| Utilities | `src/ao_shaping/utils/` | spots_calc, wavefront_calc, zernike_calc, display |
+| Utilities | `src/ao_shaping/utils/{io,image,wavefront,slm}/` | 4 子包: io/, image/, wavefront/, slm/ (spots_calc, wavefront_calc, zernike_calc, display 等) |
+| Standalone runners (未注册) | `src/ao_shaping/runners/` | `shaping_runner` 计划迁移至 `scripts/`, `slm_offset_runner` 计划迁移至 `tools/slm/` |
 | ML training | `src/ml/` (standalone, not inside `ao_shaping/`) | U-Net+GAN, trainer, wandb_logger |
 | Standalone tools | `src/ao_shaping/tools/` | SLM phase capture, Micro-DM per-channel image collection, train data collection |
 | Visualization | `src/ao_shaping/display/` | Windows, frames for GUI |
@@ -97,10 +99,9 @@ AO-shaping/
 | `wf` | `optimizer.wf.rms:optimizer_rms_dm()` | wf | DM 电压 RMS (SPGD) | DM + WFS |
 | `pib` | `optimizer.wfless.pib:optimize_pib()` | wfless | DM 电压 PIB (SPGD) | DM + CCD |
 | `pipeline` | `wf.rms:optimizer_rms_dm()` + `wfless.pib:optimize_pib()` | wf + wfless | WF RMS → PIB 串行 | DM + WFS + CCD |
-| `zernike-matrix` | `optimizer.wf.zernike_response_matrix:calibrate_zernike_response_matrix` | wf | Zernike 响应矩阵标定 + 闭环优化 | SLM + WFS |
+| \zernike-matrix\ | \optimizer.wf.zernike_response_matrix:calibrate_zernike_response_matrix\ | wf | Zernike 响应矩阵标定 + 闭环优化 | SLM + WFS |
 | `rms-zernike` | `optimizer.wf.rms_by_zernike:optimizer_rms_slm()` | wf | SLM Zernike RMS | SLM + WFS |
 | `ga-zernike` | `optimizer.wf.ga_zernike:optimizer_ga()` | wf | GA Zernike | SLM + WFS |
-| `dm-matrix` | `optimizer.wf.dm_response_matrix:calibrate_dm_response_matrix()` | wf | DM 响应矩阵标定 (sequential 逐单元推拉 / hadamard 电压域正交) | DM + WFS |
 | `combined` | `optimizer.combined_optimizer:optimize_pib()` | wfless | AdaMOD + SPGD 混合 PIB | DM + CCD |
 
 > **注意**: `optimizer/wf/rms.py` 和 `optimizer/wf/rms_by_zernike.py` 的函数名冲突已通过重命名解决:
@@ -128,6 +129,18 @@ New optimizers added to `src/ao_shaping/algorithm/` MUST follow the class-based 
 | 可微分 shaping | `DifferentiableBeamOptimizer`, `DifferentiableShapingResult` | PyTorch 可微分波前优化 (需 GPU) |
 | 目标函数 | `ImageTargetFunc` | 图像质量指标 |
 
+#### 子包结构
+
+| 子包 | 内容 | 说明 |
+|------|------|------|
+| `gradient/` | `adam`, `acceleration` | 梯度优化器 |
+| `heuristic/` | `ga`, `pso`, `sa`, `hc`, `rs`, `cem`, `de` | 无梯度启发式搜索 |
+| `signal_processing/` | `gerchberg_saxton`, `phase_wrap`, `controller`, `iterative_base`, `differentiable_beam`, `differentiable_shaping`, `beam_shaping_utils`, `wavefront`, `beam_shaping_benchmark` | 相位恢复/控制律/可微分整形 |
+| `tabu/` | Tabu 搜索 | 禁忌搜索 |
+| `goal_functions/` | `target_func`, `image_metrics` | 目标函数与图像质量指标 |
+
+> **注意**: top-level `algorithm/*.py` 文件是 *-re-export shims (向后兼容)。
+
 ---
 
 ### 三层架构关系
@@ -152,22 +165,44 @@ algorithm/     算法基础层  — 纯数学优化器 (update/grad), 无硬件�
 
 ---
 
+## runners/ Module
+
+硬件编排层 — Click CLI 命令注册, 设备生命周期 (open/close), 结果保存。
+
+### 职责
+
+- 注册 CLI 命令 (main.py Click group) 并解析参数
+- 打开/关闭硬件设备, 管理设备生命周期
+- 调用 optimizer 层函数执行优化流程
+- 保存优化结果与调试产物
+
+### 已注册 CLI 命令 vs 独立 Runner
+
+| 类型 | 说明 |
+|------|------|
+| 已注册 CLI 命令 | main.py 注册 19 个命令 (含 `spgd-square`, `combined` 等), 见 Entry Points 节 |
+| 独立 Runner (未注册) | 需直接运行 `python -m ao_shaping.runners.xxx` 或 standalone 脚本; `shaping_runner` 计划迁移至 `scripts/`, `slm_offset_runner` 计划迁移至 `tools/slm/` |
+
+### 共享辅助
+
+`runner_common.py` 是共享辅助函数的主目录: `resolve_dm` (DM 解析), debug-artifact 写入器等。
+
+> **注意**: `closed_loop.py` 不是 runner — 它是 `AOClosedLoop` 控制类, 归属 `optimizer/wf/`。
+
+---
+
 ## utils/ Module
 
-Utility functions for image processing and calculations:
+Utility functions for image processing and calculations, organized into 4 subpackages:
 
-| File | Purpose |
-|------|---------|
-| `spots_calc.py` | Centroid calculation, sharpness metrics |
-| `wavefront_calc.py` | Wavefront reconstruction from spots |
-| `zernike_calc.py` | Zernike polynomial generation |
-| `zernike_utils.py` | Zernike 系数解析/校验/相位生成 (独立于 PatternHelper，含 Noll 约定文档) |
-| `matrix_utils.py` | Matrix operations |
-| `display.py` | Visualization utilities |
-| `pattern_helper.py` | SLM pattern generation |
-| `file.py` | File I/O utilities |
-| `cli_helpers.py` | CLI common utilities (parse_tuple, coredumpy setup) |
-| `wfs_utils.py` | WFS utilities (flatten_slopes, compute_snr, DitheredReference) |
+| Subpackage | Contents | Notes |
+|------|---------|-------|
+| `utils/io/` | `file`, `timestamp`, `cli_helpers`, `device_config`, `network`, `handler` | `handler` becomes a backward-compat shim to `display/` |
+| `utils/image/` | `spots_calc`, `beam_metrics`, `targets`, `resample`, `display`, `gs_visualization`, `hardware_utils` | pygame display relocating to `display/`; `gs_visualization` relocating to `display/` |
+| `utils/wavefront/` | `zernike_calc`, `zernike_utils`, `wavefront_calc`, `wfs_utils`, `phase_unwrap`, `hadamard_calc`, `matrix_utils` | |
+| `utils/slm/` | `pattern_helper`, `slm_lut`, `slm_utils` | |
+
+> **注意**: legacy top-level `ao_shaping.utils.X` paths remain importable via shims.
 
 ---
 
@@ -236,31 +271,21 @@ python src/ao_shaping/main.py combined
 **CLI Structure (main.py 注册关系):**
 ```
 main (click.group)
-├── wf             ← wf_runner.run            [Wavefront RMS via DM电压 + WFS]
-├── pib            ← axis_beam_runner.run      [Power-in-Bucket via DM电压 + CCD]
-├── pipeline       ← pipeline_runner.run       [Serial WF RMS → PIB]
+├── wf             ← wf_runner.run        [Wavefront RMS via DM电压 + WFS]
+├── pib            ← axis_beam_runner.run  [Power-in-Bucket via DM电压 + CCD]
+├── pipeline       ← pipeline_runner.run   [Serial WF RMS → PIB]
 ├── zernike-matrix ← zernike_matrix_runner.run [Zernike响应矩阵标定 + 闭环优化 (closed_loop_run)]
 ├── rms-zernike    ← rms_zernike_runner.run    [SLM Zernike RMS]
 ├── ga-zernike     ← ga_zernike_runner.run     [GA Zernike]
-├── greedy-zernike ← greedy_zernike_runner.run [GA Zernike]
-├── gs             ← gs_hologram_runner.run    [GS 全息图生成]
-├── gs-square      ← gs_square_runner.run      [GS 闭环方形整形]
-├── diff-shaping   ← diff_shaping_runner.run   [可微分闭环光束整形]
-├── diff-beam      ← diff_beam_runner.run      [可微分光束整形 (backprop/GS)]
-├── spgd-square    ← slm_square_runner.run     [SLM 方形光斑 SPGD 整形]
-├── dm-matrix      ← dm_matrix_runner.run      [DM 响应矩阵标定 (sequential/hadamard)]
-├── alt-voltage    ← alt_voltage_runner.run    [交替电压下发]
-├── full-voltage   ← full_voltage_runner.run   [全量交替电压下发]
-├── closed-loop    ← zernike_matrix_runner.run [基于响应矩阵的闭环波前优化]
-├── slm-lut        ← slm_lut_runner.run        [SLM 灰度→相位 LUT 校准]
-├── slm-diagnose   ← tools/slm/slm_diagnose    [SLM 硬件自检]
 └── combined       ← combined_runner.run       [AdaMOD+SPGD 混合 PIB]
 ```
 
-**Note:** `combined_runner.py` 功能仍通过 `combined` 命令可用, 非废弃。`pipeline_runner.py` 是推荐的 WF→PIB 串行方案。
+> **注意**: `spgd-square` 命令 (`runners/slm_square_runner.py:run`) 已注册到 main.py (main.py:112)。
+
+**Note:** `combined` 命令仍注册于 main.py (main.py:106) 且功能可用, 作为 legacy 保留。`pipeline_runner.py` 是推荐的 WF→PIB 串行方案。
 
 > **未注册到 main.py 的独立 Runner** (需直接运行 `python -m ao_shaping.runners.xxx` 或 standalone 脚本):
-> `slm_offset_runner`, `shaping_runner`, `hadamard_matrix_runner` (hadamard-matrix)
+> `shaping_runner` (计划迁移至 `scripts/`), `slm_offset_runner` (计划迁移至 `tools/slm/`), `hadamard_matrix_runner` (正在注册为 `hadamard-matrix` 命令)
 
 **Refactoring Notes:**
 - All runner scripts now use centralized config from `config.py` (DM_N_ACTUATORS, PATHS, DEFAULTS)
@@ -586,7 +611,7 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
 | `as any`, `@ts-ignore` | Never suppress type errors |
 | Empty catch blocks | Always handle exceptions or log |
 | Deleting failing tests | Fix the code, not the test |
-| `combined_runner.py` with main CLI | Use `pipeline_runner.py` instead |
+| `combined_runner.py` with main CLI | Prefer `pipeline_runner.py` for new serial flows; `combined` remains registered as legacy (main.py:106) |
 | Passing uint16 grayscale through `create_phase_from_array()` | `create_phase_from_array()` treats input as **radians** (mod 2π → grayscale = rad/2π × 1023). uint16 grayscale values get silently corrupted. Use `np.full((h,w), gray, dtype=np.uint16)` for flat phase or direct grayscale patterns. |
 | SLM 相位生成函数自行 `np.mod(phase, 2π)` (2026-09 raw-only 契约) | All phase generators must return **raw unwrapped radians** — the only mod-2π wrap lives in the driver `Santec.create_phase_from_array()` on radian→grayscale conversion (`santec/driver.py` L1382). Generators that self-wrap duplicate the driver contract and hide the true phase. Convert via `utils/slm_utils.phase_to_slm_grayscale(phase, slm=slm)` (hardware) or the pure fallback (offline/tests). Exception: `_zernike_phase_radians` keeps a wrapped output **only** as a test-only reference. |
 | Consecutive `write_phase` + `display_memory` to the **same** memory slot | Santec SLM firmware treats `display_memory(slot)` as a no-op when that slot is already being displayed — the LCOS panel does **not** refresh. Consecutive writes must ALWAYS target different slots. Preferred pattern (used by diff-shaping runner): pick a **random slot in 2..125** each write, excluding the currently displayed slot — this also survives process restarts (`get_displayed_memory_number()` before the first write). Older tools rotate a small pool like `itertools.cycle([3,4,5])` — works within one process only. The built-in `display_data()` cycles through all 127 slots. |
@@ -603,6 +628,13 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
 | Trusting `reset_window()`'s returned centre | When the spot is near the frame edge the ROI offset is clamped but the returned `(w//2, h//2)` is not the true spot position → the target box lands off the beam (hardware observed epoch-0 `mean_b=0.01`). Re-locate the spot by `argmax`/centroid on the **windowed** image. |
 | Function-only optimizers in ao_shaping/algorithm (no class API) | New optimizers must expose __init__ (validation + state) + update() (one step) + optional run() (result dataclass); one-shot functions are legacy/thin wrappers only. See src/ao_shaping/algorithm/README.md. |
 | Placing markdown/report **generation** under `src/ao_shaping/tools/` | **All markdown/illustrated-report generation MUST live in `scripts/`** (naming: `scripts/generate_*_report.py`, e.g. `generate_zernike_wfs_report.py`, `generate_diff_shaping_report.py`). `src/ao_shaping/tools/` is reserved for hardware-interaction tools (CLI + driver orchestration), not report writers. See scripts/README.md. |
+| Report generation inside `algorithm/` | `signal_processing/beam_shaping_benchmark` writes CSV/MD/GIF reports — report generation MUST live in `scripts/` (see scripts/README.md), not in the algorithm layer. |
+| Pygame/viz code inside `utils/` | `utils/image/display.py` and `utils/image/gs_visualization.py` are visualization code — they belong in `display/`, not the leaf utils layer. |
+| Re-implementing the GS loop | `gs_visualization.gerchberg_saxton_with_visualization` must drive the canonical `gerchberg_saxton` via a callback, not duplicate the loop. |
+| Dead vendored ctypes VISA code | `utils/wavefront/vi.py` is dead vendored ctypes VISA code — remove it or move it out of utils. |
+| Min-max scale-invariant `PatternHelper._zernike_to_uint16` | `_zernike_to_uint16` min-max normalises the phase, making patterns scale-invariant (coefficients ×1 and ×4 → byte-identical). Use `utils/slm/slm_utils.phase_to_slm_grayscale(phase, slm=slm)` instead. |
+| Vector-beam demo `sim.py` living in `algorithm/` | The vector-beam demo `sim.py` lives in `algorithm/` — it belongs in `scripts/`. |
+| `utils/slm/pattern_helper.py` importing `from ao_shaping.algorithm.phase_wrap` at module top level | utils is the leaf layer and must not depend on `algorithm/` at import time — use deferred function-local imports. |
 
 > 方形光斑 SPGD 整形的完整分析、硬件实测与修复记录见 [`docs/slm_square_spgd/README.md`](docs/slm_square_spgd/README.md)。
 

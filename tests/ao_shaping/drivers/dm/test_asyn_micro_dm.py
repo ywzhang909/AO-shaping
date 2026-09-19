@@ -365,6 +365,59 @@ class TestAsyncMicroDM:
         expected = np.array([-20.0, 120.0])
         np.testing.assert_array_equal(result, expected)
 
+    @pytest.mark.asyncio
+    async def test_send_frame_barrier_all_26_complete_before_next_round(self):
+        """Verify the barrier: all 26 sends in round N finish before round N+1 starts.
+
+        Records a timestamp on every start/finish event.  After both rounds
+        complete, asserts that every round-1 finish time is earlier than every
+        round-2 start time — a property only satisfied if ``await asyncio.gather``
+        (or equivalent barrier) is used in ``send_frame``.
+        """
+        import time
+
+        N = 26
+        dm = AsyncMicroDM(ips=[f"192.168.0.{101+i}" for i in range(N)])
+        dm._controllers = []
+
+        # (ctrl_id, event_type, timestamp) — appended by the slow send coroutines
+        events: list[tuple[int, str, float]] = []
+
+        for i in range(N):
+            ctrl_id = i + 1
+
+            async def slow_send(vs: np.ndarray, _id: int = ctrl_id) -> SendResult:
+                events.append((_id, "start", time.monotonic()))
+                await asyncio.sleep(0.01)
+                events.append((_id, "end", time.monotonic()))
+                return SendResult(success=True)
+
+            ctrl = AsyncMock(spec=AsyncR50Controller)
+            ctrl.controller_id = ctrl_id
+            ctrl.is_connected = True
+            # Use types.MethodType / direct assignment to bypass AsyncMock spec interception
+            object.__setattr__(ctrl, "send_voltages", slow_send)
+            dm._controllers.append(ctrl)
+
+        vs = np.full(N * 50, 10.0)
+
+        await dm.send_frame(vs)
+        await dm.send_frame(vs)
+
+        assert len(events) == 2 * N * 2, f"expected {2*N*2} events, got {len(events)}"
+
+        # First N*2 entries are round-1, next N*2 are round-2
+        round1 = events[:N * 2]
+        round2 = events[N * 2:]
+
+        # Barrier property: every round-1 finish precedes every round-2 start
+        max_round1_end = max(t for _, _, t in round1 if _ == "end")
+        min_round2_start = min(t for _, _, t in round2 if _ == "start")
+        assert max_round1_end < min_round2_start, (
+            f"Barrier violated: latest round-1 end ({max_round1_end:.6f}) "
+            f"not before earliest round-2 start ({min_round2_start:.6f})"
+        )
+
     def test_context_manager_sync(self, mock_dm: AsyncMicroDM):
         """__enter__ / __exit__ should call open/close via _run_async."""
         with patch.object(mock_dm, "_run_async") as mock_run:
