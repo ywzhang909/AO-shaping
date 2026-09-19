@@ -33,11 +33,11 @@ class CCDParams(DeviceParam):
     skip_sampling: bool = param(default=False, cast=bool)
 
 
-# 模块级单例，所有 DahengCamManager 实例共用
+# 模块级单例，所有 DahengCamera 实例共用
 CCD_CONFIG = ConfigHandler(_CCD_CONFIG_DIR, "ccd", CCDParams)
 
 
-class DahengCamManager(BaseCamera):
+class DahengCamera(BaseCamera):
     def __init__(
         self, cam_id: int = 0, exposure_time_ms: float = 0.0, skip_sampling=False
     ):
@@ -62,9 +62,10 @@ class DahengCamManager(BaseCamera):
     def cam_type(self) -> str:
         return "daheng"
 
-    def open(self) -> None:
+    def open(self) -> "DahengCamera":
         """Open the camera device (alias for initialize)."""
         self.initialize()
+        return self
 
     def close(self) -> None:
         """Close the camera device and release resources."""
@@ -313,7 +314,9 @@ class DahengCamManager(BaseCamera):
             if raw_image and raw_image.get_status() == gx.GxFrameStatusList.SUCCESS:
                 return raw_image.get_numpy_array()
 
-    def get_numpy_image(self, n_sample=1, skip_first=True, denoise=False) -> npt.NDArray[np.uint8]:
+    def get_numpy_image(
+        self, n_sample=1, skip_first=True, denoise=False
+    ) -> npt.NDArray[np.uint8]:
         """
         获取相机的图像数据，进行平均处理。
 
@@ -337,31 +340,31 @@ class DahengCamManager(BaseCamera):
 
     def auto_exposure(
         self,
-        target_mean: float = 0.5,
+        target_max: float = 0.5,
         tolerance: float = 0.05,
         max_iterations: int = 10,
         n_sample: int = 1,
         use_sdk_auto: bool = True,
         sdk_settle_frames: int = 3,
-    ) -> tuple[float, float]:
+    ):
         """自动曝光调整 - 优先使用大恒 SDK 原生自动曝光，再用已有的曝光调整方法修正。
 
         算法 (两阶段):
         阶段 1 - SDK 原生自动曝光 (use_sdk_auto=True 时):
-          1. 启用 ExposureAuto="On"，设置 ExpectedGrayValue 为目标亮度
+          1. 启用 ExposureAuto="Once"，设置 ExpectedGrayValue 为目标亮度
           2. 采集 sdk_settle_frames 帧让 SDK 内部收敛
           3. 读取 SDK 自动调整后的曝光时间作为初值
           4. 关闭 SDK 自动曝光，切换到手动模式
 
         阶段 2 - 已有曝光调整方法修正:
-          1. 拍摄图像并计算平均亮度
-          2. 如果平均亮度在目标值的 tolerance 范围内，停止
+          1. 拍摄图像并计算最大亮度
+          2. 如果最大亮度在目标值的 tolerance 范围内，停止
           3. 否则，根据比例调整曝光时间: new_exp = current_exp * (target / current)
           4. 裁剪到有效范围 [min, max]
           5. 重复直到收敛或达到最大迭代次数
 
         Args:
-            target_mean: 目标平均亮度 (0-1范围, 默认0.5)
+            target_max: 目标最大亮度 (0-1范围, 默认0.5)
             tolerance: 容差范围 (默认0.05, 即5%)
             max_iterations: 第二阶段最大迭代次数 (默认10)
             n_sample: 每次迭代的采样次数 (默认1)
@@ -369,11 +372,11 @@ class DahengCamManager(BaseCamera):
             sdk_settle_frames: SDK 自动曝光收敛等待帧数 (默认3)
 
         Returns:
-            tuple[float, float]: (最终曝光时间ms, 最终平均亮度)
+            np.ndarray 最终图像
         """
         assert self.cam, "camera not initialized"
 
-        target_val = float(target_mean * 255)
+        target_val = float(target_max * 255)
         min_exp = float(self.__exposure_time_ms.min)
         max_exp = float(self.__exposure_time_ms.max)
 
@@ -381,7 +384,7 @@ class DahengCamManager(BaseCamera):
         if use_sdk_auto:
             try:
                 sdk_target = int(max(0, min(255, target_val)))
-                self.cam.ExposureAuto.set("On")
+                self.cam.ExposureAuto.set("Once")
                 self.cam.ExpectedGrayValue.set(sdk_target)
                 logger.info(
                     f"[SDK auto-exposure] enabled, target={sdk_target}, "
@@ -405,140 +408,48 @@ class DahengCamManager(BaseCamera):
             current_exp = float(self.exposure_time)
 
         logger.info(
-            f"Auto exposure phase 2 start: target={target_mean:.2f} ({target_val:.0f}), "
+            f"Auto exposure phase 2 start: target={target_max:.2f} ({target_val:.0f}), "
             f"range=[{min_exp}, {max_exp}]ms, max_iter={max_iterations}"
         )
 
         # ── 阶段 2: 已有曝光调整方法修正 ──
         for i in range(max_iterations):
             img = self.get_numpy_image(n_sample, skip_first=True)
-            mean_val = float(np.mean(img))
+            max_val = float(np.max(img))
 
-            if abs(mean_val - target_val) <= tolerance * 255:
+            if abs(max_val - target_val) <= tolerance * 255:
                 logger.info(
                     f"Auto exposure converged at iter {i + 1}: "
-                    f"exp={current_exp}ms, mean={mean_val:.1f}"
+                    f"exp={current_exp}ms, max={max_val:.1f}"
                 )
-                return current_exp, mean_val / 255.0
+                return current_exp, max_val / 255.0
 
-            ratio = target_val / max(mean_val, 1)
+            ratio = target_val / max(max_val, 1)
             new_exp = current_exp * ratio
             new_exp = max(min_exp, min(max_exp, new_exp))
 
             if new_exp == current_exp:
                 logger.info(
                     f"Auto exposure stable at iter {i + 1}: "
-                    f"exp={current_exp}ms, mean={mean_val:.1f}"
+                    f"exp={current_exp}ms, max={max_val:.1f}"
                 )
-                return current_exp, mean_val / 255.0
+                return img
 
             current_exp = new_exp
             self.reset_exposure_time(current_exp)
 
             logger.debug(
-                f"Auto exposure iter {i + 1}: mean={mean_val:.1f}, "
+                f"Auto exposure iter {i + 1}: max={max_val:.1f}, "
                 f"exp={current_exp}ms (target={target_val:.0f})"
             )
 
         final_img = self.get_numpy_image(n_sample, skip_first=True)
-        final_mean = float(np.mean(final_img))
+        final_max = float(np.max(final_img))
         logger.warning(
             f"Auto exposure max iterations reached: "
-            f"exp={current_exp}ms, mean={final_mean:.1f}"
+            f"exp={current_exp}ms, max={final_max:.1f}"
         )
-        return current_exp, final_mean / 255.0
-
-    def autoset_exposure_time_ms(
-        self,
-        target_max_brightness,
-        threshold=5,
-        twice_valid=True,
-        use_sdk_auto: bool = True,
-        sdk_settle_frames: int = 3,
-    ):
-        """自动设置相机的曝光时间，以确保图像的最大亮度在指定的阈值范围内。
-
-        两阶段策略:
-        阶段 1 (use_sdk_auto=True): 启用大恒 SDK 原生自动曝光
-          (ExposureAuto="On" + ExpectedGrayValue)，采集若干帧让 SDK 收敛，
-          读取 SDK 自动调整后的曝光时间作为初值，然后关闭 SDK 自动曝光。
-        阶段 2: 用已有曝光调整方法 (比例迭代) 修正到目标最大亮度。
-
-        参数:
-            target_max_brightness (float): 目标最大亮度值。
-            threshold (float): 允许的最大亮度范围，默认值为5。
-            twice_valid (bool): 是否需要连续两次验证通过。
-            use_sdk_auto (bool): 是否优先使用 SDK 原生自动曝光 (默认True)
-            sdk_settle_frames (int): SDK 自动曝光收敛等待帧数 (默认3)
-
-        返回:
-            np.ndarray: 自动设置后的图像数据，数据类型为uint8。
-        """
-        assert 0 < threshold, "threshold must larger than 0"
-        assert self.cam, "camera not initialized"
-        n_sample = 20
-        low, high = target_max_brightness - threshold, target_max_brightness + threshold
-        low, high = int(max(low, 10)), int(min(high, 254))
-
-        # ── 阶段 1: SDK 原生自动曝光 ──
-        if use_sdk_auto:
-            try:
-                sdk_target = int(max(0, min(255, target_max_brightness)))
-                self.cam.ExposureAuto.set("On")
-                self.cam.ExpectedGrayValue.set(sdk_target)
-                logger.info(
-                    f"[SDK auto-exposure] enabled, target={sdk_target}, "
-                    f"waiting {sdk_settle_frames} frames for convergence..."
-                )
-                for _ in range(sdk_settle_frames):
-                    self.__take_one_shot()
-                logger.info(
-                    f"[SDK auto-exposure] converged: exp={self.exposure_time:.2f}ms"
-                )
-                self.cam.ExposureAuto.set("Off")
-            except Exception as e:
-                logger.warning(
-                    f"[SDK auto-exposure] not available, falling back to manual: {e}"
-                )
-
-        # ── 阶段 2: 已有曝光调整方法修正 ──
-        _twice_valid_flag = False
-        _img = self.get_numpy_image(n_sample)
-        cur_max_brightness = max(np.max(_img), 1)
-        while True:
-            if low <= cur_max_brightness <= high:
-                if _twice_valid_flag or not twice_valid:
-                    break
-                _twice_valid_flag = True
-            else:
-                self.exposure_time = self.exposure_time * min(
-                    target_max_brightness / cur_max_brightness, 3
-                )
-
-            _img = self.get_numpy_image(n_sample)
-            cur_max_brightness = max(np.max(_img), 1)
-
-            if (
-                self.exposure_time <= self.__exposure_time_ms.min
-                and cur_max_brightness > high
-            ):
-                logger.warning(
-                    f"target brightness {target_max_brightness} is too low {cur_max_brightness:.2f}, exposure time {self.exposure_time:.2f}ms force to min"
-                )
-                break
-            elif (
-                self.exposure_time >= self.__exposure_time_ms.max
-                and cur_max_brightness < low
-            ):
-                logger.warning(
-                    f"target brightness {target_max_brightness} is too high {cur_max_brightness:.2f}, exposure time {self.exposure_time:.2f}ms force to max"
-                )
-                break
-
-        logger.info(
-            f"autoset exposure time to {self.exposure_time:.2f}ms, max brightness={np.max(_img):.2f}"
-        )
-        return _img
+        return final_img
 
     def __update_properties(self):
         assert self.cam, "camera not initialized"
@@ -577,7 +488,7 @@ class DahengCamManager(BaseCamera):
         """Get list of available cameras."""
         device_manager = gx.DeviceManager()
         _, dev_info_list = device_manager.update_device_list()
-        return dev_info_list
+        return dev_info_list if dev_info_list else list()
 
     def get_exposure_range(self) -> tuple[float, float]:
         """Get the camera's supported exposure time range.

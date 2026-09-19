@@ -93,7 +93,7 @@ Remove-Item "D:\Projects\TIFO\AO-shaping\src\ao_shaping\drivers\ccd\miicam_drive
 ```
 
 **删除后验证**：
-- `python -c "from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager; print(CameraStreamManager)"` 仍可导入。
+- `python -c "from ao_shaping.drivers.ccd.miicam.driver import MIICamera; print(MIICamera)"` 仍可导入。
 - 运行 miicam 相关单元测试：`pytest tests/ao_shaping/drivers/ccd/test_miicam.py -v`（含硬件跳过逻辑）。
 
 > 未删除前，`issues_report.md` L78、L189 对该文件的清理意见将随之失效——由于文件删除，这两条可一并从报告中移除。
@@ -116,7 +116,7 @@ Remove-Item "D:\Projects\TIFO\AO-shaping\src\ao_shaping\drivers\ccd\miicam_drive
 
 ### 5.3 一致性（统一导入路径）
 
-- Pattern A 文件（直接 `from ...miicam.driver import CameraStreamManager`）与 Pattern B 文件（`from ao_shaping.drivers import CameraStreamManager`）并存。**建议统一**（推荐 Pattern B 硬件无关回退），减少对 miicam 驱动的硬耦合，便于后续换相机（如 Daheng）。涉及：`gs_square_runner.py`, `slm_phase_capture.py`, `slm_gray_response.py`, `micro_dm_image_collect.py`, `validate_flat_phase_gray.py`。
+- Pattern A 文件（直接 `from ...miicam.driver import MIICamera`）与 Pattern B 文件（`from ao_shaping.drivers import MIICamera`）并存。**建议统一**（推荐 Pattern B 硬件无关回退），减少对 miicam 驱动的硬耦合，便于后续换相机（如 Daheng）。涉及：`gs_square_runner.py`, `slm_phase_capture.py`, `slm_gray_response.py`, `micro_dm_image_collect.py`, `validate_flat_phase_gray.py`。
 
 ### 5.4 GUI `sys.modules["miicam"]` 打桩（脆弱）
 

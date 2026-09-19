@@ -42,11 +42,13 @@ import click
 import numpy as np
 from loguru import logger
 
+from ao_shaping.drivers.ccd import DahengCamera
+
 # ── 已确认的硬件/光路事实 (2026-09 诊断固化, 勿改) ──────────────────────────
 
 # SLM: Santec SLM-200, SLM#1 序列号 22030108, 1920x1200, 10-bit,
 #      内部内存模式; @1064nm 2π 对应灰度 993 (设备动态查询, 不硬编码).
-# MiiCam: 序列号 TP2408221418059418FD83E3A448D82, 2688x1520, MONO8.
+# Daheng: 
 # 光路: 严格 2f Fourier —— SLM 前焦面 125mm -> f=125mm 透镜 -> CCD 后焦面.
 #       焦面=空间频率坐标: 半屏光栅上半/下半的 +1 级落在 CCD 同一行 (光轴行),
 #       仅 x 偏移不同. 0 级 (光轴) = 帧内全局最大, 不是相机几何中心.
@@ -281,8 +283,8 @@ def main(
     output: str | None,
 ) -> None:
     """SLM 硬件自检: 逐级定位是否存在"面板不调制光"类故障。"""
+    from ao_shaping.drivers.ccd import DahengCamera
     from ao_shaping.drivers.slm.santec import Santec
-    from ao_shaping.utils.slm_camera import open_miicam_camera as _get_miicam_camera
 
     logger.info(
         "SLM self-check: slm#{} @{}nm, periods {}/{}px, camera#{} exposure {:.2f}ms "
@@ -320,7 +322,7 @@ def main(
             slm_wavelength,
         )
 
-        camera = _get_miicam_camera(cam_id, exposure_ms)
+        camera = DahengCamera(cam_id, exposure_ms)
         logger.info(
             "Camera opened: id={} exposure={:.2f}ms (frame readback on first grab)",
             cam_id,

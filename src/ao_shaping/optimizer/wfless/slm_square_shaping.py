@@ -87,7 +87,7 @@ from typing import TYPE_CHECKING
 import tqdm
 import numpy as np
 
-from ao_shaping.drivers import CameraStreamManager
+from ao_shaping.drivers import MIICamera
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.algorithm.adam import AdaMOD, Adam, AdamW, Base, Muno, MunoW, SGD
 from ao_shaping.utils import logger, Recorder
@@ -951,7 +951,7 @@ def optimize_slm_square(
         )
 
     with (
-        CameraStreamManager(
+        MIICamera(
             cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
         ) as cam,
         Santec(slm_number=slm_number, wavelength=slm_wavelength) as slm,

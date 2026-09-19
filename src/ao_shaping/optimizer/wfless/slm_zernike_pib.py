@@ -30,21 +30,21 @@ import inspect
 import os
 import time
 
-import tqdm
-import numpy as np
 import matplotlib.pylab as plt
+import numpy as np
+import tqdm
 
-from ao_shaping.drivers import CameraStreamManager
+from ao_shaping.algorithm.adam import SGD, Adam, AdaMOD, AdamW, Base, Muno, MunoW
+from ao_shaping.algorithm.target_func import ImageTargetFunc
+from ao_shaping.drivers import DahengCamera
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL
-from ao_shaping.optimizer.wfless.slm_square_shaping import _zernike_indices
 from ao_shaping.optimizer.spgd import spgd_gradient
-from ao_shaping.utils.pattern_helper import PatternHelper
-from ao_shaping.algorithm.adam import AdaMOD, Adam, AdamW, Base, Muno, MunoW, SGD
-from ao_shaping.utils import logger, Recorder
+from ao_shaping.optimizer.wfless.slm_square_shaping import _zernike_indices
+from ao_shaping.utils import Recorder, logger
 from ao_shaping.utils.file import gen_date_dir, gen_date_str
+from ao_shaping.utils.pattern_helper import PatternHelper
 from ao_shaping.utils.spots_calc import centroid, radius
-from ao_shaping.algorithm.target_func import ImageTargetFunc
 from ao_shaping.utils.zernike_calc import calc_n_zernike_terms
 
 # adam parameters
@@ -97,6 +97,241 @@ def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs) -> Bas
         if key in signature.parameters:
             filtered_kwargs[key] = value
     return optimizer_cls(dim, lr=lr, **filtered_kwargs)
+
+
+# ==================== pygame 可视化 ====================
+
+
+class _SLMPibDisplay:
+    """SLM Zernike PIB 优化过程 pygame 可视化窗口.
+
+    显示四个面板:
+        - 左上: 当前相位图案 (归一化 0~1)
+        - 右上: 远场光斑图像 (CCD 采集)
+        - 左下: Zernike 系数柱状图
+        - 右下: PIB 收敛曲线
+
+    用法:
+        with _SLMPibDisplay(n_max=n_max) as disp:
+            disp.update_phase(phase_rad)
+            disp.update_image(captured_image)
+            disp.update_coeffs(zernike_coeffs)
+            disp.update_pib(epoch, pib_value)
+            disp.render()
+    """
+
+    PANEL_W = 480
+    PANEL_H = 360
+    PAD = 8
+    TITLE_H = 28
+    BG = (25, 25, 25)
+
+    def __init__(self, n_max: int = 4) -> None:
+        self.n_max = n_max
+        w = self.PANEL_W * 2 + self.PAD * 3
+        h = self.PANEL_H * 2 + self.PAD * 3 + self.TITLE_H
+
+        self._phase: np.ndarray | None = None
+        self._image: np.ndarray | None = None
+        self._coeffs: np.ndarray | None = None
+        self._pib_curve: list[float] = []
+        self._status_lines: list[str] = []
+        self._window_size = (w, h)
+
+    def __enter__(self) -> _SLMPibDisplay:
+        import pygame
+
+        pygame.init()
+        pygame.display.set_caption("SLM Zernike PIB 优化")
+        self._screen = pygame.display.set_mode(self._window_size)
+        self._font = pygame.font.SysFont("consolas", 16)
+        self._clock = pygame.time.Clock()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        import pygame
+
+        pygame.quit()
+
+    def _check_quit(self) -> bool:
+        """检查用户是否点击关闭窗口. 返回 True 表示应停止."""
+        import pygame
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return True
+        return False
+
+    def _draw_panel(self, index: int, title: str, surface: "pygame.Surface") -> None:
+        import pygame
+
+        col = index % 2
+        row = index // 2
+        x = self.PAD + col * (self.PANEL_W + self.PAD)
+        y = self.TITLE_H + self.PAD + row * (self.PANEL_H + self.PAD)
+
+        title_surf = self._font.render(title, True, (255, 255, 0))
+        self._screen.blit(title_surf, (x + 4, y - self.TITLE_H + 2))
+
+        scaled = pygame.transform.scale(surface, (self.PANEL_W, self.PANEL_H))
+        self._screen.blit(scaled, (x, y))
+        pygame.draw.rect(
+            self._screen, (120, 120, 120), (x, y, self.PANEL_W, self.PANEL_H), 1
+        )
+
+    @staticmethod
+    def _to_surface(arr: np.ndarray, cmap: str = "gray") -> "pygame.Surface":
+        """将2D数组归一化到 0~255 并转为 pygame Surface."""
+        import pygame
+
+        arr = np.asarray(arr, dtype=np.float64)
+        if arr.size == 0:
+            arr = np.zeros((16, 16))
+        vmin, vmax = float(arr.min()), float(arr.max())
+        if vmax - vmin < 1e-9:
+            norm = np.zeros_like(arr, dtype=np.uint8)
+        else:
+            norm = ((arr - vmin) / (vmax - vmin) * 255.0).astype(np.uint8)
+        if cmap == "heat" and norm.ndim == 2:
+            f = norm.astype(np.float64) / 255.0
+            r = np.clip(1.5 - np.abs(4 * f - 3.0), 0.0, 1.0)
+            g = np.clip(1.5 - np.abs(4 * f - 2.0), 0.0, 1.0)
+            b = np.clip(1.5 - np.abs(4 * f - 1.0), 0.0, 1.0)
+            rgb = np.dstack((r, g, b))
+            rgb = (rgb * 255.0).astype(np.uint8)
+            return pygame.surfarray.make_surface(rgb.swapaxes(0, 1))
+        if norm.ndim == 2:
+            norm = np.dstack((norm, norm, norm))
+        return pygame.surfarray.make_surface(norm.swapaxes(0, 1))
+
+    def _coeffs_to_surface(self, coeffs: np.ndarray) -> "pygame.Surface":
+        """将 Zernike 系数数组转为柱状图 Surface."""
+        import pygame
+
+        n = len(coeffs)
+        if n == 0:
+            return pygame.Surface((self.PANEL_W, self.PANEL_H))
+
+        # 创建柱状图
+        bar_w = max(1, self.PANEL_W // (n + 1))
+        max_h = self.PANEL_H - 40
+        vmax = max(np.max(np.abs(coeffs)), 1e-6)
+
+        surf = pygame.Surface((self.PANEL_W, self.PANEL_H))
+        surf.fill((0, 0, 0))
+
+        # 绘制零线
+        zero_y = self.PANEL_H // 2
+        pygame.draw.line(surf, (80, 80, 80), (0, zero_y), (self.PANEL_W, zero_y), 1)
+
+        for i, c in enumerate(coeffs):
+            x = (i + 1) * bar_w
+            h = int(abs(c) / vmax * max_h)
+            if c >= 0:
+                y = zero_y - h
+            else:
+                y = zero_y
+                h = int(abs(c) / vmax * max_h)
+            color = (0, 200, 100) if c >= 0 else (200, 100, 0)
+            pygame.draw.rect(surf, color, (x, y, bar_w - 2, h))
+
+            # 绘制索引标签
+            label = self._font.render(str(i), True, (150, 150, 150))
+            surf.blit(label, (x, self.PANEL_H - 20))
+
+        # 标题
+        title = self._font.render("Zernike Coeffs (Noll)", True, (255, 255, 0))
+        surf.blit(title, (4, 4))
+
+        return surf
+
+    def _draw_pib_curve(self) -> None:
+        import pygame
+
+        col = 1
+        row = 1
+        x = self.PAD + col * (self.PANEL_W + self.PAD)
+        y = self.TITLE_H + self.PAD + row * (self.PANEL_H + self.PAD)
+        area = pygame.Rect(x, y, self.PANEL_W, self.PANEL_H)
+        self._screen.fill((0, 0, 0), area)
+
+        curve = self._pib_curve
+        if len(curve) < 2:
+            t = self._font.render("PIB curve...", True, (150, 150, 150))
+            self._screen.blit(t, (x + 20, y + 20))
+            return
+
+        cmin, cmax = min(curve), max(curve)
+        span = (cmax - cmin) or 1.0
+        points = []
+        for i, val in enumerate(curve):
+            px = x + int(i * (self.PANEL_W - 20) / max(len(curve) - 1, 1)) + 10
+            py = y + self.PANEL_H - 10 - int((val - cmin) / span * (self.PANEL_H - 20))
+            points.append((px, py))
+        pygame.draw.lines(self._screen, (0, 255, 0), False, points, 2)
+
+        t = self._font.render(
+            f"Epoch {len(curve)}, PIB={curve[-1]:.4f}", True, (255, 255, 255)
+        )
+        self._screen.blit(t, (x + 10, y + 6))
+
+    def update_phase(self, phase: np.ndarray) -> None:
+        """更新相位图案面板 (输入为弧度制相位)."""
+        self._phase = np.asarray(phase)
+
+    def update_image(self, image: np.ndarray) -> None:
+        """更新远场光斑图像面板."""
+        self._image = np.asarray(image)
+
+    def update_coeffs(self, coeffs: np.ndarray) -> None:
+        """更新 Zernike 系数面板."""
+        self._coeffs = np.asarray(coeffs)
+
+    def update_pib(self, epoch: int, pib: float) -> None:
+        """更新 PIB 收敛曲线."""
+        self._pib_curve.append(float(pib))
+
+    def update_status(self, epoch: int, pib: float, delta: float, lr: float) -> None:
+        """更新状态文本."""
+        self._status_lines = [
+            f"Epoch: {epoch} | PIB: {pib:.4f} | delta: {delta:.3f} | lr: {lr:.4f}",
+        ]
+
+    def render(self) -> bool:
+        """渲染全部面板. 返回 False 表示用户请求退出."""
+        import pygame
+
+        if self._check_quit():
+            return False
+
+        self._screen.fill(self.BG)
+
+        header = (
+            " | ".join(self._status_lines)
+            if self._status_lines
+            else "SLM Zernike PIB 优化"
+        )
+        head_surf = self._font.render(header, True, (0, 255, 255))
+        self._screen.blit(head_surf, (self.PAD, 6))
+
+        if self._phase is not None:
+            self._draw_panel(
+                0, "SLM Phase (rad)", self._to_surface(self._phase, "gray")
+            )
+        if self._image is not None:
+            self._draw_panel(
+                1, "Far-field Image", self._to_surface(self._image, "heat")
+            )
+        if self._coeffs is not None:
+            self._draw_panel(2, "Zernike Coeffs", self._coeffs_to_surface(self._coeffs))
+        self._draw_pib_curve()
+
+        pygame.display.update()
+        self._clock.tick(30)
+        return True
+
+
+# ==================== 优化器核心 ====================
 
 
 ZERNIKE_APERTURE_RADIUS = 300.0
@@ -361,7 +596,7 @@ def optimize_slm_zernike_pib(
     pattern_helper = PatternHelper(resolution=SLM_RESOLUTION, bits=10)
 
     with (
-        CameraStreamManager(
+        DahengCamera(
             cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
         ) as cam,
         Santec(
@@ -391,8 +626,8 @@ def optimize_slm_zernike_pib(
         time.sleep(SLM_RESPONSE_TIME_S)
 
         # Auto-exposure for initial image
-        _img = cam.autoset_exposure_time_ms(
-            target_max_brightness=TEST_EXPOSURE_TIME_BRIGHTNESS
+        _img = cam.auto_exposure(
+            target_max=TEST_EXPOSURE_TIME_BRIGHTNESS
         )
 
         def intellij_center(img):
@@ -454,12 +689,12 @@ def optimize_slm_zernike_pib(
             cam.exposure_time = exposure_time_ms
             init_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
         elif 0 < target_max_brightness < 255 and target_max_brightness > 0:
-            init_img = cam.autoset_exposure_time_ms(
-                target_max_brightness=target_max_brightness, twice_valid=True
+            init_img = cam.auto_exposure(
+                target_max=target_max_brightness
             )
         else:
-            init_img = cam.autoset_exposure_time_ms(
-                target_max_brightness=ADVISE_EXPOSURE_TIME_BRIGHTNESS, twice_valid=True
+            init_img = cam.auto_exposure(
+                target_max=ADVISE_EXPOSURE_TIME_BRIGHTNESS
             )
         logger.debug(
             f"Initial Image Max brightness: {np.max(init_img)} @ {cam.exposure_time}ms"
@@ -721,8 +956,7 @@ def optimize_slm_zernike_pib(
                 _display(slm, best_phase)
                 time.sleep(SLM_RESPONSE_TIME_S)
                 logger.info(
-                    "SLM left at best {} phase: {:.4f} @ epoch {} "
-                    "(initial {:.4f})",
+                    "SLM left at best {} phase: {:.4f} @ epoch {} (initial {:.4f})",
                     objective,
                     best_objective,
                     last_best_epoch,
@@ -778,7 +1012,12 @@ if __name__ == "__main__":
     )
     parser.add_argument("--seed", type=int, default=None, help="Random seed")
     parser.add_argument(
-        "--show", action="store_true", help="Show images during optimization"
+        "--show",
+        action="store_true",
+        help="Show images during optimization (matplotlib)",
+    )
+    parser.add_argument(
+        "--display", action="store_true", help="Enable pygame real-time visualization"
     )
     parser.add_argument("--cam_size", type=int, default=250, help="Camera window size")
 
@@ -799,6 +1038,7 @@ if __name__ == "__main__":
         objective=args.objective,
         random_seed=args.seed,
         show=args.show,
+        display=args.display,
         cam_size=args.cam_size,
     )
 

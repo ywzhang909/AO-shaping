@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Sequence
 
 import numpy as np
-
 from loguru import logger
 
 from ao_shaping.utils.spots_calc import centroid
@@ -347,8 +346,8 @@ def open_camera(
     """按类型打开 CCD 相机并返回已连接的实例。
 
     相机驱动仅在函数内部延迟导入 (``utils`` 是叶子层, 不在模块顶层导入
-    ``drivers``)。``daheng`` 使用 :class:`DahengCamManager`, ``miicam``
-    使用 :class:`CameraStreamManager`; 驱动缺失或初始化失败时记录日志并
+    ``drivers``)。``daheng`` 使用 :class:`DahengCamera`, ``miicam``
+    使用 :class:`MIICamera`; 驱动缺失或初始化失败时记录日志并
     重新抛出原异常。
 
     Args:
@@ -367,9 +366,9 @@ def open_camera(
     """
     if camera_type == "daheng":
         try:
-            from ao_shaping.drivers.ccd.daheng import DahengCamManager
+            from ao_shaping.drivers.ccd.daheng import DahengCamera
 
-            cam = DahengCamManager(cam_id=cam_id, exposure_time_ms=exposure_ms)
+            cam = DahengCamera(cam_id=cam_id, exposure_time_ms=exposure_ms)
             cam.open()
             return cam
         except ImportError as e:
@@ -380,9 +379,9 @@ def open_camera(
             raise
     if camera_type == "miicam":
         try:
-            from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
+            from ao_shaping.drivers.ccd.miicam.driver import MIICamera
 
-            cam = CameraStreamManager(
+            cam = MIICamera(
                 cam_id=cam_id,
                 exposure_time_ms=exposure_ms,
                 bit_depth=bit_depth,

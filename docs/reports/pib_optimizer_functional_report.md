@@ -10,7 +10,7 @@
    - 3.3 [LearningSchedule 数学推导](#learningschedule-数学推导)
    - 3.4 [混合稀疏/稠密扰动生成](#混合扰动生成)
 4. [硬件交互流程](#硬件交互流程)
-   - 4.1 [CameraStreamManager 使用步骤](#camera流程)
+   - 4.1 [MIICamera 使用步骤](#camera流程)
    - 4.2 [NlightDM 电压约束机制](#dm-约束)
 5. [性能评估与实验结果](#性能评估)
    - 5.1 [实验配置](#实验配置)
@@ -113,7 +113,7 @@ AO‑Shaping/
 
 ## 硬件交互流程
 
-### 4.1 CameraStreamManager 使用步骤
+### 4.1 MIICamera 使用步骤
 
 1. **自动曝光初始化**：`cam.autoset_exposure_time_ms()` 依据目标亮度选择曝光时长。
 2. **图像采集**：`cam.get_numpy_image(iterations)` 获取指定帧数的原始图像。
@@ -166,7 +166,7 @@ AO‑Shaping/
 
 - **计算瓶颈**：`learning_schedule` 与 `run_adaptive_search` 的循环会在每 epoch 执行一次，建议在 CPU 核数 ≥ 8 时启用多线程预处理。
 - **数值不稳定**：当 `delta` 接近 0 时，`learning_schedule` 可能产生除 0 警告，实际使用时请确保 `delta > 1e-6`。
-- **硬件同步**：若相机与 DM 同步出现帧率 mismatch，请在 `CameraStreamManager` 中设置 `skip_sampling=False` 强制同步。
+- **硬件同步**：若相机与 DM 同步出现帧率 mismatch，请在 `MIICamera` 中设置 `skip_sampling=False` 强制同步。
 - **调试建议**：开启 `show=True` 并观察 `ImageVoltagesDisplay` 可实时捕获异常电压模式。
 
 ---
@@ -188,7 +188,7 @@ AO‑Shaping/
 | AdaptiveSearchState | `src/ao_shaping/optimizer/wfless/pib.py`              | 71‑94   |
 | LearningSchedule    | `src/ao_shaping/optimizer/wfless/pib.py`              | 117‑180 |
 | 混合扰动生成        | `src/ao_shaping/optimizer/wfless/pib.py`              | 124‑138 |
-| CameraStreamManager | `src/ao_shaping/drivers/ccd/camera_stream_manager.py` | 85‑112  |
+| MIICamera | `src/ao_shaping/drivers/ccd/camera_stream_manager.py` | 85‑112  |
 | NlightDM 电压约束   | `src/ao_shaping/drivers/dm/nlight_dm.py`              | 47‑63   |
 | AdaMOD 优化器       | `src/ao_shaping/algorithm/adam.py`                    | 120‑250 |
 | Muon 实现           | `src/ao_shaping/algorithm/adam.py`                    | 260‑400 |

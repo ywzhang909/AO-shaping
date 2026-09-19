@@ -3,17 +3,16 @@ import time
 from typing import Any
 
 import gymnasium as gym
-from gymnasium import spaces
 import numpy as np
+from gymnasium import spaces
 
-from ao_shaping.drivers import CameraStreamManager, NlightDM
-from ao_shaping.drivers.sim.beam_backend import make_beam_config, turbulence_phase
+from ao_shaping.drivers import MIICamera, NlightDM
 from ao_shaping.drivers.sim import beam_simulation as bs
-
+from ao_shaping.drivers.sim.beam_backend import make_beam_config, turbulence_phase
 from ao_shaping.drivers.sim.compat import (
-    TraditionalAOSystem, AOConfig,
+    AOConfig,
+    TraditionalAOSystem,
 )
-
 
 Far_Cam_ID = int(os.environ.get('Far_Cam_ID', '1'))
 Near_Cam_ID = int(os.environ.get('Near_Cam_ID', '0'))
@@ -29,7 +28,7 @@ class LaserCastEnv(gym.Env):
     def __init__(self, max_iter, target_power=10_000, r_bucket=5, img_size:tuple[int,int]=(250,250), history_len:int=8, render_mode='human', img_noise:bool=False) -> None:
         super().__init__()
 
-        self.cam = CameraStreamManager(cam_id=Far_Cam_ID, exposure_time_ms=70, skip_sampling=False)
+        self.cam = MIICamera(cam_id=Far_Cam_ID, exposure_time_ms=70, skip_sampling=False)
         self.dm = NlightDM(keep_when_exit=True)
         # 初始化 DM 设备
         # 初始化相机设备

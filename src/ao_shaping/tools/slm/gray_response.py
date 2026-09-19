@@ -24,7 +24,7 @@ try:
 except ImportError:
     HAS_PLOT = False
 
-from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
+from ao_shaping.drivers.ccd.miicam.driver import MIICamera
 from ao_shaping.drivers.slm.santec import Santec, SlotRotator
 from ao_shaping.utils.slm_phase import capture_frame, flat_gray
 
@@ -57,7 +57,7 @@ def _flat_phase(slm: Santec, gray_value: int) -> np.ndarray:
 
 
 def _capture_brightness(
-    camera: CameraStreamManager,
+    camera: MIICamera,
     n_sample: int,
     skip_first: bool,
     discard_count: int = 0,
@@ -176,7 +176,7 @@ def acquire_gray_response(
             slm_number=slm_number,
             video_mode=0,
         ) as slm,
-        CameraStreamManager(
+        MIICamera(
             cam_id=miicam_id,
             exposure_time_ms=exposure_ms,
             bit_depth=bit_depth,

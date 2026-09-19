@@ -3,7 +3,6 @@ import time
 import numpy as np
 import pytest
 
-
 pytestmark = pytest.mark.skip(
     reason="Requires MIICAM 4100 series camera hardware and SDK"
 )
@@ -23,28 +22,28 @@ class TestMIICAMCamera:
             pytest.skip("MIICAM module not available")
 
     @pytest.fixture
-    def CameraStreamManager(self, miicam_module):
-        """Import CameraStreamManager from MIICAM module."""
-        return miicam_module.CameraStreamManager
+    def MIICamera(self, miicam_module):
+        """Import MIICamera from MIICAM module."""
+        return miicam_module.MIICamera
 
-    def test_get_cam_list(self, CameraStreamManager):
+    def test_get_cam_list(self, MIICamera):
         """Test getting list of available cameras."""
-        cam_list = CameraStreamManager.get_cam_list()
+        cam_list = MIICamera.get_cam_list()
         print(f"\nAvailable cameras: {cam_list}")
         assert isinstance(cam_list, list)
 
-    def test_camera_init_and_close(self, CameraStreamManager):
+    def test_camera_init_and_close(self, MIICamera):
         """Test camera initialization and proper closing."""
-        with CameraStreamManager(cam_id=0, exposure_time_ms=20) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=20) as cam:
             assert cam.cam is not None
             assert cam.cam_width > 0
             assert cam.cam_height > 0
             print(f"\nCamera initialized: {cam.cam_width}x{cam.cam_height}")
             print(f"Serial number: {cam._sn}")
 
-    def test_exposure_time(self, CameraStreamManager):
+    def test_exposure_time(self, MIICamera):
         """Test setting and getting exposure time."""
-        with CameraStreamManager(cam_id=0, exposure_time_ms=50.0) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=50.0) as cam:
             new_exposure = cam.reset_exposure_time(30.0)
             assert new_exposure == 30.0
             print(f"\nExposure time set to: {new_exposure}ms")
@@ -61,17 +60,17 @@ class TestMIICAMCamera:
             assert abs(new_exposure - 10000.0) < 0.001
             print(f"Exposure time (max clamped): {new_exposure}ms")
 
-    def test_reset_window_full(self, CameraStreamManager):
+    def test_reset_window_full(self, MIICamera):
         """Test resetting window to full resolution."""
-        with CameraStreamManager(cam_id=0, exposure_time_ms=20) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=20) as cam:
             size, center = cam.reset_window(center=(0, 0), size=(0, 0))
             print(f"\nFull window - size: {size}, center: {center}")
             assert cam.cam_width > 0
             assert cam.cam_height > 0
 
-    def test_reset_window_roi(self, CameraStreamManager):
+    def test_reset_window_roi(self, MIICamera):
         """Test resetting window to ROI."""
-        with CameraStreamManager(cam_id=0, exposure_time_ms=20) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=20) as cam:
             full_width = cam.cam_width
             full_height = cam.cam_height
 
@@ -82,9 +81,9 @@ class TestMIICAMCamera:
             assert size[0] <= full_width
             assert size[1] <= full_height
 
-    def test_get_numpy_image_single(self, CameraStreamManager):
+    def test_get_numpy_image_single(self, MIICamera):
         """Test capturing single image."""
-        with CameraStreamManager(cam_id=0, exposure_time_ms=20) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=20) as cam:
             img = cam.get_numpy_image(n_sample=1, skip_first=False)
             assert isinstance(img, np.ndarray)
             assert img.dtype == np.uint8
@@ -92,9 +91,9 @@ class TestMIICAMCamera:
             print(f"\nSingle image shape: {img.shape}")
             print(f"Image min: {img.min()}, max: {img.max()}")
 
-    def test_get_numpy_image_averaged(self, CameraStreamManager):
+    def test_get_numpy_image_averaged(self, MIICamera):
         """Test capturing and averaging multiple images."""
-        with CameraStreamManager(cam_id=0, exposure_time_ms=20) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=20) as cam:
             img = cam.get_numpy_image(n_sample=5, skip_first=True)
             assert isinstance(img, np.ndarray)
             assert img.dtype == np.uint8
@@ -102,10 +101,10 @@ class TestMIICAMCamera:
             print(f"\nAveraged image (5 samples) shape: {img.shape}")
             print(f"Image min: {img.min()}, max: {img.max()}")
 
-    def test_skip_sampling_mode(self, CameraStreamManager):
+    def test_skip_sampling_mode(self, MIICamera):
         """Test camera with skip_sampling (binning) enabled."""
         try:
-            with CameraStreamManager(
+            with MIICamera(
                 cam_id=0, exposure_time_ms=20, skip_sampling=True
             ) as cam:
                 img = cam.get_numpy_image(n_sample=1, skip_first=False)
@@ -114,9 +113,9 @@ class TestMIICAMCamera:
         except Exception as e:
             pytest.skip(f"Binning not supported on this camera: {e}")
 
-    def test_auto_exposure_enable(self, CameraStreamManager):
+    def test_auto_exposure_enable(self, MIICamera):
         """Test enabling and disabling auto exposure."""
-        with CameraStreamManager(cam_id=0, exposure_time_ms=20) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=20) as cam:
             state = cam.get_auto_exposure_state()
             print(f"\nInitial state: {state}")
 
@@ -136,9 +135,9 @@ class TestMIICAMCamera:
             print(f"After disable: {state}")
             assert state["enabled"] is False
 
-    def test_auto_exposure_target(self, CameraStreamManager):
+    def test_auto_exposure_target(self, MIICamera):
         """Test setting auto exposure target."""
-        with CameraStreamManager(cam_id=0, exposure_time_ms=20) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=20) as cam:
             cam.enable_auto_exposure(enable=True)
 
             target = cam.set_auto_exposure_target(150)
@@ -154,9 +153,9 @@ class TestMIICAMCamera:
             target = cam.set_auto_exposure_target(5)
             assert target == 16
 
-    def test_auto_exposure_range(self, CameraStreamManager):
+    def test_auto_exposure_range(self, MIICamera):
         """Test setting auto exposure range."""
-        with CameraStreamManager(cam_id=0, exposure_time_ms=20) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=20) as cam:
             cam.enable_auto_exposure(enable=True)
 
             result = cam.set_auto_exposure_range(
@@ -172,13 +171,13 @@ class TestMIICAMCamera:
                 f"Image with custom range: shape={img.shape}, min={img.min()}, max={img.max()}"
             )
 
-    def test_auto_exposure_target_brightness_200_240(self, CameraStreamManager):
+    def test_auto_exposure_target_brightness_200_240(self, MIICamera):
         """Test that with 1ms exposure (skip_first=False), max brightness is reasonable.
 
         This test uses 1ms exposure time with skip_first=False to get the first frame
         which typically has higher brightness values.
         """
-        with CameraStreamManager(cam_id=0, exposure_time_ms=1) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=1) as cam:
             img = cam.get_numpy_image(n_sample=1, skip_first=False)
             max_val = int(img.max())
             mean_val = float(img.mean())
@@ -195,16 +194,16 @@ class TestMIICAMCamera:
             # Allow for saturation (max_val can be 255 if scene is very bright)
             assert max_val >= 195, f"Max brightness {max_val} too low (expected >= 195)"
 
-    def test_context_manager(self, CameraStreamManager):
+    def test_context_manager(self, MIICamera):
         """Test that context manager properly closes camera."""
-        cam = CameraStreamManager(cam_id=0, exposure_time_ms=20)
+        cam = MIICamera(cam_id=0, exposure_time_ms=20)
         with cam:
             assert cam.cam is not None
         assert cam.cam is None
 
-    def test_8bit_mode(self, CameraStreamManager):
+    def test_8bit_mode(self, MIICamera):
         """Test camera initialization and capture in 8-bit mode."""
-        with CameraStreamManager(cam_id=0, exposure_time_ms=20, bit_depth=8) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=20, bit_depth=8) as cam:
             img = cam.get_numpy_image(n_sample=1, skip_first=False)
             assert isinstance(img, np.ndarray)
             assert img.dtype == np.uint8
@@ -212,9 +211,9 @@ class TestMIICAMCamera:
             assert cam._bit_depth == 8
             print(f"\n8-bit mode: shape={img.shape}, dtype={img.dtype}")
 
-    def test_16bit_mode(self, CameraStreamManager):
+    def test_16bit_mode(self, MIICamera):
         """Test camera initialization and capture in 16-bit mode (high bit depth)."""
-        with CameraStreamManager(cam_id=0, exposure_time_ms=20, bit_depth=16) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=20, bit_depth=16) as cam:
             img = cam.get_numpy_image(n_sample=1, skip_first=False)
             assert isinstance(img, np.ndarray)
             assert img.dtype == np.uint16
@@ -222,16 +221,16 @@ class TestMIICAMCamera:
             assert cam._bit_depth == 16
             print(f"\n16-bit mode: shape={img.shape}, dtype={img.dtype}")
 
-    def test_bit_depth_default_is_8(self, CameraStreamManager):
+    def test_bit_depth_default_is_8(self, MIICamera):
         """Test that default bit_depth is 8."""
-        with CameraStreamManager(cam_id=0, exposure_time_ms=20) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=20) as cam:
             assert cam._bit_depth == 8
             img = cam.get_numpy_image(n_sample=1, skip_first=False)
             assert img.dtype == np.uint8
 
-    def test_8bit_16bit_image_capture(self, CameraStreamManager):
+    def test_8bit_16bit_image_capture(self, MIICamera):
         """Test that both 8-bit and 16-bit modes can capture valid images."""
-        with CameraStreamManager(cam_id=0, exposure_time_ms=50, bit_depth=8) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=50, bit_depth=8) as cam:
             img_8bit = cam.get_numpy_image(n_sample=1, skip_first=False)
             assert img_8bit.dtype == np.uint8
             assert img_8bit.shape == (cam.cam_height, cam.cam_width)
@@ -240,7 +239,7 @@ class TestMIICAMCamera:
         # Allow camera hardware to settle between sessions
         time.sleep(2)
 
-        with CameraStreamManager(cam_id=0, exposure_time_ms=50, bit_depth=16) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=50, bit_depth=16) as cam:
             img_16bit = cam.get_numpy_image(n_sample=1, skip_first=False)
             assert img_16bit.dtype == np.uint16
             assert img_16bit.shape == (cam.cam_height, cam.cam_width)
@@ -249,7 +248,7 @@ class TestMIICAMCamera:
         assert img_8bit.shape == img_16bit.shape
         print(f"\n8-bit max: {max_8bit}, 16-bit max: {max_16bit}")
 
-    def test_exposure_brightness_response(self, CameraStreamManager):
+    def test_exposure_brightness_response(self, MIICamera):
         """Test that max brightness increases monotonically with exposure.
 
         Verifies:
@@ -263,7 +262,7 @@ class TestMIICAMCamera:
         means: list[float] = []
         maxs: list[float] = []
 
-        with CameraStreamManager(cam_id=0, exposure_time_ms=0.2) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=0.2) as cam:
             for exp_ms in exposures:
                 cam.reset_exposure_time(exp_ms)
                 time.sleep(0.15)
@@ -276,7 +275,7 @@ class TestMIICAMCamera:
             f"Mean brightness should increase with exposure: {means}"
         )
 
-    def test_continuous_spot_acquisition(self, CameraStreamManager):
+    def test_continuous_spot_acquisition(self, MIICamera):
         """Test continuous frame capture stability.
 
         Captures a sequence of frames at fixed exposure and verifies:
@@ -286,7 +285,7 @@ class TestMIICAMCamera:
         import time
 
         n_frames = 20
-        with CameraStreamManager(cam_id=0, exposure_time_ms=1.0) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=1.0) as cam:
             frames = []
             for _ in range(n_frames):
                 img = cam.get_numpy_image(n_sample=1, skip_first=True)
@@ -314,9 +313,9 @@ class TestMIICAMCamera:
 def test_quick_capture():
     """Quick test to verify camera works without hardware."""
     try:
-        from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
+        from ao_shaping.drivers.ccd.miicam.driver import MIICamera
 
-        cam_list = CameraStreamManager.get_cam_list()
+        cam_list = MIICamera.get_cam_list()
         print(f"\nFound {len(cam_list)} camera(s)")
         for cam in cam_list:
             print(f"  - {cam.id}")

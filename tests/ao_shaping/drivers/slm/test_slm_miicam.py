@@ -36,9 +36,9 @@ class TestSLMMIICAMJoint:
             pytest.skip("MIICAM module not available")
 
     @pytest.fixture
-    def CameraStreamManager(self, miicam_module):
-        """Import CameraStreamManager from MIICAM module."""
-        return miicam_module.CameraStreamManager
+    def MIICamera(self, miicam_module):
+        """Import MIICamera from MIICAM module."""
+        return miicam_module.MIICamera
 
     @pytest.fixture
     def slm(self, slm_module):
@@ -57,17 +57,17 @@ class TestSLMMIICAMJoint:
             if slm.is_open:
                 slm.close()
 
-    def test_camera_and_slm_list(self, CameraStreamManager, slm_module):
+    def test_camera_and_slm_list(self, MIICamera, slm_module):
         """Test listing both camera and SLM devices."""
         # List cameras
-        cam_list = CameraStreamManager.get_cam_list()
+        cam_list = MIICamera.get_cam_list()
         print(f"\nAvailable cameras: {len(cam_list)}")
 
         # Note: SLM doesn't have a list function, but we can check if the module loads
         assert slm_module is not None
         print("SLM module loaded successfully")
 
-    def test_slm_display_with_camera_capture(self, open_slm, CameraStreamManager):
+    def test_slm_display_with_camera_capture(self, open_slm, MIICamera):
         """Test SLM pattern display and camera capture."""
         # Generate a simple phase pattern
         phase = np.zeros((1200, 1920), dtype=np.uint16)
@@ -82,7 +82,7 @@ class TestSLMMIICAMJoint:
         open_slm.display_data(phase, memory_number=1)
 
         # Capture with camera
-        with CameraStreamManager(cam_id=0, exposure_time_ms=20) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=20) as cam:
             img = cam.get_numpy_image(n_sample=1, skip_first=False)
             assert isinstance(img, np.ndarray)
             assert img.shape[0] > 0 and img.shape[1] > 0
@@ -91,7 +91,7 @@ class TestSLMMIICAMJoint:
                 f"Image stats: min={img.min()}, max={img.max()}, mean={img.mean():.1f}"
             )
 
-    def test_blazed_grating_capture(self, open_slm, CameraStreamManager):
+    def test_blazed_grating_capture(self, open_slm, MIICamera):
         """Test blazed grating pattern with camera capture."""
         # Generate blazed grating
         period = 50
@@ -106,7 +106,7 @@ class TestSLMMIICAMJoint:
         open_slm.display_data(phase, memory_number=2)
 
         # Capture with camera
-        with CameraStreamManager(cam_id=0, exposure_time_ms=20) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=20) as cam:
             img = cam.get_numpy_image(n_sample=1, skip_first=False)
             print(f"\nBlazed grating image shape: {img.shape}")
             print(
@@ -115,7 +115,7 @@ class TestSLMMIICAMJoint:
             # The image should show a gradient pattern
             assert img.max() > img.min()
 
-    def test_multi_pattern_sequence(self, open_slm, CameraStreamManager):
+    def test_multi_pattern_sequence(self, open_slm, MIICamera):
         """Test displaying multiple patterns and capturing each."""
         patterns = []
 
@@ -138,7 +138,7 @@ class TestSLMMIICAMJoint:
         p4 = np.tile(grating[:, np.newaxis], (1, 1920)).astype(np.uint16)
         patterns.append(("grating", p4, 13))
 
-        with CameraStreamManager(cam_id=0, exposure_time_ms=20) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=20) as cam:
             for name, phase, mem_num in patterns:
                 # Write to SLM
                 open_slm.display_data(phase, memory_number=mem_num)
@@ -154,9 +154,9 @@ class TestSLMMIICAMJoint:
                     f"\n{name}: shape={img.shape}, min={img.min()}, max={img.max()}, mean={img.mean():.1f}"
                 )
 
-    def test_auto_exposure_with_slm_patterns(self, open_slm, CameraStreamManager):
+    def test_auto_exposure_with_slm_patterns(self, open_slm, MIICamera):
         """Test auto exposure with different SLM patterns."""
-        with CameraStreamManager(cam_id=0, exposure_time_ms=20) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=20) as cam:
             # Enable auto exposure
             cam.enable_auto_exposure(enable=True)
 
@@ -183,19 +183,19 @@ class TestSLMMIICAMJoint:
             # Check that auto exposure adjusted
             # (The exact values depend on the setup)
 
-    def test_roi_with_slm_center(self, open_slm, CameraStreamManager):
+    def test_roi_with_slm_center(self, open_slm, MIICamera):
         """Test camera ROI with SLM pattern in center."""
         pytest.skip("ROI not fully supported on this camera")
 
-    def test_slm_calibration_capture(self, open_slm, CameraStreamManager):
+    def test_slm_calibration_capture(self, open_slm, MIICamera):
         """Test capturing for SLM calibration (blazed grating scan)."""
         pytest.skip("Calibration test timing issue - needs retry logic")
 
-    def test_timing_slm_switch(self, open_slm, CameraStreamManager):
+    def test_timing_slm_switch(self, open_slm, MIICamera):
         """Test timing of SLM pattern switch and camera capture."""
         import time
 
-        with CameraStreamManager(cam_id=0, exposure_time_ms=10) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=10) as cam:
             # Pattern 1
             p1 = np.zeros((1200, 1920), dtype=np.uint16)
             open_slm._write_phase(p1, memory_number=50)
@@ -220,7 +220,7 @@ class TestSLMMIICAMJoint:
             # Verify different patterns captured
             assert img1.mean() != img2.mean()
 
-    def test_context_managers_both(self, slm_module, CameraStreamManager):
+    def test_context_managers_both(self, slm_module, MIICamera):
         """Test that both SLM and Camera work with context managers."""
         # Test SLM context
         with slm_module(slm_number=1, wavelength=1064) as slm:
@@ -234,7 +234,7 @@ class TestSLMMIICAMJoint:
         assert not slm.is_open
 
         # Test Camera context
-        with CameraStreamManager(cam_id=0, exposure_time_ms=20) as cam:
+        with MIICamera(cam_id=0, exposure_time_ms=20) as cam:
             assert cam.cam is not None
             img = cam.get_numpy_image(n_sample=1, skip_first=False)
             print(f"\nContext manager test image: {img.shape}")
@@ -249,8 +249,8 @@ class TestSLMMIICAMCalibration:
         """Basic calibration test placeholder."""
         # This test just verifies the modules can be imported together
         try:
+            from ao_shaping.drivers.ccd.miicam import MIICamera
             from ao_shaping.drivers.slm.santec import Santec
-            from ao_shaping.drivers.ccd.miicam import CameraStreamManager
 
             # Check SLM parameters
             slm = Santec(slm_number=1, wavelength=1064)
@@ -258,7 +258,7 @@ class TestSLMMIICAMCalibration:
             assert slm.phase_range == 200
 
             # Check camera module exists
-            cam_list = CameraStreamManager.get_cam_list()
+            cam_list = MIICamera.get_cam_list()
             print(f"\nCalibration test: Found {len(cam_list)} camera(s)")
 
         except ImportError as e:

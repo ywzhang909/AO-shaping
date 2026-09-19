@@ -25,9 +25,9 @@ import streamlit as st
 from loguru import logger
 from plotly.subplots import make_subplots
 
-from ao_shaping.utils.targets import create_target_shape, generate_target_mask
-from ao_shaping.drivers.ccd.daheng import DahengCamManager
+from ao_shaping.drivers.ccd.daheng import DahengCamera
 from ao_shaping.utils.spots_calc import center_of_brightness, centroid
+from ao_shaping.utils.targets import create_target_shape, generate_target_mask
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 _DEFAULT_CAM_ID = int(os.environ.get("FAR_CAM_ID", "0"))
@@ -310,7 +310,7 @@ def _render_sidebar() -> None:
             if not st.session_state.ts_camera_connected:
                 if st.button("连接相机", type="primary"):
                     try:
-                        cam = DahengCamManager(
+                        cam = DahengCamera(
                             cam_id=st.session_state.ts_cam_id,
                             exposure_time_ms=st.session_state.ts_exposure_ms,
                         )
@@ -370,7 +370,7 @@ def _render_sidebar() -> None:
         with st.container(border=True):
             st.subheader("🔲 ROI 窗口")
             use_roi = st.checkbox("启用 ROI 窗口", value=False)
-            cam: DahengCamManager | None = st.session_state.ts_camera
+            cam: DahengCamera | None = st.session_state.ts_camera
             centers = st.session_state.ts_centers
             # Use the first available center for ROI placement
             roi_center: tuple[float, float] | None = None

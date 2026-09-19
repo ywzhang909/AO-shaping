@@ -201,14 +201,14 @@ optimal_exposure = auto_expo.auto_adjust(n_samples=3)
 ```python
 from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.drivers.slm.slm_calibration import SantecCalibrator
-from ao_shaping.drivers.ccd.daheng import CameraStreamManager
+from ao_shaping.drivers.ccd.daheng import MIICamera
 
 # 连接设备
 with Santec(slm_number=1) as slm:
     # 设置波长（相位范围固定为0~2π）
     slm.set_wavelength(1064)
     
-    with CameraStreamManager(cam_id=0, exposure_time_ms=50) as camera:
+    with MIICamera(cam_id=0, exposure_time_ms=50) as camera:
         # 创建标定器
         calibrator = SantecCalibrator(
             slm=slm,
@@ -237,13 +237,13 @@ with Santec(slm_number=1) as slm:
 ```python
 from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.drivers.slm.slm_calibration import SantecCalibrator
-from ao_shaping.drivers.ccd.daheng import CameraStreamManager
+from ao_shaping.drivers.ccd.daheng import MIICamera
 
 with Santec(slm_number=1) as slm:
     # 设置波长（相位范围固定为0~2π）
     slm.set_wavelength(1064)
     
-    with CameraStreamManager(cam_id=0, exposure_time_ms=50) as camera:
+    with MIICamera(cam_id=0, exposure_time_ms=50) as camera:
         calibrator = SantecCalibrator(
             slm=slm,
             camera=camera,

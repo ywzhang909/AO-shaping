@@ -19,7 +19,7 @@ SRC_ROOT = Path(__file__).resolve().parents[1]
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
+from ao_shaping.drivers.ccd.miicam.driver import MIICamera
 from ao_shaping.drivers.slm.santec import Santec
 
 
@@ -28,7 +28,7 @@ def _flat_phase(slm: Santec, gray_value: int) -> np.ndarray:
     return np.full((height, width), gray_value, dtype=np.uint16)
 
 
-def _capture_brightness(camera: CameraStreamManager, discard: int = 3) -> dict:
+def _capture_brightness(camera: MIICamera, discard: int = 3) -> dict:
     for _ in range(discard):
         camera.get_numpy_image(n_sample=1)
     frame = camera.get_numpy_image(n_sample=1)
@@ -67,7 +67,7 @@ def run(
         slm_number=slm_number,
         wavelength=wavelength,
         video_mode=0,
-    ) as slm, CameraStreamManager(
+    ) as slm, MIICamera(
         cam_id=miicam_id,
         exposure_time_ms=exposure_ms,
         bit_depth=int(bit_depth),

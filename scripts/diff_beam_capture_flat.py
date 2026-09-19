@@ -41,7 +41,7 @@ except ImportError as exc:  # pragma: no cover - hardware path only
     raise SystemExit(f"Pillow required: {exc}")
 
 try:
-    from ao_shaping.drivers.ccd.daheng import DahengCamManager
+    from ao_shaping.drivers.ccd.daheng import DahengCamera
     from ao_shaping.drivers.slm.santec import Santec
     from ao_shaping.utils.spots_calc import centroid as spots_centroid
 
@@ -194,7 +194,7 @@ def main() -> None:
     call_with_timeout(slm.open, args.capture_timeout, "SLM open")
     slm.set_wavelength(args.slm_wavelength)
 
-    camera = DahengCamManager(cam_id=args.cam_id, exposure_time_ms=exp_ms)
+    camera = DahengCamera(cam_id=args.cam_id, exposure_time_ms=exp_ms)
     call_with_timeout(camera.open, args.capture_timeout, "CCD open")
     camera.reset_exposure_time(exp_ms)
     logger.info("CCD 就绪: ID={} exposure={:.3f}ms", args.cam_id, exp_ms)

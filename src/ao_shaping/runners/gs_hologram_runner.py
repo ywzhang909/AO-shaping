@@ -16,10 +16,10 @@ Usage:
 
 from __future__ import annotations
 
-import os
-import sys
 import json
+import os
 import re
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -32,23 +32,23 @@ if __name__ == "__main__":
         sys.path.insert(0, str(_src_root))
 
 import click
-import numpy as np
 import matplotlib.pyplot as plt
-from PIL import Image
+import numpy as np
 from loguru import logger
+from PIL import Image
 
 # Import GS algorithm
 from ao_shaping.algorithm.gerchberg_saxton import (
-    gerchberg_saxton,
+    GSResult,
     adaptive_gerchberg_saxton,
     calculate_reconstruction_error,
-    GSResult,
+    gerchberg_saxton,
 )
 from ao_shaping.utils.slm_utils import phase_to_slm_grayscale
 
 # Import hardware drivers with graceful fallback
 Santec: Any = None
-DahengCamManager: Any = None
+DahengCamera: Any = None
 SLM_AVAILABLE = False
 CCD_AVAILABLE = False
 
@@ -61,9 +61,9 @@ except ImportError:
     logger.debug("SLM driver not available")
 
 try:
-    from ao_shaping.drivers.ccd.daheng import DahengCamManager as _DahengCamManager
+    from ao_shaping.drivers.ccd.daheng import DahengCamera as _DahengCamera
 
-    DahengCamManager = _DahengCamManager
+    DahengCamera = _DahengCamera
     CCD_AVAILABLE = True
 except ImportError:
     logger.debug("CCD driver not available")
@@ -392,7 +392,7 @@ def run(
 
         # 初始化CCD
         cam_id_int = int(cam_id)
-        camera = DahengCamManager(cam_id=cam_id_int, exposure_time_ms=cam_exposure)
+        camera = DahengCamera(cam_id=cam_id_int, exposure_time_ms=cam_exposure)
         camera.open()
 
         # 设置ROI

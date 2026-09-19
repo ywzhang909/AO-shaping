@@ -45,13 +45,13 @@ from PIL import Image
 from scipy import ndimage
 from scipy.optimize import curve_fit
 
-from ao_shaping.drivers.ccd.daheng import DahengCamManager
+from ao_shaping.drivers.ccd.daheng import DahengCamera
 from ao_shaping.utils.spots_calc import centroid
 
 # ── Camera type import (optional) ────────────────────────────────────────────
 try:
     from ao_shaping.drivers.ccd.miicam.driver import (
-        CameraStreamManager as MIICamManager,
+        MIICamera as MIICamManager,
     )
 except Exception:
     MIICamManager = None
@@ -584,7 +584,7 @@ def _discover_available_cameras() -> dict[str, list[Any]]:
 
     # Daheng
     try:
-        daheng_list = DahengCamManager.get_cam_list()
+        daheng_list = DahengCamera.get_cam_list()
         if daheng_list:
             valid = [d for d in daheng_list if d.get("index", -1) >= 0]
             result["Daheng"] = valid
@@ -622,7 +622,7 @@ def _create_camera(
             capture_mode=capture_mode,
         )
     # Default: Daheng
-    return DahengCamManager(cam_id=cam_id, exposure_time_ms=exposure_ms)
+    return DahengCamera(cam_id=cam_id, exposure_time_ms=exposure_ms)
 
 
 def _safe_close_camera(camera: Any) -> None:

@@ -8,8 +8,8 @@ from typing import Callable
 import numpy as np
 from loguru import logger
 
-from ao_shaping.drivers.ccd.miicam._sdk_setup import _setup_miicam_sdk
 from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
+from ao_shaping.drivers.ccd.miicam._sdk_setup import _setup_miicam_sdk
 
 # Set up MIICAM SDK before importing
 _MIICAM_AVAILABLE = _setup_miicam_sdk()
@@ -36,7 +36,7 @@ class _CallbackSession:
     with existing callback streams started via ``start_callback_mode``.
     """
 
-    def __init__(self, owner: "CameraStreamManager") -> None:
+    def __init__(self, owner: "MIICamera") -> None:
         self._owner = owner
         self._was_active: bool = False
 
@@ -68,7 +68,7 @@ class _CallbackSession:
 class _FramePuller:
     """Pulls frames from the camera with retry logic."""
 
-    def __init__(self, owner: "CameraStreamManager") -> None:
+    def __init__(self, owner: "MIICamera") -> None:
         self._owner = owner
 
     def wait_image(self, timeout_ms: int | None = None) -> np.ndarray:
@@ -119,7 +119,7 @@ class _FramePuller:
 # ===== Main Camera Class =====
 
 
-class CameraStreamManager(BaseCamera):
+class MIICamera(BaseCamera):
     """MIICAM camera stream manager.
 
     Supports two capture modes:
@@ -138,7 +138,7 @@ class CameraStreamManager(BaseCamera):
         Returns:
             (min_exposure_ms, max_exposure_ms)
         """
-        return CameraStreamManager.MIN_EXPOSURE_MS, CameraStreamManager.MAX_EXPOSURE_MS
+        return MIICamera.MIN_EXPOSURE_MS, MIICamera.MAX_EXPOSURE_MS
 
     def __init__(
         self,
@@ -170,8 +170,8 @@ class CameraStreamManager(BaseCamera):
         self._callback_mode_active: bool = False
 
         # Exposure limits (ms) - SDK hardware constraints
-        self._min_exposure_ms = CameraStreamManager.MIN_EXPOSURE_MS
-        self._max_exposure_ms = CameraStreamManager.MAX_EXPOSURE_MS
+        self._min_exposure_ms = MIICamera.MIN_EXPOSURE_MS
+        self._max_exposure_ms = MIICamera.MAX_EXPOSURE_MS
 
         # Helper objects (initialized after cam is opened)
         self._callback_session: _CallbackSession | None = None
@@ -180,27 +180,27 @@ class CameraStreamManager(BaseCamera):
     @property
     def min_exposure_ms(self) -> float:
         """Minimum exposure time in milliseconds."""
-        return CameraStreamManager.MIN_EXPOSURE_MS
+        return MIICamera.MIN_EXPOSURE_MS
 
     @property
     def max_exposure_ms(self) -> float:
         """Maximum exposure time in milliseconds."""
-        return CameraStreamManager.MAX_EXPOSURE_MS
+        return MIICamera.MAX_EXPOSURE_MS
 
     # =========================================================================
     # Context manager / lifecycle
     # =========================================================================
 
     def __enter__(self):
-        self.initialize()
-        return self
+        return self.open()
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
-    def open(self) -> None:
+    def open(self) -> "MIICamera":
         """Open the camera device (alias for initialize)."""
         self.initialize()
+        return self
 
     def close(self) -> None:
         """Close the camera device and release resources."""
@@ -466,19 +466,19 @@ class CameraStreamManager(BaseCamera):
             Actual exposure time set in milliseconds.
         """
         assert self.cam, "camera not initialized"
-        if time_ms < CameraStreamManager.MIN_EXPOSURE_MS:
-            self.exposure_time_ms = CameraStreamManager.MIN_EXPOSURE_MS
+        if time_ms < MIICamera.MIN_EXPOSURE_MS:
+            self.exposure_time_ms = MIICamera.MIN_EXPOSURE_MS
             logger.warning(
                 "exposure time must >= {:.4f}ms. clamped to {:.4f}ms.",
-                CameraStreamManager.MIN_EXPOSURE_MS,
-                CameraStreamManager.MIN_EXPOSURE_MS,
+                MIICamera.MIN_EXPOSURE_MS,
+                MIICamera.MIN_EXPOSURE_MS,
             )
-        elif time_ms > CameraStreamManager.MAX_EXPOSURE_MS:
-            self.exposure_time_ms = CameraStreamManager.MAX_EXPOSURE_MS
+        elif time_ms > MIICamera.MAX_EXPOSURE_MS:
+            self.exposure_time_ms = MIICamera.MAX_EXPOSURE_MS
             logger.warning(
                 "exposure time must <= {:.1f}ms. clamped to {:.1f}ms.",
-                CameraStreamManager.MAX_EXPOSURE_MS,
-                CameraStreamManager.MAX_EXPOSURE_MS,
+                MIICamera.MAX_EXPOSURE_MS,
+                MIICamera.MAX_EXPOSURE_MS,
             )
         else:
             self.exposure_time_ms = time_ms

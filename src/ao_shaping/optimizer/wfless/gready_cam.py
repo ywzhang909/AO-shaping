@@ -4,7 +4,7 @@ import pandas as pd
 
 import tqdm
 from ao_shaping.utils import centroid
-from ao_shaping.drivers import CameraStreamManager, NlightDM
+from ao_shaping.drivers import MIICamera, NlightDM
 
 ROOT_DIR = r"D:\ao-project\data"
 
@@ -89,7 +89,7 @@ def optimizer(
     delta = abs(delta)
     epochs = int(epochs)
 
-    with CameraStreamManager(cam_id=0, exposure_time_ms=CAM_EXP_TIME, skip_sampling=True) as cam,\
+    with MIICamera(cam_id=0, exposure_time_ms=CAM_EXP_TIME, skip_sampling=True) as cam,\
             NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm:
         # dm.reset_all()
 

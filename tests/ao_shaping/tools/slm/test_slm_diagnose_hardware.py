@@ -62,14 +62,14 @@ def devices():
     守护, 与 CLI 的 finally 块相同)。
     """
     _require_hardware()
+    from ao_shaping.drivers.ccd import MIICamera
     from ao_shaping.drivers.slm.santec import Santec
-    from ao_shaping.utils.slm_camera import open_miicam_camera
 
     slm = Santec(slm_number=_SLM_NUMBER, wavelength=_SLM_WAVELENGTH_NM, video_mode=0)
     slm.open()
     camera = None
     try:
-        camera = open_miicam_camera(_CAM_ID, _EXPOSURE_MS)
+        camera = MIICamera(_CAM_ID, _EXPOSURE_MS).open()
         yield slm, camera
     finally:
         try:

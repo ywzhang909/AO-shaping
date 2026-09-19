@@ -35,7 +35,7 @@ class WFSLaserCastEnv(gym.Env):
     def __init__(self, max_iter, target_rms=None, history_len:int=10, render_mode='human') -> None:
         super().__init__()
 
-        # 使用WFSManager替代CameraStreamManager
+        # 使用WFSManager替代MIICamera
         self.wfs = WFS(MlaRes.Res768, use_custom_ref=False, high_speed=True, pupil_diameter=2.8)
         self.dm = DM(keep_when_exit=True)
 

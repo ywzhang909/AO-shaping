@@ -43,28 +43,20 @@ __all__ = [
     "NlightDM",
 ]
 
-CameraStreamManager = None
-
 try:
-    from ao_shaping.drivers.ccd.daheng import DahengCamManager
-
-    __all__ += ["DahengCamManager"]
-    CameraStreamManager = DahengCamManager
-    __all__ += ["CameraStreamManager"]
-except Exception as daheng_error:
-    try:
-        from ao_shaping.drivers.ccd.miicam import CameraStreamManager
-
-        __all__ += ["CameraStreamManager"]
-        logger.warning(
-            f"Daheng CameraStreamManager not available; using MIICAM fallback: {daheng_error}"
-        )
-    except Exception as miicam_error:
-        logger.warning(
-            f"CameraStreamManager not available. Daheng import failed: {daheng_error}; "
-            f"MIICAM import failed: {miicam_error}"
-        )
-        CameraStreamManager = None
+    from ao_shaping.drivers.ccd import DahengCamera
+    __all__ += ["DahengCamera"]
+except Exception as e:
+    logger.debug(f"DahengCamera not available: {e}")
+    DahengCamera = None
+    
+try:
+    from ao_shaping.drivers.ccd import MIICamera, MIICAMError
+    __all__ += ["MIICamera", "MIICAMError"]
+except Exception as e:
+    logger.debug(f"MIICamera not available: {e}")
+    MIICamera = None
+    MIICAMError = None
 
 try:
     from ao_shaping.drivers.ccd.ffmpeg import FFmpegCamera, FFmpegCameraError

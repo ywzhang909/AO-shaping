@@ -5,7 +5,7 @@ import tqdm
 import numpy as np
 import matplotlib.pylab as plt
 
-from ao_shaping.drivers import CameraStreamManager
+from ao_shaping.drivers import MIICamera
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.dm._registry import get_dm_registry
 from ao_shaping.algorithm.adam import AdaMOD, Adam, AdamW, Base, Muno, MunoW, SGD
@@ -345,7 +345,7 @@ def optimize_pib(
     _max_history_len = 50  # 保持最近50次记录
 
     with (
-        CameraStreamManager(
+        MIICamera(
             cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
         ) as cam,
     ):

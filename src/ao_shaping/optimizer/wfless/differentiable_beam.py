@@ -62,9 +62,9 @@ from ao_shaping.utils.targets import crop_resize_to_grid
 # machine, and this module must stay importable without them. The auto-create
 # helpers raise a clear RuntimeError when the driver is unavailable.
 try:
-    from ao_shaping.drivers import CameraStreamManager
+    from ao_shaping.drivers import MIICamera
 except Exception:  # pragma: no cover - hardware SDK not installed
-    CameraStreamManager = None  # type: ignore[assignment]
+    MIICamera = None  # type: ignore[assignment]
 
 try:
     from ao_shaping.drivers.slm.santec import Santec
@@ -123,9 +123,9 @@ def _auto_create_slm() -> Any:
 
 def _auto_create_ccd(cam_id: int, exposure_time_ms: float | None) -> Any:
     """Create and open the default CCD (Daheng, else MiiCam)."""
-    if CameraStreamManager is None:
+    if MIICamera is None:
         raise RuntimeError("CCD driver not available. Install Daheng/MiiCam SDK.")
-    ccd = CameraStreamManager(
+    ccd = MIICamera(
         cam_id=cam_id,
         exposure_time_ms=exposure_time_ms if exposure_time_ms is not None else 0.0,
         skip_sampling=False,

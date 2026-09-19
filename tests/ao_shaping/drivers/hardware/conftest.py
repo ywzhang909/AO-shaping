@@ -153,8 +153,8 @@ def dm():
 def daheng_cam():
     """Daheng camera instance. Skips if hardware unavailable."""
     try:
-        from ao_shaping.drivers.ccd.daheng import DahengCamManager
-        cam = DahengCamManager(cam_id=0, exposure_time_ms=100)
+        from ao_shaping.drivers.ccd.daheng import DahengCamera
+        cam = DahengCamera(cam_id=0, exposure_time_ms=100)
         cam.initialize()
         yield cam
         cam.close()
@@ -166,8 +166,8 @@ def daheng_cam():
 def miicam():
     """MiiCam instance. Skips if hardware unavailable."""
     try:
-        from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
-        cam = CameraStreamManager(cam_id=0, exposure_time_ms=100)
+        from ao_shaping.drivers.ccd.miicam.driver import MIICamera
+        cam = MIICamera(cam_id=0, exposure_time_ms=100)
         cam.initialize()
         yield cam
         cam.close()

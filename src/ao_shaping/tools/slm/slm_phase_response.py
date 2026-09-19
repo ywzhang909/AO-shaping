@@ -471,7 +471,7 @@ def main(
         return
 
     # 延迟导入硬件 (仅实物运行时; render-only 不依赖)。
-    from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager
+    from ao_shaping.drivers.ccd.miicam.driver import MIICamera
     from ao_shaping.drivers.slm.santec import Santec
 
     logger.info(
@@ -501,7 +501,7 @@ def main(
             slm.Gray_Scale_bits,
         )
 
-        camera = CameraStreamManager(
+        camera = MIICamera(
             cam_id=cam_id, exposure_time_ms=exposure_ms, bit_depth=8
         )
         camera.open()

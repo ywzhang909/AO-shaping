@@ -11,7 +11,7 @@ Main Features:
 - Hardware drivers for cameras, DMs, SLMs, WFS
 
 Example:
-    from ao_shaping import CameraStreamManager, NlightDM, optimizer_rms_dm, optimize_pib
+    from ao_shaping import MIICamera, NlightDM, optimizer_rms_dm, optimize_pib
 
     # Wavefront optimization
     recorder = optimizer_rms_dm(epochs=1000)
@@ -75,9 +75,9 @@ from ao_shaping.drivers.sim.optics import SimulatedSLM
 # Hardware device aliases (gracefully skip if SDK not available)
 try:
     from ao_shaping.drivers import (
-        CameraStreamManager,
-        DahengCamManager,
+        DahengCamera,
         FFmpegCamera,
+        MIICamera,
         MlaRes,
         NlightDM,
         Santec,
@@ -85,8 +85,8 @@ try:
     )
 except ImportError:
     # SDK not available - provide None aliases
-    CameraStreamManager = None
-    DahengCamManager = None
+    MIICamera = None
+    DahengCamera = None
     NlightDM = None
     ThorlabWFS = None
     Santec = None
@@ -149,8 +149,8 @@ __all__ = [
     "MockSLM",
     "MockWFS",
     # Hardware device aliases
-    "CameraStreamManager",
-    "DahengCamManager",
+    "MIICamera",
+    "DahengCamera",
     "NlightDM",
     "ThorlabWFS",
     "Santec",

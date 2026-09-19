@@ -51,14 +51,49 @@ import click
 import numpy as np
 from loguru import logger
 
+from ao_shaping.algorithm.gerchberg_saxton import (
+    adaptive_gerchberg_saxton,
+    gerchberg_saxton,
+)
+
+# Import the two algorithms
+from ao_shaping.optimizer.wfless.differentiable_beam import optimize_beam_shaping
+
 # Import shared beam-shaping helpers (single source of truth for metrics/IO)
 from ao_shaping.utils.beam_metrics import (
     compute_metrics,
     intensity_to_amplitude,
 )
+from ao_shaping.utils.cli_helpers import get_debug_mode
+from ao_shaping.utils.cli_helpers import parse_tuple as _parse_tuple
+
+# Canonical hardware helpers; private-name aliases keep run() call sites unchanged.
+from ao_shaping.utils.hardware_utils import (
+    apply_auto_exposure as _apply_auto_exposure,
+)
+from ao_shaping.utils.hardware_utils import (
+    auto_exposure_possible as _auto_exposure_possible,
+)
+from ao_shaping.utils.hardware_utils import (
+    auto_exposure_target_ms,
+    record_frame,
+)
+from ao_shaping.utils.hardware_utils import (
+    call_with_timeout as _call_with_timeout,
+)
+from ao_shaping.utils.hardware_utils import (
+    init_frame_recording as _init_frame_recording,
+)
+from ao_shaping.utils.hardware_utils import (
+    save_frame_png as _save_frame_png,
+)
 from ao_shaping.utils.slm_utils import (
     display_phase as _display_phase,
+)
+from ao_shaping.utils.slm_utils import (
     phase_to_slm_grayscale,
+)
+from ao_shaping.utils.slm_utils import (
     pick_slm_slot as _pick_slm_slot,
 )
 from ao_shaping.utils.targets import (
@@ -68,30 +103,11 @@ from ao_shaping.utils.targets import (
     square_target_from_measurement,
 )
 
-# Import the two algorithms
-from ao_shaping.optimizer.wfless.differentiable_beam import optimize_beam_shaping
-from ao_shaping.algorithm.gerchberg_saxton import (
-    adaptive_gerchberg_saxton,
-    gerchberg_saxton,
-)
-from ao_shaping.utils.cli_helpers import get_debug_mode, parse_tuple as _parse_tuple
-
-# Canonical hardware helpers; private-name aliases keep run() call sites unchanged.
-from ao_shaping.utils.hardware_utils import (
-    apply_auto_exposure as _apply_auto_exposure,
-    auto_exposure_possible as _auto_exposure_possible,
-    auto_exposure_target_ms,
-    call_with_timeout as _call_with_timeout,
-    init_frame_recording as _init_frame_recording,
-    record_frame,
-    save_frame_png as _save_frame_png,
-)
-
 get_debug_mode()
 
 # Import hardware drivers with graceful fallback
 Santec: Any = None
-DahengCamManager: Any = None
+DahengCamera: Any = None
 SLM_AVAILABLE = False
 CCD_AVAILABLE = False
 
@@ -104,9 +120,9 @@ except ImportError:
     logger.debug("SLM driver not available")
 
 try:
-    from ao_shaping.drivers.ccd.daheng import DahengCamManager as _DahengCamManager
+    from ao_shaping.drivers.ccd.daheng import DahengCamera as _DahengCamera
 
-    DahengCamManager = _DahengCamManager
+    DahengCamera = _DahengCamera
     CCD_AVAILABLE = True
 except ImportError:
     logger.debug("CCD driver not available")
@@ -528,7 +544,7 @@ def run(
             logger.info("SLM initialized: #{}, lambda={}nm", slm_number, slm_wavelength)
 
             cam_id_int = int(cam_id)
-            camera = DahengCamManager(
+            camera = DahengCamera(
                 cam_id=cam_id_int, exposure_time_ms=effective_exposure_ms
             )
             _call_with_timeout(camera.open, capture_timeout, "CCD open")

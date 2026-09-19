@@ -275,7 +275,7 @@ WFS 驱动通常需要实现以下功能（参考 [`MockWFS`](src/ao_shaping/dri
 
 | 驱动 | 文件 | 说明 |
 |------|------|------|
-| [`CameraStreamManager`](src/ao_shaping/drivers/ccd/daheng.py) | `ccd/daheng.py` | 大恒相机 (GigE) |
+| [`MIICamera`](src/ao_shaping/drivers/ccd/daheng.py) | `ccd/daheng.py` | 大恒相机 (GigE) |
 | [`MiiCamDevice`](src/ao_shaping/drivers/ccd/miicam.py) | `ccd/miicam.py` | Mii相机 SDK |
 | [`MIICAMDevice`](src/ao_shaping/drivers/ccd/miicam_device.py:33) | `ccd/miicam_device.py` | MIICAM 相机 (Device基类) |
 | [`MockCamera`](src/ao_shaping/drivers/mock_devices.py:25) | `mock_devices.py` | 模拟相机 |

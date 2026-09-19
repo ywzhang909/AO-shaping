@@ -9,20 +9,20 @@ import json
 from pathlib import Path
 
 import click
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
+from ao_shaping.config import DEVICES
 from ao_shaping.optimizer.wfless.slm_zernike_pib import optimize_slm_zernike_pib
-from ao_shaping.utils.file import gen_file_path_uuid, gen_date_dir, logger
-from ao_shaping.utils.display import plot_funcs
 from ao_shaping.utils.cli_helpers import (
-    parse_tuple,
-    setup_coredumpy,
     get_date_dir_name,
     get_debug_mode,
+    parse_tuple,
+    setup_coredumpy,
 )
+from ao_shaping.utils.display import plot_funcs
+from ao_shaping.utils.file import gen_date_dir, gen_file_path_uuid, logger
 from ao_shaping.utils.zernike_calc import calc_n_zernike_terms
-from ao_shaping.config import DEVICES
 
 
 @click.command()
@@ -49,8 +49,8 @@ from ao_shaping.config import DEVICES
 @click.option(
     "-t",
     "--exposure_time_ms",
-    default=80.0,
-    help="远场光斑CCD曝光时间 (毫秒) (default: 80.0)",
+    default=0.0,
+    help="远场光斑CCD曝光时间 (毫秒) (default: auto)",
 )
 @click.option("-e", "--epochs", default=2000, help="优化迭代次数 (default: 2000)")
 @click.option(
@@ -61,7 +61,9 @@ from ao_shaping.config import DEVICES
 )
 @click.option("--delta", default=0.1, help="优化步长 (default: 0.1)")
 @click.option(
-    "--lr", default=0.0, help="优化学习率 (default: 0.0, 表示基于环围半径动态学习率衰减)"
+    "--lr",
+    default=0.0,
+    help="优化学习率 (default: 0.0, 表示基于环围半径动态学习率衰减)",
 )
 @click.option("-n", "--n_max", default=4, help="Zernike 最大径向阶数 (default: 4)")
 @click.option("--slm_number", default=1, help="SLM 设备编号 (default: 1)")
@@ -111,7 +113,9 @@ from ao_shaping.config import DEVICES
     help="优化目标函数: pib(最大化PIB), radiu(最小化半径), avg_radiu(最大化平均半径)",
 )
 @click.option(
-    "--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)"
+    "--show",
+    is_flag=True,
+    help="启用 pygame 实时可视化显示 (相位、CCD图像、Zernike系数、PIB曲线) (default: False)",
 )
 @click.option("--seed", type=int, default=None, help="随机种子 (default: None)")
 @click.option(
@@ -156,6 +160,7 @@ def run(
     """SLM Zernike PIB 优化器
 
     通过 SLM 加载 Zernike 相位, 以 CCD 测量的 PIB (桶内功率) 为目标进行优化 (SPGD)。
+    使用 --show 启用 pygame 实时可视化显示 (相位图案、远场光斑、Zernike系数柱状图、PIB收敛曲线)。
     DEBUG 环境变量控制调试模式。
     """
     debug = get_debug_mode()
@@ -163,7 +168,9 @@ def run(
     # 加载初始 Zernike 系数
     if load_file and Path(load_file).exists():
         loaded_coeffs = np.loadtxt(load_file).tolist()
-        logger.info(f"Loaded Zernike coefficients from {load_file}: {len(loaded_coeffs)} terms")
+        logger.info(
+            f"Loaded Zernike coefficients from {load_file}: {len(loaded_coeffs)} terms"
+        )
     elif load_file:
         logger.warning(f"load_file {load_file} not exists, starting from zeros")
         loaded_coeffs = []
@@ -238,6 +245,7 @@ def run(
         shrink_ratio=shrink_ratio,
         cam_id=cam_id,
         show=show,
+        display=show,
         init_c=init_c,
         cam_size=cam_size,
         target_max_brightness=target_max_brightness,

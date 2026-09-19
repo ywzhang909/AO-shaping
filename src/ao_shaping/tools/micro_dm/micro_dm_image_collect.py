@@ -44,6 +44,12 @@ from typing import Any, NoReturn
 
 import click
 import numpy as np
+from ao_shaping.drivers.ccd._camera_utils import (
+    open_daheng_camera as _open_daheng_camera,
+)
+from ao_shaping.drivers.ccd._camera_utils import (
+    open_miicam_camera as _open_miicam_camera,
+)
 from loguru import logger
 
 from ao_shaping.config import DEVICES
@@ -59,12 +65,6 @@ from ao_shaping.drivers.dm.MicroDM import (
 )
 from ao_shaping.utils.cli_helpers import setup_coredumpy
 from ao_shaping.utils.network import controller_tcp_port, ping_reachable
-from ao_shaping.utils.slm_camera import (
-    open_daheng_camera as _open_daheng_camera,
-)
-from ao_shaping.utils.slm_camera import (
-    open_miicam_camera as _open_miicam_camera,
-)
 
 # 全局运行标志 (信号处理器修改)
 _running = True
@@ -94,7 +94,7 @@ def _get_miicam_camera(cam_id: int, exposure_ms: float, bit_depth: int = 8) -> A
         bit_depth: 输出位深 (8 或 16)
 
     Returns:
-        已打开的 CameraStreamManager 实例
+        已打开的 MIICamera 实例
     """
     try:
         return _open_miicam_camera(
@@ -115,7 +115,7 @@ def _get_daheng_camera(cam_id: int, exposure_ms: float) -> Any:
         exposure_ms: 曝光时间 (ms)
 
     Returns:
-        已打开的 DahengCamManager 实例
+        已打开的 DahengCamera 实例
     """
     try:
         return _open_daheng_camera(cam_id=cam_id, exposure_ms=exposure_ms)

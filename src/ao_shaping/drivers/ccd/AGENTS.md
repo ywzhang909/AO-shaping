@@ -29,9 +29,9 @@ ccd/
 |----|------|------|
 | `BaseCamera` | `base.py` | 相机抽象基类 (ABC) |
 | `CameraError` | `base.py` | 相机异常基类 |
-| `CameraStreamManager` | `miicam/driver.py` | MiiCam 相机流管理器 |
+| `MIICamera` | `miicam/driver.py` | MiiCam 相机流管理器 |
 | `MIICAMError` | `miicam/driver.py` | MiiCam 特定异常 |
-| `DahengCamManager` | `daheng/driver.py` | 大恒相机管理器 |
+| `DahengCamera` | `daheng/driver.py` | 大恒相机管理器 |
 | `FFmpegCamera` | `ffmpeg.py` | FFmpeg 相机 |
 | `ImageFolderCamera` | `ffmpeg.py` | 图片文件夹相机 |
 
@@ -63,12 +63,12 @@ ccd/
 `ccd/__init__.py` 按优先级自动选择相机后端:
 
 ```python
-# 若 DahengCamManager 可用则作为 CameraStreamManager,
+# 若 DahengCamera 可用则作为 MIICamera,
 # 否则使用 MIICamera
 if DahengCamera is not None:
-    CameraStreamManager = DahengCamera
+    MIICamera = DahengCamera
 elif MIICamera is not None:
-    CameraStreamManager = MIICamera
+    MIICamera = MIICamera
 ```
 
 详细接口文档见 [`INTERFACE_DOCS.md`](../INTERFACE_DOCS.md) §相机/CCD 接口。

@@ -223,11 +223,11 @@ class _SimDMRegistry:
 @contextmanager
 def patched_pib_simulation():
     """Temporarily replace physical devices/tqdm with deterministic simulation."""
-    original_camera = pib_module.CameraStreamManager
+    original_camera = pib_module.MIICamera
     original_get_dm_registry = pib_module.get_dm_registry
     original_tqdm = pib_module.tqdm.tqdm
     SimDM.current_voltages = np.zeros(8, dtype=np.float64)
-    pib_module.CameraStreamManager = SimCamera
+    pib_module.MIICamera = SimCamera
     pib_module.get_dm_registry = lambda: _SimDMRegistry()
     pib_module.tqdm.tqdm = lambda *args, **kwargs: original_tqdm(
         *args, **({"disable": True} | kwargs)
@@ -235,7 +235,7 @@ def patched_pib_simulation():
     try:
         yield
     finally:
-        pib_module.CameraStreamManager = original_camera
+        pib_module.MIICamera = original_camera
         pib_module.get_dm_registry = original_get_dm_registry
         pib_module.tqdm.tqdm = original_tqdm
 

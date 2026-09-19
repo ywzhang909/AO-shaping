@@ -89,7 +89,7 @@ def build_default_registry() -> DeviceRegistry:
         DeviceSpec(
             name="miicam_ccd",
             device_type="ccd",
-            implementation="ao_shaping.drivers.CameraStreamManager",
+            implementation="ao_shaping.drivers.MIICamera",
             is_virtual=False,
             description="Physical MiiCam CCD camera stream.",
         )

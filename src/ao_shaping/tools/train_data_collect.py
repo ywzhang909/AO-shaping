@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import tqdm
 
-from ao_shaping.drivers import CameraStreamManager, MlaRes, NlightDM, ThorlabWFS
+from ao_shaping.drivers import MIICamera, MlaRes, NlightDM, ThorlabWFS
 from ao_shaping.utils import gen_file_path_inc, gen_file_path_uuid
 from ao_shaping.optimizer.spgd import spgd_gradient
 
@@ -75,8 +75,8 @@ def optimizer(
 
     with ThorlabWFS(MlaRes.Res512, use_custom_ref=False, high_speed=False, pupil_diameter=0.0) as wfs,\
             NlightDM(keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT) as dm, \
-            CameraStreamManager(cam_id=1, exposure_time_ms=20) as cam_axis, \
-            CameraStreamManager(cam_id=0, exposure_time_ms=20) as cam_focal:
+            MIICamera(cam_id=1, exposure_time_ms=20) as cam_axis, \
+            MIICamera(cam_id=0, exposure_time_ms=20) as cam_focal:
 
         if init_v is None:
             _init_v = np.zeros(dm.DM_Num, dtype=np.float64)

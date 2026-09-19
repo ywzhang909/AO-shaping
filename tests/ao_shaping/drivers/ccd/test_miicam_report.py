@@ -41,19 +41,19 @@ class TestMIICAMReport:
         return miicam_driver
 
     @pytest.fixture
-    def CameraStreamManager(self, camera_module):
-        """Return CameraStreamManager class."""
-        return camera_module.CameraStreamManager
+    def MIICamera(self, camera_module):
+        """Return MIICamera class."""
+        return camera_module.MIICamera
 
     @pytest.fixture
-    def camera(self, CameraStreamManager):
+    def camera(self, MIICamera):
         """Create and return camera instance."""
-        cam = CameraStreamManager(cam_id=0, exposure_time_ms=20)
+        cam = MIICamera(cam_id=0, exposure_time_ms=20)
         cam.open()
         yield cam
         cam.close()
 
-    def test_miicam_basic_report(self, CameraStreamManager, camera):
+    def test_miicam_basic_report(self, MIICamera, camera):
         """Test MIICAM basic functionality and generate report."""
         with TestReport("miicam") as report:
             report.add_section("MIICAM 4100 Series Camera Test Report", 2)
@@ -61,7 +61,7 @@ class TestMIICAMReport:
 
             # Test 1: Camera enumeration
             with TestWithReport(report, "Camera Enumeration"):
-                cam_list = CameraStreamManager.get_cam_list()
+                cam_list = MIICamera.get_cam_list()
                 report.add_key_value("Cameras Found", str(len(cam_list)))
                 for i, cam_info in enumerate(cam_list):
                     report.add_key_value(f"Camera {i}", str(cam_info))
@@ -252,11 +252,11 @@ class TestMIICAMReport:
             with TestWithReport(report, "Bit Depth Modes"):
                 for bit_depth in [8, 16]:
                     if bit_depth == 8:
-                        cam_test = CameraStreamManager(
+                        cam_test = MIICamera(
                             cam_id=0, exposure_time_ms=20, bit_depth=8
                         )
                     else:
-                        cam_test = CameraStreamManager(
+                        cam_test = MIICamera(
                             cam_id=0, exposure_time_ms=20, bit_depth=16
                         )
 
@@ -363,7 +363,7 @@ class TestMIICAMReport:
             report.save()
             print(f"\nReport saved to: {report.report_path}")
 
-    def test_miicam_slm_interaction_report(self, CameraStreamManager):
+    def test_miicam_slm_interaction_report(self, MIICamera):
         """Test SLM + Camera interaction (requires SLM)."""
         pytest.skip("Requires both SLM and camera hardware")
 

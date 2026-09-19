@@ -1,12 +1,14 @@
+import warnings
+
 import numpy as np
 from skopt import gp_minimize
 from skopt.space import Real
 from skopt.utils import use_named_args
-import warnings
+
 warnings.filterwarnings('ignore')
 
+from ao_shaping.drivers import MIICamera
 from ao_shaping.optimizer.wfless.pib import optimize_pib
-from ao_shaping.drivers import CameraStreamManager
 from ao_shaping.utils import logger
 
 
@@ -29,7 +31,7 @@ def objective_function(lr, delta, center=None, epochs=100, exposure_time_ms=80, 
         # 设置默认参数
         if center is None:
             # 获取图像中心
-            with CameraStreamManager(cam_id=cam_id, exposure_time_ms=exposure_time_ms) as cam:
+            with MIICamera(cam_id=cam_id, exposure_time_ms=exposure_time_ms) as cam:
                 _img = cam.get_numpy_image(10)
                 h, w = _img.shape
                 # 计算质心

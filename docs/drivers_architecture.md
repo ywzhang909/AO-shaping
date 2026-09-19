@@ -41,7 +41,7 @@
 │  │  ├── base.py                 ║      │  │                                                       │ │
 │  │  │   BaseCamera (ABC)        ║←兼容→ │  │  SimulatedCCD                                        │ │
 │  │  ├── daheng.py               ║      │  │  ├── 继承 BaseCamera                                   │ │
-│  │  │   CameraStreamManager     ║      │  │  ├── 物理: 噪声 + 特征生成                             │ │
+│  │  │   MIICamera     ║      │  │  ├── 物理: 噪声 + 特征生成                             │ │
 │  │  └── miicam.py               ║      │  │  └── 仿真: 曝光/ROI 参数响应                           │ │
 │  │                            ║      │  └────────────────────────────────────────────────────────│ │
 │  │  dm/                       ║      │  sim/optics/                                              │ │
@@ -132,7 +132,7 @@ Device (ABC)                          DeviceRegistry
 
 | 设备类型 | 硬件实现 | 仿真实现 | 物理模型 |
 |----------|----------|----------|----------|
-| **相机 (CCD)** | `CameraStreamManager` (Daheng)<br>`MiiCamDevice` (MiiCam) | `SimulatedCCD` | 噪声叠加<br>高斯斑点生成<br>曝光响应 |
+| **相机 (CCD)** | `MIICamera` (Daheng)<br>`MiiCamDevice` (MiiCam) | `SimulatedCCD` | 噪声叠加<br>高斯斑点生成<br>曝光响应 |
 | **变形镜 (DM)** | `NLightDM` (UDP) | `SimulateDM` | 电压→变形矩阵<br>邻接耦合<br>电压爬升限制 |
 | **SLM** | `Santec` (SDK) | `SimulatedSLM` | 相位调制<br>Gamma校正<br>波前传播 |
 | **透镜** | -- | `SimulatedLens` | 抛物线相位 |
@@ -626,7 +626,7 @@ Device (ABC)
     │
     └── 具体硬件设备
         ├── NLightDM
-        ├── CameraStreamManager
+        ├── MIICamera
         └── Santec
 ```
 
@@ -704,10 +704,10 @@ def get_camera(use_simulation: bool = False):
         return SimulatedCCD(resolution=(1024, 1024))
     else:
         # 硬件不可用时自动回退
-        from ao_shaping.drivers import CameraStreamManager
-        if CameraStreamManager is None:
+        from ao_shaping.drivers import MIICamera
+        if MIICamera is None:
             return SimulatedCCD(resolution=(1024, 1024))
-        return CameraStreamManager(cam_id=0)
+        return MIICamera(cam_id=0)
 
 # 使用
 cam = get_camera(use_simulation=False)  # 自动选择
@@ -754,8 +754,8 @@ def test_algorithm():
 from ao_shaping.drivers import Device, DeviceState, DeviceType
 
 # 硬件驱动（SDK 不可用时为 None）
-from ao_shaping.drivers import CameraStreamManager
-if CameraStreamManager is None:
+from ao_shaping.drivers import MIICamera
+if MIICamera is None:
     print("Daheng SDK 未安装，使用 SimulatedCCD 替代")
 
 # Mock 设备（始终可用）
@@ -770,11 +770,11 @@ from ao_shaping.drivers import SimulatedCCD, SimulatedSLM
 ```python
 # drivers/__init__.py 中的模式
 try:
-    from .ccd.daheng import CameraStreamManager
-    __all__ += ["CameraStreamManager"]
+    from .ccd.daheng import MIICamera
+    __all__ += ["MIICamera"]
 except (ImportError, NameError) as e:
-    logging.getLogger(__name__).warning(f"CameraStreamManager not available: {e}")
-    CameraStreamManager = None
+    logging.getLogger(__name__).warning(f"MIICamera not available: {e}")
+    MIICamera = None
 ```
 
 ---
@@ -1027,9 +1027,9 @@ with open("devices.json") as f:
 | 任务 | 代码 |
 |------|------|
 | 导入设备基类 | `from ao_shaping.drivers import Device, DeviceState` |
-| 导入相机 | `from ao_shaping.drivers import CameraStreamManager` |
+| 导入相机 | `from ao_shaping.drivers import MIICamera` |
 | 导入仿真相机 | `from ao_shaping.drivers import SimulatedCCD` |
-| 检查硬件可用性 | `if CameraStreamManager is None: ...` |
+| 检查硬件可用性 | `if MIICamera is None: ...` |
 | 创建注册表 | `registry = get_global_registry()` |
 | 获取所有相机 | `cameras = registry.find_by_type(DeviceType.CAMERA)` |
 | 批量连接 | `results = registry.connect_all()` |

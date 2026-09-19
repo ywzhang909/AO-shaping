@@ -1407,13 +1407,13 @@ if __name__ == "__main__":
 
     from ao_shaping.drivers.slm.santec import Santec
     from ao_shaping.drivers.slm.slm_calibration import SantecCalibrator
-    from ao_shaping.drivers.ccd.daheng import CameraStreamManager
+    from ao_shaping.drivers.ccd.daheng import MIICamera
     
     # 连接设备
     with Santec(slm_number=1) as slm:
         slm.set_wavelength(1064, 200)
         
-        with CameraStreamManager(cam_id=0, exposure_time_ms=50) as camera:
+        with MIICamera(cam_id=0, exposure_time_ms=50) as camera:
             # 创建标定器
             calibrator = SantecCalibrator(
                 slm=slm,

@@ -269,13 +269,13 @@ def __take_one_shot_callback(self) -> np.ndarray:
 ## 11. 架构与依赖
 
 ```
-ao_shaping.drivers.__init__ --> ccd.__init__ --> ccd.miicam.driver.CameraStreamManager
+ao_shaping.drivers.__init__ --> ccd.__init__ --> ccd.miicam.driver.MIICamera
 ```
 
 - `_sdk_setup.py`：SDK 路径发现（`MIICAM_SDK_PATH` 环境变量 → 项目内置 `_miicam_sdk` → `libs/miicamsdk.20240728/python`）+ `sys.path`/DLL 搜索路径设置。
 - `driver.py` 顶部 `_MIICAM_AVAILABLE = _setup_miicam_sdk()`，成功后 `import miicam`。
-- 直接导入 `from ao_shaping.drivers.ccd.miicam.driver import CameraStreamManager` 的文件：`gs_square_runner.py`, `slm_phase_capture.py`, `slm_gray_response.py`, `micro_dm_image_collect.py`, `validate_flat_phase_gray.py`, 各 miicam 测试。
-- 通过回退层 `from ao_shaping.drivers import CameraStreamManager`（硬件无关）的文件：`pib.py`, `slm_zernike_pib.py`, `gready_cam.py`, `bayes_opt_lr_delta.py`, `combined_optimizer.py`, `rl/envs.py`, `train_data_collect.py`。
+- 直接导入 `from ao_shaping.drivers.ccd.miicam.driver import MIICamera` 的文件：`gs_square_runner.py`, `slm_phase_capture.py`, `slm_gray_response.py`, `micro_dm_image_collect.py`, `validate_flat_phase_gray.py`, 各 miicam 测试。
+- 通过回退层 `from ao_shaping.drivers import MIICamera`（硬件无关）的文件：`pib.py`, `slm_zernike_pib.py`, `gready_cam.py`, `bayes_opt_lr_delta.py`, `combined_optimizer.py`, `rl/envs.py`, `train_data_collect.py`。
 - GUI 文件（`ccd_analyzer.py`, `slm_calibration_ui.py`, `zernike_response_matrix_ui.py`) 在导入前 `sys.modules["miicam"]=types.ModuleType("miicam")` 打桩，避免无 SDK 时加载失败。
 
 ---

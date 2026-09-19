@@ -20,7 +20,7 @@ import numpy as np
 import tqdm
 
 from ao_shaping.algorithm.adam import AdaMOD
-from ao_shaping.drivers import CameraStreamManager
+from ao_shaping.drivers import MIICamera
 from ao_shaping.drivers.dm._registry import get_dm_registry
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.utils import ImageVoltagesDisplay, Recorder, logger
@@ -122,7 +122,7 @@ def optimize_pib(
     epochs = int(epochs)
     recorder = Recorder(mark="pib", mode="max")
 
-    with CameraStreamManager(
+    with MIICamera(
         cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
     ) as cam:
         if dm is None:

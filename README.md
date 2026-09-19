@@ -1127,7 +1127,7 @@ streamlit run src/ao_shaping/gui/r50/ceramic_viewer.py
   - 自动检测: 未指定 `--dm_type` 时自动探测在线 DM，仅一个时自动选取，多个时报错提示
 
 ### 相机
-- **大恒相机系列**: DahengCamManager，支持14位和16位模式
+- **大恒相机系列**: DahengCamera，支持14位和16位模式
 - **MIICAM系列**: MIICamDriver，支持高速采集
 
 ### 空间光调制器
@@ -1203,7 +1203,7 @@ python -c "from ao_shaping.drivers.sim import SimTurbulenceAOEnv; env = SimTurbu
   from loguru import logger
 
   from ao_shaping.config import DM_N_ACTUATORS
-  from ao_shaping.drivers import CameraStreamManager
+  from ao_shaping.drivers import MIICamera
   ```
 
 #### 2. 绝对导入（项目强制规则）
@@ -1491,7 +1491,7 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 
 ### v0.2.0 (2026-03)
 - 新增SLM (Santec SLM200) 支持
-- 重构相机驱动 (DahengCamManager, MIICamDriver)
+- 重构相机驱动 (DahengCamera, MIICamDriver)
 - 支持14位相机模式
 - 新增U-Net+GAN相位预测训练
 - 集成WandB实验跟踪
