@@ -39,15 +39,39 @@ public API within the algorithm package.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
-import torch
 
 from ao_shaping.algorithm.signal_processing.iterative_base import IterativeOptimizer
 from ao_shaping.utils.slm_utils import DEFAULT_WAVELENGTH
 
+if TYPE_CHECKING:  # pragma: no cover – type-only imports
+    import torch
+
+
+def _torch():
+    """Return the ``torch`` module, raising :class:`ImportError` when absent.
+
+    Returns:
+        The ``torch`` top-level module.
+
+    Raises:
+        ImportError: If PyTorch is not installed.
+    """
+    try:
+        import torch as _t
+    except ImportError:
+        raise ImportError(
+            "differentiable_beam requires PyTorch. "
+            "Install with: uv sync --extra ml"
+        ) from None
+    return _t
+
 
 def _to_tensor(x: np.ndarray, device: torch.device) -> torch.Tensor:
     """Convert a real 2D numpy array to a float32 torch tensor on ``device``."""
+    torch = _torch()
     arr = np.asarray(x, dtype=np.float32)
     return torch.from_numpy(arr).to(device)
 
@@ -71,6 +95,7 @@ def differentiable_far_field(
         ``fftshift`` and the complex exponential are differentiable, so the
         returned field carries a grad_fn linking back to ``phase``.
     """
+    torch = _torch()
     amp = _to_tensor(amplitude, phase.device)
     complex_field = amp * torch.exp(1j * phase)
     fft = torch.fft.fft2(complex_field)
@@ -148,6 +173,7 @@ class DifferentiableBeamOptimizer(IterativeOptimizer):
                 or the source amplitude / initial phase shape does not match
                 the target shape.
         """
+        torch = _torch()
         target = np.asarray(target_intensity)
         if target.ndim != 2:
             raise ValueError(f"target_intensity must be 2D, got {target.ndim}D")
@@ -263,6 +289,7 @@ class DifferentiableBeamOptimizer(IterativeOptimizer):
         Returns:
             Scalar MSE loss tensor (differentiable w.r.t. ``i_tensor``).
         """
+        torch = _torch()
         i_norm = i_tensor / (i_tensor.max() + 1e-8)
         return torch.mean((i_norm - self._target_t) ** 2)
 
@@ -310,6 +337,7 @@ class DifferentiableBeamOptimizer(IterativeOptimizer):
             ValueError: If ``measured_intensity`` is not 2D or its shape does
                 not match the target shape.
         """
+        torch = _torch()
         if self._converged:
             return self.current_phase
         self._opt.zero_grad(set_to_none=True)

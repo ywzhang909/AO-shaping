@@ -79,7 +79,7 @@ from ao_shaping.optimizer.wf.zernike_response_matrix import (
     ZernikeResponseMatrixResult,
     save_zernike_response_matrix,
 )
-from ao_shaping.runners.closed_loop import AOClosedLoop
+from ao_shaping.optimizer.wf.closed_loop import AOClosedLoop
 from ao_shaping.tools.slm.slm_zernike_common import (
     DLL_ZERNIKE_ORDER,
     WFS_ZERNIKE_ORDER,

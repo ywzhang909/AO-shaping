@@ -5,6 +5,7 @@ import warnings
 from ao_shaping.utils.spots_calc import (
     center_of_mass_numpy,
     center_of_brightness,
+    power_in_bucket_mask,
 )
 
 
@@ -105,8 +106,7 @@ class ImageTargetFunc:
             tuple[float, float]: 桶功率/面积, 桶中/全部
         """
         pib_mask = self.__get_bucket_mask(pib_radius)
-        pib = np.sum(img[pib_mask])
-        return pib, pib / np.sum(img)
+        return power_in_bucket_mask(img, pib_mask)
 
     def avg_radius(self, img, moment=1.0):
         r = np.sum(self.dist_mat**moment * img)
@@ -152,7 +152,13 @@ class ImageTargetFunc:
         # intensity 复制扩展成3D 与 masks 维度一致
         intensity_3d = np.repeat(intensity[np.newaxis, ...], len(self.masks), axis=0)
         power_in_masks = np.sum(intensity_3d * self.masks, axis=(1, 2))
-        return int(np.argmax(power_in_masks >= power_in_circle) + 1)
+        meets = power_in_masks >= power_in_circle
+        # 当所有 mask 都无法满足阈值时 (np.argmax 在全 False 上返回 0 → 半径 1,
+        # 静默地把 caller 的 bucket radius 塌缩), 必须饱和到最大可用 mask。
+        # 硬件实测: uniform 图像 99% 圆盘装不进 mask 范围, 触发此分支, bucket radius 0.9px。
+        if not np.any(meets):
+            return int(len(self.masks))
+        return int(np.argmax(meets) + 1)
 
     def __get_bucket_mask(self, radius):
         assert 0 < radius < len(self.masks), f"Radius {radius} out of range"

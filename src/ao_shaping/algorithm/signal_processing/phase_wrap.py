@@ -24,6 +24,7 @@ from loguru import logger
 from scipy.ndimage import gaussian_filter, zoom
 
 from ao_shaping.algorithm.signal_processing.iterative_base import IterativeOptimizer
+from ao_shaping.utils.wavefront.zernike_calc import generate_noll_polynomial, noll_to_nm
 
 
 class PhaseWrapOptimizer(IterativeOptimizer):
@@ -532,48 +533,19 @@ class SLMPhaseController:
         max_r = min(cy - 50, cx - 50)
 
         y, x = np.mgrid[0:h, 0:w]
-        y_n = (y - cy) / max_r
-        x_n = (x - cx) / max_r
-        r = np.sqrt(x_n**2 + y_n**2)
-        theta = np.arctan2(y_n, x_n)
+        r = np.sqrt(((x - cx) / max_r) ** 2 + ((y - cy) / max_r) ** 2)
         mask = r <= 1.0
 
+        # Coefficients are ordered Z2..Z15, so Noll index = i + 2. Delegate
+        # each orthonormal Zernike basis to the canonical zernike_calc
+        # implementation so the basis stays single-sourced (see zernike_calc).
         phase = np.zeros((h, w))
-        funcs = _zernike_functions(min(len(a), 15))
-        for i, coeff in enumerate(a[: len(funcs)]):
-            if abs(coeff) > 1e-6:
-                z = funcs[i](r, theta)
-                phase += coeff * 2 * np.pi * z
+        for i, coeff in enumerate(a):
+            if abs(coeff) <= 1e-6:
+                continue
+            n, m = noll_to_nm(i + 2)
+            z = generate_noll_polynomial(n, m, (w, h))
+            phase += coeff * 2 * np.pi * z
 
         phase[~mask] = 0
         return phase
-
-
-# ==================== 泽尼克基函数 ====================
-
-def _zernike_functions(n: int) -> list:
-    """Return the first ``n`` Zernike polynomial functions (Z2, Z3, ...).
-
-    Args:
-        n: Number of functions to return (max 15).
-
-    Returns:
-        List of callables ``f(r, theta) -> np.ndarray``.
-    """
-    functions = [
-        lambda r, t: r * np.cos(t),                     # Z2: tip (x tilt)
-        lambda r, t: r * np.sin(t),                     # Z3: tilt (y tilt)
-        lambda r, t: 2 * r**2 - 1,                     # Z4: defocus
-        lambda r, t: r**2 * np.cos(2 * t),             # Z5: primary astigmatism x
-        lambda r, t: r**2 * np.sin(2 * t),             # Z6: primary astigmatism y
-        lambda r, t: (3 * r**3 - 2 * r) * np.cos(t),   # Z7: primary coma x
-        lambda r, t: (3 * r**3 - 2 * r) * np.sin(t),   # Z8: primary coma y
-        lambda r, t: r**3 * np.cos(3 * t),              # Z9: trefoil x
-        lambda r, t: r**3 * np.sin(3 * t),              # Z10: trefoil y
-        lambda r, t: 6 * r**4 - 6 * r**2 + 1,          # Z11: primary spherical
-        lambda r, t: r**4 * np.cos(4 * t),             # Z12: tetrafoil x
-        lambda r, t: r**4 * np.sin(4 * t),             # Z13: tetrafoil y
-        lambda r, t: (10 * r**5 - 12 * r**3 + 3 * r) * np.cos(t),  # Z14
-        lambda r, t: r**5 * np.cos(5 * t),             # Z15
-    ]
-    return functions[:n]
