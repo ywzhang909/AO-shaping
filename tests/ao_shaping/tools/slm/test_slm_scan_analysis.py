@@ -1,7 +1,7 @@
 """Tests for ``ao_shaping.tools.slm.slm_scan_analysis`` (pure numpy/stdlib helpers).
 
 Covers the 7 public symbols extracted verbatim from the Zernike report scripts
-and ``slm_shift_calib.py``: ``LINEARITY_AMPS``, ``outlier_mask``,
+and ``calibration.py``: ``LINEARITY_AMPS``, ``outlier_mask``,
 ``clamp_shift``, ``parabolic_min``, ``latest_match``, ``group_raw_scan`` and
 ``analyze_linearity`` (all four verdict strings + skip conditions).
 """

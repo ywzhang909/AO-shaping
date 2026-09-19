@@ -22,8 +22,8 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.drivers.ccd import DahengCamera, MIICamera
 from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.utils.hardware_utils import open_camera
 from ao_shaping.utils.slm_lut import (
     build_inverse_lut,
     depth_pattern,
@@ -534,9 +534,9 @@ def run(
             exposure_ms,
         )
         if camera_type == "daheng":
-            camera = DahengCamera(cam_id, exposure_ms).open()
+            camera = open_camera("daheng", cam_id, exposure_ms)
         else:
-            camera = MIICamera(cam_id, exposure_ms).open()
+            camera = open_camera("miicam", cam_id, exposure_ms)
         final_exposure_ms = exposure_ms
 
         # Estimate full-well based on bit depth (for saturation detection)

@@ -1,4 +1,4 @@
-"""SLM LUT (Look-Up Table) Calibration UI
+﻿"""SLM LUT (Look-Up Table) Calibration UI
 
 Features:
 1. Connect to SLM and camera devices
@@ -16,9 +16,6 @@ from __future__ import annotations
 import json
 import sys
 import time
-
-# Mock miicam module before importing ccd package
-import types
 from datetime import datetime
 from pathlib import Path
 
@@ -28,17 +25,20 @@ from loguru import logger
 
 from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
 
+# Mock miicam module before importing ccd package
+import types
+
 if "miicam" not in sys.modules:
     sys.modules["miicam"] = types.ModuleType("miicam")
 
 # Import drivers and calibration module
-from ao_shaping.drivers.ccd import MIICamera
 from ao_shaping.drivers.slm.santec import Santec
-from ao_shaping.drivers.slm.slm_calibration import (
+from ao_shaping.tools.slm.calibration import (
     CalibrationMethod,
     CalibrationResult,
     SantecCalibrator,
 )
+from ao_shaping.drivers.ccd import MIICamera
 
 
 def _initialize_state() -> None:

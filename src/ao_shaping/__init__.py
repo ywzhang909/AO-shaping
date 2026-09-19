@@ -75,9 +75,9 @@ from ao_shaping.drivers.sim.optics import SimulatedSLM
 # Hardware device aliases (gracefully skip if SDK not available)
 try:
     from ao_shaping.drivers import (
+        MIICamera,
         DahengCamera,
         FFmpegCamera,
-        MIICamera,
         MlaRes,
         NlightDM,
         Santec,

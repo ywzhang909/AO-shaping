@@ -18,7 +18,7 @@ Sources (behaviour preserved byte-for-byte)
 -------------------------------------------
 - ``scripts/generate_zernike_linearity_report.py``  (AMPS, _latest, load_groups, analyze)
 - ``scripts/generate_zernike_response_matrix_report.py``  (_latest, _raw_groups)
-- ``src/ao_shaping/tools/slm/slm_shift_calib.py``  (_clamp, parabolic_min)
+- ``src/ao_shaping/tools/slm/calibration.py``  (_clamp, parabolic_min)
 """
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def outlier_mask(arr: np.ndarray, factor: float) -> np.ndarray:
 def clamp_shift(value: float, limit: int) -> int:
     """Round ``value`` and clip to ``[-limit, limit]``.
 
-    Verbatim from ``_clamp`` in ``slm_shift_calib.py`` (keeps the defocus disc
+    Verbatim from ``_clamp`` in ``calibration.py`` (keeps the defocus disc
     inside the SLM panel).
 
     Args:
@@ -75,7 +75,7 @@ def clamp_shift(value: float, limit: int) -> int:
 def parabolic_min(pts: list[tuple[float, float]]) -> float | None:
     """三点抛物线插值细化最小值位置 (``pts`` 需按 x 升序).
 
-    Verbatim from ``slm_shift_calib.py``. Guards: fewer than 3 points → None;
+    Verbatim from ``calibration.py``. Guards: fewer than 3 points → None;
     minimum at an edge → that edge's x; degenerate denominator
     (``|denom| < 1e-12``) or near-zero curvature (``|a| < 1e-12``) → the middle
     point's x; a fitted vertex outside the sampled x-range → the middle point's x.

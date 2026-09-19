@@ -249,8 +249,8 @@ class TestSLMMIICAMCalibration:
         """Basic calibration test placeholder."""
         # This test just verifies the modules can be imported together
         try:
-            from ao_shaping.drivers.ccd.miicam import MIICamera
             from ao_shaping.drivers.slm.santec import Santec
+            from ao_shaping.drivers.ccd.miicam import MIICamera
 
             # Check SLM parameters
             slm = Santec(slm_number=1, wavelength=1064)

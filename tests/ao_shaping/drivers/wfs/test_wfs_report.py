@@ -20,7 +20,7 @@ from tests.ao_shaping.utils.test_report import TestReport, TestWithReport
 
 # Import WFS module
 try:
-    from ao_shaping.drivers.wfs.thorlab import driver as wfs_driver
+    from ao_shaping.drivers.wfs import thorlab_wfs as wfs_driver
 
     WFS_AVAILABLE = True
 except ImportError:

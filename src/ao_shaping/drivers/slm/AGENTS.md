@@ -13,7 +13,7 @@ slm/
 │   ├── slm200_constants.py      # SLM-200 设备硬件常量 (像素/面板/翻转时间)
 │   ├── _slm_win.py              # SDK bindings (internal, Windows)
 │   └── wavefront_correction.py  # 波前误差校正 (CSV → correction map)
-├── slm_calibration.py           # SLM 相位标定 (闪耀光栅法/零级比值法/干涉法/衍射效率法)
+├── slm_calibration.py           # [已合并至 tools/slm/calibration.py] SLM 相位标定 (闪耀光栅法/零级比值法/干涉法/衍射效率法)
 ├── zernike_slm.py               # Zernike 系数驱动 SLM
 ├── README.md                    # SLM 响应标定详细说明
 └── __init__.py
@@ -25,8 +25,8 @@ slm/
 |----|------|------|
 | `Santec` | `santec/driver.py` | Santec 主驱动 (SLM-200/300 共用) |
 | `ZernikeSLM` | `zernike_slm.py` | Zernike 系数驱动 SLM |
-| `SantecCalibrator` | `slm_calibration.py` | 标定器 |
-| `AutoExposureController` | `slm_calibration.py` | 自动曝光控制器 |
+| `SantecCalibrator` | `tools/slm/calibration.py` | 标定器 |
+| `AutoExposureController` | `tools/slm/calibration.py` | 自动曝光控制器 |
 | `WavefrontCorrection` | `santec/wavefront_correction.py` | 波前误差校正 |
 
 ## CSV I/O 统一格式 (2026-09-16 重构)
@@ -113,7 +113,7 @@ Santec.save_phase_to_csv(phase, dest)            # → WavefrontCorrection.save_
 
 **实测结果** (SLM#22030102 + WFS M01219666, 532nm): **`shift_x=106, shift_y=40`**
 (附加倾斜 0.854λ → 0.0245λ, **降低 97.1%**; 原值 (60,0) 附加倾斜 0.46λ)。
-标定脚本: `src/ao_shaping/tools/slm/slm_shift_calib.py`。
+标定脚本: `src/ao_shaping/tools/slm/calibration.py` (shift CLI: `python -m ao_shaping.tools.slm.calibration shift <args>`)。
 
 ### 三个必须遵守的参数约束 (踩过的坑)
 
@@ -165,7 +165,7 @@ X 粗扫 tip 几乎不变 (+0.39→+0.22) 而 tilt 强线性 (+2.72→−1.50); 
 
 ## SLM 标定
 
-详细标定方法见 [`README.md`](./README.md) 和 [`slm_calibration.py`](./slm_calibration.py)。
+详细标定方法见 [`README.md`](./README.md) 和 [`tools/slm/calibration.py`](../../tools/slm/calibration.py)。
 
 详细硬件实测与故障记录见 [`docs/slm_square_spgd/README.md`](../../../../docs/slm_square_spgd/README.md)。
 

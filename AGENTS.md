@@ -368,7 +368,7 @@ from loguru import logger
 **Avoid relative imports in package code:**
 ```python
 # Good
-from ao_shaping.drivers import MIICamera
+from ao_shaping.drivers import MIICamera, DahengCamera
 from ao_shaping.utils.spots_calc import centroid
 
 # Avoid (unless necessary)

@@ -18,7 +18,7 @@ Example:
 
 
 Calibration Example:
-    >>> from ao_shaping.drivers.slm import SantecCalibrator, plot_calibration_result
+    >>> from ao_shaping.tools.slm.calibration import SantecCalibrator, plot_calibration_result
     >>>
     >>> calibrator = SantecCalibrator(slm=slm, camera=camera)
     >>> result = calibrator.calibrate_with_background()
@@ -36,21 +36,3 @@ __all__ = [
 ]
 
 # Note: PatternHelper is in ao_shaping.utils.pattern_helper
-
-
-# 导入标定模块
-from ao_shaping.drivers.slm.slm_calibration import (
-    CalibrationResult,
-    SantecCalibrator,
-    SLMCalibratorBase,
-    calibrate_santec,
-    plot_calibration_result,
-)
-
-__all__ += [
-    "CalibrationResult",
-    "SLMCalibratorBase",
-    "SantecCalibrator",
-    "calibrate_santec",
-    "plot_calibration_result",
-]

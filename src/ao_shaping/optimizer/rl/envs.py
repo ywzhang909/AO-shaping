@@ -3,16 +3,17 @@ import time
 from typing import Any
 
 import gymnasium as gym
-import numpy as np
 from gymnasium import spaces
+import numpy as np
 
 from ao_shaping.drivers import MIICamera, NlightDM
-from ao_shaping.drivers.sim import beam_simulation as bs
 from ao_shaping.drivers.sim.beam_backend import make_beam_config, turbulence_phase
+from ao_shaping.drivers.sim import beam_simulation as bs
+
 from ao_shaping.drivers.sim.compat import (
-    AOConfig,
-    TraditionalAOSystem,
+    TraditionalAOSystem, AOConfig,
 )
+
 
 Far_Cam_ID = int(os.environ.get('Far_Cam_ID', '1'))
 Near_Cam_ID = int(os.environ.get('Near_Cam_ID', '0'))

@@ -41,7 +41,7 @@
 │  │  ├── base.py                 ║      │  │                                                       │ │
 │  │  │   BaseCamera (ABC)        ║←兼容→ │  │  SimulatedCCD                                        │ │
 │  │  ├── daheng.py               ║      │  │  ├── 继承 BaseCamera                                   │ │
-│  │  │   MIICamera     ║      │  │  ├── 物理: 噪声 + 特征生成                             │ │
+│  │  │   DahengCamera            ║      │  │  ├── 物理: 噪声 + 特征生成                             │ │
 │  │  └── miicam.py               ║      │  │  └── 仿真: 曝光/ROI 参数响应                           │ │
 │  │                            ║      │  └────────────────────────────────────────────────────────│ │
 │  │  dm/                       ║      │  sim/optics/                                              │ │
@@ -132,7 +132,7 @@ Device (ABC)                          DeviceRegistry
 
 | 设备类型 | 硬件实现 | 仿真实现 | 物理模型 |
 |----------|----------|----------|----------|
-| **相机 (CCD)** | `MIICamera` (Daheng)<br>`MiiCamDevice` (MiiCam) | `SimulatedCCD` | 噪声叠加<br>高斯斑点生成<br>曝光响应 |
+| **相机 (CCD)** | `DahengCamera` (Daheng)<br>`MIICamera` (MiiCam) | `SimulatedCCD` | 噪声叠加<br>高斯斑点生成<br>曝光响应 |
 | **变形镜 (DM)** | `NLightDM` (UDP) | `SimulateDM` | 电压→变形矩阵<br>邻接耦合<br>电压爬升限制 |
 | **SLM** | `Santec` (SDK) | `SimulatedSLM` | 相位调制<br>Gamma校正<br>波前传播 |
 | **透镜** | -- | `SimulatedLens` | 抛物线相位 |
@@ -626,7 +626,7 @@ Device (ABC)
     │
     └── 具体硬件设备
         ├── NLightDM
-        ├── MIICamera
+        ├── MIICamera / DahengCamera
         └── Santec
 ```
 
@@ -756,7 +756,7 @@ from ao_shaping.drivers import Device, DeviceState, DeviceType
 # 硬件驱动（SDK 不可用时为 None）
 from ao_shaping.drivers import MIICamera
 if MIICamera is None:
-    print("Daheng SDK 未安装，使用 SimulatedCCD 替代")
+    print("MIICAM SDK 未安装，使用 SimulatedCCD 替代")
 
 # Mock 设备（始终可用）
 from ao_shaping.drivers import MockCamera, MockDM
@@ -770,11 +770,18 @@ from ao_shaping.drivers import SimulatedCCD, SimulatedSLM
 ```python
 # drivers/__init__.py 中的模式
 try:
-    from .ccd.daheng import MIICamera
+    from .ccd.miicam import MIICamera
     __all__ += ["MIICamera"]
-except (ImportError, NameError) as e:
-    logging.getLogger(__name__).warning(f"MIICamera not available: {e}")
+except Exception as e:
+    logger.warning(f"MIICamera not available: {e}")
     MIICamera = None
+
+try:
+    from .ccd.daheng import DahengCamera
+    __all__ += ["DahengCamera"]
+except Exception as e:
+    logger.warning(f"DahengCamera not available: {e}")
+    DahengCamera = None
 ```
 
 ---
@@ -1027,7 +1034,7 @@ with open("devices.json") as f:
 | 任务 | 代码 |
 |------|------|
 | 导入设备基类 | `from ao_shaping.drivers import Device, DeviceState` |
-| 导入相机 | `from ao_shaping.drivers import MIICamera` |
+| 导入相机 | `from ao_shaping.drivers import MIICamera, DahengCamera` |
 | 导入仿真相机 | `from ao_shaping.drivers import SimulatedCCD` |
 | 检查硬件可用性 | `if MIICamera is None: ...` |
 | 创建注册表 | `registry = get_global_registry()` |

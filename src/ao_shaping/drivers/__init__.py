@@ -43,20 +43,22 @@ __all__ = [
     "NlightDM",
 ]
 
+MIICamera = None
+DahengCamera = None
+
 try:
-    from ao_shaping.drivers.ccd import DahengCamera
+    from ao_shaping.drivers.ccd.miicam import MIICamera
+
+    __all__ += ["MIICamera"]
+except Exception as miicam_error:
+    logger.debug(f"MIICAM driver not available: {miicam_error}")
+
+try:
+    from ao_shaping.drivers.ccd.daheng import DahengCamera
+
     __all__ += ["DahengCamera"]
-except Exception as e:
-    logger.debug(f"DahengCamera not available: {e}")
-    DahengCamera = None
-    
-try:
-    from ao_shaping.drivers.ccd import MIICamera, MIICAMError
-    __all__ += ["MIICamera", "MIICAMError"]
-except Exception as e:
-    logger.debug(f"MIICamera not available: {e}")
-    MIICamera = None
-    MIICAMError = None
+except Exception as daheng_error:
+    logger.debug(f"Daheng driver not available: {daheng_error}")
 
 try:
     from ao_shaping.drivers.ccd.ffmpeg import FFmpegCamera, FFmpegCameraError

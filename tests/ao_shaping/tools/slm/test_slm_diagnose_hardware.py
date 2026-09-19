@@ -16,7 +16,7 @@ Santec SLM + MiiCam 做端到端自检, 覆盖 ``slm_diagnose.py`` 的独立步�
   要暴露的合法诊断结果。
 
 设备打开方式与 ``slm_diagnose.main`` 同源: ``Santec(slm_number, wavelength,
-video_mode=0)`` + ``utils.slm_camera.open_miicam_camera(cam_id, exposure_ms)``,
+video_mode=0)`` + ``utils.hardware_utils.open_camera("miicam", cam_id, exposure_ms)``,
 仅使用 memory 模式 (video_mode=0), 绝不自动尝试 DVI。
 """
 
@@ -62,14 +62,14 @@ def devices():
     守护, 与 CLI 的 finally 块相同)。
     """
     _require_hardware()
-    from ao_shaping.drivers.ccd import MIICamera
     from ao_shaping.drivers.slm.santec import Santec
+    from ao_shaping.utils.hardware_utils import open_camera
 
     slm = Santec(slm_number=_SLM_NUMBER, wavelength=_SLM_WAVELENGTH_NM, video_mode=0)
     slm.open()
     camera = None
     try:
-        camera = MIICamera(_CAM_ID, _EXPOSURE_MS).open()
+        camera = open_camera("miicam", _CAM_ID, _EXPOSURE_MS)
         yield slm, camera
     finally:
         try:

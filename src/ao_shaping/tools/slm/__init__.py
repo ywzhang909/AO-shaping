@@ -6,7 +6,11 @@
 - slm_diagnose.py — SLM 硬件自检 (freeze/modulate/linearity 三步证据链)
 - slm_phase_response.py — SLM 相位→CCD 响应探针 (离焦/透镜用例 + 共享采集/渲染通道)
 - slm_lut_runner.py — SLM 灰度→相位 LUT 校准工具 (CLI 入口, canonical LUT)
-- calibration.py — SLM+CCD 装配/光束位置/几何标定 (含已废弃的 SLMLUTCalibrator)
+- calibration.py — SLM 标定统一模块 (合并原 drivers/slm/slm_calibration.py 与
+  tools/slm/slm_shift_calib.py): 装配/光束位置/几何标定 (geo CLI: 直接运行
+  `python src/ao_shaping/tools/slm/calibration.py`, `--skip-align` 可跳过) +
+  shift 平移标定 (CLI: `python -m ao_shaping.tools.slm.calibration shift <args>`),
+  含已废弃的 SLMLUTCalibrator
 - slm_scan_analysis.py — SLM 扫描数据分析共享助手 (纯 numpy/stdlib, 无硬件依赖)
 - cartographer/   — SLM 标定综合工具 (余弦图样/Hartmann 波前重建/灰度-LUT/动态补偿)
 

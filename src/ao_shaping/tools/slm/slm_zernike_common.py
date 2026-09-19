@@ -1,6 +1,6 @@
 """SLM Zernike 工具集 — 共享常量与测量原语.
 
-被 `slm_shift_calib` / `slm_zernike_response` / `slm_zernike_correction` /
+被 `calibration` / `slm_zernike_response` / `slm_zernike_correction` /
 `slm_wfs_reference` / `slm_zernike_report` 共同复用, 避免重复实现。
 
 ⚠️ 核心索引约定 (官方手册 + 硬件实测双重确认, **非标准 Noll 1976**)
@@ -421,7 +421,7 @@ def measure_tilt_defocus(
 ) -> tuple[np.ndarray | None, float | None]:
     """多帧中位数聚合, 返回 ``(z_tilt[2] (λ, Noll 2/3), z_defocus (λ, Noll 4))``.
 
-    Verbatim from ``slm_shift_calib.measure_tilt`` (shift 标定共用原语)。
+    Verbatim from ``calibration.measure_tilt`` (shift 标定共用原语)。
     单帧失败不致命, 交由中位数容忍。
 
     Args:

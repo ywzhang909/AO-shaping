@@ -54,7 +54,7 @@ AO-shaping/
 │   │   │   ├── wf/              # 波前优化 (RMS)
 │   │   │   ├── wfless/          # 无波前优化 (PIB)
 │   │   │   └── rl/              # 强化学习 (SAC, LR-WFS)
-│   │   ├── utils/               # 工具函数 (spots_calc, wavefront_calc, targets, beam_metrics, slm_utils, slm_camera, slm_phase, hardware_utils, resample)
+│   │   ├── utils/               # 工具函数 (spots_calc, wavefront_calc, targets, beam_metrics, slm_utils, slm_phase, hardware_utils, resample)
 │   │   ├── tools/               # 独立工具 (tools/slm 包: SLM相位捕获, LUT校准, 扫描分析助手, 硬件自检; Micro-DM逐单元图像采集)
 │   │   ├── display/             # 可视化 (窗口, GUI帧)
 │   │   └── gui/                 # GUI组件 (Streamlit)
@@ -1128,7 +1128,7 @@ streamlit run src/ao_shaping/gui/r50/ceramic_viewer.py
 
 ### 相机
 - **大恒相机系列**: DahengCamera，支持14位和16位模式
-- **MIICAM系列**: MIICamDriver，支持高速采集
+- **MIICAM系列**: MIICamera，支持高速采集
 
 ### 空间光调制器
 - **Santec SLM200**: 支持相位图案生成、缓存和CSV加载/导出
@@ -1203,7 +1203,7 @@ python -c "from ao_shaping.drivers.sim import SimTurbulenceAOEnv; env = SimTurbu
   from loguru import logger
 
   from ao_shaping.config import DM_N_ACTUATORS
-  from ao_shaping.drivers import MIICamera
+  from ao_shaping.drivers import MIICamera, DahengCamera
   ```
 
 #### 2. 绝对导入（项目强制规则）
@@ -1404,7 +1404,7 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 
 ### v0.12.0 (2026-09-17)
 - **共享扫描分析助手** (`tools/slm/slm_scan_analysis.py`): 纯 numpy 提取 `outlier_mask` (Z-score 异常点剔除)、`group_raw_scan` (灰度扫描分批求均值/标准差)、`analyze_linearity` (线性度指标)、`LINEARITY_AMPS`、`latest_match` 等 7 个公共符号; `zernike_matrix_runner` 改用 `outlier_mask` 剔除伪影点; 报告生成脚本 (`generate_zernike_response_matrix_report.py` / `generate_zernike_linearity_report.py`) 委托同一助手, 消除 `calibration.py`/`slm_lut_runner` 中的复刻逻辑
-- **共享相机/相位工具** (`utils/slm_camera.py`, `utils/slm_phase.py`): `open_daheng_camera`/`open_miicam_camera` 工厂 + `flat_gray`/`capture_frame` 等; `micro_dm_image_collect` 迁移到 `slm_camera`, 消除重复初始化代码
+- **共享相机/相位工具** (`utils/hardware_utils.py`, `utils/slm_phase.py`): `open_camera()` 统一相机工厂 + `flat_gray`/`capture_frame` 等; 所有相机打开调用点 (slm_lut_runner, phase_capture, slm_diagnose, micro_dm_image_collect) 统一走 `hardware_utils.open_camera`, 消除 `slm_camera.py` 中间层 (注: `slm_camera.py` 模块随后已删除, 相机打开功能统一收敛至 `utils.hardware_utils.open_camera`)
 - **slm_slot 助手并入 Santec 驱动**: `utils/slm_slot.py` 删除, `SLOT_MIN`/`SLOT_MAX`、`SlotRotator`、`choose_slot`、`read_current_slot`、`apply_lut_remap` 移至驱动内部 (经 `santec/__init__.py` re-export 保持公共面)
 - **calibration.py 拆分**: 离散几何标定 (`SLMCCDCalibrator`, 现行主流程) 与 LUT 标定 (`SLMLUTCalibrator`, `DeprecationWarning` 废弃) 分离; LUT canonical 路径收敛到 `slm_lut_runner` + `utils/slm_lut` → `Santec.load_lut`
 - **tools/slm 迁移到 raw-grayscale 契约**: 扫描分析/校准工具统一走 uint16 直接灰度 (不经弧度转换, 2π=993 周期), 消除 `PatternHelper` 遗留 min-max 归一化
@@ -1491,7 +1491,7 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 
 ### v0.2.0 (2026-03)
 - 新增SLM (Santec SLM200) 支持
-- 重构相机驱动 (DahengCamera, MIICamDriver)
+- 重构相机驱动 (DahengCamera, MIICamera)
 - 支持14位相机模式
 - 新增U-Net+GAN相位预测训练
 - 集成WandB实验跟踪

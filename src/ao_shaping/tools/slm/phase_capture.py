@@ -17,10 +17,11 @@ from pathlib import Path
 import click
 import numpy as np
 import torch
+
 from loguru import logger
 
-from ao_shaping.drivers.ccd import DahengCamera, MIICamera
 from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.utils.hardware_utils import open_camera
 from ao_shaping.utils.pattern_helper import PatternHelper
 from ao_shaping.utils.slm_phase import capture_frame
 
@@ -401,7 +402,7 @@ def run(
             logger.info(
                 f"正在连接Daheng相机 ID={daheng_id}, 曝光={daheng_exposure}ms..."
             )
-            daheng_cam = DahengCamera(daheng_id, daheng_exposure).open()
+            daheng_cam = open_camera("daheng", daheng_id, daheng_exposure)
             logger.info(
                 f"Daheng相机已连接: {daheng_cam.cam_width}x{daheng_cam.cam_height}"
             )
@@ -415,9 +416,9 @@ def run(
             logger.info(
                 f"正在连接MiiCam相机 ID={miicam_id}, 曝光={miicam_exposure}ms..."
             )
-            miicam_cam = MIICamera(
-                miicam_id, miicam_exposure, bit_depth=miicam_bit_depth
-            ).open()
+            miicam_cam = open_camera(
+                "miicam", miicam_id, miicam_exposure, bit_depth=miicam_bit_depth
+            )
             logger.info(
                 f"MiiCam相机已连接: {miicam_cam.cam_width}x{miicam_cam.cam_height}"
             )

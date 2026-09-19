@@ -172,7 +172,7 @@ $$\Delta\phi = \frac{2\pi \cdot \Delta x}{d}$$
 模块提供`AutoExposureController`类用于自动调整相机曝光：
 
 ```python
-from ao_shaping.drivers.slm.slm_calibration import AutoExposureController
+from ao_shaping.tools.slm.calibration import AutoExposureController
 
 # 创建自动曝光控制器
 auto_expo = AutoExposureController(
@@ -200,8 +200,8 @@ optimal_exposure = auto_expo.auto_adjust(n_samples=3)
 
 ```python
 from ao_shaping.drivers.slm.santec import Santec
-from ao_shaping.drivers.slm.slm_calibration import SantecCalibrator
-from ao_shaping.drivers.ccd.daheng import MIICamera
+from ao_shaping.tools.slm.calibration import SantecCalibrator
+from ao_shaping.drivers.ccd.miicam import MIICamera
 
 # 连接设备
 with Santec(slm_number=1) as slm:
@@ -228,7 +228,7 @@ with Santec(slm_number=1) as slm:
         calibrator.save_calibration('calibration_result.json')
         
         # 绘制曲线
-        from ao_shaping.drivers.slm.slm_calibration import plot_calibration_result
+        from ao_shaping.tools.slm.calibration import plot_calibration_result
         plot_calibration_result(result)
 ```
 
@@ -236,8 +236,8 @@ with Santec(slm_number=1) as slm:
 
 ```python
 from ao_shaping.drivers.slm.santec import Santec
-from ao_shaping.drivers.slm.slm_calibration import SantecCalibrator
-from ao_shaping.drivers.ccd.daheng import MIICamera
+from ao_shaping.tools.slm.calibration import SantecCalibrator
+from ao_shaping.drivers.ccd.miicam import MIICamera
 
 with Santec(slm_number=1) as slm:
     # 设置波长（相位范围固定为0~2π）
@@ -265,7 +265,7 @@ with Santec(slm_number=1) as slm:
 
 ```python
 # 干涉法标定
-from ao_shaping.drivers.slm.slm_calibration import InterferometerCalibrator
+from ao_shaping.tools.slm.calibration import InterferometerCalibrator
 
 interferometer_calib = InterferometerCalibrator(
     slm=slm,
@@ -276,7 +276,7 @@ interferometer_calib = InterferometerCalibrator(
 result = interferometer_calib.calibrate()
 
 # 衍射效率法标定
-from ao_shaping.drivers.slm.slm_calibration import DiffractionEfficiencyCalibrator
+from ao_shaping.tools.slm.calibration import DiffractionEfficiencyCalibrator
 
 diffraction_calib = DiffractionEfficiencyCalibrator(
     slm=slm,
@@ -381,13 +381,13 @@ result = diffraction_calib.calibrate()
 
 | 文件 | 说明 |
 |------|------|
-| `slm_calibration.py` | 标定模块主文件 |
-| `slm_calibration.py::CalibrationResult` | 标定结果数据类 |
-| `slm_calibration.py::SantecCalibrator` | 闪耀光栅法/零级比值法标定器 |
-| `slm_calibration.py::InterferometerCalibrator` | 干涉法标定器 |
-| `slm_calibration.py::DiffractionEfficiencyCalibrator` | 衍射效率法标定器 |
-| `slm_calibration.py::AutoExposureController` | 自动曝光控制器 |
-| `slm_calibration.py::SLMCalibratorBase.measure_zero_order_ratio()` | 零级光强比值测量方法 |
+| `tools/slm/calibration.py` | 标定模块主文件 |
+| `tools/slm/calibration.py::CalibrationResult` | 标定结果数据类 |
+| `tools/slm/calibration.py::SantecCalibrator` | 闪耀光栅法/零级比值法标定器 |
+| `tools/slm/calibration.py::InterferometerCalibrator` | 干涉法标定器 |
+| `tools/slm/calibration.py::DiffractionEfficiencyCalibrator` | 衍射效率法标定器 |
+| `tools/slm/calibration.py::AutoExposureController` | 自动曝光控制器 |
+| `tools/slm/calibration.py::SLMCalibratorBase.measure_zero_order_ratio()` | 零级光强比值测量方法 |
 
 ## 参考资料
 

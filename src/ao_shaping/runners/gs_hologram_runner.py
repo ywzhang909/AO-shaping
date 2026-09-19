@@ -16,10 +16,10 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import os
-import re
 import sys
+import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -32,17 +32,17 @@ if __name__ == "__main__":
         sys.path.insert(0, str(_src_root))
 
 import click
-import matplotlib.pyplot as plt
 import numpy as np
-from loguru import logger
+import matplotlib.pyplot as plt
 from PIL import Image
+from loguru import logger
 
 # Import GS algorithm
 from ao_shaping.algorithm.gerchberg_saxton import (
-    GSResult,
+    gerchberg_saxton,
     adaptive_gerchberg_saxton,
     calculate_reconstruction_error,
-    gerchberg_saxton,
+    GSResult,
 )
 from ao_shaping.utils.slm_utils import phase_to_slm_grayscale
 

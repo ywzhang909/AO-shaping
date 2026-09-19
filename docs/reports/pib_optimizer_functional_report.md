@@ -188,7 +188,7 @@ AO‑Shaping/
 | AdaptiveSearchState | `src/ao_shaping/optimizer/wfless/pib.py`              | 71‑94   |
 | LearningSchedule    | `src/ao_shaping/optimizer/wfless/pib.py`              | 117‑180 |
 | 混合扰动生成        | `src/ao_shaping/optimizer/wfless/pib.py`              | 124‑138 |
-| MIICamera | `src/ao_shaping/drivers/ccd/camera_stream_manager.py` | 85‑112  |
+| MIICamera | `src/ao_shaping/drivers/ccd/miicam/driver.py` | 85‑112  |
 | NlightDM 电压约束   | `src/ao_shaping/drivers/dm/nlight_dm.py`              | 47‑63   |
 | AdaMOD 优化器       | `src/ao_shaping/algorithm/adam.py`                    | 120‑250 |
 | Muon 实现           | `src/ao_shaping/algorithm/adam.py`                    | 260‑400 |

@@ -3,6 +3,7 @@ import time
 import numpy as np
 import pytest
 
+
 pytestmark = pytest.mark.skip(
     reason="Requires MIICAM 4100 series camera hardware and SDK"
 )
