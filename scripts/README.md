@@ -933,7 +933,7 @@ python scripts/validate_flat_phase_gray.py --scan --gray-step 50
 
 **What it does:**
 - Opens the SLM in memory mode (`video_mode=0`) and the MiiCam via
-  `CameraStreamManager`
+  `MIICamera`
 - Writes flat phases at the quick gray values `[0, g_pi2, g_pi, g_3pi2, g_2pi,
   1023]` (or a full `--scan` sweep in `--gray-step` increments) using raw
   uint16 grayscale (`np.full`, never through `create_phase_from_array()`)
