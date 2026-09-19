@@ -2,11 +2,14 @@
 
 | Function | NumPy (s) | Numba (s) | CuPy (s) |
 |----------|-----------|-----------|----------|
-| calculate_sharpness | 0.00012158500059740618 | 2.4399998947046696e-05 | 0.0011016680012107827 |
-| crop | 3.622599935624749e-05 | 1.37489999178797e-05 | 0.0011791380000067875 |
-| center_of_mass | 0.00010707999899750575 | 0.0001079810009105131 | 0.0005181819997960702 |
-| center_of_brightness | 1.0423000494483859e-05 | 8.145000028889626e-06 | 0.0006035720004001632 |
+| calculate_sharpness | 4.5589220244437454e-05 | 1.3680052943527698e-05 | N/A |
+| crop | 1.7009712755680085e-05 | 8.912559133023024e-06 | N/A |
+| center_of_mass | 3.778138197958469e-05 | 6.637658691033721e-05 | N/A |
+| center_of_brightness | 2.9151327908039092e-06 | 7.322710007429123e-06 | N/A |
 
 ### CuPy availability
 
-- No CuPy benchmark returned N/A.
+- `calculate_sharpness`: CuPy is not installed in the active Python environment (No module named 'cupy')
+- `crop`: CuPy is not installed in the active Python environment (No module named 'cupy')
+- `center_of_mass`: CuPy is not installed in the active Python environment (No module named 'cupy')
+- `center_of_brightness`: CuPy is not installed in the active Python environment (No module named 'cupy')
