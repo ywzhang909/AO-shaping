@@ -1,0 +1,322 @@
+[
+  {
+    "optimizer": "SGD",
+    "dim": 10,
+    "max_diff": 0.0,
+    "rel_diff": 0.0,
+    "correct": "OK",
+    "cython_ms": 0.6918999715708196,
+    "python_ms": 0.6418999982997775,
+    "speedup": 0.9277352575148583
+  },
+  {
+    "optimizer": "Adam",
+    "dim": 10,
+    "max_diff": 9.313225746154785e-10,
+    "rel_diff": 9.31322503561205e-08,
+    "correct": "OK",
+    "cython_ms": 0.8031000033952296,
+    "python_ms": 6.993799994233996,
+    "speedup": 8.708504500892321
+  },
+  {
+    "optimizer": "AdamW",
+    "dim": 10,
+    "max_diff": 9.313225746154785e-10,
+    "rel_diff": 9.298540959434831e-08,
+    "correct": "OK",
+    "cython_ms": 0.7660000119358301,
+    "python_ms": 7.31469999300316,
+    "speedup": 9.549216552252393
+  },
+  {
+    "optimizer": "AdaMOD",
+    "dim": 10,
+    "max_diff": 1.8189894035458565e-12,
+    "rel_diff": 8.89530369363456e-08,
+    "correct": "OK",
+    "cython_ms": 4.7529999865219,
+    "python_ms": 10.971100011374801,
+    "speedup": 2.308247431619102
+  },
+  {
+    "optimizer": "Muno",
+    "dim": 10,
+    "max_diff": 9.313225746154785e-10,
+    "rel_diff": 9.31322503561205e-08,
+    "correct": "OK",
+    "cython_ms": 0.8761999779380858,
+    "python_ms": 7.197600032668561,
+    "speedup": 8.214563129305578
+  },
+  {
+    "optimizer": "MunoW",
+    "dim": 10,
+    "max_diff": 9.313225746154785e-10,
+    "rel_diff": 9.298540959434831e-08,
+    "correct": "OK",
+    "cython_ms": 1.1433000327087939,
+    "python_ms": 6.958799960557371,
+    "speedup": 6.086591237183865
+  },
+  {
+    "optimizer": "Muon",
+    "dim": 10,
+    "max_diff": 9.313225746154785e-09,
+    "rel_diff": 1.0969374670821708e-06,
+    "correct": "OK",
+    "cython_ms": 2.635599987115711,
+    "python_ms": 34.42040004301816,
+    "speedup": 13.05979671091378
+  },
+  {
+    "optimizer": "AdamNS",
+    "dim": 10,
+    "max_diff": 2.3283064365386963e-10,
+    "rel_diff": 2.3283057259959605e-07,
+    "correct": "OK",
+    "cython_ms": 0.8156999829225242,
+    "python_ms": 7.074900029692799,
+    "speedup": 8.673409559657644
+  },
+  {
+    "optimizer": "SGD",
+    "dim": 100,
+    "max_diff": 0.0,
+    "rel_diff": 0.0,
+    "correct": "OK",
+    "cython_ms": 0.7315999828279018,
+    "python_ms": 0.6846999749541283,
+    "speedup": 0.9358939188427973
+  },
+  {
+    "optimizer": "Adam",
+    "dim": 100,
+    "max_diff": 9.313225746154785e-10,
+    "rel_diff": 9.31322503561205e-08,
+    "correct": "OK",
+    "cython_ms": 1.1310999980196357,
+    "python_ms": 6.409600027836859,
+    "speedup": 5.666696171036143
+  },
+  {
+    "optimizer": "AdamW",
+    "dim": 100,
+    "max_diff": 1.862645149230957e-09,
+    "rel_diff": 1.8577783578166418e-07,
+    "correct": "OK",
+    "cython_ms": 1.0151999886147678,
+    "python_ms": 6.862700043711811,
+    "speedup": 6.759948897434397
+  },
+  {
+    "optimizer": "AdaMOD",
+    "dim": 100,
+    "max_diff": 7.275957614183426e-12,
+    "rel_diff": 9.713819082435293e-08,
+    "correct": "OK",
+    "cython_ms": 6.0591999790631235,
+    "python_ms": 12.126800022087991,
+    "speedup": 2.0013863321875447
+  },
+  {
+    "optimizer": "Muno",
+    "dim": 100,
+    "max_diff": 9.313225746154785e-10,
+    "rel_diff": 9.31322503561205e-08,
+    "correct": "OK",
+    "cython_ms": 1.555900031235069,
+    "python_ms": 6.750300002750009,
+    "speedup": 4.338517814278621
+  },
+  {
+    "optimizer": "MunoW",
+    "dim": 100,
+    "max_diff": 1.862645149230957e-09,
+    "rel_diff": 1.8577783578166418e-07,
+    "correct": "OK",
+    "cython_ms": 1.172300020698458,
+    "python_ms": 7.498499995563179,
+    "speedup": 6.39640012212536
+  },
+  {
+    "optimizer": "Muon",
+    "dim": 100,
+    "max_diff": 3.4924596548080444e-09,
+    "rel_diff": 8.709628787073598e-07,
+    "correct": "OK",
+    "cython_ms": 4.030200012493879,
+    "python_ms": 33.80330000072718,
+    "speedup": 8.387499353862037
+  },
+  {
+    "optimizer": "AdamNS",
+    "dim": 100,
+    "max_diff": 2.3283064365386963e-10,
+    "rel_diff": 2.3283057259959605e-07,
+    "correct": "OK",
+    "cython_ms": 1.4196000411175191,
+    "python_ms": 6.967799970880151,
+    "speedup": 4.908283860991614
+  },
+  {
+    "optimizer": "SGD",
+    "dim": 1000,
+    "max_diff": 0.0,
+    "rel_diff": 0.0,
+    "correct": "OK",
+    "cython_ms": 1.0165999992750585,
+    "python_ms": 1.0824999772012234,
+    "speedup": 1.0648239012130223
+  },
+  {
+    "optimizer": "Adam",
+    "dim": 1000,
+    "max_diff": 1.862645149230957e-09,
+    "rel_diff": 1.86264500712241e-07,
+    "correct": "OK",
+    "cython_ms": 5.427899945061654,
+    "python_ms": 9.78150003356859,
+    "speedup": 1.8020781761955427
+  },
+  {
+    "optimizer": "AdamW",
+    "dim": 1000,
+    "max_diff": 1.862645149230957e-09,
+    "rel_diff": 1.8554965208750218e-07,
+    "correct": "OK",
+    "cython_ms": 4.873600031714886,
+    "python_ms": 10.161999962292612,
+    "speedup": 2.0851116004931742
+  },
+  {
+    "optimizer": "AdaMOD",
+    "dim": 1000,
+    "max_diff": 1.4551915228366852e-11,
+    "rel_diff": 1.5920129214919143e-07,
+    "correct": "OK",
+    "cython_ms": 10.112199990544468,
+    "python_ms": 15.44139999896288,
+    "speedup": 1.5270069829909954
+  },
+  {
+    "optimizer": "Muno",
+    "dim": 1000,
+    "max_diff": 1.862645149230957e-09,
+    "rel_diff": 1.86264500712241e-07,
+    "correct": "OK",
+    "cython_ms": 4.850499972235411,
+    "python_ms": 8.392800053115934,
+    "speedup": 1.730295866644034
+  },
+  {
+    "optimizer": "MunoW",
+    "dim": 1000,
+    "max_diff": 1.862645149230957e-09,
+    "rel_diff": 1.8554965208750218e-07,
+    "correct": "OK",
+    "cython_ms": 4.624199995305389,
+    "python_ms": 9.725699957925826,
+    "speedup": 2.103217846935603
+  },
+  {
+    "optimizer": "Muon",
+    "dim": 1000,
+    "max_diff": 8.149072527885437e-10,
+    "rel_diff": 4.7594409124940285e-07,
+    "correct": "OK",
+    "cython_ms": 16.734200005885214,
+    "python_ms": 42.35479998169467,
+    "speedup": 2.531032255309426
+  },
+  {
+    "optimizer": "AdamNS",
+    "dim": 1000,
+    "max_diff": 2.3283064365386963e-10,
+    "rel_diff": 2.3283057259959605e-07,
+    "correct": "OK",
+    "cython_ms": 6.938700040336698,
+    "python_ms": 8.758199983276427,
+    "speedup": 1.2622249026997048
+  },
+  {
+    "optimizer": "SGD",
+    "dim": 10000,
+    "max_diff": 0.0,
+    "rel_diff": 0.0,
+    "correct": "OK",
+    "cython_ms": 1.5796999796293676,
+    "python_ms": 1.5950000379234552,
+    "speedup": 1.0096854203275216
+  },
+  {
+    "optimizer": "Adam",
+    "dim": 10000,
+    "max_diff": 1.862645149230957e-09,
+    "rel_diff": 1.8626448650138627e-07,
+    "correct": "OK",
+    "cython_ms": 39.55559997120872,
+    "python_ms": 21.182800002861768,
+    "speedup": 0.5355196234737954
+  },
+  {
+    "optimizer": "AdamW",
+    "dim": 10000,
+    "max_diff": 2.7939677238464355e-09,
+    "rel_diff": 2.7830407134388224e-07,
+    "correct": "OK",
+    "cython_ms": 39.16300000855699,
+    "python_ms": 24.120000016409904,
+    "speedup": 0.6158874450665107
+  },
+  {
+    "optimizer": "AdaMOD",
+    "dim": 10000,
+    "max_diff": 1.4551915228366852e-11,
+    "rel_diff": 9.433492920152275e-08,
+    "correct": "OK",
+    "cython_ms": 54.716499987989664,
+    "python_ms": 34.38560001086444,
+    "speedup": 0.628432008962783
+  },
+  {
+    "optimizer": "Muno",
+    "dim": 10000,
+    "max_diff": 1.862645149230957e-09,
+    "rel_diff": 1.8626448650138627e-07,
+    "correct": "OK",
+    "cython_ms": 40.95350002171472,
+    "python_ms": 23.18839996587485,
+    "speedup": 0.5662128988628493
+  },
+  {
+    "optimizer": "MunoW",
+    "dim": 10000,
+    "max_diff": 2.7939677238464355e-09,
+    "rel_diff": 2.7830407134388224e-07,
+    "correct": "OK",
+    "cython_ms": 42.032399971503764,
+    "python_ms": 49.170700018294156,
+    "speedup": 1.1698285144705005
+  },
+  {
+    "optimizer": "Muon",
+    "dim": 10000,
+    "max_diff": 4.3655745685100555e-10,
+    "rel_diff": 7.996588351488754e-07,
+    "correct": "OK",
+    "cython_ms": 152.50169998034835,
+    "python_ms": 104.0062999818474,
+    "speedup": 0.6820009219257874
+  },
+  {
+    "optimizer": "AdamNS",
+    "dim": 10000,
+    "max_diff": 2.3283064365386963e-10,
+    "rel_diff": 2.3283057259959605e-07,
+    "correct": "OK",
+    "cython_ms": 61.40930001856759,
+    "python_ms": 22.128799988422543,
+    "speedup": 0.360349327898734
+  }
+]

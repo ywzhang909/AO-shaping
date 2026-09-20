@@ -88,6 +88,10 @@ import tqdm
 import numpy as np
 
 from ao_shaping.drivers import MIICamera
+from ao_shaping.drivers.ccd.common import (
+    get_camera_exposure_ms,
+    set_camera_exposure_ms,
+)
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.algorithm.gradient.adam import (
     AdaMOD,
@@ -97,6 +101,10 @@ from ao_shaping.algorithm.gradient.adam import (
     Muno,
     MunoW,
     SGD,
+)
+from ao_shaping.algorithm.heuristic.search import (
+    heuristic_algorithm_choices,
+    run_heuristic_search,
 )
 from ao_shaping.utils import logger, Recorder
 from ao_shaping.utils.io.file import gen_date_dir, gen_date_str
@@ -784,6 +792,8 @@ def optimize_slm_square(
     zernike_radius: float | int | None = None,
     zernike_mask: np.ndarray | None = None,
     rotation_search_deg: float = 0.0,
+    algorithm: str = "spgd",
+    pop_size: int | None = None,
     **kwargs,
 ) -> Recorder:
     """Optimize square beam uniformity using SLM with Zernike coefficient control.
@@ -850,6 +860,13 @@ def optimize_slm_square(
     delta = abs(delta)
     epochs = int(epochs)
     rng = np.random.default_rng(random_seed)
+
+    algorithm = str(algorithm).lower()
+    if algorithm not in heuristic_algorithm_choices(include_spgd=True):
+        raise ValueError(
+            f"algorithm must be one of {heuristic_algorithm_choices()}, "
+            f"got {algorithm!r}"
+        )
 
     # 目标方形参数二选一: 边长(像素) 或 平均亮度, 同时给出报错
     if target_side > 0 and target_mean_brightness > 0:
@@ -962,6 +979,19 @@ def optimize_slm_square(
             _dim,
             _rot_delta,
         )
+
+    # Heuristic-search bounds: zernike coefficients are clipped to ±5, freeform
+    # parameters are radians. Rotation is an extra DOF with its own bounds, which
+    # the shared driver's single (lo, hi) cannot express — reject that combination
+    # instead of searching with wrong bounds.
+    if algorithm != "spgd" and _has_rotation:
+        raise ValueError(
+            "启发式搜索暂不支持 rotation_search_deg > 0 "
+            "(旋转角是额外自由度, 与统一 bounds 不兼容); 请使用 --algorithm spgd"
+        )
+    _heuristic_bounds: tuple[float, float] = (
+        _param_clip if _param_clip is not None else (-np.pi, np.pi)
+    )
 
     with (
         MIICamera(
@@ -1137,7 +1167,7 @@ def optimize_slm_square(
 
         logger.info(
             f"Centroid brightness: {_img[center[1], center[0]]}@{center}, "
-            f"Max brightness: {np.max(_img)} @ {cam.exposure_time}ms"
+            f"Max brightness: {np.max(_img)} @ {get_camera_exposure_ms(cam)}ms"
         )
 
         # 注意: 整形过程不对 CCD 开窗 resize (用户要求) —— 保持全帧采集。
@@ -1146,7 +1176,7 @@ def optimize_slm_square(
 
         # Set exposure
         if exposure_time_ms > 0:
-            cam.exposure_time = exposure_time_ms
+            set_camera_exposure_ms(cam, exposure_time_ms)
             init_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
         elif 0 < target_max_brightness < 255 and target_max_brightness > 0:
             init_img = cam.auto_exposure(
@@ -1159,7 +1189,7 @@ def optimize_slm_square(
                 n_sample=20,
             )
         logger.debug(
-            f"Initial Image Max brightness: {np.max(init_img)} @ {cam.exposure_time}ms"
+            f"Initial Image Max brightness: {np.max(init_img)} @ {get_camera_exposure_ms(cam)}ms"
         )
 
         # Re-detect the spot centre on the (full-frame) image so the target box
@@ -1234,7 +1264,7 @@ def optimize_slm_square(
                 "lr": lr,
                 "delta": delta,
                 "_epoch": 0,
-                "exp_t": cam.exposure_time,
+                "exp_t": get_camera_exposure_ms(cam),
                 "max_brt": np.max(init_img),
                 "mean_b": mean_int,
                 "target_mean_b": target_mean_brightness,
@@ -1243,6 +1273,128 @@ def optimize_slm_square(
                 "best_quality": best_quality,
             }
         )
+
+        # pygame 实时显示 (2×2 面板), 初始化失败则禁用显示但不中断优化
+        display_stack = contextlib.ExitStack()
+        display_ctx: _SPGDDisplay | None = None
+        if show:
+            try:
+                display_ctx = _SPGDDisplay(active_modes=_active_modes)
+                display_stack.enter_context(display_ctx)
+            except Exception as _e:
+                logger.warning("pygame显示初始化失败, 本次运行禁用显示: {}", _e)
+                display_ctx = None
+                display_stack.close()
+
+        # ── Black-box heuristic search branch (shared driver) ──────────────
+        if algorithm != "spgd":
+            last_eval: dict = {}
+
+            def _evaluate_quality(params: np.ndarray) -> float:
+                """Load one phase and return its RAW square-quality score."""
+                slm.display_data(_params_to_gray(params))
+                time.sleep(SLM_RESPONSE_TIME_S)
+                img = cam.get_numpy_image(CAM_SAMPLE_ITER)
+                _cost, _cv, _mean = square_uniformity_cost(img, center, target_side)
+                _ee = square_encircled_energy(img, center, target_side)
+                _ar = square_aspect_ratio(img, center, target_side)
+                _q = square_quality_score(
+                    _cv, _ee, _ar, w_uniformity, w_efficiency, w_aspect
+                )
+                last_eval.update(
+                    {
+                        "img": img,
+                        "cost": float(_cost),
+                        "cv": float(_cv),
+                        "ee": float(_ee),
+                        "ar": float(_ar),
+                        "mean": float(_mean),
+                        "gray": _params_to_gray(params),
+                    }
+                )
+                return float(_q)
+
+            with tqdm.tqdm(
+                total=None, desc=f"slm_square {algorithm}", dynamic_ncols=True
+            ) as hbar:
+
+                def _on_evaluate(params: np.ndarray, value: float, index: int) -> None:
+                    nonlocal best_quality, best_cost, best_cv, best_ee, best_ar
+                    nonlocal best_c, best_img, last_best_epoch
+                    if value > best_quality + 1e-6:
+                        best_quality = float(value)
+                        best_cost = last_eval["cost"]
+                        best_cv = last_eval["cv"]
+                        best_ee = last_eval["ee"]
+                        best_ar = last_eval["ar"]
+                        best_c = np.asarray(params, dtype=np.float64).copy()
+                        best_img = last_eval["img"].copy()
+                        last_best_epoch = index
+
+                    row = {
+                        "J": last_eval["cost"],
+                        "quality": float(value),
+                        "cv": last_eval["cv"],
+                        "ee": last_eval["ee"],
+                        "ar": last_eval["ar"],
+                        "side": target_side,
+                        "_c": np.asarray(params, dtype=np.float64),
+                        "_img": last_eval["img"],
+                        "_diff": 0.0,
+                        "lr": 0.0,
+                        "delta": float(delta),
+                        "_epoch": index,
+                        "exp_t": get_camera_exposure_ms(cam),
+                        "max_brt": float(np.max(last_eval["img"])),
+                        "mean_b": last_eval["mean"],
+                        "target_mean_b": target_mean_brightness,
+                        "_grad": np.zeros_like(params),
+                        "optimizer": algorithm,
+                    }
+                    recorder.append(row)
+
+                    if display_ctx is not None:
+                        try:
+                            display_ctx.update(
+                                phase_gray=last_eval["gray"],
+                                coeffs=np.asarray(params, dtype=np.float64),
+                                img=last_eval["img"],
+                                epoch=index,
+                                quality=float(value),
+                                cv=last_eval["cv"],
+                                ee=last_eval["ee"],
+                            )
+                        except Exception:
+                            pass
+
+                    hbar.set_postfix({k: v for k, v in row.items() if k[0] != "_"})
+                    hbar.update(1)
+
+                result = run_heuristic_search(
+                    algorithm,
+                    _evaluate_quality,
+                    dim=_dim,
+                    iterations=epochs,
+                    bounds=_heuristic_bounds,
+                    x0=_params,
+                    maximize=True,
+                    seed=random_seed,
+                    pop_size=pop_size,
+                    on_evaluate=_on_evaluate,
+                )
+
+            # Leave the best phase found on the SLM.
+            slm.display_data(_params_to_gray(result.best_x))
+            logger.info(
+                "{} search finished: best quality={:.4f} over {} evaluations "
+                "(epoch {})",
+                algorithm,
+                result.best_value,
+                result.evaluations,
+                last_best_epoch,
+            )
+            display_stack.close()
+            return recorder
 
         # Create optimizer
         optimizer = _create_optimizer(
@@ -1264,18 +1416,6 @@ def optimize_slm_square(
             )
             optimizer.lr *= _param_scale
             delta *= _param_scale
-
-        # pygame 实时显示 (2×2 面板), 初始化失败则禁用显示但不中断优化
-        display_stack = contextlib.ExitStack()
-        display_ctx: _SPGDDisplay | None = None
-        if show:
-            try:
-                display_ctx = _SPGDDisplay(active_modes=_active_modes)
-                display_stack.enter_context(display_ctx)
-            except Exception as _e:
-                logger.warning("pygame显示初始化失败, 本次运行禁用显示: {}", _e)
-                display_ctx = None
-                display_stack.close()
 
         # Main optimization loop
         with tqdm.tqdm(
@@ -1404,7 +1544,7 @@ def optimize_slm_square(
                     "_epoch": epoch,
                     "_c": eval_c,
                     "_img": eval_img,
-                    "exp_t": cam.exposure_time,
+                    "exp_t": get_camera_exposure_ms(cam),
                     "max_brt": max_brightness,
                     "mean_b": (pos_mean + neg_mean) / 2,
                     "target_mean_b": target_mean_brightness,

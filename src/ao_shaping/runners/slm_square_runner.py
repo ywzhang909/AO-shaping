@@ -44,6 +44,7 @@ import click
 import numpy as np
 from loguru import logger
 
+from ao_shaping.algorithm.heuristic.search import heuristic_algorithm_choices
 from ao_shaping.utils.io.cli_helpers import get_debug_mode, get_date_dir_name
 
 
@@ -95,7 +96,20 @@ from ao_shaping.utils.io.cli_helpers import get_debug_mode, get_date_dir_name
     "--optimizer",
     default="adamod",
     type=str,
-    help="优化器: adam/adamod/sgd/muno (default: adamod)",
+    help="优化器: adam/adamod/sgd/muno (default: adamod; 仅 --algorithm spgd 生效)",
+)
+@click.option(
+    "--algorithm",
+    type=click.Choice(list(heuristic_algorithm_choices()), case_sensitive=False),
+    default="spgd",
+    show_default=True,
+    help="搜索算法: spgd (SPGD 梯度) 或启发式 (ga/pso/sa/hc/rs/cem/de)",
+)
+@click.option(
+    "--pop_size",
+    type=int,
+    default=None,
+    help="种群规模 (ga/pso/cem/de 使用; 默认取算法默认值)",
 )
 @click.option("--seed", default=None, type=int, help="随机种子 (default: None)")
 @click.option("--show", is_flag=True, default=False, help="显示中间图像")
@@ -176,6 +190,8 @@ def run(
     slm_number: int,
     slm_wavelength: int,
     optimizer: str,
+    algorithm: str,
+    pop_size: int | None,
     seed: int | None,
     show: bool,
     target_brightness: int,
@@ -348,6 +364,8 @@ def run(
         slm_number=slm_number,
         slm_wavelength=slm_wavelength,
         optimizer_type=optimizer,
+        algorithm=algorithm,
+        pop_size=pop_size,
         random_seed=seed,
         w_uniformity=w_uniformity,
         w_efficiency=w_efficiency,

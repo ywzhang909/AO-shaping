@@ -819,6 +819,54 @@ into `-o/--output`, default `docs/slm_pib_heuristic_hw/`):
 > 0.1 rad the SPGD gradient is dominated by measurement noise, which is why the
 > gradient baselines underperform the heuristics on the shaping objective.
 
+### compare_shape_objectives.py
+
+Compares shaping **objective functions** with the algorithm pinned to a single fast
+search, on the real bench (needs hardware: Santec SLM-200 + camera).
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src;libs"
+python scripts/compare_shape_objectives.py
+python scripts/compare_shape_objectives.py --epochs 80 --algorithm sa
+```
+
+**What it does** — the ONLY variable is the objective; everything else is fixed:
+- algorithm pinned (`--algorithm`, default `sa`, 82 device loads ≈ 70 s per variant);
+- one **fixed target ROI** for every run: rectangle anchored at the fixed spot
+  centre, short side = `TARGET_BOX_WAIST_FACTOR` × the flat-field spot **waist**
+  (2 × w0, measured by `spot_waist_sigma` — NOT the 99 %-encircled radius, which
+  the stray halo inflates ~2×);
+- each variant is judged by ONE common yardstick inside that box, independent of
+  what it optimised: `energy = ΣI[box]/ΣI` (full-frame denominator, so the
+  absolute value is small by construction), `CV = std/mean` (LOWER = more
+  uniform), `peak = max/mean` (lower = fewer hot spots). The box is placed on the
+  spot **located by argmax inside each frame** (the camera can clamp the requested
+  raw window, so the spot is not at the geometric centre).
+
+Variants: `shape` default, `shape` uniformity-heavy (`w_uniformity=5, w_peak=0`),
+`shape` energy-only (`w_uniformity=0, w_peak=0`), `shape` log-uniformity, `roi_pib`.
+
+**Outputs** (into `-o/--output`, default `docs/slm_pib_heuristic_hw/`):
+- `objectives/<n>_<slug>_spot.png` — best un-windowed frame per variant with the target box drawn and the yardstick annotated;
+- `objectives_summary.png` — CV / energy / peak bars per variant;
+- `objectives.csv` — the raw numbers;
+- an `<!-- OBJECTIVES_START --> … <!-- OBJECTIVES_END -->` section **appended idempotently** to `--append-to` (default `docs/slm_pib_heuristic_hw/report.md`), so re-runs replace rather than duplicate it.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--algorithm` / `--epochs` | `sa` / `80` | pinned algorithm / iterations |
+| `--cam-type` / `--cam-id` / `--cam-size` | `daheng` / `0` / `320` | camera backend / id / window |
+| `--exposure-ms` / `--target-brightness` | `0.0` / `180` | `0` = auto-expose |
+| `--zoom` | `300` | display zoom box (px) around the spot |
+| `--append-to` | `docs/slm_pib_heuristic_hw/report.md` | report to append the section to |
+| `-o, --output` | `docs/slm_pib_heuristic_hw` | output directory |
+
+> ⚠️ **Measured (2026-09-20, fixed SA, fixed ROI = 21 px = 2×waist)**: CV 0.259 (energy-only)
+> / 0.263 (`roi_pib`) / 0.273 (`e-5u`) / 0.278 (`log-u`) / 0.302 (`e-2u-0.5pk`), while repeating
+> the SAME variant gave CV 0.354 then 0.302 — the between-variant spread is **inside the
+> single-run variance**, so no objective can be declared the most uniform from one run.
+
 ### generate_strehl_benchmark_report.py
 
 Benchmarks the 7 heuristic optimizers in `ao_shaping.algorithm` (GA, PSO, SA,

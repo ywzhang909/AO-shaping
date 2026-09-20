@@ -39,6 +39,7 @@ from typing import Any, Literal, cast
 import numpy as np
 import tqdm
 
+from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
 from ao_shaping.algorithm.gradient.adam import (
     SGD,
     Adam,
@@ -52,10 +53,11 @@ from ao_shaping.algorithm.heuristic.search import (
     heuristic_algorithm_choices,
     run_heuristic_search,
 )
-from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
 from ao_shaping.display import SlmZernikeDisplay
 from ao_shaping.drivers.ccd.common import (
     auto_exposure as camera_auto_exposure,
+)
+from ao_shaping.drivers.ccd.common import (
     create_camera,
     get_camera_exposure_ms,
     list_camera_types,
@@ -66,10 +68,10 @@ from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.optimizer.wfless.slm_square_shaping import _zernike_indices
 from ao_shaping.utils import Recorder, logger
-from ao_shaping.utils.io.file import gen_date_dir, gen_date_str
-from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.image.spots_calc import centroid, radius
 from ao_shaping.utils.image.targets import create_target_shape
+from ao_shaping.utils.io.file import gen_date_dir, gen_date_str
+from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
 
 TargetShape = Literal[
@@ -239,8 +241,45 @@ def threshold_spot_center(img: np.ndarray) -> tuple[int, int]:
     return (width // 2, height // 2)
 
 
+def argmax_anchored_center(
+    img: np.ndarray, half_win: int | None = None
+) -> tuple[int, int]:
+    """0-order spot centre: global-argmax anchor + **local** centroid refinement.
+
+    On the 2f bench the 0-order sits at the frame's global maximum (AGENTS.md), so
+    the argmax is a far more reliable anchor than a corner-threshold mask (which
+    jumps to hot pixels) or a full-image centroid (which stray light / reflections
+    drag off the spot). Refinement is restricted to a window around the anchor, so
+    light outside the spot cannot move the centre.
+
+    Returns ``(x, y)`` in pixels. All-dark frames return the frame centre.
+    """
+    frame = np.asarray(img)
+    if frame.ndim != 2 or frame.size == 0:
+        raise ValueError(f"img must be a non-empty 2D array, got shape {frame.shape}")
+    height, width = frame.shape
+    if float(frame.max()) <= 0.0:
+        return (width // 2, height // 2)
+
+    anchor_y, anchor_x = np.unravel_index(int(np.argmax(frame)), frame.shape)
+    win = int(half_win) if half_win else max(int(min(frame.shape) // 20), 8)
+    y0, y1 = max(0, anchor_y - win), min(height, anchor_y + win + 1)
+    x0, x1 = max(0, anchor_x - win), min(width, anchor_x + win + 1)
+
+    patch = frame[y0:y1, x0:x1].astype(np.float64)
+    patch = np.clip(patch - float(np.percentile(patch, 20)), 0.0, None)
+    total = float(patch.sum())
+    if not np.isfinite(total) or total <= 0.0:
+        return (int(anchor_x), int(anchor_y))
+
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    cx = float((patch * xx).sum() / total)
+    cy = float((patch * yy).sum() / total)
+    return (int(round(cx)), int(round(cy)))
+
+
 def clamp_center_to_frame(
-    center: tuple[int, int], frame_shape: tuple[int, int], window: int
+    center: tuple[int|float, int|float], frame_shape: tuple[int|float, int|float], window: int
 ) -> tuple[int, int]:
     """Clamp an ROI centre so a ``window x window`` ROI always fits the frame.
 
@@ -310,6 +349,27 @@ def target_shape_roi(
     else:
         template_h = template_w = max(1, int(round(float(size))))
 
+    # The template MUST fit the frame. A 4:3 rectangle is 33% wider than its short
+    # side, so clamping only by ``min(image_shape)`` (the old auto-size clamp) let
+    # the box run past the window edge and get silently clipped - the metric then
+    # scored a *partial* box while ``energy`` was still divided by the window total.
+    # Scale down uniformly to fit instead, and say so.
+    _fit_scale = min(1.0, height / template_h, width / template_w)
+    if _fit_scale < 1.0:
+        logger.warning(
+            "target ROI {}x{}px does not fit the {}x{} frame - scaled x{:.3f} to "
+            "{}x{}px (increase the camera window / cam_size)",
+            template_w,
+            template_h,
+            width,
+            height,
+            _fit_scale,
+            max(1, int(round(template_w * _fit_scale))),
+            max(1, int(round(template_h * _fit_scale))),
+        )
+        template_h = max(1, int(round(template_h * _fit_scale)))
+        template_w = max(1, int(round(template_w * _fit_scale)))
+
     kwargs: dict[str, Any] = {}
     if shape in {"square", "rectangle"}:
         kwargs["side"] = template_h
@@ -346,6 +406,129 @@ def target_shape_roi(
     return roi
 
 
+def spot_waist_sigma(
+    img: np.ndarray,
+    center: tuple[float, float] | None = None,
+    threshold_ratio: float = 0.1,
+) -> float:
+    """Estimate the flat-field spot **waist** radius ``w0`` (second-moment RMS).
+
+    Only pixels above ``threshold_ratio * max`` contribute, so the broad stray
+    halo (which makes the 99%-encircled-radius estimate far too large) does not
+    inflate the number. For a Gaussian beam the returned RMS radius equals ``w0``;
+    a target box of ``2 * w0`` is the waist diameter.
+    """
+    frame = np.asarray(img, dtype=np.float64)
+    if frame.ndim != 2:
+        raise ValueError(f"img must be 2D, got {frame.ndim}D")
+    peak = float(frame.max())
+    if not np.isfinite(peak) or peak <= 0.0:
+        return 0.0
+    mask = frame >= float(threshold_ratio) * peak
+    weights = np.where(mask, np.clip(frame, 0.0, None), 0.0)
+    total = float(weights.sum())
+    if total <= 0.0:
+        return 0.0
+    ys, xs = np.indices(frame.shape, dtype=np.float64)
+    if center is None:
+        cx = float((weights * xs).sum() / total)
+        cy = float((weights * ys).sum() / total)
+    else:
+        cx, cy = float(center[0]), float(center[1])
+    var_x = float((weights * (xs - cx) ** 2).sum() / total)
+    var_y = float((weights * (ys - cy) ** 2).sum() / total)
+    return float(np.sqrt((max(var_x, 0.0) + max(var_y, 0.0)) / 2.0))
+
+
+def roi_energy_loss(reference: float, current: float) -> float:
+    """Fractional loss of in-ROI energy relative to a reference (0.0 = no loss).
+
+    ``(reference - current) / reference``. A non-positive / non-finite reference
+    means "no protection" and yields ``0.0``. Used by the safety guard: an
+    evaluation whose loss exceeds ``max_roi_energy_loss`` is **abandoned** - it is
+    scored far worse than any valid state so the search never adopts it.
+    """
+    ref = float(reference)
+    cur = float(current)
+    if not np.isfinite(ref) or ref <= 0.0:
+        return 0.0
+    return float((ref - cur) / ref)
+
+
+def roi_pib_metric(
+    img: np.ndarray,
+    center: tuple[float, float],
+    target_shape: str = "rectangle",
+    target_size: float = 44.0,
+    target_aspect_ratio: float = 4.0 / 3.0,
+) -> tuple[float, float]:
+    """Maximise the brightness inside the **target-shaped** ROI ("ROI PIB").
+
+    Returns ``(score, energy)`` with ``score = energy = sum(I[roi]) / sum(I)`` —
+    the fraction of the (in-window) light that lands inside the target rectangle,
+    i.e. the bucket ratio evaluated over the target SHAPE instead of a radius
+    bucket. Properties:
+
+    * exposure / laser-drift invariant (a pure ratio);
+    * unlike a ``-CV``-only objective it cannot be "won" by emptying the target
+      box (an empty box scores 0);
+    * no uniformity / peak / displacement penalty — this is the pure
+      "put as much light as possible into the target" objective.
+    """
+    frame = np.asarray(img, dtype=np.float64)
+    if frame.ndim != 2:
+        raise ValueError(f"img must be 2D, got {frame.ndim}D")
+    height, width = frame.shape
+    roi = target_shape_roi(
+        (height, width),
+        center,
+        target_shape,
+        target_size,
+        target_aspect_ratio,
+    )
+    total = float(frame.sum())
+    if not np.isfinite(total) or total <= 0.0:
+        return 0.0, 0.0
+    energy = float(frame[roi].sum()) / total
+    return float(energy), float(energy)
+
+
+# Coarse→fine schedule for the ``shape`` objective: pulling the energy into the# box first, then flattening it, then shaving hot spots / drift, converges better
+# than one fixed metric for the whole run. Values are
+# (w_uniformity, w_peak, w_displacement); "coarse" is energy-only.
+SHAPE_STAGE_WEIGHTS: dict[str, tuple[float, float, float]] = {
+    "coarse": (0.0, 0.0, 0.0),
+    "middle": (2.0, 0.0, 0.0),
+    "fine": (3.0, 0.5, 0.5),
+}
+
+
+def shape_stage(progress: float) -> str:
+    """Map optimisation progress in ``[0, 1]`` to a coarse/middle/fine stage."""
+    p = float(min(max(progress, 0.0), 1.0))
+    if p < 0.33:
+        return "coarse"
+    if p < 0.66:
+        return "middle"
+    return "fine"
+
+
+def shape_stage_from_energy(energy: float) -> str:
+    """Energy-driven stage for the coarse→fine shaping schedule.
+
+    Keys off the best in-box energy reached so far rather than the iteration
+    index, so it works for the gradient loop *and* for the heuristic searches
+    (which never see an epoch counter): attract power first (``coarse``),
+    then flatten it (``middle``), then shave hot spots / drift (``fine``).
+    """
+    e = float(min(max(energy, 0.0), 1.0))
+    if e < 0.5:
+        return "coarse"
+    if e < 0.8:
+        return "middle"
+    return "fine"
+
+
 def shape_metric(
     img: np.ndarray,
     center: tuple[float, float],
@@ -353,8 +536,26 @@ def shape_metric(
     target_shape: str = "rectangle",
     target_size: float = 44.0,
     target_aspect_ratio: float = 4.0 / 3.0,
+    w_uniformity: float = 2.0,
+    w_peak: float = 0.5,
+    w_displacement: float = 0.5,
+    stage: str | None = None,
+    log_uniformity: bool = False,
 ) -> tuple[float, float]:
-    """Return the dynamic-ROI shaping score and encircled-energy ratio."""
+    """Return the dynamic-ROI shaping score and encircled-energy ratio.
+
+    ``score = energy - w_u*u - w_pk*pk - w_d*d`` where every penalty term is
+    bounded to ``[0, 1)`` (``u = std/mean`` mapped by ``u/(1+u)``,
+    ``pk = max/mean`` mapped by ``(pk-1)/(pk+1)``) so the weights stay
+    comparable and cannot swamp the energy term.
+
+    Args:
+        stage: ``"coarse"``/``"middle"``/``"fine"`` selects the schedule weights
+            from :data:`SHAPE_STAGE_WEIGHTS` (use :func:`shape_stage` on the
+            progress fraction). ``None`` uses the explicit ``w_*`` weights.
+        log_uniformity: use ``log1p(u)`` instead of ``u/(1+u)`` to keep the
+            gradient visible once the ROI is nearly flat.
+    """
     frame = np.asarray(img, dtype=np.float64)
     if frame.ndim != 2:
         raise ValueError(f"img must be 2D, got {frame.ndim}D")
@@ -384,7 +585,25 @@ def shape_metric(
     dx = float(center[0]) - float(reference_center[0])
     dy = float(center[1]) - float(reference_center[1])
     displacement = float(np.hypot(dx, dy) / max(height, width))
-    score = energy - 2.0 * uniformity - 0.5 * peak - 0.5 * displacement
+
+    # Bound each penalty to [0, 1) so a poorly-conditioned term (the ROI std/mean
+    # and max/mean of a sparse box can reach 10+) cannot dominate the energy term.
+    u_term = float(np.log1p(uniformity)) if log_uniformity else float(
+        uniformity / (1.0 + uniformity)
+    )
+    pk_term = float((peak - 1.0) / (peak + 1.0)) if peak > 1.0 else 0.0
+    d_term = float(np.clip(displacement, 0.0, 1.0))
+
+    if stage is not None:
+        if stage not in SHAPE_STAGE_WEIGHTS:
+            raise ValueError(
+                f"stage must be one of {tuple(SHAPE_STAGE_WEIGHTS)}, got {stage!r}"
+            )
+        w_u, w_pk, w_d = SHAPE_STAGE_WEIGHTS[stage]
+    else:
+        w_u, w_pk, w_d = float(w_uniformity), float(w_peak), float(w_displacement)
+
+    score = energy - w_u * u_term - w_pk * pk_term - w_d * d_term
     return float(score), float(energy)
 
 
@@ -400,6 +619,19 @@ def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs: Any) -
 
 
 ZERNIKE_APERTURE_RADIUS = 300.0
+
+# The camera window must be at least this multiple of the target's LONG side.
+# The shaping metric divides the in-box energy by the WINDOW total, so a window
+# barely larger than the target cannot see the energy the shaping pushes out of
+# the box (the measurement would be invalid). Enforced in
+# ``optimize_slm_zernike_pib`` by auto-enlarging the window (with a warning).
+CAM_WINDOW_TARGET_MARGIN = 1.5
+
+# Auto target-box size = this multiple of the flat-field spot WAIST (w0).
+# 2 * w0 is the waist DIAMETER - a real shaping target. (2 x the 99%-encircled
+# radius is dominated by the stray halo and lands ~2x too large, which leaves no
+# shaping headroom at all.)
+TARGET_BOX_WAIST_FACTOR = 2.0
 """Aperture radius (px) the Zernike phase is defined over.
 
 Must match the illuminated beam radius on the SLM. The panel is 1920x1200, so
@@ -581,7 +813,11 @@ def optimize_slm_zernike_pib(
     epochs,
     n_max: int = 4,
     r_bucket=0,
-    delta: float = 0.1,
+    # 0.2 rad, NOT 0.1: the measured noise floor of the shaping objective is
+    # dJ_noise = 4e-4 and a 0.1 rad perturbation moves J by only 2.8e-4
+    # (SNR 0.69 -> the SPGD gradient is noise). 0.2 rad gives SNR 2.77
+    # (measured on the bench by scripts/measure_shape_sensitivity.py).
+    delta: float = 0.2,
     lr: float = 0,
     exposure_time_ms: float = 80.0,
     shrink_iter: int = 0,
@@ -598,11 +834,22 @@ def optimize_slm_zernike_pib(
     algorithm: str = "spgd",
     pop_size: int | None = None,
     random_seed: int | None = None,
-    objective: str = "pib",
-    target_shape: str | None = None,
+    objective: str = "shape",
+    target_shape: str | None = "rectangle",
     target_size: float | None = None,
     target_aspect_ratio: float = 4.0 / 3.0,
     target_center_smooth: int = 3,
+    # NOTE: keep False. Scores from different stages are NOT comparable (the same
+    # frame scores ~e in "coarse" but e-penalties in "fine"), so a baseline
+    # measured in "coarse" becomes unbeatable and every search reports gain=0.
+    # Enabling it needs per-stage best tracking + re-scoring the baseline at the
+    # final stage - see shape_metric(stage=...) for the mechanism.
+    shape_schedule: bool = False,
+    max_roi_energy_loss: float = 0.6,
+    w_uniformity: float = 2.0,
+    w_peak: float = 0.5,
+    w_displacement: float = 0.0,
+    log_uniformity: bool = False,
     zernike_radius: float = ZERNIKE_APERTURE_RADIUS,
     shift_x: int | None = 0,
     shift_y: int | None = 0,
@@ -678,19 +925,21 @@ def optimize_slm_zernike_pib(
             raise ValueError(
                 f"target_shape must be one of {TARGET_SHAPE_CHOICES}, got {target_shape!r}"
             )
-    if target_shape is not None and objective not in ("pib", "shape"):
+    if target_shape is not None and objective not in ("pib", "shape", "roi_pib"):
         raise ValueError(
-            "target_shape can only be used with objective='pib' or 'shape'"
+            "target_shape can only be used with objective='pib', 'shape' or 'roi_pib'"
         )
-    if target_shape is not None:
+    if target_shape is not None and objective != "roi_pib":
+        # Supplying target_shape implies the dynamic-ROI shaping objective, except
+        # for roi_pib where the shape only selects which ROI to maximise inside.
         objective = "shape"
-    if objective == "shape" and target_shape is None:
+    if objective in ("shape", "roi_pib") and target_shape is None:
         target_shape = "rectangle"
     shape_for_metric = cast(TargetShape, target_shape or "rectangle")
-    if objective not in ("pib", "radiu", "avg_radiu", "shape"):
+    if objective not in ("pib", "radiu", "avg_radiu", "shape", "roi_pib"):
         raise ValueError(
-            f"objective must be one of ('pib', 'radiu', 'avg_radiu', 'shape'), "
-            f"got {objective}"
+            f"objective must be one of ('pib', 'radiu', 'avg_radiu', 'shape', "
+            f"'roi_pib'), got {objective}"
         )
     if target_center_smooth < 1:
         raise ValueError(
@@ -704,7 +953,21 @@ def optimize_slm_zernike_pib(
         )
 
     # Optimization mode mapping: pib, avg_radiu and shape are maximized; radiu is minimized
-    objective_mode = "max" if objective in ("pib", "avg_radiu", "shape") else "min"
+    if not 0.0 <= max_roi_energy_loss <= 1.0:
+        raise ValueError(
+            f"max_roi_energy_loss must be within 0..1 (0 disables the guard), "
+            f"got {max_roi_energy_loss!r}"
+        )
+    for _name, _w in (
+        ("w_uniformity", w_uniformity),
+        ("w_peak", w_peak),
+        ("w_displacement", w_displacement),
+    ):
+        if not np.isfinite(_w) or _w < 0.0:
+            raise ValueError(f"{_name} must be a finite, non-negative weight, got {_w!r}")
+    objective_mode = (
+        "max" if objective in ("pib", "avg_radiu", "shape", "roi_pib") else "min"
+    )
     recorder = Recorder(mark=objective, mode=objective_mode)
 
     # History for convergence detection
@@ -721,7 +984,7 @@ def optimize_slm_zernike_pib(
 
     if show:
         # PIB (bucket ratio) is bounded 0..1 -> fixed y-axis; other objectives auto-scale.
-        _curve_y_range = (0.0, 1.0) if objective == "pib" else None
+        _curve_y_range = (0.0, 1.0) if objective in ("pib", "roi_pib") else None
         display_ctx = SlmZernikeDisplay(
             zernike_clip=ZERNIKE_CLIP,
             curve_title=f"{objective} curve",
@@ -764,20 +1027,32 @@ def optimize_slm_zernike_pib(
         _display(slm, initial_phase)
         time.sleep(SLM_RESPONSE_TIME_S)
 
-        # Auto-exposure for initial image (native Daheng path, generic loop for MIICAM)
-        _img = camera_auto_exposure(cam, TEST_EXPOSURE_TIME_BRIGHTNESS)
+        # Initial acquisition used to locate the spot. When a fixed exposure was
+        # requested we honour it here too: auto-exposing to
+        # TEST_EXPOSURE_TIME_BRIGHTNESS can exceed a safe exposure limit (e.g.
+        # >3 ms on this bench) before the operator's chosen value is applied.
+        if exposure_time_ms > 0:
+            set_camera_exposure_ms(cam, exposure_time_ms)
+            _img = cam.get_numpy_image(CAM_SAMPLE_ITER)
+        else:
+            _img = camera_auto_exposure(cam, TEST_EXPOSURE_TIME_BRIGHTNESS)
 
         def intellij_center(img):
-            """Smart centre: threshold centroid, refined by the full centroid
-            when the spot core is not a hole (flat core)."""
+            """Smart centre: argmax-anchored local centroid, refined by the full
+            centroid when the spot core is not a hole (flat core)."""
             (h, w) = img.shape
             margin = int(IDEAL_SPOT_RADIUS)
-            center = threshold_spot_center(img)
+            center = argmax_anchored_center(img)
             (cx, cy) = center
             y0, y1 = max(0, cy - margin), min(h, cy + margin)
             x0, x1 = max(0, cx - margin), min(w, cx + margin)
-            if y1 > y0 and x1 > x0 and np.all(img[y0:y1, x0:x1] >= np.max(img) * 0.4):
-                center = centroid(img)
+            if y1 > y0 and x1 > x0 and np.all(
+                img[y0:y1, x0:x1] >= np.max(img) * 0.4
+            ):
+                # Flat (non-hollow) core: refine with a LOCAL centroid. A
+                # full-image centroid (as intelligen_center does) is dragged tens
+                # of pixels by stray light — measured (1394 vs 958 on this bench).
+                center = argmax_anchored_center(img, half_win=max(margin * 6, 32))
             return center
 
         if center is None:
@@ -789,7 +1064,8 @@ def optimize_slm_zernike_pib(
             elif center == "max":
                 center = np.unravel_index(np.argmax(_img), _img.shape)[::-1]
             elif center == "shape":
-                center = threshold_spot_center(_img)
+                # argmax-anchored local centroid (2f bench: 0-order = frame max)
+                center = argmax_anchored_center(_img)
             else:
                 raise ValueError(f"known center: {center}")
         else:
@@ -808,6 +1084,10 @@ def optimize_slm_zernike_pib(
         # Keep the ROI inside the frame: DahengCamera.reset_window rejects
         # negative offsets, so a spot near an edge would abort the run.
         center = clamp_center_to_frame(center, _img.shape, cam_size)
+        # Full-frame geometry: needed to re-window (enlargement) and to capture
+        # the report's un-windowed before/after frames later on.
+        center_full = (float(center[0]), float(center[1]))
+        full_frame_shape = tuple(int(v) for v in _img.shape)
         img_size, center = cam.reset_window(center, img_size)
         logger.info(f"reset window center @ {center}")
 
@@ -829,18 +1109,80 @@ def optimize_slm_zernike_pib(
             f"@ {get_camera_exposure_ms(cam)}ms"
         )
         img_size = init_img.shape[::-1]
+
+        # Enforce a >= CAM_WINDOW_TARGET_MARGIN x target-long-side window: the
+        # metric's energy denominator is the window total, so the out-of-box
+        # energy must stay visible. Enlarge (and re-capture) when cam_size is
+        # smaller than that, whatever value the caller asked for.
+        _est_extent = (
+            float(target_size)
+            if target_size is not None
+            else min(
+                max(
+                    TARGET_BOX_WAIST_FACTOR * float(spot_waist_sigma(init_img, center)),
+                    4.0,
+                ),
+                float(min(img_size)),
+            )
+        )
+        _long_side = _est_extent * (
+            float(target_aspect_ratio) if shape_for_metric == "rectangle" else 1.0
+        )
+        _required = int(np.ceil(CAM_WINDOW_TARGET_MARGIN * _long_side))
+        if _required > int(img_size[0]):
+            logger.warning(
+                "camera window {}x{} is smaller than {:.1f}x the target long side "
+                "({:.0f}px) - enlarging to {}x{}",
+                img_size[0],
+                img_size[1],
+                CAM_WINDOW_TARGET_MARGIN,
+                _long_side,
+                _required,
+                _required,
+            )
+            _req_center = clamp_center_to_frame(
+                center_full, full_frame_shape, _required
+            )
+            img_size, center = cam.reset_window(_req_center, (_required, _required))
+            center_full = (float(_req_center[0]), float(_req_center[1]))
+            init_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
+            img_size = init_img.shape[::-1]
+            logger.info("camera window enlarged to {}x{}", img_size[0], img_size[1])
+
         reference_center: tuple[float, float] = (
             float(center[0]),
             float(center[1]),
         )
         if target_size is None:
             _w, _h = img_size
-            _target_radius = ImageTargetFunc(_w, _h, reference_center).radius(
-                init_img, energy=0.99
+            # Box = TARGET_BOX_WAIST_FACTOR x the flat-field spot WAIST (not the
+            # 99%-encircled radius, which the stray halo blows up ~2x).
+            _waist = float(spot_waist_sigma(init_img, reference_center))
+            _want = TARGET_BOX_WAIST_FACTOR * _waist
+            logger.info(
+                "spot waist w0 = {:.1f}px -> target box (short side) = {:.1f}px",
+                _waist,
+                _want,
             )
-            target_size = min(
-                max(2.0 * float(_target_radius), 4.0), float(min(img_size))
-            )
+            # Fit by the template's LONG side: a 4:3 rectangle is
+            # ``size * aspect_ratio`` wide, so clamping only by ``min(img_size)``
+            # let the box exceed the window width and get clipped.
+            if shape_for_metric == "rectangle":
+                _fit = min(float(_h), float(_w) / float(target_aspect_ratio))
+            else:
+                _fit = min(float(_h), float(_w))
+            if _want > _fit:
+                logger.warning(
+                    "dynamic target size {:.1f}px ({}x waist) exceeds the "
+                    "{}x{} window fit {:.1f}px - clamped; raise cam_size for a "
+                    "full-size target",
+                    _want,
+                    TARGET_BOX_WAIST_FACTOR,
+                    _w,
+                    _h,
+                    _fit,
+                )
+            target_size = float(min(max(_want, 4.0), _fit))
             logger.info(f"Use dynamic target size @ {target_size:.1f}px")
 
         target_center_smooth = int(target_center_smooth)
@@ -887,26 +1229,54 @@ def optimize_slm_zernike_pib(
             def calc_objective(img):
                 pib, pib_ratio = target_func.pib(img, r_bucket)
                 return pib, pib_ratio
-        elif objective == "shape":
+        elif objective == "roi_pib":
+            # Maximise the brightness inside the TARGET-SHAPED ROI: the fraction of
+            # the light landing in the target rectangle (exposure-invariant ratio,
+            # no uniformity/peak/drift penalties).
             to_min = -1
 
-            def calc_objective_shape(img):
-                measured_center = gauss_center(img)
-                target_center_history.append(
-                    (float(measured_center[0]), float(measured_center[1]))
-                )
-                metric_center = np.mean(
-                    np.asarray(tuple(target_center_history), dtype=np.float64),
-                    axis=0,
-                )
-                return shape_metric(
+            def calc_objective_roi_pib(img):
+                # FIXED target ROI (never tracks the spot) - see calc_objective_shape.
+                return roi_pib_metric(
                     img,
-                    (float(metric_center[0]), float(metric_center[1])),
                     reference_center,
                     shape_for_metric,
                     target_size,
                     target_aspect_ratio,
                 )
+
+            calc_objective = calc_objective_roi_pib
+        elif objective == "shape":
+            to_min = -1
+
+            _shape_state = {"best_energy": 0.0}
+
+            def calc_objective_shape(img):
+                # The target ROI is FIXED at reference_center - it never tracks the
+                # measured spot, so a spot that drifts/scatters out of the box is
+                # penalised instead of being followed (displacement weight = 0 for
+                # the same reason: the energy term already captures the drift).
+                stage = (
+                    shape_stage_from_energy(_shape_state["best_energy"])
+                    if shape_schedule
+                    else None
+                )
+                score, energy = shape_metric(
+                    img,
+                    reference_center,
+                    reference_center,
+                    shape_for_metric,
+                    target_size,
+                    target_aspect_ratio,
+                    w_uniformity=w_uniformity,
+                    w_peak=w_peak,
+                    w_displacement=w_displacement,
+                    stage=stage,
+                    log_uniformity=log_uniformity,
+                )
+                # Monotone: the schedule may only get stricter, never laxer.
+                _shape_state["best_energy"] = max(_shape_state["best_energy"], energy)
+                return score, energy
 
             calc_objective = calc_objective_shape
         elif objective == "radiu":
@@ -924,6 +1294,71 @@ def optimize_slm_zernike_pib(
                 return target_func.avg_radius(img, moment=1.0)
 
             calc_objective = calc_objective_avg
+
+        # --- Safety guard: abandon evaluations that lose too much ROI energy --
+        # Reference = the in-ROI energy of the initial (flat/loaded) frame. Any
+        # evaluation whose in-ROI energy dropped by more than
+        # ``max_roi_energy_loss`` (fraction of that reference) is *abandoned*:
+        # it is scored far worse than any valid state, so the search never adopts
+        # it and the SLM is never left there. ``0`` disables the guard.
+        _raw_calc_objective = calc_objective
+        _guard_ref_energy: float | None = None
+        _guard_violations = 0
+        def _fixed_roi_energy(frame) -> float:
+            """Light fraction inside the **FIXED** target ROI - the guard's observable.
+
+            Deliberately NOT the running (spot-tracking) ROI used by the objective:
+            that one follows the measured spot centre, so it always retains the same
+            energy and could never detect a loss. This ROI stays at
+            ``reference_center`` / ``target_size`` / ``target_shape``.
+            """
+            return roi_pib_metric(
+                frame,
+                reference_center,
+                shape_for_metric,
+                target_size,
+                target_aspect_ratio,
+            )[0]
+
+        if max_roi_energy_loss > 0.0 and objective in ("pib", "shape", "roi_pib"):
+            _ref = float(_fixed_roi_energy(init_img))
+            _guard_ref_energy = _ref if np.isfinite(_ref) and _ref > 0.0 else None
+            if _guard_ref_energy is None:
+                logger.warning(
+                    "ROI energy guard disabled: initial in-ROI energy is {:.6f}", _ref
+                )
+            else:
+                logger.info(
+                    "ROI energy guard armed: reference energy {:.4f}, max loss {:.1%}",
+                    _guard_ref_energy,
+                    max_roi_energy_loss,
+                )
+
+        def calc_objective(img):
+            """Objective wrapped with the ROI energy-loss safety guard.
+
+            Returns a strongly penalised score (and the true ratio for logging)
+            when the in-ROI energy loss exceeds ``max_roi_energy_loss`` - the
+            evaluation is thereby abandoned.
+            """
+            nonlocal _guard_violations
+            j, ratio = _raw_calc_objective(img)
+            if _guard_ref_energy is None:
+                return j, ratio
+            loss = roi_energy_loss(_guard_ref_energy, _fixed_roi_energy(img))
+            if loss > max_roi_energy_loss:
+                _guard_violations += 1
+                if _guard_violations <= 5 or _guard_violations % 50 == 0:
+                    logger.warning(
+                        "ROI energy loss {:.1%} exceeds the {:.1%} limit - "
+                        "evaluation abandoned (#{} violations)",
+                        loss,
+                        max_roi_energy_loss,
+                        _guard_violations,
+                    )
+                bad = j - 1e3 if objective_mode == "max" else j + 1e3
+                return float(bad), float(ratio)
+            return j, ratio
 
         j, pib_ratio = calc_objective(init_img)
 
@@ -1013,6 +1448,7 @@ def optimize_slm_zernike_pib(
 
         def _apply_best_on_exit() -> None:
             """Leave the SLM at the best-found phase (or flat if never improved)."""
+            recorder.energy_loss_violations = _guard_violations
             if not SLM_APPLY_BEST_ON_EXIT:
                 return
             improved = (
@@ -1026,6 +1462,50 @@ def optimize_slm_zernike_pib(
                 )
                 _display(slm, best_phase)
                 time.sleep(SLM_RESPONSE_TIME_S)
+                # Un-windowed (full-frame) before/after for the report: the metric
+                # window hides the energy that leaves the box, so the illustrative
+                # comparison must be captured on the raw sensor.
+                try:
+                    # ``reset_window`` keeps the box centred on ``center`` and
+                    # rejects negative offsets, so the full sensor cannot be asked
+                    # for directly - use the largest box that still fits around the
+                    # centre (effectively un-windowed: ~96% of the frame here).
+                    _fw, _fh = int(full_frame_shape[1]), int(full_frame_shape[0])
+                    _raw_w = 2 * int(min(center_full[0], _fw - center_full[0]))
+                    _raw_h = 2 * int(min(center_full[1], _fh - center_full[1]))
+                    # Some SDK / pixel-format combinations cap the window (observed
+                    # ``Width.range=[4,1680,4]``) and then silently keep the old
+                    # window; shrink until the camera really returns a large frame.
+                    for _attempt in range(4):
+                        try:
+                            cam.reset_window(center_full, (_raw_w, _raw_h))
+                        except (RuntimeError, ValueError, AssertionError) as exc:
+                            logger.warning(
+                                "raw view {}x{} rejected by the camera: {}",
+                                _raw_w,
+                                _raw_h,
+                                exc,
+                            )
+                        _probe = cam.get_numpy_image(CAM_SAMPLE_ITER)
+                        logger.info(
+                            "raw view {}x{} -> frame {}",
+                            _raw_w,
+                            _raw_h,
+                            _probe.shape,
+                        )
+                        if min(_probe.shape) >= 400:
+                            break
+                        _raw_w = max(400, _raw_w // 2)
+                        _raw_h = max(400, _raw_h // 2)
+                    _display(slm, initial_phase)
+                    time.sleep(SLM_RESPONSE_TIME_S)
+                    recorder.raw_before_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
+                    _display(slm, best_phase)
+                    time.sleep(SLM_RESPONSE_TIME_S)
+                    recorder.raw_after_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
+                    recorder.raw_frame_shape = full_frame_shape
+                except (RuntimeError, ValueError, AssertionError) as exc:
+                    logger.warning("raw before/after capture failed: {}", exc)
                 logger.info(
                     "SLM left at best {} phase: {:.4f} @ epoch {} (initial {:.4f})",
                     objective,
@@ -1059,6 +1539,12 @@ def optimize_slm_zernike_pib(
                 _display(slm, candidate_phase)
                 time.sleep(SLM_RESPONSE_TIME_S)
                 img = cam.get_numpy_image(CAM_SAMPLE_ITER)
+                if exposure_time_ms == 0 and float(np.max(img)) >= 255:
+                    # Saturated: re-auto-expose to the requested target, mirroring
+                    # the SPGD loop's guard, so the metric stays on a valid frame.
+                    img = camera_auto_exposure(
+                        cam, target_max_brightness or TEST_EXPOSURE_TIME_BRIGHTNESS
+                    )
                 obj, obj_ratio = calc_objective(img)
                 obj_val = float(test_pib(img)) if objective == "pib" else float(obj)
                 last_eval.update(

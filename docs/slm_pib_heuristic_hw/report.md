@@ -104,3 +104,27 @@ python scripts/generate_slm_pib_heuristic_hw_report.py --exposure-ms 3.0
 
 产物: `camera_frame.png` / `pib_curves.png` / `convergence_speed.png` /
 `spot_before_after.png` / `summary_bars.png` / `summary.csv` / `report.md`。
+
+<!-- OBJECTIVES_START -->
+## 附录: 目标函数对比 (固定算法 SA)
+
+- 算法固定: **`sa`** (80 epochs, ~82 次加载/变体)
+- 固定 ROI: 矩形, 短边 **21.4px** (= 2 x 平场束腰 w0 = 10.7px), 锚定于固定中心 (1085, 1009)
+- 评判口径 (与优化目标无关的同一把尺): 靶内 `energy=ΣI[box]/ΣI`, `CV=std/mean`(越低越均匀), `peak=max/mean`(越低越好)
+
+| 目标函数 | 优化目标 init → best (gain) | 靶内 energy | 靶内 CV | 靶内 peak | 违反护栏 | 图片 |
+|---|---|---|---|---|---|---|
+| shape: e - 2u - 0.5pk (默认) | -1.1808 → -1.1747 (+0.0062) | 0.0040 | 0.302 | 1.79 | 0 | `objectives/01_shape_e2u_pk_spot.png` |
+| shape: e - 5u (重均匀度) | -2.7950 → -2.7598 (+0.0353) | 0.0039 | 0.273 | 1.83 | 0 | `objectives/02_shape_e5u_spot.png` |
+| shape: e (纯能量) | 0.4694 → 0.4768 (+0.0075) | 0.0036 | 0.259 | 1.85 | 0 | `objectives/03_shape_e_spot.png` |
+| shape: e - 2log1p(u) - 0.5pk | -1.9393 → -1.9098 (+0.0295) | 0.0038 | 0.278 | 1.83 | 0 | `objectives/04_shape_logu_spot.png` |
+| roi_pib: 仅靶内亮度 | 0.4605 → 0.4772 (+0.0167) | 0.0034 | 0.263 | 1.84 | 0 | `objectives/05_roi_pib_spot.png` |
+
+**最均匀**: `shape: e (纯能量)` (CV = 0.259, energy = 0.0036)。
+
+![目标函数对比](objectives_summary.png)
+
+> 说明: `CV` 是独立于优化目标的评判量; 各变体 CV 差异 (0.26–0.30) **在单次运行方差内**, 判优需重复多次。
+> 靶框 = 固定 ROI (2×束腰, 锚定于固定中心); 判据在**该框内按 argmax 定位的真实光斑**上测得, 分母是全画幅总能量, 故 `energy` 绝对值小 (0.3–0.4%) 属正常。
+<!-- OBJECTIVES_END -->
+

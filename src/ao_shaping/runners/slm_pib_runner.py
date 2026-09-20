@@ -133,6 +133,26 @@ def _save_debug_artifacts(
     help="优化步长 (default: 0.2; 0.1 时扰动量 SNR≈0.7 淹没在噪声里, 见 measure_shape_sensitivity.py)",
 )
 @click.option(
+    "--max-energy-loss",
+    default=0.6,
+    show_default=True,
+    help="安全保护: ROI 内能量损失超过该比例 (0~1) 即放弃该评估; 0 = 关闭",
+)
+@click.option("--w-uniformity", default=2.0, show_default=True, help="整形: 不均匀度权重")
+@click.option("--w-peak", default=0.5, show_default=True, help="整形: 峰值因子权重")
+@click.option(
+    "--w-displacement",
+    default=0.0,
+    show_default=True,
+    help="整形: 质心偏移权重 (ROI 固定时为 0)",
+)
+@click.option(
+    "--log-uniformity/--no-log-uniformity",
+    default=False,
+    show_default=True,
+    help="整形: 用 log1p(u) 替代 u/(1+u) 以放大近收敛梯度",
+)
+@click.option(
     "--lr",
     default=0.0,
     help="优化学习率 (default: 0.0, 表示基于环围半径动态学习率衰减)",
@@ -193,11 +213,11 @@ def _save_debug_artifacts(
 @click.option(
     "-o",
     "--objective",
-    type=click.Choice(["shape", "pib", "radiu", "avg_radiu"]),
+    type=click.Choice(["shape", "roi_pib", "pib", "radiu", "avg_radiu"]),
     default="shape",
     show_default=True,
-    help="优化目标: shape(整形为长方形, 默认), pib(最大化桶内功率), "
-    "radiu(最小化半径), avg_radiu(最大化平均半径)",
+    help="优化目标: shape(整形为长方形, 默认), roi_pib(最大化目标ROI内亮度), "
+    "pib(最大化桶内功率), radiu(最小化半径), avg_radiu(最大化平均半径)",
 )
 @click.option(
     "--shape-schedule/--no-shape-schedule",
@@ -280,6 +300,11 @@ def run(
     shrink_ratio,
     cam_size,
     shape_schedule,
+    max_energy_loss,
+    w_uniformity,
+    w_peak,
+    w_displacement,
+    log_uniformity,
     target_max_brightness,
     objective,
     target_shape,
@@ -393,6 +418,11 @@ def run(
         init_c=init_c,
         cam_size=cam_size,
         shape_schedule=shape_schedule,
+        max_roi_energy_loss=max_energy_loss,
+        w_uniformity=w_uniformity,
+        w_peak=w_peak,
+        w_displacement=w_displacement,
+        log_uniformity=log_uniformity,
         target_max_brightness=target_max_brightness,
         slm_number=slm_number,
         slm_wavelength=slm_wavelength,
@@ -429,6 +459,7 @@ def run(
         "radiu": "半径",
         "avg_radiu": "平均半径",
         "shape": "动态ROI整形",
+        "roi_pib": "目标ROI内亮度",
     }
     objective_name = objective_names.get(objective, objective)
 

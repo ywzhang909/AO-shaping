@@ -201,7 +201,8 @@ def run_algorithm(
         target_size=args.target_size,
         epochs=epochs,
         n_max=args.n_max,
-        delta=0.1,
+        delta=args.delta,
+        max_roi_energy_loss=args.max_energy_loss,
         cam_id=args.cam_id,
         cam_type=args.cam_type,
         exposure_time_ms=args.exposure_ms,
@@ -234,8 +235,21 @@ def run_algorithm(
     return {
         "pib": pib,
         "curve": curve,
-        "init_img": np.asarray(df.iloc[0]["_img"], dtype=np.float64),
-        "best_img": np.asarray(best_row["_img"], dtype=np.float64),
+        # Report images: prefer the UN-windowed (raw full-frame) captures taken by
+        # the optimizer right after the search (the metric window hides the energy
+        # that leaves the target box); fall back to the window frames if absent.
+        "init_img": np.asarray(
+            getattr(recorder, "raw_before_img", None)
+            if getattr(recorder, "raw_before_img", None) is not None
+            else df.iloc[0]["_img"],
+            dtype=np.float64,
+        ),
+        "best_img": np.asarray(
+            getattr(recorder, "raw_after_img", None)
+            if getattr(recorder, "raw_after_img", None) is not None
+            else best_row["_img"],
+            dtype=np.float64,
+        ),
         "init_pib": float(pib[0]),
         "final_pib": float(best_val),
         # SPGD loads 2 phases per recorder row (v+δ / v−δ); heuristics load 1.
@@ -286,7 +300,7 @@ def fig_curves(results: dict[str, dict], out: Path) -> None:
         x = r["x"]
         ax.plot(x, r["curve"], marker=".", ms=3, lw=1.3, label=f"{name} (max={r['final_pib']:.3f})")
     ax.set_xlabel("设备相位加载次数 (loads)")
-    ax.set_ylabel("最优 PIB (best-so-far)")
+    ax.set_ylabel(f"最优 {_obj_label()} (best-so-far)")
     ax.set_title(f"SLM 相位优化收敛曲线 (真机, 目标: {_obj_label()})")
     ax.grid(alpha=0.3)
     ax.legend(fontsize=9, ncol=2)
@@ -310,7 +324,7 @@ def fig_convergence(results: dict[str, dict], out: Path) -> None:
     ax.set_xticks(x)
     ax.set_xticklabels(names)
     ax.set_ylabel("加载次数")
-    ax.set_title("收敛速度: 达到自身最优 PIB 所需加载次数 (真机)")
+    ax.set_title(f"收敛速度: 达到自身最优{_obj_label()}所需加载次数 (真机)")
     ax.grid(alpha=0.3, axis="y")
     ax.legend()
     fig.tight_layout()
@@ -369,6 +383,28 @@ def write_report(results: dict[str, dict], cam: dict, args) -> str:
     init_pib = results[best_name]["init_pib"]
     inits = [r["init_pib"] for r in results.values()]
     init_lo, init_hi = min(inits), max(inits)
+    init_spread = init_hi - init_lo
+    max_gain = max(r["final_pib"] - r["init_pib"] for r in results.values())
+    finals_sorted = sorted((r["final_pib"] for r in results.values()), reverse=True)
+    top_spread = finals_sorted[0] - finals_sorted[1] if len(finals_sorted) > 1 else 0.0
+    if init_spread > max_gain:
+        variance_note = (
+            f'> ⚠️ **这个"最优"结论不可靠 —— 请看方差**: 本轮各算法的**初始{_obj_label()}相差 '
+            f'{init_spread:.4f}** (范围 **{init_lo:.4f} ~ {init_hi:.4f}**, 全部起始于同一"平场相位"), '
+            f'远大于算法带来的提升 (最大 {max_gain:.4f})。\n'
+            "> 说明**跨轮方差 (光强漂移 / 中心检测不稳定 / 光路状态)** 主导了结果, 而不是算法的优劣。\n"
+            "> 要判断算法优劣必须: ① 加大每算法预算 ② 每个算法重复多次取统计 ③ 先稳定中心检测与光强。"
+        )
+    else:
+        pct = abs(top_spread / max_gain) * 100 if max_gain else 0.0
+        variance_note = (
+            f'> ✅ **方差已受控**: 初始{_obj_label()}散布仅 **{init_spread:.4f}** '
+            f'(范围 **{init_lo:.4f} ~ {init_hi:.4f}**, 同一平场相位), 远小于算法提升 '
+            f'(最大 **{max_gain:.4f}**) —— 固定曝光 + 固定 ROI 中心已消除"每轮重新找中心"的跨轮方差。\n'
+            f'> 但 top-1 (`{best_name.upper()}` {finals_sorted[0]:.4f}) 与 top-2 仅差 '
+            f'**{top_spread:.4f}** (~{pct:.1f}% 提升幅度), **仍在单次运行噪声量级内** '
+            "→ 名次差异不具统计显著性, 判优仍需 ①重复多次取中位数 ②加大预算。"
+        )
     rows = []
     for name, r in sorted(results.items(), key=lambda kv: kv[1]["final_pib"], reverse=True):
         rows.append(
@@ -390,11 +426,7 @@ def write_report(results: dict[str, dict], cam: dict, args) -> str:
 **{results[best_name]["final_pib"] - init_pib:+.4f}**),
 并在 **{_first_load(results[best_name], results[best_name]["final_pib"] - 1e-9) or "—"}** 次加载内达到自身最优。
 
-> ⚠️ **这个"最优"结论不可靠 —— 请看方差**: 本轮各算法的**初始 PIB 相差
-> {init_hi - init_lo:.4f}** (范围 **{init_lo:.4f} ~ {init_hi:.4f}**, 全部起始于同一"平场相位"),
-> 远大于算法带来的提升 (最大 {max(r["final_pib"] - r["init_pib"] for r in results.values()):.4f})。
-> 说明**跨轮方差 (光强漂移 / 中心检测不稳定 / 光路状态)** 主导了结果, 而不是算法的优劣。
-> 要判断算法优劣必须: ① 加大每算法预算 ② 每个算法重复多次取统计 ③ 先稳定中心检测与光强。
+{variance_note}
 
 ## 2. 相机测试
 
@@ -409,7 +441,7 @@ def write_report(results: dict[str, dict], cam: dict, args) -> str:
 
 **光斑不在帧中心** (相差 {abs(cam['spot_center'][0]-cam['frame_center'][0])} px in x) —— 与 `AGENTS.md` 记录一致
 (2f 光路 0 级需用 `argmax`/质心定位, 不可假设几何中心)。`clamp_center_to_frame`
-保证 250×250 开窗一定落在帧内。
+保证 {args.cam_size}×{args.cam_size} 开窗一定落在帧内。
 
 ![相机初始帧](camera_frame.png)
 
@@ -420,7 +452,7 @@ def write_report(results: dict[str, dict], cam: dict, args) -> str:
 | SLM | #{args.slm_number}, 波长 {args.wavelength} nm |
 | 相机 | `{args.cam_type}` id={args.cam_id}, 曝光 {args.exposure_ms} ms (固定) |
 | 目标 | `{args.objective}` ({_obj_label()}), `target_shape={args.target_shape}` (n_max={args.n_max}) |
-| 开窗 | {args.cam_size}×{args.cam_size} |
+| 开窗 | 请求 {args.cam_size}×{args.cam_size}; 实际按 **≥{1.5}× 目标长边** 自动放大 (日志 `camera window enlarged to`) |
 | 中心 | **固定** {args.center} (平场稳定后 {12} 帧 argmax 锚点中位数, 帧间极差 ≤{args.center_spread:.1f}px) |
 | 随机种子 | {args.seed} |
 | 加载语义 | 1 次目标评估 = 1 次 SLM 相位加载 = 1 个迭代单位 |
@@ -463,10 +495,11 @@ def write_report(results: dict[str, dict], cam: dict, args) -> str:
 - **方差控制**: 本次把光源工作点**一次性定死** —— 曝光由自动曝光在平场相位上确定
   ({args.exposure_ms:.3f}ms) 并对所有算法复用; 中心取平场稳定后 12 帧 argmax 锚点的中位数
   {args.center} (帧间极差 ≤{args.center_spread:.1f}px) 并作为**固定 tuple** 传入。
-  这消除了"每轮重新找中心"的方差 (此前各算法初始 PIB 散布 0.05–0.10 的主因)。
-  ⚠️ 但注意 `shape` 评分为**负值**且初始值普遍在 -34 左右 —— 大部分"提升"来自
-  初始 ROI 对齐/开窗的第一次修正, 而非真正的整形质量; 绝对值之间不可横向比较。
-- **限制**: 每算法仅约 30 次加载、单次运行、固定像差与光路状态; 结论为**指示性**。
+  这消除了"每轮重新找中心"的方差。
+  ⚠️ `shape` 评分为**负值**且随中心/ROI 几何与开窗大小变化 → **跨运行绝对值不可比**,
+  只有同一次运行内的 init→final 提升可比。
+  📷 before/after 图片为**未开窗全画幅**采集 (开窗会掩盖被推出目标框的能量)。
+- **限制**: 每算法 82–116 次加载、单次运行、固定像差与光路状态; 结论为**指示性**。
   要下定论请按本脚本加大预算 (改 `ALGORITHMS` 的 epochs/pop_size) 重复多次。
 
 ## 6. 复现
@@ -502,12 +535,25 @@ def main() -> None:
     parser.add_argument("--slm-number", type=int, default=1)
     parser.add_argument("--wavelength", type=int, default=1064)
     parser.add_argument("--n-max", type=int, default=4)
-    parser.add_argument("--cam-size", type=int, default=250)
+    parser.add_argument("--cam-size", type=int, default=320)
+    parser.add_argument(
+        "--delta",
+        type=float,
+        default=0.2,
+        help="SPGD perturbation amplitude (rad); 0.1 is below the metric noise floor",
+    )
+    parser.add_argument(
+        "--max-energy-loss",
+        type=float,
+        default=0.6,
+        help="safety guard: abandon an evaluation whose in-ROI energy dropped more "
+        "than this fraction (0..1) of the initial in-ROI energy (0 = off)",
+    )
     parser.add_argument(
         "--objective",
         default="shape",
-        choices=["shape", "pib", "radiu", "avg_radiu"],
-        help="优化目标 (default: shape = 整形为长方形)",
+        choices=["shape", "roi_pib", "pib", "radiu", "avg_radiu"],
+        help="优化目标 (default: shape = 整形为长方形; roi_pib = 最大化目标ROI内亮度)",
     )
     parser.add_argument(
         "--target-shape", default="rectangle", help="shape 目标形状 (default: rectangle)"

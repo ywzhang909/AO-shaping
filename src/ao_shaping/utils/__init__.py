@@ -46,6 +46,7 @@ from ao_shaping.utils.image.spots_calc import (
     centroid,
     peak_position,
     make_coord,
+    gaussian_waist_radius_four_angles,
     radius,
     effective_radius,
     power_bucket,
