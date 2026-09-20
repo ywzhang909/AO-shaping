@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from click.testing import CliRunner
 
 from ao_shaping.optimizer.wfless.slm_zernike_pib import (
     TARGET_SHAPE_CHOICES,
     gauss_center,
+    optimize_slm_zernike_pib,
     shape_metric,
     target_shape_roi,
 )
@@ -19,6 +21,20 @@ def test_gauss_center_is_subpixel_and_background_robust() -> None:
     center = gauss_center(image, half_win=20)
 
     np.testing.assert_allclose(center, (31.2, 21.7), atol=1e-9)
+
+
+def test_gauss_center_stays_within_point_one_pixel_with_noise() -> None:
+    yy, xx = np.mgrid[:64, :80]
+    rng = np.random.default_rng(7)
+    image = (
+        12.0
+        + rng.normal(0.0, 1.5, size=(64, 80))
+        + 100.0 * np.exp(-((xx - 31.2) ** 2 + (yy - 21.7) ** 2) / (2 * 3.0**2))
+    )
+
+    center = gauss_center(image, half_win=20)
+
+    np.testing.assert_allclose(center, (31.2, 21.7), atol=0.1)
 
 
 def test_target_shape_roi_tracks_center_and_aspect_ratio() -> None:
@@ -85,3 +101,13 @@ def test_slm_pib_cli_exposes_shape_objective_options() -> None:
         "gaussian",
         "pentagon",
     }
+
+
+def test_shape_options_are_validated_before_hardware() -> None:
+    with pytest.raises(ValueError, match="target_shape can only be used"):
+        optimize_slm_zernike_pib(
+            center="shape",
+            epochs=1,
+            objective="radiu",
+            target_shape="circle",
+        )

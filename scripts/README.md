@@ -750,6 +750,75 @@ python scripts/generate_heuristic_pib_report.py
   center `[-4.8,-4.2,-4.5,-4.0]` vs local center `[2.5,3.2,2.2,2.8]`)
 - **设备加载语义**: 设备一次只能加载一个相位, 1 次设备加载 = 1 次相位加载 = 1 次目标函数 (PIB) 评估 = 1 次迭代 (evals_per_iter=1); 表格与 CSV 中的 n_loads 即设备相位加载次数/迭代数。
 
+### generate_slm_pib_heuristic_hw_report.py
+
+**Real-hardware** counterpart: runs the camera test and then every heuristic on the
+physical bench (Santec SLM-200 + Daheng MER2-507 NIR) through
+`optimize_slm_zernike_pib`, writing `docs/slm_pib_heuristic_hw/` (`report.md`,
+`camera_frame.png`, `pib_curves.png`, `convergence_speed.png`, `spot_before_after.png`,
+`summary_bars.png`, `summary.csv`).
+
+```powershell
+$env:PYTHONPATH = "src;libs"   # libs/ REQUIRED for gxipy (Daheng); without it Daheng is unavailable
+python scripts/generate_slm_pib_heuristic_hw_report.py --exposure-ms 3.0
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--cam-type` / `--cam-id` | `daheng` / `0` | camera backend / id |
+| `--exposure-ms` | `3.0` | fixed exposure (this bench: ≤3 ms is safe) |
+| `--slm-number` / `--wavelength` | `1` / `1064` | SLM device / wavelength |
+| `--n-max` / `--cam-size` | `4` / `250` | Zernike order / ROI window |
+| `--seed` | `42` | random seed |
+| `--skip-camera-test` | off | skip the camera section |
+
+> ⚠️ **Budget caveat**: each algorithm runs only ~30–50 device loads (one SLM phase
+> load ≈ 0.3 s settle), and run-to-run variance (light drift / centre detection) has
+> been observed to exceed the algorithm-to-algorithm differences — the "best
+> algorithm" label is indicative only. Increase `ALGORITHMS` budgets and repeat runs
+> before drawing conclusions.
+
+### measure_shape_sensitivity.py
+
+Measures the **sensitivity (noise floor)** of the `slm-pib` shaping objective on the
+real bench — the check that says whether SPGD can see its own gradient at all
+(needs hardware: Santec SLM-200 + camera).
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src;libs"
+python scripts/measure_shape_sensitivity.py
+python scripts/measure_shape_sensitivity.py --deltas 0.02,0.05,0.1,0.2,0.3
+```
+
+**What it does** (writes `sensitivity.json` + `sensitivity.md` (+ `sensitivity.png`)
+into `-o/--output`, default `docs/slm_pib_heuristic_hw/`):
+- **Noise floor**: evaluates the shaping score on `--n-frames` frames of the *same*
+  fixed phase and reports its std (`ΔJ_noise`).
+- **Signal**: for each `Δa` in `--deltas`, writes `c ± Δa` (first Zernike mode =
+  Noll 4 defocus, no tilt), averages `--n-repeat` pairs, and reports
+  `ΔJ_signal = |mean(J+) − mean(J−)|` — exactly what SPGD turns into a gradient.
+- **Verdict**: `SNR = ΔJ_signal / ΔJ_noise` — `>= 3` strong, `>= 2` usable, `< 2`
+  unusable (raise `Δa` toward 0.2 rad, or average more frames per perturbation).
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--cam-type` / `--cam-id` | `daheng` / `0` | camera backend / id |
+| `--cam-size` | `320` | camera window (px), must exceed the target long side |
+| `--slm-number` / `--wavelength` | `1` / `1064` | SLM device / wavelength |
+| `--n-max` | `4` | Zernike order |
+| `--exposure-ms` | `0.0` | fixed exposure (`0` = auto-expose to `--target-brightness`) |
+| `--n-frames` | `10` | frames for the noise floor |
+| `--n-repeat` | `3` | `±Δa` pairs averaged per amplitude |
+| `--deltas` | `0.05,0.1,0.2` | perturbation amplitudes (rad, comma separated) |
+| `-o, --output` | `docs/slm_pib_heuristic_hw` | output directory |
+
+> 🔑 **Measured result (2026-09-20, 3.0 ms / 320×320)**: `ΔJ_noise = 4.0e-4`;
+> `Δa = 0.05 rad → SNR 0.27`, **`0.1 rad → SNR 0.69` (unusable)**,
+> `0.2 rad → SNR 2.77`. Hence the `slm-pib` **`--delta` default is 0.2 rad** — at
+> 0.1 rad the SPGD gradient is dominated by measurement noise, which is why the
+> gradient baselines underperform the heuristics on the shaping objective.
+
 ### generate_strehl_benchmark_report.py
 
 Benchmarks the 7 heuristic optimizers in `ao_shaping.algorithm` (GA, PSO, SA,

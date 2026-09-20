@@ -42,7 +42,8 @@ from ao_shaping.utils.image.spots_calc import (
     power_bucket,
     power_in_bucket_mask,
     pib_ratio_mask,
-    disp
+    disp,
+    gaussian_waist_radius_four_angles,
 )
 
 if CUPY_AVAILABLE:
@@ -425,6 +426,62 @@ class TestCentroid:
 
         assert abs(cx - center[0]) < 2.0, f"x质心={cx}, 期望={center[0]}"
         assert abs(cy - center[1]) < 2.0, f"y质心={cy}, 期望={center[1]}"
+
+
+class TestGaussianWaistRadiusFourAngles:
+    @staticmethod
+    def _gaussian_image(
+        shape: tuple[int, int],
+        center: tuple[float, float],
+        sigma_x: float,
+        sigma_y: float,
+        background: float = 0.1,
+    ) -> np.ndarray:
+        height, width = shape
+        y, x = np.ogrid[:height, :width]
+        return background + np.exp(
+            -((x - center[0]) ** 2 / (2 * sigma_x**2))
+            - ((y - center[1]) ** 2 / (2 * sigma_y**2))
+        )
+
+    def test_isotropic_gaussian_returns_sigma_at_four_angles(self):
+        image = self._gaussian_image((100, 100), (50, 50), 8.0, 8.0)
+        radii = gaussian_waist_radius_four_angles(image)
+
+        assert len(radii) == 4
+        assert np.allclose(radii, 8.0, rtol=0.03)
+
+    def test_anisotropic_gaussian_matches_directional_sigma(self):
+        image = self._gaussian_image((100, 100), (50, 50), 6.0, 12.0)
+        radii = gaussian_waist_radius_four_angles(
+            image, center=(50, 50), half_width=35, num_points=71
+        )
+
+        diagonal_sigma = 1 / np.sqrt(0.5 / 6.0**2 + 0.5 / 12.0**2)
+        expected = (6.0, diagonal_sigma, 12.0, diagonal_sigma)
+        assert np.allclose(radii, expected, rtol=0.03)
+
+    def test_uses_brightest_point_when_center_is_omitted(self):
+        image = self._gaussian_image((100, 100), (35, 60), 7.0, 9.0)
+        radii = gaussian_waist_radius_four_angles(image)
+
+        diagonal_sigma = 1 / np.sqrt(0.5 / 7.0**2 + 0.5 / 9.0**2)
+        expected = (7.0, diagonal_sigma, 9.0, diagonal_sigma)
+        assert np.allclose(radii, expected, rtol=0.03)
+
+    def test_zero_image_returns_failed_fits(self):
+        assert gaussian_waist_radius_four_angles(np.zeros((20, 20))) == (
+            None,
+            None,
+            None,
+            None,
+        )
+
+    def test_rejects_invalid_input(self):
+        with pytest.raises(ValueError):
+            gaussian_waist_radius_four_angles(np.ones((3, 3, 3)))
+        with pytest.raises(ValueError):
+            gaussian_waist_radius_four_angles(np.ones((10, 10)), center=(10, 5))
 
 
 class TestPeakPosition:

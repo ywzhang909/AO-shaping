@@ -53,14 +53,22 @@ plt.rcParams["axes.unicode_minus"] = False
 
 OUT_DIR = ROOT / "docs" / "slm_pib_heuristic_hw"
 
+# Metric label for report text/figure titles, set from --objective in main().
+_OBJECTIVE_LABEL = "pib"
+
+
+def _obj_label() -> str:
+    """Human-readable name of the optimised objective (default: rectangle shaping)."""
+    return "整形评分 (shape)" if _OBJECTIVE_LABEL == "shape" else f"{_OBJECTIVE_LABEL} 评分"
+
 # (algorithm, epochs, pop_size): a comparable ~80-96 device-load budget each
 # (population methods spend pop_size loads per iteration).
 # (label, algorithm, optimizer_type, epochs, pop_size). The gradient baselines
 # (spgd + adamod / spgd + adam) spend 2 loads per epoch, so 45 epochs ≈ 90 loads,
 # comparable to the ~80-96 load budget of the heuristics.
 ALGORITHMS: list[tuple[str, str, str, int, int | None]] = [
-    ("spgd-adamod", "spgd", "adamod", 45, None),
-    ("spgd-adam", "spgd", "adam", 45, None),
+    ("spgd-adamod", "spgd", "adamod", 57, None),
+    ("spgd-adam", "spgd", "adam", 57, None),
     ("ga", "ga", "adamod", 6, 16),
     ("pso", "pso", "adamod", 6, 16),
     ("sa", "sa", "adamod", 80, None),
@@ -212,6 +220,7 @@ def run_algorithm(
     pib = df[args.objective].astype(float).to_numpy()
     curve = np.maximum.accumulate(pib)
     best_row, (best_idx, best_val) = recorder.get_best_iter()
+    evals_per_row = 2 if algorithm == "spgd" else 1
     elapsed = time.perf_counter() - t0
     logger.info(
         "{}: init={:.4f} best={:.4f} @ row {} ({} loads, {:.1f}s)",
@@ -229,7 +238,11 @@ def run_algorithm(
         "best_img": np.asarray(best_row["_img"], dtype=np.float64),
         "init_pib": float(pib[0]),
         "final_pib": float(best_val),
-        "loads": int(len(pib)),
+        # SPGD loads 2 phases per recorder row (v+δ / v−δ); heuristics load 1.
+        # All "loads" numbers in the report are device phase loads, not rows.
+        "evals_per_row": evals_per_row,
+        "loads": int(len(pib)) * evals_per_row,
+        "x": np.arange(1, len(pib) + 1, dtype=float) * evals_per_row,
         "elapsed_s": elapsed,
     }
 
@@ -237,6 +250,12 @@ def run_algorithm(
 def _first_reach(curve: np.ndarray, threshold: float) -> int | None:
     idx = np.flatnonzero(curve >= threshold)
     return int(idx[0] + 1) if idx.size else None
+
+
+def _first_load(result: dict, threshold: float) -> int | None:
+    """Recorder rows → device loads (SPGD spends 2 loads per row)."""
+    rows = _first_reach(result["curve"], threshold)
+    return None if rows is None else int(rows * result.get("evals_per_row", 1))
 
 
 def _spot(img: np.ndarray) -> np.ndarray:
@@ -264,11 +283,11 @@ def fig_camera(info: dict, img: np.ndarray, out: Path) -> None:
 def fig_curves(results: dict[str, dict], out: Path) -> None:
     fig, ax = plt.subplots(figsize=(11, 6))
     for name, r in results.items():
-        x = np.arange(1, r["loads"] + 1)
+        x = r["x"]
         ax.plot(x, r["curve"], marker=".", ms=3, lw=1.3, label=f"{name} (max={r['final_pib']:.3f})")
     ax.set_xlabel("设备相位加载次数 (loads)")
     ax.set_ylabel("最优 PIB (best-so-far)")
-    ax.set_title("SLM-PIB 启发式算法收敛曲线 (真机, Daheng MER2-507 NIR, 3ms)")
+    ax.set_title(f"SLM 相位优化收敛曲线 (真机, 目标: {_obj_label()})")
     ax.grid(alpha=0.3)
     ax.legend(fontsize=9, ncol=2)
     fig.tight_layout()
@@ -278,10 +297,8 @@ def fig_curves(results: dict[str, dict], out: Path) -> None:
 
 def fig_convergence(results: dict[str, dict], out: Path) -> None:
     names = list(results)
-    curves = [results[n]["curve"] for n in names]
-    finals = [results[n]["final_pib"] for n in names]
     metrics = [
-        ("首次达到自身最大值", [_first_reach(c, f - 1e-9) or np.nan for c, f in zip(curves, finals)]),
+        ("首次达到自身最大值", [_first_load(results[n], results[n]["final_pib"] - 1e-9) or np.nan for n in names]),
     ]
     x = np.arange(len(names))
     fig, ax = plt.subplots(figsize=(10, 5))
@@ -327,8 +344,8 @@ def fig_summary_bars(results: dict[str, dict], out: Path) -> None:
     ax.barh(names, vals, color="#55A868")
     for i, v in enumerate(vals):
         ax.text(v + 0.002, i, f"{v:.4f}", va="center", fontsize=9)
-    ax.set_xlabel("最终 PIB")
-    ax.set_title("各启发式算法最终 PIB (真机, 升序)")
+    ax.set_xlabel(f"最终 {_obj_label()}")
+    ax.set_title(f"各算法最终 {_obj_label()} (真机, 升序)")
     ax.grid(alpha=0.3, axis="x")
     fig.tight_layout()
     fig.savefig(out / "summary_bars.png", dpi=150)
@@ -357,10 +374,10 @@ def write_report(results: dict[str, dict], cam: dict, args) -> str:
         rows.append(
             "| {n} | {init:.4f} | {fin:.4f} | {g:+.4f} | {loads} | {tmax} | {sec:.1f} |".format(
                 n=name.upper(), init=r["init_pib"], fin=r["final_pib"], g=r["final_pib"] - r["init_pib"],
-                loads=r["loads"], tmax=_first_reach(r["curve"], r["final_pib"] - 1e-9) or "—", sec=r["elapsed_s"],
+                loads=r["loads"], tmax=_first_load(r, r["final_pib"] - 1e-9) or "—", sec=r["elapsed_s"],
             )
         )
-    md = f"""# SLM-PIB 启发式算法真机基准报告
+    md = f"""# SLM 相位优化真机基准报告 (目标: {_obj_label()})
 
 > 本报告为**真实硬件**实测 (非仿真): Santec SLM-200 + Daheng **MER2-507-23GM NIR** 相机。
 > ⚠️ 每个算法仅约 **{min(r['loads'] for r in results.values())}–{max(r['loads'] for r in results.values())} 次设备加载**
@@ -368,10 +385,10 @@ def write_report(results: dict[str, dict], cam: dict, args) -> str:
 
 ## 1. 结论 (TL;DR)
 
-7 个启发式算法中, **`{best_name.upper()}`** 取得最高最终 PIB
+{len(results)} 个算法配置 (7 启发式 + SPGD/AdamOD/Adam 梯度基线) 中, **`{best_name.upper()}`** 取得最高最终{_obj_label()}
 (**{results[best_name]["final_pib"]:.4f}**, 初始 {init_pib:.4f}, 提升
 **{results[best_name]["final_pib"] - init_pib:+.4f}**),
-并在 **{_first_reach(results[best_name]["curve"], results[best_name]["final_pib"] - 1e-9) or "—"}** 次加载内达到自身最优。
+并在 **{_first_load(results[best_name], results[best_name]["final_pib"] - 1e-9) or "—"}** 次加载内达到自身最优。
 
 > ⚠️ **这个"最优"结论不可靠 —— 请看方差**: 本轮各算法的**初始 PIB 相差
 > {init_hi - init_lo:.4f}** (范围 **{init_lo:.4f} ~ {init_hi:.4f}**, 全部起始于同一"平场相位"),
@@ -402,7 +419,7 @@ def write_report(results: dict[str, dict], cam: dict, args) -> str:
 |---|---|
 | SLM | #{args.slm_number}, 波长 {args.wavelength} nm |
 | 相机 | `{args.cam_type}` id={args.cam_id}, 曝光 {args.exposure_ms} ms (固定) |
-| 目标 | `pib` (最大化桶内能量比), `n_max={args.n_max}` |
+| 目标 | `{args.objective}` ({_obj_label()}), `target_shape={args.target_shape}` (n_max={args.n_max}) |
 | 开窗 | {args.cam_size}×{args.cam_size} |
 | 中心 | **固定** {args.center} (平场稳定后 {12} 帧 argmax 锚点中位数, 帧间极差 ≤{args.center_spread:.1f}px) |
 | 随机种子 | {args.seed} |
@@ -410,13 +427,13 @@ def write_report(results: dict[str, dict], cam: dict, args) -> str:
 
 ## 4. 结果
 
-| 算法 | 初始 PIB | 最终 PIB | 提升 | 加载次数 | 达到自身最优 (loads) | 耗时 (s) |
+| 算法 | 初始{_obj_label()} | 最终{_obj_label()} | 提升 | 加载次数 | 达到自身最优 (loads) | 耗时 (s) |
 |---|---|---|---|---|---|---|
 {chr(10).join(rows)}
 
 ### 4.1 收敛曲线
 
-![PIB 收敛曲线](pib_curves.png)
+![收敛曲线](pib_curves.png)
 
 ### 4.2 收敛速度
 
@@ -426,13 +443,13 @@ def write_report(results: dict[str, dict], cam: dict, args) -> str:
 
 ![初始与最优光斑](spot_before_after.png)
 
-### 4.4 最终 PIB 对比
+### 4.4 最终评分对比
 
-![最终 PIB](summary_bars.png)
+![最终评分](summary_bars.png)
 
 ## 5. 文字总结
 
-- **最优算法: `{best_name.upper()}`** — 最终 PIB {results[best_name]["final_pib"]:.4f} (初始 {init_pib:.4f},
+- **最优算法: `{best_name.upper()}`** — 最终{_obj_label()} {results[best_name]["final_pib"]:.4f} (初始 {init_pib:.4f},
   提升 {results[best_name]["final_pib"] - init_pib:+.4f}), 用
   {results[best_name]["loads"]} 次加载 / {results[best_name]["elapsed_s"]:.1f}s。
 - 所有算法都提升了远场桶内能量比, 但**在相同的 ~30 次加载预算下差异明显**:
@@ -447,6 +464,8 @@ def write_report(results: dict[str, dict], cam: dict, args) -> str:
   ({args.exposure_ms:.3f}ms) 并对所有算法复用; 中心取平场稳定后 12 帧 argmax 锚点的中位数
   {args.center} (帧间极差 ≤{args.center_spread:.1f}px) 并作为**固定 tuple** 传入。
   这消除了"每轮重新找中心"的方差 (此前各算法初始 PIB 散布 0.05–0.10 的主因)。
+  ⚠️ 但注意 `shape` 评分为**负值**且初始值普遍在 -34 左右 —— 大部分"提升"来自
+  初始 ROI 对齐/开窗的第一次修正, 而非真正的整形质量; 绝对值之间不可横向比较。
 - **限制**: 每算法仅约 30 次加载、单次运行、固定像差与光路状态; 结论为**指示性**。
   要下定论请按本脚本加大预算 (改 `ALGORITHMS` 的 epochs/pop_size) 重复多次。
 
@@ -499,6 +518,8 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--skip-camera-test", action="store_true")
     args = parser.parse_args()
+    global _OBJECTIVE_LABEL
+    _OBJECTIVE_LABEL = args.objective
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 

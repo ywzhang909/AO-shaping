@@ -18,7 +18,8 @@ try:
 except ImportError:
     AOTOOLS_AVAILABLE = False
 
-from scipy.ndimage import center_of_mass
+from scipy.ndimage import center_of_mass, map_coordinates
+from scipy.optimize import curve_fit
 
 from typing import Any
 from collections.abc import Callable
@@ -272,6 +273,121 @@ def make_coord(img:np.ndarray):
     """
     x, y = np.meshgrid(np.arange(img.shape[1]), np.arange(img.shape[0]))
     return x, y
+
+
+def _fit_gaussian_waist(profile: np.ndarray, positions: np.ndarray) -> float | None:
+    """Fit one Gaussian line profile and return its sigma in pixels."""
+    profile = np.asarray(profile, dtype=np.float64)
+    positions = np.asarray(positions, dtype=np.float64)
+    if profile.size < 4 or not np.all(np.isfinite(profile)) or not np.all(np.isfinite(positions)):
+        return None
+
+    amplitude = float(np.max(profile) - np.min(profile))
+    if not np.isfinite(amplitude) or amplitude <= 0:
+        return None
+
+    center = float(positions[np.argmax(profile)])
+    sigma = float((positions[-1] - positions[0]) / 6)
+    if not np.isfinite(sigma) or sigma <= 0:
+        sigma = 1.0
+    offset = float(np.min(profile))
+
+    def gaussian(
+        x: np.ndarray, amplitude: float, center: float, sigma: float, offset: float
+    ) -> np.ndarray:
+        return amplitude * np.exp(-((x - center) ** 2) / (2 * sigma**2)) + offset
+
+    try:
+        popt, _ = curve_fit(
+            gaussian,
+            positions,
+            profile,
+            p0=(amplitude, center, sigma, offset),
+            bounds=([0, positions[0], 0, -np.inf], [np.inf, positions[-1], np.inf, np.inf]),
+            maxfev=5000,
+        )
+    except (RuntimeError, ValueError, TypeError):
+        return None
+
+    fitted_sigma = float(popt[2])
+    if not np.isfinite(fitted_sigma) or fitted_sigma <= 0:
+        return None
+    return fitted_sigma
+
+
+def gaussian_waist_radius_four_angles(
+    intensity: np.ndarray,
+    center: tuple[float, float] | None = None,
+    half_width: float | None = None,
+    num_points: int | None = None,
+) -> tuple[float | None, float | None, float | None, float | None]:
+    """Fit Gaussian waist radii through the brightest point at four angles.
+
+    ``center`` uses ``(x, y)`` image coordinates. The returned values are the
+    one-dimensional Gaussian standard deviations (sigma) in pixels for the
+    0, 45, 90, and 135 degree profiles. A failed fit returns ``None`` for that
+    direction.
+    """
+    image = np.asarray(intensity)
+    if image.ndim != 2:
+        raise ValueError("intensity must be a 2D array")
+    if image.size == 0:
+        return None, None, None, None
+
+    try:
+        image = image.astype(np.float64, copy=False)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("intensity must contain numeric values") from exc
+    if not np.all(np.isfinite(image)):
+        image = np.nan_to_num(image, nan=0.0, posinf=0.0, neginf=0.0)
+    if float(np.max(image)) <= 0:
+        return None, None, None, None
+
+    if center is None:
+        cx, cy = center_of_brightness(image)
+    else:
+        if len(center) != 2:
+            raise ValueError("center must contain x and y coordinates")
+        cx, cy = float(center[0]), float(center[1])
+        height, width = image.shape
+        if (
+            not np.isfinite(cx)
+            or not np.isfinite(cy)
+            or cx < 0
+            or cx > width - 1
+            or cy < 0
+            or cy > height - 1
+        ):
+            raise ValueError("center is outside the image")
+
+    height, width = image.shape
+    max_half_width = min(cx, width - 1 - cx, cy, height - 1 - cy)
+    if half_width is None:
+        half_width = max(float(max_half_width), 1.0)
+    else:
+        half_width = float(half_width)
+        if not np.isfinite(half_width) or half_width <= 0:
+            raise ValueError("half_width must be positive")
+
+    if num_points is None:
+        num_points = max(31, int(2 * half_width) + 1)
+    else:
+        num_points = int(num_points)
+        if num_points < 4:
+            raise ValueError("num_points must be at least 4")
+
+    offsets = np.linspace(-half_width, half_width, num_points)
+    radii: list[float | None] = []
+    for angle in (0.0, 45.0, 90.0, 135.0):
+        theta = np.deg2rad(angle)
+        x = cx + offsets * np.cos(theta)
+        y = cy + offsets * np.sin(theta)
+        profile = map_coordinates(
+            image, np.vstack((y, x)), order=1, mode="constant", cval=0.0
+        )
+        radii.append(_fit_gaussian_waist(profile, offsets))
+
+    return radii[0], radii[1], radii[2], radii[3]
 
 def radius(intensity, center, energy=0.99, use_aotools: bool = True) -> float:
     """

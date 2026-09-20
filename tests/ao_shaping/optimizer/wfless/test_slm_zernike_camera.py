@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 
 from ao_shaping.optimizer.wfless.slm_zernike_pib import (
+    argmax_anchored_center,
     clamp_center_to_frame,
     resolve_initial_exposure,
     threshold_spot_center,
@@ -54,6 +55,34 @@ class TestThresholdSpotCenter:
     def test_rejects_non_2d(self):
         with pytest.raises(ValueError, match="2D"):
             threshold_spot_center(np.zeros((4, 4, 3), dtype=np.uint8))
+
+
+class TestArgmaxAnchoredCenter:
+    def test_tracks_the_global_max_spot(self):
+        cx, cy = argmax_anchored_center(_spot_frame())
+        assert abs(cx - 40) <= 2
+        assert abs(cy - 20) <= 2
+
+    def test_ignores_stray_light_outside_the_spot(self):
+        """A bright reflection far from the spot must not move the centre.
+
+        The full-image centroid is dragged towards it; the local refinement must
+        not be.
+        """
+        img = _spot_frame(peak=200.0)
+        img[5:12, 5:12] = 90  # stray blob away from the (40, 20) spot
+
+        cx, cy = argmax_anchored_center(img)
+
+        assert abs(cx - 40) <= 2
+        assert abs(cy - 20) <= 2
+
+    def test_all_dark_returns_frame_centre(self):
+        assert argmax_anchored_center(np.zeros((50, 80), dtype=np.uint8)) == (40, 25)
+
+    def test_rejects_non_2d(self):
+        with pytest.raises(ValueError, match="2D"):
+            argmax_anchored_center(np.zeros((4, 4, 3), dtype=np.uint8))
 
 
 class TestClampCenterToFrame:

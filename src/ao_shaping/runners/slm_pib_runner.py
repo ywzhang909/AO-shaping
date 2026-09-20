@@ -127,7 +127,11 @@ def _save_debug_artifacts(
     default=0,
     help="半径桶大小 (default: 0, 环围半径自动调整)",
 )
-@click.option("--delta", default=0.1, help="优化步长 (default: 0.1)")
+@click.option(
+    "--delta",
+    default=0.2,
+    help="优化步长 (default: 0.2; 0.1 时扰动量 SNR≈0.7 淹没在噪声里, 见 measure_shape_sensitivity.py)",
+)
 @click.option(
     "--lr",
     default=0.0,
@@ -178,7 +182,7 @@ def _save_debug_artifacts(
     help="优化迭代次数后收缩半径桶和步长 (default: 0, 不收缩)",
 )
 @click.option("--shrink_ratio", default=0.9, help="收缩半径桶和步长比例 (default: 0.9)")
-@click.option("-s", "--cam_size", default=250, help="相机开窗大小 (default: 250)")
+@click.option("-s", "--cam_size", default=320, help="相机开窗大小 (default: 320; 须 > 目标长边)")
 @click.option(
     "-b",
     "--target_max_brightness",
@@ -189,16 +193,23 @@ def _save_debug_artifacts(
 @click.option(
     "-o",
     "--objective",
-    type=click.Choice(["pib", "radiu", "avg_radiu", "shape"]),
-    default="pib",
+    type=click.Choice(["shape", "pib", "radiu", "avg_radiu"]),
+    default="shape",
     show_default=True,
-    help="优化目标函数: pib(最大化PIB), radiu(最小化半径), avg_radiu(最大化平均半径), shape(动态目标ROI)",
+    help="优化目标: shape(整形为长方形, 默认), pib(最大化桶内功率), "
+    "radiu(最小化半径), avg_radiu(最大化平均半径)",
+)
+@click.option(
+    "--shape-schedule/--no-shape-schedule",
+    default=False,
+    show_default=True,
+    help="整形 coarse→fine 调度 (实验性: 跨 stage 分数不可比, 会让 gain 归零, 默认关闭)",
 )
 @click.option(
     "--target-shape",
     type=click.Choice(TARGET_SHAPE_CHOICES, case_sensitive=False),
     default=None,
-    help="动态ROI目标形状；指定后自动使用 shape 目标 (default: rectangle)",
+    help="动态ROI目标形状 (default: rectangle — objective=shape 时的默认)",
 )
 @click.option(
     "--target-size",
@@ -268,6 +279,7 @@ def run(
     shrink_iter,
     shrink_ratio,
     cam_size,
+    shape_schedule,
     target_max_brightness,
     objective,
     target_shape,
@@ -380,6 +392,7 @@ def run(
         show=show,
         init_c=init_c,
         cam_size=cam_size,
+        shape_schedule=shape_schedule,
         target_max_brightness=target_max_brightness,
         slm_number=slm_number,
         slm_wavelength=slm_wavelength,
