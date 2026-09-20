@@ -9,7 +9,7 @@ requiring the full PatternHelper or SLM context. 从
 
 1) 解析系数 (支持 3 种输入格式 → (n, m) dict):
 
-    >>> from ao_shaping.utils.zernike_utils import (
+    >>> from ao_shaping.utils.wavefront.zernike_utils import (
     ...     parse_zernike_coefficients, generate_zernike_phase, list_zernike_modes,
     ... )
     >>> # 格式 A: Noll 索引 dict (str/int 键, 1-based)
@@ -62,7 +62,7 @@ requiring the full PatternHelper or SLM context. 从
 `generate_zernike_phase()` 内部创建 `ZernikeGenerator` (带网格缓存)。
 反复生成相同分辨率的相位时, 建议直接持有 ZernikeGenerator 实例复用:
 
-    >>> from ao_shaping.utils.zernike_calc import ZernikeGenerator
+    >>> from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator
     >>> gen = ZernikeGenerator((1920, 1200), n_orders=4)
     >>> gen.set_bits(10)
     >>> img = gen.generate_polynomial(coeffs)  # 与 generate_zernike_phase 等价

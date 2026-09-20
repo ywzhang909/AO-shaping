@@ -15,7 +15,7 @@ from loguru import logger
 
 from ao_shaping.drivers.dm.MicroDM import DEFAULT_TIMEOUT, R50Controller
 from ao_shaping.gui.r50.r50_channel_select import CFG, SINGLE_CHANNELS
-from ao_shaping.utils.network import ping_reachable, tcp_reachable
+from ao_shaping.utils.io.network import ping_reachable, tcp_reachable
 
 
 # =============================================================================
@@ -218,5 +218,5 @@ def power_off_and_close(ctrl: Any | None) -> bool:
     return ok
 
 
-# tcp_reachable is re-exported from ao_shaping.utils.network (imported above).
+# tcp_reachable is re-exported from ao_shaping.utils.io.network (imported above).
 

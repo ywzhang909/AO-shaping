@@ -5,7 +5,7 @@ from loguru import logger
 
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.dm._registry import register_dm
-from ao_shaping.utils.hadamard_calc import HadamardGenerator
+from ao_shaping.utils.wavefront.hadamard_calc import HadamardGenerator
 
 
 @register_dm("hadamard")

@@ -37,7 +37,7 @@ from ao_shaping.gui.r50.r50_channel_select import (
 )
 from ao_shaping.gui.r50.r50_debug import DebugTcpClient
 from ao_shaping.gui.r50.r50_voltage_send import start_loop, stop_loop
-from ao_shaping.utils.network import ip_last_octet
+from ao_shaping.utils.io.network import ip_last_octet
 
 
 # =============================================================================

@@ -6,7 +6,7 @@ Exports all public optimizer classes and functions for easy access:
 """
 
 # Wavefront-based optimizers (RMS optimization via WFS)
-from ao_shaping.algorithm.differentiable_beam import (
+from ao_shaping.algorithm.signal_processing.differentiable_beam import (
     DifferentiableBeamOptimizer,
     differentiable_far_field,
     far_field_intensity,

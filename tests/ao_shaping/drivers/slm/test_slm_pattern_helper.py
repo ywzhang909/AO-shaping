@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
-from ao_shaping.utils.pattern_helper import PatternHelper
+from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 
 class TestPatternHelperTurbulence:

@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ao_shaping.algorithm.beam_shaping_benchmark import (
+from ao_shaping.algorithm.signal_processing.beam_shaping_benchmark import (
     check_area_requirement,
     create_benchmark_target,
     measure_shaped_area,
@@ -47,12 +47,16 @@ class TestCreateBenchmarkTarget:
         assert 0.0 <= float(target.min()) <= float(target.max()) <= 1.0
 
     def test_normalised(self):
-        target, _ = create_benchmark_target("square", GRID, target_area=256, aspect_ratio=1.0)
+        target, _ = create_benchmark_target(
+            "square", GRID, target_area=256, aspect_ratio=1.0
+        )
         assert np.isclose(target.sum(), 1.0, atol=1e-3)
 
     def test_requested_area_reported(self):
         # Requested box is realised as a square of side ~sqrt(area).
-        _, info = create_benchmark_target("square", GRID, target_area=100, aspect_ratio=1.0)
+        _, info = create_benchmark_target(
+            "square", GRID, target_area=100, aspect_ratio=1.0
+        )
         side = round(round(info["requested_area"]) ** 0.5)
         assert side == 10
 
@@ -69,8 +73,8 @@ class TestMeasureShapedArea:
     def test_half_threshold(self):
         # Explicit 2D blocks so the expected pixel counts are unambiguous.
         img = np.zeros(GRID, dtype=np.float64)
-        img[0:2, 0:2] = 1.0   # 2x2 = 4 px at peak
-        img[3:5, 0:2] = 0.5   # 2x2 = 4 px at threshold -> counted
+        img[0:2, 0:2] = 1.0  # 2x2 = 4 px at peak
+        img[3:5, 0:2] = 0.5  # 2x2 = 4 px at threshold -> counted
         img[6:8, 0:2] = 0.49  # 2x2 = 4 px below threshold -> excluded
         assert measure_shaped_area(img, threshold_ratio=0.5) == 4 + 4
 

@@ -80,7 +80,7 @@ from ao_shaping.tools.slm.slm_zernike_common import (
     um_to_waves,
     wfs_validity,
 )
-from ao_shaping.utils.pattern_helper import PatternHelper
+from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 # 兼容旧引用: DLL 顺序 m 枚举索引表 (定义在 slm_zernike_common)
 DLL_ZERNIKE = DLL_ZERNIKE_ORDER

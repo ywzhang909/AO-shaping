@@ -12,7 +12,7 @@ The module includes:
 - TabuSearchRunner: High-level orchestration class
 
 Usage:
-    from ao_shaping.algorithm.tabu_search import TabuSearchRunner, TabuMemory, AdaptiveSearchState
+    from ao_shaping.algorithm.tabu.tabu_search import TabuSearchRunner, TabuMemory, AdaptiveSearchState
 
     # Create components
     tabu_memory = TabuMemory(capacity=128, quantization=2.0)

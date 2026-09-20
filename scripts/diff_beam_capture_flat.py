@@ -43,7 +43,7 @@ except ImportError as exc:  # pragma: no cover - hardware path only
 try:
     from ao_shaping.drivers.ccd.daheng import DahengCamera
     from ao_shaping.drivers.slm.santec import Santec
-    from ao_shaping.utils.spots_calc import centroid as spots_centroid
+    from ao_shaping.utils.image.spots_calc import centroid as spots_centroid
 
     HARDWARE_AVAILABLE = True
 except ImportError:

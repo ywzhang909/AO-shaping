@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from ao_shaping.algorithm.beam_shaping_benchmark import (
+from ao_shaping.algorithm.signal_processing.beam_shaping_benchmark import (
     run_benchmark,
     run_benchmark_suite,
 )

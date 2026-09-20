@@ -12,7 +12,7 @@ from scipy import ndimage
 from torch.utils.data import Dataset
 
 # External dependency - keep as absolute import
-from ao_shaping.utils.zernike_calc import (
+from ao_shaping.utils.wavefront.zernike_calc import (
     ZernikeGenerator,
 )
 

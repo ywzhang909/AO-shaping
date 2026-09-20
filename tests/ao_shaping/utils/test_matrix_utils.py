@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from ao_shaping.utils.matrix_utils import (
+from ao_shaping.utils.wavefront.matrix_utils import (
     calc_n_zernike_terms,
     compute_lstsq,
     compute_pinv,

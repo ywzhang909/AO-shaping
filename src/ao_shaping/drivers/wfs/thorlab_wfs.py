@@ -39,8 +39,8 @@ from ao_shaping.drivers.wfs._thorlab_wfs import (
     load_dll,
     np2c,
 )
-from ao_shaping.utils.device_config import ConfigHandler, DeviceParam, param
-from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.io.device_config import ConfigHandler, DeviceParam, param
+from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 
 WFS_DEBUG_MODE = os.environ.get("WFS_DEBUG", "0") == "1"
 

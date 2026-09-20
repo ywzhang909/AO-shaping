@@ -116,7 +116,7 @@ def step_freezing(
     面板正常 => 各帧明显不同; 全同 => LCOS 冻结 (面板未被驱动).
     """
     from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL
-    from ao_shaping.utils.slm_lut import depth_pattern, stack_halves
+    from ao_shaping.utils.slm.slm_lut import depth_pattern, stack_halves
 
     _, gray_for_2pi = slm.get_wavelength_info()
     w, h = slm.Panel_Res[0], slm.Panel_Res[1]
@@ -216,7 +216,7 @@ def step_linearity(
     饱和) 或面板不调制。
     """
     from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL
-    from ao_shaping.utils.slm_lut import depth_pattern
+    from ao_shaping.utils.slm.slm_lut import depth_pattern
 
     _, gray_for_2pi = slm.get_wavelength_info()
     w, h = slm.Panel_Res[0], slm.Panel_Res[1]

@@ -13,7 +13,7 @@ import pytest
 # Skip the whole module when torch is absent (optional dependency).
 torch = pytest.importorskip("torch")
 
-from ao_shaping.algorithm.differentiable_shaping import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.differentiable_shaping import (  # noqa: E402
     DifferentiableShapingResult,
     angular_spectrum_propagate_torch,
     create_target_mask,
@@ -31,6 +31,7 @@ SIZE = 40
 
 
 # ============================ Target masks ============================
+
 
 class TestTargetMask:
     """Verify target mask generation for all supported shapes."""
@@ -93,6 +94,7 @@ class TestTargetMask:
 
 # ============================ Loss functions ============================
 
+
 class TestLosses:
     """Verify the differentiable loss functions behave correctly."""
 
@@ -110,7 +112,9 @@ class TestLosses:
 
     def test_efficiency_lower_when_energy_in_target(self):
         target = torch.zeros(GRID)
-        target[GRID[0] // 2 - 5:GRID[0] // 2 + 5, GRID[1] // 2 - 5:GRID[1] // 2 + 5] = 1.0
+        target[
+            GRID[0] // 2 - 5 : GRID[0] // 2 + 5, GRID[1] // 2 - 5 : GRID[1] // 2 + 5
+        ] = 1.0
 
         in_target = torch.zeros(GRID)
         in_target[GRID[0] // 2, GRID[1] // 2] = 1.0  # energy inside bucket
@@ -138,9 +142,13 @@ class TestLosses:
         intensity = torch.full(GRID, 0.5)
         phase = torch.zeros(GRID)
         l = total_loss(
-            intensity, phase, target,
-            w_uniformity=0.4, w_efficiency=0.4,
-            w_zero_order=0.1, w_smoothness=0.1,
+            intensity,
+            phase,
+            target,
+            w_uniformity=0.4,
+            w_efficiency=0.4,
+            w_zero_order=0.1,
+            w_smoothness=0.1,
         )
         assert l.ndim == 0
         assert float(l) >= 0.0
@@ -148,16 +156,19 @@ class TestLosses:
 
 # ============================ Forward model ============================
 
+
 class TestForwardModel:
     """Verify the differentiable forward model produces finite intensity and gradients."""
 
     def _build(self, propagation: str = "fft"):
-        from ao_shaping.algorithm.differentiable_shaping import _build_forward
+        from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
+            _build_forward,
+        )
 
         return _build_forward(propagation, 8e-6, 0.1, 1064e-9)
 
     def test_fft_forward_finite(self):
-        from ao_shaping.algorithm.differentiable_shaping import _torch
+        from ao_shaping.algorithm.signal_processing.differentiable_shaping import _torch
 
         th = _torch()
         phase = th.zeros(*GRID, requires_grad=True)
@@ -167,7 +178,7 @@ class TestForwardModel:
         assert float(intensity.detach().min()) >= 0.0  # intensity non-negative
 
     def test_asm_forward_finite(self):
-        from ao_shaping.algorithm.differentiable_shaping import _torch
+        from ao_shaping.algorithm.signal_processing.differentiable_shaping import _torch
 
         th = _torch()
         phase = th.zeros(*GRID, requires_grad=True)
@@ -176,7 +187,7 @@ class TestForwardModel:
         assert th.isfinite(intensity).all()
 
     def test_gradient_flows(self):
-        from ao_shaping.algorithm.differentiable_shaping import _torch
+        from ao_shaping.algorithm.signal_processing.differentiable_shaping import _torch
 
         th = _torch()
         phase = th.zeros(*GRID, requires_grad=True)
@@ -189,7 +200,7 @@ class TestForwardModel:
     def test_flat_phase_fft_has_dc_peak(self):
         # A flat phase maps to a strong DC spike at the field center under the
         # Fraunhofer model — the behaviour the zero-order penalty targets.
-        from ao_shaping.algorithm.differentiable_shaping import _torch
+        from ao_shaping.algorithm.signal_processing.differentiable_shaping import _torch
 
         th = _torch()
         phase = th.zeros(*GRID, requires_grad=False)
@@ -201,14 +212,13 @@ class TestForwardModel:
         # Sanity: torch ASM returns complex field, finite, on a small grid
         small = (64, 64)
         field = torch.ones(*small, dtype=torch.complex128)
-        out = angular_spectrum_propagate_torch(
-            field, 8e-6, 0.1, 1064e-9
-        )
+        out = angular_spectrum_propagate_torch(field, 8e-6, 0.1, 1064e-9)
         assert out.shape == small
         assert torch.isfinite(out).all()
 
 
 # ============================ Training loop ============================
+
 
 class TestTrain:
     """Verify train_beam_shaping behavior."""
@@ -281,6 +291,7 @@ class TestTrain:
 
 # ============================ Validation ============================
 
+
 class TestValidation:
     """Verify input validation raises helpful errors."""
 
@@ -312,23 +323,32 @@ class TestValidation:
 
 # ============================ Torch optionality ============================
 
+
 class TestTorchGraceful:
     """Verify the module raises a helpful ImportError when torch is missing."""
 
     def test_import_error_message(self, monkeypatch):
-        from ao_shaping.algorithm import differentiable_shaping
+        from ao_shaping.algorithm.signal_processing import differentiable_shaping
 
-        real_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+        real_import = (
+            __builtins__["__import__"]
+            if isinstance(__builtins__, dict)
+            else __builtins__.__import__
+        )
 
         def fake_import(name, *args, **kwargs):
             if name == "torch":
                 raise ImportError("No module named 'torch'")
             return real_import(name, *args, **kwargs)
 
-        monkeypatch.setattr(differentiable_shaping, "_torch", lambda: (_ for _ in ()).throw(
-            ImportError(
-                "differentiable_shaping requires PyTorch. Install with: uv sync --extra ml"
-            )
-        ))
+        monkeypatch.setattr(
+            differentiable_shaping,
+            "_torch",
+            lambda: (_ for _ in ()).throw(
+                ImportError(
+                    "differentiable_shaping requires PyTorch. Install with: uv sync --extra ml"
+                )
+            ),
+        )
         with pytest.raises(ImportError, match="requires PyTorch"):
             differentiable_shaping._torch()

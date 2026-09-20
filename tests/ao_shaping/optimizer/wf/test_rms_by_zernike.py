@@ -229,7 +229,7 @@ class TestZernikeCoefficientHandling:
     def test_init_z_as_none(self):
         """Test initialization with None."""
         from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms_slm
-        from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
+        from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 
         n_max = 4
         n_zernike = calc_n_zernike_terms(n_max)

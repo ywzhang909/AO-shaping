@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from ao_shaping.utils.file import Recorder
+from ao_shaping.utils.io.file import Recorder
 
 
 class TestRecorderPostprocessFeature:

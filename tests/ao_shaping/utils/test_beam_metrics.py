@@ -17,7 +17,7 @@ import math
 import numpy as np
 import pytest
 
-from ao_shaping.utils.beam_metrics import (
+from ao_shaping.utils.image.beam_metrics import (
     clamp_side,
     compute_metrics,
     compute_quality_score,

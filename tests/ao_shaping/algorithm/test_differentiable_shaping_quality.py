@@ -14,12 +14,12 @@ import pytest
 # Skip the whole module when torch is absent (optional dependency).
 torch = pytest.importorskip("torch")
 
-from ao_shaping.algorithm.differentiable_shaping import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.differentiable_shaping import (  # noqa: E402
     angular_spectrum_propagate_torch,
     create_target_mask,
     train_beam_shaping,
 )
-from ao_shaping.algorithm.gerchberg_saxton import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.gerchberg_saxton import (  # noqa: E402
     angular_spectrum_propagate as angular_spectrum_propagate_numpy,
 )
 
@@ -40,6 +40,7 @@ def _cv_ee(intensity: np.ndarray, target: np.ndarray) -> tuple[float, float]:
 
 # ============================ ASM parity ============================
 
+
 class TestAsmParity:
     """Verify torch ASM matches the numpy reference implementation."""
 
@@ -48,16 +49,20 @@ class TestAsmParity:
         field_np = rng.standard_normal((64, 64)) + 1j * rng.standard_normal((64, 64))
         out_numpy = angular_spectrum_propagate_numpy(field_np, 8e-6, 0.1, 1064e-9)
         field_torch = torch.from_numpy(field_np).to(
-            dtype=torch.complex128, device="cpu",
+            dtype=torch.complex128,
+            device="cpu",
         )
         out_torch = angular_spectrum_propagate_torch(field_torch, 8e-6, 0.1, 1064e-9)
         np.testing.assert_allclose(
-            np.asarray(out_torch.cpu()), out_numpy, atol=1e-6,
+            np.asarray(out_torch.cpu()),
+            out_numpy,
+            atol=1e-6,
             err_msg="Torch ASM diverges from numpy reference",
         )
 
 
 # ============================ Square quality ============================
+
 
 class TestSquareQuality:
     """Verify convergence for square targets under winning configs."""
@@ -98,6 +103,7 @@ class TestSquareQuality:
 
 # ============================ Spot quality ============================
 
+
 class TestSpotQuality:
     """Verify convergence for a circular (spot) target."""
 
@@ -130,6 +136,7 @@ class TestSpotQuality:
 
 
 # ============================ Weight regression guard ============================
+
 
 class TestWeightRegression:
     """Guard against reversion of the default-weight fix.
@@ -176,12 +183,11 @@ class TestWeightRegression:
         assert ee_new > ee_old, (
             f"New defaults not better: ee_new={ee_new:.3f} vs ee_old={ee_old:.3f}"
         )
-        assert ee_new - ee_old > 0.1, (
-            f"Gap too small: delta={ee_new - ee_old:.3f}"
-        )
+        assert ee_new - ee_old > 0.1, f"Gap too small: delta={ee_new - ee_old:.3f}"
 
 
 # ============================ L-BFGS quality ============================
+
 
 class TestLbfgsQuality:
     """Verify L-BFGS converges well on a square target."""

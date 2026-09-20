@@ -3,13 +3,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.utils.zernike_utils import (
+from ao_shaping.utils.wavefront.zernike_utils import (
     coefficients_to_array,
     generate_zernike_phase,
     list_zernike_modes,
     parse_zernike_coefficients,
 )
-from ao_shaping.utils.zernike_calc import calc_n_zernike_terms, noll_to_nm
+from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms, noll_to_nm
 
 
 class TestListZernikeModes:

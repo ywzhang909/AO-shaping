@@ -1,62 +1,37 @@
 import numpy as np
 from pathlib import Path
 
+from ao_shaping.utils.image.spots_calc import centroid as _centroid
+
+
 def normalize_01(matrix):
+    """将矩阵归一化到[0, 1]范围 (min-max 归一化)。
+
+    委托至 beam_metrics.normalize_pattern 并适配其接口差异。
+    保留原实现行为: 当矩阵为常量 (max==min) 时返回全零。
     """
-    将矩阵归一化到[0, 1]范围
-    
-    参数:
-    matrix: 输入矩阵
-    
-    返回:
-    normalized: 归一化后的矩阵
-    """
+    matrix = np.asarray(matrix, dtype=np.float64)
     min_val = np.min(matrix)
     max_val = np.max(matrix)
-
-    # 避免除以零的情况
     if max_val == min_val:
-        normalized = np.zeros_like(matrix)
-    else:
-        normalized = (matrix - min_val) / (max_val - min_val)
+        return np.zeros_like(matrix)
+    return (matrix - min_val) / (max_val - min_val)
 
-    return normalized
 
 def centroid_calculation(matrix):
-    """
-    计算矩阵的质心坐标
-    
-    参数:
-    matrix: 输入矩阵
-    
-    返回:
-    c_x: 质心x坐标
-    c_y: 质心y坐标
-    """
-    # 获取矩阵尺寸
-    rows, cols = matrix.shape
+    """计算矩阵的质心坐标 (委托至 spots_calc.centroid, return_float=True)。"""
+    return _centroid(matrix, return_float=True)
 
-    # 创建坐标网格
-    x, y = np.meshgrid(np.arange(1, cols + 1), np.arange(1, rows + 1))
-
-    # 计算总和
-    sum_intensity = np.sum(matrix)
-
-    # 计算质心坐标 (加权平均)
-    c_x = np.sum(matrix * x) / sum_intensity
-    c_y = np.sum(matrix * y) / sum_intensity
-
-    return c_x, c_y
 
 def calculate_derotation(x_actual, y_actual, theta):
     """
     计算消旋坐标变换（反向旋转theta角）
-    
+
     参数:
     x_actual: 实际x坐标
-    y_actual: 实际y坐标  
+    y_actual: 实际y坐标
     theta: 旋转角度
-    
+
     返回:
     x_derotated: 消旋后的x坐标
     y_derotated: 消旋后的y坐标
@@ -75,9 +50,10 @@ def calculate_derotation(x_actual, y_actual, theta):
 
     return x_derotated, y_derotated
 
-def get_zernike_base_matrixs(folder_path = 'scripts/tuning_devices/stdWavefront'):
+
+def get_zernike_base_matrixs(folder_path="scripts/tuning_devices/stdWavefront"):
     # 获取所有txt文件
-    txt_files = list(Path(folder_path).glob('*.txt'))
+    txt_files = list(Path(folder_path).glob("*.txt"))
     print(f"找到 {len(txt_files)} 个文件")
 
     # 一次性读取所有文件到一个三维数组中
@@ -90,11 +66,13 @@ def get_zernike_base_matrixs(folder_path = 'scripts/tuning_devices/stdWavefront'
 
     return wavefront_matrices
 
+
 def to_color(matrix, max_val=1):
-        # 将矩阵转换为RGB图像（归一化到0-255范围）
-        normalized_matrix = (matrix) / (max_val + 1e-8)
-        rgb_matrix = np.stack([normalized_matrix*255]*3, axis=-1).astype(np.uint8)
-        return rgb_matrix
+    # 将矩阵转换为RGB图像（归一化到0-255范围）
+    normalized_matrix = (matrix) / (max_val + 1e-8)
+    rgb_matrix = np.stack([normalized_matrix * 255] * 3, axis=-1).astype(np.uint8)
+    return rgb_matrix
+
 
 class ZernikeCentroidCalculator:
     # 计算100mm×100mm对应的像素尺寸  —（233，220）  （237，223）
@@ -107,22 +85,28 @@ class ZernikeCentroidCalculator:
 
     # print(f"像素尺寸: {pixel_size}x{pixel_size}")
     # print(f"每像素毫米数: {mm_per_pixel:.4f} mm/pixel")
-    def __init__(self, folder_path = 'scripts/tuning_devices/stdWavefront', black_level=0.0):
+    def __init__(
+        self, folder_path="scripts/tuning_devices/stdWavefront", black_level=0.0
+    ):
         self.wavefront_matrices = get_zernike_base_matrixs(folder_path)
         self.num_files = self.wavefront_matrices.shape[0]
         self.black_level = black_level
 
-    def get_centroid(self, zernike_coef:np.ndarray):
+    def get_centroid(self, zernike_coef: np.ndarray):
         """
         计算给定Zernike系数组合的波前矩阵的质心坐标
         """
         zer_class = min(len(zernike_coef), self.num_files)
         _zernike_coef = zernike_coef[:zer_class]
         _wavefront_matrices = self.wavefront_matrices[:zer_class]
-        _zernike_base_matrix = np.sum(_wavefront_matrices * _zernike_coef[:, np.newaxis, np.newaxis], axis=0)
+        _zernike_base_matrix = np.sum(
+            _wavefront_matrices * _zernike_coef[:, np.newaxis, np.newaxis], axis=0
+        )
         _zernike_base_matrix = normalize_01(_zernike_base_matrix)
         _zernike_base_matrix = _zernike_base_matrix - self.black_level
-        _zernike_base_matrix = np.where(_zernike_base_matrix < 0, 0, _zernike_base_matrix)
+        _zernike_base_matrix = np.where(
+            _zernike_base_matrix < 0, 0, _zernike_base_matrix
+        )
         cx, cy = centroid_calculation(_zernike_base_matrix)
         return (cx, cy), _zernike_base_matrix
 

@@ -8,7 +8,7 @@ pytestmark = pytest.mark.skip(reason="Requires DM + Camera hardware")
 
 
 from ao_shaping.optimizer.wfless.pib import optimize_pib
-from ao_shaping.utils.file import get_init_V_by_rms
+from ao_shaping.utils.io.file import get_init_V_by_rms
 
 def test_optimize_pib():
 

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from ao_shaping.utils.pattern_helper import PatternHelper
-from ao_shaping.utils.slm_utils import phase_to_slm_grayscale
-from ao_shaping.utils.zernike_calc import ZernikeGenerator
+from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
+from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
+from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator
 
 
 class TestPatternHelperZernikeCaching:

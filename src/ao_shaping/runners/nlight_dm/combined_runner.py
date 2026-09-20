@@ -8,9 +8,9 @@ import click
 import numpy as np
 
 from ao_shaping.optimizer.combined_optimizer import optimize_pib
-from ao_shaping.utils.cli_helpers import get_debug_mode, setup_coredumpy, get_date_dir_name
-from ao_shaping.utils.file import gen_file_path_uuid, gen_date_dir, logger
-from ao_shaping.utils.display import plot_funcs
+from ao_shaping.utils.io.cli_helpers import resolve_debug, setup_coredumpy, get_date_dir_name
+from ao_shaping.utils.io.file import gen_file_path_uuid, gen_date_dir, logger
+from ao_shaping.utils.image.display import plot_funcs
 from ao_shaping.drivers.dm import list_dm_types
 from ao_shaping.runners.runner_common import resolve_dm
 
@@ -37,7 +37,16 @@ DM_TYPES = list_dm_types()
 @click.option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)")
 @click.option("--dm_type", type=click.Choice(DM_TYPES, case_sensitive=False), default=None,
               help="变形镜类型 (default: auto-detect)")
+@click.option(
+    "--debug",
+    "debug_flag",
+    is_flag=True,
+    default=None,
+    help="启用调试模式: 保存 pkl/json 与汇总图 (初始/最优光斑, PIB 曲线, 最优电压)",
+)
+@click.pass_context
 def run(
+    ctx,
     root_dir: str,
     load_file: str | None,
     cam_id: int,
@@ -53,13 +62,16 @@ def run(
     target_max_brightness: float,
     show: bool,
     dm_type: str | None,
+    debug_flag: bool | None,
 ):
     """AdaMOD 综合PIB优化器
 
     使用AdaMOD优化器进行桶内功率(PIB)优化，支持自适应桶半径收缩。
-    DEBUG环境变量控制调试模式。
+
+    调试模式: ``main.py --debug combined`` / 本命令 ``--debug`` / 环境变量 ``DEBUG=1``
+    任一开启即可输出 pkl/json 与汇总图片。
     """
-    debug = get_debug_mode()
+    debug = resolve_debug(ctx, debug_flag)
 
     if load_file and Path(load_file).exists():
         init_v = np.loadtxt(load_file).tolist()

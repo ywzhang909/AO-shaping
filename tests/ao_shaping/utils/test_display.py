@@ -25,13 +25,13 @@ skip_no_pygame_font = pytest.mark.skipif(
 
 class TestZernikeCalibrationDisplayImport:
     def test_import(self):
-        from ao_shaping.utils.display import ZernikeCalibrationDisplay
+        from ao_shaping.utils.image.display import ZernikeCalibrationDisplay
         assert ZernikeCalibrationDisplay is not None
 
 
 class TestZernikeCalibrationDisplayInstantiation:
     def test_instantiation(self):
-        from ao_shaping.utils.display import ZernikeCalibrationDisplay
+        from ao_shaping.utils.image.display import ZernikeCalibrationDisplay
 
         display = ZernikeCalibrationDisplay(
             n_wfs_terms=N_WFS_TERMS,
@@ -47,7 +47,7 @@ class TestZernikeCalibrationDisplayInitWindow:
     def test_init_window_skip_without_pygame(self):
         pygame = pytest.importorskip("pygame")
 
-        from ao_shaping.utils.display import ZernikeCalibrationDisplay
+        from ao_shaping.utils.image.display import ZernikeCalibrationDisplay
 
         display = ZernikeCalibrationDisplay(
             n_wfs_terms=N_WFS_TERMS,
@@ -71,7 +71,7 @@ class TestZernikeCalibrationDisplayUpdate:
     def test_update_renders(self):
         pygame = pytest.importorskip("pygame")
 
-        from ao_shaping.utils.display import ZernikeCalibrationDisplay
+        from ao_shaping.utils.image.display import ZernikeCalibrationDisplay
 
         display = ZernikeCalibrationDisplay(
             n_wfs_terms=N_WFS_TERMS,
@@ -129,7 +129,7 @@ class TestZernikeCalibrationDisplayClose:
     def test_close(self):
         pygame = pytest.importorskip("pygame")
 
-        from ao_shaping.utils.display import ZernikeCalibrationDisplay
+        from ao_shaping.utils.image.display import ZernikeCalibrationDisplay
 
         display = ZernikeCalibrationDisplay(
             n_wfs_terms=N_WFS_TERMS,
@@ -146,7 +146,7 @@ class TestZernikeCalibrationDisplayContextManager:
     def test_context_manager(self):
         pygame = pytest.importorskip("pygame")
 
-        from ao_shaping.utils.display import ZernikeCalibrationDisplay
+        from ao_shaping.utils.image.display import ZernikeCalibrationDisplay
 
         display = ZernikeCalibrationDisplay(
             n_wfs_terms=N_WFS_TERMS,

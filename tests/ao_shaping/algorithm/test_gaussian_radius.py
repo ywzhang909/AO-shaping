@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ao_shaping.algorithm.target_func import ImageTargetFunc
+from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
 
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "wf-less"
@@ -219,7 +219,7 @@ class TestSecondMomentRadiusFunction:
 
     def test_second_moment_radius_on_zero_image(self):
         """Test second_moment_radius directly on all-zero image."""
-        from ao_shaping.algorithm.target_func import ImageTargetFunc
+        from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
 
         img = np.zeros((50, 50), dtype=np.uint16)
         target = ImageTargetFunc(50, 50, (25, 25))

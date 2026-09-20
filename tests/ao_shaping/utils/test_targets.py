@@ -8,10 +8,12 @@ hand-computable; no hardware, no network, no real target images.
 
 from __future__ import annotations
 
+import importlib
+
 import numpy as np
 import pytest
 
-from ao_shaping.utils.targets import (
+from ao_shaping.utils.image.targets import (
     build_square_target_amplitude,
     compute_square_side,
     create_target_mask,
@@ -67,6 +69,13 @@ class TestCreateTargetShape:
         out = create_target_shape("square", 7, radius_ratio=0.3)
         assert out.sum() == 1.0
         assert out[3, 3] == 1.0
+
+    def test_custom_center(self) -> None:
+        out = create_target_shape("circle", 7, radius_ratio=0.3, center=(1.0, 5.0))
+        assert out.shape == (7, 7)
+        assert out[5, 1] == 1.0
+        assert out[3, 3] == 0.0
+        assert out.sum() == 5.0
 
     def test_annular(self) -> None:
         # inner_r = 0.2*1.05 = 0.21, outer_r = 0.5*7/2 = 1.75
@@ -206,17 +215,23 @@ class TestLoadTargetImage:
         with pytest.raises(FileNotFoundError, match="Target image not found"):
             load_target_image(tmp_path / "nope.npy")
 
-    def test_image_branch_requires_skimage(self, tmp_path) -> None:
-        # The image-file branch lazily imports scikit-image, which is not
-        # installed in this environment -> the exact current behavior is an
-        # ImportError with the install guidance message.
+    def test_image_branch_with_skimage(self, tmp_path) -> None:
+        """When scikit-image is installed, PNG loading succeeds."""
+        import importlib
+
         from PIL import Image
 
         img = Image.fromarray(np.array([[0, 64], [255, 128]], dtype=np.uint8))
         path = tmp_path / "tiny.png"
         img.save(path)
-        with pytest.raises(ImportError, match="scikit-image"):
-            load_target_image(path)
+
+        if importlib.util.find_spec("skimage") is not None:
+            result = load_target_image(path)
+            assert result is not None
+            assert result.shape == (2, 2)
+        else:
+            with pytest.raises(ImportError, match="scikit-image"):
+                load_target_image(path)
 
 
 class TestComputeSquareSide:

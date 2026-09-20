@@ -24,7 +24,7 @@ These tests check the convention itself, entirely offline:
 
 import numpy as np
 
-from ao_shaping.algorithm.adam import AdaMOD
+from ao_shaping.algorithm.gradient.adam import AdaMOD
 from ao_shaping.optimizer.spgd import spgd_gradient
 
 OPTIMUM = np.array([1.0, -0.5, 2.0, 0.0])
@@ -59,7 +59,9 @@ def _spgd_run(
     param = START.copy()
     optimizer = AdaMOD(dim=param.size, lr=lr)
     for _ in range(steps):
-        disturb = ((rng.random(param.size) < 0.5).astype(np.float64) * 2.0 - 1.0) * delta
+        disturb = (
+            (rng.random(param.size) < 0.5).astype(np.float64) * 2.0 - 1.0
+        ) * delta
         pos_obj = objective(param + disturb)
         neg_obj = objective(param - disturb)
         gradient = spgd_gradient(pos_obj, neg_obj, disturb, maximize=maximize)
@@ -98,7 +100,9 @@ class TestUnsignedObjectives:
         assert gradient[0] == 4.0
 
     def test_result_is_float64(self):
-        gradient = spgd_gradient(np.uint64(5), np.uint64(9), np.array([1.0]), maximize=True)
+        gradient = spgd_gradient(
+            np.uint64(5), np.uint64(9), np.array([1.0]), maximize=True
+        )
         assert gradient.dtype == np.float64
 
 

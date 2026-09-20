@@ -40,13 +40,13 @@ from ao_shaping.optimizer.wf.dm_response_matrix import (
     calibrate_dm_response_matrix,
     save_dm_response_matrix,
 )
-from ao_shaping.utils.cli_helpers import (
+from ao_shaping.utils.io.cli_helpers import (
     get_debug_mode,
     get_timestamp_str,
     parse_tuple,
     setup_coredumpy,
 )
-from ao_shaping.utils.wfs_utils import make_actuator_debug_callback
+from ao_shaping.utils.wavefront.wfs_utils import make_actuator_debug_callback
 
 
 @click.command("dm-matrix")

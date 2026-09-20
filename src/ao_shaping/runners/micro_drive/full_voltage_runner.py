@@ -34,7 +34,7 @@ from ao_shaping.drivers.dm.MicroDM import (
     VOLTAGE_MIN,
 )
 from ao_shaping.drivers.dm.asyn_micro_dm import AsyncMicroDM
-from ao_shaping.utils.cli_helpers import setup_coredumpy
+from ao_shaping.utils.io.cli_helpers import setup_coredumpy
 
 DEFAULT_TIMEOUT = 10.0
 

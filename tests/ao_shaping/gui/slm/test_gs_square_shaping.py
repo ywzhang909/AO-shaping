@@ -20,13 +20,15 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
-from ao_shaping.algorithm.gerchberg_saxton import angular_spectrum_propagate
+from ao_shaping.algorithm.signal_processing.gerchberg_saxton import (
+    angular_spectrum_propagate,
+)
 from ao_shaping.gui.slm.pattern_controls import (
     build_square_target_amplitude,
     compute_square_side,
     generate_gs_square_phase,
 )
-from ao_shaping.utils.spots_calc import centroid, radius
+from ao_shaping.utils.image.spots_calc import centroid, radius
 
 
 # ---------------------------------------------------------------------------

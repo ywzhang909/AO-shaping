@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from ao_shaping.utils.slm.pattern_helper import PatternHelper
-from ao_shaping.utils.slm.slm_utils import phase_to_slm_grayscale
+from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
+from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
 
 RESOLUTION = (128, 128)
 BITS = 10
@@ -82,4 +82,6 @@ class TestPatternHelperGrayscaleFormat:
         must agree for the default 10-bit grayscale."""
         helper = PatternHelper(RESOLUTION, bits=BITS)
         phase = _phase(1.0)
-        assert np.array_equal(helper.to_uint16(phase), phase_to_slm_grayscale(phase, slm=None))
+        assert np.array_equal(
+            helper.to_uint16(phase), phase_to_slm_grayscale(phase, slm=None)
+        )

@@ -19,8 +19,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from ao_shaping.utils.file import ROOT_DIR
-from ao_shaping.utils.spots_calc import centroid
+from ao_shaping.utils.io.file import ROOT_DIR
+from ao_shaping.utils.image.spots_calc import centroid
 
 
 def create_gaussian_2d(shape: tuple, center: tuple, sigma: float) -> np.ndarray:

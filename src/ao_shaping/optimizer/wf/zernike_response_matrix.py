@@ -36,18 +36,18 @@ import numpy as np
 from loguru import logger
 from tqdm import tqdm
 
-from ao_shaping.utils.display import ZernikeCalibrationDisplay
-from ao_shaping.utils.matrix_utils import (
+from ao_shaping.utils.image.display import ZernikeCalibrationDisplay
+from ao_shaping.utils.wavefront.matrix_utils import (
     calc_n_zernike_terms,
     compute_lstsq,
     compute_pinv,
 )
-from ao_shaping.utils.wfs_utils import flatten_slopes
+from ao_shaping.utils.wavefront.wfs_utils import flatten_slopes
 
 if TYPE_CHECKING:
     from ao_shaping.drivers.slm.zernike_slm import ZernikeSLM
     from ao_shaping.drivers.wfs import ThorlabWFS as WFSManager
-    from ao_shaping.utils.display import ZernikeCalibrationDisplay
+    from ao_shaping.utils.image.display import ZernikeCalibrationDisplay
 
 
 # 默认参数

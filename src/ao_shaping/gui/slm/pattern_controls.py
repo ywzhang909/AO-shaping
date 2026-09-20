@@ -11,19 +11,19 @@ import streamlit as st
 from loguru import logger
 from scipy.special import erf
 
-from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
+from ao_shaping.algorithm.signal_processing.gerchberg_saxton import gerchberg_saxton
 from ao_shaping.drivers.slm.santec import Santec
-from ao_shaping.utils.beam_metrics import measure_spot_diameter_cam
-from ao_shaping.utils.pattern_helper import (
+from ao_shaping.utils.image.beam_metrics import measure_spot_diameter_cam
+from ao_shaping.utils.wavefront.pattern_helper import (
     PatternHelper,
     calc_blazed_grating_period,
 )
-from ao_shaping.utils.targets import (
+from ao_shaping.utils.image.targets import (
     build_square_target_amplitude,
     compute_square_side,
 )
 from ao_shaping.gui.slm import pyarrow_probe
-from ao_shaping.utils.zernike_calc import get_zernike_name, zernike_modes
+from ao_shaping.utils.wavefront.zernike_calc import get_zernike_name, zernike_modes
 
 
 class PatternControl(ABC):
@@ -852,7 +852,9 @@ class ZernikeControl(PatternControl):
         coefficients: dict[tuple[int, int], float] = {}
         for start in range(0, len(modes), self.COEFF_COLUMNS):
             columns = st.columns(self.COEFF_COLUMNS)
-            for column, (n, m) in zip(columns, modes[start : start + self.COEFF_COLUMNS]):
+            for column, (n, m) in zip(
+                columns, modes[start : start + self.COEFF_COLUMNS]
+            ):
                 with column:
                     coefficients[(n, m)] = float(
                         st.number_input(
@@ -908,7 +910,11 @@ class ZernikeControl(PatternControl):
         # page (the "选择 Zernike 后页面自动退出" symptom), so pick the editor
         # variant before calling any of them.
         editor_available, editor_reason = pyarrow_probe.probe_pyarrow()
-        editor = "st.data_editor (系数表)" if editor_available else "st.number_input (逐项回退)"
+        editor = (
+            "st.data_editor (系数表)"
+            if editor_available
+            else "st.number_input (逐项回退)"
+        )
         logger.debug(
             "Zernike render: slm={} n_max={} modes={} editor={} pyarrow={} reason={}",
             self.slm_id,
@@ -930,7 +936,9 @@ class ZernikeControl(PatternControl):
                 editor_reason = f"{type(exc).__name__}: {exc}"
                 editor = "st.number_input (逐项回退, 系数表渲染失败)"
                 logger.exception("st.data_editor 渲染失败 — 回退逐项输入控件")
-                st.error(f"st.data_editor 渲染失败, 已回退为逐项输入控件: {editor_reason}")
+                st.error(
+                    f"st.data_editor 渲染失败, 已回退为逐项输入控件: {editor_reason}"
+                )
                 st.exception(exc)
                 coefficients = self._render_coefficient_grid(
                     prefix, modes, editor_reason
@@ -1646,9 +1654,7 @@ def refresh_phase_preview(slm_num: int) -> None:
 
     phase_gray, source = slm.get_displayed_phase()
     max_gray = getattr(slm, "_max_gray", Santec.MAX_GRAYSCALE_VALUE)
-    colormap = st.session_state.get(
-        colormap_key, PREVIEW_COLORMAP_DEFAULT
-    )
+    colormap = st.session_state.get(colormap_key, PREVIEW_COLORMAP_DEFAULT)
     st.session_state[phase_key] = (
         None
         if phase_gray is None

@@ -25,9 +25,9 @@ import streamlit as st
 from loguru import logger
 from plotly.subplots import make_subplots
 
-from ao_shaping.utils.targets import create_target_shape, generate_target_mask
+from ao_shaping.utils.image.targets import create_target_shape, generate_target_mask
 from ao_shaping.drivers.ccd.daheng import DahengCamera
-from ao_shaping.utils.spots_calc import center_of_brightness, centroid
+from ao_shaping.utils.image.spots_calc import center_of_brightness, centroid
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 _DEFAULT_CAM_ID = int(os.environ.get("FAR_CAM_ID", "0"))

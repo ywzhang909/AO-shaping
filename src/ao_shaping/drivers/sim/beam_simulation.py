@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from ao_shaping.utils.zernike_calc import ZernikeGenerator
+from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator
 from scipy.special import factorial
 
 

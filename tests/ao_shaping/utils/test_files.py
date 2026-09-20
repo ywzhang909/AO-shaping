@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ao_shaping.utils.file import Recorder, ROOT_DIR, save_history
+from ao_shaping.utils.io.file import Recorder, ROOT_DIR, save_history
 
 
 def test_root_dir_exists():

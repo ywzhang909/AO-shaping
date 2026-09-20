@@ -31,10 +31,14 @@ from collections.abc import Sequence
 import numpy as np
 import tqdm
 
+from ao_shaping.algorithm.heuristic.search import (
+    heuristic_algorithm_choices,
+    run_heuristic_search,
+)
 from ao_shaping.drivers import MlaRes, ThorlabWFS
 from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.utils import Recorder, logger
-from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
+from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 
 # SLM parameters
 SLM_WAVELENGTH_DEFAULT = 532  # nm
@@ -134,6 +138,8 @@ def optimizer_greedy(
     remove_tilt: bool = False,
     slm_number: int = 1,
     slm_wavelength: int | None = None,
+    algorithm: str = "spgd",
+    pop_size: int | None = None,
 ) -> Recorder:
     """Optimize wavefront RMS using Greedy Local Search with SLM Zernike control.
 
@@ -164,11 +170,20 @@ def optimizer_greedy(
         remove_tilt: Remove tilt in WFS wavefront measurement.
         slm_number: SLM device number (1-8).
         slm_wavelength: Override SLM wavelength (deprecated, use wavelength).
+        algorithm: ``"spgd"`` (the greedy local search below, default) or a
+            black-box heuristic (``ga``/``pso``/``sa``/``hc``/``rs``/``cem``/``de``).
+        pop_size: Population size for population-based heuristics
+            (ga/pso/cem/de); ignored by SA/HC/RS and by ``"spgd"``.
 
     Returns:
         Recorder: Optimization history with RMS and coefficients.
     """
     epochs = int(epochs)
+    algorithm = str(algorithm).lower()
+    if algorithm not in heuristic_algorithm_choices(include_spgd=True):
+        raise ValueError(
+            f"algorithm must be one of {heuristic_algorithm_choices()}, got {algorithm!r}"
+        )
 
     # Calculate number of Zernike terms
     n_zernike = calc_n_zernike_terms(n_max)
@@ -272,6 +287,62 @@ def optimizer_greedy(
                 "_statics": statics,
             }
         )
+
+        if algorithm != "spgd":
+            # Black-box heuristic search over Zernike coefficients (RMS minimised).
+            last_measure: dict = {}
+
+            def _evaluate_heuristic(c: np.ndarray) -> float:
+                phase_h = slm.send_zernike(c)
+                wf_h, statics_h = calc_wavefront()
+                last_measure.update(
+                    {"wf": wf_h, "statics": statics_h, "phase": phase_h}
+                )
+                return float(statics_h.get("rms", np.inf))
+
+            with tqdm.tqdm(
+                total=None, desc=f"Greedy-{algorithm}", dynamic_ncols=True
+            ) as hbar:
+
+                def _on_evaluate(c: np.ndarray, value: float, index: int) -> None:
+                    recorder.append(
+                        {
+                            "rms": value,
+                            "_c": c,
+                            "_epoch": index,
+                            "_phase": "heuristic",
+                            "_candidate_rmss": [value],
+                            "_best_candidate_idx": 0,
+                            "_no_improvement": 0,
+                            "_wavefront": last_measure["wf"][np.newaxis, ...],
+                            "_statics": last_measure["statics"],
+                            "best_rms": value,
+                        }
+                    )
+                    hbar.set_postfix(recorder.last_info_dict)
+                    hbar.update(1)
+
+                result = run_heuristic_search(
+                    algorithm,
+                    _evaluate_heuristic,
+                    dim=n_zernike,
+                    iterations=epochs,
+                    bounds=(ZERNIKE_MIN, ZERNIKE_MAX),
+                    x0=current_c,
+                    maximize=False,
+                    pop_size=pop_size,
+                    on_evaluate=_on_evaluate,
+                )
+
+            slm.send_zernike(result.best_x)
+            logger.info(
+                "{} search finished: best RMS={:.4f} over {} evaluations; "
+                "restored best coefficients",
+                algorithm,
+                result.best_value,
+                result.evaluations,
+            )
+            return recorder
 
         # Phase 2: Greedy local search from best starting point
         logger.info(

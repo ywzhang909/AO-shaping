@@ -9,8 +9,16 @@ import numpy as np
 import tqdm
 
 from ao_shaping.drivers.sim.compat import AOConfig, TraditionalAOSystem
-from ao_shaping.algorithm.adam import Base, AdaMOD, Adam, AdamW, SGD, Muno, MunoW
-from ao_shaping.utils.spots_calc import power_bucket, radius
+from ao_shaping.algorithm.gradient.adam import (
+    Base,
+    AdaMOD,
+    Adam,
+    AdamW,
+    SGD,
+    Muno,
+    MunoW,
+)
+from ao_shaping.utils.image.spots_calc import power_bucket, radius
 from ao_shaping.utils import logger, Recorder
 
 OPTIMIZER_MAP = {
@@ -26,11 +34,13 @@ OPTIMIZER_MAP = {
 def _current_strehl(ao_sys: TraditionalAOSystem) -> float:
     return float(ao_sys.observe()["strehl"])
 
+
 def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs) -> Base:
     """Create optimizer instance."""
     opt_class = OPTIMIZER_MAP.get(optimizer_type.lower(), AdaMOD)
     filtered_kwargs = {}
     import inspect
+
     sig = inspect.signature(opt_class.__init__)
     for key, value in kwargs.items():
         if key in sig.parameters:
@@ -62,7 +72,7 @@ def optimize_spgd(
     beta2: float = 0.99,
     beta3: float = 0.9999,
     use_momentum: bool = True,
-    **kwargs
+    **kwargs,
 ):
     """SPGD-based optimization using simulated AO system.
 
@@ -148,7 +158,11 @@ def optimize_spgd(
 
     def _calc_ideal_bucket_radius(energy: float = 0.05) -> float:
         """Calculate PIB radius from ideal diffraction-limited spot."""
-        saved_turb = None if ao_sys._turbulence_phase is None else ao_sys._turbulence_phase.copy()
+        saved_turb = (
+            None
+            if ao_sys._turbulence_phase is None
+            else ao_sys._turbulence_phase.copy()
+        )
         saved_v = _init_v.copy()
         try:
             ao_sys._turbulence_phase = np.zeros((n_grid, n_grid), dtype=float)
@@ -226,10 +240,15 @@ def optimize_spgd(
             **kwargs,
         )
 
-    with tqdm.tqdm(total=epochs, desc=f"sim_spgd iter {epochs}", dynamic_ncols=True) as bar:
+    with tqdm.tqdm(
+        total=epochs, desc=f"sim_spgd iter {epochs}", dynamic_ncols=True
+    ) as bar:
         for epoch in range(1, epochs + 1):
             if flag == 0:
-                disturb_v = np.random.binomial(1, 0.5, (total_actuators,)).astype(float) * 2.0 - 1.0
+                disturb_v = (
+                    np.random.binomial(1, 0.5, (total_actuators,)).astype(float) * 2.0
+                    - 1.0
+                )
                 disturb_v = disturb_v * current_delta
                 _init_v = _init_v + disturb_v / 2
                 flag = 1
@@ -271,9 +290,15 @@ def optimize_spgd(
             if epoch % update_iter == update_iter - 1 and not _fix_bucket:
                 _init_r = max(_init_r * 0.9, ideal_r)
 
-            if (epoch % update_iter == update_iter - 1 or
-                 epoch % max(update_iter // 2, 1) == max(update_iter // 2, 1) - 1 or
-                 pib_ratio >= power_ratio_threshold) and not _fix_bucket and pib > 0:
+            if (
+                (
+                    epoch % update_iter == update_iter - 1
+                    or epoch % max(update_iter // 2, 1) == max(update_iter // 2, 1) - 1
+                    or pib_ratio >= power_ratio_threshold
+                )
+                and not _fix_bucket
+                and pib > 0
+            ):
                 power_r = radius(pos_img, center=(R0, R0), energy=0.8)
                 _pr = power_r * 0.9
                 _r = max(r_bucket * 0.9 + 1, ideal_r, r_bucket)
@@ -305,7 +330,6 @@ def optimize_spgd(
     return recorder
 
 
-
 def optimize_spgd_zernike(
     epochs: int,
     n_max: int = 6,
@@ -326,7 +350,7 @@ def optimize_spgd_zernike(
     beta3: float = 0.9999,
     use_momentum: bool = True,
     optimizer_type: str = "spgd",
-    **kwargs
+    **kwargs,
 ):
     """SPGD-based optimization using Zernike polynomial modes.
 
@@ -410,7 +434,11 @@ def optimize_spgd_zernike(
     R0 = n_grid / 2
 
     def _calc_ideal_bucket_radius(energy: float = 0.05) -> float:
-        saved_turb = None if ao_sys._turbulence_phase is None else ao_sys._turbulence_phase.copy()
+        saved_turb = (
+            None
+            if ao_sys._turbulence_phase is None
+            else ao_sys._turbulence_phase.copy()
+        )
         saved_v = ao_sys.dm_voltages.copy()
         try:
             ao_sys._turbulence_phase = np.zeros((n_grid, n_grid), dtype=float)
@@ -493,7 +521,9 @@ def optimize_spgd_zernike(
             **kwargs,
         )
 
-    with tqdm.tqdm(total=epochs, desc=f"sim_spgd_zernike iter {epochs}", dynamic_ncols=True) as bar:
+    with tqdm.tqdm(
+        total=epochs, desc=f"sim_spgd_zernike iter {epochs}", dynamic_ncols=True
+    ) as bar:
         for epoch in range(1, epochs + 1):
             if flag == 0:
                 disturb_c = np.random.binomial(1, 0.5, nk)
@@ -537,9 +567,15 @@ def optimize_spgd_zernike(
             if epoch % update_iter == update_iter - 1 and not _fix_bucket:
                 _init_r = max(_init_r * 0.9, ideal_r)
 
-            if (epoch % update_iter == update_iter - 1 or
-                 epoch % max(update_iter // 2, 1) == max(update_iter // 2, 1) - 1 or
-                 pib_ratio >= power_ratio_threshold) and not _fix_bucket and pib > 0:
+            if (
+                (
+                    epoch % update_iter == update_iter - 1
+                    or epoch % max(update_iter // 2, 1) == max(update_iter // 2, 1) - 1
+                    or pib_ratio >= power_ratio_threshold
+                )
+                and not _fix_bucket
+                and pib > 0
+            ):
                 power_r = radius(pos_img, center=(R0, R0), energy=0.8)
                 _pr = power_r * 0.9
                 _r = max(r_bucket * 0.9 + 1, ideal_r, r_bucket)
@@ -572,7 +608,6 @@ def optimize_spgd_zernike(
     return recorder
 
 
-
 def optimize_pso(
     epochs: int,
     n_particles: int = 20,
@@ -591,7 +626,7 @@ def optimize_pso(
     c1_cognitive: float = 1.4,
     c2_social: float = 1.4,
     show: bool = False,
-    **kwargs
+    **kwargs,
 ):
     """Particle Swarm Optimization for AO wavefront correction."""
     if seed is not None:
@@ -601,8 +636,12 @@ def optimize_pso(
     recorder = Recorder(mark="sim_pso", mode="max")
 
     config = AOConfig(
-        N=n_grid, L=aperture, wavelength=wavelength, Cn2=Cn2,
-        dm_actuators=dm_actuators, dm_stroke=dm_stroke,
+        N=n_grid,
+        L=aperture,
+        wavelength=wavelength,
+        Cn2=Cn2,
+        dm_actuators=dm_actuators,
+        dm_stroke=dm_stroke,
         propagation_distance=propagation_distance,
     )
 
@@ -643,15 +682,26 @@ def optimize_pso(
     init_pib = calc_pib(np.zeros(total_actuators))
     _strehl_init = _current_strehl(ao_sys)
 
-    recorder.append({
-        "sim_pso": "init", "pib": init_pib, "_p%": 0.0,
-        "_v": np.zeros(total_actuators), "_epoch": 0, "strehl": _strehl_init,
-    })
+    recorder.append(
+        {
+            "sim_pso": "init",
+            "pib": init_pib,
+            "_p%": 0.0,
+            "_v": np.zeros(total_actuators),
+            "_epoch": 0,
+            "strehl": _strehl_init,
+        }
+    )
 
-    with tqdm.tqdm(total=epochs, desc=f"sim_pso iter {epochs}", dynamic_ncols=True) as bar:
+    with tqdm.tqdm(
+        total=epochs, desc=f"sim_pso iter {epochs}", dynamic_ncols=True
+    ) as bar:
         for epoch in range(1, epochs + 1):
             for i in range(n_particles):
-                r1, r2 = np.random.rand(total_actuators), np.random.rand(total_actuators)
+                r1, r2 = (
+                    np.random.rand(total_actuators),
+                    np.random.rand(total_actuators),
+                )
                 velocities[i] = (
                     w_inertia * velocities[i]
                     + c1_cognitive * r1 * (personal_best[i] - particles[i])
@@ -671,10 +721,16 @@ def optimize_pso(
             pib = global_best_pib
             strehl = _current_strehl(ao_sys)
 
-            recorder.append({
-                "sim_pso": epoch, "pib": pib, "_p%": 0.0,
-                "_v": global_best.copy(), "_epoch": epoch, "strehl": strehl,
-            })
+            recorder.append(
+                {
+                    "sim_pso": epoch,
+                    "pib": pib,
+                    "_p%": 0.0,
+                    "_v": global_best.copy(),
+                    "_epoch": epoch,
+                    "strehl": strehl,
+                }
+            )
             bar.set_postfix(pib=f"{pib:.1f}")
             bar.update(1)
 
@@ -699,7 +755,7 @@ def optimize_ga(
     mutation_prob: float = 0.1,
     tournament_k: int = 3,
     show: bool = False,
-    **kwargs
+    **kwargs,
 ):
     """Genetic Algorithm for AO wavefront correction."""
     if "population_size" in kwargs:
@@ -712,8 +768,12 @@ def optimize_ga(
     recorder = Recorder(mark="sim_ga", mode="max")
 
     config = AOConfig(
-        N=n_grid, L=aperture, wavelength=wavelength, Cn2=Cn2,
-        dm_actuators=dm_actuators, dm_stroke=dm_stroke,
+        N=n_grid,
+        L=aperture,
+        wavelength=wavelength,
+        Cn2=Cn2,
+        dm_actuators=dm_actuators,
+        dm_stroke=dm_stroke,
         propagation_distance=propagation_distance,
     )
 
@@ -751,10 +811,16 @@ def optimize_ga(
     init_pib = calc_pib(np.zeros(total_actuators))
     _strehl_init = _current_strehl(ao_sys)
 
-    recorder.append({
-        "sim_ga": "init", "pib": init_pib, "_p%": 0.0,
-        "_v": np.zeros(total_actuators), "_epoch": 0, "strehl": _strehl_init,
-    })
+    recorder.append(
+        {
+            "sim_ga": "init",
+            "pib": init_pib,
+            "_p%": 0.0,
+            "_v": np.zeros(total_actuators),
+            "_epoch": 0,
+            "strehl": _strehl_init,
+        }
+    )
 
     def tournament_select(pop, fit, k):
         selected = np.random.choice(len(pop), k, replace=False)
@@ -772,7 +838,9 @@ def optimize_ga(
         ind[mask] = np.random.uniform(-1.0, 1.0, np.sum(mask))
         return np.clip(ind, -1.0, 1.0)
 
-    with tqdm.tqdm(total=epochs, desc=f"sim_ga iter {epochs}", dynamic_ncols=True) as bar:
+    with tqdm.tqdm(
+        total=epochs, desc=f"sim_ga iter {epochs}", dynamic_ncols=True
+    ) as bar:
         for epoch in range(1, epochs + 1):
             new_pop = []
             for _ in range(pop_size // 2):
@@ -796,10 +864,16 @@ def optimize_ga(
             pib = best_pib
             strehl = _current_strehl(ao_sys)
 
-            recorder.append({
-                "sim_ga": epoch, "pib": pib, "_p%": 0.0,
-                "_v": best_ind.copy(), "_epoch": epoch, "strehl": strehl,
-            })
+            recorder.append(
+                {
+                    "sim_ga": epoch,
+                    "pib": pib,
+                    "_p%": 0.0,
+                    "_v": best_ind.copy(),
+                    "_epoch": epoch,
+                    "strehl": strehl,
+                }
+            )
             bar.set_postfix(pib=f"{pib:.1f}")
             bar.update(1)
 
@@ -824,7 +898,7 @@ def optimize_sa(
     cooling_rate: float = 0.995,
     step_size: float = 0.05,
     show: bool = False,
-    **kwargs
+    **kwargs,
 ):
     """Simulated Annealing for AO wavefront correction."""
     if seed is not None:
@@ -834,8 +908,12 @@ def optimize_sa(
     recorder = Recorder(mark="sim_sa", mode="max")
 
     config = AOConfig(
-        N=n_grid, L=aperture, wavelength=wavelength, Cn2=Cn2,
-        dm_actuators=dm_actuators, dm_stroke=dm_stroke,
+        N=n_grid,
+        L=aperture,
+        wavelength=wavelength,
+        Cn2=Cn2,
+        dm_actuators=dm_actuators,
+        dm_stroke=dm_stroke,
         propagation_distance=propagation_distance,
     )
 
@@ -873,14 +951,25 @@ def optimize_sa(
     init_pib = current_pib
     _strehl_init = _current_strehl(ao_sys)
 
-    recorder.append({
-        "sim_sa": "init", "pib": init_pib, "_p%": 0.0,
-        "_v": current.copy(), "_epoch": 0, "strehl": _strehl_init, "_T": T,
-    })
+    recorder.append(
+        {
+            "sim_sa": "init",
+            "pib": init_pib,
+            "_p%": 0.0,
+            "_v": current.copy(),
+            "_epoch": 0,
+            "strehl": _strehl_init,
+            "_T": T,
+        }
+    )
 
-    with tqdm.tqdm(total=epochs, desc=f"sim_sa iter {epochs}", dynamic_ncols=True) as bar:
+    with tqdm.tqdm(
+        total=epochs, desc=f"sim_sa iter {epochs}", dynamic_ncols=True
+    ) as bar:
         for epoch in range(1, epochs + 1):
-            neighbor = current + np.random.uniform(-step_size, step_size, total_actuators)
+            neighbor = current + np.random.uniform(
+                -step_size, step_size, total_actuators
+            )
             neighbor = np.clip(neighbor, -1.0, 1.0)
             neighbor_pib = calc_pib(neighbor)
             delta = neighbor_pib - current_pib
@@ -897,10 +986,17 @@ def optimize_sa(
             pib = best_pib
             strehl = _current_strehl(ao_sys)
 
-            recorder.append({
-                "sim_sa": epoch, "pib": pib, "_p%": 0.0,
-                "_v": best.copy(), "_epoch": epoch, "strehl": strehl, "_T": T,
-            })
+            recorder.append(
+                {
+                    "sim_sa": epoch,
+                    "pib": pib,
+                    "_p%": 0.0,
+                    "_v": best.copy(),
+                    "_epoch": epoch,
+                    "strehl": strehl,
+                    "_T": T,
+                }
+            )
             bar.set_postfix(pib=f"{pib:.1f}", T=f"{T:.2e}")
             bar.update(1)
 

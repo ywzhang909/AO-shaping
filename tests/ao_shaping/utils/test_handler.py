@@ -1,6 +1,6 @@
 """Tests for ao_shaping.utils.handler — Register decorator class."""
 
-from ao_shaping.utils.handler import Register
+from ao_shaping.utils.io.handler import Register
 
 
 class TestRegister:

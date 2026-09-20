@@ -30,7 +30,7 @@ import tqdm
 from ao_shaping.drivers import MlaRes, ThorlabWFS
 from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.utils import Recorder, logger
-from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
+from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 
 # SLM parameters
 SLM_WAVELENGTH_DEFAULT = 532  # nm

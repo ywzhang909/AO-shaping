@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pytest
 
-from ao_shaping.utils.spots_calc import centroid
+from ao_shaping.utils.image.spots_calc import centroid
 
 pytestmark = pytest.mark.skip(reason="Requires NlightDM + MIICamera + ThorlabWFS hardware")
 

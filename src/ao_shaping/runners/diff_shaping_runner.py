@@ -37,7 +37,7 @@ import numpy as np
 
 from loguru import logger
 
-from ao_shaping.utils.beam_metrics import (
+from ao_shaping.utils.image.beam_metrics import (
     clamp_side,
     compute_quality_score,
     compute_square_metrics,
@@ -53,12 +53,12 @@ from ao_shaping.utils.hardware_utils import (
     record_frame,
     save_frame_png,
 )
-from ao_shaping.utils.slm_utils import display_phase, pick_slm_slot
-from ao_shaping.utils.targets import create_target_mask
+from ao_shaping.utils.slm.phase_display import display_phase, pick_slm_slot
+from ao_shaping.utils.image.targets import create_target_mask
 from ao_shaping.drivers.slm.santec import Santec
-from ao_shaping.utils.file import Recorder
-from ao_shaping.utils.resample import resample_to_grid
-from ao_shaping.utils.spots_calc import centroid
+from ao_shaping.utils.io.file import Recorder
+from ao_shaping.utils.image.resample import resample_to_grid
+from ao_shaping.utils.image.spots_calc import centroid
 
 if TYPE_CHECKING:
     import pygame

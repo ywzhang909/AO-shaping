@@ -17,7 +17,7 @@ Migration map:
   :mod:`ao_shaping.utils.beam_metrics`.
 - SLM phase conversion / memory-slot rotation (``phase_to_slm_grayscale`` /
   ``pick_slm_slot`` / ``display_phase`` + physical constants) ->
-  :mod:`ao_shaping.utils.slm_utils`.
+  :mod:`ao_shaping.utils.slm.phase_display`.
 - Hardware helpers (``capture_amplitude`` / ``call_with_timeout`` /
   auto-exposure / frame recording) -> :mod:`ao_shaping.utils.hardware_utils`.
 """
@@ -26,7 +26,7 @@ from __future__ import annotations
 
 # fmt: off
 # Target-pattern generation -> ``ao_shaping.utils.targets``
-from ao_shaping.utils.targets import (
+from ao_shaping.utils.image.targets import (
     build_square_target_amplitude,
     compute_square_side,
     create_target_mask,
@@ -36,7 +36,7 @@ from ao_shaping.utils.targets import (
     square_target_from_measurement,
 )
 # Quality metrics -> ``ao_shaping.utils.beam_metrics``
-from ao_shaping.utils.beam_metrics import (
+from ao_shaping.utils.image.beam_metrics import (
     clamp_side,
     compute_metrics,
     compute_quality_score,
@@ -47,8 +47,8 @@ from ao_shaping.utils.beam_metrics import (
     measure_spot_diameter_cam,
     normalize_pattern,
 )
-# SLM phase / slot rotation + physical constants -> ``ao_shaping.utils.slm_utils``
-from ao_shaping.utils.slm_utils import (
+# SLM phase / slot rotation + physical constants -> ``ao_shaping.utils.slm.phase_display``
+from ao_shaping.utils.slm.phase_display import (
     DEFAULT_DISTANCE,
     DEFAULT_MAX_GRAYSCALE,
     DEFAULT_SLM_PIXEL_SIZE,
@@ -71,7 +71,7 @@ from ao_shaping.utils.hardware_utils import (
 # fmt: on
 
 # The legacy ``parse_tuple(value)`` helper had no callers after the CLI parse
-# helper (:func:`ao_shaping.utils.cli_helpers.parse_tuple`, click callback)
+# helper (:func:`ao_shaping.utils.io.cli_helpers.parse_tuple`, click callback)
 # became the standard; it was removed during migration.
 
 __all__ = [
@@ -93,7 +93,7 @@ __all__ = [
     "measure_bright_span",
     "measure_spot_diameter_cam",
     "normalize_pattern",
-    # slm_utils
+    # phase_display
     "DEFAULT_DISTANCE",
     "DEFAULT_MAX_GRAYSCALE",
     "DEFAULT_SLM_PIXEL_SIZE",

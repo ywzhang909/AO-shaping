@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from ao_shaping.utils.timestamp import (
+from ao_shaping.utils.io.timestamp import (
     TimestampParser,
     parse_timestamp,
     sort_by_timestamp,

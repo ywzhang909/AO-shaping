@@ -46,7 +46,7 @@ from ao_shaping.gui.slm.pattern_controls import (
     _build_control,
     generate_phase_gray,
 )
-from ao_shaping.utils.zernike_calc import zernike_modes
+from ao_shaping.utils.wavefront.zernike_calc import zernike_modes
 
 # The order rendered by the old multi_slm_controller selectbox — must be preserved.
 CANONICAL_REGISTRY_ORDER = [

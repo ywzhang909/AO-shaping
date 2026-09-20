@@ -26,8 +26,8 @@ import click
 from loguru import logger
 
 from ao_shaping.drivers.dm.MicroDM import R50Controller
-from ao_shaping.utils.cli_helpers import setup_coredumpy
-from ao_shaping.utils.network import ping_reachable
+from ao_shaping.utils.io.cli_helpers import setup_coredumpy
+from ao_shaping.utils.io.network import ping_reachable
 
 # Optional ADC driver — TYPE_CHECKING lets us annotate while handling runtime absence
 if TYPE_CHECKING:

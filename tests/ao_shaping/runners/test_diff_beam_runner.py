@@ -16,8 +16,8 @@ import numpy as np
 import pytest
 from click.testing import CliRunner
 
-from ao_shaping.utils.beam_metrics import compute_metrics
-from ao_shaping.utils.targets import square_target_from_measurement
+from ao_shaping.utils.image.beam_metrics import compute_metrics
+from ao_shaping.utils.image.targets import square_target_from_measurement
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _RUNNER_PATH = _REPO_ROOT / "src" / "ao_shaping" / "runners" / "diff_beam_runner.py"

@@ -23,7 +23,7 @@ from ao_shaping.optimizer import (
     optimize_beam_shaping,
 )
 from ao_shaping.utils import Recorder
-from ao_shaping.utils.targets import crop_resize_to_grid
+from ao_shaping.utils.image.targets import crop_resize_to_grid
 
 
 def _gaussian_target(size: int = 32) -> np.ndarray:

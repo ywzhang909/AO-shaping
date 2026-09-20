@@ -5,7 +5,7 @@ from pathlib import Path
 import click
 import pytest
 
-from ao_shaping.utils.cli_helpers import (
+from ao_shaping.utils.io.cli_helpers import (
     parse_tuple,
     setup_coredumpy,
     get_date_dir_name,

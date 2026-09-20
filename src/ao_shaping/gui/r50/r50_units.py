@@ -38,7 +38,7 @@ from ao_shaping.gui.r50.r50_voltage_send import (
     apply_units_via_controller,
     clip_voltage,
 )
-from ao_shaping.utils.network import ip_last_octet
+from ao_shaping.utils.io.network import ip_last_octet
 
 
 INFO_DISPLAY_COLS = ["控制器 IP", "通道号", "组别", "针脚 ID", "物理标签", "物理位置"]

@@ -54,7 +54,7 @@ AO-shaping/
 │   │   │   ├── wf/              # 波前优化 (RMS)
 │   │   │   ├── wfless/          # 无波前优化 (PIB)
 │   │   │   └── rl/              # 强化学习 (SAC, LR-WFS)
-│   │   ├── utils/               # 工具函数 (spots_calc, wavefront_calc, targets, beam_metrics, slm_utils, slm_phase, hardware_utils, resample)
+│   │   ├── utils/               # 工具函数 (spots_calc, wavefront_calc, targets, beam_metrics, phase_display, hardware_utils, resample)
 │   │   ├── tools/               # 独立工具 (tools/slm 包: SLM相位捕获, LUT校准, 扫描分析助手, 硬件自检; Micro-DM逐单元图像采集)
 │   │   ├── display/             # 可视化 (窗口, GUI帧)
 │   │   └── gui/                 # GUI组件 (Streamlit)
@@ -97,17 +97,18 @@ source .venv/bin/activate  # Linux/macOS
 
 3. 安装依赖:
 ```bash
-# 仅安装基础依赖
+# 仅安装基础依赖 (注意: uv sync 是精确同步, 会移除已安装的 ml/rl 等依赖组)
 uv sync
 
 # 安装 ML 相关包 (torch, torchvision, wandb)
-uv sync --extra ml
+# 注意: ml/rl 定义在 [dependency-groups] 中, 必须用 --group, 不能用 --extra
+uv sync --group ml
 
 # 安装 RL 相关包 (gymnasium, stable-baselines3)
-uv sync --extra rl
+uv sync --group rl
 
-# 安装所有可选依赖
-uv sync --extra ml --extra rl
+# 安装全部依赖组 (dev/ml/rl/disp/data) —— 推荐用于完整开发环境
+uv sync --all-groups
 ```
 
 ## 使用说明
@@ -1414,14 +1415,14 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 
 ### v0.11.0 (2026-09-16)
 - **SLM 相位生成 raw-only 契约**: 所有 SLM 相位生成函数只产生 **raw 未包裹弧度**，不再自行 `mod 2π`——唯一 wrap 点在驱动 `Santec.create_phase_from_array()` 的弧度→灰度转换 (`santec/driver.py` L1382)。涉及 `optimizer/wfless/slm_square_shaping.py: _freeform_phase_radians` 移除末尾 `np.mod`、`_params_to_gray` 与 `slm_zernike_pib._zernike_to_phase` docstring 同步为 raw-only (`_zernike_phase_radians` 保留 wrapped 输出仅作 test-only 参考实现)
-- **相位→灰度统一入口**: `utils/slm_utils.phase_to_slm_grayscale(phase, max_grayscale=None, slm=None)` — 传入已打开 SLM 时委托 `slm.create_phase_from_array()`（驱动统一管线：弧度→灰度 + 波前矫正 + LUT + 平移, 2π 灰度取设备波长相关 `_max_gray`）；`slm=None`（纯模拟/离线保存/单测）回退内置纯数学转换 (wrap→scale→clip→uint16, 默认 1023)。`gs_hologram_runner` / `diff_beam_runner` 保存路径迁移为 `phase_to_slm_grayscale(phase, slm=slm)`
+- **相位→灰度统一入口**: `utils/slm/phase_display.phase_to_slm_grayscale(phase, max_grayscale=None, slm=None)` — 传入已打开 SLM 时委托 `slm.create_phase_from_array()`（驱动统一管线：弧度→灰度 + 波前矫正 + LUT + 平移, 2π 灰度取设备波长相关 `_max_gray`）；`slm=None`（纯模拟/离线保存/单测）回退内置纯数学转换 (wrap→scale→clip→uint16, 默认 1023)。`gs_hologram_runner` / `diff_beam_runner` 保存路径迁移为 `phase_to_slm_grayscale(phase, slm=slm)`
 - **测试修复**: `test_rms_zernike_runner` / `test_rms_by_zernike` 旧函数名 `optimizer_rms` → `optimizer_rms_slm`（对 `rms_by_zernike.py` 既有重命名的同步，5 个预存 ImportError 修复）；`test_gray_csv` roundtrip 断言改为 **mod-2π 相位等价**（`slm._max_gray` 反向换算 roundtrip 相位）；全套 SLM 相关测试通过：drivers/slm+runners 185 passed / wfless+gui/slm 136 passed（各 1 个硬件 skip）/ optimizer-wf 99 passed
 
 ### v0.10.0 (2026-09-13)
-- **代码整合 (runners/utils 去重)**: `gs_square_runner`/`diff_beam_runner` 复用的质量指标、SLM 相位下发/槽轮换、超时看门狗、自动曝光、帧记录等辅助逻辑统一迁入 `utils/beam_metrics.py`、`utils/slm_utils.py`、`utils/hardware_utils.py` (原 `algorithm/beam_shaping_utils` 保留为兼容 re-export 层)
+- **代码整合 (runners/utils 去重)**: `gs_square_runner`/`diff_beam_runner` 复用的质量指标、SLM 相位下发/槽轮换、超时看门狗、自动曝光、帧记录等辅助逻辑统一迁入 `utils/beam_metrics.py`、`utils/slm/phase_display.py`、`utils/hardware_utils.py` (原 `algorithm/beam_shaping_utils` 保留为兼容 re-export 层)
 - **共享相机工厂**: 新增 `utils/hardware_utils.open_camera(camera_type, cam_id, exposure_ms, bit_depth)`，消除 `gs_square_runner`/`diff_shaping_runner` 中字节级重复的 daheng/miicam 初始化代码 (驱动延迟导入，保持 utils 叶子层约束)
 - **wfless 内部去重**: `slm_zernike_pib` 的 `_zernike_indices` 改为复用 `slm_square_shaping` 同源实现 (字节级一致性校验通过)
-- **回归锚点测试**: 新增 4 个 TDD 锚点测试文件 (`tests/ao_shaping/utils/test_{beam_metrics,slm_utils,hardware_utils,targets}.py`, 共 153 例)，锁定全部迁移函数行为；`record_frame` 新增 `include_spot` 参数记录真实 0 级光斑 (argmax) 位置
+- **回归锚点测试**: 新增 4 个 TDD 锚点测试文件 (`tests/ao_shaping/utils/test_{beam_metrics,phase_display,hardware_utils,targets}.py`, 共 153 例)，锁定全部迁移函数行为；`record_frame` 新增 `include_spot` 参数记录真实 0 级光斑 (argmax) 位置
 - **代码评审修复**: ruff 清理、异常类型修正 (如 `ConnectionRefusedError`)、`SimDM` 补齐 `open/close` 接口并对齐 DM registry API；全套测试 1506 passed / 9 failed (仅限 Windows-only WFS/DM SDK 环境绑定用例) / 273 skipped
 
 ### v0.9.0 (2026-08-27)

@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from ao_shaping.utils.device_config import ConfigHandler, DeviceParam, param
+from ao_shaping.utils.io.device_config import ConfigHandler, DeviceParam, param
 
 
 # ── Test fixtures ────────────────────────────────────────

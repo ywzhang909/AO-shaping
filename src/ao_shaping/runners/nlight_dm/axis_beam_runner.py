@@ -7,17 +7,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from ao_shaping.optimizer.wfless.pib import optimize_pib
-from ao_shaping.algorithm.target_func import ImageTargetFunc
-from ao_shaping.utils.file import (
+from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
+from ao_shaping.utils.io.file import (
     gen_file_path_uuid,
     gen_date_dir,
     get_init_V_by_rms,
     logger,
 )
-from ao_shaping.utils.display import plot_funcs
-from ao_shaping.utils.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name
+from ao_shaping.utils.image.display import plot_funcs
+from ao_shaping.utils.io.cli_helpers import (
+    parse_tuple,
+    setup_coredumpy,
+    get_date_dir_name,
+)
 from ao_shaping import config as ao_config
-from ao_shaping.utils.cli_helpers import get_debug_mode
+from ao_shaping.utils.io.cli_helpers import resolve_debug
 from ao_shaping.drivers.dm import list_dm_types
 from ao_shaping.runners.runner_common import resolve_dm
 
@@ -132,7 +136,16 @@ DM_TYPES = list_dm_types()
     default=None,
     help="变形镜类型 (default: auto-detect). 若未指定且仅一个DM在线则自动选取，否则报错.",
 )
+@click.option(
+    "--debug",
+    "debug_flag",
+    is_flag=True,
+    default=None,
+    help="启用调试模式: 保存 pkl/json 与汇总图 (初始/最优光斑, 目标曲线, 最优电压)",
+)
+@click.pass_context
 def run(
+    ctx,
     root_dir,
     load_file,
     cam_id,
@@ -158,12 +171,14 @@ def run(
     objective,
     show,
     dm_type,
+    debug_flag,
 ):
     """轴向光束优化器
 
-    DEBUG环境变量控制调试模式。
+    调试模式: ``main.py --debug pib`` / 本命令 ``--debug`` / 环境变量 ``DEBUG=1``
+    任一开启即可输出 pkl/json 与汇总图片。
     """
-    debug = get_debug_mode()
+    debug = resolve_debug(ctx, debug_flag)
 
     if load_file.lower() == "rms":
         init_v = get_init_V_by_rms()
@@ -278,17 +293,24 @@ def run(
                 "All second moment calculations failed, falling back to PIB best"
             )
 
+        # The metric column is the objective itself (pib/radiu/avg_radiu); the old
+        # hardcoded "pib" column raised KeyError for the other objectives.
+        first_val = float(res_df.iloc[0][objective])
         fig, ax = plt.subplots(2, 2, figsize=(12, 8))
         plot_funcs["img"](
             res_df.iloc[0]["_img"],
             ax[0, 0],
-            f"Init Image, pib={res_df.iloc[0]['pib']:.3f}",
+            f"Init Image, {objective}={first_val:.3f}",
         )
         axim = plot_funcs["img"](
-            res_df.iloc[max_j_id]["_img"], ax[0, 1], f"Best PIB Image, pib={max_j:.3f}"
+            res_df.iloc[max_j_id]["_img"],
+            ax[0, 1],
+            f"Best {objective} Image, {objective}={max_j:.3f}",
         )
-        cbar = fig.colorbar(axim, ax=[ax[0, 0], ax[0, 1]], orientation="horizontal")
-        plot_funcs["pib_history"](res_df["pib"], ax[1, 0])
+        fig.colorbar(axim, ax=[ax[0, 0], ax[0, 1]], orientation="horizontal")
+        plot_funcs["pib_history"](
+            res_df[objective], ax[1, 0], title=f"{objective} History"
+        )
         plot_funcs["voltages"](best_iter["_v"], ax[1, 1], "Best Voltages")
 
         plt.savefig(saved_file_name.with_suffix(".png"))

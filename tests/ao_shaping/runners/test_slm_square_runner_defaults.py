@@ -25,7 +25,7 @@ def _invoke(args: list[str]):
 
     def _fake_optimize(**kwargs):
         captured.update(kwargs)
-        from ao_shaping.utils.file import Recorder
+        from ao_shaping.utils.io.file import Recorder
 
         rec = Recorder(mark="quality", mode="max")
         rec.append({"quality": 1.0})

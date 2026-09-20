@@ -23,7 +23,7 @@ from ao_shaping.gui.slm.pattern_controls import (
     generate_phase_gray,
     refresh_phase_preview,
 )
-from ao_shaping.utils.pattern_helper import PatternHelper
+from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 # Timeout (s) for probing a single SLM during device discovery.  The Santec SDK
 # has historically hung on SLM_Ctrl_ReadSD after rapid open/close cycles, so the

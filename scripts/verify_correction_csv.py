@@ -51,7 +51,7 @@ from ao_shaping.tools.slm.slm_zernike_common import (  # noqa: E402
     PANEL_W,
     make_phase,
 )
-from ao_shaping.utils.pattern_helper import PatternHelper  # noqa: E402
+from ao_shaping.utils.wavefront.pattern_helper import PatternHelper  # noqa: E402
 
 
 def _parse_args() -> argparse.Namespace:

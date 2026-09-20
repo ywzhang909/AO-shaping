@@ -188,7 +188,7 @@ class TestMicroDMReport:
                 axes[1, 0].set_ylabel("Count")
 
                 # Zernike-like patterns
-                from ao_shaping.utils.pattern_helper import PatternHelper
+                from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
                 helper = PatternHelper(
                     (int(np.sqrt(n_channels)), int(np.sqrt(n_channels)))

@@ -1,4 +1,4 @@
-"""Regression-anchor tests for :mod:`ao_shaping.utils.slm_utils`.
+"""Regression-anchor tests for :mod:`ao_shaping.utils.slm.phase_display`.
 
 Pins the EXACT current behavior of the SLM phase->grayscale conversion and
 memory-slot rotation helpers so future refactors of ``diff_beam_runner`` (which
@@ -15,8 +15,8 @@ import random
 import numpy as np
 import pytest
 
-from ao_shaping.utils import slm_utils
-from ao_shaping.utils.slm_utils import (
+from ao_shaping.utils.slm import phase_display
+from ao_shaping.utils.slm.phase_display import (
     DEFAULT_DISTANCE,
     DEFAULT_MAX_GRAYSCALE,
     DEFAULT_SLM_PIXEL_SIZE,
@@ -68,9 +68,9 @@ class MockSLM:
 @pytest.fixture(autouse=True)
 def _reset_slot_state() -> None:
     """Reset the module-global last-slot tracker before and after each test."""
-    slm_utils._last_slm_slot = None
+    phase_display._last_slm_slot = None
     yield
-    slm_utils._last_slm_slot = None
+    phase_display._last_slm_slot = None
 
 
 @pytest.fixture
@@ -80,7 +80,7 @@ def first_candidate(monkeypatch: pytest.MonkeyPatch) -> None:
     def _first(seq: list[int]) -> int:
         return seq[0]
 
-    monkeypatch.setattr(slm_utils.random, "choice", _first)
+    monkeypatch.setattr(phase_display.random, "choice", _first)
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +170,7 @@ class TestPhaseToSlmGrayscale:
 class TestPickSlmSlot:
     def test_returns_slot_within_range(self, first_candidate: None) -> None:
         slot = pick_slm_slot(MockSLM(displayed_slot=7))
-        assert slm_utils._SLOT_MIN <= slot <= slm_utils._SLOT_MAX
+        assert phase_display._SLOT_MIN <= slot <= phase_display._SLOT_MAX
 
     def test_first_call_excludes_currently_displayed_slot(
         self, first_candidate: None
@@ -199,7 +199,7 @@ class TestPickSlmSlot:
         # get_displayed_memory_number raises -> falls back to full range.
         slm = MockSLM(fail_query=True)
         slot = pick_slm_slot(slm)
-        assert slm_utils._SLOT_MIN <= slot <= slm_utils._SLOT_MAX
+        assert phase_display._SLOT_MIN <= slot <= phase_display._SLOT_MAX
         assert slot == 2
 
     def test_out_of_range_displayed_slot_still_yields_valid_slot(
@@ -208,19 +208,21 @@ class TestPickSlmSlot:
         # Device reports slot 200 (outside 2..125): nothing is excluded.
         slm = MockSLM(displayed_slot=200)
         slot = pick_slm_slot(slm)
-        assert slm_utils._SLOT_MIN <= slot <= slm_utils._SLOT_MAX
+        assert phase_display._SLOT_MIN <= slot <= phase_display._SLOT_MAX
 
     def test_updates_module_last_slot_state(self, first_candidate: None) -> None:
         slm = MockSLM(displayed_slot=7)
         slot = pick_slm_slot(slm)
-        assert slm_utils._last_slm_slot == slot
+        assert phase_display._last_slm_slot == slot
 
     def test_many_calls_never_repeat_and_stay_in_range(self, monkeypatch) -> None:
         rng = random.Random(42)
-        monkeypatch.setattr(slm_utils.random, "choice", rng.choice)
+        monkeypatch.setattr(phase_display.random, "choice", rng.choice)
         slm = MockSLM(displayed_slot=5)
         slots = [pick_slm_slot(slm) for _ in range(200)]
-        assert all(slm_utils._SLOT_MIN <= s <= slm_utils._SLOT_MAX for s in slots)
+        assert all(
+            phase_display._SLOT_MIN <= s <= phase_display._SLOT_MAX for s in slots
+        )
         assert all(a != b for a, b in zip(slots, slots[1:]))
         assert slots[0] != 5
 
@@ -233,7 +235,7 @@ class TestPickSlmSlot:
 class TestDisplayPhase:
     def test_full_call_sequence(self, first_candidate: None, monkeypatch) -> None:
         sleeps: list[float] = []
-        monkeypatch.setattr(slm_utils.time, "sleep", sleeps.append)
+        monkeypatch.setattr(phase_display.time, "sleep", sleeps.append)
         slm = MockSLM(displayed_slot=3)
         phase = np.zeros((2, 2))
 
@@ -252,22 +254,22 @@ class TestDisplayPhase:
     def test_slot_used_is_within_range(
         self, first_candidate: None, monkeypatch
     ) -> None:
-        monkeypatch.setattr(slm_utils.time, "sleep", lambda _t: None)
+        monkeypatch.setattr(phase_display.time, "sleep", lambda _t: None)
         slm = MockSLM(displayed_slot=3)
         display_phase(slm, np.zeros((2, 2)), settle_time_s=0.1)
         slot = slm.calls[1][2]
-        assert slm_utils._SLOT_MIN <= slot <= slm_utils._SLOT_MAX
+        assert phase_display._SLOT_MIN <= slot <= phase_display._SLOT_MAX
         assert slm.calls[2][1] == slot
 
     def test_uses_different_slot_on_consecutive_displays(
         self, first_candidate: None, monkeypatch
     ) -> None:
-        monkeypatch.setattr(slm_utils.time, "sleep", lambda _t: None)
+        monkeypatch.setattr(phase_display.time, "sleep", lambda _t: None)
         slm = MockSLM(displayed_slot=3)
         display_phase(slm, np.zeros((2, 2)), settle_time_s=0.1)
         display_phase(slm, np.zeros((2, 2)), settle_time_s=0.1)
         slot1 = slm.calls[1][2]
         slot2 = slm.calls[4][2]
         assert slot1 != slot2
-        assert slm_utils._SLOT_MIN <= slot1 <= slm_utils._SLOT_MAX
-        assert slm_utils._SLOT_MIN <= slot2 <= slm_utils._SLOT_MAX
+        assert phase_display._SLOT_MIN <= slot1 <= phase_display._SLOT_MAX
+        assert phase_display._SLOT_MIN <= slot2 <= phase_display._SLOT_MAX

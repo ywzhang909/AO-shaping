@@ -516,6 +516,107 @@ class MIICamera(BaseCamera):
         time.sleep(0.15)
         return self.exposure_time_ms
 
+    def auto_exposure(
+        self,
+        target_max: float = 40.0,
+        tolerance: float = 5.0,
+        twice_valid: bool = True,
+        max_iterations: int = 20,
+        n_sample: int = 1,
+    ) -> np.ndarray:
+        """自动曝光调整 (比例迭代)。
+
+        契约与 :meth:`DahengCamera.auto_exposure` 对齐: ``target_max`` /
+        ``tolerance`` 均为 **0-255 灰度**单位, 返回调整后采集到的图像。
+
+        MiiCam 没有可靠的 SDK 自动曝光闭环 (``put_AutoExpoEnable`` 与手动曝光
+        相互干扰), 因此这里只做比例迭代: 每次按 ``exp * target / peak`` 调整
+        (单步放大上限 3×), 且改曝光必须走 :meth:`reset_exposure_time`
+        (Stop → put_ExpoTime → 重启拉流), 故慢于 Daheng。
+
+        经验约束 (见模块文档): 曝光 <0.1ms 时信号淹没在噪声中; 峰值可能被锁在
+        ~85, 因此高目标 (如 220) 常常不可达, 此时会以边界曝光退出。
+
+        Args:
+            target_max: 目标最大亮度 (0-255, 默认40)。
+            tolerance: 峰值容差 (0-255, 默认5)。
+            twice_valid: True 时要求连续两次落入容差范围才收敛 (默认True)。
+            max_iterations: 最大迭代次数 (默认20)。
+            n_sample: 每次估计峰值时的采样帧数 (默认1)。
+
+        Returns:
+            np.ndarray: 调整后采集到的图像 (uint8/uint16, 取决于位深)。
+        """
+        assert self.cam, "camera not initialized"
+        assert tolerance > 0, "tolerance must be > 0"
+
+        target_val = float(target_max)
+        low = int(max(target_val - tolerance, 10))
+        high = int(min(target_val + tolerance, 254))
+        min_exp = float(self.min_exposure_ms)
+        max_exp = float(self.max_exposure_ms)
+
+        logger.info(
+            "Auto exposure start: target={:.0f}±{:.0f} (range=[{}, {}]ms, max_iter={})",
+            target_val,
+            tolerance,
+            min_exp,
+            max_exp,
+            max_iterations,
+        )
+
+        twice_ok = False
+        img = self.get_numpy_image(n_sample, skip_first=True)
+
+        for i in range(max(1, int(max_iterations))):
+            peak = float(np.max(img))
+
+            if low <= peak <= high:
+                if twice_ok or not twice_valid:
+                    logger.info(
+                        "Auto exposure converged at iter {}: exp={:.4f}ms, max={:.1f}",
+                        i + 1,
+                        self.exposure_time_ms,
+                        peak,
+                    )
+                    return img
+                twice_ok = True
+            else:
+                twice_ok = False
+                current = float(self.exposure_time_ms)
+                if current <= 0:
+                    break
+                ratio = min(target_val / max(peak, 1.0), 3.0)
+                new_exp = float(np.clip(current * ratio, min_exp, max_exp))
+                if abs(new_exp - current) < 1e-9:
+                    break
+                self.reset_exposure_time(new_exp)
+                if new_exp <= min_exp and peak > high:
+                    logger.warning(
+                        "target brightness {:.0f} unreachable (peak {:.1f}); "
+                        "exposure forced to min",
+                        target_val,
+                        peak,
+                    )
+                    break
+                if new_exp >= max_exp and peak < low:
+                    logger.warning(
+                        "target brightness {:.0f} unreachable (peak {:.1f}); "
+                        "exposure forced to max",
+                        target_val,
+                        peak,
+                    )
+                    break
+
+            img = self.get_numpy_image(n_sample, skip_first=True)
+
+        logger.info(
+            "Auto exposure finished: exp={:.4f}ms, max={:.1f}",
+            self.exposure_time_ms,
+            float(np.max(img)),
+        )
+        return img
+
     def enable_auto_exposure(self, enable: bool = True, mode: int = 1) -> bool:
         """Enable or disable auto exposure.
 

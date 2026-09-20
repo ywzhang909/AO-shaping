@@ -48,8 +48,8 @@ from ao_shaping.drivers.slm.santec.slm200_constants import (
     get_max_grayscale,
 )
 from ao_shaping.drivers.slm.santec.wavefront_correction import WavefrontCorrection
-from ao_shaping.utils.device_config import ConfigHandler, DeviceParam, param
-from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.io.device_config import ConfigHandler, DeviceParam, param
+from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 
 # LCOS 像素翻转时序常量
 # 0→2π（满相位量程，_max_gray 灰度）翻转耗时至多 200ms（厂商规格）。
@@ -1652,7 +1652,7 @@ class Santec:
         """Load phase→gray compensation table from a LUT directory.
 
         The directory must contain ``lut.npz`` (preferred) or
-        ``lut_inverse.csv`` as produced by ``ao_shaping.utils.slm_lut.save_lut()``.
+        ``lut_inverse.csv`` as produced by ``ao_shaping.utils.slm.slm_lut.save_lut()``.
 
         Args:
             lut_dir: Path to the LUT directory.  ``None`` clears the loaded LUT.

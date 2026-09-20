@@ -48,15 +48,15 @@ import numpy as np
 import tqdm
 from loguru import logger
 
-from ao_shaping.algorithm.differentiable_beam import (
+from ao_shaping.algorithm.signal_processing.differentiable_beam import (
     DifferentiableBeamOptimizer,
     differentiable_far_field,
     far_field_intensity,
 )
 from ao_shaping.utils import Recorder
 from ao_shaping.utils.hardware_utils import call_with_timeout
-from ao_shaping.utils.slm_utils import DEFAULT_WAVELENGTH
-from ao_shaping.utils.targets import crop_resize_to_grid
+from ao_shaping.utils.slm.phase_display import DEFAULT_WAVELENGTH
+from ao_shaping.utils.image.targets import crop_resize_to_grid
 
 # Hardware drivers are imported guarded: the SDKs are not installed on every
 # machine, and this module must stay importable without them. The auto-create

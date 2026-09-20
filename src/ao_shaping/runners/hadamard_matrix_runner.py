@@ -24,9 +24,9 @@ from loguru import logger
 
 from ao_shaping.drivers.dm.hadamard_dm import HadamardDM
 from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
-from ao_shaping.utils.cli_helpers import get_timestamp_str, parse_tuple, setup_coredumpy
-from ao_shaping.utils.hadamard_calc import calc_n_hadamard_modes
-from ao_shaping.utils.wfs_utils import flatten_slopes
+from ao_shaping.utils.io.cli_helpers import get_timestamp_str, parse_tuple, setup_coredumpy
+from ao_shaping.utils.wavefront.hadamard_calc import calc_n_hadamard_modes
+from ao_shaping.utils.wavefront.wfs_utils import flatten_slopes
 
 DEFAULT_MODE_ORDER = 8
 DEFAULT_MAGNITUDE = 0.5

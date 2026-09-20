@@ -26,8 +26,8 @@ import streamlit as st
 from loguru import logger
 
 from ao_shaping.drivers.dm.MicroDM import R50Controller
-from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
-from ao_shaping.utils.network import ping_reachable, tcp_reachable
+from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.io.network import ping_reachable, tcp_reachable
 # =============================================================================
 # Constants
 # =============================================================================

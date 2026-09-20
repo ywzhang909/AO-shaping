@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.utils.slm_lut import (
+from ao_shaping.utils.slm.slm_lut import (
     LUTData,
     blaze_ramp_gray,
     build_inverse_lut,

@@ -23,7 +23,7 @@ import numpy as np
 import streamlit as st
 from loguru import logger
 
-from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 
 # Import drivers
 from ao_shaping.drivers.slm.zernike_slm import ZernikeSLM
@@ -38,7 +38,7 @@ from ao_shaping.optimizer.wf.zernike_response_matrix import (
     load_zernike_response_matrix,
     save_zernike_response_matrix,
 )
-from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
+from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 
 # Determine project root
 SRC_ROOT = PROJECT_ROOT / "src"

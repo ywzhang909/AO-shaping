@@ -8,11 +8,19 @@ import matplotlib.pylab as plt
 from ao_shaping.drivers import MIICamera
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.dm._registry import get_dm_registry
-from ao_shaping.algorithm.adam import AdaMOD, Adam, AdamW, Base, Muno, MunoW, SGD
+from ao_shaping.algorithm.gradient.adam import (
+    AdaMOD,
+    Adam,
+    AdamW,
+    Base,
+    Muno,
+    MunoW,
+    SGD,
+)
 from ao_shaping.utils import ImageVoltagesDisplay, logger, Recorder
 from ao_shaping.optimizer.spgd import spgd_gradient
-from ao_shaping.utils.spots_calc import centroid, radius
-from ao_shaping.algorithm.target_func import ImageTargetFunc
+from ao_shaping.utils.image.spots_calc import centroid, radius
+from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
 
 # adam parameters
 beta1 = 0.9
@@ -42,7 +50,7 @@ OPTIMIZER_MAP = {
 
 
 # Re-export TabuMemory and AdaptiveSearchState from shared algorithm module
-from ao_shaping.algorithm.tabu_search import (  # noqa: F401
+from ao_shaping.algorithm.tabu.tabu_search import (  # noqa: F401
     AdaptiveSearchState,
     TabuMemory,
 )
@@ -375,8 +383,8 @@ def optimize_pib(
                 _init_v = np.array(init_v)
             dm.send_voltages(_init_v, 0.5)
 
-            _img = cam.autoset_exposure_time_ms(
-                target_max_brightness=TEST_EXPOSURE_TIME_BRIGHTNESS
+            _img = cam.auto_exposure(
+                target_max=TEST_EXPOSURE_TIME_BRIGHTNESS, n_sample=20
             )
 
             def intellij_center(img):
@@ -442,13 +450,14 @@ def optimize_pib(
                 cam.exposure_time = exposure_time_ms
                 init_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
             elif 0 < target_max_brightness < 255 and target_max_brightness > 0:
-                init_img = cam.autoset_exposure_time_ms(
-                    target_max_brightness=target_max_brightness, twice_valid=True
+                init_img = cam.auto_exposure(
+                    target_max=target_max_brightness, twice_valid=True, n_sample=20
                 )
             else:
-                init_img = cam.autoset_exposure_time_ms(
-                    target_max_brightness=ADVISE_EXPOSURE_TIME_BRIGHTNESS,
+                init_img = cam.auto_exposure(
+                    target_max=ADVISE_EXPOSURE_TIME_BRIGHTNESS,
                     twice_valid=True,
+                    n_sample=20,
                 )
             logger.debug(
                 f"Inital Image Max brightness: {np.max(init_img)} @ {cam.exposure_time}ms"
@@ -702,8 +711,10 @@ def optimize_pib(
 
                     max_brightness = max([np.max(pos_img), np.max(neg_img)])
                     if max_brightness == 255 and exposure_time_ms == 0:
-                        _resample_img = cam.autoset_exposure_time_ms(
-                            target_max_brightness, twice_valid=False
+                        _resample_img = cam.auto_exposure(
+                            target_max=target_max_brightness,
+                            twice_valid=False,
+                            n_sample=20,
                         )
                         optimizer.scale_momentum(
                             np.sum(_resample_img) / np.sum(pos_img)
@@ -795,7 +806,10 @@ def optimize_pib(
                         "J": J,
                         "_p%": objective_ratio,
                         "_max_r": _init_r,
-                        "pib": objective_val,
+                        # Column named after the objective itself: the Recorder is
+                        # built with mark=objective, so a hardcoded "pib" key made
+                        # `--objective radiu/avg_radiu` fail the append assert.
+                        objective: objective_val,
                         "_diff": diff,
                         "lr": optimizer.lr,
                         "r": r_bucket,

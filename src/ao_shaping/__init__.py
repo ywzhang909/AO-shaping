@@ -96,21 +96,21 @@ except ImportError:
 # Optimizers (loaded here to expose in package namespace)
 from ao_shaping.optimizer.wf.rms import optimizer_rms_dm
 from ao_shaping.optimizer.wfless.pib import optimize_pib
-from ao_shaping.utils.display import ImageVoltagesDisplay
+from ao_shaping.utils.image.display import ImageVoltagesDisplay
 
 # Utilities
-from ao_shaping.utils.file import Recorder, logger
-from ao_shaping.utils.spots_calc import (
+from ao_shaping.utils.io.file import Recorder, logger
+from ao_shaping.utils.image.spots_calc import (
     calculate_sharpness,
     centroid,
     radius,
 )
-from ao_shaping.utils.wavefront_calc import (
+from ao_shaping.utils.wavefront.wavefront_calc import (
     ZernikeCentroidCalculator,
     normalize_01,
     to_color,
 )
-from ao_shaping.utils.zernike_calc import (
+from ao_shaping.utils.wavefront.zernike_calc import (
     ZernikeGenerator,
     calc_n_zernike_terms,
     generate_noll_polynomial,

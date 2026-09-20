@@ -28,7 +28,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 
 SRC_ROOT = PROJECT_ROOT / "src"
 
@@ -198,7 +198,7 @@ def _compute_response_matrix_from_debug(debug_data: dict, magnitude: float):
         # Import necessary classes and functions
         sys.path.insert(0, str(SRC_ROOT))
         from ao_shaping.optimizer.wf.zernike_response_matrix import ZernikeResponseMatrixResult
-        from ao_shaping.utils.matrix_utils import calc_n_zernike_terms, compute_pinv, compute_lstsq
+        from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms, compute_pinv, compute_lstsq
         import numpy as np
         from datetime import datetime
         

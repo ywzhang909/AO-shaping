@@ -44,7 +44,7 @@ from ao_shaping.tools.slm.slm_zernike_common import (
     measure_zernike,
     show_phase,
 )
-from ao_shaping.utils.pattern_helper import PatternHelper
+from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 PANEL_H, PANEL_W = 1200, 1920
 

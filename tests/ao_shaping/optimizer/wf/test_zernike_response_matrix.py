@@ -77,7 +77,7 @@ class TestInverseMatrixComputation:
 
     def test_compute_pinv_square(self):
         """测试方阵的SVD伪逆"""
-        from ao_shaping.utils.matrix_utils import compute_pinv
+        from ao_shaping.utils.wavefront.matrix_utils import compute_pinv
 
         A = np.random.randn(5, 5)
         pinv_A = compute_pinv(A)
@@ -88,7 +88,7 @@ class TestInverseMatrixComputation:
 
     def test_compute_pinv_rectangular(self):
         """测试非方阵的SVD伪逆"""
-        from ao_shaping.utils.matrix_utils import compute_pinv
+        from ao_shaping.utils.wavefront.matrix_utils import compute_pinv
 
         A = np.random.randn(10, 5)
         pinv_A = compute_pinv(A)
@@ -99,7 +99,7 @@ class TestInverseMatrixComputation:
 
     def test_compute_lstsq_square(self):
         """测试方阵的最小二乘逆"""
-        from ao_shaping.utils.matrix_utils import compute_lstsq
+        from ao_shaping.utils.wavefront.matrix_utils import compute_lstsq
 
         A = np.random.randn(5, 5)
         lstsq_A = compute_lstsq(A)
@@ -109,7 +109,7 @@ class TestInverseMatrixComputation:
 
     def test_compute_lstsq_rectangular(self):
         """测试非方阵的最小二乘逆"""
-        from ao_shaping.utils.matrix_utils import compute_lstsq
+        from ao_shaping.utils.wavefront.matrix_utils import compute_lstsq
 
         A = np.random.randn(10, 5)
         lstsq_A = compute_lstsq(A)

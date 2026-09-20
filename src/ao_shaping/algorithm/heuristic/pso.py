@@ -10,12 +10,12 @@ Key features:
 - Position bounds
 
 Example:
-    >>> from ao_shaping.algorithm.pso import ParticleSwarmOptimizer
+    >>> from ao_shaping.algorithm.heuristic.pso import ParticleSwarmOptimizer
     >>> import numpy as np
-    >>> 
+    >>>
     >>> def objective(x):
     ...     return np.sum(x ** 2)  # Sphere function
-    >>> 
+    >>>
     >>> pso = ParticleSwarmOptimizer(
     ...     dim=5,
     ...     n_particles=30,
@@ -32,12 +32,15 @@ from typing import Callable, Protocol
 
 import numpy as np
 
-from ao_shaping.algorithm.heuristic.heuristic_base import HeuristicOptimizer, OptimizerConfig
+from ao_shaping.algorithm.heuristic.heuristic_base import (
+    HeuristicOptimizer,
+    OptimizerConfig,
+)
 
 
 class FitnessFunction(Protocol):
     """Protocol for fitness function."""
-    
+
     def __call__(self, x: np.ndarray) -> float:
         """Evaluate fitness."""
         ...
@@ -46,6 +49,7 @@ class FitnessFunction(Protocol):
 @dataclass
 class PSOParams:
     """PSO parameters."""
+
     n_particles: int = 30
     n_iterations: int = 1000
     w: float = 0.729  # Inertia weight
@@ -58,13 +62,14 @@ class PSOParams:
 @dataclass
 class PSOHistory:
     """History of PSO optimization run."""
+
     best_fitness: list[float] = field(default_factory=list)
     mean_fitness: list[float] = field(default_factory=list)
 
 
 class Particle:
     """Single particle in PSO."""
-    
+
     def __init__(
         self,
         position: np.ndarray,
@@ -80,13 +85,13 @@ class Particle:
 
 class ParticleSwarmOptimizer(HeuristicOptimizer):
     """Particle Swarm Optimization optimizer.
-    
+
     Attributes:
         dim: Dimension of the problem.
         params: PSO parameters.
         history: Optimization history.
     """
-    
+
     def __init__(
         self,
         dim: int,
@@ -94,7 +99,7 @@ class ParticleSwarmOptimizer(HeuristicOptimizer):
         random_state: np.random.Generator | None = None,
     ):
         """Initialize PSO optimizer.
-        
+
         Args:
             dim: Dimension of the optimization problem.
             params: PSO parameters. If None, uses default PSOParams.
@@ -110,87 +115,81 @@ class ParticleSwarmOptimizer(HeuristicOptimizer):
         self.history = PSOHistory()
         self.particles: list[Particle] = []
         self.global_best_position: np.ndarray | None = None
-        self.global_best_fitness: float = float('inf')
-        
+        self.global_best_fitness: float = float("inf")
+
     def _reset(self) -> None:
         """Reset optimizer state."""
         self.global_best_position = None
-        self.global_best_fitness = float('inf')
-        
+        self.global_best_fitness = float("inf")
+
     def _initialize_particles(self, init_x: np.ndarray | None = None) -> list[Particle]:
         """Initialize particles.
-        
+
         Args:
             init_x: Initial point to include in particles.
-            
+
         Returns:
             List of particles.
         """
         particles = []
-        
+
         for i in range(self.params.n_particles):
             if init_x is not None and i == 0:
                 position = init_x.copy()
             else:
                 position = self.rng.uniform(
-                    self.params.bounds[0],
-                    self.params.bounds[1],
-                    self.dim
+                    self.params.bounds[0], self.params.bounds[1], self.dim
                 )
-            
-            velocity = self.rng.uniform(
-                -self.params.v_max,
-                self.params.v_max,
-                self.dim
+
+            velocity = self.rng.uniform(-self.params.v_max, self.params.v_max, self.dim)
+
+            particles.append(
+                Particle(position=position, velocity=velocity, fitness=float("inf"))
             )
-            
-            particles.append(Particle(
-                position=position,
-                velocity=velocity,
-                fitness=float('inf')
-            ))
-        
+
         return particles
-    
+
     def _evaluate_particles(
         self,
         fitness_fn: FitnessFunction,
     ) -> None:
         """Evaluate all particles.
-        
+
         Args:
             fitness_fn: Fitness function.
         """
         for p in self.particles:
             p.fitness = fitness_fn(p.position)
-            
+
             if p.fitness < p.best_fitness:
                 p.best_position = p.position.copy()
                 p.best_fitness = p.fitness
-                
+
                 if p.fitness < self.global_best_fitness:
                     self.global_best_position = p.position.copy()
                     self.global_best_fitness = p.fitness
-    
+
     def _update_velocities(self) -> None:
         """Update velocities for all particles."""
         r1 = self.rng.random((self.params.n_particles, self.dim))
         r2 = self.rng.random((self.params.n_particles, self.dim))
-        
+
         for i, p in enumerate(self.particles):
             cognitive = self.params.c1 * r1[i] * (p.best_position - p.position)
             social = self.params.c2 * r2[i] * (self.global_best_position - p.position)
-            
+
             p.velocity = self.params.w * p.velocity + cognitive + social
-            
+
             p.velocity = np.clip(p.velocity, -self.params.v_max, self.params.v_max)
-    
+
     def _update_positions(self) -> None:
         """Update positions for all particles."""
         for p in self.particles:
             p.position = p.position + p.velocity
-            p.position = np.clip(p.position, self.params.bounds[0], self.params.bounds[1])
-    
+            p.position = np.clip(
+                p.position, self.params.bounds[0], self.params.bounds[1]
+            )
+
     def optimize(
         self,
         fitness_fn: FitnessFunction,
@@ -199,47 +198,51 @@ class ParticleSwarmOptimizer(HeuristicOptimizer):
         callback: Callable[[int, np.ndarray, float], None] | None = None,
     ) -> tuple[np.ndarray, float]:
         """Run PSO optimization.
-        
+
         Args:
             fitness_fn: Fitness function to minimize.
             init_x: Initial point to include in particles.
             early_stop_threshold: Stop if best fitness below this threshold.
             callback: Optional callback function called after each iteration
                       with (iteration, best_position, best_fitness).
-        
+
         Returns:
             Tuple of (best_solution, best_fitness).
         """
         self.particles = self._initialize_particles(init_x)
-        
+
         self._evaluate_particles(fitness_fn)
-        
+
         self.history.best_fitness.append(self.global_best_fitness)
         self.history.mean_fitness.append(np.mean([p.fitness for p in self.particles]))
-        
+
         for iteration in range(1, self.params.n_iterations + 1):
             self._update_velocities()
             self._update_positions()
             self._evaluate_particles(fitness_fn)
-            
+
             self.history.best_fitness.append(self.global_best_fitness)
-            self.history.mean_fitness.append(np.mean([p.fitness for p in self.particles]))
-            
+            self.history.mean_fitness.append(
+                np.mean([p.fitness for p in self.particles])
+            )
+
             if callback is not None:
                 assert self.global_best_position is not None
                 callback(
                     iteration,
                     self.global_best_position.copy(),
-                    self.global_best_fitness
+                    self.global_best_fitness,
                 )
-            
-            if (early_stop_threshold is not None and 
-                self.global_best_fitness < early_stop_threshold):
+
+            if (
+                early_stop_threshold is not None
+                and self.global_best_fitness < early_stop_threshold
+            ):
                 break
-        
+
         assert self.global_best_position is not None
         return self.global_best_position.copy(), self.global_best_fitness
-    
+
     @property
     def convergence_history(self) -> list[float]:
         """Return convergence history (best fitness per iteration)."""
@@ -256,7 +259,7 @@ def minimize_pso(
     early_stop_threshold: float | None = None,
 ) -> tuple[np.ndarray, float]:
     """Convenience function for PSO optimization.
-    
+
     Args:
         fitness_fn: Fitness function to minimize.
         dim: Dimension of the problem.
@@ -265,7 +268,7 @@ def minimize_pso(
         bounds: Search space bounds (min, max).
         init_x: Initial point.
         early_stop_threshold: Early stopping threshold.
-        
+
     Returns:
         Tuple of (best_solution, best_fitness).
     """

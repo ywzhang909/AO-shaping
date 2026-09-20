@@ -18,12 +18,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.algorithm.beam_shaping_benchmark import (
+from ao_shaping.algorithm.signal_processing.beam_shaping_benchmark import (
     SUITE_ALGORITHMS,
     SUITE_SHAPES,
     run_benchmark_suite,
 )
-from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
+from ao_shaping.algorithm.signal_processing.gerchberg_saxton import gerchberg_saxton
 
 # 行字段与权威 _write_table 的 9 列表头一一对应 (权威键名为 *_area 后缀)。
 _METRIC_FIELDS = (

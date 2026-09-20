@@ -9,10 +9,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from ao_shaping.utils import gen_date_dir, gen_file_path_uuid, logger
-from ao_shaping.utils.display import plot_funcs
+from ao_shaping.utils.image.display import plot_funcs
 from ao_shaping.optimizer.wf.rms import optimizer_rms_dm
 from ao_shaping.optimizer.wfless.pib import optimize_pib
-from ao_shaping.utils.cli_helpers import (
+from ao_shaping.utils.io.cli_helpers import (
     setup_coredumpy,
     get_date_dir_name,
     get_debug_mode,

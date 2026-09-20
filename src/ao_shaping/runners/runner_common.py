@@ -19,7 +19,7 @@ from loguru import logger
 
 from ao_shaping.drivers.dm import create_dm, list_reachable_dm_types
 from ao_shaping.drivers.dm.base import DM
-from ao_shaping.utils.display import plot_funcs  # noqa: E402  (after matplotlib)
+from ao_shaping.utils.image.display import plot_funcs  # noqa: E402  (after matplotlib)
 
 
 # ---------------------------------------------------------------------------

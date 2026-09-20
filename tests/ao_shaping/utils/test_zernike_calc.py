@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.utils.zernike_calc import (
+from ao_shaping.utils.wavefront.zernike_calc import (
     ZERNIKE_NAMES,
     ZernikeGenerator,
     calc_n_zernike_terms,
@@ -367,7 +367,7 @@ class TestZernikeNames:
 
 
 class TestZernikeModes:
-    """Tests for :func:`ao_shaping.utils.zernike_calc.zernike_modes`.
+    """Tests for :func:`ao_shaping.utils.wavefront.zernike_calc.zernike_modes`.
 
     This function was extracted from ``ZernikeControl._modes`` in the GUI
     layer (2026-09-18) — it is pure Zernike math (the parity rule
@@ -376,7 +376,7 @@ class TestZernikeModes:
     """
 
     def test_modes_count_matches_calc_n_zernike_terms(self) -> None:
-        from ao_shaping.utils.zernike_calc import calc_n_zernike_terms
+        from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
 
         for n_max in (0, 1, 2, 5, 10):
             assert len(zernike_modes(n_max)) == calc_n_zernike_terms(n_max), (

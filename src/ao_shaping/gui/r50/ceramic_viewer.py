@@ -167,7 +167,7 @@ def load_enriched_data(csv_path: str) -> pd.DataFrame:
 
 def _auto_image_path(ip_group: int, seq: int, img_dir: str) -> Path | None:
     """根据 IP组+序号自动推导图片路径 (兼容多种命名格式)。"""
-    from ao_shaping.utils.file import find_cell_image
+    from ao_shaping.utils.io.file import find_cell_image
     return find_cell_image(img_dir, ip_group, seq)
 
 

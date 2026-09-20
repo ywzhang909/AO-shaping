@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 import tqdm
 
-from ao_shaping.algorithm.adam import AdaMOD
+from ao_shaping.algorithm.gradient.adam import AdaMOD
 from ao_shaping.drivers import MlaRes
 from ao_shaping.drivers.wfs import ThorlabWFS
 from ao_shaping.optimizer.spgd import spgd_gradient

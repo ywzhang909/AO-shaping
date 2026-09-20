@@ -23,6 +23,28 @@ def get_debug_mode() -> bool:
     return debug_mode
 
 
+def resolve_debug(ctx, flag: bool | None = None) -> bool:
+    """Resolve debug mode from any of: group ``--debug``, command ``--debug``, ``DEBUG`` env.
+
+    Enabling debug by *any* of the three means debug on. The group flag is read
+    from ``ctx.parent.obj`` (set by ``main.py``); it is absent when a runner is
+    invoked standalone (``python -m ao_shaping.runners...``), in which case the
+    command flag / env var still work.
+
+    Args:
+        ctx: click context of the command (``ctx.parent`` is the ``main.py`` group).
+        flag: value of the command's own ``--debug`` option (``None`` = not passed).
+
+    Returns:
+        True when debug mode should be enabled.
+    """
+    group_flag = False
+    parent = getattr(ctx, "parent", None) if ctx is not None else None
+    if parent is not None and getattr(parent, "obj", None):
+        group_flag = bool(parent.obj.get("debug", False))
+    return group_flag or get_debug_mode() or bool(flag)
+
+
 def parse_tuple(ctx, param, value):
     """Parse tuple format parameter supporting 'x,y' or '(x,y)' formats.
 

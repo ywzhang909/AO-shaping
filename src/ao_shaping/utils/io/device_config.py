@@ -9,7 +9,7 @@
 
 使用示例:
     >>> from dataclasses import dataclass
-    >>> from ao_shaping.utils.device_config import DeviceParam, ConfigHandler, param
+    >>> from ao_shaping.utils.io.device_config import DeviceParam, ConfigHandler, param
     >>>
     >>> @dataclass
     >>> class MyParams(DeviceParam):

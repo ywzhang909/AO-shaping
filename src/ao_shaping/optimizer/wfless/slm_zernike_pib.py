@@ -9,8 +9,11 @@ Key differences from pib.py:
 - DM (NlightDM) → SLM (Santec)
 - Voltage vectors → Zernike coefficient vectors
 - dm.send_voltages(v) → slm.display_data(phase_pattern)
-- No neighbor voltage safety checks (SLM has no such constraint)
-- No tabu search / adaptive neighborhood search (simplified)
+- Camera backend is selectable via ``cam_type`` (``create_camera`` registry)
+- Two search families: SPGD gradient descent (``algorithm="spgd"``) and
+  black-box heuristics (``ga``/``pso``/``sa``/``hc``/``rs``/``cem``/``de``)
+- Optional pygame live view of the CCD frame, the sent phase and the Zernike
+  coefficient bars (``show=True``)
 
 Example:
     >>> from ao_shaping.optimizer.wfless.slm_zernike_pib import optimize_slm_zernike_pib
@@ -29,23 +32,56 @@ from __future__ import annotations
 import inspect
 import os
 import time
+from collections import deque
+from contextlib import nullcontext
+from typing import Any, Literal, cast
 
-import tqdm
 import numpy as np
-import matplotlib.pylab as plt
+import tqdm
 
-from ao_shaping.drivers import MIICamera
+from ao_shaping.algorithm.gradient.adam import (
+    SGD,
+    Adam,
+    AdaMOD,
+    AdamW,
+    Base,
+    Muno,
+    MunoW,
+)
+from ao_shaping.algorithm.heuristic.search import (
+    heuristic_algorithm_choices,
+    run_heuristic_search,
+)
+from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
+from ao_shaping.display import SlmZernikeDisplay
+from ao_shaping.drivers.ccd.common import (
+    auto_exposure as camera_auto_exposure,
+    create_camera,
+    get_camera_exposure_ms,
+    list_camera_types,
+    set_camera_exposure_ms,
+)
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL
-from ao_shaping.optimizer.wfless.slm_square_shaping import _zernike_indices
 from ao_shaping.optimizer.spgd import spgd_gradient
-from ao_shaping.utils.pattern_helper import PatternHelper
-from ao_shaping.algorithm.adam import AdaMOD, Adam, AdamW, Base, Muno, MunoW, SGD
-from ao_shaping.utils import logger, Recorder
-from ao_shaping.utils.file import gen_date_dir, gen_date_str
-from ao_shaping.utils.spots_calc import centroid, radius
-from ao_shaping.algorithm.target_func import ImageTargetFunc
-from ao_shaping.utils.zernike_calc import calc_n_zernike_terms
+from ao_shaping.optimizer.wfless.slm_square_shaping import _zernike_indices
+from ao_shaping.utils import Recorder, logger
+from ao_shaping.utils.io.file import gen_date_dir, gen_date_str
+from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
+from ao_shaping.utils.image.spots_calc import centroid, radius
+from ao_shaping.utils.image.targets import create_target_shape
+from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
+
+TargetShape = Literal[
+    "gaussian",
+    "circle",
+    "square",
+    "annular",
+    "grid",
+    "cross",
+    "rectangle",
+    "pentagon",
+]
 
 # adam parameters
 beta1 = 0.9
@@ -54,8 +90,7 @@ beta3 = 0.9999
 
 # camera parameters
 CAM_SAMPLE_ITER = 1
-ADVISE_EXPOSURE_TIME_BRIGHTNESS = int(255 / 3)
-TEST_EXPOSURE_TIME_BRIGHTNESS = 220
+TEST_EXPOSURE_TIME_BRIGHTNESS = 220  # auto-exposure target used to locate the spot
 IDEAL_SPOT_RADIUS = int(os.environ.get("IDEAL_SPOT_RADIUS", 6))
 
 # Safety caps for learning_schedule: a single SPGD step must not be able to
@@ -87,8 +122,273 @@ OPTIMIZER_MAP = {
     "munow": MunoW,
 }
 
+# Search-family selection: "spgd" runs the SPGD gradient loop below; every other
+# name is a black-box heuristic handled by the shared driver in
+# ``ao_shaping.algorithm.heuristic.search`` (see ``run_heuristic_search``).
+ALGORITHM_CHOICES = heuristic_algorithm_choices()
 
-def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs) -> Base:
+# Symmetric clip applied to every candidate Zernike vector before it is turned
+# into a phase (matches the +/-5 clip the SPGD loop historically used).
+ZERNIKE_CLIP = 5.0
+
+TARGET_SHAPE_CHOICES = (
+    "circle",
+    "square",
+    "rectangle",
+    "annular",
+    "grid",
+    "cross",
+    "gaussian",
+    "pentagon",
+)
+
+
+def gauss_center(
+    img: np.ndarray, half_win: int = 48, bg: float | None = None
+) -> np.ndarray:
+    """Locate the spot centre with a background-subtracted squared centroid.
+
+    The returned coordinates use the project convention ``(x, y)``.
+    """
+    frame = np.asarray(img, dtype=np.float64)
+    if frame.ndim != 2:
+        raise ValueError(f"img must be 2D, got {frame.ndim}D")
+    height, width = frame.shape
+    yy, xx = np.mgrid[0:height, 0:width]
+    total = float(frame.sum())
+    fallback = np.array([(width - 1) / 2.0, (height - 1) / 2.0], dtype=np.float64)
+    if not np.isfinite(total) or total <= 0.0:
+        return fallback
+
+    cx = float(np.sum(frame * xx) / total)
+    cy = float(np.sum(frame * yy) / total)
+    half_win = max(1, int(half_win))
+    y0 = max(0, int(cy - half_win))
+    y1 = min(height, int(cy + half_win) + 1)
+    x0 = max(0, int(cx - half_win))
+    x1 = min(width, int(cx + half_win) + 1)
+    win = frame[y0:y1, x0:x1].copy()
+
+    if bg is None:
+        k = min(5, win.shape[0], win.shape[1])
+        corners = np.concatenate(
+            (
+                win[:k, :k].ravel(),
+                win[:k, -k:].ravel(),
+                win[-k:, :k].ravel(),
+                win[-k:, -k:].ravel(),
+            )
+        )
+        background = float(np.median(corners))
+    else:
+        background = float(bg)
+    if not np.isfinite(background):
+        background = 0.0
+
+    win = np.clip(win - background, 0.0, None)
+    weights = win**2
+    weight_sum = float(weights.sum())
+    if not np.isfinite(weight_sum) or weight_sum <= np.finfo(np.float64).eps:
+        return np.array([cx, cy], dtype=np.float64)
+
+    cx = float(np.sum(weights * xx[y0:y1, x0:x1]) / weight_sum)
+    cy = float(np.sum(weights * yy[y0:y1, x0:x1]) / weight_sum)
+    return np.array([np.clip(cx, 0.0, width - 1), np.clip(cy, 0.0, height - 1)])
+
+
+def threshold_spot_center(img: np.ndarray) -> tuple[int, int]:
+    """Threshold-based 0-order spot centre, robust to degenerate frames.
+
+    Marks every pixel brighter than a corner background estimate and takes that
+    mask's centroid. Three guards make it safe on real camera frames:
+
+    * empty mask — the brightest pixels sit *inside* the corner patch itself
+      (hot pixel / stray light), so ``img > corner_max`` selects nothing and
+      ``scipy.center_of_mass`` would divide by zero → ``centroid()`` would raise
+      ``ValueError: cannot convert float NaN to integer``; fall back to a
+      relative-threshold centroid;
+    * all-dark frame → return the frame centre instead of NaN;
+    * non-2D / empty input → ``ValueError``.
+
+    Returns ``(x, y)`` in pixels (project convention).
+    """
+    frame = np.asarray(img)
+    if frame.ndim != 2 or frame.size == 0:
+        raise ValueError(f"img must be a non-empty 2D array, got shape {frame.shape}")
+    height, width = frame.shape
+    if float(frame.max()) <= 0.0:
+        return (width // 2, height // 2)
+
+    corner_h = max(int(height // 50), 2)
+    corner_w = max(int(width // 50), 2)
+    corner = frame[:corner_h, :corner_w]
+    mask = frame > float(np.max(corner))
+    if np.any(mask):
+        cx, cy = centroid(mask)
+        return (int(cx), int(cy))
+
+    # Degenerate mask (the corner patch itself holds the brightest pixels, e.g. a
+    # hot pixel): drop that patch and take a plain centroid. A relative threshold
+    # would still be scaled by the hot pixel's value and drag the centre towards
+    # the corner.
+    fallback = frame.copy()
+    fallback[:corner_h, :corner_w] = 0
+    if float(fallback.max()) > 0.0:
+        cx, cy = centroid(fallback)
+        return (int(cx), int(cy))
+    return (width // 2, height // 2)
+
+
+def clamp_center_to_frame(
+    center: tuple[int, int], frame_shape: tuple[int, int], window: int
+) -> tuple[int, int]:
+    """Clamp an ROI centre so a ``window x window`` ROI always fits the frame.
+
+    ``DahengCamera.reset_window`` asserts ``x_offset >= 0 and y_offset >= 0``, so
+    a spot detected near a frame edge aborted the whole run. Clamping keeps the
+    ROI inside the frame (the spot is simply off-centre) instead of crashing.
+
+    Args:
+        center: ``(x, y)`` ROI centre in pixels.
+        frame_shape: ``(height, width)`` of the captured image.
+        window: requested (square) ROI size in pixels.
+    """
+    height, width = int(frame_shape[0]), int(frame_shape[1])
+    # ``half`` is capped at the half-frame so a (misconfigured) window larger
+    # than the frame still yields an in-frame centre instead of an out-of-range one.
+    half = min(max(0, int(window) // 2), min(height, width) // 2)
+    max_x = max(half, width - half - 1)
+    max_y = max(half, height - half - 1)
+    return (
+        int(np.clip(int(center[0]), half, max_x)),
+        int(np.clip(int(center[1]), half, max_y)),
+    )
+
+
+def resolve_initial_exposure(
+    exposure_time_ms: float, target_max_brightness: float
+) -> tuple[str, float]:
+    """Decide the initial exposure action (precedence: fixed > auto > keep).
+
+    Returns one of:
+        ``("fixed", ms)`` — use a fixed exposure time;
+        ``("auto", target)`` — auto-expose to the target peak brightness;
+        ``("keep", 0.0)`` — leave the exposure as-is (no auto-adjust).
+    """
+    if exposure_time_ms > 0:
+        return ("fixed", float(exposure_time_ms))
+    if target_max_brightness > 0:
+        return ("auto", float(target_max_brightness))
+    return ("keep", 0.0)
+
+
+def target_shape_roi(
+    image_shape: tuple[int, int],
+    center: tuple[float, float],
+    shape: str,
+    size: float,
+    aspect_ratio: float = 4.0 / 3.0,
+) -> np.ndarray:
+    """Build a target-shaped ROI centred at ``(x, y)`` in an image."""
+    if len(image_shape) != 2:
+        raise ValueError(f"image_shape must be (height, width), got {image_shape!r}")
+    height, width = (int(image_shape[0]), int(image_shape[1]))
+    if height <= 0 or width <= 0:
+        raise ValueError(f"image_shape must be positive, got {image_shape!r}")
+    if not np.isfinite(size) or size <= 0:
+        raise ValueError(f"size must be positive, got {size!r}")
+    if not np.isfinite(aspect_ratio) or aspect_ratio <= 0:
+        raise ValueError(f"aspect_ratio must be positive, got {aspect_ratio!r}")
+
+    shape = str(shape).lower()
+    if shape not in TARGET_SHAPE_CHOICES:
+        raise ValueError(f"Unknown target shape: {shape!r}")
+    typed_shape = cast(TargetShape, shape)
+    if shape == "rectangle":
+        template_h = max(1, int(round(float(size))))
+        template_w = max(1, int(round(float(size) * aspect_ratio)))
+    else:
+        template_h = template_w = max(1, int(round(float(size))))
+
+    kwargs: dict[str, Any] = {}
+    if shape in {"square", "rectangle"}:
+        kwargs["side"] = template_h
+        kwargs["aspect_ratio"] = aspect_ratio
+    elif shape in {"circle", "annular", "gaussian", "pentagon"}:
+        kwargs["radius_ratio"] = 1.0
+    if shape == "annular":
+        kwargs["outer_radius"] = template_h / 2.0
+
+    template = create_target_shape(typed_shape, (template_h, template_w), **kwargs)
+    cx, cy = (float(center[0]), float(center[1]))
+    x_start = int(np.floor(cx - template_w / 2.0))
+    y_start = int(np.floor(cy - template_h / 2.0))
+    x_end = x_start + template_w
+    y_end = y_start + template_h
+
+    roi = np.zeros((height, width), dtype=bool)
+    dst_y0 = max(0, y_start)
+    dst_y1 = min(height, y_end)
+    dst_x0 = max(0, x_start)
+    dst_x1 = min(width, x_end)
+    if dst_y0 >= dst_y1 or dst_x0 >= dst_x1:
+        return roi
+
+    src_y0 = dst_y0 - y_start
+    src_y1 = dst_y1 - y_start
+    src_x0 = dst_x0 - x_start
+    src_x1 = dst_x1 - x_start
+    roi[dst_y0:dst_y1, dst_x0:dst_x1] = template[src_y0:src_y1, src_x0:src_x1] > 0
+    if shape == "gaussian":
+        roi[dst_y0:dst_y1, dst_x0:dst_x1] &= (
+            template[src_y0:src_y1, src_x0:src_x1] >= 0.01
+        )
+    return roi
+
+
+def shape_metric(
+    img: np.ndarray,
+    center: tuple[float, float],
+    reference_center: tuple[float, float] | None = None,
+    target_shape: str = "rectangle",
+    target_size: float = 44.0,
+    target_aspect_ratio: float = 4.0 / 3.0,
+) -> tuple[float, float]:
+    """Return the dynamic-ROI shaping score and encircled-energy ratio."""
+    frame = np.asarray(img, dtype=np.float64)
+    if frame.ndim != 2:
+        raise ValueError(f"img must be 2D, got {frame.ndim}D")
+    height, width = frame.shape
+    if reference_center is None:
+        reference_center = ((width - 1) / 2.0, (height - 1) / 2.0)
+
+    roi = target_shape_roi(
+        (height, width),
+        center,
+        target_shape,
+        target_size,
+        target_aspect_ratio,
+    )
+    roi_values = frame[roi]
+    total = float(frame.sum())
+    encircled = float(roi_values.sum())
+    energy = encircled / total if np.isfinite(total) and total > 0.0 else 0.0
+    mean = float(roi_values.mean()) if roi_values.size else 0.0
+    if np.isfinite(mean) and mean > np.finfo(np.float64).eps:
+        uniformity = float(roi_values.std() / mean)
+        peak = float(roi_values.max() / mean)
+    else:
+        uniformity = 0.0
+        peak = 0.0
+
+    dx = float(center[0]) - float(reference_center[0])
+    dy = float(center[1]) - float(reference_center[1])
+    displacement = float(np.hypot(dx, dy) / max(height, width))
+    score = energy - 2.0 * uniformity - 0.5 * peak - 0.5 * displacement
+    return float(score), float(energy)
+
+
+def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs: Any) -> Base:
     """Create the configured optimizer while filtering unsupported kwargs."""
     optimizer_cls = OPTIMIZER_MAP.get(optimizer_type.lower(), AdaMOD)
     filtered_kwargs = {}
@@ -287,6 +587,7 @@ def optimize_slm_zernike_pib(
     shrink_iter: int = 0,
     shrink_ratio: float = 0.9,
     cam_id=0,
+    cam_type: str = "daheng",
     show: bool = False,
     init_c=None,
     cam_size=250,
@@ -294,8 +595,14 @@ def optimize_slm_zernike_pib(
     slm_number: int = 1,
     slm_wavelength: int = 1064,
     optimizer_type: str = "adamod",
+    algorithm: str = "spgd",
+    pop_size: int | None = None,
     random_seed: int | None = None,
     objective: str = "pib",
+    target_shape: str | None = None,
+    target_size: float | None = None,
+    target_aspect_ratio: float = 4.0 / 3.0,
+    target_center_smooth: int = 3,
     zernike_radius: float = ZERNIKE_APERTURE_RADIUS,
     shift_x: int | None = 0,
     shift_y: int | None = 0,
@@ -303,9 +610,10 @@ def optimize_slm_zernike_pib(
 ):
     """Optimize PIB (Power in Bucket) using SLM with Zernike coefficient control.
 
-    This function uses the SPGD (Stochastic Parallel Gradient Descent) algorithm
-    to optimize Zernike coefficients displayed on an SLM, maximizing the power
-    in a bucket (PIB) metric measured by a camera.
+    Zernike coefficients displayed on an SLM are searched to optimise an imaging
+    objective measured by a camera. Two search families are available:
+    ``algorithm="spgd"`` (Stochastic Parallel Gradient Descent, the default) or a
+    black-box heuristic (``ga``/``pso``/``sa``/``hc``/``rs``/``cem``/``de``).
 
     Args:
         center: Center position for PIB calculation. Can be None (auto-detect),
@@ -319,17 +627,35 @@ def optimize_slm_zernike_pib(
         exposure_time_ms: Camera exposure time in ms. If 0, auto-exposure.
         shrink_iter: Shrink iteration count. If 0, no shrinking.
         shrink_ratio: Shrink ratio for bucket radius.
-        cam_id: Camera device ID.
-        show: Whether to display images during optimization.
+        cam_id: Camera device ID (or path/URL for file-based backends).
+        cam_type: Camera backend selected through ``create_camera``; one of
+            ``daheng`` (default) or ``miicam``. Exposure handling is normalised
+            across backends by the ``drivers.ccd.common`` helpers.
+        show: When True, open a pygame window showing the CCD frame, the sent SLM
+            phase and the Zernike coefficient bars during the search.
         init_c: Initial Zernike coefficients. If None, starts from zeros.
         cam_size: Camera window size.
         target_max_brightness: Target max brightness for auto-exposure.
         slm_number: SLM device number (1-8).
         slm_wavelength: SLM wavelength in nm.
-        optimizer_type: Optimizer type for gradient stage (adam/adamod/sgd/muno).
-        random_seed: Random seed for reproducibility.
+        optimizer_type: Optimizer type for the SPGD gradient stage
+            (adam/adamod/sgd/muno); ignored when ``algorithm`` is a heuristic.
+        algorithm: Search algorithm: ``"spgd"`` or one of the heuristics
+            ``ga``/``pso``/``sa``/``hc``/``rs``/``cem``/``de``.
+        pop_size: Population size for population-based heuristics
+            (ga/pso/cem/de); ignored otherwise.
+        random_seed: Random seed for reproducibility (applies to both SPGD
+            perturbation sampling and the heuristic RNG).
         objective: Optimization target: 'pib' (maximize), 'radiu' (minimize radius),
-            'avg_radiu' (maximize average radius).
+            'avg_radiu' (maximize average radius), or 'shape' (dynamic target ROI).
+        target_shape: Target ROI shape. Supplying it selects the ``shape`` objective;
+            defaults to ``rectangle`` for that objective.
+        target_size: Full target extent in camera pixels (rectangle short side,
+            circle diameter, square side). ``None`` derives it from the initial
+            99% encircled-energy radius.
+        target_aspect_ratio: Width:height ratio for a rectangular target ROI.
+        target_center_smooth: Number of recent Gaussian-centre estimates averaged
+            for each frame (minimum 1).
         **kwargs: Additional optimizer parameters.
 
     Returns:
@@ -339,13 +665,46 @@ def optimize_slm_zernike_pib(
     epochs = int(epochs)
     rng = np.random.default_rng(random_seed)
 
-    if objective not in ("pib", "radiu", "avg_radiu"):
+    algorithm = str(algorithm).lower()
+    if algorithm not in ALGORITHM_CHOICES:
         raise ValueError(
-            f"objective must be one of ('pib', 'radiu', 'avg_radiu'), got {objective}"
+            f"algorithm must be one of {ALGORITHM_CHOICES}, got {algorithm!r}"
         )
 
-    # Optimization mode mapping: pib and avg_radiu are maximized, radiu is minimized
-    objective_mode = "max" if objective in ("pib", "avg_radiu") else "min"
+    objective = str(objective).lower()
+    if target_shape is not None:
+        target_shape = str(target_shape).lower()
+        if target_shape not in TARGET_SHAPE_CHOICES:
+            raise ValueError(
+                f"target_shape must be one of {TARGET_SHAPE_CHOICES}, got {target_shape!r}"
+            )
+    if target_shape is not None and objective not in ("pib", "shape"):
+        raise ValueError(
+            "target_shape can only be used with objective='pib' or 'shape'"
+        )
+    if target_shape is not None:
+        objective = "shape"
+    if objective == "shape" and target_shape is None:
+        target_shape = "rectangle"
+    shape_for_metric = cast(TargetShape, target_shape or "rectangle")
+    if objective not in ("pib", "radiu", "avg_radiu", "shape"):
+        raise ValueError(
+            f"objective must be one of ('pib', 'radiu', 'avg_radiu', 'shape'), "
+            f"got {objective}"
+        )
+    if target_center_smooth < 1:
+        raise ValueError(
+            f"target_center_smooth must be at least 1, got {target_center_smooth}"
+        )
+    if target_size is not None and (not np.isfinite(target_size) or target_size <= 0):
+        raise ValueError(f"target_size must be positive, got {target_size!r}")
+    if not np.isfinite(target_aspect_ratio) or target_aspect_ratio <= 0:
+        raise ValueError(
+            f"target_aspect_ratio must be positive, got {target_aspect_ratio!r}"
+        )
+
+    # Optimization mode mapping: pib, avg_radiu and shape are maximized; radiu is minimized
+    objective_mode = "max" if objective in ("pib", "avg_radiu", "shape") else "min"
     recorder = Recorder(mark=objective, mode=objective_mode)
 
     # History for convergence detection
@@ -360,9 +719,23 @@ def optimize_slm_zernike_pib(
     # SLM pattern helper
     pattern_helper = PatternHelper(resolution=SLM_RESOLUTION, bits=10)
 
+    if show:
+        # PIB (bucket ratio) is bounded 0..1 -> fixed y-axis; other objectives auto-scale.
+        _curve_y_range = (0.0, 1.0) if objective == "pib" else None
+        display_ctx = SlmZernikeDisplay(
+            zernike_clip=ZERNIKE_CLIP,
+            curve_title=f"{objective} curve",
+            curve_y_range=_curve_y_range,
+        )
+    else:
+        display_ctx = nullcontext(None)
+
     with (
-        MIICamera(
-            cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
+        create_camera(
+            cam_type,
+            cam_id=cam_id,
+            exposure_time_ms=exposure_time_ms,
+            skip_sampling=False,
         ) as cam,
         Santec(
             slm_number=slm_number,
@@ -370,6 +743,7 @@ def optimize_slm_zernike_pib(
             shift_x=shift_x,
             shift_y=shift_y,
         ) as slm,
+        display_ctx as live_display,
     ):
         # Initialize Zernike coefficients
         if init_c is None or len(init_c) == 0:
@@ -390,26 +764,19 @@ def optimize_slm_zernike_pib(
         _display(slm, initial_phase)
         time.sleep(SLM_RESPONSE_TIME_S)
 
-        # Auto-exposure for initial image
-        _img = cam.autoset_exposure_time_ms(
-            target_max_brightness=TEST_EXPOSURE_TIME_BRIGHTNESS
-        )
+        # Auto-exposure for initial image (native Daheng path, generic loop for MIICAM)
+        _img = camera_auto_exposure(cam, TEST_EXPOSURE_TIME_BRIGHTNESS)
 
         def intellij_center(img):
+            """Smart centre: threshold centroid, refined by the full centroid
+            when the spot core is not a hole (flat core)."""
             (h, w) = img.shape
             margin = int(IDEAL_SPOT_RADIUS)
-            center = centroid(
-                np.where(
-                    img > np.max(img[: max(int(h // 50), 2), : max(int(w // 50), 2)]),
-                    1,
-                    0,
-                )
-            )
+            center = threshold_spot_center(img)
             (cx, cy) = center
-            if np.all(
-                img[cy - margin : cy + margin, cx - margin : cx + margin]
-                >= np.max(img) * 0.4
-            ):
+            y0, y1 = max(0, cy - margin), min(h, cy + margin)
+            x0, x1 = max(0, cx - margin), min(w, cx + margin)
+            if y1 > y0 and x1 > x0 and np.all(img[y0:y1, x0:x1] >= np.max(img) * 0.4):
                 center = centroid(img)
             return center
 
@@ -422,49 +789,64 @@ def optimize_slm_zernike_pib(
             elif center == "max":
                 center = np.unravel_index(np.argmax(_img), _img.shape)[::-1]
             elif center == "shape":
-                (h, w) = _img.shape
-                center = centroid(
-                    np.where(
-                        _img
-                        > np.max(_img[: max(int(h // 50), 2), : max(int(w // 50), 2)]),
-                        1,
-                        0,
-                    )
-                )
+                center = threshold_spot_center(_img)
             else:
                 raise ValueError(f"known center: {center}")
         else:
             center = center
 
-        if show:
-            plt.imshow(_img, cmap="gray")
-            plt.scatter(x=center[0], y=center[1], c="red", s=5)
-            plt.show()
+        # Integer pixel coordinates (centroid() already returns ints; the cast
+        # also covers user-supplied float tuples).
+        center = (int(round(center[0])), int(round(center[1])))
 
         logger.info(
             f"Centroid brightness: {_img[center[::-1]]}@{center}, "
-            f"Max brightness: {np.max(_img)} @ {cam.exposure_time}ms"
+            f"Max brightness: {np.max(_img)} @ {get_camera_exposure_ms(cam)}ms"
         )
 
         img_size = (cam_size, cam_size)
+        # Keep the ROI inside the frame: DahengCamera.reset_window rejects
+        # negative offsets, so a spot near an edge would abort the run.
+        center = clamp_center_to_frame(center, _img.shape, cam_size)
         img_size, center = cam.reset_window(center, img_size)
         logger.info(f"reset window center @ {center}")
 
-        if exposure_time_ms > 0:
-            cam.exposure_time = exposure_time_ms
+        # Precedence: fixed exposure (`--exposure_time_ms > 0`) wins over
+        # auto-exposure (`--target_max_brightness > 0`); `0/0` keeps the current
+        # exposure ("若为0则不自动调整曝光时间", matching the runner help).
+        _exposure_mode, _exposure_value = resolve_initial_exposure(
+            exposure_time_ms, target_max_brightness
+        )
+        if _exposure_mode == "fixed":
+            set_camera_exposure_ms(cam, _exposure_value)
             init_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
-        elif 0 < target_max_brightness < 255 and target_max_brightness > 0:
-            init_img = cam.autoset_exposure_time_ms(
-                target_max_brightness=target_max_brightness, twice_valid=True
-            )
+        elif _exposure_mode == "auto":
+            init_img = camera_auto_exposure(cam, _exposure_value)
         else:
-            init_img = cam.autoset_exposure_time_ms(
-                target_max_brightness=ADVISE_EXPOSURE_TIME_BRIGHTNESS, twice_valid=True
-            )
+            init_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
         logger.debug(
-            f"Initial Image Max brightness: {np.max(init_img)} @ {cam.exposure_time}ms"
+            f"Initial Image Max brightness: {np.max(init_img)} "
+            f"@ {get_camera_exposure_ms(cam)}ms"
         )
         img_size = init_img.shape[::-1]
+        reference_center: tuple[float, float] = (
+            float(center[0]),
+            float(center[1]),
+        )
+        if target_size is None:
+            _w, _h = img_size
+            _target_radius = ImageTargetFunc(_w, _h, reference_center).radius(
+                init_img, energy=0.99
+            )
+            target_size = min(
+                max(2.0 * float(_target_radius), 4.0), float(min(img_size))
+            )
+            logger.info(f"Use dynamic target size @ {target_size:.1f}px")
+
+        target_center_smooth = int(target_center_smooth)
+        target_center_history: deque[tuple[float, float]] = deque()
+        for _ in range(target_center_smooth):
+            target_center_history.append(reference_center)
 
         if r_bucket <= 0:
             _w, _h = img_size
@@ -505,6 +887,28 @@ def optimize_slm_zernike_pib(
             def calc_objective(img):
                 pib, pib_ratio = target_func.pib(img, r_bucket)
                 return pib, pib_ratio
+        elif objective == "shape":
+            to_min = -1
+
+            def calc_objective_shape(img):
+                measured_center = gauss_center(img)
+                target_center_history.append(
+                    (float(measured_center[0]), float(measured_center[1]))
+                )
+                metric_center = np.mean(
+                    np.asarray(tuple(target_center_history), dtype=np.float64),
+                    axis=0,
+                )
+                return shape_metric(
+                    img,
+                    (float(metric_center[0]), float(metric_center[1])),
+                    reference_center,
+                    shape_for_metric,
+                    target_size,
+                    target_aspect_ratio,
+                )
+
+            calc_objective = calc_objective_shape
         elif objective == "radiu":
 
             def calc_objective_radiu(img):
@@ -548,10 +952,7 @@ def optimize_slm_zernike_pib(
         # Baseline objective of the initial phase (flat when ``init_c`` is
         # empty). Used on exit to decide between the best phase and flat.
         _initial_objective = best_objective
-        best_j = float(j)
-        best_objective_ratio = float(pib_ratio)
         best_c = _init_c.copy()
-        best_img = init_img.copy()
         last_best_epoch = 0
 
         recorder.append(
@@ -567,13 +968,192 @@ def optimize_slm_zernike_pib(
                 "r": r_bucket,
                 "delta": delta,
                 "_epoch": 0,
-                "exp_t": cam.exposure_time,
+                "exp_t": get_camera_exposure_ms(cam),
                 "max_brt": np.max(init_img),
                 "_grad": np.zeros_like(_init_c),
                 "optimizer": optimizer_type,
                 f"best_{objective}": best_objective,
             }
         )
+
+        def _log_row(
+            *,
+            epoch: int,
+            coeffs: np.ndarray,
+            obj_val: float,
+            obj_ratio: float,
+            J: float,
+            diff: float,
+            grad: np.ndarray,
+            img: np.ndarray,
+            lr_val: float,
+            delta_val: float,
+            max_brt: float,
+        ) -> dict:
+            """Append one search step to the recorder (shared by both branches)."""
+            row = {
+                "J": J,
+                "_p%": obj_ratio,
+                "_max_r": _init_r,
+                objective: obj_val,
+                "_diff": diff,
+                "lr": lr_val,
+                "r": r_bucket,
+                "delta": delta_val,
+                "_epoch": epoch,
+                "_c": coeffs,
+                "_img": img,
+                "exp_t": get_camera_exposure_ms(cam),
+                "max_brt": max_brt,
+                "_grad": grad,
+                f"best_{objective}": best_objective,
+            }
+            recorder.append(row)
+            return row
+
+        def _apply_best_on_exit() -> None:
+            """Leave the SLM at the best-found phase (or flat if never improved)."""
+            if not SLM_APPLY_BEST_ON_EXIT:
+                return
+            improved = (
+                best_objective > _initial_objective + 1e-4
+                if objective_mode == "max"
+                else best_objective < _initial_objective - 1e-4
+            )
+            if improved:
+                best_phase = slm.create_phase_from_array(
+                    _zernike_to_phase(best_c, n_max, pattern_helper, zernike_radius)
+                )
+                _display(slm, best_phase)
+                time.sleep(SLM_RESPONSE_TIME_S)
+                logger.info(
+                    "SLM left at best {} phase: {:.4f} @ epoch {} (initial {:.4f})",
+                    objective,
+                    best_objective,
+                    last_best_epoch,
+                    _initial_objective,
+                )
+            else:
+                slm.set_grayscale(0)
+                logger.info(
+                    "No {} improvement over the initial phase ({:.4f}); "
+                    "SLM left at flat",
+                    objective,
+                    _initial_objective,
+                )
+
+        # ------------------------------------------------------------------
+        # Heuristic search branch (shared driver: algorithm/heuristic/search.py).
+        # The driver clips candidates to the bounds, handles the maximise/minimise
+        # sign and aborts cooperatively when the live window is closed.
+        # ------------------------------------------------------------------
+        if algorithm != "spgd":
+            last_eval: dict = {}
+
+            def _evaluate_candidate(coeffs) -> float:
+                """Display one candidate and return its RAW objective value."""
+                candidate = np.asarray(coeffs, dtype=np.float64)
+                candidate_phase = slm.create_phase_from_array(
+                    _zernike_to_phase(candidate, n_max, pattern_helper, zernike_radius)
+                )
+                _display(slm, candidate_phase)
+                time.sleep(SLM_RESPONSE_TIME_S)
+                img = cam.get_numpy_image(CAM_SAMPLE_ITER)
+                obj, obj_ratio = calc_objective(img)
+                obj_val = float(test_pib(img)) if objective == "pib" else float(obj)
+                last_eval.update(
+                    {
+                        "phase": candidate_phase,
+                        "img": img,
+                        "obj": float(obj),
+                        "ratio": float(obj_ratio),
+                    }
+                )
+                return obj_val
+
+            with tqdm.tqdm(
+                total=None, desc=f"slm_zernike {algorithm}", dynamic_ncols=True
+            ) as bar:
+
+                def _on_evaluate(candidate, value, index) -> None:
+                    nonlocal best_objective, best_c, last_best_epoch
+                    improved = (
+                        value > best_objective + 1e-4
+                        if objective_mode == "max"
+                        else value < best_objective - 1e-4
+                    )
+                    if improved:
+                        best_objective = float(value)
+                        best_c = np.asarray(candidate, dtype=np.float64).copy()
+                        last_best_epoch = index
+
+                    img = last_eval["img"]
+                    row = _log_row(
+                        epoch=index,
+                        coeffs=candidate,
+                        obj_val=float(value),
+                        obj_ratio=last_eval["ratio"],
+                        J=last_eval["obj"],
+                        diff=0.0,
+                        grad=np.zeros_like(candidate),
+                        img=img,
+                        lr_val=0.0,
+                        delta_val=float(delta),
+                        max_brt=float(np.max(img)),
+                    )
+                    if live_display is not None:
+                        text = (
+                            f"{algorithm} eval {index} | "
+                            f"best {objective} {best_objective:.4f} @ {last_best_epoch} | "
+                            f"J {row['J']:.3g} | r {r_bucket:.1f}"
+                        )
+                        live_display.update(
+                            img,
+                            last_eval["phase"],
+                            candidate,
+                            center,
+                            r_bucket,
+                            text,
+                            value=float(value),
+                            epoch=index,
+                        )
+                    bar.set_postfix({k: v for k, v in row.items() if k[0] != "_"})
+                    bar.update(1)
+
+                result = run_heuristic_search(
+                    algorithm,
+                    _evaluate_candidate,
+                    dim=nk,
+                    iterations=epochs,
+                    bounds=(-ZERNIKE_CLIP, ZERNIKE_CLIP),
+                    x0=_init_c,
+                    maximize=(objective_mode == "max"),
+                    seed=random_seed,
+                    pop_size=pop_size,
+                    on_evaluate=_on_evaluate,
+                    should_stop=(
+                        (lambda: live_display.closed)
+                        if live_display is not None
+                        else None
+                    ),
+                )
+
+            if live_display is not None and live_display.closed:
+                logger.info(
+                    "Display window closed; stopped {} after {} evaluations",
+                    algorithm,
+                    result.evaluations,
+                )
+            else:
+                logger.info(
+                    "{} search finished: best {}={:.4f} over {} evaluations",
+                    algorithm,
+                    objective,
+                    result.best_value,
+                    result.evaluations,
+                )
+            _apply_best_on_exit()
+            return recorder
 
         with tqdm.tqdm(
             total=epochs, desc=f"slm_zernike iter {epochs}", dynamic_ncols=True
@@ -606,9 +1186,7 @@ def optimize_slm_zernike_pib(
                 # Auto-exposure adjustment if saturated
                 max_brightness = max([np.max(pos_img), np.max(neg_img)])
                 if max_brightness == 255 and exposure_time_ms == 0:
-                    _resample_img = cam.autoset_exposure_time_ms(
-                        target_max_brightness, twice_valid=False
-                    )
+                    _resample_img = camera_auto_exposure(cam, target_max_brightness)
                     optimizer.scale_momentum(np.sum(_resample_img) / np.sum(pos_img))
 
                 pos_j, neg_j = pos_obj, neg_obj
@@ -684,58 +1262,48 @@ def optimize_slm_zernike_pib(
                     best_img = pos_img.copy()
                     last_best_epoch = epoch
 
-                log = {
-                    "J": J,
-                    "_p%": objective_ratio,
-                    "_max_r": _init_r,
-                    "pib": objective_val,
-                    "_diff": diff,
-                    "lr": optimizer.lr,
-                    "r": r_bucket,
-                    "delta": delta,
-                    "_epoch": epoch,
-                    "_c": _init_c,
-                    "_img": pos_img,
-                    "exp_t": cam.exposure_time,
-                    "max_brt": max_brightness,
-                    "_grad": gradient,
-                }
-                recorder.append(log)
+                log = _log_row(
+                    epoch=epoch,
+                    coeffs=_init_c,
+                    obj_val=objective_val,
+                    obj_ratio=objective_ratio,
+                    J=J,
+                    diff=diff,
+                    grad=gradient,
+                    img=pos_img,
+                    lr_val=optimizer.lr,
+                    delta_val=delta,
+                    max_brt=float(max_brightness),
+                )
+                if live_display is not None:
+                    text = (
+                        f"epoch {epoch} | {objective} {objective_val:.4f} "
+                        f"@ {last_best_epoch} | r {r_bucket:.1f} | lr {optimizer.lr:.3f}"
+                    )
+                    if not live_display.update(
+                        pos_img,
+                        pos_phase,
+                        _pos_c,
+                        center,
+                        r_bucket,
+                        text,
+                        value=objective_val,
+                        epoch=epoch,
+                        total_epochs=epochs,
+                    ):
+                        logger.info(
+                            "Display window closed; stopping SPGD at epoch {}", epoch
+                        )
+                        break
 
                 bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
                 bar.update(1)
 
         # On exit, leave the SLM at the best phase found. The initial (flat or
         # loaded) phase is one of the candidates: if the search never improved
-        # on it, restore that instead of a worse "best".
-        if SLM_APPLY_BEST_ON_EXIT:
-            improved = (
-                best_objective > _initial_objective + 1e-4
-                if objective_mode == "max"
-                else best_objective < _initial_objective - 1e-4
-            )
-            if improved:
-                best_phase = slm.create_phase_from_array(
-                    _zernike_to_phase(best_c, n_max, pattern_helper, zernike_radius)
-                )
-                _display(slm, best_phase)
-                time.sleep(SLM_RESPONSE_TIME_S)
-                logger.info(
-                    "SLM left at best {} phase: {:.4f} @ epoch {} "
-                    "(initial {:.4f})",
-                    objective,
-                    best_objective,
-                    last_best_epoch,
-                    _initial_objective,
-                )
-            else:
-                slm.set_grayscale(0)
-                logger.info(
-                    "No {} improvement over the initial phase ({:.4f}); "
-                    "SLM left at flat",
-                    objective,
-                    _initial_objective,
-                )
+        # on it, restore that instead of a worse "best". Shared with the
+        # heuristic branch through _apply_best_on_exit.
+        _apply_best_on_exit()
 
         return recorder
 
@@ -765,13 +1333,38 @@ if __name__ == "__main__":
     parser.add_argument(
         "-t", "--exposure_time_ms", type=float, default=80.0, help="Exposure time (ms)"
     )
-    parser.add_argument("--cam_id", type=int, default=0, help="Camera device ID")
+    parser.add_argument(
+        "--cam_id",
+        type=str,
+        default="0",
+        help="Camera device ID (int) or path/URL for file-based backends",
+    )
+    parser.add_argument(
+        "--cam_type",
+        type=str,
+        default="daheng",
+        choices=list_camera_types(),
+        help="Camera backend (registry type)",
+    )
     parser.add_argument("--slm_number", type=int, default=1, help="SLM device number")
     parser.add_argument(
         "--slm_wavelength", type=int, default=1064, help="SLM wavelength (nm)"
     )
     parser.add_argument(
         "--optimizer", type=str, default="adamod", help="Optimizer type"
+    )
+    parser.add_argument(
+        "--algorithm",
+        type=str,
+        default="spgd",
+        choices=list(ALGORITHM_CHOICES),
+        help="Search algorithm: spgd (gradient) or a black-box heuristic",
+    )
+    parser.add_argument(
+        "--pop_size",
+        type=int,
+        default=None,
+        help="Population size for ga/pso/cem/de (default: heuristic default)",
     )
     parser.add_argument(
         "--objective", type=str, default="pib", help="Optimization target"
@@ -784,6 +1377,10 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    cam_id = (
+        int(args.cam_id) if args.cam_id.strip().lstrip("+-").isdigit() else args.cam_id
+    )
+
     recorder = optimize_slm_zernike_pib(
         center=args.center,
         epochs=args.epochs,
@@ -792,10 +1389,13 @@ if __name__ == "__main__":
         delta=args.delta,
         lr=args.lr,
         exposure_time_ms=args.exposure_time_ms,
-        cam_id=args.cam_id,
+        cam_id=cam_id,
+        cam_type=args.cam_type,
         slm_number=args.slm_number,
         slm_wavelength=args.slm_wavelength,
         optimizer_type=args.optimizer,
+        algorithm=args.algorithm,
+        pop_size=args.pop_size,
         objective=args.objective,
         random_seed=args.seed,
         show=args.show,

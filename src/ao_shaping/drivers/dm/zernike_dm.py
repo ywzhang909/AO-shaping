@@ -7,7 +7,7 @@ from loguru import logger
 
 from ao_shaping.drivers.dm._registry import register_dm
 from ao_shaping.drivers.dm.base import DM
-from ao_shaping.utils.zernike_calc import ZernikeGenerator
+from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator
 
 
 @register_dm("zernike")

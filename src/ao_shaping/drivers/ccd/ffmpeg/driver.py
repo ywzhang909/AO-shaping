@@ -20,8 +20,8 @@ from pathlib import Path
 import numpy as np
 
 from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
-from ao_shaping.utils.file import logger
-from ao_shaping.utils.timestamp import TimestampParser
+from ao_shaping.utils.io.file import logger
+from ao_shaping.utils.io.timestamp import TimestampParser
 
 
 class FFmpegCameraError(CameraError):

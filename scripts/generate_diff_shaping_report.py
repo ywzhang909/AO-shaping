@@ -34,12 +34,12 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from PIL import Image  # noqa: E402
 
-from ao_shaping.algorithm.differentiable_shaping import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.differentiable_shaping import (  # noqa: E402
     angular_spectrum_propagate_torch,
     create_target_mask,
     train_beam_shaping,
 )
-from ao_shaping.algorithm.gerchberg_saxton import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.gerchberg_saxton import (  # noqa: E402
     angular_spectrum_propagate,
     gerchberg_saxton,
 )
@@ -123,7 +123,10 @@ def _asm_farfield(phase: np.ndarray) -> np.ndarray:
     """ASM far-field intensity from a phase map (numpy)."""
     field = np.exp(1j * phase)
     out = angular_spectrum_propagate(
-        field, CELL_SPACING, DISTANCE, WAVELENGTH,
+        field,
+        CELL_SPACING,
+        DISTANCE,
+        WAVELENGTH,
     )
     return np.abs(out) ** 2
 
@@ -155,9 +158,7 @@ def _frames_to_gif(frames: list[np.ndarray], out_path: Path, cmap: str) -> None:
                 (max(1, int(w * scale)), max(1, int(h * scale))),
                 Image.Resampling.LANCZOS,
             )
-        pil_frames.append(
-            img.convert("P", palette=Image.Palette.ADAPTIVE, colors=256)
-        )
+        pil_frames.append(img.convert("P", palette=Image.Palette.ADAPTIVE, colors=256))
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     pil_frames[0].save(
@@ -181,12 +182,18 @@ def run_asm_parity() -> dict:
     field = np.random.randn(64, 64) + 1j * np.random.randn(64, 64)
 
     ref = angular_spectrum_propagate(
-        field, CELL_SPACING, DISTANCE, WAVELENGTH,
+        field,
+        CELL_SPACING,
+        DISTANCE,
+        WAVELENGTH,
     )
 
     field_t = torch.from_numpy(field).to(dtype=torch.complex128)
     out_t = angular_spectrum_propagate_torch(
-        field_t, CELL_SPACING, DISTANCE, WAVELENGTH,
+        field_t,
+        CELL_SPACING,
+        DISTANCE,
+        WAVELENGTH,
     )
     out_np = out_t.detach().cpu().numpy()
 
@@ -392,9 +399,7 @@ def make_cv_ee_curves(runs: dict) -> None:
         ax2.set_ylabel("EE", color="tab:blue")
         ax2.tick_params(axis="y", labelcolor="tab:blue")
         ax.set_title(
-            f"{key}\nCV={cv_hist[-1]:.4f} EE={ee_hist[-1]:.4f}"
-            if cv_hist
-            else key
+            f"{key}\nCV={cv_hist[-1]:.4f} EE={ee_hist[-1]:.4f}" if cv_hist else key
         )
         ax.grid(alpha=0.3)
     fig.tight_layout()
@@ -589,7 +594,14 @@ def build_readme(runs: dict, metrics: dict, asm_max_err: float) -> str:
     lines.append("")
     lines.append("| 运行 | 传播 | 优化器 | 迭代 | lr | w_u | w_e | w_z | w_s | seed |")
     lines.append("|------|------|--------|------|----|-----|-----|-----|-----|------|")
-    for key in ("gs_baseline", "old_default", "win_fft", "win_asm", "win_spot", "win_lbfgs"):
+    for key in (
+        "gs_baseline",
+        "old_default",
+        "win_fft",
+        "win_asm",
+        "win_spot",
+        "win_lbfgs",
+    ):
         m = metrics["runs"][key]
         lines.append(
             f"| {key} | {m['propagation']} | {m['optimizer']} | {m['iterations']} "
@@ -668,9 +680,7 @@ def build_readme(runs: dict, metrics: dict, asm_max_err: float) -> str:
     lines.append("")
     lines.append("### 默认权重 [.4,.4,.1,.1] + lr=1e-2 是坏的")
     lines.append("")
-    lines.append(
-        "旧默认配置（`w=[.4,.4,.1,.1]`, `lr=1e-2`）无法整形："
-    )
+    lines.append("旧默认配置（`w=[.4,.4,.1,.1]`, `lr=1e-2`）无法整形：")
     lines.append("")
     lines.append(
         "- **零级惩罚把能量推出居中目标**：`zero_order_penalty` 惩罚中心 5×5 窗口，"
@@ -687,9 +697,7 @@ def build_readme(runs: dict, metrics: dict, asm_max_err: float) -> str:
     lines.append("")
     lines.append("### 成功方案")
     lines.append("")
-    lines.append(
-        "`w=[.4,.6,0,0]`, `lr=3e-2`, 600 迭代："
-    )
+    lines.append("`w=[.4,.6,0,0]`, `lr=3e-2`, 600 迭代：")
     lines.append("")
     lines.append(
         f"- **fft/adam**：CV<0.1 / EE≈0.84（seed 1-3 稳健），实测 CV={runs['win_fft']['CV']:.4f} / EE={runs['win_fft']['EE']:.4f}。"
@@ -759,7 +767,9 @@ def main() -> int:
         t0 = time.time()
         parity = run_asm_parity()
         asm_max_err = parity["max_abs_error"]
-        print(f"[report] asm_parity done max_err={asm_max_err:.2e} ({time.time()-t0:.1f}s)")
+        print(
+            f"[report] asm_parity done max_err={asm_max_err:.2e} ({time.time() - t0:.1f}s)"
+        )
     except Exception as e:  # noqa: BLE001
         print(f"[report] asm_parity FAILED: {e}")
         metrics["errors"]["asm_parity"] = str(e)
@@ -777,16 +787,23 @@ def main() -> int:
         t0 = time.time()
         runs["gs_baseline"] = run_gs_baseline(square_target)
         metrics["runs"]["gs_baseline"] = {
-            "propagation": "fft", "optimizer": "gs", "iterations": 100,
-            "lr": None, "w_uniformity": None, "w_efficiency": None,
-            "w_zero_order": None, "w_smoothness": None, "seed": None,
-            "CV": runs["gs_baseline"]["CV"], "EE": runs["gs_baseline"]["EE"],
+            "propagation": "fft",
+            "optimizer": "gs",
+            "iterations": 100,
+            "lr": None,
+            "w_uniformity": None,
+            "w_efficiency": None,
+            "w_zero_order": None,
+            "w_smoothness": None,
+            "seed": None,
+            "CV": runs["gs_baseline"]["CV"],
+            "EE": runs["gs_baseline"]["EE"],
             "final_loss": runs["gs_baseline"]["final_loss"],
             "loss0": runs["gs_baseline"]["loss0"],
         }
         print(
             f"[report] gs_baseline done CV={runs['gs_baseline']['CV']:.4f} "
-            f"EE={runs['gs_baseline']['EE']:.4f} ({time.time()-t0:.1f}s)"
+            f"EE={runs['gs_baseline']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
     except Exception as e:  # noqa: BLE001
         print(f"[report] gs_baseline FAILED: {e}")
@@ -796,21 +813,34 @@ def main() -> int:
     try:
         t0 = time.time()
         runs["old_default"] = run_diff(
-            "old_default", square_target,
-            propagation="fft", optimizer="adam", iterations=300, lr=1e-2,
-            w=(0.4, 0.4, 0.1, 0.1), seed=1, track=False,
+            "old_default",
+            square_target,
+            propagation="fft",
+            optimizer="adam",
+            iterations=300,
+            lr=1e-2,
+            w=(0.4, 0.4, 0.1, 0.1),
+            seed=1,
+            track=False,
         )
         metrics["runs"]["old_default"] = {
-            "propagation": "fft", "optimizer": "adam", "iterations": 300,
-            "lr": 1e-2, "w_uniformity": 0.4, "w_efficiency": 0.4,
-            "w_zero_order": 0.1, "w_smoothness": 0.1, "seed": 1,
-            "CV": runs["old_default"]["CV"], "EE": runs["old_default"]["EE"],
+            "propagation": "fft",
+            "optimizer": "adam",
+            "iterations": 300,
+            "lr": 1e-2,
+            "w_uniformity": 0.4,
+            "w_efficiency": 0.4,
+            "w_zero_order": 0.1,
+            "w_smoothness": 0.1,
+            "seed": 1,
+            "CV": runs["old_default"]["CV"],
+            "EE": runs["old_default"]["EE"],
             "final_loss": runs["old_default"]["final_loss"],
             "loss0": runs["old_default"]["loss0"],
         }
         print(
             f"[report] old_default done CV={runs['old_default']['CV']:.4f} "
-            f"EE={runs['old_default']['EE']:.4f} ({time.time()-t0:.1f}s)"
+            f"EE={runs['old_default']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
     except Exception as e:  # noqa: BLE001
         print(f"[report] old_default FAILED: {e}")
@@ -820,21 +850,34 @@ def main() -> int:
     try:
         t0 = time.time()
         runs["win_fft"] = run_diff(
-            "win_fft", square_target,
-            propagation="fft", optimizer="adam", iterations=WIN_ITERS, lr=WIN_LR,
-            w=WIN_W, seed=WIN_SEED, track=True,
+            "win_fft",
+            square_target,
+            propagation="fft",
+            optimizer="adam",
+            iterations=WIN_ITERS,
+            lr=WIN_LR,
+            w=WIN_W,
+            seed=WIN_SEED,
+            track=True,
         )
         metrics["runs"]["win_fft"] = {
-            "propagation": "fft", "optimizer": "adam", "iterations": WIN_ITERS,
-            "lr": WIN_LR, "w_uniformity": WIN_W[0], "w_efficiency": WIN_W[1],
-            "w_zero_order": WIN_W[2], "w_smoothness": WIN_W[3], "seed": WIN_SEED,
-            "CV": runs["win_fft"]["CV"], "EE": runs["win_fft"]["EE"],
+            "propagation": "fft",
+            "optimizer": "adam",
+            "iterations": WIN_ITERS,
+            "lr": WIN_LR,
+            "w_uniformity": WIN_W[0],
+            "w_efficiency": WIN_W[1],
+            "w_zero_order": WIN_W[2],
+            "w_smoothness": WIN_W[3],
+            "seed": WIN_SEED,
+            "CV": runs["win_fft"]["CV"],
+            "EE": runs["win_fft"]["EE"],
             "final_loss": runs["win_fft"]["final_loss"],
             "loss0": runs["win_fft"]["loss0"],
         }
         print(
             f"[report] win_fft done CV={runs['win_fft']['CV']:.4f} "
-            f"EE={runs['win_fft']['EE']:.4f} ({time.time()-t0:.1f}s)"
+            f"EE={runs['win_fft']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
     except Exception as e:  # noqa: BLE001
         print(f"[report] win_fft FAILED: {e}")
@@ -844,21 +887,34 @@ def main() -> int:
     try:
         t0 = time.time()
         runs["win_asm"] = run_diff(
-            "win_asm", square_target,
-            propagation="asm", optimizer="adam", iterations=WIN_ITERS, lr=WIN_LR,
-            w=WIN_W, seed=WIN_SEED, track=True,
+            "win_asm",
+            square_target,
+            propagation="asm",
+            optimizer="adam",
+            iterations=WIN_ITERS,
+            lr=WIN_LR,
+            w=WIN_W,
+            seed=WIN_SEED,
+            track=True,
         )
         metrics["runs"]["win_asm"] = {
-            "propagation": "asm", "optimizer": "adam", "iterations": WIN_ITERS,
-            "lr": WIN_LR, "w_uniformity": WIN_W[0], "w_efficiency": WIN_W[1],
-            "w_zero_order": WIN_W[2], "w_smoothness": WIN_W[3], "seed": WIN_SEED,
-            "CV": runs["win_asm"]["CV"], "EE": runs["win_asm"]["EE"],
+            "propagation": "asm",
+            "optimizer": "adam",
+            "iterations": WIN_ITERS,
+            "lr": WIN_LR,
+            "w_uniformity": WIN_W[0],
+            "w_efficiency": WIN_W[1],
+            "w_zero_order": WIN_W[2],
+            "w_smoothness": WIN_W[3],
+            "seed": WIN_SEED,
+            "CV": runs["win_asm"]["CV"],
+            "EE": runs["win_asm"]["EE"],
             "final_loss": runs["win_asm"]["final_loss"],
             "loss0": runs["win_asm"]["loss0"],
         }
         print(
             f"[report] win_asm done CV={runs['win_asm']['CV']:.4f} "
-            f"EE={runs['win_asm']['EE']:.4f} ({time.time()-t0:.1f}s)"
+            f"EE={runs['win_asm']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
     except Exception as e:  # noqa: BLE001
         print(f"[report] win_asm FAILED: {e}")
@@ -868,21 +924,34 @@ def main() -> int:
     try:
         t0 = time.time()
         runs["win_spot"] = run_diff(
-            "win_spot", spot_target,
-            propagation="fft", optimizer="adam", iterations=WIN_ITERS, lr=WIN_LR,
-            w=WIN_W, seed=WIN_SEED, track=True,
+            "win_spot",
+            spot_target,
+            propagation="fft",
+            optimizer="adam",
+            iterations=WIN_ITERS,
+            lr=WIN_LR,
+            w=WIN_W,
+            seed=WIN_SEED,
+            track=True,
         )
         metrics["runs"]["win_spot"] = {
-            "propagation": "fft", "optimizer": "adam", "iterations": WIN_ITERS,
-            "lr": WIN_LR, "w_uniformity": WIN_W[0], "w_efficiency": WIN_W[1],
-            "w_zero_order": WIN_W[2], "w_smoothness": WIN_W[3], "seed": WIN_SEED,
-            "CV": runs["win_spot"]["CV"], "EE": runs["win_spot"]["EE"],
+            "propagation": "fft",
+            "optimizer": "adam",
+            "iterations": WIN_ITERS,
+            "lr": WIN_LR,
+            "w_uniformity": WIN_W[0],
+            "w_efficiency": WIN_W[1],
+            "w_zero_order": WIN_W[2],
+            "w_smoothness": WIN_W[3],
+            "seed": WIN_SEED,
+            "CV": runs["win_spot"]["CV"],
+            "EE": runs["win_spot"]["EE"],
             "final_loss": runs["win_spot"]["final_loss"],
             "loss0": runs["win_spot"]["loss0"],
         }
         print(
             f"[report] win_spot done CV={runs['win_spot']['CV']:.4f} "
-            f"EE={runs['win_spot']['EE']:.4f} ({time.time()-t0:.1f}s)"
+            f"EE={runs['win_spot']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
     except Exception as e:  # noqa: BLE001
         print(f"[report] win_spot FAILED: {e}")
@@ -892,35 +961,61 @@ def main() -> int:
     try:
         t0 = time.time()
         runs["win_lbfgs"] = run_diff(
-            "win_lbfgs", square_target,
-            propagation="fft", optimizer="lbfgs", iterations=60, lr=1.0,
-            w=WIN_W, seed=WIN_SEED, track=False,
+            "win_lbfgs",
+            square_target,
+            propagation="fft",
+            optimizer="lbfgs",
+            iterations=60,
+            lr=1.0,
+            w=WIN_W,
+            seed=WIN_SEED,
+            track=False,
         )
         metrics["runs"]["win_lbfgs"] = {
-            "propagation": "fft", "optimizer": "lbfgs", "iterations": 60,
-            "lr": 1.0, "w_uniformity": WIN_W[0], "w_efficiency": WIN_W[1],
-            "w_zero_order": WIN_W[2], "w_smoothness": WIN_W[3], "seed": WIN_SEED,
-            "CV": runs["win_lbfgs"]["CV"], "EE": runs["win_lbfgs"]["EE"],
+            "propagation": "fft",
+            "optimizer": "lbfgs",
+            "iterations": 60,
+            "lr": 1.0,
+            "w_uniformity": WIN_W[0],
+            "w_efficiency": WIN_W[1],
+            "w_zero_order": WIN_W[2],
+            "w_smoothness": WIN_W[3],
+            "seed": WIN_SEED,
+            "CV": runs["win_lbfgs"]["CV"],
+            "EE": runs["win_lbfgs"]["EE"],
             "final_loss": runs["win_lbfgs"]["final_loss"],
             "loss0": runs["win_lbfgs"]["loss0"],
         }
         print(
             f"[report] win_lbfgs done CV={runs['win_lbfgs']['CV']:.4f} "
-            f"EE={runs['win_lbfgs']['EE']:.4f} ({time.time()-t0:.1f}s)"
+            f"EE={runs['win_lbfgs']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
     except Exception as e:  # noqa: BLE001
         print(f"[report] win_lbfgs FAILED: {e}")
         metrics["errors"]["win_lbfgs"] = str(e)
 
     # --- Figures (only for runs that succeeded) ---
-    if all(k in runs for k in ("gs_baseline", "old_default", "win_fft", "win_asm", "win_spot")):
+    if all(
+        k in runs
+        for k in ("gs_baseline", "old_default", "win_fft", "win_asm", "win_spot")
+    ):
         make_overview_grid(runs)
     if all(k in runs for k in ("win_fft", "win_asm", "win_spot")):
         make_phase_figures(runs)
         make_farfield_figures(runs)
         make_loss_curves(runs)
         make_cv_ee_curves(runs)
-    if all(k in runs for k in ("gs_baseline", "old_default", "win_fft", "win_asm", "win_spot", "win_lbfgs")):
+    if all(
+        k in runs
+        for k in (
+            "gs_baseline",
+            "old_default",
+            "win_fft",
+            "win_asm",
+            "win_spot",
+            "win_lbfgs",
+        )
+    ):
         make_weight_compare(runs)
 
     # --- GIFs ---

@@ -50,7 +50,7 @@ python -m ao_shaping.runners.slm_square_runner --target-side 20 --center shape
 
 ```python
 import numpy as np
-from ao_shaping.utils.pattern_helper import PatternHelper
+from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 ph = PatternHelper(resolution=(1920, 1200), bits=10)
 g1 = ph.generate_zernike_polynomial(n_max=4, coefficients={(2, 0): 1.0})
@@ -131,7 +131,7 @@ grayscale = phase_rad / (2 * np.pi) * max_grayscale   # max_grayscale=993 @1064n
 - **raw-only 契约更新 (2026-09)**: `_freeform_phase_radians` 现在返回 **raw 未包裹弧度**
   （不再自行 `mod 2π`）；`_zernike_phase_radians` 保留 wrapped 输出仅作 **test-only 参考实现**。
   所有相位生成函数的唯一 wrap 点是驱动 `create_phase_from_array()` 的弧度→灰度转换；
-  弧度→灰度统一经 `utils/slm_utils.phase_to_slm_grayscale(phase, slm=slm)`。
+  弧度→灰度统一经 `utils/slm/phase_display.phase_to_slm_grayscale(phase, slm=slm)`。
 - 新增 `basis`（`"freeform"` 默认，SLM 原生逐像素自由度，能表达方形；`"zernike"` 保留）
   与 `phase_grid` 参数（修 B1 的可用性）。
 - 梯度目标改为**质量分**（CV+EE+AR）而非 `-CV`（修 B4）；freeform 的 lr/delta 缩放 0.1。

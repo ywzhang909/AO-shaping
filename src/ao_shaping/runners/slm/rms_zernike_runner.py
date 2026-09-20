@@ -3,7 +3,8 @@ from pathlib import Path
 import click
 import numpy as np
 
-from ao_shaping.algorithm.adam import search_optimal_delta
+from ao_shaping.algorithm.gradient.adam import search_optimal_delta
+from ao_shaping.algorithm.heuristic.search import heuristic_algorithm_choices
 from ao_shaping.drivers import MlaRes, ThorlabWFS
 from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms_slm
@@ -11,12 +12,12 @@ from ao_shaping.runners.runner_common import (
     build_debug_save_paths,
     save_optimization_debug_artifacts,
 )
-from ao_shaping.utils.cli_helpers import (
-    get_debug_mode,
+from ao_shaping.utils.io.cli_helpers import (
     parse_tuple,
+    resolve_debug,
     setup_coredumpy,
 )
-from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
+from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 
 
 def _auto_delta_detect_rms(
@@ -198,7 +199,29 @@ def _auto_delta_detect_rms(
     "--early-stop-patience", default=0, type=int, help="早停耐心值 (default: 0)"
 )
 @click.option("--n-frames", default=10, type=int, help="WFS帧平均数 (default: 10)")
+@click.option(
+    "--algorithm",
+    type=click.Choice(list(heuristic_algorithm_choices()), case_sensitive=False),
+    default="spgd",
+    show_default=True,
+    help="搜索算法: spgd (梯度/SPGD) 或启发式 (ga/pso/sa/hc/rs/cem/de)",
+)
+@click.option(
+    "--pop_size",
+    type=int,
+    default=None,
+    help="种群规模 (ga/pso/cem/de 使用; 默认取算法默认值)",
+)
+@click.option(
+    "--debug",
+    "debug_flag",
+    is_flag=True,
+    default=None,
+    help="启用调试模式: 保存 pkl/json 与汇总图",
+)
+@click.pass_context
 def run(
+    ctx,
     dir,
     epochs,
     lr,
@@ -237,13 +260,19 @@ def run(
     early_stop_min_epochs,
     early_stop_patience,
     n_frames,
+    algorithm,
+    pop_size,
+    debug_flag,
 ):
     """Zernike波前优化器 (基于SLM的RMS最小化)
 
     使用Zernike多项式通过SLM进行波前校正，最小化WFS测量的波前RMS值。
-    DEBUG环境变量控制调试模式。
+    ``--algorithm spgd`` 使用梯度/SPGD；其他取值 (ga/pso/sa/hc/rs/cem/de) 使用
+    algorithm/heuristic 的启发式搜索。
+
+    调试模式: ``main.py --debug rms-zernike`` / 本命令 ``--debug`` / ``DEBUG=1``。
     """
-    debug = get_debug_mode()
+    debug = resolve_debug(ctx, debug_flag)
 
     if delta <= 0:
         delta, delta_info = _auto_delta_detect_rms(
@@ -305,6 +334,8 @@ def run(
         early_stop_min_epochs=early_stop_min_epochs,
         early_stop_patience=early_stop_patience,
         n_frames=n_frames,
+        algorithm=algorithm,
+        pop_size=pop_size,
     )
     root_dir = Path(dir)
 

@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ao_shaping.algorithm.signal_processing.iterative_base import IterativeOptimizer
-from ao_shaping.utils.slm_utils import DEFAULT_WAVELENGTH
+from ao_shaping.utils.slm.phase_display import DEFAULT_WAVELENGTH
 
 if TYPE_CHECKING:  # pragma: no cover – type-only imports
     import torch
@@ -63,8 +63,7 @@ def _torch():
         import torch as _t
     except ImportError:
         raise ImportError(
-            "differentiable_beam requires PyTorch. "
-            "Install with: uv sync --extra ml"
+            "differentiable_beam requires PyTorch. Install with: uv sync --extra ml"
         ) from None
     return _t
 
@@ -303,9 +302,7 @@ class DifferentiableBeamOptimizer(IterativeOptimizer):
         i_far = far_field_intensity(self._source_amplitude, self._phase)
         return self._intensity_loss(i_far)
 
-    def update(
-        self, measured_intensity: np.ndarray | None = None
-    ) -> np.ndarray:
+    def update(self, measured_intensity: np.ndarray | None = None) -> np.ndarray:
         """Perform one backpropagation step and return the next phase.
 
         With ``measured_intensity=None`` (the default) the step is the
@@ -354,9 +351,7 @@ class DifferentiableBeamOptimizer(IterativeOptimizer):
         # Measurement-anchored step: evaluate the loss at the measured image.
         measured = np.asarray(measured_intensity, dtype=np.float32)
         if measured.ndim != 2:
-            raise ValueError(
-                f"measured_intensity must be 2D, got {measured.ndim}D"
-            )
+            raise ValueError(f"measured_intensity must be 2D, got {measured.ndim}D")
         if measured.shape != tuple(self._target_t.shape):
             raise ValueError(
                 f"measured_intensity shape {measured.shape} must match "

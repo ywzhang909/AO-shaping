@@ -1,6 +1,6 @@
 import numpy as np
 
-from ao_shaping.algorithm.adam import AdaMOD, Adam, AdamW
+from ao_shaping.algorithm.gradient.adam import AdaMOD, Adam, AdamW
 from ao_shaping.optimizer.wfless.pib import (
     AdaptiveSearchState,
     TabuMemory,
@@ -113,7 +113,7 @@ def test_extract_optimizer_momentum_returns_ndarray() -> None:
 
 
 def test_reset_optimizer_state_zeroes_momentum() -> None:
-    from ao_shaping.algorithm.adam import Adam
+    from ao_shaping.algorithm.gradient.adam import Adam
 
     adam = Adam(dim=4, lr=0.1)
     adam.m = np.ones(4)

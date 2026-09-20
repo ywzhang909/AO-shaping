@@ -38,7 +38,10 @@ import pandas as pd  # noqa: E402
 
 from loguru import logger  # noqa: E402
 
-from ao_shaping.algorithm.heuristic_base import HeuristicOptimizer, OptimizerType  # noqa: E402
+from ao_shaping.algorithm.heuristic.heuristic_base import (
+    HeuristicOptimizer,
+    OptimizerType,
+)  # noqa: E402
 from ao_shaping.optimizer.wfless.pib_sim_eval import SimLandscape  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -88,7 +91,10 @@ def run_all_algorithms(landscape: SimLandscape) -> dict[str, dict]:
         n_iterations = kwargs["n_iterations"]
         n_evals_budget = evals_per_iter * n_iterations
         logger.info(
-            "Running {} (n_iterations={}, budget {} loads)...", name, n_iterations, n_evals_budget
+            "Running {} (n_iterations={}, budget {} loads)...",
+            name,
+            n_iterations,
+            n_evals_budget,
         )
         t0 = time.perf_counter()
 
@@ -118,7 +124,11 @@ def run_all_algorithms(landscape: SimLandscape) -> dict[str, dict]:
 
         logger.info(
             "{} finished in {:.2f}s | final PIB = {:.4f} | best_x = {} | {} loads",
-            name, elapsed, final_pib, np.round(best_x, 3), len(eval_pibs),
+            name,
+            elapsed,
+            final_pib,
+            np.round(best_x, 3),
+            len(eval_pibs),
         )
         results[name] = {
             "best_x": best_x,
@@ -150,30 +160,50 @@ def plot_pib_curves(results: dict[str, dict], out_dir: Path) -> None:
         ax.plot(loads, pib_curve, label=label, color=colors[idx], lw=1.5)
         if loads_09 is not None:
             ax.scatter(
-                [loads_09], [pib_curve[loads_09 - 1]],
-                color=colors[idx], s=30, zorder=5, edgecolors="black", linewidths=0.5,
+                [loads_09],
+                [pib_curve[loads_09 - 1]],
+                color=colors[idx],
+                s=30,
+                zorder=5,
+                edgecolors="black",
+                linewidths=0.5,
             )
             ax.annotate(
                 f"load {loads_09}",
                 (loads_09, pib_curve[loads_09 - 1]),
-                textcoords="offset points", xytext=(5, 5),
-                fontsize=7, color=colors[idx], fontweight="bold",
+                textcoords="offset points",
+                xytext=(5, 5),
+                fontsize=7,
+                color=colors[idx],
+                fontweight="bold",
             )
     ax.axhline(0.5, color="red", ls=":", lw=1.0, alpha=0.6)
     ax.axhline(0.9, color="green", ls=":", lw=1.0, alpha=0.6)
     ax.text(
-        1.0, 0.51, "PIB 0.5", color="red", fontsize=8, va="bottom",
+        1.0,
+        0.51,
+        "PIB 0.5",
+        color="red",
+        fontsize=8,
+        va="bottom",
         transform=ax.get_yaxis_transform(),
     )
     ax.text(
-        1.0, 0.91, "PIB 0.9", color="green", fontsize=8, va="bottom",
+        1.0,
+        0.91,
+        "PIB 0.9",
+        color="green",
+        fontsize=8,
+        va="bottom",
         transform=ax.get_yaxis_transform(),
     )
     ax.set_xscale("log")
     ax.set_xlabel("Device loads (一次相位加载 = 一步)")
     ax.set_ylabel("PIB")
     ax.set_ylim(0.0, 1.05)
-    ax.set_title("PIB 收敛曲线 (横轴 = 设备加载次数) — 标记点 = 首次达到 0.9 PIB (load N), legend max@N = 首次达到最终 PIB")
+    ax.set_title(
+        "PIB 收敛曲线 (横轴 = 设备加载次数) — 标记点 = 首次达到 0.9 PIB (load N), legend max@N = 首次达到最终 PIB"
+    )
     ax.legend(loc="lower right", fontsize=8)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -201,17 +231,27 @@ def plot_convergence_speed(results: dict[str, dict], out_dir: Path) -> None:
     for offset, (key, vals) in enumerate(series.items()):
         heights = [v if v is not None else 0 for v in vals]
         bars = ax.bar(
-            x + (offset - 1) * width, heights, width,
-            label=key, color=colors[key],
+            x + (offset - 1) * width,
+            heights,
+            width,
+            label=key,
+            color=colors[key],
         )
         for bar, v in zip(bars, vals):
             if v is not None:
                 ax.text(
-                    bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                    str(v), ha="center", va="bottom", fontsize=8,
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height(),
+                    str(v),
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
                 )
     ax.set_yscale("log")
-    ax.set_ylim(0.8, 2.0 * max(max(v for v in vals if v is not None) for vals in series.values()))
+    ax.set_ylim(
+        0.8,
+        2.0 * max(max(v for v in vals if v is not None) for vals in series.values()),
+    )
     ax.set_xticks(x)
     ax.set_xticklabels(names, rotation=30, ha="right")
     ax.set_ylabel("Device loads to reach PIB (log)")
@@ -229,9 +269,7 @@ def plot_spot_before_after(
 ) -> None:
     """Plot before/after spot images for all algorithms (2x4 grid, one blank)."""
     init_img = landscape.render(INIT_X)
-    best_imgs = {
-        name: landscape.render(res["best_x"]) for name, res in results.items()
-    }
+    best_imgs = {name: landscape.render(res["best_x"]) for name, res in results.items()}
     vmax = max(
         float(init_img.max()),
         *(float(img.max()) for img in best_imgs.values()),
@@ -290,8 +328,8 @@ def save_summary_csv(results: dict[str, dict], init_pib: float, out_dir: Path) -
                 "best_x_0": res["best_x"][0],
                 "best_x_1": res["best_x"][1],
                 "best_x_2": res["best_x"][2],
-                    "best_x_3": res["best_x"][3],
-                    "n_loads": res["n_evals"],
+                "best_x_3": res["best_x"][3],
+                "n_loads": res["n_evals"],
             }
         )
     pd.DataFrame(rows).to_csv(out_dir / "summary.csv", index=False)

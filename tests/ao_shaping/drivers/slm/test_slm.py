@@ -418,7 +418,7 @@ class TestPatternTypes:
 
     @pytest.mark.hardware
     def test_helper_to_circle_pattern(self, open_slm):
-        from ao_shaping.utils.pattern_helper import PatternHelper
+        from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
         helper = PatternHelper(self.RESOLUTION)
         phase_rad = helper.circular_grating(
@@ -434,7 +434,7 @@ class TestPatternTypes:
 
     @pytest.mark.hardware
     def test_helper_to_zernike(self, open_slm: Santec):
-        from ao_shaping.utils.pattern_helper import PatternHelper
+        from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
         helper = PatternHelper(self.RESOLUTION)
         # 弧度路径 (2026-09 fix + 2026-09-15 raw-only): generate_zernike_polynomial

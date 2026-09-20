@@ -13,7 +13,7 @@ torch-dependent function will receive a clear :class:`ImportError` if the
 dependency is missing.
 
 Example:
-    >>> from ao_shaping.algorithm.differentiable_shaping import (
+    >>> from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
     ...     create_target_mask, train_beam_shaping,
     ... )
     >>> mask = create_target_mask("square", (128, 128), 40)
@@ -43,6 +43,7 @@ if TYPE_CHECKING:  # pragma: no cover – type-only imports
 # Lazy torch accessor
 # ---------------------------------------------------------------------------
 
+
 def _torch():
     """Return the ``torch`` module, raising :class:`ImportError` when absent.
 
@@ -56,8 +57,7 @@ def _torch():
         import torch as _t
     except ImportError:
         raise ImportError(
-            "differentiable_shaping requires PyTorch. "
-            "Install with: uv sync --extra ml"
+            "differentiable_shaping requires PyTorch. Install with: uv sync --extra ml"
         ) from None
     return _t
 
@@ -65,6 +65,7 @@ def _torch():
 # ---------------------------------------------------------------------------
 # Target mask creation
 # ---------------------------------------------------------------------------
+
 
 def create_target_mask(
     shape: str,
@@ -93,13 +94,9 @@ def create_target_mask(
     """
     valid_shapes = {"square", "circle", "gaussian", "spot"}
     if shape not in valid_shapes:
-        raise ValueError(
-            f"Invalid shape {shape!r}. Must be one of {valid_shapes}"
-        )
+        raise ValueError(f"Invalid shape {shape!r}. Must be one of {valid_shapes}")
     if len(grid_size) != 2:
-        raise ValueError(
-            f"grid_size must be a 2-tuple, got {len(grid_size)}D"
-        )
+        raise ValueError(f"grid_size must be a 2-tuple, got {len(grid_size)}D")
 
     H, W = grid_size
     cy, cx = H / 2.0, W / 2.0
@@ -107,9 +104,9 @@ def create_target_mask(
 
     if shape == "square":
         half = size / 2.0
-        mask = (
-            (np.abs(xx - cx) <= half) & (np.abs(yy - cy) <= half)
-        ).astype(np.float64)
+        mask = ((np.abs(xx - cx) <= half) & (np.abs(yy - cy) <= half)).astype(
+            np.float64
+        )
 
     elif shape in {"circle", "spot"}:
         radius = size / 2.0
@@ -129,6 +126,7 @@ def create_target_mask(
 # ---------------------------------------------------------------------------
 # Loss functions (torch tensors in → scalar tensor out)
 # ---------------------------------------------------------------------------
+
 
 def uniformity_loss(intensity: "Tensor", target: "Tensor") -> "Tensor":
     """Coefficient of variation of intensity inside the target region.
@@ -227,6 +225,7 @@ def total_loss(
 # Differentiable propagation
 # ---------------------------------------------------------------------------
 
+
 @functools.lru_cache(maxsize=32)
 def _asm_propagator_torch(
     grid_shape: tuple[int, int],
@@ -295,7 +294,12 @@ def angular_spectrum_propagate_torch(
     device_str = str(field.device)
     dtype_name = str(field.dtype).split(".")[-1]  # e.g. "complex64"
     H_prop = _asm_propagator_torch(
-        (H, W), dx, z, wavelength, device_str, dtype_name,
+        (H, W),
+        dx,
+        z,
+        wavelength,
+        device_str,
+        dtype_name,
     )
     F = torch.fft.fft2(field)
     return torch.fft.ifft2(F * H_prop)
@@ -304,6 +308,7 @@ def angular_spectrum_propagate_torch(
 # ---------------------------------------------------------------------------
 # Forward model (factory — avoids nn.Module at import time)
 # ---------------------------------------------------------------------------
+
 
 def _build_forward(
     propagation: str,
@@ -322,9 +327,7 @@ def _build_forward(
     torch = _torch()
 
     if propagation not in ("fft", "asm"):
-        raise ValueError(
-            f"propagation must be 'fft' or 'asm', got {propagation!r}"
-        )
+        raise ValueError(f"propagation must be 'fft' or 'asm', got {propagation!r}")
 
     def forward(
         phase: "Tensor",
@@ -342,7 +345,10 @@ def _build_forward(
             out_field = torch.fft.fftshift(torch.fft.fft2(field))
         else:  # asm
             out_field = angular_spectrum_propagate_torch(
-                field, cell_spacing, distance, wavelength,
+                field,
+                cell_spacing,
+                distance,
+                wavelength,
             )
 
         intensity = out_field.real**2 + out_field.imag**2
@@ -354,6 +360,7 @@ def _build_forward(
 # ---------------------------------------------------------------------------
 # Result container
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class DifferentiableShapingResult:
@@ -367,6 +374,7 @@ class DifferentiableShapingResult:
         iterations: Number of iterations performed.
         converged: Whether the run completed all requested iterations.
     """
+
     phase: np.ndarray
     target_intensity: np.ndarray
     simulated_intensity: np.ndarray
@@ -378,6 +386,7 @@ class DifferentiableShapingResult:
 # ---------------------------------------------------------------------------
 # Main training loop
 # ---------------------------------------------------------------------------
+
 
 def train_beam_shaping(
     target: "np.ndarray | Tensor",
@@ -452,37 +461,25 @@ def train_beam_shaping(
 
     # -- Validate -----------------------------------------------------------
     if propagation not in ("fft", "asm"):
-        raise ValueError(
-            f"propagation must be 'fft' or 'asm', got {propagation!r}"
-        )
+        raise ValueError(f"propagation must be 'fft' or 'asm', got {propagation!r}")
     if optimizer not in ("adam", "lbfgs"):
-        raise ValueError(
-            f"optimizer must be 'adam' or 'lbfgs', got {optimizer!r}"
-        )
+        raise ValueError(f"optimizer must be 'adam' or 'lbfgs', got {optimizer!r}")
     if len(grid_size) != 2:
-        raise ValueError(
-            f"grid_size must be a 2-tuple, got {len(grid_size)}D"
-        )
+        raise ValueError(f"grid_size must be a 2-tuple, got {len(grid_size)}D")
     H, W = grid_size
     if H <= 0 or W <= 0:
-        raise ValueError(
-            f"grid_size must have positive dimensions, got {(H, W)}"
-        )
+        raise ValueError(f"grid_size must have positive dimensions, got {(H, W)}")
     if iterations < 1:
         raise ValueError(f"iterations must be >= 1, got {iterations}")
 
     # Validate target dimensionality and that it matches grid_size
     if isinstance(target, np.ndarray):
         if target.ndim != 2:
-            raise ValueError(
-                f"target must be 2D, got {target.ndim}D"
-            )
+            raise ValueError(f"target must be 2D, got {target.ndim}D")
         target_shape = target.shape
     else:  # torch tensor
         if target.dim() != 2:
-            raise ValueError(
-                f"target must be 2D, got {target.dim()}D"
-            )
+            raise ValueError(f"target must be 2D, got {target.dim()}D")
         target_shape = tuple(target.shape)
 
     if target_shape != (H, W):
@@ -520,7 +517,8 @@ def train_beam_shaping(
     if initial_phase is not None:
         if isinstance(initial_phase, np.ndarray):
             phase_init = torch.from_numpy(initial_phase).to(
-                device=dev, dtype=dtype,
+                device=dev,
+                dtype=dtype,
             )
         else:
             phase_init = initial_phase.to(device=dev, dtype=dtype)
@@ -575,7 +573,10 @@ def train_beam_shaping(
     logger.info(
         "Starting differentiable beam shaping: {} iterations, "
         "propagation={}, optimizer={}, device={}",
-        iterations, propagation, optimizer, device,
+        iterations,
+        propagation,
+        optimizer,
+        device,
     )
 
     for it in range(iterations):
@@ -589,7 +590,9 @@ def train_beam_shaping(
         else:  # lbfgs — closure is invoked internally by the optimiser
             loss = opt.step(_closure)
             if loss is None or torch.isnan(loss):
-                logger.warning("L-BFGS returned NaN/None at iteration {}; stopping early", it)
+                logger.warning(
+                    "L-BFGS returned NaN/None at iteration {}; stopping early", it
+                )
                 break
 
         # Wrap phase into [0, 2π).  For Adam this is safe each step; for
@@ -618,11 +621,21 @@ def train_beam_shaping(
     # -- Extract results ----------------------------------------------------
     with torch.no_grad():
         final_intensity = forward(phase, amp)
-        final_phase = (phase.detach() % (2.0 * math.pi)).cpu().numpy().astype(
-            np.float64,
+        final_phase = (
+            (phase.detach() % (2.0 * math.pi))
+            .cpu()
+            .numpy()
+            .astype(
+                np.float64,
+            )
         )
-        final_intensity_np = final_intensity.detach().cpu().numpy().astype(
-            np.float64,
+        final_intensity_np = (
+            final_intensity.detach()
+            .cpu()
+            .numpy()
+            .astype(
+                np.float64,
+            )
         )
         if isinstance(target, np.ndarray):
             target_np = target.astype(np.float64)

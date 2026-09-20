@@ -38,13 +38,13 @@ from PIL import Image
 from loguru import logger
 
 # Import GS algorithm
-from ao_shaping.algorithm.gerchberg_saxton import (
+from ao_shaping.algorithm.signal_processing.gerchberg_saxton import (
     gerchberg_saxton,
     adaptive_gerchberg_saxton,
     calculate_reconstruction_error,
     GSResult,
 )
-from ao_shaping.utils.slm_utils import phase_to_slm_grayscale
+from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
 
 # Import hardware drivers with graceful fallback
 Santec: Any = None
@@ -325,7 +325,7 @@ def run(
     adaptive_iterations: int,
     show: bool,
 ):
-    from ao_shaping.utils.cli_helpers import get_debug_mode
+    from ao_shaping.utils.io.cli_helpers import get_debug_mode
 
     debug = get_debug_mode()
     """Gerchberg-Saxton全息图生成器

@@ -19,13 +19,13 @@ from typing import Any
 import numpy as np
 import tqdm
 
-from ao_shaping.algorithm.adam import AdaMOD
+from ao_shaping.algorithm.gradient.adam import AdaMOD
 from ao_shaping.drivers import MIICamera
 from ao_shaping.drivers.dm._registry import get_dm_registry
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.utils import ImageVoltagesDisplay, Recorder, logger
 from ao_shaping.optimizer.spgd import spgd_gradient
-from ao_shaping.utils.spots_calc import (
+from ao_shaping.utils.image.spots_calc import (
     centroid,
     pib_ratio_mask,
     power_in_bucket_mask,
@@ -155,8 +155,8 @@ def optimize_pib(
 
             img_size = (cam_size, cam_size)
 
-            _img = cam.autoset_exposure_time_ms(
-                target_max_brightness=TEST_EXPOSURE_TIME_BRIGHTNESS
+            _img = cam.auto_exposure(
+                target_max=TEST_EXPOSURE_TIME_BRIGHTNESS, n_sample=20
             )
 
             _center: tuple[int, int]
@@ -252,8 +252,8 @@ def optimize_pib(
 
             if 0 < target_max_brightness < 255 and target_max_brightness > 0:
                 auto_exposure = True
-                init_img = cam.autoset_exposure_time_ms(
-                    target_max_brightness=target_max_brightness, twice_valid=True
+                init_img = cam.auto_exposure(
+                    target_max=target_max_brightness, twice_valid=True, n_sample=20
                 )
             elif exposure_time_ms > 0:
                 auto_exposure = False
@@ -364,8 +364,10 @@ def optimize_pib(
 
                     avg_brightness = float(np.mean([np.max(pos_img), np.max(neg_img)]))
                     if avg_brightness >= 255 and auto_exposure:
-                        _resampled_img = cam.autoset_exposure_time_ms(
-                            target_max_brightness, twice_valid=False
+                        _resampled_img = cam.auto_exposure(
+                            target_max=target_max_brightness,
+                            twice_valid=False,
+                            n_sample=20,
                         )
                         pib_scaler = avg_brightness / max(np.max(_resampled_img), 1)
 

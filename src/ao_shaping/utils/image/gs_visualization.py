@@ -10,12 +10,14 @@ from pathlib import Path
 
 import numpy as np
 import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend
+
+matplotlib.use("Agg")  # Use non-interactive backend
 import matplotlib.pyplot as plt
 
 # Try to import PIL for GIF creation
 try:
     from PIL import Image
+
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
@@ -33,7 +35,7 @@ def create_gs_iteration_frame(
     figsize: tuple[int, int] = (12, 4),
 ) -> np.ndarray:
     """Create a single frame showing GS iteration state.
-    
+
     Args:
         phase: Current phase pattern (radians)
         target_amplitude: Target amplitude distribution
@@ -42,7 +44,7 @@ def create_gs_iteration_frame(
         total_iterations: Total number of iterations
         error: Current error value
         figsize: Figure size (width, height) in inches
-    
+
     Returns:
         RGB array of the rendered frame
     """
@@ -51,23 +53,23 @@ def create_gs_iteration_frame(
     # Plot 1: Phase pattern
     ax = axes[0]
     phase_display = np.mod(phase, 2 * np.pi)
-    im = ax.imshow(phase_display, cmap='hsv', vmin=0, vmax=2*np.pi)
-    ax.set_title(f'Phase Pattern\nIter {iteration}/{total_iterations}')
-    ax.axis('off')
+    im = ax.imshow(phase_display, cmap="hsv", vmin=0, vmax=2 * np.pi)
+    ax.set_title(f"Phase Pattern\nIter {iteration}/{total_iterations}")
+    ax.axis("off")
     plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
     # Plot 2: Target amplitude
     ax = axes[1]
-    im = ax.imshow(target_amplitude, cmap='hot')
-    ax.set_title('Target Amplitude')
-    ax.axis('off')
+    im = ax.imshow(target_amplitude, cmap="hot")
+    ax.set_title("Target Amplitude")
+    ax.axis("off")
     plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
     # Plot 3: Reconstructed amplitude
     ax = axes[2]
-    im = ax.imshow(reconstructed_amplitude, cmap='hot')
-    ax.set_title(f'Reconstructed\nMSE: {error:.6f}')
-    ax.axis('off')
+    im = ax.imshow(reconstructed_amplitude, cmap="hot")
+    ax.set_title(f"Reconstructed\nMSE: {error:.6f}")
+    ax.axis("off")
     plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
     plt.tight_layout()
@@ -93,7 +95,7 @@ def save_frames_as_gif(
     loop: int = 0,
 ) -> None:
     """Save list of frames as animated GIF.
-    
+
     Args:
         frames: List of RGB arrays (H, W, 3)
         output_path: Output file path
@@ -101,8 +103,10 @@ def save_frames_as_gif(
         loop: Number of loops (0 = infinite)
     """
     if not PIL_AVAILABLE:
-        raise ImportError("PIL (Pillow) is required for GIF creation. "
-                         "Install with: pip install Pillow")
+        raise ImportError(
+            "PIL (Pillow) is required for GIF creation. "
+            "Install with: pip install Pillow"
+        )
 
     if not frames:
         logger.warning("No frames to save")
@@ -112,13 +116,13 @@ def save_frames_as_gif(
     pil_images = []
     for i, frame in enumerate(frames):
         # Ensure contiguous array
-        if not frame.flags['C_CONTIGUOUS']:
+        if not frame.flags["C_CONTIGUOUS"]:
             frame = np.ascontiguousarray(frame)
         pil_img = Image.fromarray(frame)
         pil_images.append(pil_img)
 
         if (i + 1) % 10 == 0:
-            logger.debug(f"Converted {i+1}/{len(frames)} frames")
+            logger.debug(f"Converted {i + 1}/{len(frames)} frames")
 
     # Save as GIF
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -145,7 +149,7 @@ def render_gs_animation(
     skip_frames: int = 1,
 ) -> None:
     """Render GS algorithm animation as GIF.
-    
+
     Args:
         phase_history: List of phase patterns from each iteration
         target_amplitude: Target amplitude distribution
@@ -176,7 +180,7 @@ def render_gs_animation(
         frames.append(frame)
 
         if (i // skip_frames + 1) % 10 == 0:
-            logger.debug(f"Rendered {i+1}/{total_iterations} frames")
+            logger.debug(f"Rendered {i + 1}/{total_iterations} frames")
 
     # Always include last frame
     if (total_iterations - 1) % skip_frames != 0:
@@ -199,7 +203,7 @@ class GSVizCallback:
 
     def __init__(self, source_amplitude: np.ndarray):
         """Initialize callback.
-        
+
         Args:
             source_amplitude: Source plane amplitude for reconstruction
         """
@@ -210,10 +214,10 @@ class GSVizCallback:
 
     def __call__(self, iteration: int, error: float) -> None:
         """Callback function for GS algorithm.
-        
+
         This is called after each GS iteration. We need to compute
         the phase and amplitude from the current state.
-        
+
         Note: This requires access to the current field state.
         For now, we'll record the error and rely on post-hoc reconstruction.
         """
@@ -221,7 +225,7 @@ class GSVizCallback:
 
     def add_state(self, phase: np.ndarray, amplitude: np.ndarray, error: float) -> None:
         """Manually add a state snapshot.
-        
+
         Args:
             phase: Current phase pattern
             amplitude: Current reconstructed amplitude
@@ -239,7 +243,7 @@ class GSVizCallback:
         skip_frames: int = 1,
     ) -> None:
         """Save collected states as animation.
-        
+
         Args:
             target_amplitude: Target amplitude distribution
             output_path: Output GIF file path
@@ -274,10 +278,10 @@ def gerchberg_saxton_with_visualization(
     skip_frames: int = 1,
 ):
     """Run GS algorithm with visualization.
-    
+
     This is a modified version of gerchberg_saxton that collects
     intermediate states for animation.
-    
+
     Args:
         source_amplitude: Source plane amplitude
         target_amplitude: Target plane amplitude
@@ -289,11 +293,11 @@ def gerchberg_saxton_with_visualization(
         save_animation: Whether to save GIF animation
         animation_fps: Animation frame rate (frames per second)
         skip_frames: Save every Nth frame
-    
+
     Returns:
         GSResult with additional 'animation_path' attribute
     """
-    from ao_shaping.algorithm.gerchberg_saxton import (
+    from ao_shaping.algorithm.signal_processing.gerchberg_saxton import (
         angular_spectrum_propagate,
         GSResult,
     )
@@ -346,7 +350,7 @@ def gerchberg_saxton_with_visualization(
             error_history.append(float(mse))
 
         if (i + 1) % 10 == 0:
-            logger.debug(f"Iteration {i+1}/{iterations}, MSE={mse:.6f}")
+            logger.debug(f"Iteration {i + 1}/{iterations}, MSE={mse:.6f}")
 
     # Final results
     final_phase = np.angle(A)
@@ -357,7 +361,7 @@ def gerchberg_saxton_with_visualization(
     # Save animation
     animation_path = None
     if save_animation and PIL_AVAILABLE:
-        timestamp = np.datetime64('now').astype(str).replace(':', '-')
+        timestamp = np.datetime64("now").astype(str).replace(":", "-")
         animation_path = output_dir / f"gs_animation_{timestamp}.gif"
 
         frame_duration = 1000 / animation_fps  # Convert fps to ms

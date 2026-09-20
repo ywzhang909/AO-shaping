@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from ao_shaping.utils.hadamard_calc import (
+from ao_shaping.utils.wavefront.hadamard_calc import (
     HadamardGenerator,
     calc_n_hadamard_modes,
     hadamard_mode_2d,

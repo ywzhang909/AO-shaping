@@ -1,9 +1,23 @@
 try:
-    from ao_shaping.algorithm.adam_cython import Base, SGD, Adam, AdamW, AdaMOD, learning_schedule
+    from ao_shaping.algorithm.adam_cython import (
+        Base,
+        SGD,
+        Adam,
+        AdamW,
+        AdaMOD,
+        learning_schedule,
+    )
 
     CYTHON_AVAILABLE = True
 except ImportError:
-    from ao_shaping.algorithm.adam import Base, SGD, Adam, AdamW, AdaMOD, learning_schedule
+    from ao_shaping.algorithm.gradient.adam import (
+        Base,
+        SGD,
+        Adam,
+        AdamW,
+        AdaMOD,
+        learning_schedule,
+    )
 
     CYTHON_AVAILABLE = False
 
@@ -12,7 +26,7 @@ try:
 
     CYTHON_TARGET_FUNC_AVAILABLE = True
 except ImportError:
-    from ao_shaping.algorithm.target_func import ImageTargetFunc
+    from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
 
     CYTHON_TARGET_FUNC_AVAILABLE = False
 
@@ -72,6 +86,15 @@ from ao_shaping.algorithm.heuristic.heuristic_base import (
     HeuristicOptimizer,
     OptimizerConfig,
     OptimizerType,
+)
+
+from ao_shaping.algorithm.heuristic.search import (
+    HEURISTIC_ALGORITHM_MAP,
+    HeuristicSearchResult,
+    SearchAborted,
+    create_heuristic,
+    heuristic_algorithm_choices,
+    run_heuristic_search,
 )
 
 from ao_shaping.algorithm.heuristic.hill_climbing import (
@@ -138,6 +161,12 @@ __all__ = [
     "HeuristicOptimizer",
     "OptimizerConfig",
     "OptimizerType",
+    "HEURISTIC_ALGORITHM_MAP",
+    "HeuristicSearchResult",
+    "SearchAborted",
+    "create_heuristic",
+    "heuristic_algorithm_choices",
+    "run_heuristic_search",
     "HillClimbing",
     "HCConfig",
     "RandomSearch",

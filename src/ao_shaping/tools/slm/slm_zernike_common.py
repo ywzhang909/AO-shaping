@@ -30,7 +30,7 @@ from loguru import logger
 from ao_shaping.drivers.slm.santec import Santec, WavefrontCorrection
 from ao_shaping.drivers.wfs import ThorlabWFS
 from ao_shaping.tools.slm.slm_scan_analysis import outlier_mask
-from ao_shaping.utils.pattern_helper import PatternHelper
+from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 PANEL_H, PANEL_W = 1200, 1920
 MAX_EXPOSURE_MS = 7.0

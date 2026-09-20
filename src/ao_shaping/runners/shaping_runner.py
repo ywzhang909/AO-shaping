@@ -19,7 +19,7 @@ from pathlib import Path
 
 import click
 
-from ao_shaping.algorithm.beam_shaping_benchmark import (
+from ao_shaping.algorithm.signal_processing.beam_shaping_benchmark import (
     DEFAULT_GRID,
     DEFAULT_MAX_FRAMES,
     DEFAULT_TARGET_AREA,
@@ -28,7 +28,7 @@ from ao_shaping.algorithm.beam_shaping_benchmark import (
     run_benchmark,
     run_benchmark_suite,
 )
-from ao_shaping.utils.cli_helpers import setup_coredumpy
+from ao_shaping.utils.io.cli_helpers import setup_coredumpy
 
 
 def _split_csv(ctx: click.Context, param: click.Parameter, value: str | None):
@@ -40,20 +40,85 @@ def _split_csv(ctx: click.Context, param: click.Parameter, value: str | None):
 
 
 @click.command(name="shaping")
-@click.option("--algorithm", type=str, default="gs", show_default=True, help="算法: gs / spgd / backprop / 可微")
-@click.option("--shape", type=str, default="square", show_default=True, help="目标形状: square / rectangle / circle / pentagon / gaussian")
-@click.option("--grid-size", type=int, default=DEFAULT_GRID[0], show_default=False, help="网格边长 (N×N, default: 128)")
-@click.option("--target-area", type=int, default=DEFAULT_TARGET_AREA, show_default=True, help="目标面积 (像素)")
-@click.option("--aspect-ratio", type=float, default=1.0, show_default=True, help="长宽比 (仅 rectangle/square)")
-@click.option("--iterations", type=int, default=None, help="迭代次数 (default: 算法默认)")
+@click.option(
+    "--algorithm",
+    type=str,
+    default="gs",
+    show_default=True,
+    help="算法: gs / spgd / backprop / 可微",
+)
+@click.option(
+    "--shape",
+    type=str,
+    default="square",
+    show_default=True,
+    help="目标形状: square / rectangle / circle / pentagon / gaussian",
+)
+@click.option(
+    "--grid-size",
+    type=int,
+    default=DEFAULT_GRID[0],
+    show_default=False,
+    help="网格边长 (N×N, default: 128)",
+)
+@click.option(
+    "--target-area",
+    type=int,
+    default=DEFAULT_TARGET_AREA,
+    show_default=True,
+    help="目标面积 (像素)",
+)
+@click.option(
+    "--aspect-ratio",
+    type=float,
+    default=1.0,
+    show_default=True,
+    help="长宽比 (仅 rectangle/square)",
+)
+@click.option(
+    "--iterations", type=int, default=None, help="迭代次数 (default: 算法默认)"
+)
 @click.option("--seed", type=int, default=42, show_default=True, help="随机种子")
-@click.option("--max-frames", type=int, default=DEFAULT_MAX_FRAMES, show_default=True, help="GIF 最大帧数")
+@click.option(
+    "--max-frames",
+    type=int,
+    default=DEFAULT_MAX_FRAMES,
+    show_default=True,
+    help="GIF 最大帧数",
+)
 @click.option("--device", type=str, default=None, help="计算设备 (default: auto)")
-@click.option("--output-dir", type=click.Path(path_type=Path), default=None, help="输出目录 (default: 自动日期目录)")
-@click.option("--gif/--no-gif", default=True, show_default=True, help="是否生成演化 GIF (单点 benchmark)")
-@click.option("--suite", is_flag=True, default=False, help="运行 run_benchmark_suite (算法×形状网格)")
-@click.option("--algorithms", type=str, default=None, callback=_split_csv, help="suite 算法列表, 逗号分隔 (default: 全部)")
-@click.option("--shapes", type=str, default=None, callback=_split_csv, help="suite 形状列表, 逗号分隔 (default: 全部)")
+@click.option(
+    "--output-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="输出目录 (default: 自动日期目录)",
+)
+@click.option(
+    "--gif/--no-gif",
+    default=True,
+    show_default=True,
+    help="是否生成演化 GIF (单点 benchmark)",
+)
+@click.option(
+    "--suite",
+    is_flag=True,
+    default=False,
+    help="运行 run_benchmark_suite (算法×形状网格)",
+)
+@click.option(
+    "--algorithms",
+    type=str,
+    default=None,
+    callback=_split_csv,
+    help="suite 算法列表, 逗号分隔 (default: 全部)",
+)
+@click.option(
+    "--shapes",
+    type=str,
+    default=None,
+    callback=_split_csv,
+    help="suite 形状列表, 逗号分隔 (default: 全部)",
+)
 def run(
     algorithm: str,
     shape: str,
@@ -109,10 +174,12 @@ def run(
         output_dir=output_dir,
         make_gif=gif,
     )
-    click.echo(f"✅ {result.get('algorithm')} × {result.get('shape')}: "
-               f"面积 {result.get('requested_area')} → {result.get('measured_area')} "
-               f"(fill_ratio={result.get('fill_ratio', 0):.3f}, "
-               f"CV={result.get('uniformity_cv', 0):.3f})")
+    click.echo(
+        f"✅ {result.get('algorithm')} × {result.get('shape')}: "
+        f"面积 {result.get('requested_area')} → {result.get('measured_area')} "
+        f"(fill_ratio={result.get('fill_ratio', 0):.3f}, "
+        f"CV={result.get('uniformity_cv', 0):.3f})"
+    )
     return result
 
 

@@ -36,15 +36,15 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.slm.santec import Santec
-from ao_shaping.utils.beam_metrics import (
+from ao_shaping.utils.image.beam_metrics import (
     clamp_side,
     compute_quality_score,
     compute_square_metrics,
     measure_bright_span,
 )
-from ao_shaping.utils.file import Recorder
+from ao_shaping.utils.io.file import Recorder
 from ao_shaping.utils.hardware_utils import open_camera
-from ao_shaping.utils.resample import resample_to_grid
+from ao_shaping.utils.image.resample import resample_to_grid
 
 if TYPE_CHECKING:
     import pygame
@@ -279,7 +279,7 @@ def _detect_center(intensity: np.ndarray, mode: str = "argmax") -> tuple[float, 
     Returns:
         (cx, cy) 浮点中心坐标.
     """
-    from ao_shaping.utils.spots_calc import center_of_brightness, centroid
+    from ao_shaping.utils.image.spots_calc import center_of_brightness, centroid
 
     if mode == "argmax":
         return center_of_brightness(intensity)
@@ -337,9 +337,9 @@ def _run_closed_loop(
     Returns:
         结果字典, 包含 best_phase, best_score, convergence_history 等.
     """
-    from ao_shaping.algorithm.gerchberg_saxton import gerchberg_saxton
-    from ao_shaping.utils.beam_metrics import measure_spot_diameter_cam
-    from ao_shaping.utils.targets import build_square_target_amplitude
+    from ao_shaping.algorithm.signal_processing.gerchberg_saxton import gerchberg_saxton
+    from ao_shaping.utils.image.beam_metrics import measure_spot_diameter_cam
+    from ao_shaping.utils.image.targets import build_square_target_amplitude
 
     width = slm.Panel_Res[0]
     height = slm.Panel_Res[1]

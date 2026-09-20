@@ -137,6 +137,7 @@ class ZernikeSLM:
     def send_zernike(
         self,
         coefficients: dict[tuple[int, int], float] | np.ndarray,
+        wait_time_s: float | None = None,
     ) -> np.ndarray:
         """发送Zernike系数到SLM
 
@@ -144,7 +145,8 @@ class ZernikeSLM:
             coefficients: Zernike系数，可以是:
                 - dict: {(n, m): value} 形式的系数
                 - np.ndarray: 按Noll顺序排列的系数向量
-            display: 是否立即显示到SLM，默认为True
+            wait_time_s: 本次写入后等待液晶翻转的时间 (s)。``None`` 时使用
+                实例的 ``self.wait_time_s``。优化器循环按需传入更长的等待值。
 
         Returns:
             发送的灰度相位图
@@ -157,7 +159,10 @@ class ZernikeSLM:
             if isinstance(coefficients, dict)
             else self._zernike_dm._noll_to_dict(coefficients)
         )
-        self._slm.display_phase(phase_rad, wait_time_s=self.wait_time_s)
+        self._slm.display_phase(
+            phase_rad,
+            wait_time_s=self.wait_time_s if wait_time_s is None else wait_time_s,
+        )
 
         return self._current_phase
 

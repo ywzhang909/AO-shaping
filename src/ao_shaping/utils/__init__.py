@@ -6,8 +6,9 @@ This package is organized into domain subpackages:
 - ``image``: Spot analysis and visualization (spots_calc, beam_metrics,
   targets, resample, display, gs_visualization, hardware_utils)
 - ``wavefront``: Wavefront and mode-mixing math (zernike_calc, zernike_utils,
-  wavefront_calc, wfs_utils, phase_unwrap, hadamard_calc, matrix_utils, vi)
-- ``slm``: SLM pattern generation (pattern_helper, slm_lut, slm_utils)
+  wavefront_calc, wfs_utils, phase_unwrap, hadamard_calc, matrix_utils,
+  pattern_helper, vi)
+- ``slm``: SLM state, LUT handling, and phase/display (slm_lut, phase_display)
 
 Legacy top-level paths (``ao_shaping.utils.spots_calc`` etc.) remain importable
 via backward-compat shims.
@@ -16,8 +17,14 @@ via backward-compat shims.
 from ao_shaping.utils.image import display, spots_calc
 from ao_shaping.utils.io import file, timestamp
 from ao_shaping.utils.io.handler import Register
-from ao_shaping.utils.slm import pattern_helper
-from ao_shaping.utils.wavefront import hadamard_calc, matrix_utils, wavefront_calc, zernike_calc
+from ao_shaping.utils.slm import slm_lut, phase_display
+from ao_shaping.utils.wavefront import (
+    hadamard_calc,
+    matrix_utils,
+    pattern_helper,
+    wavefront_calc,
+    zernike_calc,
+)
 
 
 # Explicit exports from spots_calc
@@ -96,7 +103,7 @@ from ao_shaping.utils.wavefront.matrix_utils import (
 )
 
 # Explicit exports from pattern_helper
-from ao_shaping.utils.slm.pattern_helper import PatternHelper
+from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 # Explicit exports from wavefront_calc
 from ao_shaping.utils.wavefront.wavefront_calc import (

@@ -95,7 +95,7 @@ def _defocus_normalized_builder(slm: "Santec") -> np.ndarray:
     (mod-2π 包裹, 整个瞳孔 0~1023 灰度 ≈ 一个 2π 周期) + 驱动波前校正/LUT。
     (2026-09: 原实现经 PatternHelper min-max 归一化, 已删除)
     """
-    from ao_shaping.utils.pattern_helper import PatternHelper
+    from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
     w, h = int(slm.Panel_Res[0]), int(slm.Panel_Res[1])
     helper = PatternHelper((w, h), bits=slm.Gray_Scale_bits)
@@ -108,7 +108,7 @@ def _defocus_normalized_builder(slm: "Santec") -> np.ndarray:
 
 def _defocus_big_builder(slm: "Santec") -> np.ndarray:
     """大离焦 (多圈包裹): Z(2,0)=2ρ²-1 × 30 rad → to_uint16 包裹。"""
-    from ao_shaping.utils.pattern_helper import PatternHelper
+    from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
     w, h = int(slm.Panel_Res[0]), int(slm.Panel_Res[1])
     helper = PatternHelper((w, h), bits=slm.Gray_Scale_bits)
@@ -123,7 +123,7 @@ def _defocus_big_builder(slm: "Santec") -> np.ndarray:
 
 def _lens_builder(slm: "Santec", focal_length_m: float) -> np.ndarray:
     """透镜相位 (与 multi_slm_controller "透镜" 分支一致, 全尺寸)。"""
-    from ao_shaping.utils.pattern_helper import PatternHelper
+    from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
     w, h = int(slm.Panel_Res[0]), int(slm.Panel_Res[1])
     helper = PatternHelper((w, h), bits=slm.Gray_Scale_bits)

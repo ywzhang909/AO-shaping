@@ -5,11 +5,11 @@
 ## 导入
 
 ```python
-from ao_shaping.utils.pattern_helper import PatternHelper
+from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 ```
 
 ```python
-from ao_shaping.utils.pattern_helper import PatternHelper
+from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 # 创建 PatternHelper 实例
 # resolution: (width, height) - 图案分辨率

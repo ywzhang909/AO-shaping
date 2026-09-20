@@ -43,7 +43,7 @@ class TestOfflinePath:
     """Verify the offline (simulation) optimization path works via the algorithm module."""
 
     def test_train_beam_shaping_offline(self):
-        from ao_shaping.algorithm.differentiable_shaping import (
+        from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
             create_target_mask,
             train_beam_shaping,
         )

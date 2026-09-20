@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from ao_shaping.algorithm.wavefront import (
+from ao_shaping.algorithm.signal_processing.wavefront import (
     zernike_piston_tilt,
     build_D_vectorized,
     reconstruct_wavefront,

@@ -130,13 +130,16 @@ class SimCamera:
     def __exit__(self, exc_type, exc, tb) -> None:
         return None
 
-    def autoset_exposure_time_ms(
+    def auto_exposure(
         self,
-        target_max_brightness: float,
-        threshold: int = 5,
+        target_max: float = 40.0,
+        tolerance: float = 5.0,
         twice_valid: bool = True,
+        max_iterations: int = 20,
+        n_sample: int = 1,
     ) -> np.ndarray:
-        return self.get_numpy_image(1)
+        """Sim stub: no real exposure control, just returns a frame."""
+        return self.get_numpy_image(n_sample)
 
     def get_numpy_image(self, n_sample: int = 1) -> np.ndarray:
         return LANDSCAPE.render(SimDM.current_voltages)

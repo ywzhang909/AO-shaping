@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from ao_shaping.algorithm.tabu_search import (
+from ao_shaping.algorithm.tabu.tabu_search import (
     TabuMemory,
     AdaptiveSearchState,
     generate_search_candidates,
@@ -61,8 +61,12 @@ class TestTabuMemory:
 class TestAdaptiveSearchState:
     def test_shrink_on_improvement(self):
         state = AdaptiveSearchState(
-            radius=4.0, min_radius=0.5, max_radius=12.0,
-            expand_ratio=1.4, shrink_ratio=0.75, improvement_tol=1e-4
+            radius=4.0,
+            min_radius=0.5,
+            max_radius=12.0,
+            expand_ratio=1.4,
+            shrink_ratio=0.75,
+            improvement_tol=1e-4,
         )
         new_r = state.update_radius(improved=True)
         assert new_r < 4.0
@@ -70,8 +74,12 @@ class TestAdaptiveSearchState:
 
     def test_expand_on_no_improvement(self):
         state = AdaptiveSearchState(
-            radius=4.0, min_radius=0.5, max_radius=12.0,
-            expand_ratio=1.4, shrink_ratio=0.75, improvement_tol=1e-4
+            radius=4.0,
+            min_radius=0.5,
+            max_radius=12.0,
+            expand_ratio=1.4,
+            shrink_ratio=0.75,
+            improvement_tol=1e-4,
         )
         new_r = state.update_radius(improved=False)
         assert new_r > 4.0
@@ -79,16 +87,24 @@ class TestAdaptiveSearchState:
 
     def test_clamp_to_max(self):
         state = AdaptiveSearchState(
-            radius=10.0, min_radius=0.5, max_radius=12.0,
-            expand_ratio=1.4, shrink_ratio=0.75, improvement_tol=1e-4
+            radius=10.0,
+            min_radius=0.5,
+            max_radius=12.0,
+            expand_ratio=1.4,
+            shrink_ratio=0.75,
+            improvement_tol=1e-4,
         )
         new_r = state.update_radius(improved=False)
         assert new_r == 12.0
 
     def test_clamp_to_min(self):
         state = AdaptiveSearchState(
-            radius=0.6, min_radius=0.5, max_radius=12.0,
-            expand_ratio=1.4, shrink_ratio=0.75, improvement_tol=1e-4
+            radius=0.6,
+            min_radius=0.5,
+            max_radius=12.0,
+            expand_ratio=1.4,
+            shrink_ratio=0.75,
+            improvement_tol=1e-4,
         )
         new_r = state.update_radius(improved=True)
         assert new_r == 0.5
@@ -113,7 +129,9 @@ class TestGenerateSearchCandidates:
     def test_active_mask_applied(self):
         anchor = np.zeros(5)
         mask = np.array([True, False, True, False, True])
-        results = generate_search_candidates(anchor, radius_scale=1.0, n_samples=10, active_mask=mask)
+        results = generate_search_candidates(
+            anchor, radius_scale=1.0, n_samples=10, active_mask=mask
+        )
         for r in results:
             assert r[1] == pytest.approx(0.0)
             assert r[3] == pytest.approx(0.0)

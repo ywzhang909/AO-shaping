@@ -4,14 +4,15 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 
+from ao_shaping.algorithm.heuristic.search import heuristic_algorithm_choices
 from ao_shaping.optimizer.wf.greedy_zernike import optimizer_greedy
-from ao_shaping.utils.display import plot_funcs
-from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
-from ao_shaping.utils.cli_helpers import (
+from ao_shaping.utils.image.display import plot_funcs
+from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
+from ao_shaping.utils.io.cli_helpers import (
     parse_tuple,
     setup_coredumpy,
     get_date_dir_name,
-    get_debug_mode,
+    resolve_debug,
 )
 from ao_shaping.drivers import MlaRes
 from ao_shaping.runners.runner_common import (
@@ -49,7 +50,29 @@ from ao_shaping.runners.runner_common import (
 @click.option(
     "--perturbation-scale", default=5.0, help="扰动幅度缩放因子 (default: 5.0)"
 )
+@click.option(
+    "--algorithm",
+    type=click.Choice(list(heuristic_algorithm_choices()), case_sensitive=False),
+    default="spgd",
+    show_default=True,
+    help="搜索算法: spgd (贪婪局部搜索) 或启发式 (ga/pso/sa/hc/rs/cem/de)",
+)
+@click.option(
+    "--pop_size",
+    type=int,
+    default=None,
+    help="种群规模 (ga/pso/cem/de 使用; 默认取算法默认值)",
+)
+@click.option(
+    "--debug",
+    "debug_flag",
+    is_flag=True,
+    default=None,
+    help="启用调试模式: 保存 pkl/json 与汇总图",
+)
+@click.pass_context
 def run(
+    ctx,
     dir,
     epochs,
     n_max,
@@ -66,17 +89,22 @@ def run(
     n_init,
     n_directions,
     perturbation_scale,
+    algorithm,
+    pop_size,
+    debug_flag,
 ):
-    """Zernike波前优化器 - 贪婪局部搜索算法
+    """Zernike波前优化器 - 贪婪局部搜索 / 启发式搜索
 
-    使用贪婪局部搜索算法通过SLM进行波前校正，最小化WFS测量的波前RMS值。
-    算法流程:
+    通过SLM进行波前校正，最小化WFS测量的波前RMS值。
+    ``--algorithm spgd`` 使用贪婪局部搜索:
     1. 随机初始化N个位置，选取最优作为起始点
     2. 每次迭代采样n个随机扰动方向
     3. 评估所有候选(当前位置+n个扰动)，选择最优
-    DEBUG环境变量控制调试模式。
+    其他取值 (ga/pso/sa/hc/rs/cem/de) 使用 algorithm/heuristic 的启发式搜索。
+
+    调试模式: ``main.py --debug greedy-zernike`` / 本命令 ``--debug`` / ``DEBUG=1``。
     """
-    debug = get_debug_mode()
+    debug = resolve_debug(ctx, debug_flag)
 
     records = optimizer_greedy(
         epochs=epochs,
@@ -94,6 +122,8 @@ def run(
         wfs_res=MlaRes.from_str(wfs_res),
         remove_tilt=remove_tilt,
         slm_number=slm_number,
+        algorithm=algorithm,
+        pop_size=pop_size,
     )
     root_dir = Path(dir)
 

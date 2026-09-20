@@ -57,6 +57,7 @@ def create_target_shape(
     line_width: float = 0.02,
     thickness: float = 0.05,
     aspect_ratio: float = 2.0,
+    center: tuple[float, float] | None = None,
 ) -> np.ndarray:
     """Create a 2D target intensity or amplitude pattern.
 
@@ -87,6 +88,8 @@ def create_target_shape(
             when ``shape == "cross"``.
         aspect_ratio: Width:height ratio of the rectangle (long axis
             horizontal). Only used when ``shape == "rectangle"``.
+        center: ``(x, y)`` pixel coordinates for the pattern center. Defaults
+            to the array center.
 
     Returns:
         Float32 array of shape ``(height, width)`` with values in ``[0, 1]``
@@ -101,7 +104,7 @@ def create_target_shape(
         height = width = int(size)
 
     y, x = np.mgrid[0:height, 0:width]
-    cx, cy = (width - 1) / 2, (height - 1) / 2
+    cx, cy = center if center is not None else ((width - 1) / 2, (height - 1) / 2)
     radius = radius_ratio * min(height, width) / 2
     r = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
 

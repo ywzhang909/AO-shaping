@@ -18,10 +18,10 @@ from loguru import logger
 from ao_shaping.drivers.ccd import DahengCamera
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.optimizer.wfless.differentiable_beam import optimize_beam_shaping
-from ao_shaping.utils.beam_metrics import compute_metrics
-from ao_shaping.utils.file import Recorder
+from ao_shaping.utils.image.beam_metrics import compute_metrics
+from ao_shaping.utils.io.file import Recorder
 from ao_shaping.utils.hardware_utils import call_with_timeout
-from ao_shaping.utils.targets import build_target_from_frame
+from ao_shaping.utils.image.targets import build_target_from_frame
 
 # ---------------------------------------------------------------------------
 # 可调参数 (调试时改这里即可)

@@ -10,7 +10,7 @@ pytestmark = pytest.mark.skip(reason="Requires DM + WFS + Camera hardware")
 
 from ao_shaping.optimizer.wfless.pib import optimize_pib
 from ao_shaping.optimizer.wf.rms import optimizer_rms_dm
-from ao_shaping.utils.display import plot_funcs
+from ao_shaping.utils.image.display import plot_funcs
 
 def test_optimize():
     cam_id = os.environ['Far_Cam_ID']

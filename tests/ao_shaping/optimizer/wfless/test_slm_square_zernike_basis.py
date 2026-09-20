@@ -19,7 +19,7 @@ from ao_shaping.optimizer.wfless.slm_square_shaping import (
     _zernike_indices,
     _zernike_phase_radians,
 )
-from ao_shaping.utils.zernike_calc import ZernikeGenerator, calc_n_zernike_terms
+from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator, calc_n_zernike_terms
 
 
 class TestSlmSquareZernikeBasisFullPanel:

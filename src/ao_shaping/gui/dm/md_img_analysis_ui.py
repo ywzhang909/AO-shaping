@@ -27,7 +27,7 @@ import streamlit as st
 from loguru import logger
 from PIL import Image
 
-from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 
 # =============================================================================
 # Constants

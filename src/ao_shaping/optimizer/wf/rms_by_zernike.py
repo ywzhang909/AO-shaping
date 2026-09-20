@@ -29,11 +29,15 @@ from collections.abc import Sequence
 import numpy as np
 import tqdm
 
-from ao_shaping.algorithm.adam import AdaMOD, AdamW
+from ao_shaping.algorithm.gradient.adam import AdaMOD, AdamW
+from ao_shaping.algorithm.heuristic.search import (
+    heuristic_algorithm_choices,
+    run_heuristic_search,
+)
 from ao_shaping.drivers import MlaRes, ThorlabWFS
 from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.utils import Recorder, logger
-from ao_shaping.utils.matrix_utils import calc_n_zernike_terms
+from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 from ao_shaping.optimizer.spgd import spgd_gradient
 
 # =============================================================================
@@ -522,6 +526,9 @@ def optimizer_rms_slm(
     early_stop_patience: int = 0,
     # NEW: WFS frame averaging
     n_frames: int = 10,
+    # NEW: search algorithm ("spgd" = gradient loop below, else a heuristic)
+    algorithm: str = "spgd",
+    pop_size: int | None = None,
 ):
     """Optimize wavefront RMS using SLM with Zernike coefficient control.
 
@@ -563,11 +570,20 @@ def optimizer_rms_slm(
         early_stop_min_epochs: Minimum epochs before early stopping can trigger.
         early_stop_patience: Consecutive non-improvement windows before stopping.
         n_frames: Number of WFS images to average per measurement.
+        algorithm: Search algorithm: ``"spgd"`` (gradient loop, default) or a
+            black-box heuristic (``ga``/``pso``/``sa``/``hc``/``rs``/``cem``/``de``).
+        pop_size: Population size for population-based heuristics
+            (ga/pso/cem/de); ignored by SA/HC/RS and by ``"spgd"``.
 
     Returns:
         Recorder: Optimization history with RMS and coefficients.
     """
     epochs = int(epochs)
+    algorithm = str(algorithm).lower()
+    if algorithm not in heuristic_algorithm_choices(include_spgd=True):
+        raise ValueError(
+            f"algorithm must be one of {heuristic_algorithm_choices()}, got {algorithm!r}"
+        )
 
     # Calculate number of Zernike terms
     n_zernike = calc_n_zernike_terms(n_max)
@@ -693,6 +709,70 @@ def optimizer_rms_slm(
         if DEBUG_MODE:
             init_record.update(init_extra)
         recorder.append(init_record)
+
+        if algorithm != "spgd":
+            # Black-box heuristic search over Zernike coefficients: each evaluation
+            # displays a phase and reads the WFS RMS (minimised).
+            last_measure: dict = {}
+
+            def _evaluate_heuristic(c: np.ndarray) -> float:
+                phase_h = slm.send_zernike(c, slm_wait_time)
+                wf_h, statics_h, extra_h = calc_j()
+                last_measure.update(
+                    {
+                        "wf": wf_h,
+                        "statics": statics_h,
+                        "phase": phase_h,
+                        "extra": extra_h,
+                    }
+                )
+                return float(statics_h.get("rms", np.inf))
+
+            with tqdm.tqdm(
+                total=None,
+                desc=f"RMS-{algorithm} {statics['rms']:.3f}",
+                dynamic_ncols=True,
+            ) as hbar:
+
+                def _on_evaluate(c: np.ndarray, value: float, index: int) -> None:
+                    row = {
+                        "rms": value,
+                        "_c": c,
+                        "_diff": 0.0,
+                        "_gamma": 0.0,
+                        "delta": 0.0,
+                        "_epoch": index,
+                        "_wavefront": last_measure["wf"][np.newaxis, ...],
+                        "_phase": np.asarray(last_measure["phase"])[np.newaxis, ...],
+                        "_statics": last_measure["statics"],
+                    }
+                    if DEBUG_MODE:
+                        row.update(last_measure.get("extra", {}))
+                    recorder.append(row)
+                    hbar.set_postfix(recorder.last_info_dict)
+                    hbar.update(1)
+
+                result = run_heuristic_search(
+                    algorithm,
+                    _evaluate_heuristic,
+                    dim=n_zernike,
+                    iterations=epochs,
+                    bounds=(ZERNIKE_MIN, ZERNIKE_MAX),
+                    x0=_init_c,
+                    maximize=False,
+                    pop_size=pop_size,
+                    on_evaluate=_on_evaluate,
+                )
+
+            slm.send_zernike(result.best_x)
+            logger.info(
+                "{} search finished: best RMS={:.4f} over {} evaluations; "
+                "restored best coefficients",
+                algorithm,
+                result.best_value,
+                result.evaluations,
+            )
+            return recorder
 
         perturb_weights = _get_perturb_weights(n_zernike)
         if DEBUG_MODE:

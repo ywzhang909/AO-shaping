@@ -18,7 +18,7 @@ from collections.abc import Callable
 import numpy as np
 from loguru import logger
 
-from ao_shaping.algorithm.controller import (
+from ao_shaping.algorithm.signal_processing.controller import (
     AdaptiveGainController,
     BaseController,
     ControlLaw,
@@ -86,16 +86,27 @@ class AOClosedLoop:
         n = self.n_modes
         cfg = config
         self.controllers: dict[ControlLaw, BaseController] = {
-            ControlLaw.PID: PIDController(n, cfg.dt, D_pinv, s_ref, cfg.Kp, cfg.Ki, cfg.Kd),
+            ControlLaw.PID: PIDController(
+                n, cfg.dt, D_pinv, s_ref, cfg.Kp, cfg.Ki, cfg.Kd
+            ),
             ControlLaw.LEAKY_INTEGRATOR: LeakyIntegratorController(
                 n, cfg.dt, D_pinv, s_ref, cfg.gain_schedule
             ),
             ControlLaw.QUADRATIC_GAUSSIAN: QuadraticGaussianController(
                 n, cfg.dt, D_pinv, s_ref, cfg.Q_diag, cfg.R_scalar
             ),
-            ControlLaw.LQG: LQGController(n, cfg.dt, D_pinv, s_ref, D, cfg.Q_diag, cfg.R_scalar),
+            ControlLaw.LQG: LQGController(
+                n, cfg.dt, D_pinv, s_ref, D, cfg.Q_diag, cfg.R_scalar
+            ),
             ControlLaw.PREDICTIVE: PredictiveController(
-                n, cfg.dt, D_pinv, s_ref, cfg.horizon, cfg.delay_steps, cfg.Q_diag, cfg.R_scalar
+                n,
+                cfg.dt,
+                D_pinv,
+                s_ref,
+                cfg.horizon,
+                cfg.delay_steps,
+                cfg.Q_diag,
+                cfg.R_scalar,
             ),
             ControlLaw.ADAPTIVE_GAIN: AdaptiveGainController(
                 n, cfg.dt, D_pinv, s_ref, cfg.gain_schedule, cfg.Kp, cfg.leak
@@ -134,11 +145,11 @@ class AOClosedLoop:
         cfg = self.cfg
         controller = self.controllers[control_law]
 
-        logger.info(f"{'='*60}")
+        logger.info(f"{'=' * 60}")
         logger.info(f"Closed-loop control start: {control_law.value}")
         logger.info(f"  Modes: {self.n_modes}, Target RMS: {cfg.rms_target}λ")
         logger.info(f"  Max iter: {cfg.max_iter}, Delay: {cfg.delay_steps} steps")
-        logger.info(f"{'='*60}")
+        logger.info(f"{'=' * 60}")
 
         # Initial measurement (open loop)
         logger.info("[Init] Open-loop measurement...")
@@ -191,8 +202,10 @@ class AOClosedLoop:
 
             # 9. Stall detection
             if k >= cfg.stall_window:
-                recent_vals = self.rms_history[-cfg.stall_window:]
-                rel_change = abs(recent_vals[-1] - recent_vals[0]) / (recent_vals[0] + 1e-10)
+                recent_vals = self.rms_history[-cfg.stall_window :]
+                rel_change = abs(recent_vals[-1] - recent_vals[0]) / (
+                    recent_vals[0] + 1e-10
+                )
                 if rel_change < cfg.stall_tol:
                     logger.info(f"Stall detected @ iter {k}, RMS={rms_meas:.4f}λ")
                     converged = True
@@ -232,19 +245,25 @@ class AOClosedLoop:
                 20 * np.log10(rms0 / (final_rms + 1e-10)) if rms0 > 0 else 0.0
             ),
             "a_history": np.array(self.a_history) if self.a_history else np.array([]),
-            "rms_history": np.array(self.rms_history) if self.rms_history else np.array([]),
+            "rms_history": np.array(self.rms_history)
+            if self.rms_history
+            else np.array([]),
             "s_history": np.array(self.s_history) if self.s_history else np.array([]),
             "u_history": np.array(self.u_history) if self.u_history else np.array([]),
             "control_law": control_law.value,
             "final_coefficients": u.copy(),
         }
 
-        logger.info(f"\n{'='*60}")
-        status = "Converged" if converged else "Diverged" if diverged else "Not converged"
+        logger.info(f"\n{'=' * 60}")
+        status = (
+            "Converged" if converged else "Diverged" if diverged else "Not converged"
+        )
         logger.info(f"Result: {status}")
-        logger.info(f"  Iterations: {result_dict['n_iter']}, RMS: {rms0:.4f}λ → {final_rms:.4f}λ")
+        logger.info(
+            f"  Iterations: {result_dict['n_iter']}, RMS: {rms0:.4f}λ → {final_rms:.4f}λ"
+        )
         logger.info(f"  Improvement: {result_dict['improvement_db']:.1f} dB")
-        logger.info(f"{'='*60}")
+        logger.info(f"{'=' * 60}")
 
         return result_dict
 

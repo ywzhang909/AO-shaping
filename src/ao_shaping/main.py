@@ -65,27 +65,33 @@ from ao_shaping.runners import (
 # Tools commands (standalone tools under tools/)
 from ao_shaping.tools.slm.slm_diagnose import main as slm_diagnose_run
 from ao_shaping.tools.slm.slm_lut_runner import run as slm_lut_run
-from ao_shaping.utils.cli_helpers import get_debug_mode
+from ao_shaping.utils.io.cli_helpers import get_debug_mode
 
 
 @click.group()
 @click.option("--dir", default="data", help="数据保存根目录 (default: data)")
+@click.option(
+    "--debug",
+    is_flag=True,
+    default=None,
+    help="启用调试模式 (等价于 DEBUG=1: DEBUG 级日志 + 保存 pkl/json/图片等调试产物)",
+)
 @click.pass_context
-def cli(ctx: click.Context, dir: str):
+def cli(ctx: click.Context, dir: str, debug: bool | None):
     """AO-Shaping自适应光学整形系统 CLI
 
     提供波前优化、光束整形、全息图生成等功能。
 
     全局选项:
         --dir    数据保存根目录
-        DEBUG    环境变量控制调试模式 (export DEBUG=1 或 DEBUG=true)
+        --debug  启用调试模式 (保存调试产物; 亦可 export DEBUG=1 或 DEBUG=true)
     """
-    _debug = get_debug_mode()
+    _debug = get_debug_mode() or bool(debug)
     if _debug:
         logger.remove()
         logger.add(sys.stderr, level="DEBUG")
         logger.debug(
-            "Debug mode enabled via DEBUG env var - DEBUG level logging active"
+            "Debug mode enabled (--debug / DEBUG env) - DEBUG level logging active"
         )
         logger.debug("Debug mode enabled")
     ctx.ensure_object(dict)

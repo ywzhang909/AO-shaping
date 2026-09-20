@@ -48,20 +48,14 @@ def compute_lstsq(matrix: np.ndarray) -> np.ndarray:
         return result
 
 
+from ao_shaping.utils.wavefront.zernike_calc import (  # noqa: F401
+    calc_n_zernike_terms as _calc_n_zernike_terms,
+)
+
+
 def calc_n_zernike_terms(n_max: int) -> int:
-    """Calculate number of Zernike terms up to order n_max.
-
-    Args:
-        n_max: Maximum Zernike order.
-
-    Returns:
-        Total number of Zernike terms including piston.
-    """
-    count = 0
-    for n in range(n_max + 1):
-        for m in range(-n, n + 1, 2):
-            count += 1
-    return count
+    """Calculate number of Zernike terms up to order n_max (re-export from zernike_calc)."""
+    return _calc_n_zernike_terms(n_max)
 
 
 def noll_to_index(j: int) -> int:

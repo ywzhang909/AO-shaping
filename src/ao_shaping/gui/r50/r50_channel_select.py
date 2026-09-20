@@ -20,7 +20,7 @@ import pandas as pd
 from loguru import logger
 
 from ao_shaping.drivers.dm.MicroDM import MAX_CHANNELS, VOLTAGE_MAX, VOLTAGE_MIN
-from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 
 
 # =============================================================================

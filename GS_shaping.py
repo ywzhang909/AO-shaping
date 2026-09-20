@@ -26,8 +26,8 @@ from loguru import logger
 
 from ao_shaping.drivers.ccd import DahengCamera
 from ao_shaping.drivers.slm import Santec
-from ao_shaping.utils.beam_metrics import compute_metrics
-from ao_shaping.utils.file import Recorder
+from ao_shaping.utils.image.beam_metrics import compute_metrics
+from ao_shaping.utils.io.file import Recorder
 
 # ---------------- 可调参数 ----------------
 EXPOSURE_MS = 0.7

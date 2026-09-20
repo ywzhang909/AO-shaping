@@ -7,9 +7,10 @@ import numpy.typing as npt
 
 from ao_shaping.drivers.ccd import BaseCamera
 from ao_shaping.drivers.ccd.common import ExposureTime
-from ao_shaping.utils.device_config import ConfigHandler, DeviceParam, param
-from ao_shaping.utils.file import ROOT_DIR as PROJECT_ROOT
-from ao_shaping.utils.file import logger
+from ao_shaping.drivers.ccd.daheng import constants
+from ao_shaping.utils.io.device_config import ConfigHandler, DeviceParam, param
+from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.io.file import logger
 
 try:
     import gxipy as gx  # type: ignore[import-untyped]
@@ -180,10 +181,8 @@ class DahengCamera(BaseCamera):
         # 写入 SDK 时再转回 µs
         self.cam.ExposureTime.set(int(self.__exposure_time_ms.ms * 1000))
         # 关闭 SDK 原生自动曝光，确保手动曝光控制
-        try:
-            self.cam.ExposureAuto.set("Off")
-        except Exception:
-            pass
+        self.cam.ExposureAuto.set(constants.GxAutoEntry.OFF.value)
+
         # 设置相机的增益
         self.cam.Gain.set(0.0)
         # 设置相机的像素格式为MONO8
@@ -340,14 +339,18 @@ class DahengCamera(BaseCamera):
 
     def auto_exposure(
         self,
-        target_max: float = 0.5,
-        tolerance: float = 0.05,
-        max_iterations: int = 10,
+        target_max: float = 40.0,
+        tolerance: float = 5.0,
+        twice_valid: bool = True,
+        max_iterations: int = 20,
         n_sample: int = 1,
         use_sdk_auto: bool = True,
         sdk_settle_frames: int = 3,
-    ):
-        """自动曝光调整 - 优先使用大恒 SDK 原生自动曝光，再用已有的曝光调整方法修正。
+    ) -> npt.NDArray[np.uint8]:
+        """自动曝光调整 - 优先使用大恒 SDK 原生自动曝光，再用比例迭代修正。
+
+        ``target_max`` / ``tolerance`` 均采用 **0-255 灰度**单位 (与 SDK
+        ``ExpectedGrayValue`` 以及历史 ``autoset_exposure_time_ms`` 一致)。
 
         算法 (两阶段):
         阶段 1 - SDK 原生自动曝光 (use_sdk_auto=True 时):
@@ -356,27 +359,31 @@ class DahengCamera(BaseCamera):
           3. 读取 SDK 自动调整后的曝光时间作为初值
           4. 关闭 SDK 自动曝光，切换到手动模式
 
-        阶段 2 - 已有曝光调整方法修正:
+        阶段 2 - 比例迭代修正:
           1. 拍摄图像并计算最大亮度
-          2. 如果最大亮度在目标值的 tolerance 范围内，停止
-          3. 否则，根据比例调整曝光时间: new_exp = current_exp * (target / current)
-          4. 裁剪到有效范围 [min, max]
-          5. 重复直到收敛或达到最大迭代次数
+          2. 若峰值落在 ``target_max ± tolerance`` 内 (twice_valid=True 时需连续两次) 则停止
+          3. 否则按 ``new_exp = exp * target / peak`` 调整 (单步放大上限 3×)
+          4. 裁剪到有效范围 [min, max]，并处理曝光已到边界仍无法达标的情况
+          5. 重复直到收敛或达到 max_iterations
 
         Args:
-            target_max: 目标最大亮度 (0-1范围, 默认0.5)
-            tolerance: 容差范围 (默认0.05, 即5%)
-            max_iterations: 第二阶段最大迭代次数 (默认10)
-            n_sample: 每次迭代的采样次数 (默认1)
+            target_max: 目标最大亮度 (0-255, 默认40)
+            tolerance: 峰值容差 (0-255, 默认5)
+            twice_valid: True 时要求连续两次落入容差范围才收敛 (默认True)
+            max_iterations: 第二阶段最大迭代次数 (默认20)
+            n_sample: 每次估计峰值时的采样帧数 (默认1)
             use_sdk_auto: 是否优先使用 SDK 原生自动曝光 (默认True)
             sdk_settle_frames: SDK 自动曝光收敛等待帧数 (默认3)
 
         Returns:
-            np.ndarray 最终图像
+            np.ndarray: 调整后采集到的图像 (uint8)。
         """
         assert self.cam, "camera not initialized"
+        assert tolerance > 0, "tolerance must be > 0"
 
-        target_val = float(target_max * 255)
+        target_val = float(target_max)
+        low = int(max(target_val - tolerance, 10))
+        high = int(min(target_val + tolerance, 254))
         min_exp = float(self.__exposure_time_ms.min)
         max_exp = float(self.__exposure_time_ms.max)
 
@@ -384,72 +391,90 @@ class DahengCamera(BaseCamera):
         if use_sdk_auto:
             try:
                 sdk_target = int(max(0, min(255, target_val)))
-                self.cam.ExposureAuto.set("Once")
+                self.cam.ExposureAuto.set(constants.GxAutoEntry.ONCE.value)
                 self.cam.ExpectedGrayValue.set(sdk_target)
                 logger.info(
-                    f"[SDK auto-exposure] enabled, target={sdk_target}, "
-                    f"waiting {sdk_settle_frames} frames for convergence..."
+                    "[SDK auto-exposure] enabled, target={}, waiting {} frames "
+                    "for convergence...",
+                    sdk_target,
+                    sdk_settle_frames,
                 )
                 # 采集若干帧让 SDK 内部自动曝光收敛
                 for _ in range(sdk_settle_frames):
                     self.__take_one_shot()
-                # 读取 SDK 自动调整后的曝光时间
-                sdk_exp = float(self.exposure_time)
-                logger.info(f"[SDK auto-exposure] converged: exp={sdk_exp:.2f}ms")
-                # 切换到手动模式，后续用已有方法修正
-                self.cam.ExposureAuto.set("Off")
-                current_exp = sdk_exp
+                logger.info(
+                    "[SDK auto-exposure] converged: exp={:.2f}ms",
+                    float(self.exposure_time),
+                )
+                # 切换到手动模式，后续用比例迭代修正
+                self.cam.ExposureAuto.set(constants.GxAutoEntry.OFF.value)
             except Exception as e:
                 logger.warning(
-                    f"[SDK auto-exposure] not available, falling back to manual: {e}"
+                    "[SDK auto-exposure] not available, falling back to manual: {}",
+                    e,
                 )
-                current_exp = float(self.exposure_time)
-        else:
-            current_exp = float(self.exposure_time)
 
         logger.info(
-            f"Auto exposure phase 2 start: target={target_max:.2f} ({target_val:.0f}), "
-            f"range=[{min_exp}, {max_exp}]ms, max_iter={max_iterations}"
+            "Auto exposure start: target={:.0f}±{:.0f} (range=[{}, {}]ms, max_iter={})",
+            target_val,
+            tolerance,
+            min_exp,
+            max_exp,
+            max_iterations,
         )
 
-        # ── 阶段 2: 已有曝光调整方法修正 ──
-        for i in range(max_iterations):
+        # ── 阶段 2: 比例迭代修正 ──
+        twice_ok = False
+        img = self.get_numpy_image(n_sample, skip_first=True)
+
+        for i in range(max(1, int(max_iterations))):
+            peak = float(np.max(img))
+
+            if low <= peak <= high:
+                if twice_ok or not twice_valid:
+                    logger.info(
+                        "Auto exposure converged at iter {}: exp={:.3f}ms, max={:.1f}",
+                        i + 1,
+                        float(self.exposure_time),
+                        peak,
+                    )
+                    return img
+                twice_ok = True
+            else:
+                twice_ok = False
+                current = float(self.exposure_time)
+                if current <= 0:
+                    break
+                ratio = min(target_val / max(peak, 1.0), 3.0)
+                new_exp = float(np.clip(current * ratio, min_exp, max_exp))
+                if abs(new_exp - current) < 1e-9:
+                    break
+                self.reset_exposure_time(new_exp)
+                if new_exp <= min_exp and peak > high:
+                    logger.warning(
+                        "target brightness {:.0f} unreachable (peak {:.1f}); "
+                        "exposure forced to min",
+                        target_val,
+                        peak,
+                    )
+                    break
+                if new_exp >= max_exp and peak < low:
+                    logger.warning(
+                        "target brightness {:.0f} unreachable (peak {:.1f}); "
+                        "exposure forced to max",
+                        target_val,
+                        peak,
+                    )
+                    break
+
             img = self.get_numpy_image(n_sample, skip_first=True)
-            max_val = float(np.max(img))
 
-            if abs(max_val - target_val) <= tolerance * 255:
-                logger.info(
-                    f"Auto exposure converged at iter {i + 1}: "
-                    f"exp={current_exp}ms, max={max_val:.1f}"
-                )
-                return current_exp, max_val / 255.0
-
-            ratio = target_val / max(max_val, 1)
-            new_exp = current_exp * ratio
-            new_exp = max(min_exp, min(max_exp, new_exp))
-
-            if new_exp == current_exp:
-                logger.info(
-                    f"Auto exposure stable at iter {i + 1}: "
-                    f"exp={current_exp}ms, max={max_val:.1f}"
-                )
-                return img
-
-            current_exp = new_exp
-            self.reset_exposure_time(current_exp)
-
-            logger.debug(
-                f"Auto exposure iter {i + 1}: max={max_val:.1f}, "
-                f"exp={current_exp}ms (target={target_val:.0f})"
-            )
-
-        final_img = self.get_numpy_image(n_sample, skip_first=True)
-        final_max = float(np.max(final_img))
-        logger.warning(
-            f"Auto exposure max iterations reached: "
-            f"exp={current_exp}ms, max={final_max:.1f}"
+        logger.info(
+            "Auto exposure finished: exp={:.3f}ms, max={:.1f}",
+            float(self.exposure_time),
+            float(np.max(img)),
         )
-        return final_img
+        return img
 
     def __update_properties(self):
         assert self.cam, "camera not initialized"
@@ -518,10 +543,10 @@ class DahengCamera(BaseCamera):
         assert self.cam, "camera not initialized"
         try:
             if enable:
-                self.cam.ExposureAuto.set("On")
+                self.cam.ExposureAuto.set(constants.GxAutoEntry.CONTINUOUS.value)
                 logger.info("Auto exposure enabled (continuous)")
             else:
-                self.cam.ExposureAuto.set("Off")
+                self.cam.ExposureAuto.set(constants.GxAutoEntry.OFF.value)
                 logger.info("Auto exposure disabled")
             return True
         except Exception as e:

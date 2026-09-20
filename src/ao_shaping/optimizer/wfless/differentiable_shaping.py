@@ -14,7 +14,7 @@ Note:
 
 from __future__ import annotations
 
-from ao_shaping.algorithm.differentiable_shaping import (
+from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
     DifferentiableShapingResult,
     angular_spectrum_propagate_torch,
     create_target_mask,

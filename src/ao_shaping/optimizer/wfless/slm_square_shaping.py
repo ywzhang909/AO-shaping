@@ -89,12 +89,20 @@ import numpy as np
 
 from ao_shaping.drivers import MIICamera
 from ao_shaping.drivers.slm import Santec
-from ao_shaping.algorithm.adam import AdaMOD, Adam, AdamW, Base, Muno, MunoW, SGD
+from ao_shaping.algorithm.gradient.adam import (
+    AdaMOD,
+    Adam,
+    AdamW,
+    Base,
+    Muno,
+    MunoW,
+    SGD,
+)
 from ao_shaping.utils import logger, Recorder
-from ao_shaping.utils.file import gen_date_dir, gen_date_str
-from ao_shaping.utils.pattern_helper import PatternHelper
-from ao_shaping.utils.spots_calc import centroid, radius
-from ao_shaping.utils.zernike_calc import (
+from ao_shaping.utils.io.file import gen_date_dir, gen_date_str
+from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
+from ao_shaping.utils.image.spots_calc import centroid, radius
+from ao_shaping.utils.wavefront.zernike_calc import (
     ZernikeGenerator,
     calc_n_zernike_terms,
     noll_to_nm,
@@ -704,8 +712,11 @@ class _SPGDDisplay:
             points = []
             for i, val in enumerate(data):
                 px = x + 10 + int(i * (self.PANEL_W - 20) / max(len(data) - 1, 1))
-                py = y + self.PANEL_H - 30 - int(
-                    (val - cmin) / span * (self.PANEL_H - 50)
+                py = (
+                    y
+                    + self.PANEL_H
+                    - 30
+                    - int((val - cmin) / span * (self.PANEL_H - 50))
                 )
                 points.append((px, py))
             pygame.draw.lines(self._screen, color, False, points, 2)
@@ -883,7 +894,9 @@ def optimize_slm_square(
             elif _mask.size > nk:
                 logger.warning(
                     "zernike_mask 长度 {} 超过 n_max={} 的 Noll 项数 {}, 截断",
-                    _mask.size, n_max, nk,
+                    _mask.size,
+                    n_max,
+                    nk,
                 )
                 _mask = _mask[:nk]
             # Noll 1,2,3 (piston, tip, tilt) 强制为 0
@@ -1064,9 +1077,7 @@ def optimize_slm_square(
         time.sleep(SLM_RESPONSE_TIME_S)
 
         # Auto-exposure for initial image
-        _img = cam.autoset_exposure_time_ms(
-            target_max_brightness=TEST_EXPOSURE_TIME_BRIGHTNESS
-        )
+        _img = cam.auto_exposure(target_max=TEST_EXPOSURE_TIME_BRIGHTNESS, n_sample=20)
 
         def _detect_center(img: np.ndarray) -> tuple[int, int]:
             """Locate the 0-order spot center, reusing axis_beam_runner's method.
@@ -1079,7 +1090,7 @@ def optimize_slm_square(
                ``center_of_mass`` 细化光斑中心 (平坦核心用质心更稳)。
             退化 (全零图) 时回退 argmax。
             """
-            from ao_shaping.algorithm.target_func import ImageTargetFunc
+            from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
 
             h, w = img.shape
             _tf = ImageTargetFunc(w, h, (w // 2, h // 2))
@@ -1138,12 +1149,14 @@ def optimize_slm_square(
             cam.exposure_time = exposure_time_ms
             init_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
         elif 0 < target_max_brightness < 255 and target_max_brightness > 0:
-            init_img = cam.autoset_exposure_time_ms(
-                target_max_brightness=target_max_brightness, twice_valid=True
+            init_img = cam.auto_exposure(
+                target_max=target_max_brightness, twice_valid=True, n_sample=20
             )
         else:
-            init_img = cam.autoset_exposure_time_ms(
-                target_max_brightness=ADVISE_EXPOSURE_TIME_BRIGHTNESS, twice_valid=True
+            init_img = cam.auto_exposure(
+                target_max=ADVISE_EXPOSURE_TIME_BRIGHTNESS,
+                twice_valid=True,
+                n_sample=20,
             )
         logger.debug(
             f"Initial Image Max brightness: {np.max(init_img)} @ {cam.exposure_time}ms"
@@ -1178,7 +1191,7 @@ def optimize_slm_square(
         elif target_side <= 0:
             # Auto-compute from spot size (90% encircled energy diameter)
             _w, _h = init_img.shape[1], init_img.shape[0]
-            from ao_shaping.algorithm.target_func import ImageTargetFunc
+            from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
 
             _target_func = ImageTargetFunc(_w, _h, center)
             spot_radius = _target_func.radius(init_img, energy=0.90)
@@ -1310,8 +1323,10 @@ def optimize_slm_square(
                 # Auto-exposure adjustment if saturated
                 max_brightness = max(np.max(pos_img), np.max(neg_img))
                 if max_brightness == 255 and exposure_time_ms == 0:
-                    _resample_img = cam.autoset_exposure_time_ms(
-                        target_max_brightness, twice_valid=False
+                    _resample_img = cam.auto_exposure(
+                        target_max=target_max_brightness,
+                        twice_valid=False,
+                        n_sample=20,
                     )
                     optimizer.scale_momentum(np.sum(_resample_img) / np.sum(pos_img))
 

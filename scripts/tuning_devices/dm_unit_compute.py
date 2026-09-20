@@ -11,7 +11,7 @@ import numpy as np
 
 from ao_shaping.drivers import MlaRes, NlightDM, ThorlabWFS
 from ao_shaping.utils import get_init_V_by_energy, get_init_V_by_rms
-from ao_shaping.utils.wavefront_calc import normalize_01
+from ao_shaping.utils.wavefront.wavefront_calc import normalize_01
 
 
 def centroid_calculation(matrix):

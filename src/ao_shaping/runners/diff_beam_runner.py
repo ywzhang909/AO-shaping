@@ -52,16 +52,16 @@ import numpy as np
 from loguru import logger
 
 # Import shared beam-shaping helpers (single source of truth for metrics/IO)
-from ao_shaping.utils.beam_metrics import (
+from ao_shaping.utils.image.beam_metrics import (
     compute_metrics,
     intensity_to_amplitude,
 )
-from ao_shaping.utils.slm_utils import (
+from ao_shaping.utils.slm.phase_display import (
     display_phase as _display_phase,
     phase_to_slm_grayscale,
     pick_slm_slot as _pick_slm_slot,
 )
-from ao_shaping.utils.targets import (
+from ao_shaping.utils.image.targets import (
     create_target_shape,
     crop_resize_to_grid,
     load_target_image,
@@ -70,11 +70,11 @@ from ao_shaping.utils.targets import (
 
 # Import the two algorithms
 from ao_shaping.optimizer.wfless.differentiable_beam import optimize_beam_shaping
-from ao_shaping.algorithm.gerchberg_saxton import (
+from ao_shaping.algorithm.signal_processing.gerchberg_saxton import (
     adaptive_gerchberg_saxton,
     gerchberg_saxton,
 )
-from ao_shaping.utils.cli_helpers import get_debug_mode, parse_tuple as _parse_tuple
+from ao_shaping.utils.io.cli_helpers import get_debug_mode, parse_tuple as _parse_tuple
 
 # Canonical hardware helpers; private-name aliases keep run() call sites unchanged.
 from ao_shaping.utils.hardware_utils import (
@@ -370,7 +370,6 @@ def run(
     通过 ``--algorithm {backprop,gs}`` 选择优化算法。两种算法共享相同的
     SLM->CCD 闭环硬件路径和指标定义，因此结果可直接对比。
     """
-    
 
     # Wavelength in meters (gs angular spectrum uses SI units).
     wavelength_m = wavelength * 1e-9
@@ -642,7 +641,9 @@ def run(
             final_loss = res_list.last["loss"] if res_list.history else float("nan")
             converged = res_list.last["converged"] if res_list.history else False
             steps = len(res_list.history)
-            run_device = res_list.last["device"] if res_list.history else (device or "cpu")
+            run_device = (
+                res_list.last["device"] if res_list.history else (device or "cpu")
+            )
         else:  # gs
             logger.info(
                 "Running Gerchberg-Saxton: iterations={}, adaptive={}",
@@ -917,7 +918,7 @@ def run(
         json.dump(config, f, indent=2)
 
     # 硬件模式走驱动统一实现 (与显示字节一致: 矫正+LUT+平移+mod, 设备 _max_gray),
-    # 纯模拟 (slm=None) 回退到 slm_utils 纯数学转换。
+    # 纯模拟 (slm=None) 回退到 phase_display 纯数学转换。
     slm_phase = phase_to_slm_grayscale(phase, slm=slm)
     np.save(result_dir / "phase_pattern.npy", slm_phase)
     np.save(result_dir / "target_intensity.npy", target_intensity)

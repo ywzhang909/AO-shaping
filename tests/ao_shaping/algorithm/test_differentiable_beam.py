@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-from ao_shaping.algorithm.differentiable_beam import (
+from ao_shaping.algorithm.signal_processing.differentiable_beam import (
     DifferentiableBeamOptimizer,
     differentiable_far_field,
     far_field_intensity,
@@ -36,9 +36,7 @@ class TestDifferentiableFarField:
         amp = np.ones((16, 16), dtype=np.float32)
         phase = torch.zeros(16, 16, dtype=torch.float32)
         i_far = far_field_intensity(amp, phase)
-        frac_center = (
-            i_far[8, 8] / (i_far.sum() + 1e-12)
-        ).item()
+        frac_center = (i_far[8, 8] / (i_far.sum() + 1e-12)).item()
         assert frac_center > 0.99
 
     def test_far_field_is_differentiable(self):

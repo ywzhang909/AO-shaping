@@ -48,7 +48,10 @@ import pandas as pd  # noqa: E402
 
 from loguru import logger  # noqa: E402
 
-from ao_shaping.algorithm.heuristic_base import HeuristicOptimizer, OptimizerType  # noqa: E402
+from ao_shaping.algorithm.heuristic.heuristic_base import (
+    HeuristicOptimizer,
+    OptimizerType,
+)  # noqa: E402
 from ao_shaping.optimizer.spgd import spgd_gradient  # noqa: E402
 from ao_shaping.optimizer.wfless.strehl_sim_eval import StrehlLandscape  # noqa: E402
 
@@ -102,7 +105,10 @@ def run_all_algorithms(landscape: StrehlLandscape) -> dict[str, dict]:
         n_iterations = kwargs["n_iterations"]
         n_evals_budget = evals_per_iter * n_iterations
         logger.info(
-            "Running {} (n_iterations={}, budget {} loads)...", name, n_iterations, n_evals_budget
+            "Running {} (n_iterations={}, budget {} loads)...",
+            name,
+            n_iterations,
+            n_evals_budget,
         )
         t0 = time.perf_counter()
 
@@ -132,7 +138,10 @@ def run_all_algorithms(landscape: StrehlLandscape) -> dict[str, dict]:
 
         logger.info(
             "{} finished in {:.2f}s | final Strehl = {:.4f} | {} loads",
-            name, elapsed, final_strehl, len(eval_strehls),
+            name,
+            elapsed,
+            final_strehl,
+            len(eval_strehls),
         )
         results[name] = {
             "best_x": best_x,
@@ -177,7 +186,11 @@ def run_spgd(landscape: StrehlLandscape) -> dict:
 
     logger.info(
         "Running SPGD (steps={}, gamma={}, delta={}, beta1={}) budget {} loads...",
-        SPGD_STEPS, SPGD_GAMMA, SPGD_DELTA, SPGD_BETA1, 2 * SPGD_STEPS,
+        SPGD_STEPS,
+        SPGD_GAMMA,
+        SPGD_DELTA,
+        SPGD_BETA1,
+        2 * SPGD_STEPS,
     )
     t0 = time.perf_counter()
     for _ in range(SPGD_STEPS):
@@ -197,7 +210,9 @@ def run_spgd(landscape: StrehlLandscape) -> dict:
 
     logger.info(
         "SPGD finished in {:.2f}s | final Strehl = {:.4f} | {} loads",
-        elapsed, best_s, len(eval_strehls),
+        elapsed,
+        best_s,
+        len(eval_strehls),
     )
     return {
         "best_x": best_x,
@@ -228,30 +243,50 @@ def plot_strehl_curves(results: dict[str, dict], out_dir: Path) -> None:
         ax.plot(loads, curve, label=label, color=colors[idx], lw=1.5)
         if loads_09 is not None:
             ax.scatter(
-                [loads_09], [curve[loads_09 - 1]],
-                color=colors[idx], s=30, zorder=5, edgecolors="black", linewidths=0.5,
+                [loads_09],
+                [curve[loads_09 - 1]],
+                color=colors[idx],
+                s=30,
+                zorder=5,
+                edgecolors="black",
+                linewidths=0.5,
             )
             ax.annotate(
                 f"load {loads_09}",
                 (loads_09, curve[loads_09 - 1]),
-                textcoords="offset points", xytext=(5, 5),
-                fontsize=7, color=colors[idx], fontweight="bold",
+                textcoords="offset points",
+                xytext=(5, 5),
+                fontsize=7,
+                color=colors[idx],
+                fontweight="bold",
             )
     ax.axhline(0.5, color="red", ls=":", lw=1.0, alpha=0.6)
     ax.axhline(0.9, color="green", ls=":", lw=1.0, alpha=0.6)
     ax.text(
-        1.0, 0.51, "Strehl 0.5", color="red", fontsize=8, va="bottom",
+        1.0,
+        0.51,
+        "Strehl 0.5",
+        color="red",
+        fontsize=8,
+        va="bottom",
         transform=ax.get_yaxis_transform(),
     )
     ax.text(
-        1.0, 0.91, "Strehl 0.9", color="green", fontsize=8, va="bottom",
+        1.0,
+        0.91,
+        "Strehl 0.9",
+        color="green",
+        fontsize=8,
+        va="bottom",
         transform=ax.get_yaxis_transform(),
     )
     ax.set_xscale("log")
     ax.set_xlabel("Device loads (一次相位加载 = 一步)")
     ax.set_ylabel("Strehl")
     ax.set_ylim(0.0, 1.05)
-    ax.set_title("Strehl 收敛曲线 (横轴 = 设备加载次数) — 标记点 = 首次达到 0.9 Strehl (load N), legend max@N = 首次达到最终 Strehl")
+    ax.set_title(
+        "Strehl 收敛曲线 (横轴 = 设备加载次数) — 标记点 = 首次达到 0.9 Strehl (load N), legend max@N = 首次达到最终 Strehl"
+    )
     ax.legend(loc="lower right", fontsize=8)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -279,17 +314,27 @@ def plot_convergence_speed(results: dict[str, dict], out_dir: Path) -> None:
     for offset, (key, vals) in enumerate(series.items()):
         heights = [v if v is not None else 0 for v in vals]
         bars = ax.bar(
-            x + (offset - 1) * width, heights, width,
-            label=key, color=colors[key],
+            x + (offset - 1) * width,
+            heights,
+            width,
+            label=key,
+            color=colors[key],
         )
         for bar, v in zip(bars, vals):
             if v is not None:
                 ax.text(
-                    bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                    str(v), ha="center", va="bottom", fontsize=8,
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height(),
+                    str(v),
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
                 )
     ax.set_yscale("log")
-    ax.set_ylim(0.8, 2.0 * max(max(v for v in vals if v is not None) for vals in series.values()))
+    ax.set_ylim(
+        0.8,
+        2.0 * max(max(v for v in vals if v is not None) for vals in series.values()),
+    )
     ax.set_xticks(x)
     ax.set_xticklabels(names, rotation=30, ha="right")
     ax.set_ylabel("Device loads to reach Strehl (log)")
@@ -307,9 +352,7 @@ def plot_spot_before_after(
 ) -> None:
     """Plot before/after spot images for all 8 algorithms (2x4 grid, full)."""
     init_img = landscape.render(INIT_X)
-    best_imgs = {
-        name: landscape.render(res["best_x"]) for name, res in results.items()
-    }
+    best_imgs = {name: landscape.render(res["best_x"]) for name, res in results.items()}
     vmax = max(
         float(init_img.max()),
         *(float(img.max()) for img in best_imgs.values()),
@@ -355,7 +398,9 @@ def plot_summary_bars(results: dict[str, dict], out_dir: Path) -> None:
     logger.info("Saved {}", out_dir / "summary_bars.png")
 
 
-def save_summary_csv(results: dict[str, dict], init_strehl: float, out_dir: Path) -> None:
+def save_summary_csv(
+    results: dict[str, dict], init_strehl: float, out_dir: Path
+) -> None:
     """Save summary CSV with per-algorithm results (best_x omitted: 64-D)."""
     rows = []
     for name, res in results.items():
@@ -411,9 +456,7 @@ def load_pib_summary() -> pd.DataFrame | None:
         return None
 
 
-def write_report(
-    results: dict[str, dict], init_strehl: float, out_dir: Path
-) -> None:
+def write_report(results: dict[str, dict], init_strehl: float, out_dir: Path) -> None:
     """Write markdown report with results table, principles and comparison."""
     lines = [
         "# Strehl Benchmark Report (7 Heuristics + SPGD)",
@@ -506,8 +549,12 @@ def write_report(
             "| Algorithm | PIB (dim=4) final | PIB loads | Strehl (dim=64) final | Strehl loads |",
             "|-----------|-------------------|-----------|------------------------|--------------|",
         ]
-        pib_final_map = dict(zip(pib_df["algorithm"].astype(str), pib_df["final_pib"].astype(float)))
-        pib_loads_map = dict(zip(pib_df["algorithm"].astype(str), pib_df["n_loads"].astype(int)))
+        pib_final_map = dict(
+            zip(pib_df["algorithm"].astype(str), pib_df["final_pib"].astype(float))
+        )
+        pib_loads_map = dict(
+            zip(pib_df["algorithm"].astype(str), pib_df["n_loads"].astype(int))
+        )
         for name in results:
             pib_final = pib_final_map.get(name)
             pib_loads = pib_loads_map.get(name)
@@ -517,7 +564,10 @@ def write_report(
                 f"| {name} | {pib_final_txt} | {pib_loads_txt} | "
                 f"{results[name]['final_strehl']:.4f} | {results[name]['n_evals']} |"
             )
-        lines += ["", "SPGD has no PIB-benchmark row: that benchmark only covers `HeuristicOptimizer` algorithms."]
+        lines += [
+            "",
+            "SPGD has no PIB-benchmark row: that benchmark only covers `HeuristicOptimizer` algorithms.",
+        ]
     else:
         lines += [
             "_`docs/heuristic_pib/summary.csv` not found — cross-benchmark "
@@ -537,7 +587,9 @@ def write_report(
 def main(n_grid: int = N_GRID) -> None:
     """Run the full benchmark and write all outputs."""
     if n_grid != 256:
-        logger.warning("n_grid={} != 256 — numbers are NOT comparable to the default run", n_grid)
+        logger.warning(
+            "n_grid={} != 256 — numbers are NOT comparable to the default run", n_grid
+        )
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     landscape = StrehlLandscape(seed=SEED, n_grid=n_grid)
     logger.info("StrehlLandscape ready (n_grid={}, dim={})", n_grid, landscape.dim)
@@ -562,7 +614,9 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument(
-        "--n-grid", type=int, default=N_GRID,
+        "--n-grid",
+        type=int,
+        default=N_GRID,
         help=f"Simulation FFT grid size (default: {N_GRID}; use 128 for smoke runs)",
     )
     args = parser.parse_args()

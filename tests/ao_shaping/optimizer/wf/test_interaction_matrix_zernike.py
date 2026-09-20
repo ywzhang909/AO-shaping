@@ -18,7 +18,7 @@ from ao_shaping.optimizer.wf.interaction_matrix import (
     save_zernike_slm_response_matrix,
     load_zernike_slm_response_matrix,
 )
-from ao_shaping.utils.matrix_utils import compute_pinv
+from ao_shaping.utils.wavefront.matrix_utils import compute_pinv
 
 
 class TestZernikeSLMResponseMatrixResult:

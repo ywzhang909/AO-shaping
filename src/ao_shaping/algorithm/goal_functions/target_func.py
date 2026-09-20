@@ -2,7 +2,7 @@ import numpy as np
 from scipy.optimize import curve_fit
 import warnings
 
-from ao_shaping.utils.spots_calc import (
+from ao_shaping.utils.image.spots_calc import (
     center_of_mass_numpy,
     center_of_brightness,
     power_in_bucket_mask,

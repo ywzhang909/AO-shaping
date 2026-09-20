@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from ao_shaping.algorithm.target_func import ImageTargetFunc
+from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
 
 
 def create_target_from_dims(h, w, center):

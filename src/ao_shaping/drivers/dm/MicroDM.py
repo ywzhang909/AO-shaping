@@ -65,8 +65,8 @@ from loguru import logger
 from ao_shaping.drivers.device_base import Device, DeviceState, DeviceType
 from ao_shaping.drivers.dm._registry import register_dm
 from ao_shaping.drivers.dm.base import DM
-from ao_shaping.utils.device_config import ConfigHandler, DeviceParam, param
-from ao_shaping.utils.file import ROOT_DIR
+from ao_shaping.utils.io.device_config import ConfigHandler, DeviceParam, param
+from ao_shaping.utils.io.file import ROOT_DIR
 
 # =============================================================================
 # Protocol Constants

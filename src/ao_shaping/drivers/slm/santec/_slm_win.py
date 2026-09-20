@@ -26,7 +26,7 @@ import os
 import platform
 import findlibs
 
-from ao_shaping.utils.file import ROOT_DIR
+from ao_shaping.utils.io.file import ROOT_DIR
 
 STRING = c_char_p
 pf = platform.system()

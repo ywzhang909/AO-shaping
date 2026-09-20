@@ -5,13 +5,17 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ao_shaping.utils.wavefront.phase_unwrap import PhaseUnwrapper, UnwrapStrategy, unwrap_phase
+from ao_shaping.utils.wavefront.phase_unwrap import (
+    PhaseUnwrapper,
+    UnwrapStrategy,
+    unwrap_phase,
+)
 from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator
 
 if TYPE_CHECKING:  # pragma: no cover
     # 仅类型标注用 (避免 utils 叶子层在运行期依赖 algorithm 包)。
     # 运行期使用全部走函数内延迟导入 (见各 get_optimizer / detect_jumps 等)。
-    from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
+    from ao_shaping.algorithm.signal_processing.phase_wrap import PhaseWrapOptimizer
 
 from aotools.turbulence.infinitephasescreen import PhaseScreenKolmogorov
 
@@ -23,11 +27,22 @@ class PhaseWrapOptimizerHelper:
     _instance: PhaseWrapOptimizer | None = None
 
     @classmethod
-    def get_optimizer(cls, slm_height: int = 1600, slm_width: int = 2560, strategy: str = WRAP_STRATEGY) -> PhaseWrapOptimizer:
-        from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
+    def get_optimizer(
+        cls,
+        slm_height: int = 1600,
+        slm_width: int = 2560,
+        strategy: str = WRAP_STRATEGY,
+    ) -> PhaseWrapOptimizer:
+        from ao_shaping.algorithm.signal_processing.phase_wrap import PhaseWrapOptimizer
 
-        if cls._instance is None or cls._instance.slm_height != slm_height or cls._instance.slm_width != slm_width:
-            cls._instance = PhaseWrapOptimizer(slm_height=slm_height, slm_width=slm_width, oversample=2)
+        if (
+            cls._instance is None
+            or cls._instance.slm_height != slm_height
+            or cls._instance.slm_width != slm_width
+        ):
+            cls._instance = PhaseWrapOptimizer(
+                slm_height=slm_height, slm_width=slm_width, oversample=2
+            )
         return cls._instance
 
     @classmethod
@@ -36,34 +51,52 @@ class PhaseWrapOptimizerHelper:
         WRAP_STRATEGY = strategy
 
     @classmethod
-    def wrap(cls, phase_unwrapped: np.ndarray, strategy: str | None = None) -> np.ndarray:
+    def wrap(
+        cls, phase_unwrapped: np.ndarray, strategy: str | None = None
+    ) -> np.ndarray:
         s = strategy or WRAP_STRATEGY
-        optimizer = cls.get_optimizer(phase_unwrapped.shape[0], phase_unwrapped.shape[1], s)
+        optimizer = cls.get_optimizer(
+            phase_unwrapped.shape[0], phase_unwrapped.shape[1], s
+        )
         return optimizer.optimize(phase_unwrapped, strategy=s)
 
     @classmethod
     def min_jump_wrap(cls, phase_unwrapped: np.ndarray) -> np.ndarray:
-        optimizer = cls.get_optimizer(phase_unwrapped.shape[0], phase_unwrapped.shape[1])
+        optimizer = cls.get_optimizer(
+            phase_unwrapped.shape[0], phase_unwrapped.shape[1]
+        )
         return optimizer.min_jump_wrap(phase_unwrapped)
 
     @classmethod
-    def error_diffusion_wrap(cls, phase_unwrapped: np.ndarray, quantization_levels: int = 256) -> np.ndarray:
-        optimizer = cls.get_optimizer(phase_unwrapped.shape[0], phase_unwrapped.shape[1])
+    def error_diffusion_wrap(
+        cls, phase_unwrapped: np.ndarray, quantization_levels: int = 256
+    ) -> np.ndarray:
+        optimizer = cls.get_optimizer(
+            phase_unwrapped.shape[0], phase_unwrapped.shape[1]
+        )
         return optimizer.error_diffusion_wrap(phase_unwrapped, quantization_levels)
 
     @classmethod
-    def oversample_smooth(cls, phase_unwrapped: np.ndarray, sigma_pixels: float = 0.8) -> np.ndarray:
-        optimizer = cls.get_optimizer(phase_unwrapped.shape[0], phase_unwrapped.shape[1])
+    def oversample_smooth(
+        cls, phase_unwrapped: np.ndarray, sigma_pixels: float = 0.8
+    ) -> np.ndarray:
+        optimizer = cls.get_optimizer(
+            phase_unwrapped.shape[0], phase_unwrapped.shape[1]
+        )
         return optimizer.oversample_smooth(phase_unwrapped, sigma_pixels)
 
     @classmethod
-    def detect_jumps(cls, wrapped_phase: np.ndarray, threshold: float = 0.5 * np.pi) -> np.ndarray:
-        from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
+    def detect_jumps(
+        cls, wrapped_phase: np.ndarray, threshold: float = 0.5 * np.pi
+    ) -> np.ndarray:
+        from ao_shaping.algorithm.signal_processing.phase_wrap import PhaseWrapOptimizer
+
         return PhaseWrapOptimizer.detect_jumps(wrapped_phase, threshold)
 
     @classmethod
     def calculate_efficiency(cls, phase: np.ndarray) -> float:
-        from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
+        from ao_shaping.algorithm.signal_processing.phase_wrap import PhaseWrapOptimizer
+
         return PhaseWrapOptimizer.calculate_diffraction_efficiency(phase)
 
 
@@ -71,10 +104,18 @@ class PhaseUnwrapperHelper:
     _instance: PhaseUnwrapper | None = None
 
     @classmethod
-    def get_unwrapper(cls, resolution: tuple[int, int], strategy: str = UNWRAP_STRATEGY) -> PhaseUnwrapper:
+    def get_unwrapper(
+        cls, resolution: tuple[int, int], strategy: str = UNWRAP_STRATEGY
+    ) -> PhaseUnwrapper:
         if cls._instance is None or cls._instance.resolution != resolution:
-            strategy_enum = UnwrapStrategy[strategy.upper()] if strategy.upper() in [e.name for e in UnwrapStrategy] else UnwrapStrategy.ITERATIVE
-            cls._instance = PhaseUnwrapper(resolution=resolution, strategy=strategy_enum)
+            strategy_enum = (
+                UnwrapStrategy[strategy.upper()]
+                if strategy.upper() in [e.name for e in UnwrapStrategy]
+                else UnwrapStrategy.ITERATIVE
+            )
+            cls._instance = PhaseUnwrapper(
+                resolution=resolution, strategy=strategy_enum
+            )
         return cls._instance
 
     @classmethod
@@ -82,7 +123,11 @@ class PhaseUnwrapperHelper:
         global UNWRAP_STRATEGY
         UNWRAP_STRATEGY = strategy
         if cls._instance is not None:
-            strategy_enum = UnwrapStrategy[strategy.upper()] if strategy.upper() in [e.name for e in UnwrapStrategy] else UnwrapStrategy.ITERATIVE
+            strategy_enum = (
+                UnwrapStrategy[strategy.upper()]
+                if strategy.upper() in [e.name for e in UnwrapStrategy]
+                else UnwrapStrategy.ITERATIVE
+            )
             cls._instance.strategy = strategy_enum
 
     @classmethod
@@ -129,7 +174,7 @@ class PatternHelper:
 
     用法示例:
     ```python
-    from ao_shaping.utils.pattern_helper import PatternHelper
+    from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
     ph = PatternHelper(resolution=(256, 256), bits=10)
 
@@ -400,13 +445,15 @@ class PatternHelper:
         phase_cropped = phase_screen[:height, :width]
 
         # 不包裹、不归一化: 保留真实的 r0/Cn2-dependent 幅度。
-        # (min-max normalization would re-scale every screen to full contrast,
+        # (min-max normalization will re-scale every screen to full contrast,
         #  destroying the physical turbulence strength — same bug class as
         #  `_zernike_to_uint16` before the 2026-09 fix.)
         return np.asarray(phase_cropped, dtype=np.float64)
 
     def _get_zernike_generator(
-        self, radius: float | None, n_orders: int = 6,
+        self,
+        radius: float | None,
+        n_orders: int = 6,
     ) -> ZernikeGenerator:
         """Get (and lazily cache) a ZernikeGenerator for the given aperture.
 
@@ -503,7 +550,7 @@ class PatternHelper:
         return phase
 
     def to_uint16(self, phase_radians: np.ndarray) -> np.ndarray:
-        """将弧度相位转换为uint16格式。
+        """将弧度相位转换为uint16格式 (委托至 phase_display.phase_to_slm_grayscale)。
 
         Args:
             phase_radians: 弧度相位数组
@@ -511,9 +558,9 @@ class PatternHelper:
         Returns:
             uint16格式相位数组 (0 到 2^bits-1)
         """
-        phase_wrapped = np.mod(phase_radians, 2 * np.pi)
-        img = (phase_wrapped / (2 * np.pi) * self._max_val).astype(np.uint16)
-        return img
+        from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
+
+        return phase_to_slm_grayscale(phase_radians, max_grayscale=self._max_val)
 
     def generate_focus(
         self,
@@ -687,14 +734,14 @@ class PatternHelper:
         pixel_size: float = 8e-6,
     ) -> np.ndarray:
         """生成涡旋相位（螺旋相位）。
-        
+
         生成具有拓扑荷的涡旋相位，位移与角度Theta成正比：phi = l * Theta
-        
+
         Args:
             topological_charge: 拓扑荷 (l)，可以是正负整数
             wavelength: 波长 (m)
             pixel_size: 像素大小 (m)
-            
+
         Returns:
             涡旋相位 (float64, 弧度, 未包裹), 范围 [-|l|π, |l|π]。
             相位→灰度转换由 ``slm.create_phase_from_array()`` 或 :meth:`to_uint16` 完成。
@@ -731,7 +778,9 @@ class PatternHelper:
 
         return phase_x + phase_y
 
-    def unwrap_phase(self, wrapped: np.ndarray, strategy: str | None = None) -> np.ndarray:
+    def unwrap_phase(
+        self, wrapped: np.ndarray, strategy: str | None = None
+    ) -> np.ndarray:
         """解包相位（将包裹相位转换为连续相位）。
 
         Args:
@@ -748,7 +797,9 @@ class PatternHelper:
         s = strategy if strategy is not None else UNWRAP_STRATEGY
         return unwrap_phase(wrapped, strategy=s, resolution=resolution)
 
-    def wrap_phase(self, phase_unwrapped: np.ndarray, strategy: str = WRAP_STRATEGY) -> np.ndarray:
+    def wrap_phase(
+        self, phase_unwrapped: np.ndarray, strategy: str = WRAP_STRATEGY
+    ) -> np.ndarray:
         """包裹相位（将连续相位转换为2π范围内的包裹相位）。
 
         使用 PhaseWrapOptimizer 进行包裹优化，减少2π跳变产生的高频衍射误差。
@@ -760,9 +811,7 @@ class PatternHelper:
         Returns:
             包裹相位 [0, 2π)
         """
-        from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
-        optimizer = PhaseWrapOptimizer(slm_height=self._height, slm_width=self._width, oversample=2)
-        return optimizer.optimize(phase_unwrapped, strategy=strategy)
+        return PhaseWrapOptimizerHelper.wrap(phase_unwrapped, strategy=strategy)
 
     def wrap_phase_min_jump(self, phase_unwrapped: np.ndarray) -> np.ndarray:
         """最小跳变包裹。
@@ -773,11 +822,14 @@ class PatternHelper:
         Returns:
             包裹相位
         """
-        from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
+        from ao_shaping.algorithm.signal_processing.phase_wrap import PhaseWrapOptimizer
+
         optimizer = PhaseWrapOptimizer(slm_height=self._height, slm_width=self._width)
         return optimizer.min_jump_wrap(phase_unwrapped)
 
-    def wrap_phase_error_diffusion(self, phase_unwrapped: np.ndarray, quantization_levels: int = 256) -> np.ndarray:
+    def wrap_phase_error_diffusion(
+        self, phase_unwrapped: np.ndarray, quantization_levels: int = 256
+    ) -> np.ndarray:
         """误差扩散包裹。
 
         Args:
@@ -787,11 +839,14 @@ class PatternHelper:
         Returns:
             包裹相位
         """
-        from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
+        from ao_shaping.algorithm.signal_processing.phase_wrap import PhaseWrapOptimizer
+
         optimizer = PhaseWrapOptimizer(slm_height=self._height, slm_width=self._width)
         return optimizer.error_diffusion_wrap(phase_unwrapped, quantization_levels)
 
-    def wrap_phase_oversample(self, phase_unwrapped: np.ndarray, sigma_pixels: float = 0.8) -> np.ndarray:
+    def wrap_phase_oversample(
+        self, phase_unwrapped: np.ndarray, sigma_pixels: float = 0.8
+    ) -> np.ndarray:
         """过采样平滑包裹。
 
         Args:
@@ -801,11 +856,16 @@ class PatternHelper:
         Returns:
             包裹相位
         """
-        from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
-        optimizer = PhaseWrapOptimizer(slm_height=self._height, slm_width=self._width, oversample=2)
+        from ao_shaping.algorithm.signal_processing.phase_wrap import PhaseWrapOptimizer
+
+        optimizer = PhaseWrapOptimizer(
+            slm_height=self._height, slm_width=self._width, oversample=2
+        )
         return optimizer.oversample_smooth(phase_unwrapped, sigma_pixels)
 
-    def detect_phase_jumps(self, wrapped_phase: np.ndarray, threshold: float = 0.5 * np.pi) -> np.ndarray:
+    def detect_phase_jumps(
+        self, wrapped_phase: np.ndarray, threshold: float = 0.5 * np.pi
+    ) -> np.ndarray:
         """检测相位跳变位置。
 
         Args:
@@ -815,7 +875,8 @@ class PatternHelper:
         Returns:
             布尔掩模，True表示跳变边缘
         """
-        from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
+        from ao_shaping.algorithm.signal_processing.phase_wrap import PhaseWrapOptimizer
+
         return PhaseWrapOptimizer.detect_jumps(wrapped_phase, threshold)
 
     def calculate_diffraction_efficiency(self, phase: np.ndarray) -> float:
@@ -827,5 +888,6 @@ class PatternHelper:
         Returns:
             衍射效率 [0, 1]
         """
-        from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer
+        from ao_shaping.algorithm.signal_processing.phase_wrap import PhaseWrapOptimizer
+
         return PhaseWrapOptimizer.calculate_diffraction_efficiency(phase)

@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from ao_shaping.utils.wavefront_calc import (
+from ao_shaping.utils.wavefront.wavefront_calc import (
     normalize_01,
     centroid_calculation,
     calculate_derotation,
@@ -37,15 +37,15 @@ class TestCentroidCalculation:
     def test_uniform_matrix_center(self):
         matrix = np.ones((100, 100))
         cx, cy = centroid_calculation(matrix)
-        assert cx == pytest.approx(50.5, abs=0.5)
-        assert cy == pytest.approx(50.5, abs=0.5)
+        assert cx == pytest.approx(49.5, abs=0.5)
+        assert cy == pytest.approx(49.5, abs=0.5)
 
     def test_single_pixel(self):
         matrix = np.zeros((10, 10))
         matrix[5, 3] = 1.0
         cx, cy = centroid_calculation(matrix)
-        assert cx == pytest.approx(4.0, abs=0.01)
-        assert cy == pytest.approx(6.0, abs=0.01)
+        assert cx == pytest.approx(3.0, abs=0.01)
+        assert cy == pytest.approx(5.0, abs=0.01)
 
     def test_symmetric_gaussian_center(self):
         x = np.arange(50)
@@ -53,8 +53,8 @@ class TestCentroidCalculation:
         xx, yy = np.meshgrid(x, y)
         matrix = np.exp(-((xx - 25) ** 2 + (yy - 25) ** 2) / 100)
         cx, cy = centroid_calculation(matrix)
-        assert cx == pytest.approx(26, abs=1)
-        assert cy == pytest.approx(26, abs=1)
+        assert cx == pytest.approx(25, abs=1)
+        assert cy == pytest.approx(25, abs=1)
 
 
 class TestCalculateDerotation:
