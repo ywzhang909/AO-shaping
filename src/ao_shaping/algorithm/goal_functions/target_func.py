@@ -161,8 +161,13 @@ class ImageTargetFunc:
         return int(np.argmax(meets) + 1)
 
     def __get_bucket_mask(self, radius):
-        assert 0 < radius < len(self.masks), f"Radius {radius} out of range"
-        return self.masks[int(radius)]
+        # Clamp instead of asserting: ``radius()`` saturates to ``len(self.masks)``
+        # when even the largest mask is too small, and callers scale the dynamic
+        # bucket radius by a ratio (a float). Both can land outside [1, len-1],
+        # which previously aborted the run mid-optimisation.
+        idx = int(radius)
+        idx = min(max(idx, 1), len(self.masks) - 1)
+        return self.masks[idx]
 
     def fit_gaussian_radius(self, img: np.ndarray, center: tuple[float, float] | None = None) -> float | None:
         """拟合2D高斯曲线得到半腰半径（sigma）。

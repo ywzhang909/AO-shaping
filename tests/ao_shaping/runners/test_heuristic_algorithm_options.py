@@ -19,6 +19,7 @@ SLM_PHASE_RUNNERS = [
     ("ao_shaping.runners.slm_pib_runner", "slm-pib"),
     ("ao_shaping.runners.slm.rms_zernike_runner", "rms-zernike"),
     ("ao_shaping.runners.greedy_zernike_runner", "greedy-zernike"),
+    ("ao_shaping.runners.slm_square_runner", "spgd-square"),
 ]
 
 

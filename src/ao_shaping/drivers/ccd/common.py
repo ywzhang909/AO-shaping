@@ -283,9 +283,20 @@ def get_camera_exposure_ms(cam: Any) -> float:
 def get_camera_exposure_range(cam: Any) -> tuple[float, float]:
     """Return the ``(min_ms, max_ms)`` exposure range of a camera.
 
-    Falls back to the cross-driver range documented by ``BaseCamera``
-    (``0.011 ms`` .. ``10000 ms``) when the backend does not expose bounds.
+    Prefers the backend's own ``get_exposure_range()`` (DahengCamera: the device's
+    real range, e.g. ``(0.02, 1000.0)``), then the MiiCam-style
+    ``min_exposure_ms``/``max_exposure_ms`` properties, and only then the
+    cross-driver fallback documented by ``BaseCamera`` (``0.011`` .. ``10000``).
     """
+    # Prefer the backend's own range query (DahengCamera.get_exposure_range
+    # returns the device's real [min, max] in ms — the properties below are
+    # MiiCam-only and otherwise fall back to the generic range).
+    getter = getattr(cam, "get_exposure_range", None)
+    if callable(getter):
+        rng = getter()
+        if isinstance(rng, (tuple, list)) and len(rng) == 2 and rng[1] > rng[0]:
+            return float(rng[0]), float(rng[1])
+
     lo = getattr(cam, "min_exposure_ms", None)
     hi = getattr(cam, "max_exposure_ms", None)
     if isinstance(lo, (int, float)) and isinstance(hi, (int, float)) and hi > lo:

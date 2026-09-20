@@ -178,6 +178,22 @@ class DahengCamera(BaseCamera):
             logger.warning(
                 f"Exposure time range not found for camera {sn}. Using default value."
             )
+        # Clamp the requested exposure into the device range before writing.
+        # An out-of-range value (notably 0 ms, the conventional "auto" sentinel)
+        # makes the SDK `set` fail out-of-bounds and the camera silently keeps its
+        # previous/default (often long) exposure → saturated frames.
+        _req = self.__exposure_time_ms.ms
+        _lo, _hi = self.__exposure_time_ms.min, self.__exposure_time_ms.max
+        if not (_lo <= _req <= _hi):
+            _clamped = min(max(_req, _lo), _hi)
+            logger.warning(
+                "Exposure {:.3f}ms out of range [{:.3f}, {:.3f}]ms; clamped to {:.3f}ms",
+                _req,
+                _lo,
+                _hi,
+                _clamped,
+            )
+            self.__exposure_time_ms.ms = _clamped
         # 写入 SDK 时再转回 µs
         self.cam.ExposureTime.set(int(self.__exposure_time_ms.ms * 1000))
         # 关闭 SDK 原生自动曝光，确保手动曝光控制

@@ -111,3 +111,35 @@ def test_sim_camera_exposes_auto_exposure():
     cam = SimCamera(cam_id=0)
     img = cam.auto_exposure(target_max=40.0, twice_valid=False)
     assert isinstance(img, np.ndarray)
+
+
+def test_exposure_range_prefers_backend_get_exposure_range():
+    """DahengCamera exposes ``get_exposure_range()``; it must win over the
+    MiiCam-style min/max properties *and* over the generic fallback — otherwise
+    the reported range is the generic (0.011, 10000) instead of the device's."""
+
+    class _OwnRangeCamera:
+        def get_exposure_range(self):
+            return (0.02, 1000.0)
+
+        # MiiCam-style properties must NOT win when get_exposure_range exists.
+        min_exposure_ms = 0.2
+        max_exposure_ms = 350.0
+
+    from ao_shaping.drivers.ccd.common import get_camera_exposure_range
+
+    assert get_camera_exposure_range(_OwnRangeCamera()) == (0.02, 1000.0)
+
+
+def test_exposure_range_falls_back_to_properties_then_generic():
+    from ao_shaping.drivers.ccd.common import get_camera_exposure_range
+
+    class _PropsOnly:
+        min_exposure_ms = 0.2
+        max_exposure_ms = 350.0
+
+    class _Nothing:
+        pass
+
+    assert get_camera_exposure_range(_PropsOnly()) == (0.2, 350.0)
+    assert get_camera_exposure_range(_Nothing()) == (0.011, 10_000.0)
