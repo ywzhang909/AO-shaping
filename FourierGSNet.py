@@ -39,10 +39,9 @@ from ao_shaping.utils.image.beam_metrics import (
     measure_bright_span,
     measure_spot_diameter_cam,
 )
-from ao_shaping.utils.io.file import Recorder
-from ao_shaping.utils.hardware_utils import call_with_timeout
 from ao_shaping.utils.image.resample import resample_to_grid
 from ao_shaping.utils.image.targets import build_square_target_amplitude
+from ao_shaping.utils.io.file import Recorder
 
 # ---------------------------------------------------------------------------
 # 可调参数
