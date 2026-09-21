@@ -1,20 +1,15 @@
 """Runners package for AO-Shaping CLI commands."""
 
-from ao_shaping.runners.diff_beam_runner import run as diff_beam_run
-from ao_shaping.runners.diff_shaping_runner import run as diff_shaping_run
 from ao_shaping.runners.dm_matrix_runner import run as dm_matrix_run
 from ao_shaping.runners.ga_zernike_runner import run as ga_zernike_run
 from ao_shaping.runners.greedy_zernike_runner import run as greedy_zernike_run
-from ao_shaping.runners.gs_hologram_runner import run as gs_run
 from ao_shaping.runners.hadamard_matrix_runner import run as hadamard_matrix_run
-from ao_shaping.runners.gs_square_runner import run as gs_square_run
 from ao_shaping.runners.micro_drive.alt_voltage_runner import run as alt_voltage_run
 from ao_shaping.runners.micro_drive.full_voltage_runner import run as full_voltage_run
 from ao_shaping.runners.nlight_dm.axis_beam_runner import run as pib_run
 from ao_shaping.runners.nlight_dm.combined_runner import run as combined_run
 from ao_shaping.runners.nlight_dm.pipeline_runner import run as pipeline_run
 from ao_shaping.runners.nlight_dm.wf_runner import run as wf_run
-from ao_shaping.runners.shaping_runner import run as shaping_run
 from ao_shaping.runners.slm.rms_zernike_runner import run as rms_zernike_run
 from ao_shaping.runners.slm.zernike_matrix_runner import (
     closed_loop_run as zernike_closed_loop_run,
@@ -38,10 +33,6 @@ __all__ = [
     "full_voltage_run",
     "hadamard_matrix_run",
     "combined_run",
-    "diff_beam_run",
-    "gs_square_run",
-    "diff_shaping_run",
-    "shaping_run",
     "slm_square_run",
     "slm_pib_run",
 ]

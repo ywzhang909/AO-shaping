@@ -8,6 +8,7 @@ boilerplate out of every file.
 from __future__ import annotations
 
 import json
+import pickle
 from pathlib import Path
 
 import matplotlib
@@ -29,12 +30,13 @@ from ao_shaping.utils.image.display import plot_funcs  # noqa: E402  (after matp
 def build_debug_save_paths(
     root_dir,
     context_subdir: Path | str,
-) -> Path:
-    """Build the date-stamped save directory used by all runners.
+) -> tuple[Path, Path]:
+    """Build the date-stamped save directory + file-stem prefix used by all runners.
 
     Consistently mirrors the pattern::
 
         save_dir = gen_date_dir(Path(root_dir) / context_subdir)
+        saved_file_name = save_dir / f"{context_subdir}_{save_dir.name}"
 
     Args:
         root_dir:     Top-level run-output root (e.g. ``"data"``).
@@ -47,10 +49,16 @@ def build_debug_save_paths(
                 ``Path("pipeline")``
 
     Returns:
-        Full :class:`~pathlib.Path` to the date-stamped save directory.
+        A 2-tuple ``(save_dir, saved_file_name)`` where ``save_dir`` is the
+        full :class:`~pathlib.Path` to the date-stamped save directory and
+        ``saved_file_name`` is a stem :class:`~pathlib.Path` (no extension)
+        inside it, used to derive ``.png`` / ``.pkl`` / ``.json`` / ``.zip``
+        siblings.
     """
     from ao_shaping.utils import gen_date_dir
-    return gen_date_dir(Path(root_dir) / context_subdir)
+    save_dir = gen_date_dir(Path(root_dir) / context_subdir)
+    saved_file_name = save_dir / f"{context_subdir}_{save_dir.name}"
+    return save_dir, saved_file_name
 
 
 # ---------------------------------------------------------------------------
@@ -89,45 +97,117 @@ def make_debug_wavefront_ax_plots(
     plt.colorbar(im1, ax=ax[1], orientation=orientation)
 
 
+# Objective column names recognised in data-mode records (slm-pib).
+_DATA_MODE_OBJECTIVE_KEYS = ("pib", "radiu", "avg_radiu")
+
+
+def _infer_objective_key(data: dict[int, dict]) -> str | None:
+    """Return the objective column name present in the first data record."""
+    first = next(iter(data.values()), {})
+    for key in _DATA_MODE_OBJECTIVE_KEYS:
+        if key in first:
+            return key
+    return None
+
+
+def _save_data_mode_debug_artifacts(
+    data: dict[int, dict],
+    png_path: Path,
+    pkl_path: Path,
+    json_path: Path,
+    title: str,
+    json_payload: dict | None,
+) -> Path:
+    """Write PNG / pkl / json debug artifacts for a ``{epoch: record}`` dict.
+
+    Figure layout (2×2): objective history line plot (top-left), best
+    coefficient bar chart (top-right), first ``_img`` (bottom-left), last
+    ``_img`` (bottom-right).
+    """
+    epochs = sorted(data.keys())
+
+    fig, ax = plt.subplots(2, 2, figsize=(12, 9))
+
+    obj_key = _infer_objective_key(data)
+    if obj_key is not None:
+        xs = [e for e in epochs if obj_key in data[e]]
+        ys = [data[e][obj_key] for e in xs]
+        ax[0, 0].plot(xs, ys)
+        ax[0, 0].set_xlabel("epoch")
+        ax[0, 0].set_ylabel(obj_key)
+    ax[0, 0].set_title(title)
+
+    c_arr = None
+    for e in reversed(epochs):
+        if "_c" in data[e]:
+            c_arr = np.asarray(data[e]["_c"])
+            break
+    ax[0, 1].set_title("best coefficients")
+    if c_arr is not None:
+        ax[0, 1].bar(range(len(c_arr)), c_arr)
+    else:
+        ax[0, 1].text(0.5, 0.5, "no _c", ha="center", va="center")
+
+    imgs = [data[e]["_img"] for e in epochs if "_img" in data[e]]
+    for ax_i, label, img in (
+        (ax[1, 0], "first _img", imgs[0] if imgs else None),
+        (ax[1, 1], "last _img", imgs[-1] if imgs else None),
+    ):
+        ax_i.set_title(label)
+        if img is not None:
+            ax_i.imshow(np.asarray(img))
+        else:
+            ax_i.text(0.5, 0.5, "no _img", ha="center", va="center")
+
+    plt.tight_layout()
+    plt.savefig(png_path)
+    plt.close()
+
+    with open(pkl_path, "wb") as f:
+        pickle.dump(data, f)
+    with open(json_path, "w", encoding="utf8") as f:
+        json.dump(json_payload, f, ensure_ascii=False, indent=4)
+
+    return png_path
+
+
 def save_optimization_debug_artifacts(
-    records,
-    save_dir: Path,
-    saved_file_name: Path,
-    min_epoch: int,
-    min_metric: float,
-    best_coeff_key: str,
-    init_wavefront,
-    opt_wavefront,
-    init_title: str,
-    opt_title: str,
+    records=None,
+    save_dir: Path | None = None,
+    saved_file_name: Path | None = None,
+    min_epoch: int | None = None,
+    min_metric: float | None = None,
+    best_coeff_key: str | None = None,
+    init_wavefront=None,
+    opt_wavefront=None,
+    init_title: str = "init wavefront",
+    opt_title: str = "opt wavefront",
     plot_params_note: str | None = None,
-) -> None:
-    """Emit the standard debug PNG + compressed dataframe for a completed
-    optimisation run.
+    *,
+    data: dict[int, dict] | None = None,
+    png_path: Path | None = None,
+    pkl_path: Path | None = None,
+    json_path: Path | None = None,
+    title: str = "",
+    json_payload: dict | None = None,
+) -> Path | None:
+    """Emit the standard debug artifacts for a completed optimisation run.
 
-    This is the single shared sequence that used to appear in
-    ``ga_zernike_runner``, ``greedy_zernike_runner``, and
-    ``rms_zernike_runner``:
+    Two mutually exclusive modes:
 
-    .. code-block:: python
-
-        fig, ax = plt.subplots(2, 2, figsize=(12, 9))
-        plot_funcs["rms_history"](rms_values, ax[0, 0], min_epoch, min_metric)
-        plot_funcs["voltages"](..., ax[0, 1], ...)
-        # wavefront panels via make_debug_wavefront_ax_plots / manual draw
-        plt.savefig(saved_file_name.with_suffix(".png"))
-        plt.close()
-        records.save_dataframe(saved_file_name.with_suffix(".zip"),
-                               compression="zip")
-
-    Callers who need a non-standard figure layout should build the figure
-    themselves and only use :func:`build_debug_save_paths` + the slice of
-    this routine they want.
+    * **Wavefront mode** (default): ``records`` is a Recorder / OptHistory
+      object; writes the 2×2 debug PNG + compressed dataframe. This is the
+      historical behaviour used by ``ga_zernike_runner``,
+      ``greedy_zernike_runner`` and ``rms_zernike_runner``.
+    * **Data mode**: ``data`` is a ``{epoch: record}`` dict; writes a 2×2
+      PNG (objective history / best coefficients / first & last image), a
+      pickled copy of ``data`` and a JSON sidecar of ``json_payload``.
+      Used by ``slm_pib_runner``.
 
     Args:
         records:           Recorder / OptHistory object with ``get_sublist()``,
                            ``get_best_iter()``, ``first``, and
-                           ``save_dataframe``.
+                           ``save_dataframe``. (wavefront mode)
         save_dir:          Directory in which to write output files.
         saved_file_name:   UUID filename prefix (no extension).
         min_epoch:         Epoch index of the best result.
@@ -141,7 +221,32 @@ def save_optimization_debug_artifacts(
         opt_title:         Colorbar / panel title for the optimised WF.
         plot_params_note:  Optional suffix appended to the *voltages* panel
                            title (e.g. ``"epoch=200"``).
+        data:              ``{epoch: record}`` dict of scalar/array fields.
+                           (data mode; mutually exclusive with ``records``)
+        png_path:          Output path for the figure. (data mode)
+        pkl_path:          Output path for the pickled ``data``. (data mode)
+        json_path:         Output path for the JSON ``json_payload``. (data mode)
+        title:             Figure title. (data mode)
+        json_payload:      Dict serialised to ``json_path``. (data mode)
+
+    Returns:
+        ``png_path`` in data mode, ``None`` in wavefront mode.
     """
+    if data is not None:
+        if records is not None:
+            raise ValueError(
+                "pass either records (wavefront mode) or data (data mode), not both"
+            )
+        return _save_data_mode_debug_artifacts(
+            data=data,
+            png_path=png_path,
+            pkl_path=pkl_path,
+            json_path=json_path,
+            title=title,
+            json_payload=json_payload,
+        )
+
+    # --- wavefront mode (historical behaviour) ---
     fig, ax = plt.subplots(2, 2, figsize=(12, 9))
 
     rms_values = records.get_sublist()
@@ -163,6 +268,7 @@ def save_optimization_debug_artifacts(
 
     records.save_dataframe(saved_file_name.with_suffix(".zip"),
                           compression="zip")
+    return None
 
 
 # ---------------------------------------------------------------------------

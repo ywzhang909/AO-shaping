@@ -6,11 +6,19 @@ The debug figure is exercised through ``_save_debug_artifacts`` with a synthetic
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 from click.testing import CliRunner
 
-from ao_shaping.runners.slm_pib_runner import _save_debug_artifacts, run
+from ao_shaping.runners.slm_pib_runner import (
+    HeuristicParams,
+    ObjectiveParams,
+    SlmParams,
+    _save_debug_artifacts,
+    run,
+)
 from ao_shaping.utils.io.file import Recorder
 
 
@@ -45,7 +53,13 @@ def _make_recorder(objective: str, mode: str, n: int = 3) -> Recorder:
 def test_debug_artifacts_written_for_every_objective(tmp_path, objective, mode):
     rec = _make_recorder(objective, mode)
 
-    png = _save_debug_artifacts(rec, objective, {"objective": objective}, str(tmp_path))
+    png = _save_debug_artifacts(
+        rec,
+        ObjectiveParams(name=objective),
+        SlmParams(),
+        ObjectiveParams(name=objective),
+        str(tmp_path),
+    )
 
     assert png.suffix == ".png"
     assert png.exists() and png.stat().st_size > 0
@@ -54,17 +68,21 @@ def test_debug_artifacts_written_for_every_objective(tmp_path, objective, mode):
 
 
 def test_debug_artifact_json_round_trips_config(tmp_path):
-    import json
-
     rec = _make_recorder("pib", "max")
-    png = _save_debug_artifacts(rec, "pib", {"algorithm": "ga", "epochs": 7}, str(tmp_path))
+    png = _save_debug_artifacts(
+        rec,
+        ObjectiveParams(name="pib"),
+        SlmParams(),
+        HeuristicParams(algorithm="ga"),
+        str(tmp_path),
+    )
 
     payload = json.loads(png.with_suffix(".json").read_text(encoding="utf8"))
-    assert payload == {"algorithm": "ga", "epochs": 7}
+    assert payload == {"algorithm": "ga"}
 
 
 def test_cli_exposes_debug_and_heuristic_options():
-    result = CliRunner().invoke(run, ["--help"])
+    result = CliRunner().invoke(run, ["heuristic", "--help"])
 
     assert result.exit_code == 0, result.output
     for opt in ("--debug", "--algorithm", "--pop_size", "--cam_type"):

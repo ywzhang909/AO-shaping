@@ -340,7 +340,7 @@ def run(
     root_dir = Path(dir)
 
     min_iter, (min_epoch, min_rms) = records.get_best_iter()
-    save_dir = build_debug_save_paths(root_dir, "flatten_zernike")
+    save_dir, _ = build_debug_save_paths(root_dir, "flatten_zernike")
     records.save_best(saved_dir=save_dir, target="_c", process_fn=np.round, fmt="%.6f")
     records.save_array_sidecars(save_dir)
     if debug:

@@ -32,6 +32,7 @@ class CCDParams(DeviceParam):
     cam_id: int = param(default=0, cast=int)
     exposure_time_ms: float = param(default=0.0, cast=float)
     skip_sampling: bool = param(default=False, cast=bool)
+    bit_depth: int = param(default=8, cast=int)
 
 
 # 模块级单例，所有 DahengCamera 实例共用
@@ -40,12 +41,17 @@ CCD_CONFIG = ConfigHandler(_CCD_CONFIG_DIR, "ccd", CCDParams)
 
 class DahengCamera(BaseCamera):
     def __init__(
-        self, cam_id: int = 0, exposure_time_ms: float = 0.0, skip_sampling=False
+        self,
+        cam_id: int = 0,
+        exposure_time_ms: float = 0.0,
+        skip_sampling=False,
+        bit_depth: int = 8,
     ):
         self._init_values = {
             "cam_id": cam_id,
             "exposure_time_ms": exposure_time_ms,
             "skip_sampling": skip_sampling,
+            "bit_depth": bit_depth,
         }
         # 使用 defaults + __init__ 参数解析（尚未连接，无序列号）
         params = CCD_CONFIG.resolve_from_config({}, init_values=self._init_values)
@@ -54,6 +60,7 @@ class DahengCamera(BaseCamera):
         self.cam_id = params.cam_id
         self.__exposure_time_ms = ExposureTime(params.exposure_time_ms)
         self.skip_sampling = params.skip_sampling
+        self._bit_depth = params.bit_depth
 
         self.cam = None
         self._sn: str | None = None
@@ -201,8 +208,12 @@ class DahengCamera(BaseCamera):
 
         # 设置相机的增益
         self.cam.Gain.set(0.0)
-        # 设置相机的像素格式为MONO8
-        self.cam.PixelFormat.set(gx.GxPixelFormatEntry.MONO8)
+        # 按位深设置相机的像素格式（MONO8 / MONO16）
+        self.cam.PixelFormat.set(
+            gx.GxPixelFormatEntry.MONO16
+            if self._bit_depth == 16
+            else gx.GxPixelFormatEntry.MONO8
+        )
         if self.skip_sampling:
             # 设置相机的合并因子为2
             self.cam.BinningHorizontal.set(2)
@@ -331,7 +342,7 @@ class DahengCamera(BaseCamera):
 
     def get_numpy_image(
         self, n_sample=1, skip_first=True, denoise=False
-    ) -> npt.NDArray[np.uint8]:
+    ) -> npt.NDArray[np.uint16] | npt.NDArray[np.uint8]:
         """
         获取相机的图像数据，进行平均处理。
 
@@ -340,8 +351,9 @@ class DahengCamera(BaseCamera):
         skip_first (bool): 是否跳过第一次采样，默认值为True。
 
         返回:
-        np.ndarray: 处理后的平均图像，数据类型为uint8。
+        np.ndarray: 处理后的平均图像，数据类型由位深决定 (uint16/uint8)。
         """
+        out_dtype = np.uint16 if self._bit_depth == 16 else np.uint8
         numpy_image = np.zeros((n_sample, self.cam_height, self.cam_width), dtype=float)
         if skip_first:
             self.__take_one_shot()
@@ -351,7 +363,7 @@ class DahengCamera(BaseCamera):
         if denoise:
             avg_img = avg_img - np.median(avg_img)
             avg_img = np.where(avg_img < 0, 0, avg_img)
-        return avg_img.astype(np.uint8)
+        return avg_img.astype(out_dtype)
 
     def auto_exposure(
         self,

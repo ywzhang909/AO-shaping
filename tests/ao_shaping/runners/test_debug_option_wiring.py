@@ -68,7 +68,8 @@ class TestCommandDebugSurface:
     def test_slm_pib_exposes_debug(self):
         from ao_shaping.runners.slm_pib_runner import run
 
-        result = CliRunner().invoke(run, ["--help"])
+        # run is a click group; --debug lives on the spgd subcommand.
+        result = CliRunner().invoke(run, ["spgd", "--help"])
 
         assert result.exit_code == 0, result.output
         assert "--debug" in result.output

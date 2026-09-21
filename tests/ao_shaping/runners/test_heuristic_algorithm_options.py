@@ -30,7 +30,10 @@ def test_helper_choices_match_expected_set():
 @pytest.mark.parametrize("module_path,name", SLM_PHASE_RUNNERS)
 def test_runner_exposes_algorithm_and_pop_size(module_path, name):
     module = importlib.import_module(module_path)
-    result = CliRunner().invoke(module.run, ["--help"])
+    # slm-pib is a click group: the heuristic-search options live on the
+    # "heuristic" subcommand. Every other runner is a flat command.
+    args = ["heuristic", "--help"] if name == "slm-pib" else ["--help"]
+    result = CliRunner().invoke(module.run, args)
 
     assert result.exit_code == 0, f"{name}: {result.output}"
     assert "--algorithm" in result.output, name

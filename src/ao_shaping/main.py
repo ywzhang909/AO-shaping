@@ -43,15 +43,11 @@ from loguru import logger
 from ao_shaping.runners import (
     alt_voltage_run,
     combined_run,
-    diff_beam_run,
-    diff_shaping_run,
     dm_matrix_run,
     full_voltage_run,
     ga_zernike_run,
     hadamard_matrix_run,
     greedy_zernike_run,
-    gs_run,
-    gs_square_run,
     pib_run,
     pipeline_run,
     rms_zernike_run,
@@ -103,7 +99,6 @@ def cli(ctx: click.Context, dir: str, debug: bool | None):
 cli.add_command(wf_run, name="wf")
 cli.add_command(pib_run, name="pib")
 cli.add_command(pipeline_run, name="pipeline")
-cli.add_command(gs_run, name="gs")
 cli.add_command(zernike_matrix_run, name="zernike-matrix")
 cli.add_command(rms_zernike_run, name="rms-zernike")
 cli.add_command(ga_zernike_run, name="ga-zernike")
@@ -113,9 +108,6 @@ cli.add_command(dm_matrix_run, name="dm-matrix")
 cli.add_command(alt_voltage_run, name="alt-voltage")
 cli.add_command(full_voltage_run, name="full-voltage")
 cli.add_command(combined_run, name="combined")
-cli.add_command(diff_beam_run, name="diff-beam")
-cli.add_command(gs_square_run, name="gs-square")
-cli.add_command(diff_shaping_run, name="diff-shaping")
 cli.add_command(slm_lut_run, name="slm-lut")
 cli.add_command(slm_diagnose_run, name="slm-diagnose")
 cli.add_command(slm_square_run, name="spgd-square")
