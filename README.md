@@ -568,6 +568,54 @@ python src/ao_shaping/main.py spgd-square --epochs 2000
 python src/ao_shaping/main.py spgd-square --basis freeform --phase-grid 24
 ```
 
+#### SLM 自由相位方形光斑整形 (slm-gsnet)
+```bash
+python src/ao_shaping/main.py slm-gsnet [COMMAND] [OPTIONS]
+```
+等同于: `python -m ao_shaping.runners.slm_gsnet_runner`
+
+通过 **FREEFORM 自由相位** (full-pixel, 逐像素) 将远场光斑整形为**均匀方形** (SLM+CCD 闭环)。相位自由度始终为 freeform (per-pixel) —— 这是唯一能合成真正方形远场的自由度 (低阶 Zernike 是圆对称光滑基, 无法合成方形)。两个子命令: `spgd` (梯度搜索, 默认推荐) 与 `heuristic` (黑盒启发式, ga/pso/sa/hc/rs/cem/de)。目标方形边长由 `--target-side` 显式指定或 `--target-mean-brightness` 按总亮度能量守恒自动推导; `--cam_type sim` 走 2f-Fourier 数值仿真 (无需硬件)。
+
+> 选项须写在子命令 (`spgd` / `heuristic`) 之后; 不带子命令时不执行 (等同 `--help`)。
+
+选项 (`spgd` 与 `heuristic` 共享):
+- `-e, --epochs`: 优化迭代次数 (默认: 2000)
+- `-c, --center`: 光斑中心检测 (shape=智能argmax锚定, 默认 / centroid_thresh=亮度重心 / max=峰值位置 / mass=质心 / 'x,y'=固定坐标)
+- `--target-side`: 目标方形边长 (像素, 默认: 0=自动; 与 --target-mean-brightness 互斥)
+- `--target-mean-brightness`: 目标方形平均亮度 (灰度, >0 时由总亮度能量守恒自动推导边长)
+- `--side-factor`: 自动边长倍率 (默认: 1.5)
+- `--w-uniformity` (默认: 0.4) / `--w-efficiency` (默认: 0.6) / `--w-aspect` (默认: 0.0): 质量评分权重 (均匀性/能量效率/宽高比)
+- `--cam_type`: 相机后端 (miicam/daheng/sim, sim=2f-Fourier数值仿真无硬件)
+- `-t, --exposure_time_ms`: CCD曝光时间ms (默认: 0=自动曝光)
+- `--cam-id`: CCD设备ID (默认: 0)
+- `--cam_size`: CCD开窗大小 (像素)
+- `--slm_number`: SLM设备编号 (默认: 1)
+- `--slm_wavelength`: SLM波长nm (默认: 1064)
+- `--zernike_radius`: Zernike孔径半径px (默认: 0=SLM短边/2)
+
+`spgd` 子命令专属:
+- `--delta`: 扰动幅度 (rad, 默认: 0.1)
+- `--lr`: 学习率, 0=自动 (默认: 0)
+- `--optimizer_type`: adam/adamw/adamod/sgd/muno/munow (默认: adamod)
+
+`heuristic` 子命令专属:
+- `--algorithm`: 黑盒搜索算法 (ga/pso/sa/hc/rs/cem/de, 默认: ga)
+- `--pop_size`: 种群大小 (ga/pso/cem/de)
+
+**注意**: 目标函数必须包含能量项 (环绕能量 EE), 仅优化亮度均匀性 (-CV) 会把能量推出目标框 (硬件实测 EE→0.002)。方形整形必须使用自由相位自由度, 低阶 Zernike (n≤4) 无法合成方形远场。
+
+示例:
+```bash
+# SPGD 自由相位方形整形
+python src/ao_shaping/main.py slm-gsnet spgd --epochs 2000
+
+# 仿真验证 (无硬件)
+python src/ao_shaping/main.py slm-gsnet spgd --cam_type sim --epochs 100
+
+# 启发式 (GA) 黑盒搜索
+python src/ao_shaping/main.py slm-gsnet heuristic --algorithm ga --cam_type sim --epochs 500
+```
+
 #### 可微光束整形 (diff-beam)
 ```bash
 python src/ao_shaping/main.py diff-beam [OPTIONS]

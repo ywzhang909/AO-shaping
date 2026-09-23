@@ -51,6 +51,7 @@ from ao_shaping.runners import (
     pib_run,
     pipeline_run,
     rms_zernike_run,
+    slm_gsnet_run,
     slm_pib_run,
     slm_square_run,
     wf_run,
@@ -111,6 +112,7 @@ cli.add_command(combined_run, name="combined")
 cli.add_command(slm_lut_run, name="slm-lut")
 cli.add_command(slm_diagnose_run, name="slm-diagnose")
 cli.add_command(slm_square_run, name="spgd-square")
+cli.add_command(slm_gsnet_run, name="slm-gsnet")
 cli.add_command(slm_pib_run, name="slm-pib")
 cli.add_command(hadamard_matrix_run, name="hadamard-matrix")
 

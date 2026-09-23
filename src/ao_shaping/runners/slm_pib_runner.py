@@ -266,9 +266,9 @@ def _camera_options(fn):
     fn = click.option("--cam-id", default=0, help="CCD camera device ID")(fn)
     fn = click.option(
         "--cam_type",
-        type=click.Choice(["miicam", "daheng"]),
+        type=click.Choice(["miicam", "daheng", "sim"]),
         default="daheng",
-        help="CCD camera backend.",
+        help="CCD camera backend (sim = 2f-Fourier numerical simulation, no hardware).",
     )(fn)
     fn = click.option(
         "--exposure_time_ms",

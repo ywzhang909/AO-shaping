@@ -43,6 +43,7 @@ from __future__ import annotations
 import math
 import time
 from collections import deque
+from collections.abc import Callable
 from pathlib import Path
 
 import click
@@ -51,6 +52,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from loguru import logger
+
+from ao_shaping.utils.image.beam_metrics import compute_metrics
+from ao_shaping.utils.io.file import Recorder
 
 # =====================================================================
 # 0. 全局常量 (所有可调参数集中于此, 调试优先改这里)
@@ -155,6 +159,41 @@ def make_square_target(n, half, device):
     t = torch.linspace(-1, 1, n, device=device)
     y, x = torch.meshgrid(t, t, indexing="ij")
     I = ((x.abs() <= half) & (y.abs() <= half)).float()
+    return I / I.sum()
+
+
+def make_circle_target(n: int, half: float, device: torch.device | str) -> torch.Tensor:
+    """圆形 top-hat 目标强度 (单位能量).
+
+    Args:
+        n: 网格边长 (像素).
+        half: 归一化半径 (网格 -1..1 上的半径分数).
+        device: 张量所在设备 (如 "cpu" / "cuda").
+
+    Returns:
+        torch.Tensor: (n, n) float32 掩码, 圆内像素为 1/圆内像素数, 圆外为 0,
+        总和为 1.0.
+    """
+    t = torch.linspace(-1, 1, n, device=device)
+    y, x = torch.meshgrid(t, t, indexing="ij")
+    I = ((x * x + y * y) <= half * half).float()
+    return I / I.sum()
+
+
+def make_gaussian_target(n: int, sigma: float, device: torch.device | str) -> torch.Tensor:
+    """高斯目标强度 (单位能量).
+
+    Args:
+        n: 网格边长 (像素).
+        sigma: 归一化标准差 (网格 -1..1 上的 std 分数).
+        device: 张量所在设备 (如 "cpu" / "cuda").
+
+    Returns:
+        torch.Tensor: (n, n) float32, 强度 exp(-r²/2σ²) 归一化后总和为 1.0.
+    """
+    t = torch.linspace(-1, 1, n, device=device)
+    y, x = torch.meshgrid(t, t, indexing="ij")
+    I = torch.exp(-(x * x + y * y) / (2 * sigma * sigma))
     return I / I.sum()
 
 
@@ -744,7 +783,8 @@ class ShapingSystem:
     """
 
     def __init__(self, slm, ccd, acquire, calib: dict, lut_result: dict,
-                 half: float = HALF):
+                 half: float = HALF,
+                 target_fn: Callable[[int, float, torch.device], torch.Tensor] = make_square_target):
         self.slm = slm
         self.ccd = ccd
         self.acquire = acquire
@@ -758,7 +798,7 @@ class ShapingSystem:
         self.half = half
         self.Z = zernike_basis(N, N_ZERN, DEV)
         self.src_mask = (self.Z[0] != 0).float()
-        self.I_tgt = make_square_target(N, half, DEV)
+        self.I_tgt = target_fn(N, half, DEV)
         self.A_tgt = self.I_tgt.sqrt()
         self.roi = (self.I_tgt > 0).float()
         logger.info("目标方形物理边长 ≈ {:.1f} px (CCD); 工作区 {}×{}",
@@ -777,8 +817,13 @@ class ShapingSystem:
 
     def display(self, phi_nx: torch.Tensor):
         """显示: beam_center原点 + LUT标定通道(绕过驱动出厂LUT)."""
-        panel = self.geo.place_on_panel(phi_nx.detach().cpu().numpy(), N)
-        gray = self.lut.phase2gray(panel)
+        native = (getattr(self.slm, "panel_h", None) == N
+                  and getattr(self.slm, "panel_w", None) == N)
+        if native:
+            gray = self.lut.phase2gray(phi_nx.detach().cpu().numpy())
+        else:
+            panel = self.geo.place_on_panel(phi_nx.detach().cpu().numpy(), N)
+            gray = self.lut.phase2gray(panel)
         _display_grayscale(self.slm, np.clip(gray, 0.0, 255.0).astype(np.uint16), SETTLE_S)
 
     # ---------------- 初值: 设备自适应GS (修正版: 回退保留仿真相位) ----------------
@@ -895,7 +940,7 @@ class ShapingSystem:
                         step + 1, dt, uni, ee, c_abs)
             recorder.append({"step": step, "uniformity": uni, "encircled": ee,
                              "inference_ms": dt, "ccd": I.cpu().numpy(),
-                             "phase": phi.cpu().numpy()})
+                             "phase": phi.detach().cpu().numpy()})
             # ---- replay 监测 ----
             if not replay:
                 continue
@@ -1020,6 +1065,25 @@ def verify(calib_path, lut_path, exposure_ms, cam_type, cam_id, slm_number,
             raise SystemExit("几何验证未通过, 建议重新 calibrate")
 
 
+def _append_final_record(sys_, recorder, acquire, ccd) -> None:
+    """闭环收尾: 计算整帧指标并追加最终记录 (含 uniformity/encircled).
+
+    Recorder 以 mark="uniformity" 构造, append 断言该键必须存在
+    (utils/io/file.py) —— 早期版本只追加 compute_metrics 的
+    {mse, correlation, efficiency}, 触发 AssertionError. 此处补上
+    uniformity/encircled (经 ShapingSystem._metrics, 与 closed_loop 同源).
+    """
+    final = sys_.geo.workzone(np.asarray(acquire(ccd), np.float64), N)
+    metrics = compute_metrics(final, sys_.I_tgt.cpu().numpy())
+    I_t = torch.from_numpy(final.astype(np.float32)).to(DEV)
+    uni, ee = ShapingSystem._metrics(I_t, sys_.roi)
+    logger.info("整帧: mse={:.5f} corr={:.4f} eff={:.4f}",
+                metrics["mse"], metrics["correlation"], metrics["efficiency"])
+    recorder.append({"ccd": final, "uniformity": uni, "encircled": ee, **metrics})
+    recorder.save_dataframe(OUT_DIR / "history.csv", sidecar_dir=OUT_DIR)
+    logger.info("已保存: {}", OUT_DIR)
+
+
 @cli.command()
 @click.option("--calib", "calib_path", required=True, type=click.Path(exists=True))
 @click.option("--lut", "lut_path", required=True, type=click.Path(exists=True))
@@ -1044,8 +1108,6 @@ def run(calib_path, lut_path, steps, exposure_ms, retrain, no_replay,
     """闭环束整形: 无ckpt->初值+微调; 有ckpt->直接闭环. 含在线replay."""
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm import Santec
-    from ao_shaping.utils.image.beam_metrics import compute_metrics
-    from ao_shaping.utils.io.file import Recorder
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     recorder = Recorder("uniformity", "max")
@@ -1077,13 +1139,7 @@ def run(calib_path, lut_path, steps, exposure_ms, retrain, no_replay,
 
         net, phi = sys_.closed_loop(net, phi, steps, recorder, replay=not no_replay)
 
-        final = sys_.geo.workzone(np.asarray(acquire(ccd), np.float64), N)
-        metrics = compute_metrics(final, sys_.I_tgt.cpu().numpy())
-        logger.info("整帧: mse={:.5f} corr={:.4f} eff={:.4f}",
-                    metrics["mse"], metrics["correlation"], metrics["efficiency"])
-        recorder.append({"ccd": final, **metrics})
-        recorder.save_dataframe(OUT_DIR / "history.csv", sidecar_dir=OUT_DIR)
-        logger.info("已保存: {}", OUT_DIR)
+        _append_final_record(sys_, recorder, acquire, ccd)
 
 
 if __name__ == "__main__":

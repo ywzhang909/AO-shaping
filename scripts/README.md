@@ -141,6 +141,55 @@ python scripts/run_device_less_full.py
 - Saves everything (including `suite_stdout.txt`) under
   `docs/benchmarks/device_less_full/`
 
+### fouriergsnet_sim_train.py
+Offline scenario-matrix runner for the FourierGSNet pipeline: drives the real
+`fouriergsnet_optimize.py` `ShapingSystem`/`FourierGSNetLite`/`closed_loop`
+through `SimFourierGSNetEnv` (no hardware) for every TARGET SHAPE × ABERRATION
+SET × TURBULENCE LEVEL cell, saving per-step dynamic frames.
+
+**Usage:**
+```bash
+.venv/bin/python scripts/fouriergsnet_sim_train.py
+.venv/bin/python scripts/fouriergsnet_sim_train.py --shapes square,circle,gaussian \
+    --aberrations none,defocus,mixed --turbulence off,slow,fast \
+    --steps 30 --k-px 512 --no-replay --out data/fouriergsnet_sim
+```
+
+**What it does:**
+- Builds the full 3×3×3 scenario matrix (defaults: shapes
+  `square,circle,gaussian`, aberrations `none,defocus,mixed`, turbulence
+  `off,slow,fast`); multi-options accept comma-separated values
+- Per cell: seeded `SimFourierGSNetEnv` (peak photons 5e4, read noise 2e,
+  calib noise) → ideal calibration + LUT → `ShapingSystem` with the shape's
+  target → `FourierGSNetLite` → `adaptive_gs_init(5)` → `closed_loop(steps)`
+  with per-step frame capture (far-field + phase)
+- Saves per cell: `config.json`, `metrics.csv` (step/uniformity/encircled/
+  inference_ms/mse/correlation/efficiency), `final.json`, and
+  `frames/<scenario>/far_%04d.npy` (K×K float32) + `phase_%04d.npy` (N×N
+  float32); top level: `config.json`, `summary.json` (per-cell ok/final
+  metrics/wall time), `README.md`
+- Per-cell try/except so one failure doesn't stop the matrix; output goes to
+  a timestamped subdir under `--out` (never overwrites existing runs)
+- **Known workaround**: `closed_loop` is wrapped in `torch.no_grad()` when
+  `--no-replay` (default) — the net's forward output `phi` requires grad
+  (`c_hat` from trainable conv layers) and `closed_loop` calls
+  `phi.cpu().numpy()` (`fouriergsnet_optimize.py:938`), which raises
+  `RuntimeError` in training mode. The replay finetune path needs autograd,
+  so the wrapper is conditional on `replay=False`.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--shapes` | `square,circle,gaussian` | Target shapes (comma separated) |
+| `--aberrations` | `none,defocus,mixed` | Aberration presets (comma separated) |
+| `--turbulence` | `off,slow,fast` | Turbulence levels (comma separated) |
+| `--steps` | `30` | Closed-loop steps per cell |
+| `--k-px` | `512` | Far-field grid K (crop side) |
+| `--replay/--no-replay` | `--no-replay` | Online replay finetune (needs autograd) |
+| `--seed` | `42` | Base seed (per-cell seed derived per scenario) |
+| `--device` | `cpu` | `cpu`/`cuda` (auto-fallback to cpu) |
+| `--save-frames/--no-save-frames` | on | Save per-step far/phase frames |
+| `-o, --out` | `data/fouriergsnet_sim` | Output root (timestamped subdir) |
+
 ## Training Scripts
 
 ### run_curriculum_mamba_turbulence.py
@@ -979,6 +1028,172 @@ python scripts/generate_diff_shaping_report.py
   square / circle / gaussian targets
 - Writes `README.md` plus `figures/`, `gifs/`, `charts/` and `data/`
   subdirectories
+
+### generate_fouriergsnet_sim_report.py
+
+Generates the illustrated **FourierGSNet turbulence-sim matrix** report from a
+`scripts/fouriergsnet_sim_train.py` output directory. **Fully offline** — reads
+saved artefacts only (config/summary/metrics/frames), no hardware, no pipeline
+code.
+
+**Usage:**
+```bash
+python scripts/generate_fouriergsnet_sim_report.py
+python scripts/generate_fouriergsnet_sim_report.py --matrix-dir /tmp/fgn_probe512b
+python scripts/generate_fouriergsnet_sim_report.py --matrix-dir data/fouriergsnet_sim/<ts> -o docs/fouriergsnet_sim
+```
+
+**What it does** (writes `docs/fouriergsnet_sim/report.md` + `figures/` + `gifs/`):
+- **Header**: matrix config (k_px / steps / seed / env noise params), generation
+  timestamp, `**Fully offline**` marker
+- **Summary table**: all scenarios × shape/aberration/turbulence/
+  final+best uniformity/encircled/wall_time_s/ok, sorted by turbulence →
+  aberration → shape
+- **Per-scenario section** (核心交付): two animated GIFs per cell —
+  `gifs/<scenario>_phase.gif` (SLM 整形相位演化, mod 2π 显示, twilight) and
+  `gifs/<scenario>_far.gif` (目标光斑/远场演化, inferno), via the repo
+  `_frames_to_gif` convention (LANCZOS 128px + adaptive 256 palette, 15 fps);
+  `figures/<scenario>_metrics.png` (2×2 指标曲线, 标注 best uniformity) and
+  `figures/<scenario>_frames.png` (初值/中段/末态相位+远场蒙太奇); plus an
+  auto-generated interpretation (初值→最终均匀度, 湍流跟踪退化判断, EE 趋势)
+- **Turbulence impact**: off vs slow vs fast final uniformity per
+  (shape, aberration) — table + `figures/turbulence_impact.png` grouped bars
+- Robust: per-scenario try/except; missing frames degrade to static-only with a
+  warning; scenario dirs are scanned directly so the report can be regenerated
+  mid-run or after the matrix completes (summary.json optional)
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--matrix-dir` | latest `data/fouriergsnet_sim/<ts>` | Matrix output dir |
+| `-o, --output` | `docs/fouriergsnet_sim` | Report output dir |
+
+### generate_slm_gsnet_sim_gif.py
+
+Generates the slm-gsnet offline-sim verification GIFs (+ prints the markdown
+snippet) from a `slm-gsnet spgd --cam_type sim --debug` artifact directory.
+**Fully offline** — reads the saved PKL only, no hardware, no pipeline code.
+
+**Usage:**
+```bash
+python scripts/generate_slm_gsnet_sim_gif.py
+python scripts/generate_slm_gsnet_sim_gif.py --pkl data/debug/slm_gsnet_<ts>/<ts>/xxx.pkl
+python scripts/generate_slm_gsnet_sim_gif.py -o docs/fouriergsnet_sim
+```
+
+**What it does** (writes `docs/fouriergsnet_sim/gifs/`):
+- Loads the debug PKL (`{epoch: record}` with per-epoch `_img` CCD far-field
+  frames + `_c` freeform phase vector, length `phase_grid²` = 576)
+- `slm_gsnet_spgd_sim_far.gif` — 逐 epoch 远场 (CCD 帧, inferno)
+- `slm_gsnet_spgd_sim_phase.gif` — 逐 epoch SLM freeform 相位 (24×24 网格,
+  mod 2π, twilight)
+- Both via the repo `_frames_to_gif` convention (reused from
+  `generate_diff_shaping_report`, LANCZOS 128px + adaptive 256 palette, 15 fps)
+- Prints the `![...](gifs/...)` markdown lines for embedding in
+  `docs/fouriergsnet_sim/report.md` §5.6
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--pkl` | latest `data/debug/slm_gsnet_*/*/*.pkl` | Debug artifact pkl path |
+| `-o, --output` | `docs/fouriergsnet_sim` | Output dir (GIFs → `<output>/gifs/`) |
+
+### slm_pib_sim_run.py
+
+Runs the **`slm-pib`** SPGD shaping pipeline **entirely in the simulation
+environment** (no hardware). Wires the pure-numpy 2f-Fourier sim
+(`src/ao_shaping/drivers/sim/slm_pib_sim.py`) into the **genuine**
+`slm_pib_runner` CLI path so the standard debug artifacts (PNG/PKL/JSON) are
+produced exactly as a hardware run would write them — ready for report
+generation.
+
+**Usage:**
+```bash
+python scripts/slm_pib_sim_run.py
+python scripts/slm_pib_sim_run.py --epochs 300 --target-shape square
+```
+
+**What it does:**
+- registers the `"sim"` camera type so `create_camera("sim", ...)` returns a
+  `SimPibCCD` reading the shared far-field state (the `slm_pib_runner --cam_type`
+  `click.Choice` was extended to include `"sim"`)
+- monkeypatches `ao_shaping.optimizer.wfless.slm_zernike_pib.Santec` →
+  `SimSLMPib` so the optimizer's SLM context manager instantiates the sim
+  (no hardware, no DVI hang)
+- invokes the genuine `slm_pib_runner.run` Click entry with `--cam_type sim`
+  `--debug` (square target, Zernike n≤4, SPGD + AdaMOD)
+- optical model: SLM = 2f front focal plane, CCD = back focal plane, so the CCD
+  image is the 2D FFT (Fraunhofer far field) of the SLM pupil field — the
+  0-order spot lands at frame centre and Zernike phase measurably modulates it
+
+**Outputs:** `data/debug/slm_pib_shape_<ts>/` (PNG/PKL/JSON), then
+`docs/slm_pib_sim/report.md` + `figures/` + `gifs/` via
+`generate_slm_pib_sim_report.py`.
+
+### generate_slm_pib_sim_report.py
+
+Generates the illustrated **slm-pib simulation** report from a
+`slm_pib_runner --debug` artifact directory. **Fully offline** — reads the saved
+PKL/JSON only, no hardware, no pipeline code.
+
+**Usage:**
+```bash
+python scripts/generate_slm_pib_sim_report.py
+python scripts/generate_slm_pib_sim_report.py --debug-dir data/debug/slm_pib_shape_<ts>
+python scripts/generate_slm_pib_sim_report.py --max-runs 3
+```
+
+**What it does** (writes `docs/slm_pib_sim/report.md` + `figures/` + `gifs/`):
+- **Header**: run description (sim camera / monkeypatched SLM / square target /
+  SPGD Zernike n≤4), 2f-Fourier optical model, `**Fully offline**` marker
+- **Per-run section**: metric table (epochs / initial+final J / in-target
+  energy `_p%` / search config) + four figures — `*_objective.png` (J + `_p%`
+  curves), `*_zernike.png` (per-mode coefficient trace), `*_phase_evolution.png`
+  (sent Zernike phase, mod 2π, start/mid/end), `*_spot_evolution.png` (far-field
+  CCD frame, start/mid/end) — plus two animated GIFs (`*_phase.gif` hsv,
+  `*_spot.gif` inferno)
+- **Interpretation + conclusion**: objective improvement, the AGENTS.md
+  anti-pattern note that low-order Zernike (n≤4) cannot synthesize a true square
+  (needs full-pixel / freeform phase), and the reusability claim (any `slm-pib
+  --debug` run, sim or hardware, regenerates a report)
+- Robust: scans `data/debug/slm_pib_*/*` newest-first; `--max-runs` selects how
+  many runs to render
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--debug-root` | `data/debug` | Root dir containing `slm_pib_*` artifact dirs |
+| `--debug-dir` | (None) | A single artifact dir (overrides the glob) |
+| `--max-runs` | `1` | How many runs (newest first) to render |
+| `--out` | `docs/slm_pib_sim` | Output dir for figures/gifs/report.md |
+
+### generate_fouriergsnet_pipeline_report.py
+
+Generates the FourierGSNet pipeline integration-test report. **Fully offline** —
+pure markdown, no hardware, no figures.
+
+**Usage:**
+```bash
+python scripts/generate_fouriergsnet_pipeline_report.py
+python scripts/generate_fouriergsnet_pipeline_report.py -o docs/fouriergsnet_pipeline
+```
+
+**What it does** (writes `docs/fouriergsnet_pipeline/report.md`):
+- Documents the 5 integration tests in
+  `tests/ao_shaping/drivers/sim/test_sim_fouriergsnet_pipeline.py` that drive
+  the REAL standalone `fouriergsnet_optimize.py` pipeline
+  (ShapingSystem → adaptive_gs_init → closed_loop → _append_final_record)
+  through `SimFourierGSNetEnv` with no hardware and no pipeline modification
+- Harness decisions: narrow beam `BeamParams(region=256, w0=1.0)` (default
+  region=512/w0=250 → sub-pixel spot → `RuntimeError("工作区无信号")` at
+  fouriergsnet_optimize.py L814; wide beams → `uni=0.0000` always because
+  `_metrics` `min(I·roi)/mean(I·roi)` over a 22×22 ROI the tight spot never
+  fills); `torch.no_grad()` wrapper for `closed_loop` (L938
+  `phi.cpu().numpy()` on a requires-grad tensor — genuine pipeline bug that
+  also breaks the real CLI `run()`); `SETTLE_S=0.0`
+- Findings: L938 bug; uni=0 root cause; `FourierGSNetLite(K, n_zern, ch,
+  src_mask)` signature mismatch vs the task brief; panel-resolution transpose
+  nuance (`PANEL_RES=(1920,1200)` is (W,H) in the real driver but the pipeline
+  `place_on_panel` treats it as (h,w) — masked by `SimFourierGSNetEnv` which
+  deliberately uses `PANEL_H, PANEL_W = 1920, 1200`)
+- Results: 5 passed (≈29 s); regression 21 passed
 
 ### generate_models_report.py
 
