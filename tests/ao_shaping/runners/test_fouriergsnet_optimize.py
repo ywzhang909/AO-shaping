@@ -181,3 +181,118 @@ def test_shaping_system_uses_santec_panel_res():
 
     assert tuple(Santec.Panel_Res) == sys_.geo.panel_res
     assert tuple(Santec.Panel_Res) == sys_.lut.panel_res
+
+
+def test_run_final_append_has_uniformity(monkeypatch):
+    """回归: run() 收尾 append 必须含 uniformity/encircled (Recorder mark 断言).
+
+    Recorder("uniformity") 的 append 断言 mark 键必须存在 (utils/io/file.py);
+    旧代码只追加 compute_metrics 的 {mse, correlation, efficiency}, 缺少
+    "uniformity" 触发 AssertionError. 修复后由 _append_final_record 补上
+    uniformity/encircled 两个键.
+    """
+    _freeze(monkeypatch, 80)
+    sys_ = fg.ShapingSystem(FakeSLM(), FakeCCD(), lambda ccd: np.zeros((64, 64)),
+                            _calib(), _lut_result())
+    recorder = fg.Recorder("uniformity", "max")
+    acquire = lambda ccd: np.zeros((64, 64))
+    final = sys_.geo.workzone(np.asarray(FakeCCD().get_numpy_image(1), np.float64),
+                              fg.N)
+
+    fg._append_final_record(sys_, recorder, acquire, FakeCCD())
+
+    last = recorder.history[-1]
+    assert "uniformity" in last
+    assert "encircled" in last
+    assert "mse" in last
+    np.testing.assert_array_equal(last["ccd"], final)
+
+
+# --------------------------------------------------------------------------
+# 目标形状构建器 (square / circle / gaussian) 契约
+# --------------------------------------------------------------------------
+def _ring_mean(I, center: int, d: int) -> float:
+    """I 上距 center 欧氏距离恰为 d 的像素均值 (网格索引空间)."""
+    n = I.shape[0]
+    idx = fg.torch.arange(n, device=I.device)
+    dx = idx - center
+    mask = (dx[:, None] ** 2 + dx[None, :] ** 2) == d * d
+    return I[mask].mean().item()
+
+
+def test_make_circle_target_unit_energy_and_mask():
+    n, half = 64, 0.5
+    I = fg.make_circle_target(n, half, fg.DEV)
+
+    assert I.dtype == fg.torch.float32
+    assert I.shape == (n, n)
+    np.testing.assert_allclose(I.sum().item(), 1.0, rtol=1e-5)
+
+    # top-hat: 值只取 {0, 1/圆内像素数}
+    count = int((I > 0).sum().item())
+    vals = fg.torch.unique(I)
+    assert len(vals) == 2
+    assert vals[0].item() == 0.0
+    np.testing.assert_allclose(vals[1].item(), 1.0 / count, rtol=1e-6)
+
+    # 圆面积 ≈ π(half·n/2)² (网格像素尺寸≈2/n; 实测 788 vs 804, 偏差<3%)
+    expected = np.pi * half**2 * n**2 / 4
+    assert abs(count - expected) / expected < 0.15
+
+
+def test_make_gaussian_target_unit_energy_and_peak():
+    n, sigma = 64, 0.3
+    I = fg.make_gaussian_target(n, sigma, fg.DEV)
+
+    assert I.dtype == fg.torch.float32
+    assert I.shape == (n, n)
+    np.testing.assert_allclose(I.sum().item(), 1.0, rtol=1e-5)
+
+    # 峰值在网格中心 (n//2, n//2); 网格最接近原点的点即中心块
+    assert I[n // 2, n // 2].item() == I.max().item()
+
+    # 严格正 + 沿半径单调递减 (采样 3 个环)
+    assert bool((I > 0).all())
+    center = n // 2
+    rings = [_ring_mean(I, center, d) for d in (8, 16, 24)]
+    assert rings[0] > rings[1] > rings[2]
+
+
+def test_shaping_system_target_fn_circle():
+    slm = FakeSLM()
+    sys_ = fg.ShapingSystem(slm, FakeCCD(), lambda ccd: np.zeros((64, 64)),
+                            _calib(), _lut_result(), half=0.5,
+                            target_fn=fg.make_circle_target)
+    I = sys_.I_tgt
+
+    # 圆形掩码: 值只取 {0, v>0}, 非方形足迹 (半径内像素数≈π(half·n/2)²)
+    vals = fg.torch.unique(I)
+    assert len(vals) == 2
+    assert vals[0].item() == 0.0
+    assert vals[1].item() > 0.0
+    count = int((I > 0).sum().item())
+    expected = np.pi * 0.5**2 * fg.N**2 / 4
+    assert abs(count - expected) / expected < 0.15
+
+    assert fg.torch.equal(sys_.roi, (I > 0).float())
+
+
+def test_shaping_system_default_target_is_square():
+    slm = FakeSLM()
+    sys_ = fg.ShapingSystem(slm, FakeCCD(), lambda ccd: np.zeros((64, 64)),
+                            _calib(), _lut_result())
+
+    expected = fg.make_square_target(fg.N, fg.HALF, fg.DEV)
+    assert fg.torch.equal(sys_.I_tgt, expected)
+
+
+def test_shaping_system_target_fn_gaussian_roi():
+    slm = FakeSLM()
+    sys_ = fg.ShapingSystem(slm, FakeCCD(), lambda ccd: np.zeros((64, 64)),
+                            _calib(), _lut_result(),
+                            target_fn=fg.make_gaussian_target)
+    I = sys_.I_tgt
+
+    assert bool((I > 0).all())
+    assert fg.torch.equal(sys_.roi, fg.torch.ones_like(I))
+    assert fg.torch.equal(sys_.A_tgt, I.sqrt())
