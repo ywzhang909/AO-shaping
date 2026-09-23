@@ -13,11 +13,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from importlib import import_module
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 from loguru import logger
 
+from ao_shaping.config import PATHS
 from ao_shaping.drivers.ccd.base import BaseCamera
 
 
@@ -263,7 +265,154 @@ def create_camera(
 # ``reset_exposure_time(ms)`` (a Stop -> set -> Start cycle). These helpers let
 # the optimizer layer treat both uniformly; all values are in **milliseconds**.
 # ---------------------------------------------------------------------------
-def get_camera_exposure_ms(cam: Any) -> float:
+def select_exposure_from_flats(
+    serial: str | None = None,
+    target_max: float = 200.0,
+    config_root: Path | None = None,
+) -> float | None:
+    """Choose the optimal exposure (ms) from the saved flat-field frames.
+
+    The bench's laser power is fixed, so the only code-side lever for SNR is the
+    exposure. ``data/ccd_configs/ccd/<serial>/flat-exp-<ms>.jpg`` (the filename IS
+    the exposure time) gives the measured ``max`` for a few exposures; fitting
+    ``max = k * exposure + b`` yields the exposure that reaches ``target_max`` -
+    derived OFFLINE, without touching the laser and without the (settling-prone)
+    auto-exposure loop.
+
+    Args:
+        serial: camera serial (directory name). When ``None`` the single
+            ``flat-exp-*`` directory found under ``config_root`` is used.
+        target_max: desired peak grey level (keep below saturation, e.g. 200).
+        config_root: defaults to ``<repo>/data/ccd_configs/ccd``.
+
+    Returns:
+        The exposure in ms, or ``None`` when no usable flat frames exist.
+    """
+    import re
+
+    try:
+        import numpy as np
+        from PIL import Image
+    except ImportError:  # pragma: no cover - numpy/PIL are project dependencies
+        return None
+
+    root = (
+        Path(config_root)
+        if config_root is not None
+        else Path(PATHS.root_dir) / "ccd_configs" / "ccd"
+    )
+    base = root / serial if serial else None
+    candidates = [base] if base is not None and base.is_dir() else []
+    if not candidates:
+        candidates = [p for p in root.iterdir() if p.is_dir()] if root.is_dir() else []
+    exposures: list[float] = []
+    peaks: list[float] = []
+    for folder in candidates:
+        for path in sorted(folder.glob("flat-exp-*.jpg")):
+            match = re.findall(r"(\d+(?:\.\d+)?)", path.stem)
+            if not match:
+                continue
+            try:
+                arr = np.asarray(Image.open(path).convert("L"), dtype=np.float64)
+            except OSError as exc:
+                logger.warning(f"cannot read flat frame {path}: {exc}")
+                continue
+            exposures.append(float(match[0]))
+            peaks.append(float(arr.max()))
+    if len(exposures) < 2:
+        return None
+    xs = np.asarray(exposures, dtype=np.float64)
+    ys = np.asarray(peaks, dtype=np.float64)
+    slope, intercept = np.linalg.lstsq(
+        np.vstack([xs, np.ones_like(xs)]).T, ys, rcond=None
+    )[0]
+    if not np.isfinite(slope) or slope <= 0.0:
+        return None
+    exposure = (float(target_max) - float(intercept)) / float(slope)
+    exposure = float(min(max(exposure, 0.02), 1000.0))
+    logger.info(
+        "flat-field fit: max = {:.4f}*exp {:+.1f} over {} frames -> {:.1f}ms for "
+        "target max {:.0f}",
+        slope,
+        intercept,
+        len(exposures),
+        exposure,
+        target_max,
+    )
+    return exposure
+
+
+def resolve_exposure_ms(
+    cam: Any,
+    target_max: float = 200.0,
+    tolerance: float = 12.0,
+    serial: str | None = None,
+    max_iterations: int = 8,
+    n_sample: int = 6,
+) -> tuple[float, float]:
+    """Pick an exposure that puts the peak near ``target_max``, without a laser change.
+
+    The saved flat-field frames give only an **initial guess** (they can be stale:
+    measured 12x dimmer than the live bench on 2026-09-21), so the guess is always
+    validated on the live camera and then **bisected**: a frame above the target
+    (including a saturated one, whose true peak is unknown) becomes the upper
+    bound, a frame below it the lower bound. Stops when within ``tolerance``, on a
+    black frame (the exposure is not the limit), or after ``max_iterations``.
+
+    Returns:
+        ``(exposure_ms, measured_peak)``. ``tolerance <= 0`` disables the loop and
+        just applies the flat-field guess (or keeps the current exposure).
+    """
+    guess = select_exposure_from_flats(serial=serial, target_max=target_max)
+    if guess is None:
+        guess = get_camera_exposure_ms(cam)
+        logger.info("no flat-field calibration - starting from {:.3f}ms", guess)
+    guess = float(min(max(guess, 0.02), 1000.0))
+    lo = 0.0
+    hi: float | None = None
+    peak = float("nan")
+    for attempt in range(1, max(1, max_iterations) + 1):
+        set_camera_exposure_ms(cam, guess)
+        img = cam.get_numpy_image(max(1, n_sample))
+        peak = float(np.max(img))
+        logger.info(
+            "exposure probe {}/{}: {:.3f}ms -> max={:.0f} (target {:.0f}+/-{:.0f})",
+            attempt,
+            max_iterations,
+            guess,
+            peak,
+            target_max,
+            tolerance,
+        )
+        if tolerance <= 0:
+            break
+        if peak <= 1.0:
+            # Black frame: the exposure is not the limit - do not keep cranking it.
+            logger.warning(
+                "peak {:.0f} at {:.3f}ms is essentially black; leaving the exposure "
+                "here (check the laser / beam path)",
+                peak,
+                guess,
+            )
+            break
+        if abs(peak - target_max) <= tolerance:
+            break
+        if peak > target_max:
+            hi = guess
+        else:
+            lo = guess
+        if hi is not None:
+            nxt = (lo + hi) / 2.0 if lo > 0.0 else hi / 2.0
+        else:
+            nxt = guess * target_max / peak
+        nxt = float(min(max(nxt, 0.02), 1000.0))
+        if abs(nxt - guess) < 1e-6:
+            break
+        guess = nxt
+    return guess, peak
+
+
+def get_camera_exposure_ms(cam: BaseCamera) -> float:
     """Read the current exposure time in ms from any supported backend.
 
     Raises:

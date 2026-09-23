@@ -1,8 +1,11 @@
 from pathlib import Path
 
+import h5py
+import numpy as np
 import pandas as pd
+import pytest
 
-from ao_shaping.utils.io.file import Recorder, ROOT_DIR, save_history
+from ao_shaping.utils.io.file import Recorder, ROOT_DIR, save_history, save_history_hdf5
 
 
 def test_root_dir_exists():
@@ -66,3 +69,95 @@ def test_merge_recorder():
     assert len(recorder1) == 2
     assert recorder1[0]["_id"] == 1
     assert recorder1[1]["_id"] == 2
+
+
+class TestSaveHistoryHdf5:
+    def test_list_of_dicts_roundtrip(self, tmp_path):
+        history = [
+            {"_id": 0, "loss": 1.0, "coeffs": np.array([1.0, 2.0])},
+            {"_id": 1, "loss": 0.5, "coeffs": np.array([3.0, 4.0])},
+        ]
+        path = save_history_hdf5(
+            history,
+            tmp_path / "run.csv",
+            metadata={"run": "test", "epochs": 2, "flag": True, "none_val": None},
+        )
+        assert path == tmp_path / "run.h5"
+        with h5py.File(path, "r") as f:
+            assert f["metadata"].attrs["run"] == "test"
+            assert f["metadata"].attrs["epochs"] == 2
+            assert f["metadata"].attrs["flag"] == True
+            assert f["metadata"].attrs["none_val"] == ""
+            np.testing.assert_allclose(f["scalars/loss"][:], [1.0, 0.5])
+            np.testing.assert_array_equal(f["epochs/0000/coeffs"][:], [1.0, 2.0])
+            np.testing.assert_array_equal(f["epochs/0001/coeffs"][:], [3.0, 4.0])
+
+    def test_recorder_input(self, tmp_path):
+        rec = Recorder("J", "max")
+        rec.append({"_id": 0, "J": 0.1, "coeffs": np.array([1.0])})
+        rec.append({"_id": 1, "J": 0.2, "coeffs": np.array([2.0])})
+        path = save_history_hdf5(rec, tmp_path / "rec.h5")
+        with h5py.File(path, "r") as f:
+            np.testing.assert_allclose(f["scalars/J"][:], [0.1, 0.2])
+            np.testing.assert_array_equal(f["epochs/0000/coeffs"][:], [1.0])
+            np.testing.assert_array_equal(f["epochs/0001/coeffs"][:], [2.0])
+
+    def test_dataframe_input(self, tmp_path):
+        df = pd.DataFrame({"_id": [0, 1], "loss": [1.0, 0.5]})
+        path = save_history_hdf5(df, tmp_path / "df.h5")
+        with h5py.File(path, "r") as f:
+            np.testing.assert_allclose(f["scalars/loss"][:], [1.0, 0.5])
+
+    def test_empty_list_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="empty"):
+            save_history_hdf5([], tmp_path / "empty.h5")
+
+    def test_empty_recorder_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="empty"):
+            save_history_hdf5(Recorder("J", "max"), tmp_path / "empty_rec.h5")
+
+    def test_empty_dataframe_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="empty"):
+            save_history_hdf5(pd.DataFrame(), tmp_path / "empty_df.h5")
+
+    def test_csv_suffix_replaced_with_h5(self, tmp_path):
+        path = save_history_hdf5([{"v": 1.0}], tmp_path / "run.csv")
+        assert path == tmp_path / "run.h5"
+        assert path.exists()
+
+    def test_no_suffix_appends_h5(self, tmp_path):
+        path = save_history_hdf5([{"v": 1.0}], tmp_path / "run")
+        assert path == tmp_path / "run.h5"
+        assert path.exists()
+
+    def test_missing_scalar_values_become_nan(self, tmp_path):
+        history = [
+            {"_id": 0, "loss": 1.0},
+            {"_id": 1, "loss": 0.5, "extra": 2.0},
+        ]
+        path = save_history_hdf5(history, tmp_path / "nan.h5")
+        with h5py.File(path, "r") as f:
+            np.testing.assert_allclose(f["scalars/loss"][:], [1.0, 0.5])
+            np.testing.assert_allclose(
+                f["scalars/extra"][:], [np.nan, 2.0], equal_nan=True
+            )
+
+    def test_list_and_tuple_array_columns(self, tmp_path):
+        history = [
+            {"_id": 0, "vec": [1.0, 2.0, 3.0]},
+            {"_id": 1, "vec": (4.0, 5.0, 6.0)},
+        ]
+        path = save_history_hdf5(history, tmp_path / "vec.h5")
+        with h5py.File(path, "r") as f:
+            np.testing.assert_array_equal(f["epochs/0000/vec"][:], [1.0, 2.0, 3.0])
+            np.testing.assert_array_equal(f["epochs/0001/vec"][:], [4.0, 5.0, 6.0])
+
+    def test_epoch_id_from_row_id(self, tmp_path):
+        history = [
+            {"coeffs": np.array([1.0])},  # no _id -> falls back to row index 0
+            {"_id": 7, "coeffs": np.array([2.0])},
+        ]
+        path = save_history_hdf5(history, tmp_path / "ids.h5")
+        with h5py.File(path, "r") as f:
+            np.testing.assert_array_equal(f["epochs/0000/coeffs"][:], [1.0])
+            np.testing.assert_array_equal(f["epochs/0007/coeffs"][:], [2.0])

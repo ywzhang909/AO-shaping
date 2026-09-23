@@ -218,6 +218,113 @@ def _save_array_sidecars(
     )
 
 
+def save_history_hdf5(
+    history: "pd.DataFrame | list[dict[str, Any]] | Recorder",
+    file_path: str | Path,
+    metadata: dict[str, Any] | None = None,
+) -> Path:
+    """Export an optimization history to a single HDF5 file.
+
+    把 (Recorder / 行列表 / DataFrame) 历史导出为 HDF5, 每轮的标量列、数组列
+    (系数/图像/梯度/完整相位) 集中保存, 便于离线逐轮分析。结构:
+
+    .. code-block:: text
+
+        <stem>.h5
+        ├── /metadata                  metadata 标量/字符串属性
+        ├── /scalars/<col>             每个标量列一条 1-D 数据集
+        └── /epochs/<epoch:04d>/       每轮一个组
+            └── <col>                  每列数组 (ndarray) 数据集
+
+    数组列与标量列依据首条非空值识别 (np.ndarray/list/tuple → 数组列)。
+    逐轮分组而非堆叠数据集, 以容纳长度/形状不同的列 (如 ``_c`` 与
+    ``_img`` 形状不同)。``h5py`` 在函数内延迟导入, 保持叶子层导入轻量。
+
+    Args:
+        history: 优化历史 —— :class:`Recorder`、行字典列表或 DataFrame。
+        file_path: 目标路径 (后缀自动替换为 ``.h5``)。
+        metadata: 可选的标量/字符串元数据, 写入 ``/metadata`` 组属性。
+
+    Returns:
+        实际写入的 ``.h5`` 路径。
+
+    Raises:
+        ValueError: ``history`` 为空。
+    """
+    import h5py
+
+    if isinstance(history, Recorder):
+        rows: list[dict[str, Any]] = list(history.history)
+    elif isinstance(history, pd.DataFrame):
+        rows = [row.to_dict() for _, row in history.iterrows()]
+    else:
+        rows = list(history)
+    if not rows:
+        raise ValueError("history is empty - nothing to export")
+
+    path = Path(file_path).with_suffix(".h5")
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    all_cols = sorted({k for row in rows for k in row.keys()})
+    numeric_cols: list[str] = []
+    str_cols: list[str] = []
+    array_cols: list[str] = []
+    for col in all_cols:
+        vals = [row[col] for row in rows if col in row and row[col] is not None]
+        if vals and all(isinstance(v, (np.ndarray, list, tuple)) for v in vals):
+            array_cols.append(col)
+        elif vals and all(isinstance(v, str) for v in vals):
+            str_cols.append(col)
+        elif vals and all(
+            isinstance(v, (int, float, bool, np.integer, np.floating, np.bool_))
+            for v in vals
+        ):
+            numeric_cols.append(col)
+        elif vals:
+            logger.warning(
+                "skip mixed/non-scalar column {} in HDF5 export", col
+            )
+
+    with h5py.File(path, "w") as f:
+        if metadata:
+            meta = f.create_group("metadata")
+            for key, value in metadata.items():
+                if isinstance(value, (str, int, float, bool)):
+                    meta.attrs[key] = value
+                elif isinstance(value, (np.integer, np.floating, np.bool_)):
+                    meta.attrs[key] = value.item()
+                elif value is None:
+                    meta.attrs[key] = ""
+
+        scalars = f.create_group("scalars")
+        for col in numeric_cols:
+            scalars.create_dataset(
+                col,
+                data=np.asarray(
+                    [row.get(col, np.nan) for row in rows], dtype=float
+                ),
+            )
+        for col in str_cols:
+            scalars.create_dataset(
+                col,
+                data=np.asarray(
+                    [row.get(col, "") for row in rows],
+                    dtype=h5py.string_dtype(encoding="utf-8"),
+                ),
+            )
+
+        epochs = f.create_group("epochs")
+        for idx, row in enumerate(rows):
+            g = epochs.create_group(f"{int(row.get('_id', idx)):04d}")
+            for col in array_cols:
+                if col not in row or row[col] is None:
+                    continue
+                g.create_dataset(col, data=np.asarray(row[col]))
+
+    logger.info("History exported to {}", path)
+    return path
+
+
 class Recorder:
     def __init__(self, mark: str = "J", mode: Literal["max", "min"] = "max"):
         self.mark = mark

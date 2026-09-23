@@ -551,6 +551,8 @@ _SHAPE_ALIASES: dict[str, str] = {
     "圆形": "circle",
     "方形": "square",
     "长方形": "rectangle",
+    "ellipse": "circle",  # not separately supported; map to circle
+    "annulus": "annular",  # common spelling alias
 }
 
 

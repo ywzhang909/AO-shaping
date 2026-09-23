@@ -26,6 +26,7 @@ import numpy as np
 
 from loguru import logger
 
+from ao_shaping.utils.image.beam_metrics import median_zero_order_center
 from ao_shaping.utils.image.spots_calc import centroid
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -39,6 +40,9 @@ __all__ = [
     "auto_exposure_target_ms",
     "auto_exposure_possible",
     "apply_auto_exposure",
+    "find_exposure_ms",
+    "find_zero_order_center",
+    "auto_find_exposure_and_center",
     "call_with_timeout",
     "open_camera",
 ]
@@ -294,6 +298,209 @@ def apply_auto_exposure(
         actual_ms,
     )
     return actual_ms, True
+
+
+# ---------------------------------------------------------------------------
+# Auto-find exposure / 0-order centre (deterministic probes, shared by any
+# runner that needs a safe fixed exposure + centred ROI before optimisation)
+# ---------------------------------------------------------------------------
+_DEFAULT_EXPOSURE_PROBES_MS: tuple[float, ...] = (0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0)
+
+
+def _grab_frame(camera: Any, timeout_s: float = 10.0) -> np.ndarray:
+    """带看门狗超时地抓取单帧图像。
+
+    SLM/相机的 SDK 原生等待不受 Python 侧超时保护 (见 AGENTS.md 挂起记录),
+    统一走 :func:`call_with_timeout`。
+
+    Args:
+        camera: 已打开的相机 (暴露 ``get_numpy_image``)。
+        timeout_s: 看门狗超时 (秒)。
+
+    Returns:
+        二维强度数组 (float64)。
+    """
+    frame = call_with_timeout(
+        lambda: camera.get_numpy_image(n_sample=1, skip_first=True),
+        timeout_s,
+        "相机抓帧",
+    )
+    return np.asarray(frame, dtype=np.float64)
+
+
+def find_exposure_ms(
+    camera: Any,
+    target_peak: float = 160.0,
+    probe_exposures_ms: Sequence[float] | None = None,
+    peak_floor: float = 100.0,
+    peak_ceiling: float = 245.0,
+    timeout_s: float = 10.0,
+) -> float:
+    """用确定性升序探针找到安全的固定曝光时间 (毫秒)。
+
+    与驱动 ``auto_exposure`` 比例收敛环不同, 本函数做少量固定探针扫描,
+    返回**首个**落入 ``[peak_floor, peak_ceiling]`` 的探针曝光 —— 即满足
+    亮度要求的最低曝光, 为整形调制保留余量 (硬件实测亮度在多次运行间有
+    约 2x 漂移, 靠最低安全曝光 + 顶部分布留头防止饱和)。
+
+    Args:
+        camera: 已打开的相机 (须暴露 ``reset_exposure_time`` 与
+            ``get_numpy_image``)。
+        target_peak: 目标峰值亮度 (外推方向所用)。
+        probe_exposures_ms: 升序探针曝光列表 (毫秒)。默认
+            ``(0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0)``。
+            默认列表**不含** 0.02ms —— 该曝光下常只有热像素可见
+            (硬件实测 0.02ms 峰值 87 ≈ 纯噪声, 真实光斑仅 ~4), 会误导
+            选择。
+        peak_floor: 目标峰值下界 (含)。
+        peak_ceiling: 目标峰值上界 (含)。
+        timeout_s: 每帧抓取超时 (秒)。
+
+    Returns:
+        选定曝光时间 (毫秒)。相机保持在该曝光; 若相机不支持改曝光则
+        抛出 ``ValueError``。
+
+    Raises:
+        ValueError: 相机不暴露 ``reset_exposure_time``; 或所有探针帧全暗。
+    """
+    if not callable(getattr(camera, "reset_exposure_time", None)):
+        raise ValueError(
+            "camera must expose reset_exposure_time(ms) for auto exposure finding"
+        )
+    probes = list(probe_exposures_ms) if probe_exposures_ms else list(_DEFAULT_EXPOSURE_PROBES_MS)
+    if not probes:
+        raise ValueError("probe_exposures_ms must be a non-empty sequence")
+    probes = sorted(float(x) for x in probes)
+
+    peaks: list[float] = []
+    log_pairs: list[str] = []
+    for ms in probes:
+        actual_ms = float(camera.reset_exposure_time(ms))
+        frame = _grab_frame(camera, timeout_s=timeout_s)
+        peak = float(frame.max())
+        peaks.append(peak)
+        log_pairs.append(f"{actual_ms:.3f}ms->{peak:.0f}")
+    logger.info("曝光探针: {}", " ".join(log_pairs))
+
+    # 热像素守卫: 某探针峰值 > ceiling 而下一探针峰值 < floor 在物理上不
+    # 可能 (真实光束曝光更高只会更亮) —— 视为热像素帧, 剔除该探针。
+    guarded_peaks: list[tuple[float, float]] = []  # (exposure, peak)
+    for i, (ms, peak) in enumerate(zip(probes, peaks)):
+        if (
+            peak > peak_ceiling
+            and i + 1 < len(peaks)
+            and peaks[i + 1] < peak_floor
+        ):
+            logger.warning("探针 {:.3f}ms 峰值 {:.0f} 判为热像素, 已剔除", ms, peak)
+            continue
+        guarded_peaks.append((ms, peak))
+    if not guarded_peaks:
+        raise ValueError("所有曝光探针均被判为热像素/无效帧")
+
+    # 1) 首个落在目标区间的探针 -> 最低安全曝光。
+    for ms, peak in guarded_peaks:
+        if peak_floor <= peak <= peak_ceiling:
+            logger.info("选定曝光: {:.3f} ms (peak={:.0f})", ms, peak)
+            return float(ms)
+
+    # 2) 从未发生过饱和的探针 (全部欠曝) -> 从最后探针线性外推。
+    saturated = any(peak > peak_ceiling for _, peak in guarded_peaks)
+    if not saturated:
+        last_ms, last_peak = guarded_peaks[-1]
+        if float(last_peak) <= 0.0:
+            raise ValueError("所有曝光探针均全暗 (无光?) — 无法自动找曝光")
+        est_ms = last_ms * (target_peak / float(last_peak))
+        logger.warning(
+            "所有探针欠曝, 从 {:.3f}ms(peak={:.0f}) 线性外推到 {:.3f} ms",
+            last_ms,
+            last_peak,
+            est_ms,
+        )
+        apply_ms = min(est_ms, 1000.0)
+        camera.reset_exposure_time(apply_ms)
+        return float(apply_ms)
+
+    # 3) 最低探针即饱和 -> 从最小探针线性下探 (该点最接近未饱和)。
+    min_ms, min_peak = guarded_peaks[0]
+    est_ms = min_ms * (target_peak / float(min_peak))
+    apply_ms = max(min(est_ms, min_ms), 0.02)
+    logger.warning(
+        "最低探针 {:.3f}ms 已饱和(peak={:.0f}), 线性下探到 {:.3f} ms",
+        min_ms,
+        min_peak,
+        apply_ms,
+    )
+    camera.reset_exposure_time(apply_ms)
+    return float(apply_ms)
+
+
+def find_zero_order_center(
+    camera: Any,
+    n_frames: int = 5,
+    timeout_s: float = 10.0,
+) -> tuple[int, int]:
+    """在相机当前曝光下, 用多帧全局 argmax 中位数找 0 级光斑中心。
+
+    2f Fourier 光路上 0 级 = 帧全局最大; 多帧中位数对偶发热像素帧鲁棒。
+    相机须已处于可用曝光 (本函数不改曝光)。
+
+    Args:
+        camera: 已打开的相机 (暴露 ``get_numpy_image``)。
+        n_frames: 采集帧数 (默认 5)。
+        timeout_s: 每帧抓取超时 (秒)。
+
+    Returns:
+        ``(x, y)`` 像素坐标。
+    """
+    if n_frames < 1:
+        raise ValueError("n_frames must be >= 1")
+    frames = [_grab_frame(camera, timeout_s=timeout_s) for _ in range(n_frames)]
+    center = median_zero_order_center(frames, refine=True)
+    logger.info("0 级中心 ({} 帧中位数): ({}, {})", n_frames, center[0], center[1])
+    return center
+
+
+def auto_find_exposure_and_center(
+    camera: Any,
+    *,
+    find_exposure: bool = True,
+    find_center: bool = True,
+    target_peak: float = 160.0,
+    probe_exposures_ms: Sequence[float] | None = None,
+    peak_floor: float = 100.0,
+    peak_ceiling: float = 245.0,
+    n_frames: int = 5,
+    timeout_s: float = 10.0,
+) -> tuple[float | None, tuple[int, int] | None]:
+    """组合: 自动找曝光时间 + 0 级中心 (各自可独立开关)。
+
+    先定曝光 (中心与曝光无关, 全局 argmax 跨曝光稳定), 再在选定曝光下
+    定中心。
+
+    Args:
+        camera: 已打开的相机。
+        find_exposure: 若为 False, 跳过曝光探测并保持相机当前曝光。
+        find_center: 若为 False, 跳过中心探测。
+        其余参数: 透传给 :func:`find_exposure_ms` /
+            :func:`find_zero_order_center`。
+
+    Returns:
+        ``(exposure_ms, center)``; 被跳过的探测对应位置为 ``None``。
+    """
+    exposure: float | None = None
+    center: tuple[int, int] | None = None
+    if find_exposure:
+        exposure = find_exposure_ms(
+            camera,
+            target_peak=target_peak,
+            probe_exposures_ms=probe_exposures_ms,
+            peak_floor=peak_floor,
+            peak_ceiling=peak_ceiling,
+            timeout_s=timeout_s,
+        )
+    if find_center:
+        center = find_zero_order_center(camera, n_frames=n_frames, timeout_s=timeout_s)
+    return exposure, center
 
 
 # ---------------------------------------------------------------------------

@@ -5,7 +5,6 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Callable, ClassVar
 
-
 import numpy as np
 import streamlit as st
 from loguru import logger
@@ -13,16 +12,16 @@ from scipy.special import erf
 
 from ao_shaping.algorithm.signal_processing.gerchberg_saxton import gerchberg_saxton
 from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.gui.slm import pyarrow_probe
 from ao_shaping.utils.image.beam_metrics import measure_spot_diameter_cam
-from ao_shaping.utils.wavefront.pattern_helper import (
-    PatternHelper,
-    calc_blazed_grating_period,
-)
 from ao_shaping.utils.image.targets import (
     build_square_target_amplitude,
     compute_square_side,
 )
-from ao_shaping.gui.slm import pyarrow_probe
+from ao_shaping.utils.wavefront.pattern_helper import (
+    PatternHelper,
+    calc_blazed_grating_period,
+)
 from ao_shaping.utils.wavefront.zernike_calc import get_zernike_name, zernike_modes
 
 
@@ -156,13 +155,13 @@ class FlatControl(PatternControl):
     uniformity and encodes the ideal radian interpretation gray/max_gray·2π.
     """
 
-    DEFAULTS: ClassVar[dict[str, Any]] = {"flat_gray": 512}
+    DEFAULTS: ClassVar[dict[str, Any]] = {"flat_gray": 0}
     RANGES: ClassVar[dict[str, Any]] = {"flat_gray": (0, 1023)}
     CONTEXT_SYNCED_WIDGETS: ClassVar[tuple[str, ...]] = ("flat_gray",)
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self.defaults.update(flat_gray=self.max_gray // 2)
+        self.defaults.update(flat_gray=0)
         self.ranges.update(flat_gray=(0, self.max_gray))
 
     def render(self, prefix: str | None = None) -> dict[str, Any]:
@@ -869,29 +868,29 @@ class ZernikeControl(PatternControl):
                     )
         return coefficients
 
-    def _render_debug_panel(
-        self,
-        n_max: int,
-        mode_count: int,
-        editor: str,
-        editor_reason: str,
-    ) -> None:
-        """Collapsed diagnostics panel for the Zernike editor selection.
+    # def _render_debug_panel(
+    #     self,
+    #     n_max: int,
+    #     mode_count: int,
+    #     editor: str,
+    #     editor_reason: str,
+    # ) -> None:
+    #     """Collapsed diagnostics panel for the Zernike editor selection.
 
-        Rendered on every Zernike selection so a failure (or an unexpected
-        editor backend) can be diagnosed from the UI alone — without hunting
-        through the Streamlit server log.
-        """
-        with st.expander("🔧 Zernike debug 信息 (定位问题用)", expanded=False):
-            st.markdown(
-                f"- **选择结果**: 已渲染 `Zernike` 控制, n_max={n_max}, "
-                f"{mode_count} 个模式"
-            )
-            st.markdown(f"- **编辑器路径**: `{editor}`")
-            for label, value in pyarrow_probe.pyarrow_diagnostics():
-                st.markdown(f"- **{label}**: `{value}`")
-            if editor_reason:
-                st.code(editor_reason, language="text")
+    #     Rendered on every Zernike selection so a failure (or an unexpected
+    #     editor backend) can be diagnosed from the UI alone — without hunting
+    #     through the Streamlit server log.
+    #     """
+    #     with st.expander("🔧 Zernike debug 信息 (定位问题用)", expanded=False):
+    #         st.markdown(
+    #             f"- **选择结果**: 已渲染 `Zernike` 控制, n_max={n_max}, "
+    #             f"{mode_count} 个模式"
+    #         )
+    #         st.markdown(f"- **编辑器路径**: `{editor}`")
+    #         for label, value in pyarrow_probe.pyarrow_diagnostics():
+    #             st.markdown(f"- **{label}**: `{value}`")
+    #         if editor_reason:
+    #             st.code(editor_reason, language="text")
 
     def render(self, prefix: str | None = None) -> dict[str, Any]:
         prefix = prefix or self.prefix
@@ -946,7 +945,7 @@ class ZernikeControl(PatternControl):
         else:
             coefficients = self._render_coefficient_grid(prefix, modes, editor_reason)
 
-        self._render_debug_panel(int(n_max), len(modes), editor, editor_reason)
+        # self._render_debug_panel(int(n_max), len(modes), editor, editor_reason)
 
         return {
             "n_max": int(n_max),
@@ -1369,6 +1368,294 @@ class GSSquareControl(PatternControl):
         )
 
 
+class GSSquareGaussianControl(PatternControl):
+    """GS方形整形(高斯光束参数版) — 从高斯光束参数生成合成远场光斑,
+    然后运行 GS 算法整形为方形光斑。
+
+    与 "GS方形整形" (需上传实测光斑图片) 不同, 本控件直接输入高斯光束参数
+    (束腰半径、波长、焦距、像素间距), 内部合成远场高斯光强分布并自动计算
+    方形边长, 再跑 GS 迭代得到相位。
+    """
+
+    DEFAULTS: ClassVar[dict[str, Any]] = {
+        "focal_length_mm": 300.0,
+        "waist_radius_um": 3600.0,
+        "wavelength_nm": 1064,
+        "pixel_pitch_um": 8.0,
+        "gs_factor": 1.5,
+        "gs_iterations": 100,
+        "gs_energy": 0.90,
+        "gs_live_display": False,
+        "gs_live_interval": 1,
+    }
+    RANGES: ClassVar[dict[str, Any]] = {
+        "focal_length_mm": (10.0, 5000.0),
+        "waist_radius_um": (100.0, 50000.0),
+        "wavelength_nm": (400, 1600),
+        "pixel_pitch_um": (0.1, 100.0),
+        "gs_factor": (0.5, 5.0),
+        "gs_iterations": (1, 5000),
+        "gs_energy": (0.1, 0.999),
+        "gs_live_interval": (1, 50),
+    }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.defaults.update(
+            wavelength_nm=int(self.wavelength),
+            pixel_pitch_um=self.pixel_pitch_um,
+        )
+
+    def render(self, prefix: str | None = None) -> dict[str, Any]:
+        prefix = prefix or self.prefix
+        st.caption(
+            "GS 方形整形(高斯光束参数版): 通过输入高斯光束参数合成远场光斑, "
+            "自动计算方形边长并运行 GS 迭代生成整形相位。"
+        )
+
+        col_g1, col_g2 = st.columns(2)
+        with col_g1:
+            focal_length_mm = st.number_input(
+                "傅里叶透镜焦距 f (mm)",
+                min_value=self.ranges["focal_length_mm"][0],
+                max_value=self.ranges["focal_length_mm"][1],
+                value=self.defaults["focal_length_mm"],
+                step=10.0,
+                key=f"{prefix}_gs_gauss_focal_mm",
+                help=(
+                    "SLM 后方傅里叶透镜的焦距 (mm)。该透镜对 SLM 上的相位分布做傅里叶变换, "
+                    "CCD 放在其后焦面上接收远场衍射图样。"
+                ),
+            )
+        with col_g2:
+            waist_radius_um = st.number_input(
+                "高斯光束束腰半径 w₀ (μm)",
+                min_value=self.ranges["waist_radius_um"][0],
+                max_value=self.ranges["waist_radius_um"][1],
+                value=self.defaults["waist_radius_um"],
+                step=100.0,
+                key=f"{prefix}_gs_gauss_waist_um",
+                help=(
+                    "入射到 SLM 表面的高斯光束 1/e² 束腰半径 (μm)。\n"
+                    "典型值: 1~5 mm (1000~5000 μm)。\n"
+                    "测量方法: 用 CCD 采集光斑, 拟合高斯分布 I(r)=I₀·exp(-2r²/w₀²)。"
+                ),
+            )
+
+        col_g3, col_g4 = st.columns(2)
+        with col_g3:
+            wavelength_nm = st.number_input(
+                "波长 λ (nm)",
+                min_value=self.ranges["wavelength_nm"][0],
+                max_value=self.ranges["wavelength_nm"][1],
+                value=self.defaults["wavelength_nm"],
+                step=1,
+                key=f"{prefix}_gs_gauss_wavelength_nm",
+                help="光束波长 (nm), 用于计算远场光斑大小。",
+            )
+        with col_g4:
+            pixel_pitch_um = st.number_input(
+                "像素间距 (μm)",
+                min_value=self.ranges["pixel_pitch_um"][0],
+                max_value=self.ranges["pixel_pitch_um"][1],
+                value=self.defaults["pixel_pitch_um"],
+                step=0.1,
+                key=f"{prefix}_gs_gauss_pixel_pitch",
+                help="SLM/CCD 像素间距 (μm), 用于像素-物理尺度换算。",
+            )
+
+        st.divider()
+        st.caption("GS 算法参数")
+        col_gs1, col_gs2 = st.columns(2)
+        with col_gs1:
+            gs_factor = st.number_input(
+                "方形边长/光斑直径 因子",
+                min_value=self.ranges["gs_factor"][0],
+                max_value=self.ranges["gs_factor"][1],
+                value=self.defaults["gs_factor"],
+                step=0.1,
+                key=f"{prefix}_gs_gauss_factor",
+            )
+        with col_gs2:
+            gs_iterations = st.number_input(
+                "GS 迭代次数",
+                min_value=self.ranges["gs_iterations"][0],
+                max_value=self.ranges["gs_iterations"][1],
+                value=self.defaults["gs_iterations"],
+                step=1,
+                key=f"{prefix}_gs_gauss_iterations",
+            )
+
+        col_gs3, col_gs4 = st.columns(2)
+        with col_gs3:
+            gs_energy = st.number_input(
+                "光斑能量占比 (0~1)",
+                min_value=self.ranges["gs_energy"][0],
+                max_value=self.ranges["gs_energy"][1],
+                value=self.defaults["gs_energy"],
+                step=0.05,
+                key=f"{prefix}_gs_gauss_energy",
+            )
+        with col_gs4:
+            gs_live_display = st.checkbox(
+                "实时显示到 SLM",
+                value=self.defaults["gs_live_display"],
+                key=f"{prefix}_gs_gauss_live_display",
+            )
+
+        gs_live_interval = 1
+        if gs_live_display:
+            gs_live_interval = st.number_input(
+                "实时显示间隔",
+                min_value=self.ranges["gs_live_interval"][0],
+                max_value=self.ranges["gs_live_interval"][1],
+                value=self.defaults["gs_live_interval"],
+                step=1,
+                key=f"{prefix}_gs_gauss_live_interval",
+            )
+
+        # 显示远场光斑预估尺寸
+        wavelength_m = float(wavelength_nm) * 1e-9
+        f_m = float(focal_length_mm) * 1e-3
+        w0_m = float(waist_radius_um) * 1e-6
+        # 远场高斯束腰半径: w_f = λf / (πw₀)
+        w_f_m = wavelength_m * f_m / (np.pi * w0_m)
+        # 光斑直径 (1/e² 强度半径 × 2)
+        spot_diameter_um = 2 * w_f_m * 1e6
+        # 换算到 SLM 像素
+        d_slm_m = float(pixel_pitch_um) * 1e-6
+        spot_diameter_px = spot_diameter_um * 1e-6 / d_slm_m
+        # 方形边长
+        square_side_px = int(round(float(gs_factor) * spot_diameter_px))
+        square_side_um = int(round(float(gs_factor) * spot_diameter_um))
+
+        st.divider()
+        st.caption("📊 预估参数")
+        col_est1, col_est2, col_est3 = st.columns(3)
+        with col_est1:
+            st.metric(
+                "远场光斑直径", f"{spot_diameter_um:.1f} μm ({spot_diameter_px:.1f} px)"
+            )
+        with col_est2:
+            st.metric("方形边长", f"{square_side_um:.0f} μm ({square_side_px} px)")
+        with col_est3:
+            max_side = min(self.height, self.width) - 8
+            if square_side_px > max_side:
+                st.error(f"⚠️ 边长 {square_side_px}px 超过 SLM 最大值 {max_side}px")
+            elif square_side_px < 8:
+                st.error(f"⚠️ 边长 {square_side_px}px 过小 (< 8px)")
+            else:
+                st.success(f"✅ 边长 {square_side_px}px 在有效范围内")
+
+        return {
+            "focal_length_mm": focal_length_mm,
+            "waist_radius_um": waist_radius_um,
+            "wavelength_nm": wavelength_nm,
+            "pixel_pitch_um": pixel_pitch_um,
+            "gs_factor": gs_factor,
+            "gs_iterations": gs_iterations,
+            "gs_energy": gs_energy,
+            "gs_live_display": gs_live_display,
+            "gs_live_interval": gs_live_interval,
+        }
+
+    def _generate_gaussian_farfield_intensity(
+        self,
+        params: dict[str, Any],
+    ) -> np.ndarray:
+        """Generate a synthetic far-field Gaussian intensity pattern.
+
+        The far-field pattern of a Gaussian beam after a Fourier lens is also
+        Gaussian with waist radius w_f = λf / (πw₀).
+        """
+        height, width = self.height, self.width
+        wavelength_m = float(params["wavelength_nm"]) * 1e-9
+        f_m = float(params["focal_length_mm"]) * 1e-3
+        w0_m = float(params["waist_radius_um"]) * 1e-6
+        p_cam_m = float(params["pixel_pitch_um"]) * 1e-6
+
+        # Far-field Gaussian waist radius (1/e² intensity radius)
+        w_f_m = wavelength_m * f_m / (np.pi * w0_m)
+
+        # Convert to camera pixels
+        w_f_px = w_f_m / p_cam_m
+
+        # Create coordinate grid centered at the image center
+        cy, cx = height / 2.0, width / 2.0
+        yy, xx = np.mgrid[0:height, 0:width]
+        r2 = (xx - cx) ** 2 + (yy - cy) ** 2
+
+        # Gaussian intensity: I(r) = I0 * exp(-2r²/w²) where w is 1/e² radius
+        sigma = w_f_px  # 1/e² radius in pixels
+        intensity = np.exp(-r2 / (sigma**2))
+
+        # Normalize to [0, 1]
+        intensity = intensity / intensity.max()
+
+        return intensity.astype(np.float64)
+
+    def generate_phase_rad(
+        self,
+        params: dict[str, Any],
+        slm: Santec | None = None,
+    ) -> np.ndarray:
+        if slm is None:
+            raise ValueError("GS方形整形(高斯版) generate_phase_rad 需要 slm 对象")
+
+        # Generate synthetic far-field intensity
+        intensity_cam = self._generate_gaussian_farfield_intensity(params)
+
+        return _gs_square_phase_radians(
+            slm,
+            intensity_cam,
+            factor=float(params.get("gs_factor", self.defaults["gs_factor"])),
+            focal_length_m=(
+                float(params.get("focal_length_mm", self.defaults["focal_length_mm"]))
+                * 1e-3
+            ),
+            iterations=int(params.get("gs_iterations", self.defaults["gs_iterations"])),
+            energy=float(params.get("gs_energy", self.defaults["gs_energy"])),
+            p_cam=None,  # Will use SLM pitch
+            progress_cb=None,
+            live_display=bool(
+                params.get("gs_live_display", self.defaults["gs_live_display"])
+            ),
+            live_display_interval=int(
+                params.get("gs_live_interval", self.defaults["gs_live_interval"])
+            ),
+        )
+
+    def generate_phase_gray(
+        self,
+        params: dict[str, Any],
+        slm: Santec | None = None,
+        progress_cb: Callable[[int, int, float], None] | None = None,
+    ) -> np.ndarray:
+        if slm is None:
+            raise ValueError("GS方形整形(高斯版) 生成灰度相位需要 slm 对象")
+
+        intensity_cam = self._generate_gaussian_farfield_intensity(params)
+        return generate_gs_square_phase(
+            slm,
+            intensity_cam,
+            factor=float(params.get("gs_factor", self.defaults["gs_factor"])),
+            focal_length_m=(
+                float(params.get("focal_length_mm", self.defaults["focal_length_mm"]))
+                * 1e-3
+            ),
+            iterations=int(params.get("gs_iterations", self.defaults["gs_iterations"])),
+            energy=float(params.get("gs_energy", self.defaults["gs_energy"])),
+            p_cam=None,
+            progress_cb=progress_cb,
+            live_display=bool(
+                params.get("gs_live_display", self.defaults["gs_live_display"])
+            ),
+            live_display_interval=int(
+                params.get("gs_live_interval", self.defaults["gs_live_interval"])
+            ),
+        )
+
+
 class SteadyPhaseControl(PatternControl):
     """稳像法整形 — SPM + blaze params with Nyquist constraint check."""
 
@@ -1590,6 +1877,7 @@ PATTERN_REGISTRY: dict[str, type[PatternControl]] = {
     "涡旋相位": VortexPhaseControl,
     "半半相位": HalfHalfPhaseControl,
     "GS方形整形": GSSquareControl,
+    "GS方形整形(高斯版)": GSSquareGaussianControl,
     "稳像法整形": SteadyPhaseControl,
 }
 
