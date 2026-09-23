@@ -15,6 +15,7 @@ from ao_shaping.runners.slm.zernike_matrix_runner import (
     closed_loop_run as zernike_closed_loop_run,
 )
 from ao_shaping.runners.slm.zernike_matrix_runner import run as zernike_matrix_run
+from ao_shaping.runners.slm_gsnet_runner import run as slm_gsnet_run
 from ao_shaping.runners.slm_pib_runner import run as slm_pib_run
 from ao_shaping.runners.slm_square_runner import run as slm_square_run
 
@@ -35,4 +36,5 @@ __all__ = [
     "combined_run",
     "slm_square_run",
     "slm_pib_run",
+    "slm_gsnet_run",
 ]

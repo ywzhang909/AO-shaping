@@ -1067,6 +1067,35 @@ python scripts/generate_fouriergsnet_sim_report.py --matrix-dir data/fouriergsne
 | `--matrix-dir` | latest `data/fouriergsnet_sim/<ts>` | Matrix output dir |
 | `-o, --output` | `docs/fouriergsnet_sim` | Report output dir |
 
+### generate_slm_gsnet_sim_gif.py
+
+Generates the slm-gsnet offline-sim verification GIFs (+ prints the markdown
+snippet) from a `slm-gsnet spgd --cam_type sim --debug` artifact directory.
+**Fully offline** — reads the saved PKL only, no hardware, no pipeline code.
+
+**Usage:**
+```bash
+python scripts/generate_slm_gsnet_sim_gif.py
+python scripts/generate_slm_gsnet_sim_gif.py --pkl data/debug/slm_gsnet_<ts>/<ts>/xxx.pkl
+python scripts/generate_slm_gsnet_sim_gif.py -o docs/fouriergsnet_sim
+```
+
+**What it does** (writes `docs/fouriergsnet_sim/gifs/`):
+- Loads the debug PKL (`{epoch: record}` with per-epoch `_img` CCD far-field
+  frames + `_c` freeform phase vector, length `phase_grid²` = 576)
+- `slm_gsnet_spgd_sim_far.gif` — 逐 epoch 远场 (CCD 帧, inferno)
+- `slm_gsnet_spgd_sim_phase.gif` — 逐 epoch SLM freeform 相位 (24×24 网格,
+  mod 2π, twilight)
+- Both via the repo `_frames_to_gif` convention (reused from
+  `generate_diff_shaping_report`, LANCZOS 128px + adaptive 256 palette, 15 fps)
+- Prints the `![...](gifs/...)` markdown lines for embedding in
+  `docs/fouriergsnet_sim/report.md` §5.6
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--pkl` | latest `data/debug/slm_gsnet_*/*/*.pkl` | Debug artifact pkl path |
+| `-o, --output` | `docs/fouriergsnet_sim` | Output dir (GIFs → `<output>/gifs/`) |
+
 ### slm_pib_sim_run.py
 
 Runs the **`slm-pib`** SPGD shaping pipeline **entirely in the simulation
