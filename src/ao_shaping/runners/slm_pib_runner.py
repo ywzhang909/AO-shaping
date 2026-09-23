@@ -50,8 +50,10 @@ _DEBUG_SCALAR_KEYS = (
     "_epoch",
     "w_pib",
     "w_rms",
+    "w_ee",
     "pib_term",
     "rms_term",
+    "ee_term",
 )
 _DEBUG_OBJECTIVE_KEYS = (
     "pib",
@@ -120,7 +122,7 @@ def _save_debug_artifacts(
     json_path = saved_file_name.with_suffix(".json")
     h5_path = saved_file_name.with_suffix(".h5")
 
-    data: dict[str, Any] = {}
+    data: dict[int, Any] = {}
     for rec in res.history:
         item: dict[str, Any] = {}
         for k in _DEBUG_SCALAR_KEYS + _DEBUG_OBJECTIVE_KEYS:
@@ -142,6 +144,23 @@ def _save_debug_artifacts(
             item["_phase"] = np.asarray(rec["_phase"])
         data[int(rec["_epoch"])] = item
 
+    # Target-box geometry comes from the optimizer through the row-0 record
+    # (window-local centre, same frame as the recorded ``_img`` frames); the
+    # runner overlays it on the init/best spot panels in the data-mode PNG.
+    target_box: dict[str, Any] | None = None
+    if res.history:
+        _r0 = res.history[0]
+        if all(
+            k in _r0
+            for k in ("_ref_center", "_target_shape", "_target_size", "_target_aspect")
+        ):
+            target_box = {
+                "center": tuple(float(v) for v in _r0["_ref_center"]),
+                "shape": str(_r0["_target_shape"]),
+                "size": float(_r0["_target_size"]),
+                "aspect_ratio": float(_r0["_target_aspect"]),
+            }
+
     save_optimization_debug_artifacts(
         data=data,
         png_path=png_path,
@@ -149,6 +168,7 @@ def _save_debug_artifacts(
         json_path=json_path,
         title=f"slm-pib {eff_key} search",
         json_payload=_config_payload(obj_or_heur),
+        target_box=target_box,
     )
     # Full-fidelity export: SLM phases + CCD frames per epoch in one HDF5.
     save_history_hdf5(
@@ -187,7 +207,7 @@ class SlmParams:
 
     slm_number: int = 1
     slm_wavelength: int = 1064
-    n_max: int = 4
+    n_max: int = 10
     shift_x: int = 0
     shift_y: int = 0
     zernike_radius: float = 0.0
@@ -202,7 +222,7 @@ class ObjectiveParams:
     name: str = "pib"
     target_max_brightness: int = 40
     r_bucket: int = 0
-    target_size: float = 44.0
+    target_size: float = 64.0
     target_aspect_ratio: float = 4.0 / 3.0
     target_center_smooth: int = 3
     target_shape: str | None = None
@@ -317,7 +337,7 @@ def _slm_options(fn):
         help="SLM operating wavelength (nm).",
     )(fn)
     fn = click.option(
-        "-n", "--n_max", type=int, default=4, help="Max Zernike radial order."
+        "-n", "--n_max", type=int, default=10, help="Max Zernike radial order."
     )(fn)
     fn = click.option(
         "--shift_x", type=int, default=0, help="SLM phase X shift (pixels)."
@@ -368,7 +388,7 @@ def _objective_options(fn):
         help="Bucket radius (0 = auto from power radius).",
     )(fn)
     fn = click.option(
-        "--target_size", type=float, default=44.0, help="Target extent in camera px."
+        "--target_size", type=float, default=64.0, help="Target extent in camera px."
     )(fn)
     fn = click.option(
         "--target_aspect_ratio",
@@ -822,7 +842,18 @@ def _execute(
         _save_debug_artifacts(res, objective, slm, search, run_cfg.dir)
 
     eff_key = _effective_objective_key(objective.name, objective.target_shape)
-    final = res.history[-1]
+    # Report the best record (by the effective objective) instead of the last
+    # one: the final evaluation may be a guard-penalised row (energy guard
+    # returns J-1e3 and the history[-1] record would show -999 even though the
+    # search found a good optimum).
+    final: dict[str, Any]
+    if res.history and eff_key in res.history[0]:
+        final = max(
+            res.history,
+            key=lambda row: row.get(eff_key, -float("inf")),
+        )
+    else:
+        final = res.history[-1]
     logger.info("SLM PIB done. Final {}", {k: final[k] for k in ("J", eff_key)})
 
 

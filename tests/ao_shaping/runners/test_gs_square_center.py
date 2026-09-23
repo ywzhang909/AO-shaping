@@ -15,7 +15,27 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.runners.gs_square_runner import _detect_center
+from ao_shaping.utils.image.spots_calc import center_of_brightness, centroid
+
+
+def _detect_center(
+    img: np.ndarray, mode: str = "argmax"
+) -> tuple[float, float] | tuple[int, int]:
+    """Locate the 0-order spot center — shim for the semantics of
+    ``gs_square_runner._detect_center`` (runner removed in fbef192; the
+    three methods match ``gui/ccd/target_shape_helper.py``):
+
+    - ``argmax``: peak pixel position (default).
+    - ``centroid_thresh``: brightness centroid, threshold=0.1×max.
+    - ``centroid``: full-image intensity centroid.
+    """
+    if mode == "argmax":
+        return center_of_brightness(img)
+    if mode == "centroid_thresh":
+        return centroid(img, moment=1, threshold=0.1, return_float=True)
+    if mode == "centroid":
+        return centroid(img, moment=1, threshold=0.0, return_float=True)
+    raise ValueError(f"Unknown center mode: {mode}")
 
 
 def _gaussian_spot(

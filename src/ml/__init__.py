@@ -30,21 +30,33 @@ from ml.phase import (
     build_discriminator,
 )
 
+# torchvision 是 ml.zernike 的可选训练依赖 (uv sync 未装 ml group 时缺失)。
+# 缺失时跳过 zernike 导出, 保持 ml 包及其它子模块 (ml.gsnet / ml.phase) 可导入。
+try:
+    import torchvision  # noqa: F401
+
+    TORCHVISION_AVAILABLE = True
+except ImportError:
+    TORCHVISION_AVAILABLE = False
+
 # Zernike submodule exports
-from ml.zernike import (
-    ResNetRegression,
-    SimpleCNNRegression,
-    ZernikeCoefficientDataset,
-    create_zernike_loaders,
-    build_model,
-    build_zernike_model,
-    BasePhasePredictor,
-    MODEL_REGISTRY,
-)
+if TORCHVISION_AVAILABLE:
+    from ml.zernike import (
+        ResNetRegression,
+        SimpleCNNRegression,
+        ZernikeCoefficientDataset,
+        create_zernike_loaders,
+        build_model,
+        build_zernike_model,
+        BasePhasePredictor,
+        MODEL_REGISTRY,
+    )
+    from ml.zernike.dataset import coefficients_to_phase_map as _phase_map_helper
+else:
+    _phase_map_helper = None
 
 # Shared utilities
 from ml.phase.dataset import coefficients_to_phase_map
-from ml.zernike.dataset import coefficients_to_phase_map as _phase_map_helper
 
 # For backwards compatibility with old imports (ao_shaping.ml.*)
 # These are also provided by the submodules above

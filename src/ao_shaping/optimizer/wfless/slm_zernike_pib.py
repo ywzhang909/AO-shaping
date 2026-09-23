@@ -597,45 +597,61 @@ def _update_dynamic_weights(
     pib: float,
     rms: float,
     j: float,
+    ee: float | None = None,
     w_ema_decay: float = 0.9,
     w_floor: float = 0.1,
     w_temperature: float = 8.0,
-) -> tuple[float, float]:
-    """Adaptively re-weight the PIB and RMS terms of the ``rms_pib`` objective.
+) -> tuple[float, float] | tuple[float, float, float]:
+    """Adaptively re-weight the PIB, RMS and (optional) energy terms.
 
     The term that improves ``J`` more gets the higher weight ("哪个对J提升大则
     哪个权重大"). Weights are softmax-normalised EMA scores of the *positive*
     contributions of each term to the combined objective:
 
-    * ``c_pib = w_pib * (pib - prev_pib)``, ``c_rms = w_rms * (rms - prev_rms)``;
+    * ``c_i = w_i * (term_i - prev_term_i)`` for each participating term;
     * the EMA is updated ONLY on positive contributions (improving steps);
-    * if BOTH contributions are ``<= 0`` the weights stay unchanged;
-    * ``w_pib = w_floor + (1 - 2*w_floor) * softmax(T*ema_pib, T*ema_rms)``.
+    * if ALL contributions are ``<= 0`` the weights stay unchanged;
+    * ``w_i = w_floor + (1 - n*w_floor) * softmax(T*ema_i, ...)`` for the ``n``
+      participating terms (n=2 or n=3).
 
-    Returns the new ``(w_pib, w_rms)`` pair (always summing to 1).
+    When ``ee`` is ``None`` (legacy two-term objective) the behaviour is
+    byte-identical to the previous ``(w_pib, w_rms)`` pair; when ``ee`` is
+    given the energy-conservation term participates and a three-weight tuple
+    ``(w_pib, w_rms, w_ee)`` is returned (always summing to 1).
     """
-    state.setdefault("w_pib", 0.5)
-    state.setdefault("w_rms", 0.5)
+    three_term = ee is not None
+    state.setdefault("w_pib", 1.0 / 3 if three_term else 0.5)
+    state.setdefault("w_rms", 1.0 / 3 if three_term else 0.5)
+    state.setdefault("w_ee", 1.0 / 3 if three_term else 0.0)
     state.setdefault("ema_pib", 0.0)
     state.setdefault("ema_rms", 0.0)
+    state.setdefault("ema_ee", 0.0)
     state.setdefault("prev_j", None)
     state.setdefault("prev_pib", None)
     state.setdefault("prev_rms", None)
+    state.setdefault("prev_ee", None)
     state.setdefault("prev_set", False)
 
     if not state["prev_set"]:
-        # First call: record the baseline and keep the initial 50/50 weights.
+        # First call: record the baseline and keep the initial weights.
         state["prev_j"] = float(j)
         state["prev_pib"] = float(pib)
         state["prev_rms"] = float(rms)
+        if three_term:
+            state["prev_ee"] = float(ee)
         state["prev_set"] = True
+        if three_term:
+            return (
+                float(state["w_pib"]),
+                float(state["w_rms"]),
+                float(state["w_ee"]),
+            )
         return float(state["w_pib"]), float(state["w_rms"])
 
     w_pib = float(state["w_pib"])
     w_rms = float(state["w_rms"])
     c_pib = w_pib * (float(pib) - float(state["prev_pib"]))
     c_rms = w_rms * (float(rms) - float(state["prev_rms"]))
-
     if c_pib > 0.0:
         state["ema_pib"] = (
             w_ema_decay * float(state["ema_pib"]) + (1.0 - w_ema_decay) * c_pib
@@ -645,23 +661,54 @@ def _update_dynamic_weights(
             w_ema_decay * float(state["ema_rms"]) + (1.0 - w_ema_decay) * c_rms
         )
 
-    if c_pib <= 0.0 and c_rms <= 0.0:
+    c_ee = 0.0
+    if three_term:
+        w_ee = float(state["w_ee"])
+        c_ee = w_ee * (float(ee) - float(state["prev_ee"]))
+        if c_ee > 0.0:
+            state["ema_ee"] = (
+                w_ema_decay * float(state["ema_ee"])
+                + (1.0 - w_ema_decay) * c_ee
+            )
+        if c_pib <= 0.0 and c_rms <= 0.0 and c_ee <= 0.0:
+            # No improving contribution this step: keep the current weights.
+            state["prev_j"] = float(j)
+            state["prev_pib"] = float(pib)
+            state["prev_rms"] = float(rms)
+            state["prev_ee"] = float(ee)
+            return w_pib, w_rms, w_ee
+    elif c_pib <= 0.0 and c_rms <= 0.0:
         # No improving contribution this step: keep the current weights.
         state["prev_j"] = float(j)
         state["prev_pib"] = float(pib)
         state["prev_rms"] = float(rms)
         return w_pib, w_rms
 
-    ema_pib = float(np.clip(state["ema_pib"], -10.0, 10.0))
-    ema_rms = float(np.clip(state["ema_rms"], -10.0, 10.0))
-    if not np.isfinite(ema_pib):
-        ema_pib = 0.0
-    if not np.isfinite(ema_rms):
-        ema_rms = 0.0
-    e_pib = math.exp(w_temperature * ema_pib)
-    e_rms = math.exp(w_temperature * ema_rms)
-    w_pib_raw = e_pib / (e_pib + e_rms)
-    w_pib = w_floor + (1.0 - 2.0 * w_floor) * w_pib_raw
+    def _softmax_frac(emas: list[float]) -> list[float]:
+        clipped = [float(np.clip(e, -10.0, 10.0)) for e in emas]
+        clipped = [0.0 if not np.isfinite(e) else e for e in clipped]
+        exps = [math.exp(w_temperature * e) for e in clipped]
+        total = sum(exps)
+        return [e / total for e in exps]
+
+    if three_term:
+        fracs = _softmax_frac(
+            [float(state["ema_pib"]), float(state["ema_rms"]), float(state["ema_ee"])]
+        )
+        w_pib = w_floor + (1.0 - 3.0 * w_floor) * fracs[0]
+        w_rms = w_floor + (1.0 - 3.0 * w_floor) * fracs[1]
+        w_ee = w_floor + (1.0 - 3.0 * w_floor) * fracs[2]
+        state["w_pib"] = float(w_pib)
+        state["w_rms"] = float(w_rms)
+        state["w_ee"] = float(w_ee)
+        state["prev_j"] = float(j)
+        state["prev_pib"] = float(pib)
+        state["prev_rms"] = float(rms)
+        state["prev_ee"] = float(ee)
+        return float(w_pib), float(w_rms), float(w_ee)
+
+    fracs = _softmax_frac([float(state["ema_pib"]), float(state["ema_rms"])])
+    w_pib = w_floor + (1.0 - 2.0 * w_floor) * fracs[0]
     w_rms = 1.0 - w_pib
     state["w_pib"] = float(w_pib)
     state["w_rms"] = float(w_rms)
@@ -1495,19 +1542,29 @@ def optimize_slm_zernike_pib(
 
             calc_objective = calc_objective_roi_pib
         elif objective == "rms_pib":
-            # Combined PIB + in-ROI RMS objective with adaptively-weighted terms:
-            # J = w_pib(t)*pib_term + w_rms(t)*rms_term. The weights adapt so the
-            # term that improves J more gets the higher weight (see
-            # _update_dynamic_weights). The target ROI is FIXED at reference_center
-            # (never tracks the spot) - same convention as calc_objective_roi_pib.
+            # Combined PIB + in-ROI RMS + energy-conservation objective with
+            # adaptively-weighted terms:
+            # J = w_pib(t)*pib_term + w_rms(t)*rms_term + w_ee(t)*ee_term.
+            # The weights adapt so the term that improves J more gets the higher
+            # weight (see _update_dynamic_weights). The target ROI is FIXED at
+            # reference_center (never tracks the spot) - same convention as
+            # calc_objective_roi_pib. ``ee_term`` = fraction of the baseline
+            # (flat-phase) window energy still inside the window, so a search
+            # that diffracts/scatters light out of the window (or pumps it to a
+            # dark halo) is penalised even though pib/rms are exposure-invariant
+            # ratios (energy-encircled constraint; see AGENTS.md anti-pattern).
             to_min = -1
             _rms_pib_state: dict = {}
-            last_terms: tuple[float, float, float] = (0.0, 0.0, 0.0)
+            # Baseline window energy from the flat-phase capture: "no energy
+            # lost" means sum(img) stays at this level.
+            _init_energy = float(np.sum(np.asarray(init_img, dtype=np.float64)))
+            last_terms: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
 
             def calc_objective_rms_pib(img):
                 nonlocal last_terms
-                w_pib = float(_rms_pib_state.setdefault("w_pib", 0.5))
-                w_rms = float(_rms_pib_state.setdefault("w_rms", 0.5))
+                w_pib = float(_rms_pib_state.setdefault("w_pib", 1.0 / 3))
+                w_rms = float(_rms_pib_state.setdefault("w_rms", 1.0 / 3))
+                w_ee = float(_rms_pib_state.setdefault("w_ee", 1.0 / 3))
                 pib_term, rms_term = rms_pib_terms(
                     img,
                     reference_center,
@@ -1515,8 +1572,17 @@ def optimize_slm_zernike_pib(
                     target_size,
                     target_aspect_ratio,
                 )
-                j = w_pib * pib_term + w_rms * rms_term
-                last_terms = (float(j), float(pib_term), float(rms_term))
+                _frame = np.asarray(img, dtype=np.float64)
+                ee_term = float(
+                    np.clip(_frame.sum() / max(_init_energy, np.finfo(np.float64).eps), 0.0, 1.0)
+                )
+                j = w_pib * pib_term + w_rms * rms_term + w_ee * ee_term
+                last_terms = (
+                    float(j),
+                    float(pib_term),
+                    float(rms_term),
+                    float(ee_term),
+                )
                 return float(j), float(pib_term)
 
             calc_objective = calc_objective_rms_pib
@@ -1705,10 +1771,12 @@ def optimize_slm_zernike_pib(
             f"best_{objective}": best_objective,
         }
         if objective == "rms_pib":
-            _row0["w_pib"] = float(_rms_pib_state.get("w_pib", 0.5))
-            _row0["w_rms"] = float(_rms_pib_state.get("w_rms", 0.5))
+            _row0["w_pib"] = float(_rms_pib_state.get("w_pib", 1.0 / 3))
+            _row0["w_rms"] = float(_rms_pib_state.get("w_rms", 1.0 / 3))
+            _row0["w_ee"] = float(_rms_pib_state.get("w_ee", 1.0 / 3))
             _row0["pib_term"] = float(last_terms[1])
             _row0["rms_term"] = float(last_terms[2])
+            _row0["ee_term"] = float(last_terms[3])
         if record_phase:
             _row0["_phase"] = initial_phase
         recorder.append(_row0)
@@ -1858,13 +1926,15 @@ def optimize_slm_zernike_pib(
                     )
                 obj, obj_ratio = calc_objective(img)
                 if objective == "rms_pib":
-                    # Adapt the PIB/RMS weights on every valid candidate evaluation
-                    # (abandoned evaluations are penalised to <= -100 and skipped).
+                    # Adapt the PIB/RMS/EE weights on every valid candidate
+                    # evaluation (abandoned evaluations are penalised to <= -100
+                    # and skipped).
                     if float(obj) > -100.0:
                         _update_dynamic_weights(
                             _rms_pib_state,
                             pib=float(last_terms[1]),
                             rms=float(last_terms[2]),
+                            ee=float(last_terms[3]),
                             j=float(last_terms[0]),
                             w_ema_decay=w_ema_decay,
                             w_floor=w_floor,
@@ -2030,7 +2100,7 @@ def optimize_slm_zernike_pib(
                 J = (pos_j + neg_j) / 2
 
                 if objective == "rms_pib" and pos_obj > -100.0 and neg_obj > -100.0:
-                    # Adapt the PIB/RMS weights from the positive-perturbation
+                    # Adapt the PIB/RMS/EE weights from the positive-perturbation
                     # terms (abandoned evaluations are penalised to <= -100 and
                     # skipped). The term that improves J more gets the higher
                     # weight.
@@ -2038,6 +2108,7 @@ def optimize_slm_zernike_pib(
                         _rms_pib_state,
                         pib=float(_pos_terms[1]),
                         rms=float(_pos_terms[2]),
+                        ee=float(_pos_terms[3]),
                         j=float(_pos_terms[0]),
                         w_ema_decay=w_ema_decay,
                         w_floor=w_floor,

@@ -14,9 +14,16 @@ torch = pytest.importorskip("torch")
 
 import click  # noqa: E402
 
-from ao_shaping.runners.diff_shaping_runner import run  # noqa: E402
+try:  # noqa: E402
+    from ao_shaping.runners.diff_shaping_runner import run
+except ModuleNotFoundError:  # runner removed in fbef192
+    run = None
 
 
+@pytest.mark.skipif(
+    run is None,
+    reason="diff_shaping_runner was removed in fbef192 (subject of the test)",
+)
 class TestRunnerCLI:
     """Verify the Click command is defined with expected options."""
 

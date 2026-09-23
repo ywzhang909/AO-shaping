@@ -9,8 +9,12 @@ import pytest
 from numpy.testing import assert_array_equal, assert_array_almost_equal
 from scipy.ndimage import rotate
 
-# Import the shape generation functions from the runner
-# We need to import them directly since they're in the runner file
+# The runner-local copies of these functions were removed in fbef192;
+# the canonical implementations live in utils (targets / phase_display).
+# Note: the utils versions take PIXEL-domain parameters (radius_ratio/side/
+# inner_radius/outer_radius in px), while the deleted runner's took
+# normalized (0-1 relative to grid half-extent) parameters. The calls below
+# convert where the semantics differ; assertions are unchanged.
 import sys
 from pathlib import Path
 
@@ -19,13 +23,9 @@ _src_root = Path(__file__).resolve().parents[3] / "src"
 if str(_src_root) not in sys.path:
     sys.path.insert(0, str(_src_root))
 
-from ao_shaping.runners.gs_hologram_runner import (
-    create_target_shape,
-    phase_to_slm_grayscale,
-)
+from ao_shaping.utils.image.targets import create_target_shape
+from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
 
-# The canonical target-shape generator lives in utils.targets; the runner
-# keeps its own local copy, so alias the utils version for the new tests.
 from ao_shaping.utils.image.beam_metrics import compute_shaping_metrics
 from ao_shaping.utils.image.targets import (
     create_target_shape as create_target_shape_bsu,
@@ -2230,7 +2230,9 @@ class TestCreateTargetShape:
     def test_gaussian_shape(self):
         """Test Gaussian target shape generation."""
         size = (128, 128)
-        amplitude = create_target_shape("gaussian", size, sigma=0.3)
+        # utils gaussian: sigma = radius_ratio * min/4 (no `sigma` kwarg);
+        # runner's sigma=0.3 (normalized) == radius_ratio=0.6 here.
+        amplitude = create_target_shape("gaussian", size, radius_ratio=0.6)
 
         # Check shape
         assert amplitude.shape == (size[1], size[0])  # (height, width)
@@ -2251,7 +2253,9 @@ class TestCreateTargetShape:
         """Test circular target shape generation."""
         size = (128, 128)
         radius = 0.5
-        amplitude = create_target_shape("circle", size, radius=radius)
+        # utils circle: radius = radius_ratio * min/2 (no `radius` kwarg);
+        # runner's radius=0.5 (normalized) maps to radius_ratio=0.5 exactly.
+        amplitude = create_target_shape("circle", size, radius_ratio=radius)
 
         # Check shape
         assert amplitude.shape == (size[1], size[0])
@@ -2271,7 +2275,9 @@ class TestCreateTargetShape:
         """Test square target shape generation."""
         size = (128, 128)
         side = 0.8
-        amplitude = create_target_shape("square", size, side=side)
+        # utils square: side is in PIXELS (half = side/2); runner's side=0.8
+        # normalized → px side = 0.8 * min/2 = 51.2.
+        amplitude = create_target_shape("square", size, side=side * min(size) / 2)
 
         # Check shape
         assert amplitude.shape == (size[1], size[0])
@@ -2289,8 +2295,13 @@ class TestCreateTargetShape:
         size = (128, 128)
         inner_r = 0.2
         outer_r = 0.5
+        # utils annular: inner_radius/outer_radius are in PIXELS; runner's
+        # normalized values → px = norm * min/2 (0.2→12.8, 0.5→32.0).
         amplitude = create_target_shape(
-            "annular", size, inner_radius=inner_r, outer_radius=outer_r
+            "annular",
+            size,
+            inner_radius=inner_r * min(size) / 2,
+            outer_radius=outer_r * min(size) / 2,
         )
 
         # Check shape
@@ -2355,12 +2366,17 @@ class TestCreateTargetShape:
             create_target_shape("invalid_shape", (128, 128))
 
     def test_different_sizes(self):
-        """Test shape generation with different sizes."""
+        """Test shape generation with different sizes.
+
+        utils.create_target_shape takes ``size=(height, width)`` and returns an
+        array of exactly that shape (surviving canonical convention; the
+        deleted gs_hologram_runner used width-first instead).
+        """
         sizes = [(64, 64), (128, 256), (256, 128), (512, 512)]
 
         for size in sizes:
             amplitude = create_target_shape("circle", size)
-            assert amplitude.shape == (size[1], size[0]), (
+            assert amplitude.shape == size, (
                 f"Shape mismatch for size {size}"
             )
 

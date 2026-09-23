@@ -225,6 +225,78 @@ def test_update_dynamic_weights_floor_bounds_weights() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# _update_dynamic_weights: three-term mode (energy term participates)
+# --------------------------------------------------------------------------- #
+
+
+def test_update_dynamic_weights_three_term_first_call_keeps_third_thirds() -> None:
+    state: dict = {}
+
+    w_pib, w_rms, w_ee = _update_dynamic_weights(state, pib=0.3, rms=0.7, ee=1.0, j=0.5)
+
+    assert np.isclose(w_pib, 1.0 / 3)
+    assert np.isclose(w_rms, 1.0 / 3)
+    assert np.isclose(w_ee, 1.0 / 3)
+    assert state["prev_ee"] == 1.0
+    assert state["prev_set"] is True
+
+
+def test_update_dynamic_weights_three_term_improving_ee_raises_w_ee() -> None:
+    state: dict = {}
+    _update_dynamic_weights(state, pib=0.5, rms=0.5, ee=0.9, j=0.5)
+
+    w_pib, w_rms, w_ee = _update_dynamic_weights(
+        state, pib=0.5, rms=0.5, ee=1.0, j=0.55, w_ema_decay=0.0
+    )
+
+    assert w_ee > 1.0 / 3
+    assert np.isclose(w_pib + w_rms + w_ee, 1.0)
+
+
+def test_update_dynamic_weights_three_term_improving_pib_raises_w_pib() -> None:
+    state: dict = {}
+    _update_dynamic_weights(state, pib=0.4, rms=0.5, ee=0.9, j=0.5)
+
+    w_pib, w_rms, w_ee = _update_dynamic_weights(
+        state, pib=0.6, rms=0.5, ee=0.9, j=0.55, w_ema_decay=0.0
+    )
+
+    assert w_pib > w_rms
+    assert w_pib > w_ee
+    assert np.isclose(w_pib + w_rms + w_ee, 1.0)
+
+
+def test_update_dynamic_weights_three_term_all_degrade_keeps_weights() -> None:
+    state: dict = {}
+    w0 = _update_dynamic_weights(state, pib=0.5, rms=0.5, ee=0.9, j=0.5)
+
+    w1 = _update_dynamic_weights(state, pib=0.4, rms=0.4, ee=0.8, j=0.4)
+
+    assert w1 == w0
+
+
+def test_update_dynamic_weights_three_term_floor_bounds_weights() -> None:
+    state: dict = {}
+    _update_dynamic_weights(state, pib=0.5, rms=0.5, ee=0.9, j=0.5)
+
+    w_pib, w_rms, w_ee = _update_dynamic_weights(
+        state, pib=1.0, rms=0.5, ee=0.9, j=0.75, w_ema_decay=0.0, w_floor=0.1
+    )
+
+    # 3-term floor: each weight >= 0.1 and they sum to 1 (1 - 3*0.1 = 0.7 shared).
+    assert w_pib >= 0.1
+    assert w_rms >= 0.1
+    assert w_ee >= 0.1
+    assert np.isclose(w_pib + w_rms + w_ee, 1.0)
+
+
+def test_objective_params_default_target_size_is_64() -> None:
+    obj = ObjectiveParams()
+
+    assert obj.target_size == 64.0
+
+
+# --------------------------------------------------------------------------- #
 # Runner wiring: CLI options + dataclass defaults (no hardware)
 # --------------------------------------------------------------------------- #
 
