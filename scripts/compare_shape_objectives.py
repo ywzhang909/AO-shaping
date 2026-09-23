@@ -125,9 +125,8 @@ def setup_bench(args) -> tuple[float, tuple[int, int], float, tuple[int, int]]:
     """Auto-expose + fix the centre + measure the flat-field waist. Returns
     ``(exposure_ms, (cx, cy), waist_px, full_frame_shape)``."""
     from ao_shaping.drivers.ccd.common import (
-        auto_exposure,
         create_camera,
-        get_camera_exposure_ms,
+        resolve_exposure_ms,
         set_camera_exposure_ms,
     )
     from ao_shaping.optimizer.wfless.slm_zernike_pib import (
@@ -137,13 +136,45 @@ def setup_bench(args) -> tuple[float, tuple[int, int], float, tuple[int, int]]:
 
     cam = create_camera(args.cam_type, cam_id=args.cam_id, exposure_time_ms=3.0)
     cam.open()
+    slm = None
     try:
+        # Flat field BEFORE metering. Without this the auto-exposure measures
+        # whatever phase the previous run left on the panel - the SLM's amplitude
+        # coupling + scattering then bias the result badly (measured 40.6 ms with a
+        # stale phase vs 3 ms on a flat one).
+        from ao_shaping.drivers.slm import Santec
+        from ao_shaping.optimizer.wfless.slm_zernike_pib import _display
+
+        slm = Santec(slm_number=args.slm_number, wavelength=args.wavelength)
+        slm.open()
+        # Raw gray-0 flat: send uint16 grayscale directly (never via
+        # create_phase_from_array, which treats the input as radians).
+        _display(slm, np.full((1200, 1920), 0, dtype=np.uint16))
+        time.sleep(0.3)
+        logger.info("SLM set to flat gray 0 (raw path) before metering")
+
         if args.exposure_ms > 0:
             set_camera_exposure_ms(cam, args.exposure_ms)
             img = cam.get_numpy_image(2)
+            # Trust the REQUESTED value: the Daheng readback can return a stale
+            # constructor-time exposure (observed: set 20 ms, read back 3 ms), and
+            # that stale value is then propagated to every optimisation run.
+            exp = float(args.exposure_ms)
         else:
-            img = auto_exposure(cam, args.target_brightness)
-        exp = float(get_camera_exposure_ms(cam))
+            # The laser is fixed, so the exposure is the only SNR lever. The saved
+            # flats are used ONLY as an initial guess and then bisected ON THE LIVE
+            # camera: they were off by 12x-86x whenever the laser/beam state changed
+            # (a 191.5 ms guess had to come down to ~2 ms on 2026-09-21 evening).
+            exp, peak = resolve_exposure_ms(
+                cam, target_max=args.target_brightness, tolerance=12.0
+            )
+            img = cam.get_numpy_image(6)
+            logger.info(
+                "live-resolved exposure: {:.3f}ms (peak {:.0f}, target {:.0f})",
+                exp,
+                peak,
+                args.target_brightness,
+            )
         pts = np.array(
             [argmax_anchored_center(cam.get_numpy_image(2)) for _ in range(12)],
             dtype=np.float64,
@@ -164,6 +195,8 @@ def setup_bench(args) -> tuple[float, tuple[int, int], float, tuple[int, int]]:
         )
         return exp, center, waist, (int(full.shape[1]), int(full.shape[0]))
     finally:
+        if slm is not None:
+            slm.close()
         cam.close()
 
 

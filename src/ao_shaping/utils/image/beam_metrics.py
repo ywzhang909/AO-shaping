@@ -32,6 +32,8 @@ __all__ = [
     "compute_quality_score",
     "measure_bright_span",
     "clamp_side",
+    "zero_order_center",
+    "median_zero_order_center",
 ]
 
 
@@ -357,3 +359,87 @@ def clamp_side(side: int, height: int, width: int, margin: int = 8) -> int:
         )
         return max(1, max_side)
     return max(1, side)
+
+
+# ---------------------------------------------------------------------------
+# 0-order spot centre helpers (shared by any hardware runner needing the
+# 2f-bench 0-order location before optimisation)
+# ---------------------------------------------------------------------------
+def zero_order_center(
+    frame: np.ndarray,
+    refine: bool = True,
+    half_win: int | None = None,
+) -> tuple[int, int]:
+    """0 级光斑中心: 全局 argmax 锚定 (+ 窗口内局部质心细化)。
+
+    2f Fourier 光路上 0 级即帧全局最大 (``AGENTS.md`` 多条记录), 因此
+    argmax 比角点阈值掩码 (会跳到热像素) 或全画幅质心 (会被杂散光拉偏)
+    可靠得多。细化被限制在锚点周围窗口内, 窗口外的光不会移动中心。
+
+    Args:
+        frame: 二维远场强度图像。
+        refine: 若为 True (默认), 在锚点邻域窗口内用质心细化; 仅返回
+            argmax 锚点则传 False。
+        half_win: 细化窗口半宽 (像素); None 时取 ``min(shape)//20``
+            (下限 8)。
+
+    Returns:
+        ``(x, y)`` 像素坐标 (项目约定)。全暗帧返回帧中心。
+    """
+    frame = np.asarray(frame)
+    if frame.ndim != 2 or frame.size == 0:
+        raise ValueError(f"frame must be a non-empty 2D array, got shape {frame.shape}")
+    height, width = frame.shape
+    if float(frame.max()) <= 0.0:
+        return (width // 2, height // 2)
+
+    anchor_y, anchor_x = np.unravel_index(int(np.argmax(frame)), frame.shape)
+    if not refine:
+        return (int(anchor_x), int(anchor_y))
+
+    win = int(half_win) if half_win else max(int(min(frame.shape) // 20), 8)
+    y0, y1 = max(0, anchor_y - win), min(height, anchor_y + win + 1)
+    x0, x1 = max(0, anchor_x - win), min(width, anchor_x + win + 1)
+
+    patch = frame[y0:y1, x0:x1].astype(np.float64)
+    patch = np.clip(patch - float(np.percentile(patch, 20)), 0.0, None)
+    if float(patch.sum()) <= 0.0:
+        return (int(anchor_x), int(anchor_y))
+    # centroid() returns window-local coordinates -> add the window offset.
+    cx, cy = centroid(patch, return_float=True)
+    cx, cy = cx + x0, cy + y0
+    if not np.isfinite(cx) or not np.isfinite(cy):
+        return (int(anchor_x), int(anchor_y))
+    return (int(round(cx)), int(round(cy)))
+
+
+def median_zero_order_center(
+    frames: list[np.ndarray] | tuple[np.ndarray, ...],
+    refine: bool = True,
+    half_win: int | None = None,
+) -> tuple[int, int]:
+    """多帧 0 级中心的逐轴中位数 (对偶发热像素帧鲁棒)。
+
+    实际抓帧时个别帧可能被热像素 / 杂散光主导 (全局 argmax 跳到角落);
+    中位数比均值更能容忍孤立的离群帧。
+
+    Args:
+        frames: 二维强度帧序列 (非空)。
+        refine: 传给 :func:`zero_order_center`。
+        half_win: 传给 :func:`zero_order_center`。
+
+    Returns:
+        ``(x, y)`` 像素坐标。
+
+    Raises:
+        ValueError: 序列为空或任一帧非法。
+    """
+    if not frames:
+        raise ValueError("frames must be a non-empty sequence")
+    xs: list[int] = []
+    ys: list[int] = []
+    for frame in frames:
+        x, y = zero_order_center(frame, refine=refine, half_win=half_win)
+        xs.append(x)
+        ys.append(y)
+    return (int(round(float(np.median(xs)))), int(round(float(np.median(ys)))))

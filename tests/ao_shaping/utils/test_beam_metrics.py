@@ -3,7 +3,8 @@
 Pins the exact current behavior of the pure-NumPy beam-shaping metrics
 (compute_metrics, compute_shaping_metrics, compute_square_metrics,
 compute_quality_score, measure_bright_span, clamp_side,
-measure_spot_diameter_cam, intensity_to_amplitude, normalize_pattern).
+measure_spot_diameter_cam, intensity_to_amplitude, normalize_pattern,
+zero_order_center, median_zero_order_center).
 
 These tests are intentionally read-only anchors: they describe what the
 source does today so future refactors of callers can be verified against
@@ -26,7 +27,9 @@ from ao_shaping.utils.image.beam_metrics import (
     intensity_to_amplitude,
     measure_bright_span,
     measure_spot_diameter_cam,
+    median_zero_order_center,
     normalize_pattern,
+    zero_order_center,
 )
 
 
@@ -362,3 +365,94 @@ class TestClampSide:
     def test_custom_margin(self):
         assert clamp_side(10, 100, 100, margin=20) == 10  # max_side = 60
         assert clamp_side(70, 100, 100, margin=20) == 60
+
+
+class TestZeroOrderCenter:
+    def test_single_peak_returns_argmax(self):
+        # A lone bright pixel: the windowed centroid collapses onto the anchor.
+        frame = np.zeros((40, 40))
+        frame[20, 25] = 100.0
+        assert zero_order_center(frame) == (25, 20)
+
+    def test_refine_false_returns_exact_argmax(self):
+        # No refinement -> the global argmax wins even with a secondary lobe.
+        frame = np.zeros((40, 40))
+        frame[20, 25] = 100.0
+        frame[20, 28] = 80.0
+        assert zero_order_center(frame, refine=False) == (25, 20)
+
+    def test_all_dark_returns_frame_center(self):
+        frame = np.zeros((40, 80))
+        assert zero_order_center(frame) == (40, 20)  # (w//2, h//2)
+
+    def test_non_2d_raises(self):
+        with pytest.raises(ValueError, match="2D"):
+            zero_order_center(np.zeros(10))
+
+    def test_empty_raises(self):
+        with pytest.raises(ValueError, match="2D"):
+            zero_order_center(np.zeros((0, 0)))
+
+    def test_refinement_shifts_toward_mass(self):
+        # Asymmetric blob: peak at (20,20), secondary lobe at (20,24). The
+        # percentile-20-clipped windowed centroid lands between them.
+        frame = np.zeros((40, 40))
+        frame[20, 20] = 100.0
+        frame[20, 24] = 80.0
+        x, y = zero_order_center(frame)
+        assert (x, y) == (22, 20)  # (100*20 + 80*24) / 180 = 21.78 -> 22
+        assert x > 20  # shifted right of the argmax anchor
+
+    def test_half_win_limits_refinement_window(self):
+        # half_win=1 -> 3x3 window around the anchor excludes the lobe, so the
+        # centroid stays pinned on the argmax.
+        frame = np.zeros((40, 40))
+        frame[20, 20] = 100.0
+        frame[20, 24] = 80.0
+        assert zero_order_center(frame, half_win=1) == (20, 20)
+
+    def test_returns_int_tuple(self):
+        frame = np.zeros((40, 40))
+        frame[20, 25] = 100.0
+        center = zero_order_center(frame)
+        assert isinstance(center, tuple)
+        assert all(isinstance(v, int) for v in center)
+
+
+class TestMedianZeroOrderCenter:
+    @staticmethod
+    def _frame_with_peak(cx: int, cy: int, size: int = 30) -> np.ndarray:
+        frame = np.zeros((size, size))
+        frame[cy, cx] = 100.0
+        return frame
+
+    def test_median_across_frames(self):
+        frames = [self._frame_with_peak(cx, 15) for cx in (10, 12, 14)]
+        assert median_zero_order_center(frames) == (12, 15)
+
+    def test_median_even_count_exact_mid(self):
+        frames = [self._frame_with_peak(cx, 15) for cx in (10, 12)]
+        assert median_zero_order_center(frames) == (11, 15)
+
+    def test_median_rounds_mid_value(self):
+        # np.median([10, 11]) = 10.5 -> int(round(10.5)) = 10 (banker's).
+        frames = [self._frame_with_peak(cx, 15) for cx in (10, 11)]
+        assert median_zero_order_center(frames) == (10, 15)
+
+    def test_empty_sequence_raises(self):
+        with pytest.raises(ValueError, match="non-empty"):
+            median_zero_order_center([])
+
+    def test_robust_to_outlier_hot_pixel_frame(self):
+        # Three clean frames at (25,20) plus one hot-pixel frame at (0,0):
+        # the per-axis median ignores the outlier.
+        frames = [self._frame_with_peak(25, 20, size=40) for _ in range(3)]
+        hot = np.zeros((40, 40))
+        hot[0, 0] = 1000.0
+        frames.append(hot)
+        assert median_zero_order_center(frames) == (25, 20)
+
+    def test_returns_int_tuple(self):
+        center = median_zero_order_center([self._frame_with_peak(10, 15)])
+        assert isinstance(center, tuple)
+        assert all(isinstance(v, int) for v in center)

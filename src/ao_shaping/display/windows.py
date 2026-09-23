@@ -18,7 +18,9 @@ from ao_shaping.display.frames import (
 # Height (px) of the voltage bar-chart panel under the image.
 VOLT_HEIGHT = 200
 
-FrameInfo = namedtuple("FrameInfo", ["name", "title", "frame", "kwargs"], defaults=[None, None, None, {}])
+FrameInfo = namedtuple(
+    "FrameInfo", ["name", "title", "frame", "kwargs"], defaults=[None, None, None, {}]
+)
 
 
 class BaseDisplay(ABC):
@@ -27,7 +29,6 @@ class BaseDisplay(ABC):
 
     def render(self, info: str = "") -> bool:
         import pygame
-
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -42,13 +43,11 @@ class BaseDisplay(ABC):
     def init_window(self) -> None:
         import pygame
 
-
         pygame.init()
         self.window = pygame.display.set_mode(self.total_size)
 
     def close(self) -> None:
         import pygame
-
 
         for frame in self._frames.values():
             frame.close()
@@ -158,13 +157,10 @@ class AutoDisplay(BaseDisplay):
         if self.grid is not None:
             n_cols, n_rows = int(self.grid[0]), int(self.grid[1])
             if n_cols < 1 or n_rows < 1:
-                raise ValueError(
-                    f"grid must be positive (cols, rows), got {self.grid}"
-                )
+                raise ValueError(f"grid must be positive (cols, rows), got {self.grid}")
             if n_cols * n_rows < len(self.frame_list):
                 raise ValueError(
-                    f"grid {n_cols}x{n_rows} cannot hold "
-                    f"{len(self.frame_list)} frames"
+                    f"grid {n_cols}x{n_rows} cannot hold {len(self.frame_list)} frames"
                 )
             return n_cols, n_rows
 
@@ -190,14 +186,22 @@ class AutoDisplay(BaseDisplay):
 
         self._frames = {}
         for i, frame_info in enumerate(self.frame_list):
-            name, title, frame_class_name = frame_info.name, frame_info.title, frame_info.frame
+            name, title, frame_class_name = (
+                frame_info.name,
+                frame_info.title,
+                frame_info.frame,
+            )
             _row, _col = divmod(i, n_cols)
             _frame = self.__get_frame_by_name(frame_class_name)
             top = _row * (frame_h + self.margin)
             left = _col * (frame_w + self.margin)
             assert name not in self._frames, f"Frame name {name} is duplicated"
             self._frames[name] = _frame(
-                window=self.window, render_pos=(top, left), frame_size=self.frame_size, title=title, **frame_info.kwargs
+                window=self.window,
+                render_pos=(top, left),
+                frame_size=self.frame_size,
+                title=title,
+                **frame_info.kwargs,
             )
 
     def render(self, frame_data: dict[str, dict], info: str = "") -> bool:
@@ -247,13 +251,28 @@ class SlmZernikeDisplay(AutoDisplay):
         grid: tuple[int, int] = (2, 2),
         curve_title: str = "PIB curve",
         curve_y_range: tuple[float, float] | None = None,
+        target_shape: str | None = None,
+        target_size: float | None = None,
+        target_aspect_ratio: float = 1.0,
     ) -> None:
         self.zernike_clip = float(zernike_clip)
         curve_y_min, curve_y_max = (
             curve_y_range if curve_y_range is not None else (None, None)
         )
+        self.target_shape = target_shape
+        self.target_size = target_size
+        self.target_aspect_ratio = float(target_aspect_ratio)
         frames = [
-            FrameInfo("ccd", "CCD (bucket)", "Image2DWithBucketFrame", {}),
+            FrameInfo(
+                "ccd",
+                "CCD (target)",
+                "Image2DWithBucketFrame",
+                {
+                    "target_shape": target_shape,
+                    "target_size": target_size,
+                    "target_aspect_ratio": target_aspect_ratio,
+                },
+            ),
             FrameInfo("phase", "SLM phase (sent)", "Image2DFrame", {}),
             FrameInfo(
                 "coeff",
@@ -294,6 +313,7 @@ class SlmZernikeDisplay(AutoDisplay):
         value: float | None = None,
         epoch: int | None = None,
         total_epochs: int | None = None,
+        target_size: float | None = None,
     ) -> bool:
         """Render one frame; returns ``False`` once the window has been closed.
 
@@ -304,14 +324,24 @@ class SlmZernikeDisplay(AutoDisplay):
             epoch: x value for ``value``.
             total_epochs: x-axis span; the point is placed at
                 ``epoch / total_epochs`` of the panel width.
+            target_size: Override the target box size (pixels) for the current
+                frame; ``None`` falls back to the constructor value.
         """
         if self.closed:
             return False
 
         import pygame
 
+        _target_size = target_size if target_size is not None else self.target_size
         frame_data = {
-            "ccd": {"img": img, "center": center, "r": r_bucket},
+            "ccd": {
+                "img": img,
+                "center": center,
+                "r": r_bucket,
+                "target_shape": self.target_shape,
+                "target_size": _target_size,
+                "target_aspect_ratio": self.target_aspect_ratio,
+            },
             "phase": {"img": phase},
             "coeff": {"volts": np.asarray(coeffs, dtype=np.float64)},
             "curve": {

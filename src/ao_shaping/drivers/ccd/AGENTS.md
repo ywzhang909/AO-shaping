@@ -99,7 +99,9 @@ cam.auto_exposure(
 
 ## 已知坑
 
+- **Daheng gxipy `IntFeature.set` 越界会「静默保留旧窗口」** (SDK gxiapi.py `IntFeature.set`/`range_check`): 请求值不在特征 `[min, max, inc]` 网格 (如 `Height.range=[2, 1138, 2]`) 时, gxipy **不抛异常**, 只 `print()` 噪声 "IntFeature.set: int_value out of bounds, ..." 然后**保留上一次的窗口** — 调用方拿到的仍是旧窗口而无从知晓 (2026-09-23 实测: 开窗设置/关闭时缓冲报错, 窗口被钳到 930×632)。修复: `DahengCamera.reset_window` 在 set 前用 `_clamp_int(value, feature.get_range())` 把宽高/偏移钳到合法网格 (warning 记录钳制), 并 readback (`Width.get()`/`Height.get()`/`OffsetX.get()`) 校验 — 若 SDK 确保留旧值则 warning + 返回实际生效窗口 `((w,h), center)`。调用方必须用返回的生效尺寸/中心, 不要拿请求值当生效值。新代码一律经 `reset_window` 返回的 readback 值; 已在 `tests/ao_shaping/drivers/ccd/daheng/test_reset_window.py` 离线锁定 (钳制/读回/全帧分支)。
 - **MiiCam 曝光修改**: 须通过 `reset_exposure_time()` (Stop→put_ExpoTime→重启拉流); 曝光 <0.1ms 信号淹没在噪声 (max≤10), 建议 ≥0.2ms; 峰值可能锁在 ~85, 质量指标优先用 mean/亮区而非 max。
+- **MiiCam 位深**: 实测该硬件 `_detect_raw_format` 报 `MONO16` 而非 `MONO14` (test_ccd.py::test_cam_bit_depth_initialization 预期 MONO14 会失败 — 硬件现实, 非代码缺陷)。
 
 ## 包入口
 

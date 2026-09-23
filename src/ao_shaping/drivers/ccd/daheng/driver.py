@@ -265,6 +265,35 @@ class DahengCamera(BaseCamera):
 
         return self.exposure_time
 
+    @staticmethod
+    def _clamp_int(value: int, int_range: dict | None) -> int:
+        """把整数值钳制/对齐到 GenICam int 特征的 [min, max, inc] 网格。
+
+        gxipy 的 ``IntFeature.set`` 对越界值**不抛异常**——只 print
+        "IntFeature.set: int_value out of bounds, xxx.range=[min, max, inc]"
+        然后**静默保留旧值**（窗口不生效，调用方无从知晓）。因此必须在
+        set 之前把请求值对齐到相机的合法网格，彻底杜绝该失败模式。
+
+        Args:
+            value: 请求值。
+            int_range: ``feature.get_range()`` 返回的 {"min","max","inc"}
+                字典（可能为 None，表示特征不可用，原样返回）。
+
+        Returns:
+            int: 对齐后的值，满足 ``min <= v <= max`` 且 ``(v - min) % inc == 0``。
+        """
+        if int_range is None:
+            return int(value)
+        lo = int(int_range["min"])
+        hi = int(int_range["max"])
+        inc = max(int(int_range["inc"]), 1)
+        if value < lo:
+            return lo
+        if value > hi:
+            return hi
+        # 向下对齐到增量网格：lo + (value - lo) // inc * inc
+        return lo + (int(value) - lo) // inc * inc
+
     def reset_window(
         self,
         center: tuple[int, int] | tuple[np.intp, ...] = (0, 0),
@@ -278,7 +307,11 @@ class DahengCamera(BaseCamera):
         center (Tuple[int]): 期望的窗口中心位置，格式为 (x坐标, y坐标)。
 
         返回:
-        Tuple[int]: 新的窗口中心位置，格式为 (x坐标, y坐标)。
+        Tuple[Tuple[int, int], Tuple[int, int]]:
+            ((实际生效的宽高), (实际生效的中心坐标))。
+            请求值越出相机 GenICam [min, max, inc] 网格时会被钳制并记录
+            warning（SDK 对越界 set 只 print 噪声并静默保留旧窗口，绝不
+            传递非法值给 SDK）；返回值为 set 后 readback 校验的真实值。
         """
         # 中心坐标大于0
         assert self.cam, "camera not initialized"
@@ -290,39 +323,86 @@ class DahengCamera(BaseCamera):
             assert width and height, "camera width and height must be greater than 0"
             x_offset, y_offset = 0, 0
         else:
-            width, height = size
+            width, height = int(size[0]), int(size[1])
             range_w, range_h = self.cam.Width.get_range(), self.cam.Height.get_range()
             assert range_w and range_h, "camera width and height range not found"
-            width_quatic = range_w["inc"]
-            width_quatic = width_quatic * 2 if width_quatic % 2 == 1 else width_quatic
-            height_quatic = range_h["inc"]
-            height_quatic = (
-                height_quatic * 2 if height_quatic % 2 == 1 else height_quatic
-            )
-            width, height = (
-                int(width // width_quatic * width_quatic),
-                int(height // height_quatic * height_quatic),
-            )
+            # gxipy IntFeature.set 对越界值不抛异常，而是 print 噪声 + 静默
+            # 保留旧窗口 —— 先钳制到相机 [min, max, inc] 网格，set 永不越界。
+            width = self._clamp_int(width, range_w)
+            height = self._clamp_int(height, range_h)
+            if (width, height) != (int(size[0]), int(size[1])):
+                logger.warning(
+                    "Window size ({}, {}) out of camera grid, clamped to ({}, {}) "
+                    "(Width.range=[{}, {}, {}], Height.range=[{}, {}, {}])",
+                    int(size[0]),
+                    int(size[1]),
+                    width,
+                    height,
+                    range_w["min"],
+                    range_w["max"],
+                    range_w["inc"],
+                    range_h["min"],
+                    range_h["max"],
+                    range_h["inc"],
+                )
+            # 先设置尺寸再算偏移 —— OffsetX/OffsetY 的有效范围依赖当前
+            # 已设置的 Width/Height（例如 OffsetX.max = WidthMax - Width）。
+            self.cam.Width.set(width)
+            self.cam.Height.set(height)
             # 计算窗口的偏移量，确保中心位置在指定位置
-            x_offset, y_offset = center[0] - (width // 2), center[1] - (height // 2)
-            x_offset, y_offset = (
-                int(x_offset // width_quatic * width_quatic),
-                int(y_offset // height_quatic * height_quatic),
+            x_offset = self._clamp_int(
+                center[0] - (width // 2), self.cam.OffsetX.get_range()
             )
-        assert x_offset >= 0 and y_offset >= 0, (
-            f"窗口中心位置:{center}必须在图像内部，窗口大小:{size}"
-        )
-        self.cam.Width.set(width)
-        self.cam.Height.set(height)
+            y_offset = self._clamp_int(
+                center[1] - (height // 2), self.cam.OffsetY.get_range()
+            )
+            if (x_offset, y_offset) != (
+                center[0] - (width // 2),
+                center[1] - (height // 2),
+            ):
+                logger.warning(
+                    "Window offset ({}, {}) (center {}, size ({}, {})) out of "
+                    "camera range, clamped to ({}, {})",
+                    center[0] - (width // 2),
+                    center[1] - (height // 2),
+                    center,
+                    width,
+                    height,
+                    x_offset,
+                    y_offset,
+                )
         self.cam.OffsetX.set(x_offset)
-        # 设置相机的垂直偏移量，确保偏移量是4的倍数
         self.cam.OffsetY.set(y_offset)
-        logger.info(f"ROI Window offset: ({x_offset, y_offset})")
+        logger.info("ROI Window offset: ({}, {})", x_offset, y_offset)
         self.__update_properties()
         self.cam.stream_on()
 
-        # 返回新的窗口中心位置
-        return (width, height), (center[0] - x_offset, center[1] - y_offset)
+        # 读回校验：SDK 可能静默保留旧窗口/旧偏移（越界 set 不报错），
+        # 返回实际生效值并 warning，避免调用方把请求值当生效值使用。
+        eff_w, eff_h = self.cam_width, self.cam_height
+        if (eff_w, eff_h) != (width, height):
+            logger.warning(
+                "Camera kept the previous window: requested ({}, {}), read back "
+                "({}, {})",
+                width,
+                height,
+                eff_w,
+                eff_h,
+            )
+        eff_x = int(self.cam.OffsetX.get() or x_offset)
+        eff_y = int(self.cam.OffsetY.get() or y_offset)
+        if (eff_x, eff_y) != (x_offset, y_offset):
+            logger.warning(
+                "Camera kept the previous offsets: requested ({}, {}), read back "
+                "({}, {})",
+                x_offset,
+                y_offset,
+                eff_x,
+                eff_y,
+            )
+
+        # 返回实际生效的窗口：((宽, 高), (实际中心x, 实际中心y))
+        return (eff_w, eff_h), (eff_x + eff_w // 2, eff_y + eff_h // 2)
 
     def __take_one_shot(self) -> npt.NDArray[np.uint8]:
         """

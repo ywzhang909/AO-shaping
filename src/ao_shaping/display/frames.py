@@ -10,18 +10,25 @@ DPI = 96
 
 __frame_registry = {}
 
+
 def get_frame_names():
     return __frame_registry.keys()
 
-def get_frame(frame_name:str):
+
+def get_frame(frame_name: str):
     return __frame_registry[frame_name]
 
-def register_frame(frame_name:str):
+
+def register_frame(frame_name: str):
     def decorator(cls):
-        assert frame_name not in __frame_registry, f"Frame name {frame_name} already registered"
+        assert frame_name not in __frame_registry, (
+            f"Frame name {frame_name} already registered"
+        )
         __frame_registry[frame_name] = cls
         return cls
+
     return decorator
+
 
 def to_display_uint8(img: np.ndarray) -> np.ndarray:
     """Normalise a 2D image/phase array to contiguous ``uint8`` (0-255) for pygame.
@@ -36,9 +43,7 @@ def to_display_uint8(img: np.ndarray) -> np.ndarray:
     """
     arr = np.asarray(img)
     if arr.ndim != 2:
-        raise ValueError(
-            f"to_display_uint8 expects a 2D array, got shape {arr.shape}"
-        )
+        raise ValueError(f"to_display_uint8 expects a 2D array, got shape {arr.shape}")
     if arr.dtype == np.uint8:
         return np.ascontiguousarray(arr)
     arr = np.nan_to_num(
@@ -51,8 +56,9 @@ def to_display_uint8(img: np.ndarray) -> np.ndarray:
 
 
 class BaseFrame(ABC):
-    def __init__(self, window, render_pos, frame_size, title:str="") -> None:
+    def __init__(self, window, render_pos, frame_size, title: str = "") -> None:
         import pygame
+
         self.window = window
         self.top, self.left = render_pos
         self.width, self.height = frame_size
@@ -69,21 +75,24 @@ class BaseFrame(ABC):
 
     def _render_title(self):
         import pygame
-        font = pygame.font.Font(None, Title_height-6)
+
+        font = pygame.font.Font(None, Title_height - 6)
         text = font.render(self.title, True, (0, 255, 255))
         self.window.blit(text, (self.left, self.top - Title_height))
 
     def render(self):
         self._render_title()
 
+
 @register_frame("Image2D")
 class Image2DFrame(BaseFrame):
-    def render(self, img:np.ndarray):
+    def render(self, img: np.ndarray):
         import pygame
+
         img = to_display_uint8(img)
         img_h, img_w = img.shape
         zoom_factors = (self.height / img_h, self.width / img_w)
-        img = np.asarray(zoom(img, zoom_factors, mode='nearest'))
+        img = np.asarray(zoom(img, zoom_factors, mode="nearest"))
         img_surf = pygame.surfarray.make_surface(img.transpose())
         self.window.blit(img_surf, (self.left, self.top))
         super().render()
@@ -91,50 +100,135 @@ class Image2DFrame(BaseFrame):
 
 @register_frame("Image2DWithBucket")
 class Image2DWithBucketFrame(BaseFrame):
-    def render(self, img:np.ndarray, center:tuple[int,int], r:int):
-        """Render a 2D image with the bucket circle overlaid.
+    def __init__(
+        self,
+        window,
+        render_pos,
+        frame_size,
+        title: str = "",
+        target_shape: str | None = None,
+        target_size: float | None = None,
+        target_aspect_ratio: float = 1.0,
+        **kwargs,
+    ) -> None:
+        super().__init__(window, render_pos, frame_size, title)
+        self.target_shape = target_shape
+        self.target_size = target_size
+        self.target_aspect_ratio = float(target_aspect_ratio)
+
+    def render(
+        self,
+        img: np.ndarray,
+        center: tuple[int, int],
+        r: int,
+        target_shape: str | None = None,
+        target_size: float | None = None,
+        target_aspect_ratio: float | None = None,
+    ):
+        """Render a 2D image with the target shape overlaid.
 
         ``center`` / ``r`` are given in **source-image** coordinates and scaled
         to the (zoomed) surface internally, so callers never need to know the
         frame geometry.
+
+        When ``target_shape`` is ``"rectangle"`` / ``"square"`` (and a
+        ``target_size`` is supplied), the overlay is drawn as that shape instead
+        of a circle — otherwise the legacy bucket circle (``r``) is used.
         """
         import pygame
+
         img = to_display_uint8(img)
         img_h, img_w = img.shape
         zoom_factors = (self.height / img_h, self.width / img_w)
-        img = np.asarray(zoom(img, zoom_factors, mode='nearest'))
-        img_surf = pygame.surfarray.make_surface(img.transpose())
+        img = np.asarray(zoom(img, zoom_factors, mode="nearest"))
+        img_surf = pygame.surfarray.make_surface(img.transpose()).convert()
         scale_x = self.width / max(int(img_w), 1)
         scale_y = self.height / max(int(img_h), 1)
-        _center = (int(round(center[0] * scale_x)), int(round(center[1] * scale_y)))
-        _r = max(1, int(round(r * scale_x)))
-        pygame.draw.circle(img_surf, (255, 0, 0), _center, _r, 3)
+        _center = (
+            int(round(center[0] * scale_x)),
+            int(round(center[1] * scale_y)),
+        )
+
+        _shape = target_shape or self.target_shape
+        _size = target_size or self.target_size
+        _aspect = (
+            float(target_aspect_ratio)
+            if target_aspect_ratio is not None
+            else self.target_aspect_ratio
+        )
+
+        _OVERLAY = (255, 255, 255)
+        _BW = (0, 0, 0)
+        _LINE_W = 4
+
+        if _shape in ("rectangle", "square") and _size is not None and _size > 0:
+            if _shape == "rectangle":
+                half_w = float(_size) * _aspect / 2.0
+            else:
+                half_w = float(_size) / 2.0
+            half_h = float(_size) / 2.0
+            rect_w = max(2, int(round(2 * half_w * scale_x)))
+            rect_h = max(2, int(round(2 * half_h * scale_y)))
+            rect_x = _center[0] - rect_w // 2
+            rect_y = _center[1] - rect_h // 2
+            # Black border behind white outline for contrast on any background.
+            pygame.draw.rect(
+                img_surf,
+                _BW,
+                pygame.Rect(rect_x - 2, rect_y - 2, rect_w + 4, rect_h + 4),
+                _LINE_W + 2,
+            )
+            pygame.draw.rect(
+                img_surf,
+                _OVERLAY,
+                pygame.Rect(rect_x, rect_y, rect_w, rect_h),
+                _LINE_W,
+            )
+        elif _shape in ("circle", None, "pib") or _size is None:
+            _r = max(1, int(round(r * scale_x)))
+            pygame.draw.circle(img_surf, _BW, _center, _r + _LINE_W, _LINE_W + 2)
+            pygame.draw.circle(img_surf, _OVERLAY, _center, _r, _LINE_W)
+        else:
+            _r = max(1, int(round(r * scale_x)))
+            pygame.draw.circle(img_surf, _BW, _center, _r + _LINE_W, _LINE_W + 2)
+            pygame.draw.circle(img_surf, _OVERLAY, _center, _r, _LINE_W)
+
         self.window.blit(img_surf, (self.left, self.top))
         super().render()
 
 
 @register_frame("Voltage")
 class VoltageFrame(BaseFrame):
-    def __init__(self, v_min:int=-300, v_max:int=500, background_color=BACKGROUND_COLOR, **kwargs) -> None:
+    def __init__(
+        self,
+        v_min: int = -300,
+        v_max: int = 500,
+        background_color=BACKGROUND_COLOR,
+        **kwargs,
+    ) -> None:
         super().__init__(**kwargs)
         self.background_color = background_color
         self.v_min = v_min
         self.v_max = v_max
 
-        max_hight_ratio, total_scale = self.height / max(abs(v_max),abs(v_min)), (self.v_max - self.v_min)
+        max_hight_ratio, total_scale = (
+            self.height / max(abs(v_max), abs(v_min)),
+            (self.v_max - self.v_min),
+        )
         self.v_norm = lambda v: (v - self.v_min) / total_scale
         self.v_hight = lambda v: int(v * max_hight_ratio)
 
     def render(self, volts):
         import pygame
+
         _volts = np.clip(volts, self.v_min, self.v_max)
         self.window.fill(self.background_color, self.plot_area)
         bar_width = int(self.width / len(_volts))
-        for i,v in enumerate(_volts):
+        for i, v in enumerate(_volts):
             normed_v = self.v_norm(v)
-            color = (int(normed_v*255), int((1-normed_v)*255), 0)
+            color = (int(normed_v * 255), int((1 - normed_v) * 255), 0)
             x = int(self.left + i * bar_width)
-            y = int(self.top + self.height/2)
+            y = int(self.top + self.height / 2)
             height = self.v_hight(v)
             pygame.draw.line(self.window, color, (x, y), (x, y - height), bar_width)
         super().render()
@@ -151,6 +245,7 @@ class LogFrame(BaseFrame):
 
     def render(self, value):
         import pygame
+
         self.window.fill(self.background_color, self.plot_area)
         self.__recorder.append(value)
         if len(self.__recorder) > 1:
@@ -161,9 +256,13 @@ class LogFrame(BaseFrame):
             for i, sum_value in enumerate(self.__recorder):
                 # 均匀分布 x 轴坐标
                 x = self.left + int(i * (self.width / (num_points - 1)))
-                y = self.top + self.height - int(
-                    (sum_value - min_sum) / (max_sum - min_sum) * self.height
-                ) if max_sum != min_sum else self.height // 2
+                y = (
+                    self.top
+                    + self.height
+                    - int((sum_value - min_sum) / (max_sum - min_sum) * self.height)
+                    if max_sum != min_sum
+                    else self.height // 2
+                )
                 points.append((x, y))
             pygame.draw.lines(self.window, self.Line_Coler, False, points, 2)
         super().render()
@@ -178,15 +277,18 @@ class LogFrame(BaseFrame):
 
 @register_frame("Text")
 class TextFrame(BaseFrame):
-    def __init__(self, font_size:int=0, background_color=BACKGROUND_COLOR, **kwargs) -> None:
+    def __init__(
+        self, font_size: int = 0, background_color=BACKGROUND_COLOR, **kwargs
+    ) -> None:
         super().__init__(**kwargs)
         self.font_size = font_size
         self.background_color = background_color
         if self.font_size == 0:
             logger.info("Font size not specified, using dynamic font size")
 
-    def render(self, text:str, font_size:int=0):
+    def render(self, text: str, font_size: int = 0):
         import pygame
+
         self.window.fill(self.background_color, self.plot_area)
 
         lines = text.splitlines()
@@ -195,21 +297,23 @@ class TextFrame(BaseFrame):
 
         if self.font_size == 0:
             max_line_len = max(len(line) for line in lines)
-            font_pixel = min(self.height // len(lines)-6, self.width // max_line_len-6)
+            font_pixel = min(
+                self.height // len(lines) - 6, self.width // max_line_len - 6
+            )
             self.font_size = self.__font_pixel_to_pt(font_pixel)
 
         font = pygame.font.Font(None, self.font_size)
         for i, line in enumerate(lines):
             text = font.render(line, True, (0, 255, 255))
-            self.window.blit(text, (self.left, self.top + i * (font.get_height()+3)))
+            self.window.blit(text, (self.left, self.top + i * (font.get_height() + 3)))
         super().render()
 
     @staticmethod
-    def __font_pt_to_pixel(pt:int):
+    def __font_pt_to_pixel(pt: int):
         return int(pt * DPI / 72)
 
     @staticmethod
-    def __font_pixel_to_pt(px:int):
+    def __font_pixel_to_pt(px: int):
         return int(px * 72 / DPI)
 
 

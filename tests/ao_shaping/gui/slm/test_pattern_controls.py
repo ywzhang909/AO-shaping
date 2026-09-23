@@ -14,25 +14,16 @@ The rewritten ``XXXControl`` classes must:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
 from typing import Any
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
-from ao_shaping.gui.slm import pattern_controls
 from ao_shaping.gui.slm import pyarrow_probe
-from ao_shaping.gui.slm.pyarrow_probe import (
-    pyarrow_diagnostics,
-    pyarrow_pandas_compat_ok,
-    pyarrow_version,
-    probe_pyarrow,
-)
 from ao_shaping.gui.slm.pattern_controls import (
     PATTERN_REGISTRY,
-    BinaryGratingControl,
     BlazedGratingControl,
-    CheckerboardControl,
     CircularGratingControl,
     FlatControl,
     GSSquareControl,
@@ -65,6 +56,7 @@ CANONICAL_REGISTRY_ORDER = [
     "涡旋相位",
     "半半相位",
     "GS方形整形",
+    "GS方形整形(高斯版)",
     "稳像法整形",
 ]
 
@@ -438,7 +430,7 @@ class TestMaxGrayOverride:
     def test_max_gray_override(self) -> None:
         ctrl = FlatControl(max_gray=993)
         assert ctrl.max_gray == 993
-        assert ctrl.defaults["flat_gray"] == 496
+        assert ctrl.defaults["flat_gray"] == 0
         assert ctrl.ranges["flat_gray"] == (0, 993)
 
         ctrl2 = HalfHalfPhaseControl(max_gray=993)
@@ -446,9 +438,10 @@ class TestMaxGrayOverride:
         assert ctrl2.defaults["flat_gray"] == 496
         assert ctrl2.ranges["flat_gray"] == (0, 993)
 
-        # No override → bits-derived fallback (10 bits → 1023).
+        # No override -> bits-derived fallback (10 bits -> 1023).
         ctrl3 = FlatControl()
         assert ctrl3.max_gray == 1023
+        assert ctrl3.defaults["flat_gray"] == 0
 
     def test_generate_phase_rad_uses_max_gray(self) -> None:
         ctrl = FlatControl(max_gray=993)
