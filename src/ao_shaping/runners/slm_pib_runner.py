@@ -36,6 +36,7 @@ from ao_shaping.runners.runner_common import (
     camera_options,
     run_options,
     save_optimization_debug_artifacts,
+    seed_option,
     slm_extended_options,
 )
 from ao_shaping.utils.io.cli_helpers import get_date_dir_name, get_debug_mode, parse_tuple, setup_coredumpy
@@ -283,6 +284,27 @@ def _objective_options(fn):
         default=8.0,
         help="Softmax temperature for the 'rms_pib' weight update.",
     )(fn)
+    fn = click.option(
+        "--w_pib_init",
+        type=float,
+        default=None,
+        help="Initial PIB weight of the 'rms_pib' objective (default 1/3). "
+        "Provided terms are kept exactly; unprovided terms share the remainder.",
+    )(fn)
+    fn = click.option(
+        "--w_rms_init",
+        type=float,
+        default=None,
+        help="Initial RMS (in-ROI uniformity) weight of the 'rms_pib' objective "
+        "(default 1/3).",
+    )(fn)
+    fn = click.option(
+        "--w_ee_init",
+        type=float,
+        default=None,
+        help="Initial encircled-energy weight of the 'rms_pib' objective "
+        "(default 1/3).",
+    )(fn)
     return fn
 
 
@@ -371,11 +393,14 @@ def _optimizer_kwargs(
         "w_ema_decay": obj.w_ema_decay,
         "w_floor": obj.w_floor,
         "w_temperature": obj.w_temperature,
+        "w_pib_init": obj.w_pib_init,
+        "w_rms_init": obj.w_rms_init,
+        "w_ee_init": obj.w_ee_init,
         "zernike_radius": zernike_radius,
         "shift_x": slm.shift_x,
         "shift_y": slm.shift_y,
         "record_phase": cfg.run.debug,
-        "random_seed": None,
+        "random_seed": cfg.run.seed,
     }
 
     if isinstance(search, SpgdParamsPib):
@@ -422,6 +447,9 @@ def _parse_objective_args(**opts) -> ObjectiveParamsPib:
         w_ema_decay=opts["w_ema_decay"],
         w_floor=opts["w_floor"],
         w_temperature=opts["w_temperature"],
+        w_pib_init=opts["w_pib_init"],
+        w_rms_init=opts["w_rms_init"],
+        w_ee_init=opts["w_ee_init"],
     )
 
 
@@ -441,6 +469,7 @@ def run(ctx: click.Context) -> None:
 
 @click.command(name="spgd")
 @run_options
+@seed_option
 @_camera_options
 @slm_extended_options
 @_objective_options
@@ -470,6 +499,7 @@ def spgd(
     ctx: click.Context,
     dir: str,
     debug: bool,
+    seed: int | None,
     cam_id: int,
     cam_type: str,
     exposure_time_ms: float,
@@ -489,7 +519,7 @@ def spgd(
     **obj_opts,
 ) -> None:
     """Run the SPGD (Stochastic Parallel Gradient Descent) search."""
-    run_cfg = RunParams(dir=dir, debug=debug)
+    run_cfg = RunParams(dir=dir, debug=debug, seed=seed)
     camera = CameraParamsPib(
         cam_id=cam_id,
         cam_type=cam_type,
@@ -531,6 +561,7 @@ def spgd(
 
 @click.command(name="heuristic")
 @run_options
+@seed_option
 @_camera_options
 @slm_extended_options
 @_objective_options
@@ -550,6 +581,7 @@ def heuristic(
     ctx: click.Context,
     dir: str,
     debug: bool,
+    seed: int | None,
     cam_id: int,
     cam_type: str,
     exposure_time_ms: float,
@@ -573,7 +605,7 @@ def heuristic(
     **obj_opts,
 ) -> None:
     """Run a black-box heuristic search (ga/pso/sa/hc/rs/cem/de)."""
-    run_cfg = RunParams(dir=dir, debug=debug)
+    run_cfg = RunParams(dir=dir, debug=debug, seed=seed)
     camera = CameraParamsPib(
         cam_id=cam_id,
         cam_type=cam_type,

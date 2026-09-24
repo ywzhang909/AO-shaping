@@ -21,6 +21,7 @@ import numpy as np
 from click.testing import CliRunner
 
 from ao_shaping.optimizer.wfless.slm_zernike_pib import (
+    _resolve_init_weights,
     _update_dynamic_weights,
     rms_pib_terms,
     target_shape_roi,
@@ -297,6 +298,63 @@ def test_objective_params_default_target_size_is_64() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# _resolve_init_weights: initial PIB/RMS/EE weights of the rms_pib objective
+# --------------------------------------------------------------------------- #
+
+
+def test_resolve_init_weights_defaults_to_thirds() -> None:
+    assert _resolve_init_weights(None, None, None) == (1.0 / 3, 1.0 / 3, 1.0 / 3)
+
+
+def test_resolve_init_weights_single_provided_shares_remainder() -> None:
+    assert _resolve_init_weights(0.6, None, None) == (0.6, 0.2, 0.2)
+    assert _resolve_init_weights(None, 0.6, None) == (0.2, 0.6, 0.2)
+    assert _resolve_init_weights(None, None, 0.6) == (0.2, 0.2, 0.6)
+
+
+def test_resolve_init_weights_two_provided_share_remainder() -> None:
+    assert np.allclose(_resolve_init_weights(0.6, 0.3, None), (0.6, 0.3, 0.1))
+    assert np.allclose(_resolve_init_weights(0.4, None, 0.4), (0.4, 0.2, 0.4))
+
+
+def test_resolve_init_weights_all_provided_are_normalised() -> None:
+    w_pib, w_rms, w_ee = _resolve_init_weights(0.5, 0.3, 0.1)
+
+    assert np.isclose(w_pib, 5.0 / 9)
+    assert np.isclose(w_rms, 3.0 / 9)
+    assert np.isclose(w_ee, 1.0 / 9)
+    assert np.isclose(w_pib + w_rms + w_ee, 1.0)
+
+
+def test_resolve_init_weights_always_normalises_to_one() -> None:
+    for args in (
+        (0.8, None, None),
+        (0.8, 0.1, None),
+        (0.5, 0.3, 0.2),
+        (0.0, 0.0, 1.0),
+    ):
+        out = _resolve_init_weights(*args)
+        assert np.isclose(sum(out), 1.0)
+        assert all(w >= 0.0 for w in out)
+
+
+def test_resolve_init_weights_sum_exceeds_one_raises() -> None:
+    try:
+        _resolve_init_weights(0.6, 0.5, None)
+    except ValueError:
+        return
+    raise AssertionError("weights summing to > 1 must raise ValueError")
+
+
+def test_resolve_init_weights_all_zero_raises() -> None:
+    try:
+        _resolve_init_weights(0.0, 0.0, 0.0)
+    except ValueError:
+        return
+    raise AssertionError("all-zero weights must raise ValueError")
+
+
+# --------------------------------------------------------------------------- #
 # Runner wiring: CLI options + dataclass defaults (no hardware)
 # --------------------------------------------------------------------------- #
 
@@ -307,6 +365,9 @@ def test_objective_params_defaults_include_rms_pib_weights() -> None:
     assert obj.w_ema_decay == 0.9
     assert obj.w_floor == 0.1
     assert obj.w_temperature == 8.0
+    assert obj.w_pib_init is None
+    assert obj.w_rms_init is None
+    assert obj.w_ee_init is None
 
 
 def test_cli_help_lists_rms_pib_objective() -> None:
@@ -314,5 +375,12 @@ def test_cli_help_lists_rms_pib_objective() -> None:
 
     assert result.exit_code == 0, result.output
     assert "rms_pib" in result.output
-    for opt in ("--w_ema_decay", "--w_floor", "--w_temperature"):
+    for opt in (
+        "--w_ema_decay",
+        "--w_floor",
+        "--w_temperature",
+        "--w_pib_init",
+        "--w_rms_init",
+        "--w_ee_init",
+    ):
         assert opt in result.output

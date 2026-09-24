@@ -718,6 +718,50 @@ def _update_dynamic_weights(
     return float(w_pib), float(w_rms)
 
 
+def _resolve_init_weights(
+    w_pib_init: float | None,
+    w_rms_init: float | None,
+    w_ee_init: float | None,
+) -> tuple[float, float, float]:
+    """Resolve the initial PIB/RMS/EE weights of the ``rms_pib`` objective.
+
+    With no weight provided the (1/3, 1/3, 1/3) default is returned. When any
+    weight is provided, provided terms are kept exactly and unprovided terms
+    share the remaining mass equally, so the triple always sums to 1 (the
+    invariant the adaptive update maintains from the first adapting step on).
+    When all three are provided they are normalised to sum 1.
+
+    Raises:
+        ValueError: if the provided weights sum to more than 1 (with fewer than
+            three provided) or to 0 (with all three provided).
+    """
+    given = (w_pib_init, w_rms_init, w_ee_init)
+    if all(w is None for w in given):
+        return (1.0 / 3, 1.0 / 3, 1.0 / 3)
+    given_sum = float(sum(w for w in given if w is not None))
+    n_missing = sum(1 for w in given if w is None)
+    if n_missing > 0:
+        if given_sum > 1.0 + 1e-9:
+            raise ValueError(
+                f"initial rms_pib weights must sum to <= 1 when not all are "
+                f"provided, got {given_sum!r} "
+                f"(w_pib_init={w_pib_init!r}, w_rms_init={w_rms_init!r}, "
+                f"w_ee_init={w_ee_init!r})"
+            )
+        fill = (1.0 - given_sum) / n_missing
+        out = tuple(fill if w is None else float(w) for w in given)
+    else:
+        if given_sum <= 0.0:
+            raise ValueError(
+                "all initial rms_pib weights are provided but sum to 0: "
+                f"(w_pib_init={w_pib_init!r}, w_rms_init={w_rms_init!r}, "
+                f"w_ee_init={w_ee_init!r})"
+            )
+        provided = [w for w in given if w is not None]
+        out = tuple(float(w) / given_sum for w in provided)
+    return (out[0], out[1], out[2])
+
+
 # Coarse→fine schedule for the ``shape`` objective: pulling the energy into the# box first, then flattening it, then shaving hot spots / drift, converges better
 # than one fixed metric for the whole run. Values are
 # (w_uniformity, w_peak, w_displacement); "coarse" is energy-only.
@@ -1080,6 +1124,14 @@ def optimize_slm_zernike_pib(
     w_ema_decay: float = 0.9,
     w_floor: float = 0.1,
     w_temperature: float = 8.0,
+    # Initial weights of the adaptively-weighted 'rms_pib' objective. When any
+    # is provided, provided terms are kept exactly and unprovided terms share
+    # the remainder equally (all three provided -> normalised to sum 1); with
+    # none provided the (1/3, 1/3, 1/3) default is used. The dynamic update
+    # maintains the sum-1 invariant from the first adapting step onwards.
+    w_pib_init: float | None = None,
+    w_rms_init: float | None = None,
+    w_ee_init: float | None = None,
     record_phase: bool = False,
     zernike_radius: float = ZERNIKE_APERTURE_RADIUS,
     shift_x: int | None = 0,
@@ -1218,6 +1270,15 @@ def optimize_slm_zernike_pib(
         raise ValueError(f"w_floor must be within 0..0.5 (exclusive), got {w_floor!r}")
     if not np.isfinite(w_temperature) or w_temperature <= 0.0:
         raise ValueError(f"w_temperature must be positive, got {w_temperature!r}")
+    for _name, _w in (
+        ("w_pib_init", w_pib_init),
+        ("w_rms_init", w_rms_init),
+        ("w_ee_init", w_ee_init),
+    ):
+        if _w is not None and (not np.isfinite(_w) or _w < 0.0):
+            raise ValueError(
+                f"{_name} must be a finite, non-negative weight, got {_w!r}"
+            )
 
     # Optimization mode mapping: pib, avg_radiu, shape, roi_pib and rms_pib are
     # maximized; radiu and rmse are minimized.
@@ -1275,6 +1336,8 @@ def optimize_slm_zernike_pib(
         )
     else:
         display_ctx = nullcontext(None)
+
+    # TODO： 先跑一次离线 gs() 把结果作为闭环初值，通常 3~5 次就能收敛，不用每次从零迭代
 
     with (
         create_camera(
@@ -1555,6 +1618,9 @@ def optimize_slm_zernike_pib(
             # ratios (energy-encircled constraint; see AGENTS.md anti-pattern).
             to_min = -1
             _rms_pib_state: dict = {}
+            _init_w_pib, _init_w_rms, _init_w_ee = _resolve_init_weights(
+                w_pib_init, w_rms_init, w_ee_init
+            )
             # Baseline window energy from the flat-phase capture: "no energy
             # lost" means sum(img) stays at this level.
             _init_energy = float(np.sum(np.asarray(init_img, dtype=np.float64)))
@@ -1562,9 +1628,9 @@ def optimize_slm_zernike_pib(
 
             def calc_objective_rms_pib(img):
                 nonlocal last_terms
-                w_pib = float(_rms_pib_state.setdefault("w_pib", 1.0 / 3))
-                w_rms = float(_rms_pib_state.setdefault("w_rms", 1.0 / 3))
-                w_ee = float(_rms_pib_state.setdefault("w_ee", 1.0 / 3))
+                w_pib = float(_rms_pib_state.setdefault("w_pib", _init_w_pib))
+                w_rms = float(_rms_pib_state.setdefault("w_rms", _init_w_rms))
+                w_ee = float(_rms_pib_state.setdefault("w_ee", _init_w_ee))
                 pib_term, rms_term = rms_pib_terms(
                     img,
                     reference_center,

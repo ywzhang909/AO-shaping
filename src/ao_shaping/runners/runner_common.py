@@ -55,6 +55,7 @@ class RunParams:
 
     dir: str = "data"
     debug: bool = False
+    seed: int | None = None
 
 
 @dataclass
@@ -145,6 +146,14 @@ class ObjectiveParamsPib:
     w_peak: float = 0.5
     w_displacement: float = 0.0
     log_uniformity: bool = False
+    w_ema_decay: float = 0.9
+    w_floor: float = 0.1
+    w_temperature: float = 8.0
+    # Initial weights of the 'rms_pib' objective (None = default 1/3 each).
+    # Provided terms are kept exactly; unprovided terms share the remainder.
+    w_pib_init: float | None = None
+    w_rms_init: float | None = None
+    w_ee_init: float | None = None
 
 
 @dataclass
@@ -170,6 +179,17 @@ def run_options(fn):
     """``-d/--dir`` + ``--debug`` shared by every SLM runner subcommand."""
     fn = click.option("-d", "--dir", default="data", help="Data root directory.")(fn)
     fn = click.option("--debug", is_flag=True, default=False, help="Enable debug mode.")(fn)
+    return fn
+
+
+def seed_option(fn):
+    """``--seed`` random seed (reproducible only in 'sim' mode)."""
+    fn = click.option(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducible runs (reproducible only in 'sim' mode).",
+    )(fn)
     return fn
 
 

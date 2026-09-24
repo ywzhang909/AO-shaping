@@ -17,7 +17,11 @@ from ao_shaping.runners.slm_pib_runner import (
     CameraParams,
     HeuristicParams,
     ObjectiveParams,
+    RunParams,
+    SlmPibConfig,
     SlmParams,
+    SpgdParams,
+    _optimizer_kwargs,
     _resolve_auto_camera,
     _save_debug_artifacts,
     run,
@@ -244,10 +248,56 @@ def test_cli_exposes_debug_and_heuristic_options():
     result = CliRunner().invoke(run, ["heuristic", "--help"])
 
     assert result.exit_code == 0, result.output
-    for opt in ("--debug", "--algorithm", "--pop_size", "--cam_type"):
+    for opt in ("--debug", "--algorithm", "--pop_size", "--cam_type", "--seed"):
         assert opt in result.output
     for algo in ("spgd", "ga", "pso", "sa", "hc", "rs", "cem", "de"):
         assert algo in result.output
+
+
+def test_cli_exposes_seed_for_both_subcommands():
+    for sub in ("spgd", "heuristic"):
+        result = CliRunner().invoke(run, [sub, "--help"])
+        assert result.exit_code == 0, result.output
+        assert "--seed" in result.output
+
+
+def test_cli_exposes_rms_pib_init_weight_options():
+    result = CliRunner().invoke(run, ["spgd", "--help"])
+
+    assert result.exit_code == 0, result.output
+    for opt in ("--w_pib_init", "--w_rms_init", "--w_ee_init"):
+        assert opt in result.output
+
+
+def test_optimizer_kwargs_maps_seed_and_init_weights():
+    cfg = SlmPibConfig(
+        run=RunParams(seed=42),
+        camera=CameraParams(),
+        slm=SlmParams(),
+        objective=ObjectiveParams(w_pib_init=0.6, w_rms_init=0.3),
+        search=SpgdParams(),
+    )
+
+    kwargs = _optimizer_kwargs(cfg, cfg.search)
+
+    assert kwargs["random_seed"] == 42
+    assert kwargs["w_pib_init"] == 0.6
+    assert kwargs["w_rms_init"] == 0.3
+    assert kwargs["w_ee_init"] is None
+
+
+def test_optimizer_kwargs_seed_none_by_default():
+    cfg = SlmPibConfig(
+        run=RunParams(),
+        camera=CameraParams(),
+        slm=SlmParams(),
+        objective=ObjectiveParams(),
+        search=HeuristicParams(algorithm="ga"),
+    )
+
+    kwargs = _optimizer_kwargs(cfg, cfg.search)
+
+    assert kwargs["random_seed"] is None
 
 
 def test_algorithm_choices_match_optimizer():
