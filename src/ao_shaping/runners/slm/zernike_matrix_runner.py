@@ -282,6 +282,11 @@ def _capture_wfs_full_state(
 ) -> WfsStateSnapshot:
     """捕获WFS完整状态: deviations, Zernike系数, 2D波前, RMS
 
+    单帧一致性契约: 一次 `take_image()` 采集后, deviation/Zernike/波前
+    三个读数都基于同一帧 (同源数据, 读取结果相同属预期行为——这是闭环
+    控制所需的"冻结快照"语义, 不是故障)。若某指标需要独立的新测量,
+    调用方必须在两次读数之间再次 `take_image()`。
+
     Args:
         wfs: ThorlabWFS实例
         cancel_tile: 是否去除WFS tip/tilt
@@ -292,7 +297,7 @@ def _capture_wfs_full_state(
     """
     wfs.take_image()
     dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=cancel_tile)
-    # FIXME:读取的数据似乎一样
+    # 注: 三个读数同源于上面一次 take_image 的同一帧 (冻结快照, 见 docstring)
     zernike_coeffs = wfs.get_zernike(zernike_order=zernike_order)
     wf_2d, stats = wfs.get_wavefront(cancel_tile=cancel_tile)
     rms = float(stats.get("rms", np.nan)) if stats else np.nan

@@ -313,11 +313,11 @@ def test_{device_name}_basic():
     """Basic functionality test."""
     with TestReport("{device_name}") as report:
         with TestWithReport(report, "Device Initialization"):
-            # TODO: Add initialization test
+            # Add device-specific initialization assertions here (e.g. connection state, firmware version)
             pass
 
         with TestWithReport(report, "Parameter Configuration"):
-            # TODO: Add parameter test
+            # Add device-specific parameter assertions here (e.g. read-back matches written values)
             pass
 
         # Add plots
