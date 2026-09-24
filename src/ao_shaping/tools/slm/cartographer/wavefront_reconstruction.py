@@ -253,8 +253,12 @@ def interpolate_sparse_to_dense(
     y_dense = np.linspace(0, 1, target_ny)
 
     try:
-        spline_x = RectBivariateSpline(y_orig, x_orig, sparse_x, kx=3, ky=3)
-        spline_y = RectBivariateSpline(y_orig, x_orig, sparse_y, kx=3, ky=3)
+        # FITPACK 要求数据网格尺寸严格大于样条阶数 (mx > kx)；小网格 (如 3×3
+        # 测试/稀疏副孔径) 会抛 _dfitpack.error，故按数据尺寸 clamp 阶数。
+        kx = min(3, nx - 1)
+        ky = min(3, ny - 1)
+        spline_x = RectBivariateSpline(y_orig, x_orig, sparse_x, kx=kx, ky=ky)
+        spline_y = RectBivariateSpline(y_orig, x_orig, sparse_y, kx=kx, ky=ky)
 
         dense_x = spline_x(y_dense, x_dense)
         dense_y = spline_y(y_dense, x_dense)

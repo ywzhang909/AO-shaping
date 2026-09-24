@@ -1,9 +1,17 @@
+import os
 import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 from matplotlib import animation
+
+# 硬件门控: 与 tests/ao_shaping/tools/slm/test_slm_diagnose_hardware.py 同款
+# (README v0.12.0 约定)。未设 AO_RUN_HARDWARE=1 时整模块跳过 —— 无设备时
+# ThorlabWFS.open() 失败会在 GC 终结化阶段触发 SDK 原生 access violation
+# (2026-09 实测 EXIT=-1073741819), 必须 skip-first 避免触碰 SDK。
+if os.environ.get("AO_RUN_HARDWARE", "").strip().lower() not in {"1", "true", "yes"}:
+    pytest.skip("set AO_RUN_HARDWARE=1 to run WFS hardware tests", allow_module_level=True)
 
 from ao_shaping.drivers import MlaRes, ThorlabWFS
 

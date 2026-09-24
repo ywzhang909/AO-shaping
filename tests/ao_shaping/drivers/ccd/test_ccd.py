@@ -1,8 +1,16 @@
+import os
+
 import numpy as np
 import matplotlib.pyplot as plt
 import pytest
 
 from ao_shaping.utils.image.spots_calc import centroid
+
+# 硬件门控: 与 tests/ao_shaping/tools/slm/test_slm_diagnose_hardware.py 同款
+# (README v0.12.0 约定)。未设 AO_RUN_HARDWARE=1 时整模块跳过 —— 无设备时
+# Daheng/MII SDK open 失败抛 ConnectionAbortedError, 且避免误触相机。
+if os.environ.get("AO_RUN_HARDWARE", "").strip().lower() not in {"1", "true", "yes"}:
+    pytest.skip("set AO_RUN_HARDWARE=1 to run CCD hardware tests", allow_module_level=True)
 
 gxipy = pytest.importorskip("gxipy")
 from ao_shaping.drivers.ccd.daheng import DahengCamera

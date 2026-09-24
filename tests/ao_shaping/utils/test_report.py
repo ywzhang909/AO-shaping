@@ -16,6 +16,8 @@ from typing import Any
 class TestReport:
     """Generates markdown test reports with images for hardware devices."""
 
+    __test__ = False  # helper base class, not a pytest test class (has __init__)
+
     def __init__(self, device_name: str, device_dir: str | None = None):
         """Initialize test report for a device.
 
@@ -243,6 +245,8 @@ def save_plot_to_report(report: TestReport, fig, name: str, caption: str = "") -
 # Context manager for test with automatic report
 class TestWithReport:
     """Context manager for a test that generates a report section."""
+
+    __test__ = False  # helper base class, not a pytest test class (has __init__)
 
     def __init__(self, report: TestReport, test_name: str):
         self.report = report

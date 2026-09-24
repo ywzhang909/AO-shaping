@@ -4,9 +4,13 @@ These tests require actual hardware devices to be connected.
 They will be skipped if hardware is not available.
 
 Run with:
-    pytest tests/ao_shaping/drivers/test_hardware_integration.py -v -s
+    AO_RUN_HARDWARE=1 pytest tests/ao_shaping/drivers/test_hardware_integration.py -v -s
 
 Environment variables to control which devices to test:
+    AO_RUN_HARDWARE=1 - Master switch: skip whole module when unset (default).
+                        Required to avoid SDK crashes when no device is connected
+                        (Thorlabs WFS DLL access-violates at GC finalization after
+                        a failed open(); Santec/Daheng raise instead).
     TEST_WFS=1      - Enable WFS tests (default: 1)
     TEST_SLM=1      - Enable SLM tests (default: 1)
     TEST_DM=1       - Enable DM tests (default: 1)
@@ -24,6 +28,13 @@ ENABLE_WFS = os.environ.get("TEST_WFS", "1") == "1"
 ENABLE_SLM = os.environ.get("TEST_SLM", "1") == "1"
 ENABLE_DM = os.environ.get("TEST_DM", "1") == "1"
 ENABLE_CCD = os.environ.get("TEST_CCD", "1") == "1"
+
+# 模块级硬件门控: 与 tests/ao_shaping/tools/slm/test_slm_diagnose_hardware.py
+# 同款 (README v0.12.0 约定)。AO_RUN_HARDWARE 未设置时整模块跳过 —— 本文件
+# 全部测试 (含不走 fixture 的 test_context_manager 用例) 都直接打开设备,
+# 无设备时 WFS open() 失败会在 GC 终结化触发 SDK 原生崩溃, 必须 skip-first。
+if os.environ.get("AO_RUN_HARDWARE", "").strip().lower() not in {"1", "true", "yes"}:
+    pytest.skip("set AO_RUN_HARDWARE=1 to run hardware integration tests", allow_module_level=True)
 
 
 # ============================================================================

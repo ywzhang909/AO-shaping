@@ -9,6 +9,7 @@ import numpy as np
 from ao_shaping.drivers import MIICamera, NlightDM
 from ao_shaping.drivers.sim.beam_backend import make_beam_config, turbulence_phase
 from ao_shaping.drivers.sim import beam_simulation as bs
+from ao_shaping.utils.wavefront.zernike_calc import noll_to_nm
 
 from ao_shaping.drivers.sim.compat import (
     TraditionalAOSystem, AOConfig,
@@ -833,11 +834,10 @@ class StaticAberrationAOEnv(_BaseSimAOEnv):
             coeff = float(self.np_random.normal(0.0, self.zernike_coeff_std))
             coeff = float(np.clip(coeff, -self.zernike_coeff_clip, self.zernike_coeff_clip))
             coefficients[noll_idx] = coeff
-            phase += 2 * np.pi * coeff * bs.generate_zernike_map(
-                noll_idx,
-                self.ao_system._x,
-                self.ao_system._y,
-            )
+            n, m = noll_to_nm(noll_idx)
+            rho = bs.normalize_rho(self.ao_system._x, self.ao_system._y)
+            theta = np.arctan2(self.ao_system._y, self.ao_system._x)
+            phase += 2 * np.pi * coeff * bs.zernike_polynomial(n, m, rho, theta)
 
         phase = phase * mask
         if np.any(mask):

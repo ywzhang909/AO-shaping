@@ -327,12 +327,20 @@ class TestGetBucketMask:
         assert mask.dtype == bool
 
     def test_get_bucket_mask_invalid_radius(self):
-        """Test that invalid radius raises assertion."""
+        """Test that out-of-range radius is clamped, not asserted (2245b77 起契约)."""
         target = create_target_from_dims(20, 20, (10, 10))
-        with pytest.raises(AssertionError):
-            target._ImageTargetFunc__get_bucket_mask(0)
-        with pytest.raises(AssertionError):
-            target._ImageTargetFunc__get_bucket_mask(100)
+        # __get_bucket_mask 对越界半径 clamp: idx = min(max(int(radius),1), len-1)
+        # (target_func.py:163-170)。radius() 饱和到 len(masks) 且 caller 以 float
+        # 缩放动态桶半径都会越界, 故不再 assert —— 断言 clamp 边界行为。
+        assert np.array_equal(
+            target._ImageTargetFunc__get_bucket_mask(0),
+            target._ImageTargetFunc__get_bucket_mask(1),
+        )
+        n_masks = len(target.masks)
+        assert np.array_equal(
+            target._ImageTargetFunc__get_bucket_mask(100),
+            target._ImageTargetFunc__get_bucket_mask(n_masks - 1),
+        )
 
 
 class TestDistanceMatrix:

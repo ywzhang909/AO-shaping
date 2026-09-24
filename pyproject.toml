@@ -1,7 +1,16 @@
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+# "src" for package imports, "." (repo root) so `from tests.ao_shaping...` imports
+# resolve when the suite is run via plain `pytest` (not `python -m pytest`).
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers"]
 markers = [
-    "hardware: requires physical hardware device",
+    "hardware: requires physical hardware device (enable with --hardware)",
+    "slow: longer-running tests (exclude with -m 'not slow')",
+]
+filterwarnings = [
+    # aotools karhunenLoeve.py 使用已废弃的 scipy.ndimage.interpolation.map_coordinates
+    "ignore:Please import `map_coordinates` from the `scipy\\.ndimage` namespace:DeprecationWarning:aotools",
 ]
 
 [project]

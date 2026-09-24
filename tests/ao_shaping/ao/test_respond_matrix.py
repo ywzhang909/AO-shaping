@@ -1,6 +1,18 @@
+import os
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+
+# 硬件门控: 与 tests/ao_shaping/tools/slm/test_slm_diagnose_hardware.py 同款
+# (README v0.12.0 约定)。未设 AO_RUN_HARDWARE=1 时整模块跳过, 不触碰
+# Santec/Thorlabs SDK —— SDK 在 Windows 可加载但设备未连时 open 会失败/崩溃,
+# 需要显式声明的硬件环境才运行。
+if os.environ.get("AO_RUN_HARDWARE", "").strip().lower() not in {"1", "true", "yes"}:
+    pytest.skip(
+        "set AO_RUN_HARDWARE=1 to run SLM+WFS response-matrix hardware tests",
+        allow_module_level=True,
+    )
 
 # These tests require real SLM + WFS hardware (Windows-only SDKs: Santec SLM
 # DLL + Thorlabs WFS DLL). On non-Windows / SDK-less machines the bindings
