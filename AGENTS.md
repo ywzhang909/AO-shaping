@@ -103,6 +103,13 @@ AO-shaping/
 | `ga-zernike` | `optimizer.wf.ga_zernike:optimizer_ga()` | wf | GA Zernike | SLM + WFS |
 | `combined` | `optimizer.combined_optimizer:optimize_pib()` | wfless | AdaMOD + SPGD 混合 PIB | DM + CCD |
 
+> **`slm-pib` 配置容器** (2026-09): `optimize_slm_zernike_pib()` 的 45 个参数已收敛为
+> `SlmZernikePibConfig` dataclass (`optimizer/wfless/slm_zernike_pib.py`)。公开 API 100% 兼容:
+> 调用方仍按关键字传参 (内部折叠进 dataclass), 也可显式传 `config=SlmZernikePibConfig(...)`。
+> 内部重命名 (非公开 API): `test_pib`→`ideal_pib_ratio`、`intellij_center`→`_smart_center`
+> (本文件内, 与 `pib.py` 的 `intellij_center` 无关)、`to_min` 标量删除 → 由 `objective_mode`
+> 派生 `_spgd_sign`。
+
 > **注意**: `optimizer/wf/rms.py` 和 `optimizer/wf/rms_by_zernike.py` 的函数名冲突已通过重命名解决:
 > - `rms.py:optimizer_rms_dm()`: DM 电压控制 + WFS 测量 (用于 `wf` 和 `pipeline` 命令)
 > - `rms_by_zernike.py:optimizer_rms_slm()`: SLM Zernike 相位控制 + WFS 测量 (用于 `rms-zernike` 命令)
