@@ -14,9 +14,9 @@ import matplotlib.pyplot as plt
 
 from ao_shaping.drivers import MlaRes
 from ao_shaping.optimizer.wf.ga_zernike import optimizer_ga
+from ao_shaping.runners.runner_common import GaZernikeParams, with_params
 from ao_shaping.utils.image.display import plot_funcs
 from ao_shaping.utils.io.cli_helpers import (
-    parse_tuple,
     setup_coredumpy,
     get_date_dir_name,
     get_debug_mode,
@@ -28,185 +28,58 @@ from ao_shaping.utils.io.file import (
 
 
 @click.command(name="ga-zernike")
-@click.option(
-    "-d",
-    "--dir",
-    default="data",
-    help="数据保存根目录 (default: data)",
-)
-@click.option(
-    "--population-size",
-    type=int,
-    default=50,
-    help="种群大小 (default: 50)",
-)
-@click.option(
-    "--n-generations",
-    type=int,
-    default=2000,
-    help="GA迭代代数 (default: 2000)",
-)
-@click.option(
-    "--crossover-prob",
-    type=float,
-    default=0.7,
-    help="交叉概率 (default: 0.7)",
-)
-@click.option(
-    "--mutation-prob",
-    type=float,
-    default=0.15,
-    help="变异概率 (default: 0.15)",
-)
-@click.option(
-    "--tournament-size",
-    type=int,
-    default=3,
-    help="锦标赛选择大小 (default: 3)",
-)
-@click.option(
-    "--elite-count",
-    type=int,
-    default=2,
-    help="精英个体数量 (default: 2)",
-)
-@click.option(
-    "-n",
-    "--n-max",
-    type=int,
-    default=4,
-    help="最大Zernike径向阶数 (default: 4)",
-)
-@click.option(
-    "-w",
-    "--wavelength",
-    type=int,
-    default=532,
-    help="SLM波长 (nm) (default: 532)",
-)
-@click.option(
-    "--wfs-res",
-    type=int,
-    default=1024,
-    help="WFS分辨率 (default: 1024)",
-)
-@click.option(
-    "--pupil-diameter",
-    type=float,
-    default=4.6,
-    help="WFS瞳孔直径 (default: 4.6)",
-)
-@click.option(
-    "-c",
-    "--pupil-center",
-    callback=parse_tuple,
-    default="(0,0)",
-    help="瞳孔中心坐标 (default: (0,0))",
-)
-@click.option(
-    "--early-stop-threshold",
-    type=float,
-    default=0.01,
-    help="早停RMS阈值 (default: 0.01)",
-)
-@click.option(
-    "--slm-number",
-    type=int,
-    default=1,
-    help="SLM设备编号 (default: 1)",
-)
-@click.option(
-    "--remove-tilt",
-    is_flag=True,
-    help="去除波前倾斜 (default: False)",
-)
-@click.option(
-    "--shift-x",
-    type=int,
-    default=0,
-    help="SLM X方向偏移 (pixels) (default: 0)",
-)
-@click.option(
-    "--shift-y",
-    type=int,
-    default=0,
-    help="SLM Y方向偏移 (pixels) (default: 0)",
-)
-@click.option(
-    "--show",
-    is_flag=True,
-    help="显示优化历史 (default: False)",
-)
-def run(
-    dir: str,
-    population_size: int,
-    n_generations: int,
-    crossover_prob: float,
-    mutation_prob: float,
-    tournament_size: int,
-    elite_count: int,
-    n_max: int,
-    wavelength: int,
-    wfs_res: int,
-    pupil_diameter: float,
-    pupil_center: tuple,
-    early_stop_threshold: float,
-    slm_number: int,
-    remove_tilt: bool,
-    shift_x: int,
-    shift_y: int,
-    show: bool,
-) -> None:
+@with_params(GaZernikeParams, kw_name="params")
+def run(params: GaZernikeParams) -> None:
     """使用遗传算法优化Zernike系数进行波前校正."""
     debug = get_debug_mode()
 
     # Convert wfs_res from int to MlaRes
-    wfs_res_enum = MlaRes.from_str(str(wfs_res))
+    wfs_res_enum = MlaRes.from_str(str(params.wfs_res))
 
     click.echo("GA-Zernike优化参数:")
-    click.echo(f"  种群大小: {population_size}")
-    click.echo(f"  迭代代数: {n_generations}")
-    click.echo(f"  交叉概率: {crossover_prob}")
-    click.echo(f"  变异概率: {mutation_prob}")
-    click.echo(f"  锦标赛大小: {tournament_size}")
-    click.echo(f"  精英数量: {elite_count}")
-    click.echo(f"  最大Zernike阶数: {n_max}")
-    click.echo(f"  波长: {wavelength} nm")
+    click.echo(f"  种群大小: {params.population_size}")
+    click.echo(f"  迭代代数: {params.n_generations}")
+    click.echo(f"  交叉概率: {params.crossover_prob}")
+    click.echo(f"  变异概率: {params.mutation_prob}")
+    click.echo(f"  锦标赛大小: {params.tournament_size}")
+    click.echo(f"  精英数量: {params.elite_count}")
+    click.echo(f"  最大Zernike阶数: {params.n_max}")
+    click.echo(f"  波长: {params.wavelength} nm")
     click.echo(f"  WFS分辨率: {wfs_res_enum}")
-    click.echo(f"  瞳孔直径: {pupil_diameter}")
-    click.echo(f"  瞳孔中心: {pupil_center}")
-    click.echo(f"  早停阈值: {early_stop_threshold}")
-    click.echo(f"  SLM编号: {slm_number}")
-    click.echo(f"  去除倾斜: {remove_tilt}")
-    click.echo(f"  X偏移: {shift_x}")
-    click.echo(f"  Y偏移: {shift_y}")
+    click.echo(f"  瞳孔直径: {params.pupil_diameter}")
+    click.echo(f"  瞳孔中心: {params.pupil_center}")
+    click.echo(f"  早停阈值: {params.early_stop_threshold}")
+    click.echo(f"  SLM编号: {params.slm_number}")
+    click.echo(f"  去除倾斜: {params.remove_tilt}")
+    click.echo(f"  X偏移: {params.shift_x}")
+    click.echo(f"  Y偏移: {params.shift_y}")
 
     recorder = optimizer_ga(
-        n_generations=n_generations,
-        population_size=population_size,
-        crossover_prob=crossover_prob,
-        mutation_prob=mutation_prob,
-        tournament_size=tournament_size,
-        elite_count=elite_count,
-        n_max=n_max,
-        wavelength=wavelength,
+        n_generations=params.n_generations,
+        population_size=params.population_size,
+        crossover_prob=params.crossover_prob,
+        mutation_prob=params.mutation_prob,
+        tournament_size=params.tournament_size,
+        elite_count=params.elite_count,
+        n_max=params.n_max,
+        wavelength=params.wavelength,
         wfs_res=wfs_res_enum,
-        pupil_diameter=pupil_diameter,
-        pupil_center=pupil_center,
-        early_stop_threshold=early_stop_threshold,
-        slm_number=slm_number,
-        remove_tilt=remove_tilt,
-        shift_x=shift_x,
-        shift_y=shift_y,
+        pupil_diameter=params.pupil_diameter,
+        pupil_center=params.pupil_center,
+        early_stop_threshold=params.early_stop_threshold,
+        slm_number=params.slm_number,
+        remove_tilt=params.remove_tilt,
+        shift_x=params.shift_x,
+        shift_y=params.shift_y,
     )
 
     # Extract results
     min_iter, (min_gen, min_rms) = recorder.get_best_iter()
     best_zernike = min_iter["_c"]
 
-    root_dir = Path(dir)
+    root_dir = Path(params.dir)
 
-    if debug or show:
+    if debug or params.show:
         save_dir, saved_file = build_debug_save_paths(root_dir, "ga_zernike")
 
         save_optimization_debug_artifacts(

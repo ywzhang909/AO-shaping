@@ -44,170 +44,14 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.algorithm.heuristic.search import heuristic_algorithm_choices
+from ao_shaping.runners.runner_common import SlmSquareParams, with_params
 from ao_shaping.utils.io.cli_helpers import get_debug_mode, get_date_dir_name
 
 
 @click.command()
-@click.option(
-    "-e", "--epochs", default=2000, type=int, help="优化迭代次数 (default: 2000)"
-)
-@click.option(
-    "-n", "--n-max", default=4, type=int, help="Zernike最大径向阶数 (default: 4)"
-)
-@click.option(
-    "-c",
-    "--center",
-    default="shape",
-    type=str,
-    help="光斑中心检测: shape(智能argmax锚定,默认)/centroid_thresh(亮度重心)"
-    "/max(峰值位置)/mass(质心,易被杂散光拉偏)/'x,y'(固定坐标) (default: shape)",
-)
-@click.option(
-    "--target-side",
-    default=0,
-    type=int,
-    help="目标方形边长(像素), 0=自动; 与 --target-mean-brightness 互斥 (default: 0)",
-)
-@click.option(
-    "--target-mean-brightness",
-    default=0.0,
-    type=float,
-    help="目标方形平均亮度(灰度), >0 时由总亮度能量守恒自动推导边长; "
-    "与 --target-side 互斥 (default: 0 = 不启用)",
-)
-@click.option(
-    "--side-factor", default=1.5, type=float, help="自动边长倍率 (default: 1.5)"
-)
-@click.option("-d", "--delta", default=0.1, type=float, help="扰动幅度 (default: 0.1)")
-@click.option("--lr", default=0.0, type=float, help="学习率, 0=自动 (default: 0)")
-@click.option(
-    "-t", "--exposure-ms", default=80.0, type=float, help="相机曝光时间ms (default: 80)"
-)
-@click.option("--cam-id", default=0, type=int, help="相机设备ID (default: 0)")
-@click.option(
-    "-s", "--cam-size", default=300, type=int, help="相机开窗大小 (default: 300)"
-)
-@click.option("--slm-number", default=1, type=int, help="SLM设备编号 (default: 1)")
-@click.option(
-    "--slm-wavelength", default=1064, type=int, help="SLM波长nm (default: 1064)"
-)
-@click.option(
-    "--optimizer",
-    default="adamod",
-    type=str,
-    help="优化器: adam/adamod/sgd/muno (default: adamod; 仅 --algorithm spgd 生效)",
-)
-@click.option(
-    "--algorithm",
-    type=click.Choice(list(heuristic_algorithm_choices()), case_sensitive=False),
-    default="spgd",
-    show_default=True,
-    help="搜索算法: spgd (SPGD 梯度) 或启发式 (ga/pso/sa/hc/rs/cem/de)",
-)
-@click.option(
-    "--pop_size",
-    type=int,
-    default=None,
-    help="种群规模 (ga/pso/cem/de 使用; 默认取算法默认值)",
-)
-@click.option("--seed", default=None, type=int, help="随机种子 (default: None)")
-@click.option("--show", is_flag=True, default=False, help="显示中间图像")
-@click.option(
-    "--target-brightness", default=200, type=int, help="目标最大亮度 (default: 200)"
-)
-@click.option(
-    "--w-uniformity", default=0.4, type=float, help="均匀性权重 (default: 0.4)"
-)
-@click.option(
-    "--w-efficiency", default=0.6, type=float, help="能量效率权重 (default: 0.6)"
-)
-@click.option("--w-aspect", default=0.0, type=float, help="宽高比权重 (default: 0.0)")
-@click.option(
-    "--basis",
-    default="zernike",
-    type=click.Choice(["freeform", "zernike"]),
-    help="相位参数化: zernike(默认, 与GUI一致: radius=600 + defocus(2,0) + spherical(4,0))/freeform(自由相位, 可合成方形)",
-)
-@click.option(
-    "--phase-grid",
-    default=24,
-    type=int,
-    help="freeform 相位网格边长 (dim=grid²) (default: 24)",
-)
-@click.option(
-    "--zernike-radius",
-    default=600,
-    type=int,
-    help="Zernike 孔径半径(px), 默认 600 = SLM 面板短边一半 (与GUI一致)",
-)
-@click.option(
-    "--zernike-mask",
-    default=None,
-    type=str,
-    help="0/1 binary mask for Zernike modes (comma-separated), e.g. '0,0,0,1,0,0,0,0,0,0,0,1' for defocus+spherical only. Noll 1-3 forced to 0. Overrides --basis zernike defaults.",
-)
-@click.option(
-    "--rotation-search",
-    "rotation_search_deg",
-    default=0.0,
-    type=float,
-    help="SLM↔相机相对旋转搜索范围(度, 0~360; 0=关闭旋转校正)。>0 时旋转角作为额外 SPGD 自由度在 ±range/2 内搜索",
-)
-@click.option(
-    "--init-defocus",
-    default=1.0,
-    type=float,
-    help="初始 Defocus (2,0) 系数 (default: 1.0)",
-)
-@click.option(
-    "--init-spherical",
-    default=0.5,
-    type=float,
-    help="初始 Spherical (4,0) 系数 (default: 0.5)",
-)
-@click.option(
-    "--init-coeffs",
-    default=None,
-    type=str,
-    help='初始Zernike系数JSON (Noll 索引 dict 或 Noll 序数组); zernike 基只优化 Defocus(2,0)[Noll 4] 与 Spherical(4,0)[Noll 11], e.g. \'{"4":1.0,"11":0.5}\'',
-)
-@click.option("--save-best-image", is_flag=True, default=False, help="保存最优图像")
 @click.pass_context
-def run(
-    ctx: click.Context,
-    epochs: int,
-    n_max: int,
-    center: str,
-    target_side: int,
-    target_mean_brightness: float,
-    side_factor: float,
-    delta: float,
-    lr: float,
-    exposure_ms: float,
-    cam_id: int,
-    cam_size: int,
-    slm_number: int,
-    slm_wavelength: int,
-    optimizer: str,
-    algorithm: str,
-    pop_size: int | None,
-    seed: int | None,
-    show: bool,
-    target_brightness: int,
-    w_uniformity: float,
-    w_efficiency: float,
-    w_aspect: float,
-    basis: str,
-    phase_grid: int,
-    zernike_radius: int,
-    zernike_mask: str | None,
-    rotation_search_deg: float,
-    init_defocus: float,
-    init_spherical: float,
-    init_coeffs: str | None,
-    save_best_image: bool,
-):
+@with_params(SlmSquareParams, kw_name="params")
+def run(ctx: click.Context, params: SlmSquareParams) -> None:
     """SLM方形光斑整形优化器
 
     使用SPGD算法优化SLM上的Zernike系数，通过相机反馈产生均匀方形远场光斑。
@@ -225,16 +69,16 @@ def run(
     )
 
     # 目标方形参数二选一: 边长(px) 或 平均亮度
-    if target_side > 0 and target_mean_brightness > 0:
+    if params.target_side > 0 and params.target_mean_brightness > 0:
         raise click.UsageError(
             "--target-side 与 --target-mean-brightness 互斥: "
             "方形边长(px) 与 方形平均亮度只能二选一"
         )
 
     # Parse center
-    center_arg: tuple[int, int] | str | None = center
+    center_arg: tuple[int, int] | str | None = params.center
     try:
-        parts = center.split(",")
+        parts = params.center.split(",")
         if len(parts) == 2:
             center_arg = (int(parts[0]), int(parts[1]))
     except (ValueError, AttributeError):
@@ -242,15 +86,15 @@ def run(
 
     # Parse init coefficients
     init_c: list[float] | np.ndarray | None = None
-    if init_coeffs is not None:
+    if params.init_coeffs is not None:
         try:
-            parsed = json.loads(init_coeffs)
+            parsed = json.loads(params.init_coeffs)
             if isinstance(parsed, dict):
                 # Noll index dict format, convert to list
                 from ao_shaping.utils.wavefront.zernike_utils import parse_zernike_coefficients
 
-                coeffs_dict = parse_zernike_coefficients(parsed, n_max=n_max)
-                nk_terms = (n_max + 1) * (n_max + 2) // 2
+                coeffs_dict = parse_zernike_coefficients(parsed, n_max=params.n_max)
+                nk_terms = (params.n_max + 1) * (params.n_max + 2) // 2
                 init_c = np.zeros(nk_terms, dtype=np.float64)
                 from ao_shaping.utils.wavefront.zernike_calc import noll_to_nm
 
@@ -263,35 +107,35 @@ def run(
         except (json.JSONDecodeError, ValueError) as e:
             click.echo(f"Error parsing --init-coeffs: {e}", err=True)
             sys.exit(1)
-    elif basis == "zernike":
+    elif params.basis == "zernike":
         # 默认初始系数 = GUI 同款: Defocus(2,0) + Spherical(4,0)
         # 与 multi_slm_controller.py 的 Zernike 分支一致 (radius=600)
-        nk_terms = (n_max + 1) * (n_max + 2) // 2
+        nk_terms = (params.n_max + 1) * (params.n_max + 2) // 2
         init_c = np.zeros(nk_terms, dtype=np.float64)
         from ao_shaping.utils.wavefront.zernike_calc import noll_to_nm
 
         for j_idx in range(nk_terms):
             n, m = noll_to_nm(j_idx + 1)
             if (n, m) == (2, 0):
-                init_c[j_idx] = init_defocus
+                init_c[j_idx] = params.init_defocus
             elif (n, m) == (4, 0):
-                init_c[j_idx] = init_spherical
+                init_c[j_idx] = params.init_spherical
 
     # Parse zernike_mask
     zernike_mask_arr = None
-    if zernike_mask is not None:
+    if params.zernike_mask is not None:
         zernike_mask_arr = np.array(
-            [int(x.strip()) for x in zernike_mask.split(",")],
+            [int(x.strip()) for x in params.zernike_mask.split(",")],
             dtype=int,
         )
 
-    if basis == "zernike" and init_c is not None:
+    if params.basis == "zernike" and init_c is not None:
         from ao_shaping.optimizer.wfless.slm_square_shaping import (
             ZERNIKE_ACTIVE_MODES,
             _zernike_indices,
         )
 
-        _noll = _zernike_indices(n_max)
+        _noll = _zernike_indices(params.n_max)
         if zernike_mask_arr is not None:
             _mask = np.asarray(zernike_mask_arr, dtype=int).ravel()
             nk = len(_noll)
@@ -315,32 +159,32 @@ def run(
     click.echo("=" * 60)
     click.echo("SLM Square Beam Uniformity Optimization (SPGD)")
     click.echo("=" * 60)
-    click.echo(f"Zernike order: {n_max} ({(n_max + 1) * (n_max + 2) // 2} terms)")
-    if target_mean_brightness > 0:
-        click.echo(f"Target: mean brightness = {target_mean_brightness} (auto side)")
+    click.echo(f"Zernike order: {params.n_max} ({(params.n_max + 1) * (params.n_max + 2) // 2} terms)")
+    if params.target_mean_brightness > 0:
+        click.echo(f"Target: mean brightness = {params.target_mean_brightness} (auto side)")
     else:
-        click.echo(f"Target side: {'auto' if target_side <= 0 else target_side} px")
-    click.echo(f"Optimizer: {optimizer}")
+        click.echo(f"Target side: {'auto' if params.target_side <= 0 else params.target_side} px")
+    click.echo(f"Optimizer: {params.optimizer}")
     click.echo(
-        f"Basis: {basis}"
+        f"Basis: {params.basis}"
         + (
-            f" (grid={phase_grid})"
-            if basis == "freeform"
-            else f" (radius={zernike_radius})"
+            f" (grid={params.phase_grid})"
+            if params.basis == "freeform"
+            else f" (radius={params.zernike_radius})"
         )
     )
-    if basis == "zernike" and init_coeffs is None:
+    if params.basis == "zernike" and params.init_coeffs is None:
         click.echo(
-            f"Init Zernike: Defocus(2,0)={init_defocus}, Spherical(4,0)={init_spherical}"
+            f"Init Zernike: Defocus(2,0)={params.init_defocus}, Spherical(4,0)={params.init_spherical}"
         )
-    if basis == "zernike" and zernike_mask_arr is not None:
+    if params.basis == "zernike" and zernike_mask_arr is not None:
         click.echo(f"Zernike mask: {zernike_mask_arr.tolist()}")
-    if rotation_search_deg > 0:
-        click.echo(f"Rotation search: ±{rotation_search_deg / 2.0:.1f}° (SPGD extra DOF)")
-    click.echo(f"Epochs: {epochs}")
-    click.echo(f"SLM: #{slm_number} @ {slm_wavelength}nm")
-    click.echo(f"Camera: ID={cam_id}, size={cam_size}")
-    click.echo(f"Weights: CV={w_uniformity}, EE={w_efficiency}, AR={w_aspect}")
+    if params.rotation_search_deg > 0:
+        click.echo(f"Rotation search: ±{params.rotation_search_deg / 2.0:.1f}° (SPGD extra DOF)")
+    click.echo(f"Epochs: {params.epochs}")
+    click.echo(f"SLM: #{params.slm_number} @ {params.slm_wavelength}nm")
+    click.echo(f"Camera: ID={params.cam_id}, size={params.cam_size}")
+    click.echo(f"Weights: CV={params.w_uniformity}, EE={params.w_efficiency}, AR={params.w_aspect}")
     click.echo("=" * 60)
 
     from ao_shaping.optimizer.wfless.slm_square_shaping import optimize_slm_square
@@ -348,33 +192,33 @@ def run(
 
     recorder = optimize_slm_square(
         center=center_arg,
-        epochs=epochs,
-        n_max=n_max,
-        target_side=target_side,
-        target_mean_brightness=target_mean_brightness,
-        side_factor=side_factor,
-        delta=delta,
-        lr=lr,
-        exposure_time_ms=exposure_ms,
-        cam_id=cam_id,
-        show=show,
+        epochs=params.epochs,
+        n_max=params.n_max,
+        target_side=params.target_side,
+        target_mean_brightness=params.target_mean_brightness,
+        side_factor=params.side_factor,
+        delta=params.delta,
+        lr=params.lr,
+        exposure_time_ms=params.exposure_ms,
+        cam_id=params.cam_id,
+        show=params.show,
         init_c=init_c,
-        cam_size=cam_size,
-        target_max_brightness=target_brightness,
-        slm_number=slm_number,
-        slm_wavelength=slm_wavelength,
-        optimizer_type=optimizer,
-        algorithm=algorithm,
-        pop_size=pop_size,
-        random_seed=seed,
-        w_uniformity=w_uniformity,
-        w_efficiency=w_efficiency,
-        w_aspect=w_aspect,
-        basis=basis,
-        phase_grid=phase_grid,
-        zernike_radius=zernike_radius,
+        cam_size=params.cam_size,
+        target_max_brightness=params.target_brightness,
+        slm_number=params.slm_number,
+        slm_wavelength=params.slm_wavelength,
+        optimizer_type=params.optimizer,
+        algorithm=params.algorithm,
+        pop_size=params.pop_size,
+        random_seed=params.seed,
+        w_uniformity=params.w_uniformity,
+        w_efficiency=params.w_efficiency,
+        w_aspect=params.w_aspect,
+        basis=params.basis,
+        phase_grid=params.phase_grid,
+        zernike_radius=params.zernike_radius,
         zernike_mask=zernike_mask_arr,
-        rotation_search_deg=rotation_search_deg,
+        rotation_search_deg=params.rotation_search_deg,
     )
 
     # Print results summary
@@ -402,7 +246,7 @@ def run(
         click.echo(f"Best coefficients saved: {coeffs_file}")
 
     # Save best image
-    if save_best_image:
+    if params.save_best_image:
         best_img = best_iter.get("_img")
         if best_img is not None:
             import matplotlib.pyplot as plt

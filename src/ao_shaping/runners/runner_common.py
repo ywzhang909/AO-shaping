@@ -743,6 +743,214 @@ class GreedyZernikeParams:
     ] = False
 
 
+@dataclass
+class GaZernikeParams:
+    """遗传算法 Zernike 优化 CLI 参数 (ga-zernike, 单命令无子命令)。"""
+
+    dir: Annotated[str, option("-d", "--dir", help="数据保存根目录 (default: data)")] = "data"
+    population_size: Annotated[
+        int, option("--population-size", help="种群大小 (default: 50)")
+    ] = 50
+    n_generations: Annotated[
+        int, option("--n-generations", help="GA迭代代数 (default: 2000)")
+    ] = 2000
+    crossover_prob: Annotated[
+        float, option("--crossover-prob", help="交叉概率 (default: 0.7)")
+    ] = 0.7
+    mutation_prob: Annotated[
+        float, option("--mutation-prob", help="变异概率 (default: 0.15)")
+    ] = 0.15
+    tournament_size: Annotated[
+        int, option("--tournament-size", help="锦标赛选择大小 (default: 3)")
+    ] = 3
+    elite_count: Annotated[
+        int, option("--elite-count", help="精英个体数量 (default: 2)")
+    ] = 2
+    n_max: Annotated[
+        int, option("-n", "--n-max", help="最大Zernike径向阶数 (default: 4)")
+    ] = 4
+    wavelength: Annotated[
+        int, option("-w", "--wavelength", help="SLM波长 (nm) (default: 532)")
+    ] = 532
+    wfs_res: Annotated[
+        int, option("--wfs-res", help="WFS分辨率 (default: 1024)")
+    ] = 1024
+    pupil_diameter: Annotated[
+        float, option("--pupil-diameter", help="WFS瞳孔直径 (default: 4.6)")
+    ] = 4.6
+    pupil_center: Annotated[
+        str | tuple[float, float],
+        option(
+            "-c",
+            "--pupil-center",
+            callback=parse_tuple,
+            help="瞳孔中心坐标 (default: (0,0))",
+        ),
+    ] = "(0,0)"
+    early_stop_threshold: Annotated[
+        float, option("--early-stop-threshold", help="早停RMS阈值 (default: 0.01)")
+    ] = 0.01
+    slm_number: Annotated[
+        int, option("--slm-number", help="SLM设备编号 (default: 1)")
+    ] = 1
+    remove_tilt: Annotated[
+        bool, option("--remove-tilt", is_flag=True, help="去除波前倾斜 (default: False)")
+    ] = False
+    shift_x: Annotated[
+        int, option("--shift-x", help="SLM X方向偏移 (pixels) (default: 0)")
+    ] = 0
+    shift_y: Annotated[
+        int, option("--shift-y", help="SLM Y方向偏移 (pixels) (default: 0)")
+    ] = 0
+    show: Annotated[
+        bool, option("--show", is_flag=True, help="显示优化历史 (default: False)")
+    ] = False
+
+
+@dataclass
+class SlmSquareParams:
+    """SLM 方形光斑 SPGD 整形 CLI 参数 (spgd-square, 单命令无子命令)。"""
+
+    epochs: Annotated[
+        int, option("-e", "--epochs", help="优化迭代次数 (default: 2000)")
+    ] = 2000
+    n_max: Annotated[
+        int, option("-n", "--n-max", help="Zernike最大径向阶数 (default: 4)")
+    ] = 4
+    center: Annotated[
+        str,
+        option(
+            "-c",
+            "--center",
+            help="光斑中心检测: shape(智能argmax锚定,默认)/centroid_thresh(亮度重心)"
+            "/max(峰值位置)/mass(质心,易被杂散光拉偏)/'x,y'(固定坐标) (default: shape)",
+        ),
+    ] = "shape"
+    target_side: Annotated[
+        int,
+        option(
+            "--target-side",
+            help="目标方形边长(像素), 0=自动; 与 --target-mean-brightness 互斥 (default: 0)",
+        ),
+    ] = 0
+    target_mean_brightness: Annotated[
+        float,
+        option(
+            "--target-mean-brightness",
+            help="目标方形平均亮度(灰度), >0 时由总亮度能量守恒自动推导边长; "
+            "与 --target-side 互斥 (default: 0 = 不启用)",
+        ),
+    ] = 0.0
+    side_factor: Annotated[
+        float, option("--side-factor", help="自动边长倍率 (default: 1.5)")
+    ] = 1.5
+    delta: Annotated[
+        float, option("-d", "--delta", help="扰动幅度 (default: 0.1)")
+    ] = 0.1
+    lr: Annotated[float, option("--lr", help="学习率, 0=自动 (default: 0)")] = 0.0
+    exposure_ms: Annotated[
+        float, option("-t", "--exposure-ms", help="相机曝光时间ms (default: 80)")
+    ] = 80.0
+    cam_id: Annotated[int, option("--cam-id", help="相机设备ID (default: 0)")] = 0
+    cam_size: Annotated[
+        int, option("-s", "--cam-size", help="相机开窗大小 (default: 300)")
+    ] = 300
+    slm_number: Annotated[
+        int, option("--slm-number", help="SLM设备编号 (default: 1)")
+    ] = 1
+    slm_wavelength: Annotated[
+        int, option("--slm-wavelength", help="SLM波长nm (default: 1064)")
+    ] = 1064
+    optimizer: Annotated[
+        str,
+        option(
+            "--optimizer",
+            help="优化器: adam/adamod/sgd/muno (default: adamod; 仅 --algorithm spgd 生效)",
+        ),
+    ] = "adamod"
+    algorithm: Annotated[
+        str,
+        option(
+            "--algorithm",
+            type=click.Choice(list(heuristic_algorithm_choices()), case_sensitive=False),
+            show_default=True,
+            help="搜索算法: spgd (SPGD 梯度) 或启发式 (ga/pso/sa/hc/rs/cem/de)",
+        ),
+    ] = "spgd"
+    pop_size: Annotated[
+        int | None,
+        option("--pop_size", type=int, help="种群规模 (ga/pso/cem/de 使用; 默认取算法默认值)"),
+    ] = None
+    seed: Annotated[
+        int | None, option("--seed", type=int, help="随机种子 (default: None)")
+    ] = None
+    show: Annotated[
+        bool, option("--show", is_flag=True, help="显示中间图像")
+    ] = False
+    target_brightness: Annotated[
+        int, option("--target-brightness", help="目标最大亮度 (default: 200)")
+    ] = 200
+    w_uniformity: Annotated[
+        float, option("--w-uniformity", help="均匀性权重 (default: 0.4)")
+    ] = 0.4
+    w_efficiency: Annotated[
+        float, option("--w-efficiency", help="能量效率权重 (default: 0.6)")
+    ] = 0.6
+    w_aspect: Annotated[
+        float, option("--w-aspect", help="宽高比权重 (default: 0.0)")
+    ] = 0.0
+    basis: Annotated[
+        str,
+        option(
+            "--basis",
+            type=click.Choice(["freeform", "zernike"]),
+            help="相位参数化: zernike(默认, 与GUI一致: radius=600 + defocus(2,0) + spherical(4,0))/freeform(自由相位, 可合成方形)",
+        ),
+    ] = "zernike"
+    phase_grid: Annotated[
+        int, option("--phase-grid", help="freeform 相位网格边长 (dim=grid²) (default: 24)")
+    ] = 24
+    zernike_radius: Annotated[
+        int,
+        option(
+            "--zernike-radius",
+            help="Zernike 孔径半径(px), 默认 600 = SLM 面板短边一半 (与GUI一致)",
+        ),
+    ] = 600
+    zernike_mask: Annotated[
+        str | None,
+        option(
+            "--zernike-mask",
+            type=str,
+            help="0/1 binary mask for Zernike modes (comma-separated), e.g. '0,0,0,1,0,0,0,0,0,0,0,1' for defocus+spherical only. Noll 1-3 forced to 0. Overrides --basis zernike defaults.",
+        ),
+    ] = None
+    rotation_search_deg: Annotated[
+        float,
+        option(
+            "--rotation-search",
+            help="SLM↔相机相对旋转搜索范围(度, 0~360; 0=关闭旋转校正)。>0 时旋转角作为额外 SPGD 自由度在 ±range/2 内搜索",
+        ),
+    ] = 0.0
+    init_defocus: Annotated[
+        float, option("--init-defocus", help="初始 Defocus (2,0) 系数 (default: 1.0)")
+    ] = 1.0
+    init_spherical: Annotated[
+        float, option("--init-spherical", help="初始 Spherical (4,0) 系数 (default: 0.5)")
+    ] = 0.5
+    init_coeffs: Annotated[
+        str | None,
+        option(
+            "--init-coeffs",
+            type=str,
+            help='初始Zernike系数JSON (Noll 索引 dict 或 Noll 序数组); zernike 基只优化 Defocus(2,0)[Noll 4] 与 Spherical(4,0)[Noll 11], e.g. \'{"4":1.0,"11":0.5}\'',
+        ),
+    ] = None
+    save_best_image: Annotated[
+        bool, option("--save-best-image", is_flag=True, help="保存最优图像")
+    ] = False
+
+
 # ---------------------------------------------------------------------------
 # 融合参数 | fused parameters — composite groups combining roles above
 # ---------------------------------------------------------------------------
