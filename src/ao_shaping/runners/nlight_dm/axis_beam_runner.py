@@ -1,6 +1,6 @@
-import os
 import json
 from pathlib import Path
+from typing import cast
 
 import click
 import numpy as np
@@ -16,249 +16,105 @@ from ao_shaping.utils.io.file import (
 )
 from ao_shaping.utils.image.display import plot_funcs
 from ao_shaping.utils.io.cli_helpers import (
-    parse_tuple,
     setup_coredumpy,
     get_date_dir_name,
 )
 from ao_shaping import config as ao_config
 from ao_shaping.utils.io.cli_helpers import resolve_debug
-from ao_shaping.drivers.dm import list_dm_types
 from ao_shaping.drivers.dm._registry import resolve_dm
-
-
-DM_TYPES = list_dm_types()
+from ao_shaping.runners.runner_common import PibRunnerParams, with_params
 
 
 @click.command()
-@click.option("-d", "--root_dir", default="data", help="数据保存根目录 (default: data)")
-@click.option(
-    "-f",
-    "--load_file",
-    default="rms",
-    help="加载优化结果文件 (default: None), 若为'rms',则使用RMS优化结果初始化",
-)
-@click.option(
-    "--cam_id",
-    default=lambda: os.environ.get("FAR_CAM_ID", "0"),
-    help="远场光斑CCD设备ID (default: Far_Cam_ID/0)",
-)
-@click.option(
-    "-c",
-    "--center",
-    callback=parse_tuple,
-    default="mass",
-    help="场光斑CCD中心位置 (example: 665,403)",
-)
-@click.option(
-    "-t",
-    "--exposure_time_ms",
-    default=60,
-    help="远场光斑CCD曝光时间 (毫秒) (default: 60)",
-)
-@click.option("-e", "--epochs", default=4_000, help="优化迭代次数 (default: 4000)")
-@click.option(
-    "-r",
-    "--r_bucket",
-    default=0,
-    help="半径桶大小 (default: 0,环围半径)。若设置为0,则根据功率半径自动调整。",
-)
-@click.option("--delta", default=2.0, help="优化步长 (default: 2)")
-@click.option(
-    "--lr", default=0.0, help="优化学习率 (default: 0.0,表示基于环围半径动态学习率衰减)"
-)
-@click.option("--weight_decay", default=0.0, help="权重衰减 (default: 0.0)")
-@click.option(
-    "--optimizer_type",
-    type=click.Choice(
-        ["adam", "adamw", "adamod", "sgd", "muno", "munow"], case_sensitive=False
-    ),
-    default="adamod",
-    show_default=True,
-    help="梯度阶段使用的优化器类型",
-)
-@click.option(
-    "--shrink_iter",
-    default=200,
-    help="优化迭代次数后收缩半径桶和步长 (default: 200)。若设置为0，则不进行收缩。",
-)
-@click.option("--shrink_ratio", default=0.8, help="收缩半径桶和步长比例 (default: 0.8)")
-@click.option(
-    "--enable_adaptive_search", is_flag=True, help="启用局部最优后的自适应邻域搜索"
-)
-@click.option(
-    "--search_interval", default=120, show_default=True, help="邻域搜索触发间隔"
-)
-@click.option(
-    "--search_warmup", default=200, show_default=True, help="邻域搜索启动前的最小迭代数"
-)
-@click.option(
-    "--search_patience",
-    default=100,
-    show_default=True,
-    help="最佳 PIB 无提升时触发搜索的等待轮数",
-)
-@click.option(
-    "--search_samples",
-    default=8,
-    show_default=True,
-    help="每次邻域搜索评估的候选解数量",
-)
-@click.option(
-    "--search_radius",
-    default=None,
-    type=float,
-    help="邻域搜索初始半径，默认跟随 delta 自适应",
-)
-@click.option(
-    "--tabu_memory_size", default=128, show_default=True, help="禁忌记忆表容量"
-)
-@click.option("-s", "--cam_size", default=200, help="相机开窗大小 (default: 200*200)")
-@click.option(
-    "-b",
-    "--target_max_brightness",
-    default=90,
-    help="目标最大亮度值 (default: 90), 若为0则不自动调整曝光时间",
-)
-@click.option(
-    "-o",
-    "--objective",
-    type=click.Choice(["pib", "radiu", "avg_radiu"]),
-    default="pib",
-    show_default=True,
-    help="优化目标函数: pib(最大化PIB), radiu(最小化半径), avg_radiu(最大化平均半径)",
-)
-@click.option(
-    "--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)"
-)
-@click.option(
-    "--dm_type",
-    type=click.Choice(DM_TYPES, case_sensitive=False),
-    default=None,
-    help="变形镜类型 (default: auto-detect). 若未指定且仅一个DM在线则自动选取，否则报错.",
-)
-@click.option(
-    "--debug",
-    "debug_flag",
-    is_flag=True,
-    default=None,
-    help="启用调试模式: 保存 pkl/json 与汇总图 (初始/最优光斑, 目标曲线, 最优电压)",
-)
 @click.pass_context
-def run(
-    ctx,
-    root_dir,
-    load_file,
-    cam_id,
-    center,
-    exposure_time_ms,
-    epochs,
-    r_bucket,
-    delta,
-    lr,
-    weight_decay,
-    optimizer_type,
-    shrink_iter,
-    shrink_ratio,
-    enable_adaptive_search,
-    search_interval,
-    search_warmup,
-    search_patience,
-    search_samples,
-    search_radius,
-    tabu_memory_size,
-    cam_size,
-    target_max_brightness,
-    objective,
-    show,
-    dm_type,
-    debug_flag,
-):
+@with_params(PibRunnerParams, kw_name="params")
+def run(ctx: click.Context, params: PibRunnerParams) -> None:
     """轴向光束优化器
 
     调试模式: ``main.py --debug pib`` / 本命令 ``--debug`` / 环境变量 ``DEBUG=1``
     任一开启即可输出 pkl/json 与汇总图片。
     """
-    debug = resolve_debug(ctx, debug_flag)
+    debug = resolve_debug(ctx, params.debug_flag)
 
-    if load_file.lower() == "rms":
+    if params.load_file.lower() == "rms":
         init_v = get_init_V_by_rms()
-    elif Path(load_file).exists():
-        last_v = np.loadtxt(load_file)
+    elif Path(params.load_file).exists():
+        last_v = np.loadtxt(params.load_file)
         init_v = last_v.tolist()
     else:
-        logger.warning(f"load_file {load_file} not exists")
+        logger.warning(f"load_file {params.load_file} not exists")
         init_v = []
 
     config = {
-        "root_dir": root_dir,
-        "load_file": load_file,
-        "cam_id": cam_id,
-        "center": center,
-        "exposure_time_ms": exposure_time_ms,
-        "target_max_brightness": target_max_brightness,
-        "epochs": epochs,
-        "r_bucket": r_bucket,
-        "delta": delta,
-        "lr": lr,
-        "weight_decay": weight_decay,
-        "optimizer_type": optimizer_type,
-        "shrink_iter": shrink_iter,
-        "shrink_ratio": shrink_ratio,
-        "enable_adaptive_search": enable_adaptive_search,
-        "search_interval": search_interval,
-        "search_warmup": search_warmup,
-        "search_patience": search_patience,
-        "search_samples": search_samples,
-        "search_radius": search_radius,
-        "tabu_memory_size": tabu_memory_size,
-        "cam_size": cam_size,
-        "objective": objective,
+        "root_dir": params.root_dir,
+        "load_file": params.load_file,
+        "cam_id": params.cam_id,
+        "center": params.center,
+        "exposure_time_ms": params.exposure_time_ms,
+        "target_max_brightness": params.target_max_brightness,
+        "epochs": params.epochs,
+        "r_bucket": params.r_bucket,
+        "delta": params.delta,
+        "lr": params.lr,
+        "weight_decay": params.weight_decay,
+        "optimizer_type": params.optimizer_type,
+        "shrink_iter": params.shrink_iter,
+        "shrink_ratio": params.shrink_ratio,
+        "enable_adaptive_search": params.enable_adaptive_search,
+        "search_interval": params.search_interval,
+        "search_warmup": params.search_warmup,
+        "search_patience": params.search_patience,
+        "search_samples": params.search_samples,
+        "search_radius": params.search_radius,
+        "tabu_memory_size": params.tabu_memory_size,
+        "cam_size": params.cam_size,
+        "objective": params.objective,
         "debug": debug,
-        "show": show,
+        "show": params.show,
     }
     logger.info(config)
 
-    dm = resolve_dm(dm_type, dm_neibor_diff=300)
+    dm = resolve_dm(params.dm_type, dm_neibor_diff=300)
 
     dm_unit_mask = np.ones(ao_config.DM_N_ACTUATORS, dtype=bool)
     dm_unit_mask[0] = False
     res_list = optimize_pib(
         dm=dm,
-        center=center,
-        r_bucket=r_bucket,
-        epochs=epochs,
-        delta=delta,
-        lr=lr,
-        exposure_time_ms=exposure_time_ms,
-        shrink_iter=shrink_iter,
-        shrink_ratio=shrink_ratio,
-        cam_id=cam_id,
-        show=show,
+        center=params.center,
+        r_bucket=params.r_bucket,
+        epochs=params.epochs,
+        delta=params.delta,
+        lr=params.lr,
+        exposure_time_ms=params.exposure_time_ms,
+        shrink_iter=params.shrink_iter,
+        shrink_ratio=params.shrink_ratio,
+        cam_id=cast(int, params.cam_id),
+        show=params.show,
         init_v=init_v,
-        cam_size=cam_size,
-        target_max_brightness=target_max_brightness,
+        cam_size=params.cam_size,
+        target_max_brightness=params.target_max_brightness,
         dm_unit_mask=dm_unit_mask,
         dm_neibor_diff=300,
-        optimizer_type=optimizer_type,
-        enable_adaptive_search=enable_adaptive_search,
-        search_interval=search_interval,
-        search_warmup=search_warmup,
-        search_patience=search_patience,
-        search_samples=search_samples,
-        search_radius=search_radius,
-        tabu_memory_size=tabu_memory_size,
-        weight_decay=weight_decay,
-        objective=objective,
+        optimizer_type=params.optimizer_type,
+        enable_adaptive_search=params.enable_adaptive_search,
+        search_interval=params.search_interval,
+        search_warmup=params.search_warmup,
+        search_patience=params.search_patience,
+        search_samples=params.search_samples,
+        search_radius=params.search_radius,
+        tabu_memory_size=params.tabu_memory_size,
+        weight_decay=params.weight_decay,
+        objective=params.objective,
     )
     res_df = res_list.dataframe
 
-    saved_dir = f"{root_dir}/flatten_voltages/{get_date_dir_name()}"
+    saved_dir = f"{params.root_dir}/flatten_voltages/{get_date_dir_name()}"
     res_list.save_best(
         saved_dir, target="_v", process_fn=lambda x: np.around(x).astype(int), fmt="%d"
     )
     best_iter, (max_j_id, max_j) = res_list.get_best_iter()
     if debug:
-        save_dir = gen_date_dir(f"{root_dir}/wf-less")
+        save_dir = gen_date_dir(f"{params.root_dir}/wf-less")
         saved_file_name = gen_file_path_uuid(save_dir, "pkl")
 
         def _calc_second_moment_radius(row: dict) -> float | None:
@@ -295,21 +151,21 @@ def run(
 
         # The metric column is the objective itself (pib/radiu/avg_radiu); the old
         # hardcoded "pib" column raised KeyError for the other objectives.
-        first_val = float(res_df.iloc[0][objective])
+        first_val = float(res_df.iloc[0][params.objective])
         fig, ax = plt.subplots(2, 2, figsize=(12, 8))
         plot_funcs["img"](
             res_df.iloc[0]["_img"],
             ax[0, 0],
-            f"Init Image, {objective}={first_val:.3f}",
+            f"Init Image, {params.objective}={first_val:.3f}",
         )
         axim = plot_funcs["img"](
             res_df.iloc[max_j_id]["_img"],
             ax[0, 1],
-            f"Best {objective} Image, {objective}={max_j:.3f}",
+            f"Best {params.objective} Image, {params.objective}={max_j:.3f}",
         )
         fig.colorbar(axim, ax=[ax[0, 0], ax[0, 1]], orientation="horizontal")
         plot_funcs["pib_history"](
-            res_df[objective], ax[1, 0], title=f"{objective} History"
+            res_df[params.objective], ax[1, 0], title=f"{params.objective} History"
         )
         plot_funcs["voltages"](best_iter["_v"], ax[1, 1], "Best Voltages")
 
@@ -374,7 +230,7 @@ def run(
         "radiu": "半径",
         "avg_radiu": "平均半径",
     }
-    objective_name = objective_names.get(objective, objective)
+    objective_name = objective_names.get(params.objective, params.objective)
 
     click.echo(
         f"轴向光束优化完成，最优{objective_name}值: {max_j:.4f} @ epoch {max_j_id}"

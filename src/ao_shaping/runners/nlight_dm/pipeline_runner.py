@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from typing import Literal, cast
 
 import click
 from pathlib import Path
@@ -17,79 +18,24 @@ from ao_shaping.utils.io.cli_helpers import (
     get_date_dir_name,
     get_debug_mode,
 )
-from ao_shaping.drivers.dm import list_dm_types
 from ao_shaping.drivers.dm._registry import resolve_dm
-
-
-DM_TYPES = list_dm_types()
+from ao_shaping.runners.runner_common import PipelineRunnerParams, with_params
 
 
 @click.command()
-@click.option("-d", "--dir", default="data", help="数据保存根目录 (default: data)")
-@click.option(
-    "-f", "--load_file", default=None, help="加载优化结果文件 (default: None)"
-)
-@click.option("-e", "--epochs", default=8_000, help="优化迭代次数 (default: 8000)")
-@click.option("-E", "--wf_epochs", default=8_000, help="WF优化迭代次数 (default: 8000)")
-@click.option(
-    "-R",
-    "--wfs_res",
-    type=click.Choice(["768", "512"]),
-    default="768",
-    help="WFS分辨率 (default: 768)",
-)
-@click.option("-p", "--pupil_diameter", default=2.7, help="瞳孔直径 (default: 2.7)")
-@click.option(
-    "-c",
-    "--cam_id",
-    default=lambda: os.environ.get("Far_Cam_ID", 0),
-    help="远场光斑CCD设备ID (default: Far_Cam_ID/0)",
-)
-@click.option(
-    "-t",
-    "--exposure_time_ms",
-    default=0,
-    help="远场光斑CCD曝光时间 (毫秒) (default: 0，自动选取曝光)",
-)
-@click.option("-s", "--cam_size", default=160, help="相机开窗大小 (default: 160)")
-@click.option("-r", "--rms_threshold", default=0.12, help="RMS阈值 (default: 0.12)")
-@click.option(
-    "-u",
-    "--dm_unit_mask",
-    type=click.Choice(["all", "inner", "outer"]),
-    default="all",
-    help="DM单元掩码 (default: all)",
-)
-@click.option(
-    "--dm_type",
-    type=click.Choice(DM_TYPES, case_sensitive=False),
-    default=None,
-    help="变形镜类型 (default: auto-detect). 若未指定且仅一个DM在线则自动选取，否则报错.",
-)
-def run(
-    dir,
-    load_file,
-    epochs,
-    wf_epochs,
-    wfs_res,
-    pupil_diameter,
-    cam_id,
-    exposure_time_ms,
-    cam_size,
-    rms_threshold,
-    dm_unit_mask,
-    dm_type,
-):
+@click.pass_context
+@with_params(PipelineRunnerParams, kw_name="params")
+def run(ctx: click.Context, params: PipelineRunnerParams) -> None:
     """串行优化器（先波前优化，再轴向光束优化）
 
     DEBUG环境变量控制调试模式。
     """
     debug = get_debug_mode()
 
-    dm = resolve_dm(dm_type)
+    dm = resolve_dm(params.dm_type)
 
-    if load_file:
-        last_v = np.loadtxt(load_file)
+    if params.load_file:
+        last_v = np.loadtxt(params.load_file)
         init_v = last_v.tolist()
     else:
         init_v = []
@@ -99,10 +45,10 @@ def run(
 
         wf_records = optimizer_rms_dm(
             init_v=init_v,
-            pupil_diameter=pupil_diameter,
-            wfs_res=wfs_res,
-            early_stop_threshold=rms_threshold,
-            epochs=wf_epochs,
+            pupil_diameter=params.pupil_diameter,
+            wfs_res=cast(Literal["512", "768"], params.wfs_res),
+            early_stop_threshold=params.rms_threshold,
+            epochs=params.wf_epochs,
             dm=dm,
         )
 
@@ -117,19 +63,19 @@ def run(
 
         dm_available = np.ones(dm.DM_NUM, dtype=bool)
         dm_available[0] = False
-        if dm_unit_mask == "inner":
+        if params.dm_unit_mask == "inner":
             dm_available[21:] = False
-        elif dm_unit_mask == "outer":
+        elif params.dm_unit_mask == "outer":
             dm_available[:39] = False
 
         ccd_records = optimize_pib(
-            cam_id=cam_id,
+            cam_id=cast(int, params.cam_id),
             center="mass",
-            exposure_time_ms=exposure_time_ms,
-            cam_size=cam_size,
+            exposure_time_ms=params.exposure_time_ms,
+            cam_size=params.cam_size,
             dm_unit_mask=dm_available,
             target_max_brightness=0,
-            epochs=epochs,
+            epochs=params.epochs,
             lr=0.9,
             delta=0.9,
             shrink_iter=20,
@@ -143,7 +89,7 @@ def run(
         max_pid_iter, (max_epoch, max_pib) = ccd_records.get_best_iter()
         last_V = max_pid_iter["_v"]
 
-        save_dir = Path(dir) / "flatten_voltages" / get_date_dir_name()
+        save_dir = Path(params.dir) / "flatten_voltages" / get_date_dir_name()
 
         def np_array_to_int(arr):
             return arr.astype(int)
@@ -181,7 +127,7 @@ def run(
             plot_funcs["voltage_heatmap"](voltages, ax[1, 3], "Voltage History")
 
             plt.tight_layout()
-            save_dir = gen_date_dir(f"{dir}/pipeline")
+            save_dir = gen_date_dir(f"{params.dir}/pipeline")
             saved_file_name = gen_file_path_uuid(save_dir)
             wf_records.save_dataframe(
                 saved_file_name.with_suffix(".wfs.pkl"), compression="zip"
@@ -196,15 +142,15 @@ def run(
 
                 json.dump(
                     {
-                        "dir": dir,
-                        "load_file": load_file,
-                        "epochs": epochs,
-                        "wfs_res": wfs_res,
-                        "pupil_diameter": pupil_diameter,
-                        "cam_id": cam_id,
-                        "exposure_time_ms": exposure_time_ms,
-                        "cam_size": cam_size,
-                        "rms_threshold": rms_threshold,
+                        "dir": params.dir,
+                        "load_file": params.load_file,
+                        "epochs": params.epochs,
+                        "wfs_res": params.wfs_res,
+                        "pupil_diameter": params.pupil_diameter,
+                        "cam_id": params.cam_id,
+                        "exposure_time_ms": params.exposure_time_ms,
+                        "cam_size": params.cam_size,
+                        "rms_threshold": params.rms_threshold,
                         "debug": debug,
                     },
                     f,

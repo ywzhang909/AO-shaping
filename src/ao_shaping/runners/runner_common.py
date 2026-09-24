@@ -69,16 +69,27 @@ comments verbatim — they start unicode escapes and raise ``SyntaxError``.
 from __future__ import annotations
 
 import functools
+import os
 from dataclasses import MISSING, dataclass, fields
 from pathlib import Path
 from types import UnionType
-from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, Union, cast, get_args, get_origin, get_type_hints
 
 import click
 
 from ao_shaping.algorithm.heuristic.search import heuristic_algorithm_choices
 from ao_shaping.utils.image.targets import TARGET_SHAPE_CHOICES
 from ao_shaping.utils.io.cli_helpers import parse_tuple
+
+# Importing asyn_micro_dm registers the "asyn_micro" DM type (side effect).
+# It is normally registered by micro_drive.full_voltage_runner, which is
+# imported AFTER this module in runners/__init__.py — without this import,
+# DM_TYPES below would miss asyn_micro and the --dm_type choice list would
+# silently shrink from 6 to 5 entries.
+import ao_shaping.drivers.dm.asyn_micro_dm  # noqa: F401
+from ao_shaping.drivers.dm import list_dm_types
+
+DM_TYPES = list_dm_types()
 
 
 # ---------------------------------------------------------------------------
@@ -823,3 +834,328 @@ def config_payload(obj: Any) -> dict[str, Any]:
             continue
         payload[key] = value
     return payload
+
+
+# ---------------------------------------------------------------------------
+# nlight_dm 参数 | nlight_dm runner parameters (wf / pib / pipeline / combined)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class WfRunnerParams:
+    """波前优化器 (wf) 的全部 CLI 参数。"""
+
+    dir: Annotated[
+        str, option("-d", "--dir", help="数据保存根目录 (default: data)")
+    ] = "data"
+    epochs: Annotated[
+        int, option("-e", "--epochs", help="优化迭代次数 (default: 20000)")
+    ] = 20_000
+    wfs_res: Annotated[
+        str, option("-r", "--wfs_res", help="WFS分辨率 (default: 768)")
+    ] = "768"
+    pupil_diameter: Annotated[
+        float, option("-p", "--pupil_diameter", help="瞳孔直径 (default: 2.7)")
+    ] = 2.7
+    pupil_center: Annotated[
+        str | tuple[float, float] | None,
+        option(
+            "-c",
+            "--pupil_center",
+            callback=parse_tuple,
+            help="瞳孔中心坐标 (default: (0,0))",
+        ),
+    ] = "(0,0)"
+    early_stop_threshold: Annotated[
+        float, option("-t", "--early_stop_threshold", help="早停阈值 (default: 0.0)")
+    ] = 0.0
+    show: Annotated[
+        bool,
+        option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)"),
+    ] = False
+    dm_type: Annotated[
+        str | None,
+        option(
+            "--dm_type",
+            type=click.Choice(DM_TYPES, case_sensitive=False),
+            help="变形镜类型 (default: auto-detect). 若未指定且仅一个DM在线则自动选取，否则报错.",
+        ),
+    ] = None
+
+
+@dataclass
+class PibRunnerParams:
+    """轴向光束优化器 (pib) 的全部 CLI 参数。"""
+
+    root_dir: Annotated[
+        str, option("-d", "--root_dir", help="数据保存根目录 (default: data)")
+    ] = "data"
+    load_file: Annotated[
+        str,
+        option(
+            "-f",
+            "--load_file",
+            help="加载优化结果文件 (default: None), 若为'rms',则使用RMS优化结果初始化",
+        ),
+] = "rms"
+    cam_id: Annotated[
+        str,
+        option("--cam_id", help="远场光斑CCD设备ID (default: Far_Cam_ID/0)"),
+    ] = cast(str, lambda: os.environ.get("FAR_CAM_ID", "0"))
+    center: Annotated[
+        str | tuple[float, float] | None,
+        option(
+            "-c",
+            "--center",
+            callback=parse_tuple,
+            help="场光斑CCD中心位置 (example: 665,403)",
+        ),
+    ] = "mass"
+    exposure_time_ms: Annotated[
+        int,
+        option("-t", "--exposure_time_ms", help="远场光斑CCD曝光时间 (毫秒) (default: 60)"),
+    ] = 60
+    epochs: Annotated[
+        int, option("-e", "--epochs", help="优化迭代次数 (default: 4000)")
+    ] = 4_000
+    r_bucket: Annotated[
+        int,
+        option(
+            "-r",
+            "--r_bucket",
+            help="半径桶大小 (default: 0,环围半径)。若设置为0,则根据功率半径自动调整。",
+        ),
+    ] = 0
+    delta: Annotated[float, option("--delta", help="优化步长 (default: 2)")] = 2.0
+    lr: Annotated[
+        float,
+        option("--lr", help="优化学习率 (default: 0.0,表示基于环围半径动态学习率衰减)"),
+    ] = 0.0
+    weight_decay: Annotated[
+        float, option("--weight_decay", help="权重衰减 (default: 0.0)")
+    ] = 0.0
+    optimizer_type: Annotated[
+        str,
+        option(
+            "--optimizer_type",
+            type=click.Choice(
+                ["adam", "adamw", "adamod", "sgd", "muno", "munow"], case_sensitive=False
+            ),
+            show_default=True,
+            help="梯度阶段使用的优化器类型",
+        ),
+    ] = "adamod"
+    shrink_iter: Annotated[
+        int,
+        option(
+            "--shrink_iter",
+            help="优化迭代次数后收缩半径桶和步长 (default: 200)。若设置为0，则不进行收缩。",
+        ),
+    ] = 200
+    shrink_ratio: Annotated[
+        float, option("--shrink_ratio", help="收缩半径桶和步长比例 (default: 0.8)")
+    ] = 0.8
+    enable_adaptive_search: Annotated[
+        bool, option("--enable_adaptive_search", is_flag=True, help="启用局部最优后的自适应邻域搜索")
+    ] = False
+    search_interval: Annotated[
+        int, option("--search_interval", show_default=True, help="邻域搜索触发间隔")
+    ] = 120
+    search_warmup: Annotated[
+        int, option("--search_warmup", show_default=True, help="邻域搜索启动前的最小迭代数")
+    ] = 200
+    search_patience: Annotated[
+        int,
+        option(
+            "--search_patience",
+            show_default=True,
+            help="最佳 PIB 无提升时触发搜索的等待轮数",
+        ),
+    ] = 100
+    search_samples: Annotated[
+        int,
+        option("--search_samples", show_default=True, help="每次邻域搜索评估的候选解数量"),
+    ] = 8
+    search_radius: Annotated[
+        float | None,
+        option("--search_radius", type=float, help="邻域搜索初始半径，默认跟随 delta 自适应"),
+    ] = None
+    tabu_memory_size: Annotated[
+        int, option("--tabu_memory_size", show_default=True, help="禁忌记忆表容量")
+    ] = 128
+    cam_size: Annotated[
+        int, option("-s", "--cam_size", help="相机开窗大小 (default: 200*200)")
+    ] = 200
+    target_max_brightness: Annotated[
+        int,
+        option(
+            "-b",
+            "--target_max_brightness",
+            help="目标最大亮度值 (default: 90), 若为0则不自动调整曝光时间",
+        ),
+    ] = 90
+    objective: Annotated[
+        str,
+        option(
+            "-o",
+            "--objective",
+            type=click.Choice(["pib", "radiu", "avg_radiu"]),
+            show_default=True,
+            help="优化目标函数: pib(最大化PIB), radiu(最小化半径), avg_radiu(最大化平均半径)",
+        ),
+    ] = "pib"
+    show: Annotated[
+        bool,
+        option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)"),
+    ] = False
+    dm_type: Annotated[
+        str | None,
+        option(
+            "--dm_type",
+            type=click.Choice(DM_TYPES, case_sensitive=False),
+            help="变形镜类型 (default: auto-detect). 若未指定且仅一个DM在线则自动选取，否则报错.",
+        ),
+    ] = None
+    debug_flag: Annotated[
+        bool | None,
+        option(
+            "--debug",
+            is_flag=True,
+            help="启用调试模式: 保存 pkl/json 与汇总图 (初始/最优光斑, 目标曲线, 最优电压)",
+        ),
+    ] = None
+
+
+@dataclass
+class PipelineRunnerParams:
+    """串行优化器 (pipeline) 的全部 CLI 参数。"""
+
+    dir: Annotated[
+        str, option("-d", "--dir", help="数据保存根目录 (default: data)")
+    ] = "data"
+    load_file: Annotated[
+        str | None,
+        option("-f", "--load_file", help="加载优化结果文件 (default: None)"),
+    ] = None
+    epochs: Annotated[
+        int, option("-e", "--epochs", help="优化迭代次数 (default: 8000)")
+    ] = 8_000
+    wf_epochs: Annotated[
+        int, option("-E", "--wf_epochs", help="WF优化迭代次数 (default: 8000)")
+    ] = 8_000
+    wfs_res: Annotated[
+        str,
+        option(
+            "-R",
+            "--wfs_res",
+            type=click.Choice(["768", "512"]),
+            help="WFS分辨率 (default: 768)",
+        ),
+    ] = "768"
+    pupil_diameter: Annotated[
+        float, option("-p", "--pupil_diameter", help="瞳孔直径 (default: 2.7)")
+    ] = 2.7
+    cam_id: Annotated[
+        str,
+        option("-c", "--cam_id", help="远场光斑CCD设备ID (default: Far_Cam_ID/0)"),
+    ] = cast(str, lambda: os.environ.get("Far_Cam_ID", 0))
+    exposure_time_ms: Annotated[
+        int,
+        option(
+            "-t",
+            "--exposure_time_ms",
+            help="远场光斑CCD曝光时间 (毫秒) (default: 0，自动选取曝光)",
+        ),
+    ] = 0
+    cam_size: Annotated[
+        int, option("-s", "--cam_size", help="相机开窗大小 (default: 160)")
+    ] = 160
+    rms_threshold: Annotated[
+        float, option("-r", "--rms_threshold", help="RMS阈值 (default: 0.12)")
+    ] = 0.12
+    dm_unit_mask: Annotated[
+        str,
+        option(
+            "-u",
+            "--dm_unit_mask",
+            type=click.Choice(["all", "inner", "outer"]),
+            help="DM单元掩码 (default: all)",
+        ),
+    ] = "all"
+    dm_type: Annotated[
+        str | None,
+        option(
+            "--dm_type",
+            type=click.Choice(DM_TYPES, case_sensitive=False),
+            help="变形镜类型 (default: auto-detect). 若未指定且仅一个DM在线则自动选取，否则报错.",
+        ),
+    ] = None
+
+
+@dataclass
+class CombinedRunnerParams:
+    """AdaMOD 综合PIB优化器 (combined) 的全部 CLI 参数。"""
+
+    root_dir: Annotated[
+        str, option("-d", "--root_dir", help="数据保存根目录 (default: data)")
+    ] = "data"
+    load_file: Annotated[
+        str | None,
+        option("-f", "--load_file", help="加载初始电压文件 (default: None)"),
+    ] = None
+    cam_id: Annotated[
+        str,
+        option("--cam_id", help="远场光斑CCD设备ID (default: Far_CAM_ID/0)"),
+    ] = cast(str, lambda: os.environ.get("FAR_CAM_ID", "0"))
+    center: Annotated[
+        str,
+        option("-c", "--center", help="场光斑CCD中心位置 (example: 665,403)"),
+    ] = "mass"
+    exposure_time_ms: Annotated[
+        int,
+        option("-t", "--exposure_time_ms", help="远场光斑CCD曝光时间 (毫秒) (default: 80)"),
+    ] = 80
+    epochs: Annotated[
+        int, option("-e", "--epochs", help="优化迭代次数 (default: 4000)")
+    ] = 4_000
+    r_bucket: Annotated[
+        int,
+        option("-r", "--r_bucket", help="半径桶大小 (default: 0, 环围半径自动调整)"),
+    ] = 0
+    delta: Annotated[float, option("--delta", help="优化步长 (default: 1)")] = 1.0
+    lr: Annotated[
+        float, option("--lr", help="优化学习率 (default: 0.0, 动态学习率衰减)")
+    ] = 0.0
+    shrink_iter: Annotated[
+        int, option("--shrink_iter", help="收缩半径桶的迭代间隔 (default: 0, 不收缩)")
+    ] = 0
+    shrink_ratio: Annotated[
+        float, option("--shrink_ratio", help="收缩半径桶比例 (default: 0.9)")
+    ] = 0.9
+    cam_size: Annotated[
+        int, option("-s", "--cam_size", help="相机开窗大小 (default: 250)")
+    ] = 250
+    target_max_brightness: Annotated[
+        int,
+        option("-b", "--target_max_brightness", help="目标最大亮度值 (default: 40)"),
+    ] = 40
+    show: Annotated[
+        bool,
+        option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)"),
+    ] = False
+    dm_type: Annotated[
+        str | None,
+        option(
+            "--dm_type",
+            type=click.Choice(DM_TYPES, case_sensitive=False),
+            help="变形镜类型 (default: auto-detect)",
+        ),
+    ] = None
+    debug_flag: Annotated[
+        bool | None,
+        option(
+            "--debug",
+            is_flag=True,
+            help="启用调试模式: 保存 pkl/json 与汇总图 (初始/最优光斑, PIB 曲线, 最优电压)",
+        ),
+    ] = None

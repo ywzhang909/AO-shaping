@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import click
 from pathlib import Path
+from typing import Literal, cast
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -10,75 +11,41 @@ from ao_shaping.utils import gen_date_dir, gen_file_path_uuid, logger
 from ao_shaping.optimizer.wf.rms import optimizer_rms_dm
 from ao_shaping.utils.image.display import plot_funcs
 from ao_shaping.utils.io.cli_helpers import (
-    parse_tuple,
     setup_coredumpy,
     get_date_dir_name,
     get_debug_mode,
 )
-from ao_shaping.drivers.dm import list_dm_types
 from ao_shaping.drivers.dm._registry import resolve_dm
-
-
-DM_TYPES = list_dm_types()
+from ao_shaping.runners.runner_common import WfRunnerParams, with_params
 
 
 @click.command()
-@click.option("-d", "--dir", default="data", help="数据保存根目录 (default: data)")
-@click.option("-e", "--epochs", default=20_000, help="优化迭代次数 (default: 20000)")
-@click.option("-r", "--wfs_res", default="768", help="WFS分辨率 (default: 768)")
-@click.option("-p", "--pupil_diameter", default=2.7, help="瞳孔直径 (default: 2.7)")
-@click.option(
-    "-c",
-    "--pupil_center",
-    callback=parse_tuple,
-    default="(0,0)",
-    help="瞳孔中心坐标 (default: (0,0))",
-)
-@click.option(
-    "-t", "--early_stop_threshold", default=0.0, help="早停阈值 (default: 0.0)"
-)
-@click.option(
-    "--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)"
-)
-@click.option(
-    "--dm_type",
-    type=click.Choice(DM_TYPES, case_sensitive=False),
-    default=None,
-    help="变形镜类型 (default: auto-detect). 若未指定且仅一个DM在线则自动选取，否则报错.",
-)
-def run(
-    dir,
-    epochs,
-    wfs_res,
-    pupil_diameter,
-    pupil_center,
-    early_stop_threshold,
-    show,
-    dm_type,
-):
+@click.pass_context
+@with_params(WfRunnerParams, kw_name="params")
+def run(ctx: click.Context, params: WfRunnerParams) -> None:
     """波前优化器
 
     DEBUG环境变量控制调试模式。
     """
     debug = get_debug_mode()
 
-    dm = resolve_dm(dm_type)
+    dm = resolve_dm(params.dm_type)
     try:
         dm.open()
         init_v = [0 for _ in range(dm.DM_NUM)]
         records = optimizer_rms_dm(
             init_v=init_v,
-            epochs=epochs,
-            wfs_res=wfs_res,
-            pupil_diameter=pupil_diameter,
-            pupil_center=pupil_center,
-            early_stop_threshold=early_stop_threshold,
+            epochs=params.epochs,
+            wfs_res=cast(Literal["512", "768"], params.wfs_res),
+            pupil_diameter=params.pupil_diameter,
+            pupil_center=cast(tuple[float, float], params.pupil_center),
+            early_stop_threshold=params.early_stop_threshold,
             dm=dm,
         )
     finally:
         dm.close()
 
-    root_dir = Path(dir)
+    root_dir = Path(params.dir)
 
     min_iter, (min_epoch, min_rms) = records.get_best_iter()
 
