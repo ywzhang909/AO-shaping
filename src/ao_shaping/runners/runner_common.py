@@ -81,13 +81,21 @@ from ao_shaping.algorithm.heuristic.search import heuristic_algorithm_choices
 from ao_shaping.utils.image.targets import TARGET_SHAPE_CHOICES
 from ao_shaping.utils.io.cli_helpers import parse_tuple
 
+from ao_shaping.drivers.dm import list_dm_types
+
+# Snapshot of DM types taken BEFORE asyn_micro_dm registration below. The
+# dm_matrix_runner at HEAD computed its own DM_TYPES at import time before
+# asyn_micro was registered (runners/__init__.py imports dm_matrix_runner
+# before full_voltage_runner), so its --dm_type choice list excluded asyn_micro.
+# Preserve that exact ordering for byte-identical help output.
+DM_TYPES_PRE_ASYN_MICRO = list_dm_types()
+
 # Importing asyn_micro_dm registers the "asyn_micro" DM type (side effect).
 # It is normally registered by micro_drive.full_voltage_runner, which is
 # imported AFTER this module in runners/__init__.py — without this import,
 # DM_TYPES below would miss asyn_micro and the --dm_type choice list would
 # silently shrink from 6 to 5 entries.
 import ao_shaping.drivers.dm.asyn_micro_dm  # noqa: F401
-from ao_shaping.drivers.dm import list_dm_types
 
 DM_TYPES = list_dm_types()
 
@@ -1158,4 +1166,177 @@ class CombinedRunnerParams:
             is_flag=True,
             help="启用调试模式: 保存 pkl/json 与汇总图 (初始/最优光斑, PIB 曲线, 最优电压)",
         ),
+    ] = None
+
+
+@dataclass
+class DmMatrixRunnerParams:
+    """DM响应矩阵标定 (dm-matrix) 的全部 CLI 参数。"""
+
+    disturb_voltage: Annotated[
+        float, option("--voltage", help="扰动电压 (0=自动优化, 默认: 50.0)")
+    ] = 50.0
+    n_averages: Annotated[
+        int, option("--n-averages", help="每次WFS读取次数 M (默认: 20)")
+    ] = 20
+    n_cycles: Annotated[
+        int, option("--n-cycles", help="正负交替循环次数 N (默认: 1)")
+    ] = 1
+    wait_time: Annotated[
+        float, option("--wait", help="电压施加后等待时间 (秒, 默认: 0.1)")
+    ] = 0.1
+    output_path: Annotated[
+        str, option("--output", help="输出文件路径 (默认: data/dm_response_matrix)")
+    ] = "data/dm_response_matrix"
+    dm_unit_mask_str: Annotated[
+        str | None,
+        option(
+            "--dm-unit-mask",
+            help="DM单元掩码 (逗号分隔的0/1列表, 默认: 全部有效, actuator 0禁用)",
+        ),
+    ] = None
+    mla_index: Annotated[
+        str,
+        option(
+            "--mla-index",
+            type=click.Choice(["512", "540", "600", "768", "1280"]),
+            help="MLA分辨率 (默认: 512)",
+        ),
+    ] = "512"
+    exp_time: Annotated[
+        float, option("--exp-time", help="WFS曝光时间 (ms, 0=自动)")
+    ] = 0.0
+    auto_exposure: Annotated[
+        bool,
+        option("--auto-exposure/--no-auto-exposure", help="启用WFS自动曝光 (默认开启)"),
+    ] = True
+    high_speed: Annotated[
+        bool, option("--high-speed", is_flag=True, help="启用高速模式")
+    ] = False
+    use_custom_ref: Annotated[
+        bool, option("--use-custom-ref", is_flag=True, help="使用自定义参考文件")
+    ] = False
+    pupil_diameter: Annotated[
+        float, option("--pupil-diameter", help="瞳孔直径 (mm, 默认: 2.0)")
+    ] = 2.0
+    pupil_center: Annotated[
+        str | tuple[float, float],
+        option(
+            "--pupil-center",
+            callback=parse_tuple,
+            help="瞳孔中心坐标 (默认: (0,0))",
+        ),
+    ] = "(0,0)"
+    compute_inverses: Annotated[
+        bool, option("--no-inverses", flag_value=False, help="不计算逆矩阵")
+    ] = True
+    cancel_tile: Annotated[
+        bool, option("--cancel-tile", is_flag=True, help="测量时去除WFS的tip/tilt")
+    ] = False
+    auto_optimize_voltage: Annotated[
+        bool,
+        option(
+            "--auto-optimize/--no-auto-optimize",
+            help="自动优化每路扰动电压 (voltage=0时, 默认开启)",
+        ),
+    ] = True
+    optimize_n_avg: Annotated[
+        int, option("--optimize-n-avg", help="电压优化时的WFS读取次数 (默认: 10)")
+    ] = 10
+    display: Annotated[
+        bool,
+        option("--display/--no-display", help="显示实时pygame显示 (暂未实现)"),
+    ] = False
+    debug: Annotated[
+        bool | None,
+        option("--debug", is_flag=True, help="启用调试模式 (保存原始测量数据)"),
+    ] = None
+    dm_type: Annotated[
+        str | None,
+        option(
+            "--dm_type",
+            type=click.Choice(DM_TYPES_PRE_ASYN_MICRO, case_sensitive=False),
+            help="变形镜类型 (default: auto-detect). 若未指定且仅一个DM在线则自动选取，否则报错.",
+        ),
+    ] = None
+    mode: Annotated[
+        str,
+        option(
+            "--mode",
+            type=click.Choice(["sequential", "hadamard"]),
+            help="校准模式: sequential=逐单元推拉; hadamard=哈达玛模式同时推拉 (测量次数更少, 所有单元同时扰动)",
+        ),
+    ] = "sequential"
+    hadamard_order: Annotated[
+        int | None,
+        option(
+            "--hadamard-order",
+            help="哈达玛矩阵阶数 (mode=hadamard时使用); None=自动 (>=有效单元数的最小2的幂). mode=sequential时忽略",
+        ),
+    ] = None
+
+
+@dataclass
+class HadamardMatrixRunnerParams:
+    """Hadamard响应矩阵校准 (hadamard-matrix) 的全部 CLI 参数。"""
+
+    mode_order: Annotated[
+        int, option("--mode-order", help="Hadamard矩阵阶数 (2的幂次, 默认8)")
+    ] = 8
+    magnitude: Annotated[
+        float, option("--magnitude", help="扰动幅度 (波长)")
+    ] = 0.5
+    n_averages: Annotated[
+        int, option("--n-averages", help="每次WFS读取次数 (M)")
+    ] = 10
+    n_cycles: Annotated[
+        int, option("--n-cycles", help="正负交替循环次数 (N)")
+    ] = 1
+    wait_time: Annotated[
+        float, option("--wait", help="等待时间 (秒)")
+    ] = 0.1
+    output_path: Annotated[
+        str, option("--output", help="输出文件路径")
+    ] = "data/hadamard_response_matrix"
+    resolution: Annotated[
+        str, option("--resolution", help="SLM分辨率 (宽,高)")
+    ] = "1920,1080"
+    wavelength: Annotated[
+        int, option("--wavelength", help="工作波长 (nm)")
+    ] = 1064
+    mla_index: Annotated[
+        str,
+        option(
+            "--mla-index",
+            type=click.Choice(["512", "540", "600", "768", "1280"]),
+            help="MLA分辨率",
+        ),
+    ] = "512"
+    exp_time: Annotated[
+        float, option("--exp-time", help="曝光时间 (ms, 0=自动)")
+    ] = 0.0
+    auto_exposure: Annotated[
+        bool, option("--auto-exposure/--no-auto-exposure", help="启用WFS自动曝光")
+    ] = True
+    high_speed: Annotated[
+        bool, option("--high-speed", is_flag=True, help="启用高速模式")
+    ] = False
+    use_custom_ref: Annotated[
+        bool, option("--use-custom-ref", help="使用自定义参考文件")
+    ] = False
+    pupil_diameter: Annotated[
+        float, option("--pupil-diameter", help="瞳孔直径 (mm)")
+    ] = 2.0
+    pupil_center: Annotated[
+        str | tuple[float, float],
+        option("--pupil-center", callback=parse_tuple, help="瞳孔中心坐标"),
+    ] = "(0,0)"
+    compute_inverses: Annotated[
+        bool, option("--no-inverses", flag_value=False, help="不计算逆矩阵")
+    ] = True
+    display: Annotated[
+        bool, option("--display/--no-display", help="显示实时pygame显示")
+    ] = False
+    debug: Annotated[
+        bool | None, option("--debug", is_flag=True, help="启用调试模式")
     ] = None
