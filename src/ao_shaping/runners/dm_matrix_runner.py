@@ -27,6 +27,7 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.dm import list_dm_types
+from ao_shaping.drivers.dm._registry import resolve_dm
 from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
 from ao_shaping.runners.runner_common import resolve_dm
 
@@ -190,26 +191,9 @@ def run(
     if display:
         click.echo("Note: --display mode is not yet implemented for DM calibration.")
 
-    # DM selection
-    if dm_type is not None:
-        dm_type = dm_type.lower()
-        logger.info("Using specified DM type: {}", dm_type)
-    else:
-        reachable = list_reachable_dm_types()
-        if len(reachable) == 1:
-            dm_type = reachable[0]
-            logger.info("Auto-detected reachable DM: {}", dm_type)
-        elif len(reachable) == 0:
-            raise RuntimeError(
-                "No DM reachable. Specify --dm_type explicitly or connect a DM."
-            )
-        else:
-            raise RuntimeError(
-                f"Multiple DMs reachable ({', '.join(reachable)}). "
-                f"Specify --dm_type explicitly to choose one."
-            )
-
-    dm = create_dm(dm_type)
+    # DM selection — delegated to runner_common.resolve_dm so the logic
+    # stays in sync with the wf / pipeline / pib / combined runners.
+    dm = resolve_dm(dm_type)
     try:
         dm.open()
         with ThorlabWFS(

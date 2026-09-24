@@ -19,7 +19,7 @@ SLM_PHASE_RUNNERS = [
     ("ao_shaping.runners.slm_pib_runner", "slm-pib"),
     ("ao_shaping.runners.slm.rms_zernike_runner", "rms-zernike"),
     ("ao_shaping.runners.greedy_zernike_runner", "greedy-zernike"),
-    ("ao_shaping.runners.slm_square_runner", "spgd-square"),
+    ("ao_shaping.runners.slm_gsnet_runner", "slm-gsnet"),
 ]
 
 
@@ -30,9 +30,9 @@ def test_helper_choices_match_expected_set():
 @pytest.mark.parametrize("module_path,name", SLM_PHASE_RUNNERS)
 def test_runner_exposes_algorithm_and_pop_size(module_path, name):
     module = importlib.import_module(module_path)
-    # slm-pib is a click group: the heuristic-search options live on the
-    # "heuristic" subcommand. Every other runner is a flat command.
-    args = ["heuristic", "--help"] if name == "slm-pib" else ["--help"]
+    # slm-pib and slm-gsnet are click groups: the heuristic-search options live
+    # on the "heuristic" subcommand. Every other runner is a flat command.
+    args = ["heuristic", "--help"] if name in ("slm-pib", "slm-gsnet") else ["--help"]
     result = CliRunner().invoke(module.run, args)
 
     assert result.exit_code == 0, f"{name}: {result.output}"

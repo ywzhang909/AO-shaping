@@ -3,345 +3,325 @@
 A single place for the patterns that appear verbatim in 3+ runner files,
 keeping each runner focused on what makes it unique while pulling
 boilerplate out of every file.
+
+Concrete file/save-path/visualisation helpers have been relocated to their
+canonical homes:
+
+* :func:`build_debug_save_paths` → :mod:`ao_shaping.utils.io.file`
+* :func:`save_optimization_debug_artifacts`,
+  :func:`_save_data_mode_debug_artifacts`,
+  :func:`_infer_objective_key` → :mod:`ao_shaping.utils.io.file`
+* :func:`make_debug_wavefront_ax_plots`,
+  :func:`save_recorder_artifacts` → :mod:`ao_shaping.utils.image.display`
+* :func:`resolve_dm` → :mod:`ao_shaping.drivers.dm._registry`
+
+This module re-exports them for backward compatibility, and keeps the
+parameter dataclasses + click option decorators that are genuinely
+runner-specific.
 """
 
 from __future__ import annotations
 
-import json
-import pickle
-from pathlib import Path
+from dataclasses import dataclass
+from typing import Any
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
+import click
 
-from loguru import logger
-
-from ao_shaping.drivers.dm import create_dm, list_reachable_dm_types
-from ao_shaping.drivers.dm.base import DM
-from ao_shaping.utils.image.display import plot_funcs  # noqa: E402  (after matplotlib)
+# Re-exports (backward compatibility for any runner that still imports here)
+from ao_shaping.drivers.dm._registry import (  # noqa: F401
+    create_dm,
+    list_reachable_dm_types,
+    resolve_dm,
+)
+from ao_shaping.utils.io.cli_helpers import parse_tuple  # noqa: F401
+from ao_shaping.utils.image.display import (  # noqa: F401
+    make_debug_wavefront_ax_plots,
+    save_recorder_artifacts,
+)
+from ao_shaping.utils.io.file import (  # noqa: F401
+    build_debug_save_paths,
+    save_optimization_debug_artifacts,
+)
 
 
 # ---------------------------------------------------------------------------
-# Save-path construction
+# Shared parameter dataclasses (SLM family runners)
 # ---------------------------------------------------------------------------
 
-def build_debug_save_paths(
-    root_dir,
-    context_subdir: Path | str,
-) -> tuple[Path, Path]:
-    """Build the date-stamped save directory + file-stem prefix used by all runners.
 
-    Consistently mirrors the pattern::
+@dataclass
+class RunParams:
+    """Global / run-wide options shared by subcommands."""
 
-        save_dir = gen_date_dir(Path(root_dir) / context_subdir)
-        saved_file_name = save_dir / f"{context_subdir}_{save_dir.name}"
+    dir: str = "data"
+    debug: bool = False
 
-    Args:
-        root_dir:     Top-level run-output root (e.g. ``"data"``).
-        context_subdir:
-            The runner-specific sub-path *relative to root_dir*.
-            May be a :class:`~pathlib.Path` or a plain string, e.g.::
 
-                ``"flatten_zernike"``
-                ``"flatten_voltages"``
-                ``Path("pipeline")``
+@dataclass
+class CameraParams:
+    """CCD camera options."""
 
-    Returns:
-        A 2-tuple ``(save_dir, saved_file_name)`` where ``save_dir`` is the
-        full :class:`~pathlib.Path` to the date-stamped save directory and
-        ``saved_file_name`` is a stem :class:`~pathlib.Path` (no extension)
-        inside it, used to derive ``.png`` / ``.pkl`` / ``.json`` / ``.zip``
-        siblings.
+    cam_id: int = 0
+    cam_type: str = "daheng"
+    exposure_time_ms: float = 80.0
+    cam_size: int = 300
+    center: Any = None
+
+
+@dataclass
+class SlmParams:
+    """Santec SLM options."""
+
+    slm_number: int = 1
+    slm_wavelength: int = 1064
+    n_max: int = 4
+    shift_x: int = 0
+    shift_y: int = 0
+    zernike_radius: float = 0.0
+    load_file: Any = None
+    init_c: Any = None
+
+
+@dataclass
+class SpgdParams:
+    """SPGD (gradient) search options."""
+
+    epochs: int = 2000
+    delta: float = 0.1
+    lr: float = 0.0
+    optimizer_type: str = "adamod"
+    shrink_iter: int = 0
+    shrink_ratio: float = 0.9
+    show: bool = False
+
+
+@dataclass
+class HeuristicParams:
+    """Black-box heuristic search options."""
+
+    algorithm: str = "ga"
+    pop_size: int | None = None
+    epochs: int = 2000
+    show: bool = False
+
+
+# ---------------------------------------------------------------------------
+# slm-pib-specific parameter dataclasses
+# ---------------------------------------------------------------------------
+# These mirror the shared dataclasses above but with slm-pib defaults
+# (smaller CCD window, larger SPGD perturbation, PIB objective fields).
+# They live here so slm_pib_runner can import them instead of re-defining
+# the same shape locally.
+
+
+@dataclass
+class CameraParamsPib(CameraParams):
+    """CCD camera options — slm-pib uses a smaller default window (250 px)."""
+
+    cam_size: int = 250
+
+
+@dataclass
+class SpgdParamsPib(SpgdParams):
+    """SPGD options — slm-pib uses a larger default perturbation (0.2 rad)."""
+
+    delta: float = 0.2
+
+
+@dataclass
+class ObjectiveParamsPib:
+    """Imaging objective options (shared by both slm-pib search families)."""
+
+    name: str = "pib"
+    target_max_brightness: int = 40
+    r_bucket: int = 0
+    target_size: float = 44.0
+    target_aspect_ratio: float = 4.0 / 3.0
+    target_center_smooth: int = 3
+    target_shape: str | None = None
+    shape_schedule: bool = False
+    max_roi_energy_loss: float = 0.6
+    w_uniformity: float = 2.0
+    w_peak: float = 0.5
+    w_displacement: float = 0.0
+    log_uniformity: bool = False
+
+
+@dataclass
+class ObjectiveParamsSquare:
+    """Square-shaping objective options (slm-gsnet family)."""
+
+    name: str = "square"
+    target_side: int = 0
+    target_mean_brightness: float = 0.0
+    side_factor: float = 1.5
+    target_max_brightness: int = 200
+    w_uniformity: float = 0.4
+    w_efficiency: float = 0.6
+    w_aspect: float = 0.0
+
+
+# ---------------------------------------------------------------------------
+# Shared click option decorators (SLM family runners)
+# ---------------------------------------------------------------------------
+
+
+def run_options(fn):
+    """``-d/--dir`` + ``--debug`` shared by every SLM runner subcommand."""
+    fn = click.option("-d", "--dir", default="data", help="Data root directory.")(fn)
+    fn = click.option("--debug", is_flag=True, default=False, help="Enable debug mode.")(fn)
+    return fn
+
+
+def camera_options(fn):
+    """CCD camera options: ``--cam-id``, ``--cam_type``, ``--exposure_time_ms``,
+    ``--cam_size``, ``-c/--center``."""
+    fn = click.option("--cam-id", default=0, help="CCD camera device ID")(fn)
+    fn = click.option(
+        "--cam_type",
+        type=click.Choice(["miicam", "daheng", "sim"]),
+        default="daheng",
+        help="CCD camera backend (sim = 2f-Fourier numerical simulation, no hardware).",
+    )(fn)
+    fn = click.option(
+        "--exposure_time_ms",
+        type=float,
+        default=80.0,
+        help="CCD exposure time in ms (0 = auto-exposure).",
+    )(fn)
+    fn = click.option(
+        "--cam_size", type=int, default=300, help="CCD window size in pixels."
+    )(fn)
+    fn = click.option(
+        "-c",
+        "--center",
+        default=None,
+        help="Spot center: 'shape' / 'max' / 'mass' / 'centroid_thresh' or 'x,y'.",
+    )(fn)
+    return fn
+
+
+def slm_options(fn):
+    """Santec SLM options: ``--slm_number``, ``--slm_wavelength``, ``-n/--n_max``,
+    ``--zernike_radius``."""
+    fn = click.option(
+        "--slm_number", type=int, default=1, help="Santec SLM device number (1-8)."
+    )(fn)
+    fn = click.option(
+        "--slm_wavelength", type=int, default=1064, help="SLM operating wavelength (nm)."
+    )(fn)
+    fn = click.option(
+        "-n", "--n_max", type=int, default=4, help="Max Zernike radial order."
+    )(fn)
+    fn = click.option(
+        "--zernike_radius",
+        type=float,
+        default=0.0,
+        help="Zernike aperture radius (pixels); 0 = default.",
+    )(fn)
+    return fn
+
+
+def slm_extended_options(fn):
+    """Extended SLM options: :func:`slm_options` + ``--shift_x``, ``--shift_y``,
+    ``--load_file``, ``--init_c``."""
+    fn = slm_options(fn)
+    fn = click.option("--shift_x", type=int, default=0, help="SLM phase X shift (pixels).")(fn)
+    fn = click.option("--shift_y", type=int, default=0, help="SLM phase Y shift (pixels).")(fn)
+    fn = click.option(
+        "-f",
+        "--load_file",
+        type=str,
+        default=None,
+        help="Path to a prior Zernike coefficient file to load.",
+    )(fn)
+    fn = click.option(
+        "--init_c",
+        type=str,
+        default=None,
+        help="Initial Zernike coefficients (JSON or comma-separated).",
+    )(fn)
+    return fn
+
+
+# ---------------------------------------------------------------------------
+# Zernike WFS / SLM option decorators (rms-zernike, ga-zernike,
+# greedy-zernike, slm-offset share these)
+# ---------------------------------------------------------------------------
+
+
+def wfs_options(fn):
+    """ThorlabWFS options: ``-r/--wfs_res``, ``-p/--pupil_diameter``,
+    ``-c/--pupil_center`` (parse_tuple callback), ``--exposure-time-ms``,
+    ``--remove-tilt``."""
+    fn = click.option(
+        "-r", "--wfs_res", default="1024", help="WFS分辨率 (default: 1024)"
+    )(fn)
+    fn = click.option(
+        "-p", "--pupil_diameter", default=2.7, help="瞳孔直径 (default: 2.7)"
+    )(fn)
+    fn = click.option(
+        "-c",
+        "--pupil_center",
+        callback=parse_tuple,
+        default="(0,0)",
+        help="瞳孔中心坐标 (default: (0,0))",
+    )(fn)
+    fn = click.option(
+        "--exposure-time-ms",
+        default=0.0,
+        type=float,
+        help="WFS曝光时间 (毫秒, default: 0.0=自动曝光)",
+    )(fn)
+    fn = click.option(
+        "--remove-tilt", is_flag=True, help="移除波前测量中的倾斜项"
+    )(fn)
+    return fn
+
+
+def zernike_slm_options(fn):
+    """Zernike SLM options: ``--wavelength``, ``--shift-x``, ``--shift-y``,
+    ``--slm-number``, ``--wait-time``."""
+    fn = click.option(
+        "--wavelength", default=532, help="SLM波长 (nm, default: 532)"
+    )(fn)
+    fn = click.option("--shift-x", default=0, help="SLM X方向平移 (像素, default: 0)")(fn)
+    fn = click.option("--shift-y", default=0, help="SLM Y方向平移 (像素, default: 0)")(fn)
+    fn = click.option("--slm-number", default=1, help="SLM设备编号 (default: 1)")(fn)
+    fn = click.option(
+        "--wait-time", default=0.3, help="SLM 液晶翻转等待时间(秒, default: 0.3) "
+    )(fn)
+    return fn
+
+
+def parse_center(raw: Any) -> tuple[int, int] | str | None:
+    """Normalize the ``--center`` option to the optimizer's accepted form."""
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        parts = raw.split(",")
+        if len(parts) == 2:
+            try:
+                return (int(parts[0].strip()), int(parts[1].strip()))
+            except ValueError:
+                return raw  # named mode: shape/max/mass/centroid_thresh
+        return raw
+    return raw
+
+
+def config_payload(obj: Any) -> dict[str, Any]:
+    """Serialize a parameter dataclass for the JSON debug sidecar.
+
+    Drops unset (None) fields and fields left at their dataclass default;
+    the identity field (``algorithm`` / ``name``) is always kept so the
+    search family survives the round trip.
     """
-    from ao_shaping.utils import gen_date_dir
-    save_dir = gen_date_dir(Path(root_dir) / context_subdir)
-    saved_file_name = save_dir / f"{context_subdir}_{save_dir.name}"
-    return save_dir, saved_file_name
-
-
-# ---------------------------------------------------------------------------
-# Optimisation-debug visualisation block
-# ---------------------------------------------------------------------------
-
-def make_debug_wavefront_ax_plots(
-    ax: object,
-    init_wavefront,
-    opt_wavefront,
-    init_title: str = "init wavefront",
-    opt_title: str = "opt wavefront",
-    orientation: str = "horizontal",
-) -> None:
-    """Place init / optimised wavefront images on a pair of Axes.
-
-    Consumed with the 2×2 debug grid layout::
-
-        fig, ax = plt.subplots(2, 2, figsize=(12, 9))
-        ...  # rms_history  → ax[0,0],   voltages  → ax[0,1]
-        make_debug_wavefront_ax_plots(ax[1], init_wf, min_wf)   # init→col0, opt→col1
-
-    Args:
-        ax:             A 1-D Axes slice such as ``ax[1]`` (shaped n_cols,).
-        init_wavefront: Wavefront array for the initial state.
-        opt_wavefront:  Wavefront array for the optimised state.
-        init_title:     Title string for the *init* panel.
-        opt_title:      Title string for the *opt* panel.
-        orientation:    Colorbar orientation (``"horizontal"`` or
-                        ``"vertical"``).
-    """
-    im0 = plot_funcs["wavefront"](init_wavefront, ax[0], init_title)
-    fig = ax[0].get_figure()
-    plt.colorbar(im0, ax=ax[0], orientation=orientation)
-    im1 = plot_funcs["wavefront"](opt_wavefront, ax[1], opt_title)
-    plt.colorbar(im1, ax=ax[1], orientation=orientation)
-
-
-# Objective column names recognised in data-mode records (slm-pib).
-_DATA_MODE_OBJECTIVE_KEYS = ("pib", "radiu", "avg_radiu")
-
-
-def _infer_objective_key(data: dict[int, dict]) -> str | None:
-    """Return the objective column name present in the first data record."""
-    first = next(iter(data.values()), {})
-    for key in _DATA_MODE_OBJECTIVE_KEYS:
-        if key in first:
-            return key
-    return None
-
-
-def _save_data_mode_debug_artifacts(
-    data: dict[int, dict],
-    png_path: Path,
-    pkl_path: Path,
-    json_path: Path,
-    title: str,
-    json_payload: dict | None,
-) -> Path:
-    """Write PNG / pkl / json debug artifacts for a ``{epoch: record}`` dict.
-
-    Figure layout (2×2): objective history line plot (top-left), best
-    coefficient bar chart (top-right), first ``_img`` (bottom-left), last
-    ``_img`` (bottom-right).
-    """
-    epochs = sorted(data.keys())
-
-    fig, ax = plt.subplots(2, 2, figsize=(12, 9))
-
-    obj_key = _infer_objective_key(data)
-    if obj_key is not None:
-        xs = [e for e in epochs if obj_key in data[e]]
-        ys = [data[e][obj_key] for e in xs]
-        ax[0, 0].plot(xs, ys)
-        ax[0, 0].set_xlabel("epoch")
-        ax[0, 0].set_ylabel(obj_key)
-    ax[0, 0].set_title(title)
-
-    c_arr = None
-    for e in reversed(epochs):
-        if "_c" in data[e]:
-            c_arr = np.asarray(data[e]["_c"])
-            break
-    ax[0, 1].set_title("best coefficients")
-    if c_arr is not None:
-        ax[0, 1].bar(range(len(c_arr)), c_arr)
-    else:
-        ax[0, 1].text(0.5, 0.5, "no _c", ha="center", va="center")
-
-    imgs = [data[e]["_img"] for e in epochs if "_img" in data[e]]
-    for ax_i, label, img in (
-        (ax[1, 0], "first _img", imgs[0] if imgs else None),
-        (ax[1, 1], "last _img", imgs[-1] if imgs else None),
-    ):
-        ax_i.set_title(label)
-        if img is not None:
-            ax_i.imshow(np.asarray(img))
-        else:
-            ax_i.text(0.5, 0.5, "no _img", ha="center", va="center")
-
-    plt.tight_layout()
-    plt.savefig(png_path)
-    plt.close()
-
-    with open(pkl_path, "wb") as f:
-        pickle.dump(data, f)
-    with open(json_path, "w", encoding="utf8") as f:
-        json.dump(json_payload, f, ensure_ascii=False, indent=4)
-
-    return png_path
-
-
-def save_optimization_debug_artifacts(
-    records=None,
-    save_dir: Path | None = None,
-    saved_file_name: Path | None = None,
-    min_epoch: int | None = None,
-    min_metric: float | None = None,
-    best_coeff_key: str | None = None,
-    init_wavefront=None,
-    opt_wavefront=None,
-    init_title: str = "init wavefront",
-    opt_title: str = "opt wavefront",
-    plot_params_note: str | None = None,
-    *,
-    data: dict[int, dict] | None = None,
-    png_path: Path | None = None,
-    pkl_path: Path | None = None,
-    json_path: Path | None = None,
-    title: str = "",
-    json_payload: dict | None = None,
-) -> Path | None:
-    """Emit the standard debug artifacts for a completed optimisation run.
-
-    Two mutually exclusive modes:
-
-    * **Wavefront mode** (default): ``records`` is a Recorder / OptHistory
-      object; writes the 2×2 debug PNG + compressed dataframe. This is the
-      historical behaviour used by ``ga_zernike_runner``,
-      ``greedy_zernike_runner`` and ``rms_zernike_runner``.
-    * **Data mode**: ``data`` is a ``{epoch: record}`` dict; writes a 2×2
-      PNG (objective history / best coefficients / first & last image), a
-      pickled copy of ``data`` and a JSON sidecar of ``json_payload``.
-      Used by ``slm_pib_runner``.
-
-    Args:
-        records:           Recorder / OptHistory object with ``get_sublist()``,
-                           ``get_best_iter()``, ``first``, and
-                           ``save_dataframe``. (wavefront mode)
-        save_dir:          Directory in which to write output files.
-        saved_file_name:   UUID filename prefix (no extension).
-        min_epoch:         Epoch index of the best result.
-        min_metric:        Primary metric value at *min_epoch*
-                           (RMS, PIB, …).
-        best_coeff_key:    Dictionary key for the coefficient vector
-                           in the best-epoch record (e.g. ``"_c"`` or ``"_v"``).
-        init_wavefront:    Wavefront array for the initial state.
-        opt_wavefront:     Wavefront array for the optimised state.
-        init_title:        Colorbar / panel title for the initial WF.
-        opt_title:         Colorbar / panel title for the optimised WF.
-        plot_params_note:  Optional suffix appended to the *voltages* panel
-                           title (e.g. ``"epoch=200"``).
-        data:              ``{epoch: record}`` dict of scalar/array fields.
-                           (data mode; mutually exclusive with ``records``)
-        png_path:          Output path for the figure. (data mode)
-        pkl_path:          Output path for the pickled ``data``. (data mode)
-        json_path:         Output path for the JSON ``json_payload``. (data mode)
-        title:             Figure title. (data mode)
-        json_payload:      Dict serialised to ``json_path``. (data mode)
-
-    Returns:
-        ``png_path`` in data mode, ``None`` in wavefront mode.
-    """
-    if data is not None:
-        if records is not None:
-            raise ValueError(
-                "pass either records (wavefront mode) or data (data mode), not both"
-            )
-        return _save_data_mode_debug_artifacts(
-            data=data,
-            png_path=png_path,
-            pkl_path=pkl_path,
-            json_path=json_path,
-            title=title,
-            json_payload=json_payload,
-        )
-
-    # --- wavefront mode (historical behaviour) ---
-    fig, ax = plt.subplots(2, 2, figsize=(12, 9))
-
-    rms_values = records.get_sublist()
-    plot_funcs["rms_history"](rms_values, ax[0, 0], min_epoch, min_metric)
-
-    best_coeffs = records.get_best_iter()[0][best_coeff_key]
-    title_suffix = (
-        f"{plot_params_note}" if plot_params_note
-        else f"{min_metric:.3f} @ epoch {min_epoch}"
-    )
-    plot_funcs["voltages"](best_coeffs, ax[0, 1], title_suffix)
-
-    make_debug_wavefront_ax_plots(ax[1], init_wavefront, opt_wavefront,
-                                   init_title=init_title, opt_title=opt_title)
-
-    plt.tight_layout()
-    plt.savefig(saved_file_name.with_suffix(".png"))
-    plt.close()
-
-    records.save_dataframe(saved_file_name.with_suffix(".zip"),
-                          compression="zip")
-    return None
-
-
-# ---------------------------------------------------------------------------
-# save_capture_and_dataframe convenience
-# ---------------------------------------------------------------------------
-
-def save_recorder_artifacts(
-    records,
-    save_dir: Path,
-    saved_file_name: Path,
-) -> None:
-    """Save ``.zip`` dataframe + ``.png`` figure for a recorder, exactly as
-    ``ga_zernike`` / ``greedy_zernike`` / ``rms_zernike`` do to wrap up
-    their ``if debug`` block before returning.
-
-    The figure / data-array content is up to the caller (they should call
-    :func:`save_optimization_debug_artifacts` or build the axes directly);
-    this helper handles only the final two ``save`` / ``close`` calls.
-
-    Args:
-        records:         Recorder / OptHistory object.
-        save_dir:        Directory in which to write output files.
-        saved_file_name: UUID filename prefix (no extension).
-                            (Obtained from
-                            :func:`build_debug_save_paths`.)
-    """
-    records.save_dataframe(
-        saved_file_name.with_suffix(".zip"), compression="zip"
-    )
-
-
-# ---------------------------------------------------------------------------
-# DM resolution
-# ---------------------------------------------------------------------------
-
-def resolve_dm(dm_type: str | None, **kwargs) -> DM:
-    """Resolve the DM type and create a DM instance.
-
-    Mirrors the DM-selection block shared by the ``wf`` / ``pipeline`` /
-    ``pib`` / ``combined`` / ``dm-matrix`` runners: an explicit
-    ``--dm_type`` is lowercased and used directly; otherwise the reachable
-    DM types are probed and the single reachable one is chosen, with errors
-    for zero / multiple candidates.
-
-    Args:
-        dm_type: Explicit DM type name, or ``None`` for auto-detection.
-        **kwargs: Extra constructor kwargs forwarded to ``create_dm``
-            (e.g. ``keep_when_exit``, ``max_neibor_diff``,
-            ``dm_neibor_diff``).
-
-    Returns:
-        A created DM instance.
-
-    Raises:
-        RuntimeError: If no DM is reachable, or multiple DMs are reachable
-            while ``dm_type`` is ``None``.
-    """
-    if dm_type is not None:
-        dm_type = dm_type.lower()
-        logger.info("Using specified DM type: {}", dm_type)
-    else:
-        reachable = list_reachable_dm_types()
-        if len(reachable) == 1:
-            dm_type = reachable[0]
-            logger.info("Auto-detected reachable DM: {}", dm_type)
-        elif len(reachable) == 0:
-            raise RuntimeError(
-                "No DM reachable. Specify --dm_type explicitly or connect a DM."
-            )
-        else:
-            raise RuntimeError(
-                f"Multiple DMs reachable ({', '.join(reachable)}). "
-                f"Specify --dm_type explicitly to choose one."
-            )
-
-    return create_dm(dm_type, **kwargs)
+    payload: dict[str, Any] = {}
+    for key, value in obj.__dict__.items():
+        if value is None:
+            continue
+        default = getattr(type(obj), key, None)
+        if value == default and key not in ("algorithm", "name"):
+            continue
+        payload[key] = value
+    return payload
