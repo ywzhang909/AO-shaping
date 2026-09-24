@@ -6,47 +6,28 @@ Usage:
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
 
 import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.algorithm.heuristic.search import heuristic_algorithm_choices
-from ao_shaping.drivers import MIICamera, Santec
-from ao_shaping.drivers.ccd import DahengCamera
-from ao_shaping.drivers.ccd.common import create_camera
-from ao_shaping.optimizer.wfless.slm_zernike_pib import (
-    ALGORITHM_CHOICES,
-    TARGET_SHAPE_CHOICES,
-    optimize_slm_zernike_pib,
-)
+from ao_shaping.optimizer.wfless.slm_zernike_pib import optimize_slm_zernike_pib
 from ao_shaping.runners.runner_common import (
     CameraParamsPib,
     HeuristicParams,
     ObjectiveParamsPib,
     RunParams,
     SlmParams,
+    SlmParamsPib,
     SpgdParamsPib,
     config_payload,
-    camera_options,
-    run_options,
-    seed_option,
-    slm_extended_options,
+    with_params,
 )
-from ao_shaping.utils.io.cli_helpers import (
-    get_date_dir_name,
-    get_debug_mode,
-    parse_tuple,
-    setup_coredumpy,
-)
+from ao_shaping.utils.io.cli_helpers import setup_coredumpy
 from ao_shaping.utils.io.file import (
     Recorder,
-    build_debug_save_paths,
-    save_optimization_debug_artifacts,
     save_recorder_debug_artifacts,
 )
 
@@ -139,8 +120,8 @@ def _config_payload(obj: Any) -> dict[str, Any]:
 def _save_debug_artifacts(
     res: Recorder,
     objective: "ObjectiveParamsPib",
-    config: "SlmParams",
-    obj_or_heur: "ObjectiveParamsPib | HeuristicParams",
+    config: "SlmParamsPib",
+    obj_or_heur: "SpgdParamsPib | HeuristicParams",
     root_dir: str,
 ) -> Any:
     """Write PNG/pkl/json/h5 debug artifacts for the recorded search.
@@ -161,167 +142,6 @@ def _save_debug_artifacts(
         json_payload=_config_payload(obj_or_heur),
         title=f"slm-pib {objective.name} search",
     )
-
-
-# --- option decorators (applied to both subcommands) -----------------------
-# ``run_options`` / ``slm_extended_options`` come from runner_common;
-# ``_camera_options`` stays local because slm-pib defaults cam_size=250.
-
-
-def _camera_options(fn):
-    fn = click.option("--cam-id", default=0, help="CCD camera device ID")(fn)
-    fn = click.option(
-        "--cam_type",
-        type=click.Choice(["miicam", "daheng", "sim"]),
-        default="daheng",
-        help="CCD camera backend (sim = 2f-Fourier numerical simulation, no hardware).",
-    )(fn)
-    fn = click.option(
-        "--exposure_time_ms",
-        type=float,
-        default=80.0,
-        help="CCD exposure time in ms (0 = auto-exposure).",
-    )(fn)
-    fn = click.option(
-        "--auto-exposure",
-        is_flag=True,
-        default=False,
-        help="Auto-find a safe fixed exposure before optimizing (one probe pass).",
-    )(fn)
-    fn = click.option(
-        "--auto-target-peak",
-        type=float,
-        default=160.0,
-        help="Target peak brightness for --auto-exposure.",
-    )(fn)
-    fn = click.option(
-        "--auto-n-frames",
-        type=int,
-        default=5,
-        help="Frames for the auto 0-order centre median.",
-    )(fn)
-    fn = click.option(
-        "--cam_size", type=int, default=250, help="CCD window size in pixels."
-    )(fn)
-    fn = click.option(
-        "-c",
-        "--center",
-        default=None,
-        help="Center: 'auto' / 'mass' / 'max' / 'shape' or 'x,y'.",
-    )(fn)
-    return fn
-
-
-def _objective_options(fn):
-    fn = click.option(
-        "--objective",
-        type=click.Choice(
-            ["pib", "radiu", "avg_radiu", "rmse", "shape", "roi_pib", "rms_pib"]
-        ),
-        default="pib",
-        help="Optimization objective.",
-    )(fn)
-    fn = click.option(
-        "--target_max_brightness",
-        type=int,
-        default=40,
-        help="Target max brightness for auto-exposure.",
-    )(fn)
-    fn = click.option(
-        "-r",
-        "--r_bucket",
-        type=int,
-        default=0,
-        help="Bucket radius (0 = auto from power radius).",
-    )(fn)
-    fn = click.option(
-        "--target_size", type=float, default=64.0, help="Target extent in camera px."
-    )(fn)
-    fn = click.option(
-        "--target_aspect_ratio",
-        type=float,
-        default=4.0 / 3.0,
-        help="Width:height ratio for a rectangular target.",
-    )(fn)
-    fn = click.option(
-        "--target_center_smooth",
-        type=int,
-        default=3,
-        help="Frames averaged for the target centre estimate.",
-    )(fn)
-    fn = click.option(
-        "--target_shape",
-        type=click.Choice(list(TARGET_SHAPE_CHOICES)),
-        default=None,
-        help="Target ROI shape (implies the 'shape' objective).",
-    )(fn)
-    fn = click.option(
-        "--shape_schedule",
-        is_flag=True,
-        default=False,
-        help="Use the coarse->fine shaping weight schedule.",
-    )(fn)
-    fn = click.option(
-        "--max_energy_loss",
-        type=float,
-        default=0.6,
-        help="Max allowed in-ROI energy loss fraction (0 disables the guard).",
-    )(fn)
-    fn = click.option(
-        "--w_uniformity", type=float, default=2.0, help="Uniformity penalty weight."
-    )(fn)
-    fn = click.option("--w_peak", type=float, default=0.5, help="Peak penalty weight.")(
-        fn
-    )
-    fn = click.option(
-        "--w_displacement", type=float, default=0.0, help="Displacement penalty weight."
-    )(fn)
-    fn = click.option(
-        "--log_uniformity",
-        is_flag=True,
-        default=False,
-        help="Use log1p(u) instead of u/(1+u) for the uniformity term.",
-    )(fn)
-    fn = click.option(
-        "--w_ema_decay",
-        type=float,
-        default=0.9,
-        help="EMA decay for the adaptive PIB/RMS weights of the 'rms_pib' objective.",
-    )(fn)
-    fn = click.option(
-        "--w_floor",
-        type=float,
-        default=0.1,
-        help="Minimum weight floor per term of the 'rms_pib' objective (0..0.5).",
-    )(fn)
-    fn = click.option(
-        "--w_temperature",
-        type=float,
-        default=8.0,
-        help="Softmax temperature for the 'rms_pib' weight update.",
-    )(fn)
-    fn = click.option(
-        "--w_pib_init",
-        type=float,
-        default=None,
-        help="Initial PIB weight of the 'rms_pib' objective (default 1/3). "
-        "Provided terms are kept exactly; unprovided terms share the remainder.",
-    )(fn)
-    fn = click.option(
-        "--w_rms_init",
-        type=float,
-        default=None,
-        help="Initial RMS (in-ROI uniformity) weight of the 'rms_pib' objective "
-        "(default 1/3).",
-    )(fn)
-    fn = click.option(
-        "--w_ee_init",
-        type=float,
-        default=None,
-        help="Initial encircled-energy weight of the 'rms_pib' objective "
-        "(default 1/3).",
-    )(fn)
-    return fn
 
 
 # --- shared execution helpers ------------------------------------------------
@@ -359,14 +179,16 @@ class SlmPibConfig:
     """Aggregates every parameter group for one slm-pib run.
 
     Uses the slm-pib-specific dataclasses (``CameraParamsPib``,
-    ``SpgdParamsPib``, ``ObjectiveParamsPib``) so the defaults stay
-    consistent with the click decorators.
+    ``SlmParamsPib``, ``SpgdParamsPib``/``HeuristicParams``) so the
+    defaults stay consistent with the click decorators. The camera
+    dataclass fuses the objective parameters (``CameraParamsPib`` is a
+    ``CameraParams`` + ``ObjectiveParamsPib`` combination), so there is
+    no separate objective field.
     """
 
     run: RunParams
     camera: CameraParamsPib
-    slm: SlmParams
-    objective: ObjectiveParamsPib
+    slm: SlmParamsPib
     search: SpgdParamsPib | HeuristicParams
 
 
@@ -377,7 +199,7 @@ def _optimizer_kwargs(
     """Flatten the aggregated config into the optimizer's flat keyword arguments."""
     slm = cfg.slm
     cam = cfg.camera
-    obj = cfg.objective
+    obj = cam  # CameraParamsPib fuses the objective parameters
 
     zernike_radius: float | None = (
         slm.zernike_radius if slm.zernike_radius > 0 else None
@@ -444,37 +266,13 @@ def _optimizer_kwargs(
     return kwargs
 
 
-def _parse_objective_args(**opts) -> ObjectiveParamsPib:
-    """Build an :class:`ObjectiveParamsPib` from the shared objective click options."""
-    return ObjectiveParamsPib(
-        name=opts["objective"],
-        target_max_brightness=opts["target_max_brightness"],
-        r_bucket=opts["r_bucket"],
-        target_size=opts["target_size"],
-        target_aspect_ratio=opts["target_aspect_ratio"],
-        target_center_smooth=opts["target_center_smooth"],
-        target_shape=opts["target_shape"],
-        shape_schedule=opts["shape_schedule"],
-        max_roi_energy_loss=opts["max_energy_loss"],
-        w_uniformity=opts["w_uniformity"],
-        w_peak=opts["w_peak"],
-        w_displacement=opts["w_displacement"],
-        log_uniformity=opts["log_uniformity"],
-        w_ema_decay=opts["w_ema_decay"],
-        w_floor=opts["w_floor"],
-        w_temperature=opts["w_temperature"],
-        w_pib_init=opts["w_pib_init"],
-        w_rms_init=opts["w_rms_init"],
-        w_ee_init=opts["w_ee_init"],
-    )
-
-
 # --- click group + subcommands ---------------------------------------------
 
 
 @click.group(invoke_without_command=True)
 @click.pass_context
-def run(ctx: click.Context) -> None:
+@with_params(RunParams, kw_name="run")
+def run(ctx: click.Context, run: RunParams) -> None:
     """PIB shaping with a Santec SLM driven by Zernike coefficients.
 
     Without a subcommand, the SPGD (gradient) search runs.
@@ -484,175 +282,37 @@ def run(ctx: click.Context) -> None:
 
 
 @click.command(name="spgd")
-@run_options
-@seed_option
-@_camera_options
-@slm_extended_options
-@_objective_options
-@click.option("-e", "--epochs", type=int, default=2000, help="Optimization iterations.")
-@click.option(
-    "--delta", type=float, default=0.2, help="SPGD perturbation amplitude (rad)."
-)
-@click.option("--lr", type=float, default=0.0, help="SPGD learning rate (0 = auto).")
-@click.option(
-    "--optimizer_type",
-    type=click.Choice(
-        ["adam", "adamw", "adamod", "sgd", "muno", "munow"], case_sensitive=False
-    ),
-    default="adamod",
-    show_default=True,
-    help="SPGD gradient optimizer.",
-)
-@click.option(
-    "--shrink_iter", type=int, default=0, help="Iterations before radius/step shrink."
-)
-@click.option(
-    "--shrink_ratio", type=float, default=0.9, help="Radius/step shrink ratio."
-)
-@click.option("--show", is_flag=True, default=False, help="Open a live display window.")
 @click.pass_context
+@with_params(RunParams, kw_name="run")
+@with_params(CameraParamsPib, kw_name="camera")
+@with_params(SlmParamsPib, kw_name="slm")
+@with_params(SpgdParamsPib, kw_name="search")
 def spgd(
     ctx: click.Context,
-    dir: str,
-    debug: bool,
-    seed: int | None,
-    cam_id: int,
-    cam_type: str,
-    exposure_time_ms: float,
-    auto_exposure: bool,
-    auto_target_peak: float,
-    auto_n_frames: int,
-    cam_size: int,
-    center,
-    slm_number: int,
-    slm_wavelength: int,
-    n_max: int,
-    shift_x: int,
-    shift_y: int,
-    zernike_radius: float,
-    load_file: str | None,
-    init_c: str | None,
-    **obj_opts,
+    run: RunParams,
+    camera: CameraParamsPib,
+    slm: SlmParamsPib,
+    search: SpgdParamsPib,
 ) -> None:
     """Run the SPGD (Stochastic Parallel Gradient Descent) search."""
-    run_cfg = RunParams(dir=dir, debug=debug, seed=seed)
-    camera = CameraParamsPib(
-        cam_id=cam_id,
-        cam_type=cam_type,
-        exposure_time_ms=exposure_time_ms,
-        cam_size=cam_size,
-        center=center,
-    )
-    slm = SlmParams(
-        slm_number=slm_number,
-        slm_wavelength=slm_wavelength,
-        n_max=n_max,
-        shift_x=shift_x,
-        shift_y=shift_y,
-        zernike_radius=zernike_radius,
-        load_file=load_file,
-        init_c=init_c,
-    )
-    objective = _parse_objective_args(**obj_opts)
-    search = SpgdParamsPib(
-        epochs=obj_opts.pop("epochs", 2000),
-        delta=obj_opts.pop("delta", 0.2),
-        lr=obj_opts.pop("lr", 0.0),
-        optimizer_type=obj_opts.pop("optimizer_type", "adamod"),
-        shrink_iter=obj_opts.pop("shrink_iter", 0),
-        shrink_ratio=obj_opts.pop("shrink_ratio", 0.9),
-        show=obj_opts.pop("show", False),
-    )
-    _execute(
-        run_cfg,
-        camera,
-        slm,
-        objective,
-        search,
-        auto_exposure,
-        auto_target_peak,
-        auto_n_frames,
-    )
+    _execute(run, camera, slm, search)
 
 
 @click.command(name="heuristic")
-@run_options
-@seed_option
-@_camera_options
-@slm_extended_options
-@_objective_options
-@click.option(
-    "--algorithm",
-    type=click.Choice(heuristic_algorithm_choices()),
-    default="ga",
-    help="Black-box search algorithm.",
-)
-@click.option(
-    "--pop_size", type=int, default=None, help="Population size (ga/pso/cem/de)."
-)
-@click.option("-e", "--epochs", type=int, default=2000, help="Optimization iterations.")
-@click.option("--show", is_flag=True, default=False, help="Open a live display window.")
 @click.pass_context
+@with_params(RunParams, kw_name="run")
+@with_params(CameraParamsPib, kw_name="camera")
+@with_params(SlmParamsPib, kw_name="slm")
+@with_params(HeuristicParams, kw_name="search")
 def heuristic(
     ctx: click.Context,
-    dir: str,
-    debug: bool,
-    seed: int | None,
-    cam_id: int,
-    cam_type: str,
-    exposure_time_ms: float,
-    auto_exposure: bool,
-    auto_target_peak: float,
-    auto_n_frames: int,
-    cam_size: int,
-    center,
-    slm_number: int,
-    slm_wavelength: int,
-    n_max: int,
-    shift_x: int,
-    shift_y: int,
-    zernike_radius: float,
-    load_file: str | None,
-    init_c: str | None,
-    algorithm: str,
-    pop_size: int | None,
-    epochs: int,
-    show: bool,
-    **obj_opts,
+    run: RunParams,
+    camera: CameraParamsPib,
+    slm: SlmParamsPib,
+    search: HeuristicParams,
 ) -> None:
     """Run a black-box heuristic search (ga/pso/sa/hc/rs/cem/de)."""
-    run_cfg = RunParams(dir=dir, debug=debug, seed=seed)
-    camera = CameraParamsPib(
-        cam_id=cam_id,
-        cam_type=cam_type,
-        exposure_time_ms=exposure_time_ms,
-        cam_size=cam_size,
-        center=center,
-    )
-    slm = SlmParams(
-        slm_number=slm_number,
-        slm_wavelength=slm_wavelength,
-        n_max=n_max,
-        shift_x=shift_x,
-        shift_y=shift_y,
-        zernike_radius=zernike_radius,
-        load_file=load_file,
-        init_c=init_c,
-    )
-    objective = _parse_objective_args(**obj_opts)
-    search = HeuristicParams(
-        algorithm=algorithm, pop_size=pop_size, epochs=epochs, show=show
-    )
-    _execute(
-        run_cfg,
-        camera,
-        slm,
-        objective,
-        search,
-        auto_exposure,
-        auto_target_peak,
-        auto_n_frames,
-    )
+    _execute(run, camera, slm, search)
 
 
 run.add_command(spgd, name="spgd")
@@ -707,17 +367,18 @@ def _resolve_auto_camera(
 def _execute(
     run_cfg: RunParams,
     camera: CameraParamsPib,
-    slm: SlmParams,
-    objective: ObjectiveParamsPib,
+    slm: SlmParamsPib,
     search: SpgdParamsPib | HeuristicParams,
-    auto_exposure: bool = False,
-    auto_target_peak: float = 160.0,
-    auto_n_frames: int = 5,
 ) -> None:
     """Shared execution path for both search families."""
     setup_coredumpy()
-    if auto_exposure or camera.center == "auto":
-        _resolve_auto_camera(camera, auto_exposure, auto_target_peak, auto_n_frames)
+    if camera.auto_exposure or camera.center == "auto":
+        _resolve_auto_camera(
+            camera,
+            camera.auto_exposure,
+            camera.auto_target_peak,
+            camera.auto_n_frames,
+        )
     if camera.center is not None and not isinstance(camera.center, str):
         camera.center = (int(camera.center[0]), int(camera.center[1]))
     elif isinstance(camera.center, str) and "," in camera.center:
@@ -725,7 +386,7 @@ def _execute(
         camera.center = (int(x_str), int(y_str))
 
     kwargs = _optimizer_kwargs(
-        SlmPibConfig(run_cfg, camera, slm, objective, search), search
+        SlmPibConfig(run_cfg, camera, slm, search), search
     )
     init_c = _load_initial_coeffs(slm.load_file, slm.init_c)
     if init_c is not None:
@@ -733,9 +394,9 @@ def _execute(
 
     res = optimize_slm_zernike_pib(**kwargs)
     if run_cfg.debug:
-        _save_debug_artifacts(res, objective, slm, search, run_cfg.dir)
+        _save_debug_artifacts(res, camera, slm, search, run_cfg.dir)
 
-    eff_key = _effective_objective_key(objective.name, objective.target_shape)
+    eff_key = _effective_objective_key(camera.name, camera.target_shape)
     # Report the best record (by the effective objective) instead of the last
     # one: the final evaluation may be a guard-penalised row (energy guard
     # returns J-1e3 and the history[-1] record would show -999 even though the

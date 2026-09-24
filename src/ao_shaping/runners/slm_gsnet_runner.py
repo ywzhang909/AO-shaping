@@ -21,16 +21,13 @@ Offline dry-run (no hardware) — options live on the subcommand, not the group:
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
 
 import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.algorithm.heuristic.search import heuristic_algorithm_choices
 from ao_shaping.optimizer.wfless.slm_square_shaping import optimize_slm_square
 from ao_shaping.runners.runner_common import (
     CameraParams,
@@ -41,9 +38,7 @@ from ao_shaping.runners.runner_common import (
     SpgdParams,
     config_payload,
     parse_center,
-    run_options,
-    camera_options,
-    slm_options,
+    with_params,
 )
 from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts
 from ao_shaping.utils.io.cli_helpers import setup_coredumpy
@@ -117,45 +112,6 @@ class SlmGsnetConfig:
     search: SpgdParams | HeuristicParams
 
 
-# --- option decorators (applied to both subcommands) -----------------------
-
-
-def _objective_options(fn):
-    fn = click.option(
-        "--target-side",
-        type=int,
-        default=0,
-        help="Target square side (pixels); 0 = auto from spot size. Mutually "
-        "exclusive with --target-mean-brightness.",
-    )(fn)
-    fn = click.option(
-        "--target-mean-brightness",
-        type=float,
-        default=0.0,
-        help="Target square mean brightness (gray). >0 auto-derives side by "
-        "energy conservation. Mutually exclusive with --target-side.",
-    )(fn)
-    fn = click.option(
-        "--side-factor", type=float, default=1.5, help="Auto side-length factor."
-    )(fn)
-    fn = click.option(
-        "--target-max-brightness",
-        type=int,
-        default=200,
-        help="Target max brightness for auto-exposure.",
-    )(fn)
-    fn = click.option(
-        "--w_uniformity", type=float, default=0.4, help="Uniformity (CV) weight."
-    )(fn)
-    fn = click.option(
-        "--w_efficiency", type=float, default=0.6, help="Encircled-energy weight."
-    )(fn)
-    fn = click.option(
-        "--w_aspect", type=float, default=0.0, help="Aspect-ratio weight."
-    )(fn)
-    return fn
-
-
 # --- shared execution helpers ------------------------------------------------
 
 
@@ -192,7 +148,7 @@ def _optimizer_kwargs(cfg: SlmGsnetConfig) -> dict[str, Any]:
         "basis": "freeform",
         "phase_grid": 24,
         "zernike_radius": zernike_radius,
-        "random_seed": None,
+        "random_seed": cfg.run.seed,
     }
 
     if isinstance(search, SpgdParams):
@@ -215,20 +171,6 @@ def _optimizer_kwargs(cfg: SlmGsnetConfig) -> dict[str, Any]:
         )
 
     return kwargs
-
-
-def _parse_objective_args(**opts) -> ObjectiveParamsSquare:
-    """Build an :class:`ObjectiveParamsSquare` from the shared objective click options."""
-    return ObjectiveParamsSquare(
-        name="square",
-        target_side=opts["target_side"],
-        target_mean_brightness=opts["target_mean_brightness"],
-        side_factor=opts["side_factor"],
-        target_max_brightness=opts["target_max_brightness"],
-        w_uniformity=opts["w_uniformity"],
-        w_efficiency=opts["w_efficiency"],
-        w_aspect=opts["w_aspect"],
-    )
 
 
 def _maybe_sim_patch(cam_type: str) -> None:
@@ -261,7 +203,8 @@ def _maybe_sim_patch(cam_type: str) -> None:
 
 @click.group(invoke_without_command=True)
 @click.pass_context
-def run(ctx: click.Context) -> None:
+@with_params(RunParams, kw_name="run")
+def run(ctx: click.Context, run: RunParams) -> None:
     """Square far-field shaping via FREEFORM per-pixel SLM phase.
 
     The phase basis is always freeform (per-pixel) — the only DOF that can
@@ -273,120 +216,41 @@ def run(ctx: click.Context) -> None:
 
 
 @click.command(name="spgd")
-@run_options
-@camera_options
-@slm_options
-@_objective_options
-@click.option("-e", "--epochs", type=int, default=2000, help="Optimization iterations.")
-@click.option("--delta", type=float, default=0.1, help="SPGD perturbation amplitude (rad).")
-@click.option("--lr", type=float, default=0.0, help="SPGD learning rate (0 = auto).")
-@click.option(
-    "--optimizer_type",
-    type=click.Choice(["adam", "adamw", "adamod", "sgd", "muno", "munow"], case_sensitive=False),
-    default="adamod",
-    show_default=True,
-    help="SPGD gradient optimizer.",
-)
-@click.option("--show", is_flag=True, default=False, help="Open a live display window.")
 @click.pass_context
+@with_params(RunParams, kw_name="run")
+@with_params(CameraParams, kw_name="camera")
+@with_params(SlmParams, kw_name="slm")
+@with_params(ObjectiveParamsSquare, kw_name="objective")
+@with_params(SpgdParams, kw_name="search")
 def spgd(
     ctx: click.Context,
-    dir: str,
-    debug: bool,
-    cam_id: int,
-    cam_type: str,
-    exposure_time_ms: float,
-    cam_size: int,
-    center,
-    slm_number: int,
-    slm_wavelength: int,
-    n_max: int,
-    zernike_radius: float,
-    epochs: int,
-    delta: float,
-    lr: float,
-    optimizer_type: str,
-    show: bool,
-    **obj_opts,
+    run: RunParams,
+    camera: CameraParams,
+    slm: SlmParams,
+    objective: ObjectiveParamsSquare,
+    search: SpgdParams,
 ) -> None:
     """Run the SPGD (Stochastic Parallel Gradient Descent) search."""
-    run_cfg = RunParams(dir=dir, debug=debug)
-    camera = CameraParams(
-        cam_id=cam_id,
-        cam_type=cam_type,
-        exposure_time_ms=exposure_time_ms,
-        cam_size=cam_size,
-        center=center,
-    )
-    slm = SlmParams(
-        slm_number=slm_number,
-        slm_wavelength=slm_wavelength,
-        n_max=n_max,
-        zernike_radius=zernike_radius,
-    )
-    objective = _parse_objective_args(**obj_opts)
-    search = SpgdParams(
-        epochs=epochs,
-        delta=delta,
-        lr=lr,
-        optimizer_type=optimizer_type,
-        show=show,
-    )
-    _execute(SlmGsnetConfig(run_cfg, camera, slm, objective, search))
+    _execute(SlmGsnetConfig(run, camera, slm, objective, search))
 
 
 @click.command(name="heuristic")
-@run_options
-@camera_options
-@slm_options
-@_objective_options
-@click.option(
-    "--algorithm",
-    type=click.Choice(heuristic_algorithm_choices()),
-    default="ga",
-    help="Black-box search algorithm.",
-)
-@click.option("--pop_size", type=int, default=None, help="Population size (ga/pso/cem/de).")
-@click.option("-e", "--epochs", type=int, default=2000, help="Optimization iterations.")
-@click.option("--show", is_flag=True, default=False, help="Open a live display window.")
 @click.pass_context
+@with_params(RunParams, kw_name="run")
+@with_params(CameraParams, kw_name="camera")
+@with_params(SlmParams, kw_name="slm")
+@with_params(ObjectiveParamsSquare, kw_name="objective")
+@with_params(HeuristicParams, kw_name="search")
 def heuristic(
     ctx: click.Context,
-    dir: str,
-    debug: bool,
-    cam_id: int,
-    cam_type: str,
-    exposure_time_ms: float,
-    cam_size: int,
-    center,
-    slm_number: int,
-    slm_wavelength: int,
-    n_max: int,
-    zernike_radius: float,
-    algorithm: str,
-    pop_size: int | None,
-    epochs: int,
-    show: bool,
-    **obj_opts,
+    run: RunParams,
+    camera: CameraParams,
+    slm: SlmParams,
+    objective: ObjectiveParamsSquare,
+    search: HeuristicParams,
 ) -> None:
     """Run a black-box heuristic freeform search (ga/pso/sa/hc/rs/cem/de)."""
-    run_cfg = RunParams(dir=dir, debug=debug)
-    camera = CameraParams(
-        cam_id=cam_id,
-        cam_type=cam_type,
-        exposure_time_ms=exposure_time_ms,
-        cam_size=cam_size,
-        center=center,
-    )
-    slm = SlmParams(
-        slm_number=slm_number,
-        slm_wavelength=slm_wavelength,
-        n_max=n_max,
-        zernike_radius=zernike_radius,
-    )
-    objective = _parse_objective_args(**obj_opts)
-    search = HeuristicParams(algorithm=algorithm, pop_size=pop_size, epochs=epochs, show=show)
-    _execute(SlmGsnetConfig(run_cfg, camera, slm, objective, search))
+    _execute(SlmGsnetConfig(run, camera, slm, objective, search))
 
 
 run.add_command(spgd, name="spgd")

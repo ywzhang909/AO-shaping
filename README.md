@@ -216,7 +216,7 @@ python src/ao_shaping/main.py zernike-matrix [OPTIONS]
 ```bash
 python src/ao_shaping/main.py rms-zernike [OPTIONS]
 ```
-等同于: `python -m ao_shaping.runners.rms_zernike_runner`
+等同于: `python -m ao_shaping.runners.slm.rms_zernike_runner`
 
 通过 SLM 加载 Zernike 相位, 以 WFS 测量的 RMS 为目标进行优化 (梯度法 SPGD), 实现波前校正。支持 delta 自动检测 (数量级扫描) 与多起点优化。
 
@@ -295,6 +295,8 @@ python src/ao_shaping/main.py greedy-zernike [OPTIONS]
 - `--n-init`: 初始随机位置数量 (默认: 10)
 - `--n-directions`: 每次迭代的随机方向数量 (默认: 5)
 - `--perturbation-scale`: 扰动幅度缩放因子 (默认: 5.0)
+- `--algorithm`: 内部搜索算法 (spgd / ga / pso / sa / hc / rs / cem / de, 默认: spgd)
+- `--pop_size`: 种群规模 (algorithm=ga/pso/cem/de 时使用; 默认取算法默认值)
 
 算法流程:
 1. 随机初始化N个位置，选取最优作为起始点
@@ -935,7 +937,7 @@ python -m ao_shaping.runners.zernike_matrix_runner [OPTIONS]
 
 5. SLM Zernike RMS 优化:
 ```bash
-python -m ao_shaping.runners.rms_zernike_runner [OPTIONS]
+python -m ao_shaping.runners.slm.rms_zernike_runner [OPTIONS]
 ```
 
 6. 遗传算法 Zernike 优化:

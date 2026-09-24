@@ -1,8 +1,8 @@
-"""Shared helpers for AO-Shaping runner scripts.
+"""Shared parameter dataclasses + ``with_params`` click integration.
 
-A single place for the patterns that appear verbatim in 3+ runner files,
-keeping each runner focused on what makes it unique while pulling
-boilerplate out of every file.
+A single place for the parameter groups that appear in 3+ runner files,
+keeping each runner focused on what makes it unique while pulling the CLI
+option declarations out of every file.
 
 Concrete file/save-path/visualisation helpers have been relocated to their
 canonical homes:
@@ -15,9 +15,8 @@ canonical homes:
   :func:`save_recorder_artifacts` → :mod:`ao_shaping.utils.image.display`
 * :func:`resolve_dm` → :mod:`ao_shaping.drivers.dm._registry`
 
-Runners import these helpers directly from their canonical homes; this
-module keeps only the parameter dataclasses + click option decorators that
-are genuinely runner-specific.
+This module keeps only the parameter dataclasses (with their click option
+metadata) plus the ``with_params`` machinery that turns them into CLI options.
 
 Parameter dataclasses are grouped by role:
 
@@ -27,47 +26,307 @@ Parameter dataclasses are grouped by role:
 * 可视化与输出参数 (viz/output)   — run-wide output dir + debug visualisation
 * 融合参数 (fused)               — composite groups combining roles above
   (e.g. CameraParamsPib = camera + objective: the slm-pib target definition)
+
+dataclass-click mechanism
+-------------------------
+Each field is declared ``name: Annotated[T, option(...)] = default``. The
+dataclass field default is the single source of truth for the CLI default —
+``with_params`` injects it into the click option (an explicit ``default=``
+inside ``option(...)`` raises ``TypeError``). ``option`` is a delayed
+``click.option``: inside ``Annotated`` it returns a ``_DelayedCall`` that
+``with_params`` applies to the command in *reversed* declaration order, so the
+CLI help lists the options top-to-bottom in the same order the class reads.
+
+Option names come from the declaration, flags first (e.g.
+``option("-c", "--center")``) — never repeat the field name as the first
+positional. The click type is inferred from the field annotation
+(``str``/``int``/``float``/``bool``/``Path``; ``Optional[x]`` / ``x | None``
+strips to ``x``) unless ``type=``, ``callback=``, ``is_flag`` or ``multiple``
+is given explicitly. A union of two concrete types (e.g.
+``str | tuple[int, int]``) MUST pass an explicit ``type=``.
+
+The wrapped command receives one keyword argument per decorator, named by
+``kw_name``, holding a fully-populated instance of the parameter class.
+
+Accepted CLI help diffs (vs. the pre-refactor per-runner decorator stacks):
+
+1. ``RunParams`` lists ``-d/--dir`` first (previously ``--debug`` first).
+2. Fused ``CameraParamsPib`` lists the objective block before the camera
+   block, with the ``--auto-*`` flags after ``-c/--center`` (byte-identical
+   to the pre-refactor slm-pib CLI help).
+3. ``SlmParamsPib`` lists ``--slm_number`` first (previously ``--init_c``
+   first — the decorator-stack help was reversed).
+4. ``SpgdParamsPib`` lists ``--show`` before ``--shrink_iter`` (previously
+   ``--shrink_iter`` first).
+5. Objective blocks read top-to-bottom (previously reversed).
+6. ``slm-gsnet`` gains a ``--seed`` option (from ``RunParams``); it had no
+   seed option before — its optimizer kwargs hardcoded ``random_seed=None``.
+
+Note: never paste Windows paths with ``\\U``/``\\u`` escapes into docstrings or
+comments verbatim — they start unicode escapes and raise ``SyntaxError``.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+import functools
+from dataclasses import MISSING, dataclass, fields
+from pathlib import Path
+from types import UnionType
+from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 
 import click
 
+from ao_shaping.algorithm.heuristic.search import heuristic_algorithm_choices
+from ao_shaping.utils.image.targets import TARGET_SHAPE_CHOICES
 from ao_shaping.utils.io.cli_helpers import parse_tuple
 
 
 # ---------------------------------------------------------------------------
+# dataclass-click machinery (B2 copy of the dataclass-click convention:
+# Annotated[...] metadata + with_params collector, object delivery)
+# ---------------------------------------------------------------------------
+
+
+class _DelayedCall:
+    """A ``click.option`` declaration captured but not yet applied."""
+
+    __slots__ = ("callable", "args", "kwargs")
+
+    def __init__(self, callable: object, args: tuple, kwargs: dict[str, Any]) -> None:
+        self.callable = callable
+        self.args = args
+        self.kwargs = kwargs
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        merged = dict(self.kwargs)
+        merged.update(kwargs)
+        return self.callable(*self.args, *args, **merged)
+
+
+class _DelayedFunction:
+    """Wrap ``click.option`` so it can be invoked inside ``Annotated[...]``."""
+
+    def __init__(self, fn: object) -> None:
+        self.fn = fn
+
+    def __call__(self, *args: Any, **kwargs: Any) -> _DelayedCall:
+        return _DelayedCall(self.fn, args, kwargs)
+
+
+option = _DelayedFunction(click.option)
+
+
+_TYPE_INFERENCE: dict[type[Any], click.ParamType] = {
+    str: click.STRING,
+    int: click.INT,
+    float: click.FLOAT,
+    bool: click.BOOL,
+    Path: click.Path(path_type=Path),
+}
+
+
+def _strip_optional(tp: Any) -> Any:
+    if get_origin(tp) in (Union, UnionType):
+        args = [a for a in get_args(tp) if a is not type(None)]
+        if len(args) != 1:
+            raise TypeError(
+                f"Cannot infer click type from union {tp!r} — pass an explicit type=."
+            )
+        return args[0]
+    return tp
+
+
+def _patch_names(decl: tuple, name: str) -> tuple:
+    # Prepend the field name so click maps user input back onto the field.
+    # Declarations must therefore be flags-first (no duplicated first positional).
+    return (name, *decl)
+
+
+def _patch_click_types(name: str, field_type: Any, kwargs: dict[str, Any]) -> None:
+    if (
+        "type" in kwargs
+        or "callback" in kwargs
+        or kwargs.get("is_flag")
+        or kwargs.get("multiple")
+    ):
+        return
+    stripped = _strip_optional(field_type)
+    try:
+        kwargs["type"] = _TYPE_INFERENCE[stripped]
+    except KeyError:
+        raise TypeError(
+            f"Field {name!r}: cannot infer click type from {field_type!r} — pass an explicit type=."
+        ) from None
+
+
+def _patch_defaults(name: str, field: object, kwargs: dict[str, Any]) -> None:
+    if "default" in kwargs:
+        raise TypeError(
+            f"Field {name!r}: default must live on the dataclass field, not in option()."
+        )
+    value = field.default
+    if value is not MISSING:
+        kwargs["default"] = value
+
+
+def _copy_delayed_call(d: _DelayedCall) -> _DelayedCall:
+    return _DelayedCall(
+        d.callable,
+        tuple(d.args),
+        {k: (list(v) if isinstance(v, list) else v) for k, v in d.kwargs.items()},
+    )
+
+
+def _collect_click_annotations(cls: type) -> list[tuple[Any, Any, _DelayedCall]]:
+    hints = get_type_hints(cls, include_extras=True)
+    collected: list[tuple[Any, Any, _DelayedCall]] = []
+    for f in fields(cls):
+        hint = hints.get(f.name)
+        if hint is None or get_origin(hint) is not Annotated:
+            continue
+        meta = get_args(hint)[1:]
+        delayed = next((m for m in meta if isinstance(m, _DelayedCall)), None)
+        if delayed is None:
+            continue
+        collected.append((f, get_args(hint)[0], delayed))
+    return collected
+
+
+def with_params(arg_class: type, *, kw_name: str) -> Any:
+    """Attach the click options of ``arg_class`` to a click command.
+
+    Every ``Annotated[..., option(...)]`` field becomes a click option (help
+    text order == dataclass declaration order). The wrapped command receives
+    ``kw_name=arg_class(**provided_fields)`` — one keyword argument per
+    decorator, containing a fully-populated parameter instance.
+    """
+
+    def decorator(fn: Any) -> Any:
+        # Apply in REVERSED declaration order so click's cumulative
+        # __click_params__ yields help in the same order the class reads.
+        for field, field_type, delayed in reversed(
+            _collect_click_annotations(arg_class)
+        ):
+            dc = _copy_delayed_call(delayed)
+            dc.args = _patch_names(delayed.args, field.name)
+            _patch_click_types(field.name, field_type, dc.kwargs)
+            _patch_defaults(field.name, field, dc.kwargs)
+            fn = dc.callable(*dc.args, **dc.kwargs)(fn)
+
+        @functools.wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            obj_kwargs = {}
+            for f in fields(arg_class):
+                if f.name in kwargs:
+                    obj_kwargs[f.name] = kwargs.pop(f.name)
+            kwargs[kw_name] = arg_class(**obj_kwargs)
+            return fn(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+# ---------------------------------------------------------------------------
 # 纯硬件参数 | pure hardware parameters — device configuration
-# (CCD camera / Santec SLM; WFS joins via WfsParams in the refactor)
+# (CCD camera / Santec SLM / Thorlabs WFS)
 # ---------------------------------------------------------------------------
 
 
 @dataclass
 class CameraParams:
-    """CCD camera options."""
+    """CCD camera options (slm-gsnet family)."""
 
-    cam_id: int = 0
-    cam_type: str = "daheng"
-    exposure_time_ms: float = 80.0
-    cam_size: int = 300
-    center: Any = None
+    cam_id: Annotated[int, option("--cam-id", help="CCD camera device ID")] = 0
+    cam_type: Annotated[
+        str,
+        option(
+            "--cam_type",
+            type=click.Choice(["miicam", "daheng", "sim"]),
+            help="CCD camera backend (sim = 2f-Fourier numerical simulation, no hardware).",
+        ),
+    ] = "daheng"
+    exposure_time_ms: Annotated[
+        float,
+        option("--exposure_time_ms", help="CCD exposure time in ms (0 = auto-exposure)."),
+    ] = 80.0
+    cam_size: Annotated[
+        int, option("--cam_size", help="CCD window size in pixels.")
+    ] = 300
+    center: Annotated[
+        str | tuple[int, int] | None,
+        option(
+            "-c",
+            "--center",
+            type=click.STRING,
+            help="Spot center: 'shape' / 'max' / 'mass' / 'centroid_thresh' or 'x,y'.",
+        ),
+    ] = None
 
 
 @dataclass
 class SlmParams:
-    """Santec SLM options."""
+    """Santec SLM options (slm-gsnet family)."""
 
-    slm_number: int = 1
-    slm_wavelength: int = 1064
-    n_max: int = 4
-    shift_x: int = 0
-    shift_y: int = 0
-    zernike_radius: float = 0.0
-    load_file: Any = None
-    init_c: Any = None
+    slm_number: Annotated[
+        int, option("--slm_number", help="Santec SLM device number (1-8).")
+    ] = 1
+    slm_wavelength: Annotated[
+        int, option("--slm_wavelength", help="SLM operating wavelength (nm).")
+    ] = 1064
+    n_max: Annotated[int, option("-n", "--n_max", help="Max Zernike radial order.")] = 4
+    zernike_radius: Annotated[
+        float, option("--zernike_radius", help="Zernike aperture radius (pixels); 0 = default.")
+    ] = 0.0
+
+
+@dataclass
+class WfsParams:
+    """Thorlabs WFS options (rms-zernike, ga-zernike, greedy-zernike share these)."""
+
+    wfs_res: Annotated[
+        str, option("-r", "--wfs_res", help="WFS分辨率 (default: 1024)")
+    ] = "1024"
+    pupil_diameter: Annotated[
+        float, option("-p", "--pupil_diameter", help="瞳孔直径 (default: 2.7)")
+    ] = 2.7
+    pupil_center: Annotated[
+        str | tuple[float, float],
+        option(
+            "-c",
+            "--pupil_center",
+            callback=parse_tuple,
+            help="瞳孔中心坐标 (default: (0,0))",
+        ),
+    ] = "(0,0)"
+    exposure_time_ms: Annotated[
+        float,
+        option("--exposure-time-ms", type=float, help="WFS曝光时间 (毫秒, default: 0.0=自动曝光)"),
+    ] = 0.0
+    remove_tilt: Annotated[
+        bool, option("--remove-tilt", is_flag=True, help="移除波前测量中的倾斜项")
+    ] = False
+
+
+@dataclass
+class ZernikeSlmParams:
+    """Zernike SLM options (rms-zernike, ga-zernike, greedy-zernike share these)."""
+
+    wavelength: Annotated[
+        int, option("--wavelength", help="SLM波长 (nm, default: 532)")
+    ] = 532
+    shift_x: Annotated[
+        int, option("--shift-x", help="SLM X方向平移 (像素, default: 0)")
+    ] = 0
+    shift_y: Annotated[
+        int, option("--shift-y", help="SLM Y方向平移 (像素, default: 0)")
+    ] = 0
+    slm_number: Annotated[
+        int, option("--slm-number", help="SLM设备编号 (default: 1)")
+    ] = 1
+    wait_time: Annotated[
+        float, option("--wait-time", help="SLM 液晶翻转等待时间(秒, default: 0.3) ")
+    ] = 0.3
 
 
 # ---------------------------------------------------------------------------
@@ -77,33 +336,68 @@ class SlmParams:
 
 @dataclass
 class SpgdParams:
-    """SPGD (gradient) search options."""
+    """SPGD (gradient) search options (slm-gsnet family)."""
 
-    epochs: int = 2000
-    delta: float = 0.1
-    lr: float = 0.0
-    optimizer_type: str = "adamod"
-    shrink_iter: int = 0
-    shrink_ratio: float = 0.9
-    show: bool = False
+    epochs: Annotated[
+        int, option("-e", "--epochs", help="Optimization iterations.")
+    ] = 2000
+    delta: Annotated[
+        float, option("--delta", help="SPGD perturbation amplitude (rad).")
+    ] = 0.1
+    lr: Annotated[float, option("--lr", help="SPGD learning rate (0 = auto).")] = 0.0
+    optimizer_type: Annotated[
+        str,
+        option(
+            "--optimizer_type",
+            type=click.Choice(["adam", "adamw", "adamod", "sgd", "muno", "munow"], case_sensitive=False),
+            show_default=True,
+            help="SPGD gradient optimizer.",
+        ),
+    ] = "adamod"
+    show: Annotated[
+        bool, option("--show", is_flag=True, help="Open a live display window.")
+    ] = False
 
 
 @dataclass
 class HeuristicParams:
-    """Black-box heuristic search options."""
+    """Black-box heuristic search options (slm-gsnet heuristic subcommand)."""
 
-    algorithm: str = "ga"
-    pop_size: int | None = None
-    epochs: int = 2000
-    show: bool = False
+    algorithm: Annotated[
+        str,
+        option(
+            "--algorithm",
+            type=click.Choice(heuristic_algorithm_choices()),
+            help="Black-box search algorithm.",
+        ),
+    ] = "ga"
+    pop_size: Annotated[
+        int | None,
+        option("--pop_size", type=int, help="Population size (ga/pso/cem/de)."),
+    ] = None
+    epochs: Annotated[
+        int, option("-e", "--epochs", help="Optimization iterations.")
+    ] = 2000
+    show: Annotated[
+        bool, option("--show", is_flag=True, help="Open a live display window.")
+    ] = False
 
 
-# slm-pib variant of the shared SPGD params (larger default perturbation).
+# slm-pib variant of the shared SPGD params (larger default perturbation +
+# radius/step shrink knobs; --show stays on the base class).
 @dataclass
 class SpgdParamsPib(SpgdParams):
     """SPGD options — slm-pib uses a larger default perturbation (0.2 rad)."""
 
-    delta: float = 0.2
+    delta: Annotated[
+        float, option("--delta", help="SPGD perturbation amplitude (rad).")
+    ] = 0.2
+    shrink_iter: Annotated[
+        int, option("--shrink_iter", help="Iterations before radius/step shrink.")
+    ] = 0
+    shrink_ratio: Annotated[
+        float, option("--shrink_ratio", help="Radius/step shrink ratio.")
+    ] = 0.9
 
 
 # ---------------------------------------------------------------------------
@@ -115,27 +409,86 @@ class SpgdParamsPib(SpgdParams):
 class ObjectiveParamsPib:
     """Imaging objective options (shared by both slm-pib search families)."""
 
-    name: str = "pib"
-    target_max_brightness: int = 40
-    r_bucket: int = 0
-    target_size: float = 44.0
-    target_aspect_ratio: float = 4.0 / 3.0
-    target_center_smooth: int = 3
-    target_shape: str | None = None
-    shape_schedule: bool = False
-    max_roi_energy_loss: float = 0.6
-    w_uniformity: float = 2.0
-    w_peak: float = 0.5
-    w_displacement: float = 0.0
-    log_uniformity: bool = False
-    w_ema_decay: float = 0.9
-    w_floor: float = 0.1
-    w_temperature: float = 8.0
+    name: Annotated[
+        str,
+        option(
+            "--objective",
+            type=click.Choice(["pib", "radiu", "avg_radiu", "rmse", "shape", "roi_pib", "rms_pib"]),
+            help="Optimization objective.",
+        ),
+    ] = "pib"
+    target_max_brightness: Annotated[
+        int, option("--target_max_brightness", help="Target max brightness for auto-exposure.")
+    ] = 40
+    r_bucket: Annotated[
+        int, option("-r", "--r_bucket", help="Bucket radius (0 = auto from power radius).")
+    ] = 0
+    target_size: Annotated[
+        float, option("--target_size", help="Target extent in camera px.")
+    ] = 64.0
+    target_aspect_ratio: Annotated[
+        float,
+        option("--target_aspect_ratio", help="Width:height ratio for a rectangular target."),
+    ] = 4.0 / 3.0
+    target_center_smooth: Annotated[
+        int,
+        option("--target_center_smooth", help="Frames averaged for the target centre estimate."),
+    ] = 3
+    target_shape: Annotated[
+        str | None,
+        option(
+            "--target_shape",
+            type=click.Choice(list(TARGET_SHAPE_CHOICES)),
+            help="Target ROI shape (implies the 'shape' objective).",
+        ),
+    ] = None
+    shape_schedule: Annotated[
+        bool,
+        option("--shape_schedule", is_flag=True, help="Use the coarse->fine shaping weight schedule."),
+    ] = False
+    max_roi_energy_loss: Annotated[
+        float,
+        option("--max_energy_loss", help="Max allowed in-ROI energy loss fraction (0 disables the guard)."),
+    ] = 0.6
+    w_uniformity: Annotated[
+        float, option("--w_uniformity", help="Uniformity penalty weight.")
+    ] = 2.0
+    w_peak: Annotated[
+        float, option("--w_peak", help="Peak penalty weight.")
+    ] = 0.5
+    w_displacement: Annotated[
+        float, option("--w_displacement", help="Displacement penalty weight.")
+    ] = 0.0
+    log_uniformity: Annotated[
+        bool,
+        option("--log_uniformity", is_flag=True, help="Use log1p(u) instead of u/(1+u) for the uniformity term."),
+    ] = False
+    w_ema_decay: Annotated[
+        float,
+        option("--w_ema_decay", help="EMA decay for the adaptive PIB/RMS weights of the 'rms_pib' objective."),
+    ] = 0.9
+    w_floor: Annotated[
+        float,
+        option("--w_floor", help="Minimum weight floor per term of the 'rms_pib' objective (0..0.5)."),
+    ] = 0.1
+    w_temperature: Annotated[
+        float,
+        option("--w_temperature", help="Softmax temperature for the 'rms_pib' weight update."),
+    ] = 8.0
     # Initial weights of the 'rms_pib' objective (None = default 1/3 each).
     # Provided terms are kept exactly; unprovided terms share the remainder.
-    w_pib_init: float | None = None
-    w_rms_init: float | None = None
-    w_ee_init: float | None = None
+    w_pib_init: Annotated[
+        float | None,
+        option("--w_pib_init", type=float, help="Initial PIB weight of the 'rms_pib' objective (default 1/3)."),
+    ] = None
+    w_rms_init: Annotated[
+        float | None,
+        option("--w_rms_init", type=float, help="Initial RMS (in-ROI uniformity) weight of the 'rms_pib' objective (default 1/3)."),
+    ] = None
+    w_ee_init: Annotated[
+        float | None,
+        option("--w_ee_init", type=float, help="Initial encircled-energy weight of the 'rms_pib' objective (default 1/3)."),
+    ] = None
 
 
 @dataclass
@@ -143,13 +496,37 @@ class ObjectiveParamsSquare:
     """Square-shaping objective options (slm-gsnet family)."""
 
     name: str = "square"
-    target_side: int = 0
-    target_mean_brightness: float = 0.0
-    side_factor: float = 1.5
-    target_max_brightness: int = 200
-    w_uniformity: float = 0.4
-    w_efficiency: float = 0.6
-    w_aspect: float = 0.0
+    target_side: Annotated[
+        int,
+        option(
+            "--target-side",
+            help="Target square side (pixels); 0 = auto from spot size. Mutually "
+            "exclusive with --target-mean-brightness.",
+        ),
+    ] = 0
+    target_mean_brightness: Annotated[
+        float,
+        option(
+            "--target-mean-brightness",
+            help="Target square mean brightness (gray). >0 auto-derives side by "
+            "energy conservation. Mutually exclusive with --target-side.",
+        ),
+    ] = 0.0
+    side_factor: Annotated[
+        float, option("--side-factor", help="Auto side-length factor.")
+    ] = 1.5
+    target_max_brightness: Annotated[
+        int, option("--target-max-brightness", help="Target max brightness for auto-exposure.")
+    ] = 200
+    w_uniformity: Annotated[
+        float, option("--w_uniformity", help="Uniformity (CV) weight.")
+    ] = 0.4
+    w_efficiency: Annotated[
+        float, option("--w_efficiency", help="Encircled-energy weight.")
+    ] = 0.6
+    w_aspect: Annotated[
+        float, option("--w_aspect", help="Aspect-ratio weight.")
+    ] = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -166,9 +543,185 @@ class RunParams:
     the random stream (reproducible only in 'sim' mode).
     """
 
-    dir: str = "data"
-    debug: bool = False
-    seed: int | None = None
+    dir: Annotated[str, option("-d", "--dir", help="Data root directory.")] = "data"
+    debug: Annotated[
+        bool, option("--debug", is_flag=True, help="Enable debug mode.")
+    ] = False
+    seed: Annotated[
+        int | None,
+        option("--seed", type=int, help="Random seed for reproducible runs (reproducible only in 'sim' mode)."),
+    ] = None
+
+
+# ---------------------------------------------------------------------------
+# 单命令参数 | single-command parameters — rms-zernike / greedy-zernike
+# (声明序 == help 序; 硬件块由 WfsParams / ZernikeSlmParams 单独提供)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class RmsZernikeParams:
+    """SLM-Zernike RMS 优化的全部 CLI 参数 (rms-zernike, 单命令无子命令)。
+
+    字段即搜索结果/调度超参 + 输出控制 (dir/debug); WFS 与 SLM 硬件块
+    分别由 ``WfsParams`` / ``ZernikeSlmParams`` 提供。
+    """
+
+    dir: Annotated[str, option("-d", "--dir", help="数据保存根目录 (default: data)")] = "data"
+    epochs: Annotated[
+        int, option("-e", "--epochs", help="优化迭代次数 (default: 20000)")
+    ] = 20000
+    n_max: Annotated[int, option("-n", "--n-max", help="Zernike最大阶数 (default: 4)")] = 4
+    lr: Annotated[float, option("--lr", help="学习率 (default: 0.01)")] = 0.01
+    delta: Annotated[
+        float, option("--delta", help="初始delta值 (default: 0.0)")
+    ] = 0.0
+    early_stop_threshold: Annotated[
+        float, option("-t", "--early_stop_threshold", help="早停阈值 (default: 0.12)")
+    ] = 0.12
+    min_delta: Annotated[
+        float, option("--min-delta", help="自动检测最小delta (数量级扫描, default: 0.01)")
+    ] = 0.01
+    max_delta: Annotated[
+        float, option("--max-delta", help="自动检测最大delta (数量级扫描, default: 100.0)")
+    ] = 100.0
+    delta_step: Annotated[
+        int, option("--delta-step", help="数量级扫描步数 (用于细粒度扫描, default: 5)")
+    ] = 5
+    n_directions: Annotated[
+        int, option("--n-directions", help="每个delta采样次数防噪声 (default: 5)")
+    ] = 5
+    n_init_positions: Annotated[
+        int, option("--n-init-positions", help="多起点优化：随机初始位置数量 (default: 0, 禁用)")
+    ] = 0
+    init_range: Annotated[
+        float, option("--init-range", help="多起点初始化的随机范围 (default: 1.0)")
+    ] = 1.0
+    lr_schedule: Annotated[
+        str,
+        option(
+            "--lr-schedule",
+            type=click.Choice(["static", "cosine", "exp", "linear"]),
+            help="学习率调度类型 (default: static)",
+        ),
+    ] = "static"
+    lr_min: Annotated[
+        float, option("--lr-min", type=float, help="学习率最小值 (default: 1e-6)")
+    ] = 1e-6
+    delta_schedule: Annotated[
+        str,
+        option(
+            "--delta-schedule",
+            type=click.Choice(["static", "cosine", "exp", "linear"]),
+            help="Delta调度类型 (default: static)",
+        ),
+    ] = "static"
+    delta_min: Annotated[
+        float, option("--delta-min", type=float, help="Delta最小值 (default: 1e-7)")
+    ] = 1e-7
+    optimizer: Annotated[
+        str,
+        option(
+            "--optimizer",
+            type=click.Choice(["adamod", "adamw"]),
+            help="优化器类型 (default: adamod)",
+        ),
+    ] = "adamod"
+    beta1: Annotated[
+        float, option("--beta1", type=float, help="Adam beta1参数 (default: 0.95)")
+    ] = 0.95
+    weight_decay: Annotated[
+        float, option("--weight-decay", type=float, help="AdamW权重衰减 (default: 1e-2)")
+    ] = 1e-2
+    mini_batch: Annotated[
+        int, option("--mini-batch", type=int, help="SPGD mini-batch大小 (default: 1)")
+    ] = 1
+    gradient_clip: Annotated[
+        float, option("--gradient-clip", type=float, help="梯度裁剪阈值 (default: 0.0, 禁用)")
+    ] = 0.0
+    stagnation_patience: Annotated[
+        int, option("--stagnation-patience", type=int, help="停滞检测轮数 (default: 30)")
+    ] = 30
+    stagnation_delta_boost: Annotated[
+        float,
+        option("--stagnation-delta-boost", type=float, help="停滞时delta倍增 (default: 1.5)"),
+    ] = 1.5
+    freeze_threshold: Annotated[
+        float | None,
+        option("--freeze-threshold", type=float, help="冻结高阶模式阈值 (default: None)"),
+    ] = None
+    early_stop_window: Annotated[
+        int, option("--early-stop-window", type=int, help="早停滑动窗口大小 (default: 0)")
+    ] = 0
+    early_stop_min_epochs: Annotated[
+        int, option("--early-stop-min-epochs", type=int, help="早停最小轮数 (default: 0)")
+    ] = 0
+    early_stop_patience: Annotated[
+        int, option("--early-stop-patience", type=int, help="早停耐心值 (default: 0)")
+    ] = 0
+    n_frames: Annotated[
+        int, option("--n-frames", type=int, help="WFS帧平均数 (default: 10)")
+    ] = 10
+    algorithm: Annotated[
+        str,
+        option(
+            "--algorithm",
+            type=click.Choice(list(heuristic_algorithm_choices()), case_sensitive=False),
+            show_default=True,
+            help="搜索算法: spgd (梯度/SPGD) 或启发式 (ga/pso/sa/hc/rs/cem/de)",
+        ),
+    ] = "spgd"
+    pop_size: Annotated[
+        int | None,
+        option("--pop_size", type=int, help="种群规模 (ga/pso/cem/de 使用; 默认取算法默认值)"),
+    ] = None
+    debug: Annotated[
+        bool,
+        option("--debug", is_flag=True, help="启用调试模式: 保存 pkl/json 与汇总图"),
+    ] = False
+
+
+@dataclass
+class GreedyZernikeParams:
+    """贪婪/启发式 Zernike 优化 CLI 参数 (greedy-zernike, 单命令无子命令)。"""
+
+    dir: Annotated[str, option("-d", "--dir", help="数据保存根目录 (default: data)")] = "data"
+    epochs: Annotated[
+        int, option("-e", "--epochs", help="优化迭代次数 (default: 2000)")
+    ] = 2000
+    n_max: Annotated[int, option("-n", "--n-max", help="Zernike最大阶数 (default: 4)")] = 4
+    early_stop_threshold: Annotated[
+        float, option("-t", "--early_stop_threshold", help="早停阈值 (default: 0.12)")
+    ] = 0.12
+    show: Annotated[
+        bool, option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)")
+    ] = False
+    n_init: Annotated[
+        int, option("--n-init", help="初始随机位置数量 (default: 10)")
+    ] = 10
+    n_directions: Annotated[
+        int, option("--n-directions", help="每次迭代的随机方向数量 (default: 5)")
+    ] = 5
+    perturbation_scale: Annotated[
+        float, option("--perturbation-scale", help="扰动幅度缩放因子 (default: 5.0)")
+    ] = 5.0
+    algorithm: Annotated[
+        str,
+        option(
+            "--algorithm",
+            type=click.Choice(list(heuristic_algorithm_choices()), case_sensitive=False),
+            show_default=True,
+            help="搜索算法: spgd (贪婪局部搜索) 或启发式 (ga/pso/sa/hc/rs/cem/de)",
+        ),
+    ] = "spgd"
+    pop_size: Annotated[
+        int | None,
+        option("--pop_size", type=int, help="种群规模 (ga/pso/cem/de 使用; 默认取算法默认值)"),
+    ] = None
+    debug: Annotated[
+        bool,
+        option("--debug", is_flag=True, help="启用调试模式: 保存 pkl/json 与汇总图"),
+    ] = False
 
 
 # ---------------------------------------------------------------------------
@@ -177,170 +730,66 @@ class RunParams:
 
 
 @dataclass
-class CameraParamsPib(CameraParams):
+class SlmParamsPib(SlmParams):
+    """Extended Santec SLM options (slm-pib family: adds phase shifting + coefficient loading)."""
+
+    shift_x: Annotated[
+        int, option("--shift_x", help="SLM phase X shift (pixels).")
+    ] = 0
+    shift_y: Annotated[
+        int, option("--shift_y", help="SLM phase Y shift (pixels).")
+    ] = 0
+    load_file: Annotated[
+        str | None,
+        option("-f", "--load_file", type=str, help="Path to a prior Zernike coefficient file to load."),
+    ] = None
+    init_c: Annotated[
+        str | None,
+        option("--init_c", type=str, help="Initial Zernike coefficients (JSON or comma-separated)."),
+    ] = None
+
+
+@dataclass
+class CameraParamsPib(CameraParams, ObjectiveParamsPib):
     """CCD camera options — slm-pib uses a smaller default window (250 px).
 
     Fused group for slm-pib: combines the camera (纯硬件) role with the PIB
     objective (目标) role, so one parameter object carries the whole target
-    definition (window centre/size + target-shape weights).
+    definition (window centre/size + target-shape weights + auto-exposure).
     """
 
-    cam_size: int = 250
+    cam_size: Annotated[
+        int, option("--cam_size", help="CCD window size in pixels.")
+    ] = 250
+    center: Annotated[
+        str | tuple[int, int] | None,
+        option(
+            "-c",
+            "--center",
+            type=click.STRING,
+            help="Center: 'auto' / 'mass' / 'max' / 'shape' or 'x,y'.",
+        ),
+    ] = None
+    auto_exposure: Annotated[
+        bool,
+        option(
+            "--auto-exposure",
+            is_flag=True,
+            help="Auto-find a safe fixed exposure before optimizing (one probe pass).",
+        ),
+    ] = False
+    auto_target_peak: Annotated[
+        float,
+        option("--auto-target-peak", help="Target peak brightness for --auto-exposure."),
+    ] = 160.0
+    auto_n_frames: Annotated[
+        int, option("--auto-n-frames", help="Frames for the auto 0-order centre median.")
+    ] = 5
 
 
 # ---------------------------------------------------------------------------
-# Shared click option decorators (SLM family runners)
+# Helpers
 # ---------------------------------------------------------------------------
-
-
-def run_options(fn):
-    """``-d/--dir`` + ``--debug`` shared by every SLM runner subcommand."""
-    fn = click.option("-d", "--dir", default="data", help="Data root directory.")(fn)
-    fn = click.option(
-        "--debug", is_flag=True, default=False, help="Enable debug mode."
-    )(fn)
-    return fn
-
-
-def seed_option(fn):
-    """``--seed`` random seed (reproducible only in 'sim' mode)."""
-    fn = click.option(
-        "--seed",
-        type=int,
-        default=None,
-        help="Random seed for reproducible runs (reproducible only in 'sim' mode).",
-    )(fn)
-    return fn
-
-
-def camera_options(fn):
-    """CCD camera options: ``--cam-id``, ``--cam_type``, ``--exposure_time_ms``,
-    ``--cam_size``, ``-c/--center``."""
-    fn = click.option("--cam-id", default=0, help="CCD camera device ID")(fn)
-    fn = click.option(
-        "--cam_type",
-        type=click.Choice(["miicam", "daheng", "sim"]),
-        default="daheng",
-        help="CCD camera backend (sim = 2f-Fourier numerical simulation, no hardware).",
-    )(fn)
-    fn = click.option(
-        "--exposure_time_ms",
-        type=float,
-        default=80.0,
-        help="CCD exposure time in ms (0 = auto-exposure).",
-    )(fn)
-    fn = click.option(
-        "--cam_size", type=int, default=300, help="CCD window size in pixels."
-    )(fn)
-    fn = click.option(
-        "-c",
-        "--center",
-        default=None,
-        help="Spot center: 'shape' / 'max' / 'mass' / 'centroid_thresh' or 'x,y'.",
-    )(fn)
-    return fn
-
-
-def slm_options(fn):
-    """Santec SLM options: ``--slm_number``, ``--slm_wavelength``, ``-n/--n_max``,
-    ``--zernike_radius``."""
-    fn = click.option(
-        "--slm_number", type=int, default=1, help="Santec SLM device number (1-8)."
-    )(fn)
-    fn = click.option(
-        "--slm_wavelength",
-        type=int,
-        default=1064,
-        help="SLM operating wavelength (nm).",
-    )(fn)
-    fn = click.option(
-        "-n", "--n_max", type=int, default=4, help="Max Zernike radial order."
-    )(fn)
-    fn = click.option(
-        "--zernike_radius",
-        type=float,
-        default=0.0,
-        help="Zernike aperture radius (pixels); 0 = default.",
-    )(fn)
-    return fn
-
-
-def slm_extended_options(fn):
-    """Extended SLM options: :func:`slm_options` + ``--shift_x``, ``--shift_y``,
-    ``--load_file``, ``--init_c``."""
-    fn = slm_options(fn)
-    fn = click.option(
-        "--shift_x", type=int, default=0, help="SLM phase X shift (pixels)."
-    )(fn)
-    fn = click.option(
-        "--shift_y", type=int, default=0, help="SLM phase Y shift (pixels)."
-    )(fn)
-    fn = click.option(
-        "-f",
-        "--load_file",
-        type=str,
-        default=None,
-        help="Path to a prior Zernike coefficient file to load.",
-    )(fn)
-    fn = click.option(
-        "--init_c",
-        type=str,
-        default=None,
-        help="Initial Zernike coefficients (JSON or comma-separated).",
-    )(fn)
-    return fn
-
-
-# ---------------------------------------------------------------------------
-# Zernike WFS / SLM option decorators (rms-zernike, ga-zernike,
-# greedy-zernike, slm-offset share these)
-# ---------------------------------------------------------------------------
-
-
-def wfs_options(fn):
-    """ThorlabWFS options: ``-r/--wfs_res``, ``-p/--pupil_diameter``,
-    ``-c/--pupil_center`` (parse_tuple callback), ``--exposure-time-ms``,
-    ``--remove-tilt``."""
-    fn = click.option(
-        "-r", "--wfs_res", default="1024", help="WFS分辨率 (default: 1024)"
-    )(fn)
-    fn = click.option(
-        "-p", "--pupil_diameter", default=2.7, help="瞳孔直径 (default: 2.7)"
-    )(fn)
-    fn = click.option(
-        "-c",
-        "--pupil_center",
-        callback=parse_tuple,
-        default="(0,0)",
-        help="瞳孔中心坐标 (default: (0,0))",
-    )(fn)
-    fn = click.option(
-        "--exposure-time-ms",
-        default=0.0,
-        type=float,
-        help="WFS曝光时间 (毫秒, default: 0.0=自动曝光)",
-    )(fn)
-    fn = click.option("--remove-tilt", is_flag=True, help="移除波前测量中的倾斜项")(fn)
-    return fn
-
-
-def zernike_slm_options(fn):
-    """Zernike SLM options: ``--wavelength``, ``--shift-x``, ``--shift-y``,
-    ``--slm-number``, ``--wait-time``."""
-    fn = click.option("--wavelength", default=532, help="SLM波长 (nm, default: 532)")(
-        fn
-    )
-    fn = click.option("--shift-x", default=0, help="SLM X方向平移 (像素, default: 0)")(
-        fn
-    )
-    fn = click.option("--shift-y", default=0, help="SLM Y方向平移 (像素, default: 0)")(
-        fn
-    )
-    fn = click.option("--slm-number", default=1, help="SLM设备编号 (default: 1)")(fn)
-    fn = click.option(
-        "--wait-time", default=0.3, help="SLM 液晶翻转等待时间(秒, default: 0.3) "
-    )(fn)
-    return fn
 
 
 def parse_center(raw: Any) -> tuple[int, int] | str | None:

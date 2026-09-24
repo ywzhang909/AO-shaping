@@ -1,25 +1,27 @@
+from __future__ import annotations
+
 from pathlib import Path
 
 import click
 import numpy as np
 
 from ao_shaping.algorithm.gradient.adam import search_optimal_delta
-from ao_shaping.algorithm.heuristic.search import heuristic_algorithm_choices
 from ao_shaping.drivers import MlaRes, ThorlabWFS
 from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms_slm
+from ao_shaping.runners.runner_common import (
+    RmsZernikeParams,
+    WfsParams,
+    ZernikeSlmParams,
+    with_params,
+)
+from ao_shaping.utils.io.cli_helpers import (
+    resolve_debug,
+    setup_coredumpy,
+)
 from ao_shaping.utils.io.file import (
     build_debug_save_paths,
     save_optimization_debug_artifacts,
-)
-from ao_shaping.runners.runner_common import (
-    wfs_options,
-    zernike_slm_options,
-)
-from ao_shaping.utils.io.cli_helpers import (
-    parse_tuple,
-    resolve_debug,
-    setup_coredumpy,
 )
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 
@@ -97,156 +99,16 @@ def _auto_delta_detect_rms(
 
 
 @click.command()
-@click.option("-d", "--dir", default="data", help="数据保存根目录 (default: data)")
-@click.option("-e", "--epochs", default=20000, help="优化迭代次数 (default: 20000)")
-@click.option("-n", "--n-max", default=4, help="Zernike最大阶数 (default: 4)")
-@click.option("--lr", default=0.01, help="学习率 (default: 0.01)")
-@click.option("--delta", default=0.0, help="初始delta值 (default: 0.0)")
-@wfs_options
-@click.option(
-    "-t", "--early_stop_threshold", default=0.12, help="早停阈值 (default: 0.12)"
-)
-@zernike_slm_options
-@click.option(
-    "--min-delta", default=0.01, help="自动检测最小delta (数量级扫描, default: 0.01)"
-)
-@click.option(
-    "--max-delta", default=100.0, help="自动检测最大delta (数量级扫描, default: 100.0)"
-)
-@click.option(
-    "--delta-step", default=5, help="数量级扫描步数 (用于细粒度扫描, default: 5)"
-)
-@click.option("--n-directions", default=5, help="每个delta采样次数防噪声 (default: 5)")
-@click.option(
-    "--n-init-positions",
-    default=0,
-    help="多起点优化：随机初始位置数量 (default: 0, 禁用)",
-)
-@click.option("--init-range", default=1.0, help="多起点初始化的随机范围 (default: 1.0)")
-@click.option(
-    "--lr-schedule",
-    default="static",
-    type=click.Choice(["static", "cosine", "exp", "linear"]),
-    help="学习率调度类型 (default: static)",
-)
-@click.option("--lr-min", default=1e-6, type=float, help="学习率最小值 (default: 1e-6)")
-@click.option(
-    "--delta-schedule",
-    default="static",
-    type=click.Choice(["static", "cosine", "exp", "linear"]),
-    help="Delta调度类型 (default: static)",
-)
-@click.option(
-    "--delta-min", default=1e-7, type=float, help="Delta最小值 (default: 1e-7)"
-)
-@click.option(
-    "--optimizer",
-    default="adamod",
-    type=click.Choice(["adamod", "adamw"]),
-    help="优化器类型 (default: adamod)",
-)
-@click.option(
-    "--beta1", default=0.95, type=float, help="Adam beta1参数 (default: 0.95)"
-)
-@click.option(
-    "--weight-decay", default=1e-2, type=float, help="AdamW权重衰减 (default: 1e-2)"
-)
-@click.option(
-    "--mini-batch", default=1, type=int, help="SPGD mini-batch大小 (default: 1)"
-)
-@click.option(
-    "--gradient-clip", default=0.0, type=float, help="梯度裁剪阈值 (default: 0.0, 禁用)"
-)
-@click.option(
-    "--stagnation-patience", default=30, type=int, help="停滞检测轮数 (default: 30)"
-)
-@click.option(
-    "--stagnation-delta-boost",
-    default=1.5,
-    type=float,
-    help="停滞时delta倍增 (default: 1.5)",
-)
-@click.option(
-    "--freeze-threshold",
-    default=None,
-    type=float,
-    help="冻结高阶模式阈值 (default: None)",
-)
-@click.option(
-    "--early-stop-window", default=0, type=int, help="早停滑动窗口大小 (default: 0)"
-)
-@click.option(
-    "--early-stop-min-epochs", default=0, type=int, help="早停最小轮数 (default: 0)"
-)
-@click.option(
-    "--early-stop-patience", default=0, type=int, help="早停耐心值 (default: 0)"
-)
-@click.option("--n-frames", default=10, type=int, help="WFS帧平均数 (default: 10)")
-@click.option(
-    "--algorithm",
-    type=click.Choice(list(heuristic_algorithm_choices()), case_sensitive=False),
-    default="spgd",
-    show_default=True,
-    help="搜索算法: spgd (梯度/SPGD) 或启发式 (ga/pso/sa/hc/rs/cem/de)",
-)
-@click.option(
-    "--pop_size",
-    type=int,
-    default=None,
-    help="种群规模 (ga/pso/cem/de 使用; 默认取算法默认值)",
-)
-@click.option(
-    "--debug",
-    "debug_flag",
-    is_flag=True,
-    default=None,
-    help="启用调试模式: 保存 pkl/json 与汇总图",
-)
 @click.pass_context
+@with_params(RmsZernikeParams, kw_name="params")
+@with_params(WfsParams, kw_name="wfs")
+@with_params(ZernikeSlmParams, kw_name="slm")
 def run(
-    ctx,
-    dir,
-    epochs,
-    lr,
-    delta,
-    n_max,
-    wfs_res,
-    pupil_diameter,
-    pupil_center,
-    early_stop_threshold,
-    exposure_time_ms,
-    wavelength,
-    shift_x,
-    shift_y,
-    slm_number,
-    remove_tilt,
-    wait_time,
-    min_delta,
-    max_delta,
-    delta_step,
-    n_directions,
-    n_init_positions,
-    init_range,
-    lr_schedule,
-    lr_min,
-    delta_schedule,
-    delta_min,
-    optimizer,
-    beta1,
-    weight_decay,
-    mini_batch,
-    gradient_clip,
-    stagnation_patience,
-    stagnation_delta_boost,
-    freeze_threshold,
-    early_stop_window,
-    early_stop_min_epochs,
-    early_stop_patience,
-    n_frames,
-    algorithm,
-    pop_size,
-    debug_flag,
-):
+    ctx: click.Context,
+    params: RmsZernikeParams,
+    wfs: WfsParams,
+    slm: ZernikeSlmParams,
+) -> None:
     """Zernike波前优化器 (基于SLM的RMS最小化)
 
     使用Zernike多项式通过SLM进行波前校正，最小化WFS测量的波前RMS值。
@@ -255,24 +117,25 @@ def run(
 
     调试模式: ``main.py --debug rms-zernike`` / 本命令 ``--debug`` / ``DEBUG=1``。
     """
-    debug = resolve_debug(ctx, debug_flag)
+    debug = resolve_debug(ctx, params.debug)
 
+    delta = params.delta
     if delta <= 0:
         delta, delta_info = _auto_delta_detect_rms(
-            min_delta=min_delta,
-            max_delta=max_delta,
-            delta_step=delta_step,
-            n_directions=n_directions,
-            pupil_center=pupil_center,
-            pupil_diameter=pupil_diameter,
-            wfs_exposure_time=exposure_time_ms,
-            wavelength=wavelength,
-            shift_x=shift_x,
-            shift_y=shift_y,
-            n_max=n_max,
-            wfs_res=MlaRes.from_str(wfs_res),
-            remove_tilt=remove_tilt,
-            slm_number=slm_number,
+            min_delta=params.min_delta,
+            max_delta=params.max_delta,
+            delta_step=params.delta_step,
+            n_directions=params.n_directions,
+            pupil_center=wfs.pupil_center,
+            pupil_diameter=wfs.pupil_diameter,
+            wfs_exposure_time=wfs.exposure_time_ms,
+            wavelength=slm.wavelength,
+            shift_x=slm.shift_x,
+            shift_y=slm.shift_y,
+            n_max=params.n_max,
+            wfs_res=MlaRes.from_str(wfs.wfs_res),
+            remove_tilt=wfs.remove_tilt,
+            slm_number=slm.slm_number,
         )
         click.echo(
             f"Detected optimal delta: {delta:.2f} (baseline RMS: {delta_info['baseline_rms']:.4f}, best RMS: {delta_info['best_rms']:.4f})"
@@ -281,46 +144,46 @@ def run(
             "Note: The optimizer will use its internal scheduler, but this detection provides guidance on optimal perturbation amplitudes."
         )
 
-    init_v = [0 for _ in range(calc_n_zernike_terms(n_max))]
+    init_v = [0 for _ in range(calc_n_zernike_terms(params.n_max))]
     records = optimizer_rms_slm(
         init_z=init_v,
-        epochs=epochs,
+        epochs=params.epochs,
         delta=delta,
-        lr=lr,
-        pupil_center=pupil_center,
-        pupil_diameter=pupil_diameter,
-        early_stop_threshold=early_stop_threshold,
-        wavelength=wavelength,
-        shift_x=shift_x,
-        shift_y=shift_y,
-        n_max=n_max,
-        wfs_res=wfs_res,
-        wfs_exposure_time=exposure_time_ms,
-        remove_tilt=remove_tilt,
-        slm_number=slm_number,
-        slm_wait_time=wait_time,
-        n_init_positions=n_init_positions,
-        init_range=init_range,
-        lr_schedule=lr_schedule,
-        lr_min=lr_min,
-        delta_schedule=delta_schedule,
-        delta_min=delta_min,
-        optimizer_type=optimizer,
-        beta1=beta1,
-        weight_decay=weight_decay,
-        mini_batch=mini_batch,
-        gradient_clip=gradient_clip,
-        stagnation_patience=stagnation_patience,
-        stagnation_delta_boost=stagnation_delta_boost,
-        freeze_high_order_threshold=freeze_threshold,
-        early_stop_window=early_stop_window,
-        early_stop_min_epochs=early_stop_min_epochs,
-        early_stop_patience=early_stop_patience,
-        n_frames=n_frames,
-        algorithm=algorithm,
-        pop_size=pop_size,
+        lr=params.lr,
+        pupil_center=wfs.pupil_center,
+        pupil_diameter=wfs.pupil_diameter,
+        early_stop_threshold=params.early_stop_threshold,
+        wavelength=slm.wavelength,
+        shift_x=slm.shift_x,
+        shift_y=slm.shift_y,
+        n_max=params.n_max,
+        wfs_res=wfs.wfs_res,
+        wfs_exposure_time=wfs.exposure_time_ms,
+        remove_tilt=wfs.remove_tilt,
+        slm_number=slm.slm_number,
+        slm_wait_time=slm.wait_time,
+        n_init_positions=params.n_init_positions,
+        init_range=params.init_range,
+        lr_schedule=params.lr_schedule,
+        lr_min=params.lr_min,
+        delta_schedule=params.delta_schedule,
+        delta_min=params.delta_min,
+        optimizer_type=params.optimizer,
+        beta1=params.beta1,
+        weight_decay=params.weight_decay,
+        mini_batch=params.mini_batch,
+        gradient_clip=params.gradient_clip,
+        stagnation_patience=params.stagnation_patience,
+        stagnation_delta_boost=params.stagnation_delta_boost,
+        freeze_high_order_threshold=params.freeze_threshold,
+        early_stop_window=params.early_stop_window,
+        early_stop_min_epochs=params.early_stop_min_epochs,
+        early_stop_patience=params.early_stop_patience,
+        n_frames=params.n_frames,
+        algorithm=params.algorithm,
+        pop_size=params.pop_size,
     )
-    root_dir = Path(dir)
+    root_dir = Path(params.dir)
 
     min_iter, (min_epoch, min_rms) = records.get_best_iter()
     save_dir, _ = build_debug_save_paths(root_dir, "flatten_zernike")
@@ -341,7 +204,6 @@ def run(
             init_title="Init wavefront",
             opt_title="Opt wavefront",
             plot_params_note=f"Min RMS: {min_rms:.3f} @ epoch {min_epoch}",
-            sidecar_dir=save_dir,
         )
 
         has_intensity = "_pos_intensity" in records.first

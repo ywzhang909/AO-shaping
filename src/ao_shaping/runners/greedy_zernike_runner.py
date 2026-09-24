@@ -1,90 +1,40 @@
-import click
+from __future__ import annotations
+
 from pathlib import Path
 
+import click
 import numpy as np
-import matplotlib.pyplot as plt
 
-from ao_shaping.algorithm.heuristic.search import heuristic_algorithm_choices
+from ao_shaping.drivers import MlaRes
 from ao_shaping.optimizer.wf.greedy_zernike import optimizer_greedy
-from ao_shaping.utils.image.display import plot_funcs
-from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
+from ao_shaping.runners.runner_common import (
+    GreedyZernikeParams,
+    WfsParams,
+    ZernikeSlmParams,
+    with_params,
+)
 from ao_shaping.utils.io.cli_helpers import (
-    parse_tuple,
-    setup_coredumpy,
     get_date_dir_name,
     resolve_debug,
+    setup_coredumpy,
 )
-from ao_shaping.drivers import MlaRes
 from ao_shaping.utils.io.file import (
     build_debug_save_paths,
     save_optimization_debug_artifacts,
 )
-from ao_shaping.runners.runner_common import (
-    wfs_options,
-    zernike_slm_options,
-)
 
 
 @click.command()
-@click.option("-d", "--dir", default="data", help="数据保存根目录 (default: data)")
-@click.option("-e", "--epochs", default=2000, help="优化迭代次数 (default: 2000)")
-@click.option("-n", "--n-max", default=4, help="Zernike最大阶数 (default: 4)")
-@wfs_options
-@click.option(
-    "-t", "--early_stop_threshold", default=0.12, help="早停阈值 (default: 0.12)"
-)
-@zernike_slm_options
-@click.option(
-    "--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)"
-)
-@click.option("--n-init", default=10, help="初始随机位置数量 (default: 10)")
-@click.option("--n-directions", default=5, help="每次迭代的随机方向数量 (default: 5)")
-@click.option(
-    "--perturbation-scale", default=5.0, help="扰动幅度缩放因子 (default: 5.0)"
-)
-@click.option(
-    "--algorithm",
-    type=click.Choice(list(heuristic_algorithm_choices()), case_sensitive=False),
-    default="spgd",
-    show_default=True,
-    help="搜索算法: spgd (贪婪局部搜索) 或启发式 (ga/pso/sa/hc/rs/cem/de)",
-)
-@click.option(
-    "--pop_size",
-    type=int,
-    default=None,
-    help="种群规模 (ga/pso/cem/de 使用; 默认取算法默认值)",
-)
-@click.option(
-    "--debug",
-    "debug_flag",
-    is_flag=True,
-    default=None,
-    help="启用调试模式: 保存 pkl/json 与汇总图",
-)
 @click.pass_context
+@with_params(GreedyZernikeParams, kw_name="params")
+@with_params(WfsParams, kw_name="wfs")
+@with_params(ZernikeSlmParams, kw_name="slm")
 def run(
-    ctx,
-    dir,
-    epochs,
-    n_max,
-    wfs_res,
-    pupil_diameter,
-    pupil_center,
-    early_stop_threshold,
-    wavelength,
-    shift_x,
-    shift_y,
-    slm_number,
-    remove_tilt,
-    show,
-    n_init,
-    n_directions,
-    perturbation_scale,
-    algorithm,
-    pop_size,
-    debug_flag,
-):
+    ctx: click.Context,
+    params: GreedyZernikeParams,
+    wfs: WfsParams,
+    slm: ZernikeSlmParams,
+) -> None:
     """Zernike波前优化器 - 贪婪局部搜索 / 启发式搜索
 
     通过SLM进行波前校正，最小化WFS测量的波前RMS值。
@@ -96,28 +46,28 @@ def run(
 
     调试模式: ``main.py --debug greedy-zernike`` / 本命令 ``--debug`` / ``DEBUG=1``。
     """
-    debug = resolve_debug(ctx, debug_flag)
+    debug = resolve_debug(ctx, params.debug)
 
     records = optimizer_greedy(
-        epochs=epochs,
-        n_init=n_init,
-        n_directions=n_directions,
-        perturbation_scale=perturbation_scale,
+        epochs=params.epochs,
+        n_init=params.n_init,
+        n_directions=params.n_directions,
+        perturbation_scale=params.perturbation_scale,
         init_z=None,
-        pupil_center=pupil_center,
-        pupil_diameter=pupil_diameter,
-        early_stop_threshold=early_stop_threshold,
-        wavelength=wavelength,
-        shift_x=shift_x,
-        shift_y=shift_y,
-        n_max=n_max,
-        wfs_res=MlaRes.from_str(wfs_res),
-        remove_tilt=remove_tilt,
-        slm_number=slm_number,
-        algorithm=algorithm,
-        pop_size=pop_size,
+        pupil_center=wfs.pupil_center,
+        pupil_diameter=wfs.pupil_diameter,
+        early_stop_threshold=params.early_stop_threshold,
+        wavelength=slm.wavelength,
+        shift_x=slm.shift_x,
+        shift_y=slm.shift_y,
+        n_max=params.n_max,
+        wfs_res=MlaRes.from_str(wfs.wfs_res),
+        remove_tilt=wfs.remove_tilt,
+        slm_number=slm.slm_number,
+        algorithm=params.algorithm,
+        pop_size=params.pop_size,
     )
-    root_dir = Path(dir)
+    root_dir = Path(params.dir)
 
     min_iter, (min_epoch, min_rms) = records.get_best_iter()
 

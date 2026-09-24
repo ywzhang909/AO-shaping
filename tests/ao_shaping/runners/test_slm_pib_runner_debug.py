@@ -20,12 +20,14 @@ from ao_shaping.runners.slm_pib_runner import (
     RunParams,
     SlmPibConfig,
     SlmParams,
+    SlmParamsPib,
     SpgdParams,
     _optimizer_kwargs,
     _resolve_auto_camera,
     _save_debug_artifacts,
     run,
 )
+from ao_shaping.runners.runner_common import CameraParamsPib
 from ao_shaping.utils.io.file import Recorder
 
 
@@ -111,7 +113,7 @@ def _make_rms_pib_recorder_with_target_box(n: int = 5) -> Recorder:
                 "_target_shape": "rectangle",
                 "_target_size": 10.0,
                 "_target_aspect": 1.0,
-                f"best_rms_pib": 0.4 + 0.05 * i,
+                "best_rms_pib": 0.4 + 0.05 * i,
             }
         )
     return rec
@@ -272,9 +274,8 @@ def test_cli_exposes_rms_pib_init_weight_options():
 def test_optimizer_kwargs_maps_seed_and_init_weights():
     cfg = SlmPibConfig(
         run=RunParams(seed=42),
-        camera=CameraParams(),
-        slm=SlmParams(),
-        objective=ObjectiveParams(w_pib_init=0.6, w_rms_init=0.3),
+        camera=CameraParamsPib(w_pib_init=0.6, w_rms_init=0.3),
+        slm=SlmParamsPib(),
         search=SpgdParams(),
     )
 
@@ -289,9 +290,8 @@ def test_optimizer_kwargs_maps_seed_and_init_weights():
 def test_optimizer_kwargs_seed_none_by_default():
     cfg = SlmPibConfig(
         run=RunParams(),
-        camera=CameraParams(),
-        slm=SlmParams(),
-        objective=ObjectiveParams(),
+        camera=CameraParamsPib(),
+        slm=SlmParamsPib(),
         search=HeuristicParams(algorithm="ga"),
     )
 

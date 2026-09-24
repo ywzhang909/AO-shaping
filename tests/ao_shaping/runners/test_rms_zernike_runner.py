@@ -384,6 +384,131 @@ class TestRunFunction:
             assert captured_kwargs.get("wfs_exposure_time") == 75.0
 
 
+class TestAutoDetectDeltaWiring:
+    """Runner-level wiring: ``--delta <= 0`` routes to ``_auto_delta_detect_rms``.
+
+    ``min_delta/max_delta/delta_step/n_directions`` are delivered ONLY to the
+    auto-detector (never to ``optimizer_rms_slm``); the optimised delta from
+    the detector then flows into ``optimizer_rms_slm``. Positive ``--delta``
+    skips the detector entirely.
+    """
+
+    def _records_mock(self):
+        rec = MagicMock()
+        rec.get_best_iter.return_value = (
+            {
+                "_c": np.zeros(15),
+                "_wavefront": [np.zeros((64, 64)), np.zeros((64, 64))],
+            },
+            (1, 0.10),
+        )
+        rec.save_best = MagicMock()
+        rec.save_array_sidecars = MagicMock()
+        return rec
+
+    def test_delta_zero_routes_to_auto_detect(self, tmp_path):
+        from click.testing import CliRunner
+
+        from ao_shaping.runners.slm.rms_zernike_runner import (
+            _auto_delta_detect_rms,
+            optimizer_rms_slm,
+            run,
+        )
+
+        auto_calls = {}
+        optimizer_calls = {}
+
+        def fake_auto_detect(**kwargs):
+            auto_calls.update(kwargs)
+            return 0.25, {"baseline_rms": 0.3, "best_rms": 0.12, "best_delta": 0.25}
+
+        def fake_optimizer(**kwargs):
+            optimizer_calls.update(kwargs)
+            return self._records_mock()
+
+        with (
+            patch(
+                "ao_shaping.runners.slm.rms_zernike_runner._auto_delta_detect_rms",
+                side_effect=fake_auto_detect,
+            ),
+            patch(
+                "ao_shaping.runners.slm.rms_zernike_runner.optimizer_rms_slm",
+                side_effect=fake_optimizer,
+            ),
+        ):
+            result = CliRunner().invoke(
+                run,
+                [
+                    "--delta",
+                    "0",
+                    "--epochs",
+                    "2",
+                    "--n-max",
+                    "4",
+                    "--dir",
+                    str(tmp_path),
+                ],
+            )
+
+        assert result.exit_code == 0, f"CLI failed: {result.output}"
+        # auto-detector received its dedicated knobs + hardware params
+        assert auto_calls["min_delta"] == pytest.approx(0.01)
+        assert auto_calls["max_delta"] == pytest.approx(100.0)
+        assert auto_calls["delta_step"] == 5
+        assert auto_calls["n_directions"] == 5
+        assert auto_calls["n_max"] == 4
+        assert "wfs_exposure_time" in auto_calls
+        # optimizer receives the DETECTED delta, not the CLI 0
+        assert optimizer_calls["delta"] == pytest.approx(0.25)
+        # the auto-detect-only knobs never reach the optimizer
+        for knob in ("min_delta", "max_delta", "delta_step", "n_directions"):
+            assert knob not in optimizer_calls, f"{knob} must stay auto-detect-only"
+
+    def test_delta_positive_skips_auto_detect(self, tmp_path):
+        from click.testing import CliRunner
+
+        from ao_shaping.runners.slm.rms_zernike_runner import (
+            _auto_delta_detect_rms,
+            optimizer_rms_slm,
+            run,
+        )
+
+        optimizer_calls = {}
+
+        def fake_optimizer(**kwargs):
+            optimizer_calls.update(kwargs)
+            return self._records_mock()
+
+        with (
+            patch(
+                "ao_shaping.runners.slm.rms_zernike_runner._auto_delta_detect_rms",
+                side_effect=AssertionError("must not be called"),
+            ),
+            patch(
+                "ao_shaping.runners.slm.rms_zernike_runner.optimizer_rms_slm",
+                side_effect=fake_optimizer,
+            ),
+        ):
+            result = CliRunner().invoke(
+                run,
+                [
+                    "--delta",
+                    "1.5",
+                    "--epochs",
+                    "2",
+                    "--n-max",
+                    "4",
+                    "--dir",
+                    str(tmp_path),
+                ],
+            )
+
+        assert result.exit_code == 0, f"CLI failed: {result.output}"
+        assert optimizer_calls["delta"] == pytest.approx(1.5)
+        # sanity: the patched detector truly exists in the module namespace
+        assert callable(_auto_delta_detect_rms)
+
+
 class TestImports:
     """Test that all imports are valid (no unused imports)."""
 

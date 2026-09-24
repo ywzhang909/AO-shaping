@@ -291,11 +291,11 @@ def test_update_dynamic_weights_three_term_floor_bounds_weights() -> None:
     assert np.isclose(w_pib + w_rms + w_ee, 1.0)
 
 
-def test_objective_params_default_target_size_is_44() -> None:
+def test_objective_params_default_target_size_is_64() -> None:
     """Shared ``ObjectiveParamsPib`` default (runner_common, not local)."""
     obj = ObjectiveParams()
 
-    assert obj.target_size == 44.0
+    assert obj.target_size == 64.0
 
 
 # --------------------------------------------------------------------------- #
