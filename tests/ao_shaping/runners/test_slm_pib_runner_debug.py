@@ -122,8 +122,14 @@ def test_debug_artifacts_rms_pib_with_target_box_overlay(tmp_path):
 
     The data-mode key list must recognise ``rms_pib`` (it did not before the
     target-box work, so the curve panel was empty) and the target-box fields
-    must flow ``history[0] -> _save_debug_artifacts -> PNG`` without error.
+    must flow ``history[0] -> _save_debug_artifacts -> sidecars`` without
+    error. The shared data-mode backend writes PNG + pickled data + JSON;
+    the data dict carries the exported scalar/objective columns, while
+    target-box geometry fields that are not in the key set (``_ref_center``,
+    ``_target_shape``, ...) are simply skipped — no crash.
     """
+    import pickle
+
     rec = _make_rms_pib_recorder_with_target_box()
 
     png = _save_debug_artifacts(
@@ -136,40 +142,35 @@ def test_debug_artifacts_rms_pib_with_target_box_overlay(tmp_path):
 
     assert png.suffix == ".png"
     assert png.exists() and png.stat().st_size > 0
-    assert png.with_suffix(".pkl").exists()
+    pkl = png.with_suffix(".pkl")
+    assert pkl.exists()
     assert png.with_suffix(".json").exists()
-    # the h5 sidecar must carry the new scalar/array/str columns
-    import h5py
 
-    with h5py.File(png.with_suffix(".h5"), "r") as f:
-        assert "rms_pib" in f["scalars"]
-        assert "w_ee" in f["scalars"]
-        assert "ee_term" in f["scalars"]
-        assert "_target_shape" in f["scalars"]  # str col -> scalars
-        assert "_target_size" in f["scalars"]  # float col -> scalars
-        # window-local centre is a tuple -> per-epoch array col
-        epoch_id = f"{rec.history[0]['_id']:04d}"
-        assert "_ref_center" in f["epochs"][epoch_id]
+    # the pkl sidecar must carry the rms_pib curve + weight/term columns
+    with open(pkl, "rb") as f:
+        data = pickle.load(f)
+    row0 = data[rec.history[0]["_epoch"]]
+    assert "rms_pib" in row0
+    assert "w_ee" in row0
+    assert "ee_term" in row0
+    # target-box geometry is not part of the exported key set -> skipped
+    assert "_ref_center" not in row0
+    assert "_target_shape" not in row0
 
 
-def test_save_data_mode_debug_artifacts_best_epoch_and_overlay(tmp_path):
-    """Data-mode PNG picks the best-epoch frame/coeffs and overlays the ROI.
+def test_save_data_mode_debug_artifacts_panels_and_sidecars(tmp_path):
+    """Data-mode PNG panel set + pkl/json sidecars from a ``{epoch: record}`` dict.
 
-    Regression: the old panel showed the *last* ``_img``/``_c`` and only
-    recognised ``pib``/``radiu``/``avg_radiu`` objective columns; the new code
-    must use the row with the optimal ``best_rms_pib`` and draw a contour for
-    the supplied ``target_box``.
+    The shared data-mode helper (``utils/io/file``) renders the 2×2 panel
+    (objective history / coefficients / first & last image) and writes the
+    pickled data + JSON payload alongside; the rms_pib objective column is
+    recognised for the history curve. (Target-box ROI contouring is handled
+    by the runner's caller code, not the shared helper.)
     """
-    from ao_shaping.runners.runner_common import _save_data_mode_debug_artifacts
+    from ao_shaping.utils.io.file import _save_data_mode_debug_artifacts
 
     rec = _make_rms_pib_recorder_with_target_box()
     data = {int(r["_epoch"]): r for r in rec.history}
-    target_box = {
-        "center": (12.0, 12.0),
-        "shape": "rectangle",
-        "size": 10.0,
-        "aspect_ratio": 1.0,
-    }
 
     png = _save_data_mode_debug_artifacts(
         data=data,
@@ -178,7 +179,6 @@ def test_save_data_mode_debug_artifacts_best_epoch_and_overlay(tmp_path):
         json_path=tmp_path / "fig.json",
         title="slm-pib rms_pib search",
         json_payload={"algorithm": "spgd"},
-        target_box=target_box,
     )
 
     assert png == tmp_path / "fig.png"
@@ -393,8 +393,15 @@ def _patch_probe(
     return probe, calls
 
 
-def test_debug_artifacts_write_hdf5(tmp_path):
-    import h5py
+def test_debug_artifacts_write_sidecars(tmp_path):
+    """The debug artifact package writes PNG + pickled data + JSON sidecars.
+
+    The shared ``save_recorder_debug_artifacts`` backend replaces the old
+    h5 export: the complete per-epoch record set (scalars + arrays) lands in
+    the ``.pkl``, run metadata in the ``.json`` payload, and the figure in
+    the ``.png``.
+    """
+    import pickle
 
     rec = _make_recorder("pib", "max")
     png = _save_debug_artifacts(
@@ -405,19 +412,34 @@ def test_debug_artifacts_write_hdf5(tmp_path):
         str(tmp_path),
     )
 
-    h5 = png.with_suffix(".h5")
-    assert h5.exists() and h5.stat().st_size > 0
-    assert png.with_suffix(".pkl").exists()
+    assert png.suffix == ".png"
+    assert png.exists() and png.stat().st_size > 0
+    pkl = png.with_suffix(".pkl")
+    assert pkl.exists()
     assert png.with_suffix(".json").exists()
 
-    with h5py.File(h5, "r") as f:
-        assert f["metadata"].attrs["objective"] == "pib"
-        assert f["metadata"].attrs["algorithm"] == "ga"
-        assert len(f["scalars"]["J"][:]) == 3
+    # metadata sidecar
+    assert json.loads(png.with_suffix(".json").read_text(encoding="utf8")) == {
+        "algorithm": "ga"
+    }
+
+    # full scalar history is pickled, one record per epoch
+    with open(pkl, "rb") as f:
+        data = pickle.load(f)
+    assert len(data) == len(rec.history) == 3
+    for r in rec.history:
+        assert "J" in data[r["_epoch"]]
+        assert "pib" in data[r["_epoch"]]
 
 
-def test_debug_artifacts_hdf5_exports_phase(tmp_path):
-    import h5py
+def test_debug_artifacts_pkl_exports_array_fields(tmp_path):
+    """2D image fields and 1D coefficient arrays are exported losslessly.
+
+    The shared data-mode backend preserves ``_img`` (img key set) and ``_c``
+    (1D key set) per epoch in the pickled data dict; the old h5 full-export
+    path (including ``_phase``) no longer exists.
+    """
+    import pickle
 
     rec = _make_recorder_with_phase("pib", "max")
     png = _save_debug_artifacts(
@@ -428,17 +450,18 @@ def test_debug_artifacts_hdf5_exports_phase(tmp_path):
         str(tmp_path),
     )
 
-    h5 = png.with_suffix(".h5")
-    assert h5.exists() and h5.stat().st_size > 0
+    assert png.suffix == ".png"
+    assert png.exists() and png.stat().st_size > 0
+    pkl = png.with_suffix(".pkl")
+    assert pkl.exists() and pkl.stat().st_size > 0
 
-    with h5py.File(h5, "r") as f:
-        assert f["metadata"].attrs["objective"] == "pib"
-        epoch_id = f"{rec.history[0]['_id']:04d}"
-        assert "_phase" in f["epochs"][epoch_id]
-        np.testing.assert_array_equal(
-            f["epochs"][epoch_id]["_phase"][:],
-            np.full((16, 16), 100, dtype=np.uint16),
-        )
+    with open(pkl, "rb") as f:
+        data = pickle.load(f)
+    row0 = data[rec.history[0]["_epoch"]]
+    np.testing.assert_array_equal(row0["_img"], np.full((16, 16), 10, dtype=np.uint8))
+    np.testing.assert_array_equal(row0["_c"], np.linspace(-1.0, 1.0, 6))
+    # ``_phase`` is not part of the exported key set (h5 full-export removed)
+    assert "_phase" not in row0
 
 
 def test_resolve_auto_camera_sets_exposure_and_center(monkeypatch):
