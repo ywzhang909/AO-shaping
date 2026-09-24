@@ -69,6 +69,7 @@ from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.optimizer.wfless.slm_square_shaping import _zernike_indices
 from ao_shaping.utils import Recorder, logger
+from ao_shaping.utils.image.beam_metrics import zero_order_center
 from ao_shaping.utils.image.spots_calc import centroid, radius
 from ao_shaping.utils.image.targets import (
     SHAPE_STAGE_WEIGHTS,
@@ -199,86 +200,6 @@ def gauss_center(
     cx = float(np.sum(weights * xx[y0:y1, x0:x1]) / weight_sum)
     cy = float(np.sum(weights * yy[y0:y1, x0:x1]) / weight_sum)
     return np.array([np.clip(cx, 0.0, width - 1), np.clip(cy, 0.0, height - 1)])
-
-
-def threshold_spot_center(img: np.ndarray) -> tuple[int, int]:
-    """Threshold-based 0-order spot centre, robust to degenerate frames.
-
-    Marks every pixel brighter than a corner background estimate and takes that
-    mask's centroid. Three guards make it safe on real camera frames:
-
-    * empty mask — the brightest pixels sit *inside* the corner patch itself
-      (hot pixel / stray light), so ``img > corner_max`` selects nothing and
-      ``scipy.center_of_mass`` would divide by zero → ``centroid()`` would raise
-      ``ValueError: cannot convert float NaN to integer``; fall back to a
-      relative-threshold centroid;
-    * all-dark frame → return the frame centre instead of NaN;
-    * non-2D / empty input → ``ValueError``.
-
-    Returns ``(x, y)`` in pixels (project convention).
-    """
-    frame = np.asarray(img)
-    if frame.ndim != 2 or frame.size == 0:
-        raise ValueError(f"img must be a non-empty 2D array, got shape {frame.shape}")
-    height, width = frame.shape
-    if float(frame.max()) <= 0.0:
-        return (width // 2, height // 2)
-
-    corner_h = max(int(height // 50), 2)
-    corner_w = max(int(width // 50), 2)
-    corner = frame[:corner_h, :corner_w]
-    mask = frame > float(np.max(corner))
-    if np.any(mask):
-        cx, cy = centroid(mask)
-        return (int(cx), int(cy))
-
-    # Degenerate mask (the corner patch itself holds the brightest pixels, e.g. a
-    # hot pixel): drop that patch and take a plain centroid. A relative threshold
-    # would still be scaled by the hot pixel's value and drag the centre towards
-    # the corner.
-    fallback = frame.copy()
-    fallback[:corner_h, :corner_w] = 0
-    if float(fallback.max()) > 0.0:
-        cx, cy = centroid(fallback)
-        return (int(cx), int(cy))
-    return (width // 2, height // 2)
-
-
-def argmax_anchored_center(
-    img: np.ndarray, half_win: int | None = None
-) -> tuple[int, int]:
-    """0-order spot centre: global-argmax anchor + **local** centroid refinement.
-
-    On the 2f bench the 0-order sits at the frame's global maximum (AGENTS.md), so
-    the argmax is a far more reliable anchor than a corner-threshold mask (which
-    jumps to hot pixels) or a full-image centroid (which stray light / reflections
-    drag off the spot). Refinement is restricted to a window around the anchor, so
-    light outside the spot cannot move the centre.
-
-    Returns ``(x, y)`` in pixels. All-dark frames return the frame centre.
-    """
-    frame = np.asarray(img)
-    if frame.ndim != 2 or frame.size == 0:
-        raise ValueError(f"img must be a non-empty 2D array, got shape {frame.shape}")
-    height, width = frame.shape
-    if float(frame.max()) <= 0.0:
-        return (width // 2, height // 2)
-
-    anchor_y, anchor_x = np.unravel_index(int(np.argmax(frame)), frame.shape)
-    win = int(half_win) if half_win else max(int(min(frame.shape) // 20), 8)
-    y0, y1 = max(0, anchor_y - win), min(height, anchor_y + win + 1)
-    x0, x1 = max(0, anchor_x - win), min(width, anchor_x + win + 1)
-
-    patch = frame[y0:y1, x0:x1].astype(np.float64)
-    patch = np.clip(patch - float(np.percentile(patch, 20)), 0.0, None)
-    total = float(patch.sum())
-    if not np.isfinite(total) or total <= 0.0:
-        return (int(anchor_x), int(anchor_y))
-
-    yy, xx = np.mgrid[y0:y1, x0:x1]
-    cx = float((patch * xx).sum() / total)
-    cy = float((patch * yy).sum() / total)
-    return (int(round(cx)), int(round(cy)))
 
 
 def clamp_center_to_frame(
@@ -1007,7 +928,7 @@ def optimize_slm_zernike_pib(
             centroid when the spot core is not a hole (flat core)."""
             (h, w) = img.shape
             margin = int(IDEAL_SPOT_RADIUS)
-            center = argmax_anchored_center(img)
+            center = zero_order_center(img)
             (cx, cy) = center
             y0, y1 = max(0, cy - margin), min(h, cy + margin)
             x0, x1 = max(0, cx - margin), min(w, cx + margin)
@@ -1015,7 +936,7 @@ def optimize_slm_zernike_pib(
                 # Flat (non-hollow) core: refine with a LOCAL centroid. A
                 # full-image centroid (as intelligen_center does) is dragged tens
                 # of pixels by stray light — measured (1394 vs 958 on this bench).
-                center = argmax_anchored_center(img, half_win=max(margin * 6, 32))
+                center = zero_order_center(img, half_win=max(margin * 6, 32))
             return center
 
         if center is None:
@@ -1028,7 +949,7 @@ def optimize_slm_zernike_pib(
                 center = np.unravel_index(np.argmax(_img), _img.shape)[::-1]
             elif center == "shape":
                 # argmax-anchored local centroid (2f bench: 0-order = frame max)
-                center = argmax_anchored_center(_img)
+                center = zero_order_center(_img)
             else:
                 raise ValueError(f"known center: {center}")
         else:
@@ -1121,7 +1042,7 @@ def optimize_slm_zernike_pib(
         # full-frame centres fix the window position, and the freshly positioned
         # window then has the spot at its argmax, so re-locating stays correct
         # for them too.
-        _spot = argmax_anchored_center(init_img)
+        _spot = zero_order_center(init_img)
         reference_center: tuple[float, float] = (float(_spot[0]), float(_spot[1]))
         if target_size is None:
             _w, _h = img_size

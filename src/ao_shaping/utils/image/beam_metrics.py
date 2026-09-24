@@ -32,6 +32,7 @@ __all__ = [
     "compute_quality_score",
     "measure_bright_span",
     "clamp_side",
+    "threshold_spot_center",
     "zero_order_center",
     "median_zero_order_center",
 ]
@@ -365,6 +366,49 @@ def clamp_side(side: int, height: int, width: int, margin: int = 8) -> int:
 # 0-order spot centre helpers (shared by any hardware runner needing the
 # 2f-bench 0-order location before optimisation)
 # ---------------------------------------------------------------------------
+def threshold_spot_center(img: np.ndarray) -> tuple[int, int]:
+    """Threshold-based 0-order spot centre, robust to degenerate frames.
+
+    Marks every pixel brighter than a corner background estimate and takes that
+    mask's centroid. Three guards make it safe on real camera frames:
+
+    * empty mask — the brightest pixels sit *inside* the corner patch itself
+      (hot pixel / stray light), so ``img > corner_max`` selects nothing and
+      ``scipy.center_of_mass`` would divide by zero → ``centroid()`` would raise
+      ``ValueError: cannot convert float NaN to integer``; fall back to a
+      relative-threshold centroid;
+    * all-dark frame → return the frame centre instead of NaN;
+    * non-2D / empty input → ``ValueError``.
+
+    Returns ``(x, y)`` in pixels (project convention).
+    """
+    frame = np.asarray(img)
+    if frame.ndim != 2 or frame.size == 0:
+        raise ValueError(f"img must be a non-empty 2D array, got shape {frame.shape}")
+    height, width = frame.shape
+    if float(frame.max()) <= 0.0:
+        return (width // 2, height // 2)
+
+    corner_h = max(int(height // 50), 2)
+    corner_w = max(int(width // 50), 2)
+    corner = frame[:corner_h, :corner_w]
+    mask = frame > float(np.max(corner))
+    if np.any(mask):
+        cx, cy = centroid(mask)
+        return (int(cx), int(cy))
+
+    # Degenerate mask (the corner patch itself holds the brightest pixels, e.g. a
+    # hot pixel): drop that patch and take a plain centroid. A relative threshold
+    # would still be scaled by the hot pixel's value and drag the centre towards
+    # the corner.
+    fallback = frame.copy()
+    fallback[:corner_h, :corner_w] = 0
+    if float(fallback.max()) > 0.0:
+        cx, cy = centroid(fallback)
+        return (int(cx), int(cy))
+    return (width // 2, height // 2)
+
+
 def zero_order_center(
     frame: np.ndarray,
     refine: bool = True,
