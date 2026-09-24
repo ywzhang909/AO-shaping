@@ -48,6 +48,91 @@ def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs) -> Bas
     return opt_class(dim, lr=lr, **filtered_kwargs)
 
 
+def _pib_ratio(
+    img: np.ndarray,
+    PX: np.ndarray,
+    PY: np.ndarray,
+    center: tuple[float, float],
+    r_bucket: float,
+) -> tuple[float, float]:
+    """Compute power-in-bucket and its ratio to total image power.
+
+    Args:
+        img: Camera image.
+        PX: X meshgrid coordinates.
+        PY: Y meshgrid coordinates.
+        center: Bucket center (x, y).
+        r_bucket: Power-in-bucket radius.
+
+    Returns:
+        Tuple of (bucket power, bucket power / total power).
+    """
+    pb = power_bucket(img, PX, PY, center, r_bucket, use_dpix_scaling=False)
+    total_power = np.sum(img)
+    return pb, pb / (total_power + 1e-10)
+
+
+def _calc_pib_voltage(
+    ao_sys: TraditionalAOSystem,
+    v: np.ndarray,
+    PX: np.ndarray,
+    PY: np.ndarray,
+    center: tuple[float, float],
+    r_bucket: float,
+) -> float:
+    """Apply DM voltages and compute power-in-bucket of the resulting image.
+
+    Args:
+        ao_sys: Simulated AO system.
+        v: DM voltage vector (clipped to [-1, 1]).
+        PX: X meshgrid coordinates.
+        PY: Y meshgrid coordinates.
+        center: Bucket center (x, y).
+        r_bucket: Power-in-bucket radius.
+
+    Returns:
+        Power-in-bucket value.
+    """
+    ao_sys.set_dm_voltages(np.clip(v, -1.0, 1.0))
+    img = ao_sys.get_image()
+    return power_bucket(img, PX, PY, center, r_bucket, use_dpix_scaling=False)
+
+
+def _calc_ideal_bucket_radius(
+    ao_sys: TraditionalAOSystem,
+    saved_v: np.ndarray,
+    n_grid: int,
+    energy: float = 0.05,
+) -> float:
+    """Calculate PIB radius from ideal diffraction-limited spot.
+
+    Args:
+        ao_sys: Simulated AO system.
+        saved_v: DM voltages to restore after the ideal measurement.
+        n_grid: Simulation grid size.
+        energy: Encircled energy fraction for the radius.
+
+    Returns:
+        Ideal bucket radius in pixels.
+    """
+    saved_turb = (
+        None
+        if ao_sys._turbulence_phase is None
+        else ao_sys._turbulence_phase.copy()
+    )
+    restore_v = saved_v.copy()
+    try:
+        ao_sys._turbulence_phase = np.zeros((n_grid, n_grid), dtype=float)
+        ao_sys.set_dm_voltages(np.zeros_like(restore_v))
+        ideal_img = ao_sys.get_image()
+        return float(
+            radius(ideal_img, center=(n_grid / 2, n_grid / 2), energy=energy)
+        )
+    finally:
+        ao_sys._turbulence_phase = saved_turb
+        ao_sys.set_dm_voltages(restore_v)
+
+
 def optimize_spgd(
     epochs: int,
     r_bucket: float = 0,
@@ -156,24 +241,7 @@ def optimize_spgd(
 
     R0 = n_grid / 2
 
-    def _calc_ideal_bucket_radius(energy: float = 0.05) -> float:
-        """Calculate PIB radius from ideal diffraction-limited spot."""
-        saved_turb = (
-            None
-            if ao_sys._turbulence_phase is None
-            else ao_sys._turbulence_phase.copy()
-        )
-        saved_v = _init_v.copy()
-        try:
-            ao_sys._turbulence_phase = np.zeros((n_grid, n_grid), dtype=float)
-            ao_sys.set_dm_voltages(np.zeros(total_actuators, dtype=float))
-            ideal_img = ao_sys.get_image()
-            return float(radius(ideal_img, center=(R0, R0), energy=energy))
-        finally:
-            ao_sys._turbulence_phase = saved_turb
-            ao_sys.set_dm_voltages(saved_v)
-
-    ideal_bucket_radius = _calc_ideal_bucket_radius()
+    ideal_bucket_radius = _calc_ideal_bucket_radius(ao_sys, _init_v, n_grid)
 
     if r_bucket <= 0:
         r_bucket = ideal_bucket_radius
@@ -185,12 +253,7 @@ def optimize_spgd(
 
     m_momentum = np.zeros(total_actuators) if use_momentum else None
 
-    def calc_pib(img: np.ndarray) -> tuple[float, float]:
-        pb = power_bucket(img, PX, PY, (R0, R0), r_bucket, use_dpix_scaling=False)
-        total_power = np.sum(img)
-        return pb, pb / (total_power + 1e-10)
-
-    J0, pib_ratio0 = calc_pib(ao_sys.get_image())
+    J0, pib_ratio0 = _pib_ratio(ao_sys.get_image(), PX, PY, (R0, R0), r_bucket)
 
     disturb_v = np.zeros(total_actuators)
     pos_pib, neg_pib = 0.0, 0.0
@@ -256,13 +319,13 @@ def optimize_spgd(
             if flag == 1:
                 ao_sys.set_dm_voltages(_init_v)
                 pos_img = ao_sys.get_image()
-                pos_pib, pos_ratio = calc_pib(pos_img)
+                pos_pib, pos_ratio = _pib_ratio(pos_img, PX, PY, (R0, R0), r_bucket)
                 _init_v = _init_v - disturb_v
                 flag = -1
             elif flag == -1:
                 ao_sys.set_dm_voltages(_init_v)
                 neg_img = ao_sys.get_image()
-                neg_pib, neg_ratio = calc_pib(neg_img)
+                neg_pib, neg_ratio = _pib_ratio(neg_img, PX, PY, (R0, R0), r_bucket)
                 J = (pos_pib + neg_pib) / 2
                 diff = pos_pib - neg_pib
                 gradient = diff * disturb_v
@@ -283,7 +346,7 @@ def optimize_spgd(
             else:
                 pos_img = ao_sys.get_image()
 
-            pib, pib_ratio = calc_pib(pos_img)
+            pib, pib_ratio = _pib_ratio(pos_img, PX, PY, (R0, R0), r_bucket)
 
             strehl = _current_strehl(ao_sys)
 
@@ -433,23 +496,7 @@ def optimize_spgd_zernike(
 
     R0 = n_grid / 2
 
-    def _calc_ideal_bucket_radius(energy: float = 0.05) -> float:
-        saved_turb = (
-            None
-            if ao_sys._turbulence_phase is None
-            else ao_sys._turbulence_phase.copy()
-        )
-        saved_v = ao_sys.dm_voltages.copy()
-        try:
-            ao_sys._turbulence_phase = np.zeros((n_grid, n_grid), dtype=float)
-            ao_sys.set_dm_voltages(np.zeros_like(saved_v))
-            ideal_img = ao_sys.get_image()
-            return float(radius(ideal_img, center=(R0, R0), energy=energy))
-        finally:
-            ao_sys._turbulence_phase = saved_turb
-            ao_sys.set_dm_voltages(saved_v)
-
-    ideal_bucket_radius = _calc_ideal_bucket_radius()
+    ideal_bucket_radius = _calc_ideal_bucket_radius(ao_sys, ao_sys.dm_voltages, n_grid)
     if r_bucket <= 0:
         r_bucket = ideal_bucket_radius
     _fix_bucket = True
@@ -463,13 +510,8 @@ def optimize_spgd_zernike(
 
     m_momentum = np.zeros(nk) if use_momentum else None
 
-    def calc_pib(img: np.ndarray) -> tuple[float, float]:
-        pb = power_bucket(img, PX, PY, (R0, R0), r_bucket, use_dpix_scaling=False)
-        total_power = np.sum(img)
-        return pb, pb / (total_power + 1e-10)
-
     init_img = ao_sys.get_image()
-    init_pib, init_ratio = calc_pib(init_img)
+    init_pib, init_ratio = _pib_ratio(init_img, PX, PY, (R0, R0), r_bucket)
 
     c = np.zeros(nk)
     disturb_c = np.zeros(nk)
@@ -535,13 +577,13 @@ def optimize_spgd_zernike(
 
             if flag == 1:
                 pos_img = ao_sys.get_image()
-                pos_pib, pos_ratio = calc_pib(pos_img)
+                pos_pib, pos_ratio = _pib_ratio(pos_img, PX, PY, (R0, R0), r_bucket)
                 c = c - disturb_c
                 phase = _apply_zernike_phase(c)
                 flag = -1
             elif flag == -1:
                 neg_img = ao_sys.get_image()
-                neg_pib, neg_ratio = calc_pib(neg_img)
+                neg_pib, neg_ratio = _pib_ratio(neg_img, PX, PY, (R0, R0), r_bucket)
                 J = (pos_pib + neg_pib) / 2
                 diff = pos_pib - neg_pib
                 gradient = diff * disturb_c
@@ -561,7 +603,7 @@ def optimize_spgd_zernike(
             else:
                 pos_img = ao_sys.get_image()
 
-            pib, pib_ratio = calc_pib(pos_img)
+            pib, pib_ratio = _pib_ratio(pos_img, PX, PY, (R0, R0), r_bucket)
             strehl = _current_strehl(ao_sys)
 
             if epoch % update_iter == update_iter - 1 and not _fix_bucket:
@@ -665,21 +707,18 @@ def optimize_pso(
         _img = ao_sys.get_image()
         r_bucket = radius(_img, center=(R0, R0), energy=0.99)
 
-    def calc_pib(v: np.ndarray) -> float:
-        ao_sys.set_dm_voltages(np.clip(v, -1.0, 1.0))
-        img = ao_sys.get_image()
-        return power_bucket(img, PX, PY, (R0, R0), r_bucket, use_dpix_scaling=False)
-
     particles = np.random.uniform(-1.0, 1.0, (n_particles, total_actuators))
     velocities = np.random.uniform(-0.1, 0.1, (n_particles, total_actuators))
     personal_best = particles.copy()
-    personal_best_pib = np.array([calc_pib(p) for p in particles])
+    personal_best_pib = np.array(
+        [_calc_pib_voltage(ao_sys, p, PX, PY, (R0, R0), r_bucket) for p in particles]
+    )
 
     global_idx = np.argmax(personal_best_pib)
     global_best = particles[global_idx].copy()
     global_best_pib = personal_best_pib[global_idx]
 
-    init_pib = calc_pib(np.zeros(total_actuators))
+    init_pib = _calc_pib_voltage(ao_sys, np.zeros(total_actuators), PX, PY, (R0, R0), r_bucket)
     _strehl_init = _current_strehl(ao_sys)
 
     recorder.append(
@@ -708,7 +747,7 @@ def optimize_pso(
                     + c2_social * r2 * (global_best - particles[i])
                 )
                 particles[i] = np.clip(particles[i] + velocities[i], -1.0, 1.0)
-                fitness = calc_pib(particles[i])
+                fitness = _calc_pib_voltage(ao_sys, particles[i], PX, PY, (R0, R0), r_bucket)
                 if fitness > personal_best_pib[i]:
                     personal_best[i] = particles[i].copy()
                     personal_best_pib[i] = fitness
@@ -797,18 +836,15 @@ def optimize_ga(
         _img = ao_sys.get_image()
         r_bucket = radius(_img, center=(R0, R0), energy=0.99)
 
-    def calc_pib(v: np.ndarray) -> float:
-        ao_sys.set_dm_voltages(np.clip(v, -1.0, 1.0))
-        img = ao_sys.get_image()
-        return power_bucket(img, PX, PY, (R0, R0), r_bucket, use_dpix_scaling=False)
-
     population = np.random.uniform(-1.0, 1.0, (pop_size, total_actuators))
-    fitness = np.array([calc_pib(ind) for ind in population])
+    fitness = np.array(
+        [_calc_pib_voltage(ao_sys, ind, PX, PY, (R0, R0), r_bucket) for ind in population]
+    )
     best_idx = np.argmax(fitness)
     best_ind = population[best_idx].copy()
     best_pib = fitness[best_idx]
 
-    init_pib = calc_pib(np.zeros(total_actuators))
+    init_pib = _calc_pib_voltage(ao_sys, np.zeros(total_actuators), PX, PY, (R0, R0), r_bucket)
     _strehl_init = _current_strehl(ao_sys)
 
     recorder.append(
@@ -854,7 +890,9 @@ def optimize_ga(
                 new_pop.append(mutate(population[np.random.randint(pop_size)]))
 
             population = np.array(new_pop[:pop_size])
-            fitness = np.array([calc_pib(ind) for ind in population])
+            fitness = np.array(
+                [_calc_pib_voltage(ao_sys, ind, PX, PY, (R0, R0), r_bucket) for ind in population]
+            )
 
             best_idx = np.argmax(fitness)
             if fitness[best_idx] > best_pib:
@@ -937,13 +975,8 @@ def optimize_sa(
         _img = ao_sys.get_image()
         r_bucket = radius(_img, center=(R0, R0), energy=0.99)
 
-    def calc_pib(v: np.ndarray) -> float:
-        ao_sys.set_dm_voltages(np.clip(v, -1.0, 1.0))
-        img = ao_sys.get_image()
-        return power_bucket(img, PX, PY, (R0, R0), r_bucket, use_dpix_scaling=False)
-
     current = np.zeros(total_actuators)
-    current_pib = calc_pib(current)
+    current_pib = _calc_pib_voltage(ao_sys, current, PX, PY, (R0, R0), r_bucket)
     best = current.copy()
     best_pib = current_pib
     T = T_init
@@ -971,7 +1004,7 @@ def optimize_sa(
                 -step_size, step_size, total_actuators
             )
             neighbor = np.clip(neighbor, -1.0, 1.0)
-            neighbor_pib = calc_pib(neighbor)
+            neighbor_pib = _calc_pib_voltage(ao_sys, neighbor, PX, PY, (R0, R0), r_bucket)
             delta = neighbor_pib - current_pib
 
             if delta > 0 or np.random.rand() < np.exp(delta / (T + 1e-10)):
