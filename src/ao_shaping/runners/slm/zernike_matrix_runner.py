@@ -61,7 +61,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from time import sleep
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import click
 import h5py
@@ -84,6 +84,7 @@ from ao_shaping.optimizer.wf.zernike_response_matrix import (
     save_zernike_response_matrix,
 )
 from ao_shaping.optimizer.wf.closed_loop import AOClosedLoop
+from ao_shaping.runners.runner_common import option, with_params
 from ao_shaping.tools.slm.slm_zernike_common import (
     DLL_ZERNIKE_ORDER,
     WFS_ZERNIKE_ORDER,
@@ -1049,163 +1050,120 @@ def offline_correction_test(
 # ==================== CLI: zernike-matrix ====================
 
 
+@dataclass
+class ZernikeMatrixParams:
+    """zernike-matrix 命令的 CLI 参数 (dataclass-click 转换, 2026-09)."""
+
+    n_max: Annotated[int, option("--n-max", help="Zernike最大阶数")] = 10
+    magnitude: Annotated[
+        float,
+        option(
+            "--magnitude",
+            show_default=True,
+            help="扰动幅度 (**弧度**, 0=自动优化; 重写后系数即弧度, 建议 2~5 rad ≈0.3~0.8λ)",
+        ),
+    ] = DEFAULT_MAGNITUDE_RAD
+    zernike_radius: Annotated[
+        float,
+        option(
+            "--zernike-radius",
+            type=float,
+            show_default=True,
+            help="Zernike 归一化半径 px (建议 ≈1.5×光束半径; 闭环矫正必须用同一值)",
+        ),
+    ] = DEFAULT_ZERNIKE_RADIUS_PX
+    n_averages: Annotated[int, option("--n-averages", help="每次WFS读取次数 (M)")] = 3
+    n_cycles: Annotated[int, option("--n-cycles", help="正负交替循环次数 (N)")] = 1
+    wait_time: Annotated[float, option("--wait", help="等待时间 (秒)")] = 0.2
+    output_path: Annotated[
+        str, option("--output", help="输出文件路径")
+    ] = "data/zernike_response_matrix"
+    slm_number: Annotated[int, option("--slm-number", help="SLM设备编号")] = 1
+    shift_x: Annotated[
+        int, option("--shift-x", type=int, help="SLM X方向平移像素 (正=右, 负=左)")
+    ] = 0
+    shift_y: Annotated[
+        int, option("--shift-y", type=int, help="SLM Y方向平移像素 (正=下, 负=上)")
+    ] = 0
+    wavelength: Annotated[int, option("--wavelength", help="工作波长 (nm)")] = 1064
+    mla_index: Annotated[
+        Literal["512", "540", "600", "768", "1280"],
+        option(
+            "--mla-index",
+            type=click.Choice(["512", "540", "600", "768", "1280"]),
+            help="MLA分辨率 (512, 540, 600, 768, 1280)",
+        ),
+    ] = "512"
+    exp_time: Annotated[
+        float, option("--exp-time", type=float, help="曝光时间 (ms, 0=自动)")
+    ] = 0.0
+    auto_exposure: Annotated[
+        bool,
+        option("--auto-exposure/--no-auto-exposure", help="启用WFS自动曝光 (默认开启)"),
+    ] = True
+    high_speed: Annotated[
+        bool, option("--high-speed", is_flag=True, help="启用高速模式")
+    ] = False
+    use_custom_ref: Annotated[
+        bool, option("--use-custom-ref", is_flag=False, help="使用自定义参考文件")
+    ] = False
+    pupil_diameter: Annotated[
+        float, option("--pupil-diameter", type=float, help="瞳孔直径 (mm)")
+    ] = 2.0
+    pupil_center: Annotated[
+        str | tuple[float, float],
+        option("--pupil-center", callback=parse_tuple, help="瞳孔中心坐标 (默认: (0,0))"),
+    ] = "(0,0)"
+    compute_inverses: Annotated[
+        bool, option("--no-inverses", flag_value=False, help="不计算逆矩阵")
+    ] = True
+    excluded_tip_tilt: Annotated[
+        bool,
+        option("--excluded-tip-tilt", flag_value=True, help="排除tip/tilt模式 (Z2, Z3)"),
+    ] = False
+    cancel_tile: Annotated[
+        bool,
+        option(
+            "--cancel-tile",
+            is_flag=True,
+            help="测量时去除WFS的tip/tilt (对应Thorlabs的cancel_tile功能)",
+        ),
+    ] = False
+    display: Annotated[
+        bool, option("--display/--no-display", help="显示实时pygame显示")
+    ] = False
+    debug: Annotated[
+        bool | None,
+        option("--debug", is_flag=True, help="启用调试模式 (保存原始测量数据)"),
+    ] = None
+    auto_optimize_amplitude: Annotated[
+        bool,
+        option("--auto-optimize/--no-auto-optimize", help="自动优化扰动幅度 (magnitude=0时)"),
+    ] = True
+    optimize_n_avg: Annotated[
+        int, option("--optimize-n-avg", help="幅度优化时的WFS读取次数")
+    ] = 10
+    n_magnitudes: Annotated[
+        int, option("--n-magnitudes", help="自动生成N个不同扰动幅度并分别保存 (0=禁用)")
+    ] = 0
+    dither_amp: Annotated[
+        float, option("--dither-amp", help="亚波长抖动幅度 [λ], 0=禁用 (建议0.02-0.05)")
+    ] = 0.0
+    correction_csv_path: Annotated[
+        str | None,
+        option(
+            "--correction-csv",
+            help="误差矫正CSV文件路径 (如 libs/SLM_DLL_ver.2.51/Wavefront_correction_Data/Wavefront_correction_Data_240236000006(520nm).csv)",
+        ),
+    ] = None
+    # 非 CLI 字段: 函数局部常量 (保持原语义, 不生成 --excluded-piston 选项)
+    excluded_piston: bool = True
+
+
 @click.command("zernike-matrix")
 @click.pass_context
-@click.option("--n-max", default=10, help="Zernike最大阶数")
-@click.option(
-    "--magnitude",
-    default=DEFAULT_MAGNITUDE_RAD,
-    show_default=True,
-    help="扰动幅度 (**弧度**, 0=自动优化; 重写后系数即弧度, 建议 2~5 rad ≈0.3~0.8λ)",
-)
-@click.option(
-    "--zernike-radius",
-    "zernike_radius",
-    type=float,
-    default=DEFAULT_ZERNIKE_RADIUS_PX,
-    show_default=True,
-    help="Zernike 归一化半径 px (建议 ≈1.5×光束半径; 闭环矫正必须用同一值)",
-)
-@click.option("--n-averages", "n_averages", default=3, help="每次WFS读取次数 (M)")
-@click.option("--n-cycles", "n_cycles", default=1, help="正负交替循环次数 (N)")
-@click.option("--wait", "wait_time", default=0.2, help="等待时间 (秒)")
-@click.option(
-    "--output",
-    "output_path",
-    default="data/zernike_response_matrix",
-    help="输出文件路径",
-)
-@click.option("--slm-number", "slm_number", default=1, help="SLM设备编号")
-@click.option(
-    "--shift-x", "shift_x", type=int, default=0, help="SLM X方向平移像素 (正=右, 负=左)"
-)
-@click.option(
-    "--shift-y", "shift_y", type=int, default=0, help="SLM Y方向平移像素 (正=下, 负=上)"
-)
-@click.option("--wavelength", default=1064, help="工作波长 (nm)")
-@click.option(
-    "--mla-index",
-    "mla_index",
-    type=click.Choice(["512", "540", "600", "768", "1280"]),
-    default="512",
-    help="MLA分辨率 (512, 540, 600, 768, 1280)",
-)
-@click.option(
-    "--exp-time", "exp_time", type=float, default=0.0, help="曝光时间 (ms, 0=自动)"
-)
-@click.option(
-    "--auto-exposure/--no-auto-exposure",
-    "auto_exposure",
-    default=True,
-    help="启用WFS自动曝光 (默认开启)",
-)
-@click.option(
-    "--high-speed", "high_speed", is_flag=True, default=False, help="启用高速模式"
-)
-@click.option(
-    "--use-custom-ref",
-    "use_custom_ref",
-    is_flag=False,
-    default=False,
-    help="使用自定义参考文件",
-)
-@click.option(
-    "--pupil-diameter", "pupil_diameter", type=float, default=2.0, help="瞳孔直径 (mm)"
-)
-@click.option(
-    "--pupil-center",
-    callback=parse_tuple,
-    default="(0,0)",
-    help="瞳孔中心坐标 (默认: (0,0))",
-)
-@click.option(
-    "--no-inverses",
-    "compute_inverses",
-    default=True,
-    flag_value=False,
-    help="不计算逆矩阵",
-)
-@click.option(
-    "--excluded-tip-tilt",
-    "excluded_tip_tilt",
-    default=False,
-    flag_value=True,
-    help="排除tip/tilt模式 (Z2, Z3)",
-)
-@click.option(
-    "--cancel-tile",
-    "cancel_tile",
-    is_flag=True,
-    default=False,
-    help="测量时去除WFS的tip/tilt (对应Thorlabs的cancel_tile功能)",
-)
-@click.option("--display/--no-display", default=False, help="显示实时pygame显示")
-@click.option(
-    "--debug",
-    "debug",
-    is_flag=True,
-    default=None,
-    help="启用调试模式 (保存原始测量数据)",
-)
-@click.option(
-    "--auto-optimize/--no-auto-optimize",
-    "auto_optimize_amplitude",
-    default=True,
-    help="自动优化扰动幅度 (magnitude=0时)",
-)
-@click.option(
-    "--optimize-n-avg", "optimize_n_avg", default=10, help="幅度优化时的WFS读取次数"
-)
-@click.option(
-    "--n-magnitudes",
-    "n_magnitudes",
-    default=0,
-    help="自动生成N个不同扰动幅度并分别保存 (0=禁用)",
-)
-@click.option(
-    "--dither-amp",
-    "dither_amp",
-    default=0.0,
-    help="亚波长抖动幅度 [λ], 0=禁用 (建议0.02-0.05)",
-)
-@click.option(
-    "--correction-csv",
-    "correction_csv_path",
-    default=None,
-    help="误差矫正CSV文件路径 (如 libs/SLM_DLL_ver.2.51/Wavefront_correction_Data/Wavefront_correction_Data_240236000006(520nm).csv)",
-)
-def run(
-    ctx: click.Context,
-    n_max: int,
-    magnitude: float,
-    zernike_radius: float,
-    n_averages: int,
-    n_cycles: int,
-    wait_time: float,
-    output_path: str,
-    slm_number: int,
-    shift_x: int,
-    shift_y: int,
-    wavelength: int,
-    mla_index: Literal["512", "540", "600", "768", "1280"],
-    exp_time: float,
-    auto_exposure: bool,
-    high_speed: bool,
-    use_custom_ref: bool,
-    pupil_diameter: float,
-    pupil_center: tuple,
-    compute_inverses: bool,
-    excluded_tip_tilt: bool,
-    cancel_tile: bool,
-    display: bool,
-    debug: bool | None,
-    auto_optimize_amplitude: bool,
-    optimize_n_avg: int,
-    n_magnitudes: int,
-    dither_amp: float,
-    correction_csv_path: str | None,
-    excluded_piston: bool = True,
-):
+@with_params(ZernikeMatrixParams, kw_name="params")
+def run(ctx: click.Context, params: ZernikeMatrixParams) -> None:
     """获取Zernike响应矩阵
 
     支持 N 次正负交替循环测量 + M 次 WFS 读取取平均 + 方差跟踪 + 逆矩阵计算。
@@ -1241,48 +1199,48 @@ def run(
         [ ] --n-magnitudes N: 各幅度结果应线性 (系数 / 幅度 ≈ 常数)
     """
     # === 1. 归一化选项 ===
-    params = _normalize_run_options(
-        n_max,
-        magnitude,
-        n_averages,
-        n_cycles,
-        wait_time,
-        output_path,
-        mla_index,
-        auto_exposure,
-        exp_time,
-        excluded_piston,
-        excluded_tip_tilt,
-        cancel_tile,
-        debug,
-        ctx,
+    norm = _normalize_run_options(
+        n_max=params.n_max,
+        magnitude=params.magnitude,
+        n_averages=params.n_averages,
+        n_cycles=params.n_cycles,
+        wait_time=params.wait_time,
+        output_path=params.output_path,
+        mla_index=params.mla_index,
+        auto_exposure=params.auto_exposure,
+        exp_time=params.exp_time,
+        excluded_piston=params.excluded_piston,
+        excluded_tip_tilt=params.excluded_tip_tilt,
+        cancel_tile=params.cancel_tile,
+        debug=params.debug,
+        ctx=ctx,
     )
 
     # === 2. 设置调试回调 ===
-    debug_cb, debug_dir = _setup_debug_callback(output_path, params["debug"])
+    debug_cb, debug_dir = _setup_debug_callback(params.output_path, norm["debug"])
 
     # === 3. 条件创建显示 ===
     ui_display = None
-    if display:
+    if params.display:
         ui_display = ZernikeCalibrationDisplay(
-            n_wfs_terms=params["n_wfs_terms"],
-            n_slm_terms=params["n_slm_terms"],
+            n_wfs_terms=norm["n_wfs_terms"],
+            n_slm_terms=norm["n_slm_terms"],
         )
 
     try:
         # 2026-09-16 重写: 原 ZernikeSLM 链路在实机出现原生崩溃 (0xC0000005/0xC000041C),
         # 改用与 tools/slm/slm_zernike_response.py 相同的 **Santec + PatternHelper** 直控链路。
         slm = Santec(
-            slm_number=slm_number,
-            wavelength=wavelength,
+            slm_number=params.slm_number,
+            wavelength=params.wavelength,
             video_mode=0,
-            correction_csv_path=correction_csv_path,
+            correction_csv_path=params.correction_csv_path,
         )
         wfs = ThorlabWFS(
-            mla_index=params["mla_index_enum"],
-            exposure_time=params["effective_exp_time"],
-            high_speed=high_speed,
-            use_custom_ref=use_custom_ref,
+            mla_index=norm["mla_index_enum"],
+            exposure_time=norm["effective_exp_time"],
+            high_speed=params.high_speed,
+            use_custom_ref=params.use_custom_ref,
         )
         slm.open()
         wfs.open()
@@ -1291,8 +1249,8 @@ def run(
         # 平移: CLI 非默认值时覆盖, 否则沿用设备配置 (避免把标定好的 shift 覆盖成 0)
         # ⚠️ --shift-x/--shift-y 默认 None → 先归一为 0 再判跳过, 防止 int(None) 崩溃
         shift_cli = (
-            int(shift_x) if shift_x is not None else 0,
-            int(shift_y) if shift_y is not None else 0,
+            int(params.shift_x) if params.shift_x is not None else 0,
+            int(params.shift_y) if params.shift_y is not None else 0,
         )
         if shift_cli != (0, 0):
             slm.set_shift(*shift_cli)
@@ -1304,7 +1262,9 @@ def run(
         # pupil: 未显式指定 (默认 2.0mm / (0,0)) 时用 optimize_pupil 自动获取并**写回**。
         # ⚠️ 2026-09 教训: 硬编码 pupil 会污染 WFS_ZernikeLsf 拟合 (假 tip/tilt 达 4.6~12.8λ);
         #    且 ThorlabWFS.__init__ 传入的 pupil **会覆盖配置文件中的实测值** (L440-453)。
-        pupil_is_default = float(pupil_diameter) == 2.0 and tuple(pupil_center) == (
+        pupil_is_default = float(params.pupil_diameter) == 2.0 and tuple(
+            params.pupil_center
+        ) == (
             0,
             0,
         )
@@ -1317,15 +1277,15 @@ def run(
             )
         else:
             wfs.pupil = (
-                float(pupil_center[0]),
-                float(pupil_center[1]),
-                float(pupil_diameter),
-                float(pupil_diameter),
+                float(params.pupil_center[0]),
+                float(params.pupil_center[1]),
+                float(params.pupil_diameter),
+                float(params.pupil_diameter),
             )
             click.echo(f"[OK] pupil (CLI): {wfs.pupil}")
 
         # 完整设备参数 (随 h5 的 device_config 落盘, 供复现与审计)
-        device_info = collect_device_info(slm, wfs, slm_number)
+        device_info = collect_device_info(slm, wfs, params.slm_number)
         _ds = device_info.get("slm") or {}
         _dw = device_info.get("wfs") or {}
         click.echo(
@@ -1336,28 +1296,32 @@ def run(
         )
 
         # === 4. 抖动参考 (可选) ===
-        if dither_amp > 0:
+        if params.dither_amp > 0:
             click.echo(
                 "[WARN] --dither-amp 原依赖 ZernikeSLM 链路; 重写后的 Santec 直控"
                 "链路暂不支持该功能, 已跳过 (推拉标定本身已含参考设置)"
             )
 
         # === 5. 初始化状态捕获 + 参考设置 ===
-        if not use_custom_ref:
+        if not params.use_custom_ref:
             init_state = _capture_init_state(
                 slm,
                 wfs,
-                cancel_tile=params["cancel_tile"],
-                zernike_order=params["n_max"],
-                wait_time=params["wait_time"],
+                cancel_tile=norm["cancel_tile"],
+                zernike_order=norm["n_max"],
+                wait_time=norm["wait_time"],
             )
-            _save_init_state_hdf5(init_state, output_path)
+            _save_init_state_hdf5(init_state, params.output_path)
 
         # === 6. 计算标定幅度列表 (单位: **弧度**) ===
-        magnitudes = _compute_calibration_magnitudes(params["magnitude"], n_magnitudes)
+        magnitudes = _compute_calibration_magnitudes(
+            norm["magnitude"], params.n_magnitudes
+        )
 
         # === 7. 标定循环 ===
-        mode_ids = _mode_ids(params["n_max"], excluded_piston, excluded_tip_tilt)
+        mode_ids = _mode_ids(
+            norm["n_max"], params.excluded_piston, params.excluded_tip_tilt
+        )
         results: list[tuple[float | None, ZernikeResponseMatrixResult]] = []
         # 跟踪最后一次标定, 供步骤 8 的离线矫正测试 (用最后矩阵; 测试会恢复 WFS
         # 内部参考, 若放在循环内会破坏后续标定的自定义参考基准)
@@ -1374,7 +1338,7 @@ def run(
                     response_col=resp,
                     variance_col=var,
                     current_cycle=0,
-                    total_cycles=params["n_cycles"],
+                    total_cycles=norm["n_cycles"],
                     mean_variance=float(np.mean(var)),
                 )
             except Exception as e:  # noqa: BLE001
@@ -1383,7 +1347,7 @@ def run(
         for mag in magnitudes:
             mag_rad = float(mag if mag is not None else DEFAULT_MAGNITUDE_RAD)
             mag_suffix = f"_mag{mag}" if mag is not None else "_auto"
-            mag_output_path = f"{output_path}{mag_suffix}"
+            mag_output_path = f"{params.output_path}{mag_suffix}"
             click.echo(
                 f"\n=== Calibration run: magnitude={mag_rad} rad "
                 f"({mag_rad / (2 * np.pi):.3f}λ) ==="
@@ -1394,15 +1358,15 @@ def run(
                     slm,
                     wfs,
                     ph,
-                    n_max=params["n_max"],
+                    n_max=norm["n_max"],
                     magnitude_rad=mag_rad,
-                    zernike_radius=float(zernike_radius),
-                    n_averages=params["n_averages"],
-                    n_cycles=params["n_cycles"],
-                    settle=params["wait_time"],
-                    cancel_tile=params["cancel_tile"],
-                    excluded_piston=excluded_piston,
-                    excluded_tip_tilt=excluded_tip_tilt,
+                    zernike_radius=float(params.zernike_radius),
+                    n_averages=norm["n_averages"],
+                    n_cycles=norm["n_cycles"],
+                    settle=norm["wait_time"],
+                    cancel_tile=norm["cancel_tile"],
+                    excluded_piston=params.excluded_piston,
+                    excluded_tip_tilt=params.excluded_tip_tilt,
                     debug_cb=debug_cb,
                     progress_cb=_display_cb,
                 )
@@ -1413,18 +1377,18 @@ def run(
                 variance_matrix=variance,
                 deviation_response_matrix=dev_mat,
                 subaperture_mask=mask,
-                n_max=params["n_max"],
+                n_max=norm["n_max"],
                 # 单位: **λ** (waves) —— 与已验证脚本 slm_zernike_response.py 一致;
                 # verify_response_matrix / GUI 均按 "λ" 显示。曾误存弧度 (差 2π)。
                 magnitude=mag_rad / (2.0 * np.pi),
-                wavelength_nm=int(wavelength),
-                n_averages=params["n_averages"],
-                n_cycles=params["n_cycles"],
+                wavelength_nm=int(params.wavelength),
+                n_averages=norm["n_averages"],
+                n_cycles=norm["n_cycles"],
                 timestamp=get_timestamp_str(),
-                excluded_piston=excluded_piston,
-                excluded_tip_tilt=excluded_tip_tilt,
+                excluded_piston=params.excluded_piston,
+                excluded_tip_tilt=params.excluded_tip_tilt,
             )
-            if compute_inverses:
+            if params.compute_inverses:
                 try:
                     result.pinv_matrix = safe_pinv(matrix)
                     result.lstsq_matrix = result.pinv_matrix
@@ -1434,17 +1398,17 @@ def run(
             # 附加硬件配置快照 (含完整 SLM/WFS 设备参数)
             result.device_config = {
                 "device": device_info,
-                "slm_number": slm_number,
-                "wavelength_nm": int(wavelength),
+                "slm_number": params.slm_number,
+                "wavelength_nm": int(params.wavelength),
                 "shift_x": int(slm.shift_x),
                 "shift_y": int(slm.shift_y),
                 "pupil": list(wfs.pupil),
-                "mla_index": str(params["mla_index_enum"]),
-                "exposure_ms": params["effective_exp_time"],
-                "high_speed": bool(high_speed),
-                "use_custom_ref": bool(use_custom_ref),
-                "correction_csv_path": correction_csv_path,
-                "zernike_radius_px": float(zernike_radius),
+                "mla_index": str(norm["mla_index_enum"]),
+                "exposure_ms": norm["effective_exp_time"],
+                "high_speed": bool(params.high_speed),
+                "use_custom_ref": bool(params.use_custom_ref),
+                "correction_csv_path": params.correction_csv_path,
+                "zernike_radius_px": float(params.zernike_radius),
                 "magnitude_rad": mag_rad,
                 "amplitude_waves": mag_rad / (2.0 * np.pi),
                 "slm_mode_ids_dll": mode_ids,
@@ -1464,7 +1428,7 @@ def run(
             }
 
             save_zernike_response_matrix(
-                result, mag_output_path, include_inverses=compute_inverses
+                result, mag_output_path, include_inverses=params.compute_inverses
             )
             click.echo(
                 f"Saved: {mag_output_path}.h5  (cond_eff={effective_cond(matrix):.2f})"
@@ -1487,13 +1451,13 @@ def run(
                     ph,
                     last_matrix,
                     mode_ids,
-                    n_max=params["n_max"],
-                    zernike_radius=float(zernike_radius),
-                    n_avg=params["n_averages"],
-                    settle=params["wait_time"],
+                    n_max=norm["n_max"],
+                    zernike_radius=float(params.zernike_radius),
+                    n_avg=norm["n_averages"],
+                    settle=norm["wait_time"],
                     device_info=device_info,
                     matrix_path=last_matrix_path,
-                    correction_csv_path=correction_csv_path,
+                    correction_csv_path=params.correction_csv_path,
                     amplitude_rad=last_mag_rad,
                 )
                 if offline_summary.get("export"):
@@ -1507,7 +1471,7 @@ def run(
                 click.echo(f"[WARN] 离线矫正测试失败: {type(e).__name__}: {e}")
 
         # === 9. 打印结果摘要 ===
-        _print_calibration_summary(results, output_path, debug_dir)
+        _print_calibration_summary(results, params.output_path, debug_dir)
     finally:
         for dev in (wfs, slm):
             try:
@@ -1645,69 +1609,63 @@ def _expand_to_noll(
     return full
 
 
+@dataclass
+class ClosedLoopParams:
+    """closed-loop 命令的 CLI 参数 (dataclass-click 转换, 2026-09)."""
+
+    # required=True, 无默认值 → 必须放在首位 (dataclass 非默认字段在前)
+    load_file: Annotated[
+        str, option("--load-file", required=True, help="已保存的响应矩阵 .h5 文件路径")
+    ]
+    output_path: Annotated[
+        str | None,
+        option("--output", help="结果保存路径 (默认: 在load-file同目录生成)"),
+    ] = None
+    control_law: Annotated[
+        str,
+        option(
+            "--control-law",
+            type=click.Choice(["pid", "leaky", "qg", "lqg", "mpc", "adaptive"]),
+            help="控制律 (默认: leaky)",
+        ),
+    ] = "leaky"
+    gain: Annotated[
+        float | None, option("--gain", type=float, help="控制增益覆盖 (控制律依赖)")
+    ] = None
+    leak: Annotated[
+        float | None, option("--leak", type=float, help="泄漏因子覆盖")
+    ] = None
+    kp: Annotated[float | None, option("--kp", type=float, help="PID比例增益")] = None
+    ki: Annotated[float | None, option("--ki", type=float, help="PID积分增益")] = None
+    kd: Annotated[float | None, option("--kd", type=float, help="PID微分增益")] = None
+    dt: Annotated[
+        float, option("--dt", type=float, help="采样周期 [s] (默认: 0.067)")
+    ] = 0.067
+    rms_target: Annotated[
+        float, option("--rms-target", type=float, help="目标RMS [λ] (默认: 0.05)")
+    ] = 0.05
+    max_iter: Annotated[
+        int, option("--max-iter", type=int, help="最大迭代次数 (默认: 100)")
+    ] = 100
+    delay_steps: Annotated[
+        int, option("--delay-steps", type=int, help="延时补偿步数 (默认: 1)")
+    ] = 1
+    cancel_tile: Annotated[
+        bool,
+        option("--cancel-tile/--no-cancel-tile", help="测量时去除WFS tip/tilt"),
+    ] = False
+    display: Annotated[
+        bool, option("--display/--no-display", help="显示实时pygame显示")
+    ] = False
+    debug: Annotated[
+        bool, option("--debug", is_flag=True, help="启用调试模式")
+    ] = False
+
+
 @click.command("closed-loop")
 @click.pass_context
-@click.option(
-    "--load-file", "load_file", required=True, help="已保存的响应矩阵 .h5 文件路径"
-)
-@click.option(
-    "--output",
-    "output_path",
-    default=None,
-    help="结果保存路径 (默认: 在load-file同目录生成)",
-)
-@click.option(
-    "--control-law",
-    "control_law",
-    type=click.Choice(["pid", "leaky", "qg", "lqg", "mpc", "adaptive"]),
-    default="leaky",
-    help="控制律 (默认: leaky)",
-)
-@click.option("--gain", default=None, type=float, help="控制增益覆盖 (控制律依赖)")
-@click.option("--leak", default=None, type=float, help="泄漏因子覆盖")
-@click.option("--kp", default=None, type=float, help="PID比例增益")
-@click.option("--ki", default=None, type=float, help="PID积分增益")
-@click.option("--kd", default=None, type=float, help="PID微分增益")
-@click.option("--dt", default=0.067, type=float, help="采样周期 [s] (默认: 0.067)")
-@click.option(
-    "--rms-target",
-    "rms_target",
-    default=0.05,
-    type=float,
-    help="目标RMS [λ] (默认: 0.05)",
-)
-@click.option(
-    "--max-iter", "max_iter", default=100, type=int, help="最大迭代次数 (默认: 100)"
-)
-@click.option(
-    "--delay-steps", "delay_steps", default=1, type=int, help="延时补偿步数 (默认: 1)"
-)
-@click.option(
-    "--cancel-tile/--no-cancel-tile",
-    "cancel_tile",
-    default=False,
-    help="测量时去除WFS tip/tilt",
-)
-@click.option("--display/--no-display", default=False, help="显示实时pygame显示")
-@click.option("--debug", is_flag=True, default=False, help="启用调试模式")
-def closed_loop_run(
-    ctx: click.Context,
-    load_file: str,
-    output_path: str | None,
-    control_law: str,
-    gain: float | None,
-    leak: float | None,
-    kp: float | None,
-    ki: float | None,
-    kd: float | None,
-    dt: float,
-    rms_target: float,
-    max_iter: int,
-    delay_steps: int,
-    cancel_tile: bool,
-    display: bool,
-    debug: bool,
-):
+@with_params(ClosedLoopParams, kw_name="params")
+def closed_loop_run(ctx: click.Context, params: ClosedLoopParams) -> None:
     """基于响应矩阵的闭环波前优化
 
     载入已保存的Zernike响应矩阵 (.h5), 恢复硬件参数,
@@ -1733,8 +1691,8 @@ def closed_loop_run(
     from ao_shaping.utils.io.cli_helpers import get_timestamp_str
 
     # 加载响应矩阵
-    click.echo(f"加载响应矩阵: {load_file}")
-    result = load_zernike_response_matrix(load_file)
+    click.echo(f"加载响应矩阵: {params.load_file}")
+    result = load_zernike_response_matrix(params.load_file)
     click.echo(f"  矩阵形状: {result.matrix.shape}")
     click.echo(
         f"  n_max={result.n_max}, excluded_piston={result.excluded_piston}, excluded_tip_tilt={result.excluded_tip_tilt}"
@@ -1758,24 +1716,24 @@ def closed_loop_run(
     Q_diag = np.ones(n_modes)
     loop_cfg = LoopConfig(
         n_modes=n_modes,
-        dt=dt,
-        Kp=kp if kp is not None else 0.5,
-        Ki=ki if ki is not None else 0.3,
-        Kd=kd if kd is not None else 0.05,
-        leak=leak if leak is not None else 0.97,
+        dt=params.dt,
+        Kp=params.kp if params.kp is not None else 0.5,
+        Ki=params.ki if params.ki is not None else 0.3,
+        Kd=params.kd if params.kd is not None else 0.05,
+        leak=params.leak if params.leak is not None else 0.97,
         Q_diag=Q_diag,
         R_scalar=0.1,
-        delay_steps=delay_steps,
-        rms_target=rms_target,
-        max_iter=max_iter,
-        cancel_tile=cancel_tile,
+        delay_steps=params.delay_steps,
+        rms_target=params.rms_target,
+        max_iter=params.max_iter,
+        cancel_tile=params.cancel_tile,
     )
-    if gain is not None:
-        loop_cfg.gain_schedule = [(0, max_iter, gain, loop_cfg.leak)]
+    if params.gain is not None:
+        loop_cfg.gain_schedule = [(0, params.max_iter, params.gain, loop_cfg.leak)]
 
     click.echo("\n闭环配置:")
-    click.echo(f"  控制律: {control_law}, DT={dt}s")
-    click.echo(f"  目标RMS: {rms_target}λ, 最大迭代: {max_iter}")
+    click.echo(f"  控制律: {params.control_law}, DT={params.dt}s")
+    click.echo(f"  目标RMS: {params.rms_target}λ, 最大迭代: {params.max_iter}")
 
     # 解析控制律枚举
     law_map = {
@@ -1786,10 +1744,11 @@ def closed_loop_run(
         "mpc": ControlLaw.PREDICTIVE,
         "adaptive": ControlLaw.ADAPTIVE_GAIN,
     }
-    law = law_map[control_law]
+    law = law_map[params.control_law]
 
     # 设置输出路径
-    load_path = Path(load_file)
+    load_path = Path(params.load_file)
+    output_path = params.output_path
     if output_path is None:
         output_path = str(
             load_path.parent / f"closed_loop_{load_path.stem}_{get_timestamp_str()}"
@@ -1849,7 +1808,7 @@ def closed_loop_run(
                     mask_indices=loop.mask_indices,
                     s_ref=loop.s_ref,
                     D_pinv=loop.D_pinv,
-                    cancel_tile=cancel_tile,
+                    cancel_tile=params.cancel_tile,
                 )
 
                 def _apply(u: np.ndarray) -> None:
@@ -1862,7 +1821,7 @@ def closed_loop_run(
                     zslm.send_zernike(u_full)
 
                 # 运行闭环
-                click.echo(f"\n启动闭环优化 ({control_law})...")
+                click.echo(f"\n启动闭环优化 ({params.control_law})...")
                 loop_result = loop.run(
                     measure_func=measure_func,
                     apply_func=_apply,
@@ -1893,8 +1852,8 @@ def closed_loop_run(
 
                 # 保存结果元数据
                 meta = {
-                    "load_file": load_file,
-                    "control_law": control_law,
+                    "load_file": params.load_file,
+                    "control_law": params.control_law,
                     "n_iter": loop_result["n_iter"],
                     "rms_initial": float(loop_result["rms_initial"]),
                     "rms_final": float(loop_result["rms_final"]),
@@ -1905,15 +1864,15 @@ def closed_loop_run(
                     "device_config": device_cfg.to_dict(),
                     "loop_config": {
                         "n_modes": n_modes,
-                        "dt": dt,
+                        "dt": params.dt,
                         "Kp": loop_cfg.Kp,
                         "Ki": loop_cfg.Ki,
                         "Kd": loop_cfg.Kd,
                         "leak": loop_cfg.leak,
-                        "rms_target": rms_target,
-                        "max_iter": max_iter,
-                        "delay_steps": delay_steps,
-                        "cancel_tile": cancel_tile,
+                        "rms_target": params.rms_target,
+                        "max_iter": params.max_iter,
+                        "delay_steps": params.delay_steps,
+                        "cancel_tile": params.cancel_tile,
                     },
                 }
                 with open(output_dir / "meta.json", "w") as f:
@@ -1924,15 +1883,15 @@ def closed_loop_run(
                 iterations = np.arange(len(loop_result["rms_history"]))
                 axes[0].plot(iterations, loop_result["rms_history"], "b-")
                 axes[0].axhline(
-                    y=rms_target,
+                    y=params.rms_target,
                     color="r",
                     linestyle="--",
                     alpha=0.5,
-                    label=f"target={rms_target}λ",
+                    label=f"target={params.rms_target}λ",
                 )
                 axes[0].set_xlabel("Iteration")
                 axes[0].set_ylabel("RMS [λ]")
-                axes[0].set_title(f"Convergence ({control_law})")
+                axes[0].set_title(f"Convergence ({params.control_law})")
                 axes[0].grid(True, alpha=0.3)
                 axes[0].legend()
 

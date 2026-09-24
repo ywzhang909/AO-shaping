@@ -1,4 +1,6 @@
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated, Any
 
 import click
 import numpy as np
@@ -6,6 +8,7 @@ from loguru import logger
 
 from ao_shaping.drivers import MlaRes, ThorlabWFS
 from ao_shaping.drivers.slm import ZernikeSLM
+from ao_shaping.runners.runner_common import option, with_params
 from ao_shaping.utils.io.cli_helpers import (
     get_date_dir_name,
     parse_tuple,
@@ -421,54 +424,76 @@ def search_offset_by_vortex(
     )
 
 
+@dataclass
+class SlmOffsetParams:
+    """slm-offset 命令的 CLI 参数 (dataclass-click 转换, 2026-09)."""
+
+    dir: Annotated[
+        str, option("-d", "--dir", help="数据保存根目录 (default: data)")
+    ] = "data"
+    wfs_res: Annotated[
+        str, option("-r", "--wfs_res", help="WFS分辨率 (default: 1024)")
+    ] = "1024"
+    pupil_diameter: Annotated[
+        float, option("-p", "--pupil_diameter", help="瞳孔直径 (default: 2.7)")
+    ] = 2.7
+    pupil_center: Annotated[
+        Any,
+        option(
+            "-c",
+            "--pupil_center",
+            callback=parse_tuple,
+            help="瞳孔中心坐标 (default: (0,0))",
+        ),
+    ] = "(0,0)"
+    wavelength: Annotated[
+        int, option("--wavelength", help="SLM波长 (nm, default: 532)")
+    ] = 532
+    slm_number: Annotated[
+        int, option("--slm-number", help="SLM设备编号 (default: 1)")
+    ] = 1
+    remove_tilt: Annotated[
+        bool, option("--remove-tilt", is_flag=True, help="移除波前测量中的倾斜项")
+    ] = False
+    method: Annotated[
+        str,
+        option(
+            "--method",
+            type=click.Choice(["defocus", "vortex"]),
+            help="搜索方法 (default: defocus)",
+        ),
+    ] = "defocus"
+    defocus_amp: Annotated[
+        float,
+        option("--defocus-amp", help="离焦幅度用于偏移搜索(波长, default: 5.0)"),
+    ] = 5.0
+    vortex_charge: Annotated[
+        int, option("--vortex-charge", help="涡旋电荷数 (default: 1)")
+    ] = 1
+    search_range: Annotated[
+        int, option("--search-range", help="XY搜索范围像素 (default: 50)")
+    ] = 50
+    search_step: Annotated[
+        int, option("--search-step", help="XY搜索步长像素 (default: 10)")
+    ] = 10
+    defocus_range: Annotated[
+        float, option("--defocus-range", help="离焦优化范围(波长, default: 10.0)")
+    ] = 10.0
+    defocus_step: Annotated[
+        float, option("--defocus-step", help="离焦优化步长 (default: 0.5)")
+    ] = 0.5
+    n_samples: Annotated[
+        int, option("--n-samples", help="每个位置采样次数 (default: 3)")
+    ] = 3
+    save_csv: Annotated[
+        bool, option("--save-csv", is_flag=True, help="保存结果到CSV")
+    ] = False
+
+
 @click.command()
-@click.option("-d", "--dir", default="data", help="数据保存根目录 (default: data)")
-@click.option("-r", "--wfs_res", default="1024", help="WFS分辨率 (default: 1024)")
-@click.option("-p", "--pupil_diameter", default=2.7, help="瞳孔直径 (default: 2.7)")
-@click.option(
-    "-c",
-    "--pupil_center",
-    callback=parse_tuple,
-    default="(0,0)",
-    help="瞳孔中心坐标 (default: (0,0))",
-)
-@click.option("--wavelength", default=532, help="SLM波长 (nm, default: 532)")
-@click.option("--slm-number", default=1, help="SLM设备编号 (default: 1)")
-@click.option("--remove-tilt", is_flag=True, help="移除波前测量中的倾斜项")
-@click.option(
-    "--method",
-    type=click.Choice(["defocus", "vortex"]),
-    default="defocus",
-    help="搜索方法 (default: defocus)",
-)
-@click.option(
-    "--defocus-amp", default=5.0, help="离焦幅度用于偏移搜索(波长, default: 5.0)"
-)
-@click.option("--vortex-charge", default=1, help="涡旋电荷数 (default: 1)")
-@click.option("--search-range", default=50, help="XY搜索范围像素 (default: 50)")
-@click.option("--search-step", default=10, help="XY搜索步长像素 (default: 10)")
-@click.option("--defocus-range", default=10.0, help="离焦优化范围(波长, default: 10.0)")
-@click.option("--defocus-step", default=0.5, help="离焦优化步长 (default: 0.5)")
-@click.option("--n-samples", default=3, help="每个位置采样次数 (default: 3)")
-@click.option("--save-csv", is_flag=True, help="保存结果到CSV")
-def run(
-    dir,
-    wfs_res,
-    pupil_diameter,
-    pupil_center,
-    wavelength,
-    slm_number,
-    remove_tilt,
-    method,
-    defocus_amp,
-    vortex_charge,
-    search_range,
-    search_step,
-    n_samples,
-    defocus_range,
-    defocus_step,
-    save_csv,
-):
+@click.pass_context
+@with_params(SlmOffsetParams, kw_name="params")
+def run(ctx: click.Context, params: SlmOffsetParams) -> None:
     """SLM XY偏移自动搜索工具
 
     使用两种方法搜索最优SLM XY偏移:
@@ -480,31 +505,31 @@ def run(
     """
     with (
         ZernikeSLM(
-            slm_number=slm_number,
-            wavelength=wavelength,
+            slm_number=params.slm_number,
+            wavelength=params.wavelength,
             n_max=4,
             shift_x=0,
             shift_y=0,
         ) as slm,
         ThorlabWFS(
-            MlaRes.from_str(wfs_res),
+            MlaRes.from_str(params.wfs_res),
             use_custom_ref=False,
             high_speed=True,
-            pupil_diameter=pupil_diameter,
-            pupil_center=pupil_center,
+            pupil_diameter=params.pupil_diameter,
+            pupil_center=params.pupil_center,
         ) as wfs,
     ):
-        if method == "defocus":
+        if params.method == "defocus":
             best_x, best_y, best_defocus, min_rms, results = (
                 search_offset_by_defocus_with_optimization(
                     slm=slm,
                     wfs=wfs,
-                    defocus_amplitude=defocus_amp,
-                    search_range=search_range,
-                    search_step=search_step,
-                    n_samples=n_samples,
-                    defocus_range=defocus_range,
-                    defocus_step=defocus_step,
+                    defocus_amplitude=params.defocus_amp,
+                    search_range=params.search_range,
+                    search_step=params.search_step,
+                    n_samples=params.n_samples,
+                    defocus_range=params.defocus_range,
+                    defocus_step=params.defocus_step,
                 )
             )
             click.echo(f"最优偏移量: shift_x={best_x}, shift_y={best_y}")
@@ -521,24 +546,24 @@ def run(
             best_x, best_y, results = search_offset_by_vortex(
                 slm=slm,
                 wfs=wfs,
-                vortex_charge=vortex_charge,
-                search_range=search_range,
-                search_step=search_step,
-                n_samples=n_samples,
+                vortex_charge=params.vortex_charge,
+                search_range=params.search_range,
+                search_step=params.search_step,
+                n_samples=params.n_samples,
             )
             click.echo(f"最优偏移量: shift_x={best_x}, shift_y={best_y}")
             click.echo(
                 f"\n建议: 使用参数 --shift-x {best_x} --shift-y {best_y} 运行优化器"
             )
 
-        if save_csv:
+        if params.save_csv:
             import csv
 
-            save_dir = Path(dir) / "slm_offset" / get_date_dir_name()
+            save_dir = Path(params.dir) / "slm_offset" / get_date_dir_name()
             save_dir.mkdir(parents=True, exist_ok=True)
 
-            if method == "defocus":
-                csv_path = save_dir / f"{method}_phase1_results.csv"
+            if params.method == "defocus":
+                csv_path = save_dir / f"{params.method}_phase1_results.csv"
                 with open(csv_path, "w", newline="") as f:
                     writer = csv.DictWriter(f, fieldnames=results["phase1"][0].keys())
                     writer.writeheader()
@@ -546,7 +571,7 @@ def run(
                 click.echo(f"XY偏移搜索结果已保存: {csv_path}")
 
                 if results["phase2"]["results"]:
-                    csv_path = save_dir / f"{method}_phase2_defocus.csv"
+                    csv_path = save_dir / f"{params.method}_phase2_defocus.csv"
                     with open(csv_path, "w", newline="") as f:
                         writer = csv.DictWriter(
                             f, fieldnames=results["phase2"]["results"][0].keys()
@@ -555,7 +580,7 @@ def run(
                         writer.writerows(results["phase2"]["results"])
                     click.echo(f"离焦优化结果已保存: {csv_path}")
             else:
-                csv_path = save_dir / f"{method}_offset_results.csv"
+                csv_path = save_dir / f"{params.method}_offset_results.csv"
                 with open(csv_path, "w", newline="") as f:
                     writer = csv.DictWriter(f, fieldnames=results["results"][0].keys())
                     writer.writeheader()
