@@ -38,6 +38,8 @@ from ao_shaping.drivers import MlaRes, ThorlabWFS
 from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.utils import Recorder, logger
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
+from ao_shaping.utils.wavefront.zernike_calc import zernike_modes as _zernike_indices
+from ao_shaping.utils.wavefront.zernike_utils import noll_to_nm_legacy as noll_to_nm
 from ao_shaping.optimizer.spgd import spgd_gradient
 
 # =============================================================================
@@ -345,43 +347,6 @@ def compute_mini_batch_gradient(
     return avg_gradient, info
 
 
-def noll_to_nm(j: int) -> tuple[int, int]:
-    """Convert Noll index to (n, m) Zernike order (hardcoded convention).
-
-    Uses a hardcoded lookup table (Noll indices 1-15 only).
-    NOTE: This convention DIFFERS from the aotools-based implementation
-    in `utils/zernike_calc.py`. The canonical implementation is in
-    `utils/zernike_calc.noll_to_nm()`.
-
-    Args:
-        j: Noll index (1-based), valid range 1-15.
-
-    Returns:
-        Tuple of (n, m) radial and azimuthal orders.
-    """
-    # Noll sequence for Zernike polynomials
-    noll_sequence = [
-        (0, 0),  # 1: piston
-        (1, -1),  # 2: tilt x
-        (1, 1),  # 3: tilt y
-        (2, -2),  # 4: oblique astigmatism
-        (2, 0),  # 5: defocus
-        (2, 2),  # 6: oblique astigmatism
-        (3, -3),  # 7: vertical trefoil
-        (3, -1),  # 8: vertical coma
-        (3, 1),  # 9: horizontal coma
-        (3, 3),  # 10: horizontal trefoil
-        (4, -4),  # 11: quadrafoil
-        (4, -2),  # 12: oblique trefoil
-        (4, 0),  # 13: primary spherical
-        (4, 2),  # 14: oblique trefoil
-        (4, 4),  # 15: quadrafoil
-    ]
-    if j < 1 or j > len(noll_sequence):
-        raise ValueError(f"Noll index {j} out of valid range (1-{len(noll_sequence)})")
-    return noll_sequence[j - 1]
-
-
 # SLM parameters
 SLM_WAVELENGTH_DEFAULT = 532  # nm
 SLM_SHIFT_X_DEFAULT = 0  # pixels
@@ -458,24 +423,6 @@ def _zernike_indices_from_n(n_zernike: int) -> list[tuple[int, int]]:
     for j in range(1, n_zernike + 1):
         n, m = noll_to_nm(j)
         modes.append((n, m))
-    return modes
-
-
-def _zernike_indices(n_max: int) -> list[tuple[int, int]]:
-    """Return list of (n, m) pairs for all valid Zernike modes up to n_max.
-
-    Args:
-        n_max: Maximum Zernike radial order.
-
-    Returns:
-        List of (n, m) tuples in Noll order.
-    """
-    n_terms = calc_n_zernike_terms(n_max)
-    modes = []
-    for j in range(1, n_terms + 1):
-        n, m = noll_to_nm(j)
-        if n <= n_max:
-            modes.append((n, m))
     return modes
 
 

@@ -18,8 +18,7 @@ AO-shaping/
 │   │   │   ├── wf_runner.py         # Wavefront RMS optimizer
 │   │   │   ├── axis_beam_runner.py  # PIB optimizer
 │   │   │   ├── pipeline_runner.py   # Serial WF→PIB pipeline
-│   │   │   ├── zernike_matrix_runner.py  # Zernike response matrix
-│   │   │   └── slm_square_runner.py  # SLM方形光斑 SPGD 整形 (spgd-square)
+│   │   │   └── zernike_matrix_runner.py  # Zernike response matrix
 │   │   ├── algorithm/            # Optimization algorithms (Adam, SGD, etc.)
 │   │   ├── drivers/              # Hardware drivers (see drivers/AGENTS.md)
 │   │   │   ├── ccd/              # Cameras (Daheng, MiiCam)
@@ -64,7 +63,7 @@ AO-shaping/
 | Wavefront optimizers | `src/ao_shaping/optimizer/wf/` | RMS optimization |
 | Zernike response matrix | `src/ao_shaping/optimizer/wf/zernike_response_matrix.py` | SLM→WFS Zernike校准 |
 | PIB optimizers | `src/ao_shaping/optimizer/wfless/` | Power-in-bucket |
-| SLM方形光斑整形 (SPGD) | `src/ao_shaping/optimizer/wfless/slm_square_shaping.py` + `runners/slm_square_runner.py` | SPGD 优化 Zernike 系数 → 均匀方形远场 (CLI: `spgd-square`) |
+| SLM方形光斑整形 (SPGD) | `src/ao_shaping/optimizer/wfless/slm_square_shaping.py` + `runners/slm_gsnet_runner.py` | SPGD 优化 Zernike 系数 → 均匀方形远场 (CLI: `slm-gsnet`) |
 | Zernike 工具 | `src/ao_shaping/utils/wavefront/zernike_utils.py` | 系数解析 (Noll/(n,m)/数组) + 相位生成，Noll 1976 约定 |
 | RL training | `src/ao_shaping/optimizer/rl/` | SAC, LR-WFS |
 | Simulation | `src/ao_shaping/drivers/sim/` | Digital twin devices |
@@ -180,7 +179,7 @@ algorithm/     算法基础层  — 纯数学优化器 (update/grad), 无硬件�
 
 | 类型 | 说明 |
 |------|------|
-| 已注册 CLI 命令 | main.py 注册 19 个命令 (含 `spgd-square`, `combined` 等), 见 Entry Points 节 |
+| 已注册 CLI 命令 | main.py 注册 17 个命令 (含 `slm-gsnet`, `combined` 等), 见 Entry Points 节 |
 | 独立 Runner (未注册) | 需直接运行 `python -m ao_shaping.runners.xxx` 或 standalone 脚本; `shaping_runner` 计划迁移至 `scripts/`, `slm_offset_runner` 计划迁移至 `tools/slm/` |
 
 ### 共享辅助
@@ -277,10 +276,9 @@ main (click.group)
 ├── zernike-matrix ← zernike_matrix_runner.run [Zernike响应矩阵标定 + 闭环优化 (closed_loop_run)]
 ├── rms-zernike    ← rms_zernike_runner.run    [SLM Zernike RMS]
 ├── ga-zernike     ← ga_zernike_runner.run     [GA Zernike]
+├── slm-gsnet      ← slm_gsnet_run             [SLM方形光斑 SPGD 整形 (freeform)]
 └── combined       ← combined_runner.run       [AdaMOD+SPGD 混合 PIB]
 ```
-
-> **注意**: `spgd-square` 命令 (`runners/slm_square_runner.py:run`) 已注册到 main.py (main.py:112)。
 
 **Note:** `combined` 命令仍注册于 main.py (main.py:106) 且功能可用, 作为 legacy 保留。`pipeline_runner.py` 是推荐的 WF→PIB 串行方案。
 
@@ -644,7 +642,7 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
 ## UNIQUE STYLES
 
 - **Mock-first testing**: Tests use simulation classes (`SimTurbulenceAOEnv`, `sim_spgd`) to avoid hardware
-- **Zernike Noll 约定统一** (aotools Noll 1976): Noll 4 = (2,0) defocus, Noll 5 = (2,-2) astig, Noll 11 = (4,0) spherical, Noll 13 = (4,-2)。**注意** `optimizer/wf/ga_zernike.py` / `rms_by_zernike.py` 里硬编码查表是另一套 (Noll 5 = (2,0)); 新代码一律用 `zernike_calc.noll_to_nm()` / `utils/zernike_utils.py`, 勿混用。zernike_utils 模块文档含完整前 15 阶映射表。
+- **Zernike Noll 约定统一** (aotools Noll 1976): Noll 4 = (2,0) defocus, Noll 5 = (2,-2) astig, Noll 11 = (4,0) spherical, Noll 13 = (4,-2)。**注意** `optimizer/wf/` 三个优化器的 legacy 查表 (那里 Noll 5 = (2,0)) 的索引映射现仅存于 `utils/wavefront/zernike_utils.py` 的 `noll_to_nm_legacy()` (仅为行为一致性保留, 与 canonical 约定不同), **仅 `rms_by_zernike.py` 沿用**; 三者的模式枚举已全部改用 canonical `zernike_calc.zernike_modes()` (序列与 legacy 枚举逐项一致)。新代码一律用 `zernike_calc.noll_to_nm()` / `zernike_utils.list_zernike_modes()`, 勿混用两套索引。zernike_utils 模块文档含完整前 15 阶映射表。
 - **Hardware skip pattern**: Tests requiring physical hardware use `pytest.skip("Requires DM hardware")`
 - **Recorder pattern**: Optimization tests validate history dictionaries with expected fields
 - **Optional backend testing**: CuPy/Numba tested conditionally with try/except guards

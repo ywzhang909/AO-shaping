@@ -31,7 +31,7 @@ class TestHelperFunctions:
 
     def test_noll_to_nm(self):
         """Test Noll index to (n, m) conversion with known values."""
-        from ao_shaping.optimizer.wf.ga_zernike import noll_to_nm
+        from ao_shaping.utils.wavefront.zernike_utils import noll_to_nm_legacy as noll_to_nm
 
         # Test known Noll indices
         assert noll_to_nm(1) == (0, 0)   # piston
@@ -43,7 +43,7 @@ class TestHelperFunctions:
 
     def test_noll_to_nm_invalid(self):
         """Test that invalid Noll indices raise ValueError."""
-        from ao_shaping.optimizer.wf.ga_zernike import noll_to_nm
+        from ao_shaping.utils.wavefront.zernike_utils import noll_to_nm_legacy as noll_to_nm
 
         with pytest.raises(ValueError):
             noll_to_nm(0)  # too small

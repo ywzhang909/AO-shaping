@@ -122,9 +122,9 @@ def noll_to_nm(j: int) -> tuple[int, int]:
     Follows the standard Noll indexing convention (Noll 1976).
     Supports any Noll index (not limited to 1-15).
 
-    NOTE: This is the canonical implementation. The hardcoded lookup tables
-    in `optimizer/wf/ga_zernike.py` and `optimizer/wf/rms_by_zernike.py`
-    only support indices 1-15.
+    NOTE: This is the canonical implementation. The legacy hardcoded lookup
+    table (`noll_to_nm_legacy()` in `utils/wavefront/zernike_utils.py`, used
+    by the wf/ optimizers) only supports indices 1-15.
 
     Args:
         j: Noll index (1-based).
