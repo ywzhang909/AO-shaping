@@ -33,17 +33,25 @@ from loguru import logger
 from ao_shaping.algorithm.heuristic.search import heuristic_algorithm_choices
 from ao_shaping.optimizer.wfless.slm_square_shaping import optimize_slm_square
 from ao_shaping.runners.runner_common import (
-    build_debug_save_paths,
-    save_optimization_debug_artifacts,
+    CameraParams,
+    HeuristicParams,
+    ObjectiveParamsSquare,
+    RunParams,
+    SlmParams,
+    SpgdParams,
+    config_payload,
+    parse_center,
+    run_options,
+    camera_options,
+    slm_options,
 )
-from ao_shaping.utils.io.cli_helpers import get_debug_mode, parse_tuple, setup_coredumpy
+from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts
+from ao_shaping.utils.io.cli_helpers import setup_coredumpy
 
 # --- debug artifact fields -------------------------------------------------
 # The square-shaping recorder stores the metric keys below. Image-like entries
 # (leading-underscore ``_img``/``_diff``) are the CCD frames and are rendered by
 # the shared artifact writer; the scalar keys drive the JSON sidecar + summary.
-
-_DEBUG_EXCLUDE = {"_img", "_grad"}
 
 _DEBUG_SCALAR_KEYS = (
     "J",
@@ -68,127 +76,34 @@ _1D_KEYS = ("_c", "_grad")
 
 
 def _save_debug_artifacts(
-    res: "RecorderLike",
-    objective: "ObjectiveParams",
+    res: Recorder,
+    objective: "ObjectiveParamsSquare",
     root_dir: str,
 ) -> Any:
     """Write PNG/pkl/json debug artifacts for the recorded square-shaping search.
 
-    Mirrors :func:`slm_pib_runner._save_debug_artifacts` but for the square
-    objective key set. The JSON sidecar carries the objective + search config so
-    the run is reproducible from the artifact directory alone.
+    Delegates to the shared :func:`ao_shaping.utils.io.file.save_recorder_debug_artifacts`
+    with the square-shaping key set. The JSON sidecar carries the objective
+    config so the run is reproducible from the artifact directory alone.
     """
-    save_dir, saved_file_name = build_debug_save_paths(
-        os.path.join(root_dir, "debug"),
-        f"slm_gsnet_{objective.name}_{datetime.now():%Y%m%d_%H%M%S}",
-    )
-    png_path = saved_file_name.with_suffix(".png")
-    pkl_path = saved_file_name.with_suffix(".pkl")
-    json_path = saved_file_name.with_suffix(".json")
-
-    data: dict[str, Any] = {}
-    for rec in res.history:
-        item: dict[str, Any] = {}
-        for k in _DEBUG_SCALAR_KEYS:
-            if k in rec:
-                item[k] = float(rec[k])
-        for k in _IMG_KEYS:
-            if k in rec:
-                item[k] = np.asarray(rec[k])
-        for k in _1D_KEYS:
-            if k in rec:
-                item[k] = np.asarray(rec[k], dtype=float)
-        data[int(rec["_epoch"])] = item
-
-    save_optimization_debug_artifacts(
-        data=data,
-        png_path=png_path,
-        pkl_path=pkl_path,
-        json_path=json_path,
-        title=f"slm-gsnet {objective.name} search",
+    return save_recorder_debug_artifacts(
+        res,
+        root_dir=root_dir,
+        subdir_prefix=f"slm_gsnet_{objective.name}",
+        scalar_keys=_DEBUG_SCALAR_KEYS,
+        img_keys=_IMG_KEYS,
+        d1_keys=_1D_KEYS,
         json_payload=_config_payload(objective),
+        title=f"slm-gsnet {objective.name} search",
     )
-    return png_path
 
 
 def _config_payload(obj: Any) -> dict[str, Any]:
     """Serialize a parameter dataclass for the JSON debug sidecar."""
-    payload: dict[str, Any] = {}
-    for key, value in obj.__dict__.items():
-        if value is None:
-            continue
-        default = getattr(type(obj), key, None)
-        if value == default:
-            continue
-        payload[key] = value
-    return payload
+    return config_payload(obj)
 
 
 # --- parameter dataclasses -------------------------------------------------
-
-
-@dataclass
-class RunParams:
-    """Global / run-wide options shared by both subcommands."""
-
-    dir: str = "data"
-    debug: bool = False
-
-
-@dataclass
-class CameraParams:
-    """CCD camera options."""
-
-    cam_id: int = 0
-    cam_type: str = "daheng"
-    exposure_time_ms: float = 80.0
-    cam_size: int = 300
-    center: Any = None
-
-
-@dataclass
-class SlmParams:
-    """Santec SLM options."""
-
-    slm_number: int = 1
-    slm_wavelength: int = 1064
-    n_max: int = 4
-    zernike_radius: float = 0.0
-
-
-@dataclass
-class ObjectiveParams:
-    """Square-shaping objective options."""
-
-    name: str = "square"
-    target_side: int = 0
-    target_mean_brightness: float = 0.0
-    side_factor: float = 1.5
-    target_max_brightness: int = 200
-    w_uniformity: float = 0.4
-    w_efficiency: float = 0.6
-    w_aspect: float = 0.0
-
-
-@dataclass
-class SpgdParams:
-    """SPGD (gradient) search options."""
-
-    epochs: int = 2000
-    delta: float = 0.1
-    lr: float = 0.0
-    optimizer_type: str = "adamod"
-    show: bool = False
-
-
-@dataclass
-class HeuristicParams:
-    """Black-box heuristic search options."""
-
-    algorithm: str = "ga"
-    pop_size: int | None = None
-    epochs: int = 2000
-    show: bool = False
 
 
 @dataclass
@@ -198,66 +113,11 @@ class SlmGsnetConfig:
     run: RunParams
     camera: CameraParams
     slm: SlmParams
-    objective: ObjectiveParams
+    objective: ObjectiveParamsSquare
     search: SpgdParams | HeuristicParams
 
 
 # --- option decorators (applied to both subcommands) -----------------------
-
-
-def _run_options(fn):
-    fn = click.option(
-        "-d", "--dir", default="data", help="Data root directory."
-    )(fn)
-    fn = click.option(
-        "--debug", is_flag=True, default=False, help="Enable debug mode."
-    )(fn)
-    return fn
-
-
-def _camera_options(fn):
-    fn = click.option("--cam-id", default=0, help="CCD camera device ID")(fn)
-    fn = click.option(
-        "--cam_type",
-        type=click.Choice(["miicam", "daheng", "sim"]),
-        default="daheng",
-        help="CCD camera backend (sim = 2f-Fourier numerical simulation, no hardware).",
-    )(fn)
-    fn = click.option(
-        "--exposure_time_ms",
-        type=float,
-        default=80.0,
-        help="CCD exposure time in ms (0 = auto-exposure).",
-    )(fn)
-    fn = click.option(
-        "--cam_size", type=int, default=300, help="CCD window size in pixels."
-    )(fn)
-    fn = click.option(
-        "-c",
-        "--center",
-        default=None,
-        help="Spot center: 'shape' / 'max' / 'mass' / 'centroid_thresh' or 'x,y'.",
-    )(fn)
-    return fn
-
-
-def _slm_options(fn):
-    fn = click.option(
-        "--slm_number", type=int, default=1, help="Santec SLM device number (1-8)."
-    )(fn)
-    fn = click.option(
-        "--slm_wavelength", type=int, default=1064, help="SLM operating wavelength (nm)."
-    )(fn)
-    fn = click.option(
-        "-n", "--n_max", type=int, default=4, help="Max Zernike radial order."
-    )(fn)
-    fn = click.option(
-        "--zernike_radius",
-        type=float,
-        default=0.0,
-        help="Zernike aperture radius (pixels); 0 = default (SLM short side / 2).",
-    )(fn)
-    return fn
 
 
 def _objective_options(fn):
@@ -299,21 +159,6 @@ def _objective_options(fn):
 # --- shared execution helpers ------------------------------------------------
 
 
-def _parse_center(raw: Any) -> tuple[int, int] | str | None:
-    """Normalize the ``--center`` option to the optimizer's accepted form."""
-    if raw is None:
-        return None
-    if isinstance(raw, str):
-        parts = raw.split(",")
-        if len(parts) == 2:
-            try:
-                return (int(parts[0].strip()), int(parts[1].strip()))
-            except ValueError:
-                return raw  # named mode: shape/max/mass/centroid_thresh
-        return raw
-    return raw
-
-
 def _optimizer_kwargs(cfg: SlmGsnetConfig) -> dict[str, Any]:
     """Flatten the aggregated config into the optimizer's keyword arguments."""
     cam = cfg.camera
@@ -321,7 +166,7 @@ def _optimizer_kwargs(cfg: SlmGsnetConfig) -> dict[str, Any]:
     obj = cfg.objective
     search = cfg.search
 
-    center = _parse_center(cam.center)
+    center = parse_center(cam.center)
     zernike_radius: float | None = slm.zernike_radius if slm.zernike_radius > 0 else None
 
     kwargs: dict[str, Any] = {
@@ -372,9 +217,9 @@ def _optimizer_kwargs(cfg: SlmGsnetConfig) -> dict[str, Any]:
     return kwargs
 
 
-def _parse_objective_args(**opts) -> ObjectiveParams:
-    """Build an :class:`ObjectiveParams` from the shared objective click options."""
-    return ObjectiveParams(
+def _parse_objective_args(**opts) -> ObjectiveParamsSquare:
+    """Build an :class:`ObjectiveParamsSquare` from the shared objective click options."""
+    return ObjectiveParamsSquare(
         name="square",
         target_side=opts["target_side"],
         target_mean_brightness=opts["target_mean_brightness"],
@@ -428,9 +273,9 @@ def run(ctx: click.Context) -> None:
 
 
 @click.command(name="spgd")
-@_run_options
-@_camera_options
-@_slm_options
+@run_options
+@camera_options
+@slm_options
 @_objective_options
 @click.option("-e", "--epochs", type=int, default=2000, help="Optimization iterations.")
 @click.option("--delta", type=float, default=0.1, help="SPGD perturbation amplitude (rad).")
@@ -491,9 +336,9 @@ def spgd(
 
 
 @click.command(name="heuristic")
-@_run_options
-@_camera_options
-@_slm_options
+@run_options
+@camera_options
+@slm_options
 @_objective_options
 @click.option(
     "--algorithm",

@@ -6,6 +6,7 @@ from ao_shaping.drivers.dm._registry import (
     list_dm_types,
     list_reachable_dm_types,
     register_dm,
+    resolve_dm,
 )
 from ao_shaping.drivers.dm.hadamard_dm import HadamardDM
 from ao_shaping.drivers.dm.zernike_dm import ZernikeDM

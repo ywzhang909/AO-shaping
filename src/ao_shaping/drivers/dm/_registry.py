@@ -143,3 +143,48 @@ def list_dm_types() -> list[str]:
 def list_reachable_dm_types() -> list[str]:
     """Convenience: list DM types whose hardware is currently reachable."""
     return _global_registry.list_reachable_types()
+
+
+def resolve_dm(dm_type: str | None = None, **kwargs) -> DM:
+    """Resolve the DM type and create a DM instance.
+
+    Mirrors the DM-selection block shared by the ``wf`` / ``pipeline`` /
+    ``pib`` / ``combined`` / ``dm-matrix`` runners: an explicit
+    ``dm_type`` is lowercased and used directly; otherwise the reachable
+    DM types are probed and the single reachable one is chosen, with errors
+    for zero / multiple candidates.
+
+    Args:
+        dm_type: Explicit DM type name, or ``None`` for auto-detection.
+        **kwargs: Extra constructor kwargs forwarded to ``create_dm``
+            (e.g. ``keep_when_exit``, ``max_neibor_diff``,
+            ``dm_neibor_diff``).
+
+    Returns:
+        A created DM instance.
+
+    Raises:
+        RuntimeError: If no DM is reachable, or multiple DMs are reachable
+            while ``dm_type`` is ``None``.
+    """
+    from loguru import logger
+
+    if dm_type is not None:
+        dm_type = dm_type.lower()
+        logger.info("Using specified DM type: {}", dm_type)
+    else:
+        reachable = list_reachable_dm_types()
+        if len(reachable) == 1:
+            dm_type = reachable[0]
+            logger.info("Auto-detected reachable DM: {}", dm_type)
+        elif len(reachable) == 0:
+            raise RuntimeError(
+                "No DM reachable. Specify --dm_type explicitly or connect a DM."
+            )
+        else:
+            raise RuntimeError(
+                f"Multiple DMs reachable ({', '.join(reachable)}). "
+                f"Specify --dm_type explicitly to choose one."
+            )
+
+    return create_dm(dm_type, **kwargs)

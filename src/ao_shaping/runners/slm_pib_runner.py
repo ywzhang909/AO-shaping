@@ -25,11 +25,27 @@ from ao_shaping.optimizer.wfless.slm_zernike_pib import (
     optimize_slm_zernike_pib,
 )
 from ao_shaping.runners.runner_common import (
+    CameraParamsPib,
+    HeuristicParams,
+    ObjectiveParamsPib,
+    RunParams,
+    SlmParams,
+    SpgdParamsPib,
     build_debug_save_paths,
+    config_payload,
+    camera_options,
+    run_options,
     save_optimization_debug_artifacts,
+    slm_extended_options,
 )
-from ao_shaping.utils.io.cli_helpers import setup_coredumpy
-from ao_shaping.utils.io.file import Recorder
+from ao_shaping.utils.io.cli_helpers import get_date_dir_name, get_debug_mode, parse_tuple, setup_coredumpy
+from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts
+
+# Backward-compatible aliases — tests and external callers may still import
+# the old names from this module.
+ObjectiveParams = ObjectiveParamsPib
+CameraParams = CameraParamsPib
+SpgdParams = SpgdParamsPib
 
 # --- debug artifact fields -------------------------------------------------
 
@@ -76,6 +92,10 @@ _DEBUG_SCALAR_KEYS = (
     "rms_pib",
 )
 
+# Objective columns passed separately to the shared debug-artifact helper
+# (see ``save_recorder_debug_artifacts``); kept in sync with the scalar set.
+_DEBUG_OBJECTIVE_KEYS = ("pib", "radiu", "avg_radiu", "rmse", "shape", "roi_pib", "rms_pib")
+
 
 def _effective_objective_key(name: str, target_shape: Any) -> str:
     """Return the dict key the optimizer actually records for the objective value.
@@ -96,201 +116,39 @@ def _config_payload(obj: Any) -> dict[str, Any]:
     the identity field (``algorithm`` / ``name``) is always kept so the
     search family survives the round trip.
     """
-    payload: dict[str, Any] = {}
-    for key, value in obj.__dict__.items():
-        if value is None:
-            continue
-        default = getattr(type(obj), key, None)
-        if value == default and key not in ("algorithm", "name"):
-            continue
-        payload[key] = value
-    return payload
+    return config_payload(obj)
 
 
 def _save_debug_artifacts(
     res: Recorder,
-    objective: "ObjectiveParams",
+    objective: "ObjectiveParamsPib",
     config: "SlmParams",
-    obj_or_heur: "SpgdParams | HeuristicParams",
+    obj_or_heur: "ObjectiveParamsPib | HeuristicParams",
     root_dir: str,
 ) -> Any:
     """Write PNG/pkl/json/h5 debug artifacts for the recorded search.
 
-    ``objective`` and ``config`` are the slm-pib dataclasses (kept for the
-    signature so the figure labels stay stable); ``obj_or_heur`` is whichever
-    search-config object actually ran (SPGD or heuristic) and its ``__dict__``
-    is the payload round-tripped in the json sidecar.
+    Delegates to :func:`ao_shaping.utils.io.file.save_recorder_debug_artifacts`
+    with the slm-pib key set. ``config`` is accepted for signature stability
+    (the SLM config is part of the JSON sidecar via ``obj_or_heur``).
     """
-    from ao_shaping.utils.io.file import save_history_hdf5
-
-    eff_key = _effective_objective_key(objective.name, objective.target_shape)
-    save_dir, saved_file_name = build_debug_save_paths(
-        os.path.join(root_dir, "debug"),
-        f"slm_pib_{eff_key}_{datetime.now():%Y%m%d_%H%M%S}",
-    )
-    png_path = saved_file_name.with_suffix(".png")
-    pkl_path = saved_file_name.with_suffix(".pkl")
-    json_path = saved_file_name.with_suffix(".json")
-    h5_path = saved_file_name.with_suffix(".h5")
-
-    data: dict[int, Any] = {}
-    for rec in res.history:
-        item: dict[str, Any] = {}
-        for k in _DEBUG_SCALAR_KEYS:
-            if k in rec:
-                item[k] = float(rec[k])
-        for k in _DEBUG_IMG_KEYS:
-            if k in rec:
-                item[k] = np.asarray(rec[k])
-        for k in _DEBUG_1D_KEYS:
-            if k in rec:
-                item[k] = np.asarray(rec[k], dtype=float)
-        for k in _DEBUG_2D_KEYS:
-            if k in rec:
-                item[k] = np.asarray(rec[k])
-        for k in list(rec.keys()):
-            if k.startswith("best_"):
-                item[k] = float(rec[k])
-        if "_phase" in rec:
-            item["_phase"] = np.asarray(rec["_phase"])
-        data[int(rec["_epoch"])] = item
-
-    # Target-box geometry comes from the optimizer through the row-0 record
-    # (window-local centre, same frame as the recorded ``_img`` frames); the
-    # runner overlays it on the init/best spot panels in the data-mode PNG.
-    target_box: dict[str, Any] | None = None
-    if res.history:
-        _r0 = res.history[0]
-        if all(
-            k in _r0
-            for k in ("_ref_center", "_target_shape", "_target_size", "_target_aspect")
-        ):
-            target_box = {
-                "center": tuple(float(v) for v in _r0["_ref_center"]),
-                "shape": str(_r0["_target_shape"]),
-                "size": float(_r0["_target_size"]),
-                "aspect_ratio": float(_r0["_target_aspect"]),
-            }
-
-    save_optimization_debug_artifacts(
-        data=data,
-        png_path=png_path,
-        pkl_path=pkl_path,
-        json_path=json_path,
-        title=f"slm-pib {eff_key} search",
+    return save_recorder_debug_artifacts(
+        res,
+        root_dir=root_dir,
+        subdir_prefix=f"slm_pib_{objective.name}",
+        scalar_keys=_DEBUG_SCALAR_KEYS,
+        objective_keys=_DEBUG_OBJECTIVE_KEYS,
+        img_keys=_DEBUG_IMG_KEYS,
+        d1_keys=_DEBUG_1D_KEYS,
+        d2_keys=_DEBUG_2D_KEYS,
         json_payload=_config_payload(obj_or_heur),
-        target_box=target_box,
+        title=f"slm-pib {objective.name} search",
     )
-    # Full-fidelity export: SLM phases + CCD frames per epoch in one HDF5.
-    save_history_hdf5(
-        res.history,
-        h5_path,
-        metadata={**_config_payload(obj_or_heur), "objective": eff_key},
-    )
-    return png_path
-
-
-# --- parameter dataclasses -------------------------------------------------
-
-
-@dataclass
-class RunParams:
-    """Global / run-wide options shared by both subcommands."""
-
-    dir: str = "data"
-    debug: bool = False
-
-
-@dataclass
-class CameraParams:
-    """CCD camera options."""
-
-    cam_id: int = 0
-    cam_type: str = "daheng"
-    exposure_time_ms: float = 80.0
-    cam_size: int = 250
-    center: Any = None
-
-
-@dataclass
-class SlmParams:
-    """Santec SLM options."""
-
-    slm_number: int = 1
-    slm_wavelength: int = 1064
-    n_max: int = 10
-    shift_x: int = 0
-    shift_y: int = 0
-    zernike_radius: float = 0.0
-    load_file: Any = None
-    init_c: Any = None
-
-
-@dataclass
-class ObjectiveParams:
-    """Imaging objective options (shared by both search families)."""
-
-    name: str = "pib"
-    target_max_brightness: int = 40
-    r_bucket: int = 0
-    target_size: float = 64.0
-    target_aspect_ratio: float = 4.0 / 3.0
-    target_center_smooth: int = 3
-    target_shape: str | None = None
-    shape_schedule: bool = False
-    max_roi_energy_loss: float = 0.6
-    w_uniformity: float = 2.0
-    w_peak: float = 0.5
-    w_displacement: float = 0.0
-    log_uniformity: bool = False
-    w_ema_decay: float = 0.9
-    w_floor: float = 0.1
-    w_temperature: float = 8.0
-
-
-@dataclass
-class SpgdParams:
-    """SPGD (gradient) search options."""
-
-    epochs: int = 2000
-    delta: float = 0.2
-    lr: float = 0.0
-    optimizer_type: str = "adamod"
-    shrink_iter: int = 0
-    shrink_ratio: float = 0.9
-    show: bool = False
-
-
-@dataclass
-class HeuristicParams:
-    """Black-box heuristic search options."""
-
-    algorithm: str = "ga"
-    pop_size: int | None = None
-    epochs: int = 2000
-    show: bool = False
-
-
-@dataclass
-class SlmPibConfig:
-    """Aggregates every parameter group for one slm-pib run."""
-
-    run: RunParams
-    camera: CameraParams
-    slm: SlmParams
-    objective: ObjectiveParams
-    search: SpgdParams | HeuristicParams
 
 
 # --- option decorators (applied to both subcommands) -----------------------
-
-
-def _run_options(fn):
-    fn = click.option("-d", "--dir", default="data", help="Data root directory.")(fn)
-    fn = click.option(
-        "--debug", is_flag=True, default=False, help="Enable debug mode."
-    )(fn)
-    return fn
+# ``run_options`` / ``slm_extended_options`` come from runner_common;
+# ``_camera_options`` stays local because slm-pib defaults cam_size=250.
 
 
 def _camera_options(fn):
@@ -333,47 +191,6 @@ def _camera_options(fn):
         "--center",
         default=None,
         help="Center: 'auto' / 'mass' / 'max' / 'shape' or 'x,y'.",
-    )(fn)
-    return fn
-
-
-def _slm_options(fn):
-    fn = click.option(
-        "--slm_number", type=int, default=1, help="Santec SLM device number (1-8)."
-    )(fn)
-    fn = click.option(
-        "--slm_wavelength",
-        type=int,
-        default=1064,
-        help="SLM operating wavelength (nm).",
-    )(fn)
-    fn = click.option(
-        "-n", "--n_max", type=int, default=10, help="Max Zernike radial order."
-    )(fn)
-    fn = click.option(
-        "--shift_x", type=int, default=0, help="SLM phase X shift (pixels)."
-    )(fn)
-    fn = click.option(
-        "--shift_y", type=int, default=0, help="SLM phase Y shift (pixels)."
-    )(fn)
-    fn = click.option(
-        "--zernike_radius",
-        type=float,
-        default=0.0,
-        help="Zernike aperture radius (pixels); 0 = default.",
-    )(fn)
-    fn = click.option(
-        "-f",
-        "--load_file",
-        type=str,
-        default=None,
-        help="Path to a prior Zernike coefficient file to load.",
-    )(fn)
-    fn = click.option(
-        "--init_c",
-        type=str,
-        default=None,
-        help="Initial Zernike coefficients (JSON or comma-separated).",
     )(fn)
     return fn
 
@@ -499,9 +316,25 @@ def _apply_disturbance(
     return base
 
 
+@dataclass
+class SlmPibConfig:
+    """Aggregates every parameter group for one slm-pib run.
+
+    Uses the slm-pib-specific dataclasses (``CameraParamsPib``,
+    ``SpgdParamsPib``, ``ObjectiveParamsPib``) so the defaults stay
+    consistent with the click decorators.
+    """
+
+    run: RunParams
+    camera: CameraParamsPib
+    slm: SlmParams
+    objective: ObjectiveParamsPib
+    search: SpgdParamsPib | HeuristicParams
+
+
 def _optimizer_kwargs(
     cfg: SlmPibConfig,
-    search: SpgdParams | HeuristicParams,
+    search: SpgdParamsPib | HeuristicParams,
 ) -> dict[str, Any]:
     """Flatten the aggregated config into the optimizer's flat keyword arguments."""
     slm = cfg.slm
@@ -545,7 +378,7 @@ def _optimizer_kwargs(
         "random_seed": None,
     }
 
-    if isinstance(search, SpgdParams):
+    if isinstance(search, SpgdParamsPib):
         kwargs.update(
             {
                 "delta": search.delta,
@@ -570,9 +403,9 @@ def _optimizer_kwargs(
     return kwargs
 
 
-def _parse_objective_args(**opts) -> ObjectiveParams:
-    """Build an :class:`ObjectiveParams` from the shared objective click options."""
-    return ObjectiveParams(
+def _parse_objective_args(**opts) -> ObjectiveParamsPib:
+    """Build an :class:`ObjectiveParamsPib` from the shared objective click options."""
+    return ObjectiveParamsPib(
         name=opts["objective"],
         target_max_brightness=opts["target_max_brightness"],
         r_bucket=opts["r_bucket"],
@@ -607,9 +440,9 @@ def run(ctx: click.Context) -> None:
 
 
 @click.command(name="spgd")
-@_run_options
+@run_options
 @_camera_options
-@_slm_options
+@slm_extended_options
 @_objective_options
 @click.option("-e", "--epochs", type=int, default=2000, help="Optimization iterations.")
 @click.option(
@@ -657,7 +490,7 @@ def spgd(
 ) -> None:
     """Run the SPGD (Stochastic Parallel Gradient Descent) search."""
     run_cfg = RunParams(dir=dir, debug=debug)
-    camera = CameraParams(
+    camera = CameraParamsPib(
         cam_id=cam_id,
         cam_type=cam_type,
         exposure_time_ms=exposure_time_ms,
@@ -675,7 +508,7 @@ def spgd(
         init_c=init_c,
     )
     objective = _parse_objective_args(**obj_opts)
-    search = SpgdParams(
+    search = SpgdParamsPib(
         epochs=obj_opts.pop("epochs", 2000),
         delta=obj_opts.pop("delta", 0.2),
         lr=obj_opts.pop("lr", 0.0),
@@ -697,9 +530,9 @@ def spgd(
 
 
 @click.command(name="heuristic")
-@_run_options
+@run_options
 @_camera_options
-@_slm_options
+@slm_extended_options
 @_objective_options
 @click.option(
     "--algorithm",
@@ -741,7 +574,7 @@ def heuristic(
 ) -> None:
     """Run a black-box heuristic search (ga/pso/sa/hc/rs/cem/de)."""
     run_cfg = RunParams(dir=dir, debug=debug)
-    camera = CameraParams(
+    camera = CameraParamsPib(
         cam_id=cam_id,
         cam_type=cam_type,
         exposure_time_ms=exposure_time_ms,
@@ -825,10 +658,10 @@ def _resolve_auto_camera(
 
 def _execute(
     run_cfg: RunParams,
-    camera: CameraParams,
+    camera: CameraParamsPib,
     slm: SlmParams,
-    objective: ObjectiveParams,
-    search: SpgdParams | HeuristicParams,
+    objective: ObjectiveParamsPib,
+    search: SpgdParamsPib | HeuristicParams,
     auto_exposure: bool = False,
     auto_target_peak: float = 160.0,
     auto_n_frames: int = 5,

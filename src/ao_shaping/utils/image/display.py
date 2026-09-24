@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -153,6 +154,62 @@ def plot_voltage_heatmap(voltages, ax:plt.Axes, title="Voltage History") -> plt.
     ax.set_ylabel("Unit ID")
     plt.colorbar(im, ax=ax)
     return ax
+
+
+def make_debug_wavefront_ax_plots(
+    ax: object,
+    init_wavefront,
+    opt_wavefront,
+    init_title: str = "init wavefront",
+    opt_title: str = "opt wavefront",
+    orientation: str = "horizontal",
+) -> None:
+    """Place init / optimised wavefront images on a pair of Axes.
+
+    Consumed with the 2×2 debug grid layout::
+
+        fig, ax = plt.subplots(2, 2, figsize=(12, 9))
+        ...  # rms_history  → ax[0,0],   voltages  → ax[0,1]
+        make_debug_wavefront_ax_plots(ax[1], init_wf, min_wf)   # init→col0, opt→col1
+
+    Args:
+        ax:             A 1-D Axes slice such as ``ax[1]`` (shaped n_cols,).
+        init_wavefront: Wavefront array for the initial state.
+        opt_wavefront:  Wavefront array for the optimised state.
+        init_title:     Title string for the *init* panel.
+        opt_title:      Title string for the *opt* panel.
+        orientation:    Colorbar orientation (``"horizontal"`` or
+                        ``"vertical"``).
+    """
+    im0 = plot_funcs["wavefront"](init_wavefront, ax[0], init_title)
+    fig = ax[0].get_figure()
+    plt.colorbar(im0, ax=ax[0], orientation=orientation)
+    im1 = plot_funcs["wavefront"](opt_wavefront, ax[1], opt_title)
+    plt.colorbar(im1, ax=ax[1], orientation=orientation)
+
+
+def save_recorder_artifacts(
+    records,
+    save_dir: Path,
+    saved_file_name: Path,
+) -> None:
+    """Save ``.zip`` dataframe + ``.png`` figure for a recorder, exactly as
+    ``ga_zernike`` / ``greedy_zernike`` / ``rms_zernike`` do to wrap up
+    their ``if debug`` block before returning.
+
+    The figure / data-array content is up to the caller (they should call
+    :func:`ao_shaping.utils.io.file.save_optimization_debug_artifacts` or build
+    the axes directly); this helper handles only the final two ``save`` /
+    ``close`` calls.
+
+    Args:
+        records:         Recorder object.
+        save_dir:        Directory in which to write output files.
+        saved_file_name: UUID filename prefix (no extension).
+    """
+    records.save_dataframe(
+        saved_file_name.with_suffix(".zip"), compression="zip"
+    )
 
 
 # Zernike calibration display colors

@@ -18,6 +18,8 @@ from ao_shaping.drivers import MlaRes
 from ao_shaping.runners.runner_common import (
     build_debug_save_paths,
     save_optimization_debug_artifacts,
+    wfs_options,
+    zernike_slm_options,
 )
 
 
@@ -25,23 +27,11 @@ from ao_shaping.runners.runner_common import (
 @click.option("-d", "--dir", default="data", help="数据保存根目录 (default: data)")
 @click.option("-e", "--epochs", default=2000, help="优化迭代次数 (default: 2000)")
 @click.option("-n", "--n-max", default=4, help="Zernike最大阶数 (default: 4)")
-@click.option("-r", "--wfs_res", default="1024", help="WFS分辨率 (default: 1024)")
-@click.option("-p", "--pupil_diameter", default=2.7, help="瞳孔直径 (default: 2.7)")
-@click.option(
-    "-c",
-    "--pupil_center",
-    callback=parse_tuple,
-    default="(0,0)",
-    help="瞳孔中心坐标 (default: (0,0))",
-)
+@wfs_options
 @click.option(
     "-t", "--early_stop_threshold", default=0.12, help="早停阈值 (default: 0.12)"
 )
-@click.option("--wavelength", default=532, help="SLM波长 (nm, default: 532)")
-@click.option("--shift-x", default=0, help="SLM X方向平移 (像素, default: 0)")
-@click.option("--shift-y", default=0, help="SLM Y方向平移 (像素, default: 0)")
-@click.option("--slm-number", default=1, help="SLM设备编号 (default: 1)")
-@click.option("--remove-tilt", is_flag=True, help="移除波前测量中的倾斜项")
+@zernike_slm_options
 @click.option(
     "--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)"
 )
