@@ -116,6 +116,9 @@ _DATA_MODE_OBJECTIVE_KEYS = (
 # Objectives that are MINIMISED (used to pick the best-epoch frame/coeffs).
 _DATA_MODE_MINIMIZED_KEYS = ("radiu", "rmse")
 
+# Guard-penalised rows use J < -100 to signal abandonment (energy guard).
+_DATA_MODE_PENALTY_THRESHOLD = -100.0
+
 
 def _infer_objective_key(data: dict[int, dict]) -> str | None:
     """Return the objective column name present in the first data record."""
@@ -174,10 +177,9 @@ def _overlay_target_roi(
 
         img_h = int(np.asarray(img).shape[0])
         img_w = int(np.asarray(img).shape[1])
-        cx = float(target_box["center"][0])
-        cy = float(target_box["center"][1])
+        cx, cy = (float(v) for v in target_box["center"])
         roi = target_shape_roi(
-            image_shape=(img_h, img_w),
+            (img_h, img_w),
             center=(cx, cy),
             shape=str(target_box["shape"]),
             size=float(target_box["size"]),
@@ -217,11 +219,16 @@ def _save_data_mode_debug_artifacts(
 
         def _clean(vals: list[float]) -> list[float]:
             # Drop guard-penalised evaluations (energy guard records J-1e3, so
-            # values < -100 are a 3+ digit penalty row, not a real objective).
-            return [v for v in vals if v > -100.0]
+            # values below the penalty threshold are abandonment rows, not real
+            # objective measurements.
+            return [v for v in vals if v > _DATA_MODE_PENALTY_THRESHOLD]
 
         ys = _clean([data[e][obj_key] for e in xs])
-        xc = [e for e, v in zip(xs, [data[e][obj_key] for e in xs]) if v > -100.0]
+        xc = [
+            e
+            for e, v in zip(xs, [data[e][obj_key] for e in xs])
+            if v > _DATA_MODE_PENALTY_THRESHOLD
+        ]
         ax[0, 0].plot(xc, ys, label=obj_key)
         # Overlay the rms_pib component terms + J whenever present: the raw
         # objective alone hides whether a change came from pib/rms/energy.
@@ -233,7 +240,11 @@ def _save_data_mode_debug_artifacts(
         for k in term_keys:
             tk_xs_all = [e for e in xs if k in data[e]]
             tk_vals = [data[e][k] for e in tk_xs_all]
-            tk_pairs = [(e, v) for e, v in zip(tk_xs_all, tk_vals) if v > -100.0]
+            tk_pairs = [
+                (e, v)
+                for e, v in zip(tk_xs_all, tk_vals)
+                if v > _DATA_MODE_PENALTY_THRESHOLD
+            ]
             if tk_pairs:
                 fx, fy = zip(*tk_pairs)
                 ax[0, 0].plot(fx, list(fy), "--", alpha=0.7, label=k)

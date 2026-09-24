@@ -54,8 +54,19 @@ _DEBUG_SCALAR_KEYS = (
     "pib_term",
     "rms_term",
     "ee_term",
-)
-_DEBUG_OBJECTIVE_KEYS = (
+    # Cross-objective metric panel (recorded every epoch by the optimizer, so
+    # runs driven by different objectives can be compared on identical columns).
+    "m_shape",
+    "m_energy",
+    "m_rmse",
+    "m_roi_pib",
+    "m_pib",
+    "m_pib7",
+    "m_rms_pib",
+    "m_rms_t",
+    "m_ee",
+    "m_brt",
+    # Objective columns — merged from _DEBUG_OBJECTIVE_KEYS for a single pass.
     "pib",
     "radiu",
     "avg_radiu",
@@ -100,7 +111,7 @@ def _save_debug_artifacts(
     res: Recorder,
     objective: "ObjectiveParams",
     config: "SlmParams",
-    obj_or_heur: "ObjectiveParams | HeuristicParams",
+    obj_or_heur: "SpgdParams | HeuristicParams",
     root_dir: str,
 ) -> Any:
     """Write PNG/pkl/json/h5 debug artifacts for the recorded search.
@@ -125,7 +136,7 @@ def _save_debug_artifacts(
     data: dict[int, Any] = {}
     for rec in res.history:
         item: dict[str, Any] = {}
-        for k in _DEBUG_SCALAR_KEYS + _DEBUG_OBJECTIVE_KEYS:
+        for k in _DEBUG_SCALAR_KEYS:
             if k in rec:
                 item[k] = float(rec[k])
         for k in _DEBUG_IMG_KEYS:
@@ -370,7 +381,9 @@ def _slm_options(fn):
 def _objective_options(fn):
     fn = click.option(
         "--objective",
-        type=click.Choice(["pib", "radiu", "avg_radiu", "rmse", "shape", "roi_pib", "rms_pib"]),
+        type=click.Choice(
+            ["pib", "radiu", "avg_radiu", "rmse", "shape", "roi_pib", "rms_pib"]
+        ),
         default="pib",
         help="Optimization objective.",
     )(fn)

@@ -104,7 +104,7 @@ SCHEDULE_MAX_LR = 1.0
 SCHEDULE_MAX_DELTA = 0.5
 
 # slm parameters
-SLM_RESPONSE_TIME_S = 0.3  # Santec SLM-200 response time ~300ms
+SLM_RESPONSE_TIME_S = 0.1
 # On exit, leave the best-found phase on the SLM. The candidate set includes
 # the initial (flat when starting from zeros, or a loaded) phase: if the search
 # never improved on it, that phase is restored instead. Set False to skip
@@ -1752,6 +1752,78 @@ def optimize_slm_zernike_pib(
         best_c = _init_c.copy()
         last_best_epoch = 0
 
+        # Baseline window energy (flat-phase capture) for the energy-conservation
+        # panel metric (exposure-demanding: valid when run forces exposure or the
+        # auto-exposure settles, i.e. every epoch shares a comparable sum).
+        _panel_init_sum = float(np.sum(np.asarray(init_img, dtype=np.float64)))
+
+        def _metric_panel(img: np.ndarray) -> dict[str, float]:
+            """Cross-objective metric panel recorded on EVERY epoch.
+
+            Evaluates all shaping objectives on the same frame with the run's
+            actual configuration (weights / target shape / bucket radius), so any
+            two runs can be compared on any shared ``m_*`` column regardless of
+            which objective actually drove the search. ``m_`` prefix avoids
+            colliding with the objective's own row key (e.g. ``"shape"``).
+            """
+            _shape_score, _energy = shape_metric(
+                img,
+                reference_center,
+                reference_center,
+                shape_for_metric,
+                target_size,
+                target_aspect_ratio,
+                w_uniformity=w_uniformity,
+                w_peak=w_peak,
+                w_displacement=w_displacement,
+                stage=None,
+                log_uniformity=log_uniformity,
+            )
+            _pib_term, _rms_t = rms_pib_terms(
+                img,
+                reference_center,
+                shape_for_metric,
+                target_size,
+                target_aspect_ratio,
+            )
+            _rmse, _ = rmse_shape_metric(
+                img,
+                reference_center,
+                shape_for_metric,
+                target_size,
+                target_aspect_ratio,
+            )
+            _roi_score, _roi_energy = roi_pib_metric(
+                img,
+                reference_center,
+                shape_for_metric,
+                target_size,
+                target_aspect_ratio,
+            )
+            _frame_sum = float(np.asarray(img, dtype=np.float64).sum())
+            _ee = float(
+                np.clip(
+                    _frame_sum / max(_panel_init_sum, np.finfo(np.float64).eps),
+                    0.0,
+                    1.0,
+                )
+            )
+            return {
+                "m_shape": float(_shape_score),
+                "m_energy": float(_energy),
+                "m_rmse": float(_rmse),
+                "m_roi_pib": float(_roi_score),
+                "m_pib": float(target_func.pib(img, r_bucket)[1]),
+                "m_pib7": float(test_pib(img)),
+                # Equal-weight (1/3 each) rms_pib score: the objective's own
+                # adaptive weights vary per epoch, so the fixed-weight value is
+                # the cross-run comparable form.
+                "m_rms_pib": float((_pib_term + _rms_t + _ee) / 3.0),
+                "m_rms_t": float(_rms_t),
+                "m_ee": _ee,
+                "m_brt": float(np.max(img)),
+            }
+
         _row0 = {
             "J": j,
             objective: best_objective,
@@ -1777,6 +1849,7 @@ def optimize_slm_zernike_pib(
             _row0["pib_term"] = float(last_terms[1])
             _row0["rms_term"] = float(last_terms[2])
             _row0["ee_term"] = float(last_terms[3])
+        _row0.update(_metric_panel(init_img))
         if record_phase:
             _row0["_phase"] = initial_phase
         recorder.append(_row0)
@@ -1822,6 +1895,7 @@ def optimize_slm_zernike_pib(
                 row["w_rms"] = float(_rms_pib_state.get("w_rms", 0.5))
                 row["pib_term"] = float(last_terms[1])
                 row["rms_term"] = float(last_terms[2])
+            row.update(_metric_panel(img))
             recorder.append(row)
             return row
 
