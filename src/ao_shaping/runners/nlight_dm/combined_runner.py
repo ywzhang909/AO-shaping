@@ -8,11 +8,15 @@ import click
 import numpy as np
 
 from ao_shaping.optimizer.combined_optimizer import optimize_pib
-from ao_shaping.utils.io.cli_helpers import resolve_debug, setup_coredumpy, get_date_dir_name
+from ao_shaping.utils.io.cli_helpers import (
+    resolve_debug,
+    setup_coredumpy,
+    get_date_dir_name,
+)
 from ao_shaping.utils.io.file import gen_file_path_uuid, gen_date_dir, logger
 from ao_shaping.utils.image.display import plot_funcs
 from ao_shaping.drivers.dm import list_dm_types
-from ao_shaping.runners.runner_common import resolve_dm
+from ao_shaping.drivers.dm._registry import resolve_dm
 
 import matplotlib.pyplot as plt
 
@@ -22,21 +26,46 @@ DM_TYPES = list_dm_types()
 
 @click.command()
 @click.option("-d", "--root_dir", default="data", help="数据保存根目录 (default: data)")
-@click.option("-f", "--load_file", default=None, help="加载初始电压文件 (default: None)")
-@click.option("--cam_id", default=lambda: os.environ.get("FAR_CAM_ID", "0"), help="远场光斑CCD设备ID (default: Far_CAM_ID/0)")
-@click.option("-c", "--center", default="mass", help="场光斑CCD中心位置 (example: 665,403)")
-@click.option("-t", "--exposure_time_ms", default=80, help="远场光斑CCD曝光时间 (毫秒) (default: 80)")
+@click.option(
+    "-f", "--load_file", default=None, help="加载初始电压文件 (default: None)"
+)
+@click.option(
+    "--cam_id",
+    default=lambda: os.environ.get("FAR_CAM_ID", "0"),
+    help="远场光斑CCD设备ID (default: Far_CAM_ID/0)",
+)
+@click.option(
+    "-c", "--center", default="mass", help="场光斑CCD中心位置 (example: 665,403)"
+)
+@click.option(
+    "-t",
+    "--exposure_time_ms",
+    default=80,
+    help="远场光斑CCD曝光时间 (毫秒) (default: 80)",
+)
 @click.option("-e", "--epochs", default=4_000, help="优化迭代次数 (default: 4000)")
-@click.option("-r", "--r_bucket", default=0, help="半径桶大小 (default: 0, 环围半径自动调整)")
+@click.option(
+    "-r", "--r_bucket", default=0, help="半径桶大小 (default: 0, 环围半径自动调整)"
+)
 @click.option("--delta", default=1.0, help="优化步长 (default: 1)")
 @click.option("--lr", default=0.0, help="优化学习率 (default: 0.0, 动态学习率衰减)")
-@click.option("--shrink_iter", default=0, help="收缩半径桶的迭代间隔 (default: 0, 不收缩)")
+@click.option(
+    "--shrink_iter", default=0, help="收缩半径桶的迭代间隔 (default: 0, 不收缩)"
+)
 @click.option("--shrink_ratio", default=0.9, help="收缩半径桶比例 (default: 0.9)")
 @click.option("-s", "--cam_size", default=250, help="相机开窗大小 (default: 250)")
-@click.option("-b", "--target_max_brightness", default=40, help="目标最大亮度值 (default: 40)")
-@click.option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)")
-@click.option("--dm_type", type=click.Choice(DM_TYPES, case_sensitive=False), default=None,
-              help="变形镜类型 (default: auto-detect)")
+@click.option(
+    "-b", "--target_max_brightness", default=40, help="目标最大亮度值 (default: 40)"
+)
+@click.option(
+    "--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)"
+)
+@click.option(
+    "--dm_type",
+    type=click.Choice(DM_TYPES, case_sensitive=False),
+    default=None,
+    help="变形镜类型 (default: auto-detect)",
+)
 @click.option(
     "--debug",
     "debug_flag",
@@ -132,8 +161,14 @@ def run(
             json.dump(config, f, ensure_ascii=False, indent=4)
 
         fig, ax = plt.subplots(2, 2, figsize=(12, 8))
-        plot_funcs["img"](res_list.first["_img"], ax[0, 0], f"Init Image, pib={res_list.first['pib']:.3f}")
-        axim = plot_funcs["img"](best_iter["_img"], ax[0, 1], f"Best PIB Image, pib={max_j:.3f}")
+        plot_funcs["img"](
+            res_list.first["_img"],
+            ax[0, 0],
+            f"Init Image, pib={res_list.first['pib']:.3f}",
+        )
+        axim = plot_funcs["img"](
+            best_iter["_img"], ax[0, 1], f"Best PIB Image, pib={max_j:.3f}"
+        )
         fig.colorbar(axim, ax=[ax[0, 0], ax[0, 1]], orientation="horizontal")
         plot_funcs["pib_history"](res_list.dataframe["pib"], ax[1, 0])
         plot_funcs["voltages"](last_V, ax[1, 1], "Best Voltages")

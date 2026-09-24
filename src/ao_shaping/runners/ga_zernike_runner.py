@@ -15,8 +15,16 @@ import matplotlib.pyplot as plt
 from ao_shaping.drivers import MlaRes
 from ao_shaping.optimizer.wf.ga_zernike import optimizer_ga
 from ao_shaping.utils.image.display import plot_funcs
-from ao_shaping.utils.io.cli_helpers import parse_tuple, setup_coredumpy, get_date_dir_name, get_debug_mode
-from ao_shaping.runners.runner_common import build_debug_save_paths, save_optimization_debug_artifacts
+from ao_shaping.utils.io.cli_helpers import (
+    parse_tuple,
+    setup_coredumpy,
+    get_date_dir_name,
+    get_debug_mode,
+)
+from ao_shaping.utils.io.file import (
+    build_debug_save_paths,
+    save_optimization_debug_artifacts,
+)
 
 
 @click.command(name="ga-zernike")
@@ -216,7 +224,9 @@ def run(
         )
 
     flatten_dir = root_dir / "flatten_zernike" / get_date_dir_name()
-    recorder.save_best(saved_dir=flatten_dir, target="_c", process_fn=np.round, fmt="%.6f")
+    recorder.save_best(
+        saved_dir=flatten_dir, target="_c", process_fn=np.round, fmt="%.6f"
+    )
 
     click.echo("\nGA-Zernike优化完成!")
     click.echo(f"  最佳RMS: {min_rms:.4f} @ generation {min_gen}")

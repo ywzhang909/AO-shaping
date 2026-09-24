@@ -16,7 +16,7 @@ from ao_shaping.utils.io.cli_helpers import (
     get_debug_mode,
 )
 from ao_shaping.drivers.dm import list_dm_types
-from ao_shaping.runners.runner_common import resolve_dm
+from ao_shaping.drivers.dm._registry import resolve_dm
 
 
 DM_TYPES = list_dm_types()

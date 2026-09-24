@@ -29,7 +29,6 @@ from loguru import logger
 from ao_shaping.drivers.dm import list_dm_types
 from ao_shaping.drivers.dm._registry import resolve_dm
 from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
-from ao_shaping.runners.runner_common import resolve_dm
 
 
 DM_TYPES = list_dm_types()
@@ -52,45 +51,124 @@ from ao_shaping.utils.wavefront.wfs_utils import make_actuator_debug_callback
 
 @click.command("dm-matrix")
 @click.pass_context
-@click.option("--voltage", "disturb_voltage", default=DEFAULT_DISTURB_VOLTAGE, type=float,
-              help=f"扰动电压 (0=自动优化, 默认: {DEFAULT_DISTURB_VOLTAGE})")
-@click.option("--n-averages", "n_averages", default=DEFAULT_N_AVERAGES, type=int,
-              help=f"每次WFS读取次数 M (默认: {DEFAULT_N_AVERAGES})")
-@click.option("--n-cycles", "n_cycles", default=DEFAULT_N_CYCLES, type=int,
-              help=f"正负交替循环次数 N (默认: {DEFAULT_N_CYCLES})")
-@click.option("--wait", "wait_time", default=DEFAULT_WAIT_TIME, type=float,
-              help=f"电压施加后等待时间 (秒, 默认: {DEFAULT_WAIT_TIME})")
-@click.option("--output", "output_path", default="data/dm_response_matrix", type=str,
-              help="输出文件路径 (默认: data/dm_response_matrix)")
-@click.option("--dm-unit-mask", "dm_unit_mask_str", default=None, type=str,
-              help="DM单元掩码 (逗号分隔的0/1列表, 默认: 全部有效, actuator 0禁用)")
-@click.option("--mla-index", "mla_index",
-              type=click.Choice(["512", "540", "600", "768", "1280"]), default="512",
-              help="MLA分辨率 (默认: 512)")
-@click.option("--exp-time", "exp_time", type=float, default=0.0,
-              help="WFS曝光时间 (ms, 0=自动)")
-@click.option("--auto-exposure/--no-auto-exposure", "auto_exposure", default=True,
-              help="启用WFS自动曝光 (默认开启)")
-@click.option("--high-speed", "high_speed", is_flag=True, default=False,
-              help="启用高速模式")
-@click.option("--use-custom-ref", "use_custom_ref", is_flag=True, default=False,
-              help="使用自定义参考文件")
-@click.option("--pupil-diameter", "pupil_diameter", type=float, default=2.0,
-              help="瞳孔直径 (mm, 默认: 2.0)")
-@click.option("--pupil-center", callback=parse_tuple, default="(0,0)",
-              help="瞳孔中心坐标 (默认: (0,0))")
-@click.option("--no-inverses", "compute_inverses", default=True, flag_value=False,
-              help="不计算逆矩阵")
-@click.option("--cancel-tile", "cancel_tile", is_flag=True, default=False,
-              help="测量时去除WFS的tip/tilt")
-@click.option("--auto-optimize/--no-auto-optimize", "auto_optimize_voltage", default=True,
-              help="自动优化每路扰动电压 (voltage=0时, 默认开启)")
-@click.option("--optimize-n-avg", "optimize_n_avg", default=10, type=int,
-              help="电压优化时的WFS读取次数 (默认: 10)")
-@click.option("--display/--no-display", default=False,
-              help="显示实时pygame显示 (暂未实现)")
-@click.option("--debug", "debug", is_flag=True, default=None,
-              help="启用调试模式 (保存原始测量数据)")
+@click.option(
+    "--voltage",
+    "disturb_voltage",
+    default=DEFAULT_DISTURB_VOLTAGE,
+    type=float,
+    help=f"扰动电压 (0=自动优化, 默认: {DEFAULT_DISTURB_VOLTAGE})",
+)
+@click.option(
+    "--n-averages",
+    "n_averages",
+    default=DEFAULT_N_AVERAGES,
+    type=int,
+    help=f"每次WFS读取次数 M (默认: {DEFAULT_N_AVERAGES})",
+)
+@click.option(
+    "--n-cycles",
+    "n_cycles",
+    default=DEFAULT_N_CYCLES,
+    type=int,
+    help=f"正负交替循环次数 N (默认: {DEFAULT_N_CYCLES})",
+)
+@click.option(
+    "--wait",
+    "wait_time",
+    default=DEFAULT_WAIT_TIME,
+    type=float,
+    help=f"电压施加后等待时间 (秒, 默认: {DEFAULT_WAIT_TIME})",
+)
+@click.option(
+    "--output",
+    "output_path",
+    default="data/dm_response_matrix",
+    type=str,
+    help="输出文件路径 (默认: data/dm_response_matrix)",
+)
+@click.option(
+    "--dm-unit-mask",
+    "dm_unit_mask_str",
+    default=None,
+    type=str,
+    help="DM单元掩码 (逗号分隔的0/1列表, 默认: 全部有效, actuator 0禁用)",
+)
+@click.option(
+    "--mla-index",
+    "mla_index",
+    type=click.Choice(["512", "540", "600", "768", "1280"]),
+    default="512",
+    help="MLA分辨率 (默认: 512)",
+)
+@click.option(
+    "--exp-time", "exp_time", type=float, default=0.0, help="WFS曝光时间 (ms, 0=自动)"
+)
+@click.option(
+    "--auto-exposure/--no-auto-exposure",
+    "auto_exposure",
+    default=True,
+    help="启用WFS自动曝光 (默认开启)",
+)
+@click.option(
+    "--high-speed", "high_speed", is_flag=True, default=False, help="启用高速模式"
+)
+@click.option(
+    "--use-custom-ref",
+    "use_custom_ref",
+    is_flag=True,
+    default=False,
+    help="使用自定义参考文件",
+)
+@click.option(
+    "--pupil-diameter",
+    "pupil_diameter",
+    type=float,
+    default=2.0,
+    help="瞳孔直径 (mm, 默认: 2.0)",
+)
+@click.option(
+    "--pupil-center",
+    callback=parse_tuple,
+    default="(0,0)",
+    help="瞳孔中心坐标 (默认: (0,0))",
+)
+@click.option(
+    "--no-inverses",
+    "compute_inverses",
+    default=True,
+    flag_value=False,
+    help="不计算逆矩阵",
+)
+@click.option(
+    "--cancel-tile",
+    "cancel_tile",
+    is_flag=True,
+    default=False,
+    help="测量时去除WFS的tip/tilt",
+)
+@click.option(
+    "--auto-optimize/--no-auto-optimize",
+    "auto_optimize_voltage",
+    default=True,
+    help="自动优化每路扰动电压 (voltage=0时, 默认开启)",
+)
+@click.option(
+    "--optimize-n-avg",
+    "optimize_n_avg",
+    default=10,
+    type=int,
+    help="电压优化时的WFS读取次数 (默认: 10)",
+)
+@click.option(
+    "--display/--no-display", default=False, help="显示实时pygame显示 (暂未实现)"
+)
+@click.option(
+    "--debug",
+    "debug",
+    is_flag=True,
+    default=None,
+    help="启用调试模式 (保存原始测量数据)",
+)
 @click.option(
     "--dm_type",
     type=click.Choice(DM_TYPES, case_sensitive=False),
@@ -191,7 +269,7 @@ def run(
     if display:
         click.echo("Note: --display mode is not yet implemented for DM calibration.")
 
-    # DM selection — delegated to runner_common.resolve_dm so the logic
+    # DM selection — delegated to drivers.dm._registry.resolve_dm so the logic
     # stays in sync with the wf / pipeline / pib / combined runners.
     dm = resolve_dm(dm_type)
     try:
@@ -218,8 +296,10 @@ def run(
             # Run calibration
             click.echo("\n=== Starting DM response matrix calibration ===")
             click.echo(f"  Actuators: {dm.DM_NUM} total")
-            click.echo(f"  Voltage: {disturb_voltage}" +
-                       (" (auto-optimize)" if disturb_voltage == 0 else ""))
+            click.echo(
+                f"  Voltage: {disturb_voltage}"
+                + (" (auto-optimize)" if disturb_voltage == 0 else "")
+            )
             click.echo(f"  Averages: {n_averages}, Cycles: {n_cycles}")
             click.echo(f"  Inverses: {'yes' if compute_inverses else 'no'}")
             click.echo(f"  Cancel tile: {cancel_tile}")

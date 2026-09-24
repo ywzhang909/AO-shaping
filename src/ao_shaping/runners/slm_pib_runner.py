@@ -31,16 +31,24 @@ from ao_shaping.runners.runner_common import (
     RunParams,
     SlmParams,
     SpgdParamsPib,
-    build_debug_save_paths,
     config_payload,
     camera_options,
     run_options,
-    save_optimization_debug_artifacts,
     seed_option,
     slm_extended_options,
 )
-from ao_shaping.utils.io.cli_helpers import get_date_dir_name, get_debug_mode, parse_tuple, setup_coredumpy
-from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts
+from ao_shaping.utils.io.cli_helpers import (
+    get_date_dir_name,
+    get_debug_mode,
+    parse_tuple,
+    setup_coredumpy,
+)
+from ao_shaping.utils.io.file import (
+    Recorder,
+    build_debug_save_paths,
+    save_optimization_debug_artifacts,
+    save_recorder_debug_artifacts,
+)
 
 # Backward-compatible aliases — tests and external callers may still import
 # the old names from this module.
@@ -95,7 +103,15 @@ _DEBUG_SCALAR_KEYS = (
 
 # Objective columns passed separately to the shared debug-artifact helper
 # (see ``save_recorder_debug_artifacts``); kept in sync with the scalar set.
-_DEBUG_OBJECTIVE_KEYS = ("pib", "radiu", "avg_radiu", "rmse", "shape", "roi_pib", "rms_pib")
+_DEBUG_OBJECTIVE_KEYS = (
+    "pib",
+    "radiu",
+    "avg_radiu",
+    "rmse",
+    "shape",
+    "roi_pib",
+    "rms_pib",
+)
 
 
 def _effective_objective_key(name: str, target_shape: Any) -> str:

@@ -15,9 +15,18 @@ canonical homes:
   :func:`save_recorder_artifacts` → :mod:`ao_shaping.utils.image.display`
 * :func:`resolve_dm` → :mod:`ao_shaping.drivers.dm._registry`
 
-This module re-exports them for backward compatibility, and keeps the
-parameter dataclasses + click option decorators that are genuinely
-runner-specific.
+Runners import these helpers directly from their canonical homes; this
+module keeps only the parameter dataclasses + click option decorators that
+are genuinely runner-specific.
+
+Parameter dataclasses are grouped by role:
+
+* 纯硬件参数 (pure hardware)     — device config: CCD camera / SLM / WFS
+* 算法参数 (algorithm)           — search knobs: SPGD, heuristic, ...
+* 目标参数 (objective)           — target & quality weights (PIB, square)
+* 可视化与输出参数 (viz/output)   — run-wide output dir + debug visualisation
+* 融合参数 (fused)               — composite groups combining roles above
+  (e.g. CameraParamsPib = camera + objective: the slm-pib target definition)
 """
 
 from __future__ import annotations
@@ -27,35 +36,13 @@ from typing import Any
 
 import click
 
-# Re-exports (backward compatibility for any runner that still imports here)
-from ao_shaping.drivers.dm._registry import (  # noqa: F401
-    create_dm,
-    list_reachable_dm_types,
-    resolve_dm,
-)
-from ao_shaping.utils.io.cli_helpers import parse_tuple  # noqa: F401
-from ao_shaping.utils.image.display import (  # noqa: F401
-    make_debug_wavefront_ax_plots,
-    save_recorder_artifacts,
-)
-from ao_shaping.utils.io.file import (  # noqa: F401
-    build_debug_save_paths,
-    save_optimization_debug_artifacts,
-)
+from ao_shaping.utils.io.cli_helpers import parse_tuple
 
 
 # ---------------------------------------------------------------------------
-# Shared parameter dataclasses (SLM family runners)
+# 纯硬件参数 | pure hardware parameters — device configuration
+# (CCD camera / Santec SLM; WFS joins via WfsParams in the refactor)
 # ---------------------------------------------------------------------------
-
-
-@dataclass
-class RunParams:
-    """Global / run-wide options shared by subcommands."""
-
-    dir: str = "data"
-    debug: bool = False
-    seed: int | None = None
 
 
 @dataclass
@@ -83,6 +70,11 @@ class SlmParams:
     init_c: Any = None
 
 
+# ---------------------------------------------------------------------------
+# 算法参数 | algorithm parameters — search / optimisation knobs
+# ---------------------------------------------------------------------------
+
+
 @dataclass
 class SpgdParams:
     """SPGD (gradient) search options."""
@@ -106,27 +98,17 @@ class HeuristicParams:
     show: bool = False
 
 
-# ---------------------------------------------------------------------------
-# slm-pib-specific parameter dataclasses
-# ---------------------------------------------------------------------------
-# These mirror the shared dataclasses above but with slm-pib defaults
-# (smaller CCD window, larger SPGD perturbation, PIB objective fields).
-# They live here so slm_pib_runner can import them instead of re-defining
-# the same shape locally.
-
-
-@dataclass
-class CameraParamsPib(CameraParams):
-    """CCD camera options — slm-pib uses a smaller default window (250 px)."""
-
-    cam_size: int = 250
-
-
+# slm-pib variant of the shared SPGD params (larger default perturbation).
 @dataclass
 class SpgdParamsPib(SpgdParams):
     """SPGD options — slm-pib uses a larger default perturbation (0.2 rad)."""
 
     delta: float = 0.2
+
+
+# ---------------------------------------------------------------------------
+# 目标参数 | objective parameters — imaging target & quality weights
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -171,6 +153,42 @@ class ObjectiveParamsSquare:
 
 
 # ---------------------------------------------------------------------------
+# 可视化与输出参数 | visualisation & output parameters — run-wide controls
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class RunParams:
+    """Global / run-wide options shared by subcommands.
+
+    Not tied to a single device or objective role: ``dir`` is the output
+    root, ``debug`` enables debug-artifact visualisation, ``seed`` controls
+    the random stream (reproducible only in 'sim' mode).
+    """
+
+    dir: str = "data"
+    debug: bool = False
+    seed: int | None = None
+
+
+# ---------------------------------------------------------------------------
+# 融合参数 | fused parameters — composite groups combining roles above
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CameraParamsPib(CameraParams):
+    """CCD camera options — slm-pib uses a smaller default window (250 px).
+
+    Fused group for slm-pib: combines the camera (纯硬件) role with the PIB
+    objective (目标) role, so one parameter object carries the whole target
+    definition (window centre/size + target-shape weights).
+    """
+
+    cam_size: int = 250
+
+
+# ---------------------------------------------------------------------------
 # Shared click option decorators (SLM family runners)
 # ---------------------------------------------------------------------------
 
@@ -178,7 +196,9 @@ class ObjectiveParamsSquare:
 def run_options(fn):
     """``-d/--dir`` + ``--debug`` shared by every SLM runner subcommand."""
     fn = click.option("-d", "--dir", default="data", help="Data root directory.")(fn)
-    fn = click.option("--debug", is_flag=True, default=False, help="Enable debug mode.")(fn)
+    fn = click.option(
+        "--debug", is_flag=True, default=False, help="Enable debug mode."
+    )(fn)
     return fn
 
 
@@ -228,7 +248,10 @@ def slm_options(fn):
         "--slm_number", type=int, default=1, help="Santec SLM device number (1-8)."
     )(fn)
     fn = click.option(
-        "--slm_wavelength", type=int, default=1064, help="SLM operating wavelength (nm)."
+        "--slm_wavelength",
+        type=int,
+        default=1064,
+        help="SLM operating wavelength (nm).",
     )(fn)
     fn = click.option(
         "-n", "--n_max", type=int, default=4, help="Max Zernike radial order."
@@ -246,8 +269,12 @@ def slm_extended_options(fn):
     """Extended SLM options: :func:`slm_options` + ``--shift_x``, ``--shift_y``,
     ``--load_file``, ``--init_c``."""
     fn = slm_options(fn)
-    fn = click.option("--shift_x", type=int, default=0, help="SLM phase X shift (pixels).")(fn)
-    fn = click.option("--shift_y", type=int, default=0, help="SLM phase Y shift (pixels).")(fn)
+    fn = click.option(
+        "--shift_x", type=int, default=0, help="SLM phase X shift (pixels)."
+    )(fn)
+    fn = click.option(
+        "--shift_y", type=int, default=0, help="SLM phase Y shift (pixels)."
+    )(fn)
     fn = click.option(
         "-f",
         "--load_file",
@@ -293,20 +320,22 @@ def wfs_options(fn):
         type=float,
         help="WFS曝光时间 (毫秒, default: 0.0=自动曝光)",
     )(fn)
-    fn = click.option(
-        "--remove-tilt", is_flag=True, help="移除波前测量中的倾斜项"
-    )(fn)
+    fn = click.option("--remove-tilt", is_flag=True, help="移除波前测量中的倾斜项")(fn)
     return fn
 
 
 def zernike_slm_options(fn):
     """Zernike SLM options: ``--wavelength``, ``--shift-x``, ``--shift-y``,
     ``--slm-number``, ``--wait-time``."""
-    fn = click.option(
-        "--wavelength", default=532, help="SLM波长 (nm, default: 532)"
-    )(fn)
-    fn = click.option("--shift-x", default=0, help="SLM X方向平移 (像素, default: 0)")(fn)
-    fn = click.option("--shift-y", default=0, help="SLM Y方向平移 (像素, default: 0)")(fn)
+    fn = click.option("--wavelength", default=532, help="SLM波长 (nm, default: 532)")(
+        fn
+    )
+    fn = click.option("--shift-x", default=0, help="SLM X方向平移 (像素, default: 0)")(
+        fn
+    )
+    fn = click.option("--shift-y", default=0, help="SLM Y方向平移 (像素, default: 0)")(
+        fn
+    )
     fn = click.option("--slm-number", default=1, help="SLM设备编号 (default: 1)")(fn)
     fn = click.option(
         "--wait-time", default=0.3, help="SLM 液晶翻转等待时间(秒, default: 0.3) "

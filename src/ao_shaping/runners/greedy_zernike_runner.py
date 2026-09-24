@@ -15,9 +15,11 @@ from ao_shaping.utils.io.cli_helpers import (
     resolve_debug,
 )
 from ao_shaping.drivers import MlaRes
-from ao_shaping.runners.runner_common import (
+from ao_shaping.utils.io.file import (
     build_debug_save_paths,
     save_optimization_debug_artifacts,
+)
+from ao_shaping.runners.runner_common import (
     wfs_options,
     zernike_slm_options,
 )
