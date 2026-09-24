@@ -35,6 +35,7 @@ import os
 import time
 from collections import deque
 from contextlib import nullcontext
+from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
 import numpy as np
@@ -619,15 +620,107 @@ def learning_schedule(
     return final_lr, final_delta
 
 
-def optimize_slm_zernike_pib(
-    center,
-    epochs,
-    n_max: int = 4,
-    r_bucket=0,
+@dataclass
+class SlmZernikePibConfig:
+    """Grouped configuration for :func:`optimize_slm_zernike_pib`.
+
+    The 45 keyword arguments of the flat signature are grouped here by role.
+    Callers still pass them as keyword arguments (``optimize_slm_zernike_pib(
+    ..., delta=0.2, w_uniformity=2.0, ...)``) - the dataclass is an
+    internal organisation that keeps the public API 100% compatible.
+
+    Groups:
+        Search: algorithm / pop_size / random_seed / objective.
+        Zernike: n_max / zernike_radius / init_c.
+        Bucket / SPGD step: r_bucket / delta / lr / shrink_iter / shrink_ratio.
+        Camera / SLM: cam_id / cam_type / cam_size / exposure_time_ms /
+            target_max_brightness / slm_number / slm_wavelength /
+            shift_x / shift_y / show.
+        Target: target_shape / target_size / target_aspect_ratio /
+            target_center_smooth / shape_schedule.
+        Objective weights: max_roi_energy_loss / w_uniformity / w_peak /
+            w_displacement / log_uniformity / w_ema_decay / w_floor /
+            w_temperature / w_pib_init / w_rms_init / w_ee_init.
+        Recording: record_phase.
+    """
+
+    # --- Search ---------------------------------------------------------------
+    algorithm: str = "spgd"
+    pop_size: int | None = None
+    random_seed: int | None = None
+    objective: str = "shape"
+    # SPGD gradient optimizer (adam/adamw/adamod/sgd/muno/munow); ignored when
+    # ``algorithm`` is a black-box heuristic.
+    optimizer_type: str = "adamod"
+    # --- Zernike ---------------------------------------------------------------
+    n_max: int = 4
+    zernike_radius: float = ZERNIKE_APERTURE_RADIUS
+    init_c: np.ndarray | list[float] | None = None
+    # --- Bucket / SPGD step ----------------------------------------------------
+    r_bucket: float = 0
     # 0.2 rad, NOT 0.1: the measured noise floor of the shaping objective is
     # dJ_noise = 4e-4 and a 0.1 rad perturbation moves J by only 2.8e-4
     # (SNR 0.69 -> the SPGD gradient is noise). 0.2 rad gives SNR 2.77
     # (measured on the bench by scripts/measure_shape_sensitivity.py).
+    delta: float = 0.2
+    lr: float = 0
+    shrink_iter: int = 0
+    shrink_ratio: float = 0.9
+    # --- Camera / SLM ----------------------------------------------------------
+    cam_id: int | str = 0
+    cam_type: str = "daheng"
+    cam_size: int = 250
+    exposure_time_ms: float = 80.0
+    target_max_brightness: float = 40
+    slm_number: int = 1
+    slm_wavelength: int = 1064
+    shift_x: int | None = 0
+    shift_y: int | None = 0
+    show: bool = False
+    # --- Target -----------------------------------------------------------------
+    target_shape: str | None = "rectangle"
+    target_size: float | None = None
+    target_aspect_ratio: float = 4.0 / 3.0
+    target_center_smooth: int = 3
+    # NOTE: keep False. Scores from different stages are NOT comparable (the same
+    # frame scores ~e in "coarse" but e-penalties in "fine"), so a baseline
+    # measured in "coarse" becomes unbeatable and every search reports gain=0.
+    # Enabling it needs per-stage best tracking + re-scoring the baseline at the
+    # final stage - see shape_metric(stage=...) for the mechanism.
+    shape_schedule: bool = False
+    # --- Objective weights ------------------------------------------------------
+    max_roi_energy_loss: float = 0.6
+    w_uniformity: float = 2.0
+    w_peak: float = 0.5
+    w_displacement: float = 0.0
+    log_uniformity: bool = False
+    w_ema_decay: float = 0.9
+    w_floor: float = 0.1
+    w_temperature: float = 8.0
+    # Initial weights of the adaptively-weighted 'rms_pib' objective. When any
+    # is provided, provided terms are kept exactly and unprovided terms share
+    # the remainder equally (all three provided -> normalised to sum 1); with
+    # none provided the (1/3, 1/3, 1/3) default is used. The dynamic update
+    # maintains the sum-1 invariant from the first adapting step onwards.
+    w_pib_init: float | None = None
+    w_rms_init: float | None = None
+    w_ee_init: float | None = None
+    # --- Recording ---------------------------------------------------------------
+    record_phase: bool = False
+    # --- Escape hatch -----------------------------------------------------------
+    #: Extra keyword arguments forwarded to the optimizer constructor
+    #: (``_create_optimizer``); kept out of the typed fields.
+    kwargs: dict[str, Any] = field(default_factory=dict)
+
+
+def optimize_slm_zernike_pib(
+    center,
+    epochs,
+    config: SlmZernikePibConfig | None = None,
+    algorithm: str = "spgd",
+    pop_size: int | None = None,
+    n_max: int = 4,
+    r_bucket=0,
     delta: float = 0.2,
     lr: float = 0,
     exposure_time_ms: float = 80.0,
@@ -642,19 +735,12 @@ def optimize_slm_zernike_pib(
     slm_number: int = 1,
     slm_wavelength: int = 1064,
     optimizer_type: str = "adamod",
-    algorithm: str = "spgd",
-    pop_size: int | None = None,
     random_seed: int | None = None,
     objective: str = "shape",
     target_shape: str | None = "rectangle",
     target_size: float | None = None,
     target_aspect_ratio: float = 4.0 / 3.0,
     target_center_smooth: int = 3,
-    # NOTE: keep False. Scores from different stages are NOT comparable (the same
-    # frame scores ~e in "coarse" but e-penalties in "fine"), so a baseline
-    # measured in "coarse" becomes unbeatable and every search reports gain=0.
-    # Enabling it needs per-stage best tracking + re-scoring the baseline at the
-    # final stage - see shape_metric(stage=...) for the mechanism.
     shape_schedule: bool = False,
     max_roi_energy_loss: float = 0.6,
     w_uniformity: float = 2.0,
@@ -664,11 +750,6 @@ def optimize_slm_zernike_pib(
     w_ema_decay: float = 0.9,
     w_floor: float = 0.1,
     w_temperature: float = 8.0,
-    # Initial weights of the adaptively-weighted 'rms_pib' objective. When any
-    # is provided, provided terms are kept exactly and unprovided terms share
-    # the remainder equally (all three provided -> normalised to sum 1); with
-    # none provided the (1/3, 1/3, 1/3) default is used. The dynamic update
-    # maintains the sum-1 invariant from the first adapting step onwards.
     w_pib_init: float | None = None,
     w_rms_init: float | None = None,
     w_ee_init: float | None = None,
@@ -741,11 +822,108 @@ def optimize_slm_zernike_pib(
             history row under the ``"_phase"`` key. Memory-heavy: one full
             frame (1200x1920) per row, intended for short debug runs that
             export HDF5 artifacts. Default False keeps rows light.
-        **kwargs: Additional optimizer parameters.
+        config: Optional pre-built :class:`SlmZernikePibConfig`. When supplied,
+            its fields are used verbatim and the individual keyword parameters
+            below are ignored (they exist only to keep the public keyword API
+            and the ``inspect.signature`` contract intact). When ``None``
+            (the common path) the keyword parameters are folded into a
+            config.
+        **kwargs: Additional optimizer parameters, forwarded to
+            ``_create_optimizer``.
 
     Returns:
         Recorder: Optimization history recorder.
     """
+    if config is None:
+        config = SlmZernikePibConfig(
+            algorithm=algorithm,
+            pop_size=pop_size,
+            optimizer_type=optimizer_type,
+            n_max=n_max,
+            r_bucket=r_bucket,
+            delta=delta,
+            lr=lr,
+            exposure_time_ms=exposure_time_ms,
+            shrink_iter=shrink_iter,
+            shrink_ratio=shrink_ratio,
+            cam_id=cam_id,
+            cam_type=cam_type,
+            show=show,
+            init_c=init_c,
+            cam_size=cam_size,
+            target_max_brightness=target_max_brightness,
+            slm_number=slm_number,
+            slm_wavelength=slm_wavelength,
+            random_seed=random_seed,
+            objective=objective,
+            target_shape=target_shape,
+            target_size=target_size,
+            target_aspect_ratio=target_aspect_ratio,
+            target_center_smooth=target_center_smooth,
+            shape_schedule=shape_schedule,
+            max_roi_energy_loss=max_roi_energy_loss,
+            w_uniformity=w_uniformity,
+            w_peak=w_peak,
+            w_displacement=w_displacement,
+            log_uniformity=log_uniformity,
+            w_ema_decay=w_ema_decay,
+            w_floor=w_floor,
+            w_temperature=w_temperature,
+            w_pib_init=w_pib_init,
+            w_rms_init=w_rms_init,
+            w_ee_init=w_ee_init,
+            record_phase=record_phase,
+            zernike_radius=zernike_radius,
+            shift_x=shift_x,
+            shift_y=shift_y,
+            kwargs=kwargs,
+        )
+    else:
+        # Extra keyword args (e.g. optimizer beta overrides) are merged into the
+        # config's escape-hatch dict.
+        config.kwargs.update(kwargs)
+
+    algorithm = config.algorithm
+    pop_size = config.pop_size
+    optimizer_type = config.optimizer_type
+    n_max = config.n_max
+    r_bucket = config.r_bucket
+    delta = config.delta
+    lr = config.lr
+    exposure_time_ms = config.exposure_time_ms
+    shrink_iter = config.shrink_iter
+    shrink_ratio = config.shrink_ratio
+    cam_id = config.cam_id
+    cam_type = config.cam_type
+    show = config.show
+    init_c = config.init_c
+    cam_size = config.cam_size
+    target_max_brightness = config.target_max_brightness
+    slm_number = config.slm_number
+    slm_wavelength = config.slm_wavelength
+    random_seed = config.random_seed
+    objective = config.objective
+    target_shape = config.target_shape
+    target_size = config.target_size
+    target_aspect_ratio = config.target_aspect_ratio
+    target_center_smooth = config.target_center_smooth
+    shape_schedule = config.shape_schedule
+    max_roi_energy_loss = config.max_roi_energy_loss
+    w_uniformity = config.w_uniformity
+    w_peak = config.w_peak
+    w_displacement = config.w_displacement
+    log_uniformity = config.log_uniformity
+    w_ema_decay = config.w_ema_decay
+    w_floor = config.w_floor
+    w_temperature = config.w_temperature
+    w_pib_init = config.w_pib_init
+    w_rms_init = config.w_rms_init
+    w_ee_init = config.w_ee_init
+    record_phase = config.record_phase
+    zernike_radius = config.zernike_radius
+    shift_x = config.shift_x
+    shift_y = config.shift_y
+
     delta = abs(delta)
     epochs = int(epochs)
     rng = np.random.default_rng(random_seed)
@@ -923,7 +1101,7 @@ def optimize_slm_zernike_pib(
         else:
             _img = camera_auto_exposure(cam, TEST_EXPOSURE_TIME_BRIGHTNESS)
 
-        def intellij_center(img):
+        def _smart_center(img):
             """Smart centre: argmax-anchored local centroid, refined by the full
             centroid when the spot core is not a hole (flat core)."""
             (h, w) = img.shape
@@ -940,7 +1118,7 @@ def optimize_slm_zernike_pib(
             return center
 
         if center is None:
-            center = intellij_center(_img)
+            center = _smart_center(_img)
         elif isinstance(center, str):
             _img = cam.get_numpy_image(10)
             if center == "mass":
@@ -1113,28 +1291,34 @@ def optimize_slm_zernike_pib(
 
         target_func = ImageTargetFunc.build_from_init_image(init_img)
 
-        # Objective calculation functions
-        def test_pib(img):
+        # Baseline diagnostic: the ideal-radius (r = IDEAL_SPOT_RADIUS, FIXED)
+        # PIB bucket ratio, used to seed ``best_objective`` and logged as
+        # ``m_pib7``.
+        def ideal_pib_ratio(img):
             return target_func.pib(img, IDEAL_SPOT_RADIUS)[1]
 
-        to_min = 1
+        # --- Objective dispatch ------------------------------------------------
+        # Seven objective families, each implemented as a closure returning
+        # ``(j, ratio)``. The dispatch replaces the previous 7-branch
+        # ``calc_objective`` re-bind + ``to_min`` sign scalar: each branch now
+        # owns its own closure, and ``objective_mode`` (already computed above)
+        # is the single source of truth for the maximise/minimise direction.
         if objective == "pib":
-            # Maximize PIB: negate the SPGD estimate so `_init_c - update`
-            # ascends the objective. Same convention as pib.py's intended
-            # `to_min = -1`; without this flip the loop minimizes PIB.
-            to_min = -1
+            # Maximize PIB: negate the SPGD estimate so ``_init_c - update``
+            # ascends the objective. Same convention as pib.py.
 
-            def calc_objective(img):
+            def _calc_objective_pib(img):
                 pib, pib_ratio = target_func.pib(img, r_bucket)
                 return pib, pib_ratio
-        elif objective == "roi_pib":
-            # Maximise the brightness inside the TARGET-SHAPED ROI: the fraction of
-            # the light landing in the target rectangle (exposure-invariant ratio,
-            # no uniformity/peak/drift penalties).
-            to_min = -1
 
-            def calc_objective_roi_pib(img):
-                # FIXED target ROI (never tracks the spot) - see calc_objective_shape.
+            calc_objective = _calc_objective_pib
+        elif objective == "roi_pib":
+            # Maximise the brightness inside the TARGET-SHAPED ROI: the fraction
+            # of the light landing in the target rectangle (exposure-invariant
+            # ratio, no uniformity/peak/drift penalties).
+
+            def _calc_objective_roi_pib(img):
+                # FIXED target ROI (never tracks the spot).
                 return roi_pib_metric(
                     img,
                     reference_center,
@@ -1143,20 +1327,19 @@ def optimize_slm_zernike_pib(
                     target_aspect_ratio,
                 )
 
-            calc_objective = calc_objective_roi_pib
+            calc_objective = _calc_objective_roi_pib
         elif objective == "rms_pib":
             # Combined PIB + in-ROI RMS + energy-conservation objective with
             # adaptively-weighted terms:
             # J = w_pib(t)*pib_term + w_rms(t)*rms_term + w_ee(t)*ee_term.
             # The weights adapt so the term that improves J more gets the higher
             # weight (see _update_dynamic_weights). The target ROI is FIXED at
-            # reference_center (never tracks the spot) - same convention as
-            # calc_objective_roi_pib. ``ee_term`` = fraction of the baseline
-            # (flat-phase) window energy still inside the window, so a search
-            # that diffracts/scatters light out of the window (or pumps it to a
-            # dark halo) is penalised even though pib/rms are exposure-invariant
-            # ratios (energy-encircled constraint; see AGENTS.md anti-pattern).
-            to_min = -1
+            # reference_center (never tracks the spot). ``ee_term`` = fraction
+            # of the baseline (flat-phase) window energy still inside the window,
+            # so a search that diffracts/scatters light out of the window (or
+            # pumps it to a dark halo) is penalised even though pib/rms are
+            # exposure-invariant ratios (energy-encircled constraint; see
+            # AGENTS.md anti-pattern).
             _rms_pib_state: dict = {}
             _init_w_pib, _init_w_rms, _init_w_ee = _resolve_init_weights(
                 w_pib_init, w_rms_init, w_ee_init
@@ -1166,7 +1349,7 @@ def optimize_slm_zernike_pib(
             _init_energy = float(np.sum(np.asarray(init_img, dtype=np.float64)))
             last_terms: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
 
-            def calc_objective_rms_pib(img):
+            def _calc_objective_rms_pib(img):
                 nonlocal last_terms
                 w_pib = float(_rms_pib_state.setdefault("w_pib", _init_w_pib))
                 w_rms = float(_rms_pib_state.setdefault("w_rms", _init_w_rms))
@@ -1191,13 +1374,11 @@ def optimize_slm_zernike_pib(
                 )
                 return float(j), float(pib_term)
 
-            calc_objective = calc_objective_rms_pib
+            calc_objective = _calc_objective_rms_pib
         elif objective == "shape":
-            to_min = -1
-
             _shape_state = {"best_energy": 0.0}
 
-            def calc_objective_shape(img):
+            def _calc_objective_shape(img):
                 # The target ROI is FIXED at reference_center - it never tracks the
                 # measured spot, so a spot that drifts/scatters out of the box is
                 # penalised instead of being followed (displacement weight = 0 for
@@ -1224,13 +1405,12 @@ def optimize_slm_zernike_pib(
                 _shape_state["best_energy"] = max(_shape_state["best_energy"], energy)
                 return score, energy
 
-            calc_objective = calc_objective_shape
+            calc_objective = _calc_objective_shape
         elif objective == "rmse":
             # Minimise the RMSE between the frame and the uniform-intensity target,
             # both normalised to unit sum (exposure / laser-drift invariant).
-            # to_min stays +1 (minimise) - same sign convention as 'radiu'.
 
-            def calc_objective_rmse(img):
+            def _calc_objective_rmse(img):
                 return rmse_shape_metric(
                     img,
                     reference_center,
@@ -1239,22 +1419,20 @@ def optimize_slm_zernike_pib(
                     target_aspect_ratio,
                 )
 
-            calc_objective = calc_objective_rmse
+            calc_objective = _calc_objective_rmse
         elif objective == "radiu":
-
-            def calc_objective_radiu(img):
+            def _calc_objective_radiu(img):
                 r = target_func.radius(img, energy=0.99)
                 return r, 0.0
 
-            calc_objective = calc_objective_radiu
+            calc_objective = _calc_objective_radiu
         elif objective == "avg_radiu":
-            # Maximize average radius: same sign flip as PIB.
-            to_min = -1
+            # Maximize average radius.
 
-            def calc_objective_avg(img):
+            def _calc_objective_avg(img):
                 return target_func.avg_radius(img, moment=1.0)
 
-            calc_objective = calc_objective_avg
+            calc_objective = _calc_objective_avg
 
         # --- Safety guard: abandon evaluations that lose too much ROI energy --
         # Reference = the in-ROI energy of the initial (flat/loaded) frame. Any
@@ -1351,7 +1529,7 @@ def optimize_slm_zernike_pib(
         # independent bucket ratio (matches the logged column); for the other
         # objectives it is the value the gradient uses -- e.g. the encircle
         # radius, which must be MINIMISED (a `>` comparison would keep the worst).
-        best_objective = float(test_pib(init_img)) if objective == "pib" else float(j)
+        best_objective = float(ideal_pib_ratio(init_img)) if objective == "pib" else float(j)
         # Baseline objective of the initial phase (flat when ``init_c`` is
         # empty). Used on exit to decide between the best phase and flat.
         _initial_objective = best_objective
@@ -1420,7 +1598,7 @@ def optimize_slm_zernike_pib(
                 "m_rmse": float(_rmse),
                 "m_roi_pib": float(_roi_score),
                 "m_pib": float(target_func.pib(img, r_bucket)[1]),
-                "m_pib7": float(test_pib(img)),
+                "m_pib7": float(ideal_pib_ratio(img)),
                 # Equal-weight (1/3 each) rms_pib score: the objective's own
                 # adaptive weights vary per epoch, so the fixed-weight value is
                 # the cross-run comparable form.
@@ -1620,7 +1798,7 @@ def optimize_slm_zernike_pib(
                             w_floor=w_floor,
                             w_temperature=w_temperature,
                         )
-                obj_val = float(test_pib(img)) if objective == "pib" else float(obj)
+                obj_val = float(ideal_pib_ratio(img)) if objective == "pib" else float(obj)
                 last_eval.update(
                     {
                         "phase": candidate_phase,
@@ -1760,11 +1938,12 @@ def optimize_slm_zernike_pib(
                 # `diff` is kept for logging; the SPGD sign comes from the
                 # shared helper (optimizer/spgd.py) so it cannot be
                 # hand-inverted again (this site maximised/minimised the wrong
-                # way until the to_min fix). Cast to float: bucket sums are
-                # unsigned.
-                diff = (float(pos_j) - float(neg_j)) * to_min
+                # way until the objective_mode fix). Cast to float: bucket sums
+                # are unsigned.
+                _spgd_sign = -1.0 if objective_mode == "max" else 1.0
+                diff = (float(pos_j) - float(neg_j)) * _spgd_sign
                 gradient = spgd_gradient(
-                    pos_j, neg_j, disturb_c, maximize=(to_min == -1)
+                    pos_j, neg_j, disturb_c, maximize=(objective_mode == "max")
                 )
                 update = optimizer.update(gradient)
                 _to_update_c = np.clip(_init_c - update, -5.0, 5.0)
@@ -1774,7 +1953,7 @@ def optimize_slm_zernike_pib(
                 # Recorder to pick its best row: the bucket ratio for "pib",
                 # otherwise the objective the gradient optimises (e.g. radius).
                 objective_val = (
-                    float(test_pib(pos_img)) if objective == "pib" else float(pos_j)
+                    float(ideal_pib_ratio(pos_img)) if objective == "pib" else float(pos_j)
                 )
                 objective_ratio = (pos_obj_ratio + neg_obj_ratio) / 2
                 J = (pos_j + neg_j) / 2
@@ -1969,22 +2148,24 @@ if __name__ == "__main__":
     recorder = optimize_slm_zernike_pib(
         center=args.center,
         epochs=args.epochs,
-        n_max=args.n_max,
-        r_bucket=args.r_bucket,
-        delta=args.delta,
-        lr=args.lr,
-        exposure_time_ms=args.exposure_time_ms,
-        cam_id=cam_id,
-        cam_type=args.cam_type,
-        slm_number=args.slm_number,
-        slm_wavelength=args.slm_wavelength,
-        optimizer_type=args.optimizer,
-        algorithm=args.algorithm,
-        pop_size=args.pop_size,
-        objective=args.objective,
-        random_seed=args.seed,
-        show=args.show,
-        cam_size=args.cam_size,
+        config=SlmZernikePibConfig(
+            n_max=args.n_max,
+            r_bucket=args.r_bucket,
+            delta=args.delta,
+            lr=args.lr,
+            exposure_time_ms=args.exposure_time_ms,
+            cam_id=cam_id,
+            cam_type=args.cam_type,
+            slm_number=args.slm_number,
+            slm_wavelength=args.slm_wavelength,
+            optimizer_type=args.optimizer,
+            algorithm=args.algorithm,
+            pop_size=args.pop_size,
+            objective=args.objective,
+            random_seed=args.seed,
+            show=args.show,
+            cam_size=args.cam_size,
+        ),
     )
 
     best_iter, (_, best_val) = recorder.get_best_iter()
