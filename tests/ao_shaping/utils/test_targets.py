@@ -14,13 +14,24 @@ import numpy as np
 import pytest
 
 from ao_shaping.utils.image.targets import (
+    SHAPE_STAGE_WEIGHTS,
+    TARGET_SHAPE_CHOICES,
     build_square_target_amplitude,
     compute_square_side,
     create_target_mask,
     create_target_shape,
     crop_resize_to_grid,
     load_target_image,
+    rmse_shape_metric,
+    rms_pib_terms,
+    roi_energy_loss,
+    roi_pib_metric,
+    shape_metric,
+    shape_stage,
+    shape_stage_from_energy,
+    spot_waist_sigma,
     square_target_from_measurement,
+    target_shape_roi,
 )
 
 
@@ -364,3 +375,236 @@ class TestSquareTargetFromMeasurement:
         frame = np.full((10, 12), 10.0, dtype=np.float32)
         with pytest.raises(ValueError, match="无有效信号"):
             square_target_from_measurement(frame, 4, 8, 8)
+
+
+class TestTargetShapeRoi:
+    """``target_shape_roi``: boolean ROI masks on a CCD frame."""
+
+    def test_square_mask(self) -> None:
+        roi = target_shape_roi((10, 10), (5, 5), "square", 3)
+        assert roi.shape == (10, 10)
+        assert roi.dtype == bool
+        assert roi.sum() == 9  # 3x3 block
+        assert roi[3:6, 3:6].all()
+        assert not roi[2, 2]
+
+    def test_rectangle_aspect_ratio(self) -> None:
+        # side=3 is the SHORT side; long side = 3 * 2 = 6
+        roi = target_shape_roi((10, 10), (5, 5), "rectangle", 3, aspect_ratio=2.0)
+        assert roi.shape == (10, 10)
+        assert roi.sum() == 18  # 6 wide x 3 tall
+        assert roi[3:6, 2:8].all()
+
+    def test_follows_center(self) -> None:
+        roi = target_shape_roi((10, 10), (7, 3), "square", 3)
+        assert roi.sum() == 9
+        assert roi[1:4, 5:8].all()
+        assert not roi[0, 5]
+
+    def test_size_clamp_fits_frame(self) -> None:
+        # 100px target on a 10px frame -> uniformly scaled to 10x10, no crash
+        roi = target_shape_roi((10, 10), (5, 5), "square", 100)
+        assert roi.shape == (10, 10)
+        assert roi.dtype == bool
+        assert roi.sum() == 100  # scaled to the full frame
+
+    def test_unknown_shape_raises(self) -> None:
+        with pytest.raises(ValueError, match="Unknown target shape"):
+            target_shape_roi((10, 10), (5, 5), "bogus", 3)
+
+    def test_non_2d_image_shape_raises(self) -> None:
+        with pytest.raises(ValueError, match="image_shape"):
+            target_shape_roi((10,), (5, 5), "square", 3)
+
+
+class TestSpotWaistSigma:
+    """``spot_waist_sigma``: second-moment RMS waist radius."""
+
+    def test_dark_frame_zero(self) -> None:
+        assert spot_waist_sigma(np.zeros((10, 10))) == 0.0
+
+    def test_single_pixel_zero(self) -> None:
+        frame = np.zeros((11, 11))
+        frame[5, 5] = 1.0
+        assert spot_waist_sigma(frame) == 0.0
+
+    def test_wider_spot_larger_sigma(self) -> None:
+        small = np.zeros((11, 11))
+        small[4:7, 4:7] = 1.0  # 3x3 block
+        large = np.zeros((11, 11))
+        large[3:8, 3:8] = 1.0  # 5x5 block
+        assert spot_waist_sigma(large) > spot_waist_sigma(small)
+
+    def test_non_2d_raises(self) -> None:
+        with pytest.raises(ValueError, match="2D"):
+            spot_waist_sigma(np.zeros((2, 2, 2)))
+
+
+class TestRoiEnergyLoss:
+    """``roi_energy_loss``: fractional in-ROI energy loss vs a reference."""
+
+    def test_exact_match_zero(self) -> None:
+        assert roi_energy_loss(10.0, 10.0) == 0.0
+
+    def test_fractional_loss(self) -> None:
+        assert np.isclose(roi_energy_loss(10.0, 7.5), 0.25)
+
+    def test_nonpositive_reference_zero(self) -> None:
+        assert roi_energy_loss(0.0, 5.0) == 0.0
+        assert roi_energy_loss(-1.0, 5.0) == 0.0
+        assert roi_energy_loss(np.nan, 5.0) == 0.0
+
+
+class TestRoiPibMetric:
+    """``roi_pib_metric``: fraction of light inside the target-shaped ROI."""
+
+    def test_all_light_inside(self) -> None:
+        frame = np.zeros((20, 20))
+        frame[10, 10] = 1.0
+        score, energy = roi_pib_metric(frame, (10, 10), "square", 3)
+        assert score == 1.0
+        assert energy == 1.0
+
+    def test_light_outside_scores_zero(self) -> None:
+        frame = np.zeros((20, 20))
+        frame[0, 0] = 1.0
+        score, energy = roi_pib_metric(frame, (10, 10), "square", 3)
+        assert score == 0.0
+        assert energy == 0.0
+
+    def test_zero_total_frame(self) -> None:
+        assert roi_pib_metric(np.zeros((20, 20)), (10, 10), "square", 3) == (0.0, 0.0)
+
+    def test_exposure_invariant(self) -> None:
+        frame = np.zeros((20, 20))
+        frame[10, 10] = 1.0
+        bright = frame * 10.0
+        assert roi_pib_metric(bright, (10, 10), "square", 3) == roi_pib_metric(
+            frame, (10, 10), "square", 3
+        )
+
+    def test_non_2d_raises(self) -> None:
+        with pytest.raises(ValueError, match="2D"):
+            roi_pib_metric(np.zeros((2, 2, 2)), (1, 1), "square", 3)
+
+
+class TestRmsPibTerms:
+    """``rms_pib_terms``: PIB + in-ROI uniformity terms."""
+
+    def test_uniform_roi(self) -> None:
+        frame = np.zeros((20, 20))
+        frame[8:11, 8:11] = 1.0  # exactly the 3x3 ROI at center (10, 10)
+        pib, rms = rms_pib_terms(frame, (10, 10), "square", 3)
+        assert pib == 1.0
+        assert rms == 1.0  # std/mean = 0 -> rms_term = 1
+
+    def test_zero_total_frame(self) -> None:
+        assert rms_pib_terms(np.zeros((20, 20)), (10, 10), "square", 3) == (0.0, 0.0)
+
+    def test_terms_in_unit_range(self) -> None:
+        frame = np.zeros((20, 20))
+        frame[8:11, 8:11] = [[1.0, 2.0, 1.0], [2.0, 4.0, 2.0], [1.0, 2.0, 1.0]]
+        pib, rms = rms_pib_terms(frame, (10, 10), "square", 3)
+        assert 0.0 <= pib <= 1.0
+        assert 0.0 <= rms <= 1.0
+
+
+class TestRmseShapeMetric:
+    """``rmse_shape_metric``: sum-normalised RMSE vs the target shape."""
+
+    def test_dark_frame_penalty(self) -> None:
+        assert rmse_shape_metric(np.zeros((20, 20)), (10, 10), "square", 3) == (1e3, 0.0)
+
+    def test_frame_equals_target(self) -> None:
+        roi = target_shape_roi((20, 20), (10, 10), "square", 3)
+        rmse, energy = rmse_shape_metric(roi.astype(np.float64), (10, 10), "square", 3)
+        assert rmse == pytest.approx(0.0, abs=1e-12)
+        assert energy == 1.0
+
+
+class TestShapeMetric:
+    """``shape_metric``: energy minus bounded uniformity/peak/displacement terms."""
+
+    def test_uniform_box_score_equals_energy(self) -> None:
+        frame = np.zeros((20, 20))
+        frame[8:11, 8:11] = 1.0  # exactly the 3x3 ROI at center (10, 10)
+        score, energy = shape_metric(
+            frame,
+            (10, 10),
+            reference_center=(10, 10),
+            target_shape="square",
+            target_size=3,
+        )
+        assert energy == 1.0
+        assert score == pytest.approx(1.0)
+
+    def test_stage_fine_matches_explicit_weights(self) -> None:
+        frame = np.zeros((20, 20))
+        frame[8:11, 8:11] = [[1.0, 2.0, 1.0], [2.0, 4.0, 2.0], [1.0, 2.0, 1.0]]
+        score_stage, _ = shape_metric(
+            frame,
+            (10, 10),
+            reference_center=(10, 10),
+            target_shape="square",
+            target_size=3,
+            stage="fine",
+        )
+        score_explicit, _ = shape_metric(
+            frame,
+            (10, 10),
+            reference_center=(10, 10),
+            target_shape="square",
+            target_size=3,
+            w_uniformity=3.0,
+            w_peak=0.5,
+            w_displacement=0.5,
+        )
+        assert np.isclose(score_stage, score_explicit)
+
+    def test_unknown_stage_raises(self) -> None:
+        frame = np.zeros((20, 20))
+        frame[9:12, 9:12] = 1.0
+        with pytest.raises(ValueError, match="stage must be one of"):
+            shape_metric(
+                frame, (10, 10), target_shape="square", target_size=3, stage="bogus"
+            )
+
+
+class TestShapeStage:
+    """``shape_stage`` / ``shape_stage_from_energy``: coarse/middle/fine mapping."""
+
+    def test_shape_stage_thresholds(self) -> None:
+        assert shape_stage(0.1) == "coarse"
+        assert shape_stage(0.5) == "middle"
+        assert shape_stage(0.9) == "fine"
+
+    def test_shape_stage_clamps(self) -> None:
+        assert shape_stage(-1.0) == "coarse"
+        assert shape_stage(2.0) == "fine"
+
+    def test_shape_stage_from_energy_thresholds(self) -> None:
+        assert shape_stage_from_energy(0.2) == "coarse"
+        assert shape_stage_from_energy(0.7) == "middle"
+        assert shape_stage_from_energy(0.9) == "fine"
+
+
+class TestShapeConstants:
+    """Module constants moved with the metric family."""
+
+    def test_target_shape_choices(self) -> None:
+        assert set(TARGET_SHAPE_CHOICES) == {
+            "circle",
+            "square",
+            "rectangle",
+            "annular",
+            "grid",
+            "cross",
+            "gaussian",
+            "pentagon",
+        }
+
+    def test_shape_stage_weights(self) -> None:
+        assert set(SHAPE_STAGE_WEIGHTS) == {"coarse", "middle", "fine"}
+        assert SHAPE_STAGE_WEIGHTS["coarse"] == (0.0, 0.0, 0.0)
+        assert SHAPE_STAGE_WEIGHTS["middle"] == (2.0, 0.0, 0.0)
+        assert SHAPE_STAGE_WEIGHTS["fine"] == (3.0, 0.5, 0.5)
