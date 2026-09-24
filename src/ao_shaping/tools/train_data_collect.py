@@ -10,6 +10,7 @@ import tqdm
 
 from ao_shaping.drivers import MIICamera, MlaRes, NlightDM, ThorlabWFS
 from ao_shaping.utils import gen_file_path_inc, gen_file_path_uuid
+from ao_shaping.optimizer.constants import METROPOLIS_ALPHA
 from ao_shaping.optimizer.spgd import spgd_gradient
 
 ROOT_DIR = "./data/img2img"
@@ -21,9 +22,6 @@ beta3 = 0.9999
 
 # cool_momentum_spgd parameters
 Rho_0 = 0.99
-
-# metropolis parameters
-METROPOLIS_ALPHA = 0.8
 
 # dm parameters
 KEEP_VOLTAGE_WHEN_EXIT = False

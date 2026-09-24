@@ -642,7 +642,7 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
 ## UNIQUE STYLES
 
 - **Mock-first testing**: Tests use simulation classes (`SimTurbulenceAOEnv`, `sim_spgd`) to avoid hardware
-- **Zernike Noll 约定统一** (aotools Noll 1976): Noll 4 = (2,0) defocus, Noll 5 = (2,-2) astig, Noll 11 = (4,0) spherical, Noll 13 = (4,-2)。**注意** `optimizer/wf/` 三个优化器的 legacy 查表 (那里 Noll 5 = (2,0)) 的索引映射现仅存于 `utils/wavefront/zernike_utils.py` 的 `noll_to_nm_legacy()` (仅为行为一致性保留, 与 canonical 约定不同), **仅 `rms_by_zernike.py` 沿用**; 三者的模式枚举已全部改用 canonical `zernike_calc.zernike_modes()` (序列与 legacy 枚举逐项一致)。新代码一律用 `zernike_calc.noll_to_nm()` / `zernike_utils.list_zernike_modes()`, 勿混用两套索引。zernike_utils 模块文档含完整前 15 阶映射表。
+- **Zernike Noll 约定统一** (aotools Noll 1976): Noll 4 = (2,0) defocus, Noll 5 = (2,-2) astig, Noll 11 = (4,0) spherical, Noll 13 = (4,-2)。`optimizer/wf/` 三个优化器 (ga_zernike / greedy_zernike / rms_by_zernike) 的模式枚举与 Noll 索引→(n,m) 映射已全部使用 canonical `zernike_calc.noll_to_nm()` / `zernike_calc.zernike_modes()`; 历史 legacy 硬编码查表 (`noll_to_nm_legacy`, 那里 Noll 5 = (2,0)) 已删除, 不再存在。新代码一律用 `zernike_calc.noll_to_nm()` / `zernike_utils.list_zernike_modes()`, 勿混用两套索引。zernike_utils 模块文档含完整前 15 阶映射表。
 - **Hardware skip pattern**: Tests requiring physical hardware use `pytest.skip("Requires DM hardware")`
 - **Recorder pattern**: Optimization tests validate history dictionaries with expected fields
 - **Optional backend testing**: CuPy/Numba tested conditionally with try/except guards

@@ -8,15 +8,8 @@ import matplotlib.pylab as plt
 from ao_shaping.drivers import MIICamera
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.dm._registry import get_dm_registry
-from ao_shaping.algorithm.gradient.adam import (
-    AdaMOD,
-    Adam,
-    AdamW,
-    Base,
-    Muno,
-    MunoW,
-    SGD,
-)
+from ao_shaping.algorithm.gradient.adam import AdaMOD, Base
+from ao_shaping.optimizer.constants import OPTIMIZER_MAP
 from ao_shaping.utils import ImageVoltagesDisplay, logger, Recorder
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils.image.spots_calc import centroid, radius
@@ -27,9 +20,6 @@ beta1 = 0.9
 beta2 = 0.99
 beta3 = 0.9999
 
-# metropolis parameters
-METROPOLIS_ALPHA = 0.8
-
 # camera parameters
 CAM_SAMPLE_ITER = 1
 ADVISE_EXPOSURE_TIME_BRIGHTNESS = int(255 / 3)
@@ -38,15 +28,6 @@ IDEAL_SPOT_RADIUS = int(os.environ.get("IDEAL_SPOT_RADIUS", 6))
 
 # dm parameters
 KEEP_VOLTAGE_WHEN_EXIT = True
-
-OPTIMIZER_MAP = {
-    "adam": Adam,
-    "adamw": AdamW,
-    "adamod": AdaMOD,
-    "sgd": SGD,
-    "muno": Muno,
-    "munow": MunoW,
-}
 
 
 # Re-export TabuMemory and AdaptiveSearchState from shared algorithm module

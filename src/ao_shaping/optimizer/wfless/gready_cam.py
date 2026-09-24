@@ -24,9 +24,6 @@ beta3 = 0.9995
 # cool_momentum_spgd parameters
 Rho_0 = 0.99
 
-# metropolis parameters
-METROPOLIS_ALPHA = 0.8
-
 # camera parameters
 CAM_EXP_TIME = 100
 CAM_EXP_TIME_ADJ_RATE = 0

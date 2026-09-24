@@ -35,7 +35,6 @@ from ao_shaping.utils.image.spots_calc import (
 BETA1: float = 0.9
 BETA2: float = 0.99
 BETA3: float = 0.9999
-METROPOLIS_ALPHA: float = 0.8
 
 CAM_SAMPLE_ITER: int = 1
 TEST_EXPOSURE_TIME_BRIGHTNESS: int = 220

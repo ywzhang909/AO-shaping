@@ -30,26 +30,28 @@ class TestHelperFunctions:
     """Test helper functions in the module."""
 
     def test_noll_to_nm(self):
-        """Test Noll index to (n, m) conversion with known values."""
-        from ao_shaping.utils.wavefront.zernike_utils import noll_to_nm_legacy as noll_to_nm
+        """Test Noll index to (n, m) conversion with known values (canonical Noll)."""
+        from ao_shaping.utils.wavefront.zernike_calc import noll_to_nm
 
-        # Test known Noll indices
+        # Test known Noll indices (aotools Noll 1976 convention)
         assert noll_to_nm(1) == (0, 0)   # piston
-        assert noll_to_nm(2) == (1, -1)  # tilt x
-        assert noll_to_nm(3) == (1, 1)  # tilt y
-        assert noll_to_nm(4) == (2, -2)  # oblique astigmatism
-        assert noll_to_nm(5) == (2, 0)  # defocus
-        assert noll_to_nm(6) == (2, 2)  # oblique astigmatism
+        assert noll_to_nm(2) == (1, 1)  # tilt x
+        assert noll_to_nm(3) == (1, -1)  # tilt y
+        assert noll_to_nm(4) == (2, 0)  # defocus
+        assert noll_to_nm(5) == (2, -2)  # oblique astigmatism
+        assert noll_to_nm(6) == (2, 2)  # astigmatism
 
-    def test_noll_to_nm_invalid(self):
-        """Test that invalid Noll indices raise ValueError."""
-        from ao_shaping.utils.wavefront.zernike_utils import noll_to_nm_legacy as noll_to_nm
+    def test_noll_to_nm_edge_cases(self):
+        """Test edge cases: j=0 raises ValueError, high j is valid."""
+        from ao_shaping.utils.wavefront.zernike_calc import noll_to_nm
 
         with pytest.raises(ValueError):
             noll_to_nm(0)  # too small
 
-        with pytest.raises(ValueError):
-            noll_to_nm(100)  # too large
+        n, m = noll_to_nm(100)  # any Noll index is supported
+        assert isinstance(n, int) and isinstance(m, int)
+        assert n >= 1
+        assert abs(m) <= n
 
     def test_zernike_indices(self):
         """Test Zernike indices generation with n_max=4."""

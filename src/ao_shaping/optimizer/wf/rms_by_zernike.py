@@ -39,7 +39,6 @@ from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.utils import Recorder, logger
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 from ao_shaping.utils.wavefront.zernike_calc import zernike_modes as _zernike_indices
-from ao_shaping.utils.wavefront.zernike_utils import noll_to_nm_legacy as noll_to_nm
 from ao_shaping.optimizer.spgd import spgd_gradient
 
 # =============================================================================
@@ -413,17 +412,19 @@ def _get_perturb_weights(n_zernike: int) -> np.ndarray:
 def _zernike_indices_from_n(n_zernike: int) -> list[tuple[int, int]]:
     """根据Zernike项数量生成(n,m)模式列表
 
+    取 ``zernike_modes`` 序列的前 ``n_zernike`` 项 (与 legacy Noll 查表在
+    ``n_zernike <= 15`` 时逐项一致)。
+
     Args:
-        n_zernike: Zernike项数量 (Noll顺序)
+        n_zernike: Zernike项数量
 
     Returns:
         (n,m)元组列表
     """
-    modes = []
-    for j in range(1, n_zernike + 1):
-        n, m = noll_to_nm(j)
-        modes.append((n, m))
-    return modes
+    n_max = 1
+    while calc_n_zernike_terms(n_max) < n_zernike:
+        n_max += 1
+    return _zernike_indices(n_max)[:n_zernike]
 
 
 def optimizer_rms_slm(

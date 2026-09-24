@@ -9,26 +9,10 @@ import numpy as np
 import tqdm
 
 from ao_shaping.drivers.sim.compat import AOConfig, TraditionalAOSystem
-from ao_shaping.algorithm.gradient.adam import (
-    Base,
-    AdaMOD,
-    Adam,
-    AdamW,
-    SGD,
-    Muno,
-    MunoW,
-)
+from ao_shaping.algorithm.gradient.adam import AdaMOD, Base
+from ao_shaping.optimizer.constants import OPTIMIZER_MAP
 from ao_shaping.utils.image.spots_calc import power_bucket, radius
 from ao_shaping.utils import logger, Recorder
-
-OPTIMIZER_MAP = {
-    "adam": Adam,
-    "adamw": AdamW,
-    "adamod": AdaMOD,
-    "sgd": SGD,
-    "muno": Muno,
-    "munow": MunoW,
-}
 
 
 def _current_strehl(ao_sys: TraditionalAOSystem) -> float:

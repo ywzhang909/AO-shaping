@@ -43,13 +43,12 @@ requiring the full PatternHelper or SLM context. 从
     Noll 7  → (3, -1)  Coma             Noll 15 → (4, -4)
     Noll 8  → (3, 1)   Coma
 
-注意: `optimizer/wf/` 的 ga_zernike / greedy_zernike / rms_by_zernike 所用的
-legacy 硬编码查表 (那里 Noll 5 = (2, 0)) 以 `noll_to_nm_legacy()` 存在于本模块
-(仅为行为一致性保留)。模式枚举已不再使用 legacy 表 —— wf/ 三个优化器均已改用
-canonical 的 `zernike_modes()` (序列与 legacy 枚举逐项一致);
-仅 rms_by_zernike 的 Noll 索引→(n, m) 映射仍走 `noll_to_nm_legacy()`。
-新代码一律用 canonical 的 `noll_to_nm()` / `list_zernike_modes()`,
-不要混用两套索引。
+注意: 本模块的 `noll_to_nm()` 直接导入自 `zernike_calc` (aotools Noll 1976
+约定, 支持任意 Noll 索引), 是全项目唯一的索引→(n, m) 约定。`optimizer/wf/`
+三个优化器 (ga_zernike / greedy_zernike / rms_by_zernike) 的模式枚举与索引
+映射均使用 canonical 约定; 历史遗留的 legacy 硬编码查表 (`noll_to_nm_legacy`,
+Noll 5 = (2, 0)) 已删除。新代码一律用 canonical 的 `noll_to_nm()` /
+`list_zernike_modes()`, 不要混用两套索引。
 
 ==================== 输出格式说明 ====================
 
@@ -102,44 +101,6 @@ def list_zernike_modes(n_max: int) -> list[tuple[int, int, str]]:
             name = get_zernike_name(n, m)
             modes.append((j, n, m, name))
     return modes
-
-
-def noll_to_nm_legacy(j: int) -> tuple[int, int]:
-    """Convert Noll index to (n, m) — LEGACY hardcoded convention.
-
-    Uses a hardcoded lookup table (Noll indices 1-15 only).  This legacy
-    convention DIFFERS from the canonical aotools-based `noll_to_nm()`
-    above (e.g. here Noll 5 = (2, 0) defocus).  Kept only for behavior
-    parity of the wf/ optimizers (ga_zernike / greedy_zernike /
-    rms_by_zernike); new code MUST use the canonical `noll_to_nm()`.
-
-    Args:
-        j: Noll index (1-based), valid range 1-15.
-
-    Returns:
-        Tuple of (n, m) radial and azimuthal orders.
-    """
-    # Noll sequence for Zernike polynomials
-    noll_sequence = [
-        (0, 0),   # 1: piston
-        (1, -1),  # 2: tilt x
-        (1, 1),   # 3: tilt y
-        (2, -2),  # 4: oblique astigmatism
-        (2, 0),   # 5: defocus
-        (2, 2),   # 6: oblique astigmatism
-        (3, -3),  # 7: vertical trefoil
-        (3, -1),  # 8: vertical coma
-        (3, 1),   # 9: horizontal coma
-        (3, 3),   # 10: horizontal trefoil
-        (4, -4),  # 11: quadrafoil
-        (4, -2),  # 12: oblique trefoil
-        (4, 0),   # 13: primary spherical
-        (4, 2),   # 14: oblique trefoil
-        (4, 4),   # 15: quadrafoil
-    ]
-    if j < 1 or j > len(noll_sequence):
-        raise ValueError(f"Noll index {j} out of valid range (1-{len(noll_sequence)})")
-    return noll_sequence[j - 1]
 
 
 def parse_zernike_coefficients(
