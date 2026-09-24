@@ -70,7 +70,7 @@ from __future__ import annotations
 
 import functools
 import os
-from dataclasses import MISSING, dataclass, fields
+from dataclasses import MISSING, dataclass, field, fields
 from pathlib import Path
 from types import UnionType
 from typing import Annotated, Any, Union, cast, get_args, get_origin, get_type_hints
@@ -223,13 +223,13 @@ def with_params(arg_class: type, *, kw_name: str) -> Any:
     def decorator(fn: Any) -> Any:
         # Apply in REVERSED declaration order so click's cumulative
         # __click_params__ yields help in the same order the class reads.
-        for field, field_type, delayed in reversed(
+        for fld, field_type, delayed in reversed(
             _collect_click_annotations(arg_class)
         ):
             dc = _copy_delayed_call(delayed)
-            dc.args = _patch_names(delayed.args, field.name)
-            _patch_click_types(field.name, field_type, dc.kwargs)
-            _patch_defaults(field.name, field, dc.kwargs)
+            dc.args = _patch_names(delayed.args, fld.name)
+            _patch_click_types(fld.name, field_type, dc.kwargs)
+            _patch_defaults(fld.name, fld, dc.kwargs)
             fn = dc.callable(*dc.args, **dc.kwargs)(fn)
 
         @functools.wraps(fn)
@@ -1340,3 +1340,91 @@ class HadamardMatrixRunnerParams:
     debug: Annotated[
         bool | None, option("--debug", is_flag=True, help="启用调试模式")
     ] = None
+
+
+# ---------------------------------------------------------------------------
+# --- full-voltage / alt-voltage (micro_drive) ---
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FullVoltageRunnerParams:
+    """全量交替电压下发 (full-voltage) 的全部 CLI 参数。"""
+
+    ips_str: Annotated[
+        str | None,
+        option("--ips", help="Controller IPs, comma-separated (default: 192.168.0.101~126, 全部 26 台)"),
+    ] = None
+    alt_voltage: Annotated[
+        float,
+        option("--voltage", required=True, help="Voltage for ALL units (V, [-20, 120])"),
+    ] = field(default_factory=lambda: 0.0)
+    alt_freq: Annotated[
+        float, option("--freq", help="Alternation frequency (Hz, default: 1.0)")
+    ] = 1.0
+    alt_duration: Annotated[
+        float, option("--duration", help="Duration in seconds (0=until Ctrl+C, default: 0)")
+    ] = 0.0
+    relay_on: Annotated[
+        bool, option("--relay-on/--no-relay-on", help="Auto relay on before starting (default: True)")
+    ] = True
+    home_voltage: Annotated[
+        float, option("--home-voltage", help="Home voltage on shutdown (default: 0.0)")
+    ] = 0.0
+    timeout: Annotated[
+        float, option("--timeout", help="Controller connect/send timeout (s, default: 10.0)")
+    ] = 10.0
+    debug: Annotated[
+        bool, option("--debug", is_flag=True, help="Enable debug logging")
+    ] = False
+
+
+@dataclass
+class AltVoltageRunnerParams:
+    """交替电压下发 (alt-voltage) 的全部 CLI 参数。"""
+
+    ip: Annotated[
+        str,
+        option("--ip", required=True, help="Controller IP address (e.g., 192.168.0.101)"),
+    ] = field(default_factory=lambda: "")
+    port: Annotated[
+        int | None, option("--port", help="TCP port (default: 10000 + last IP octet)")
+    ] = None
+    alt_voltage: Annotated[
+        float,
+        option("--voltage", required=True, help="Input voltage for alternation (V)"),
+    ] = field(default_factory=lambda: 0.0)
+    alt_freq: Annotated[
+        float, option("--freq", help="Alternation frequency (Hz, default: 1.0)")
+    ] = 1.0
+    alt_duration: Annotated[
+        float, option("--duration", help="Duration in seconds (0=until Ctrl+C, default: 0)")
+    ] = 0.0
+    channel_str: Annotated[
+        str | None,
+        option("--channels", help="Channels to alternate (comma-separated, e.g. 0,1,2 or 'all' for all 50)"),
+    ] = None
+    ping_first: Annotated[
+        bool, option("--ping-first/--no-ping-first", help="Ping test before connecting (default: True)")
+    ] = True
+    relay_on: Annotated[
+        bool, option("--relay-on/--no-relay-on", help="Auto relay on before starting (default: True)")
+    ] = True
+    debug: Annotated[
+        bool, option("--debug", is_flag=True, help="Enable debug logging")
+    ] = False
+    adc_enabled: Annotated[
+        bool, option("--adc-enabled/--no-adc-enabled", help="Enable ADC voltage acquisition (default: False)")
+    ] = False
+    adc_device: Annotated[
+        str, option("--adc-device", help="NI DAQ device name (default: Dev1)")
+    ] = "Dev1"
+    adc_channel: Annotated[
+        str, option("--adc-channel", help="Analog input channel (default: ai0)")
+    ] = "ai0"
+    adc_sample_rate: Annotated[
+        int, option("--adc-sample-rate", help="ADC sample rate in Hz (default: 5000)")
+    ] = 5000
+    adc_samples_per_read: Annotated[
+        int, option("--adc-samples-per-read", help="Samples per ADC read (default: 10)")
+    ] = 10

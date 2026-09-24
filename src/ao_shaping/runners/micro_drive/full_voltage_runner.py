@@ -34,6 +34,7 @@ from ao_shaping.drivers.dm.MicroDM import (
     VOLTAGE_MIN,
 )
 from ao_shaping.drivers.dm.asyn_micro_dm import AsyncMicroDM
+from ao_shaping.runners.runner_common import FullVoltageRunnerParams, with_params
 from ao_shaping.utils.io.cli_helpers import setup_coredumpy
 
 DEFAULT_TIMEOUT = 10.0
@@ -203,31 +204,9 @@ async def _amain(
 
 
 @click.command("full-voltage")
-@click.option("--ips", "ips_str", default=None, type=str,
-              help="Controller IPs, comma-separated (default: 192.168.0.101~126, 全部 26 台)")
-@click.option("--voltage", "alt_voltage", required=True, type=float,
-              help="Voltage for ALL units (V, [-20, 120])")
-@click.option("--freq", "alt_freq", default=1.0, type=float,
-              help="Alternation frequency (Hz, default: 1.0)")
-@click.option("--duration", "alt_duration", default=0.0, type=float,
-              help="Duration in seconds (0=until Ctrl+C, default: 0)")
-@click.option("--relay-on/--no-relay-on", default=True,
-              help="Auto relay on before starting (default: True)")
-@click.option("--home-voltage", default=0.0, type=float,
-              help="Home voltage on shutdown (default: 0.0)")
-@click.option("--timeout", default=DEFAULT_TIMEOUT, type=float,
-              help="Controller connect/send timeout (s, default: 10.0)")
-@click.option("--debug", is_flag=True, default=False, help="Enable debug logging")
-def run(
-    ips_str: str | None,
-    alt_voltage: float,
-    alt_freq: float,
-    alt_duration: float,
-    relay_on: bool,
-    home_voltage: float,
-    timeout: float,
-    debug: bool,
-) -> None:
+@click.pass_context
+@with_params(FullVoltageRunnerParams, kw_name="params")
+def run(ctx: click.Context, params: FullVoltageRunnerParams) -> None:
     """全量交替电压下发工具 (AsyncMicroDM)
 
     所有单元同时、均匀地在 0V 和指定电压之间交替。基于 asyncio 异步驱动。
@@ -241,28 +220,28 @@ def run(
         python -m ao_shaping.runners.full_voltage_runner \
             --ips 192.168.0.101,192.168.0.102 --voltage 30 --freq 2.0 --duration 10
     """
-    if debug:
+    if params.debug:
         logger.remove()
         logger.add(sys.stderr, level="DEBUG")
 
-    if not (VOLTAGE_MIN <= alt_voltage <= VOLTAGE_MAX):
-        click.echo(f"❌ 电压 {alt_voltage} V 超出硬件范围 [{VOLTAGE_MIN}, {VOLTAGE_MAX}] V")
+    if not (VOLTAGE_MIN <= params.alt_voltage <= VOLTAGE_MAX):
+        click.echo(f"❌ 电压 {params.alt_voltage} V 超出硬件范围 [{VOLTAGE_MIN}, {VOLTAGE_MAX}] V")
         sys.exit(1)
-    if not (VOLTAGE_MIN <= home_voltage <= VOLTAGE_MAX):
-        click.echo(f"❌ 归位电压 {home_voltage} V 超出硬件范围 [{VOLTAGE_MIN}, {VOLTAGE_MAX}] V")
+    if not (VOLTAGE_MIN <= params.home_voltage <= VOLTAGE_MAX):
+        click.echo(f"❌ 归位电压 {params.home_voltage} V 超出硬件范围 [{VOLTAGE_MIN}, {VOLTAGE_MAX}] V")
         sys.exit(1)
-    if alt_freq <= 0:
+    if params.alt_freq <= 0:
         click.echo("❌ 频率必须大于 0")
         sys.exit(1)
-    if timeout <= 0:
+    if params.timeout <= 0:
         click.echo("❌ 超时时间必须大于 0")
         sys.exit(1)
 
-    if ips_str is None:
+    if params.ips_str is None:
         ip_list = list(DEFAULT_IPS)
         ip_source = "默认值 (静态 IP .101~.126)"
     else:
-        ip_list = [s.strip() for s in ips_str.split(",") if s.strip()]
+        ip_list = [s.strip() for s in params.ips_str.split(",") if s.strip()]
         ip_source = "--ips 参数"
         if not ip_list:
             click.echo("❌ IP 列表为空")
@@ -272,7 +251,7 @@ def run(
     logger.debug("IP 来源: {} → {}", ip_source, ip_list)
 
     rc = asyncio.run(
-        _amain(ip_list, alt_voltage, alt_freq, alt_duration, relay_on, home_voltage, timeout)
+        _amain(ip_list, params.alt_voltage, params.alt_freq, params.alt_duration, params.relay_on, params.home_voltage, params.timeout)
     )
     sys.exit(rc)
 
