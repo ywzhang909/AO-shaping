@@ -16,13 +16,14 @@ from ao_shaping.utils.io.cli_helpers import (
     get_debug_mode,
 )
 from ao_shaping.drivers.dm._registry import resolve_dm
-from ao_shaping.runners.runner_common import WfRunnerParams, with_params
+from ao_shaping.runners.runner_common import WfRunnerParams, WfsParams, with_params
 
 
 @click.command()
 @click.pass_context
 @with_params(WfRunnerParams, kw_name="params")
-def run(ctx: click.Context, params: WfRunnerParams) -> None:
+@with_params(WfsParams, kw_name="wfs")
+def run(ctx: click.Context, params: WfRunnerParams, wfs: WfsParams) -> None:
     """波前优化器
 
     DEBUG环境变量控制调试模式。
@@ -36,9 +37,9 @@ def run(ctx: click.Context, params: WfRunnerParams) -> None:
         records = optimizer_rms_dm(
             init_v=init_v,
             epochs=params.epochs,
-            wfs_res=cast(Literal["512", "768"], params.wfs_res),
-            pupil_diameter=params.pupil_diameter,
-            pupil_center=cast(tuple[float, float], params.pupil_center),
+            wfs_res=cast(Literal["512", "768"], wfs.wfs_res),
+            pupil_diameter=wfs.pupil_diameter,
+            pupil_center=cast(tuple[float, float], wfs.pupil_center),
             early_stop_threshold=params.early_stop_threshold,
             dm=dm,
         )

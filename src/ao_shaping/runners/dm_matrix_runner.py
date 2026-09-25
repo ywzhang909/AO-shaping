@@ -32,7 +32,12 @@ from ao_shaping.optimizer.wf.dm_response_matrix import (
     calibrate_dm_response_matrix,
     save_dm_response_matrix,
 )
-from ao_shaping.runners.runner_common import DmMatrixRunnerParams, with_params
+from ao_shaping.runners.runner_common import (
+    DmMatrixRunnerParams,
+    ThorlabWfsDriverParams,
+    WfsParams,
+    with_params,
+)
 from ao_shaping.utils.io.cli_helpers import (
     get_debug_mode,
     get_timestamp_str,
@@ -44,7 +49,14 @@ from ao_shaping.utils.wavefront.wfs_utils import make_actuator_debug_callback
 @click.command("dm-matrix")
 @click.pass_context
 @with_params(DmMatrixRunnerParams, kw_name="params")
-def run(ctx: click.Context, params: DmMatrixRunnerParams) -> None:
+@with_params(WfsParams, kw_name="wfs")
+@with_params(ThorlabWfsDriverParams, kw_name="wfs_drv")
+def run(
+    ctx: click.Context,
+    params: DmMatrixRunnerParams,
+    wfs: WfsParams,
+    wfs_drv: ThorlabWfsDriverParams,
+) -> None:
     """获取DM变形镜响应矩阵
 
     依次对每个DM单元施加正负电压扰动, 记录WFS子孔径斜率偏差,
@@ -72,10 +84,10 @@ def run(ctx: click.Context, params: DmMatrixRunnerParams) -> None:
         debug = get_debug_mode()
 
     # Resolve WFS exposure time
-    effective_exp_time = 0.0 if params.auto_exposure else params.exp_time
+    effective_exp_time = 0.0 if wfs_drv.auto_exposure else wfs_drv.exp_time
 
     # Convert mla_index string to MlaRes enum
-    mla_index_enum = MlaRes.from_str(params.mla_index)
+    mla_index_enum = MlaRes.from_str(wfs_drv.mla_index)
 
     # Parse dm_unit_mask if provided
     dm_unit_mask: np.ndarray | None = None
@@ -111,20 +123,20 @@ def run(ctx: click.Context, params: DmMatrixRunnerParams) -> None:
         with ThorlabWFS(
             mla_index=mla_index_enum,
             exposure_time=effective_exp_time,
-            high_speed=params.high_speed,
-            use_custom_ref=params.use_custom_ref,
-            pupil_diameter=params.pupil_diameter,
-            pupil_center=cast(tuple[float, float], params.pupil_center),
-        ) as wfs:
+            high_speed=wfs_drv.high_speed,
+            use_custom_ref=wfs_drv.use_custom_ref,
+            pupil_diameter=wfs.pupil_diameter,
+            pupil_center=cast(tuple[float, float], wfs.pupil_center),
+        ) as wfs_dev:
             # Set flat DM and refresh WFS reference
             click.echo("Setting flat DM and refreshing WFS reference...")
             voltages_zero = np.zeros(dm.DM_NUM, dtype=np.float64)
             dm.send_voltages(voltages_zero, wait_time_s=params.wait_time)
             sleep(0.3)
 
-            if not params.use_custom_ref:
-                wfs.save_user_ref()
-                wfs.load_user_ref()
+            if not wfs_drv.use_custom_ref:
+                wfs_dev.save_user_ref()
+                wfs_dev.load_user_ref()
                 logger.debug("WFS reference updated to flat DM.")
 
             # Run calibration
@@ -141,7 +153,7 @@ def run(ctx: click.Context, params: DmMatrixRunnerParams) -> None:
 
             result = calibrate_dm_response_matrix(
                 dm=dm,
-                wfs=wfs,
+                wfs=wfs_dev,
                 disturb_voltage=params.disturb_voltage,
                 n_averages=params.n_averages,
                 n_cycles=params.n_cycles,
@@ -161,10 +173,10 @@ def run(ctx: click.Context, params: DmMatrixRunnerParams) -> None:
             result.device_config = {
                 "mla_index": int(mla_index_enum),
                 "exposure_time": effective_exp_time,
-                "high_speed": params.high_speed,
-                "use_custom_ref": params.use_custom_ref,
-                "pupil_center": list(params.pupil_center),
-                "pupil_diameter": params.pupil_diameter,
+                "high_speed": wfs_drv.high_speed,
+                "use_custom_ref": wfs_drv.use_custom_ref,
+                "pupil_center": list(wfs.pupil_center),
+                "pupil_diameter": wfs.pupil_diameter,
                 "dm_type": type(dm).__name__,
                 "dm_num": dm.DM_NUM if hasattr(dm, "DM_NUM") else 64,
             }

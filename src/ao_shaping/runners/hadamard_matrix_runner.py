@@ -25,7 +25,12 @@ from loguru import logger
 
 from ao_shaping.drivers.dm.hadamard_dm import HadamardDM
 from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
-from ao_shaping.runners.runner_common import HadamardMatrixRunnerParams, with_params
+from ao_shaping.runners.runner_common import (
+    HadamardMatrixRunnerParams,
+    ThorlabWfsDriverParams,
+    WfsParams,
+    with_params,
+)
 from ao_shaping.utils.io.cli_helpers import setup_coredumpy
 from ao_shaping.utils.wavefront.hadamard_calc import calc_n_hadamard_modes
 from ao_shaping.utils.wavefront.wfs_utils import flatten_slopes
@@ -34,7 +39,14 @@ from ao_shaping.utils.wavefront.wfs_utils import flatten_slopes
 @click.command('hadamard-matrix')
 @click.pass_context
 @with_params(HadamardMatrixRunnerParams, kw_name="params")
-def run(ctx: click.Context, params: HadamardMatrixRunnerParams) -> None:
+@with_params(WfsParams, kw_name="wfs")
+@with_params(ThorlabWfsDriverParams, kw_name="wfs_drv")
+def run(
+    ctx: click.Context,
+    params: HadamardMatrixRunnerParams,
+    wfs: WfsParams,
+    wfs_drv: ThorlabWfsDriverParams,
+) -> None:
     """获取Hadamard响应矩阵
 
     支持 N 次正负交替循环测量 + M 次 WFS 读取取平均 + 方差跟踪 + 逆矩阵计算。
@@ -53,8 +65,8 @@ def run(ctx: click.Context, params: HadamardMatrixRunnerParams) -> None:
     if debug is None:
         debug = ctx.parent.obj.get("debug", False) if ctx.parent and ctx.parent.obj else False
 
-    effective_exp_time = 0.0 if params.auto_exposure else params.exp_time
-    mla_index_enum = MlaRes.from_str(params.mla_index)
+    effective_exp_time = 0.0 if wfs_drv.auto_exposure else wfs_drv.exp_time
+    mla_index_enum = MlaRes.from_str(wfs_drv.mla_index)
 
     try:
         hdm = HadamardDM(
@@ -68,22 +80,22 @@ def run(ctx: click.Context, params: HadamardMatrixRunnerParams) -> None:
         with ThorlabWFS(
             mla_index=mla_index_enum,
             exposure_time=effective_exp_time,
-            high_speed=params.high_speed,
-            use_custom_ref=params.use_custom_ref,
-            pupil_diameter=params.pupil_diameter,
-            pupil_center=cast(tuple[float, float], params.pupil_center),
-        ) as wfs:
-            logger.info(f"WFS initialized: MLA={params.mla_index}")
+            high_speed=wfs_drv.high_speed,
+            use_custom_ref=wfs_drv.use_custom_ref,
+            pupil_diameter=wfs.pupil_diameter,
+            pupil_center=cast(tuple[float, float], wfs.pupil_center),
+        ) as wfs_dev:
+            logger.info(f"WFS initialized: MLA={wfs_drv.mla_index}")
 
             flat_phase = np.zeros(n_modes)
             flat_pattern = hdm.generate_phase_2pi(flat_phase)
             logger.debug("Set flat reference on WFS")
 
-            if not params.use_custom_ref:
-                wfs.save_user_ref()
-                wfs.load_user_ref()
+            if not wfs_drv.use_custom_ref:
+                wfs_dev.save_user_ref()
+                wfs_dev.load_user_ref()
 
-            dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=False)
+            dev_x, dev_y = wfs_dev.get_spot_deviation(cancel_tile=False)
             s_flat = flatten_slopes(dev_x, dev_y)
             n_measurements = len(s_flat)
 
@@ -105,7 +117,7 @@ def run(ctx: click.Context, params: HadamardMatrixRunnerParams) -> None:
                 for _ in range(params.n_averages):
                     pattern_plus = hdm.generate_phase_2pi(coeffs_plus)
                     sleep(params.wait_time)
-                    dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=False)
+                    dev_x, dev_y = wfs_dev.get_spot_deviation(cancel_tile=False)
                     s_plus_all.append(flatten_slopes(dev_x, dev_y))
 
                 s_plus_mean = np.mean(s_plus_all, axis=0)
@@ -115,7 +127,7 @@ def run(ctx: click.Context, params: HadamardMatrixRunnerParams) -> None:
                 for _ in range(params.n_averages):
                     pattern_minus = hdm.generate_phase_2pi(coeffs_minus)
                     sleep(params.wait_time)
-                    dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=False)
+                    dev_x, dev_y = wfs_dev.get_spot_deviation(cancel_tile=False)
                     s_minus_all.append(flatten_slopes(dev_x, dev_y))
 
                 s_minus_mean = np.mean(s_minus_all, axis=0)

@@ -14,7 +14,12 @@ import matplotlib.pyplot as plt
 
 from ao_shaping.drivers import MlaRes
 from ao_shaping.optimizer.wf.ga_zernike import optimizer_ga
-from ao_shaping.runners.runner_common import GaZernikeParams, with_params
+from ao_shaping.runners.runner_common import (
+    GaZernikeParams,
+    WfsParams,
+    ZernikeSlmParams,
+    with_params,
+)
 from ao_shaping.utils.image.display import plot_funcs
 from ao_shaping.utils.io.cli_helpers import (
     setup_coredumpy,
@@ -28,13 +33,21 @@ from ao_shaping.utils.io.file import (
 
 
 @click.command(name="ga-zernike")
+@click.pass_context
 @with_params(GaZernikeParams, kw_name="params")
-def run(params: GaZernikeParams) -> None:
+@with_params(WfsParams, kw_name="wfs")
+@with_params(ZernikeSlmParams, kw_name="slm")
+def run(
+    ctx: click.Context,
+    params: GaZernikeParams,
+    wfs: WfsParams,
+    slm: ZernikeSlmParams,
+) -> None:
     """使用遗传算法优化Zernike系数进行波前校正."""
     debug = get_debug_mode()
 
-    # Convert wfs_res from int to MlaRes
-    wfs_res_enum = MlaRes.from_str(str(params.wfs_res))
+    # Convert wfs_res from str to MlaRes
+    wfs_res_enum = MlaRes.from_str(wfs.wfs_res)
 
     click.echo("GA-Zernike优化参数:")
     click.echo(f"  种群大小: {params.population_size}")
@@ -44,15 +57,15 @@ def run(params: GaZernikeParams) -> None:
     click.echo(f"  锦标赛大小: {params.tournament_size}")
     click.echo(f"  精英数量: {params.elite_count}")
     click.echo(f"  最大Zernike阶数: {params.n_max}")
-    click.echo(f"  波长: {params.wavelength} nm")
+    click.echo(f"  波长: {slm.wavelength} nm")
     click.echo(f"  WFS分辨率: {wfs_res_enum}")
-    click.echo(f"  瞳孔直径: {params.pupil_diameter}")
-    click.echo(f"  瞳孔中心: {params.pupil_center}")
+    click.echo(f"  瞳孔直径: {wfs.pupil_diameter}")
+    click.echo(f"  瞳孔中心: {wfs.pupil_center}")
     click.echo(f"  早停阈值: {params.early_stop_threshold}")
-    click.echo(f"  SLM编号: {params.slm_number}")
-    click.echo(f"  去除倾斜: {params.remove_tilt}")
-    click.echo(f"  X偏移: {params.shift_x}")
-    click.echo(f"  Y偏移: {params.shift_y}")
+    click.echo(f"  SLM编号: {slm.slm_number}")
+    click.echo(f"  去除倾斜: {wfs.remove_tilt}")
+    click.echo(f"  X偏移: {slm.shift_x}")
+    click.echo(f"  Y偏移: {slm.shift_y}")
 
     recorder = optimizer_ga(
         n_generations=params.n_generations,
@@ -62,15 +75,15 @@ def run(params: GaZernikeParams) -> None:
         tournament_size=params.tournament_size,
         elite_count=params.elite_count,
         n_max=params.n_max,
-        wavelength=params.wavelength,
+        wavelength=slm.wavelength,
         wfs_res=wfs_res_enum,
-        pupil_diameter=params.pupil_diameter,
-        pupil_center=params.pupil_center,
+        pupil_diameter=wfs.pupil_diameter,
+        pupil_center=wfs.pupil_center,
         early_stop_threshold=params.early_stop_threshold,
-        slm_number=params.slm_number,
-        remove_tilt=params.remove_tilt,
-        shift_x=params.shift_x,
-        shift_y=params.shift_y,
+        slm_number=slm.slm_number,
+        remove_tilt=wfs.remove_tilt,
+        shift_x=slm.shift_x,
+        shift_y=slm.shift_y,
     )
 
     # Extract results

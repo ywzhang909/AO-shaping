@@ -348,6 +348,33 @@ class ZernikeSlmParams:
     ] = 0.3
 
 
+@dataclass
+class ThorlabWfsDriverParams:
+    """Thorlab WFS 驱动级选项 (dm-matrix, hadamard-matrix, zernike-matrix share these)."""
+
+    mla_index: Annotated[
+        str,
+        option(
+            "--mla-index",
+            type=click.Choice(["512", "540", "600", "768", "1280"]),
+            help="MLA分辨率 (默认: 512)",
+        ),
+    ] = "512"
+    exp_time: Annotated[
+        float, option("--exp-time", help="WFS曝光时间 (ms, 0=自动)")
+    ] = 0.0
+    auto_exposure: Annotated[
+        bool,
+        option("--auto-exposure/--no-auto-exposure", help="启用WFS自动曝光 (默认开启)"),
+    ] = True
+    high_speed: Annotated[
+        bool, option("--high-speed", is_flag=True, help="启用高速模式")
+    ] = False
+    use_custom_ref: Annotated[
+        bool, option("--use-custom-ref", is_flag=True, help="使用自定义参考文件")
+    ] = False
+
+
 # ---------------------------------------------------------------------------
 # 算法参数 | algorithm parameters — search / optimisation knobs
 # ---------------------------------------------------------------------------
@@ -769,39 +796,9 @@ class GaZernikeParams:
     n_max: Annotated[
         int, option("-n", "--n-max", help="最大Zernike径向阶数 (default: 4)")
     ] = 4
-    wavelength: Annotated[
-        int, option("-w", "--wavelength", help="SLM波长 (nm) (default: 532)")
-    ] = 532
-    wfs_res: Annotated[
-        int, option("--wfs-res", help="WFS分辨率 (default: 1024)")
-    ] = 1024
-    pupil_diameter: Annotated[
-        float, option("--pupil-diameter", help="WFS瞳孔直径 (default: 4.6)")
-    ] = 4.6
-    pupil_center: Annotated[
-        str | tuple[float, float],
-        option(
-            "-c",
-            "--pupil-center",
-            callback=parse_tuple,
-            help="瞳孔中心坐标 (default: (0,0))",
-        ),
-    ] = "(0,0)"
     early_stop_threshold: Annotated[
         float, option("--early-stop-threshold", help="早停RMS阈值 (default: 0.01)")
     ] = 0.01
-    slm_number: Annotated[
-        int, option("--slm-number", help="SLM设备编号 (default: 1)")
-    ] = 1
-    remove_tilt: Annotated[
-        bool, option("--remove-tilt", is_flag=True, help="去除波前倾斜 (default: False)")
-    ] = False
-    shift_x: Annotated[
-        int, option("--shift-x", help="SLM X方向偏移 (pixels) (default: 0)")
-    ] = 0
-    shift_y: Annotated[
-        int, option("--shift-y", help="SLM Y方向偏移 (pixels) (default: 0)")
-    ] = 0
     show: Annotated[
         bool, option("--show", is_flag=True, help="显示优化历史 (default: False)")
     ] = False
@@ -1067,21 +1064,7 @@ class WfRunnerParams:
     epochs: Annotated[
         int, option("-e", "--epochs", help="优化迭代次数 (default: 20000)")
     ] = 20_000
-    wfs_res: Annotated[
-        str, option("-r", "--wfs_res", help="WFS分辨率 (default: 768)")
-    ] = "768"
-    pupil_diameter: Annotated[
-        float, option("-p", "--pupil_diameter", help="瞳孔直径 (default: 2.7)")
-    ] = 2.7
-    pupil_center: Annotated[
-        str | tuple[float, float] | None,
-        option(
-            "-c",
-            "--pupil_center",
-            callback=parse_tuple,
-            help="瞳孔中心坐标 (default: (0,0))",
-        ),
-    ] = "(0,0)"
+    
     early_stop_threshold: Annotated[
         float, option("-t", "--early_stop_threshold", help="早停阈值 (default: 0.0)")
     ] = 0.0
@@ -1403,38 +1386,6 @@ class DmMatrixRunnerParams:
             help="DM单元掩码 (逗号分隔的0/1列表, 默认: 全部有效, actuator 0禁用)",
         ),
     ] = None
-    mla_index: Annotated[
-        str,
-        option(
-            "--mla-index",
-            type=click.Choice(["512", "540", "600", "768", "1280"]),
-            help="MLA分辨率 (默认: 512)",
-        ),
-    ] = "512"
-    exp_time: Annotated[
-        float, option("--exp-time", help="WFS曝光时间 (ms, 0=自动)")
-    ] = 0.0
-    auto_exposure: Annotated[
-        bool,
-        option("--auto-exposure/--no-auto-exposure", help="启用WFS自动曝光 (默认开启)"),
-    ] = True
-    high_speed: Annotated[
-        bool, option("--high-speed", is_flag=True, help="启用高速模式")
-    ] = False
-    use_custom_ref: Annotated[
-        bool, option("--use-custom-ref", is_flag=True, help="使用自定义参考文件")
-    ] = False
-    pupil_diameter: Annotated[
-        float, option("--pupil-diameter", help="瞳孔直径 (mm, 默认: 2.0)")
-    ] = 2.0
-    pupil_center: Annotated[
-        str | tuple[float, float],
-        option(
-            "--pupil-center",
-            callback=parse_tuple,
-            help="瞳孔中心坐标 (默认: (0,0))",
-        ),
-    ] = "(0,0)"
     compute_inverses: Annotated[
         bool, option("--no-inverses", flag_value=False, help="不计算逆矩阵")
     ] = True
@@ -1512,33 +1463,7 @@ class HadamardMatrixRunnerParams:
     wavelength: Annotated[
         int, option("--wavelength", help="工作波长 (nm)")
     ] = 1064
-    mla_index: Annotated[
-        str,
-        option(
-            "--mla-index",
-            type=click.Choice(["512", "540", "600", "768", "1280"]),
-            help="MLA分辨率",
-        ),
-    ] = "512"
-    exp_time: Annotated[
-        float, option("--exp-time", help="曝光时间 (ms, 0=自动)")
-    ] = 0.0
-    auto_exposure: Annotated[
-        bool, option("--auto-exposure/--no-auto-exposure", help="启用WFS自动曝光")
-    ] = True
-    high_speed: Annotated[
-        bool, option("--high-speed", is_flag=True, help="启用高速模式")
-    ] = False
-    use_custom_ref: Annotated[
-        bool, option("--use-custom-ref", help="使用自定义参考文件")
-    ] = False
-    pupil_diameter: Annotated[
-        float, option("--pupil-diameter", help="瞳孔直径 (mm)")
-    ] = 2.0
-    pupil_center: Annotated[
-        str | tuple[float, float],
-        option("--pupil-center", callback=parse_tuple, help="瞳孔中心坐标"),
-    ] = "(0,0)"
+
     compute_inverses: Annotated[
         bool, option("--no-inverses", flag_value=False, help="不计算逆矩阵")
     ] = True
