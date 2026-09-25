@@ -6,14 +6,16 @@ Usage:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.optimizer.wfless.slm_zernike_pib import optimize_slm_zernike_pib
+from ao_shaping.optimizer.wfless.slm_zernike_pib import (
+    SlmZernikePibConfig,
+    optimize_slm_zernike_pib,
+)
 from ao_shaping.runners.runner_common import (
     CameraParamsPib,
     HeuristicParams,
@@ -165,105 +167,81 @@ def _load_initial_coeffs(
     return None
 
 
-def _apply_disturbance(
-    coeffs: np.ndarray | None, magnitude: float, rng: np.random.Generator
-) -> np.ndarray:
-    """Add a random Gaussian perturbation of the given magnitude to coefficients."""
-    base = np.zeros_like(coeffs) if coeffs is None else coeffs.copy()
-    base = base + rng.standard_normal(base.shape) * magnitude
-    return base
-
-
-@dataclass
-class SlmPibConfig:
-    """Aggregates every parameter group for one slm-pib run.
-
-    Uses the slm-pib-specific dataclasses (``CameraParamsPib``,
-    ``SlmParamsPib``, ``SpgdParamsPib``/``HeuristicParams``) so the
-    defaults stay consistent with the click decorators. The camera
-    dataclass fuses the objective parameters (``CameraParamsPib`` is a
-    ``CameraParams`` + ``ObjectiveParamsPib`` combination), so there is
-    no separate objective field.
-    """
-
-    run: RunParams
-    camera: CameraParamsPib
-    slm: SlmParamsPib
-    search: SpgdParamsPib | HeuristicParams
-
-
-def _optimizer_kwargs(
-    cfg: SlmPibConfig,
+def _build_slm_pib_config(
+    run: RunParams,
+    camera: CameraParamsPib,
+    slm: SlmParamsPib,
     search: SpgdParamsPib | HeuristicParams,
-) -> dict[str, Any]:
-    """Flatten the aggregated config into the optimizer's flat keyword arguments."""
-    slm = cfg.slm
-    cam = cfg.camera
-    obj = cam  # CameraParamsPib fuses the objective parameters
+    init_c: np.ndarray | None = None,
+) -> SlmZernikePibConfig:
+    """Build the optimizer config object directly (no flat kwargs flattening).
+
+    The camera dataclass fuses the objective parameters
+    (``CameraParamsPib`` is a ``CameraParams`` + ``ObjectiveParamsPib``
+    combination), so ``camera`` supplies both the camera and the objective
+    fields. ``center`` and ``epochs`` are not part of the config — they stay
+    positional arguments of :func:`optimize_slm_zernike_pib`.
+    """
+    obj = camera  # CameraParamsPib fuses the objective parameters
 
     zernike_radius: float | None = (
         slm.zernike_radius if slm.zernike_radius > 0 else None
     )
 
-    kwargs: dict[str, Any] = {
-        "center": cam.center,
-        "epochs": search.epochs,
-        "n_max": slm.n_max,
-        "r_bucket": obj.r_bucket,
-        "exposure_time_ms": cam.exposure_time_ms,
-        "cam_id": cam.cam_id,
-        "cam_type": cam.cam_type,
-        "cam_size": cam.cam_size,
-        "target_max_brightness": obj.target_max_brightness,
-        "slm_number": slm.slm_number,
-        "slm_wavelength": slm.slm_wavelength,
-        "objective": obj.name,
-        "target_shape": obj.target_shape,
-        "target_size": obj.target_size,
-        "target_aspect_ratio": obj.target_aspect_ratio,
-        "target_center_smooth": obj.target_center_smooth,
-        "shape_schedule": obj.shape_schedule,
-        "max_roi_energy_loss": obj.max_roi_energy_loss,
-        "w_uniformity": obj.w_uniformity,
-        "w_peak": obj.w_peak,
-        "w_displacement": obj.w_displacement,
-        "log_uniformity": obj.log_uniformity,
-        "w_ema_decay": obj.w_ema_decay,
-        "w_floor": obj.w_floor,
-        "w_temperature": obj.w_temperature,
-        "w_pib_init": obj.w_pib_init,
-        "w_rms_init": obj.w_rms_init,
-        "w_ee_init": obj.w_ee_init,
-        "zernike_radius": zernike_radius,
-        "shift_x": slm.shift_x,
-        "shift_y": slm.shift_y,
-        "record_phase": cfg.run.debug,
-        "random_seed": cfg.run.seed,
-    }
+    common: dict[str, Any] = dict(
+        n_max=slm.n_max,
+        r_bucket=obj.r_bucket,
+        exposure_time_ms=camera.exposure_time_ms,
+        cam_id=camera.cam_id,
+        cam_type=camera.cam_type,
+        cam_size=camera.cam_size,
+        target_max_brightness=obj.target_max_brightness,
+        slm_number=slm.slm_number,
+        slm_wavelength=slm.slm_wavelength,
+        objective=obj.name,
+        target_shape=obj.target_shape,
+        target_size=obj.target_size,
+        target_aspect_ratio=obj.target_aspect_ratio,
+        target_center_smooth=obj.target_center_smooth,
+        shape_schedule=obj.shape_schedule,
+        max_roi_energy_loss=obj.max_roi_energy_loss,
+        w_uniformity=obj.w_uniformity,
+        w_peak=obj.w_peak,
+        w_displacement=obj.w_displacement,
+        log_uniformity=obj.log_uniformity,
+        w_ema_decay=obj.w_ema_decay,
+        w_floor=obj.w_floor,
+        w_temperature=obj.w_temperature,
+        w_pib_init=obj.w_pib_init,
+        w_rms_init=obj.w_rms_init,
+        w_ee_init=obj.w_ee_init,
+        zernike_radius=zernike_radius,
+        shift_x=slm.shift_x,
+        shift_y=slm.shift_y,
+        record_phase=run.debug,
+        random_seed=run.seed,
+        init_c=init_c,
+    )
 
     if isinstance(search, SpgdParamsPib):
-        kwargs.update(
-            {
-                "delta": search.delta,
-                "lr": search.lr,
-                "optimizer_type": search.optimizer_type,
-                "shrink_iter": search.shrink_iter,
-                "shrink_ratio": search.shrink_ratio,
-                "algorithm": "spgd",
-                "pop_size": None,
-                "show": search.show,
-            }
+        common.update(
+            algorithm="spgd",
+            pop_size=None,
+            delta=search.delta,
+            lr=search.lr,
+            optimizer_type=search.optimizer_type,
+            shrink_iter=search.shrink_iter,
+            shrink_ratio=search.shrink_ratio,
+            show=search.show,
         )
     else:  # HeuristicParams
-        kwargs.update(
-            {
-                "algorithm": search.algorithm,
-                "pop_size": search.pop_size,
-                "show": search.show,
-            }
+        common.update(
+            algorithm=search.algorithm,
+            pop_size=search.pop_size,
+            show=search.show,
         )
 
-    return kwargs
+    return SlmZernikePibConfig(**common)
 
 
 # --- click group + subcommands ---------------------------------------------
@@ -385,14 +363,11 @@ def _execute(
         x_str, y_str = (p.strip() for p in camera.center.split(","))
         camera.center = (int(x_str), int(y_str))
 
-    kwargs = _optimizer_kwargs(
-        SlmPibConfig(run_cfg, camera, slm, search), search
-    )
     init_c = _load_initial_coeffs(slm.load_file, slm.init_c)
-    if init_c is not None:
-        kwargs["init_c"] = init_c
-
-    res = optimize_slm_zernike_pib(**kwargs)
+    config = _build_slm_pib_config(run_cfg, camera, slm, search, init_c)
+    res = optimize_slm_zernike_pib(
+        center=camera.center, epochs=search.epochs, config=config
+    )
     if run_cfg.debug:
         _save_debug_artifacts(res, camera, slm, search, run_cfg.dir)
 

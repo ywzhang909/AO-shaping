@@ -28,7 +28,10 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.optimizer.wfless.slm_square_shaping import optimize_slm_square
+from ao_shaping.optimizer.wfless.slm_square_shaping import (
+    SlmSquareConfig,
+    optimize_slm_square,
+)
 from ao_shaping.runners.runner_common import (
     CameraParams,
     HeuristicParams,
@@ -115,62 +118,61 @@ class SlmGsnetConfig:
 # --- shared execution helpers ------------------------------------------------
 
 
-def _optimizer_kwargs(cfg: SlmGsnetConfig) -> dict[str, Any]:
-    """Flatten the aggregated config into the optimizer's keyword arguments."""
+def _build_square_config(cfg: SlmGsnetConfig) -> SlmSquareConfig:
+    """Build the optimizer config object directly (no flat kwargs flattening).
+
+    Freeform per-pixel phase is the ONLY DOF that can synthesise a square
+    far-field (low-order Zernike is smooth and cannot). This runner is the
+    freeform-first entry point of the square-shaping family.
+    ``center`` / ``epochs`` are not part of the config — they stay positional
+    arguments of :func:`optimize_slm_square`.
+    """
     cam = cfg.camera
     slm = cfg.slm
     obj = cfg.objective
     search = cfg.search
 
-    center = parse_center(cam.center)
-    zernike_radius: float | None = slm.zernike_radius if slm.zernike_radius > 0 else None
+    zernike_radius: float | int | None = (
+        slm.zernike_radius if slm.zernike_radius > 0 else None
+    )
 
-    kwargs: dict[str, Any] = {
-        "center": center,
-        "epochs": search.epochs,
-        "n_max": slm.n_max,
-        "target_side": obj.target_side,
-        "target_mean_brightness": obj.target_mean_brightness,
-        "side_factor": obj.side_factor,
-        "exposure_time_ms": cam.exposure_time_ms,
-        "cam_id": cam.cam_id,
-        "show": search.show,
-        "cam_size": cam.cam_size,
-        "target_max_brightness": obj.target_max_brightness,
-        "slm_number": slm.slm_number,
-        "slm_wavelength": slm.slm_wavelength,
-        "w_uniformity": obj.w_uniformity,
-        "w_efficiency": obj.w_efficiency,
-        "w_aspect": obj.w_aspect,
-        # Freeform per-pixel phase is the ONLY DOF that can synthesise a square
-        # far-field (low-order Zernike is smooth and cannot). This runner is the
-        # freeform-first entry point of the square-shaping family.
-        "basis": "freeform",
-        "phase_grid": 24,
-        "zernike_radius": zernike_radius,
-        "random_seed": cfg.run.seed,
-    }
+    common: dict[str, Any] = dict(
+        n_max=slm.n_max,
+        target_side=obj.target_side,
+        target_mean_brightness=obj.target_mean_brightness,
+        side_factor=obj.side_factor,
+        exposure_time_ms=cam.exposure_time_ms,
+        cam_id=cam.cam_id,
+        show=search.show,
+        cam_size=cam.cam_size,
+        target_max_brightness=obj.target_max_brightness,
+        slm_number=slm.slm_number,
+        slm_wavelength=slm.slm_wavelength,
+        w_uniformity=obj.w_uniformity,
+        w_efficiency=obj.w_efficiency,
+        w_aspect=obj.w_aspect,
+        basis="freeform",
+        phase_grid=24,
+        zernike_radius=zernike_radius,
+        random_seed=cfg.run.seed,
+    )
 
     if isinstance(search, SpgdParams):
-        kwargs.update(
-            {
-                "lr": search.lr,
-                "delta": search.delta,
-                "optimizer_type": search.optimizer_type,
-                "algorithm": "spgd",
-                "pop_size": None,
-            }
+        common.update(
+            algorithm="spgd",
+            pop_size=None,
+            lr=search.lr,
+            delta=search.delta,
+            optimizer_type=search.optimizer_type,
         )
     else:  # HeuristicParams — black-box search has no learning rate / perturbation
-        kwargs["lr"] = 0.0
-        kwargs.update(
-            {
-                "algorithm": search.algorithm,
-                "pop_size": search.pop_size,
-            }
+        common.update(
+            algorithm=search.algorithm,
+            pop_size=search.pop_size,
+            lr=0.0,
         )
 
-    return kwargs
+    return SlmSquareConfig(**common)
 
 
 def _maybe_sim_patch(cam_type: str) -> None:
@@ -262,8 +264,12 @@ def _execute(cfg: SlmGsnetConfig) -> None:
     setup_coredumpy()
     _maybe_sim_patch(cfg.camera.cam_type)
 
-    kwargs = _optimizer_kwargs(cfg)
-    res = optimize_slm_square(**kwargs)
+    config = _build_square_config(cfg)
+    res = optimize_slm_square(
+        center=parse_center(cfg.camera.center),
+        epochs=cfg.search.epochs,
+        config=config,
+    )
 
     if cfg.run.debug:
         _save_debug_artifacts(res, cfg.objective, cfg.run.dir)

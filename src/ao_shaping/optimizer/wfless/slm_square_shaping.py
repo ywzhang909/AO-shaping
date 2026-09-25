@@ -82,7 +82,8 @@ import contextlib
 import inspect
 import os
 import time
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 import tqdm
 import numpy as np
@@ -757,9 +758,50 @@ class _SPGDDisplay:
         self._clock.tick(30)
 
 
+@dataclass
+class SlmSquareConfig:
+    """Configuration bundle for :func:`optimize_slm_square`.
+
+    Carries every keyword argument of :func:`optimize_slm_square` except the
+    positional ``center`` / ``epochs`` (which stay required function
+    arguments). When passed via ``config=``, its fields are substituted for
+    the corresponding keyword arguments; any explicitly-passed keyword
+    arguments still win (merged on top, see the fold in the optimizer).
+    """
+
+    n_max: int = 4
+    target_side: int = 0
+    target_mean_brightness: float = 0.0
+    side_factor: float = 1.5
+    delta: float = 0.1
+    lr: float = 0
+    exposure_time_ms: float = 80.0
+    cam_id: int = 0
+    show: bool = False
+    init_c: list[float] | np.ndarray | None = None
+    cam_size: int = 300
+    target_max_brightness: int = 200
+    slm_number: int = 1
+    slm_wavelength: int = 1064
+    optimizer_type: str = "adamod"
+    random_seed: int | None = None
+    w_uniformity: float = 0.4
+    w_efficiency: float = 0.6
+    w_aspect: float = 0.0
+    basis: str = "freeform"
+    phase_grid: int = 24
+    zernike_radius: float | int | None = None
+    zernike_mask: np.ndarray | None = None
+    rotation_search_deg: float = 0.0
+    algorithm: str = "spgd"
+    pop_size: int | None = None
+    kwargs: dict[str, Any] = field(default_factory=dict)
+
+
 def optimize_slm_square(
     center: tuple[int, int] | str | None,
     epochs: int,
+    config: SlmSquareConfig | None = None,
     n_max: int = 4,
     target_side: int = 0,
     target_mean_brightness: float = 0.0,
@@ -849,6 +891,68 @@ def optimize_slm_square(
     Returns:
         Recorder: Optimization history recorder.
     """
+    if config is None:
+        config = SlmSquareConfig(
+            n_max=n_max,
+            target_side=target_side,
+            target_mean_brightness=target_mean_brightness,
+            side_factor=side_factor,
+            delta=delta,
+            lr=lr,
+            exposure_time_ms=exposure_time_ms,
+            cam_id=cam_id,
+            show=show,
+            init_c=init_c,
+            cam_size=cam_size,
+            target_max_brightness=target_max_brightness,
+            slm_number=slm_number,
+            slm_wavelength=slm_wavelength,
+            optimizer_type=optimizer_type,
+            random_seed=random_seed,
+            w_uniformity=w_uniformity,
+            w_efficiency=w_efficiency,
+            w_aspect=w_aspect,
+            basis=basis,
+            phase_grid=phase_grid,
+            zernike_radius=zernike_radius,
+            zernike_mask=zernike_mask,
+            rotation_search_deg=rotation_search_deg,
+            algorithm=algorithm,
+            pop_size=pop_size,
+            kwargs=kwargs,
+        )
+    else:
+        # Extra keyword args are merged into the config's escape-hatch dict.
+        config.kwargs.update(kwargs)
+
+    n_max = config.n_max
+    target_side = config.target_side
+    target_mean_brightness = config.target_mean_brightness
+    side_factor = config.side_factor
+    delta = config.delta
+    lr = config.lr
+    exposure_time_ms = config.exposure_time_ms
+    cam_id = config.cam_id
+    show = config.show
+    init_c = config.init_c
+    cam_size = config.cam_size
+    target_max_brightness = config.target_max_brightness
+    slm_number = config.slm_number
+    slm_wavelength = config.slm_wavelength
+    optimizer_type = config.optimizer_type
+    random_seed = config.random_seed
+    w_uniformity = config.w_uniformity
+    w_efficiency = config.w_efficiency
+    w_aspect = config.w_aspect
+    basis = config.basis
+    phase_grid = config.phase_grid
+    zernike_radius = config.zernike_radius
+    zernike_mask = config.zernike_mask
+    rotation_search_deg = config.rotation_search_deg
+    algorithm = config.algorithm
+    pop_size = config.pop_size
+    kwargs = config.kwargs
+
     delta = abs(delta)
     epochs = int(epochs)
     rng = np.random.default_rng(random_seed)

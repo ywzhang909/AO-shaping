@@ -18,11 +18,10 @@ from ao_shaping.runners.slm_pib_runner import (
     HeuristicParams,
     ObjectiveParams,
     RunParams,
-    SlmPibConfig,
     SlmParams,
     SlmParamsPib,
     SpgdParams,
-    _optimizer_kwargs,
+    _build_slm_pib_config,
     _resolve_auto_camera,
     _save_debug_artifacts,
     run,
@@ -272,32 +271,28 @@ def test_cli_exposes_rms_pib_init_weight_options():
 
 
 def test_optimizer_kwargs_maps_seed_and_init_weights():
-    cfg = SlmPibConfig(
+    cfg = _build_slm_pib_config(
         run=RunParams(seed=42),
         camera=CameraParamsPib(w_pib_init=0.6, w_rms_init=0.3),
         slm=SlmParamsPib(),
         search=SpgdParams(),
     )
 
-    kwargs = _optimizer_kwargs(cfg, cfg.search)
-
-    assert kwargs["random_seed"] == 42
-    assert kwargs["w_pib_init"] == 0.6
-    assert kwargs["w_rms_init"] == 0.3
-    assert kwargs["w_ee_init"] is None
+    assert cfg.random_seed == 42
+    assert cfg.w_pib_init == 0.6
+    assert cfg.w_rms_init == 0.3
+    assert cfg.w_ee_init is None
 
 
 def test_optimizer_kwargs_seed_none_by_default():
-    cfg = SlmPibConfig(
+    cfg = _build_slm_pib_config(
         run=RunParams(),
         camera=CameraParamsPib(),
         slm=SlmParamsPib(),
         search=HeuristicParams(algorithm="ga"),
     )
 
-    kwargs = _optimizer_kwargs(cfg, cfg.search)
-
-    assert kwargs["random_seed"] is None
+    assert cfg.random_seed is None
 
 
 def test_algorithm_choices_match_optimizer():
