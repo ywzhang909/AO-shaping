@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 import click
 import numpy as np
@@ -8,10 +8,14 @@ from loguru import logger
 
 from ao_shaping.drivers import MlaRes, ThorlabWFS
 from ao_shaping.drivers.slm import ZernikeSLM
-from ao_shaping.runners.runner_common import option, with_params
+from ao_shaping.runners.runner_common import (
+    WfsParams,
+    ZernikeSlmParams,
+    option,
+    with_params,
+)
 from ao_shaping.utils.io.cli_helpers import (
     get_date_dir_name,
-    parse_tuple,
     setup_coredumpy,
 )
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
@@ -426,35 +430,15 @@ def search_offset_by_vortex(
 
 @dataclass
 class SlmOffsetParams:
-    """slm-offset 命令的 CLI 参数 (dataclass-click 转换, 2026-09)."""
+    """slm-offset 命令的 CLI 参数 (dataclass-click 转换, 2026-09).
+
+    SLM/WFS 硬件参数已收敛至共享参数类 (堆叠 with_params):
+    引用 ``ZernikeSlmParams`` (slm) + ``WfsParams`` (wfs), 见下方 run()。
+    """
 
     dir: Annotated[
         str, option("-d", "--dir", help="数据保存根目录 (default: data)")
     ] = "data"
-    wfs_res: Annotated[
-        str, option("-r", "--wfs_res", help="WFS分辨率 (default: 1024)")
-    ] = "1024"
-    pupil_diameter: Annotated[
-        float, option("-p", "--pupil_diameter", help="瞳孔直径 (default: 2.7)")
-    ] = 2.7
-    pupil_center: Annotated[
-        Any,
-        option(
-            "-c",
-            "--pupil_center",
-            callback=parse_tuple,
-            help="瞳孔中心坐标 (default: (0,0))",
-        ),
-    ] = "(0,0)"
-    wavelength: Annotated[
-        int, option("--wavelength", help="SLM波长 (nm, default: 532)")
-    ] = 532
-    slm_number: Annotated[
-        int, option("--slm-number", help="SLM设备编号 (default: 1)")
-    ] = 1
-    remove_tilt: Annotated[
-        bool, option("--remove-tilt", is_flag=True, help="移除波前测量中的倾斜项")
-    ] = False
     method: Annotated[
         str,
         option(
@@ -493,7 +477,14 @@ class SlmOffsetParams:
 @click.command()
 @click.pass_context
 @with_params(SlmOffsetParams, kw_name="params")
-def run(ctx: click.Context, params: SlmOffsetParams) -> None:
+@with_params(WfsParams, kw_name="wfs")
+@with_params(ZernikeSlmParams, kw_name="slm")
+def run(
+    ctx: click.Context,
+    params: SlmOffsetParams,
+    wfs: WfsParams,
+    slm: ZernikeSlmParams,
+) -> None:
     """SLM XY偏移自动搜索工具
 
     使用两种方法搜索最优SLM XY偏移:
@@ -503,27 +494,32 @@ def run(ctx: click.Context, params: SlmOffsetParams) -> None:
     示例:
         python -m ao_shaping.runners.slm_offset_runner --method defocus --search-range 50
     """
+    # WfsParams.pupil_center 静态类型为 str | tuple (parse_tuple callback 已保证
+    # 运行时为 tuple[float, float]), 此处归一化为 ThorlabWFS 期望的 tuple。
+    pupil_center = wfs.pupil_center
+    if not isinstance(pupil_center, tuple):
+        pupil_center = tuple(map(float, str(pupil_center).strip("()").replace(" ", "").split(",")))
     with (
         ZernikeSLM(
-            slm_number=params.slm_number,
-            wavelength=params.wavelength,
+            slm_number=slm.slm_number,
+            wavelength=slm.wavelength,
             n_max=4,
-            shift_x=0,
-            shift_y=0,
-        ) as slm,
+            shift_x=slm.shift_x,
+            shift_y=slm.shift_y,
+        ) as slm_dev,
         ThorlabWFS(
-            MlaRes.from_str(params.wfs_res),
+            MlaRes.from_str(wfs.wfs_res),
             use_custom_ref=False,
             high_speed=True,
-            pupil_diameter=params.pupil_diameter,
-            pupil_center=params.pupil_center,
-        ) as wfs,
+            pupil_diameter=wfs.pupil_diameter,
+            pupil_center=pupil_center,
+        ) as wfs_dev,
     ):
         if params.method == "defocus":
             best_x, best_y, best_defocus, min_rms, results = (
                 search_offset_by_defocus_with_optimization(
-                    slm=slm,
-                    wfs=wfs,
+                    slm=slm_dev,
+                    wfs=wfs_dev,
                     defocus_amplitude=params.defocus_amp,
                     search_range=params.search_range,
                     search_step=params.search_step,
@@ -544,8 +540,8 @@ def run(ctx: click.Context, params: SlmOffsetParams) -> None:
                 )
         else:
             best_x, best_y, results = search_offset_by_vortex(
-                slm=slm,
-                wfs=wfs,
+                slm=slm_dev,
+                wfs=wfs_dev,
                 vortex_charge=params.vortex_charge,
                 search_range=params.search_range,
                 search_step=params.search_step,
