@@ -212,6 +212,26 @@ Utility functions for image processing and calculations, organized into 4 subpac
 
 ---
 
+## Zernike 使用规范 (canonical 入口 — 禁止重复实现)
+
+> **单一事实源**: 全项目所有 Zernike 纯数学 (模式枚举 / 索引换算 / 相位生成 / 系数解析 / 单位换算) 统一走 `utils/wavefront/` 两层。**任何脚本、runner、tools、GUI、optimizer 不得自行实现** Noll↔(n,m) 查表、Zernike 多项式求值或相位生成 (2026-09 去重重构, 此前散落在 `gui/slm/`、`optimizer/wfless/`、`tools/slm/` 的重复实现已全部收敛)。详见 README `## Zernike 使用指南`。
+
+| 层 | 模块 | 公开 API | 何时用 |
+|---|---|---|---|
+| API 层 (首选) | `utils/wavefront/zernike_utils.py` | `parse_zernike_coefficients`, `generate_zernike_phase`, `list_zernike_modes` (4元组 noll,n,m,name), `coefficients_to_array`, `um_to_waves`, `LAMBDA_UM` | 绝大多数场景 |
+| 引擎层 (复用/底层) | `utils/wavefront/zernike_calc.py` | `ZernikeGenerator` (网格缓存: `generate_noll`/`generate_polynomial`/`generate`/`fit`), `noll_to_nm`/`nm_to_noll`, `zernike_modes`/`noll_indices`, `calc_n_zernike_terms`, `get_zernike_name`, `fit_zernike` | 同分辨率反复生成 (复用实例), 或底层索引/拟合 |
+
+单向依赖: `zernike_utils` → `zernike_calc`; 上层只 import 这两层, 不得反向。
+
+**红线** (对应 ANTI-PATTERNS):
+1. 自写 Noll↔(n,m) 查表 / 模式枚举 — `noll_to_nm_legacy` (Noll 5=(2,0), 与 canonical 相反) 已删除, 勿再引入第二套索引
+2. 生成器自行 `mod 2π` — 一律返回 **raw 未包裹弧度**; 唯一 wrap 点 `Santec.create_phase_from_array()`
+3. min-max 归一化相位 — `PatternHelper._zernike_to_uint16` / `ZernikeDM.generate_phase` 均为已知反模式 (尺度无关, 幅度不可控)
+4. WFS µm 系数未经 `um_to_waves()` 直接参与运算; λ 系数未 ×2π 直接喂 `make_phase`/`generate_zernike_phase`
+5. `zernike_calc.noll_indices` (Noll 序) 与 `zernike_modes` ((n,m) 字典序) 顺序不同, 不可互换
+
+---
+
 ## Configuration
 
 ### Environment Variables (.env)
@@ -641,6 +661,7 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
 | Min-max scale-invariant `PatternHelper._zernike_to_uint16` | `_zernike_to_uint16` min-max normalises the phase, making patterns scale-invariant (coefficients ×1 and ×4 → byte-identical). Use `utils/slm/phase_display.phase_to_slm_grayscale(phase, slm=slm)` instead. |
 | Vector-beam demo `sim.py` living in `algorithm/` | The vector-beam demo `sim.py` lives in `algorithm/` — it belongs in `scripts/`. |
 | `utils/slm/pattern_helper.py` importing `from ao_shaping.algorithm.phase_wrap` at module top level | utils is the leaf layer and must not depend on `algorithm/` at import time — use deferred function-local imports. |
+| 脚本/runner/tools/GUI 内**重复实现 Zernike 数学** (Noll↔(n,m) 查表、多项式求值、相位生成) | Canonical 入口唯一: `utils/wavefront/zernike_utils.py` (API 层) + `utils/wavefront/zernike_calc.py` (引擎层), 单向依赖 `zernike_utils → zernike_calc`。2026-09 去重重构前 `gui/slm/`、`optimizer/wfless/`、`tools/slm/` 各有一套, 已全数收敛。新代码一律 `from ao_shaping.utils.wavefront.zernike_utils import ...`, 禁止 `import aotools`/自写 `RZern`/自写 `noll2nm` 表。详见 README `## Zernike 使用指南` 与 AGENTS `## Zernike 使用规范`。 |
 
 > 方形光斑 SPGD 整形的完整分析、硬件实测与修复记录见 [`docs/slm_square_spgd/README.md`](docs/slm_square_spgd/README.md)。
 
@@ -650,6 +671,7 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
 
 - **Mock-first testing**: Tests use simulation classes (`SimTurbulenceAOEnv`, `sim_spgd`) to avoid hardware
 - **Zernike Noll 约定统一** (aotools Noll 1976): Noll 4 = (2,0) defocus, Noll 5 = (2,-2) astig, Noll 11 = (4,0) spherical, Noll 13 = (4,-2)。`optimizer/wf/` 三个优化器 (ga_zernike / greedy_zernike / rms_by_zernike) 的模式枚举与 Noll 索引→(n,m) 映射已全部使用 canonical `zernike_calc.noll_to_nm()` / `zernike_calc.zernike_modes()`; 历史 legacy 硬编码查表 (`noll_to_nm_legacy`, 那里 Noll 5 = (2,0)) 已删除, 不再存在。新代码一律用 `zernike_calc.noll_to_nm()` / `zernike_utils.list_zernike_modes()`, 勿混用两套索引。zernike_utils 模块文档含完整前 15 阶映射表。
+- **Zernike 纯数学 canonical 两层入口** (2026-09 去重重构): API 层 `zernike_utils.py` (`parse_zernike_coefficients` / `generate_zernike_phase` / `list_zernike_modes` / `coefficients_to_array` / `um_to_waves`) → 引擎层 `zernike_calc.py` (`ZernikeGenerator` 网格缓存 / `noll_to_nm` / `zernike_modes` / `noll_indices`)。生成器输出 **raw 未包裹弧度**, 弧度→灰度统一走 `phase_display.phase_to_slm_grayscale(phase, slm=slm)`。任何脚本/runner/tools/GUI 禁止自写第二套 Zernike 数学 — 见 `## Zernike 使用规范` 节与 README `## Zernike 使用指南`。
 - **Hardware skip pattern**: Tests requiring physical hardware use `pytest.skip("Requires DM hardware")`
 - **Recorder pattern**: Optimization tests validate history dictionaries with expected fields
 - **Optional backend testing**: CuPy/Numba tested conditionally with try/except guards
