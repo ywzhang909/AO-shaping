@@ -29,6 +29,7 @@ from ao_shaping.utils.image.beam_metrics import (
     measure_spot_diameter_cam,
     median_zero_order_center,
     normalize_pattern,
+    smart_zero_order_center,
     zero_order_center,
 )
 
@@ -41,7 +42,9 @@ class TestIntensityToAmplitude:
         assert amp.dtype == np.float32
 
     def test_no_normalize_keeps_raw_sqrt(self):
-        amp = intensity_to_amplitude(np.array([[0.0, 1.0], [4.0, 9.0]]), normalize=False)
+        amp = intensity_to_amplitude(
+            np.array([[0.0, 1.0], [4.0, 9.0]]), normalize=False
+        )
         np.testing.assert_allclose(amp, [[0.0, 1.0], [2.0, 3.0]], rtol=1e-6)
 
     def test_zero_intensity_returns_zeros(self):
@@ -83,7 +86,9 @@ class TestNormalizePattern:
 
 class TestMeasureSpotDiameterCam:
     @staticmethod
-    def _uniform_disk(radius: float, cy: float, cx: float, size: int = 41) -> np.ndarray:
+    def _uniform_disk(
+        radius: float, cy: float, cx: float, size: int = 41
+    ) -> np.ndarray:
         y, x = np.mgrid[0:size, 0:size]
         return ((x - cx) ** 2 + (y - cy) ** 2 <= radius**2).astype(float)
 
@@ -135,7 +140,9 @@ class TestComputeMetrics:
 
     def test_hand_computed_correlation(self):
         # measured=[[1,0],[0,0]], target=[[0,1],[0,0]] (both already unit sum)
-        m = compute_metrics(np.array([[1.0, 0.0], [0.0, 0.0]]), np.array([[0.0, 1.0], [0.0, 0.0]]))
+        m = compute_metrics(
+            np.array([[1.0, 0.0], [0.0, 0.0]]), np.array([[0.0, 1.0], [0.0, 0.0]])
+        )
         assert m["mse"] == pytest.approx(0.5)
         assert m["correlation"] == pytest.approx(-1 / 3)
         assert m["efficiency"] == 0.0
@@ -155,7 +162,9 @@ class TestComputeShapingMetrics:
 
     def test_hand_computed_cv(self):
         # in-mask values [1,2,3,4]: mean 2.5, std sqrt(1.25)
-        m = compute_shaping_metrics(np.array([[1.0, 2.0], [3.0, 4.0]]), np.ones((2, 2), dtype=bool))
+        m = compute_shaping_metrics(
+            np.array([[1.0, 2.0], [3.0, 4.0]]), np.ones((2, 2), dtype=bool)
+        )
         assert m["uniformity_cv"] == pytest.approx(np.sqrt(1.25) / 2.5)
         assert m["encircled_energy"] == 1.0
         assert m["peak"] == 4.0
@@ -456,3 +465,73 @@ class TestMedianZeroOrderCenter:
         center = median_zero_order_center([self._frame_with_peak(10, 15)])
         assert isinstance(center, tuple)
         assert all(isinstance(v, int) for v in center)
+
+
+class TestSmartZeroOrderCenter:
+    @staticmethod
+    def _spot_frame(size=64, center=(40, 20), peak=200.0, sigma=3.0) -> np.ndarray:
+        yy, xx = np.mgrid[0:size, 0:size]
+        img = peak * np.exp(
+            -(((xx - center[0]) ** 2 + (yy - center[1]) ** 2) / (2 * sigma**2))
+        )
+        return img.astype(np.uint8)
+
+    def test_flat_core_uses_wider_window(self):
+        """A Gaussian spot has a flat (non-hollow) core: smart_zero_order_center
+        should widen the centroid window and still land on the true centre."""
+        img = self._spot_frame(center=(30, 25), peak=200.0)
+        cx, cy = smart_zero_order_center(img)
+        assert abs(cx - 30) <= 3
+        assert abs(cy - 25) <= 3
+
+    def test_hollow_core_uses_default_window(self):
+        """A donut (hollow core) has a low centre: the flat-core check must NOT
+        widen the window, otherwise the centroid drifts to the ring.
+
+        For a hollow-core donut the argmax sits on the ring edge (radius ~12 from
+        the geometric centre), and the small-window centroid stays near that ring
+        edge rather than drifting toward the ring centroid = (40, 40). The key
+        assertion is that the wide-window centroid was NOT used (which would pull
+        the result close to (40,40)).
+        """
+        size = 80
+        yy, xx = np.mgrid[0:size, 0:size]
+        r = np.sqrt((xx - 40) ** 2 + (yy - 40) ** 2)
+        img = np.where((r > 10) & (r < 15), 200.0, 0.0).astype(np.uint8)
+        cx, cy = smart_zero_order_center(img)
+        dist = np.hypot(cx - 40, cy - 40)
+        # Ring is at radius 10–15 from centre → result stays near the ring edge,
+        # NOT pulled to the geometric centre (which would mean dist ≈ 0).
+        assert 9 <= dist <= 24
+
+    def test_all_dark_returns_frame_centre(self):
+        assert smart_zero_order_center(np.zeros((50, 80), dtype=np.uint8)) == (40, 25)
+
+    def test_rejects_non_2d(self):
+        with pytest.raises(ValueError, match="2D"):
+            smart_zero_order_center(np.zeros((4, 4, 3), dtype=np.uint8))
+
+    def test_returns_int_tuple(self):
+        center = smart_zero_order_center(self._spot_frame())
+        assert isinstance(center, tuple)
+        assert all(isinstance(v, int) for v in center)
+
+
+class TestClampCenterToFrame:
+    def test_near_edge_is_clamped_so_the_roi_fits(self):
+        from ao_shaping.utils.image.beam_metrics import clamp_center_to_frame as ccf
+
+        x, y = ccf((5, 5), (200, 200), 100)
+        assert (x, y) == (50, 50)
+        assert 0 <= x < 200 and 0 <= y < 200
+
+    def test_interior_center_is_unchanged(self):
+        from ao_shaping.utils.image.beam_metrics import clamp_center_to_frame as ccf
+
+        assert ccf((125, 125), (512, 512), 200) == (125, 125)
+
+    def test_window_larger_than_frame_stays_in_frame(self):
+        from ao_shaping.utils.image.beam_metrics import clamp_center_to_frame as ccf
+
+        x, y = ccf((5, 5), (120, 90), 250)
+        assert 0 <= x < 90 and 0 <= y < 120

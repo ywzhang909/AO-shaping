@@ -89,9 +89,11 @@ def main() -> None:
         PatternHelper,
         _display,
         _zernike_to_phase,
-        argmax_anchored_center,
-        clamp_center_to_frame,
         shape_metric,
+    )
+    from ao_shaping.utils.image.beam_metrics import (
+        clamp_center_to_frame,
+        zero_order_center,
     )
 
     deltas = [float(d) for d in str(args.deltas).split(",") if d.strip()]
@@ -122,7 +124,7 @@ def main() -> None:
 
         # Fix the centre on the settled flat phase, then window (same as the benchmark).
         pts = np.array(
-            [argmax_anchored_center(cam.get_numpy_image(2)) for _ in range(12)],
+            [zero_order_center(cam.get_numpy_image(2)) for _ in range(12)],
             dtype=np.float64,
         )
         center = (
@@ -130,12 +132,13 @@ def main() -> None:
             int(round(float(np.median(pts[:, 1])))),
         )
         center = clamp_center_to_frame(center, img.shape, args.cam_size)
-        window, center = cam.reset_window(center, (args.cam_size, args.cam_size))
+        window, _ = cam.reset_window(center, (args.cam_size, args.cam_size))
         _w, _h = window
+        first = cam.get_numpy_image(4)
+        center = zero_order_center(first)
         logger.info("window = {}x{}, fixed centre = {}", _w, _h, center)
 
         # Target size: same derivation (and long-side clamp) as the optimizer.
-        first = cam.get_numpy_image(4)
         radius = ImageTargetFunc(_w, _h, center).radius(first, energy=0.99)
         fit = min(float(_h), float(_w) / float(args.target_aspect_ratio))
         target_size = float(min(max(2.0 * float(radius), 4.0), fit))
@@ -168,16 +171,17 @@ def main() -> None:
 
         # --- 2) signal: +/-delta, averaged over repeats --------------------
         results = []
+        defocus_index = 3
         for delta in deltas:
             pos, neg = [], []
             for _ in range(args.n_repeat):
-                coeff[0] = delta
+                coeff[defocus_index] = delta
                 show(coeff)
                 pos.append(score(cam.get_numpy_image(2)))
-                coeff[0] = -delta
+                coeff[defocus_index] = -delta
                 show(coeff)
                 neg.append(score(cam.get_numpy_image(2)))
-            coeff[0] = 0.0
+            coeff[defocus_index] = 0.0
             show(coeff)
             signal = float(abs(np.mean(pos) - np.mean(neg)))
             snr = signal / noise if noise > 0 else float("inf")

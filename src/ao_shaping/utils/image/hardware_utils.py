@@ -20,7 +20,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 import numpy as np
 
@@ -42,6 +42,8 @@ __all__ = [
     "apply_auto_exposure",
     "find_exposure_ms",
     "find_zero_order_center",
+    "log_center_brightness",
+    "resolve_spot_center",
     "auto_find_exposure_and_center",
     "call_with_timeout",
     "open_camera",
@@ -304,7 +306,17 @@ def apply_auto_exposure(
 # Auto-find exposure / 0-order centre (deterministic probes, shared by any
 # runner that needs a safe fixed exposure + centred ROI before optimisation)
 # ---------------------------------------------------------------------------
-_DEFAULT_EXPOSURE_PROBES_MS: tuple[float, ...] = (0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0)
+_DEFAULT_EXPOSURE_PROBES_MS: tuple[float, ...] = (
+    0.05,
+    0.1,
+    0.2,
+    0.5,
+    1.0,
+    2.0,
+    3.0,
+    5.0,
+    10.0,
+)
 
 
 def _grab_frame(camera: Any, timeout_s: float = 10.0) -> np.ndarray:
@@ -367,7 +379,11 @@ def find_exposure_ms(
         raise ValueError(
             "camera must expose reset_exposure_time(ms) for auto exposure finding"
         )
-    probes = list(probe_exposures_ms) if probe_exposures_ms else list(_DEFAULT_EXPOSURE_PROBES_MS)
+    probes = (
+        list(probe_exposures_ms)
+        if probe_exposures_ms
+        else list(_DEFAULT_EXPOSURE_PROBES_MS)
+    )
     if not probes:
         raise ValueError("probe_exposures_ms must be a non-empty sequence")
     probes = sorted(float(x) for x in probes)
@@ -386,11 +402,7 @@ def find_exposure_ms(
     # 可能 (真实光束曝光更高只会更亮) —— 视为热像素帧, 剔除该探针。
     guarded_peaks: list[tuple[float, float]] = []  # (exposure, peak)
     for i, (ms, peak) in enumerate(zip(probes, peaks)):
-        if (
-            peak > peak_ceiling
-            and i + 1 < len(peaks)
-            and peaks[i + 1] < peak_floor
-        ):
+        if peak > peak_ceiling and i + 1 < len(peaks) and peaks[i + 1] < peak_floor:
             logger.warning("探针 {:.3f}ms 峰值 {:.0f} 判为热像素, 已剔除", ms, peak)
             continue
         guarded_peaks.append((ms, peak))
@@ -501,6 +513,90 @@ def auto_find_exposure_and_center(
     if find_center:
         center = find_zero_order_center(camera, n_frames=n_frames, timeout_s=timeout_s)
     return exposure, center
+
+
+def log_center_brightness(
+    img: np.ndarray,
+    center: tuple[int | float, int | float],
+    exposure_ms: float,
+) -> None:
+    """Log the centroid-pixel brightness and frame peak at the current exposure.
+
+    Shared log line format used by every wfless optimizer's initial centre
+    acquisition so the hardware diagnostics agree across runners.
+
+    Args:
+        img: The captured image.
+        center: ``(x, y)`` pixel coordinates.
+        exposure_ms: Current camera exposure in ms.
+    """
+    _cy, _cx = int(center[1]), int(center[0])
+    logger.info(
+        "Centroid brightness: {}@{}, Max brightness: {:.0f} @ {:.3f}ms",
+        float(img[_cy, _cx]),
+        center,
+        float(np.max(img)),
+        exposure_ms,
+    )
+
+
+def resolve_spot_center(
+    camera: Any,
+    img: np.ndarray,
+    center: Any = None,
+    detect_fn: Callable[[np.ndarray], tuple[int | float, int | float]] | None = None,
+    n_sample: int = 10,
+    recapture: bool = True,
+) -> tuple[int, int]:
+    """Resolve a centre spec (``None`` / ``str`` / ``tuple``) into pixel coordinates.
+
+    Consolidates the init-image centre resolution that was inlined in
+    ``slm_zernike_pib.py``, ``pib.py``, ``combined_optimizer.py`` and
+    ``slm_square_shaping.py``:
+
+    * ``None`` — auto-detect via ``detect_fn`` on *this* frame.
+    * ``"mass"`` / ``"max"`` / ``"shape"`` — re-capture a fresh frame (unless
+      ``recapture`` is False) and dispatch by name:
+
+      ``"mass"``  → full-image centroid (:func:`centroid`);
+      ``"max"``   → global argmax;
+      ``"shape"`` → :func:`smart_zero_order_center` (argmax-anchored, flat-core
+      aware).
+
+    * ``(x, y)`` tuple — returned as-is (operator-supplied fixed centre).
+
+    Args:
+        camera: An opened camera (used only for re-capture on ``str`` modes).
+        img: The initial probe image (used for ``None`` / ``tuple`` modes).
+        center: The centre spec (``None``, one of the mode strings, or a
+            ``(x, y)`` tuple).
+        detect_fn: Custom auto-detect function; defaults to
+            :func:`smart_zero_order_center`.
+        n_sample: Frame sample count for re-capture.
+        recapture: When False, use ``img`` for ``str`` modes instead of
+            re-capturing (useful when the caller knows the image is fresh).
+
+    Returns:
+        Integer ``(x, y)`` pixel coordinates.
+    """
+    from ao_shaping.utils.image.beam_metrics import smart_zero_order_center
+
+    if detect_fn is None:
+        detect_fn = smart_zero_order_center
+
+    if center is None:
+        center = detect_fn(img)
+    elif isinstance(center, str):
+        use_img = camera.get_numpy_image(n_sample) if recapture else img
+        if center == "mass":
+            center = centroid(use_img)
+        elif center == "max":
+            center = np.unravel_index(np.argmax(use_img), use_img.shape)[::-1]
+        elif center == "shape":
+            center = detect_fn(use_img)
+        else:
+            raise ValueError(f"known center: {center}")
+    return (int(round(center[0])), int(round(center[1])))
 
 
 # ---------------------------------------------------------------------------

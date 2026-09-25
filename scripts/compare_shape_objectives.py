@@ -45,6 +45,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
+from ao_shaping.utils.image.beam_metrics import zero_order_center  # noqa: E402
 from ao_shaping.utils.io.file import logger  # noqa: E402
 
 MARK_START = "<!-- OBJECTIVES_START -->"
@@ -129,10 +130,7 @@ def setup_bench(args) -> tuple[float, tuple[int, int], float, tuple[int, int]]:
         resolve_exposure_ms,
         set_camera_exposure_ms,
     )
-    from ao_shaping.optimizer.wfless.slm_zernike_pib import (
-        argmax_anchored_center,
-        spot_waist_sigma,
-    )
+    from ao_shaping.optimizer.wfless.slm_zernike_pib import spot_waist_sigma
 
     cam = create_camera(args.cam_type, cam_id=args.cam_id, exposure_time_ms=3.0)
     cam.open()
@@ -176,7 +174,7 @@ def setup_bench(args) -> tuple[float, tuple[int, int], float, tuple[int, int]]:
                 args.target_brightness,
             )
         pts = np.array(
-            [argmax_anchored_center(cam.get_numpy_image(2)) for _ in range(12)],
+            [zero_order_center(cam.get_numpy_image(2)) for _ in range(12)],
             dtype=np.float64,
         )
         center = (
@@ -200,7 +198,7 @@ def setup_bench(args) -> tuple[float, tuple[int, int], float, tuple[int, int]]:
         cam.close()
 
 
-def run_variant(slug: str, kwargs: dict, args, exp: float, center, waist: float) -> dict:
+def run_variant(slug: str, kwargs: dict, args, exp: float, center, waist: float, cam=None, slm=None) -> dict:
     from ao_shaping.optimizer.wfless.slm_zernike_pib import optimize_slm_zernike_pib
 
     t0 = time.perf_counter()
@@ -218,6 +216,8 @@ def run_variant(slug: str, kwargs: dict, args, exp: float, center, waist: float)
         slm_wavelength=args.wavelength,
         random_seed=args.seed,
         show=False,
+        cam=cam,
+        slm=slm,
         **kwargs,
     )
     df = rec.dataframe
@@ -250,74 +250,94 @@ def main() -> None:
     aspect = 4.0 / 3.0
     logger.info("fixed target box (short side) = {:.1f}px", box_size)
 
+    # Open camera + SLM ONCE and reuse them across all variants, instead of
+    # opening/closing a fresh pair per run (the previous behaviour). The
+    # optimizer re-windows the camera and re-detects the spot centre per call,
+    # so sequential reuse on a fixed bench is safe. Exposure is the value the
+    # bench was auto-resolved to (not args.exposure_ms, which may be 0=auto).
+    from ao_shaping.drivers.ccd.common import create_camera
+    from ao_shaping.drivers.slm import Santec
+
+    cam = create_camera(
+        args.cam_type, cam_id=args.cam_id, exposure_time_ms=exp, skip_sampling=False
+    )
+    slm = Santec(
+        slm_number=args.slm_number,
+        wavelength=args.wavelength,
+        shift_x=0,
+        shift_y=0,
+    )
+    cam.open()
+    slm.open()
+
     rows: list[dict] = []
-    for idx, (slug, label, kwargs) in enumerate(VARIANTS, start=1):
-        logger.info("=== variant {} ({}) ===", slug, kwargs)
-        try:
-            res = run_variant(slug, kwargs, args, exp, center, waist)
-        except Exception as exc:  # keep the remaining variants running
-            logger.error("variant {} failed: {}: {}", slug, type(exc).__name__, exc)
-            continue
+    try:
+        for idx, (slug, label, kwargs) in enumerate(VARIANTS, start=1):
+            logger.info("=== variant {} ({}) ===", slug, kwargs)
+            try:
+                res = run_variant(slug, kwargs, args, exp, center, waist, cam=cam, slm=slm)
+            except Exception as exc:  # keep the remaining variants running
+                logger.error("variant {} failed: {}: {}", slug, type(exc).__name__, exc)
+                continue
 
-        if res["frame"] is not None:
-            # Locate the spot INSIDE this frame: the camera may clamp the requested
-            # raw window, so the spot is not necessarily at the geometric centre.
-            from ao_shaping.optimizer.wfless.slm_zernike_pib import argmax_anchored_center
+            if res["frame"] is not None:
+                # Locate the spot INSIDE this frame: the camera may clamp the requested
+                # raw window, so the spot is not necessarily at the geometric centre.
+                box_center = zero_order_center(res["frame"])
+            else:
+                box_center = center
+            metrics = (
+                _box_metrics(res["frame"], box_center, box_size, aspect)
+                if res["frame"] is not None
+                else {"energy": float("nan"), "cv": float("nan"), "peak": float("nan")}
+            )
+            res.update(metrics)
+            res["label"] = label
+            rows.append(res)
+            logger.info(
+                "{}: gain={:+.4f} energy={:.4f} CV={:.3f} peak={:.2f} ({}s)",
+                slug,
+                res["gain"],
+                metrics["energy"],
+                metrics["cv"],
+                metrics["peak"],
+                res["secs"],
+            )
 
-            box_center = tuple(
-                float(v) for v in argmax_anchored_center(res["frame"])
-            )
-        else:
-            box_center = (float(center[0]), float(center[1]))
-        metrics = (
-            _box_metrics(res["frame"], box_center, box_size, aspect)
-            if res["frame"] is not None
-            else {"energy": float("nan"), "cv": float("nan"), "peak": float("nan")}
-        )
-        res.update(metrics)
-        res["label"] = label
-        rows.append(res)
-        logger.info(
-            "{}: gain={:+.4f} energy={:.4f} CV={:.3f} peak={:.2f} ({}s)",
-            slug,
-            res["gain"],
-            metrics["energy"],
-            metrics["cv"],
-            metrics["peak"],
-            res["secs"],
-        )
-
-        if res["frame"] is not None:
-            fig, ax = plt.subplots(figsize=(6, 6))
-            frame = np.asarray(res["frame"], dtype=np.float64)
-            z = int(args.zoom)
-            # The optimizer's raw capture is centred on the spot, so the target box
-            # sits at the frame's own geometric centre - not at the full-frame centre.
-            cx_f, cy_f = box_center
-            x0 = max(0, int(cx_f) - z // 2)
-            y0 = max(0, int(cy_f) - z // 2)
-            crop = frame[y0 : min(y0 + z, frame.shape[0]), x0 : min(x0 + z, frame.shape[1])]
-            if crop.size == 0:
-                crop = frame
-                x0 = y0 = 0
-            ax.imshow(_spot(crop), cmap="inferno")
-            rect = Rectangle(
-                (cx_f - x0 - box_size * aspect / 2, cy_f - y0 - box_size / 2),
-                box_size * aspect,
-                box_size,
-                fill=False,
-                ec="cyan",
-                lw=1.5,
-            )
-            ax.add_patch(rect)
-            ax.set_title(
-                f"SA + {label}\nenergy={metrics['energy']:.3f} CV={metrics['cv']:.3f} "
-                f"peak={metrics['peak']:.2f} (gain {res['gain']:+.3f})",
-                fontsize=10,
-            )
-            fig.tight_layout()
-            fig.savefig(fig_dir / f"{idx:02d}_{slug}_spot.png", dpi=140)
-            plt.close(fig)
+            if res["frame"] is not None:
+                fig, ax = plt.subplots(figsize=(6, 6))
+                frame = np.asarray(res["frame"], dtype=np.float64)
+                z = int(args.zoom)
+                # The optimizer's raw capture is centred on the spot, so the target box
+                # sits at the frame's own geometric centre - not at the full-frame centre.
+                cx_f, cy_f = box_center
+                x0 = max(0, int(cx_f) - z // 2)
+                y0 = max(0, int(cy_f) - z // 2)
+                crop = frame[y0 : min(y0 + z, frame.shape[0]), x0 : min(x0 + z, frame.shape[1])]
+                if crop.size == 0:
+                    crop = frame
+                    x0 = y0 = 0
+                ax.imshow(_spot(crop), cmap="inferno")
+                rect = Rectangle(
+                    (cx_f - x0 - box_size * aspect / 2, cy_f - y0 - box_size / 2),
+                    box_size * aspect,
+                    box_size,
+                    fill=False,
+                    ec="cyan",
+                    lw=1.5,
+                )
+                ax.add_patch(rect)
+                ax.set_title(
+                    f"SA + {label}\nenergy={metrics['energy']:.3f} CV={metrics['cv']:.3f} "
+                    f"peak={metrics['peak']:.2f} (gain {res['gain']:+.3f})",
+                    fontsize=10,
+                )
+                fig.tight_layout()
+                fig.savefig(fig_dir / f"{idx:02d}_{slug}_spot.png", dpi=140)
+                plt.close(fig)
+    finally:
+        slm.close()
+        cam.close()
 
     if not rows:
         logger.error("no variant produced a result - nothing to append")

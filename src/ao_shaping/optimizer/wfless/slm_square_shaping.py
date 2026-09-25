@@ -90,8 +90,9 @@ import numpy as np
 
 from ao_shaping.drivers import MIICamera
 from ao_shaping.drivers.ccd.common import (
+    capture_with_exposure,
     get_camera_exposure_ms,
-    set_camera_exposure_ms,
+    resample_on_saturation,
 )
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.algorithm.gradient.adam import (
@@ -110,7 +111,9 @@ from ao_shaping.algorithm.heuristic.search import (
 from ao_shaping.utils import logger, Recorder
 from ao_shaping.utils.io.file import gen_date_dir, gen_date_str
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
+from ao_shaping.utils.image.beam_metrics import smart_zero_order_center
 from ao_shaping.utils.image.spots_calc import centroid, radius
+from ao_shaping.utils.image.hardware_utils import log_center_brightness
 from ao_shaping.utils.wavefront.zernike_calc import (
     ZernikeGenerator,
     calc_n_zernike_terms,
@@ -199,6 +202,20 @@ def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs) -> Bas
         if key in signature.parameters:
             filtered_kwargs[key] = value
     return optimizer_cls(dim, lr=lr, **filtered_kwargs)
+
+
+def _locate_square_center(img: np.ndarray, mode: str) -> tuple[int, int]:
+    if mode == "shape":
+        return smart_zero_order_center(img)
+    if mode == "centroid_thresh":
+        tx, ty = centroid(img, moment=1, threshold=0.1)
+        return (int(round(tx)), int(round(ty)))
+    if mode == "max":
+        idx = np.unravel_index(int(np.argmax(img)), img.shape)
+        return (int(idx[1]), int(idx[0]))
+    if mode == "mass":
+        return (int(centroid(img)[0]), int(centroid(img)[1]))
+    raise ValueError(f"Unknown center mode: {mode}")
 
 
 def _zernike_phase_radians(
@@ -1203,98 +1220,54 @@ def optimize_slm_square(
         time.sleep(SLM_RESPONSE_TIME_S)
 
         # Auto-exposure for initial image
-        _img = cam.auto_exposure(target_max=TEST_EXPOSURE_TIME_BRIGHTNESS, n_sample=20)
+        _img = capture_with_exposure(
+            cam,
+            0.0,
+            TEST_EXPOSURE_TIME_BRIGHTNESS,
+            auto_n_sample=20,
+        )
 
-        def _detect_center(img: np.ndarray) -> tuple[int, int]:
-            """Locate the 0-order spot center, reusing axis_beam_runner's method.
-
-            复用 axis_beam_runner (PIB) 的 0 级光斑定位方法:
-            ``ImageTargetFunc.intelligen_center`` (algorithm/target_func.py):
-            1. ``center_of_brightness`` = 全局最大像素 (argmax) —— 满足 AGENTS.md
-               "0 级光斑用 argmax 定位, 绝不用几何默认" 的光轴不在帧中心的约束;
-            2. 若该点邻域非空洞 (≥ 40% 峰值), 改用全图二阶矩质心
-               ``center_of_mass`` 细化光斑中心 (平坦核心用质心更稳)。
-            退化 (全零图) 时回退 argmax。
-            """
-            from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
-
-            h, w = img.shape
-            _tf = ImageTargetFunc(w, h, (w // 2, h // 2))
-            _cx, _cy = _tf.intelligen_center(img)
-            if not (np.isfinite(_cx) and np.isfinite(_cy)):
-                idx = np.unravel_index(int(np.argmax(img)), img.shape)
-                _cx, _cy = float(idx[1]), float(idx[0])
-            return (int(round(_cx)), int(round(_cy)))
-
-        def _locate_center(img: np.ndarray) -> tuple[int, int]:
-            """按所选模式 `_center_mode` 定位 0 级光斑中心 (int 像素坐标).
-
-            统一分派点, 初始采集 (auto-exposure 前) 与曝光后重检共用,
-            保证用户所选模式在两次定位间一致。
-            """
-            if _center_mode in (None, "shape"):
-                return _detect_center(img)
-            if _center_mode == "centroid_thresh":
-                tx, ty = centroid(img, moment=1, threshold=0.1)
-                return (int(round(tx)), int(round(ty)))
-            if _center_mode == "max":
-                idx = np.unravel_index(np.argmax(img), img.shape)
-                return (int(idx[1]), int(idx[0]))
-            if _center_mode == "mass":
-                return (int(centroid(img)[0]), int(centroid(img)[1]))
-            raise ValueError(f"Unknown center mode: {_center_mode}")
-
-        # 记录用户所选模式, 供曝光后重检复用:
-        #   None/"shape"         : argmax 锚定智能检测 (默认; 平坦核心质心细化)
-        #   "centroid_thresh"    : 亮度重心 (阈值质心, threshold=0.1×max)
-        #   "max"                : 峰值位置 (全局 argmax)
-        #   "mass"               : 全图质心 (无 argmax 锚定, 易被杂散光拉偏)
-        #   (x, y) 元组           : 显式坐标 (fixed, 曝光后不重检)
+        # Track the user-chosen mode for post-exposure re-detection:
+        #   None/"shape"  : smart_zero_order_center (argmax + flat-core centroid)
+        #   "centroid_thresh" : threshold centroid (threshold=0.1×max)
+        #   "max"         : global argmax
+        #   "mass"        : full-image centroid
+        #   (x, y) tuple  : explicit — fixed, not re-detected
         _center_mode: str | None = None
         if center is None:
             _center_mode = "shape"
-            center = _locate_center(_img)
+            center = _locate_square_center(_img, _center_mode)
         elif isinstance(center, str):
             _center_mode = center
             _img = cam.get_numpy_image(10)
-            center = _locate_center(_img)
+            center = _locate_square_center(_img, _center_mode)
         else:
-            _center_mode = "fixed"  # 显式 (x, y): 保持用户给定值
+            _center_mode = "fixed"
 
-        logger.info(
-            f"Centroid brightness: {_img[center[1], center[0]]}@{center}, "
-            f"Max brightness: {np.max(_img)} @ {get_camera_exposure_ms(cam)}ms"
-        )
+        log_center_brightness(_img, center, get_camera_exposure_ms(cam))
 
-        # 注意: 整形过程不对 CCD 开窗 resize (用户要求) —— 保持全帧采集。
-        # 不再调用 cam.reset_window(...); cam_size 仅用于目标方形边长上限
-        # (target_side <= min(cam_size, w, h) - 4, 见下方)。
+        # NOTE: this runner does NOT resize the CCD window (user choice) —
+        # full-frame capture is kept; cam_size only bounds the target side.
 
         # Set exposure
-        if exposure_time_ms > 0:
-            set_camera_exposure_ms(cam, exposure_time_ms)
-            init_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
-        elif 0 < target_max_brightness < 255 and target_max_brightness > 0:
-            init_img = cam.auto_exposure(
-                target_max=target_max_brightness, twice_valid=True, n_sample=20
-            )
-        else:
-            init_img = cam.auto_exposure(
-                target_max=ADVISE_EXPOSURE_TIME_BRIGHTNESS,
-                twice_valid=True,
-                n_sample=20,
-            )
+        init_img = capture_with_exposure(
+            cam,
+            exposure_time_ms,
+            target_max_brightness or ADVISE_EXPOSURE_TIME_BRIGHTNESS,
+            auto_n_sample=20,
+        )
         logger.debug(
-            f"Initial Image Max brightness: {np.max(init_img)} @ {get_camera_exposure_ms(cam)}ms"
+            f"Initial Image Max brightness: {np.max(init_img)} "
+            f"@ {get_camera_exposure_ms(cam)}ms"
         )
 
         # Re-detect the spot centre on the (full-frame) image so the target box
         # is guaranteed to sit on the beam (AGENTS.md: 0-order located by argmax,
         # never by geometry — it can sit off the frame centre).
-        # 注意: 曝光后按用户所选模式重检 (shape/max/mass/centroid_thresh);
-        # 显式 (x, y) 元组 (fixed) 不重检, 保持用户给定坐标。
+        # Post-exposure re-detection by the selected mode; explicit (x, y) tuples
+        # are fixed and not re-detected.
         if _center_mode != "fixed":
-            center = _locate_center(init_img)
+            center = _locate_square_center(init_img, _center_mode)
         logger.info(f"target box center @ {center}")
 
         # Compute target square side length
@@ -1559,10 +1532,15 @@ def optimize_slm_square(
                 # Auto-exposure adjustment if saturated
                 max_brightness = max(np.max(pos_img), np.max(neg_img))
                 if max_brightness == 255 and exposure_time_ms == 0:
-                    _resample_img = cam.auto_exposure(
-                        target_max=target_max_brightness,
-                        twice_valid=False,
-                        n_sample=20,
+                    _resample_img = resample_on_saturation(
+                        pos_img,
+                        cam,
+                        exposure_time_ms,
+                        target_max_brightness,
+                        auto_exposure_fn=lambda c, t, n_sample=1: c.auto_exposure(
+                            target_max=t, twice_valid=False, n_sample=max(n_sample, 20)
+                        ),
+                        saturation_threshold=float(max_brightness),
                     )
                     optimizer.scale_momentum(np.sum(_resample_img) / np.sum(pos_img))
 

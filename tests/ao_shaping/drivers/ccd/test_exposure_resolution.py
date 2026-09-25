@@ -12,13 +12,20 @@ import numpy as np
 import pytest
 
 import ao_shaping.drivers.ccd.common as ccd_common
-from ao_shaping.drivers.ccd.common import resolve_exposure_ms
+from ao_shaping.drivers.ccd.common import (
+    capture_with_exposure,
+    resolve_initial_exposure,
+    resample_on_saturation,
+    resolve_exposure_ms,
+)
 
 
 @pytest.fixture
 def stale_flat(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pretend the saved flats suggest 191.5 ms (the real stale value)."""
-    monkeypatch.setattr(ccd_common, "select_exposure_from_flats", lambda **kwargs: 191.5)
+    monkeypatch.setattr(
+        ccd_common, "select_exposure_from_flats", lambda **kwargs: 191.5
+    )
 
 
 class FakeCamera:
@@ -36,6 +43,10 @@ class FakeCamera:
     def reset_exposure_time(self, time_ms: float) -> None:  # preferred setter path
         self.exposure_ms = float(time_ms)
         self.set_calls.append(float(time_ms))
+
+    @property
+    def exposure_time_ms(self) -> float:
+        return self.exposure_ms
 
 
 def test_converges_to_target(stale_flat: None) -> None:
@@ -93,3 +104,73 @@ def test_tolerance_zero_keeps_single_pass(stale_flat: None) -> None:
 
     assert len(cam.set_calls) == 1
     assert np.isfinite(peak)
+
+
+# ---------------------------------------------------------------------------
+# capture_with_exposure / resample_on_saturation / resolve_initial_exposure
+# ---------------------------------------------------------------------------
+
+
+class TestResolveInitialExposure:
+    def test_fixed_wins_over_auto(self):
+        assert resolve_initial_exposure(80.0, 40) == ("fixed", 80.0)
+
+    def test_auto_when_no_fixed(self):
+        assert resolve_initial_exposure(0.0, 40) == ("auto", 40.0)
+
+    def test_keep_when_both_zero(self):
+        assert resolve_initial_exposure(0.0, 0) == ("keep", 0.0)
+
+
+class TestCaptureWithExposure:
+    def test_fixed_exposure_sets_and_captures(self):
+        cam = FakeCamera(k=10.0, exposure_ms=3.0)
+        img = capture_with_exposure(
+            cam, exposure_time_ms=15.0, target_max_brightness=40.0, n_sample=1
+        )
+        assert cam.set_calls[-1] == 15.0
+        assert img.shape == (8, 8)
+        assert int(img.max()) == min(int(10.0 * 15.0), 255)
+
+    def test_auto_exposure_uses_target(self):
+        cam = FakeCamera(k=10.0, exposure_ms=3.0)
+        img = capture_with_exposure(
+            cam, exposure_time_ms=0.0, target_max_brightness=200.0, n_sample=1
+        )
+        assert cam.set_calls  # exposure was changed
+        assert int(img.max()) == min(int(10.0 * cam.exposure_ms), 255)
+
+    def test_keep_exposure_captures_without_changing(self):
+        cam = FakeCamera(k=10.0, exposure_ms=3.0)
+        before = list(cam.set_calls)
+        img = capture_with_exposure(
+            cam, exposure_time_ms=0.0, target_max_brightness=0.0, n_sample=1
+        )
+        assert cam.set_calls == before
+        assert img.shape == (8, 8)
+
+
+class TestResampleOnSaturation:
+    def test_no_saturation_returns_original(self):
+        cam = FakeCamera(k=10.0, exposure_ms=3.0)
+        img = np.full((8, 8), 100, dtype=np.uint8)
+        result = resample_on_saturation(
+            img, cam, exposure_time_ms=0.0, target_max_brightness=0.0
+        )
+        assert result is img
+
+    def test_fixed_exposure_skips_resample(self):
+        cam = FakeCamera(k=10.0, exposure_ms=3.0)
+        img = np.full((8, 8), 255, dtype=np.uint8)
+        result = resample_on_saturation(
+            img, cam, exposure_time_ms=50.0, target_max_brightness=0.0
+        )
+        assert result is img  # fixed exposure → never re-sample
+
+    def test_saturation_triggers_resample(self):
+        cam = FakeCamera(k=10.0, exposure_ms=3.0)
+        img = np.full((8, 8), 255, dtype=np.uint8)
+        result = resample_on_saturation(
+            img, cam, exposure_time_ms=0.0, target_max_brightness=200.0
+        )
+        assert cam.set_calls  # auto-exposure was applied

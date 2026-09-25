@@ -43,9 +43,12 @@ import matplotlib.pyplot as plt  # noqa: E402
 from loguru import logger  # noqa: E402
 
 from ao_shaping.optimizer.wfless.slm_zernike_pib import (  # noqa: E402
-    clamp_center_to_frame,
     optimize_slm_zernike_pib,
+)
+from ao_shaping.utils.image.beam_metrics import (  # noqa: E402
+    clamp_center_to_frame,
     threshold_spot_center,
+    zero_order_center,
 )
 
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]
@@ -118,8 +121,6 @@ def setup_bench(args, n_center: int = 12) -> tuple[float, tuple[int, int], float
     ``IDEAL_SPOT_RADIUS`` (6 px) wide, so a tens-of-pixels centre shift collapses
     the metric regardless of the search algorithm.
     """
-    import time
-
     from ao_shaping.drivers.ccd.common import (
         auto_exposure,
         create_camera,
@@ -127,10 +128,9 @@ def setup_bench(args, n_center: int = 12) -> tuple[float, tuple[int, int], float
     )
     from ao_shaping.drivers.slm import Santec
     from ao_shaping.optimizer.wfless.slm_zernike_pib import (
+        PatternHelper,
         _display,
         _zernike_to_phase,
-        argmax_anchored_center,
-        PatternHelper,
     )
 
     cam = create_camera(args.cam_type, cam_id=args.cam_id, exposure_time_ms=3.0)
@@ -153,7 +153,7 @@ def setup_bench(args, n_center: int = 12) -> tuple[float, tuple[int, int], float
         exp = float(get_camera_exposure_ms(cam))
 
         pts = np.array(
-            [argmax_anchored_center(cam.get_numpy_image(2)) for _ in range(n_center)],
+            [zero_order_center(cam.get_numpy_image(2)) for _ in range(n_center)],
             dtype=np.float64,
         )
         cx, cy = int(round(float(np.median(pts[:, 0])))), int(round(float(np.median(pts[:, 1]))))
@@ -183,6 +183,8 @@ def run_algorithm(
     epochs: int,
     pop_size: int | None,
     args,
+    cam=None,
+    slm=None,
 ) -> dict:
     """Run one search configuration on the bench and return its history/metrics."""
     logger.info(
@@ -215,6 +217,8 @@ def run_algorithm(
         pop_size=pop_size,
         random_seed=args.seed,
         show=False,
+        cam=cam,
+        slm=slm,
     )
     df = recorder.dataframe
     # The metric column is named after the objective ("shape" / "pib" / ...).
@@ -320,7 +324,7 @@ def fig_convergence(results: dict[str, dict], out: Path) -> None:
         ax.bar(x, vals, 0.5, label=label, color="#4C72B0")
         for xi, v in zip(x, vals):
             if np.isfinite(v):
-                ax.text(xi, v + 0.5, f"{int(v)}", ha="center", va="bottom", fontsize=9)
+                ax.text(float(xi), v + 0.5, f"{int(v)}", ha="center", va="bottom", fontsize=9)
     ax.set_xticks(x)
     ax.set_xticklabels(names)
     ax.set_ylabel("加载次数")
@@ -604,14 +608,37 @@ def main() -> None:
         cam_info = camera_test(args.cam_type, args.cam_id, args.exposure_ms)
         fig_camera(cam_info, cam_img, OUT_DIR)
 
-    results: dict[str, dict] = {}
-    for label, algorithm, optimizer_type, epochs, pop_size in ALGORITHMS:
-        try:
-            results[label] = run_algorithm(
-                label, algorithm, optimizer_type, epochs, pop_size, args
-            )
-        except Exception as exc:  # keep the remaining algorithms running
-            logger.error("{} failed: {}: {}", label, type(exc).__name__, exc)
+    # Open camera + SLM ONCE and reuse them across all algorithms, instead of
+    # opening/closing a fresh pair per run (the previous behaviour). The
+    # optimizer re-windows the camera and re-detects the spot centre per call,
+    # so sequential reuse on a fixed bench is safe.
+    from ao_shaping.drivers.ccd.common import create_camera
+    from ao_shaping.drivers.slm import Santec
+
+    cam = create_camera(
+        args.cam_type, cam_id=args.cam_id, exposure_time_ms=args.exposure_ms, skip_sampling=False
+    )
+    slm = Santec(
+        slm_number=args.slm_number,
+        wavelength=args.wavelength,
+        shift_x=0,
+        shift_y=0,
+    )
+    cam.open()
+    slm.open()
+    try:
+        results: dict[str, dict] = {}
+        for label, algorithm, optimizer_type, epochs, pop_size in ALGORITHMS:
+            try:
+                results[label] = run_algorithm(
+                    label, algorithm, optimizer_type, epochs, pop_size, args,
+                    cam=cam, slm=slm,
+                )
+            except Exception as exc:  # keep the remaining algorithms running
+                logger.error("{} failed: {}: {}", label, type(exc).__name__, exc)
+    finally:
+        slm.close()
+        cam.close()
 
     if not results:
         raise SystemExit("all algorithms failed; see the log above")

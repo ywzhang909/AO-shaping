@@ -16,6 +16,7 @@ from ao_shaping.optimizer.wfless.slm_square_shaping import (
     SLM_HEIGHT,
     SLM_RESOLUTION,
     SLM_WIDTH,
+    _locate_square_center,
     _zernike_indices,
     _zernike_phase_radians,
 )
@@ -136,3 +137,23 @@ class TestSlmSquareZernikeBasisFullPanel:
         assert len(modes) == nk
         # Each mode maps to exactly one coefficient
         assert nk == (self.N_MAX + 1) * (self.N_MAX + 2) // 2
+
+
+class TestSlmSquareCenterModes:
+    @staticmethod
+    def _spot(size: int = 80) -> np.ndarray:
+        yy, xx = np.mgrid[0:size, 0:size]
+        img = 200.0 * np.exp(
+            -(((xx - 42) ** 2 + (yy - 36) ** 2) / (2 * 3.0**2))
+        )
+        return img.astype(np.uint8)
+
+    @pytest.mark.parametrize("mode", ["shape", "centroid_thresh", "max", "mass"])
+    def test_supported_modes_locate_spot(self, mode: str):
+        x, y = _locate_square_center(self._spot(), mode)
+        assert abs(x - 42) <= 2
+        assert abs(y - 36) <= 2
+
+    def test_unknown_mode_raises(self):
+        with pytest.raises(ValueError, match="Unknown center mode"):
+            _locate_square_center(self._spot(), "unknown")

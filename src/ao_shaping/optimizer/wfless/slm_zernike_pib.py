@@ -1153,6 +1153,7 @@ def optimize_slm_zernike_pib(
     )
 
     with cam_ctx as cam, slm_ctx as slm, display_ctx as live_display:
+        assert cam is not None and slm is not None
         # Initialize Zernike coefficients
         if init_c is None or len(init_c) == 0:
             _init_c = np.zeros(nk, dtype=np.float64)

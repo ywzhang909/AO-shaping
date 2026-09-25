@@ -34,7 +34,9 @@ __all__ = [
     "clamp_side",
     "threshold_spot_center",
     "zero_order_center",
+    "smart_zero_order_center",
     "median_zero_order_center",
+    "clamp_center_to_frame",
 ]
 
 
@@ -457,6 +459,56 @@ def zero_order_center(
     return (int(round(cx)), int(round(cy)))
 
 
+def smart_zero_order_center(
+    img: np.ndarray,
+    margin: int = 6,
+    flat_frac: float = 0.4,
+) -> tuple[int, int]:
+    """0 级光斑中心: argmax 锚定, 遇平坦核 (非空洞) 时扩大窗口细化。
+
+    2f Fourier 光路上 0 级 = 帧全局最大 (``argmax``)。当 ``argmax`` 邻域内
+    核部位空洞 (亮度 >= ``flat_frac * max``) 时, 扩大细化窗口以获得更稳定的
+    质心 —— 全图质心会被杂散光拉偏 (硬件实测 1394 vs 958px)。核部为空洞
+    (如环形 / TEM01 模式) 时, 保持 :func:`zero_order_center` 的默认小窗口,
+    否则宽窗口的质心会漂移到环侧。
+
+    这是 :func:`zero_order_center` 的 flat-core 感知封装, 统一了
+    ``slm_zernike_pib.py`` 的 ``_smart_center``、``pib.py`` 的
+    ``intellij_center``、``combined_optimizer.py`` 的内联 ``intellij_center``
+    及 ``slm_square_shaping.py`` 的 ``intelligen_center``-基检测逻辑
+    (2026-09 去重合并)。
+
+    Args:
+        img: 二维强度图像。
+        margin: 核部检查的半窗口 (像素), 同时作为 flat-core 检测的邻域半径。
+        flat_frac: 判断核部是否平坦的阈值比例 (``img[core] >= flat_frac * max``)。
+
+    Returns:
+        ``(x, y)`` 像素坐标。全暗帧返回帧中心。
+    """
+    frame = np.asarray(img)
+    if frame.ndim != 2 or frame.size == 0:
+        raise ValueError(f"img must be a non-empty 2D array, got shape {frame.shape}")
+    height, width = frame.shape
+    if float(frame.max()) <= 0.0:
+        return (width // 2, height // 2)
+
+    center = zero_order_center(frame)
+    (cx, cy) = center
+    y0, y1 = max(0, cy - margin), min(height, cy + margin)
+    x0, x1 = max(0, cx - margin), min(width, cx + margin)
+    if (
+        y1 > y0
+        and x1 > x0
+        and np.all(frame[y0:y1, x0:x1] >= float(np.max(frame)) * flat_frac)
+    ):
+        # Flat (non-hollow) core: widen the refinement window. A full-image
+        # centroid (as intelligen_center does) is dragged tens of pixels by
+        # stray light — measured (1394 vs 958 on this bench).
+        center = zero_order_center(frame, half_win=max(margin * 6, 32))
+    return center
+
+
 def median_zero_order_center(
     frames: list[np.ndarray] | tuple[np.ndarray, ...],
     refine: bool = True,
@@ -487,3 +539,32 @@ def median_zero_order_center(
         xs.append(x)
         ys.append(y)
     return (int(round(float(np.median(xs)))), int(round(float(np.median(ys)))))
+
+
+def clamp_center_to_frame(
+    center: tuple[int | float, int | float],
+    frame_shape: tuple[int | float, int | float],
+    window: int,
+) -> tuple[int, int]:
+    """Clamp an ROI centre so a ``window x window`` ROI always fits the frame.
+
+    ``DahengCamera.reset_window`` asserts ``x_offset >= 0 and y_offset >= 0``, so
+    a spot detected near a frame edge aborted the whole run. Clamping keeps the
+    ROI inside the frame (the spot is simply off-centre) instead of crashing.
+
+    Args:
+        center: ``(x, y)`` ROI centre in pixels.
+        frame_shape: ``(height, width)`` of the captured image.
+        window: requested (square) ROI size in pixels.
+
+    Returns:
+        ``(x, y)`` clamped integer centre.
+    """
+    height, width = int(frame_shape[0]), int(frame_shape[1])
+    half = min(max(0, int(window) // 2), min(height, width) // 2)
+    max_x = max(half, width - half - 1)
+    max_y = max(half, height - half - 1)
+    return (
+        int(np.clip(int(center[0]), half, max_x)),
+        int(np.clip(int(center[1]), half, max_y)),
+    )

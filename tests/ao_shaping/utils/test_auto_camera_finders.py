@@ -21,6 +21,7 @@ from ao_shaping.utils.image.hardware_utils import (
     auto_find_exposure_and_center,
     find_exposure_ms,
     find_zero_order_center,
+    resolve_spot_center,
 )
 
 
@@ -97,7 +98,9 @@ class _HotPixelCam(_StubCam):
 class TestFindExposureMs:
     def test_requires_reset_exposure_time(self):
         class NoExposureCam:
-            def get_numpy_image(self, n_sample: int = 1, skip_first: bool = True) -> np.ndarray:
+            def get_numpy_image(
+                self, n_sample: int = 1, skip_first: bool = True
+            ) -> np.ndarray:
                 return np.zeros((10, 10))
 
         with pytest.raises(ValueError, match="reset_exposure_time"):
@@ -122,7 +125,17 @@ class TestFindExposureMs:
         assert cam.reset_calls == list(_DEFAULT_EXPOSURE_PROBES_MS)
 
     def test_default_probes_constant(self):
-        assert _DEFAULT_EXPOSURE_PROBES_MS == (0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0)
+        assert _DEFAULT_EXPOSURE_PROBES_MS == (
+            0.05,
+            0.1,
+            0.2,
+            0.5,
+            1.0,
+            2.0,
+            3.0,
+            5.0,
+            10.0,
+        )
 
     def test_hot_pixel_probe_discarded(self):
         # Grab 1 (0.5ms) is a hot pixel (300 > 245) immediately followed by a
@@ -244,3 +257,44 @@ class TestAutoFindExposureAndCenter:
         assert exposure is None
         assert center is None
         assert cam.grab_calls == 0
+
+
+class TestResolveSpotCenter:
+    def test_none_uses_detect_fn(self):
+        cam = _StubCam(spot_center=(60, 40), peak_per_ms=100.0)
+        cam.exposure_ms = 5.0
+        img = cam.get_numpy_image(n_sample=1)
+        center = resolve_spot_center(cam, img, None, recapture=False)
+        assert center == (60, 40)
+
+    def test_explicit_tuple_returned_as_is(self):
+        cam = _StubCam(spot_center=(60, 40))
+        img = np.zeros((80, 120))
+        center = resolve_spot_center(cam, img, (30, 25), recapture=False)
+        assert center == (30, 25)
+
+    def test_string_mode_max(self):
+        cam = _StubCam(spot_center=(60, 40), peak_per_ms=100.0)
+        cam.exposure_ms = 5.0
+        img = cam.get_numpy_image(n_sample=1)
+        center = resolve_spot_center(cam, img, "max")
+        assert center == (60, 40)
+
+    def test_string_mode_shape(self):
+        cam = _StubCam(spot_center=(60, 40), peak_per_ms=100.0)
+        cam.exposure_ms = 5.0
+        center = resolve_spot_center(cam, np.zeros((80, 120)), "shape")
+        assert center == (60, 40)
+
+    def test_unknown_string_raises(self):
+        cam = _StubCam()
+        with pytest.raises(ValueError, match="known center"):
+            resolve_spot_center(cam, np.zeros((10, 10)), "bogus")
+
+    def test_returns_int_tuple(self):
+        cam = _StubCam(spot_center=(60, 40), peak_per_ms=100.0)
+        cam.exposure_ms = 5.0
+        img = cam.get_numpy_image(n_sample=1)
+        center = resolve_spot_center(cam, img, None, recapture=False)
+        assert isinstance(center, tuple)
+        assert all(isinstance(v, int) for v in center)

@@ -6,13 +6,23 @@ import numpy as np
 import matplotlib.pylab as plt
 
 from ao_shaping.drivers import MIICamera
+from ao_shaping.drivers.ccd.common import (
+    capture_with_exposure,
+    get_camera_exposure_ms,
+    resample_on_saturation,
+)
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.dm._registry import get_dm_registry
 from ao_shaping.algorithm.gradient.adam import AdaMOD, Base
 from ao_shaping.optimizer.constants import OPTIMIZER_MAP
 from ao_shaping.utils import ImageVoltagesDisplay, logger, Recorder
 from ao_shaping.optimizer.spgd import spgd_gradient
-from ao_shaping.utils.image.spots_calc import centroid, radius
+from ao_shaping.utils.image.spots_calc import radius
+from ao_shaping.utils.image.beam_metrics import smart_zero_order_center
+from ao_shaping.utils.image.hardware_utils import (
+    log_center_brightness,
+    resolve_spot_center,
+)
 from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
 
 # adam parameters
@@ -364,84 +374,36 @@ def optimize_pib(
                 _init_v = np.array(init_v)
             dm.send_voltages(_init_v, 0.5)
 
-            _img = cam.auto_exposure(
-                target_max=TEST_EXPOSURE_TIME_BRIGHTNESS, n_sample=20
+            _img = capture_with_exposure(
+                cam,
+                0.0,
+                TEST_EXPOSURE_TIME_BRIGHTNESS,
+                auto_n_sample=20,
             )
 
-            def intellij_center(img):
-                (h, w) = img.shape
-                margin = int(IDEAL_SPOT_RADIUS)
-                # 如果中心不是空洞，使用质心而非形心;如果中间存在空洞使用形心，否则质心
-                center = centroid(
-                    np.where(
-                        img
-                        > np.max(img[: max(int(h // 50), 2), : max(int(w // 50), 2)]),
-                        1,
-                        0,
-                    )
-                )
-                (cx, cy) = center
-                if np.all(
-                    img[cy - margin : cy + margin, cx - margin : cx + margin]
-                    >= np.max(img) * 0.4
-                ):  # 中心不是空洞
-                    center = centroid(img)
-                return center
-
-            if center is None:
-                center = intellij_center(_img)
-            elif isinstance(center, str):
-                _img = cam.get_numpy_image(10)
-                if center == "mass":
-                    # FIX: wrong
-                    center = centroid(_img)
-                elif center == "max":
-                    center = np.unravel_index(np.argmax(_img), _img.shape)[::-1]
-                elif center == "shape":
-                    (h, w) = _img.shape
-                    center = centroid(
-                        np.where(
-                            _img
-                            > np.max(
-                                _img[: max(int(h // 50), 2), : max(int(w // 50), 2)]
-                            ),
-                            1,
-                            0,
-                        )
-                    )
-                else:
-                    raise ValueError(f"known center: {center}")
-
-            else:
-                center = center
+            center = resolve_spot_center(
+                cam, _img, center, detect_fn=smart_zero_order_center, n_sample=10
+            )
 
             if show:
                 plt.imshow(_img, cmap="gray")
                 plt.scatter(x=center[0], y=center[1], c="red", s=5)
                 plt.show()
 
-            logger.info(
-                f"Centroid brightness : {_img[center[::-1]]}@{center}, Max brightness: {np.max(_img)} @ {cam.exposure_time}ms"
-            )
+            log_center_brightness(_img, center, get_camera_exposure_ms(cam))
 
             img_size = (cam_size, cam_size)
             img_size, center = cam.reset_window(center, img_size)
             logger.info(f"reset window center @ {center}")
-            if exposure_time_ms > 0:
-                cam.exposure_time = exposure_time_ms
-                init_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
-            elif 0 < target_max_brightness < 255 and target_max_brightness > 0:
-                init_img = cam.auto_exposure(
-                    target_max=target_max_brightness, twice_valid=True, n_sample=20
-                )
-            else:
-                init_img = cam.auto_exposure(
-                    target_max=ADVISE_EXPOSURE_TIME_BRIGHTNESS,
-                    twice_valid=True,
-                    n_sample=20,
-                )
+            init_img = capture_with_exposure(
+                cam,
+                exposure_time_ms,
+                target_max_brightness or ADVISE_EXPOSURE_TIME_BRIGHTNESS,
+                auto_n_sample=20,
+            )
             logger.debug(
-                f"Inital Image Max brightness: {np.max(init_img)} @ {cam.exposure_time}ms"
+                f"Initial Image Max brightness: {np.max(init_img)} "
+                f"@ {get_camera_exposure_ms(cam)}ms"
             )
             img_size = init_img.shape[::-1]
             if r_bucket <= 0:
@@ -651,7 +613,7 @@ def optimize_pib(
                     "r": r_bucket,
                     "delta": delta,
                     "_epoch": 0,
-                    "exp_t": cam.exposure_time,
+                    "exp_t": get_camera_exposure_ms(cam),
                     "max_brt": np.max(init_img),
                     "_grad": np.zeros_like(_init_v),
                     "optimizer": optimizer_type,
@@ -692,10 +654,16 @@ def optimize_pib(
 
                     max_brightness = max([np.max(pos_img), np.max(neg_img)])
                     if max_brightness == 255 and exposure_time_ms == 0:
-                        _resample_img = cam.auto_exposure(
-                            target_max=target_max_brightness,
-                            twice_valid=False,
-                            n_sample=20,
+                        _resample_img = resample_on_saturation(
+                            pos_img,
+                            cam,
+                            exposure_time_ms,
+                            target_max_brightness,
+                            auto_exposure_fn=lambda c, t, n_sample=1: c.auto_exposure(
+                                target_max=t,
+                                twice_valid=False,
+                                n_sample=max(n_sample, 20),
+                            ),
                         )
                         optimizer.scale_momentum(
                             np.sum(_resample_img) / np.sum(pos_img)
@@ -798,7 +766,7 @@ def optimize_pib(
                         "_epoch": epoch,
                         "_v": _init_v,
                         "_img": pos_img,
-                        "exp_t": cam.exposure_time,
+                        "exp_t": get_camera_exposure_ms(cam),
                         "max_brt": max_brightness,
                         "_grad": gradient,
                         "_opt_m": _extract_optimizer_momentum(optimizer),
@@ -858,7 +826,7 @@ def optimize_pib(
                                         "_epoch": epoch,
                                         "_v": _init_v.copy(),
                                         "_img": search_result["img"],
-                                        "exp_t": cam.exposure_time,
+                                        "exp_t": get_camera_exposure_ms(cam),
                                         "max_brt": search_result["max_brt"],
                                         "_grad": np.zeros_like(_init_v),
                                         "_opt_m": _extract_optimizer_momentum(
