@@ -8,6 +8,7 @@ from loguru import logger
 from ao_shaping.drivers.dm._registry import register_dm
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator
+from ao_shaping.utils.wavefront.zernike_utils import parse_zernike_coefficients
 
 
 @register_dm("zernike")
@@ -149,13 +150,10 @@ class ZernikeDM(DM):
 
     def _noll_to_dict(self, coeffs: np.ndarray) -> dict[tuple[int, int], float]:
         """将Noll顺序的系数向量转换为字典形式"""
-        result = {}
-        for j, amp in enumerate(coeffs):
-            if abs(amp) < 1e-10:
-                continue
-            n, m = self._generator.noll_to_nm(j + 1)
-            result[(n, m)] = float(amp)
-        return result
+        # parse_zernike_coefficients 保持 Noll j = idx+1 映射 (与旧实现逐条一致),
+        # 仅跳过 |amp| < 1e-15; 此处补 1e-10 后过滤恢复原阈值语义。
+        parsed = parse_zernike_coefficients(coeffs)
+        return {nm: float(amp) for nm, amp in parsed.items() if abs(amp) >= 1e-10}
 
     def transform(self, cmd) -> np.ndarray:
         if isinstance(cmd, np.ndarray):

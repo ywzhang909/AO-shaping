@@ -31,24 +31,21 @@ from ao_shaping.drivers.slm.santec import Santec, WavefrontCorrection
 from ao_shaping.drivers.wfs import ThorlabWFS
 from ao_shaping.tools.slm.slm_scan_analysis import outlier_mask
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
+from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
+from ao_shaping.utils.wavefront.zernike_utils import LAMBDA_UM, UM_TO_WAVES, um_to_waves
 
 PANEL_H, PANEL_W = 1200, 1920
 MAX_EXPOSURE_MS = 7.0
 DEFAULT_EXPOSURE_MS = 4.0
 SETTLE_REDUNDANCY_S = 0.1          # 像素翻转估算之外额外等待
 WFS_ZERNIKE_ORDER = 10             # orders 有效值 0=auto 或 2..10 (10 → 66 项); 15 非法!
-LAMBDA_UM = 0.532                  # 工作波长 (µm): WFS 系数单位 µm → λ 需 ÷ 此值
 
 # ⚠️ 单位一致性 (2026-09-16 实测定位的矫正失效根因):
 #   `get_zernike()` 返回**µm**; 响应矩阵必须与矫正时的 `w` 用**同一单位**。
 #   曾因矩阵用原始 µm 构建、而矫正用 `w = z/0.532` (λ), 反解系数被放大 1/0.532 = 1.88×,
 #   矫正过驱动 88% → 实测闭环仅 19.7% (离线最优可达 75%)。**一律经 `um_to_waves` 换算。**
-UM_TO_WAVES = 1.0 / LAMBDA_UM
-
-
-def um_to_waves(z: np.ndarray) -> np.ndarray:
-    """WFS Zernike 系数 µm → λ (工作波长 532nm)。矩阵与矫正**必须**用同一单位。"""
-    return np.asarray(z, dtype=float) * UM_TO_WAVES
+# `LAMBDA_UM` / `UM_TO_WAVES` / `um_to_waves` 的 canonical 实现在 zernike_utils
+# (设备无关纯数学, 2026-09 收敛), 此处 re-export 保持 10+ 调用方导入路径不变。
 
 # DLL 顺序 m 枚举: 1-based index -> (n, m)。完整 66 项 (n=0..10, 每阶 n+1 项)。
 # ⚠️ 曾只到 n=5 (21 项) — 与 mode_ids 2..66 (n_max=10) 不匹配, 二阶以上 IndexError。
@@ -94,7 +91,7 @@ def name_of(index: int) -> str:
 
 def n_modes_upto(n_max: int) -> int:
     """含 piston 的模式总数 (n_max=4 → 15)."""
-    return (n_max + 1) * (n_max + 2) // 2
+    return calc_n_zernike_terms(n_max)
 
 
 # ─────────────────────────── 设备参数采集 ───────────────────────────

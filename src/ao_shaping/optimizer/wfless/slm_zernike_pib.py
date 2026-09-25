@@ -68,7 +68,7 @@ from ao_shaping.drivers.ccd.common import (
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL
 from ao_shaping.optimizer.spgd import spgd_gradient
-from ao_shaping.optimizer.wfless.slm_square_shaping import _zernike_indices
+from ao_shaping.utils.wavefront.zernike_calc import noll_indices as _zernike_indices
 from ao_shaping.utils import Recorder, logger
 from ao_shaping.utils.image.beam_metrics import zero_order_center
 from ao_shaping.utils.image.spots_calc import centroid, radius
@@ -89,6 +89,7 @@ from ao_shaping.utils.image.targets import (
 from ao_shaping.utils.io.file import gen_date_dir, gen_date_str
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
+from ao_shaping.utils.wavefront.zernike_utils import parse_zernike_coefficients
 
 TargetShape = Literal[
     "gaussian",
@@ -488,25 +489,13 @@ def _zernike_to_phase(
     pattern_helper: PatternHelper,
     radius: float | None = None,
 ) -> np.ndarray:
-    """Convert a flat Zernike coefficient array to a radian phase pattern.
-
-    Args:
-        coeffs: Flat array of Zernike coefficients (amplitudes in wavelengths).
-        n_max: Maximum Zernike radial order.
-        pattern_helper: PatternHelper instance for phase generation.
-
-    Returns:
-        float64 raw radian phase pattern array with shape (SLM_HEIGHT, SLM_WIDTH).
-        No mod-2π here — the caller must convert to grayscale via
-        ``slm.create_phase_from_array()`` before ``slm.display_data()``
-        (2026-09: PatternHelper no longer performs phase→gray; the SLM
-        driver applies the 2π wrap on radian→grayscale conversion).
+    """Convert a flat Noll-order Zernike coefficient array to a
+    canonical (n, m)→amplitude dict via `parse_zernike_coefficients`
+    (skips |amp| < 1e-15 and n > n_max — both contribute zero phase).
     """
-    modes = _zernike_indices(n_max)
-    coeffs_dict: dict[tuple[int, int], float] = {}
-    for i, (n, m) in enumerate(modes):
-        if i < len(coeffs):
-            coeffs_dict[(n, m)] = float(coeffs[i])
+    coeffs_dict: dict[tuple[int, int], float] = parse_zernike_coefficients(
+        coeffs, n_max=n_max
+    )
     return pattern_helper.generate_zernike_polynomial(
         n_max=n_max,
         coefficients=coeffs_dict,

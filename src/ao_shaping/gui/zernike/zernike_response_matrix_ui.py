@@ -23,8 +23,6 @@ import numpy as np
 import streamlit as st
 from loguru import logger
 
-from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
-
 # Import drivers
 from ao_shaping.drivers.slm.zernike_slm import ZernikeSLM
 from ao_shaping.drivers.wfs import ThorlabWFS
@@ -38,6 +36,7 @@ from ao_shaping.optimizer.wf.zernike_response_matrix import (
     load_zernike_response_matrix,
     save_zernike_response_matrix,
 )
+from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 
 # Determine project root
@@ -207,33 +206,6 @@ def _initialize_state() -> None:
     if "zrm_verbose" not in st.session_state:
         st.session_state.zrm_verbose = True
 
-
-def _get_zernike_name(n_max: int) -> dict[tuple[int, int], str]:
-    """Generate Zernike name mapping for given n_max."""
-    names = {
-        (0, 0): "Piston",
-        (1, -1): "Tip",
-        (1, 1): "Tilt",
-        (2, 0): "Defocus",
-        (2, -2): "Astig 45°",
-        (2, 2): "Astig 0°",
-        (3, -1): "Coma Y",
-        (3, 1): "Coma X",
-        (3, -3): "Trefoil Y",
-        (3, 3): "Trefoil X",
-        (4, 0): "Spherical",
-        (4, -2): "Sec Astig 45°",
-        (4, 2): "Sec Astig 0°",
-        (4, -4): "Tetrafoil Y",
-        (4, 4): "Tetrafoil X",
-    }
-    # Filter to only valid modes for given n_max
-    valid = {}
-    for n in range(n_max + 1):
-        for m in range(-n, n + 1):
-            if (n - abs(m)) % 2 == 0:
-                valid[n, m] = names.get((n, m), f"Z{n},{m}")
-    return valid
 
 
 def set_slm_shift() -> None:

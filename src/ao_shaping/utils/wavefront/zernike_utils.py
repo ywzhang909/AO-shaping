@@ -53,7 +53,7 @@ Noll 5 = (2, 0)) 已删除。新代码一律用 canonical 的 `noll_to_nm()` /
 ==================== 输出格式说明 ====================
 
 `generate_zernike_phase()` 返回 **float64** 相位图 (非 uint16):
-- 孔径内: 浮点相位值 (单位: 波长倍数)
+- 孔径内: 浮点相位值 (单位: 弧度, 未包裹 raw radians — 对应 raw-only 契约)
 - 孔径外 (圆形孔径之外): NaN
 - 空系数 / None: 全零 **uint16** 数组
 
@@ -81,6 +81,18 @@ from ao_shaping.utils.wavefront.zernike_calc import (
     get_zernike_name,
     noll_to_nm,
 )
+
+# 工作波长 (µm): WFS get_zernike() 返回 µm, 参与矫正前必须换算为 λ。
+# ⚠️ 单位一致性 (2026-09-16 实测定位的矫正失效根因): 响应矩阵必须与矫正时的 `w`
+#   用**同一单位**。曾因矩阵用原始 µm 构建、而矫正用 `w = z/0.532` (λ), 反解系数
+#   被放大 1/0.532 = 1.88×, 矫正过驱动 88% → 实测闭环仅 19.7% (离线最优可达 75%)。
+LAMBDA_UM = 0.532
+UM_TO_WAVES = 1.0 / LAMBDA_UM
+
+
+def um_to_waves(z: np.ndarray) -> np.ndarray:
+    """WFS Zernike 系数 µm → λ (工作波长 532nm)。矩阵与矫正**必须**用同一单位。"""
+    return np.asarray(z, dtype=float) * UM_TO_WAVES
 
 
 def list_zernike_modes(n_max: int) -> list[tuple[int, int, str]]:

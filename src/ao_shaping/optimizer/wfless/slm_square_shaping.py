@@ -113,7 +113,7 @@ from ao_shaping.utils.image.spots_calc import centroid, radius
 from ao_shaping.utils.wavefront.zernike_calc import (
     ZernikeGenerator,
     calc_n_zernike_terms,
-    noll_to_nm,
+    noll_indices,
 )
 
 if TYPE_CHECKING:
@@ -157,18 +157,10 @@ ZERNIKE_ACTIVE_MODES: tuple[tuple[int, int], ...] = ((2, 0), (4, 0))
 _ZERNIKE_MIN_MASK_LEN = 5  # piston + tip + tilt always masked; mask must cover ≥ Noll 5
 
 
-def _zernike_indices(n_max: int) -> list[tuple[int, int]]:
-    """Return list of (n, m) pairs for all valid Zernike modes up to n_max.
-
-    Uses noll_to_nm from zernike_calc for correctness.
-    """
-    n_terms = calc_n_zernike_terms(n_max)
-    modes = []
-    for j in range(1, n_terms + 1):
-        n, m = noll_to_nm(j)
-        if n <= n_max:
-            modes.append((n, m))
-    return modes
+# Noll-order (n, m) enumeration — canonical implementation lives in
+# zernike_calc.noll_indices (v0.12+ consolidation); this alias keeps the
+# historical import name working for internal callers.
+_zernike_indices = noll_indices
 
 
 def _map_init_to_active_modes(

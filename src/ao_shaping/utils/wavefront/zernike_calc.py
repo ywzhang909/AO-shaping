@@ -147,6 +147,34 @@ def noll_to_nm(j: int) -> tuple[int, int]:
     return (int(result[0][0]), int(result[1][0]))
 
 
+def noll_indices(n_max: int) -> list[tuple[int, int]]:
+    """Valid (n, m) index pairs up to radial order ``n_max`` in Noll order.
+
+    Enumerates Noll indices j = 1..calc_n_zernike_terms(n_max) via
+    :func:`noll_to_nm` (Noll 1976 convention): (0,0),(1,1),(1,-1),(2,0),...
+
+    .. note::
+        This is **NOT** the same ordering as :func:`zernike_modes`, which
+        enumerates (n, m) with m ascending ((n,m)-sorted: (1,-1),(1,1),...).
+        ``noll_indices`` matches flat coefficient arrays where index i maps
+        to Noll j = i + 1 (see ``zernike_utils.parse_zernike_coefficients``).
+
+    Args:
+        n_max: Maximum Zernike radial order.
+
+    Returns:
+        List of (n, m) pairs in Noll order, length
+        ``calc_n_zernike_terms(n_max)``.
+    """
+    n_terms = calc_n_zernike_terms(n_max)
+    modes: list[tuple[int, int]] = []
+    for j in range(1, n_terms + 1):
+        n, m = noll_to_nm(j)
+        if n <= n_max:
+            modes.append((n, m))
+    return modes
+
+
 def fit_zernike(phase: np.ndarray, n_max: int = 10) -> np.ndarray:
     """Fit Zernike coefficients to a phase map.
 
