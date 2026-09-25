@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import numpy as np
 import tqdm
@@ -44,7 +44,7 @@ def schedule_lr_delta(rms):
 
 def optimizer_rms_dm(
     epochs,
-    wfs_res: Literal["512", "768"] = "768",
+    wfs_res: str = "768",
     init_v: Sequence[float | int] = [],
     pupil_center: tuple[float, float] = (0, 0),
     pupil_diameter: float = 2.24,
@@ -55,7 +55,7 @@ def optimizer_rms_dm(
 
     Args:
         epochs: Number of optimization iterations.
-        wfs_res: WFS resolution ("512" or "768").
+        wfs_res: WFS resolution (e.g. "512", "768", "1024").
         init_v: Initial voltage array. If empty, starts from zeros.
         pupil_center: WFS pupil center coordinates.
         pupil_diameter: WFS pupil diameter.

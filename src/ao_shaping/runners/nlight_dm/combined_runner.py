@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import cast
 
 import click
 import numpy as np
@@ -16,7 +15,7 @@ from ao_shaping.utils.io.cli_helpers import (
 from ao_shaping.utils.io.file import gen_file_path_uuid, gen_date_dir, logger
 from ao_shaping.utils.image.display import plot_funcs
 from ao_shaping.drivers.dm._registry import resolve_dm
-from ao_shaping.runners.runner_common import CombinedRunnerParams, with_params
+from ao_shaping.runners.runner_common import CameraParams, CombinedRunnerParams, with_params
 
 import matplotlib.pyplot as plt
 
@@ -24,7 +23,8 @@ import matplotlib.pyplot as plt
 @click.command()
 @click.pass_context
 @with_params(CombinedRunnerParams, kw_name="params")
-def run(ctx: click.Context, params: CombinedRunnerParams) -> None:
+@with_params(CameraParams, kw_name="camera")
+def run(ctx: click.Context, params: CombinedRunnerParams, camera: CameraParams) -> None:
     """AdaMOD 综合PIB优化器
 
     使用AdaMOD优化器进行桶内功率(PIB)优化，支持自适应桶半径收缩。
@@ -33,6 +33,7 @@ def run(ctx: click.Context, params: CombinedRunnerParams) -> None:
     任一开启即可输出 pkl/json 与汇总图片。
     """
     debug = resolve_debug(ctx, params.debug_flag)
+    center = camera.center if camera.center is not None else "mass"
 
     if params.load_file and Path(params.load_file).exists():
         init_v = np.loadtxt(params.load_file).tolist()
@@ -42,16 +43,16 @@ def run(ctx: click.Context, params: CombinedRunnerParams) -> None:
     config = {
         "root_dir": params.root_dir,
         "load_file": params.load_file,
-        "cam_id": params.cam_id,
-        "center": params.center,
-        "exposure_time_ms": params.exposure_time_ms,
+        "cam_id": camera.cam_id,
+        "center": center,
+        "exposure_time_ms": camera.exposure_time_ms,
         "epochs": params.epochs,
         "r_bucket": params.r_bucket,
         "delta": params.delta,
         "lr": params.lr,
         "shrink_iter": params.shrink_iter,
         "shrink_ratio": params.shrink_ratio,
-        "cam_size": params.cam_size,
+        "cam_size": camera.cam_size,
         "target_max_brightness": params.target_max_brightness,
         "debug": debug,
         "show": params.show,
@@ -62,18 +63,18 @@ def run(ctx: click.Context, params: CombinedRunnerParams) -> None:
 
     res_list = optimize_pib(
         dm=dm,
-        center=params.center,
+        center=center,
         epochs=params.epochs,
         r_bucket=params.r_bucket,
         delta=params.delta,
         lr=params.lr,
-        exposure_time_ms=params.exposure_time_ms,
+        exposure_time_ms=camera.exposure_time_ms,
         shrink_iter=params.shrink_iter,
         shrink_ratio=params.shrink_ratio,
-        cam_id=cast(int, params.cam_id),
+        cam_id=camera.cam_id,
         show=params.show,
         init_v=init_v,
-        cam_size=params.cam_size,
+        cam_size=camera.cam_size,
         target_max_brightness=params.target_max_brightness,
     )
 

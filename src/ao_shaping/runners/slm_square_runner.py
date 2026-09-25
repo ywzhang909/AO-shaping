@@ -44,14 +44,15 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.runners.runner_common import SlmSquareParams, with_params
+from ao_shaping.runners.runner_common import SlmSquareParams, ZernikeSlmParams, with_params
 from ao_shaping.utils.io.cli_helpers import get_debug_mode, get_date_dir_name
 
 
 @click.command()
 @click.pass_context
 @with_params(SlmSquareParams, kw_name="params")
-def run(ctx: click.Context, params: SlmSquareParams) -> None:
+@with_params(ZernikeSlmParams, kw_name="slm_params")
+def run(ctx: click.Context, params: SlmSquareParams, slm_params: ZernikeSlmParams) -> None:
     """SLM方形光斑整形优化器
 
     使用SPGD算法优化SLM上的Zernike系数，通过相机反馈产生均匀方形远场光斑。
@@ -182,7 +183,7 @@ def run(ctx: click.Context, params: SlmSquareParams) -> None:
     if params.rotation_search_deg > 0:
         click.echo(f"Rotation search: ±{params.rotation_search_deg / 2.0:.1f}° (SPGD extra DOF)")
     click.echo(f"Epochs: {params.epochs}")
-    click.echo(f"SLM: #{params.slm_number} @ {params.slm_wavelength}nm")
+    click.echo(f"SLM: #{slm_params.slm_number} @ {slm_params.wavelength}nm")
     click.echo(f"Camera: ID={params.cam_id}, size={params.cam_size}")
     click.echo(f"Weights: CV={params.w_uniformity}, EE={params.w_efficiency}, AR={params.w_aspect}")
     click.echo("=" * 60)
@@ -205,8 +206,8 @@ def run(ctx: click.Context, params: SlmSquareParams) -> None:
         init_c=init_c,
         cam_size=params.cam_size,
         target_max_brightness=params.target_brightness,
-        slm_number=params.slm_number,
-        slm_wavelength=params.slm_wavelength,
+        slm_number=slm_params.slm_number,
+        slm_wavelength=slm_params.wavelength,
         optimizer_type=params.optimizer,
         algorithm=params.algorithm,
         pop_size=params.pop_size,

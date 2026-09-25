@@ -61,7 +61,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from time import sleep
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 import click
 import h5py
@@ -84,7 +84,13 @@ from ao_shaping.optimizer.wf.zernike_response_matrix import (
     save_zernike_response_matrix,
 )
 from ao_shaping.optimizer.wf.closed_loop import AOClosedLoop
-from ao_shaping.runners.runner_common import option, with_params
+from ao_shaping.runners.runner_common import (
+    ThorlabWfsDriverParams,
+    WfsParams,
+    ZernikeSlmParams,
+    option,
+    with_params,
+)
 from ao_shaping.tools.slm.slm_zernike_common import (
     DLL_ZERNIKE_ORDER,
     WFS_ZERNIKE_ORDER,
@@ -104,7 +110,6 @@ from ao_shaping.tools.slm.slm_zernike_common import (
 from ao_shaping.tools.slm.slm_scan_analysis import outlier_mask
 from ao_shaping.utils.io.cli_helpers import (
     get_timestamp_str,
-    parse_tuple,
     setup_coredumpy,
 )
 from ao_shaping.utils.image.display import ZernikeCalibrationDisplay
@@ -1078,42 +1083,6 @@ class ZernikeMatrixParams:
     output_path: Annotated[
         str, option("--output", help="输出文件路径")
     ] = "data/zernike_response_matrix"
-    slm_number: Annotated[int, option("--slm-number", help="SLM设备编号")] = 1
-    shift_x: Annotated[
-        int, option("--shift-x", type=int, help="SLM X方向平移像素 (正=右, 负=左)")
-    ] = 0
-    shift_y: Annotated[
-        int, option("--shift-y", type=int, help="SLM Y方向平移像素 (正=下, 负=上)")
-    ] = 0
-    wavelength: Annotated[int, option("--wavelength", help="工作波长 (nm)")] = 1064
-    mla_index: Annotated[
-        Literal["512", "540", "600", "768", "1280"],
-        option(
-            "--mla-index",
-            type=click.Choice(["512", "540", "600", "768", "1280"]),
-            help="MLA分辨率 (512, 540, 600, 768, 1280)",
-        ),
-    ] = "512"
-    exp_time: Annotated[
-        float, option("--exp-time", type=float, help="曝光时间 (ms, 0=自动)")
-    ] = 0.0
-    auto_exposure: Annotated[
-        bool,
-        option("--auto-exposure/--no-auto-exposure", help="启用WFS自动曝光 (默认开启)"),
-    ] = True
-    high_speed: Annotated[
-        bool, option("--high-speed", is_flag=True, help="启用高速模式")
-    ] = False
-    use_custom_ref: Annotated[
-        bool, option("--use-custom-ref", is_flag=False, help="使用自定义参考文件")
-    ] = False
-    pupil_diameter: Annotated[
-        float, option("--pupil-diameter", type=float, help="瞳孔直径 (mm)")
-    ] = 2.0
-    pupil_center: Annotated[
-        str | tuple[float, float],
-        option("--pupil-center", callback=parse_tuple, help="瞳孔中心坐标 (默认: (0,0))"),
-    ] = "(0,0)"
     compute_inverses: Annotated[
         bool, option("--no-inverses", flag_value=False, help="不计算逆矩阵")
     ] = True
@@ -1163,7 +1132,16 @@ class ZernikeMatrixParams:
 @click.command("zernike-matrix")
 @click.pass_context
 @with_params(ZernikeMatrixParams, kw_name="params")
-def run(ctx: click.Context, params: ZernikeMatrixParams) -> None:
+@with_params(ZernikeSlmParams, kw_name="slm_params")
+@with_params(ThorlabWfsDriverParams, kw_name="wfs_driver")
+@with_params(WfsParams, kw_name="wfs_params")
+def run(
+    ctx: click.Context,
+    params: ZernikeMatrixParams,
+    slm_params: ZernikeSlmParams,
+    wfs_driver: ThorlabWfsDriverParams,
+    wfs_params: WfsParams,
+) -> None:
     """获取Zernike响应矩阵
 
     支持 N 次正负交替循环测量 + M 次 WFS 读取取平均 + 方差跟踪 + 逆矩阵计算。
@@ -1206,9 +1184,9 @@ def run(ctx: click.Context, params: ZernikeMatrixParams) -> None:
         n_cycles=params.n_cycles,
         wait_time=params.wait_time,
         output_path=params.output_path,
-        mla_index=params.mla_index,
-        auto_exposure=params.auto_exposure,
-        exp_time=params.exp_time,
+        mla_index=wfs_driver.mla_index,
+        auto_exposure=wfs_driver.auto_exposure,
+        exp_time=wfs_driver.exp_time,
         excluded_piston=params.excluded_piston,
         excluded_tip_tilt=params.excluded_tip_tilt,
         cancel_tile=params.cancel_tile,
@@ -1231,16 +1209,16 @@ def run(ctx: click.Context, params: ZernikeMatrixParams) -> None:
         # 2026-09-16 重写: 原 ZernikeSLM 链路在实机出现原生崩溃 (0xC0000005/0xC000041C),
         # 改用与 tools/slm/slm_zernike_response.py 相同的 **Santec + PatternHelper** 直控链路。
         slm = Santec(
-            slm_number=params.slm_number,
-            wavelength=params.wavelength,
+            slm_number=slm_params.slm_number,
+            wavelength=slm_params.wavelength,
             video_mode=0,
             correction_csv_path=params.correction_csv_path,
         )
         wfs = ThorlabWFS(
             mla_index=norm["mla_index_enum"],
             exposure_time=norm["effective_exp_time"],
-            high_speed=params.high_speed,
-            use_custom_ref=params.use_custom_ref,
+            high_speed=wfs_driver.high_speed,
+            use_custom_ref=wfs_driver.use_custom_ref,
         )
         slm.open()
         wfs.open()
@@ -1249,8 +1227,8 @@ def run(ctx: click.Context, params: ZernikeMatrixParams) -> None:
         # 平移: CLI 非默认值时覆盖, 否则沿用设备配置 (避免把标定好的 shift 覆盖成 0)
         # ⚠️ --shift-x/--shift-y 默认 None → 先归一为 0 再判跳过, 防止 int(None) 崩溃
         shift_cli = (
-            int(params.shift_x) if params.shift_x is not None else 0,
-            int(params.shift_y) if params.shift_y is not None else 0,
+            int(slm_params.shift_x) if slm_params.shift_x is not None else 0,
+            int(slm_params.shift_y) if slm_params.shift_y is not None else 0,
         )
         if shift_cli != (0, 0):
             slm.set_shift(*shift_cli)
@@ -1262,8 +1240,8 @@ def run(ctx: click.Context, params: ZernikeMatrixParams) -> None:
         # pupil: 未显式指定 (默认 2.0mm / (0,0)) 时用 optimize_pupil 自动获取并**写回**。
         # ⚠️ 2026-09 教训: 硬编码 pupil 会污染 WFS_ZernikeLsf 拟合 (假 tip/tilt 达 4.6~12.8λ);
         #    且 ThorlabWFS.__init__ 传入的 pupil **会覆盖配置文件中的实测值** (L440-453)。
-        pupil_is_default = float(params.pupil_diameter) == 2.0 and tuple(
-            params.pupil_center
+        pupil_is_default = float(wfs_params.pupil_diameter) == 2.7 and tuple(
+            wfs_params.pupil_center
         ) == (
             0,
             0,
@@ -1277,15 +1255,15 @@ def run(ctx: click.Context, params: ZernikeMatrixParams) -> None:
             )
         else:
             wfs.pupil = (
-                float(params.pupil_center[0]),
-                float(params.pupil_center[1]),
-                float(params.pupil_diameter),
-                float(params.pupil_diameter),
+                float(wfs_params.pupil_center[0]),
+                float(wfs_params.pupil_center[1]),
+                float(wfs_params.pupil_diameter),
+                float(wfs_params.pupil_diameter),
             )
             click.echo(f"[OK] pupil (CLI): {wfs.pupil}")
 
         # 完整设备参数 (随 h5 的 device_config 落盘, 供复现与审计)
-        device_info = collect_device_info(slm, wfs, params.slm_number)
+        device_info = collect_device_info(slm, wfs, slm_params.slm_number)
         _ds = device_info.get("slm") or {}
         _dw = device_info.get("wfs") or {}
         click.echo(
@@ -1303,7 +1281,7 @@ def run(ctx: click.Context, params: ZernikeMatrixParams) -> None:
             )
 
         # === 5. 初始化状态捕获 + 参考设置 ===
-        if not params.use_custom_ref:
+        if not wfs_driver.use_custom_ref:
             init_state = _capture_init_state(
                 slm,
                 wfs,
@@ -1381,7 +1359,7 @@ def run(ctx: click.Context, params: ZernikeMatrixParams) -> None:
                 # 单位: **λ** (waves) —— 与已验证脚本 slm_zernike_response.py 一致;
                 # verify_response_matrix / GUI 均按 "λ" 显示。曾误存弧度 (差 2π)。
                 magnitude=mag_rad / (2.0 * np.pi),
-                wavelength_nm=int(params.wavelength),
+                wavelength_nm=int(slm_params.wavelength),
                 n_averages=norm["n_averages"],
                 n_cycles=norm["n_cycles"],
                 timestamp=get_timestamp_str(),
@@ -1398,15 +1376,15 @@ def run(ctx: click.Context, params: ZernikeMatrixParams) -> None:
             # 附加硬件配置快照 (含完整 SLM/WFS 设备参数)
             result.device_config = {
                 "device": device_info,
-                "slm_number": params.slm_number,
-                "wavelength_nm": int(params.wavelength),
+                "slm_number": slm_params.slm_number,
+                "wavelength_nm": int(slm_params.wavelength),
                 "shift_x": int(slm.shift_x),
                 "shift_y": int(slm.shift_y),
                 "pupil": list(wfs.pupil),
                 "mla_index": str(norm["mla_index_enum"]),
                 "exposure_ms": norm["effective_exp_time"],
-                "high_speed": bool(params.high_speed),
-                "use_custom_ref": bool(params.use_custom_ref),
+                "high_speed": bool(wfs_driver.high_speed),
+                "use_custom_ref": bool(wfs_driver.use_custom_ref),
                 "correction_csv_path": params.correction_csv_path,
                 "zernike_radius_px": float(params.zernike_radius),
                 "magnitude_rad": mag_rad,

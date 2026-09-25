@@ -852,12 +852,6 @@ class SlmSquareParams:
     cam_size: Annotated[
         int, option("-s", "--cam-size", help="相机开窗大小 (default: 300)")
     ] = 300
-    slm_number: Annotated[
-        int, option("--slm-number", help="SLM设备编号 (default: 1)")
-    ] = 1
-    slm_wavelength: Annotated[
-        int, option("--slm-wavelength", help="SLM波长nm (default: 1064)")
-    ] = 1064
     optimizer: Annotated[
         str,
         option(
@@ -1242,21 +1236,9 @@ class PipelineRunnerParams:
     wf_epochs: Annotated[
         int, option("-E", "--wf_epochs", help="WF优化迭代次数 (default: 8000)")
     ] = 8_000
-    wfs_res: Annotated[
-        str,
-        option(
-            "-R",
-            "--wfs_res",
-            type=click.Choice(["768", "512"]),
-            help="WFS分辨率 (default: 768)",
-        ),
-    ] = "768"
-    pupil_diameter: Annotated[
-        float, option("-p", "--pupil_diameter", help="瞳孔直径 (default: 2.7)")
-    ] = 2.7
     cam_id: Annotated[
         str,
-        option("-c", "--cam_id", help="远场光斑CCD设备ID (default: Far_Cam_ID/0)"),
+        option("--cam_id", help="远场光斑CCD设备ID (default: Far_Cam_ID/0)"),
     ] = cast(str, lambda: os.environ.get("Far_Cam_ID", 0))
     exposure_time_ms: Annotated[
         int,
@@ -1270,7 +1252,7 @@ class PipelineRunnerParams:
         int, option("-s", "--cam_size", help="相机开窗大小 (default: 160)")
     ] = 160
     rms_threshold: Annotated[
-        float, option("-r", "--rms_threshold", help="RMS阈值 (default: 0.12)")
+        float, option("--rms_threshold", help="RMS阈值 (default: 0.12)")
     ] = 0.12
     dm_unit_mask: Annotated[
         str,
@@ -1302,18 +1284,6 @@ class CombinedRunnerParams:
         str | None,
         option("-f", "--load_file", help="加载初始电压文件 (default: None)"),
     ] = None
-    cam_id: Annotated[
-        str,
-        option("--cam_id", help="远场光斑CCD设备ID (default: Far_CAM_ID/0)"),
-    ] = cast(str, lambda: os.environ.get("FAR_CAM_ID", "0"))
-    center: Annotated[
-        str,
-        option("-c", "--center", help="场光斑CCD中心位置 (example: 665,403)"),
-    ] = "mass"
-    exposure_time_ms: Annotated[
-        int,
-        option("-t", "--exposure_time_ms", help="远场光斑CCD曝光时间 (毫秒) (default: 80)"),
-    ] = 80
     epochs: Annotated[
         int, option("-e", "--epochs", help="优化迭代次数 (default: 4000)")
     ] = 4_000
@@ -1331,9 +1301,6 @@ class CombinedRunnerParams:
     shrink_ratio: Annotated[
         float, option("--shrink_ratio", help="收缩半径桶比例 (default: 0.9)")
     ] = 0.9
-    cam_size: Annotated[
-        int, option("-s", "--cam_size", help="相机开窗大小 (default: 250)")
-    ] = 250
     target_max_brightness: Annotated[
         int,
         option("-b", "--target_max_brightness", help="目标最大亮度值 (default: 40)"),
