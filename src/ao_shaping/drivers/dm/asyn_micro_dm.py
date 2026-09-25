@@ -322,6 +322,9 @@ class AsyncR50Controller:
 # Async MicroDM Driver
 # =============================================================================
 
+# AsyncMicroDM intentionally has no from_params factory: no driver-layer
+# parameter class carries its required controller IP list.
+
 
 @register_dm("asyn_micro")
 class AsyncMicroDM(DM):

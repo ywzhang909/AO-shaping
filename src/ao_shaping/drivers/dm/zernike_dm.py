@@ -11,6 +11,11 @@ from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator
 from ao_shaping.utils.wavefront.zernike_utils import parse_zernike_coefficients
 
 
+# ZernikeDM intentionally has no from_params factory: no driver-layer
+# parameter class defines its n_max, resolution, radius, bits, and
+# safety_mode constructor fields.
+
+
 @register_dm("zernike")
 class ZernikeDM(DM):
     """Zernike系数驱动的变形镜接口

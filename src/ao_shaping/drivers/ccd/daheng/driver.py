@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Self
 
 import numpy as np
 import numpy.typing as npt
@@ -40,6 +41,18 @@ CCD_CONFIG = ConfigHandler(_CCD_CONFIG_DIR, "ccd", CCDParams)
 
 
 class DahengCamera(BaseCamera):
+    @classmethod
+    def from_params(cls, params: Any, **overrides: Any) -> Self:
+        """Construct a Daheng camera from a driver parameter object."""
+        kwargs = {
+            "cam_id": getattr(params, "cam_id", 0),
+            "exposure_time_ms": getattr(params, "exposure_time_ms", 0.0),
+            "skip_sampling": getattr(params, "skip_sampling", False),
+            "bit_depth": getattr(params, "bit_depth", 8),
+        }
+        kwargs.update(overrides)
+        return cls(**kwargs)
+
     def __init__(
         self,
         cam_id: int = 0,

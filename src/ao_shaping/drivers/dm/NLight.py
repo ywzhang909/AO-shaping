@@ -4,6 +4,7 @@ import time
 from ctypes import byref, c_bool, c_int32, cdll
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Self
 
 import findlibs
 import numpy as np
@@ -62,10 +63,23 @@ class NLight(DM):
     Units_Adj_Mat = _load_adj_txt()
 
     @classmethod
+    def from_params(cls, params: Any, **overrides: Any) -> Self:
+        """Construct an NLight DM from its driver parameter object."""
+        kwargs = {
+            "max_iter_diff": getattr(params, "max_iter_diff", 20),
+            "max_neibor_diff": getattr(params, "max_neibor_diff", 200),
+            "keep_when_exit": getattr(params, "keep_when_exit", True),
+            "safety_mode": getattr(params, "safety_mode", True),
+        }
+        kwargs.update(overrides)
+        return cls(**kwargs)
+
+    @classmethod
     def is_reachable(cls) -> bool:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(1.0)
+
             result = sock.connect_ex((cls._IP, cls._PORT))
             sock.close()
             return result == 0

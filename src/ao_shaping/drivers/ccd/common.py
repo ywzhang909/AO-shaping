@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
 from loguru import logger
@@ -200,8 +200,12 @@ def _resolve_camera_class(target: str) -> type:
     return getattr(module, attr)
 
 
+class _CameraParams(Protocol):
+    cam_type: str
+
+
 def create_camera(
-    camera_type: str,
+    camera_type: str | _CameraParams,
     cam_id: int | str = 0,
     exposure_time_ms: float = 20.0,
     **kwargs: Any,
@@ -214,8 +218,8 @@ def create_camera(
     ``create_dm``.
 
     Args:
-        camera_type: Registered camera type, e.g. ``"daheng"``, ``"miicam"``,
-            ``"ffmpeg"`` or ``"image_folder"`` (case-insensitive).
+        camera_type: Registered camera type string (case-insensitive), or a
+            parameter object exposing a ``cam_type`` attribute.
         cam_id: Device index (``int``) or file/folder path/URL (``str``) for the
             file-based backends.
         exposure_time_ms: Initial exposure time in milliseconds.
@@ -229,6 +233,14 @@ def create_camera(
         ValueError: Unknown camera type.
         ImportError: The backend driver/SDK is unavailable.
     """
+    if not isinstance(camera_type, str):
+        params: Any = camera_type
+        camera_type = getattr(params, "cam_type")
+        cam_id = getattr(params, "cam_id", cam_id)
+        exposure_time_ms = getattr(params, "exposure_time_ms", exposure_time_ms)
+        if hasattr(params, "skip_sampling"):
+            kwargs["skip_sampling"] = params.skip_sampling
+
     key = str(camera_type).lower()
     spec = CAMERA_TYPES.get(key)
     if spec is None:
@@ -528,3 +540,111 @@ def auto_exposure(
         img = cam.get_numpy_image(n_sample)
 
     return img
+
+
+# ---------------------------------------------------------------------------
+# Exposure-mode resolution + capture
+#
+# Consolidates the "fixed / auto / keep" exposure dispatch that previously
+# appeared as ad-hoc if/elif/else blocks in every wfless optimizer
+# (slm_zernike_pib.py, pib.py, slm_square_shaping.py, combined_optimizer.py).
+# ---------------------------------------------------------------------------
+
+
+def resolve_initial_exposure(
+    exposure_time_ms: float, target_max_brightness: float
+) -> tuple[str, float]:
+    """Decide the initial exposure action (precedence: fixed > auto > keep).
+
+    Returns one of:
+        ``("fixed", ms)`` — use a fixed exposure time;
+        ``("auto", target)`` — auto-expose to the target peak brightness;
+        ``("keep", 0.0)`` — leave the exposure as-is (no auto-adjust).
+    """
+    if exposure_time_ms > 0:
+        return ("fixed", float(exposure_time_ms))
+    if target_max_brightness > 0:
+        return ("auto", float(target_max_brightness))
+    return ("keep", 0.0)
+
+
+def capture_with_exposure(
+    cam: Any,
+    exposure_time_ms: float = 0.0,
+    target_max_brightness: float = 0.0,
+    n_sample: int = 1,
+    auto_exposure_fn: Any | None = None,
+    auto_n_sample: int | None = None,
+) -> np.ndarray:
+    """Set the exposure (fixed / auto / keep) and capture one image.
+
+    Precedence: a positive ``exposure_time_ms`` wins; otherwise a positive
+    ``target_max_brightness`` triggers auto-exposure; otherwise the camera's
+    current exposure is left unchanged.
+
+    Args:
+        cam: An opened camera driver (exposes ``get_numpy_image`` and
+            ``auto_exposure`` or the common helpers).
+        exposure_time_ms: Fixed exposure in ms (0 = auto or keep).
+        target_max_brightness: Auto-exposure target peak (0-255 grayscale; 0 = keep).
+        n_sample: Frames averaged per fixed-exposure / keep capture.
+        auto_exposure_fn: Override for the auto-exposure implementation. Defaults
+            to :func:`auto_exposure` from this module. Pass ``cam.auto_exposure``
+            to use the backend-native path directly.
+        auto_n_sample: Frame sample count for the auto-exposure path (defaults
+            to ``n_sample``). Useful when auto-exposure needs more frames than
+            the fixed-exposure capture (e.g. 20 vs 1).
+
+    Returns:
+        The captured image as a NumPy array.
+    """
+    mode, value = resolve_initial_exposure(exposure_time_ms, target_max_brightness)
+    if mode == "fixed":
+        set_camera_exposure_ms(cam, value)
+        return np.asarray(cam.get_numpy_image(max(1, n_sample)))
+    if mode == "auto":
+        fn = auto_exposure_fn if auto_exposure_fn is not None else auto_exposure
+        return np.asarray(fn(cam, value, n_sample=auto_n_sample or n_sample))
+    return np.asarray(cam.get_numpy_image(max(1, n_sample)))
+
+
+def resample_on_saturation(
+    img: np.ndarray,
+    cam: Any,
+    exposure_time_ms: float = 0.0,
+    target_max_brightness: float = 0.0,
+    auto_exposure_fn: Any | None = None,
+    saturation_threshold: float = 255.0,
+    n_sample: int = 1,
+) -> np.ndarray:
+    """Re-capture at a lower exposure if the image is saturated.
+
+    Mirrors the guard found in every SPGD loop: when auto-exposure is active
+    (``exposure_time_ms == 0``) and the peak hits ``saturation_threshold``,
+    re-auto-expose to ``target_max_brightness`` (falling back to the original
+    image data if auto-exposure is unavailable or the target is also 0).
+
+    Args:
+        img: The image to check (uint8 or float).
+        cam: An opened camera driver.
+        exposure_time_ms: Current fixed exposure (0 = auto mode, eligible for re-exposure).
+        target_max_brightness: Auto-exposure target peak (0-255; 0 = use 220).
+        auto_exposure_fn: Override for the auto-exposure implementation.
+        saturation_threshold: Peak value considered saturated (default 255).
+        n_sample: Frames averaged per re-capture.
+
+    Returns:
+        The (possibly resampled) image.
+    """
+    if exposure_time_ms > 0:
+        return img
+    if float(np.max(img)) < saturation_threshold:
+        return img
+    target = target_max_brightness if target_max_brightness > 0 else 220.0
+    fn = auto_exposure_fn if auto_exposure_fn is not None else auto_exposure
+    logger.info(
+        "image saturated (peak={:.0f}); auto-re-exposing to target {:.0f}",
+        float(np.max(img)),
+        target,
+    )
+    return np.asarray(fn(cam, target, n_sample=max(1, n_sample)))

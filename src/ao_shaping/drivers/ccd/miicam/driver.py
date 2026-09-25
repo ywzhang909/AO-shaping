@@ -3,7 +3,7 @@ from __future__ import annotations
 import ctypes
 import threading
 import time
-from typing import Callable
+from typing import Any, Callable, Self
 
 import numpy as np
 from loguru import logger
@@ -139,6 +139,19 @@ class MIICamera(BaseCamera):
             (min_exposure_ms, max_exposure_ms)
         """
         return MIICamera.MIN_EXPOSURE_MS, MIICamera.MAX_EXPOSURE_MS
+
+    @classmethod
+    def from_params(cls, params: Any, **overrides: Any) -> Self:
+        """Construct a MiiCam camera from a driver parameter object."""
+        kwargs = {
+            "cam_id": getattr(params, "cam_id", 0),
+            "exposure_time_ms": getattr(params, "exposure_time_ms", 20.0),
+            "skip_sampling": getattr(params, "skip_sampling", False),
+            "bit_depth": getattr(params, "bit_depth", 8),
+            "capture_mode": getattr(params, "capture_mode", "wait"),
+        }
+        kwargs.update(overrides)
+        return cls(**kwargs)
 
     def __init__(
         self,

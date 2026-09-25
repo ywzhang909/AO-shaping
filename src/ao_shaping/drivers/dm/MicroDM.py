@@ -111,6 +111,10 @@ class MicroDMParams(DeviceParam):
     safety_mode: bool = param(default=True, cast=bool)
 
 
+# MicroDM intentionally has no from_params factory: MicroDMParams only covers
+# persisted scalar settings, not controller IPs, device ID, or exclusion lists.
+
+
 # 模块级单例，所有 MicroDM 实例共用
 MICRO_DM_CONFIG = ConfigHandler(_MICRO_DM_CONFIG_DIR, "micro_dm", MicroDMParams)
 

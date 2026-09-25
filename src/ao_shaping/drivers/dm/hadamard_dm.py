@@ -8,6 +8,11 @@ from ao_shaping.drivers.dm._registry import register_dm
 from ao_shaping.utils.wavefront.hadamard_calc import HadamardGenerator
 
 
+# HadamardDM intentionally has no from_params factory: no driver-layer
+# parameter class defines its mode_order, resolution, radius, bits, mask_type,
+# and safety_mode constructor fields.
+
+
 @register_dm("hadamard")
 class HadamardDM(DM):
     """Hadamard系数驱动的变形镜/SLM接口.

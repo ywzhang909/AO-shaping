@@ -174,57 +174,30 @@ def _build_slm_pib_config(
     search: SpgdParamsPib | HeuristicParams,
     init_c: np.ndarray | None = None,
 ) -> SlmZernikePibConfig:
-    """Build the optimizer config object directly (no flat kwargs flattening).
+    """Build the optimizer config directly from the fused parameter objects.
 
-    The camera dataclass fuses the objective parameters
-    (``CameraParamsPib`` is a ``CameraParams`` + ``ObjectiveParamsPib``
-    combination), so ``camera`` supplies both the camera and the objective
-    fields. ``center`` and ``epochs`` are not part of the config — they stay
+    ``CameraParamsPib`` fuses the camera + objective fields and
+    ``SlmParamsPib`` carries the SLM + Zernike-coefficient fields, so both are
+    passed to :class:`SlmZernikePibConfig` as nested objects — no flat kwargs
+    flattening. Only the search/run-level switches remain flat keywords.
+    ``center`` and ``epochs`` are not part of the config — they stay
     positional arguments of :func:`optimize_slm_zernike_pib`.
     """
-    obj = camera  # CameraParamsPib fuses the objective parameters
+    if init_c is not None:
+        # SlmZernikePibConfig.__init__ ignores the flat ``init_c`` keyword once
+        # an ``slm=`` object is supplied, so carry the already-parsed array on
+        # the object itself (the dataclass field is normally a raw ``str``).
+        slm.init_c = init_c
 
-    zernike_radius: float | None = (
-        slm.zernike_radius if slm.zernike_radius > 0 else None
-    )
-
-    common: dict[str, Any] = dict(
-        n_max=slm.n_max,
-        r_bucket=obj.r_bucket,
-        exposure_time_ms=camera.exposure_time_ms,
-        cam_id=camera.cam_id,
-        cam_type=camera.cam_type,
-        cam_size=camera.cam_size,
-        target_max_brightness=obj.target_max_brightness,
-        slm_number=slm.slm_number,
-        slm_wavelength=slm.slm_wavelength,
-        objective=obj.name,
-        target_shape=obj.target_shape,
-        target_size=obj.target_size,
-        target_aspect_ratio=obj.target_aspect_ratio,
-        target_center_smooth=obj.target_center_smooth,
-        shape_schedule=obj.shape_schedule,
-        max_roi_energy_loss=obj.max_roi_energy_loss,
-        w_uniformity=obj.w_uniformity,
-        w_peak=obj.w_peak,
-        w_displacement=obj.w_displacement,
-        log_uniformity=obj.log_uniformity,
-        w_ema_decay=obj.w_ema_decay,
-        w_floor=obj.w_floor,
-        w_temperature=obj.w_temperature,
-        w_pib_init=obj.w_pib_init,
-        w_rms_init=obj.w_rms_init,
-        w_ee_init=obj.w_ee_init,
-        zernike_radius=zernike_radius,
-        shift_x=slm.shift_x,
-        shift_y=slm.shift_y,
-        record_phase=run.debug,
-        random_seed=run.seed,
-        init_c=init_c,
-    )
+    cfg: dict[str, Any] = {
+        "camera": camera,
+        "slm": slm,
+        "record_phase": run.debug,
+        "random_seed": run.seed,
+    }
 
     if isinstance(search, SpgdParamsPib):
-        common.update(
+        cfg.update(
             algorithm="spgd",
             pop_size=None,
             delta=search.delta,
@@ -235,13 +208,13 @@ def _build_slm_pib_config(
             show=search.show,
         )
     else:  # HeuristicParams
-        common.update(
+        cfg.update(
             algorithm=search.algorithm,
             pop_size=search.pop_size,
             show=search.show,
         )
 
-    return SlmZernikePibConfig(**common)
+    return SlmZernikePibConfig(**cfg)
 
 
 # --- click group + subcommands ---------------------------------------------

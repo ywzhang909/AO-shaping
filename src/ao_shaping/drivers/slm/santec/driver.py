@@ -16,7 +16,7 @@ import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Self
 
 import numpy as np
 from loguru import logger
@@ -286,6 +286,25 @@ class Santec:
     MAX_GRAYSCALE_VALUE = get_max_grayscale()
     MAX_PIXEL_FLIP_TIME_MS = MAX_PIXEL_FLIP_TIME_MS  # 像素全量翻转(0→2π)最大耗时 (ms)
     MAX_PIXEL_FLIP_TIME_S = MAX_PIXEL_FLIP_TIME_S  # 同上，单位秒
+
+    @classmethod
+    def from_params(cls, params: Any, **overrides: Any) -> Self:
+        """Construct a Santec SLM from a driver parameter object."""
+        kwargs = {
+            "slm_number": getattr(params, "slm_number", 1),
+            "use_120hz": getattr(params, "use_120hz", False),
+            "wavelength": getattr(
+                params,
+                "slm_wavelength",
+                getattr(params, "wavelength", None),
+            ),
+            "video_mode": getattr(params, "video_mode", VideoMode.Memory),
+            "shift_x": getattr(params, "shift_x", None),
+            "shift_y": getattr(params, "shift_y", None),
+            "correction_csv_path": getattr(params, "correction_csv_path", None),
+        }
+        kwargs.update(overrides)
+        return cls(**kwargs)
 
     def __init__(
         self,

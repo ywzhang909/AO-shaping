@@ -1,4 +1,6 @@
 # serial_port_fsm.py
+from typing import Any, Self
+
 import serial
 import serial.tools.list_ports
 import threading
@@ -9,6 +11,16 @@ from ao_shaping.utils import logger
 class SerialPortFSM:
     MAX, MIN = 1510.0, -1510.0
     FRAME_LEN = 13
+
+    @classmethod
+    def from_params(cls, params: Any, **overrides: Any) -> Self:
+        """Construct a serial FSM from a driver parameter object."""
+        kwargs = {
+            "port": getattr(params, "port", None),
+            "baud": getattr(params, "baud", 2000000),
+        }
+        kwargs.update(overrides)
+        return cls(**kwargs)
 
     def __init__(self, port=None, baud=2000000):
         self.ser = serial.Serial(timeout=0.5)

@@ -24,7 +24,7 @@ from datetime import datetime
 from enum import IntEnum
 from functools import wraps
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 import numpy as np
 from loguru import logger
@@ -210,6 +210,27 @@ class ThorlabWFS(Device):
     manufacturer = "Thorlabs"
     model = "WFS"
     version = "1.0.0"
+
+    @classmethod
+    def from_params(cls, params: Any, **overrides: Any) -> Self:
+        """Construct a Thorlabs WFS from a driver parameter object."""
+        kwargs = {
+            "mla_index": getattr(params, "mla_index", None),
+            "exposure_time": getattr(params, "exposure_time", None),
+            "high_speed": getattr(params, "high_speed", None),
+            "use_custom_ref": getattr(params, "use_custom_ref", None),
+            "pupil_diameter": getattr(params, "pupil_diameter", None),
+            "pupil_center": getattr(params, "pupil_center", None),
+            "stable_sample_enable": getattr(params, "stable_sample_enable", False),
+            "stable_sample_n": getattr(params, "stable_sample_n", 5),
+            "stable_variance_threshold": getattr(
+                params, "stable_variance_threshold", 0.1
+            ),
+            "stable_max_attempts": getattr(params, "stable_max_attempts", 50),
+            "device_id": getattr(params, "device_id", ""),
+        }
+        kwargs.update(overrides)
+        return cls(**kwargs)
 
     def __init__(
         self,

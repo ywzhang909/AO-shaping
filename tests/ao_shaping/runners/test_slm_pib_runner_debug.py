@@ -279,9 +279,42 @@ def test_optimizer_kwargs_maps_seed_and_init_weights():
     )
 
     assert cfg.random_seed == 42
-    assert cfg.w_pib_init == 0.6
-    assert cfg.w_rms_init == 0.3
-    assert cfg.w_ee_init is None
+    # objective/camera fields ride the nested camera object (Unit B/C) —
+    # the init-weight options are no longer flat config attributes.
+    assert cfg.camera.w_pib_init == 0.6
+    assert cfg.camera.w_rms_init == 0.3
+    assert cfg.camera.w_ee_init is None
+
+
+def test_build_config_carries_parsed_init_c_on_slm_object():
+    """Unit C: parsed init coefficients ride the slm object, not a flat kwarg.
+
+    ``SlmZernikePibConfig.__init__`` ignores the flat ``init_c`` keyword once
+    an ``slm=`` object is supplied, so the runner writes the already-parsed
+    array onto the passthrough object; the optimizer body reads it from
+    ``config.slm.init_c``.
+    """
+    init_c = np.array([0.1, 0.2, 0.3])
+    slm = SlmParamsPib()
+    cfg = _build_slm_pib_config(
+        run=RunParams(),
+        camera=CameraParamsPib(),
+        slm=slm,
+        search=HeuristicParams(algorithm="ga"),
+        init_c=init_c,
+    )
+
+    assert cfg.slm is slm
+    np.testing.assert_array_equal(cfg.slm.init_c, init_c)
+
+    # without init coefficients the raw (unset) field stays untouched
+    cfg2 = _build_slm_pib_config(
+        run=RunParams(),
+        camera=CameraParamsPib(),
+        slm=SlmParamsPib(),
+        search=HeuristicParams(algorithm="ga"),
+    )
+    assert cfg2.slm.init_c is None
 
 
 def test_optimizer_kwargs_seed_none_by_default():
