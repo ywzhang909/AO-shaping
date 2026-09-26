@@ -184,7 +184,7 @@ def run(ctx: click.Context, params: SlmSquareParams, slm_params: ZernikeSlmParam
         click.echo(f"Rotation search: ±{params.rotation_search_deg / 2.0:.1f}° (SPGD extra DOF)")
     click.echo(f"Epochs: {params.epochs}")
     click.echo(f"SLM: #{slm_params.slm_number} @ {slm_params.wavelength}nm")
-    click.echo(f"Camera: ID={params.cam_id}, size={params.cam_size}")
+    click.echo(f"Camera: type={params.cam_type}, ID={params.cam_id}, size={params.cam_size}")
     click.echo(f"Weights: CV={params.w_uniformity}, EE={params.w_efficiency}, AR={params.w_aspect}")
     click.echo("=" * 60)
 
@@ -202,6 +202,7 @@ def run(ctx: click.Context, params: SlmSquareParams, slm_params: ZernikeSlmParam
         lr=params.lr,
         exposure_time_ms=params.exposure_ms,
         cam_id=params.cam_id,
+        cam_type=params.cam_type,
         show=params.show,
         init_c=init_c,
         cam_size=params.cam_size,

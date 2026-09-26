@@ -88,9 +88,9 @@ from typing import TYPE_CHECKING, Any
 import tqdm
 import numpy as np
 
-from ao_shaping.drivers import MIICamera
 from ao_shaping.drivers.ccd.common import (
     capture_with_exposure,
+    create_camera,
     get_camera_exposure_ms,
     resample_on_saturation,
 )
@@ -794,6 +794,7 @@ class SlmSquareConfig:
     lr: float = 0
     exposure_time_ms: float = 80.0
     cam_id: int = 0
+    cam_type: str = "daheng"
     show: bool = False
     init_c: list[float] | np.ndarray | None = None
     cam_size: int = 300
@@ -827,6 +828,7 @@ def optimize_slm_square(
     lr: float = 0,
     exposure_time_ms: float = 80.0,
     cam_id: int = 0,
+    cam_type: str = "daheng",
     show: bool = False,
     init_c: list[float] | np.ndarray | None = None,
     cam_size: int = 300,
@@ -878,6 +880,8 @@ def optimize_slm_square(
         lr: Learning rate. If 0, auto-adjusted via learning_schedule.
         exposure_time_ms: Camera exposure time in ms. If 0, auto-exposure.
         cam_id: Camera device ID.
+        cam_type: Camera backend (``"daheng"`` / ``"miicam"`` / ``"sim"``);
+            resolved through the ``drivers.ccd.common.create_camera`` registry.
         show: Whether to display images during optimization.
         init_c: Initial Zernike coefficients. If None, starts from zeros.
         cam_size: Camera window size.
@@ -918,6 +922,7 @@ def optimize_slm_square(
             lr=lr,
             exposure_time_ms=exposure_time_ms,
             cam_id=cam_id,
+            cam_type=cam_type,
             show=show,
             init_c=init_c,
             cam_size=cam_size,
@@ -950,6 +955,7 @@ def optimize_slm_square(
     lr = config.lr
     exposure_time_ms = config.exposure_time_ms
     cam_id = config.cam_id
+    cam_type = config.cam_type
     show = config.show
     init_c = config.init_c
     cam_size = config.cam_size
@@ -1107,8 +1113,8 @@ def optimize_slm_square(
     )
 
     with (
-        MIICamera(
-            cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
+        create_camera(
+            cam_type, cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
         ) as cam,
         Santec(slm_number=slm_number, wavelength=slm_wavelength) as slm,
     ):

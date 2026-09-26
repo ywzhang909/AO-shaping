@@ -849,6 +849,14 @@ class SlmSquareParams:
         float, option("-t", "--exposure-ms", help="相机曝光时间ms (default: 80)")
     ] = 80.0
     cam_id: Annotated[int, option("--cam-id", help="相机设备ID (default: 0)")] = 0
+    cam_type: Annotated[
+        str,
+        option(
+            "--cam_type",
+            type=click.Choice(["miicam", "daheng"]),
+            help="相机后端 (default: daheng; 整形光路现用 daheng, miicam 为旧配置)",
+        ),
+    ] = "daheng"
     cam_size: Annotated[
         int, option("-s", "--cam-size", help="相机开窗大小 (default: 300)")
     ] = 300

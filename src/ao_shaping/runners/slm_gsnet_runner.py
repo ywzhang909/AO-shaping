@@ -143,6 +143,7 @@ def _build_square_config(cfg: SlmGsnetConfig) -> SlmSquareConfig:
         side_factor=obj.side_factor,
         exposure_time_ms=cam.exposure_time_ms,
         cam_id=cam.cam_id,
+        cam_type=cam.cam_type,
         show=search.show,
         cam_size=cam.cam_size,
         target_max_brightness=obj.target_max_brightness,
@@ -178,17 +179,17 @@ def _build_square_config(cfg: SlmGsnetConfig) -> SlmSquareConfig:
 def _maybe_sim_patch(cam_type: str) -> None:
     """Wire the pure-numpy 2f-Fourier sim into the square-shaping optimizer.
 
-    ``optimize_slm_square`` hard-codes ``MIICamera(...)`` and ``Santec(...)`` in
-    its ``with`` block. For an offline dry-run we monkeypatch both names in the
-    optimizer module to the sim stand-ins so no hardware is touched (and no DVI
-    hang). No-op unless ``cam_type == "sim"``.
+    ``optimize_slm_square`` builds its camera through the
+    ``drivers.ccd.common.create_camera`` registry, so an offline dry-run only
+    needs the ``"sim"`` backend registered (``register_sim_camera``) and the
+    hard-coded ``Santec`` patched to the sim SLM — no hardware is touched and no
+    DVI hang is possible. No-op unless ``cam_type == "sim"``.
     """
     if cam_type != "sim":
         return
     from ao_shaping.drivers.sim.slm_pib_sim import (
         register_sim_camera,
         reset_system,
-        SimPibCCD,
         SimSLMPib,
     )
 
@@ -196,7 +197,6 @@ def _maybe_sim_patch(cam_type: str) -> None:
 
     register_sim_camera()
     reset_system(seed=42)
-    opt.MIICamera = SimPibCCD
     opt.Santec = SimSLMPib
 
 
