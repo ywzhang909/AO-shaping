@@ -126,83 +126,54 @@ def main() -> None:
         args.repeats,
     )
 
-    from ao_shaping.drivers.ccd.common import create_camera
-    from ao_shaping.drivers.slm import Santec
-
-    cam = create_camera(
-        args.cam_type,
-        cam_id=args.cam_id,
-        exposure_time_ms=exp,
-        skip_sampling=False,
-    )
-    slm = Santec(
-        slm_number=args.slm_number,
-        wavelength=args.wavelength,
-        shift_x=0,
-        shift_y=0,
-    )
-    cam.open()
-    slm.open()
-
     rows: list[dict] = []
-    try:
-        for idx, (slug, label, kwargs) in enumerate(cso.VARIANTS, start=1):
-            for rep in range(1, args.repeats + 1):
-                logger.info("=== {} rep {}/{} ===", slug, rep, args.repeats)
-                try:
-                    res = cso.run_variant(
-                        slug,
-                        kwargs,
-                        args,
-                        exp,
-                        center,
-                        waist,
-                        cam=cam,
-                        slm=slm,
-                    )
-                except Exception as exc:
-                    logger.error(
-                        "{} rep {} failed: {}: {}",
-                        slug,
-                        rep,
-                        type(exc).__name__,
-                        exc,
-                    )
-                    continue
-                frame = res.get("frame")
-                box_center = zero_order_center(frame) if frame is not None else center
-                metrics = (
-                    cso._box_metrics(frame, box_center, box_size, aspect)
-                    if frame is not None
-                    else {
-                        "energy": float("nan"),
-                        "cv": float("nan"),
-                        "peak": float("nan"),
-                    }
-                )
-                res.update(metrics)
-                res["label"] = label
-                res["rep"] = rep
-                res["exposure_ms"] = float(exp)
-                res["frame_peak"] = (
-                    int(np.asarray(frame).max()) if frame is not None else 0
-                )
-                res["waist_px"] = float(waist)
-                res["box_size_px"] = float(box_size)
-                res["center"] = f"{float(center[0]):.1f},{float(center[1]):.1f}"
-                rows.append(res)
-                logger.info(
-                    "{} rep {}: gain={:+.4f} energy={:.4f} CV={:.3f} peak={:.2f}",
+    # Each variant opens and closes its own camera + SLM pair through the
+    # optimizer's device context managers, so there is no shared device to hold.
+    for idx, (slug, label, kwargs) in enumerate(cso.VARIANTS, start=1):
+        for rep in range(1, args.repeats + 1):
+            logger.info("=== {} rep {}/{} ===", slug, rep, args.repeats)
+            try:
+                res = cso.run_variant(slug, kwargs, args, exp, center, waist)
+            except Exception as exc:
+                logger.error(
+                    "{} rep {} failed: {}: {}",
                     slug,
                     rep,
-                    res["gain"],
-                    res["energy"],
-                    res["cv"],
-                    res["peak"],
+                    type(exc).__name__,
+                    exc,
                 )
-    finally:
-        slm.close()
-        cam.close()
+                continue
+            frame = res.get("frame")
+            box_center = zero_order_center(frame) if frame is not None else center
+            metrics = (
+                cso._box_metrics(frame, box_center, box_size, aspect)
+                if frame is not None
+                else {
+                    "energy": float("nan"),
+                    "cv": float("nan"),
+                    "peak": float("nan"),
+                }
+            )
+            res.update(metrics)
+            res["label"] = label
+            res["rep"] = rep
+            res["exposure_ms"] = float(exp)
+            res["frame_peak"] = (
+                int(np.asarray(frame).max()) if frame is not None else 0
+            )
+            res["waist_px"] = float(waist)
+            res["box_size_px"] = float(box_size)
+            res["center"] = f"{float(center[0]):.1f},{float(center[1]):.1f}"
+            rows.append(res)
+            logger.info(
+                "{} rep {}: gain={:+.4f} energy={:.4f} CV={:.3f} peak={:.2f}",
+                slug,
+                rep,
+                res["gain"],
+                res["energy"],
+                res["cv"],
+                res["peak"],
+            )
 
     if not rows:
         logger.error("no run produced a result")

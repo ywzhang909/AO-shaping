@@ -7,8 +7,6 @@ integration points of ``optimize_slm_zernike_pib`` after the refactor onto it.
 
 from __future__ import annotations
 
-import inspect
-
 import pytest
 
 from ao_shaping.algorithm.heuristic.search import heuristic_algorithm_choices
@@ -25,25 +23,27 @@ def test_algorithm_choices_come_from_the_shared_driver():
     assert set(ALGORITHM_CHOICES[1:]) == {"ga", "pso", "sa", "hc", "rs", "cem", "de"}
 
 
-def test_optimizer_exposes_algorithm_and_pop_size():
-    params = inspect.signature(optimize_slm_zernike_pib).parameters
+def test_config_exposes_algorithm_and_pop_size():
+    config = SlmZernikePibConfig(center="shape", epochs=1)
 
-    assert "algorithm" in params
-    assert params["algorithm"].default == "spgd"
-    assert "pop_size" in params
-    assert params["pop_size"].default is None
+    assert config.algorithm == "spgd"
+    assert config.pop_size is None
 
 
 def test_unknown_algorithm_rejected_before_touching_hardware():
     # Validation runs before the camera/SLM context managers, so this stays
     # offline: no device is opened.
     with pytest.raises(ValueError, match="algorithm must be one of"):
-        optimize_slm_zernike_pib(center="shape", epochs=1, algorithm="bogus")
+        optimize_slm_zernike_pib(
+            SlmZernikePibConfig(center="shape", epochs=1, algorithm="bogus")
+        )
 
 
 def test_nested_config_uses_canonical_runner_defaults():
-    config = SlmZernikePibConfig()
+    config = SlmZernikePibConfig(center="shape", epochs=1)
 
+    assert config.center == "shape"
+    assert config.epochs == 1
     assert config.camera.name == "pib"
     assert config.camera.target_shape is None
     assert config.camera.r_bucket == 0
@@ -51,51 +51,61 @@ def test_nested_config_uses_canonical_runner_defaults():
     assert not hasattr(config, "r_bucket")
 
 
-def test_flat_compatibility_arguments_fold_into_nested_groups():
+def test_nested_groups_carry_the_full_parameter_set():
+    from ao_shaping.runners.runner_common import CameraParamsPib, SlmParamsPib
+
     config = SlmZernikePibConfig(
+        center="shape",
+        epochs=17,
         algorithm="ga",
         pop_size=17,
         random_seed=23,
         optimizer_type="muno",
-        r_bucket=11,
         delta=0.4,
         lr=0.3,
         shrink_iter=8,
         shrink_ratio=0.75,
-        cam_id=3,
-        cam_type="sim",
-        cam_size=123,
-        exposure_time_ms=4.5,
-        target_max_brightness=31,
-        objective="shape",
-        target_shape="circle",
-        target_size=48.0,
-        target_aspect_ratio=1.5,
-        target_center_smooth=5,
-        shape_schedule=True,
-        max_roi_energy_loss=0.4,
-        w_uniformity=3.0,
-        w_peak=0.7,
-        w_displacement=0.2,
-        log_uniformity=True,
-        w_ema_decay=0.8,
-        w_floor=0.2,
-        w_temperature=9.0,
-        w_pib_init=0.5,
-        w_rms_init=0.3,
-        w_ee_init=0.2,
-        slm_number=2,
-        slm_wavelength=532,
-        n_max=3,
-        zernike_radius=19.0,
-        init_c="0.1,0.2",
-        shift_x=-2,
-        shift_y=4,
         show=True,
         record_phase=True,
+        camera=CameraParamsPib(
+            name="shape",
+            cam_id=3,
+            cam_type="sim",
+            cam_size=123,
+            exposure_time_ms=4.5,
+            target_max_brightness=31,
+            r_bucket=11,
+            target_shape="circle",
+            target_size=48.0,
+            target_aspect_ratio=1.5,
+            target_center_smooth=5,
+            shape_schedule=True,
+            max_roi_energy_loss=0.4,
+            w_uniformity=3.0,
+            w_peak=0.7,
+            w_displacement=0.2,
+            log_uniformity=True,
+            w_ema_decay=0.8,
+            w_floor=0.2,
+            w_temperature=9.0,
+            w_pib_init=0.5,
+            w_rms_init=0.3,
+            w_ee_init=0.2,
+        ),
+        slm=SlmParamsPib(
+            slm_number=2,
+            slm_wavelength=532,
+            n_max=3,
+            zernike_radius=19.0,
+            init_c="0.1,0.2",
+            shift_x=-2,
+            shift_y=4,
+        ),
         kwargs={"beta1": 0.8},
     )
 
+    assert config.center == "shape"
+    assert config.epochs == 17
     assert config.algorithm == "ga"
     assert config.pop_size == 17
     assert config.random_seed == 23
@@ -141,16 +151,15 @@ def test_flat_compatibility_arguments_fold_into_nested_groups():
     assert config.slm.shift_y == 4
 
 
-def test_explicit_nested_groups_take_precedence_over_flat_values():
+def test_explicit_nested_groups_are_used_verbatim():
     from ao_shaping.runners.runner_common import CameraParamsPib, SlmParamsPib
 
     camera = CameraParamsPib(name="pib", r_bucket=7, cam_type="sim")
     slm = SlmParamsPib(slm_number=3, zernike_radius=0.0)
 
     config = SlmZernikePibConfig(
-        objective="shape",
-        r_bucket=99,
-        n_max=6,
+        center="shape",
+        epochs=1,
         camera=camera,
         slm=slm,
     )

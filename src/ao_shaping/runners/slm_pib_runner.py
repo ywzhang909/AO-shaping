@@ -179,17 +179,18 @@ def _build_slm_pib_config(
     ``CameraParamsPib`` fuses the camera + objective fields and
     ``SlmParamsPib`` carries the SLM + Zernike-coefficient fields, so both are
     passed to :class:`SlmZernikePibConfig` as nested objects — no flat kwargs
-    flattening. Only the search/run-level switches remain flat keywords.
-    ``center`` and ``epochs`` are not part of the config — they stay
-    positional arguments of :func:`optimize_slm_zernike_pib`.
+    flattening. The run-level switches ``center`` and ``epochs`` are set from
+    the camera centre and the search epochs.
     """
     if init_c is not None:
-        # SlmZernikePibConfig.__init__ ignores the flat ``init_c`` keyword once
-        # an ``slm=`` object is supplied, so carry the already-parsed array on
-        # the object itself (the dataclass field is normally a raw ``str``).
+        # The config is a plain dataclass: the parsed array is carried on the
+        # ``SlmParamsPib`` object itself (the dataclass field is normally a
+        # raw ``str``).
         slm.init_c = init_c
 
     cfg: dict[str, Any] = {
+        "center": camera.center,
+        "epochs": search.epochs,
         "camera": camera,
         "slm": slm,
         "record_phase": run.debug,
@@ -338,9 +339,7 @@ def _execute(
 
     init_c = _load_initial_coeffs(slm.load_file, slm.init_c)
     config = _build_slm_pib_config(run_cfg, camera, slm, search, init_c)
-    res = optimize_slm_zernike_pib(
-        center=camera.center, epochs=search.epochs, config=config
-    )
+    res = optimize_slm_zernike_pib(config)
     if run_cfg.debug:
         _save_debug_artifacts(res, camera, slm, search, run_cfg.dir)
 

@@ -43,7 +43,12 @@ import matplotlib.pyplot as plt  # noqa: E402
 from loguru import logger  # noqa: E402
 
 from ao_shaping.optimizer.wfless.slm_zernike_pib import (  # noqa: E402
+    SlmZernikePibConfig,
     optimize_slm_zernike_pib,
+)
+from ao_shaping.runners.runner_common import (  # noqa: E402
+    CameraParamsPib,
+    SlmParamsPib,
 )
 from ao_shaping.utils.image.beam_metrics import (  # noqa: E402
     clamp_center_to_frame,
@@ -183,8 +188,6 @@ def run_algorithm(
     epochs: int,
     pop_size: int | None,
     args,
-    cam=None,
-    slm=None,
 ) -> dict:
     """Run one search configuration on the bench and return its history/metrics."""
     logger.info(
@@ -197,28 +200,32 @@ def run_algorithm(
     )
     t0 = time.perf_counter()
     recorder = optimize_slm_zernike_pib(
-        center=args.center,
-        objective=args.objective,
-        target_shape=args.target_shape,
-        target_size=args.target_size,
-        epochs=epochs,
-        n_max=args.n_max,
-        delta=args.delta,
-        max_roi_energy_loss=args.max_energy_loss,
-        cam_id=args.cam_id,
-        cam_type=args.cam_type,
-        exposure_time_ms=args.exposure_ms,
-        cam_size=args.cam_size,
-        target_max_brightness=0,  # fixed exposure requested above
-        slm_number=args.slm_number,
-        slm_wavelength=args.wavelength,
-        algorithm=algorithm,
-        optimizer_type=optimizer_type,
-        pop_size=pop_size,
-        random_seed=args.seed,
-        show=False,
-        cam=cam,
-        slm=slm,
+        SlmZernikePibConfig(
+            center=args.center,
+            epochs=epochs,
+            algorithm=algorithm,
+            optimizer_type=optimizer_type,
+            pop_size=pop_size,
+            delta=args.delta,
+            random_seed=args.seed,
+            show=False,
+            camera=CameraParamsPib(
+                name=args.objective,
+                cam_id=args.cam_id,
+                cam_type=args.cam_type,
+                exposure_time_ms=args.exposure_ms,
+                cam_size=args.cam_size,
+                target_max_brightness=0,  # fixed exposure requested above
+                target_shape=args.target_shape,
+                target_size=args.target_size,
+                max_roi_energy_loss=args.max_energy_loss,
+            ),
+            slm=SlmParamsPib(
+                slm_number=args.slm_number,
+                slm_wavelength=args.wavelength,
+                n_max=args.n_max,
+            ),
+        )
     )
     df = recorder.dataframe
     # The metric column is named after the objective ("shape" / "pib" / ...).
@@ -608,37 +615,16 @@ def main() -> None:
         cam_info = camera_test(args.cam_type, args.cam_id, args.exposure_ms)
         fig_camera(cam_info, cam_img, OUT_DIR)
 
-    # Open camera + SLM ONCE and reuse them across all algorithms, instead of
-    # opening/closing a fresh pair per run (the previous behaviour). The
-    # optimizer re-windows the camera and re-detects the spot centre per call,
-    # so sequential reuse on a fixed bench is safe.
-    from ao_shaping.drivers.ccd.common import create_camera
-    from ao_shaping.drivers.slm import Santec
-
-    cam = create_camera(
-        args.cam_type, cam_id=args.cam_id, exposure_time_ms=args.exposure_ms, skip_sampling=False
-    )
-    slm = Santec(
-        slm_number=args.slm_number,
-        wavelength=args.wavelength,
-        shift_x=0,
-        shift_y=0,
-    )
-    cam.open()
-    slm.open()
-    try:
-        results: dict[str, dict] = {}
-        for label, algorithm, optimizer_type, epochs, pop_size in ALGORITHMS:
-            try:
-                results[label] = run_algorithm(
-                    label, algorithm, optimizer_type, epochs, pop_size, args,
-                    cam=cam, slm=slm,
-                )
-            except Exception as exc:  # keep the remaining algorithms running
-                logger.error("{} failed: {}: {}", label, type(exc).__name__, exc)
-    finally:
-        slm.close()
-        cam.close()
+    # Each run opens/closes its own camera + SLM pair through the optimizer's
+    # device context managers (no cross-run device reuse).
+    results: dict[str, dict] = {}
+    for label, algorithm, optimizer_type, epochs, pop_size in ALGORITHMS:
+        try:
+            results[label] = run_algorithm(
+                label, algorithm, optimizer_type, epochs, pop_size, args,
+            )
+        except Exception as exc:  # keep the remaining algorithms running
+            logger.error("{} failed: {}: {}", label, type(exc).__name__, exc)
 
     if not results:
         raise SystemExit("all algorithms failed; see the log above")

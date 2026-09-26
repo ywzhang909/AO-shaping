@@ -6,11 +6,13 @@ from click.testing import CliRunner
 
 from ao_shaping.optimizer.wfless.slm_zernike_pib import (
     TARGET_SHAPE_CHOICES,
+    SlmZernikePibConfig,
     gauss_center,
     optimize_slm_zernike_pib,
     shape_metric,
     target_shape_roi,
 )
+from ao_shaping.runners.runner_common import CameraParamsPib
 from ao_shaping.runners.slm_pib_runner import run
 
 
@@ -128,8 +130,9 @@ def test_slm_pib_cli_target_shape_choices_match_optimizer() -> None:
 def test_shape_options_are_validated_before_hardware() -> None:
     with pytest.raises(ValueError, match="target_shape can only be used"):
         optimize_slm_zernike_pib(
-            center="shape",
-            epochs=1,
-            objective="radiu",
-            target_shape="circle",
+            SlmZernikePibConfig(
+                center="shape",
+                epochs=1,
+                camera=CameraParamsPib(name="radiu", target_shape="circle"),
+            )
         )

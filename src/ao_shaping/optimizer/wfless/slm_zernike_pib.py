@@ -16,14 +16,12 @@ Key differences from pib.py:
   coefficient bars (``show=True``)
 
 Example:
-    >>> from ao_shaping.optimizer.wfless.slm_zernike_pib import optimize_slm_zernike_pib
+    >>> from ao_shaping.optimizer.wfless.slm_zernike_pib import (
+    ...     SlmZernikePibConfig,
+    ...     optimize_slm_zernike_pib,
+    ... )
     >>> recorder = optimize_slm_zernike_pib(
-    ...     center="shape",
-    ...     epochs=2000,
-    ...     n_max=4,
-    ...     delta=0.1,
-    ...     cam_id=0,
-    ...     slm_number=1,
+    ...     SlmZernikePibConfig(center="shape", epochs=2000, delta=0.1)
     ... )
 """
 
@@ -36,7 +34,7 @@ import time
 from collections import deque
 from contextlib import nullcontext
 from dataclasses import dataclass, field
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 import tqdm
@@ -576,39 +574,41 @@ def learning_schedule(
     return final_lr, final_delta
 
 
-def _default_camera() -> Any:
+if TYPE_CHECKING:
+    from ao_shaping.runners.runner_common import CameraParamsPib, SlmParamsPib
+
+
+def _default_camera() -> CameraParamsPib:
     """Create the canonical camera/objective group without a module-level cycle."""
     from ao_shaping.runners.runner_common import CameraParamsPib
 
     return CameraParamsPib()
 
 
-def _default_slm() -> Any:
+def _default_slm() -> SlmParamsPib:
     """Create the canonical SLM group without a module-level cycle."""
     from ao_shaping.runners.runner_common import SlmParamsPib
 
     return SlmParamsPib()
 
 
-@dataclass(init=False)
+@dataclass
 class SlmZernikePibConfig:
     """Grouped configuration for :func:`optimize_slm_zernike_pib`.
 
-    The public optimizer function still accepts the historical flat keyword
-    arguments. Its configuration path folds those keywords into the shared
-    :class:`CameraParamsPib` and :class:`SlmParamsPib` groups, while direct
-    callers can pass either group explicitly. The two factories above defer
-    the runner imports until instantiation because ``runners.__init__``
-    eagerly imports this optimizer's runner.
-
-    The flat ``objective`` keyword maps to ``camera.name``. A direct nested
-    config therefore uses the runner defaults (``camera.name == "pib"``,
-    ``target_shape is None``, and ``slm.zernike_radius == 0.0`` as the
-    sentinel for the optimizer's 300 px aperture); the flat optimizer API
-    keeps its old defaults (``objective="shape"``, ``target_shape="rectangle"``,
-    and ``zernike_radius=ZERNIKE_APERTURE_RADIUS``).
+    ``center`` and ``epochs`` are the two run-level switches that used to be
+    positional arguments of the optimizer; they now live on the config so the
+    optimizer takes a single parameter. The camera/objective fields live on
+    :class:`CameraParamsPib` (``camera``) and the SLM/Zernike fields on
+    :class:`SlmParamsPib` (``slm``); both default to the canonical runner
+    groups (``camera.name == "pib"``, ``target_shape is None``, and
+    ``slm.zernike_radius == 0.0`` as the sentinel for the optimizer's 300 px
+    aperture). The two factories above defer the runner imports until
+    instantiation because ``runners.__init__`` eagerly imports this
+    optimizer's runner.
 
     Groups:
+        Run: center / epochs.
         Search: algorithm / pop_size / random_seed / optimizer_type.
         Camera / objective: camera.
         SLM / Zernike: slm.
@@ -617,6 +617,9 @@ class SlmZernikePibConfig:
         Escape hatch: kwargs.
     """
 
+    # --- Run ------------------------------------------------------------------
+    center: str | tuple[int, int] | None
+    epochs: int
     # --- Search ---------------------------------------------------------------
     algorithm: str = "spgd"
     pop_size: int | None = None
@@ -634,8 +637,8 @@ class SlmZernikePibConfig:
     shrink_iter: int = 0
     shrink_ratio: float = 0.9
     # --- Hardware / objective groups -------------------------------------------
-    camera: Any = field(default_factory=_default_camera)
-    slm: Any = field(default_factory=_default_slm)
+    camera: CameraParamsPib = field(default_factory=_default_camera)
+    slm: SlmParamsPib = field(default_factory=_default_slm)
     show: bool = False
     # --- Recording ---------------------------------------------------------------
     record_phase: bool = False
@@ -644,188 +647,8 @@ class SlmZernikePibConfig:
     #: (``_create_optimizer``); kept out of the typed fields.
     kwargs: dict[str, Any] = field(default_factory=dict)
 
-    def __init__(
-        self,
-        *,
-        algorithm: str = "spgd",
-        pop_size: int | None = None,
-        random_seed: int | None = None,
-        optimizer_type: str = "adamod",
-        r_bucket: float | None = None,
-        delta: float = 0.2,
-        lr: float = 0,
-        shrink_iter: int = 0,
-        shrink_ratio: float = 0.9,
-        cam_id: int | str | None = None,
-        cam_type: str | None = None,
-        cam_size: int | None = None,
-        exposure_time_ms: float | None = None,
-        target_max_brightness: float | None = None,
-        target_shape: str | None = None,
-        target_size: float | None = None,
-        target_aspect_ratio: float | None = None,
-        target_center_smooth: int | None = None,
-        shape_schedule: bool | None = None,
-        max_roi_energy_loss: float | None = None,
-        w_uniformity: float | None = None,
-        w_peak: float | None = None,
-        w_displacement: float | None = None,
-        log_uniformity: bool | None = None,
-        w_ema_decay: float | None = None,
-        w_floor: float | None = None,
-        w_temperature: float | None = None,
-        w_pib_init: float | None = None,
-        w_rms_init: float | None = None,
-        w_ee_init: float | None = None,
-        slm_number: int | None = None,
-        slm_wavelength: int | None = None,
-        n_max: int | None = None,
-        zernike_radius: float | None = None,
-        init_c: Any = None,
-        shift_x: int | None = None,
-        shift_y: int | None = None,
-        objective: str | None = None,
-        show: bool = False,
-        record_phase: bool = False,
-        camera: Any = None,
-        slm: Any = None,
-        kwargs: dict[str, Any] | None = None,
-    ) -> None:
-        """Build a config from nested groups or legacy flat keywords.
 
-        ``None`` for a compatibility-only flat parameter means that the
-        parameter was omitted, so the canonical nested dataclass default is
-        retained. The runner supplies all of these values explicitly; an
-        explicit nested group always takes precedence over flat arguments.
-        """
-        camera_kwargs: dict[str, Any] = {
-            key: value
-            for key, value in (
-                ("cam_id", cam_id),
-                ("cam_type", cam_type),
-                ("cam_size", cam_size),
-                ("exposure_time_ms", exposure_time_ms),
-                ("target_max_brightness", target_max_brightness),
-                ("r_bucket", r_bucket),
-                ("target_shape", target_shape),
-                ("target_size", target_size),
-                ("target_aspect_ratio", target_aspect_ratio),
-                ("target_center_smooth", target_center_smooth),
-                ("shape_schedule", shape_schedule),
-                ("max_roi_energy_loss", max_roi_energy_loss),
-                ("w_uniformity", w_uniformity),
-                ("w_peak", w_peak),
-                ("w_displacement", w_displacement),
-                ("log_uniformity", log_uniformity),
-                ("w_ema_decay", w_ema_decay),
-                ("w_floor", w_floor),
-                ("w_temperature", w_temperature),
-                ("w_pib_init", w_pib_init),
-                ("w_rms_init", w_rms_init),
-                ("w_ee_init", w_ee_init),
-            )
-            if value is not None
-        }
-        if objective is not None:
-            if str(objective).lower() == "shape":
-                logger.warning(
-                    "The flat objective='shape' config keyword is deprecated; "
-                    "pass camera.name='shape' instead"
-                )
-            camera_kwargs["name"] = objective
-
-        if camera is None:
-            from ao_shaping.runners.runner_common import CameraParamsPib
-
-            camera = CameraParamsPib(**camera_kwargs)
-        else:
-            logger.debug(
-                "Ignoring flat camera arguments because camera= was supplied"
-            )
-
-        slm_kwargs: dict[str, Any] = {
-            key: value
-            for key, value in (
-                ("slm_number", slm_number),
-                ("slm_wavelength", slm_wavelength),
-                ("n_max", n_max),
-                ("zernike_radius", zernike_radius),
-                ("init_c", init_c),
-                ("shift_x", shift_x),
-                ("shift_y", shift_y),
-            )
-            if value is not None
-        }
-        if slm is None:
-            from ao_shaping.runners.runner_common import SlmParamsPib
-
-            slm = SlmParamsPib(**slm_kwargs)
-        else:
-            logger.debug("Ignoring flat SLM arguments because slm= was supplied")
-
-        self.algorithm = algorithm
-        self.pop_size = pop_size
-        self.random_seed = random_seed
-        self.optimizer_type = optimizer_type
-        self.delta = delta
-        self.lr = lr
-        self.shrink_iter = shrink_iter
-        self.shrink_ratio = shrink_ratio
-        self.camera = camera
-        self.slm = slm
-        self.show = show
-        self.record_phase = record_phase
-        self.kwargs = kwargs if kwargs is not None else {}
-
-
-def optimize_slm_zernike_pib(
-    center,
-    epochs,
-    config: SlmZernikePibConfig | None = None,
-    algorithm: str = "spgd",
-    pop_size: int | None = None,
-    n_max: int = 4,
-    r_bucket=0,
-    delta: float = 0.2,
-    lr: float = 0,
-    exposure_time_ms: float = 80.0,
-    shrink_iter: int = 0,
-    shrink_ratio: float = 0.9,
-    cam_id=0,
-    cam_type: str = "daheng",
-    show: bool = False,
-    init_c=None,
-    cam_size=250,
-    target_max_brightness=40,
-    slm_number: int = 1,
-    slm_wavelength: int = 1064,
-    optimizer_type: str = "adamod",
-    random_seed: int | None = None,
-    objective: str = "shape",
-    target_shape: str | None = "rectangle",
-    target_size: float | None = None,
-    target_aspect_ratio: float = 4.0 / 3.0,
-    target_center_smooth: int = 3,
-    shape_schedule: bool = False,
-    max_roi_energy_loss: float = 0.6,
-    w_uniformity: float = 2.0,
-    w_peak: float = 0.5,
-    w_displacement: float = 0.0,
-    log_uniformity: bool = False,
-    w_ema_decay: float = 0.9,
-    w_floor: float = 0.1,
-    w_temperature: float = 8.0,
-    w_pib_init: float | None = None,
-    w_rms_init: float | None = None,
-    w_ee_init: float | None = None,
-    record_phase: bool = False,
-    zernike_radius: float = ZERNIKE_APERTURE_RADIUS,
-    shift_x: int | None = 0,
-    shift_y: int | None = 0,
-    cam: Any | None = None,
-    slm: Any | None = None,
-    **kwargs,
-):
+def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
     """Optimize PIB (Power in Bucket) using SLM with Zernike coefficient control.
 
     Zernike coefficients displayed on an SLM are searched to optimise an imaging
@@ -834,135 +657,19 @@ def optimize_slm_zernike_pib(
     black-box heuristic (``ga``/``pso``/``sa``/``hc``/``rs``/``cem``/``de``).
 
     Args:
-        center: Center position for PIB calculation. Can be None (auto-detect),
-            "mass" (centroid), "max" (brightest pixel), "shape" (threshold-based),
-            or a tuple (x, y).
-        epochs: Number of optimization iterations.
-        n_max: Maximum Zernike radial order. Controls the number of modes.
-        r_bucket: Bucket radius. If 0, auto-adjusted based on power radius.
-        delta: Perturbation amplitude for Zernike coefficients.
-        lr: Learning rate. If 0, auto-adjusted via learning_schedule.
-        exposure_time_ms: Camera exposure time in ms. If 0, auto-exposure.
-        shrink_iter: Shrink iteration count. If 0, no shrinking.
-        shrink_ratio: Shrink ratio for bucket radius.
-        cam_id: Camera device ID (or path/URL for file-based backends).
-        cam_type: Camera backend selected through ``create_camera``; one of
-            ``daheng`` (default) or ``miicam``. Exposure handling is normalised
-            across backends by the ``drivers.ccd.common`` helpers.
-        show: When True, open a pygame window showing the CCD frame, the sent SLM
-            phase and the Zernike coefficient bars during the search.
-        init_c: Initial Zernike coefficients. If None, starts from zeros.
-        cam_size: Camera window size.
-        target_max_brightness: Target max brightness for auto-exposure.
-        slm_number: SLM device number (1-8).
-        slm_wavelength: SLM wavelength in nm.
-        optimizer_type: Optimizer type for the SPGD gradient stage
-            (adam/adamod/sgd/muno); ignored when ``algorithm`` is a heuristic.
-        algorithm: Search algorithm: ``"spgd"`` or one of the heuristics
-            ``ga``/``pso``/``sa``/``hc``/``rs``/``cem``/``de``.
-        pop_size: Population size for population-based heuristics
-            (ga/pso/cem/de); ignored otherwise.
-        random_seed: Random seed for reproducibility (applies to both SPGD
-            perturbation sampling and the heuristic RNG).
-        objective: Optimization target: 'pib' (maximize), 'radiu' (minimize radius),
-            'avg_radiu' (maximize average radius), 'shape' (dynamic target ROI),
-            'rms_pib' (adaptively-weighted PIB + in-ROI RMS for target-shape shaping),
-            or 'rmse' (minimize the RMSE between the sum-normalised frame and the
-            sum-normalised uniform-intensity target shape - non-PIB beam shaping).
-        target_shape: Target ROI shape. Supplying it selects the ``shape`` objective
-            (except for ``roi_pib``/``rms_pib``/``rmse`` where it only picks the
-            target ROI); defaults to ``rectangle`` for those objectives.
-        target_size: Full target extent in camera pixels (rectangle short side,
-            circle diameter, square side). ``None`` derives it from the initial
-            99% encircled-energy radius.
-        target_aspect_ratio: Width:height ratio for a rectangular target ROI.
-        target_center_smooth: Number of recent Gaussian-centre estimates averaged
-            for each frame (minimum 1).
-        w_ema_decay: EMA decay for the adaptive PIB/RMS weight scores of the
-            ``rms_pib`` objective (0..1; 0 = raw contribution, no smoothing).
-        w_floor: Minimum weight floor for each term of the ``rms_pib`` objective
-            (0..0.5 exclusive); weights stay within ``[w_floor, 1-w_floor]``.
-        w_temperature: Softmax temperature for the ``rms_pib`` weight update;
-            higher values make the weights more decisive.
-        record_phase: When True, record the full display-ready SLM phase
-            (uint16 grayscale, exactly what was sent to the device) in every
-            history row under the ``"_phase"`` key. Memory-heavy: one full
-            frame (1200x1920) per row, intended for short debug runs that
-            export HDF5 artifacts. Default False keeps rows light.
-        config: Optional pre-built :class:`SlmZernikePibConfig`. When supplied,
-            its fields are used verbatim and the individual keyword parameters
-            below are ignored (they exist only to keep the public keyword API
-            and the ``inspect.signature`` contract intact). When ``None``
-            (the common path) the keyword parameters are folded into a
-            config.
-        cam: Optional pre-opened camera instance to reuse instead of creating
-            one via ``create_camera``; the optimizer does not close it.
-        slm: Optional pre-opened SLM instance (e.g. ``Santec``) to reuse
-            instead of constructing a new one; the optimizer does not close it.
-        **kwargs: Additional optimizer parameters, forwarded to
-            ``_create_optimizer``.
+        config: Grouped configuration for the run. ``center`` and ``epochs``
+            are the run-level switches that used to be positional arguments
+            (center detection method or fixed (x, y) tuple, and the number of
+            optimization iterations). The camera/objective fields live on
+            ``config.camera`` (:class:`CameraParamsPib`) and the SLM/Zernike
+            fields on ``config.slm`` (:class:`SlmParamsPib`); ``config.kwargs``
+            is forwarded to the optimizer constructor (``_create_optimizer``).
 
     Returns:
         Recorder: Optimization history recorder.
     """
-    if config is None:
-        from ao_shaping.runners.runner_common import CameraParamsPib, SlmParamsPib
-
-        config = SlmZernikePibConfig(
-            algorithm=algorithm,
-            pop_size=pop_size,
-            optimizer_type=optimizer_type,
-            r_bucket=r_bucket,
-            delta=delta,
-            lr=lr,
-            shrink_iter=shrink_iter,
-            shrink_ratio=shrink_ratio,
-            show=show,
-            record_phase=record_phase,
-            camera=CameraParamsPib(
-                name=objective,
-                cam_id=cam_id,
-                cam_type=cam_type,
-                cam_size=cam_size,
-                exposure_time_ms=exposure_time_ms,
-                target_max_brightness=target_max_brightness,
-                target_shape=target_shape,
-                target_size=cast(float, target_size),
-                target_aspect_ratio=target_aspect_ratio,
-                target_center_smooth=target_center_smooth,
-                shape_schedule=shape_schedule,
-                max_roi_energy_loss=max_roi_energy_loss,
-                w_uniformity=w_uniformity,
-                w_peak=w_peak,
-                w_displacement=w_displacement,
-                log_uniformity=log_uniformity,
-                w_ema_decay=w_ema_decay,
-                w_floor=w_floor,
-                w_temperature=w_temperature,
-                w_pib_init=w_pib_init,
-                w_rms_init=w_rms_init,
-                w_ee_init=w_ee_init,
-            ),
-            slm=SlmParamsPib(
-                n_max=n_max,
-                zernike_radius=zernike_radius,
-                init_c=init_c,
-                slm_number=slm_number,
-                slm_wavelength=slm_wavelength,
-                shift_x=cast(int, shift_x),
-                shift_y=cast(int, shift_y),
-            ),
-            kwargs=kwargs,
-        )
-    else:
-        # Extra keyword args (e.g. optimizer beta overrides) are merged into the
-        # config's escape-hatch dict unless they name a typed flat field.
-        for key, value in kwargs.items():
-            if hasattr(config, key):
-                setattr(config, key, value)
-            else:
-                config.kwargs[key] = value
-
+    center = config.center
+    epochs = config.epochs
     camera_config = config.camera
     slm_config = config.slm
     algorithm = config.algorithm
@@ -1141,16 +848,8 @@ def optimize_slm_zernike_pib(
 
     # TODO： 先跑一次离线 gs() 把结果作为闭环初值，通常 3~5 次就能收敛，不用每次从零迭代
 
-    cam_ctx = (
-        nullcontext(cam)
-        if cam is not None
-        else create_camera(config.camera)
-    )
-    slm_ctx = (
-        nullcontext(slm)
-        if slm is not None
-        else Santec.from_params(config.slm)
-    )
+    cam_ctx = create_camera(config.camera)
+    slm_ctx = Santec.from_params(config.slm)
 
     with cam_ctx as cam, slm_ctx as slm, display_ctx as live_display:
         assert cam is not None and slm is not None
@@ -1568,7 +1267,7 @@ def optimize_slm_zernike_pib(
             beta1=beta1,
             beta2=beta2,
             beta3=beta3,
-            **kwargs,
+            **config.kwargs,
         )
         if lr == 0:
             optimizer.lr, delta = learning_schedule(
@@ -2157,10 +1856,11 @@ if __name__ == "__main__":
         from ao_shaping.runners.runner_common import CameraParamsPib, SlmParamsPib
 
         return SlmZernikePibConfig(
+            center=args.center,
+            epochs=args.epochs,
             algorithm=args.algorithm,
             pop_size=args.pop_size,
             optimizer_type=args.optimizer,
-            r_bucket=args.r_bucket,
             delta=args.delta,
             lr=args.lr,
             random_seed=args.seed,
@@ -2171,6 +1871,7 @@ if __name__ == "__main__":
                 cam_type=args.cam_type,
                 cam_size=args.cam_size,
                 exposure_time_ms=args.exposure_time_ms,
+                r_bucket=args.r_bucket,
             ),
             slm=SlmParamsPib(
                 n_max=args.n_max,
@@ -2249,11 +1950,7 @@ if __name__ == "__main__":
         int(args.cam_id) if args.cam_id.strip().lstrip("+-").isdigit() else args.cam_id
     )
 
-    recorder = optimize_slm_zernike_pib(
-        center=args.center,
-        epochs=args.epochs,
-        config=_build_demo_config(args, cam_id),
-    )
+    recorder = optimize_slm_zernike_pib(_build_demo_config(args, cam_id))
 
     best_iter, (_, best_val) = recorder.get_best_iter()
     logger.info(

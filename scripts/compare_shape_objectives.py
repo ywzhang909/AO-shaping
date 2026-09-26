@@ -198,27 +198,40 @@ def setup_bench(args) -> tuple[float, tuple[int, int], float, tuple[int, int]]:
         cam.close()
 
 
-def run_variant(slug: str, kwargs: dict, args, exp: float, center, waist: float, cam=None, slm=None) -> dict:
-    from ao_shaping.optimizer.wfless.slm_zernike_pib import optimize_slm_zernike_pib
+def run_variant(slug: str, kwargs: dict, args, exp: float, center, waist: float) -> dict:
+    from ao_shaping.optimizer.wfless.slm_zernike_pib import (
+        SlmZernikePibConfig,
+        optimize_slm_zernike_pib,
+    )
+    from ao_shaping.runners.runner_common import CameraParamsPib, SlmParamsPib
 
     t0 = time.perf_counter()
     rec = optimize_slm_zernike_pib(
-        center=center,
-        epochs=args.epochs,
-        n_max=args.n_max,
-        target_shape="rectangle",
-        target_size=None,  # auto = TARGET_BOX_WAIST_FACTOR x waist
-        cam_size=args.cam_size,
-        exposure_time_ms=exp,
-        algorithm=args.algorithm,
-        max_roi_energy_loss=0.6,
-        slm_number=args.slm_number,
-        slm_wavelength=args.wavelength,
-        random_seed=args.seed,
-        show=False,
-        cam=cam,
-        slm=slm,
-        **kwargs,
+        SlmZernikePibConfig(
+            center=center,
+            epochs=args.epochs,
+            algorithm=args.algorithm,
+            random_seed=args.seed,
+            show=False,
+            camera=CameraParamsPib(
+                name=kwargs["objective"],
+                cam_id=args.cam_id,
+                cam_type=args.cam_type,
+                exposure_time_ms=exp,
+                cam_size=args.cam_size,
+                target_shape="rectangle",
+                target_size=None,  # auto = TARGET_BOX_WAIST_FACTOR x waist
+                max_roi_energy_loss=0.6,
+                w_uniformity=kwargs.get("w_uniformity", 2.0),
+                w_peak=kwargs.get("w_peak", 0.5),
+                log_uniformity=kwargs.get("log_uniformity", False),
+            ),
+            slm=SlmParamsPib(
+                slm_number=args.slm_number,
+                slm_wavelength=args.wavelength,
+                n_max=args.n_max,
+            ),
+        )
     )
     df = rec.dataframe
     objective = str(kwargs["objective"])
@@ -250,35 +263,18 @@ def main() -> None:
     aspect = 4.0 / 3.0
     logger.info("fixed target box (short side) = {:.1f}px", box_size)
 
-    # Open camera + SLM ONCE and reuse them across all variants, instead of
-    # opening/closing a fresh pair per run (the previous behaviour). The
-    # optimizer re-windows the camera and re-detects the spot centre per call,
-    # so sequential reuse on a fixed bench is safe. Exposure is the value the
-    # bench was auto-resolved to (not args.exposure_ms, which may be 0=auto).
-    from ao_shaping.drivers.ccd.common import create_camera
-    from ao_shaping.drivers.slm import Santec
-
-    cam = create_camera(
-        args.cam_type, cam_id=args.cam_id, exposure_time_ms=exp, skip_sampling=False
-    )
-    slm = Santec(
-        slm_number=args.slm_number,
-        wavelength=args.wavelength,
-        shift_x=0,
-        shift_y=0,
-    )
-    cam.open()
-    slm.open()
-
+    # Each variant opens/closes its own camera + SLM pair through the
+    # optimizer's device context managers (no cross-run device reuse).
+    # Exposure is the value the bench was auto-resolved to (not
+    # args.exposure_ms, which may be 0=auto).
     rows: list[dict] = []
-    try:
-        for idx, (slug, label, kwargs) in enumerate(VARIANTS, start=1):
-            logger.info("=== variant {} ({}) ===", slug, kwargs)
-            try:
-                res = run_variant(slug, kwargs, args, exp, center, waist, cam=cam, slm=slm)
-            except Exception as exc:  # keep the remaining variants running
-                logger.error("variant {} failed: {}: {}", slug, type(exc).__name__, exc)
-                continue
+    for idx, (slug, label, kwargs) in enumerate(VARIANTS, start=1):
+        logger.info("=== variant {} ({}) ===", slug, kwargs)
+        try:
+            res = run_variant(slug, kwargs, args, exp, center, waist)
+        except Exception as exc:  # keep the remaining variants running
+            logger.error("variant {} failed: {}: {}", slug, type(exc).__name__, exc)
+            continue
 
             if res["frame"] is not None:
                 # Locate the spot INSIDE this frame: the camera may clamp the requested
@@ -335,9 +331,6 @@ def main() -> None:
                 fig.tight_layout()
                 fig.savefig(fig_dir / f"{idx:02d}_{slug}_spot.png", dpi=140)
                 plt.close(fig)
-    finally:
-        slm.close()
-        cam.close()
 
     if not rows:
         logger.error("no variant produced a result - nothing to append")

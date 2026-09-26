@@ -103,9 +103,15 @@ AO-shaping/
 | `ga-zernike` | `optimizer.wf.ga_zernike:optimizer_ga()` | wf | GA Zernike | SLM + WFS |
 | `combined` | `optimizer.combined_optimizer:optimize_pib()` | wfless | AdaMOD + SPGD 混合 PIB | DM + CCD |
 
-> **`slm-pib` 配置容器** (2026-09): `optimize_slm_zernike_pib()` 的 45 个参数已收敛为
-> `SlmZernikePibConfig` dataclass (`optimizer/wfless/slm_zernike_pib.py`)。公开 API 100% 兼容:
-> 调用方仍按关键字传参 (内部折叠进 dataclass), 也可显式传 `config=SlmZernikePibConfig(...)`。
+> **`slm-pib` 配置容器** (2026-09): `optimize_slm_zernike_pib()` 已收敛为**纯 dataclass 单参数 API**:
+> `def optimize_slm_zernike_pib(config: SlmZernikePibConfig)` (`optimizer/wfless/slm_zernike_pib.py`)。
+> `SlmZernikePibConfig` 是普通 `@dataclass` (无自定义 `__init__`), 必填 `center`/`epochs` 在前,
+> 嵌套 `camera: CameraParamsPib` / `slm: SlmParamsPib` (惰性默认, 定义于 `runners/runner_common.py`),
+> 保留 `kwargs` 逃生口 (`**config.kwargs`)。**不再接受任何平铺关键字参数 / `cam=` / `slm=`**;
+> 设备由优化器内部经 `create_camera(config.camera)` / `Santec.from_params(config.slm)` 上下文管理器
+> 自行打开/关闭 (禁止跨 run 复用设备)。调用方: `runners/slm_pib_runner.py`、`scripts/compare_shape_objectives.py`、
+> `scripts/generate_slm_pib_heuristic_hw_report.py`、`scripts/repeat_shape_objectives.py`、
+> `tests/ao_shaping/optimizer/wfless/test_slm_zernike_*`。
 > 内部重命名 (非公开 API): `test_pib`→`ideal_pib_ratio`、`intellij_center`→`_smart_center`
 > (本文件内, 与 `pib.py` 的 `intellij_center` 无关)、`to_min` 标量删除 → 由 `objective_mode`
 > 派生 `_spgd_sign`。

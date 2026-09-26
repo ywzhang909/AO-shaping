@@ -25,10 +25,12 @@ import pytest
 from click.testing import CliRunner
 
 from ao_shaping.optimizer.wfless.slm_zernike_pib import (
+    SlmZernikePibConfig,
     optimize_slm_zernike_pib,
     rmse_shape_metric,
     target_shape_roi,
 )
+from ao_shaping.runners.runner_common import CameraParamsPib
 from ao_shaping.runners.slm_pib_runner import _effective_objective_key, run
 
 
@@ -144,10 +146,11 @@ def test_rmse_accepts_target_shape_in_validation() -> None:
     # (anything except that specific ValueError) is the pass condition.
     try:
         optimize_slm_zernike_pib(
-            center="shape",
-            epochs=1,
-            objective="rmse",
-            target_shape="circle",
+            SlmZernikePibConfig(
+                center="shape",
+                epochs=1,
+                camera=CameraParamsPib(name="rmse", target_shape="circle"),
+            )
         )
     except ValueError as exc:
         assert "target_shape can only be used" not in str(exc)
