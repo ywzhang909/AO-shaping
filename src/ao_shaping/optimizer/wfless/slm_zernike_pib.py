@@ -681,14 +681,10 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
     exposure_time_ms = camera_config.exposure_time_ms
     shrink_iter = config.shrink_iter
     shrink_ratio = config.shrink_ratio
-    cam_id = camera_config.cam_id
-    cam_type = camera_config.cam_type
     show = config.show
     init_c = slm_config.init_c
     cam_size = camera_config.cam_size
     target_max_brightness = camera_config.target_max_brightness
-    slm_number = slm_config.slm_number
-    slm_wavelength = slm_config.slm_wavelength
     n_max = slm_config.n_max
     random_seed = config.random_seed
     objective = camera_config.name
@@ -710,8 +706,6 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
     w_ee_init = camera_config.w_ee_init
     record_phase = config.record_phase
     zernike_radius = slm_config.zernike_radius
-    shift_x = slm_config.shift_x
-    shift_y = slm_config.shift_y
     if zernike_radius is None or zernike_radius <= 0:
         zernike_radius = ZERNIKE_APERTURE_RADIUS
 
