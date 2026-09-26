@@ -764,6 +764,23 @@ python scripts/generate_zernike_linearity_report.py -o docs/slm/zernike_linearit
 Sources default to the latest `data/zernike_correction/raw_scan_*.json` and
 `data/zernike_correction/report_*.json`; override with `--raw-scan`, `--report`.
 
+### generate_zernike_farfield_sim_report.py
+
+Generates the illustrated **Zernike far-field spot-morphology** report — a 2f-Fourier numerical simulation of Noll 4–15 (n≤4, 12 modes) at amplitudes 0–2 λ (8 steps), **fully offline** (pure numpy, no hardware). The optical model is identical to `SimPibSystem.far_field()` in `src/ao_shaping/drivers/sim/slm_pib_sim.py`: far field = `I = |FFT(pupil · e^{iφ})|²`, pupil 512×512 (R=256 px), far field 8192×8192 zero-padded, A=0 shared Airy baseline, 0-order located by argmax.
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src"
+python scripts/generate_zernike_farfield_sim_report.py
+```
+
+**What it does** (writes `report.md` + `figures/` + `metrics.csv` to `docs/zernike_farfield_sim/`):
+- §4 Far-field morphology: 12×8 log-intensity grid (160×160 px crop around the 0-order, Gaussian σ=1.5 px) + per-mode morphology description (defocus→ring, astigmatism→ellipse, coma→tail + peak offset, spherical aberration→three rings, trefoil→three lobes, tetrafoil→four lobes); phase grid verifies the raw-radian linear scaling of `φ = A·2π·Z_j`
+- §4.1 Numerical-artifact diagnostic: m=4 azimuthal-harmonic comparison between the old grid (128/64) and new grid (512/256) at r=25/50/75/100 px — quantifies the 4× pupil oversampling suppressing the 4-fold staircasing square stripes (the theoretical 1/64≈18 dB applies to the staircasing aliasing energy; the measured m=4 depends on the radius, with the low-intensity ring-region / far-field grid sampling floor dominating at some radii)
+- §5 Metrics: Strehl (peak/peak_Airy) vs amplitude + 0.8 criterion amplitude table, EE50/EE90, FWHM, peak offset (non-zero only for the coma family Noll 7/8)
+- `metrics.csv` 96 rows: mode_noll, n, m, name, amp_waves, strehl, fwhm_px, ee50_r_px, ee90_r_px, peak_dx, peak_dy, peak_r_px
+- Run time ≈17 min (84 far-field FFTs)
+
 ### generate_heuristic_pib_report.py
 
 Benchmarks all 7 heuristic optimizers in `ao_shaping.algorithm` (GA, PSO, SA,
