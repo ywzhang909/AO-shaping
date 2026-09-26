@@ -2,6 +2,7 @@
 
 Part of the :mod:`ao_shaping.utils.image.target` package (split by type).
 """
+
 from __future__ import annotations
 
 import math
@@ -390,9 +391,9 @@ class ShapingObjective:
         """
         p = self._params
         return float(
-            roi_pib_metric(
-                frame, p.reference_center, p.shape, p.size, p.aspect_ratio
-            )[0]
+            roi_pib_metric(frame, p.reference_center, p.shape, p.size, p.aspect_ratio)[
+                0
+            ]
         )
 
     def raw(self, img: np.ndarray) -> tuple[float, float]:
@@ -534,9 +535,7 @@ class ShapingObjective:
         be MINIMISED (a ``>`` comparison would keep the worst).
         """
         if self._params.objective == "pib":
-            return float(
-                self._target_func.pib(img, self._params.ideal_spot_radius)[1]
-            )
+            return float(self._target_func.pib(img, self._params.ideal_spot_radius)[1])
         return float(res.j)
 
     def metric_panel(self, img: np.ndarray) -> dict[str, float]:
