@@ -16,13 +16,13 @@ from torch.utils.data import DataLoader
 
 from loguru import logger
 
+from ml.gsnet.losses import ShapingLosses
 from ml.gsnet.model import FourierGSNet
 
-
-def phase_mae(pred: torch.Tensor, target: torch.Tensor) -> float:
-    """Mean absolute shortest angular distance between two phase maps."""
-    diff = torch.remainder(pred - target + math.pi, 2 * math.pi) - math.pi
-    return float(diff.abs().mean())
+# Backward-compatible module-level alias: the body now lives in the single
+# ``ShapingLosses`` namespace, so ``from ml.gsnet.evaluate import phase_mae``
+# keeps working unchanged.
+phase_mae = ShapingLosses.phase_mae
 
 
 @dataclass
@@ -199,12 +199,7 @@ def divergence_metric(
     pred_phase = model(source, target)
     pred_phase.requires_grad_(True)
 
-    field = source_amp * torch.exp(1j * pred_phase)
-    far = torch.fft.fftshift(torch.fft.fft2(field), dim=(-2, -1))
-    intensity = torch.abs(far) ** 2
-    pred_n = intensity / (intensity.sum(dim=(-2, -1), keepdim=True) + 1e-12)
-    tgt_n = target / (target.sum(dim=(-2, -1), keepdim=True) + 1e-12)
-    loss = torch.mean((pred_n - tgt_n) ** 2)
+    loss = ShapingLosses.intensity_mse(source_amp, pred_phase, target)
 
     grad = torch.autograd.grad(loss, pred_phase)[0]
     return grad.abs().mean().detach()

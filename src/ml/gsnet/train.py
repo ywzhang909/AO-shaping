@@ -10,75 +10,24 @@ is only one of many valid phase solutions.
 
 from __future__ import annotations
 
-import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import torch
-from torch import nn
 from torch.utils.data import DataLoader
 
 from loguru import logger
 
+from ml.gsnet.losses import ShapingLosses
 from ml.gsnet.model import FourierGSNet
 
-
-def circular_mse(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    """Mean squared shortest angular distance between two phase maps."""
-    diff = torch.remainder(pred - target + math.pi, 2 * math.pi) - math.pi
-    return torch.mean(diff**2)
-
-
-def intensity_mse(
-    source_amp: torch.Tensor,
-    phase: torch.Tensor,
-    target_intensity: torch.Tensor,
-) -> torch.Tensor:
-    """MSE between normalized far-field intensity and normalized target.
-
-    Applies the same physics as the model (FFT + fftshift), normalizes both
-    distributions to unit sum, and returns the per-image mean squared
-    difference. Scale-invariant so absolute beam power does not matter.
-
-    Note: once the physics unrolling already matches the target (far_rmse
-    ~1e-3), this term saturates near zero and carries no training signal —
-    use :func:`shaping_loss` as the shaping objective instead.
-    """
-    field = source_amp * torch.exp(1j * phase)
-    far = torch.fft.fftshift(torch.fft.fft2(field), dim=(-2, -1))
-    intensity = torch.abs(far) ** 2
-    pred_n = intensity / (intensity.sum(dim=(-2, -1), keepdim=True) + 1e-12)
-    tgt_n = target_intensity / (
-        target_intensity.sum(dim=(-2, -1), keepdim=True) + 1e-12
-    )
-    return torch.mean((pred_n - tgt_n) ** 2)
-
-
-def shaping_loss(
-    source_amp: torch.Tensor,
-    phase: torch.Tensor,
-    target_intensity: torch.Tensor,
-) -> torch.Tensor:
-    """1 - mean Pearson correlation between predicted and target far-field.
-
-    Unlike :func:`intensity_mse` — which saturates near zero the moment the
-    physics amplitude exchange already matches the target — returns a loss on
-    a O(1) scale (0 = perfect correlation) that stays differentiable well past
-    the MSE saturation point. Scale-invariant: the predicted intensity has
-    arbitrary absolute scale, so both distributions are centered and
-    normalized per image before correlation.
-    """
-    field = source_amp * torch.exp(1j * phase)
-    far = torch.fft.fftshift(torch.fft.fft2(field), dim=(-2, -1))
-    intensity = torch.abs(far) ** 2
-    pred = intensity.flatten(1)
-    tgt = target_intensity.flatten(1)
-    p = pred - pred.mean(dim=1, keepdim=True)
-    t = tgt - tgt.mean(dim=1, keepdim=True)
-    denom = torch.sqrt((p**2).sum(dim=1) * (t**2).sum(dim=1)) + 1e-12
-    corr = (p * t).sum(dim=1) / denom
-    return torch.mean(1.0 - corr)
+# Backward-compatible module-level aliases: the loss bodies now live in the
+# single ``ShapingLosses`` namespace, so ``from ml.gsnet.train import
+# shaping_loss`` (and friends) keeps working unchanged.
+circular_mse = ShapingLosses.circular_mse
+intensity_mse = ShapingLosses.intensity_mse
+shaping_loss = ShapingLosses.shaping_loss
 
 
 @dataclass
