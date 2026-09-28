@@ -75,7 +75,9 @@ docs/WFS20_Manual*
 *.png
 nul
 checkpoints*
-wandb*
+# Anchored: ignore only the W&B run-output dir at the repo root.
+# Unanchored `wandb*` also matched src/ml/wandb_logger.py, hiding it from git.
+/wandb*
 
 .kilo*
 libs/micro_drive1300/docs*
