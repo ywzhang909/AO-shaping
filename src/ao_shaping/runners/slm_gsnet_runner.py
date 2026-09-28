@@ -13,10 +13,15 @@ Usage:
     python src/ao_shaping/main.py slm-gsnet                    # SPGD (default, no options)
     python src/ao_shaping/main.py slm-gsnet spgd [OPTIONS]     # SPGD gradient search
     python src/ao_shaping/main.py slm-gsnet heuristic [OPTIONS]  # black-box heuristic
+    python src/ao_shaping/main.py slm-gsnet train [OPTIONS]    # offline GSNet training
 
 Offline dry-run (no hardware) — options live on the subcommand, not the group:
     python src/ao_shaping/main.py slm-gsnet spgd --cam_type sim --epochs 50
     python src/ao_shaping/main.py slm-gsnet heuristic --cam_type sim --epochs 50 --algorithm ga
+    python src/ao_shaping/main.py slm-gsnet train --epochs 1 --max-samples 32
+
+``train`` never opens a device: it reads the ``data/debug`` pickles the
+optimizers already recorded and trains FourierGSNet on them in simulation.
 """
 
 from __future__ import annotations
@@ -32,6 +37,7 @@ from ao_shaping.optimizer.wfless.slm_square_shaping import (
     SlmSquareConfig,
     optimize_slm_square,
 )
+from ao_shaping.runners.gsnet_train import GsnetTrainParams, run_offline_training
 from ao_shaping.runners.runner_common import (
     CameraParams,
     HeuristicParams,
@@ -212,6 +218,10 @@ def run(ctx: click.Context, run: RunParams) -> None:
     The phase basis is always freeform (per-pixel) — the only DOF that can
     synthesise a true square far-field (low-order Zernike cannot). Without a
     subcommand, the SPGD (gradient) search runs.
+
+    Subcommands: ``spgd`` (gradient search), ``heuristic`` (black-box search)
+    and ``train`` (offline FourierGSNet training on the recorded debug corpus —
+    the only one that touches no hardware).
     """
     if ctx.invoked_subcommand is None:
         ctx.invoke(spgd, **ctx.params)
@@ -255,8 +265,25 @@ def heuristic(
     _execute(SlmGsnetConfig(run, camera, slm, objective, search))
 
 
+@click.command(name="train")
+@click.pass_context
+@with_params(RunParams, kw_name="run")
+@with_params(GsnetTrainParams, kw_name="params")
+def train(ctx: click.Context, run: RunParams, params: GsnetTrainParams) -> None:
+    """Train FourierGSNet offline on the recorded debug corpus (no hardware).
+
+    Streams the ``data/debug`` pickles produced by the optimizers, trains the
+    unrolled GS network, evaluates it in simulation and writes
+    ``summary.json``, ``comparison.png``, ``train_history.png`` and the best
+    checkpoint. Artifacts land in ``<dir>/gsnet_train/run-<timestamp>/`` unless
+    ``--out-dir`` says otherwise.
+    """
+    run_offline_training(run, params)
+
+
 run.add_command(spgd, name="spgd")
 run.add_command(heuristic, name="heuristic")
+run.add_command(train, name="train")
 
 
 def _execute(cfg: SlmGsnetConfig) -> None:
