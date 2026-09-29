@@ -81,6 +81,7 @@ from ao_shaping.utils.image.targets import (
     spot_waist_sigma,
 )
 from ao_shaping.utils.io.file import (
+    _DATA_MODE_OBJECTIVE_KEYS,
     gen_date_dir,
     gen_date_str,
     save_recorder_debug_artifacts,
@@ -526,14 +527,7 @@ _DEBUG_SCALAR_KEYS = (
     "m_rms_t",
     "m_ee",
     "m_brt",
-    "pib",
-    "radiu",
-    "avg_radiu",
-    "rmse",
-    "rmse_out",
-    "shape",
-    "roi_pib",
-    "rms_pib",
+    *_DATA_MODE_OBJECTIVE_KEYS,
 )
 
 

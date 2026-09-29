@@ -28,9 +28,11 @@ from ao_shaping.runners.runner_common import (
     with_params,
 )
 from ao_shaping.utils.io.cli_helpers import setup_coredumpy
+from ao_shaping.utils.image.targets import ObjectiveSpec
 from ao_shaping.utils.io.file import (
     Recorder,
     save_recorder_debug_artifacts,
+    _DATA_MODE_OBJECTIVE_KEYS,
 )
 
 # Backward-compatible aliases — tests and external callers may still import
@@ -77,39 +79,27 @@ _DEBUG_SCALAR_KEYS = (
     "m_rms_t",
     "m_ee",
     "m_brt",
-    # Objective columns — merged from _DEBUG_OBJECTIVE_KEYS for a single pass.
-    "pib",
-    "radiu",
-    "avg_radiu",
-    "rmse",
-    "shape",
-    "roi_pib",
-    "rms_pib",
+    # Objective columns — canonical set from _DATA_MODE_OBJECTIVE_KEYS.
+    *_DATA_MODE_OBJECTIVE_KEYS,
 )
 
 # Objective columns passed separately to the shared debug-artifact helper
-# (see ``save_recorder_debug_artifacts``); kept in sync with the scalar set.
-_DEBUG_OBJECTIVE_KEYS = (
-    "pib",
-    "radiu",
-    "avg_radiu",
-    "rmse",
-    "shape",
-    "roi_pib",
-    "rms_pib",
-)
+# (see ``save_recorder_debug_artifacts``); re-exported from the canonical
+# definition in ``utils/io/file.py`` so there is a single source of truth.
+_DEBUG_OBJECTIVE_KEYS = _DATA_MODE_OBJECTIVE_KEYS
 
 
 def _effective_objective_key(name: str, target_shape: Any) -> str:
     """Return the dict key the optimizer actually records for the objective value.
 
-    The optimizer remaps ``objective`` to ``"shape"`` when ``target_shape`` is
-    supplied (and the objective is not ``roi_pib``/``rms_pib``/``rmse``), so the
-    recorder row key changes accordingly — the runner must follow the same remapping.
+    Delegates to :meth:`ObjectiveSpec.resolve` - the single authority for the
+    objective/target-shape pairing - instead of repeating the rule here. The old
+    inline copy was already stale: it hard-coded ``("roi_pib", "rms_pib", "rmse")``
+    as the shape-preserving set, so any newer objective (``pearson``) was
+    silently reported as ``"shape"``. That made the runner pick the ``m_shape``
+    panel column for the best-row of a Pearson run: wrong numbers, no error.
     """
-    if target_shape is not None and name not in ("roi_pib", "rms_pib", "rmse"):
-        return "shape"
-    return name
+    return ObjectiveSpec.resolve(name, target_shape).name
 
 
 def _config_payload(obj: Any) -> dict[str, Any]:
