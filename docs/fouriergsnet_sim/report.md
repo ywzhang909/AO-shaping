@@ -1,6 +1,6 @@
 # FourierGSNet 湍流仿真矩阵报告
 
-**生成时间**: 2026-09-29 11:04:34
+**生成时间**: 2026-09-29 11:06:15
 **数据来源**: `/home/ws/code/AO-shaping/data/fouriergsnet_sim/native_w4b` (矩阵运行时间 2026-09-22 23:46:10)
 
 **Fully offline** — 本报告由 `scripts/generate_fouriergsnet_sim_report.py` 离线生成, 仅读取已保存的矩阵产物 (config/summary/metrics/frames), 不打开任何硬件。

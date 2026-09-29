@@ -866,7 +866,6 @@ def _build_pipeline_section(cfg: dict, matrix_dir: Path) -> str:
         matrix_dir_rel=matrix_dir_rel,
         native_clause=native_clause,
         k_px=cfg.get("k_px", "-"),
-        steps=steps,
         steps_minus_1=steps - 1,
         init_gs_iters=cfg.get("init_gs_iters", "-"),
         ft_samples=cfg.get("ft_samples", "-"),
