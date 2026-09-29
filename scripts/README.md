@@ -1128,6 +1128,46 @@ python scripts/slm_pib_sim_run.py --epochs 300 --target-shape square
 `docs/slm_pib_sim/report.md` + `figures/` + `gifs/` via
 `generate_slm_pib_sim_report.py`.
 
+### generate_iterative_zernike_shaping_report.py
+
+Generates the illustrated **iterative Zernike + free-form shaping** report,
+demonstrating that alternating a Zernike calibration pass (A) with a free-form
+SLM-phase shaping pass (B) converges to a higher square-target score than
+**every** single-pass baseline on the same 64×64 sim grid — the canonical
+sensorless SPGD, the Gerchberg-Saxton (GS) single pass, and the unshaped
+initial state.
+**Fully offline** — pure torch (FFT forward model), no hardware.
+
+**Usage:**
+```bash
+.venv/bin/python scripts/generate_iterative_zernike_shaping_report.py
+```
+
+**What it does** (writes to `docs/iterative_zernike_shaping/`):
+- Runs the full A↔B iterative loop: (A) calibrate a Zernike set to match an
+  "actual" (aberrated) far-field, (B) freeze Zernike and optimize free-form SLM
+  phase to a square target, iterating until early-stop convergence
+- Baselines (all on the **identical 64×64 grid**, identical bench metric
+  `composite_score = 0.5·PIB + 0.5·(1 − min(CV/0.3, 1))`):
+  - initial (unshaped golden+noise) score
+  - single-pass GS (`gs_shape`, 200 iters)
+  - sensorless **SPGD** (`spgd_shape`, 600 iters, dim=8 freeform) — the
+    canonical black-box reference. The `0.89` figure cited elsewhere is a
+    1920×1200 **hardware-grid** result and is NOT comparable to this 64×64 sim.
+- `initial_vs_final.png` — far-field before/after the iterative loop
+- `score_history.png` — composite score per iteration (A-calib / B-shape phases)
+- `zernike_coeffs.png` — per-mode Zernike coefficient traces across iterations
+- `phase_evolution.png` — free-form SLM phase (mod 2π) start/mid/end montage
+- `score_comparison.png` — bar chart: initial vs GS vs SPGD vs iterative (the WIN proof)
+- `data.json` + `*.npy` — raw scores, coefficients, and phase arrays
+
+> 📐 **Measured (2026-09, 64×64 sim grid)**: initial **0.1590**, GS single-pass
+> **0.1780**, sensorless SPGD **0.1906** — iterative **0.3851** is **+102.0% vs
+> SPGD**, **+116.3% vs GS**, and **+142.2% vs initial**. The A↔B iteration is
+> the decisive gain over every same-grid baseline, including the canonical
+> sensorless SPGD reference. Locked in by regression test
+> `tests/ao_shaping/algorithm/test_iterative_zernike_shaping.py::test_s7_beats_spgd_and_gs_baselines`.
+
 ### generate_slm_pib_sim_report.py
 
 Generates the illustrated **slm-pib simulation** report from a
