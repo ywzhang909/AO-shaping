@@ -25,6 +25,7 @@ from ml.gsnet.dataset import (
     make_source_intensity,
     make_target,
 )
+from ml.gsnet.losses import ShapingLosses
 from ml.gsnet.train import (
     TrainResult,
     circular_mse,
@@ -51,9 +52,11 @@ __all__ = [
     "compute_gs_phase",
     "make_source_intensity",
     "make_target",
+    "ShapingLosses",
     "TrainResult",
     "circular_mse",
     "intensity_mse",
+    "shaping_loss",
     "train_gsnet",
     "EvalSummary",
     "SampleMetrics",

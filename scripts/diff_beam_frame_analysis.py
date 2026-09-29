@@ -25,6 +25,12 @@ import matplotlib.pyplot as plt
 
 def analyze_run(run_dir: Path) -> dict:
     cfg = json.loads((run_dir / "config.json").read_text())
+    # ``target_shape`` moved into the nested ``target`` objective group when the
+    # objective/target-shape merge landed. Sidecars written before the merge keep
+    # it flat at the top level, so read nested-first and fall back.
+    _target_cfg = cfg.get("target")
+    if not isinstance(_target_cfg, dict):
+        _target_cfg = {}
     frames_dir = run_dir / "frames"
     meta_path = frames_dir / "frame_meta.jsonl"
 
@@ -89,7 +95,7 @@ def analyze_run(run_dir: Path) -> dict:
         "run_dir": str(run_dir),
         "config": {
             "algorithm": cfg.get("algorithm"),
-            "target_shape": cfg.get("target_shape"),
+            "target_shape": _target_cfg.get("target_shape", cfg.get("target_shape")),
             "target_size": cfg.get("target_size"),
             "target_px": cfg.get("target_px"),
             "target_brightness": cfg.get("target_brightness"),

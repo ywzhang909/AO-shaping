@@ -42,6 +42,7 @@ from ao_shaping.utils.image.beam_metrics import (
 from ao_shaping.utils.image.resample import resample_to_grid
 from ao_shaping.utils.image.targets import build_square_target_amplitude
 from ao_shaping.utils.io.file import Recorder
+from ml.gsnet.losses import ShapingLosses
 
 # ---------------------------------------------------------------------------
 # 可调参数
@@ -470,7 +471,7 @@ def finetune_chead(net, data, A_tgt, A_src, phi0, Z, I_tgt):
                 phi0.expand(B, -1, -1),
                 Z,
             )
-            loss = (c_hat - c_gt).abs().mean()
+            loss = ShapingLosses.coefficient_l1(c_hat, c_gt)
             opt.zero_grad()
             loss.backward()
             opt.step()

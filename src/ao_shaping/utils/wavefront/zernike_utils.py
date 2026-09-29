@@ -95,7 +95,7 @@ def um_to_waves(z: np.ndarray) -> np.ndarray:
     return np.asarray(z, dtype=float) * UM_TO_WAVES
 
 
-def list_zernike_modes(n_max: int) -> list[tuple[int, int, str]]:
+def list_zernike_modes(n_max: int) -> list[tuple[int, int, int, str]]:
     """List all Zernike modes up to a given radial order.
 
     Args:

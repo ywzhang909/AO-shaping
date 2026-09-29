@@ -88,9 +88,9 @@ from typing import TYPE_CHECKING, Any
 import tqdm
 import numpy as np
 
-from ao_shaping.drivers import MIICamera
 from ao_shaping.drivers.ccd.common import (
     capture_with_exposure,
+    create_camera,
     get_camera_exposure_ms,
     resample_on_saturation,
 )
@@ -794,6 +794,7 @@ class SlmSquareConfig:
     lr: float = 0
     exposure_time_ms: float = 80.0
     cam_id: int = 0
+    cam_type: str = "daheng"
     show: bool = False
     init_c: list[float] | np.ndarray | None = None
     cam_size: int = 300
@@ -827,6 +828,7 @@ def optimize_slm_square(
     lr: float = 0,
     exposure_time_ms: float = 80.0,
     cam_id: int = 0,
+    cam_type: str = "daheng",
     show: bool = False,
     init_c: list[float] | np.ndarray | None = None,
     cam_size: int = 300,
@@ -1107,8 +1109,8 @@ def optimize_slm_square(
     )
 
     with (
-        MIICamera(
-            cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
+        create_camera(
+            cam_type, cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
         ) as cam,
         Santec(slm_number=slm_number, wavelength=slm_wavelength) as slm,
     ):

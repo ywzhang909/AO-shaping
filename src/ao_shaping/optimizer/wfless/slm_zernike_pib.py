@@ -28,13 +28,12 @@ Example:
 from __future__ import annotations
 
 import inspect
-import math
 import os
 import time
 from collections import deque
 from contextlib import nullcontext
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, Sequence, cast
 
 import numpy as np
 import tqdm
@@ -55,30 +54,38 @@ from ao_shaping.algorithm.heuristic.search import (
 )
 from ao_shaping.display import SlmZernikeDisplay
 from ao_shaping.drivers.ccd.common import (
+    capture_with_exposure,
     create_camera,
     get_camera_exposure_ms,
     list_camera_types,
-    resolve_initial_exposure,
-    capture_with_exposure,
     resample_on_saturation,
+    resolve_initial_exposure,
 )
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL
 from ao_shaping.optimizer.spgd import spgd_gradient
-from ao_shaping.utils.wavefront.zernike_calc import noll_indices as _zernike_indices
 from ao_shaping.utils import Recorder, logger
 from ao_shaping.utils.image.beam_metrics import (
     clamp_center_to_frame,
     smart_zero_order_center,
     zero_order_center,
 )
+from ao_shaping.utils.image.hardware_utils import (
+    log_center_brightness,
+    resolve_spot_center,
+)
 from ao_shaping.utils.image.spots_calc import radius
 from ao_shaping.utils.image.targets import (
     SHAPE_STAGE_WEIGHTS,
     TARGET_SHAPE_CHOICES,
+    ShapeScoringParams,
+    ShapingObjective,
+    ShapingObjectiveParams,
+    _resolve_init_weights,
+    _update_dynamic_weights,
     create_target_shape,
-    rmse_shape_metric,
     rms_pib_terms,
+    rmse_shape_metric,
     roi_energy_loss,
     roi_pib_metric,
     shape_metric,
@@ -89,11 +96,8 @@ from ao_shaping.utils.image.targets import (
 )
 from ao_shaping.utils.io.file import gen_date_dir, gen_date_str
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
-from ao_shaping.utils.image.hardware_utils import (
-    log_center_brightness,
-    resolve_spot_center,
-)
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
+from ao_shaping.utils.wavefront.zernike_calc import noll_indices as _zernike_indices
 from ao_shaping.utils.wavefront.zernike_utils import parse_zernike_coefficients
 
 TargetShape = Literal[
@@ -125,7 +129,7 @@ SCHEDULE_MAX_LR = 1.0
 SCHEDULE_MAX_DELTA = 0.5
 
 # slm parameters
-SLM_RESPONSE_TIME_S = 0.1
+SLM_RESPONSE_TIME_S = 0.0
 # On exit, leave the best-found phase on the SLM. The candidate set includes
 # the initial (flat when starting from zeros, or a loaded) phase: if the search
 # never improved on it, that phase is restored instead. Set False to skip
@@ -212,177 +216,9 @@ def gauss_center(
 # ``resolve_initial_exposure`` and ``clamp_center_to_frame`` are imported from
 # ``ao_shaping.drivers.ccd.common`` and ``ao_shaping.utils.image.beam_metrics``
 # respectively (re-exported here for backward compatibility with tests and
-# scripts that import them from this module).
-
-
-def _update_dynamic_weights(
-    state: dict,
-    *,
-    pib: float,
-    rms: float,
-    j: float,
-    ee: float | None = None,
-    w_ema_decay: float = 0.9,
-    w_floor: float = 0.1,
-    w_temperature: float = 8.0,
-) -> tuple[float, float] | tuple[float, float, float]:
-    """Adaptively re-weight the PIB, RMS and (optional) energy terms.
-
-    The term that improves ``J`` more gets the higher weight ("哪个对J提升大则
-    哪个权重大"). Weights are softmax-normalised EMA scores of the *positive*
-    contributions of each term to the combined objective:
-
-    * ``c_i = w_i * (term_i - prev_term_i)`` for each participating term;
-    * the EMA is updated ONLY on positive contributions (improving steps);
-    * if ALL contributions are ``<= 0`` the weights stay unchanged;
-    * ``w_i = w_floor + (1 - n*w_floor) * softmax(T*ema_i, ...)`` for the ``n``
-      participating terms (n=2 or n=3).
-
-    When ``ee`` is ``None`` (legacy two-term objective) the behaviour is
-    byte-identical to the previous ``(w_pib, w_rms)`` pair; when ``ee`` is
-    given the energy-conservation term participates and a three-weight tuple
-    ``(w_pib, w_rms, w_ee)`` is returned (always summing to 1).
-    """
-    three_term = ee is not None
-    state.setdefault("w_pib", 1.0 / 3 if three_term else 0.5)
-    state.setdefault("w_rms", 1.0 / 3 if three_term else 0.5)
-    state.setdefault("w_ee", 1.0 / 3 if three_term else 0.0)
-    state.setdefault("ema_pib", 0.0)
-    state.setdefault("ema_rms", 0.0)
-    state.setdefault("ema_ee", 0.0)
-    state.setdefault("prev_j", None)
-    state.setdefault("prev_pib", None)
-    state.setdefault("prev_rms", None)
-    state.setdefault("prev_ee", None)
-    state.setdefault("prev_set", False)
-
-    if not state["prev_set"]:
-        # First call: record the baseline and keep the initial weights.
-        state["prev_j"] = float(j)
-        state["prev_pib"] = float(pib)
-        state["prev_rms"] = float(rms)
-        if three_term:
-            state["prev_ee"] = float(ee)
-        state["prev_set"] = True
-        if three_term:
-            return (
-                float(state["w_pib"]),
-                float(state["w_rms"]),
-                float(state["w_ee"]),
-            )
-        return float(state["w_pib"]), float(state["w_rms"])
-
-    w_pib = float(state["w_pib"])
-    w_rms = float(state["w_rms"])
-    c_pib = w_pib * (float(pib) - float(state["prev_pib"]))
-    c_rms = w_rms * (float(rms) - float(state["prev_rms"]))
-    if c_pib > 0.0:
-        state["ema_pib"] = (
-            w_ema_decay * float(state["ema_pib"]) + (1.0 - w_ema_decay) * c_pib
-        )
-    if c_rms > 0.0:
-        state["ema_rms"] = (
-            w_ema_decay * float(state["ema_rms"]) + (1.0 - w_ema_decay) * c_rms
-        )
-
-    c_ee = 0.0
-    if three_term:
-        w_ee = float(state["w_ee"])
-        c_ee = w_ee * (float(ee) - float(state["prev_ee"]))
-        if c_ee > 0.0:
-            state["ema_ee"] = (
-                w_ema_decay * float(state["ema_ee"]) + (1.0 - w_ema_decay) * c_ee
-            )
-        if c_pib <= 0.0 and c_rms <= 0.0 and c_ee <= 0.0:
-            # No improving contribution this step: keep the current weights.
-            state["prev_j"] = float(j)
-            state["prev_pib"] = float(pib)
-            state["prev_rms"] = float(rms)
-            state["prev_ee"] = float(ee)
-            return w_pib, w_rms, w_ee
-    elif c_pib <= 0.0 and c_rms <= 0.0:
-        # No improving contribution this step: keep the current weights.
-        state["prev_j"] = float(j)
-        state["prev_pib"] = float(pib)
-        state["prev_rms"] = float(rms)
-        return w_pib, w_rms
-
-    def _softmax_frac(emas: list[float]) -> list[float]:
-        clipped = [float(np.clip(e, -10.0, 10.0)) for e in emas]
-        clipped = [0.0 if not np.isfinite(e) else e for e in clipped]
-        exps = [math.exp(w_temperature * e) for e in clipped]
-        total = sum(exps)
-        return [e / total for e in exps]
-
-    if three_term:
-        fracs = _softmax_frac(
-            [float(state["ema_pib"]), float(state["ema_rms"]), float(state["ema_ee"])]
-        )
-        w_pib = w_floor + (1.0 - 3.0 * w_floor) * fracs[0]
-        w_rms = w_floor + (1.0 - 3.0 * w_floor) * fracs[1]
-        w_ee = w_floor + (1.0 - 3.0 * w_floor) * fracs[2]
-        state["w_pib"] = float(w_pib)
-        state["w_rms"] = float(w_rms)
-        state["w_ee"] = float(w_ee)
-        state["prev_j"] = float(j)
-        state["prev_pib"] = float(pib)
-        state["prev_rms"] = float(rms)
-        state["prev_ee"] = float(ee)
-        return float(w_pib), float(w_rms), float(w_ee)
-
-    fracs = _softmax_frac([float(state["ema_pib"]), float(state["ema_rms"])])
-    w_pib = w_floor + (1.0 - 2.0 * w_floor) * fracs[0]
-    w_rms = 1.0 - w_pib
-    state["w_pib"] = float(w_pib)
-    state["w_rms"] = float(w_rms)
-    state["prev_j"] = float(j)
-    state["prev_pib"] = float(pib)
-    state["prev_rms"] = float(rms)
-    return float(w_pib), float(w_rms)
-
-
-def _resolve_init_weights(
-    w_pib_init: float | None,
-    w_rms_init: float | None,
-    w_ee_init: float | None,
-) -> tuple[float, float, float]:
-    """Resolve the initial PIB/RMS/EE weights of the ``rms_pib`` objective.
-
-    With no weight provided the (1/3, 1/3, 1/3) default is returned. When any
-    weight is provided, provided terms are kept exactly and unprovided terms
-    share the remaining mass equally, so the triple always sums to 1 (the
-    invariant the adaptive update maintains from the first adapting step on).
-    When all three are provided they are normalised to sum 1.
-
-    Raises:
-        ValueError: if the provided weights sum to more than 1 (with fewer than
-            three provided) or to 0 (with all three provided).
-    """
-    given = (w_pib_init, w_rms_init, w_ee_init)
-    if all(w is None for w in given):
-        return (1.0 / 3, 1.0 / 3, 1.0 / 3)
-    given_sum = float(sum(w for w in given if w is not None))
-    n_missing = sum(1 for w in given if w is None)
-    if n_missing > 0:
-        if given_sum > 1.0 + 1e-9:
-            raise ValueError(
-                f"initial rms_pib weights must sum to <= 1 when not all are "
-                f"provided, got {given_sum!r} "
-                f"(w_pib_init={w_pib_init!r}, w_rms_init={w_rms_init!r}, "
-                f"w_ee_init={w_ee_init!r})"
-            )
-        fill = (1.0 - given_sum) / n_missing
-        out = tuple(fill if w is None else float(w) for w in given)
-    else:
-        if given_sum <= 0.0:
-            raise ValueError(
-                "all initial rms_pib weights are provided but sum to 0: "
-                f"(w_pib_init={w_pib_init!r}, w_rms_init={w_rms_init!r}, "
-                f"w_ee_init={w_ee_init!r})"
-            )
-        provided = [w for w in given if w is not None]
-        out = tuple(float(w) / given_sum for w in provided)
-    return (out[0], out[1], out[2])
+# scripts that import them from this module). ``_update_dynamic_weights`` and
+# ``_resolve_init_weights`` likewise now live in ``utils.image.targets`` next to
+# the ``ShapingObjective`` that calls them, and are re-exported here unchanged.
 
 
 def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs: Any) -> Base:
@@ -602,8 +438,10 @@ class SlmZernikePibConfig:
     :class:`CameraParamsPib` (``camera``) and the SLM/Zernike fields on
     :class:`SlmParamsPib` (``slm``); both default to the canonical runner
     groups (``camera.name == "pib"``, ``target_shape is None``, and
-    ``slm.zernike_radius == 0.0`` as the sentinel for the optimizer's 300 px
-    aperture). The two factories above defer the runner imports until
+    ``slm.zernike_radius == 600.0`` = SLM 面板短边的一半 as the default aperture
+    (与方形整形/GUI 一致, 基圆完整落在面板内), falling back to the optimizer's
+    300 px aperture only when it is 0/None). The two factories above defer the
+    runner imports until
     instantiation because ``runners.__init__`` eagerly imports this
     optimizer's runner.
 
@@ -636,6 +474,25 @@ class SlmZernikePibConfig:
     lr: float = 0
     shrink_iter: int = 0
     shrink_ratio: float = 0.9
+    # --- Evaluation robustness (2026-09 q3, from the delta<0.001 fold/jitter
+    # post-mortem; see docs/slm_pib) -----------------------------------------
+    # Per-evaluation frame average passed to ``cam.get_numpy_image`` (the
+    # Daheng driver averages ``n_sample`` frames, so sigma_J falls ~1/sqrt(N)).
+    # 1 = single frame (legacy behaviour). Applies to the SPGD pair frames.
+    n_eval_frames: int = 1
+    # Brightness-fold integrity gate: an evaluation frame whose peak OR total
+    # sum falls below ``fold_ratio`` of the EMA baseline of recent VALID frames
+    # is an environment brightness fold (measured discrete brightness states,
+    # corr(J, max_brt) = -0.9996 on the bench) - that epoch's update and
+    # best-track are skipped entirely. 0 disables.
+    fold_ratio: float = 0.5
+    # Noise-aware update gate: when |J+ - J-| <= ``noise_gate_k`` * sigma_hat
+    # (rolling std of the last ``noise_gate_window`` diffs) the SPGD gradient
+    # is measurement noise (measured SNR < 0.1 at delta < 0.001) - the update
+    # is zeroed so the coefficients stall honestly instead of random-walking.
+    # 0 disables (negative k disables too).
+    noise_gate_k: float = 3.0
+    noise_gate_window: int = 20
     # --- Hardware / objective groups -------------------------------------------
     camera: CameraParamsPib = field(default_factory=_default_camera)
     slm: SlmParamsPib = field(default_factory=_default_slm)
@@ -646,6 +503,71 @@ class SlmZernikePibConfig:
     #: Extra keyword arguments forwarded to the optimizer constructor
     #: (``_create_optimizer``); kept out of the typed fields.
     kwargs: dict[str, Any] = field(default_factory=dict)
+
+
+def _frame_fold_check(
+    frame: np.ndarray,
+    baseline_peak: float | None,
+    baseline_sum: float | None,
+    fold_ratio: float,
+) -> tuple[bool, float, float]:
+    """Brightness-fold integrity check for one evaluation frame.
+
+    Returns ``(is_fold, peak, frame_sum)``. ``is_fold`` is True when the frame
+    peak or its total sum falls below ``fold_ratio`` of the rolling baseline
+    of VALID frames (armed from the initial frame; see
+    :func:`_update_fold_baseline`). A folded frame is an environment event
+    (measured discrete brightness states with ``corr(J, max_brt) = -0.9996``
+    on the bench), NOT a coefficient effect - the epoch must be skipped before
+    it can masquerade as a gradient. ``fold_ratio <= 0`` (or no baseline yet)
+    disables the check.
+    """
+    if fold_ratio <= 0.0 or baseline_peak is None or baseline_sum is None:
+        return False, float(np.max(frame)), float(np.asarray(frame, dtype=np.float64).sum())
+    peak = float(np.max(frame))
+    frame_sum = float(np.asarray(frame, dtype=np.float64).sum())
+    is_fold = peak < fold_ratio * baseline_peak or frame_sum < fold_ratio * baseline_sum
+    return is_fold, peak, frame_sum
+
+
+def _update_fold_baseline(
+    baseline_peak: float | None,
+    baseline_sum: float | None,
+    peak: float,
+    frame_sum: float,
+    alpha: float = 0.1,
+) -> tuple[float, float]:
+    """EMA-update the fold baseline with one VALID frame (``alpha``: 0.1).
+
+    Only validated (non-folded) frames may update the baseline, so a folded
+    measurement can never pull the baseline down and blind the gate.
+    """
+    if baseline_peak is None or baseline_sum is None:
+        return peak, frame_sum
+    return (
+        alpha * peak + (1.0 - alpha) * baseline_peak,
+        alpha * frame_sum + (1.0 - alpha) * baseline_sum,
+    )
+
+
+def _rolling_sigma(diffs: Sequence[float]) -> float:
+    """Std of the recent ``diff`` history (0.0 when degenerate/empty)."""
+    if len(diffs) < 2:
+        return 0.0
+    arr = np.asarray(diffs, dtype=np.float64)
+    s = float(np.std(arr))
+    return s if np.isfinite(s) else 0.0
+
+
+def _noise_gate(diff: float, sigma_hat: float, k: float) -> bool:
+    """True when ``diff`` is indistinguishable from the recent diff noise
+    (``|diff| <= k * sigma_hat``) - the SPGD update would be pure measurement
+    noise and is zeroed so the coefficients stall honestly instead of
+    random-walking. ``k <= 0`` (or an unusable ``sigma_hat``) disables the gate.
+    """
+    if k <= 0.0 or not np.isfinite(sigma_hat) or sigma_hat <= 0.0:
+        return False
+    return abs(diff) <= k * sigma_hat
 
 
 def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
@@ -1032,227 +954,44 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
 
         target_func = ImageTargetFunc.build_from_init_image(init_img)
 
-        # Baseline diagnostic: the ideal-radius (r = IDEAL_SPOT_RADIUS, FIXED)
-        # PIB bucket ratio, used to seed ``best_objective`` and logged as
-        # ``m_pib7``.
-        def ideal_pib_ratio(img):
-            return target_func.pib(img, IDEAL_SPOT_RADIUS)[1]
-
-        # --- Objective dispatch ------------------------------------------------
-        # Seven objective families, each implemented as a closure returning
-        # ``(j, ratio)``. The dispatch replaces the previous 7-branch
-        # ``calc_objective`` re-bind + ``to_min`` sign scalar: each branch now
-        # owns its own closure, and ``objective_mode`` (already computed above)
-        # is the single source of truth for the maximise/minimise direction.
-        if objective == "pib":
-            # Maximize PIB: negate the SPGD estimate so ``_init_c - update``
-            # ascends the objective. Same convention as pib.py.
-
-            def _calc_objective_pib(img):
-                pib, pib_ratio = target_func.pib(img, r_bucket)
-                return pib, pib_ratio
-
-            calc_objective = _calc_objective_pib
-        elif objective == "roi_pib":
-            # Maximise the brightness inside the TARGET-SHAPED ROI: the fraction
-            # of the light landing in the target rectangle (exposure-invariant
-            # ratio, no uniformity/peak/drift penalties).
-
-            def _calc_objective_roi_pib(img):
-                # FIXED target ROI (never tracks the spot).
-                return roi_pib_metric(
-                    img,
-                    reference_center,
-                    shape_for_metric,
-                    target_size,
-                    target_aspect_ratio,
-                )
-
-            calc_objective = _calc_objective_roi_pib
-        elif objective == "rms_pib":
-            # Combined PIB + in-ROI RMS + energy-conservation objective with
-            # adaptively-weighted terms:
-            # J = w_pib(t)*pib_term + w_rms(t)*rms_term + w_ee(t)*ee_term.
-            # The weights adapt so the term that improves J more gets the higher
-            # weight (see _update_dynamic_weights). The target ROI is FIXED at
-            # reference_center (never tracks the spot). ``ee_term`` = fraction
-            # of the baseline (flat-phase) window energy still inside the window,
-            # so a search that diffracts/scatters light out of the window (or
-            # pumps it to a dark halo) is penalised even though pib/rms are
-            # exposure-invariant ratios (energy-encircled constraint; see
-            # AGENTS.md anti-pattern).
-            _rms_pib_state: dict = {}
-            _init_w_pib, _init_w_rms, _init_w_ee = _resolve_init_weights(
-                w_pib_init, w_rms_init, w_ee_init
-            )
-            # Baseline window energy from the flat-phase capture: "no energy
-            # lost" means sum(img) stays at this level.
-            _init_energy = float(np.sum(np.asarray(init_img, dtype=np.float64)))
-            last_terms: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
-
-            def _calc_objective_rms_pib(img):
-                nonlocal last_terms
-                w_pib = float(_rms_pib_state.setdefault("w_pib", _init_w_pib))
-                w_rms = float(_rms_pib_state.setdefault("w_rms", _init_w_rms))
-                w_ee = float(_rms_pib_state.setdefault("w_ee", _init_w_ee))
-                pib_term, rms_term = rms_pib_terms(
-                    img,
-                    reference_center,
-                    shape_for_metric,
-                    target_size,
-                    target_aspect_ratio,
-                )
-                _frame = np.asarray(img, dtype=np.float64)
-                ee_term = float(
-                    np.clip(
-                        _frame.sum() / max(_init_energy, np.finfo(np.float64).eps),
-                        0.0,
-                        1.0,
-                    )
-                )
-                j = w_pib * pib_term + w_rms * rms_term + w_ee * ee_term
-                last_terms = (
-                    float(j),
-                    float(pib_term),
-                    float(rms_term),
-                    float(ee_term),
-                )
-                return float(j), float(pib_term)
-
-            calc_objective = _calc_objective_rms_pib
-        elif objective == "shape":
-            _shape_state = {"best_energy": 0.0}
-
-            def _calc_objective_shape(img):
-                # The target ROI is FIXED at reference_center - it never tracks the
-                # measured spot, so a spot that drifts/scatters out of the box is
-                # penalised instead of being followed (displacement weight = 0 for
-                # the same reason: the energy term already captures the drift).
-                stage = (
-                    shape_stage_from_energy(_shape_state["best_energy"])
-                    if shape_schedule
-                    else None
-                )
-                score, energy = shape_metric(
-                    img,
-                    reference_center,
-                    reference_center,
-                    shape_for_metric,
-                    target_size,
-                    target_aspect_ratio,
+        # --- Objective ----------------------------------------------------------
+        # The seven objective families, the adaptive ``rms_pib`` term weighting,
+        # the in-ROI energy-loss safety guard and the cross-objective ``m_*``
+        # metric panel all live in ``ShapingObjective``
+        # (utils/image/targets.py). It owns the objective selection, the FIXED
+        # target ROI, the ``rms_pib``/panel energy baselines and the live bucket
+        # radius (kept in sync through ``set_bucket`` below), so the search loops
+        # only hand it frames and read ``ObjectiveResult.j`` / ``.ratio``.
+        shaping = ShapingObjective(
+            ShapingObjectiveParams(
+                objective=objective,
+                mode=objective_mode,
+                shape=shape_for_metric,
+                size=target_size,
+                aspect_ratio=target_aspect_ratio,
+                reference_center=reference_center,
+                shape_schedule=shape_schedule,
+                scoring=ShapeScoringParams(
                     w_uniformity=w_uniformity,
                     w_peak=w_peak,
                     w_displacement=w_displacement,
-                    stage=stage,
                     log_uniformity=log_uniformity,
-                )
-                # Monotone: the schedule may only get stricter, never laxer.
-                _shape_state["best_energy"] = max(_shape_state["best_energy"], energy)
-                return score, energy
-
-            calc_objective = _calc_objective_shape
-        elif objective == "rmse":
-            # Minimise the RMSE between the frame and the uniform-intensity target,
-            # both normalised to unit sum (exposure / laser-drift invariant).
-
-            def _calc_objective_rmse(img):
-                return rmse_shape_metric(
-                    img,
-                    reference_center,
-                    shape_for_metric,
-                    target_size,
-                    target_aspect_ratio,
-                )
-
-            calc_objective = _calc_objective_rmse
-        elif objective == "radiu":
-
-            def _calc_objective_radiu(img):
-                r = target_func.radius(img, energy=0.99)
-                return r, 0.0
-
-            calc_objective = _calc_objective_radiu
-        elif objective == "avg_radiu":
-            # Maximize average radius.
-
-            def _calc_objective_avg(img):
-                return target_func.avg_radius(img, moment=1.0)
-
-            calc_objective = _calc_objective_avg
-
-        # --- Safety guard: abandon evaluations that lose too much ROI energy --
-        # Reference = the in-ROI energy of the initial (flat/loaded) frame. Any
-        # evaluation whose in-ROI energy dropped by more than
-        # ``max_roi_energy_loss`` (fraction of that reference) is *abandoned*:
-        # it is scored far worse than any valid state, so the search never adopts
-        # it and the SLM is never left there. ``0`` disables the guard.
-        _raw_calc_objective = calc_objective
-        _guard_ref_energy: float | None = None
-        _guard_violations = 0
-
-        def _fixed_roi_energy(frame) -> float:
-            """Light fraction inside the **FIXED** target ROI - the guard's observable.
-
-            Deliberately NOT the running (spot-tracking) ROI used by the objective:
-            that one follows the measured spot centre, so it always retains the same
-            energy and could never detect a loss. This ROI stays at
-            ``reference_center`` / ``target_size`` / ``target_shape``.
-            """
-            return roi_pib_metric(
-                frame,
-                reference_center,
-                shape_for_metric,
-                target_size,
-                target_aspect_ratio,
-            )[0]
-
-        if max_roi_energy_loss > 0.0 and objective in (
-            "pib",
-            "rmse",
-            "shape",
-            "roi_pib",
-            "rms_pib",
-        ):
-            _ref = float(_fixed_roi_energy(init_img))
-            _guard_ref_energy = _ref if np.isfinite(_ref) and _ref > 0.0 else None
-            if _guard_ref_energy is None:
-                logger.warning(
-                    "ROI energy guard disabled: initial in-ROI energy is {:.6f}", _ref
-                )
-            else:
-                logger.info(
-                    "ROI energy guard armed: reference energy {:.4f}, max loss {:.1%}",
-                    _guard_ref_energy,
-                    max_roi_energy_loss,
-                )
-
-        def calc_objective(img):
-            """Objective wrapped with the ROI energy-loss safety guard.
-
-            Returns a strongly penalised score (and the true ratio for logging)
-            when the in-ROI energy loss exceeds ``max_roi_energy_loss`` - the
-            evaluation is thereby abandoned.
-            """
-            nonlocal _guard_violations
-            j, ratio = _raw_calc_objective(img)
-            if _guard_ref_energy is None:
-                return j, ratio
-            loss = roi_energy_loss(_guard_ref_energy, _fixed_roi_energy(img))
-            if loss > max_roi_energy_loss:
-                _guard_violations += 1
-                if _guard_violations <= 5 or _guard_violations % 50 == 0:
-                    logger.warning(
-                        "ROI energy loss {:.1%} exceeds the {:.1%} limit - "
-                        "evaluation abandoned (#{} violations)",
-                        loss,
-                        max_roi_energy_loss,
-                        _guard_violations,
-                    )
-                bad = j - 1e3 if objective_mode == "max" else j + 1e3
-                return float(bad), float(ratio)
-            return j, ratio
-
-        j, pib_ratio = calc_objective(init_img)
+                ),
+                max_roi_energy_loss=max_roi_energy_loss,
+                ideal_spot_radius=IDEAL_SPOT_RADIUS,
+                r_bucket=r_bucket,
+                w_ema_decay=w_ema_decay,
+                w_floor=w_floor,
+                w_temperature=w_temperature,
+                w_pib_init=w_pib_init,
+                w_rms_init=w_rms_init,
+                w_ee_init=w_ee_init,
+            ),
+            target_func,
+            init_img,
+        )
+        _init_res = shaping(init_img)
+        j, pib_ratio = _init_res.j, _init_res.ratio
 
         optimizer = _create_optimizer(
             optimizer_type=optimizer_type,
@@ -1272,89 +1011,16 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             )
 
         # Track the objective's OWN value. For "pib" that is the exposure-
-        # independent bucket ratio (matches the logged column); for the other
-        # objectives it is the value the gradient uses -- e.g. the encircle
-        # radius, which must be MINIMISED (a `>` comparison would keep the worst).
-        best_objective = (
-            float(ideal_pib_ratio(init_img)) if objective == "pib" else float(j)
-        )
+        # independent bucket ratio at the FIXED ideal radius (matches the logged
+        # column); for the other objectives it is the value the gradient uses --
+        # e.g. the encircle radius, which must be MINIMISED (a `>` comparison
+        # would keep the worst).
+        best_objective = shaping.tracking_value(init_img, _init_res)
         # Baseline objective of the initial phase (flat when ``init_c`` is
         # empty). Used on exit to decide between the best phase and flat.
         _initial_objective = best_objective
         best_c = _init_c.copy()
         last_best_epoch = 0
-
-        # Baseline window energy (flat-phase capture) for the energy-conservation
-        # panel metric (exposure-demanding: valid when run forces exposure or the
-        # auto-exposure settles, i.e. every epoch shares a comparable sum).
-        _panel_init_sum = float(np.sum(np.asarray(init_img, dtype=np.float64)))
-
-        def _metric_panel(img: np.ndarray) -> dict[str, float]:
-            """Cross-objective metric panel recorded on EVERY epoch.
-
-            Evaluates all shaping objectives on the same frame with the run's
-            actual configuration (weights / target shape / bucket radius), so any
-            two runs can be compared on any shared ``m_*`` column regardless of
-            which objective actually drove the search. ``m_`` prefix avoids
-            colliding with the objective's own row key (e.g. ``"shape"``).
-            """
-            _shape_score, _energy = shape_metric(
-                img,
-                reference_center,
-                reference_center,
-                shape_for_metric,
-                target_size,
-                target_aspect_ratio,
-                w_uniformity=w_uniformity,
-                w_peak=w_peak,
-                w_displacement=w_displacement,
-                stage=None,
-                log_uniformity=log_uniformity,
-            )
-            _pib_term, _rms_t = rms_pib_terms(
-                img,
-                reference_center,
-                shape_for_metric,
-                target_size,
-                target_aspect_ratio,
-            )
-            _rmse, _ = rmse_shape_metric(
-                img,
-                reference_center,
-                shape_for_metric,
-                target_size,
-                target_aspect_ratio,
-            )
-            _roi_score, _roi_energy = roi_pib_metric(
-                img,
-                reference_center,
-                shape_for_metric,
-                target_size,
-                target_aspect_ratio,
-            )
-            _frame_sum = float(np.asarray(img, dtype=np.float64).sum())
-            _ee = float(
-                np.clip(
-                    _frame_sum / max(_panel_init_sum, np.finfo(np.float64).eps),
-                    0.0,
-                    1.0,
-                )
-            )
-            return {
-                "m_shape": float(_shape_score),
-                "m_energy": float(_energy),
-                "m_rmse": float(_rmse),
-                "m_roi_pib": float(_roi_score),
-                "m_pib": float(target_func.pib(img, r_bucket)[1]),
-                "m_pib7": float(ideal_pib_ratio(img)),
-                # Equal-weight (1/3 each) rms_pib score: the objective's own
-                # adaptive weights vary per epoch, so the fixed-weight value is
-                # the cross-run comparable form.
-                "m_rms_pib": float((_pib_term + _rms_t + _ee) / 3.0),
-                "m_rms_t": float(_rms_t),
-                "m_ee": _ee,
-                "m_brt": float(np.max(img)),
-            }
 
         _row0 = {
             "J": j,
@@ -1375,13 +1041,15 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             f"best_{objective}": best_objective,
         }
         if objective == "rms_pib":
-            _row0["w_pib"] = float(_rms_pib_state.get("w_pib", 1.0 / 3))
-            _row0["w_rms"] = float(_rms_pib_state.get("w_rms", 1.0 / 3))
-            _row0["w_ee"] = float(_rms_pib_state.get("w_ee", 1.0 / 3))
-            _row0["pib_term"] = float(last_terms[1])
-            _row0["rms_term"] = float(last_terms[2])
-            _row0["ee_term"] = float(last_terms[3])
-        _row0.update(_metric_panel(init_img))
+            _w_pib, _w_rms, _w_ee = shaping.weights
+            _row0["w_pib"] = float(_w_pib)
+            _row0["w_rms"] = float(_w_rms)
+            _row0["w_ee"] = float(_w_ee)
+            _terms = shaping.terms
+            _row0["pib_term"] = float(_terms[1])
+            _row0["rms_term"] = float(_terms[2])
+            _row0["ee_term"] = float(_terms[3])
+        _row0.update(shaping.metric_panel(init_img))
         if record_phase:
             _row0["_phase"] = initial_phase
         recorder.append(_row0)
@@ -1399,15 +1067,24 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             lr_val: float,
             delta_val: float,
             max_brt: float,
+            gate: str | None = None,
             phase: np.ndarray | None = None,
         ) -> dict:
-            """Append one search step to the recorder (shared by both branches)."""
+            """Append one search step to the recorder (shared by both branches).
+
+            ``gate`` records the SPGD evaluation verdict for offline stats:
+            ``"applied"`` (gradient adopted), ``"fold"`` (brightness fold
+            rejected before scoring) or ``"noise"`` (diff below the noise gate,
+            zeroed update). ``None`` (heuristic branch, or legacy records)
+            means "no verdict recorded".
+            """
             row = {
                 "J": J,
                 "_p%": obj_ratio,
                 "_max_r": _init_r,
                 objective: obj_val,
                 "_diff": diff,
+                "_gate": gate,
                 "lr": lr_val,
                 "r": r_bucket,
                 "delta": delta_val,
@@ -1423,17 +1100,19 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 # Display-ready grayscale exactly as sent to the SLM device.
                 row["_phase"] = phase
             if objective == "rms_pib":
-                row["w_pib"] = float(_rms_pib_state.get("w_pib", 0.5))
-                row["w_rms"] = float(_rms_pib_state.get("w_rms", 0.5))
-                row["pib_term"] = float(last_terms[1])
-                row["rms_term"] = float(last_terms[2])
-            row.update(_metric_panel(img))
+                _w_pib, _w_rms, _w_ee = shaping.weights
+                row["w_pib"] = float(_w_pib)
+                row["w_rms"] = float(_w_rms)
+                _terms = shaping.terms
+                row["pib_term"] = float(_terms[1])
+                row["rms_term"] = float(_terms[2])
+            row.update(shaping.metric_panel(img))
             recorder.append(row)
             return row
 
         def _apply_best_on_exit() -> None:
             """Leave the SLM at the best-found phase (or flat if never improved)."""
-            setattr(recorder, "energy_loss_violations", _guard_violations)
+            setattr(recorder, "energy_loss_violations", shaping.guard_violations)
             if not SLM_APPLY_BEST_ON_EXIT:
                 return
             improved = (
@@ -1533,7 +1212,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 )
                 _display(slm, candidate_phase)
                 time.sleep(SLM_RESPONSE_TIME_S)
-                img = cam.get_numpy_image(CAM_SAMPLE_ITER)
+                img = cam.get_numpy_image(config.n_eval_frames)
                 if exposure_time_ms == 0 and float(np.max(img)) >= 255:
                     # Saturated: re-auto-expose to the requested target, mirroring
                     # the SPGD loop's guard, so the metric stays on a valid frame.
@@ -1543,25 +1222,20 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         exposure_time_ms,
                         target_max_brightness or TEST_EXPOSURE_TIME_BRIGHTNESS,
                     )
-                obj, obj_ratio = calc_objective(img)
+                # Re-locate the target ROI onto the CURRENT spot (a benign beam
+                # drift must not be scored as a shaping loss) - same rule as the
+                # SPGD loop's per-eval re-centering.
+                shaping.set_reference_center(zero_order_center(img))
+                res = shaping(img)
+                obj, obj_ratio = res.j, res.ratio
                 if objective == "rms_pib":
                     # Adapt the PIB/RMS/EE weights on every valid candidate
                     # evaluation (abandoned evaluations are penalised to <= -100
-                    # and skipped).
+                    # and skipped). The result is passed explicitly so the
+                    # adaptation uses THIS candidate's terms.
                     if float(obj) > -100.0:
-                        _update_dynamic_weights(
-                            _rms_pib_state,
-                            pib=float(last_terms[1]),
-                            rms=float(last_terms[2]),
-                            ee=float(last_terms[3]),
-                            j=float(last_terms[0]),
-                            w_ema_decay=w_ema_decay,
-                            w_floor=w_floor,
-                            w_temperature=w_temperature,
-                        )
-                obj_val = (
-                    float(ideal_pib_ratio(img)) if objective == "pib" else float(obj)
-                )
+                        shaping.adapt_weights(res)
+                obj_val = shaping.tracking_value(img, res)
                 last_eval.update(
                     {
                         "phase": candidate_phase,
@@ -1658,6 +1332,19 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             _apply_best_on_exit()
             return recorder
 
+        # Evaluation-robustness state (see ``config.n_eval_frames`` /
+        # ``fold_ratio`` / ``noise_gate_k``): the fold baseline is armed from
+        # the initial (valid) frame; the noise-gate diff history starts empty,
+        # so the gate stays off until ``noise_gate_window`` diffs have been
+        # collected.
+        _fold_baseline_peak: float | None = float(np.max(init_img))
+        _fold_baseline_sum: float | None = float(
+            np.asarray(init_img, dtype=np.float64).sum()
+        )
+        _diff_history: deque[float] = deque(maxlen=config.noise_gate_window)
+        _n_fold_gated = 0
+        _n_noise_gated = 0
+
         with tqdm.tqdm(
             total=epochs, desc=f"slm_zernike iter {epochs}", dynamic_ncols=True
         ) as bar:
@@ -1673,13 +1360,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 )
                 _display(slm, pos_phase)
                 time.sleep(SLM_RESPONSE_TIME_S)
-                pos_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
-                pos_obj, pos_obj_ratio = calc_objective(pos_img)
-                if objective == "rms_pib":
-                    # Keep the POSITIVE-perturbation terms: the negative eval below
-                    # overwrites ``last_terms``, and the weight adaptation must use
-                    # the direction the gradient actually follows.
-                    _pos_terms = last_terms
+                pos_img = cam.get_numpy_image(config.n_eval_frames)
 
                 # Negative perturbation
                 _neg_c = np.clip(_init_c - disturb_c, -5.0, 5.0)
@@ -1688,10 +1369,78 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 )
                 _display(slm, neg_phase)
                 time.sleep(SLM_RESPONSE_TIME_S)
-                neg_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
-                neg_obj, neg_obj_ratio = calc_objective(neg_img)
+                neg_img = cam.get_numpy_image(config.n_eval_frames)
 
-                # Auto-exposure adjustment if saturated
+                # Evaluation-robustness gates (2026-09, from the delta<0.001
+                # fold/jitter post-mortem; see docs/slm_pib): reject environment
+                # brightness folds BEFORE scoring so they cannot masquerade as a
+                # coefficient-driven change (measured discrete brightness
+                # states, corr(J, max_brt) = -0.9996), and re-locate the target
+                # ROI onto the CURRENT spot of each frame so a benign beam drift
+                # is not scored as a shaping loss (measured 22-px drift). The
+                # energy guard's ROI rides along; its armed baseline is kept.
+                pos_fold, pos_pk, pos_sum = _frame_fold_check(
+                    pos_img, _fold_baseline_peak, _fold_baseline_sum, config.fold_ratio
+                )
+                neg_fold, neg_pk, neg_sum = _frame_fold_check(
+                    neg_img, _fold_baseline_peak, _fold_baseline_sum, config.fold_ratio
+                )
+                if pos_fold or neg_fold:
+                    _n_fold_gated += 1
+                    logger.warning(
+                        "epoch {}: brightness fold (pos_fold={}, neg_fold={}, "
+                        "pk {:.0f}/{:.0f}, sum {:.0f}/{:.0f}) - epoch skipped",
+                        epoch,
+                        pos_fold,
+                        neg_fold,
+                        pos_pk,
+                        neg_pk,
+                        pos_sum,
+                        neg_sum,
+                    )
+                    # Record the epoch honestly (unchanged coefficients, real
+                    # mean J) so the fold is visible offline, then skip search.
+                    pos_res = shaping(pos_img)
+                    neg_res = shaping(neg_img)
+                    pos_j, neg_j = pos_res.j, neg_res.j
+                    _log_row(
+                        epoch=epoch,
+                        coeffs=_init_c,
+                        obj_val=float((pos_j + neg_j) / 2),
+                        obj_ratio=(pos_res.ratio + neg_res.ratio) / 2,
+                        J=float((pos_j + neg_j) / 2),
+                        diff=0.0,
+                        gate="fold",
+                        grad=np.zeros(nk, dtype=np.float64),
+                        img=pos_img,
+                        phase=pos_phase,
+                        lr_val=optimizer.lr,
+                        delta_val=delta,
+                        max_brt=float(max([pos_pk, neg_pk])),
+                    )
+                    bar.update(1)
+                    continue
+
+                # Both frames valid: refresh the fold baseline (EMA over valid
+                # frames only: a fold can never pull the baseline down and
+                # blind the gate) and score each frame around its OWN spot.
+                _fold_baseline_peak, _fold_baseline_sum = _update_fold_baseline(
+                    _fold_baseline_peak,
+                    _fold_baseline_sum,
+                    0.5 * (pos_pk + neg_pk),
+                    0.5 * (pos_sum + neg_sum),
+                )
+                pos_center = zero_order_center(pos_img)
+                shaping.set_reference_center(pos_center)
+                pos_res = shaping(pos_img)
+                pos_obj, pos_obj_ratio = pos_res.j, pos_res.ratio
+
+                neg_center = zero_order_center(neg_img)
+                shaping.set_reference_center(neg_center)
+                neg_res = shaping(neg_img)
+                neg_obj, neg_obj_ratio = neg_res.j, neg_res.ratio
+
+                # Auto-exposure adjustment if saturated (still on the raw pair).
                 max_brightness = max([np.max(pos_img), np.max(neg_img)])
                 if max_brightness == 255 and exposure_time_ms == 0:
                     _resample_img = resample_on_saturation(
@@ -1704,6 +1453,10 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     optimizer.scale_momentum(np.sum(_resample_img) / np.sum(pos_img))
 
                 pos_j, neg_j = pos_obj, neg_obj
+                # The recorded panel/metrics describe the POSITIVE frame; keep
+                # the objective's ROI on the positive spot for the row.
+                shaping.set_reference_center(pos_center)
+
                 # `diff` is kept for logging; the SPGD sign comes from the
                 # shared helper (optimizer/spgd.py) so it cannot be
                 # hand-inverted again (this site maximised/minimised the wrong
@@ -1711,39 +1464,48 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 # are unsigned.
                 _spgd_sign = -1.0 if objective_mode == "max" else 1.0
                 diff = (float(pos_j) - float(neg_j)) * _spgd_sign
+
+                # Noise-aware update gate: with delta < 0.001 the measured diff
+                # is 100% noise (SNR < 0.1; see the ``delta`` config note), so a
+                # diff indistinguishable from the recent diff noise MUST NOT
+                # move the coefficients - it is zeroed and the search stalls
+                # honestly instead of random-walking (h6a: 0/55 modes SNR > 2,
+                # gradient == noise, step/|grad| ratio 435x).
+                sigma_hat = _rolling_sigma(_diff_history)
+                _grad_usable = not _noise_gate(diff, sigma_hat, config.noise_gate_k)
+                _diff_history.append(diff)
+                if not _grad_usable:
+                    _n_noise_gated += 1
+
                 gradient = spgd_gradient(
                     pos_j, neg_j, disturb_c, maximize=(objective_mode == "max")
                 )
-                update = optimizer.update(gradient)
+                if _grad_usable:
+                    update = optimizer.update(gradient)
+                else:
+                    # Keep the optimizer's momentum/history state consistent: a
+                    # zeroed update decays momentum toward 0 (forgetting the
+                    # noise-driven velocity) without moving the coefficients.
+                    update = optimizer.update(np.zeros_like(gradient))
                 _to_update_c = np.clip(_init_c - update, -5.0, 5.0)
                 _init_c = _to_update_c
 
                 # Value logged under the objective's own name and used by the
                 # Recorder to pick its best row: the bucket ratio for "pib",
                 # otherwise the objective the gradient optimises (e.g. radius).
-                objective_val = (
-                    float(ideal_pib_ratio(pos_img))
-                    if objective == "pib"
-                    else float(pos_j)
-                )
+                objective_val = shaping.tracking_value(pos_img, pos_res)
                 objective_ratio = (pos_obj_ratio + neg_obj_ratio) / 2
                 J = (pos_j + neg_j) / 2
 
                 if objective == "rms_pib" and pos_obj > -100.0 and neg_obj > -100.0:
-                    # Adapt the PIB/RMS/EE weights from the positive-perturbation
-                    # terms (abandoned evaluations are penalised to <= -100 and
-                    # skipped). The term that improves J more gets the higher
-                    # weight.
-                    _update_dynamic_weights(
-                        _rms_pib_state,
-                        pib=float(_pos_terms[1]),
-                        rms=float(_pos_terms[2]),
-                        ee=float(_pos_terms[3]),
-                        j=float(_pos_terms[0]),
-                        w_ema_decay=w_ema_decay,
-                        w_floor=w_floor,
-                        w_temperature=w_temperature,
-                    )
+                    # Adapt the PIB/RMS/EE weights from the POSITIVE-perturbation
+                    # result (abandoned evaluations are penalised to <= -100 and
+                    # skipped). ``pos_res`` is an immutable snapshot, so the
+                    # negative evaluation above cannot overwrite the terms - the
+                    # adaptation therefore uses the direction the gradient
+                    # actually follows. The term that improves J more gets the
+                    # higher weight.
+                    shaping.adapt_weights(pos_res)
 
                 # Bucket radius shrink
                 if epoch % update_iter == update_iter - 1:
@@ -1758,10 +1520,12 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     and not _fix_bucket
                     and objective_val > 0
                 ):
-                    power_radio = radius(pos_img, center=center, energy=0.8)
+                    power_radio = radius(pos_img, center=pos_center, energy=0.8)
                     _pr = power_radio * shrink_ratio
                     _r = max(r_bucket * shrink_ratio + 1, IDEAL_SPOT_RADIUS, r_bucket)
                     r_bucket = min(_r, _pr, _init_r)
+                    # The objective reads the live bucket radius; keep it in sync.
+                    shaping.set_bucket(r_bucket)
                     if lr == 0:
                         _grad_mag = float(np.linalg.norm(gradient))
                         _gradient_history.append(_grad_mag)
@@ -1802,6 +1566,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     obj_ratio=objective_ratio,
                     J=J,
                     diff=diff,
+                    gate="applied" if _grad_usable else "noise",
                     grad=gradient,
                     img=pos_img,
                     phase=pos_phase,
@@ -1818,7 +1583,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         pos_img,
                         pos_phase,
                         _pos_c,
-                        center,
+                        pos_center,
                         r_bucket,
                         text,
                         value=objective_val,
@@ -1834,6 +1599,16 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
                 bar.update(1)
 
+        logger.info(
+            "SPGD finished: {}/{} epochs updates applied, {} brightness-fold "
+            "epochs skipped, {} noise-gated updates (noise_gate_k={})",
+            epochs - _n_fold_gated - _n_noise_gated,
+            epochs,
+            _n_fold_gated,
+            _n_noise_gated,
+            config.noise_gate_k,
+        )
+
         # On exit, leave the SLM at the best phase found. The initial (flat or
         # loaded) phase is one of the candidates: if the search never improved
         # on it, restore that instead of a worse "best". Shared with the
@@ -1841,117 +1616,3 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         _apply_best_on_exit()
 
         return recorder
-
-
-if __name__ == "__main__":
-    import argparse
-
-    def _build_demo_config(args, cam_id: int | str) -> SlmZernikePibConfig:
-        from ao_shaping.runners.runner_common import CameraParamsPib, SlmParamsPib
-
-        return SlmZernikePibConfig(
-            center=args.center,
-            epochs=args.epochs,
-            algorithm=args.algorithm,
-            pop_size=args.pop_size,
-            optimizer_type=args.optimizer,
-            delta=args.delta,
-            lr=args.lr,
-            random_seed=args.seed,
-            show=args.show,
-            camera=CameraParamsPib(
-                name=args.objective,
-                cam_id=cast(int, cam_id),
-                cam_type=args.cam_type,
-                cam_size=args.cam_size,
-                exposure_time_ms=args.exposure_time_ms,
-                r_bucket=args.r_bucket,
-            ),
-            slm=SlmParamsPib(
-                n_max=args.n_max,
-                slm_number=args.slm_number,
-                slm_wavelength=args.slm_wavelength,
-            ),
-        )
-
-    parser = argparse.ArgumentParser(
-        description="SPGD PIB optimization using SLM with Zernike coefficients"
-    )
-    parser.add_argument(
-        "-e", "--epochs", type=int, default=2000, help="Number of iterations"
-    )
-    parser.add_argument(
-        "-n", "--n_max", type=int, default=4, help="Max Zernike radial order"
-    )
-    parser.add_argument(
-        "-c", "--center", type=str, default="shape", help="Center detection method"
-    )
-    parser.add_argument(
-        "-r", "--r_bucket", type=float, default=0, help="Bucket radius (0=auto)"
-    )
-    parser.add_argument(
-        "-d", "--delta", type=float, default=0.1, help="Perturbation amplitude"
-    )
-    parser.add_argument("--lr", type=float, default=0, help="Learning rate (0=auto)")
-    parser.add_argument(
-        "-t", "--exposure_time_ms", type=float, default=80.0, help="Exposure time (ms)"
-    )
-    parser.add_argument(
-        "--cam_id",
-        type=str,
-        default="0",
-        help="Camera device ID (int) or path/URL for file-based backends",
-    )
-    parser.add_argument(
-        "--cam_type",
-        type=str,
-        default="daheng",
-        choices=list_camera_types(),
-        help="Camera backend (registry type)",
-    )
-    parser.add_argument("--slm_number", type=int, default=1, help="SLM device number")
-    parser.add_argument(
-        "--slm_wavelength", type=int, default=1064, help="SLM wavelength (nm)"
-    )
-    parser.add_argument(
-        "--optimizer", type=str, default="adamod", help="Optimizer type"
-    )
-    parser.add_argument(
-        "--algorithm",
-        type=str,
-        default="spgd",
-        choices=list(ALGORITHM_CHOICES),
-        help="Search algorithm: spgd (gradient) or a black-box heuristic",
-    )
-    parser.add_argument(
-        "--pop_size",
-        type=int,
-        default=None,
-        help="Population size for ga/pso/cem/de (default: heuristic default)",
-    )
-    parser.add_argument(
-        "--objective", type=str, default="pib", help="Optimization target"
-    )
-    parser.add_argument("--seed", type=int, default=None, help="Random seed")
-    parser.add_argument(
-        "--show", action="store_true", help="Show images during optimization"
-    )
-    parser.add_argument("--cam_size", type=int, default=250, help="Camera window size")
-
-    args = parser.parse_args()
-
-    cam_id = (
-        int(args.cam_id) if args.cam_id.strip().lstrip("+-").isdigit() else args.cam_id
-    )
-
-    recorder = optimize_slm_zernike_pib(_build_demo_config(args, cam_id))
-
-    best_iter, (_, best_val) = recorder.get_best_iter()
-    logger.info(
-        f"Optimization complete. Best {args.objective}: {best_val:.4f} @ epoch {best_iter.get('_epoch', 'N/A')}"
-    )
-    save_file = (
-        gen_date_dir("data") / f"slm_zernike_{args.objective}_{gen_date_str()}.csv"
-    )
-    recorder.save_dataframe(save_file)
-    logger.info(f"Results saved to: {save_file}")

@@ -764,6 +764,23 @@ python scripts/generate_zernike_linearity_report.py -o docs/slm/zernike_linearit
 Sources default to the latest `data/zernike_correction/raw_scan_*.json` and
 `data/zernike_correction/report_*.json`; override with `--raw-scan`, `--report`.
 
+### generate_zernike_farfield_sim_report.py
+
+Generates the illustrated **Zernike far-field spot-morphology** report — a 2f-Fourier numerical simulation of Noll 4–15 (n≤4, 12 modes) at amplitudes 0–2 λ (8 steps), **fully offline** (pure numpy, no hardware). The optical model is identical to `SimPibSystem.far_field()` in `src/ao_shaping/drivers/sim/slm_pib_sim.py`: far field = `I = |FFT(pupil · e^{iφ})|²`, pupil 512×512 (R=256 px), far field 8192×8192 zero-padded, A=0 shared Airy baseline, 0-order located by argmax.
+
+**Usage:**
+```powershell
+$env:PYTHONPATH = "src"
+python scripts/generate_zernike_farfield_sim_report.py
+```
+
+**What it does** (writes `report.md` + `figures/` + `metrics.csv` to `docs/zernike_farfield_sim/`):
+- §4 Far-field morphology: 12×8 log-intensity grid (160×160 px crop around the 0-order, Gaussian σ=1.5 px) + per-mode morphology description (defocus→ring, astigmatism→ellipse, coma→tail + peak offset, spherical aberration→three rings, trefoil→three lobes, tetrafoil→four lobes); phase grid verifies the raw-radian linear scaling of `φ = A·2π·Z_j`
+- §4.1 Numerical-artifact diagnostic: m=4 azimuthal-harmonic comparison between the old grid (128/64) and new grid (512/256) at r=25/50/75/100 px — quantifies the 4× pupil oversampling suppressing the 4-fold staircasing square stripes (the theoretical 1/64≈18 dB applies to the staircasing aliasing energy; the measured m=4 depends on the radius, with the low-intensity ring-region / far-field grid sampling floor dominating at some radii)
+- §5 Metrics: Strehl (peak/peak_Airy) vs amplitude + 0.8 criterion amplitude table, EE50/EE90, FWHM, peak offset (non-zero only for the coma family Noll 7/8)
+- `metrics.csv` 96 rows: mode_noll, n, m, name, amp_waves, strehl, fwhm_px, ee50_r_px, ee90_r_px, peak_dx, peak_dy, peak_r_px
+- Run time ≈17 min (84 far-field FFTs)
+
 ### generate_heuristic_pib_report.py
 
 Benchmarks all 7 heuristic optimizers in `ao_shaping.algorithm` (GA, PSO, SA,
@@ -1203,6 +1220,42 @@ python scripts/generate_slm_pib_sim_report.py --max-runs 3
 | `--debug-dir` | (None) | A single artifact dir (overrides the glob) |
 | `--max-runs` | `1` | How many runs (newest first) to render |
 | `--out` | `docs/slm_pib_sim` | Output dir for figures/gifs/report.md |
+
+### generate_slm_zernike_shaping_report.py
+
+Generates the illustrated report for the **`slm_zernike_shaping`** optimizer
+(the shaping module) from its `debug=True` artifact bundle. **Fully offline** —
+reads the saved PKL/JSON only, no hardware, no pipeline code.
+
+**Usage:**
+```bash
+python scripts/generate_slm_zernike_shaping_report.py
+python scripts/generate_slm_zernike_shaping_report.py --debug-dir data/debug/slm_zernike_shaping_rmse_out_<ts>
+python scripts/generate_slm_zernike_shaping_report.py --debug-root data/debug --max-runs 2
+```
+
+**Artifacts read** (`<debug_dir>/debug/slm_zernike_shaping_<objective>_<ts>/<ts>/`):
+- `*.pkl` — `{epoch: record}`; rows carry `J / _p% / lr / delta / r / exp_t /
+  max_brt / _img` (CCD far-field) / `_c` (Zernike coeffs) / `_grad`, the
+  cross-objective `m_*` panel, and the objective's own column (e.g. `rmse_out`).
+- `*.json` — run payload (`objective / target_shape / target_size / epochs /
+  algorithm / optimizer_type / delta / w_outside / r_bucket / cam_type / cam_size`).
+- `*.png` — the run-time summary figure.
+
+**What it does** (writes `docs/slm_zernike_shaping/report.md` + `figures/`):
+- **Header + run config** from the JSON sidecar; `**Fully offline**` marker
+- **Per-run section**: objective-vs-epoch curve (min/max aware), best objective
+  + epoch, Zernike-coefficient evolution, first-vs-last CCD frames
+  (`run<N>_frames.png`), and an optional spot GIF (`run<N>_spot.gif`)
+- Robust: scans `data/debug/slm_zernike_shaping_*/*` newest-first; missing
+  keys/figures degrade to a warning, never a traceback
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--debug-root` | `data/debug` | Root dir containing `slm_zernike_shaping_*` artifact dirs |
+| `--debug-dir` | (None) | A single artifact dir (overrides the glob) |
+| `--max-runs` | `1` | How many runs (newest first) to render |
+| `--out` | `docs/slm_zernike_shaping` | Output dir for figures/report.md |
 
 ### generate_fouriergsnet_pipeline_report.py
 
