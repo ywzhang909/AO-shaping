@@ -1477,6 +1477,56 @@ python scripts/generate_fouriergsnet_pipeline_report.py -o docs/fouriergsnet_pip
   deliberately uses `PANEL_H, PANEL_W = 1920, 1200`)
 - Results: 5 passed (≈29 s); regression 21 passed
 
+### generate_gsnet_offline_report.py
+
+Generates the illustrated **FourierGSNet offline training** report from a
+`slm-gsnet train` run directory. **Fully offline** — reads the saved
+`summary.json` / `comparison.png` / `train_history.png` only; no torch, no
+hardware, no network.
+
+**Usage:**
+```bash
+python scripts/generate_gsnet_offline_report.py
+python scripts/generate_gsnet_offline_report.py --run-dir data/gsnet_train/run-20260929_225847
+python scripts/generate_gsnet_offline_report.py -o docs/fouriergsnet_pipeline/offline_training
+```
+
+**What it does** (writes `docs/fouriergsnet_pipeline/offline_training/report.md` + `figures/`):
+- **Header**: run dir, generation timestamp, `**Fully offline**` marker
+- **训练配置**: table from `summary.json` `config` + `resolved` (epochs / lr /
+  batch / grid / device / n_records / w_phase / w_shaping / layers / channels /
+  parameter count)
+- **收敛概览**: first vs last total loss, `best_epoch`, wall time rendered as
+  hours + s/epoch
+- **评估指标**: `evaluation.means` table (phase_mae / far_correlation / far_rmse /
+  uniformity_cv / encircled_energy) with a value-derived interpretation — the
+  prose branches on the actual numbers, so a high `far_correlation` is never
+  allowed to mask a poor `uniformity_cv`
+- **预测光斑 vs 真值对比** (核心交付): the run's own `comparison.png` is copied
+  to `figures/comparison_pred_vs_gt.png` and embedded, giving the predicted spot
+  next to the ground truth for the `n_compare` sampled records
+- **损失曲线**: `figures/loss_curves.png` redrawn from `training.history` as two
+  stacked panels sharing the x-axis (total+phase on top, shaping below) —
+  necessary because phase (~2.6) and shaping (~0.017) losses differ by two orders
+  of magnitude, so a single linear axis flattens the shaping curve; `best_epoch`
+  is marked
+- **产物清单** + **复现命令**: the reproduction block emits the real Click entry
+  point (`python src/ao_shaping/main.py slm-gsnet train ...`); note that
+  `ao_shaping/runners/gsnet_train.py` is a *library* module (no `__main__`, no
+  Click command), so `python -m ao_shaping.runners.gsnet_train` is **not** a
+  valid invocation
+- Writes into the `offline_training/` **subdirectory** so it never overwrites the
+  sibling `docs/fouriergsnet_pipeline/report.md` owned by
+  `generate_fouriergsnet_pipeline_report.py`
+- Robust: every `summary.json` key is read through a defensive `.get()` chain, so
+  an older/partial summary still renders; a missing `comparison.png` degrades to
+  a note instead of raising
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--run-dir` | newest `data/gsnet_train/run-*` (mtime) | Training run dir to render |
+| `-o, --output` | `docs/fouriergsnet_pipeline/offline_training` | Report output dir |
+
 ### generate_models_report.py
 
 Generates the ML model training analysis report from TensorBoard event files.
