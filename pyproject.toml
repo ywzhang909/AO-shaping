@@ -52,6 +52,9 @@ dependencies = [
     "pygame>=2.6.1",
     "cupy-cuda13x>=14.2.0",
     "pyarrow>=25.0.1",
+    "jsonpickle>=4.1.2",
+    "scikit-image>=0.26.0",
+    "astropy>=8.0.1",
 ]
 
 [project.scripts]
@@ -114,4 +117,7 @@ torch = [
 torchvision = [
   { index = "pytorch-cu132", marker = "sys_platform == 'win32'" },
 ]
+# OOPAO: optional git source for the AO_OOPAO_BACKEND=1 sim path.
+# Non-default: absent installs fall back to the numpy/legacy path.
+oo-pao = { git = "https://github.com/cheritier/OOPAO.git", rev = "8e12a17f" }
 
