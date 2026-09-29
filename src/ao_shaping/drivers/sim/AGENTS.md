@@ -110,8 +110,23 @@ SimulatedDevice (Device)
 | `focal_plane()` | **无** — 始终 `bs.lens_fft_propagation_to_focal()` | 同左 |
 | `apply_lens()` | **无** — 始终 `bs.apply_lens()` | 同左 |
 
-因此焦面/Strehl/FWHM/EE 的两后端差异**只来自相位屏**, 不来自传播或取焦; 下游
-`scripts/slm_pib_sim.py`、`fouriergsnet_env.py` 等不经 `beam_backend` 的调用点不受影响。
+因此焦面/Strehl/FWHM/EE 的两后端差异**只来自相位屏**, 不来自传播或取焦。
+
+**端到端实际路由到 OOPAO 的调用点** (实测确认, 2026-09):
+
+| 调用点 | 是否受 `AO_OOPAO_BACKEND` 影响 |
+|--------|-------------------------------|
+| `drivers/sim/atmos/screens.py` `SimulatedTurbulentScreen._opd()` → `turbulence_phase()` (L192) | **是** |
+| `optimizer/rl/envs.py` `SimTurbulenceAOEnv` → `turbulence_phase()` (L882) | **是** |
+| `optimizer/wfless/strehl_sim_eval.py` (经 `TraditionalAOSystem` 间接) | **是** |
+| `drivers/sim/slm_shaping_bench.py` (PIB bench, `spgd_shape`/`gs_shape`) | **否 — 见下** |
+
+⚠️ **`slm_shaping_bench` 的 `cn2` 是死配置 (实测)**: 该模块 import 了 `turbulence_phase`
+但**从不调用**, 其 `forward_intensity()` 只走 `focal_plane()` —— 而 `focal_plane` 永不路由。
+实测 `forward_intensity` 在 `cn2=0` 与 `cn2=5e-14` 下输出**字节一致** (max|ΔI| = 0)。
+因此**不能**用该 bench 做后端影响测试 (会得到两臂完全相同的假结果); 也不要在该 bench 上
+调 `cn2` 后期待看到湍流效果。需真实湍流路由请用 `SimulatedTurbulentScreen` 或
+`SimTurbulenceAOEnv`。
 
 **已知约束**:
 
@@ -120,10 +135,14 @@ SimulatedDevice (Device)
    否则命中旧后端实例得到与配置不符的相位屏。
 2. **静默回退**: `_oopao_enabled()` 在 OOPAO 不可导入或不可用时返回 `False` 并**静默退回
    numpy**。开启后务必确认 `oopao_backend._oopao_available()` 为 `True`, 否则会误以为在跑 OOPAO。
-3. **两后端不等价 (勿假设同 Cn2 可互换)**: 报告配置下 OOPAO/legacy `phase_std_rad` 比值
-   为 `8.72×–8.81×` (中位数 `8.77×`)。这是两条相位屏实现 (含 r0 重标定与内层尺度) 的差异,
-   **不是**普适常数 —— 换配置该比值会变 (另一组配置实测 `9.72×`)。跨后端比较绝对 Strehl /
-   FWHM 无意义, 报告须显式声明该限制。
+3. **两后端不等价 (勿假设同 Cn2 可互换)**: 端到端实测 `disturbance_rms` 的
+   oopao/numpy 比值在**所有**湍流档位上**恒定** (open 模式 5.428× / closed 模式 13.354×,
+   跨 1e-16→5e-14 两个数量级相对离散度 ≤1.2e-09), 指向两个相位屏实现之间的**乘性标定
+   偏置**而非统计涨落。绝对 Strehl / FWHM / PIB **不可跨臂直接比较**。要判定哪一臂更接近
+   物理真值, 须先把两臂相位屏**标定到同一 r0 / 同一 phase_std** 再重跑。
+   ⚠️ 比较时注意 `init_rms` (`compat.py::_phase_rms()` = **截瞳后总波前** RMS, 含像差与 DM)
+   与 `disturbance_rms` (`env._disturbance_rms` = **全网格未截瞳**原始相位屏 RMS) 是**两个不同的量**,
+   不可互相推断 —— 前者可因像差项跨臂反向。详见 `docs/oopao_impact/report.md` §4.3。
 4. **安装**: OOPAO 以 editable 方式从 git submodule `libs/OOPAO` 安装 (`uv pip install
    --no-deps -e libs/OOPAO`)。`libs/OOPAO` 为 submodule (canonical
    `https://github.com/cheritier/OOPAO.git`); 换了 OOPAO 版本后重装即可。
