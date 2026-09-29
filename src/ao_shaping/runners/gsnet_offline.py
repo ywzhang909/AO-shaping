@@ -264,8 +264,14 @@ def build_record_index(
     Returns:
         A :class:`RecordIndex` of ``(pkl_path, record_key)`` tuples.
 
-    Raises:
-        TypeError: If a pickle root is not a ``dict`` of records.
+    Pickles that are unreadable or do not hold a record dict are **skipped with
+    a warning** instead of aborting the scan. The default roots glob whole
+    directory trees (``data/debug/slm_pib_*``), and those trees collect debris
+    that is not a training record: an aborted hardware run leaves a stub
+    ``recorder_*.pkl`` holding ``None``, and a truncated dump raises
+    ``EOFError``/``UnpicklingError``. One such file must not cost the entire
+    corpus -- a hard failure here meant any stray artifact added to ``data/``
+    silently disabled all GSNet training.
     """
     cache_path = Path(index_cache) if index_cache is not None else None
     if cache_path is not None:
@@ -286,12 +292,23 @@ def build_record_index(
         logger.warning("No debug pickles found under roots {}", root_list)
 
     entries: list[tuple[Path, int]] = []
+    skipped: list[Path] = []
     for path in files:
-        for key in _load_record_keys(path):
-            entries.append((path, key))
+        try:
+            keys = _load_record_keys(path)
+        except (TypeError, OSError, EOFError, pickle.UnpicklingError) as exc:
+            logger.warning("Skipping non-record debug pickle {}: {}", path, exc)
+            skipped.append(path)
+            continue
+        entries.extend((path, key) for key in keys)
 
     index = RecordIndex(entries=tuple(entries))
-    logger.info("Indexed {} records from {} pickles", len(index.entries), len(files))
+    logger.info(
+        "Indexed {} records from {} pickles ({} skipped)",
+        len(index.entries),
+        len(files) - len(skipped),
+        len(skipped),
+    )
     if cache_path is not None:
         _write_index_cache(cache_path, index)
     return index

@@ -184,6 +184,58 @@ class TestBuildRecordIndexSynthetic:
         assert first.entries == second.entries
         assert [p.name for p, _ in first.entries] == sorted(p.name for p, _ in first.entries)
 
+    def test_none_payload_is_skipped_not_raised(self, tmp_path: Path) -> None:
+        """An aborted run's stub ``recorder_*.pkl`` (holds ``None``) is skipped.
+
+        Regression: the real ``data/debug/slm_pib_online/20260929_085851``
+        directory holds a 4-byte pickle that unpickles to ``None``. It made
+        ``build_record_index`` raise ``TypeError`` and killed the whole 3202-record
+        training run, because ``DEFAULT_ROOTS`` globs the entire directory tree.
+        """
+        _write_records(tmp_path / "good" / "records.pkl", 2)
+        stub = tmp_path / "aborted" / "recorder_snr.pkl"
+        stub.parent.mkdir(parents=True, exist_ok=True)
+        with open(stub, "wb") as handle:
+            pickle.dump(None, handle)
+
+        index = build_record_index(roots=str(tmp_path))
+
+        assert len(index.entries) == 2
+        assert all(p.name == "records.pkl" for p, _ in index.entries)
+
+    def test_corrupt_pickle_is_skipped_not_raised(self, tmp_path: Path) -> None:
+        """A truncated dump raises ``EOFError`` and must not abort the scan."""
+        _write_records(tmp_path / "good" / "records.pkl", 1)
+        truncated = tmp_path / "torn" / "half.pkl"
+        truncated.parent.mkdir(parents=True, exist_ok=True)
+        truncated.write_bytes(b"\x80\x04\x95")
+
+        index = build_record_index(roots=str(tmp_path))
+
+        assert len(index.entries) == 1
+        assert all(p.name == "records.pkl" for p, _ in index.entries)
+
+    def test_all_files_skipped_yields_empty_index(self, tmp_path: Path) -> None:
+        """Debris-only root degrades to an empty index, not an exception."""
+        stub = tmp_path / "aborted" / "recorder.pkl"
+        stub.parent.mkdir(parents=True, exist_ok=True)
+        with open(stub, "wb") as handle:
+            pickle.dump(None, handle)
+
+        index = build_record_index(roots=str(tmp_path))
+
+        assert index.entries == ()
+
+    def test_real_data_index_survives_stub_pickles(self) -> None:
+        """The live ``data/debug`` tree contains stub pickles; indexing must work.
+
+        Guards the actual failure: any future ``data/debug`` debris (an aborted
+        hardware run writes ``recorder_*.pkl``) must not disable training.
+        """
+        index = build_record_index(roots=[REAL_ZERNIKE_GLOB, REAL_PIB_GLOB])
+
+        assert len(index.entries) > 0
+
     def test_entries_hold_paths_and_ints_only(self, tmp_path: Path) -> None:
         _write_records(tmp_path / "fam" / "sub" / "f.pkl", 2)
         index = build_record_index(roots=str(tmp_path))
