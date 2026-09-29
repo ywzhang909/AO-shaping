@@ -1075,6 +1075,14 @@ python scripts/generate_fouriergsnet_sim_report.py --matrix-dir data/fouriergsne
   auto-generated interpretation (初值→最终均匀度, 湍流跟踪退化判断, EE 趋势)
 - **Turbulence impact**: off vs slow vs fast final uniformity per
   (shape, aberration) — table + `figures/turbulence_impact.png` grouped bars
+- **算法完整流程 (§5)**: the pipeline walkthrough (环境构造 → 标定/LUT → 网络前向
+  → GS 初始化 → 闭环迭代 → 指标定义 → 动画来源) is rendered from the
+  module-level `_PIPELINE_SECTION` `string.Template` with the **current** matrix
+  config substituted in (command block, matrix dir, `--native`/`--no-native`
+  clause, `k_px`, `steps`, GS 初始化迭代数, 噪声模型 Δk / 中心偏移 / 旋转).
+  Uses `Template` (not `.format()`) because the prose contains literal `{}`;
+  a missing/empty `config.json` degrades to `未记录` placeholders instead of
+  raising.
 - Robust: per-scenario try/except; missing frames degrade to static-only with a
   warning; scenario dirs are scanned directly so the report can be regenerated
   mid-run or after the matrix completes (summary.json optional)
