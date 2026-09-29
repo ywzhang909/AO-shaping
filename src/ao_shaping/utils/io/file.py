@@ -553,6 +553,7 @@ _DATA_MODE_OBJECTIVE_KEYS = (
     "rms_pib",
     "rmse",
     "rmse_out",
+    "pearson",
 )
 
 

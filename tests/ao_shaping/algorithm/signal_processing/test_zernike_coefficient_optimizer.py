@@ -14,7 +14,6 @@ from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import
     PEAK_EPS,
     ZernikeCoefficientOptimizer,
     ZernikeCoefficientResult,
-    default_native_amplitude,
 )
 from ao_shaping.utils.wavefront.zernike_calc import (
     ZernikeGenerator,
@@ -33,10 +32,20 @@ FIT_REGION = 32
 FIT_ORDERS = 6
 FIT_LR = 0.05
 
+#: Configuration for the 10-order recovery test.  ``region=64`` gives the
+#: 66-coefficient basis enough pixels per mode to be well conditioned (the
+#: un-normalised Jacobian has cond ~5.6 and sigma_min ~12.5), and ``lr=0.1``
+#: lands in the global optimum.  Lower rates are *not* safe here: 0.05 and 0.08
+#: both stall in a flat local basin at loss ~6.9e-6 with |dc| ~0.49, while
+#: 0.02/0.03/0.1 reach loss ~9e-13 with |dc| < 1e-4.
+RECOVERY_REGION = 64
+RECOVERY_ORDERS = 10
+RECOVERY_LR = 0.1
+
 
 def gaussian_amplitude(region: int) -> np.ndarray:
     """The native twin Gaussian beam for ``region``."""
-    return default_native_amplitude(region)
+    return ZernikeCoefficientOptimizer.native_amplitude(region)
 
 
 def uniform_phase(region: int, seed: int) -> np.ndarray:
@@ -142,9 +151,11 @@ class TestForwardModel:
 
         model = optimizer.forward_intensity(coefficients, phase, amplitude)
 
-        # Independent numpy evaluation of the same convention.
+        # Independent numpy evaluation of the same convention. The summed
+        # patch is masked, matching the twin's ``nan_to_num(..., nan=0.0)``.
         aberration = np.tensordot(coefficients, optimizer.generate_basis(), axes=(0, 0))
-        field = amplitude * np.exp(1j * (phase + aberration))
+        aperture = np.isfinite(generator_mode(region, 3, 1))
+        field = amplitude * np.exp(1j * ((phase + aberration) * aperture))
         expected = np.abs(np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field), norm="ortho"))) ** 2
         np.testing.assert_allclose(model, expected, rtol=1e-5, atol=1e-8)
 
@@ -192,9 +203,14 @@ class TestRecovery:
 
     def test_recovers_synthetic_aberration(self) -> None:
         values = {NOLL_DEFO: 0.6, NOLL_ASTIG: -0.4, NOLL_SPHERICAL: 0.8}
-        i_meas, phase, c_true = synthetic_case(values, seed=1)
+        i_meas, phase, c_true = synthetic_case(
+            values, seed=1, region=RECOVERY_REGION, n_orders=RECOVERY_ORDERS
+        )
         optimizer = ZernikeCoefficientOptimizer(
-            n_orders=FIT_ORDERS, region=FIT_REGION, lr=FIT_LR, max_iterations=500
+            n_orders=RECOVERY_ORDERS,
+            region=RECOVERY_REGION,
+            lr=RECOVERY_LR,
+            max_iterations=500,
         )
         result = optimizer.run(i_meas, phase)
 
@@ -209,6 +225,38 @@ class TestRecovery:
         )
         assert error < 0.05, f"coefficient error {error} >= 0.05"
         assert final_mse < 1e-3, f"final MSE {final_mse} >= 1e-3"
+
+    def test_ten_order_recovery_is_not_lr_trapped(self) -> None:
+        """The 10-order fit must reach the global optimum, not a flat basin.
+
+        Regression guard for a real failure mode: with ``region=64`` and
+        ``n_orders=10`` the peak-normalized objective has a shallow local basin.
+        ``lr=0.05`` and ``lr=0.08`` both stall there at loss ~6.9e-6 with a
+        coefficient error ~0.49 -- an image that *looks* converged while the
+        coefficients are wrong.  The Jacobian is well conditioned there
+        (cond ~5.6), so the basin is an optimization artifact, not an
+        identifiability limit.  This test pins the good basin.
+        """
+        values = {NOLL_DEFO: 0.6, NOLL_ASTIG: -0.4, NOLL_SPHERICAL: 0.8}
+        i_meas, phase, c_true = synthetic_case(
+            values, seed=1, region=RECOVERY_REGION, n_orders=RECOVERY_ORDERS
+        )
+        optimizer = ZernikeCoefficientOptimizer(
+            n_orders=RECOVERY_ORDERS,
+            region=RECOVERY_REGION,
+            lr=RECOVERY_LR,
+            max_iterations=500,
+        )
+        result = optimizer.run(i_meas, phase)
+
+        error = float(np.linalg.norm(result.coefficients - c_true))
+        # The flat basin sits at loss ~6.9e-6; the global optimum is ~1e-12.
+        # Require a margin well clear of the trap rather than the 1e-3 bound
+        # used by the recovery test.
+        assert result.history["loss"][-1] < 1e-9, (
+            f"stuck in the flat local basin at loss {result.history['loss'][-1]:.3e}"
+        )
+        assert error < 0.01, f"coefficient error {error} >= 0.01"
 
     def test_loss_decreases(self) -> None:
         values = {NOLL_DEFO: 0.6, NOLL_ASTIG: -0.4, NOLL_SPHERICAL: 0.8}
@@ -419,3 +467,105 @@ class TestValidation:
         optimizer = ZernikeCoefficientOptimizer(n_orders=2, region=16)
         assert optimizer.device == "cpu"
         assert str(optimizer.coefficient_tensor.device) == "cpu"
+
+
+class TestDigitalTwinEquivalence:
+    """The forward model must reproduce ``SimFourierGSNetEnv``'s far field.
+
+    These are regression tests for two details that silently break the
+    model-in-the-loop contract: the phase patch must be masked outside the
+    Zernike aperture (the twin masks the *sum* of SLM phase and aberration),
+    and the working precision must be able to reach the twin's float64 FFT.
+    """
+
+    REGION = 64
+    ORDERS = 10
+    NOLLS = {4: 0.6, 5: -0.4, 11: 0.8}
+
+    @staticmethod
+    def _twin_far_field(phase: np.ndarray) -> np.ndarray:
+        """The twin's pre-envelope, pre-zoom far field.
+
+        The twin's full ``render_intensity`` additionally applies an optical
+        sinc envelope and a zoom to the CCD grid, so the comparable quantity is
+        the FFT core it builds from the beam, SLM phase and aberrations.
+        """
+        from ao_shaping.drivers.sim.fouriergsnet_env import (
+            BeamParams,
+            SimFourierGSNetEnv,
+        )
+
+        region = TestDigitalTwinEquivalence.REGION
+        env = SimFourierGSNetEnv(
+            beam=BeamParams(region=region, w0=250.0 * (region / 512), native=True),
+            K_px=region,
+            noise_enabled=False,
+        )
+        env.aberrations = dict(TestDigitalTwinEquivalence.NOLLS)
+        env.slm.display_phase(phase)
+        patch = np.nan_to_num(
+            env._extract_region(env.slm._phase) + env._aberration_phase(), nan=0.0
+        )
+        field = env._beam_amp * np.exp(1j * patch)
+        return np.abs(
+            np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field), norm="ortho"))
+        ) ** 2
+
+    def test_phase_outside_aperture_does_not_affect_far_field(self) -> None:
+        """SLM phase outside the circular aperture must be discarded.
+
+        The twin masks the summed patch, so perturbing the phase strictly
+        outside the aperture cannot change its far field. A model that applied
+        ``exp(1j * phi_slm)`` everywhere would change here.
+        """
+        region = self.REGION
+        optimizer = ZernikeCoefficientOptimizer(
+            n_orders=self.ORDERS, region=region, dtype="float64"
+        )
+        coefficients = coefficients_from_noll(
+            optimizer.n_coefficients, self.NOLLS
+        )
+        inside = uniform_phase(region, seed=11)
+        outside = uniform_phase(region, seed=12)
+
+        aperture = np.isfinite(generator_mode(region, self.ORDERS, 1))
+        assert not aperture.all(), "aperture must not cover the whole grid"
+        perturbed = np.where(aperture, inside, outside)
+
+        baseline = optimizer.forward_intensity(coefficients, inside)
+        np.testing.assert_allclose(
+            optimizer.forward_intensity(coefficients, perturbed),
+            baseline,
+            rtol=0,
+            atol=0,
+        )
+
+    def test_matches_twin_far_field_in_float64(self) -> None:
+        """float64 reaches the twin's precision; float32 is round-off close."""
+        region = self.REGION
+        phase = uniform_phase(region, seed=13)
+        coefficients = coefficients_from_noll(
+            calc_n_zernike_terms(self.ORDERS), self.NOLLS
+        )
+        twin = self._twin_far_field(phase)
+        peak = float(twin.max())
+
+        exact = ZernikeCoefficientOptimizer(
+            n_orders=self.ORDERS, region=region, dtype="float64"
+        )
+        rel64 = float(
+            np.abs(twin - exact.forward_intensity(coefficients, phase)).max() / peak
+        )
+        assert rel64 < 1e-12, f"float64 relative error {rel64:.3e} exceeds 1e-12"
+
+        fast = ZernikeCoefficientOptimizer(
+            n_orders=self.ORDERS, region=region, dtype="float32"
+        )
+        rel32 = float(
+            np.abs(twin - fast.forward_intensity(coefficients, phase)).max() / peak
+        )
+        assert rel32 < 1e-5, f"float32 relative error {rel32:.3e} exceeds 1e-5"
+
+    def test_rejects_unknown_dtype(self) -> None:
+        with pytest.raises(ValueError, match="dtype"):
+            ZernikeCoefficientOptimizer(n_orders=2, region=16, dtype="float16")

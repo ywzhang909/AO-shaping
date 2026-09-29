@@ -1197,7 +1197,15 @@ generation.
 ```bash
 python scripts/slm_pib_sim_run.py
 python scripts/slm_pib_sim_run.py --epochs 300 --target-shape square
+python scripts/slm_pib_sim_run.py --epochs 60 --objective pearson
 ```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--epochs` | `300` | SPGD epochs (the CPU sim runs ≈1.4 it/s) |
+| `--objective` | `shape` | Shaping objective passed through to the runner |
+| `--target-shape` | `square` | Target shape |
+| `--algorithm` | (runner default = `spgd`) | Search driver override |
 
 **What it does:**
 - registers the `"sim"` camera type so `create_camera("sim", ...)` returns a
@@ -1205,16 +1213,126 @@ python scripts/slm_pib_sim_run.py --epochs 300 --target-shape square
   `click.Choice` was extended to include `"sim"`)
 - monkeypatches `ao_shaping.optimizer.wfless.slm_zernike_pib.Santec` →
   `SimSLMPib` so the optimizer's SLM context manager instantiates the sim
-  (no hardware, no DVI hang)
+  (no hardware, no DVI hang). `SimSLMPib` implements **both** construction
+  entry points: the legacy `Santec(...)` and the dataclass-API
+  `Santec.from_params(config.slm)` that `optimize_slm_zernike_pib` now uses —
+  without the classmethod the sim path dies with
+  `AttributeError: type object 'SimSLMPib' has no attribute 'from_params'`
+  (locked by `tests/ao_shaping/drivers/sim/test_sim_slm_from_params.py`)
 - invokes the genuine `slm_pib_runner.run` Click entry with `--cam_type sim`
   `--debug` (square target, Zernike n≤4, SPGD + AdaMOD)
 - optical model: SLM = 2f front focal plane, CCD = back focal plane, so the CCD
   image is the 2D FFT (Fraunhofer far field) of the SLM pupil field — the
   0-order spot lands at frame centre and Zernike phase measurably modulates it
+- the run logs `ROI energy guard armed: reference energy …, max loss …%`; the
+  `pearson` objective is energy-**blind** after mean-centring, so this guard is
+  what stops the search pushing light out of the target box (the `slm-pib`
+  family guards; the `slm-gsnet` square path does **not** — see
+  `slm-gsnet --objective pearson` help)
 
 **Outputs:** `data/debug/slm_pib_shape_<ts>/` (PNG/PKL/JSON), then
 `docs/slm_pib_sim/report.md` + `figures/` + `gifs/` via
 `generate_slm_pib_sim_report.py`.
+
+> 🔬 **Measured on the real bench (2026-09-29, Daheng MER2-507-23GM NIR + Santec
+> SLM-200, 2592×1944, `exposure_time_ms=1.2`, `zernike_radius=480`, `n_max=9` →
+> 55 DOF).** The bench is healthy: the 0-order spot sits at `(x=673, y=1027)` —
+> **not** the frame centre, so it must be located by `argmax`.
+>
+> **The objective's noise floor is `ΔJ_noise ≈ 1.7e-3`, and it is drift-dominated,
+> not shot-noise.** Averaging 40 frames instead of 10 did *not* reduce it
+> (2.8e-3 vs 1.7e-3) because the residual is slow intensity drift between
+> frames, which averaging cannot cancel.
+>
+> **Consequence: `--delta` must not be too small.** With SPGD perturbing all 55
+> DOF by a random ±pattern, the per-epoch `|ΔJ|` is far smaller than a
+> single-mode probe suggests, so the per-epoch SNR collapses and the
+> `noise_gate_k=3.0` gate rejects nearly every epoch:
+>
+> | `--delta` | updates applied | Pearson improvement (best / sustained) |
+> |---|---|---|
+> | `0.0005` (historical default) | 9/200 | noise only — **no usable gradient** |
+> | `0.002` | 8/200 | +24.8% best / **+0.2% sustained** (drift) |
+> | `0.01` | 10/200 | +28.9% best / +3.0% sustained |
+> | **`0.1`** | **11–13/60** | **+29…37% best / +15…24% sustained** ✅ |
+> | `0.2` | 4/60 | 45/60 epochs rejected by the **brightness-fold** guard |
+>
+> So `delta ≈ 0.1` is the functional optimum for `n_max=9`; `0.2` overshoots into
+> the fold guard, and anything `≤0.01` is drift-dominated. A delta of `5e-4`
+> (the value in the historical smoke runs) is ~100× below the floor and cannot
+> optimise this bench — the "improvements" it appears to make are drift.
+> `measure_shape_sensitivity.py` is the tool that establishes this floor
+> (`--deltas 0.002,0.01,0.05,0.1,0.2`).
+
+### generate_shape_objective_comparison.py
+
+Scores every recorded `slm-pib` frame under **three** shape objectives and
+reports whether they **agree** on the ranking — the evidence for whether the
+FourierGSNet `1 - Pearson` loss may be promoted onto the hardware path.
+**Fully offline** — reads saved recorder pickles only, never opens a device.
+
+**Usage:**
+```bash
+python scripts/generate_shape_objective_comparison.py
+```
+
+**What it does** (writes `docs/slm_pib_online/objective_comparison.md` +
+`figures/`):
+- loads each `data/debug/slm_pib_online/*/recorder_*.pkl`; the SNR sweeps
+  (`history is None`) are skipped, as is any run with no scored frame
+- **anchors the target ROI on recorder row 0** (the pre-optimization frame), so
+  the box does not follow optimizer drift and every epoch of every run is scored
+  against the same fixed target. Row 0 is deliberately excluded from the
+  statistics
+- scores each frame with `square_quality_score`, `compute_quality_score` and
+  `1 - Pearson`, then reports per-run **Spearman** rank correlation. The
+  Pearson loss is *lower-is-better*, so the expected sign of agreement is
+  **negative** — the control pair (the two composites) is reported alongside to
+  prove the frame set and anchor are sound
+- **Verdict** distinguishes two failure modes rather than only counting signs:
+  an inconsistent *sign* (ordering unstable) vs a correct sign with a *weak*
+  effect (`mean |rho| < 0.5`, ordering noise-dominated). They call for different
+  remedies, and conflating them overstates the instability
+- per-run section shows the frames where the objectives disagree most, ordered
+  by descending disagreement with **ties broken worst-Pearson-first** (the most
+  alarming frames must not sink to the bottom of the table)
+- `1 - Pearson` is reported as **bounded `[0, 2]`** for a valid frame (a
+  constant frame gives exactly `1.0`); the `1e3` value is a discrete sentinel
+  for a dark / NaN / non-normalisable frame, not a continuous tail
+
+> ⚠️ **Provenance is inferred unless the sidecar records it.** `slm_pib_runner`
+> now writes `objective` / `cam_type` / `cam_id` / `exposure_time_ms` /
+> `zernike_radius` / search knobs into the JSON sidecar, so new runs are
+> self-attributing. Runs written before that still record only
+> `delta`/`epochs`/`lr`; the report labels those `recorded run config: **absent**`
+> and their backend attribution stays *provisional*.
+
+> 🔑 **Two on-disk pickle shapes are accepted.** `save_recorder_debug_artifacts`
+> writes a plain `{epoch: row}` dict, whereas the SNR-sweep dumps are pickled
+> `Recorder` objects (or `None`). The loader handles both — requiring
+> `.history` alone made it silently report "no recorded frames" for a correctly
+> staged hardware run.
+
+> 🔬 **Hardware verdict (2026-09-29).** Re-running the comparison on real Daheng
+> frames from the `delta=0.1` runs reproduces the offline conclusion:
+> `square_quality_score` vs `1 - Pearson` shows the expected sign in only **2/4**
+> runs (mean |rho| = 0.442), with the control pair `square` vs `metrics` at
+> +0.88…+0.96. `1 - Pearson` therefore remains **RISKY** as a drop-in
+> replacement on real hardware: it optimises (the loss falls ~30%) but its
+> *ranking* of candidate frames is too weak and too run-dependent to trust as a
+> convergence signal. Use it as an explicitly selected additional objective, keep
+> the ROI energy guard armed, and re-check the sign per run.
+
+> 🔑 **No native SDK on import.** The report needs the pure function
+> `square_quality_score`, which lives in the optimizer and therefore drags in the
+> camera package. The MIICAM / Daheng backends are exposed through PEP 562
+> module `__getattr__` and load only on first attribute access, so importing this
+> script does **not** `ctypes.CDLL` the native SDK or import `gxipy`. Locked by
+> `tests/ao_shaping/drivers/ccd/test_lazy_backend_imports.py`.
+
+**Regression tests:** `tests/ao_shaping/runners/test_shape_objective_comparison_report.py`
+(pins the tie-break direction and the `rows`/`epochs`/`gates` alignment).
+
 
 ### generate_iterative_zernike_shaping_report.py
 

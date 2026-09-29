@@ -55,6 +55,7 @@ dependencies = [
     "jsonpickle>=4.1.2",
     "scikit-image>=0.26.0",
     "astropy>=8.0.1",
+    "oopao",
 ]
 
 [project.scripts]
@@ -128,4 +129,5 @@ torchvision = [
 # only, so a built wheel silently drops OOPAO/tools/gpuTransforms.py and
 # OOPAO/tools/separableInterpolation.py, breaking Atmosphere's relative import.
 oo-pao = { path = "libs/OOPAO", editable = true }
+oopao = { path = "libs/OOPAO", editable = true }
 

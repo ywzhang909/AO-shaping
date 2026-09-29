@@ -17,6 +17,7 @@ record — ready for report generation.
 
 Usage:
     python scripts/slm_pib_sim_run.py --epochs 300 --target-shape square
+    python scripts/slm_pib_sim_run.py --epochs 60 --objective pearson
 """
 
 from __future__ import annotations
@@ -45,7 +46,32 @@ def _patch_santec() -> None:
 
 
 def main() -> None:
-    import click
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run the slm-pib SPGD pipeline on the 2f-Fourier sim (no hardware)."
+        )
+    )
+    parser.add_argument(
+        "--epochs", type=int, default=300, help="SPGD epochs (default: 300)"
+    )
+    parser.add_argument(
+        "--objective",
+        default="shape",
+        help="Shaping objective passed through to the runner (default: shape)",
+    )
+    parser.add_argument(
+        "--target-shape",
+        default="square",
+        help="Target shape (default: square)",
+    )
+    parser.add_argument(
+        "--algorithm",
+        default=None,
+        help="Search driver; omit to use the runner's default (spgd)",
+    )
+    args = parser.parse_args()
 
     # Fresh optical system per run (so repeated runs don't share state).
     reset_system(seed=42)
@@ -55,8 +81,7 @@ def main() -> None:
     from ao_shaping.runners.slm_pib_runner import run as slm_pib_run
 
     # Build the argument list for the Click entry. We invoke the ``spgd``
-    # subcommand (the default) with a small epoch count suitable for a CPU sim.
-    epochs = 300
+    # subcommand (the default) with an epoch count suitable for a CPU sim.
     click_args = [
         "spgd",
         "-d", "data",
@@ -69,15 +94,17 @@ def main() -> None:
         "--slm_number", "1",
         "--slm_wavelength", "1064",
         "-n", "4",
-        "--objective", "shape",
-        "--target_shape", "square",
+        "--objective", args.objective,
+        "--target_shape", args.target_shape,
         "--target_size", "120",
-        "-e", str(epochs),
+        "-e", str(args.epochs),
         "--delta", "0.5",
         "--optimizer_type", "adamod",
         "--w_uniformity", "2.0",
         "--w_peak", "0.5",
     ]
+    if args.algorithm:
+        click_args += ["--algorithm", args.algorithm]
     slm_pib_run.main(args=click_args, standalone_mode=True)
 
 
