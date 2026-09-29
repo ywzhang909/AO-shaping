@@ -1092,6 +1092,69 @@ python scripts/generate_fouriergsnet_sim_report.py --matrix-dir data/fouriergsne
 | `--matrix-dir` | latest `data/fouriergsnet_sim/<ts>` | Matrix output dir |
 | `-o, --output` | `docs/fouriergsnet_sim` | Report output dir |
 
+### generate_oopao_vs_numpy_report.py
+
+Generates the **OOPAO backend vs legacy numpy/FFT backend** comparison report —
+a like-for-like aberration × turbulence matrix. **Fully offline** (pure numpy /
+OOPAO simulation, no hardware). Unlike the other entries in this section, it is
+*not* a re-generator of saved artefacts: it **runs** the two backends in-process
+to produce the comparison, driving `beam_backend` directly.
+
+**Usage:**
+```bash
+python scripts/generate_oopao_vs_numpy_report.py
+python scripts/generate_oopao_vs_numpy_report.py --quick
+python scripts/generate_oopao_vs_numpy_report.py --n-grid 128 --seed 7
+python scripts/generate_oopao_vs_numpy_report.py --aberrations none,defocus --turbulence none,weak
+```
+
+**What it does** (writes `--out-dir` / `report.md` + `summary.csv` + `figures/`):
+- **Matrix**: 3 aberrations (`none` / `defocus` (Noll 4) / `astig+coma` (Noll 5-8))
+  × 4 turbulence levels (`none` Cn2=0 / `weak` 1e-16 / `moderate` 5e-15 /
+  `strong` 5e-14) = **12 scenarios × 2 arms = 24 CSV rows**. A `spherical`
+  (Noll 11) case exists but is *not* in the default set.
+- **Per-arm metrics** (6): `phase_std_rad` (湍流相位 std) + `phase_rms_rad`
+  (总相位 RMS) for the screen; `strehl`, `fwhm_px`, `ee_r4` (EE at 4·FWHM) for
+  the focal plane; and `energy_frac` (ASM energy-conservation ratio, the one
+  metric that *does* pass through the two different propagation kernels).
+- **Figures**: one 5×2 comparison figure per scenario
+  (`figures/<scenario>_<stamp>.png`) plus `summary_overview.png`; image links
+  are validated (every link resolves, no orphans) before the report is written.
+- **cn2=0 cross-arm control**: the `none` turbulence arm must be **bit-identical**
+  across backends (`turbulence_phase` short-circuits to an all-zero screen at
+  `cn2 <= 0`, *before* the backend switch). The script collects the scenarios
+  where all `ARM_INVARIANT_METRICS` match exactly and logs them; if **none**
+  match it emits a `warning` (an arm-independent phase bias). `energy_frac` is
+  deliberately excluded from that check — it goes through `propagate()`, the
+  only place the two kernels legitimately differ.
+- **Determinism**: fixed `seed` drives an explicit `default_rng`; two full runs
+  produce byte-identical `summary.csv`.
+- **Backend hygiene**: forces `AO_OOPAO_BACKEND` off/on per arm, calls
+  `oopao_backend._get_backend.cache_clear()` between configurations (the backend
+  is `@lru_cache`), and **fails fast** if OOPAO is not importable rather than
+  silently producing a two-arm-numpy report.
+- Reports the `phase_std_rad` ratio per scenario; on the default config the two
+  backends are **not** equivalent (≈8.7×, see `docs/oopao_vs_numpy/report.md`),
+  so the report states that absolute Strehl/FWHM must not be compared across arms.
+
+**Zernike coefficients are radians**: aberration cases use Noll indices fed to
+`zernike_utils.generate_zernike_phase()` (canonical entry), not to any local
+Zernike table.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--n-grid` | `64` | Simulation grid side length |
+| `--seed` | `42` | Random seed |
+| `--out-dir` | `docs/oopao_vs_numpy` | Output dir |
+| `--aberrations` | `none,defocus,astig+coma` | Comma-separated subset (`spherical` available) |
+| `--turbulence` | all 4 levels | Comma-separated subset |
+| `--quick` | off | Smoke mode: first 2 aberrations × first 2 turbulence levels |
+
+Requires OOPAO (editable install from the `libs/OOPAO` submodule:
+`uv pip install --no-deps -e libs/OOPAO`). Backend contract, cache caveat and
+routing scope are documented in
+[`sim/AGENTS.md`](../src/ao_shaping/drivers/sim/AGENTS.md).
+
 ### generate_slm_gsnet_sim_gif.py
 
 Generates the slm-gsnet offline-sim verification GIFs (+ prints the markdown

@@ -117,7 +117,15 @@ torch = [
 torchvision = [
   { index = "pytorch-cu132", marker = "sys_platform == 'win32'" },
 ]
-# OOPAO: optional git source for the AO_OOPAO_BACKEND=1 sim path.
+# OOPAO: optional dependency for the AO_OOPAO_BACKEND=1 sim path.
 # Non-default: absent installs fall back to the numpy/legacy path.
-oo-pao = { git = "https://github.com/cheritier/OOPAO.git", rev = "8e12a17f" }
+# No dependency group references this, so `uv sync` will NOT install it; the
+# submodule must be fetched (`git clone --recurse-submodules`) and installed by
+# hand: `uv pip install --no-deps -e libs/OOPAO`. The gitlink pins the revision,
+# replacing the former `{ git = ..., rev = "8e12a17f" }` pin that lagged the
+# revision this sim backend is validated against.
+# editable=true is required: upstream setup.cfg declares `packages = OOPAO`
+# only, so a built wheel silently drops OOPAO/tools/gpuTransforms.py and
+# OOPAO/tools/separableInterpolation.py, breaking Atmosphere's relative import.
+oo-pao = { path = "libs/OOPAO", editable = true }
 
