@@ -1,6 +1,6 @@
 # FourierGSNet 湍流仿真矩阵报告
 
-**生成时间**: 2026-09-22 23:47:43
+**生成时间**: 2026-09-29 11:06:15
 **数据来源**: `/home/ws/code/AO-shaping/data/fouriergsnet_sim/native_w4b` (矩阵运行时间 2026-09-22 23:46:10)
 
 **Fully offline** — 本报告由 `scripts/generate_fouriergsnet_sim_report.py` 离线生成, 仅读取已保存的矩阵产物 (config/summary/metrics/frames), 不打开任何硬件。
@@ -233,6 +233,7 @@
 
 ![turbulence_impact](figures/turbulence_impact.png)
 
+
 ## 5. 算法完整流程 (How the Pipeline Works)
 
 本节解释**仿真如何搭、模型长什么样、数据如何采、网络如何训/微调、一次闭环的输入输出**。
@@ -241,9 +242,9 @@
 
 > 本矩阵运行命令 (摘自 `config.json`):
 > ```bash
-> scripts/fouriergsnet_sim_train.py --shapes square,gaussian --aberrations none,defocus,mixed \
->     --turbulence off,slow --steps 30 --k-px 512 --no-replay --device cuda --native \
->     --out data/fouriergsnet_sim/native_w4b
+> scripts/fouriergsnet_sim_train.py --shapes square,gaussian --aberrations
+>     none,defocus,mixed --turbulence off,slow --steps 30 --k-px 512 --no-replay --device
+>     cuda --native --out data/fouriergsnet_sim/native_w4b
 > ```
 
 ### 5.1 系统组成 (谁负责什么)

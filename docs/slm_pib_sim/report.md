@@ -1,6 +1,6 @@
 # slm-pib 仿真运行报告 (SPGD 方形目标, 2f-Fourier 数字孪生)
 
-**生成时间**: 2026-09-23 08:47:44
+**生成时间**: 2026-09-25 09:31:37
 
 **Fully offline** — 本报告由 `scripts/generate_slm_pib_sim_report.py` 离线生成, 仅读取 `slm_pib_runner --debug` 保存的 PKL/JSON 调试产物, 不打开任何硬件。
 

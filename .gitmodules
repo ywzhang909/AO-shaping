@@ -1,0 +1,3 @@
+[submodule "libs/OOPAO"]
+	path = libs/OOPAO
+	url = https://github.com/cheritier/OOPAO.git

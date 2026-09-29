@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 import numpy as np
@@ -84,10 +85,42 @@ def turbulence_phase(
     propagation_distance: float | None = None,
     rng: np.random.Generator | None = None,
 ) -> np.ndarray:
+    """Generate a single von-Karman phase screen [rad] on the cfg grid.
+
+    OOPAO backend (``AO_OOPAO_BACKEND``): delegates to
+    :class:`ao_shaping.drivers.sim.oopao_backend.OopaoScreenBackend.make_screens`
+    (single slab, seed from ``rng``), rescaling to the per-slab r0 that matches
+    the historical aotools/FFT path. Numpy backend (default): FFT-spectrum
+    Kolmogorov generation (legacy behaviour, unchanged).
+    """
     beam_cfg = to_bs_config(cfg)
     cn2_value = beam_cfg.Cn2 if cn2 is None else float(cn2)
     if cn2_value <= 0:
         return np.zeros((cfg.n_grid, cfg.n_grid), dtype=float)
+
+    if _oopao_enabled():
+        from ao_shaping.drivers.sim import oopao_backend
+
+        seed = int(rng.integers(0, 2**31 - 1)) if rng is not None else int(
+            np.random.randint(0, 2**31 - 1)
+        )
+        l_max_value = beam_cfg.l_max if l_max is None else float(l_max)
+        distance = beam_cfg.z_default if propagation_distance is None else float(
+            propagation_distance
+        )
+        distance = max(distance, 1e-9)
+        screens = oopao_backend.make_screens(
+            N=cfg.n_grid,
+            dx=beam_cfg.pixel_size,
+            Dscope=cfg.aperture_size,
+            lam=beam_cfg.wavelength,
+            cn2=cn2_value,
+            L=distance,
+            L0=l_max_value,
+            n_screens=1,
+            seed=seed,
+        )
+        return np.asarray(screens[0], dtype=float)
 
     l_max_value = beam_cfg.l_max if l_max is None else float(l_max)
     l_min_value = beam_cfg.l_min if l_min is None else float(l_min)
@@ -131,8 +164,39 @@ def apply_lens(field: np.ndarray, cfg: BeamSimConfig, focal_length: float) -> np
 
 
 def propagate(field: np.ndarray, cfg: BeamSimConfig, distance: float) -> np.ndarray:
+    """Angular-spectrum propagation of ``field`` by ``distance`` metres.
+
+    OOPAO backend (``AO_OOPAO_BACKEND``): OOPAO ``Atmosphere.ASM`` kernel.
+    Numpy backend (default): legacy ``beam_simulation.propagation``.
+    """
     beam_cfg = to_bs_config(cfg)
+    if _oopao_enabled():
+        from ao_shaping.drivers.sim import oopao_backend
+
+        return oopao_backend.propagate_asm(
+            np.asarray(field, dtype=np.complex128),
+            lam=beam_cfg.wavelength,
+            dx=beam_cfg.pixel_size,
+            z=float(distance),
+        )
     return bs.propagation(field, z=distance, cfg=beam_cfg)
+
+
+def _oopao_enabled() -> bool:
+    """Return True when the OOPAO backend is enabled via ``AO_OOPAO_BACKEND``.
+
+    Default off (numpy/legacy path). Set ``AO_OOPAO_BACKEND=1/true/yes`` to use
+    the OOPAO library; falls back to numpy automatically if OOPAO is unavailable.
+    """
+    value = os.environ.get("AO_OOPAO_BACKEND", "")
+    enabled = value.strip().lower() in ("1", "true", "yes", "on")
+    if not enabled:
+        return False
+    try:
+        from ao_shaping.drivers.sim import oopao_backend  # noqa: F401
+    except Exception:
+        return False
+    return oopao_backend._oopao_available()
 
 
 def focal_plane(field: np.ndarray, cfg: BeamSimConfig, focal_length: float) -> np.ndarray:

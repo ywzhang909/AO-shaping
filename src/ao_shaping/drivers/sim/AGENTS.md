@@ -19,9 +19,10 @@ sim/
 ├── atmos/               # 大气模拟
 │   ├── screens.py           # SimulatedTurbulentScreen, SimulatedThermalScreen, SimulatedATP
 │   └── __init__.py
-├── beam_backend.py      # 光束后端
+├── beam_backend.py      # 光束后端 (numpy/legacy ↔ OOPAO 路由层)
 ├── beam_simulation.py   # 光束仿真
 ├── compat.py            # 兼容层
+├── oopao_backend.py     # OOPAO 后端实现 (湍流相位屏 + ASM 传播)
 ├── wave.py              # 波前处理
 └── __init__.py
 ```
@@ -89,6 +90,49 @@ SimulatedDevice (Device)
 |------|------|
 | `set_phase(phase)` | 设置相位图 |
 | `get_phase()` | 获取当前相位 |
+
+## 光束后端路由 (`AO_OOPAO_BACKEND`)
+
+`beam_backend.py` 是 numpy/legacy 与 OOPAO 双后端的**唯一路由层**。OOPAO 实现在
+`oopao_backend.py` (OOPAO `Atmosphere` 相位屏 + `Atmosphere.ASM` 传播核)。
+
+| 环境变量 `AO_OOPAO_BACKEND` | 后端 |
+|---|---|
+| 未设置 / 非 `1`/`true`/`yes`/`on` (**默认**) | numpy/legacy (FFT 谱 Kolmogorov + `beam_simulation.propagation`) |
+| `1` / `true` / `yes` / `on` | OOPAO |
+
+**路由范围 (红线 — 只有 2 个函数被路由)**:
+
+| 函数 | OOPAO 分支 | numpy 分支 |
+|------|------------|-----------|
+| `turbulence_phase()` | `oopao_backend.make_screens()` (单 slab, seed 取自 `rng`) | FFT 谱 Kolmogorov (legacy, 行为不变) |
+| `propagate()` | `oopao_backend.propagate_asm()` (ASM 核) | `bs.propagation()` |
+| `focal_plane()` | **无** — 始终 `bs.lens_fft_propagation_to_focal()` | 同左 |
+| `apply_lens()` | **无** — 始终 `bs.apply_lens()` | 同左 |
+
+因此焦面/Strehl/FWHM/EE 的两后端差异**只来自相位屏**, 不来自传播或取焦; 下游
+`scripts/slm_pib_sim.py`、`fouriergsnet_env.py` 等不经 `beam_backend` 的调用点不受影响。
+
+**已知约束**:
+
+1. **后端缓存**: `oopao_backend._get_backend` 是 `@lru_cache(maxsize=8)`。同一进程内切换
+   仿真配置 (网格/波长/pixel_size) 后必须调用 `oopao_backend._get_backend.cache_clear()`,
+   否则命中旧后端实例得到与配置不符的相位屏。
+2. **静默回退**: `_oopao_enabled()` 在 OOPAO 不可导入或不可用时返回 `False` 并**静默退回
+   numpy**。开启后务必确认 `oopao_backend._oopao_available()` 为 `True`, 否则会误以为在跑 OOPAO。
+3. **两后端不等价 (勿假设同 Cn2 可互换)**: 报告配置下 OOPAO/legacy `phase_std_rad` 比值
+   为 `8.72×–8.81×` (中位数 `8.77×`)。这是两条相位屏实现 (含 r0 重标定与内层尺度) 的差异,
+   **不是**普适常数 —— 换配置该比值会变 (另一组配置实测 `9.72×`)。跨后端比较绝对 Strehl /
+   FWHM 无意义, 报告须显式声明该限制。
+4. **安装**: OOPAO 以 editable 方式从 git submodule `libs/OOPAO` 安装 (`uv pip install
+   --no-deps -e libs/OOPAO`)。`libs/OOPAO` 为 submodule (canonical
+   `https://github.com/cheritier/OOPAO.git`); 换了 OOPAO 版本后重装即可。
+5. **API 漂移**: 本地 submodule 比旧 pin `8e12a17f` 领先若干提交, 导入会打印
+   `Telescope is no longer the "master" class ...` 警告 — 属预期, 当前用法未触及该 API。
+
+对比报告与图片见 [`docs/oopao_vs_numpy/report.md`](../../../../docs/oopao_vs_numpy/report.md)
+(生成器 `scripts/generate_oopao_vs_numpy_report.py`); 后端回归测试
+`tests/ao_shaping/drivers/sim/test_oopao_backend.py`。
 
 ## 与 mock_devices 的区别
 

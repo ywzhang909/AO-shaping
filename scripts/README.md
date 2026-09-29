@@ -1075,6 +1075,14 @@ python scripts/generate_fouriergsnet_sim_report.py --matrix-dir data/fouriergsne
   auto-generated interpretation (初值→最终均匀度, 湍流跟踪退化判断, EE 趋势)
 - **Turbulence impact**: off vs slow vs fast final uniformity per
   (shape, aberration) — table + `figures/turbulence_impact.png` grouped bars
+- **算法完整流程 (§5)**: the pipeline walkthrough (环境构造 → 标定/LUT → 网络前向
+  → GS 初始化 → 闭环迭代 → 指标定义 → 动画来源) is rendered from the
+  module-level `_PIPELINE_SECTION` `string.Template` with the **current** matrix
+  config substituted in (command block, matrix dir, `--native`/`--no-native`
+  clause, `k_px`, `steps`, GS 初始化迭代数, 噪声模型 Δk / 中心偏移 / 旋转).
+  Uses `Template` (not `.format()`) because the prose contains literal `{}`;
+  a missing/empty `config.json` degrades to `未记录` placeholders instead of
+  raising.
 - Robust: per-scenario try/except; missing frames degrade to static-only with a
   warning; scenario dirs are scanned directly so the report can be regenerated
   mid-run or after the matrix completes (summary.json optional)
@@ -1083,6 +1091,69 @@ python scripts/generate_fouriergsnet_sim_report.py --matrix-dir data/fouriergsne
 |--------|---------|-------------|
 | `--matrix-dir` | latest `data/fouriergsnet_sim/<ts>` | Matrix output dir |
 | `-o, --output` | `docs/fouriergsnet_sim` | Report output dir |
+
+### generate_oopao_vs_numpy_report.py
+
+Generates the **OOPAO backend vs legacy numpy/FFT backend** comparison report —
+a like-for-like aberration × turbulence matrix. **Fully offline** (pure numpy /
+OOPAO simulation, no hardware). Unlike the other entries in this section, it is
+*not* a re-generator of saved artefacts: it **runs** the two backends in-process
+to produce the comparison, driving `beam_backend` directly.
+
+**Usage:**
+```bash
+python scripts/generate_oopao_vs_numpy_report.py
+python scripts/generate_oopao_vs_numpy_report.py --quick
+python scripts/generate_oopao_vs_numpy_report.py --n-grid 128 --seed 7
+python scripts/generate_oopao_vs_numpy_report.py --aberrations none,defocus --turbulence none,weak
+```
+
+**What it does** (writes `--out-dir` / `report.md` + `summary.csv` + `figures/`):
+- **Matrix**: 3 aberrations (`none` / `defocus` (Noll 4) / `astig+coma` (Noll 5-8))
+  × 4 turbulence levels (`none` Cn2=0 / `weak` 1e-16 / `moderate` 5e-15 /
+  `strong` 5e-14) = **12 scenarios × 2 arms = 24 CSV rows**. A `spherical`
+  (Noll 11) case exists but is *not* in the default set.
+- **Per-arm metrics** (6): `phase_std_rad` (湍流相位 std) + `phase_rms_rad`
+  (总相位 RMS) for the screen; `strehl`, `fwhm_px`, `ee_r4` (EE at 4·FWHM) for
+  the focal plane; and `energy_frac` (ASM energy-conservation ratio, the one
+  metric that *does* pass through the two different propagation kernels).
+- **Figures**: one 5×2 comparison figure per scenario
+  (`figures/<scenario>_<stamp>.png`) plus `summary_overview.png`; image links
+  are validated (every link resolves, no orphans) before the report is written.
+- **cn2=0 cross-arm control**: the `none` turbulence arm must be **bit-identical**
+  across backends (`turbulence_phase` short-circuits to an all-zero screen at
+  `cn2 <= 0`, *before* the backend switch). The script collects the scenarios
+  where all `ARM_INVARIANT_METRICS` match exactly and logs them; if **none**
+  match it emits a `warning` (an arm-independent phase bias). `energy_frac` is
+  deliberately excluded from that check — it goes through `propagate()`, the
+  only place the two kernels legitimately differ.
+- **Determinism**: fixed `seed` drives an explicit `default_rng`; two full runs
+  produce byte-identical `summary.csv`.
+- **Backend hygiene**: forces `AO_OOPAO_BACKEND` off/on per arm, calls
+  `oopao_backend._get_backend.cache_clear()` between configurations (the backend
+  is `@lru_cache`), and **fails fast** if OOPAO is not importable rather than
+  silently producing a two-arm-numpy report.
+- Reports the `phase_std_rad` ratio per scenario; on the default config the two
+  backends are **not** equivalent (≈8.7×, see `docs/oopao_vs_numpy/report.md`),
+  so the report states that absolute Strehl/FWHM must not be compared across arms.
+
+**Zernike coefficients are radians**: aberration cases use Noll indices fed to
+`zernike_utils.generate_zernike_phase()` (canonical entry), not to any local
+Zernike table.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--n-grid` | `64` | Simulation grid side length |
+| `--seed` | `42` | Random seed |
+| `--out-dir` | `docs/oopao_vs_numpy` | Output dir |
+| `--aberrations` | `none,defocus,astig+coma` | Comma-separated subset (`spherical` available) |
+| `--turbulence` | all 4 levels | Comma-separated subset |
+| `--quick` | off | Smoke mode: first 2 aberrations × first 2 turbulence levels |
+
+Requires OOPAO (editable install from the `libs/OOPAO` submodule:
+`uv pip install --no-deps -e libs/OOPAO`). Backend contract, cache caveat and
+routing scope are documented in
+[`sim/AGENTS.md`](../src/ao_shaping/drivers/sim/AGENTS.md).
 
 ### generate_slm_gsnet_sim_gif.py
 
@@ -1144,6 +1215,46 @@ python scripts/slm_pib_sim_run.py --epochs 300 --target-shape square
 **Outputs:** `data/debug/slm_pib_shape_<ts>/` (PNG/PKL/JSON), then
 `docs/slm_pib_sim/report.md` + `figures/` + `gifs/` via
 `generate_slm_pib_sim_report.py`.
+
+### generate_iterative_zernike_shaping_report.py
+
+Generates the illustrated **iterative Zernike + free-form shaping** report,
+demonstrating that alternating a Zernike calibration pass (A) with a free-form
+SLM-phase shaping pass (B) converges to a higher square-target score than
+**every** single-pass baseline on the same 64×64 sim grid — the canonical
+sensorless SPGD, the Gerchberg-Saxton (GS) single pass, and the unshaped
+initial state.
+**Fully offline** — pure torch (FFT forward model), no hardware.
+
+**Usage:**
+```bash
+.venv/bin/python scripts/generate_iterative_zernike_shaping_report.py
+```
+
+**What it does** (writes to `docs/iterative_zernike_shaping/`):
+- Runs the full A↔B iterative loop: (A) calibrate a Zernike set to match an
+  "actual" (aberrated) far-field, (B) freeze Zernike and optimize free-form SLM
+  phase to a square target, iterating until early-stop convergence
+- Baselines (all on the **identical 64×64 grid**, identical bench metric
+  `composite_score = 0.5·PIB + 0.5·(1 − min(CV/0.3, 1))`):
+  - initial (unshaped golden+noise) score
+  - single-pass GS (`gs_shape`, 200 iters)
+  - sensorless **SPGD** (`spgd_shape`, 600 iters, dim=8 freeform) — the
+    canonical black-box reference. The `0.89` figure cited elsewhere is a
+    1920×1200 **hardware-grid** result and is NOT comparable to this 64×64 sim.
+- `initial_vs_final.png` — far-field before/after the iterative loop
+- `score_history.png` — composite score per iteration (A-calib / B-shape phases)
+- `zernike_coeffs.png` — per-mode Zernike coefficient traces across iterations
+- `phase_evolution.png` — free-form SLM phase (mod 2π) start/mid/end montage
+- `score_comparison.png` — bar chart: initial vs GS vs SPGD vs iterative (the WIN proof)
+- `data.json` + `*.npy` — raw scores, coefficients, and phase arrays
+
+> 📐 **Measured (2026-09, 64×64 sim grid)**: initial **0.1590**, GS single-pass
+> **0.1780**, sensorless SPGD **0.1906** — iterative **0.3851** is **+102.0% vs
+> SPGD**, **+116.3% vs GS**, and **+142.2% vs initial**. The A↔B iteration is
+> the decisive gain over every same-grid baseline, including the canonical
+> sensorless SPGD reference. Locked in by regression test
+> `tests/ao_shaping/algorithm/test_iterative_zernike_shaping.py::test_s7_beats_spgd_and_gs_baselines`.
 
 ### generate_slm_pib_sim_report.py
 
