@@ -534,7 +534,26 @@ class Recorder:
 # Optimisation-debug visualisation block
 # ---------------------------------------------------------------------------
 
-_DATA_MODE_OBJECTIVE_KEYS = ("pib", "radiu", "avg_radiu")
+#: Objective columns the data-mode debug recorder may write.
+#:
+#: Deliberately kept independent of
+#: :data:`~ao_shaping.utils.image.target.objective.SHAPING_OBJECTIVE_CHOICES`:
+#: this is the *on-disk recording* contract for data-mode artefacts, not the
+#: user-selectable vocabulary, so it is declared separately rather than derived
+#: (the on-disk format must stay stable even if the CLI vocabulary changes).
+#: It currently happens to cover the same names, and is guarded by
+#: ``test_data_mode_keys_are_subset`` (subset of the canonical vocabulary) so a
+#: rename still fails loudly instead of drifting silently.
+_DATA_MODE_OBJECTIVE_KEYS = (
+    "pib",
+    "radiu",
+    "avg_radiu",
+    "shape",
+    "roi_pib",
+    "rms_pib",
+    "rmse",
+    "rmse_out",
+)
 
 
 def _infer_objective_key(data: dict[int, dict]) -> str | None:

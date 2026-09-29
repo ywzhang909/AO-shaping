@@ -47,12 +47,16 @@ def test_nested_config_uses_canonical_runner_defaults():
     assert config.camera.name == "pib"
     assert config.camera.target_shape is None
     assert config.camera.r_bucket == 0
-    assert config.slm.zernike_radius == 0.0
+    assert config.slm.zernike_radius == 600.0
     assert not hasattr(config, "r_bucket")
 
 
 def test_nested_groups_carry_the_full_parameter_set():
-    from ao_shaping.runners.runner_common import CameraParamsPib, SlmParamsPib
+    from ao_shaping.runners.runner_common import (
+        CameraParamsPib,
+        ObjectiveTarget,
+        SlmParamsPib,
+    )
 
     config = SlmZernikePibConfig(
         center="shape",
@@ -68,14 +72,13 @@ def test_nested_groups_carry_the_full_parameter_set():
         show=True,
         record_phase=True,
         camera=CameraParamsPib(
-            name="shape",
+            target=ObjectiveTarget(name="shape", target_shape="circle"),
             cam_id=3,
             cam_type="sim",
             cam_size=123,
             exposure_time_ms=4.5,
             target_max_brightness=31,
             r_bucket=11,
-            target_shape="circle",
             target_size=48.0,
             target_aspect_ratio=1.5,
             target_center_smooth=5,
@@ -152,9 +155,15 @@ def test_nested_groups_carry_the_full_parameter_set():
 
 
 def test_explicit_nested_groups_are_used_verbatim():
-    from ao_shaping.runners.runner_common import CameraParamsPib, SlmParamsPib
+    from ao_shaping.runners.runner_common import (
+        CameraParamsPib,
+        ObjectiveTarget,
+        SlmParamsPib,
+    )
 
-    camera = CameraParamsPib(name="pib", r_bucket=7, cam_type="sim")
+    camera = CameraParamsPib(
+        target=ObjectiveTarget(name="pib"), r_bucket=7, cam_type="sim"
+    )
     slm = SlmParamsPib(slm_number=3, zernike_radius=0.0)
 
     config = SlmZernikePibConfig(

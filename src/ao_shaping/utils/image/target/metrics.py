@@ -304,6 +304,99 @@ def rmse_shape_metric(
     return rmse, energy
 
 
+def rmse_out_metric(
+    img: np.ndarray,
+    center: tuple[float, float],
+    target_shape: str = "rectangle",
+    target_size: float = 44.0,
+    target_aspect_ratio: float = 4.0 / 3.0,
+    w_outside: float = 1.0,
+) -> tuple[float, float]:
+    """Normalised-RMSE shaping objective with an explicit outside-target penalty.
+
+    ``J = RMSE_norm + w_outside * (1 - in_target_energy)`` (**MINIMISED**).
+    ``RMSE_norm`` is :func:`rmse_shape_metric` (the sum-normalised frame vs the
+    unit-sum target ROI), and ``1 - energy`` is the fraction of the light landing
+    OUTSIDE the target ROI. The penalty term makes light that misses the target
+    explicitly worse instead of counting only as an RMSE residual.
+
+    Returns ``(j, energy)`` with ``energy = sum(I[roi]) / sum(I)`` (in-ROI energy
+    fraction, for logging). A dark / un-normalisable frame keeps
+    :func:`rmse_shape_metric`'s strong penalty ``1e3`` and adds ``w_outside``
+    (since ``energy == 0``).
+    """
+    rmse, energy = rmse_shape_metric(
+        img, center, target_shape, target_size, target_aspect_ratio
+    )
+    outside = 1.0 - float(energy)
+    return float(rmse) + float(w_outside) * outside, float(energy)
+
+
+def pearson_shape_metric(
+    img: np.ndarray,
+    center: tuple[float, float],
+    target_shape: str = "rectangle",
+    target_size: float = 44.0,
+    target_aspect_ratio: float = 4.0 / 3.0,
+) -> tuple[float, float]:
+    """Minimisable ``1 - Pearson`` correlation loss (FourierGSNet ``shaping_loss``).
+
+    Port of ``ml.gsnet.losses.ShapingLosses.shaping_loss`` to the hardware /
+    NumPy path. Both sides are mean-centred over the **full flattened frame**
+    (not the ROI) and the correlation is
+
+        p    = img.flatten()  - mean(img)
+        t    = target.flatten() - mean(target)
+        corr = (p * t).sum() / (sqrt((p**2).sum() * (t**2).sum()) + 1e-12)
+        loss = 1 - corr
+
+    where ``target`` is the uniform-intensity target-shaped ROI from
+    :func:`target_shape_roi` normalised to unit sum. ``loss`` is ``0`` for a
+    perfect match and ``2`` for a perfectly anti-correlated frame. The ``1e-12``
+    epsilon reproduces the reference formula: a constant (zero-variance) frame
+    yields ``corr = 0`` and therefore ``loss = 1.0``.
+
+    Because correlation is computed after mean-centring, the loss is invariant
+    to global intensity scale and to any additive DC offset. It is therefore
+    **blind to absolute energy** and cannot, on its own, stop the search from
+    pushing light out of the target box — pair it with the ROI energy guard
+    (see ``GUARDED_OBJECTIVES``) or use :func:`rmse_out_metric` when that
+    matters. The returned ``energy`` is provided so callers can log/monitor it.
+
+    Returns ``(loss, energy)`` with ``energy = sum(I[roi]) / sum(I)``. A dark /
+    NaN / un-normalisable frame, or an off-frame target, returns the same strong
+    penalty ``(1e3, 0.0)`` as :func:`rmse_shape_metric` so the search never
+    adopts it.
+    """
+    frame = np.asarray(img, dtype=np.float64)
+    if frame.ndim != 2:
+        raise ValueError(f"img must be 2D, got {frame.ndim}D")
+    height, width = frame.shape
+    roi = target_shape_roi(
+        (height, width),
+        center,
+        target_shape,
+        target_size,
+        target_aspect_ratio,
+    )
+    total = float(frame.sum())
+    if not np.isfinite(total) or total <= 0.0 or not roi.any():
+        return 1e3, 0.0
+    energy = float(frame[roi].sum()) / total
+
+    target_n = roi.astype(np.float64) / float(roi.sum())
+    pred = frame.ravel()
+    tgt = target_n.ravel()
+    p = pred - pred.mean()
+    t = tgt - tgt.mean()
+    denom = float(np.sqrt(float((p**2).sum()) * float((t**2).sum()))) + 1e-12
+    corr = float((p * t).sum()) / denom
+    loss = 1.0 - corr
+    if not np.isfinite(loss):
+        return 1e3, float(energy)
+    return float(loss), float(energy)
+
+
 SHAPE_STAGE_WEIGHTS: dict[str, tuple[float, float, float]] = {
     "coarse": (0.0, 0.0, 0.0),
     "middle": (2.0, 0.0, 0.0),

@@ -70,7 +70,7 @@ from __future__ import annotations
 
 import functools
 import os
-from dataclasses import MISSING, dataclass, field, fields
+from dataclasses import MISSING, dataclass, field, fields, is_dataclass
 from pathlib import Path
 from types import UnionType
 from typing import Annotated, Any, Union, cast, get_args, get_origin, get_type_hints
@@ -78,10 +78,18 @@ from typing import Annotated, Any, Union, cast, get_args, get_origin, get_type_h
 import click
 
 from ao_shaping.algorithm.heuristic.search import heuristic_algorithm_choices
-from ao_shaping.utils.image.targets import TARGET_SHAPE_CHOICES
+from ao_shaping.utils.image.target import (
+    SHAPING_OBJECTIVE_CHOICES,
+    TARGET_SHAPE_CHOICES,
+)
 from ao_shaping.utils.io.cli_helpers import parse_tuple
 
 from ao_shaping.drivers.dm import list_dm_types
+from ao_shaping.drivers.slm.santec.slm200_constants import PANEL_RES
+
+# slm-pib 的 Zernike 孔径半径默认值: SLM 面板短边的一半 (PANEL_RES = (1920, 1200) -> 600 px),
+# 与方形整形 (slm_square_shaping) 及 GUI 的默认值一致; 取短边保证基圆完整落在面板内。
+DEFAULT_ZERNIKE_RADIUS = min(PANEL_RES) / 2.0
 
 # Snapshot of DM types taken BEFORE asyn_micro_dm registration below. The
 # dm_matrix_runner at HEAD computed its own DM_TYPES at import time before
@@ -196,48 +204,116 @@ def _copy_delayed_call(d: _DelayedCall) -> _DelayedCall:
     )
 
 
-def _collect_click_annotations(cls: type) -> list[tuple[Any, Any, _DelayedCall]]:
+@dataclass(frozen=True)
+class ClickGroup:
+    """Opt-in marker for a field whose value is a nested parameter dataclass.
+
+    Annotate the field as ``Annotated[SomeParams, ClickGroup()]``: every
+    ``option(...)`` declared inside ``SomeParams`` is hoisted onto the parent
+    command as a flat option, then re-assembled into a ``SomeParams`` instance
+    before the wrapped callback runs. Unmarked fields keep the previous
+    strictly-flat behaviour, so existing runners are unaffected.
+
+    A frozen dataclass (rather than a ``dict``) is used as the marker so the
+    ``Annotated[...]`` alias stays hashable and its identity stable.
+    """
+
+
+def _is_click_group(hint: Any) -> bool:
+    return get_origin(hint) is Annotated and any(
+        isinstance(m, ClickGroup) for m in get_args(hint)[1:]
+    )
+
+
+# (dataclass field supplying the default, click parameter name, type hint, option())
+_ClickOption = tuple[Any, str, Any, _DelayedCall]
+# (parent field name, nested dataclass, ordered child parameter names)
+_ClickGroupSpec = tuple[str, Any, list[str]]
+
+
+def _collect_click_annotations(
+    cls: type,
+) -> tuple[list[_ClickOption], list[_ClickGroupSpec]]:
+    """Return ``(options, groups)`` for ``cls`` in command-help order.
+
+    A :class:`ClickGroup` field contributes its nested options at the position
+    where the group itself is declared, so the flat help order still follows
+    the parent's declaration order.
+    """
     hints = get_type_hints(cls, include_extras=True)
-    collected: list[tuple[Any, Any, _DelayedCall]] = []
+    options: list[_ClickOption] = []
+    groups: list[_ClickGroupSpec] = []
+    seen: dict[str, str] = {}
+
+    def _add(fld: Any, hint: Any, owner: str) -> None:
+        if fld.name in seen:
+            raise TypeError(
+                f"{cls.__name__}: click parameter {fld.name!r} is declared twice "
+                f"({seen[fld.name]} and {owner}); a nested ClickGroup must not "
+                f"shadow an existing option name."
+            )
+        seen[fld.name] = owner
+        delayed = next(m for m in get_args(hint)[1:] if isinstance(m, _DelayedCall))
+        options.append((fld, fld.name, get_args(hint)[0], delayed))
+
     for f in fields(cls):
         hint = hints.get(f.name)
         if hint is None or get_origin(hint) is not Annotated:
             continue
-        meta = get_args(hint)[1:]
-        delayed = next((m for m in meta if isinstance(m, _DelayedCall)), None)
-        if delayed is None:
+        if _is_click_group(hint):
+            child_cls = get_args(hint)[0]
+            child_hints = get_type_hints(child_cls, include_extras=True)
+            child_params: list[str] = []
+            for cf in fields(child_cls):
+                chint = child_hints.get(cf.name)
+                if chint is None or get_origin(chint) is not Annotated:
+                    continue
+                if not any(isinstance(m, _DelayedCall) for m in get_args(chint)[1:]):
+                    continue
+                _add(cf, chint, f"{cls.__name__}.{f.name}")
+                child_params.append(cf.name)
+            groups.append((f.name, child_cls, child_params))
             continue
-        collected.append((f, get_args(hint)[0], delayed))
-    return collected
+        if not any(isinstance(m, _DelayedCall) for m in get_args(hint)[1:]):
+            continue
+        _add(f, hint, cls.__name__)
+    return options, groups
 
 
 def with_params(arg_class: type, *, kw_name: str) -> Any:
     """Attach the click options of ``arg_class`` to a click command.
 
     Every ``Annotated[..., option(...)]`` field becomes a click option (help
-    text order == dataclass declaration order). The wrapped command receives
-    ``kw_name=arg_class(**provided_fields)`` — one keyword argument per
+    text order == dataclass declaration order). Fields marked with
+    :class:`ClickGroup` additionally contribute their nested options, which are
+    re-assembled into the nested instance before delivery. The wrapped command
+    receives ``kw_name=arg_class(**provided_fields)`` — one keyword argument per
     decorator, containing a fully-populated parameter instance.
     """
+    options, groups = _collect_click_annotations(arg_class)
 
     def decorator(fn: Any) -> Any:
         # Apply in REVERSED declaration order so click's cumulative
         # __click_params__ yields help in the same order the class reads.
-        for fld, field_type, delayed in reversed(
-            _collect_click_annotations(arg_class)
-        ):
+        for fld, param, field_type, delayed in reversed(options):
             dc = _copy_delayed_call(delayed)
-            dc.args = _patch_names(delayed.args, fld.name)
-            _patch_click_types(fld.name, field_type, dc.kwargs)
-            _patch_defaults(fld.name, fld, dc.kwargs)
+            dc.args = _patch_names(delayed.args, param)
+            _patch_click_types(param, field_type, dc.kwargs)
+            _patch_defaults(param, fld, dc.kwargs)
             fn = dc.callable(*dc.args, **dc.kwargs)(fn)
 
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            obj_kwargs = {}
-            for f in fields(arg_class):
-                if f.name in kwargs:
-                    obj_kwargs[f.name] = kwargs.pop(f.name)
+            obj_kwargs: dict[str, Any] = {}
+            for _fld, param, _field_type, _delayed in options:
+                # Membership (not truthiness) so 0 / 0.0 / "" survive.
+                if param in kwargs:
+                    obj_kwargs[param] = kwargs.pop(param)
+            for group_field, group_cls, child_params in groups:
+                child_kwargs = {
+                    p: obj_kwargs.pop(p) for p in child_params if p in obj_kwargs
+                }
+                obj_kwargs[group_field] = group_cls(**child_kwargs)
             kwargs[kw_name] = arg_class(**obj_kwargs)
             return fn(*args, **kwargs)
 
@@ -267,7 +343,9 @@ class CameraParams:
     ] = "daheng"
     exposure_time_ms: Annotated[
         float,
-        option("--exposure_time_ms", help="CCD exposure time in ms (0 = auto-exposure)."),
+        option(
+            "--exposure_time_ms", help="CCD exposure time in ms (0 = auto-exposure)."
+        ),
     ] = 80.0
     cam_size: Annotated[
         int, option("--cam_size", help="CCD window size in pixels.")
@@ -295,7 +373,10 @@ class SlmParams:
     ] = 1064
     n_max: Annotated[int, option("-n", "--n_max", help="Max Zernike radial order.")] = 4
     zernike_radius: Annotated[
-        float, option("--zernike_radius", help="Zernike aperture radius (pixels); 0 = default.")
+        float,
+        option(
+            "--zernike_radius", help="Zernike aperture radius (pixels); 0 = default."
+        ),
     ] = 0.0
 
 
@@ -320,7 +401,11 @@ class WfsParams:
     ] = "(0,0)"
     exposure_time_ms: Annotated[
         float,
-        option("--exposure-time-ms", type=float, help="WFS曝光时间 (毫秒, default: 0.0=自动曝光)"),
+        option(
+            "--exposure-time-ms",
+            type=float,
+            help="WFS曝光时间 (毫秒, default: 0.0=自动曝光)",
+        ),
     ] = 0.0
     remove_tilt: Annotated[
         bool, option("--remove-tilt", is_flag=True, help="移除波前测量中的倾斜项")
@@ -395,7 +480,10 @@ class SpgdParams:
         str,
         option(
             "--optimizer_type",
-            type=click.Choice(["adam", "adamw", "adamod", "sgd", "muno", "munow"], case_sensitive=False),
+            type=click.Choice(
+                ["adam", "adamw", "adamod", "sgd", "muno", "munow"],
+                case_sensitive=False,
+            ),
             show_default=True,
             help="SPGD gradient optimizer.",
         ),
@@ -424,6 +512,13 @@ class HeuristicParams:
     epochs: Annotated[
         int, option("-e", "--epochs", help="Optimization iterations.")
     ] = 2000
+    n_eval_frames: Annotated[
+        int,
+        option(
+            "--n-eval-frames",
+            help="Frames averaged per candidate camera read (1 = legacy).",
+        ),
+    ] = 1
     show: Annotated[
         bool, option("--show", is_flag=True, help="Open a live display window.")
     ] = False
@@ -444,6 +539,24 @@ class SpgdParamsPib(SpgdParams):
     shrink_ratio: Annotated[
         float, option("--shrink_ratio", help="Radius/step shrink ratio.")
     ] = 0.9
+    n_eval_frames: Annotated[
+        int,
+        option("--n-eval-frames", help="Frames averaged per camera read (1 = legacy)."),
+    ] = 1
+    fold_ratio: Annotated[
+        float,
+        option(
+            "--fold-ratio",
+            help="Brightness-fold epoch gate ratio (0 disables; see slm_zernike_pib).",
+        ),
+    ] = 0.5
+    noise_gate_k: Annotated[
+        float,
+        option(
+            "--noise-gate-k",
+            help="Noise-aware update gate sigma multiplier (0 disables).",
+        ),
+    ] = 3.0
 
 
 # ---------------------------------------------------------------------------
@@ -452,34 +565,27 @@ class SpgdParamsPib(SpgdParams):
 
 
 @dataclass
-class ObjectiveParamsPib:
-    """Imaging objective options (shared by both slm-pib search families)."""
+class ObjectiveTarget:
+    """The imaging objective, with its target shape nested underneath.
+
+    ``target_shape`` is a *subordinate* field of the objective: it defines the
+    target for ``shape``, and only selects the ROI for ``roi_pib`` / ``rms_pib``
+    / ``rmse`` / ``rmse_out``. It is unused for ``pib`` / ``radiu`` /
+    ``avg_radiu``. Validate a combination with
+    :class:`~ao_shaping.utils.image.target.ObjectiveSpec`, the single source of
+    truth for those rules.
+    """
 
     name: Annotated[
         str,
         option(
             "--objective",
-            type=click.Choice(["pib", "radiu", "avg_radiu", "rmse", "shape", "roi_pib", "rms_pib"]),
+            # Derived from the canonical tuple so the CLI can never drift from
+            # the resolver (see plan R4).
+            type=click.Choice(list(SHAPING_OBJECTIVE_CHOICES)),
             help="Optimization objective.",
         ),
     ] = "pib"
-    target_max_brightness: Annotated[
-        int, option("--target_max_brightness", help="Target max brightness for auto-exposure.")
-    ] = 40
-    r_bucket: Annotated[
-        int, option("-r", "--r_bucket", help="Bucket radius (0 = auto from power radius).")
-    ] = 0
-    target_size: Annotated[
-        float, option("--target_size", help="Target extent in camera px.")
-    ] = 64.0
-    target_aspect_ratio: Annotated[
-        float,
-        option("--target_aspect_ratio", help="Width:height ratio for a rectangular target."),
-    ] = 4.0 / 3.0
-    target_center_smooth: Annotated[
-        int,
-        option("--target_center_smooth", help="Frames averaged for the target centre estimate."),
-    ] = 3
     target_shape: Annotated[
         str | None,
         option(
@@ -488,53 +594,135 @@ class ObjectiveParamsPib:
             help="Target ROI shape (implies the 'shape' objective).",
         ),
     ] = None
+
+
+@dataclass
+class ObjectiveParamsPib:
+    """Imaging objective options (shared by both slm-pib search families)."""
+
+    target: Annotated[
+        ObjectiveTarget,
+        ClickGroup(),
+    ] = field(default_factory=ObjectiveTarget)
+    target_max_brightness: Annotated[
+        int,
+        option(
+            "--target_max_brightness", help="Target max brightness for auto-exposure."
+        ),
+    ] = 40
+    r_bucket: Annotated[
+        int,
+        option("-r", "--r_bucket", help="Bucket radius (0 = auto from power radius)."),
+    ] = 0
+    target_size: Annotated[
+        float, option("--target_size", help="Target extent in camera px.")
+    ] = 64.0
+    target_aspect_ratio: Annotated[
+        float,
+        option(
+            "--target_aspect_ratio", help="Width:height ratio for a rectangular target."
+        ),
+    ] = 4.0 / 3.0
+    target_center_smooth: Annotated[
+        int,
+        option(
+            "--target_center_smooth",
+            help="Frames averaged for the target centre estimate.",
+        ),
+    ] = 3
     shape_schedule: Annotated[
         bool,
-        option("--shape_schedule", is_flag=True, help="Use the coarse->fine shaping weight schedule."),
+        option(
+            "--shape_schedule",
+            is_flag=True,
+            help="Use the coarse->fine shaping weight schedule.",
+        ),
     ] = False
     max_roi_energy_loss: Annotated[
         float,
-        option("--max_energy_loss", help="Max allowed in-ROI energy loss fraction (0 disables the guard)."),
+        option(
+            "--max_energy_loss",
+            help="Max allowed in-ROI energy loss fraction (0 disables the guard).",
+        ),
     ] = 0.6
     w_uniformity: Annotated[
         float, option("--w_uniformity", help="Uniformity penalty weight.")
     ] = 2.0
-    w_peak: Annotated[
-        float, option("--w_peak", help="Peak penalty weight.")
-    ] = 0.5
+    w_peak: Annotated[float, option("--w_peak", help="Peak penalty weight.")] = 0.5
     w_displacement: Annotated[
         float, option("--w_displacement", help="Displacement penalty weight.")
     ] = 0.0
     log_uniformity: Annotated[
         bool,
-        option("--log_uniformity", is_flag=True, help="Use log1p(u) instead of u/(1+u) for the uniformity term."),
+        option(
+            "--log_uniformity",
+            is_flag=True,
+            help="Use log1p(u) instead of u/(1+u) for the uniformity term.",
+        ),
     ] = False
     w_ema_decay: Annotated[
         float,
-        option("--w_ema_decay", help="EMA decay for the adaptive PIB/RMS weights of the 'rms_pib' objective."),
+        option(
+            "--w_ema_decay",
+            help="EMA decay for the adaptive PIB/RMS weights of the 'rms_pib' objective.",
+        ),
     ] = 0.9
     w_floor: Annotated[
         float,
-        option("--w_floor", help="Minimum weight floor per term of the 'rms_pib' objective (0..0.5)."),
+        option(
+            "--w_floor",
+            help="Minimum weight floor per term of the 'rms_pib' objective (0..0.5).",
+        ),
     ] = 0.1
     w_temperature: Annotated[
         float,
-        option("--w_temperature", help="Softmax temperature for the 'rms_pib' weight update."),
+        option(
+            "--w_temperature",
+            help="Softmax temperature for the 'rms_pib' weight update.",
+        ),
     ] = 8.0
     # Initial weights of the 'rms_pib' objective (None = default 1/3 each).
     # Provided terms are kept exactly; unprovided terms share the remainder.
     w_pib_init: Annotated[
         float | None,
-        option("--w_pib_init", type=float, help="Initial PIB weight of the 'rms_pib' objective (default 1/3)."),
+        option(
+            "--w_pib_init",
+            type=float,
+            help="Initial PIB weight of the 'rms_pib' objective (default 1/3).",
+        ),
     ] = None
     w_rms_init: Annotated[
         float | None,
-        option("--w_rms_init", type=float, help="Initial RMS (in-ROI uniformity) weight of the 'rms_pib' objective (default 1/3)."),
+        option(
+            "--w_rms_init",
+            type=float,
+            help="Initial RMS (in-ROI uniformity) weight of the 'rms_pib' objective (default 1/3).",
+        ),
     ] = None
     w_ee_init: Annotated[
         float | None,
-        option("--w_ee_init", type=float, help="Initial encircled-energy weight of the 'rms_pib' objective (default 1/3)."),
+        option(
+            "--w_ee_init",
+            help="Initial encircled-energy weight of the 'rms_pib' objective (default 1/3).",
+        ),
     ] = None
+
+    # --- Compatibility (read-only forwarding; remove after one release) ------
+    # Reads keep working unchanged, so consumers — including the core of
+    # slm_zernike_pib — need no edits. Flat *construction*
+    # (``ObjectiveParamsPib(name=...)``) is intentionally a TypeError so that
+    # every missed call site surfaces loudly instead of drifting silently.
+    # Migrate those to ``ObjectiveParamsPib(target=ObjectiveTarget(...))``.
+
+    @property
+    def name(self) -> str:
+        """Objective name — forwards to ``self.target.name``."""
+        return self.target.name
+
+    @property
+    def target_shape(self) -> str | None:
+        """Target ROI shape — forwards to ``self.target.target_shape``."""
+        return self.target.target_shape
 
 
 @dataclass
@@ -562,7 +750,10 @@ class ObjectiveParamsSquare:
         float, option("--side-factor", help="Auto side-length factor.")
     ] = 1.5
     target_max_brightness: Annotated[
-        int, option("--target-max-brightness", help="Target max brightness for auto-exposure.")
+        int,
+        option(
+            "--target-max-brightness", help="Target max brightness for auto-exposure."
+        ),
     ] = 200
     w_uniformity: Annotated[
         float, option("--w_uniformity", help="Uniformity (CV) weight.")
@@ -570,9 +761,7 @@ class ObjectiveParamsSquare:
     w_efficiency: Annotated[
         float, option("--w_efficiency", help="Encircled-energy weight.")
     ] = 0.6
-    w_aspect: Annotated[
-        float, option("--w_aspect", help="Aspect-ratio weight.")
-    ] = 0.0
+    w_aspect: Annotated[float, option("--w_aspect", help="Aspect-ratio weight.")] = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -595,7 +784,11 @@ class RunParams:
     ] = False
     seed: Annotated[
         int | None,
-        option("--seed", type=int, help="Random seed for reproducible runs (reproducible only in 'sim' mode)."),
+        option(
+            "--seed",
+            type=int,
+            help="Random seed for reproducible runs (reproducible only in 'sim' mode).",
+        ),
     ] = None
 
 
@@ -613,23 +806,27 @@ class RmsZernikeParams:
     分别由 ``WfsParams`` / ``ZernikeSlmParams`` 提供。
     """
 
-    dir: Annotated[str, option("-d", "--dir", help="数据保存根目录 (default: data)")] = "data"
+    dir: Annotated[
+        str, option("-d", "--dir", help="数据保存根目录 (default: data)")
+    ] = "data"
     epochs: Annotated[
         int, option("-e", "--epochs", help="优化迭代次数 (default: 20000)")
     ] = 20000
-    n_max: Annotated[int, option("-n", "--n-max", help="Zernike最大阶数 (default: 4)")] = 4
+    n_max: Annotated[
+        int, option("-n", "--n-max", help="Zernike最大阶数 (default: 4)")
+    ] = 4
     lr: Annotated[float, option("--lr", help="学习率 (default: 0.01)")] = 0.01
-    delta: Annotated[
-        float, option("--delta", help="初始delta值 (default: 0.0)")
-    ] = 0.0
+    delta: Annotated[float, option("--delta", help="初始delta值 (default: 0.0)")] = 0.0
     early_stop_threshold: Annotated[
         float, option("-t", "--early_stop_threshold", help="早停阈值 (default: 0.12)")
     ] = 0.12
     min_delta: Annotated[
-        float, option("--min-delta", help="自动检测最小delta (数量级扫描, default: 0.01)")
+        float,
+        option("--min-delta", help="自动检测最小delta (数量级扫描, default: 0.01)"),
     ] = 0.01
     max_delta: Annotated[
-        float, option("--max-delta", help="自动检测最大delta (数量级扫描, default: 100.0)")
+        float,
+        option("--max-delta", help="自动检测最大delta (数量级扫描, default: 100.0)"),
     ] = 100.0
     delta_step: Annotated[
         int, option("--delta-step", help="数量级扫描步数 (用于细粒度扫描, default: 5)")
@@ -638,7 +835,10 @@ class RmsZernikeParams:
         int, option("--n-directions", help="每个delta采样次数防噪声 (default: 5)")
     ] = 5
     n_init_positions: Annotated[
-        int, option("--n-init-positions", help="多起点优化：随机初始位置数量 (default: 0, 禁用)")
+        int,
+        option(
+            "--n-init-positions", help="多起点优化：随机初始位置数量 (default: 0, 禁用)"
+        ),
     ] = 0
     init_range: Annotated[
         float, option("--init-range", help="多起点初始化的随机范围 (default: 1.0)")
@@ -677,30 +877,41 @@ class RmsZernikeParams:
         float, option("--beta1", type=float, help="Adam beta1参数 (default: 0.95)")
     ] = 0.95
     weight_decay: Annotated[
-        float, option("--weight-decay", type=float, help="AdamW权重衰减 (default: 1e-2)")
+        float,
+        option("--weight-decay", type=float, help="AdamW权重衰减 (default: 1e-2)"),
     ] = 1e-2
     mini_batch: Annotated[
         int, option("--mini-batch", type=int, help="SPGD mini-batch大小 (default: 1)")
     ] = 1
     gradient_clip: Annotated[
-        float, option("--gradient-clip", type=float, help="梯度裁剪阈值 (default: 0.0, 禁用)")
+        float,
+        option("--gradient-clip", type=float, help="梯度裁剪阈值 (default: 0.0, 禁用)"),
     ] = 0.0
     stagnation_patience: Annotated[
-        int, option("--stagnation-patience", type=int, help="停滞检测轮数 (default: 30)")
+        int,
+        option("--stagnation-patience", type=int, help="停滞检测轮数 (default: 30)"),
     ] = 30
     stagnation_delta_boost: Annotated[
         float,
-        option("--stagnation-delta-boost", type=float, help="停滞时delta倍增 (default: 1.5)"),
+        option(
+            "--stagnation-delta-boost",
+            type=float,
+            help="停滞时delta倍增 (default: 1.5)",
+        ),
     ] = 1.5
     freeze_threshold: Annotated[
         float | None,
-        option("--freeze-threshold", type=float, help="冻结高阶模式阈值 (default: None)"),
+        option(
+            "--freeze-threshold", type=float, help="冻结高阶模式阈值 (default: None)"
+        ),
     ] = None
     early_stop_window: Annotated[
-        int, option("--early-stop-window", type=int, help="早停滑动窗口大小 (default: 0)")
+        int,
+        option("--early-stop-window", type=int, help="早停滑动窗口大小 (default: 0)"),
     ] = 0
     early_stop_min_epochs: Annotated[
-        int, option("--early-stop-min-epochs", type=int, help="早停最小轮数 (default: 0)")
+        int,
+        option("--early-stop-min-epochs", type=int, help="早停最小轮数 (default: 0)"),
     ] = 0
     early_stop_patience: Annotated[
         int, option("--early-stop-patience", type=int, help="早停耐心值 (default: 0)")
@@ -712,14 +923,20 @@ class RmsZernikeParams:
         str,
         option(
             "--algorithm",
-            type=click.Choice(list(heuristic_algorithm_choices()), case_sensitive=False),
+            type=click.Choice(
+                list(heuristic_algorithm_choices()), case_sensitive=False
+            ),
             show_default=True,
             help="搜索算法: spgd (梯度/SPGD) 或启发式 (ga/pso/sa/hc/rs/cem/de)",
         ),
     ] = "spgd"
     pop_size: Annotated[
         int | None,
-        option("--pop_size", type=int, help="种群规模 (ga/pso/cem/de 使用; 默认取算法默认值)"),
+        option(
+            "--pop_size",
+            type=int,
+            help="种群规模 (ga/pso/cem/de 使用; 默认取算法默认值)",
+        ),
     ] = None
     debug: Annotated[
         bool,
@@ -731,16 +948,25 @@ class RmsZernikeParams:
 class GreedyZernikeParams:
     """贪婪/启发式 Zernike 优化 CLI 参数 (greedy-zernike, 单命令无子命令)。"""
 
-    dir: Annotated[str, option("-d", "--dir", help="数据保存根目录 (default: data)")] = "data"
+    dir: Annotated[
+        str, option("-d", "--dir", help="数据保存根目录 (default: data)")
+    ] = "data"
     epochs: Annotated[
         int, option("-e", "--epochs", help="优化迭代次数 (default: 2000)")
     ] = 2000
-    n_max: Annotated[int, option("-n", "--n-max", help="Zernike最大阶数 (default: 4)")] = 4
+    n_max: Annotated[
+        int, option("-n", "--n-max", help="Zernike最大阶数 (default: 4)")
+    ] = 4
     early_stop_threshold: Annotated[
         float, option("-t", "--early_stop_threshold", help="早停阈值 (default: 0.12)")
     ] = 0.12
     show: Annotated[
-        bool, option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)")
+        bool,
+        option(
+            "--show",
+            is_flag=True,
+            help="显示远场光斑CCD图像和优化历史 (default: False)",
+        ),
     ] = False
     n_init: Annotated[
         int, option("--n-init", help="初始随机位置数量 (default: 10)")
@@ -755,14 +981,20 @@ class GreedyZernikeParams:
         str,
         option(
             "--algorithm",
-            type=click.Choice(list(heuristic_algorithm_choices()), case_sensitive=False),
+            type=click.Choice(
+                list(heuristic_algorithm_choices()), case_sensitive=False
+            ),
             show_default=True,
             help="搜索算法: spgd (贪婪局部搜索) 或启发式 (ga/pso/sa/hc/rs/cem/de)",
         ),
     ] = "spgd"
     pop_size: Annotated[
         int | None,
-        option("--pop_size", type=int, help="种群规模 (ga/pso/cem/de 使用; 默认取算法默认值)"),
+        option(
+            "--pop_size",
+            type=int,
+            help="种群规模 (ga/pso/cem/de 使用; 默认取算法默认值)",
+        ),
     ] = None
     debug: Annotated[
         bool,
@@ -774,7 +1006,9 @@ class GreedyZernikeParams:
 class GaZernikeParams:
     """遗传算法 Zernike 优化 CLI 参数 (ga-zernike, 单命令无子命令)。"""
 
-    dir: Annotated[str, option("-d", "--dir", help="数据保存根目录 (default: data)")] = "data"
+    dir: Annotated[
+        str, option("-d", "--dir", help="数据保存根目录 (default: data)")
+    ] = "data"
     population_size: Annotated[
         int, option("--population-size", help="种群大小 (default: 50)")
     ] = 50
@@ -841,22 +1075,14 @@ class SlmSquareParams:
     side_factor: Annotated[
         float, option("--side-factor", help="自动边长倍率 (default: 1.5)")
     ] = 1.5
-    delta: Annotated[
-        float, option("-d", "--delta", help="扰动幅度 (default: 0.1)")
-    ] = 0.1
+    delta: Annotated[float, option("-d", "--delta", help="扰动幅度 (default: 0.1)")] = (
+        0.1
+    )
     lr: Annotated[float, option("--lr", help="学习率, 0=自动 (default: 0)")] = 0.0
     exposure_ms: Annotated[
         float, option("-t", "--exposure-ms", help="相机曝光时间ms (default: 80)")
     ] = 80.0
     cam_id: Annotated[int, option("--cam-id", help="相机设备ID (default: 0)")] = 0
-    cam_type: Annotated[
-        str,
-        option(
-            "--cam_type",
-            type=click.Choice(["miicam", "daheng"]),
-            help="相机后端 (default: daheng; 整形光路现用 daheng, miicam 为旧配置)",
-        ),
-    ] = "daheng"
     cam_size: Annotated[
         int, option("-s", "--cam-size", help="相机开窗大小 (default: 300)")
     ] = 300
@@ -871,21 +1097,25 @@ class SlmSquareParams:
         str,
         option(
             "--algorithm",
-            type=click.Choice(list(heuristic_algorithm_choices()), case_sensitive=False),
+            type=click.Choice(
+                list(heuristic_algorithm_choices()), case_sensitive=False
+            ),
             show_default=True,
             help="搜索算法: spgd (SPGD 梯度) 或启发式 (ga/pso/sa/hc/rs/cem/de)",
         ),
     ] = "spgd"
     pop_size: Annotated[
         int | None,
-        option("--pop_size", type=int, help="种群规模 (ga/pso/cem/de 使用; 默认取算法默认值)"),
+        option(
+            "--pop_size",
+            type=int,
+            help="种群规模 (ga/pso/cem/de 使用; 默认取算法默认值)",
+        ),
     ] = None
     seed: Annotated[
         int | None, option("--seed", type=int, help="随机种子 (default: None)")
     ] = None
-    show: Annotated[
-        bool, option("--show", is_flag=True, help="显示中间图像")
-    ] = False
+    show: Annotated[bool, option("--show", is_flag=True, help="显示中间图像")] = False
     target_brightness: Annotated[
         int, option("--target-brightness", help="目标最大亮度 (default: 200)")
     ] = 200
@@ -907,7 +1137,8 @@ class SlmSquareParams:
         ),
     ] = "zernike"
     phase_grid: Annotated[
-        int, option("--phase-grid", help="freeform 相位网格边长 (dim=grid²) (default: 24)")
+        int,
+        option("--phase-grid", help="freeform 相位网格边长 (dim=grid²) (default: 24)"),
     ] = 24
     zernike_radius: Annotated[
         int,
@@ -935,7 +1166,8 @@ class SlmSquareParams:
         float, option("--init-defocus", help="初始 Defocus (2,0) 系数 (default: 1.0)")
     ] = 1.0
     init_spherical: Annotated[
-        float, option("--init-spherical", help="初始 Spherical (4,0) 系数 (default: 0.5)")
+        float,
+        option("--init-spherical", help="初始 Spherical (4,0) 系数 (default: 0.5)"),
     ] = 0.5
     init_coeffs: Annotated[
         str | None,
@@ -959,19 +1191,31 @@ class SlmSquareParams:
 class SlmParamsPib(SlmParams):
     """Extended Santec SLM options (slm-pib family: adds phase shifting + coefficient loading)."""
 
-    shift_x: Annotated[
-        int, option("--shift_x", help="SLM phase X shift (pixels).")
-    ] = 0
-    shift_y: Annotated[
-        int, option("--shift_y", help="SLM phase Y shift (pixels).")
-    ] = 0
+    zernike_radius: Annotated[
+        float,
+        option(
+            "--zernike_radius",
+            help=f"Zernike aperture radius (pixels); default = SLM 面板短边的一半 ({DEFAULT_ZERNIKE_RADIUS} px).",
+        ),
+    ] = DEFAULT_ZERNIKE_RADIUS
+    shift_x: Annotated[int, option("--shift_x", help="SLM phase X shift (pixels).")] = 0
+    shift_y: Annotated[int, option("--shift_y", help="SLM phase Y shift (pixels).")] = 0
     load_file: Annotated[
         str | None,
-        option("-f", "--load_file", type=str, help="Path to a prior Zernike coefficient file to load."),
+        option(
+            "-f",
+            "--load_file",
+            type=str,
+            help="Path to a prior Zernike coefficient file to load.",
+        ),
     ] = None
     init_c: Annotated[
         str | None,
-        option("--init_c", type=str, help="Initial Zernike coefficients (JSON or comma-separated)."),
+        option(
+            "--init_c",
+            type=str,
+            help="Initial Zernike coefficients (JSON or comma-separated).",
+        ),
     ] = None
 
 
@@ -1006,10 +1250,13 @@ class CameraParamsPib(CameraParams, ObjectiveParamsPib):
     ] = False
     auto_target_peak: Annotated[
         float,
-        option("--auto-target-peak", help="Target peak brightness for --auto-exposure."),
+        option(
+            "--auto-target-peak", help="Target peak brightness for --auto-exposure."
+        ),
     ] = 160.0
     auto_n_frames: Annotated[
-        int, option("--auto-n-frames", help="Frames for the auto 0-order centre median.")
+        int,
+        option("--auto-n-frames", help="Frames for the auto 0-order centre median."),
     ] = 5
 
 
@@ -1033,22 +1280,43 @@ def parse_center(raw: Any) -> tuple[int, int] | str | None:
     return raw
 
 
+#: Fields that always survive serialization because they identify the run.
+_IDENTITY_FIELDS = ("algorithm", "name")
+
+
+def _config_value(value: Any) -> Any:
+    """Recursively turn a nested parameter dataclass into a plain dict."""
+    if is_dataclass(value) and not isinstance(value, type):
+        return _config_group(value)
+    return value
+
+
+def _config_group(obj: Any) -> dict[str, Any]:
+    """Serialize one dataclass level, recursing into nested parameter groups."""
+    group: dict[str, Any] = {}
+    for key, value in vars(obj).items():
+        if value is None:
+            continue
+        # MISSING (not None) so a ``default_factory`` field — whose class
+        # attribute is deleted — is never mistaken for "left at default".
+        default = getattr(type(obj), key, MISSING)
+        if value == default and key not in _IDENTITY_FIELDS:
+            continue
+        group[key] = _config_value(value)
+    return group
+
+
 def config_payload(obj: Any) -> dict[str, Any]:
     """Serialize a parameter dataclass for the JSON debug sidecar.
 
     Drops unset (None) fields and fields left at their dataclass default;
-    the identity field (``algorithm`` / ``name``) is always kept so the
-    search family survives the round trip.
+    the identity fields (``algorithm`` / ``name``) are always kept so the
+    search family survives the round trip. Nested parameter groups (e.g.
+    ``ObjectiveParamsPib.target``) are emitted as nested objects rather than
+    flattened, so the sidecar mirrors the parameter structure; readers must
+    therefore tolerate both shapes.
     """
-    payload: dict[str, Any] = {}
-    for key, value in obj.__dict__.items():
-        if value is None:
-            continue
-        default = getattr(type(obj), key, None)
-        if value == default and key not in ("algorithm", "name"):
-            continue
-        payload[key] = value
-    return payload
+    return _config_group(obj)
 
 
 # ---------------------------------------------------------------------------
@@ -1066,13 +1334,17 @@ class WfRunnerParams:
     epochs: Annotated[
         int, option("-e", "--epochs", help="优化迭代次数 (default: 20000)")
     ] = 20_000
-    
+
     early_stop_threshold: Annotated[
         float, option("-t", "--early_stop_threshold", help="早停阈值 (default: 0.0)")
     ] = 0.0
     show: Annotated[
         bool,
-        option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)"),
+        option(
+            "--show",
+            is_flag=True,
+            help="显示远场光斑CCD图像和优化历史 (default: False)",
+        ),
     ] = False
     dm_type: Annotated[
         str | None,
@@ -1098,7 +1370,7 @@ class PibRunnerParams:
             "--load_file",
             help="加载优化结果文件 (default: None), 若为'rms',则使用RMS优化结果初始化",
         ),
-] = "rms"
+    ] = "rms"
     cam_id: Annotated[
         str,
         option("--cam_id", help="远场光斑CCD设备ID (default: Far_Cam_ID/0)"),
@@ -1114,7 +1386,9 @@ class PibRunnerParams:
     ] = "mass"
     exposure_time_ms: Annotated[
         int,
-        option("-t", "--exposure_time_ms", help="远场光斑CCD曝光时间 (毫秒) (default: 60)"),
+        option(
+            "-t", "--exposure_time_ms", help="远场光斑CCD曝光时间 (毫秒) (default: 60)"
+        ),
     ] = 60
     epochs: Annotated[
         int, option("-e", "--epochs", help="优化迭代次数 (default: 4000)")
@@ -1140,7 +1414,8 @@ class PibRunnerParams:
         option(
             "--optimizer_type",
             type=click.Choice(
-                ["adam", "adamw", "adamod", "sgd", "muno", "munow"], case_sensitive=False
+                ["adam", "adamw", "adamod", "sgd", "muno", "munow"],
+                case_sensitive=False,
             ),
             show_default=True,
             help="梯度阶段使用的优化器类型",
@@ -1157,13 +1432,19 @@ class PibRunnerParams:
         float, option("--shrink_ratio", help="收缩半径桶和步长比例 (default: 0.8)")
     ] = 0.8
     enable_adaptive_search: Annotated[
-        bool, option("--enable_adaptive_search", is_flag=True, help="启用局部最优后的自适应邻域搜索")
+        bool,
+        option(
+            "--enable_adaptive_search",
+            is_flag=True,
+            help="启用局部最优后的自适应邻域搜索",
+        ),
     ] = False
     search_interval: Annotated[
         int, option("--search_interval", show_default=True, help="邻域搜索触发间隔")
     ] = 120
     search_warmup: Annotated[
-        int, option("--search_warmup", show_default=True, help="邻域搜索启动前的最小迭代数")
+        int,
+        option("--search_warmup", show_default=True, help="邻域搜索启动前的最小迭代数"),
     ] = 200
     search_patience: Annotated[
         int,
@@ -1175,11 +1456,17 @@ class PibRunnerParams:
     ] = 100
     search_samples: Annotated[
         int,
-        option("--search_samples", show_default=True, help="每次邻域搜索评估的候选解数量"),
+        option(
+            "--search_samples", show_default=True, help="每次邻域搜索评估的候选解数量"
+        ),
     ] = 8
     search_radius: Annotated[
         float | None,
-        option("--search_radius", type=float, help="邻域搜索初始半径，默认跟随 delta 自适应"),
+        option(
+            "--search_radius",
+            type=float,
+            help="邻域搜索初始半径，默认跟随 delta 自适应",
+        ),
     ] = None
     tabu_memory_size: Annotated[
         int, option("--tabu_memory_size", show_default=True, help="禁忌记忆表容量")
@@ -1207,7 +1494,11 @@ class PibRunnerParams:
     ] = "pib"
     show: Annotated[
         bool,
-        option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)"),
+        option(
+            "--show",
+            is_flag=True,
+            help="显示远场光斑CCD图像和优化历史 (default: False)",
+        ),
     ] = False
     dm_type: Annotated[
         str | None,
@@ -1315,7 +1606,11 @@ class CombinedRunnerParams:
     ] = 40
     show: Annotated[
         bool,
-        option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)"),
+        option(
+            "--show",
+            is_flag=True,
+            help="显示远场光斑CCD图像和优化历史 (default: False)",
+        ),
     ] = False
     dm_type: Annotated[
         str | None,
@@ -1417,27 +1712,17 @@ class HadamardMatrixRunnerParams:
     mode_order: Annotated[
         int, option("--mode-order", help="Hadamard矩阵阶数 (2的幂次, 默认8)")
     ] = 8
-    magnitude: Annotated[
-        float, option("--magnitude", help="扰动幅度 (波长)")
-    ] = 0.5
-    n_averages: Annotated[
-        int, option("--n-averages", help="每次WFS读取次数 (M)")
-    ] = 10
-    n_cycles: Annotated[
-        int, option("--n-cycles", help="正负交替循环次数 (N)")
-    ] = 1
-    wait_time: Annotated[
-        float, option("--wait", help="等待时间 (秒)")
-    ] = 0.1
-    output_path: Annotated[
-        str, option("--output", help="输出文件路径")
-    ] = "data/hadamard_response_matrix"
-    resolution: Annotated[
-        str, option("--resolution", help="SLM分辨率 (宽,高)")
-    ] = "1920,1080"
-    wavelength: Annotated[
-        int, option("--wavelength", help="工作波长 (nm)")
-    ] = 1064
+    magnitude: Annotated[float, option("--magnitude", help="扰动幅度 (波长)")] = 0.5
+    n_averages: Annotated[int, option("--n-averages", help="每次WFS读取次数 (M)")] = 10
+    n_cycles: Annotated[int, option("--n-cycles", help="正负交替循环次数 (N)")] = 1
+    wait_time: Annotated[float, option("--wait", help="等待时间 (秒)")] = 0.1
+    output_path: Annotated[str, option("--output", help="输出文件路径")] = (
+        "data/hadamard_response_matrix"
+    )
+    resolution: Annotated[str, option("--resolution", help="SLM分辨率 (宽,高)")] = (
+        "1920,1080"
+    )
+    wavelength: Annotated[int, option("--wavelength", help="工作波长 (nm)")] = 1064
 
     compute_inverses: Annotated[
         bool, option("--no-inverses", flag_value=False, help="不计算逆矩阵")
@@ -1461,26 +1746,37 @@ class FullVoltageRunnerParams:
 
     ips_str: Annotated[
         str | None,
-        option("--ips", help="Controller IPs, comma-separated (default: 192.168.0.101~126, 全部 26 台)"),
+        option(
+            "--ips",
+            help="Controller IPs, comma-separated (default: 192.168.0.101~126, 全部 26 台)",
+        ),
     ] = None
     alt_voltage: Annotated[
         float,
-        option("--voltage", required=True, help="Voltage for ALL units (V, [-20, 120])"),
+        option(
+            "--voltage", required=True, help="Voltage for ALL units (V, [-20, 120])"
+        ),
     ] = field(default_factory=lambda: 0.0)
     alt_freq: Annotated[
         float, option("--freq", help="Alternation frequency (Hz, default: 1.0)")
     ] = 1.0
     alt_duration: Annotated[
-        float, option("--duration", help="Duration in seconds (0=until Ctrl+C, default: 0)")
+        float,
+        option("--duration", help="Duration in seconds (0=until Ctrl+C, default: 0)"),
     ] = 0.0
     relay_on: Annotated[
-        bool, option("--relay-on/--no-relay-on", help="Auto relay on before starting (default: True)")
+        bool,
+        option(
+            "--relay-on/--no-relay-on",
+            help="Auto relay on before starting (default: True)",
+        ),
     ] = True
     home_voltage: Annotated[
         float, option("--home-voltage", help="Home voltage on shutdown (default: 0.0)")
     ] = 0.0
     timeout: Annotated[
-        float, option("--timeout", help="Controller connect/send timeout (s, default: 10.0)")
+        float,
+        option("--timeout", help="Controller connect/send timeout (s, default: 10.0)"),
     ] = 10.0
     debug: Annotated[
         bool, option("--debug", is_flag=True, help="Enable debug logging")
@@ -1493,7 +1789,9 @@ class AltVoltageRunnerParams:
 
     ip: Annotated[
         str,
-        option("--ip", required=True, help="Controller IP address (e.g., 192.168.0.101)"),
+        option(
+            "--ip", required=True, help="Controller IP address (e.g., 192.168.0.101)"
+        ),
     ] = field(default_factory=lambda: "")
     port: Annotated[
         int | None, option("--port", help="TCP port (default: 10000 + last IP octet)")
@@ -1506,23 +1804,39 @@ class AltVoltageRunnerParams:
         float, option("--freq", help="Alternation frequency (Hz, default: 1.0)")
     ] = 1.0
     alt_duration: Annotated[
-        float, option("--duration", help="Duration in seconds (0=until Ctrl+C, default: 0)")
+        float,
+        option("--duration", help="Duration in seconds (0=until Ctrl+C, default: 0)"),
     ] = 0.0
     channel_str: Annotated[
         str | None,
-        option("--channels", help="Channels to alternate (comma-separated, e.g. 0,1,2 or 'all' for all 50)"),
+        option(
+            "--channels",
+            help="Channels to alternate (comma-separated, e.g. 0,1,2 or 'all' for all 50)",
+        ),
     ] = None
     ping_first: Annotated[
-        bool, option("--ping-first/--no-ping-first", help="Ping test before connecting (default: True)")
+        bool,
+        option(
+            "--ping-first/--no-ping-first",
+            help="Ping test before connecting (default: True)",
+        ),
     ] = True
     relay_on: Annotated[
-        bool, option("--relay-on/--no-relay-on", help="Auto relay on before starting (default: True)")
+        bool,
+        option(
+            "--relay-on/--no-relay-on",
+            help="Auto relay on before starting (default: True)",
+        ),
     ] = True
     debug: Annotated[
         bool, option("--debug", is_flag=True, help="Enable debug logging")
     ] = False
     adc_enabled: Annotated[
-        bool, option("--adc-enabled/--no-adc-enabled", help="Enable ADC voltage acquisition (default: False)")
+        bool,
+        option(
+            "--adc-enabled/--no-adc-enabled",
+            help="Enable ADC voltage acquisition (default: False)",
+        ),
     ] = False
     adc_device: Annotated[
         str, option("--adc-device", help="NI DAQ device name (default: Dev1)")

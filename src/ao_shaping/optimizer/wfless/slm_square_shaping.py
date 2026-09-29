@@ -880,8 +880,6 @@ def optimize_slm_square(
         lr: Learning rate. If 0, auto-adjusted via learning_schedule.
         exposure_time_ms: Camera exposure time in ms. If 0, auto-exposure.
         cam_id: Camera device ID.
-        cam_type: Camera backend (``"daheng"`` / ``"miicam"`` / ``"sim"``);
-            resolved through the ``drivers.ccd.common.create_camera`` registry.
         show: Whether to display images during optimization.
         init_c: Initial Zernike coefficients. If None, starts from zeros.
         cam_size: Camera window size.
@@ -922,7 +920,6 @@ def optimize_slm_square(
             lr=lr,
             exposure_time_ms=exposure_time_ms,
             cam_id=cam_id,
-            cam_type=cam_type,
             show=show,
             init_c=init_c,
             cam_size=cam_size,
@@ -955,7 +952,6 @@ def optimize_slm_square(
     lr = config.lr
     exposure_time_ms = config.exposure_time_ms
     cam_id = config.cam_id
-    cam_type = config.cam_type
     show = config.show
     init_c = config.init_c
     cam_size = config.cam_size

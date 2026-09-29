@@ -12,7 +12,7 @@ from ao_shaping.optimizer.wfless.slm_zernike_pib import (
     shape_metric,
     target_shape_roi,
 )
-from ao_shaping.runners.runner_common import CameraParamsPib
+from ao_shaping.runners.runner_common import CameraParamsPib, ObjectiveTarget
 from ao_shaping.runners.slm_pib_runner import run
 
 
@@ -133,6 +133,6 @@ def test_shape_options_are_validated_before_hardware() -> None:
             SlmZernikePibConfig(
                 center="shape",
                 epochs=1,
-                camera=CameraParamsPib(name="radiu", target_shape="circle"),
+                camera=CameraParamsPib(target=ObjectiveTarget(name="radiu", target_shape="circle")),
             )
         )

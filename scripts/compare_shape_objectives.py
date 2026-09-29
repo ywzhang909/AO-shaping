@@ -203,7 +203,11 @@ def run_variant(slug: str, kwargs: dict, args, exp: float, center, waist: float)
         SlmZernikePibConfig,
         optimize_slm_zernike_pib,
     )
-    from ao_shaping.runners.runner_common import CameraParamsPib, SlmParamsPib
+    from ao_shaping.runners.runner_common import (
+        CameraParamsPib,
+        ObjectiveTarget,
+        SlmParamsPib,
+    )
 
     t0 = time.perf_counter()
     rec = optimize_slm_zernike_pib(
@@ -214,12 +218,14 @@ def run_variant(slug: str, kwargs: dict, args, exp: float, center, waist: float)
             random_seed=args.seed,
             show=False,
             camera=CameraParamsPib(
-                name=kwargs["objective"],
+                target=ObjectiveTarget(
+                    name=kwargs["objective"],
+                    target_shape="rectangle",
+                ),
                 cam_id=args.cam_id,
                 cam_type=args.cam_type,
                 exposure_time_ms=exp,
                 cam_size=args.cam_size,
-                target_shape="rectangle",
                 target_size=None,  # auto = TARGET_BOX_WAIST_FACTOR x waist
                 max_roi_energy_loss=0.6,
                 w_uniformity=kwargs.get("w_uniformity", 2.0),

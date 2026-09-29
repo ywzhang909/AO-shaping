@@ -43,7 +43,10 @@ SpgdParams = SpgdParamsPib
 
 _DEBUG_IMG_KEYS = ("_img",)
 _DEBUG_1D_KEYS = ("_c",)
-_DEBUG_2D_KEYS = ("_grad",)
+# ``_phase`` is the display-ready grayscale actually sent to the SLM on each
+# epoch (present when ``record_phase`` / ``--debug``); persisted so the report
+# can show the sent phase alongside the measured spot (``_img``).
+_DEBUG_2D_KEYS = ("_grad", "_phase")
 _DEBUG_SCALAR_KEYS = (
     "J",
     "_p%",
@@ -207,12 +210,16 @@ def _build_slm_pib_config(
             shrink_iter=search.shrink_iter,
             shrink_ratio=search.shrink_ratio,
             show=search.show,
+            n_eval_frames=search.n_eval_frames,
+            fold_ratio=search.fold_ratio,
+            noise_gate_k=search.noise_gate_k,
         )
     else:  # HeuristicParams
         cfg.update(
             algorithm=search.algorithm,
             pop_size=search.pop_size,
             show=search.show,
+            n_eval_frames=search.n_eval_frames,
         )
 
     return SlmZernikePibConfig(**cfg)

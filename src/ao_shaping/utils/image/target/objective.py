@@ -2,21 +2,23 @@
 
 Part of the :mod:`ao_shaping.utils.image.target` package (split by type).
 """
-
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
 from loguru import logger
 
 from ao_shaping.utils.image.target.metrics import (
+    TARGET_SHAPE_CHOICES,
     TargetShape,
+    rmse_out_metric,
     rmse_shape_metric,
     rms_pib_terms,
+    pearson_shape_metric,
     roi_energy_loss,
     roi_pib_metric,
     shape_metric,
@@ -215,8 +217,12 @@ class ShapingObjectiveParams:
         shape: target shape used by the ROI-based objectives.
         size: target ROI short side in pixels.
         aspect_ratio: long/short side of the target ROI.
-        reference_center: window-local ``(x, y)`` of the FIXED target ROI. It
-            never tracks the measured spot, so a drifting spot is penalised.
+        reference_center: window-local ``(x, y)`` SEED of the target ROI. The
+            objective's ROI becomes *live* through
+            :meth:`ShapingObjective.set_reference_center` - scoring rides the
+            current spot so environmental beam drift is not misread as a
+            coefficient-induced shaping loss (the measured 22-px drift on the
+            bench is environmental; see ``docs/slm_pib``).
         shape_schedule: coarsen->middle->fine ``shape`` weight staging.
         scoring: ``shape_metric`` weights.
         max_roi_energy_loss: in-ROI energy-loss fraction that abandons an
@@ -224,6 +230,8 @@ class ShapingObjectiveParams:
         ideal_spot_radius: fixed radius of the baseline ``m_pib7`` metric.
         r_bucket: initial (possibly dynamically derived) bucket radius. Mutable
             through :meth:`ShapingObjective.set_bucket`.
+        w_outside: outside-target penalty weight of the ``rmse_out`` objective
+            (``J = RMSE_norm + w_outside * (1 - in_target_energy)``).
         w_ema_decay / w_floor / w_temperature: ``rms_pib`` weight adaptation.
         w_pib_init / w_rms_init / w_ee_init: ``rms_pib`` initial weights.
     """
@@ -245,6 +253,7 @@ class ShapingObjectiveParams:
     w_pib_init: float | None = None
     w_rms_init: float | None = None
     w_ee_init: float | None = None
+    w_outside: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -271,13 +280,163 @@ SHAPING_OBJECTIVE_CHOICES = (
     "radiu",
     "avg_radiu",
     "rmse",
+    "rmse_out",
     "shape",
     "roi_pib",
     "rms_pib",
+    "pearson",
 )
 
 
-GUARDED_OBJECTIVES = ("pib", "rmse", "shape", "roi_pib", "rms_pib")
+#: Objectives that carry the in-ROI energy-loss safety guard.
+#:
+#: ``pearson`` **must** be here. ``1 - corr`` is computed after mean-centring, so
+#: it is invariant to global intensity scale and to any additive DC offset: an
+#: all-dark frame and a bright frame with the identical shape score identically.
+#: Without the guard the search can drive encircled energy out of the target box
+#: while the correlation keeps improving - the same failure mode already recorded
+#: for the pure ``-CV`` objective in AGENTS.md (hardware: EE -> 0.002).
+GUARDED_OBJECTIVES = (
+    "pib",
+    "rmse",
+    "rmse_out",
+    "shape",
+    "roi_pib",
+    "rms_pib",
+    "pearson",
+)
+
+
+#: Objectives that accept an explicit ``target_shape``.
+SHAPE_AWARE_OBJECTIVES = (
+    "pib",
+    "rmse",
+    "rmse_out",
+    "shape",
+    "roi_pib",
+    "rms_pib",
+    "pearson",
+)
+
+#: Objectives for which an explicit shape only selects the ROI, so the objective
+#: itself is NOT promoted to ``shape``.
+ROI_ONLY_SHAPE_OBJECTIVES = ("roi_pib", "rms_pib", "rmse", "rmse_out", "pearson")
+
+#: Objectives that score against a target ROI and therefore default to
+#: ``rectangle`` when no shape is given.
+DEFAULT_SHAPE_OBJECTIVES = (
+    "shape",
+    "roi_pib",
+    "rms_pib",
+    "rmse",
+    "rmse_out",
+    "pearson",
+)
+
+#: Per-objective whitelist of accepted ``target_shape`` values; ``None`` means
+#: the objective does not accept a literal shape.
+#:
+#: Derived from :data:`SHAPING_OBJECTIVE_CHOICES` x :data:`SHAPE_AWARE_OBJECTIVES`
+#: so the keys are guaranteed to stay equal to the objective vocabulary — a
+#: hand-written dict had already drifted once (it omitted ``rmse_out``). The
+#: value is a plain tuple, so narrow vocabularies (e.g. a 3-shape benchmark
+#: subset) remain expressible without a second mechanism.
+#:
+#: This keeps the exact invariant that :meth:`ObjectiveSpec.resolve` enforces:
+#: ``OBJECTIVE_ALLOWED_SHAPES[name] is None`` if and only if ``resolve`` raises
+#: for ``(name, <any shape>)``. Note this is *acceptance*, not *survival* —
+#: ``pib`` accepts any shape but promotes itself to ``shape``
+#: (:data:`ROI_ONLY_SHAPE_OBJECTIVES` is what decides that), so a literal shape
+#: is never the ``pib`` objective's own shape.
+OBJECTIVE_ALLOWED_SHAPES: dict[str, tuple[str, ...] | None] = {
+    name: (tuple(TARGET_SHAPE_CHOICES) if name in SHAPE_AWARE_OBJECTIVES else None)
+    for name in SHAPING_OBJECTIVE_CHOICES
+}
+
+
+def _quoted_choices(choices: tuple[str, ...]) -> str:
+    """Render ``choices`` as ``'a', 'b', 'c'`` for error messages.
+
+    The message is derived from the tuple itself so a newly added objective can
+    never go missing from the text (the hand-written lists drifted once already,
+    hiding ``rmse_out`` from both ``ValueError`` messages).
+    """
+    return ", ".join(repr(str(c)) for c in choices)
+
+
+@dataclass(frozen=True)
+class ObjectiveSpec:
+    """A validated ``(objective, target_shape)`` pair with the shape nested.
+
+    This is the single authority for the objective/target-shape pairing: the
+    CLI layer, the runners and the shaping optimizer all resolve through
+    :meth:`resolve` instead of re-implementing the rules.
+
+    ``shape`` is ``None`` for the bucket/radius objectives (``pib`` / ``radiu`` /
+    ``avg_radiu``) and a concrete :class:`TargetShape` for the ROI family.
+
+    Resolution rules, applied in this order:
+
+    1. ``target_shape``, when given, must be a known shape and the objective
+       must be in :data:`SHAPE_AWARE_OBJECTIVES`.
+    2. ``pib`` + a shape is promoted to the dynamic-ROI ``shape`` objective; the
+       remaining shape-aware objectives (:data:`ROI_ONLY_SHAPE_OBJECTIVES`) keep
+       their identity because the shape only selects the ROI there.
+    3. The ROI family (:data:`DEFAULT_SHAPE_OBJECTIVES`) defaults to
+       ``rectangle`` when no shape was supplied.
+    4. The objective must finally be one of :data:`SHAPING_OBJECTIVE_CHOICES`.
+    """
+
+    name: str
+    shape: TargetShape | None
+
+    @classmethod
+    def resolve(cls, objective: str, target_shape: str | None = None) -> ObjectiveSpec:
+        """Resolve a user-supplied objective / shape pair.
+
+        Args:
+            objective: Objective name; case-insensitive.
+            target_shape: Target shape name; case-insensitive, ``None`` for the
+                bucket/radius objectives.
+
+        Returns:
+            The resolved spec.
+
+        Raises:
+            ValueError: if the shape is unknown, the objective cannot take a
+                shape, or the objective is not supported.
+        """
+        name = str(objective).lower()
+        shape: str | None = None
+        if target_shape is not None:
+            shape = str(target_shape).lower()
+            if shape not in TARGET_SHAPE_CHOICES:
+                raise ValueError(
+                    f"target_shape must be one of {TARGET_SHAPE_CHOICES}, got {shape!r}"
+                )
+            if name not in SHAPE_AWARE_OBJECTIVES:
+                raise ValueError(
+                    "target_shape can only be used with objective="
+                    f"{_quoted_choices(SHAPE_AWARE_OBJECTIVES)}, "
+                    f"got objective={name!r} with target_shape={shape!r}"
+                )
+        if shape is not None and name not in ROI_ONLY_SHAPE_OBJECTIVES:
+            # Supplying target_shape implies the dynamic-ROI shaping objective,
+            # except for roi_pib/rms_pib/rmse/rmse_out where the shape only
+            # selects the ROI.
+            name = "shape"
+        if name in DEFAULT_SHAPE_OBJECTIVES and shape is None:
+            shape = "rectangle"
+        if name not in SHAPING_OBJECTIVE_CHOICES:
+            raise ValueError(
+                f"objective must be one of "
+                f"{_quoted_choices(SHAPING_OBJECTIVE_CHOICES)}, got {name!r}"
+            )
+        return cls(
+            name=name,
+            shape=cast(TargetShape, shape) if shape is not None else None,
+        )
+
 
 
 class ShapingObjective:
@@ -295,7 +454,10 @@ class ShapingObjective:
 
     The bucket radius is *live*: the search shrinks it mid-run through
     :meth:`set_bucket`, and both the ``pib`` objective and the panel read the
-    current value.
+    current value. The target ROI centre is *live* too: the search re-locates
+    it onto the current spot through :meth:`set_reference_center` before each
+    evaluation, so environmental beam drift does not masquerade as a
+    coefficient-induced loss (the energy guard keeps its armed baseline).
     """
 
     def __init__(
@@ -337,6 +499,12 @@ class ShapingObjective:
         self._params = params
         self._target_func = target_func
         self._r_bucket = float(params.r_bucket)
+        # Live ROI centre, seeded from the (frozen) params. ``set_reference_center``
+        # re-locates it onto the current spot before every evaluation.
+        self._reference_center: tuple[float, float] = (
+            float(params.reference_center[0]),
+            float(params.reference_center[1]),
+        )
         # Baseline window energy from the flat-phase capture: "no energy lost"
         # means sum(img) stays at this level. Both the ``rms_pib`` term and the
         # panel's ``m_ee`` are fractions of it.
@@ -368,7 +536,7 @@ class ShapingObjective:
         # it and the SLM is never left there. ``0`` disables the guard.
         self._guard_ref_energy: float | None = None
         if params.max_roi_energy_loss > 0.0 and params.objective in GUARDED_OBJECTIVES:
-            ref = self._fixed_roi_energy(init_img)
+            ref = self._roi_energy(init_img)
             self._guard_ref_energy = ref if np.isfinite(ref) and ref > 0.0 else None
             if self._guard_ref_energy is None:
                 logger.warning(
@@ -381,20 +549,32 @@ class ShapingObjective:
                     params.max_roi_energy_loss,
                 )
 
-    def _fixed_roi_energy(self, frame: np.ndarray) -> float:
-        """Light fraction inside the **FIXED** target ROI - the guard's observable.
+    def _roi_energy(self, frame: np.ndarray) -> float:
+        """Light fraction inside the target ROI - the guard's observable.
 
-        Deliberately NOT the running (spot-tracking) ROI used by the objective:
-        that one follows the measured spot centre, so it always retains the same
-        energy and could never detect a loss. This ROI stays at
-        ``reference_center`` / ``size`` / ``shape``.
+        The ROI location is the *live* ``self._reference_center`` (moved onto
+        the current spot before every evaluation), so a benign environmental
+        beam drift no longer collapses the ROI energy and false-fires the
+        guard. A coefficient-driven loss (light scattered out of the ROI or
+        pumped into a dark halo) still drops the in-ROI fraction and abandons
+        the evaluation.
         """
         p = self._params
         return float(
-            roi_pib_metric(frame, p.reference_center, p.shape, p.size, p.aspect_ratio)[
-                0
-            ]
+            roi_pib_metric(
+                frame, self._reference_center, p.shape, p.size, p.aspect_ratio
+            )[0]
         )
+
+    def set_reference_center(self, center: tuple[float, float]) -> None:
+        """Move the target ROI onto ``center`` (window-local ``(x, y)``).
+
+        Called by the search loop before each evaluation once the spot has
+        been re-located on the freshly captured frame (``zero_order_center``).
+        ``params.reference_center`` stays the *seed*; the energy guard keeps
+        the baseline it was armed with, only the ROI location becomes live.
+        """
+        self._reference_center = (float(center[0]), float(center[1]))
 
     def raw(self, img: np.ndarray) -> tuple[float, float]:
         """Score one frame without the safety guard.
@@ -416,7 +596,7 @@ class ShapingObjective:
             # of the light landing in the target rectangle (exposure-invariant
             # ratio, no uniformity/peak/drift penalties).
             score, energy = roi_pib_metric(
-                img, p.reference_center, p.shape, p.size, p.aspect_ratio
+                img, self._reference_center, p.shape, p.size, p.aspect_ratio
             )
             return float(score), float(energy)
 
@@ -425,18 +605,18 @@ class ShapingObjective:
             # adaptively-weighted terms:
             # J = w_pib(t)*pib_term + w_rms(t)*rms_term + w_ee(t)*ee_term.
             # The weights adapt so the term that improves J more gets the higher
-            # weight (see _update_dynamic_weights). The target ROI is FIXED at
-            # reference_center (never tracks the spot). ``ee_term`` = fraction
-            # of the baseline (flat-phase) window energy still inside the window,
-            # so a search that diffracts/scatters light out of the window (or
-            # pumps it to a dark halo) is penalised even though pib/rms are
-            # exposure-invariant ratios (energy-encircled constraint; see
-            # AGENTS.md anti-pattern).
+            # weight (see _update_dynamic_weights). The target ROI rides the
+            # measured spot (live ``self._reference_center``). ``ee_term`` =
+            # fraction of the baseline (flat-phase) window energy still inside
+            # the window, so a search that diffracts/scatters light out of the
+            # window (or pumps it to a dark halo) is penalised even though
+            # pib/rms are exposure-invariant ratios (energy-encircled constraint;
+            # see AGENTS.md anti-pattern).
             w_pib = float(self._rms_pib_state["w_pib"])
             w_rms = float(self._rms_pib_state["w_rms"])
             w_ee = float(self._rms_pib_state["w_ee"])
             pib_term, rms_term = rms_pib_terms(
-                img, p.reference_center, p.shape, p.size, p.aspect_ratio
+                img, self._reference_center, p.shape, p.size, p.aspect_ratio
             )
             frame = np.asarray(img, dtype=np.float64)
             ee_term = float(
@@ -456,10 +636,10 @@ class ShapingObjective:
             return float(j), float(pib_term)
 
         if objective == "shape":
-            # The target ROI is FIXED at reference_center - it never tracks the
-            # measured spot, so a spot that drifts/scatters out of the box is
-            # penalised instead of being followed (displacement weight = 0 for
-            # the same reason: the energy term already captures the drift).
+            # The target ROI rides the measured spot (live
+            # ``self._reference_center``), so environmental beam drift is not
+            # penalised as if the coefficients had moved it (displacement weight
+            # = 0 for the same reason: the energy term already captures drift).
             stage = (
                 shape_stage_from_energy(self._shape_state["best_energy"])
                 if p.shape_schedule
@@ -467,8 +647,8 @@ class ShapingObjective:
             )
             score, energy = shape_metric(
                 img,
-                p.reference_center,
-                p.reference_center,
+                self._reference_center,
+                self._reference_center,
                 p.shape,
                 p.size,
                 p.aspect_ratio,
@@ -487,11 +667,35 @@ class ShapingObjective:
         if objective == "rmse":
             # Minimise the RMSE between the frame and the uniform-intensity
             # target, both normalised to unit sum (exposure / laser-drift
-            # invariant).
+            # invariant). The target ROI rides the current spot (live centre).
             rmse, energy = rmse_shape_metric(
-                img, p.reference_center, p.shape, p.size, p.aspect_ratio
+                img, self._reference_center, p.shape, p.size, p.aspect_ratio
             )
             return float(rmse), float(energy)
+
+        if objective == "rmse_out":
+            # Minimise normalised RMSE with an explicit outside-target penalty:
+            # J = RMSE_norm + w_outside * (1 - in_target_energy).
+            j, energy = rmse_out_metric(
+                img,
+                self._reference_center,
+                p.shape,
+                p.size,
+                p.aspect_ratio,
+                w_outside=p.w_outside,
+            )
+            return float(j), float(energy)
+
+        if objective == "pearson":
+            # Minimise 1 - Pearson between the full frame and the uniform
+            # target ROI (the FourierGSNet ``shaping_loss``, ported to NumPy).
+            # Correlation is taken after mean-centring, so this is invariant to
+            # global scale / DC offset and therefore blind to absolute energy -
+            # which is exactly why ``pearson`` is in ``GUARDED_OBJECTIVES``.
+            loss, energy = pearson_shape_metric(
+                img, self._reference_center, p.shape, p.size, p.aspect_ratio
+            )
+            return float(loss), float(energy)
 
         if objective == "radiu":
             return float(self._target_func.radius(img, energy=0.99)), 0.0
@@ -511,7 +715,7 @@ class ShapingObjective:
         if self._guard_ref_energy is None:
             return ObjectiveResult(float(j), float(ratio), self._terms)
 
-        loss = roi_energy_loss(self._guard_ref_energy, self._fixed_roi_energy(img))
+        loss = roi_energy_loss(self._guard_ref_energy, self._roi_energy(img))
         if loss > self._params.max_roi_energy_loss:
             self._violations += 1
             if self._violations <= 5 or self._violations % 50 == 0:
@@ -535,7 +739,9 @@ class ShapingObjective:
         be MINIMISED (a ``>`` comparison would keep the worst).
         """
         if self._params.objective == "pib":
-            return float(self._target_func.pib(img, self._params.ideal_spot_radius)[1])
+            return float(
+                self._target_func.pib(img, self._params.ideal_spot_radius)[1]
+            )
         return float(res.j)
 
     def metric_panel(self, img: np.ndarray) -> dict[str, float]:
@@ -550,8 +756,8 @@ class ShapingObjective:
         p = self._params
         shape_score, energy = shape_metric(
             img,
-            p.reference_center,
-            p.reference_center,
+            self._reference_center,
+            self._reference_center,
             p.shape,
             p.size,
             p.aspect_ratio,
@@ -562,13 +768,13 @@ class ShapingObjective:
             log_uniformity=p.scoring.log_uniformity,
         )
         pib_term, rms_t = rms_pib_terms(
-            img, p.reference_center, p.shape, p.size, p.aspect_ratio
+            img, self._reference_center, p.shape, p.size, p.aspect_ratio
         )
         rmse, _ = rmse_shape_metric(
-            img, p.reference_center, p.shape, p.size, p.aspect_ratio
+            img, self._reference_center, p.shape, p.size, p.aspect_ratio
         )
         roi_score, _roi_energy = roi_pib_metric(
-            img, p.reference_center, p.shape, p.size, p.aspect_ratio
+            img, self._reference_center, p.shape, p.size, p.aspect_ratio
         )
         frame_sum = float(np.asarray(img, dtype=np.float64).sum())
         ee = float(

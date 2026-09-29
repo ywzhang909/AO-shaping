@@ -26,7 +26,7 @@ from ao_shaping.runners.slm_pib_runner import (
     _save_debug_artifacts,
     run,
 )
-from ao_shaping.runners.runner_common import CameraParamsPib
+from ao_shaping.runners.runner_common import CameraParamsPib, ObjectiveTarget
 from ao_shaping.utils.io.file import Recorder
 
 
@@ -63,9 +63,9 @@ def test_debug_artifacts_written_for_every_objective(tmp_path, objective, mode):
 
     png = _save_debug_artifacts(
         rec,
-        ObjectiveParams(name=objective),
+        ObjectiveParams(target=ObjectiveTarget(name=objective)),
         SlmParams(),
-        ObjectiveParams(name=objective),
+        ObjectiveParams(target=ObjectiveTarget(name=objective)),
         str(tmp_path),
     )
 
@@ -135,7 +135,7 @@ def test_debug_artifacts_rms_pib_with_target_box_overlay(tmp_path):
 
     png = _save_debug_artifacts(
         rec,
-        ObjectiveParams(name="rms_pib"),
+        ObjectiveParams(target=ObjectiveTarget(name="rms_pib")),
         SlmParams(),
         HeuristicParams(algorithm="spgd"),
         str(tmp_path),
@@ -192,7 +192,7 @@ def test_debug_artifact_json_round_trips_config(tmp_path):
     rec = _make_recorder("pib", "max")
     png = _save_debug_artifacts(
         rec,
-        ObjectiveParams(name="pib"),
+        ObjectiveParams(target=ObjectiveTarget(name="pib")),
         SlmParams(),
         HeuristicParams(algorithm="ga"),
         str(tmp_path),
@@ -235,7 +235,7 @@ def test_debug_artifacts_with_guard_penalised_rows(tmp_path):
 
     png = _save_debug_artifacts(
         rec,
-        ObjectiveParams(name="pib"),
+        ObjectiveParams(target=ObjectiveTarget(name="pib")),
         SlmParams(),
         HeuristicParams(algorithm="spgd"),
         str(tmp_path),
@@ -434,7 +434,7 @@ def test_debug_artifacts_write_sidecars(tmp_path):
     rec = _make_recorder("pib", "max")
     png = _save_debug_artifacts(
         rec,
-        ObjectiveParams(name="pib"),
+        ObjectiveParams(target=ObjectiveTarget(name="pib")),
         SlmParams(),
         HeuristicParams(algorithm="ga"),
         str(tmp_path),
@@ -472,7 +472,7 @@ def test_debug_artifacts_pkl_exports_array_fields(tmp_path):
     rec = _make_recorder_with_phase("pib", "max")
     png = _save_debug_artifacts(
         rec,
-        ObjectiveParams(name="pib"),
+        ObjectiveParams(target=ObjectiveTarget(name="pib")),
         SlmParams(),
         HeuristicParams(algorithm="ga"),
         str(tmp_path),

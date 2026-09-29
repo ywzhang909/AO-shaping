@@ -30,7 +30,7 @@ from ao_shaping.optimizer.wfless.slm_zernike_pib import (
     rmse_shape_metric,
     target_shape_roi,
 )
-from ao_shaping.runners.runner_common import CameraParamsPib
+from ao_shaping.runners.runner_common import CameraParamsPib, ObjectiveTarget
 from ao_shaping.runners.slm_pib_runner import _effective_objective_key, run
 
 
@@ -149,7 +149,7 @@ def test_rmse_accepts_target_shape_in_validation() -> None:
             SlmZernikePibConfig(
                 center="shape",
                 epochs=1,
-                camera=CameraParamsPib(name="rmse", target_shape="circle"),
+                camera=CameraParamsPib(target=ObjectiveTarget(name="rmse", target_shape="circle")),
             )
         )
     except ValueError as exc:

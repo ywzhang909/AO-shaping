@@ -9,7 +9,8 @@ that ``slm_zernike_pib`` and the tests import - so existing
 New code should import from the :mod:`ao_shaping.utils.image.target` package.
 
 See Also:
-    :mod:`ao_shaping.utils.image.target`
+    :mod:`ao_shaping.utils.image.target` (single source of truth; includes
+    ``ObjectiveSpec`` and the objective-rule constants).
 """
 
 from __future__ import annotations

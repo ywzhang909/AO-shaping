@@ -48,6 +48,7 @@ from ao_shaping.optimizer.wfless.slm_zernike_pib import (  # noqa: E402
 )
 from ao_shaping.runners.runner_common import (  # noqa: E402
     CameraParamsPib,
+    ObjectiveTarget,
     SlmParamsPib,
 )
 from ao_shaping.utils.image.beam_metrics import (  # noqa: E402
@@ -210,13 +211,15 @@ def run_algorithm(
             random_seed=args.seed,
             show=False,
             camera=CameraParamsPib(
-                name=args.objective,
+                target=ObjectiveTarget(
+                    name=args.objective,
+                    target_shape=args.target_shape,
+                ),
                 cam_id=args.cam_id,
                 cam_type=args.cam_type,
                 exposure_time_ms=args.exposure_ms,
                 cam_size=args.cam_size,
                 target_max_brightness=0,  # fixed exposure requested above
-                target_shape=args.target_shape,
                 target_size=args.target_size,
                 max_roi_energy_loss=args.max_energy_loss,
             ),

@@ -1181,6 +1181,42 @@ python scripts/generate_slm_pib_sim_report.py --max-runs 3
 | `--max-runs` | `1` | How many runs (newest first) to render |
 | `--out` | `docs/slm_pib_sim` | Output dir for figures/gifs/report.md |
 
+### generate_slm_zernike_shaping_report.py
+
+Generates the illustrated report for the **`slm_zernike_shaping`** optimizer
+(the shaping module) from its `debug=True` artifact bundle. **Fully offline** —
+reads the saved PKL/JSON only, no hardware, no pipeline code.
+
+**Usage:**
+```bash
+python scripts/generate_slm_zernike_shaping_report.py
+python scripts/generate_slm_zernike_shaping_report.py --debug-dir data/debug/slm_zernike_shaping_rmse_out_<ts>
+python scripts/generate_slm_zernike_shaping_report.py --debug-root data/debug --max-runs 2
+```
+
+**Artifacts read** (`<debug_dir>/debug/slm_zernike_shaping_<objective>_<ts>/<ts>/`):
+- `*.pkl` — `{epoch: record}`; rows carry `J / _p% / lr / delta / r / exp_t /
+  max_brt / _img` (CCD far-field) / `_c` (Zernike coeffs) / `_grad`, the
+  cross-objective `m_*` panel, and the objective's own column (e.g. `rmse_out`).
+- `*.json` — run payload (`objective / target_shape / target_size / epochs /
+  algorithm / optimizer_type / delta / w_outside / r_bucket / cam_type / cam_size`).
+- `*.png` — the run-time summary figure.
+
+**What it does** (writes `docs/slm_zernike_shaping/report.md` + `figures/`):
+- **Header + run config** from the JSON sidecar; `**Fully offline**` marker
+- **Per-run section**: objective-vs-epoch curve (min/max aware), best objective
+  + epoch, Zernike-coefficient evolution, first-vs-last CCD frames
+  (`run<N>_frames.png`), and an optional spot GIF (`run<N>_spot.gif`)
+- Robust: scans `data/debug/slm_zernike_shaping_*/*` newest-first; missing
+  keys/figures degrade to a warning, never a traceback
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--debug-root` | `data/debug` | Root dir containing `slm_zernike_shaping_*` artifact dirs |
+| `--debug-dir` | (None) | A single artifact dir (overrides the glob) |
+| `--max-runs` | `1` | How many runs (newest first) to render |
+| `--out` | `docs/slm_zernike_shaping` | Output dir for figures/report.md |
+
 ### generate_fouriergsnet_pipeline_report.py
 
 Generates the FourierGSNet pipeline integration-test report. **Fully offline** —

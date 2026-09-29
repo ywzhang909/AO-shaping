@@ -33,7 +33,7 @@ import time
 from collections import deque
 from contextlib import nullcontext
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, Sequence, cast
 
 import numpy as np
 import tqdm
@@ -54,22 +54,25 @@ from ao_shaping.algorithm.heuristic.search import (
 )
 from ao_shaping.display import SlmZernikeDisplay
 from ao_shaping.drivers.ccd.common import (
+    capture_with_exposure,
     create_camera,
     get_camera_exposure_ms,
     list_camera_types,
-    resolve_initial_exposure,
-    capture_with_exposure,
     resample_on_saturation,
+    resolve_initial_exposure,
 )
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL
 from ao_shaping.optimizer.spgd import spgd_gradient
-from ao_shaping.utils.wavefront.zernike_calc import noll_indices as _zernike_indices
 from ao_shaping.utils import Recorder, logger
 from ao_shaping.utils.image.beam_metrics import (
     clamp_center_to_frame,
     smart_zero_order_center,
     zero_order_center,
+)
+from ao_shaping.utils.image.hardware_utils import (
+    log_center_brightness,
+    resolve_spot_center,
 )
 from ao_shaping.utils.image.spots_calc import radius
 from ao_shaping.utils.image.targets import (
@@ -81,8 +84,8 @@ from ao_shaping.utils.image.targets import (
     _resolve_init_weights,
     _update_dynamic_weights,
     create_target_shape,
-    rmse_shape_metric,
     rms_pib_terms,
+    rmse_shape_metric,
     roi_energy_loss,
     roi_pib_metric,
     shape_metric,
@@ -93,11 +96,8 @@ from ao_shaping.utils.image.targets import (
 )
 from ao_shaping.utils.io.file import gen_date_dir, gen_date_str
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
-from ao_shaping.utils.image.hardware_utils import (
-    log_center_brightness,
-    resolve_spot_center,
-)
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
+from ao_shaping.utils.wavefront.zernike_calc import noll_indices as _zernike_indices
 from ao_shaping.utils.wavefront.zernike_utils import parse_zernike_coefficients
 
 TargetShape = Literal[
@@ -129,7 +129,7 @@ SCHEDULE_MAX_LR = 1.0
 SCHEDULE_MAX_DELTA = 0.5
 
 # slm parameters
-SLM_RESPONSE_TIME_S = 0.1
+SLM_RESPONSE_TIME_S = 0.0
 # On exit, leave the best-found phase on the SLM. The candidate set includes
 # the initial (flat when starting from zeros, or a loaded) phase: if the search
 # never improved on it, that phase is restored instead. Set False to skip
@@ -438,8 +438,10 @@ class SlmZernikePibConfig:
     :class:`CameraParamsPib` (``camera``) and the SLM/Zernike fields on
     :class:`SlmParamsPib` (``slm``); both default to the canonical runner
     groups (``camera.name == "pib"``, ``target_shape is None``, and
-    ``slm.zernike_radius == 0.0`` as the sentinel for the optimizer's 300 px
-    aperture). The two factories above defer the runner imports until
+    ``slm.zernike_radius == 600.0`` = SLM 面板短边的一半 as the default aperture
+    (与方形整形/GUI 一致, 基圆完整落在面板内), falling back to the optimizer's
+    300 px aperture only when it is 0/None). The two factories above defer the
+    runner imports until
     instantiation because ``runners.__init__`` eagerly imports this
     optimizer's runner.
 
@@ -472,6 +474,25 @@ class SlmZernikePibConfig:
     lr: float = 0
     shrink_iter: int = 0
     shrink_ratio: float = 0.9
+    # --- Evaluation robustness (2026-09 q3, from the delta<0.001 fold/jitter
+    # post-mortem; see docs/slm_pib) -----------------------------------------
+    # Per-evaluation frame average passed to ``cam.get_numpy_image`` (the
+    # Daheng driver averages ``n_sample`` frames, so sigma_J falls ~1/sqrt(N)).
+    # 1 = single frame (legacy behaviour). Applies to the SPGD pair frames.
+    n_eval_frames: int = 1
+    # Brightness-fold integrity gate: an evaluation frame whose peak OR total
+    # sum falls below ``fold_ratio`` of the EMA baseline of recent VALID frames
+    # is an environment brightness fold (measured discrete brightness states,
+    # corr(J, max_brt) = -0.9996 on the bench) - that epoch's update and
+    # best-track are skipped entirely. 0 disables.
+    fold_ratio: float = 0.5
+    # Noise-aware update gate: when |J+ - J-| <= ``noise_gate_k`` * sigma_hat
+    # (rolling std of the last ``noise_gate_window`` diffs) the SPGD gradient
+    # is measurement noise (measured SNR < 0.1 at delta < 0.001) - the update
+    # is zeroed so the coefficients stall honestly instead of random-walking.
+    # 0 disables (negative k disables too).
+    noise_gate_k: float = 3.0
+    noise_gate_window: int = 20
     # --- Hardware / objective groups -------------------------------------------
     camera: CameraParamsPib = field(default_factory=_default_camera)
     slm: SlmParamsPib = field(default_factory=_default_slm)
@@ -482,6 +503,71 @@ class SlmZernikePibConfig:
     #: Extra keyword arguments forwarded to the optimizer constructor
     #: (``_create_optimizer``); kept out of the typed fields.
     kwargs: dict[str, Any] = field(default_factory=dict)
+
+
+def _frame_fold_check(
+    frame: np.ndarray,
+    baseline_peak: float | None,
+    baseline_sum: float | None,
+    fold_ratio: float,
+) -> tuple[bool, float, float]:
+    """Brightness-fold integrity check for one evaluation frame.
+
+    Returns ``(is_fold, peak, frame_sum)``. ``is_fold`` is True when the frame
+    peak or its total sum falls below ``fold_ratio`` of the rolling baseline
+    of VALID frames (armed from the initial frame; see
+    :func:`_update_fold_baseline`). A folded frame is an environment event
+    (measured discrete brightness states with ``corr(J, max_brt) = -0.9996``
+    on the bench), NOT a coefficient effect - the epoch must be skipped before
+    it can masquerade as a gradient. ``fold_ratio <= 0`` (or no baseline yet)
+    disables the check.
+    """
+    if fold_ratio <= 0.0 or baseline_peak is None or baseline_sum is None:
+        return False, float(np.max(frame)), float(np.asarray(frame, dtype=np.float64).sum())
+    peak = float(np.max(frame))
+    frame_sum = float(np.asarray(frame, dtype=np.float64).sum())
+    is_fold = peak < fold_ratio * baseline_peak or frame_sum < fold_ratio * baseline_sum
+    return is_fold, peak, frame_sum
+
+
+def _update_fold_baseline(
+    baseline_peak: float | None,
+    baseline_sum: float | None,
+    peak: float,
+    frame_sum: float,
+    alpha: float = 0.1,
+) -> tuple[float, float]:
+    """EMA-update the fold baseline with one VALID frame (``alpha``: 0.1).
+
+    Only validated (non-folded) frames may update the baseline, so a folded
+    measurement can never pull the baseline down and blind the gate.
+    """
+    if baseline_peak is None or baseline_sum is None:
+        return peak, frame_sum
+    return (
+        alpha * peak + (1.0 - alpha) * baseline_peak,
+        alpha * frame_sum + (1.0 - alpha) * baseline_sum,
+    )
+
+
+def _rolling_sigma(diffs: Sequence[float]) -> float:
+    """Std of the recent ``diff`` history (0.0 when degenerate/empty)."""
+    if len(diffs) < 2:
+        return 0.0
+    arr = np.asarray(diffs, dtype=np.float64)
+    s = float(np.std(arr))
+    return s if np.isfinite(s) else 0.0
+
+
+def _noise_gate(diff: float, sigma_hat: float, k: float) -> bool:
+    """True when ``diff`` is indistinguishable from the recent diff noise
+    (``|diff| <= k * sigma_hat``) - the SPGD update would be pure measurement
+    noise and is zeroed so the coefficients stall honestly instead of
+    random-walking. ``k <= 0`` (or an unusable ``sigma_hat``) disables the gate.
+    """
+    if k <= 0.0 or not np.isfinite(sigma_hat) or sigma_hat <= 0.0:
+        return False
+    return abs(diff) <= k * sigma_hat
 
 
 def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
@@ -981,15 +1067,24 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             lr_val: float,
             delta_val: float,
             max_brt: float,
+            gate: str | None = None,
             phase: np.ndarray | None = None,
         ) -> dict:
-            """Append one search step to the recorder (shared by both branches)."""
+            """Append one search step to the recorder (shared by both branches).
+
+            ``gate`` records the SPGD evaluation verdict for offline stats:
+            ``"applied"`` (gradient adopted), ``"fold"`` (brightness fold
+            rejected before scoring) or ``"noise"`` (diff below the noise gate,
+            zeroed update). ``None`` (heuristic branch, or legacy records)
+            means "no verdict recorded".
+            """
             row = {
                 "J": J,
                 "_p%": obj_ratio,
                 "_max_r": _init_r,
                 objective: obj_val,
                 "_diff": diff,
+                "_gate": gate,
                 "lr": lr_val,
                 "r": r_bucket,
                 "delta": delta_val,
@@ -1117,7 +1212,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 )
                 _display(slm, candidate_phase)
                 time.sleep(SLM_RESPONSE_TIME_S)
-                img = cam.get_numpy_image(CAM_SAMPLE_ITER)
+                img = cam.get_numpy_image(config.n_eval_frames)
                 if exposure_time_ms == 0 and float(np.max(img)) >= 255:
                     # Saturated: re-auto-expose to the requested target, mirroring
                     # the SPGD loop's guard, so the metric stays on a valid frame.
@@ -1127,6 +1222,10 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         exposure_time_ms,
                         target_max_brightness or TEST_EXPOSURE_TIME_BRIGHTNESS,
                     )
+                # Re-locate the target ROI onto the CURRENT spot (a benign beam
+                # drift must not be scored as a shaping loss) - same rule as the
+                # SPGD loop's per-eval re-centering.
+                shaping.set_reference_center(zero_order_center(img))
                 res = shaping(img)
                 obj, obj_ratio = res.j, res.ratio
                 if objective == "rms_pib":
@@ -1233,6 +1332,19 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             _apply_best_on_exit()
             return recorder
 
+        # Evaluation-robustness state (see ``config.n_eval_frames`` /
+        # ``fold_ratio`` / ``noise_gate_k``): the fold baseline is armed from
+        # the initial (valid) frame; the noise-gate diff history starts empty,
+        # so the gate stays off until ``noise_gate_window`` diffs have been
+        # collected.
+        _fold_baseline_peak: float | None = float(np.max(init_img))
+        _fold_baseline_sum: float | None = float(
+            np.asarray(init_img, dtype=np.float64).sum()
+        )
+        _diff_history: deque[float] = deque(maxlen=config.noise_gate_window)
+        _n_fold_gated = 0
+        _n_noise_gated = 0
+
         with tqdm.tqdm(
             total=epochs, desc=f"slm_zernike iter {epochs}", dynamic_ncols=True
         ) as bar:
@@ -1248,9 +1360,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 )
                 _display(slm, pos_phase)
                 time.sleep(SLM_RESPONSE_TIME_S)
-                pos_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
-                pos_res = shaping(pos_img)
-                pos_obj, pos_obj_ratio = pos_res.j, pos_res.ratio
+                pos_img = cam.get_numpy_image(config.n_eval_frames)
 
                 # Negative perturbation
                 _neg_c = np.clip(_init_c - disturb_c, -5.0, 5.0)
@@ -1259,11 +1369,78 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 )
                 _display(slm, neg_phase)
                 time.sleep(SLM_RESPONSE_TIME_S)
-                neg_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
+                neg_img = cam.get_numpy_image(config.n_eval_frames)
+
+                # Evaluation-robustness gates (2026-09, from the delta<0.001
+                # fold/jitter post-mortem; see docs/slm_pib): reject environment
+                # brightness folds BEFORE scoring so they cannot masquerade as a
+                # coefficient-driven change (measured discrete brightness
+                # states, corr(J, max_brt) = -0.9996), and re-locate the target
+                # ROI onto the CURRENT spot of each frame so a benign beam drift
+                # is not scored as a shaping loss (measured 22-px drift). The
+                # energy guard's ROI rides along; its armed baseline is kept.
+                pos_fold, pos_pk, pos_sum = _frame_fold_check(
+                    pos_img, _fold_baseline_peak, _fold_baseline_sum, config.fold_ratio
+                )
+                neg_fold, neg_pk, neg_sum = _frame_fold_check(
+                    neg_img, _fold_baseline_peak, _fold_baseline_sum, config.fold_ratio
+                )
+                if pos_fold or neg_fold:
+                    _n_fold_gated += 1
+                    logger.warning(
+                        "epoch {}: brightness fold (pos_fold={}, neg_fold={}, "
+                        "pk {:.0f}/{:.0f}, sum {:.0f}/{:.0f}) - epoch skipped",
+                        epoch,
+                        pos_fold,
+                        neg_fold,
+                        pos_pk,
+                        neg_pk,
+                        pos_sum,
+                        neg_sum,
+                    )
+                    # Record the epoch honestly (unchanged coefficients, real
+                    # mean J) so the fold is visible offline, then skip search.
+                    pos_res = shaping(pos_img)
+                    neg_res = shaping(neg_img)
+                    pos_j, neg_j = pos_res.j, neg_res.j
+                    _log_row(
+                        epoch=epoch,
+                        coeffs=_init_c,
+                        obj_val=float((pos_j + neg_j) / 2),
+                        obj_ratio=(pos_res.ratio + neg_res.ratio) / 2,
+                        J=float((pos_j + neg_j) / 2),
+                        diff=0.0,
+                        gate="fold",
+                        grad=np.zeros(nk, dtype=np.float64),
+                        img=pos_img,
+                        phase=pos_phase,
+                        lr_val=optimizer.lr,
+                        delta_val=delta,
+                        max_brt=float(max([pos_pk, neg_pk])),
+                    )
+                    bar.update(1)
+                    continue
+
+                # Both frames valid: refresh the fold baseline (EMA over valid
+                # frames only: a fold can never pull the baseline down and
+                # blind the gate) and score each frame around its OWN spot.
+                _fold_baseline_peak, _fold_baseline_sum = _update_fold_baseline(
+                    _fold_baseline_peak,
+                    _fold_baseline_sum,
+                    0.5 * (pos_pk + neg_pk),
+                    0.5 * (pos_sum + neg_sum),
+                )
+                pos_center = zero_order_center(pos_img)
+                shaping.set_reference_center(pos_center)
+                pos_res = shaping(pos_img)
+                pos_obj, pos_obj_ratio = pos_res.j, pos_res.ratio
+
+                neg_center = zero_order_center(neg_img)
+                shaping.set_reference_center(neg_center)
                 neg_res = shaping(neg_img)
                 neg_obj, neg_obj_ratio = neg_res.j, neg_res.ratio
 
-                # Auto-exposure adjustment if saturated
+                # Auto-exposure adjustment if saturated (still on the raw pair).
                 max_brightness = max([np.max(pos_img), np.max(neg_img)])
                 if max_brightness == 255 and exposure_time_ms == 0:
                     _resample_img = resample_on_saturation(
@@ -1276,6 +1453,10 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     optimizer.scale_momentum(np.sum(_resample_img) / np.sum(pos_img))
 
                 pos_j, neg_j = pos_obj, neg_obj
+                # The recorded panel/metrics describe the POSITIVE frame; keep
+                # the objective's ROI on the positive spot for the row.
+                shaping.set_reference_center(pos_center)
+
                 # `diff` is kept for logging; the SPGD sign comes from the
                 # shared helper (optimizer/spgd.py) so it cannot be
                 # hand-inverted again (this site maximised/minimised the wrong
@@ -1283,10 +1464,29 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 # are unsigned.
                 _spgd_sign = -1.0 if objective_mode == "max" else 1.0
                 diff = (float(pos_j) - float(neg_j)) * _spgd_sign
+
+                # Noise-aware update gate: with delta < 0.001 the measured diff
+                # is 100% noise (SNR < 0.1; see the ``delta`` config note), so a
+                # diff indistinguishable from the recent diff noise MUST NOT
+                # move the coefficients - it is zeroed and the search stalls
+                # honestly instead of random-walking (h6a: 0/55 modes SNR > 2,
+                # gradient == noise, step/|grad| ratio 435x).
+                sigma_hat = _rolling_sigma(_diff_history)
+                _grad_usable = not _noise_gate(diff, sigma_hat, config.noise_gate_k)
+                _diff_history.append(diff)
+                if not _grad_usable:
+                    _n_noise_gated += 1
+
                 gradient = spgd_gradient(
                     pos_j, neg_j, disturb_c, maximize=(objective_mode == "max")
                 )
-                update = optimizer.update(gradient)
+                if _grad_usable:
+                    update = optimizer.update(gradient)
+                else:
+                    # Keep the optimizer's momentum/history state consistent: a
+                    # zeroed update decays momentum toward 0 (forgetting the
+                    # noise-driven velocity) without moving the coefficients.
+                    update = optimizer.update(np.zeros_like(gradient))
                 _to_update_c = np.clip(_init_c - update, -5.0, 5.0)
                 _init_c = _to_update_c
 
@@ -1320,7 +1520,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     and not _fix_bucket
                     and objective_val > 0
                 ):
-                    power_radio = radius(pos_img, center=center, energy=0.8)
+                    power_radio = radius(pos_img, center=pos_center, energy=0.8)
                     _pr = power_radio * shrink_ratio
                     _r = max(r_bucket * shrink_ratio + 1, IDEAL_SPOT_RADIUS, r_bucket)
                     r_bucket = min(_r, _pr, _init_r)
@@ -1366,6 +1566,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     obj_ratio=objective_ratio,
                     J=J,
                     diff=diff,
+                    gate="applied" if _grad_usable else "noise",
                     grad=gradient,
                     img=pos_img,
                     phase=pos_phase,
@@ -1382,7 +1583,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         pos_img,
                         pos_phase,
                         _pos_c,
-                        center,
+                        pos_center,
                         r_bucket,
                         text,
                         value=objective_val,
@@ -1398,6 +1599,16 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
                 bar.update(1)
 
+        logger.info(
+            "SPGD finished: {}/{} epochs updates applied, {} brightness-fold "
+            "epochs skipped, {} noise-gated updates (noise_gate_k={})",
+            epochs - _n_fold_gated - _n_noise_gated,
+            epochs,
+            _n_fold_gated,
+            _n_noise_gated,
+            config.noise_gate_k,
+        )
+
         # On exit, leave the SLM at the best phase found. The initial (flat or
         # loaded) phase is one of the candidates: if the search never improved
         # on it, restore that instead of a worse "best". Shared with the
@@ -1405,117 +1616,3 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         _apply_best_on_exit()
 
         return recorder
-
-
-if __name__ == "__main__":
-    import argparse
-
-    def _build_demo_config(args, cam_id: int | str) -> SlmZernikePibConfig:
-        from ao_shaping.runners.runner_common import CameraParamsPib, SlmParamsPib
-
-        return SlmZernikePibConfig(
-            center=args.center,
-            epochs=args.epochs,
-            algorithm=args.algorithm,
-            pop_size=args.pop_size,
-            optimizer_type=args.optimizer,
-            delta=args.delta,
-            lr=args.lr,
-            random_seed=args.seed,
-            show=args.show,
-            camera=CameraParamsPib(
-                name=args.objective,
-                cam_id=cast(int, cam_id),
-                cam_type=args.cam_type,
-                cam_size=args.cam_size,
-                exposure_time_ms=args.exposure_time_ms,
-                r_bucket=args.r_bucket,
-            ),
-            slm=SlmParamsPib(
-                n_max=args.n_max,
-                slm_number=args.slm_number,
-                slm_wavelength=args.slm_wavelength,
-            ),
-        )
-
-    parser = argparse.ArgumentParser(
-        description="SPGD PIB optimization using SLM with Zernike coefficients"
-    )
-    parser.add_argument(
-        "-e", "--epochs", type=int, default=2000, help="Number of iterations"
-    )
-    parser.add_argument(
-        "-n", "--n_max", type=int, default=4, help="Max Zernike radial order"
-    )
-    parser.add_argument(
-        "-c", "--center", type=str, default="shape", help="Center detection method"
-    )
-    parser.add_argument(
-        "-r", "--r_bucket", type=float, default=0, help="Bucket radius (0=auto)"
-    )
-    parser.add_argument(
-        "-d", "--delta", type=float, default=0.1, help="Perturbation amplitude"
-    )
-    parser.add_argument("--lr", type=float, default=0, help="Learning rate (0=auto)")
-    parser.add_argument(
-        "-t", "--exposure_time_ms", type=float, default=80.0, help="Exposure time (ms)"
-    )
-    parser.add_argument(
-        "--cam_id",
-        type=str,
-        default="0",
-        help="Camera device ID (int) or path/URL for file-based backends",
-    )
-    parser.add_argument(
-        "--cam_type",
-        type=str,
-        default="daheng",
-        choices=list_camera_types(),
-        help="Camera backend (registry type)",
-    )
-    parser.add_argument("--slm_number", type=int, default=1, help="SLM device number")
-    parser.add_argument(
-        "--slm_wavelength", type=int, default=1064, help="SLM wavelength (nm)"
-    )
-    parser.add_argument(
-        "--optimizer", type=str, default="adamod", help="Optimizer type"
-    )
-    parser.add_argument(
-        "--algorithm",
-        type=str,
-        default="spgd",
-        choices=list(ALGORITHM_CHOICES),
-        help="Search algorithm: spgd (gradient) or a black-box heuristic",
-    )
-    parser.add_argument(
-        "--pop_size",
-        type=int,
-        default=None,
-        help="Population size for ga/pso/cem/de (default: heuristic default)",
-    )
-    parser.add_argument(
-        "--objective", type=str, default="pib", help="Optimization target"
-    )
-    parser.add_argument("--seed", type=int, default=None, help="Random seed")
-    parser.add_argument(
-        "--show", action="store_true", help="Show images during optimization"
-    )
-    parser.add_argument("--cam_size", type=int, default=250, help="Camera window size")
-
-    args = parser.parse_args()
-
-    cam_id = (
-        int(args.cam_id) if args.cam_id.strip().lstrip("+-").isdigit() else args.cam_id
-    )
-
-    recorder = optimize_slm_zernike_pib(_build_demo_config(args, cam_id))
-
-    best_iter, (_, best_val) = recorder.get_best_iter()
-    logger.info(
-        f"Optimization complete. Best {args.objective}: {best_val:.4f} @ epoch {best_iter.get('_epoch', 'N/A')}"
-    )
-    save_file = (
-        gen_date_dir("data") / f"slm_zernike_{args.objective}_{gen_date_str()}.csv"
-    )
-    recorder.save_dataframe(save_file)
-    logger.info(f"Results saved to: {save_file}")
