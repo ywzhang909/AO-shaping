@@ -1203,6 +1203,66 @@ Requires OOPAO (editable install from the `libs/OOPAO` submodule:
 routing scope are documented in
 [`sim/AGENTS.md`](../src/ao_shaping/drivers/sim/AGENTS.md).
 
+### generate_oopao_impact_report.py
+
+The **end-to-end companion** to `generate_oopao_vs_numpy_report.py`. Where that
+script compares the phase screen + focal plane *in isolation*, this one drives a
+real AO environment (`SimTurbulenceAOEnv`) under both backends and measures the
+downstream consequence on Strehl / PIB / RMS. **Fully offline** (simulated, no
+hardware); runs both backends in-process.
+
+**Usage:**
+```bash
+python scripts/generate_oopao_impact_report.py
+python scripts/generate_oopao_impact_report.py --quick
+python scripts/generate_oopao_impact_report.py --cn2 0,5e-15 --steps 100
+```
+
+**What it does** (writes `report.md` + `summary.csv` + `figures/`):
+- **Matrix**: 4 Cn2 levels (0 / 1e-16 / 5e-15 / 5e-14) × 2 arms × 2 modes
+  (`open` = sliding turbulence, zero action; `closed` = frozen turbulence,
+  3-step greedy SPGD) = 16 rows.
+- **Headline finding (§4.3)**: the `disturbance_rms` oopao/numpy ratio is
+  **constant across every turbulence level** (open 5.428×, closed 13.354×;
+  relative spread ≤1.2e-09 over two orders of magnitude of Cn2). Constancy
+  implies a **multiplicative calibration offset** between the two phase-screen
+  implementations, not statistical fluctuation. The verdict is *computed* from
+  the data against a tolerance, not asserted.
+- **⚠️ metric-identity warning**: `init_rms` (`compat.py::_phase_rms()` —
+  *pupil-masked total* wavefront incl. aberration + DM) and `disturbance_rms`
+  (`env._disturbance_rms` — *full-grid unmasked* raw screen) are **different
+  quantities and must not be inferred from one another**. A stronger screen does
+  not imply a larger `init_rms` (measured counterexample included in the report).
+- **cn2=0 control**: arms must be bit-identical (`turbulence_phase` short-circuits
+  to a zero screen) — reported as pass/fail.
+- **Anti-vacuity guard**: asserts the two arms actually *differ* at cn2>0 and that
+  `_oopao_enabled()` matched the intended arm on every row; refuses to write a
+  silently-degenerate two-arm-numpy report.
+- **Negative finding**: documents that `slm_shaping_bench`'s `cn2` is **dead
+  config** (it imports `turbulence_phase` but only calls the never-routed
+  `focal_plane`, so output is byte-identical at cn2=0 vs 5e-14) — i.e. that bench
+  must **not** be used as a backend-impact vehicle.
+
+**Non-comparability caveat (§9)**: absolute Strehl/PIB must not be compared across
+arms. Rows that look like "OOPAO is better" (e.g. open/cn2=5e-14 init Strehl
+0.4650 vs 0.3276) reflect each arm being subject to a differently-scaled phase
+screen, **not** a better propagation kernel. Calibrating both screens to the same
+r0 / phase_std is required before any absolute comparison.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--n-grid` | `64` | Simulation grid side length |
+| `--seed` | `42` | Random seed |
+| `--out-dir` | `docs/oopao_impact` | Output dir |
+| `--cn2` | `0,1e-16,5e-15,5e-14` | Comma-separated Cn2 ladder |
+| `--steps` | `60` | Steps per episode (closed-mode SPGD iters = `steps//3`) |
+| `--quick` | off | Smoke mode: first 2 Cn2 levels, `steps=10` |
+
+`summary.csv` and all figures are byte-reproducible across runs (verified by
+md5). Requires OOPAO; see
+[`sim/AGENTS.md`](../src/ao_shaping/drivers/sim/AGENTS.md) for the routing table
+and the `slm_shaping_bench` dead-config trap.
+
 ### generate_slm_gsnet_sim_gif.py
 
 Generates the slm-gsnet offline-sim verification GIFs (+ prints the markdown
