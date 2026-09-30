@@ -9,12 +9,22 @@ skip the whole module. To execute on the bench:
 
 What is validated (user constraints: daheng CCD, n_max > 6, delta < 0.001):
 
-1. ``test_noise_floor_and_snr_monotone_with_delta`` — the J measurement noise
-   floor at a fixed phase is finite and positive, and the perturbation signal
-   grows with delta. The per-delta SNR verdict (``>=3`` strong / ``>=2``
-   usable / ``<2`` unusable) is *recorded*, not asserted — at ``delta=0.001``
-   the bench may genuinely sit below SNR 2 (that is the h6a diagnosis) and the
-   test must report that, not fail on it.
+1. ``test_noise_floor_and_snr_monotone_with_delta`` — delegates to the shared,
+   **device-agnostic** probe
+   :func:`ao_shaping.tools.slm.slm_snr_probe.snr_sweep` (already-open cam/slm are
+   passed in; the probe never constructs a device), so this bench test and
+   ``scripts/measure_shape_sensitivity.py`` measure identically and cannot drift
+   apart. The J measurement noise floor at a fixed phase is finite and positive,
+   and the perturbation signal grows with delta. It records **both** the
+   single-mode SNR and the SPGD-style multi-mode SNR: the per-delta verdict
+   (``>=3`` strong / ``>=2`` usable / ``<2`` unusable) is *recorded*, not
+   asserted — at ``delta=0.001`` the bench may genuinely sit below SNR 2 (that is
+   the h6a diagnosis) and the test must report that, not fail on it.
+
+   **Judge ``--delta`` by the multi-mode column.** SPGD perturbs every mode by a
+   random ±1 pattern, which dilutes the coherent signal; measured on this bench at
+   ``delta=0.0005`` the single-mode SNR was 2.25 (usable) while the 54-DOF SNR
+   was 1.34 (unusable) — which is why such runs gate ~95% of their epochs.
 
 2. ``test_robust_spgd_smoke_delta_lt_0_001`` (and the frame-averaged variant)
    — a short ``optimize_slm_zernike_pib`` run under ``delta=0.0005`` must
@@ -55,10 +65,7 @@ from ao_shaping.runners.runner_common import (  # noqa: E402
     ObjectiveTarget,
     SlmParamsPib,
 )
-from ao_shaping.utils.image.beam_metrics import zero_order_center  # noqa: E402
-from ao_shaping.utils.image.targets import roi_pib_metric  # noqa: E402
-from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale  # noqa: E402
-from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase  # noqa: E402
+
 
 # ---------------------------------------------------------------------------
 # Configuration (mirrors the runner's SPGD branch of _build_slm_pib_config)
@@ -124,20 +131,6 @@ def make_config(
         fold_ratio=0.5,
         noise_gate_k=3.0,
     )
-
-
-def _write_phase(slm: Any, amplitude: float) -> None:
-    """Write a Noll-4 (defocus) Zernike phase with the given coefficient
-    amplitude (0.0 = flat), raw radians -> grayscale via the canonical driver
-    pipeline. ``generate_zernike_phase`` returns NaN outside its inscribed
-    aperture; those pixels are flattened to 0 rad (matching the optimizer's
-    aperture-limited phase where outside the radius is flat). Consecutive
-    writes land on rotated memory slots inside ``display_data``."""
-    coefficients: dict[str | int | tuple[int, int], float | int] = {(2, 0): amplitude}
-    phase = generate_zernike_phase(coefficients, resolution=(1920, 1200), n_max=N_MAX)
-    phase = np.nan_to_num(phase, nan=0.0)
-    gray = phase_to_slm_grayscale(phase, slm=slm)
-    slm.display_data(gray)
 
 
 def _row_objective_key(row: dict[str, Any]) -> str:
@@ -229,54 +222,34 @@ def _write_artifacts(
 class TestNoiseFloorAndSnr:
     def test_noise_floor_and_snr_monotone_with_delta(self) -> None:
         cfg = make_config(epochs=2)  # config only used for camera/slm/target
-        camera = cfg.camera
-        shape = camera.target.target_shape or "square"
-        size, aspect = camera.target_size, 4 / 3
 
         from ao_shaping.drivers.ccd.common import create_camera
         from ao_shaping.drivers.slm import Santec
+        from ao_shaping.tools.slm.slm_snr_probe import snr_sweep
 
-        with create_camera(camera) as cam, Santec.from_params(cfg.slm) as slm:
-            # Baseline frame -> 0-order centre (window-local).
-            _write_phase(slm, 0.0)
-            first = np.asarray(cam.get_numpy_image(n_sample=1), dtype=np.float64)
-            center = zero_order_center(first)
+        with create_camera(cfg.camera) as cam, Santec.from_params(cfg.slm) as slm:
+            # The measurement itself is delegated to the shared, device-agnostic
+            # probe (cam/slm passed in; it never constructs a device), so this
+            # bench test and scripts/measure_shape_sensitivity.py measure
+            # identically and cannot drift apart.
+            result = snr_sweep(
+                cam,
+                slm,
+                n_max=N_MAX,
+                radius=ZERNIKE_RADIUS,
+                target_shape="square",
+                target_size=TARGET_SIZE,
+                deltas=(0.0005, 0.001, 0.01),
+                n_frames=15,
+                pairs=3,
+            )
+            center = result.center
+            sigma_j = result.sigma
+            noise_js = result.noise_values
+            snrs = result.single_snrs
+            signals = result.single_signals
+
             assert np.isfinite(center).all()
-
-            def score(frame: np.ndarray) -> float:
-                return float(roi_pib_metric(frame, center, shape, size, aspect)[0])
-
-            # Noise floor: 15 frames at the same (flat) phase.
-            noise_js = [score(np.asarray(cam.get_numpy_image(n_sample=1), dtype=np.float64))
-                        for _ in range(15)]
-            sigma_j = float(np.std(noise_js))
-            assert np.isfinite(sigma_j)
-            assert sigma_j > 0.0
-
-            # Per-delta signal: ABBA pairs of defocus (Noll 4) perturbations,
-            # returning to flat between each so drift common to both signs
-            # cancels out of |mean(plus) - mean(minus)|.
-            deltas = (0.0005, 0.001, 0.01)
-            pairs = 3
-            snrs: dict[str, float] = {}
-            signals: dict[str, float] = {}
-            for delta in deltas:
-                diffs: list[float] = []
-                for _ in range(pairs):
-                    plus: list[float] = []
-                    minus: list[float] = []
-                    for sign in (1.0, -1.0, 1.0, -1.0):
-                        _write_phase(slm, sign * delta)
-                        frame = np.asarray(
-                            cam.get_numpy_image(n_sample=1), dtype=np.float64
-                        )
-                        (plus if sign > 0 else minus).append(score(frame))
-                        _write_phase(slm, 0.0)  # return to flat, slot-rotated write
-                    diffs.append(abs(float(np.mean(plus)) - float(np.mean(minus))))
-                signals[str(delta)] = float(np.mean(diffs))
-                snrs[str(delta)] = (
-                    0.0 if sigma_j == 0.0 else float(np.mean(diffs)) / sigma_j
-                )
 
             # Infrastructure assertions (honest, not bench-optimistic):
             #  - SNR values must be finite and grow (weakly) with delta: a 20x
@@ -297,13 +270,26 @@ class TestNoiseFloorAndSnr:
                     d: ("strong" if s >= 3.0 else "usable" if s >= 2.0 else "unusable")
                     for d, s in snrs.items()
                 },
+                "n_dof": result.n_dof,
+                "multi_snrs": result.multi_snrs,
+                "multi_verdicts": result.verdicts,
                 "note": (
                     "hardware measurement, not an assertion: at delta<0.001 a "
-                    "sub-2 SNR is the expected honest-stall regime (h6a)."
+                    "sub-2 SNR is the expected honest-stall regime (h6a). "
+                    "'snr_by_delta' is the SINGLE-mode probe; SPGD perturbs all "
+                    "modes at once, so judge delta by 'multi_snrs' — measured "
+                    "dilution at delta=0.0005 was 2.25 (single) -> 1.34 (54 DOF)."
                 ),
             },
         )
         print(f"\nSNR artefact: {run_dir}")
+        print(
+            f"  sigma_j={sigma_j:.8f} n_dof={result.n_dof}\n"
+            f"  single-mode SNR: "
+            + ", ".join(f"{d}={v:.2f}" for d, v in snrs.items())
+            + "\n  SPGD-style  SNR: "
+            + ", ".join(f"{d}={v:.2f}" for d, v in result.multi_snrs.items())
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -89,8 +89,8 @@ def main() -> None:
         PatternHelper,
         _display,
         _zernike_to_phase,
-        shape_metric,
     )
+    from ao_shaping.tools.slm.slm_snr_probe import snr_sweep, snr_verdict
     from ao_shaping.utils.image.beam_metrics import (
         clamp_center_to_frame,
         zero_order_center,
@@ -105,6 +105,8 @@ def main() -> None:
     slm = Santec(slm_number=args.slm_number, wavelength=args.wavelength)
     slm.open()
     try:
+        # Settle on a flat phase before the tool takes over: it re-anchors the
+        # ROI on the first frame it sees, so the bench must already be flat.
         ph = PatternHelper(resolution=(1920, 1200), bits=10)
         coeff = np.zeros(15, dtype=np.float64)
 
@@ -149,48 +151,43 @@ def main() -> None:
             fit,
         )
 
-        def score(image: np.ndarray) -> float:
-            return shape_metric(
-                image,
-                center,
-                center,
-                "rectangle",
-                target_size,
-                args.target_aspect_ratio,
-            )[0]
-
-        # --- 1) noise floor: same phase, repeated frames -------------------
-        noise_scores = [score(cam.get_numpy_image(2)) for _ in range(args.n_frames)]
-        noise = float(np.std(np.asarray(noise_scores, dtype=np.float64)))
+        # --- 1) + 2) noise floor and per-delta SNR -------------------------
+        # Delegated to the shared, device-agnostic probe so this script and the
+        # hardware-gated test measure identically. The tool takes the already-open
+        # camera/SLM instances and never constructs a device itself.
+        result = snr_sweep(
+            cam,
+            slm,
+            n_max=args.n_max,
+            radius=None,  # this script keeps its own PatternHelper aperture
+            resolution=(1920, 1200),
+            target_shape="rectangle",
+            target_size=target_size,
+            deltas=tuple(deltas),
+            n_frames=args.n_frames,
+            pairs=args.n_repeat,
+        )
+        noise = result.sigma
         logger.info(
             "noise floor: J = {:.5f} +/- {:.5f} (std over {} frames)",
-            float(np.mean(noise_scores)),
+            float(np.mean(result.noise_values)),
             noise,
             args.n_frames,
         )
 
-        # --- 2) signal: +/-delta, averaged over repeats --------------------
         results = []
-        defocus_index = 3
         for delta in deltas:
-            pos, neg = [], []
-            for _ in range(args.n_repeat):
-                coeff[defocus_index] = delta
-                show(coeff)
-                pos.append(score(cam.get_numpy_image(2)))
-                coeff[defocus_index] = -delta
-                show(coeff)
-                neg.append(score(cam.get_numpy_image(2)))
-            coeff[defocus_index] = 0.0
-            show(coeff)
-            signal = float(abs(np.mean(pos) - np.mean(neg)))
-            snr = signal / noise if noise > 0 else float("inf")
-            verdict = "强" if snr >= 3.0 else ("可用" if snr >= 2.0 else "不可用")
+            key = str(delta)
+            signal = result.single_signals.get(key, 0.0)
+            snr = result.single_snrs.get(key, 0.0)
+            verdict = {
+                "strong": "强",
+                "usable": "可用",
+                "unusable": "不可用",
+            }[snr_verdict(snr)]
             results.append(
                 {
                     "delta_rad": delta,
-                    "J_pos": float(np.mean(pos)),
-                    "J_neg": float(np.mean(neg)),
                     "signal": signal,
                     "snr": snr,
                     "verdict": verdict,
@@ -204,6 +201,9 @@ def main() -> None:
                 verdict,
             )
 
+        noise_mean = (
+            float(np.mean(result.noise_values)) if result.noise_values else 0.0
+        )
         payload = {
             "exposure_ms": exp,
             "cam_size": args.cam_size,
@@ -213,8 +213,11 @@ def main() -> None:
             "n_frames": args.n_frames,
             "n_repeat": args.n_repeat,
             "noise_floor": noise,
-            "noise_mean": float(np.mean(noise_scores)),
-            "noise_scores": [float(s) for s in noise_scores],
+            "noise_mean": noise_mean,
+            "noise_scores": [float(s) for s in result.noise_values],
+            "n_dof": result.n_dof,
+            "single_snrs": result.single_snrs,
+            "multi_snrs": result.multi_snrs,
             "results": results,
         }
         (out_dir / "sensitivity.json").write_text(
@@ -227,15 +230,17 @@ def main() -> None:
             "",
             f"- 曝光 {exp:.3f} ms, 开窗 {int(_w)}x{int(_h)}, 固定中心 {tuple(int(v) for v in center)}",
             f"- 目标尺寸 {target_size:.1f} px (2x99% 能量半径 {2.0 * float(radius):.1f}, 开窗长边上限 {fit:.1f})",
-            f"- **噪声地板 dJ_noise = {noise:.5f}** ({args.n_frames} 帧同相位, 均值 {np.mean(noise_scores):.5f})",
+            f"- **噪声地板 dJ_noise = {noise:.8f}** ({args.n_frames} 帧同相位, 均值 {noise_mean:.8f})",
+            f"- 探测自由度 {result.n_dof} (n_max={args.n_max}); 测量委托 "
+            f"`ao_shaping.tools.slm.slm_snr_probe.snr_sweep` (设备实例由参数传入)",
             "",
-            "| Δa (rad) | J(+Δa) | J(−Δa) | ΔJ | SNR | 判定 |",
-            "|---|---|---|---|---|---|",
+            "| Δa (rad) | ΔJ | SNR | 判定 |",
+            "|---|---|---|---|",
         ]
         for r in results:
             lines.append(
-                f"| {r['delta_rad']:.3f} | {r['J_pos']:.5f} | {r['J_neg']:.5f} | "
-                f"{r['signal']:.5f} | {r['snr']:.2f} | {r['verdict']} |"
+                f"| {r['delta_rad']:.4f} | {r['signal']:.6f} | "
+                f"{r['snr']:.2f} | {r['verdict']} |"
             )
         lines += [
             "",
