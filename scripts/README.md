@@ -844,7 +844,49 @@ python scripts/generate_slm_pib_heuristic_hw_report.py --exposure-ms 3.0
 > algorithm" label is indicative only. Increase `ALGORITHMS` budgets and repeat runs
 > before drawing conclusions.
 
+### generate_pib_bench_report.py
+
+Generates the **offline bench acceptance report** for the SLM PIB pipeline from
+saved debug artefacts. **Fully offline** — reads `data/debug` pickles + JSON
+sidecars, never opens a camera or SLM, so it can be re-run any time (including
+while the instruments are powered down) to refresh the conclusions.
+
+**Usage:**
+```bash
+python scripts/generate_pib_bench_report.py
+python scripts/generate_pib_bench_report.py --root data/debug -o docs/slm_pib_bench
+python scripts/generate_pib_bench_report.py --no-figures
+```
+
+**What it does** (writes `docs/slm_pib_bench/report.md` + `figures/`):
+1. **Noise floor + SNR per amplitude** from every `summary_snr.json` (recursive
+   glob — the artefacts sit one level deeper than the search runs). Reports
+   single- **and** multi-mode SNR, and states that the floor is *not* a bench
+   constant (three sweeps on one day spanned **21×**).
+2. **Gate breakdown** from the `summary_smoke_*.json` robust-SPGD runs:
+   applied / noise-gated / fold-gated, i.e. how often the search actually moved.
+3. **best vs sustained** improvement per recorded search run. Rows whose `J`
+   carries the `1e3` guard sentinel are excluded from the statistics and counted
+   in a `guard` column (including them produced `+1.3e9 %` nonsense). The
+   best-vs-sustained gap is what separates real optimisation from drift.
+4. **Provenance** per row, read from the JSON sidecar, so a run is never
+   silently attributed to the wrong objective or camera.
+
+**Measured conclusions (Daheng MER2-507-23GM NIR + Santec SLM-200, 2026-09-29):**
+- Guard-firing runs have a **median sustained improvement of −11.3 %** vs **+0.4 %**
+  for guard-free runs → *check the guard count before touching `delta`.*
+- `delta<0.001` at `n_max=9` (54 DOF) is unusable: multi-mode SNR ≈ 1.3, so
+  ~95 % of epochs are gated. `delta≈0.1` is the working range; `0.2` trips the
+  brightness-fold guard (45/60 rejected).
+
 ### measure_shape_sensitivity.py
+
+> **Now a thin CLI over `ao_shaping.tools.slm.slm_snr_probe`** (see the
+> hardware-tools section). It keeps its own device construction, target-size
+> derivation and markdown output, but the noise-floor / ΔJ / SNR measurement is
+> delegated so this script, the report generator and the hardware-gated test
+> cannot drift apart.
+
 
 Measures the **sensitivity (noise floor)** of the `slm-pib` shaping objective on the
 real bench — the check that says whether SPGD can see its own gradient at all
@@ -866,6 +908,12 @@ into `-o/--output`, default `docs/slm_pib_heuristic_hw/`):
   `ΔJ_signal = |mean(J+) − mean(J−)|` — exactly what SPGD turns into a gradient.
 - **Verdict**: `SNR = ΔJ_signal / ΔJ_noise` — `>= 3` strong, `>= 2` usable, `< 2`
   unusable (raise `Δa` toward 0.2 rad, or average more frames per perturbation).
+
+> ⚠️ **Measurement core now shared.** The noise-floor / ΔJ / SNR logic lives in
+> `ao_shaping.tools.slm.slm_snr_probe` and this script delegates to it, so it
+> also gains the **multi-mode (SPGD-style)** SNR column. Judge `--delta` by
+> `multi_snrs` / `usable_deltas()` — the single-mode column over-reports what
+> SPGD can resolve (bench, same `delta=0.0005`: 2.25 single vs 1.34 at 54 DOF).
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -1549,6 +1597,58 @@ python scripts/generate_models_report.py
 - Renders training curves at DPI 130 and writes the analysis report
 
 ## Verification Scripts
+
+### model_in_loop_hw_runbook.py
+
+Hardware runbook for the **model-in-the-loop** square-shaping test: calibrate
+the forward model's geometry on the real bench, then compute a square phase with
+it, display it, and measure the result (needs hardware: Santec SLM-200 + camera).
+
+**Usage:**
+```bash
+python scripts/model_in_loop_hw_runbook.py --stage all --target-cam-px 40
+python scripts/model_in_loop_hw_runbook.py --stage collect --probes 12
+python scripts/model_in_loop_hw_runbook.py --stage calibrate
+python scripts/model_in_loop_hw_runbook.py --stage shape --dry-run
+```
+
+**What it does** — three stages, resumable, artefacts under
+`data/model_in_loop_hw/`:
+- `collect` — captures calibration records using **uniform random pupil phase**
+  (not Zernike: those are built over a large panel radius and leave the
+  illuminated core nearly flat, so there is no speckle for the geometry solve to
+  correlate and it saturates at its search boundary). Locates the 0-order by
+  `argmax`, records the beam offset, warns on clipping. Saves
+  `calibration_records.npz` + `beam_offset.json`.
+- `calibrate` — solves panel disc radius, beam waist and far-field scale via
+  `calibrate_bench_geometry` (joint disc × waist search scored by speckle
+  correlation), writes `bench_geometry.json`, and echoes the correlation so a
+  non-converged solve is visible.
+- `shape` — converts `--target-cam-px` into model pixels with the calibrated
+  scale, runs Step B with the calibrated `region` / `far_field_size` / `w0`,
+  places the phase on the panel at the measured beam offset, and reports
+  before/after encircled energy, uniformity CV and flatness.
+
+`--dry-run` exercises every non-device step (including a synthetic geometry
+solve) and is how the logic is verified while the bench is offline.
+
+| Option | Default | Description |
+|---|---|---|
+| `--stage` | `all` | `collect` / `calibrate` / `shape` / `all` |
+| `--out` | `data/model_in_loop_hw` | artefact directory |
+| `--probes` | `12` | calibration records to capture |
+| `--region` / `--far-field-size` | `256` / `4096` | model grid and zero-padding |
+| `--collect-disc` | `200` | panel radius used when probing, px |
+| `--target-cam-px` | `40` | target square side in camera pixels |
+| `--shape-iterations` | `600` | Step B budget |
+| `--exposure-ms` | `3.0` | camera exposure (ms) |
+| `--slm-number` / `--slm-wavelength` | `1` / `1064` | SLM device / wavelength |
+| `--cam-type` / `--cam-id` | `daheng` / `0` | camera backend / id |
+| `--dry-run` | off | run everything except device I/O |
+
+> Bench constants, the measured 29.5× far-field sampling mismatch, and the
+> failure modes this works around are documented in
+> [`docs/slm/model_in_loop_bench_calibration.md`](../docs/slm/model_in_loop_bench_calibration.md).
 
 ### verify_correction_csv.py
 
