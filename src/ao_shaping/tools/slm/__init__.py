@@ -12,6 +12,9 @@
   shift 平移标定 (CLI: `python -m ao_shaping.tools.slm.calibration shift <args>`),
   含已废弃的 SLMLUTCalibrator
 - slm_scan_analysis.py — SLM 扫描数据分析共享助手 (纯 numpy/stdlib, 无硬件依赖)
+- slm_snr_probe.py — SLM 扰动灵敏度 (SNR) 测量, **设备实例由参数传入**:
+  噪底 sigma / `+ - - +` 回文漂移对消 dJ / 单模式与多模式 (SPGD 实际) SNR。
+  用于按实测 SNR 选 `--delta`; 离线可用 fake 设备单测
 - cartographer/   — SLM 标定综合工具 (余弦图样/Hartmann 波前重建/灰度-LUT/动态补偿)
 
 LUT 路径约定:
@@ -33,6 +36,16 @@ from ao_shaping.tools.slm.slm_scan_analysis import (
     outlier_mask,
     parabolic_min,
 )
+from ao_shaping.tools.slm.slm_snr_probe import (
+    SIGMA_FLOOR,
+    SNR_STRONG,
+    SNR_USABLE,
+    SnrSweepResult,
+    abba_signal,
+    measure_noise_floor,
+    snr_sweep,
+    snr_verdict,
+)
 
 __all__ = [
     "build_sequence",
@@ -45,4 +58,12 @@ __all__ = [
     "latest_match",
     "group_raw_scan",
     "analyze_linearity",
+    "SIGMA_FLOOR",
+    "SNR_STRONG",
+    "SNR_USABLE",
+    "SnrSweepResult",
+    "abba_signal",
+    "measure_noise_floor",
+    "snr_sweep",
+    "snr_verdict",
 ]
