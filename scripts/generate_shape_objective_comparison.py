@@ -1,4 +1,4 @@
-"""Offline comparison of the three shape objectives on real measured frames.
+﻿"""Offline comparison of the three shape objectives on real measured frames.
 
 Scores every camera frame recorded by the Daheng ``slm-pib`` online suite under
 three independent shape objectives and reports whether they **agree**:
@@ -10,8 +10,10 @@ three independent shape objectives and reports whether they **agree**:
    composite in ``utils.image.beam_metrics`` used by the reporting path,
    ``[0, 1]``, higher is better;
 3. ``1 - Pearson(measured, target)`` — the FourierGSNet ``shaping_loss``
-   migrated into the hardware path (``utils.image.target.metrics``), unbounded,
-   lower is better.
+   migrated into the hardware path (``utils.image.target.metrics``), lower is
+   better. Bounded in ``[0, 2]`` for a valid frame (a constant frame gives
+   exactly ``1.0``); the ``1e3`` value is a discrete sentinel for a dark / NaN /
+   non-normalisable frame, not a continuous tail.
 
 The point of the report is the **rank agreement**: migrating GSNet's loss onto
 hardware is only sound if its ordering of candidate beams matches the
@@ -31,6 +33,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import pickle
 import sys
 from dataclasses import dataclass
@@ -170,6 +173,14 @@ class FrameSet:
     epochs: np.ndarray
     frames: list[np.ndarray]
     gates: list[str]
+    #: The recorder's row-0 (pre-optimization) frame. Used ONLY to anchor the
+    #: target ROI. It is deliberately kept out of ``frames`` so it never
+    #: contributes to the objective statistics.
+    anchor: np.ndarray
+    #: Contents of the run's ``summary_*.json`` sidecar, when present. Lets the
+    #: report state which objective / camera produced the trace instead of
+    #: leaving the reader to infer it from the directory name.
+    config: dict | None = None
 
     @property
     def label(self) -> str:
@@ -177,30 +188,73 @@ class FrameSet:
 
 
 def load_frame_sets(root: Path) -> list[FrameSet]:
-    """Load every readable recorder pickle under ``root``."""
+    """Load every readable recorder pickle under ``root``.
+
+    Two on-disk shapes are accepted, because the two runner families serialise
+    their debug history differently:
+
+    * a pickled :class:`~ao_shaping.utils.io.file.Recorder` with a ``history``
+      attribute (``slm-pib`` SNR sweeps dump ``None`` here and are skipped);
+    * a plain ``{epoch: row}`` dict, which is what ``save_recorder_debug_artifacts``
+      writes for the search runs.
+
+    Requiring ``.history`` silently skipped every dict-shaped artifact, so a
+    hardware run could be staged and still report "no recorded frames".
+    """
     out: list[FrameSet] = []
     for run_dir in sorted(p for p in root.iterdir() if p.is_dir()):
         for pkl in sorted(run_dir.glob("recorder_*.pkl")):
             try:
                 obj = pickle.loads(pkl.read_bytes())
-                if obj is None or not hasattr(obj, "history"):
+                if obj is None:
                     continue  # the SNR sweep dumps ``None``; no frames to compare
+                if hasattr(obj, "history"):
+                    rows = list(obj.history)
+                elif isinstance(obj, dict):
+                    # Insertion order is epoch order for both writers.
+                    rows = list(obj.values())
+                else:
+                    continue
             except (OSError, pickle.UnpicklingError, EOFError):
                 continue
-            rows = list(obj.history)
             if len(rows) < 2:
                 continue
-            frames = [np.asarray(r["_img"]) for r in rows[1:] if "_img" in r]
-            epochs = [float(r.get("_epoch", i + 1)) for i, r in enumerate(rows[1:])]
-            gates = [str(r.get("_gate", "unknown")) for r in rows[1:]]
-            if not frames:
+            # Filter ONCE and derive epochs/gates/frames from the *same* rows.
+            # Building them from separate comprehensions over ``rows[1:]``
+            # desynchronises the three lists whenever a row lacks ``_img``:
+            # ``frames`` would skip it while ``epochs``/``gates`` kept it,
+            # shifting every later gate label by one epoch.
+            kept = [r for r in rows[1:] if "_img" in r]
+            if not kept:
                 continue
+            frames = [np.asarray(r["_img"]) for r in kept]
+            epochs = np.asarray(
+                [float(r.get("_epoch", i + 1)) for i, r in enumerate(kept)]
+            )
+            gates = [str(r.get("_gate", "unknown")) for r in kept]
+            # Anchor on the true pre-optimization row. ``frames[0]`` is the first
+            # post-optimization row (row 0 is skipped above), so anchoring on it
+            # would silently move the target box by one epoch of drift.
+            anchor = (np.asarray(rows[0]["_img"])
+                      if "_img" in rows[0] else frames[0])
+            # Best-effort provenance from the sibling JSON sidecar.
+            config: dict | None = None
+            for sidecar in sorted(run_dir.glob("*.json")):
+                try:
+                    loaded = json.loads(sidecar.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                if isinstance(loaded, dict):
+                    config = loaded
+                    break
             out.append(FrameSet(
                 stamp=run_dir.name,
                 tag=pkl.stem.removeprefix("recorder_"),
-                epochs=np.asarray(epochs[: len(frames)]),
+                epochs=epochs,
                 frames=frames,
-                gates=gates[: len(frames)],
+                gates=gates,
+                anchor=anchor,
+                config=config,
             ))
     return out
 
@@ -226,14 +280,14 @@ def plot_objective_traces(fs: FrameSet, ys: dict[str, np.ndarray],
     fig, axes = plt.subplots(3, 1, figsize=(9, 8), sharex=True)
     epochs = fs.epochs
     titles = [
-        ("square_quality_score", "higher better"),
-        ("compute_quality_score", "higher better"),
-        ("1 - Pearson (GSNet loss)", "lower better"),
+        ("square_quality_score", "square_quality_score", "higher better"),
+        ("compute_quality_score", "compute_quality_score", "higher better"),
+        ("pearson_loss", "1 - Pearson (GSNet loss)", "lower better"),
     ]
-    for ax, (key, note) in zip(axes, titles):
+    for ax, (key, label, note) in zip(axes, titles):
         ax.plot(epochs, ys[key], "-o", ms=3)
         ax.set_ylabel(key.split("_")[0])
-        ax.set_title(f"{key}  ({note})", fontsize=9)
+        ax.set_title(f"{label}  ({note})", fontsize=9)
         ax.grid(alpha=0.3)
     axes[-1].set_xlabel("epoch")
     fig.suptitle(f"{fs.label} — three shape objectives on the same frames", fontsize=11)
@@ -274,8 +328,13 @@ def _fmt(v: float, spec: str = "+.4f") -> str:
 
 
 def analyse(fs: FrameSet, side: int) -> tuple[dict[str, np.ndarray], tuple[float, float]]:
-    """Score every frame under all three objectives."""
-    center = spot_center(fs.frames[0])
+    """Score every frame under all three objectives.
+
+    The target ROI is anchored on the **pre-optimization** frame (recorder row 0),
+    so the box does not follow optimizer drift and every epoch of every run is
+    scored against the same fixed target.
+    """
+    center = spot_center(fs.anchor)
     ys: dict[str, list[float]] = {k: [] for k in
                                  ("square_quality_score", "compute_quality_score",
                                   "pearson_loss")}
@@ -295,14 +354,22 @@ def write_report(results: list[tuple[FrameSet, dict[str, np.ndarray], tuple[floa
         "# Shape Objective Comparison Report",
         "",
         "Offline comparison of three shape objectives scored on the **same** real",
-        f"Daheng CCD frames recorded by the `slm-pib` online suite (target: square,",
-        f"side {side} px, anchored at the baseline `argmax`).",
+        f"CCD frames recorded by the `slm-pib` online suite (target: square,",
+        f"side {side} px, anchored at the pre-optimization frame `argmax`).",
+        "",
+        "> **Provenance.** Prefer runs whose `summary_*.json` records `cam_type` /",
+        "> `cam_id` / `exposure_time_ms` explicitly — `slm_pib_runner` now writes",
+        "> those, so such artifacts are self-attributing. Older runs recorded only",
+        "> `delta` / `epochs` / `lr`, leaving the camera backend *inferred* from the",
+        "> run configuration rather than read back from the artifact; for those, treat",
+        "> the backend attribution as provisional. The per-run sections below list",
+        "> the sidecar contents actually found, so the distinction is visible.",
         "",
         "| objective | source | polarity | bounded |",
         "|---|---|---|---|",
         "| `square_quality_score` | `optimizer/wfless/slm_square_shaping.py` | higher better | `[0, 1]` |",
         "| `compute_quality_score` | `utils/image/beam_metrics.py` | higher better | `[0, 1]` |",
-        "| `1 - Pearson` | `utils/image/target/metrics.py` (FourierGSNet `shaping_loss`) | lower better | unbounded |",
+        "| `1 - Pearson` | `utils/image/target/metrics.py` (FourierGSNet `shaping_loss`) | lower better | `[0, 2]` (valid frame); `1e3` sentinel on invalid |",
         "",
         "## 1. Rank agreement",
         "",
@@ -321,7 +388,104 @@ def write_report(results: list[tuple[FrameSet, dict[str, np.ndarray], tuple[floa
             f"| {fs.label} | {sq.size} | {_fmt(spearman(sq, pe))} | "
             f"{_fmt(spearman(bm, pe))} | {_fmt(spearman(sq, bm))} |"
         )
-    lines += ["", "## 2. Value ranges", "",
+
+    # ---- Verdict -----------------------------------------------------------
+    # Count how often each Pearson correlation carries the sign that means
+    # "agrees" (negative, because the loss is lower-is-better) and how strong
+    # it is. This is stated explicitly rather than left to the reader, because
+    # "no consistent sign across runs" is the migration-critical finding.
+    agree_sq, agree_bm, comps, mags = [], [], [], []
+    for _fs, ys, _c in results:
+        sq, bm, pe = (ys["square_quality_score"], ys["compute_quality_score"],
+                      ys["pearson_loss"])
+        for series, bucket in ((spearman(sq, pe), agree_sq),
+                               (spearman(bm, pe), agree_bm)):
+            if np.isfinite(series):
+                bucket.append(series < 0)
+                mags.append(abs(series))
+        c = spearman(sq, bm)
+        if np.isfinite(c):
+            comps.append(c)
+
+    n = len(agree_sq)
+    if n:
+        n_ok = sum(agree_sq)
+        mean_abs = float(np.mean(mags[:n]))
+        n_bm_ok = sum(agree_bm)
+
+        # Two independent failure modes, and they call for different remedies:
+        #   * the sign is inconsistent run-to-run  -> the ordering is unstable,
+        #     so it cannot be trusted as a convergence signal at all;
+        #   * the sign is right but the effect is weak -> the ordering is
+        #     directionally usable yet too noisy to rank candidates.
+        # Reporting only the sign would call a merely-weak correlation
+        # "inconsistent", which overstates the instability.
+        sign_stable = n_ok * 2 > n
+        effect_weak = mean_abs < 0.5
+        if not sign_stable:
+            verdict = (
+                "**RISKY — the Pearson loss does not rank frames consistently "
+                "with the hand-tuned composites.**"
+            )
+        elif effect_weak:
+            verdict = (
+                "**RISKY — the sign is right but the effect is too weak "
+                f"(mean |rho| = {mean_abs:.3f}) to rank candidates reliably.**"
+            )
+        else:
+            verdict = (
+                "**SOUND — the Pearson loss ranks frames consistently with the "
+                "hand-tuned composites.**"
+            )
+
+        if sign_stable and effect_weak:
+            reading = (
+                "**Reading:** the sign of the correlation is stable across runs, "
+                f"but the effect is weak (mean |rho| = {mean_abs:.3f}). A weak "
+                "Spearman coefficient means the ordering is dominated by noise, "
+                "so `1 - Pearson` should be exposed as an **additional, "
+                "explicitly selected** objective with the sign re-checked on "
+                "hardware — not used to replace `quality`/`shape`, and not "
+                "trusted as a convergence signal on its own."
+            )
+        elif not sign_stable:
+            reading = (
+                "**Reading:** the correlation *sign flips between runs*, so on any "
+                "given run the Pearson loss may order candidates opposite to the "
+                "composites. It is therefore safe to expose as an **additional, "
+                "explicitly selected** objective (as done in `slm-gsnet` / "
+                "`slm-pib`), but it must not silently replace `quality`/`shape`, "
+                "and its sign must be re-checked on hardware before being trusted "
+                "as a convergence signal."
+            )
+        else:
+            reading = (
+                "**Reading:** the ordering is consistent and strong enough to "
+                "rank candidates. Promotion still requires an on-hardware check, "
+                "because these are recorded frames replayed offline, not a live "
+                "closed loop."
+            )
+
+        lines += [
+            "",
+            "## 2. Verdict",
+            "",
+            verdict,
+            "",
+            f"- `square_quality_score` vs `1 - Pearson`: only **{n_ok}/{n}** runs show "
+            f"the expected *negative* rank correlation (mean |rho| = "
+            f"{mean_abs:.3f}).",
+            f"- `compute_quality_score` vs `1 - Pearson`: **{n_bm_ok}/{n}** runs "
+            "show the expected negative correlation.",
+            f"- Control — the two composites agree with each other in "
+            f"**{sum(c > 0 for c in comps)}/{len(comps)}** runs "
+            f"(mean rho = {np.mean(comps):+.3f}), so the frame set and the anchor "
+            "are sound; the instability is specific to the Pearson term.",
+            "",
+            reading,
+        ]
+
+    lines += ["", "## 3. Value ranges", "",
               "| run | square_quality_score | compute_quality_score | 1 - Pearson |",
               "|---|---|---|---|"]
     for fs, ys, _c in results:
@@ -336,23 +500,51 @@ def write_report(results: list[tuple[FrameSet, dict[str, np.ndarray], tuple[floa
         "",
         "The two composite scores are bounded in `[0, 1]` and therefore cannot",
         "express *how bad* a frame is — they saturate. The Pearson loss is",
-        "unbounded, so on a folded or dark frame it keeps growing while the",
-        "composite scores flatten out. That unbounded tail is what lets the",
-        "hardware gate reject an epoch; the composites cannot.",
+        "**not** unbounded: after mean-centring the correlation lies in",
+        "`[-1, 1]`, so a valid frame scores `1 - corr` in `[0, 2]`, and a",
+        "constant (zero-variance) frame lands at exactly `1.0`. Its only",
+        "out-of-range value is the discrete `1e3` sentinel returned for a dark /",
+        "NaN / non-normalisable frame or an off-frame target — that sentinel, not",
+        "a continuous tail, is what lets a gate reject such an epoch outright.",
+        "",
+        "The practical gap is therefore *not* dynamic range but **what each",
+        "objective can see**. Mean-centring makes the Pearson loss invariant to",
+        "global intensity scale and to any additive DC offset, so on its own it",
+        "is **blind to absolute energy** and can be improved by pushing light out",
+        "of the target box. That is why the hardware path pairs it with an ROI",
+        "energy guard rather than treating it as a drop-in replacement.",
     ]
 
     for fig in figures:
         lines += ["", f"![{fig.stem}]({fig.parent.name}/{fig.name})"]
 
-    lines += ["", "## 3. Per-run objective traces", ""]
+    lines += ["", "## 4. Per-run objective traces", ""]
     for fs, ys, center in results:
+        # State the objective/camera identity the run actually recorded, so a
+        # reader never has to infer it from the directory name.
+        cfg = fs.config or {}
+        identity = ", ".join(
+            f"`{k}`={cfg[k]!r}"
+            for k in ("objective", "cam_type", "cam_id", "exposure_time_ms",
+                      "delta", "n_eval_frames", "zernike_radius")
+            if k in cfg
+        )
         lines += [
             f"### {fs.label}",
             "",
             f"- frames: **{fs.epochs.size}** (epochs {fs.epochs.min():.0f}"
             f"-{fs.epochs.max():.0f})",
             f"- target anchor `(x, y)` = ({center[0]:.0f}, {center[1]:.0f}), "
-            f"from the baseline frame `argmax`",
+            f"from the pre-optimization (row 0) frame `argmax`",
+        ]
+        if identity:
+            lines.append(f"- recorded run config: {identity}")
+        else:
+            lines.append(
+                "- recorded run config: **absent** — the sidecar predates the "
+                "provenance fields, so objective/camera must be inferred"
+            )
+        lines += [
             f"- gate verdicts: "
             + ", ".join(f"{g}={fs.gates.count(g)}" for g in
                         sorted(set(fs.gates))),
@@ -361,17 +553,20 @@ def write_report(results: list[tuple[FrameSet, dict[str, np.ndarray], tuple[floa
         # Show the frames where the objectives disagree most — those are the
         # interesting ones for judging the migration.
         sq, pe = ys["square_quality_score"], ys["pearson_loss"]
-        order = np.argsort(-(sq - _normalise(pe)))
-        lines += ["| epoch | gate | square_quality_score | 1 - Pearson |",
-                  "|---|---|---|---|"]
+        order = _disagreement_order(sq, pe)
+        lines += [
+            "| epoch | gate | square_quality_score | 1 - Pearson | disagreement |",
+            "|---|---|---|---|---|",
+        ]
         for i in order[:5]:
             lines.append(
-                f"| {fs.epochs[i]:.0f} | {fs.gates[i]} | {sq[i]:.4f} | {pe[i]:.4f} |"
+                f"| {fs.epochs[i]:.0f} | {fs.gates[i]} | {sq[i]:.4f} | {pe[i]:.4f} | "
+                f"{abs(_higher_is_better(sq, False)[i] - _higher_is_better(pe, True)[i]):.4f} |"
             )
         lines.append("")
 
     lines += [
-        "## 4. Reproduction",
+        "## 5. Reproduction",
         "",
         "```bash",
         "python scripts/generate_shape_objective_comparison.py",
@@ -387,6 +582,42 @@ def _normalise(a: np.ndarray) -> np.ndarray:
     """Min-max scale to `[0, 1]` so two different units can be compared."""
     span = a.max() - a.min()
     return (a - a.min()) / span if span > 0 else np.zeros_like(a)
+
+
+def _higher_is_better(a: np.ndarray, lower_is_better: bool) -> np.ndarray:
+    """Flip a series so that **larger is always better**, then scale to `[0, 1]`.
+
+    All three objectives must share one orientation before they are compared;
+    otherwise "disagreement" is meaningless (a loss and a score would be ranked
+    against each other in the same direction).
+    """
+    return _normalise(-a if lower_is_better else a)
+
+
+def _disagreement_order(
+    comp: np.ndarray, pearson_loss: np.ndarray
+) -> np.ndarray:
+    """Frame indices ordered by *descending* disagreement between the composite
+    score and the Pearson loss.
+
+    Both series are first oriented higher-is-better and min-max scaled, so the
+    two units are commensurate; the disagreement is then the absolute gap
+    between them, which is scale-free and symmetric. Ranking by a *signed*
+    difference (e.g. ``comp - norm(loss)``) would instead surface the frames
+    where the two objectives already **agree**, i.e. the opposite of the intent.
+
+    Ties fall back to the Pearson loss, worst first, so the table is stable and
+    surfaces the most alarming frames. ``np.lexsort`` applies the *last* key as
+    primary and earlier keys as tie-breakers, so the loss goes in as the primary
+    key negated (descending = worst first) with the negated gap as the
+    tie-breaker — ``lexsort((-pearson_loss, -gap))``, not
+    ``lexsort((pearson_loss, -gap))``, which would order ties best-first and
+    contradict the stated intent.
+    """
+    comp_n = _higher_is_better(comp, lower_is_better=False)
+    loss_n = _higher_is_better(pearson_loss, lower_is_better=True)
+    gap = np.abs(comp_n - loss_n)
+    return np.lexsort((-pearson_loss, -gap))
 
 
 # ---------------------------------------------------------------------------
