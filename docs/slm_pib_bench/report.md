@@ -43,62 +43,75 @@
 ## 3. 搜索结果 (best vs sustained)
 
 **sustained** 是末帧相对首帧的改善, **best** 是历史最优。两者的差值
-是判别「真优化」与「漂移」的关键: 若 best 很大而 sustained 接近 0,
-说明所谓改善只是噪声漂移。
+是判别「真优化」与「漂移」的第一道线索。
 
-`guard` 列是被能量门判为「放弃评估」的行数 (J = 1e3 哨兵值), 这些行不参与统计。
+⚠️ **但 `sustained` 会骗人。** 轨迹若是随机游走, 末帧落在低点纯属运气。实机曾出现 `0.529 → 0.400 → 0.534 → 0.402` 的轨迹 —— 头尾一比是 "+24%", 全程却没有下降。因此另给两个稳健判据:
 
-| run | objective | mode | epochs | guard | first | best | final | best % | sustained % | 溯源 |
-|---|---|---|---|---|---|---|---|---|---|---|
-| slm_pib_pib_20260928_175845 | `shape` | max | 190 | 0 | -1.0811 | -0.4461 | -0.4461 | +58.7 | +58.7 | delta=0.0005 |
-| slm_pib_shape_20260926_174011 | `shape` | max | 96 | 5 | -2.6785 | -1.4995 | -1.5803 | +44.0 | +41.0 | sidecar 无关键字段 |
-| slm_pib_shape_20260923_175829 | `shape` | max | 43 | 2 | -1.1095 | -0.6476 | -0.7049 | +41.6 | +36.5 | sidecar 无关键字段 |
-| slm_pib_shape_20260924_091143 | `shape` | max | 101 | 0 | -1.0424 | -0.6320 | -0.6799 | +39.4 | +34.8 | sidecar 无关键字段 |
-| slm_pib_pib_20260928_204741 | `shape` | max | 201 | 0 | -1.2244 | -0.7267 | -0.8061 | +40.6 | +34.2 | delta=0.0005 |
-| slm_pib_hw_20260929 | `pearson` | min | 61 | 0 | 0.5316 | 0.3699 | 0.4017 | +30.4 | +24.4 | sidecar 无关键字段 |
-| slm_pib_pearson_20260929_161710 | `pearson` | min | 61 | 0 | 0.5316 | 0.3699 | 0.4017 | +30.4 | +24.4 | delta=0.1 |
-| slm_pib_shape_20260926_172355 | `shape` | max | 101 | 0 | -1.2017 | -0.7154 | -0.9120 | +40.5 | +24.1 | sidecar 无关键字段 |
-| slm_pib_pearson_20260929_161856 | `pearson` | min | 61 | 0 | 0.5322 | 0.3364 | 0.4087 | +36.8 | +23.2 | sidecar 无关键字段 |
-| slm_pib_shape_20260929_162049 | `shape` | max | 61 | 0 | -1.3686 | -0.8297 | -1.1501 | +39.4 | +16.0 | delta=0.1 |
-| slm_pib_pearson_20260929_163533 | `pearson` | min | 61 | 0 | 0.5330 | 0.3783 | 0.4553 | +29.0 | +14.6 | objective='pearson', cam_type='daheng', cam_id=0, exposure_time_ms=1.2, delta=0.1 |
-| slm_zernike_shaping_shape_20260926_170950 | `shape` | max | 101 | 0 | -1.2001 | -0.8425 | -1.0702 | +29.8 | +10.8 | sidecar 无关键字段 |
-| slm_pib_shape_20260923_190544 | `shape` | max | 101 | 0 | -1.0840 | -0.9225 | -1.0001 | +14.9 | +7.7 | sidecar 无关键字段 |
-| slm_pib_pib_20260928_173303 | `shape` | max | 101 | 0 | -0.9369 | -0.7104 | -0.8984 | +24.2 | +4.1 | delta=0.0005 |
-| slm_pib_shape_20260924_090210 | `shape` | max | 101 | 0 | -1.0879 | -0.8379 | -1.0550 | +23.0 | +3.0 | sidecar 无关键字段 |
-| slm_pib_pearson_20260929_161417 | `pearson` | min | 201 | 0 | 0.5348 | 0.3800 | 0.5188 | +28.9 | +3.0 | delta=0.01 |
-| slm_pib_shape_20260926_172917 | `shape` | max | 101 | 0 | -1.2107 | -0.8410 | -1.1780 | +30.5 | +2.7 | sidecar 无关键字段 |
-| slm_pib_rms_pib_20260926_172642 | `rms_pib` | max | 101 | 0 | 0.6195 | 0.6349 | 0.6340 | +2.5 | +2.4 | sidecar 无关键字段 |
-| slm_pib_pearson_20260929_151039 | `pearson` | min | 41 | 0 | 0.9911 | 0.9585 | 0.9771 | +3.3 | +1.4 | delta=0.5 |
-| slm_pib_shape_20260929_160226 | `shape` | max | 201 | 0 | -1.3732 | -0.9264 | -1.3625 | +32.5 | +0.8 | delta=0.0005 |
-| slm_pib_shape_20260929_222639 | `shape` | max | 41 | 0 | -1.4408 | -1.0472 | -1.4324 | +27.3 | +0.6 | objective='shape', cam_type='daheng', cam_id=0, exposure_time_ms=1.2, delta=0.0005 |
-| slm_pib_shape_20260923_190206 | `shape` | max | 101 | 0 | -1.0832 | -0.7282 | -1.0807 | +32.8 | +0.2 | sidecar 无关键字段 |
-| slm_pib_pearson_20260929_160921 | `pearson` | min | 201 | 0 | 0.5348 | 0.4023 | 0.5337 | +24.8 | +0.2 | delta=0.002 |
-| slm_pib_rmse_20260926_174434 | `rmse` | max | 101 | 0 | 0.0000 | 0.0000 | 0.0000 | +1.6 | -0.6 | sidecar 无关键字段 |
-| slm_pib_shape_20260929_150531 | `shape` | max | 301 | 0 | -1.8799 | -1.7963 | -1.8914 | +4.5 | -0.6 | delta=0.5 |
-| slm_pib_rms_pib_20260928_205958 | `rms_pib` | max | 151 | 0 | 0.6069 | 0.6082 | 0.6007 | +0.2 | -1.0 | delta=0.001 |
-| slm_zernike_shaping_rms_pib_20260926_170626 | `rms_pib` | max | 101 | 0 | 0.6199 | 0.6314 | 0.6123 | +1.9 | -1.2 | sidecar 无关键字段 |
-| slm_pib_shape_20260926_173633 | `shape` | max | 101 | 0 | -1.1935 | -0.7924 | -1.2107 | +33.6 | -1.4 | sidecar 无关键字段 |
-| slm_pib_shape_20260929_222529 | `shape` | max | 41 | 0 | -1.3653 | -0.8334 | -1.3865 | +39.0 | -1.6 | objective='shape', cam_type='daheng', cam_id=0, exposure_time_ms=1.2, delta=0.0005 |
-| slm_zernike_shaping_rms_pib_20260926_164154 | `rms_pib` | max | 101 | 0 | 0.6190 | 0.6192 | 0.6089 | +0.0 | -1.6 | sidecar 无关键字段 |
-| slm_pib_rms_pib_20260923_201537 | `rms_pib` | max | 101 | 0 | 0.6655 | 0.6693 | 0.6537 | +0.6 | -1.8 | sidecar 无关键字段 |
-| slm_pib_shape_20260929_150918 | `shape` | max | 301 | 0 | -1.8799 | -1.8639 | -1.9189 | +0.9 | -2.1 | delta=0.5 |
-| slm_pib_pib_20260928_205321 | `shape` | max | 132 | 0 | -1.0720 | -0.6487 | -1.0962 | +39.5 | -2.3 | delta=0.0007 |
-| slm_pib_rms_pib_20260928_205645 | `rms_pib` | max | 85 | 0 | 0.6086 | 0.6162 | 0.5940 | +1.3 | -2.4 | delta=0.0007 |
-| slm_zernike_shaping_rms_pib_20260926_170021 | `rms_pib` | max | 101 | 0 | 0.6212 | 0.6218 | 0.6062 | +0.1 | -2.4 | sidecar 无关键字段 |
-| slm_pib_shape_20260923_201859 | `shape` | max | 101 | 0 | -1.0105 | -0.6248 | -1.0406 | +38.2 | -3.0 | sidecar 无关键字段 |
-| slm_zernike_shaping_shape_20260926_170322 | `shape` | max | 101 | 0 | -1.1927 | -1.1151 | -1.2301 | +6.5 | -3.1 | sidecar 无关键字段 |
-| slm_zernike_shaping_roi_pib_20260926_171311 | `roi_pib` | max | 101 | 0 | 0.4977 | 0.5007 | 0.4772 | +0.6 | -4.1 | sidecar 无关键字段 |
-| slm_zernike_shaping_rms_pib_20260926_162917 | `rms_pib` | max | 101 | 0 | 0.6147 | 0.6237 | 0.5853 | +1.5 | -4.8 | sidecar 无关键字段 |
-| slm_pib_shape_20260926_172104 | `shape` | max | 20 | 81 | -1.2018 | -1.1913 | -1.2844 | +0.9 | -6.9 | sidecar 无关键字段 |
-| slm_pib_roi_pib_20260926_173223 | `roi_pib` | max | 101 | 0 | 0.4998 | 0.5040 | 0.4632 | +0.8 | -7.3 | sidecar 无关键字段 |
-| slm_pib_shape_20260926_175334 | `shape` | max | 64 | 669 | -1.1922 | -1.1868 | -1.3805 | +0.4 | -15.8 | sidecar 无关键字段 |
-| slm_pib_rmse_20260928_174041 | `rmse` | max | 61 | 229 | 0.0001 | 0.0001 | 0.0001 | +0.1 | -24.3 | sidecar 无关键字段 |
-| slm_pib_shape_20260928_174644 | `shape` | max | 63 | 282 | -1.1098 | -1.1083 | -1.4036 | +0.1 | -26.5 | sidecar 无关键字段 |
+- **`dec`** = 下降步占比。`≈0.5` 即随机游走 (抛硬币), 说明没有收敛。
+- **`late`** = 前 1/3 与后 1/3 均值之差 (按目标极性归一), 对终点位置不敏感。
 
-- **sustained > 5%** 的运行: 13 / 44
-- **best 显著但 sustained ≈ 0** (判为漂移, 非优化): 6 / 44
+`guard` 列是被能量门判为「放弃评估」的行数 (J = 1e3 哨兵), 不参与统计。
 
-> **结论 3：能量门频繁触发的运行基本等于没优化。** 6 个运行出现过 guard 惩罚行, 其 sustained 改善中位数 **-11.3%**; 而 38 个无 guard 的运行中位数为 **+0.4%**。被门拦下的迭代不更新系数, 因此门一旦频繁触发, 搜索就原地踏步 —— 排查时先看 guard 计数, 再看 delta。
+| run | objective | epochs | guard | dec | late % | best % | sustained % | 溯源 |
+|---|---|---|---|---|---|---|---|---|---|
+| slm_pib_pib_20260928_175845 | `shape` | 190 | 0 | 0.52 | -22.3 | +58.7 | +58.7 | delta=0.0005 |
+| slm_pib_shape_20260926_174011 | `shape` | 96 | 5 | 0.53 | -39.2 | +44.0 | +41.0 | sidecar 无关键字段 |
+| slm_pib_shape_20260923_175829 | `shape` | 43 | 2 | 0.62 | -31.8 | +41.6 | +36.5 | sidecar 无关键字段 |
+| slm_pib_shape_20260924_091143 | `shape` | 101 | 0 | 0.56 | -35.5 | +39.4 | +34.8 | sidecar 无关键字段 |
+| slm_pib_pib_20260928_204741 | `shape` | 201 | 0 | 0.61 | -34.7 | +40.6 | +34.2 | delta=0.0005 |
+| slm_pib_hw_20260929 | `pearson` | 61 | 0 | 0.48 | +12.3 | +30.4 | +24.4 | sidecar 无关键字段 |
+| slm_pib_pearson_20260929_161710 | `pearson` | 61 | 0 | 0.48 | +12.3 | +30.4 | +24.4 | delta=0.1 |
+| slm_pib_shape_20260926_172355 | `shape` | 101 | 0 | 0.68 | -21.3 | +40.5 | +24.1 | sidecar 无关键字段 |
+| slm_pib_pearson_20260930_162631 | `pearson` | 201 | 0 | 0.56 | +8.5 | +24.7 | +24.1 | objective='pearson', cam_type='daheng', cam_id=0, exposure_time_ms=1.2, delta=0.02 |
+| slm_pib_pearson_20260929_161856 | `pearson` | 61 | 0 | 0.52 | +20.6 | +36.8 | +23.2 | sidecar 无关键字段 |
+| slm_pib_pearson_20260930_164755 | `pearson` | 201 | 0 | 0.49 | +0.6 | +26.7 | +18.9 | objective='pearson', cam_type='daheng', cam_id=0, exposure_time_ms=1.2, delta=0.05 |
+| slm_pib_pearson_20260930_161515 | `pearson` | 201 | 0 | 0.48 | +10.0 | +26.7 | +18.8 | objective='pearson', cam_type='daheng', cam_id=0, exposure_time_ms=1.2, delta=0.1 |
+| slm_pib_shape_20260929_162049 | `shape` | 61 | 0 | 0.57 | -10.3 | +39.4 | +16.0 | delta=0.1 |
+| slm_pib_pearson_20260929_163533 | `pearson` | 61 | 0 | 0.40 | +15.1 | +29.0 | +14.6 | objective='pearson', cam_type='daheng', cam_id=0, exposure_time_ms=1.2, delta=0.1 |
+| slm_pib_pearson_20260930_161030 | `pearson` | 201 | 0 | 0.47 | +7.8 | +23.6 | +12.8 | objective='pearson', cam_type='daheng', cam_id=0, exposure_time_ms=1.2, delta=0.05 |
+| slm_zernike_shaping_shape_20260926_170950 | `shape` | 101 | 0 | 0.57 | -8.9 | +29.8 | +10.8 | sidecar 无关键字段 |
+| slm_pib_shape_20260923_190544 | `shape` | 101 | 0 | 0.54 | -8.1 | +14.9 | +7.7 | sidecar 无关键字段 |
+| slm_pib_pib_20260928_173303 | `shape` | 101 | 0 | 0.61 | -5.0 | +24.2 | +4.1 | delta=0.0005 |
+| slm_pib_shape_20260924_090210 | `shape` | 101 | 0 | 0.52 | +0.8 | +23.0 | +3.0 | sidecar 无关键字段 |
+| slm_pib_pearson_20260929_161417 | `pearson` | 201 | 0 | 0.51 | +0.0 | +28.9 | +3.0 | delta=0.01 |
+| slm_pib_shape_20260926_172917 | `shape` | 101 | 0 | 0.54 | +0.1 | +30.5 | +2.7 | sidecar 无关键字段 |
+| slm_pib_rms_pib_20260926_172642 | `rms_pib` | 101 | 0 | 0.61 | -3.0 | +2.5 | +2.4 | sidecar 无关键字段 |
+| slm_pib_pearson_20260929_151039 | `pearson` | 41 | 0 | 0.53 | +0.2 | +3.3 | +1.4 | delta=0.5 |
+| slm_pib_shape_20260929_160226 | `shape` | 201 | 0 | 0.53 | +0.0 | +32.5 | +0.8 | delta=0.0005 |
+| slm_pib_shape_20260929_222639 | `shape` | 41 | 0 | 0.53 | +2.4 | +27.3 | +0.6 | objective='shape', cam_type='daheng', cam_id=0, exposure_time_ms=1.2, delta=0.0005 |
+| slm_pib_shape_20260923_190206 | `shape` | 101 | 0 | 0.56 | +1.6 | +32.8 | +0.2 | sidecar 无关键字段 |
+| slm_pib_pearson_20260929_160921 | `pearson` | 201 | 0 | 0.50 | -1.2 | +24.8 | +0.2 | delta=0.002 |
+| slm_pib_rmse_20260926_174434 | `rmse` | 101 | 0 | 0.47 | -0.3 | +1.6 | -0.6 | sidecar 无关键字段 |
+| slm_pib_pearson_20260930_163712 | `pearson` | 201 | 0 | 0.50 | +0.8 | +3.8 | -0.6 | objective='pearson', cam_type='daheng', cam_id=0, exposure_time_ms=1.2, delta=0.05 |
+| slm_pib_shape_20260929_150531 | `shape` | 301 | 0 | 0.48 | -1.9 | +4.5 | -0.6 | delta=0.5 |
+| slm_pib_rms_pib_20260928_205958 | `rms_pib` | 151 | 0 | 0.49 | -0.5 | +0.2 | -1.0 | delta=0.001 |
+| slm_zernike_shaping_rms_pib_20260926_170626 | `rms_pib` | 101 | 0 | 0.56 | +0.4 | +1.9 | -1.2 | sidecar 无关键字段 |
+| slm_pib_shape_20260926_173633 | `shape` | 101 | 0 | 0.43 | +3.6 | +33.6 | -1.4 | sidecar 无关键字段 |
+| slm_pib_shape_20260929_222529 | `shape` | 41 | 0 | 0.45 | +1.0 | +39.0 | -1.6 | objective='shape', cam_type='daheng', cam_id=0, exposure_time_ms=1.2, delta=0.0005 |
+| slm_zernike_shaping_rms_pib_20260926_164154 | `rms_pib` | 101 | 0 | 0.52 | +1.0 | +0.0 | -1.6 | sidecar 无关键字段 |
+| slm_pib_rms_pib_20260923_201537 | `rms_pib` | 101 | 0 | 0.56 | +0.9 | +0.6 | -1.8 | sidecar 无关键字段 |
+| slm_pib_shape_20260929_150918 | `shape` | 301 | 0 | 0.49 | -0.0 | +0.9 | -2.1 | delta=0.5 |
+| slm_pib_pib_20260928_205321 | `shape` | 132 | 0 | 0.49 | +2.8 | +39.5 | -2.3 | delta=0.0007 |
+| slm_pib_rms_pib_20260928_205645 | `rms_pib` | 85 | 0 | 0.50 | +1.7 | +1.3 | -2.4 | delta=0.0007 |
+| slm_zernike_shaping_rms_pib_20260926_170021 | `rms_pib` | 101 | 0 | 0.49 | +1.2 | +0.1 | -2.4 | sidecar 无关键字段 |
+| slm_pib_shape_20260923_201859 | `shape` | 101 | 0 | 0.48 | +3.7 | +38.2 | -3.0 | sidecar 无关键字段 |
+| slm_zernike_shaping_shape_20260926_170322 | `shape` | 101 | 0 | 0.43 | +2.5 | +6.5 | -3.1 | sidecar 无关键字段 |
+| slm_zernike_shaping_roi_pib_20260926_171311 | `roi_pib` | 101 | 0 | 0.48 | -0.3 | +0.6 | -4.1 | sidecar 无关键字段 |
+| slm_pib_pearson_20260930_164337 | `pearson` | 201 | 0 | 0.48 | -2.0 | +17.4 | -4.7 | objective='pearson', cam_type='daheng', cam_id=0, exposure_time_ms=1.2, delta=0.05 |
+| slm_pib_pearson_20260930_163242 | `pearson` | 201 | 0 | 0.47 | -2.1 | +12.5 | -4.7 | objective='pearson', cam_type='daheng', cam_id=0, exposure_time_ms=1.2, delta=0.05 |
+| slm_zernike_shaping_rms_pib_20260926_162917 | `rms_pib` | 101 | 0 | 0.50 | +1.7 | +1.5 | -4.8 | sidecar 无关键字段 |
+| slm_pib_shape_20260926_172104 | `shape` | 20 | 81 | 0.37 | +1.6 | +0.9 | -6.9 | sidecar 无关键字段 |
+| slm_pib_roi_pib_20260926_173223 | `roi_pib` | 101 | 0 | 0.44 | +2.2 | +0.8 | -7.3 | sidecar 无关键字段 |
+| slm_pib_shape_20260926_175334 | `shape` | 64 | 669 | 0.41 | +2.8 | +0.4 | -15.8 | sidecar 无关键字段 |
+| slm_pib_rmse_20260928_174041 | `rmse` | 61 | 229 | 0.43 | +5.0 | +0.1 | -24.3 | sidecar 无关键字段 |
+| slm_pib_shape_20260928_174644 | `shape` | 63 | 282 | 0.48 | +5.2 | +0.1 | -26.5 | sidecar 无关键字段 |
+
+> **⚠️ 32/51 个运行的 `dec` 在 0.45–0.55 之间** = 随机游走。这些运行的 `sustained` 不应被解读为优化成果。
+
+- **sustained > 5%** 的运行: 17 / 51
+- **best 显著但 sustained ≈ 0** (判为漂移, 非优化): 6 / 51
+
+> **结论 3：能量门频繁触发的运行基本等于没优化。** 6 个运行出现过 guard 惩罚行, 其 sustained 改善中位数 **-11.3%**; 而 45 个无 guard 的运行中位数为 **+0.6%**。被门拦下的迭代不更新系数, 因此门一旦频繁触发, 搜索就原地踏步 —— 排查时先看 guard 计数, 再看 delta。
 
 判为漂移的运行 (仅列名前 8 个):
 

@@ -146,13 +146,21 @@ def _save_debug_artifacts(
         "exposure_time_ms": getattr(camera, "exposure_time_ms", None),
         "cam_size": getattr(camera, "cam_size", None),
         "center": getattr(camera, "center", None),
-        # Search identity.
-        "n_max": getattr(obj_or_heur, "n_max", None),
+        # Perturbation / step size (SpgdParamsPib); absent for the heuristic
+        # branch, hence the getattr default.
         "delta": getattr(obj_or_heur, "delta", None),
         "lr": getattr(obj_or_heur, "lr", None),
+        "epochs": getattr(obj_or_heur, "epochs", None),
+        # Search identity.
         "n_eval_frames": getattr(obj_or_heur, "n_eval_frames", None),
         "noise_gate_k": getattr(obj_or_heur, "noise_gate_k", None),
-        # SLM identity.
+        "fold_ratio": getattr(obj_or_heur, "fold_ratio", None),
+        "optimizer_type": getattr(obj_or_heur, "optimizer_type", None),
+        # SLM identity. ``n_max`` lives here (on SlmParams), NOT on the search
+        # config — reading it from ``obj_or_heur`` silently dropped it, which
+        # left the DOF count (the variable that sets the SPGD signal dilution)
+        # unrecorded in every artefact.
+        "n_max": getattr(config, "n_max", None),
         "zernike_radius": getattr(config, "zernike_radius", None),
         "slm_number": getattr(config, "slm_number", None),
         "slm_wavelength": getattr(config, "slm_wavelength", None),

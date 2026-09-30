@@ -168,9 +168,25 @@ def collect_search_runs(
             continue
         # Pearson is a loss (min-mode); everything else is a max-mode score.
         mode = "min" if key == "pearson" else "max"
+        sign = 1.0 if mode == "min" else -1.0  # +1 -> lower is better
         best = float(values.min() if mode == "min" else values.max())
         first, final = float(values[0]), float(values[-1])
         denom = abs(first) if abs(first) > 1e-12 else 1.0
+        # Convergence diagnostics. ``final vs first`` alone is NOT a valid
+        # progress measure: on a random walk the last sample lands wherever luck
+        # puts it (bench-observed: a trace that dipped to 0.400, recovered to
+        # 0.534 and ended at 0.402 reads as "+24% sustained" while never
+        # descending). ``frac_decreasing`` exposes that (0.5 == coin flip) and
+        # ``late_gain`` compares third-of-trace means, which is robust to where
+        # the run happened to stop.
+        steps = np.diff(sign * values)  # >0 == improving
+        frac_decreasing = float(np.mean(steps < 0)) if steps.size else 0.0
+        third = max(len(values) // 3, 1)
+        head = float(np.mean(values[:third]))
+        tail = float(np.mean(values[-third:]))
+        late_gain = (
+            100.0 * (head - tail) / abs(head) if abs(head) > 1e-12 else 0.0
+        )
         out.append(
             {
                 "name": run_dir.name,
@@ -187,6 +203,8 @@ def collect_search_runs(
                 "sustained_pct": 100.0 * (first - final) / denom
                 if mode == "min"
                 else 100.0 * (final - first) / denom,
+                "frac_decreasing": frac_decreasing,
+                "late_gain_pct": late_gain,
                 "gates": dict(gates),
                 "config": config,
             }
@@ -424,25 +442,40 @@ def write_report(
     lines += ["## 3. 搜索结果 (best vs sustained)", ""]
     if runs:
         lines += [
-            "**sustained** 是末帧相对首帧的改善, **best** 是历史最优。两者的差值",
-            "是判别「真优化」与「漂移」的关键: 若 best 很大而 sustained 接近 0,",
-            "说明所谓改善只是噪声漂移。",
+"**sustained** 是末帧相对首帧的改善, **best** 是历史最优。两者的差值",
+            "是判别「真优化」与「漂移」的第一道线索。",
             "",
-            "`guard` 列是被能量门判为「放弃评估」的行数 (J = 1e3 哨兵值), "
-            "这些行不参与统计。",
+            "⚠️ **但 `sustained` 会骗人。** 轨迹若是随机游走, 末帧落在低点纯属运气。"
+            "实机曾出现 `0.529 → 0.400 → 0.534 → 0.402` 的轨迹 —— 头尾一比是 \"+24%\", "
+            "全程却没有下降。因此另给两个稳健判据:",
             "",
-            "| run | objective | mode | epochs | guard | first | best | final | "
-            "best % | sustained % | 溯源 |",
-            "|---|---|---|---|---|---|---|---|---|---|---|",
+            "- **`dec`** = 下降步占比。`≈0.5` 即随机游走 (抛硬币), 说明没有收敛。",
+            "- **`late`** = 前 1/3 与后 1/3 均值之差 (按目标极性归一), 对终点位置不敏感。",
+            "",
+            "`guard` 列是被能量门判为「放弃评估」的行数 (J = 1e3 哨兵), 不参与统计。",
+            "",
+            "| run | objective | epochs | guard | dec | late % | best % | "
+            "sustained % | 溯源 |",
+            "|---|---|---|---|---|---|---|---|---|---|",
         ]
         for r in sorted(runs, key=lambda r: r["sustained_pct"], reverse=True):
             lines.append(
-                f"| {r['name']} | `{r['key']}` | {r['mode']} | {r['epochs']} | "
+                f"| {r['name']} | `{r['key']}` | {r['epochs']} | "
                 f"{r.get('n_penalised', 0)} | "
-                f"{r['first']:.4f} | {r['best']:.4f} | {r['final']:.4f} | "
+                f"{r.get('frac_decreasing', float('nan')):.2f} | "
+                f"{r.get('late_gain_pct', float('nan')):+.1f} | "
                 f"{r['best_impr_pct']:+.1f} | {r['sustained_pct']:+.1f} | "
                 f"{_prov(r['config'])} |"
             )
+        walkers = [
+            r for r in runs if abs(r.get("frac_decreasing", 0.5) - 0.5) < 0.05
+        ]
+        if walkers:
+            lines += [
+                "",
+                f"> **⚠️ {len(walkers)}/{len(runs)} 个运行的 `dec` 在 0.45–0.55 之间** "
+                "= 随机游走。这些运行的 `sustained` 不应被解读为优化成果。",
+            ]
         strong = [r for r in runs if r["sustained_pct"] > 5.0]
         weak = [
             r
