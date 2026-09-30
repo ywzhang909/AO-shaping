@@ -333,6 +333,16 @@ DEFAULT_SHAPE_OBJECTIVES = (
     "pearson",
 )
 
+
+#: Objectives selectable for the *square* family (slm-gsnet / spgd-square).
+#:
+#: Square shaping is a separate vocabulary from :data:`SHAPING_OBJECTIVE_CHOICES`
+#: because it drives a different search (freeform phase, square target box) and
+#: its historical objective is the combined quality score rather than any
+#: ROI-PIB/RMSE objective. Every entry is a HIGHER-IS-BETTER score; the sign
+#: convention is applied once, in ``square_objective_score``.
+SQUARE_OBJECTIVE_CHOICES = ("quality", "pearson")
+
 #: Per-objective whitelist of accepted ``target_shape`` values; ``None`` means
 #: the objective does not accept a literal shape.
 #:

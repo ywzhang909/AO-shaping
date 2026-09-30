@@ -58,6 +58,10 @@ _EXPECTED_CHOICES: tuple[str, ...] = (
     "shape",
     "roi_pib",
     "rms_pib",
+    # FourierGSNet ``1 - Pearson`` loss, migrated to the hardware path
+    # (``utils.image.target.metrics.pearson_shape_metric``). It is lower-is-better
+    # and energy-blind, so it is listed in ``GUARDED_OBJECTIVES``.
+    "pearson",
 )
 
 #: ``(objective, target_shape) -> (resolved name, resolved shape)``.
@@ -135,10 +139,10 @@ def _write_minimal_run(run_dir: Path, config: dict[str, Any]) -> None:
     )
 
 
-def test_objective_choices_are_the_eight() -> None:
+def test_objective_choices_are_the_nine() -> None:
     assert SHAPING_OBJECTIVE_CHOICES == _EXPECTED_CHOICES
     assert set(SHAPING_OBJECTIVE_CHOICES) == set(_EXPECTED_CHOICES)
-    assert len(SHAPING_OBJECTIVE_CHOICES) == 8
+    assert len(SHAPING_OBJECTIVE_CHOICES) == 9
 
 
 @pytest.mark.parametrize("objective,target_shape,name,shape", _RESOLVE_TABLE)

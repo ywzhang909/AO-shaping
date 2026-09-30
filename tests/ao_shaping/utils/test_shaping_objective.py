@@ -299,7 +299,11 @@ class TestEnergyGuard:
         assert ref == pytest.approx(
             roi_pib_metric(init, CENTER, SHAPE, SIZE, ASPECT)[0]
         )
-        assert roi_energy_loss(ref, obj._fixed_roi_energy(init)) == pytest.approx(0.0)
+        # The reference is the initial frame's own in-ROI energy, so measuring
+        # the loss of the initial frame against it must be exactly zero.
+        assert roi_energy_loss(
+            ref, roi_pib_metric(init, CENTER, SHAPE, SIZE, ASPECT)[0]
+        ) == pytest.approx(0.0)
 
 
 class TestMetricPanel:

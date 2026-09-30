@@ -54,6 +54,7 @@ from ao_shaping.utils.image.target.objective import (
     ROI_ONLY_SHAPE_OBJECTIVES,
     SHAPE_AWARE_OBJECTIVES,
     SHAPING_OBJECTIVE_CHOICES,
+    SQUARE_OBJECTIVE_CHOICES,
     ObjectiveResult,
     ObjectiveSpec,
     ShapeScoringParams,
@@ -111,6 +112,7 @@ __all__ = [
     "SHAPE_AWARE_OBJECTIVES",
     "ROI_ONLY_SHAPE_OBJECTIVES",
     "DEFAULT_SHAPE_OBJECTIVES",
+    "SQUARE_OBJECTIVE_CHOICES",
     "OBJECTIVE_ALLOWED_SHAPES",
     "ShapingObjective",
     # private helpers kept reachable for the legacy shim / existing tests
