@@ -5,7 +5,6 @@ import tqdm
 import numpy as np
 import matplotlib.pylab as plt
 
-from ao_shaping.drivers import MIICamera
 from ao_shaping.drivers.ccd.common import (
     capture_with_exposure,
     get_camera_exposure_ms,
@@ -24,6 +23,35 @@ from ao_shaping.utils.image.hardware_utils import (
     resolve_spot_center,
 )
 from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
+
+
+# 测试/仿真注入点: 设为 SimCamera 等替身即可替换真实驱动, None = 使用真实驱动。
+_CAMERA_CLASS_OVERRIDE: type | None = None
+
+
+def _camera_cls() -> type:
+    """Resolve the MiiCam driver class on demand.
+
+    ``ao_shaping.drivers`` exposes ``MIICamera`` through a PEP 562
+    ``__getattr__``, so a module-level ``from ao_shaping.drivers import
+    MIICamera`` would load the native MiiCam SDK (``_setup_miicam_sdk()`` ->
+    ``ctypes.CDLL``) on every ``import ao_shaping`` — defeating the lazy
+    contract and forcing the SDK onto offline consumers such as
+    ``scripts/generate_shape_objective_comparison.py``. Resolving here keeps
+    the optimizer importable without the side effect.
+
+    Offline simulation and tests substitute a fake camera by assigning
+    ``_CAMERA_CLASS_OVERRIDE`` on this module.
+    """
+    if _CAMERA_CLASS_OVERRIDE is not None:
+        return _CAMERA_CLASS_OVERRIDE
+
+    from ao_shaping.drivers import MIICamera
+
+    if MIICamera is None:
+        raise RuntimeError("MiiCam driver not available. Install the MiiCam SDK.")
+    return MIICamera
+
 
 # adam parameters
 beta1 = 0.9
@@ -344,7 +372,7 @@ def optimize_pib(
     _max_history_len = 50  # 保持最近50次记录
 
     with (
-        MIICamera(
+        _camera_cls()(
             cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
         ) as cam,
     ):

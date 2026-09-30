@@ -42,7 +42,7 @@ Note:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import tqdm
@@ -61,10 +61,15 @@ from ao_shaping.utils.image.targets import crop_resize_to_grid
 # Hardware drivers are imported guarded: the SDKs are not installed on every
 # machine, and this module must stay importable without them. The auto-create
 # helpers raise a clear RuntimeError when the driver is unavailable.
-try:
-    from ao_shaping.drivers import MIICamera
-except Exception:  # pragma: no cover - hardware SDK not installed
-    MIICamera = None  # type: ignore[assignment]
+#
+# ``MIICamera`` is a *deferred* import rather than a guarded one. ``ao_shaping.
+# drivers`` exposes it through a PEP 562 ``__getattr__``, so a module-level
+# ``from ao_shaping.drivers import MIICamera`` would always succeed and would
+# load the native MiiCam SDK (``_setup_miicam_sdk()`` -> ``ctypes.CDLL``) on
+# every ``import ao_shaping`` — defeating the guard entirely. It is therefore
+# resolved inside ``_auto_create_ccd``, where it is actually needed.
+if TYPE_CHECKING:
+    from ao_shaping.drivers.ccd.miicam.driver import MIICamera
 
 try:
     from ao_shaping.drivers.slm.santec import Santec
@@ -123,6 +128,9 @@ def _auto_create_slm() -> Any:
 
 def _auto_create_ccd(cam_id: int, exposure_time_ms: float | None) -> Any:
     """Create and open the default CCD (Daheng, else MiiCam)."""
+    # Deferred: resolving the class pulls in the native camera SDK.
+    from ao_shaping.drivers import MIICamera
+
     if MIICamera is None:
         raise RuntimeError("CCD driver not available. Install Daheng/MiiCam SDK.")
     ccd = MIICamera(
