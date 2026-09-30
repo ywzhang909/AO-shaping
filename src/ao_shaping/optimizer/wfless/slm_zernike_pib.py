@@ -76,8 +76,12 @@ from ao_shaping.utils.image.hardware_utils import (
 )
 from ao_shaping.utils.image.spots_calc import radius
 from ao_shaping.utils.image.targets import (
+    # ``TARGET_SHAPE_CHOICES`` is no longer referenced directly in this module
+    # (ObjectiveSpec.resolve validates the shape), but it is re-exported here for
+    # backward compatibility with existing importers/tests.
     SHAPE_STAGE_WEIGHTS,
     TARGET_SHAPE_CHOICES,
+    ObjectiveSpec,
     ShapeScoringParams,
     ShapingObjective,
     ShapingObjectiveParams,
@@ -641,44 +645,14 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             f"algorithm must be one of {ALGORITHM_CHOICES}, got {algorithm!r}"
         )
 
-    objective = str(objective).lower()
-    if target_shape is not None:
-        target_shape = str(target_shape).lower()
-        if target_shape not in TARGET_SHAPE_CHOICES:
-            raise ValueError(
-                f"target_shape must be one of {TARGET_SHAPE_CHOICES}, got {target_shape!r}"
-            )
-    if target_shape is not None and objective not in (
-        "pib",
-        "rmse",
-        "shape",
-        "roi_pib",
-        "rms_pib",
-    ):
-        raise ValueError(
-            "target_shape can only be used with objective='pib', 'rmse', "
-            "'shape', 'roi_pib' or 'rms_pib'"
-        )
-    if target_shape is not None and objective not in ("roi_pib", "rms_pib", "rmse"):
-        # Supplying target_shape implies the dynamic-ROI shaping objective, except
-        # for roi_pib/rms_pib/rmse where the shape only selects the target ROI.
-        objective = "shape"
-    if objective in ("shape", "roi_pib", "rms_pib", "rmse") and target_shape is None:
-        target_shape = "rectangle"
+    # Single authority for the objective/target-shape pairing. The rules used to
+    # be re-implemented inline here, which had already drifted from
+    # ``objective.py``: it omitted ``rmse_out`` entirely and hard-coded its own
+    # (shorter) shape-aware list, so any newly registered objective raised
+    # ``ValueError`` here even though ``ObjectiveSpec.resolve`` accepted it.
+    spec = ObjectiveSpec.resolve(objective, target_shape)
+    objective, target_shape = spec.name, spec.shape
     shape_for_metric = cast(TargetShape, target_shape or "rectangle")
-    if objective not in (
-        "pib",
-        "radiu",
-        "avg_radiu",
-        "rmse",
-        "shape",
-        "roi_pib",
-        "rms_pib",
-    ):
-        raise ValueError(
-            f"objective must be one of ('pib', 'radiu', 'avg_radiu', 'rmse', "
-            f"'shape', 'roi_pib', 'rms_pib'), got {objective}"
-        )
     if target_center_smooth < 1:
         raise ValueError(
             f"target_center_smooth must be at least 1, got {target_center_smooth}"

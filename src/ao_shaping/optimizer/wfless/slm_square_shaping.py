@@ -114,6 +114,10 @@ from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.image.beam_metrics import smart_zero_order_center
 from ao_shaping.utils.image.spots_calc import centroid, radius
 from ao_shaping.utils.image.hardware_utils import log_center_brightness
+from ao_shaping.utils.image.targets import (
+    SQUARE_OBJECTIVE_CHOICES,
+    pearson_shape_metric,
+)
 from ao_shaping.utils.wavefront.zernike_calc import (
     ZernikeGenerator,
     calc_n_zernike_terms,
@@ -453,6 +457,67 @@ def square_quality_score(
 
     score = w_cv * uniformity + w_ee * efficiency + w_ar * ar_score
     return float(score)
+
+
+# ``SQUARE_OBJECTIVE_CHOICES`` is imported from ``utils.image.target.objective``
+# next to the other objective vocabularies; re-exported here so the optimizer's
+# public surface stays self-describing.
+
+
+def square_objective_score(
+    img: np.ndarray,
+    cv: float,
+    encircled_energy: float,
+    aspect_ratio: float,
+    center: tuple[int, int],
+    side: int,
+    objective: str = "quality",
+    w_cv: float = 0.4,
+    w_ee: float = 0.4,
+    w_ar: float = 0.2,
+) -> float:
+    """Single HIGHER-IS-BETTER scoring entry point for square shaping.
+
+    Every square-shaping consumer (SPGD plus/minus perturbation, the epoch
+    rescore, the heuristic fitness and the initial baseline) routes through this
+    function so the objective's sign convention is decided in exactly one place.
+    Both SPGD (``diff = pos - neg``) and ``run_heuristic_search(maximize=True)``
+    are higher-is-better, so this function never returns a negated value for
+    ``"quality"`` — doing so would break its documented ``[0, 1]`` contract and
+    flip the direction of every existing square run.
+
+    Args:
+        img: The measured far-field frame (needed by image-domain objectives).
+        cv: Coefficient of variation inside the target box.
+        encircled_energy: Fraction of frame energy inside the target box.
+        aspect_ratio: Target-box width/height ratio.
+        center: Target-box centre in window-local ``(x, y)`` pixels.
+        side: Target-box side length in pixels.
+        objective: One of :data:`SQUARE_OBJECTIVE_CHOICES`.
+        w_cv: Uniformity weight (``"quality"`` only).
+        w_ee: Energy-efficiency weight (``"quality"`` only).
+        w_ar: Aspect-ratio weight (``"quality"`` only).
+
+    Returns:
+        A score where **larger is better**.
+    """
+    key = str(objective).lower()
+    if key in ("quality", "shape", ""):
+        return square_quality_score(cv, encircled_energy, aspect_ratio, w_cv, w_ee, w_ar)
+    if key == "pearson":
+        # ``pearson_shape_metric`` is a LOSS (smaller is better); negate it once,
+        # here, so the whole search stack can stay higher-is-better.
+        loss, _energy = pearson_shape_metric(
+            img,
+            (float(center[0]), float(center[1])),
+            "square",
+            float(side),
+            1.0,
+        )
+        return -float(loss)
+    raise ValueError(
+        f"objective must be one of {SQUARE_OBJECTIVE_CHOICES}, got {objective!r}"
+    )
 
 
 def learning_schedule(
@@ -813,6 +878,7 @@ class SlmSquareConfig:
     rotation_search_deg: float = 0.0
     algorithm: str = "spgd"
     pop_size: int | None = None
+    objective: str = "quality"
     kwargs: dict[str, Any] = field(default_factory=dict)
 
 
@@ -847,6 +913,7 @@ def optimize_slm_square(
     rotation_search_deg: float = 0.0,
     algorithm: str = "spgd",
     pop_size: int | None = None,
+    objective: str = "quality",
     **kwargs,
 ) -> Recorder:
     """Optimize square beam uniformity using SLM with Zernike coefficient control.
@@ -905,6 +972,11 @@ def optimize_slm_square(
             旋转校正(默认); >0 时旋转角作为额外 SPGD 自由度, 在
             [-range/2, +range/2] 内搜索, 每轮下发相位图按当前角旋转补偿。
             起始值 0°, 扰动步长固定 1°。
+        objective: Square-shaping objective, one of
+            :data:`SQUARE_OBJECTIVE_CHOICES`. ``"quality"`` (default) is the
+            historical combined score; ``"pearson"`` is the FourierGSNet
+            ``1 - Pearson`` correlation loss, negated to higher-is-better by
+            :func:`square_objective_score`.
         **kwargs: Additional optimizer parameters.
 
     Returns:
@@ -920,6 +992,7 @@ def optimize_slm_square(
             lr=lr,
             exposure_time_ms=exposure_time_ms,
             cam_id=cam_id,
+            cam_type=cam_type,
             show=show,
             init_c=init_c,
             cam_size=cam_size,
@@ -938,6 +1011,7 @@ def optimize_slm_square(
             rotation_search_deg=rotation_search_deg,
             algorithm=algorithm,
             pop_size=pop_size,
+            objective=objective,
             kwargs=kwargs,
         )
     else:
@@ -952,6 +1026,11 @@ def optimize_slm_square(
     lr = config.lr
     exposure_time_ms = config.exposure_time_ms
     cam_id = config.cam_id
+    # Must be read back from the config: the ``cam_type`` function parameter
+    # keeps its ``"daheng"`` default whenever a caller passes ``config=``
+    # directly (e.g. the slm-gsnet runner), so without this line the camera
+    # backend is silently ignored.
+    cam_type = config.cam_type
     show = config.show
     init_c = config.init_c
     cam_size = config.cam_size
@@ -970,6 +1049,7 @@ def optimize_slm_square(
     rotation_search_deg = config.rotation_search_deg
     algorithm = config.algorithm
     pop_size = config.pop_size
+    objective = str(config.objective).lower()
     kwargs = config.kwargs
 
     delta = abs(delta)
@@ -983,6 +1063,11 @@ def optimize_slm_square(
             f"got {algorithm!r}"
         )
 
+    if objective not in SQUARE_OBJECTIVE_CHOICES:
+        raise ValueError(
+            f"objective must be one of {SQUARE_OBJECTIVE_CHOICES}, got {objective!r}"
+        )
+
     # 目标方形参数二选一: 边长(像素) 或 平均亮度, 同时给出报错
     if target_side > 0 and target_mean_brightness > 0:
         raise ValueError(
@@ -990,7 +1075,18 @@ def optimize_slm_square(
             "方形边长(px) 与 方形平均亮度只能二选一 (both given)"
         )
 
-    recorder = Recorder(mark="quality", mode="max")
+    # The recorded score is whatever ``objective`` selected, so name the column
+    # accordingly. The default (``quality``/``shape``/``""``) keeps the historical
+    # ``quality`` column name so existing default runs stay byte-identical; a
+    # non-default objective (e.g. ``pearson``) records under its own name so a
+    # downstream analysis can tell which objective produced the trace instead of
+    # reading a Pearson score out of a column labelled ``quality``.
+    _DEFAULT_OBJECTIVE_ALIASES = ("quality", "shape", "")
+    _objective_key = str(objective).lower()
+    _score_column = (
+        "quality" if _objective_key in _DEFAULT_OBJECTIVE_ALIASES else _objective_key
+    )
+    recorder = Recorder(mark=_score_column, mode="max")
 
     # History for convergence detection
     _gradient_history: list[float] = []
@@ -1309,7 +1405,18 @@ def optimize_slm_square(
         cost, cv, mean_int = square_uniformity_cost(init_img, center, target_side)
         ee = square_encircled_energy(init_img, center, target_side)
         ar = square_aspect_ratio(init_img, center, target_side)
-        quality = square_quality_score(cv, ee, ar, w_uniformity, w_efficiency, w_aspect)
+        quality = square_objective_score(
+            init_img,
+            cv,
+            ee,
+            ar,
+            center,
+            target_side,
+            objective,
+            w_uniformity,
+            w_efficiency,
+            w_aspect,
+        )
 
         best_quality = quality
         best_cost = cost
@@ -1324,7 +1431,7 @@ def optimize_slm_square(
         recorder.append(
             {
                 "J": cost,
-                "quality": quality,
+                _score_column: quality,
                 "cv": cv,
                 "ee": ee,
                 "ar": ar,
@@ -1341,7 +1448,7 @@ def optimize_slm_square(
                 "target_mean_b": target_mean_brightness,
                 "_grad": np.zeros_like(_params),
                 "optimizer": optimizer_type,
-                "best_quality": best_quality,
+                f"best_{_score_column}": best_quality,
             }
         )
 
@@ -1362,15 +1469,24 @@ def optimize_slm_square(
             last_eval: dict = {}
 
             def _evaluate_quality(params: np.ndarray) -> float:
-                """Load one phase and return its RAW square-quality score."""
+                """Load one phase and return its HIGHER-IS-BETTER square score."""
                 slm.display_data(_params_to_gray(params))
                 time.sleep(SLM_RESPONSE_TIME_S)
                 img = cam.get_numpy_image(CAM_SAMPLE_ITER)
                 _cost, _cv, _mean = square_uniformity_cost(img, center, target_side)
                 _ee = square_encircled_energy(img, center, target_side)
                 _ar = square_aspect_ratio(img, center, target_side)
-                _q = square_quality_score(
-                    _cv, _ee, _ar, w_uniformity, w_efficiency, w_aspect
+                _q = square_objective_score(
+                    img,
+                    _cv,
+                    _ee,
+                    _ar,
+                    center,
+                    target_side,
+                    objective,
+                    w_uniformity,
+                    w_efficiency,
+                    w_aspect,
                 )
                 last_eval.update(
                     {
@@ -1404,7 +1520,7 @@ def optimize_slm_square(
 
                     row = {
                         "J": last_eval["cost"],
-                        "quality": float(value),
+                        _score_column: float(value),
                         "cv": last_eval["cv"],
                         "ee": last_eval["ee"],
                         "ar": last_eval["ar"],
@@ -1513,8 +1629,17 @@ def optimize_slm_square(
                 )
                 pos_ee = square_encircled_energy(pos_img, center, target_side)
                 pos_ar = square_aspect_ratio(pos_img, center, target_side)
-                pos_q = square_quality_score(
-                    pos_cv, pos_ee, pos_ar, w_uniformity, w_efficiency, w_aspect
+                pos_q = square_objective_score(
+                    pos_img,
+                    pos_cv,
+                    pos_ee,
+                    pos_ar,
+                    center,
+                    target_side,
+                    objective,
+                    w_uniformity,
+                    w_efficiency,
+                    w_aspect,
                 )
 
                 # Negative perturbation
@@ -1527,8 +1652,17 @@ def optimize_slm_square(
                 )
                 neg_ee = square_encircled_energy(neg_img, center, target_side)
                 neg_ar = square_aspect_ratio(neg_img, center, target_side)
-                neg_q = square_quality_score(
-                    neg_cv, neg_ee, neg_ar, w_uniformity, w_efficiency, w_aspect
+                neg_q = square_objective_score(
+                    neg_img,
+                    neg_cv,
+                    neg_ee,
+                    neg_ar,
+                    center,
+                    target_side,
+                    objective,
+                    w_uniformity,
+                    w_efficiency,
+                    w_aspect,
                 )
 
                 # Auto-exposure adjustment if saturated
@@ -1573,8 +1707,17 @@ def optimize_slm_square(
                         _neg_c.copy(),
                     )
 
-                quality = square_quality_score(
-                    eval_cv, eval_ee, eval_ar, w_uniformity, w_efficiency, w_aspect
+                quality = square_objective_score(
+                    eval_img,
+                    eval_cv,
+                    eval_ee,
+                    eval_ar,
+                    center,
+                    target_side,
+                    objective,
+                    w_uniformity,
+                    w_efficiency,
+                    w_aspect,
                 )
                 J = (pos_cost + neg_cost) / 2
 
@@ -1609,7 +1752,7 @@ def optimize_slm_square(
 
                 log = {
                     "J": J,
-                    "quality": quality,
+                    _score_column: quality,
                     "cv": eval_cv,
                     "ee": eval_ee,
                     "ar": eval_ar,

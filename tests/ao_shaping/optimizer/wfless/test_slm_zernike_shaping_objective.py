@@ -94,7 +94,7 @@ class TestSpecShapeInvariants:
         with pytest.raises(dataclasses.FrozenInstanceError):
             spec.name = "shape"  # type: ignore[misc]
 
-    def test_objective_choices_are_the_eight(self) -> None:
+    def test_objective_choices_are_the_nine(self) -> None:
         assert set(SHAPING_OBJECTIVE_CHOICES) == {
             "pib",
             "radiu",
@@ -104,6 +104,7 @@ class TestSpecShapeInvariants:
             "shape",
             "roi_pib",
             "rms_pib",
+            "pearson",
         }
 
 

@@ -45,6 +45,8 @@ MINIMISE = {
     "radiu",
     "rmse",
     "rmse_out",
+    # ``1 - Pearson``: computed after mean-centring, so it is a loss.
+    "pearson",
 }
 assert MAXIMISE | MINIMISE == set(SHAPING_OBJECTIVE_CHOICES)
 assert MAXIMISE & MINIMISE == set()
