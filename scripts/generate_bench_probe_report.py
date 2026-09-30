@@ -1604,8 +1604,9 @@ def render_report(
                 f"S = {tilt_implied_S:.0f}，与斜坡直接测得的 "
                 f"**{ramp_scale:.0f}** 相差 **{ramp_vs_tilt_gap * 100:.1f}%**。"
                 "这是两条完全独立的测量路线（一个用整面板斜坡、一个用孔径内"
-                "Zernike 模式）互相印证，**且只需要 npz 里自带的孔径半径，"
-                "不依赖可能陈旧的 `bench_geometry.json`**——本报告最强的单条结论。"
+                "Zernike 模式）互相印证。它只用 npz 里自带的孔径半径 R，"
+                "**不需要任何标定文件**——因此即使 `bench_geometry.json` "
+                "缺失或过期，这条结论依然成立。本报告最强的单条结论。"
             )
         else:
             add("第 3 节的斜坡尺度缺少可比对的孔径半径，跳过交叉核对。")
@@ -1721,9 +1722,61 @@ def render_report(
             "斜坡 S 与 Zernike 倾斜斜率都是纯相机侧量。")
         add("")
         add("![曲率汇总](figures/04_curvature_summary.png)")
+    else:
+        add("| 路线 | 相机 px / 模型 px | 说明 |")
+        add("|---|---|---|")
+        add(
+            f"| 斜坡（权威） | {ramp_cam:.4f} | "
+            f"S={ramp_scale:.0f} / (模型→面板 {model_to_panel:.3f} × P={far_field_size}) |"
+            if np.isfinite(ramp_cam)
+            else "| 斜坡（权威） | — | 缺少几何参数，无法换算 |"
+        )
+        add(
+            f"| Zernike 倾斜 | {tilt_cam:.4f} | k_tilt·π·a / P，a={semi_axis} 模型 px |"
+            if np.isfinite(tilt_cam)
+            else "| Zernike 倾斜 | — | 数据不足 |"
+        )
+        add(
+            f"| 视场比 (FOV) | {fov:.4f} | 完全独立推导：p_fft = λf /(P·模型间距) |"
+            if np.isfinite(fov)
+            else "| 视场比 (FOV) | — | 缺少几何参数 |"
+        )
         add("")
-        add("## 7. 关键陷阱")
+        finite_routes = [v for v in (ramp_cam, tilt_cam, fov) if np.isfinite(v) and v > 0]
+        if len(finite_routes) >= 2:
+            lo, hi = min(finite_routes), max(finite_routes)
+            spread = (hi - lo) / lo * 100
+            add(
+                f"三条路线落在 **{lo:.4f} … {hi:.4f}** 相机 px/模型 px，"
+                f"最大互相偏离 **{spread:.0f}%**。"
+            )
+            add("")
+            if spread > 25:
+                add(
+                    "> ⚠️ 偏离超过 25% 警戒线。前两条路线（斜坡、倾斜）都只依赖"
+                    "**孔径半径**，而 FOV 路线额外假设**正入射**；本台架是倾斜入射，"
+                    "所以 FOV 路线偏低是预期内的。**测量路线（斜坡）为准**，"
+                    "FOV 路线仅作记录。"
+                )
+            else:
+                add(
+                    "> 三条路线在 25% 警戒线内一致，模型侧换算可信。"
+                )
+        if len(figures) > 4:
+            add("")
+            add(
+                f"![焦面尺度三路线]"
+                f"({figures[4].relative_to(out_dir(figures[4])).as_posix()})"
+            )
+        if len(figures) > 3:
+            add("")
+            add(
+                f"![曲率汇总]"
+                f"({figures[3].relative_to(out_dir(figures[3])).as_posix()})"
+            )
     add("")
+
+    add("## 7. 关键陷阱")
     add(
         "以下四条台架铁律固化在 `ao_shaping/tools/slm/slm_bench_probe.py` 的模块"
         "文档里。**每一条都附上本数据集里能证明它仍然生效的具体数字**——"

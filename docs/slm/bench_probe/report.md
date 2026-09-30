@@ -8,8 +8,8 @@
 |---|---|---|
 | 扫描记录 (必需) | `data/model_in_loop_hw/sweep_records.npz` | ✅ 55 行 |
 | 台架几何 | `data/model_in_loop_hw/bench_geometry.json` | ✅ 已读取 |
-| 调试 sidecar | `data/debug/model_in_loop_hw_sweep_20260930_161707/20260930_161707/model_in_loop_hw_sweep_20260930_161707_20260930_161707.json` | ✅ 已读取 |
-| 帧 pickle | — | ⚠️ model_in_loop_hw_sweep_20260930_161707_20260930_161707.pkl is 291 MB (> 200 MB budget); it holds every repeated CCD frame and adds no report value |
+| 调试 sidecar | `data/debug/model_in_loop_hw_sweep_20260930_171003/20260930_171003/model_in_loop_hw_sweep_20260930_171003_20260930_171003.json` | ✅ 已读取 |
+| 帧 pickle | — | ⚠️ model_in_loop_hw_sweep_20260930_171003_20260930_171003.pkl is 291 MB (> 200 MB budget); it holds every repeated CCD frame and adds no report value |
 
 npz 携带的标量：`zernike_radius=450`、`collect_disc=450`、`pupil_center=(960, 600)`。
 
@@ -39,33 +39,28 @@ npz 携带的标量：`zernike_radius=450`、`collect_disc=450`、`pupil_center=
 
 报告一律以 **npz 自身的标量与数组**为准；这正是「一行数据也不能被静默归错来源」的原因。
 
-### 1.3 `bench_geometry.json` 与 npz 的一致性核对
-
-> 🚨 **`bench_geometry.json` 与本 npz 不是同一次标定**，因此它**不能**用来推导任何依赖模型网格的量（焦面尺度三条路线、`region` / `far_field_size` 换算等）。下面列出的冲突每一项都足以证明它来自另一次标定：
->
-> - panel_disc_radius: geometry=200 vs npz=450
-> - panel_disc_radius: geometry=200 vs npz=450
-> - method=speckle (不是 sweep —— 来自旧的散斑路线标定)
->
-该文件是**共享且会被覆盖**的产物（散斑路线与 sweep 路线都写它）。与 sidecar 不同，它不只是「描述不准」——把它和 npz 混算会让派生量继承错误，而推导过程看起来仍然完全自洽。本报告因此把第 2 节与第 6 节标注为不可用，请先重跑`--stage calibrate --method sweep` 刷新它。
-
 ## 2. 台架几何标定结果
 
-> 🚨 **本节数据不可用。** `bench_geometry.json` 与本报告使用的 npz 不是同一次标定（见 §1.3），下面逐字列出仅为便于排查，**任何数字都不得用于换算或整形**。
->
-> 重跑 `python scripts/model_in_loop_hw_runbook.py --stage calibrate --method sweep` 刷新它。
-
-| 字段 | 值（⚠️ 陈旧, 仅供参考） |
+| 字段 | 值 |
 |---|---|
-| `panel_disc_radius` | 200 |
-| `region` | 128 |
-| `beam_waist_panel_px` | 24 |
-| `far_field_size` | 2048 |
-| `camera_px_per_model_px` | 3.68985 |
-| `spot_fwhm_camera_px` | 12 |
-| `spot_fwhm_model_px` | 44 |
-| `correlation` | 0.97 |
-| `method` | speckle |
+| `panel_disc_radius` | 450 |
+| `region` | 256 |
+| `beam_waist_panel_px` | 450 |
+| `far_field_size` | 4096 |
+| `camera_px_per_model_px` | 0.530595 |
+| `spot_fwhm_camera_px` | 13.1305 |
+| `spot_fwhm_model_px` | 17.2488 |
+| `correlation` | 0.855498 |
+| `method` | sweep |
+
+原始 `calibration_notes`（逐字放入代码块，不做任何格式化）：
+
+```text
+tilt slope 5.446 cam px/rad (x:-5.312, y:-5.580, via ['centroid (no usable phase correlation)']), semi-axis 128 model px, P=4096; physical tilt check 1.02x predicted; focal scale from ramp sweep (S=7641 cam px per 1/period, axis y), FOV cross-check 0.829 (36% apart); modes fitted astig_x+astig_y+coma_x+coma_y+defocus+spherical; joint rel-RMS 14.5%; bench offsets astig_x +0.000, astig_y +0.000, coma_x +0.500, coma_y +0.000, defocus -1.000, spherical +0.500 rad; curvatures astig_x 115.8, astig_y 139.9, coma_x 99.8, coma_y 92.2, defocus 219.3, spherical 148.2; defocus asymmetry +70%; waist NOT identifiable, flat-top default
+```
+
+- 联合相对 RMS **14.5%** > 阈值 10%，**腰包不可辨识**，只能退回平顶默认值（阈值 `_MAX_DEFOCUS_FIT_RMS = 0.10`）。
+- 视场比交叉核对偏离 **36%**（超过 25% 警戒线，说明照明的孔径半径假设有误）
 
 ## 3. 相位斜坡 (ramp) 线性度 —— 焦面尺度的权威来源
 
@@ -121,7 +116,7 @@ npz 携带的标量：`zernike_radius=450`、`collect_disc=450`、`pupil_center=
 
 **结果分析**　k_tilt = 5.446 相机 px/rad，两轴相差 5.0%；重复展布仅 0.14–0.36 px，落在亚像素量级，说明每点的读数本身很稳，误差不来自测量重复性。
 
-**与第 3 节交叉核对（不依赖任何标定文件）**　Zernike 倾斜系数 `c` 等价于梯度 `2c/R` 的斜坡，两条路线因此必须满足 `S = k_tilt·π·R`。代入 R = 450 面板 px 得 S = 7699，与斜坡直接测得的 **7565** 相差 **1.7%**。这是两条完全独立的测量路线（一个用整面板斜坡、一个用孔径内Zernike 模式）互相印证，**且只需要 npz 里自带的孔径半径，不依赖可能陈旧的 `bench_geometry.json`**——本报告最强的单条结论。
+**与第 3 节交叉核对（不依赖任何标定文件）**　Zernike 倾斜系数 `c` 等价于梯度 `2c/R` 的斜坡，两条路线因此必须满足 `S = k_tilt·π·R`。代入 R = 450 面板 px 得 S = 7699，与斜坡直接测得的 **7565** 相差 **1.7%**。这是两条完全独立的测量路线（一个用整面板斜坡、一个用孔径内Zernike 模式）互相印证。它只用 npz 里自带的孔径半径 R，**不需要任何标定文件**——因此即使 `bench_geometry.json` 缺失或过期，这条结论依然成立。本报告最强的单条结论。
 
 **对整形的影响**　倾斜是整形闭环里**唯一必须保留的自由度**：光斑整体位置（tip/tilt）决定了远场目标框能不能对准，而光斑位置只能靠倾斜挪动。更实际的影响是**安全边界**——本节证明了大系数下质心会失跟（hollowness 掉到 0.65、斜率腰斩），因此任何用质心做反馈的整形优化器都必须把倾斜幅度限制在单瓣区内，否则优化器会沿着质心的假信号收敛，把光斑推到一个它「以为」在动、实际在变形的工作点上。
 
@@ -157,16 +152,21 @@ npz 携带的标量：`zernike_radius=450`、`collect_disc=450`、`pupil_center=
 
 ## 6. 焦面尺度的三条独立路线
 
-> 🚨 **本节不可用，已整体停用。** 三条路线都要把斜坡/倾斜的相机侧测量换算到模型侧，而换算要用 `region` / `far_field_size` / `panel_disc_radius` —— 这些量全部来自 `bench_geometry.json`，它与本 npz 不是同一次标定（见 §1.3）。
->
-> 在这种情况下三条路线会**必然**互不一致，而这种不一致完全是伪影：它度量的是两份标定之间的差，不是台架的性质。先重跑 `--stage calibrate --method sweep`，本节会自动恢复。
->
-> 可直接引用的、**不依赖模型网格**的结论仍然成立，见第 3、4 节：斜坡 S 与 Zernike 倾斜斜率都是纯相机侧量。
+| 路线 | 相机 px / 模型 px | 说明 |
+|---|---|---|
+| 斜坡（权威） | 0.5254 | S=7565 / (模型→面板 3.516 × P=4096) |
+| Zernike 倾斜 | 0.5347 | k_tilt·π·a / P，a=128 模型 px |
+| 视场比 (FOV) | 0.8293 | 完全独立推导：p_fft = λf /(P·模型间距) |
+
+三条路线落在 **0.5254 … 0.8293** 相机 px/模型 px，最大互相偏离 **58%**。
+
+> ⚠️ 偏离超过 25% 警戒线。前两条路线（斜坡、倾斜）都只依赖**孔径半径**，而 FOV 路线额外假设**正入射**；本台架是倾斜入射，所以 FOV 路线偏低是预期内的。**测量路线（斜坡）为准**，FOV 路线仅作记录。
+
+![焦面尺度三路线](figures/05_focal_scale_routes.png)
 
 ![曲率汇总](figures/04_curvature_summary.png)
 
 ## 7. 关键陷阱
-
 以下四条台架铁律固化在 `ao_shaping/tools/slm/slm_bench_probe.py` 的模块文档里。**每一条都附上本数据集里能证明它仍然生效的具体数字**——因为违反它们得到的是「看起来完全可信的错误结论」，而不是报错。
 
 **(a) 暗帧上不能用裸 `argmax` 定位光斑。** 本数据集平场光斑在 (668.5, 1026.7)，而画面中心是 (1296, 972)——横向相差 **627 px**。台架记录更狠：峰值只有 22~46 而帧均值 0.26 时，单个热像素就能抢到 argmax，参考帧质心曾在 60 px 内自漂，足以把健康的板判成「没动」。`measure_spot` 先去尖刺再模糊后才定位。
@@ -193,9 +193,10 @@ npz 携带的标量：`zernike_radius=450`、`collect_disc=450`、`pupil_center=
 1. 焦面尺度由斜坡扫描确定为 **S = 7565** 相机 px·周期，与台架常数 7400 相差 2.2%，说明面板确实在正常调制、槽位轮换正确。
 2. Zernike 倾斜斜率 **5.446 相机 px/rad** 落在台架预测（450 px 照明半径约 5.34）的可信带内，**不是**历史上那个 1.63 的坏值——稳定性等待是有效的。
 3. 相位相关位移在本台架不可用（shift_corr 峰值 0.041 < 0.30），所有位移量都来自光斑质心；报告与标定器都应保持这一回退路径。
-4. 宽度筛选共剔除 **6** 个点（环形或同侧非单调）；这些点的「宽度」不是高斯瓣宽，若不剔除会直接毁掉曲率拟合。
-5. **调试 sidecar 与本 npz 不是同一次扫描**，已列出全部不一致字段；任何复现都应以 npz 为准。
-6. 🚨 **`bench_geometry.json` 与本 npz 不是同一次标定**（详见 §1.3），第 2 节与第 6 节已停用。请重跑 `--stage calibrate --method sweep` 刷新该文件——在它刷新之前，**模型侧换算（目标边长、region、far_field_size）都是不可信的**。
+4. 宽度响应联合相对 RMS **14.5%** 高于阈值 10%，**腰包不可辨识**——台架带有扫描模式未覆盖的像差，应退回平顶默认值，并补扫 coma/spherical。
+5. 视场比交叉核对偏离 **36%**，超过 25% 警戒线；两条路线都与照明孔径半径成正比，请用 `python -m ao_shaping.tools.slm.slm_beam_extent` 重测孔径后再信任任一数值。
+6. 宽度筛选共剔除 **6** 个点（环形或同侧非单调）；这些点的「宽度」不是高斯瓣宽，若不剔除会直接毁掉曲率拟合。
+7. **调试 sidecar 与本 npz 不是同一次扫描**，已列出全部不一致字段；任何复现都应以 npz 为准。
 
 ## 8.1 对整形实验的可执行结论
 
@@ -204,8 +205,6 @@ npz 携带的标量：`zernike_radius=450`、`collect_disc=450`、`pupil_center=
 | **焦面尺度可信，取 S = 7565** | 两条独立路线一致到 1.7%。用它把模型像素换算成相机像素时不要再引入任何解析公式（斜入射会让 `λf/d` 差一个 cos θ 因子）。 |
 | **相位下发只用 `display_data()` 且不传 `memory_number`** | 这是 SLM 真的刷新的唯一确认方式。若整形出现「优化器不收敛」，先查这一条再调参数。 |
 | **反馈量必须落在单瓣区** | 宽度类反馈只在 hollowness ≥ 0.60 时有效。限制扰动步长与迭代次数，使工作点不进环形区。 |
-| **先刷新 `bench_geometry.json` 再跑整形** | 模型侧换算目前不可信；用陈旧的 `region` / `far_field_size` 算出的方形边长会按同一比例错。 |
-| **光斑 waist 仍未确定** | 若整形精度不理想，先考虑把台架自身的低阶像差（拟合偏移量）纳入前向模型，而不是加大迭代次数。 |
 
 ---
 

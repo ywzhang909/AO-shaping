@@ -57,6 +57,12 @@ AO-shaping/
 │   │   │   ├── gerchberg_saxton.py     # [兼容层] re-export
 │   │   │   ├── differentiable_beam.py  # [兼容层] re-export
 │   │   │   └── beam_shaping_utils.py   # [兼容层] re-export (目标/指标/SLM/硬件工具)
+│   │   ├── model/                 # 物理量数据类与物理坐标重采样
+│   │   │   ├── __init__.py        # 包级 re-exports
+│   │   │   ├── field.py           # PhaseMap, AmplitudeMap, ComplexField + OOPAO 转换
+│   │   │   ├── quantities.py      # OPDMap, DmCommands, PSFImage 等物理量
+│   │   │   ├── spatial.py         # 以物理坐标为基准的插值
+│   │   │   └── metadata.py        # FieldMetadata (timestamp, source, wavelength)
 │   │   ├── drivers/              # 硬件驱动 (see drivers/AGENTS.md)
 │   │   │   ├── device_base.py
 │   │   │   ├── device_registry.py
@@ -125,6 +131,14 @@ uv sync --group rl
 
 # 安装全部依赖组 (dev/ml/rl/disp/data) —— 推荐用于完整开发环境
 uv sync --all-groups
+```
+
+OOPAO 从 `libs/OOPAO` 以 editable 依赖安装。首次使用前确认已获取子模块，
+然后运行 `uv sync`；当前 `pyproject.toml` 已声明该依赖，无需再次执行 `uv add`：
+
+```bash
+git submodule update --init libs/OOPAO
+uv sync
 ```
 
 ## 使用说明
@@ -403,7 +417,8 @@ python src/ao_shaping/main.py slm-diagnose [OPTIONS]
 选项:
 - `--slm-number`: SLM 设备编号 (默认: 1)
 - `--slm-wavelength`: SLM 工作波长 nm (默认: 1064)
-- `--cam-id`: MiiCam 相机 ID (默认: 0)
+- `--cam-type`: 相机类型 miicam/daheng (默认: **miicam**)
+- `--cam-id`: 相机 ID (默认: 0)
 - `--period-ref` / `--period-test`: 光栅周期 px (默认: 64 / 32)
 - `--exposure-ms`: 自检曝光 ms (默认: 2.0)
 - `--settle-s`: SLM/相机稳定等待 s (默认: 1.0)
@@ -412,14 +427,75 @@ python src/ao_shaping/main.py slm-diagnose [OPTIONS]
 
 **已知约束**: DVI 模式 (`video_mode=1`) 的 `open()` 可能挂起, 且挂起后 memory 模式也挂直到**物理断电** —— 本工具只用 memory 模式, 绝不自动尝试 DVI。
 
+> ⚠️ **`--cam-type` 必须与本台相机一致。** 默认值是 `miicam`; 大恒台架上不加
+> `--camera-type daheng` 会直接失败 (`miicam.HRESULTException: 请求的资源在使用中`)。
+
 示例:
 ```bash
-# 全量三步自检
-python src/ao_shaping/main.py slm-diagnose
+# 全量三步自检 (大恒台架)
+python src/ao_shaping/main.py slm-diagnose --camera-type daheng --exposure-ms 1.1
 
 # 只查面板是否冻结
 python src/ao_shaping/main.py slm-diagnose --step freeze
 ```
+
+#### SLM 台架探针 (tools/slm, 独立运行)
+
+以下探针**不注册为 CLI 命令**, 用 `python -m ao_shaping.tools.slm.<名字>` 直接运行。
+它们固化了 2026-09-30 在大恒 + Santec SLM-200 台架上踩出来的台架常数与测量陷阱,
+**不要用第一性原理重新推导几何** (见
+[`docs/slm/model_in_loop_bench_calibration.md`](docs/slm/model_in_loop_bench_calibration.md))。
+
+| 工具 | 用途 |
+|---|---|
+| `slm_tilt_probe` | **判定面板是否真的在调制** (倾斜斜坡)。比光栅可靠: 光斑位移只取决于斜坡周期, 与衍射效率无关。推翻过一次"面板冻结"假故障 |
+| `slm_panel_locate` | 面板坐标上定位光斑中心。相机 0 阶**不是**面板坐标 (两轴互换 90°, 尺度差 >10 倍) |
+| `slm_beam_extent` | 半平面随机相位边界扫描测光斑中心/半径。实测 r=450 px @ (960,600) |
+| `slm_phase_resolution` | 比较逐像素随机相位与光滑 Zernike 相位, 判定面板**等效相位分辨率** |
+| `slm_exposure_check` | 相机自动曝光状态 + 固定设置下漂移 (区分"相机漂移"与"SLM 保留上次图案") |
+| `slm_zernike_sweep_probe` | **光滑 Zernike 扫描探针**: ramp + tilt + defocus + astig + coma + spherical 共 42 点, 逐点稳定判据读帧, 落盘 npz + Recorder (含相位与 CCD 帧)。`--no-hw` 只打印采集计划 |
+
+`slm_bench_probe.py` 是它们共用的纯测量内核 (设备由参数传入, 可脱机单测);
+`slm_zernike_sweep_probe.py` 在其上实现了多点扫描协议 (含 Recorder 落盘), 也是
+`scripts/model_in_loop_hw_runbook.py --stage sweep` 的采集内核来源。
+
+```bash
+# 面板是否在调制 (最常用, 优先跑这个)
+python -m ao_shaping.tools.slm.slm_tilt_probe --exposure-ms 3.0
+
+# 定位光斑 (面板坐标)
+python -m ao_shaping.tools.slm.slm_panel_locate --exposure-ms 3.0
+
+# 测光斑半径
+python -m ao_shaping.tools.slm.slm_beam_extent --axis x --exposure-ms 3.0
+
+# 面板能否分辨像素级相位? (决定散斑标定路线是否可用)
+python -m ao_shaping.tools.slm.slm_phase_resolution --exposure-ms 3.0
+
+# 相机是否手动曝光 / 漂移多少
+python -m ao_shaping.tools.slm.slm_exposure_check --exposure-ms 3.0
+
+# 完整光滑 Zernike 扫描 (硬件; 先用 --no-hw 确认采集计划)
+python -m ao_shaping.tools.slm.slm_zernike_sweep_probe --no-hw
+python -m ao_shaping.tools.slm.slm_zernike_sweep_probe --exposure-ms 3.0 \
+    --pupil-center 960,600 --zernike-radius 450
+```
+
+> 🔑 **四条台架铁律** (违反会得到看似可信的错结论):
+> 1. **暗帧不可用裸 `argmax` 定位光斑。** peak 22~46 而帧均值 0.26 时单个热像素就能抢到
+>    argmax —— 参考帧质心曾在 60 px 内自漂, 足以把健康的板判成"没动"。
+> 2. **SLM 保留上次显示的图案。** 下发平场**之前**读到的"平场"其实是上一轮的散斑,
+>    同一 3 ms 设置因此测出 100 与 23 两个值。
+> 3. **固定 `memory_number=` 是固件 no-op。** 同一槽连续 `display_memory` 不刷新面板,
+>    之后每帧都是旧图。用 `display_data()` 不传 `memory_number`, 让驱动自己轮换。
+> 4. **液晶要等"稳定", 不是等"够久"。** 驱动的自动翻转时间估算按灰度图变化量给等待,
+>    两个灰度统计相近的相位会让它报 **0.0 ms**。实测同一斜坡首次读 fwhm 43.2px、
+>    3 秒后 12.8px、质心移 62px —— 单次采集会静默记录未稳定帧, 让斜坡扫描非单调、
+>    Zernike 斜率读成 1.63 而非 5.36 (3.3× 误差, 靠重复采集掩盖了三轮)。
+>    `display_and_average` / `capture_settled` 改为丢弃帧直到连续两次读数一致。
+>
+> **实测台架几何**: 光斑中心 (960, 600)、半径 450 面板 px; **panel↔camera 轴互换 90°**;
+> 焦面尺度 `shift_px ≈ 7600/period` (两条独立路线一致到 0.5%)。
 
 #### SLM 方形光斑 SPGD 整形 (spgd-square)
 ```bash
@@ -937,7 +1013,7 @@ python -m ao_shaping.tools.slm.slm_lut_runner [OPTIONS]
 
 15. SLM 硬件自检:
 ```bash
-python -m ao_shaping.tools.slm.slm_diagnose [OPTIONS]
+python -m ao_shaping.tools.slm.slm_diagnose
 ```
 
 16. SLM 方形光斑 SPGD 整形:
@@ -959,6 +1035,15 @@ python -m ao_shaping.runners.slm_pib_runner [OPTIONS]
 ```bash
 python -m ao_shaping.runners.slm.zernike_matrix_runner closed-loop [OPTIONS]
 ```
+
+> **SLM 台架探针** (不注册为 CLI, 独立运行; 详见上文 "SLM 台架探针" 一节):
+> ```bash
+> python -m ao_shaping.tools.slm.slm_tilt_probe        # 面板是否在调制
+> python -m ao_shaping.tools.slm.slm_panel_locate      # 面板坐标上的光斑中心
+> python -m ao_shaping.tools.slm.slm_beam_extent       # 光斑中心/半径
+> python -m ao_shaping.tools.slm.slm_phase_resolution  # 等效相位分辨率
+> python -m ao_shaping.tools.slm.slm_exposure_check    # 曝光状态与漂移
+> ```
 
 20. Micro-DM 逐单元图像采集:
 ```bash
@@ -1077,7 +1162,57 @@ img = gen.generate_polynomial({(2, 0): 1.0, (4, 0): 0.5})
 4. **WFS 系数单位必须统一**。WFS `get_zernike()` 返回 **µm**; 参与响应矩阵 / 矫正运算前必须 `um_to_waves()` (µm→λ, ÷0.532); 反解出的 λ 系数在喂给 `generate_zernike_phase` / `make_phase` 前必须 **×2π** (λ→rad)。两个真实 bug (2026-09-16, 均因单位混用: 系数放大 1.88× / 相位缩小 6.28×) 修复后闭环 RMS 改善 13.8% → 42.1%。
 5. **Noll 约定 = Noll 1976 (aotools)**: Noll 4=(2,0) defocus, Noll 5=(2,-2) astig, Noll 11=(4,0) spherical, Noll 13=(4,-2) ⚠ (不是 (2,0))。`zernike_calc.noll_indices` (Noll 序) 与 `zernike_modes` ((n,m) 字典序)**顺序不同, 不可互换**; 完整前 15 阶映射表见 `zernike_utils` 模块 docstring。
 
-## 硬件支持
+## 物理-optical 数据类模型 (`ao_shaping.model`)
+
+`ao_shaping.model` 将二维采样值与像素间距、波长及来源信息放在一起，明确区分
+相位 (rad)、光程差 (m)、场振幅、强度和电压。数据类已经实现；跨模块调用仍在分阶段迁移，
+不要把类型存在理解为所有驱动和优化器都已返回该类型。
+
+| 类 | 单位与用途 |
+|---|---|
+| `PhaseMap`, `OPDMap` | 未包裹相位 (rad) 与光程差 (m)，用明确的波长相互转换 |
+| `AmplitudeMap`, `ComplexField`, `PSFImage` | 场振幅 `|E|`、复电场与焦面强度；强度转振幅使用平方根 |
+| `WfsSlopes` | 分开的 `sx`/`sy`，单位为 `arcsec` 或 `rad`，支持 `to_units()` |
+| `DmCommands` | 电压数组、致动器数量和允许范围，支持 `clipped()` |
+| `ZernikeCoefficients` | 带显式 Noll 索引的 `rad`/`waves` 系数 |
+| `CoordinateGrid2D` | 坐标、像素间距、原点和单位 (`um`/`m`/`pixels`) |
+| `BeamMetrics`, `TurbulenceParameters`, `WavefrontStatistics` | 光束指标、湍流参数和波前统计 |
+| `FieldMetadata` | 时间戳、来源、波长及附加元数据 |
+
+**物理空间重采样**: `PhaseMap`、`OPDMap`、`AmplitudeMap`、`ComplexField` 和
+`PSFImage` 都提供 `resample_to(shape, pitch_size_um)` (PSF 参数名为
+`pixel_scale_um`)。`model/spatial.py` 将输入和输出网格的几何中心都设为
+`(0, 0)`，像素中心坐标为 `(index - (size - 1) / 2) * pitch`；默认双线性插值，
+超出输入网格的采样值填零。这是点采样插值，**不保证积分光通量守恒**。
+`utils/image/resample.py` 的亮斑居中裁剪用于相机图像对齐，语义不同。
+
+```python
+import numpy as np
+
+from ao_shaping.model import AmplitudeMap, ComplexField, PhaseMap
+
+phase = PhaseMap(np.zeros((5, 5)), pitch_size_um=8.0)
+opd = phase.to_opd_map(wavelength_m=532e-9)  # metres
+phase_16um = opd.resample_to((3, 3), pitch_size_um=16.0).to_phase()
+
+amplitude = AmplitudeMap.from_intensity(np.ones((5, 5)), pitch_size_um=8.0)
+field = ComplexField.from_maps(phase, amplitude)  # 检查形状和像素间距
+```
+
+**OOPAO**: `PhaseMap`、`AmplitudeMap` 和 `ComplexField` 提供
+`from_oopao_source()` / `to_oopao_source()`。实际调用时才通过
+`ao_shaping.drivers.sim._oopao_compat` 加载 OOPAO，避免模型包与模拟驱动的循环导入。
+可运行以下无硬件测试检查当前环境：
+
+```bash
+uv run pytest tests/ao_shaping/model tests/ao_shaping/drivers/sim/test_oopao_backend.py -q
+```
+
+**当前接入范围**: DM 基类、`SimMicroDM`、`SimulateDM` 接受 `DmCommands`；
+`phase_to_slm_grayscale()` 接受 `PhaseMap`。这些接口仍接受原始数组，原始数组调用
+保持原有返回类型。目前没有统一添加弃用警告。硬件驱动覆盖方法、WFS、优化器、GUI
+和其余工具尚待迁移。
+
 
 ### 波前传感器
 - **Thorlabs WFS系列**: 支持自动图像采集和倾斜去除
@@ -1446,6 +1581,11 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
   - [diff-beam 可微整形说明](docs/diff_beam/README.md)、[PIB 优化器功能报告](docs/reports/pib_optimizer_functional_report.md)
 
 ## 近期更新
+
+### v0.13.0 (2026-09-29)
+- **物理-optical 数据类模型** (`ao_shaping.model`): 新增 `model/` 包，包含 `PhaseMap`, `AmplitudeMap`, `ComplexField` 和 `FieldMetadata` 数据类 —— 封装 2-D 相位/振幅/复电场数组 + 像素尺寸 + 元数据(timestamp/source/wavelength)，并通过 `ao_shaping.drivers.sim._oopao_compat` 兼容层提供 OOPAO `Source` 转换 (`from_oopao_source`/`to_oopao_source`/`to_opd`)。71 个测试用例 (69 passed / 4 OOPAO 条件跳过)
+- 修复: `scipy.ndimage.unwrap_phase` → 项目自己的 `ao_shaping.utils.wavefront.phase_unwrap.unwrap_phase`
+- 修复: `ComplexField.field` 属性名冲突 → 使用 `dc_field` 别名
 
 ### v0.12.0 (2026-09-17)
 - **共享扫描分析助手** (`tools/slm/slm_scan_analysis.py`): 纯 numpy 提取 `outlier_mask` (Z-score 异常点剔除)、`group_raw_scan` (灰度扫描分批求均值/标准差)、`analyze_linearity` (线性度指标)、`LINEARITY_AMPS`、`latest_match` 等 7 个公共符号; `zernike_matrix_runner` 改用 `outlier_mask` 剔除伪影点; 报告生成脚本 (`generate_zernike_response_matrix_report.py` / `generate_zernike_linearity_report.py`) 委托同一助手, 消除 `calibration.py`/`slm_lut_runner` 中的复刻逻辑

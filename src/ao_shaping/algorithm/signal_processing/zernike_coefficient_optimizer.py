@@ -63,7 +63,7 @@ Attributes:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from loguru import logger
@@ -113,30 +113,26 @@ def _torch():
     return _t
 
 
-def _to_tensor(x: np.ndarray, device: torch.device) -> torch.Tensor:
-    """Convert a real 2D numpy array to a float32 torch tensor on ``device``."""
-    torch = _torch()
-    arr = np.ascontiguousarray(x, dtype=np.float32)
-    return torch.from_numpy(arr).to(device)
+def _numpy_dtype(dtype_name: str) -> Any:
+    """Map a working-precision name to the matching numpy dtype."""
+    return np.float64 if dtype_name == "float64" else np.float32
 
 
-def default_native_amplitude(region: int) -> np.ndarray:
-    """Return the digital twin's native Gaussian beam for a ``region`` grid.
-
-    The waist scales linearly with the grid so that ``region=TWIN_REGION``
-    reproduces ``BeamParams.w0 = 250.0`` exactly and the resulting far field
-    matches the digital twin's.
+def _to_tensor(
+    x: np.ndarray,
+    device: torch.device,
+    dtype: str = "float32",
+) -> torch.Tensor:
+    """Convert a real 2D numpy array to a torch tensor on ``device``.
 
     Args:
-        region: Side length of the square grid in pixels.
-
-    Returns:
-        2D float64 amplitude map, unit on-axis and Gaussian off-axis.
+        x: Source array.
+        device: Target torch device.
+        dtype: Working precision, ``"float32"`` or ``"float64"``.
     """
-    w0 = TWIN_W0 * (region / TWIN_REGION)
-    yy, xx = np.mgrid[0:region, 0:region]
-    r2 = (yy - region / 2) ** 2 + (xx - region / 2) ** 2
-    return np.exp(-r2 / (2 * w0**2))
+    torch = _torch()
+    arr = np.ascontiguousarray(x, dtype=_numpy_dtype(dtype))
+    return torch.from_numpy(arr).to(device)
 
 
 @dataclass
@@ -163,6 +159,51 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
 
     The optimizer is stateful: construct it once, then call :meth:`update`
     repeatedly for manual control, or :meth:`run` for the full loop.
+
+    Digital-twin contract
+    ---------------------
+    The far field reproduces ``SimFourierGSNetEnv.render_intensity``'s core
+    convention, ``|fftshift(fft2(ifftshift(U), norm="ortho"))|**2`` with
+    ``U = A * exp(1j * patch)``, including two details that are easy to miss and
+    that this class matches deliberately:
+
+    * **The patch is masked, not the aberration.** The twin computes
+      ``nan_to_num(phi_slm + aberration, nan=0.0)``, so the *sum* is flat
+      outside the circular Zernike aperture. Applying the SLM phase everywhere
+      instead makes the model disagree with the twin by O(100%).
+    * **The amplitude still applies outside the aperture**, because the twin
+      masks phase only, never amplitude.
+
+    With ``dtype="float64"`` the far field matches the float64 twin to ~1 ulp
+    (2.7e-16 relative); the float32 default agrees to ~7e-8 relative, which is
+    float32 round-off rather than a modelling difference.
+
+    Loss
+    ----
+    The recorded loss is the peak-normalized MSE between the model and measured
+    far fields. The literal two-stage "measurement-anchored" trick of
+    ``differentiable_beam.py`` (backpropagating the loss into the measured
+    intensity) is degenerate here, because the measured image is a constant with
+    respect to the coefficients -- ``dL/dI_meas == 0`` at the target, so it
+    contributes no gradient. This class therefore uses the measured *peak* as a
+    fixed normalization anchor, which is equivalent to standard peak-normalized
+    MSE while keeping the target and the normalizer constant in ``c``, so the
+    gradient flows through the model intensity alone.
+
+    Learning rate
+    -------------
+    With a high-order basis (``n_orders=10``, 66 coefficients) the objective has
+    a shallow local basin that can absorb the fit while leaving the coefficients
+    wrong. Measured on a ``region=64`` grid with a three-mode truth, the same
+    problem converges to loss ~9e-13 and ``|c - c_true| < 1e-4`` at
+    ``lr in {0.02, 0.03, 0.1}`` but stalls at loss ~6.9e-6 and ``|c - c_true|``
+    ~0.49 at ``lr in {0.05, 0.08}``. The Jacobian of the normalized intensity is
+    well conditioned at that operating point (condition number ~5.6,
+    ``sigma_min`` ~12.5), so the basin is an optimization artifact rather than an
+    identifiability limit -- a direct least-squares solve from the same start
+    recovers ``c_true``. Callers using a 10-order basis should therefore validate
+    the *coefficient* error, not just the loss: a low loss alone does not prove
+    the coefficients were found.
     """
 
     def __init__(
@@ -175,6 +216,9 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         max_iterations: int = 500,
         device: str | None = None,
         seed: int | None = None,
+        dtype: str = "float32",
+        far_field_size: int | None = None,
+        frozen_modes: tuple[int, ...] = (),
     ) -> None:
         """Initialize the optimizer and validate all inputs.
 
@@ -194,6 +238,27 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
                 are reproducible and never touch a GPU implicitly; pass
                 ``"cuda"`` explicitly to use one.
             seed: Optional RNG seed for the random initial coefficients.
+            dtype: Working precision, ``"float32"`` (default) or
+                ``"float64"``. The digital twin evaluates its far field in
+                float64, so ``"float64"`` is what makes this model
+                bit-identical to ``SimFourierGSNetEnv``; float32 keeps the
+                default fast and matches the repo's differentiable-beam
+                convention, agreeing with the twin to float32 round-off
+                (~1e-7 relative).
+            far_field_size: Optional zero-padding size for the pupil field
+                before the FFT. ``None`` (default) keeps the historical
+                behaviour of transforming at ``region``, which is what the
+                digital twin's native 1:1 mode does. Pass a larger power of two
+                to sample the *same* field of view more finely -- required when
+                comparing against a real camera, whose pixels are far smaller
+                than the unpadded ``lambda * f / (region * d_slm)`` pitch.
+                Must be ``>= region`` when given.
+            frozen_modes: Noll indices (1-based) to hold at zero for the whole
+                fit. Defaults to empty, i.e. every mode moves. Pass
+                ``(1, 2, 3)`` when fitting to a measured far-field intensity:
+                piston and tilt are invisible to ``|E|**2`` (see
+                :meth:`_apply_mode_mask`), so leaving them free lets the fit
+                absorb unmodellable residual into degenerate directions.
 
         Raises:
             ValueError: If any argument is out of range or any array has the
@@ -216,6 +281,36 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
             raise ValueError(f"lr must be a positive finite float, got {lr!r}")
         if seed is not None and (not isinstance(seed, int) or isinstance(seed, bool)):
             raise ValueError(f"seed must be None or an integer, got {seed!r}")
+        if dtype not in ("float32", "float64"):
+            raise ValueError(
+                f"dtype must be 'float32' or 'float64', got {dtype!r}"
+            )
+        if far_field_size is None:
+            far_field_size = int(region)
+        elif (
+            not isinstance(far_field_size, int)
+            or isinstance(far_field_size, bool)
+            or far_field_size < region
+        ):
+            raise ValueError(
+                f"far_field_size must be None or an integer >= region "
+                f"({region}), got {far_field_size!r}"
+            )
+        self._far_field_size = int(far_field_size)
+
+        mask = np.ones(calc_n_zernike_terms(n_orders), dtype=np.float64)
+        for noll in frozen_modes:
+            index = int(noll)
+            if not 1 <= index <= mask.size:
+                raise ValueError(
+                    f"frozen_modes entries must be Noll indices in 1..{mask.size}, "
+                    f"got {noll!r}"
+                )
+            mask[index - 1] = 0.0
+        # Kept as numpy and turned into a tensor on first use: the device is not
+        # resolved yet at this point in __init__.
+        self._frozen_mask: np.ndarray | None = None if mask.all() else mask
+        self._mode_mask: Any = None
 
         n_coeffs = calc_n_zernike_terms(n_orders)
         if initial_coefficients is None:
@@ -242,14 +337,17 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         self._lr = float(lr)
         self._seed = seed
         self._dev = torch.device(device if device is not None else "cpu")
+        self._dtype_name = dtype
+        self._np_dtype = _numpy_dtype(dtype)
 
         # Precompute the Zernike basis once, for both the numpy and the torch path.
         self._basis_np = self._build_basis()
-        self._basis_t = torch.from_numpy(
-            np.ascontiguousarray(self._basis_np, dtype=np.float32)
-        ).to(self._dev)
+        self._basis_t = _to_tensor(self._basis_np, self._dev, dtype)
+        # Aperture mask (1 inside, 0 outside), mirroring the twin's
+        # ``nan_to_num(patch, nan=0.0)`` on the summed phase.
+        self._aperture_t = _to_tensor(self._aperture_np, self._dev, dtype)
 
-        self._default_amplitude = default_native_amplitude(region)
+        self._default_amplitude = self.native_amplitude(region)
         self._source_amplitude = self._default_amplitude
         self._loss_history: list[float] = []
         self._converged = False
@@ -285,8 +383,15 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         for index in range(self._n_coeffs):
             weights = np.zeros(self._n_coeffs)
             weights[index] = 1.0
-            mode = generator.generate_noll(weights)
-            basis[index] = np.nan_to_num(np.asarray(mode, dtype=np.float64), nan=0.0)
+            mode = np.asarray(generator.generate_noll(weights), dtype=np.float64)
+            if index == 0:
+                # The generator evaluates every mode on the same circular
+                # aperture, so the piston mode's finite support *is* that
+                # aperture. Deriving the mask here (instead of re-deriving the
+                # geometry) keeps it exactly consistent with the twin, which
+                # masks via the same NaN-outside-aperture convention.
+                self._aperture_np = np.isfinite(mode)
+            basis[index] = np.nan_to_num(mode, nan=0.0)
         return basis
 
     def _restart(self, restore_initial: bool = False) -> None:
@@ -303,7 +408,7 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
             self._initial_coefficients if restore_initial else self.coefficients
         )
         coefficients = torch.from_numpy(
-            np.ascontiguousarray(start, dtype=np.float32)
+            np.ascontiguousarray(start, dtype=self._np_dtype)
         ).to(self._dev)
         coefficients.requires_grad_(True)
         self._coefficients = coefficients
@@ -314,6 +419,28 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         self._loss_history = []
         self._converged = False
         self._no_improve = 0
+
+    # ------------------------------------------------------------------
+    # Public helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def native_amplitude(region: int) -> np.ndarray:
+        """Return the digital twin's native Gaussian beam for a ``region`` grid.
+
+        The waist scales linearly with the grid so that ``region=TWIN_REGION``
+        reproduces ``BeamParams.w0 = 250.0`` exactly and the resulting far
+        field matches the digital twin's.
+
+        Args:
+            region: Side length of the square grid in pixels.
+
+        Returns:
+            2D float64 amplitude map, unit on-axis and Gaussian off-axis.
+        """
+        w0 = TWIN_W0 * (region / TWIN_REGION)
+        yy, xx = np.mgrid[0:region, 0:region]
+        r2 = (yy - region / 2) ** 2 + (xx - region / 2) ** 2
+        return np.exp(-r2 / (2 * w0**2))
 
     # ------------------------------------------------------------------
     # Properties
@@ -465,15 +592,17 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
             )
         if not np.all(np.isfinite(values)):
             raise ValueError("coefficients must be finite")
-        phase_t = _to_tensor(self._validate_phase(phase_slm), self._dev)
+        phase_t = _to_tensor(
+            self._validate_phase(phase_slm), self._dev, self._dtype_name
+        )
         amplitude = self._resolve_amplitude(source_amplitude)
         with torch.no_grad():
             intensity = self._far_field_intensity(
                 torch.from_numpy(
-                    np.ascontiguousarray(values, dtype=np.float32)
+                    np.ascontiguousarray(values, dtype=self._np_dtype)
                 ).to(self._dev),
                 phase_t,
-                _to_tensor(amplitude, self._dev),
+                _to_tensor(amplitude, self._dev, self._dtype_name),
             )
         return intensity.detach().cpu().numpy().astype(np.float64)
 
@@ -510,8 +639,12 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
 
         torch = _torch()
         target, peak_anchor = self._prepare_measurement(i_meas)
-        phase_t = _to_tensor(self._validate_phase(phase_slm), self._dev)
-        amplitude_t = _to_tensor(self._source_amplitude, self._dev)
+        phase_t = _to_tensor(
+            self._validate_phase(phase_slm), self._dev, self._dtype_name
+        )
+        amplitude_t = _to_tensor(
+            self._source_amplitude, self._dev, self._dtype_name
+        )
 
         self._opt.zero_grad(set_to_none=True)
         intensity = self._far_field_intensity(
@@ -521,6 +654,7 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         # come from the measured image; the residual lives on the model image.
         self._anchored_intensity_loss(intensity, target, peak_anchor).backward()
         self._opt.step()
+        self._apply_mode_mask()
 
         with torch.no_grad():
             recorded = float(self._intensity_loss(intensity, target).detach().cpu())
@@ -585,6 +719,40 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
     # ------------------------------------------------------------------
     # Model and loss
     # ------------------------------------------------------------------
+    def _apply_mode_mask(self) -> None:
+        """Zero the frozen coefficients in place after an optimizer step.
+
+        Piston and tilt (Noll 1-3) are **unidentifiable** from a far-field
+        *intensity*: piston is a global phase that leaves ``|E|**2`` exactly
+        unchanged, and tilt only displaces the spot, which a same-window or
+        argmax-aligned comparison barely sees. Leaving them free is not
+        harmless -- with no identifiable signal the optimizer parks the
+        residual in those degenerate directions instead of reporting "no
+        aberration". Measured on real hardware captures, 56% of the fitted
+        coefficient norm landed in Noll 1-3 while the fit quality did not
+        improve at all. Freezing them follows the repo's existing convention
+        (``slm_square_shaping --zernike-mask`` also forces Noll 1-3 to zero).
+        """
+        if self._frozen_mask is None:
+            return
+        torch = _torch()
+        if self._mode_mask is None:
+            self._mode_mask = torch.from_numpy(self._frozen_mask).to(self._dev)
+        with torch.no_grad():
+            self._coefficients.mul_(self._mode_mask)
+
+    @property
+    def far_field_size(self) -> int:
+        """Side length of the far-field grid produced by the forward model.
+
+        Equals ``region`` unless zero-padding was requested via
+        ``far_field_size``. Callers that build a target on the *pupil* grid must
+        rescale it by ``far_field_size / region`` before comparing it with a
+        model far field, because a far-field pixel covers a different physical
+        extent than a pupil pixel once padding is in play.
+        """
+        return self._far_field_size
+
     def _far_field_intensity(
         self,
         coefficients: torch.Tensor,
@@ -594,11 +762,40 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         """Differentiable far-field intensity of the current coefficients.
 
         Mirrors the digital twin's convention:
-        ``|fftshift(fft2(ifftshift(U), norm="ortho"))|**2``.
+        ``|fftshift(fft2(ifftshift(U), norm="ortho"))|**2`` with
+        ``U = A * exp(1j * patch)``.
+
+        ``patch`` follows the twin exactly: the SLM phase and the aberration
+        are summed first and the *sum* is then masked, because the twin applies
+        ``nan_to_num(phi_slm + aberration, nan=0.0)`` and the aberration is NaN
+        outside the circular aperture. The total phase is therefore flat
+        (zero) outside the aperture while the Gaussian amplitude still applies
+        there -- multiplying only the aberration by the mask would instead
+        leave ``exp(1j * phi_slm)`` there and disagree with the twin.
+
+        When ``far_field_size`` exceeds ``region`` the pupil field is zero-padded
+        to that size before the FFT. Padding does **not** change the field of
+        view -- the sampled extent stays ``lambda * f / d_slm`` -- it only
+        samples it more finely, by ``far_field_size / region``. That matters on
+        real benches: the far-field pixel pitch is ``lambda * f / (P * d_slm)``,
+        so an unpadded ``P = region = 256`` grid has a ~65 um pitch and renders
+        this bench's ~27 um spot as a sub-pixel delta (sigma ~0.4 px), which
+        cannot be compared with - let alone shaped against - a camera whose
+        pixels are ~2.2 um. The digital twin exposes the same knob through its
+        zero-padding size ``P``; see also ``generate_zernike_farfield_sim_report``
+        (FAR_N = 8192) for the canonical padded sampling.
         """
         torch = _torch()
         aberration = torch.einsum("j,jhw->hw", coefficients, self._basis_t)
-        field = amplitude * torch.exp(1j * (phase_slm + aberration))
+        patch = (phase_slm + aberration) * self._aperture_t
+        field = amplitude * torch.exp(1j * patch)
+        pad = self._far_field_size
+        if pad > field.shape[0]:
+            half = (pad - field.shape[0]) // 2
+            field = torch.nn.functional.pad(
+                field.unsqueeze(0), (half, pad - field.shape[0] - half,
+                                    half, pad - field.shape[1] - half)
+            ).squeeze(0)
         spectrum = torch.fft.fftshift(
             torch.fft.fft2(torch.fft.ifftshift(field), norm="ortho")
         )
@@ -730,8 +927,10 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         peak = float(measured.max())
         if peak <= 0:
             raise ValueError("i_meas must have a positive peak")
-        target = _to_tensor(measured / peak, self._dev)
-        return target, torch.tensor(peak + PEAK_EPS, dtype=torch.float32, device=self._dev)
+        target = _to_tensor(measured / peak, self._dev, self._dtype_name)
+        return target, torch.tensor(
+            peak + PEAK_EPS, dtype=self._basis_t.dtype, device=self._dev
+        )
 
     def _update_stagnation(self, loss_value: float) -> None:
         """Advance the plateau counter used by :attr:`is_converged`."""

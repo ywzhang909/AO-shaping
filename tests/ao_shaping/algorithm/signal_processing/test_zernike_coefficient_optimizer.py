@@ -198,6 +198,41 @@ class TestForwardModel:
         np.testing.assert_array_equal(phase, snapshot)
 
 
+    def test_frozen_modes_stay_zero_and_leave_the_rest_free(self) -> None:
+        """Frozen Noll indices must not move, and the others must still fit."""
+        i_meas, phase, _ = synthetic_case(
+            {NOLL_DEFO: 0.6}, seed=4, region=FIT_REGION, n_orders=FIT_ORDERS
+        )
+        frozen = ZernikeCoefficientOptimizer(
+            n_orders=FIT_ORDERS,
+            region=FIT_REGION,
+            lr=FIT_LR,
+            max_iterations=60,
+            frozen_modes=(1, 2, 3),
+        )
+        result = frozen.run(i_meas, phase)
+
+        assert np.all(result.coefficients[:3] == 0.0), (
+            f"frozen modes moved: {result.coefficients[:3]}"
+        )
+        # The fit is still real: defocus (Noll 4) moved off its zero start.
+        assert abs(result.coefficients[NOLL_DEFO - 1]) > 0.05
+
+    def test_frozen_modes_default_is_backward_compatible(self) -> None:
+        """Empty frozen_modes leaves the optimizer free to use every mode."""
+        optimizer = ZernikeCoefficientOptimizer(
+            n_orders=FIT_ORDERS, region=FIT_REGION
+        )
+        assert optimizer._frozen_mask is None
+
+    def test_frozen_modes_rejects_out_of_range(self) -> None:
+        """A Noll index outside the basis is a caller error."""
+        with pytest.raises(ValueError, match="frozen_modes"):
+            ZernikeCoefficientOptimizer(
+                n_orders=FIT_ORDERS, region=FIT_REGION, frozen_modes=(10_000,)
+            )
+
+
 class TestRecovery:
     """The optimizer must recover a known aberration from a synthetic frame."""
 

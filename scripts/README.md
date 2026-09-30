@@ -1232,6 +1232,35 @@ python scripts/generate_slm_gsnet_sim_gif.py -o docs/fouriergsnet_sim
 | `--pkl` | latest `data/debug/slm_gsnet_*/*/*.pkl` | Debug artifact pkl path |
 | `-o, --output` | `docs/fouriergsnet_sim` | Output dir (GIFs → `<output>/gifs/`) |
 
+### generate_pearson_pkl_gif.py
+
+Generates **synchronized CCD-image + SLM-phase** animated GIFs from all
+`data/debug/*/*.pkl` debug artifacts that carry a Pearson correlation metric.
+Each GIF frame shows the CCD far-field (left, `inferno`) and the SLM phase pattern
+(right, cyclic `twilight`) evolving in lockstep, with the epoch and Pearson value
+annotated in the top bar.
+
+Supports both phase representations: full-panel uint16 grayscale ``_phase``
+(1200×1920) and freeform coefficient vectors ``_c`` (reshaped to a square grid,
+as produced by `slm-gsnet`).
+
+**Usage:**
+```bash
+python scripts/generate_pearson_pkl_gif.py
+python scripts/generate_pearson_pkl_gif.py --pearson-only --max-frames 200 --max-dim 384
+python scripts/generate_pearson_pkl_gif.py --pkl data/debug/<run>/<ts>/<name>.pkl
+```
+
+**What it does** (writes `docs/pearson_gifs/<pkl_stem>.gif`):
+- Collects every ``*.pkl`` under `data/debug/` (newest-first)
+- Loads each record set; selects only epochs with both `_img` and a phase
+  representation (`_phase` or `_c`)
+- Renders each epoch as a 1×2 composite (CCD | phase), downscaled so each panel
+  fits within `--max-dim` pixels, framed at `--fps` frames/second
+- Annotates each frame with the epoch index and the `pearson` value when present
+- `--pearson-only` skips pkls that lack a `pearson` field or "pearson" in their
+  name; `--max-frames` evenly subsamples epochs (default 300)
+
 ### slm_pib_sim_run.py
 
 Runs the **`slm-pib`** SPGD shaping pipeline **entirely in the simulation
@@ -1598,11 +1627,75 @@ python scripts/generate_models_report.py
 
 ## Verification Scripts
 
+### generate_bench_probe_report.py
+
+Regenerates the **illustrated SLM bench-probe report** from artefacts a hardware
+sweep already wrote. **Fully offline** — reads only `*.npz` / `*.json` / `*.pkl`
+from disk, never opens a camera or SLM, so conclusions can be refreshed while the
+instruments are powered down.
+
+**Usage:**
+```powershell
+python scripts/generate_bench_probe_report.py            # default paths
+python scripts/generate_bench_probe_report.py -o docs/slm/bench_probe
+python scripts/generate_bench_probe_report.py --no-figures
+```
+
+**What it does** (writes `docs/slm/bench_probe/report.md` + `figures/`):
+- **§1 provenance** — every input with a ✅/⚠️/❌ status, a per-mode point
+  census, and two consistency audits (§1.2 sidecar vs npz, §1.3
+  `bench_geometry.json` vs npz).
+- **§3 ramp linearity** — the authoritative focal scale `S` from
+  `displacement = S / period`, per axis, with the axes' disagreement.
+- **§4 Zernike tilt linearity** — per-axis slope in cam px/rad, repeat spread,
+  and which estimator was usable.
+- **§5 width response** — `fwhm²` vs coefficient per mode with the fitted
+  parabola, points coloured by hollowness, and the single-lobe gate drawn at
+  0.60 with the points it discards marked.
+- **§6 focal scale, three independent routes** — ramp / tilt / field-of-view.
+- **§7 the four bench iron rules**, each with the numbers from *this* dataset
+  that prove it still bites.
+- **§8 conclusions + §8.1 actionable items for shaping experiments.**
+- **Appendix A** — the full 55-row record table.
+
+**Per-test-item analysis (§3.1 / §4.1 / §5.1 / §7.1)**: every test is reported
+as **目的 / 结果分析 / 对整形的影响**, because a bench number is only actionable
+once you know what it does to the shaping loop — e.g. a focal scale that is
+*silently* wrong scales the target square's side by the same factor, and a width
+feedback signal read outside the single-lobe region feeds the optimiser an
+inverted gradient.
+
+**Two guards that fail silently, and therefore have regression tests**
+(`tests/ao_shaping/scripts/test_generate_bench_probe_report.py`):
+- **Stale-geometry guard.** `bench_geometry.json` is **shared and overwritten** by
+  both calibration routes (speckle and sweep). Reading it next to a fresh npz
+  mixes two calibrations: every model-side number inherits the error while the
+  derivation still looks self-consistent. §1.3 cross-checks `panel_disc_radius`
+  against the npz's own `zernike_radius`/`collect_disc` and against `method`, and
+  when they disagree §2 and §6 are **disabled rather than reported**, because a
+  ~185 % "route disagreement" computed from two different calibrations is a
+  pure artefact.
+- **Constant-drift guard.** The bench constants are imported from the modules
+  that define them (`slm_bench_probe.TILT_SHIFT_SCALE`,
+  `model_in_loop_shaping._MAX_DEFOCUS_FIT_RMS`) rather than hardcoded. A literal
+  can silently drift away from the code; any import failure is listed in
+  `fallbacks` and surfaced in the captions.
+
+The largest cross-check the report makes — `S = k_tilt·π·R` — deliberately needs
+**no calibration file at all** (the illuminated radius ships inside the npz), so
+it stays valid even while §2 and §6 are disabled.
+
 ### model_in_loop_hw_runbook.py
 
 Hardware runbook for the **model-in-the-loop** square-shaping test: calibrate
 the forward model's geometry on the real bench, then compute a square phase with
 it, display it, and measure the result (needs hardware: Santec SLM-200 + camera).
+
+> The sweep acquisition kernel (`zernike_panel`, `capture_settled`, the Recorder
+> bookkeeping) now lives in the reusable tool
+> `src/ao_shaping/tools/slm/slm_zernike_sweep_probe.py`, and this runbook imports
+> it. `--stage sweep` keeps only the calibration-protocol specifics (ABBA tilt
+> interleaving, phase-correlation shifts, per-point frame dumps).
 
 **Usage:**
 ```bash
