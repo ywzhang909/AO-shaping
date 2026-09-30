@@ -53,7 +53,7 @@ from typing import Any
 import numpy as np
 
 from ao_shaping.utils.image.beam_metrics import zero_order_center
-from ao_shaping.utils.image.targets import roi_pib_metric
+from ao_shaping.utils.image.targets import roi_pib_metric, target_shape_roi
 from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
 from ao_shaping.utils.wavefront.zernike_calc import zernike_modes
 from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
@@ -174,6 +174,10 @@ class SnrSweepResult:
     #: Number of perturbed DOF in the multi-mode probe.
     n_dof: int = 0
     seed: int | None = None
+    #: Fraction of the frame's light inside the scored ROI. A very small value
+    #: means the ROI geometry does not match the bench (typically the camera was
+    #: never windowed around the spot) and the SNRs above are not meaningful.
+    roi_fraction: float = 0.0
 
     @property
     def _denom(self) -> float:
@@ -217,6 +221,7 @@ class SnrSweepResult:
             "noise_mean": float(np.mean(self.noise_values)) if self.noise_values else 0.0,
             "n_dof": self.n_dof,
             "seed": self.seed,
+            "roi_fraction": self.roi_fraction,
             "single_signals": self.single_signals,
             "multi_signals": self.multi_signals,
             "single_snrs": self.single_snrs,
@@ -277,6 +282,8 @@ def snr_sweep(
     seed: int | None = 0,
     measure_single: bool = True,
     measure_multi: bool = True,
+    score_fn: Callable[[np.ndarray], float] | None = None,
+    window: tuple[Any, Any] | None = None,
 ) -> SnrSweepResult:
     """Measure the objective's noise floor and per-amplitude SNR on a live bench.
 
@@ -300,14 +307,29 @@ def snr_sweep(
         n_max: Max Zernike radial order (sets the DOF count).
         radius: Zernike aperture radius (px) on the SLM panel.
         resolution: SLM panel resolution as ``(width, height)``.
-        target_shape: ROI shape for the score.
-        target_size: ROI size (px).
+        target_shape: ROI shape for the built-in score.
+        target_size: ROI size (px) for the built-in score.
         deltas: Perturbation amplitudes to probe (rad).
         n_frames: Frames for the noise floor.
         pairs: ABBA repetitions per amplitude.
         seed: RNG seed for the ±1 pattern (``None`` -> nondeterministic).
         measure_single: Run the single-mode probe.
         measure_multi: Run the multi-mode probe.
+        score_fn: ``frame -> float`` overriding the built-in ``roi_pib`` score.
+
+            **Pass the objective you actually care about.** The built-in score
+            anchors a fixed ``target_size`` box on the flat-state 0-order, which
+            is only meaningful once the caller has windowed the camera around the
+            spot. ``create_camera(..., cam_size=N)`` does *not* window: the driver
+            only calls ``reset_window`` when asked, so on a full 2592x1944 frame
+            a 50 px box can hold <1 % of the light and the measured SNR collapses
+            to ~1 for every amplitude. Bench-verified: that misconfiguration
+            reported ``usable_deltas() == []`` while the optimizer at the same
+            delta reached +18.8 % sustained improvement. When ``score_fn`` is
+            given, ``target_shape``/``target_size`` are ignored.
+        window: Optional ``(size, center)`` forwarded to ``cam.reset_window``
+            before measuring, so the probe can window the bench itself. The
+            caller still owns device configuration; this is a convenience.
 
     Returns:
         A populated :class:`SnrSweepResult`.
@@ -316,6 +338,9 @@ def snr_sweep(
         raise ValueError(f"n_max must be >= 0, got {n_max}")
     if deltas and all(d <= 0 for d in deltas):
         raise ValueError(f"deltas must contain a positive amplitude, got {deltas!r}")
+
+    if window is not None and hasattr(cam, "reset_window"):
+        cam.reset_window(*window)
 
     def write(amps: dict[tuple[int, int], float]) -> None:
         _write_zernike(slm, amps, n_max, resolution, radius)
@@ -341,6 +366,8 @@ def snr_sweep(
 
     def score() -> float:
         frame = np.asarray(cam.get_numpy_image(1), dtype=np.float64)
+        if score_fn is not None:
+            return float(score_fn(frame))
         return float(
             roi_pib_metric(
                 frame, center, target_shape, target_size
@@ -373,6 +400,21 @@ def snr_sweep(
             )
     write_flat()  # leave the bench flat, not on a perturbation
 
+    # Diagnostic: what fraction of the frame's light does the scored ROI actually
+    # hold? A tiny value means the geometry is wrong (e.g. the camera was never
+    # windowed around the spot) and every SNR below is meaningless, however
+    # plausible the numbers look. This is the check that would have caught the
+    # misconfiguration documented on ``score_fn``.
+    roi_fraction = 0.0
+    if score_fn is None:
+        probe = np.asarray(cam.get_numpy_image(1), dtype=np.float64)
+        total = float(probe.sum())
+        if total > 0:
+            box = target_shape_roi(
+                probe.shape, center, target_shape, target_size
+            )
+            roi_fraction = float(probe[box].sum()) / total
+
     return SnrSweepResult(
         center=center,
         sigma=sigma,
@@ -381,4 +423,5 @@ def snr_sweep(
         multi_signals=multi,
         n_dof=len(modes),
         seed=seed,
+        roi_fraction=roi_fraction,
     )

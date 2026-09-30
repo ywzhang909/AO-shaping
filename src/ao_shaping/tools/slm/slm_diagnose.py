@@ -251,7 +251,13 @@ def step_linearity(
 @click.option(
     "--slm-wavelength", type=int, default=1064, help="SLM 工作波长 nm (默认 1064)"
 )
-@click.option("--cam-id", type=int, default=0, help="MiiCam 相机 ID (默认 0)")
+@click.option("--cam-id", type=int, default=0, help="相机 ID (默认 0)")
+@click.option(
+    "--camera-type",
+    type=click.Choice(["miicam", "daheng"]),
+    default="miicam",
+    help="相机类型 (miicam/daheng, 默认 miicam)",
+)
 @click.option(
     "--period-ref", type=int, default=64, help="参考光栅周期 SLM px (默认 64)"
 )
@@ -273,6 +279,7 @@ def main(
     slm_number: int,
     slm_wavelength: int,
     cam_id: int,
+    camera_type: str,
     period_ref: int,
     period_test: int,
     exposure_ms: float,
@@ -285,13 +292,14 @@ def main(
     from ao_shaping.utils.hardware_utils import open_camera
 
     logger.info(
-        "SLM self-check: slm#{} @{}nm, periods {}/{}px, camera#{} exposure {:.2f}ms "
+        "SLM self-check: slm#{} @{}nm, periods {}/{}px, camera#{} ({}) exposure {:.2f}ms "
         "(2f Fourier bench: SLM front-focus -> f=125mm lens -> CCD back-focus)",
         slm_number,
         slm_wavelength,
         period_ref,
         period_test,
         cam_id,
+        camera_type,
         exposure_ms,
     )
 
@@ -320,7 +328,7 @@ def main(
             slm_wavelength,
         )
 
-        camera = open_camera("miicam", cam_id, exposure_ms)
+        camera = open_camera(camera_type, cam_id, exposure_ms)
         logger.info(
             "Camera opened: id={} exposure={:.2f}ms (frame readback on first grab)",
             cam_id,
