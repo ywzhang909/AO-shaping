@@ -9,6 +9,7 @@ from loguru import logger
 from ao_shaping.drivers.device_base import DeviceState, DeviceType
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.dm._registry import register_dm
+from ao_shaping.model.quantities import DmCommands
 from ao_shaping.drivers.dm.MicroDM import (
     MicroDMVoltageError,
     RelayState,
@@ -113,12 +114,12 @@ class SimMicroDM(DM):
         self._last_voltages = vs.copy()
         return self._last_voltages
 
-    def send_voltages(self, vs: np.ndarray, wait_time_s: float = 0.0) -> np.ndarray:
+    def send_voltages(self, vs: DmCommands | np.ndarray, wait_time_s: float = 0.0) -> DmCommands | np.ndarray:
         """Send simulated voltage array with optional safety ramping."""
-        vs = np.asarray(vs, dtype=np.float64)
-        if vs.shape != (self.DM_Num,):
+        values = vs.voltages if isinstance(vs, DmCommands) else np.asarray(vs, dtype=np.float64)
+        if values.shape != (self.DM_Num,):
             raise MicroDMVoltageError(
-                f"Expected {self.DM_Num} voltages, got {vs.shape}"
+                f"Expected {self.DM_Num} voltages, got {values.shape}"
             )
         return super().send_voltages(vs, wait_time_s=wait_time_s)
 

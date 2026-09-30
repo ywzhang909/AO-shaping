@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 
 from ao_shaping.drivers.dm.base import DM
+from ao_shaping.model.quantities import DmCommands
 
 
 class SimulateDM(DM):
@@ -107,7 +108,7 @@ class SimulateDM(DM):
         self.__last_v = np.zeros_like(self.__last_v)
         return 0
 
-    def send_voltages(self, vs: np.ndarray, wait_time_s: float = 0.001) -> np.ndarray:
+    def send_voltages(self, vs: DmCommands | np.ndarray, wait_time_s: float = 0.001) -> DmCommands | np.ndarray:
         """Send voltages to simulated DM with noise and rate limiting.
 
         Args:
@@ -117,7 +118,16 @@ class SimulateDM(DM):
         Returns:
             Current voltage array after simulation.
         """
-        vs = np.clip(vs, self.v_min, self.v_max)
+        typed = isinstance(vs, DmCommands)
+        if typed:
+            if vs.n_actuators != self.channel or vs.range_min < self.v_min or vs.range_max > self.v_max:
+                raise ValueError("DmCommands actuator count or voltage range does not match this DM")
+            values = vs.voltages
+        else:
+            values = np.asarray(vs, dtype=np.float64)
+        if values.shape != (self.channel,):
+            raise ValueError(f"Expected {self.channel} voltages, got {values.shape}")
+        vs = np.clip(values, self.v_min, self.v_max)
         # Add noise to simulate real hardware
         noisy_vs = vs + np.random.normal(0, self.noise_level, size=vs.shape)
         # Apply voltage rate limiting logic
@@ -137,6 +147,8 @@ class SimulateDM(DM):
         # Calculate simulated deformation (voltage to deformation)
         deformation = self._voltage_to_deformation(self.__last_v)
         self.deformation_history.append(deformation)
+        if typed:
+            return DmCommands(self.__last_v, self.v_min, self.v_max, self.channel)
         return self.__last_v
 
     def set_hv(self, hv: bool = True) -> int:

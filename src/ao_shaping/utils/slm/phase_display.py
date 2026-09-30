@@ -25,6 +25,7 @@ from typing import Any
 import numpy as np
 
 from loguru import logger
+from ao_shaping.model.field import PhaseMap
 
 __all__ = [
     "DEFAULT_WAVELENGTH",
@@ -44,7 +45,7 @@ DEFAULT_MAX_GRAYSCALE: int = 1023  # grayscale value corresponding to 2*pi
 
 
 def phase_to_slm_grayscale(
-    phase: np.ndarray,
+    phase: PhaseMap | np.ndarray,
     max_grayscale: int | None = None,
     slm: Any | None = None,
 ) -> np.ndarray:
@@ -66,6 +67,8 @@ def phase_to_slm_grayscale(
     Returns:
         ``uint16`` 二维灰度数组。
     """
+    if isinstance(phase, PhaseMap):
+        phase = phase.phase
     if slm is not None:
         return slm.create_phase_from_array(phase, max_grayscale=max_grayscale)
     if max_grayscale is None:

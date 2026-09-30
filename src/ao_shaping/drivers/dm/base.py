@@ -5,6 +5,8 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
+from ao_shaping.model.quantities import DmCommands
+
 
 class DM(ABC):
     """Abstract base class for deformable mirror drivers.
@@ -173,7 +175,7 @@ class DM(ABC):
 
     # ---- Public send interface ----
 
-    def send_voltages(self, vs: np.ndarray, wait_time_s: float = 0.001) -> np.ndarray:
+    def send_voltages(self, vs: DmCommands | np.ndarray, wait_time_s: float = 0.001) -> DmCommands | np.ndarray:
         """Send a voltage array to all channels with optional safety ramping.
 
         When safety_mode is True (default), voltages are ramped from the
@@ -186,9 +188,17 @@ class DM(ABC):
         Returns:
             The applied voltage array.
         """
-        vs = np.clip(np.asarray(vs, dtype=np.float64), self.V_Min, self.V_Max)
-        result = self._ramp_voltages(vs)
+        typed = isinstance(vs, DmCommands)
+        if typed:
+            if vs.n_actuators != self.DM_Num or vs.range_min < self.V_Min or vs.range_max > self.V_Max:
+                raise ValueError("DmCommands actuator count or voltage range does not match this DM")
+            values = vs.voltages
+        else:
+            values = np.asarray(vs, dtype=np.float64)
+        result = self._ramp_voltages(np.clip(values, self.V_Min, self.V_Max))
         time.sleep(wait_time_s)
+        if typed:
+            return DmCommands(result, self.V_Min, self.V_Max, self.DM_Num)
         return result
 
     def set_channel_voltage(self, channel: int, voltage: float) -> None:

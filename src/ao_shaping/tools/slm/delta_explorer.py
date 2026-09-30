@@ -35,6 +35,14 @@ Public symbols
 - ``explore_delta``— run one optimisation per candidate delta and rank them
 - ``DeltaScanResult`` / ``verdict_for`` — dataclass + acceptance rule
 
+The physical reasoning (why ``delta`` cannot fix this bench) is documented in
+``scripts/explore_delta.py``; in short: the gradient signal scales with
+``delta`` while the dominant noise — slow intensity drift between the two
+consecutive samples ``J(+d)`` and ``J(-d)`` — does not. Bench-verified: sweeping
+``delta`` over 1000x (5e-4 … 0.5) left the decreasing-step fraction at ~0.5
+throughout, so no amplitude produces a real descent. Widening the gradient by
+scaling ``delta`` therefore buys signal and drift in equal measure.
+
 Typical use::
 
     def run_one(delta):

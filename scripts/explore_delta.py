@@ -2,32 +2,114 @@
 
 Runs the **genuine** ``slm_pib_runner`` CLI once per candidate ``delta`` and
 judges each run by **convergence**, not by how much the objective moved from the
-first epoch to the last. Every run is written with ``--debug`` so its recorder
-pickle, JSON sidecar and summary PNG land under ``data/debug/`` for offline
-re-analysis.
+first epoch to the last.
 
-Why not just take the biggest improvement? Because that metric is an artefact
-on a noisy bench. A real 200-epoch trace from this bench read
+=============================================================================
+原理 (Principle)
+=============================================================================
 
-    0.529 -> 0.400 -> 0.522 -> 0.527 -> 0.533 -> 0.534 -> ... -> 0.456 -> 0.402
+**1. SPGD 在做什么**
 
-whose first-vs-last improvement is **+24 %** while the run never descended — it
-dipped, fully recovered, and stopped low. Across 51 recorded runs, 32 had a
-decreasing-step fraction within 0.05 of 0.5, i.e. were coin flips. This tool
-reports ``dec`` (decreasing-step fraction) and ``late`` (first-third vs
-last-third mean) and refuses to recommend a delta when nothing truly converged.
+SPGD (Stochastic Parallel Gradient Descent) 每步随机生成一个扰动方向
+``p ∈ {±1}^N`` (N = Zernike 系数个数), 然后测量两个值::
 
-The judging logic is :mod:`ao_shaping.tools.slm.delta_explorer` (device-agnostic,
-unit-tested against synthetic traces of known behaviour); this file only wires it
-to the hardware CLI.
+    J+ = score(c + delta·p)        J- = score(c - delta·p)
+    g  ∝ (J+ - J-) · p              c ← c + lr · g
+
+``delta`` 是**扰动幅度** (rad)。它决定"信号": ``delta`` 越大, 两个相位屏的
+差异越大, 目标函数的差异也越大。
+
+**2. 为什么不能只看"目标值降了多少"**
+
+直觉上"降得多 = delta 选得好"。但这是**错的**, 而且在这个台架上被实测证伪:
+
+    真实轨迹 (200 epoch, n_max=9, delta=0.02):
+    0.529 → 0.400 → 0.522 → 0.527 → 0.533 → 0.534 → ... → 0.456 → 0.402
+
+首尾一比是 **+24%**, 但轨迹先掉到 0.400、又**完全涨回** 0.534、最后落在
+0.402 —— 全程没有下降趋势。随机游走只要"碰巧停在低点"就会被记成一次胜利。
+在 51 个已记录 run 中, 有 **32 个**的 `dec` 在 0.5±0.05 内, 即抛硬币。
+
+**3. 本工具用的两个稳健判据**
+
+``dec`` (frac_decreasing) = 下降步占比。
+    真正收敛的 run 会显著 > 0.5; ``= 0.5`` 就是随机游走。这是主判据。
+
+``late`` (late_gain) = 前 1/3 均值 → 后 1/3 均值 的改善百分比。
+    对"停在哪一步"不敏感, 不会被端点噪声欺骗。
+
+**4. 噪声预算: 为什么 delta 调不动它**
+
+每步梯度估计的误差来自 ``J+`` 与 ``J-`` 两次采样之间的**共模变化**::
+
+    误差 ∝ |J(+δ) − 噪声 + 漂移|  vs  |J(−δ) − 噪声 − 漂移|
+
+  - **信号** ∝ delta        → 加大 delta 可以提高信噪比
+  - **慢漂移** 与 delta 无关 → 加大 delta **不能**提高信噪比
+  - **散粒噪声** 可用多帧平均压低 (∝1/√N), 漂移**不可**
+
+实测确认: 同相位 40 帧平均并未降低 σ (2.8e-3 vs 10 帧的 1.7e-3), 且
+单日三次扫描 σ 相差 **21×** (3.7e-4 → 1.7e-5)。所以噪声是**慢漂移**。
+
+由于 SPGD 的 ``J+``/``J-`` 是**相邻两次**采样, 漂移在其间近似恒定并直接进入
+梯度估计 —— 这是 95%+ 迭代被噪声门拒绝的根因。
+
+**5. 为什么本工具"拒绝"给推荐值**
+
+``explore_delta().recommended`` 在没有候选真正收敛时返回 ``None``, 而不是
+退而求其次给"最好的那个"。**拒绝封王才是本工具的意义**: 一个被标成
+"+24% 改善"的随机游走若被选中, 会被当成结论继续用下去。
+
+**6. 实机扫描结论 (2026-09-30, n_max=9, 150-200 epoch, Pearson)**
+
+===============  =======  ========  ========  ==========================
+delta             dec     late %   guard %  结论
+===============  =======  ========  ========  ==========================
+0.0005            0.52     -1.4      0.0   停滞 (first==final)
+0.001             0.52     +0.1      0.0   停滞
+0.02              0.56     +8.5      0.0   随机游走
+0.05              0.53    +21.5      0.0   随机游走
+0.10              0.43    -16.7     31.4   折叠门大量拒绝
+0.20              0.52     +8.9      0.0   随机游走
+0.30              0.51     +1.7      0.7   随机游走
+0.50              0.43     -1.7     84.1   折叠门主导
+===============  =======  ========  ========  ==========================
+
+**delta 跨越 1000 倍, ``dec`` 始终 ≈ 0.5。** 所以:
+
+  - **delta 不是限制因素**, 再调它也解决不了问题;
+  - 小 delta (5e-4) 确实彻底停滞 (符合用户约束 `delta<0.001` 的历史观察);
+  - 大 delta (0.5) 被**亮度折叠门**拒绝 —— 扰动过猛导致亮度崩塌, 这是上界;
+  - 把 n_max 从 9 降到 1 (54 → 3 自由度) 反而更差 (3/200 采纳), 说明
+    "自由度稀释"能解释 SNR 数值, **不能**解释实机为什么不收敛。
+
+**7. 真正的下一步: 把回文采样接入 SPGD 主循环**
+
+漂移是共模的, 所以只要让 ``J+`` 与 ``J-`` 的采样在时间上**对称**, 就能抵消::
+
+    现在:  J+ = score(+δ)                 →  漂移 d
+           J- = score(−δ)                 →  漂移 d'      差分残留 (d−d')
+
+    回文:  J+ = score(+δ)                 →  漂移 d1
+           J- = score(−δ)                 →  漂移 d2
+           J- = score(−δ)                 →  漂移 d3      d1+d3 ≈ d2+d4
+           J+ = score(+δ)                 →  漂移 d4         (线性漂移下精确抵消)
+
+``ao_shaping.tools.slm.slm_snr_probe.abba_signal`` 已实现并单测 (``+ - - +``
+可精确对消线性漂移), 但**主循环仍是单次正负采样** —— 这是投入产出比最高的改动。
+
+=============================================================================
 
 **Usage:**
     python scripts/explore_delta.py --deltas 0.02,0.05,0.1
     python scripts/explore_delta.py --deltas 0.05,0.1 --objective shape --epochs 100
     python scripts/explore_delta.py --deltas 0.05,0.1 --n-max 3
+    python scripts/explore_delta.py --analyze-only --deltas 0.05,0.1   # 无硬件重算
 
-**Requires hardware** (Santec SLM + camera). Devices are opened and closed per
-candidate by the runner itself.
+**Requires hardware** (Santec SLM + camera) unless ``--analyze-only``. Devices
+are opened and closed per candidate by the runner itself, and every run keeps
+``--debug`` so its recorder pickle / JSON sidecar / summary PNG stay under
+``data/debug/`` for offline re-analysis.
 """
 
 from __future__ import annotations
