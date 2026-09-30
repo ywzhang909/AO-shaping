@@ -26,7 +26,12 @@ from ao_shaping.runners.slm_pib_runner import (
     _save_debug_artifacts,
     run,
 )
-from ao_shaping.runners.runner_common import CameraParamsPib, ObjectiveTarget
+from ao_shaping.runners.runner_common import (
+    CameraParamsPib,
+    ObjectiveTarget,
+    SlmParamsPib,
+    SpgdParamsPib,
+)
 from ao_shaping.utils.io.file import Recorder
 
 
@@ -189,17 +194,64 @@ def test_save_data_mode_debug_artifacts_panels_and_sidecars(tmp_path):
 
 
 def test_debug_artifact_json_round_trips_config(tmp_path):
+    """The sidecar records the search config **and** the objective provenance.
+
+    Objective / camera / SLM identity used to live only in the directory name,
+    which made an artifact impossible to attribute on its own. The sidecar now
+    carries them so a debug run is self-describing.
+    """
     rec = _make_recorder("pib", "max")
     png = _save_debug_artifacts(
         rec,
-        ObjectiveParams(target=ObjectiveTarget(name="pib")),
+        CameraParamsPib(target=ObjectiveTarget(name="pib")),
         SlmParams(),
         HeuristicParams(algorithm="ga"),
         str(tmp_path),
     )
 
     payload = json.loads(png.with_suffix(".json").read_text(encoding="utf8"))
-    assert payload == {"algorithm": "ga"}
+
+    # search config still round-trips
+    assert payload["algorithm"] == "ga"
+    # objective identity is now recorded
+    assert payload["objective"] == "pib"
+    # unset fields are dropped rather than serialised as null
+    assert all(v is not None for v in payload.values())
+
+
+def test_debug_artifact_json_records_camera_and_slm_identity(tmp_path):
+    """Camera backend and SLM identity must be attributable from the artifact."""
+    rec = _make_recorder("pearson", "min")
+    png = _save_debug_artifacts(
+        rec,
+        CameraParamsPib(
+            target=ObjectiveTarget(name="pearson", target_shape="square"),
+            target_size=50.0,
+            cam_type="daheng",
+            cam_id=0,
+            exposure_time_ms=1.2,
+            cam_size=320,
+        ),
+        SlmParamsPib(zernike_radius=480.0, slm_number=1, slm_wavelength=1064),
+        SpgdParamsPib(delta=0.1, lr=0.5, noise_gate_k=3.0),
+        str(tmp_path),
+    )
+
+    payload = json.loads(png.with_suffix(".json").read_text(encoding="utf8"))
+
+    assert payload["objective"] == "pearson"
+    assert payload["target_shape"] == "square"
+    assert payload["target_size"] == 50.0
+    assert payload["cam_type"] == "daheng"
+    assert payload["cam_id"] == 0
+    assert payload["exposure_time_ms"] == 1.2
+    assert payload["cam_size"] == 320
+    assert payload["zernike_radius"] == 480.0
+    assert payload["slm_wavelength"] == 1064
+    # search knobs travel with the artifact, so a trace can be reproduced
+    assert payload["delta"] == 0.1
+    assert payload["lr"] == 0.5
+    assert payload["noise_gate_k"] == 3.0
 
 
 def test_debug_artifacts_with_guard_penalised_rows(tmp_path):
@@ -446,10 +498,12 @@ def test_debug_artifacts_write_sidecars(tmp_path):
     assert pkl.exists()
     assert png.with_suffix(".json").exists()
 
-    # metadata sidecar
-    assert json.loads(png.with_suffix(".json").read_text(encoding="utf8")) == {
-        "algorithm": "ga"
-    }
+    # metadata sidecar: search config plus objective provenance. This call
+    # passes a bare ObjectiveParams (no camera fields), so only the objective
+    # identity is available here.
+    payload = json.loads(png.with_suffix(".json").read_text(encoding="utf8"))
+    assert payload["algorithm"] == "ga"
+    assert payload["objective"] == "pib"
 
     # full scalar history is pickled, one record per epoch
     with open(pkl, "rb") as f:

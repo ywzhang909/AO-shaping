@@ -114,28 +114,63 @@ def _config_payload(obj: Any) -> dict[str, Any]:
 
 def _save_debug_artifacts(
     res: Recorder,
-    objective: "ObjectiveParamsPib",
+    camera: "CameraParamsPib",
     config: "SlmParamsPib",
-    obj_or_heur: "SpgdParamsPib | HeuristicParams",
+    obj_or_heur: "ObjectiveParamsPib | SpgdParamsPib | HeuristicParams",
     root_dir: str,
 ) -> Any:
     """Write PNG/pkl/json/h5 debug artifacts for the recorded search.
 
     Delegates to :func:`ao_shaping.utils.io.file.save_recorder_debug_artifacts`
-    with the slm-pib key set. ``config`` is accepted for signature stability
-    (the SLM config is part of the JSON sidecar via ``obj_or_heur``).
+    with the slm-pib key set.
+
+    The JSON sidecar records the **objective, camera, SLM and search identity**
+    so an artifact is self-describing. The runner passes a
+    ``CameraParamsPib`` (which inherits both ``CameraParams`` and
+    ``ObjectiveParamsPib``) as the camera argument, and the search config
+    (``SpgdParamsPib`` / ``HeuristicParams``) as the third, so each block is
+    read from the object that actually owns it rather than by duck-typing one
+    argument for everything.
     """
+    # Objective identity lives on the camera/objective param bundle.
+    target = getattr(camera, "target", None)
+    payload = {
+        **_config_payload(obj_or_heur),
+        "objective": getattr(target, "name", None),
+        "target_shape": getattr(target, "target_shape", None),
+        "target_size": getattr(camera, "target_size", None),
+        "max_roi_energy_loss": getattr(camera, "max_roi_energy_loss", None),
+        # Camera identity.
+        "cam_type": getattr(camera, "cam_type", None),
+        "cam_id": getattr(camera, "cam_id", None),
+        "exposure_time_ms": getattr(camera, "exposure_time_ms", None),
+        "cam_size": getattr(camera, "cam_size", None),
+        "center": getattr(camera, "center", None),
+        # Search identity.
+        "n_max": getattr(obj_or_heur, "n_max", None),
+        "delta": getattr(obj_or_heur, "delta", None),
+        "lr": getattr(obj_or_heur, "lr", None),
+        "n_eval_frames": getattr(obj_or_heur, "n_eval_frames", None),
+        "noise_gate_k": getattr(obj_or_heur, "noise_gate_k", None),
+        # SLM identity.
+        "zernike_radius": getattr(config, "zernike_radius", None),
+        "slm_number": getattr(config, "slm_number", None),
+        "slm_wavelength": getattr(config, "slm_wavelength", None),
+    }
+    # Drop unset entries so the sidecar stays a clean record of what was set.
+    payload = {k: v for k, v in payload.items() if v is not None}
+    name = getattr(target, "name", None) or "run"
     return save_recorder_debug_artifacts(
         res,
         root_dir=root_dir,
-        subdir_prefix=f"slm_pib_{objective.name}",
+        subdir_prefix=f"slm_pib_{name}",
         scalar_keys=_DEBUG_SCALAR_KEYS,
         objective_keys=_DEBUG_OBJECTIVE_KEYS,
         img_keys=_DEBUG_IMG_KEYS,
         d1_keys=_DEBUG_1D_KEYS,
         d2_keys=_DEBUG_2D_KEYS,
-        json_payload=_config_payload(obj_or_heur),
-        title=f"slm-pib {objective.name} search",
+        json_payload=payload,
+        title=f"slm-pib {name} search",
     )
 
 
