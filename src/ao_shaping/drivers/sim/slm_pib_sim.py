@@ -172,6 +172,29 @@ class SimSLMPib:
         # Track the last displayed radian phase for reporting.
         self.last_phase_rad: np.ndarray | None = None
 
+    @classmethod
+    def from_params(cls, params: Any, **overrides: Any) -> "SimSLMPib":
+        """Construct from a driver parameter object (dataclass API parity).
+
+        ``optimize_slm_zernike_pib`` builds the SLM through
+        ``Santec.from_params(config.slm)`` rather than ``Santec(...)``, so this
+        simulation double must expose the same classmethod or the sim CLI path
+        raises ``AttributeError: type object 'SimSLMPib' has no attribute
+        'from_params'``. Mirrors the real driver's ``getattr``-with-default
+        extraction; ``slm_number`` is recorded for parity/debugging but the sim
+        has no physical panel identity.
+        """
+        kwargs: dict[str, Any] = {
+            "slm_number": getattr(params, "slm_number", 1),
+            "wavelength": getattr(
+                params, "slm_wavelength", getattr(params, "wavelength", None)
+            ),
+            "shift_x": getattr(params, "shift_x", None),
+            "shift_y": getattr(params, "shift_y", None),
+        }
+        kwargs.update(overrides)
+        return cls(**kwargs)
+
     # --- context manager / lifecycle -------------------------------------
 
     def open(self) -> None:
