@@ -22,6 +22,12 @@ Example:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
+# Camera backends resolved on first access rather than at import time; see the
+# ``__getattr__`` below for why the eager import is avoided.
+_LAZY_CAMERAS = ("MIICamera", "DahengCamera")
+
 # ============================================================================
 # Version
 # ============================================================================
@@ -73,10 +79,25 @@ from ao_shaping.drivers.sim.laser import SimulatedLaser
 from ao_shaping.drivers.sim.optics import SimulatedSLM
 
 # Hardware device aliases (gracefully skip if SDK not available)
+#
+# ``MIICamera`` / ``DahengCamera`` are deliberately NOT imported here: they
+# resolve through the module ``__getattr__`` below. Importing a camera backend
+# is not side-effect free — ``miicam.driver`` runs ``_setup_miicam_sdk()``,
+# which rewrites ``sys.path`` and ``ctypes.CDLL``-loads the native
+# ``MIIUSB.dll``, and ``daheng.driver`` imports the ``gxipy`` bindings. This
+# module executes before *any* ``ao_shaping.*`` submodule import, so an eager
+# import here would drag both native SDKs into every consumer, including purely
+# offline code such as ``scripts/generate_shape_objective_comparison.py`` that
+# only needs pure functions. Mirrors the laziness contract already documented
+# for the ``create_camera`` registry in ``drivers/ccd/AGENTS.md``.
+if TYPE_CHECKING:
+    # Static analyzers need the names to be visible; at runtime they are bound
+    # by ``__getattr__`` on first access instead.
+    from ao_shaping.drivers.ccd.daheng import DahengCamera
+    from ao_shaping.drivers.ccd.miicam import MIICamera
+
 try:
     from ao_shaping.drivers import (
-        MIICamera,
-        DahengCamera,
         FFmpegCamera,
         MlaRes,
         NlightDM,
@@ -85,13 +106,32 @@ try:
     )
 except ImportError:
     # SDK not available - provide None aliases
-    MIICamera = None
-    DahengCamera = None
     NlightDM = None
     ThorlabWFS = None
     Santec = None
     FFmpegCamera = None
     MlaRes = None
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve a camera backend on first access (PEP 562).
+
+    ``MIICamera`` / ``DahengCamera`` delegate to :mod:`ao_shaping.drivers`,
+    which applies the same lazy contract one level down. A backend that cannot
+    be imported still degrades to ``None`` rather than raising.
+    """
+    if name not in _LAZY_CAMERAS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    from ao_shaping import drivers
+
+    value = getattr(drivers, name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(__all__)
 
 # Optimizers (loaded here to expose in package namespace)
 from ao_shaping.optimizer.wf.rms import optimizer_rms_dm

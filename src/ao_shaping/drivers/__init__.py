@@ -4,6 +4,9 @@ This package provides unified interfaces for various hardware devices,
 including cameras, SLMs, DMs, and wavefront sensors.
 """
 
+from importlib import import_module
+from typing import TYPE_CHECKING, Any
+
 from loguru import logger
 
 from ao_shaping.drivers.device_base import (
@@ -43,22 +46,43 @@ __all__ = [
     "NlightDM",
 ]
 
-MIICamera = None
-DahengCamera = None
+# Camera backends resolve lazily (PEP 562). They are deliberately NOT bound at
+# module scope: a defined global would shadow ``__getattr__`` and re-introduce
+# the eager import. Eagerly importing them made every ``import
+# ao_shaping.drivers`` — including pure-python consumers such as the sim and
+# mock backends — load the native MiiCam SDK and the gxipy bindings. A backend
+# that cannot be imported still degrades to ``None``, as before.
+_LAZY_BACKENDS: dict[str, tuple[str, str]] = {
+    "MIICamera": ("ao_shaping.drivers.ccd.miicam", "MIICamera"),
+    "DahengCamera": ("ao_shaping.drivers.ccd.daheng", "DahengCamera"),
+}
 
-try:
+__all__ += ["MIICamera", "DahengCamera"]
+
+if TYPE_CHECKING:
+    # Static analyzers need the names to be visible; at runtime they are bound
+    # by ``__getattr__`` on first access instead.
+    from ao_shaping.drivers.ccd.daheng import DahengCamera
     from ao_shaping.drivers.ccd.miicam import MIICamera
 
-    __all__ += ["MIICamera"]
-except Exception as miicam_error:
-    logger.debug(f"MIICAM driver not available: {miicam_error}")
 
-try:
-    from ao_shaping.drivers.ccd.daheng import DahengCamera
+def __getattr__(name: str) -> Any:
+    """Resolve an SDK-backed camera class on first access (PEP 562)."""
+    try:
+        module_path, attr = _LAZY_BACKENDS[name]
+    except KeyError:
+        raise AttributeError(
+            f"module {__name__!r} has no attribute {name!r}"
+        ) from None
 
-    __all__ += ["DahengCamera"]
-except Exception as daheng_error:
-    logger.debug(f"Daheng driver not available: {daheng_error}")
+    try:
+        value = getattr(import_module(module_path), attr)
+    except Exception as e:  # mirrors the previous catch-all degradation
+        logger.debug(f"{name} driver not available: {e}")
+        value = None
+
+    globals()[name] = value
+    return value
 
 try:
     from ao_shaping.drivers.ccd.ffmpeg import FFmpegCamera, FFmpegCameraError
