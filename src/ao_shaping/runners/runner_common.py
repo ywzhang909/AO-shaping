@@ -80,6 +80,7 @@ import click
 from ao_shaping.algorithm.heuristic.search import heuristic_algorithm_choices
 from ao_shaping.utils.image.target import (
     SHAPING_OBJECTIVE_CHOICES,
+    SQUARE_OBJECTIVE_CHOICES,
     TARGET_SHAPE_CHOICES,
 )
 from ao_shaping.utils.io.cli_helpers import parse_tuple
@@ -762,6 +763,22 @@ class ObjectiveParamsSquare:
         float, option("--w_efficiency", help="Encircled-energy weight.")
     ] = 0.6
     w_aspect: Annotated[float, option("--w_aspect", help="Aspect-ratio weight.")] = 0.0
+    objective: Annotated[
+        str,
+        option(
+            "--objective",
+            type=click.Choice(SQUARE_OBJECTIVE_CHOICES),
+            help="Square-shaping objective (larger is better): 'quality' = combined "
+            "uniformity+energy+aspect score (default); 'pearson' = FourierGSNet "
+            "1 - Pearson correlation loss. WARNING: 'pearson' is mean-centred, so it "
+            "is invariant to intensity scale and cannot see absolute energy — the "
+            "search can improve the correlation by pushing light OUT of the target "
+            "box (the same failure mode AGENTS.md records for bare -CV, where "
+            "hardware EE collapsed to 0.002). Unlike 'slm-pib', this square path "
+            "has NO encircled-energy guard, so prefer 'quality' unless you are "
+            "monitoring the 'ee' Recorder column and will stop the run yourself.",
+        ),
+    ] = "quality"
 
 
 # ---------------------------------------------------------------------------

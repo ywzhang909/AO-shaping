@@ -78,6 +78,11 @@ _DEBUG_SCALAR_KEYS = (
 _IMG_KEYS = ("_img",)
 _1D_KEYS = ("_c", "_grad")
 
+# Artifact directory names and the summary-plot title are part of the run
+# contract, so the default objective must keep them byte-for-byte identical.
+# Mirrors ``ObjectiveParamsSquare.objective``'s default.
+_DEFAULT_SQUARE_OBJECTIVE = "quality"
+
 
 def _save_debug_artifacts(
     res: Recorder,
@@ -89,16 +94,27 @@ def _save_debug_artifacts(
     Delegates to the shared :func:`ao_shaping.utils.io.file.save_recorder_debug_artifacts`
     with the square-shaping key set. The JSON sidecar carries the objective
     config so the run is reproducible from the artifact directory alone.
+
+    A non-default objective (``pearson``) is appended to the subdirectory and
+    title so those runs are distinguishable; the default objective keeps its
+    historical ``slm_gsnet_<name>`` path unchanged.
     """
+    is_default = objective.objective == _DEFAULT_SQUARE_OBJECTIVE
+    prefix = f"slm_gsnet_{objective.name}"
+    title = f"slm-gsnet {objective.name} search"
+    if not is_default:
+        prefix = f"{prefix}_{objective.objective}"
+        title = f"slm-gsnet {objective.name} ({objective.objective}) search"
+
     return save_recorder_debug_artifacts(
         res,
         root_dir=root_dir,
-        subdir_prefix=f"slm_gsnet_{objective.name}",
+        subdir_prefix=prefix,
         scalar_keys=_DEBUG_SCALAR_KEYS,
         img_keys=_IMG_KEYS,
         d1_keys=_1D_KEYS,
         json_payload=_config_payload(objective),
-        title=f"slm-gsnet {objective.name} search",
+        title=title,
     )
 
 
@@ -158,6 +174,7 @@ def _build_square_config(cfg: SlmGsnetConfig) -> SlmSquareConfig:
         w_uniformity=obj.w_uniformity,
         w_efficiency=obj.w_efficiency,
         w_aspect=obj.w_aspect,
+        objective=obj.objective,
         basis="freeform",
         phase_grid=24,
         zernike_radius=zernike_radius,
