@@ -473,6 +473,15 @@ python src/ao_shaping/main.py slm-diagnose --step freeze
 | `slm_phase_resolution` | 比较逐像素随机相位与光滑 Zernike 相位, 判定面板**等效相位分辨率** |
 | `slm_exposure_check` | 相机自动曝光状态 + 固定设置下漂移 (区分"相机漂移"与"SLM 保留上次图案") |
 | `slm_zernike_sweep_probe` | **光滑 Zernike 扫描探针**: ramp + tilt + defocus + astig + coma + spherical 共 42 点, 逐点稳定判据读帧, 落盘 npz + Recorder (含相位与 CCD 帧)。`--no-hw` 只打印采集计划 |
+| `slm_drift_probe` | **平场漂移 + 曝光阶梯线性**。用区域范数判漂移 (**不用峰值** — 实测同设置两次运行峰值读到 100 与 23, 而 box sum 稳到 0.2%)。判据 `monotonic`/`non_monotonic`/`saturated` |
+| `slm_floor_probe` | **测量本底 + 稳定时间 + SNR-vs-K**。回答噪声是读噪声 (`noise_limited`) 还是漂移 (`drift_limited`); 后者说明降 delta 无用, 要改稳定判据或改用 ABBA。稳定时间由采样拟合, 替代固定 sleep |
+| `slm_abba_probe` | **稠密随机相位是否可分辨**。ABBA (`+ - - +`) 消一阶漂移并先量本底。`verdict=unusable` 时不要去测转移矩阵 |
+| `slm_bench_metrics` | 上面三个探针的**纯 numpy 分析内核** (无设备/无 I/O, CI 可跑)。含两种**故意不同**的帧预处理, 见下 |
+
+> 🔑 **启动 GS / GSNet / SPGD runner 之前先跑表征探针**:
+> `slm_drift_probe` → `slm_floor_probe` → `slm_abba_probe`。
+> 完整流程、验收阈值与**危险默认值清单**见
+> [`docs/slm/pre_run_characterization.md`](docs/slm/pre_run_characterization.md)。
 
 `slm_bench_probe.py` 是它们共用的纯测量内核 (设备由参数传入, 可脱机单测);
 `slm_zernike_sweep_probe.py` 在其上实现了多点扫描协议 (含 Recorder 落盘), 也是

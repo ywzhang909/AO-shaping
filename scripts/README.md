@@ -2097,3 +2097,27 @@ pip install -e .
 - Plots are saved with high DPI (150-200) and tight bounding boxes
 - Scripts often generate both visualizations (PNG) and data files (CSV, JSON)
 - Some scripts have dependencies on specific hardware or MATLAB for full functionality
+
+## Related: `src/ao_shaping/tools/slm/` (SLM bench probes)
+
+The SLM bench probes are **not** in this directory — they are importable package
+modules under `src/ao_shaping/tools/slm/`, so they can be unit-tested offline and
+are documented separately:
+
+- Directory index: [`src/ao_shaping/tools/slm/README.md`](../src/ao_shaping/tools/slm/README.md)
+- **Pre-run guide (read this before any GS / GSNet / SPGD run)**:
+  [`docs/slm/pre_run_characterization.md`](../docs/slm/pre_run_characterization.md)
+
+Run them with `python -m ao_shaping.tools.slm.<name>` (they are not registered as
+`main.py` Click commands). Unlike most entries in *this* file, the three
+characterisation probes need no report generator — they persist recorder-style
+pickles plus a `summary.npz` under `data/slm_*/`:
+
+| Probe | Answers |
+|---|---|
+| `slm_drift_probe` | Is the flat field stable, and is exposure linear? |
+| `slm_floor_probe` | What is the noise floor, how long does settling take, and is the noise read noise or drift? |
+| `slm_abba_probe` | Is a dense random-phase perturbation resolvable above the drift floor at all? |
+
+All three support `--no-hw` (print the acquisition plan, exit 0, touch no
+hardware), which is also how their tests run in CI.
