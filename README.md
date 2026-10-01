@@ -1360,6 +1360,42 @@ python -c "from ao_shaping.drivers.sim import SimTurbulenceAOEnv; env = SimTurbu
 - 湍流生成
 - 光束传播
 
+### 波前干扰 (湍流 + 热晕): 静态 / 动态
+
+`ao_shaping.drivers.sim.disturbance` 为 SLM 类仿真提供**大气湍流 + 热晕 (热晕/halo)** 波前干扰，
+`SimPibSystem` 通过关键字参数 `disturbance=` 接入 (`far_field()` 在傅里叶变换前叠加，
+且只在 cache-miss 分支推进，故每次真实光学评估只消耗一次；`self._phase` 保持纯 SLM 命令，
+不会被重复计入)。两种体制：
+
+| 体制 | 含义 |
+|---|---|
+| `static` | 全程复用**唯一一张冻结**相位屏 (对应仓库 `closed` 湍流) |
+| `dynamic` | **每次光学评估重抽一张独立**相位屏 (对应 `open`/sliding，即完全去相关 "white-in-time" 极限) |
+
+> `dynamic` 不是风场平流模型: 真实大气去相关时间 ~10–50 ms 远短于本环路每评估 ~0.375 s，故完全去相关
+> 是此处的合理渐近。
+
+湍流复用 canonical `beam_backend.turbulence_phase` (von Karman，相位屏方阵生成后按面板原生
+8 µm 像素居中裁剪，避免粗网格丢失约 41% 相位幅度)；热晕由 canonical
+`zernike_utils.generate_zernike_phase` 构造 (Noll 4 离焦 + Noll 11 球差，负号=负热透镜)，
+经 smoothstep 光晕窗延展并按 waves 归一化峰谷值。全程 raw 未包裹弧度。
+
+**注意**: `cn2` 与 `distance` 是**退化**旋钮 (`r0` 只依赖二者乘积，单层薄屏无传播物理，本台架是
+~0.3 m 实验室 2f 光路) —— 属参数化应力测试而非大气传输仿真；numpy 相位屏缺少次谐波补偿，
+实测 σ 低于同 r0 的解析值，故报告一律引用**实测** σ。`SimulatedThermalScreen`(热晕相位屏)依赖未安装的
+`sim.digitaltwin` 且回退为静默 no-op，**不可使用**。
+
+配套运行与报告 (完全离线，见 `scripts/README.md`):
+```bash
+python scripts/slm_pib_sim_run.py --epochs 300 --disturbance static
+python scripts/slm_pib_sim_run.py --epochs 300 --disturbance dynamic
+python scripts/generate_slm_pib_sim_report.py --max-runs 2   # → docs/slm_pib_sim/report.md
+```
+
+实测 (300 epochs，各 604 次光学评估): static 用 1 张屏、逐次 RMS 恒定 (σ≈0.566 rad ≈0.090 waves)；
+dynamic 用 604 张屏、逐次 RMS 变化 (σ≈0.580 rad ≈0.092 waves)；目标改善 static +0.0286 > dynamic +0.0202
+(冻结扰动更易被校正)。
+
 ## 开发指南
 
 ### 编码规范
@@ -1581,6 +1617,13 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
   - [diff-beam 可微整形说明](docs/diff_beam/README.md)、[PIB 优化器功能报告](docs/reports/pib_optimizer_functional_report.md)
 
 ## 近期更新
+
+### v0.14.0 (2026-10-01)
+- **SLM-PIB 仿真的波前干扰** (`ao_shaping.drivers.sim.disturbance`): 新增 `SimDisturbance` / `DisturbanceConfig` —— **大气湍流** (复用 canonical `beam_backend.turbulence_phase`, von Karman 相位屏) + **热晕** (canonical `generate_zernike_phase`: Noll 4 离焦 + Noll 11 球差, 负热透镜, smoothstep 光晕窗 + waves 峰谷归一化), 全程 raw 未包裹弧度。提供 **static** (全程冻结屏 ≡ `closed`) 与 **dynamic** (每次光学评估重抽独立屏 ≡ `open`/white-in-time 极限, 非风场模型) 两种体制; `SimPibSystem` 以关键字参数 `disturbance=` 接入, 仅在 `far_field()` 的 cache-miss 分支推进 (每次真实光学评估一次), `self._phase` 保持纯命令不重复计入。`slm_pib_sim_run.py` 新增 `--disturbance/--cn2/--halo-pv-waves/...` 并写出 companion `disturbance.json`+`.npz`; `generate_slm_pib_sim_report.py` 渲染静态/动态对比 (配置派生 tag + 干扰相位屏图 + 逐次 RMS 轨迹图, 证明 static 恒定 / dynamic 变化) 与 8 条口径说明。53 个新测试用例
+- 修复: 相位屏粗网格的系统性幅度损失 (方阵生成→居中裁剪至面板原生 8 µm 像素; 粗网格实测丢 ~41% 相位幅度)
+- 修复: `slm_pib_runner._maybe_sim_patch` 的 `reset_system(seed=42)` 会丢弃已注入的干扰导致**静默无干扰运行** —— 现由 harness 包装该调用重新挂载干扰 (manifest 不再谎报有干扰)
+- 修复: dynamic 模式曾保留全部相位屏 (~18 MB × 604 ≈ 11 GB) —— 改为仅累积标量
+- 修复: 报告生成器 config 派生 tag 消除 `run0`/`run1` 图文件名冲突; `disturbance.json` 不再遮蔽 runner 自身 sidecar
 
 ### v0.13.0 (2026-09-29)
 - **物理-optical 数据类模型** (`ao_shaping.model`): 新增 `model/` 包，包含 `PhaseMap`, `AmplitudeMap`, `ComplexField` 和 `FieldMetadata` 数据类 —— 封装 2-D 相位/振幅/复电场数组 + 像素尺寸 + 元数据(timestamp/source/wavelength)，并通过 `ao_shaping.drivers.sim._oopao_compat` 兼容层提供 OOPAO `Source` 转换 (`from_oopao_source`/`to_oopao_source`/`to_opd`)。71 个测试用例 (69 passed / 4 OOPAO 条件跳过)
