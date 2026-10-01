@@ -64,6 +64,7 @@ AO-shaping/
 | Zernike response matrix | `src/ao_shaping/optimizer/wf/zernike_response_matrix.py` | SLM→WFS Zernike校准 |
 | PIB optimizers | `src/ao_shaping/optimizer/wfless/` | Power-in-bucket |
 | SLM方形光斑整形 (SPGD) | `src/ao_shaping/optimizer/wfless/slm_square_shaping.py` + `runners/slm_gsnet_runner.py` | SPGD 优化 Zernike 系数 → 均匀方形远场 (CLI: `slm-gsnet`) |
+| GS 预整形 + 自由相位 SPGD 细化 (硬件) | `src/ao_shaping/optimizer/wfless/slm_gs_refine.py` + `runners/slm_gs_refine_runner.py` | 仿真 `iterative_zernike_shaping.py` 的硬件移植: GS 开环预矫正 (仅当实测优于平场才采用) + 无感知 SPGD 细化 (CLI: `slm-gs-refine`) |
 | Zernike 工具 | `src/ao_shaping/utils/wavefront/zernike_utils.py` | 系数解析 (Noll/(n,m)/数组) + 相位生成，Noll 1976 约定 |
 | RL training | `src/ao_shaping/optimizer/rl/` | SAC, LR-WFS |
 | Simulation | `src/ao_shaping/drivers/sim/` | Digital twin devices |
@@ -102,6 +103,7 @@ AO-shaping/
 | `rms-zernike` | `optimizer.wf.rms_by_zernike:optimizer_rms_slm()` | wf | SLM Zernike RMS | SLM + WFS |
 | `ga-zernike` | `optimizer.wf.ga_zernike:optimizer_ga()` | wf | GA Zernike | SLM + WFS |
 | `combined` | `optimizer.combined_optimizer:optimize_pib()` | wfless | AdaMOD + SPGD 混合 PIB | DM + CCD |
+| `slm-gs-refine` | `optimizer.wfless.slm_gs_refine:optimize_slm_gs_refine()` | wfless | GS 预矫正 (bake-off) + 自由相位 SPGD 细化 | SLM + CCD |
 
 > **`slm-pib` 配置容器** (2026-09): `optimize_slm_zernike_pib()` 已收敛为**纯 dataclass 单参数 API**:
 > `def optimize_slm_zernike_pib(config: SlmZernikePibConfig)` (`optimizer/wfless/slm_zernike_pib.py`)。
@@ -310,6 +312,7 @@ main (click.group)
 ├── rms-zernike    ← rms_zernike_runner.run    [SLM Zernike RMS]
 ├── ga-zernike     ← ga_zernike_runner.run     [GA Zernike]
 ├── slm-gsnet      ← slm_gsnet_run             [SLM方形光斑 SPGD 整形 (freeform)]
+├── slm-gs-refine  ← slm_gs_refine_run         [GS 预矫正 + 自由相位 SPGD 细化]
 └── combined       ← combined_runner.run       [AdaMOD+SPGD 混合 PIB]
 ```
 
@@ -657,6 +660,10 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
 | **Full-frame centre leaking into window-local metrics** (`slm_zernike_pib.py`) | `cam.reset_window(...)` returns the window centre in **full-frame sensor coordinates**, but every downstream metric (`rms_pib_terms`, `ImageTargetFunc.radius`, `spot_waist_sigma`, `reference_center`) operates on the **re-windowed** image and needs **window-local** coordinates. Hardware-verified bug (2026-09-23): the runner's `-c auto` probe locates the 0-order on the un-windowed camera (e.g. (633,934) on 1944×2592) → optimizer used it directly as window-local → every metric read **0** (pib=0, r_bucket pinned at 0.9 = 1px radius × shrink 0.9) across the whole heuristic matrix. Fix: after capturing the re-windowed `init_img`, re-locate `reference_center = zero_order_center(init_img)` and use `reference_center` (NOT the post-`reset_window` `center`) for the r-bucket radius too (L1396/L1441). Rule: whenever a centre is handed to a metric/ROI builder, verify which coordinate frame it belongs to first. |
 | Square shaping with low-order Zernike (n≤4) | Zernike modes are a **circularly symmetric smooth** basis; they physically cannot synthesise a square far-field (needs 2D-sinc-like near field / high spatial frequencies). Use full-pixel phase freedom (GS / differentiable / free-form), not Zernike. |
 | Optimising `-CV` alone as the SPGD objective for square shaping | With no energy term the optimizer **empties the target box** to minimise CV (hardware observed EE→0.002). The objective must include encircled energy (use the combined quality score). |
+| Computing `PIB` / `CV` on a **raw** CCD frame (read noise not removed) | A CCD frame carries symmetric read noise, so ~half its pixels are negative (measured 7164/14400 on a sim frame). `power_in_bucket` divides the in-target sum by the **whole-frame** sum, so a negative background drives the ratio **above 1** (measured `PIB=1.0120`) and corrupts `CV` the same way — the optimiser then chases read noise. Subtract the frame median and clip at 0 (`slm_gs_refine._prepare_frame`); clipping the *raw* frame instead rectifies noise into a pixel-count-sized DC pedestal (see the `clip(·,0,None)` defect in `sim/AGENTS.md`). |
+| Re-locating the target ROI by `argmax` on **every** iteration | On a speckle field the global maximum hops between near-equal grains under a ~1e-3 perturbation, so an `argmax`-rolled box makes `PIB`/`CV` **discontinuous** and the optimizer chases a box that no longer covers the beam (documented on `compute_metrics`). Locate the 0-order **once** on the unshaped frame and freeze the ROI for the whole run. |
+| Committing a GS warm-start phase to hardware without a bake-off | The GS phase comes from a *model* of the bench (aperture, focal length, camera pixel pitch). If any input is wrong, GS makes the real spot **worse**. Measure flat and GS and keep the better one — a mis-calibrated model then costs two measurements instead of wrecking the run (`slm_gs_refine` Stage 1). |
+| Treating an exact run-to-run reproduction as a property of a closed loop | The seed pins the SPGD perturbation signs, **not** the measurements: every far-field read carries device noise. Two same-seed runs disagree at ~1e-3 *at the flat baseline*, before any optimisation. Assert approximate reproducibility, never equality. |
 | Trusting `reset_window()`'s returned centre | When the spot is near the frame edge the ROI offset is clamped but the returned `(w//2, h//2)` is not the true spot position → the target box lands off the beam (hardware observed epoch-0 `mean_b=0.01`). Re-locate the spot by `argmax`/centroid on the **windowed** image. |
 | Function-only optimizers in ao_shaping/algorithm (no class API) | New optimizers must expose __init__ (validation + state) + update() (one step) + optional run() (result dataclass); one-shot functions are legacy/thin wrappers only. See src/ao_shaping/algorithm/README.md. |
 | Placing markdown/report **generation** under `src/ao_shaping/tools/` | **All markdown/illustrated-report generation MUST live in `scripts/`** (naming: `scripts/generate_*_report.py`, e.g. `generate_zernike_wfs_report.py`, `generate_diff_shaping_report.py`). `src/ao_shaping/tools/` is reserved for hardware-interaction tools (CLI + driver orchestration), not report writers. See scripts/README.md. |

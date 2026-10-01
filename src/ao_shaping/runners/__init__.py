@@ -26,6 +26,7 @@ from ao_shaping.runners.slm.zernike_matrix_runner import (
     closed_loop_run as zernike_closed_loop_run,
 )
 from ao_shaping.runners.slm.zernike_matrix_runner import run as zernike_matrix_run
+from ao_shaping.runners.slm_gs_refine_runner import run as slm_gs_refine_run
 from ao_shaping.runners.slm_gsnet_runner import run as slm_gsnet_run
 from ao_shaping.runners.slm_pib_runner import run as slm_pib_run
 from ao_shaping.runners.slm_square_runner import run as slm_square_run
@@ -46,6 +47,7 @@ __all__ = [
     "combined_run",
     "slm_square_run",
     "slm_pib_run",
+    "slm_gs_refine_run",
 ]
 
 _LAZY_RUNNERS: dict[str, str] = {
@@ -64,6 +66,7 @@ _LAZY_RUNNERS: dict[str, str] = {
     "combined_run": "ao_shaping.runners.nlight_dm.combined_runner",
     "slm_square_run": "ao_shaping.runners.slm_square_runner",
     "slm_pib_run": "ao_shaping.runners.slm_pib_runner",
+    "slm_gs_refine_run": "ao_shaping.runners.slm_gs_refine_runner",
 }
 
 _IMPORT_ATTRS: dict[str, str] = {
@@ -71,6 +74,7 @@ _IMPORT_ATTRS: dict[str, str] = {
     "zernike_closed_loop_run": "closed_loop_run",
     "slm_square_run": "run",
     "slm_pib_run": "run",
+    "slm_gs_refine_run": "run",
 }
 
 

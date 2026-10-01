@@ -19,7 +19,7 @@ AO-shaping/
 ├── src/
 │   ├── ao_shaping/               # 主程序包
 │   │   ├── __init__.py
-│   │   ├── main.py               # CLI入口点 (Click-based), 注册 18 个命令
+│   │   ├── main.py               # CLI入口点 (Click-based), 注册 19 个命令
 │   │   ├── config.py             # 中央配置 (DM_N_ACTUATORS, DEFAULTS, PATHS, ao_config)
 │   │   ├── runners/              # 运行器包 (硬件编排层: Click CLI, 设备生命周期)
 │   │   │   ├── __init__.py       # Lazy imports + re-exports (via __getattr__)
@@ -152,7 +152,7 @@ uv sync
 python src/ao_shaping/main.py [OPTIONS] COMMAND [ARGS]...
 ```
 
-所有运行器位于 `src/ao_shaping/runners/` 包及其子包中，通过 main CLI 统一调用。目前共注册 **18 个命令**：
+所有运行器位于 `src/ao_shaping/runners/` 包及其子包中，通过 main CLI 统一调用。目前共注册 **19 个命令**：
 
 | 命令 | Runner | 功能 |
 |------|--------|------|
@@ -174,6 +174,7 @@ python src/ao_shaping/main.py [OPTIONS] COMMAND [ARGS]...
 | `spgd-square` | `runners/slm_square_runner.py` | SLM方形光斑SPGD整形 |
 | `slm-gsnet` | `runners/slm_gsnet_runner.py` | SLM自由相位方形整形 (SPGD/启发式) |
 | `slm-pib` | `runners/slm_pib_runner.py` | SLM Zernike PIB优化 |
+| `slm-gs-refine` | `runners/slm_gs_refine_runner.py` | GS 预矫正 + 自由相位 SPGD 整形 |
 
 > **注意**: `gs`、`gs-square`、`diff-shaping`、`diff-beam` 命令已从 CLI 中移除 (运行器文件不再存在)。其功能已并入 `slm-gsnet` (自由相位整形)、`algorithm/signal_processing/gerchberg_saxton.py` (GS算法) 和 `algorithm/signal_processing/differentiable_shaping.py` (可微分整形)。
 
@@ -610,6 +611,83 @@ python src/ao_shaping/main.py slm-gsnet spgd --cam_type sim --epochs 100
 python src/ao_shaping/main.py slm-gsnet heuristic --algorithm ga --cam_type sim --epochs 500
 ```
 ```
+
+
+#### GS 预整形 + 自由相位 SPGD 细化 (slm-gs-refine)
+```bash
+python src/ao_shaping/main.py slm-gs-refine [OPTIONS]
+```
+等同于: `python -m ao_shaping.runners.slm_gs_refine_runner`
+
+`iterative_zernike_shaping` 仿真流水线 (initial 0.662 → GS 0.812 → 细化 0.849) 的
+**硬件移植**: Santec SLM 自由相位 + Daheng CCD (也支持 MiiCam) 闭环。
+
+流程与仿真胜出配方一一对应:
+
+1. **平场基线**: 下发平场读一帧, `argmax` 定位 0 级, **冻结**方形 ROI
+2. **GS 预矫正 (bake-off)**: 用 bench 前向模型算 GS 相位实测; **不优于平场就丢弃**
+3. **自由相位 SPGD 细化**: 粗网格 (默认 24×24 = 576 自由度) 扰动正负两次读帧,
+   差分估梯度, Adam 更新 + cosine 衰减
+
+> **细化在硬件上换了形式**: 仿真靠 torch autograd 穿过解析远场 FFT 求梯度;
+> 硬件上唯一的前向模型就是测量本身、不可微, 因此改为**无感知 (SPGD)** ——
+> 与既有 `spgd-square` / `slm-gsnet` 一致。GS 是开环计算 (只需模型、不需测量),
+> 原样移植。
+
+> **目标函数与仿真同一个函数** `composite_from_pib_cv(PIB, CV)`, 只是喂真实 CCD 帧,
+> 所以硬件分数可与仿真的 0.849 直接对比。
+
+主要选项:
+- `-e, --epochs`: SPGD 细化轮数 (默认: 400, 每轮 2 次远场读帧)
+- `--target-side`: 目标方形边长 (相机像素, 0 = 由 `D·f/(d_SLM·p_cam)` 推导)
+- `--phase-grid`: 自由相位粗网格边长 (默认: 24 → 576 DOF)
+- `--delta` / `--lr` / `--optimizer [adam|adamw|adamod|sgd]` / `--lr-schedule`
+- `--gs-iters` / `--gs-warm-start/--no-gs-warm-start`
+- `--beam-radius-px`: 面板上照明光斑**半径** (默认 450, 实测台架值)
+- `--camera-pixel-um`: 相机像素间距 (默认 3.31) —— **务必核对本台相机**,
+  它把相机像素的目标边长换算成 bench 远场像素; 错了 GS 会瞄错角尺寸
+  (bake-off 会兜住, 但 GS 就白算了)
+- `--far-field-padding`: GS 远场补零倍数 (默认 3; **代价是平方级**)
+- `--cam_type [daheng|miicam|sim]` / `--cam-id` / `--exposure_time_ms` / `--cam_size`
+- `--slm_number` / `--slm_wavelength`
+- `--n-eval-frames` / `--settle-wait-s` / `--settle-tol` / `--settle-max-wait-s`
+- `--early-stop-score` / `--seed` / `--save-best-image`
+
+> ⚠️ **`--camera-pixel-um` 与 `--beam-radius-px` 决定 GS 瞄得准不准。** 两者任一错,
+> GS 相位会让真实光斑**更差** —— 因此本 runner 强制 bake-off: 平场与 GS 实测比分,
+> 取优者。模型错最多浪费两次测量, 而不是跑坏整轮。
+
+> ⚠️ **每帧等"稳定"而非等固定时长。** 驱动自动翻转时间估算按灰度图变化量给等待,
+> 两个灰度统计相近的相位会让它报 **0.0 ms** 而面板还在弛豫 (实测同一斜坡首读
+> fwhm 43.2px、3 秒后 12.8px、质心移 62px)。单次采集会静默记录未稳定帧。
+
+> ⚠️ **逐帧去背景后再算指标。** 对称读出噪声让约一半像素为负, 直接算 `PIB`
+> 会 **>1** (实测 7164/14400 负像素 → `PIB=1.0120`), 优化器会开始追噪声。
+
+示例:
+```bash
+# 无硬件自检 (2f-Fourier 数值仿真)
+python src/ao_shaping/main.py slm-gs-refine --cam_type sim -e 20
+
+# 大恒 CCD + Santec SLM #1 @1064nm
+python src/ao_shaping/main.py slm-gs-refine --cam_type daheng --cam-id 0 -e 400
+
+# 目标方形边长显式指定 (相机像素)
+python src/ao_shaping/main.py slm-gs-refine --target-side 90
+
+# 从平场起步 (跳过 GS 预矫正)
+python src/ao_shaping/main.py slm-gs-refine --no-gs-warm-start
+```
+
+> `--dir` 是**组级选项**, 必须写在子命令之前:
+> `python src/ao_shaping/main.py --dir data slm-gs-refine ...`
+
+输出 (`data/slm_gs_refine/<日期>/`): 优化历史 CSV (每轮一行标量)、`best_phase.npy`
+(**raw 未包裹弧度**, 用 `Santec.create_phase_from_array()` 下发)、最优远场图 PNG。
+
+> **同一 seed 不保证逐帧复现**: seed 只锁定 SPGD 扰动符号, 锁定不了测量 —— 每次
+> 远场读帧都带器件噪声。两次同 seed 运行在**平场基线**处就已相差 ~1e-3。
+> 断言近似可复现, 不要断言相等。
 
 
 #### Hadamard响应矩阵标定 (hadamard-matrix)
