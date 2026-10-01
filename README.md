@@ -784,6 +784,7 @@ python src/ao_shaping/main.py slm-pib [spgd|heuristic] [OPTIONS]
 - `--shrink_ratio`: 收缩比例 (默认: 0.9)
 - `--n-eval-frames`: 每次相机读取的平均帧数 (默认: 1)
 - `--fold_ratio`: 亮度折减门控比率 (默认: 0.5)
+- `--abba-sampling`: 启用 ABBA 采样, 每轮按 `(+ - - +)` 采集 4 帧代替 2 帧 `(+ -)`。回文序列使**随时间线性变化的慢漂移**在两个符号均值中带入相同项, 因而在 SPGD 差分中被抵消 (实测慢漂移会让相邻 `J(+d)-J(-d)` 被污染成随机游走)。代价: 每轮采集次数 ×2。默认关闭以保持原行为。
 - `--noise_gate_k`: 噪声感知更新门 sigma 倍数 (默认: 3.0)
 - `--show`: 打开实时显示窗口
 
