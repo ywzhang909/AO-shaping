@@ -93,7 +93,7 @@ class TestOptimizerReturnsRecorder:
             "ao_shaping.optimizer.wf.rms_by_zernike.ZernikeSLM",
             return_value=mock_slm,
         ), patch(
-            "ao_shaping.optimizer.wf.rms_by_zernike.ThorlabWFS",
+            "ao_shaping.optimizer.wf.rms_by_zernike.resolve_wfs",
             return_value=mock_wfs,
         ), patch(
             "ao_shaping.optimizer.wf.rms_by_zernike.tqdm"
@@ -136,7 +136,7 @@ class TestOptimizerReturnsRecorder:
             "ao_shaping.optimizer.wf.rms_by_zernike.ZernikeSLM",
             return_value=mock_slm,
         ), patch(
-            "ao_shaping.optimizer.wf.rms_by_zernike.ThorlabWFS",
+            "ao_shaping.optimizer.wf.rms_by_zernike.resolve_wfs",
             return_value=mock_wfs,
         ), patch(
             "ao_shaping.optimizer.wf.rms_by_zernike.tqdm"
@@ -255,7 +255,7 @@ class TestZernikeCoefficientHandling:
             "ao_shaping.optimizer.wf.rms_by_zernike.ZernikeSLM",
             return_value=mock_slm,
         ), patch(
-            "ao_shaping.optimizer.wf.rms_by_zernike.ThorlabWFS",
+            "ao_shaping.optimizer.wf.rms_by_zernike.resolve_wfs",
             return_value=mock_wfs,
         ), patch(
             "ao_shaping.optimizer.wf.rms_by_zernike.tqdm"
@@ -294,7 +294,7 @@ class TestZernikeCoefficientHandling:
             "ao_shaping.optimizer.wf.rms_by_zernike.ZernikeSLM",
             return_value=mock_slm,
         ), patch(
-            "ao_shaping.optimizer.wf.rms_by_zernike.ThorlabWFS",
+            "ao_shaping.optimizer.wf.rms_by_zernike.resolve_wfs",
             return_value=mock_wfs,
         ), patch(
             "ao_shaping.optimizer.wf.rms_by_zernike.tqdm"

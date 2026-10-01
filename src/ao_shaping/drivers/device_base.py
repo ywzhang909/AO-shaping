@@ -197,6 +197,35 @@ class Device(ABC):
 
         logger.debug(f"Device {self._device_id} ({self.model}) initialized")
 
+    # ==================== Native SDK (lazily resolved) ====================
+
+    _sdk: Any = None
+
+    @staticmethod
+    def _load_sdk() -> Any:
+        """Resolve the native SDK handle for this driver.
+
+        The default returns ``None``: pure-software and simulated devices have no
+        native handle. SDK-backed drivers override this. It is deliberately a
+        separate hook from :meth:`_ensure_sdk` so that resolution can be
+        triggered explicitly (by ``open()``) rather than by attribute access.
+        """
+        return None
+
+    def _ensure_sdk(self) -> Any:
+        """Return the native SDK handle, loading it on first use and caching it.
+
+        Construction must not touch the SDK. Drivers that bound a native
+        library in ``__init__`` made themselves impossible to construct, register
+        or introspect on a machine without the vendor runtime — which blocks
+        offline tooling and makes a hardware/simulated swap easy to get wrong.
+        Resolving here instead means the SDK is demanded by ``open()``, and only
+        by ``open()``.
+        """
+        if self._sdk is None:
+            self._sdk = self._load_sdk()
+        return self._sdk
+
     # ==================== Abstract Methods ====================
 
     @abstractmethod

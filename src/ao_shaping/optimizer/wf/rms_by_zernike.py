@@ -35,6 +35,7 @@ from ao_shaping.algorithm.heuristic.search import (
     run_heuristic_search,
 )
 from ao_shaping.drivers import MlaRes, ThorlabWFS
+from ao_shaping.drivers.wfs._registry import resolve_wfs
 from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.utils import Recorder, logger
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
@@ -58,6 +59,8 @@ def cosine_annealing_lr(
         epoch: Current epoch (0-indexed).
         T_max: Total number of epochs.
         lr_max: Maximum learning rate.
+        wfs_type: Registered sensor type resolved via the WFS registry;
+            ``"sim"`` selects the simulated Shack-Hartmann sensor.
         lr_min: Minimum learning rate.
 
     Returns:
@@ -477,6 +480,7 @@ def optimizer_rms_slm(
     # NEW: search algorithm ("spgd" = gradient loop below, else a heuristic)
     algorithm: str = "spgd",
     pop_size: int | None = None,
+    wfs_type: str = "thorlab",
 ):
     """Optimize wavefront RMS using SLM with Zernike coefficient control.
 
@@ -547,8 +551,9 @@ def optimizer_rms_slm(
             shift_x=shift_x,
             shift_y=shift_y,
         ) as slm,
-        ThorlabWFS(
-            wfs_res,
+        resolve_wfs(
+            wfs_type,
+            mla_index=wfs_res,
             exposure_time=wfs_exposure_time,
             use_custom_ref=False,
             high_speed=True,

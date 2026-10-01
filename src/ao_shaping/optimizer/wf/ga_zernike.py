@@ -27,7 +27,8 @@ from collections.abc import Sequence
 import numpy as np
 import tqdm
 
-from ao_shaping.drivers import MlaRes, ThorlabWFS
+from ao_shaping.drivers import MlaRes
+from ao_shaping.drivers.wfs._registry import resolve_wfs
 from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.utils import Recorder, logger
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
@@ -53,6 +54,8 @@ def _tournament_selection(
     Args:
         population: Array of shape (pop_size, n_zernike) containing the population.
         fitness: Array of shape (pop_size,) containing fitness values (lower is better).
+        wfs_type: Registered sensor type resolved via the WFS registry;
+            ``"sim"`` selects the simulated Shack-Hartmann sensor.
         tournament_size: Number of individuals to compete in the tournament.
 
     Returns:
@@ -148,6 +151,7 @@ def optimizer_ga(
     remove_tilt: bool = False,
     slm_number: int = 1,
     slm_wavelength: int | None = None,
+    wfs_type: str = "thorlab",
 ) -> Recorder:
     """Optimize wavefront RMS using Genetic Algorithm with SLM Zernike control.
 
@@ -196,8 +200,9 @@ def optimizer_ga(
             shift_x=shift_x,
             shift_y=shift_y,
         ) as slm,
-        ThorlabWFS(
-            wfs_res,
+        resolve_wfs(
+            wfs_type,
+            mla_index=wfs_res,
             use_custom_ref=False,
             high_speed=True,
             pupil_diameter=pupil_diameter,

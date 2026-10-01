@@ -6,7 +6,8 @@ import click
 import numpy as np
 
 from ao_shaping.algorithm.gradient.adam import search_optimal_delta
-from ao_shaping.drivers import MlaRes, ThorlabWFS
+from ao_shaping.drivers import MlaRes
+from ao_shaping.drivers.wfs._registry import resolve_wfs
 from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.optimizer.wf.rms_by_zernike import optimizer_rms_slm
 from ao_shaping.runners.runner_common import (
@@ -41,6 +42,7 @@ def _auto_delta_detect_rms(
     wfs_res: MlaRes = MlaRes.Res1024,
     remove_tilt: bool = False,
     slm_number: int = 1,
+    wfs_type: str = "thorlab",
 ) -> tuple[float, dict]:
     n_zernike = calc_n_zernike_terms(n_max)
 
@@ -52,8 +54,9 @@ def _auto_delta_detect_rms(
             shift_x=shift_x,
             shift_y=shift_y,
         ) as slm,
-        ThorlabWFS(
-            wfs_res,
+        resolve_wfs(
+            wfs_type,
+            mla_index=wfs_res,
             exposure_time=wfs_exposure_time,
             use_custom_ref=False,
             high_speed=True,
@@ -122,6 +125,7 @@ def run(
     delta = params.delta
     if delta <= 0:
         delta, delta_info = _auto_delta_detect_rms(
+            wfs_type=wfs.wfs_type,
             min_delta=params.min_delta,
             max_delta=params.max_delta,
             delta_step=params.delta_step,
@@ -146,6 +150,7 @@ def run(
 
     init_v = [0 for _ in range(calc_n_zernike_terms(params.n_max))]
     records = optimizer_rms_slm(
+        wfs_type=wfs.wfs_type,
         init_z=init_v,
         epochs=params.epochs,
         delta=delta,

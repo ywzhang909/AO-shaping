@@ -64,7 +64,7 @@ class TestAutoDeltaDetectRms:
                 return_value=mock_slm,
             ),
             patch(
-                "ao_shaping.runners.slm.rms_zernike_runner.ThorlabWFS",
+                "ao_shaping.runners.slm.rms_zernike_runner.resolve_wfs",
                 return_value=mock_wfs,
             ),
             patch(
@@ -107,7 +107,7 @@ class TestAutoDeltaDetectRms:
                 return_value=mock_slm,
             ),
             patch(
-                "ao_shaping.runners.slm.rms_zernike_runner.ThorlabWFS",
+                "ao_shaping.runners.slm.rms_zernike_runner.resolve_wfs",
                 return_value=mock_wfs,
             ),
             patch(
@@ -129,7 +129,7 @@ class TestAutoDeltaDetectRms:
 
             # Verify ThorlabWFS was called with exposure_time
             ThorlabWFS_mock = patch(
-                "ao_shaping.runners.slm.rms_zernike_runner.ThorlabWFS",
+                "ao_shaping.runners.slm.rms_zernike_runner.resolve_wfs",
                 return_value=mock_wfs,
             )
             # The mock was already patched above, check call args
@@ -245,7 +245,7 @@ class TestRunFunction:
                 return_value=mock_slm,
             ),
             patch(
-                "ao_shaping.runners.slm.rms_zernike_runner.ThorlabWFS",
+                "ao_shaping.runners.slm.rms_zernike_runner.resolve_wfs",
                 return_value=mock_wfs,
             ),
             patch(
@@ -356,7 +356,7 @@ class TestRunFunction:
                 return_value=mock_slm,
             ),
             patch(
-                "ao_shaping.runners.slm.rms_zernike_runner.ThorlabWFS",
+                "ao_shaping.runners.slm.rms_zernike_runner.resolve_wfs",
                 return_value=mock_wfs,
             ),
             patch(

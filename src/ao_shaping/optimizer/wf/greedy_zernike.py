@@ -35,7 +35,8 @@ from ao_shaping.algorithm.heuristic.search import (
     heuristic_algorithm_choices,
     run_heuristic_search,
 )
-from ao_shaping.drivers import MlaRes, ThorlabWFS
+from ao_shaping.drivers import MlaRes
+from ao_shaping.drivers.wfs._registry import resolve_wfs
 from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.utils import Recorder, logger
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
@@ -56,6 +57,8 @@ def _generate_random_direction(param_dim: int, perturb_mask: np.ndarray | None =
 
     Args:
         param_dim: Dimension of parameter vector.
+        wfs_type: Registered sensor type resolved via the WFS registry;
+            ``"sim"`` selects the simulated Shack-Hartmann sensor.
         perturb_mask: Optional mask for which parameters to perturb.
 
     Returns:
@@ -86,6 +89,7 @@ def optimizer_greedy(
     slm_wavelength: int | None = None,
     algorithm: str = "spgd",
     pop_size: int | None = None,
+    wfs_type: str = "thorlab",
 ) -> Recorder:
     """Optimize wavefront RMS using Greedy Local Search with SLM Zernike control.
 
@@ -150,8 +154,9 @@ def optimizer_greedy(
             shift_x=shift_x,
             shift_y=shift_y,
         ) as slm,
-        ThorlabWFS(
-            wfs_res,
+        resolve_wfs(
+            wfs_type,
+            mla_index=wfs_res,
             use_custom_ref=False,
             high_speed=True,
             pupil_diameter=pupil_diameter,

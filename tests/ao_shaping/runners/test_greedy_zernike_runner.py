@@ -29,12 +29,13 @@ EXPECTED_OPTIONS = [
     "algorithm",
     "pop_size",
     "debug",
-    # WfsParams (5)
+    # WfsParams (6)
     "wfs_res",
     "pupil_diameter",
     "pupil_center",
     "exposure_time_ms",
     "remove_tilt",
+    "wfs_type",
     # ZernikeSlmParams (5)
     "wavelength",
     "shift_x",
@@ -71,11 +72,11 @@ class TestCliOptions:
         assert callable(run)
 
     def test_all_expected_options_exist(self):
-        """Test that all 21 expected CLI options are present."""
+        """Test that all 22 expected CLI options are present."""
         from ao_shaping.runners.greedy_zernike_runner import run
 
         param_names = [p.name for p in run.params]
-        assert len(param_names) == 21, f"got {len(param_names)} options"
+        assert len(param_names) == 22, f"got {len(param_names)} options"
         for name in EXPECTED_OPTIONS:
             assert name in param_names, f"Missing CLI option: {name}"
 

@@ -126,3 +126,11 @@ if _has_environment:
     __all__.append("Environment")
 
 __version__ = "1.0.0"
+
+# Binding the simulated camera here makes ``--cam_type sim`` work for every
+# consumer of this package, not only for the runners that happened to call
+# ``register_sim_camera()`` themselves (see slm_pib_sim for the original bug).
+from ao_shaping.drivers.sim.slm_pib_sim import register_sim_camera as _register_sim
+
+_register_sim()
+del _register_sim

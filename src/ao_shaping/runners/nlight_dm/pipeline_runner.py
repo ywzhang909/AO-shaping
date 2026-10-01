@@ -45,6 +45,7 @@ def run(ctx: click.Context, params: PipelineRunnerParams, wfs_params: WfsParams)
         dm.open()
 
         wf_records = optimizer_rms_dm(
+            wfs_type=wfs.wfs_type,
             init_v=init_v,
             pupil_diameter=wfs_params.pupil_diameter,
             wfs_res=wfs_params.wfs_res,

@@ -199,7 +199,7 @@ class TestOptimizerReturnsRecorder:
             "ao_shaping.optimizer.wf.ga_zernike.ZernikeSLM",
             return_value=mock_slm,
         ) as mock_slm_ctx, patch(
-            "ao_shaping.optimizer.wf.ga_zernike.ThorlabWFS",
+            "ao_shaping.optimizer.wf.ga_zernike.resolve_wfs",
             return_value=mock_wfs,
         ) as mock_wfs_ctx, patch(
             "ao_shaping.optimizer.wf.ga_zernike.tqdm"
@@ -247,7 +247,7 @@ class TestOptimizerReturnsRecorder:
                 return_value=mock_slm,
             ) as mock_slm_ctx,
             patch(
-                "ao_shaping.optimizer.wf.ga_zernike.ThorlabWFS",
+                "ao_shaping.optimizer.wf.ga_zernike.resolve_wfs",
                 return_value=mock_wfs,
             ) as mock_wfs_ctx,
             patch(
@@ -292,7 +292,7 @@ class TestGAPopulation:
                 return_value=mock_slm,
             ) as mock_slm_ctx,
             patch(
-                "ao_shaping.optimizer.wf.ga_zernike.ThorlabWFS",
+                "ao_shaping.optimizer.wf.ga_zernike.resolve_wfs",
                 return_value=mock_wfs,
             ) as mock_wfs_ctx,
             patch(
@@ -338,7 +338,7 @@ class TestGAElitism:
                 return_value=mock_slm,
             ) as mock_slm_ctx,
             patch(
-                "ao_shaping.optimizer.wf.ga_zernike.ThorlabWFS",
+                "ao_shaping.optimizer.wf.ga_zernike.resolve_wfs",
                 return_value=mock_wfs,
             ) as mock_wfs_ctx,
             patch(
@@ -389,7 +389,7 @@ class TestGACrossoverAndMutation:
                 return_value=mock_slm,
             ) as mock_slm_ctx,
             patch(
-                "ao_shaping.optimizer.wf.ga_zernike.ThorlabWFS",
+                "ao_shaping.optimizer.wf.ga_zernike.resolve_wfs",
                 return_value=mock_wfs,
             ) as mock_wfs_ctx,
             patch(
@@ -430,7 +430,7 @@ class TestGACrossoverAndMutation:
                 return_value=mock_slm,
             ) as mock_slm_ctx,
             patch(
-                "ao_shaping.optimizer.wf.ga_zernike.ThorlabWFS",
+                "ao_shaping.optimizer.wf.ga_zernike.resolve_wfs",
                 return_value=mock_wfs,
             ) as mock_wfs_ctx,
             patch(

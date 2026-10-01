@@ -68,6 +68,7 @@ def run(
     click.echo(f"  Y偏移: {slm.shift_y}")
 
     recorder = optimizer_ga(
+        wfs_type=wfs.wfs_type,
         n_generations=params.n_generations,
         population_size=params.population_size,
         crossover_prob=params.crossover_prob,

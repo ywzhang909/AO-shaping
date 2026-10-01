@@ -1330,11 +1330,20 @@ environment** (no hardware). Wires the pure-numpy 2f-Fourier sim
 produced exactly as a hardware run would write them — ready for report
 generation.
 
+It can optionally inject a **wavefront disturbance** — atmospheric turbulence
+plus a **thermal halo (热晕)** — and record it beside the run so the offline
+report can compare a **static** (frozen) against a **dynamic** (per-evaluation)
+disturbance regime.
+
 **Usage:**
 ```bash
 python scripts/slm_pib_sim_run.py
 python scripts/slm_pib_sim_run.py --epochs 300 --target-shape square
 python scripts/slm_pib_sim_run.py --epochs 60 --objective pearson
+
+# disturbance runs (the static/dynamic pair the report compares)
+python scripts/slm_pib_sim_run.py --epochs 300 --disturbance static
+python scripts/slm_pib_sim_run.py --epochs 300 --disturbance dynamic
 ```
 
 | Option | Default | Description |
@@ -1343,6 +1352,48 @@ python scripts/slm_pib_sim_run.py --epochs 60 --objective pearson
 | `--objective` | `shape` | Shaping objective passed through to the runner |
 | `--target-shape` | `square` | Target shape |
 | `--algorithm` | (runner default = `spgd`) | Search driver override |
+| `--data-root` | `data` | Root the runner writes `debug/slm_pib_*` under |
+| `--disturbance` | `none` | `none` / `static` / `dynamic` (see below) |
+| `--dist-tag` | (derived) | Report tag; defaults to the disturbance mode |
+| `--cn2` | `2e-13` | Refractive-index structure constant |
+| `--distance-m` | `500.0` | Generator path-length knob [m]. **Degenerate with `--cn2`** |
+| `--l-max` / `--l-min` | `30.0` / `2e-3` | Outer / inner scale [m] |
+| `--pixel-pitch-um` | `8.0` | SLM pixel pitch [µm]; sets the screen's physical extent |
+| `--halo-pv-waves` | `0.30` | Thermal-halo peak-to-valley [waves]; `0` disables it |
+| `--halo-radius-px` | `600.0` | Thermal-halo radius [SLM px] (`w0` = 400 px) |
+| `--dist-seed` | `20261001` | Disturbance seed (both regimes are deterministic) |
+| `--dist-archive-factor` | `8` | Spatial decimation for archived screen thumbnails |
+| `--dist-archive-max` | `12` | Max distinct screens archived |
+
+**Disturbance regimes.** `static` generates one frozen screen and reuses it for
+the whole run — the `closed`/frozen-turbulence analogue. `dynamic` draws a
+**fresh independent screen on every optical evaluation** — the `open`/sliding
+analogue, i.e. the fully-decorrelated ("white in time") limit. That limit is the
+correct asymptotic here because the real atmospheric decorrelation time
+(~10–50 ms) is far shorter than this loop's ~0.375 s per evaluation; it is
+**not** a wind/advection model.
+
+The disturbance is applied in the pupil plane alongside the SLM command phase
+(`SimPibSystem.far_field`, consumed once per *real* optical evaluation via its
+cache). Turbulence reuses the canonical `beam_backend.turbulence_phase`
+(von-Karman); the thermal halo is a negative thermal lens (Noll 4 defocus +
+Noll 11 spherical via the canonical `zernike_utils.generate_zernike_phase`),
+smoothly apodised out to `--halo-radius-px` and PV-normalised to
+`--halo-pv-waves`.
+
+> ⚠️ `cn2` and `distance_m` are **degenerate generator knobs**: the canonical
+> generator's `r0 = (0.423·k²·Cn2·L)^(-3/5)` depends only on their product, and a
+> single thin screen carries no propagation physics. This is a **parametric
+> stress test** on a ~0.3 m laboratory bench, not an atmospheric-propagation
+> simulation. The numpy screen generator also lacks subharmonic/low-frequency
+> compensation (`drivers/sim/AGENTS.md` §4), so the measured σ is a **lower
+> bound** — reports quote the *measured* value.
+
+> ⚠️ `slm_pib_runner._maybe_sim_patch` calls `reset_system(seed=42)` when
+> `--cam_type sim`. The harness wraps that call so the injected disturbance is
+> re-attached; without it the run silently executes **disturbance-free** while
+> the companion manifest claims otherwise (locked by
+> `tests/ao_shaping/scripts/test_slm_pib_sim_run_disturbance.py`).
 
 **What it does:**
 - registers the `"sim"` camera type so `create_camera("sim", ...)` returns a
@@ -1370,6 +1421,20 @@ python scripts/slm_pib_sim_run.py --epochs 60 --objective pearson
 **Outputs:** `data/debug/slm_pib_shape_<ts>/` (PNG/PKL/JSON), then
 `docs/slm_pib_sim/report.md` + `figures/` + `gifs/` via
 `generate_slm_pib_sim_report.py`.
+
+When `--disturbance` is not `none`, the harness also writes a **companion**
+next to the run's own artifacts (the report is a pure offline reader, so this
+is the only channel carrying the disturbance to it):
+
+- `disturbance.json` — mode, full config, **measured** σ_turb / σ_halo /
+  σ_total, screens used, evaluations, and the run tag
+- `disturbance.npz` — `screens` (decimated float32 thumbnails of the distinct
+  screens actually used, capped at `--dist-archive-max`), `call_rms` and
+  `call_streak_index` (**every** evaluation, in full), `archive_factor`
+
+Recording one scalar per evaluation — never the full-resolution screens (a
+1200×1920 float64 array is ~18 MB, and a 300-epoch run performs ~604
+evaluations) — is what keeps memory bounded.
 
 > 🔬 **Measured on the real bench (2026-09-29, Daheng MER2-507-23GM NIR + Santec
 > SLM-200, 2592×1944, `exposure_time_ms=1.2`, `zernike_radius=480`, `n_max=9` →
@@ -1473,12 +1538,11 @@ python scripts/generate_shape_objective_comparison.py
 
 ### generate_iterative_zernike_shaping_report.py
 
-Generates the illustrated **iterative Zernike + free-form shaping** report,
-demonstrating that alternating a Zernike calibration pass (A) with a free-form
-SLM-phase shaping pass (B) converges to a higher square-target score than
-**every** single-pass baseline on the same 64×64 sim grid — the canonical
-sensorless SPGD, the Gerchberg-Saxton (GS) single pass, and the unshaped
-initial state.
+Generates the illustrated **free-form refinement** report on a zero-padded
+2f-Fourier sim bench, comparing the iterative refinement loop (GS warm start +
+differentiable free-form shaping) against single-pass baselines on the same
+64×64 pupil grid — the canonical sensorless SPGD, the Gerchberg-Saxton (GS)
+single pass, and the unshaped initial state.
 **Fully offline** — pure torch (FFT forward model), no hardware.
 
 **Usage:**
@@ -1487,29 +1551,73 @@ initial state.
 ```
 
 **What it does** (writes to `docs/iterative_zernike_shaping/`):
-- Runs the full A↔B iterative loop: (A) calibrate a Zernike set to match an
-  "actual" (aberrated) far-field, (B) freeze Zernike and optimize free-form SLM
-  phase to a square target, iterating until early-stop convergence
-- Baselines (all on the **identical 64×64 grid**, identical bench metric
-  `composite_score = 0.5·PIB + 0.5·(1 − min(CV/0.3, 1))`):
-  - initial (unshaped golden+noise) score
+- Runs the iterative refinement loop: Stage B optimizes the free-form SLM phase
+  to the square target, warm-started from a Gerchberg-Saxton phase, iterating
+  until early-stop convergence
+- Baselines (all on the **identical 64×64 pupil grid**, padded 8× to a 512×512
+  far field, identical bench metric
+  `composite_score = 0.5·PIB + 0.5·(1/(1+CV))` evaluated in the grid-centred
+  target support):
+  - initial (unshaped golden) score
   - single-pass GS (`gs_shape`, 200 iters)
   - sensorless **SPGD** (`spgd_shape`, 600 iters, dim=8 freeform) — the
     canonical black-box reference. The `0.89` figure cited elsewhere is a
     1920×1200 **hardware-grid** result and is NOT comparable to this 64×64 sim.
-- `initial_vs_final.png` — far-field before/after the iterative loop
-- `score_history.png` — composite score per iteration (A-calib / B-shape phases)
-- `zernike_coeffs.png` — per-mode Zernike coefficient traces across iterations
+- `initial_vs_final.png` — far-field before/after the loop (zoomed, log colour
+  scale: shows the initial aberrated focus and the target box)
+- `score_history.png` — composite score per outer iteration
+- `zernike_coeffs.png` — per-mode Zernike coefficient traces (only when the
+  optional Zernike calibration pass is enabled)
 - `phase_evolution.png` — free-form SLM phase (mod 2π) start/mid/end montage
-- `score_comparison.png` — bar chart: initial vs GS vs SPGD vs iterative (the WIN proof)
-- `data.json` + `*.npy` — raw scores, coefficients, and phase arrays
+- `score_comparison.png` — bar chart: initial vs GS vs SPGD vs refinement
+- `data.json` + `*.npy` — raw scores, the Zernike ablation, and phase arrays
 
-> 📐 **Measured (2026-09, 64×64 sim grid)**: initial **0.1590**, GS single-pass
-> **0.1780**, sensorless SPGD **0.1906** — iterative **0.3851** is **+102.0% vs
-> SPGD**, **+116.3% vs GS**, and **+142.2% vs initial**. The A↔B iteration is
-> the decisive gain over every same-grid baseline, including the canonical
-> sensorless SPGD reference. Locked in by regression test
-> `tests/ao_shaping/algorithm/test_iterative_zernike_shaping.py::test_s7_beats_spgd_and_gs_baselines`.
+> 📐 **Measured (2026-10-01, 64×64 pupil, 8× pad, `far_field_pixel_size` = 0.693 µm,
+> target 43 px ≈ 30 µm ≈ 2.2 Airy diameters)**: initial **0.662**, GS **0.812**,
+> SPGD **0.647**, refinement **0.849** → **+4.6% vs GS**, **+31.2% vs SPGD**.
+> GS produces the most uniform single-pass flat-top (CV 0.41); the refinement
+> reaches CV 0.12.
+>
+> 🔬 **The Zernike calibration pass is a documented NEGATIVE result.** Enabling it
+> (`n_zernike=4`) drops the score to **0.810** (ties GS, −4.5% vs disabled): the
+> calibration's low-order estimate is both leaky (free-form phase is absorbed into
+> spurious high-order modes) and redundant with the free-form stage, and freezing
+> it corrupts the warm start. It is therefore **off by default**; the report still
+> computes the ablation and records it in `data.json`.
+>
+> ⚠️ **Corrected series.** Earlier numbers (initial 0.1590 / GS 0.1780 / SPGD
+> 0.1906 / iterative 0.3851) and the first "corrected" numbers (initial 0.657 /
+> GS 0.810 / SPGD 0.647 / iterative 0.642, "refinement loses") were produced with
+> defects that are now fixed and must not be resurrected:
+> 1. an **un-padded, same-size FFT** whose focal-plane sampling (~1.1 px per
+>    waist radius, a model constant independent of `n_grid`) aliased the
+>    lens-phase-modulated pupil into a lattice of hundreds of dots, so the
+>    "initial spot" was not physical;
+> 2. a **clipped uniformity term** `1 − min(CV/0.3, 1)` whose threshold sat below
+>    every achievable flat-top CV, so the objective silently reduced to pure
+>    bucket energy (`0.5·PIB`) and rewarded concentrating light over flattening
+>    it;
+> 3. an **argmax-rolled support** whose box follows the intensity peak: for
+>    speckle-like fields the argmax hops between near-equal grains under a ~1e-3
+>    model change, making PIB/CV discontinuous and letting the optimizer chase a
+>    box that does not cover the beam. The box is now fixed to the grid-centred
+>    target;
+> 4. Stage B ran at a **flat `slm_lr`** and returned its last iterate, which
+>    oscillated; it now uses a cosine LR decay and returns the best iterate;
+> 5. the Zernike calibration ran at `zernike_lr=0.05`, which **diverges to
+>    non-finite coefficients** on the rugged far-field MSE landscape. The default
+>    is now `0.005` and the loop bails out on the first non-finite iterate
+>    (`test_s10_calibration_is_finite_and_reduces_mismatch`).
+>
+> Locked by regression tests
+> `tests/ao_shaping/algorithm/test_iterative_zernike_shaping.py`
+> (`test_s7_objective_consistency_and_shaping_discrimination` — the algorithm
+> `_score` must equal the bench `composite_score`, and GS must beat SPGD on
+> uniformity; `test_s8_initial_spot_is_single_not_lattice` — the initial spot is
+> a single focus, not an aliased dot lattice;
+> `test_s9_warm_started_refinement_beats_gs` — the GS-warm-started refinement
+> must beat plain GS; `test_s10_calibration_is_finite_and_reduces_mismatch` —
+> Zernike calibration must stay finite and beat the zero-coefficient baseline).
 
 ### generate_slm_pib_sim_report.py
 
@@ -1565,6 +1673,14 @@ python scripts/generate_slm_zernike_shaping_report.py --debug-root data/debug --
   max_brt / _img` (CCD far-field) / `_c` (Zernike coeffs) / `_grad`, the
   cross-objective `m_*` panel, and the objective's own column (e.g. `rmse_out`).
 - `*.json` — run payload (`objective / target_shape / target_size / epochs /
+> 🔬 **Pre-correcting the pupil by `-Z_est` before GS is a provable no-op.**
+> `gs_shape(..., base_phase=...)` accepts a fixed pupil phase and applies it inside
+> the pupil constraint, but that constraint re-imposes `amp·exp(i·angle(field))`
+> every iteration, so any constant base is annihilated. Measured identical to six
+> decimals with and without `-Z_est` (0.811805 vs 0.811806 at the GS stage, 0.8411
+> after refinement) and *slightly worse* with the ideal `-Z_golden` (0.8034 /
+> 0.8381). Recorded in `data.json` under `pre_correction_ablation`.
+>
   algorithm / optimizer_type / delta / w_outside / r_bucket / cam_type / cam_size`).
 - `*.png` — the run-time summary figure.
 

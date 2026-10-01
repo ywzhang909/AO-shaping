@@ -9,10 +9,10 @@ Implements a two-stage iterative scheme on the 2f-Fourier bench:
   optimize the free-form SLM phase so the far-field matches a square target.
 * **Iteration A↔B**: alternate A and B (early-stop) until the square converges.
 
-The forward model is a pure FFT (Fraunhofer) propagation:
+The forward model is a zero-padded Fraunhofer FFT (float64):
 
     field = gauss_pupil · exp(1j·(zernike_phase + slm_phase))
-    far_field = fft2(field)          # no fftshift; float64
+    far_field = fftshift(fft2(ifftshift(pad(field))))
 
 Zernike basis maps come from the canonical ``ZernikeGenerator`` and are
 converted to constant torch tensors; only their coefficients are trainable.
@@ -34,7 +34,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
-
 from loguru import logger
 
 from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator, zernike_modes
@@ -54,30 +53,39 @@ class IterativeZernikeShapingConfig:
     """Parameters for the iterative Zernike + phase-only shaping optimizer.
 
     Attributes:
-        n_grid: SLM grid edge length (square).
+        n_grid: SLM grid edge length (square) -- the pupil grid.
         n_zernike: Maximum Zernike radial order (n_max). 0 = skip calibration.
-        target_side_px: Target square side length in camera pixels.
+        target_side_px: Target square side length in far-field (camera) pixels,
+            i.e. pixels of the zero-padded far-field grid (``far_field_size``).
         seed: RNG seed for reproducibility.
-        zernike_lr: Learning rate for Zernike calibration (Adam).
-        slm_lr: Learning rate for SLM phase shaping (Adam).
+        zernike_lr: Learning rate for Zernike calibration (Adam). Keep this small
+            (1e-3..1e-2); the far-field MSE landscape is rugged and a larger value
+            diverges to non-finite coefficients.
+        slm_lr: Learning rate for SLM phase shaping (cosine-decayed per pass).
         calib_iters: Number of Adam steps per Zernike calibration pass.
         shaping_iters: Number of Adam steps per SLM phase shaping pass.
         max_outer_iters: Maximum number of A↔B outer iterations.
         early_stop_patience: Stop outer loop after this many non-improving passes.
         early_stop_min_delta: Minimum score improvement to count as "improved".
+        far_field_padding: Zero-padding factor for the Fraunhofer FFT. The
+            far-field grid is ``n_grid * far_field_padding``; a same-size FFT
+            undersamples the focal plane at ~1.1 px per waist radius (a model
+            constant) and aliases into a lattice. Must match the bench config
+            used to build the reference far-field.
     """
 
     n_grid: int = 64
     n_zernike: int = 4
     target_side_px: int = 16
     seed: int = 0
-    zernike_lr: float = 0.05
+    zernike_lr: float = 0.005
     slm_lr: float = 0.02
     calib_iters: int = 50
     shaping_iters: int = 100
     max_outer_iters: int = 5
     early_stop_patience: int = 2
     early_stop_min_delta: float = 0.005
+    far_field_padding: int = 8
 
     def __post_init__(self) -> None:
         """Validate fields early (mirrors the optimizer constructor checks)."""
@@ -89,6 +97,15 @@ class IterativeZernikeShapingConfig:
             raise ValueError(f"shaping_iters must be > 0, got {self.shaping_iters}")
         if self.max_outer_iters < 1:
             raise ValueError(f"max_outer_iters must be >= 1, got {self.max_outer_iters}")
+        if self.far_field_padding < 1:
+            raise ValueError(
+                f"far_field_padding must be >= 1, got {self.far_field_padding}"
+            )
+
+    @property
+    def far_field_size(self) -> int:
+        """Edge length of the zero-padded far-field (camera) grid."""
+        return self.n_grid * self.far_field_padding
 
 
 @dataclass
@@ -142,7 +159,7 @@ class IterativeZernikeShapingOptimizer:
     The forward model is:
 
         field = gauss_pupil · exp(1j·(zernike_phase + slm_phase))
-        far_field = fft2(field)   (pure FFT, no fftshift, float64)
+        far_field = fftshift(fft2(ifftshift(pad(field))))   (float64)
 
     Zernike phase uses the canonical RZern grid convention:
     - Grid: (np.arange(n) - (n-1)/2) / radius, radius = n/2 (unit circle at grid edge)
@@ -184,13 +201,24 @@ class IterativeZernikeShapingOptimizer:
 
         # --- Static tensors (precomputed once) ---
         n = config.n_grid
+        m = config.far_field_size
         radius = n / 2.0
 
         # Normalized coordinate grid (canonical RZern convention)
         coords = (t.arange(n, dtype=t.float64) - (n - 1) / 2.0) / radius
         y, x = t.meshgrid(coords, coords, indexing="ij")  # shape (n, n)
-        # Gaussian pupil (matched to aperture)
-        self._gauss = t.exp(-(x**2 + y**2) / (2 * (n / 4.0) ** 2))
+        self._x = x
+        self._y = y
+        self._r = t.sqrt(x**2 + y**2)
+        self._theta = t.atan2(y, x)
+        self._far_field_size = m
+        self._pad = (m - n) // 2
+
+        # Gaussian pupil on the aperture, same convention as the bench
+        # (exp(-r^2/w0^2) with w0 = aperture/3.5, truncated at the edge r = 1).
+        w0_norm = 2.0 / 3.5
+        aperture_mask = (self._r <= 1.0).to(t.float64)
+        self._gauss = t.exp(-(self._r**2) / (w0_norm**2)) * aperture_mask
 
         # Zernike basis modes (n=1..n_zernike, piston excluded)
         self._zernike_modes: list[tuple[int, int]] = []
@@ -213,13 +241,14 @@ class IterativeZernikeShapingOptimizer:
         self._n_zernike_params = len(self._zernike_modes)
 
         # Target (square, normalized to sum=1)
-        target = t.zeros((n, n), dtype=t.float64)
-        half = n // 2
+        target = t.zeros((m, m), dtype=t.float64)
+        half = m // 2
         s = config.target_side_px
         target[half - s // 2 : half + s // 2, half - s // 2 : half + s // 2] = 1.0
         target = target / target.sum()
         self._target = target
         self._target_support = (target > 0).to(t.float64)
+        self._zernike_basis_cache: list[tuple[int, int, Any]] | None = None
 
         # --- Trainable parameters (initialized to zero; reset in run()) ---
         self._zernike_coeffs: t.nn.Parameter | None = None
@@ -237,7 +266,22 @@ class IterativeZernikeShapingOptimizer:
         Returns:
             List of (n, m, basis_tensor) tuples.
         """
-        return self._basis
+        if self._zernike_basis_cache is not None:
+            return self._zernike_basis_cache
+        t = _torch()
+        modes = []
+        for n, m in self._zernike_modes:
+            r_nm = self._zernike_radial(n, m, self._r)
+            if m >= 0:
+                angular = t.cos(m * self._theta)
+            else:
+                angular = t.sin(abs(m) * self._theta)
+            # Mask outside aperture (set to 0 for gradient stability)
+            mask = (self._r <= 1.0).to(t.float64)
+            basis = r_nm * angular * mask
+            modes.append((n, m, basis))
+        self._zernike_basis_cache = modes
+        return modes
 
     # ------------------------------------------------------------------
     # Forward model
@@ -245,16 +289,19 @@ class IterativeZernikeShapingOptimizer:
     def _far_field(self, zernike_coeffs: Any, slm_phase: Any) -> Any:
         """Compute far-field intensity from Zernike + SLM phase.
 
+        The pupil field is zero-padded to the far-field grid and transformed by
+        a centred Fraunhofer FFT (``fftshift(fft2(ifftshift(...)))``), matching
+        ``slm_shaping_bench.forward_intensity``.
+
         Args:
             zernike_coeffs: 1-D tensor of Zernike coefficients (raw radians),
                 length = n_zernike_params.
             slm_phase: 2-D tensor of SLM phase (raw radians), shape (n, n).
 
         Returns:
-            Normalized far-field intensity tensor (sum=1), shape (n, n).
+            Normalized far-field intensity tensor (sum=1), shape (M, M).
         """
         t = _torch()
-        # Build Zernike phase
         if zernike_coeffs is not None and self._n_zernike_params > 0:
             zernike_phase = t.zeros_like(slm_phase)
             for i, (_, _, basis) in enumerate(self._zernike_basis()):
@@ -264,10 +311,28 @@ class IterativeZernikeShapingOptimizer:
 
         total_phase = zernike_phase + slm_phase
         field = self._gauss * t.exp(1j * total_phase)
-        ff = t.fft.fft2(field)  # pure FFT, no fftshift
-        intensity = ff.real**2 + ff.imag**2
+        n = field.shape[0]
+        m = self._far_field_size
+        if m > n:
+            pad = self._pad
+            padded = t.zeros((m, m), dtype=t.complex128, device=field.device)
+            padded[pad : pad + n, pad : pad + n] = field
+            field = padded
+        focal = t.fft.fftshift(t.fft.fft2(t.fft.ifftshift(field)))
+        intensity = focal.real**2 + focal.imag**2
         intensity = intensity / (intensity.sum() + 1e-12)
         return intensity
+
+    def _zernike_phase(self, coeffs: dict[tuple[int, int], float]) -> np.ndarray:
+        """Zernike phase (raw radians) for a coefficient dict, shape (n, n)."""
+        t = _torch()
+        n = self._config.n_grid
+        phase = t.zeros((n, n), dtype=t.float64)
+        if coeffs and self._n_zernike_params > 0:
+            for nm, _, basis in self._zernike_basis():
+                if nm in coeffs:
+                    phase = phase + float(coeffs[nm]) * basis
+        return phase.numpy()
 
     def _score(self, intensity: Any) -> Any:
         """Compute composite quality score (PIB + uniformity).
@@ -281,17 +346,21 @@ class IterativeZernikeShapingOptimizer:
             Scalar tensor (composite score, higher is better).
         """
         t = _torch()
-        # PIB: power in target support
-        pib = (intensity * self._target_support).sum()
-        # CV: coefficient of variation within target support
-        vals = intensity[self._target_support > 0]
+        # Fixed centred support (matches compute_metrics with center=None). An
+        # argmax-rolled box is discontinuous: for speckle-like fields the argmax
+        # hops between near-equal grains under a ~1e-3 model change, so the
+        # optimizer chases a box that no longer covers the beam.
+        support = self._target_support
+        pib = (intensity * support).sum()
+        vals = intensity[support > 0]
         if vals.numel() == 0 or vals.mean() <= 0:
-            cv = t.tensor(1.0, dtype=t.float64, device=intensity.device)
+            cv = t.tensor(float("inf"), dtype=t.float64, device=intensity.device)
         else:
-            cv = vals.std() / (vals.mean() + 1e-12)
-        cv_clamped = t.min(cv / 0.3, t.tensor(1.0, dtype=t.float64, device=intensity.device))
-        score = 0.5 * pib + 0.5 * (1.0 - cv_clamped)
-        return score
+            # Population std (unbiased=False) to match numpy's np.std, which the
+            # bench composite_score uses -- otherwise the two objectives differ.
+            cv = vals.std(unbiased=False) / (vals.mean() + 1e-12)
+        # Keep in sync with slm_shaping_bench.composite_from_pib_cv.
+        return 0.5 * pib + 0.5 * (1.0 / (1.0 + cv))
 
     # ------------------------------------------------------------------
     # Stage A: Zernike calibration
@@ -334,13 +403,23 @@ class IterativeZernikeShapingOptimizer:
         zernike_coeffs = t.nn.Parameter(t.zeros(self._n_zernike_params, dtype=t.float64))
         opt = t.optim.Adam([zernike_coeffs], lr=self._config.zernike_lr)
 
+        # Sum-normalised far field => per-pixel values ~1/m^2 and raw MSE ~1e-10,
+        # where Adam's default eps=1e-8 dominates the gradient. Scaling the loss
+        # by the target keeps it O(1) so the learning rate actually applies.
+        scale = t.mean(target_ff**2) + 1e-12
         for _ in range(self._config.calib_iters):
             opt.zero_grad()
             ff = self._far_field(zernike_coeffs, slm_init)
-            # MSE loss between simulated and actual far-field
-            loss = t.mean((ff - target_ff) ** 2)
+            loss = t.mean((ff - target_ff) ** 2) / scale
             loss.backward()
             opt.step()
+            if not bool(t.isfinite(zernike_coeffs).all()):
+                logger.warning(
+                    "Zernike calibration diverged to non-finite coefficients at "
+                    "iter {} (zernike_lr={}); returning the last finite estimate.",
+                    _, self._config.zernike_lr,
+                )
+                break
 
         # Extract calibrated coefficients
         with t.no_grad():
@@ -389,18 +468,28 @@ class IterativeZernikeShapingOptimizer:
         else:
             slm_phase = t.nn.Parameter(initial_slm_phase.to(t.float64).clone())
 
-        opt = t.optim.Adam([slm_phase], lr=self._config.slm_lr)
+        base_lr = self._config.slm_lr
+        opt = t.optim.Adam([slm_phase], lr=base_lr)
+        iters = self._config.shaping_iters
+        best_score = float("-inf")
+        best_phase = slm_phase.detach().clone()
 
-        for _ in range(self._config.shaping_iters):
+        for i in range(iters):
+            # Cosine decay: a flat slm_lr makes Adam overshoot and the score
+            # oscillates, so the pass would end on an arbitrary (poor) iterate.
+            for group in opt.param_groups:
+                group["lr"] = base_lr * 0.5 * (1.0 + np.cos(np.pi * i / max(iters, 1)))
             opt.zero_grad()
             ff = self._far_field(zernike_vec, slm_phase)
             score = self._score(ff)
-            loss = -score  # maximize score
-            loss.backward()
+            score_value = float(score.item())
+            if score_value > best_score:
+                best_score = score_value
+                best_phase = slm_phase.detach().clone()
+            (-score).backward()
             opt.step()
 
-        with t.no_grad():
-            return slm_phase.detach().numpy()
+        return best_phase.numpy()
 
     # ------------------------------------------------------------------
     # One outer iteration
@@ -440,7 +529,7 @@ class IterativeZernikeShapingOptimizer:
             actual_far_field: Reference far-field (the "actual" target), shape
                 (n, n), normalized to sum=1.
             initial_slm_phase: Initial SLM phase (raw radians), shape (n, n).
-                If None, initialized to small random noise (seeded).
+                If None, initialized to zeros (flat).
 
         Returns:
             IterativeZernikeShapingResult with all intermediates.
@@ -449,12 +538,16 @@ class IterativeZernikeShapingOptimizer:
         cfg = self._config
         n = cfg.n_grid
 
-        # Initial SLM phase
+        # Shaping start.
         if initial_slm_phase is None:
-            rng = np.random.default_rng(cfg.seed)
-            slm_phase = rng.normal(0, 0.1, size=(n, n)).astype(np.float64)
+            slm_phase = np.zeros((n, n), dtype=np.float64)
         else:
             slm_phase = np.asarray(initial_slm_phase, dtype=np.float64)
+
+        # Stage A must be evaluated with the same SLM phase the reference was
+        # built with (flat); using the shaping warm start would make the fit
+        # inconsistent with the reference.
+        calibration_phase = np.zeros((n, n), dtype=np.float64)
 
         zernike_coeffs: dict[tuple[int, int], float] = {}
         score_history: list[dict[str, float]] = []
@@ -472,12 +565,23 @@ class IterativeZernikeShapingOptimizer:
         score_history.append({"outer_iter": 0, "score": init_score, "stage": "init"})
 
         best_score = init_score
+        best_slm_phase = slm_phase
+        best_ff = ff.detach().numpy()
+        best_zernike: dict[tuple[int, int], float] = dict(zernike_coeffs)
         patience_counter = 0
+        first_shape = True
 
         for outer in range(1, cfg.max_outer_iters + 1):
             # Stage A (if applicable)
             if self._n_zernike_params > 0:
-                zernike_coeffs = self.calibrate_zernike(actual_far_field, slm_phase)
+                zernike_coeffs = self.calibrate_zernike(actual_far_field, calibration_phase)
+
+            # The model adds the frozen Zernike to the SLM phase, so on the first
+            # shaping pass subtract it from the initial phase: otherwise the
+            # warm start is corrupted by a Zernike the model then re-adds.
+            if first_shape and self._n_zernike_params > 0:
+                slm_phase = slm_phase - self._zernike_phase(zernike_coeffs)
+                first_shape = False
 
             # Stage B
             slm_phase = self.shape_phase(zernike_coeffs, slm_phase)
@@ -495,6 +599,9 @@ class IterativeZernikeShapingOptimizer:
             # Early stopping
             if score > best_score + cfg.early_stop_min_delta:
                 best_score = score
+                best_slm_phase = slm_phase.copy()
+                best_ff = ff.detach().numpy()
+                best_zernike = dict(zernike_coeffs)
                 patience_counter = 0
             else:
                 patience_counter += 1
@@ -506,18 +613,12 @@ class IterativeZernikeShapingOptimizer:
                     )
                     break
 
-        # Final far-field
-        zernike_vec = t_arr.zeros(self._n_zernike_params, dtype=t_arr.float64)
-        for i, nm in enumerate(self._zernike_modes):
-            if nm in zernike_coeffs:
-                zernike_vec[i] = zernike_coeffs[nm]
-        slm_t = t_arr.as_tensor(slm_phase, dtype=t_arr.float64)
-        ff = self._far_field(zernike_vec, slm_t)
-
+        # Return the best-scoring state (not the last), so ``final_score``,
+        # ``slm_phase`` and ``far_field`` all describe the same artifact.
         return IterativeZernikeShapingResult(
-            zernike_coeffs=zernike_coeffs,
-            slm_phase=slm_phase,
-            far_field=ff.detach().numpy(),
+            zernike_coeffs=best_zernike,
+            slm_phase=best_slm_phase,
+            far_field=best_ff,
             target=self._target.detach().numpy(),
             score_history=score_history,
             n_outer_iters=len(score_history) - 1,

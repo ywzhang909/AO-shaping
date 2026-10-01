@@ -411,6 +411,14 @@ class WfsParams:
     remove_tilt: Annotated[
         bool, option("--remove-tilt", is_flag=True, help="移除波前测量中的倾斜项")
     ] = False
+    wfs_type: Annotated[
+        str,
+        option(
+            "--wfs_type",
+            type=click.Choice(["thorlab", "sim"]),
+            help="波前传感器类型 (sim=仿真 Shack-Hartmann, 无需硬件)",
+        ),
+    ] = "thorlab"
 
 
 @dataclass
@@ -1100,6 +1108,22 @@ class SlmSquareParams:
         float, option("-t", "--exposure-ms", help="相机曝光时间ms (default: 80)")
     ] = 80.0
     cam_id: Annotated[int, option("--cam-id", help="相机设备ID (default: 0)")] = 0
+    cam_type: Annotated[
+        str,
+        option(
+            "--cam_type",
+            type=click.Choice(["miicam", "daheng", "sim"]),
+            help="CCD 相机后端 (sim = 2f-Fourier 数值仿真, 无需硬件)。",
+        ),
+    ] = "daheng"
+    slm_type: Annotated[
+        str,
+        option(
+            "--slm_type",
+            type=click.Choice(["santec", "sim"]),
+            help="SLM 后端 (sim = 2f-Fourier 数值仿真, 无需硬件; 需配合 --cam_type sim)。",
+        ),
+    ] = "santec"
     cam_size: Annotated[
         int, option("-s", "--cam-size", help="相机开窗大小 (default: 300)")
     ] = 300
@@ -1355,6 +1379,30 @@ class WfRunnerParams:
     early_stop_threshold: Annotated[
         float, option("-t", "--early_stop_threshold", help="早停阈值 (default: 0.0)")
     ] = 0.0
+    disturbance_cn2: Annotated[
+        float,
+        option(
+            "--disturbance-cn2",
+            type=float,
+            help="仿真 WFS 湍流强度 cn2 (0=不加像差, 默认 0)",
+        ),
+    ] = 0.0
+    lr: Annotated[
+        float | None,
+        option(
+            "--lr",
+            type=float,
+            help="覆盖自动学习率 (默认按硬件标定的自动调度)",
+        ),
+    ] = None
+    delta: Annotated[
+        float | None,
+        option(
+            "--delta",
+            type=float,
+            help="覆盖 SPGD 扰动幅度 (V); 自动调度按真实硬件标度, 对仿真 DM 过小",
+        ),
+    ] = None
     show: Annotated[
         bool,
         option(
@@ -1392,6 +1440,14 @@ class PibRunnerParams:
         str,
         option("--cam_id", help="远场光斑CCD设备ID (default: Far_Cam_ID/0)"),
     ] = cast(str, lambda: os.environ.get("FAR_CAM_ID", "0"))
+    cam_type: Annotated[
+        str,
+        option(
+            "--cam_type",
+            type=click.Choice(["miicam", "daheng", "sim"]),
+            help="CCD 相机后端 (sim = 2f-Fourier 数值仿真, 需配合 --dm_type sim)。",
+        ),
+    ] = "miicam"
     center: Annotated[
         str | tuple[float, float] | None,
         option(

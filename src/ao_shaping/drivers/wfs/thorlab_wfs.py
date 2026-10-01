@@ -30,6 +30,8 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.device_base import Device, DeviceState, DeviceType
+from ao_shaping.drivers.wfs._registry import register_wfs
+from ao_shaping.drivers.wfs.base import BaseWFS
 from ao_shaping.drivers.wfs._thorlab_wfs import (
     MAX_SPOTS,
     VI_NULL,
@@ -192,7 +194,8 @@ _WFS_CONFIG_DIR = PROJECT_ROOT / "data" / "wfs_configs"
 WFS_CONFIG = ConfigHandler(_WFS_CONFIG_DIR, "wfs", WFSParams)
 
 
-class ThorlabWFS(Device):
+@register_wfs("thorlab")
+class ThorlabWFS(BaseWFS):
     """Thorlabs Wavefront Sensor (WFS) device driver.
 
     Provides comprehensive control over Thorlabs WFS hardware including
@@ -281,8 +284,8 @@ class ThorlabWFS(Device):
         self._init_stable_variance_threshold: float = stable_variance_threshold
         self._init_stable_max_attempts: int = stable_max_attempts
 
-        # Load DLL and initialize instrument handle
-        self._lib = load_dll()
+        # The native DLL is resolved lazily (see ``_lib``); constructing the
+        # driver must not require the vendor runtime to be installed.
         self._wfs_instrument_index = c_int32()
         self.device_name = ""
         self.serial_num = ""
@@ -313,6 +316,22 @@ class ThorlabWFS(Device):
         # Register parameters and capabilities
         self._register_parameters()
         self._register_capabilities()
+
+    @property
+    def _lib(self):
+        """The ``WFS_64.dll`` handle, loaded on first use and cached.
+
+        Was bound eagerly in ``__init__``, which made constructing a
+        ``ThorlabWFS`` raise ``OSError`` wherever the Thorlabs / VISA runtime is
+        absent — blocking offline tooling and driver introspection. Every call
+        site already reads ``self._lib.<fn>``, so deferring the load here leaves
+        them untouched and moves the requirement to ``open()``.
+        """
+        return self._ensure_sdk()
+
+    @staticmethod
+    def _load_sdk():
+        return load_dll()
 
     def _register_parameters(self) -> None:
         """Register WFS-specific parameters."""
