@@ -175,6 +175,10 @@ def _build_square_config(cfg: SlmGsnetConfig) -> SlmSquareConfig:
         w_uniformity=obj.w_uniformity,
         w_efficiency=obj.w_efficiency,
         w_aspect=obj.w_aspect,
+        # Background suppression (PBR). Off by default (0.0); the ROI energy
+        # guard already blocks the light-scattering failure mode that PBR also
+        # discourages, so this stays opt-in on top of a safe default.
+        w_pbr=obj.w_pbr,
         objective=obj.objective,
         basis="freeform",
         phase_grid=24,

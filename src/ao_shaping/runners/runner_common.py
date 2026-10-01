@@ -816,6 +816,20 @@ class ObjectiveParamsSquare:
         float, option("--w_efficiency", help="Encircled-energy weight.")
     ] = 0.6
     w_aspect: Annotated[float, option("--w_aspect", help="Aspect-ratio weight.")] = 0.0
+    w_pbr: Annotated[
+        float,
+        option(
+            "--w_pbr",
+            help=(
+                "Background-suppression (peak-to-background) weight. "
+                "0 = off (default), which keeps runs reproducible. PBR is the "
+                "box peak divided by the mean of the rest of the frame, "
+                "median-subtracted and clipped so read noise cannot push it "
+                "above 1. Transcribed from the prose definition in Liu et al., "
+                "Acta Photonica Sinica 2023, 52(6):0629002."
+            ),
+        ),
+    ] = 0.0
     objective: Annotated[
         str,
         option(
@@ -1213,6 +1227,18 @@ class SlmSquareParams:
     ] = 0.6
     w_aspect: Annotated[
         float, option("--w-aspect", help="宽高比权重 (default: 0.0)")
+    ] = 0.0
+    w_pbr: Annotated[
+        float,
+        option(
+            "--w-pbr",
+            help=(
+                "背景抑制 (PBR) 权重 (default: 0.0=关闭, 保持既有结果可复现)。"
+                "PBR = 目标框峰值 / 框外均值, 已做扣中位数+截零, "
+                "避免读出噪声把比值推到 >1。定义转录自 "
+                "刘卉等, 光子学报 2023, 52(6):0629002。"
+            ),
+        ),
     ] = 0.0
     basis: Annotated[
         str,

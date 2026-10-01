@@ -78,6 +78,7 @@ class TestSquareRunnerWiring:
             w_uniformity = 0.4
             w_efficiency = 0.6
             w_aspect = 0.0
+            w_pbr = 0.0
             target_max_brightness = 200
             objective = "quality"
 
