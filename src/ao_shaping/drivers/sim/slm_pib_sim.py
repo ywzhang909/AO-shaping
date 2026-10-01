@@ -35,6 +35,7 @@ from loguru import logger
 
 from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
 from ao_shaping.drivers.device_base import DeviceState
+from ao_shaping.drivers.sim.disturbance import SimDisturbance
 
 # SLM panel geometry (matches the real Santec SLM-200: 1920 x 1200, 10-bit).
 SLM_W = 1920
@@ -66,11 +67,28 @@ class SimPibSystem:
         beam_w0: float = BEAM_W0,
         noise_adu: float = 5.0,
         seed: int | None = None,
+        *,
+        disturbance: SimDisturbance | None = None,
     ) -> None:
+        """Build the shared optical state.
+
+        Args:
+            slm_shape: SLM panel shape ``(h, w)``.
+            ccd_res: Far-field resolution.
+            beam_w0: Gaussian input-beam waist in SLM pixels.
+            noise_adu: Shot/read-noise floor added by :meth:`far_field_noisy`.
+            seed: RNG seed for the noise model.
+            disturbance: Optional turbulence + thermal-halo model. Keyword-only
+                and defaulting to ``None`` so every existing caller keeps the
+                original, disturbance-free behaviour. Its screen is added to the
+                SLM command phase inside :meth:`far_field`; ``self._phase`` is
+                never modified, so the disturbance cannot be double-counted.
+        """
         self.slm_h, self.slm_w = slm_shape
         self.ccd_h, self.ccd_w = ccd_res
         self.beam_w0 = float(beam_w0)
         self.noise_adu = float(noise_adu)
+        self.disturbance = disturbance
         self._rng = np.random.default_rng(seed)
         self._lock = threading.Lock()
         self._phase: np.ndarray = np.zeros((self.slm_h, self.slm_w), dtype=np.float64)
@@ -113,6 +131,12 @@ class SimPibSystem:
             if self._far_field is not None:
                 return self._far_field.copy()
             phase = self._phase
+            # Disturbance shares the pupil plane with the SLM command, so it is
+            # added before the Fourier transform. The early return above consumes
+            # it once per real optical evaluation. `self._phase` stays the pure
+            # command -- baking the disturbance in would double-count it.
+            if self.disturbance is not None:
+                phase = phase + self.disturbance.phase()
             # Gaussian input beam amplitude on the SLM grid.
             yy, xx = np.mgrid[0 : self.slm_h, 0 : self.slm_w]
             cy, cx = self.slm_h / 2.0, self.slm_w / 2.0
@@ -143,18 +167,26 @@ class SimPibSystem:
 _SYSTEM: SimPibSystem | None = None
 
 
-def get_system(seed: int | None = None) -> SimPibSystem:
-    """Return the process-wide :class:`SimPibSystem` (created on first use)."""
+def get_system(
+    seed: int | None = None, *, disturbance: SimDisturbance | None = None
+) -> SimPibSystem:
+    """Return the process-wide :class:`SimPibSystem` (created on first use).
+
+    ``disturbance`` is only applied when the system is created here; an already
+    existing system is returned unchanged (use :func:`reset_system` to swap it).
+    """
     global _SYSTEM
     if _SYSTEM is None:
-        _SYSTEM = SimPibSystem(seed=seed)
+        _SYSTEM = SimPibSystem(seed=seed, disturbance=disturbance)
     return _SYSTEM
 
 
-def reset_system(seed: int | None = None) -> SimPibSystem:
+def reset_system(
+    seed: int | None = None, *, disturbance: SimDisturbance | None = None
+) -> SimPibSystem:
     """Replace the process-wide system (used between matrix cells)."""
     global _SYSTEM
-    _SYSTEM = SimPibSystem(seed=seed)
+    _SYSTEM = SimPibSystem(seed=seed, disturbance=disturbance)
     return _SYSTEM
 
 

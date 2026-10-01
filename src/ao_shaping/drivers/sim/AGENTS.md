@@ -65,6 +65,37 @@ SimulatedDevice (Device)
 
 > 注意: `SimulatedLens` 和 `SimulatedAperture` 直接继承 `SimulatedDevice` (非 WavefrontProcessor), 但实现了 `process()` / `compute()` 方法。`SimulatedTurbulentScreen` 和 `SimulatedThermalScreen` 继承自 `WavefrontProcessor` (非 OpticalDevice)。`SimulatedMicroDM` (dm/ 子包) 继承自 `DM`。
 
+## 波前干扰: `disturbance.py` (湍流 + 热晕)
+
+| 类 | 文件 | 说明 |
+|----|------|------|
+| `DisturbanceConfig` | `disturbance.py` | frozen dataclass: `mode` (`none`/`static`/`dynamic`), `cn2`, `distance_m`, `l_max`, `l_min`, `pixel_pitch_m`, `thermal_halo_pv_waves`, `thermal_halo_radius_px`, `halo_noll`, `seed` |
+| `SimDisturbance` | `disturbance.py` | 生成 `(h, w)` float64 **raw 弧度** 干扰相位; `.phase()` / `.stats()` (实测 σ) / `.trace()` / `.archive()` / `.to_dict()` |
+
+`SimPibSystem.__init__(..., *, disturbance=None)` 在 `far_field()` 的 **cache-miss 分支**把干扰加到 SLM 命令相位上
+(即在 FFT 之前、瞳孔面内 —— 2f 台架的正确位置)。`self._phase` 保持为纯 SLM 命令, 因此干扰不会被重复计入。
+缓存语义保证 **每次真实光学评估只推进一次**干扰; `static` 全程复用一张冻结屏, `dynamic` 每次评估重抽一张独立屏
+(即完全去相关 / white-in-time 极限, **不是**风场平流模型 —— 真实大气去相关时间 ~10–50 ms 远短于本环路的每评估 ~0.375 s)。
+
+> ⚠️ **`cn2` 与 `distance_m` 是退化旋钮**: 生成器的 `r0 = (0.423·k²·Cn2·L)^(-3/5)` 只依赖二者**乘积**;
+> 单层薄屏没有任何传播物理。且 numpy 后端缺少次谐波/低频补偿 (见下方第 4 条), 实测 σ **低于**同 r0 的解析
+> von Karman 方差。因此报告一律引用 **实测** σ, 不得用解析公式反推。
+
+> ⚠️ **相位屏只支持方形网格**。`turbulence_phase` 输出 `n×n`; 对 1200×1920 面板的做法是
+> `n_grid = 1920`、`aperture_size = 1920 × pixel_pitch` 生成后再**居中裁剪**到 1200 行 —— 各向同性像素、
+> 无拉伸、无拼接缝。实测粗网格会系统性丢失约 **41%** 相位幅度 (不得为省时而降网格)。
+
+> ⚠️ **`SimulatedThermalScreen` (热晕) 是一个静默 no-op —— 不可使用**。它的 `process()` 依赖外部包
+> `sim.digitaltwin` (`screens.py` L284), 该包**未安装**; `except ImportError` 分支直接 `return wave`
+> (L305-307), 既不报错也不产生任何相位。需要热晕相位请用 `disturbance.py` 的
+> `SimDisturbance`(负热透镜: Noll 4 离焦 + Noll 11 球差, 经 smoothstep 光晕窗延展到光束半径之外)。
+
+> ⚠️ **扰动会随 `reset_system()` 一起被丢弃**。`slm_pib_runner._maybe_sim_patch` 在 `--cam_type sim`
+> 时会调用 `reset_system(seed=42)`, 这会**替换**进程级 system 并清掉已注入的干扰 —— 运行会静默地以
+> **无干扰**方式执行, 而 companion 清单却声称有干扰。`scripts/slm_pib_sim_run.py` 因此包装了
+> `slm_pib_sim.reset_system`, 使每次调用都重新挂上干扰 (由
+> `tests/ao_shaping/scripts/test_slm_pib_sim_run_disturbance.py` 锁定)。
+
 ## SimulatedDevice 接口
 
 | 方法 | 说明 |

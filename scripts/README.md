@@ -1330,11 +1330,20 @@ environment** (no hardware). Wires the pure-numpy 2f-Fourier sim
 produced exactly as a hardware run would write them — ready for report
 generation.
 
+It can optionally inject a **wavefront disturbance** — atmospheric turbulence
+plus a **thermal halo (热晕)** — and record it beside the run so the offline
+report can compare a **static** (frozen) against a **dynamic** (per-evaluation)
+disturbance regime.
+
 **Usage:**
 ```bash
 python scripts/slm_pib_sim_run.py
 python scripts/slm_pib_sim_run.py --epochs 300 --target-shape square
 python scripts/slm_pib_sim_run.py --epochs 60 --objective pearson
+
+# disturbance runs (the static/dynamic pair the report compares)
+python scripts/slm_pib_sim_run.py --epochs 300 --disturbance static
+python scripts/slm_pib_sim_run.py --epochs 300 --disturbance dynamic
 ```
 
 | Option | Default | Description |
@@ -1343,6 +1352,48 @@ python scripts/slm_pib_sim_run.py --epochs 60 --objective pearson
 | `--objective` | `shape` | Shaping objective passed through to the runner |
 | `--target-shape` | `square` | Target shape |
 | `--algorithm` | (runner default = `spgd`) | Search driver override |
+| `--data-root` | `data` | Root the runner writes `debug/slm_pib_*` under |
+| `--disturbance` | `none` | `none` / `static` / `dynamic` (see below) |
+| `--dist-tag` | (derived) | Report tag; defaults to the disturbance mode |
+| `--cn2` | `2e-13` | Refractive-index structure constant |
+| `--distance-m` | `500.0` | Generator path-length knob [m]. **Degenerate with `--cn2`** |
+| `--l-max` / `--l-min` | `30.0` / `2e-3` | Outer / inner scale [m] |
+| `--pixel-pitch-um` | `8.0` | SLM pixel pitch [µm]; sets the screen's physical extent |
+| `--halo-pv-waves` | `0.30` | Thermal-halo peak-to-valley [waves]; `0` disables it |
+| `--halo-radius-px` | `600.0` | Thermal-halo radius [SLM px] (`w0` = 400 px) |
+| `--dist-seed` | `20261001` | Disturbance seed (both regimes are deterministic) |
+| `--dist-archive-factor` | `8` | Spatial decimation for archived screen thumbnails |
+| `--dist-archive-max` | `12` | Max distinct screens archived |
+
+**Disturbance regimes.** `static` generates one frozen screen and reuses it for
+the whole run — the `closed`/frozen-turbulence analogue. `dynamic` draws a
+**fresh independent screen on every optical evaluation** — the `open`/sliding
+analogue, i.e. the fully-decorrelated ("white in time") limit. That limit is the
+correct asymptotic here because the real atmospheric decorrelation time
+(~10–50 ms) is far shorter than this loop's ~0.375 s per evaluation; it is
+**not** a wind/advection model.
+
+The disturbance is applied in the pupil plane alongside the SLM command phase
+(`SimPibSystem.far_field`, consumed once per *real* optical evaluation via its
+cache). Turbulence reuses the canonical `beam_backend.turbulence_phase`
+(von-Karman); the thermal halo is a negative thermal lens (Noll 4 defocus +
+Noll 11 spherical via the canonical `zernike_utils.generate_zernike_phase`),
+smoothly apodised out to `--halo-radius-px` and PV-normalised to
+`--halo-pv-waves`.
+
+> ⚠️ `cn2` and `distance_m` are **degenerate generator knobs**: the canonical
+> generator's `r0 = (0.423·k²·Cn2·L)^(-3/5)` depends only on their product, and a
+> single thin screen carries no propagation physics. This is a **parametric
+> stress test** on a ~0.3 m laboratory bench, not an atmospheric-propagation
+> simulation. The numpy screen generator also lacks subharmonic/low-frequency
+> compensation (`drivers/sim/AGENTS.md` §4), so the measured σ is a **lower
+> bound** — reports quote the *measured* value.
+
+> ⚠️ `slm_pib_runner._maybe_sim_patch` calls `reset_system(seed=42)` when
+> `--cam_type sim`. The harness wraps that call so the injected disturbance is
+> re-attached; without it the run silently executes **disturbance-free** while
+> the companion manifest claims otherwise (locked by
+> `tests/ao_shaping/scripts/test_slm_pib_sim_run_disturbance.py`).
 
 **What it does:**
 - registers the `"sim"` camera type so `create_camera("sim", ...)` returns a
@@ -1370,6 +1421,20 @@ python scripts/slm_pib_sim_run.py --epochs 60 --objective pearson
 **Outputs:** `data/debug/slm_pib_shape_<ts>/` (PNG/PKL/JSON), then
 `docs/slm_pib_sim/report.md` + `figures/` + `gifs/` via
 `generate_slm_pib_sim_report.py`.
+
+When `--disturbance` is not `none`, the harness also writes a **companion**
+next to the run's own artifacts (the report is a pure offline reader, so this
+is the only channel carrying the disturbance to it):
+
+- `disturbance.json` — mode, full config, **measured** σ_turb / σ_halo /
+  σ_total, screens used, evaluations, and the run tag
+- `disturbance.npz` — `screens` (decimated float32 thumbnails of the distinct
+  screens actually used, capped at `--dist-archive-max`), `call_rms` and
+  `call_streak_index` (**every** evaluation, in full), `archive_factor`
+
+Recording one scalar per evaluation — never the full-resolution screens (a
+1200×1920 float64 array is ~18 MB, and a 300-epoch run performs ~604
+evaluations) — is what keeps memory bounded.
 
 > 🔬 **Measured on the real bench (2026-09-29, Daheng MER2-507-23GM NIR + Santec
 > SLM-200, 2592×1944, `exposure_time_ms=1.2`, `zernike_radius=480`, `n_max=9` →
