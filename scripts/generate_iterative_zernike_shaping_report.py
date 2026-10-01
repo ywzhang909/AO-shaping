@@ -12,6 +12,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 import numpy as np
 from loguru import logger
 
@@ -38,9 +39,12 @@ from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
 
 
 N = 64
-TARGET_SIDE = 16
+PAD = 8
+TARGET_SIDE = 43  # far-field px ~ 30 um ~ 2.2 Airy diameters
 SEED = 0
-GOLDEN = {(2, 0): 0.5, (2, -2): 0.3, (4, 0): 0.2}
+# 0.15/0.10/0.10 waves RMS (coefficient is the mode's RMS phase in rad,
+# so waves = coefficient / 2*pi). Strehl ~ exp(-sum a^2) ~ 0.19.
+GOLDEN = {(2, 0): 0.94, (2, -2): 0.63, (4, 0): 0.63}
 
 
 def make_out_dir() -> Path:
@@ -50,23 +54,25 @@ def make_out_dir() -> Path:
 
 
 def bench_cfg() -> ShapingBenchConfig:
-    return ShapingBenchConfig(n_grid=N, target_side_px=TARGET_SIDE, seed=SEED)
+    return ShapingBenchConfig(
+        n_grid=N, target_side_px=TARGET_SIDE, far_field_padding=PAD, seed=SEED
+    )
 
 
 def build_actual_far_field() -> tuple[np.ndarray, np.ndarray]:
-    """Build the reference 'actual' far-field (golden Zernike + noise).
+    """Build the reference 'actual' far-field (golden Zernike, flat SLM phase).
 
     Returns:
-        (actual_ff, golden_phase): normalized far-field and the golden Zernike
-        phase (raw radians) that produced it.
+        ``(far_field, zernike_phase)``. The SLM phase is flat, matching the
+        optimizer's reference, so the initial panel shows the same state the A↔B
+        loop starts from.
     """
     cfg = bench_cfg()
-    zp = generate_zernike_phase(GOLDEN, resolution=(N, N), n_max=4)
-    zp = np.nan_to_num(np.asarray(zp, dtype=np.float64), nan=0.0)
-    rng = np.random.default_rng(SEED + 1)
-    noise = rng.normal(0, 0.1, size=(N, N))
-    total = zp + noise
-    ff = forward_intensity(total, cfg)
+    zp = np.nan_to_num(
+        np.asarray(generate_zernike_phase(GOLDEN, resolution=(N, N), n_max=4), dtype=np.float64),
+        nan=0.0,
+    )
+    ff = forward_intensity(zp, cfg)
     return ff / (ff.sum() + 1e-12), zp
 
 
@@ -106,8 +112,11 @@ def run_spgd_baseline() -> tuple[float, float, float, np.ndarray]:
     return composite_score(m), m["PIB"], m["CV"], spgd.phase
 
 
-def run_iterative() -> dict:
-    """Run the full iterative Zernike + phase-only shaping optimizer.
+def run_iterative(n_zernike: int = 0) -> dict:
+    """Run the adaptive free-form refinement loop (GS warm start).
+
+    ``n_zernike=0`` (default) skips the Zernike calibration pass, which is a
+    documented negative result on this model; set 4 to run the ablation.
 
     Returns:
         Result dict from ``optimize_iterative_zernike_shaping``.
@@ -118,7 +127,7 @@ def run_iterative() -> dict:
 
     cfg = IterativeZernikePibConfig(
         n_grid=N,
-        n_zernike=4,
+        n_zernike=n_zernike,
         target_side_px=TARGET_SIDE,
         seed=SEED,
         zernike_lr=0.05,
@@ -126,39 +135,36 @@ def run_iterative() -> dict:
         calib_iters=50,
         shaping_iters=100,
         max_outer_iters=5,
+        far_field_padding=PAD,
     )
     return optimize_iterative_zernike_shaping(cfg)
 
 
-def plot_initial_vs_final(out: Path) -> None:
+def plot_initial_vs_final(
+    ff_init: np.ndarray, res: dict, target: np.ndarray, out: Path
+) -> None:
     """Figure 1: initial far-field vs final far-field vs target."""
-    actual_ff, _ = build_actual_far_field()
-    cfg = bench_cfg()
-    target = make_target(cfg)
-
-    # Initial: golden + noise
-    zp = generate_zernike_phase(GOLDEN, resolution=(N, N), n_max=4)
-    zp = np.nan_to_num(np.asarray(zp, dtype=np.float64), nan=0.0)
-    rng = np.random.default_rng(SEED + 1)
-    init_phase = zp + rng.normal(0, 0.1, size=(N, N))
-    ff_init = forward_intensity(init_phase, cfg)
-    ff_init = ff_init / (ff_init.sum() + 1e-12)
-
-    # Final
-    res = run_iterative()
     ff_final = res["far_field"]
 
-    vmax = max(ff_init.max(), ff_final.max(), target.max())
-    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
-    im0 = axes[0].imshow(ff_init, cmap="inferno", vmax=vmax)
-    axes[0].set_title("初始远场 (golden + noise)")
-    plt.colorbar(im0, ax=axes[0], fraction=0.046)
-    im1 = axes[1].imshow(ff_final, cmap="inferno", vmax=vmax)
-    axes[1].set_title("迭代后远场 (A↔B)")
-    plt.colorbar(im1, ax=axes[1], fraction=0.046)
-    im2 = axes[2].imshow(target, cmap="inferno", vmax=vmax)
-    axes[2].set_title("目标方形")
-    plt.colorbar(im2, ax=axes[2], fraction=0.046)
+    # Zoom + log scale: at full frame the aberrated halo is invisible against
+    # the peak, and the target box is a few pixels of a 512-wide grid.
+    size = ff_init.shape[0]
+    half = min(size // 2, 90)
+    c = size // 2
+    window = (slice(c - half, c + half), slice(c - half, c + half))
+
+    panels = [
+        ("初始远场 (golden)", ff_init[window]),
+        ("迭代后远场 (GS 预热 + 细化)", ff_final[window]),
+        ("目标方形", target[window]),
+    ]
+    fig, axes = plt.subplots(1, 3, figsize=(13, 4))
+    for ax, (title, img) in zip(axes, panels):
+        im = ax.imshow(
+            img, cmap="inferno", norm=LogNorm(vmin=max(img.max() * 1e-4, 1e-12), vmax=img.max())
+        )
+        ax.set_title(title)
+        plt.colorbar(im, ax=ax, fraction=0.046)
     for ax in axes:
         ax.set_xticks([])
         ax.set_yticks([])
@@ -173,14 +179,14 @@ def plot_score_history(res: dict, gs_score: float, out: Path) -> None:
     iters = [h["outer_iter"] for h in hist]
     scores = [h["score"] for h in hist]
     fig, ax = plt.subplots(figsize=(8, 4))
-    ax.plot(iters, scores, "o-", color="#2196F3", linewidth=2, label="迭代 A↔B")
+    ax.plot(iters, scores, "o-", color="#2196F3", linewidth=2, label="GS 预热 + 细化")
     ax.axhline(gs_score, color="#FF5722", linestyle="--", linewidth=1.5,
                label=f"GS 单遍 ({gs_score:.3f})")
     ax.axhline(res["final_score"], color="#4CAF50", linestyle=":", linewidth=1.5,
                label=f"最终 ({res['final_score']:.3f})")
     ax.set_xlabel("外迭代次数")
     ax.set_ylabel("综合评分 (PIB + 均匀性)")
-    ax.set_title("迭代 Zernike + 相位整形 — 评分收敛")
+    ax.set_title("GS 预热 + 自由相位细化 — 评分收敛")
     ax.legend()
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -236,7 +242,7 @@ def plot_comparison_bars(
     init_score: float, gs_score: float, spgd_score: float, res: dict, out: Path
 ) -> None:
     """Figure 5: bar chart comparing initial / GS / SPGD / iterative scores."""
-    labels = ["初始\n(golden+noise)", "GS 单遍\n(200 it)", "SPGD\n(600 it)", "迭代 A↔B\n(5 outer)"]
+    labels = ["初始\n(golden)", "GS 单遍\n(200 it)", "SPGD\n(600 it)", "迭代细化\n(GS 预热)"]
     scores = [init_score, gs_score, spgd_score, res["final_score"]]
     colors = ["#9E9E9E", "#FFC107", "#FF9800", "#4CAF50"]
 
@@ -246,7 +252,7 @@ def plot_comparison_bars(
         ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.01,
                 f"{s:.3f}", ha="center", va="bottom", fontsize=11, fontweight="bold")
     ax.set_ylabel("综合评分")
-    ax.set_title("评分对比: 初始 vs GS vs SPGD vs 迭代 A↔B")
+    ax.set_title("评分对比: 初始 vs GS vs SPGD vs 迭代细化")
     ax.set_ylim(0, max(scores) * 1.2)
     ax.grid(True, alpha=0.3, axis="y")
     fig.tight_layout()
@@ -264,12 +270,8 @@ def main() -> None:
     cfg = bench_cfg()
     target = make_target(cfg)
 
-    # Initial score
-    zp = np.nan_to_num(generate_zernike_phase(GOLDEN, resolution=(N, N), n_max=4), nan=0.0)
-    rng = np.random.default_rng(SEED + 1)
-    init_phase = zp + rng.normal(0, 0.1, size=(N, N))
-    ff_init = forward_intensity(init_phase, cfg)
-    ff_init = ff_init / (ff_init.sum() + 1e-12)
+    # Initial state == the reference far-field (golden Zernike, flat SLM phase)
+    ff_init = actual_ff
     m_init = compute_metrics(ff_init, target)
     init_score = composite_score(m_init)
     logger.info("Initial score={:.4f} PIB={:.4f} CV={:.4f}", init_score, m_init["PIB"], m_init["CV"])
@@ -282,8 +284,8 @@ def main() -> None:
     spgd_score, spgd_pib, spgd_cv, spgd_phase = run_spgd_baseline()
     logger.info("SPGD score={:.4f} PIB={:.4f} CV={:.4f}", spgd_score, spgd_pib, spgd_cv)
 
-    # Iterative
-    res = run_iterative()
+    # Iterative (GS warm start, free-form refinement; Zernike calibration off)
+    res = run_iterative(n_zernike=0)
     final_score = res["final_score"]
     m_final = res["metrics"]
     logger.info(
@@ -291,18 +293,40 @@ def main() -> None:
         final_score, m_final["PIB"], m_final["CV"], res["n_outer_iters"], res["converged"],
     )
 
-    # WIN proof
+    # Ablation: the Zernike calibration pass (documented negative result)
+    res_z = run_iterative(n_zernike=4)
+    z_score = res_z["metrics"]["score"]
+    logger.info(
+        "Ablation: Zernike calibration ON -> score={:.4f} ({:+.1f}% vs Zernike OFF)",
+        z_score, (z_score - final_score) / final_score * 100,
+    )
+
     improvement_vs_gs = (final_score - gs_score) / gs_score * 100 if gs_score > 0 else 0
     improvement_vs_spgd = (final_score - spgd_score) / spgd_score * 100 if spgd_score > 0 else 0
     improvement_vs_init = (final_score - init_score) / init_score * 100 if init_score > 0 else 0
+    ranking = sorted(
+        [
+            ("iterative", final_score),
+            ("initial", init_score),
+            ("GS", gs_score),
+            ("SPGD", spgd_score),
+        ],
+        key=lambda item: item[1],
+        reverse=True,
+    )
     logger.info(
-        "WIN: iterative {:.3f} > SPGD {:.3f} ({:+.1f}%) > GS {:.3f} ({:+.1f}%) > initial {:.3f} ({:+.1f}%)",
-        final_score, spgd_score, improvement_vs_spgd, gs_score, improvement_vs_gs,
-        init_score, improvement_vs_init,
+        "Measured score ranking (high->low): {}",
+        " > ".join(f"{name} {score:.3f}" for name, score in ranking),
+    )
+    logger.info(
+        "Iterative vs baselines: SPGD {:+.1f}%, GS {:+.1f}%, initial {:+.1f}%",
+        improvement_vs_spgd,
+        improvement_vs_gs,
+        improvement_vs_init,
     )
 
     # Plots
-    plot_initial_vs_final(out)
+    plot_initial_vs_final(ff_init, res, target, out)
     plot_score_history(res, gs_score, out)
     plot_zernike_coeffs(res, out)
     plot_phase_evolution(res, out)
@@ -312,7 +336,12 @@ def main() -> None:
     data = {
         "timestamp": t0.isoformat(),
         "n_grid": N,
+        "far_field_padding": PAD,
+        "far_field_size": cfg.far_field_size,
+        "far_field_pixel_size_um": cfg.far_field_pixel_size * 1e6,
         "target_side_px": TARGET_SIDE,
+        "target_side_um": TARGET_SIDE * cfg.far_field_pixel_size * 1e6,
+        "objective": "0.5*PIB + 0.5*(1/(1+CV)) in the grid-centred target support",
         "seed": SEED,
         "golden_coeffs": {str(k): v for k, v in GOLDEN.items()},
         "initial": {"score": init_score, "PIB": m_init["PIB"], "CV": m_init["CV"]},
@@ -330,6 +359,11 @@ def main() -> None:
         "improvement_vs_gs_pct": improvement_vs_gs,
         "improvement_vs_spgd_pct": improvement_vs_spgd,
         "improvement_vs_init_pct": improvement_vs_init,
+        "zernike_ablation": {
+            "zernike_on_score": z_score,
+            "zernike_off_score": final_score,
+            "note": "Zernike calibration pass is a negative result: it degrades the score.",
+        },
     }
     (out / "data.json").write_text(json.dumps(data, ensure_ascii=False, indent=2))
 

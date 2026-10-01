@@ -1473,12 +1473,11 @@ python scripts/generate_shape_objective_comparison.py
 
 ### generate_iterative_zernike_shaping_report.py
 
-Generates the illustrated **iterative Zernike + free-form shaping** report,
-demonstrating that alternating a Zernike calibration pass (A) with a free-form
-SLM-phase shaping pass (B) converges to a higher square-target score than
-**every** single-pass baseline on the same 64×64 sim grid — the canonical
-sensorless SPGD, the Gerchberg-Saxton (GS) single pass, and the unshaped
-initial state.
+Generates the illustrated **free-form refinement** report on a zero-padded
+2f-Fourier sim bench, comparing the iterative refinement loop (GS warm start +
+differentiable free-form shaping) against single-pass baselines on the same
+64×64 pupil grid — the canonical sensorless SPGD, the Gerchberg-Saxton (GS)
+single pass, and the unshaped initial state.
 **Fully offline** — pure torch (FFT forward model), no hardware.
 
 **Usage:**
@@ -1487,29 +1486,68 @@ initial state.
 ```
 
 **What it does** (writes to `docs/iterative_zernike_shaping/`):
-- Runs the full A↔B iterative loop: (A) calibrate a Zernike set to match an
-  "actual" (aberrated) far-field, (B) freeze Zernike and optimize free-form SLM
-  phase to a square target, iterating until early-stop convergence
-- Baselines (all on the **identical 64×64 grid**, identical bench metric
-  `composite_score = 0.5·PIB + 0.5·(1 − min(CV/0.3, 1))`):
-  - initial (unshaped golden+noise) score
+- Runs the iterative refinement loop: Stage B optimizes the free-form SLM phase
+  to the square target, warm-started from a Gerchberg-Saxton phase, iterating
+  until early-stop convergence
+- Baselines (all on the **identical 64×64 pupil grid**, padded 8× to a 512×512
+  far field, identical bench metric
+  `composite_score = 0.5·PIB + 0.5·(1/(1+CV))` evaluated in the grid-centred
+  target support):
+  - initial (unshaped golden) score
   - single-pass GS (`gs_shape`, 200 iters)
   - sensorless **SPGD** (`spgd_shape`, 600 iters, dim=8 freeform) — the
     canonical black-box reference. The `0.89` figure cited elsewhere is a
     1920×1200 **hardware-grid** result and is NOT comparable to this 64×64 sim.
-- `initial_vs_final.png` — far-field before/after the iterative loop
-- `score_history.png` — composite score per iteration (A-calib / B-shape phases)
-- `zernike_coeffs.png` — per-mode Zernike coefficient traces across iterations
+- `initial_vs_final.png` — far-field before/after the loop (zoomed, log colour
+  scale: shows the initial aberrated focus and the target box)
+- `score_history.png` — composite score per outer iteration
+- `zernike_coeffs.png` — per-mode Zernike coefficient traces (only when the
+  optional Zernike calibration pass is enabled)
 - `phase_evolution.png` — free-form SLM phase (mod 2π) start/mid/end montage
-- `score_comparison.png` — bar chart: initial vs GS vs SPGD vs iterative (the WIN proof)
-- `data.json` + `*.npy` — raw scores, coefficients, and phase arrays
+- `score_comparison.png` — bar chart: initial vs GS vs SPGD vs refinement
+- `data.json` + `*.npy` — raw scores, the Zernike ablation, and phase arrays
 
-> 📐 **Measured (2026-09, 64×64 sim grid)**: initial **0.1590**, GS single-pass
-> **0.1780**, sensorless SPGD **0.1906** — iterative **0.3851** is **+102.0% vs
-> SPGD**, **+116.3% vs GS**, and **+142.2% vs initial**. The A↔B iteration is
-> the decisive gain over every same-grid baseline, including the canonical
-> sensorless SPGD reference. Locked in by regression test
-> `tests/ao_shaping/algorithm/test_iterative_zernike_shaping.py::test_s7_beats_spgd_and_gs_baselines`.
+> 📐 **Measured (2026-10-01, 64×64 pupil, 8× pad, `far_field_pixel_size` = 0.693 µm,
+> target 43 px ≈ 30 µm ≈ 2.2 Airy diameters)**: initial **0.662**, GS **0.812**,
+> SPGD **0.647**, refinement **0.849** → **+4.6% vs GS**, **+31.2% vs SPGD**.
+> GS produces the most uniform single-pass flat-top (CV 0.41); the refinement
+> reaches CV 0.12.
+>
+> 🔬 **The Zernike calibration pass is a documented NEGATIVE result.** Enabling it
+> (`n_zernike=4`) drops the score to **0.810** (ties GS, −4.5% vs disabled): the
+> calibration's low-order estimate is both leaky (free-form phase is absorbed into
+> spurious high-order modes) and redundant with the free-form stage, and freezing
+> it corrupts the warm start. It is therefore **off by default**; the report still
+> computes the ablation and records it in `data.json`.
+>
+> ⚠️ **Corrected series.** Earlier numbers (initial 0.1590 / GS 0.1780 / SPGD
+> 0.1906 / iterative 0.3851) and the first "corrected" numbers (initial 0.657 /
+> GS 0.810 / SPGD 0.647 / iterative 0.642, "refinement loses") were produced with
+> defects that are now fixed and must not be resurrected:
+> 1. an **un-padded, same-size FFT** whose focal-plane sampling (~1.1 px per
+>    waist radius, a model constant independent of `n_grid`) aliased the
+>    lens-phase-modulated pupil into a lattice of hundreds of dots, so the
+>    "initial spot" was not physical;
+> 2. a **clipped uniformity term** `1 − min(CV/0.3, 1)` whose threshold sat below
+>    every achievable flat-top CV, so the objective silently reduced to pure
+>    bucket energy (`0.5·PIB`) and rewarded concentrating light over flattening
+>    it;
+> 3. an **argmax-rolled support** whose box follows the intensity peak: for
+>    speckle-like fields the argmax hops between near-equal grains under a ~1e-3
+>    model change, making PIB/CV discontinuous and letting the optimizer chase a
+>    box that does not cover the beam. The box is now fixed to the grid-centred
+>    target;
+> 4. Stage B ran at a **flat `slm_lr`** and returned its last iterate, which
+>    oscillated; it now uses a cosine LR decay and returns the best iterate.
+>
+> Locked by regression tests
+> `tests/ao_shaping/algorithm/test_iterative_zernike_shaping.py`
+> (`test_s7_objective_consistency_and_shaping_discrimination` — the algorithm
+> `_score` must equal the bench `composite_score`, and GS must beat SPGD on
+> uniformity; `test_s8_initial_spot_is_single_not_lattice` — the initial spot is
+> a single focus, not an aliased dot lattice;
+> `test_s9_warm_started_refinement_beats_gs` — the GS-warm-started refinement
+> must beat plain GS).
 
 ### generate_slm_pib_sim_report.py
 
