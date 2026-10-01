@@ -1923,3 +1923,156 @@ class AltVoltageRunnerParams:
     adc_samples_per_read: Annotated[
         int, option("--adc-samples-per-read", help="Samples per ADC read (default: 10)")
     ] = 10
+
+
+@dataclass
+class SlmGsRefineParams:
+    """SLM GS warm-start + sensorless freeform refinement (slm-gs-refine)."""
+
+    # --- objective ---------------------------------------------------------
+    target_side: Annotated[
+        int,
+        option(
+            "--target-side",
+            help="Target square side in camera pixels (0 = derive from pupil image).",
+        ),
+    ] = 0
+    side_factor: Annotated[
+        float, option("--side-factor", help="Multiplier on the target side.")
+    ] = 1.0
+    w_pib: Annotated[
+        float, option("--w_pib", help="Composite weight on power-in-bucket.")
+    ] = 0.5
+    w_unif: Annotated[
+        float, option("--w-unif", help="Composite weight on 1/(1+CV).")
+    ] = 0.5
+
+    # --- freeform parameterisation ----------------------------------------
+    phase_grid: Annotated[
+        int,
+        option(
+            "--phase-grid",
+            help="Coarse freeform phase grid edge; DOF = grid**2 (default: 24).",
+        ),
+    ] = 24
+    delta: Annotated[
+        float, option("--delta", help="SPGD perturbation amplitude in radians.")
+    ] = 0.35
+    lr: Annotated[
+        float, option("--lr", help="Learning rate (0 = auto = 0.15*delta).")
+    ] = 0.0
+    optimizer_type: Annotated[
+        str,
+        option(
+            "--optimizer",
+            type=click.Choice(["adam", "adamw", "adamod", "sgd"]),
+            help="Gradient optimizer applied to the SPGD estimate.",
+        ),
+    ] = "adam"
+    lr_schedule: Annotated[
+        str,
+        option(
+            "--lr-schedule",
+            type=click.Choice(["static", "cosine"]),
+            help="Learning-rate schedule.",
+        ),
+    ] = "cosine"
+
+    # --- GS warm start -----------------------------------------------------
+    gs_iters: Annotated[
+        int, option("--gs-iters", help="Gerchberg-Saxton iterations (0 = skip GS).")
+    ] = 200
+    gs_warm_start: Annotated[
+        bool,
+        option(
+            "--gs-warm-start/--no-gs-warm-start",
+            help="Compute a GS phase and keep it only if it beats flat.",
+        ),
+    ] = True
+
+    # --- bench model -------------------------------------------------------
+    panel_pixel_um: Annotated[
+        float, option("--panel-pixel-um", help="SLM pixel pitch in um.")
+    ] = 8.0
+    camera_pixel_um: Annotated[
+        float,
+        option(
+            "--camera-pixel-um",
+            help="CCD pixel pitch in um; verify against your camera.",
+        ),
+    ] = 3.31
+    beam_radius_px: Annotated[
+        float,
+        option(
+            "--beam-radius-px",
+            help="Illuminated pupil radius on the panel, in panel pixels.",
+        ),
+    ] = 450.0
+    focal_length_m: Annotated[
+        float, option("--focal-length-m", help="2f lens focal length in metres.")
+    ] = 0.125
+    far_field_padding: Annotated[
+        int,
+        option(
+            "--far-field-padding",
+            help="GS far-field zero-padding factor (cost is quadratic).",
+        ),
+    ] = 3
+    gs_target_side_px: Annotated[
+        int,
+        option(
+            "--gs-target-side-px",
+            help="Override the bench-space target side (0 = derive).",
+        ),
+    ] = 0
+
+    # --- hardware ----------------------------------------------------------
+    cam_type: Annotated[
+        str,
+        option(
+            "--cam_type",
+            type=click.Choice(["daheng", "miicam", "sim"]),
+            help="CCD backend (sim = 2f-Fourier numerical simulation, no hardware).",
+        ),
+    ] = "daheng"
+    cam_id: Annotated[int, option("--cam-id", help="CCD device ID.")] = 0
+    exposure_time_ms: Annotated[
+        float, option("--exposure_time_ms", help="CCD exposure in ms (0 = default).")
+    ] = 0.0
+    cam_size: Annotated[
+        int, option("--cam_size", help="CCD window size in pixels.")
+    ] = 300
+    slm_number: Annotated[
+        int, option("--slm_number", help="Santec SLM device number (1-8).")
+    ] = 1
+    slm_wavelength: Annotated[
+        int, option("--slm_wavelength", help="SLM operating wavelength (nm).")
+    ] = 1064
+
+    n_eval_frames: Annotated[
+        int, option("--n-eval-frames", help="Frames averaged per measurement.")
+    ] = 4
+    settle_wait_s: Annotated[
+        float, option("--settle-wait-s", help="Initial LCOS settle wait (s).")
+    ] = 0.5
+    settle_tol: Annotated[
+        float, option("--settle-tol", help="Relative stability tolerance.")
+    ] = 0.02
+    settle_max_wait_s: Annotated[
+        float, option("--settle-max-wait-s", help="Cap on settle wait (s).")
+    ] = 6.0
+
+    # --- control -----------------------------------------------------------
+    epochs: Annotated[
+        int, option("-e", "--epochs", help="SPGD refinement iterations.")
+    ] = 400
+    early_stop_score: Annotated[
+        float,
+        option("--early-stop-score", help="Stop once the composite reaches this."),
+    ] = 0.0
+    seed: Annotated[
+        int | None, option("--seed", help="RNG seed for reproducible perturbations.")
+    ] = None
+    save_best_image: Annotated[
+        bool, option("--save-best-image", help="Save the best far-field PNG.")
+    ] = True
