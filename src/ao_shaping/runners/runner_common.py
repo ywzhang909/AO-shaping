@@ -611,6 +611,18 @@ class SpgdParamsPib(SpgdParams):
             help="Noise-aware update gate sigma multiplier (0 disables).",
         ),
     ] = 3.0
+    abba_sampling: Annotated[
+        bool,
+        option(
+            "--abba-sampling",
+            is_flag=True,
+            help=(
+                "Enable ABBA sampling: capture 4 frames per epoch in order (+ - - +) "
+                "instead of 2 (+ -) to cancel linear slow drift (4x captures/epoch). "
+                "Default OFF for byte-identical behavior."
+            ),
+        ),
+    ] = False
 
 
 # ---------------------------------------------------------------------------
