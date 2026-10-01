@@ -581,7 +581,7 @@ python src/ao_shaping/main.py slm-gsnet [COMMAND] [OPTIONS]
 - `--side-factor`: 自动边长倍率 (默认: 1.5)
 - `--w-uniformity` (默认: 0.4) / `--w-efficiency` (默认: 0.6) / `--w-aspect` (默认: 0.0): 质量评分权重 (均匀性/能量效率/宽高比)
 - `--cam_type`: 相机后端 (miicam/daheng/sim, sim=2f-Fourier数值仿真无硬件)
-- `-t, --exposure_time_ms`: CCD曝光时间ms (默认: 0=自动曝光)
+- `-t, --exposure_time_ms`: CCD曝光时间ms (默认: **1.5**, 本台架实测安全值; 换激光功率须重新 bracket —— 该字段不实现自动曝光)
 - `--cam-id`: CCD设备ID (默认: 0)
 - `--cam_size`: CCD开窗大小 (像素)
 - `--slm_number`: SLM设备编号 (默认: 1)
@@ -589,7 +589,7 @@ python src/ao_shaping/main.py slm-gsnet [COMMAND] [OPTIONS]
 - `--zernike_radius`: Zernike孔径半径px (默认: 0=SLM短边/2)
 
 `spgd` 子命令专属:
-- `--delta`: 扰动幅度 (rad, 默认: 0.1)
+- `--delta`: 扰动幅度 (rad)。**省略 = 交给自适应调度**; 显式传值则**固定**该值, 调度只更新 `--lr` (此前 `lr=0` 时调度会静默覆盖它, 使该 flag 在默认用法下等于空操作)
 - `--lr`: 学习率, 0=自动 (默认: 0)
 - `--optimizer_type`: adam/adamw/adamod/sgd/muno/munow (默认: adamod)
 
@@ -742,7 +742,7 @@ python src/ao_shaping/main.py slm-pib [spgd|heuristic] [OPTIONS]
 - `--seed`: 随机种子 (仅 sim 模式下可复现)
 - `--cam_type`: 相机类型 (miicam / daheng / sim, 默认: daheng)
 - `--cam_id`: 相机设备ID (默认: 0)
-- `--exposure_time_ms`: 曝光时间ms (默认: 80.0)
+- `--exposure_time_ms`: 曝光时间ms (默认: **1.5**, 本台架实测安全值; 原默认 80 会在本台架饱和)
 - `--cam_size`: 相机开窗大小 (默认: 250)
 - `-c, --center`: 光斑中心检测 (auto / mass / max / shape / centroid_thresh 或 'x,y')
 - `--auto-exposure`: 自动寻找安全曝光 (一次探测)

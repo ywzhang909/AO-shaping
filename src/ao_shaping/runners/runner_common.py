@@ -329,6 +329,37 @@ def with_params(arg_class: type, *, kw_name: str) -> Any:
 # ---------------------------------------------------------------------------
 
 
+#: SPGD perturbation amplitude used when the caller does not pass ``--delta``.
+#: Mirrors the historical per-family defaults so omitting the flag is
+#: behaviour-preserving.
+DEFAULT_SPGD_DELTA = 0.1
+
+
+def resolve_spgd_delta(
+    delta: float | None, *, default: float = DEFAULT_SPGD_DELTA
+) -> tuple[float, bool]:
+    """Resolve a ``--delta`` option into ``(value, pinned)``.
+
+    ``SpgdParams.delta`` defaults to ``None`` so a runner can tell "the user
+    typed ``--delta``" apart from "the user typed nothing" -- Click collapses both
+    cases into one value otherwise. That distinction matters because the
+    ``lr == 0`` adaptive schedule *reassigns* ``delta`` on every epoch: an
+    explicit ``--delta`` used to be silently overwritten unless the caller also
+    passed an explicit ``--lr``, making the flag a no-op.
+
+    Args:
+        delta: The raw option value, or ``None`` when the flag was omitted.
+        default: Value to use when the flag was omitted.
+
+    Returns:
+        ``(delta, pinned)`` where ``pinned`` is ``True`` only if the caller
+        supplied the value explicitly (and therefore wants it respected).
+    """
+    if delta is None:
+        return abs(float(default)), False
+    return abs(float(delta)), True
+
+
 @dataclass
 class CameraParams:
     """CCD camera options (slm-gsnet family)."""
@@ -345,9 +376,14 @@ class CameraParams:
     exposure_time_ms: Annotated[
         float,
         option(
-            "--exposure_time_ms", help="CCD exposure time in ms (0 = auto-exposure)."
+            "--exposure_time_ms",
+            help=(
+                "CCD exposure time in ms. Default 1.5 is the measured-safe value "
+                "for the Daheng MER2-507 + Santec SLM-200 bench; it is NOT a "
+                "universal constant -- re-bracket it for your laser power."
+            ),
         ),
-    ] = 80.0
+    ] = 1.5
     cam_size: Annotated[
         int, option("--cam_size", help="CCD window size in pixels.")
     ] = 300
@@ -482,8 +518,17 @@ class SpgdParams:
         int, option("-e", "--epochs", help="Optimization iterations.")
     ] = 2000
     delta: Annotated[
-        float, option("--delta", help="SPGD perturbation amplitude (rad).")
-    ] = 0.1
+        float | None,
+        option(
+            "--delta",
+            type=float,
+            help=(
+                "SPGD perturbation amplitude (rad). Omit to let the adaptive "
+                "schedule choose it; passing a value PINS it and disables the "
+                "schedule's delta update."
+            ),
+        ),
+    ] = None
     lr: Annotated[float, option("--lr", help="SPGD learning rate (0 = auto).")] = 0.0
     optimizer_type: Annotated[
         str,

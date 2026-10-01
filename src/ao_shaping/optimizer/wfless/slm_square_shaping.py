@@ -857,7 +857,7 @@ class SlmSquareConfig:
     side_factor: float = 1.5
     delta: float = 0.1
     lr: float = 0
-    exposure_time_ms: float = 80.0
+    exposure_time_ms: float = 1.5
     cam_id: int = 0
     cam_type: str = "daheng"
     show: bool = False
@@ -881,6 +881,10 @@ class SlmSquareConfig:
     objective: str = "quality"
     max_roi_energy_loss: float = 0.6
     init_amplitude_rad: float = 0.0
+    #: When True, ``delta`` is held fixed and the ``lr == 0`` adaptive schedule
+    #: may only update the learning rate. Set by the CLI when the user actually
+    #: typed ``--delta``; otherwise the schedule owns ``delta`` as before.
+    delta_pinned: bool = False
     kwargs: dict[str, Any] = field(default_factory=dict)
 
 
@@ -894,7 +898,7 @@ def optimize_slm_square(
     side_factor: float = 1.5,
     delta: float = 0.1,
     lr: float = 0,
-    exposure_time_ms: float = 80.0,
+    exposure_time_ms: float = 1.5,
     cam_id: int = 0,
     cam_type: str = "daheng",
     show: bool = False,
@@ -1022,6 +1026,13 @@ def optimize_slm_square(
         # Extra keyword args are merged into the config's escape-hatch dict.
         config.kwargs.update(kwargs)
 
+    # `delta` is only adaptive when the caller did not pin it. Click collapses
+    # "user typed --delta 0.1" and "user typed nothing" into one value, so the
+    # runners resolve that distinction via ``resolve_spgd_delta`` and pass the
+    # answer through the config (or, for direct callers, through kwargs). Read
+    # it BEFORE the config block below, which folds it in further down.
+    _delta_pinned = bool(kwargs.pop("delta_pinned", False))
+
     n_max = config.n_max
     target_side = config.target_side
     target_mean_brightness = config.target_mean_brightness
@@ -1056,6 +1067,7 @@ def optimize_slm_square(
     objective = str(config.objective).lower()
     max_roi_energy_loss = float(config.max_roi_energy_loss)
     init_amplitude_rad = float(config.init_amplitude_rad)
+    _delta_pinned = _delta_pinned or bool(config.delta_pinned)
     kwargs = config.kwargs
 
     delta = abs(delta)
@@ -1845,7 +1857,11 @@ def optimize_slm_square(
                     best_img = eval_img.copy()
                     last_best_epoch = epoch
 
-                # Adaptive learning schedule
+                # Adaptive learning schedule. Only touches `delta` when the caller
+                # did NOT pin one: an explicit `--delta` used to be silently
+                # overwritten here whenever `lr` was left at 0 (its default),
+                # which made the flag a no-op unless you also passed an explicit
+                # `--lr`. `--delta` pinned is now reported, not discarded.
                 if lr == 0:
                     _grad_mag = float(np.linalg.norm(gradient))
                     _gradient_history.append(_grad_mag)
@@ -1853,7 +1869,7 @@ def optimize_slm_square(
                     if len(_gradient_history) > _max_history_len:
                         _gradient_history.pop(0)
                         _cv_history.pop(0)
-                    optimizer.lr, delta = learning_schedule(
+                    optimizer.lr, _auto_delta = learning_schedule(
                         cv=eval_cv,
                         encircled_energy=eval_ee,
                         gradient_history=_gradient_history,
@@ -1861,6 +1877,14 @@ def optimize_slm_square(
                         epoch=epoch,
                     )
                     optimizer.lr *= _param_scale
+                    if not _delta_pinned:
+                        delta = _auto_delta * _param_scale
+                    elif epoch == 1:
+                        logger.info(
+                            "delta pinned at {:.4g} rad by the caller; the adaptive "
+                            "schedule will not override it",
+                            delta,
+                        )
                     delta *= _param_scale
 
                 log = {

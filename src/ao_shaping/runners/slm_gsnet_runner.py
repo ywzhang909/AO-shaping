@@ -47,6 +47,7 @@ from ao_shaping.runners.runner_common import (
     SpgdParams,
     config_payload,
     parse_center,
+    resolve_spgd_delta,
     with_params,
 )
 from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts
@@ -192,11 +193,14 @@ def _build_square_config(cfg: SlmGsnetConfig) -> SlmSquareConfig:
     )
 
     if isinstance(search, SpgdParams):
+        delta, delta_pinned = resolve_spgd_delta(search.delta)
         common.update(
             algorithm="spgd",
             pop_size=None,
             lr=search.lr,
-            delta=search.delta,
+            delta=delta,
+            # An explicit --delta must survive the lr==0 adaptive schedule.
+            delta_pinned=delta_pinned,
             optimizer_type=search.optimizer_type,
         )
     else:  # HeuristicParams — black-box search has no learning rate / perturbation
