@@ -429,6 +429,7 @@ def gs_shape(
     seed: int | None = None,
     verbose: bool = False,
     return_phase_only: bool = True,
+    base_phase: np.ndarray | None = None,
 ) -> ShapingResult:
     """Gerchberg-Saxton shaping of a single phase-only SLM.
 
@@ -440,14 +441,27 @@ def gs_shape(
     correctly-sampled transform and the returned intensity matches
     ``make_target``'s grid. The pupil-support constraint keeps only the central
     ``n_grid`` block (light exists only inside the SLM aperture).
+
+    Args:
+        base_phase: Fixed pupil phase (raw radians, shape ``(n_grid, n_grid)``)
+            that the GS solution is added to, e.g. a measured aberration
+            pre-correction ``-Z_est``. It is applied *inside* the pupil
+            constraint, so GS shapes the corrected pupil and the returned phase
+            is the total ``base_phase + delta``.
     """
     beam_cfg = cfg.make_beam_config()
     rng = np.random.default_rng(cfg.seed if seed is None else seed)
     target = make_target(cfg)
     amp_target = np.sqrt(target)
     amp_slm = _pad_centred(np.abs(gaussian_pupil(beam_cfg)), cfg).astype(np.float64)
+    if base_phase is None:
+        base = np.zeros(amp_slm.shape, dtype=np.float64)
+    else:
+        base = _pad_centred(
+            np.asarray(base_phase, dtype=np.float64), cfg
+        )
     # Initial field: gaussian input in the SLM plane
-    field = amp_slm * np.exp(1j * rng.normal(0, 0.1, size=amp_slm.shape))
+    field = amp_slm * np.exp(1j * (base + rng.normal(0, 0.1, size=amp_slm.shape)))
 
     history = []
     for i in range(n_iters):

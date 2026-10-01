@@ -59,8 +59,10 @@ class IterativeZernikeShapingConfig:
         target_side_px: Target square side length in far-field (camera) pixels,
             i.e. pixels of the zero-padded far-field grid (``far_field_size``).
         seed: RNG seed for reproducibility.
-        zernike_lr: Learning rate for Zernike calibration (Adam).
-        slm_lr: Learning rate for SLM phase shaping (Adam).
+        zernike_lr: Learning rate for Zernike calibration (Adam). Keep this small
+            (1e-3..1e-2); the far-field MSE landscape is rugged and a larger value
+            diverges to non-finite coefficients.
+        slm_lr: Learning rate for SLM phase shaping (cosine-decayed per pass).
         calib_iters: Number of Adam steps per Zernike calibration pass.
         shaping_iters: Number of Adam steps per SLM phase shaping pass.
         max_outer_iters: Maximum number of A↔B outer iterations.
@@ -77,7 +79,7 @@ class IterativeZernikeShapingConfig:
     n_zernike: int = 4
     target_side_px: int = 16
     seed: int = 0
-    zernike_lr: float = 0.05
+    zernike_lr: float = 0.005
     slm_lr: float = 0.02
     calib_iters: int = 50
     shaping_iters: int = 100
@@ -464,6 +466,13 @@ class IterativeZernikeShapingOptimizer:
             loss = t.mean((ff - target_ff) ** 2) / scale
             loss.backward()
             opt.step()
+            if not bool(t.isfinite(zernike_coeffs).all()):
+                logger.warning(
+                    "Zernike calibration diverged to non-finite coefficients at "
+                    "iter {} (zernike_lr={}); returning the last finite estimate.",
+                    _, self._config.zernike_lr,
+                )
+                break
 
         # Extract calibrated coefficients
         with t.no_grad():

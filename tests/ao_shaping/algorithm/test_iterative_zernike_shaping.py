@@ -70,7 +70,7 @@ def _optimizer(n_zernike: int = 4, **kw) -> IterativeZernikeShapingOptimizer:
         calib_iters=kw.pop("calib_iters", 40),
         shaping_iters=kw.pop("shaping_iters", 60),
         max_outer_iters=kw.pop("max_outer_iters", 3),
-        zernike_lr=kw.pop("zernike_lr", 0.05),
+        zernike_lr=kw.pop("zernike_lr", 0.005),
         slm_lr=kw.pop("slm_lr", 0.02),
         **kw,
     )
@@ -357,3 +357,30 @@ def test_s9_warm_started_refinement_beats_gs():
     )
     score = out["metrics"]["score"]
     assert score > gs_score, f"warm-started refinement {score} <= GS {gs_score}"
+
+
+# ---------------------------------------------------------------------------
+# S10: Zernike calibration stays finite and beats the zero-coefficient baseline
+# ---------------------------------------------------------------------------
+def test_s10_calibration_is_finite_and_reduces_mismatch():
+    """Calibration must not diverge to NaN and must lower the far-field MSE.
+
+    A large ``zernike_lr`` used to blow the coefficients up to non-finite values
+    on the rugged far-field MSE landscape; the default is now small and the loop
+    bails out on the first non-finite iterate.
+    """
+    actual = _make_actual_far_field()
+    init = np.zeros((N, N))
+    opt = _optimizer(n_zernike=4, calib_iters=200)
+    coeffs = opt.calibrate_zernike(actual, init)
+    assert coeffs, "calibration returned no coefficients"
+    for mode, value in coeffs.items():
+        assert np.isfinite(value), f"non-finite coefficient for {mode}: {value}"
+
+    zero = _zero_vec(opt)
+    m_base = _mse(opt._far_field(zero, torch.as_tensor(init, dtype=torch.float64)).numpy(), actual)
+    m_cal = _mse(
+        opt._far_field(_coeff_vec(opt, coeffs), torch.as_tensor(init, dtype=torch.float64)).numpy(),
+        actual,
+    )
+    assert m_cal < m_base, f"calibrated MSE {m_cal} not < baseline {m_base}"

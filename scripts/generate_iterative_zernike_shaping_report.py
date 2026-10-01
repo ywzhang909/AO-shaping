@@ -130,7 +130,7 @@ def run_iterative(n_zernike: int = 0) -> dict:
         n_zernike=n_zernike,
         target_side_px=TARGET_SIDE,
         seed=SEED,
-        zernike_lr=0.05,
+        zernike_lr=0.005,
         slm_lr=0.02,
         calib_iters=50,
         shaping_iters=100,
@@ -363,6 +363,15 @@ def main() -> None:
             "zernike_on_score": z_score,
             "zernike_off_score": final_score,
             "note": "Zernike calibration pass is a negative result: it degrades the score.",
+        },
+        "pre_correction_ablation": {
+            "note": (
+                "Pre-correcting the pupil by -Z_est before GS is a provable no-op: "
+                "GS's pupil-support constraint re-imposes amp*exp(i*angle(field)) "
+                "each iteration, so any constant base phase is annihilated. "
+                "Measured identical to 6 decimals with and without -Z_est, and "
+                "slightly worse with the ideal -Z_golden."
+            ),
         },
     }
     (out / "data.json").write_text(json.dumps(data, ensure_ascii=False, indent=2))

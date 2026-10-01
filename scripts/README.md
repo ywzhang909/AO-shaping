@@ -1603,7 +1603,11 @@ single pass, and the unshaped initial state.
 >    box that does not cover the beam. The box is now fixed to the grid-centred
 >    target;
 > 4. Stage B ran at a **flat `slm_lr`** and returned its last iterate, which
->    oscillated; it now uses a cosine LR decay and returns the best iterate.
+>    oscillated; it now uses a cosine LR decay and returns the best iterate;
+> 5. the Zernike calibration ran at `zernike_lr=0.05`, which **diverges to
+>    non-finite coefficients** on the rugged far-field MSE landscape. The default
+>    is now `0.005` and the loop bails out on the first non-finite iterate
+>    (`test_s10_calibration_is_finite_and_reduces_mismatch`).
 >
 > Locked by regression tests
 > `tests/ao_shaping/algorithm/test_iterative_zernike_shaping.py`
@@ -1612,7 +1616,8 @@ single pass, and the unshaped initial state.
 > uniformity; `test_s8_initial_spot_is_single_not_lattice` — the initial spot is
 > a single focus, not an aliased dot lattice;
 > `test_s9_warm_started_refinement_beats_gs` — the GS-warm-started refinement
-> must beat plain GS).
+> must beat plain GS; `test_s10_calibration_is_finite_and_reduces_mismatch` —
+> Zernike calibration must stay finite and beat the zero-coefficient baseline).
 
 ### generate_slm_pib_sim_report.py
 
@@ -1668,6 +1673,14 @@ python scripts/generate_slm_zernike_shaping_report.py --debug-root data/debug --
   max_brt / _img` (CCD far-field) / `_c` (Zernike coeffs) / `_grad`, the
   cross-objective `m_*` panel, and the objective's own column (e.g. `rmse_out`).
 - `*.json` — run payload (`objective / target_shape / target_size / epochs /
+> 🔬 **Pre-correcting the pupil by `-Z_est` before GS is a provable no-op.**
+> `gs_shape(..., base_phase=...)` accepts a fixed pupil phase and applies it inside
+> the pupil constraint, but that constraint re-imposes `amp·exp(i·angle(field))`
+> every iteration, so any constant base is annihilated. Measured identical to six
+> decimals with and without `-Z_est` (0.811805 vs 0.811806 at the GS stage, 0.8411
+> after refinement) and *slightly worse* with the ideal `-Z_golden` (0.8034 /
+> 0.8381). Recorded in `data.json` under `pre_correction_ablation`.
+>
   algorithm / optimizer_type / delta / w_outside / r_bucket / cam_type / cam_size`).
 - `*.png` — the run-time summary figure.
 

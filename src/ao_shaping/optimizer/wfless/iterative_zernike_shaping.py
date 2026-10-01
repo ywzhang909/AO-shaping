@@ -59,7 +59,8 @@ class IterativeZernikePibConfig:
             that produce the reference "actual" far-field. If None, a fixed
             default set is used (defocus + astig + spherical at 0.15/0.10/0.10
             waves RMS => Strehl ~ 0.19, a clearly aberrated focus).
-        zernike_lr: Learning rate for Zernike calibration.
+        zernike_lr: Learning rate for Zernike calibration. Keep small
+            (1e-3..1e-2); larger values diverge to non-finite coefficients.
         slm_lr: Learning rate for SLM phase shaping.
         calib_iters: Adam steps per calibration pass.
         shaping_iters: Adam steps per shaping pass.
@@ -80,7 +81,7 @@ class IterativeZernikePibConfig:
     target_side_px: int = 43
     seed: int = 0
     golden_coeffs: dict[tuple[int, int], float] | None = None
-    zernike_lr: float = 0.05
+    zernike_lr: float = 0.005
     slm_lr: float = 0.02
     calib_iters: int = 50
     shaping_iters: int = 100

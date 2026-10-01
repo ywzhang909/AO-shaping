@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-10-01T10:15:43.791124",
+  "timestamp": "2026-10-01T10:57:23.412931",
   "n_grid": 64,
   "far_field_padding": 8,
   "far_field_size": 512,
@@ -70,5 +70,8 @@
     "zernike_on_score": 0.8104479603661194,
     "zernike_off_score": 0.8490605580190433,
     "note": "Zernike calibration pass is a negative result: it degrades the score."
+  },
+  "pre_correction_ablation": {
+    "note": "Pre-correcting the pupil by -Z_est before GS is a provable no-op: GS's pupil-support constraint re-imposes amp*exp(i*angle(field)) each iteration, so any constant base phase is annihilated. Measured identical to 6 decimals with and without -Z_est, and slightly worse with the ideal -Z_golden."
   }
 }
