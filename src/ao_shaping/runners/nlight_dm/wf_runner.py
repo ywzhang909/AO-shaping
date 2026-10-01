@@ -42,6 +42,10 @@ def run(ctx: click.Context, params: WfRunnerParams, wfs: WfsParams) -> None:
             pupil_center=cast(tuple[float, float], wfs.pupil_center),
             early_stop_threshold=params.early_stop_threshold,
             dm=dm,
+            wfs_type=wfs.wfs_type,
+            disturbance_cn2=params.disturbance_cn2,
+            lr=params.lr,
+            delta=params.delta,
         )
     finally:
         dm.close()

@@ -75,6 +75,7 @@ from ao_shaping.algorithm.signal_processing.controller import (
 )
 from ao_shaping.drivers.slm import Santec, ZernikeSLM
 from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
+from ao_shaping.drivers.wfs._registry import resolve_wfs
 from ao_shaping.optimizer.wf.zernike_response_matrix import (
     DEFAULT_N_AVERAGES,
     DEFAULT_N_CYCLES,
@@ -1214,7 +1215,8 @@ def run(
             video_mode=0,
             correction_csv_path=params.correction_csv_path,
         )
-        wfs = ThorlabWFS(
+        wfs = resolve_wfs(
+            wfs_params.wfs_type,
             mla_index=norm["mla_index_enum"],
             exposure_time=norm["effective_exp_time"],
             high_speed=wfs_driver.high_speed,

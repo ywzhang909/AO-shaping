@@ -8,7 +8,7 @@ import tqdm
 
 from ao_shaping.algorithm.gradient.adam import AdaMOD
 from ao_shaping.drivers import MlaRes
-from ao_shaping.drivers.wfs import ThorlabWFS
+from ao_shaping.drivers.wfs._registry import resolve_wfs
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils import Recorder, logger
 
@@ -50,6 +50,10 @@ def optimizer_rms_dm(
     pupil_diameter: float = 2.24,
     early_stop_threshold: float = 0.12,
     dm: DM | None = None,
+    wfs_type: str = "thorlab",
+    disturbance_cn2: float = 0.0,
+    lr: float | None = None,
+    delta: float | None = None,
 ) -> Recorder:
     """Wavefront RMS optimizer using SPGD with a deformable mirror.
 
@@ -61,6 +65,17 @@ def optimizer_rms_dm(
         pupil_diameter: WFS pupil diameter.
         early_stop_threshold: RMS threshold for early stopping.
         dm: Deformable mirror instance (must be open). Required.
+        wfs_type: Registered sensor type, resolved via the WFS registry. Defaults
+            to ``"thorlab"``, preserving the previous hard-coded construction.
+        disturbance_cn2: Turbulence strength for the simulated sensor. ``0``
+            injects no aberration, so an RMS-minimising loop correctly
+            keeps the flat DM command and nothing is demonstrated.
+        lr: Override the schedule's learning rate. ``None`` keeps the
+            hardware-calibrated auto-schedule.
+        delta: Override the SPGD perturbation amplitude, in volts. The
+            auto-schedule targets a specific hardware voltage-to-phase
+            scale; against a simulated DM it perturbs by ~2.6% of the
+            objective, too little for the gradient estimate to register.
 
     Returns:
         Recorder with optimization history.
@@ -71,6 +86,9 @@ def optimizer_rms_dm(
         )
 
     epochs = int(epochs)
+    # Saved before the schedule rebinds `lr`/`delta`, which would otherwise
+    # discard the caller's override at both call sites.
+    _lr_override, _delta_override = lr, delta
     recorder = Recorder(mark="rms", mode="min")
 
     if not init_v:
@@ -81,8 +99,10 @@ def optimizer_rms_dm(
 
     wfs_res_config = MlaRes.from_str(wfs_res)
 
-    with ThorlabWFS(
-        wfs_res_config,
+    with resolve_wfs(
+        wfs_type,
+        mla_index=wfs_res_config,
+        disturbance_cn2=disturbance_cn2,
         use_custom_ref=False,
         high_speed=True,
         pupil_diameter=pupil_diameter,
@@ -96,6 +116,8 @@ def optimizer_rms_dm(
 
         wf, statics = calc_j()
         lr, delta = schedule_lr_delta(statics["wighted_rms"])
+        lr = _lr_override if _lr_override is not None else lr
+        delta = _delta_override if _delta_override is not None else delta
         optimizer = AdaMOD(dim=dm.DM_Num, lr=lr, beta3=0.9999)
 
         recorder.append(
@@ -142,6 +164,8 @@ def optimizer_rms_dm(
 
                 avg_j = (pos_j + neg_j) / 2
                 lr, delta = schedule_lr_delta(avg_j)
+                lr = _lr_override if _lr_override is not None else lr
+                delta = _delta_override if _delta_override is not None else delta
                 optimizer.lr = lr
                 update = optimizer.update(gradient)
                 max_iter_diff = getattr(dm, "max_iter_diff", float("inf"))

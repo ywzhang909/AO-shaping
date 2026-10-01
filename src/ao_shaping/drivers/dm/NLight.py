@@ -10,6 +10,7 @@ import findlibs
 import numpy as np
 from loguru import logger
 
+from ao_shaping.drivers.dm._adjacency import lazy_adjacency, load_adjacency
 from ao_shaping.drivers.dm._registry import register_dm
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.utils.io.device_config import ConfigHandler, DeviceParam, param
@@ -45,7 +46,7 @@ NLIGHT_CONFIG = ConfigHandler(_DM_CONFIG_DIR, "nlight", NLightParams)
 
 
 def _load_adj_txt():
-    return np.loadtxt("data/dm_adj.txt")
+    return load_adjacency()
 
 
 @register_dm("nlight")
@@ -60,7 +61,7 @@ class NLight(DM):
 
     disabled_actuators: list[int] = [0]
 
-    Units_Adj_Mat = _load_adj_txt()
+    Units_Adj_Mat = lazy_adjacency()
 
     @classmethod
     def from_params(cls, params: Any, **overrides: Any) -> Self:

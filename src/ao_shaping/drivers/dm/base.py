@@ -101,6 +101,24 @@ class DM(ABC):
         """Alias for DM_NUM (backward compatibility)."""
         return self.DM_NUM
 
+    @property
+    def min_voltage(self) -> float:
+        """Lower voltage bound, under the ``min_voltage`` spelling.
+
+        ``V_Min`` is the canonical name, but ``optimizer/combined_optimizer.py``
+        clips its update against ``dm.min_voltage`` / ``dm.max_voltage`` and
+        only ever set those on a DM it constructed itself. A runner that injects
+        a DM (which ``combined`` does) therefore hit ``AttributeError`` on every
+        driver, hardware included. Aliasing here makes the bound available
+        regardless of how the DM was built.
+        """
+        return self.V_Min
+
+    @property
+    def max_voltage(self) -> float:
+        """Upper voltage bound, under the ``max_voltage`` spelling. See :attr:`min_voltage`."""
+        return self.V_Max
+
     # ---- Voltage transformation (common) ----
 
     def transform_voltage(self, cmd: np.ndarray) -> np.ndarray:

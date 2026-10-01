@@ -12,10 +12,13 @@ from typing import Any
 
 import numpy as np
 
+from ao_shaping.drivers.dm._adjacency import load_adjacency
+from ao_shaping.drivers.dm._registry import register_dm
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.model.quantities import DmCommands
 
 
+@register_dm("sim")
 class SimulateDM(DM):
     """Generic simulated deformable mirror.
 
@@ -35,8 +38,25 @@ class SimulateDM(DM):
     n_actuators: int = 64
     disabled_actuators: list[int] = []
 
+    #: Canonical base-class names. The lowercase ``v_min``/``v_max`` below were
+    #: the only ones defined, so the base default of ``+/-inf`` leaked through
+    #: and any caller clipping a command to the DM's range clipped to nothing.
+    V_Min: float = -300.0
+    V_Max: float = 499.0
+
     v_min: int = -300
     v_max: int = 499
+
+    @property
+    def DM_NUM(self) -> int:
+        """Actuator count, as the ``DM`` base class spells it.
+
+        ``DM.DM_Num`` forwards to ``self.DM_NUM``; without this the class raised
+        ``AttributeError`` on every ``DM_Num`` access. That went unnoticed while
+        the type was unregistered — ``@register_dm("sim")`` is what made the
+        gap reachable.
+        """
+        return self.n_actuators
 
     def __init__(
         self,
@@ -147,9 +167,63 @@ class SimulateDM(DM):
         # Calculate simulated deformation (voltage to deformation)
         deformation = self._voltage_to_deformation(self.__last_v)
         self.deformation_history.append(deformation)
+        self._publish_to_optics(self.__last_v)
         if typed:
             return DmCommands(self.__last_v, self.v_min, self.v_max, self.channel)
         return self.__last_v
+
+    def _publish_to_optics(self, voltages: np.ndarray) -> None:
+        """Push the achieved voltages into the shared optical model's DM phase.
+
+        Without this the DM is invisible to ``SimPibSystem``: its ``far_field``
+        summed only the SLM command, so DM-driven loops (``pib``, ``combined``)
+        ran to completion while the voltages changed nothing.
+
+        The import is deferred because ``drivers/sim/__init__`` imports this
+        module *before* ``slm_pib_sim``, so a module-level import would resolve
+        against a partially initialised package.
+
+        The *achieved* voltages are published, not the requested ones, so the
+        optics sees the same rate-limited and noise-laden state the driver
+        actually applied.
+        """
+        from loguru import logger
+
+        from ao_shaping.drivers.sim.slm_pib_sim import get_system
+
+        try:
+            optics = get_system().dm_optics
+        except (ImportError, AttributeError) as exc:
+            logger.warning("sim DM not coupled into the optical model: {}", exc)
+            return
+        if optics.n_actuators != self.channel:
+            logger.warning(
+                "sim DM has {} actuators but the optical model expects {}; "
+                "DM voltages will not reach the pupil",
+                self.channel,
+                optics.n_actuators,
+            )
+            return
+        optics.set_voltages(voltages)
+        self._publish_to_wfs(voltages)
+
+    def _publish_to_wfs(self, voltages: np.ndarray) -> None:
+        """Also push the voltages to the simulated sensor, if one is live.
+
+        The far-field model and the WFS model are separate optical states: the
+        sensor measures the pupil, not the far field, so publishing only to
+        ``SimPibSystem`` left ``wf``/``rms-zernike`` reading a flat pupil and
+        reporting zero RMS no matter what the DM did.
+
+        Silently skipped when no simulated sensor exists -- on hardware paths,
+        or when only the far-field model is in use.
+        """
+        from ao_shaping.drivers.sim.wfs.simulated_wfs import get_active_sim_wfs
+
+        sensor = get_active_sim_wfs()
+        if sensor is None or sensor.dm_optics.n_actuators != self.channel:
+            return
+        sensor.dm_optics.set_voltages(voltages)
 
     def set_hv(self, hv: bool = True) -> int:
         """Set high voltage state."""
@@ -176,25 +250,13 @@ class SimulateDM(DM):
 
     @staticmethod
     def _load_adj_txt() -> np.ndarray:
-        """Load adjacency matrix or create a default grid structure.
+        """Adjacency matrix, shared with the real DM drivers.
 
-        Returns:
-            2D array of shape (64, 64) with adjacency information.
+        Replaces a byte-for-byte duplicate of this loader that read a
+        CWD-relative ``data/dm_adj.txt`` and carried its own fallback grid.
         """
-        try:
-            return np.loadtxt('data/dm_adj.txt')
-        except (FileNotFoundError, OSError):
-            # If no adjacency matrix file, create a simple grid structure
-            size = int(np.sqrt(64))
-            adj = np.zeros((64, 64), dtype=int)
-            for i in range(64):
-                row, col = i // size, i % size
-                for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                    nr, nc = row + dr, col + dc
-                    if 0 <= nr < size and 0 <= nc < size:
-                        j = nr * size + nc
-                        adj[i, j] = 1
-            return adj
+        return load_adjacency()
+
 
     def get_deformation_history(self) -> np.ndarray:
         """Get deformation history as array.

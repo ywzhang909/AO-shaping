@@ -27,7 +27,8 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.dm._registry import resolve_dm
-from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
+from ao_shaping.drivers.wfs import MlaRes
+from ao_shaping.drivers.wfs._registry import resolve_wfs
 from ao_shaping.optimizer.wf.dm_response_matrix import (
     calibrate_dm_response_matrix,
     save_dm_response_matrix,
@@ -120,7 +121,8 @@ def run(
     dm = resolve_dm(params.dm_type)
     try:
         dm.open()
-        with ThorlabWFS(
+        with resolve_wfs(
+            wfs.wfs_type,
             mla_index=mla_index_enum,
             exposure_time=effective_exp_time,
             high_speed=wfs_drv.high_speed,

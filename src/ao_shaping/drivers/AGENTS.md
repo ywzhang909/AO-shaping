@@ -93,6 +93,64 @@ class DeviceState(Enum):
 
 详细接口规范见 [`INTERFACE_DOCS.md`](./INTERFACE_DOCS.md)。
 
+## 驱动惰性加载契约 (2026-10-01)
+
+`import ao_shaping` 及其任何子包**都不得加载原生 SDK、也不得做磁盘 I/O**。这不是
+性能优化, 而是正确性问题 —— 仓库里已因此真实炸过两次。
+
+### 两条独立的惰性
+
+| 层级 | 机制 | 位置 |
+|------|------|------|
+| **包级** | PEP 562 模块 `__getattr__` | `drivers/_lazy.py::install_lazy_attrs` |
+| **构造级** | `Device._load_sdk()` / `Device._ensure_sdk()` | `drivers/device_base.py` |
+
+**包级**: 硬件类只登记在 `_LAZY_BACKENDS` 映射里, 首次属性访问才 import。
+⚠️ `install_lazy_attrs` 内部**必须**写 `module_globals[name] = value` 缓存, 否则
+后续直接 `import` 该子模块会重新绑定全局变量, 惰性被彻底绕过。
+⚠️ 惰性名字**绝不能**在模块作用域出现同名赋值 —— 那会遮蔽 `__getattr__` 并退回 eager。
+
+**构造级**: 驱动**构造**不得加载 SDK, 需求推迟到 `open()`。
+
+```python
+class MyDriver(Device):
+    @staticmethod
+    def _load_sdk():        # 覆写点; 默认返回 None (仿真设备无 SDK)
+        return load_dll()
+
+    @property
+    def _lib(self):          # 只读属性 → 所有 self._lib.<fn> 读点零改动
+        return self._ensure_sdk()   # 解析一次并缓存
+```
+
+`ThorlabWFS` 曾把 `load_dll()` 写在 `__init__` 里, 于是**构造**就 `OSError`
+(`WFS_64.dll` 缺失), 使离线脚本无法构造驱动实例。现在 53 处 `self._lib.<fn>` 读点
+全部经由惰性属性, 零改动。
+
+### 静态资源也必须锚定包路径, 不可用 CWD 相对路径
+
+`NLight.py` 曾在**类体**里执行 `np.loadtxt("data/dm_adj.txt")` —— 类体赋值即
+**import 期**读文件, 且路径相对 CWD。任何在仓库根目录之外运行的消费者 (cron、
+服务、安装后的 console script、`cwd=tmp_path` 的测试) 都会
+`FileNotFoundError: data/dm_adj.txt not found`, 即 **`import ao_shaping` 直接失败**。
+
+规则:
+- 仓库**输入**资产 (如 `dm_adj.txt`) → 经 `drivers/dm/_adjacency.py::load_adjacency()`
+  加载, 路径锚定包位置, 带回退与缓存。
+- 运行**输出** (如 `PATHS.root_dir`) → CWD 相对是**正确**的, 不要改。
+- 禁止在任何类体/模块作用域做 I/O。
+
+### 分层方向: 硬件包不得 import 仿真包
+
+`drivers/dm/__init__.py` 曾 import `drivers.sim.dm` (硬件 → 仿真, 方向反了), 而
+`simulated_micro_dm` 又 import `drivers.dm.base`, 形成循环。该循环此前靠
+`drivers/__init__.py` 里的 eager 导入顺序侥幸未暴露 —— 一旦改成惰性就立刻炸。
+现在 `sim` / `sim_micro` 经同一个 `install_lazy_attrs` 惰性解析, 依赖方向单一。
+
+`dm/_registry.py::_ensure_sim_dms_bound()` 保证 `"sim"` 在**首次注册表使用**时绑定,
+因此 `list_dm_types()` / `create_dm()` / `resolve_dm()` 无论进程先 import 了哪个包
+都能看到仿真 DM —— 不需要 `drivers/dm/__init__.py` 反向依赖。
+
 ## 硬件事实 (2026-09 实测确认)
 
 | 设备 | 确认信息 |

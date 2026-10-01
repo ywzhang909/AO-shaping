@@ -19,11 +19,9 @@ MIICamera`` keeps working; a backend that cannot be imported still degrades to
 ``None`` exactly as before.
 """
 
-from importlib import import_module
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from loguru import logger
-
+from ao_shaping.drivers._lazy import install_lazy_attrs
 from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
 from ao_shaping.drivers.ccd.ffmpeg import (
     FFmpegCamera,
@@ -46,29 +44,8 @@ if TYPE_CHECKING:
     from ao_shaping.drivers.ccd.miicam.driver import MIICAMError, MIICamera
 
 
-def __getattr__(name: str) -> Any:
-    """Resolve an SDK-backed camera class on first access (PEP 562).
+__getattr__ = install_lazy_attrs(globals(), _LAZY_BACKENDS, __name__)
 
-    Returns ``None`` when the backend cannot be imported, preserving the
-    graceful degradation of the previous eager ``try/except`` imports. The
-    result is cached in ``globals()`` so a failed backend is not retried and
-    the import cost is paid at most once.
-    """
-    try:
-        module_path, attr = _LAZY_BACKENDS[name]
-    except KeyError:
-        raise AttributeError(
-            f"module {__name__!r} has no attribute {name!r}"
-        ) from None
-
-    try:
-        value = getattr(import_module(module_path), attr)
-    except Exception as e:  # mirrors the previous catch-all degradation
-        logger.debug(f"{name} driver not available: {e}")
-        value = None
-
-    globals()[name] = value
-    return value
 
 
 def __dir__() -> list[str]:

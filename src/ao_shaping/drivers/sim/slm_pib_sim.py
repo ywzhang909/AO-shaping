@@ -33,9 +33,12 @@ from typing import Any
 import numpy as np
 from loguru import logger
 
+from ao_shaping.config import DM_N_ACTUATORS
 from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
 from ao_shaping.drivers.device_base import DeviceState
 from ao_shaping.drivers.sim.disturbance import SimDisturbance
+from ao_shaping.drivers.sim.dm_optics import SimDmOptics
+from ao_shaping.drivers.slm.santec.slm200_constants import GRAY_SCALE_BITS
 
 try:  # scipy's pocketfft is multithreaded, which the padded transform needs.
     from scipy import fft as _scipy_fft
@@ -95,6 +98,7 @@ class SimPibSystem:
         seed: int | None = None,
         *,
         disturbance: SimDisturbance | None = None,
+        dm_optics: SimDmOptics | None = None,
         far_field_padding: int = FAR_FIELD_PADDING,
         far_field_window: int = FAR_FIELD_WINDOW,
     ) -> None:
@@ -111,6 +115,11 @@ class SimPibSystem:
                 original, disturbance-free behaviour. Its screen is added to the
                 SLM command phase inside :meth:`far_field`; ``self._phase`` is
                 never modified, so the disturbance cannot be double-counted.
+            dm_optics: Optional DM voltage -> phase coupling. Like the
+                disturbance this is summed at evaluation time and never baked
+                into ``self._phase``. It defaults to a flat, zero-volt instance
+                rather than ``None`` so DM-driven runners are coupled by
+                construction and cannot silently regress to driving nothing.
         """
         self.slm_h, self.slm_w = slm_shape
         self.ccd_h, self.ccd_w = ccd_res
@@ -119,6 +128,10 @@ class SimPibSystem:
         self.disturbance = disturbance
         self.far_field_padding = max(1, int(far_field_padding))
         self.far_field_window = max(1, int(far_field_window))
+        self.dm_optics = dm_optics or SimDmOptics(
+            n_actuators=DM_N_ACTUATORS, slm_shape=slm_shape
+        )
+        self._dm_version = self.dm_optics.version
         self._rng = np.random.default_rng(seed)
         self._lock = threading.Lock()
         self._phase: np.ndarray = np.zeros((self.slm_h, self.slm_w), dtype=np.float64)
@@ -159,6 +172,12 @@ class SimPibSystem:
         image centre, matching the 2f-bench convention in ``AGENTS.md``.
         """
         with self._lock:
+            # The DM is an independent optical state, so a voltage change must
+            # invalidate the cache. Without this the cache keeps serving the
+            # pre-DM image and a DM-driven loop reads as if the DM did nothing.
+            if self.dm_optics.version != self._dm_version:
+                self._far_field = None
+                self._dm_version = self.dm_optics.version
             if self._far_field is not None:
                 return self._far_field.copy()
             phase = self._phase
@@ -168,6 +187,10 @@ class SimPibSystem:
             # command -- baking the disturbance in would double-count it.
             if self.disturbance is not None:
                 phase = phase + self.disturbance.phase()
+            # Likewise the DM: summed here, never baked into `self._phase`.
+            dm_phase = self.dm_optics.phase()
+            if dm_phase.any():
+                phase = phase + dm_phase
             # Gaussian input beam amplitude on the SLM grid.
             yy, xx = np.mgrid[0 : self.slm_h, 0 : self.slm_w]
             cy, cx = self.slm_h / 2.0, self.slm_w / 2.0
@@ -199,13 +222,28 @@ class SimPibSystem:
             return self._far_field.copy()
 
     def far_field_noisy(self) -> np.ndarray:
-        """Far field plus shot + read noise (returned as float, ~0..255 scale)."""
+        """Far field plus shot + read noise, as a raw ADU frame.
+
+        The result is deliberately **not** clipped at zero. ``far_field`` is
+        ``|FFT|**2`` and so already non-negative, which means every negative value
+        here comes from read noise. Clipping at zero rectifies that symmetric
+        noise into a DC pedestal proportional to the pixel count: with the spot
+        holding ~150 px of signal inside a 1200x1920 frame, the pedestal measured
+        ~3000x the signal. Every power-ratio metric then divided by that pedestal
+        instead of by the light, which is why ``pib``/``combined`` sat at ~0.0145
+        and their SPGD gradient estimates were pure noise.
+
+        A real sensor's floor sits below its clipping threshold and is clipped
+        once at digitisation, so a raw frame may dip slightly below the black
+        level; dark-frame subtraction is what removes the offset, not a
+        per-frame clip.
+        """
         img = self.far_field()
         if self.noise_adu > 0:
             shot = self._rng.poisson(np.clip(img, 0, None).astype(np.float64) / 10.0)
             img = img + (shot - img / 10.0) * (self.noise_adu / 10.0)
             img = img + self._rng.normal(0.0, self.noise_adu / 10.0, img.shape)
-        return np.clip(img, 0.0, None)
+        return img
 
 
 # A single process-wide system so the registry-created CCD and the monkeypatched
@@ -243,6 +281,11 @@ class SimSLMPib:
     ``create_phase_from_array``, ``display_data``, ``set_grayscale``, ``open``,
     ``close``, ``is_connected``, ``__enter__``/``__exit__``.
     """
+
+    #: Mirrors ``Santec.Gray_Scale_bits``; ``optimize_slm_square`` reads it when
+    #: sizing its ``PatternHelper``. Absent here, it raised ``AttributeError``
+    #: partway through an ``spgd-square`` simulation run.
+    Gray_Scale_bits: int = GRAY_SCALE_BITS
 
     def __init__(self, *args: Any, system: SimPibSystem | None = None, **kwargs: Any) -> None:
         self.system = system or get_system()
@@ -460,3 +503,14 @@ def register_sim_camera() -> None:
         register_camera("sim", SimPibCCD)
     except Exception as exc:  # already registered
         logger.debug("sim camera already registered: {}", exc)
+
+
+# Registering here rather than only inside ``register_sim_camera()`` makes
+# ``--cam_type sim`` work for every consumer. It previously had exactly two
+# call sites (the slm-gsnet runner's ``_maybe_sim_patch`` and the
+# ``scripts/slm_pib_sim_run.py`` harness), so the documented command
+# ``main.py slm-pib spgd --cam_type sim`` died with
+# ``ValueError: Unknown camera type: 'sim'``. Holding the simulated far field
+# implies having the simulated camera that reads it, so importing this module
+# is the natural place to bind the pair together.
+register_sim_camera()

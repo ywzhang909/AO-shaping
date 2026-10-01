@@ -49,6 +49,7 @@ def run(
     debug = resolve_debug(ctx, params.debug)
 
     records = optimizer_greedy(
+        wfs_type=wfs.wfs_type,
         epochs=params.epochs,
         n_init=params.n_init,
         n_directions=params.n_directions,

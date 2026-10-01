@@ -112,7 +112,7 @@ def test_camera_registry_still_lists_all_backends() -> None:
     result = _run_snippet(snippet)
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "daheng,ffmpeg,image_folder,miicam"
+    assert result.stdout.strip() == "daheng,ffmpeg,image_folder,miicam,sim"
 
 
 def test_unknown_attribute_still_raises_attribute_error() -> None:

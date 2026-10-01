@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, Type
 
+from loguru import logger
+
 from ao_shaping.drivers.dm.base import DM
 
 # Type-specific kwargs filter: maps registered name → set of accepted kwargs
@@ -32,6 +34,15 @@ _KWARG_FILTERS: dict[str, set[str]] = {
         "safety_mode",
     },
     "sim_micro": {"device_id", "safety_mode"},
+    "sim": {
+        "device_id",
+        "safety_mode",
+        "keep_when_exit",
+        "max_iter_diff",
+        "max_neibor_diff",
+        "dm_neibor_diff",
+        "noise_level",
+    },
     "asyn_micro": {
         "ips",
         "timeout",
@@ -42,7 +53,32 @@ _KWARG_FILTERS: dict[str, set[str]] = {
 # Legacy kwarg aliases: (old_name) → (new_name)
 _KWARG_ALIASES: dict[str, dict[str, str]] = {
     "nlight": {"dm_neibor_diff": "max_neibor_diff"},
+    "sim": {"dm_neibor_diff": "max_neibor_diff"},
 }
+
+#: Guards the one-time import that binds the simulated DM types.
+_sim_dms_bound = False
+
+
+def _ensure_sim_dms_bound() -> None:
+    """Bind the ``sim`` / ``sim_micro`` DM types on first registry use.
+
+    Those types are declared with ``@register_dm(...)`` inside
+    ``drivers.sim.dm``. Importing that package from ``drivers.dm.__init__``
+    instead would invert the layering (a hardware package importing the
+    simulation one) and creates an import cycle, because ``simulated_micro_dm``
+    imports ``drivers.dm.base`` back. Deferring the import to first registry use
+    keeps the dependency pointing one way while making the types discoverable no
+    matter which package the process imported first.
+    """
+    global _sim_dms_bound
+    if _sim_dms_bound:
+        return
+    _sim_dms_bound = True
+    try:
+        import ao_shaping.drivers.sim.dm  # noqa: F401
+    except ImportError as exc:  # pragma: no cover - sim package is optional
+        logger.debug("simulated DM types unavailable: {}", exc)
 
 
 class DMRegistry:
@@ -61,6 +97,7 @@ class DMRegistry:
         return decorator
 
     def create(self, name: str, **kwargs: Any) -> DM:
+        _ensure_sim_dms_bound()
         cls = self._registry.get(name.lower())
         if cls is None:
             raise ValueError(
@@ -82,6 +119,7 @@ class DMRegistry:
             Instantiated DM subclass.
         """
         key = name.lower()
+        _ensure_sim_dms_bound()
         if key not in self._registry:
             raise ValueError(
                 f"Unknown DM type: {name!r}. Available: {sorted(self._registry.keys())}"
@@ -102,15 +140,18 @@ class DMRegistry:
         return name.lower() in self._registry
 
     def list_types(self) -> list[str]:
+        _ensure_sim_dms_bound()
         return sorted(self._registry.keys())
 
     def list_reachable_types(self) -> list[str]:
         """Return sorted list of DM types whose hardware is currently reachable."""
+        _ensure_sim_dms_bound()
         return sorted(
             name for name, cls in self._registry.items() if cls.is_reachable()
         )
 
     def get_class(self, name: str) -> Type[DM]:
+        _ensure_sim_dms_bound()
         cls = self._registry.get(name.lower())
         if cls is None:
             raise ValueError(
@@ -168,6 +209,8 @@ def resolve_dm(dm_type: str | None = None, **kwargs) -> DM:
             while ``dm_type`` is ``None``.
     """
     from loguru import logger
+
+    _ensure_sim_dms_bound()
 
     if dm_type is not None:
         dm_type = dm_type.lower()

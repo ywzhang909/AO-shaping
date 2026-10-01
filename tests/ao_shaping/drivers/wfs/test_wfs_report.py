@@ -49,8 +49,13 @@ class TestWFSReport:
     def wfs(self, ThorlabWFS):
         """Create and return WFS instance."""
         # "512" or "512H" for high speed
-        wfs = ThorlabWFS("512", high_speed=False)
-        wfs.open()
+        # The vendor DLL is only required here, not at construction, so the
+        # missing-SDK case surfaces at open() and must skip like its siblings.
+        try:
+            wfs = ThorlabWFS("512", high_speed=False)
+            wfs.open()
+        except Exception as e:
+            pytest.skip(f"WFS hardware not available: {e}")
         yield wfs
         wfs.close()
 
