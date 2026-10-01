@@ -81,6 +81,7 @@ from ao_shaping.utils.image.targets import (
     # backward compatibility with existing importers/tests.
     SHAPE_STAGE_WEIGHTS,
     TARGET_SHAPE_CHOICES,
+    ObjectiveResult,
     ObjectiveSpec,
     ShapeScoringParams,
     ShapingObjective,
@@ -265,6 +266,12 @@ defocus were indistinguishable until this was matched).
 # Memory-slot range used for phase writes (never repeat a slot consecutively).
 _SLOT_MIN, _SLOT_MAX = 2, 125
 _SLOT_STATE = {"slot": _SLOT_MIN - 1}
+
+
+def _spgd_capture_signs(abba: bool) -> tuple[int, ...]:
+    """Capture order as +1/-1 signs: ``(1, -1)`` normally, ``(1, -1, -1, 1)``
+    for ABBA. The palindrome cancels linear slow drift in the sign-means."""
+    return (1, -1, -1, 1) if abba else (1, -1)
 
 
 def _display(slm, gray) -> int:
@@ -497,6 +504,11 @@ class SlmZernikePibConfig:
     # 0 disables (negative k disables too).
     noise_gate_k: float = 3.0
     noise_gate_window: int = 20
+    # ABBA sampling: capture 4 frames per epoch in the order `+ - - +` instead of
+    # 2 (`+ -`). A drift that is linear in time contributes the same term to both
+    # sign-means of a palindrome, so it cancels out of the SPGD difference. Off
+    # by default so the 2-capture path stays byte-identical.
+    abba_sampling: bool = False
     # --- Hardware / objective groups -------------------------------------------
     camera: CameraParamsPib = field(default_factory=_default_camera)
     slm: SlmParamsPib = field(default_factory=_default_slm)
@@ -1319,6 +1331,12 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         _n_fold_gated = 0
         _n_noise_gated = 0
 
+        if config.abba_sampling:
+            logger.info(
+                "SPGD ABBA sampling enabled: 4 captures/epoch (+ - - +), "
+                "linear drift cancellation"
+            )
+
         with tqdm.tqdm(
             total=epochs, desc=f"slm_zernike iter {epochs}", dynamic_ncols=True
         ) as bar:
@@ -1327,23 +1345,32 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 disturb_c = rng.binomial(1, 0.5, (nk,)).astype(float) * 2.0 - 1.0
                 disturb_c = disturb_c * delta
 
-                # Positive perturbation
-                _pos_c = np.clip(_init_c + disturb_c, -5.0, 5.0)
-                pos_phase = slm.create_phase_from_array(
-                    _zernike_to_phase(_pos_c, n_max, pattern_helper, zernike_radius)
-                )
-                _display(slm, pos_phase)
-                time.sleep(SLM_RESPONSE_TIME_S)
-                pos_img = cam.get_numpy_image(config.n_eval_frames)
+                # Capture frames in the configured sign order: `+ -` by default,
+                # `+ - - +` (ABBA) when ``abba_sampling`` is on. The palindrome
+                # makes a drift that is linear in time carry an identical term
+                # in both sign-means, so it cancels out of the SPGD difference
+                # (see tools/slm/slm_snr_probe.py::abba_signal). Cost: 4
+                # captures/epoch instead of 2.
+                _captures: list[tuple[int, np.ndarray, np.ndarray, np.ndarray]] = []
+                for _sign in _spgd_capture_signs(config.abba_sampling):
+                    _c = np.clip(_init_c + float(_sign) * disturb_c, -5.0, 5.0)
+                    _phase = slm.create_phase_from_array(
+                        _zernike_to_phase(_c, n_max, pattern_helper, zernike_radius)
+                    )
+                    _display(slm, _phase)
+                    time.sleep(SLM_RESPONSE_TIME_S)
+                    _captures.append(
+                        (_sign, cam.get_numpy_image(config.n_eval_frames), _c, _phase)
+                    )
 
-                # Negative perturbation
-                _neg_c = np.clip(_init_c - disturb_c, -5.0, 5.0)
-                neg_phase = slm.create_phase_from_array(
-                    _zernike_to_phase(_neg_c, n_max, pattern_helper, zernike_radius)
-                )
-                _display(slm, neg_phase)
-                time.sleep(SLM_RESPONSE_TIME_S)
-                neg_img = cam.get_numpy_image(config.n_eval_frames)
+                _pos_captures = [c for c in _captures if c[0] > 0]
+                # The logged/ROI/adapt_weights frame stays the FIRST positive
+                # capture, so a recorded row always describes the `+d` phase.
+                # Each capture is `(sign, img, coeffs, phase)`; unpack by
+                # position (a slice like ``[1:]`` would silently transpose the
+                # image with the coefficient vector).
+                _first_pos = _pos_captures[0]
+                pos_img, _pos_c, pos_phase = _first_pos[1], _first_pos[2], _first_pos[3]
 
                 # Evaluation-robustness gates (2026-09, from the delta<0.001
                 # fold/jitter post-mortem; see docs/slm_pib): reject environment
@@ -1353,36 +1380,41 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 # ROI onto the CURRENT spot of each frame so a benign beam drift
                 # is not scored as a shaping loss (measured 22-px drift). The
                 # energy guard's ROI rides along; its armed baseline is kept.
-                pos_fold, pos_pk, pos_sum = _frame_fold_check(
-                    pos_img, _fold_baseline_peak, _fold_baseline_sum, config.fold_ratio
-                )
-                neg_fold, neg_pk, neg_sum = _frame_fold_check(
-                    neg_img, _fold_baseline_peak, _fold_baseline_sum, config.fold_ratio
-                )
-                if pos_fold or neg_fold:
+                # Every captured frame is gated (ABBA captures 4).
+                _frame_stats: list[tuple[int, bool, float, float]] = []
+                for _c_sign, _img_c, _, _ in _captures:
+                    _is_fold, _pk, _sm = _frame_fold_check(
+                        _img_c,
+                        _fold_baseline_peak,
+                        _fold_baseline_sum,
+                        config.fold_ratio,
+                    )
+                    _frame_stats.append((_c_sign, _is_fold, _pk, _sm))
+                _folded_signs = [s for s, is_fold, _, _ in _frame_stats if is_fold]
+                if _folded_signs:
                     _n_fold_gated += 1
                     logger.warning(
-                        "epoch {}: brightness fold (pos_fold={}, neg_fold={}, "
-                        "pk {:.0f}/{:.0f}, sum {:.0f}/{:.0f}) - epoch skipped",
+                        "epoch {}: brightness fold (signs={}, pk={:.0f}) - epoch skipped",
                         epoch,
-                        pos_fold,
-                        neg_fold,
-                        pos_pk,
-                        neg_pk,
-                        pos_sum,
-                        neg_sum,
+                        _folded_signs,
+                        max(pk for _, _, pk, _ in _frame_stats),
                     )
                     # Record the epoch honestly (unchanged coefficients, real
-                    # mean J) so the fold is visible offline, then skip search.
-                    pos_res = shaping(pos_img)
-                    neg_res = shaping(neg_img)
-                    pos_j, neg_j = pos_res.j, neg_res.j
+                    # mean J over the frames actually scored) so the fold is
+                    # visible offline, then skip search.
+                    _fold_j: list[float] = []
+                    _fold_ratio: list[float] = []
+                    for _c_sign, _img_c, _, _ in _captures:
+                        _r = shaping(_img_c)
+                        _fold_j.append(float(_r.j))
+                        _fold_ratio.append(float(_r.ratio))
+                    _fold_j_mean = float(np.mean(_fold_j))
                     _log_row(
                         epoch=epoch,
                         coeffs=_init_c,
-                        obj_val=float((pos_j + neg_j) / 2),
-                        obj_ratio=(pos_res.ratio + neg_res.ratio) / 2,
-                        J=float((pos_j + neg_j) / 2),
+                        obj_val=_fold_j_mean,
+                        obj_ratio=float(np.mean(_fold_ratio)),
+                        J=_fold_j_mean,
                         diff=0.0,
                         gate="fold",
                         grad=np.zeros(nk, dtype=np.float64),
@@ -1390,32 +1422,38 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         phase=pos_phase,
                         lr_val=optimizer.lr,
                         delta_val=delta,
-                        max_brt=float(max([pos_pk, neg_pk])),
+                        max_brt=float(max(pk for _, _, pk, _ in _frame_stats)),
                     )
                     bar.update(1)
                     continue
 
-                # Both frames valid: refresh the fold baseline (EMA over valid
+                # All frames valid: refresh the fold baseline (EMA over valid
                 # frames only: a fold can never pull the baseline down and
-                # blind the gate) and score each frame around its OWN spot.
+                # blind the gate) using the MEAN over every captured frame,
+                # which reduces to the previous 0.5*(pos+neg) for 2 frames, and
+                # score each frame around its OWN spot.
                 _fold_baseline_peak, _fold_baseline_sum = _update_fold_baseline(
                     _fold_baseline_peak,
                     _fold_baseline_sum,
-                    0.5 * (pos_pk + neg_pk),
-                    0.5 * (pos_sum + neg_sum),
+                    float(np.mean([pk for _, _, pk, _ in _frame_stats])),
+                    float(np.mean([sm for _, _, _, sm in _frame_stats])),
                 )
+                _sign_results: dict[int, list[ObjectiveResult]] = {1: [], -1: []}
+                for _c_sign, _img_c, _, _ in _captures:
+                    shaping.set_reference_center(zero_order_center(_img_c))
+                    _sign_results[_c_sign].append(shaping(_img_c))
+                pos_res = _sign_results[1][0]
+                # Sign-means (2 frames reduce to the single value they hold).
+                pos_obj = float(np.mean([r.j for r in _sign_results[1]]))
+                neg_obj = float(np.mean([r.j for r in _sign_results[-1]]))
+                pos_obj_ratio = float(np.mean([r.ratio for r in _sign_results[1]]))
+                neg_obj_ratio = float(np.mean([r.ratio for r in _sign_results[-1]]))
                 pos_center = zero_order_center(pos_img)
-                shaping.set_reference_center(pos_center)
-                pos_res = shaping(pos_img)
-                pos_obj, pos_obj_ratio = pos_res.j, pos_res.ratio
 
-                neg_center = zero_order_center(neg_img)
-                shaping.set_reference_center(neg_center)
-                neg_res = shaping(neg_img)
-                neg_obj, neg_obj_ratio = neg_res.j, neg_res.ratio
-
-                # Auto-exposure adjustment if saturated (still on the raw pair).
-                max_brightness = max([np.max(pos_img), np.max(neg_img)])
+                # Auto-exposure adjustment if saturated (over every capture).
+                max_brightness = max(
+                    float(np.max(c[1])) for c in _captures
+                )
                 if max_brightness == 255 and exposure_time_ms == 0:
                     _resample_img = resample_on_saturation(
                         pos_img,
