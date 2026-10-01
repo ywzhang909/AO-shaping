@@ -54,6 +54,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
@@ -744,18 +745,36 @@ class MicroDM(DM, Device):
 
     @classmethod
     def is_reachable(cls) -> bool:
-        """Check if at least one R50Power controller is reachable on TCP."""
-        for suffix in range(101, 127):
-            ip = f"192.168.0.{suffix}"
+        """Check if at least one R50Power controller is reachable on TCP.
+
+        The 26 candidates are probed concurrently: sequentially they cost
+        26 x 1.0s (~26s) of blocking on every process start whenever no
+        controller answers, so the 1.0s timeout is deliberately kept (real
+        controllers may be slow to answer) and only the fan-out is parallelised.
+        """
+
+        def probe(suffix: int) -> bool:
+            """Return True if the controller for ``suffix`` accepts a TCP connection."""
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(1.0)
-                result = sock.connect_ex((ip, 10000 + (suffix - 100)))
-                sock.close()
-                if result == 0:
-                    return True
+                result = sock.connect_ex((f"192.168.0.{suffix}", 10000 + (suffix - 100)))
+                return result == 0
             except OSError:
-                continue
+                return False
+            finally:
+                sock.close()
+
+        suffixes = range(101, 127)
+        with ThreadPoolExecutor(max_workers=min(26, len(suffixes))) as pool:
+            futures = [pool.submit(probe, suffix) for suffix in suffixes]
+            for future in as_completed(futures):
+                try:
+                    if future.result():
+                        return True
+                except Exception as exc:  # a probe must never break reachability detection
+                    logger.debug("MicroDM.is_reachable probe failed: {}", exc)
+                    continue
         return False
 
     @property

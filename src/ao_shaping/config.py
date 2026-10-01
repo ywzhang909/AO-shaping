@@ -6,6 +6,7 @@ including hardware constants, paths, and default parameters.
 
 from __future__ import annotations
 
+import functools
 import os
 from pathlib import Path
 from typing import Any, Literal
@@ -28,6 +29,7 @@ def _resolve_class_attribute(cls: type, name: str) -> Any:
     return value
 
 
+@functools.lru_cache(maxsize=1)
 def _resolve_dm_n_actuators() -> int:
     """Resolve DM actuator count from device driver.
 
@@ -48,6 +50,7 @@ def _resolve_dm_n_actuators() -> int:
         return 64
 
 
+@functools.lru_cache(maxsize=1)
 def _resolve_disabled_actuators() -> list[int]:
     """Resolve disabled actuators from device driver.
 
@@ -66,6 +69,12 @@ def _resolve_disabled_actuators() -> list[int]:
         return [0]
     except Exception:
         return [0]
+
+
+def reset_dm_resolution_cache() -> None:
+    """Clear the memoized DM resolution so a bench process that attaches a DM later re-probes."""
+    _resolve_dm_n_actuators.cache_clear()
+    _resolve_disabled_actuators.cache_clear()
 
 
 DEFAULT_OPTIMIZATION_DEFAULTS = dict(

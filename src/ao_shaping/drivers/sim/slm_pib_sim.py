@@ -33,7 +33,6 @@ from typing import Any
 import numpy as np
 from loguru import logger
 
-from ao_shaping.config import DM_N_ACTUATORS
 from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
 from ao_shaping.drivers.device_base import DeviceState
 from ao_shaping.drivers.sim.disturbance import SimDisturbance
@@ -121,6 +120,10 @@ class SimPibSystem:
                 rather than ``None`` so DM-driven runners are coupled by
                 construction and cannot silently regress to driving nothing.
         """
+        # Deferred: config.DM_N_ACTUATORS resolves via a live DM reachability
+        # probe, so importing it at module scope would block on sockets.
+        from ao_shaping.config import DM_N_ACTUATORS
+
         self.slm_h, self.slm_w = slm_shape
         self.ccd_h, self.ccd_w = ccd_res
         self.beam_w0 = float(beam_w0)
