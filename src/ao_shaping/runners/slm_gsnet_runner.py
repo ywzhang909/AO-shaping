@@ -179,6 +179,16 @@ def _build_square_config(cfg: SlmGsnetConfig) -> SlmSquareConfig:
         phase_grid=24,
         zernike_radius=zernike_radius,
         random_seed=cfg.run.seed,
+        # In-ROI energy guard, armed from the initial flat frame; 0 disables it.
+        # HARDWARE: without it the 2026-10-01 run traded 6x of encircled energy
+        # (0.158 -> 0.026) for a +0.0118 uniformity gain and ended 35.9% worse,
+        # with dec=0.487 (random walk). Guarded epochs are SKIPPED, not merely
+        # penalised. See docs/fouriergsnet_pipeline/hardware_run_20261001.md.
+        max_roi_energy_loss=0.6,
+        # Start from flat (the measured best-focus state, FWHM 13.6px /
+        # hollowness 0.92) rather than the previous uniform(-pi, pi), which
+        # destroyed the focus (0-order peak 225 -> 17).
+        init_amplitude_rad=0.0,
     )
 
     if isinstance(search, SpgdParams):

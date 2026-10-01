@@ -879,6 +879,8 @@ class SlmSquareConfig:
     algorithm: str = "spgd"
     pop_size: int | None = None
     objective: str = "quality"
+    max_roi_energy_loss: float = 0.6
+    init_amplitude_rad: float = 0.0
     kwargs: dict[str, Any] = field(default_factory=dict)
 
 
@@ -914,6 +916,8 @@ def optimize_slm_square(
     algorithm: str = "spgd",
     pop_size: int | None = None,
     objective: str = "quality",
+    max_roi_energy_loss: float = 0.6,
+    init_amplitude_rad: float = 0.0,
     **kwargs,
 ) -> Recorder:
     """Optimize square beam uniformity using SLM with Zernike coefficient control.
@@ -1050,6 +1054,8 @@ def optimize_slm_square(
     algorithm = config.algorithm
     pop_size = config.pop_size
     objective = str(config.objective).lower()
+    max_roi_energy_loss = float(config.max_roi_energy_loss)
+    init_amplitude_rad = float(config.init_amplitude_rad)
     kwargs = config.kwargs
 
     delta = abs(delta)
@@ -1219,8 +1225,22 @@ def optimize_slm_square(
                     np.asarray(init_c, dtype=np.float64), n_max, _active_modes
                 )
         else:
-            # Small random init escapes the trivial flat-phase stationary point.
-            _params = rng.uniform(-np.pi, np.pi, size=_dim).astype(np.float64)
+            # Freeform init. HARDWARE MEASURED (2026-10-01, bench 2f/SLM #1 +
+            # Daheng, docs/fouriergsnet_pipeline/hardware_run_20261001.md): the
+            # flat state is the BEST-focus state (FWHM 13.6 px, hollowness 0.92),
+            # and a full-amplitude random start destroys it -- the failed run
+            # began at 0-order peak 225 and ended at 17, with its best iterate
+            # being the initial one. A dense +/-0.5 rad random phase was measured
+            # to leave the in-box energy unchanged within 2.6%, i.e. it
+            # redistributes light rather than focusing it, so starting there just
+            # wastes the objective's dynamic range. Default to flat (zeros) and
+            # let `init_amplitude_rad` request a small random escape.
+            if init_amplitude_rad > 0.0:
+                _params = rng.uniform(
+                    -float(init_amplitude_rad), float(init_amplitude_rad), size=_dim
+                ).astype(np.float64)
+            else:
+                _params = np.zeros(_dim, dtype=np.float64)
 
         # Rotation DOF starts at 0° (middle of the search range)
         if _has_rotation:
@@ -1426,6 +1446,45 @@ def optimize_slm_square(
         best_c = _params.copy()
         best_img = init_img.copy()
         last_best_epoch = 0
+
+        # ------------------------------------------------------------------
+        # In-ROI energy guard, armed from the initial (flat) frame.
+        #
+        # HARDWARE MEASURED (2026-10-01): without this guard the square search
+        # is free to raise the combined score by SCATTERING light out of the
+        # box, because `square_quality_score` is w_cv*exp(-2*cv) + w_ee*ee with
+        # no absolute-energy term. The failed run traded 6x of encircled energy
+        # (0.158 -> 0.026) for a +0.0118 uniformity gain and ended 35.9% worse.
+        #
+        # Deliberately NOT a bare sentinel: the slm-pib family only subtracts
+        # 1e3 from the objective, which protects the best-so-far track but still
+        # lets `diff = pos_q - neg_q` build a huge REAL gradient from the
+        # penalised pair. Here the epoch is SKIPPED outright, so the
+        # coefficients never move toward a state that empties the box.
+        # ------------------------------------------------------------------
+        _guard_enabled = float(max_roi_energy_loss) > 0.0
+        _guard_ref_ee: float | None = None
+        if _guard_enabled:
+            if not 0.0 <= float(max_roi_energy_loss) <= 1.0:
+                raise ValueError(
+                    "max_roi_energy_loss must be within 0..1 "
+                    f"(0 disables the guard), got {max_roi_energy_loss!r}"
+                )
+            _guard_ref_ee = float(ee) if np.isfinite(ee) and ee > 0.0 else None
+            if _guard_ref_ee is None:
+                _guard_enabled = False
+                logger.warning(
+                    "ROI energy guard disabled: initial encircled energy is not "
+                    "positive (ee={})",
+                    ee,
+                )
+            else:
+                logger.info(
+                    "ROI energy guard armed: reference ee={:.4f}, max loss {:.1%}",
+                    _guard_ref_ee,
+                    float(max_roi_energy_loss),
+                )
+        _n_energy_gated = 0
 
         # Record initial state
         recorder.append(
@@ -1680,6 +1739,60 @@ def optimize_slm_square(
                     )
                     optimizer.scale_momentum(np.sum(_resample_img) / np.sum(pos_img))
 
+                # In-ROI energy guard: abandon the whole epoch if either
+                # perturbation has driven the in-box energy fraction below
+                # (1 - max_roi_energy_loss) of the armed reference. Skipping
+                # (rather than only penalising the score) is essential -- see the
+                # arming comment above.
+                _gated = False
+                if _guard_enabled and _guard_ref_ee is not None:
+                    _pos_loss = (_guard_ref_ee - pos_ee) / _guard_ref_ee
+                    _neg_loss = (_guard_ref_ee - neg_ee) / _guard_ref_ee
+                    if _pos_loss > max_roi_energy_loss or _neg_loss > max_roi_energy_loss:
+                        _gated = True
+                        _n_energy_gated += 1
+                        _gate = "energy"
+                        if _n_energy_gated <= 5 or _n_energy_gated % 50 == 0:
+                            logger.warning(
+                                "epoch {}: in-ROI energy loss {:.1%}/{:.1%} exceeds "
+                                "{:.1%} - epoch skipped (#{} gated)",
+                                epoch,
+                                _pos_loss,
+                                _neg_loss,
+                                float(max_roi_energy_loss),
+                                _n_energy_gated,
+                            )
+                if _gated:
+                    # Record honestly (unchanged coefficients, diff=0) and skip.
+                    recorder.append(
+                        {
+                            "J": (pos_cost + neg_cost) / 2,
+                            _score_column: float("nan"),
+                            "cv": (pos_cv + neg_cv) / 2,
+                            "ee": (pos_ee + neg_ee) / 2,
+                            "ar": (pos_ar + neg_ar) / 2,
+                            "side": target_side,
+                            "_diff": 0.0,
+                            "lr": optimizer.lr,
+                            "delta": delta,
+                            "_epoch": epoch,
+                            "_c": _params.copy(),
+                            "_img": pos_img,
+                            "exp_t": get_camera_exposure_ms(cam),
+                            "max_brt": max_brightness,
+                            "mean_b": (pos_mean + neg_mean) / 2,
+                            "target_mean_b": target_mean_brightness,
+                            "_grad": np.zeros_like(disturb_c),
+                            "gate": _gate,
+                        }
+                    )
+                    # Leave the panel on the accepted state, not on the rejected
+                    # perturbation (see the end-of-epoch resync below).
+                    slm.display_data(_params_to_gray(_params))
+                    time.sleep(SLM_RESPONSE_TIME_S)
+                    bar.update(1)
+                    continue
+
                 # SPGD gradient update. The objective is the combined quality
                 # score (uniformity + energy + aspect), NOT -CV alone: optimising
                 # -CV alone lets the optimizer minimise CV by EMPTYING the target
@@ -1752,6 +1865,7 @@ def optimize_slm_square(
 
                 log = {
                     "J": J,
+                    "gate": "applied",
                     _score_column: quality,
                     "cv": eval_cv,
                     "ee": eval_ee,
@@ -1788,6 +1902,16 @@ def optimize_slm_square(
                 bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
                 bar.update(1)
 
+                # Re-display the ACCEPTED state. Without this the last write of
+                # every epoch is `_neg_c` (the rejected -delta perturbation), so
+                # the panel sits on a state 2*delta away in all 576 dimensions
+                # while the loop believes it is at `_params`. That desync is a
+                # plausible contributor to the 0-order collapse seen on hardware
+                # (peak 225 -> 17). It also makes the next epoch's baseline
+                # ambiguous, which matters once the energy guard is armed.
+                slm.display_data(_params_to_gray(_params))
+                time.sleep(SLM_RESPONSE_TIME_S)
+
         # Reset SLM to flat phase on exit
         if SLM_RESET_ON_EXIT:
             slm.set_grayscale(0)
@@ -1797,6 +1921,8 @@ def optimize_slm_square(
             f"(CV={best_cv:.4f}, EE={best_ee:.4f}, AR={best_ar:.4f}) "
             f"@ epoch {last_best_epoch}"
         )
+        if _guard_enabled:
+            logger.info("Energy guard: {} of {} epochs skipped", _n_energy_gated, epochs)
 
         display_stack.close()
 
