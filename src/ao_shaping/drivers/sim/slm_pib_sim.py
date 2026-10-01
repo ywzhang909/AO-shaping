@@ -37,6 +37,11 @@ from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
 from ao_shaping.drivers.device_base import DeviceState
 from ao_shaping.drivers.sim.disturbance import SimDisturbance
 
+try:  # scipy's pocketfft is multithreaded, which the padded transform needs.
+    from scipy import fft as _scipy_fft
+except ImportError:  # pragma: no cover - numpy is always present
+    _scipy_fft = None
+
 # SLM panel geometry (matches the real Santec SLM-200: 1920 x 1200, 10-bit).
 SLM_W = 1920
 SLM_H = 1200
@@ -50,6 +55,27 @@ BEAM_W0 = 400.0
 
 # CCD far-field resolution (square). The 0-order spot lands at the image centre.
 CCD_RES = (512, 512)
+
+# Zero-padding factor applied to the pupil before ``fft2``. The far-field pixel
+# pitch is fixed by the transform, so an unpadded FFT put the 0-order spot at
+# ~1.8 px FWHM -- barely one sample across it, leaving every power-ratio metric
+# to divide by a numerically unresolved peak. Padding shrinks that pitch by
+# this factor, which is the digital equivalent of the longer effective focal
+# length a real bench gains by narrowing the camera ROI (cropping the *same*
+# array only magnifies it and adds no samples). At 4 the spot spans ~7 px.
+FAR_FIELD_PADDING = 4
+
+# Side length, in far-field pixels, of the centred window retained after the
+# padded FFT. Bounds both the cached array and the shot/read noise applied to it
+# in ``far_field_noisy``; must stay >= the camera window (``cam_size``).
+FAR_FIELD_WINDOW = 1024
+
+
+def _forward_fft2(field: np.ndarray) -> np.ndarray:
+    """2-D forward FFT, using scipy's multithreaded kernel when available."""
+    if _scipy_fft is not None:
+        return _scipy_fft.fft2(field, workers=-1)
+    return np.fft.fft2(field)
 
 
 class SimPibSystem:
@@ -69,6 +95,8 @@ class SimPibSystem:
         seed: int | None = None,
         *,
         disturbance: SimDisturbance | None = None,
+        far_field_padding: int = FAR_FIELD_PADDING,
+        far_field_window: int = FAR_FIELD_WINDOW,
     ) -> None:
         """Build the shared optical state.
 
@@ -89,10 +117,13 @@ class SimPibSystem:
         self.beam_w0 = float(beam_w0)
         self.noise_adu = float(noise_adu)
         self.disturbance = disturbance
+        self.far_field_padding = max(1, int(far_field_padding))
+        self.far_field_window = max(1, int(far_field_window))
         self._rng = np.random.default_rng(seed)
         self._lock = threading.Lock()
         self._phase: np.ndarray = np.zeros((self.slm_h, self.slm_w), dtype=np.float64)
         self._far_field: np.ndarray | None = None
+        self._pad_buffer: np.ndarray | None = None
         self._gray: np.ndarray | None = None
 
     # --- SLM side --------------------------------------------------------
@@ -143,7 +174,22 @@ class SimPibSystem:
             r2 = (xx - cx) ** 2 + (yy - cy) ** 2
             amplitude = np.exp(-r2 / (2.0 * self.beam_w0**2))
             pupil = amplitude * np.exp(1j * phase)
-            spectrum = np.fft.fftshift(np.abs(np.fft.fft2(pupil)) ** 2)
+            pad = self.far_field_padding
+            if pad > 1:
+                shape = (self.slm_h * pad, self.slm_w * pad)
+                buffer = self._pad_buffer
+                if buffer is None or buffer.shape != shape:
+                    buffer = np.zeros(shape, dtype=np.complex128)
+                    self._pad_buffer = buffer
+                buffer[: self.slm_h, : self.slm_w] = pupil
+                padded = buffer
+            else:
+                padded = pupil
+            spectrum = np.fft.fftshift(np.abs(_forward_fft2(padded)) ** 2)
+            window = min(self.far_field_window, spectrum.shape[0], spectrum.shape[1])
+            y0 = (spectrum.shape[0] - window) // 2
+            x0 = (spectrum.shape[1] - window) // 2
+            spectrum = spectrum[y0 : y0 + window, x0 : x0 + window]
             # Normalise to a 0..255-ish grayscale so exposure/peak logic behaves
             # like a real camera (peak ~100 for the flat beam).
             peak = float(spectrum.max())

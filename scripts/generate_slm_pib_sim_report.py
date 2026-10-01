@@ -573,6 +573,12 @@ def disturbance_section(
         "只可做**相对**比较 (static vs dynamic、优化前 vs 优化后), 不可与硬件台架对比。"
     )
     lines.append(
+        "6b. **远场经过 4× 零填充过采样** (`FAR_FIELD_PADDING`): 未填充时 0 级光斑仅约 "
+        "**1.8 px FWHM** (几乎无采样), 因此填充前的历史报告数值**不可与本次直接比较** —— "
+        "光斑被真正分辨后, 目标函数值与自适应半径都会改变 (例如自适应半径从 ~112 px 降到 ~16 px)。"
+        "static 与 dynamic 之间使用完全相同的采样, 故二者互比仍然有效。"
+    )
+    lines.append(
         "7. **零干扰基线本身就已近乎平坦**: 实测一次干净 10-epoch 运行只应用 4/10 更新、"
         "6/10 被噪声门拒绝, 退出时记录 `no improvement over the initial phase`。"
         "若干扰运行同样平坦, **不能归因于干扰**。"

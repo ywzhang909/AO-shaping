@@ -288,6 +288,7 @@ def test_caveats_are_present(tmp_path: Path, monkeypatch) -> None:
     assert "noise_gate_window" in text
     assert "Zernike 无法合成真正的方形远场" in text
     assert "稳态低阶" in text, "the thermal halo's steady-state approximation must be stated"
+    assert "零填充过采样" in text, "the far-field oversampling must be disclosed"
 
 
 def test_missing_companion_degrades_gracefully(tmp_path: Path, monkeypatch) -> None:
