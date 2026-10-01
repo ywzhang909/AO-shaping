@@ -27,10 +27,9 @@ from ao_shaping.drivers.sim.slm_shaping_bench import (
     composite_score,
     compute_metrics,
     forward_intensity,
-    gs_shape,
     make_target,
-    spgd_shape,
 )
+from ao_shaping.optimizer.wfless.slm_shaping_bench import gs_shape, spgd_shape
 from ao_shaping.optimizer.wfless.iterative_zernike_shaping import (
     IterativeZernikePibConfig,
 )

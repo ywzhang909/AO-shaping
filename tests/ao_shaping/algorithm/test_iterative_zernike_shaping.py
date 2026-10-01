@@ -29,9 +29,9 @@ from ao_shaping.drivers.sim.slm_shaping_bench import (
     composite_score,
     compute_metrics,
     forward_intensity,
-    gs_shape,
     make_target,
 )
+from ao_shaping.optimizer.wfless.slm_shaping_bench import gs_shape, spgd_shape
 from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
 
 
@@ -255,11 +255,21 @@ def test_s6_torch_zernike_matches_canonical_numpy():
     )
 
 
+def test_s6_every_basis_mode_matches_canonical_generator():
+    opt = _optimizer(n_zernike=4)
+    for n, m, basis in opt._zernike_basis():
+        expected = generate_zernike_phase(
+            {(n, m): 1.0}, resolution=(N, N), n_max=4
+        )
+        np.testing.assert_allclose(
+            basis.numpy(), np.nan_to_num(expected, nan=0.0), rtol=0, atol=1e-12
+        )
+
+
 # ---------------------------------------------------------------------------
 # S7: iterative A↔B beats same-grid SPGD and GS baselines (the WIN proof)
 # ---------------------------------------------------------------------------
 def test_s7_beats_spgd_and_gs_baselines():
-    from ao_shaping.drivers.sim.slm_shaping_bench import spgd_shape
 
     cfg = _bench_cfg()
     target = make_target(cfg)

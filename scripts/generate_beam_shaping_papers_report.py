@@ -1,8 +1,8 @@
 """Run the closed-loop SLM far-field beam-shaping simulation bench and emit a
 markdown report with per-method metrics and figures.
 
-This script drives ``ao_shaping.drivers.sim.slm_shaping_bench`` (a self-contained
-2f-Fourier SLM shaping simulation) to compare representative beam-shaping
+This script drives the simulated 2f-Fourier SLM shaping bench to compare
+representative beam-shaping
 methods from the literature on one identical optical model and one identical
 target. It is a *report generator* (lives in ``scripts/`` per repo rule) and
 writes its markdown + figures to ``docs/beam_shaping/papers/``.
@@ -47,11 +47,14 @@ from loguru import logger  # noqa: E402
 
 from ao_shaping.drivers.sim.slm_shaping_bench import (  # noqa: E402
     ShapingBenchConfig,
-    analytic_amplitude_target,
     compute_metrics,
+    forward_intensity,
+    make_target,
+)
+from ao_shaping.optimizer.wfless.slm_shaping_bench import (  # noqa: E402
+    analytic_amplitude_target,
     differentiable_shape,
     gs_shape,
-    make_target,
     spgd_shape,
 )
 
@@ -131,8 +134,6 @@ def main() -> int:
     # --- baselines ----------------------------------------------------------
     record("analytic_amplitude_target", analytic_amplitude_target(CONFIG))
     logger.info("[baseline] unshaped (zero phase):")
-    from ao_shaping.drivers.sim.slm_shaping_bench import forward_intensity  # noqa: E402
-
     raw = forward_intensity(np.zeros((CONFIG.n_grid, CONFIG.n_grid)), CONFIG)
     raw = raw / (raw.max() + 1e-12)
     c = np.unravel_index(np.argmax(raw), raw.shape)[::-1]
@@ -217,7 +218,8 @@ def main() -> int:
         "- `analytic_amplitude_target` 是纯振幅基线（理想上界）；`unshaped_zero_phase` 是无整形基线。",
         "",
         "> 本报告由 `scripts/generate_beam_shaping_papers_report.py` 生成，仿真基于 "
-        "`ao_shaping.drivers.sim.slm_shaping_bench`。",
+        "`ao_shaping.drivers.sim.slm_shaping_bench` 的前向模型和 "
+        "`ao_shaping.optimizer.wfless.slm_shaping_bench` 的优化方法。",
     ]
     (OUT_DIR / "beam_shaping_papers.md").write_text("\n".join(md), encoding="utf-8")
     logger.info("Report written: {}", OUT_DIR / "beam_shaping_papers.md")

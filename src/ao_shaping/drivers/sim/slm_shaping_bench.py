@@ -7,22 +7,14 @@ phase-only SLM** far-field beam shaping (the 2f Fourier model):
     ->  far-field (Fraunhofer) intensity on the camera grid
 
 It re-uses the canonical beam-simulation backend
-(``ao_shaping.drivers.sim.beam_backend``) for propagation, and provides:
-
-* objective-function / quality metrics (PIB, efficiency, uniformity/CV,
-  Strehl, overlap, zero-order fraction, structure similarity) used as the
-  *objective functions* reported in the paper survey, and
-* reference *phase generators* / optimization loops that reproduce, at a
-  simulation level, the representative methods found in the literature
-  (Gerchberg-Saxton, IFTA, differentiable gradient descent, SPGD sensorless
-  black-box, Zernike-basis SPGD, and an analytic single-plate "amplitude"
-  target).
+(``ao_shaping.drivers.sim.beam_backend``) for propagation and provides
+the forward model and measured quality metrics. Reference optimization
+methods live in ``ao_shaping.optimizer.wfless.slm_shaping_bench``.
 
 The intent is to let a single, reproducible script exercise many beam-shaping
 methods on one optical model and compare them with identical metrics.
 
-All functions are pure numpy/torch (no hardware). The torch path is optional
-(``_TORCH_AVAILABLE``); methods fall back to numpy when torch is absent.
+All functions here use NumPy and require no hardware.
 
 Note on the physical model
 --------------------------
@@ -45,18 +37,7 @@ from ao_shaping.drivers.sim.beam_backend import (
     focal_plane,
     gaussian_pupil,
     make_beam_config,
-    turbulence_phase,
 )
-
-try:
-    import torch
-    import torch.nn.functional as F  # noqa: F401
-
-    _TORCH_AVAILABLE = True
-except Exception:  # pragma: no cover - torch is optional
-    torch = None  # type: ignore
-    F = None  # type: ignore
-    _TORCH_AVAILABLE = False
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +150,7 @@ def _zero_order_mask(cfg: ShapingBenchConfig, center: np.ndarray) -> np.ndarray:
     """Boolean mask of the zero-order exclusion region (False = valid region)."""
     n = cfg.n_grid
     y, x = np.ogrid[:n, :n]
-    r = np.sqrt((x - int(center[1])) ** 2 + (y - int(center[0])) ** 2)
+    r = np.sqrt((x - int(center[0])) ** 2 + (y - int(center[1])) ** 2)
     return r > cfg.zero_order_margin_px
 
 
@@ -194,16 +175,16 @@ def power_in_bucket(
     """Power-in-bucket: fraction of total power inside the target region.
 
     The target region is taken from ``target`` (its support). If ``center`` is
-    given the target is re-centred there (the target follows the measured
-    zero-order / beam centroid), mirroring the hardware closed-loop.
+    given as ``(x, y)``, the target is re-centred there (the target follows
+    the measured zero-order / beam centroid), mirroring the hardware loop.
     """
     total = intensity.sum()
     if total <= 0:
         return 0.0
     sup = target > 0
     if center is not None:
-        dy, dx = int(round(center[0] - target.shape[0] // 2)), int(
-            round(center[1] - target.shape[1] // 2)
+        dy, dx = int(round(center[1] - target.shape[0] // 2)), int(
+            round(center[0] - target.shape[1] // 2)
         )
         sup = np.roll(sup, (dy, dx), axis=(0, 1))
     return float(intensity[sup].sum() / total)
@@ -248,7 +229,7 @@ def zero_order_fraction(intensity: np.ndarray, center: np.ndarray) -> float:
     """Fraction of total power inside the central zero-order guard band."""
     n = intensity.shape[0]
     y, x = np.ogrid[:n, :n]
-    r = np.sqrt((x - int(center[1])) ** 2 + (y - int(center[0])) ** 2)
+    r = np.sqrt((x - int(center[0])) ** 2 + (y - int(center[1])) ** 2)
     m = r <= 6
     total = intensity.sum()
     return float(intensity[m].sum() / total) if total > 0 else 0.0
@@ -291,247 +272,6 @@ def composite_score(
     return w_pib * pib + w_unif * cv_term
 
 
-# ---------------------------------------------------------------------------
-# Method 1: Gerchberg-Saxton (amplitude <-> phase constraints)
-# ---------------------------------------------------------------------------
-def gs_shape(
-    cfg: ShapingBenchConfig,
-    *,
-    n_iters: int = 200,
-    relax: float = 1.0,
-    seed: int | None = None,
-    verbose: bool = False,
-    return_phase_only: bool = True,
-) -> ShapingResult:
-    """Gerchberg-Saxton shaping of a single phase-only SLM.
-
-    Amplitude constraint = sqrt(target) in the far field, phase constraint =
-    arbitrary (SLM plane). The final phase is the SLM pattern.
-    """
-    beam_cfg = cfg.make_beam_config()
-    rng = np.random.default_rng(cfg.seed if seed is None else seed)
-    target = make_target(cfg)
-    amp_target = np.sqrt(target)
-    # Initial field: gaussian input in the SLM plane
-    field = gaussian_pupil(beam_cfg).astype(np.complex128)
-    field = field * np.exp(1j * rng.normal(0, 0.1, size=field.shape))
-
-    history = []
-    for i in range(n_iters):
-        # SLM -> far field
-        ff = focal_plane(field, beam_cfg, focal_length=cfg.focal_length)
-        # amplitude constraint in far field
-        ff = ff * (amp_target / (np.abs(ff) + 1e-12)) * relax
-        # relax back toward the target amplitude
-        ff = ff * (1 - relax) + amp_target * np.exp(1j * np.angle(ff)) * relax
-        # far field -> SLM plane
-        field = np.fft.ifftshift(np.fft.ifft2(np.fft.fftshift(ff)))
-        # phase-only constraint in SLM plane (keep gaussian amplitude, set phase)
-        amp_slm = np.abs(gaussian_pupil(beam_cfg))
-        field = amp_slm * np.exp(1j * np.angle(field))
-        if verbose and i % 20 == 0:
-            inten = np.abs(focal_plane(field, beam_cfg, focal_length=cfg.focal_length)) ** 2
-            inten = inten / inten.max()
-            center = np.unravel_index(np.argmax(inten), inten.shape)[::-1]
-            m = compute_metrics(inten, target, center=center)
-            history.append({"iter": i, **m})
-    inten = np.abs(focal_plane(field, beam_cfg, focal_length=cfg.focal_length)) ** 2
-    inten = inten / inten.max()
-    center = np.unravel_index(np.argmax(inten), inten.shape)[::-1]
-    metrics = compute_metrics(inten, target, center=center)
-    return ShapingResult(
-        method="gerchberg_saxton",
-        phase=np.angle(field),
-        intensity=inten,
-        metrics=metrics,
-        history=history,
-        n_iters=n_iters,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Method 2: differentiable gradient descent (torch, optional)
-# ---------------------------------------------------------------------------
-def differentiable_shape(
-    cfg: ShapingBenchConfig,
-    *,
-    n_iters: int = 300,
-    lr: float = 0.05,
-    seed: int | None = None,
-) -> ShapingResult:
-    """Differentiable far-field shaping: gradient descent on the SLM phase.
-
-    Loss = 1 - overlap(target, sim) + lambda * (1 - PIB). Requires torch.
-    """
-    if not _TORCH_AVAILABLE:
-        raise RuntimeError("differentiable_shape requires torch")
-    beam_cfg = cfg.make_beam_config()
-    rng = np.random.default_rng(cfg.seed if seed is None else seed)
-    target = make_target(cfg)
-    tgt = torch.as_tensor(target, dtype=torch.float64).double()
-    init_phase = torch.as_tensor(rng.normal(0, 0.1, size=(cfg.n_grid, cfg.n_grid)), dtype=torch.float64).double()
-    param = torch.nn.Parameter(init_phase)
-    opt = torch.optim.Adam([param], lr=lr)
-
-    # precompute the (static) lens + propagation as a torch function
-    lam = beam_cfg.wavelength
-    dx = beam_cfg.pixel_size
-    n = cfg.n_grid
-    fx = np.fft.fftshift(np.fft.fftfreq(n, dx))
-    fy = np.fft.fftshift(np.fft.fftfreq(n, dx))
-    fxg, fyg = np.meshgrid(fx, fy)
-    kz = np.sqrt(np.abs((2 * np.pi) ** 2 * ((1 / lam) ** 2 - fxg**2 - fyg**2)))
-    kz = torch.as_tensor(kz, dtype=torch.float64).double()
-    transfer = torch.exp(1j * torch.as_tensor(cfg.focal_length, dtype=torch.float64) * kz)
-    lens_ph = -torch.as_tensor(2 * np.pi / lam, dtype=torch.float64) * (
-        torch.as_tensor(fxg**2 + fyg**2, dtype=torch.float64) / (2 * cfg.focal_length)
-    )
-    lens_ph = torch.exp(1j * lens_ph)
-    in_amp = torch.as_tensor(gaussian_pupil(beam_cfg), dtype=torch.float64).double()
-
-    def fft(x):
-        return torch.fft.fftshift(torch.fft.ifftshift(torch.fft.fft2(x)))
-
-    def ifft(x):
-        return torch.fft.ifftshift(torch.fft.ifft2(torch.fft.ifftshift(x)))
-
-    history = []
-    for i in range(n_iters):
-        opt.zero_grad()
-        field = in_amp * torch.exp(1j * param)
-        field = field * lens_ph
-        ff = fft(field) * transfer
-        ff = ifft(ff)
-        inten = (ff.real**2 + ff.imag**2)
-        inten = inten / inten.sum()
-        # target overlap (cosine-ish, normalized)
-        a = inten - inten.mean()
-        b = tgt - tgt.mean()
-        overlap = (a * b).sum() / (a.norm() * b.norm() + 1e-12)
-        # PIB: power in target support
-        sup = (tgt > 0).double()
-        pib = (inten * sup).sum() / inten.sum()
-        loss = -overlap - 0.5 * pib
-        loss.backward()
-        opt.step()
-        if i % 50 == 0:
-            with torch.no_grad():
-                inten_np = (ff.real**2 + ff.imag**2).numpy()
-                inten_np = inten_np / inten_np.max()
-                center = np.unravel_index(np.argmax(inten_np), inten_np.shape)[::-1]
-                m = compute_metrics(inten_np, target, center=center)
-                history.append({"iter": i, **m})
-    with torch.no_grad():
-        field = in_amp * torch.exp(1j * param)
-        field = field * lens_ph
-        ff = fft(field) * transfer
-        ff = ifft(ff)
-        inten_np = (ff.real**2 + ff.imag**2).numpy()
-        inten_np = inten_np / inten_np.max()
-    center = np.unravel_index(np.argmax(inten_np), inten_np.shape)[::-1]
-    metrics = compute_metrics(inten_np, target, center=center)
-    return ShapingResult(
-        method="differentiable",
-        phase=param.detach().numpy(),
-        intensity=inten_np,
-        metrics=metrics,
-        history=history,
-        n_iters=n_iters,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Method 3: SPGD (sensorless black-box gradient) on the SLM phase
-# ---------------------------------------------------------------------------
-def spgd_shape(
-    cfg: ShapingBenchConfig,
-    *,
-    n_iters: int = 600,
-    delta: float = 0.1,
-    lr: float = 0.02,
-    seed: int | None = None,
-    dim: int | None = None,
-) -> ShapingResult:
-    """Sensorless SPGD on a low-dimensional (Zernike / coarse) phase basis.
-
-    The SLM phase is parameterised as a small number of freeform coefficients
-    (a coarse grid) so that random-gradient search is tractable in the sim.
-    The reward is the composite score (PIB + uniformity).
-    """
-    rng = np.random.default_rng(cfg.seed if seed is None else seed)
-    target = make_target(cfg)
-    d = dim or 16  # 16x16 freeform basis
-    n_par = d * d
-    phase_flat = rng.normal(0, 0.05, size=n_par)
-
-    def upsample(vec: np.ndarray) -> np.ndarray:
-        """Map the d×d freeform coefficient grid to the full SLM phase (kron upsample)."""
-        ph = np.kron(vec.reshape(d, d), np.ones((cfg.n_grid // d, cfg.n_grid // d)))
-        if ph.shape != (cfg.n_grid, cfg.n_grid):
-            ph = ph[: cfg.n_grid, : cfg.n_grid]
-        return ph
-
-    def eval_score(vec: np.ndarray) -> float:
-        inten = forward_intensity(upsample(vec), cfg)
-        inten = inten / inten.max()
-        center = np.unravel_index(np.argmax(inten), inten.shape)[::-1]
-        m = compute_metrics(inten, target, center=center)
-        return composite_score(m)
-
-    score = eval_score(phase_flat)
-    g = np.zeros(n_par)
-    history = [
-        {"iter": 0, "score": score, "PIB": 0, "CV": float("inf")}
-    ]
-    for i in range(1, n_iters):
-        sgn = rng.choice([-1, 1], size=n_par)
-        cand = phase_flat + delta * sgn
-        s2 = eval_score(cand)
-        g = 0.95 * g + 0.05 * sgn * (s2 - score)
-        phase_flat = phase_flat + lr * g
-        score = eval_score(phase_flat)
-        if i % 50 == 0:
-            inten = forward_intensity(upsample(phase_flat), cfg)
-            inten = inten / inten.max()
-            center = np.unravel_index(np.argmax(inten), inten.shape)[::-1]
-            m = compute_metrics(inten, target, center=center)
-            history.append({"iter": i, "score": score, "PIB": m["PIB"], "CV": m["CV"]})
-    ph = upsample(phase_flat)
-    inten = forward_intensity(ph, cfg)
-    inten = inten / inten.max()
-    center = np.unravel_index(np.argmax(inten), inten.shape)[::-1]
-    metrics = compute_metrics(inten, target, center=center)
-    metrics["score"] = composite_score(metrics)
-    return ShapingResult(
-        method="spgd_freeform",
-        phase=ph,
-        intensity=inten,
-        metrics=metrics,
-        history=history,
-        n_iters=n_iters,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Method 4: analytic "amplitude" target (single-plate amplitude-only baseline)
-# ---------------------------------------------------------------------------
-def analytic_amplitude_target(cfg: ShapingBenchConfig) -> ShapingResult:
-    """Trivial baseline: the target itself (amplitude shaping, no phase).
-
-    Serves as a reference for what a pure-amplitude (non-phase-only) SLM would
-    produce -- it bounds the achievable quality for a phase-only device.
-    """
-    target = make_target(cfg)
-    metrics = compute_metrics(target, target)
-    return ShapingResult(
-        method="analytic_amplitude_baseline",
-        phase=np.zeros((cfg.n_grid, cfg.n_grid)),
-        intensity=target,
-        metrics=metrics,
-        n_iters=0,
-    )
-
-
 __all__ = [
     "ShapingBenchConfig",
     "ShapingResult",
@@ -539,8 +279,4 @@ __all__ = [
     "make_target",
     "compute_metrics",
     "composite_score",
-    "gs_shape",
-    "differentiable_shape",
-    "spgd_shape",
-    "analytic_amplitude_target",
 ]

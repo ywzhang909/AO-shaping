@@ -14,10 +14,8 @@ The forward model is a pure FFT (Fraunhofer) propagation:
     field = gauss_pupil · exp(1j·(zernike_phase + slm_phase))
     far_field = fft2(field)          # no fftshift; float64
 
-Zernike phase is generated with a thin torch-differentiable helper that mirrors
-the canonical RZern grid convention (radius = min(H,W)/2, unit circle),
-cross-checked against ``ao_shaping.utils.wavefront.zernike_utils.generate_zernike_phase``
-in the test suite.
+Zernike basis maps come from the canonical ``ZernikeGenerator`` and are
+converted to constant torch tensors; only their coefficients are trainable.
 
 All phase generators return **raw unwrapped radians**; the only mod-2π wrap is
 the SLM driver ``create_phase_from_array`` (not exercised in simulation).
@@ -38,6 +36,8 @@ from typing import Any
 import numpy as np
 
 from loguru import logger
+
+from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator, zernike_modes
 
 __all__ = [
     "IterativeZernikeShapingConfig",
@@ -148,7 +148,7 @@ class IterativeZernikeShapingOptimizer:
     - Grid: (np.arange(n) - (n-1)/2) / radius, radius = n/2 (unit circle at grid edge)
     - R = sqrt(x² + y²), θ = atan2(y, x)
     - Z_n^m(r,θ) = R_n^|m|(r) · (cos(mθ) if m≥0 else sin(|m|θ))
-    - R_n^m uses the standard Zernike radial polynomial (recursive).
+    - Basis maps come from the canonical ``ZernikeGenerator``.
 
     The class follows the class-based optimizer convention:
     - ``__init__``: validate config, precompute static tensors (gauss pupil,
@@ -189,21 +189,27 @@ class IterativeZernikeShapingOptimizer:
         # Normalized coordinate grid (canonical RZern convention)
         coords = (t.arange(n, dtype=t.float64) - (n - 1) / 2.0) / radius
         y, x = t.meshgrid(coords, coords, indexing="ij")  # shape (n, n)
-        self._x = x
-        self._y = y
-        self._r = t.sqrt(x**2 + y**2)
-        self._theta = t.atan2(y, x)
-
         # Gaussian pupil (matched to aperture)
         self._gauss = t.exp(-(x**2 + y**2) / (2 * (n / 4.0) ** 2))
 
         # Zernike basis modes (n=1..n_zernike, piston excluded)
         self._zernike_modes: list[tuple[int, int]] = []
         if config.n_zernike > 0:
-            for nn in range(1, config.n_zernike + 1):
-                for mm in range(-nn, nn + 1, 2):
-                    if (nn - abs(mm)) % 2 == 0:
-                        self._zernike_modes.append((nn, mm))
+            self._zernike_modes = [
+                mode for mode in zernike_modes(config.n_zernike) if mode != (0, 0)
+            ]
+            generator = ZernikeGenerator(
+                (n, n), radius=radius, n_orders=config.n_zernike
+            )
+            self._basis = [
+                (nn, mm, t.as_tensor(
+                    np.nan_to_num(generator.generate_polynomial({(nn, mm): 1.0}), nan=0.0),
+                    dtype=t.float64,
+                ))
+                for nn, mm in self._zernike_modes
+            ]
+        else:
+            self._basis = []
         self._n_zernike_params = len(self._zernike_modes)
 
         # Target (square, normalized to sum=1)
@@ -225,88 +231,13 @@ class IterativeZernikeShapingOptimizer:
             n, config.n_zernike, self._n_zernike_params, config.target_side_px,
         )
 
-    # ------------------------------------------------------------------
-    # Zernike radial polynomial (torch, differentiable)
-    # ------------------------------------------------------------------
-    @staticmethod
-    def _zernike_radial(n: int, m: int, rho: Any) -> Any:
-        r"""Compute the orthonormalized radial function :math:`c_n^m R_n^{|m|}(\rho)` in torch.
-
-        Matches the canonical ``zernike`` (RZern) library exactly:
-        ``RZern.radial(k, rho) = coefnorm[k] * Rnm(k, rho)`` where
-
-        - ``Rnm`` is the raw radial polynomial (always ``Rnm(1) = 1``), defined by
-          Noll 1976 / Mahajan 1994 (and the ``zernike`` package's ``_make_rhotab_row``):
-
-          .. math::
-
-              R_n^m(\rho) = \sum_{s=0}^{(n-|m|)/2}
-                  (-1)^s \frac{(n-s)!}{s!\,\left(\frac{n+|m|}{2}-s\right)!\,\left(\frac{n-|m|}{2}-s\right)!}
-                  \rho^{\,n-2s}
-
-        - ``coefnorm`` is the Noll/Mahajan orthonormalization factor (unit variance over the
-          unit disk), ``ck(n, |m|)``:
-
-          .. math::
-
-              c_n^m = \begin{cases} \sqrt{n+1} & m = 0 \\ \sqrt{2(n+1)} & m \neq 0 \end{cases}
-
-        The product :math:`c_n^m R_n^{|m|}` is the same radial function the canonical
-        ``zernike_utils.generate_zernike_phase`` / ``ZernikeGenerator`` use, so the torch
-        phase matches the numpy reference point-for-point.
-
-        Args:
-            n: Radial order.
-            m: Azimuthal order (uses abs(m) for the radial part).
-            rho: Tensor of radial coordinates (any shape).
-
-        Returns:
-            Tensor of c_n^m R_n^|m|(rho), same shape as rho.
-        """
-        t = _torch()
-        m_abs = abs(m)
-        if (n - m_abs) % 2 != 0:
-            return t.zeros_like(rho)
-        # Orthonormalization factor ck(n, |m|) from the canonical RZern/ck() convention.
-        if m_abs == 0:
-            coefnorm = float(np.sqrt(n + 1.0))
-        else:
-            coefnorm = float(np.sqrt(2.0 * (n + 1.0)))
-        n_terms = (n - m_abs) // 2 + 1
-        rho_powers = [rho**p for p in range(0, n + 1, 2)]  # rho^0, rho^2, ..., rho^n
-        result = t.zeros_like(rho)
-        for s in range(n_terms):
-            # Coefficient: (-1)^s * (n-s)! / (s! * ((n+m_abs)/2 - s)! * ((n-m_abs)/2 - s)!)
-            from math import factorial
-            c1 = factorial(n - s)
-            c2 = factorial(s)
-            c3 = factorial((n + m_abs) // 2 - s)
-            c4 = factorial((n - m_abs) // 2 - s)
-            coeff = ((-1) ** s) * c1 / (c2 * c3 * c4)
-            power_idx = (n - 2 * s) // 2  # index into rho_powers
-            if power_idx < len(rho_powers):
-                result = result + coeff * rho_powers[power_idx]
-        return result * coefnorm
-
     def _zernike_basis(self) -> list[tuple[int, int, Any]]:
-        """Precompute all Zernike basis mode tensors (R_n^m * angular part).
+        """Return cached basis tensors from the canonical Zernike generator.
 
         Returns:
             List of (n, m, basis_tensor) tuples.
         """
-        t = _torch()
-        modes = []
-        for n, m in self._zernike_modes:
-            r_nm = self._zernike_radial(n, m, self._r)
-            if m >= 0:
-                angular = t.cos(m * self._theta)
-            else:
-                angular = t.sin(abs(m) * self._theta)
-            # Mask outside aperture (set to 0 for gradient stability)
-            mask = (self._r <= 1.0).to(t.float64)
-            basis = r_nm * angular * mask
-            modes.append((n, m, basis))
-        return modes
+        return self._basis
 
     # ------------------------------------------------------------------
     # Forward model
