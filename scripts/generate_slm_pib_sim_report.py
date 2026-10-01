@@ -46,7 +46,9 @@ plt.rcParams["axes.unicode_minus"] = False
 
 def find_debug_dirs(debug_root: Path) -> list[Path]:
     """Return every ``data/debug/slm_pib_*/<stamp>`` artifact dir, newest first."""
-    dirs = sorted(debug_root.glob("slm_pib_*/*"), key=lambda p: p.stat().st_mtime, reverse=True)
+    dirs = sorted(
+        debug_root.glob("slm_pib_*/*"), key=lambda p: p.stat().st_mtime, reverse=True
+    )
     return dirs
 
 
@@ -68,7 +70,9 @@ def load_companion(art_dir: Path) -> dict | None:
     try:
         payload = json.loads(manifest.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        logger.warning("unreadable {} ({}); disturbance treated as unrecorded", manifest, exc)
+        logger.warning(
+            "unreadable {} ({}); disturbance treated as unrecorded", manifest, exc
+        )
         return None
 
     archive: dict | None = None
@@ -227,9 +231,7 @@ def plot_zernike(run: dict, fig_dir: Path, tag: str) -> Path:
     return out
 
 
-def plot_phase_frames(
-    run: dict, fig_dir: Path, tag: str, indices: list[int]
-) -> Path:
+def plot_phase_frames(run: dict, fig_dir: Path, tag: str, indices: list[int]) -> Path:
     """Render the *sent* Zernike phase for a few selected epochs side by side."""
     x, c = series(run, "_c")
     n_max = 4
@@ -337,7 +339,9 @@ def plot_disturbance_rms(run: dict, fig_dir: Path, tag: str) -> Path:
 
     fig, ax = plt.subplots(figsize=(8.0, 3.6))
     if rms is None or np.asarray(rms).size == 0:
-        ax.text(0.5, 0.5, "干扰 RMS 轨迹: 未记录", ha="center", va="center", fontsize=11)
+        ax.text(
+            0.5, 0.5, "干扰 RMS 轨迹: 未记录", ha="center", va="center", fontsize=11
+        )
         ax.axis("off")
     else:
         arr = np.asarray(rms, dtype=float)
@@ -615,7 +619,9 @@ def disturbance_section(
             )
         )
     if derived:
-        lines.append("| 运行 | 目标 | 起点 J | 峰值 J | 改善 (峰值 − 起点, 按搜索方向) | 终点 J |")
+        lines.append(
+            "| 运行 | 目标 | 起点 J | 峰值 J | 改善 (峰值 − 起点, 按搜索方向) | 终点 J |"
+        )
         lines.append("|---|---|---|---|---|---|")
         for tag, objective, first, best, improvement, last in derived:
             lines.append(
@@ -647,21 +653,31 @@ def build_markdown(
     lines.append("")
     lines.append(f"**生成时间**: {now}")
     lines.append("")
-    lines.append("**Fully offline** — 本报告由 `scripts/generate_slm_pib_sim_report.py` 离线生成, "
-                 "仅读取 `slm_pib_runner --debug` 保存的 PKL/JSON 调试产物, 不打开任何硬件。")
+    lines.append(
+        "**Fully offline** — 本报告由 `scripts/generate_slm_pib_sim_report.py` 离线生成, "
+        "仅读取 `slm_pib_runner --debug` 保存的 PKL/JSON 调试产物, 不打开任何硬件。"
+    )
     lines.append("")
     lines.append("## 1. 运行说明")
     lines.append("")
-    lines.append("本运行使用 `src/ao_shaping/runners/slm_pib_runner.py` 的 **SPGD** 子命令, 在纯 numpy "
-                 "2f-Fourier 仿真 (`src/ao_shaping/drivers/sim/slm_pib_sim.py`) 下执行, 无硬件。")
+    lines.append(
+        "本运行使用 `src/ao_shaping/runners/slm_pib_runner.py` 的 **SPGD** 子命令, 在纯 numpy "
+        "2f-Fourier 仿真 (`src/ao_shaping/drivers/sim/slm_pib_sim.py`) 下执行, 无硬件。"
+    )
     lines.append("")
     lines.append("- **相机**: `--cam_type sim` (注册到相机注册表, 读取仿真远场)")
-    lines.append("- **SLM**: `Santec` 被 monkeypatch 为 `SimSLMPib` (FFT 远场, 0 级光斑位于帧中心)")
+    lines.append(
+        "- **SLM**: `Santec` 被 monkeypatch 为 `SimSLMPib` (FFT 远场, 0 级光斑位于帧中心)"
+    )
     lines.append("- **目标**: 方形 (`--target_shape square`, `--target_size` 相机像素)")
-    lines.append("- **搜索**: SPGD 梯度法 (`--optimizer_type adamod`), Zernike 系数 n≤4 (15 个模式)")
+    lines.append(
+        "- **搜索**: SPGD 梯度法 (`--optimizer_type adamod`), Zernike 系数 n≤4 (15 个模式)"
+    )
     lines.append("")
-    lines.append("光学模型: SLM 位于 2f 光路前焦面, CCD 位于后焦面, 因此 CCD 图像 = SLM 瞳孔场的 2D "
-                 "FFT (夫琅禾费远场)。输入为高斯光束, 施加 Zernike 相位后经 `np.fft.fft2` 传播到远场。")
+    lines.append(
+        "光学模型: SLM 位于 2f 光路前焦面, CCD 位于后焦面, 因此 CCD 图像 = SLM 瞳孔场的 2D "
+        "FFT (夫琅禾费远场)。输入为高斯光束, 施加 Zernike 相位后经 `np.fft.fft2` 传播到远场。"
+    )
     lines.append("")
 
     lines.extend(disturbance_section(runs, tags, figs))
@@ -703,8 +719,8 @@ def build_markdown(
         else:
             lines.append("- **干扰**: 未记录 (该运行的调试产物中没有 companion 文件)。")
             lines.append("")
-        lines.append(f"| 项目 | 值 |")
-        lines.append(f"|---|---|")
+        lines.append("| 项目 | 值 |")
+        lines.append("|---|---|")
         lines.append(f"| epoch 数 | {len(epochs)} |")
         lines.append(f"| 初始 J (epoch {int(epochs[0])}) | {j:.4f} |")
         lines.append(f"| 最佳 J (epoch {int(epochs[ib])}) | {j_best:.4f} |")
@@ -725,35 +741,51 @@ def build_markdown(
                 lines.append("")
         lines.append("### 解读")
         lines.append("")
-        lines.append(f"- 目标 J (max, 越大越好): 初始 {j:.4f} → 最佳 {j_best:.4f} "
-                     f"(epoch {int(epochs[ib])}) → 末轮 {j_end:.4f}。")
-        lines.append(f"- 框内能量 `_p%` 从 {p0:.4f} 到 末轮 {p_end:.4f} "
-                     f"(最佳 {p_best:.4f}): 低阶 Zernike 主要做波前校正/聚焦, "
-                     "并非真正的方形成形 (方形需要全像素自由度, 见 AGENTS.md 反模式)。")
+        lines.append(
+            f"- 目标 J (max, 越大越好): 初始 {j:.4f} → 最佳 {j_best:.4f} "
+            f"(epoch {int(epochs[ib])}) → 末轮 {j_end:.4f}。"
+        )
+        lines.append(
+            f"- 框内能量 `_p%` 从 {p0:.4f} 到 末轮 {p_end:.4f} "
+            f"(最佳 {p_best:.4f}): 低阶 Zernike 主要做波前校正/聚焦, "
+            "并非真正的方形成形 (方形需要全像素自由度, 见 AGENTS.md 反模式)。"
+        )
         if drift > 1e-4:
             lines.append(
                 f"- ⚠️ **末轮劣于最佳 {drift:.4f}**: 优化器退出时会把 SLM 停在"
                 f"**最佳**相位 (epoch {int(epochs[ib])}), 而非末轮相位。"
                 "报告成绩应引用最佳值, 末轮值仅反映退出瞬间的抖动。"
             )
-        lines.append("- 相位图展示 15 个 Zernike 模式 (n≤4) 的加权合成; 远场图展示 0 级光斑的 FFT 传播结果。")
+        lines.append(
+            "- 相位图展示 15 个 Zernike 模式 (n≤4) 的加权合成; 远场图展示 0 级光斑的 FFT 传播结果。"
+        )
         lines.append("")
 
     lines.append("## 4. 结论")
     lines.append("")
-    lines.append("0. **干扰已注入, 且 static/dynamic 在数据上可区分**: 见 §2。`static` 的逐次评估干扰 "
-                 "RMS 为常数 (全程复用唯一一张冻结相位屏), `dynamic` 则逐次变化 (每次光学评估重抽一张"
-                 "独立相位屏)。该判据由图 `*_disturbance_rms.png` 与 companion 归档直接给出, "
-                 "不是文字断言。")
-    lines.append("1. **管线验证通过**: `slm-pib` 的 SPGD 闭环在纯仿真下可端到端运行, 无需硬件, "
-                 "调试产物 (PKL/JSON/PNG) 与硬件运行格式一致, 可直接用于离线报告生成。")
-    lines.append("2. **仿真模型合理**: 2f-Fourier FFT 远场使 Zernike 相位对光斑产生真实可测的影响 "
-                 "(非零梯度), 与硬件 2f 光路 (SLM 前焦面 → 透镜 → CCD 后焦面) 一致。")
-    lines.append("3. **低阶 Zernike 的局限**: 与 AGENTS.md 反模式一致, n≤4 的 Zernike 是圆对称光滑基, "
-                 "无法合成真正的方形远场; 本报告的方形目标用于验证 **目标函数 + 闭环反馈链路**, "
-                 "而非真正的方形成形 (后者需 freeform/全像素相位, 如 `spgd-square --basis freeform`)。")
-    lines.append("4. **可复用**: 报告生成器完全离线, 任何一次 `slm-pib --debug` 运行 (仿真或硬件) "
-                 "的调试产物都能用本脚本重新出报告。")
+    lines.append(
+        "0. **干扰已注入, 且 static/dynamic 在数据上可区分**: 见 §2。`static` 的逐次评估干扰 "
+        "RMS 为常数 (全程复用唯一一张冻结相位屏), `dynamic` 则逐次变化 (每次光学评估重抽一张"
+        "独立相位屏)。该判据由图 `*_disturbance_rms.png` 与 companion 归档直接给出, "
+        "不是文字断言。"
+    )
+    lines.append(
+        "1. **管线验证通过**: `slm-pib` 的 SPGD 闭环在纯仿真下可端到端运行, 无需硬件, "
+        "调试产物 (PKL/JSON/PNG) 与硬件运行格式一致, 可直接用于离线报告生成。"
+    )
+    lines.append(
+        "2. **仿真模型合理**: 2f-Fourier FFT 远场使 Zernike 相位对光斑产生真实可测的影响 "
+        "(非零梯度), 与硬件 2f 光路 (SLM 前焦面 → 透镜 → CCD 后焦面) 一致。"
+    )
+    lines.append(
+        "3. **低阶 Zernike 的局限**: 与 AGENTS.md 反模式一致, n≤4 的 Zernike 是圆对称光滑基, "
+        "无法合成真正的方形远场; 本报告的方形目标用于验证 **目标函数 + 闭环反馈链路**, "
+        "而非真正的方形成形 (后者需 freeform/全像素相位, 如 `spgd-square --basis freeform`)。"
+    )
+    lines.append(
+        "4. **可复用**: 报告生成器完全离线, 任何一次 `slm-pib --debug` 运行 (仿真或硬件) "
+        "的调试产物都能用本脚本重新出报告。"
+    )
     lines.append("")
 
     out_md.write_text("\n".join(lines), encoding="utf-8")

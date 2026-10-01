@@ -19,14 +19,20 @@ from ao_shaping.utils.io.cli_helpers import (
     get_debug_mode,
 )
 from ao_shaping.drivers.dm._registry import resolve_dm
-from ao_shaping.runners.runner_common import PipelineRunnerParams, WfsParams, with_params
+from ao_shaping.runners.runner_common import (
+    PipelineRunnerParams,
+    WfsParams,
+    with_params,
+)
 
 
 @click.command()
 @click.pass_context
 @with_params(PipelineRunnerParams, kw_name="params")
 @with_params(WfsParams, kw_name="wfs_params")
-def run(ctx: click.Context, params: PipelineRunnerParams, wfs_params: WfsParams) -> None:
+def run(
+    ctx: click.Context, params: PipelineRunnerParams, wfs_params: WfsParams
+) -> None:
     """串行优化器（先波前优化，再轴向光束优化）
 
     DEBUG环境变量控制调试模式。
@@ -45,7 +51,7 @@ def run(ctx: click.Context, params: PipelineRunnerParams, wfs_params: WfsParams)
         dm.open()
 
         wf_records = optimizer_rms_dm(
-            wfs_type=wfs.wfs_type,
+            wfs_type=wfs_params.wfs_type,
             init_v=init_v,
             pupil_diameter=wfs_params.pupil_diameter,
             wfs_res=wfs_params.wfs_res,

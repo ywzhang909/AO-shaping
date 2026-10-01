@@ -64,16 +64,17 @@ AO-shaping/
 │   │   │   ├── spatial.py         # 以物理坐标为基准的插值
 │   │   │   └── metadata.py        # FieldMetadata (timestamp, source, wavelength)
 │   │   ├── drivers/              # 硬件驱动 (see drivers/AGENTS.md)
-│   │   │   ├── device_base.py
+│   │   │   ├── device_base.py    # Device 基类 + _load_sdk()/_ensure_sdk() 惰性契约
 │   │   │   ├── device_registry.py
+│   │   │   ├── _lazy.py          # PEP 562 install_lazy_attrs (包级惰性)
 │   │   │   ├── mock_devices.py
 │   │   │   ├── adc/             # NI DAQ ADC 电压采集
 │   │   │   ├── ccd/             # 相机 (Daheng, MiiCam, ffmpeg)
-│   │   │   ├── dm/              # 变形镜 (NLight, MicroDM, AsyncMicroDM, HadamardDM, ZernikeDM)
+│   │   │   ├── dm/              # 变形镜 (NLight, MicroDM, AsyncMicroDM, HadamardDM, ZernikeDM, _registry)
 │   │   │   ├── slm/             # 空间光调制器 (Santec, ZernikeSLM)
-│   │   │   ├── wfs/             # 波前传感器 (Thorlabs)
+│   │   │   ├── wfs/             # 波前传感器 (Thorlabs; base/_registry + ThorlabWFS)
 │   │   │   ├── tm/              # 定时模块 (Serial/FSM)
-│   │   │   └── sim/             # 数字孪生仿真 (atmos/ccd/dm/laser/optics/wfs)
+│   │   │   └── sim/             # 数字孪生仿真 (atmos/ccd/dm/laser/optics/wfs + dm_optics/disturbance)
 │   │   ├── optimizer/           # 高层优化器 (策略实现层)
 │   │   │   ├── constants.py, spgd.py, combined_optimizer.py
 │   │   │   ├── wf/              # 波前优化 (RMS, Zernike, GA, 响应矩阵, closed_loop)
@@ -206,11 +207,27 @@ python src/ao_shaping/main.py wf [OPTIONS]
 - `-r, --wfs_res`: WFS分辨率 (默认: 768)
 - `-p, --pupil_diameter`: 瞳孔直径 (默认: 2.7)
 - `-t, --early_stop_threshold`: 早停阈值 (默认: 0.0)
+- `--wfs_type`: 波前传感器类型 (thorlab / **sim**，sim = OOPAO Shack-Hartmann 仿真，无需硬件)
+- `--disturbance-cn2`: 仿真 WFS 的湍流强度 cn2 (默认: 0 = 不注入像差)
+- `--lr`: 覆盖自动学习率 (默认: 按硬件标定的自动调度)
+- `--delta`: 覆盖 SPGD 扰动幅度 δ，单位 V (默认: 自动调度)
 
 示例:
 ```bash
 DEBUG=1 python src/ao_shaping/main.py wf --epochs 10000
+
+# 无硬件全仿真 (仿真 DM + 仿真 Shack-Hartmann WFS)
+python src/ao_shaping/main.py wf --wfs_type sim --dm_type sim \
+    --disturbance-cn2 2e-13 --lr 8 -e 400
 ```
+
+> ⚠️ **仿真下必须先注入像差**: `disturbance_cn2` 为 0 时 DM 只能增加相位, 平场命令就是 RMS 最优解,
+> SPGD 正确地不动 —— 这不是 bug。要看到真实校正过程须给非零 `--disturbance-cn2`。
+>
+> ⚠️ **仿真收敛比硬件慢约一个数量级**: `schedule_lr_delta` 按**真实硬件**的电压→相位标度标定,
+> 对仿真 DM `delta=3 V` 时单致动器峰值相位只有 0.017 waves ≈ 目标量的 2.6%, 梯度信号偏弱。
+> 实测 200 epoch 降 1.5%、400 降 5.6%、800 降 18.0%; 用 `--lr 8 -e 400` 可达 19.0%。
+> `--lr 40` 会**发散**。**判定"不收敛"前先确认 epoch 足够** —— 慢不等于不收敛。
 
 #### 轴向光束优化器 (pib)
 ```bash
@@ -253,6 +270,7 @@ python src/ao_shaping/main.py pipeline [OPTIONS]
 - `-s, --cam_size`: 相机开窗大小 (默认: 160)
 - `-r, --rms_threshold`: RMS阈值 (默认: 0.12)
 - `-u, --dm_unit_mask`: DM单元掩码 (默认: all)
+- `--wfs_type`: 波前传感器类型 (thorlab / **sim**)
 
 示例:
 ```bash
@@ -1213,9 +1231,37 @@ uv run pytest tests/ao_shaping/model tests/ao_shaping/drivers/sim/test_oopao_bac
 保持原有返回类型。目前没有统一添加弃用警告。硬件驱动覆盖方法、WFS、优化器、GUI
 和其余工具尚待迁移。
 
+#### 2f-Fourier 整形台架的唯一入口
+
+前向模型、目标函数指标与参考优化器**只在** `drivers/sim/slm_shaping_bench.py`。
+`optimizer/wfless/slm_shaping_bench.py` 是**向后兼容 re-export shim**。
+
+> ⚠️ **不要再手抄第二份实现**。2026-10-01 的 merge 曾在两个模块各留一份
+> `gs_shape`/`differentiable_shape`/`spgd_shape`，而副本用的是
+> `beam_backend.focal_plane` 走**未加零填充**的瞳孔，canonical 版则零填充到
+> `far_field_size` 再做 Fraunhofer FFT —— 同一个方法**按 import 来源返回不同指标**，
+> 且不报任何错。拆分模块时只加 re-export，不要复制函数体。
+
+同理 `iterative_zernike_shaping._zernike_basis()` 直接返回 `__init__` 里由
+canonical `ZernikeGenerator` 预计算的基，**不得**在算法层重新推导径向多项式
+(那会构成第二套会漂移的 Zernike 数学)。
+
 
 ### 波前传感器
 - **Thorlabs WFS系列**: 支持自动图像采集和倾斜去除
+- **WFS 注册表** (`drivers/wfs/_registry.py`): `register_wfs` / `create_wfs` / `list_wfs_types` / `resolve_wfs`，镜像 DM 的注册表；采用延迟绑定，硬件包**不会** import 仿真包。`resolve_wfs(None)` 仍返回 `ThorlabWFS`，故硬件运行行为不变。
+- **`--wfs_type [thorlab|sim]`** 定义在共享的 `WfsParams` 上，8 个已注册命令**既暴露也真正透传**该 flag: `wf`、`pipeline`、`rms-zernike`、`ga-zernike`、`greedy-zernike`、`dm-matrix`、`hadamard-matrix`、`zernike-matrix`。`closed-loop` **刻意没有** —— 它回放已保存的响应矩阵。
+
+#### 仿真 WFS (`SimulatedWFS`)
+
+`drivers/sim/wfs/simulated_wfs.py`，OOPAO Shack-Hartmann 实现 `BaseWFS`，可直接顶替 `ThorlabWFS`，使所有 WFS 类 runner 无需硬件即可执行。
+
+- **测瞳面梯度而非焦平面传播**: SH 通过微透镜阵列成像瞳孔，探测器上光斑位移编码各子孔径的局部 tip/tilt，因此测量量是**瞳面相位梯度**。早前计划复用本仓 `wave.py` 的焦平面传播 —— 那产出的是**相机图像**而非 slope，二者不可互换。
+- **slope 数组是行块状布局**: 第 `0:n_subap` 行为 x-slope，第 `n_subap:` 行为 y-slope (纯倾斜探针实测: 纯 x 倾斜 → 上半 rms 1.29e-4, 下半 0)。
+- 🔴 **SH 测不到 piston**: 子孔径的绝对相位偏移不移动光斑。`list_zernike_modes` 从 Noll 1 = piston 起，把它放进拟合基会留下一个近零空间列，`pinv` 把它放大成巨大的伪系数 (实测纯离焦瞳孔下 **+0.50 rad**)。故 piston 必须排除出拟合基 (`_FIT_FIRST_MODE`) —— **这不是 off-by-one**。
+- **单位**: `get_wavefront()` → **waves** = `phase_rad / 2π`; `get_zernike()` → **µm** = `phase_rad * λ_nm*1e-3 / 2π`。`um_to_waves()` 写死 532 nm，故默认波长必须 532 nm。
+- ⚠️ **保真度不足以当波前基准 (实测，勿高估)**: 注入已知模式再读回系数 —— noll 2 tilt 单独 24% / 与其他模式同时 **83%**; noll 4 defocus 1.4%; noll 11 spherical 32%。tilt 单独注入只差 24%，与其他模式同注入却差到 83% ⇒ 主误差是**模式间串扰 (cross-talk)**，不是逐模式噪声。已排除质心量化与标定 pass 污染 (平场读数严格为 0)。**任何由 `get_zernike()` 推出的 RMS 改善率或 Strehl 都必须标注为「未验证」**; 要可信数值请用硬件标定。
+- **接口契约必须与 `ThorlabWFS` 完全对齐**，缺一个就直接崩: `get_wavefront()` 的 stats 键必须是 `min/max/diff/mean/rms/wighted_rms`; `build_subaperture_mask()` 返回 **2 元组** `(mask_2d, valid_indices_flat)` 且按 **subaperture 网格**定尺寸 (**不能**按 flux 定 —— OOPAO 的 flux 报在 8×8 lenslet 网格而 slope 跨 6×6 网格); runner/优化器直接读取 12 个成员 (`num_spots_x/num_spots_y`、`mla_index`、`serial_num`、`device_name`、`exposure_time`、`high_speed`、`use_custom_ref`、`pupil`、`d_x`、`get_mla_name()`、`set_ref_plane()`)。锁定测试: `tests/ao_shaping/drivers/sim/test_simulated_wfs.py::TestRunnerFacingSurface`。
 
 ### 变形镜
 - **统一 DM 接口**: 所有变形镜继承自 `ao_shaping.drivers.dm.base.DM`，提供 `transform`/`send`/`open`/`close`/`is_connected`/`get_actuator_positions` 等标准方法
@@ -1359,6 +1405,41 @@ python -c "from ao_shaping.drivers.sim import SimTurbulenceAOEnv; env = SimTurbu
 - 波前传播仿真
 - 湍流生成
 - 光束传播
+- 模拟 WFS (`SimulatedWFS`, OOPAO Shack-Hartmann，见上文「仿真 WFS」)
+- DM→瞳孔相位耦合 (`SimDmOptics`, 可分离高斯影响力函数)
+- 2f-Fourier SLM-PIB 数字孪生 (`SimPibSystem`)
+
+#### DM→相位耦合已接入仿真 (2026-10-01)
+
+`SimDmOptics` (`sim/dm_optics.py`) 把 DM 电压映射为瞳孔相位，经 `SimPibSystem.dm_optics`
+在 `far_field()` 的 **cache-miss 分支**叠加 (与 `disturbance` 同一约定: 相位贡献者在**求值时**相加,
+绝不烘进 `self._phase`)。此前 `pib` / `combined` 的仿真结果**没有物理意义** (DM 动作对远场无影响)。
+
+| runner | 驱动量 | 仿真下是否有物理意义 |
+|--------|--------|---------------------|
+| `slm-pib` / `slm-gsnet` / `spgd-square` | SLM 相位 | **有** —— `set_phase_rad` 直接改变远场 |
+| `pib` / `combined` | DM 电压 | **有** —— `SimulateDM.send_voltages` → `SimDmOptics` → `far_field()` |
+| `wf` / `rms-zernike` 等 | DM 电压 → WFS | **有** —— DM 同时发布给当前活跃的 `SimulatedWFS.dm_optics` |
+
+实现要点:
+- **可分离高斯影响力函数**: 每个致动器一个高斯凸包, x/y 可分离, 故用一次矩阵乘求值。稠密 influence 矩阵在真实 1920×1200 面板下需 ~1.2 GB, 不可接受。
+- **单位链**: `opd_um = stroke_um * v / v_max` → `phase_rad = opd_um * 2π / (λ_nm * 1e-3)`。0 V 为平场 (与真实驱动一致)。`V_Min=-300` 与 `V_Max=499` **不对称**, 故负向半程行程短于正向 —— 裁剪到负轨**不是**正轨的镜像。
+- **相位是 raw 未包裹弧度**, 不做 `mod 2π`: 全项目唯一 wrap 点在 SLM 驱动。
+- **cache 失效靠 `dm_optics.version`**: DM 是独立光学状态, 电压变化必须让 `_far_field` 失效, 否则相机继续返回旧图, 看起来"DM 毫无作用"。
+- 传感器按自己的瞳孔网格 (48×48) 持有一份 `SimDmOptics`, 因此**无需**把 1200×1920 重采样。
+- ⚠️ 以前 DM 只发布到远场, 于是 `wf` 永远读到平 pupil、无论 DM 怎么动 RMS 都是 0。
+
+修复后实测 `main.py pib --cam_type sim --dm_type sim -e 200`, 目标函数真实上升: pib 0.66 → 2.33 → **2.98** (修复前 200 epoch 恒为 0.0145; pib 单位为 %, 故可 >1)。
+
+⚠️ **相机噪声的地板项会把功率比指标淹没**: `far_field_noisy()` 曾以 `clip(img, 0, None)` 收尾。
+`far_field()` 是 `|FFT|²` 本身非负, 帧内所有负值**只可能来自读出噪声** —— 在 0 处裁剪会把对称分布
+**整流**, 凭空造出与**像素数**成正比的 DC 地板: shot noise 地板/信号 **1.005×** (正确),
+read noise 经 clip 后 **4598×** (缺陷)。光斑只占 ~150 px 而画幅 2.3 M px, 地板携带 ~3000× 的光,
+`pib` 的分母是整帧总功率, 于是它量的是这块地板。
+
+修复: **不再逐帧裁剪**。真实探测器的本底位于其阈值**之下**, 只在量化时裁剪一次, 去黑电平靠暗帧扣除。
+判据用**暗区均值** (≈0) 与**桶内信号占比**, **不要**用整帧 total 判定噪声 (零均值噪声在 2.3 M px 上
+求和标准差 ≈ σ√N ≈ 758, 与 152 的信号总量同量级)。参见 `tests/ao_shaping/drivers/sim/test_sim_noise_model.py`。
 
 ### 波前干扰 (湍流 + 热晕): 静态 / 动态
 
@@ -1555,6 +1636,34 @@ dynamic 用 604 张屏、逐次 RMS 变化 (σ≈0.580 rad ≈0.092 waves)；目
   - `TYPE_CHECKING` 保护（仅类型检查时导入）
   - 函数内部的延迟导入（deferred local import）
 
+#### 9.1 驱动惰性加载契约（2026-10-01）
+
+`import ao_shaping` 及其任何子包**都不得加载原生 SDK、也不得做磁盘 I/O**。这不是性能优化，而是正确性问题 —— 仓库里已因此真实炸过两次。
+
+**两条独立的惰性**：
+
+| 层级 | 机制 | 位置 |
+|------|------|------|
+| **包级** | PEP 562 模块 `__getattr__` | `drivers/_lazy.py::install_lazy_attrs` |
+| **构造级** | `Device._load_sdk()` / `Device._ensure_sdk()` | `drivers/device_base.py` |
+
+```python
+class MyDriver(Device):
+    @staticmethod
+    def _load_sdk():        # 覆写点; 默认返回 None (仿真设备无 SDK)
+        return load_dll()
+
+    @property
+    def _lib(self):          # 只读属性 → 所有 self._lib.<fn> 读点零改动
+        return self._ensure_sdk()   # 解析一次并缓存
+```
+
+红线:
+- `install_lazy_attrs` 内部**必须**写 `module_globals[name] = value` 缓存，否则后续直接 `import` 该子模块会重新绑定全局变量，惰性被彻底绕过。
+- 惰性名字**绝不能**在模块作用域出现同名赋值 —— 那会遮蔽 `__getattr__` 并退回 eager。
+- **禁止在任何类体/模块作用域做 I/O**。仓库**输入**资产 (如 `dm_adj.txt`) 经 `drivers/dm/_adjacency.py::load_adjacency()` 加载，路径锚定包位置；运行**输出** (如 `PATHS.root_dir`) CWD 相对是**正确**的。
+- **分层方向单一**: 硬件包不得 import 仿真包。仿真 DM 经同一个 `install_lazy_attrs` 惰性解析，`dm/_registry.py::_ensure_sim_dms_bound()` 保证 `"sim"` 在**首次注册表使用**时绑定。
+
 #### 10. 性能优化模式
 
 - **默认使用 NumPy** 实现数值计算
@@ -1608,7 +1717,8 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 ### 文档
 
 - [AGENTS.md](AGENTS.md): 开发指南和项目架构
-- [drivers/AGENTS.md](src/ao_shaping/drivers/AGENTS.md): 硬件驱动文档
+- [drivers/AGENTS.md](src/ao_shaping/drivers/AGENTS.md): 硬件驱动文档 (含驱动惰性加载契约)
+- [drivers/sim/AGENTS.md](src/ao_shaping/drivers/sim/AGENTS.md): 仿真模块文档 (含 `SimulatedWFS` 保真度实测表)
 - [scripts/README.md](scripts/README.md): 脚本说明 (含报告生成架构)
 - [docs/](docs/): 项目文档与报告 (2026-09 起从根目录迁移集中):
   - [SLM 相关](docs/slm/): 报告与攻关记录 (`report2.md`, `report3.md`, 日报 `daily_*.md`, 方形整形 `slm_square_spgd/README.md`, 可微整形 `slm_shaping_diff/readme.md`, Zernike 线性度 `zernike_linearity/linearity.md`, Zernike 响应矩阵报告 `zernike_response_matrix_report/report.md`)
@@ -1617,6 +1727,20 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
   - [diff-beam 可微整形说明](docs/diff_beam/README.md)、[PIB 优化器功能报告](docs/reports/pib_optimizer_functional_report.md)
 
 ## 近期更新
+
+### v0.15.0 (2026-10-01)
+
+**merge `banckend` (16419e5) 整合 + review 修复**
+
+- **模拟 WFS** (`drivers/sim/wfs/simulated_wfs.py`): 新增 `SimulatedWFS` —— OOPAO Shack-Hartmann, 实现 `BaseWFS`, 可直接顶替 `ThorlabWFS`, 使所有 WFS 类 runner 无需硬件即可执行。测**瞳面相位梯度**(非焦平面传播)，排除 piston (SH 测不到绝对相位偏移，否则 `pinv` 放大成 +0.50 rad 伪系数)；`get_wavefront()` 返回 **waves**，`get_zernike()` 返回 **µm**。⚠️ 保真度不足以当波前基准 (tilt 单独注入只差 24%、与其他模式同注入差 83% ⇒ 主误差是模式间串扰)，任何由 `get_zernike()` 推出的 RMS 改善率或 Strehl **必须标注为「未验证」**。
+- **WFS 注册表** (`drivers/wfs/_registry.py`): `register_wfs`/`create_wfs`/`list_wfs_types`/`resolve_wfs`，镜像 DM 注册表，延迟绑定故硬件包不 import 仿真包。`--wfs_type [thorlab|sim]` 定义在共享 `WfsParams` 上，8 个命令**既暴露也真正透传** (`wf`/`pipeline`/`rms-zernike`/`ga-zernike`/`greedy-zernike`/`dm-matrix`/`hadamard-matrix`/`zernike-matrix`)；`closed-loop` 刻意没有 (回放已保存的响应矩阵)。
+- **DM→瞳孔相位耦合接入仿真** (`sim/dm_optics.py`): `SimDmOptics` 用**可分离高斯影响力函数**把 DM 电压映射为瞳面相位 (稠密矩阵在 1920×1200 下需 ~1.2 GB 不可接受)，`SimulateDM.send_voltages` 同时发布给远场与当前活跃 WFS。此前 `pib`/`combined`/`wf` 的仿真结果**没有物理意义**。
+- **驱动惰性加载契约**: `import ao_shaping` 及其任何子包**不得加载原生 SDK、也不得做磁盘 I/O**。包级用 PEP 562 `__getattr__` (`drivers/_lazy.py::install_lazy_attrs`)，构造级用 `Device._load_sdk()`/`_ensure_sdk()` + 只读 `_lib` 属性。`ThorlabWFS` 曾把 `load_dll()` 写在 `__init__` 里使**构造**就 `OSError`; `NLight.py` 曾**类体**执行 `np.loadtxt("data/dm_adj.txt")` 使 `import ao_shaping` 直接失败 (CWD 相对路径) —— 仓库输入资产现经 `drivers/dm/_adjacency.py::load_adjacency()` 锚定包位置。
+- **分层方向修正**: `drivers/dm/__init__.py` 曾 import `drivers.sim.dm` (硬件 → 仿真，方向反了) 形成循环，该循环此前靠 `drivers/__init__.py` 的 eager 导入顺序侥幸未暴露 —— 一旦改成惰性就立刻炸。
+- **`--disturbance-cn2`** 注入像差 (经 `SimDisturbance` 注入**瞳孔**，默认 0 = 不注入)；`wf` 新增 `--lr`/`--delta` 覆盖。
+- 修复: `far_field_noisy` 的 `clip(img, 0, None)` **整流**读出噪声、造出与像素数成正比的 DC 地板 (read noise 地板/信号 **4598×**)，使 `pib`/`combined` 停在 0.0145。改为不再逐帧裁剪 (真实探测器的本底在阈值**之下**，只在量化时裁剪一次)。
+- 修复 (review): merge 残留的 `pipeline_runner` 引用未定义的 `wfs`(应为 `wfs_params`)；`sim/slm_shaping_bench.py` 的 `differentiable_shape` 在 torch import 被删后残留 19 处 `F821`；`optimizer/wfless/slm_shaping_bench.py` 是一份**手抄副本**且用的是**未加零填充的旧前向模型** —— 现改为对 canonical 实现的 re-export shim (同一方法此前按 import 来源返回不同指标)；`iterative_zernike_shaping` 的 `_zernike_basis` 调用了已被删除的 `_zernike_radial`(3 个测试失败) —— 现直接返回 canonical `ZernikeGenerator` 预计算的基。
+- 规模: 93 文件 / +7232 −547。
 
 ### v0.14.0 (2026-10-01)
 - **SLM-PIB 仿真的波前干扰** (`ao_shaping.drivers.sim.disturbance`): 新增 `SimDisturbance` / `DisturbanceConfig` —— **大气湍流** (复用 canonical `beam_backend.turbulence_phase`, von Karman 相位屏) + **热晕** (canonical `generate_zernike_phase`: Noll 4 离焦 + Noll 11 球差, 负热透镜, smoothstep 光晕窗 + waves 峰谷归一化), 全程 raw 未包裹弧度。提供 **static** (全程冻结屏 ≡ `closed`) 与 **dynamic** (每次光学评估重抽独立屏 ≡ `open`/white-in-time 极限, 非风场模型) 两种体制; `SimPibSystem` 以关键字参数 `disturbance=` 接入, 仅在 `far_field()` 的 cache-miss 分支推进 (每次真实光学评估一次), `self._phase` 保持纯命令不重复计入。`slm_pib_sim_run.py` 新增 `--disturbance/--cn2/--halo-pv-waves/...` 并写出 companion `disturbance.json`+`.npz`; `generate_slm_pib_sim_report.py` 渲染静态/动态对比 (配置派生 tag + 干扰相位屏图 + 逐次 RMS 轨迹图, 证明 static 恒定 / dynamic 变化) 与 8 条口径说明。53 个新测试用例

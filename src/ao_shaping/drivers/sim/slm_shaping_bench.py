@@ -22,7 +22,9 @@ FFT. It provides:
 The intent is to let a single, reproducible script exercise many beam-shaping
 methods on one optical model and compare them with identical metrics.
 
-All functions here use NumPy and require no hardware.
+All functions here use NumPy only, except ``differentiable_shape`` which needs
+torch. The torch import is lazy (inside the function), so the module imports
+cleanly without torch installed and the numpy paths stay usable.
 
 Note on the physical model
 --------------------------
@@ -117,8 +119,10 @@ class ShapingBenchConfig:
         the focal-plane pitch is ``lambda*f/(M*dx_pupil) =
         lambda*f/(far_field_padding*aperture_size)`` -- independent of n_grid.
         """
-        return self.wavelength * self.focal_length / (
-            self.aperture_size * self.far_field_padding
+        return (
+            self.wavelength
+            * self.focal_length
+            / (self.aperture_size * self.far_field_padding)
         )
 
     def make_beam_config(self) -> BeamSimConfig:
@@ -201,7 +205,9 @@ def forward_intensity(phase: np.ndarray, cfg: ShapingBenchConfig) -> np.ndarray:
     non-negative intensity array on the ``far_field_size`` grid (unnormalised).
     """
     beam_cfg = cfg.make_beam_config()
-    field = gaussian_pupil(beam_cfg).astype(np.complex128) * np.exp(1j * np.asarray(phase))
+    field = gaussian_pupil(beam_cfg).astype(np.complex128) * np.exp(
+        1j * np.asarray(phase)
+    )
     return _fraunhofer_intensity(field, cfg)
 
 
@@ -234,7 +240,7 @@ def make_target(cfg: ShapingBenchConfig) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # Objective functions / quality metrics
 # ---------------------------------------------------------------------------
-def _rolled_support(target: np.ndarray, center: np.ndarray | None) -> np.ndarray:
+def _rolled_support(target: np.ndarray, center: tuple[int, int] | None) -> np.ndarray:
     """Boolean target support, rolled so its centre sits on ``center``.
 
     ``center`` is ``(col, row)`` (the ``np.unravel_index(...)[::-1]`` convention
@@ -258,7 +264,7 @@ def power_in_bucket(
     intensity: np.ndarray,
     target: np.ndarray,
     *,
-    center: np.ndarray | None = None,
+    center: tuple[int, int] | None = None,
 ) -> float:
     """Power-in-bucket: fraction of total power inside the target region.
 
@@ -276,7 +282,7 @@ def efficiency(
     intensity: np.ndarray,
     target: np.ndarray,
     *,
-    center: np.ndarray | None = None,
+    center: tuple[int, int] | None = None,
 ) -> float:
     """Encircled / bucket energy = power in the target support."""
     return power_in_bucket(intensity, target, center=center)
@@ -286,7 +292,7 @@ def uniformity_cv(
     intensity: np.ndarray,
     target: np.ndarray,
     *,
-    center: np.ndarray | None = None,
+    center: tuple[int, int] | None = None,
 ) -> float:
     """Coefficient of variation of intensity *within* the target support.
 
@@ -319,7 +325,7 @@ def strehl(intensity: np.ndarray, target: np.ndarray) -> float:
 
 def zero_order_fraction(
     intensity: np.ndarray,
-    center: np.ndarray,
+    center: tuple[int, int],
     *,
     zero_order_margin_px: float = 10.0,
 ) -> float:
@@ -327,7 +333,8 @@ def zero_order_fraction(
 
     Args:
         intensity: Far-field intensity on the (padded) camera grid.
-        center: Zero-order location in ``(row, col)`` of the intensity array.
+        center: Zero-order location as ``(col, row)`` -- the
+            ``np.unravel_index(...)[::-1]`` convention used by every caller.
         zero_order_margin_px: Guard radius in far-field (camera) pixels. The
             default is ~1 Airy radius (10 px at the 8x padding); scale it with
             ``cfg.zero_order_margin_px`` for other paddings.
@@ -344,7 +351,7 @@ def compute_metrics(
     intensity: np.ndarray,
     target: np.ndarray,
     *,
-    center: np.ndarray | None = None,
+    center: tuple[int, int] | None = None,
     zero_order_margin_px: float = 10.0,
 ) -> dict[str, float]:
     """Compute the full objective-function suite used in the survey.
@@ -445,9 +452,7 @@ def gs_shape(
     if base_phase is None:
         base = np.zeros(amp_slm.shape, dtype=np.float64)
     else:
-        base = _pad_centred(
-            np.asarray(base_phase, dtype=np.float64), cfg
-        )
+        base = _pad_centred(np.asarray(base_phase, dtype=np.float64), cfg)
     # Initial field: gaussian input in the SLM plane
     field = amp_slm * np.exp(1j * (base + rng.normal(0, 0.1, size=amp_slm.shape)))
 
@@ -498,10 +503,14 @@ def differentiable_shape(
 ) -> ShapingResult:
     """Differentiable far-field shaping: gradient descent on the SLM phase.
 
-    Loss = 1 - overlap(target, sim) + lambda * (1 - PIB). Requires torch.
+    Loss = 1 - overlap(target, sim) + lambda * (1 - PIB). Requires torch, which
+    is imported lazily so the rest of this module works without it.
     """
-    if not _TORCH_AVAILABLE:
-        raise RuntimeError("differentiable_shape requires torch")
+    try:
+        import torch
+    except ImportError as exc:
+        raise RuntimeError("differentiable_shape requires torch") from exc
+
     beam_cfg = cfg.make_beam_config()
     rng = np.random.default_rng(cfg.seed if seed is None else seed)
     target = make_target(cfg)
@@ -605,9 +614,7 @@ def spgd_shape(
 
     score = eval_score(phase_flat)
     g = np.zeros(n_par)
-    history = [
-        {"iter": 0, "score": score, "PIB": 0, "CV": float("inf")}
-    ]
+    history = [{"iter": 0, "score": score, "PIB": 0, "CV": float("inf")}]
     for i in range(1, n_iters):
         sgn = rng.choice([-1, 1], size=n_par)
         cand = phase_flat + delta * sgn

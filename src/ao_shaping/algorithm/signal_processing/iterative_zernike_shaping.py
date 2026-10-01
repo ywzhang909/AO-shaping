@@ -96,7 +96,9 @@ class IterativeZernikeShapingConfig:
         if self.shaping_iters <= 0:
             raise ValueError(f"shaping_iters must be > 0, got {self.shaping_iters}")
         if self.max_outer_iters < 1:
-            raise ValueError(f"max_outer_iters must be >= 1, got {self.max_outer_iters}")
+            raise ValueError(
+                f"max_outer_iters must be >= 1, got {self.max_outer_iters}"
+            )
         if self.far_field_padding < 1:
             raise ValueError(
                 f"far_field_padding must be >= 1, got {self.far_field_padding}"
@@ -116,7 +118,7 @@ class IterativeZernikeShapingResult:
     slm_phase: np.ndarray
     far_field: np.ndarray
     target: np.ndarray
-    score_history: list[dict[str, float]]
+    score_history: list[dict[str, Any]]
     n_outer_iters: int
     converged: bool
     final_score: float
@@ -194,7 +196,9 @@ class IterativeZernikeShapingOptimizer:
         if config.shaping_iters <= 0:
             raise ValueError(f"shaping_iters must be > 0, got {config.shaping_iters}")
         if config.max_outer_iters < 1:
-            raise ValueError(f"max_outer_iters must be >= 1, got {config.max_outer_iters}")
+            raise ValueError(
+                f"max_outer_iters must be >= 1, got {config.max_outer_iters}"
+            )
 
         self._config = config
         t = _torch()
@@ -230,10 +234,16 @@ class IterativeZernikeShapingOptimizer:
                 (n, n), radius=radius, n_orders=config.n_zernike
             )
             self._basis = [
-                (nn, mm, t.as_tensor(
-                    np.nan_to_num(generator.generate_polynomial({(nn, mm): 1.0}), nan=0.0),
-                    dtype=t.float64,
-                ))
+                (
+                    nn,
+                    mm,
+                    t.as_tensor(
+                        np.nan_to_num(
+                            generator.generate_polynomial({(nn, mm): 1.0}), nan=0.0
+                        ),
+                        dtype=t.float64,
+                    ),
+                )
                 for nn, mm in self._zernike_modes
             ]
         else:
@@ -248,7 +258,6 @@ class IterativeZernikeShapingOptimizer:
         target = target / target.sum()
         self._target = target
         self._target_support = (target > 0).to(t.float64)
-        self._zernike_basis_cache: list[tuple[int, int, Any]] | None = None
 
         # --- Trainable parameters (initialized to zero; reset in run()) ---
         self._zernike_coeffs: t.nn.Parameter | None = None
@@ -257,31 +266,25 @@ class IterativeZernikeShapingOptimizer:
         logger.debug(
             "IterativeZernikeShapingOptimizer initialized: n_grid={}, n_zernike={}, "
             "zernike_params={}, target_side={}",
-            n, config.n_zernike, self._n_zernike_params, config.target_side_px,
+            n,
+            config.n_zernike,
+            self._n_zernike_params,
+            config.target_side_px,
         )
 
     def _zernike_basis(self) -> list[tuple[int, int, Any]]:
-        """Return cached basis tensors from the canonical Zernike generator.
+        """Return the cached basis tensors built by the canonical generator.
+
+        The maps come from :class:`ZernikeGenerator` (``generate_polynomial``,
+        NaN outside the aperture replaced by 0) and are converted to constant
+        torch tensors once in ``__init__``; only the coefficients are trainable.
+        Re-deriving the radial polynomial here instead would be a second,
+        drifting copy of the canonical Zernike math.
 
         Returns:
             List of (n, m, basis_tensor) tuples.
         """
-        if self._zernike_basis_cache is not None:
-            return self._zernike_basis_cache
-        t = _torch()
-        modes = []
-        for n, m in self._zernike_modes:
-            r_nm = self._zernike_radial(n, m, self._r)
-            if m >= 0:
-                angular = t.cos(m * self._theta)
-            else:
-                angular = t.sin(abs(m) * self._theta)
-            # Mask outside aperture (set to 0 for gradient stability)
-            mask = (self._r <= 1.0).to(t.float64)
-            basis = r_nm * angular * mask
-            modes.append((n, m, basis))
-        self._zernike_basis_cache = modes
-        return modes
+        return self._basis
 
     # ------------------------------------------------------------------
     # Forward model
@@ -400,7 +403,9 @@ class IterativeZernikeShapingOptimizer:
             slm_init = initial_slm_phase.to(t.float64)
 
         # Trainable Zernike coefficients
-        zernike_coeffs = t.nn.Parameter(t.zeros(self._n_zernike_params, dtype=t.float64))
+        zernike_coeffs = t.nn.Parameter(
+            t.zeros(self._n_zernike_params, dtype=t.float64)
+        )
         opt = t.optim.Adam([zernike_coeffs], lr=self._config.zernike_lr)
 
         # Sum-normalised far field => per-pixel values ~1/m^2 and raw MSE ~1e-10,
@@ -417,7 +422,8 @@ class IterativeZernikeShapingOptimizer:
                 logger.warning(
                     "Zernike calibration diverged to non-finite coefficients at "
                     "iter {} (zernike_lr={}); returning the last finite estimate.",
-                    _, self._config.zernike_lr,
+                    _,
+                    self._config.zernike_lr,
                 )
                 break
 
@@ -464,7 +470,9 @@ class IterativeZernikeShapingOptimizer:
         if initial_slm_phase is None:
             slm_phase = t.nn.Parameter(t.zeros((n, n), dtype=t.float64))
         elif isinstance(initial_slm_phase, np.ndarray):
-            slm_phase = t.nn.Parameter(t.as_tensor(initial_slm_phase, dtype=t.float64).clone())
+            slm_phase = t.nn.Parameter(
+                t.as_tensor(initial_slm_phase, dtype=t.float64).clone()
+            )
         else:
             slm_phase = t.nn.Parameter(initial_slm_phase.to(t.float64).clone())
 
@@ -550,7 +558,7 @@ class IterativeZernikeShapingOptimizer:
         calibration_phase = np.zeros((n, n), dtype=np.float64)
 
         zernike_coeffs: dict[tuple[int, int], float] = {}
-        score_history: list[dict[str, float]] = []
+        score_history: list[dict[str, Any]] = []
         converged = False
 
         # Compute initial score
@@ -558,7 +566,9 @@ class IterativeZernikeShapingOptimizer:
         actual_t = t_arr.as_tensor(actual_far_field, dtype=t_arr.float64)
         slm_t = t_arr.as_tensor(slm_phase, dtype=t_arr.float64)
         ff = self._far_field(
-            t_arr.zeros(self._n_zernike_params, dtype=t_arr.float64) if self._n_zernike_params > 0 else None,
+            t_arr.zeros(self._n_zernike_params, dtype=t_arr.float64)
+            if self._n_zernike_params > 0
+            else None,
             slm_t,
         )
         init_score = float(self._score(ff).item())
@@ -574,7 +584,9 @@ class IterativeZernikeShapingOptimizer:
         for outer in range(1, cfg.max_outer_iters + 1):
             # Stage A (if applicable)
             if self._n_zernike_params > 0:
-                zernike_coeffs = self.calibrate_zernike(actual_far_field, calibration_phase)
+                zernike_coeffs = self.calibrate_zernike(
+                    actual_far_field, calibration_phase
+                )
 
             # The model adds the frozen Zernike to the SLM phase, so on the first
             # shaping pass subtract it from the initial phase: otherwise the
@@ -594,7 +606,7 @@ class IterativeZernikeShapingOptimizer:
             slm_t = t_arr.as_tensor(slm_phase, dtype=t_arr.float64)
             ff = self._far_field(zernike_vec, slm_t)
             score = float(self._score(ff).item())
-            score_history.append({"outer_iter": outer, "score": score, "stage": f"A+B"})
+            score_history.append({"outer_iter": outer, "score": score, "stage": "A+B"})
 
             # Early stopping
             if score > best_score + cfg.early_stop_min_delta:
@@ -609,7 +621,9 @@ class IterativeZernikeShapingOptimizer:
                     converged = True
                     logger.info(
                         "Early stop at outer iter {} (patience={}, score={:.4f})",
-                        outer, cfg.early_stop_patience, score,
+                        outer,
+                        cfg.early_stop_patience,
+                        score,
                     )
                     break
 
