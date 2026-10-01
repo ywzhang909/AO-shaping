@@ -76,6 +76,13 @@ class WiringCam(MockCam):
     def display_data(self, gray: np.ndarray, wait_time_s: float | None = None) -> None:
         self._last_phase = np.asarray(gray, dtype=np.float64)
 
+    # -- interface `main()` expects from a real camera ---------------------
+    def reset_exposure_time(self, exposure_ms: float) -> None:
+        self.exposure_ms = float(exposure_ms)
+
+    def get_exposure_time(self) -> float:
+        return float(getattr(self, "exposure_ms", 0.0))
+
 
 class TestZernikePanelIsTheKernelOne:
     """The panel builder is the kernel's; only the probe-specific bits are new.
@@ -306,3 +313,134 @@ class TestDefaultSweepPoints:
     def test_default_point_count(self) -> None:
         # 10 ramp + 4 tilt + 8 defocus + 8 astig + 8 coma + 4 spherical
         assert len(default_sweep_points()) == 42
+
+
+class TestArtifactTail:
+    """`main()` must reach the Recorder-backend call with valid kwargs.
+
+    Regression guard. The post-sweep call used `_root=`, `name=` and
+    `extra_meta=` -- none of which exist on
+    `utils.io.file.save_recorder_debug_artifacts(res, root_dir,
+    subdir_prefix, *, scalar_keys, ..., json_payload, title)`. Because the
+    sweep itself and `save_sweep_npz` had already completed by then, the
+    failure surfaced only as a `TypeError` *after* a successful hardware run,
+    losing every debug artefact. These tests drive the whole tail with mocked
+    devices so the mismatch cannot come back.
+    """
+
+    @staticmethod
+    def _run_main(tmp_path, monkeypatch, captured):
+        """Drive `main()` end-to-end with mocked devices + a spy backend."""
+        from ao_shaping.tools.slm import slm_zernike_sweep_probe as probe
+
+        slm, cam = MockSLM(), WiringCam()
+
+        class _FakeCtx:
+            def __init__(self, obj):
+                self._obj = obj
+
+            def __enter__(self):
+                return self._obj
+
+            def __exit__(self, *exc):
+                return False
+
+        # `main()` imports the drivers *inside* the function body, so they are
+        # not module attributes of the probe -- patch them at their source.
+        import ao_shaping.drivers.ccd.common as ccd_common
+        import ao_shaping.drivers.slm.santec as slm_mod
+
+        monkeypatch.setattr(ccd_common, "create_camera", lambda *a, **kw: _FakeCtx(cam))
+        monkeypatch.setattr(slm_mod, "Santec", lambda **kw: _FakeCtx(slm))
+        monkeypatch.setattr(
+            "ao_shaping.utils.io.file.save_recorder_debug_artifacts",
+            lambda *a, **kw: captured.append((a, kw)) or tmp_path / "art.png",
+        )
+        # One point keeps the run fast; the real default is 42.
+        rc = probe.main([
+            "--out", str(tmp_path / "run"),
+            "--pupil-center", "80,60",
+            "--zernike-radius", "40",
+            "--sweep-tilt", "0",
+            "--sweep-defocus", "1.0",
+            "--sweep-astig", "0",
+            "--sweep-coma", "0",
+            "--sweep-spherical", "0",
+            "--sweep-ramps", "120",
+            "--frames", "1", "--discard", "0",
+            "--settle-s", "0", "--max-wait-s", "0.2",
+        ])
+        return rc
+
+    def test_main_reaches_the_recorder_backend(self, tmp_path, monkeypatch):
+        captured: list = []
+        rc = self._run_main(tmp_path, monkeypatch, captured)
+        assert rc == 0
+        assert len(captured) == 1, "Recorder backend was never reached"
+        args, _ = captured[0]
+        # (res, root_dir, subdir_prefix) -- positionally, per the signature.
+        assert len(args) == 3, "expected (res, root_dir, subdir_prefix)"
+        recorder = args[0]
+        history = list(recorder.history)
+        # flat + at least one swept point, epochs contiguous from 0.
+        assert len(history) >= 2
+        assert [r["_epoch"] for r in history] == list(range(len(history)))
+        # Every row carries the arrays the data-mode backend is asked to store.
+        assert all(np.asarray(r["_phase"]).ndim == 2 for r in history)
+        assert all(np.asarray(r["_img"]).ndim == 2 for r in history)
+
+    def test_kwargs_match_the_backend_signature(self, tmp_path, monkeypatch):
+        """Every kwarg must be one the backend actually accepts."""
+        import inspect
+
+        from ao_shaping.utils.io.file import save_recorder_debug_artifacts
+
+        allowed = set(inspect.signature(save_recorder_debug_artifacts).parameters)
+        captured: list = []
+        self._run_main(tmp_path, monkeypatch, captured)
+        _, kwargs = captured[0]
+        assert set(kwargs) <= allowed, f"unsupported kwargs: {set(kwargs) - allowed}"
+        # The three that used to break it, explicitly.
+        assert not {"_root", "name", "extra_meta"} & set(kwargs)
+        assert "json_payload" in kwargs
+
+    def test_phase_travels_as_a_2d_array_not_a_coerced_scalar(self):
+        """`_phase` is a full panel map, so it must keep its 2D shape.
+
+        `d1_keys` applies `np.asarray(..., dtype=float)`; for a 1920x1200 float32
+        map that both upcasts (doubling artefact memory across 42 points) and
+        mislabels the field. `d2_keys` passes it through untouched.
+        """
+        import numpy as np
+
+        from ao_shaping.tools.slm.slm_zernike_sweep_probe import sweep_to_recorder_rows
+
+        slm, cam = MockSLM(), WiringCam()
+        result = acquire_sweep(
+            cam, slm, [SweepPoint("defocus", 1.5)], pupil_center=CENTRE,
+            zernike_radius=RADIUS, panel_shape=PANEL, n_frames=1, n_discard=0,
+            max_wait_s=0.2,
+        )
+        row = sweep_to_recorder_rows(result)[0]
+        assert np.asarray(row["_phase"]).ndim == 2
+
+    def test_provenance_reaches_the_json_sidecar(self, tmp_path, monkeypatch):
+        captured: list = []
+        self._run_main(tmp_path, monkeypatch, captured)
+        _, kwargs = captured[0]
+        payload = kwargs["json_payload"]
+        for key in (
+            "sweep_npz", "zernike_radius", "pupil_center", "panel_shape",
+            "mode_codes", "axis_codes", "single_lobe_min_hollowness",
+            "exposure_ms", "settle_s", "stable_tol", "max_wait_s",
+        ):
+            assert key in payload, key
+
+    def test_npz_is_written_before_the_artifacts_are_saved(self, tmp_path, monkeypatch):
+        """Locks the ordering so the npz survives even if the tail fails."""
+        captured: list = []
+        self._run_main(tmp_path, monkeypatch, captured)
+        npz = tmp_path / "run" / "sweep_records.npz"
+        assert npz.exists()
+        assert npz.stat().st_size > 0
+        assert str(npz) in captured[0][1]["json_payload"]["sweep_npz"]

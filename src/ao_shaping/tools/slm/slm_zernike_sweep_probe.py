@@ -526,9 +526,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         recorder.append(row)
     save_recorder_debug_artifacts(
         recorder,
-        _root=out_dir.parent,
-        name="slm_zernike_sweep",
-        extra_meta={
+        str(out_dir.parent),
+        "slm_zernike_sweep",
+        scalar_keys=(
+            "peak", "coefficient", "fwhm_px", "centroid_x", "centroid_y",
+            "hollowness", "mode_id", "axis_id",
+        ),
+        objective_keys=("fwhm_px",),
+        img_keys=("_img",),
+        # `_phase` is the full 2-D panel map, so it belongs in `d2_keys`, which
+        # passes it through untouched. `d1_keys` would apply
+        # `np.asarray(..., dtype=float)` and upcast the whole stack to float64.
+        d2_keys=("_phase",),
+        json_payload={
             "sweep_npz": str(npz_path),
             "zernike_radius": result.zernike_radius,
             "pupil_center": list(result.pupil_center),
@@ -541,6 +551,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "stable_tol": args.stable_tol,
             "max_wait_s": args.max_wait_s,
         },
+        title="SLM Zernike sweep",
     )
     logger.info("扫描探针完成 -> {}", out_dir)
     return 0
