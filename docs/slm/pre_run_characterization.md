@@ -134,22 +134,52 @@ python -m ao_shaping.tools.slm.slm_abba_probe \
 
 ## 3. 几何常数: 派生优先于硬编码
 
-CCD 像元间距**不再硬编码**, 而是由实测焦点标度反推:
+实测焦点标度只约束**比值** `f / p_cam`:
 
 ```
-p_cam = λ·f / (d_slm · K)
+K = λ·f / (d_slm · p_cam)          K = tools/slm/slm_bench_probe.TILT_SHIFT_SCALE
 ```
 
-`K` = `tools/slm/slm_bench_probe.TILT_SHIFT_SCALE`(实测 7400; 本台架
-1064 nm / f=125 mm / d_slm=8 µm)⇒ **p_cam = 2.247 µm**, 与独立实测的 2.2 µm 一致。
+`K` = 7400(实测 @1064 nm)。**因此数学上必然需要一个外部锚点**才能解出 `f` 或
+`p_cam` 中的某一个 —— 光靠 `K` 无法同时定两者。当前选择**以 CCD 像元间距为锚点**,
+把镜头焦距变成派生量:
 
-原先硬编码的 **3.31 µm** 隐含 `K = 5023`, 比实测低 **33%**; 它经
+| 量 | 状态 | 值 | 理由 |
+|---|---|---|---|
+| `camera_pixel_um` | **锚点**(输入) | **2.2 µm** | 相机**数据手册**规格, 且已独立确认(`drivers/AGENTS.md`: MER2-507-23GM, 用户 2026-09-21 权威确认) |
+| `focal_length_m` | **派生** | **0.1224 m** | 透镜焦距是**台架装配选择** —— 换光学件就变, 正是最不该写死的那类值 |
+| `slm_pixel_um` | 器件规格 | 8 µm | SLM-200 面板规格 |
+| 波长 | 询问设备 | 默认 `0` | 实验室有**两台不同波长**的 SLM(见 `drivers/AGENTS.md` 序列号冲突); 猜错会重编程面板相位表 |
+
+原先写死的 `f = 125 mm` 现在是 `0` = 派生 ⇒ 0.1224 m, 与 125 mm 标称差 **2%** ——
+正是 (125 mm, 2.2 µm, 8 µm) 三个数据手册值与实测 `K=7400` 之间的那 2%。
+
+原先写死的 **p_cam = 3.31 µm** 隐含 `K = 5023`, 比实测低 **33%**; 它经
 `slm_gs_refine._derive_target_side` 直接缩放 GS 目标边长, 于是把远场角尺寸
 算错 33%(bake-off 会兜住, 但 GS 阶段白做)。
 
-实现: `utils/wavefront/matrix_utils.py::camera_pixel_um_from_focal_scale`,
+实现: `utils/wavefront/matrix_utils.py` 的 `camera_pixel_um_from_focal_scale`
+与 `focal_length_from_camera_pixel`(互为精确反函数, 双向 round-trip 有测试),
 由 `runner_common` 与 `slm_gs_refine` **各自调用同一个函数**, 因此两层不会漂移;
 `tools/slm/slm_bench_metrics.py` 只做再导出, 不留第三份定义。
+
+### 3.0.1 ⚠️ `K` 正比于波长 —— 换波长必须先换算 `K`
+
+`K = λf/(d_slm·p_cam)` 而 `f`、`d_slm`、`p_cam` 都**与波长无关**, 所以 `K ∝ λ`。
+在 1064 nm 测得的 `K=7400` 拿到 532 nm 用会**大一倍**, 从而让派生焦距也大一倍
+(实测: 不换算则 f 从 0.1224 m 变成 0.2448 m, 正好 2×)。
+
+因此 `focal_length_from_camera_pixel` 额外收 `scale_measured_at_nm`, 先把 `K`
+折算到目标波长, 使派生的 `f` **与波长无关** —— 透镜焦距本来就该与波长无关。
+有测试锁定(1064/532/780 nm 得到同一个 f), 也有测试锁定"不给该参数就一定会错 2×"。
+
+这也是 `slm_wavelength` 敢默认 `0`(询问设备)的前提。
+
+### 3.0.2 锚点换了, GS 目标边长没变
+
+`_derive_target_side` 只消费 `f / p_cam` 这个**比值**, 而 `K` 单独就把它定死了,
+所以换锚点对比值只影响 **+0.02%** ⇒ GS 目标边长实质不变。只有 GS 传播用到了 `f`
+的**绝对值**, 那一项由 bake-off 兜底。
 
 ### 3.1 环围能量(EE)归一化约定不一致
 
@@ -188,10 +218,10 @@ p_cam = λ·f / (d_slm · K)
 | 2 | `drivers/slm/santec/driver.py:1258` | `target_slot` 未绑定 | **仅 DVI 模式**触发 `UnboundLocalError`。超出本次写入范围, **未修**; DVI 本就不该自动尝试(`open()` 已知会挂起) |
 | 3 | `optimizer/wfless/slm_zernike_pib.py:137`<br>`optimizer/wfless/slm_zernike_shaping.py:123` | `SLM_RESPONSE_TIME_S = 0.0` | **零稳定等待**, 各有 7 处 sleep 调用点。静默读到未稳定帧 |
 | 4 | `drivers/ccd/daheng/driver.py:205-218` | 曝光越界被**钳到量程端点** | `0` 不是"保持设备设置", 而是被钳到**设备最小值 ~0.02 ms**(比可用区间暗 20–75 倍)。**这是 `0` 默认值的真实代价, 务必先 bracket** |
-| 5 | `runners/runner_common.py` + `optimizer/wfless/slm_gs_refine.py` | `camera_pixel_um` | **已修(`015890f`)**: 原硬编码 3.31 µm(推得焦点标度 5023, 比实测低 33%), 现由实测焦点标度**反推**得 2.247 µm |
+| 5 | `runners/runner_common.py` + `optimizer/wfless/slm_gs_refine.py` | `camera_pixel_um` | **已修(`015890f` + `d4a071b`)**。原硬编码 3.31 µm(推得焦点标度 5023, 比实测低 33%); 先改为由实测焦点标度反推, 最终改为**以像元间距为锚点**(2.2 µm 数据手册值)、**焦距改为派生**(见 §3) |
 | 6 | ~~`far_field_padding` 3 vs 8~~ | — | **不是冲突, 已撤回**。`far_field_size = n_grid × padding`, 仿真 `n_grid=512` 用 8、实机 `n_grid≈900` 用 3; 物理量 `λf/(aperture·padding)` 与 `n_grid` 无关, 代价才是平方级。**不要"统一"它** |
-| 7 | `optimizer/wfless/slm_gs_refine.py:186` | `focal_length_m = 0.125` | GUI 侧不一致: `gui/slm/pattern_controls.py:1181` GS 用 `100.0` mm, `:453`/`:1381`/`:1663` 用 `300.0` mm。GS 尺寸直接依赖它, 错了会被 bake-off 兜住但 GS 白算 |
-| 8 | `tools/slm/slm_bench_probe.py:78` | `TILT_SHIFT_SCALE = 7400.0` | 文档里同时存在 `7600/P`、`5021/Λ`、`132940/P` 四种说法。**现在 `camera_pixel_um` 由它反推, 两者不会再漂移** |
+| 7 | `optimizer/wfless/slm_gs_refine.py` | `focal_length_m` | **已修(`d4a071b`)**: 写死的 `0.125` 已改为 `0` = 由实测标度派生。GUI 侧仍不一致(`gui/slm/pattern_controls.py:1181` GS 用 `100.0` mm, `:453`/`:1381`/`:1663` 用 `300.0` mm), 换成透镜后请一并复核 |
+| 8 | `tools/slm/slm_bench_probe.py:78` | `TILT_SHIFT_SCALE = 7400.0` | 文档里同时存在 `7600/P`、`5021/Λ`、`132940/P` 四种说法。**现在整条光路几何都由它派生, 两者不会再漂移**; ⚠️ `K ∝ λ`, 换波长须按 §3.0.1 折算 |
 | 9 | `optimizer/wfless/slm_zernike_pib.py:1214,1443,1470` | 每次迭代 `set_reference_center(zero_order_center(...))` | 散斑上 argmax 在近似等亮的颗粒间跳 ⇒ 目标框漂移 ⇒ 指标不连续, 优化器追一个会动的框 |
 | 10 | `utils/image/beam_metrics.py:371,414,462,512` | 4 个 0 阶定位实现 | 暗帧上裸 `argmax`: 峰值 22–46 而帧均值 0.26, 单个热像素即可取胜; 参考质心曾在 60 px 内自漂 |
 | 11 | `optimizer/wfless/slm_square_shaping.py:435`<br>vs `optimizer/wfless/slm_gs_refine.py:268` | 截零 vs 扣中位数 | **故意不同**, 见 §2。统一会引入 1600× 误差 |

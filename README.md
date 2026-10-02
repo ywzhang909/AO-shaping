@@ -662,11 +662,17 @@ python src/ao_shaping/main.py slm-gs-refine [OPTIONS]
 - `--delta` / `--lr` / `--optimizer [adam|adamw|adamod|sgd]` / `--lr-schedule`
 - `--gs-iters` / `--gs-warm-start/--no-gs-warm-start`
 - `--beam-radius-px`: 面板上照明光斑**半径** (默认 450, 实测台架值)
-- `--camera-pixel-um`: 相机像素间距 (um)。默认值由**实测焦点标度反推**得到
-  (`p_cam = λ·f/(d_slm·K)`, `K = slm_bench_probe.TILT_SHIFT_SCALE` = 7400
-  ⇒ 2.247 µm, 与独立实测的 2.2 µm 一致), 不再硬编码 —— 原 3.31 µm 隐含
-  焦点标度 5023, 比实测低 33%。**换相机请显式传入**: 它把相机像素的目标
-  边长换算成 bench 远场像素; 错了 GS 会瞄错角尺寸 (bake-off 会兜住, 但 GS 白算)
+- `--camera-pixel-um`: 相机像素间距 (um) —— **光路模型的测量锚点**, 因为它是**每台相机**
+  的数据手册常数 (大恒 MER2-507-23GM = 2.2 µm, `drivers/AGENTS.md` 有权威记录)。
+  实测焦点标度 `K` 只约束比值 `f/p_cam`, 所以**必须**有一个外部锚点; 这里选相机
+  而不是透镜, 因为镜头焦距是**台架装配选择**, 换光学件就变。**换相机请显式传入**:
+  它把相机像素的目标边长换算成 bench 远场像素 (错了 GS 会瞄错角尺寸, bake-off
+  会兜住, 但 GS 白算)
+- `--focal-length-m`: 2f 透镜焦距 (m)。**默认 0 = 由实测焦点标度 + `--camera-pixel-um`
+  派生** (本台架 ⇒ 0.1224 m, 与 125 mm 标称差 2%); 显式传值可锁定具体镜头
+- `--slm_wavelength`: SLM 工作波长 (nm)。**默认 0 = 询问设备实际编程的波长**,
+  不假设某台 SLM (实验室有 532/1064 两台)。⚠️ 焦点标度 `K ∝ λ`, 换波长须先把
+  `K` 折算过去, 否则派生焦距会按 `λ/λ_ref` 整体缩放 (532 nm 会整整大 2×)
 - `--far-field-padding`: GS 远场补零倍数 (默认 3; **代价是平方级**)
 - `--cam_type [daheng|miicam|sim]` / `--cam-id` / `--exposure_time_ms` / `--cam_size`
 - `--slm_number` / `--slm_wavelength`
