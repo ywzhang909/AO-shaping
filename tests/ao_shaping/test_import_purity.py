@@ -200,6 +200,13 @@ def test_list_dm_types_needs_no_network(monkeypatch: pytest.MonkeyPatch) -> None
     In-process on purpose: this pins the *cheap* API as the one that must never
     need a socket, and it guards against someone "optimising" the import-time
     resolution by moving the reachability sweep here instead.
+
+    Asserts a SUBSET, never an exact length: the registry gains entries purely as
+    an import side effect (``runner_common`` imports ``asyn_micro_dm``, which
+    registers ``asyn_micro``), so the count is 6 in a bare process and 7 once
+    ``runner_common`` has been imported. That import-order sensitivity is the very
+    hazard documented for the ``--dm_type`` choice list, and pinning a count here
+    would have made this test order-dependent.
     """
     import socket
 
@@ -207,7 +214,10 @@ def test_list_dm_types_needs_no_network(monkeypatch: pytest.MonkeyPatch) -> None
         raise AssertionError("list_dm_types() must not open a socket")
 
     monkeypatch.setattr(socket.socket, "connect_ex", _boom)
-    assert len(list_dm_types()) == 6
+    types = list_dm_types()
+    always_present = {"hadamard", "micro", "nlight", "sim", "sim_micro", "zernike"}
+    assert always_present <= set(types), f"missing DM types: {always_present - set(types)}"
+    assert types == sorted(set(types)), f"registry listing must be sorted and unique: {types}"
 
 
 def test_dm_resolution_is_memoized() -> None:
