@@ -1,5 +1,6 @@
 import inspect
 import os
+from contextlib import contextmanager
 
 import tqdm
 import numpy as np
@@ -29,8 +30,8 @@ from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
 _CAMERA_CLASS_OVERRIDE: type | None = None
 
 
-def _camera_cls() -> type:
-    """Resolve the MiiCam driver class on demand.
+def _camera_cls(cam_type: str = "") -> type:
+    """Resolve the camera driver class on demand.
 
     ``ao_shaping.drivers`` exposes ``MIICamera`` through a PEP 562
     ``__getattr__``, so a module-level ``from ao_shaping.drivers import
@@ -40,17 +41,41 @@ def _camera_cls() -> type:
     ``scripts/generate_shape_objective_comparison.py``. Resolving here keeps
     the optimizer importable without the side effect.
 
-    Offline simulation and tests substitute a fake camera by assigning
-    ``_CAMERA_CLASS_OVERRIDE`` on this module.
+    Precedence: an explicit ``_CAMERA_CLASS_OVERRIDE`` wins, so tests can force
+    any class; then ``cam_type="sim"`` for the 2f-Fourier simulator; otherwise
+    the real MiiCam driver.
     """
     if _CAMERA_CLASS_OVERRIDE is not None:
         return _CAMERA_CLASS_OVERRIDE
+
+    if cam_type == "sim":
+        from ao_shaping.drivers.sim.slm_pib_sim import SimPibCCD
+
+        return SimPibCCD
 
     from ao_shaping.drivers import MIICamera
 
     if MIICamera is None:
         raise RuntimeError("MiiCam driver not available. Install the MiiCam SDK.")
     return MIICamera
+
+
+@contextmanager
+def _camera_override(camera_cls: type | None):
+    """Temporarily swap the camera class used by :func:`optimize_pib`.
+
+    ``_CAMERA_CLASS_OVERRIDE`` is module state, so assigning it without
+    restoring would silently make a later hardware run use the simulator. This
+    restores the previous value on exit, including on exception, and nests
+    correctly.
+    """
+    global _CAMERA_CLASS_OVERRIDE
+    previous = _CAMERA_CLASS_OVERRIDE
+    _CAMERA_CLASS_OVERRIDE = camera_cls
+    try:
+        yield camera_cls
+    finally:
+        _CAMERA_CLASS_OVERRIDE = previous
 
 
 # adam parameters
@@ -278,6 +303,7 @@ def optimize_pib(
     delta: float = 1,
     lr: float = 0,
     exposure_time_ms: float = 80.0,
+    cam_type: str = "",
     shrink_iter: int = 0,
     shrink_ratio: float = 0.9,
     cam_id=0,
@@ -372,7 +398,7 @@ def optimize_pib(
     _max_history_len = 50  # 保持最近50次记录
 
     with (
-        _camera_cls()(
+        _camera_cls(cam_type)(
             cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
         ) as cam,
     ):

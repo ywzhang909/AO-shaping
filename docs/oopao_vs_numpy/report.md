@@ -1,6 +1,6 @@
 # OOPAO 后端 vs 传统 numpy/FFT 后端 —— 对比报告
 
-- 生成时间: `2026-09-29T11:54:08`
+- 生成时间: `2026-09-29T16:38:27`
 - 场景矩阵: **12** 个 (像差 4 × 湍流 4, 本次实际取子集) × 2 条臂 = 24 行 CSV
 - 仿真参数: `n_grid=64`、`seed=42`、口径 `64 mm`、波长 `1064 nm`
 - 输出: `docs/oopao_vs_numpy/report.md`、`docs/oopao_vs_numpy/summary.csv`、`docs/oopao_vs_numpy/figures/*.png`
@@ -103,23 +103,23 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 | `none__turb-none` | none | none | 0 | 焦面 FWHM [px] | 4.07031 | 4.07031 | +0.00% |
 | `none__turb-none` | none | none | 0 | EE(r=4·FWHM) | 0.999436 | 0.999436 | +0.00% |
 | `none__turb-none` | none | none | 0 | ASM 能量守恒比 | 1 | 1 | +0.00% |
-| `none__turb-weak` | none | weak | 1e-16 | 湍流相位 std [rad] | 0.0246233 | 0.217024 | +781.38% |
-| `none__turb-weak` | none | weak | 1e-16 | 总相位 RMS [rad] | 0.0246674 | 0.218054 | +783.98% |
-| `none__turb-weak` | none | weak | 1e-16 | Strehl | 0.999748 | 0.971592 | -2.82% |
-| `none__turb-weak` | none | weak | 1e-16 | 焦面 FWHM [px] | 4.07113 | 3.99739 | -1.81% |
-| `none__turb-weak` | none | weak | 1e-16 | EE(r=4·FWHM) | 0.999388 | 0.998918 | -0.05% |
-| `none__turb-weak` | none | weak | 1e-16 | ASM 能量守恒比 | 1 | 1 | +0.00% |
-| `none__turb-moderate` | none | moderate | 5e-15 | 湍流相位 std [rad] | 0.247318 | 2.16861 | +776.85% |
-| `none__turb-moderate` | none | moderate | 5e-15 | 总相位 RMS [rad] | 0.247758 | 2.17891 | +779.45% |
-| `none__turb-moderate` | none | moderate | 5e-15 | Strehl | 0.9487 | 0.508715 | -46.38% |
-| `none__turb-moderate` | none | moderate | 5e-15 | 焦面 FWHM [px] | 4.05809 | 4.93672 | +21.65% |
-| `none__turb-moderate` | none | moderate | 5e-15 | EE(r=4·FWHM) | 0.994226 | 0.937412 | -5.71% |
+| `none__turb-weak` | none | weak | 1e-16 | 湍流相位 std [rad] | 0.0246233 | 0.0622126 | +152.66% |
+| `none__turb-weak` | none | weak | 1e-16 | 总相位 RMS [rad] | 0.0246674 | 0.0625079 | +153.40% |
+| `none__turb-weak` | none | weak | 1e-16 | Strehl | 0.999748 | 0.997366 | -0.24% |
+| `none__turb-weak` | none | weak | 1e-16 | 焦面 FWHM [px] | 4.07113 | 4.06402 | -0.17% |
+| `none__turb-weak` | none | weak | 1e-16 | EE(r=4·FWHM) | 0.999388 | 0.999394 | +0.00% |
+| `none__turb-weak` | none | weak | 1e-16 | ASM 能量守恒比 | 1 | 1 | -0.00% |
+| `none__turb-moderate` | none | moderate | 5e-15 | 湍流相位 std [rad] | 0.247318 | 0.621658 | +151.36% |
+| `none__turb-moderate` | none | moderate | 5e-15 | 总相位 RMS [rad] | 0.247758 | 0.624611 | +152.11% |
+| `none__turb-moderate` | none | moderate | 5e-15 | Strehl | 0.9487 | 0.916538 | -3.39% |
+| `none__turb-moderate` | none | moderate | 5e-15 | 焦面 FWHM [px] | 4.05809 | 4.17201 | +2.81% |
+| `none__turb-moderate` | none | moderate | 5e-15 | EE(r=4·FWHM) | 0.994226 | 0.994943 | +0.07% |
 | `none__turb-moderate` | none | moderate | 5e-15 | ASM 能量守恒比 | 1 | 1 | +0.00% |
-| `none__turb-strong` | none | strong | 5e-14 | 湍流相位 std [rad] | 0.959015 | 8.36591 | +772.34% |
-| `none__turb-strong` | none | strong | 5e-14 | 总相位 RMS [rad] | 0.960718 | 8.40578 | +774.95% |
-| `none__turb-strong` | none | strong | 5e-14 | Strehl | 0.500372 | 0.0600539 | -88.00% |
-| `none__turb-strong` | none | strong | 5e-14 | 焦面 FWHM [px] | 4.4857 | 4.32134 | -3.66% |
-| `none__turb-strong` | none | strong | 5e-14 | EE(r=4·FWHM) | 0.92023 | 0.345886 | -62.41% |
+| `none__turb-strong` | none | strong | 5e-14 | 湍流相位 std [rad] | 0.959015 | 2.39819 | +150.07% |
+| `none__turb-strong` | none | strong | 5e-14 | 总相位 RMS [rad] | 0.960718 | 2.40962 | +150.81% |
+| `none__turb-strong` | none | strong | 5e-14 | Strehl | 0.500372 | 0.455328 | -9.00% |
+| `none__turb-strong` | none | strong | 5e-14 | 焦面 FWHM [px] | 4.4857 | 4.64417 | +3.53% |
+| `none__turb-strong` | none | strong | 5e-14 | EE(r=4·FWHM) | 0.92023 | 0.921914 | +0.18% |
 | `none__turb-strong` | none | strong | 5e-14 | ASM 能量守恒比 | 1 | 1 | +0.00% |
 | `defocus__turb-none` | defocus | none | 0 | 湍流相位 std [rad] | 0 | 0 | — |
 | `defocus__turb-none` | defocus | none | 0 | 总相位 RMS [rad] | 0.892821 | 0.892821 | +0.00% |
@@ -127,48 +127,48 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 | `defocus__turb-none` | defocus | none | 0 | 焦面 FWHM [px] | 5.57465 | 5.57465 | +0.00% |
 | `defocus__turb-none` | defocus | none | 0 | EE(r=4·FWHM) | 0.99918 | 0.99918 | +0.00% |
 | `defocus__turb-none` | defocus | none | 0 | ASM 能量守恒比 | 1 | 1 | -0.00% |
-| `defocus__turb-weak` | defocus | weak | 1e-16 | 湍流相位 std [rad] | 0.0246233 | 0.217024 | +781.38% |
-| `defocus__turb-weak` | defocus | weak | 1e-16 | 总相位 RMS [rad] | 0.901779 | 0.931562 | +3.30% |
-| `defocus__turb-weak` | defocus | weak | 1e-16 | Strehl | 0.585475 | 0.561494 | -4.10% |
-| `defocus__turb-weak` | defocus | weak | 1e-16 | 焦面 FWHM [px] | 5.62249 | 5.38034 | -4.31% |
-| `defocus__turb-weak` | defocus | weak | 1e-16 | EE(r=4·FWHM) | 0.999123 | 0.998612 | -0.05% |
+| `defocus__turb-weak` | defocus | weak | 1e-16 | 湍流相位 std [rad] | 0.0246233 | 0.0622126 | +152.66% |
+| `defocus__turb-weak` | defocus | weak | 1e-16 | 总相位 RMS [rad] | 0.901779 | 0.898704 | -0.34% |
+| `defocus__turb-weak` | defocus | weak | 1e-16 | Strehl | 0.585475 | 0.587554 | +0.36% |
+| `defocus__turb-weak` | defocus | weak | 1e-16 | 焦面 FWHM [px] | 5.62249 | 5.17064 | -8.04% |
+| `defocus__turb-weak` | defocus | weak | 1e-16 | EE(r=4·FWHM) | 0.999123 | 0.999137 | +0.00% |
 | `defocus__turb-weak` | defocus | weak | 1e-16 | ASM 能量守恒比 | 1 | 1 | +0.00% |
-| `defocus__turb-moderate` | defocus | moderate | 5e-15 | 湍流相位 std [rad] | 0.247318 | 2.16861 | +776.85% |
-| `defocus__turb-moderate` | defocus | moderate | 5e-15 | 总相位 RMS [rad] | 1.00658 | 2.40331 | +138.76% |
-| `defocus__turb-moderate` | defocus | moderate | 5e-15 | Strehl | 0.480239 | 0.325929 | -32.13% |
-| `defocus__turb-moderate` | defocus | moderate | 5e-15 | 焦面 FWHM [px] | 6.09244 | 6.30067 | +3.42% |
-| `defocus__turb-moderate` | defocus | moderate | 5e-15 | EE(r=4·FWHM) | 0.99365 | 0.931187 | -6.29% |
+| `defocus__turb-moderate` | defocus | moderate | 5e-15 | 湍流相位 std [rad] | 0.247318 | 0.621658 | +151.36% |
+| `defocus__turb-moderate` | defocus | moderate | 5e-15 | 总相位 RMS [rad] | 1.00658 | 1.11961 | +11.23% |
+| `defocus__turb-moderate` | defocus | moderate | 5e-15 | Strehl | 0.480239 | 0.52376 | +9.06% |
+| `defocus__turb-moderate` | defocus | moderate | 5e-15 | 焦面 FWHM [px] | 6.09244 | 5.77653 | -5.19% |
+| `defocus__turb-moderate` | defocus | moderate | 5e-15 | EE(r=4·FWHM) | 0.99365 | 0.994573 | +0.09% |
 | `defocus__turb-moderate` | defocus | moderate | 5e-15 | ASM 能量守恒比 | 1 | 1 | -0.00% |
-| `defocus__turb-strong` | defocus | strong | 5e-14 | 湍流相位 std [rad] | 0.959015 | 8.36591 | +772.34% |
-| `defocus__turb-strong` | defocus | strong | 5e-14 | 总相位 RMS [rad] | 1.52289 | 8.50565 | +458.52% |
-| `defocus__turb-strong` | defocus | strong | 5e-14 | Strehl | 0.220414 | 0.0612336 | -72.22% |
-| `defocus__turb-strong` | defocus | strong | 5e-14 | 焦面 FWHM [px] | 9.63286 | -0.711911 | -107.39% |
-| `defocus__turb-strong` | defocus | strong | 5e-14 | EE(r=4·FWHM) | 0.906122 | 0.324152 | -64.23% |
-| `defocus__turb-strong` | defocus | strong | 5e-14 | ASM 能量守恒比 | 1 | 1 | +0.00% |
+| `defocus__turb-strong` | defocus | strong | 5e-14 | 湍流相位 std [rad] | 0.959015 | 2.39819 | +150.07% |
+| `defocus__turb-strong` | defocus | strong | 5e-14 | 总相位 RMS [rad] | 1.52289 | 2.61898 | +71.97% |
+| `defocus__turb-strong` | defocus | strong | 5e-14 | Strehl | 0.220414 | 0.305039 | +38.39% |
+| `defocus__turb-strong` | defocus | strong | 5e-14 | 焦面 FWHM [px] | 9.63286 | 6.17659 | -35.88% |
+| `defocus__turb-strong` | defocus | strong | 5e-14 | EE(r=4·FWHM) | 0.906122 | 0.910676 | +0.50% |
+| `defocus__turb-strong` | defocus | strong | 5e-14 | ASM 能量守恒比 | 1 | 1 | -0.00% |
 | `astig+coma__turb-none` | astig+coma | none | 0 | 湍流相位 std [rad] | 0 | 0 | — |
 | `astig+coma__turb-none` | astig+coma | none | 0 | 总相位 RMS [rad] | 0.814912 | 0.814912 | +0.00% |
 | `astig+coma__turb-none` | astig+coma | none | 0 | Strehl | 0.740307 | 0.740307 | +0.00% |
 | `astig+coma__turb-none` | astig+coma | none | 0 | 焦面 FWHM [px] | 4.96792 | 4.96792 | +0.00% |
 | `astig+coma__turb-none` | astig+coma | none | 0 | EE(r=4·FWHM) | 0.99881 | 0.99881 | +0.00% |
 | `astig+coma__turb-none` | astig+coma | none | 0 | ASM 能量守恒比 | 1 | 1 | +0.00% |
-| `astig+coma__turb-weak` | astig+coma | weak | 1e-16 | 湍流相位 std [rad] | 0.0246233 | 0.217024 | +781.38% |
-| `astig+coma__turb-weak` | astig+coma | weak | 1e-16 | 总相位 RMS [rad] | 0.815982 | 0.881181 | +7.99% |
-| `astig+coma__turb-weak` | astig+coma | weak | 1e-16 | Strehl | 0.739588 | 0.719327 | -2.74% |
-| `astig+coma__turb-weak` | astig+coma | weak | 1e-16 | 焦面 FWHM [px] | 4.96145 | 5.08402 | +2.47% |
-| `astig+coma__turb-weak` | astig+coma | weak | 1e-16 | EE(r=4·FWHM) | 0.998766 | 0.998044 | -0.07% |
+| `astig+coma__turb-weak` | astig+coma | weak | 1e-16 | 湍流相位 std [rad] | 0.0246233 | 0.0622126 | +152.66% |
+| `astig+coma__turb-weak` | astig+coma | weak | 1e-16 | 总相位 RMS [rad] | 0.815982 | 0.828601 | +1.55% |
+| `astig+coma__turb-weak` | astig+coma | weak | 1e-16 | Strehl | 0.739588 | 0.736217 | -0.46% |
+| `astig+coma__turb-weak` | astig+coma | weak | 1e-16 | 焦面 FWHM [px] | 4.96145 | 5.00768 | +0.93% |
+| `astig+coma__turb-weak` | astig+coma | weak | 1e-16 | EE(r=4·FWHM) | 0.998766 | 0.998725 | -0.00% |
 | `astig+coma__turb-weak` | astig+coma | weak | 1e-16 | ASM 能量守恒比 | 1 | 1 | +0.00% |
-| `astig+coma__turb-moderate` | astig+coma | moderate | 5e-15 | 湍流相位 std [rad] | 0.247318 | 2.16861 | +776.85% |
-| `astig+coma__turb-moderate` | astig+coma | moderate | 5e-15 | 总相位 RMS [rad] | 0.858391 | 2.46176 | +186.79% |
-| `astig+coma__turb-moderate` | astig+coma | moderate | 5e-15 | Strehl | 0.697957 | 0.448849 | -35.69% |
-| `astig+coma__turb-moderate` | astig+coma | moderate | 5e-15 | 焦面 FWHM [px] | 4.76978 | 5.25456 | +10.16% |
-| `astig+coma__turb-moderate` | astig+coma | moderate | 5e-15 | EE(r=4·FWHM) | 0.99329 | 0.924209 | -6.95% |
-| `astig+coma__turb-moderate` | astig+coma | moderate | 5e-15 | ASM 能量守恒比 | 1 | 1 | -0.00% |
-| `astig+coma__turb-strong` | astig+coma | strong | 5e-14 | 湍流相位 std [rad] | 0.959015 | 8.36591 | +772.34% |
-| `astig+coma__turb-strong` | astig+coma | strong | 5e-14 | 总相位 RMS [rad] | 1.27715 | 8.59262 | +572.80% |
-| `astig+coma__turb-strong` | astig+coma | strong | 5e-14 | Strehl | 0.399836 | 0.0592214 | -85.19% |
-| `astig+coma__turb-strong` | astig+coma | strong | 5e-14 | 焦面 FWHM [px] | 5.87417 | 1.21699 | -79.28% |
-| `astig+coma__turb-strong` | astig+coma | strong | 5e-14 | EE(r=4·FWHM) | 0.915548 | 0.322627 | -64.76% |
-| `astig+coma__turb-strong` | astig+coma | strong | 5e-14 | ASM 能量守恒比 | 1 | 1 | +0.00% |
+| `astig+coma__turb-moderate` | astig+coma | moderate | 5e-15 | 湍流相位 std [rad] | 0.247318 | 0.621658 | +151.36% |
+| `astig+coma__turb-moderate` | astig+coma | moderate | 5e-15 | 总相位 RMS [rad] | 0.858391 | 1.11361 | +29.73% |
+| `astig+coma__turb-moderate` | astig+coma | moderate | 5e-15 | Strehl | 0.697957 | 0.669639 | -4.06% |
+| `astig+coma__turb-moderate` | astig+coma | moderate | 5e-15 | 焦面 FWHM [px] | 4.76978 | 4.6296 | -2.94% |
+| `astig+coma__turb-moderate` | astig+coma | moderate | 5e-15 | EE(r=4·FWHM) | 0.99329 | 0.993572 | +0.03% |
+| `astig+coma__turb-moderate` | astig+coma | moderate | 5e-15 | ASM 能量守恒比 | 1 | 1 | +0.00% |
+| `astig+coma__turb-strong` | astig+coma | strong | 5e-14 | 湍流相位 std [rad] | 0.959015 | 2.39819 | +150.07% |
+| `astig+coma__turb-strong` | astig+coma | strong | 5e-14 | 总相位 RMS [rad] | 1.27715 | 2.6815 | +109.96% |
+| `astig+coma__turb-strong` | astig+coma | strong | 5e-14 | Strehl | 0.399836 | 0.408292 | +2.11% |
+| `astig+coma__turb-strong` | astig+coma | strong | 5e-14 | 焦面 FWHM [px] | 5.87417 | 5.16566 | -12.06% |
+| `astig+coma__turb-strong` | astig+coma | strong | 5e-14 | EE(r=4·FWHM) | 0.915548 | 0.90537 | -1.11% |
+| `astig+coma__turb-strong` | astig+coma | strong | 5e-14 | ASM 能量守恒比 | 1 | 1 | -0.00% |
 
 ## 6. 逐场景明细
 
@@ -188,61 +188,61 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 | EE(r=4·FWHM) | 0.999436 | 0.999436 | +0.00% |
 | ASM 能量守恒比 | 1 | 1 | +0.00% |
 
-![none__turb-none](figures/none__turb-none_20260929_115357.png)
+![none__turb-none](figures/none__turb-none_20260929_163816.png)
 
 ### 6.2 `none__turb-weak`
 
 - 像差: **none (无像差)**, 目标 PV 0 waves
 - 湍流: **weak** (Cn2=1e-16, l0=0.002 m, L0=30 m, 传播距离=500 m)
 - 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 1.032471e-01`
+- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 3.414196e-02`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
-| 湍流相位 std [rad] | 0.0246233 | 0.217024 | +781.38% |
-| 总相位 RMS [rad] | 0.0246674 | 0.218054 | +783.98% |
-| Strehl | 0.999748 | 0.971592 | -2.82% |
-| 焦面 FWHM [px] | 4.07113 | 3.99739 | -1.81% |
-| EE(r=4·FWHM) | 0.999388 | 0.998918 | -0.05% |
-| ASM 能量守恒比 | 1 | 1 | +0.00% |
+| 湍流相位 std [rad] | 0.0246233 | 0.0622126 | +152.66% |
+| 总相位 RMS [rad] | 0.0246674 | 0.0625079 | +153.40% |
+| Strehl | 0.999748 | 0.997366 | -0.24% |
+| 焦面 FWHM [px] | 4.07113 | 4.06402 | -0.17% |
+| EE(r=4·FWHM) | 0.999388 | 0.999394 | +0.00% |
+| ASM 能量守恒比 | 1 | 1 | -0.00% |
 
-![none__turb-weak](figures/none__turb-weak_20260929_115357.png)
+![none__turb-weak](figures/none__turb-weak_20260929_163816.png)
 
 ### 6.3 `none__turb-moderate`
 
 - 像差: **none (无像差)**, 目标 PV 0 waves
 - 湍流: **moderate** (Cn2=5e-15, l0=0.001 m, L0=20 m, 传播距离=1000 m)
 - 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 6.155975e-01`
+- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 3.151875e-01`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
-| 湍流相位 std [rad] | 0.247318 | 2.16861 | +776.85% |
-| 总相位 RMS [rad] | 0.247758 | 2.17891 | +779.45% |
-| Strehl | 0.9487 | 0.508715 | -46.38% |
-| 焦面 FWHM [px] | 4.05809 | 4.93672 | +21.65% |
-| EE(r=4·FWHM) | 0.994226 | 0.937412 | -5.71% |
+| 湍流相位 std [rad] | 0.247318 | 0.621658 | +151.36% |
+| 总相位 RMS [rad] | 0.247758 | 0.624611 | +152.11% |
+| Strehl | 0.9487 | 0.916538 | -3.39% |
+| 焦面 FWHM [px] | 4.05809 | 4.17201 | +2.81% |
+| EE(r=4·FWHM) | 0.994226 | 0.994943 | +0.07% |
 | ASM 能量守恒比 | 1 | 1 | +0.00% |
 
-![none__turb-moderate](figures/none__turb-moderate_20260929_115357.png)
+![none__turb-moderate](figures/none__turb-moderate_20260929_163816.png)
 
 ### 6.4 `none__turb-strong`
 
 - 像差: **none (无像差)**, 目标 PV 0 waves
 - 湍流: **strong** (Cn2=5e-14, l0=0.0005 m, L0=10 m, 传播距离=1500 m)
 - 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 9.943740e-01`
+- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 8.073027e-01`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
-| 湍流相位 std [rad] | 0.959015 | 8.36591 | +772.34% |
-| 总相位 RMS [rad] | 0.960718 | 8.40578 | +774.95% |
-| Strehl | 0.500372 | 0.0600539 | -88.00% |
-| 焦面 FWHM [px] | 4.4857 | 4.32134 | -3.66% |
-| EE(r=4·FWHM) | 0.92023 | 0.345886 | -62.41% |
+| 湍流相位 std [rad] | 0.959015 | 2.39819 | +150.07% |
+| 总相位 RMS [rad] | 0.960718 | 2.40962 | +150.81% |
+| Strehl | 0.500372 | 0.455328 | -9.00% |
+| 焦面 FWHM [px] | 4.4857 | 4.64417 | +3.53% |
+| EE(r=4·FWHM) | 0.92023 | 0.921914 | +0.18% |
 | ASM 能量守恒比 | 1 | 1 | +0.00% |
 
-![none__turb-strong](figures/none__turb-strong_20260929_115357.png)
+![none__turb-strong](figures/none__turb-strong_20260929_163816.png)
 
 ### 6.5 `defocus__turb-none`
 
@@ -260,61 +260,61 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 | EE(r=4·FWHM) | 0.99918 | 0.99918 | +0.00% |
 | ASM 能量守恒比 | 1 | 1 | -0.00% |
 
-![defocus__turb-none](figures/defocus__turb-none_20260929_115357.png)
+![defocus__turb-none](figures/defocus__turb-none_20260929_163816.png)
 
 ### 6.6 `defocus__turb-weak`
 
 - 像差: **defocus (Noll 4=Defocus)**, 目标 PV 0.5 waves
 - 湍流: **weak** (Cn2=1e-16, l0=0.002 m, L0=30 m, 传播距离=500 m)
 - 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 1.196380e-01`
+- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 3.753640e-02`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
-| 湍流相位 std [rad] | 0.0246233 | 0.217024 | +781.38% |
-| 总相位 RMS [rad] | 0.901779 | 0.931562 | +3.30% |
-| Strehl | 0.585475 | 0.561494 | -4.10% |
-| 焦面 FWHM [px] | 5.62249 | 5.38034 | -4.31% |
-| EE(r=4·FWHM) | 0.999123 | 0.998612 | -0.05% |
+| 湍流相位 std [rad] | 0.0246233 | 0.0622126 | +152.66% |
+| 总相位 RMS [rad] | 0.901779 | 0.898704 | -0.34% |
+| Strehl | 0.585475 | 0.587554 | +0.36% |
+| 焦面 FWHM [px] | 5.62249 | 5.17064 | -8.04% |
+| EE(r=4·FWHM) | 0.999123 | 0.999137 | +0.00% |
 | ASM 能量守恒比 | 1 | 1 | +0.00% |
 
-![defocus__turb-weak](figures/defocus__turb-weak_20260929_115357.png)
+![defocus__turb-weak](figures/defocus__turb-weak_20260929_163816.png)
 
 ### 6.7 `defocus__turb-moderate`
 
 - 像差: **defocus (Noll 4=Defocus)**, 目标 PV 0.5 waves
 - 湍流: **moderate** (Cn2=5e-15, l0=0.001 m, L0=20 m, 传播距离=1000 m)
 - 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 8.390506e-01`
+- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 3.166597e-01`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
-| 湍流相位 std [rad] | 0.247318 | 2.16861 | +776.85% |
-| 总相位 RMS [rad] | 1.00658 | 2.40331 | +138.76% |
-| Strehl | 0.480239 | 0.325929 | -32.13% |
-| 焦面 FWHM [px] | 6.09244 | 6.30067 | +3.42% |
-| EE(r=4·FWHM) | 0.99365 | 0.931187 | -6.29% |
+| 湍流相位 std [rad] | 0.247318 | 0.621658 | +151.36% |
+| 总相位 RMS [rad] | 1.00658 | 1.11961 | +11.23% |
+| Strehl | 0.480239 | 0.52376 | +9.06% |
+| 焦面 FWHM [px] | 6.09244 | 5.77653 | -5.19% |
+| EE(r=4·FWHM) | 0.99365 | 0.994573 | +0.09% |
 | ASM 能量守恒比 | 1 | 1 | -0.00% |
 
-![defocus__turb-moderate](figures/defocus__turb-moderate_20260929_115357.png)
+![defocus__turb-moderate](figures/defocus__turb-moderate_20260929_163816.png)
 
 ### 6.8 `defocus__turb-strong`
 
 - 像差: **defocus (Noll 4=Defocus)**, 目标 PV 0.5 waves
 - 湍流: **strong** (Cn2=5e-14, l0=0.0005 m, L0=10 m, 传播距离=1500 m)
 - 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 1.389298e+00`
+- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 8.643585e-01`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
-| 湍流相位 std [rad] | 0.959015 | 8.36591 | +772.34% |
-| 总相位 RMS [rad] | 1.52289 | 8.50565 | +458.52% |
-| Strehl | 0.220414 | 0.0612336 | -72.22% |
-| 焦面 FWHM [px] | 9.63286 | -0.711911 | -107.39% |
-| EE(r=4·FWHM) | 0.906122 | 0.324152 | -64.23% |
-| ASM 能量守恒比 | 1 | 1 | +0.00% |
+| 湍流相位 std [rad] | 0.959015 | 2.39819 | +150.07% |
+| 总相位 RMS [rad] | 1.52289 | 2.61898 | +71.97% |
+| Strehl | 0.220414 | 0.305039 | +38.39% |
+| 焦面 FWHM [px] | 9.63286 | 6.17659 | -35.88% |
+| EE(r=4·FWHM) | 0.906122 | 0.910676 | +0.50% |
+| ASM 能量守恒比 | 1 | 1 | -0.00% |
 
-![defocus__turb-strong](figures/defocus__turb-strong_20260929_115357.png)
+![defocus__turb-strong](figures/defocus__turb-strong_20260929_163816.png)
 
 ### 6.9 `astig+coma__turb-none`
 
@@ -332,69 +332,69 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 | EE(r=4·FWHM) | 0.99881 | 0.99881 | +0.00% |
 | ASM 能量守恒比 | 1 | 1 | +0.00% |
 
-![astig+coma__turb-none](figures/astig+coma__turb-none_20260929_115357.png)
+![astig+coma__turb-none](figures/astig+coma__turb-none_20260929_163816.png)
 
 ### 6.10 `astig+coma__turb-weak`
 
 - 像差: **astig+coma (Noll 5=Astigmatism 45°, Noll 6=Astigmatism 0°, Noll 7=Coma Y, Noll 8=Coma X)**, 目标 PV 0.8 waves
 - 湍流: **weak** (Cn2=1e-16, l0=0.002 m, L0=30 m, 传播距离=500 m)
 - 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 9.897642e-02`
+- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 3.983628e-02`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
-| 湍流相位 std [rad] | 0.0246233 | 0.217024 | +781.38% |
-| 总相位 RMS [rad] | 0.815982 | 0.881181 | +7.99% |
-| Strehl | 0.739588 | 0.719327 | -2.74% |
-| 焦面 FWHM [px] | 4.96145 | 5.08402 | +2.47% |
-| EE(r=4·FWHM) | 0.998766 | 0.998044 | -0.07% |
+| 湍流相位 std [rad] | 0.0246233 | 0.0622126 | +152.66% |
+| 总相位 RMS [rad] | 0.815982 | 0.828601 | +1.55% |
+| Strehl | 0.739588 | 0.736217 | -0.46% |
+| 焦面 FWHM [px] | 4.96145 | 5.00768 | +0.93% |
+| EE(r=4·FWHM) | 0.998766 | 0.998725 | -0.00% |
 | ASM 能量守恒比 | 1 | 1 | +0.00% |
 
-![astig+coma__turb-weak](figures/astig+coma__turb-weak_20260929_115357.png)
+![astig+coma__turb-weak](figures/astig+coma__turb-weak_20260929_163816.png)
 
 ### 6.11 `astig+coma__turb-moderate`
 
 - 像差: **astig+coma (Noll 5=Astigmatism 45°, Noll 6=Astigmatism 0°, Noll 7=Coma Y, Noll 8=Coma X)**, 目标 PV 0.8 waves
 - 湍流: **moderate** (Cn2=5e-15, l0=0.001 m, L0=20 m, 传播距离=1000 m)
 - 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 6.565981e-01`
+- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 3.868582e-01`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
-| 湍流相位 std [rad] | 0.247318 | 2.16861 | +776.85% |
-| 总相位 RMS [rad] | 0.858391 | 2.46176 | +186.79% |
-| Strehl | 0.697957 | 0.448849 | -35.69% |
-| 焦面 FWHM [px] | 4.76978 | 5.25456 | +10.16% |
-| EE(r=4·FWHM) | 0.99329 | 0.924209 | -6.95% |
-| ASM 能量守恒比 | 1 | 1 | -0.00% |
+| 湍流相位 std [rad] | 0.247318 | 0.621658 | +151.36% |
+| 总相位 RMS [rad] | 0.858391 | 1.11361 | +29.73% |
+| Strehl | 0.697957 | 0.669639 | -4.06% |
+| 焦面 FWHM [px] | 4.76978 | 4.6296 | -2.94% |
+| EE(r=4·FWHM) | 0.99329 | 0.993572 | +0.03% |
+| ASM 能量守恒比 | 1 | 1 | +0.00% |
 
-![astig+coma__turb-moderate](figures/astig+coma__turb-moderate_20260929_115357.png)
+![astig+coma__turb-moderate](figures/astig+coma__turb-moderate_20260929_163816.png)
 
 ### 6.12 `astig+coma__turb-strong`
 
 - 像差: **astig+coma (Noll 5=Astigmatism 45°, Noll 6=Astigmatism 0°, Noll 7=Coma Y, Noll 8=Coma X)**, 目标 PV 0.8 waves
 - 湍流: **strong** (Cn2=5e-14, l0=0.0005 m, L0=10 m, 传播距离=1500 m)
 - 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 9.550448e-01`
+- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 8.358712e-01`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
-| 湍流相位 std [rad] | 0.959015 | 8.36591 | +772.34% |
-| 总相位 RMS [rad] | 1.27715 | 8.59262 | +572.80% |
-| Strehl | 0.399836 | 0.0592214 | -85.19% |
-| 焦面 FWHM [px] | 5.87417 | 1.21699 | -79.28% |
-| EE(r=4·FWHM) | 0.915548 | 0.322627 | -64.76% |
-| ASM 能量守恒比 | 1 | 1 | +0.00% |
+| 湍流相位 std [rad] | 0.959015 | 2.39819 | +150.07% |
+| 总相位 RMS [rad] | 1.27715 | 2.6815 | +109.96% |
+| Strehl | 0.399836 | 0.408292 | +2.11% |
+| 焦面 FWHM [px] | 5.87417 | 5.16566 | -12.06% |
+| EE(r=4·FWHM) | 0.915548 | 0.90537 | -1.11% |
+| ASM 能量守恒比 | 1 | 1 | -0.00% |
 
-![astig+coma__turb-strong](figures/astig+coma__turb-strong_20260929_115357.png)
+![astig+coma__turb-strong](figures/astig+coma__turb-strong_20260929_163816.png)
 
 ## 7. 解读与结论
 
 **(a) 湍流相位屏是两臂唯一真正的物理分歧点。** 在 3 个含湍流的档位里, 两臂的 `phase_std_rad` / `phase_rms_rad` / Strehl / FWHM / EE 全部不同 —— 这是 FFT 频谱 Kolmogorov 与 OOPAO von Karman 两个**不同生成器**的必然结果, 不是 bug。两条臂不可互相替代, 也不应把 oopao 的数值直接当成 numpy 的续值。
 
-> ⚠️ **同 Cn2 下两臂的湍流强度归一化并不一致** —— 这是本次运行最值得注意的定量结果。在 9 个含湍流场景中, oopao 臂的 `phase_std_rad` / numpy 臂之比 = **8.72× ~ 8.81×** (中位 8.77×)。尽管 `beam_backend.turbulence_phase` 的 docstring 声称 OOPAO 分层已"rescaling to the per-slab r0 that matches the historical aotools/FFT path", 实测两条路径在**相同 Cn2** 下给出的相位起伏强度差了一个量级左右。因此: **Strehl / FWHM 的绝对值不可跨臂直接比较** —— oopao 臂并不是"同条件下的等价实现", 而是一个把同样的 Cn2 映射到更湍流的光场的实现。
+> ⚠️ **同 Cn2 下两臂的湍流强度归一化并不一致** —— 这是本次运行最值得注意的定量结果。在 9 个含湍流场景中, oopao 臂的 `phase_std_rad` / numpy 臂之比 = **2.50× ~ 2.53×** (中位 2.51×)。尽管 `beam_backend.turbulence_phase` 的 docstring 声称 OOPAO 分层已"rescaling to the per-slab r0 that matches the historical aotools/FFT path", 实测两条路径在**相同 Cn2** 下给出的相位起伏强度差了一个量级左右。因此: **Strehl / FWHM 的绝对值不可跨臂直接比较** —— oopao 臂并不是"同条件下的等价实现", 而是一个把同样的 Cn2 映射到更湍流的光场的实现。
 
-**(b) 角谱传播核在本配置下几乎是恒等替换。** `beam_simulation.propagation` 用 `kz = sqrt(|(2π/λ)² - f_x² - f_y²|)`, OOPAO `ASM` 用抛物近似 `exp(-iπλz f²)`; 二者只差一个全局相位 `exp(ikz)` (强度不可见) 与 `O((f λ)²)` 量级的高阶项。实测两臂 `propagate()` 强度图最大相对差 `1.389e+00`, 能量守恒比在 `1.000000000`–`1.000000000` 之间 —— **因此 `energy_frac` 不是区分两臂的指标**, 它的价值在于证明两条核都严格保能量。
+**(b) 角谱传播核在本配置下几乎是恒等替换。** `beam_simulation.propagation` 用 `kz = sqrt(|(2π/λ)² - f_x² - f_y²|)`, OOPAO `ASM` 用抛物近似 `exp(-iπλz f²)`; 二者只差一个全局相位 `exp(ikz)` (强度不可见) 与 `O((f λ)²)` 量级的高阶项。实测两臂 `propagate()` 强度图最大相对差 `8.644e-01`, 能量守恒比在 `1.000000000`–`1.000000000` 之间 —— **因此 `energy_frac` 不是区分两臂的指标**, 它的价值在于证明两条核都严格保能量。
 
 > 注: 上式的 `|·|` 是**实现事实而非严格解** —— 常规角谱对倏逝分量(参数为负) 应取纯虚 `kz` 使其随 z 衰减, 而 `sqrt(np.abs(...))` 会把它变成实数 `kz` 并因此 **放大** 而非衰减。本台参数 (口径 64 mm、λ=1064 nm、ASM z=200 m) 下频谱上限远低于 1/λ, 不存在倏逝分量, 故该差异在本报告中不产生任何影响; 但把 `propagation()` 推到高空间频率或大 z 时必须记得这处 `abs`。
 
@@ -409,5 +409,5 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 - `report.md` — 本文件
 - `summary.csv` — 24 行 (每 (场景, 臂) 一行), 列: `scenario`, `arm`, `n_grid`, `seed`, `cn2`, `aberration`, `aberration_pv_waves`, `distance_m`, `phase_std_rad`, `phase_rms_rad`, `strehl`, `fwhm_px`, `ee_r4`, `energy_frac`
 - `figures/summary_overview.png` — 汇总图 (Strehl / 相位 RMS vs 湍流档位)
-- `figures/*_20260929_115357.png` — 每个场景一张 5×2 对比图 (共 12 张)
+- `figures/*_20260929_163816.png` — 每个场景一张 5×2 对比图 (共 12 张)
 

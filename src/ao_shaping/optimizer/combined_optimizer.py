@@ -14,13 +14,13 @@ The optimization loop:
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 from typing import Any
 
 import numpy as np
 import tqdm
 
 from ao_shaping.algorithm.gradient.adam import AdaMOD
-from ao_shaping.drivers import MIICamera
 from ao_shaping.drivers.dm._registry import get_dm_registry
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.ccd.common import (
@@ -49,6 +49,47 @@ CAM_SAMPLE_ITER: int = 1
 TEST_EXPOSURE_TIME_BRIGHTNESS: int = 220
 IDEAL_SPOT_RADIUS: int = int(os.environ.get("IDEAL_SPOT_RADIUS", "6"))
 KEEP_VOLTAGE_WHEN_EXIT: bool = True
+
+#: Simulation / test injection point; ``None`` means the real driver.
+_CAMERA_CLASS_OVERRIDE: type | None = None
+
+
+def _camera_cls(cam_type: str = "") -> type:
+    """Resolve the camera driver class on demand.
+
+    Resolved lazily because ``ao_shaping.drivers`` exposes ``MIICamera`` through
+    a PEP 562 ``__getattr__``: binding it at module scope would load the native
+    SDK during ``import ao_shaping.optimizer.combined_optimizer`` and so on every
+    ``import ao_shaping``.
+
+    Precedence matches :func:`ao_shaping.optimizer.wfless.pib._camera_cls`: an
+    explicit override wins, then ``cam_type="sim"``, then the real driver.
+    """
+    if _CAMERA_CLASS_OVERRIDE is not None:
+        return _CAMERA_CLASS_OVERRIDE
+
+    if cam_type == "sim":
+        from ao_shaping.drivers.sim.slm_pib_sim import SimPibCCD
+
+        return SimPibCCD
+
+    from ao_shaping.drivers import MIICamera
+
+    if MIICamera is None:
+        raise RuntimeError("MiiCam driver not available. Install the MiiCam SDK.")
+    return MIICamera
+
+
+@contextmanager
+def _camera_override(camera_cls: type | None):
+    """Temporarily swap the camera class, restoring it even on exception."""
+    global _CAMERA_CLASS_OVERRIDE
+    previous = _CAMERA_CLASS_OVERRIDE
+    _CAMERA_CLASS_OVERRIDE = camera_cls
+    try:
+        yield camera_cls
+    finally:
+        _CAMERA_CLASS_OVERRIDE = previous
 
 
 def learning_schedule(
@@ -81,6 +122,7 @@ def optimize_pib(
     delta: float = 1.0,
     lr: float = 0.0,
     exposure_time_ms: float = 80.0,
+    cam_type: str = "",
     shrink_iter: int = 0,
     shrink_ratio: float = 0.9,
     cam_id: int = 0,
@@ -130,7 +172,7 @@ def optimize_pib(
     epochs = int(epochs)
     recorder = Recorder(mark="pib", mode="max")
 
-    with MIICamera(
+    with _camera_cls(cam_type)(
         cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
     ) as cam:
         if dm is None:

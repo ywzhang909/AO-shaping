@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from loguru import logger
+
 from ao_shaping.drivers.sim import beam_simulation as bs
 
 
@@ -100,6 +102,18 @@ def turbulence_phase(
 
     if _oopao_enabled():
         from ao_shaping.drivers.sim import oopao_backend
+
+        l_min_value = beam_cfg.l_min if l_min is None else float(l_min)
+        if oopao_backend.inner_scale_is_resolvable(
+            l_min_value, beam_cfg.pixel_size
+        ):
+            logger.warning(
+                "AO_OOPAO_BACKEND 激活且 l_min={:.3e} m 在当前网格 (dx={:.3e} m) "
+                "上可分辨, 但 OOPAO 的 Atmosphere 不接受内尺度参数 (固定 l0=1e-10) "
+                "—— 该档位的两后臂会真实分歧, Strehl 不可跨臂比较。",
+                l_min_value,
+                beam_cfg.pixel_size,
+            )
 
         seed = int(rng.integers(0, 2**31 - 1)) if rng is not None else int(
             np.random.randint(0, 2**31 - 1)

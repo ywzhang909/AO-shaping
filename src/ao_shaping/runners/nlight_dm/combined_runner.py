@@ -69,6 +69,7 @@ def run(ctx: click.Context, params: CombinedRunnerParams, camera: CameraParams) 
         delta=params.delta,
         lr=params.lr,
         exposure_time_ms=camera.exposure_time_ms,
+        cam_type=camera.cam_type,
         shrink_iter=params.shrink_iter,
         shrink_ratio=params.shrink_ratio,
         cam_id=camera.cam_id,

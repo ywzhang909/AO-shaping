@@ -23,14 +23,22 @@ Per-layer r0 calibration
 OOPAO's ``cn2`` bookkeeping divides the total Cn2 by ``max(altitude)``, which
 does not correctly slice the path r0 into per-layer r0 (per-layer phase
 variance comes out too strong). We therefore bypass it: each layer is
-generated at the reference r0 ``_R0_REF_500 = 0.15`` at ``_LAM_REF_500 =
-500 nm`` (``Atmosphere.wavelength``) and amplitude-rescaled so its per-slab r0
-is *exactly* ``r0_slab = r0_path * n**(3/5)`` at the simulation wavelength —
-the same per-slab r0 the legacy FFT path uses. Because the von-Karman PSD
-scales as ``r0**(-5/3)``, phase amplitude ~ ``r0**(-5/6)``; the rescale
-(:func:`_rescale_for`) additionally converts the generated phase from 500 nm to
-the simulation wavelength ``lam`` and removes the generator's measured
-normalization ``_CAL_REF``.
+generated at the reference r0 ``_R0_REF_500 = 0.15`` (OOPAO's ``r0_def``, at
+its hardcoded 500 nm convention) and amplitude-rescaled so its per-slab r0 is
+*exactly* ``r0_slab = r0_path * n**(3/5)`` at the simulation wavelength — the
+same per-slab r0 the legacy FFT path uses. Because the von-Karman PSD scales as
+``r0**(-5/3)``, phase amplitude ~ ``r0**(-5/6)``; :func:`_rescale_for` applies
+exactly that and nothing else.
+
+Known limitation: no inner scale
+--------------------------------
+``Atmosphere.__init__`` has no ``l0`` parameter and ``generateNewPhaseScreen``
+calls ``ft_sh_phase_screen`` without one, so OOPAO always generates with
+``l0 = 1e-10`` — its inner-scale rolloff sits far above any grid Nyquist
+frequency and is effectively absent. A configured ``l_min`` therefore cannot be
+honoured on this backend. That only matters when ``l_min`` is large enough to
+be grid-resolved; :func:`inner_scale_is_resolvable` detects that case and the
+routing layer warns.
 """
 
 from __future__ import annotations
@@ -59,16 +67,45 @@ __all__ = [
     "make_screens",
     "propagate_asm",
     "rayleigh_range",
+    "inner_scale_is_resolvable",
     "_oopao_available",
 ]
 
-# Reference r0 (at 500 nm) used to generate the OOPAO layers before rescaling.
-# Arbitrary; each layer's phase is amplitude-rescaled to the target per-slab r0.
+# Reference r0 used to generate the OOPAO layers before rescaling. Arbitrary
+# (OOPAO's own r0_def); each layer's phase is amplitude-rescaled to the target
+# per-slab r0 by _rescale_for(). No empirical normalization constant is needed:
+# OOPAO's subharmonic-augmented screen already reproduces the analytic
+# von-Karman variance for the r0 it was generated at.
 _R0_REF_500 = 0.15
-_LAM_REF_500 = 5.0e-7
-# Measured OOPAO generator calibration (25-seed average, D=0.30 m, L0=100 m,
-# cropped NxN from N+4): per-layer raw std = _CAL_REF * (D/r0_ref)**(5/6).
-_CAL_REF = 0.6191
+
+# OOPAO's Atmosphere hardcodes a 500 nm convention and cannot be given an inner
+# scale. The legacy path's inner-scale rolloff has a characteristic frequency
+# fm = 5.92 / (2*pi*l_min); it is only *resolvable* once that drops to the grid
+# Nyquist frequency 1 / (2*dx). Below that, l_min is sub-pixel and physically
+# irrelevant, so OOPAO ignoring it is harmless.
+_L_MIN_RESOLVABLE_FACTOR = 5.92 / np.pi
+
+
+def inner_scale_is_resolvable(l_min: float, pixel_size: float) -> bool:
+    """Whether a configured ``l_min`` is coarse enough for the grid to resolve.
+
+    The legacy generator rolls off high frequencies above
+    ``fm = 5.92 / (2*pi*l_min)``. That rolloff only affects the represented
+    spectrum once ``fm`` reaches the grid Nyquist frequency ``1/(2*dx)``, i.e.
+    ``l_min >~ 5.92*dx/pi``. Below that threshold ``l_min`` is sub-pixel and
+    this backend's inability to represent an inner scale is irrelevant.
+
+    Args:
+        l_min: Configured inner scale [m].
+        pixel_size: Grid pixel pitch [m].
+
+    Returns:
+        True when the inner scale is coarse enough that the legacy path and
+        OOPAO would legitimately disagree.
+    """
+    if l_min <= 0.0 or pixel_size <= 0.0:
+        return False
+    return float(l_min) > _L_MIN_RESOLVABLE_FACTOR * float(pixel_size)
 
 
 def _oopao_available() -> bool:
@@ -85,22 +122,41 @@ def compute_r0(lam: float, cn2: float, L: float) -> float:
     return float((0.423 * k**2 * cn2 * L) ** (-3.0 / 5.0))
 
 
-def _rescale_for(r0_slab: float, lam: float) -> float:
-    """Amplitude rescale mapping OOPAO's 500 nm reference layers to ``r0_slab``.
+def _rescale_for(r0_slab: float) -> float:
+    """Amplitude rescale from OOPAO's reference screen to the target r0.
 
-    ``layer.OPD`` is phase in radians at the OOPAO generation wavelength
-    (``_LAM_REF_500``), and the simulation applies it as phase at ``lam``.
-    Converting the raw reference screen to ``lam`` multiplies its std by
-    ``_LAM_REF_500 / lam``; scaling it to the target per-slab r0 then requires
+    OOPAO's ``layer.OPD`` is **phase in radians** at its hardcoded 500 nm
+    convention, generated at ``r0=_R0_REF_500`` (note: ``generateNewPhaseScreen``
+    overwrites the initial metre-valued OPD with a radian-valued screen, so the
+    attribute named "OPD" on a layer is radians).
 
-    M = (lam / _LAM_REF_500) * (r0_ref / r0_slab)**(5/6) * sqrt(1.03) / _CAL_REF
+    Its std scales exactly as ``r0**(-5/6)`` (verified over a 10x r0 range:
+    fitted exponent -0.8333 vs theory -5/6, normalization constant 0.619322
+    constant to 6 digits). Rescaling to a target r0 is therefore *exact* and
+    requires no extra factor:
 
-    (PSD ~ r0**(-5/3) => phase amplitude ~ r0**(-5/6); the sqrt(1.03) factor is
-    the Kolmogorov single-aperture phase-variance constant).
+    * **No wavelength factor.** The phase statistics at the simulation
+      wavelength are fully determined by the Fried parameter, and ``r0_slab``
+      is already computed at the simulation wavelength (``compute_r0`` uses
+      ``k = 2*pi/lam``). Since ``r0 ∝ lam**(6/5)`` and phase-in-radians
+      ∝ ``r0**(-5/6) ∝ 1/lam``, an explicit ``lam`` term would double-count and
+      cancel the wavelength dependence entirely. (An earlier revision carried
+      ``lam/_LAM_REF_500``; that factor exactly cancelled the r0 dependence and
+      made this backend's phase std *wavelength-independent*, which is
+      unphysical for a screen in radians.)
+    * **No ``_CAL_REF`` division.** OOPAO's own normalization is the physically
+      correct target: its subharmonic-augmented screen reproduces the analytic
+      von-Karman variance, whereas the legacy plain-FFT path *under*-represents
+      low-order power. Dividing by an empirical constant would discard that.
+    * **No ``sqrt(1.03)`` factor.** That constant belongs to the piston-removed
+      *pure Kolmogorov* (L0 -> inf) aperture variance; applying it while
+      simulating a finite outer scale is a category error.
+
+    Args:
+        r0_slab: Target per-slab Fried parameter [m] at the simulation
+            wavelength.
     """
-    return (float(lam) / _LAM_REF_500) * (
-        _R0_REF_500 / float(r0_slab)
-    ) ** (5.0 / 6.0) / _CAL_REF * 1.03**0.5
+    return (_R0_REF_500 / float(r0_slab)) ** (5.0 / 6.0)
 
 
 class OopaoScreenBackend:
@@ -159,7 +215,7 @@ class OopaoScreenBackend:
             r0_path = compute_r0(self.lam, float(cn2), float(L))
             self.r0_slab = r0_path * self.n_screens ** (3.0 / 5.0)
 
-            self._rescale = _rescale_for(self.r0_slab, self.lam)
+            self._rescale = _rescale_for(self.r0_slab)
 
             n = self.n_screens
             self._altitudes = np.linspace(50.0, float(L) - 50.0, n).tolist()
@@ -201,7 +257,7 @@ class OopaoScreenBackend:
         """
         rescale = self._rescale
         if r0_slab is not None:
-            rescale = _rescale_for(float(r0_slab), self.lam)
+            rescale = _rescale_for(float(r0_slab))
         with contextlib.redirect_stdout(io.StringIO()):
             self.atm.generateNewPhaseScreen(seed=int(seed))
         out = np.empty((self.n_screens, self.N, self.N), dtype=np.float32)

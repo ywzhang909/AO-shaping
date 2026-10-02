@@ -1182,7 +1182,7 @@ python scripts/generate_oopao_vs_numpy_report.py --aberrations none,defocus --tu
   is `@lru_cache`), and **fails fast** if OOPAO is not importable rather than
   silently producing a two-arm-numpy report.
 - Reports the `phase_std_rad` ratio per scenario; on the default config the two
-  backends are **not** equivalent (≈8.7×, see `docs/oopao_vs_numpy/report.md`),
+  backends are **not** equivalent (≈2.5×, see `docs/oopao_vs_numpy/report.md`),
   so the report states that absolute Strehl/FWHM must not be compared across arms.
 
 **Zernike coefficients are radians**: aberration cases use Noll indices fed to
@@ -1223,10 +1223,12 @@ python scripts/generate_oopao_impact_report.py --cn2 0,5e-15 --steps 100
   (`open` = sliding turbulence, zero action; `closed` = frozen turbulence,
   3-step greedy SPGD) = 16 rows.
 - **Headline finding (§4.3)**: the `disturbance_rms` oopao/numpy ratio is
-  **constant across every turbulence level** (open 5.428×, closed 13.354×;
-  relative spread ≤1.2e-09 over two orders of magnitude of Cn2). Constancy
-  implies a **multiplicative calibration offset** between the two phase-screen
-  implementations, not statistical fluctuation. The verdict is *computed* from
+  **constant across every turbulence level** (open 1.068×, closed 2.628×;
+  relative spread ≤1.8e-09 over two orders of magnitude of Cn2). Constancy
+  implies a **fixed multiplicative offset** between the two phase-screen
+  implementations rather than statistical fluctuation — and it differs per mode
+  because `l_max` / `propagation_distance` differ, so it is **not** a universal
+  calibration constant. The verdict is *computed* from
   the data against a tolerance, not asserted.
 - **⚠️ metric-identity warning**: `init_rms` (`compat.py::_phase_rms()` —
   *pupil-masked total* wavefront incl. aberration + DM) and `disturbance_rms`
@@ -1466,6 +1468,87 @@ evaluations) — is what keeps memory bounded.
 > `measure_shape_sensitivity.py` is the tool that establishes this floor
 > (`--deltas 0.002,0.01,0.05,0.1,0.2`).
 
+### run_sim_bench.py
+
+Runs the **five optical runners headlessly under simulation** and writes a
+manifest, so a report can be produced offline without re-running anything.
+**Fully offline** (pure numpy 2f-Fourier sim, no hardware).
+
+**Usage:**
+```bash
+python scripts/run_sim_bench.py --list
+python scripts/run_sim_bench.py --epochs 20 --out data/sim_bench
+python scripts/run_sim_bench.py --only slm-pib spgd-square --epochs 200
+```
+
+**What it does** (writes `data/sim_bench/summary.json`):
+- Drives the genuine Click entries via `main.py`, not the optimizer functions, so
+  the CLI wiring is exercised too: `pib` / `combined` with
+  `--cam_type sim --dm_type sim`; `spgd-square` with
+  `--cam_type sim --slm_type sim`; `slm-gsnet` / `slm-pib` with
+  `--cam_type sim --debug`
+- Records per runner: `ok`, `returncode`, `wall_s`, the artefact paths it wrote,
+  best-effort headline metrics parsed from the CSV, and a `note`
+- **Per-run isolation**: a failure is captured into the manifest rather than
+  aborting the sweep, because a partial matrix is still worth reporting on
+- Records the physical-validity caveat per family (see below) so a downstream
+  report cannot silently present DM numbers as optimisation results
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--out` | `data/sim_bench` | Manifest directory |
+| `--epochs` | `20` | Epochs per run (smoke budget; raise for convergence claims) |
+| `--timeout` | `1800` | Per-run timeout (s) |
+| `--only` | all five | Subset of `pib combined spgd-square slm-gsnet slm-pib` |
+| `--list` | off | Print the runners + family and exit |
+
+> ⚠️ **The two DM runners are smoke tests, not physics.** `SimPibSystem.far_field()`
+> reads only `self._phase`, written solely by `set_phase_rad()` (SLM phase).
+> Nothing maps DM voltage to phase, so `pib` / `combined` execute their control
+> loops while their objective stays uncoupled noise. Do **not** read their
+> convergence as "SPGD fails on DM-PIB" — the DM was never connected. Documented
+> in [`sim/AGENTS.md`](../src/ao_shaping/drivers/sim/AGENTS.md).
+
+### generate_slm_shaping_sim_report.py
+
+Generates the illustrated **SLM+CCD shaping simulation** report from artefacts on
+disk. **Fully offline** — reads only the recorder PKLs under `data/debug/`, the
+`data/slm_square/<ts>/` history CSV, and the `run_sim_bench.py` manifest; it never
+opens a device and never re-optimises.
+
+**Usage:**
+```bash
+python scripts/generate_slm_shaping_sim_report.py
+python scripts/generate_slm_shaping_sim_report.py --out docs/slm_shaping_sim
+python scripts/generate_slm_shaping_sim_report.py --no-figures
+```
+
+**What it does** (writes `docs/slm_shaping_sim/report.md` + `figures/`):
+- Covers the three **SLM-driven** runners (`slm-pib`, `slm-gsnet`, `spgd-square`)
+  — the ones whose actuator the model actually represents, so their objective
+  responds to the optimiser
+- Metric table per runner: epochs, headline metric, **initial / best / last**, and
+  the best epoch. Best and last are reported separately on purpose: the last
+  epoch is frequently worse than the best, and reporting only the best hides that
+- `figures/convergence.png` — headline metric vs epoch for all three, annotated
+  with each curve's best point
+- `figures/metrics.png` — per-runner recorded columns (`_p%`/`_max_r` for
+  `slm-pib`; `cv`/`ee`/`ar` for the square pair)
+- `figures/<runner>_spot_montage.png` — initial / mid / final far-field frames
+- Adds a **smoke-budget caveat** when the shortest run is under 50 epochs, because
+  at that budget "best" is a noise-driven single-point maximum that usually lands
+  in the first few epochs
+- Renders the DM family as an explicitly-labelled **control-loop smoke-test**
+  table (status / wall time / artefact count) with a warning that these numbers
+  must not be read as optimisation performance
+- Validates every referenced figure exists before writing the report
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--out` | `docs/slm_shaping_sim` | Report output dir |
+| `--manifest` | `data/sim_bench/summary.json` | Manifest for the DM smoke-test table |
+| `--no-figures` | off | Markdown only |
+
 ### generate_shape_objective_comparison.py
 
 Scores every recorded `slm-pib` frame under **three** shape objectives and
@@ -1585,6 +1668,14 @@ single pass, and the unshaped initial state.
 > it corrupts the warm start. It is therefore **off by default**; the report still
 > computes the ablation and records it in `data.json`.
 >
+> 🔬 **Pre-correcting the pupil by `-Z_est` before GS is a provable no-op.**
+> `gs_shape(..., base_phase=...)` accepts a fixed pupil phase and applies it inside
+> the pupil constraint, but that constraint re-imposes `amp·exp(i·angle(field))`
+> every iteration, so any constant base is annihilated. Measured identical to six
+> decimals with and without `-Z_est` (0.811805 vs 0.811806 at the GS stage, 0.8411
+> after refinement) and *slightly worse* with the ideal `-Z_golden` (0.8034 /
+> 0.8381). Recorded in `data.json` under `pre_correction_ablation`.
+>
 > ⚠️ **Corrected series.** Earlier numbers (initial 0.1590 / GS 0.1780 / SPGD
 > 0.1906 / iterative 0.3851) and the first "corrected" numbers (initial 0.657 /
 > GS 0.810 / SPGD 0.647 / iterative 0.642, "refinement loses") were produced with
@@ -1673,14 +1764,6 @@ python scripts/generate_slm_zernike_shaping_report.py --debug-root data/debug --
   max_brt / _img` (CCD far-field) / `_c` (Zernike coeffs) / `_grad`, the
   cross-objective `m_*` panel, and the objective's own column (e.g. `rmse_out`).
 - `*.json` — run payload (`objective / target_shape / target_size / epochs /
-> 🔬 **Pre-correcting the pupil by `-Z_est` before GS is a provable no-op.**
-> `gs_shape(..., base_phase=...)` accepts a fixed pupil phase and applies it inside
-> the pupil constraint, but that constraint re-imposes `amp·exp(i·angle(field))`
-> every iteration, so any constant base is annihilated. Measured identical to six
-> decimals with and without `-Z_est` (0.811805 vs 0.811806 at the GS stage, 0.8411
-> after refinement) and *slightly worse* with the ideal `-Z_golden` (0.8034 /
-> 0.8381). Recorded in `data.json` under `pre_correction_ablation`.
->
   algorithm / optimizer_type / delta / w_outside / r_bucket / cam_type / cam_size`).
 - `*.png` — the run-time summary figure.
 
