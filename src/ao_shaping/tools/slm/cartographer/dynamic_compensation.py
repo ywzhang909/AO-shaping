@@ -263,17 +263,16 @@ class DynamicCompensator:
     def apply_compensation(
         self,
         compensation_grayscale: np.ndarray,
-        memory_slot: int = 2,
     ) -> None:
         """Display compensation pattern on SLM.
 
         Args:
             compensation_grayscale: 2D uint16 grayscale array.
-            memory_slot: Target SLM memory slot (1-128).
         """
         assert self.slm.is_open, "SLM must be opened"
-        logger.info(f"Applying compensation to SLM memory slot {memory_slot}...")
-        self.slm.display_data(compensation_grayscale, memory_number=memory_slot)
+        logger.info("Applying compensation to SLM (driver-rotated memory slot)...")
+        # 刻意省略 display_data 的槽位参数: 固定槽位是固件 no-op (同一槽连续 display_memory 不刷新面板, 之后每帧都是旧图), 省略后驱动在 1~127 槽间自行轮换
+        self.slm.display_data(compensation_grayscale)
         time.sleep(0.3)
         logger.info("Compensation applied.")
 
@@ -380,7 +379,7 @@ class DynamicCompensator:
 
             comp_gs = self.compute_compensation(wf_before)
             comp_gs_final = comp_gs
-            self.apply_compensation(comp_gs, memory_slot=2)
+            self.apply_compensation(comp_gs)
             corrected_wf, corrected_stats = self.verify_correction()
             rms_after = corrected_stats.get("rms", float(np.nanstd(corrected_wf)))
             pv_after = float(np.nanmax(corrected_wf) - np.nanmin(corrected_wf))
