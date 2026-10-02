@@ -356,6 +356,30 @@ def _resolve_auto_camera(
             camera.center = "shape"
 
 
+def _maybe_sim_patch(cam_type: str) -> None:
+    """Wire the pure-numpy 2f-Fourier sim into the SLM Zernike PIB optimizer.
+
+    ``optimize_slm_zernike_pib`` builds its SLM through ``Santec.from_params``,
+    so an offline run needs the real driver swapped for :class:`SimSLMPib` —
+    otherwise the vendor DLL is demanded and the run dies on Linux (and risks the
+    documented DVI hang on Windows). No-op unless ``cam_type == "sim"``.
+    Mirrors ``slm_gsnet_runner._maybe_sim_patch``.
+    """
+    if cam_type != "sim":
+        return
+    from ao_shaping.drivers.sim.slm_pib_sim import (
+        register_sim_camera,
+        reset_system,
+        SimSLMPib,
+    )
+
+    import ao_shaping.optimizer.wfless.slm_zernike_pib as opt
+
+    register_sim_camera()
+    reset_system(seed=42)
+    opt.Santec = SimSLMPib
+
+
 def _execute(
     run_cfg: RunParams,
     camera: CameraParamsPib,
@@ -364,6 +388,7 @@ def _execute(
 ) -> None:
     """Shared execution path for both search families."""
     setup_coredumpy()
+    _maybe_sim_patch(getattr(camera, "cam_type", "") or "")
     if camera.auto_exposure or camera.center == "auto":
         _resolve_auto_camera(
             camera,

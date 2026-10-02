@@ -102,10 +102,111 @@ class TestCalibrationMath:
 
     def test_rescale_for_positive_and_monotonic(self):
         # smaller r0_slab (stronger turbulence) -> larger rescale factor
-        r_small = oopao_backend._rescale_for(0.05, 1064e-9)
-        r_large = oopao_backend._rescale_for(0.20, 1064e-9)
+        r_small = oopao_backend._rescale_for(0.05)
+        r_large = oopao_backend._rescale_for(0.20)
         assert r_small > 0 > -1  # positive
         assert r_small > r_large
+
+    def test_rescale_scales_as_r0_to_the_minus_5_6(self):
+        """Phase amplitude must scale as r0**(-5/6) (PSD ~ r0**(-5/3))."""
+        r0_a, r0_b = 0.05, 0.20
+        # rescale ∝ r0**(-5/6), so the ratio of rescale values is inverted.
+        expected = (r0_b / r0_a) ** (5.0 / 6.0)
+        got = oopao_backend._rescale_for(r0_a) / oopao_backend._rescale_for(r0_b)
+        assert got == pytest.approx(expected, rel=1e-12)
+
+    def test_rescale_takes_no_wavelength_argument(self):
+        """Wavelength must enter only via r0_slab.
+
+        Regression guard: the rescale once carried an explicit
+        ``lam / _LAM_REF_500`` factor that exactly cancelled the r0
+        dependence, making this backend's phase std wavelength-independent
+        (unphysical for a screen in radians).
+        """
+        import inspect
+
+        params = list(inspect.signature(oopao_backend._rescale_for).parameters)
+        assert params == ["r0_slab"]
+
+
+class TestWavelengthScaling:
+    """The backend's phase std must scale as 1/lambda, like the legacy path."""
+
+    def test_phase_std_scales_as_inverse_wavelength(self):
+        """A phase screen in radians must grow as lambda shrinks."""
+        stds = []
+        for lam in (532e-9, 1064e-9, 1550e-9):
+            r0_slab = oopao_backend.compute_r0(lam, 5e-15, 1000.0)
+            # Same r0 at a longer wavelength => weaker screen.
+            stds.append(oopao_backend._rescale_for(r0_slab))
+        # Halving lambda must double the rescale (r0 ~ lam^1.2, amp ~ r0^-5/6).
+        assert stds[0] / stds[1] == pytest.approx(2.0, rel=0.02)
+        assert stds[1] / stds[2] == pytest.approx(1550.0 / 1064.0, rel=0.02)
+
+    def test_screen_std_matches_legacy_wavelength_trend(self):
+        """End-to-end: the two backends must agree on the 1/lambda trend."""
+        from ao_shaping.drivers.sim import beam_backend as bb
+
+        def std_at(arm, lam):
+            import os
+
+            if arm == "oopao":
+                os.environ["AO_OOPAO_BACKEND"] = "1"
+            else:
+                os.environ.pop("AO_OOPAO_BACKEND", None)
+            oopao_backend._get_backend.cache_clear()
+            cfg = bb.make_beam_config(
+                n_grid=64,
+                aperture_size=12e-3,
+                wavelength=lam,
+                cn2=5e-15,
+                l_max=20.0,
+                l_min=1e-3,
+                propagation_distance=1000.0,
+            )
+            rng = np.random.default_rng(0)
+            p = np.asarray(
+                bb.turbulence_phase(
+                    cfg,
+                    cn2=5e-15,
+                    l_min=1e-3,
+                    l_max=20.0,
+                    propagation_distance=1000.0,
+                    rng=rng,
+                ),
+                dtype=float,
+            )
+            mask = np.isfinite(p) & (p != 0)
+            return float(np.sqrt(np.mean(p[mask] ** 2)))
+
+        try:
+            ratios = []
+            for lam in (532e-9, 1064e-9, 1550e-9):
+                n = std_at("numpy", lam)
+                o = std_at("oopao", lam)
+                ratios.append(o / n)
+            # Before the calibration fix these were 2.49 / 4.97 / 7.24.
+            assert max(ratios) / min(ratios) == pytest.approx(1.0, rel=0.05)
+        finally:
+            import os
+
+            os.environ.pop("AO_OOPAO_BACKEND", None)
+            oopao_backend._get_backend.cache_clear()
+
+
+class TestInnerScale:
+    """OOPAO cannot represent an inner scale; detect when that matters."""
+
+    def test_subpixel_inner_scale_is_not_resolvable(self):
+        # dx = 12mm/64 = 187.5um; l_min well below that is physically irrelevant.
+        assert not oopao_backend.inner_scale_is_resolvable(1e-4, 12e-3 / 64)
+
+    def test_coarse_inner_scale_is_resolvable(self):
+        assert oopao_backend.inner_scale_is_resolvable(0.1, 12e-3 / 64)
+
+    def test_non_positive_inputs_are_not_resolvable(self):
+        assert not oopao_backend.inner_scale_is_resolvable(0.0, 1e-4)
+        assert not oopao_backend.inner_scale_is_resolvable(1e-3, 0.0)
 
 
 class TestModuleWrappers:

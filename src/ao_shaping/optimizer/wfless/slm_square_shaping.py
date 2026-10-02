@@ -142,6 +142,33 @@ IDEAL_SPOT_RADIUS = int(os.environ.get("IDEAL_SPOT_RADIUS", 6))
 SLM_RESPONSE_TIME_S = 0.3  # Santec SLM-200 response time ~300ms
 SLM_RESET_ON_EXIT = True
 
+#: Simulation / test injection point; ``None`` means the real driver.
+_SLM_CLASS_OVERRIDE: type | None = None
+
+
+def _slm_cls(slm_type: str = "") -> type:
+    """Resolve the SLM driver class.
+
+    Precedence: an explicit ``_SLM_CLASS_OVERRIDE`` wins (tests), then
+    ``slm_type="sim"`` for the 2f-Fourier simulator, otherwise the module-level
+    ``Santec`` binding.
+
+    The real driver is read from the module global rather than re-imported, so
+    ``monkeypatch.setattr(module, "Santec", fake)`` keeps working — the
+    simulation tests inject their SLM exactly that way.
+    """
+    if _SLM_CLASS_OVERRIDE is not None:
+        return _SLM_CLASS_OVERRIDE
+
+    if slm_type == "sim":
+        from ao_shaping.drivers.sim.slm_pib_sim import SimSLMPib
+
+        return SimSLMPib
+
+    if Santec is None:
+        raise RuntimeError("Santec SLM driver not available. Install the SLM SDK.")
+    return Santec
+
 # SLM resolution (from Santec.Panel_Res = (1920, 1200))
 SLM_WIDTH = 1920
 SLM_HEIGHT = 1200
@@ -900,6 +927,7 @@ def optimize_slm_square(
     cam_size: int = 300,
     target_max_brightness: int = 200,
     slm_number: int = 1,
+    slm_type: str = "",
     slm_wavelength: int = 1064,
     optimizer_type: str = "adamod",
     random_seed: int | None = None,
@@ -1208,7 +1236,7 @@ def optimize_slm_square(
         create_camera(
             cam_type, cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
         ) as cam,
-        Santec(slm_number=slm_number, wavelength=slm_wavelength) as slm,
+        _slm_cls(slm_type)(slm_number=slm_number, wavelength=slm_wavelength) as slm,
     ):
         # Initialize parameter vector (zernike: mapped onto the active modes)
         if basis == "zernike":
