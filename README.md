@@ -435,7 +435,7 @@ python src/ao_shaping/main.py slm-diagnose [OPTIONS]
 选项:
 - `--slm-number`: SLM 设备编号 (默认: 1)
 - `--slm-wavelength`: SLM 工作波长 nm (默认: 1064)
-- `--cam-type`: 相机类型 miicam/daheng (默认: **miicam**)
+- `--camera-type`: 相机类型 miicam/daheng (默认: **miicam**)
 - `--cam-id`: 相机 ID (默认: 0)
 - `--period-ref` / `--period-test`: 光栅周期 px (默认: 64 / 32)
 - `--exposure-ms`: 自检曝光 ms (默认: 2.0)
@@ -445,7 +445,7 @@ python src/ao_shaping/main.py slm-diagnose [OPTIONS]
 
 **已知约束**: DVI 模式 (`video_mode=1`) 的 `open()` 可能挂起, 且挂起后 memory 模式也挂直到**物理断电** —— 本工具只用 memory 模式, 绝不自动尝试 DVI。
 
-> ⚠️ **`--cam-type` 必须与本台相机一致。** 默认值是 `miicam`; 大恒台架上不加
+> ⚠️ **`--camera-type` 必须与本台相机一致。** 默认值是 `miicam`; 大恒台架上不加
 > `--camera-type daheng` 会直接失败 (`miicam.HRESULTException: 请求的资源在使用中`)。
 
 示例:

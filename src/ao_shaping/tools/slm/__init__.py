@@ -37,6 +37,23 @@
   标准 Recorder 产物 (含下发相位与 CCD 帧)。设备由参数注入 ⇒ 可脱机单测;
   `--no-hw` 只打印采集计划。`scripts/model_in_loop_hw_runbook.py --stage sweep`
   的采集内核已收敛到本模块 (`zernike_panel` / `capture_settled` 单一来源)
+- slm_zernike_common.py — SLM Zernike 工具集**共享常量与测量原语** (被 calibration /
+  slm_zernike_response / slm_zernike_correction / slm_wfs_reference 复用)。固化
+  WFS `get_zernike()` 的索引约定 (67 长数组, `coeff[1..66]` 有效, **顺序 m 枚举**,
+  非标准 Noll 1976)
+- slm_zernike_response.py — SLM Zernike 模式 → WFS 读数**响应矩阵标定**: 逐模式施加
+  ±A 推拉扰动测 WFS 系数增量, 求逆即得 Zernike 模式法矫正控制律。全矩阵须用**同一
+  Zernike 半径**, 否则系数被错误缩放
+- slm_zernike_correction.py — SLM Zernike 模式法矫正**三阶段全流程** (自动定标+参考
+  波前 / 稳健响应矩阵 / 闭环反向矫正, 带增益与泄漏)。反解前必须把 `w[0]` (piston) 置零
+- slm_wfs_reference.py — SLM + WFS **参考波前标定与倾斜线性度** (三步: 纯平相位存参考
+  → 还原/加载参考互验 → 不同强度 Zernike 倾斜读出线性度)。`optimize_pupil()` 只算不
+  设, pupil 必须显式写回 `wfs.pupil`
+- slm_wfs_probe.py — SLM + WFS **光强与 pupil 探针**, 标定前的硬件状态门控: 平相位下
+  WFS 点阵强度/有效子孔径比例检查 + pupil 显式写回, 输出 JSON 报告
+- delta_explorer.py — SPGD 扰动幅度 `delta` 的**纯分析**收敛性判据 (不构造设备,
+  轨迹由调用方提供): 用 `frac_decreasing` (改善步占比) 与 `late_gain` (前 1/3 与
+  后 1/3 均值之差) 排名候选值, 取代"末值对比首值"这种会被随机游走骗到的判据
 - cartographer/   — SLM 标定综合工具 (余弦图样/Hartmann 波前重建/灰度-LUT/动态补偿)
 
 LUT 路径约定:
