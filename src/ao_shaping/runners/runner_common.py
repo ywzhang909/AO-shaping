@@ -395,12 +395,15 @@ class CameraParams:
         option(
             "--exposure_time_ms",
             help=(
-                "CCD exposure time in ms. Default 1.5 is the measured-safe value "
-                "for the Daheng MER2-507 + Santec SLM-200 bench; it is NOT a "
-                "universal constant -- re-bracket it for your laser power."
+                "CCD exposure time in ms. 0 (the default) means 'no fixed value': "
+                "the camera keeps whatever it is set to, and auto-exposure "
+                "brackets it when a target brightness is available. On Daheng a "
+                "0 that reaches the driver is CLAMPED to the device minimum "
+                "(~0.02 ms), so bracket the exposure explicitly with "
+                "slm_drift_probe before trusting an unbracketed run."
             ),
         ),
-    ] = 1.5
+    ] = 0.0
     cam_size: Annotated[
         int, option("--cam_size", help="CCD window size in pixels.")
     ] = 300
@@ -1193,8 +1196,17 @@ class SlmSquareParams:
     )
     lr: Annotated[float, option("--lr", help="学习率, 0=自动 (default: 0)")] = 0.0
     exposure_ms: Annotated[
-        float, option("-t", "--exposure-ms", help="相机曝光时间ms (default: 80)")
-    ] = 80.0
+        float,
+        option(
+            "-t",
+            "--exposure-ms",
+            help=(
+                "相机曝光时间ms. 0(默认)=不固定, 由设备保持/自动曝光; "
+                "Daheng 上 0 会被驱动钳到设备最小值(~0.02ms), "
+                "请先用 slm_drift_probe 重新 bracket"
+            ),
+        ),
+    ] = 0.0
     cam_id: Annotated[int, option("--cam-id", help="相机设备ID (default: 0)")] = 0
     cam_type: Annotated[
         str,
@@ -1560,9 +1572,14 @@ class PibRunnerParams:
     exposure_time_ms: Annotated[
         int,
         option(
-            "-t", "--exposure_time_ms", help="远场光斑CCD曝光时间 (毫秒) (default: 60)"
+            "-t",
+            "--exposure_time_ms",
+            help=(
+                "远场光斑CCD曝光时间 (毫秒). 0(默认)=不固定, 由设备保持/自动曝光; "
+                "Daheng 上 0 会被驱动钳到设备最小值(~0.02ms)"
+            ),
         ),
-    ] = 60
+    ] = 0.0
     epochs: Annotated[
         int, option("-e", "--epochs", help="优化迭代次数 (default: 4000)")
     ] = 4_000

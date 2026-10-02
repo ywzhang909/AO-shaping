@@ -987,7 +987,7 @@ class SlmSquareConfig:
     side_factor: float = 1.5
     delta: float = 0.1
     lr: float = 0
-    exposure_time_ms: float = 1.5
+    exposure_time_ms: float = 0.0  # 0 = keep/auto, see CameraParams
     cam_id: int = 0
     cam_type: str = "daheng"
     show: bool = False
@@ -1031,7 +1031,7 @@ def optimize_slm_square(
     side_factor: float = 1.5,
     delta: float = 0.1,
     lr: float = 0,
-    exposure_time_ms: float = 1.5,
+    exposure_time_ms: float = 0.0,
     cam_id: int = 0,
     cam_type: str = "daheng",
     show: bool = False,
@@ -2139,7 +2139,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("--lr", type=float, default=0, help="Learning rate (0=auto)")
     parser.add_argument(
-        "-t", "--exposure_time_ms", type=float, default=80.0, help="Exposure time (ms)"
+        "-t", "--exposure_time_ms", type=float, default=0.0,
+        help="Exposure time in ms; 0 = keep device setting / auto (Daheng clamps 0 to device min)"
     )
     parser.add_argument("--cam_id", type=int, default=0, help="Camera device ID")
     parser.add_argument("--slm_number", type=int, default=1, help="SLM device number")

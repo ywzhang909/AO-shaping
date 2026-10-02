@@ -101,7 +101,7 @@ class TestDeviceConfig:
     def test_fallback_defaults(self):
         assert DEVICES.slm_number == 1
         assert DEVICES.slm_wavelength == 532
-        assert DEVICES.exposure_time_ms == 60
+        assert DEVICES.exposure_time_ms == 0.0
 
     def test_unknown_attribute_raises(self):
         with pytest.raises(AttributeError):

@@ -277,7 +277,7 @@ def optimize_pib(
     r_bucket=0,
     delta: float = 1,
     lr: float = 0,
-    exposure_time_ms: float = 80.0,
+    exposure_time_ms: float = 0.0,
     shrink_iter: int = 0,
     shrink_ratio: float = 0.9,
     cam_id=0,

@@ -84,7 +84,7 @@ class TestSquareRunnerWiring:
 
         class _Cam:
             cam_size = 300
-            exposure_time_ms = 1.5
+            exposure_time_ms = 0.0
             cam_id = 0
             cam_type = "daheng"
 

@@ -196,8 +196,13 @@ class SimulatedCCD(BaseCamera):
             )
             pattern += blob
 
-        # Scale by exposure time
-        exposure_factor = self.exposure_time_ms / 20.0
+        # Scale by exposure time, normalised to the 20 ms reference.
+        # A non-positive value means "no fixed exposure" (the new CLI default), so
+        # fall back to the reference rather than scaling the pattern to zero -- a
+        # zeroed frame would silently turn every sim metric into pure noise.
+        reference_ms = 20.0
+        exposure_ms = float(self.exposure_time_ms)
+        exposure_factor = (exposure_ms / reference_ms) if exposure_ms > 0.0 else 1.0
         pattern *= exposure_factor
 
         # Add noise

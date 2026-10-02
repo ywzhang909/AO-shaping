@@ -107,7 +107,7 @@ DEFAULT_DEVICE_CONFIG = dict(
     near_cam_id=1,
     slm_number=1,
     slm_wavelength=532,
-    exposure_time_ms=60,
+    exposure_time_ms=0.0,  # 0 = no fixed value; camera keeps/brackets its own
     cam_size=200,
     target_max_brightness=90,
 )
