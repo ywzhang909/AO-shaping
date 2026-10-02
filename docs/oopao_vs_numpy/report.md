@@ -3,14 +3,14 @@
 - 生成时间: `2026-09-29T16:38:27`
 - 场景矩阵: **12** 个 (像差 4 × 湍流 4, 本次实际取子集) × 2 条臂 = 24 行 CSV
 - 仿真参数: `n_grid=64`、`seed=42`、口径 `64 mm`、波长 `1064 nm`
-- 输出: `/home/ws/code/AO-shaping/docs/oopao_vs_numpy/report.md`、`/home/ws/code/AO-shaping/docs/oopao_vs_numpy/summary.csv`、`/home/ws/code/AO-shaping/docs/oopao_vs_numpy/figures/*.png`
+- 输出: `docs/oopao_vs_numpy/report.md`、`docs/oopao_vs_numpy/summary.csv`、`docs/oopao_vs_numpy/figures/*.png`
 - 重跑命令: `.venv/bin/python scripts/generate_oopao_vs_numpy_report.py`
 
 ## 1. 版本溯源 (Provenance)
 
 | 项目 | 值 |
 |---|---|
-| OOPAO 导入路径 (editable) | `/home/ws/code/AO-shaping/libs/OOPAO/OOPAO` |
+| OOPAO 导入路径 (editable) | `libs/OOPAO/OOPAO` |
 | OOPAO 当前 rev | `e8e9aa60cf99f4ab21a4dae7c29aae9b9ec6ec87` (短 `e8e9aa6`) |
 | 当前 rev 提交日期 | 2026-09-24 |
 | 先前 pin 的 rev | `8e12a17f` (2026-08-26) |
@@ -45,7 +45,7 @@ OOPAO Warning: Significant changes were done to the OOPAO repository, the Telesc
 
 1. **这不是一次全光学模型替换**。本报告是 *湍流相位屏生成器 + 角谱传播核* 的对比基准, 不是整条 `beam_backend` 链路的替换。
 2. **远场 (焦面) 差异只来自相位屏, 不来自焦面传播核**。`focal_plane()` 两条臂逐字节相同, 所以本报告里 Strehl / FWHM / EE 的差异 100% 是湍流相位屏不同造成的。
-3. **完全不受影响的模块**: `drivers/sim/slm_pib_sim.py` 与 `optimizer/rl/envs/fouriergsnet_env.py` 均不 import 任何 `beam_backend` 符号, 其仿真路径与 OOPAO 后端开关**完全无关**。
+3. **完全不受影响的模块**: `drivers/sim/slm_pib_sim.py` 与 `drivers/sim/fouriergsnet_env.py` (⚠️ 2026-10-01: 原文写的 `optimizer/rl/envs/fouriergsnet_env.py` 从未存在) 均不 import 任何 `beam_backend` 符号, 其仿真路径与 OOPAO 后端开关**完全无关**。
 
 ## 3. 方法与指标定义
 

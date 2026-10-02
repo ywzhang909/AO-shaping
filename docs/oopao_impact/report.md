@@ -1,6 +1,17 @@
 # AO_OOPAO_BACKEND 端到端影响报告 (SimTurbulenceAOEnv)
 
-> 生成时间: 2026-09-29T16:39:36 | 脚本: `scripts/generate_oopao_impact_report.py` | OOPAO rev: `e8e9aa6` (2026-09-24, git 校验=是) | OOPAO 包目录: `/home/ws/code/AO-shaping/libs/OOPAO/OOPAO`
+> 生成时间: 2026-09-29T16:39:36 | 脚本: `scripts/generate_oopao_impact_report.py` | OOPAO rev: `e8e9aa6` (2026-09-24, git 校验=是) | OOPAO 包目录: `libs/OOPAO/OOPAO`
+>
+> ⚠️ **OOPAO rev 号本报告写 `e8e9aa6`，`sim/AGENTS.md`「已知约束」第 7 条写
+> `8e12a17f`，两者不一致**（本地 submodule 已领先该 pin）—— 引用前请
+> `git -C libs/OOPAO log -1` 确认。
+>
+> ℹ️ 此前此处有一条 2026-10-01 复核，声称 `_rescale_for` 的单因子改写「从未落地」、
+> 本报告的 5.428 / 13.354 才是与代码一致的值。**该复核现已过时**：
+> `oopao_backend._rescale_for` 目前已是 `(r0_ref / r0_slab) ** (5/6)` 单因子形式，
+> `_CAL_REF` / `_LAM_REF_500` / `sqrt(1.03)` 三个因子已从代码中移除（仅存于说明性
+> 注释），`sim/AGENTS.md` 第 3、4 条的描述现在是**准确**的。本报告的数值对应旧公式，
+> 若需与当前代码对齐请重跑生成器。
 
 ## 1. 适用范围 (路由红线)
 

@@ -60,6 +60,11 @@
 - delta_explorer.py — SPGD 扰动幅度 `delta` 的**纯分析**收敛性判据 (不构造设备,
   轨迹由调用方提供): 用 `frac_decreasing` (改善步占比) 与 `late_gain` (前 1/3 与
   后 1/3 均值之差) 排名候选值, 取代"末值对比首值"这种会被随机游走骗到的判据
+- slm_bench_metrics.py — 台架**纯测量核** (无设备依赖, 帧准备/判据/聚合),
+  供探针复用以锁定帧准备口径, 避免各处各写一套
+- slm_abba_probe.py — **ABBA 密集随机相位可探测性探针** (ABBA 序消除慢漂移)
+- slm_drift_probe.py — 平场**漂移与曝光阶梯**探针 (区分"相机漂移"与"SLM 保留上次图案")
+- slm_floor_probe.py — **本底/地板特性标定**探针 (重复性 / 稳定判据 / SNR-随曝光)
 - cartographer/   — SLM 标定综合工具 (余弦图样/Hartmann 波前重建/灰度-LUT/动态补偿)
 
 LUT 路径约定:

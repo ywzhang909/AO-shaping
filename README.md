@@ -54,9 +54,8 @@ AO-shaping/
 │   │   │   ├── signal_processing/  # 信号处理 (GS, 相位包裹, 可微分光束整形, 控制律)
 │   │   │   ├── tabu/            # Tabu 搜索
 │   │   │   ├── goal_functions/  # 目标函数 (target_func, image_metrics)
-│   │   │   ├── gerchberg_saxton.py     # [兼容层] re-export
-│   │   │   ├── differentiable_beam.py  # [兼容层] re-export
-│   │   │   └── beam_shaping_utils.py   # [兼容层] re-export (目标/指标/SLM/硬件工具)
+│   │   │   ├── base.py          # Base 梯度优化器基类
+│   │   │   └── README.md        # 优化器 class-based 约定
 │   │   ├── model/                 # 物理量数据类与物理坐标重采样
 │   │   │   ├── __init__.py        # 包级 re-exports
 │   │   │   ├── field.py           # PhaseMap, AmplitudeMap, ComplexField + OOPAO 转换
@@ -473,6 +472,15 @@ python src/ao_shaping/main.py slm-diagnose --step freeze
 | `slm_phase_resolution` | 比较逐像素随机相位与光滑 Zernike 相位, 判定面板**等效相位分辨率** |
 | `slm_exposure_check` | 相机自动曝光状态 + 固定设置下漂移 (区分"相机漂移"与"SLM 保留上次图案") |
 | `slm_zernike_sweep_probe` | **光滑 Zernike 扫描探针**: ramp + tilt + defocus + astig + coma + spherical 共 42 点, 逐点稳定判据读帧, 落盘 npz + Recorder (含相位与 CCD 帧)。`--no-hw` 只打印采集计划 |
+| `slm_drift_probe` | **平场漂移 + 曝光阶梯线性**。用区域范数判漂移 (**不用峰值** — 实测同设置两次运行峰值读到 100 与 23, 而 box sum 稳到 0.2%)。判据 `monotonic`/`non_monotonic`/`saturated` |
+| `slm_floor_probe` | **测量本底 + 稳定时间 + SNR-vs-K**。回答噪声是读噪声 (`noise_limited`) 还是漂移 (`drift_limited`); 后者说明降 delta 无用, 要改稳定判据或改用 ABBA。稳定时间由采样拟合, 替代固定 sleep |
+| `slm_abba_probe` | **稠密随机相位是否可分辨**。ABBA (`+ - - +`) 消一阶漂移并先量本底。`verdict=unusable` 时不要去测转移矩阵 |
+| `slm_bench_metrics` | 上面三个探针的**纯 numpy 分析内核** (无设备/无 I/O, CI 可跑)。含两种**故意不同**的帧预处理, 见下 |
+
+> 🔑 **启动 GS / GSNet / SPGD runner 之前先跑表征探针**:
+> `slm_drift_probe` → `slm_floor_probe` → `slm_abba_probe`。
+> 完整流程、验收阈值与**危险默认值清单**见
+> [`docs/slm/pre_run_characterization.md`](docs/slm/pre_run_characterization.md)。
 
 `slm_bench_probe.py` 是它们共用的纯测量内核 (设备由参数传入, 可脱机单测);
 `slm_zernike_sweep_probe.py` 在其上实现了多点扫描协议 (含 Recorder 落盘), 也是
@@ -581,7 +589,7 @@ python src/ao_shaping/main.py slm-gsnet [COMMAND] [OPTIONS]
 - `--side-factor`: 自动边长倍率 (默认: 1.5)
 - `--w-uniformity` (默认: 0.4) / `--w-efficiency` (默认: 0.6) / `--w-aspect` (默认: 0.0): 质量评分权重 (均匀性/能量效率/宽高比)
 - `--cam_type`: 相机后端 (miicam/daheng/sim, sim=2f-Fourier数值仿真无硬件)
-- `-t, --exposure_time_ms`: CCD曝光时间ms (默认: 0=自动曝光)
+- `-t, --exposure_time_ms`: CCD曝光时间ms (默认: **1.5**, 本台架实测安全值; 换激光功率须重新 bracket —— 该字段不实现自动曝光)
 - `--cam-id`: CCD设备ID (默认: 0)
 - `--cam_size`: CCD开窗大小 (像素)
 - `--slm_number`: SLM设备编号 (默认: 1)
@@ -589,7 +597,7 @@ python src/ao_shaping/main.py slm-gsnet [COMMAND] [OPTIONS]
 - `--zernike_radius`: Zernike孔径半径px (默认: 0=SLM短边/2)
 
 `spgd` 子命令专属:
-- `--delta`: 扰动幅度 (rad, 默认: 0.1)
+- `--delta`: 扰动幅度 (rad)。**省略 = 交给自适应调度**; 显式传值则**固定**该值, 调度只更新 `--lr` (此前 `lr=0` 时调度会静默覆盖它, 使该 flag 在默认用法下等于空操作)
 - `--lr`: 学习率, 0=自动 (默认: 0)
 - `--optimizer_type`: adam/adamw/adamod/sgd/muno/munow (默认: adamod)
 
@@ -742,7 +750,7 @@ python src/ao_shaping/main.py slm-pib [spgd|heuristic] [OPTIONS]
 - `--seed`: 随机种子 (仅 sim 模式下可复现)
 - `--cam_type`: 相机类型 (miicam / daheng / sim, 默认: daheng)
 - `--cam_id`: 相机设备ID (默认: 0)
-- `--exposure_time_ms`: 曝光时间ms (默认: 80.0)
+- `--exposure_time_ms`: 曝光时间ms (默认: **1.5**, 本台架实测安全值; 原默认 80 会在本台架饱和)
 - `--cam_size`: 相机开窗大小 (默认: 250)
 - `-c, --center`: 光斑中心检测 (auto / mass / max / shape / centroid_thresh 或 'x,y')
 - `--auto-exposure`: 自动寻找安全曝光 (一次探测)
@@ -776,6 +784,7 @@ python src/ao_shaping/main.py slm-pib [spgd|heuristic] [OPTIONS]
 - `--n-eval-frames`: 每次相机读取的平均帧数 (默认: 1)
 - `--fold_ratio`: 亮度折减门控比率 (默认: 0.5)
 - `--noise_gate_k`: 噪声感知更新门 sigma 倍数 (默认: 3.0)
+- `--abba-sampling`: 启用 ABBA 采样, 每轮按 `(+ - - +)` 采集 4 帧代替 2 帧 `(+ -)`。回文序列使**随时间线性变化的慢漂移**在两个符号均值中带入相同项, 因而在SPGD 差分中被抵消 (实测慢漂移会让相邻 `J(+d)-J(-d)` 被污染成随机游走)。代价: 每轮采集次数 ×2。默认关闭以保持原行为。
 - `--show`: 打开实时显示窗口
 
 `heuristic` 子命令专属:
@@ -1254,7 +1263,8 @@ img = gen.generate_polynomial({(2, 0): 1.0, (4, 0): 0.5})
 
 1. **禁止自写 Noll↔(n,m) 查表或模式枚举**。历史教训: `noll_to_nm_legacy` (那里 Noll 5=(2,0), 与 canonical 相反) 曾与 canonical 并存导致两套索引混用, 已删除; 新代码一律 `zernike_calc.noll_to_nm()` / `zernike_utils.list_zernike_modes()`。
 2. **禁止生成器自行 `mod 2π`**。`generate_zernike_phase()` / `ZernikeGenerator.*` 返回 **raw 未包裹弧度**; 唯一 wrap 点在 SLM 驱动 `Santec.create_phase_from_array()` (弧度→灰度)。弧度→灰度统一走 `utils/slm/phase_display.phase_to_slm_grayscale(phase, slm=slm)`。
-3. **禁止 min-max 归一化相位**。`PatternHelper._zernike_to_uint16` 与 `ZernikeDM.generate_phase` 的 `(p−min)/(max−min)` 归一化使图案**尺度无关** (系数 ×1 与 ×4 输出字节完全相同, 幅度不可控) — 两者均为已知反模式, 不得用于新代码。
+3. **禁止 min-max 归一化相位**。`(p−min)/(max−min)` 归一化使图案**尺度无关** (系数 ×1 与 ×4 输出字节完全相同, 幅度不可控), 是已知反模式, 不得用于新代码。
+   历史例子: `ZernikeDM.generate_phase` (于 2026-09 修复) 与 `PatternHelper._zernike_to_uint16` (**于 2026-09 删除**)。
 4. **WFS 系数单位必须统一**。WFS `get_zernike()` 返回 **µm**; 参与响应矩阵 / 矫正运算前必须 `um_to_waves()` (µm→λ, ÷0.532); 反解出的 λ 系数在喂给 `generate_zernike_phase` / `make_phase` 前必须 **×2π** (λ→rad)。两个真实 bug (2026-09-16, 均因单位混用: 系数放大 1.88× / 相位缩小 6.28×) 修复后闭环 RMS 改善 13.8% → 42.1%。
 5. **Noll 约定 = Noll 1976 (aotools)**: Noll 4=(2,0) defocus, Noll 5=(2,-2) astig, Noll 11=(4,0) spherical, Noll 13=(4,-2) ⚠ (不是 (2,0))。`zernike_calc.noll_indices` (Noll 序) 与 `zernike_modes` ((n,m) 字典序)**顺序不同, 不可互换**; 完整前 15 阶映射表见 `zernike_utils` 模块 docstring。
 

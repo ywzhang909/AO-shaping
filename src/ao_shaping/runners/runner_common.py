@@ -121,6 +121,37 @@ DM_TYPES = list_dm_types()
 # ---------------------------------------------------------------------------
 
 
+#: SPGD perturbation amplitude used when the caller does not pass ``--delta``.
+#: Mirrors the historical per-family defaults so omitting the flag is
+#: behaviour-preserving.
+DEFAULT_SPGD_DELTA = 0.1
+
+
+def resolve_spgd_delta(
+    delta: float | None, *, default: float = DEFAULT_SPGD_DELTA
+) -> tuple[float, bool]:
+    """Resolve a ``--delta`` option into ``(value, pinned)``.
+
+    ``SpgdParams.delta`` defaults to ``None`` so a runner can tell "the user
+    typed ``--delta``" apart from "the user typed nothing" -- Click collapses both
+    cases into one value otherwise. That distinction matters because the
+    ``lr == 0`` adaptive schedule *reassigns* ``delta`` on every epoch: an
+    explicit ``--delta`` used to be silently overwritten unless the caller also
+    passed an explicit ``--lr``, making the flag a no-op.
+
+    Args:
+        delta: The raw option value, or ``None`` when the flag was omitted.
+        default: Value to use when the flag was omitted.
+
+    Returns:
+        ``(delta, pinned)`` where ``pinned`` is ``True`` only if the caller
+        supplied the value explicitly (and therefore wants it respected).
+    """
+    if delta is None:
+        return abs(float(default)), False
+    return abs(float(delta)), True
+
+
 @dataclass
 class CameraParams:
     """CCD camera options (slm-gsnet family)."""
@@ -137,9 +168,14 @@ class CameraParams:
     exposure_time_ms: Annotated[
         float,
         option(
-            "--exposure_time_ms", help="CCD exposure time in ms (0 = auto-exposure)."
+            "--exposure_time_ms",
+            help=(
+                "CCD exposure time in ms. Default 1.5 is the measured-safe value "
+                "for the Daheng MER2-507 + Santec SLM-200 bench; it is NOT a "
+                "universal constant -- re-bracket it for your laser power."
+            ),
         ),
-    ] = 80.0
+    ] = 1.5
     cam_size: Annotated[
         int, option("--cam_size", help="CCD window size in pixels.")
     ] = 300
@@ -274,8 +310,17 @@ class SpgdParams:
         int, option("-e", "--epochs", help="Optimization iterations.")
     ] = 2000
     delta: Annotated[
-        float, option("--delta", help="SPGD perturbation amplitude (rad).")
-    ] = 0.1
+        float | None,
+        option(
+            "--delta",
+            type=float,
+            help=(
+                "SPGD perturbation amplitude (rad). Omit to let the adaptive "
+                "schedule choose it; passing a value PINS it and disables the "
+                "schedule's delta update."
+            ),
+        ),
+    ] = None
     lr: Annotated[float, option("--lr", help="SPGD learning rate (0 = auto).")] = 0.0
     optimizer_type: Annotated[
         str,
@@ -358,6 +403,18 @@ class SpgdParamsPib(SpgdParams):
             help="Noise-aware update gate sigma multiplier (0 disables).",
         ),
     ] = 3.0
+    abba_sampling: Annotated[
+        bool,
+        option(
+            "--abba-sampling",
+            is_flag=True,
+            help=(
+                "Enable ABBA sampling: capture 4 frames per epoch in order (+ - - +) "
+                "instead of 2 (+ -) to cancel linear slow drift (4x captures/epoch). "
+                "Default OFF for byte-identical behavior."
+            ),
+        ),
+    ] = False
 
 
 # ---------------------------------------------------------------------------
@@ -563,6 +620,20 @@ class ObjectiveParamsSquare:
         float, option("--w_efficiency", help="Encircled-energy weight.")
     ] = 0.6
     w_aspect: Annotated[float, option("--w_aspect", help="Aspect-ratio weight.")] = 0.0
+    w_pbr: Annotated[
+        float,
+        option(
+            "--w_pbr",
+            help=(
+                "Background-suppression (peak-to-background) weight. "
+                "0 = off (default), which keeps runs reproducible. PBR is the "
+                "box peak divided by the mean of the rest of the frame, "
+                "median-subtracted and clipped so read noise cannot push it "
+                "above 1. Transcribed from the prose definition in Liu et al., "
+                "Acta Photonica Sinica 2023, 52(6):0629002."
+            ),
+        ),
+    ] = 0.0
     objective: Annotated[
         str,
         option(
@@ -960,6 +1031,18 @@ class SlmSquareParams:
     ] = 0.6
     w_aspect: Annotated[
         float, option("--w-aspect", help="宽高比权重 (default: 0.0)")
+    ] = 0.0
+    w_pbr: Annotated[
+        float,
+        option(
+            "--w-pbr",
+            help=(
+                "背景抑制 (PBR) 权重 (default: 0.0=关闭, 保持既有结果可复现)。"
+                "PBR = 目标框峰值 / 框外均值, 已做扣中位数+截零, "
+                "避免读出噪声把比值推到 >1。定义转录自 "
+                "刘卉等, 光子学报 2023, 52(6):0629002。"
+            ),
+        ),
     ] = 0.0
     basis: Annotated[
         str,

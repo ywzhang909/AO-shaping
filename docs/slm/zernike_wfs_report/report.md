@@ -2,7 +2,7 @@
 
 **实验日期**: 2026-09-15  
 **设备**: SLM #22030102 (532nm, 2π=998 gray) + WFS M01219666  
-**SLM shift**: `(106, 40)` — defocus 零点法标定 (`slm_shift_calib.py`)  
+**SLM shift**: `(106, 40)` — defocus 零点法标定 (`slm_shift_calib.py  # ⚠️ 2026-10-01: 文件已删除`)  
 **WFS 曝光**: 3.984 ms (≤ 7ms)  
 **WFS pupil**: center=(-0.153, 0.185) mm, diameter=(3.621, 3.876) mm
 

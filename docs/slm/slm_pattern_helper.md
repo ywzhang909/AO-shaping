@@ -71,17 +71,23 @@ ph.generate_microlens_array(
 ### 4. 湍流相位屏 (Turbulence Screen)
 
 ```python
-ph.generate_turbulence_screen(
-    Cn2=1e-14,        # 折射率结构常数
-    L=1000,            # 传播路径长度 (m)
-    wavelength=532e-9,  # 波长 (m)
-    pixel_size=8e-6,     # 像素大小 (m)
-    random_seed=42,       # 随机种子
-    method="kolmogorov"  # "kolmogorov" 或 "vankarman"
+# ⚠️ 2026-10-01 修正：相位屏参数在**初始化**时传入，不在生成时。
+# 原文把 6 个参数写在 generate_turbulence_screen() 上，照抄会 TypeError
+# （实际签名 `def generate_turbulence_screen(self) -> np.ndarray`，零参数）。
+
+ph.init_turbulence_screen(
+    r0=1e-14,           # Fried 参数 (m) —— 注意不是 Cn2
+    L0=100,             # 外尺度 (m)
+    pixel_scale=8e-6,   # 每像素物理尺寸 (m)
+    random_seed=42,     # 可选
 )
+ph.generate_turbulence_screen()   # -> 2D float64 数组 (弧度)
 ```
 
 ![turbulence](slm_patterns/turbulence.png)
+
+> ⚠️ `r0` 是 Fried 参数，**不是** `Cn2` 结构常数常量；原文档把 `Cn2=1e-14` 直接当
+> `r0` 用，物理上不对等。
 
 ---
 
@@ -104,35 +110,25 @@ ph.generate_zernike(n=3, m=-3, amplitude=1.0)  # 三叶草 X
 ph.generate_zernike(n=3, m=3, amplitude=1.0)   # 三叶草 Y
 ```
 
-Zernike 1 (活塞):
-![zernike_1_0_0](slm_patterns/zernike_1_0_0.png)
+Zernike 示例（参数是 **(n, m)**，不是 Noll 序号 —— 见文末 Noll 参考表）:
 
-Zernike 2 (X 倾斜):
-![zernike_2_1_-1](slm_patterns/zernike_2_1_-1.png)
+```python
+ph.generate_zernike(n=0, m=0, amplitude=1.0)   # 活塞 (Piston)
+ph.generate_zernike(n=1, m=1, amplitude=1.0)   # Y 倾斜
+ph.generate_zernike(n=1, m=-1, amplitude=1.0)  # X 倾斜 (Tip)
+ph.generate_zernike(n=2, m=0, amplitude=1.0)   # 离焦
+ph.generate_zernike(n=2, m=-2, amplitude=1.0)  # 45° 像散
+ph.generate_zernike(n=2, m=2, amplitude=1.0)   # 0° 像散
+ph.generate_zernike(n=3, m=-1, amplitude=1.0)  # Y 彗差
+ph.generate_zernike(n=3, m=1, amplitude=1.0)   # X 彗差
+ph.generate_zernike(n=3, m=-3, amplitude=1.0)  # Y 三叶像差
+ph.generate_zernike(n=3, m=3, amplitude=1.0)   # X 三叶像差
+```
 
-Zernike 3 (Y 倾斜):
-![zernike_3_1_1](slm_patterns/zernike_3_1_1.png)
-
-Zernike 4 (像散 X):
-![zernike_4_2_-2](slm_patterns/zernike_4_2_-2.png)
-
-Zernike 5 (离焦):
-![zernike_5_2_0](slm_patterns/zernike_5_2_0.png)
-
-Zernike 6 (像散 Y):
-![zernike_6_2_2](slm_patterns/zernike_6_2_2.png)
-
-Zernike 7 (三叶草 X):
-![zernike_7_3_-3](slm_patterns/zernike_7_3_-3.png)
-
-Zernike 8 (彗差 X):
-![zernike_8_3_-1](slm_patterns/zernike_8_3_-1.png)
-
-Zernike 9 (彗差 Y):
-![zernike_9_3_1](slm_patterns/zernike_9_3_1.png)
-
-Zernike 10 (三叶草 Y):
-![zernike_10_3_3](slm_patterns/zernike_10_3_3.png)
+> ⚠️ **2026-10-01 删除**：本节原有 11 个 `slm_patterns/zernike_*.png` 插图链接，
+> 但**该目录下不存在任何 `zernike_*.png` 文件**（实际只有 checkerboard / grating /
+> microlens / turbulence / lens / focus / dammann / circular / linear / hologram），
+> 全是死链。重新生成需用 `scripts/` 下的绘图脚本，勿手工补图。
 
 ---
 
@@ -147,18 +143,24 @@ ph.generate_zernike_polynomial({
 })
 ```
 
-![zernike_combo](slm_patterns/zernike_combo.png)
+> ⚠️ **2026-10-01 删除**：`slm_patterns/zernike_combo.png` 不存在（死链）。
+>
+> ⚠️ **返回值是 raw 未包裹弧度**（float64），不是 uint16。转灰度走
+> `PatternHelper.to_uint16()`（内部委托 `utils/slm/phase_display.phase_to_slm_grayscale`）
+> 或直接 `slm.create_phase_from_array()`。见 `AGENTS.md` 的 raw-only 契约红线。
 
 ---
 
 ### 7. 聚焦透镜 (Focus)
 
 ```python
+# ⚠️ 2026-10-01 修正：实际签名无 `wrap_phase` 参数
+# （`def generate_focus(self, focal_length, wavelength=532e-9, pixel_size=8e-6, lens_radius=None)`）
+# 相位是 raw 未包裹弧度，全项目唯一 mod-2π 点在 SLM 驱动的 create_phase_from_array()
 ph.generate_focus(
     focal_length=0.5,    # 焦距 (m)
     wavelength=532e-9,   # 波长 (m)
     pixel_size=8e-6,     # 像素大小 (m)
-    wrap_phase=True        # 是否包裹相位
 )
 ```
 
@@ -248,28 +250,39 @@ PatternHelper 提供以下坐标属性：
 
 ## Noll 索引参考
 
+> ✅ 权威表见 `utils/wavefront/zernike_utils.py` 模块 docstring；由 `list_zernike_modes()` 生成。
+> 数值以 `zernike_calc.noll_to_nm`（aotools `RZern.noll2nm`）为准。
+> ⚠️ **本表原为「像散 4 / 离焦 5」的旧 (n,m)，与本仓 canonical 相反，已按实际输出改正**
+> (Noll 4 = (2,0) 离焦，Noll 5 = (2,-2) 45° 像散)。历史上的 `noll_to_nm_legacy`
+> 已删除，不要引用。
+
 | Noll j | (n, m) | 名称 |
 |--------|----------|------|
 | 1 | (0, 0) | 活塞 (Piston) |
-| 2 | (1, -1) | X 倾斜 (Tilt X) |
-| 3 | (1, 1) | Y 倾斜 (Tilt Y) |
-| 4 | (2, -2) | 像散 X (Astig X) |
-| 5 | (2, 0) | 离焦 (Defocus) |
-| 6 | (2, 2) | 像散 Y (Astig Y) |
-| 7 | (3, -3) | 三叶草 X (Trefoil X) |
-| 8 | (3, -1) | 彗差 X (Coma X) |
-| 9 | (3, 1) | 彗差 Y (Coma Y) |
-| 10 | (3, 3) | 三叶草 Y (Trefoil Y) |
-| 11 | (4, -4) | |
-| 12 | (4, -2) | |
-| 13 | (4, 0) | |
-| 14 | (4, 2) | |
-| 15 | (4, 4) | |
+| 2 | (1, 1) | Y 倾斜 (Tilt Y) |
+| 3 | (1, -1) | X 倾斜 (Tip / Tilt X) |
+| 4 | (2, 0) | 离焦 (Defocus) |
+| 5 | (2, -2) | 45° 像散 (Astigmatism 45°) |
+| 6 | (2, 2) | 0° 像散 (Astigmatism 0°) |
+| 7 | (3, -1) | Y 彗差 (Coma Y) |
+| 8 | (3, 1) | X 彗差 (Coma X) |
+| 9 | (3, -3) | Y 三叶像差 (Trefoil Y) |
+| 10 | (3, 3) | X 三叶像差 (Trefoil X) |
+| 11 | (4, 0) | 球差 (Spherical) |
+| 12 | (4, 2) | 二级 0° 像散 (Secondary Astig 0°) |
+| 13 | (4, -2) | 二级 45° 像散 (Secondary Astig 45°) |
+| 14 | (4, 4) | X 四叶像差 (Tetrafoil X) |
+
+> ⚠️ 注意与 **SLM DLL 索引**区分：`zernike-matrix` / `slm_zernike_response` 走的
+> `matrix` 行序是 **DLL 自有 m 枚举**（`[5]=(2,0) defocus`、`[13]=(4,0) spherical`），
+> **不是** 标准 Noll 空间。两套不可互换，详见 `docs/slm/report3.md` 与
+> `drivers/slm/AGENTS.md`。
 
 ---
 
 ## 依赖
 
 - `numpy`
-- `aotools` - 用于湍流相位屏生成
-- `ao_shaping.utils.zernike_calc` - 用于 Zernike 模式生成
+- `aotools` - 用于湍流相位屏生成（⚠️ 当前是**裸 import，无 try/except**，未装则
+  `import ao_shaping.utils` 直接失败。见 `TODO.md` R-20）
+- `ao_shaping.utils.wavefront.zernike_calc` - 用于 Zernike 模式生成

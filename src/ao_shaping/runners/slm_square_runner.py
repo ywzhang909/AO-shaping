@@ -217,6 +217,7 @@ def run(ctx: click.Context, params: SlmSquareParams, slm_params: ZernikeSlmParam
         w_uniformity=params.w_uniformity,
         w_efficiency=params.w_efficiency,
         w_aspect=params.w_aspect,
+        w_pbr=params.w_pbr,
         basis=params.basis,
         phase_grid=params.phase_grid,
         zernike_radius=params.zernike_radius,

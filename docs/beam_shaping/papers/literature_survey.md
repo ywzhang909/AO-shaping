@@ -9,6 +9,11 @@
 > (E) 偏振 / 振幅+相位联合控制。
 >
 > **核实**: 全部 25 篇均经 arXiv abs 页 / 出版社记录逐条核实 (title / 第一作者 / 年份 / 期刊 / arXiv ID 或 DOI), 无虚构条目。
+> ⚠️ **2026-10-01 复核**：本文件「本仓库对应实现」一列原引用了 4 个**已删除**的
+> runner（`gs_hologram_runner` / `gs_square_runner` / `diff_shaping_runner` /
+> `diff_beam_runner` / `spgd_square_runner`），并把 `utils/beam_metrics` 写成旧路径
+> （现为 `utils/image/beam_metrics`），另有 1 处 DOI 漏了首位 `0`
+> （`11088/...` → `10.1088/...`）。全部已订正。**文献结论本身未受影响。**
 > 仿真基准 (GS / differentiable / SPGD-freeform 在 2f-Fourier 单相位模型上的 PIB/CV/Strehl 对比) 见
 > [`beam_shaping_papers.md`](beam_shaping_papers.md), 与本调研的 (A)(B) 两条主线直接对应, 作为方法对比的本地基线。
 
@@ -18,10 +23,10 @@
 
 | 类别 | 篇数 | 方法主线 | 本仓库对应实现 |
 |------|-----|---------|----------------|
-| (A) 经典 / 相位生成 | 8 | GS 族 + 最优传输初始化 + 反馈 GS + 混合 (SIFTA/SA) | `gs_hologram_runner` / `gs_square_runner` / `gs_shape` |
-| (B) 可微分 / SPGD | 5 | 自动微分全息 + M-SPGD + 物理嵌入式 NN + 最优传输+phase diversity | `diff_shaping_runner` / `diff_beam_runner` / `spgd_square_runner` |
+| (A) 经典 / 相位生成 | 8 | GS 族 + 最优传输初始化 + 反馈 GS + 混合 (SIFTA/SA) | `algorithm/signal_processing/gerchberg_saxton.py` (⚠️ 原列 `gs_hologram_runner`/`gs_square_runner` **已删除**) |
+| (B) 可微分 / SPGD | 5 | 自动微分全息 + M-SPGD + 物理嵌入式 NN + 最优传输+phase diversity | `runners/slm_gsnet_runner.py` / `runners/slm_square_runner.py` (⚠️ 原列 `diff_shaping_runner`/`diff_beam_runner`/`spgd_square_runner` **均已删除**) |
 | (C) 强化学习 | 5 | PPO/SAC/DDPG/准-RL 闭环控制 (多为 DM 或相位元件) | `optimizer/rl` (SAC) |
-| (D) 目标函数 / 指标 | 5 | 重叠系数 / VecCos / M² 束质量 / 均匀性+效率 / 路线图综述 | `utils/beam_metrics` + 各优化器评分 |
+| (D) 目标函数 / 指标 | 5 | 重叠系数 / VecCos / M² 束质量 / 均匀性+效率 / 路线图综述 | `utils/image/beam_metrics` (`compute_metrics`) + 各优化器评分 |
 | (E) 偏振 / 振幅+相位 | 2 | 矢量 AO (相位+偏振) + 偏振非线性 CGH | (尚无, 规划中) |
 
 > **闭环 (feedback) 覆盖**: Kim 2019 (自适应 CCD 校正), Wang 2024 (反馈 GSW), Hong 2018 (反馈波前整形),
@@ -48,7 +53,7 @@
 
 **方法要点**:
 - **GS 族**: 经典 GS 在振幅/相位交替约束下迭代; 改进集中在 ① 初始相位 (Swan 2025 最优传输、Pang 2019 球面初始相位 → 降 speckle + 提效率), ② 随机微扰 / 相位值替换 (Chen 2024, 多焦点 >95% 均匀), ③ 分段混合元启发式 (Zhang 2024, GS+SIFTA+SA, RMSE ↓37%), ④ 大规模加权 GS + CCD 反馈 (Kim 2019, O(10³) 焦点 >98% 均匀)。
-- **反馈闭环**: Wang 2024 (GSW + CCD, 非均匀性 <1.1%)、Kim 2019 (自适应 CCD 校正) 代表真闭环 GS — 与本仓库 `gs_square_runner` (GS+CCD 反馈) 思路一致。
+- **反馈闭环**: Wang 2024 (GSW + CCD, 非均匀性 <1.1%)、Kim 2019 (自适应 CCD 校正) 代表真闭环 GS — 与本仓库 `algorithm/signal_processing/gerchberg_saxton.py` (GS+CCD 反馈) 思路一致。
 - **DeepCGH (Eybposh 2020)**: 深度学习 CGH, 物理约束损失, 3D 多平面全息 — 连接 (A) 与 (B)/(C) 的桥梁。
 
 ---
@@ -97,7 +102,7 @@
 ## 5. (D) 目标函数 / 质量指标
 
 > 核心 = 闭环整形的标量奖励 / 适应度函数: 重叠系数 (overlap)、余弦相似度 (VecCos)、束质量 (M²)、
-> 均匀性+效率组合、衍射效率。本仓库 `utils/beam_metrics` + 各优化器评分即此层。
+> 均匀性+效率组合、衍射效率。本仓库 `utils/image/beam_metrics` (`compute_metrics`) + 各优化器评分即此层。
 
 ```json
 {"title": "Customizing optical patterns via feedback-based wavefront shaping", "first_author": "Peilong Hong", "year": 2018, "venue": "arXiv preprint", "arxiv": "1812.00162", "topic": "objective-function", "one_line": "Overlap coefficient feedback metric for wavefront shaping; converges to unity for patterned targets."},
@@ -155,7 +160,7 @@
 | C5 | reinforcement-learning | Li 2025 | arXiv:2507.05583; Light: Science & Applications, DOI 10.1038/s41377-025-02148-7 |
 | D1 | objective-function | Hong 2018 | arXiv:1812.00162 (仅 arXiv) |
 | D2 | objective-function | Cheng 2022 | Opt. Express 30(18), 32566, DOI 10.1364/OE.462275 (多模光纤, VecCos 适应度) |
-| D3 | objective-function | Gigan 2022 | J. Phys.: Photonics 4, 042501, DOI 11088/2515-7647/ac76f9 (路线图) |
+| D3 | objective-function | Gigan 2022 | J. Phys.: Photonics 4, 042501, DOI 10.1088/2515-7647/ac76f9 (路线图) |
 | D4 | objective-function | Paniagua-Diaz 2021 | arXiv:2107.10601 (仅 arXiv) |
 | D5 | objective-function | Chandra 2020 | J. Mod. Opt. 67(8), 628-637, DOI 10.1080/09500340.2020.1760954 |
 | E1 | polarization | He 2023 | arXiv:2110.02606; eLight 3:23, DOI 10.1186/s43593-023-00056-0 |
@@ -175,6 +180,6 @@
 - **偏振**: 2018–2025 窗口内最强 SLM 偏振整形为 He 2023 (eLight) 与 Ackermann 2023 (Sci. Rep.);
   经典 SLM 矢量光束论文 (Rosales-Guzmán 2017, Chen 2015) 超出窗口。
 - **仅 arXiv (未见期刊版)**: Christopher 2020, Wang 2024, Hong 2018, Paniagua-Diaz 2021, Parvizi 2023。
-- **方法 vs 仓库映射**: 本仓库 `gs_square_runner` (GS+CCD 闭环) ↔ §2 反馈 GS; `diff_shaping`/`diff_beam`
+- **方法 vs 仓库映射**: 本仓库 `gerchberg_saxton` (GS+CCD 闭环) ↔ §2 反馈 GS; `slm-gsnet`/`spgd-square`
   (PyTorch 可微) ↔ §3 AD 全息; `spgd_square`/`combined` (SPGD) ↔ §3 M-SPGD; `optimizer/rl` (SAC) ↔ §4 RL。
   详见 [`beam_shaping_papers.md`](beam_shaping_papers.md) 仿真基准。

@@ -1,7 +1,18 @@
 ﻿# AO-Shaping 项目问题报告
 
-> 生成时间: 2026-05-25 (初版) / 2026-05-26 (更新)
+> 生成时间: 2026-05-25 (初版) / 2026-05-26 (更新) / **2026-10-01 (复核)**
 > 扫描范围: `src/ao_shaping/` 全目录依赖分析 + 代码规范检查
+>
+> ⚠️ **本报告已严重过时 (2026-10-01 复核)** —— 它是 2026-05 的快照，而仓库此后经历了
+> 至少 8 个月的密集重构（含 2026-10-01 的 `banckend` 大 merge：93 文件 / +7232 −547）。
+> **§11 的全部数字（82 处 `print`、13 处宽泛 `except`、~22 个大文件、32 处冗余
+> `__main__`、29 个文件缺 `__future__`）以及 §1~§3 引用的行号都需要重新扫描**，
+> 实施前请勿直接引用。当前可信的待办总账在**根目录 [`TODO.md`](../../TODO.md)**。
+>
+> 复核中确认的**实质变化**（详见各节内的修订标记）：
+> - §1.2 `config.py` 依赖硬件 — ✅ **已修复**（改走 DM 注册表）
+> - §10.4 删空目录 `drivers/sim/wfs/` — ❌ **建议失效**（该目录现有 `SimulatedWFS`）
+> - §8「无 linting」— ❌ **已过时**（仓库已有 ruff，2026-10-01 复核实测使用中）
 
 ---
 
@@ -13,15 +24,27 @@
 
 | 文件 | 违规导入 | 修复方案 |
 |------|----------|----------|
-| `src/ao_shaping/utils/wfs_utils.py:13` | `from ao_shaping.drivers.wfs.ThorlabWFS import WFSManager` | 已使用 `TYPE_CHECKING` 保护（运行时无实际导入） |
-| `src/ao_shaping/utils/gs_visualization.py:296` | `from ao_shaping.algorithm.gerchberg_saxton import ...` | 已使用 deferred local import（函数内 `import`） |
-| `src/ao_shaping/utils/pattern_helper.py:8` | `from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer` | ✅ 已修复: 改为 `TYPE_CHECKING` + 9 处函数的 lazy import |
+| `src/ao_shaping/utils/wfs_utils.py:13` | `from ao_shaping.drivers.wfs.ThorlabWFS import WFSManager` | 已使用 `TYPE_CHECKING` 保护（运行时无实际导入）。⚠️ 2026-10-01：该文件现已迁至 `utils/wavefront/wfs_utils.py`，行号已漂移 |
+| `src/ao_shaping/utils/gs_visualization.py:296` | `from ao_shaping.algorithm.gerchberg_saxton import ...` | 已使用 deferred local import（函数内 `import`）。⚠️ 2026-10-01：该文件现存于 `utils/image/gs_visualization.py`，且 `algorithm.gerchberg_saxton` 已迁至 `algorithm.signal_processing.gerchberg_saxton` |
+| `src/ao_shaping/utils/pattern_helper.py:8` | `from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer` | ✅ 已修复: 改为 `TYPE_CHECKING` + 9 处函数的 lazy import。⚠️ 2026-10-01：文件现存于 `utils/wavefront/pattern_helper.py` |
 
-### 1.2 `config.py` 依赖具体硬件 — ⚠️ 未修复
+> ⚠️ **2026-10-01：`utils/` 叶子化并未真正完成**，只是这 3 个具体违规被修掉了。
+> 现存阻断项：`utils/wavefront/pattern_helper.py:20` 的**裸 `import aotools`（无 try/except）**，
+> 加上 `utils/__init__.py` 的 **98 个 eager 名字**（无 PEP 562 `__getattr__`）——
+> 任何 `utils.*` 导入都会拖入 display/pygame、slm_lut、zernike_calc。见表 §10.2 与 `TODO.md` R-20。
 
-`src/ao_shaping/config.py` 在 `_resolve_dm_n_actuators()` 和 `_resolve_disabled_actuators()` 中直接 `from ao_shaping.drivers.dm.NLight import NLight`。配置模块不应依赖具体硬件驱动实现，属于架构层面的脆弱点。
+### 1.2 `config.py` 依赖具体硬件 — ✅ 已修复（2026-10-01 复核）
 
-**建议**: 将 DM 执行器数量解析移到 `drivers/dm/base.py` 或设备注册表，使 config 不依赖具体硬件 SDK。
+~~`src/ao_shaping/config.py` 在 `_resolve_dm_n_actuators()` 和 `_resolve_disabled_actuators()` 中直接 `from ao_shaping.drivers.dm.NLight import NLight`。~~
+
+**已修复**：两处现均为
+```python
+from ao_shaping.drivers.dm._registry import get_dm_registry
+registry = get_dm_registry()
+reachable = registry.list_reachable_types()
+cls = registry.get_class(reachable[0])
+```
+即已走设备注册表，不再 import 具体硬件驱动。
 
 ---
 
@@ -113,16 +136,16 @@
 
 ---
 
-## 8. 预存在配置/基础设施缺失 — ⚠️ 未修复
+## 8. 预存在配置/基础设施缺失 — 部分已过时
 
 `AGENTS.md` 中已列出，补录在此方便追踪：
 
-| 缺失项 | 说明 | 优先级 |
-|--------|------|--------|
-| 无 CI/CD | 无 GitHub Actions 配置 | 低 |
-| 无 Linter | 无 `ruff` / `mypy` / `flake8` 配置 | 中 |
-| 无 Pre-commit | 无 `pre-commit-config.yaml` | 中 |
-| 无 `requirements.txt` | 仅有 `pyproject.toml` 和 `uv.lock` | 低（`uv.lock` 已替代 `requirements.txt`） |
+| 缺失项 | 说明 | 优先级 | 2026-10-01 状态 |
+|--------|------|--------|------------------|
+| 无 CI/CD | 无 GitHub Actions 配置 | 低 | 仍缺 |
+| ~~无 Linter~~ | 无 `ruff` / `mypy` / `flake8` 配置 | 中 | ❌ **已过时** — 仓库已有 `ruff`（含 `--fix` 安全规则集），2026-10-01 复核实测在用；但**仍未提交配置**（`AGENTS.md`「MISSING INFRASTRUCTURE」节仍列 ruff，措辞已滞后） |
+| 无 Pre-commit | 无 `pre-commit-config.yaml` | 中 | 仍缺 |
+| 无 `requirements.txt` | 仅有 `pyproject.toml` 和 `uv.lock` | 低 | 仍缺（`uv.lock` 已替代） |
 
 ---
 
@@ -130,22 +153,38 @@
 
 **非本次任务引入**，记录下来方便后续修复：
 
+> ⚠️ 2026-10-01：下表 5 项已严重过时。当前基线是
+> **`3521 passed / 19 failed / 728 skipped`**，19 个失败**全部与代码逻辑无关**：
+> 6 × Daheng `reset_window`（厂商 SDK `gxipy` 缺失 → `NameError: name 'gx'`，属已知文档化怪癖）、
+> 13 × 子解释器隔离测试（`WinError 10106`，环境 Winsock 不可用）、
+> 1 × `test_debug_artifacts_pkl_exports_array_fields`（预存断言，stash 验证在 merge commit 上同样失败）。
+> 下表条目需逐条重验后再动。
+
 | 测试文件 | 原因 | 修复方案 |
 |----------|------|----------|
 | `tests/ao_shaping/algorithm/test_gs_runner_shapes.py` | ~~`from ao_shaping.gs_hologram_runner import ...` — 模块已迁移路径~~ | ✅ 已修复 |
 | `tests/ao_shaping/optimizer/rl/test_turbulence_env.py` | 缺少 `gymnasium` 依赖 | 添加 `uv sync --extra rl` 或 `pip install gymnasium` |
 | `tests/ao_shaping/optimizer/wfless/test_bayes_hyperparam.py` | 缺少 `scikit-optimize` 依赖 | `pip install scikit-optimize` |
 | `libs/micro_drive1300/py/test_dm_control.py` | 包名为 `py` 导致 Import 冲突 | 重命名 `libs/micro_drive1300/py/` |
-| `tests/ao_shaping/optimizer/wf/test_zernike_response_matrix.py` | 9 个测试失败，可能与 WFS 硬件有关 | 需排查是否硬件依赖 |
+| `tests/ao_shaping/optimizer/wf/test_zernike_response_matrix.py` | 9 个测试失败，可能与 WFS 硬件有关 | ⚠️ 2026-10-01：该文件现仍有 `F821`（`DMResponseMatrixResult` 未定义），但**已随 2026-10-01 merge 的 `dm-matrix` 改造变化**，需重扫 |
 
 ---
 
 ## 10. 架构建议（非阻塞）— 待评估
 
-1. **`config.py` 去耦**: 将 DM 执行器数量解析移到 `drivers/dm/base.py` 或设备注册表，使 config 不依赖具体硬件 SDK。
+> ⚠️ **2026-10-01 复核：4 条中 3 条已过时或不再成立**，本节数字与路径全部需重扫。
+
+1. ~~**`config.py` 去耦**~~ — ✅ **本文件 §1.2 记为「未修复」的那条已解决**：
+   `config.py` 现走 `drivers.dm._registry.get_dm_registry()` +
+   `registry.list_reachable_types()`，不再 `from ao_shaping.drivers.dm.NLight import NLight`。
 2. **`utils/` 叶子化**: `wfs_utils.py` 中对 WFS 的依赖可以通过回调注入或由调用方传入已初始化的 WFS 实例来消除。
-3. **`src/ml/` 迁移**: 将 `src/ml/` 移入 `src/ao_shaping/ml/` 并更新所有引用。
-4. **删减空目录**: `drivers/sim/wfs/` 和 `drivers/sim/slm/` 若无用可删除。
+   ⚠️ 2026-10-01：`utils/wfs_utils.py` 早已重构为 `utils/wavefront/wfs_utils.py`（`TYPE_CHECKING` 保护已落地，见 §1.1）；
+   当前的 `utils/` 叶子化**阻断项**是 `utils/wavefront/pattern_helper.py:20` 的裸 `import aotools`
+   与 `utils/__init__.py` 的 98 个 eager 名字，见 `TODO.md` R-20。
+3. **`src/ml/` 迁移**: 将 `src/ml/` 移入 `src/ao_shaping/ml/` 并更新所有引用。**仍未做**（现状：`src/ml/` 存在，`src/ao_shaping/ml/` 不存在），见 `TODO.md` F-4。
+4. ~~**删减空目录** `drivers/sim/wfs/` 和 `drivers/sim/slm/`~~ — ❌ **建议已失效**：
+   `drivers/sim/wfs/` 现在**有内容**（`simulated_wfs.py`，OOPAO Shack-Hartmann 仿真 WFS，
+   是 2026-10-01 merge 的主要产物之一）；`drivers/sim/slm/` **本就不存在**。
 
 ---
 

@@ -47,6 +47,7 @@ from ao_shaping.runners.runner_common import (
     SpgdParams,
     config_payload,
     parse_center,
+    resolve_spgd_delta,
     with_params,
 )
 from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts
@@ -174,19 +175,36 @@ def _build_square_config(cfg: SlmGsnetConfig) -> SlmSquareConfig:
         w_uniformity=obj.w_uniformity,
         w_efficiency=obj.w_efficiency,
         w_aspect=obj.w_aspect,
+        # Background suppression (PBR). Off by default (0.0); the ROI energy
+        # guard already blocks the light-scattering failure mode that PBR also
+        # discourages, so this stays opt-in on top of a safe default.
+        w_pbr=obj.w_pbr,
         objective=obj.objective,
         basis="freeform",
         phase_grid=24,
         zernike_radius=zernike_radius,
         random_seed=cfg.run.seed,
+        # In-ROI energy guard, armed from the initial flat frame; 0 disables it.
+        # HARDWARE: without it the 2026-10-01 run traded 6x of encircled energy
+        # (0.158 -> 0.026) for a +0.0118 uniformity gain and ended 35.9% worse,
+        # with dec=0.487 (random walk). Guarded epochs are SKIPPED, not merely
+        # penalised. See docs/fouriergsnet_pipeline/hardware_run_20261001.md.
+        max_roi_energy_loss=0.6,
+        # Start from flat (the measured best-focus state, FWHM 13.6px /
+        # hollowness 0.92) rather than the previous uniform(-pi, pi), which
+        # destroyed the focus (0-order peak 225 -> 17).
+        init_amplitude_rad=0.0,
     )
 
     if isinstance(search, SpgdParams):
+        delta, delta_pinned = resolve_spgd_delta(search.delta)
         common.update(
             algorithm="spgd",
             pop_size=None,
             lr=search.lr,
-            delta=search.delta,
+            delta=delta,
+            # An explicit --delta must survive the lr==0 adaptive schedule.
+            delta_pinned=delta_pinned,
             optimizer_type=search.optimizer_type,
         )
     else:  # HeuristicParams — black-box search has no learning rate / perturbation

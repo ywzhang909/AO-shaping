@@ -20,7 +20,8 @@
 - **阶段C 窗口定心**: 每轮把窗口中心移到 0级 (全幅坐标, 边缘 clamp), 窗口大小固定;
   收敛判据 = 下一轮窗口内 0级 与窗口返回中心偏差 `<= center_tol_px`。窗口内 0级
   用 `_moments` 阈值质心重新定位 (**不信任 `reset_window()` 返回的中心**,
-  AGENTS.md L592), 也天然抗视场边缘/杂散干扰。
+  `AGENTS.md:667` "Trusting `reset_window()`'s returned centre"; ⚠️ 2026-10-01 修正:
+  原文写的 `AGENTS.md L592` 早已失效, 该行现是性能优化章节的代码围栏), 也天然抗视场边缘/杂散干扰。
 - **阶段D 收尾**: 成功 → **保留窗口**并写 calib keys; 失败 (no_spot/no_period/
   not_converged) → 恢复全幅、清空 align keys、`align_ok=False`。
 

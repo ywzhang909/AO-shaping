@@ -925,16 +925,23 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
     santec = _construction_sites(_SANTEC_RE)
     camera = _construction_sites(_CAMERA_RE)
 
-    assert sum(santec.values()) == 18, f"Santec( construction sites changed: {santec}"
-    assert sum(camera.values()) == 15, f"camera-open call sites changed: {camera}"
+    # 18 -> 21 and 15 -> 18 when slm_abba_probe / slm_drift_probe / slm_floor_probe
+    # were added upstream. This guard pins the census so a *refactor* cannot quietly
+    # consolidate device sessions; adding a genuinely new probe is a legitimate
+    # change and must be re-baselined here deliberately.
+    assert sum(santec.values()) == 21, f"Santec( construction sites changed: {santec}"
+    assert sum(camera.values()) == 18, f"camera-open call sites changed: {camera}"
 
     assert santec == {
         "calibration.py": 2,
         "cartographer/slm_cartographer_ui.py": 1,
         "gray_response.py": 1,
         "phase_capture.py": 1,
+        "slm_abba_probe.py": 1,
         "slm_beam_extent.py": 1,
         "slm_diagnose.py": 1,
+        "slm_drift_probe.py": 1,
+        "slm_floor_probe.py": 1,
         "slm_lut_runner.py": 1,
         "slm_panel_locate.py": 1,
         "slm_phase_resolution.py": 1,
@@ -952,9 +959,12 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "calibration.py": 1,
         "gray_response.py": 1,
         "phase_capture.py": 2,
+        "slm_abba_probe.py": 1,
         "slm_beam_extent.py": 1,
         "slm_diagnose.py": 1,
+        "slm_drift_probe.py": 1,
         "slm_exposure_check.py": 1,
+        "slm_floor_probe.py": 1,
         "slm_lut_runner.py": 2,
         "slm_panel_locate.py": 1,
         "slm_phase_resolution.py": 1,
