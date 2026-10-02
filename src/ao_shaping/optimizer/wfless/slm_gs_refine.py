@@ -77,7 +77,7 @@ from ao_shaping.drivers.sim.slm_shaping_bench import (
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils.io.file import Recorder
 from ao_shaping.utils.wavefront.matrix_utils import (
-    camera_pixel_um_from_focal_scale,
+focal_length_from_camera_pixel,
 )
 
 __all__ = ["SlmGsRefineConfig", "optimize_slm_gs_refine"]
@@ -89,18 +89,34 @@ _DEFAULT_BEAM_RADIUS_PX = 450.0
 # displaces the spot TILT_SHIFT_SCALE/P camera px. See
 # `ao_shaping.tools.slm.slm_bench_probe` (the tilt probe that measures it).
 _TILT_SHIFT_SCALE_PX = 7400.0
-_DEFAULT_FOCAL_LENGTH_M = 0.125
+# The wavelength at which _TILT_SHIFT_SCALE_PX was measured. K = lambda*f/(d*p_cam)
+# scales WITH wavelength, so a scale measured at 1064nm must be referred to another
+# wavelength before use -- otherwise the derived focal length inherits a spurious
+# factor lambda/lambda_ref. Passing this makes the derived focal length
+# wavelength-invariant, as a lens focal length must be.
+_TILT_SHIFT_SCALE_MEASURED_AT_NM = 1064.0
 _DEFAULT_WAVELENGTH_NM = 1064.0
-# The CCD pixel pitch is DERIVED from that measured scale rather than hardcoded:
-#   focal_scale = wavelength * f / (d_slm * p_cam)  =>  p_cam ~ 2.247 um here,
-# consistent with the 2.2 um measured independently. The value this replaces,
-# 3.31 um, was a guess implying a focal scale of 5023 -- 33% below the measured
-# 7400-7600 -- which biased the GS target angular size by the same factor.
-_DEFAULT_CAMERA_PIXEL_UM = camera_pixel_um_from_focal_scale(
+# The CCD pixel pitch is the measurement ANCHOR, not a derived quantity: it is a
+# per-camera datasheet constant (2.2 um for the Daheng MER2-507-23GM, recorded in
+# drivers/AGENTS.md), whereas the lens focal length is a bench ASSEMBLY choice
+# that changes whenever somebody swaps optics. The measured focal scale only
+# constrains the ratio f/p_cam, so exactly one anchor is unavoidable.
+#
+# The value this replaces, 3.31 um, was a guess implying a focal scale of 5023 --
+# 33% below the measured 7400-7600 -- which biased the GS target angular size by
+# that same factor.
+_DEFAULT_CAMERA_PIXEL_UM = 2.2
+# Focal length is DERIVED from the anchor plus the measured scale: on this bench
+# (1064 nm, p_cam 2.2 um, d_slm 8 um, scale 7400) that is 0.1224 m, i.e. the
+# 125 mm nominal lens to within 2% -- the same 2% by which the three datasheet
+# values disagree with the measured scale. Pass ``focal_length_m`` explicitly to
+# pin a specific lens instead.
+_DEFAULT_FOCAL_LENGTH_M = focal_length_from_camera_pixel(
     wavelength_nm=_DEFAULT_WAVELENGTH_NM,
-    focal_length_m=_DEFAULT_FOCAL_LENGTH_M,
+    camera_pixel_um=_DEFAULT_CAMERA_PIXEL_UM,
     slm_pixel_um=_DEFAULT_PANEL_PIXEL_UM,
     focal_scale_px=_TILT_SHIFT_SCALE_PX,
+    scale_measured_at_nm=_TILT_SHIFT_SCALE_MEASURED_AT_NM,
 )
 # The GS far-field pixel pitch is ``lambda*f/(aperture*padding)`` -- independent
 # of ``n_grid`` -- so padding only sets how finely the focal plane is sampled,
@@ -175,15 +191,19 @@ class SlmGsRefineConfig:
     # --- bench model (only used to compute the GS phase) -------------------
     panel_pixel_um: float = _DEFAULT_PANEL_PIXEL_UM
     camera_pixel_um: float = _DEFAULT_CAMERA_PIXEL_UM
-    """Camera pixel pitch. **Verify this against your camera.** It converts a
-    camera-pixel target side into the bench's far-field pixels; a wrong value
-    makes GS aim at the wrong angular size (the bake-off absorbs the failure, but
-    GS then contributes nothing)."""
+    """Camera pixel pitch -- the bench model's measurement anchor. **Verify this
+    against your camera** (2.2 um for the Daheng MER2-507-23GM). The measured
+    focal scale fixes only the ratio ``f/p_cam``, so one anchor is unavoidable;
+    this is the one we chose because it is a datasheet constant rather than a
+    bench assembly choice."""
 
     beam_radius_px: float = _DEFAULT_BEAM_RADIUS_PX
     """Illuminated pupil radius on the panel, in panel pixels."""
 
-    focal_length_m: float = 0.125
+    focal_length_m: float = 0.0
+    """2f lens focal length in metres. 0 (the default) derives it from
+    ``camera_pixel_um`` and the measured focal scale; pass a value to pin a
+    specific lens."""
     far_field_padding: int = _DEFAULT_FAR_FIELD_PADDING
     gs_target_side_px: int = 0
     """Override the bench-space target side (0 = derive from ``target_side``)."""
@@ -195,7 +215,11 @@ class SlmGsRefineConfig:
     """0 = keep the device default."""
     cam_size: int = 300
     slm_number: int = 1
-    slm_wavelength: int = 1064
+    slm_wavelength: int = 0
+    """SLM operating wavelength in nm. 0 (the default) asks the DEVICE for its
+    configured wavelength instead of assuming this bench's 1064nm -- the lab has
+    more than one SLM (see the serial-number conflict in drivers/AGENTS.md), and
+    a wrong wavelength reprograms the panel's phase table."""
 
     n_eval_frames: int = 4
     settle_wait_s: float = 0.5
@@ -206,6 +230,31 @@ class SlmGsRefineConfig:
     # --- bookkeeping -------------------------------------------------------
     callback: Callable[[int, float], None] | None = field(default=None, repr=False)
     progress_every: int = 10
+
+    def __post_init__(self) -> None:
+        """Resolve the derived bench-model quantities once, here.
+
+        Doing it in ``__post_init__`` rather than at each use site means the
+        runner, the library caller and the tests all see the same resolved
+        config, and no consumer can accidentally use the raw 0.
+
+        The wavelength is not known yet (the SLM is opened later, and 0 means
+        "ask the device"), so this uses the bench fallback for the geometry and
+        :func:`_sync_device_wavelength` recomputes it from the device's answer.
+        """
+        self._focal_length_pinned = self.focal_length_m > 0.0
+        if not self._focal_length_pinned:
+            self.focal_length_m = self._derive_focal_length()
+
+    def _derive_focal_length(self) -> float:
+        """Derive the 2f focal length from the anchor and the measured scale."""
+        return focal_length_from_camera_pixel(
+            wavelength_nm=float(self.slm_wavelength or _DEFAULT_WAVELENGTH_NM),
+            camera_pixel_um=self.camera_pixel_um,
+            slm_pixel_um=self.panel_pixel_um,
+            focal_scale_px=_TILT_SHIFT_SCALE_PX,
+            scale_measured_at_nm=_TILT_SHIFT_SCALE_MEASURED_AT_NM,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -515,9 +564,42 @@ class _SlmCfg:
 
     def __init__(self, config: SlmGsRefineConfig) -> None:
         self.slm_number = config.slm_number
-        self.slm_wavelength = config.slm_wavelength
+        # 0 means "ask the device": Santec treats None as "read the configured
+        # wavelength", whereas a literal 0 would take the force-write branch in
+        # _setup_wavelength and program a 0nm phase table.
+        self.slm_wavelength = config.slm_wavelength or None
         self.shift_x = None
         self.shift_y = None
+
+
+def _sync_device_wavelength(config: SlmGsRefineConfig, slm: Any) -> None:
+    """Adopt the SLM's actual wavelength when the config did not pin one.
+
+    Runs right after the SLM opens and before any phase math, so the GS
+    propagation and the focal-length derivation both see the wavelength the
+    panel is really programmed for. The simulated SLM has no wavelength
+    attribute, in which case the bench fallback stays in place.
+    """
+    if config.slm_wavelength > 0:
+        return
+    reported = getattr(slm, "wavelength", None)
+    if not isinstance(reported, int | float) or reported <= 0:
+        # The simulated panel reports nothing. Adopt the bench fallback so no
+        # downstream phase math ever sees a zero wavelength -- but say so,
+        # because the caller asked the device and got nothing.
+        config.slm_wavelength = int(_DEFAULT_WAVELENGTH_NM)
+        logger.info(
+            "SLM 未报告工作波长(仿真面板?), 几何推导沿用台架fallback {}nm; "
+            "如实际不同请显式传 --slm-wavelength",
+            _DEFAULT_WAVELENGTH_NM,
+        )
+        return
+    config.slm_wavelength = int(reported)
+    logger.info("波长改用 SLM 实际报告值 {}nm (原默认 0 = 询问设备)", reported)
+    # The derived focal length needs no recompute: it is referred through
+    # _TILT_SHIFT_SCALE_MEASURED_AT_NM, so it is wavelength-invariant (which a
+    # lens focal length must be). What the device's wavelength DOES change is the
+    # GS propagation, from here on.
 
 
 def _open_slm(config: SlmGsRefineConfig) -> Any:
@@ -591,6 +673,7 @@ def optimize_slm_gs_refine(config: SlmGsRefineConfig) -> Recorder:
     cam = _open_cam(config)
     try:
         with slm, cam:
+            _sync_device_wavelength(config, slm)
             panel_shape = _panel_shape(slm)
             radius_px = max(8.0, float(config.beam_radius_px))
             target_side = _derive_target_side(config, radius_px)

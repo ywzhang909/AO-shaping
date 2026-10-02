@@ -41,11 +41,13 @@ import numpy as np
 
 from ao_shaping.utils.wavefront.matrix_utils import (
     camera_pixel_um_from_focal_scale as _camera_pixel_um_from_focal_scale,
+    focal_length_from_camera_pixel as _focal_length_from_camera_pixel,
 )
 
 __all__ = [
     "build_block_pattern",
     "camera_pixel_um_from_focal_scale",
+    "focal_length_from_camera_pixel",
     "crop_roi",
     "exposure_monotonicity",
     "finite_clip",
@@ -64,6 +66,7 @@ __all__ = [
 # Re-exported from the leaf `utils` layer so that both the optimizer layer and
 # the tools layer share ONE definition (and therefore cannot drift apart).
 camera_pixel_um_from_focal_scale = _camera_pixel_um_from_focal_scale
+focal_length_from_camera_pixel = _focal_length_from_camera_pixel
 
 
 # ---------------------------------------------------------------------------

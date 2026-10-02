@@ -20,6 +20,7 @@ from ao_shaping.utils.wavefront.hadamard_calc import (
 )
 from ao_shaping.utils.wavefront.matrix_utils import (
     camera_pixel_um_from_focal_scale,
+    focal_length_from_camera_pixel,
     compute_pinv,
     compute_lstsq,
     calc_n_zernike_terms,
@@ -66,6 +67,7 @@ __all__ = [
 # matrix_utils
 "compute_pinv",
 "camera_pixel_um_from_focal_scale",
+  "focal_length_from_camera_pixel",
     "compute_lstsq",
     "calc_n_zernike_terms",
     "noll_to_index",

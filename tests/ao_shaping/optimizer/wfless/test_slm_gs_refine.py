@@ -230,29 +230,88 @@ class TestTargetSide:
     def test_derived_side_follows_the_documented_focal_relation(self):
         """D*f/(d_SLM*p_cam) with the bench constants.
 
-        `p_cam` is the module's DERIVED value, not a literal, so this test
-        asserts the relation holds without re-pinning the pitch a second time.
-        (It previously hardcoded 3.31 um, the stale assumed pitch that implied a
-        focal scale of 5023 -- 33% below the measured 7400.)
+        Both `p_cam` AND `f` are module values now -- the pitch is the
+        measurement anchor and the focal length is derived from it plus the
+        measured focal scale -- so this asserts the relation using the config's
+        own resolved values instead of re-pinning either one as a literal here.
+        """
+        cfg = SlmGsRefineConfig()
+        radius = 450.0
+        expected = (
+            2 * radius * cfg.panel_pixel_um * 1e-6 * cfg.focal_length_m
+            / (cfg.camera_pixel_um * 1e-6)
+        )
+        assert _derive_target_side(cfg, radius) == pytest.approx(round(expected), rel=0.01)
+
+    def test_camera_pitch_is_the_anchor_and_focal_length_is_derived(self):
+        """The pitch is the ANCHOR; the focal length is derived from it.
+
+        This inverts an earlier design that derived the pitch from a hardcoded
+        125mm lens. That arrangement was what put a stale 3.31um here in the
+        first place (implying a focal scale of 5023, 33% below the measured
+        7400), so the test now guards both halves of the new contract:
+        the pitch stays the datasheet 2.2um, and the focal length follows from
+        the measured scale rather than from a lens somebody remembered.
         """
         from ao_shaping.optimizer.wfless.slm_gs_refine import (
             _DEFAULT_CAMERA_PIXEL_UM,
+            _DEFAULT_FOCAL_LENGTH_M,
+            _TILT_SHIFT_SCALE_MEASURED_AT_NM,
+            _TILT_SHIFT_SCALE_PX,
         )
+
+        assert _DEFAULT_CAMERA_PIXEL_UM == pytest.approx(2.2, rel=1e-6)
+        assert _DEFAULT_CAMERA_PIXEL_UM < 2.4, "must not be the stale 3.31 um"
+
+        # f = p_cam * d_slm * K / lambda  ->  the 125mm nominal lens to ~2%
+        expected_f = (
+            _DEFAULT_CAMERA_PIXEL_UM * 1e-6 * 8.0 * 1e-6 * _TILT_SHIFT_SCALE_PX
+            / (_TILT_SHIFT_SCALE_MEASURED_AT_NM * 1e-9)
+        )
+        assert _DEFAULT_FOCAL_LENGTH_M == pytest.approx(expected_f, rel=1e-9)
+        assert _DEFAULT_FOCAL_LENGTH_M == pytest.approx(0.125, rel=0.03)
+
+    def test_derived_focal_length_is_wavelength_invariant(self):
+        """A lens focal length cannot depend on the laser.
+
+        The focal scale K = lambda*f/(d*p_cam) scales WITH wavelength, so a
+        scale measured at one wavelength must be referred before being used at
+        another. Without that, switching SLMs (1064nm vs 532nm) silently
+        doubles the focal length.
+        """
+        from ao_shaping.optimizer.wfless.slm_gs_refine import _DEFAULT_FOCAL_LENGTH_M
+
+        for lam in (1064.0, 532.0, 780.0):
+            cfg = SlmGsRefineConfig(slm_wavelength=lam)
+            assert cfg.focal_length_m == pytest.approx(_DEFAULT_FOCAL_LENGTH_M, rel=1e-9)
+
+    def test_explicit_focal_length_is_respected_not_overwritten(self):
+        cfg = SlmGsRefineConfig(focal_length_m=0.125)
+        assert cfg.focal_length_m == 0.125
+        assert cfg._focal_length_pinned is True
+
+    def test_wavelength_zero_asks_the_device_then_falls_back(self):
+        """0 means "ask the device", and math must never see a 0 wavelength."""
+        from ao_shaping.optimizer.wfless.slm_gs_refine import _sync_device_wavelength
+
+        class Reports532:
+            wavelength = 532
+
+        class ReportsNothing:
+            pass
 
         cfg = SlmGsRefineConfig()
-        radius = 450.0
-        expected = 2 * radius * 8e-6 * 0.125 / (_DEFAULT_CAMERA_PIXEL_UM * 1e-6)
-        assert _derive_target_side(cfg, radius) == pytest.approx(round(expected), rel=0.01)
+        assert cfg.slm_wavelength == 0
+        _sync_device_wavelength(cfg, Reports532())
+        assert cfg.slm_wavelength == 532
 
-    def test_camera_pitch_is_derived_not_assumed(self):
-        """The pitch must come from the measured focal scale, and must not be
-        the stale 3.31 um assumption that used to be hardcoded here."""
-        from ao_shaping.optimizer.wfless.slm_gs_refine import (
-            _DEFAULT_CAMERA_PIXEL_UM,
-        )
+        silent = SlmGsRefineConfig()
+        _sync_device_wavelength(silent, ReportsNothing())
+        assert silent.slm_wavelength > 0, "must not leave 0 for the GS math"
 
-        assert _DEFAULT_CAMERA_PIXEL_UM == pytest.approx(2.247, rel=1e-3)
-        assert _DEFAULT_CAMERA_PIXEL_UM < 2.4, "must not be the stale 3.31 um"
+        pinned = SlmGsRefineConfig(slm_wavelength=1064)
+        _sync_device_wavelength(pinned, Reports532())
+        assert pinned.slm_wavelength == 1064, "an explicit wavelength must win"
 
     def test_never_degenerate(self):
         assert _derive_target_side(SlmGsRefineConfig(target_side=1), 10.0) >= 3

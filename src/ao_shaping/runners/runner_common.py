@@ -85,7 +85,7 @@ from ao_shaping.utils.image.target import (
 )
 from ao_shaping.utils.io.cli_helpers import parse_tuple
 from ao_shaping.utils.wavefront.matrix_utils import (
-    camera_pixel_um_from_focal_scale,
+    focal_length_from_camera_pixel,
 )
 
 from ao_shaping.drivers.dm import list_dm_types
@@ -95,16 +95,34 @@ from ao_shaping.drivers.slm.santec.slm200_constants import PANEL_RES
 # 与方形整形 (slm_square_shaping) 及 GUI 的默认值一致; 取短边保证基圆完整落在面板内。
 DEFAULT_ZERNIKE_RADIUS = min(PANEL_RES) / 2.0
 
-# Bench geometry for the 2f-Fourier path. The CCD pixel pitch is DERIVED from the
-# measured focal scale rather than hardcoded: a 2*pi ramp over P SLM px moves the
-# spot TILT_SHIFT_SCALE/P camera px, and inverting
-# `focal_scale = lam*f/(d_slm*p_cam)` pins p_cam at ~2.25 um here. The value this
-# replaces (3.31 um) implied a focal scale of 5023, 33% below the measured
-# 7400-7600, so it biased the GS target angular size by that same factor.
+# Bench geometry for the 2f-Fourier path.
+#
+# The measured focal scale (a 2*pi ramp over P SLM px moves the spot
+# _TILT_SHIFT_SCALE/P camera px) constrains only the RATIO f/p_cam:
+#
+#     focal_scale = lambda * f / (d_slm * p_cam)
+#
+# so recovering either one needs one quantity from outside the alignment
+# measurement. We anchor on the CCD pixel pitch, because that is a per-camera
+# datasheet constant we have confirmed out of band (2.2 um for the Daheng
+# MER2-507-23GM, recorded in drivers/AGENTS.md), whereas the lens focal length
+# is a bench ASSEMBLY choice that silently changes whenever somebody swaps
+# optics -- which is exactly the kind of value that must not be baked in.
+#
+# Consequence worth knowing: the GS *target side* consumes f/p_cam only
+# (slm_gs_refine._derive_target_side), so it is pinned by the measured scale and
+# is completely insensitive to which anchor we pick. Only the GS propagation
+# phase uses f absolutely, and its bake-off stage catches a wrong f.
+#
+# Values this replaced, and why:
+#   * camera_pixel_um = 3.31 um implied a focal scale of 5023 -- 33% below the
+#     measured 7400 -- biasing the GS target angular size by the same factor.
+#   * focal_length_m = 0.125 m is now DERIVED (see _DEFAULT_FOCAL_LENGTH_M).
 _TILT_SHIFT_SCALE_PX = 7400.0
-_DEFAULT_CAMERA_PIXEL_UM = camera_pixel_um_from_focal_scale(
+_DEFAULT_CAMERA_PIXEL_UM = 2.2
+_DEFAULT_FOCAL_LENGTH_M = focal_length_from_camera_pixel(
     wavelength_nm=1064.0,
-    focal_length_m=0.125,
+    camera_pixel_um=_DEFAULT_CAMERA_PIXEL_UM,
     slm_pixel_um=8.0,
     focal_scale_px=_TILT_SHIFT_SCALE_PX,
 )
@@ -426,8 +444,15 @@ class SlmParams:
         int, option("--slm_number", help="Santec SLM device number (1-8).")
     ] = 1
     slm_wavelength: Annotated[
-        int, option("--slm_wavelength", help="SLM operating wavelength (nm).")
-    ] = 1064
+        int,
+        option(
+            "--slm_wavelength",
+            help=(
+                "SLM operating wavelength (nm); 0 (the default) asks the "
+                "device which wavelength it is programmed for."
+            ),
+        ),
+    ] = 0
     n_max: Annotated[int, option("-n", "--n_max", help="Max Zernike radial order.")] = 4
     zernike_radius: Annotated[
         float,
@@ -2116,9 +2141,10 @@ class SlmGsRefineParams:
         option(
             "--camera-pixel-um",
             help=(
-                "CCD pixel pitch in um. Defaults to the value DERIVED from this "
-                "bench's measured focal scale (TILT_SHIFT_SCALE=7400 for "
-                "1064nm / f=125mm / 8um SLM), which gives ~2.25um. Pass it "
+                "CCD pixel pitch in um -- the measurement ANCHOR for the bench "
+                "model, because it is a per-camera datasheet constant (2.2um "
+                "for the Daheng MER2-507-23GM). The measured focal scale only "
+                "fixes the ratio f/p_cam, so one anchor is unavoidable; pass it "
                 "explicitly for any other camera."
             ),
         ),
@@ -2131,8 +2157,16 @@ class SlmGsRefineParams:
         ),
     ] = 450.0
     focal_length_m: Annotated[
-        float, option("--focal-length-m", help="2f lens focal length in metres.")
-    ] = 0.125
+        float,
+        option(
+            "--focal-length-m",
+            help=(
+                "2f lens focal length in metres. 0 (the default) DERIVES it from "
+                "the measured focal scale and --camera-pixel-um; pass it "
+                "explicitly to pin a specific lens."
+            ),
+        ),
+    ] = 0.0
     far_field_padding: Annotated[
         int,
         option(
@@ -2168,8 +2202,15 @@ class SlmGsRefineParams:
         int, option("--slm_number", help="Santec SLM device number (1-8).")
     ] = 1
     slm_wavelength: Annotated[
-        int, option("--slm_wavelength", help="SLM operating wavelength (nm).")
-    ] = 1064
+        int,
+        option(
+            "--slm_wavelength",
+            help=(
+                "SLM operating wavelength (nm); 0 (the default) asks the "
+                "device which wavelength it is programmed for."
+            ),
+        ),
+    ] = 0
 
     n_eval_frames: Annotated[
         int, option("--n-eval-frames", help="Frames averaged per measurement.")

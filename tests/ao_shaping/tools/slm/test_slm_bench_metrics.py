@@ -17,6 +17,7 @@ import pytest
 from ao_shaping.tools.slm.slm_bench_metrics import (
     build_block_pattern,
     camera_pixel_um_from_focal_scale,
+    focal_length_from_camera_pixel,
     crop_roi,
     exposure_monotonicity,
     finite_clip,
@@ -315,3 +316,84 @@ class TestCameraPixelFromFocalScale:
         ):
             with pytest.raises(ValueError):
                 camera_pixel_um_from_focal_scale(**bad)
+
+
+class TestFocalLengthFromCameraPixel:
+    """The inverse direction: anchor on the camera pitch, derive the lens.
+
+    Same relation as above, solved for f. This is what lets the lens focal
+    length stop being a hardcoded default -- it is a bench ASSEMBLY choice, so
+    it is the thing most likely to be silently wrong after optics are swapped,
+    whereas the camera pitch is a per-camera datasheet constant.
+    """
+
+    def test_measured_scale_recovers_the_nominal_lens(self):
+        # p_cam = 2.2 um, d_slm = 8 um, K = 7400 @1064nm -> 122.4 mm.
+        got = focal_length_from_camera_pixel(
+            wavelength_nm=1064.0, camera_pixel_um=2.2,
+            slm_pixel_um=8.0, focal_scale_px=7400.0,
+            scale_measured_at_nm=1064.0,
+        )
+        assert got == pytest.approx(0.1224, rel=1e-3)
+
+    def test_round_trips_against_the_forward_relation(self):
+        for f_m in (0.1, 0.125, 0.2, 0.5):
+            k = 1064e-9 * f_m / (8e-6 * 2.2e-6)  # forward: K = lam*f/(d_slm*p_cam)
+            back = focal_length_from_camera_pixel(
+                wavelength_nm=1064.0, camera_pixel_um=2.2,
+                slm_pixel_um=8.0, focal_scale_px=k,
+            )
+            assert back == pytest.approx(f_m, rel=1e-6)
+
+    def test_is_the_exact_inverse_of_the_pitch_helper(self):
+        f = focal_length_from_camera_pixel(
+            wavelength_nm=1064.0, camera_pixel_um=2.2,
+            slm_pixel_um=8.0, focal_scale_px=7400.0,
+        )
+        assert camera_pixel_um_from_focal_scale(
+            wavelength_nm=1064.0, focal_length_m=f,
+            slm_pixel_um=8.0, focal_scale_px=7400.0,
+        ) == pytest.approx(2.2, rel=1e-9)
+
+    def test_scale_measured_elsewhere_makes_f_wavelength_invariant(self):
+        """The scale K scales WITH wavelength, so referring it is mandatory.
+
+        K = lambda*f/(d_slm*p_cam) and f, d_slm, p_cam are all wavelength
+        independent -- so a scale measured at 1064nm is 2x too large at 532nm.
+        Passing scale_measured_at_nm must cancel that; omitting it silently
+        scales the focal length by lambda/lambda_ref.
+        """
+        referred = [
+            focal_length_from_camera_pixel(
+                wavelength_nm=lam, camera_pixel_um=2.2,
+                slm_pixel_um=8.0, focal_scale_px=7400.0,
+                scale_measured_at_nm=1064.0,
+            )
+            for lam in (1064.0, 532.0, 780.0)
+        ]
+        assert referred[0] == pytest.approx(referred[1], rel=1e-9)
+        assert referred[0] == pytest.approx(referred[2], rel=1e-9)
+
+        unreferred = focal_length_from_camera_pixel(
+            wavelength_nm=532.0, camera_pixel_um=2.2,
+            slm_pixel_um=8.0, focal_scale_px=7400.0,
+        )
+        assert unreferred == pytest.approx(2.0 * referred[0], rel=1e-6), (
+            "without the reference the focal length must scale with wavelength"
+        )
+
+    def test_rejects_degenerate_inputs(self):
+        base = dict(
+            wavelength_nm=1064.0, camera_pixel_um=2.2,
+            slm_pixel_um=8.0, focal_scale_px=7400.0,
+        )
+        for override in (
+            {"wavelength_nm": 0.0},
+            {"camera_pixel_um": 0.0},
+            {"slm_pixel_um": 0.0},
+            {"focal_scale_px": 0.0},
+            {"scale_measured_at_nm": 0.0},
+            {"scale_measured_at_nm": -1.0},
+        ):
+            with pytest.raises(ValueError):
+                focal_length_from_camera_pixel(**{**base, **override})

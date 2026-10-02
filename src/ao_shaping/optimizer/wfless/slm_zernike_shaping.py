@@ -62,6 +62,7 @@ from ao_shaping.drivers.ccd.common import (
 )
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL
+from ao_shaping.drivers.slm.santec.slm200_constants import PANEL_RES
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils import Recorder, logger
 from ao_shaping.utils.image.beam_metrics import (
@@ -223,7 +224,14 @@ def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs: Any) -
     return optimizer_cls(dim, lr=lr, **filtered_kwargs)
 
 
-ZERNIKE_APERTURE_RADIUS = 300.0
+# Fallback Zernike aperture radius (panel px) used only when the caller passes no
+# radius. Derived from the panel so it cannot drift from
+# `runners.runner_common.DEFAULT_ZERNIKE_RADIUS`, which the GUI and the other SLM
+# runners also use. The value it replaces, 300.0, was a bare literal: on a
+# 1920x1200 panel 300 is half the short side *again*, i.e. half the aperture the
+# rest of the project uses, so this runner silently generated its Zernike basis
+# over a quarter of the area the GUI would have used for the same request.
+ZERNIKE_APERTURE_RADIUS = min(PANEL_RES) / 2.0
 
 # The camera window must be at least this multiple of the target's LONG side.
 # The shaping metric divides the in-box energy by the WINDOW total, so a window

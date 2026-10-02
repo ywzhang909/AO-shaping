@@ -31,7 +31,7 @@ CLI 入口 (推荐):
     ...     delta=0.1,             # SPGD 扰动幅度
     ...     cam_id=0,              # 相机 ID
     ...     slm_number=1,          # SLM 编号 (SLM200 多片级联时指定)
-    ...     slm_wavelength=1064,   # SLM 标称波长 (nm), 1064 表示 NIR 模式
+    ...     slm_wavelength=0,      # 0 = 询问设备实际波长 (勿假设某台 SLM)
     ...     optimizer_type="adamod",
     ...     w_uniformity=0.4,      # 均匀性 (CV) 权重
     ...     w_efficiency=0.6,      # 环围能量权重
@@ -995,7 +995,7 @@ class SlmSquareConfig:
     cam_size: int = 300
     target_max_brightness: int = 200
     slm_number: int = 1
-    slm_wavelength: int = 1064
+    slm_wavelength: int = 0
     optimizer_type: str = "adamod"
     random_seed: int | None = None
     w_uniformity: float = 0.4
@@ -1039,7 +1039,7 @@ def optimize_slm_square(
     cam_size: int = 300,
     target_max_brightness: int = 200,
     slm_number: int = 1,
-    slm_wavelength: int = 1064,
+    slm_wavelength: int = 0,
     optimizer_type: str = "adamod",
     random_seed: int | None = None,
     w_uniformity: float = 0.4,
@@ -1094,7 +1094,7 @@ def optimize_slm_square(
         cam_size: Camera window size.
         target_max_brightness: Target max brightness for auto-exposure.
         slm_number: SLM device number (1-8).
-        slm_wavelength: SLM wavelength in nm.
+        slm_wavelength: SLM wavelength in nm (0 = ask the device).
         optimizer_type: Optimizer type (adam/adamod/sgd/muno).
         random_seed: Random seed for reproducibility.
         w_uniformity: Weight for uniformity (CV) in quality score.
@@ -1361,7 +1361,7 @@ def optimize_slm_square(
         create_camera(
             cam_type, cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
         ) as cam,
-        Santec(slm_number=slm_number, wavelength=slm_wavelength) as slm,
+        Santec(slm_number=slm_number, wavelength=slm_wavelength or None) as slm,
     ):
         # Initialize parameter vector (zernike: mapped onto the active modes)
         if basis == "zernike":
@@ -2145,7 +2145,13 @@ if __name__ == "__main__":
     parser.add_argument("--cam_id", type=int, default=0, help="Camera device ID")
     parser.add_argument("--slm_number", type=int, default=1, help="SLM device number")
     parser.add_argument(
-        "--slm_wavelength", type=int, default=1064, help="SLM wavelength (nm)"
+        "--slm_wavelength",
+        type=int,
+        default=0,
+        help=(
+            "SLM wavelength (nm); 0 (the default) asks the device which "
+            "wavelength it is programmed for instead of assuming a bench value"
+        ),
     )
     parser.add_argument(
         "--optimizer", type=str, default="adamod", help="Optimizer type"

@@ -121,3 +121,76 @@ def camera_pixel_um_from_focal_scale(
             f"({wavelength_nm!r}, {focal_length_m!r}, {slm_pixel_um!r}, {focal_scale_px!r})"
         )
     return float(lam * f / (d * k) * 1e6)
+
+
+def focal_length_from_camera_pixel(
+    *,
+    wavelength_nm: float,
+    camera_pixel_um: float,
+    slm_pixel_um: float,
+    focal_scale_px: float,
+    scale_measured_at_nm: float | None = None,
+) -> float:
+    """Recover the 2f lens focal length from a *measured* focal scale.
+
+    Exact inverse of :func:`camera_pixel_um_from_focal_scale`. Exists so the lens
+    focal length — a **bench assembly choice** that changes whenever somebody
+    swaps optics — can be *derived* instead of baked in as a default, anchoring
+    instead on the CCD pixel pitch, which is a per-camera datasheet constant.
+
+    Why one anchor is unavoidable: the measured focal scale constrains only the
+    ratio ``f / p_cam``. Recovering either one therefore needs one quantity from
+    outside the alignment measurement, and this function takes it to be the
+    camera pitch.
+
+    Wavelength handling matters here. The scale is ``K = lambda*f/(d*p_cam)``, so
+    **K is proportional to wavelength**: a scale measured at one wavelength does
+    not transfer unchanged to another. Pass ``scale_measured_at_nm`` (the
+    wavelength at which ``focal_scale_px`` was actually measured) and the scale is
+    referred to ``wavelength_nm`` first, which makes the returned focal length
+    wavelength-INVARIANT — as a lens focal length must be, since ``f``, ``d`` and
+    ``p_cam`` do not depend on the laser. Omitting it keeps ``focal_scale_px``
+    pinned to ``wavelength_nm``, which silently scales ``f`` with wavelength.
+
+    On this bench (p_cam = 2.2 um, d_slm = 8 um, scale 7400 measured at 1064 nm)
+    this returns 0.1224 m at 1064 nm *and* at 532 nm, i.e. the 125 mm nominal
+    lens to within 2% — the same 2% by which the three datasheet values
+    (125 mm, 2.2 um, 8 um) disagree with the measured scale.
+
+    Note the GS *target side* is immune to the anchor choice either way: it
+    consumes ``f / p_cam`` only, which the scale pins by itself.
+
+    Args:
+        wavelength_nm: Laser wavelength in nanometres.
+        camera_pixel_um: CCD pixel pitch in micrometres (datasheet/measured).
+        slm_pixel_um: SLM pixel pitch in micrometres.
+        focal_scale_px: Measured focal scale in camera px per 2*pi ramp per
+            panel pixel (e.g. ``slm_bench_probe.TILT_SHIFT_SCALE``).
+        scale_measured_at_nm: Wavelength at which ``focal_scale_px`` was measured.
+            ``None`` (the default) means "already referred to ``wavelength_nm``".
+
+    Returns:
+        2f lens focal length in metres.
+
+    Raises:
+        ValueError: If any argument is not strictly positive.
+    """
+    lam = float(wavelength_nm) * 1e-9
+    p = float(camera_pixel_um) * 1e-6
+    d = float(slm_pixel_um) * 1e-6
+    k = float(focal_scale_px)
+    if not all(v > 0.0 for v in (lam, p, d, k)):
+        raise ValueError(
+            "wavelength_nm, camera_pixel_um, slm_pixel_um and focal_scale_px "
+            "must all be positive, got "
+            f"({wavelength_nm!r}, {camera_pixel_um!r}, {slm_pixel_um!r}, {focal_scale_px!r})"
+        )
+    if scale_measured_at_nm is not None:
+        lam_ref = float(scale_measured_at_nm) * 1e-9
+        if lam_ref <= 0.0:
+            raise ValueError(
+                f"scale_measured_at_nm must be positive, got {scale_measured_at_nm!r}"
+            )
+        # K(lambda) = K(lambda_ref) * lambda / lambda_ref
+        k = k * (lam / lam_ref)
+    return float(p * d * k / lam)
