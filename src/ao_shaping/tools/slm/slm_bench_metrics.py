@@ -39,8 +39,13 @@ from collections.abc import Sequence
 
 import numpy as np
 
+from ao_shaping.utils.wavefront.matrix_utils import (
+    camera_pixel_um_from_focal_scale as _camera_pixel_um_from_focal_scale,
+)
+
 __all__ = [
     "build_block_pattern",
+    "camera_pixel_um_from_focal_scale",
     "crop_roi",
     "exposure_monotonicity",
     "finite_clip",
@@ -50,6 +55,15 @@ __all__ = [
     "settle_time_s",
     "snr_vs_averages",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Bench geometry — derive, do not hardcode
+# ---------------------------------------------------------------------------
+
+# Re-exported from the leaf `utils` layer so that both the optimizer layer and
+# the tools layer share ONE definition (and therefore cannot drift apart).
+camera_pixel_um_from_focal_scale = _camera_pixel_um_from_focal_scale
 
 
 # ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@ from ao_shaping.utils.wavefront.hadamard_calc import (
     is_hadamard_order,
 )
 from ao_shaping.utils.wavefront.matrix_utils import (
+    camera_pixel_um_from_focal_scale,
     compute_pinv,
     compute_lstsq,
     calc_n_zernike_terms,
@@ -62,8 +63,9 @@ __all__ = [
     "calc_n_hadamard_modes",
     "hadamard_mode_2d",
     "is_hadamard_order",
-    # matrix_utils
-    "compute_pinv",
+# matrix_utils
+"compute_pinv",
+"camera_pixel_um_from_focal_scale",
     "compute_lstsq",
     "calc_n_zernike_terms",
     "noll_to_index",

@@ -16,6 +16,7 @@ import pytest
 
 from ao_shaping.tools.slm.slm_bench_metrics import (
     build_block_pattern,
+    camera_pixel_um_from_focal_scale,
     crop_roi,
     exposure_monotonicity,
     finite_clip,
@@ -258,3 +259,59 @@ class TestBuildBlockPattern:
     def test_rejects_a_non_positive_grid(self):
         with pytest.raises(ValueError, match="grid"):
             build_block_pattern(np.zeros(4), 0, (120, 192))
+
+
+class TestCameraPixelFromFocalScale:
+    """Derive the CCD pixel pitch from the bench's own measured focus scale.
+
+    The camera pixel pitch used to be hardcoded to 3.31 um, which is a
+    *consequence* of a guessed geometry rather than a measurement. On this bench
+    the measured tilt scale (TILT_SHIFT_SCALE = 7400, i.e. a 2*pi ramp over P
+    panel px moves the spot TILT_SHIFT_SCALE/P camera px) pins it to 2.25 um.
+
+    This inverts the same relation the fitters already use,
+    ``shift_px = focal_scale / period`` with
+    ``focal_scale = wavelength * f / (d_slm * p_cam)``, so the two constants can
+    never drift apart again.
+    """
+
+    def test_measured_scale_recovers_the_measured_pitch(self):
+        # 1064 nm, f = 125 mm, d_slm = 8 um, K = 7400 -> 2.247 um.
+        got = camera_pixel_um_from_focal_scale(
+            wavelength_nm=1064.0, focal_length_m=0.125,
+            slm_pixel_um=8.0, focal_scale_px=7400.0,
+        )
+        assert got == pytest.approx(2.247, rel=1e-3)
+
+    def test_round_trips_against_the_forward_relation(self):
+        """The whole point: deriving K and inverting it must be consistent."""
+        for p_um in (1.4, 2.2, 3.31, 5.0):
+            k = (
+                1064e-9 * 0.125 / ((8e-6) * (p_um * 1e-6))
+            )  # forward: K = lam*f/(d_slm*p_cam)
+            back = camera_pixel_um_from_focal_scale(
+                wavelength_nm=1064.0, focal_length_m=0.125,
+                slm_pixel_um=8.0, focal_scale_px=k,
+            )
+            assert back == pytest.approx(p_um, rel=1e-6)
+
+    def test_stale_331_value_is_rejected_as_inconsistent(self):
+        """Guards the regression that motivated this: 3.31 um implies K=5023,
+        which is 33% away from the measured 7400-7600."""
+        k_from_stale = 1064e-9 * 0.125 / (8e-6 * 3.31e-6)
+        assert k_from_stale == pytest.approx(5023.0, rel=0.01)
+        derived = camera_pixel_um_from_focal_scale(
+            wavelength_nm=1064.0, focal_length_m=0.125,
+            slm_pixel_um=8.0, focal_scale_px=7400.0,
+        )
+        assert derived < 2.4, "must not reproduce the stale 3.31 um"
+
+    def test_rejects_degenerate_inputs(self):
+        for bad in (
+            dict(wavelength_nm=0.0, focal_length_m=0.125, slm_pixel_um=8.0, focal_scale_px=7400.0),
+            dict(wavelength_nm=1064.0, focal_length_m=0.0, slm_pixel_um=8.0, focal_scale_px=7400.0),
+            dict(wavelength_nm=1064.0, focal_length_m=0.125, slm_pixel_um=0.0, focal_scale_px=7400.0),
+            dict(wavelength_nm=1064.0, focal_length_m=0.125, slm_pixel_um=8.0, focal_scale_px=0.0),
+        ):
+            with pytest.raises(ValueError):
+                camera_pixel_um_from_focal_scale(**bad)

@@ -76,15 +76,32 @@ from ao_shaping.drivers.sim.slm_shaping_bench import (
 )
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils.io.file import Recorder
+from ao_shaping.utils.wavefront.matrix_utils import (
+    camera_pixel_um_from_focal_scale,
+)
 
 __all__ = ["SlmGsRefineConfig", "optimize_slm_gs_refine"]
 
 # Measured bench constants (src/ao_shaping/drivers/AGENTS.md, 2026-09).
 _DEFAULT_PANEL_PIXEL_UM = 8.0
 _DEFAULT_BEAM_RADIUS_PX = 450.0
-# Derived from the documented focal relation dx_px = lambda*f/(d_SLM*p_cam)
-# ~= 5021/period at d_SLM = 8 um, lambda = 1064 nm, f = 125 mm.
-_DEFAULT_CAMERA_PIXEL_UM = 3.31
+# The measured 2f focal scale for this bench: a 2*pi phase ramp over P SLM pixels
+# displaces the spot TILT_SHIFT_SCALE/P camera px. See
+# `ao_shaping.tools.slm.slm_bench_probe` (the tilt probe that measures it).
+_TILT_SHIFT_SCALE_PX = 7400.0
+_DEFAULT_FOCAL_LENGTH_M = 0.125
+_DEFAULT_WAVELENGTH_NM = 1064.0
+# The CCD pixel pitch is DERIVED from that measured scale rather than hardcoded:
+#   focal_scale = wavelength * f / (d_slm * p_cam)  =>  p_cam ~ 2.247 um here,
+# consistent with the 2.2 um measured independently. The value this replaces,
+# 3.31 um, was a guess implying a focal scale of 5023 -- 33% below the measured
+# 7400-7600 -- which biased the GS target angular size by the same factor.
+_DEFAULT_CAMERA_PIXEL_UM = camera_pixel_um_from_focal_scale(
+    wavelength_nm=_DEFAULT_WAVELENGTH_NM,
+    focal_length_m=_DEFAULT_FOCAL_LENGTH_M,
+    slm_pixel_um=_DEFAULT_PANEL_PIXEL_UM,
+    focal_scale_px=_TILT_SHIFT_SCALE_PX,
+)
 # The GS far-field pixel pitch is ``lambda*f/(aperture*padding)`` -- independent
 # of ``n_grid`` -- so padding only sets how finely the focal plane is sampled,
 # at a cost quadratic in it. The simulation used 8 because its ``n_grid`` was

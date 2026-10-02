@@ -84,6 +84,9 @@ from ao_shaping.utils.image.target import (
     TARGET_SHAPE_CHOICES,
 )
 from ao_shaping.utils.io.cli_helpers import parse_tuple
+from ao_shaping.utils.wavefront.matrix_utils import (
+    camera_pixel_um_from_focal_scale,
+)
 
 from ao_shaping.drivers.dm import list_dm_types
 from ao_shaping.drivers.slm.santec.slm200_constants import PANEL_RES
@@ -91,6 +94,20 @@ from ao_shaping.drivers.slm.santec.slm200_constants import PANEL_RES
 # slm-pib 的 Zernike 孔径半径默认值: SLM 面板短边的一半 (PANEL_RES = (1920, 1200) -> 600 px),
 # 与方形整形 (slm_square_shaping) 及 GUI 的默认值一致; 取短边保证基圆完整落在面板内。
 DEFAULT_ZERNIKE_RADIUS = min(PANEL_RES) / 2.0
+
+# Bench geometry for the 2f-Fourier path. The CCD pixel pitch is DERIVED from the
+# measured focal scale rather than hardcoded: a 2*pi ramp over P SLM px moves the
+# spot TILT_SHIFT_SCALE/P camera px, and inverting
+# `focal_scale = lam*f/(d_slm*p_cam)` pins p_cam at ~2.25 um here. The value this
+# replaces (3.31 um) implied a focal scale of 5023, 33% below the measured
+# 7400-7600, so it biased the GS target angular size by that same factor.
+_TILT_SHIFT_SCALE_PX = 7400.0
+_DEFAULT_CAMERA_PIXEL_UM = camera_pixel_um_from_focal_scale(
+    wavelength_nm=1064.0,
+    focal_length_m=0.125,
+    slm_pixel_um=8.0,
+    focal_scale_px=_TILT_SHIFT_SCALE_PX,
+)
 
 # Snapshot of DM types taken BEFORE asyn_micro_dm registration below. The
 # dm_matrix_runner at HEAD computed its own DM_TYPES at import time before
@@ -2081,9 +2098,14 @@ class SlmGsRefineParams:
         float,
         option(
             "--camera-pixel-um",
-            help="CCD pixel pitch in um; verify against your camera.",
+            help=(
+                "CCD pixel pitch in um. Defaults to the value DERIVED from this "
+                "bench's measured focal scale (TILT_SHIFT_SCALE=7400 for "
+                "1064nm / f=125mm / 8um SLM), which gives ~2.25um. Pass it "
+                "explicitly for any other camera."
+            ),
         ),
-    ] = 3.31
+    ] = _DEFAULT_CAMERA_PIXEL_UM
     beam_radius_px: Annotated[
         float,
         option(

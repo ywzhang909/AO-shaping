@@ -66,3 +66,58 @@ def noll_to_index(j: int) -> int:
 def index_to_noll(i: int) -> int:
     """Convert array index to Noll index (1-based)."""
     return i + 1
+
+
+def camera_pixel_um_from_focal_scale(
+    *,
+    wavelength_nm: float,
+    focal_length_m: float,
+    slm_pixel_um: float,
+    focal_scale_px: float,
+) -> float:
+    """Recover the CCD pixel pitch from a *measured* 2f focal scale.
+
+    Lives in ``utils/`` (not ``tools/``) because both the optimizer layer and the
+    tools layer need it, and ``utils`` is the leaf.
+
+    The tilt fitters use ``shift_px = focal_scale / period``, where a 2*pi phase
+    ramp over ``period`` SLM pixels displaces the spot by that many camera
+    pixels. That focal scale is measured on the bench, which makes it far more
+    trustworthy than a pixel pitch copied from a different camera: it already
+    folds in the obliquity factor that the naive ``f*lambda/d_slm`` estimate
+    misses.
+
+    Inverting the relation:
+
+    .. code-block:: text
+
+        focal_scale = wavelength * f / (d_slm * p_cam)
+        => p_cam     = wavelength * f / (d_slm * focal_scale)
+
+    On this bench (1064 nm, f = 125 mm, d_slm = 8 um, measured scale 7400) this
+    returns 2.247 um, consistent with the 2.2 um measured independently.
+
+    Args:
+        wavelength_nm: Laser wavelength in nanometres.
+        focal_length_m: 2f lens focal length in metres.
+        slm_pixel_um: SLM pixel pitch in micrometres.
+        focal_scale_px: Measured focal scale in camera px per 2*pi ramp per
+            panel pixel (e.g. ``slm_bench_probe.TILT_SHIFT_SCALE``).
+
+    Returns:
+        Camera pixel pitch in micrometres.
+
+    Raises:
+        ValueError: If any argument is not strictly positive.
+    """
+    lam = float(wavelength_nm) * 1e-9
+    f = float(focal_length_m)
+    d = float(slm_pixel_um) * 1e-6
+    k = float(focal_scale_px)
+    if not all(v > 0.0 for v in (lam, f, d, k)):
+        raise ValueError(
+            "wavelength_nm, focal_length_m, slm_pixel_um and focal_scale_px "
+            "must all be positive, got "
+            f"({wavelength_nm!r}, {focal_length_m!r}, {slm_pixel_um!r}, {focal_scale_px!r})"
+        )
+    return float(lam * f / (d * k) * 1e6)

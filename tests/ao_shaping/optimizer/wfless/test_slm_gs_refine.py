@@ -228,11 +228,31 @@ class TestTargetSide:
         assert _derive_target_side(cfg, 450.0) == 180
 
     def test_derived_side_follows_the_documented_focal_relation(self):
-        """D*f/(d_SLM*p_cam) with the default bench constants."""
+        """D*f/(d_SLM*p_cam) with the bench constants.
+
+        `p_cam` is the module's DERIVED value, not a literal, so this test
+        asserts the relation holds without re-pinning the pitch a second time.
+        (It previously hardcoded 3.31 um, the stale assumed pitch that implied a
+        focal scale of 5023 -- 33% below the measured 7400.)
+        """
+        from ao_shaping.optimizer.wfless.slm_gs_refine import (
+            _DEFAULT_CAMERA_PIXEL_UM,
+        )
+
         cfg = SlmGsRefineConfig()
         radius = 450.0
-        expected = 2 * radius * 8e-6 * 0.125 / (3.31e-6)
+        expected = 2 * radius * 8e-6 * 0.125 / (_DEFAULT_CAMERA_PIXEL_UM * 1e-6)
         assert _derive_target_side(cfg, radius) == pytest.approx(round(expected), rel=0.01)
+
+    def test_camera_pitch_is_derived_not_assumed(self):
+        """The pitch must come from the measured focal scale, and must not be
+        the stale 3.31 um assumption that used to be hardcoded here."""
+        from ao_shaping.optimizer.wfless.slm_gs_refine import (
+            _DEFAULT_CAMERA_PIXEL_UM,
+        )
+
+        assert _DEFAULT_CAMERA_PIXEL_UM == pytest.approx(2.247, rel=1e-3)
+        assert _DEFAULT_CAMERA_PIXEL_UM < 2.4, "must not be the stale 3.31 um"
 
     def test_never_degenerate(self):
         assert _derive_target_side(SlmGsRefineConfig(target_side=1), 10.0) >= 3
