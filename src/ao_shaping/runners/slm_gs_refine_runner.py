@@ -99,9 +99,36 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
         f"GS warm start: {'on' if params.gs_warm_start else 'off'} "
         f"(iters={params.gs_iters})"
     )
+    # focal_length_m defaults to 0 = "derive from the measured focal scale and the
+    # camera pixel pitch", so echo what will actually be used rather than the raw
+    # 0 (the config resolves it in __post_init__).
+    from ao_shaping.optimizer.wfless.slm_gs_refine import (
+        _DEFAULT_WAVELENGTH_NM,
+        _TILT_SHIFT_SCALE_MEASURED_AT_NM,
+        _TILT_SHIFT_SCALE_PX,
+        focal_length_from_camera_pixel,
+    )
+
+    _f_m = params.focal_length_m
+    _f_note = "pinned"
+    if _f_m <= 0.0:
+        _f_m = focal_length_from_camera_pixel(
+            wavelength_nm=float(params.slm_wavelength or _DEFAULT_WAVELENGTH_NM),
+            camera_pixel_um=params.camera_pixel_um,
+            slm_pixel_um=params.panel_pixel_um,
+            focal_scale_px=_TILT_SHIFT_SCALE_PX,
+            scale_measured_at_nm=_TILT_SHIFT_SCALE_MEASURED_AT_NM,
+        )
+        _f_note = "derived"
     click.echo(
         f"Bench model: beam_r={params.beam_radius_px}px panel={params.panel_pixel_um}um "
-        f"cam={params.camera_pixel_um}um f={params.focal_length_m}m pad={params.far_field_padding}"
+        f"cam={params.camera_pixel_um}um f={_f_m:.5f}m ({_f_note}) "
+        f"pad={params.far_field_padding}"
+    )
+    click.echo(
+        f"Wavelength: {params.slm_wavelength or 'ask device'} nm "
+        f"(focal scale {_TILT_SHIFT_SCALE_PX:.0f} measured @ "
+        f"{_TILT_SHIFT_SCALE_MEASURED_AT_NM:.0f}nm)"
     )
     click.echo(f"Target side: {params.target_side or 'auto'} px (factor {params.side_factor})")
     click.echo(f"Objective: 0.5-style composite w_pib={params.w_pib} w_unif={params.w_unif}")
