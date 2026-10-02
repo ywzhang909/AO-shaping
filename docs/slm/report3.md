@@ -122,7 +122,7 @@
 
 #### 4.5 实测闭环
 
-> 本次标定未随附闭环实测 (矩阵由独立工具产生, 无同源闭环数据)。可用 `closed-loop` 命令加载本矩阵验证: `python -m ao_shaping.runners.zernike_matrix_runner closed-loop --load-file data/zernike_response_matrix/zm_recal_532_20260916.h5`。
+> 本次标定未随附闭环实测 (矩阵由独立工具产生, 无同源闭环数据)。可用 `closed-loop` 命令加载本矩阵验证: `python -m ao_shaping.runners.slm.zernike_matrix_runner closed-loop --load-file data/zernike_response_matrix/zm_recal_532_20260916.h5`。
 
 #### 4.6 使用注意
 

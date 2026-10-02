@@ -1,6 +1,21 @@
 # AO_OOPAO_BACKEND 端到端影响报告 (SimTurbulenceAOEnv)
 
-> 生成时间: 2026-09-29T14:00:22 | 脚本: `scripts/generate_oopao_impact_report.py` | OOPAO rev: `e8e9aa6` (2026-09-24, git 校验=是) | OOPAO 包目录: `/home/ws/code/AO-shaping/libs/OOPAO/OOPAO`
+> 生成时间: 2026-09-29T14:00:22 | 脚本: `scripts/generate_oopao_impact_report.py` | OOPAO rev: `e8e9aa6` (2026-09-24, git 校验=是) | OOPAO 包目录: `libs/OOPAO/OOPAO`
+>
+> ⚠️ **2026-10-01 复核：本报告的 5.428 / 13.354 是对的，不要改成 1.068 / 2.628。**
+> `drivers/sim/AGENTS.md`「已知约束」第 3 条与第 4 条声称
+> `_rescale_for` 已改写为**只** `(r0_ref/r0_slab)**(5/6)`，并给出 open 1.068× /
+> closed 2.628×。但**代码里那个改写从未落地** ——
+> `drivers/sim/oopao_backend.py:96,101-103` 至今仍是
+> `M = (lam/_LAM_REF_500) * (r0_ref/r0_slab)**(5/6) * sqrt(1.03) / _CAL_REF`
+> （`_CAL_REF = 0.6191`，`oopao_backend.py:71`），即 AGENTS.md 声称「已去掉」的三个
+> 因子**全部仍在**。
+> 因此：**本报告的数值与当前代码一致（5.428/13.354 可复现）；
+> 是 `sim/AGENTS.md` 第 3、4 条过时且不可复现。** 需先落地代码改写并重跑本报告，
+> 或回退 AGENTS.md 那两条。已开 `TODO.md` 追踪。
+>
+> ⚠️ OOPAO rev 号本报告写 `e8e9aa6`，`sim/AGENTS.md:377` 写 `8e12a17f`，
+> 两者不一致（本地 submodule 已领先 pin）—— 引用前请 `git -C libs/OOPAO log -1` 确认。
 
 ## 1. 适用范围 (路由红线)
 

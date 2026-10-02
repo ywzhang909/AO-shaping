@@ -4,6 +4,16 @@
 **设备**: SLM #23020026 (532nm) + WFS M01219666 (MLA150M-5C, 27×27)
 **主题**: ① 相位生成单位/约定链路全面审计 ② 闭环矫正效果提升路径
 
+> ⚠️ **2026-10-01 复核：行号已统一校正，但两处元数据存疑**
+> 1. 本文引用的行号已按当前代码更新（`create_phase_from_array` L1369→**L1457**、
+>    `csv_to_phase` L1244→**L1330**、GUI 三个 helper 下移 26–46 行、
+>    `utils/cli_helpers.py` → **`utils/io/cli_helpers.py`**、
+>    `runners/zernike_matrix_runner.py` → **`runners/slm/zernike_matrix_runner.py`**）。
+> 2. **SLM 序列号存疑**：本文写 `#23020026`（532nm），
+>    而 `drivers/AGENTS.md:158` 与 `docs/slm/bench_calibration_20261001.md` 均写
+>    **SLM#1 = `22030108`（1064nm，2π=993）**。仓库中同时存在 `22030102`、`22030108`、
+>    `23020026` 三个「SLM#1」序列号，尚未收口，见 `TODO.md`。
+
 ---
 
 ## 0. 结论速览
@@ -13,12 +23,12 @@
 | **A** | 响应矩阵用 **µm** 构建、矫正 `w` 用 **λ** → 反解系数放大 **1/0.532 = 1.88×** | `tools/slm/slm_zernike_correction.py` | **单位错误 (已修)** | ✅ 修复并实测确认 |
 | **B** | 反解系数是 **λ(波长)** 却按**弧度**传给 `make_phase` → 加载相位缩小 **2π = 6.28×** | 同上 | **单位错误 (已修)** | ✅ 修复，闭环 13.8% → **42.1%** |
 | **C** | `ZernikeDM.generate_phase` 做 **min-max 归一化** → 输出对系数缩放**不变** → Zernike 幅度**完全不可控** | `drivers/dm/zernike_dm.py:106-129` | **重大缺陷** | ✅ **已修复并实测验证** |
-| **D** | `csv_to_phase` 用模块常量 1023 而非设备 `_max_gray` | `santec/driver.py:1244` | **有意设计** (CSV 设备无关, 便于跨 SLM 复用) | ✅ 非缺陷 |
+| **D** | `csv_to_phase` 用模块常量 1023 而非设备 `_max_gray` | `santec/driver.py:1330` | **有意设计** (CSV 设备无关, 便于跨 SLM 复用) | ✅ 非缺陷 |
 | **E** | 矩阵含零列时 `np.linalg.pinv` 条件数爆到 1e18 | `tools/slm/*` | 数值稳定性 | ✅ 加 `safe_pinv` |
 | **F** | 模型自检: 大修正量时预测/实测比 0.35, 小修正量 0.95~1.22 | 闭环 | 大相位下**叠加性/线性度下降** | ⚠️ 待查 |
 | **G** | 独立响应矩阵工具 `slm_zernike_response.py` 同样把 **µm** 当 λ 用, 且 `device_config` 未记录设备参数 | `tools/slm/slm_zernike_response.py` | 单位 + 记录缺失 | ✅ **已修** (`um_to_waves` + `collect_device_info`) |
-| **H** | **`zernike-matrix` 命令原生崩溃** (0xC0000005 访问违例 / 0xC000041C 回调致命异常), 崩溃点不固定 → SDK 层内存损坏 | `runners/zernike_matrix_runner.py` | 未解决 (改用等价工具) | ⚠️ **待查** (见 §2.6) |
-| **I** | `parse_tuple` 用 `int()` → 无法表达 mm 级小数 pupil 中心 (实测 -0.14, 0.18), 被迫退回 `(0,0)` 而**构造函数传入的 pupil 会覆盖配置中的实测值** | `utils/cli_helpers.py:38` | 限制 | ✅ **已修** (改 float) |
+| **H** | **`zernike-matrix` 命令原生崩溃** (0xC0000005 访问违例 / 0xC000041C 回调致命异常), 崩溃点不固定 → SDK 层内存损坏 | `runners/slm/zernike_matrix_runner.py` | 未解决 (改用等价工具) | ⚠️ **待查** (见 §2.6) |
+| **I** | `parse_tuple` 用 `int()` → 无法表达 mm 级小数 pupil 中心 (实测 -0.14, 0.18), 被迫退回 `(0,0)` 而**构造函数传入的 pupil 会覆盖配置中的实测值** | `utils/io/cli_helpers.py:48` | 限制 | ✅ **已修** (改 float) |
 
 ---
 
@@ -41,10 +51,10 @@ Zernike 系数 → 相位(rad) → 灰度(0.._max_gray) → 内存槽 → LCOS
 
 | 函数 | 约定 | 判定 |
 |---|---|---|
-| `create_phase_from_array(phase_rad)` L1369 | `gray = rad / (2π) × self._max_gray` (mod 2π) — 用**设备实测** 2π 灰度 (532nm → 998) | ✅ 正确 |
+| `create_phase_from_array(phase_rad)` L1457 | `gray = rad / (2π) × self._max_gray` (mod 2π) — 用**设备实测** 2π 灰度 (532nm → 998) | ✅ 正确 |
 | `display_phase(phase_rad)` | 弧度 → `create_phase_from_array` → `display_data` | ✅ 正确 |
 | `display_data(phase_gray)` / `_write_phase` | 接收 **uint16 灰度** | ✅ 正确 |
-| `csv_to_phase` L1244 | `rad = gray / get_max_grayscale() × 2π`, 常量 1023 | ✅ **有意设计** (见 §2.4) |
+| `csv_to_phase` L1330 | `rad = gray / get_max_grayscale() × 2π`, 常量 1023 | ✅ **有意设计** (见 §2.4) |
 | `set_wavelength` / `get_wavelength_info` | `phase_range = 200` (=2π), 由设备读回反算 2π 灰度 | ✅ 正确 |
 | `shift_phase` | 纯函数, 平移数学唯一实现 | ✅ 正确 |
 
@@ -54,10 +64,10 @@ Zernike 系数 → 相位(rad) → 灰度(0.._max_gray) → 内存槽 → LCOS
 
 | 位置 | 行为 | 判定 |
 |---|---|---|
-| `_apply_shift` L240 | 委托 `Santec.shift_phase` (平移数学唯一实现) | ✅ 正确 |
-| `_toggle_phases_task` L1086 | `display_data(target_phase)` — phase 来自 `get_displayed_phase()`(**灰度**)或 `np.zeros(uint16)` | ✅ 灰度直发, 正确 |
-| `_export_phase_csv` L1164 | `rad = gray / _max_gray × 2π` — 用**设备**值 | ✅ 正确 |
-| "保存当前相位到CSV" L1035 | 同上, 用 `_max_gray` | ✅ 正确 |
+| `set_shift` (原 `_apply_shift` **已删除**) | 委托 `Santec.apply_shift` → `Santec.shift_phase` (平移数学唯一实现) | ✅ 正确 |
+| `_toggle_phases_task` L1043 | `display_data(target_phase)` — phase 来自 `get_displayed_phase()`(**灰度**)或 `np.zeros(uint16)` | ✅ 灰度直发, 正确 |
+| `_export_phase_csv` L1160 | `rad = gray / _max_gray × 2π` — 用**设备**值 | ✅ 正确 |
+| "保存当前相位到CSV" L1016 | 同上, 用 `_max_gray` | ✅ 正确 |
 | `ZernikeControl.generate_phase_rad` (`pattern_controls.py:850`) | `generate_zernike_polynomial` 返回**原始弧度相位 (不 mod-2π、不归一化)**, 保留系数绝对幅度 | ✅ 正确 (注释亦明示) |
 | 其他控件 (flat/grating/lens/vortex/...) | 均输出原始弧度, 由 `create_phase_from_array` 统一换算 | ✅ 正确 |
 
@@ -102,7 +112,7 @@ ZernikeDM 系数 ×1 vs ×4:
 | `optimizer/wf/rms_by_zernike.py` (`rms-zernike`) | 无法按系数幅度做梯度更新 |
 | `optimizer/wf/ga_zernike.py` (`ga-zernike`) | 遗传算法搜索的"系数"维度退化 |
 | `optimizer/wf/greedy_zernike.py` | 同上 |
-| `runners/{zernike_matrix,rms_zernike,slm_offset}_runner.py` | 同上 |
+| `runners/slm/zernike_matrix_runner.py` / `runners/slm/rms_zernike_runner.py` / `runners/slm_offset_runner.py` | 同上 |
 | `gui/zernike/zernike_response_matrix_ui.py` | 同上 |
 
 **✅ 已修复 (2026-09-16)**: 去掉归一化, **系数即弧度**直接输出; `"gray"` 模式改为
@@ -129,7 +139,7 @@ return np.mod(phase_raw / (2*np.pi) * max_val, max_val).astype(np.uint16)
 > 相位幅度, 现在系数即弧度、幅度可控。若某调用方依赖旧的"自动满量程"行为, 需显式传入
 > `2π` 量级的系数:
 > `optimizer/wf/{zernike_response_matrix,rms_by_zernike,ga_zernike,greedy_zernike}.py`、
-> `runners/{zernike_matrix,rms_zernike,slm_offset}_runner.py`、`gui/zernike/`。
+> `runners/slm/zernike_matrix_runner.py` / `runners/slm/rms_zernike_runner.py` / `runners/slm_offset_runner.py`、`gui/zernike/`。
 > **建议**: 用 `zernike-matrix` 重标一次响应矩阵 —— 旧矩阵是在归一化下测得的, 幅度维度无意义。
 
 ### 2.4 `csv_to_phase` 用常量 — ✅ 有意设计 (非缺陷)
@@ -181,9 +191,9 @@ WFS Python 侧不存在数组尺寸不足/越界写:
 |---|---|---|
 | `MAX_SPOTS` (`_thorlab_wfs.py:44`) | `[80, 80]` = 6400 floats | 35×35=1225 << 6400, **"32×32 设计"假设不成立** (两处绑定文件一致) |
 | `ArrImg` (`_thorlab_wfs.py:59`) | `(512,512)` uint8 | **仅声明, 从未出现在任何 `argtypes`** → 死代码, 与崩溃无关 |
-| `get_spotfiled_image` (`thorlab_wfs.py:1130-1144`) | `(1024,1280)` 全量最大缓冲 | 覆盖最大 MLA (1280×1024), 返回按 rows×cols 切片 |
+| `get_spotfiled_image` (`thorlab_wfs.py:1161`) | `(1024,1280)` 全量最大缓冲 | 覆盖最大 MLA (1280×1024), 返回按 rows×cols 切片 |
 | `get_spot_deviation` / `get_spots_statics` / `get_wavefront` | `(80,80)` float32 | 覆盖 80×80 子孔径上限 |
-| `get_zernike` (`thorlab_wfs.py:1493+`) | `calc_n_zernike_terms(order)` 精确项数 | `byref`/`data_as(POINTER(c_float))` 显式 ctypes, 无 numpy 自动转换 → 调用良构 |
+| `get_zernike` (`thorlab_wfs.py:1508`) | `calc_n_zernike_terms(order)` 精确项数 | `byref`/`data_as(POINTER(c_float))` 显式 ctypes, 无 numpy 自动转换 → 调用良构 |
 
 **残留假设** (驱动层之外, 按可能性排序):
 1. **Santec SLM DLL 写路径**: `0xC000041C` (用户回调内致命异常) 是 SLM/heap 被原生侧破坏后
@@ -201,10 +211,10 @@ WFS Python 侧不存在数组尺寸不足/越界写:
 
 ### 2.7 ✅ 修复 `parse_tuple` 的整数限制
 
-`utils/cli_helpers.py:38` 原用 `map(int, parts)` → `--pupil-center "(-0.14,0.18)"` 报
+`utils/io/cli_helpers.py:48` 原用 `map(int, parts)` → `--pupil-center "(-0.14,0.18)"` 报
 `Invalid center format`。因 WFS pupil 中心单位是 **mm** (实测常为小数), 且
 `ThorlabWFS.__init__` 传入的 pupil **会覆盖配置文件中的实测值**
-(`thorlab_wfs.py:440-453`), 用整数近似会造成 pupil 偏移、污染 `WFS_ZernikeLsf` 拟合。
+(`thorlab_wfs.py:1072`), 用整数近似会造成 pupil 偏移、污染 `WFS_ZernikeLsf` 拟合。
 已改为 `map(float, parts)` (整数输入仍可用)。
 
 ## 3. 闭环矫正效果提升路径 (实测)

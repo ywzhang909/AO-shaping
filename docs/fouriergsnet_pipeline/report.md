@@ -34,33 +34,46 @@ test_sim_fouriergsnet_turbulence.py + test_fouriergsnet_optimize.py)。
 - 管线自洽: `gauss_amp_from_farfield` 从宽光斑估计出窄 A_src (w0 裁剪到 0.2),
   与宽远场一致, GS 可正常整形。
 
-### 2.2 torch.no_grad() 包裹 closed_loop — 规避 L938 真实 bug
+### 2.2 torch.no_grad() 包裹 closed_loop — 规避真实 bug ✅ 已修复
 
-`closed_loop` L938 对 `requires_grad` 的 `phi` 调用 `phi.cpu().numpy()` 会抛
+> ⚠️ **2026-10-01 复核：此 bug 已在源头修复。** `fouriergsnet_optimize.py:943`
+> 现在是 `phi.detach().cpu().numpy()`。下文 §3.1「修复方向」已完成，
+> **不必再靠 `torch.no_grad()` 包裹绕过**（脚本里的 workaround 仍无害，但已非必需）。
+
+`closed_loop` 曾对 `requires_grad` 的 `phi` 调用 `phi.cpu().numpy()`，会抛
 `RuntimeError: Can't call numpy() on Tensor that requires grad` (网络前向输出
-`phi` 经可训练卷积层, 带梯度)。**真实 CLI `run()` (L1135) 同样受影响** ——
+`phi` 经可训练卷积层, 带梯度)。当时**真实 CLI `run()` 同样受影响** ——
 这是管线自身的 bug, 非测试引入。
 
-测试用 `replay=False` (跳过全部训练/微调), 因此 `torch.no_grad()` 包裹安全,
-且不改动管线内部。`scripts/fouriergsnet_sim_train.py` 采用同一 workaround。
+`scripts/fouriergsnet_sim_train.py` 曾用 `replay=False` + `torch.no_grad()` 绕过。
 
 ### 2.3 SETTLE_S=0.0
+
+> ⚠️ 2026-10-01：主脚本现为 `fouriergsnet_optimize.py:88 SETTLE_S = 0.2`，
+> 0.0 只是测试里 pin 的值。
 
 `_display_grayscale` 的 `time.sleep(settle_s)` 在 SETTLE_S=0.0 下为 no-op;
 SimSLM 内部无 sleep, 无需全局 monkeypatch `time.sleep`。
 
 ## 3. 发现 (供后续修复参考)
 
-### 3.1 L938 真实 bug (影响真实硬件 CLI)
+> ⚠️ **2026-10-01：本节全部行号已漂移**（原文均基于旧版本 `fouriergsnet_optimize.py`）。
+> 已核对并更新：`closed_loop` L936-938 → **L941-943**；`run()` L1135 → **L1105**；
+> `_metrics` L905-910 → **L910-913**；`place_on_panel` L450 → **L445**；
+> `fouriergsnet_env.py` `configure_turbulence` L282 → **L309**、`advance_time` L320 → **L347**；
+> `utils/io/file.py` `Recorder` L221 → **L362**。
+> §3.3 的签名不匹配与 §3.4 的转置风险**仍然成立**（已复核 `slm200_constants.py:13`
+> 与 `fouriergsnet_env.py:67-68` 仍为 `(1920,1200)`，两个文件混用 `(宽,高)` 与
+> `(PANEL_H, PANEL_W)`）。
 
-`closed_loop` L936-938:
+### 3.1 `phi.detach()` bug — 影响真实硬件 CLI ✅ 已修复
+
 ```python
 recorder.append({"step": step, "uniformity": uni, "encircled": ee,
                  "inference_ms": dt, "ccd": I.cpu().numpy(),
-                 "phase": phi.cpu().numpy()})
+                 "phase": phi.detach().cpu().numpy()})   # ← 2026-10-01 已修复
 ```
-`phi` 来自 `net(...)` 前向输出 (requires_grad=True)。`replay=True` (默认, 真实
-CLI) 下同样崩溃。修复方向: `phi.detach().cpu().numpy()`。
+`replay=True` (默认, 真实 CLI) 下曾同样崩溃。**现已修复，勿按旧描述再修一遍。**
 
 ### 3.2 均匀度恒为 0 的根因 (窄束下)
 

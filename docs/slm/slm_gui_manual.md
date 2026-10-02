@@ -542,22 +542,34 @@ flowchart LR
 
 | 图案       | 控制类                      | `generate_phase_gray` 中的输出路径                                                     |
 | ---------- | --------------------------- | ---------------------------------------------------------------------------------------- |
-| 平场       | `FlatControl`             | `np.full((h,w), gray, uint16)`（原始灰度）                                             |
+| 平场       | `FlatControl`             | `np.full((h,w), gray, uint16)`（**原始灰度**，不经驱动）                                |
 | 线性光栅   | `LinearGratingControl`    | `PatternHelper.linear_grating` → `create_phase_from_array`                          |
 | 圆形光栅   | `CircularGratingControl`  | `PatternHelper.circular_grating` → `create_phase_from_array`                        |
 | 透镜       | `LensControl`             | `PatternHelper.lens` → `create_phase_from_array`                                    |
 | 全息光栅   | `HologramGratingControl`  | `PatternHelper.hologram` → `create_phase_from_array`                                |
 | 闪耀光栅   | `BlazedGratingControl`    | `PatternHelper.linear_grating(direction=...)` → `create_phase_from_array`           |
-| 棋盘格     | `CheckerboardControl`     | `PatternHelper.generate_checkerboard`（原始 uint16）                                   |
-| 二元光栅   | `BinaryGratingControl`    | `PatternHelper.generate_binary_grating`（原始 uint16）                                 |
-| 微透镜阵列 | `MicrolensArrayControl`   | `PatternHelper.generate_microlens_array`（原始 uint16）                                |
-| 湍流相位屏 | `TurbulenceScreenControl` | `PatternHelper.init_turbulence_screen` + `generate_turbulence_screen`（原始 uint16） |
+| 棋盘格     | `CheckerboardControl`     | `PatternHelper.generate_checkerboard` → `create_phase_from_array`（**弧度**）          |
+| 二元光栅   | `BinaryGratingControl`    | `PatternHelper.generate_binary_grating` → `create_phase_from_array`（**弧度**）        |
+| 微透镜阵列 | `MicrolensArrayControl`   | `PatternHelper.generate_microlens_array` → `create_phase_from_array`（**弧度，未包裹**）|
+| 湍流相位屏 | `TurbulenceScreenControl` | `init_turbulence_screen` + `generate_turbulence_screen` → `create_phase_from_array`  |
 | Zernike    | `ZernikeControl`          | `PatternHelper.generate_zernike_polynomial` → `create_phase_from_array`             |
-| 达曼光栅   | `DammannGratingControl`   | `PatternHelper.generate_dammann_grating`（原始 uint16）                                |
-| 涡旋相位   | `VortexPhaseControl`      | `PatternHelper.generate_vortex`（wrap 时 uint16，否则 rad→uint16）                    |
+| 达曼光栅   | `DammannGratingControl`   | `PatternHelper.generate_dammann_grating` → `create_phase_from_array`（**弧度**）      |
+| 涡旋相位   | `VortexPhaseControl`      | `PatternHelper.generate_vortex` → `create_phase_from_array`（**始终弧度，驱动负责 wrap**）|
 | 半半相位   | `HalfHalfPhaseControl`    | 平场半区（原始）+ 闪耀半区（`create_phase_from_array`）拼接                            |
 | GS方形整形 | `GSSquareControl`         | `generate_gs_square_phase` → GS → `create_phase_from_array`                        |
+| GS方形整形(高斯版) | `GSSquareGaussianControl` | `generate_gs_square_phase` → GS → `create_phase_from_array`                    |
 | 稳像法整形 | `SteadyPhaseControl`      | SPM + 闪耀光栅 →`create_phase_from_array`                                             |
+
+> ⚠️ **2026-10-01 修正**：
+> 1. 原表把 5 个控制类（棋盘格 / 二元光栅 / 微透镜阵列 / 达曼光栅 / 涡旋）标成
+>    「原始 uint16」，**与代码相反** —— 基类 `PatternControl.generate_phase_gray`
+>    (`gui/slm/pattern_controls.py:138-145`) 默认实现是
+>    `slm.create_phase_from_array(self.generate_phase_rad(params))`，
+>    且这些 `PatternHelper` 方法现在返回**弧度**（`pattern_helper.py:338-353/355-380/382-416/595-630`）。
+>    涡旋类的 docstring 更明确写着 "no mod-2π, no wrap checkbox — the driver applies wrapping"
+>    (`pattern_controls.py:707-708`)。**真正走原始 uint16 的只有平场与半半相位的平场半区。**
+> 2. 原表漏登记 `GSSquareGaussianControl`（类定义 `pattern_controls.py:1371`，
+>    注册表条目 `pattern_controls.py:1880`，键 `"GS方形整形(高斯版)"`）。
 
 ---
 

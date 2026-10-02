@@ -1,8 +1,13 @@
 # diff-shaping 直连本机硬件使用指南 (Santec SLM200 + MiiCam)
 
-> 可微分光束整形 (`diff-shaping`) 在**本机直连 SLM200 + MiiCam** 上的闭环运行说明：
-> GPU 计算配置、MiiCam 曝光基线、推荐参数与预期产物。
-> 完整验证报告见 [docs/slm_differential_shaping/](../slm_differential_shaping/README.md)。
+> 🔴 **归档文档 (2026-10-01 复核)**：`diff-shaping` runner 与 CLI 命令**已从仓库删除**
+> （`runners/diff_shaping_runner.py` 不存在）。下文所有 `main.py diff-shaping …` 命令
+> **无法运行**。台架经验（SLM 挂起点、MiiCam 曝光基线、槽轮换）仍然有效并已推广到
+> 现存实现 `slm-gsnet`（`runners/slm_gsnet_runner.py`）。
+>
+> 可微分光束整形在**本机直连 SLM200 + MiiCam** 上的闭环运行经验：GPU 计算配置、
+> MiiCam 曝光基线、推荐参数与预期产物。完整验证报告 `docs/slm_differential_shaping/`
+> **不存在**（该目录已被删除）。
 
 ## 1. 运行环境
 
@@ -131,7 +136,7 @@ data/diff_shaping_hw/
 
 | 现象 | 处理 |
 |------|------|
-| SLM 显示不更新 (连续两轮图案相同) | 内存槽轮换约束: runner 已在 **2~125 内存槽范围内随机选取**每次写入槽位并排除当前显示槽 (含跨进程续接, 见 `_pick_next_slot`), 严禁相邻两次相位写同一槽 |
+| SLM 显示不更新 (连续两轮图案相同) | 内存槽轮换约束: runner 已在 **2~125 内存槽范围内随机选取**每次写入槽位并排除当前显示槽 (含跨进程续接, 见驱动的 `_pick_next_memory_slot` — **原 `_pick_next_slot` 符号已不存在**), 严禁相邻两次相位写同一槽 |
 | 相机全黑/全白 | 调 `--exposure-ms` (0.01~0.5 试); 检查激光与光路对准 |
 | 0 级桶饱和 | 降低曝光; 0 级定位始终用帧 `argmax`, 不要用几何中心 (2f 光路轴心不居中) |
 | 目标尺寸全帧点亮 | `--target-px` 过大, 取 <1520 (MiiCam 高) |
@@ -141,6 +146,10 @@ data/diff_shaping_hw/
 
 ## 6. 关联
 
-- 完整标定/对比报告: `docs/slm_differential_shaping/README.md` (含 GIF、逐迭代图表、gs 基线对比)
-- 模块 API: `src/ao_shaping/algorithm/differentiable_shaping.py` (`train_beam_shaping`)
-- Runner 源码: `src/ao_shaping/runners/diff_shaping_runner.py`
+> ⚠️ 2026-10-01 复核：前两项已失效。
+
+- ~~完整标定/对比报告: `docs/slm_differential_shaping/README.md`~~ → **目录不存在**
+- 模块 API: `algorithm/differentiable_shaping.py` → 现为
+  `src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py`
+  （顶层 `algorithm/` 只剩 `__init__.py` 与 `base.py`）
+- ~~Runner 源码: `src/ao_shaping/runners/diff_shaping_runner.py`~~ → **已删除**

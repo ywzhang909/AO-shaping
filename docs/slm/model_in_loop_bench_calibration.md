@@ -7,6 +7,18 @@ Measured constants and known failure modes for running
 Everything here was measured on 2026-09-29 with the devices online; the numbers
 are what the model needs, not what the twin assumes.
 
+> ⚠️ **2026-10-01 复核，3 处已订正**（其余内容仍有效）：
+> 1. §L459 焦面标定常数 `132940/P` → **`7600/P`**（本文档内部原本自相矛盾）。
+> 2. §L276 相机序列号 `FJB24112232` 与 §L550 的 `FJB24112222/32` 冲突 → 以前者为准
+>    （`docs/slm/bench_calibration_20261001.md:8,35` 只承认 `FJB24112232`）。
+> 3. §L434 「`--exposure-ms 1.1` 是 runbook 默认」与 §L366 的「3 ms（peak≈97）」不一致，
+>    且已被 2026-10-01 的曝光扫描取代：**t ≥ 0.4 ms 单调近线性，建议工作点 1.0–1.5 ms**。
+>
+> ⚠️ **仍未收口的常数冲突（见 `TODO.md` H-11 / H-16）**：焦面标定在三处不一致 ——
+> `AGENTS.md:697` 写 `5021/Λ`（对应 3.31 µm 像元）、本文档与 `README.md:517` 写 7400–7600
+> （对应 2.2 µm 像元）、`docs/slm_pib_heuristic_hw/report.md:159` 主张改 **10954**。
+> 2.2 µm 像元推得的是 ~7557 而非 10954，故该主张本身也待复核。**引用本文件前请先确认用哪一套。**
+
 ## Bench capability limit: the panel cannot resolve pixel-scale phase
 
 **This retires the speckle-correlation route on this bench, and no amount of
@@ -456,7 +468,13 @@ convincing false verdict:
    this is what the vendor tool avoids by using `10 + len(frames)`).
 
 A tilt probe settles it in one shot: a 2π phase ramp over `P` panel px moves
-the focal spot by `132940/P` camera px, independent of diffraction efficiency.
+the focal spot by `7600/P` camera px, independent of diffraction efficiency.
+
+> ⚠️ **2026-10-01 修正**：此处原写 `132940/P`，与本文档自己的另外三处
+> （`7600/P`、`S = 7615`、L471-473 的 `shift_px ≈ 7600 / P`）**相差 17.5×**。
+> `docs/slm/bench_calibration_20261001.md:42-43` 已正式裁定 **7400–7600 为实测支持值、
+> `132940` 是错的**，本文档即引用来源之一。按 `132940` 读会得到下表两行荒谬的
+> "expected shift"（16 px 实测 vs 277 px 预期）。**已按正确值统一。**
 
 | panel ramp period P | 480 | 120 |
 |---|---|---|

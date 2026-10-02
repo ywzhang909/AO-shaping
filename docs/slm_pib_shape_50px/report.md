@@ -2,6 +2,17 @@
 
 **生成时间**: 2026-09-26 17:41:32
 
+> ⚠️ **本报告的数值已过时且结论方向写反，勿引用 (2026-10-01 复核)**：
+> 1. **`shape` 是最大化目标**（`slm_zernike_pib.py:710-712`：`objective_mode = "max" if objective in ("pib","avg_radiu","shape","roi_pib","rms_pib") else "min"`）。
+>    下文 §2「解读」称其为最小化 —— 这是 `generate_slm_pib_sim_report.py:424-429`
+>    自己标注的 **2026-10-01 缺陷**。按真实方向，`-1.2017 → -0.9127` 是**改善**（更接近 0），
+>    而框内能量 `_p%` 下降 0.4942 → 0.3893 说明**均匀性换能量**，正是 §3.3 所述的取舍。
+> 2. 本次运行**早于 `FAR_FIELD_PADDING` 过采样修复**。0 级光斑当时只有约 1.8 px FWHM，
+>    与 [`slm_pib_sim/report.md`](../slm_pib_sim/report.md:47) 等填充后报告的数值
+>    **不可直接比较**。
+> 3. 下文的图片链接使用了 Windows 反斜杠，Markdown 渲染为文本（已修正为正斜杠）。
+> 需要当前可信数据请读 `docs/slm_pib_sim/report.md`（2026-10-01 生成）。
+
 **Fully offline** — 本报告由 `scripts/generate_slm_pib_sim_report.py` 离线生成, 仅读取 `slm_pib_runner --debug` 保存的 PKL/JSON 调试产物, 不打开任何硬件。
 
 ## 1. 运行说明
@@ -26,13 +37,13 @@
 | 最终框内能量 _p% | 0.3893 |
 | 搜索配置 | {'epochs': 100, 'delta': 0.0005, 'lr': 0.5} |
 
-![run0_objective](docs\slm_pib_shape_50px\figures\run0_objective.png)
+![run0_objective](figures/run0_objective.png)
 
-![run0_zernike](docs\slm_pib_shape_50px\figures\run0_zernike.png)
+![run0_zernike](figures/run0_zernike.png)
 
-![run0_phase_evolution](docs\slm_pib_shape_50px\figures\run0_phase_evolution.png)
+![run0_phase_evolution](figures/run0_phase_evolution.png)
 
-![run0_spot_evolution](docs\slm_pib_shape_50px\figures\run0_spot_evolution.png)
+![run0_spot_evolution](figures/run0_spot_evolution.png)
 
 ![run0_phase](gifs/run0_phase.gif)
 
@@ -40,8 +51,11 @@
 
 ### 解读
 
-- 目标 J 从 -1.2017 变化到 -0.9127 (shape 目标为**最小化**, 数值越接近 0 越好, 负值越大代表离目标越远)。
-- 框内能量 `_p%` 从 0.4942 到 0.3893: 低阶 Zernike 主要做波前校正/聚焦, 并非真正的方形成形 (方形需要全像素自由度, 见 AGENTS.md 反模式)。
+- 目标 J 从 -1.2017 变化到 -0.9127。**`shape` 是最大化目标**（见文首警示），故这是**改善** 0.2890
+  （`slm_zernike_pib.py:710-712`；下方原「最小化」表述为 2026-10-01 确认的生成器缺陷）。
+- 框内能量 `_p%` 从 0.4942 降到 0.3893：**J 的改善伴随框内能量下降**，即优化器用能量换了
+  均匀性/形状分数。这个方向性 trade-off 只有在知道目标是 maximize 之后才读得出来。
+- 低阶 Zernike 主要做波前校正/聚焦, 并非真正的方形成形 (方形需要全像素自由度, 见 AGENTS.md 反模式)。
 - 相位图展示 15 个 Zernike 模式 (n≤4) 的加权合成; 远场图展示 0 级光斑的 FFT 传播结果。
 
 ## 3. 结论

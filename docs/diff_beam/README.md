@@ -1,8 +1,18 @@
 # diff-beam 固定边长方形整形 — 硬件经验记录 (Santec SLM200 + 大恒 CCD)
 
-> `diff-beam` (backprop/gs, `src/ao_shaping/runners/diff_beam_runner.py`) 在
-> **SLM200 + 大恒相机** 上做方形整形的实测经验。记录了 2026-09-10 真机验证
-> 发现的 **0 级光斑定位 bug 链** (最终以 argmax 收尾) 与 **target 尺寸换算坑**。
+> 🔴 **归档文档 (2026-10-01 复核)**：`diff-beam` runner 与 CLI 命令**已从仓库删除**
+> （`runners/diff_beam_runner.py` 不存在；`diff-beam` / `diff-shaping` / `gs` / `gs-square`
+> 均已从 `main.py` 移除）。下文 §1 的命令、§3 的建议、§8 的结果表**均无法复现**。
+>
+> **但 §2–§7 记录的是台架物理事实，仍然有效且已推广到现存实现**：
+> 0 级光斑必须用 `argmax` 定位（已进 `AGENTS.md` 红线）、CCD 像素空间 target 尺寸换算、
+> 曝光饱和削顶对相关度指标的破坏。**同主题的现存实现**是
+> `slm-gsnet`（`runners/slm_gsnet_runner.py`，backprop/GS 路径）与
+> `spgd-square`（`runners/slm_square_runner.py`）。
+>
+> 原文所述 `diff-beam` (backprop/gs) 在 **SLM200 + 大恒相机** 上做方形整形的实测经验，
+> 记录了 2026-09-10 真机验证发现的 **0 级光斑定位 bug 链** (最终以 argmax 收尾) 与
+> **target 尺寸换算坑**。
 
 ## 1. 语义: `--target-px` = CCD 图片空间固定边长
 
@@ -226,9 +236,14 @@ frames/frame_*.npy+.png + frame_meta.jsonl   # 逐帧原始记录 (含 spot 字�
 
 ## 9. 关联
 
-- Runner: `src/ao_shaping/runners/diff_beam_runner.py`
-- 目标: `src/ao_shaping/utils/targets.py` (`square_target_from_measurement`)
-- 指标: `src/ao_shaping/utils/beam_metrics.py` (`compute_metrics`)
-- 测试: `tests/ao_shaping/runners/test_diff_beam_runner.py`
-- 质心工具: `src/ao_shaping/utils/spots_calc.py::centroid`
-- 同主题 (MiiCam 线): `docs/slm_shaping_diff/readme.md`
+> ⚠️ 下列路径在 2026-10-01 复核时已全部变更；`diff_beam_runner.py` 已删除。
+
+- ~~Runner: `src/ao_shaping/runners/diff_beam_runner.py`~~ → **已删除**，现存同路径能力在
+  `runners/slm_gsnet_runner.py`（`slm-gsnet backprop`）
+- 目标: `utils/targets.py` (`square_target_from_measurement`) → 现为
+  `utils/image/targets.py`，实现在 `utils/image/target/ccd.py:90`
+- 指标: `utils/beam_metrics.py` (`compute_metrics`) → 现为 `utils/image/beam_metrics.py:113`
+- 测试: `tests/ao_shaping/runners/test_diff_beam_runner.py`（文件仍在，但改用 `importlib`
+  动态加载已被删除的模块，**不可能再通过**）
+- 质心工具: `utils/spots_calc.py::centroid` → 现为 `utils/image/spots_calc.py:234`
+- 同主题: `docs/slm_shaping_diff/readme.md` → 现为 `docs/slm/slm_shaping_diff/readme.md`

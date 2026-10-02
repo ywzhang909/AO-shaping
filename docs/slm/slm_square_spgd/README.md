@@ -7,8 +7,15 @@
 > 相关文件:
 > - `src/ao_shaping/runners/slm_square_runner.py` (CLI)
 > - `src/ao_shaping/optimizer/wfless/slm_square_shaping.py` (核心算法)
-> - `src/ao_shaping/utils/pattern_helper.py` (`_zernike_to_uint16`)
+> - `src/ao_shaping/utils/wavefront/pattern_helper.py`
 > - `src/ao_shaping/drivers/slm/santec/driver.py` (`create_phase_from_array`, `display_data`)
+>
+> ⚠️ **2026-10-01 复核**：B2/B3 已修复，`_zernike_to_uint16` **已删除**
+> （`pattern_helper.py:499-500,524-525` 注明「2026-09 移除」）。下文 B2 的代码块
+> 演示的是**已消失的旧代码**，B2 行号 `pattern_helper.py:459-461` 已失效。
+> 根因 `AGENTS.md` / `README.md` 仍把它列为「现存反模式」是**权威文档自身的滞后**，
+> 已开 `TODO.md` 追踪。本文的 `diff-shaping` / `gs-square` 命令
+> **也已从 CLI 移除**（`README.md:179`）。
 
 ---
 
@@ -41,18 +48,24 @@ python -m ao_shaping.runners.slm_square_runner --target-side 20 --center shape
 | # | 问题 | 位置 | 严重度 |
 |---|------|------|--------|
 | B1 | Zernike n≤4（15 个低阶模）是圆对称光滑基底，**物理上无法合成方形远场**（方形需要 2D-sinc 型近场 / 高频边角） | 架构 | 阻断 |
-| B2 | `_zernike_to_uint16` 用 **min-max 归一化** `(p-pmin)/(pmax-pmin)*1023`，而非 `mod 2π` 的弧度→灰度转换 | `pattern_helper.py:459-461` | 阻断 |
+| B2 | ✅ **已修复 (2026-09)**：旧 `_zernike_to_uint16` 用 min-max 归一化，使系数尺度不可控。函数已删除，统一走 `create_phase_from_array()` / `phase_to_slm_grayscale()` | ~~`pattern_helper.py:459-461`~~（行号已失效） | 已解决 |
 | B3 | 相位路径**绕过 SLM 驱动** `create_phase_from_array`（缺 2π=993 灰度标定、波前矫正、LUT） | `slm_square_shaping.py` | 阻断 |
 | B4 | SPGD 梯度目标只用 `-CV`，**不含能量项** → 优化器通过**清空目标框**来降低 CV | `slm_square_shaping.py` (原 744 行) | 阻断 |
 | B5 | **硬件实测新增**: ROI 窗口重置后目标框偏离光斑（epoch-0 框内 `mean_b=0.01`，几乎无光） | `slm_square_shaping.py` | 阻断 |
 
-### B2 证据：相位尺度不变（参数化退化）
+### B2 证据：相位尺度不变（参数化退化） — ⚠️ 已失效，仅作历史记录
+
+> **该函数 2026-09 已删除**（`pattern_helper.py:499-500`）。下面的代码块**现在会 `AttributeError`**。
+> 保留以说明这个反模式的成因 —— 「系数 ×1 与 ×4 生成逐字节相同图案」
+> 是识别尺度不变归一化的通用判据，同类缺陷在 `ZernikeDM.generate_phase`
+> （同批修复，`zernike_dm.py:117-118`）中也出现过。
 
 ```python
 import numpy as np
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 ph = PatternHelper(resolution=(1920, 1200), bits=10)
+# ⚠️ 旧 API: ph._zernike_to_uint16(ph.generate_zernike_polynomial(...))
 g1 = ph.generate_zernike_polynomial(n_max=4, coefficients={(2, 0): 1.0})
 g4 = ph.generate_zernike_polynomial(n_max=4, coefficients={(2, 0): 4.0})
 assert np.array_equal(g1, g4)          # True —— 系数 ×1 与 ×4 生成逐字节相同图案
@@ -64,15 +77,15 @@ assert (g1.min(), g1.max()) == (0, 1022)  # 图案恒占满 10-bit 全域
 
 ### B3 证据：正确转换在驱动里
 
-`Santec.create_phase_from_array` (`santec/driver.py:1315`):
+`Santec.create_phase_from_array` (`santec/driver.py`，行号已从 1315 漂移至 1457):
 
 ```python
 grayscale = phase_rad / (2 * np.pi) * max_grayscale   # max_grayscale=993 @1064nm
 # 之后叠加波前误差矫正 + 相位→灰度 LUT
 ```
 
-而 `gs_square_runner` / `diff_shaping_runner` 走的正是 `slm.create_phase_from_array(result.phase)`
-（`diff_shaping_runner.py:729`），SPGD 路径完全绕开了它。
+而 GS / backprop 路径走的正是 `slm.create_phase_from_array(result.phase)`，
+SPGD 路径完全绕开了它（原文引用的 `diff_shaping_runner.py:729` **该文件已删除**）。
 
 ### B4 证据：优化器"清空"目标框
 
@@ -146,7 +159,9 @@ grayscale = phase_rad / (2 * np.pi) * max_grayscale   # max_grayscale=993 @1064n
 
 1. **相位生成必须走驱动**：任何"弧度相位→SLM 灰度"都必须经
    `Santec.create_phase_from_array`（2π=993 + 矫正 + LUT），
-   **禁止**用 `PatternHelper._zernike_to_uint16` 的 min-max 归一化。
+   **禁止** min-max 归一化相位。
+   （⚠️ 2026-10-01：原文此处点名 `PatternHelper._zernike_to_uint16`，
+   该函数**已删除**；同族反模式 `ZernikeDM.generate_phase` 也已于 2026-09 修复。）
 2. **低阶 Zernike 不能做方形**：方形整形需要 SLM 全像素自由度（GS / 可微 / 自由相位），
    Zernike 仅适合低阶像差补偿与圆对称整形。
 3. **代价函数必须含能量约束**：只优化 `-CV` 会让优化器"清空目标框"来降低 CV；
@@ -161,16 +176,21 @@ grayscale = phase_rad / (2 * np.pi) * max_grayscale   # max_grayscale=993 @1064n
 
 ## 8. 推荐方案
 
+> ⚠️ **2026-10-01：以下三个命令全部已从 CLI 移除，运行器文件不再存在**
+> （`README.md:179`：`gs` / `gs-square` / `diff-shaping` / `diff-beam`）。请改用：
+> - `slm-gsnet spgd|backprop|heuristic`（`runners/slm_gsnet_runner.py`）——
+>   FourierGSNet / freeform 路径，**已接能量守卫 + 24×24 网格，替代本节方案**
+> - `slm-gs-refine`（`runners/slm_gs_refine_runner.py`）—— GS 预矫正 bake-off + SPGD 细化
+> - `spgd-square`（`runners/slm_square_runner.py`）—— 本文件对应的 SPGD 路径
+
 要得到干净的 20×20 方形，使用项目已验证的**模型化引擎**：
 
-- `python src/ao_shaping/main.py diff-shaping --target-shape square --target-px 20 ...`
-  （PyTorch 可微传播，文档记载 CV<0.1）
-- 或 `python src/ao_shaping/main.py gs-square --target-px 20 ...`（Gerchberg-Saxton）
-- 或 `python src/ao_shaping/main.py diff-beam --algorithm backprop --target-shape square
-  --target-px 20 --use-hardware -e 200 --cam-exposure-us 1200 --auto-exposure`
-  （可微 backprop, **已在 SLM200+大恒真机完成 20×20 方形成形, Corr 0.8776,
-  footprint 20×22px, 曝光无关归一化 target**; 详见
-  `docs/diff_beam/README.md`, 参数扫描: 200 步最优, 400 步无增益）
+- ~~`python src/ao_shaping/main.py diff-shaping --target-shape square --target-px 20 ...`~~
+  （PyTorch 可微传播，文档记载 CV<0.1）— **命令已移除**
+- ~~`python src/ao_shaping/main.py gs-square --target-px 20 ...`~~（Gerchberg-Saxton）— **命令已移除**
+- ~~`python src/ao_shaping/main.py diff-beam --algorithm backprop ...`~~（可微 backprop,
+  SLM200+大恒真机 Corr 0.8776, footprint 20×22px）— **命令已移除**；
+  实测记录仍归档在 `docs/diff_beam/README.md`（200 步最优, 400 步无增益）
 
 若要保留 `slm_square_runner` 的 CLI，可将其相位合成接到 `train_beam_shaping` /
 GS 引擎（保留 `--target-side` / `--center`），而非依赖模型无关 SPGD。
