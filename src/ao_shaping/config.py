@@ -2,6 +2,12 @@
 
 This module provides centralized configuration management for the AO-Shaping system,
 including hardware constants, paths, and default parameters.
+
+``DM_N_ACTUATORS`` and ``DM_DISABLED_ACTUATORS`` are resolved lazily on first access via
+``__getattr__`` and then memoised, because resolving them probes the DM registry over TCP
+(26 sequential 1s connect attempts). The memoisation makes the value sticky: a bench
+process that attaches a DM after the first read keeps the earlier answer. Call
+``reset_dm_resolution_cache()`` to re-probe.
 """
 
 from __future__ import annotations
