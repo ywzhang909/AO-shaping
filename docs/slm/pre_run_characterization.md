@@ -51,8 +51,9 @@ python -m ao_shaping.tools.slm.slm_drift_probe \
 peak cv 1.1%、全图 sum cv 0.2%、40 px box sum cv 0.21%、FWHM 13.3–13.74 px。
 曝光 **t ≥ 0.4 ms** 单调近线性, **t < 0.4 ms 读数紊乱**, 裁切拐点约 2.0–2.2 ms。
 
-> ⚠️ `--exposure-ms` 的旧默认是 **80 ms**, 在本台架**必然饱和**。
-> 显式传参, 别依赖默认值(见 §4 表第 4 行)。
+> ⚠️ 曝光默认值现在是 **`0` = 不固定**, 但在本台架 `0` 会被驱动**钳到设备最小值
+> (~0.02 ms)**, 而不是"保持设备设置"。因此默认调用**必须**先跑本探针 bracket
+> 出可用区间, 再显式传 `--exposure-ms`(见 §4 第 4 行与 §4.1)。
 
 ### 1.2 `slm_floor_probe` — 本底 / 稳定时间 / SNR-vs-K
 
@@ -131,7 +132,26 @@ python -m ao_shaping.tools.slm.slm_abba_probe \
 
 ---
 
-## 3. 环围能量(EE)归一化约定不一致
+## 3. 几何常数: 派生优先于硬编码
+
+CCD 像元间距**不再硬编码**, 而是由实测焦点标度反推:
+
+```
+p_cam = λ·f / (d_slm · K)
+```
+
+`K` = `tools/slm/slm_bench_probe.TILT_SHIFT_SCALE`(实测 7400; 本台架
+1064 nm / f=125 mm / d_slm=8 µm)⇒ **p_cam = 2.247 µm**, 与独立实测的 2.2 µm 一致。
+
+原先硬编码的 **3.31 µm** 隐含 `K = 5023`, 比实测低 **33%**; 它经
+`slm_gs_refine._derive_target_side` 直接缩放 GS 目标边长, 于是把远场角尺寸
+算错 33%(bake-off 会兜住, 但 GS 阶段白做)。
+
+实现: `utils/wavefront/matrix_utils.py::camera_pixel_um_from_focal_scale`,
+由 `runner_common` 与 `slm_gs_refine` **各自调用同一个函数**, 因此两层不会漂移;
+`tools/slm/slm_bench_metrics.py` 只做再导出, 不留第三份定义。
+
+### 3.1 环围能量(EE)归一化约定不一致
 
 仓库里同时存在**三套** EE/重叠度约定, 分母不同:
 
@@ -146,6 +166,16 @@ python -m ao_shaping.tools.slm.slm_abba_probe \
 
 **报告里引用 EE 时必须写清归一化方式**, 否则两个数字没有可比性。
 
+### 3.2 两个字面上像冲突、实际不是的量
+
+- `far_field_padding` **3 (实机) vs 8 (仿真)** — 不是冲突。`far_field_size =
+  n_grid × padding`, 仿真 `n_grid=512`、实机 `n_grid≈900`; 物理量
+  `λf/(aperture·padding)` 与 `n_grid` 无关, padding 只决定采样密度(代价平方级)。
+  **不要"统一"这两个数。**
+- `MAX_GRAYSCALE_VALUE = 1023` vs 设备 2π 灰度 `993` @1064 nm — 不是冲突。
+  1023 = `2^bits − 1`(满量程, 与波长无关, **矫正 CSV 契约**用); 993 是
+  `create_phase_from_array` 在 `driver.py:939-956` 动态查询的波长相关值。
+
 ---
 
 ## 4. 危险默认值清单
@@ -157,18 +187,45 @@ python -m ao_shaping.tools.slm.slm_abba_probe \
 | 1 | `tools/slm/slm_zernike_sweep_probe.py:527` | `_root=`/`name=`/`extra_meta=` | **已修(`dc3d2e3`)**。此前: 扫描与 npz 都成功后仍 `TypeError`, 调试产物全丢 |
 | 2 | `drivers/slm/santec/driver.py:1258` | `target_slot` 未绑定 | **仅 DVI 模式**触发 `UnboundLocalError`。超出本次写入范围, **未修**; DVI 本就不该自动尝试(`open()` 已知会挂起) |
 | 3 | `optimizer/wfless/slm_zernike_pib.py:137`<br>`optimizer/wfless/slm_zernike_shaping.py:123` | `SLM_RESPONSE_TIME_S = 0.0` | **零稳定等待**, 各有 7 处 sleep 调用点。静默读到未稳定帧 |
-| 4 | `runners/runner_common.py:1178` | `SlmSquareParams.exposure_ms = 80.0` | `spgd-square` 在本台架**必然饱和**(help 文本自己就写着 "default: 80")。`slm-pib` 已因同样原因改成 1.5 |
-| 5 | `optimizer/wfless/slm_gs_refine.py:87` | `_DEFAULT_CAMERA_PIXEL_UM = 3.31` | 大恒 MER2-507 实测 **2.2 µm**。GS 会瞄错角尺寸(bake-off 能兜住, 但 GS 白算) |
-| 6 | `optimizer/wfless/slm_gs_refine.py:94` | `_DEFAULT_FAR_FIELD_PADDING = 3` | 文档/仿真侧用 **8**(`iterative_zernike_shaping.py:93`、`drivers/sim/slm_shaping_bench.py:100`); 代价是平方级 |
-| 7 | `optimizer/wfless/slm_gs_refine.py:169` | `focal_length_m = 0.125` | GUI 侧不一致: `gui/slm/pattern_controls.py:1181` GS 用 `100.0` mm, `:453`/`:1381`/`:1663` 用 `300.0` mm |
-| 8 | `tools/slm/slm_bench_probe.py:78` | `TILT_SHIFT_SCALE = 7400.0` | 文档里同时存在 `7600/P`、`5021/Λ`、`132940/P` 四种说法。一个物理量四个数 |
+| 4 | `drivers/ccd/daheng/driver.py:205-218` | 曝光越界被**钳到量程端点** | `0` 不是"保持设备设置", 而是被钳到**设备最小值 ~0.02 ms**(比可用区间暗 20–75 倍)。**这是 `0` 默认值的真实代价, 务必先 bracket** |
+| 5 | `runners/runner_common.py` + `optimizer/wfless/slm_gs_refine.py` | `camera_pixel_um` | **已修(`015890f`)**: 原硬编码 3.31 µm(推得焦点标度 5023, 比实测低 33%), 现由实测焦点标度**反推**得 2.247 µm |
+| 6 | ~~`far_field_padding` 3 vs 8~~ | — | **不是冲突, 已撤回**。`far_field_size = n_grid × padding`, 仿真 `n_grid=512` 用 8、实机 `n_grid≈900` 用 3; 物理量 `λf/(aperture·padding)` 与 `n_grid` 无关, 代价才是平方级。**不要"统一"它** |
+| 7 | `optimizer/wfless/slm_gs_refine.py:186` | `focal_length_m = 0.125` | GUI 侧不一致: `gui/slm/pattern_controls.py:1181` GS 用 `100.0` mm, `:453`/`:1381`/`:1663` 用 `300.0` mm。GS 尺寸直接依赖它, 错了会被 bake-off 兜住但 GS 白算 |
+| 8 | `tools/slm/slm_bench_probe.py:78` | `TILT_SHIFT_SCALE = 7400.0` | 文档里同时存在 `7600/P`、`5021/Λ`、`132940/P` 四种说法。**现在 `camera_pixel_um` 由它反推, 两者不会再漂移** |
 | 9 | `optimizer/wfless/slm_zernike_pib.py:1214,1443,1470` | 每次迭代 `set_reference_center(zero_order_center(...))` | 散斑上 argmax 在近似等亮的颗粒间跳 ⇒ 目标框漂移 ⇒ 指标不连续, 优化器追一个会动的框 |
 | 10 | `utils/image/beam_metrics.py:371,414,462,512` | 4 个 0 阶定位实现 | 暗帧上裸 `argmax`: 峰值 22–46 而帧均值 0.26, 单个热像素即可取胜; 参考质心曾在 60 px 内自漂 |
-| 11 | `optimizer/wfless/slm_square_shaping.py:435`<br>vs `optimizer/wfless/slm_gs_refine.py:251` | 截零 vs 扣中位数 | **故意不同**, 见 §2。统一会引入 1600× 误差 |
+| 11 | `optimizer/wfless/slm_square_shaping.py:435`<br>vs `optimizer/wfless/slm_gs_refine.py:268` | 截零 vs 扣中位数 | **故意不同**, 见 §2。统一会引入 1600× 误差 |
 | 12 | `utils/image/beam_metrics.py:223` 等三处 | EE 分母约定不统一 | 见 §3 |
-| 13 | `drivers/slm/santec/slm200_constants.py:19` | `get_max_grayscale() = 1023` | 设备实测 2π = **993** @1064 nm。矫正 CSV 用 1023, LUT/波前路径用设备值 |
-| 14 | `tools/slm/slm_bench_probe.py:262`<br>vs `optimizer/wfless/slm_gs_refine.py:334` | 两份 settle 实现 | 后者是私有第三份拷贝, **不要照抄**。`slm_zernike_sweep_probe.capture_settled` 是认可的薄封装 |
+| 13 | ~~`MAX_GRAYSCALE_VALUE` 1023 vs 993~~ | — | **不是冲突, 已撤回**。1023 = `2^bits−1`(满量程, 与波长无关, 矫正 CSV 契约); 993 = 设备在 1064 nm 动态查询的 2π 灰度。**两个不同的量** |
+| 14 | `tools/slm/slm_bench_probe.py:262`<br>vs `optimizer/wfless/slm_gs_refine.py:351` | 两份 settle 实现 | 后者是私有第三份拷贝, **不要照抄**。`slm_zernike_sweep_probe.capture_settled` 是认可的薄封装 |
 | 15 | `tools/slm/slm_zernike_common.py:41` | `WFS_ZERNIKE_ORDER = 10` | 注释警告 15 阶非法 → 66 项。阶数写错会静默改变矩阵维度 |
+
+### 4.1 曝光默认值的语义(重要)
+
+曝光默认值已统一为 **`0` = 不固定**, 由
+`drivers/ccd/common.py:554` `resolve_initial_exposure` 分派:
+
+| `exposure_time_ms` | `target_max_brightness` | 行为 |
+|---|---|---|
+| `> 0` | 任意 | `("fixed", ms)` 使用固定值 |
+| `0` | `> 0` | `("auto", target)` 真正自动曝光 |
+| `0` | `== 0` | `("keep", 0.0)` 交给驱动 |
+
+⚠️ **`("keep", 0.0)` 在 Daheng 上不等于"保持"**: 驱动会把越界值**钳到量程端点**
+(`driver.py:205-218`, 注释说明这是为了避免 SDK 写失败), 于是 `0` → **设备最小值
+~0.02 ms**, 比可用区间 0.4–1.5 ms 暗 20–75 倍。
+
+所以 `0` 的含义是"**不再内置某个台架的猜测**", 而**不是**"自动安全"。
+默认路径下若不传曝光, 请先用 `slm_drift_probe` bracket。
+
+> 已按此约定移除的默认值: `config.py` 60 ms; `runner_common`
+> `CameraParams` 1.5 ms / `SlmSquareParams` 80 ms / 另一族 60 ms;
+> `slm_square_shaping` 1.5 ms ×2 与 argparse 80 ms; `wfless/pib.py` 80 ms;
+> `combined_optimizer.py` 80 ms。
+>
+> **未改**: Daheng/MiiCam 驱动的钳位(刻意保留); `fouriergsnet_env._max_gray=255`
+> (仿真内部 LUT 约定); `SimulatedCCD` 的 20 ms 归一化基准(非正曝光回落到基准,
+> 否则会把仿真图案整体缩放为 0, 让所有指标变成纯噪声)。
 
 ---
 
@@ -176,7 +233,9 @@ python -m ao_shaping.tools.slm.slm_abba_probe \
 
 - [ ] **memory mode only** —— 绝不自动尝试 DVI(`video_mode=1`), `open()` 可能挂死,
       恢复需要给 SLM 控制器**物理断电**
-- [ ] 曝光已在本机激光功率下**重新 bracket**(参考值 1.5 ms, 不是 80 ms)
+- [ ] 曝光**没有依赖默认值**: 曝光默认值是 `0`, 而 `0` 在本台架会被钳到设备最小值
+      (~0.02 ms)。请把 `slm_drift_probe` bracket 出的可用值**显式传进去**
+      (本台架参考 1.5 ms, 但务必按当前激光功率重测)
 - [ ] `slm_drift_probe` 报告 `monotonic` 且未饱和
 - [ ] `slm_floor_probe` 的 `verdict` 已知; 若是 `drift_limited` 先修稳定判据
 - [ ] 目标 ROI 由 `argmax` 在**去噪后的平场**上定位一次, 并**整轮冻结**

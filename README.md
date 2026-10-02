@@ -541,7 +541,7 @@ python src/ao_shaping/main.py spgd-square [OPTIONS]
 - `--side-factor`: 自动边长倍率 (默认: 1.5)
 - `-d, --delta`: 扰动幅度 (默认: 0.1)
 - `--lr`: 学习率, 0=自动 (默认: 0)
-- `-t, --exposure-ms`: 相机曝光时间ms (默认: 80)
+- `-t, --exposure-ms`: 相机曝光时间ms (默认: **0** = 不固定, 见下方⚠️)
 - `--cam-id`: 相机设备ID (默认: 0)
 - `-s, --cam-size`: 相机开窗大小 (默认: 300)
 - `--slm-number`: SLM设备编号 (默认: 1)
@@ -560,7 +560,17 @@ python src/ao_shaping/main.py spgd-square [OPTIONS]
 - `--seed`: 随机种子 (默认: None)
 - `--show`: 显示中间图像
 
-**注意**: 目标函数必须包含能量项 (环绕能量 EE), 仅优化亮度均匀性 (-CV) 会把能量推出目标框 (硬件实测 EE→0.002)。方形整形应使用自由相位自由度 (full-pixel/freeform), 低阶 Zernike (n≤4) 无法合成方形远场。
+> **注意**: 目标函数必须包含能量项 (环绕能量 EE), 仅优化亮度均匀性 (-CV) 会把能量推出目标框 (硬件实测 EE→0.002)。方形整形应使用自由相位自由度 (full-pixel/freeform), 低阶 Zernike (n≤4) 无法合成方形远场。
+
+> ⚠️ **曝光默认值是 `0` = "不固定", 不是"自动安全"。**
+> `drivers/ccd/common.py::resolve_initial_exposure` 的分派是:
+> `>0` → 固定该值; `0` + `--target-max-brightness>0` → 真正自动曝光;
+> `0` + 无目标亮度 → `("keep", 0.0)` 交给驱动。
+> 但**大恒驱动会把越界值钳到量程端点** (`driver.py:205-218`, 避免 SDK 写失败),
+> 于是 `0` 实际变成**设备最小值 ~0.02 ms** —— 比本台可用区间 0.4–1.5 ms 暗 20–75 倍。
+> 所以默认调用请先用 `--auto-exposure` 探测, 或显式传实测值 (本台架参考 1.5 ms,
+> **必须按当前激光功率重测**)。详见
+> [`docs/slm/pre_run_characterization.md`](docs/slm/pre_run_characterization.md) §4.1。
 
 示例:
 ```bash
@@ -589,7 +599,7 @@ python src/ao_shaping/main.py slm-gsnet [COMMAND] [OPTIONS]
 - `--side-factor`: 自动边长倍率 (默认: 1.5)
 - `--w-uniformity` (默认: 0.4) / `--w-efficiency` (默认: 0.6) / `--w-aspect` (默认: 0.0): 质量评分权重 (均匀性/能量效率/宽高比)
 - `--cam_type`: 相机后端 (miicam/daheng/sim, sim=2f-Fourier数值仿真无硬件)
-- `-t, --exposure_time_ms`: CCD曝光时间ms (默认: **1.5**, 本台架实测安全值; 换激光功率须重新 bracket —— 该字段不实现自动曝光)
+- `-t, --exposure_time_ms`: CCD曝光时间ms (默认: **0** = 不固定, 见下方⚠️)
 - `--cam-id`: CCD设备ID (默认: 0)
 - `--cam_size`: CCD开窗大小 (像素)
 - `--slm_number`: SLM设备编号 (默认: 1)
@@ -652,9 +662,11 @@ python src/ao_shaping/main.py slm-gs-refine [OPTIONS]
 - `--delta` / `--lr` / `--optimizer [adam|adamw|adamod|sgd]` / `--lr-schedule`
 - `--gs-iters` / `--gs-warm-start/--no-gs-warm-start`
 - `--beam-radius-px`: 面板上照明光斑**半径** (默认 450, 实测台架值)
-- `--camera-pixel-um`: 相机像素间距 (默认 3.31) —— **务必核对本台相机**,
-  它把相机像素的目标边长换算成 bench 远场像素; 错了 GS 会瞄错角尺寸
-  (bake-off 会兜住, 但 GS 就白算了)
+- `--camera-pixel-um`: 相机像素间距 (um)。默认值由**实测焦点标度反推**得到
+  (`p_cam = λ·f/(d_slm·K)`, `K = slm_bench_probe.TILT_SHIFT_SCALE` = 7400
+  ⇒ 2.247 µm, 与独立实测的 2.2 µm 一致), 不再硬编码 —— 原 3.31 µm 隐含
+  焦点标度 5023, 比实测低 33%。**换相机请显式传入**: 它把相机像素的目标
+  边长换算成 bench 远场像素; 错了 GS 会瞄错角尺寸 (bake-off 会兜住, 但 GS 白算)
 - `--far-field-padding`: GS 远场补零倍数 (默认 3; **代价是平方级**)
 - `--cam_type [daheng|miicam|sim]` / `--cam-id` / `--exposure_time_ms` / `--cam_size`
 - `--slm_number` / `--slm_wavelength`
@@ -750,7 +762,7 @@ python src/ao_shaping/main.py slm-pib [spgd|heuristic] [OPTIONS]
 - `--seed`: 随机种子 (仅 sim 模式下可复现)
 - `--cam_type`: 相机类型 (miicam / daheng / sim, 默认: daheng)
 - `--cam_id`: 相机设备ID (默认: 0)
-- `--exposure_time_ms`: 曝光时间ms (默认: **1.5**, 本台架实测安全值; 原默认 80 会在本台架饱和)
+- `--exposure_time_ms`: 曝光时间ms (默认: **0** = 不固定, 见下方⚠️; 可配 `--auto-exposure` 一次探测)
 - `--cam_size`: 相机开窗大小 (默认: 250)
 - `-c, --center`: 光斑中心检测 (auto / mass / max / shape / centroid_thresh 或 'x,y')
 - `--auto-exposure`: 自动寻找安全曝光 (一次探测)
@@ -960,7 +972,7 @@ python src/ao_shaping/main.py combined [OPTIONS]
 - `-f, --load_file`: 加载初始电压文件
 - `--cam_id`: 远场光斑CCD设备ID (默认: Far_CAM_ID/0)
 - `-c, --center`: 场光斑CCD中心位置 (默认: mass 质心)
-- `-t, --exposure_time_ms`: 远场光斑CCD曝光时间 (毫秒, 默认: 80)
+- `-t, --exposure_time_ms`: 远场光斑CCD曝光时间 (毫秒, 默认: **0** = 不固定, 见下方⚠️)
 - `-e, --epochs`: 优化迭代次数 (默认: 4000)
 - `-r, --r_bucket`: 半径桶大小 (默认: 0, 环围半径自动调整)
 - `--delta`: 优化步长 (默认: 1.0)
