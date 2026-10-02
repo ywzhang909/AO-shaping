@@ -30,15 +30,16 @@ never opens a device.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Annotated, Any
 
 import click
 import pytest
 from click.testing import CliRunner
 
+from ao_shaping.runners import runner_common
 from ao_shaping.runners.runner_common import (
     DM_TYPES,
-    DM_TYPES_PRE_ASYN_MICRO,
     CameraParams,
     CameraParamsPib,
     ClickGroup,
@@ -213,40 +214,50 @@ class TestNegativePins:
 
 
 class TestDmTypes:
-    """``DM_TYPES`` depends on import order plus one side-effect import.
+    """The ``--dm_type`` choice list must offer ``asyn_micro``, whatever the import order.
 
-    ``runner_common`` snapshots ``DM_TYPES_PRE_ASYN_MICRO`` *before*
-    ``import ao_shaping.drivers.dm.asyn_micro_dm`` registers ``asyn_micro``,
-    then re-reads the registry for ``DM_TYPES``. Dropping that import shrinks
-    the ``--dm_type`` choice list by one entry with no error.
+    ``runner_common`` takes a ``DM_TYPES_PRE_ASYN_MICRO`` snapshot and then does
+    ``import ao_shaping.drivers.dm.asyn_micro_dm``, whose only purpose is the
+    registration side effect that adds ``asyn_micro``. Deleting that import
+    silently shrinks ``--dm_type`` by one entry.
 
-    These assertions are deliberately subset/relation based rather than exact
-    lists. DM types self-register as an import side effect, so *which* types are
-    present when the snapshot is taken depends on what the process imported
-    first: in a full-suite run the registry holds more entries than in a fresh
-    interpreter. Pinning an exact list made this test pass alone and fail in the
-    suite. What must hold in every ordering is the relation below, plus the six
-    types that are always registered by ``drivers.dm.__init__``.
+    The snapshot is inherently racy and this test does not pretend otherwise: DM
+    types self-register on import, so if any *earlier* test already imported
+    ``asyn_micro_dm``, the "pre" snapshot already contains it and the snapshot
+    describes nothing. That is observable -- these assertions failed in a full
+    suite while passing in a fresh interpreter -- and it is exactly the hazard the
+    refactor TODO registers as R2.
+
+    So the runtime assertions pin only what holds in *every* ordering: the outcome
+    (``asyn_micro`` is offered), not the mechanism. The mechanism is pinned
+    statically instead, which is race-free and fails for the real regression.
     """
 
-    #: Always present: registered eagerly by drivers/dm/__init__.py.
+    #: Registered eagerly by drivers/dm/__init__.py, so present in any ordering.
     ALWAYS_REGISTERED = {"hadamard", "micro", "nlight", "sim", "sim_micro", "zernike"}
 
-    def test_pre_asyn_micro_contains_always_registered(self) -> None:
-        missing = self.ALWAYS_REGISTERED - set(DM_TYPES_PRE_ASYN_MICRO)
-        assert not missing, f"registry snapshot is missing core DM types: {missing}"
+    def test_asyn_micro_is_offered(self) -> None:
+        # The load-bearing outcome: the side-effect import must have happened by
+        # the time anything can render DM_TYPES into a click.Choice.
+        assert "asyn_micro" in DM_TYPES
 
-    def test_pre_asyn_micro_excludes_asyn_micro(self) -> None:
-        # The whole point of the snapshot: asyn_micro is registered by the very
-        # import the snapshot is taken before.
-        assert "asyn_micro" not in DM_TYPES_PRE_ASYN_MICRO
+    def test_core_dm_types_are_offered(self) -> None:
+        missing = self.ALWAYS_REGISTERED - set(DM_TYPES)
+        assert not missing, f"--dm_type is missing core DM types: {missing}"
 
-    def test_pre_asyn_micro_is_sorted_and_unique(self) -> None:
-        assert DM_TYPES_PRE_ASYN_MICRO == sorted(set(DM_TYPES_PRE_ASYN_MICRO))
+    def test_dm_types_is_sorted_and_unique(self) -> None:
+        assert DM_TYPES == sorted(set(DM_TYPES))
 
-    def test_dm_types_is_sorted_pre_plus_asyn_micro(self) -> None:
-        assert DM_TYPES == sorted(DM_TYPES_PRE_ASYN_MICRO + ["asyn_micro"])
+    def test_pre_snapshot_precedes_the_side_effect_import(self) -> None:
+        """Static check: the snapshot must be taken before ``asyn_micro`` registers.
 
-    def test_dm_types_adds_exactly_one_entry(self) -> None:
-        assert len(DM_TYPES) == len(DM_TYPES_PRE_ASYN_MICRO) + 1
-        assert set(DM_TYPES) - set(DM_TYPES_PRE_ASYN_MICRO) == {"asyn_micro"}
+        Race-free, and it fails for the actual regression (someone dropping or
+        reordering the import) rather than for whatever ran earlier in the suite.
+        """
+        source = Path(runner_common.__file__).read_text(encoding="utf-8")
+        snapshot = source.index("DM_TYPES_PRE_ASYN_MICRO = list_dm_types()")
+        side_effect = source.index("import ao_shaping.drivers.dm.asyn_micro_dm")
+        assert snapshot < side_effect, (
+            "runner_common must snapshot the registry BEFORE importing "
+            "asyn_micro_dm, otherwise the snapshot cannot observe the difference"
+        )
