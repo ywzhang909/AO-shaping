@@ -68,12 +68,10 @@ comments verbatim — they start unicode escapes and raise ``SyntaxError``.
 
 from __future__ import annotations
 
-import functools
 import os
 from dataclasses import MISSING, dataclass, field, fields, is_dataclass
 from pathlib import Path
-from types import UnionType
-from typing import Annotated, Any, Union, cast, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, cast
 
 import click
 
