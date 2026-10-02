@@ -30,16 +30,17 @@ fitter's records are labelled with.
 
 from __future__ import annotations
 
-import argparse
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
+import click
 import numpy as np
 
 from loguru import logger
 
+from ao_shaping.tools.slm.params import SlmAcquireParams, SlmBenchParams
 from ao_shaping.tools.slm.slm_bench_probe import (
     SLM_PITCH_M,
     SLM_PANEL_H,
@@ -50,6 +51,8 @@ from ao_shaping.tools.slm.slm_bench_probe import (
     ramp_panel,
     zernike_panel,
 )
+from ao_shaping.utils.cli.params import ClickGroup, option, with_params
+from ao_shaping.utils.io.cli_helpers import parse_tuple, setup_coredumpy
 
 #: Panel raster of the Santec SLM-200 used on this bench (height, width).
 DEFAULT_PANEL_SHAPE: tuple[int, int] = (SLM_PANEL_H, SLM_PANEL_W)
@@ -419,94 +422,92 @@ def _parse_floats(text: str) -> list[float]:
     return [float(v) for v in str(text).split(",") if v.strip()]
 
 
-def _parse_int_tuple(text: str) -> tuple[int, int]:
-    """Parse an ``"x,y"`` integer pair, e.g. a panel-space pupil centre."""
-    parts = [p for p in str(text).split(",") if p.strip()]
-    if len(parts) != 2:
-        raise argparse.ArgumentTypeError(f"expected 'x,y', got {text!r}")
-    return int(parts[0]), int(parts[1])
+@dataclass
+class SweepProbeParams:
+    """CLI surface of the smooth-Zernike sweep probe.
 
-
-def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    from ao_shaping.utils.io.cli_helpers import setup_coredumpy
-
-    setup_coredumpy()
-    ap = argparse.ArgumentParser(
-        description="光滑 Zernike 台架扫描探针 (需硬件: Santec SLM-200 + 远场相机)",
-    )
-    ap.add_argument("--out", default="data/slm_zernike_sweep",
-                    help="输出目录 (默认 data/slm_zernike_sweep)")
-    ap.add_argument("--slm-number", type=int, default=1)
-    ap.add_argument("--slm-wavelength", type=int, default=1064)
-    ap.add_argument("--cam-type", default="daheng", choices=["daheng", "miicam"])
-    ap.add_argument("--cam-id", type=int, default=0)
-    ap.add_argument("--exposure-ms", type=float, default=3.0)
-    ap.add_argument("--pupil-center", default="960,600", type=_parse_int_tuple,
-                    help="光斑中心 (面板 px x,y)")
-    ap.add_argument("--zernike-radius", type=int, default=450)
-    ap.add_argument("--sweep-tilt", default="-1.0,1.0")
-    ap.add_argument("--sweep-defocus", default="-4.0,-2.5,-1.5,-0.75,0.75,1.5,2.5,4.0")
-    ap.add_argument("--sweep-astig", default="-3.0,-1.5,1.5,3.0")
-    ap.add_argument("--sweep-coma", default="-1.2,-0.6,0.6,1.2")
-    ap.add_argument("--sweep-spherical", default="-1.2,-0.6,0.6,1.2")
-    ap.add_argument("--sweep-ramps", default="120,240,480,960,1920")
-    ap.add_argument("--frames", type=int, default=4)
-    ap.add_argument("--discard", type=int, default=3)
-    ap.add_argument("--settle-s", type=float, default=0.5)
-    ap.add_argument("--stable-tol", type=float, default=0.02)
-    ap.add_argument("--max-wait-s", type=float, default=6.0)
-    ap.add_argument("--save-frames/--no-save-frames", default=True)
-    ap.add_argument("--no-hw", action="store_true",
-                    help="不打开硬件, 只打印将要采集的点 (自检用)")
-    return ap.parse_args(argv)
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    """Run the sweep on hardware and persist it.
-
-    Args:
-        argv: Command-line arguments; defaults to ``sys.argv[1:]``.
-
-    Returns:
-        ``0`` on success.
+    Field order *is* the ``--help`` order, and it is deliberately identical to
+    the ``add_argument`` sequence this command had before its click migration —
+    ``tools/slm/TODO.md`` R5 froze that surface at 21 options, and the order
+    itself is a contract. The two :class:`ClickGroup` fields splice the shared
+    device and acquisition groups in at exactly the positions the hand-written
+    declarations occupied, which is why the groups are contiguous blocks.
     """
+
+    out: Annotated[
+        str, option("--out", help="输出目录 (默认 data/slm_zernike_sweep)")
+    ] = "data/slm_zernike_sweep"
+    bench: Annotated[SlmBenchParams, ClickGroup()] = field(
+        default_factory=SlmBenchParams
+    )
+    pupil_center: Annotated[
+        str | tuple[float, float],
+        option("--pupil-center", callback=parse_tuple, help="光斑中心 (面板 px x,y)"),
+    ] = "960,600"
+    zernike_radius: Annotated[int, option("--zernike-radius")] = 450
+    sweep_tilt: Annotated[str, option("--sweep-tilt")] = "-1.0,1.0"
+    sweep_defocus: Annotated[
+        str, option("--sweep-defocus")
+    ] = "-4.0,-2.5,-1.5,-0.75,0.75,1.5,2.5,4.0"
+    sweep_astig: Annotated[str, option("--sweep-astig")] = "-3.0,-1.5,1.5,3.0"
+    sweep_coma: Annotated[str, option("--sweep-coma")] = "-1.2,-0.6,0.6,1.2"
+    sweep_spherical: Annotated[
+        str, option("--sweep-spherical")
+    ] = "-1.2,-0.6,0.6,1.2"
+    sweep_ramps: Annotated[str, option("--sweep-ramps")] = "120,240,480,960,1920"
+    acquire: Annotated[SlmAcquireParams, ClickGroup()] = field(
+        default_factory=SlmAcquireParams
+    )
+    save_frames: Annotated[bool, option("--save-frames/--no-save-frames")] = True
+    no_hw: Annotated[
+        bool,
+        option("--no-hw", is_flag=True, help="不打开硬件, 只打印将要采集的点 (自检用)"),
+    ] = False
+
+
+@click.command()
+@with_params(SweepProbeParams, kw_name="params")
+def main(params: SweepProbeParams) -> None:
+    """光滑 Zernike 台架扫描探针 (需硬件: Santec SLM-200 + 远场相机)."""
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm.santec import Santec
     from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts
 
-    args = _parse_args(argv)
+    setup_coredumpy()
     points = default_sweep_points(
-        tilt=_parse_floats(args.sweep_tilt),
-        defocus=_parse_floats(args.sweep_defocus),
-        astig=_parse_floats(args.sweep_astig),
-        coma=_parse_floats(args.sweep_coma),
-        spherical=_parse_floats(args.sweep_spherical),
-        ramps=_parse_floats(args.sweep_ramps),
+        tilt=_parse_floats(params.sweep_tilt),
+        defocus=_parse_floats(params.sweep_defocus),
+        astig=_parse_floats(params.sweep_astig),
+        coma=_parse_floats(params.sweep_coma),
+        spherical=_parse_floats(params.sweep_spherical),
+        ramps=_parse_floats(params.sweep_ramps),
     )
-    out_dir = Path(args.out)
+    out_dir = Path(params.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    if args.no_hw:
+    if params.no_hw:
         logger.info("--no-hw: {} 个采集点 (含前置 flat), 不打开硬件",
                     len(points) + 1)
         for point in points:
             logger.info("  {} axis={} coeff={:+.3f}", point.tag(), point.axis or "-",
                         point.coefficient)
-        return 0
+        return
 
+    bench = params.bench
+    acquire = params.acquire
     with Santec(
-        slm_number=args.slm_number, wavelength=args.slm_wavelength, video_mode=0
+        slm_number=bench.slm_number, wavelength=bench.slm_wavelength, video_mode=0
     ) as slm, create_camera(
-        args.cam_type, args.cam_id, exposure_time_ms=args.exposure_ms
+        bench.cam_type, bench.cam_id, exposure_time_ms=bench.exposure_ms
     ) as cam:
-        cam.reset_exposure_time(float(args.exposure_ms))
+        cam.reset_exposure_time(float(bench.exposure_ms))
         result = acquire_sweep(
             cam, slm, points,
-            pupil_center=tuple(args.pupil_center),
-            zernike_radius=args.zernike_radius,
-            n_frames=args.frames, n_discard=args.discard,
-            wait_time_s=args.settle_s, stable_tol=args.stable_tol,
-            max_wait_s=args.max_wait_s,
+            pupil_center=tuple(params.pupil_center),
+            zernike_radius=params.zernike_radius,
+            n_frames=acquire.frames, n_discard=acquire.discard,
+            wait_time_s=acquire.settle_s, stable_tol=acquire.stable_tol,
+            max_wait_s=acquire.max_wait_s,
         )
 
     npz_path = save_sweep_npz(out_dir / "sweep_records.npz", result)
@@ -536,15 +537,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             "mode_codes": MODE_CODES,
             "axis_codes": AXIS_CODES,
             "single_lobe_min_hollowness": SINGLE_LOBE_MIN_HOLLOWNESS,
-            "exposure_ms": args.exposure_ms,
-            "settle_s": args.settle_s,
-            "stable_tol": args.stable_tol,
-            "max_wait_s": args.max_wait_s,
+            "exposure_ms": bench.exposure_ms,
+            "settle_s": acquire.settle_s,
+            "stable_tol": acquire.stable_tol,
+            "max_wait_s": acquire.max_wait_s,
         },
     )
     logger.info("扫描探针完成 -> {}", out_dir)
-    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(main())
+    main()  # a click command exits via SystemExit itself; no return value to wrap

@@ -12,6 +12,12 @@
   shift 平移标定 (CLI: `python -m ao_shaping.tools.slm.calibration shift <args>`),
   含已废弃的 SLMLUTCalibrator
 - slm_scan_analysis.py — SLM 扫描数据分析共享助手 (纯 numpy/stdlib, 无硬件依赖)
+- params.py — 台架探针**共享 click 参数组**: `SlmBenchParams` (开哪台设备: SLM
+  编号/波长 + 相机类型/id/曝光) 与 `SlmAcquireParams` (怎么读帧: 帧数/丢弃数 +
+  稳定判据 `settle_s`/`stable_tol`/`max_wait_s`)。稳定判据是**实测教训** (等固定
+  时长而非等稳定会读成 1.63 而非 5.36 的斜率), 单点化默认值才不会各处漂移。
+  探针用 `ClickGroup` 就地拼接以保持各自 `--help` 顺序不变。本模块**禁止** import
+  `ao_shaping.runners` (见文件内不变量说明)
 - slm_bench_probe.py — SLM 台架探针共享测量内核 (纯测量, 设备由参数传入):
   平滑/光斑 FWHM+质心+中心凹陷度/0 阶能量占比/面板 Zernike 放置/倾斜斜坡/线性拟合。
   固化了三条踩过坑的台架事实: 暗帧不可用裸 argmax 定位光斑 (参考质心曾漂 60px)、

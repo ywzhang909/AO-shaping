@@ -20,24 +20,28 @@ stacked ``@with_params`` decorators never see each other.  The failure mode is
 therefore a flag that is documented in ``--help``, accepted by the parser, and
 then **silently ignored**.
 
-The three tests below pin the "before" side of the upcoming ``tools/slm`` CLI
-refactor:
+The four tests below pin the ``tools/slm`` CLI ↔ dataclass binding contract:
 
 1. :func:`test_no_field_equals_its_default` — the R3 guard.  Every one of the
-   16 click commands in ``tools/slm`` is invoked with a fixed argv of
+   17 click commands in ``tools/slm`` is invoked with a fixed argv of
    **non-default** values; no delivered field may still equal its default.
    No hardware is opened: every device-construction symbol is monkeypatched to
    raise a sentinel, and the sentinel derives from :class:`BaseException` so a
    broad ``except Exception`` in a command body cannot swallow it.
-2. :func:`test_argparse_namespace_is_pinned` — freezes the ``argparse``
-   namespace of ``slm_zernike_sweep_probe`` (the only ``argparse`` module, 21
-   ``add_argument``) so its click migration can be proven equivalent.
+2. :func:`test_sweep_cli_namespace_is_pinned` — freezes the sweep probe's
+   21-option click namespace (taken while it was still ``argparse``) so its
+   click migration can be proven equivalent.
 3. :func:`test_santec_and_camera_call_sites_are_stable` — freezes the number
    of ``Santec(`` / camera-open construction sites in the package, making
    ``TODO.md`` §六 ("do **not** unify device sessions into a context manager")
    machine-enforceable: settle / slot / dark-frame steps are position
    sensitive, and moving them yields plausible-looking *wrong* data (a
    measured 3.3x slope error).
+4. :func:`test_params_module_does_not_import_runners` — keeps the shared
+   ``tools/slm/params.py`` groups free of any ``ao_shaping.runners`` edge.
+   ``runners/slm/zernike_matrix_runner.py`` imports ``tools.slm.*`` at module
+   level, so such an edge closes a real import cycle; ``with_params`` plumbing is
+   pure metadata and must not depend on hardware orchestration.
 """
 
 from __future__ import annotations
@@ -135,6 +139,8 @@ class Case:
     #: ``"device"`` -> abort at the first device open (default).
     #: ``"delegate:<name>"`` -> stub a module-level delegate instead (used when
     #: a command has an offline branch that would otherwise divert).
+    #: ``"offline"`` -> the command's first branch *returns* (e.g. ``--no-hw``),
+    #: leaving no device open to intercept; require exit 0 instead.
     stop: str = "device"
     #: Fields that provably cannot hold a non-default value on the hardware
     #: path; each is structurally re-verified by the test.
@@ -426,6 +432,34 @@ CASES: tuple[Case, ...] = (
         ),
     ),
     Case(
+        "slm_zernike_sweep_probe",
+        "main",
+        (
+            "--out", "{out}",
+            "--slm-number", "3",
+            "--slm-wavelength", "532",
+            "--cam-type", "miicam",
+            "--cam-id", "2",
+            "--exposure-ms", "4.5",
+            "--pupil-center", "900,640",
+            "--zernike-radius", "320",
+            "--sweep-tilt", "-2.0,2.0",
+            "--sweep-defocus", "-5.0,-3.0,-1.0,1.0,3.0,5.0",
+            "--sweep-astig", "-4.0,-2.0,2.0,4.0",
+            "--sweep-coma", "-2.0,-1.0,1.0,2.0",
+            "--sweep-spherical", "-2.5,-1.0,1.0,2.5",
+            "--sweep-ramps", "96,192,384,768",
+            "--frames", "3",
+            "--discard", "2",
+            "--settle-s", "0.75",
+            "--stable-tol", "0.03",
+            "--max-wait-s", "8.0",
+            "--no-save-frames",
+            "--no-hw",
+        ),
+        stop="offline",
+    ),
+    Case(
         # ``--verify`` / ``--export-correction`` are mode switches: their first
         # statement in ``main`` is ``return <offline routine>``, so no argv can
         # both set them and still reach the hardware path.  Structurally
@@ -458,7 +492,7 @@ CASES: tuple[Case, ...] = (
 )
 
 #: Number of ``@click.command``-decorated functions the guard must cover.
-EXPECTED_COMMAND_COUNT = 16
+EXPECTED_COMMAND_COUNT = 17
 
 #: Construction symbols counted by test 3.
 _SANTEC_RE = re.compile(r"(?<![\w.])Santec\s*\(")
@@ -632,6 +666,11 @@ def test_no_field_equals_its_default(
     if case.stop == "device":
         _block_device_opens(monkeypatch, module)
         expected: Any = _HardwareBlocked
+    elif case.stop == "offline":
+        # Still block device opens: if the early-return branch were deleted, the
+        # sentinel must surface instead of the command reaching real hardware.
+        _block_device_opens(monkeypatch, module)
+        expected = None
     else:
         _, delegate_name = case.stop.split(":", 1)
         assert hasattr(module, delegate_name), f"missing delegate {delegate_name}"
@@ -651,7 +690,8 @@ def test_no_field_equals_its_default(
             f"{case.module}.{case.attr} exited {result.exit_code}: "
             f"{result.exception!r}\n{result.output}"
         )
-        assert delegate_calls, f"delegate {case.stop!r} was never called"
+        if case.stop != "offline":
+            assert delegate_calls, f"delegate {case.stop!r} was never called"
     else:
         blocked = False
         result = None
@@ -742,7 +782,7 @@ def test_every_click_command_has_a_guard_case() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 2 — the argparse "before" snapshot
+# Test 2 — the sweep probe's pinned CLI namespace
 # ---------------------------------------------------------------------------
 
 SWEEP_ARGV: tuple[str, ...] = (
@@ -765,7 +805,7 @@ SWEEP_ARGV: tuple[str, ...] = (
     "--settle-s", "0.75",
     "--stable-tol", "0.03",
     "--max-wait-s", "8.0",
-    "--save-frames/--no-save-frames", "0",
+    "--no-save-frames",
     "--no-hw",
 )
 
@@ -789,40 +829,42 @@ EXPECTED_SWEEP_NAMESPACE: dict[str, Any] = {
     "settle_s": 0.75,
     "stable_tol": 0.03,
     "max_wait_s": 8.0,
-    # argparse (unlike optparse) has no ``--foo/--no-foo`` syntax: the literal
-    # option string becomes the dest. Pinned as-is so the click migration has to
-    # decide deliberately what ``--save-frames`` should mean.
-    "save_frames/__no_save_frames": "0",
+    # click resolves the slash syntax to a real boolean pair, so what argparse
+    # spelled as the dest ``"save_frames/__no_save_frames"`` (value ``"0"``) is
+    # now the plain flag ``save_frames=False``. The flag *pair* is unchanged.
+    "save_frames": False,
     "no_hw": True,
 }
 
 
-def test_argparse_namespace_is_pinned() -> None:
-    """Freeze ``slm_zernike_sweep_probe._parse_args`` before its click migration.
+def test_sweep_cli_namespace_is_pinned() -> None:
+    """Freeze the sweep probe's 21-option click namespace.
 
-    ``slm_zernike_sweep_probe`` is the only ``argparse`` module left in
-    ``tools/slm`` (21 ``add_argument``).  Pinning the namespace now gives the
-    migration an exact "before" to be compared against (TODO.md R5).  The argv
-    sets every one of the 21 options to a non-default value, so a silently
-    dropped ``add_argument`` shows up as a missing/unchanged key.  Parsing is
-    pure — no device is touched — and ``--no-hw`` is set for good measure.
+    This was the ``argparse`` "before" snapshot taken before the click migration
+    (``tools/slm/TODO.md`` R5); it is retained verbatim against the click parser
+    so the migration can be proven value-for-value equivalent. The argv sets every
+    one of the 21 options to a non-default value, so a silently dropped option
+    shows up as a missing/unchanged key. Parsing is pure — no device is touched —
+    and ``--no-hw`` is set for good measure.
+
+    One key is *expected* to differ from the old argparse snapshot:
+    ``save_frames`` (see :data:`EXPECTED_SWEEP_NAMESPACE`).
     """
-    from ao_shaping.tools.slm.slm_zernike_sweep_probe import _parse_args
+    from ao_shaping.tools.slm.slm_zernike_sweep_probe import main
 
-    namespace = _parse_args(list(SWEEP_ARGV))
-    actual = vars(namespace)
+    actual = dict(main.make_context("slm_zernike_sweep_probe", list(SWEEP_ARGV)).params)
 
     assert set(actual) == set(EXPECTED_SWEEP_NAMESPACE), (
-        "argparse dest set drifted (an add_argument was added/removed/renamed); "
+        "click parameter set drifted (an option was added/removed/renamed); "
         f"added={sorted(set(actual) - set(EXPECTED_SWEEP_NAMESPACE))} "
         f"removed={sorted(set(EXPECTED_SWEEP_NAMESPACE) - set(actual))}"
     )
     assert actual == EXPECTED_SWEEP_NAMESPACE
 
     # Every option must be non-default, otherwise the snapshot is weak.
-    default_ns = vars(_parse_args([]))
-    assert set(actual) == set(default_ns)
-    unchanged = sorted(k for k in actual if actual[k] == default_ns[k])
+    defaults = dict(main.make_context("slm_zernike_sweep_probe", []).params)
+    assert set(actual) == set(defaults)
+    unchanged = sorted(k for k in actual if actual[k] == defaults[k])
     assert unchanged == [], f"sweep argv left these at their default: {unchanged}"
 
 
@@ -941,4 +983,40 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
     assert _SANTEC_RE.search(_module_docstring(snr_path)), (
         "slm_snr_probe's documented 'Typical use' example must keep showing how "
         "a caller opens the bench"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 4 — shared params module stays free of runners (TODO.md R5)
+# ---------------------------------------------------------------------------
+
+
+def test_params_module_does_not_import_runners() -> None:
+    """Guard the layering invariant documented in ``tools/slm/params.py``.
+
+    ``runners/slm/zernike_matrix_runner.py`` imports ``ao_shaping.tools.slm.*``
+    at module level, so any ``ao_shaping.runners`` edge in the shared parameter
+    groups closes a real import cycle. ``with_params`` plumbing is pure
+    metadata and must never reach for hardware orchestration.
+    """
+    params_path = TOOLS_SLM_DIR / "params.py"
+    tree = ast.parse(params_path.read_text(encoding="utf-8"))
+
+    offenders: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            offenders += [
+                alias.name for alias in node.names
+                if alias.name.startswith("ao_shaping.runners")
+            ]
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if module.startswith("ao_shaping.runners") or (
+                node.level and module.startswith("runners")
+            ):
+                offenders.append(module)
+
+    assert not offenders, (
+        "tools/slm/params.py must not import ao_shaping.runners "
+        f"(would close the runners -> tools.slm import cycle): {sorted(set(offenders))}"
     )
