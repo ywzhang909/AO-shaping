@@ -67,6 +67,13 @@ EXIT_SUFFIX = ":exit"
 PROG = "<prog>"
 REGENERATE_ENV_VAR = "AO_UPDATE_HELP_GOLDEN"
 _USAGE_RE = re.compile(r"^Usage: .*$", re.MULTILINE)
+# `--dm_type` renders click.Choice(DM_TYPES) -- the *live* DM registry -- so its contents depend on
+# which modules a process imported first: DM types self-register as an import side effect, and
+# runner_common deliberately snapshots the registry before importing asyn_micro_dm. That makes the
+# choice list import-order dependent, not a behavioural contract. Scoped to --dm_type on purpose:
+# a broader "any [a|b|c]" rule would also hide changes to STATIC choice lists (--camera-type,
+# --wfs_type, --objective), which this golden exists to catch.
+_DM_TYPE_CHOICE_RE = re.compile(r"^(\s+--dm_type\s+)\[[a-z_0-9|]+\]", re.MULTILINE)
 
 TOOLS_SLM_MODULES: list[str] = [
     "calibration",
@@ -94,11 +101,14 @@ EXPECTED_COLLIDING_NAMES: dict[str, int] = {"main": 13, "run": 3}
 
 
 def normalize(text: str) -> str:
-    """Replace every whole ``Usage: <something>`` line with ``Usage: <prog>``.
+    """Normalise the two parts of ``--help`` that are not behavioural contract.
 
-    Nothing else is touched - this is the only normalisation applied.
+    The ``Usage:`` line carries the prog name, and ``--dm_type``'s choice list is
+    the live DM registry (see ``_DM_TYPE_CHOICE_RE``). Everything else - flag
+    names, their order, types, defaults and help prose - is compared verbatim.
     """
-    return _USAGE_RE.sub(f"Usage: {PROG}", text)
+    text = _USAGE_RE.sub(f"Usage: {PROG}", text)
+    return _DM_TYPE_CHOICE_RE.sub(r"\g<1>[<dm-types>]", text)
 
 
 def invoke_help(cmd: click.Command) -> tuple[str, int]:

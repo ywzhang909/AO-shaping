@@ -219,17 +219,30 @@ class TestDmTypes:
     ``import ao_shaping.drivers.dm.asyn_micro_dm`` registers ``asyn_micro``,
     then re-reads the registry for ``DM_TYPES``. Dropping that import shrinks
     the ``--dm_type`` choice list by one entry with no error.
+
+    These assertions are deliberately subset/relation based rather than exact
+    lists. DM types self-register as an import side effect, so *which* types are
+    present when the snapshot is taken depends on what the process imported
+    first: in a full-suite run the registry holds more entries than in a fresh
+    interpreter. Pinning an exact list made this test pass alone and fail in the
+    suite. What must hold in every ordering is the relation below, plus the six
+    types that are always registered by ``drivers.dm.__init__``.
     """
 
-    def test_pre_asyn_micro_contents(self) -> None:
-        assert DM_TYPES_PRE_ASYN_MICRO == [
-            "hadamard",
-            "micro",
-            "nlight",
-            "sim",
-            "sim_micro",
-            "zernike",
-        ]
+    #: Always present: registered eagerly by drivers/dm/__init__.py.
+    ALWAYS_REGISTERED = {"hadamard", "micro", "nlight", "sim", "sim_micro", "zernike"}
+
+    def test_pre_asyn_micro_contains_always_registered(self) -> None:
+        missing = self.ALWAYS_REGISTERED - set(DM_TYPES_PRE_ASYN_MICRO)
+        assert not missing, f"registry snapshot is missing core DM types: {missing}"
+
+    def test_pre_asyn_micro_excludes_asyn_micro(self) -> None:
+        # The whole point of the snapshot: asyn_micro is registered by the very
+        # import the snapshot is taken before.
+        assert "asyn_micro" not in DM_TYPES_PRE_ASYN_MICRO
+
+    def test_pre_asyn_micro_is_sorted_and_unique(self) -> None:
+        assert DM_TYPES_PRE_ASYN_MICRO == sorted(set(DM_TYPES_PRE_ASYN_MICRO))
 
     def test_dm_types_is_sorted_pre_plus_asyn_micro(self) -> None:
         assert DM_TYPES == sorted(DM_TYPES_PRE_ASYN_MICRO + ["asyn_micro"])
