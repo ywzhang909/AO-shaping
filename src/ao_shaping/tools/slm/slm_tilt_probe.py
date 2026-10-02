@@ -36,6 +36,9 @@ mapping.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Annotated
+
 import click
 import numpy as np
 from loguru import logger
@@ -51,37 +54,78 @@ from ao_shaping.tools.slm.slm_bench_probe import (
     measure_spot,
     ramp_panel,
 )
+from ao_shaping.utils.cli.params import option, with_params
+
+
+@dataclass
+class TiltProbeParams:
+    """CLI surface of the tilt probe.
+
+    Field order *is* the ``--help`` order, and the whole nine-option surface is
+    frozen by ``tests/ao_shaping/runners/_cli_help_golden.json``.
+
+    These five device/acquisition knobs are declared locally rather than spliced
+    from :mod:`ao_shaping.tools.slm.params`. The shared groups are deliberately
+    *not* a drop-in here: :class:`~ao_shaping.tools.slm.params.SlmBenchParams`
+    types ``--cam-type`` as a ``click.Choice`` (which renders
+    ``[daheng|miicam]``, not ``TEXT``) and leaves ``--exposure-ms``/``--frames``
+    without help text, so reusing it would silently change the frozen help.
+    """
+
+    slm_number: Annotated[
+        int, option("--slm-number", help="SLM 设备编号 (默认 1)")
+    ] = 1
+    slm_wavelength: Annotated[
+        int, option("--slm-wavelength", help="SLM 波长 nm (默认 1064)")
+    ] = 1064
+    cam_type: Annotated[
+        str, option("--cam-type", help="相机类型 (daheng/miicam, 默认 daheng)")
+    ] = "daheng"
+    cam_id: Annotated[int, option("--cam-id", help="相机 ID (默认 0)")] = 0
+    exposure_ms: Annotated[
+        float,
+        option(
+            "--exposure-ms",
+            help="相机曝光 ms (默认 3.0; 1.1 ms 落在 0 阶峰值 ~60, 但散斑帧太暗)",
+        ),
+    ] = 3.0
+    periods: Annotated[
+        str,
+        option(
+            "--periods",
+            help="2*pi 斜坡周期 (面板 px, 逗号分隔)。位移 = 7600/period 相机 px, "
+            "所以周期必须大——周期 1 会把光斑甩出 5.7 mm 画框",
+        ),
+    ] = "480,240,120"
+    axis: Annotated[
+        str,
+        option(
+            "--axis",
+            type=click.Choice(["x", "y"]),
+            help="倾斜轴 (面板坐标, 默认 x)",
+        ),
+    ] = "x"
+    frames: Annotated[int, option("--frames", help="每帧平均张数 (默认 4)")] = 4
+    repeat: Annotated[
+        int, option("--repeat", help="每个周期重复次数 (默认 2)")
+    ] = 2
 
 
 @click.command()
-@click.option("--slm-number", type=int, default=1, help="SLM 设备编号 (默认 1)")
-@click.option("--slm-wavelength", type=int, default=1064, help="SLM 波长 nm (默认 1064)")
-@click.option("--cam-type", default="daheng", help="相机类型 (daheng/miicam, 默认 daheng)")
-@click.option("--cam-id", type=int, default=0, help="相机 ID (默认 0)")
-@click.option(
-    "--exposure-ms", type=float, default=3.0,
-    help="相机曝光 ms (默认 3.0; 1.1 ms 落在 0 阶峰值 ~60, 但散斑帧太暗)",
-)
-@click.option(
-    "--periods", default="480,240,120",
-    help="2*pi 斜坡周期 (面板 px, 逗号分隔)。位移 = 7600/period 相机 px, "
-    "所以周期必须大——周期 1 会把光斑甩出 5.7 mm 画框",
-)
-@click.option("--axis", type=click.Choice(["x", "y"]), default="x", help="倾斜轴 (面板坐标, 默认 x)")
-@click.option("--frames", type=int, default=4, help="每帧平均张数 (默认 4)")
-@click.option("--repeat", type=int, default=2, help="每个周期重复次数 (默认 2)")
-def main(
-    slm_number: int,
-    slm_wavelength: int,
-    cam_type: str,
-    cam_id: int,
-    exposure_ms: float,
-    periods: str,
-    axis: str,
-    frames: int,
-    repeat: int,
-) -> None:
+@with_params(TiltProbeParams, kw_name="params")
+def main(params: TiltProbeParams) -> None:
     """用相位倾斜斜坡判定面板是否真的在调制 (比光栅可靠得多)。"""
+    # Local aliases keep the position-sensitive measurement body below verbatim.
+    slm_number = params.slm_number
+    slm_wavelength = params.slm_wavelength
+    cam_type = params.cam_type
+    cam_id = params.cam_id
+    exposure_ms = params.exposure_ms
+    periods = params.periods
+    axis = params.axis
+    frames = params.frames
+    repeat = params.repeat
+
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL, Santec
 

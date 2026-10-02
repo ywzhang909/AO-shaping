@@ -33,6 +33,9 @@ Usage
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Annotated
+
 import click
 import numpy as np
 from loguru import logger
@@ -45,36 +48,69 @@ from ao_shaping.tools.slm.slm_bench_probe import (
     measure_flat_reference,
     random_phase,
 )
+from ao_shaping.utils.cli.params import option, with_params
+
+
+@dataclass
+class BeamExtentParams:
+    """CLI surface of the beam-extent probe.
+
+    Field order *is* the ``--help`` order, and the whole eleven-option surface
+    is frozen by ``tests/ao_shaping/runners/_cli_help_golden.json``.
+
+    Declared locally rather than spliced from :mod:`ao_shaping.tools.slm.params`:
+    the shared ``SlmBenchParams`` types ``--cam-type`` as a ``click.Choice``
+    (renders ``[daheng|miicam]``, not ``TEXT``) and leaves ``--exposure-ms`` /
+    ``--frames`` without help text, so reuse would change the frozen help.
+    """
+
+    slm_number: Annotated[
+        int, option("--slm-number", help="SLM 设备编号 (默认 1)")
+    ] = 1
+    slm_wavelength: Annotated[
+        int, option("--slm-wavelength", help="SLM 波长 nm (默认 1064)")
+    ] = 1064
+    cam_type: Annotated[
+        str, option("--cam-type", help="相机类型 (daheng/miicam, 默认 daheng)")
+    ] = "daheng"
+    cam_id: Annotated[int, option("--cam-id", help="相机 ID (默认 0)")] = 0
+    exposure_ms: Annotated[
+        float, option("--exposure-ms", help="相机曝光 ms (默认 3.0)")
+    ] = 3.0
+    axis: Annotated[
+        str,
+        option("--axis", type=click.Choice(["x", "y"]), help="扫描轴 (默认 x)"),
+    ] = "x"
+    steps: Annotated[int, option("--steps", help="边界位置数 (默认 12)")] = 12
+    frames: Annotated[int, option("--frames", help="每帧平均张数 (默认 4)")] = 4
+    repeats: Annotated[
+        int, option("--repeats", help="每个边界重复次数 (默认 2)")
+    ] = 2
+    core_radius: Annotated[
+        float, option("--core-radius", help="中心盘半径 px (默认 40)")
+    ] = 40.0
+    seed: Annotated[int, option("--seed", help="随机相位种子 (默认 2024)")] = 2024
 
 
 @click.command()
-@click.option("--slm-number", type=int, default=1, help="SLM 设备编号 (默认 1)")
-@click.option("--slm-wavelength", type=int, default=1064, help="SLM 波长 nm (默认 1064)")
-@click.option("--cam-type", default="daheng", help="相机类型 (daheng/miicam, 默认 daheng)")
-@click.option("--cam-id", type=int, default=0, help="相机 ID (默认 0)")
-@click.option("--exposure-ms", type=float, default=3.0, help="相机曝光 ms (默认 3.0)")
-@click.option("--axis", type=click.Choice(["x", "y"]), default="x", help="扫描轴 (默认 x)")
-@click.option("--steps", type=int, default=12, help="边界位置数 (默认 12)")
-@click.option("--frames", type=int, default=4, help="每帧平均张数 (默认 4)")
-@click.option("--repeats", type=int, default=2, help="每个边界重复次数 (默认 2)")
-@click.option("--core-radius", type=float, default=40.0, help="中心盘半径 px (默认 40)")
-@click.option("--seed", type=int, default=2024, help="随机相位种子 (默认 2024)")
-def main(
-    slm_number: int,
-    slm_wavelength: int,
-    cam_type: str,
-    cam_id: int,
-    exposure_ms: float,
-    axis: str,
-    steps: int,
-    frames: int,
-    repeats: int,
-    core_radius: float,
-    seed: int,
-) -> None:
+@with_params(BeamExtentParams, kw_name="params")
+def main(params: BeamExtentParams) -> None:
     """用半平面随机相位边界扫描测光斑在面板上的中心与半径。"""
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm.santec import Santec
+
+    # Local aliases keep the measurement body below verbatim.
+    slm_number = params.slm_number
+    slm_wavelength = params.slm_wavelength
+    cam_type = params.cam_type
+    cam_id = params.cam_id
+    exposure_ms = params.exposure_ms
+    axis = params.axis
+    steps = params.steps
+    frames = params.frames
+    repeats = params.repeats
+    core_radius = params.core_radius
+    seed = params.seed
 
     panel = (SLM_PANEL_H, SLM_PANEL_W)
     span = SLM_PANEL_W if axis == "x" else SLM_PANEL_H

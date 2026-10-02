@@ -38,27 +38,58 @@ Usage
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
+from typing import Annotated
 
 import click
 import numpy as np
 from loguru import logger
 
+from ao_shaping.utils.cli.params import option, with_params
+
+
+@dataclass
+class ExposureCheckParams:
+    """CLI surface of the exposure-check probe.
+
+    Field order *is* the ``--help`` order, and the whole five-option surface is
+    frozen by ``tests/ao_shaping/runners/_cli_help_golden.json``.
+
+    This probe is camera-only, so neither shared group is a fit:
+    ``SlmBenchParams`` would add ``--slm-number``/``--slm-wavelength`` that this
+    command does not own, and ``SlmAcquireParams`` adds
+    ``--discard``/``--settle-s``/``--stable-tol``/``--max-wait-s``. Both also type
+    ``--cam-type`` as a ``click.Choice``, which renders ``[daheng|miicam]``
+    instead of the frozen ``TEXT``.
+    """
+
+    cam_type: Annotated[
+        str, option("--cam-type", help="相机类型 (daheng/miicam, 默认 daheng)")
+    ] = "daheng"
+    cam_id: Annotated[int, option("--cam-id", help="相机 ID (默认 0)")] = 0
+    exposure_ms: Annotated[
+        float, option("--exposure-ms", help="相机曝光 ms (默认 3.0)")
+    ] = 3.0
+    n_grabs: Annotated[
+        int, option("--n-grabs", help="连续采集次数 (默认 12)")
+    ] = 12
+    grab_delay_s: Annotated[
+        float, option("--grab-delay-s", help="采集间隔 s (默认 0.4)")
+    ] = 0.4
+
 
 @click.command()
-@click.option("--cam-type", default="daheng", help="相机类型 (daheng/miicam, 默认 daheng)")
-@click.option("--cam-id", type=int, default=0, help="相机 ID (默认 0)")
-@click.option("--exposure-ms", type=float, default=3.0, help="相机曝光 ms (默认 3.0)")
-@click.option("--n-grabs", type=int, default=12, help="连续采集次数 (默认 12)")
-@click.option("--grab-delay-s", type=float, default=0.4, help="采集间隔 s (默认 0.4)")
-def main(
-    cam_type: str,
-    cam_id: int,
-    exposure_ms: float,
-    n_grabs: int,
-    grab_delay_s: float,
-) -> None:
+@with_params(ExposureCheckParams, kw_name="params")
+def main(params: ExposureCheckParams) -> None:
     """检查相机自动曝光状态与固定设置下的亮度漂移。"""
     from ao_shaping.drivers.ccd.common import create_camera
+
+    # Local aliases keep the measurement body below verbatim.
+    cam_type = params.cam_type
+    cam_id = params.cam_id
+    exposure_ms = params.exposure_ms
+    n_grabs = params.n_grabs
+    grab_delay_s = params.grab_delay_s
 
     with create_camera(cam_type, cam_id, exposure_time_ms=exposure_ms) as cam:
         # The GenICam feature tree is Daheng-specific and is not on the base

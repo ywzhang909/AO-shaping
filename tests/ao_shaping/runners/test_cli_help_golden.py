@@ -15,13 +15,13 @@ What is frozen
 ``main:<name>``, iterating ``sorted(cli.commands)``.
 
 **Group B** - every ``click.Command`` object found by scanning ``vars(mod)`` of
-the 16 hand-written click modules under ``ao_shaping.tools.slm``, keyed
+the 17 hand-written click modules under ``ao_shaping.tools.slm``, keyed
 ``tools.slm.<module>:<attr>``. ``vars(mod)`` is scanned rather than assuming the
 attribute name matches the function name. ``calibration`` contributes two
 commands (``main`` and ``main_shift_calib``).
 
-``slm_zernike_sweep_probe`` is deliberately **excluded**: it is argparse, not
-click, and holds zero ``click.Command`` objects.
+``slm_zernike_sweep_probe`` is now included: it was migrated from argparse to
+click (TODO.md R5), and its 21-option ``--help`` is part of the frozen surface.
 
 Normalisation
 -------------
@@ -84,12 +84,13 @@ TOOLS_SLM_MODULES: list[str] = [
     "slm_wfs_reference",
     "slm_zernike_correction",
     "slm_zernike_response",
+    "slm_zernike_sweep_probe",
 ]
 
 #: Currently-colliding resolved click names in Group B, measured on the
 #: unmodified tree. ``main`` is the click-default name derived from a bare
 #: ``@click.command``; ``run`` is an explicit ``@click.command("run")``.
-EXPECTED_COLLIDING_NAMES: dict[str, int] = {"main": 12, "run": 3}
+EXPECTED_COLLIDING_NAMES: dict[str, int] = {"main": 13, "run": 3}
 
 
 def normalize(text: str) -> str:
@@ -117,7 +118,7 @@ def main_group_commands() -> dict[str, click.Command]:
 
 
 def tools_slm_commands() -> dict[str, click.Command]:
-    """Group B: every ``click.Command`` attribute of the 16 tools/slm modules."""
+    """Group B: every ``click.Command`` attribute of the 17 tools/slm modules."""
     found: dict[str, click.Command] = {}
     for module in TOOLS_SLM_MODULES:
         mod = importlib.import_module(f"ao_shaping.tools.slm.{module}")

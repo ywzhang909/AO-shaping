@@ -33,6 +33,9 @@ Usage
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Annotated
+
 import click
 import numpy as np
 from loguru import logger
@@ -45,6 +48,7 @@ from ao_shaping.tools.slm.slm_bench_probe import (
     measure_flat_reference,
     random_phase,
 )
+from ao_shaping.utils.cli.params import option, with_params
 
 
 def _box_mask(shape: tuple[int, int], cx: int, cy: int, r: int) -> np.ndarray:
@@ -52,41 +56,69 @@ def _box_mask(shape: tuple[int, int], cx: int, cy: int, r: int) -> np.ndarray:
     return (iy - cy) ** 2 + (ix - cx) ** 2 <= r * r
 
 
+@dataclass
+class PanelLocateParams:
+    """CLI surface of the panel-locate probe.
+
+    Field order *is* the ``--help`` order, and the whole ten-option surface is
+    frozen by ``tests/ao_shaping/runners/_cli_help_golden.json``.
+
+    Declared locally rather than spliced from :mod:`ao_shaping.tools.slm.params`:
+    the shared ``SlmBenchParams`` types ``--cam-type`` as a ``click.Choice``
+    (renders ``[daheng|miicam]``, not ``TEXT``) and leaves ``--exposure-ms`` /
+    ``--frames`` without help text, so reuse would change the frozen help.
+    """
+
+    slm_number: Annotated[
+        int, option("--slm-number", help="SLM 设备编号 (默认 1)")
+    ] = 1
+    slm_wavelength: Annotated[
+        int, option("--slm-wavelength", help="SLM 波长 nm (默认 1064)")
+    ] = 1064
+    cam_type: Annotated[
+        str, option("--cam-type", help="相机类型 (daheng/miicam, 默认 daheng)")
+    ] = "daheng"
+    cam_id: Annotated[int, option("--cam-id", help="相机 ID (默认 0)")] = 0
+    exposure_ms: Annotated[
+        float, option("--exposure-ms", help="相机曝光 ms (默认 3.0)")
+    ] = 3.0
+    patch_radius: Annotated[
+        int,
+        option(
+            "--patch-radius",
+            help="随机相位圆盘半径 (面板 px, 默认 450=实测光斑半径)",
+        ),
+    ] = BEAM_RADIUS_PANEL
+    grid_xs: Annotated[
+        str,
+        option("--grid-xs", help="候选 x (面板 px, 逗号分隔)"),
+    ] = "240,600,960,1320,1680"
+    grid_ys: Annotated[
+        str,
+        option("--grid-ys", help="候选 y (面板 px, 逗号分隔)"),
+    ] = "220,480,720,980"
+    frames: Annotated[int, option("--frames", help="每帧平均张数 (默认 4)")] = 4
+    seed: Annotated[int, option("--seed", help="随机相位种子 (默认 7)")] = 7
+
+
 @click.command()
-@click.option("--slm-number", type=int, default=1, help="SLM 设备编号 (默认 1)")
-@click.option("--slm-wavelength", type=int, default=1064, help="SLM 波长 nm (默认 1064)")
-@click.option("--cam-type", default="daheng", help="相机类型 (daheng/miicam, 默认 daheng)")
-@click.option("--cam-id", type=int, default=0, help="相机 ID (默认 0)")
-@click.option("--exposure-ms", type=float, default=3.0, help="相机曝光 ms (默认 3.0)")
-@click.option(
-    "--patch-radius", type=int, default=BEAM_RADIUS_PANEL,
-    help="随机相位圆盘半径 (面板 px, 默认 450=实测光斑半径)",
-)
-@click.option(
-    "--grid-xs", default="240,600,960,1320,1680",
-    help="候选 x (面板 px, 逗号分隔)",
-)
-@click.option(
-    "--grid-ys", default="220,480,720,980",
-    help="候选 y (面板 px, 逗号分隔)",
-)
-@click.option("--frames", type=int, default=4, help="每帧平均张数 (默认 4)")
-@click.option("--seed", type=int, default=7, help="随机相位种子 (默认 7)")
-def main(
-    slm_number: int,
-    slm_wavelength: int,
-    cam_type: str,
-    cam_id: int,
-    exposure_ms: float,
-    patch_radius: int,
-    grid_xs: str,
-    grid_ys: str,
-    frames: int,
-    seed: int,
-) -> None:
+@with_params(PanelLocateParams, kw_name="params")
+def main(params: PanelLocateParams) -> None:
     """在面板坐标上定位光斑 (扫描随机相位圆盘, 取 0 阶能量变化最大的位置)。"""
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm.santec import Santec
+
+    # Local aliases keep the measurement body below verbatim.
+    slm_number = params.slm_number
+    slm_wavelength = params.slm_wavelength
+    cam_type = params.cam_type
+    cam_id = params.cam_id
+    exposure_ms = params.exposure_ms
+    patch_radius = params.patch_radius
+    grid_xs = params.grid_xs
+    grid_ys = params.grid_ys
+    frames = params.frames
+    seed = params.seed
 
     xs = [int(float(v)) for v in str(grid_xs).split(",") if v.strip()]
     ys = [int(float(v)) for v in str(grid_ys).split(",") if v.strip()]

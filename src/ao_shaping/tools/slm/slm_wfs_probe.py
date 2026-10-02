@@ -27,7 +27,9 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated
 
 import click
 import numpy as np
@@ -35,6 +37,7 @@ from loguru import logger
 
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
+from ao_shaping.utils.cli.params import option, with_params
 
 PANEL_H, PANEL_W = 1200, 1920
 DEFAULT_OUTPUT = Path("data/calibration/wfs_light_pupil_probe.json")
@@ -42,34 +45,52 @@ MAX_EXPOSURE_MS = 7.0
 DEFAULT_EXPOSURE_MS = 4.0
 
 
+@dataclass
+class WfsProbeParams:
+    slm_number: Annotated[int, option("--slm-number", show_default=True,
+                                      help="SLM 设备编号")] = 1
+    wavelength: Annotated[int, option("--wavelength", show_default=True,
+                                     help="SLM 波长 nm")] = 532
+    mla_index: Annotated[
+        str,
+        option("--mla-index", type=click.Choice(["512", "540", "600", "768", "1280"]),
+               show_default=True, help="MLA 分辨率"),
+    ] = "512"
+    exposure_ms: Annotated[
+        float,
+        option("--exposure-ms", show_default=True,
+               help=f"WFS 曝光 ms (必须 ≤ {MAX_EXPOSURE_MS})"),
+    ] = DEFAULT_EXPOSURE_MS
+    no_save: Annotated[
+        bool, option("--no-save", is_flag=True, help="不写回 pupil / 不保存报告")
+    ] = False
+    output: Annotated[
+        str, option("-o", "--output", show_default=True, help="探针报告 JSON 路径")
+    ] = str(DEFAULT_OUTPUT)
+
+
 @click.command()
-@click.option("--slm-number", type=int, default=1, show_default=True, help="SLM 设备编号")
-@click.option("--wavelength", type=int, default=532, show_default=True, help="SLM 波长 nm")
-@click.option("--mla-index", type=click.Choice(["512", "540", "600", "768", "1280"]),
-              default="512", show_default=True, help="MLA 分辨率")
-@click.option("--exposure-ms", type=float, default=DEFAULT_EXPOSURE_MS, show_default=True,
-              help=f"WFS 曝光 ms (必须 ≤ {MAX_EXPOSURE_MS})")
-@click.option("--no-save", is_flag=True, default=False, help="不写回 pupil / 不保存报告")
-@click.option("-o", "--output", default=str(DEFAULT_OUTPUT), show_default=True,
-              help="探针报告 JSON 路径")
-def main(slm_number: int, wavelength: int, mla_index: str, exposure_ms: float,
-         no_save: bool, output: str) -> int:
+@with_params(WfsProbeParams, kw_name="params")
+def main(params: WfsProbeParams) -> int:
     """SLM 纯平 + WFS 光强/pupil 检查."""
-    if exposure_ms > MAX_EXPOSURE_MS:
+    if params.exposure_ms > MAX_EXPOSURE_MS:
         raise click.BadParameter(
-            f"WFS 曝光 {exposure_ms}ms 超过安全上限 {MAX_EXPOSURE_MS}ms"
+            f"WFS 曝光 {params.exposure_ms}ms 超过安全上限 {MAX_EXPOSURE_MS}ms"
         )
 
     click.echo("=" * 72)
     click.echo("[SLM + WFS 光强/pupil 探针]")
     click.echo("=" * 72)
 
-    slm = Santec(slm_number=slm_number, wavelength=wavelength, video_mode=0)
-    wfs = ThorlabWFS(mla_index=MlaRes.from_str(mla_index),
-                     exposure_time=exposure_ms, use_custom_ref=False)
+    slm = Santec(slm_number=params.slm_number, wavelength=params.wavelength,
+                 video_mode=0)
+    wfs = ThorlabWFS(mla_index=MlaRes.from_str(params.mla_index),
+                     exposure_time=params.exposure_ms, use_custom_ref=False)
 
-    report: dict = {"params": {"slm_number": slm_number, "wavelength": wavelength,
-                               "mla_index": mla_index, "exposure_ms": exposure_ms}}
+    report: dict = {"params": {"slm_number": params.slm_number,
+                               "wavelength": params.wavelength,
+                               "mla_index": params.mla_index,
+                               "exposure_ms": params.exposure_ms}}
     ok = False
     try:
         slm.open()
@@ -128,7 +149,7 @@ def main(slm_number: int, wavelength: int, mla_index: str, exposure_ms: float,
                                      round(dx, 4), round(dy, 4)]
         click.echo(f"[PUPIL] optimize_pupil ⇒ center=({cx:.4f},{cy:.4f})mm "
                    f"diameter=({dx:.4f},{dy:.4f})mm")
-        if not no_save:
+        if not params.no_save:
             wfs.pupil = (cx, cy, dx, dy)  # 显式写回 (optimize_pupil 只计算不设置)
             click.echo(f"[OK] pupil 已写回: wfs.pupil = {wfs.pupil}")
         else:
@@ -148,8 +169,8 @@ def main(slm_number: int, wavelength: int, mla_index: str, exposure_ms: float,
             except Exception as e:
                 logger.warning("{} close: {}", name, e)
 
-    if not no_save:
-        path = Path(output)
+    if not params.no_save:
+        path = Path(params.output)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
         click.echo(f"[INFO] 探针报告: {path}")

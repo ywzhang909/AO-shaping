@@ -43,8 +43,10 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Annotated
 
 import click
 import numpy as np
@@ -80,6 +82,7 @@ from ao_shaping.tools.slm.slm_zernike_common import (
     um_to_waves,
     wfs_validity,
 )
+from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 # 兼容旧引用: DLL 顺序 m 枚举索引表 (定义在 slm_zernike_common)
@@ -304,101 +307,136 @@ def export_driver_correction(h5_path: str | Path,
     click.echo(f"[OK] 侧车 JSON: {sidecar_path}")
     active = [(i, nm, c) for i, nm, c in zip(ids, nm_list, c_waves)
               if abs(float(c)) > 1e-3]
-    click.echo(f"[INFO] 矫正系数 (λ): "
+    click.echo("[INFO] 矫正系数 (λ): "
                + ", ".join(f"DL{i}({nm[0]},{nm[1]}) = {c:+.3f}" for i, nm, c in
                            sorted(active, key=lambda t: -abs(t[2]))[:8]))
     click.echo(f"[INFO] 矩阵残差 ‖M c + w‖/‖w‖ = {resid:.3f} (抵消后残差)")
     return 0
 
 
+@dataclass
+class ZernikeResponseParams:
+    slm_number: Annotated[int, option("--slm-number", show_default=True)] = 1
+    slm_wavelength: Annotated[
+        int, option("--slm-wavelength", show_default=True, help="SLM 波长 nm")
+    ] = 532
+    wfs_exposure_ms: Annotated[
+        float,
+        option("--wfs-exposure-ms", show_default=True,
+               help=f"WFS 曝光 ms (必须 ≤ {MAX_EXPOSURE_MS})"),
+    ] = DEFAULT_EXPOSURE_MS
+    wfs_order: Annotated[
+        int,
+        option("--wfs-order", show_default=True,
+               help="WFS Zernike 拟合阶数 (有效 2..10, 10 → 66 项)"),
+    ] = 10
+    n_max: Annotated[
+        int,
+        option("--n-max", show_default=True,
+               help="扫描的 SLM Zernike 最大阶数 (4 → 15 模式)"),
+    ] = 4
+    zernike_radius: Annotated[
+        float,
+        option("--zernike-radius", show_default=True,
+               help="Zernike 归一化半径 px (实测光束半径≈200px; 建议 ≥1.5×光束半径, "
+                    "R≈光束半径时大振幅会击穿 WFS 拟合)"),
+    ] = 300.0
+    amplitude_rad: Annotated[
+        float,
+        option("--amplitude-rad", show_default=True,
+               help="推拉扰动幅度 rad (Zernike 系数)"),
+    ] = 5.0
+    n_avg: Annotated[
+        int, option("--n-avg", show_default=True, help="每点 WFS 帧平均")
+    ] = 2
+    n_cycles: Annotated[
+        int, option("--n-cycles", show_default=True, help="推拉循环次数 (估方差)")
+    ] = 2
+    shift_x: Annotated[
+        int | None, option("--shift-x", help="SLM shift_x (默认读设备配置)")
+    ] = None
+    shift_y: Annotated[
+        int | None, option("--shift-y", help="SLM shift_y (默认读设备配置)")
+    ] = None
+    exclude_tip_tilt: Annotated[
+        bool,
+        option("--exclude-tip-tilt", is_flag=True, help="排除 tip/tilt 模式 (DLL [2],[3])"),
+    ] = False
+    settle_extra_s: Annotated[
+        float,
+        option("--settle-extra-s", show_default=True,
+               help="像素翻转估算之外的冗余等待 (s)"),
+    ] = SETTLE_REDUNDANCY_S
+    output: Annotated[
+        str | None, option("-o", "--output", help="输出 h5 路径 (默认 data/zernike_response_matrix/)")
+    ] = None
+    verify_path: Annotated[
+        str | None,
+        option("--verify", help="离线校验已保存的 h5 (不接触硬件); 指定后忽略其他选项"),
+    ] = None
+    export_h5: Annotated[
+        str | None,
+        option("--export-correction",
+               help="离线导出驱动可消费的灰度矫正 CSV (官方软件/驱动可直接加载; 不接触硬件); 需配合 --w-file"),
+    ] = None
+    w_file: Annotated[
+        str | None,
+        option("--w-file",
+               help="WFS 波前 JSON (66 长, 单位 λ; 或含 w/w_before 键的字典); 仅用于 --export-correction"),
+    ] = None
+    export_out: Annotated[
+        str | None,
+        option("--out-correction",
+               help="矫正 CSV 输出路径 (默认: 输入 h5 同目录 <stem>_correction_gray.csv)"),
+    ] = None
+    export_shift: Annotated[
+        bool,
+        option("--export-shift", is_flag=True,
+               help="把 config shift 烘焙进矫正 CSV (灰度编码前 Santec.shift_phase; "
+                    "shift 默认取 h5 device_config.shift_x/y)"),
+    ] = False
+    export_shift_x: Annotated[
+        int | None, option("--export-shift-x", help="烘焙平移 shift_x (默认读 h5 device_config)")
+    ] = None
+    export_shift_y: Annotated[
+        int | None, option("--export-shift-y", help="烘焙平移 shift_y (默认读 h5 device_config)")
+    ] = None
+
+
 @click.command()
-@click.option("--slm-number", type=int, default=1, show_default=True)
-@click.option("--slm-wavelength", type=int, default=532, show_default=True, help="SLM 波长 nm")
-@click.option("--wfs-exposure-ms", type=float, default=DEFAULT_EXPOSURE_MS, show_default=True,
-              help=f"WFS 曝光 ms (必须 ≤ {MAX_EXPOSURE_MS})")
-@click.option("--wfs-order", type=int, default=10, show_default=True,
-              help="WFS Zernike 拟合阶数 (有效 2..10, 10 → 66 项)")
-@click.option("--n-max", type=int, default=4, show_default=True,
-              help="扫描的 SLM Zernike 最大阶数 (4 → 15 模式)")
-@click.option("--zernike-radius", type=float, default=300.0, show_default=True,
-              help="Zernike 归一化半径 px (实测光束半径≈200px; 建议 ≥1.5×光束半径, "
-                   "R≈光束半径时大振幅会击穿 WFS 拟合)")
-@click.option("--amplitude-rad", type=float, default=5.0, show_default=True,
-              help="推拉扰动幅度 rad (Zernike 系数)")
-@click.option("--n-avg", type=int, default=2, show_default=True, help="每点 WFS 帧平均")
-@click.option("--n-cycles", type=int, default=2, show_default=True, help="推拉循环次数 (估方差)")
-@click.option("--shift-x", type=int, default=None, help="SLM shift_x (默认读设备配置)")
-@click.option("--shift-y", type=int, default=None, help="SLM shift_y (默认读设备配置)")
-@click.option("--exclude-tip-tilt", is_flag=True, default=False,
-              help="排除 tip/tilt 模式 (DLL [2],[3])")
-@click.option("--settle-extra-s", type=float, default=SETTLE_REDUNDANCY_S,
-              show_default=True, help="像素翻转估算之外的冗余等待 (s)")
-@click.option("-o", "--output", default=None, help="输出 h5 路径 (默认 data/zernike_response_matrix/)")
-@click.option("--verify", "verify_path", default=None,
-              help="离线校验已保存的 h5 (不接触硬件); 指定后忽略其他选项")
-@click.option("--export-correction", "export_h5", default=None,
-              help="离线导出驱动可消费的灰度矫正 CSV (官方软件/驱动可直接加载; 不接触硬件); 需配合 --w-file")
-@click.option("--w-file", "w_file", default=None,
-              help="WFS 波前 JSON (66 长, 单位 λ; 或含 w/w_before 键的字典); 仅用于 --export-correction")
-@click.option("--out-correction", "export_out", default=None,
-              help="矫正 CSV 输出路径 (默认: 输入 h5 同目录 <stem>_correction_gray.csv)")
-@click.option("--export-shift", is_flag=True, default=False,
-              help="把 config shift 烘焙进矫正 CSV (灰度编码前 Santec.shift_phase; "
-                   "shift 默认取 h5 device_config.shift_x/y)")
-@click.option("--export-shift-x", type=int, default=None,
-              help="烘焙平移 shift_x (默认读 h5 device_config)")
-@click.option("--export-shift-y", type=int, default=None,
-              help="烘焙平移 shift_y (默认读 h5 device_config)")
-def main(
-    slm_number: int,
-    slm_wavelength: int,
-    wfs_exposure_ms: float,
-    wfs_order: int,
-    n_max: int,
-    zernike_radius: float,
-    amplitude_rad: float,
-    n_avg: int,
-    n_cycles: int,
-    shift_x: int | None,
-    shift_y: int | None,
-    exclude_tip_tilt: bool,
-    settle_extra_s: float,
-    output: str | None,
-    verify_path: str | None,
-    export_h5: str | None,
-    w_file: str | None,
-    export_out: str | None,
-    export_shift: bool,
-    export_shift_x: int | None,
-    export_shift_y: int | None,
-) -> int:
+@with_params(ZernikeResponseParams, kw_name="params")
+def main(params: ZernikeResponseParams) -> int:
     """SLM Zernike 模式 → WFS 读数 响应矩阵标定."""
+    # 这两个离线开关在测试里按 ast.Name 静态判定"开硬件前即短路", 故保留局部名
+    verify_path, export_h5 = params.verify_path, params.export_h5
     if verify_path:
         return verify_response_matrix(verify_path)
     if export_h5:
-        if not w_file:
+        if not params.w_file:
             raise click.BadParameter("--export-correction 需要 --w-file (WFS 波前 JSON)")
-        return export_driver_correction(export_h5, w_file, export_out,
-                                        include_shift=export_shift,
-                                        shift_x=export_shift_x,
-                                        shift_y=export_shift_y)
-    if wfs_exposure_ms > MAX_EXPOSURE_MS:
-        raise click.BadParameter(f"WFS 曝光 {wfs_exposure_ms}ms > {MAX_EXPOSURE_MS}ms")
-    if not 2 <= wfs_order <= 10:
+        return export_driver_correction(export_h5, params.w_file, params.export_out,
+                                        include_shift=params.export_shift,
+                                        shift_x=params.export_shift_x,
+                                        shift_y=params.export_shift_y)
+    if params.wfs_exposure_ms > MAX_EXPOSURE_MS:
+        raise click.BadParameter(
+            f"WFS 曝光 {params.wfs_exposure_ms}ms > {MAX_EXPOSURE_MS}ms")
+    if not 2 <= params.wfs_order <= 10:
         raise click.BadParameter("--wfs-order 必须在 2..10 (10 → 66 项)")
 
     click.echo("=" * 72)
     click.echo("[SLM Zernike 响应矩阵标定] Zernike 模式法波前矫正")
     click.echo("=" * 72)
 
-    n_modes_total = (n_max + 1) * (n_max + 2) // 2      # 含 piston
+    n_modes_total = (params.n_max + 1) * (params.n_max + 2) // 2      # 含 piston
     mode_ids = list(range(1, n_modes_total + 1))        # DLL 1-based
     mode_ids = [i for i in mode_ids if i != 1]          # 排除 piston
-    if exclude_tip_tilt:
+    if params.exclude_tip_tilt:
         mode_ids = [i for i in mode_ids if i not in (2, 3)]
 
-    slm = Santec(slm_number=slm_number, wavelength=slm_wavelength, video_mode=0)
-    wfs = ThorlabWFS(exposure_time=wfs_exposure_ms, use_custom_ref=False)
+    slm = Santec(slm_number=params.slm_number, wavelength=params.slm_wavelength,
+                 video_mode=0)
+    wfs = ThorlabWFS(exposure_time=params.wfs_exposure_ms, use_custom_ref=False)
     ph = PatternHelper(resolution=(PANEL_W, PANEL_H))
 
     # matrix/variance 在测到基线后按 get_zernike 实际返回长度分配 (67 长: index 0 未用)
@@ -412,8 +450,8 @@ def main(
         exp = float(wfs.exposure_time)
         assert exp <= MAX_EXPOSURE_MS
         wl, max_gray = slm.get_wavelength_info()
-        sx = slm.shift_x if shift_x is None else shift_x
-        sy = slm.shift_y if shift_y is None else shift_y
+        sx = slm.shift_x if params.shift_x is None else params.shift_x
+        sy = slm.shift_y if params.shift_y is None else params.shift_y
         slm.set_shift(sx, sy)
         click.echo(f"[OK] SLM #{slm._serial_number} {wl}nm 2π={max_gray} shift=({sx},{sy})")
 
@@ -423,7 +461,7 @@ def main(
                    f"pupil=({cx:.3f},{cy:.3f})mm d=({dx:.3f},{dy:.3f})mm")
 
         # 完整设备参数 (随 h5 的 device_config 一并落盘, 供复现与审计)
-        _dev = collect_device_info(slm, wfs, slm_number)
+        _dev = collect_device_info(slm, wfs, params.slm_number)
         click.echo(f"[INFO] 设备参数: SLM 温度={(_dev.get('slm') or {}).get('temperature_c')}°C "
                    f"版本={(_dev.get('slm') or {}).get('version')} "
                    f"矫正={(_dev.get('slm') or {}).get('correction_enabled')} | "
@@ -438,7 +476,7 @@ def main(
         wfs.take_image(n_sample=1, dynamicNoiseCut=True)
         wfs.create_default_user_ref()
         wfs.set_ref_plane(custom=True)
-        base = _measure_zernike(wfs, n_avg=max(n_avg, 3), order=wfs_order)
+        base = _measure_zernike(wfs, n_avg=max(params.n_avg, 3), order=params.wfs_order)
         if base is None:
             raise RuntimeError("基线测量失败")
         raw["baseline"] = base.tolist()
@@ -450,21 +488,22 @@ def main(
         matrix = np.zeros((n_wfs_terms, len(mode_ids)), dtype=np.float64)
         variance = np.zeros_like(matrix)
 
-        amp_waves = amplitude_rad / (2 * np.pi)
-        click.echo(f"[INFO] 扫描 {len(mode_ids)} 个模式, R={zernike_radius:.0f}px, "
-                   f"A={amplitude_rad} rad ({amp_waves:.3f}λ), "
-                   f"推拉 {n_cycles} 循环 × {n_avg} 帧, WFS 阶数 {wfs_order} "
+        amp_waves = params.amplitude_rad / (2 * np.pi)
+        click.echo(f"[INFO] 扫描 {len(mode_ids)} 个模式, R={params.zernike_radius:.0f}px, "
+                   f"A={params.amplitude_rad} rad ({amp_waves:.3f}λ), "
+                   f"推拉 {params.n_cycles} 循环 × {params.n_avg} 帧, "
+                   f"WFS 阶数 {params.wfs_order} "
                    f"({n_wfs_terms} 项)")
 
         for col, midx in enumerate(mode_ids):
             nm = DLL_ZERNIKE[midx - 1]
             cols: list[np.ndarray] = []
-            for cyc in range(n_cycles):
+            for cyc in range(params.n_cycles):
                 zs: dict[int, np.ndarray | None] = {}
                 for sign in (+1, -1):
-                    phase = make_phase(ph, {nm: sign * amplitude_rad},
-                                       zernike_radius, n_max=n_max)
-                    show_phase(slm, phase, settle_extra_s)
+                    phase = make_phase(ph, {nm: sign * params.amplitude_rad},
+                                       params.zernike_radius, n_max=params.n_max)
+                    show_phase(slm, phase, params.settle_extra_s)
                     # WFS 有效性门控: 子孔径光斑丢失时读数不可用
                     # (实测 R≈光束半径 + 大振幅 → DLL 拟合崩溃, |resp| 可暴涨到 10³)
                     val = wfs_validity(wfs)
@@ -474,7 +513,7 @@ def main(
                                        val["valid_ratio"])
                         zs[sign] = None
                         continue
-                    z = measure_zernike(wfs, n_avg=n_avg, order=wfs_order)
+                    z = measure_zernike(wfs, n_avg=params.n_avg, order=params.wfs_order)
                     if z is None:
                         logger.warning("模式 {} cycle {} sign {} 无有效读数", midx, cyc, sign)
                         zs[sign] = None
@@ -522,24 +561,24 @@ def main(
         return 1
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     # 完整设备参数 (波长/2π灰度/工作温度/固件版本/矫正状态/LUT + WFS 曝光/pupil/MLA/子孔径)
-    device_info = collect_device_info(slm, wfs, slm_number)
+    device_info = collect_device_info(slm, wfs, params.slm_number)
     _ds = device_info.get("slm") or {}
     _dw = device_info.get("wfs") or {}
     device_config = {
         "device": device_info,
         "slm_serial": _ds.get("serial_number"),
         "wfs_serial": _dw.get("serial_number"),
-        "wavelength_nm": slm_wavelength,
+        "wavelength_nm": params.slm_wavelength,
         "slm_2pi_gray": max_gray,
         "wfs_exposure_ms": exp,
         "shift_x": int(sx),
         "shift_y": int(sy),
         "pupil_center_mm": [cx, cy],
         "pupil_diameter_mm": [dx, dy],
-        "zernike_radius_px": zernike_radius,
-        "amplitude_rad": amplitude_rad,
+        "zernike_radius_px": params.zernike_radius,
+        "amplitude_rad": params.amplitude_rad,
         "amplitude_waves": amp_waves,
-        "wfs_zernike_order": wfs_order,
+        "wfs_zernike_order": params.wfs_order,
         "slm_mode_ids_dll": mode_ids,
         "slm_mode_nm": [list(DLL_ZERNIKE[i - 1]) for i in mode_ids],
         "zernike_ordering": (
@@ -560,14 +599,14 @@ def main(
         variance_matrix=variance,
         deviation_response_matrix=None,
         subaperture_mask=None,
-        n_max=n_max,
+        n_max=params.n_max,
         magnitude=amp_waves,
-        wavelength_nm=slm_wavelength,
-        n_averages=n_avg,
-        n_cycles=n_cycles,
+        wavelength_nm=params.slm_wavelength,
+        n_averages=params.n_avg,
+        n_cycles=params.n_cycles,
         timestamp=datetime.now().isoformat(),
         excluded_piston=True,
-        excluded_tip_tilt=exclude_tip_tilt,
+        excluded_tip_tilt=params.exclude_tip_tilt,
         device_config=device_config,
     )
     # 逆矩阵 (Zernike 模式法矫正控制律: c = pinv(M) @ w, c=(n_slm_modes,), w=(n_wfs_terms,))
@@ -581,11 +620,12 @@ def main(
     except np.linalg.LinAlgError as e:
         logger.warning("逆矩阵计算失败: {}", e)
 
-    if output:
-        out = Path(output)
+    if params.output:
+        out = Path(params.output)
     else:
         out = Path("data/zernike_response_matrix") / (
-            f"zm_slm{slm._serial_number}_wfs{wfs.serial_num}_{slm_wavelength}nm_{ts}.h5"
+            f"zm_slm{slm._serial_number}_wfs{wfs.serial_num}_"
+            f"{params.slm_wavelength}nm_{ts}.h5"
         )
     save_zernike_response_matrix(result, out)
     sidecar = out.with_suffix(".json")

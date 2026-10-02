@@ -54,6 +54,9 @@ Usage
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Annotated
+
 import click
 import numpy as np
 from loguru import logger
@@ -68,6 +71,59 @@ from ao_shaping.tools.slm.slm_bench_probe import (
     measure_spot,
     random_phase,
 )
+from ao_shaping.utils.cli.params import option, with_params
+
+
+@dataclass
+class PhaseResolutionParams:
+    """CLI surface of the phase-resolution probe.
+
+    Field order *is* the ``--help`` order, and the whole eleven-option surface
+    is frozen by ``tests/ao_shaping/runners/_cli_help_golden.json``.
+
+    Declared locally rather than spliced from :mod:`ao_shaping.tools.slm.params`:
+    the shared ``SlmBenchParams`` types ``--cam-type`` as a ``click.Choice``
+    (renders ``[daheng|miicam]``, not ``TEXT``) and leaves ``--exposure-ms`` /
+    ``--frames`` without help text, so reuse would change the frozen help.
+    """
+
+    slm_number: Annotated[
+        int, option("--slm-number", help="SLM 设备编号 (默认 1)")
+    ] = 1
+    slm_wavelength: Annotated[
+        int, option("--slm-wavelength", help="SLM 波长 nm (默认 1064)")
+    ] = 1064
+    cam_type: Annotated[
+        str, option("--cam-type", help="相机类型 (daheng/miicam, 默认 daheng)")
+    ] = "daheng"
+    cam_id: Annotated[int, option("--cam-id", help="相机 ID (默认 0)")] = 0
+    exposure_ms: Annotated[
+        float, option("--exposure-ms", help="相机曝光 ms (默认 3.0)")
+    ] = 3.0
+    zernike_radius: Annotated[
+        int,
+        option("--zernike-radius", help="Zernike 孔径半径 px (默认 450)"),
+    ] = BEAM_RADIUS_PANEL
+    pupil_center: Annotated[
+        str,
+        option("--pupil-center", help="光斑中心 (面板 px 'x,y', 默认 960,600)"),
+    ] = "960,600"
+    orders: Annotated[
+        str,
+        option(
+            "--orders",
+            help="随机 Zernike 的最高阶 (逗号分隔)。阶数越低越光滑, 默认 4,8,14",
+        ),
+    ] = "4,8,14"
+    scale: Annotated[
+        float,
+        option(
+            "--scale",
+            help="每阶系数的高斯 sigma (rad)。默认 0.8 对应高阶自动衰减, 保持总 RMS 相当",
+        ),
+    ] = 0.8
+    frames: Annotated[int, option("--frames", help="每帧平均张数 (默认 4)")] = 4
+    seed: Annotated[int, option("--seed", help="随机种子 (默认 11)")] = 11
 
 
 def zernike_random_panel(
@@ -125,39 +181,24 @@ def _paste(
 
 
 @click.command()
-@click.option("--slm-number", type=int, default=1, help="SLM 设备编号 (默认 1)")
-@click.option("--slm-wavelength", type=int, default=1064, help="SLM 波长 nm (默认 1064)")
-@click.option("--cam-type", default="daheng", help="相机类型 (daheng/miicam, 默认 daheng)")
-@click.option("--cam-id", type=int, default=0, help="相机 ID (默认 0)")
-@click.option("--exposure-ms", type=float, default=3.0, help="相机曝光 ms (默认 3.0)")
-@click.option("--zernike-radius", type=int, default=BEAM_RADIUS_PANEL, help="Zernike 孔径半径 px (默认 450)")
-@click.option("--pupil-center", default="960,600", help="光斑中心 (面板 px 'x,y', 默认 960,600)")
-@click.option(
-    "--orders", default="4,8,14",
-    help="随机 Zernike 的最高阶 (逗号分隔)。阶数越低越光滑, 默认 4,8,14",
-)
-@click.option(
-    "--scale", type=float, default=0.8,
-    help="每阶系数的高斯 sigma (rad)。默认 0.8 对应高阶自动衰减, 保持总 RMS 相当",
-)
-@click.option("--frames", type=int, default=4, help="每帧平均张数 (默认 4)")
-@click.option("--seed", type=int, default=11, help="随机种子 (默认 11)")
-def main(
-    slm_number: int,
-    slm_wavelength: int,
-    cam_type: str,
-    cam_id: int,
-    exposure_ms: float,
-    zernike_radius: int,
-    pupil_center: str,
-    orders: str,
-    scale: float,
-    frames: int,
-    seed: int,
-) -> None:
+@with_params(PhaseResolutionParams, kw_name="params")
+def main(params: PhaseResolutionParams) -> None:
     """比较逐像素随机相位与光滑 Zernike 相位, 判定面板的等效相位分辨率。"""
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm.santec import Santec
+
+    # Local aliases keep the measurement body below verbatim.
+    slm_number = params.slm_number
+    slm_wavelength = params.slm_wavelength
+    cam_type = params.cam_type
+    cam_id = params.cam_id
+    exposure_ms = params.exposure_ms
+    zernike_radius = params.zernike_radius
+    pupil_center = params.pupil_center
+    orders = params.orders
+    scale = params.scale
+    frames = params.frames
+    seed = params.seed
 
     panel = (SLM_PANEL_H, SLM_PANEL_W)
     pupil = tuple(int(float(v)) for v in str(pupil_center).split(","))

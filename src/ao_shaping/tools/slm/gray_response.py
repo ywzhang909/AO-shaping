@@ -6,8 +6,10 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Annotated
 
 import click
 import numpy as np
@@ -26,6 +28,7 @@ except ImportError:
 
 from ao_shaping.drivers.ccd.miicam.driver import MIICamera
 from ao_shaping.drivers.slm.santec import Santec, SlotRotator
+from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.utils.slm_phase import capture_frame, flat_gray
 
 FIELDNAMES = [
@@ -275,113 +278,144 @@ def acquire_gray_response(
     return csv_path
 
 
+@dataclass
+class GrayResponseParams:
+    """CLI 表面: 11 个选项, 字段顺序 **就是** ``--help`` 顺序 (迁移前的
+    ``@click.option`` 声明顺序, 由 ``tests/ao_shaping/runners/_cli_help_golden.json``
+    逐字节冻结, 勿调整)。默认值只写在 dataclass 字段上 (``with_params`` 会注入
+    click, 在 ``option(...)`` 里再写 ``default=`` 会 ``TypeError``), 因此
+    ``show_default=True`` 渲染的正是这些字段默认值。
+
+    刻意**不**复用 ``tools/slm/params.py`` 的共享组: 本命令把相机硬编码为
+    ``MIICamera`` (不暴露 ``--cam-type``), 用 ``--discard-count`` 而非
+    ``--discard``, 且 ``--n-sample`` 是每点平均帧数而非 ``--frames``; 曝光范围
+    也不一样。套用 ``SlmBenchParams``/``SlmAcquireParams`` 会新增 flag 并改变
+    默认值 → 违反 ``--help`` 逐字节冻结与行为中性。
+
+    ``bit_depth`` 保持 ``str``: ``click.Choice(["8", "16"])`` 交付字符串, 由
+    :func:`acquire_gray_response` 调用处的 ``int(...)`` 转换 —— 与迁移前一致。
+    """
+
+    gray_step: Annotated[
+        int,
+        option(
+            "-N",
+            "--gray-step",
+            type=click.IntRange(min=1),
+            show_default=True,
+            help="灰度采样间隔 N",
+        ),
+    ] = 1
+    exposure_ms: Annotated[
+        float,
+        option(
+            "--miicam-exposure-ms",
+            "--exposure-ms",
+            type=click.FloatRange(min=0.011, max=10000.0),
+            show_default=True,
+            help="MiiCam 曝光时间 ms",
+        ),
+    ] = 0.8
+    csv_path: Annotated[
+        Path,
+        option(
+            "--csv-path",
+            "--csv",
+            "-o",
+            type=click.Path(dir_okay=False, path_type=Path),
+            show_default=True,
+            help="CSV 输出文件路径",
+        ),
+    ] = Path("data/slm_gray_response.csv")
+    slm_number: Annotated[
+        int,
+        option(
+            "--slm-number",
+            type=click.IntRange(min=1, max=8),
+            show_default=True,
+            help="SLM 设备编号",
+        ),
+    ] = 1
+    miicam_id: Annotated[
+        int,
+        option(
+            "--miicam-id",
+            type=click.IntRange(min=0),
+            show_default=True,
+            help="MiiCam 相机 ID",
+        ),
+    ] = 0
+    wavelength: Annotated[
+        int,
+        option(
+            "--wavelength",
+            type=click.IntRange(min=450, max=1600),
+            show_default=True,
+            help="SLM 工作波长 nm",
+        ),
+    ] = 1064
+    wait_time_s: Annotated[
+        float,
+        option(
+            "--wait-time-s",
+            type=click.FloatRange(min=0.0),
+            show_default=True,
+            help="SLM 下发后等待时间 s",
+        ),
+    ] = 0.3
+    n_sample: Annotated[
+        int,
+        option(
+            "--n-sample",
+            type=click.IntRange(min=1),
+            show_default=True,
+            help="每点相机平均帧数",
+        ),
+    ] = 1
+    skip_first: Annotated[
+        bool,
+        option(
+            "--skip-first/--no-skip-first",
+            show_default=True,
+            help="是否跳过首帧",
+        ),
+    ] = True
+    discard_count: Annotated[
+        int,
+        option(
+            "--discard-count",
+            type=click.IntRange(min=0),
+            show_default=True,
+            help="采集前额外丢弃帧数 (防相机帧缓存滞后)",
+        ),
+    ] = 1
+    bit_depth: Annotated[
+        str,
+        option(
+            "--bit-depth",
+            type=click.Choice(["8", "16"]),
+            show_default=True,
+            help="MiiCam 输出位深",
+        ),
+    ] = "8"
+
+
 @click.command()
-@click.option(
-    "-N",
-    "--gray-step",
-    "gray_step",
-    type=click.IntRange(min=1),
-    default=1,
-    show_default=True,
-    help="灰度采样间隔 N",
-)
-@click.option(
-    "--miicam-exposure-ms",
-    "--exposure-ms",
-    "exposure_ms",
-    type=click.FloatRange(min=0.011, max=10000.0),
-    default=0.8,
-    show_default=True,
-    help="MiiCam 曝光时间 ms",
-)
-@click.option(
-    "--csv-path",
-    "--csv",
-    "-o",
-    "csv_path",
-    type=click.Path(dir_okay=False, path_type=Path),
-    default=Path("data/slm_gray_response.csv"),
-    show_default=True,
-    help="CSV 输出文件路径",
-)
-@click.option(
-    "--slm-number",
-    type=click.IntRange(min=1, max=8),
-    default=1,
-    show_default=True,
-    help="SLM 设备编号",
-)
-@click.option(
-    "--miicam-id",
-    type=click.IntRange(min=0),
-    default=0,
-    show_default=True,
-    help="MiiCam 相机 ID",
-)
-@click.option(
-    "--wavelength",
-    type=click.IntRange(min=450, max=1600),
-    default=1064,
-    show_default=True,
-    help="SLM 工作波长 nm",
-)
-@click.option(
-    "--wait-time-s",
-    type=click.FloatRange(min=0.0),
-    default=0.3,
-    show_default=True,
-    help="SLM 下发后等待时间 s",
-)
-@click.option(
-    "--n-sample",
-    type=click.IntRange(min=1),
-    default=1,
-    show_default=True,
-    help="每点相机平均帧数",
-)
-@click.option(
-    "--skip-first/--no-skip-first", default=True, show_default=True, help="是否跳过首帧"
-)
-@click.option(
-    "--discard-count",
-    type=click.IntRange(min=0),
-    default=1,
-    show_default=True,
-    help="采集前额外丢弃帧数 (防相机帧缓存滞后)",
-)
-@click.option(
-    "--bit-depth",
-    type=click.Choice(["8", "16"]),
-    default="8",
-    show_default=True,
-    help="MiiCam 输出位深",
-)
-def run(
-    gray_step: int,
-    exposure_ms: float,
-    csv_path: Path,
-    slm_number: int,
-    miicam_id: int,
-    wavelength: int,
-    wait_time_s: float,
-    n_sample: int,
-    skip_first: bool,
-    discard_count: int,
-    bit_depth: int,
-) -> None:
+@with_params(GrayResponseParams, kw_name="params")
+def run(params: GrayResponseParams) -> None:
     """以灰度间隔 N 扫描 SLM 平相位，并用 MiiCam 记录最大亮度。"""
     output_path = acquire_gray_response(
-        gray_step=gray_step,
-        exposure_ms=exposure_ms,
-        csv_path=csv_path,
-        slm_number=slm_number,
-        miicam_id=miicam_id,
-        wavelength=wavelength,
-        wait_time_s=wait_time_s,
-        n_sample=n_sample,
-        skip_first=skip_first,
-        discard_count=discard_count,
-        bit_depth=int(bit_depth),
+        gray_step=params.gray_step,
+        exposure_ms=params.exposure_ms,
+        csv_path=params.csv_path,
+        slm_number=params.slm_number,
+        miicam_id=params.miicam_id,
+        wavelength=params.wavelength,
+        wait_time_s=params.wait_time_s,
+        n_sample=params.n_sample,
+        skip_first=params.skip_first,
+        discard_count=params.discard_count,
+        bit_depth=int(params.bit_depth),
     )
     logger.info(f"采集完成: {output_path}")
 
