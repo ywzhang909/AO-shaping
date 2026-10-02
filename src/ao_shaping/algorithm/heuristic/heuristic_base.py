@@ -2,31 +2,58 @@
 
 Provides a common interface for switching between different optimizers.
 
+Concrete optimizers **register themselves**; this module never imports them.
+Adding an algorithm therefore touches exactly one new module (which declares
+``_registry_key``) and nothing here -- the Open/Closed Principle holds because
+:meth:`HeuristicOptimizer.create` is a dict lookup, not an ``if``/``elif`` chain.
+
+Registration happens at subclass-definition time via ``__init_subclass__``, so a
+concrete optimizer is available as soon as its module has been imported. The
+top-level ``ao_shaping.algorithm`` facade imports every concrete optimizer, so
+importing anything under ``ao_shaping.algorithm.heuristic`` has already populated
+the registry.
+
+This module does no fault tolerance. ``create`` forwards every keyword it does
+not own straight to the concrete constructor, so offering an option an algorithm
+does not support raises ``TypeError`` from that constructor -- naming the
+offending argument -- instead of being silently dropped here. Callers that present
+a superset of options are expected to know which algorithms accept which; see
+``search.POPULATION_ALGORITHMS`` for the population-size case.
+
 Example:
-    >>> from ao_shaping.algorithm.heuristic.heuristic_base import HeuristicOptimizer, OptimizerType
-    >>> from ao_shaping.algorithm import GeneticAlgorithm, ParticleSwarmOptimizer
+    >>> from ao_shaping.algorithm.heuristic.heuristic_base import (
+    ...     HeuristicOptimizer,
+    ...     OptimizerType,
+    ... )
+    >>> from ao_shaping.algorithm import GeneticAlgorithm  # registers OptimizerType.GA
     >>>
-    >>> # Create optimizer from type
     >>> opt = HeuristicOptimizer.create(
     ...     OptimizerType.GA,
     ...     dim=5,
-    ...     n_iterations=100
+    ...     n_iterations=100,
     ... )
-    >>> best_x, best_f = opt.optimize(lambda x: np.sum(x**2))
+    >>> best_x, best_f = opt.optimize(lambda x: float(np.sum(x**2)))
 """
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from abc import abstractmethod
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Callable
+from typing import Any, ClassVar
 
 import numpy as np
 
+from ao_shaping.algorithm.base import RegisteredBase
+
 
 class OptimizerType(Enum):
-    """Available optimizer types."""
+    """Available optimizer types.
+
+    Every member needs a registered implementation, because
+    :meth:`HeuristicOptimizer.create` is expected to serve the whole enum.
+    """
 
     GA = auto()
     PSO = auto()
@@ -39,7 +66,11 @@ class OptimizerType(Enum):
 
 @dataclass
 class OptimizerConfig:
-    """Common optimizer configuration."""
+    """Common optimizer configuration.
+
+    These are the arguments :meth:`HeuristicOptimizer.create` consumes on the
+    caller's behalf; every other keyword is forwarded to the constructor.
+    """
 
     n_iterations: int = 1000
     bounds: tuple[float, float] = (-10.0, 10.0)
@@ -47,11 +78,27 @@ class OptimizerConfig:
     seed: int | None = None
 
 
-class HeuristicOptimizer(ABC):
+class HeuristicOptimizer(RegisteredBase):
     """Abstract base class for heuristic optimizers.
 
     All heuristic algorithms inherit from this class for uniform interface.
+
+    Subclasses opt into the :meth:`create` factory by declaring
+    ``_registry_key``; they are then registered automatically::
+
+        class MyAlgorithm(HeuristicOptimizer):
+            _registry_key = OptimizerType.MY_ALGORITHM
     """
+
+    #: This family's registry, keyed by :class:`OptimizerType`.
+    _registry: ClassVar[dict[OptimizerType, type[HeuristicOptimizer]]] = {}
+
+    #: Keyword arguments consumed by :meth:`create` rather than forwarded to a
+    #: concrete constructor. Derived from :class:`OptimizerConfig` so a new
+    #: config field is reserved automatically.
+    _CONFIG_KEYS: ClassVar[frozenset[str]] = frozenset(
+        OptimizerConfig.__dataclass_fields__
+    )
 
     def __init__(
         self,
@@ -62,20 +109,21 @@ class HeuristicOptimizer(ABC):
         """Initialize optimizer.
 
         Args:
-            dim: Dimension of the optimization problem.
+            dim: Dimension of the optimization problem. Must be positive.
             config: Common configuration. If None, uses default.
-            random_state: Random generator for reproducibility.
+            random_state: Random generator for reproducibility. When None, one
+                is derived from ``config.seed`` so a seeded run is reproducible.
+
+        Raises:
+            ValueError: If ``dim`` is not positive.
         """
+        self._validate_dim(dim)
         self.dim = dim
         self.config = config if config is not None else OptimizerConfig()
         self.rng = (
             random_state
             if random_state is not None
-            else (
-                np.random.default_rng(self.config.seed)
-                if self.config.seed
-                else np.random.default_rng()
-            )
+            else np.random.default_rng(self.config.seed)
         )
         self._best_solution: np.ndarray | None = None
         self._best_fitness: float | None = None
@@ -110,88 +158,83 @@ class HeuristicOptimizer(ABC):
 
     @property
     def convergence_history(self) -> list[float]:
-        """Return convergence history (best fitness per iteration)."""
-        return self._convergence_history
+        """Return a copy of the convergence history (best fitness per iteration).
 
-    @staticmethod
+        A copy is returned so callers cannot mutate the recorded history.
+        """
+        return self._convergence_history.copy()
+
+    def reset(self) -> None:
+        """Return the instance to its pre-run state so it can be reused.
+
+        Clears the recorded best solution / fitness and the convergence history,
+        then delegates to :meth:`_reset` for subclass state.
+        """
+        self._best_solution = None
+        self._best_fitness = None
+        self._convergence_history.clear()
+        self._reset()
+
+    @classmethod
+    def _describe_keys(cls) -> list[str]:
+        """Return the registered selector names for error messages."""
+        return [member.name for member in cls.registered()]
+
+    @classmethod
     def create(
+        cls,
         optimizer_type: OptimizerType,
         dim: int,
-        **kwargs,
-    ) -> "HeuristicOptimizer":
-        """Factory method to create optimizer by type.
+        **kwargs: Any,
+    ) -> HeuristicOptimizer:
+        """Create an optimizer by type, looked up in the registry.
 
         Args:
-            optimizer_type: Type of optimizer to create.
+            optimizer_type: Registered selector (see :meth:`registered`).
             dim: Dimension of the problem.
-            **kwargs: Additional arguments passed to optimizer.
+            **kwargs: ``n_iterations`` / ``bounds`` / ``early_stop_threshold`` /
+                ``seed`` configure the run and are consumed here. Every other
+                keyword is forwarded to the concrete constructor, which raises
+                ``TypeError`` if it does not accept it.
 
         Returns:
             Optimizer instance.
 
         Raises:
-            ValueError: If optimizer type is unknown.
+            ValueError: If ``optimizer_type`` has no registered implementation.
+            ValueError: If ``dim`` is not positive.
         """
-        from ao_shaping.algorithm.heuristic.ga import GeneticAlgorithm, GAParams
-        from ao_shaping.algorithm.heuristic.pso import ParticleSwarmOptimizer, PSOParams
-        from ao_shaping.algorithm.heuristic.simulated_annealing import (
-            SimulatedAnnealing,
-            SAParams,
-            TempSchedule,
-        )
-        from ao_shaping.algorithm.heuristic.hill_climbing import HillClimbing
-        from ao_shaping.algorithm.heuristic.random_search import RandomSearch
-        from ao_shaping.algorithm.heuristic.cross_entropy import CrossEntropyMethod
-        from ao_shaping.algorithm.heuristic.differential_evolution import (
-            DifferentialEvolution,
-        )
-
         config = OptimizerConfig(
-            n_iterations=kwargs.pop("n_iterations", 1000),
-            bounds=kwargs.pop("bounds", (-10.0, 10.0)),
-            early_stop_threshold=kwargs.pop("early_stop_threshold", None),
-            seed=kwargs.pop("seed", None),
+            n_iterations=kwargs.get("n_iterations", OptimizerConfig.n_iterations),
+            bounds=kwargs.get("bounds", OptimizerConfig.bounds),
+            early_stop_threshold=kwargs.get(
+                "early_stop_threshold", OptimizerConfig.early_stop_threshold
+            ),
+            seed=kwargs.get("seed", OptimizerConfig.seed),
         )
-        # 构造器只接受 np.random.Generator; 由 seed 派生同种子 rng 传给各分支。
-        rng = np.random.default_rng(config.seed) if config.seed is not None else None
+        # 构造器只接受 np.random.Generator; 由 seed 派生同种子 rng 传给各实现。
+        random_state = np.random.default_rng(config.seed)
+        forwarded = {
+            key: value for key, value in kwargs.items() if key not in cls._CONFIG_KEYS
+        }
+        return cls._lookup(optimizer_type)._construct(
+            dim=dim,
+            config=config,
+            random_state=random_state,
+            **forwarded,
+        )
 
-        if optimizer_type == OptimizerType.GA:
-            params = GAParams(
-                pop_size=kwargs.pop("pop_size", 30),
-                n_generations=config.n_iterations,
-                bounds=config.bounds,
-            )
-            return GeneticAlgorithm(dim=dim, params=params, random_state=rng)
+    @classmethod
+    def _construct(
+        cls,
+        dim: int,
+        config: OptimizerConfig,
+        random_state: np.random.Generator,
+        **kwargs: Any,
+    ) -> HeuristicOptimizer:
+        """Build an instance from the common config plus algorithm extras.
 
-        elif optimizer_type == OptimizerType.PSO:
-            params = PSOParams(
-                n_particles=kwargs.pop("n_particles", 30),
-                n_iterations=config.n_iterations,
-                bounds=config.bounds,
-            )
-            return ParticleSwarmOptimizer(dim=dim, params=params, random_state=rng)
-
-        elif optimizer_type == OptimizerType.SA:
-            params = SAParams(
-                n_iterations=config.n_iterations,
-                bounds=config.bounds,
-            )
-            return SimulatedAnnealing(dim=dim, params=params, random_state=rng)
-
-        elif optimizer_type == OptimizerType.HILL_CLIMBING:
-            return HillClimbing(dim=dim, config=config, random_state=rng, **kwargs)
-
-        elif optimizer_type == OptimizerType.RANDOM_SEARCH:
-            return RandomSearch(dim=dim, config=config, random_state=rng, **kwargs)
-
-        elif optimizer_type == OptimizerType.CROSS_ENTROPY:
-            return CrossEntropyMethod(
-                dim=dim, config=config, random_state=rng, **kwargs
-            )
-
-        elif optimizer_type == OptimizerType.DIFFERENTIAL_EVOLUTION:
-            return DifferentialEvolution(
-                dim=dim, config=config, random_state=rng, **kwargs
-            )
-
-        raise ValueError(f"Unknown optimizer type: {optimizer_type}")
+        Overridden by the optimizers whose constructor takes its own parameter
+        dataclass instead of an :class:`OptimizerConfig`.
+        """
+        return cls(dim=dim, config=config, random_state=random_state, **kwargs)

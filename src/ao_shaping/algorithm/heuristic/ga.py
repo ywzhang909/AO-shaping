@@ -28,13 +28,15 @@ Example:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Protocol
+from typing import Any, Callable, Protocol
 
 import numpy as np
 
+from ao_shaping.algorithm.heuristic.gm import NumpyPopulationGM, guided_mutation
 from ao_shaping.algorithm.heuristic.heuristic_base import (
     HeuristicOptimizer,
     OptimizerConfig,
+    OptimizerType,
 )
 
 
@@ -172,7 +174,7 @@ class GAHistory:
     best_individual: np.ndarray | None = None
 
 
-class GeneticAlgorithm(HeuristicOptimizer):
+class GeneticAlgorithm(NumpyPopulationGM, HeuristicOptimizer):
     """Genetic Algorithm optimizer for continuous optimization.
 
     Attributes:
@@ -180,6 +182,8 @@ class GeneticAlgorithm(HeuristicOptimizer):
         params: GA parameters.
         history: Optimization history.
     """
+
+    _registry_key = OptimizerType.GA
 
     def __init__(
         self,
@@ -202,6 +206,36 @@ class GeneticAlgorithm(HeuristicOptimizer):
         )
         super().__init__(dim, config, random_state)
         self.history = GAHistory()
+        # Generation state lives on self so @guided_mutation can read it.
+        self._population: np.ndarray = np.empty((0, self.dim))
+        self._fitness_vals: np.ndarray = np.empty(0)
+        self._current_iter: int = 0
+
+    @classmethod
+    def _construct(
+        cls,
+        dim: int,
+        config: OptimizerConfig,
+        random_state: np.random.Generator | None,
+        **kwargs: Any,
+    ) -> "GeneticAlgorithm":
+        """Build a GA from the common config, translating it into GAParams.
+
+        Args:
+            dim: Dimension of the optimization problem.
+            config: Common configuration built by ``HeuristicOptimizer.create``.
+            random_state: Generator derived from ``config.seed``, or None.
+            **kwargs: Only ``pop_size`` is honoured; GA takes no other extras.
+
+        Returns:
+            The constructed GeneticAlgorithm.
+        """
+        params = GAParams(
+            pop_size=kwargs.get("pop_size", 30),
+            n_generations=config.n_iterations,
+            bounds=config.bounds,
+        )
+        return cls(dim=dim, params=params, random_state=random_state)
 
     def _initialize_population(self, init_x: np.ndarray | None = None) -> np.ndarray:
         """Initialize population.
@@ -237,6 +271,65 @@ class GeneticAlgorithm(HeuristicOptimizer):
         fitness = np.array([fitness_fn(ind) for ind in pop])
         return fitness
 
+    @guided_mutation()
+    def _evolve_generation(self) -> np.ndarray:
+        """Build the next generation: elitism + tournament + crossover + mutation.
+
+        Returns a population of exactly ``pop_size`` rows. When GM is enabled,
+        ``gm_offspring_fraction`` of those slots are left for the guided-mutation
+        offspring the decorator appends, so the total size is unchanged.
+
+        Returns:
+            The next population, shape ``(pop_size - n_gm, dim)``.
+        """
+        population = self._population
+        fitness = self._fitness_vals
+        pop_size = self.params.pop_size
+        target = max(self.params.elite_count, pop_size - self._gm_offspring())
+
+        # Elitism: preserve top elite_count individuals.
+        new_population = [
+            population[idx].copy()
+            for idx in np.argsort(fitness)[: self.params.elite_count]
+        ]
+
+        # Generate the remaining offspring through selection, crossover, mutation.
+        while len(new_population) < target:
+            parent1 = tournament_selection(
+                population, fitness, self.params.tournament_size, self.rng
+            )
+            parent2 = tournament_selection(
+                population, fitness, self.params.tournament_size, self.rng
+            )
+
+            if self.rng.random() < self.params.crossover_prob:
+                child1, child2 = blend_crossover(
+                    parent1, parent2, self.params.alpha, self.rng
+                )
+            else:
+                child1, child2 = parent1.copy(), parent2.copy()
+
+            child1 = gaussian_mutation(
+                child1,
+                self.params.mutation_prob,
+                self.params.mutation_sigma,
+                self.params.bounds,
+                self.rng,
+            )
+            child2 = gaussian_mutation(
+                child2,
+                self.params.mutation_prob,
+                self.params.mutation_sigma,
+                self.params.bounds,
+                self.rng,
+            )
+
+            new_population.append(child1)
+            if len(new_population) < target:
+                new_population.append(child2)
+
+        return np.array(new_population[:pop_size])
+
     def optimize(
         self,
         fitness_fn: FitnessFunction,
@@ -257,78 +350,39 @@ class GeneticAlgorithm(HeuristicOptimizer):
             Tuple of (best_solution, best_fitness).
         """
         # Initialize population
-        population = self._initialize_population(init_x)
+        self._population = self._initialize_population(init_x)
 
         # Evaluate initial population
-        fitness = self._evaluate_population(population, fitness_fn)
+        self._fitness_vals = self._evaluate_population(self._population, fitness_fn)
 
         # Find best in initial population
-        best_idx = np.argmin(fitness)
-        best_fitness = fitness[best_idx]
-        best_individual = population[best_idx].copy()
+        best_idx = np.argmin(self._fitness_vals)
+        best_fitness = self._fitness_vals[best_idx]
+        best_individual = self._population[best_idx].copy()
 
         # Record history
         self.history.best_fitness.append(best_fitness)
-        self.history.mean_fitness.append(np.mean(fitness))
+        self.history.mean_fitness.append(np.mean(self._fitness_vals))
 
         # Main GA loop
         for gen in range(1, self.params.n_generations + 1):
-            # Create new population
-            new_population = []
+            self._current_iter = gen - 1
 
-            # Elitism: preserve top elite_count individuals
-            elite_indices = np.argsort(fitness)[: self.params.elite_count]
-            for idx in elite_indices:
-                new_population.append(population[idx].copy())
-
-            # Generate offspring through selection, crossover, and mutation
-            while len(new_population) < self.params.pop_size:
-                # Tournament selection for parents
-                parent1 = tournament_selection(
-                    population, fitness, self.params.tournament_size, self.rng
-                )
-                parent2 = tournament_selection(
-                    population, fitness, self.params.tournament_size, self.rng
-                )
-
-                # Crossover
-                if self.rng.random() < self.params.crossover_prob:
-                    child1, child2 = blend_crossover(
-                        parent1, parent2, self.params.alpha, self.rng
-                    )
-                else:
-                    child1, child2 = parent1.copy(), parent2.copy()
-
-                # Mutation
-                child1 = gaussian_mutation(
-                    child1,
-                    self.params.mutation_prob,
-                    self.params.mutation_sigma,
-                    self.params.bounds,
-                    self.rng,
-                )
-                child2 = gaussian_mutation(
-                    child2,
-                    self.params.mutation_prob,
-                    self.params.mutation_sigma,
-                    self.params.bounds,
-                    self.rng,
-                )
-
-                new_population.append(child1)
-                if len(new_population) < self.params.pop_size:
-                    new_population.append(child2)
-
-            # Trim to exact population size
-            population = np.array(new_population[: self.params.pop_size])
+            # Evolve (the decorator may splice in guided-mutation offspring).
+            evolved = self._evolve_generation()
+            self._population = np.asarray(evolved, dtype=np.float64)[
+                : self.params.pop_size
+            ]
 
             # Evaluate new population
-            fitness = self._evaluate_population(population, fitness_fn)
+            self._fitness_vals = self._evaluate_population(
+                self._population, fitness_fn
+            )
 
             # Find best individual in this generation
-            current_best_idx = np.argmin(fitness)
-            current_best_fitness = fitness[current_best_idx]
-            current_best_individual = population[current_best_idx].copy()
+            current_best_idx = np.argmin(self._fitness_vals)
+            current_best_fitness = self._fitness_vals[current_best_idx]
+            current_best_individual = self._population[current_best_idx].copy()
 
             # Update global best
             if current_best_fitness < best_fitness:
@@ -337,7 +391,7 @@ class GeneticAlgorithm(HeuristicOptimizer):
 
             # Record history
             self.history.best_fitness.append(best_fitness)
-            self.history.mean_fitness.append(np.mean(fitness))
+            self.history.mean_fitness.append(np.mean(self._fitness_vals))
 
             # Callback
             if callback is not None:

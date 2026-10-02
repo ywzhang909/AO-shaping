@@ -27,13 +27,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Callable, Protocol
+from typing import Any, Callable, Protocol
 
 import numpy as np
 
 from ao_shaping.algorithm.heuristic.heuristic_base import (
     HeuristicOptimizer,
     OptimizerConfig,
+    OptimizerType,
 )
 
 
@@ -84,6 +85,8 @@ class SimulatedAnnealing(HeuristicOptimizer):
         history: Optimization history.
     """
 
+    _registry_key = OptimizerType.SA
+
     def __init__(
         self,
         dim: int,
@@ -105,6 +108,32 @@ class SimulatedAnnealing(HeuristicOptimizer):
         )
         super().__init__(dim, config, random_state)
         self.history = SAHistory()
+
+    @classmethod
+    def _construct(
+        cls,
+        dim: int,
+        config: OptimizerConfig,
+        random_state: np.random.Generator | None,
+        **kwargs: Any,
+    ) -> "SimulatedAnnealing":
+        """Build a SA from the common config, translating it into SAParams.
+
+        Args:
+            dim: Dimension of the optimization problem.
+            config: Common configuration built by ``HeuristicOptimizer.create``.
+            random_state: Generator derived from ``config.seed``, or None.
+            **kwargs: Accepted for signature compatibility with the base hook;
+                simulated annealing exposes no ``create()`` extras.
+
+        Returns:
+            The constructed SimulatedAnnealing.
+        """
+        params = SAParams(
+            n_iterations=config.n_iterations,
+            bounds=config.bounds,
+        )
+        return cls(dim=dim, params=params, random_state=random_state)
 
     def _get_temperature(self, iteration: int) -> float:
         """Get temperature for current iteration.

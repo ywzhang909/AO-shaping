@@ -22,6 +22,7 @@ import numpy as np
 from ao_shaping.algorithm.heuristic.heuristic_base import (
     HeuristicOptimizer,
     OptimizerConfig,
+    OptimizerType,
 )
 
 
@@ -41,6 +42,8 @@ class HillClimbing(HeuristicOptimizer):
         config: Configuration.
         hc_config: Hill Climbing specific config.
     """
+
+    _registry_key = OptimizerType.HILL_CLIMBING
 
     def __init__(
         self,

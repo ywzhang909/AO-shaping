@@ -28,13 +28,15 @@ Example:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Protocol
+from typing import Any, Callable, Protocol
 
 import numpy as np
 
+from ao_shaping.algorithm.heuristic.gm import GMOptimizerMixin, guided_mutation
 from ao_shaping.algorithm.heuristic.heuristic_base import (
     HeuristicOptimizer,
     OptimizerConfig,
+    OptimizerType,
 )
 
 
@@ -83,7 +85,7 @@ class Particle:
         self.best_fitness = fitness
 
 
-class ParticleSwarmOptimizer(HeuristicOptimizer):
+class ParticleSwarmOptimizer(GMOptimizerMixin, HeuristicOptimizer):
     """Particle Swarm Optimization optimizer.
 
     Attributes:
@@ -91,6 +93,8 @@ class ParticleSwarmOptimizer(HeuristicOptimizer):
         params: PSO parameters.
         history: Optimization history.
     """
+
+    _registry_key = OptimizerType.PSO
 
     def __init__(
         self,
@@ -116,6 +120,33 @@ class ParticleSwarmOptimizer(HeuristicOptimizer):
         self.particles: list[Particle] = []
         self.global_best_position: np.ndarray | None = None
         self.global_best_fitness: float = float("inf")
+        self._current_iter: int = 0
+
+    @classmethod
+    def _construct(
+        cls,
+        dim: int,
+        config: OptimizerConfig,
+        random_state: np.random.Generator | None,
+        **kwargs: Any,
+    ) -> "ParticleSwarmOptimizer":
+        """Build a PSO from the common config, translating it into PSOParams.
+
+        Args:
+            dim: Dimension of the optimization problem.
+            config: Common configuration built by ``HeuristicOptimizer.create``.
+            random_state: Generator derived from ``config.seed``, or None.
+            **kwargs: Only ``n_particles`` is honoured; PSO takes no other extras.
+
+        Returns:
+            The constructed ParticleSwarmOptimizer.
+        """
+        params = PSOParams(
+            n_particles=kwargs.get("n_particles", 30),
+            n_iterations=config.n_iterations,
+            bounds=config.bounds,
+        )
+        return cls(dim=dim, params=params, random_state=random_state)
 
     def _reset(self) -> None:
         """Reset optimizer state."""
@@ -182,13 +213,61 @@ class ParticleSwarmOptimizer(HeuristicOptimizer):
 
             p.velocity = np.clip(p.velocity, -self.params.v_max, self.params.v_max)
 
-    def _update_positions(self) -> None:
-        """Update positions for all particles."""
+    @guided_mutation(merge="replace_worst")
+    def _advance_positions(self) -> np.ndarray:
+        """Advance every particle one step and return the swarm as an array.
+
+        The decorator reads the swarm through the :class:`GMOptimizerMixin`
+        contract, then commits any guided-mutation offspring through
+        :meth:`_gm_commit`. Returning the array (rather than ``None``) is what
+        lets the same decorator serve PSO as it serves the array-backed
+        optimizers.
+
+        Returns:
+            The swarm positions, shape ``(n_particles, dim)``.
+        """
         for p in self.particles:
             p.position = p.position + p.velocity
             p.position = np.clip(
                 p.position, self.params.bounds[0], self.params.bounds[1]
             )
+        return self._gm_population()
+
+    # ------------------------------------------------------------------
+    # GMOptimizerMixin contract -- PSO keeps a list[Particle], so each hook
+    # projects to and from an (n, dim) array.
+    # ------------------------------------------------------------------
+    def _gm_population(self) -> np.ndarray:
+        return np.array([p.position for p in self.particles])
+
+    def _gm_fitness(self) -> np.ndarray:
+        return np.array([p.fitness for p in self.particles])
+
+    def _gm_iteration(self) -> int:
+        return self._current_iter
+
+    def _gm_offspring(self) -> int:
+        if not self.use_gm or self._gm_operator is None:
+            return 0
+        if not self.particles:
+            return 0
+        return int(max(1, round(len(self.particles) * self.gm_offspring_fraction)))
+
+    def _gm_bounds(self) -> tuple[float, float]:
+        return self.params.bounds
+
+    def _gm_commit(self, population: np.ndarray) -> None:
+        """Write the merged swarm back, zeroing the velocity of moved particles.
+
+        An injected particle keeps a zero velocity so the swarm does not
+        immediately fly the new candidate away; the particles the optimizer moved
+        itself keep theirs, so PSO's momentum is preserved. The injected
+        particles are scored by the ``_evaluate_particles`` call that follows.
+        """
+        for particle, position in zip(self.particles, population):
+            if not np.array_equal(particle.position, position):
+                particle.position = np.array(position, dtype=np.float64)
+                particle.velocity = np.zeros_like(particle.velocity)
 
     def optimize(
         self,
@@ -217,8 +296,9 @@ class ParticleSwarmOptimizer(HeuristicOptimizer):
         self.history.mean_fitness.append(np.mean([p.fitness for p in self.particles]))
 
         for iteration in range(1, self.params.n_iterations + 1):
+            self._current_iter = iteration
             self._update_velocities()
-            self._update_positions()
+            self._advance_positions()
             self._evaluate_particles(fitness_fn)
 
             self.history.best_fitness.append(self.global_best_fitness)

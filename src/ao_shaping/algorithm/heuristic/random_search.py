@@ -22,6 +22,7 @@ import numpy as np
 from ao_shaping.algorithm.heuristic.heuristic_base import (
     HeuristicOptimizer,
     OptimizerConfig,
+    OptimizerType,
 )
 
 
@@ -30,6 +31,8 @@ class RandomSearch(HeuristicOptimizer):
 
     Pure random search that samples uniformly from the search space.
     """
+
+    _registry_key = OptimizerType.RANDOM_SEARCH
 
     def __init__(
         self,

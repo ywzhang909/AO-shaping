@@ -1,8 +1,30 @@
-from typing import Literal, Callable
+"""Gradient-descent optimizers (SGD / Adam family / Muon family).
+
+Every concrete optimizer **registers itself** by declaring ``_registry_key``;
+this module contains no dispatch table and no references to its own subclasses
+beyond those declarations, so adding an optimizer (e.g. a new Muon variant) means
+adding one class here and nothing else -- :meth:`Base.create` is a dict lookup, so
+the Open/Closed Principle holds.
+
+``create`` does no fault tolerance: keyword arguments go straight to the
+constructor, which raises ``TypeError`` naming any argument it does not accept.
+
+Example:
+    >>> from ao_shaping.algorithm.gradient.adam import Base
+    >>> opt = Base.create("adamod", dim=64, lr=1.0)
+    >>> step = opt.update(gradient)
+    >>> opt.reset()
+"""
+
+from __future__ import annotations
+
+from abc import abstractmethod
+from collections.abc import Callable
+from typing import Any, ClassVar, Literal
 
 import numpy as np
 
-from abc import ABC, abstractmethod
+from ao_shaping.algorithm.base import RegisteredBase
 
 
 def learning_schedule(
@@ -26,8 +48,47 @@ def learning_schedule(
         raise ValueError("method must be static, cosin, exp or linear")
 
 
-class Base(ABC):
-    def __init__(self, dim: int, lr=1.0):
+class Base(RegisteredBase):
+    """Abstract base class for gradient optimizers.
+
+    Subclasses opt into the :meth:`create` factory by declaring
+    ``_registry_key``; they are then registered automatically::
+
+        class MyOptimizer(Base):
+            _registry_key = "mine"
+
+    Keys are matched case-insensitively; see :meth:`_normalize_key`.
+    """
+
+    #: This family's registry, keyed by lower-case optimizer name.
+    _registry: ClassVar[dict[str, type[Base]]] = {}
+
+    @classmethod
+    def _normalize_key(cls, key: Any) -> str:
+        """Return ``key`` as the lowercase name this family registers under."""
+        return str(key).lower()
+
+    @classmethod
+    def registered_names(cls) -> tuple[str, ...]:
+        """Return every registered optimizer name, sorted."""
+        return tuple(sorted(cls._registry))
+
+    @classmethod
+    def _describe_keys(cls) -> list[str]:
+        """Return the registered names for error messages."""
+        return list(cls.registered_names())
+
+    def __init__(self, dim: int, lr: float = 1.0):
+        """Initialize optimizer.
+
+        Args:
+            dim: Dimension of the parameter vector. Must be positive.
+            lr: Learning rate.
+
+        Raises:
+            ValueError: If ``dim`` is not positive.
+        """
+        self._validate_dim(dim)
         self.dim = dim
         self.lr = lr
         self.t: int = 0
@@ -39,12 +100,49 @@ class Base(ABC):
     def scale_momentum(self, scaler):
         pass
 
+    def reset(self) -> None:
+        """Return the optimizer to its freshly-constructed state.
+
+        Zeroes the step counter and every momentum buffer, so the same instance
+        can be reused for a new run without inheriting stale momentum.
+        """
+        self.t = 0
+        self._reset()
+
+    def _reset(self) -> None:
+        """Zero subclass-specific buffers. No-op by default."""
+
+    @classmethod
+    def create(cls, name: str, dim: int, lr: float = 1.0, **kwargs: Any) -> Base:
+        """Create an optimizer by name, looked up in the registry.
+
+        Args:
+            name: Registered optimizer name (case-insensitive).
+            dim: Dimension of the parameter vector.
+            lr: Learning rate.
+            **kwargs: Forwarded verbatim to the constructor, which raises
+                ``TypeError`` naming any argument it does not accept.
+
+        Returns:
+            Optimizer instance.
+
+        Raises:
+            ValueError: If ``name`` has no registered implementation.
+            ValueError: If ``dim`` is not positive.
+        """
+        return cls._lookup(name)._construct(dim=dim, lr=lr, **kwargs)
+
+    @classmethod
+    def _construct(cls, dim: int, lr: float = 1.0, **kwargs: Any) -> Base:
+        """Build an instance from ``create``'s keyword arguments."""
+        return cls(dim=dim, lr=lr, **kwargs)
+
 
 class SGD(Base):
+    _registry_key = "sgd"
+
     def __init__(self, dim: int, lr=1.0):
-        self.dim = dim
-        self.lr = lr
-        self.t: int = 0
+        super().__init__(dim, lr)
 
     def update(self, grad: np.ndarray):
         self.t += 1
@@ -56,15 +154,15 @@ class Adam(Base):
     使用 EMA 来估计二阶矩。这意味着它会遗忘早期的梯度信息。这使得 Adam 的自适应性更强，可以快速适应梯度的局部变化。
     """
 
+    _registry_key = "adam"
+
     def __init__(self, dim: int, lr=1.0, beta1=0.9, beta2=0.99):
-        self.dim = dim
-        self.lr = lr
+        super().__init__(dim, lr)
         self.beta1 = beta1
         self.beta2 = beta2
 
         self.m = np.zeros(self.dim, dtype=np.float32)
         self.v = np.zeros(self.dim, dtype=np.float32)
-        self.t: int = 0
 
     def update(self, grad: np.ndarray):
         self.t += 1
@@ -78,8 +176,14 @@ class Adam(Base):
         self.m *= scaler
         self.v *= scaler**2
 
+    def _reset(self):
+        self.m = np.zeros(self.dim, dtype=np.float32)
+        self.v = np.zeros(self.dim, dtype=np.float32)
+
 
 class AdamW(Adam):
+    _registry_key = "adamw"
+
     def __init__(self, dim: int, lr=1.0, beta1=0.9, beta2=0.99, weight_decay=1e-2):
         super().__init__(dim, lr, beta1, beta2)
         self.weight_decay = weight_decay
@@ -110,6 +214,8 @@ class AdaMOD(Adam):
 
     """
 
+    _registry_key = "adamod"
+
     def __init__(self, dim: int, lr=1.0, beta1=0.9, beta2=0.99, beta3=0.9995, **kwargs):
         super().__init__(dim, lr, beta1, beta2)
         self.beta3 = beta3
@@ -127,6 +233,10 @@ class AdaMOD(Adam):
         learning_rate = np.where(gamma < self.s, gamma, self.s)
         return learning_rate * m_hat
 
+    def _reset(self):
+        super()._reset()
+        self.s = 0.0
+
 
 class Muno(Base):
     """
@@ -134,6 +244,8 @@ class Muno(Base):
     它通过维护梯度的指数移动平均和梯度平方的指数移动平均来动态调整学习率，
     同时引入了额外的机制来稳定训练过程。
     """
+
+    _registry_key = "muno"
 
     def __init__(
         self, dim: int, lr=1.0, beta1=0.9, beta2=0.999, eps=1e-8, amsgrad=False
@@ -192,11 +304,18 @@ class Muno(Base):
         # 计算更新步长
         return self.lr * m_hat / (np.sqrt(v_hat) + self.eps)
 
+    def _reset(self):
+        self.m = np.zeros(self.dim, dtype=np.float32)
+        self.v = np.zeros(self.dim, dtype=np.float32)
+        self.v_max = np.zeros(self.dim, dtype=np.float32)
+
 
 class MunoW(Muno):
     """
     带权重衰减的 Muno 优化器 (MunoW)
     """
+
+    _registry_key = "munow"
 
     def __init__(
         self,
@@ -348,6 +467,8 @@ class Muon(Base):
     and any internal gains or biases should be optimized using a standard method such as AdamW.
     """
 
+    _registry_key = "muon"
+
     def __init__(self, dim: int, lr=0.02, weight_decay=0, momentum=0.95, ns_steps=5):
         """
         Initialize Muon optimizer
@@ -391,11 +512,16 @@ class Muon(Base):
         # Scale by learning rate
         return -self.lr * update
 
+    def _reset(self):
+        self.momentum_buffer = np.zeros(self.dim, dtype=np.float32)
+
 
 class AdamNS(Base):
     """
     Adam optimizer with Newton-Schulz orthogonalization post-processing
     """
+
+    _registry_key = "adamns"
 
     def __init__(self, dim: int, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, ns_steps=5):
         """
@@ -466,6 +592,10 @@ class AdamNS(Base):
                 update = update.reshape(original_shape)
 
         return self.lr * update
+
+    def _reset(self):
+        self.buf1 = np.zeros(self.dim, dtype=np.float32)
+        self.buf2 = np.zeros(self.dim, dtype=np.float32)
 
 
 def search_optimal_delta(
