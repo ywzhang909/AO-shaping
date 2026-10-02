@@ -82,6 +82,15 @@ from ao_shaping.algorithm.heuristic.simulated_annealing import (
     minimize_sa,
 )
 
+from ao_shaping.algorithm.heuristic.gm import (
+    GMOptimizerMixin,
+    GMOperator,
+    NumpyPopulationGM,
+    RankGuidedMutation,
+    ValueFrequencyGuidedMutation,
+    guided_mutation,
+)
+
 from ao_shaping.algorithm.heuristic.heuristic_base import (
     HeuristicOptimizer,
     OptimizerConfig,
@@ -161,6 +170,12 @@ __all__ = [
     "HeuristicOptimizer",
     "OptimizerConfig",
     "OptimizerType",
+    "GMOptimizerMixin",
+    "GMOperator",
+    "NumpyPopulationGM",
+    "RankGuidedMutation",
+    "ValueFrequencyGuidedMutation",
+    "guided_mutation",
     "HEURISTIC_ALGORITHM_MAP",
     "HeuristicSearchResult",
     "SearchAborted",
