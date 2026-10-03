@@ -1,0 +1,10 @@
+  algorithm     shape  requested_area  measured_area  area_met  fill_ratio  uniformity_cv  encircled_energy  elapsed_s
+0  backprop    circle            1160            579     False    0.499138       0.443949          0.750493   8.850528
+1  backprop  gaussian             392            160     False    0.408163       0.991178          0.023225   1.722678
+2  backprop    square             256            258      True    1.007812       0.005830          0.719885   1.682800
+3        gs    circle            1160           1016      True    0.875862       0.153601          0.951998   0.804717
+4        gs  gaussian             392            351      True    0.895408       0.210359          0.478668   0.795207
+5        gs    square             256            247      True    0.964844       0.168664          0.950860   0.775390
+6  spgd-sim    circle            1160              1     False    0.000862      34.038199          0.997658   0.828602
+7  spgd-sim  gaussian             392              1     False    0.002551      19.772575          0.997545   0.815766
+8  spgd-sim    square             256              1     False    0.003906      15.968084          0.997527   0.813247

@@ -1,11 +1,13 @@
-"""无设备 (device-less) 全网格基准 + GIF: 只调用权威模块公开 API。
+"""Device-less full-grid benchmark driver (thin wrapper).
 
-用途: 一次性生成 docs/benchmarks/device_less_full/ 下的
-  - beam_shaping_benchmark_metrics.csv  (权威 run_benchmark_suite, 9 行网格)
-  - beam_shaping_benchmark_metrics.md  (权威套件)
-  - gif/ 子目录 6 个演化 GIF (gs / spgd-sim x square/circle/gaussian)
+The report writer now lives in
+``scripts/generate_beam_shaping_benchmark_report.py`` (F-14: report generation
+must live in ``scripts/``, not in ``algorithm/``). This script is kept because
+scripts/README.md documents it, and it only forwards to that writer.
 
-不修改任何权威模块; 本脚本只是驱动, 完成后可删除。
+Produces under docs/benchmarks/device_less_full/:
+  - beam_shaping_benchmark_metrics.csv / .md  (9-cell grid)
+  - gif/ 6 evolution GIFs (gs / spgd-sim x square/circle/gaussian)
 """
 
 from __future__ import annotations
@@ -15,49 +17,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from ao_shaping.algorithm.signal_processing.beam_shaping_benchmark import (
-    run_benchmark,
-    run_benchmark_suite,
-)
+from scripts.generate_beam_shaping_benchmark_report import main as generate
 
 OUT = Path(__file__).resolve().parents[1] / "docs" / "benchmarks" / "device_less_full"
 GIF = OUT / "gif"
 
 
 def main() -> int:
-    OUT.mkdir(parents=True, exist_ok=True)
-    GIF.mkdir(parents=True, exist_ok=True)
-
-    # ── 1) 权威 9 行网格 (3 算法 x 3 形状, 无设备) ──
-    rows, df = run_benchmark_suite(
-        output_dir=OUT,
-    )
-    print(f"SUITE_ROWS={len(rows)}")
-    with open(OUT / "suite_stdout.txt", "w", encoding="utf-8") as f:
-        f.write(df.to_string())
-
-    # ── 2) 收敛组合的演化 GIF (gs/spgd-sim 在无设备下面积达标, backprop 记录为失败) ──
-    for algo in ("gs", "spgd-sim"):
-        for shape in ("square", "circle", "gaussian"):
-            sub = GIF / f"{algo}_{shape}"
-            sub.mkdir(parents=True, exist_ok=True)
-            r = run_benchmark(
-                algorithm=algo,
-                shape=shape,
-                iterations=300,
-                seed=42,
-                max_frames=30,
-                make_gif=True,
-                device=None,
-                output_dir=sub,
-            )
-            gifs = sorted(sub.glob("*.gif"))
-            print(
-                f"GIF {algo} {shape}: fill={r.get('fill_ratio', float('nan')):.3f} "
-                f"area_met={r.get('area_met')} gif_count={len(gifs)}"
-            )
-
-    return 0
+    """Forward to the canonical writer."""
+    return generate()
 
 
 if __name__ == "__main__":

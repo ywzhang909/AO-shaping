@@ -429,3 +429,51 @@ def test_the_docs_targets_the_harness_writes_to_are_known() -> None:
     # Nothing to assert about the exact set -- it changes as reports are added.
     # The guard that matters is the marker check above.
     assert len(tracked) > 0
+
+
+# ---------------------------------------------------------------------------
+# 5. algorithm/ must not write reports
+# ---------------------------------------------------------------------------
+
+#: AGENTS.md: "All markdown/illustrated-report **generation** MUST live in
+#: `scripts/` ... NEVER under `src/ao_shaping/tools/`, which is reserved for
+#: hardware-interaction tools", and the same rule for `algorithm/`: report
+#: generation must not sit in the algorithm layer.
+#:
+#: F-14 was one violation: beam_shaping_benchmark.py wrote CSV+MD+GIF from three
+#: functions. It now computes only -- `run_benchmark` / `run_benchmark_suite`
+#: no longer take an `output_dir` at all -- while the three helpers that are not
+#: I/O (`build_gif_frames`, `to_dataframe`, `HPRINT_KEYS`) stay with the producer.
+#: Serialisation moved to scripts/generate_beam_shaping_benchmark_report.py.
+_WRITE_CALLS = re.compile(
+    r"\b(?:to_csv|write_text|write_bytes|savefig|imsave|mkdir)\s*\(|"
+    r"\.save\s*\(|open\s*\([^)]*[\"'][wax]"
+)
+
+
+def test_algorithm_layer_writes_no_reports() -> None:
+    offenders: list[str] = []
+    for path in sorted((SRC / "ao_shaping" / "algorithm").rglob("*.py")):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), 1):
+            code = line.split("#", 1)[0]
+            if _WRITE_CALLS.search(code):
+                offenders.append(f"{path.relative_to(REPO).as_posix()}:{lineno} {code.strip()[:70]}")
+    assert not offenders, (
+        "the algorithm layer must compute, not serialise -- report generation "
+        f"belongs in scripts/ (AGENTS.md anti-pattern). Offenders: {offenders}"
+    )
+
+
+def test_the_benchmark_writer_is_reachable_from_scripts() -> None:
+    """Pins where the serialisation went, so it cannot quietly move back."""
+    writer = REPO / "scripts" / "generate_beam_shaping_benchmark_report.py"
+    assert writer.is_file(), "the report writer moved; update this guard"
+    text = writer.read_text(encoding="utf-8")
+    assert "def write_table(" in text and "def write_artifacts(" in text
+    # And the algorithm module must no longer expose them.
+    algo = (SRC / "ao_shaping" / "algorithm" / "signal_processing"
+            / "beam_shaping_benchmark.py").read_text(encoding="utf-8")
+    assert "def _write_table" not in algo and "def _write_artifacts" not in algo
+    assert "output_dir" not in algo, (
+        "beam_shaping_benchmark still takes an output_dir, so it is still a writer"
+    )

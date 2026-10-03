@@ -99,7 +99,14 @@ performance_comparison.md
 docs/micro deformable mirror/docs/shiliang_extracted*
 !docs/**/*.png
 docs/**/*.npy
-docs/benchmarks/device_less**
+# The device-less beam-shaping benchmark was ignored here, which left README
+# pointing at a 1-line smoke leftover because the real 9-cell grid could not be
+# committed. It is ~100 KB and it is the authoritative artefact, so track it.
+docs/benchmarks/device_less/**
+!docs/benchmarks/device_less/beam_shaping_benchmark_metrics.md
+!docs/benchmarks/device_less/suite_stdout.txt
+!docs/benchmarks/device_less/gif/*/*_metrics.md
+!docs/benchmarks/device_less/gif/*/*_evolution.gif
 *.log
 scripts/dev**
 tmp_*

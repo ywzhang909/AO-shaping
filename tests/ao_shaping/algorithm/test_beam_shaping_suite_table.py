@@ -55,8 +55,7 @@ class TestRunBenchmarkSuiteSemantics:
             shapes=["circle", "square"],
             grid_size=32,
             max_frames=0,
-            output_dir=str(tmp_path),
-        )
+                )
         assert len(rows) == 4
         assert len(df) == 4
         for row in rows:

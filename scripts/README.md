@@ -1171,6 +1171,38 @@ Outputs to `docs/slm_pib_rms_pib_hw/`:
 | `--max-runs` | `5` | How many runs to render (newest first) |
 | `-o, --output` | `docs/slm_pib_rms_pib_hw` | Output directory |
 
+### generate_beam_shaping_benchmark_report.py
+
+Regenerates the **authoritative 9-cell beam-shaping benchmark** (3 algorithms x 3
+shapes) into `docs/benchmarks/device_less_full/`: `beam_shaping_benchmark_metrics.md`
++ `.csv`, `suite_stdout.txt`, and 6 evolution GIFs under `gif/`. **Fully offline**
+-- pure numpy/PIL, ~100 s.
+
+```bash
+python scripts/generate_beam_shaping_benchmark_report.py
+```
+
+This is the report writer for
+`algorithm/signal_processing/beam_shaping_benchmark.py` and it lives here rather
+than there because of the AGENTS.md anti-pattern: *report generation MUST live in
+`scripts/`*. The benchmark module now only computes -- `run_benchmark` and
+`run_benchmark_suite` no longer take an `output_dir` at all -- while the three
+helpers that are not I/O (`build_gif_frames`, `to_dataframe`, `HPRINT_KEYS`) stay
+with the producer, since frame construction and the returned DataFrame's column
+contract are computation, not serialisation.
+
+**Read `area_met` before comparing algorithms.** Measured: gs passes 3/3,
+backprop 1/3, spgd-sim **0/3** -- `spgd-sim`'s measured area collapses to ~1 px
+with CV 16-34 device-less, so its uniformity numbers are meaningless. The report
+header repeats this so the table cannot be misread on its own.
+
+The `.csv` siblings are written but **not committed**: the repo has a global
+`*.csv` ignore rule and no CSV under `docs/` is tracked. The markdown is the
+tracked artefact.
+
+`run_device_less_full.py` is kept as a thin forwarder to this script, because
+docs referenced it.
+
 ### generate_beam_shaping_papers_report.py
 
 Runs a closed-loop SLM far-field beam-shaping **simulation bench** and compares

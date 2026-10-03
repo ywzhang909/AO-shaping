@@ -1829,7 +1829,7 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 - [docs/](docs/): 项目文档与报告 (2026-09 起从根目录迁移集中):
   - [SLM 相关](docs/slm/): 报告与攻关记录 (`report2.md`, `report3.md`, 日报 `daily_*.md`, 方形整形 `slm_square_spgd/README.md`, 可微整形 `slm_shaping_diff/readme.md`, Zernike 线性度 `zernike_linearity/linearity.md`, Zernike 响应矩阵报告 `zernike_response_matrix_report/report.md`)
   - **硬件评测报告** (2026-09 重新生成): [WFS](docs/wfs/wfs_report.md) / [MiiCam](docs/miicam/miicam_report.md) / [SLM-200](docs/slm-200/slm-200_report.md) / [Micro-DM](docs/micro-dm/micro-dm_report.md)
-  - [性能对比](docs/benchmarks/performance_comparison.md)、[光束整形基准指标](docs/beam_shaping_benchmark_metrics.md)、[已知问题](docs/issues_report.md)
+  - [性能对比](docs/benchmarks/performance_comparison.md)、[光束整形基准指标 (9 单元权威网格)](docs/benchmarks/device_less_full/beam_shaping_benchmark_metrics.md)、[已知问题](docs/issues_report.md)
   - [diff-beam 可微整形说明](docs/diff_beam/README.md)、[PIB 优化器功能报告](docs/reports/pib_optimizer_functional_report.md)
 
 ## 近期更新

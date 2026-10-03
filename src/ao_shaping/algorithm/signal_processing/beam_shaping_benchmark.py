@@ -353,8 +353,6 @@ def run_benchmark(
     seed: int = 42,
     max_frames: int = DEFAULT_MAX_FRAMES,
     device: str | None = None,
-    output_dir: str | Path | None = None,
-    make_gif: bool = True,
 ) -> dict[str, Any]:
     """Run one shaping algorithm on one simulated target shape.
 
@@ -369,8 +367,6 @@ def run_benchmark(
         seed: Random seed (reproducible runs).
         max_frames: Length cap for the recorded evolution (GIF frame budget).
         device: Backprop compute device (``"cuda"``/``"cpu"``/None=auto).
-        output_dir: If given, writes metrics CSV/MD + GIF here.
-        make_gif: Render an evolution GIF when ``output_dir`` is set.
 
     Returns:
         Dict with algorithm identifier, target/requested area, simulated
@@ -440,9 +436,6 @@ def run_benchmark(
         "phase": phase,
     }
 
-    if output_dir is not None and make_gif:
-        _write_artifacts(result, output_dir)
-
     return result
 
 
@@ -457,7 +450,6 @@ def run_benchmark_suite(
     seed: int = 42,
     max_frames: int = DEFAULT_MAX_FRAMES,
     device: str | None = None,
-    output_dir: str | Path | None = None,
 ) -> tuple[list[dict[str, Any]], pd.DataFrame]:
     """Run all algorithms × all selected shapes (exhaustive grid).
 
@@ -473,8 +465,7 @@ def run_benchmark_suite(
         seed: Random seed.
         max_frames: GIF frame budget (per cell).
         device: Backprop device.
-        output_dir: If set, writes a combined metrics CSV/MD table.
-
+    
     Returns:
         ``(rows, dataframe)`` where each row is the scalar
         :func:`run_benchmark` result (phase/simulated arrays stripped) and
@@ -497,15 +488,10 @@ def run_benchmark_suite(
                 seed=seed,
                 max_frames=max_frames,
                 device=device,
-                output_dir=output_dir,
-                make_gif=False,
             )
             rows.append(result)
 
-    df = _to_dataframe(rows)
-
-    if output_dir is not None:
-        _write_table(df, output_dir)
+    df = to_dataframe(rows)
 
     return rows, df
 
@@ -513,7 +499,7 @@ def run_benchmark_suite(
 # ---------------------------------------------------------------------------
 # Serialization helpers (DF / CSV / MD / GIF)
 # ---------------------------------------------------------------------------
-_HPRINT_KEYS: tuple[str, ...] = (
+HPRINT_KEYS: tuple[str, ...] = (
     "algorithm",
     "shape",
     "requested_area",
@@ -526,90 +512,19 @@ _HPRINT_KEYS: tuple[str, ...] = (
 )
 
 
-def _to_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
+def to_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
     """Project rows on the scalar (non-array) fields into a DataFrame."""
     scalar_rows = []
     for row in rows:
-        scalar_rows.append({k: row[k] for k in _HPRINT_KEYS if k in row})
+        scalar_rows.append({k: row[k] for k in HPRINT_KEYS if k in row})
     df = pd.DataFrame(scalar_rows)
     if not df.empty:
         df = df.sort_values(["algorithm", "shape"]).reset_index(drop=True)
     return df
 
 
-def _write_table(df: pd.DataFrame, output_dir: str | Path) -> None:
-    out = Path(output_dir)
-    out.mkdir(parents=True, exist_ok=True)
-    df.to_csv(out / "beam_shaping_benchmark_metrics.csv", index=False)
 
-    lines = [
-        "# Beam-Shaping Benchmark (simulation)",
-        "",
-        f"- Grid: {df['shape'].count() if not df.empty else 0} cells",
-        "",
-        "| algorithm | shape | requested | measured | area_met | fill_ratio | "
-        "uniformity_cv | encircled_energy | elapsed_s |",
-        "|---|---|---|---|---|---|---|---|---|",
-    ]
-    for _, row in df.iterrows():
-        lines.append(
-            f"| {row['algorithm']} | {row['shape']} | {row['requested_area']} "
-            f"| {row['measured_area']} | {row['area_met']} "
-            f"| {row['fill_ratio']:.3f} | {row['uniformity_cv']:.3f} "
-            f"| {row['encircled_energy']:.3f} | {row['elapsed_s']:.3f} |"
-        )
-    lines.append("")
-    (out / "beam_shaping_benchmark_metrics.md").write_text("\n".join(lines), encoding="utf-8")
-    logger.info(f"Benchmark tables written to {out}")
-
-
-def _write_artifacts(result: dict[str, Any], output_dir: str | Path) -> None:
-    """Write per-run GIF (PIL) + metrics CSV/MD for a single result."""
-    out = Path(output_dir)
-    out.mkdir(parents=True, exist_ok=True)
-
-    # CSV row
-    header = list(_HPRINT_KEYS)
-    with (out / f"{result['algorithm']}_{result['shape']}_metrics.csv").open(
-        "w", newline="", encoding="utf-8"
-    ) as fh:
-        writer = csv.writer(fh)
-        writer.writerow(header)
-        writer.writerow([result.get(k, "") for k in header])
-
-    # MD
-    lines = [
-        f"# Benchmark: {result['algorithm']} × {result['shape']}",
-        "",
-        f"- requested_area: {result['requested_area']}",
-        f"- measured_area: {result['measured_area']}  (met: {result['area_met']}, "
-        f"fill_ratio: {result['fill_ratio']:.3f})",
-        f"- uniformity_cv: {result['uniformity_cv']:.4f}",
-        f"- encircled_energy: {result['encircled_energy']:.4f}",
-        f"- elapsed_s: {result['elapsed_s']:.3f}",
-        "",
-    ]
-    (out / f"{result['algorithm']}_{result['shape']}_metrics.md").write_text(
-        "\n".join(lines), encoding="utf-8"
-    )
-
-    # GIF: target → simulated (fixed frame budget)
-    target = np.asarray(result["target"])
-    simulated = np.asarray(result["simulated"])
-    if target.ndim == 2 and simulated.ndim == 2 and target.shape == simulated.shape:
-        frames = _build_gif_frames(target, simulated, max_frames=DEFAULT_MAX_FRAMES)
-        gif_path = out / f"{result['algorithm']}_{result['shape']}_evolution.gif"
-        frames[0].save(
-            gif_path,
-            save_all=True,
-            append_images=frames[1:],
-            duration=max(50, int(1000 * min(2.0, max(0.05, result["elapsed_s"])))),
-            loop=0,
-        )
-        logger.debug(f"Wrote GIF {gif_path}")
-
-
-def _build_gif_frames(
+def build_gif_frames(
     target: np.ndarray,
     simulated: np.ndarray,
     max_frames: int = DEFAULT_MAX_FRAMES,
@@ -655,4 +570,7 @@ __all__ = [
     "measure_shaped_area",
     "run_benchmark",
     "run_benchmark_suite",
+    "build_gif_frames",
+    "to_dataframe",
+    "HPRINT_KEYS",
 ]
