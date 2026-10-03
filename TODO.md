@@ -160,8 +160,8 @@
 | **F-11** | 🔴 **SLM 序列号三路冲突**：`drivers/AGENTS.md:158` 与 `docs/slm/bench_calibration_20261001.md` 记 SLM#1 = **22030108**（@1064nm，2π=993）；`drivers/slm/AGENTS.md:114,139` 记 **22030102**（@532nm，2π=998）；`docs/slm/report2.md` / `report3.md` / `zernike_linearity/linearity.md` 记 **23020026**（@532nm）。三者或为两台设备。**引用前必须确认，并回写 `drivers/AGENTS.md` 硬件表**（Daheng CCD `FJB24112232` 已于 2026-10-01 补录进该表） | `drivers/AGENTS.md` 硬件事实表 | 2026-10-01 |
 | **F-12** | **焦面标定常数三方不一致**：`AGENTS.md:697` 写 `5021/Λ`（对应 3.31 µm 像元）；`docs/slm/model_in_loop_bench_calibration.md` / `README.md:517` 写 7400–7600（对应 2.2 µm 像元）；`docs/slm_pib_heuristic_hw/report.md:159` 主张改 **10954**。⚠️ **2.2 µm 像元推得 ~7557 而非 10954，故该主张本身也待复核**。H-11 只覆盖了 132940 vs 7600，**未覆盖此三方冲突** | `slm_diagnose.py:54`、`slm_lut_runner.py:38`、`slm_bench_probe.py:78`、两处测试 | 2026-10-01 |
 | **F-13** | `strehl()` 是**去均值余弦相似度**，不是物理 Strehl 比（`slm_shaping_bench.py:309-323`）。但 `beam_shaping_benchmark.py` 与 `docs/beam_shaping/papers/beam_shaping_papers.md:30` 消费它的输出并称 "Strehl" ⇒ **docs 树里所有 "Strehl" 数字实为归一化重叠**。`docs/zotero_objectives/README.md:526-528` 已标记「需决策」但未修 | `slm_shaping_bench.py:309` | 2026-10-01 |
-| **F-14** | 报告生成写在 `algorithm/` 层（`signal_processing/beam_shaping_benchmark.py:543,562` 写 CSV/MD）违反 `AGENTS.md` 反模式红线「report generation MUST live in `scripts/`」 | `algorithm/signal_processing/beam_shaping_benchmark.py` | 2026-10-01 |
-| **F-15** | `docs/beam_shaping_benchmark_metrics.md` 被 `README.md:1813` 当权威链接，实际是 **1 行 smoke 残留**；权威 9 行网格在 `docs/benchmarks/device_less_full/`（被 gitignore，本 checkout 无）。两边都不可用 | `README.md:1813` | 2026-10-01 |
+| **F-14** 报告生成写在 `algorithm/` 层 | ✅ 违反反模式「report generation MUST live in `scripts/`」。写出器移到 `scripts/generate_beam_shaping_benchmark_report.py`；`algorithm/` 侧 `run_benchmark`/`run_benchmark_suite` **不再接受 `output_dir`** → §5.13 |
+| **F-15** `docs/beam_shaping_benchmark_metrics.md` 被 README 当权威链接，实际是 1 行 smoke 残留 |✅ 9 单元权威网格已生成并**提交**（~100 s 全离线），README 改指真产物；1 行残留**删除** → §5.13 |
 
 ---
 
@@ -418,7 +418,7 @@ TODO 指定的那处极小值修复**（`0.0000` → `1.000e-07`）。
 ② 把某个 src 文件的导入改回旧路径 ⇒ 静态守卫失败。
 
 **回归**：`utils` 800 passed；`algorithm`+`tools`+`model` 1010 passed；
-`wfless`+`runners`+`scripts` 1040 passed（只剩 §5.13 那个既有失败）。
+`wfless`+`runners`+`scripts` 1040 passed（只剩 §5.14 那个既有失败）。
 
 ### 5.8 R-21（第 3 批）—— 2026-10-03 完成
 
@@ -771,7 +771,70 @@ runners 重组进 `micro_drive/` 与 `slm/` 子包后，**文档里的模块路�
 以便可被过滤。`test_miicam_simulation_report.py` 白名单 + 理由（目标是
 **未被 git 跟踪**的 `docs/miicam_simulation/`，且不需要设备）。
 
-### 5.13 全量套件基线（2026-10-03 实测，非本轮引入）
+### 5.13 F-14 / F-15（第 3 批）—— 2026-10-04 完成
+
+| 原项 | 落地情况 |
+|---|---|
+| **F-14** 报告生成写在 `algorithm/` 层 | ✅ 违反反模式「report generation MUST live in `scripts/`」 |
+| **F-15** README 指向 1 行 smoke 残留，权威网格被 gitignore | ✅ 权威 9 单元网格已生成并提交，README 改指真产物 |
+
+**这两项是同一个问题的两面**：F-14 是「谁写」，F-15 是「写到哪」。先修 F-14
+（写出器搬到 `scripts/`），才使 F-15 可修 —— 因为权威网格必须能重新生成才有意义。
+
+#### F-14：`algorithm/` 侧现在**完全没有写盘路径**
+
+`beam_shaping_benchmark.py` 原有 3 个函数写 CSV/MD/GIF。现在
+`run_benchmark` / `run_benchmark_suite` **不再接受 `output_dir`**，
+`algorithm/` 里已搜不到 `to_csv` / `write_text` / `savefig` / `mkdir`。
+
+三个**非 I/O** 的助手留在生产侧（它们是计算，不是序列化）：
+
+| 助手 | 为什么留下 |
+|---|---|
+| `build_gif_frames(target, simulated)` | 只在内存里造 PIL 帧，不写文件 |
+| `to_dataframe(rows)` | 它是 `run_benchmark_suite` **返回值**里的 DataFrame 投影，返回类型属于 API |
+| `HPRINT_KEYS` | 列契约 |
+
+序列化全部移到 `scripts/generate_beam_shaping_benchmark_report.py`；
+`run_device_less_full.py` 因被文档引用而保留为转发壳。
+
+#### F-15：权威产物从「不可用」变成「已提交」
+
+| | 修前 | 修后 |
+|---|---|---|
+| README 指向 | `docs/beam_shaping_benchmark_metrics.md`（**1 行 smoke 残留**） | `docs/benchmarks/device_less_full/beam_shaping_benchmark_metrics.md`（**9 单元**） |
+| 权威 9 行网格 | 被 `.gitignore` 排除，**本 checkout 不存在** | **已提交**（~100 KB，含 6 个 GIF） |
+
+⚠️ 那个残留文件**自己就带着 2026-10-01 的警告横幅**描述了这个问题 ——
+前一轮 review 诊断出来了但没动，只是加了横幅。已**删除**而不是留着：
+一个只有一行表格、名字听起来很权威的文件比没有更糟；它的诊断内容现在在
+生成报告的头部、本 commit message 和 git history 里。
+
+🔴 **刻意没提交的**：同目录的 `.csv`。`.gitignore` 有**全局** `*.csv` 规则
+（`:7`），且**当前 `docs/` 下 0 个 CSV 被跟踪** —— 提交它们等于替全仓改政策，
+超出 F-15 的授权。报告头部写明了 CSV 的去向与再生成方式。
+
+#### 顺带纠正一个**不实的老说法**
+
+旧 `run_device_less_full.py` docstring 写「gs/spgd-sim 在无设备下面积达标」。
+实测**不是**：
+
+| 算法 | 面积检查通过 |
+|---|---|
+| `gs` | **3/3** |
+| `backprop` | **1/3**（只过 square） |
+| `spgd-sim` | **0/3** |
+
+`spgd-sim` 的实测面积塌到 **~1 px**、`uniformity_cv` **16–34**，无设备下它的
+均匀性/能量数字描述的是噪声。这句话已写进**生成报告的头部**，这样表格单独被
+读到时也不会被误读；并明确要求**先看 `area_met` 再比较任意两行**。
+没有为了让报告好看而调整任何 CSV/GIF。
+
+**新增第 5 条约定守卫**：`algorithm/` 下不得出现
+`to_csv` / `write_text` / `savefig` / `mkdir` / `.save(`，且
+`beam_shaping_benchmark` 不得再出现 `output_dir`。已用植入 `to_csv` 变异验证。
+
+### 5.14 全量套件基线（2026-10-03 实测，非本轮引入）
 
 按目录分块跑（`tests/ao_shaping`），**单块崩潰不影响其余块计数**：
 
@@ -807,7 +870,7 @@ runners 重组进 `micro_drive/` 与 `slm/` 子包后，**文档里的模块路�
 | ~~**第 1 批（纯收益，零行为风险）**~~ | ~~R-23、R-24、R-30、R-31、F-2、F-6、F-7、F-8、R-40~~ ✅ **2026-10-03 全部完成 → §5.1** | — |
 | **第 1.5 批（文档/常量收口，先定事实再改代码）** | F-10（OOPAO 改写 + 重跑报告）、F-11（SLM 序列号）、F-12（标定常数三方）、F-13（`strehl()` 命名） | 需设备/一次扫描 |
 | **第 2 批（止真 bug，需先补特征测试）** | ✅ **R-1~R-4、R-9~R-11、R-35 全部完成（均经变异验证）→ §5.2 / §5.3** | — |
-| **第 3 批（架构重构）** | ~~R-20~~ ✅ §5.4、~~R-21~~ ✅ §5.8、~~R-22~~ ✅ §5.7、~~R-25~~ ✅ §5.6、~~R-26~~ ✅ §5.5；~~R-36~~ ✅ §5.9；~~R-27~~ ✅ §5.11、~~R-28~~ ✅ §5.10；~~R-32~~ ✅ §5.12；**剩余 R-37→R-38→R-39→R-41、F-14、F-15** | ~~R-20 先行~~ ✅ 已满足；R-36 有 R-35 golden 兜底 |
+| **第 3 批（架构重构）** | ~~R-20~~ ✅ §5.4、~~R-21~~ ✅ §5.8、~~R-22~~ ✅ §5.7、~~R-25~~ ✅ §5.6、~~R-26~~ ✅ §5.5；~~R-36~~ ✅ §5.9；~~R-27~~ ✅ §5.11、~~R-28~~ ✅ §5.10；~~R-32~~ ✅ §5.12；~~F-14~~ ✅ §5.13、~~F-15~~ ✅ §5.13；**剩余 R-37→R-38→R-39→R-41** | ~~R-20 先行~~ ✅ 已满足；R-36 有 R-35 golden 兜底 |
 | **第 4 批（内部重构）** | R-5~R-8、R-12~R-17、R-19 | ~~R-1~R-4 完成~~ ✅ 已满足 |
 | **硬件轨道（并行）** | F-1 → H-7~H-13 → **H-19**（与 H-9 合并做：方形路径复用 PIB 的 ABBA 参考实现）→ H-14 复扫 → H-15/H-16 → H-1/H-2 → H-3~H-6 → H-17/H-18 | 设备在线 |
 
