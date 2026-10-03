@@ -10,6 +10,12 @@ from pathlib import Path
 from glob import glob
 from datetime import datetime
 
+from ao_shaping.utils.io.timestamp import (
+    DATE_FMT,
+    format_ts,
+    make_date_dir,
+)
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -84,19 +90,22 @@ def gen_file_path_uuid(dir: str | Path, postfix: str = ""):
 
 
 def gen_date_str():
-    # generate date string
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
+    """Full-timestamp string for "now" (``YYYYMMDD_HHMMSS``).
+
+    Kept as a name because it is exported through ``ao_shaping.utils`` and used by
+    six modules; the implementation is the shared ``utils.io.timestamp`` one (R-28).
+    """
+    return format_ts()
 
 
 def gen_date_dir(base_dir: str | Path = "data"):
-    # generate date dir
-    if isinstance(base_dir, str):
-        base_dir = Path(base_dir)
-    date_str = gen_date_str()
-    date_dir = base_dir.joinpath(date_str)
-    if not date_dir.exists():
-        date_dir.mkdir(parents=True)
-    return date_dir
+    """Timestamped run directory, second resolution.
+
+    See :func:`~ao_shaping.utils.io.timestamp.make_date_dir` for why
+    :func:`~ao_shaping.utils.io.cli_helpers.create_save_dir` keeps a coarser
+    stamp rather than being folded into this one.
+    """
+    return make_date_dir(base_dir)
 
 
 def build_debug_save_paths(
@@ -137,7 +146,7 @@ def get_init_V_by_rms(date: str = ""):
     data_path = (
         f"data/flatten_voltages/{date}"
         if date
-        else f"data/flatten_voltages/{datetime.now().strftime('%Y%m%d')}"
+        else f"data/flatten_voltages/{format_ts(fmt=DATE_FMT)}"
     )
 
     def get_rms(file_name):
@@ -164,7 +173,7 @@ def get_init_V_by_energy(date: str = ""):
     data_path = (
         f"data/flatten_voltages/{date}"
         if date
-        else f"data/flatten_voltages/{datetime.now().strftime('%Y%m%d')}"
+        else f"data/flatten_voltages/{format_ts(fmt=DATE_FMT)}"
     )
 
     def get_energy(file_name):

@@ -1,16 +1,26 @@
 """CLI helper functions for AO-Shaping runners.
 
 Common utilities used across multiple CLI runner scripts.
+
+The date/directory helpers delegate to :mod:`ao_shaping.utils.io.timestamp` (R-28),
+which is the single implementation. They deliberately do **not** route through
+:mod:`ao_shaping.utils.io.file`: that module imports pandas and matplotlib, and
+these helpers are imported by runners that need neither.
 """
 
 from __future__ import annotations
 
 import os
 import re
-from datetime import datetime
 from pathlib import Path
 
 import click
+
+from ao_shaping.utils.io.timestamp import (
+    DATE_FMT,
+    format_ts,
+    make_date_dir,
+)
 
 
 def get_debug_mode() -> bool:
@@ -94,13 +104,22 @@ def setup_coredumpy(directory: str = "logs/debug/error"):
 
 
 def get_date_dir_name() -> str:
-    """Get current date as directory name (YYYYMMDD format)."""
-    return datetime.now().strftime("%Y%m%d")
+    """Get current date as directory name (YYYYMMDD format).
+
+    Routes to the shared primitive in ``utils.io.timestamp`` (R-28); this name
+    stays because it is exported through ``ao_shaping.utils`` and used by nine
+    modules.
+    """
+    return format_ts(fmt=DATE_FMT)
 
 
 def get_timestamp_str() -> str:
-    """Get current timestamp string (YYYYMMDD_HHMMSS format)."""
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
+    """Get current timestamp string (YYYYMMDD_HHMMSS format).
+
+    Identical to :func:`~ao_shaping.utils.io.file.gen_date_str`; both delegate to
+    ``utils.io.timestamp.format_ts`` (R-28).
+    """
+    return format_ts()
 
 
 def create_save_dir(base_dir: str | Path, subdir: str) -> Path:
@@ -112,7 +131,12 @@ def create_save_dir(base_dir: str | Path, subdir: str) -> Path:
 
     Returns:
         Path object for the created directory
+
+    Note:
+        Shares its implementation with
+        :func:`~ao_shaping.utils.io.file.gen_date_dir` but keeps a coarser
+        stamp on purpose: this one buckets a whole day, that one gives every run
+        its own second-resolution directory. See
+        :func:`~ao_shaping.utils.io.timestamp.make_date_dir`.
     """
-    path = Path(base_dir) / subdir / get_date_dir_name()
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return make_date_dir(Path(base_dir) / subdir, fmt=DATE_FMT)

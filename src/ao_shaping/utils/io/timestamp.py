@@ -3,6 +3,17 @@
 This module provides comprehensive timestamp parsing from various filename formats
 and datetime representations. It supports multiple common timestamp patterns used
 in scientific imaging and data acquisition systems.
+
+Also the canonical home of the two date/directory primitives (R-28). The package
+used to carry two byte-identical copies of each strftime call, in
+``utils.io.file`` and ``utils.io.cli_helpers``. They are now defined here, once,
+and both modules route to them -- this module imports nothing from ``ao_shaping``
+and nothing beyond the standard library, so either can depend on it without
+dragging pandas or matplotlib along.
+
+The *names* stay duplicated because all four are exported through
+``ao_shaping.utils.__all__`` and have live callers. What is no longer duplicated
+is the implementation.
 """
 
 from __future__ import annotations
@@ -10,6 +21,62 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from pathlib import Path
+
+#: Full timestamp, second resolution -- the default for run directories.
+FULL_STAMP_FMT = "%Y%m%d_%H%M%S"
+#: Bare date -- what the flatten_voltages family groups by.
+DATE_FMT = "%Y%m%d"
+
+
+def format_ts(ts: datetime | None = None, fmt: str = FULL_STAMP_FMT) -> str:
+    """Format ``ts`` (default: now) with ``fmt`` (default: a full timestamp).
+
+    Args:
+        ts: Instant to format. ``None`` means "now"; pass an explicit value in
+            tests so the result does not depend on when the test runs.
+        fmt: Any :func:`datetime.strftime` pattern.
+
+    Returns:
+        The formatted string.
+
+    Note:
+        Deliberately the *only* place in the package that calls ``strftime`` on a
+        wall-clock instant, so a format change cannot land in one copy only.
+    """
+    return (ts if ts is not None else datetime.now()).strftime(fmt)
+
+
+def parse_stamp(text: str) -> datetime:
+    """Inverse of :func:`format_ts` for the full-timestamp format.
+
+    Raises:
+        ValueError: If ``text`` is not ``YYYYMMDD_HHMMSS``.
+    """
+    return datetime.strptime(text, FULL_STAMP_FMT)
+
+
+def make_date_dir(base_dir: str | Path = "data", fmt: str = FULL_STAMP_FMT) -> Path:
+    """Create ``base_dir`` if needed and return ``base_dir/<stamp>``.
+
+    Args:
+        base_dir: Parent directory. Created recursively when missing.
+        fmt: Stamp format. The two historical callers differ here on purpose --
+            :func:`~ao_shaping.utils.io.file.gen_date_dir` uses the default
+            full timestamp so each run gets its own directory, while
+            :func:`~ao_shaping.utils.io.cli_helpers.create_save_dir` passes
+            :data:`DATE_FMT` to bucket a whole day. Merging the two would either
+            collapse same-day runs into one directory or rename every existing
+            output tree, so the divergence is kept and only the code is shared.
+
+    Returns:
+        The created directory. Idempotent: calling twice in the same instant
+        returns the same path instead of raising.
+    """
+    stamp = format_ts(fmt=fmt)
+    date_dir = Path(base_dir).joinpath(stamp)
+    if not date_dir.exists():
+        date_dir.mkdir(parents=True)
+    return date_dir
 
 
 class TimestampParser:
