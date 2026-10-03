@@ -68,7 +68,7 @@ AO-shaping/
 | Zernike 工具 | `src/ao_shaping/utils/wavefront/zernike_utils.py` | 系数解析 (Noll/(n,m)/数组) + 相位生成，Noll 1976 约定 |
 | RL training | `src/ao_shaping/optimizer/rl/` | SAC, LR-WFS |
 | Simulation | `src/ao_shaping/drivers/sim/` | Digital twin devices |
-| Utilities | `src/ao_shaping/utils/{io,image,wavefront,slm}/` | 4 子包: io/, image/, wavefront/, slm/ (spots_calc, wavefront_calc, zernike_calc, display 等) |
+| Utilities | `src/ao_shaping/utils/{io,image,wavefront,slm}/` + root `cli_params.py` | 4 子包: io/, image/, wavefront/, slm/ (spots_calc, wavefront_calc, zernike_calc, display 等) + 零导入叶子 `cli_params.py` |
 | Standalone runners (未注册) | `src/ao_shaping/runners/` | `shaping_runner` 计划迁移至 `scripts/`, `slm_offset_runner` 计划迁移至 `tools/slm/` |
 | ML training | `src/ml/` (standalone, not inside `ao_shaping/`) | U-Net+GAN, trainer, wandb_logger |
 | Standalone tools | `src/ao_shaping/tools/` | SLM phase capture, Micro-DM per-channel image collection, train data collection |
@@ -215,8 +215,29 @@ Utility functions for image processing and calculations, organized into 4 subpac
 | `utils/image/` | `spots_calc`, `beam_metrics`, `targets`, `resample`, `display`, `hardware_utils` | `gs_visualization` 已迁至 `display/`（2026-10-03）；`utils/hardware_utils.py` 别名 shim 已删（2026-10-03）。**仍开放**: `display.py` 本身仍是 utils 里的渲染器，需连同 `ImageVoltagesDisplay` / `plot_funcs` / `VOLT_HEIGHT` 的 re-export 一起搬 |
 | `utils/wavefront/` | `zernike_calc`, `zernike_utils`, `wavefront_calc`, `wfs_utils`, `phase_unwrap`, `hadamard_calc`, `matrix_utils` | |
 | `utils/slm/` | `pattern_helper`, `slm_lut`, `phase_display` | |
+| `utils/cli_params.py` (root, not a subpackage) | `option`, `with_params`, `ClickGroup` | **零 `ao_shaping` 导入**（2026-10-03 从 `runners/runner_common.py` 抽出，TODO R-36）。见下方红线 |
 
 > **注意**: legacy top-level `ao_shaping.utils.X` paths remain importable via shims.
+
+### 🔴 `utils/cli_params.py` 是零导入叶子 (2026-10-03, R-36)
+
+dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params` 收集器 +
+对象投递) 的**唯一**实现。它同时被 `runners/` 和 `tools/slm/` 消费，所以:
+
+- **禁止任何 `ao_shaping.*` 导入** —— 模块级、函数体内、`TYPE_CHECKING` 下都不行。
+  只允许 **stdlib + `click`**。
+- 理由链: `tools/slm/` 探针要在**无设备**路径上可用。若机制留在 `runners/runner_common.py`，
+  `tools/` 就得 import `runners/`，而后者 import 期就 `list_dm_types()` 并
+  `import ao_shaping.drivers.dm.asyn_micro_dm` 触发注册副作用 —— 台架探针会在
+  没设备时先碰硬件包，正是 R-20 惰性契约要避免的。
+- 机制**不得在别处重新定义**。import 是正常消费（12 个 runner 都 import
+  `with_params`），**定义**才是重复 —— 那正是 R-25 里两份 `_fmt` 漂移的成因。
+- 守卫是 **AST 而非 grep**：`tests/ao_shaping/utils/test_cli_params_leaf.py`
+  遍历全树，能挡住藏在函数体里的延迟 import；grep 挡不住。
+  ⚠️ `ruff` **查不出**「从错误模块导入」（它只报「导入未使用」），所以这一项
+  必须靠自己的测试，不能只靠 lint。
+- 私有名（如 `_collect_click_annotations`）**不跨模块 re-export**：测试直接
+  从本模块 import。
 
 ---
 
