@@ -212,7 +212,7 @@ Utility functions for image processing and calculations, organized into 4 subpac
 | Subpackage | Contents | Notes |
 |------|---------|-------|
 | `utils/io/` | `file`, `timestamp`, `cli_helpers`, `device_config`, `network`, `handler` | `handler` becomes a backward-compat shim to `display/` |
-| `utils/image/` | `spots_calc`, `beam_metrics`, `targets`, `resample`, `display`, `gs_visualization`, `hardware_utils` | pygame display relocating to `display/`; `gs_visualization` relocating to `display/` |
+| `utils/image/` | `spots_calc`, `beam_metrics`, `targets`, `resample`, `display`, `hardware_utils` | `gs_visualization` 已迁至 `display/`（2026-10-03）；`utils/hardware_utils.py` 别名 shim 已删（2026-10-03）。**仍开放**: `display.py` 本身仍是 utils 里的渲染器，需连同 `ImageVoltagesDisplay` / `plot_funcs` / `VOLT_HEIGHT` 的 re-export 一起搬 |
 | `utils/wavefront/` | `zernike_calc`, `zernike_utils`, `wavefront_calc`, `wfs_utils`, `phase_unwrap`, `hadamard_calc`, `matrix_utils` | |
 | `utils/slm/` | `pattern_helper`, `slm_lut`, `phase_display` | |
 

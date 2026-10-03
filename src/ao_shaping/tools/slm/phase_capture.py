@@ -21,7 +21,7 @@ import torch
 from loguru import logger
 
 from ao_shaping.drivers.slm.santec import Santec
-from ao_shaping.utils.hardware_utils import open_camera
+from ao_shaping.utils.image.hardware_utils import open_camera
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.slm_phase import capture_frame
 

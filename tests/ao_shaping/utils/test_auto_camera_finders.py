@@ -2,7 +2,7 @@
 
 Pins the exact current behavior of :func:`find_exposure_ms`,
 :func:`find_zero_order_center` and :func:`auto_find_exposure_and_center`
-from :mod:`ao_shaping.utils.hardware_utils` (the deterministic-probe
+from :mod:`ao_shaping.utils.image.hardware_utils` (the deterministic-probe
 auto-exposure / 0-order-centre helpers shared by the SLM+CCD runners).
 
 All tests are mock-based: a duck-typed ``_StubCam`` stands in for the real

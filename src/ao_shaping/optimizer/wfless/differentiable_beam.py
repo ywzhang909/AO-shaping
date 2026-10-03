@@ -54,7 +54,7 @@ from ao_shaping.algorithm.signal_processing.differentiable_beam import (
     far_field_intensity,
 )
 from ao_shaping.utils import Recorder
-from ao_shaping.utils.hardware_utils import call_with_timeout
+from ao_shaping.utils.image.hardware_utils import call_with_timeout
 from ao_shaping.utils.slm.phase_display import DEFAULT_WAVELENGTH
 from ao_shaping.utils.image.targets import crop_resize_to_grid
 

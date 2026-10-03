@@ -19,7 +19,7 @@ Migration map:
   ``pick_slm_slot`` / ``display_phase`` + physical constants) ->
   :mod:`ao_shaping.utils.slm.phase_display`.
 - Hardware helpers (``capture_amplitude`` / ``call_with_timeout`` /
-  auto-exposure / frame recording) -> :mod:`ao_shaping.utils.hardware_utils`.
+  auto-exposure / frame recording) -> :mod:`ao_shaping.utils.image.hardware_utils`.
 """
 
 from __future__ import annotations
@@ -57,8 +57,8 @@ from ao_shaping.utils.slm.phase_display import (
     phase_to_slm_grayscale,
     pick_slm_slot,
 )
-# Hardware helpers -> ``ao_shaping.utils.hardware_utils``
-from ao_shaping.utils.hardware_utils import (
+# Hardware helpers -> ``ao_shaping.utils.image.hardware_utils``
+from ao_shaping.utils.image.hardware_utils import (
     apply_auto_exposure,
     auto_exposure_possible,
     auto_exposure_target_ms,

@@ -1,4 +1,4 @@
-"""Regression-anchor tests for :mod:`ao_shaping.utils.hardware_utils`.
+"""Regression-anchor tests for :mod:`ao_shaping.utils.image.hardware_utils`.
 
 Pins the EXACT current behavior of the module (read-only — the source is not
 modified). All tests are mock-based; no real hardware or native SDK access.
@@ -12,8 +12,8 @@ import threading
 import numpy as np
 import pytest
 
-from ao_shaping.utils import hardware_utils
-from ao_shaping.utils.hardware_utils import (
+from ao_shaping.utils.image import hardware_utils
+from ao_shaping.utils.image.hardware_utils import (
     apply_auto_exposure,
     auto_exposure_possible,
     auto_exposure_target_ms,

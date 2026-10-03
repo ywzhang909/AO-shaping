@@ -63,7 +63,7 @@ def devices():
     """
     _require_hardware()
     from ao_shaping.drivers.slm.santec import Santec
-    from ao_shaping.utils.hardware_utils import open_camera
+    from ao_shaping.utils.image.hardware_utils import open_camera
 
     slm = Santec(slm_number=_SLM_NUMBER, wavelength=_SLM_WAVELENGTH_NM, video_mode=0)
     slm.open()
