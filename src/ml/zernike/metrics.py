@@ -1,0 +1,218 @@
+"""Image metrics for the Zernike far-field model.
+
+Two families, because this is both an img2img regression *and* a beam-shaping
+measurement:
+
+* **img2img-standard** -- the metrics an image-to-image paper would report:
+  ``MSE``, ``RMSE``, ``MAE``, ``NRMSE``, ``PSNR``, ``SSIM``, plus Pearson
+  ``correlation`` and the scale-invariant ``efficiency`` overlap already
+  implemented canonically in
+  :func:`ao_shaping.utils.image.beam_metrics.compute_metrics`.
+* **beam-domain** -- what the optics actually cares about: where the spot is
+  (``centroid_offset_px``) and how wide it is (``spot_diameter_px`` at a stated
+  encircled-energy fraction), plus ``peak_ratio`` (a Strehl-like brightness
+  agreement). A model can score a respectable PSNR while putting the spot in the
+  wrong place or at the wrong width; these catch that and PSNR cannot.
+
+Deliberately **not** included: ``LPIPS`` / ``FID``. Both need a pretrained
+backbone, and this environment has no ``torchvision``, so
+``torchmetrics.image.LearnedPerceptualImagePatchSimilarity`` is not importable
+(verified, not assumed). Adding a perceptual metric is therefore a dependency
+decision, not a code change -- see :func:`available_perceptual_metrics`.
+
+Canonical helpers are reused rather than reimplemented, per ``AGENTS.md``:
+``compute_metrics`` and ``measure_spot_diameter_cam`` from
+:mod:`ao_shaping.utils.image.beam_metrics`, and ``centroid`` from
+:mod:`ao_shaping.utils.image.spots_calc`.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+import torch
+
+__all__ = [
+    "available_perceptual_metrics",
+    "batch_image_metrics",
+    "per_sample_beam_metrics",
+    "psnr",
+]
+
+#: Encircled-energy fraction used for the spot-diameter comparison. 0.90 matches
+#: the default of the canonical ``measure_spot_diameter_cam``.
+DEFAULT_EE_FRACTION: float = 0.90
+
+
+def available_perceptual_metrics() -> tuple[str, ...]:
+    """Report which perceptual metrics can actually run here.
+
+    A perceptual metric needs a pretrained backbone. ``lpips`` and ``torchvision``
+    are both absent from this environment, so the honest answer is an empty
+    tuple rather than a metric that silently returns a constant.
+
+    Returns:
+        Names of the usable perceptual metrics.
+    """
+    import importlib.util
+
+    usable: list[str] = []
+    if importlib.util.find_spec("lpips"):
+        usable.append("lpips")
+    try:
+        import torchmetrics.image as tmi
+
+        if hasattr(tmi, "LearnedPerceptualImagePatchSimilarity"):
+            usable.append("torchmetrics-lpips")
+    except ImportError:
+        pass
+    return tuple(usable)
+
+
+def psnr(pred: torch.Tensor, target: torch.Tensor, data_range: float = 1.0) -> torch.Tensor:
+    """Peak signal-to-noise ratio in dB.
+
+    Args:
+        pred: Prediction, any shape.
+        target: Target, same shape.
+        data_range: Nominal dynamic range of the data.
+
+    Returns:
+        Per-element PSNR tensor.
+    """
+    mse = torch.mean((pred - target) ** 2, dim=tuple(range(1, pred.ndim)))
+    return 10.0 * torch.log10(data_range**2 / mse.clamp_min(1e-20))
+
+
+def batch_image_metrics(
+    pred: torch.Tensor, target: torch.Tensor, *, data_range: float = 1.0
+) -> dict[str, float]:
+    """Compute the img2img-standard metrics for a whole batch.
+
+    SSIM comes from ``torchmetrics`` (it needs a Gaussian window and reflect
+    padding, which is not worth reimplementing); everything else is closed-form.
+
+    Args:
+        pred: ``(N, C, H, W)`` prediction.
+        target: ``(N, C, H, W)`` target, same shape.
+        data_range: Nominal dynamic range, ``1.0`` for peak-normalised data.
+
+    Returns:
+        Flat dict of scalars: ``mse``, ``rmse``, ``mae``, ``nrmse``, ``psnr``,
+        ``ssim``, and ``r2`` (kept so callers need only this one function).
+    """
+    pred = pred.detach().to(torch.float32)
+    target = target.detach().to(torch.float32)
+    error = pred - target
+    mse = float(error.pow(2).mean())
+    mae = float(error.abs().mean())
+    span = float(target.max() - target.min())
+    variance = float(torch.var(target))
+    return {
+        "mse": mse,
+        "rmse": float(np.sqrt(mse)),
+        "mae": mae,
+        "nrmse": float(np.sqrt(mse) / span) if span > 0 else float("nan"),
+        "psnr": float(psnr(pred, target, data_range).mean()),
+        "ssim": _ssim(pred, target, data_range=data_range),
+        "r2": 1.0 - mse / variance if variance > 0 else float("nan"),
+    }
+
+
+def _ssim(pred: torch.Tensor, target: torch.Tensor, *, data_range: float) -> float:
+    """Mean SSIM over the batch, or ``nan`` when torchmetrics is unavailable."""
+    try:
+        from torchmetrics.functional.image import structural_similarity_index_measure
+    except ImportError:  # pragma: no cover - torchmetrics is a hard dep here
+        return float("nan")
+    value = structural_similarity_index_measure(
+        pred.clamp(0.0, data_range), target.clamp(0.0, data_range), data_range=data_range
+    )
+    # torchmetrics returns a Tensor, or a (value, state_dict) tuple when
+    # `return_early_return` is set; take the metric in either case.
+    if isinstance(value, tuple):
+        value = value[0]
+    return float(value)
+
+
+def per_sample_beam_metrics(
+    pred: np.ndarray,
+    target: np.ndarray,
+    *,
+    ee_fraction: float = DEFAULT_EE_FRACTION,
+) -> dict[str, float]:
+    """Score one predicted far-field pattern against its measured frame.
+
+    Both arrays are ``(H, W)`` and are compared **scale-invariantly**: the
+    SLM+CCD chain has an unknown absolute gain, so every quantity here is
+    computed after normalising each image to unit sum, exactly as the canonical
+    :func:`~ao_shaping.utils.image.beam_metrics.compute_metrics` does.
+
+    Args:
+        pred: ``(H, W)`` predicted observable.
+        target: ``(H, W)`` measured frame.
+        ee_fraction: Encircled-energy fraction for the spot diameter.
+
+    Returns:
+        ``correlation``, ``efficiency`` (canonical), ``centroid_offset_px``,
+        ``spot_diameter_pred_px``, ``spot_diameter_target_px``,
+        ``spot_diameter_ratio`` and ``peak_ratio``.
+    """
+    from ao_shaping.utils.image.beam_metrics import (
+        compute_metrics,
+        measure_spot_diameter_cam,
+    )
+    from ao_shaping.utils.image.spots_calc import centroid
+
+    p = np.asarray(pred, dtype=np.float64)
+    t = np.asarray(target, dtype=np.float64)
+    canonical = compute_metrics(p, t)
+
+    p_norm = p / p.sum() if p.sum() > 0 else p
+    t_norm = t / t.sum() if t.sum() > 0 else t
+
+    # `centroid` delegates to scipy's center_of_mass, whose type stub is loose
+    # enough that it may hand back tensors. Go through numpy, which accepts any
+    # array-like, rather than assuming a scalar pair.
+    centre_p = np.asarray(centroid(p_norm, return_float=True), dtype=np.float64).ravel()
+    centre_t = np.asarray(centroid(t_norm, return_float=True), dtype=np.float64).ravel()
+    cx_p, cy_p = float(centre_p[0]), float(centre_p[1])
+    cx_t, cy_t = float(centre_t[0]), float(centre_t[1])
+    offset = float(np.hypot(cx_p - cx_t, cy_p - cy_t))
+
+    d_pred = float(measure_spot_diameter_cam(p_norm, energy=ee_fraction))
+    d_true = float(measure_spot_diameter_cam(t_norm, energy=ee_fraction))
+    peak_p = float(p_norm.max())
+    peak_t = float(t_norm.max())
+
+    return {
+        "correlation": canonical["correlation"],
+        "efficiency": canonical["efficiency"],
+        "centroid_offset_px": offset,
+        "spot_diameter_pred_px": d_pred,
+        "spot_diameter_target_px": d_true,
+        # 1.0 == the prediction has the same width as the measurement.
+        "spot_diameter_ratio": d_pred / d_true if d_true > 0 else float("nan"),
+        # 1.0 == the prediction peaks as sharply as the measurement.
+        "peak_ratio": peak_p / peak_t if peak_t > 0 else float("nan"),
+    }
+
+
+def summarise_beam_metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
+    """Average per-sample beam metrics into one flat dict.
+
+    Args:
+        rows: Per-sample dicts from :func:`per_sample_beam_metrics`.
+
+    Returns:
+        Mean of every key, or ``nan`` when ``rows`` is empty.
+    """
+    if not rows:
+        return {}
+    keys = rows[0].keys()
+    out: dict[str, float] = {}
+    for key in keys:
+        values = [float(r[key]) for r in rows if np.isfinite(float(r[key]))]
+        out[key] = float(np.mean(values)) if values else float("nan")
+    return out

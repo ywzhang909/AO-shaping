@@ -44,11 +44,11 @@ matplotlib.use("Agg")
 from ml.phase.dataset import (
     PhasePredictionDataset,
     create_dataloaders,
-    create_zernike_loaders,
 )
-from ml.zernike.models import (
-    build_model,
-)
+# `create_zernike_loaders` has always lived in ml.zernike.dataset, not
+# ml.phase.dataset; this import was broken before the Zernike-model rewrite and
+# made `python -m ml.train` unrunnable.
+from ml.zernike.dataset import create_zernike_loaders
 from ml.phase import build_unet, build_discriminator
 from ml.phase.trainer import PhaseGANTrainer
 
@@ -65,6 +65,27 @@ PHASE_MODEL_TYPES = {"unet"}
 
 # All supported model types
 ALL_MODEL_TYPES = ZERNIKE_MODEL_TYPES | PHASE_MODEL_TYPES
+
+
+def _zernike_regression_removed(model_type: str) -> RuntimeError:
+    """Build the error raised by the removed Zernike coefficient-regression path.
+
+    The image-to-coefficient regressors (``resnet18`` / ``resnet34`` /
+    ``simple_cnn``) were removed together with the torchvision dependency:
+    they predicted a coefficient vector straight from an image with no
+    forward model, which cannot express the pupil-to-far-field physics.
+    ``ml.zernike.models.ZernikeAmpModel`` replaces them -- it fits one global
+    non-piston Zernike vector by pushing it through the canonical Fraunhofer
+    FFT and minimising MSE against the measured CCD frame.
+    """
+    return RuntimeError(
+        f"Zernike coefficient regression (model_type={model_type!r}) was removed. "
+        "The image-to-coefficient regressors predicted a vector directly from an "
+        "image with no forward model. Use the physics-based forward model instead: "
+        "from ml.zernike import ZernikeAmpModel, ZernikeAmpConfig; "
+        "model = ZernikeAmpModel(ZernikeAmpConfig(n_max=..., grid=...)); "
+        "result = model.fit(phase_cos, phase_sin, ccd_frame)."
+    )
 
 
 # =============================================================================
@@ -432,8 +453,6 @@ def train(
     device: str | None,
     seed: int,
     target_size: str,
-    input_mode: str,
-    n_zernike_terms: int,
     n_max: int,
     lambda_l1: float,
     lambda_adv: float,
