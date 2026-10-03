@@ -1,10 +1,16 @@
 # physics vs U-Net on `slm_zernike_shaping`
 
+> **Status: superseded.** See [`report.md`](report.md) §7 for the matched-budget,
+> 3-seed comparison that is the authoritative result. This file is kept as the
+> record of the *earlier, unfair-budget* run and the capacity trend, both of which
+> are still informative — but the "U-Net wins" reading below is an artefact of
+> giving the U-Net 25 epochs while the physics model converges by epoch 13.
+
 Head-to-head produced by `python scripts/compare_unet_baseline.py --seeds 3`.
 
 Identical split (same `_select_records`, same files), identical inputs
 `(phase_cos, phase_sin)`, identical target (peak-normalised `image`), identical
-loss (MSE), optimiser (Adam), schedule (cosine) and budget (25 epochs).
+loss (MSE), optimiser (Adam), schedule (cosine) and budget (**25 epochs**).
 `grid=64`, `far_field_padding=10`, `observable="intensity"`. **3 seeds each.**
 
 | model | params | val R² (mean ± std) | val SSIM | PSNR | corr | centroid off | spot d90 ratio | train s |
