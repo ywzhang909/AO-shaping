@@ -132,147 +132,256 @@ Greedy coordinate descent fails here; every winner must be re-tested jointly.
 adam/adamw/sgd — `train()` hard-coded `torch.optim.Adam` and ignored
 `cfg.optimizer`. It had measured nothing until it was fixed.
 
-## 6. The noise floor (and a retraction)
+## 6. The noise floor — and why it was never the fold size
 
-Same config, same seed, repeated → **bit-identical** (3/3 runs, 5 decimals). The
-pipeline is deterministic; all variance is the split seed:
+Same config, same seed, repeated → **bit-identical** (3/3 runs, 5 decimals), so the
+pipeline is deterministic. Sweeping only the split seed gave:
 
 | seed | 0 | 1 | 2 | 3 |
 |---|---|---|---|---|
 | val R² | +0.780 | +0.797 | +0.920 | +0.923 |
 
-**σ ≈ 0.07, range 0.14.** With val = 2 files / 128 records, a single run's R²
-carries ±0.13 of noise.
+**σ ≈ 0.07, range 0.14.** For a long time I attributed this to "only 128 validation
+records". **That diagnosis was wrong**, and finding the real cause is what made the
+comparison resolvable.
 
-> **Retraction.** An earlier version of this comparison reported that the U-Net
-> "wins on R² by +0.022" and that "SSIM is a real, non-overlapping gap". Both
-> claims were wrong. The first came from **one seed at an unequal budget** (the
-> U-Net was given 25 epochs while the physics model converges by epoch 13). The
-> second came from the same single seed. Re-run at a matched budget with 3 seeds,
-> neither claim survives — see below.
+The corpus is not i.i.d. The 1010 usable records sit in 10 pickles of exactly 101
+records each, but those pickles are 2–4 timestamps of only **four** optimisation
+objectives:
 
-## 7. Model comparison at a matched budget
+| objective | files | records | mean intensity | total variance |
+|---|---|---|---|---|
+| `rms_pib` | 4 | 404 | 0.0335 | 2.057 |
+| `rmse_out` | 3 | 303 | 0.0325 | 2.247 |
+| `shape` | 2 | 202 | 0.0303 | 2.093 |
+| `roi_pib` | 1 | 101 | 0.0271 | 1.274 |
 
-Identical split, inputs, target, loss, optimiser, schedule and budget (50 epochs,
-lr=0.01), **3 seeds each**:
+and those objectives have **different image distributions**. Scoring one
+objective's mean image against another's targets:
 
-| model | params | val R² (mean ± std) | val SSIM | PSNR | corr | centroid off | spot d90 ratio | time |
-|---|---|---|---|---|---|---|---|---|
-| `hybrid` (physics + CNN residual, w=32) | 10,408 | +0.8756 ± 0.0655 | 0.7712 ± 0.0362 | 29.34 dB | 0.949 | 1.11 px | 1.098 | 11.4 s |
-| **`physics` (n_max=15)** | **135** | **+0.8790 ± 0.0593** | 0.7552 ± 0.0419 | 29.33 dB | **0.951** | **1.05 px** | **1.052** | **8.1 s** |
-| `unet` [16…256] | 7,778,465 | +0.8739 ± 0.0574 | 0.8115 ± 0.0878 | **29.67 dB** | 0.949 | 1.22 px | 1.084 | 13.2 s |
+| | rms_pib | rmse_out | roi_pib | shape |
+|---|---|---|---|---|
+| **rms_pib** | 1.000 | 0.977 | **−0.670** | 0.710 |
+| **rmse_out** | 0.979 | 1.000 | **−0.223** | 0.852 |
+| **roi_pib** | **−1.696** | **−1.157** | 1.000 | 0.040 |
+| **shape** | 0.715 | 0.842 | 0.416 | 1.000 |
 
-**No metric separates the three.** The three R² means span 0.005 against a
-per-seed σ of ~0.06. The SSIM means differ by 0.056, but the U-Net's SSIM σ is
-0.088 — the largest in the table — and the ranges **overlap** (physics max 0.790
-vs U-Net min 0.704). The earlier "non-overlapping SSIM gap" was a single-seed
-artefact.
+`R² = −0.670` means the `rms_pib` mean image predicts `roi_pib` targets *worse
+than a constant*. So a random validation fold receives a **random objective
+mixture**, and since `roi_pib` is 10 % of the corpus and nearly orthogonal to the
+rest, the pooled R² depends on the mixture. **The split-seed sweep was measuring
+the mixture lottery, not model quality.**
 
-**What this means.** A 135-parameter physical model matches a 7.78M-parameter
-U-Net on this task, using **1/58,000th** the parameters and 40 % less wall time.
-The physics model also wins the two beam metrics that matter operationally
-(centroid offset 1.05 px, spot-diameter ratio 1.052) and ties on correlation.
+Two further corrections to earlier statements in this report:
 
-Capacity is non-monotonic in the U-Net, confirming the physics model sits
-between the underfit and overfit regimes rather than at an optimum:
+* the split is **75/25 by file** (`val_fraction = 0.25`, `_select_records`
+  `train_amp.py:302`), then validation is head-truncated to `max_val = 128`
+  records (`:315`) — not 80/20;
+* `HWRecordRef.source` is the *phase representation*
+  (`panel_gray`/`panel_rad`/`zernike`/`freeform`), **not** the source file. The
+  file identity is `HWRecordRef.path`.
 
-| U-Net | params | val R² (3 seeds) |
+## 7. Grouped cross-validation
+
+`scripts/compare_models_cv.py` replaces the single split. The repo has **no
+sklearn dependency at all** (verified: zero references to `sklearn` /
+`model_selection` anywhere), so folds are built by hand; `_select_records`
+already used the right key, `str(record.path)`, and this keeps that convention.
+
+| protocol | folds | train / val | what it answers |
+|---|---|---|---|
+| `objective` | 4 | 606 / 404 | generalisation to an **objective never seen** |
+| `file` | 10 | 909 / 101 | every record validated exactly once |
+
+Statistics: exact two-sided **sign-flip permutation** test (2¹⁰ = 1024
+enumerations, min p = 0.00195, no normality assumption), Cohen's `d_z`, and
+Holm–Bonferroni across the model×metric family.
+
+### Result (identical inputs, target, loss, optimiser, schedule, 50 epochs, lr 0.01)
+
+| model | params | val R² | val SSIM | val PSNR |
+|---|---|---|---|---|
+| hybrid (w=32) | 10,408 | +0.8797 ± 0.0359 | 0.7676 ± 0.0480 | 29.57 ± 1.24 |
+| physics (n_max=15) | **135** | +0.8766 ± 0.0434 | 0.7437 ± 0.0323 | 29.58 ± 1.39 |
+| unet [16…256] | 7,778,465 | **+0.9004 ± 0.0310** | **+0.8516 ± 0.0363** | **+31.34 ± 1.82** |
+
+*(objective protocol, 4 folds)*
+
+| model | params | val R² | val SSIM |
+|---|---|---|---|
+| hybrid (w=32) | 10,408 | +0.8721 ± 0.0799 | 0.7404 ± 0.0817 |
+| physics (n_max=15) | **135** | +0.8727 ± 0.0867 | 0.7320 ± 0.0704 |
+| unet [16…256] | 7,778,465 | **+0.9004 ± 0.0610** | **+0.8419 ± 0.0618** |
+
+*(file protocol, 10 folds)*
+
+Paired differences, negative = physics worse:
+
+| comparison | metric | diff | d_z | p (exact) | verdict |
+|---|---|---|---|---|---|
+| physics − unet | SSIM | −0.1099 | **−2.49** | **0.0020** | unet better |
+| physics − unet | PSNR | −1.84 dB | −1.76 | 0.0039 | unet better |
+| physics − unet | R² | −0.0277 | −0.89 | 0.0117 | unet better |
+| physics − unet | NRMSE | +0.0045 | +1.01 | 0.0117 | unet better |
+| physics − hybrid | all 5 | — | ≤0.27 | 0.61 – 0.98 | **no difference** |
+
+### Two things this settles, and one it cannot
+
+**1. The U-Net is genuinely better.** SSIM by a wide margin (`d_z` ≈ −2.5), and R²
+by a small but significant margin. So my §6 retraction below was *also* wrong:
+"no metric separates the three" was an artefact of the mixture lottery, not a
+real null result. Two conclusions in this report have now been overturned in
+opposite directions by better statistics — see §11.
+
+**2. The hybrid adds nothing.** Every metric, both protocols, `p ≥ 0.61`. It is
+statistically indistinguishable from the physics model it wraps, at 77× the
+parameters. It is therefore **not** promoted to the training entry point; it stays
+in the comparison harness as a documented negative result.
+
+**3. Four folds cannot reach significance, by construction.** With n = 4 the
+exact test's smallest attainable two-sided p is 2/2⁴ = **0.125**. The
+`objective` protocol is scientifically the *right* question (unseen objective)
+but is underpowered — it can only ever *suggest*. Only the 10-fold protocol can
+confirm. More folds cannot manufacture more independent units than there are
+groups, so this is a ceiling, not a tuning problem.
+
+## 8. Optimisation, one lever at a time
+
+Single-variable sweeps, `slm_zernike_shaping`, fixed split:
+
+| lever | outcome |
+|---|---|
+| **`n_max`** | **The only large effect.** R² 0.48 → 0.80 over 1→11, then saturates (below) |
+| `far_field_padding` | interior optimum ≈10–12 |
+| `observable` | intensity wins by ~0.12 R² |
+| `normalization` | `peak` is the only valid choice |
+| `lr` | 0.1 best alone, but see non-additivity |
+| `l2_penalty` | 1e-4 neutral; 1e-2 over-regularises |
+| `grad_clip` | no effect — gradients (~1e-3) never reach the threshold |
+| `optimizer` | SGD much worse; `adam ≡ adamw` is *correct* at `weight_decay=0` |
+| `max_train` | more data helps monotonically |
+
+**`n_max` is saturated.** Re-measured under the powered 10-fold protocol:
+
+| n_max | K | val R² |
 |---|---|---|
-| [8…64] | 486,481 | +0.8352 ± 0.0972 |
-| **[16…256]** | **7,778,465** | **+0.9012 ± 0.0711** |
-| [32…512] | 31,100,225 | +0.8603 ± 0.0780 |
+| 11 | 77 | +0.8695 ± 0.0837 |
+| **15** | **135** | **+0.8727 ± 0.0823** |
+| 20 | 230 | +0.8775 ± 0.0803 |
+| 25 | 350 | +0.8760 ± 0.0812 |
+| 30 | 495 | +0.8797 ± 0.0777 |
 
-(Those three rows are at the earlier 25-epoch budget; only the 3-seed means are
-comparable to each other, not to §7.)
+6.4× the coefficients buys **+0.010 R²** against a fold-σ of ~0.08. `n_max=15`
+stays the operating point; `n_max=20` is nominally best but well inside noise.
 
-**Not interchangeable.** The U-Net emits an *image*; recovering a realisable SLM
-phase from it is a separate inversion problem. For predicting the correction to
-command on the SLM, the physics model is the only one of these that can emit a
-realisable phase, in closed form `Σ Z_k B_k`, as 135 interpretable radians.
+**Non-additivity.** `far_field_padding=12` and `lr=0.1` each beat the defaults
+alone, but combined with `n_max=11` both turn **worse** (R² 0.794 → 0.753).
+Greedy coordinate descent fails; every winner must be re-tested jointly.
 
-## 8. The hybrid experiment (a negative result)
+**A dead lever, twice.** `optimizer` initially returned byte-identical scores for
+adam/adamw/sgd because `train()` hard-coded `torch.optim.Adam` — it had measured
+nothing. And exposure-rescale augmentation, which is *physically exact* here
+(exposure is a model input, the CCD is linear, and the corpus never clips)
+changed R² by **exactly zero** to 4 decimals. The reason is measurable: exposure
+is **constant** across this family (`log10 = −1.0`, so the dataset's exposure
+standardisation falls back to mean 0 / std 1) *and* no model consumes it —
+`forward(phase_cos, phase_sin)` only. A valid augmentation on an input the model
+never sees, over a dimension that never varies, is a no-op. It would matter on a
+multi-exposure corpus.
 
-Hypothesis: the physics model's only visible deficit was local speckle texture,
-which a smooth Zernike basis cannot synthesise, so add
-`pred = physics(phase) + residual_cnn(phase)` with the residual **zero-initialised**
-so the hybrid starts bit-identical to the physics model.
 
-**It did not close the gap.**
-
-| config | val R² | val SSIM |
-|---|---|---|
-| physics | +0.8790 | 0.7552 |
-| hybrid w=16, 25 ep | +0.8738 | 0.7661 |
-| hybrid w=32, 25 ep | +0.8697 | 0.7499 |
-| hybrid w=64, 25 ep | +0.8332 | 0.6595 |
-| hybrid w=32, 50 ep | +0.8756 | 0.7712 |
-
-The first attempt at 25 epochs was simply **under-trained** — with 60 epochs the
-residual reaches SSIM 0.726 (vs physics 0.698), a consistent but small +0.028.
-At 3 seeds that gain is inside the physics model's own SSIM σ of 0.042, so it is
-**not a demonstrated improvement**, and larger residuals degrade monotonically
-(overfitting on 808 samples).
-
-The informative part is *why* it fails. Adding a small CNN to the physics output
-does not recover the U-Net's texture advantage, which means that advantage comes
-from the U-Net's deep multi-scale encoder–decoder with skip connections — genuine
-architectural capacity — and not merely from "having a CNN in the loop".
-
-**Default unchanged.** The hybrid stays available
-(`ZernikeAmpHybrid`) but physics remains the default: equal within noise on R²,
-simpler, and faster.
-
-## 9. Final configuration
+## 9. Final configuration and verdict
 
 ```
 ZernikeAmpConfig(n_max=15, grid=64, observable="intensity",
                  normalization="peak", far_field_padding=10, center_crop=True)
-train: 50 epochs, Adam lr=0.01, cosine, batch 64, all 1010 records, seed pinned
+train: 50 epochs, Adam lr=0.01, cosine, batch 64, seed pinned
 ```
 
-| metric | value |
-|---|---|
-| val MSE | 0.00173 |
-| val R² | +0.8790 |
-| val PSNR | 29.33 dB |
-| val SSIM | 0.7552 |
-| val correlation | 0.951 |
-| centroid offset | 1.05 px |
-| spot-d90 ratio | 1.052 |
-| grad norm | 2.3e-03 → 1.0e-03 |
-| dead modes | 0 / 135 |
-| max&#124;Z&#124; | 0.591 rad |
-| wall time | 8.1 s |
+| metric | physics (135) | hybrid (10,408) | unet (7,778,465) |
+|---|---|---|---|
+| val R² (10-fold) | +0.8727 ± 0.0867 | +0.8721 ± 0.0799 | **+0.9004 ± 0.0610** |
+| val SSIM (10-fold) | 0.7320 ± 0.0704 | 0.7404 ± 0.0817 | **+0.8419 ± 0.0618** |
+| val PSNR (10-fold) | 29.21 ± 2.64 | 29.07 ± 2.51 | **+31.05 ± 2.44** |
+| params | 135 | 10,408 | 7,778,465 |
+| wall time / fit | ~9 s | ~13 s | ~15 s |
+
+**Verdict.** The U-Net wins on every metric, significantly (R² p = 0.012,
+SSIM p = 0.002, PSNR p = 0.004). The 135-parameter physics model is **not**
+equivalent to it — my earlier "they tie" claim was wrong. What the physics model
+does retain is a real operational advantage: it emits a **realisable SLM phase**
+in closed form, `Σ Z_k B_k`, as 135 interpretable radians, using 1/58,000th of the
+parameters and 40 % less wall time. The U-Net emits an image, and recovering a
+commandable phase from it is a separate inversion problem. So the two answer
+different questions, and for "what phase do I command" the physics model remains
+the only one of the three that answers it directly.
+
+The hybrid is a clean negative result: indistinguishable from physics on all five
+metrics across both protocols (p ≥ 0.61) at 77× the parameters.
 
 ## 10. Honest limitations
 
 - **One family, one `fov_px`.** All conclusions are for `slm_zernike_shaping`
-  (`fov_px=248`). The `far_field_padding` calibration is a per-family constant and
-  **must be re-swept** for another family.
+  (`fov_px=248`, `fov`-consistent). `far_field_padding` is a per-family constant
+  and **must be re-swept** for another family.
+- **The sampling unit is the pickle (n = 10).** That is the hard ceiling on
+  statistical power here; more folds cannot create more independent groups. At
+  n = 10, d_z ≈ 0.9 is detectable and d_z ≈ 0.25 is not.
+- **k-fold differences are not independent** — fold *i*'s training set overlaps
+  fold *j*'s by 8/9. Paired-t and permutation p-values are therefore mildly
+  anti-conservative, which is why the effect sizes and CIs, not the p-values, are
+  the honest headline.
+- **Only 4 objectives exist**, so leave-one-objective-out gives 4 folds whose
+  minimum attainable p is 0.125. That protocol answers the most relevant
+  question and cannot resolve it. More objectives — not more folds — is what
+  would fix this.
 - **A single global `Z`** can only represent bench-wide systematic phase, not
-  per-sample aberrations. That is why it reaches R² ≈ 0.88 and not 0.95+; the
-  U-Net's per-sample capacity is the honest reason it can go higher on some seeds.
-- **3 seeds is the minimum** the noise floor permits. Nothing with a margin below
-  ~0.1 R² should be concluded from this report — including several of the
-  intermediate comparisons above, which is why §6 exists.
-- **`grad norm` is tiny** (~1e-3) because there is only one parameter vector and
-  the loss is scale-normalised. This is why `lr` mattered so much and why early
-  lr sweeps either did nothing (1e-4) or ran away (1e-1).
-- The 135 modes are fitted on 808 training records with 0 dead modes, which is
-  reassuring but not proof of identifiability on a different corpus.
+  per-sample aberrations. That is the structural reason it plateaus near R² 0.87
+  while the U-Net, which can vary its prediction per sample, reaches 0.90.
+- **SSIM on speckle is a known-weak metric.** Its structure term is a point-wise
+  normalised cross-correlation, and Larson & Chandler show SSIM returns near-
+  identical scores (~0.64) for Gaussian noise, speckle noise, salt-and-pepper,
+  JPEG and blur — it largely cannot distinguish distortion *type*. The
+  domain-standard alternatives are Strehl ratio, encircled energy and FWHM. SSIM
+  is reported here as a secondary descriptor; R² and the beam metrics carry the
+  weight, and `perplexity` is reported only as a within-run monotone rescaling.
+- **`grad norm` is tiny** (~1e-3) because there is one parameter vector and a
+  scale-normalised loss. This is why `lr` mattered so much and why early sweeps
+  either did nothing (1e-4) or ran away (1e-1).
 
-## Reproduction
+## 11. Conclusions overturned in this report
+
+Kept as a record, because getting it wrong twice is the point:
+
+| version | claim | why it was wrong |
+|---|---|---|
+| v1 | "U-Net wins R² by +0.022; SSIM is a real non-overlapping gap" | right direction, wrong evidence: one seed, and the U-Net given 25 epochs while physics converges by 13 |
+| v2 | "no metric separates the three" | **over-correction.** The ±0.07 split noise swamped a real effect; the mixture lottery, not model quality, was being measured |
+| v3 | "U-Net significantly better; hybrid indistinguishable from physics" | grouped CV + paired exact tests; stands on 4 and 10 folds |
+
+The lesson is not "the v1 estimate was noisy". It is that **the noise floor was
+itself misdiagnosed**, so a correct effect was first hidden and then, after an
+over-correction, briefly denied. Both errors came from trusting a variance
+estimate whose *source* had not been identified.
+
+## 12. Reproduction
 
 ```bash
 # train + log + compare images (wandb offline; sync later if a key is available)
 python -m ml.zernike.train_amp --n-max 15 --epochs 50 --lr 0.01 \
     --max-train 1010 --beam-samples 96 --out-dir logs/zernike_amp_final
 
-# baseline comparison (identical split / inputs / loss / budget)
-python scripts/compare_unet_baseline.py --seeds 3 --models physics hybrid unet \
-    --residual-width 32 --epochs 50 --lr 0.01
+# the authoritative comparison: grouped CV, paired exact tests
+python scripts/compare_models_cv.py --protocol both --epochs 50 --lr 0.01 \
+    --out logs/models_cv.json
+
+# recompute the statistics from saved folds without retraining
+python scripts/compare_models_cv.py --analyse logs/models_cv_objective.json
+
+# the older single-split baseline (kept for continuity; known underpowered)
+python scripts/compare_unet_baseline.py --seeds 3 --models physics hybrid unet
 
 # tests
 python -m pytest tests/ao_shaping/ml/zernike -q      # 67 tests
-python -m pytest tests/ao_shaping/ml -q             # 412 tests
+python -m pytest tests/ao_shaping/ml -q             # 418 tests
 ```
