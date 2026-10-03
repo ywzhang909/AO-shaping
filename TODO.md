@@ -125,8 +125,8 @@
 
 | # | 项 | 类型 | 提出 |
 |---|---|---|---|
-| R-27 | `runner_common.py` 的 CLI 机制 → `utils/io/cli_params.py`（零 `ao_shaping` 导入，结构上不可能成环）；`runners/__init__.py` 改真 lazy | 重构 | 2026-10-01 |
-| R-28 | utils 内部去重：D1/D2 ✅（§5.10）；D3 ✅ **判定不可合并**（§5.10）；D5 ✅ **判定不可合并**（§5.10）；D4 ⏳ | 重构 | 2026-10-01 |
+| R-27 | `runner_common.py` 的 CLI 机制 → 新叶子模块（**零 `ao_shaping` 导入**）；`runners/__init__.py` 改真 lazy | ✅ 两半均完成 → §5.11（机制部分已在 R-36 落地，路径按实测改为 `utils/cli_params.py` 而非 TODO 写的 `utils/io/cli_params.py`） | 重构 | 2026-10-01 |
+| R-28 | utils 内部去重：D1/D2 ✅ 已合并；D3/D4/D5 ⚠️ **实测判定不可合并**，改为钉特征测试 | → §5.10 | 重构 | 2026-10-01 |
 | R-29 | `utils/image/display.py:19` 从 `io/handler.py` 导入 `Register`，AGENTS.md 把方向说反了 → **改文档，不迁移 `Register`** | 文档 | 2026-10-01 |
 | R-30 | 修 `pyproject.toml` 加 `pythonpath = ["src", "scripts"]`（一行修好 11 个脆弱脚本在 pytest/IDE 下的导入）；清空 `tools/slm/__init__.py` eager 再导出（保留 docstring，**只能清空不能删文件**） | 修复 | 2026-10-01 |
 | R-31 | `cartographer/test_smoke.py` 从 `src/` 迁到 `tests/`（现永不被收集）；修 2 处输出路径违规（`generate_cython_optimizer_report.py` 写 `docs/` 根、`generate_centroid_test_visualization.py` 写进 `scripts/reports/`） | 清理 | 2026-10-01 |
@@ -418,7 +418,7 @@ TODO 指定的那处极小值修复**（`0.0000` → `1.000e-07`）。
 ② 把某个 src 文件的导入改回旧路径 ⇒ 静态守卫失败。
 
 **回归**：`utils` 800 passed；`algorithm`+`tools`+`model` 1010 passed；
-`wfless`+`runners`+`scripts` 1040 passed（只剩 §5.11 那个既有失败）。
+`wfless`+`runners`+`scripts` 1040 passed（只剩 §5.12 那个既有失败）。
 
 ### 5.8 R-21（第 3 批）—— 2026-10-03 完成
 
@@ -490,7 +490,7 @@ stdlib + `click`。三条守卫覆盖不同退化方式：
 按AGENTS.md 的「不要把 `\\U`/`\\u` 路径粘进代码」同族。这是模块级执行、
 且依赖 CWD 相对路径，属于 H-* 硬件/环境问题，留待定。
 
-### 5.10 R-28（第 3 批）—— D1/D2/D3/D5 完成，D4 进行中
+### 5.10 R-28（第 3 批）—— 2026-10-03 完成
 
 | 原项 | 落地情况 |
 |---|---|
@@ -498,7 +498,7 @@ stdlib + `click`。三条守卫覆盖不同退化方式：
 | **R-28** D2 日期目录 | ✅ `gen_date_dir` 加 `fmt` 参数，`create_save_dir` 复用它，**但两者粒度故意不同** |
 | **R-28** D3 argmax→(x,y) 光斑定位（11 处 / 9 份内联） | ⚠️ **判定不可合并**，改为钉特征测试 |
 | **R-28** D5 `scipy.zoom` vs 手写双线性 | ⚠️ **判定不可合并**，改为钉特征测试 |
-| **R-28** D4 max 归一化（6+ 处） | ⏳ survey 进行中 |
+| **R-28** D4 max 归一化（6+ 处） | ⚠️ **判定不可合并** —— 实测 3 种行为，见下 |
 
 #### D1/D2 —— 合并了，因为能证明行为一致
 
@@ -598,12 +598,109 @@ mode="grid-constant")`，C = `zoom(order=1)`（scipy 默认，也是本仓**多�
 8→4 的手算探针纠正的。斜坡探针是自验证的（仿射场），所以结论不依赖对 scipy
 内部实现的推测。
 
+
+#### D4 —— 判定**不可**合并（暗帧 NaN + 三种行为）
+
+TODO 说「6+ 处」，实测**正好 6 处** `x / x.max()`（`gui/slm/pattern_controls.py`、
+`drivers/sim/fouriergsnet_env.py`、`drivers/sim/slm_shaping_bench.py` ×4），
+同时仓库里**已经有 2 个 canonical helper** 而这 6 处都没用。三者按输入实测：
+
+| 输入 | `x / x.max()`（6 处） | `normalize_pattern`（peak，默认） | `normalize_01`（min-max） |
+|---|---|---|---|
+| 全零暗帧 | **NaN + RuntimeWarning** | 0.0 | 0.0 |
+| 峰值为负 | 1.0 | **-1.0**（原样返回） | 0.0 |
+| 含 NaN | NaN | 有限（先 `nan_to_num`） | **NaN 传播** |
+| 常量 5.0 | 1.0 | 1.0 | **全零** |
+| int32 输入 | → float64 | → float32 | → float64 |
+
+**第一行是要害**：暗帧除以自身最大值 = 0/0，所以那 6 处恰好在本仓台架笔记
+明令「不可信任」的输入上**制造 NaN**，而 `normalize_pattern` 返回干净的零。
+这是**性质不同**，不是舍入。
+
+**第二行是 helper 自身的契约矛盾**：`normalize_pattern` 文档写「归一化到 [0,1]」，
+但峰值为非正时**原样返回** —— 既没归一化也不在 [0,1] 内。作为守卫是合理的，
+作为文档是错的。
+
+**顺带修掉一个说谎的 docstring**：`normalize_01` 声称「委托至
+`normalize_pattern`」。它**没有**委托，是内联重写的 min-max；而
+`normalize_pattern` 默认 mode 是 `"peak"`，所以**真委托也会算出另一个函数**。
+两处都错。已替换为实测对照表 —— 因为这个差别从签名看不出来：
+`[[10,11],[12,14]]` 在 `normalize_01` 下拉伸到 `[0,1]`，在
+`normalize_pattern` 下 `min` 仍是 0.71。
+
+另钉住 `normalize_pattern` 两个 mode 是**不同目标**而非优劣之分：常量数组下
+`peak` 给 1.0、`sum` 给 1/16，所以合并必须**选一个**而不能取平均。
+
+**survey agent 跑了 2h33m 未收敛，已 cancel**，D4 由我自己用定向 grep + 实测完成。
+（教训：这类「数一数有几处重复」的任务，(a) 本身就很小，(b) 探索型 agent 容易
+在大范围 grep 上打转，不如给明确 pattern 自己查。）
+
 **顺带发现，未修（归入 R-32）**：
 `tests/ao_shaping/drivers/wfs/test_wfs_report.py` 是个**会写已提交报告**的测试
 （`docs/wfs/wfs_report.md` + `001_simulated_wfs.png`）。跑到它就会弄脏工作树 ——
 本次已 `git checkout` 回滚。与 R-25 的 `--help` 陷阱同属一类副作用。
 
-### 5.11 全量套件基线（2026-10-03 实测，非本轮引入）
+### 5.11 R-27（第 3 批）—— 2026-10-03 完成
+
+| 原项 | 落地情况 |
+|---|---|
+| **R-27** `runner_common.py` 的 CLI 机制 → 新叶子模块（零 `ao_shaping` 导入） | ✅ **已在 R-36 完成**（§5.9），此处只补路径差异说明 |
+| **R-27** `runners/__init__.py` 改真 lazy | ✅ 删掉 15 行 eager import，`__getattr__` 从死代码变成真路径 |
+
+#### 路径与 TODO 不一致（据实调整）
+
+TODO 写的是 `utils/io/cli_params.py`，实际落地在 **`utils/cli_params.py`**。
+理由：`utils/io/` 的定位是「I/O 与配置」，而这个模块是 CLI **参数绑定机制**，
+塞进去会让 `io/` 的职责漂移；且它 stdlib-only + click，放根级更直白。
+R-36 的测试锁的是「零 `ao_shaping` 导入」这个**不变式**，不是路径，所以换位置
+不影响已验证的性质。
+
+#### `runners/__init__.py` 的 docstring 原本在说谎
+
+它写明自己存在的理由是「让每个 runner 能 `python -m` 直接跑而**不触发**
+`RuntimeWarning: found in sys.modules`」。但文件顶部有 **15 行 eager import**
+（`from ... import run as ...`），于是每个名字在 `__getattr__` 可能被调用之前
+就已经进了 `globals()` —— **惰性路径是不可达的死代码，而它承诺避免的告警一直在**：
+
+```
+RuntimeWarning: 'ao_shaping.runners.slm_pib_runner' found in sys.modules after
+import of package 'ao_shaping.runners', but prior to execution of
+'ao_shaping.runners.slm_pib_runner'; this may result in unpredictable behaviour
+```
+
+删掉 eager 块后的实测（`import ao_shaping.runners`）：
+
+| | `ao_shaping` 模块数 |
+|---|---|
+| 裸 `import ao_shaping` | 128 |
+| `import ao_shaping.runners` **修复前** | **172** |
+| `import ao_shaping.runners` **修复后** | **129** |
+| `import ao_shaping.utils.cli_params`（R-36 叶子，基准） | 129 |
+
+即现在只比裸包多 1 个，而不是自称的 0。`python -m` 在三种入口形态下
+（含两个在子包里的）全部 **0 条 RuntimeWarning**。
+
+#### ⚠️ 删掉 eager import 后立刻暴露一个它一直在掩盖的 bug
+
+`slm_gsnet_run` **既不在 `__all__` 也不在 `_LAZY_RUNNERS`**，但 `main.py` 会
+`from ao_shaping.runners import slm_gsnet_run` —— 它能解析**只因为**第 30 行
+eager import 顺手带了它。也就是说 `slm-gsnet` 命令的注册依赖的是一个**巧合**，
+不是一份声明。
+
+**所以新测试没有停在「自洽」上**。我先写了"`__all__` == `_LAZY_RUNNERS`"这条不变式，
+它**通过了**，而 `main.py` 离崩溃只差一行 —— 因为漏掉的名字**两个列表里都没有**。
+于是补了 `test_every_name_main_imports_is_resolvable`：**解析 `main.py` 真实的
+import 列表**，要求其中每个名字都被导出、被映射、且真的能取到可调用对象。
+这才是能抓住本次 bug 的检查。
+
+另外钉住：`globals()[name] = value` 的回写（没有它每次访问都会重入
+`__getattr__` 重新 import）；以及一条 AST 断言 —— 模块作用域不得 import 任何
+runner，让 eager 块无法悄悄回来。
+
+**回归**：R-35 的 `--help` golden **逐字节未变**（19 个命令），这才是本次的关键 ——
+CLI 注册必须完全一致，而底下的 import 图变小。
+
+### 5.12 全量套件基线（2026-10-03 实测，非本轮引入）
 
 按目录分块跑（`tests/ao_shaping`），**单块崩潰不影响其余块计数**：
 
@@ -639,7 +736,7 @@ mode="grid-constant")`，C = `zoom(order=1)`（scipy 默认，也是本仓**多�
 | ~~**第 1 批（纯收益，零行为风险）**~~ | ~~R-23、R-24、R-30、R-31、F-2、F-6、F-7、F-8、R-40~~ ✅ **2026-10-03 全部完成 → §5.1** | — |
 | **第 1.5 批（文档/常量收口，先定事实再改代码）** | F-10（OOPAO 改写 + 重跑报告）、F-11（SLM 序列号）、F-12（标定常数三方）、F-13（`strehl()` 命名） | 需设备/一次扫描 |
 | **第 2 批（止真 bug，需先补特征测试）** | ✅ **R-1~R-4、R-9~R-11、R-35 全部完成（均经变异验证）→ §5.2 / §5.3** | — |
-| **第 3 批（架构重构）** | ~~R-20~~ ✅ §5.4、~~R-21~~ ✅ §5.8、~~R-22~~ ✅ §5.7、~~R-25~~ ✅ §5.6、~~R-26~~ ✅ §5.5；~~R-36~~ ✅ §5.9；**剩余 R-27、R-28、R-32、R-37→R-38→R-39→R-41、F-14、F-15** | ~~R-20 先行~~ ✅ 已满足；R-36 有 R-35 golden 兜底 |
+| **第 3 批（架构重构）** | ~~R-20~~ ✅ §5.4、~~R-21~~ ✅ §5.8、~~R-22~~ ✅ §5.7、~~R-25~~ ✅ §5.6、~~R-26~~ ✅ §5.5；~~R-36~~ ✅ §5.9；~~R-27~~ ✅ §5.11、~~R-28~~ ✅ §5.10；**剩余 R-32、R-37→R-38→R-39→R-41、F-14、F-15** | ~~R-20 先行~~ ✅ 已满足；R-36 有 R-35 golden 兜底 |
 | **第 4 批（内部重构）** | R-5~R-8、R-12~R-17、R-19 | ~~R-1~R-4 完成~~ ✅ 已满足 |
 | **硬件轨道（并行）** | F-1 → H-7~H-13 → **H-19**（与 H-9 合并做：方形路径复用 PIB 的 ABBA 参考实现）→ H-14 复扫 → H-15/H-16 → H-1/H-2 → H-3~H-6 → H-17/H-18 | 设备在线 |
 
