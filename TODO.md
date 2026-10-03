@@ -126,7 +126,7 @@
 | # | 项 | 类型 | 提出 |
 |---|---|---|---|
 | R-27 | `runner_common.py` 的 CLI 机制 → `utils/io/cli_params.py`（零 `ao_shaping` 导入，结构上不可能成环）；`runners/__init__.py` 改真 lazy | 重构 | 2026-10-01 |
-| R-28 | utils 内部去重：日期格式化 D1（2+2 份逐字节相同）、日期目录 D2、max 归一化 D4（6+ 处）、argmax→(x,y) 光斑定位 D3（11 处 / 9 份内联）。⚠️ D5（scipy.zoom vs 手写双线性）是**唯一会改变数值结果**的去重，必须先钉数值特征测试 | 重构 | 2026-10-01 |
+| R-28 | utils 内部去重：D1/D2 ✅（§5.10）；D3 ✅ **判定不可合并**（§5.10）；D5 ✅ **判定不可合并**（§5.10）；D4 ⏳ | 重构 | 2026-10-01 |
 | R-29 | `utils/image/display.py:19` 从 `io/handler.py` 导入 `Register`，AGENTS.md 把方向说反了 → **改文档，不迁移 `Register`** | 文档 | 2026-10-01 |
 | R-30 | 修 `pyproject.toml` 加 `pythonpath = ["src", "scripts"]`（一行修好 11 个脆弱脚本在 pytest/IDE 下的导入）；清空 `tools/slm/__init__.py` eager 再导出（保留 docstring，**只能清空不能删文件**） | 修复 | 2026-10-01 |
 | R-31 | `cartographer/test_smoke.py` 从 `src/` 迁到 `tests/`（现永不被收集）；修 2 处输出路径违规（`generate_cython_optimizer_report.py` 写 `docs/` 根、`generate_centroid_test_visualization.py` 写进 `scripts/reports/`） | 清理 | 2026-10-01 |
@@ -418,7 +418,7 @@ TODO 指定的那处极小值修复**（`0.0000` → `1.000e-07`）。
 ② 把某个 src 文件的导入改回旧路径 ⇒ 静态守卫失败。
 
 **回归**：`utils` 800 passed；`algorithm`+`tools`+`model` 1010 passed；
-`wfless`+`runners`+`scripts` 1040 passed（只剩 §5.10 那个既有失败）。
+`wfless`+`runners`+`scripts` 1040 passed（只剩 §5.11 那个既有失败）。
 
 ### 5.8 R-21（第 3 批）—— 2026-10-03 完成
 
@@ -490,7 +490,120 @@ stdlib + `click`。三条守卫覆盖不同退化方式：
 按AGENTS.md 的「不要把 `\\U`/`\\u` 路径粘进代码」同族。这是模块级执行、
 且依赖 CWD 相对路径，属于 H-* 硬件/环境问题，留待定。
 
-### 5.10 全量套件基线（2026-10-03 实测，非本轮引入）
+### 5.10 R-28（第 3 批）—— D1/D2/D3/D5 完成，D4 进行中
+
+| 原项 | 落地情况 |
+|---|---|
+| **R-28** D1 日期格式化（2+2 份逐字节相同） | ✅ 4 个公开名全部保留，实现收敛到 `utils/io/timestamp.py` 一个 |
+| **R-28** D2 日期目录 | ✅ `gen_date_dir` 加 `fmt` 参数，`create_save_dir` 复用它，**但两者粒度故意不同** |
+| **R-28** D3 argmax→(x,y) 光斑定位（11 处 / 9 份内联） | ⚠️ **判定不可合并**，改为钉特征测试 |
+| **R-28** D5 `scipy.zoom` vs 手写双线性 | ⚠️ **判定不可合并**，改为钉特征测试 |
+| **R-28** D4 max 归一化（6+ 处） | ⏳ survey 进行中 |
+
+#### D1/D2 —— 合并了，因为能证明行为一致
+
+`utils/io/timestamp.py` 现在是唯一实现（stdlib-only，不 import 任何 `ao_shaping`）。
+**刻意没有**放在 `utils/io/file.py`：那个模块 import pandas + matplotlib，而
+`cli_helpers` 被一堆 runner import，走它会把两个重依赖拖进每一条路径。
+
+实测 4 份逐字节相同：
+
+| 重复 | 收敛到 |
+|---|---|
+| `cli_helpers.get_timestamp_str()` == `file.gen_date_str()` | `format_ts()` |
+| `cli_helpers.get_date_dir_name()` == `file.py:140` == `file.py:167`（两处内联 `%Y%m%d`） | `format_ts(fmt=DATE_FMT)` |
+| `cli_helpers.create_save_dir()` == `file.gen_date_dir()` | `make_date_dir()` |
+
+⚠️ **D2 的两个目录函数粒度不同，这是实测结论不是遗漏**：
+
+| | 产物 | 语义 |
+|---|---|---|
+| `gen_date_dir(base)` | `base/<YYYYMMDD_HHMMSS>` | **每轮一个目录** |
+| `create_save_dir(base, subdir)` | `base/subdir/<YYYYMMDD>` | **每天一个目录** |
+
+合并要么把同一天的多次 run 挤进同一目录，要么重命名所有既有产物树。所以
+`gen_date_dir` 加了 `fmt` 参数、`create_save_dir` 传 `DATE_FMT`，**结构共享、
+行为逐字节不变**（两个方向的幂等性、递归建父目录都单独钉了）。
+
+4 个公开名一个都没删：`utils.__all__` 必须保持 85 项（R-20 的测试硬断言），
+且 `gen_date_str` 就有 6 个调用点。去重的断言写成「任一模块里不得再出现裸
+`strftime`」，而不是「两个函数今天返回相同字符串」—— 后者拦不住第二份实现。
+
+#### D3 —— 判定**不可**合并（暗帧语义分叉）
+
+四种「最亮像素 → 坐标」的实现，前三个是同一函数的三种后端（200 组随机帧 +
+高斯光斑**逐位相同**，两者都返回 Python `int` 而非 numpy `int`）：
+
+```
+center_of_brightness        numpy  -> (x, y)  裸 argmax
+center_of_brightness_cupy   cupy   -> (x, y)  裸 argmax
+center_of_brightness_numba  numba  -> (x, y)  手写算术
+zero_order_center           numpy  -> (x, y)  + 暗帧守卫
+```
+
+第四个**不可互换**，差别就是全部意义所在。暗帧上：
+
+```
+center_of_brightness(np.zeros((5, 5)))  ->  (0, 0)   左上角
+zero_order_center(np.zeros((5, 5)))     ->  (2, 2)   (w//2, h//2)
+```
+
+裸 `argmax` 在全零帧返回 0，于是「中心」变成角落。这正是本仓台架笔记那条
+「暗帧不可用裸 argmax 定位光斑」的由来，也是 `zero_order_center` 加守卫的原因。
+两种行为现在都被钉死，**任何方向上的误合并都会失败**。
+
+顺带钉住一个「读起来像 bug」的事实：`refine` 是**局部**质心，窗口
+`±max(min(h,w)//20, 8)`，**不是**「找到真实峰值」—— 20 行外的光斑它看不见。
+
+#### D5 —— 判定**不可**合并（实测差 O(peak)，非舍入）
+
+随机 `[0,1)` 场上的实测：
+
+| 比例 | `max\|A - B\|` | `max\|A - C\|` |
+|---|---|---|
+| 64→32 | 2.2e-16 | 4.5e-01 |
+| 250→50 | **0.0** | 9.0e-01 |
+| 248→64 | 2.2e-16 | 8.4e-01 |
+| 1200→64 | 3.3e-16 | 8.5e-01 |
+| 64→248 | **3.8e-01** | 9.8e-01 |
+| 37→111 | **3.5e-01** | 4.0e-01 |
+
+A = `target/ccd.py` 手写 `_resize_bilinear`，B = `zoom(order=1, grid_mode=True,
+mode="grid-constant")`，C = `zoom(order=1)`（scipy 默认，也是本仓**多数**调用点）。
+
+- A 与 B **降采样**时只到机器精度（2e-16~3e-16），**只有 5:1 那档逐位相同**
+  ——那是唯一两套坐标映射都落在整数像素上的比例。
+- A 与 B **升采样**时差 0.35~0.38 peak，而**升采样正是 SLM 面板的路径**。
+- 两者都不等于 C。
+
+约定差异用**线性斜坡**读出（任何正确插值都精确复现仿射函数，所以返回值就是
+它取的源坐标）：
+
+```
+250 -> 50, 输出索引 0 处的值
+  A  2.0    半像素中心
+  B  2.0    与 A 相同
+  C  0.0    align-corners
+```
+
+即 **scipy 默认是那个异类**，而默认恰是本仓多数。合并任一组合都会让每个 SLM
+面板像素、每个远场裁剪块移动最多 90% peak。测试断言的是**发散**而不是相等，
+失败信息里写明原因，让下一次尝试**响亮地失败**而不是悄悄改掉光学。
+
+另记两种行为以备后查：`gsnet_offline` 的 block mean 是**故意**的低通（噪声场上
+与双线性差 ~0.43 全量程）；`phase_wrap` / `dynamic_compensation` 用的 `order=3`
+三次样条会振铃到零以下（硬边上 min = **-0.198**），而相位没有这个量纲。
+
+**修正自己一次错误结论**：中途我一度把 scipy 的 `grid_mode` 语义记反了，是
+8→4 的手算探针纠正的。斜坡探针是自验证的（仿射场），所以结论不依赖对 scipy
+内部实现的推测。
+
+**顺带发现，未修（归入 R-32）**：
+`tests/ao_shaping/drivers/wfs/test_wfs_report.py` 是个**会写已提交报告**的测试
+（`docs/wfs/wfs_report.md` + `001_simulated_wfs.png`）。跑到它就会弄脏工作树 ——
+本次已 `git checkout` 回滚。与 R-25 的 `--help` 陷阱同属一类副作用。
+
+### 5.11 全量套件基线（2026-10-03 实测，非本轮引入）
 
 按目录分块跑（`tests/ao_shaping`），**单块崩潰不影响其余块计数**：
 
