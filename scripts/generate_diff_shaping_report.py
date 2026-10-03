@@ -43,6 +43,12 @@ from ao_shaping.algorithm.signal_processing.gerchberg_saxton import (  # noqa: E
     angular_spectrum_propagate,
     gerchberg_saxton,
 )
+# `scripts._common` lives in this package, so the REPO ROOT (not just `src`)
+# must be importable. A direct `python scripts/<name>.py` does not put it
+# there; pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts._common import savefig
 
 # ---------------------------------------------------------------------------
 # Global matplotlib conventions (repo-wide)
@@ -59,6 +65,11 @@ plt.rcParams["axes.unicode_minus"] = False
 # Paths & constants
 # ---------------------------------------------------------------------------
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# `scripts._common` lives in this package, so the REPO ROOT (not just
+# `src`) must be importable. Direct `python scripts/<name>.py` does not put
+# it there; pytest does via `pythonpath = ["src", ".", "scripts"]`.
+sys.path.insert(0, str(REPO_ROOT))
 OUT_DIR = REPO_ROOT / "docs" / "slm_differential_shaping"
 FIG_DIR = OUT_DIR / "figures"
 GIF_DIR = OUT_DIR / "gifs"
@@ -82,11 +93,6 @@ WIN_SEED = 1
 def _mkdirs() -> None:
     for d in (FIG_DIR, GIF_DIR, CHART_DIR, DATA_DIR):
         d.mkdir(parents=True, exist_ok=True)
-
-
-def _savefig(fig, path: Path) -> None:
-    fig.savefig(path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +212,7 @@ def run_asm_parity() -> dict:
     ax.set_title(f"ASM parity |numpy - torch|  max err = {max_err:.2e}")
     ax.grid(alpha=0.3)
     fig.colorbar(im, ax=ax, label="abs error")
-    _savefig(fig, FIG_DIR / "asm_parity.png")
+    savefig(fig, FIG_DIR / "asm_parity.png")
 
     return {"max_abs_error": max_err}
 
@@ -234,7 +240,7 @@ def run_gs_baseline(target: np.ndarray) -> dict:
     ax.imshow(farfield, cmap="inferno")
     ax.set_title(f"GS baseline far-field  CV={cv:.3f} EE={ee:.3f}")
     ax.grid(alpha=0.3)
-    _savefig(fig, FIG_DIR / "gs_baseline_farfield.png")
+    savefig(fig, FIG_DIR / "gs_baseline_farfield.png")
 
     return {
         "phase": phase,
@@ -336,7 +342,7 @@ def make_overview_grid(runs: dict) -> None:
         ax.set_xticks([])
         ax.set_yticks([])
     fig.tight_layout()
-    _savefig(fig, FIG_DIR / "overview_grid.png")
+    savefig(fig, FIG_DIR / "overview_grid.png")
 
 
 def make_phase_figures(runs: dict) -> None:
@@ -350,7 +356,7 @@ def make_phase_figures(runs: dict) -> None:
         ax.imshow(runs[key]["phase"], cmap="coolwarm")
         ax.set_title(title)
         ax.grid(alpha=0.3)
-        _savefig(fig, FIG_DIR / fname)
+        savefig(fig, FIG_DIR / fname)
 
 
 def make_farfield_figures(runs: dict) -> None:
@@ -366,7 +372,7 @@ def make_farfield_figures(runs: dict) -> None:
         ax.imshow(runs[key]["farfield"], cmap="inferno")
         ax.set_title(title)
         ax.grid(alpha=0.3)
-        _savefig(fig, FIG_DIR / fname)
+        savefig(fig, FIG_DIR / fname)
 
 
 def make_loss_curves(runs: dict) -> None:
@@ -381,7 +387,7 @@ def make_loss_curves(runs: dict) -> None:
     ax.set_title("Loss curves")
     ax.grid(alpha=0.3)
     ax.legend()
-    _savefig(fig, CHART_DIR / "loss_curves.png")
+    savefig(fig, CHART_DIR / "loss_curves.png")
 
 
 def make_cv_ee_curves(runs: dict) -> None:
@@ -403,7 +409,7 @@ def make_cv_ee_curves(runs: dict) -> None:
         )
         ax.grid(alpha=0.3)
     fig.tight_layout()
-    _savefig(fig, CHART_DIR / "cv_ee_curves.png")
+    savefig(fig, CHART_DIR / "cv_ee_curves.png")
 
 
 def make_weight_compare(runs: dict) -> None:
@@ -427,7 +433,7 @@ def make_weight_compare(runs: dict) -> None:
     ax.set_title("EE comparison across configs (CV annotated)")
     ax.set_ylim(0, 1.1)
     ax.grid(alpha=0.3, axis="y")
-    _savefig(fig, CHART_DIR / "weight_compare.png")
+    savefig(fig, CHART_DIR / "weight_compare.png")
 
 
 # ---------------------------------------------------------------------------

@@ -42,6 +42,11 @@ from loguru import logger
 # Repo bootstrap: ROOT + src on sys.path, then Agg BEFORE pyplot
 # ---------------------------------------------------------------------------
 ROOT = Path(__file__).resolve().parents[1]
+
+# `scripts._common` lives in this package, so the REPO ROOT (not just
+# `src`) must be importable. Direct `python scripts/<name>.py` does not put
+# it there; pytest does via `pythonpath = ["src", ".", "scripts"]`.
+sys.path.insert(0, str(ROOT))
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
@@ -52,6 +57,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from PIL import Image  # noqa: E402
+# `scripts._common` lives in this package, so the REPO ROOT (not just `src`)
+# must be importable. A direct `python scripts/<name>.py` does not put it
+# there; pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts._common import fmt_metric, markdown_table, savefig
 
 # ---------------------------------------------------------------------------
 # _frames_to_gif: prefer the repo reference implementation, fall back to a
@@ -122,34 +133,6 @@ FAR_CMAP = "inferno"  # far-field intensity
 # ---------------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------------
-def _savefig(fig: plt.Figure, path: Path) -> None:
-    fig.savefig(path, dpi=DPI, bbox_inches="tight")
-    plt.close(fig)
-
-
-def _fmt(v: object, nd: int = 4) -> str:
-    """Format a metric for markdown: ints/raw sums as ints, ratios as floats."""
-    if v is None:
-        return "-"
-    try:
-        f = float(v)
-    except (TypeError, ValueError):
-        return str(v)
-    if math.isnan(f) or math.isinf(f):
-        return "-"
-    if abs(f) >= 10.0:
-        return f"{f:.0f}"
-    return f"{f:.{nd}f}"
-
-
-def _markdown_table(headers: list[str], rows: list[list[object]]) -> str:
-    lines = ["| " + " | ".join(str(h) for h in headers) + " |"]
-    lines.append("|" + "|".join(["---"] * len(headers)) + "|")
-    for r in rows:
-        lines.append("| " + " | ".join(str(x) for x in r) + " |")
-    return "\n".join(lines)
-
-
 def _load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -336,7 +319,7 @@ def _make_metrics_figure(cell_dir: Path, scenario: str, out_path: Path) -> None:
 
     fig.suptitle(f"{scenario} — 逐步指标")
     fig.tight_layout()
-    _savefig(fig, out_path)
+    savefig(fig, out_path)
 
 
 def _make_frames_montage(frames_dir: Path, scenario: str, out_path: Path) -> None:
@@ -362,7 +345,7 @@ def _make_frames_montage(frames_dir: Path, scenario: str, out_path: Path) -> Non
         axes[1, col].set_yticks([])
     fig.suptitle(f"{scenario} — 固定点预览 (初值 / 中段 / 末态)")
     fig.tight_layout()
-    _savefig(fig, out_path)
+    savefig(fig, out_path)
 
 
 def _make_gifs(frames_dir: Path, scenario: str, gif_dir: Path) -> tuple[Path, Path]:
@@ -506,11 +489,11 @@ def _build_summary_table(cells: list[dict]) -> str:
             continue
         rows.append(
             [c.get("shape", ""), c.get("aberration", ""), c.get("turbulence", ""),
-             _fmt(c.get("final_uniformity")), _fmt(c.get("best_uniformity")),
-             _fmt(c.get("final_encircled")), _fmt(c.get("best_encircled")),
-             _fmt(c.get("wall_time_s"), nd=1), "✓"]
+             fmt_metric(c.get("final_uniformity")), fmt_metric(c.get("best_uniformity")),
+             fmt_metric(c.get("final_encircled")), fmt_metric(c.get("best_encircled")),
+             fmt_metric(c.get("wall_time_s"), nd=1), "✓"]
         )
-    return _markdown_table(headers, rows)
+    return markdown_table(headers, rows)
 
 
 def _build_turbulence_impact(cells: list[dict], out_dir: Path) -> str:
@@ -530,9 +513,9 @@ def _build_turbulence_impact(cells: list[dict], out_dir: Path) -> str:
     for (shape, ab), turb_map in sorted(groups.items()):
         rows.append(
             [shape, ab,
-             _fmt(turb_map.get("off")), _fmt(turb_map.get("slow")), _fmt(turb_map.get("fast"))]
+             fmt_metric(turb_map.get("off")), fmt_metric(turb_map.get("slow")), fmt_metric(turb_map.get("fast"))]
         )
-    table = _markdown_table(headers, rows)
+    table = markdown_table(headers, rows)
 
     # grouped bar chart
     keys = sorted(groups.keys())
@@ -549,7 +532,7 @@ def _build_turbulence_impact(cells: list[dict], out_dir: Path) -> str:
     ax.legend()
     ax.grid(alpha=0.3, axis="y")
     fig.tight_layout()
-    _savefig(fig, out_dir / "figures" / "turbulence_impact.png")
+    savefig(fig, out_dir / "figures" / "turbulence_impact.png")
 
     return table + "\n\n![turbulence_impact](figures/turbulence_impact.png)"
 
@@ -597,7 +580,7 @@ def _build_report(
         ),
         ("场景数", f"{len(cells)} ({len(ok)} 成功)"),
     ]
-    lines.append(_markdown_table(["参数", "值"], [[k, str(v)] for k, v in rows]))
+    lines.append(markdown_table(["参数", "值"], [[k, str(v)] for k, v in rows]))
     lines.append("")
     lines.append("## 2. 汇总表")
     lines.append("")

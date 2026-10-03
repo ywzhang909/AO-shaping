@@ -52,6 +52,12 @@ matplotlib.use("Agg")  # headless: must be set before importing pyplot
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+# `scripts._common` lives in this package, so the REPO ROOT (not just `src`)
+# must be importable. A direct `python scripts/<name>.py` does not put it
+# there; pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts._common import fmt_general
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -61,6 +67,11 @@ plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
 DEFAULT_ROOT = ROOT / "data" / "debug" / "slm_pib_online"
+
+# `scripts._common` lives in this package, so the REPO ROOT (not just
+# `src`) must be importable. Direct `python scripts/<name>.py` does not put
+# it there; pytest does via `pythonpath = ["src", ".", "scripts"]`.
+sys.path.insert(0, str(DEFAULT_ROOT))
 DEFAULT_OUT = ROOT / "docs" / "slm_pib_online"
 
 GATE_ORDER = ("applied", "fold", "noise")
@@ -371,13 +382,6 @@ def plot_j_trajectory(run: Run, out: Path) -> Path | None:
 # ---------------------------------------------------------------------------
 
 
-def _fmt(v: Any, spec: str = ".4g") -> str:
-    try:
-        return format(float(v), spec)
-    except (TypeError, ValueError):
-        return str(v)
-
-
 def write_report(runs: list[Run], out: Path, figures: list[Path]) -> Path:
     """Render ``report.md``."""
     snr_runs = [r for r in runs if r.kind == "snr"]
@@ -416,13 +420,13 @@ def write_report(runs: list[Run], out: Path, figures: list[Path]) -> Path:
         cells = []
         for d in _union_deltas(snr_runs):
             if d in snr:
-                cells.append(f"{_fmt(snr[d], '.3f')} ({verdict.get(d, '?')})")
+                cells.append(f"{fmt_general(snr[d], '.3f')} ({verdict.get(d, '?')})")
             else:
                 cells.append("-")
         center = run.summary.get("center", ["?", "?"])
         lines.append(
             f"| {run.stamp} | {center[0]:.0f},{center[1]:.0f} | "
-            f"{_fmt(run.summary.get('sigma_j'), '.4e')} | " + " | ".join(cells) + " |"
+            f"{fmt_general(run.summary.get('sigma_j'), '.4e')} | " + " | ".join(cells) + " |"
         )
     lines += [
         "",
@@ -451,7 +455,7 @@ def write_report(runs: list[Run], out: Path, figures: list[Path]) -> Path:
         s = run.gate_stats()
         source = "explicit `_gate`" if run.has_explicit_gate else "legacy heuristic"
         lines.append(
-            f"| {run.stamp} | {run.tag} | {_fmt(run.summary.get('delta'))} | "
+            f"| {run.stamp} | {run.tag} | {fmt_general(run.summary.get('delta'))} | "
             f"{run.summary.get('n_eval_frames', '?')} | {s['rows']} | {s['applied']} | "
             f"{s['fold']} | {s['noise']} | {source} |"
         )

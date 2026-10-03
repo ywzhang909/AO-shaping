@@ -1,4 +1,4 @@
-﻿"""Offline comparison of the three shape objectives on real measured frames.
+"""Offline comparison of the three shape objectives on real measured frames.
 
 Scores every camera frame recorded by the Daheng ``slm-pib`` online suite under
 three independent shape objectives and reports whether they **agree**:
@@ -46,6 +46,12 @@ matplotlib.use("Agg")  # headless: must be set before importing pyplot
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+
+# `scripts._common` lives in this package, so the REPO ROOT (not just `src`)
+# must be importable. A direct `python scripts/<name>.py` does not put it
+# there; pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts._common import fmt_signed
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -323,10 +329,6 @@ def plot_agreement(scatter: list[tuple[str, np.ndarray, np.ndarray]],
 # ---------------------------------------------------------------------------
 
 
-def _fmt(v: float, spec: str = "+.4f") -> str:
-    return "n/a" if not np.isfinite(v) else format(v, spec)
-
-
 def analyse(fs: FrameSet, side: int) -> tuple[dict[str, np.ndarray], tuple[float, float]]:
     """Score every frame under all three objectives.
 
@@ -385,8 +387,8 @@ def write_report(results: list[tuple[FrameSet, dict[str, np.ndarray], tuple[floa
         sq, bm, pe = (ys["square_quality_score"], ys["compute_quality_score"],
                       ys["pearson_loss"])
         lines.append(
-            f"| {fs.label} | {sq.size} | {_fmt(spearman(sq, pe))} | "
-            f"{_fmt(spearman(bm, pe))} | {_fmt(spearman(sq, bm))} |"
+            f"| {fs.label} | {sq.size} | {fmt_signed(spearman(sq, pe))} | "
+            f"{fmt_signed(spearman(bm, pe))} | {fmt_signed(spearman(sq, bm))} |"
         )
 
     # ---- Verdict -----------------------------------------------------------

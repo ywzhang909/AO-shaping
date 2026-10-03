@@ -54,6 +54,12 @@ from ao_shaping.algorithm.heuristic.heuristic_base import (
 )  # noqa: E402
 from ao_shaping.optimizer.spgd import spgd_gradient  # noqa: E402
 from ao_shaping.optimizer.wfless.strehl_sim_eval import StrehlLandscape  # noqa: E402
+# `scripts._common` lives in this package, so the REPO ROOT (not just `src`)
+# must be importable. A direct `python scripts/<name>.py` does not put it
+# there; pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts._common import format_iters, iters_to_threshold
 
 # ---------------------------------------------------------------------------
 # Global matplotlib conventions (repo rule)
@@ -65,6 +71,28 @@ plt.rcParams["axes.unicode_minus"] = False
 # Constants
 # ---------------------------------------------------------------------------
 OUT_DIR = ROOT / "docs" / "strehl_benchmark"
+
+# `scripts._common` lives in this package, so the REPO ROOT (not just
+# `src`) must be importable. Direct `python scripts/<name>.py` does not put
+# it there; pytest does via `pythonpath = ["src", ".", "scripts"]`.
+sys.path.insert(0, str(OUT_DIR))
+
+#: Sibling artefact this report cross-references. It is a *default*, overridable
+#: via ``--pib-summary``: the Strehl and PIB benchmarks are generated
+#: independently, so either can be relocated or regenerated on its own.
+PIB_SUMMARY = ROOT / "docs" / "heuristic_pib" / "summary.csv"
+
+
+def _rel(path: Path) -> str:
+    """Render ``path`` relative to the repo root when possible (POSIX separators.
+
+    Reports are committed, so their text must not contain machine-specific
+    absolute paths.
+    """
+    try:
+        return path.resolve().relative_to(ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 SEED = 42
 N_GRID = 256
@@ -428,21 +456,22 @@ def interpret_strehl(final_strehl: float) -> str:
     return "poor correction"
 
 
-def iters_to_threshold(curve: np.ndarray, threshold: float) -> int | None:
-    """First iteration (1-based) where Strehl >= threshold, else None."""
-    reached = np.flatnonzero(curve >= threshold - 1e-12)
-    return int(reached[0]) + 1 if reached.size else None
+def load_pib_summary(pib_csv: Path) -> pd.DataFrame | None:
+    """Load the PIB benchmark summary for the cross-benchmark comparison.
 
+    Args:
+        pib_csv: Path to the sibling ``generate_heuristic_pib_report.py`` summary.
+            A CLI parameter, not a hardcoded constant: the two reports are
+            independent artefacts and either can be regenerated or relocated on
+            its own, so a baked-in path silently drops the comparison table.
 
-def format_iters(v: int | None) -> str:
-    """Format an iteration count, or a dash when the threshold was never reached."""
-    return str(v) if v is not None else "—"
-
-
-def load_pib_summary() -> pd.DataFrame | None:
-    """Load the PIB benchmark summary for the cross-benchmark comparison."""
-    pib_csv = ROOT / "docs" / "heuristic_pib" / "summary.csv"
+    Returns:
+        The three needed columns, or ``None`` with a logged reason. ``None`` is a
+        *visible* outcome: ``write_report`` records the resolved path in the
+        markdown so a reader can tell a skipped comparison from a missing file.
+    """
     if not pib_csv.exists():
+        logger.warning("PIB summary not found: {}", pib_csv)
         return None
     try:
         df = pd.read_csv(pib_csv)
@@ -456,7 +485,13 @@ def load_pib_summary() -> pd.DataFrame | None:
         return None
 
 
-def write_report(results: dict[str, dict], init_strehl: float, out_dir: Path) -> None:
+def write_report(
+    results: dict[str, dict],
+    init_strehl: float,
+    out_dir: Path,
+    pib_summary: pd.DataFrame | None,
+    pib_csv: Path,
+) -> None:
     """Write markdown report with results table, principles and comparison."""
     lines = [
         "# Strehl Benchmark Report (7 Heuristics + SPGD)",
@@ -543,7 +578,7 @@ def write_report(results: dict[str, dict], init_strehl: float, out_dir: Path) ->
         "",
     ]
 
-    pib_df = load_pib_summary()
+    pib_df = load_pib_summary(pib_csv)
     if pib_df is not None:
         lines += [
             "| Algorithm | PIB (dim=4) final | PIB loads | Strehl (dim=64) final | Strehl loads |",
@@ -570,8 +605,10 @@ def write_report(results: dict[str, dict], init_strehl: float, out_dir: Path) ->
         ]
     else:
         lines += [
-            "_`docs/heuristic_pib/summary.csv` not found — cross-benchmark "
-            "comparison skipped._",
+            f"**Cross-benchmark comparison SKIPPED** — no usable PIB summary at "
+            f"`{_rel(pib_csv)}`. Re-run with `--pib-summary <path>` after "
+            f"`scripts/generate_heuristic_pib_report.py`, or ignore this section "
+            f"if the Strehl benchmark stands alone.",
         ]
 
     lines += [
@@ -584,13 +621,28 @@ def write_report(results: dict[str, dict], init_strehl: float, out_dir: Path) ->
     logger.info("Saved {}", out_dir / "report.md")
 
 
-def main(n_grid: int = N_GRID) -> None:
-    """Run the full benchmark and write all outputs."""
+def main(
+    n_grid: int = N_GRID,
+    out_dir: Path = OUT_DIR,
+    pib_csv: Path | None = None,
+) -> None:
+    """Run the full benchmark and write all outputs.
+
+    Args:
+        n_grid: Simulation FFT grid size.
+        out_dir: Output directory (CLI ``--out-dir``). A parameter, not a baked-in
+            constant, so the report can be regenerated beside another run without
+            editing the file.
+        pib_csv: Sibling ``generate_heuristic_pib_report.py`` summary to compare
+            against (CLI ``--pib-summary``). ``None`` => :data:`PIB_SUMMARY`.
+    """
     if n_grid != 256:
         logger.warning(
             "n_grid={} != 256 — numbers are NOT comparable to the default run", n_grid
         )
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    if pib_csv is None:
+        pib_csv = PIB_SUMMARY
+    out_dir.mkdir(parents=True, exist_ok=True)
     landscape = StrehlLandscape(seed=SEED, n_grid=n_grid)
     logger.info("StrehlLandscape ready (n_grid={}, dim={})", n_grid, landscape.dim)
     if landscape.dim != DIM:
@@ -600,13 +652,18 @@ def main(n_grid: int = N_GRID) -> None:
 
     results = run_all_algorithms(landscape)
     results["SPGD"] = run_spgd(landscape)
-    plot_strehl_curves(results, OUT_DIR)
-    plot_convergence_speed(results, OUT_DIR)
-    plot_spot_before_after(results, landscape, OUT_DIR)
-    plot_summary_bars(results, OUT_DIR)
-    save_summary_csv(results, init_strehl, OUT_DIR)
-    write_report(results, init_strehl, OUT_DIR)
-    logger.info("All outputs written to {}", OUT_DIR)
+    plot_strehl_curves(results, out_dir)
+    plot_convergence_speed(results, out_dir)
+    plot_spot_before_after(results, landscape, out_dir)
+    plot_summary_bars(results, out_dir)
+    save_summary_csv(results, init_strehl, out_dir)
+    # Load once, pass the resolved path into the report so a skipped comparison
+    # records WHICH file was looked for (TODO R-26: the old code baked the path
+    # and merely omitted the table, leaving an on-disk report that looked
+    # complete but was silently missing the cross-benchmark section).
+    pib_df = load_pib_summary(pib_csv)
+    write_report(results, init_strehl, out_dir, pib_df, pib_csv)
+    logger.info("All outputs written to {}", out_dir)
 
 
 if __name__ == "__main__":
@@ -619,5 +676,21 @@ if __name__ == "__main__":
         default=N_GRID,
         help=f"Simulation FFT grid size (default: {N_GRID}; use 128 for smoke runs)",
     )
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=OUT_DIR,
+        help=f"Output directory (default: {_rel(OUT_DIR)})",
+    )
+    parser.add_argument(
+        "--pib-summary",
+        type=Path,
+        default=PIB_SUMMARY,
+        help=(
+            "Sibling summary.csv from generate_heuristic_pib_report.py, used for the "
+            f"cross-benchmark table (default: {_rel(PIB_SUMMARY)}). Point this at "
+            "another run's file to compare against that run instead."
+        ),
+    )
     args = parser.parse_args()
-    main(n_grid=args.n_grid)
+    main(n_grid=args.n_grid, out_dir=args.out_dir, pib_csv=args.pib_summary)

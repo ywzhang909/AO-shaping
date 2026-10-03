@@ -44,6 +44,11 @@ from loguru import logger
 # Repo bootstrap: ROOT + src on sys.path, then Agg BEFORE pyplot
 # ---------------------------------------------------------------------------
 ROOT = Path(__file__).resolve().parents[1]
+
+# `scripts._common` lives in this package, so the REPO ROOT (not just
+# `src`) must be importable. Direct `python scripts/<name>.py` does not put
+# it there; pytest does via `pythonpath = ["src", ".", "scripts"]`.
+sys.path.insert(0, str(ROOT))
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
@@ -53,6 +58,12 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
+# `scripts._common` lives in this package, so the REPO ROOT (not just `src`)
+# must be importable. A direct `python scripts/<name>.py` does not put it
+# there; pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts._common import fmt_metric, markdown_table, savefig
 
 # ---------------------------------------------------------------------------
 # Global matplotlib conventions (repo-wide)
@@ -77,38 +88,6 @@ DEFAULT_OUTPUT = "docs/fouriergsnet_pipeline/offline_training"
 # ---------------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------------
-def _savefig(fig: Figure, path: Path) -> None:
-    fig.savefig(path, dpi=DPI, bbox_inches="tight")
-    plt.close(fig)
-
-
-def _fmt(v: Any, nd: int = 4) -> str:
-    """Format a metric for markdown; ints/large magnitudes compact, else fixed."""
-    if v is None:
-        return "-"
-    try:
-        f = float(v)
-    except (TypeError, ValueError):
-        return str(v)
-    if np.isnan(f) or np.isinf(f):
-        return "-"
-    if f.is_integer() and abs(f) >= 10.0:
-        return f"{f:.0f}"
-    if f != 0 and abs(f) < 1e-4:
-        return f"{f:.3e}"
-    if abs(f) >= 1e5:
-        return f"{f:.3e}"
-    return f"{f:.{nd}f}"
-
-
-def _markdown_table(headers: Sequence[Any], rows: Sequence[Sequence[Any]]) -> str:
-    lines = ["| " + " | ".join(str(h) for h in headers) + " |"]
-    lines.append("|" + "|".join(["---"] * len(headers)) + "|")
-    for r in rows:
-        lines.append("| " + " | ".join(str(x) for x in r) + " |")
-    return "\n".join(lines)
-
-
 def _run_rel(run_dir: Path) -> str:
     """Repo-relative POSIX path when possible, absolute otherwise."""
     try:
@@ -219,7 +198,7 @@ def _make_loss_figure(summary: dict, out_path: Path) -> str:
 
     fig.suptitle("FourierGSNet 离线训练损失曲线")
     fig.tight_layout()
-    _savefig(fig, out_path)
+    savefig(fig, out_path)
 
     first = float(total[0])
     last = float(total[-1])
@@ -227,8 +206,8 @@ def _make_loss_figure(summary: dict, out_path: Path) -> str:
     pct = (drop / first * 100.0) if first else float("nan")
     best_loss = summary.get("training", {}).get("best_loss")
     caption = (
-        f"共 {len(history)} 个 epoch, 总损失 {_fmt(first)} → {_fmt(last)} "
-        f"(下降 {_fmt(drop)}, {_fmt(pct)}%), 记录到的最低总损失 {_fmt(best_loss)}"
+        f"共 {len(history)} 个 epoch, 总损失 {fmt_metric(first)} → {fmt_metric(last)} "
+        f"(下降 {fmt_metric(drop)}, {fmt_metric(pct)}%), 记录到的最低总损失 {fmt_metric(best_loss)}"
     )
     if best_epoch is not None:
         caption += f" 出现在 epoch {best_epoch} (红色虚线)"
@@ -255,7 +234,7 @@ def _correlation_comment(corr: float | None) -> str:
     if corr is None:
         return "- 远场相关系数未记录。"
     return (
-        f"- **远场相关系数 {_fmt(corr)}**: 该值接近 1, 说明预测图与真值图的"
+        f"- **远场相关系数 {fmt_metric(corr)}**: 该值接近 1, 说明预测图与真值图的"
         "**整体强度分布形状**高度一致。但 Pearson 相关只衡量线性相似度 —— "
         "它对亮度缩放与少量离群像素不敏感, **不能**据此断言整形质量优秀。"
     )
@@ -273,7 +252,7 @@ def _uniformity_comment(cv: float | None) -> str:
     else:
         verdict = "**很差** (标准差已超过均值, 目标区域内存在明显暗区/强离群点)"
     return (
-        f"- **均匀度变异系数 CV = {_fmt(cv)}**: {verdict}。CV 为 ROI 内"
+        f"- **均匀度变异系数 CV = {fmt_metric(cv)}**: {verdict}。CV 为 ROI 内"
         "标准差/均值, 理想平顶应趋近 0, 因此这是本次训练**最需要改进**的指标。"
     )
 
@@ -287,7 +266,7 @@ def _energy_comment(ee: float | None) -> str:
         verdict = "大部分能量进入目标区, 仍有可观泄漏"
     else:
         verdict = "大量能量落在目标区之外"
-    return f"- **环围能量 {_fmt(ee)}**: {verdict}。"
+    return f"- **环围能量 {fmt_metric(ee)}**: {verdict}。"
 
 
 # ---------------------------------------------------------------------------
@@ -407,43 +386,43 @@ def _build_report(
     ]
 
     config_rows: list[list[object]] = [
-        ["训练轮数 (epochs)", _fmt(cfg.get("epochs"), nd=0)],
-        ["批大小 (batch_size)", _fmt(cfg.get("batch_size"), nd=0)],
-        ["学习率 (lr)", _fmt(cfg.get("lr"))],
-        ["相位损失权重 (w_phase)", _fmt(cfg.get("w_phase"))],
-        ["整形损失权重 (w_shaping)", _fmt(cfg.get("w_shaping"))],
-        ["网络层数 (num_layers)", _fmt(cfg.get("num_layers"), nd=0)],
-        ["基础通道数 (base_channels)", _fmt(cfg.get("base_channels"), nd=0)],
-        ["网格 (grid)", _fmt(cfg.get("grid"), nd=0)],
-        ["可训练参数量", _fmt(model.get("n_parameters"), nd=0)],
-        ["训练记录数 (n_records)", _fmt(resolved.get("n_records"), nd=0)],
-        ["评估样本数 (n_samples)", _fmt(evaluation.get("n_samples"), nd=0)],
+        ["训练轮数 (epochs)", fmt_metric(cfg.get("epochs"), nd=0)],
+        ["批大小 (batch_size)", fmt_metric(cfg.get("batch_size"), nd=0)],
+        ["学习率 (lr)", fmt_metric(cfg.get("lr"))],
+        ["相位损失权重 (w_phase)", fmt_metric(cfg.get("w_phase"))],
+        ["整形损失权重 (w_shaping)", fmt_metric(cfg.get("w_shaping"))],
+        ["网络层数 (num_layers)", fmt_metric(cfg.get("num_layers"), nd=0)],
+        ["基础通道数 (base_channels)", fmt_metric(cfg.get("base_channels"), nd=0)],
+        ["网格 (grid)", fmt_metric(cfg.get("grid"), nd=0)],
+        ["可训练参数量", fmt_metric(model.get("n_parameters"), nd=0)],
+        ["训练记录数 (n_records)", fmt_metric(resolved.get("n_records"), nd=0)],
+        ["评估样本数 (n_samples)", fmt_metric(evaluation.get("n_samples"), nd=0)],
         ["计算设备", resolved.get("device", cfg.get("device", "-"))],
-        ["随机种子 (seed)", _fmt(resolved.get("seed", cfg.get("seed")), nd=0)],
-        ["对比样本数 (n_compare)", _fmt(cfg.get("n_compare"), nd=0)],
+        ["随机种子 (seed)", fmt_metric(resolved.get("seed", cfg.get("seed")), nd=0)],
+        ["对比样本数 (n_compare)", fmt_metric(cfg.get("n_compare"), nd=0)],
     ]
-    lines.append(_markdown_table(["参数", "值"], config_rows))
+    lines.append(markdown_table(["参数", "值"], config_rows))
     lines.append("")
     lines.append("## 2. 收敛概览")
     lines.append("")
     history = list(training.get("history", []) or [])
     conv_rows: list[list[object]] = [
-        ["实际记录 epoch 数", _fmt(len(history), nd=0)],
-        ["配置 epoch 数", _fmt(cfg.get("epochs"), nd=0)],
-        ["best_epoch", _fmt(training.get("best_epoch"), nd=0)],
-        ["best_loss", _fmt(training.get("best_loss"))],
-        ["首 epoch 总损失", _fmt(history[0].get("loss")) if history else "-"],
-        ["末 epoch 总损失", _fmt(history[-1].get("loss")) if history else "-"],
-        ["总损失下降", _fmt(
+        ["实际记录 epoch 数", fmt_metric(len(history), nd=0)],
+        ["配置 epoch 数", fmt_metric(cfg.get("epochs"), nd=0)],
+        ["best_epoch", fmt_metric(training.get("best_epoch"), nd=0)],
+        ["best_loss", fmt_metric(training.get("best_loss"))],
+        ["首 epoch 总损失", fmt_metric(history[0].get("loss")) if history else "-"],
+        ["末 epoch 总损失", fmt_metric(history[-1].get("loss")) if history else "-"],
+        ["总损失下降", fmt_metric(
             float(history[0].get("loss")) - float(history[-1].get("loss"))
         ) if history and history[0].get("loss") is not None
             and history[-1].get("loss") is not None else "-"],
-        ["训练墙钟时间 (s)", _fmt(training.get("seconds"), nd=1)],
+        ["训练墙钟时间 (s)", fmt_metric(training.get("seconds"), nd=1)],
     ]
     if training.get("seconds") is not None and history:
         per_epoch = float(training["seconds"]) / max(len(history), 1)
-        conv_rows.append(["平均每 epoch (s)", _fmt(per_epoch, nd=1)])
-    lines.append(_markdown_table(["指标", "值"], conv_rows))
+        conv_rows.append(["平均每 epoch (s)", fmt_metric(per_epoch, nd=1)])
+    lines.append(markdown_table(["指标", "值"], conv_rows))
     lines.append("")
     lines.append(f"损失趋势: {loss_caption}")
     lines.append("")
@@ -451,13 +430,13 @@ def _build_report(
     lines.append("## 3. 评估指标")
     lines.append("")
     metric_rows: list[list[object]] = [
-        ["phase_mae", "相位平均绝对误差 (rad)", _fmt(means.get("phase_mae"))],
-        ["far_correlation", "远场强度 Pearson 相关系数", _fmt(means.get("far_correlation"))],
-        ["far_rmse", "远场强度 RMSE", _fmt(means.get("far_rmse"))],
-        ["uniformity_cv", "均匀度变异系数 (std/mean)", _fmt(means.get("uniformity_cv"))],
-        ["encircled_energy", "环围能量", _fmt(means.get("encircled_energy"))],
+        ["phase_mae", "相位平均绝对误差 (rad)", fmt_metric(means.get("phase_mae"))],
+        ["far_correlation", "远场强度 Pearson 相关系数", fmt_metric(means.get("far_correlation"))],
+        ["far_rmse", "远场强度 RMSE", fmt_metric(means.get("far_rmse"))],
+        ["uniformity_cv", "均匀度变异系数 (std/mean)", fmt_metric(means.get("uniformity_cv"))],
+        ["encircled_energy", "环围能量", fmt_metric(means.get("encircled_energy"))],
     ]
-    lines.append(_markdown_table(["键", "含义", "值"], metric_rows))
+    lines.append(markdown_table(["键", "含义", "值"], metric_rows))
     lines.append("")
     lines.append("**指标解读** (基于上述实测值, 非预设结论):")
     lines.append("")
@@ -466,12 +445,12 @@ def _build_report(
     lines.append(_energy_comment(means.get("encircled_energy")))
     if means.get("phase_mae") is not None:
         lines.append(
-            f"- **相位 MAE {_fmt(means.get('phase_mae'))} rad**: 相位重建的平均绝对误差; "
+            f"- **相位 MAE {fmt_metric(means.get('phase_mae'))} rad**: 相位重建的平均绝对误差; "
             "其大小需与目标波前的动态范围比较后才有意义。"
         )
     if means.get("far_rmse") is not None:
         lines.append(
-            f"- **远场 RMSE {_fmt(means.get('far_rmse'))}**: 归一化强度上的均方根误差。"
+            f"- **远场 RMSE {fmt_metric(means.get('far_rmse'))}**: 归一化强度上的均方根误差。"
         )
     lines.append("")
     lines.append("> 结论: 相关性高说明**形状**学到了, 但 `uniformity_cv` 明显偏大说明"
@@ -500,7 +479,7 @@ def _build_report(
     lines.append("")
     if comparison_rel:
         lines.append(
-            f"下面为训练结束时从数据集抽取的 **{_fmt(cfg.get('n_compare'), nd=0)}** 个样本的"
+            f"下面为训练结束时从数据集抽取的 **{fmt_metric(cfg.get('n_compare'), nd=0)}** 个样本的"
             "**预测光斑 vs 真值对比** (由训练脚本保存, 此处原样复制):"
         )
         lines.append("")
@@ -518,7 +497,7 @@ def _build_report(
         ["train_history.png", artifacts.get("history", "-")],
         ["checkpoint (*.pt)", artifacts.get("checkpoint", "-")],
     ]
-    lines.append(_markdown_table(["产物", "路径 (摘自 summary.json)"], artifact_rows))
+    lines.append(markdown_table(["产物", "路径 (摘自 summary.json)"], artifact_rows))
     lines.append("")
     lines.append("本报告另生成:")
     lines.append("")
@@ -541,7 +520,7 @@ def _build_report(
         gen_rows.append(
             [f"gifs/ ({len(gifs)} 个)", "逐 epoch 动画: " + ", ".join(g.name for g in gifs)]
         )
-    lines.append(_markdown_table(["生成文件", "说明"], gen_rows))
+    lines.append(markdown_table(["生成文件", "说明"], gen_rows))
     lines.append("")
 
     lines.append(_build_repro_section(summary))

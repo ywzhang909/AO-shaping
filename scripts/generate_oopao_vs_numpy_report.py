@@ -54,6 +54,11 @@ from loguru import logger
 
 ROOT = Path(__file__).resolve().parents[1]
 _SRC = ROOT / "src"
+
+# `scripts._common` lives in this package, so the REPO ROOT (not just
+# `src`) must be importable. Direct `python scripts/<name>.py` does not put
+# it there; pytest does via `pythonpath = ["src", ".", "scripts"]`.
+sys.path.insert(0, str(_SRC))
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
@@ -63,6 +68,12 @@ from ao_shaping.utils.wavefront.zernike_utils import (  # noqa: E402
     generate_zernike_phase,
     list_zernike_modes,
 )
+# `scripts._common` lives in this package, so the REPO ROOT (not just `src`)
+# must be importable. A direct `python scripts/<name>.py` does not put it
+# there; pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts._common import fmt_ratio
 
 # CJK 字体 (仓库约定): 逐级回退到 DejaVu Sans, 并关闭 unicode minus。
 matplotlib.rcParams["font.sans-serif"] = [
@@ -976,15 +987,6 @@ def write_csv(
     return rows
 
 
-def _fmt(value: float, digits: int = 6) -> str:
-    """指标格式化 (0 显示为 ``0``)。"""
-    if value == 0.0:
-        return "0"
-    if abs(value) < 1e-3 or abs(value) >= 1e5:
-        return f"{value:.{digits}e}"
-    return f"{value:.{digits}g}"
-
-
 def _rel_diff(numpy_value: float, oopao_value: float) -> str:
     """两臂相对差 (百分比); numpy 值为 0 时返回 ``—``。"""
     if numpy_value == 0.0:
@@ -1202,7 +1204,7 @@ def write_report(
             add(
                 f"| `{scenario.key}` | {scenario.aberration.name} | "
                 f"{scenario.turbulence.name} | {scenario.turbulence.cn2_label} | "
-                f"{label} | {_fmt(a)} | {_fmt(b)} | {_rel_diff(a, b)} |"
+                f"{label} | {fmt_ratio(a)} | {fmt_ratio(b)} | {_rel_diff(a, b)} |"
             )
     add("")
 
@@ -1238,7 +1240,7 @@ def write_report(
         for key, label in METRIC_LABELS:
             a = res[ARM_NUMPY].metrics[key]
             b = res[ARM_OOPAO].metrics[key]
-            add(f"| {label} | {_fmt(a)} | {_fmt(b)} | {_rel_diff(a, b)} |")
+            add(f"| {label} | {fmt_ratio(a)} | {fmt_ratio(b)} | {_rel_diff(a, b)} |")
         add("")
         filename = f"figures/{scenario.key}_{now}.png"
         add(f"![{scenario.key}]({filename})")

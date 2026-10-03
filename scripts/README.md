@@ -340,6 +340,46 @@ python scripts/process_1300_data.py
 - Writes `data/1300-5-enriched.xlsx` and `data/1300-5-enriched.csv`
 - Prints warnings for rows with missing grid positions
 
+### objective_rep_logging.py
+
+Pure-NumPy drift-rejection helpers for the shaping-objective repeat study. **A
+library module — no CLI, no `__main__`.** Imported as a sibling module by
+`repeat_shape_objectives.py` through a deferred loader; pure Python + NumPy, so
+it needs no hardware.
+
+It exists because of one measurement: at a fixed 2 ms exposure the 0-order
+`frame_peak` was read as 180 and then 121 within a minute, with the SLM phase
+unchanged. Illumination can fall by ~1/3 on its own, so **the drift — not the
+objective — is the dominant residual between repeats.** Without rejecting those
+rounds a variant can "win" purely by having been measured while the laser was
+brighter.
+
+| API | Purpose |
+|---|---|
+| `flag_drift_reps(rows, key="frame_peak", max_rel_dev=0.25)` | Splits rows into `(kept, dropped)` around the median `frame_peak`, dropping those deviating more than `max_rel_dev`. Rounds with no usable peak (missing / zero / non-finite) are **kept but tagged** `drift_unknown` rather than silently dropped |
+| `median_over(rows, key)` | NaN-safe column median |
+| `summarise_logged(rows, ...)` | Reduces the columns over the **kept** rows only |
+
+`repeat_shape_objectives.py` calls it with `DRIFT_MAX_REL_DEV = 0.25`.
+
+### pyarrow_probe.py
+
+Small `pyarrow` diagnostics used by the tests and the `ZernikeControl` debug
+panel. **A library module — no CLI, no `__main__`.**
+
+| API | Purpose |
+|---|---|
+| `pyarrow_version() -> str \| None` | Installed version, `None` if absent |
+| `pyarrow_pandas_compat_ok() -> bool` | Whether the `pyarrow`/`pandas` pair is importable together |
+| `probe_pyarrow() -> tuple[bool, str]` | One-shot `(ok, message)` pair |
+| `pyarrow_diagnostics() -> list[tuple[str, str]]` | The multi-row panel view |
+
+It is deliberately **not** imported at `pattern_controls` module level: the
+control page calls `probe_pyarrow()` inline inside `ZernikeControl.render()`, so
+a broken pyarrow can never block the module import or the rest of the page from
+rendering. The tests monkeypatch the probe to simulate a broken pyarrow without
+breaking the real one.
+
 ## Micro-DM Diff Analysis Pipeline
 
 Analysis pipeline for per-channel Micro-DM (R50Power) response images. For each
@@ -981,6 +1021,183 @@ Variants: `shape` default, `shape` uniformity-heavy (`w_uniformity=5, w_peak=0`)
 > the SAME variant gave CV 0.354 then 0.302 — the between-variant spread is **inside the
 > single-run variance**, so no objective can be declared the most uniform from one run.
 
+### explore_delta.py
+
+Sweeps the SPGD perturbation amplitude (`--deltas`) on the real bench by driving
+the genuine `slm-pib` runner once per candidate, then recommends the one that
+**converges** — not the one with the biggest first-vs-last jump. Needs hardware
+(Santec SLM + camera), unless `--analyze-only`.
+
+Two robustness criteria are computed per candidate from the saved recorder history:
+- **dec** (`frac_decreasing`) — fraction of epochs in which `J` actually decreased. The main judge.
+- **late** (`late_gain`) — improvement from the first 1/3 mean `J` to the last 1/3, in %.
+
+If no candidate clears the thresholds it recommends `None` ("拒绝封王") rather than
+crowning the least-bad delta: a sweep that returns "nothing converged yet" is the
+honest answer, and it stops you tuning against a noise floor.
+
+`--analyze-only` re-judges the newest existing debug run per delta without touching
+hardware — free, and the intended way to re-evaluate after editing the judging
+logic. Debug artefacts are always on.
+
+> ⚠️ **Measured (2026-09-30, bench scan)**: `frac_decreasing` stayed ≈0.5 across a
+> 1000× range of delta. **delta is not the limiting factor** — the next step is
+> ABBA palindromic sampling in the main loop (`slm-pib --abba-sampling`).
+
+| Option | Default | Description |
+|---|---|---|
+| `--deltas` | `0.02,0.05,0.1` | Comma-separated perturbation amplitudes (rad) |
+| `--epochs` | `200` | Epochs per candidate |
+| `--objective` | `pearson` | Shaping objective (`pearson` / `shape` / `roi_pib` / ...) |
+| `--n-max` | `9` | Max Zernike radial order |
+| `--lr` | `0.5` | SPGD learning rate |
+| `--cam-type` / `--cam-id` | `daheng` / `0` | Camera backend (`daheng` / `miicam`) / device id |
+| `--cam-size` | `320` | ROI window (px) |
+| `--exposure-ms` | `1.2` | Camera exposure (ms) |
+| `--zernike-radius` | `480.0` | Aperture (px) |
+| `--target-size` | `50.0` | Target size (px) |
+| `--target-shape` | `square` | Target shape |
+| `--out` | `docs/slm_pib_bench/delta_scan.md` | Markdown summary path |
+| `--analyze-only` | off | No hardware; re-judge the newest existing run per delta |
+
+### repeat_shape_objectives.py
+
+Repeats the objective comparison N times and ranks the variants by **median**
+uniformity, because a single run cannot separate them: repeating the *same*
+variant gave CV 0.354 then 0.302 — the whole between-variant spread (0.259–0.302)
+sits **inside** the single-run variance.
+
+Every objective variant is run `--repeats` times with the algorithm pinned to one
+fast search, and each repeat is scored with the same common yardstick inside a
+**fixed** target ROI (2× the spot waist, fixed centre, spot located by `argmax`
+in each frame):
+- `energy` = ΣI[box] / ΣI (full-frame denominator)
+- `CV` = std/mean (lower = more uniform)
+- `peak` = max/mean (lower = fewer hot spots)
+
+Ranking uses the **median**; the per-repeat min/max is reported as the spread so
+overlap between variants stays visible.
+
+Drift handling is delegated to `objective_rep_logging.py` (`flag_drift_reps`),
+because illumination drift — not the objective — dominates the residual between
+repeats.
+
+Outputs into `docs/slm_pib_heuristic_hw/`:
+- `objectives_repeats.csv` — one row per (variant, repeat), plus the medians
+- `objectives_repeats.png` — median CV per variant with repeat min/max error bars
+  (+ energy / peak panels)
+- an `<!-- OBJECTIVES_REPEATS_START -->` … `<!-- OBJECTIVES_REPEATS_END -->`
+  section **appended idempotently** to `--append-to`, carrying the median table
+  and naming the most uniform objective — but only when the winner's spread does
+  not overlap the runner-up's
+
+Needs hardware (default camera backend `daheng`).
+
+| Option | Default | Description |
+|---|---|---|
+| `--repeats` | `3` | Repeats per variant |
+| `--algorithm` | `sa` | Pinned algorithm |
+| `--epochs` | `80` | Epochs per run |
+| `--cam-type` / `--cam-id` / `--cam-size` | `daheng` / `0` / `320` | Camera backend / id / window |
+| `--exposure-ms` | `0.0` | `0` = auto-expose |
+| `--target-brightness` | `180.0` | Auto-exposure target brightness |
+| `--slm-number` / `--wavelength` | `1` / `1064` | SLM device / wavelength |
+| `--n-max` | `4` | Zernike order |
+| `--seed` | `42` | Random seed |
+| `-o, --output` | `docs/slm_pib_heuristic_hw` | Output directory |
+| `--append-to` | `docs/slm_pib_heuristic_hw/report.md` | Report to append the section to |
+
+### generate_slm_pib_online_report.py
+
+Generates the offline acceptance report for the **`AO_RUN_HARDWARE=1` online
+regression suite**, reading `data/debug/slm_pib_online/<stamp>/` as written by the
+suite. **Fully offline** — the instruments may be powered down.
+
+It answers three questions:
+1. **Is the delta above the noise floor?** SNR per perturbation delta
+   (`ΔJ_signal / ΔJ_noise`), with bands at `SNR_STRONG = 2.5` and `SNR_USABLE = 2.0`.
+2. **Did the gates actually let the search move?** A per-epoch timeline of
+   `applied` / `fold` / `noise` gating, i.e. how many epochs were really updated
+   versus rejected.
+3. **Is the improvement the optimiser's or the room's?** A `J` / `max_brt`
+   trajectory per epoch, annotated with the environment-drift correlation —
+   separating shaping gain from illumination drift.
+
+Outputs to `docs/slm_pib_online/`:
+- `report.md` — SNR verdict table, gate-observability table, J-trajectory
+  env-drift diagnosis, per-run sections
+- `figures/snr_by_delta.png` — SNR per delta with unusable / usable / strong bands
+- `figures/gate_timeline_<tag>.png` — per-epoch `applied` / `fold` / `noise` timeline
+- `figures/j_trajectory_<tag>.png` — `J` and `max_brt` vs epoch, drift correlation annotated
+
+**Recorder row contract** (why the gate timeline is trustworthy): row 0 is the
+init baseline and carries no `_gate`; for the rest `applied + stalled + 1 == rows`;
+and `_gate` holds `applied` / `fold` / `noise`. Older records fall back to
+inferring `_c` stagnation, which **over-counts `applied`** — the report labels
+those runs accordingly.
+
+| Option | Default | Description |
+|---|---|---|
+| `--root` | `data/debug/slm_pib_online` | Root of the online-suite artefacts |
+| `-o, --out` | `docs/slm_pib_online` | Output directory |
+
+### generate_slm_pib_rms_pib_report.py
+
+Generates the offline report for the **`slm-pib rms_pib` hardware matrix** from
+the debug artefacts written by `slm-pib --debug` (the per-run HDF5 `/scalars`
+columns plus the runner's summary PNG), for every
+`data/debug/slm_pib_rms_pib_*` run. **Fully offline** — reads saved artefacts,
+never opens a camera or SLM.
+
+The key rendering detail: the per-algorithm curves plot **tracked historical
+best** (`best_rms_pib`), not the raw per-epoch objective. `rms_pib` is an
+*energy-guard* objective — when an evaluation perturbs the far field so hard that
+the ROI loses more than `--max-roi-energy-loss` of its reference energy, the
+optimiser abandons that sample and records a sentinel `J = rms_pib = -999.x`.
+Plotting raw `J` would put a −999 spike in every curve; tracking the best keeps
+the history finite and monotone, and the guard-rejected row count is reported
+alongside so the guard activity stays visible.
+
+Outputs to `docs/slm_pib_rms_pib_hw/`:
+- `figures/matrix_best_curves.png` — per-algorithm `best_rms_pib` evolution
+- `figures/summary_bars.png` — final `best_rms_pib` per algorithm, sorted descending
+- `figures/run_<algo>_<stamp>.png` — copies of the runner's own summary sketch
+- `report.md` — comparison table (best rms_pib / guard-rejected rows / dynamic
+  weights / exposure) + per-run sections
+
+| Option | Default | Description |
+|---|---|---|
+| `--debug-root` | `data/debug` | Root containing the `slm_pib_rms_pib_*` artefact dirs |
+| `--max-runs` | `5` | How many runs to render (newest first) |
+| `-o, --output` | `docs/slm_pib_rms_pib_hw` | Output directory |
+
+### generate_beam_shaping_papers_report.py
+
+Runs a closed-loop SLM far-field beam-shaping **simulation bench** and compares
+the literature methods on one identical optical model + target, so the comparison
+is like-for-like instead of across papers. **Fully offline** — needs Python 3.13
++ torch, no hardware. No CLI arguments.
+
+Outputs to `docs/beam_shaping/papers/`:
+- `figures/<method>_<stamp>.png` — far-field intensity per method
+- `figures/target_<stamp>.png` — the target pattern
+- `beam_shaping_papers.md` — the report (metric table + figure links)
+- `results_<stamp>.json` — all metrics as JSON
+
+### generate_cython_optimizer_report.py
+
+Runs the Cython optimizer benchmark (`src.calculators.benchmark`, reading
+`src/calculators/benchmark_results.json`) and emits the markdown performance
+comparison with tables + analysis. **Fully offline** — no hardware, no CLI
+arguments.
+
+**Output**: `docs/benchmarks/performance_comparison.md`
+
+```powershell
+$env:PYTHONPATH = "src;libs"
+python scripts/generate_cython_optimizer_report.py
+```
+
 ### generate_strehl_benchmark_report.py
 
 Benchmarks the 7 heuristic optimizers in `ao_shaping.algorithm` (GA, PSO, SA,
@@ -1075,7 +1292,7 @@ python scripts/generate_centroid_test_visualization.py
 **What it does:**
 - Runs 9 Gaussian spot cases through the centroid algorithms
 - Writes `centroid_test_report.md` and figures to
-  `scripts/reports/centroid_test_visualization/`
+  `docs/centroid_test_visualization/`
 
 ### generate_diff_shaping_report.py
 
@@ -2061,10 +2278,42 @@ Contains scripts for device tuning and calibration:
 - `stdWavefront/` - Standard wavefront reference data
 - Various utility scripts for device tuning
 
-### reports/
-Contains generated report artefacts from `scripts/` report generators:
-- `centroid_test_visualization/` - centroid algorithm test report and figures
-  (from `generate_centroid_test_visualization.py`)
+### _common/
+Shared helpers for the `generate_*_report.py` family (extracted 2026-10-03,
+TODO R-25). Every generator used to carry its own copy, and two of the `_fmt`
+copies had already drifted apart — one rendered `1e-7` as `0.0000`, silently
+flattening a real measurement to zero in a committed report.
+
+| Helper | Replaces | Notes |
+|---|---|---|
+| `fmt_metric(v, nd=4)` | `_fmt` in `generate_fouriergsnet_sim_report.py`, `generate_gsnet_offline_report.py` | **The gsnet behaviour is the fix.** `-` for `None`/NaN/inf, integer compaction `>= 10`, scientific below `1e-4` and at/above `1e5`. |
+| `fmt_ratio(value, digits=6)` | `_fmt` in `generate_oopao_{vs_numpy,impact}_report.py` | Scientific `< 1e-3` / `>= 1e5`, `g` formatting, `0` reads as `"0"`. |
+| `fmt_general(v, spec=".4g")` | `_fmt` in `generate_slm_pib_online_report.py` | Passthrough to `format(v, spec)`; no `None`/NaN special case. |
+| `fmt_fixed(v, nd=4)` | `_fmt` in `generate_slm_pib_rms_pib_report.py` | Em dash for NaN; **raises on `None`** (recorded limitation, kept). |
+| `fmt_signed(v, spec="+.4f")` | `_fmt` in `generate_shape_objective_comparison.py` | `"n/a"` for non-finite. |
+| `markdown_table(headers, rows)` | `_markdown_table` ×2 | GitHub-flavoured table. |
+| `savefig(fig, path, dpi=150)` | `_savefig` ×3 | `bbox_inches="tight"` + closes the figure. |
+| `iters_to_threshold(curve, threshold)` | ×2 | 1-based first crossing; `- 1e-12` absorbs float noise. |
+| `format_iters(v)` | ×2 | Em dash when the threshold was never reached. |
+
+**The five formatters are deliberately NOT merged.** A 170-probe before/after
+comparison of the old inline copies against `_common` came out **168 identical**;
+the only 2 differences are the sanctioned tiny-value fix above. Merging the other
+three would have rewritten already-committed reports (`0.5` → `0.5000`,
+`1e+05` → `100000`, `nan` → `-`, …), which is why each keeps its own name.
+
+Using them from a generator requires the repo root on `sys.path` (a direct
+`python scripts/<name>.py` does not add it; pytest does via
+`pythonpath = ["src", ".", "scripts"]` in `pyproject.toml`):
+
+```python
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts._common import fmt_metric, markdown_table
+```
+
+Behaviour is pinned by `tests/ao_shaping/scripts/test_common_helpers.py`, and
+`test_common_helpers_not_reintroduced.py` fails if any generator grows a local copy
+again.
 
 ## Common Patterns
 

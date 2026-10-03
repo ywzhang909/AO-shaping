@@ -49,6 +49,12 @@ matplotlib.use("Agg")  # headless: must be set before importing pyplot
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+# `scripts._common` lives in this package, so the REPO ROOT (not just `src`)
+# must be importable. A direct `python scripts/<name>.py` does not put it
+# there; pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts._common import fmt_fixed
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -58,6 +64,7 @@ plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
 DEFAULT_OUT = ROOT / "docs" / "slm_pib_rms_pib_hw"
+
 # Sentinel written by the energy guard (see module docstring).
 GUARD_FLOOR = -100.0
 # Epoch curves only count the epochs actually collected for a run's algorithm.
@@ -251,10 +258,6 @@ def rel(p: Path, out_dir: Path) -> str:
         return str(p)
 
 
-def _fmt(v: float, nd: int = 4) -> str:
-    return f"{v:.{nd}f}" if v == v else "—"
-
-
 def build_markdown(runs: list[Run], figs: dict[str, Path], out_dir: Path, out_md: Path) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     lines: list[str] = []
@@ -301,12 +304,12 @@ def build_markdown(runs: list[Run], figs: dict[str, Path], out_dir: Path, out_md
                 r.data_rows,
                 best_value(r),
                 be,
-                _fmt(last_good(r, "J")),
-                _fmt(sc(r, "w_ee")[be], 3) if be is not None and sc(r, "w_ee").size else "—",
-                _fmt(sc(r, "w_pib")[be], 3) if be is not None and sc(r, "w_pib").size else "—",
-                _fmt(sc(r, "w_rms")[be], 3) if be is not None and sc(r, "w_rms").size else "—",
-                _fmt(sc(r, "ee_term")[be], 3) if be is not None and sc(r, "ee_term").size else "—",
-                _fmt(sc(r, "exp_t")[be], 1) if be is not None and sc(r, "exp_t").size else "—",
+                fmt_fixed(last_good(r, "J")),
+                fmt_fixed(sc(r, "w_ee")[be], 3) if be is not None and sc(r, "w_ee").size else "—",
+                fmt_fixed(sc(r, "w_pib")[be], 3) if be is not None and sc(r, "w_pib").size else "—",
+                fmt_fixed(sc(r, "w_rms")[be], 3) if be is not None and sc(r, "w_rms").size else "—",
+                fmt_fixed(sc(r, "ee_term")[be], 3) if be is not None and sc(r, "ee_term").size else "—",
+                fmt_fixed(sc(r, "exp_t")[be], 1) if be is not None and sc(r, "exp_t").size else "—",
                 int(sc(r, "max_brt")[be]) if be is not None and sc(r, "max_brt").size else "—",
             )
         )
@@ -324,12 +327,12 @@ def build_markdown(runs: list[Run], figs: dict[str, Path], out_dir: Path, out_md
         lines.append("")
         lines.append(f"- 历史最优 best_rms_pib = **{best_value(r):.4f}** (第 {be} 代)" if be is not None
                      else f"- 历史最优 best_rms_pib = n/a")
-        lines.append(f"- 末次有效 J = {_fmt(last_good(r, 'J'))}")
+        lines.append(f"- 末次有效 J = {fmt_fixed(last_good(r, 'J'))}")
         if be is not None and sc(r, "w_ee").size:
-            lines.append(f"- 最优代权重: w_ee={_fmt(sc(r, 'w_ee')[be], 3)}, "
-                         f"w_pib={_fmt(sc(r, 'w_pib')[be], 3)}, "
-                         f"w_rms={_fmt(sc(r, 'w_rms')[be], 3)}; "
-                         f"ee_term={_fmt(sc(r, 'ee_term')[be], 3)}")
+            lines.append(f"- 最优代权重: w_ee={fmt_fixed(sc(r, 'w_ee')[be], 3)}, "
+                         f"w_pib={fmt_fixed(sc(r, 'w_pib')[be], 3)}, "
+                         f"w_rms={fmt_fixed(sc(r, 'w_rms')[be], 3)}; "
+                         f"ee_term={fmt_fixed(sc(r, 'ee_term')[be], 3)}")
         if r.summary_png is not None and figs.get("run_pngs", {}).get(r.stamp):
             lines.append("")
             lines.append("![{} 汇总图]({})".format(algo, rel(figs["run_pngs"][r.stamp], out_dir)))

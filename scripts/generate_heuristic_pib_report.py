@@ -43,6 +43,12 @@ from ao_shaping.algorithm.heuristic.heuristic_base import (
     OptimizerType,
 )  # noqa: E402
 from ao_shaping.optimizer.wfless.pib_sim_eval import SimLandscape  # noqa: E402
+# `scripts._common` lives in this package, so the REPO ROOT (not just `src`)
+# must be importable. A direct `python scripts/<name>.py` does not put it
+# there; pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts._common import format_iters, iters_to_threshold
 
 # ---------------------------------------------------------------------------
 # Global matplotlib conventions (repo rule)
@@ -54,6 +60,11 @@ plt.rcParams["axes.unicode_minus"] = False
 # Constants
 # ---------------------------------------------------------------------------
 OUT_DIR = ROOT / "docs" / "heuristic_pib"
+
+# `scripts._common` lives in this package, so the REPO ROOT (not just
+# `src`) must be importable. Direct `python scripts/<name>.py` does not put
+# it there; pytest does via `pythonpath = ["src", ".", "scripts"]`.
+sys.path.insert(0, str(OUT_DIR))
 
 DIM = 4
 BOUNDS = (-12.0, 12.0)
@@ -349,17 +360,6 @@ def interpret_basin(best_x: np.ndarray, final_pib: float) -> str:
     if final_pib >= 0.6:
         return "moderate PIB (near local)"
     return "did not converge"
-
-
-def iters_to_threshold(pib_curve: np.ndarray, threshold: float) -> int | None:
-    """First iteration (1-based) where PIB >= threshold, else None."""
-    reached = np.flatnonzero(pib_curve >= threshold - 1e-12)
-    return int(reached[0]) + 1 if reached.size else None
-
-
-def format_iters(v: int | None) -> str:
-    """Format an iteration count, or a dash when the threshold was never reached."""
-    return str(v) if v is not None else "—"
 
 
 def write_report(results: dict[str, dict], init_pib: float, out_dir: Path) -> None:

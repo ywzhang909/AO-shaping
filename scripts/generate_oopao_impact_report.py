@@ -50,6 +50,11 @@ from loguru import logger
 
 ROOT = Path(__file__).resolve().parents[1]
 _SRC = ROOT / "src"
+
+# `scripts._common` lives in this package, so the REPO ROOT (not just
+# `src`) must be importable. Direct `python scripts/<name>.py` does not put
+# it there; pytest does via `pythonpath = ["src", ".", "scripts"]`.
+sys.path.insert(0, str(_SRC))
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
@@ -60,6 +65,12 @@ from ao_shaping.drivers.sim.slm_shaping_bench import (  # noqa: E402
     forward_intensity,
 )
 from ao_shaping.optimizer.rl.envs import SimTurbulenceAOEnv  # noqa: E402
+# `scripts._common` lives in this package, so the REPO ROOT (not just `src`)
+# must be importable. A direct `python scripts/<name>.py` does not put it
+# there; pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts._common import fmt_ratio
 
 # CJK 字体 (仓库约定): 逐级回退到 DejaVu Sans, 并关闭 unicode minus。
 matplotlib.rcParams["font.sans-serif"] = [
@@ -245,7 +256,7 @@ class EpisodeResult:
         """渲染为 CSV 行 (全部字符串)。"""
         return {
             "mode": self.mode,
-            "cn2": _fmt(self.cn2),
+            "cn2": fmt_ratio(self.cn2),
             "arm": self.arm,
             "n_grid": str(self.n_grid),
             "seed": str(self.seed),
@@ -364,7 +375,7 @@ def verify_backend_routing(results: list[EpisodeResult]) -> None:
         expected = result.arm == ARM_OOPAO
         if result.oopao_enabled != expected:
             raise RuntimeError(
-                f"后端路由不符: {result.mode}/{_fmt(result.cn2)}/{result.arm} 实测 "
+                f"后端路由不符: {result.mode}/{fmt_ratio(result.cn2)}/{result.arm} 实测 "
                 f"_oopao_enabled()={result.oopao_enabled} (期望 {expected})。"
                 "AO_OOPAO_BACKEND 静默回退 numpy —— 拒绝信任该数字。"
             )
@@ -479,15 +490,6 @@ def probe_slm_shaping_bench_dead_cn2() -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # 格式化与表格
 # --------------------------------------------------------------------------- #
-def _fmt(value: float, digits: int = 6) -> str:
-    """指标格式化 (0 显示为 ``0``)。"""
-    if value == 0.0:
-        return "0"
-    if abs(value) < 1e-3 or abs(value) >= 1e5:
-        return f"{value:.{digits}e}"
-    return f"{value:.{digits}g}"
-
-
 def _rel_diff(numpy_value: float, oopao_value: float) -> str:
     """两臂相对差 (百分比); numpy 值为 0 时返回 ``—``。"""
     if numpy_value == 0.0:
@@ -500,12 +502,12 @@ def _cn2_label(cn2: float) -> str:
     for value, label in CN2_LADDER:
         if cn2 == value:
             return label
-    return _fmt(cn2)
+    return fmt_ratio(cn2)
 
 
 def _cn2_axis_label(cn2: float) -> str:
     """图轴上的 cn2 标签 (标签 + 数值两行)。"""
-    return f"{_cn2_label(cn2)}\n({_fmt(cn2)})"
+    return f"{_cn2_label(cn2)}\n({fmt_ratio(cn2)})"
 
 
 def _metric_table(
@@ -525,7 +527,7 @@ def _metric_table(
         )
         for row in (numpy_row, oopao_row):
             lines.append(
-                f"| {_fmt(cn2)} | {row.arm} | {row.init_strehl:.4f} | {row.best_strehl:.4f} "
+                f"| {fmt_ratio(cn2)} | {row.arm} | {row.init_strehl:.4f} | {row.best_strehl:.4f} "
                 f"| {row.init_pib:.4g} | {row.init_rms:.4f} | {row.disturbance_rms:.4f} "
                 f"| {row.strehl_gain:+.4f} |"
             )
@@ -646,7 +648,7 @@ def ratio_table(
                 levels.append(cn2)
     levels.sort()
 
-    header = "| mode | " + " | ".join(f"cn2={_fmt(cn2)}" for cn2 in levels)
+    header = "| mode | " + " | ".join(f"cn2={fmt_ratio(cn2)}" for cn2 in levels)
     header += " | 相对离散度 | 判定 |"
     separator = "|------|" + "|".join(["-----"] * len(levels)) + "|--------|------|"
     lines = [header, separator]
@@ -784,7 +786,7 @@ def render_convergence_figure(
                 marker=ARM_MARKERS[arm],
                 markersize=3,
             )
-        ax.set_title(f"cn2={_fmt(cn2)} ({_cn2_label(cn2)})")
+        ax.set_title(f"cn2={fmt_ratio(cn2)} ({_cn2_label(cn2)})")
         ax.set_xlabel("SPGD 迭代")
         ax.set_ylabel("Strehl")
         ax.legend(fontsize=8)
@@ -1013,7 +1015,7 @@ def _phase_screen_ratio_section(
         inv_cn2, inv_numpy, inv_oopao = inversion
         lines.append(
             f"因此即使 oopao 臂的相位屏强 {inv_oopao.disturbance_rms / inv_numpy.disturbance_rms:.3f}×, "
-            f"`init_rms` 仍可跨臂反向: 实测 {inv_numpy.mode}/{_fmt(inv_cn2)} "
+            f"`init_rms` 仍可跨臂反向: 实测 {inv_numpy.mode}/{fmt_ratio(inv_cn2)} "
             f"numpy init_rms {inv_numpy.init_rms:.4f} > oopao {inv_oopao.init_rms:.4f}, "
             f"而同一格的 disturbance_rms 是 {inv_numpy.disturbance_rms:.4f} vs "
             f"{inv_oopao.disturbance_rms:.4f}。像差项与截瞳权重同时参与合成, "
@@ -1062,7 +1064,7 @@ def _incomparability_section(
         gap_cn2, gap_numpy, gap_oopao = gap
         lines.append(
             f"这意味着表中某些行**看似「OOPAO 更优」, 但不可解读为后端更优**: "
-            f"例如 {gap_numpy.mode} 模式 cn2={_fmt(gap_cn2)} 时, oopao 的 init Strehl "
+            f"例如 {gap_numpy.mode} 模式 cn2={fmt_ratio(gap_cn2)} 时, oopao 的 init Strehl "
             f"({gap_oopao.init_strehl:.4f}) 高于 numpy ({gap_numpy.init_strehl:.4f})。"
             f"但同一格的 disturbance_rms 是 {gap_oopao.disturbance_rms:.4f} vs "
             f"{gap_numpy.disturbance_rms:.4f} —— 两臂承受的相位屏强度本就不同; "
@@ -1177,7 +1179,7 @@ def write_report(
     lines.append("|-----|------|------|")
     for cn2 in cn2_values:
         note = "对照组 (`turbulence_phase` 在 cn2<=0 短路为零屏)" if cn2 <= 0 else ""
-        lines.append(f"| {_fmt(cn2)} | {_cn2_label(cn2)} | {note} |")
+        lines.append(f"| {fmt_ratio(cn2)} | {_cn2_label(cn2)} | {note} |")
     lines.append("")
     lines.append("## 4. 汇总对比")
     lines.append("")
@@ -1330,7 +1332,7 @@ def main(argv: list[str] | None = None) -> int:
     for cn2 in cn2_values:
         for mode in MODES:
             for arm in ARMS:
-                logger.info("episode: cn2={} mode={} arm={}", _fmt(cn2), mode, arm)
+                logger.info("episode: cn2={} mode={} arm={}", fmt_ratio(cn2), mode, arm)
                 results.append(
                     run_episode(
                         mode=mode,
