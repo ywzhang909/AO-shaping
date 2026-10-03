@@ -8,8 +8,8 @@ The alternation runs on asyncio via :class:`AsyncMicroDM` so the event loop
 is never blocked during TCP transmission.
 
 Usage:
-    python -m ao_shaping.runners.full_voltage_runner --voltage 20
-    python -m ao_shaping.runners.full_voltage_runner --ips 192.168.0.101,192.168.0.102 --voltage 30 --freq 2
+    python -m ao_shaping.runners.micro_drive.full_voltage_runner --voltage 20
+    python -m ao_shaping.runners.micro_drive.full_voltage_runner --ips 192.168.0.101,192.168.0.102 --voltage 30 --freq 2
 
 Or via main CLI:
     python -m ao_shaping.main full-voltage --voltage 20
@@ -214,10 +214,10 @@ def run(ctx: click.Context, params: FullVoltageRunnerParams) -> None:
     Examples:
 
         # 全部 26 台控制器 (.101~.126) 全部单元交替 20V, 1Hz, 持续运行直到 Ctrl+C
-        python -m ao_shaping.runners.full_voltage_runner --voltage 20
+        python -m ao_shaping.runners.micro_drive.full_voltage_runner --voltage 20
 
         # 两个控制器, 30V, 2Hz, 持续 10 秒
-        python -m ao_shaping.runners.full_voltage_runner \
+        python -m ao_shaping.runners.micro_drive.full_voltage_runner \
             --ips 192.168.0.101,192.168.0.102 --voltage 30 --freq 2.0 --duration 10
     """
     if params.debug:

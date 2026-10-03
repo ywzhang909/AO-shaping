@@ -11,7 +11,7 @@ Usage:
     streamlit run src/ao_shaping/tools/slm/cartographer/slm_cartographer_ui.py
 
 Or as a module:
-    python -m ao_shaping.tools.slm.cartographer
+    python -m ao_shaping.tools.slm.cartographer.slm_cartographer_ui
 
 NOTE: 本包的 phase_grayscale_lut 是 WFS 实测研究用 LUT, 不可被
 ``Santec.load_lut()`` 消费; 驱动层 canonical LUT 见 slm-lut 管线

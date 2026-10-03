@@ -743,7 +743,7 @@ def write_markdown(out: Path, ctx: dict, fig_prefix: str = "figures") -> str:
         md.append("### 4.5 实测闭环\n")
         md.append("> 本次标定未随附闭环实测 (矩阵由独立工具产生, 无同源闭环数据)。"
                   "可用 `closed-loop` 命令加载本矩阵验证: "
-                  "`python -m ao_shaping.runners.zernike_matrix_runner closed-loop "
+                  "`python -m ao_shaping.runners.slm.zernike_matrix_runner closed-loop "
                   "--load-file data/zernike_response_matrix/zm_recal_532_20260916.h5`。\n")
     md.append("### 4.6 使用注意\n")
     md.append("- **单位**: 本矩阵为 **λ/λ** (WFS 系数 µm 经 `um_to_waves` 换算)。"

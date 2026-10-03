@@ -4,7 +4,7 @@ Cycles between 0V and a specified voltage on selected channels,
 with controllable frequency and duration.
 
 Usage:
-    python -m ao_shaping.runners.alt_voltage_runner --ip 192.168.0.101 --voltage 20
+    python -m ao_shaping.runners.micro_drive.alt_voltage_runner --ip 192.168.0.101 --voltage 20
 
 Or via main CLI:
     python -m ao_shaping.main alt-voltage --ip 192.168.0.101 --voltage 20
@@ -86,16 +86,16 @@ def run(ctx: click.Context, params: AltVoltageRunnerParams) -> None:
     Examples:
 
         # 全部 50 个通道交替 20V, 1Hz, 持续运行直到 Ctrl+C
-        python -m ao_shaping.runners.alt_voltage_runner --ip 192.168.0.101 --voltage 20
+        python -m ao_shaping.runners.micro_drive.alt_voltage_runner --ip 192.168.0.101 --voltage 20
 
         # 通道 0-5 交替 30V, 2Hz, 持续 10 秒
-        python -m ao_shaping.runners.alt_voltage_runner --ip 192.168.0.101 --voltage 30 --freq 2.0 --duration 10 --channels 0,1,2,3,4,5
+        python -m ao_shaping.runners.micro_drive.alt_voltage_runner --ip 192.168.0.101 --voltage 30 --freq 2.0 --duration 10 --channels 0,1,2,3,4,5
 
         # 全部通道, 0.5Hz, 跳过 ping 和自动上电
-        python -m ao_shaping.runners.alt_voltage_runner --ip 192.168.0.101 --voltage 15 --freq 0.5 --no-ping-first --no-relay-on
+        python -m ao_shaping.runners.micro_drive.alt_voltage_runner --ip 192.168.0.101 --voltage 15 --freq 0.5 --no-ping-first --no-relay-on
 
         # 同步采集 ADC (Dev1/ai0, 5kHz, 10 samples/read)
-        python -m ao_shaping.runners.alt_voltage_runner --ip 192.168.0.101 --voltage 20 --adc-enabled --adc-device Dev1 --adc-channel ai0
+        python -m ao_shaping.runners.micro_drive.alt_voltage_runner --ip 192.168.0.101 --voltage 20 --adc-enabled --adc-device Dev1 --adc-channel ai0
     """
     global _running, _ctrl
 
