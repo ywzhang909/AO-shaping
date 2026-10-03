@@ -18,7 +18,7 @@ _src_root = Path(__file__).resolve().parents[3] / "src"
 if str(_src_root) not in sys.path:
     sys.path.insert(0, str(_src_root))
 
-from ao_shaping.utils.image.gs_visualization import (
+from ao_shaping.display.gs_visualization import (
     gerchberg_saxton_with_visualization,
     create_gs_iteration_frame,
     save_frames_as_gif,

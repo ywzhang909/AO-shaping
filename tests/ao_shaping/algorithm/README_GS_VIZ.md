@@ -69,7 +69,9 @@ Each GIF shows three panels:
 
 ## Visualization Utilities
 
-The `gs_visualization.py` module provides:
+The `gs_visualization.py` module (in `src/ao_shaping/display/`, moved out of
+`utils/` on 2026-10-03 because rendering code does not belong in the leaf utils
+layer) provides:
 
 ### Main Functions
 
@@ -77,7 +79,7 @@ The `gs_visualization.py` module provides:
 Run GS algorithm and automatically save animation:
 
 ```python
-from ao_shaping.utils.image.gs_visualization import gerchberg_saxton_with_visualization
+from ao_shaping.display.gs_visualization import gerchberg_saxton_with_visualization
 
 result = gerchberg_saxton_with_visualization(
     source_amplitude=source,
@@ -96,7 +98,7 @@ print(f"Animation saved to: {result.animation_path}")
 Collect states manually for custom animations:
 
 ```python
-from ao_shaping.utils.image.gs_visualization import GSVizCallback
+from ao_shaping.display.gs_visualization import GSVizCallback
 
 callback = GSVizCallback(source_amplitude)
 

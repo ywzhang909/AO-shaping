@@ -1,7 +1,17 @@
-"""Visualization utilities for Gerchberg-Saxton algorithm.
+"""Visualization utilities for the Gerchberg-Saxton algorithm.
 
-Provides functions to render GS iteration process as animated GIFs,
-showing phase pattern evolution and intensity reconstruction.
+Renders the GS iteration process as animated GIFs, showing phase-pattern
+evolution and intensity reconstruction.
+
+**Lives in ``display/``, not ``utils/``** (moved 2026-10-03, TODO R-21): this is
+matplotlib/PIL rendering code, and the repo's own anti-pattern list says so
+("Pygame/viz code inside ``utils/`` -> belongs in ``display/``, not the leaf utils
+layer"). ``utils/`` is a leaf package that must not drag a rendering stack into
+every ``import ao_shaping.utils``.
+
+The GS loop itself is NOT reimplemented here — ``gerchberg_saxton_with_visualization``
+drives the canonical ``algorithm.signal_processing.gerchberg_saxton`` through a
+callback, so the algorithm cannot drift from the visualization.
 """
 
 from __future__ import annotations

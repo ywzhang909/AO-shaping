@@ -25,7 +25,7 @@
 | 文件 | 违规导入 | 修复方案 |
 |------|----------|----------|
 | `src/ao_shaping/utils/wfs_utils.py:13` | `from ao_shaping.drivers.wfs.ThorlabWFS import WFSManager` | 已使用 `TYPE_CHECKING` 保护（运行时无实际导入）。⚠️ 2026-10-01：该文件现已迁至 `utils/wavefront/wfs_utils.py`，行号已漂移 |
-| `src/ao_shaping/utils/gs_visualization.py:296` | `from ao_shaping.algorithm.gerchberg_saxton import ...` | 已使用 deferred local import（函数内 `import`）。⚠️ 2026-10-01：该文件现存于 `utils/image/gs_visualization.py`，且 `algorithm.gerchberg_saxton` 已迁至 `algorithm.signal_processing.gerchberg_saxton` |
+| `src/ao_shaping/display/gs_visualization.py:296` | `from ao_shaping.algorithm.gerchberg_saxton import ...` | ✅ 已使用 deferred local import（函数内 `import`）。⚠️ 2026-10-01：文件先迁至 `utils/image/`，`algorithm.gerchberg_saxton` 迁至 `algorithm.signal_processing.gerchberg_saxton`；**2026-10-03 再迁至 `display/gs_visualization.py`**（渲染代码不进 utils 叶子层，TODO R-21）|
 | `src/ao_shaping/utils/pattern_helper.py:8` | `from ao_shaping.algorithm.phase_wrap import PhaseWrapOptimizer` | ✅ 已修复: 改为 `TYPE_CHECKING` + 9 处函数的 lazy import。⚠️ 2026-10-01：文件现存于 `utils/wavefront/pattern_helper.py` |
 
 > ⚠️ **2026-10-01：`utils/` 叶子化并未真正完成**，只是这 3 个具体违规被修掉了。
