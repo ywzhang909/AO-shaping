@@ -91,6 +91,11 @@ libs/micro_drive1300/**/*.lib
 libs/micro_drive1300/**/*.exe
 libs/micro_drive1300/c/std*.txt
 performance_comparison.md
+# ...but the report generators write under docs/<topic>/, and the committed
+# Cython benchmark is the one artefact that must stay reviewable there. Without
+# this negation the bare pattern above matches at ANY depth, so moving the file
+# silently untracked it while the README kept linking to it.
+!docs/benchmarks/performance_comparison.md
 docs/micro deformable mirror/docs/shiliang_extracted*
 !docs/**/*.png
 docs/**/*.npy

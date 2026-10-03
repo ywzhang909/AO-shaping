@@ -14,6 +14,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]
+plt.rcParams["axes.unicode_minus"] = False
+
 # 添加src到路径以便导入ao_shaping模块
 import sys
 
@@ -44,8 +47,8 @@ def create_gaussian_2d(shape: tuple, center: tuple, sigma: float) -> np.ndarray:
 def generate_test_visualization():
     """生成测试可视化图像"""
     
-    # 创建输出目录
-    output_dir = ROOT_DIR / "reports" / "centroid_test_visualization"
+    # 创建输出目录 (repo 约定: 报告产物写 docs/<topic>/, 不写 scripts/ 或仓库根)
+    output_dir = ROOT_DIR / "docs" / "centroid_test_visualization"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # 测试用例配置

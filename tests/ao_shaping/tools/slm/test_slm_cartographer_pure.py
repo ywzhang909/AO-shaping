@@ -10,6 +10,10 @@ from ao_shaping.tools.slm.cartographer.cosine_pattern import (
     generate_traditional_gradient_pattern,
     get_pattern_peak_position,
 )
+from ao_shaping.tools.slm.cartographer.dynamic_compensation import (
+    CompensationConfig,
+    CompensationResult,
+)
 from ao_shaping.tools.slm.cartographer.phase_grayscale_lut import (
     LUTCalibrationResult,
 )
@@ -127,3 +131,35 @@ def test_lut_result_interpolates_and_round_trips(tmp_path) -> None:
     assert restored.grayscale_values == result.grayscale_values
     assert restored.measured_phases == pytest.approx(result.measured_phases)
     assert restored.lut == result.lut
+
+
+def test_compensation_result_round_trips_arrays_as_lists() -> None:
+    """``to_dict`` must flatten ndarrays (JSON) and ``from_dict`` must restore them."""
+    result = CompensationResult(
+        initial_wavefront_rms=0.1,
+        final_wavefront_rms=0.05,
+        iterations_used=2,
+        converged=True,
+        compensation_phase=np.linspace(0.0, 2.0 * np.pi, 9).reshape(3, 3),
+    )
+
+    payload = result.to_dict()
+    assert isinstance(payload["compensation_phase"], list)
+    np.testing.assert_allclose(
+        np.asarray(payload["compensation_phase"]), result.compensation_phase
+    )
+
+    restored = CompensationResult.from_dict(payload)
+    assert restored.initial_wavefront_rms == pytest.approx(0.1)
+    assert restored.final_wavefront_rms == pytest.approx(0.05)
+    assert restored.iterations_used == 2
+    assert restored.converged is True
+    np.testing.assert_allclose(restored.compensation_phase, result.compensation_phase)
+
+
+def test_compensation_config_defaults_match_532nm_bench() -> None:
+    config = CompensationConfig()
+
+    assert config.slm_wavelength_nm == 532
+    assert config.n_correction_iterations == 1
+    assert config.cosine_radius_px == 40.0

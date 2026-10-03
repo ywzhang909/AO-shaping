@@ -1,7 +1,9 @@
 """Generate Cython optimizer performance comparison report.
 
 Runs the benchmark in ``src.calculators.benchmark`` and emits a markdown report
-with performance tables and analysis into ``docs/performance_comparison.md``.
+with performance tables and analysis into ``docs/benchmarks/performance_comparison.md``
+(repo convention: report generators write under ``docs/<topic>/``, never the
+``docs/`` root).
 
 Usage:
     $env:PYTHONPATH = "src;libs"
@@ -44,7 +46,7 @@ plt.rcParams["axes.unicode_minus"] = False
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-OUT_DIR = ROOT / "docs"
+OUT_DIR = ROOT / "docs" / "benchmarks"
 BENCHMARK_RESULTS_FILE = ROOT / "src" / "calculators" / "benchmark_results.json"
 
 
