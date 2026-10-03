@@ -15,9 +15,9 @@ from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator
 if TYPE_CHECKING:  # pragma: no cover
     # 仅类型标注用 (避免 utils 叶子层在运行期依赖 algorithm 包)。
     # 运行期使用全部走函数内延迟导入 (见各 get_optimizer / detect_jumps 等)。
-    from ao_shaping.algorithm.signal_processing.phase_wrap import PhaseWrapOptimizer
+    from aotools.turbulence.infinitephasescreen import PhaseScreenKolmogorov
 
-from aotools.turbulence.infinitephasescreen import PhaseScreenKolmogorov
+    from ao_shaping.algorithm.signal_processing.phase_wrap import PhaseWrapOptimizer
 
 UNWRAP_STRATEGY = "iterative"
 WRAP_STRATEGY = "hybrid"
@@ -327,6 +327,11 @@ class PatternHelper:
             pixel_scale: 每个像素的物理尺寸 (米)
             random_seed: 随机种子（可选）
         """
+        # ``aotools`` is an OPTIONAL dependency: imported here, not at module
+        # scope, so that ``import ao_shaping.utils`` works on a machine that does
+        # not have it. Only actually building a Kolmogorov screen needs it.
+        from aotools.turbulence.infinitephasescreen import PhaseScreenKolmogorov
+
         self._turbulence_screen = PhaseScreenKolmogorov(
             nx_size=self._height,
             pixel_scale=pixel_scale,
