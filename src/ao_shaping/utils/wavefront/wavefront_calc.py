@@ -5,10 +5,22 @@ from ao_shaping.utils.image.spots_calc import centroid as _centroid
 
 
 def normalize_01(matrix):
-    """将矩阵归一化到[0, 1]范围 (min-max 归一化)。
+    """将矩阵归一化到 [0, 1]（**min-max** 归一化）。
 
-    委托至 beam_metrics.normalize_pattern 并适配其接口差异。
-    保留原实现行为: 当矩阵为常量 (max==min) 时返回全零。
+    ⚠️ **不委托**给 :func:`~ao_shaping.utils.image.beam_metrics.normalize_pattern`
+    （R-28 实测更正）。两者是不同的函数，且
+    ``normalize_pattern`` 的默认 mode 是 ``"peak"``：
+
+    | 输入 | ``normalize_01``（本函数，min-max） | ``normalize_pattern``（默认 peak） |
+    |---|---|---|
+    | ``[[0, 1], [2, 4]]`` | 拉伸到 ``[0, 1]`` | ``/ 4``，``min`` 仍是 0 |
+    | ``[[10, 11], [12, 14]]`` | 拉伸到 ``[0, 1]`` | ``/ 14``，``min`` 仍是 0.71 |
+    | 常量矩阵 | **全零** | 全一（``pmax > 0``） |
+    | 含 ``NaN`` | **``NaN`` 传播** | ``nan_to_num`` 后有限 |
+    | 输出 dtype | 跟输入 | 强制 ``float32`` |
+
+    保留原实现行为：常量（``max == min``）返回全零。
+    需要「按最大值归一 + 暗帧安全 + NaN 清除」时用 ``normalize_pattern``。
     """
     matrix = np.asarray(matrix, dtype=np.float64)
     min_val = np.min(matrix)
