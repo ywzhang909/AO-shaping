@@ -56,7 +56,9 @@ from ao_shaping.display import SlmZernikeDisplay
 from ao_shaping.drivers.ccd.common import (
     capture_with_exposure,
     create_camera,
+    full_scale,
     get_camera_exposure_ms,
+    is_saturated,
     list_camera_types,
     resample_on_saturation,
     resolve_initial_exposure,
@@ -164,58 +166,10 @@ ALGORITHM_CHOICES = heuristic_algorithm_choices()
 # into a phase (matches the +/-5 clip the SPGD loop historically used).
 ZERNIKE_CLIP = 5.0
 
-
-def gauss_center(
-    img: np.ndarray, half_win: int = 48, bg: float | None = None
-) -> np.ndarray:
-    """Locate the spot centre with a background-subtracted squared centroid.
-
-    The returned coordinates use the project convention ``(x, y)``.
-    """
-    frame = np.asarray(img, dtype=np.float64)
-    if frame.ndim != 2:
-        raise ValueError(f"img must be 2D, got {frame.ndim}D")
-    height, width = frame.shape
-    yy, xx = np.mgrid[0:height, 0:width]
-    total = float(frame.sum())
-    fallback = np.array([(width - 1) / 2.0, (height - 1) / 2.0], dtype=np.float64)
-    if not np.isfinite(total) or total <= 0.0:
-        return fallback
-
-    cx = float(np.sum(frame * xx) / total)
-    cy = float(np.sum(frame * yy) / total)
-    half_win = max(1, int(half_win))
-    y0 = max(0, int(cy - half_win))
-    y1 = min(height, int(cy + half_win) + 1)
-    x0 = max(0, int(cx - half_win))
-    x1 = min(width, int(cx + half_win) + 1)
-    win = frame[y0:y1, x0:x1].copy()
-
-    if bg is None:
-        k = min(5, win.shape[0], win.shape[1])
-        corners = np.concatenate(
-            (
-                win[:k, :k].ravel(),
-                win[:k, -k:].ravel(),
-                win[-k:, :k].ravel(),
-                win[-k:, -k:].ravel(),
-            )
-        )
-        background = float(np.median(corners))
-    else:
-        background = float(bg)
-    if not np.isfinite(background):
-        background = 0.0
-
-    win = np.clip(win - background, 0.0, None)
-    weights = win**2
-    weight_sum = float(weights.sum())
-    if not np.isfinite(weight_sum) or weight_sum <= np.finfo(np.float64).eps:
-        return np.array([cx, cy], dtype=np.float64)
-
-    cx = float(np.sum(weights * xx[y0:y1, x0:x1]) / weight_sum)
-    cy = float(np.sum(weights * yy[y0:y1, x0:x1]) / weight_sum)
-    return np.array([np.clip(cx, 0.0, width - 1), np.clip(cy, 0.0, height - 1)])
+#: A "best" comparison only counts as an improvement when it beats the
+#: incumbent by more than this, so measurement jitter cannot install a new
+#: best (and the on-exit decision cannot flip on noise).
+IMPROVE_EPS = 1e-4
 
 
 # ``resolve_initial_exposure`` and ``clamp_center_to_frame`` are imported from
@@ -238,6 +192,16 @@ def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs: Any) -
 
 
 ZERNIKE_APERTURE_RADIUS = 300.0
+"""Aperture radius (px) the Zernike phase is defined over.
+
+Must match the illuminated beam radius on the SLM. The panel is 1920x1200, so
+PatternHelper's default is half the short side = 600 px; this bench's beam
+radius is only ~300 px. With a 600 px aperture only the inner half of the
+polynomial lands on the beam, so every mode is nearly CONSTANT across the
+illuminated area -- and a constant phase does not change the far field, i.e.
+the correction silently does nothing (hardware-verified: flat vs a 2 rad
+defocus were indistinguishable until this was matched).
+"""
 
 # The camera window must be at least this multiple of the target's LONG side.
 # The shaping metric divides the in-box energy by the WINDOW total, so a window
@@ -251,16 +215,6 @@ CAM_WINDOW_TARGET_MARGIN = 1.5
 # radius is dominated by the stray halo and lands ~2x too large, which leaves no
 # shaping headroom at all.)
 TARGET_BOX_WAIST_FACTOR = 2.0
-"""Aperture radius (px) the Zernike phase is defined over.
-
-Must match the illuminated beam radius on the SLM. The panel is 1920x1200, so
-PatternHelper's default is half the short side = 600 px; this bench's beam
-radius is only ~300 px. With a 600 px aperture only the inner half of the
-polynomial lands on the beam, so every mode is nearly CONSTANT across the
-illuminated area -- and a constant phase does not change the far field, i.e.
-the correction silently does nothing (hardware-verified: flat vs a 2 rad
-defocus were indistinguishable until this was matched).
-"""
 
 
 # Memory-slot range used for phase writes (never repeat a slot consecutively).
@@ -989,8 +943,13 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             **config.kwargs,
         )
         if lr == 0:
+            # ``reference_center`` (window-local spot), NOT ``center``: the
+            # latter is the FULL-FRAME window centre ``reset_window`` returned,
+            # which is out of bounds for the windowed ``init_img`` and made the
+            # 80%-encircled radius meaningless. Same rule as the ``r_bucket``
+            # block above and the SPGD branch's ``pos_center``.
             optimizer.lr, delta = learning_schedule(
-                radius(init_img, center=center, energy=0.8),
+                radius(init_img, center=reference_center, energy=0.8),
                 gradient_history=_gradient_history,
                 pib_history=_pib_history,
                 epoch=0,
@@ -1001,7 +960,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         # column); for the other objectives it is the value the gradient uses --
         # e.g. the encircle radius, which must be MINIMISED (a `>` comparison
         # would keep the worst).
-        best_objective = shaping.tracking_value(init_img, _init_res)
+        best_objective = _init_res.tracking
         # Baseline objective of the initial phase (flat when ``init_c`` is
         # empty). Used on exit to decide between the best phase and flat.
         _initial_objective = best_objective
@@ -1080,6 +1039,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 "exp_t": get_camera_exposure_ms(cam),
                 "max_brt": max_brt,
                 "_grad": grad,
+                "optimizer": optimizer_type,
                 f"best_{objective}": best_objective,
             }
             if record_phase and phase is not None:
@@ -1089,9 +1049,11 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 _w_pib, _w_rms, _w_ee = shaping.weights
                 row["w_pib"] = float(_w_pib)
                 row["w_rms"] = float(_w_rms)
+                row["w_ee"] = float(_w_ee)
                 _terms = shaping.terms
                 row["pib_term"] = float(_terms[1])
                 row["rms_term"] = float(_terms[2])
+                row["ee_term"] = float(_terms[3])
             row.update(shaping.metric_panel(img))
             recorder.append(row)
             return row
@@ -1102,9 +1064,9 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             if not SLM_APPLY_BEST_ON_EXIT:
                 return
             improved = (
-                best_objective > _initial_objective + 1e-4
+                best_objective > _initial_objective + IMPROVE_EPS
                 if objective_mode == "max"
-                else best_objective < _initial_objective - 1e-4
+                else best_objective < _initial_objective - IMPROVE_EPS
             )
             if improved:
                 best_phase = slm.create_phase_from_array(
@@ -1199,7 +1161,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 _display(slm, candidate_phase)
                 time.sleep(SLM_RESPONSE_TIME_S)
                 img = cam.get_numpy_image(config.n_eval_frames)
-                if exposure_time_ms == 0 and float(np.max(img)) >= 255:
+                if exposure_time_ms == 0 and is_saturated(img):
                     # Saturated: re-auto-expose to the requested target, mirroring
                     # the SPGD loop's guard, so the metric stays on a valid frame.
                     img = resample_on_saturation(
@@ -1221,7 +1183,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     # adaptation uses THIS candidate's terms.
                     if float(obj) > -100.0:
                         shaping.adapt_weights(res)
-                obj_val = shaping.tracking_value(img, res)
+                obj_val = res.tracking
                 last_eval.update(
                     {
                         "phase": candidate_phase,
@@ -1239,9 +1201,9 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 def _on_evaluate(candidate, value, index) -> None:
                     nonlocal best_objective, best_c, last_best_epoch
                     improved = (
-                        value > best_objective + 1e-4
+                        value > best_objective + IMPROVE_EPS
                         if objective_mode == "max"
-                        else value < best_objective - 1e-4
+                        else value < best_objective - IMPROVE_EPS
                     )
                     if improved:
                         best_objective = float(value)
@@ -1353,7 +1315,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 # captures/epoch instead of 2.
                 _captures: list[tuple[int, np.ndarray, np.ndarray, np.ndarray]] = []
                 for _sign in _spgd_capture_signs(config.abba_sampling):
-                    _c = np.clip(_init_c + float(_sign) * disturb_c, -5.0, 5.0)
+                    _c = np.clip(_init_c + float(_sign) * disturb_c, -ZERNIKE_CLIP, ZERNIKE_CLIP)
                     _phase = slm.create_phase_from_array(
                         _zernike_to_phase(_c, n_max, pattern_helper, zernike_radius)
                     )
@@ -1451,16 +1413,20 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 pos_center = zero_order_center(pos_img)
 
                 # Auto-exposure adjustment if saturated (over every capture).
+                # The ceiling comes from the frame dtype, never a literal: a
+                # 16-bit backend would saturate at 65535 and a float frame at
+                # ``DETECTOR_FULL_SCALE``.
+                _sat_level = full_scale(pos_img)
                 max_brightness = max(
                     float(np.max(c[1])) for c in _captures
                 )
-                if max_brightness == 255 and exposure_time_ms == 0:
+                if max_brightness >= _sat_level and exposure_time_ms == 0:
                     _resample_img = resample_on_saturation(
                         pos_img,
                         cam,
                         exposure_time_ms,
                         target_max_brightness,
-                        saturation_threshold=float(max_brightness),
+                        saturation_threshold=_sat_level,
                     )
                     optimizer.scale_momentum(np.sum(_resample_img) / np.sum(pos_img))
 
@@ -1499,13 +1465,13 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     # zeroed update decays momentum toward 0 (forgetting the
                     # noise-driven velocity) without moving the coefficients.
                     update = optimizer.update(np.zeros_like(gradient))
-                _to_update_c = np.clip(_init_c - update, -5.0, 5.0)
+                _to_update_c = np.clip(_init_c - update, -ZERNIKE_CLIP, ZERNIKE_CLIP)
                 _init_c = _to_update_c
 
                 # Value logged under the objective's own name and used by the
                 # Recorder to pick its best row: the bucket ratio for "pib",
                 # otherwise the objective the gradient optimises (e.g. radius).
-                objective_val = shaping.tracking_value(pos_img, pos_res)
+                objective_val = pos_res.tracking
                 objective_ratio = (pos_obj_ratio + neg_obj_ratio) / 2
                 J = (pos_j + neg_j) / 2
 
@@ -1554,9 +1520,9 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
 
                 # Track best result in the objective's own direction.
                 improved = (
-                    objective_val > best_objective + 1e-4
+                    objective_val > best_objective + IMPROVE_EPS
                     if objective_mode == "max"
-                    else objective_val < best_objective - 1e-4
+                    else objective_val < best_objective - IMPROVE_EPS
                 )
                 if improved:
                     best_objective = float(objective_val)

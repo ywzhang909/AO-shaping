@@ -608,19 +608,55 @@ def capture_with_exposure(
     return np.asarray(cam.get_numpy_image(max(1, n_sample)))
 
 
+#: Full-scale detector value, in the 0-255 gray units the whole repo uses.
+#: Only consulted for **non-integer** dtypes (see :func:`full_scale`).
+DETECTOR_FULL_SCALE = 255.0
+
+
+def full_scale(img: np.ndarray) -> float:
+    """Full-scale (saturation) value of a camera frame, in 0-255 gray units.
+
+    Integer frames carry their own limit, so read it off the dtype (uint8 -> 255,
+    uint16 -> 65535). Float frames are read off the *same* detectors in the
+    *same* units: the debug corpus holds uint8 / float32 / float64 frames whose
+    per-frame maxima are all <= 255, so 255 - not 1.0 - is the ceiling. Treating
+    a float frame as already normalised would compress it by up to 255x.
+
+    Args:
+        img: A camera frame.
+
+    Returns:
+        The value at or above which the frame counts as saturated.
+    """
+    if np.issubdtype(img.dtype, np.integer):
+        return float(np.iinfo(img.dtype).max)
+    return DETECTOR_FULL_SCALE
+
+
+def is_saturated(img: np.ndarray) -> bool:
+    """True when ``img``'s peak reaches full scale (see :func:`full_scale`).
+
+    Single source of truth for the saturation guard. Call sites used to hardcode
+    ``255`` - and did not even agree with each other: the heuristic branches
+    tested ``>= 255`` while the SPGD branches tested ``== 255`` (so a frame at
+    250 was "saturated" to one and not the other).
+    """
+    return float(np.max(img)) >= full_scale(img)
+
+
 def resample_on_saturation(
     img: np.ndarray,
     cam: Any,
     exposure_time_ms: float = 0.0,
     target_max_brightness: float = 0.0,
     auto_exposure_fn: Any | None = None,
-    saturation_threshold: float = 255.0,
+    saturation_threshold: float | None = None,
     n_sample: int = 1,
 ) -> np.ndarray:
     """Re-capture at a lower exposure if the image is saturated.
 
     Mirrors the guard found in every SPGD loop: when auto-exposure is active
-    (``exposure_time_ms == 0``) and the peak hits ``saturation_threshold``,
+    (``exposure_time_ms == 0``) and the peak reaches ``saturation_threshold``,
     re-auto-expose to ``target_max_brightness`` (falling back to the original
     image data if auto-exposure is unavailable or the target is also 0).
 
@@ -630,7 +666,10 @@ def resample_on_saturation(
         exposure_time_ms: Current fixed exposure (0 = auto mode, eligible for re-exposure).
         target_max_brightness: Auto-exposure target peak (0-255; 0 = use 220).
         auto_exposure_fn: Override for the auto-exposure implementation.
-        saturation_threshold: Peak value considered saturated (default 255).
+        saturation_threshold: Peak value considered saturated. ``None`` (the
+            default) derives it from ``img``'s dtype via :func:`full_scale`,
+            which is correct for every bit depth; pass a number only to
+            override (e.g. to trip early).
         n_sample: Frames averaged per re-capture.
 
     Returns:
@@ -638,6 +677,8 @@ def resample_on_saturation(
     """
     if exposure_time_ms > 0:
         return img
+    if saturation_threshold is None:
+        saturation_threshold = full_scale(img)
     if float(np.max(img)) < saturation_threshold:
         return img
     target = target_max_brightness if target_max_brightness > 0 else 220.0

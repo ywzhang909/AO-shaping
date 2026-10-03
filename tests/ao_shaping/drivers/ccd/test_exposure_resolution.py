@@ -13,7 +13,10 @@ import pytest
 
 import ao_shaping.drivers.ccd.common as ccd_common
 from ao_shaping.drivers.ccd.common import (
+    DETECTOR_FULL_SCALE,
     capture_with_exposure,
+    full_scale,
+    is_saturated,
     resolve_initial_exposure,
     resample_on_saturation,
     resolve_exposure_ms,
@@ -174,3 +177,60 @@ class TestResampleOnSaturation:
             img, cam, exposure_time_ms=0.0, target_max_brightness=200.0
         )
         assert cam.set_calls  # auto-exposure was applied
+
+    def test_default_threshold_follows_the_dtype(self):
+        """R-3: the 255 literal was wrong for every non-uint8 backend."""
+        cam = FakeCamera(k=10.0, exposure_ms=3.0)
+        img16 = np.full((8, 8), 300, dtype=np.uint16)
+        assert resample_on_saturation(
+            img16, cam, exposure_time_ms=0.0, target_max_brightness=200.0
+        ) is img16, "300 << 65535 must NOT count as saturated"
+
+        cam2 = FakeCamera(k=10.0, exposure_ms=3.0)
+        img16_hot = np.full((8, 8), 65535, dtype=np.uint16)
+        resample_on_saturation(
+            img16_hot, cam2, exposure_time_ms=0.0, target_max_brightness=200.0
+        )
+        assert cam2.set_calls, "65535 is full scale for uint16 and MUST re-expose"
+
+    def test_explicit_threshold_still_overrides(self):
+        cam = FakeCamera(k=10.0, exposure_ms=3.0)
+        img = np.full((8, 8), 100, dtype=np.uint8)
+        result = resample_on_saturation(
+            img,
+            cam,
+            exposure_time_ms=0.0,
+            target_max_brightness=200.0,
+            saturation_threshold=50.0,
+        )
+        assert cam.set_calls
+        assert result is not img
+
+
+class TestFullScale:
+    """R-3: one dtype-aware ceiling instead of a hardcoded 255."""
+
+    def test_integer_dtypes_report_their_own_limit(self):
+        assert full_scale(np.zeros((2, 2), np.uint8)) == 255.0
+        assert full_scale(np.zeros((2, 2), np.uint16)) == 65535.0
+        assert full_scale(np.zeros((2, 2), np.int32)) == 2147483647.0
+
+    def test_float_dtypes_report_the_detector_ceiling(self):
+        """Corpus float frames are 0-255 physical units, NOT 0-1 normalised."""
+        for dtype in (np.float32, np.float64):
+            assert full_scale(np.zeros((2, 2), dtype)) == DETECTOR_FULL_SCALE
+            assert full_scale(np.zeros((2, 2), dtype)) == 255.0
+
+    @pytest.mark.parametrize("dtype", [np.uint8, np.uint16, np.float32, np.float64])
+    def test_is_saturated_trips_exactly_at_full_scale(self, dtype) -> None:
+        peak = full_scale(np.zeros((1, 1), dtype))
+        just_under = np.full((3, 3), peak - 1, dtype=dtype)
+        exactly = np.full((3, 3), peak, dtype=dtype)
+        assert is_saturated(exactly)
+        assert not is_saturated(just_under)
+
+    def test_the_old_255_literal_would_have_misjudged_uint16(self):
+        """Documents why the literal had to go: 300 is not saturation in uint16."""
+        img = np.full((3, 3), 300, dtype=np.uint16)
+        assert not is_saturated(img)
+        assert float(np.max(img)) >= 255  # what the old heuristic branch tested

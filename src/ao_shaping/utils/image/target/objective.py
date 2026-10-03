@@ -26,6 +26,13 @@ from ao_shaping.utils.image.target.metrics import (
 )
 
 
+#: Sentinel added to (max-mode) or subtracted from (min-mode) every score of a
+#: frame the in-ROI energy-loss guard abandoned. Large enough that a penalised
+#: value can never win a comparison against any attainable measurement, small
+#: enough to survive the CSV/JSON round-trip with full float64 precision.
+GUARD_PENALTY = 1e3
+
+
 def _update_dynamic_weights(
     state: dict,
     *,
@@ -264,6 +271,14 @@ class ObjectiveResult:
         j: the objective value the search ascends (guard-penalised if the
             frame was abandoned).
         ratio: the secondary quantity the objective reports for logging.
+            **Never** guard-penalised - it is the true measured value, kept so
+            offline reports can count and exclude guard-firing rows.
+        tracking: the value the search compares against as "best" and writes
+            back to the SLM on exit (guard-penalised exactly like ``j``).
+            For ``pib`` this is the exposure-independent bucket ratio at the
+            FIXED ideal radius, which lives at a different bucket radius than
+            ``j`` and so cannot be recovered from it; every other objective
+            tracks ``j``.
         terms: ``(j, pib_term, rms_term, ee_term)`` of the last ``rms_pib``
             evaluation, ``(0.0, 0.0, 0.0, 0.0)`` for every other objective.
             Frozen so a caller can hold a *positive-perturbation* result across
@@ -272,6 +287,7 @@ class ObjectiveResult:
 
     j: float
     ratio: float
+    tracking: float
     terms: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
 
 
@@ -586,12 +602,15 @@ class ShapingObjective:
         """
         self._reference_center = (float(center[0]), float(center[1]))
 
-    def raw(self, img: np.ndarray) -> tuple[float, float]:
+    def raw(self, img: np.ndarray) -> tuple[float, float, float]:
         """Score one frame without the safety guard.
 
         Returns:
-            ``(j, ratio)`` - the objective value and the secondary quantity the
-            objective reports for logging.
+            ``(j, ratio, tracking)`` - the objective value, the secondary
+            quantity the objective reports for logging, and the value the search
+            tracks as "best". ``tracking`` differs from ``j`` only for ``pib``,
+            where it is the bucket ratio at the fixed ideal radius rather than at
+            the (shrinking) live bucket radius.
         """
         p = self._params
         objective = p.objective
@@ -599,7 +618,13 @@ class ShapingObjective:
         if objective == "pib":
             # Maximize PIB. Same convention as pib.py.
             pib, pib_ratio = self._target_func.pib(img, self._r_bucket)
-            return float(pib), float(pib_ratio)
+            # The headline lives at the FIXED ideal radius, not the live bucket:
+            # the bucket shrinks mid-run, so a value read at ``_r_bucket`` would
+            # not be comparable across epochs.
+            tracking = float(
+                self._target_func.pib(img, p.ideal_spot_radius)[1]
+            )
+            return float(pib), float(pib_ratio), tracking
 
         if objective == "roi_pib":
             # Maximise the brightness inside the TARGET-SHAPED ROI: the fraction
@@ -608,7 +633,7 @@ class ShapingObjective:
             score, energy = roi_pib_metric(
                 img, self._reference_center, p.shape, p.size, p.aspect_ratio
             )
-            return float(score), float(energy)
+            return float(score), float(energy), float(score)
 
         if objective == "rms_pib":
             # Combined PIB + in-ROI RMS + energy-conservation objective with
@@ -643,7 +668,7 @@ class ShapingObjective:
                 float(rms_term),
                 float(ee_term),
             )
-            return float(j), float(pib_term)
+            return float(j), float(pib_term), float(j)
 
         if objective == "shape":
             # The target ROI rides the measured spot (live
@@ -672,7 +697,7 @@ class ShapingObjective:
             self._shape_state["best_energy"] = max(
                 self._shape_state["best_energy"], energy
             )
-            return float(score), float(energy)
+            return float(score), float(energy), float(score)
 
         if objective == "rmse":
             # Minimise the RMSE between the frame and the uniform-intensity
@@ -681,7 +706,7 @@ class ShapingObjective:
             rmse, energy = rmse_shape_metric(
                 img, self._reference_center, p.shape, p.size, p.aspect_ratio
             )
-            return float(rmse), float(energy)
+            return float(rmse), float(energy), float(rmse)
 
         if objective == "rmse_out":
             # Minimise normalised RMSE with an explicit outside-target penalty:
@@ -694,7 +719,7 @@ class ShapingObjective:
                 p.aspect_ratio,
                 w_outside=p.w_outside,
             )
-            return float(j), float(energy)
+            return float(j), float(energy), float(j)
 
         if objective == "pearson":
             # Minimise 1 - Pearson between the full frame and the uniform
@@ -705,14 +730,15 @@ class ShapingObjective:
             loss, energy = pearson_shape_metric(
                 img, self._reference_center, p.shape, p.size, p.aspect_ratio
             )
-            return float(loss), float(energy)
+            return float(loss), float(energy), float(loss)
 
         if objective == "radiu":
-            return float(self._target_func.radius(img, energy=0.99)), 0.0
+            r_99 = float(self._target_func.radius(img, energy=0.99))
+            return r_99, 0.0, r_99
 
         # avg_radiu: maximize average radius.
         avg_r, avg_ratio = self._target_func.avg_radius(img, moment=1.0)
-        return float(avg_r), float(avg_ratio)
+        return float(avg_r), float(avg_ratio), float(avg_r)
 
     def __call__(self, img: np.ndarray) -> ObjectiveResult:
         """Score one frame, applying the in-ROI energy-loss safety guard.
@@ -720,10 +746,16 @@ class ShapingObjective:
         Returns a strongly penalised ``j`` (and the true ratio for logging) when
         the in-ROI energy loss exceeds ``max_roi_energy_loss`` - the evaluation
         is thereby abandoned.
+
+        The penalty is applied to ``tracking`` **as well as** ``j``. It used to
+        be applied only to ``j``: ``tracking`` was recomputed downstream straight
+        from ``img``, so an abandoned frame still looked like a great candidate
+        to every ``best_*`` comparison and the exit path could write a
+        guard-forbidden phase back to the SLM.
         """
-        j, ratio = self.raw(img)
+        j, ratio, tracking = self.raw(img)
         if self._guard_ref_energy is None:
-            return ObjectiveResult(float(j), float(ratio), self._terms)
+            return ObjectiveResult(float(j), float(ratio), float(tracking), self._terms)
 
         loss = roi_energy_loss(self._guard_ref_energy, self._roi_energy(img))
         if loss > self._params.max_roi_energy_loss:
@@ -736,23 +768,14 @@ class ShapingObjective:
                     self._params.max_roi_energy_loss,
                     self._violations,
                 )
-            bad = j - 1e3 if self._params.mode == "max" else j + 1e3
-            return ObjectiveResult(float(bad), float(ratio), self._terms)
-        return ObjectiveResult(float(j), float(ratio), self._terms)
-
-    def tracking_value(self, img: np.ndarray, res: ObjectiveResult) -> float:
-        """Value the search tracks as "best" and logs under the objective name.
-
-        For ``pib`` that is the exposure-independent bucket ratio at the fixed
-        ideal radius (matches the logged column); for every other objective it
-        is the value the gradient uses - e.g. the encircle radius, which must
-        be MINIMISED (a ``>`` comparison would keep the worst).
-        """
-        if self._params.objective == "pib":
-            return float(
-                self._target_func.pib(img, self._params.ideal_spot_radius)[1]
+            sign = -1.0 if self._params.mode == "max" else 1.0
+            return ObjectiveResult(
+                float(j + sign * GUARD_PENALTY),
+                float(ratio),
+                float(tracking + sign * GUARD_PENALTY),
+                self._terms,
             )
-        return float(res.j)
+        return ObjectiveResult(float(j), float(ratio), float(tracking), self._terms)
 
     def metric_panel(self, img: np.ndarray) -> dict[str, float]:
         """Cross-objective metric panel recorded on EVERY epoch.

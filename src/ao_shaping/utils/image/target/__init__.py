@@ -49,6 +49,7 @@ from ao_shaping.utils.image.target.metrics import (
 )
 from ao_shaping.utils.image.target.objective import (
     DEFAULT_SHAPE_OBJECTIVES,
+    GUARD_PENALTY,
     GUARDED_OBJECTIVES,
     OBJECTIVE_ALLOWED_SHAPES,
     ROI_ONLY_SHAPE_OBJECTIVES,
@@ -109,6 +110,7 @@ __all__ = [
     "ObjectiveSpec",
     "SHAPING_OBJECTIVE_CHOICES",
     "GUARDED_OBJECTIVES",
+    "GUARD_PENALTY",
     "SHAPE_AWARE_OBJECTIVES",
     "ROI_ONLY_SHAPE_OBJECTIVES",
     "DEFAULT_SHAPE_OBJECTIVES",

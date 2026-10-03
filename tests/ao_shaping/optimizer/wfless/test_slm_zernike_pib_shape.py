@@ -7,36 +7,12 @@ from click.testing import CliRunner
 from ao_shaping.optimizer.wfless.slm_zernike_pib import (
     TARGET_SHAPE_CHOICES,
     SlmZernikePibConfig,
-    gauss_center,
     optimize_slm_zernike_pib,
     shape_metric,
     target_shape_roi,
 )
 from ao_shaping.runners.runner_common import CameraParamsPib, ObjectiveTarget
 from ao_shaping.runners.slm_pib_runner import run
-
-
-def test_gauss_center_is_subpixel_and_background_robust() -> None:
-    yy, xx = np.mgrid[:64, :80]
-    image = 12.0 + 100.0 * np.exp(-((xx - 31.2) ** 2 + (yy - 21.7) ** 2) / (2 * 3.0**2))
-
-    center = gauss_center(image, half_win=20)
-
-    np.testing.assert_allclose(center, (31.2, 21.7), atol=1e-9)
-
-
-def test_gauss_center_stays_within_point_one_pixel_with_noise() -> None:
-    yy, xx = np.mgrid[:64, :80]
-    rng = np.random.default_rng(7)
-    image = (
-        12.0
-        + rng.normal(0.0, 1.5, size=(64, 80))
-        + 100.0 * np.exp(-((xx - 31.2) ** 2 + (yy - 21.7) ** 2) / (2 * 3.0**2))
-    )
-
-    center = gauss_center(image, half_win=20)
-
-    np.testing.assert_allclose(center, (31.2, 21.7), atol=0.1)
 
 
 def test_target_shape_roi_tracks_center_and_aspect_ratio() -> None:

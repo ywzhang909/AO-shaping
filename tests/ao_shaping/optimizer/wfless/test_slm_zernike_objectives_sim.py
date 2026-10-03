@@ -197,6 +197,99 @@ def test_rms_pib_records_weight_panel(monkeypatch):
     assert "m_ee" in recorder.history[-1]
 
 
+#: The six adaptive-weight columns ``_row0`` records for ``rms_pib``. ``_log_row``
+#: used to record only four of them, so a DataFrame built from the recorder had
+#: values in row 0 and NaN everywhere else (TODO.md R-4).
+_RMS_PIB_ADAPTIVE_COLUMNS = (
+    "w_pib",
+    "w_rms",
+    "w_ee",
+    "pib_term",
+    "rms_term",
+    "ee_term",
+)
+
+
+@pytest.mark.parametrize(
+    "algorithm", ["spgd", "ga"]
+)
+def test_rms_pib_adaptive_columns_are_present_on_every_row(monkeypatch, algorithm):
+    """R-4: row 0 and the logged rows must expose the SAME column set."""
+    register_sim_camera()
+    reset_system(seed=42)
+    _patch_slm(monkeypatch)
+
+    config = _sim_config("rms_pib", target_shape="square", epochs=2, algorithm=algorithm)
+    recorder = optimize_slm_zernike_pib(config)
+
+    assert len(recorder.history) >= 3, "need row 0 plus at least two logged rows"
+    for column in _RMS_PIB_ADAPTIVE_COLUMNS:
+        assert column in recorder.history[0], f"{column} missing from row 0"
+        for index, row in enumerate(recorder.history[1:], start=1):
+            assert column in row, f"{column} missing from logged row {index}"
+            assert row[column] is not None, f"{column} is None on logged row {index}"
+
+    for index in range(1, len(recorder.history)):
+        assert set(recorder.history[index]) == set(recorder.history[0]), (
+            f"logged row {index} has a different column set than row 0"
+        )
+
+
+def test_rms_pib_adaptive_columns_are_not_nan_on_later_rows(monkeypatch):
+    """The exact symptom of R-4: row 0 has values, every later row is NaN."""
+    register_sim_camera()
+    reset_system(seed=42)
+    _patch_slm(monkeypatch)
+
+    config = _sim_config("rms_pib", target_shape="square", epochs=2)
+    recorder = optimize_slm_zernike_pib(config)
+
+    for column in _RMS_PIB_ADAPTIVE_COLUMNS:
+        values = [row[column] for row in recorder.history[1:]]
+        assert all(v == v for v in values), f"{column} contains NaN: {values}"
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
+)
+def test_both_engines_log_the_full_adaptive_column_set(monkeypatch, module_name):
+    """R-4 lives in BOTH engines; the fixture above only exercised one of them.
+
+    ``test_slm_zernike_objectives_sim.py`` imports ``optimize_slm_zernike_pib``
+    from ``slm_zernike_shaping``, so without this test a regression in
+    ``slm_zernike_pib`` would pass the whole suite (verified by mutation).
+    """
+    import importlib
+
+    register_sim_camera()
+    reset_system(seed=42)
+    _patch_slm(monkeypatch)
+
+    engine = importlib.import_module(module_name)
+    config = engine.SlmZernikePibConfig(
+        center="shape",
+        epochs=2,
+        algorithm="spgd",
+        camera=CameraParamsPib(
+            target=ObjectiveTarget(name="rms_pib", target_shape="square"),
+            cam_type="sim",
+            cam_size=128,
+            exposure_time_ms=80.0,
+        ),
+        slm=SlmParamsPib(n_max=4),
+    )
+    history = engine.optimize_slm_zernike_pib(config).history
+
+    assert len(history) >= 3
+    for index, row in enumerate(history[1:], start=1):
+        missing = [c for c in _RMS_PIB_ADAPTIVE_COLUMNS if c not in row]
+        assert not missing, f"{module_name}: logged row {index} missing {missing}"
+    # ``optimizer`` had the same asymmetry (present on row 0, absent after).
+    for index, row in enumerate(history[1:], start=1):
+        assert "optimizer" in row, f"{module_name}: logged row {index} missing 'optimizer'"
+
+
 def test_shape_schedule_runs_without_error(monkeypatch):
     """shape objective with shape_schedule=True runs on sim."""
     register_sim_camera()

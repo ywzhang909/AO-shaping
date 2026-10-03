@@ -30,6 +30,7 @@ from ao_shaping.optimizer.wfless.slm_zernike_pib import (
     _rolling_sigma,
     _update_fold_baseline,
 )
+from ao_shaping.utils.image.spots_calc import radius
 from ao_shaping.utils.image.targets import (
     ShapingObjective,
     ShapingObjectiveParams,
@@ -200,11 +201,11 @@ class TestReferenceCenterRelocation:
         drift = make_blob((16.0, 16.0))
         obj = ShapingObjective(make_params(), None, make_blob((10.0, 10.0)))
 
-        _, ratio_off = obj.raw(drift)
+        _, ratio_off, _t_off = obj.raw(drift)
         assert ratio_off < 0.05
 
         obj.set_reference_center((16.0, 16.0))
-        _, ratio_on = obj.raw(drift)
+        _, ratio_on, _t_on = obj.raw(drift)
         assert ratio_on > 0.7
         assert ratio_on > 10.0 * max(ratio_off, 1e-9)
 
@@ -251,3 +252,69 @@ class TestSlmZernikePibConfig:
         assert cfg.optimizer_type == "adamod"
         assert cfg.slm.n_max >= 4  # engine default, overridden by runners/tests
         assert cfg.camera.cam_type == "daheng"
+
+
+# ---------------------------------------------------------------------------
+# R-2: the auto learning schedule must be anchored on the WINDOW-LOCAL spot
+# ---------------------------------------------------------------------------
+
+
+class TestLearningScheduleCentreIsWindowLocal:
+    """``learning_schedule`` is fed ``radius(init_img, center=...)``.
+
+    ``center`` in that scope is the FULL-FRAME window centre ``reset_window``
+    returned, while ``init_img`` is the re-windowed frame. ``radius`` does not
+    raise on an out-of-frame centre - it returns ``0.0`` - so the auto schedule
+    was being computed from a degenerate zero-radius spot. These tests pin both
+    halves: the trap itself, and that neither engine still walks into it.
+    """
+
+    def test_an_out_of_frame_centre_silently_yields_radius_zero(self) -> None:
+        """Documents the trap: the bug was invisible because nothing raised."""
+        img = make_blob((125.0, 125.0), spread=8.0, size=250)
+
+        local = radius(img, center=(125.0, 125.0), energy=0.8)
+        full_frame = radius(img, center=(633.0, 934.0), energy=0.8)
+
+        assert local > 1.0
+        assert full_frame == 0.0
+
+    @pytest.mark.parametrize(
+        "module_name",
+        ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
+    )
+    def test_no_learning_schedule_call_is_anchored_on_the_full_frame_centre(
+        self, module_name: str
+    ) -> None:
+        import ast
+        import importlib
+        import inspect
+
+        module = importlib.import_module(module_name)
+        source = inspect.getsource(module)
+        tree = ast.parse(source)
+
+        offenders: list[int] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
+            if name != "learning_schedule":
+                continue
+            # Every radius argument must NOT be the bare full-frame `center`.
+            for arg in node.args:
+                if (
+                    isinstance(arg, ast.Call)
+                    and isinstance(arg.func, ast.Name)
+                    and arg.func.id == "radius"
+                ):
+                    for kw in arg.keywords:
+                        if kw.arg == "center" and isinstance(kw.value, ast.Name):
+                            if kw.value.id == "center":
+                                offenders.append(kw.value.lineno)
+
+        assert not offenders, (
+            f"{module_name}: learning_schedule radius anchored on the full-frame "
+            f"`center` at line(s) {offenders}; use the window-local spot instead"
+        )

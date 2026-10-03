@@ -23,6 +23,7 @@ import pytest
 
 from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
 from ao_shaping.utils.image.targets import (
+    GUARD_PENALTY,
     ObjectiveResult,
     ShapeScoringParams,
     ShapingObjective,
@@ -105,7 +106,7 @@ class TestObjectiveFamilies:
         obj = make_objective("roi_pib")
         img = make_frame()
         expected = roi_pib_metric(img, CENTER, SHAPE, SIZE, ASPECT)
-        j, ratio = obj.raw(img)
+        j, ratio, _tracking = obj.raw(img)
         assert j == pytest.approx(expected[0])
         assert ratio == pytest.approx(expected[1])
 
@@ -113,7 +114,7 @@ class TestObjectiveFamilies:
         obj = make_objective("rmse", mode="min")
         img = make_frame()
         expected = rmse_shape_metric(img, CENTER, SHAPE, SIZE, ASPECT)
-        j, ratio = obj.raw(img)
+        j, ratio, _tracking = obj.raw(img)
         assert j == pytest.approx(expected[0])
         assert ratio == pytest.approx(expected[1])
 
@@ -136,7 +137,7 @@ class TestObjectiveFamilies:
             stage=None,
             log_uniformity=False,
         )
-        j, ratio = obj.raw(img)
+        j, ratio, _tracking = obj.raw(img)
         assert j == pytest.approx(expected[0])
         assert ratio == pytest.approx(expected[1])
 
@@ -147,7 +148,7 @@ class TestObjectiveFamilies:
         assert obj.weights == pytest.approx((0.5, 0.25, 0.25))
         pib_t, rms_t = rms_pib_terms(img, CENTER, SHAPE, SIZE, ASPECT)
         ee_t = pytest.approx(1.0)  # the frame IS the baseline
-        j, ratio = obj.raw(img)
+        j, ratio, _tracking = obj.raw(img)
         assert ratio == pytest.approx(pib_t)
         assert j == pytest.approx(0.5 * pib_t + 0.25 * rms_t + 0.25 * 1.0)
         assert obj.terms == pytest.approx((j, pib_t, rms_t, 1.0))
@@ -167,7 +168,7 @@ class TestObjectiveFamilies:
         obj = ShapingObjective(make_params("pib", r_bucket=2.0), target_func, init)
         img = make_frame(1.0)
         expected = target_func.pib(img, 2.0)
-        j, ratio = obj.raw(img)
+        j, ratio, _tracking = obj.raw(img)
         assert j == pytest.approx(expected[0])
         assert ratio == pytest.approx(expected[1])
 
@@ -176,7 +177,7 @@ class TestObjectiveFamilies:
         target_func = ImageTargetFunc.build_from_init_image(init)
         obj = ShapingObjective(make_params("radiu", mode="min"), target_func, init)
         img = make_frame(1.0)
-        j, ratio = obj.raw(img)
+        j, ratio, _tracking = obj.raw(img)
         assert j == pytest.approx(float(target_func.radius(img, energy=0.99)))
         assert ratio == 0.0
 
@@ -186,7 +187,7 @@ class TestObjectiveFamilies:
         obj = ShapingObjective(make_params("avg_radiu"), target_func, init)
         img = make_frame(1.0)
         expected = target_func.avg_radius(img, moment=1.0)
-        j, ratio = obj.raw(img)
+        j, ratio, _tracking = obj.raw(img)
         assert j == pytest.approx(expected[0])
         assert ratio == pytest.approx(expected[1])
 
@@ -210,7 +211,7 @@ class TestLiveBucket:
 
 
 class TestTrackingValue:
-    """``tracking_value`` is the "best" value the search tracks and logs."""
+    """``res.tracking`` is the "best" value the search tracks and logs."""
 
     def test_pib_uses_the_fixed_ideal_radius_ratio(self) -> None:
         init = make_frame()
@@ -218,16 +219,24 @@ class TestTrackingValue:
         obj = ShapingObjective(make_params("pib", ideal_spot_radius=3), target_func, init)
         img = make_frame(1.0)
         res = obj(img)
-        assert obj.tracking_value(img, res) == pytest.approx(
-            target_func.pib(img, 3.0)[1]
-        )
+        assert res.tracking == pytest.approx(target_func.pib(img, 3.0)[1])
 
     @pytest.mark.parametrize("objective", ["roi_pib", "rmse", "shape", "rms_pib"])
     def test_non_pib_objectives_track_j(self, objective: str) -> None:
         obj = make_objective(objective)
         img = make_frame()
         res = obj(img)
-        assert obj.tracking_value(img, res) == pytest.approx(res.j)
+        assert res.tracking == pytest.approx(res.j)
+
+    @pytest.mark.parametrize("objective", ["roi_pib", "rmse", "shape", "rms_pib"])
+    def test_unpenalised_tracking_is_the_same_before_and_after_the_fix(
+        self, objective: str
+    ) -> None:
+        """Guard off: ``tracking`` must equal what ``tracking_value`` used to return."""
+        obj = make_objective(objective)
+        img = make_frame()
+        res = obj(img)
+        assert res.tracking == pytest.approx(obj.raw(img)[0])
 
 
 class TestEnergyGuard:
@@ -246,7 +255,7 @@ class TestEnergyGuard:
             make_params("roi_pib", max_roi_energy_loss=0.2), None, init
         )
         res = obj(np.zeros_like(init))  # all the light is gone
-        true_j, true_ratio = obj.raw(np.zeros_like(init))
+        true_j, true_ratio, _tracking = obj.raw(np.zeros_like(init))
         assert res.j == pytest.approx(true_j - 1e3)
         assert res.ratio == pytest.approx(true_ratio)
         assert obj.guard_violations == 1
@@ -268,6 +277,68 @@ class TestEnergyGuard:
         res = obj(0.5 * init)
         assert res.j == pytest.approx(obj.raw(0.5 * init)[0])
         assert obj.guard_violations == 0
+
+    # ------------------------------------------------------------------
+    # R-1: the guard penalty used to be BYPASSED by the tracked value.
+    # ------------------------------------------------------------------
+
+    def test_guard_penalises_the_tracked_value_too(self) -> None:
+        """A guard-tripping frame must never be eligible as "best".
+
+        ``tracking`` used to be recomputed from ``img`` and therefore carried no
+        penalty, so all three ``best_*`` comparisons accepted an abandoned frame
+        and the exit path wrote that phase back to the SLM.
+        """
+        init = make_frame()
+        obj = ShapingObjective(
+            make_params("roi_pib", max_roi_energy_loss=0.2), None, init
+        )
+        dark = np.zeros_like(init)  # all the light is gone -> guard trips
+        res = obj(dark)
+        assert obj.guard_violations == 1
+        assert res.tracking == pytest.approx(obj.raw(dark)[0] - GUARD_PENALTY)
+        # The headline is now strictly below every non-penalised value, so a
+        # `>` comparison cannot prefer it.
+        healthy = ShapingObjective(
+            make_params("roi_pib", max_roi_energy_loss=0.2), None, init
+        )(init)
+        assert res.tracking < healthy.tracking
+
+    def test_pib_guard_also_penalises_the_tracked_bucket_ratio(self) -> None:
+        """The ``pib`` headline lives at a different bucket radius - still penalised."""
+        init = make_frame()
+        target_func = ImageTargetFunc.build_from_init_image(init)
+        obj = ShapingObjective(
+            make_params("pib", ideal_spot_radius=3, max_roi_energy_loss=0.2),
+            target_func,
+            init,
+        )
+        dark = np.zeros_like(init)
+        res = obj(dark)
+        assert obj.guard_violations == 1
+        assert res.tracking == pytest.approx(
+            target_func.pib(dark, 3.0)[1] - GUARD_PENALTY
+        )
+
+    def test_min_mode_penalises_the_tracked_value_upward(self) -> None:
+        init = make_frame()
+        obj = ShapingObjective(
+            make_params("rmse", mode="min", max_roi_energy_loss=0.2), None, init
+        )
+        dark = np.zeros_like(init)
+        res = obj(dark)
+        assert res.tracking == pytest.approx(obj.raw(dark)[0] + GUARD_PENALTY)
+
+    def test_guard_free_result_keeps_both_values_unpenalised(self) -> None:
+        init = make_frame()
+        obj = ShapingObjective(
+            make_params("roi_pib", max_roi_energy_loss=0.2), None, init
+        )
+        res = obj(init)
+        j, ratio, tracking = obj.raw(init)
+        assert res.j == pytest.approx(j)
+        assert res.ratio == pytest.approx(ratio)
+        assert res.tracking == pytest.approx(tracking)
 
     def test_violation_counter_accumulates(self) -> None:
         init = make_frame()
@@ -493,10 +564,15 @@ class TestObjectiveResult:
     """The result is a frozen snapshot so a held result cannot be overwritten."""
 
     def test_terms_default_to_zero(self) -> None:
-        res = ObjectiveResult(1.0, 0.5)
+        res = ObjectiveResult(1.0, 0.5, 0.5)
         assert res.terms == (0.0, 0.0, 0.0, 0.0)
 
     def test_is_frozen(self) -> None:
-        res = ObjectiveResult(1.0, 0.5)
+        res = ObjectiveResult(1.0, 0.5, 0.5)
         with pytest.raises(Exception):
             res.j = 2.0  # type: ignore[misc]
+
+    def test_tracking_is_required(self) -> None:
+        """No default: a missing headline would silently reintroduce R-1."""
+        with pytest.raises(TypeError):
+            ObjectiveResult(1.0, 0.5)  # type: ignore[call-arg]
