@@ -1,7 +1,9 @@
 [tool.pytest.ini_options]
-# "src" for package imports, "." (repo root) so `from tests.ao_shaping...` imports
-# resolve when the suite is run via plain `pytest` (not `python -m pytest`).
-pythonpath = ["src", "."]
+  # "src" for package imports, "." (repo root) so `from tests.ao_shaping...` imports
+  # resolve when the suite is run via plain `pytest` (not `python -m pytest`),
+  # and "scripts" so sibling-script imports inside `scripts/*.py`
+  # (`generate_diff_shaping_report`, `md_img_diff_centroid`) resolve too.
+  pythonpath = ["src", ".", "scripts"]
 testpaths = ["tests"]
 addopts = ["-ra", "--strict-markers"]
 markers = [

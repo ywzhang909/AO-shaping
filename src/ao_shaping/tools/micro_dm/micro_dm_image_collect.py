@@ -8,27 +8,27 @@
 
 用法:
     # 单控制器, 全部 50 通道 20V, 图像保存到 data/micro_dm_images/<IP>/
-    python -m ao_shaping.tools.micro_dm_image_collect --ip 192.168.0.101 --voltage 20 -o data/micro_dm_images
+    python -m ao_shaping.tools.micro_dm.micro_dm_image_collect --ip 192.168.0.101 --voltage 20 -o data/micro_dm_images
 
     # 使用 Daheng 相机采集
-    python -m ao_shaping.tools.micro_dm_image_collect --ip 192.168.0.101 --voltage 20 --camera-type daheng
+    python -m ao_shaping.tools.micro_dm.micro_dm_image_collect --ip 192.168.0.101 --voltage 20 --camera-type daheng
 
     # 直接运行脚本文件
-    python src/ao_shaping/tools/micro_dm_image_collect.py --ip 192.168.0.101 --voltage 20
+    python src/ao_shaping/tools/micro_dm/micro_dm_image_collect.py --ip 192.168.0.101 --voltage 20
 
     # 多控制器 (逐 IP), 仅采集指定通道, 额外保存 .npy
-    python -m ao_shaping.tools.micro_dm_image_collect \
+    python -m ao_shaping.tools.micro_dm.micro_dm_image_collect \
         --ip 192.168.0.101 --ip 192.168.0.102 \
         --voltage 30 --channels 0,1,2,3,4 --save-npy
 
     # 不指定 IP → 遍历所有控制器 (wiring map / 默认 192.168.0.101-126)
-    python -m ao_shaping.tools.micro_dm_image_collect --voltage 20 -o data/micro_dm_images
+    python -m ao_shaping.tools.micro_dm.micro_dm_image_collect --voltage 20 -o data/micro_dm_images
 
     # 每通道采集 3 张
-    python -m ao_shaping.tools.micro_dm_image_collect --ip 192.168.0.101 --voltage 20 --n-frames 3
+    python -m ao_shaping.tools.micro_dm.micro_dm_image_collect --ip 192.168.0.101 --voltage 20 --n-frames 3
 
     # 自定义归位电压 / 曝光时间 / 采样参数
-    python -m ao_shaping.tools.micro_dm_image_collect --ip 192.168.0.101 \
+    python -m ao_shaping.tools.micro_dm.micro_dm_image_collect --ip 192.168.0.101 \
         --voltage 40 --home-voltage 0.0 --exposure-ms 10 --n-sample 3 --settle-time 0.8
 """
 
@@ -58,7 +58,7 @@ from ao_shaping.drivers.dm.MicroDM import (
     WiringMap,
 )
 from ao_shaping.utils.io.cli_helpers import setup_coredumpy
-from ao_shaping.utils.hardware_utils import open_camera
+from ao_shaping.utils.image.hardware_utils import open_camera
 from ao_shaping.utils.io.network import controller_tcp_port, ping_reachable
 
 # 全局运行标志 (信号处理器修改)
@@ -482,25 +482,25 @@ def run(
     Examples:
 
         # 单控制器, 全部 50 通道 20V, 使用 MiiCam 相机 (默认)
-        python -m ao_shaping.tools.micro_dm_image_collect --ip 192.168.0.101 --voltage 20
+        python -m ao_shaping.tools.micro_dm.micro_dm_image_collect --ip 192.168.0.101 --voltage 20
 
         # 使用 Daheng 相机采集
-        python -m ao_shaping.tools.micro_dm_image_collect --ip 192.168.0.101 --voltage 20 \\
+        python -m ao_shaping.tools.micro_dm.micro_dm_image_collect --ip 192.168.0.101 --voltage 20 \\
             --camera-type daheng
 
         # 不指定 IP → 遍历所有控制器 (wiring map / 默认 IP 段)
-        python -m ao_shaping.tools.micro_dm_image_collect --voltage 20
+        python -m ao_shaping.tools.micro_dm.micro_dm_image_collect --voltage 20
 
         # 每通道采集 3 张图像
-        python -m ao_shaping.tools.micro_dm_image_collect --ip 192.168.0.101 \\
+        python -m ao_shaping.tools.micro_dm.micro_dm_image_collect --ip 192.168.0.101 \\
             --voltage 20 --n-frames 3
 
         # 多控制器, 仅采集指定通道, 额外保存 .npy
-        python -m ao_shaping.tools.micro_dm_image_collect --ip 192.168.0.101 --ip 192.168.0.102 \\
+        python -m ao_shaping.tools.micro_dm.micro_dm_image_collect --ip 192.168.0.101 --ip 192.168.0.102 \\
             --voltage 30 --channels 0,1,2,3,4 --save-npy
 
         # 自定义曝光与采样参数
-        python -m ao_shaping.tools.micro_dm_image_collect --ip 192.168.0.101 \\
+        python -m ao_shaping.tools.micro_dm.micro_dm_image_collect --ip 192.168.0.101 \\
             --voltage 40 --exposure-ms 10 --n-sample 3 --settle-time 0.8
     """
     global _running
