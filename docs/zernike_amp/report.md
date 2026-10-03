@@ -266,17 +266,71 @@ Single-variable sweeps, `slm_zernike_shaping`, fixed split:
 | n_max | K | val R² |
 |---|---|---|
 | 11 | 77 | +0.8695 ± 0.0837 |
-| **15** | **135** | **+0.8727 ± 0.0823** |
+| 15 | 135 | +0.8727 ± 0.0823 |
 | 20 | 230 | +0.8775 ± 0.0803 |
 | 25 | 350 | +0.8760 ± 0.0812 |
 | 30 | 495 | +0.8797 ± 0.0777 |
 
-6.4× the coefficients buys **+0.010 R²** against a fold-σ of ~0.08. `n_max=15`
-stays the operating point; `n_max=20` is nominally best but well inside noise.
+6.4× the coefficients buys **+0.010 R²** against a fold-σ of ~0.08.
 
-**Non-additivity.** `far_field_padding=12` and `lr=0.1` each beat the defaults
-alone, but combined with `n_max=11` both turn **worse** (R² 0.794 → 0.753).
-Greedy coordinate descent fails; every winner must be re-tested jointly.
+### The physics optimum is a *joint* setting, and it moved
+
+`lr` and `n_max` are **non-additive**, so sweeping them one at a time gets the
+wrong answer. Joint sweep, same 10 folds:
+
+| n_max | lr | val R² | val SSIM |
+|---|---|---|---|
+| 15 | 0.01 | +0.8727 ± 0.0823 | 0.7320 |
+| 20 | 0.01 | +0.8775 ± 0.0803 | 0.7548 |
+| **20** | **0.02** | **+0.8803 ± 0.0781** | **0.7646** |
+| 15 | 0.02 | +0.8719 ± 0.0842 | 0.7370 |
+| 20 | 0.005 | +0.8730 ± 0.0811 | 0.7361 |
+
+`lr = 0.02` **alone** at `n_max=15` buys nothing (+0.8719 vs +0.8727), yet the same
+`lr` at `n_max=20` is the best cell in the table. That is the non-additivity of §8
+reproduced under the powered protocol, and it is why greedy coordinate descent
+fails here.
+
+Paired over the same 10 folds, `(15, 0.01) → (20, 0.02)`:
+
+| metric | before → after | diff | d_z | p (exact) |
+|---|---|---|---|---|
+| R² | +0.8727 → +0.8803 | +0.0076 ± 0.0096 | +0.79 | 0.0234 |
+| SSIM | 0.7320 → 0.7646 | +0.0326 ± 0.0164 | +1.98 | 0.0039 |
+
+**This is where paired testing earns its keep.** The between-fold spread of R² is
+0.078, so a +0.008 change is invisible to any unpaired comparison; the paired σ
+is **0.0096** because fold difficulty cancels. The improvement is consistent in
+8 of 10 folds (the two negatives are −0.004 each).
+
+⚠️ **But treat it as suggestive, not confirmatory.** `(20, 0.02)` was chosen *as
+the best of five on these same folds*, so these p-values carry a winner's-curse
+bias — the classic selection effect that nested CV exists to remove. Confirming
+it properly needs an outer loop (select on inner folds, score on the held-out
+one), which was not affordable here. `n_max=20, lr=0.01` (+0.8775 / 0.7548) is the
+defensible fallback if one wants a cell that was not selected on this data.
+
+### The U-Net configuration was *not* over-fitted to the noisy split
+
+Its hyperparameters were originally chosen on the underpowered single split, so
+they were re-verified on the powered protocol:
+
+| config | val R² | val SSIM |
+|---|---|---|
+| **[16…256], 50 ep, lr 0.01** (previous choice) | **+0.8993 ± 0.0603** | +0.8390 ± 0.0593 |
+| [16…256], 100 ep, lr 0.01 | +0.8931 ± 0.0510 | +0.8407 ± 0.0653 |
+| [16…256], 100 ep, lr 0.005 | +0.8982 ± 0.0481 | +0.8382 ± 0.0578 |
+| [16…256], 50 ep, lr 0.005 | +0.8889 ± 0.0476 | +0.8167 ± 0.0364 |
+| [24…384], 100 ep, lr 0.01 | +0.8950 ± 0.0572 | +0.8476 ± 0.0680 |
+
+The original choice is already the best on R² and tied on SSIM; all five configs
+span 0.010 R² and 0.031 SSIM, far inside the ±0.06 fold-σ. **The U-Net is already
+converged and insensitive to these knobs**, so the earlier pick did not over-fit
+the noisy split. Kept unchanged.
+
+**Non-additivity, first sighting.** `far_field_padding=12` and `lr=0.1` each beat
+the defaults alone, but combined with `n_max=11` both turn **worse** (R² 0.794 →
+0.753) on the original single-split protocol.
 
 **A dead lever, twice.** `optimizer` initially returned byte-identical scores for
 adam/adamw/sgd because `train()` hard-coded `torch.optim.Adam` — it had measured
@@ -293,31 +347,36 @@ multi-exposure corpus.
 ## 9. Final configuration and verdict
 
 ```
-ZernikeAmpConfig(n_max=15, grid=64, observable="intensity",
-                 normalization="peak", far_field_padding=10, center_crop=True)
-train: 50 epochs, Adam lr=0.01, cosine, batch 64, seed pinned
+physics : ZernikeAmpConfig(n_max=20, grid=64, observable="intensity",
+                           normalization="peak", far_field_padding=10, center_crop=True)
+          50 epochs, Adam lr=0.02, cosine, batch 64, seed pinned
+          (n_max=20 / lr=0.01 if you want a cell not selected on the CV folds)
+unet    : [16…256], 50 epochs, Adam lr=0.01, cosine, batch 64
 ```
 
-| metric | physics (135) | hybrid (10,408) | unet (7,778,465) |
+| metric | physics (230) | hybrid (10,408) | unet (7,778,465) |
 |---|---|---|---|
-| val R² (10-fold) | +0.8727 ± 0.0867 | +0.8721 ± 0.0799 | **+0.9004 ± 0.0610** |
-| val SSIM (10-fold) | 0.7320 ± 0.0704 | 0.7404 ± 0.0817 | **+0.8419 ± 0.0618** |
-| val PSNR (10-fold) | 29.21 ± 2.64 | 29.07 ± 2.51 | **+31.05 ± 2.44** |
-| params | 135 | 10,408 | 7,778,465 |
+| val R² (10-fold) | +0.8803 ± 0.0781 | +0.8721 ± 0.0799 | **+0.9004 ± 0.0610** |
+| val SSIM (10-fold) | 0.7646 | 0.7404 ± 0.0817 | **+0.8419 ± 0.0618** |
+| val PSNR (10-fold) | — | 29.07 ± 2.51 | **+31.05 ± 2.44** |
+| params | 230 | 10,408 | 7,778,465 |
 | wall time / fit | ~9 s | ~13 s | ~15 s |
 
-**Verdict.** The U-Net wins on every metric, significantly (R² p = 0.012,
-SSIM p = 0.002, PSNR p = 0.004). The 135-parameter physics model is **not**
-equivalent to it — my earlier "they tie" claim was wrong. What the physics model
-does retain is a real operational advantage: it emits a **realisable SLM phase**
-in closed form, `Σ Z_k B_k`, as 135 interpretable radians, using 1/58,000th of the
-parameters and 40 % less wall time. The U-Net emits an image, and recovering a
-commandable phase from it is a separate inversion problem. So the two answer
-different questions, and for "what phase do I command" the physics model remains
-the only one of the three that answers it directly.
+**Verdict.** The U-Net wins every metric significantly (R² p = 0.012, SSIM
+p = 0.002, PSNR p = 0.004) against the physics model at its *pre-tuning*
+configuration, and it remains ahead after the physics model is tuned
+(+0.9004 vs +0.8803 R²). So my earlier "they tie" claim was wrong; what survives
+is that the physics model is a far cheaper way to get most of the way there.
+
+What the physics model retains is a real operational advantage: it emits a
+**realisable SLM phase** in closed form, `Σ Z_k B_k`, as 230 interpretable
+radians, using 1/34,000th of the U-Net's parameters and 40 % less wall time. The
+U-Net emits an image, and recovering a commandable phase from it is a separate
+inversion problem. So the two answer different questions, and for "what phase do I
+command" the physics model is the only one of the three that answers it directly.
 
 The hybrid is a clean negative result: indistinguishable from physics on all five
-metrics across both protocols (p ≥ 0.61) at 77× the parameters.
+metrics across both protocols (p ≥ 0.61) at 45× the parameters.
 
 ## 10. Honest limitations
 
