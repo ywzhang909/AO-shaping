@@ -41,6 +41,9 @@ try:  # plotting is optional - the numbers matter most
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]
+    plt.rcParams["axes.unicode_minus"] = False
+
     matplotlib_used = True
 except ImportError:  # pragma: no cover - matplotlib is a project dependency
     plt = None  # type: ignore[assignment]

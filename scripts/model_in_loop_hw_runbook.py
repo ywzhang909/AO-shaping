@@ -201,6 +201,9 @@ def save_phase_png(path: Path, phase: np.ndarray) -> None:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]
+    plt.rcParams["axes.unicode_minus"] = False
+
     wrapped = np.mod(np.asarray(phase, dtype=np.float64), 2.0 * np.pi)
     path.parent.mkdir(parents=True, exist_ok=True)
     plt.imsave(path, wrapped, cmap="twilight", vmin=0.0, vmax=2.0 * np.pi)
@@ -218,6 +221,9 @@ def save_frame_png(path: Path, frame: np.ndarray) -> None:
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
+    plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]
+    plt.rcParams["axes.unicode_minus"] = False
 
     img = np.asarray(frame, dtype=np.float64)
     hi = float(np.percentile(img, 99.5)) or 1.0

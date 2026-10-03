@@ -12,6 +12,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]
+plt.rcParams["axes.unicode_minus"] = False
+
 from ao_shaping.drivers.sim.compat import AOConfig, TraditionalAOSystem
 from ao_shaping.optimizer.rl.envs import SimTurbulenceAOEnv
 from ao_shaping.optimizer.wfless.sim_spgd import (

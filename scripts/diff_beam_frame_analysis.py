@@ -22,6 +22,9 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]
+plt.rcParams["axes.unicode_minus"] = False
+
 
 def analyze_run(run_dir: Path) -> dict:
     cfg = json.loads((run_dir / "config.json").read_text())

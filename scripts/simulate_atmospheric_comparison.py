@@ -10,6 +10,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]
+plt.rcParams["axes.unicode_minus"] = False
+
 from ao_shaping.drivers.sim.atmos import SimulatedTurbulentScreen
 from ao_shaping.drivers.sim.wave import WaveGenerator, WavePropagator
 

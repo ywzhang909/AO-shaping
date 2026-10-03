@@ -266,6 +266,9 @@ def main() -> None:
             matplotlib.use("Agg")
             import matplotlib.pyplot as plt
 
+            plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]
+            plt.rcParams["axes.unicode_minus"] = False
+
             fig, axes = plt.subplots(1, 2, figsize=(16, 6))
             full = axes[0]
             im0 = full.imshow(img16, cmap="hot", aspect="equal")
