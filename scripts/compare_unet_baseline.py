@@ -39,7 +39,7 @@ from loguru import logger
 from ml.hwdataset import HwPhaseImageDataset, MaterialiserConfig, build_hw_index
 from ml.phase.unet import UNetGenerator
 from ml.zernike.metrics import batch_image_metrics, per_sample_beam_metrics, summarise_beam_metrics
-from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel
+from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpHybrid, ZernikeAmpModel
 from ml.zernike.train_amp import AmpTrainConfig, _select_records, collect_split
 
 
@@ -191,6 +191,40 @@ def train_unet(train_t, val_t, cfg, device, features: list[int]) -> Score:
     )
 
 
+def train_hybrid(train_t, val_t, cfg, device, width: int) -> Score:
+    """Train the physics + learned-residual hybrid under the identical budget."""
+    model = ZernikeAmpHybrid(
+        ZernikeAmpConfig(n_max=cfg.n_max, grid=cfg.grid), residual_width=width
+    ).to(device)
+    inputs = _inputs(train_t)
+    target = _peak_normalise(train_t["target"].clone())
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg.epochs)
+    n = inputs.shape[0]
+    started = time.perf_counter()
+    running = 0.0
+    for _ in range(cfg.epochs):
+        order = torch.randperm(n, device=device)
+        for start in range(0, n, cfg.batch_size):
+            idx = order[start : start + cfg.batch_size]
+            optimizer.zero_grad(set_to_none=True)
+            loss = torch.mean((model(inputs[idx, :1], inputs[idx, 1:]) - target[idx]) ** 2)
+            loss.backward()
+            optimizer.step()
+            running += float(loss.detach()) * idx.numel()
+        scheduler.step()
+    seconds = time.perf_counter() - started
+
+    def forward(m, x):
+        return m(x[:, :1], x[:, 1:])
+
+    return _score(
+        f"hybrid(w={width})", model, _inputs(val_t),
+        _peak_normalise(val_t["target"].clone()), forward, seconds,
+        running / (n * cfg.epochs), cfg.beam_samples,
+    )
+
+
 def main() -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -207,6 +241,13 @@ def main() -> int:
         "--unet-features", type=int, nargs="+", default=[16, 32, 64, 128, 256]
     )
     parser.add_argument("--device", default="cuda")
+    parser.add_argument(
+        "--models", nargs="*", default=["physics", "hybrid", "unet"],
+        help="subset of physics / hybrid / unet to run",
+    )
+    parser.add_argument(
+        "--residual-width", type=int, nargs="+", default=[16, 32, 64]
+    )
     parser.add_argument("--out", default="logs/unet_comparison.json")
     args = parser.parse_args()
 
@@ -231,10 +272,24 @@ def main() -> int:
         train_idx, val_idx = _select_records(dataset, cfg_seed)
         train_t = collect_split(dataset, train_idx, device)
         val_t = collect_split(dataset, val_idx, device)
-        for score in (
-            train_physics(train_t, val_t, cfg_seed, device),
-            train_unet(train_t, val_t, cfg_seed, device, args.unet_features),
-        ):
+        runners = []
+        if "physics" in args.models:
+            runners.append(
+                lambda: train_physics(train_t, val_t, cfg_seed, device)
+            )
+        if "hybrid" in args.models:
+            for width in args.residual_width:
+                runners.append(
+                    lambda w=width: train_hybrid(train_t, val_t, cfg_seed, device, w)
+                )
+        if "unet" in args.models:
+            runners.append(
+                lambda: train_unet(
+                    train_t, val_t, cfg_seed, device, args.unet_features
+                )
+            )
+        for run in runners:
+            score = run()
             logger.info(
                 "seed {} | {:<22} params={:>9,} mse={:.5f} r2={:+.4f} "
                 "psnr={:.2f}dB ssim={:.4f} d_off={:.2f}px {:.1f}s",

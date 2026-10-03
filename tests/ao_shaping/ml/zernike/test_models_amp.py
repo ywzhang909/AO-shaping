@@ -16,6 +16,7 @@ torch = pytest.importorskip("torch", reason="torch lives in the optional ml grou
 from ml.zernike.models import (  # noqa: E402
     ZernikeAmpConfig,
     ZernikeAmpFitConfig,
+    ZernikeAmpHybrid,
     ZernikeAmpModel,
     ZernikeBasis,
 )
@@ -267,6 +268,50 @@ class TestForward:
 # ---------------------------------------------------------------------------
 # The physics that matters
 # ---------------------------------------------------------------------------
+class TestHybrid:
+    """The hybrid must *start* at the physics solution and then improve on it."""
+
+    def test_identical_to_physics_at_initialisation(self) -> None:
+        """Zero-init of the last conv makes the residual exactly zero at step 0."""
+        physics = ZernikeAmpModel(ZernikeAmpConfig(n_max=4, grid=16))
+        hybrid = ZernikeAmpHybrid(ZernikeAmpConfig(n_max=4, grid=16))
+        pc, ps = _phasor(grid=16)
+        with torch.no_grad():
+            assert torch.equal(physics(pc, ps), hybrid(pc, ps))
+
+    def test_coefficients_stay_first_class(self) -> None:
+        model = ZernikeAmpHybrid(ZernikeAmpConfig(n_max=4, grid=16))
+        assert isinstance(model.coefficients, torch.nn.Parameter)
+        assert model.coefficients.shape == (model.K,)
+        assert model.K == 14  # piston excluded
+
+    def test_residual_is_trained_too(self) -> None:
+        model = ZernikeAmpHybrid(ZernikeAmpConfig(n_max=4, grid=16))
+        pc, ps = _phasor(grid=16)
+        model(pc, ps).pow(2).mean().backward()
+        assert model.residual[-1].weight.grad is not None
+        assert torch.count_nonzero(model.residual[-1].weight.grad) > 0
+
+    def test_optimizer_covers_the_residual(self) -> None:
+        """A ``[self.coefficients]`` optimizer would silently skip the CNN."""
+        model = ZernikeAmpHybrid(ZernikeAmpConfig(n_max=4, grid=16))
+        opt = model._build_optimizer(ZernikeAmpFitConfig(lr=0.01))  # noqa: SLF001
+        assert len(opt.param_groups[0]["params"]) == len(
+            [p for p in model.parameters() if p.requires_grad]
+        )
+        assert len(opt.param_groups[0]["params"]) > 1
+
+    def test_output_shape_matches_physics(self) -> None:
+        model = ZernikeAmpHybrid(ZernikeAmpConfig(n_max=3, grid=16, far_field_padding=4))
+        pc, ps = _phasor(batch=1, grid=16)
+        assert tuple(model(pc, ps).shape) == (1, 1, 16, 16)
+        assert model.forward_shape(1) == (1, 1, 16, 16)
+
+    def test_rejects_bad_residual_width(self) -> None:
+        with pytest.raises(ValueError, match="residual_width"):
+            ZernikeAmpHybrid(ZernikeAmpConfig(n_max=2, grid=16), residual_width=0)
+
+
 class TestPhysics:
     """Piston is a null direction; the phasor must not be angle-reconstructed."""
 
