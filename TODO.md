@@ -130,7 +130,7 @@
 | R-29 | `utils/image/display.py:19` 从 `io/handler.py` 导入 `Register`，AGENTS.md 把方向说反了 → **改文档，不迁移 `Register`** | 文档 | 2026-10-01 |
 | R-30 | 修 `pyproject.toml` 加 `pythonpath = ["src", "scripts"]`（一行修好 11 个脆弱脚本在 pytest/IDE 下的导入）；清空 `tools/slm/__init__.py` eager 再导出（保留 docstring，**只能清空不能删文件**） | 修复 | 2026-10-01 |
 | R-31 | `cartographer/test_smoke.py` 从 `src/` 迁到 `tests/`（现永不被收集）；修 2 处输出路径违规（`generate_cython_optimizer_report.py` 写 `docs/` 根、`generate_centroid_test_visualization.py` 写进 `scripts/reports/`） | 清理 | 2026-10-01 |
-| R-32 | 加约定测试（孤儿检测 + `python -m` 一致性 + utils 分层守卫），**warn-only + baseline 起步**。⚠️ 必须在 R-24 之后做，否则 `python -m` 测试会红 | 重构 | 2026-10-01 |
+| R-32 | 加约定测试（孤儿检测 + `python -m` 一致性 + utils 分层守卫 + **测试写已提交 docs** 守卫），**warn-only + baseline** | ✅ 4 条守卫全部落地，2 条零 baseline（树本来就干净）→ §5.12 | 重构 | 2026-10-01 |
 | R-33 | `micro_dm_image_collect.py` → `with_params(MicroDMParams)`；删 7 个驱动内部符号导入与手写 `_resolve_ips`；同 PR 内启用已有的 `R50Controller.__enter__/__exit__`（全仓库零使用）。⚠️ 必须先钉死 Micro-DM 磁盘布局（承重：`find_cell_image` + 4 个 `md_img_*` 脚本依赖） | 重构 | 2026-10-01 |
 | R-34 | 清理被 git 跟踪的 `scripts/tuning_devices/stdWavefront/` **66 个 .txt（~57 MB）**；`train_data_collect.py` 与 `micro_dm_image_collect.py` 均 **0 测试** | 清理 | 2026-10-01 |
 
@@ -418,7 +418,7 @@ TODO 指定的那处极小值修复**（`0.0000` → `1.000e-07`）。
 ② 把某个 src 文件的导入改回旧路径 ⇒ 静态守卫失败。
 
 **回归**：`utils` 800 passed；`algorithm`+`tools`+`model` 1010 passed；
-`wfless`+`runners`+`scripts` 1040 passed（只剩 §5.12 那个既有失败）。
+`wfless`+`runners`+`scripts` 1040 passed（只剩 §5.13 那个既有失败）。
 
 ### 5.8 R-21（第 3 批）—— 2026-10-03 完成
 
@@ -700,7 +700,78 @@ runner，让 eager 块无法悄悄回来。
 **回归**：R-35 的 `--help` golden **逐字节未变**（19 个命令），这才是本次的关键 ——
 CLI 注册必须完全一致，而底下的 import 图变小。
 
-### 5.12 全量套件基线（2026-10-03 实测，非本轮引入）
+### 5.12 R-32（第 3 批）—— 2026-10-03 完成
+
+| 原项 | 落地情况 |
+|---|---|
+| **R-32** 孤儿检测（`src/` 里的 test 文件） | ✅ 当前 **0 个**（R-31 已删掉唯一那个） |
+| **R-32** `python -m` 一致性 | ⚠️ 实测发现 **11 处失效路径**，已修 → §5.12.1 |
+| **R-32** utils 分层守卫 | ✅ 模块作用域引用高层 **0 处**（14 处全在 `TYPE_CHECKING`/函数内） |
+| **R-32** warn-only + baseline 起步 | ✅ 两条守卫零 baseline；另两条各需 2 / 1 条**带理由**的白名单 |
+
+⚠️ **`warn-only + baseline` 的实际形态与 TODO 设想的不同**：实测发现树在「孤儿检测」
+和「分层」两条上**本来就干净**，所以不需要 baseline —— 直接硬失败才是有用的形态。
+另外两条各有 1~2 处**确实是文档正确**（见 §5.12.1），才需要白名单。TODO 预期
+「先 warn-only 攒 baseline」的情况没有出现，因为 R-24/R-31 已经把前两项修掉了。
+
+#### §5.12.1 `python -m` 一致性 —— 11 处失效路径（已修）
+
+runners 重组进 `micro_drive/` 与 `slm/` 子包后，**文档里的模块路径没跟着改**：
+
+| 文件 | 处数 | 失效路径 | 真实路径 |
+|---|---|---|---|
+| `micro_drive/alt_voltage_runner.py` | **5** | `runners.alt_voltage_runner` | `runners.micro_drive.alt_voltage_runner` |
+| `micro_drive/full_voltage_runner.py` | **4** | `runners.full_voltage_runner` | `runners.micro_drive.full_voltage_runner` |
+| `scripts/generate_zernike_response_matrix_report.py` | 1 | `runners.zernike_matrix_runner` | `runners.slm.zernike_matrix_runner` |
+| `tools/slm/cartographer/__init__.py` | 1 | `ao_shaping.tools.slm.cartographer`（**包无 `__main__`**） | `...cartographer.slm_cartographer_ui` |
+
+⚠️ **第一处最严重**：那条路径是被 `md.append(...)` **写进生成报告里**的，
+所以源码改对了，**产物里的错路径还在**，用户照着复制仍然失败。
+
+⚠️ **第四处是「文档形式上对、实际跑不了」**：包没有 `__main__.py` 就不可能被
+`python -m` 执行；真正的入口是 `slm_cartographer_ui` 子模块。
+
+**2 条合法不解析，走白名单（各带理由）**：
+- `utils/io/cli_helpers.py` 里的 `python -m ao_shaping.runners...` 是散文式 glob；
+- `scripts/generate_gsnet_offline_report.py` 明说 `gsnet_train` 是库模块、
+  **该调用方式无效** —— 是**文档在正确地报错**。
+
+**历史文档按路径排除**：带日期的日报、已封存的报告**本来就应该**记录当时的路径，
+改它们等于篡改历史；`TODO.md` 引用失效路径是**故意的**（那是在描述这个缺陷）。
+
+#### ⚠️ 写这条守卫时的过程失误（两条守卫互相抓到对方的 bug）
+
+- 我先用 PowerShell `Select-String` 定位失效路径，它报的 `README.md:35` 与
+  Python 扫描**行号与内容都对不上**（文件混合行尾）。**行数/内容不一致时以
+  Python 扫描为准**，PowerShell 那次的输出基本不可用。
+- 我给 `full_voltage` 等写的替换断言用了 `==` 精确匹配，结果 `alt_voltage_runner.py`
+  实际有 **5 处**而非扫描看到的 4 处 —— 断言当场失败，比事后发现好。
+- 写「docs 写入守卫」的第二条时抓到第一条的 bug：它把
+  `TestReport("miicam", device_dir="docs/miicam_simulation")` 判成写
+  `docs/miicam`，因为**显式 `device_dir` 覆盖已经决定目录了，设备名不该再兜底**。
+  两条守卫现在互相一致，白名单才可信。
+
+#### 第四条守卫：测试会写已提交报告（本轮新发现）
+
+跑套件时 `docs/wfs/wfs_report.md` + `001_simulated_wfs.png` 被改写 —— 本轮已回滚
+**两次**（R-25 一次、本轮一次）。根因比单个文件大：
+
+- `tests/ao_shaping/utils/test_report.py::TestReport.__init__` 在**构造函数里**
+  就 `mkdir` 并把目标指向 `docs/<device>/<device>_report.md` —— **早于任何 skip**；
+- `hardware` marker 虽然声明了，但 `pyproject` 的 `addopts` **没有** `-m "not hardware"`。
+
+⇒ 一次普通 `pytest` 会收集并执行**正是那些会改写已提交文件的测试**：
+`docs/slm`(82 个已跟踪文件)、`docs/slm-200`(9)、`docs/wfs`(2)、`docs/miicam`(2)。
+
+🔴 **刻意没有**给 `addopts` 加 `-m "not hardware"`：该 marker 覆盖 **8 个文件 158 个
+测试函数**，其中可能确有无需设备即可通过者，默认 deselect 有**静默削减覆盖率**的
+风险。这是拥有该套件的人的决策，不该由一个清理任务顺手改掉。
+
+改为强制一条更窄的不变式：**写已跟踪 docs 目录的测试必须带 `hardware` marker**，
+以便可被过滤。`test_miicam_simulation_report.py` 白名单 + 理由（目标是
+**未被 git 跟踪**的 `docs/miicam_simulation/`，且不需要设备）。
+
+### 5.13 全量套件基线（2026-10-03 实测，非本轮引入）
 
 按目录分块跑（`tests/ao_shaping`），**单块崩潰不影响其余块计数**：
 
@@ -736,7 +807,7 @@ CLI 注册必须完全一致，而底下的 import 图变小。
 | ~~**第 1 批（纯收益，零行为风险）**~~ | ~~R-23、R-24、R-30、R-31、F-2、F-6、F-7、F-8、R-40~~ ✅ **2026-10-03 全部完成 → §5.1** | — |
 | **第 1.5 批（文档/常量收口，先定事实再改代码）** | F-10（OOPAO 改写 + 重跑报告）、F-11（SLM 序列号）、F-12（标定常数三方）、F-13（`strehl()` 命名） | 需设备/一次扫描 |
 | **第 2 批（止真 bug，需先补特征测试）** | ✅ **R-1~R-4、R-9~R-11、R-35 全部完成（均经变异验证）→ §5.2 / §5.3** | — |
-| **第 3 批（架构重构）** | ~~R-20~~ ✅ §5.4、~~R-21~~ ✅ §5.8、~~R-22~~ ✅ §5.7、~~R-25~~ ✅ §5.6、~~R-26~~ ✅ §5.5；~~R-36~~ ✅ §5.9；~~R-27~~ ✅ §5.11、~~R-28~~ ✅ §5.10；**剩余 R-32、R-37→R-38→R-39→R-41、F-14、F-15** | ~~R-20 先行~~ ✅ 已满足；R-36 有 R-35 golden 兜底 |
+| **第 3 批（架构重构）** | ~~R-20~~ ✅ §5.4、~~R-21~~ ✅ §5.8、~~R-22~~ ✅ §5.7、~~R-25~~ ✅ §5.6、~~R-26~~ ✅ §5.5；~~R-36~~ ✅ §5.9；~~R-27~~ ✅ §5.11、~~R-28~~ ✅ §5.10；~~R-32~~ ✅ §5.12；**剩余 R-37→R-38→R-39→R-41、F-14、F-15** | ~~R-20 先行~~ ✅ 已满足；R-36 有 R-35 golden 兜底 |
 | **第 4 批（内部重构）** | R-5~R-8、R-12~R-17、R-19 | ~~R-1~R-4 完成~~ ✅ 已满足 |
 | **硬件轨道（并行）** | F-1 → H-7~H-13 → **H-19**（与 H-9 合并做：方形路径复用 PIB 的 ABBA 参考实现）→ H-14 复扫 → H-15/H-16 → H-1/H-2 → H-3~H-6 → H-17/H-18 | 设备在线 |
 
