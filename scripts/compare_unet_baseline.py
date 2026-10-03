@@ -118,15 +118,35 @@ def _inputs(tensors: dict[str, torch.Tensor]) -> torch.Tensor:
     return torch.cat([tensors["phase_cos"], tensors["phase_sin"]], dim=1)
 
 
-def train_physics(train_t, val_t, cfg, device) -> Score:
-    """Train the physics model exactly as ``train_amp`` would."""
-    model = ZernikeAmpModel(
-        ZernikeAmpConfig(n_max=cfg.n_max, grid=cfg.grid)
-    ).to(device)
+def _paired_forward(model: nn.Module, stacked: torch.Tensor) -> torch.Tensor:
+    """Forward the physics / hybrid models, which take the pair separately."""
+    return model(stacked[:, :1], stacked[:, 1:])
+
+
+def _unet_forward(model: nn.Module, stacked: torch.Tensor) -> torch.Tensor:
+    """Forward the U-Net, which takes the concatenated pair directly."""
+    return model(stacked)
+
+
+def fit(
+    model: nn.Module,
+    train_t: dict[str, torch.Tensor],
+    cfg,
+    device: torch.device,
+    forward,
+) -> tuple[nn.Module, float, float]:
+    """The shared optimisation loop: Adam + cosine, identical for every model.
+
+    Returns the fitted *module* rather than a finished score, so callers decide how
+    to evaluate it. This deliberately lives in one place: the three per-model
+    trainers each used to carry their own copy of this loop, and the grouped-CV
+    harness in ``compare_models_cv.py`` needs the module to score it per objective.
+    """
+    inputs = _inputs(train_t)
     target = _peak_normalise(train_t["target"].clone())
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg.epochs)
-    n = train_t["phase_cos"].shape[0]
+    n = inputs.shape[0]
     started = time.perf_counter()
     running = 0.0
     for _ in range(cfg.epochs):
@@ -134,94 +154,71 @@ def train_physics(train_t, val_t, cfg, device) -> Score:
         for start in range(0, n, cfg.batch_size):
             idx = order[start : start + cfg.batch_size]
             optimizer.zero_grad(set_to_none=True)
-            loss = torch.mean(
-                (
-                    model(train_t["phase_cos"][idx], train_t["phase_sin"][idx])
-                    - target[idx]
-                )
-                ** 2
-            )
+            loss = torch.mean((forward(model, inputs[idx]) - target[idx]) ** 2)
             loss.backward()
             optimizer.step()
             running += float(loss.detach()) * idx.numel()
         scheduler.step()
-    seconds = time.perf_counter() - started
+    return model, time.perf_counter() - started, running / (n * cfg.epochs)
 
-    def forward(m, x):
-        return m(x[:, :1], x[:, 1:])
 
+def build_model(name: str, cfg, residual_width: int = 32, unet_features: list[int] | None = None) -> nn.Module:
+    """Instantiate one of the compared models by name."""
+    if name == "physics":
+        return ZernikeAmpModel(ZernikeAmpConfig(n_max=cfg.n_max, grid=cfg.grid))
+    if name == "hybrid":
+        return ZernikeAmpHybrid(
+            ZernikeAmpConfig(n_max=cfg.n_max, grid=cfg.grid),
+            residual_width=residual_width,
+        )
+    if name == "unet":
+        return UNetGenerator(
+            in_channels=2, features=unet_features or [16, 32, 64, 128, 256],
+            output_mode="phase",
+        )
+    raise ValueError(f"unknown model {name!r}")
+
+
+def forward_for(name: str):
+    """The forward signature each model expects on the stacked 2-channel input."""
+    return _unet_forward if name == "unet" else _paired_forward
+
+
+def train_physics(train_t, val_t, cfg, device) -> Score:
+    """Train the physics model exactly as ``train_amp`` would."""
+    model, seconds, train_mse = fit(
+        build_model("physics", cfg).to(device), train_t, cfg, device, _paired_forward
+    )
     return _score(
         f"physics(n_max={cfg.n_max})", model, _inputs(val_t),
-        _peak_normalise(val_t["target"].clone()), forward, seconds,
-        running / (n * cfg.epochs), cfg.beam_samples,
+        _peak_normalise(val_t["target"].clone()), _paired_forward, seconds,
+        train_mse, cfg.beam_samples,
     )
 
 
 def train_unet(train_t, val_t, cfg, device, features: list[int]) -> Score:
     """Train the U-Net img2img baseline under the identical budget."""
-    model = UNetGenerator(
-        in_channels=2, features=features, output_mode="phase"
-    ).to(device)
-    inputs = _inputs(train_t)
-    target = _peak_normalise(train_t["target"].clone())
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg.epochs)
-    n = inputs.shape[0]
-    started = time.perf_counter()
-    running = 0.0
-    for _ in range(cfg.epochs):
-        order = torch.randperm(n, device=device)
-        for start in range(0, n, cfg.batch_size):
-            idx = order[start : start + cfg.batch_size]
-            optimizer.zero_grad(set_to_none=True)
-            loss = torch.mean((model(inputs[idx]) - target[idx]) ** 2)
-            loss.backward()
-            optimizer.step()
-            running += float(loss.detach()) * idx.numel()
-        scheduler.step()
-    seconds = time.perf_counter() - started
-
-    def forward(m, x):
-        return m(x)
-
+    model, seconds, train_mse = fit(
+        build_model("unet", cfg, unet_features=features).to(device), train_t, cfg,
+        device, _unet_forward,
+    )
     return _score(
         f"unet{features[0]}", model, _inputs(val_t),
-        _peak_normalise(val_t["target"].clone()), forward, seconds,
-        running / (n * cfg.epochs), cfg.beam_samples,
+        _peak_normalise(val_t["target"].clone()), _unet_forward, seconds,
+        train_mse, cfg.beam_samples,
     )
 
 
 def train_hybrid(train_t, val_t, cfg, device, width: int) -> Score:
     """Train the physics + learned-residual hybrid under the identical budget."""
-    model = ZernikeAmpHybrid(
-        ZernikeAmpConfig(n_max=cfg.n_max, grid=cfg.grid), residual_width=width
-    ).to(device)
-    inputs = _inputs(train_t)
-    target = _peak_normalise(train_t["target"].clone())
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg.epochs)
-    n = inputs.shape[0]
-    started = time.perf_counter()
-    running = 0.0
-    for _ in range(cfg.epochs):
-        order = torch.randperm(n, device=device)
-        for start in range(0, n, cfg.batch_size):
-            idx = order[start : start + cfg.batch_size]
-            optimizer.zero_grad(set_to_none=True)
-            loss = torch.mean((model(inputs[idx, :1], inputs[idx, 1:]) - target[idx]) ** 2)
-            loss.backward()
-            optimizer.step()
-            running += float(loss.detach()) * idx.numel()
-        scheduler.step()
-    seconds = time.perf_counter() - started
-
-    def forward(m, x):
-        return m(x[:, :1], x[:, 1:])
-
+    model, seconds, train_mse = fit(
+        build_model("hybrid", cfg, residual_width=width).to(device), train_t, cfg,
+        device, _paired_forward,
+    )
     return _score(
         f"hybrid(w={width})", model, _inputs(val_t),
-        _peak_normalise(val_t["target"].clone()), forward, seconds,
-        running / (n * cfg.epochs), cfg.beam_samples,
+        _peak_normalise(val_t["target"].clone()), _paired_forward, seconds,
+        train_mse, cfg.beam_samples,
     )
 
 

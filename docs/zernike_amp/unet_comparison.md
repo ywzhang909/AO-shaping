@@ -1,10 +1,17 @@
 # physics vs U-Net on `slm_zernike_shaping`
 
-> **Status: superseded.** See [`report.md`](report.md) §7 for the matched-budget,
-> 3-seed comparison that is the authoritative result. This file is kept as the
-> record of the *earlier, unfair-budget* run and the capacity trend, both of which
-> are still informative — but the "U-Net wins" reading below is an artefact of
-> giving the U-Net 25 epochs while the physics model converges by epoch 13.
+> **Superseded.** [`report.md`](report.md) §7 holds the authoritative result:
+> **grouped cross-validation** with exact sign-flip permutation tests, which
+> resolves the comparison that this file could not. The short version: the U-Net
+> *is* significantly better (R² p = 0.012, SSIM p = 0.002), and the hybrid is
+> indistinguishable from physics (p ≥ 0.61).
+>
+> This file is kept as the record of the earlier **single-split** runs. Its
+> numbers remain reproducible but are **underpowered**: the split is 75/25 *by
+> file* then truncated to `max_val=128` records, so the validation fold gets a
+> random mixture of the four objectives — and `roi_pib` (10 % of the corpus) has
+> a nearly orthogonal image distribution, which is what produced the ±0.07
+> seed-to-seed swing. Read it as history, not as the verdict.
 
 Head-to-head produced by `python scripts/compare_unet_baseline.py --seeds 3`.
 
