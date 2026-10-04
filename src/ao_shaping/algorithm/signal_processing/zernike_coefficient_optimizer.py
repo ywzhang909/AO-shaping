@@ -885,6 +885,26 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
             raise ValueError("source_amplitude must be finite")
         return amplitude
 
+    def _target_grid(self) -> tuple[int, int]:
+        """Grid the measured frame must be resampled onto for the loss.
+
+        This is the **far-field** grid, not the pupil grid: ``_far_field_intensity``
+        zero-pads the pupil to ``far_field_size`` before the FFT, so it returns
+        ``far_field_size``-square intensity, and the residual in
+        ``_anchored_intensity_loss`` is only meaningful when the measurement lives
+        on that same grid. When no padding is configured the two coincide.
+
+        Fixing this is what makes ``far_field_size`` usable at all. Previously the
+        measurement was resampled to ``region`` while the prediction was
+        ``far_field_size``, so every ``update()`` with ``far_field_size > region``
+        raised a shape mismatch -- which is precisely the configuration the
+        ``far_field_size`` docstring calls mandatory for real benches, because an
+        unpadded grid samples this bench's ~27 um spot as a sub-pixel delta.
+        """
+        pad = int(self._far_field_size)
+        side = pad if pad > 0 else int(self._region)
+        return (side, side)
+
     def _prepare_measurement(
         self, i_meas: np.ndarray
     ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -909,9 +929,9 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         if not np.all(np.isfinite(measured)):
             raise ValueError("i_meas must be finite")
 
-        grid = (self._region, self._region)
+        grid = self._target_grid()
         if measured.shape != grid:
-            factors = (self._region / measured.shape[0], self._region / measured.shape[1])
+            factors = (grid[0] / measured.shape[0], grid[1] / measured.shape[1])
             measured = np.asarray(
                 ndimage.zoom(measured, factors, order=1), dtype=np.float64
             )

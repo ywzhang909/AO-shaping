@@ -143,12 +143,14 @@ _DEFAULT_FOCAL_LENGTH_M = focal_length_from_camera_pixel(
 # Preserve that exact ordering for byte-identical help output.
 DM_TYPES_PRE_ASYN_MICRO = list_dm_types()
 
-# Importing asyn_micro_dm registers the "asyn_micro" DM type (side effect).
-# It is normally registered by micro_drive.full_voltage_runner, which is
+# Importing the async driver module registers the "asyn_micro" DM type (side
+# effect). It is normally registered by micro_drive.full_voltage_runner, which is
 # imported AFTER this module in runners/__init__.py — without this import,
 # DM_TYPES below would miss asyn_micro and the --dm_type choice list would
-# silently shrink from 6 to 5 entries.
-import ao_shaping.drivers.dm.asyn_micro_dm  # noqa: F401
+# silently shrink from 7 to 6 entries. The submodule is imported directly
+# rather than via ``dm.micro``, whose __getattr__ resolves the async driver
+# lazily (that laziness is what keeps DM_TYPES_PRE_ASYN_MICRO above honest).
+import ao_shaping.drivers.dm.micro.asyn_driver  # noqa: F401
 
 DM_TYPES = list_dm_types()
 
@@ -2034,3 +2036,338 @@ class SlmGsRefineParams:
     save_best_image: Annotated[
         bool, option("--save-best-image", help="Save the best far-field PNG.")
     ] = True
+
+
+@dataclass
+class SlmModelInLoopParams:
+    """Model-in-the-loop square shaping (slm-model-in-loop).
+
+    Every field maps 1:1 onto :class:`~ao_shaping.optimizer.wfless.slm_model_in_loop.SlmModelInLoopConfig`;
+    the runner does no defaulting of its own so the library and the CLI can never
+    disagree about what a run actually did.
+    """
+
+    # --- control -----------------------------------------------------------
+    n_rounds: Annotated[
+        int,
+        option(
+            "-r",
+            "--n-rounds",
+            help="Fit -> shape -> re-measure rounds.",
+        ),
+    ] = 6
+    seed: Annotated[int, option("--seed", help="RNG seed for probes and phases.")] = 0
+    device: Annotated[
+        str | None,
+        option("--device", help="Torch device for the forward model (e.g. cpu/cuda)."),
+    ] = None
+    warm_start: Annotated[
+        bool,
+        option(
+            "--warm-start/--no-warm-start",
+            help=(
+                "Warm-start each Step B solve from the previous round's phase. "
+                "Turning this off restarts Step B from flat every round."
+            ),
+        ),
+    ] = True
+    early_stop_score: Annotated[
+        float,
+        option(
+            "--early-stop-score",
+            help="Stop once the measured composite reaches this (0 = run all rounds).",
+        ),
+    ] = 0.0
+    save_best_image: Annotated[
+        bool, option("--save-best-image", help="Save the best far-field PNG.")
+    ] = True
+
+    # --- target ------------------------------------------------------------
+    target_side: Annotated[
+        int,
+        option(
+            "--target-side",
+            help=(
+                "Target square side in CAMERA pixels. The bench model only sees "
+                "its own far-field grid, so this is converted via the calibrated "
+                "camera_px_per_model_px."
+            ),
+        ),
+    ] = 60
+    w_uniformity: Annotated[
+        float,
+        option("--w-uniformity", help="Weight on in-box coefficient of variation."),
+    ] = 0.4
+    w_efficiency: Annotated[
+        float,
+        option(
+            "--w-efficiency",
+            help=(
+                "Weight on encircled energy. MUST stay non-zero: optimising -CV "
+                "alone empties the target box (hardware measured EE -> 0.002)."
+            ),
+        ),
+    ] = 0.6
+
+    # --- Step A: probe-based forward-model fit ------------------------------
+    probe_count: Annotated[
+        int,
+        option(
+            "--probe-count",
+            help=(
+                "Distinct probe phases per round. Several are cycled through ONE "
+                "optimizer state because focal-plane intensity is a non-convex "
+                "measurement of pupil phase; one probe leaves Adam in whichever "
+                "stationary point it started in."
+            ),
+        ),
+    ] = 8
+    probe_spread: Annotated[
+        float,
+        option(
+            "--probe-spread",
+            help=(
+                "Probe phase std in radians. MUST be well above ~3 rad: a flat "
+                "pupil focuses to a near-delta whose intensity barely responds to "
+                "a smooth low-order aberration, which makes the fit blind."
+            ),
+        ),
+    ] = 4.0
+    step_a_iterations: Annotated[
+        int, option("--step-a-iterations", help="Adam steps per round for Step A.")
+    ] = 80
+    step_a_lr: Annotated[
+        float,
+        option(
+            "--step-a-lr",
+            help=(
+                "Adam lr for the shared aberration fit. 0.05 is the measured sweet "
+                "spot for the cycling loop; 0.2 diverges outright."
+            ),
+        ),
+    ] = 0.05
+    n_orders: Annotated[
+        int, option("--n-orders", help="Max Zernike radial order fitted by Step A.")
+    ] = 10
+    frozen_modes: Annotated[
+        str,
+        option(
+            "--frozen-modes",
+            help=(
+                "Comma-separated 1-based Noll indices held at zero. Default "
+                "'1,2,3' (piston/tip/tilt) because they are unidentifiable from a "
+                "far-field INTENSITY; leaving them free put 56% of the fitted "
+                "coefficient norm into those degenerate directions with no gain."
+            ),
+        ),
+    ] = "1,2,3"
+
+    # --- Step B: square synthesis with the aberration frozen ----------------
+    step_b_iterations: Annotated[
+        int, option("--step-b-iterations", help="Adam steps per round for Step B.")
+    ] = 600
+    step_b_lr: Annotated[
+        float, option("--step-b-lr", help="Adam lr on the full-pixel SLM phase.")
+    ] = 0.05
+
+    # --- bench model / calibration -----------------------------------------
+    region: Annotated[
+        int, option("--region", help="Forward-model pupil grid edge (model pixels).")
+    ] = 64
+    wavelength_nm: Annotated[
+        int, option("--wavelength-nm", help="Laser wavelength (nm).")
+    ] = 1064
+    slm_pixel_um: Annotated[
+        float, option("--slm-pixel-um", help="SLM pixel pitch in um.")
+    ] = 8.0
+    camera_pixel_um: Annotated[
+        float,
+        option(
+            "--camera-pixel-um",
+            help=(
+                "CCD pixel pitch in um -- the bench model's measurement ANCHOR, "
+                "because the measured focal scale only fixes the ratio f/p_cam."
+            ),
+        ),
+    ] = _DEFAULT_CAMERA_PIXEL_UM
+    panel_span_px: Annotated[
+        float,
+        option(
+            "--panel-span-px",
+            help=(
+                "Width in PANEL pixels of the region the model grid covers "
+                "(= 2 x illuminated beam radius). REQUIRED for real captures: the "
+                "model grid samples the pupil at panel_span_px/region times the "
+                "SLM pitch, and using the SLM pitch directly makes the modelled "
+                "aperture ~3.5x too small so no aperture can correlate."
+            ),
+        ),
+    ] = 900.0
+    pupil_center: Annotated[
+        str,
+        option(
+            "--pupil-center",
+            type=click.STRING,
+            help=(
+                "Beam centre in PANEL pixels as 'x,y'. Must be MEASURED on the "
+                "panel: the camera's 0-order is a different coordinate frame "
+                "(on this bench the axes are swapped and the scales differ by "
+                ">10x), so deriving one from the other writes the phase where the "
+                "beam is not."
+            ),
+        ),
+    ] = "960,600"
+    far_field_padding: Annotated[
+        int,
+        option(
+            "--far-field-padding",
+            help=(
+                "Zero-padding factor for the forward model's far field. Also the "
+                "cost driver: the FFT is quadratic in the padded size. This is "
+                "what sets the far-field SAMPLING, so it must match the optical "
+                "geometry rather than the model grid -- on this bench an "
+                "unpadded grid renders the ~27 um spot as a sub-pixel delta."
+            ),
+        ),
+    ] = 8
+    focal_length_m: Annotated[
+        float,
+        option(
+            "--focal-length-m",
+            help=(
+                "2f lens focal length in metres. 0 (the default) DERIVES it from "
+                "the measured focal scale and --camera-pixel-um; pass a value to "
+                "pin a specific lens."
+            ),
+        ),
+    ] = 0.0
+    dtype: Annotated[
+        str,
+        option(
+            "--dtype",
+            type=click.Choice(["float32", "float64"]),
+            help="Torch dtype for the forward model.",
+        ),
+    ] = "float64"
+    n_calibration_probes: Annotated[
+        int,
+        option(
+            "--n-calibration-probes",
+            help="Probe phases used for the one-off bench-geometry calibration.",
+        ),
+    ] = 8
+    min_geometry_correlation: Annotated[
+        float,
+        option(
+            "--min-geometry-correlation",
+            help=(
+                "Abort before shaping if the calibrated geometry's speckle "
+                "correlation is below this. A mis-calibrated model makes the real "
+                "spot WORSE, so this is the geometry bake-off."
+            ),
+        ),
+    ] = 0.5
+
+    # --- coupling guards ----------------------------------------------------
+    trust_region_c_l2: Annotated[
+        float,
+        option(
+            "--trust-region-c-l2",
+            help=(
+                "Max L2 norm of the per-round coefficient change. Step A and Step "
+                "B otherwise chase each other: the aberration absorbs part of the "
+                "shaping phase and vice versa."
+            ),
+        ),
+    ] = 0.5
+    acceptance_loss_delta: Annotated[
+        float,
+        option(
+            "--acceptance-loss-delta",
+            help="Reject a round whose Step-A loss ends above its start by more than this.",
+        ),
+    ] = 1e-4
+    acceptance_score_eps: Annotated[
+        float,
+        option(
+            "--acceptance-score-eps",
+            help="Reject a round whose measured composite drops by more than this.",
+        ),
+    ] = 1e-3
+    damp_lr_factor: Annotated[
+        float,
+        option("--damp-lr-factor", help="Step-A lr multiplier after a rejection."),
+    ] = 0.5
+    max_rejection_streak: Annotated[
+        int,
+        option(
+            "--max-rejection-streak",
+            help=(
+                "Consecutive rejected rounds before aborting. Persistent rejection "
+                "means the bench is outside the model (pupil registration, panel "
+                "tilt, out-of-plane defocus) -- fall back to slm-gs-refine."
+            ),
+        ),
+    ] = 3
+    escalate_probe_count: Annotated[
+        int,
+        option("--escalate-probe-count", help="Extra probes added after a rejection."),
+    ] = 2
+    max_probe_count: Annotated[
+        int, option("--max-probe-count", help="Cap on the escalated probe count.")
+    ] = 16
+
+    # --- hardware -----------------------------------------------------------
+    cam_type: Annotated[
+        str,
+        option(
+            "--cam_type",
+            type=click.Choice(["daheng", "miicam", "sim"]),
+            help="CCD backend (sim = 2f-Fourier numerical simulation, no hardware).",
+        ),
+    ] = "daheng"
+    cam_id: Annotated[int, option("--cam-id", help="CCD device ID.")] = 0
+    exposure_time_ms: Annotated[
+        float,
+        option("--exposure_time_ms", help="CCD exposure in ms (0 = device default)."),
+    ] = 0.0
+    cam_size: Annotated[
+        int, option("--cam_size", help="CCD window size in pixels.")
+    ] = 300
+    slm_number: Annotated[
+        int, option("--slm_number", help="Santec SLM device number (1-8).")
+    ] = 1
+    slm_wavelength: Annotated[
+        int,
+        option(
+            "--slm_wavelength",
+            help="SLM operating wavelength (nm); 0 asks the device.",
+        ),
+    ] = 1064
+
+    n_eval_frames: Annotated[
+        int, option("--n-eval-frames", help="Frames averaged per measurement.")
+    ] = 4
+    settle_wait_s: Annotated[
+        float, option("--settle-wait-s", help="Initial LCOS settle wait (s).")
+    ] = 0.5
+    settle_tol: Annotated[
+        float, option("--settle-tol", help="Relative stability tolerance.")
+    ] = 0.02
+    settle_max_wait_s: Annotated[
+        float, option("--settle-max-wait-s", help="Cap on settle wait (s).")
+    ] = 6.0
+    settle_max_discard: Annotated[
+        int,
+        option(
+            "--settle-max-discard",
+            help="Cap on discarded unstable frames before giving up on settling.",
+        ),
+    ] = 40
+    settle_discard: Annotated[
+        int,
+        option(
+            "--settle-discard",
+            help="Consecutive unstable frames tolerated before a frame is taken anyway.",
+        ),
+    ] = 2

@@ -39,6 +39,7 @@ __all__ = [
     "slm_pib_run",
     "slm_gs_refine_run",
     "slm_gsnet_run",
+    "slm_model_in_loop_run",
 ]
 
 _LAZY_RUNNERS: dict[str, str] = {
@@ -62,6 +63,7 @@ _LAZY_RUNNERS: dict[str, str] = {
     # eager imports this module used to carry, so main.py's `slm-gsnet`
     # registration depended on an accident rather than on a declaration.
     "slm_gsnet_run": "ao_shaping.runners.slm_gsnet_runner",
+    "slm_model_in_loop_run": "ao_shaping.runners.slm_model_in_loop_runner",
 }
 
 #: Override the attribute name only when a module exposes more than one command.
@@ -86,6 +88,7 @@ _IMPORT_ATTRS: dict[str, str] = {
     "hadamard_matrix_run": "run",
     "combined_run": "run",
     "slm_gsnet_run": "run",
+    "slm_model_in_loop_run": "run",
 }
 
 
