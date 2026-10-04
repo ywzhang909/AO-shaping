@@ -112,7 +112,7 @@
 | R-14 P2 | `_metric_panel` 每 epoch 全量六套指标 → 加 `panel_every_n: int = 1` 开关 | `slm_zernike_pib.py:1544` | 2026-09-25 |
 | R-15 P2 | `_apply_best_on_exit` 往 Recorder 挂属性 → 显式 `RawReport` 字段 | `slm_zernike_pib.py:~1584` | 2026-09-25 |
 | R-16 P2 | `SLM_WIDTH/HEIGHT` 与驱动 `Panel_Res` 重复 | ✅ **已完成**（§5.22）：两侧改为 `SLM_WIDTH, SLM_HEIGHT = PANEL_RES`（值实测一致 (1920,1200)），**保留常量名**（有测试 import），只改值的来源；并加 AST 守卫禁止再写回字面量 | 2026-09-25 |
-| R-17 P2 | 日志 f-string/`{}` 占位符混用 → 统一 | `slm_zernike_pib.py` 多处 | 2026-09-25 |
+| R-17 P2 | 日志 f-string/`{}` 占位符混用 | ✅ **已完成**（§5.23）：9 处 f-string 日志全改为 loguru 惰性格式化参数，并加 AST 守卫（变异验证过） | 2026-09-25 |
 | R-18 P3 | 离线 GS 作闭环初值 `--init-gs`。⚠️ **`gs_warm_start` 已在别处落地**（`slm_gs_refine.py`、`iterative_zernike_shaping.py` + `slm_gs_refine_runner`）→ 本项改为"接入已有实现"或删掉 `:739` 的陈旧注释 | `slm_zernike_pib.py:739` | 2026-09-25 |
 | R-19 P3 | 补 sim 台架对称 BenchSession（`sim` 相机后端已有 2f-Fourier），使 R-1~R-17 可无硬件回归 | — | 2026-09-25 |
 
@@ -1270,6 +1270,36 @@ R-11 实测**已完成**（`ZERNIKE_CLIP` / `IMPROVE_EPS` 两侧都在，裸字�
 ⚠️ **本轮不修**：改绝对值会改变真实数据上的目标函数取值，
 可能影响优化轨迹与最优解，**必须用硬件/基准对照**才能确认，
 不属于"不需要设备就能确认修改是否正确"的范畴。
+
+---
+
+### 5.23 R-17 —— 日志改回 loguru 惰性格式化，并加 AST 守卫（2026-10-04）
+
+9 处 `logger.xxx(f"...")` 改为 `logger.xxx("{}", value)`。这不是洁癖：
+f-string 在**调用前**就完成插值，所以**日志级别关掉时消息照样拼**，
+而这正是用结构化日志而不是 `print` 的唯一理由。
+
+⚠️ **文本搜索漏了 3 处，AST 守卫一上来就抓到**：那几处是
+```python
+logger.debug(
+    f"Initial Image Max brightness: {np.max(init_img)} "
+    f"@ {get_camera_exposure_ms(cam)}ms"
+)
+```
+`logger.debug(f"` 不在同一行，正则 `logger\.\w+\(f"` 匹配不到。
+**这是本轮第三次"文本搜索给出假阴性、AST 给出真值"**（前两次是
+`default=` 在 `option()` 里、以及 `radius(center=center)`），
+也是把守卫写成 AST 而不是正则的第三次收获。
+
+守卫只匹配 `logger.<level>(...)` 且首参是 `ast.JoinedStr`，
+因此不会误伤那些"为了别的目的先拼字符串"的地方。
+
+变异验证：塞回一处 f-string 日志 → 守卫如期失败。
+
+`tests/ao_shaping/optimizer/wfless` **434 passed / 1 skipped**。
+
+> 顺带说明：`slm_model_in_loop.py` 有一个 F821（`Recorder` 未定义），
+> 但该文件**不在 HEAD 里、且是未跟踪状态** ⇒ 属于并行的 WIP，不是本轮引入。
 
 ---
 

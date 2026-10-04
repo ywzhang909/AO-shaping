@@ -761,7 +761,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             int(_img.shape[1]),
         )
         img_size, center = cam.reset_window(center, img_size)
-        logger.info(f"reset window center @ {center}")
+        logger.info("reset window center @ {}", center)
 
         # Precedence: fixed exposure (`--exposure_time_ms > 0`) wins over
         # auto-exposure (`--target_max_brightness > 0`); `0/0` keeps the current
@@ -773,8 +773,9 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             n_sample=CAM_SAMPLE_ITER,
         )
         logger.debug(
-            f"Initial Image Max brightness: {np.max(init_img)} "
-            f"@ {get_camera_exposure_ms(cam)}ms"
+            "Initial Image Max brightness: {} @ {}ms",
+            np.max(init_img),
+            get_camera_exposure_ms(cam),
         )
         img_size = init_img.shape[::-1]
 
@@ -858,7 +859,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     _fit,
                 )
             target_size = float(min(max(_want, 4.0), _fit))
-            logger.info(f"Use dynamic target size @ {target_size:.1f}px")
+            logger.info("Use dynamic target size @ {:.1f}px", target_size)
 
         target_center_smooth = int(target_center_smooth)
         target_center_history: deque[tuple[float, float]] = deque()
@@ -877,7 +878,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             )
             r_bucket = min(r_bucket, cam_size // 2) * shrink_ratio
             _fix_bucket = False
-            logger.info(f"Use dynamic radiu @ {r_bucket}")
+            logger.info("Use dynamic radiu @ {}", r_bucket)
         else:
             _fix_bucket = True
 

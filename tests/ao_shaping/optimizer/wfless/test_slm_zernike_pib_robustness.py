@@ -374,6 +374,45 @@ class TestLearningScheduleCentreIsWindowLocal:
         "module_name",
         ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
     )
+    def test_logger_calls_are_not_f_strings(self, module_name: str) -> None:
+        """R-17: loguru renders lazily, so an f-string throws that away.
+
+        ``logger.info(f\"...{x}\")`` interpolates before the call, so the message is
+        built even when the level is disabled -- and it defeats the one reason to
+        use a structured logger over ``print``. The repo's own logging rule asks for
+        format args (``logger.info(\"{}: {}\", a, b)``).
+
+        Scoped to the loguru API rather than all f-strings in the file, so ordinary
+        messages that build a string for other reasons are not flagged.
+        """
+        import ast
+        import importlib
+        import inspect
+
+        module = importlib.import_module(module_name)
+        tree = ast.parse(inspect.getsource(module))
+
+        offenders: list[tuple[int, str]] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not isinstance(func, ast.Attribute):
+                continue
+            if not isinstance(func.value, ast.Name) or func.value.id != "logger":
+                continue
+            if node.args and isinstance(node.args[0], ast.JoinedStr):
+                offenders.append((node.lineno, func.attr))
+
+        assert not offenders, (
+            f"{module_name}: f-string logger call(s) at {offenders}; pass format "
+            f"args instead so the message is only rendered when the level is on"
+        )
+
+    @pytest.mark.parametrize(
+        "module_name",
+        ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
+    )
     def test_panel_resolution_is_not_hardcoded(self, module_name: str) -> None:
         """Panel geometry must come from the driver, not a third copy of the literal.
 
