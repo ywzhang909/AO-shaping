@@ -142,7 +142,7 @@
 | # | 项 | 当前实测 | 提出 |
 |---|---|---|---|
 | R-37 | Step 2/3：逐个迁移 19 个可执行探针到 `with_params` 机制。**原计划「抽共享 dataclass 到 `params.py`」已实测证伪并取消**（见 §5.15）：19 个探针 / **287 个声明 flag** 中**只有 1 个**（`--settle-extra-s` ×3）能原样共享。改为**每个探针自带 dataclass，default/help/type 全部留在本地不动** | ✅ **已完成 15/15 个 Click 探针**（§5.15）；4 个 argparse 探针拆出为 R-42 | 2026-10-01 |
-| R-42 | **4 个 argparse 探针改 click**（`slm_abba_probe` / `slm_drift_probe` / `slm_floor_probe` / `slm_zernike_sweep_probe`）。实测三个非机械迁移障碍：① `main(argv) -> int` + `raise SystemExit(main())`，click command 不接 argv；② `test_slm_abba_probe.py:541/560` **直接绑定 `probe._parse_args(...)`**（断言默认值 + 断言非法 `--cam-type nikon` 报错），改 click 就得删掉 `_parse_args` 并重写这些测试；③ `--help` 格式从 argparse 变 click。**侦察已完成（§5.30）**：破坏面 = 4 个测试文件里 9 处 `main(argv)`/`_parse_args` 调用；`_parse_args` 全仓只有 2 个直绑点；另有 3 处测试**强制 driver 必须函数内 import**（不能为了 click 把 import 提到模块级）；4 个探针正好是 `--out` 的全部 4 个使用者 | 同左 | 2026-10-04 |
+| ~~R-42~~ | ~~**4 个 argparse 探针改 click**（`slm_abba_probe` / `slm_drift_probe` / `slm_floor_probe` / `slm_zernike_sweep_probe`）~~ | ✅ **全部 4 个完成，共 77 个 flag 逐个对齐** → §5.31。**最强证据：重新生成 golden 时 4 个探针的 `flags_differ` 全为空** ⇒ 渲染出的 flag 集合与 argparse 逐字节相同 | 同左 | 2026-10-04 |
 | R-38 | ~~canonical 采用率过低~~ | ❌ **2026-10-04 实测后按原描述拒做**（见 §5.19）。两条理由：(1) `phase_to_slm_grayscale(phase, slm=...)` **就是** `slm.create_phase_from_array(...)`（`phase_display.py:72-73` 直接委托），那"7 处直调"**行为完全等价**，不是缺陷；(2) `zero_order_center` 返回 **`(x, y)`**，而裸 `np.unravel_index(np.argmax(...))` 解包成 **`(y, x)`** ⇒ **替换不是机械操作**，照抄会静默转置每个 ROI 中心 | 2026-10-01 |
 | R-39 | 曝光默认值 7 种并存（0.02/0.03/1.1/1.2/2.0/3.0/4.0 ms）；内存槽轮换 3 种写法（驱动自动 / 自建 `SlotRotator` / 手工 `current_slot`） | 同左 | 2026-10-01 |
 | R-41 | flag 拼写分裂（2026-10-04 实测）：`--cam-type` **9** 个探针 vs `--camera-type` **2** 个（`slm_diagnose` / `slm_lut_runner`）；另有 `--output` **8** vs `--out` **4**、`--slm-wavelength` **15** vs `--wavelength` **3**。建议保留现有拼写不破坏习惯用法 | ✅ **已完成**（§5.18）：两种拼法都**保留**，并加**契约测试**把意图写死 —— 不只是"golden 顺带钉住"，而是明确断言「两套都在、且没有任何探针同时暴露两套」 | 2026-10-01 |
@@ -1542,6 +1542,75 @@ writer 改为 `{p: _golden_entry(p, actual[p]) for p in PROBES}`。重新计算�
 > `_OPTION_CALLS = {"option", "add_argument"}` **按被调用名匹配，不区分 argparse/click**，
 > 所以 4 个探针**今天就已经被计入**（77 个 `add_argument`）。只要做到逐 flag 对应，
 > `declared == 285` / `visible == 287` / `len(PROBES) == 19` **三个硬编码数字都不用改**。
+
+---
+
+### 5.31 R-42 —— 4 个探针全部迁到 click，flag 一个没动（2026-10-04）
+
+`tools/slm/` 下最后 4 个 argparse 探针全部迁到 `Annotated[..., option(...)]` +
+`with_params`，`_parse_args` 与 `argparse` 一并删除。共 **77 个 flag**
+（abba 23 / drift 13 / floor 21 / sweep 20）。
+
+**最强的一条证据**：跑 `AO_PROBE_HELP_UPDATE=1` 重新生成 golden 时，drift 报告对
+4 个探针全部是 **`flags_differ: []`** —— 也就是**渲染出来的 flag 集合与 argparse
+逐字节相同**（`same_lines_reordered: False` 只是 argparse 两栏排版变成了 click 的
+`Options:` 段）。而且 `test_the_flag_surface_is_the_size_we_think_it_is`
+（`declared == 285` / `visible == 287` / `len(PROBES) == 19`）在**重新生成之前**
+就已经通过 ⇒ 迁移本身没动过任何 flag 名。
+
+**§5.30 列的三个障碍怎么解的**：
+
+| 障碍 | 处理 |
+|---|---|
+| ① `main(argv) -> int` + `raise SystemExit(main())` | `cli_params.py` **完全没有 argv 管道**，`main(argv)` 无法保留。改为 `@click.command()` + `@with_params(XParams, kw_name="params")` + `-> None`；测试侧改用 `click.testing.CliRunner`，**argv 列表逐字保留** |
+| ② `test_slm_abba_probe.py:541/560` 直绑 `_parse_args` | 541 那 14 个默认值改为**直接断言 dataclass 字段默认值**（字段默认值就是 CLI 默认值，这是 click 下的等价物）；560 的 `--cam-type nikon` 拒绝改为**显式校验 + CliRunner 断言失败**，没有删测试 |
+| ③ `--help` 排版变化 | 接受，重新生成 golden（4 个条目），其余 15 个条目 `help`/`declared` 零漂移 |
+
+**刻意避开的三个陷阱**（任何一个都会破守卫）：
+
+* **不把 `--no-hw` 写成 click 的 `--hw/--no-hw`**：那会多出一个 `--hw`，
+  `declared` 285→286，同时破 `test_probe_declared_flags_are_unchanged` 与总数守卫。
+  保持裸 flag（`is_flag=True`，默认 `False`，与 argparse `store_true` 同义）。
+* **`--out` 不改成 `--output`**：这 4 个探针正好是 `--out` 的**全部** 4 个使用者，
+  改名会同时破 `test_other_split_flag_spellings_survive`(8/4)、总数守卫与 golden。
+* **77 个 `add_argument(default=...)` 全部搬到 dataclass 字段**：`option()` 里带
+  `default=` 会被 `cli_params._patch_defaults` 在 import 时抛 `TypeError`。
+
+另：`slm_zernike_sweep_probe` 的 `type=_parse_int_tuple`（抛
+`argparse.ArgumentTypeError`）改为**字段收 `str`、在 body 里解析并 `SystemExit`**，
+照 `slm_phase_resolution` 的既有写法；`--cam-type` 的 `choices` 在 drift / floor /
+sweep 用 `click.Choice([...])`，abba 用 `str` + 显式校验（它原先就有额外的
+`--cam-type nikon` 拒绝测试）。
+`sweep` 探针的 `setup_coredumpy()` **保留在函数体内**——已迁移的兄弟探针都把它丢了，
+那是丢行为，这里不跟。
+
+**顺手修掉一个真 bug**（`TODO.md:1004` 曾记「像是真 bug，值得单独查」）：
+`slm_drift_probe._summary_npz` 的返回 dict 里 **`"exposure_ms"` 键写了两次**
+—— 一次是逐记录序列（`col("exposure_ms")`），一次是 run 级标量配置
+（`np.array(params.exposure_ms)`）。Python 静默保留**后者**，所以
+**逐记录曝光序列从未写进 `summary.npz`**。这不只是 ruff F601，是丢数据。
+现按同文件已有的 `drift_l2_series` 命名惯例把序列改名 `"exposure_ms_series"`，
+标量保留 `"exposure_ms"`。全仓无消费者读这个键（已 grep 确认）。
+**ruff F601 现在永久覆盖这个坑，不需要再加测试。**
+
+**函数体字面量集合的差分逐条审计过**（这正是 sha256 守卫存在的意义）：
+移出的全是 argparse 层（flag 名 / default / help / description），新增的只有
+新校验消息与新 docstring；**没有出现任何 `"params.xxx"` 形式的被污染键**——
+即 `{"csv_path": csv_path}` → `{"params.csv_path": ...}` 那类
+「合法 Python、功能测试全过、运行时错」的损坏，**一处都没有**。
+
+**验证**：
+
+| 范围 | 结果 |
+|---|---|
+| 4 个探针 + 4 个测试文件 `ruff` | All checks passed（F601 已消失） |
+| 4 个探针自己的测试 | **113 passed** |
+| `test_probe_flags.py`（全家族守卫） | **101 passed / 1 skipped**（opt-in） |
+| `tests/ao_shaping/tools/` | **481 passed / 4 skipped** |
+| `test_cli_params_leaf.py`（零导入叶子） | 8 passed |
+
+dataclass 命名：`AbbaProbeParams` / `DriftProbeParams` / `SlmFloorProbeParams` /
+`ZernikeSweepProbeParams`。
 
 ---
 

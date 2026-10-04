@@ -15,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from click.testing import CliRunner
 
 from ao_shaping.tools.slm import slm_abba_probe as probe
 from ao_shaping.tools.slm.slm_abba_probe import (
@@ -495,10 +496,12 @@ class TestPersistence:
 
 class TestPlanSelfCheck:
     def test_no_hw_returns_zero(self) -> None:
-        assert probe.main(["--no-hw"]) == 0
+        result = CliRunner().invoke(probe.main, ["--no-hw"])
+        assert result.exit_code == 0, result.output
 
     def test_no_hw_accepts_every_documented_flag(self) -> None:
-        assert probe.main(
+        result = CliRunner().invoke(
+            probe.main,
             [
                 "--no-hw",
                 "--out", "data/slm_abba",
@@ -517,8 +520,9 @@ class TestPlanSelfCheck:
                 "--pairs", "3",
                 "--roi", "192",
                 "--seed", "20261001",
-            ]
-        ) == 0
+            ],
+        )
+        assert result.exit_code == 0, result.output
 
     def test_no_hw_never_imports_a_driver(self, tmp_path) -> None:
         """The self-check must be safe on a machine with no SLM/CCD SDK."""
@@ -533,31 +537,37 @@ class TestPlanSelfCheck:
 
         builtins.__import__ = guarded
         try:
-            assert probe.main(["--no-hw"]) == 0
+            result = CliRunner().invoke(probe.main, ["--no-hw"])
         finally:
             builtins.__import__ = real_import
+        # Check the exception first: a leaked driver import surfaces as a
+        # captured AssertionError, which says far more than a bare exit code.
+        assert result.exception is None, result.exception
+        assert result.exit_code == 0, result.output
 
     def test_defaults_match_the_documented_cli(self) -> None:
-        args = probe._parse_args(["--no-hw"])
-        assert args.out == "data/slm_abba"
-        assert args.slm_number == 1
-        assert args.slm_wavelength == 1064
-        assert args.cam_type == "daheng"
-        assert args.cam_id == 0
-        assert args.exposure_ms == pytest.approx(1.0)
-        assert args.saturation_level == pytest.approx(250.0)
-        assert args.saturation_max_peak == pytest.approx(245.0)
-        assert args.delta_rad == pytest.approx(0.5)
-        assert args.grid == DEFAULT_GRID
-        assert args.n_patterns == 12
-        assert args.pairs == 3
-        assert args.roi == 192
-        assert args.seed == DEFAULT_SEED
-        assert probe._parse_floats(args.exposure_ladder) == [0.4, 0.6, 0.8, 1.0, 1.25, 1.5]
+        params = probe.AbbaProbeParams()
+        assert params.out == "data/slm_abba"
+        assert params.slm_number == 1
+        assert params.slm_wavelength == 1064
+        assert params.cam_type == "daheng"
+        assert params.cam_id == 0
+        assert params.exposure_ms == pytest.approx(1.0)
+        assert params.saturation_level == pytest.approx(250.0)
+        assert params.saturation_max_peak == pytest.approx(245.0)
+        assert params.delta_rad == pytest.approx(0.5)
+        assert params.grid == DEFAULT_GRID
+        assert params.n_patterns == 12
+        assert params.pairs == 3
+        assert params.roi == 192
+        assert params.seed == DEFAULT_SEED
+        assert probe._parse_floats(params.exposure_ladder) == [0.4, 0.6, 0.8, 1.0, 1.25, 1.5]
 
     def test_cam_type_rejects_an_unknown_backend(self) -> None:
-        with pytest.raises(SystemExit):
-            probe._parse_args(["--cam-type", "nikon"])
+        result = CliRunner().invoke(probe.main, ["--cam-type", "nikon"])
+        assert result.exit_code != 0
+        assert "cam-type" in result.output
+        assert "daheng" in result.output and "miicam" in result.output
 
 
 def test_driver_imports_are_function_local() -> None:

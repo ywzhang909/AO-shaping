@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from click.testing import CliRunner
+from loguru import logger
 
 from ao_shaping.tools.slm import slm_floor_probe as probe
 from ao_shaping.tools.slm.slm_floor_probe import (
@@ -249,15 +251,29 @@ class TestPatterns:
 
 class TestNoHardware:
     def test_no_hw_creates_no_hardware_and_exits_zero(self, tmp_path) -> None:
-        rc = main([
-            "--out", str(tmp_path / "floor"),
-            "--n-repeat", "3",
-            "--settle-curve-s", "0.2",
-            "--settle-sample-ms", "100",
-            "--ks", "1,4",
-            "--no-hw",
-        ])
-        assert rc == 0
+        # The plan lines are logged, not printed, so a loguru sink is the only
+        # way to see that "--ks 1,4" survived the Click layer as [1, 4]: it is
+        # one comma-joined string field, NOT a repeated flag (which would be
+        # argparse "1,4" -> click multiple=True -> ks=[("1",), ("4",)]).
+        logged: list[str] = []
+        sink_id = logger.add(logged.append, level="INFO")
+        try:
+            result = CliRunner().invoke(
+                main,
+                [
+                    "--out", str(tmp_path / "floor"),
+                    "--n-repeat", "3",
+                    "--settle-curve-s", "0.2",
+                    "--settle-sample-ms", "100",
+                    "--ks", "1,4",
+                    "--no-hw",
+                ],
+            )
+        finally:
+            logger.remove(sink_id)
+        assert result.exit_code == 0, result.output
+        assert any("ks [1, 4]" in line for line in logged), logged
+        assert not (tmp_path / "floor").exists(), "--no-hw must not touch disk"
 
     def test_no_driver_import_at_module_scope(self) -> None:
         import ast

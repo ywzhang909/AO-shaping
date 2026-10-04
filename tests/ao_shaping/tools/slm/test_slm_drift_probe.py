@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from click.testing import CliRunner
 
 from ao_shaping.tools.slm.slm_drift_probe import (
     LADDER_DEFAULT,
@@ -166,5 +167,8 @@ def test_exposure_ladder_rejects_zero_repeats():
 
 def test_main_no_hw_is_offline_and_creates_no_hardware(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    assert main(["--no-hw", "--out", str(tmp_path / "unused")]) == 0
+    result = CliRunner().invoke(
+        main, ["--no-hw", "--out", str(tmp_path / "unused")]
+    )
+    assert result.exit_code == 0, result.output
     assert not (tmp_path / "unused").exists()  # no dir written on the dry path

@@ -33,12 +33,13 @@ Run it with ``python -m ao_shaping.tools.slm.slm_abba_probe``;
 
 from __future__ import annotations
 
-import argparse
 import pickle
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
+import click
 import numpy as np
 from loguru import logger
 
@@ -60,6 +61,7 @@ from ao_shaping.tools.slm.slm_zernike_sweep_probe import (
     DEFAULT_PANEL_SHAPE,
     capture_settled,
 )
+from ao_shaping.utils.cli_params import option, with_params
 from ao_shaping.utils.image.beam_metrics import zero_order_center
 from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
 
@@ -93,6 +95,75 @@ DEFAULT_SATURATION_MAX_PEAK = 245.0
 
 #: Consecutive flat reads used for the drift floor.
 DEFAULT_DRIFT_FRAMES = 8
+
+#: Camera backends ``--cam-type`` accepts. argparse used to enforce this with
+#: ``choices=["daheng", "miicam"]``; the Click field stays a plain ``str`` (that
+#: is what the other migrated probes declare, so the flag reads the same as its
+#: siblings), so the check moved into :func:`main` explicitly. Note the golden
+#: ``probe_help_golden.json`` still stores the argparse rendering, so the shared
+#: guard fails until the central ``AO_PROBE_HELP_UPDATE=1`` regeneration.
+CAM_TYPES = ("daheng", "miicam")
+
+
+@dataclass
+class AbbaProbeParams:
+    """ABBA 探针的 CLI 参数。
+
+    The field order is the old ``add_argument`` order, so ``--help`` keeps
+    listing the flags in the order an operator reads them.
+
+    Three of the values are deliberately **not** taken from the module constants
+    above even though a constant of the same meaning exists
+    (:data:`DEFAULT_EXPOSURE_LADDER`, :data:`DEFAULT_SATURATION_LEVEL`,
+    :data:`DEFAULT_SATURATION_MAX_PEAK`): the parser always hardcoded its own
+    copies, and rewiring them here would silently change a documented default.
+    They stay as written.
+    """
+
+    out: Annotated[str, option("--out", help="输出目录")] = "data/slm_abba"
+    slm_number: Annotated[int, option("--slm-number")] = 1
+    slm_wavelength: Annotated[int, option("--slm-wavelength")] = 1064
+    cam_type: Annotated[
+        str, option("--cam-type", help="相机类型 (daheng/miicam, 默认 daheng)")
+    ] = "daheng"
+    cam_id: Annotated[int, option("--cam-id")] = 0
+    exposure_ms: Annotated[
+        float,
+        option("--exposure-ms", help="初始曝光; --rebracket-exposure 时仅作起点参考"),
+    ] = 1.0
+    rebracket_exposure: Annotated[
+        bool,
+        option("--rebracket-exposure", is_flag=True, help="沿曝光梯度选最亮未饱和档"),
+    ] = False
+    exposure_ladder: Annotated[str, option("--exposure-ladder")] = (
+        "0.4,0.6,0.8,1.0,1.25,1.5"
+    )
+    saturation_level: Annotated[
+        float, option("--saturation-level", help="判定为截断的峰值灰度 (仅报告)")
+    ] = 250.0
+    saturation_max_peak: Annotated[
+        float, option("--saturation-max-peak", help="选曝光档时的峰值上限")
+    ] = 245.0
+    delta_rad: Annotated[float, option("--delta-rad")] = DEFAULT_DELTA_RAD
+    grid: Annotated[int, option("--grid")] = DEFAULT_GRID
+    n_patterns: Annotated[int, option("--n-patterns")] = DEFAULT_N_PATTERNS
+    pairs: Annotated[int, option("--pairs")] = DEFAULT_PAIRS
+    roi: Annotated[
+        int, option("--roi", help="分析 ROI 全宽 px (取半宽送入 crop_roi)")
+    ] = DEFAULT_ROI
+    drift_frames: Annotated[
+        int, option("--drift-frames", help="漂移地板用的连续平场读帧数")
+    ] = DEFAULT_DRIFT_FRAMES
+    frames: Annotated[int, option("--frames")] = 4
+    discard: Annotated[int, option("--discard")] = 3
+    settle_s: Annotated[float, option("--settle-s")] = 0.5
+    stable_tol: Annotated[float, option("--stable-tol")] = 0.02
+    max_wait_s: Annotated[float, option("--max-wait-s")] = 6.0
+    seed: Annotated[int, option("--seed")] = DEFAULT_SEED
+    no_hw: Annotated[
+        bool,
+        option("--no-hw", is_flag=True, help="不打开硬件, 只打印采集计划 (自检用)"),
+    ] = False
 
 
 def prepare_roi_frame(
@@ -389,112 +460,79 @@ def _parse_floats(text: str) -> list[float]:
     return [float(v) for v in str(text).split(",") if v.strip()]
 
 
-def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    from ao_shaping.utils.io.cli_helpers import setup_coredumpy
-
-    setup_coredumpy()
-    ap = argparse.ArgumentParser(
-        description=(
-            "ABBA 密集随机相位可探测性探针 "
-            "(需硬件: Santec SLM-200 + 远场相机)"
-        ),
-    )
-    ap.add_argument("--out", default="data/slm_abba", help="输出目录")
-    ap.add_argument("--slm-number", type=int, default=1)
-    ap.add_argument("--slm-wavelength", type=int, default=1064)
-    ap.add_argument("--cam-type", default="daheng", choices=["daheng", "miicam"])
-    ap.add_argument("--cam-id", type=int, default=0)
-    ap.add_argument("--exposure-ms", type=float, default=1.0,
-                    help="初始曝光; --rebracket-exposure 时仅作起点参考")
-    ap.add_argument("--rebracket-exposure", action="store_true",
-                    help="沿曝光梯度选最亮未饱和档")
-    ap.add_argument("--exposure-ladder", default="0.4,0.6,0.8,1.0,1.25,1.5")
-    ap.add_argument("--saturation-level", type=float, default=250.0,
-                    help="判定为截断的峰值灰度 (仅报告)")
-    ap.add_argument("--saturation-max-peak", type=float, default=245.0,
-                    help="选曝光档时的峰值上限")
-    ap.add_argument("--delta-rad", type=float, default=DEFAULT_DELTA_RAD)
-    ap.add_argument("--grid", type=int, default=DEFAULT_GRID)
-    ap.add_argument("--n-patterns", type=int, default=DEFAULT_N_PATTERNS)
-    ap.add_argument("--pairs", type=int, default=DEFAULT_PAIRS)
-    ap.add_argument("--roi", type=int, default=DEFAULT_ROI,
-                    help="分析 ROI 全宽 px (取半宽送入 crop_roi)")
-    ap.add_argument("--drift-frames", type=int, default=DEFAULT_DRIFT_FRAMES,
-                    help="漂移地板用的连续平场读帧数")
-    ap.add_argument("--frames", type=int, default=4)
-    ap.add_argument("--discard", type=int, default=3)
-    ap.add_argument("--settle-s", type=float, default=0.5)
-    ap.add_argument("--stable-tol", type=float, default=0.02)
-    ap.add_argument("--max-wait-s", type=float, default=6.0)
-    ap.add_argument("--seed", type=int, default=DEFAULT_SEED)
-    ap.add_argument("--no-hw", action="store_true",
-                    help="不打开硬件, 只打印采集计划 (自检用)")
-    return ap.parse_args(argv)
-
-
-def _plan_lines(args: argparse.Namespace) -> list[str]:
-    ladder = _parse_floats(args.exposure_ladder)
+def _plan_lines(params: AbbaProbeParams) -> list[str]:
+    ladder = _parse_floats(params.exposure_ladder)
     return [
-        f"panel {DEFAULT_PANEL_SHAPE}  roi {args.roi}px  "
-        f"(half {args.roi // 2})",
-        f"exposure: {'rebracket' if args.rebracket_exposure else 'fixed'} "
-        f"start {args.exposure_ms} ms  ladder {ladder}  "
-        f"max-peak {args.saturation_max_peak}  clip {args.saturation_level}",
-        f"drift floor: {args.drift_frames} consecutive flat reads",
-        f"sweep: {args.n_patterns} patterns x {args.pairs} ABBA pairs  "
-        f"delta {args.delta_rad} rad  grid {args.grid} "
-        f"({args.grid * args.grid} DOF)  seed {args.seed}",
-        f"capture: frames {args.frames} discard {args.discard} "
-        f"settle {args.settle_s}s tol {args.stable_tol} "
-        f"max-wait {args.max_wait_s}s",
-        f"outputs: {Path(args.out) / 'abba_records.pkl'}, "
-        f"{Path(args.out) / 'abba_summary.npz'}",
+        f"panel {DEFAULT_PANEL_SHAPE}  roi {params.roi}px  "
+        f"(half {params.roi // 2})",
+        f"exposure: {'rebracket' if params.rebracket_exposure else 'fixed'} "
+        f"start {params.exposure_ms} ms  ladder {ladder}  "
+        f"max-peak {params.saturation_max_peak}  clip {params.saturation_level}",
+        f"drift floor: {params.drift_frames} consecutive flat reads",
+        f"sweep: {params.n_patterns} patterns x {params.pairs} ABBA pairs  "
+        f"delta {params.delta_rad} rad  grid {params.grid} "
+        f"({params.grid * params.grid} DOF)  seed {params.seed}",
+        f"capture: frames {params.frames} discard {params.discard} "
+        f"settle {params.settle_s}s tol {params.stable_tol} "
+        f"max-wait {params.max_wait_s}s",
+        f"outputs: {Path(params.out) / 'abba_records.pkl'}, "
+        f"{Path(params.out) / 'abba_summary.npz'}",
     ]
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """Run the ABBA probe on hardware and persist it.
+@click.command()
+@with_params(AbbaProbeParams, kw_name="params")
+def main(params: AbbaProbeParams) -> None:
+    """ABBA 密集随机相位可探测性探针 (需硬件: Santec SLM-200 + 远场相机)"""
+    from ao_shaping.utils.io.cli_helpers import setup_coredumpy
 
-    Args:
-        argv: Command-line arguments; defaults to ``sys.argv[1:]``.
+    setup_coredumpy()
 
-    Returns:
-        ``0`` on success, including on the ``--no-hw`` self-check path.
-    """
-    args = _parse_args(argv)
+    # argparse used to reject this at parse time via ``choices=``. The field is
+    # a plain ``str`` now (same as the other migrated probes), so the check has
+    # to happen here -- before the ``--no-hw`` shortcut, or ``--cam-type nikon
+    # --no-hw`` would silently pass where the old parser could not.
+    if params.cam_type not in CAM_TYPES:
+        raise click.BadParameter(
+            f"unknown camera backend {params.cam_type!r}; "
+            f"choose one of {', '.join(CAM_TYPES)}",
+            param_hint="--cam-type",
+        )
 
-    if args.no_hw:
+    if params.no_hw:
         # Before any driver import: the self-check must be safe to run on a
         # machine with no SLM and no camera SDK installed at all.
         logger.info("--no-hw: ABBA 采集计划, 不打开硬件")
-        for line in _plan_lines(args):
+        for line in _plan_lines(params):
             logger.info("  {}", line)
         logger.info(
             "计划帧数 ≈ {} 次读帧 (曝光梯度 {} + 漂移地板 {} + 平场 {} + 扫描 {})",
-            len(_parse_floats(args.exposure_ladder))
-            + args.drift_frames
+            len(_parse_floats(params.exposure_ladder))
+            + params.drift_frames
             + 1
-            + args.n_patterns * args.pairs * 4,
-            len(_parse_floats(args.exposure_ladder)),
-            args.drift_frames,
+            + params.n_patterns * params.pairs * 4,
+            len(_parse_floats(params.exposure_ladder)),
+            params.drift_frames,
             1,
-            args.n_patterns * args.pairs * 4,
+            params.n_patterns * params.pairs * 4,
         )
-        return 0
+        return
 
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm.santec import Santec
 
-    out_dir = Path(args.out)
+    out_dir = Path(params.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     shape = DEFAULT_PANEL_SHAPE
     flat_phase = np.zeros(shape, dtype=np.float64)
     current: dict[str, np.ndarray] = {"phase": flat_phase}
 
     with Santec(
-        slm_number=args.slm_number, wavelength=args.slm_wavelength, video_mode=0
+        slm_number=params.slm_number,
+        wavelength=params.slm_wavelength,
+        video_mode=0,
     ) as slm, create_camera(
-        args.cam_type, args.cam_id, exposure_time_ms=args.exposure_ms
+        params.cam_type, params.cam_id, exposure_time_ms=params.exposure_ms
     ) as cam:
 
         def display_pattern(phase: np.ndarray) -> None:
@@ -510,21 +548,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             # readings agree -- the discipline a single-shot read would skip.
             return capture_settled(
                 cam, slm, current["phase"],
-                n_frames=args.frames, n_discard=args.discard,
-                wait_time_s=args.settle_s, stable_tol=args.stable_tol,
-                max_wait_s=args.max_wait_s,
+                n_frames=params.frames, n_discard=params.discard,
+                wait_time_s=params.settle_s, stable_tol=params.stable_tol,
+                max_wait_s=params.max_wait_s,
             )
 
-        cam.reset_exposure_time(float(args.exposure_ms))
-        if args.rebracket_exposure:
+        cam.reset_exposure_time(float(params.exposure_ms))
+        if params.rebracket_exposure:
             exposure_ms, bracket_info = rebracket_exposure(
                 capture,
                 lambda ms: cam.reset_exposure_time(ms),
-                _parse_floats(args.exposure_ladder),
-                saturation_level=args.saturation_max_peak,
+                _parse_floats(params.exposure_ladder),
+                saturation_level=params.saturation_max_peak,
             )
         else:
-            exposure_ms, bracket_info = float(args.exposure_ms), {}
+            exposure_ms, bracket_info = float(params.exposure_ms), {}
         cam.reset_exposure_time(exposure_ms)
         logger.info(
             "曝光 {} ms (峰值 {})", exposure_ms,
@@ -538,13 +576,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         probe = np.asarray(capture(), dtype=np.float64)
         cx, cy = zero_order_center(probe)
         center = (int(cx), int(cy))
-        half = int(args.roi) // 2
+        half = int(params.roi) // 2
         logger.info("ROI 中心 {} half={}", center, half)
 
         def roi_capture() -> np.ndarray:
             return prepare_roi_frame(capture(), center, half)
 
-        floor, drift_series = drift_floor_at_exposure(roi_capture, args.drift_frames)
+        floor, drift_series = drift_floor_at_exposure(
+            roi_capture, params.drift_frames
+        )
         logger.info(
             "漂移地板 {:.4g} ({} 次连续差: [{}])",
             floor, len(drift_series),
@@ -559,20 +599,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             save_abba_records_pkl(records_path, rows)
             logger.info(
                 "  pattern {}/{}  response {:.4g}  snr {:.3g}  (已存 {})",
-                row["pattern"] + 1, args.n_patterns, row["response"], row["snr"],
+                row["pattern"] + 1, params.n_patterns, row["response"], row["snr"],
                 records_path.name,
             )
 
         rows, summary = dense_abba_sweep(
             roi_capture,
             display_pattern,
-            n_patterns=args.n_patterns,
-            pairs=args.pairs,
-            delta_rad=args.delta_rad,
-            grid=args.grid,
+            n_patterns=params.n_patterns,
+            pairs=params.pairs,
+            delta_rad=params.delta_rad,
+            grid=params.grid,
             panel_shape=shape,
             floor=floor,
-            seed=args.seed,
+            seed=params.seed,
             exposure_ms=exposure_ms,
             on_pattern=checkpoint,
         )
@@ -587,8 +627,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     summary["all_saturated"] = bool(bracket_info.get("all_saturated", False))
     summary["roi_center"] = np.asarray(center, dtype=np.int64)
     summary["roi_half"] = int(half)
-    summary["saturation_level"] = float(args.saturation_level)
-    summary["saturation_max_peak"] = float(args.saturation_max_peak)
+    summary["saturation_level"] = float(params.saturation_level)
+    summary["saturation_max_peak"] = float(params.saturation_max_peak)
 
     save_abba_records_pkl(records_path, rows)
     summary_path = save_abba_summary_npz(out_dir / "abba_summary.npz", summary)
@@ -603,11 +643,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         logger.warning(
             "密集随机相位响应淹没在漂移里: 该台架当前 delta={} rad 不足以支撑"
             "model-in-the-loop 散斑标定 (可先加大 --delta-rad 或 --pairs)",
-            args.delta_rad,
+            params.delta_rad,
         )
     logger.info("ABBA 探针完成 -> {} / {}", records_path, summary_path)
-    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(main())
+    main()

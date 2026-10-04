@@ -54,12 +54,13 @@ Bench rules this probe obeys, and why
 
 from __future__ import annotations
 
-import argparse
 import time
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
+import click
 import numpy as np
 
 from loguru import logger
@@ -78,6 +79,7 @@ from ao_shaping.tools.slm.slm_bench_probe import (
     smooth_frame,
 )
 from ao_shaping.tools.slm.slm_zernike_sweep_probe import capture_settled
+from ao_shaping.utils.cli_params import option, with_params
 
 __all__ = [
     "DRIFT_REPEAT_TOL",
@@ -87,6 +89,7 @@ __all__ = [
     "SETTLE_FRAMES",
     "SETTLE_MAX_WAIT_S",
     "SETTLE_STABLE_TOL",
+    "DriftProbeParams",
     "drift_series",
     "exposure_ladder",
     "main",
@@ -435,38 +438,74 @@ def _parse_floats(text: str) -> list[float]:
     return [float(v) for v in str(text).split(",") if v.strip()]
 
 
-def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    from ao_shaping.utils.io.cli_helpers import setup_coredumpy
+@dataclass
+class DriftProbeParams:
+    """平场漂移 + 曝光阶梯探针的 CLI 参数。
 
-    setup_coredumpy()
-    ap = argparse.ArgumentParser(
-        description="SLM 平场漂移 + 曝光阶梯探针 (需硬件: Santec SLM-200 + 远场相机)",
-    )
-    ap.add_argument("--out", default="data/slm_drift", help="输出目录")
-    ap.add_argument("--slm-number", type=int, default=1)
-    ap.add_argument("--slm-wavelength", type=int, default=1064)
-    ap.add_argument("--cam-type", default="daheng", choices=["daheng", "miicam"])
-    ap.add_argument("--cam-id", type=int, default=0)
-    ap.add_argument("--exposure-ms", type=float, default=0.4,
-                    help="漂移段固定曝光 (ms)")
-    ap.add_argument("--n-drift", type=int, default=24, help="漂移采集帧数")
-    ap.add_argument("--drift-period-s", type=float, default=5.0, help="漂移采样间隔 s")
-    ap.add_argument("--exposure-ladder", default=",".join(str(v) for v in LADDER_DEFAULT),
-                    help="曝光阶梯 (ms, 逗号分隔)")
-    ap.add_argument("--ladder-repeats", type=int, default=2, help="每级曝光重复次数")
-    ap.add_argument("--roi", type=int, default=192, help="漂移/阶梯 ROI 边长 px")
-    ap.add_argument("--saturation-level", type=float, default=None,
-                    help="探测器满量程值; 峰值达到即判饱和 (默认不判)")
-    ap.add_argument("--no-hw", action="store_true",
-                    help="不打开硬件, 只打印采集计划 (自检用)")
-    return ap.parse_args(argv)
+    默认值来自本台架的实测标定, 不与其他探针共享: ``--exposure-ms`` 默认 0.4 ms
+    (1.1 ms 时 0 阶峰值约 60, 但 0.4 ms 才能看出漂移幅度), ``--exposure-ladder``
+    默认取 :data:`LADDER_DEFAULT`。
+
+    ``--saturation-level`` 默认 ``None``, 也就是**不判饱和** —— argparse 的
+    ``type=float, default=None`` 在 dataclass 里对应 ``float | None``;
+    :func:`main` 再把它转成 npz 的 ``nan``。
+
+    ``--no-hw`` 是**裸 flag** (``is_flag=True``), 不是 click 的
+    ``--hw/--no-hw`` 配对布尔: 配对写法会凭空多出一个 ``--hw``, 改变本探针
+    声明的 flag 集合。
+    """
+
+    out: Annotated[
+        str, option("--out", help="输出目录 (默认 data/slm_drift)")
+    ] = "data/slm_drift"
+    slm_number: Annotated[
+        int, option("--slm-number", help="SLM 设备编号 (默认 1)")
+    ] = 1
+    slm_wavelength: Annotated[
+        int, option("--slm-wavelength", help="SLM 波长 nm (默认 1064)")
+    ] = 1064
+    cam_type: Annotated[
+        str,
+        option(
+            "--cam-type",
+            type=click.Choice(["daheng", "miicam"]),
+            help="相机类型 (daheng/miicam, 默认 daheng)",
+        ),
+    ] = "daheng"
+    cam_id: Annotated[int, option("--cam-id", help="相机 ID (默认 0)")] = 0
+    exposure_ms: Annotated[
+        float, option("--exposure-ms", help="漂移段固定曝光 (ms, 默认 0.4)")
+    ] = 0.4
+    n_drift: Annotated[
+        int, option("--n-drift", help="漂移采集帧数 (默认 24)")
+    ] = 24
+    drift_period_s: Annotated[
+        float, option("--drift-period-s", help="漂移采样间隔 s (默认 5.0)")
+    ] = 5.0
+    exposure_ladder: Annotated[
+        str, option("--exposure-ladder", help="曝光阶梯 (ms, 逗号分隔)")
+    ] = ",".join(str(v) for v in LADDER_DEFAULT)
+    ladder_repeats: Annotated[
+        int, option("--ladder-repeats", help="每级曝光重复次数 (默认 2)")
+    ] = 2
+    roi: Annotated[
+        int, option("--roi", help="漂移/阶梯 ROI 边长 px (默认 192)")
+    ] = 192
+    saturation_level: Annotated[
+        float | None,
+        option("--saturation-level", help="探测器满量程值; 峰值达到即判饱和 (默认不判)"),
+    ] = None
+    no_hw: Annotated[
+        bool,
+        option("--no-hw", is_flag=True, help="不打开硬件, 只打印采集计划 (自检用)"),
+    ] = False
 
 
 def _summary_npz(
     drift_summary: dict,
     ladder_summary: dict,
     rows: Sequence[dict[str, Any]],
-    args: argparse.Namespace,
+    params: DriftProbeParams,
 ) -> dict[str, np.ndarray]:
     """Columns for ``summary.npz``: every series plus the scalar verdicts.
 
@@ -474,7 +513,7 @@ def _summary_npz(
         drift_summary: The :func:`drift_series` summary.
         ladder_summary: The :func:`exposure_ladder` summary.
         rows: All persisted rows, drift first then ladder, epochs contiguous.
-        args: Parsed CLI namespace.
+        params: Parsed CLI parameters.
 
     Returns:
         A dict of arrays for :func:`numpy.savez_compressed`.
@@ -489,7 +528,11 @@ def _summary_npz(
         "sum": col("sum"),
         "norm": col("norm"),
         "fwhm_px": col("fwhm_px"),
-        "exposure_ms": col("exposure_ms"),
+        # Was `"exposure_ms"`, colliding with the run-configuration scalar of the
+        # same name further down: Python kept the LAST one, so the per-record
+        # series never reached summary.npz at all (ruff F601). Named after the
+        # existing `drift_l2_series` convention.
+        "exposure_ms_series": col("exposure_ms"),
         # Drift rows carry `repeat=None`; NaN is the numpy spelling of that.
         "repeat": col("repeat"),
         "epoch": col("_epoch"),
@@ -515,40 +558,37 @@ def _summary_npz(
         ),
         "roi_half": np.array(-1 if drift_summary["roi_half"] is None
                              else drift_summary["roi_half"]),
-        "exposure_ms": np.array(args.exposure_ms),
-        "n_drift": np.array(args.n_drift),
-        "drift_period_s": np.array(args.drift_period_s),
+        "exposure_ms": np.array(params.exposure_ms),
+        "n_drift": np.array(params.n_drift),
+        "drift_period_s": np.array(params.drift_period_s),
         "settle_frames": np.array(SETTLE_FRAMES),
         "settle_discard": np.array(SETTLE_DISCARD),
         "settle_stable_tol": np.array(SETTLE_STABLE_TOL),
         "settle_max_wait_s": np.array(SETTLE_MAX_WAIT_S),
-        "saturation_level": np.array(np.nan if args.saturation_level is None
-                                     else args.saturation_level),
+        "saturation_level": np.array(np.nan if params.saturation_level is None
+                                     else params.saturation_level),
     }
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """Measure drift then the exposure ladder on hardware, and persist both.
+@click.command()
+@with_params(DriftProbeParams, kw_name="params")
+def main(params: DriftProbeParams) -> None:
+    """Measure drift then the exposure ladder on hardware, and persist both."""
+    from ao_shaping.utils.io.cli_helpers import setup_coredumpy
 
-    Args:
-        argv: Command-line arguments; defaults to ``sys.argv[1:]``.
+    setup_coredumpy()
+    ladder = _parse_floats(params.exposure_ladder)
 
-    Returns:
-        ``0`` on success.
-    """
-    args = _parse_args(argv)
-    ladder = _parse_floats(args.exposure_ladder)
-
-    if args.no_hw:
+    if params.no_hw:
         logger.info("--no-hw: 不打开硬件, 只打印采集计划")
-        logger.info("  漂移: {} 帧 @ {} ms, 间隔 {} s", args.n_drift,
-                    args.exposure_ms, args.drift_period_s)
-        logger.info("  曝光阶梯: {} ms, 每级 {} 次", ladder, args.ladder_repeats)
-        logger.info("  ROI 边长 {} px, 饱和阈值 {}", args.roi, args.saturation_level)
+        logger.info("  漂移: {} 帧 @ {} ms, 间隔 {} s", params.n_drift,
+                    params.exposure_ms, params.drift_period_s)
+        logger.info("  曝光阶梯: {} ms, 每级 {} 次", ladder, params.ladder_repeats)
+        logger.info("  ROI 边长 {} px, 饱和阈值 {}", params.roi, params.saturation_level)
         logger.info("  稳定判据: {} 帧平均 / 丢 {} 帧 / tol {} / 上限 {} s",
                     SETTLE_FRAMES, SETTLE_DISCARD, SETTLE_STABLE_TOL,
                     SETTLE_MAX_WAIT_S)
-        return 0
+        return
 
     # Imported here, not at module scope: importing a driver package must never be
     # a side effect of a `--no-hw` self-check.
@@ -556,15 +596,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     from ao_shaping.drivers.slm.santec import Santec
     from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts
 
-    out_dir = Path(args.out)
+    out_dir = Path(params.out)
     out_dir.mkdir(parents=True, exist_ok=True)
-    half = int(args.roi) // 2
+    half = int(params.roi) // 2
     flat_phase = np.zeros((SLM_PANEL_H, SLM_PANEL_W), dtype=np.float64)
 
     with Santec(
-        slm_number=args.slm_number, wavelength=args.slm_wavelength, video_mode=0
+        slm_number=params.slm_number, wavelength=params.slm_wavelength, video_mode=0
     ) as slm, create_camera(
-        args.cam_type, args.cam_id, exposure_time_ms=args.exposure_ms
+        params.cam_type, params.cam_id, exposure_time_ms=params.exposure_ms
     ) as cam:
 
         def capture_flat() -> np.ndarray:
@@ -588,23 +628,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         # argmax hops between near-equal speckle grains.
         reference = capture_flat()
         centre = _locate_zero_order(reference)
-        logger.info("0 阶定位于 ({}), ROI {} px (整轮冻结)", centre, args.roi)
+        logger.info("0 阶定位于 ({}), ROI {} px (整轮冻结)", centre, params.roi)
 
         drift_records, drift_summary = drift_series(
-            _paced(capture_flat, args.drift_period_s), args.n_drift,
+            _paced(capture_flat, params.drift_period_s), params.n_drift,
             first_frame=reference, center=centre, half=half,
-            exposure_ms=args.exposure_ms,
+            exposure_ms=params.exposure_ms,
         )
         ladder_records, ladder_summary = exposure_ladder(
-            capture_flat, set_exposure, ladder, args.ladder_repeats,
-            center=centre, half=half, saturation_level=args.saturation_level,
+            capture_flat, set_exposure, ladder, params.ladder_repeats,
+            center=centre, half=half, saturation_level=params.saturation_level,
         )
-        set_exposure(float(args.exposure_ms))
+        set_exposure(float(params.exposure_ms))
 
     rows: list[dict[str, Any]] = [{**r, "_epoch": i} for i, r in enumerate(
         [*drift_records, *ladder_records]
     )]
-    columns = _summary_npz(drift_summary, ladder_summary, rows, args)
+    columns = _summary_npz(drift_summary, ladder_summary, rows, params)
     npz_path = out_dir / "summary.npz"
     np.savez_compressed(npz_path, **columns)
     logger.info("summary -> {}", npz_path)
@@ -625,17 +665,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             "drift_summary": drift_summary,
             "ladder_summary": ladder_summary,
             "roi_center": list(centre),
-            "roi_side_px": int(args.roi),
-            "cam_type": args.cam_type,
-            "cam_id": args.cam_id,
-            "slm_number": args.slm_number,
-            "slm_wavelength": args.slm_wavelength,
-            "exposure_ms": args.exposure_ms,
-            "n_drift": args.n_drift,
-            "drift_period_s": args.drift_period_s,
+            "roi_side_px": int(params.roi),
+            "cam_type": params.cam_type,
+            "cam_id": params.cam_id,
+            "slm_number": params.slm_number,
+            "slm_wavelength": params.slm_wavelength,
+            "exposure_ms": params.exposure_ms,
+            "n_drift": params.n_drift,
+            "drift_period_s": params.drift_period_s,
             "exposure_ladder": ladder,
-            "ladder_repeats": args.ladder_repeats,
-            "saturation_level": args.saturation_level,
+            "ladder_repeats": params.ladder_repeats,
+            "saturation_level": params.saturation_level,
             "settle_frames": SETTLE_FRAMES,
             "settle_discard": SETTLE_DISCARD,
             "settle_stable_tol": SETTLE_STABLE_TOL,
@@ -645,8 +685,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     logger.info("漂移地板 {:.4g}, 阶梯判定 {}, 产物 -> {}",
                 drift_summary["drift_floor_l2"], ladder_summary["verdict"], out_dir)
-    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(main())
+    main()

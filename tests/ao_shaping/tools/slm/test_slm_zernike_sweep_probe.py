@@ -331,6 +331,8 @@ class TestArtifactTail:
     @staticmethod
     def _run_main(tmp_path, monkeypatch, captured):
         """Drive `main()` end-to-end with mocked devices + a spy backend."""
+        from click.testing import CliRunner
+
         from ao_shaping.tools.slm import slm_zernike_sweep_probe as probe
 
         slm, cam = MockSLM(), WiringCam()
@@ -357,25 +359,36 @@ class TestArtifactTail:
             lambda *a, **kw: captured.append((a, kw)) or tmp_path / "art.png",
         )
         # One point keeps the run fast; the real default is 42.
-        rc = probe.main([
-            "--out", str(tmp_path / "run"),
-            "--pupil-center", "80,60",
-            "--zernike-radius", "40",
-            "--sweep-tilt", "0",
-            "--sweep-defocus", "1.0",
-            "--sweep-astig", "0",
-            "--sweep-coma", "0",
-            "--sweep-spherical", "0",
-            "--sweep-ramps", "120",
-            "--frames", "1", "--discard", "0",
-            "--settle-s", "0", "--max-wait-s", "0.2",
-        ])
-        return rc
+        result = CliRunner().invoke(
+            probe.main,
+            [
+                "--out", str(tmp_path / "run"),
+                "--pupil-center", "80,60",
+                "--zernike-radius", "40",
+                "--sweep-tilt", "0",
+                "--sweep-defocus", "1.0",
+                "--sweep-astig", "0",
+                "--sweep-coma", "0",
+                "--sweep-spherical", "0",
+                "--sweep-ramps", "120",
+                "--frames", "1", "--discard", "0",
+                "--settle-s", "0", "--max-wait-s", "0.2",
+            ],
+        )
+        # Click swallows in-command exceptions into `Result`, so without this the
+        # four callers below would each fail on their own assertion (typically
+        # "Recorder backend was never reached") and hide the real traceback.
+        if result.exit_code != 0:
+            raise AssertionError(
+                f"probe.main exited {result.exit_code}: {result.exception!r}\n"
+                f"{result.output}"
+            )
+        return result
 
     def test_main_reaches_the_recorder_backend(self, tmp_path, monkeypatch):
         captured: list = []
         rc = self._run_main(tmp_path, monkeypatch, captured)
-        assert rc == 0
+        assert rc.exit_code == 0
         assert len(captured) == 1, "Recorder backend was never reached"
         args, _ = captured[0]
         # (res, root_dir, subdir_prefix) -- positionally, per the signature.

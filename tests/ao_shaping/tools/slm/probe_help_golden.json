@@ -141,8 +141,8 @@
     ]
   },
   "slm_abba_probe": {
-    "body_literals": 193,
-    "body_literals_sha256": "234d9840fddeb045",
+    "body_literals": 158,
+    "body_literals_sha256": "e3f927c04b9ae0c9",
     "declared": [
       "--cam-id",
       "--cam-type",
@@ -168,7 +168,7 @@
       "--slm-wavelength",
       "--stable-tol"
     ],
-    "help": "usage: slm_abba_probe.py [-h] [--out OUT] [--slm-number SLM_NUMBER]\n                         [--slm-wavelength SLM_WAVELENGTH]\n                         [--cam-type {daheng,miicam}] [--cam-id CAM_ID]\n                         [--exposure-ms EXPOSURE_MS] [--rebracket-exposure]\n                         [--exposure-ladder EXPOSURE_LADDER]\n                         [--saturation-level SATURATION_LEVEL]\n                         [--saturation-max-peak SATURATION_MAX_PEAK]\n                         [--delta-rad DELTA_RAD] [--grid GRID]\n                         [--n-patterns N_PATTERNS] [--pairs PAIRS] [--roi ROI]\n                         [--drift-frames DRIFT_FRAMES] [--frames FRAMES]\n                         [--discard DISCARD] [--settle-s SETTLE_S]\n                         [--stable-tol STABLE_TOL] [--max-wait-s MAX_WAIT_S]\n                         [--seed SEED] [--no-hw]\n\nABBA 密集随机相位可探测性探针 (需硬件: Santec SLM-200 + 远场相机)\n\noptions:\n  -h, --help            show this help message and exit\n  --out OUT             输出目录\n  --slm-number SLM_NUMBER\n  --slm-wavelength SLM_WAVELENGTH\n  --cam-type {daheng,miicam}\n  --cam-id CAM_ID\n  --exposure-ms EXPOSURE_MS\n                        初始曝光; --rebracket-exposure 时仅作起点参考\n  --rebracket-exposure  沿曝光梯度选最亮未饱和档\n  --exposure-ladder EXPOSURE_LADDER\n  --saturation-level SATURATION_LEVEL\n                        判定为截断的峰值灰度 (仅报告)\n  --saturation-max-peak SATURATION_MAX_PEAK\n                        选曝光档时的峰值上限\n  --delta-rad DELTA_RAD\n  --grid GRID\n  --n-patterns N_PATTERNS\n  --pairs PAIRS\n  --roi ROI             分析 ROI 全宽 px (取半宽送入 crop_roi)\n  --drift-frames DRIFT_FRAMES\n                        漂移地板用的连续平场读帧数\n  --frames FRAMES\n  --discard DISCARD\n  --settle-s SETTLE_S\n  --stable-tol STABLE_TOL\n  --max-wait-s MAX_WAIT_S\n  --seed SEED\n  --no-hw               不打开硬件, 只打印采集计划 (自检用)",
+    "help": "Usage: python -m ao_shaping.tools.slm.slm_abba_probe [OPTIONS]\n\n  ABBA 密集随机相位可探测性探针 (需硬件: Santec SLM-200 + 远场相机)\n\nOptions:\n  --out TEXT                   输出目录\n  --slm-number INTEGER\n  --slm-wavelength INTEGER\n  --cam-type TEXT              相机类型 (daheng/miicam, 默认 daheng)\n  --cam-id INTEGER\n  --exposure-ms FLOAT          初始曝光; --rebracket-exposure 时仅作起点参考\n  --rebracket-exposure         沿曝光梯度选最亮未饱和档\n  --exposure-ladder TEXT\n  --saturation-level FLOAT     判定为截断的峰值灰度 (仅报告)\n  --saturation-max-peak FLOAT  选曝光档时的峰值上限\n  --delta-rad FLOAT\n  --grid INTEGER\n  --n-patterns INTEGER\n  --pairs INTEGER\n  --roi INTEGER                分析 ROI 全宽 px (取半宽送入 crop_roi)\n  --drift-frames INTEGER       漂移地板用的连续平场读帧数\n  --frames INTEGER\n  --discard INTEGER\n  --settle-s FLOAT\n  --stable-tol FLOAT\n  --max-wait-s FLOAT\n  --seed INTEGER\n  --no-hw                      不打开硬件, 只打印采集计划 (自检用)\n  --help                       Show this message and exit.",
     "help_flags": [
       "--cam-id",
       "--cam-type",
@@ -259,8 +259,8 @@
     ]
   },
   "slm_drift_probe": {
-    "body_literals": 204,
-    "body_literals_sha256": "376be15cc7f31d6d",
+    "body_literals": 175,
+    "body_literals_sha256": "b3af7e900e2e48cd",
     "declared": [
       "--cam-id",
       "--cam-type",
@@ -276,7 +276,7 @@
       "--slm-number",
       "--slm-wavelength"
     ],
-    "help": "usage: slm_drift_probe.py [-h] [--out OUT] [--slm-number SLM_NUMBER]\n                          [--slm-wavelength SLM_WAVELENGTH]\n                          [--cam-type {daheng,miicam}] [--cam-id CAM_ID]\n                          [--exposure-ms EXPOSURE_MS] [--n-drift N_DRIFT]\n                          [--drift-period-s DRIFT_PERIOD_S]\n                          [--exposure-ladder EXPOSURE_LADDER]\n                          [--ladder-repeats LADDER_REPEATS] [--roi ROI]\n                          [--saturation-level SATURATION_LEVEL] [--no-hw]\n\nSLM 平场漂移 + 曝光阶梯探针 (需硬件: Santec SLM-200 + 远场相机)\n\noptions:\n  -h, --help            show this help message and exit\n  --out OUT             输出目录\n  --slm-number SLM_NUMBER\n  --slm-wavelength SLM_WAVELENGTH\n  --cam-type {daheng,miicam}\n  --cam-id CAM_ID\n  --exposure-ms EXPOSURE_MS\n                        漂移段固定曝光 (ms)\n  --n-drift N_DRIFT     漂移采集帧数\n  --drift-period-s DRIFT_PERIOD_S\n                        漂移采样间隔 s\n  --exposure-ladder EXPOSURE_LADDER\n                        曝光阶梯 (ms, 逗号分隔)\n  --ladder-repeats LADDER_REPEATS\n                        每级曝光重复次数\n  --roi ROI             漂移/阶梯 ROI 边长 px\n  --saturation-level SATURATION_LEVEL\n                        探测器满量程值; 峰值达到即判饱和 (默认不判)\n  --no-hw               不打开硬件, 只打印采集计划 (自检用)",
+    "help": "Usage: python -m ao_shaping.tools.slm.slm_drift_probe [OPTIONS]\n\n  Measure drift then the exposure ladder on hardware, and persist both.\n\nOptions:\n  --out TEXT                  输出目录 (默认 data/slm_drift)\n  --slm-number INTEGER        SLM 设备编号 (默认 1)\n  --slm-wavelength INTEGER    SLM 波长 nm (默认 1064)\n  --cam-type [daheng|miicam]  相机类型 (daheng/miicam, 默认 daheng)\n  --cam-id INTEGER            相机 ID (默认 0)\n  --exposure-ms FLOAT         漂移段固定曝光 (ms, 默认 0.4)\n  --n-drift INTEGER           漂移采集帧数 (默认 24)\n  --drift-period-s FLOAT      漂移采样间隔 s (默认 5.0)\n  --exposure-ladder TEXT      曝光阶梯 (ms, 逗号分隔)\n  --ladder-repeats INTEGER    每级曝光重复次数 (默认 2)\n  --roi INTEGER               漂移/阶梯 ROI 边长 px (默认 192)\n  --saturation-level FLOAT    探测器满量程值; 峰值达到即判饱和 (默认不判)\n  --no-hw                     不打开硬件, 只打印采集计划 (自检用)\n  --help                      Show this message and exit.",
     "help_flags": [
       "--cam-id",
       "--cam-type",
@@ -315,8 +315,8 @@
     ]
   },
   "slm_floor_probe": {
-    "body_literals": 208,
-    "body_literals_sha256": "3caab5b4b8082686",
+    "body_literals": 169,
+    "body_literals_sha256": "891b048b65038bfa",
     "declared": [
       "--cam-id",
       "--cam-type",
@@ -340,7 +340,7 @@
       "--slm-wavelength",
       "--stable-tol"
     ],
-    "help": "usage: slm_floor_probe.py [-h] [--out OUT] [--slm-number SLM_NUMBER]\n                          [--slm-wavelength SLM_WAVELENGTH]\n                          [--cam-type {daheng,miicam}] [--cam-id CAM_ID]\n                          [--exposure-ms EXPOSURE_MS] [--n-repeat N_REPEAT]\n                          [--settle-curve-s SETTLE_CURVE_S]\n                          [--settle-sample-ms SETTLE_SAMPLE_MS]\n                          [--settle-frac SETTLE_FRAC]\n                          [--settle-run SETTLE_RUN] [--ks KS]\n                          [--perturbation-rad PERTURBATION_RAD] [--roi ROI]\n                          [--cell-grid CELL_GRID] [--frames FRAMES]\n                          [--discard DISCARD] [--settle-s SETTLE_S]\n                          [--stable-tol STABLE_TOL] [--max-wait-s MAX_WAIT_S]\n                          [--no-hw]\n\nSLM 台架本底探针 (需硬件: Santec SLM-200 + 远场相机): 重复性本底 / 稳定时间 / SNR-平均帧数 梯度\n\noptions:\n  -h, --help            show this help message and exit\n  --out OUT             输出目录\n  --slm-number SLM_NUMBER\n  --slm-wavelength SLM_WAVELENGTH\n  --cam-type {daheng,miicam}\n  --cam-id CAM_ID\n  --exposure-ms EXPOSURE_MS\n  --n-repeat N_REPEAT   重复性本底用的连续平场读帧数\n  --settle-curve-s SETTLE_CURVE_S\n                        稳定曲线总时长 s\n  --settle-sample-ms SETTLE_SAMPLE_MS\n                        稳定曲线采样间隔 ms\n  --settle-frac SETTLE_FRAC\n                        判稳容差 = frac * 末值\n  --settle-run SETTLE_RUN\n                        判稳所需的连续在容差内采样数\n  --ks KS               SNR 梯度的平均帧数 (逗号分隔)\n  --perturbation-rad PERTURBATION_RAD\n  --roi ROI             分析 ROI 全宽 px (取半宽送入 crop_roi)\n  --cell-grid CELL_GRID\n                        扰动块系数网格边长 (cell-grid^2 DOF)\n  --frames FRAMES\n  --discard DISCARD\n  --settle-s SETTLE_S   单次读帧的稳定等待 s (交给 capture_settled)\n  --stable-tol STABLE_TOL\n  --max-wait-s MAX_WAIT_S\n  --no-hw               不打开硬件, 只打印采集计划 (自检用)",
+    "help": "Usage: python -m ao_shaping.tools.slm.slm_floor_probe [OPTIONS]\n\n  Run the floor probe on hardware and persist it.\n\n  ``--no-hw`` prints the acquisition plan and returns without importing a\n  driver.\n\nOptions:\n  --out TEXT                  输出目录\n  --slm-number INTEGER        SLM 设备编号 (默认 1)\n  --slm-wavelength INTEGER    SLM 波长 nm (默认 1064)\n  --cam-type [daheng|miicam]  相机类型 (daheng/miicam, 默认 daheng)\n  --cam-id INTEGER            相机 ID (默认 0)\n  --exposure-ms FLOAT         相机曝光 ms (默认 1.5)\n  --n-repeat INTEGER          重复性本底用的连续平场读帧数\n  --settle-curve-s FLOAT      稳定曲线总时长 s\n  --settle-sample-ms FLOAT    稳定曲线采样间隔 ms\n  --settle-frac FLOAT         判稳容差 = frac * 末值\n  --settle-run INTEGER        判稳所需的连续在容差内采样数\n  --ks TEXT                   SNR 梯度的平均帧数 (逗号分隔)\n  --perturbation-rad FLOAT    扰动幅度 rad (默认 0.6)\n  --roi INTEGER               分析 ROI 全宽 px (取半宽送入 crop_roi)\n  --cell-grid INTEGER         扰动块系数网格边长 (cell-grid^2 DOF)\n  --frames INTEGER            每帧平均张数 (默认 4)\n  --discard INTEGER           丢弃前 N 帧等稳定 (默认 3)\n  --settle-s FLOAT            单次读帧的稳定等待 s (交给 capture_settled)\n  --stable-tol FLOAT          连续两帧读数的相对容差 (默认 0.02)\n  --max-wait-s FLOAT          单次读帧稳定等待上限 s (默认 6.0)\n  --no-hw                     不打开硬件, 只打印采集计划 (自检用)\n  --help                      Show this message and exit.",
     "help_flags": [
       "--cam-id",
       "--cam-type",
@@ -693,8 +693,8 @@
     ]
   },
   "slm_zernike_sweep_probe": {
-    "body_literals": 144,
-    "body_literals_sha256": "cd2541fef4788f4e",
+    "body_literals": 107,
+    "body_literals_sha256": "8d5236a340410bc3",
     "declared": [
       "--cam-id",
       "--cam-type",
@@ -717,7 +717,7 @@
       "--sweep-tilt",
       "--zernike-radius"
     ],
-    "help": "usage: slm_zernike_sweep_probe.py [-h] [--out OUT] [--slm-number SLM_NUMBER]\n                                  [--slm-wavelength SLM_WAVELENGTH]\n                                  [--cam-type {daheng,miicam}]\n                                  [--cam-id CAM_ID]\n                                  [--exposure-ms EXPOSURE_MS]\n                                  [--pupil-center PUPIL_CENTER]\n                                  [--zernike-radius ZERNIKE_RADIUS]\n                                  [--sweep-tilt SWEEP_TILT]\n                                  [--sweep-defocus SWEEP_DEFOCUS]\n                                  [--sweep-astig SWEEP_ASTIG]\n                                  [--sweep-coma SWEEP_COMA]\n                                  [--sweep-spherical SWEEP_SPHERICAL]\n                                  [--sweep-ramps SWEEP_RAMPS]\n                                  [--frames FRAMES] [--discard DISCARD]\n                                  [--settle-s SETTLE_S]\n                                  [--stable-tol STABLE_TOL]\n                                  [--max-wait-s MAX_WAIT_S] [--no-hw]\n\n光滑 Zernike 台架扫描探针 (需硬件: Santec SLM-200 + 远场相机)\n\noptions:\n  -h, --help            show this help message and exit\n  --out OUT             输出目录 (默认 data/slm_zernike_sweep)\n  --slm-number SLM_NUMBER\n  --slm-wavelength SLM_WAVELENGTH\n  --cam-type {daheng,miicam}\n  --cam-id CAM_ID\n  --exposure-ms EXPOSURE_MS\n  --pupil-center PUPIL_CENTER\n                        光斑中心 (面板 px x,y)\n  --zernike-radius ZERNIKE_RADIUS\n  --sweep-tilt SWEEP_TILT\n  --sweep-defocus SWEEP_DEFOCUS\n  --sweep-astig SWEEP_ASTIG\n  --sweep-coma SWEEP_COMA\n  --sweep-spherical SWEEP_SPHERICAL\n  --sweep-ramps SWEEP_RAMPS\n  --frames FRAMES\n  --discard DISCARD\n  --settle-s SETTLE_S\n  --stable-tol STABLE_TOL\n  --max-wait-s MAX_WAIT_S\n  --no-hw               不打开硬件, 只打印将要采集的点 (自检用)",
+    "help": "Usage: python -m ao_shaping.tools.slm.slm_zernike_sweep_probe \n           [OPTIONS]\n\n  光滑 Zernike 台架扫描探针 (需硬件: Santec SLM-200 + 远场相机)。\n\nOptions:\n  --out TEXT                  输出目录 (默认 data/slm_zernike_sweep)\n  --slm-number INTEGER\n  --slm-wavelength INTEGER\n  --cam-type [daheng|miicam]\n  --cam-id INTEGER\n  --exposure-ms FLOAT\n  --pupil-center TEXT         光斑中心 (面板 px x,y)\n  --zernike-radius INTEGER\n  --sweep-tilt TEXT\n  --sweep-defocus TEXT\n  --sweep-astig TEXT\n  --sweep-coma TEXT\n  --sweep-spherical TEXT\n  --sweep-ramps TEXT\n  --frames INTEGER\n  --discard INTEGER\n  --settle-s FLOAT\n  --stable-tol FLOAT\n  --max-wait-s FLOAT\n  --no-hw                     不打开硬件, 只打印将要采集的点 (自检用)\n  --help                      Show this message and exit.",
     "help_flags": [
       "--cam-id",
       "--cam-type",
