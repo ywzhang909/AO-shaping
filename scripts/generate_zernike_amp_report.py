@@ -434,10 +434,97 @@ def grid_table(sweep: dict, key: str) -> str:
     return markdown_table(header, rows)
 
 
+def fig_phase_synthesis(synthesis: dict, out_dir: Path) -> dict[str, str | None]:
+    """Inversion figures: the synthesised phase, both surrogates' spots, convergence."""
+    import torch
+
+    phase = np.load(out_dir / "phase_rad.npy")
+    predicted = np.load(out_dir / "predicted_spot.npy")
+    cross = synthesis.get("cross_check_unet") or {}
+    unet_spot = np.asarray(cross["prediction"], dtype=np.float64) if "prediction" in cross else None
+    history = synthesis.get("history", [])
+    side = synthesis.get("target_side", 50)
+    grid = synthesis.get("grid", 64)
+    start = (grid - side) // 2
+    window = (slice(start, start + side), slice(start, start + side))
+
+    panels = []
+    if unet_spot is not None:
+        panels = [
+            ("合成相位 φ (raw rad)", phase, "twilight", None),
+            ("物理代理预测光斑", predicted, "inferno", window),
+            ("独立 U-Net 代理所见", unet_spot, "inferno", window),
+        ]
+    else:
+        panels = [
+            ("合成相位 φ (raw rad)", phase, "twilight", None),
+            ("物理代理预测光斑", predicted, "inferno", window),
+        ]
+    fig, axes = plt.subplots(1, len(panels) + 1, figsize=(4.1 * (len(panels) + 1), 4.0))
+    for ax, (title, image, cmap, box) in zip(axes, panels):
+        ax.imshow(image, cmap=cmap)
+        if box is not None:
+            ax.add_patch(plt.Rectangle(
+                (box[0].start, box[1].start), side, side,
+                fill=False, edgecolor="cyan", lw=1.4,
+            ))
+        ax.set_title(title, fontsize=10)
+        ax.set_xticks([]); ax.set_yticks([])
+    ax = axes[-1]
+    if history:
+        epochs = [h["epoch"] for h in history]
+        ax.plot(epochs, [h["cv"] for h in history], "o-", color="#2f6f9f", label="CV（物理代理）")
+        ax.set_xlabel("优化轮数"); ax.set_ylabel("CV", color="#2f6f9f")
+        ax.tick_params(axis="y", labelcolor="#2f6f9f")
+        twin = ax.twinx()
+        twin.plot(epochs, [h["quality"] for h in history], "s--", color="#c48a2e", label="quality")
+        twin.set_ylabel("quality", color="#c48a2e")
+        twin.tick_params(axis="y", labelcolor="#c48a2e")
+        ax.set_title("收敛（评判用 canonical 指标）", fontsize=10)
+        lines = [*ax.get_lines(), *twin.get_lines()]
+        ax.legend(lines, [str(l.get_label()) for l in lines], fontsize=7, loc="upper right")
+    fig.suptitle(
+        f"固定预测网络权重、把 phase 当变量：目标 {side}×{side} px 均匀方斑", fontsize=11
+    )
+    fig.tight_layout()
+    path = FIGURES / "10_phase_synthesis.png"
+    savefig(fig, path)
+    return {"phase_synthesis": path.name}
+
+
+def synthesis_table(synthesis: dict) -> str:
+    """Flat / synthesised / cross-check, with the repo's own square-shaping refs."""
+    opt = synthesis["optimised"]
+    flat = synthesis["baseline_flat"]
+    cross = synthesis.get("cross_check_unet") or {}
+    rows = [
+        ["平相位（基线）", "—", f"{flat['uniformity_cv']:.4f}",
+         f"{flat['encircled_energy']:.4f}", f"{flat['quality']:.4f}", "物理代理"],
+        ["**合成相位**", "—", f"**{opt['uniformity_cv']:.4f}**",
+         f"{opt['encircled_energy']:.4f}", f"**{opt['quality']:.4f}**", "物理代理"],
+    ]
+    if cross:
+        rows.append([
+            "同一相位，换一个代理看", "—", f"{cross['uniformity_cv']:.4f}",
+            f"{cross['encircled_energy']:.4f}", f"{cross['quality']:.4f}", "独立 U-Net",
+        ])
+        rows.append([
+            "同一代理看平相位", "—", f"{cross.get('flat_cv', float('nan')):.4f}", "—",
+            f"{cross.get('flat_quality', float('nan')):.4f}", "独立 U-Net",
+        ])
+    rows += [
+        ["仓库参照：GS 单次", "—", "0.41", "—", "—", "数值仿真"],
+        ["仓库参照：GS + 自由相位细化", "—", "0.12", "—", "—", "数值仿真"],
+    ]
+    return markdown_table(["方案", "参数量", "CV", "EE", "quality", "评判者"], rows)
+
+
 # --------------------------------------------------------------------------- #
 # report
 # --------------------------------------------------------------------------- #
-def build_report(sweep: dict, history: dict, figures: dict) -> str:
+def build_report(
+    sweep: dict, history: dict, figures: dict, synthesis: dict | None = None
+) -> str:
     paired_pu = sweep["paired"]["physics_minus_unet"]
     paired_ph = sweep["paired"]["physics_minus_hybrid"]
     paired_hu = sweep["paired"]["hybrid_minus_unet"]
@@ -458,6 +545,23 @@ def build_report(sweep: dict, history: dict, figures: dict) -> str:
         f"零初始化残差只保证**起点**与 physics 相同，并不保证提高 lr 后仍然中性 ——"
         f"涨参数量的是残差网络，它才是被大 lr 破坏的那部分。"
     )
+
+    # Section 10 numbers come from the inversion run, not from this module.
+    s_side = synthesis["target_side"] if synthesis else 50
+    s_opt = (synthesis or {}).get("optimised", {})
+    s_flat = (synthesis or {}).get("baseline_flat", {})
+    s_cross = (synthesis or {}).get("cross_check_unet") or {}
+    s_cv = s_opt.get("uniformity_cv", float("nan"))
+    s_flat_cv = s_flat.get("uniformity_cv", float("nan"))
+    s_ee = s_opt.get("encircled_energy", float("nan"))
+    s_x_cv = f"{s_cross['uniformity_cv']:.4f}" if s_cross else "未做"
+    s_x_flat_cv = f"{s_cross['flat_cv']:.4f}" if s_cross else "未做"
+    s_gap = (s_cross["uniformity_cv"] / s_cv) if s_cross and s_cv else float("nan")
+    s_ood = (synthesis or {}).get("extrapolation", {})
+    s_ood_ours = s_ood.get("zernike_energy_fraction", float("nan"))
+    s_ood_c = s_ood.get("corpus_zernike_fraction_mean", float("nan"))
+    s_ood_hf = s_ood.get("high_frequency_fraction", float("nan"))
+    s_ood_n = s_ood.get("corpus_samples", 0)
 
     return f"""# Zernike 远场模型 —— 开发报告
 
@@ -724,7 +828,84 @@ U-Net 出的是**图像**，反解成可下发的 SLM 相位是另一个反问�
 - **`AGENTS.md` 同样记录了这些更正，但未提交**：它的 272 行 hunk 把本任务与另一位 agent
   未完成的 `cli_params.py` 笔记交织在一起。
 
-## 10. 本报告中被推翻的结论
+## 10. 反转问题：固定网络权重，把 phase 当优化变量
+
+前 9 节都是「训练网络去**预测** phase」。这里反过来：**权重全部冻结**，把输入 phase
+当作唯一的优化变量，让代理模型输出的光斑成为 **{s_side}×{s_side} px 的均匀方斑**：
+
+```
+固定 ZernikeAmpModel（requires_grad=False），只优化 φ：
+    maximise  quality( surrogate(φ) )      s.t.  φ 在 SLM 网格上
+```
+
+这样做值得，是因为代理模型是**已标定**的：`far_field_padding=10` + 中心裁剪正是让
+预测光斑能与 248 px 相机窗口逐像素对齐的那一步，而它来自 1010 帧实测。所以代理空间里
+一个 50×50 的目标，对应相机窗口里 50×50 px。SPGD 每轮要两次相机读数且用不了梯度，
+这条路一次读数都不需要。
+
+![相位合成]({fig_ref(figures.get("phase_synthesis"))})
+
+{synthesis_table(synthesis) if synthesis else "_(未运行 optimize_uniform_spot_phase.py)_"}
+
+### 三个结果
+
+**1. 目标函数才是瓶颈，不是物理极限 —— 而且它错得很隐蔽。**
+
+第一步用 MSE 填盒子（"盒内填满、盒外清空"）只到 CV 0.264。换成与 canonical
+`compute_quality_score` 对齐的可微损失后到 CV {s_cv:.4f}。中间还修掉一个**退化**：
+
+第一版的可微质量分写成 `均匀度 × 盒内均值`（乘性）。但 **CV 看不见"暗"** ——
+全零图像的 std=0，所以 CV=0、"完美均匀"得 1 分，而它一束光都没交出来。
+写成乘性时，一个 4×4 的亮斑和一个全暗的框**打平**（MSE 上甚至暗的还略差：
+0.6104 vs 0.6064）。canonical 的 `compute_quality_score` 是**加性**的
+（CV 项 + EE 项），正是靠加性的 EE 项破掉这个平局。改成加性后结果从
+CV 0.168 进一步到 {s_cv:.4f}，EE 也从 0.887 升到 {s_ee:.4f}。
+
+> 这条比"调参"更重要：**两个目标函数优化的是不同的东西**，MSE 的最优并不是所报指标的
+> 最优，而两者在冷启动区甚至给出**排序相反**的答案。
+
+**2. 两个代理差 {s_gap:.1f} 倍，但这「不能」直接读成"物理代理在光学上错了"。**
+
+| 评判者 | 平相位 | 合成相位 |
+|---|---|---|
+| 物理代理（被优化的那个） | {s_flat_cv:.4f} | **{s_cv:.4f}** |
+| 独立训练的 U-Net 代理 | {s_x_flat_cv} | **{s_x_cv}** |
+
+U-Net 也看到光斑变均匀（{s_x_flat_cv} → {s_x_cv}），所以这个相位**不是纯粹的
+物理模型伪影**；但两个代理相差 {s_gap:.1f} 倍（图中第三、四幅可以直接看出：一个说
+"完美方斑"，另一个说"一个中心亮斑"）。
+
+**关键在于这个分歧有多少来自外推。** 语料相位是 `n_max` 限定的 Zernike 相位，
+天然带限；自由相位不是。定量测一下：
+
+| | Zernike 张成空间内的能量占比 | 0.25×Nyquist 以上的能量占比 |
+|---|---|---|
+| 语料相位（n={s_ood_n}） | **{s_ood_c:.3f}** | 带限 |
+| **合成相位** | **{s_ood_ours:.3f}** | **{s_ood_hf:.3f}** |
+
+合成相位只有 {s_ood_ours:.1%} 的能量落在语料所在的 Zernike 张成空间里，而语料平均是
+{s_ood_c:.1%}；它 {s_ood_hf:.1%} 的能量在 0.25×Nyquist 以上。**它远离两个代理的训练流形。**
+
+所以诚实的结论是：**两个代理都在外推，谁的数字都不能当光学真相。** 已知的只有
+"合成相位确实把光斑从随机散斑变成了某个有结构的形态"（两者都看到明显改善），
+以及"代理自称的均匀度不可信"。**真实 CV 只能靠硬件测。**
+
+**方法论结论：学习到的回归器不能直接当整形目标函数。** 两个原因叠加 ——
+它会把散斑预测平滑掉（于是"看起来干净"的相位在真实探测器上仍有散斑），
+而且它自己找到的最优点落在自己的训练分布之外，在那里它的预测从未被验证过。
+要修，两条路：把优化限制在模型可信的流形上（Zernike 限定 —— 但仓库已记录低阶 Zernike
+**造不出**方斑），或者给损失加散斑敏感项。
+
+**3. 与仓库自己的整形结果相比：赢了 GS，输给完整细化。** 仓库数值仿真里 GS 单次约
+CV 0.41，`GS + 自由相位细化` 约 CV 0.12；本方法 0.166 落在两者之间。注意两者并非
+严格同条件（padding、网格、目标构造都不同），所以这是量级参照而非等价比较。
+
+> **这条结论只到"代理空间"为止。** 物理模型在留出 pickle 上 R² ≈ 0.88，
+> 一个把代理优化到 CV 0.17 的相位，并不因此在真实台架上也是 CV 0.17。
+> **必须在硬件上验证**；上面的 U-Net 交叉检验是硬件不可用时能做的最强旁证，
+> 而它的结论是"有改善但远不如代理声称的"。
+
+## 11. 本报告中被推翻的结论
 
 保留记录，因为**三次朝相反方向搞错、再加一次诊断算错**正是重点：
 
@@ -743,7 +924,7 @@ U-Net 出的是**图像**，反解成可下发的 SLM 相位是另一个反问�
    经得起复算；而 d1 那个"−0.670"是手算的辅助论据，量纲错了却没人复核 ——
    它是本轮**画图时才暴露**的。图比手算更可信，因为它用了被预测组自己的 `SS_tot`。
 
-## 11. 复现
+## 12. 复现
 
 ```bash
 # 扫描并落盘（10 折分组 CV，约 30 min 单卡）
@@ -777,12 +958,22 @@ def main() -> int:
     parser.add_argument("--history", default="logs/zernike_amp_final/summary.json")
     parser.add_argument("--index-cache", default="data/hw_index_cache.json")
     parser.add_argument("--compare-png", default="logs/zernike_amp_final/compare_epoch024.png")
+    parser.add_argument(
+        "--synthesis", default="logs/uniform_spot_phase",
+        help="directory written by scripts/optimize_uniform_spot_phase.py",
+    )
     parser.add_argument("--out-dir", default="docs/zernike_amp")
     parser.add_argument("--no-figures", action="store_true")
     args = parser.parse_args()
 
     sweep = _load(Path(args.sweep))
     history = _load(Path(args.history))
+    synthesis_dir = Path(args.synthesis)
+    synthesis = None
+    if (synthesis_dir / "summary.json").exists():
+        synthesis = json.loads((synthesis_dir / "summary.json").read_text(encoding="utf-8"))
+    else:
+        print(f"note: no inversion results at {synthesis_dir}; section 10 will be omitted")
     out_dir = ROOT / args.out_dir
     FIGURES.mkdir(parents=True, exist_ok=True)
 
@@ -799,11 +990,20 @@ def main() -> int:
         figures["true_vs_pred"] = fig_true_vs_pred(
             Path(args.compare_png) if args.compare_png else None
         )
+        if synthesis is not None:
+            figures.update(fig_phase_synthesis(synthesis, synthesis_dir))
         print(f"rendered {sum(1 for v in figures.values() if v)} figures -> {FIGURES}")
 
-    report = build_report(sweep, history, figures)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "report.md").write_text(report, encoding="utf-8")
+    text = build_report(sweep, history, figures, synthesis)
+    if synthesis is None:
+        # Drop section 10 rather than ship a section full of NaN placeholders.
+        start = text.find("## 10. 反转问题")
+        end = text.find("## 11. 本报告中被推翻的结论")
+        if start != -1 and end != -1:
+            text = text[:start] + text[end:]
+            text = text.replace("## 11. 本报告中被推翻的结论", "## 10. 本报告中被推翻的结论")
+            text = text.replace("## 12. 复现", "## 11. 复现")
+    (out_dir / "report.md").write_text(text, encoding="utf-8")
     print(f"wrote {out_dir / 'report.md'}")
     return 0
 
