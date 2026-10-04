@@ -153,7 +153,7 @@
 | # | 项 | 位置 | 提出 |
 |---|---|---|---|
 | F-1 | ~~**内存槽固件 no-op 违规**~~ | ✅ 已修 → §5.16。`:383` 曾在 `for i in range(max_iter)` 里反复 `apply_compensation(comp_gs, memory_slot=2)` → 固件把已显示槽当 no-op，**第 2..N 次迭代全是空操作，LCOS 不刷新**。⚠️ 原记录另两条**实测为不成立**：`memory_mode` 在 `display_data` 签名里**本就默认 `MEMORY_MODE_INTERNAL`**（`driver.py:1197`），不传不是"漏"；`:272` docstring 的 "1-128" 与驱动 `_display_memory` 的校验区间一致，也不是错 | `tools/slm/cartographer/dynamic_compensation.py:263,383` | 2026-10-01 |
-| F-3 | `--display/--no-display` 选项的 help 写"暂未实现"——需确认是补实现还是删选项 | `runner_common.py:1795` | 2026-09-25 |
+| F-3 | `--display/--no-display` 的 help 写"暂未实现"，需确认补实现还是删选项 | ✅ **无需改动**（2026-10-04 实测）：**两个同名 flag 状态不同，且各自 help 都是对的** —— `DmMatrixRunnerParams.display`（`runner_common.py:1689`）只 `click.echo("Note: --display mode is not yet implemented...")`⇒ help 标"暂未实现"**准确**；`HadamardMatrixRunnerParams.display`（`:1743`）在 `zernike_matrix_runner.py:1203` **真的构造 `ZernikeCalibrationDisplay`** ⇒ 它的 help 不带caveat 也准确 | 2026-09-25 |
 | F-4 | `src/ml/` 移入 `src/ao_shaping/ml/` 并更新所有引用（`docs/issues_report.md` §10.3，待评估至今） | `src/ml/` | 2026-05-26 |
 | F-5 | `docs/issues_report.md` §11 的代码规范整改：`print()` 替代 loguru（原文 82 处）、宽泛 `except`、配置项分散、大文件拆分（~22 个）、冗余 `__main__` 入口（32 处）、`__future__` 覆盖率（29 个文件）。⚠️ **原文数字已过期，实施前需重新扫描** | 全仓 | 2026-05-26 |
 | F-9 | `repeat_shape_objectives.py` 加进度显示（用户要求） | `scripts/` | 2026-09-30 |
