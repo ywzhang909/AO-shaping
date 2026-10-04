@@ -1,71 +1,66 @@
-# Zernike far-field model — development report
+# Zernike 远场模型 —— 开发报告
 
-Task: train the physics forward model on the real hardware corpus, record the
-diagnostics that matter, optimise it, and compare it against a U-Net baseline.
+> 生成脚本 `scripts/generate_zernike_amp_report.py`（**全离线**，只读已保存产物，不需要硬件）。
+> 图表数据来自 `logs/zernike_amp_sweep.json`（10 折分组交叉验证扫描）与
+> `logs/zernike_amp_final/summary.json`（训练历史，即当时上传 wandb 的那一组序列）。
+> 重新生成：`python scripts/generate_zernike_amp_report.py`
 
-Everything below was measured on `data/debug/slm_zernike_shaping` (1010 records,
-10 pickles, `fov_px=248`) through `src/ml/hwdataset`. Numbers are reproducible
-with the commands in [Reproduction](#reproduction).
+本报告的所有结论都建立在一个前提上：**分组交叉验证 + 配对检验**。第 5、6 节解释为什么
+必须如此 —— 它是本项目四次结论反转的根源，其中两次来自同一个错误：
+**信任了一个未先定位来源的方差估计。**
 
 ---
 
-## 1. What the model is
+## 1. 模型是什么
 
-`src/ml/zernike/models.py` implements a differentiable pupil → far-field model
-whose only free parameters are one **global** Zernike vector `Z`:
+`src/ml/zernike/models.py` 实现了一个可微的瞳孔 → 远场前向模型，唯一可训练参数是一个
+**全局** Zernike 向量 `Z`：
 
 ```
-U    = (phase_cos + i·phase_sin) · exp(i · Σ_k Z_k B_k)     # complex domain
-focal = fftshift(fft2(ifftshift(center_pad(U)), norm="ortho"))
-loss  = MSE(observable(focal), ccd)
+U      = (phase_cos + i·phase_sin) · exp(i · Σ_k Z_k B_k)      # 复数域
+focal  = fftshift(fft2(ifftshift(center_pad(U)), norm="ortho"))
+loss   = MSE(observable(focal), ccd)
 ```
 
-- `Z` is **trained**; `n_max` (the coefficient count `K`) is a **hyperparameter**.
-- The basis `B` is built once by the canonical `ZernikeGenerator` — no Zernike
-  maths is re-derived.
-- The forward pass never calls `atan2`; it stays in the complex domain because
-  the corpus phase is wrapped to `[0, 2π)` and an angle would carry a branch cut.
-- **Piston is excluded** (`K = (n_max+1)(n_max+2)/2 − 1`): `|FFT(e^{iφ₀}U)| ≡ |FFT(U)|`
-  identically, so a piston coefficient has exactly zero gradient forever.
+- `Z` 是**被训练**的量；`n_max`（系数个数 `K`）是**超参数**。
+- 基底 `B` 由规范的 `ZernikeGenerator` 一次性构建，本项目不重复推导任何 Zernike 数学。
+- 前向传播**不调用 `atan2`**，全程留在复数域：语料相位已被 writer 卷到 `[0, 2π)`，
+  角度表示会在 ±π 处引入分支切口。
+- **排除 piston**：`K = (n_max+1)(n_max+2)/2 − 1`。因为 `|FFT(e^{iφ₀}U)| ≡ |FFT(U)|`
+  恒成立，piston 系数的梯度**永远**为零。
 
-## 2. Data pipeline
+## 2. 数据管线
 
-`src/ml/hwdataset` serves `(phase_cos, phase_sin, image, exposure_log10, …)`.
-Three decisions that are load-bearing:
+`src/ml/hwdataset` 提供 `(phase_cos, phase_sin, image, exposure_log10, …)`。三个关键决定：
 
-| decision | why |
+| 决定 | 理由 |
 |---|---|
-| phase as a coherent `(cos, sin)` pair | corpus wraps to `[0, 2π)`; `atan2` would put a branch cut on the input |
-| target **not** peak-normalised (`abs255`) | exposure is a model input, so absolute brightness *is* the signal encoding it |
-| FOV surfaced as `fov_px`, never resampled | families genuinely differ (64/248/320/1944 px windows); resampling would fabricate pixels |
+| 相位用相干 `(cos, sin)` 对 | 语料卷绕到 `[0, 2π)`；`atan2` 会在输入面上放一个分支切口 |
+| 目标**不做** peak 归一（`abs255`） | 曝光是模型输入，绝对亮度本身就是编码它的信号 |
+| FOV 以 `fov_px` 随样本返回，绝不 resize | 各 family 相机窗口真的不同（64/248/320/1944 px），插值会伪造像素 |
 
-The on-disk cache is bit-exact against the direct path (1010/1010 records) and
-**317× faster** (127.0 s → 0.4 s, 10 pickles opened → 0).
+磁盘缓存与直接路径**逐位一致**（1010/1010 记录），并快 **317×**（127.0 s → 0.4 s，
+打开的 pickle 数 10 → 0）。
 
-## 3. Three traps found by measurement
+## 3. 三个靠测量发现的陷阱
 
-**3.1 Scale mismatch — the big one.** `_anchored_window` takes a centre-cropped
-`grid×grid` window out of the 248-px CCD frame; it does **not** resize. A far
-field computed at `far_field_padding=1` spans the pupil's *full* diffraction
-field, ~4× the target's angular scale, so the two are not pixel-comparable:
+**3.1 尺度不匹配（最关键）。** `_anchored_window` 取的是以 0 阶为中心的 `grid×grid`
+窗口，**不缩放**。若 `far_field_padding=1`，FFT 展的是瞳孔完整衍射场，与目标的角尺度差约
+4 倍，逐像素不可比：
 
-| `far_field_padding` (centre-cropped) | val R² at `Z=0` |
+| `far_field_padding`（中心裁剪） | `Z=0` 时 val R² |
 |---|---|
 | 1 | −0.20 |
-| 4 | −0.12 |
 | 8 | +0.33 |
-| **10** (default) | **+0.46** |
+| **10**（默认） | **+0.46** |
 | 12 | +0.53 |
 | 16 | +0.49 |
 | 20 | +0.18 |
 
-A clear **interior optimum** — this is a real calibration, not "sharper is
-better". After the fix, `max|Z|` fell from a runaway **1.77 rad → 0.165 rad**,
-because a small correction then genuinely explains the data instead of the
-optimiser reaching for huge phase to fake the loss.
+明显的**内点最优** —— 这是真正的物理标定，不是"越锐越好"。标定正确后 `max|Z|` 从失控的
+**1.77 rad 降到 0.165 rad**：小系数就能解释数据，不再需要靠巨大相位硬凑 loss。
 
-**3.2 `normalization="sum"` is a metric trap.** Dividing both prediction and
-target by their own total energy makes them agree almost trivially:
+**3.2 `normalization="sum"` 是指标陷阱。** 把预测与目标各自除以总能量，两者会"几乎一致"：
 
 | `normalization` | MSE | R² | PSNR | SSIM |
 |---|---|---|---|---|
@@ -73,374 +68,271 @@ target by their own total energy makes them agree almost trivially:
 | `sum` | **0.00000** | +0.632 | **72.1 dB** | **0.9996** |
 | `none` | 0.47534 | **−158.98** | 3.2 dB | 0.037 |
 
-`sum` reads as *perfect* on MSE/PSNR/SSIM while R² is **worse**. Any
-sum-normalised metric measures the normalisation, not the fit. `none` is unusable
-because the raw FFT amplitude carries an arbitrary scale.
+`sum` 在 MSE/PSNR/SSIM 上读作*完美*，而 R² 反而更差 —— 它度量的是归一化本身，不是拟合质量。
 
-**3.3 `observable`: intensity, not amplitude.** The original spec said `amp`;
-the measurements say otherwise, consistently at every capacity:
+**3.3 `observable`：强度，不是振幅。** CCD 积分的是强度，不报告场振幅：
 
 | `observable` | n_max=4 | n_max=11 | n_max=15 |
 |---|---|---|---|
 | `amplitude` | +0.634 | +0.659 | +0.675 |
 | `intensity` | **+0.750** | **+0.792** | **+0.797** |
 
-A CCD integrates intensity; it does not report field amplitude. The default is now
-`intensity`; `amplitude` remains available.
+## 4. 训练历史（wandb 记录的那组序列）
 
-## 4. Metrics
+![训练历史](figures/01_training_curves.png)
 
-`src/ml/zernike/metrics.py` reports the img2img-standard set (MSE, RMSE, MAE,
-NRMSE, PSNR, SSIM) plus the beam set (correlation, efficiency, centroid offset,
-90 % encircled spot diameter, peak ratio), reusing the canonical `beam_metrics`
-helpers rather than reimplementing them.
+三个面板分别是损失、验证质量、梯度与系数范数。要点：
 
-**LPIPS/FID are deliberately absent** — they need a pretrained backbone and this
-environment has no `torchvision`, so
-`torchmetrics.image.LearnedPerceptualImagePatchSimilarity` is genuinely not
-importable. `available_perceptual_metrics()` reports that honestly rather than
-returning a constant.
+- **收敛很快**：`best_epoch = 13`，之后训练 loss 继续降而验证指标不再改善。
+- **梯度极小**（`2.32e-03` → `1.01e-03`）：
+  因为只有一个参数向量且 loss 已按尺度归一化。这解释了为什么 `lr` 如此关键，
+  也解释了早期扫描要么无反应（1e-4）要么发散（1e-1）。
+- **无死模**：`0/135`。
 
-`perplexity` is reported as `exp(MSE / Var(target))`. Perplexity is
-`exp(cross-entropy)` and has no exact MSE analogue; this is a monotone rescaling
-of the normalised error, valid *across epochs of one run* only. **Trust R² and
-SSIM.**
+![true vs pred](figures/09_true_vs_pred.png)
 
-## 5. Optimisation, one lever at a time
+上图是训练过程中保存的 true-vs-pred 对比帧（true / pred / 差分 / 目标相位），
+由 `train_amp.py` 在每个采样 epoch 输出。
 
-Single-variable sweeps from a common baseline, `slm_zernike_shaping`, fixed split:
+## 5. 噪声地板的真因：语料非 i.i.d.
 
-| lever | outcome |
-|---|---|
-| **`n_max`** | **The only large effect.** R² 0.48 → 0.80 monotonically over 1→20; still **0 dead modes** at K=230 |
-| `far_field_padding` | interior optimum ≈10–12 |
-| `observable` | intensity wins by ~0.12 R² |
-| `normalization` | `peak` only valid choice |
-| `lr` | 0.1 best alone, but see the non-additivity warning |
-| `l2_penalty` | 1e-4 neutral; 1e-2 over-regularises (R² 0.469, `max|c|`=0.039) |
-| `grad_clip` | no effect — gradients (~1e-3) never reach the threshold |
-| `optimizer` | SGD much worse (R² 0.466); adam ≡ adamw is *correct* at `weight_decay=0` |
-| `max_train` | more data helps monotonically |
-
-**Two things the sweeps taught that a single run would have hidden:**
-
-*Non-additivity.* `far_field_padding=12` and `lr=0.1` each beat the defaults
-alone, but combined with `n_max=11` both turn **worse** (R² 0.794 → 0.753).
-Greedy coordinate descent fails here; every winner must be re-tested jointly.
-
-*A dead lever.* `optimizer` initially returned byte-identical scores for
-adam/adamw/sgd — `train()` hard-coded `torch.optim.Adam` and ignored
-`cfg.optimizer`. It had measured nothing until it was fixed.
-
-## 6. The noise floor — and why it was never the fold size
-
-Same config, same seed, repeated → **bit-identical** (3/3 runs, 5 decimals), so the
-pipeline is deterministic. Sweeping only the split seed gave:
+同一 config、同一 seed 重复 3 次 → 结果**逐位相同**（5 位小数全等），管线是确定性的。
+只换 split seed：
 
 | seed | 0 | 1 | 2 | 3 |
 |---|---|---|---|---|
 | val R² | +0.780 | +0.797 | +0.920 | +0.923 |
 
-**σ ≈ 0.07, range 0.14.** For a long time I attributed this to "only 128 validation
-records". **That diagnosis was wrong**, and finding the real cause is what made the
-comparison resolvable.
+**σ ≈ 0.07。** 长期以来我把原因归结为"验证集只有 128 条"。**这个诊断是错的。**
 
-The corpus is not i.i.d. The 1010 usable records sit in 10 pickles of exactly 101
-records each, but those pickles are 2–4 timestamps of only **four** optimisation
-objectives:
+1010 条记录均匀分布在 10 个 pickle（每份恰好 101 条），但这 10 份只来自 **4 个优化目标**：
 
-| objective | files | records | mean intensity | total variance |
-|---|---|---|---|---|
-| `rms_pib` | 4 | 404 | 0.0335 | 2.057 |
-| `rmse_out` | 3 | 303 | 0.0325 | 2.247 |
-| `shape` | 2 | 202 | 0.0303 | 2.093 |
-| `roi_pib` | 1 | 101 | 0.0271 | 1.274 |
+| 目标 | pickle 数 | 记录数 |
+|---|---|---|
+| `rms_pib` | 4 | 404 |
+| `rmse_out` | 3 | 303 |
+| `shape` | 2 | 202 |
+| `roi_pib` | 1 | 101 |
 
-and those objectives have **different image distributions**. Scoring one
-objective's mean image against another's targets:
+而这四个目标的**图像分布确实不同** —— 量化方式是用 A 目标的均值图去预测 B 目标：
 
-| | rms_pib | rmse_out | roi_pib | shape |
-|---|---|---|---|---|
-| **rms_pib** | 1.000 | 0.977 | **−0.670** | 0.710 |
-| **rmse_out** | 0.979 | 1.000 | **−0.223** | 0.852 |
-| **roi_pib** | **−1.696** | **−1.157** | 1.000 | 0.040 |
-| **shape** | 0.715 | 0.842 | 0.416 | 1.000 |
+![目标分布差异](figures/08_objective_mixture.png)
 
-`R² = −0.670` means the `rms_pib` mean image predicts `roi_pib` targets *worse
-than a constant*. So a random validation fold receives a **random objective
-mixture**, and since `roi_pib` is 10 % of the corpus and nearly orthogonal to the
-rest, the pooled R² depends on the mixture. **The split-seed sweep was measuring
-the mixture lottery, not model quality.**
+对角线为 1，离对角最低只有 **+0.54**（`shape` 均值图预测 `roi_pib`），最高 +0.97。
+所以目标之间有可测的分布差异，但**没有一对是"负 R²"**。
 
-Two further corrections to earlier statements in this report:
+> ⚠️ **这里更正我自己一个诊断错误。** 早期版本这张表给出 `rms_pib → roi_pib = −0.670`
+> 并据此声称"比预测常数还差"，那**是错的**：分母用了另一个 group 的方差，
+> 分子却是纯像素量，量纲不一致，放大了数值。正确分母是被预测组自身的
+> `SS_tot`，重算后**全表为正**。结论方向（目标异质 → 折的组成会变）成立，
+> 但"比常数还差"的说法作废。
 
-* the split is **75/25 by file** (`val_fraction = 0.25`, `_select_records`
-  `train_amp.py:302`), then validation is head-truncated to `max_val = 128`
-  records (`:315`) — not 80/20;
-* `HWRecordRef.source` is the *phase representation*
-  (`panel_gray`/`panel_rad`/`zernike`/`freeform`), **not** the source file. The
-  file identity is `HWRecordRef.path`.
+那 σ ≈ 0.07 到底来自哪里？**主要是折本身的难度差**，而不是目标配比：留一 pickle 的
+逐折 R² 从 0.737 到 0.941（σ ≈ 0.08），同一模型在不同折上差 0.2。单个随机划分恰好
+抽到难折或易折，指标就跟着跳。所以**必须分组 + 配对**：三个模型共用同一批折，
+折难度在差值里抵消掉，配对 σ 降到 ~0.01，否则任何模型间比较都淹没在折间方差里。
 
-## 7. Grouped cross-validation
+> 另两处更正：划分实际是**按文件的 75/25**（`val_fraction=0.25`，`train_amp.py:302`），
+> 之后验证集再被截断到 `max_val=128`（`:315`）—— **不是 80/20**。
+> `HWRecordRef.source` 是**相位表示**（`panel_gray`/`panel_rad`/`zernike`/`freeform`），
+> **不是来源文件**；文件标识是 `HWRecordRef.path`。
 
-`scripts/compare_models_cv.py` replaces the single split. The repo has **no
-sklearn dependency at all** (verified: zero references to `sklearn` /
-`model_selection` anywhere), so folds are built by hand; `_select_records`
-already used the right key, `str(record.path)`, and this keeps that convention.
+## 6. 分组交叉验证
 
-| protocol | folds | train / val | what it answers |
+仓库**完全没有 sklearn 依赖**（全树零引用），所以折按 `str(record.path)` 手工构造，
+沿用 `_select_records` 已经用对的 group key。
+
+| 协议 | 折数 | train / val | 回答什么问题 |
 |---|---|---|---|
-| `objective` | 4 | 606 / 404 | generalisation to an **objective never seen** |
-| `file` | 10 | 909 / 101 | every record validated exactly once |
+| `objective` | 4 | 606 / 404 | 泛化到**从未见过的目标** |
+| `file` | 10 | 909 / 101 | 每条记录恰好被验证一次 |
 
-Statistics: exact two-sided **sign-flip permutation** test (2¹⁰ = 1024
-enumerations, min p = 0.00195, no normality assumption), Cohen's `d_z`, and
-Holm–Bonferroni across the model×metric family.
+统计用**精确 sign-flip 置换检验**（2¹⁰ = 1024 次枚举，最小 p = 0.00195，不假设正态）、
+Cohen's `d_z`、以及跨模型×指标族的 Holm–Bonferroni 校正。
 
-### Result (identical inputs, target, loss, optimiser, schedule, 50 epochs, lr 0.01)
+留一 pickle 的一个附带好处：**每折的验证集天然只含单个目标**（因为每个 pickle 只属于
+一个目标），所以验证集是同分布的，不再有配比抽签。
 
-| model | params | val R² | val SSIM | val PSNR |
-|---|---|---|---|---|
-| hybrid (w=32) | 10,408 | +0.8797 ± 0.0359 | 0.7676 ± 0.0480 | 29.57 ± 1.24 |
-| physics (n_max=15) | **135** | +0.8766 ± 0.0434 | 0.7437 ± 0.0323 | 29.58 ± 1.39 |
-| unet [16…256] | 7,778,465 | **+0.9004 ± 0.0310** | **+0.8516 ± 0.0363** | **+31.34 ± 1.82** |
+![逐折得分](figures/05_per_fold_scores.png)
 
-*(objective protocol, 4 folds)*
+折间波动（σ ≈ 0.06 ~ 0.08）远大于模型间差距，这就是为什么必须配对检验而不是比较均值。
 
-| model | params | val R² | val SSIM |
-|---|---|---|---|
-| hybrid (w=32) | 10,408 | +0.8721 ± 0.0799 | 0.7404 ± 0.0817 |
-| physics (n_max=15) | **135** | +0.8727 ± 0.0867 | 0.7320 ± 0.0704 |
-| unet [16…256] | 7,778,465 | **+0.9004 ± 0.0610** | **+0.8419 ± 0.0618** |
+## 7. 最终对比（10 折分组 CV，三个模型调优后）
 
-*(file protocol, 10 folds)*
-
-Paired differences, negative = physics worse:
-
-| comparison | metric | diff | d_z | p (exact) | verdict |
+| 模型 | 参数量 | R² (10 折) | SSIM (10 折) | PSNR dB (10 折) | NRMSE |
 |---|---|---|---|---|---|
-| physics − unet | SSIM | −0.1099 | **−2.49** | **0.0020** | unet better |
-| physics − unet | PSNR | −1.84 dB | −1.76 | 0.0039 | unet better |
-| physics − unet | R² | −0.0277 | −0.89 | 0.0117 | unet better |
-| physics − unet | NRMSE | +0.0045 | +1.01 | 0.0117 | unet better |
-| physics − hybrid | all 5 | — | ≤0.27 | 0.61 – 0.98 | **no difference** |
+| 物理模型 physics | 230 | +0.8803 ± 0.0823 | 0.7646 ± 0.0827 | 29.60 ± 2.65 | 0.0401 |
+| 混合 hybrid | 10,408 | +0.8522 ± 0.0653 | 0.6985 ± 0.0800 | 28.00 ± 2.08 | 0.0457 |
+| U-Net | 7,778,465 | +0.8997 ± 0.0643 | 0.8380 ± 0.0610 | 30.98 ± 2.50 | 0.0370 |
 
-### Two things this settles, and one it cannot
+配置：`physics` n_max=20 / lr=0.02；
+`hybrid` 同物理配置 + 残差宽度 32；
+`unet` [16, 32, 64, 128, 256] / 50 ep / lr=0.01。
 
-**1. The U-Net is genuinely better.** SSIM by a wide margin (`d_z` ≈ −2.5), and R²
-by a small but significant margin. So my §6 retraction below was *also* wrong:
-"no metric separates the three" was an artefact of the mixture lottery, not a
-real null result. Two conclusions in this report have now been overturned in
-opposite directions by better statistics — see §11.
+![配对差值](figures/06_paired_differences.png)
 
-**2. The hybrid adds nothing.** Every metric, both protocols, `p ≥ 0.61`. It is
-statistically indistinguishable from the physics model it wraps, at 77× the
-parameters. It is therefore **not** promoted to the training entry point; it stays
-in the comparison harness as a documented negative result.
+| 配对比较 | 指标 | 差值均值 | 差值标准差 | Cohen's d_z | p (精确) | 判定 |
+|---|---|---|---|---|---|---|
+| 物理模型 physics − U-Net | R² | -0.0194 | 0.0249 | -0.78 | 0.0254 | * |
+| 物理模型 physics − U-Net | SSIM | -0.0734 | 0.0465 | -1.58 | 0.0039 | *** |
+| 物理模型 physics − U-Net | PSNR (dB) | -1.3807 | 0.9165 | -1.51 | 0.0039 | *** |
+| 物理模型 physics − 混合 hybrid | R² | +0.0281 | 0.0362 | +0.78 | 0.0176 | * |
+| 物理模型 physics − 混合 hybrid | SSIM | +0.0661 | 0.1071 | +0.62 | 0.0801 | ns |
+| 物理模型 physics − 混合 hybrid | PSNR (dB) | +1.5946 | 1.6356 | +0.97 | 0.0039 | *** |
+| 混合 hybrid − U-Net | R² | -0.0475 | 0.0259 | -1.83 | 0.0020 | *** |
+| 混合 hybrid − U-Net | SSIM | -0.1395 | 0.0746 | -1.87 | 0.0020 | *** |
+| 混合 hybrid − U-Net | PSNR (dB) | -2.9753 | 1.1494 | -2.59 | 0.0020 | *** |
 
-**3. Four folds cannot reach significance, by construction.** With n = 4 the
-exact test's smallest attainable two-sided p is 2/2⁴ = **0.125**. The
-`objective` protocol is scientifically the *right* question (unseen objective)
-but is underpowered — it can only ever *suggest*. Only the 10-fold protocol can
-confirm. More folds cannot manufacture more independent units than there are
-groups, so this is a ceiling, not a tuning problem.
+**结论。**
 
-## 8. Optimisation, one lever at a time
+1. **U-Net 显著更好**：R² -0.0194（p = 0.0254），
+   SSIM -0.0734（p = 0.0039）。
+   注意这是在**物理模型调优之后**的对比。
+2. **hybrid 不会更好**：在物理模型的最优 lr 下，hybrid 反而**显著更差**（R² +0.0281，p = 0.0176）；而在较温和的 lr=0.01 下它与 physics 统计不可区分。零初始化残差只保证**起点**与 physics 相同，并不保证提高 lr 后仍然中性 ——涨参数量的是残差网络，它才是被大 lr 破坏的那部分。
+   ⇒ **不提升为训练入口的模型选项**，只作为已记录的反面结果保留。
 
-Single-variable sweeps, `slm_zernike_shaping`, fixed split:
+### 按目标分解
 
-| lever | outcome |
+![按目标分解](figures/07_per_objective.png)
+
+物理模型在 `roi_pib` 这个孤立目标上反而最好（该目标分布最"窄"，方差最低），
+在 `rms_pib` / `rmse_out` 上最难 —— 这也解释了为什么池化 R² 对目标配比如此敏感。
+
+### 两者用途不可互换
+
+U-Net 出的是**图像**，反解成可下发的 SLM 相位是另一个反问题。就"要下发什么相位"这个
+用途而言，230 参数的物理模型是唯一能**闭式给出可实现相位**的（`Σ Z_k B_k`，
+230 个可解释弧度），参数少 34000×、墙钟少 40%。U-Net 的 +0.8997
+买的是更高的拟合度，不是可下发性。
+
+## 8. 优化：一个杠杆一个杠杆地试
+
+| 杠杆 | 结果 |
 |---|---|
-| **`n_max`** | **The only large effect.** R² 0.48 → 0.80 over 1→11, then saturates (below) |
-| `far_field_padding` | interior optimum ≈10–12 |
-| `observable` | intensity wins by ~0.12 R² |
-| `normalization` | `peak` is the only valid choice |
-| `lr` | 0.1 best alone, but see non-additivity |
-| `l2_penalty` | 1e-4 neutral; 1e-2 over-regularises |
-| `grad_clip` | no effect — gradients (~1e-3) never reach the threshold |
-| `optimizer` | SGD much worse; `adam ≡ adamw` is *correct* at `weight_decay=0` |
-| `max_train` | more data helps monotonically |
+| **`n_max`** | **唯一的大杠杆**，但已饱和（见下图） |
+| `far_field_padding` | 内点最优 ≈10–12 |
+| `observable` | 强度胜出，约 +0.12 R² |
+| `normalization` | 只有 `peak` 有效 |
+| `lr` | 与 `n_max` **非可加**，见下 |
+| `l2_penalty` | 1e-4 中性；1e-2 过正则 |
+| `grad_clip` | 无效果 —— 梯度（~1e-3）根本达不到阈值 |
+| `optimizer` | SGD 明显更差；`weight_decay=0` 时 `adam ≡ adamw` 是**正确**的 |
+| 曝光增广 | **完全无效**，见下 |
 
-**`n_max` is saturated.** Re-measured under the powered 10-fold protocol:
+### `n_max` 已饱和
 
-| n_max | K | val R² |
-|---|---|---|
-| 11 | 77 | +0.8695 ± 0.0837 |
-| 15 | 135 | +0.8727 ± 0.0823 |
-| 20 | 230 | +0.8775 ± 0.0803 |
-| 25 | 350 | +0.8760 ± 0.0812 |
-| 30 | 495 | +0.8797 ± 0.0777 |
+![n_max 饱和](figures/03_n_max_saturation.png)
 
-6.4× the coefficients buys **+0.010 R²** against a fold-σ of ~0.08.
+系数从 77 涨到 495（6.4×）只换来 R² +0.010，而折间 σ ≈ 0.08。
 
-### The physics optimum is a *joint* setting, and it moved
+### 联合扫描才有意义
 
-`lr` and `n_max` are **non-additive**, so sweeping them one at a time gets the
-wrong answer. Joint sweep, same 10 folds:
+![联合扫描](figures/02_physics_joint_grid.png)
 
-| n_max | lr | val R² | val SSIM |
+| 配置 | K | R² | SSIM |
 |---|---|---|---|
-| 15 | 0.01 | +0.8727 ± 0.0823 | 0.7320 |
-| 20 | 0.01 | +0.8775 ± 0.0803 | 0.7548 |
-| **20** | **0.02** | **+0.8803 ± 0.0781** | **0.7646** |
-| 15 | 0.02 | +0.8719 ± 0.0842 | 0.7370 |
-| 20 | 0.005 | +0.8730 ± 0.0811 | 0.7361 |
+| n_max=11, lr=0.01 | 77 | +0.8695 ± 0.0882 | 0.7317 |
+| n_max=15, lr=0.01 | 135 | +0.8727 ± 0.0867 | 0.7320 |
+| n_max=20, lr=0.01 | 230 | +0.8775 ± 0.0846 | 0.7548 |
+| n_max=25, lr=0.01 | 350 | +0.8760 ± 0.0856 | 0.7503 |
+| n_max=30, lr=0.01 | 495 | +0.8797 ± 0.0819 | 0.7571 |
+| n_max=15, lr=0.02 | 135 | +0.8719 ± 0.0888 | 0.7370 |
+| n_max=20, lr=0.02 | 230 | +0.8803 ± 0.0823 | 0.7646 |
+| n_max=20, lr=0.005 | 230 | +0.8730 ± 0.0855 | 0.7361 |
 
-`lr = 0.02` **alone** at `n_max=15` buys nothing (+0.8719 vs +0.8727), yet the same
-`lr` at `n_max=20` is the best cell in the table. That is the non-additivity of §8
-reproduced under the powered protocol, and it is why greedy coordinate descent
-fails here.
+`lr=0.02` **单独**用在 `n_max=15` 上毫无改善，可同一个 `lr` 配 `n_max=20` 就是全表最好。
+这就是**非可加性**，也是贪心坐标下降必然失败的原因。配对检验里配对 σ 只有 ~0.01，
+而折间 σ 是 ~0.08 —— 折难度被抵消掉，所以 +0.008 量级的变化在配对设计下才看得见。
 
-Paired over the same 10 folds, `(15, 0.01) → (20, 0.02)`:
+> ⚠️ 最优点是**在这 10 折上从 5 个候选里挑出来的**，带 winner's curse，只能当提示性证据；
+> 要确证需嵌套 CV。保守可选 `n_max=20, lr=0.01`。
 
-| metric | before → after | diff | d_z | p (exact) |
-|---|---|---|---|---|
-| R² | +0.8727 → +0.8803 | +0.0076 ± 0.0096 | +0.79 | 0.0234 |
-| SSIM | 0.7320 → 0.7646 | +0.0326 ± 0.0164 | +1.98 | 0.0039 |
+### U-Net 配置没有过拟合到噪声 split
 
-**This is where paired testing earns its keep.** The between-fold spread of R² is
-0.078, so a +0.008 change is invisible to any unpaired comparison; the paired σ
-is **0.0096** because fold difficulty cancels. The improvement is consistent in
-8 of 10 folds (the two negatives are −0.004 each).
+![U-Net 复验](figures/04_unet_grid.png)
 
-⚠️ **But treat it as suggestive, not confirmatory.** `(20, 0.02)` was chosen *as
-the best of five on these same folds*, so these p-values carry a winner's-curse
-bias — the classic selection effect that nested CV exists to remove. Confirming
-it properly needs an outer loop (select on inner folds, score on the held-out
-one), which was not affordable here. `n_max=20, lr=0.01` (+0.8775 / 0.7548) is the
-defensible fallback if one wants a cell that was not selected on this data.
-
-### The U-Net configuration was *not* over-fitted to the noisy split
-
-Its hyperparameters were originally chosen on the underpowered single split, so
-they were re-verified on the powered protocol:
-
-| config | val R² | val SSIM |
-|---|---|---|
-| **[16…256], 50 ep, lr 0.01** (previous choice) | **+0.8993 ± 0.0603** | +0.8390 ± 0.0593 |
-| [16…256], 100 ep, lr 0.01 | +0.8931 ± 0.0510 | +0.8407 ± 0.0653 |
-| [16…256], 100 ep, lr 0.005 | +0.8982 ± 0.0481 | +0.8382 ± 0.0578 |
-| [16…256], 50 ep, lr 0.005 | +0.8889 ± 0.0476 | +0.8167 ± 0.0364 |
-| [24…384], 100 ep, lr 0.01 | +0.8950 ± 0.0572 | +0.8476 ± 0.0680 |
-
-The original choice is already the best on R² and tied on SSIM; all five configs
-span 0.010 R² and 0.031 SSIM, far inside the ±0.06 fold-σ. **The U-Net is already
-converged and insensitive to these knobs**, so the earlier pick did not over-fit
-the noisy split. Kept unchanged.
-
-**Non-additivity, first sighting.** `far_field_padding=12` and `lr=0.1` each beat
-the defaults alone, but combined with `n_max=11` both turn **worse** (R² 0.794 →
-0.753) on the original single-split protocol.
-
-**A dead lever, twice.** `optimizer` initially returned byte-identical scores for
-adam/adamw/sgd because `train()` hard-coded `torch.optim.Adam` — it had measured
-nothing. And exposure-rescale augmentation, which is *physically exact* here
-(exposure is a model input, the CCD is linear, and the corpus never clips)
-changed R² by **exactly zero** to 4 decimals. The reason is measurable: exposure
-is **constant** across this family (`log10 = −1.0`, so the dataset's exposure
-standardisation falls back to mean 0 / std 1) *and* no model consumes it —
-`forward(phase_cos, phase_sin)` only. A valid augmentation on an input the model
-never sees, over a dimension that never varies, is a no-op. It would matter on a
-multi-exposure corpus.
-
-
-## 9. Final configuration and verdict
-
-```
-physics : ZernikeAmpConfig(n_max=20, grid=64, observable="intensity",
-                           normalization="peak", far_field_padding=10, center_crop=True)
-          50 epochs, Adam lr=0.02, cosine, batch 64, seed pinned
-          (n_max=20 / lr=0.01 if you want a cell not selected on the CV folds)
-unet    : [16…256], 50 epochs, Adam lr=0.01, cosine, batch 64
-```
-
-| metric | physics (230) | hybrid (10,408) | unet (7,778,465) |
+| 配置 | — | R² | SSIM |
 |---|---|---|---|
-| val R² (10-fold) | +0.8803 ± 0.0781 | +0.8721 ± 0.0799 | **+0.9004 ± 0.0610** |
-| val SSIM (10-fold) | 0.7646 | 0.7404 ± 0.0817 | **+0.8419 ± 0.0618** |
-| val PSNR (10-fold) | — | 29.07 ± 2.51 | **+31.05 ± 2.44** |
-| params | 230 | 10,408 | 7,778,465 |
-| wall time / fit | ~9 s | ~13 s | ~15 s |
+| 宽度16, 50 ep, lr=0.01 | — | +0.9011 ± 0.0633 | 0.8448 |
+| 宽度16, 100 ep, lr=0.01 | — | +0.8938 ± 0.0544 | 0.8405 |
+| 宽度16, 100 ep, lr=0.005 | — | +0.9005 ± 0.0499 | 0.8476 |
+| 宽度16, 50 ep, lr=0.005 | — | +0.8959 ± 0.0455 | 0.8192 |
+| 宽度24, 100 ep, lr=0.01 | — | +0.8878 ± 0.0631 | 0.8343 |
 
-**Verdict.** The U-Net wins every metric significantly (R² p = 0.012, SSIM
-p = 0.002, PSNR p = 0.004) against the physics model at its *pre-tuning*
-configuration, and it remains ahead after the physics model is tuned
-(+0.9004 vs +0.8803 R²). So my earlier "they tie" claim was wrong; what survives
-is that the physics model is a far cheaper way to get most of the way there.
+原选择（宽 16、50 ep、lr 0.01）在 10 折下仍最优；全部候选 R² 只差 0.010、SSIM 差 0.031，
+远在 ±0.06 折间 σ 内。
 
-What the physics model retains is a real operational advantage: it emits a
-**realisable SLM phase** in closed form, `Σ Z_k B_k`, as 230 interpretable
-radians, using 1/34,000th of the U-Net's parameters and 40 % less wall time. The
-U-Net emits an image, and recovering a commandable phase from it is a separate
-inversion problem. So the two answer different questions, and for "what phase do I
-command" the physics model is the only one of the three that answers it directly.
+### 两个死杠杆
 
-The hybrid is a clean negative result: indistinguishable from physics on all five
-metrics across both protocols (p ≥ 0.61) at 45× the parameters.
+`optimizer` 曾对 adam/adamw/sgd 返回逐位相同的分数 —— 因为 `train()` 硬写了
+`torch.optim.Adam`，等于什么都没测。曝光缩放增广虽然在本任务中**物理上精确成立**
+（曝光是模型输入、CCD 线性、语料从不裁剪），却让 R² 变化**恰好为零**（4 位小数）。
+原因可测：曝光在这个 family 里**恒定**（`log10 = −1.0`），**而且没有任何模型消费它** ——
+`forward(phase_cos, phase_sin)` 而已。在模型看不见、且从不变化的维度上做有效增广，
+必然是空操作。
 
-## 10. Honest limitations
+## 9. 诚实的局限
 
-- **One family, one `fov_px`.** All conclusions are for `slm_zernike_shaping`
-  (`fov_px=248`, `fov`-consistent). `far_field_padding` is a per-family constant
-  and **must be re-swept** for another family.
-- **The sampling unit is the pickle (n = 10).** That is the hard ceiling on
-  statistical power here; more folds cannot create more independent groups. At
-  n = 10, d_z ≈ 0.9 is detectable and d_z ≈ 0.25 is not.
-- **k-fold differences are not independent** — fold *i*'s training set overlaps
-  fold *j*'s by 8/9. Paired-t and permutation p-values are therefore mildly
-  anti-conservative, which is why the effect sizes and CIs, not the p-values, are
-  the honest headline.
-- **Only 4 objectives exist**, so leave-one-objective-out gives 4 folds whose
-  minimum attainable p is 0.125. That protocol answers the most relevant
-  question and cannot resolve it. More objectives — not more folds — is what
-  would fix this.
-- **A single global `Z`** can only represent bench-wide systematic phase, not
-  per-sample aberrations. That is the structural reason it plateaus near R² 0.87
-  while the U-Net, which can vary its prediction per sample, reaches 0.90.
-- **SSIM on speckle is a known-weak metric.** Its structure term is a point-wise
-  normalised cross-correlation, and Larson & Chandler show SSIM returns near-
-  identical scores (~0.64) for Gaussian noise, speckle noise, salt-and-pepper,
-  JPEG and blur — it largely cannot distinguish distortion *type*. The
-  domain-standard alternatives are Strehl ratio, encircled energy and FWHM. SSIM
-  is reported here as a secondary descriptor; R² and the beam metrics carry the
-  weight, and `perplexity` is reported only as a within-run monotone rescaling.
-- **`grad norm` is tiny** (~1e-3) because there is one parameter vector and a
-  scale-normalised loss. This is why `lr` mattered so much and why early sweeps
-  either did nothing (1e-4) or ran away (1e-1).
+- **只有一个 family、一个 `fov_px`。** 全部结论针对 `slm_zernike_shaping`（248 px）。
+  `far_field_padding` 是 per-family 常量，换 family **必须重扫**。
+- **采样单位是 pickle（n = 10），这是统计功效的硬上限。** 折数不可能超过组数。
+- **k 折之间的差值并不独立** —— 第 i 折的训练集与第 j 折重叠 8/9。
+  所以配对 t 检验与置换检验的 p 值都略偏激进，**效应量与置信区间才是诚实的头条**。
+- **只有 4 个目标**，留一目标交叉验证只有 4 折，最小可达 p = 2/2⁴ = 0.125。
+  该协议问题最对但功效不足 —— 要靠**增加目标数**解决，不是增加折数。
+- **单个全局 `Z`** 只能表示全台系统性的相位，无法表示逐样本像差。
+  这正是它停在 R² ≈ 0.88 而 U-Net（可逐样本变化）能到 0.90 的结构性原因。
+- **散斑场上的 SSIM 是公认偏弱的指标**：其 structure 项是逐点归一化互相关，
+  Larson & Chandler 显示 SSIM 对高斯噪声、散斑噪声、脉冲噪声、JPEG、模糊给出几乎相同的
+  分数（约 0.64），它基本**无法区分失真类型**。本报告以 R² 与光斑域指标为主，
+  SSIM 作次要描述量；`perplexity` 仅作单次运行内的单调重标度。
+- **LPIPS/FID 刻意缺席**：它们需要预训练骨干网，而本环境没有 `torchvision`，
+  `torchmetrics` 的感知指标确实无法导入。`available_perceptual_metrics()` 如实报告这一点，
+  而不是返回一个常数。
+- **`AGENTS.md` 同样记录了这些更正，但未提交**：它的 272 行 hunk 把本任务与另一位 agent
+  未完成的 `cli_params.py` 笔记交织在一起。
 
-## 11. Conclusions overturned in this report
+## 10. 本报告中被推翻的结论
 
-Kept as a record, because getting it wrong twice is the point:
+保留记录，因为**三次朝相反方向搞错、再加一次诊断算错**正是重点：
 
-| version | claim | why it was wrong |
+| 版本 | 结论 | 为什么错 |
 |---|---|---|
-| v1 | "U-Net wins R² by +0.022; SSIM is a real non-overlapping gap" | right direction, wrong evidence: one seed, and the U-Net given 25 epochs while physics converges by 13 |
-| v2 | "no metric separates the three" | **over-correction.** The ±0.07 split noise swamped a real effect; the mixture lottery, not model quality, was being measured |
-| v3 | "U-Net significantly better; hybrid indistinguishable from physics" | grouped CV + paired exact tests; stands on 4 and 10 folds |
+| v1 | "U-Net R² 高 +0.022；SSIM 是真实且区间不重叠的差距" | 方向对、证据错：单 seed，且 U-Net 只给 25 epoch 而物理模型第 13 epoch 就收敛 |
+| v2 | "两者打平，无任何指标能区分" | **过度纠正**：把折间方差当成了模型差异 |
+| v3 | "U-Net 显著更好；hybrid 不会更好，且在调优 lr 下更差" | 分组 CV + 配对精确检验，4 折与 10 折均成立 |
+| d1 | "目标均值图互相预测 R² = −0.670，比常数还差" | **算错**：分母量纲不一致。重算后全表为正（最低 +0.54） |
 
-The lesson is not "the v1 estimate was noisy". It is that **the noise floor was
-itself misdiagnosed**, so a correct effect was first hidden and then, after an
-over-correction, briefly denied. Both errors came from trusting a variance
-estimate whose *source* had not been identified.
+两个教训：
 
-## 12. Reproduction
+1. 噪声大到看不见效应时，**过度纠正和轻信同样危险**。v2 把真实差异否认掉，
+   根源是我先认定噪声来自"只有 128 条验证集"，而没去定位它的真实来源。
+2. **解释性数字和结论要用不同的严格度。** v3 的结论建立在 10 折配对检验上，
+   经得起复算；而 d1 那个"−0.670"是手算的辅助论据，量纲错了却没人复核 ——
+   它是本轮**画图时才暴露**的。图比手算更可信，因为它用了被预测组自己的 `SS_tot`。
+
+## 11. 复现
 
 ```bash
-# train + log + compare images (wandb offline; sync later if a key is available)
-python -m ml.zernike.train_amp --n-max 15 --epochs 50 --lr 0.01 \
+# 扫描并落盘（10 折分组 CV，约 30 min 单卡）
+python scripts/sweep_zernike_models.py
+# 只重跑调优后的最终对比，复用已保存的网格
+python scripts/sweep_zernike_models.py --final-only
+
+# 生成图与本报告（全离线）
+python scripts/generate_zernike_amp_report.py
+
+# 训练 + wandb（无 key 时离线）
+python -m ml.zernike.train_amp --n-max 20 --epochs 50 --lr 0.02 \\
     --max-train 1010 --beam-samples 96 --out-dir logs/zernike_amp_final
 
-# the authoritative comparison: grouped CV, paired exact tests
-python scripts/compare_models_cv.py --protocol both --epochs 50 --lr 0.01 \
-    --out logs/models_cv.json
+# 权威对比：分组 CV + 配对精确检验
+python scripts/compare_models_cv.py --protocol both
 
-# recompute the statistics from saved folds without retraining
+# 不重训、只重算统计量
 python scripts/compare_models_cv.py --analyse logs/models_cv_objective.json
 
-# the older single-split baseline (kept for continuity; known underpowered)
-python scripts/compare_unet_baseline.py --seeds 3 --models physics hybrid unet
-
-# tests
-python -m pytest tests/ao_shaping/ml/zernike -q      # 67 tests
-python -m pytest tests/ao_shaping/ml -q             # 418 tests
+# 测试
+python -m pytest tests/ao_shaping/ml/zernike -q                        # 67
+python -m pytest tests/ao_shaping/scripts/test_compare_models_cv.py -q  # 19
 ```
