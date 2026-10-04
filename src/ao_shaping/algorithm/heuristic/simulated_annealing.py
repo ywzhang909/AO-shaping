@@ -30,6 +30,7 @@ from enum import Enum, auto
 from typing import Any, Callable, Protocol
 
 import numpy as np
+import numpy.typing as npt
 
 from ao_shaping.algorithm.heuristic.heuristic_base import (
     HeuristicOptimizer,
@@ -41,7 +42,7 @@ from ao_shaping.algorithm.heuristic.heuristic_base import (
 class FitnessFunction(Protocol):
     """Protocol for fitness function."""
 
-    def __call__(self, x: np.ndarray) -> float:
+    def __call__(self, x: npt.NDArray[np.float64]) -> float:
         """Evaluate fitness."""
         ...
 
@@ -169,7 +170,7 @@ class SimulatedAnnealing(HeuristicOptimizer):
 
         return self.params.initial_temp
 
-    def _generate_neighbor(self, current: np.ndarray) -> np.ndarray:
+    def _generate_neighbor(self, current: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         """Generate neighbor solution.
 
         Args:
@@ -209,10 +210,10 @@ class SimulatedAnnealing(HeuristicOptimizer):
     def optimize(
         self,
         fitness_fn: FitnessFunction,
-        init_x: np.ndarray | None = None,
+        init_x: npt.NDArray[np.float64] | None = None,
         early_stop_threshold: float | None = None,
-        callback: Callable[[int, np.ndarray, float, float], None] | None = None,
-    ) -> tuple[np.ndarray, float]:
+        callback: Callable[[int, npt.NDArray[np.float64], float, float], None] | None = None,
+    ) -> tuple[npt.NDArray[np.float64], float]:
         """Run simulated annealing optimization.
 
         Args:
@@ -282,9 +283,9 @@ def minimize_sa(
     final_temp: float = 0.01,
     schedule: TempSchedule = TempSchedule.EXPONENTIAL,
     bounds: tuple[float, float] = (-10.0, 10.0),
-    init_x: np.ndarray | None = None,
+    init_x: npt.NDArray[np.float64] | None = None,
     early_stop_threshold: float | None = None,
-) -> tuple[np.ndarray, float]:
+) -> tuple[npt.NDArray[np.float64], float]:
     """Convenience function for SA optimization.
 
     Args:

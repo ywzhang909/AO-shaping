@@ -19,7 +19,7 @@ Usage:
     python scripts/model_in_loop_hw_runbook.py --stage calibrate
     python scripts/model_in_loop_hw_runbook.py --stage shape --dry-run
 
-See docs/slm/model_in_loop_bench_calibration.md for the measured constants and
+See report/slm/model_in_loop_bench_calibration.md for the measured constants and
 the failure modes this script works around.
 """
 
@@ -61,8 +61,11 @@ from ao_shaping.optimizer.wfless.model_in_loop_shaping import (  # noqa: E402
 from ao_shaping.tools.slm.slm_bench_probe import (  # noqa: E402
     SLM_PITCH_M,
     core_fraction,
+    crop_around_zero_order,
     display_and_average,
     estimate_shift,
+    gaussian_grid,
+    phase_to_panel,
     ramp_panel,
 )
 from ao_shaping.tools.slm.slm_bench_probe import (  # noqa: E402
@@ -120,40 +123,6 @@ def probe_phase(region: int, seed: int) -> np.ndarray:
     return np.random.default_rng(int(seed)).uniform(
         0.0, 2.0 * np.pi, (int(region), int(region))
     )
-
-
-def phase_to_panel(
-    phase_model: np.ndarray, disc_radius: int, pupil_center: tuple[int, int]
-) -> np.ndarray:
-    """Resize a model-grid phase onto the panel disc, centred on the beam.
-
-    `pupil_center` is in **panel pixel** coordinates (x, y). It must be measured
-    on the panel -- the camera's 0-order position is a different frame entirely
-    (the two axes are swapped on this bench and the scales differ), so deriving
-    one from the other silently writes the phase where the beam is not.
-    """
-    r = int(disc_radius)
-    region = phase_model.shape[0]
-    sub = np.asarray(
-        zoom(phase_model, (2 * r / region, 2 * r / region), order=1), dtype=np.float64
-    )
-    panel = np.zeros((PANEL_H, PANEL_W), dtype=np.float64)
-    cx, cy = int(pupil_center[0]), int(pupil_center[1])
-    # Clip the window so an off-centre or oversized disc stays in bounds.
-    x0, x1 = max(cx - r, 0), min(cx + r, PANEL_W)
-    y0, y1 = max(cy - r, 0), min(cy + r, PANEL_H)
-    sub = sub[y0 - (cy - r) : y1 - (cy - r), x0 - (cx - r) : x1 - (cx - r)]
-    panel[y0:y1, x0:x1] = sub
-    return panel
-
-
-def gaussian_grid(region: int, waist_grid: float) -> np.ndarray:
-    """Gaussian illumination on the model grid, masked to the inscribed circle."""
-    yy, xx = np.mgrid[0:region, 0:region]
-    r2 = (xx - region / 2.0) ** 2 + (yy - region / 2.0) ** 2
-    amp = np.exp(-r2 / (2.0 * max(float(waist_grid), 1e-6) ** 2))
-    amp[r2 > (region / 2.0) ** 2] = 0.0
-    return amp
 
 
 def save_records(records: list[CalibrationRecord], out: Path) -> None:
@@ -273,34 +242,6 @@ def measure_spot(frame: np.ndarray) -> tuple[float, float, float, float, float]:
     """
     m = _measure_spot(frame)
     return m.peak, m.fwhm_px, m.centroid_x, m.centroid_y, m.hollowness
-
-
-def crop_around_zero_order(frame: np.ndarray, size: int = 512) -> np.ndarray:
-    """Crop a fixed-size window centred on the frame's global argmax.
-
-    The optics axis is the frame's brightest point, never the geometric centre:
-    on this bench the 0-order sits ~620 px off-centre in x. The geometry solve
-    compares the model's *central* far-field window with the stored frame, so an
-    uncropped frame would be compared against a misaligned window and the
-    correlation would collapse. This mirrors the pkl records, which are already
-    cropped around the spot.
-
-    Args:
-        frame: 2D far-field frame.
-        size: Window side, pixels. Clamped to the frame.
-
-    Returns:
-        The cropped window, zero-padded if the frame is smaller than ``size``.
-    """
-    data = np.asarray(frame, dtype=np.float64)
-    side = int(min(size, data.shape[0], data.shape[1]))
-    cy, cx = np.unravel_index(int(np.argmax(data)), data.shape)
-    y0, x0 = int(cy) - side // 2, int(cx) - side // 2
-    out = np.zeros((side, side), dtype=np.float64)
-    sy0, sx0 = max(y0, 0), max(x0, 0)
-    sy1, sx1 = min(y0 + side, data.shape[0]), min(x0 + side, data.shape[1])
-    out[: sy1 - sy0, : sx1 - sx0] = data[sy0:sy1, sx0:sx1]
-    return out
 
 
 def shoot(cam, slm, phase_panel: np.ndarray, args: argparse.Namespace) -> np.ndarray:

@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 from collections.abc import Callable
 
 import numpy as np
+import numpy.typing as npt
 
 
 # =============================================================================
@@ -77,7 +78,7 @@ class TabuMemory:
     _queue: deque[tuple[int, ...]] = field(init=False, default_factory=deque)
     _keys: set[tuple[int, ...]] = field(init=False, default_factory=set)
 
-    def make_key(self, voltages: np.ndarray) -> tuple[int, ...]:
+    def make_key(self, voltages: npt.NDArray[np.float64]) -> tuple[int, ...]:
         """Quantize voltage array into integer key for tabu storage.
 
         This method converts a voltage array into a tuple of integers by:
@@ -96,7 +97,7 @@ class TabuMemory:
             np.round(np.asarray(voltages, dtype=np.float64) / scale).astype(int)
         )
 
-    def contains(self, voltages: np.ndarray) -> bool:
+    def contains(self, voltages: npt.NDArray[np.float64]) -> bool:
         """Check if a voltage profile is in tabu memory.
 
         Args:
@@ -110,7 +111,7 @@ class TabuMemory:
             return False
         return self.make_key(voltages) in self._keys
 
-    def add(self, voltages: np.ndarray) -> None:
+    def add(self, voltages: npt.NDArray[np.float64]) -> None:
         """Add a voltage profile to tabu memory.
 
         If the key already exists or capacity is <= 0, this method does nothing.
@@ -191,12 +192,12 @@ class AdaptiveSearchState:
 
 
 def generate_search_candidates(
-    anchor_v: np.ndarray,
+    anchor_v: npt.NDArray[np.float64],
     radius_scale: float,
     n_samples: int,
-    active_mask: np.ndarray | None = None,
+    active_mask: npt.NDArray[np.bool_] | None = None,
     rng: np.random.Generator | None = None,
-) -> list[np.ndarray]:
+) -> list[npt.NDArray[np.float64]]:
     """Generate mixed dense/sparse perturbations around an anchor point.
 
     This function generates candidate solutions by perturbing an anchor voltage
@@ -228,7 +229,7 @@ def generate_search_candidates(
     if rng is None:
         rng = np.random.default_rng()
 
-    candidates: list[np.ndarray] = []
+    candidates: list[npt.NDArray[np.float64]] = []
 
     # Apply active mask if provided
     if active_mask is not None:
@@ -348,11 +349,11 @@ class TabuSearchRunner:
         tabu_memory: TabuMemory,
         search_state: AdaptiveSearchState,
         candidate_generator: Callable[
-            [np.ndarray, float, int, np.ndarray | None, np.random.Generator],
-            list[np.ndarray],
+            [npt.NDArray[np.float64], float, int, npt.NDArray[np.float64] | None, np.random.Generator],
+            list[npt.NDArray[np.float64]],
         ]
         | None = None,
-        safety_check: Callable[[np.ndarray], bool] | None = None,
+        safety_check: Callable[[npt.NDArray[np.float64]], bool] | None = None,
         clip_bounds: tuple[float, float] | None = None,
     ):
         """Initialize the TabuSearchRunner.
@@ -374,9 +375,9 @@ class TabuSearchRunner:
 
     def run_search(
         self,
-        anchor_v: np.ndarray,
+        anchor_v: npt.NDArray[np.float64],
         anchor_objective: float,
-        evaluate_candidate: Callable[[np.ndarray], dict],
+        evaluate_candidate: Callable[[npt.NDArray[np.float64]], dict],
         objective_key: str = "value",
         improvement_tol: float | None = None,
         rng: np.random.Generator | None = None,
@@ -541,7 +542,7 @@ def create_tabu_search_runner(
     shrink_ratio: float = 0.75,
     improvement_tol: float = 1e-4,
     candidate_generator: Callable | None = None,
-    safety_check: Callable[[np.ndarray], bool] | None = None,
+    safety_check: Callable[[npt.NDArray[np.float64]], bool] | None = None,
     clip_bounds: tuple[float, float] | None = None,
 ) -> TabuSearchRunner:
     """Factory function to create a TabuSearchRunner with default parameters.

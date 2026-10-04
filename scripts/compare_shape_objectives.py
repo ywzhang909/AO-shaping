@@ -10,7 +10,7 @@ that fixed box, independent of the objective it optimised:
     CV     = std(I[box]) / mean(I[box])    uniformity (LOWER = more uniform)
     peak   = max(I[box]) / mean(I[box])    hot-spot factor (lower better)
 
-Outputs (into ``docs/slm_pib_heuristic_hw/``):
+Outputs (into ``report/slm_pib_heuristic_hw/``):
 * ``objectives/<n>_<slug>_spot.png`` - best un-windowed frame per variant with the
   target box drawn and the yardstick annotated;
 * ``objectives_summary.png`` - CV / energy / peak per variant (bars);
@@ -22,7 +22,7 @@ Usage::
 
     $env:PYTHONPATH = "src;libs"
     python scripts/compare_shape_objectives.py
-    python scripts/compare_shape_objectives.py --epochs 80 --append-to docs/slm_pib_heuristic_hw/report.md
+    python scripts/compare_shape_objectives.py --epochs 80 --append-to report/slm_pib_heuristic_hw/report.md
 """
 
 from __future__ import annotations
@@ -90,10 +90,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--n-max", type=int, default=4)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--zoom", type=int, default=300, help="display zoom box (px)")
-    parser.add_argument("-o", "--output", default="docs/slm_pib_heuristic_hw")
+    parser.add_argument("-o", "--output", default="report/slm_pib_heuristic_hw")
     parser.add_argument(
         "--append-to",
-        default="docs/slm_pib_heuristic_hw/report.md",
+        default="report/slm_pib_heuristic_hw/report.md",
         help="report file to append the comparison section to",
     )
     return parser.parse_args()

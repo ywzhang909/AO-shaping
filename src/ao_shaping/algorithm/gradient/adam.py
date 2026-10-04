@@ -23,6 +23,7 @@ from collections.abc import Callable
 from typing import Any, ClassVar, Literal
 
 import numpy as np
+import numpy.typing as npt
 
 from ao_shaping.algorithm.base import RegisteredBase
 
@@ -94,7 +95,7 @@ class Base(RegisteredBase):
         self.t: int = 0
 
     @abstractmethod
-    def update(self, grad: np.ndarray) -> np.ndarray:
+    def update(self, grad: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
         pass
 
     def scale_momentum(self, scaler):
@@ -144,7 +145,7 @@ class SGD(Base):
     def __init__(self, dim: int, lr=1.0):
         super().__init__(dim, lr)
 
-    def update(self, grad: np.ndarray):
+    def update(self, grad: npt.NDArray[np.floating]):
         self.t += 1
         return self.lr * grad
 
@@ -164,7 +165,7 @@ class Adam(Base):
         self.m = np.zeros(self.dim, dtype=np.float32)
         self.v = np.zeros(self.dim, dtype=np.float32)
 
-    def update(self, grad: np.ndarray):
+    def update(self, grad: npt.NDArray[np.floating]):
         self.t += 1
         self.m = self.beta1 * self.m + (1 - self.beta1) * grad
         self.v = self.beta2 * self.v + (1 - self.beta2) * grad**2
@@ -188,7 +189,7 @@ class AdamW(Adam):
         super().__init__(dim, lr, beta1, beta2)
         self.weight_decay = weight_decay
 
-    def update(self, grad: np.ndarray):
+    def update(self, grad: npt.NDArray[np.floating]):
         self.t += 1
         self.m = self.beta1 * self.m + (1 - self.beta1) * grad
         self.v = self.beta2 * self.v + (1 - self.beta2) * grad**2
@@ -221,7 +222,7 @@ class AdaMOD(Adam):
         self.beta3 = beta3
         self.s = 0.0
 
-    def update(self, grad: np.ndarray):
+    def update(self, grad: npt.NDArray[np.floating]):
         self.t += 1
         self.m = self.beta1 * self.m + (1 - self.beta1) * grad
         self.v = self.beta2 * self.v + (1 - self.beta2) * grad**2
@@ -272,7 +273,7 @@ class Muno(Base):
         self.v = np.zeros(self.dim, dtype=np.float32)  # 梯度平方的累积
         self.v_max = np.zeros(self.dim, dtype=np.float32)  # AMSGrad 中的最大梯度平方
 
-    def update(self, grad: np.ndarray):
+    def update(self, grad: npt.NDArray[np.floating]):
         """
         更新参数
 
@@ -342,7 +343,7 @@ class MunoW(Muno):
         super().__init__(dim, lr, beta1, beta2, eps, amsgrad)
         self.weight_decay = weight_decay
 
-    def update(self, grad: np.ndarray):
+    def update(self, grad: npt.NDArray[np.floating]):
         """
         更新参数
 
@@ -488,7 +489,7 @@ class Muon(Base):
         # Initialize momentum buffer
         self.momentum_buffer = np.zeros(dim, dtype=np.float32)
 
-    def update(self, grad: np.ndarray):
+    def update(self, grad: npt.NDArray[np.floating]):
         """
         Update parameters using Muon optimization
 
@@ -562,7 +563,7 @@ class AdamNS(Base):
         # Compute update
         return buf1c / (np.sqrt(buf2c) + self.eps)
 
-    def update(self, grad: np.ndarray):
+    def update(self, grad: npt.NDArray[np.floating]):
         """
         Update parameters using Adam with Newton-Schulz orthogonalization
 
@@ -600,15 +601,15 @@ class AdamNS(Base):
 
 def search_optimal_delta(
     param_dim: int,
-    objective_fn: Callable[[np.ndarray], float],
-    apply_fn: Callable[[np.ndarray], None],
+    objective_fn: Callable[[npt.NDArray[np.floating]], float],
+    apply_fn: Callable[[npt.NDArray[np.floating]], None],
     min_delta: float = 0.01,
     max_delta: float = 100.0,
     n_magnitude_steps: int = 5,
     n_samples_per_delta: int = 5,
     clip_min: float = -50.0,
     clip_max: float = 50.0,
-    perturb_mask: np.ndarray | None = None,
+    perturb_mask: npt.NDArray | None = None,
     verbose: bool = True,
 ) -> tuple[float, dict]:
     """Search for optimal perturbation delta using magnitude scanning.

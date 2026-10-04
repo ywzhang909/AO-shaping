@@ -7,11 +7,11 @@ tests drive the REAL standalone ``fouriergsnet_optimize.py`` pipeline
 through ``SimFourierGSNetEnv`` with no hardware and no pipeline modification.
 
 Fully offline — pure markdown, no hardware, no figures. Writes
-``docs/fouriergsnet_pipeline/report.md``.
+``report/fouriergsnet_pipeline/report.md``.
 
 Usage:
     python scripts/generate_fouriergsnet_pipeline_report.py
-    python scripts/generate_fouriergsnet_pipeline_report.py -o docs/fouriergsnet_pipeline
+    python scripts/generate_fouriergsnet_pipeline_report.py -o report/fouriergsnet_pipeline
 """
 
 from __future__ import annotations
@@ -136,8 +136,8 @@ CLI) 下同样崩溃。修复方向: `phi.detach().cpu().numpy()`。
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "-o", "--output-dir", default="docs/fouriergsnet_pipeline",
-        help="输出目录 (默认: docs/fouriergsnet_pipeline)",
+        "-o", "--output-dir", default="report/fouriergsnet_pipeline",
+        help="输出目录 (默认: report/fouriergsnet_pipeline)",
     )
     args = parser.parse_args()
 

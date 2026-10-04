@@ -17,7 +17,7 @@ from tests.ao_shaping.utils.test_report import TestReport, TestWithReport
 
 def test_miicam_simulation_report() -> None:
     """Standalone simulation test that runs without hardware."""
-    with TestReport("miicam", device_dir="docs/miicam_simulation") as report:
+    with TestReport("miicam", device_dir="report/miicam_simulation") as report:
         report.add_section("MIICAM Simulation Test Report", 2)
         report.add_text("This test runs without hardware using simulated data.")
 

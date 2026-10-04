@@ -9,7 +9,7 @@ the calibrated SLM shift and captures, per case:
     coefficient distribution / key metrics
 
 and writes an illustrated markdown report (``report.md`` + ``phase/`` + ``wfs/``)
-to ``docs/slm/zernike_wfs_report/`` by default.
+to ``report/slm/zernike_wfs_report/`` by default.
 
 The WFS reference plane is created from a **flat SLM phase**, so every readout
 is the *increment relative to flat* and excludes static system aberration.
@@ -17,7 +17,7 @@ is the *increment relative to flat* and excludes static system aberration.
 Usage:
     $env:PYTHONPATH = "src"
     python scripts/generate_zernike_wfs_report.py
-    python scripts/generate_zernike_wfs_report.py -o docs/slm/zernike_wfs_report
+    python scripts/generate_zernike_wfs_report.py -o report/slm/zernike_wfs_report
 
 Hardware: Santec SLM-200 (memory mode) + Thorlabs WFS. WFS exposure is capped at
 7 ms (repo constraint).
@@ -75,7 +75,7 @@ plt.rcParams["font.sans-serif"] = [
 ]
 plt.rcParams["axes.unicode_minus"] = False
 
-DEFAULT_OUTPUT = ROOT / "docs" / "slm" / "zernike_wfs_report"
+DEFAULT_OUTPUT = ROOT / "report" / "slm" / "zernike_wfs_report"
 
 # (label, mode (n,m), radius_px, amplitude_rad); mode=None → flat phase
 CASES: list[tuple[str, tuple[int, int] | None, float | None, float | None]] = [

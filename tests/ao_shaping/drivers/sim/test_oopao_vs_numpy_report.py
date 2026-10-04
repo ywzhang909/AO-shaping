@@ -2,7 +2,7 @@
 
 Covers ``scripts/generate_oopao_vs_numpy_report.py``, which compares the two
 phase-screen / focal-plane backends across an aberration x turbulence matrix and
-writes ``docs/oopao_vs_numpy/{report.md,summary.csv,figures/}``.
+writes ``report/oopao_vs_numpy/{report.md,summary.csv,figures/}``.
 
 Most of these tests are pure logic (no OOPAO needed). The routing tests skip
 when ``oopao_backend._oopao_available()`` is False.

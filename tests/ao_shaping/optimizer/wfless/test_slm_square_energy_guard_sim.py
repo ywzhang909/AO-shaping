@@ -1,7 +1,7 @@
 """Energy guard, flat init and end-of-epoch resync on the 2f-Fourier sim.
 
 These three changes all come from the 2026-10-01 real-hardware run of
-``slm-gsnet spgd`` (docs/fouriergsnet_pipeline/hardware_run_20261001.md), which
+``slm-gsnet spgd`` (report/fouriergsnet_pipeline/hardware_run_20261001.md), which
 was a random walk (dec=0.487) that ended 35.9% worse than it started:
 
   * the freeform init was ``uniform(-pi, pi)`` -- full-amplitude random phase,

@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 from loguru import logger
 from PIL import Image
@@ -70,12 +71,12 @@ SUITE_ALGORITHMS: tuple[str, ...] = tuple(sorted(_ALGORITHMS))
 # Forward model (shared by all algorithms)
 # ---------------------------------------------------------------------------
 def _propagate_far_field(
-    phase: np.ndarray,
+    phase: npt.NDArray[np.floating],
     *,
     cell_spacing: float = DEFAULT_CELL_SPACING,
     distance: float = DEFAULT_DISTANCE,
     wavelength: float = DEFAULT_WAVELENGTH,
-) -> np.ndarray:
+) -> npt.NDArray[np.floating]:
     """Fraunhofer far-field intensity of ``exp(i*phase)`` (FFT focal model).
 
     The SLM plane field ``exp(j*phi)`` (uniform illumination, plateau flat
@@ -106,7 +107,7 @@ def _propagate_far_field(
 # ---------------------------------------------------------------------------
 # Area helpers (fixed-shape gate)
 # ---------------------------------------------------------------------------
-def measure_shaped_area(intensity: np.ndarray, threshold_ratio: float = 0.5) -> int:
+def measure_shaped_area(intensity: npt.NDArray[np.floating], threshold_ratio: float = 0.5) -> int:
     """Count pixels whose intensity is at least ``threshold_ratio × peak``.
 
     This is the project-standard "shaped area" definition used by the
@@ -184,7 +185,7 @@ def create_benchmark_target(
     *,
     target_area: int = DEFAULT_TARGET_AREA,
     aspect_ratio: float = 1.0,
-) -> tuple[np.ndarray, dict[str, Any]]:
+) -> tuple[npt.NDArray[np.floating], dict[str, Any]]:
     """Build a normalised target shape for a benchmark run.
 
     Wraps :func:`~ao_shaping.utils.image.targets.create_target_shape`
@@ -248,11 +249,11 @@ def create_benchmark_target(
 # Per-algorithm execution
 # ---------------------------------------------------------------------------
 def _run_gerchberg_saxton(
-    target_intensity: np.ndarray,
+    target_intensity: npt.NDArray[np.floating],
     grid_size: tuple[int, int],
     iterations: int,
     seed: int,
-) -> np.ndarray:
+) -> npt.NDArray[np.floating]:
     """GS phase retrieval; return the phase map (radians)."""
     target_amp = np.sqrt(np.maximum(target_intensity, 0.0))
     result = gerchberg_saxton(
@@ -269,12 +270,12 @@ def _run_gerchberg_saxton(
 
 
 def _run_backprop(
-    target_intensity: np.ndarray,
+    target_intensity: npt.NDArray[np.floating],
     grid_size: tuple[int, int],
     iterations: int,
     seed: int,
     device: str | None,
-) -> np.ndarray:
+) -> npt.NDArray[np.floating]:
     """Differentiable gradient-descent shaping; return the phase map."""
     result = train_beam_shaping(
         target=target_intensity,
@@ -296,11 +297,11 @@ def _run_backprop(
 
 
 def _run_spgd_sim(
-    target_intensity: np.ndarray,
+    target_intensity: npt.NDArray[np.floating],
     grid_size: tuple[int, int],
     iterations: int,
     seed: int,
-) -> np.ndarray:
+) -> npt.NDArray[np.floating]:
     """Self-contained SPGD loop over the same FFT forward model.
 
     SPGD (Stochastic Parallel Gradient Descent) optimises the SLM phase map
@@ -332,7 +333,7 @@ def _run_spgd_sim(
     return best_phase
 
 
-def _cost(intensity: np.ndarray, mask: np.ndarray) -> float:
+def _cost(intensity: npt.NDArray[np.floating], mask: npt.NDArray[np.bool_]) -> float:
     """Shaping cost from uniformity CV + encircled-energy shortfall."""
     metrics = compute_shaping_metrics(intensity, mask)
     cv = float(metrics.get("uniformity_cv", 0.0))
@@ -525,8 +526,8 @@ def to_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
 
 
 def build_gif_frames(
-    target: np.ndarray,
-    simulated: np.ndarray,
+    target: npt.NDArray[np.floating],
+    simulated: npt.NDArray[np.floating],
     max_frames: int = DEFAULT_MAX_FRAMES,
 ) -> list[Image.Image]:
     """Render a small PIL frame sequence: target → simulated stacked.

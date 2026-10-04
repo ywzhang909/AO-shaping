@@ -1,0 +1,89 @@
+{
+  "rms_pib": {
+    "shared": {
+      "r2": 0.9125009039002353,
+      "psnr": 29.448028564453125,
+      "ssim": 0.77288818359375,
+      "shape_pib_term": 0.650069566387531,
+      "shape_uniformity": 0.5153169183835203,
+      "shape_shape_sum": 1.1653864847710513,
+      "shape_target_shape_sum": 1.2303302761322665
+    },
+    "shared_attn": {
+      "r2": 0.9207363439016842,
+      "psnr": 29.838024139404297,
+      "ssim": 0.7657991647720337,
+      "shape_pib_term": 0.6789139535394704,
+      "shape_uniformity": 0.5277053338455883,
+      "shape_shape_sum": 1.2066192873850587,
+      "shape_target_shape_sum": 1.2303302761322665
+    },
+    "per_group": {
+      "r2": 0.926732895728845,
+      "psnr": 30.184350967407227,
+      "ssim": 0.8011338710784912,
+      "shape_pib_term": 0.6740927959731731,
+      "shape_uniformity": 0.5082393678985232,
+      "shape_shape_sum": 1.1823321638716964,
+      "shape_target_shape_sum": 1.2303302761322665
+    }
+  },
+  "rmse_out": {
+    "shared": {
+      "r2": 0.8954689320935808,
+      "psnr": 29.841459274291992,
+      "ssim": 0.7634300589561462,
+      "shape_pib_term": 0.6519779767923298,
+      "shape_uniformity": 0.5164147739136684,
+      "shape_shape_sum": 1.1683927507059981,
+      "shape_target_shape_sum": 1.1994937537938979
+    },
+    "shared_attn": {
+      "r2": 0.897122156361777,
+      "psnr": 29.909990310668945,
+      "ssim": 0.7533767819404602,
+      "shape_pib_term": 0.67967221454707,
+      "shape_uniformity": 0.5291512877415337,
+      "shape_shape_sum": 1.2088235022886038,
+      "shape_target_shape_sum": 1.1994937537938979
+    },
+    "per_group": {
+      "r2": 0.8861796266613164,
+      "psnr": 29.362590789794922,
+      "ssim": 0.7554171681404114,
+      "shape_pib_term": 0.6362275414025531,
+      "shape_uniformity": 0.5006910507665677,
+      "shape_shape_sum": 1.136918592169121,
+      "shape_target_shape_sum": 1.1994937537938979
+    }
+  },
+  "shape": {
+    "shared": {
+      "r2": 0.9128500556892829,
+      "psnr": 29.529611587524414,
+      "ssim": 0.7982606291770935,
+      "shape_pib_term": 0.6550800963705181,
+      "shape_uniformity": 0.5172133223276479,
+      "shape_shape_sum": 1.1722934186981662,
+      "shape_target_shape_sum": 1.2247879857334507
+    },
+    "shared_attn": {
+      "r2": 0.9231026817017978,
+      "psnr": 30.018211364746094,
+      "ssim": 0.7890515327453613,
+      "shape_pib_term": 0.6840052736716087,
+      "shape_uniformity": 0.5291741948586345,
+      "shape_shape_sum": 1.2131794685302433,
+      "shape_target_shape_sum": 1.2247879857334507
+    },
+    "per_group": {
+      "r2": 0.8926458668086157,
+      "psnr": 28.503400802612305,
+      "ssim": 0.6779166460037231,
+      "shape_pib_term": 0.6323151224072366,
+      "shape_uniformity": 0.5150490233364663,
+      "shape_shape_sum": 1.147364145743703,
+      "shape_target_shape_sum": 1.2247879857334507
+    }
+  }
+}

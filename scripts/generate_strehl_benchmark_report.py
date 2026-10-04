@@ -12,8 +12,8 @@ The turbulence screen is fixed by ``StrehlLandscape(seed=SEED)``, so every
 algorithm optimises the *same* landscape and results are reproducible.
 
 Emits Strehl iteration curves + before/after spot images + summary into
-``docs/strehl_benchmark/``, and appends a cross-benchmark comparison against the
-PIB benchmark (``docs/heuristic_pib/summary.csv``, dim=4 synthetic) when that
+``report/strehl_benchmark/``, and appends a cross-benchmark comparison against the
+PIB benchmark (``report/heuristic_pib/summary.csv``, dim=4 synthetic) when that
 summary is present.
 
 Usage:
@@ -70,7 +70,7 @@ plt.rcParams["axes.unicode_minus"] = False
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-OUT_DIR = ROOT / "docs" / "strehl_benchmark"
+OUT_DIR = ROOT / "report" / "strehl_benchmark"
 
 # `scripts._common` lives in this package, so the REPO ROOT (not just
 # `src`) must be importable. Direct `python scripts/<name>.py` does not put
@@ -80,7 +80,7 @@ sys.path.insert(0, str(OUT_DIR))
 #: Sibling artefact this report cross-references. It is a *default*, overridable
 #: via ``--pib-summary``: the Strehl and PIB benchmarks are generated
 #: independently, so either can be relocated or regenerated on its own.
-PIB_SUMMARY = ROOT / "docs" / "heuristic_pib" / "summary.csv"
+PIB_SUMMARY = ROOT / "report" / "heuristic_pib" / "summary.csv"
 
 
 def _rel(path: Path) -> str:
@@ -569,7 +569,7 @@ def write_report(
         "",
         "## Comparison with the PIB Benchmark",
         "",
-        "The heuristic PIB benchmark (`docs/heuristic_pib/report.md`, generated "
+        "The heuristic PIB benchmark (`report/heuristic_pib/report.md`, generated "
         "by `scripts/generate_heuristic_pib_report.py`) optimizes a **synthetic "
         "dim=4** landscape; this benchmark optimizes the **physical dim=64** "
         "simulation, so rankings are valid *within* each benchmark only. SPGD "

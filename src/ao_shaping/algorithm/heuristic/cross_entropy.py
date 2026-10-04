@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
+import numpy.typing as npt
 
 from ao_shaping.algorithm.heuristic.gm import NumpyPopulationGM, guided_mutation
 from ao_shaping.algorithm.heuristic.heuristic_base import (
@@ -75,12 +76,12 @@ class CrossEntropyMethod(NumpyPopulationGM, HeuristicOptimizer):
         self._mean = np.zeros(dim)
         self._std = np.full(dim, self.cem_config.initial_std)
         # Generation state lives on self so @guided_mutation can read it.
-        self._population: np.ndarray = np.empty((0, self.dim))
-        self._fitness_vals: np.ndarray = np.empty(0)
+        self._population: npt.NDArray[np.float64] = np.empty((0, self.dim))
+        self._fitness_vals: npt.NDArray[np.float64] = np.empty(0)
         self._current_iter: int = 0
 
     @guided_mutation(merge="replace_worst")
-    def _sample_generation(self) -> np.ndarray:
+    def _sample_generation(self) -> npt.NDArray[np.float64]:
         """Draw one generation from the current Gaussian, clipped into bounds.
 
         The decorator reads ``self._population`` / ``self._fitness_vals`` from the
@@ -100,8 +101,8 @@ class CrossEntropyMethod(NumpyPopulationGM, HeuristicOptimizer):
     def optimize(
         self,
         fitness_fn: callable,
-        init_x: np.ndarray | None = None,
-    ) -> tuple[np.ndarray, float]:
+        init_x: npt.NDArray[np.float64] | None = None,
+    ) -> tuple[npt.NDArray[np.float64], float]:
         """Run Cross-Entropy Method optimization."""
         if init_x is not None:
             self._mean = init_x.copy()

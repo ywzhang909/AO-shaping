@@ -30,7 +30,7 @@ from ao_shaping.drivers.sim.slm_shaping_bench import (
     forward_intensity,
     make_target,
 )
-from ao_shaping.optimizer.wfless.slm_shaping_bench import gs_shape, spgd_shape
+from ao_shaping.drivers.sim.slm_shaping_bench import gs_shape, spgd_shape
 from ao_shaping.optimizer.wfless.iterative_zernike_shaping import (
     IterativeZernikePibConfig,
 )
@@ -47,7 +47,7 @@ GOLDEN = {(2, 0): 0.94, (2, -2): 0.63, (4, 0): 0.63}
 
 
 def make_out_dir() -> Path:
-    out = ROOT / "docs" / "iterative_zernike_shaping"
+    out = ROOT / "report" / "iterative_zernike_shaping"
     out.mkdir(parents=True, exist_ok=True)
     return out
 

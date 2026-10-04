@@ -21,13 +21,13 @@ helpers they hand off to live with them:
 Everything that touches the filesystem is here.
 
 Note the naming trap: ``slm_shaping_bench.strehl()`` is a **mean-removed cosine
-similarity**, not a physical Strehl ratio (see ``docs/zotero_objectives``). The
+similarity**, not a physical Strehl ratio (see ``report/zotero_objectives``). The
 report does not report a Strehl column, which is why that conflict cannot leak
 into this table.
 
 **Usage**::
 
-    python scripts/generate_beam_shaping_benchmark_report.py --out-dir docs/benchmarks/device_less_full
+    python scripts/generate_beam_shaping_benchmark_report.py --out-dir report/benchmarks/device_less_full
 
 **Fully offline** -- pure numpy/PIL, no hardware, no device.
 """
@@ -52,7 +52,7 @@ from ao_shaping.algorithm.signal_processing.beam_shaping_benchmark import (  # n
     run_benchmark_suite,
 )
 
-DEFAULT_OUT = ROOT / "docs" / "benchmarks" / "device_less_full"
+DEFAULT_OUT = ROOT / "report" / "benchmarks" / "device_less_full"
 
 
 def write_table(df: pd.DataFrame, output_dir: str | Path) -> Path:
@@ -83,6 +83,12 @@ def write_table(df: pd.DataFrame, output_dir: str | Path) -> Path:
         "(3 algorithms x 3 shapes)",
         f"- Regenerate: `python scripts/generate_beam_shaping_benchmark_report.py` "
         "(fully offline, ~100 s)",
+        "> The sibling `.csv` is written too but is **not committed** -- the repo has a "
+        "global `*.csv` ignore rule and no CSV under `docs/` is tracked. Re-run to "
+        "get it; this markdown is the tracked artefact.",
+        "> The sibling `.csv` is written too but is **not committed** -- the repo has a "
+        "global `*.csv` ignore rule and no CSV under `docs/` is tracked. Re-run to "
+        "get it; this markdown is the tracked artefact.",
         "> The sibling `.csv` is written too but is **not committed** -- the repo has a "
         "global `*.csv` ignore rule and no CSV under `docs/` is tracked. Re-run to "
         "get it; this markdown is the tracked artefact.",

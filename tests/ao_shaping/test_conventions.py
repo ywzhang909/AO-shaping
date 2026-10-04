@@ -46,12 +46,19 @@ _HIGHER_LAYERS = ("algorithm", "drivers", "optimizer", "runners", "gui", "tools"
 #: closed report is *supposed* to name the paths that were current when it was
 #: written; rewriting those would falsify history. TODO.md is a task ledger whose
 #: entries quote broken paths on purpose.
-_HISTORICAL_DOCS = ("TODO.md", "docs/daily_", "docs/slm/", "docs/wfs/", "docs/micro",
-                    "docs/diff_beam/", "docs/zernike", "docs/oopao", "docs/pearson",
-                    "docs/models", "docs/simulation", "docs/iterative",
-                    "docs/fouriergsnet", "docs/benchmarks/device_less")
+#:
+#: ``report/`` is the whole experiment-report tree (moved out of ``docs/`` on
+#: 2026-10-05 so reports are not mixed with device documentation). It is listed
+#: wholesale rather than per-topic: it is entirely records, it is not scanned by
+#: ``_LIVE_DOCS`` below, and enumerating its ~30 topics here would rot on the
+#: first report added after this edit.
+_HISTORICAL_DOCS = ("TODO.md", "report/", "docs/slm/", "docs/wfs/", "docs/micro",
+                    "docs/miicam/", "docs/slm-200/", "docs/thorlab-wfs/",
+                    "docs/daheng/", "docs/micro-dm/", "docs/TM/")
 
 _PY_MODULE_DOCS = sorted(SRC.rglob("*.py")) + sorted((REPO / "scripts").glob("*.py"))
+#: Documents that carry *current* instructions, so every ``python -m`` target in
+#: them must resolve. ``report/`` is deliberately absent -- see _HISTORICAL_DOCS.
 _LIVE_DOCS = (
     [REPO / "README.md"]
     + sorted(SRC.rglob("*.md"))
@@ -195,14 +202,15 @@ _MD_M = re.compile(r"python\s+-m\s+(ao_shaping[\w.]*)")
 
 #: References that legitimately do not resolve. Each needs a reason, because an
 #: unexplained baseline entry is just a suppressed failure.
+#:
+#: ``ao_shaping.runners.gsnet_train`` was baselined while the gsnet trainer was being
+#: moved out of ``ao_shaping.runners``; it left the list once ``scripts/README.md``
+#: stopped claiming a ``python -m`` invocation for a module that no longer lived
+#: there. Do not re-add it without a live claim to excuse.
 _ALLOWED_UNRESOLVED = {
     "ao_shaping.runners": (
         "prose in utils/io/cli_helpers.py uses `python -m ao_shaping.runners...` "
         "as a glob for 'some runner', not a specific module"
-    ),
-    "ao_shaping.runners.gsnet_train": (
-        "scripts/generate_gsnet_offline_report.py states outright that gsnet_train "
-        "is a library module and this invocation is NOT valid -- the doc is correct"
     ),
 }
 
@@ -340,7 +348,7 @@ _HARNESS_MODULE = "tests/ao_shaping/utils/test_report.py"
 #: needs a reason.
 _ALLOWED_UNTRACKED_WRITERS = {
     "tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py":
-        "targets docs/miicam_simulation/, which git does not track, and needs no "
+        "targets report/miicam_simulation/, which git does not track, and needs no "
         "device (it is the simulated camera)",
 }
 
@@ -358,7 +366,7 @@ def _targets_a_tracked_docs_dir(path: Path) -> str | None:
     text = path.read_text(encoding="utf-8-sig", errors="replace")
     # An explicit device_dir OVERRIDES the device name, so it is the answer whether
     # or not it is tracked. Falling through to the name here would flag
-    # TestReport("miicam", device_dir="docs/miicam_simulation") as writing to
+    # TestReport("miicam", device_dir="report/miicam_simulation") as writing to
     # docs/miicam, which it does not touch.
     override = re.search(r'device_dir\s*=\s*"([^"]+)"', text)
     if override:

@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 
 import numpy as np
+import numpy.typing as npt
 
 from ao_shaping.algorithm.heuristic.gm import NumpyPopulationGM, guided_mutation
 from ao_shaping.algorithm.heuristic.heuristic_base import (
@@ -43,7 +44,7 @@ from ao_shaping.algorithm.heuristic.heuristic_base import (
 class FitnessFunction(Protocol):
     """Protocol for fitness function."""
 
-    def __call__(self, x: np.ndarray) -> float:
+    def __call__(self, x: npt.NDArray[np.float64]) -> float:
         """Evaluate fitness.
 
         Args:
@@ -71,11 +72,11 @@ class GAParams:
 
 
 def tournament_selection(
-    population: np.ndarray,
-    fitness: np.ndarray,
+    population: npt.NDArray[np.float64],
+    fitness: npt.NDArray[np.float64],
     tournament_size: int,
     random_state: np.random.Generator | None = None,
-) -> np.ndarray:
+) -> npt.NDArray[np.float64]:
     """Select an individual using tournament selection.
 
     Args:
@@ -96,11 +97,11 @@ def tournament_selection(
 
 
 def blend_crossover(
-    parent1: np.ndarray,
-    parent2: np.ndarray,
+    parent1: npt.NDArray[np.float64],
+    parent2: npt.NDArray[np.float64],
     alpha: float = 0.5,
     random_state: np.random.Generator | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """Blend crossover (BLX-alpha) for two parents.
 
     Creates two children by interpolating/extrapolating between parents
@@ -134,12 +135,12 @@ def blend_crossover(
 
 
 def gaussian_mutation(
-    individual: np.ndarray,
+    individual: npt.NDArray[np.float64],
     mutation_rate: float,
     sigma: float = 5.0,
     bounds: tuple[float, float] = (-50.0, 50.0),
     random_state: np.random.Generator | None = None,
-) -> np.ndarray:
+) -> npt.NDArray[np.float64]:
     """Apply Gaussian mutation to an individual.
 
     Each gene has a probability of being mutated according to mutation_rate.
@@ -171,7 +172,7 @@ class GAHistory:
 
     best_fitness: list[float] = field(default_factory=list)
     mean_fitness: list[float] = field(default_factory=list)
-    best_individual: np.ndarray | None = None
+    best_individual: npt.NDArray[np.float64] | None = None
 
 
 class GeneticAlgorithm(NumpyPopulationGM, HeuristicOptimizer):
@@ -207,8 +208,8 @@ class GeneticAlgorithm(NumpyPopulationGM, HeuristicOptimizer):
         super().__init__(dim, config, random_state)
         self.history = GAHistory()
         # Generation state lives on self so @guided_mutation can read it.
-        self._population: np.ndarray = np.empty((0, self.dim))
-        self._fitness_vals: np.ndarray = np.empty(0)
+        self._population: npt.NDArray[np.float64] = np.empty((0, self.dim))
+        self._fitness_vals: npt.NDArray[np.float64] = np.empty(0)
         self._current_iter: int = 0
 
     @classmethod
@@ -237,7 +238,7 @@ class GeneticAlgorithm(NumpyPopulationGM, HeuristicOptimizer):
         )
         return cls(dim=dim, params=params, random_state=random_state)
 
-    def _initialize_population(self, init_x: np.ndarray | None = None) -> np.ndarray:
+    def _initialize_population(self, init_x: npt.NDArray[np.float64] | None = None) -> npt.NDArray[np.float64]:
         """Initialize population.
 
         Args:
@@ -257,8 +258,8 @@ class GeneticAlgorithm(NumpyPopulationGM, HeuristicOptimizer):
         return pop
 
     def _evaluate_population(
-        self, pop: np.ndarray, fitness_fn: FitnessFunction
-    ) -> np.ndarray:
+        self, pop: npt.NDArray[np.float64], fitness_fn: FitnessFunction
+    ) -> npt.NDArray[np.float64]:
         """Evaluate fitness for entire population.
 
         Args:
@@ -272,7 +273,7 @@ class GeneticAlgorithm(NumpyPopulationGM, HeuristicOptimizer):
         return fitness
 
     @guided_mutation()
-    def _evolve_generation(self) -> np.ndarray:
+    def _evolve_generation(self) -> npt.NDArray[np.float64]:
         """Build the next generation: elitism + tournament + crossover + mutation.
 
         Returns a population of exactly ``pop_size`` rows. When GM is enabled,
@@ -333,10 +334,10 @@ class GeneticAlgorithm(NumpyPopulationGM, HeuristicOptimizer):
     def optimize(
         self,
         fitness_fn: FitnessFunction,
-        init_x: np.ndarray | None = None,
+        init_x: npt.NDArray[np.float64] | None = None,
         early_stop_threshold: float | None = None,
-        callback: Callable[[int, np.ndarray, float], None] | None = None,
-    ) -> tuple[np.ndarray, float]:
+        callback: Callable[[int, npt.NDArray[np.float64], float], None] | None = None,
+    ) -> tuple[npt.NDArray[np.float64], float]:
         """Run genetic algorithm optimization.
 
         Args:
@@ -419,9 +420,9 @@ def minimize_ga(
     pop_size: int = 50,
     n_generations: int = 1000,
     bounds: tuple[float, float] = (-10.0, 10.0),
-    init_x: np.ndarray | None = None,
+    init_x: npt.NDArray[np.float64] | None = None,
     early_stop_threshold: float | None = None,
-) -> tuple[np.ndarray, float]:
+) -> tuple[npt.NDArray[np.float64], float]:
     """Convenience function for GA optimization.
 
     Args:

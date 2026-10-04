@@ -22,7 +22,7 @@ What it reports
 
 Usage:
     python scripts/generate_pib_bench_report.py
-    python scripts/generate_pib_bench_report.py --root data/debug -o docs/slm_pib_bench
+    python scripts/generate_pib_bench_report.py --root data/debug -o report/slm_pib_bench
     python scripts/generate_pib_bench_report.py --no-figures
 """
 
@@ -55,7 +55,7 @@ plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
 DEFAULT_ROOT = ROOT / "data" / "debug"
-DEFAULT_OUT = ROOT / "docs" / "slm_pib_bench"
+DEFAULT_OUT = ROOT / "report" / "slm_pib_bench"
 
 #: Verdicts mirrored from ao_shaping.tools.slm.slm_snr_probe so this report
 #: renders offline without importing driver-side code paths.

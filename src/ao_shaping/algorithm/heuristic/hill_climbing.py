@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import numpy.typing as npt
 
 from ao_shaping.algorithm.heuristic.heuristic_base import (
     HeuristicOptimizer,
@@ -69,7 +70,7 @@ class HillClimbing(HeuristicOptimizer):
 
         self.hc_config = hc_config
 
-    def _generate_neighbor(self, current: np.ndarray) -> np.ndarray:
+    def _generate_neighbor(self, current: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         """Generate neighbor solution."""
         neighbor = current + self.rng.normal(0, self.hc_config.neighbor_std, self.dim)
         return np.clip(neighbor, self.config.bounds[0], self.config.bounds[1])
@@ -77,8 +78,8 @@ class HillClimbing(HeuristicOptimizer):
     def optimize(
         self,
         fitness_fn: callable,
-        init_x: np.ndarray | None = None,
-    ) -> tuple[np.ndarray, float]:
+        init_x: npt.NDArray[np.float64] | None = None,
+    ) -> tuple[npt.NDArray[np.float64], float]:
         """Run Hill Climbing optimization."""
         if init_x is not None:
             current = init_x.copy()

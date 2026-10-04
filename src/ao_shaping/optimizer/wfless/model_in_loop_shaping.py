@@ -853,7 +853,7 @@ def shape_phase_with_frozen_aberration(
             ``None`` the native twin Gaussian is used, which is right for the
             digital twin. On hardware the beam waist is a *measured* quantity
             (see :func:`calibrate_bench_geometry` and
-            ``docs/slm/model_in_loop_bench_calibration.md``), so the calibrated
+            ``report/slm/model_in_loop_bench_calibration.md``), so the calibrated
             amplitude must be passed in or Step B optimises for a beam that is
             not the real one.
 
@@ -2203,7 +2203,7 @@ class FitAberrationResult:
 def _resize_grid(array: np.ndarray, grid: int) -> np.ndarray:
     """Resample a 2D array onto a ``(grid, grid)`` grid by nearest neighbour.
 
-    Kept local rather than imported from ``runners.gsnet_offline`` so the
+    Kept local rather than imported from ``ml.gsnet_debug.offline`` so the
     optimizer layer never depends on the runner layer (and never drags its
     plotting/CLI imports into an algorithm import).
 

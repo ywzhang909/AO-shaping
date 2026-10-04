@@ -179,7 +179,9 @@ def test_baseline_row_and_epoch_rows_differ_only_by_the_verdict():
     baseline = set(recorder.history[0])
     for index, row in enumerate(recorder.history[1:], start=1):
         extra = set(row) - baseline
-        assert extra == {"_gate"}, f"row {index} added unexpected columns {sorted(extra)}"
+        assert extra == {"_gate"}, (
+            f"row {index} added unexpected columns {sorted(extra)}"
+        )
 
 
 def test_maximise_objective_moves_the_coefficients_offline():
@@ -228,7 +230,10 @@ def test_abba_sampling_actually_changes_the_measurement_sequence():
 
 def test_default_config_keeps_the_two_capture_path():
     """The documented invariant: ABBA is off unless asked for."""
-    assert engine.SlmZernikePibConfig.__dataclass_fields__["abba_sampling"].default is False
+    assert (
+        engine.SlmZernikePibConfig.__dataclass_fields__["abba_sampling"].default
+        is False
+    )
 
 
 def test_multi_frame_averaging_runs():

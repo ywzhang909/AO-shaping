@@ -106,6 +106,11 @@ class AmpTrainConfig:
 
     families: tuple[str, ...] = (DEFAULT_FAMILY,)
     fov_px: int | None = None
+    #: Substring filter on the artefact path, applied before ``fov_px``. Lets a
+    #: run cover one slice of a family -- needed because
+    #: ``slm_zernike_shaping`` mixes four optimisation objectives, hence four
+    #: distinct bench states, behind one family name.
+    file_contains: str | None = None
     grid: int = 64
     n_max: int = 4
     observable: Observable = "intensity"
@@ -329,7 +334,21 @@ def _select_records(
     would put near-duplicates on both sides.
     """
     records = dataset.records
-    if cfg.fov_px is not None:
+    if cfg.file_contains is not None:
+        # Substring match on the artefact path. The ``slm_zernike_shaping`` family
+        # packs 10 pickles from **4 different optimisation objectives** (measured:
+        # rms_pib 404 / rmse_out 303 / shape 202 / roi_pib 101 records), and each
+        # objective's run leaves the SLM at a different aberration -- so the
+        # family is four distinct bench states sharing one family name, and a
+        # single global coefficient vector has to compromise across all four.
+        # This filter is what makes "train on one objective" expressible.
+        needle = cfg.file_contains
+        keep = [i for i, r in enumerate(records) if needle in str(r.path)]
+        if not keep:
+            raise SystemExit(f"no records match file_contains={needle!r}")
+        records = [records[i] for i in keep]
+        positions = keep
+    elif cfg.fov_px is not None:
         keep = [
             i
             for i, r in enumerate(records)

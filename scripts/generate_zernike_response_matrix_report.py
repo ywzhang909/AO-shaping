@@ -1,7 +1,7 @@
 """Generate the illustrated Zernike response-matrix report (creation / analysis / verification).
 
 Reads the saved artefacts and writes an illustrated markdown report to
-``docs/slm/zernike_response_matrix_report/`` (report.md + figures/):
+``report/slm/zernike_response_matrix_report/`` (report.md + figures/):
 
   **Creation**    acquisition metadata of the push-pull calibration; the raw
                   multi-size scan is summarised (mode × radius × amplitude grid).
@@ -71,7 +71,7 @@ plt.rcParams["font.sans-serif"] = [
 ]
 plt.rcParams["axes.unicode_minus"] = False
 
-DEFAULT_OUT = ROOT / "docs" / "slm" / "zernike_response_matrix_report"
+DEFAULT_OUT = ROOT / "report" / "slm" / "zernike_response_matrix_report"
 
 
 def _short(name: str) -> str:
@@ -608,7 +608,7 @@ def write_markdown(out: Path, ctx: dict, fig_prefix: str = "figures") -> str:
         md.append("### 2.5 线性度\n")
         md.append("> 本次矩阵由**单幅度推拉标定**产生 (无多幅度扫描数据), 故不提供 "
                   "`|resp|`-vs-幅度线性度图。推拉重复性可由 §2.4 方差图评估; "
-                  "多幅度线性度分析另见 `docs/slm/zernike_linearity/linearity.md`。\n")
+                  "多幅度线性度分析另见 `report/slm/zernike_linearity/linearity.md`。\n")
     md.append("## 3. 检测 (Detection)\n")
     if ctx["worst"]:
         md.append("### 3.1 异常点诊断\n")
@@ -621,7 +621,7 @@ def write_markdown(out: Path, ctx: dict, fig_prefix: str = "figures") -> str:
         md.append("> 本次标定**未触发拟合崩溃** (无 `|resp|` 异常点): 半径取 R≈1.5×光束半径、"
                   "幅度适中, 且已启用**逐点幅度合理性剔除**与**光斑有效比门控** "
                   "(`wfs_validity`)。异常点诊断图与 R 依赖分析见 "
-                  "`docs/slm/report2.md` 附节 §3.1。\n")
+                  "`report/slm/report2.md` 附节 §3.1。\n")
     if ctx["inverse"]:
         md.append("### 3.2 离线反解验证\n")
         md.append("![inverse](figures/07_inverse_demo.png)\n")
@@ -636,12 +636,12 @@ def write_markdown(out: Path, ctx: dict, fig_prefix: str = "figures") -> str:
         md.append(f"恢复 WFS 内部参考后, 矫正前 RMS={cl['before_rms']:.4f}λ → "
                   f"矫正后 {cl['after_rms']:.4f}λ (**{100 * (1 - cl['after_rms'] / cl['before_rms']):.1f}%**)。\n")
         md.append("> 本矩阵即 R=300px 重标定的**同源闭环**实测 (SLM 移位标定 → 半径诊断 → "
-                  "闭环矫正为同一次运行): R=200 污染矩阵仅 13.8% (见 `docs/slm/report2.md`), "
+                  "闭环矫正为同一次运行): R=200 污染矩阵仅 13.8% (见 `report/slm/report2.md`), "
                   "改用 R≈300px 后改善显著。波前图 / 系数变化 / RMS-PV 对比见 §3.4。\n")
     else:
         md.append("### 3.3 实测闭环矫正\n")
         md.append("> 本次未随标定运行闭环矫正 (矩阵由独立标定工具产生, 无同源闭环数据)。"
-                  "最近一次闭环实测 (使用**另一矩阵**) 见 `docs/slm/report2.md` §3.3, "
+                  "最近一次闭环实测 (使用**另一矩阵**) 见 `report/slm/report2.md` §3.3, "
                   "仅供参考; 本矩阵的**离线反解能力**见 §3.2 与 §4.4。\n")
 
     cent = ctx.get("centering") or {}
@@ -714,7 +714,7 @@ def write_markdown(out: Path, ctx: dict, fig_prefix: str = "figures") -> str:
         md.append("### 4.3 线性度\n")
         md.append("> 本次为**单幅度推拉标定**, 未做多幅度扫描 → 无 `|resp|`-vs-幅度线性度数据。"
                   "推拉重复性见 §4.1 的平均方差 (1e-5 量级即良好); 多幅度线性度分析见 "
-                  "`docs/slm/zernike_linearity/linearity.md`。\n")
+                  "`report/slm/zernike_linearity/linearity.md`。\n")
     if ctx.get("inverse"):
         md.append("### 4.4 反解能力 (离线)\n")
         md.append(f"- 合成像差 `[5]defocus=+0.30λ, [9]coma=−0.20λ` 经 `c = pinv(M) @ w` 反解, "

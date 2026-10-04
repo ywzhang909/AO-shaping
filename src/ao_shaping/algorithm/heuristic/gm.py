@@ -43,12 +43,13 @@ from collections.abc import Callable
 from typing import Any, Literal, TypeVar
 
 import numpy as np
+import numpy.typing as npt
 
 
 def _check_population(
-    population: np.ndarray,
-    fitness: np.ndarray,
-    ranks: np.ndarray,
+    population: npt.NDArray[np.float64],
+    fitness: npt.NDArray[np.float64],
+    ranks: npt.NDArray[np.intp],
 ) -> None:
     """Validate a kernel's preconditions loudly.
 
@@ -82,14 +83,14 @@ class GMOperator(ABC):
     @abstractmethod
     def __call__(
         self,
-        population: np.ndarray,
-        fitness: np.ndarray,
-        ranks: np.ndarray,
+        population: npt.NDArray[np.float64],
+        fitness: npt.NDArray[np.float64],
+        ranks: npt.NDArray[np.intp],
         current_iter: int,
         n_offspring: int,
         bounds: tuple[float, float],
         rng: np.random.Generator,
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.float64]:
         """Generate guided-mutation offspring.
 
         Args:
@@ -178,14 +179,14 @@ class RankGuidedMutation(GMOperator):
 
     def __call__(
         self,
-        population: np.ndarray,
-        fitness: np.ndarray,
-        ranks: np.ndarray,
+        population: npt.NDArray[np.float64],
+        fitness: npt.NDArray[np.float64],
+        ranks: npt.NDArray[np.intp],
         current_iter: int,
         n_offspring: int,
         bounds: tuple[float, float],
         rng: np.random.Generator,
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.float64]:
         low, high = float(bounds[0]), float(bounds[1])
         n, dim = population.shape
         _check_population(population, fitness, ranks)
@@ -288,7 +289,7 @@ class ValueFrequencyGuidedMutation(GMOperator):
         """Forget every recorded elite value."""
         self._elite_values.clear()
 
-    def observe(self, population: np.ndarray, fitness: np.ndarray) -> None:
+    def observe(self, population: npt.NDArray[np.float64], fitness: npt.NDArray[np.float64]) -> None:
         """Record this generation's elite individuals into the value table.
 
         Args:
@@ -318,14 +319,14 @@ class ValueFrequencyGuidedMutation(GMOperator):
 
     def __call__(
         self,
-        population: np.ndarray,
-        fitness: np.ndarray,
-        ranks: np.ndarray,
+        population: npt.NDArray[np.float64],
+        fitness: npt.NDArray[np.float64],
+        ranks: npt.NDArray[np.intp],
         current_iter: int,
         n_offspring: int,
         bounds: tuple[float, float],
         rng: np.random.Generator,
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.float64]:
         low, high = float(bounds[0]), float(bounds[1])
         span = high - low
         n, dim = population.shape
@@ -436,11 +437,11 @@ class GMOptimizerMixin:
     # ------------------------------------------------------------------
     # Contract to be implemented by the concrete optimizer
     # ------------------------------------------------------------------
-    def _gm_population(self) -> np.ndarray:
+    def _gm_population(self) -> npt.NDArray[np.float64]:
         """Return the current population as an ``(n, dim)`` array."""
         raise NotImplementedError
 
-    def _gm_fitness(self) -> np.ndarray:
+    def _gm_fitness(self) -> npt.NDArray[np.float64]:
         """Return the current fitness array, shape ``(n,)``; lower is better."""
         raise NotImplementedError
 
@@ -456,18 +457,18 @@ class GMOptimizerMixin:
         """Return the scalar ``(low, high)`` children are clipped into."""
         raise NotImplementedError
 
-    def _gm_commit(self, population: np.ndarray) -> None:
+    def _gm_commit(self, population: npt.NDArray[np.float64]) -> None:
         """Adopt ``population`` as the optimizer's new population."""
         raise NotImplementedError
 
     # ------------------------------------------------------------------
     # Shared behaviour
     # ------------------------------------------------------------------
-    def _ranks(self, fitness: np.ndarray) -> np.ndarray:
+    def _ranks(self, fitness: npt.NDArray[np.float64]) -> npt.NDArray[np.intp]:
         """Return competition-free ranks, ``1`` for the best (lowest) fitness."""
         return fitness.argsort().argsort() + 1
 
-    def apply_gm_if_enabled(self) -> np.ndarray:
+    def apply_gm_if_enabled(self) -> npt.NDArray[np.float64]:
         """Generate one batch of GM offspring from the optimizer's own state.
 
         Returns an empty ``(0, dim)`` array when GM is off or no kernel is
@@ -510,15 +511,15 @@ class NumpyPopulationGM(GMOptimizerMixin):
         The zero-based generation index.
     """
 
-    _population: np.ndarray
-    _fitness_vals: np.ndarray
+    _population: npt.NDArray[np.float64]
+    _fitness_vals: npt.NDArray[np.float64]
     _current_iter: int
     config: Any  # provides .bounds, supplied by HeuristicOptimizer
 
-    def _gm_population(self) -> np.ndarray:
+    def _gm_population(self) -> npt.NDArray[np.float64]:
         return self._population
 
-    def _gm_fitness(self) -> np.ndarray:
+    def _gm_fitness(self) -> npt.NDArray[np.float64]:
         return self._fitness_vals
 
     def _gm_iteration(self) -> int:
@@ -535,16 +536,16 @@ class NumpyPopulationGM(GMOptimizerMixin):
     def _gm_bounds(self) -> tuple[float, float]:
         return self.config.bounds
 
-    def _gm_commit(self, population: np.ndarray) -> None:
+    def _gm_commit(self, population: npt.NDArray[np.float64]) -> None:
         self._population = population
 
 
-_GMStep = TypeVar("_GMStep", bound=Callable[..., np.ndarray])
+_GMStep = TypeVar("_GMStep", bound=Callable[..., npt.NDArray[np.float64]])
 
 
 def _merge_grow(
-    evolved: np.ndarray, children: np.ndarray, worst: np.ndarray
-) -> np.ndarray:
+    evolved: npt.NDArray[np.float64], children: npt.NDArray[np.float64], worst: npt.NDArray[np.intp]
+) -> npt.NDArray[np.float64]:
     """Append GM offspring after the step's own offspring.
 
     The population grows by ``len(children)``; the caller is responsible for the
@@ -555,8 +556,8 @@ def _merge_grow(
 
 
 def _merge_replace_worst(
-    evolved: np.ndarray, children: np.ndarray, worst: np.ndarray
-) -> np.ndarray:
+    evolved: npt.NDArray[np.float64], children: npt.NDArray[np.float64], worst: npt.NDArray[np.intp]
+) -> npt.NDArray[np.float64]:
     """Overwrite the ``worst`` rows with GM offspring, keeping the size fixed.
 
     Required for any algorithm whose population has a fixed size, where growing
@@ -589,7 +590,7 @@ def guided_mutation(
     merge_fn = _merge_grow if merge == "grow" else _merge_replace_worst
 
     def decorator(evolve_step: _GMStep) -> _GMStep:
-        def wrapper(self: GMOptimizerMixin, *args: Any, **kwargs: Any) -> np.ndarray:
+        def wrapper(self: GMOptimizerMixin, *args: Any, **kwargs: Any) -> npt.NDArray[np.float64]:
             evolved = evolve_step(self, *args, **kwargs)
             if not self.use_gm or self._gm_operator is None:
                 return evolved

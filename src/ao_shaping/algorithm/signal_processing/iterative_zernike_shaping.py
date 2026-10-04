@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 from loguru import logger
 
 from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator, zernike_modes
@@ -115,9 +116,9 @@ class IterativeZernikeShapingResult:
     """Outcome of one full run of the iterative optimizer."""
 
     zernike_coeffs: dict[tuple[int, int], float]
-    slm_phase: np.ndarray
-    far_field: np.ndarray
-    target: np.ndarray
+    slm_phase: npt.NDArray[np.floating]
+    far_field: npt.NDArray[np.floating]
+    target: npt.NDArray[np.floating]
     score_history: list[dict[str, Any]]
     n_outer_iters: int
     converged: bool
@@ -326,7 +327,7 @@ class IterativeZernikeShapingOptimizer:
         intensity = intensity / (intensity.sum() + 1e-12)
         return intensity
 
-    def _zernike_phase(self, coeffs: dict[tuple[int, int], float]) -> np.ndarray:
+    def _zernike_phase(self, coeffs: dict[tuple[int, int], float]) -> npt.NDArray[np.floating]:
         """Zernike phase (raw radians) for a coefficient dict, shape (n, n)."""
         t = _torch()
         n = self._config.n_grid
@@ -440,8 +441,8 @@ class IterativeZernikeShapingOptimizer:
     def shape_phase(
         self,
         zernike_coeffs: dict[tuple[int, int], float] | None,
-        initial_slm_phase: np.ndarray | None = None,
-    ) -> np.ndarray:
+        initial_slm_phase: npt.NDArray[np.floating] | None = None,
+    ) -> npt.NDArray[np.floating]:
         """Run one SLM phase shaping pass (Stage B).
 
         Freezes the Zernike coefficients and optimizes the free-form SLM phase
@@ -506,8 +507,8 @@ class IterativeZernikeShapingOptimizer:
         self,
         actual_far_field: Any,
         zernike_coeffs: dict[tuple[int, int], float],
-        slm_phase: np.ndarray,
-    ) -> tuple[dict[tuple[int, int], float], np.ndarray]:
+        slm_phase: npt.NDArray[np.floating],
+    ) -> tuple[dict[tuple[int, int], float], npt.NDArray[np.floating]]:
         """Perform one outer iteration: Stage A (if n_zernike > 0) then Stage B.
 
         Args:
@@ -528,8 +529,8 @@ class IterativeZernikeShapingOptimizer:
     # ------------------------------------------------------------------
     def run(
         self,
-        actual_far_field: np.ndarray,
-        initial_slm_phase: np.ndarray | None = None,
+        actual_far_field: npt.NDArray[np.floating],
+        initial_slm_phase: npt.NDArray[np.floating] | None = None,
     ) -> IterativeZernikeShapingResult:
         """Run the full iterative optimization loop.
 

@@ -21,7 +21,7 @@ Usage::
 
     $env:PYTHONPATH = "src;libs"
     python scripts/measure_shape_sensitivity.py
-    python scripts/measure_shape_sensitivity.py --deltas 0.02,0.05,0.1,0.2 -o docs/slm_pib_heuristic_hw
+    python scripts/measure_shape_sensitivity.py --deltas 0.02,0.05,0.1,0.2 -o report/slm_pib_heuristic_hw
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ def parse_args() -> argparse.Namespace:
         help="phase perturbation amplitudes in rad (comma separated)",
     )
     parser.add_argument("--target-aspect-ratio", type=float, default=4.0 / 3.0)
-    parser.add_argument("-o", "--output", default="docs/slm_pib_heuristic_hw")
+    parser.add_argument("-o", "--output", default="report/slm_pib_heuristic_hw")
     return parser.parse_args()
 
 

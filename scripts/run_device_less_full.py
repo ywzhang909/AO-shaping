@@ -5,7 +5,7 @@ The report writer now lives in
 must live in ``scripts/``, not in ``algorithm/``). This script is kept because
 scripts/README.md documents it, and it only forwards to that writer.
 
-Produces under docs/benchmarks/device_less_full/:
+Produces under report/benchmarks/device_less_full/:
   - beam_shaping_benchmark_metrics.csv / .md  (9-cell grid)
   - gif/ 6 evolution GIFs (gs / spgd-sim x square/circle/gaussian)
 """
@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from scripts.generate_beam_shaping_benchmark_report import main as generate
 
-OUT = Path(__file__).resolve().parents[1] / "docs" / "benchmarks" / "device_less_full"
+OUT = Path(__file__).resolve().parents[1] / "report" / "benchmarks" / "device_less_full"
 GIF = OUT / "gif"
 
 

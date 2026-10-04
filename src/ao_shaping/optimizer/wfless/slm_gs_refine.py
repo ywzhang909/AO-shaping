@@ -25,13 +25,12 @@ differently-scaled proxy.
 
 Three hardware-specific decisions that are easy to get wrong
 -----------------------------------------------------------
-1. **The ROI is located once and then frozen.** ``compute_metrics`` in the bench
-   carries an explicit warning that an ``argmax``-rolled target box makes
-   PIB/CV discontinuous, because on a speckle field the global maximum hops
-   between near-equal grains under a ~1e-3 perturbation -- an optimizer will
-   chase a box that no longer covers the beam. We therefore locate the 0-order
+1. **The ROI is located once and then frozen.** On a speckle field the global
+   maximum hops between near-equal grains under a ~1e-3 perturbation, so an
+   ``argmax``-rolled target box makes PIB/CV discontinuous and the optimizer
+   chases a box that no longer covers the beam. We therefore locate the 0-order
    by ``argmax`` on the **unshaped** frame, before any phase is applied, and
-   never re-locate it.
+   never re-locate it. (See ``report/slm_pib_bench/report.md`` §7.3.)
 
 2. **The GS phase is admitted only if it wins a bake-off.** The GS phase comes
    from a *model* of this bench (aperture, focal length, camera pixel pitch). If
@@ -318,17 +317,18 @@ def _prepare_frame(frame: np.ndarray) -> np.ndarray:
     """Remove the detector background and return a non-negative frame.
 
     A CCD frame carries symmetric read noise, so roughly half its pixels are
-    negative. ``power_in_bucket`` divides the in-target sum by the *whole frame*
-    sum, so a negative background makes the denominator smaller than the
-    numerator and the ratio exceeds 1 -- measured 1.012 on a sim frame with 7164
-    negative pixels out of 14400. Any optimiser driving on that signal is
-    chasing read noise, and ``CV`` is corrupted the same way.
+    negative and an unprocessed frame yields ``PIB > 1`` (measured 1.012). The
+    beam occupies a small fraction of the frame, so the median is a robust
+    background estimate; clipping **after** subtraction is what makes ``PIB <= 1``
+    and ``CV`` finite. Clipping the raw frame instead would rectify that noise
+    into a pixel-count-sized DC pedestal.
 
-    The beam occupies a small fraction of the frame, so the median is a robust
-    background estimate; clipping after subtraction is what makes ``PIB <= 1``
-    and ``CV`` finite. Clipping the *raw* frame instead would rectify the noise
-    into a positive pedestal proportional to the pixel count, which is the
-    defect documented in ``drivers/sim/AGENTS.md`` -- subtracting first avoids it.
+    Note this is deliberately *not* the same convention as
+    ``slm_square_shaping.square_quality_score``, which clips without subtracting:
+    there the background fills the frame, so the median *is* the pedestal and
+    subtracting it makes the ratio explode. The measurements behind both, and the
+    4598x read-noise pedestal figure, are in
+    ``report/slm_pib_bench/report.md`` §7.
     """
     clean = np.where(np.isfinite(frame), frame, 0.0)
     return np.clip(clean - np.median(clean), 0.0, None)

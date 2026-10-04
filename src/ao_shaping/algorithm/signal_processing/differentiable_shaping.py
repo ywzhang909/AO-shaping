@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
+import numpy.typing as npt
 from loguru import logger
 
 if TYPE_CHECKING:  # pragma: no cover – type-only imports
@@ -73,7 +74,7 @@ def create_target_mask(
     size: int,
     *,
     sigma: float | None = None,
-) -> np.ndarray:
+) -> npt.NDArray[np.float64]:
     """Create a normalised target intensity mask.
 
     Args:
@@ -203,7 +204,7 @@ def total_loss(
     All individual terms are non-negative and roughly comparable in scale.
 
     .. note::
-        Empirically verified weights (docs/slm_differential_shaping/): the
+        Empirically verified weights (report/slm_differential_shaping/): the
         zero-order penalty MUST be 0 for targets centred on the beam origin —
         suppressing the DC (centre) pushes energy OUT of a centred square/spot
         and collapses encircled energy (EE 0.84 -> 0.07 at
@@ -375,9 +376,9 @@ class DifferentiableShapingResult:
         converged: Whether the run completed all requested iterations.
     """
 
-    phase: np.ndarray
-    target_intensity: np.ndarray
-    simulated_intensity: np.ndarray
+    phase: npt.NDArray[np.floating]
+    target_intensity: npt.NDArray[np.floating]
+    simulated_intensity: npt.NDArray[np.floating]
     loss_history: list[float]
     iterations: int
     converged: bool
@@ -389,11 +390,11 @@ class DifferentiableShapingResult:
 
 
 def train_beam_shaping(
-    target: "np.ndarray | Tensor",
+    target: "npt.NDArray[np.floating] | Tensor",
     grid_size: tuple[int, int],
     *,
-    source_amplitude: "np.ndarray | Tensor | None" = None,
-    initial_phase: "np.ndarray | Tensor | None" = None,
+    source_amplitude: "npt.NDArray[np.floating] | Tensor | None" = None,
+    initial_phase: "npt.NDArray[np.floating] | Tensor | None" = None,
     propagation: str = "fft",
     optimizer: str = "adam",
     iterations: int = 300,
@@ -440,7 +441,7 @@ def train_beam_shaping(
         ValueError: On invalid inputs.
 
     .. note::
-        Empirically tuned defaults (256×256, docs/slm_differential_shaping/):
+        Empirically tuned defaults (256×256, report/slm_differential_shaping/):
         - ``lr=3e-2`` + ``w_zero_order=0``: the old defaults (``lr=1e-2``,
           ``w_zero_order=0.1``) were broken — the zero-order penalty pushes
           energy OUT of a centred target (encircled energy collapsed to 0.07
@@ -525,7 +526,7 @@ def train_beam_shaping(
     else:
         # Small random noise avoids the degenerate zero-gradient start where
         # the field is purely real (intensity is quadratic in phase there).
-        # Empirical finding (docs/slm_differential_shaping/): a flat/zero
+        # Empirical finding (report/slm_differential_shaping/): a flat/zero
         # phase is a critical point that ASM never escapes (loss grew instead
         # of converging); the 0.1-scale noise kicks prediction away from it.
         # Uniform/`scale=0.1` matters too — 1.0-scale noise focuses slowly.

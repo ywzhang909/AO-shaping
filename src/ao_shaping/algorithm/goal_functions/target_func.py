@@ -1,4 +1,5 @@
 import numpy as np
+import numpy.typing as npt
 from scipy.optimize import curve_fit
 import warnings
 
@@ -10,13 +11,13 @@ from ao_shaping.utils.image.spots_calc import (
 
 
 def _gaussian2d(
-    xdata: np.ndarray,
+    xdata: npt.NDArray[np.float64],
     amplitude: float,
     x0: float,
     y0: float,
     sigma: float,
     offset: float,
-) -> np.ndarray:
+) -> npt.NDArray[np.float64]:
     """2D Gaussian function for curve fitting.
 
     Args:
@@ -41,7 +42,7 @@ def _gaussian2d(
 class ImageTargetFunc:
     @classmethod
     def build_from_init_image(
-        cls: type["ImageTargetFunc"], init_img: np.ndarray
+        cls: type["ImageTargetFunc"], init_img: npt.NDArray[np.float64]
     ) -> "ImageTargetFunc":
         h, w = init_img.shape
         # Initial center in (x, y) = (col, row) format: (w//2, h//2)
@@ -169,7 +170,7 @@ class ImageTargetFunc:
         idx = min(max(idx, 1), len(self.masks) - 1)
         return self.masks[idx]
 
-    def fit_gaussian_radius(self, img: np.ndarray, center: tuple[float, float] | None = None) -> float | None:
+    def fit_gaussian_radius(self, img: npt.NDArray[np.floating], center: tuple[float, float] | None = None) -> float | None:
         """拟合2D高斯曲线得到半腰半径（sigma）。
 
         Args:
@@ -229,7 +230,7 @@ class ImageTargetFunc:
         except Exception:
             return None
 
-    def second_moment_radius(self, img: np.ndarray, center: tuple[float, float] | None = None) -> float:
+    def second_moment_radius(self, img: npt.NDArray[np.floating], center: tuple[float, float] | None = None) -> float:
         """计算二阶矩半径。
 
         二阶矩半径定义：

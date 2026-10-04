@@ -1,0 +1,2 @@
+algorithm,shape,requested_area,measured_area,area_met,fill_ratio,uniformity_cv,encircled_energy,elapsed_s
+gs,square,256,247,True,0.96484375,0.16866396079156917,0.9508603493456242,0.7750250999815762

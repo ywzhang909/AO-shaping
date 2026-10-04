@@ -1,7 +1,7 @@
 """Generate the illustrated DM response-matrix report (creation / analysis / detection).
 
 Reads the saved artefacts and writes an illustrated markdown report to
-``docs/dm_response_matrix_report/`` (report.md + figures/):
+``report/dm_response_matrix/`` (report.md + figures/):
 
   **Creation**    acquisition metadata of the DM push-pull calibration (mode,
                   voltage, cycles, averages, device config).
@@ -18,7 +18,7 @@ default, override with flags):
 Usage:
     $env:PYTHONPATH = "src"
     python scripts/generate_dm_response_matrix_report.py
-    python scripts/generate_dm_response_matrix_report.py --h5 <path> -o docs/dm_response_matrix_report
+    python scripts/generate_dm_response_matrix_report.py --h5 <path> -o report/dm_response_matrix
 """
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ plt.rcParams["font.sans-serif"] = [
 ]
 plt.rcParams["axes.unicode_minus"] = False
 
-DEFAULT_OUT = ROOT / "docs" / "dm_response_matrix_report"
+DEFAULT_OUT = ROOT / "report" / "dm_response_matrix"
 
 
 # ─────────────────────────── h5 fallback loader ───────────────────────────
@@ -564,7 +564,7 @@ def main() -> int:
     ap.add_argument("--h5", default=None,
                     help="DM response matrix .h5 (default: latest)")
     ap.add_argument("-o", "--output", default=str(DEFAULT_OUT),
-                    help="Output directory (default: docs/dm_response_matrix_report)")
+                    help="Output directory (default: report/dm_response_matrix)")
     ap.add_argument("--title", default=None, help="Report title override")
     args = ap.parse_args()
 

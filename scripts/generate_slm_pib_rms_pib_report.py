@@ -4,15 +4,15 @@ Reads the debug artifacts written by ``slm_pib_runner --debug`` (the HDF5
 ``/scalars`` columns plus the per-run summary PNG sketch) for every
 ``data/debug/slm_pib_rms_pib_*`` run and produces:
 
-* ``docs/slm_pib_rms_pib_hw/figures/matrix_best_curves.png`` — per-algorithm
+* ``report/slm_pib_rms_pib_hw/figures/matrix_best_curves.png`` — per-algorithm
   ``best_rms_pib`` evolution (the tracked historical best, which stays finite
   even when the energy guard rejects an epoch's evaluation);
-* ``docs/slm_pib_rms_pib_hw/figures/summary_bars.png`` — final best rms_pib
+* ``report/slm_pib_rms_pib_hw/figures/summary_bars.png`` — final best rms_pib
   per algorithm, sorted descending;
-* ``docs/slm_pib_rms_pib_hw/figures/run_<algo>_<stamp>.png`` — copies of the
+* ``report/slm_pib_rms_pib_hw/figures/run_<algo>_<stamp>.png`` — copies of the
   runner's summary sketch (initial/best spot + target box, objective curve,
   best Zernike coefficients);
-* ``docs/slm_pib_rms_pib_hw/report.md`` — the markdown report with a
+* ``report/slm_pib_rms_pib_hw/report.md`` — the markdown report with a
   comparison table (best rms_pib / guard-rejected rows / dynamic weights /
   exposure) and per-run sections.
 
@@ -29,7 +29,7 @@ the curves in this report use it.
 Usage:
     python scripts/generate_slm_pib_rms_pib_report.py
     python scripts/generate_slm_pib_rms_pib_report.py --debug-root data/debug --max-runs 5
-    python scripts/generate_slm_pib_rms_pib_report.py -o docs/slm_pib_rms_pib_hw
+    python scripts/generate_slm_pib_rms_pib_report.py -o report/slm_pib_rms_pib_hw
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ sys.path.insert(0, str(ROOT / "src"))
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
-DEFAULT_OUT = ROOT / "docs" / "slm_pib_rms_pib_hw"
+DEFAULT_OUT = ROOT / "report" / "slm_pib_rms_pib_hw"
 
 # Sentinel written by the energy guard (see module docstring).
 GUARD_FLOOR = -100.0

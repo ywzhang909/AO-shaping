@@ -216,6 +216,70 @@ def predict_detached(model: torch.nn.Module, phase: torch.Tensor) -> torch.Tenso
     return predict(model, phase)
 
 
+class PhaseVariable:
+    """The optimisation variable, in whichever parametrisation was requested.
+
+    ``freeform``
+        One raw-radian value per pixel (``grid * grid`` DOF). Maximum freedom,
+        but the synthesised phase lands far outside the band-limited manifold the
+        surrogates were trained on, which is exactly what the cross-check exposed.
+
+    ``zernike``
+        One coefficient per non-piston Zernike mode up to ``n_max`` (``K`` DOF,
+        piston excluded because it has no effect on intensity). The resulting phase
+        lies *inside* the corpus manifold, so both surrogates are interpolating
+        rather than extrapolating. This is the honest configuration -- and the
+        repo already records that low-order Zernike cannot synthesise a square far
+        field, so the point of sweeping it is to measure by how much.
+    """
+
+    def __init__(
+        self,
+        grid: int,
+        n_max: int,
+        device: torch.device,
+        mode: str = "freeform",
+        init: torch.Tensor | None = None,
+    ) -> None:
+        from ml.zernike.models import ZernikeBasis
+
+        self.mode = mode
+        self.grid = grid
+        if mode == "freeform":
+            start = torch.zeros(grid, grid, device=device) if init is None else init.clone()
+            self.tensor = start.detach().requires_grad_(True)
+            self.dof = grid * grid
+        elif mode == "zernike":
+            basis = ZernikeBasis(grid, n_max).as_tensor().to(device)
+            self.basis = basis
+            if init is None:
+                start = torch.zeros(basis.shape[0], device=device)
+            else:
+                # Project a phase onto the basis so a warm start means something.
+                # lstsq solves A x = B with A:(m, n) and B:(m, k), so the basis has to
+                # be transposed from (modes, pixels) to (pixels, modes) and the phase
+                # goes in as a single column.
+                modes, pixels = basis.shape[0], basis[0].numel()
+                design = basis.reshape(modes, pixels).t().contiguous()
+                column = init.reshape(-1).to(device).reshape(-1, 1)
+                assert design.shape == (pixels, modes), "design matrix mis-shaped"
+                assert column.shape == (pixels, 1), "phase column mis-shaped"
+                start = torch.linalg.lstsq(design, column).solution.reshape(-1)
+            self.tensor = start.detach().requires_grad_(True)
+            self.dof = basis.shape[0]
+        else:  # pragma: no cover - argparse restricts the choices
+            raise ValueError(f"unknown parametrisation {mode!r}")
+
+    def to_phase(self) -> torch.Tensor:
+        if self.mode == "freeform":
+            return self.tensor
+        return torch.tensordot(self.tensor, self.basis, dims=1)
+
+    @property
+    def n_modes(self) -> int | None:
+        return None if self.mode == "freeform" else int(self.basis.shape[0])
+
+
 def optimise_phase(
     model: torch.nn.Module,
     grid: int,
@@ -225,21 +289,23 @@ def optimise_phase(
     device: torch.device,
     init: torch.Tensor | None,
     loss_kind: str = "mse",
+    mode: str = "freeform",
+    n_max: int = 15,
 ) -> tuple[torch.Tensor, list[dict]]:
     """Gradient-descent the phase against the frozen surrogate."""
     target = box_target(grid, side, device)
     window = box_slice(grid, side)
     mask = torch.zeros(grid, grid, dtype=torch.bool, device=device)
     mask[window, window] = True
-    phase = torch.zeros(grid, grid, device=device) if init is None else init.clone().to(device)
-    phase.requires_grad_(True)
-    optimiser = torch.optim.Adam([phase], lr=lr)
+    variable = PhaseVariable(grid, n_max, device, mode=mode, init=init)
+    optimiser = torch.optim.Adam([variable.tensor], lr=lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimiser, T_max=max(epochs, 1))
     history: list[dict] = []
     started = time.perf_counter()
+    logger.info("parametrisation={} DOF={}", mode, variable.dof)
     for epoch in range(epochs):
         optimiser.zero_grad(set_to_none=True)
-        prediction = predict(model, phase)
+        prediction = predict(model, variable.to_phase())
         loss = surrogate_loss(prediction, target, mask, loss_kind)
         loss.backward()
         optimiser.step()
@@ -260,7 +326,7 @@ def optimise_phase(
                 spot["encircled_energy"], spot["quality"], spot["aspect_ratio"],
             )
     logger.info("optimised in {:.1f}s", time.perf_counter() - started)
-    return phase.detach(), history
+    return variable.to_phase().detach(), history
 
 
 def hardware_reference(
@@ -437,6 +503,13 @@ def main() -> int:
     parser.add_argument("--cross-check-unet", type=int, default=0, metavar="EPOCHS",
                         help="also score the phase through an independently trained U-Net (0 = skip)")
     parser.add_argument(
+        "--parametrization", choices=["freeform", "zernike"], default="freeform",
+        help="freeform = per-pixel radians; zernike = band-limited to n_max (in-manifold)",
+    )
+    parser.add_argument(
+        "--phase-n-max", type=int, default=15, help="n_max for --parametrization zernike"
+    )
+    parser.add_argument(
         "--loss", choices=["mse", "quality"], default="quality",
         help="differentiable objective: mse = fill the box, quality = track compute_quality_score",
     )
@@ -459,7 +532,7 @@ def main() -> int:
 
     phase, history = optimise_phase(
         model, args.grid, args.target_side, args.epochs, args.lr, device,
-        init=None, loss_kind=args.loss,
+        init=None, loss_kind=args.loss, mode=args.parametrization, n_max=args.phase_n_max,
     )
     final = score_spot(predict_detached(model, phase)[0, 0].cpu().numpy(), args.target_side)
 
@@ -495,6 +568,8 @@ def main() -> int:
         "epochs": args.epochs,
         "lr": args.lr,
         "loss": args.loss,
+        "parametrization": args.parametrization,
+        "phase_n_max": args.phase_n_max,
         "surrogate": {
             "n_max": model.n_max, "K": model.K,
             "far_field_padding": model.far_field_padding,

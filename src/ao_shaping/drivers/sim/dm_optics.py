@@ -181,9 +181,7 @@ class SimDmOptics:
         """Store the DM command, clipped to the DM's voltage range."""
         volts = np.asarray(voltages, dtype=np.float64).ravel()
         if volts.shape != (self.n_actuators,):
-            raise ValueError(
-                f"expected {self.n_actuators} voltages, got {volts.shape}"
-            )
+            raise ValueError(f"expected {self.n_actuators} voltages, got {volts.shape}")
         self._voltages = np.clip(volts, self.v_min, self.v_max)
         self._opd = self.stroke_um * self._voltages / self.v_max
         self._dirty = True
@@ -204,7 +202,9 @@ class SimDmOptics:
             r0, r1, c0, c1 = self._box
             block = (self._gy * self._opd[:, None]).T @ self._gx
             self._phase.fill(0.0)
-            self._phase[r0:r1, c0:c1] = block * (2.0 * np.pi / (self.wavelength_nm * 1e-3))
+            self._phase[r0:r1, c0:c1] = block * (
+                2.0 * np.pi / (self.wavelength_nm * 1e-3)
+            )
             self._dirty = False
         return self._phase
 

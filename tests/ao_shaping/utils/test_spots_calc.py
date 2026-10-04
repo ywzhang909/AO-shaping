@@ -757,9 +757,16 @@ class TestPerformance:
             markdown += "- No CuPy benchmark returned N/A.\n"
 
         print(markdown)
-        # Save to docs/performance_comparison.md (repo-root based, CWD-independent)
+        # Save to report/benchmarks/backend_kernels_performance.md (repo-root based, CWD-independent)
         from pathlib import Path
-        out_path = Path(__file__).resolve().parents[3] / "docs" / "performance_comparison.md"
+        out_path = Path(__file__).resolve().parents[3] / "report" / "benchmarks" / "backend_kernels_performance.md"
+        # This test is the report's writer, so it must also stamp the provenance
+        # header -- a sync pass would just be erased by the next test run.
+        from scripts._common.provenance import insert_header
+
+        markdown = insert_header(
+            markdown, "report/benchmarks/backend_kernels_performance.md"
+        )
         out_path.write_text(markdown, encoding="utf-8")
 
 class TestPowerInBucketMask:

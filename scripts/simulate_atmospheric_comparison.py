@@ -95,4 +95,4 @@ if __name__ == "__main__":
         AtmosphereCase("Moderate Turbulence", cn2=5e-15, l0=1e-3, l_max=20.0, distance=1000.0),
         AtmosphereCase("Strong Turbulence", cn2=5e-14, l0=5e-4, l_max=10.0, distance=1500.0),
     ]
-    render_comparison(cases, Path("docs/simulation/atmospheric_spot_phase_comparison.png"))
+    render_comparison(cases, Path("report/simulation/atmospheric_spot_phase_comparison.png"))

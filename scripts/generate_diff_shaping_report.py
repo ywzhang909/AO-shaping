@@ -3,7 +3,7 @@
 This script verifies ``src/ao_shaping/algorithm/differentiable_shaping.py``
 (PyTorch gradient-descent SLM phase optimisation) against the Gerchberg-Saxton
 baseline and the OLD broken default weights, and writes a complete illustrated
-report to ``docs/slm_differential_shaping/`` (README.md + figures/ + gifs/ +
+report to ``report/slm_differential_shaping/`` (README.md + figures/ + gifs/ +
 charts/ + data/).
 
 Usage:
@@ -70,7 +70,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # `src`) must be importable. Direct `python scripts/<name>.py` does not put
 # it there; pytest does via `pythonpath = ["src", ".", "scripts"]`.
 sys.path.insert(0, str(REPO_ROOT))
-OUT_DIR = REPO_ROOT / "docs" / "slm_differential_shaping"
+OUT_DIR = REPO_ROOT / "report" / "slm_differential_shaping"
 FIG_DIR = OUT_DIR / "figures"
 GIF_DIR = OUT_DIR / "gifs"
 CHART_DIR = OUT_DIR / "charts"

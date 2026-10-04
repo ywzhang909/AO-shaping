@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import numpy.typing as npt
 
 from ao_shaping.algorithm.heuristic.heuristic_base import (
     HeuristicOptimizer,
@@ -53,8 +54,8 @@ class RandomSearch(HeuristicOptimizer):
     def optimize(
         self,
         fitness_fn: callable,
-        init_x: np.ndarray | None = None,
-    ) -> tuple[np.ndarray, float]:
+        init_x: npt.NDArray[np.float64] | None = None,
+    ) -> tuple[npt.NDArray[np.float64], float]:
         """Run Random Search optimization."""
         if init_x is not None:
             self._best_solution = init_x.copy()

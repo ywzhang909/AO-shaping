@@ -48,7 +48,7 @@ def generate_test_visualization():
     """生成测试可视化图像"""
     
     # 创建输出目录 (repo 约定: 报告产物写 docs/<topic>/, 不写 scripts/ 或仓库根)
-    output_dir = ROOT_DIR / "docs" / "centroid_test_visualization"
+    output_dir = ROOT_DIR / "report" / "centroid_test_visualization"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # 测试用例配置

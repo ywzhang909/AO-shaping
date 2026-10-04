@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import numpy.typing as npt
 
 from ao_shaping.algorithm.heuristic.gm import NumpyPopulationGM, guided_mutation
 from ao_shaping.algorithm.heuristic.heuristic_base import (
@@ -73,12 +74,12 @@ class DifferentialEvolution(NumpyPopulationGM, HeuristicOptimizer):
 
         self.de_config = de_config
         # Generation state lives on self so @guided_mutation can read it.
-        self._population: np.ndarray = np.empty((0, self.dim))
-        self._fitness_vals: np.ndarray = np.empty(0)
+        self._population: npt.NDArray[np.float64] = np.empty((0, self.dim))
+        self._fitness_vals: npt.NDArray[np.float64] = np.empty(0)
         self._current_iter: int = 0
 
     @guided_mutation(merge="replace_worst")
-    def _evolve_generation(self, fitness_fn: callable) -> np.ndarray:
+    def _evolve_generation(self, fitness_fn: callable) -> npt.NDArray[np.float64]:
         """Run one full DE pass with greedy selection.
 
         Each target is crossed with a mutant built from the current best and two
@@ -129,8 +130,8 @@ class DifferentialEvolution(NumpyPopulationGM, HeuristicOptimizer):
     def optimize(
         self,
         fitness_fn: callable,
-        init_x: np.ndarray | None = None,
-    ) -> tuple[np.ndarray, float]:
+        init_x: npt.NDArray[np.float64] | None = None,
+    ) -> tuple[npt.NDArray[np.float64], float]:
         """Run Differential Evolution optimization."""
         pop_size = max(10, self.de_config.pop_size)
 

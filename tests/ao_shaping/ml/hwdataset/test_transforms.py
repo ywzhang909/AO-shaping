@@ -12,7 +12,7 @@ import pytest
 pytest.importorskip("torch")
 
 from ao_shaping.optimizer.wfless import slm_square_shaping
-from ao_shaping.runners import gsnet_offline
+from ml.gsnet_debug import offline as gsnet_offline
 
 from ml.hwdataset.transforms import (
     DEFAULT_PANEL_CENTER,

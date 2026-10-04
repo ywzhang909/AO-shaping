@@ -27,7 +27,7 @@ hardware. ``1 - Pearson`` is imported from the canonical target-metrics module
 Usage:
     python scripts/generate_shape_objective_comparison.py
     python scripts/generate_shape_objective_comparison.py --target-side 50
-    python scripts/generate_shape_objective_comparison.py -o docs/slm_pib_online
+    python scripts/generate_shape_objective_comparison.py -o report/slm_pib_online
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
 DEFAULT_ROOT = ROOT / "data" / "debug" / "slm_pib_online"
-DEFAULT_OUT = ROOT / "docs" / "slm_pib_online"
+DEFAULT_OUT = ROOT / "report" / "slm_pib_online"
 DEFAULT_SIDE = 50
 
 

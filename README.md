@@ -31,10 +31,6 @@ AO-shaping/
 │   │   │   ├── gsnet_dataset.py           # GSNet数据集
 │   │   │   ├── gsnet_offline.py           # GSNet离线评估
 │   │   │   ├── gsnet_train.py             # GSNet训练
-│   │   │   ├── slm_gsnet_runner.py        # SLM自由相位方形整形 (slm-gsnet)
-│   │   │   ├── slm_offset_runner.py       # SLM偏移校准 (standalone, 未注册)
-│   │   │   ├── slm_pib_runner.py          # SLM Zernike PIB优化 (slm-pib)
-│   │   │   ├── slm_square_runner.py       # SLM方形SPGD整形 (spgd-square)
 │   │   │   ├── nlight_dm/                 # NLight DM 相关 runner
 │   │   │   │   ├── wf_runner.py           # Wavefront RMS优化 (wf)
 │   │   │   │   ├── axis_beam_runner.py    # PIB优化 (pib)
@@ -43,8 +39,13 @@ AO-shaping/
 │   │   │   ├── micro_drive/               # 微驱 (R50Power) 相关 runner
 │   │   │   │   ├── voltage_runner.py      # 交替电压 (alt-voltage) + 全量交替电压 (full-voltage)
 │   │   │   └── slm/                       # SLM 相关 runner
-│   │   │       ├── rms_zernike_runner.py  # SLM Zernike RMS (rms-zernike)
-│   │   │       └── zernike_matrix_runner.py  # Zernike响应矩阵 (zernike-matrix) + closed-loop
+│   │   │       ├── rms_zernike_runner.py     # SLM Zernike RMS (rms-zernike)
+│   │   │       ├── zernike_matrix_runner.py  # Zernike响应矩阵 (zernike-matrix) + closed-loop
+│   │   │       ├── shaping_runner.py          # SLM Zernike PIB (slm-pib) + 方形整形 (spgd-square)
+│   │   │       ├── gsnet_runner.py           # SLM自由相位方形整形 (slm-gsnet)
+│   │   │       ├── gs_refine_runner.py       # GS 预矫正 + SPGD 细化 (slm-gs-refine)
+│   │   │       ├── model_in_loop_runner.py   # 正向模型闭环校正 (slm-model-in-loop)
+│   │   │       └── offset_runner.py          # SLM偏移校准 (standalone, 未注册)
 │   │   ├── algorithm/           # 优化算法 (5 子包: gradient/heuristic/signal_processing/tabu/goal_functions)
 │   │   │   ├── gradient/        # 梯度优化 (Adam, SGD, Muno, MuonW, etc.)
 │   │   │   ├── heuristic/       # 启发式搜索 (GA, PSO, SA, CEM, DE, HC, RS)
@@ -85,7 +86,8 @@ AO-shaping/
 │   └── optical_ui/                # [DEPRECATED] Empty package
 ├── tests/ao_shaping/              # Tests (镜像 src 结构)
 ├── scripts/                      # 实用脚本 (含报告生成 generate_*_report.py)
-├── docs/                         # 文档与报告
+├── docs/                         # 设备说明文档 (设备规格/SDK用法/操作手册/图集)
+├── report/                       # 实验报告 (结论/测量/基准), 每份带生成脚本溯源块
 ├── libs/                         # 第三方SDK二进制 (gxipy, Drv_UDPST)
 └── AGENTS.md                     # 开发指南
 ```
@@ -460,7 +462,7 @@ python src/ao_shaping/main.py slm-diagnose --step freeze
 以下探针**不注册为 CLI 命令**, 用 `python -m ao_shaping.tools.slm.<名字>` 直接运行。
 它们固化了 2026-09-30 在大恒 + Santec SLM-200 台架上踩出来的台架常数与测量陷阱,
 **不要用第一性原理重新推导几何** (见
-[`docs/slm/model_in_loop_bench_calibration.md`](docs/slm/model_in_loop_bench_calibration.md))。
+[`report/slm/model_in_loop_bench_calibration.md`](report/slm/model_in_loop_bench_calibration.md))。
 
 | 工具 | 用途 |
 |---|---|
@@ -526,7 +528,7 @@ python -m ao_shaping.tools.slm.slm_zernike_sweep_probe --exposure-ms 3.0 \
 ```bash
 python src/ao_shaping/main.py spgd-square [OPTIONS]
 ```
-等同于: `python -m ao_shaping.runners.slm_square_runner`
+等同于: `python -m ao_shaping.runners.slm.shaping_runner`
 
 通过 SPGD (随机并行梯度下降) 优化 Zernike 系数, 将远场光斑整形为**均匀方形** (SLM+CCD 闭环)。目标方形边长可由 `--target-side` 显式指定 (像素) 或由 `--target-mean-brightness` 按总亮度能量守恒自动推导。支持 `--basis zernike` (与 GUI 一致的 radius=600 + defocus + spherical 初始化) 与 `--basis freeform` (自由相位网格, 可合成方形)。
 
@@ -583,7 +585,7 @@ python src/ao_shaping/main.py spgd-square --basis freeform --phase-grid 24
 ```bash
 python src/ao_shaping/main.py slm-gsnet [COMMAND] [OPTIONS]
 ```
-等同于: `python -m ao_shaping.runners.slm_gsnet_runner`
+等同于: `python -m ao_shaping.runners.slm.gsnet_runner`
 
 通过 **FREEFORM 自由相位** (full-pixel, 逐像素) 将远场光斑整形为**均匀方形** (SLM+CCD 闭环)。相位自由度始终为 freeform (per-pixel) —— 这是唯一能合成真正方形远场的自由度 (低阶 Zernike 是圆对称光滑基, 无法合成方形)。两个子命令: `spgd` (梯度搜索, 默认推荐) 与 `heuristic` (黑盒启发式, ga/pso/sa/hc/rs/cem/de)。目标方形边长由 `--target-side` 显式指定或 `--target-mean-brightness` 按总亮度能量守恒自动推导; `--cam_type sim` 走 2f-Fourier 数值仿真 (无需硬件)。
 
@@ -633,7 +635,7 @@ python src/ao_shaping/main.py slm-gsnet heuristic --algorithm ga --cam_type sim 
 ```bash
 python src/ao_shaping/main.py slm-gs-refine [OPTIONS]
 ```
-等同于: `python -m ao_shaping.runners.slm_gs_refine_runner`
+等同于: `python -m ao_shaping.runners.slm.gs_refine_runner`
 
 `iterative_zernike_shaping` 仿真流水线 (initial 0.662 → GS 0.812 → 细化 0.849) 的
 **硬件移植**: Santec SLM 自由相位 + Daheng CCD (也支持 MiiCam) 闭环。
@@ -754,7 +756,7 @@ python src/ao_shaping/main.py hadamard-matrix --mode-order 16 --n-averages 5 --o
 ```bash
 python src/ao_shaping/main.py slm-pib [spgd|heuristic] [OPTIONS]
 ```
-等同于: `python -m ao_shaping.runners.slm_pib_runner`
+等同于: `python -m ao_shaping.runners.slm.shaping_runner`
 
 通过 SLM 加载 Zernike 相位, 以CCD远场光斑为反馈, 优化Zernike系数实现PIB (Power-in-Bucket) 整形。采用 **dataclass 单参数 API** (`optimize_slm_zernike_pib(config: SlmZernikePibConfig)`), 设备由优化器内部自行打开/关闭 (禁止跨 run 复用设备)。
 
@@ -1139,17 +1141,17 @@ python -m ao_shaping.tools.slm.slm_diagnose
 
 16. SLM 方形光斑 SPGD 整形:
 ```bash
-python -m ao_shaping.runners.slm_square_runner [OPTIONS]
+python -m ao_shaping.runners.slm.shaping_runner [OPTIONS]
 ```
 
 17. SLM 自由相位方形整形:
 ```bash
-python -m ao_shaping.runners.slm_gsnet_runner [OPTIONS]
+python -m ao_shaping.runners.slm.gsnet_runner [OPTIONS]
 ```
 
 18. SLM Zernike PIB 优化:
 ```bash
-python -m ao_shaping.runners.slm_pib_runner [OPTIONS]
+python -m ao_shaping.runners.slm.shaping_runner [OPTIONS]
 ```
 
 19. 闭环波前优化:
@@ -1574,7 +1576,7 @@ read noise 经 clip 后 **4598×** (缺陷)。光斑只占 ~150 px 而画幅 2.3
 ```bash
 python scripts/slm_pib_sim_run.py --epochs 300 --disturbance static
 python scripts/slm_pib_sim_run.py --epochs 300 --disturbance dynamic
-python scripts/generate_slm_pib_sim_report.py --max-runs 2   # → docs/slm_pib_sim/report.md
+python scripts/generate_slm_pib_sim_report.py --max-runs 2   # → report/slm_pib_sim/report.md
 ```
 
 实测 (300 epochs，各 604 次光学评估): static 用 1 张屏、逐次 RMS 恒定 (σ≈0.566 rad ≈0.090 waves)；
@@ -1824,11 +1826,18 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 - [drivers/AGENTS.md](src/ao_shaping/drivers/AGENTS.md): 硬件驱动文档 (含驱动惰性加载契约)
 - [drivers/sim/AGENTS.md](src/ao_shaping/drivers/sim/AGENTS.md): 仿真模块文档 (含 `SimulatedWFS` 保真度实测表)
 - [scripts/README.md](scripts/README.md): 脚本说明 (含报告生成架构)
-- [docs/](docs/): 项目文档与报告 (2026-09 起从根目录迁移集中):
-  - [SLM 相关](docs/slm/): 报告与攻关记录 (`report2.md`, `report3.md`, 日报 `daily_*.md`, 方形整形 `slm_square_spgd/README.md`, 可微整形 `slm_shaping_diff/readme.md`, Zernike 线性度 `zernike_linearity/linearity.md`, Zernike 响应矩阵报告 `zernike_response_matrix_report/report.md`)
-  - **硬件评测报告** (2026-09 重新生成): [WFS](docs/wfs/wfs_report.md) / [MiiCam](docs/miicam/miicam_report.md) / [SLM-200](docs/slm-200/slm-200_report.md) / [Micro-DM](docs/micro-dm/micro-dm_report.md)
-  - [性能对比](docs/benchmarks/performance_comparison.md)、[光束整形基准指标 (9 单元权威网格)](docs/benchmarks/device_less_full/beam_shaping_benchmark_metrics.md)、[已知问题](docs/issues_report.md)
-  - [diff-beam 可微整形说明](docs/diff_beam/README.md)、[PIB 优化器功能报告](docs/reports/pib_optimizer_functional_report.md)
+- [report/](report/): **实验报告总索引** (2026-10-05 从 `docs/` 迁出，与设备说明文档分开)。
+  每份报告都带 `生成脚本` / `复现命令` / `运行环境` 溯源块，索引表给出
+  **报告 → 生成脚本（仓库根相对路径）→ 离线/硬件** 的完整对应关系。
+  新增报告 = 在 `scripts/_common/provenance.py` 的 `REPORTS` 加一条，再跑
+  `python scripts/sync_report_provenance.py`（幂等；`--check` 只校验不写入）。
+- [docs/](docs/): **设备说明文档** — 设备规格、SDK/驱动用法、装配与操作手册、图集。
+  不再放实验结论 (含仍在原地的每设备硬件测试报告 `<device>/<device>_report.md`，
+  由 `tests/ao_shaping/utils/test_report.py` 写出)：
+  - [SLM 操作手册](docs/slm/slm_gui_manual.md)、[PatternHelper 指南](docs/slm/slm_pattern_helper.md)、[开机表征指南](docs/slm/pre_run_characterization.md)、[SLM 相位图集](docs/slm/slm_patterns/)
+  - **每设备硬件评测报告** (2026-09 重新生成): [WFS](docs/wfs/wfs_report.md) / [MiiCam](docs/miicam/miicam_report.md) / [SLM-200](docs/slm-200/slm-200_report.md) / [Micro-DM](docs/micro-dm/micro-dm_report.md)
+  - 厂商手册: [大恒相机 SDK](docs/daheng/) · [Thorlabs WFS](docs/thorlab-wfs/) · [Santec SLM-200/DLL](docs/slm-200/) · [微驱动器接线表](docs/micro%20deformable%20mirror/)
+  - [驱动层架构](docs/drivers_architecture.md)、[AO 仿真指南](docs/simulation.md)、[Tabu 算法](docs/tabu_search_algorithm.md)、[已知问题](docs/issues_report.md)、[待办](docs/TODO.md)
 
 ## 近期更新
 

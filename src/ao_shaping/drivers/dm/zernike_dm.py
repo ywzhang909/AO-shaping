@@ -114,14 +114,9 @@ class ZernikeDM(DM):
         phase_raw = self._generator.generate_polynomial(coeffs_dict)
         phase_raw = np.nan_to_num(phase_raw, nan=0.0, posinf=0.0, neginf=0.0)
 
-        # ⚠️ 不做 min-max 归一化 (2026-09-16 修复)。
-        # 旧实现 `(raw−min)/(max−min) × 2π` 使输出**对系数缩放不变**
-        # (系数 ×1 与 ×4 产生逐字节相同相位, PV 恒为 2π, 实测
-        #  np.array_equal == True) → Zernike 系数的"幅度"维度被完全抹掉,
-        # 所有 ZernikeSLM 消费方 (zernike-matrix / rms-zernike / ga-zernike /
-        # greedy-zernike / GUI) 都无法控制相位幅度。
-        # 现改为: **系数即弧度**, 直接输出, 保留绝对幅度 (与
-        # PatternHelper.generate_zernike_polynomial 语义一致)。
+        # ⚠️ 系数即弧度 —— 不得 min-max 归一化。归一化使输出对系数缩放不变
+        # (×1 与 ×4 逐字节相同), 系数幅度就不可控。完整实测与各消费方影响
+        # 见 report/slm/report2.md (相位生成链路审计)。
         self._current_coeffs = coeffs_dict
         if output_mode == "rad":
             phase_out = phase_raw

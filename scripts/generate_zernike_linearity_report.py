@@ -19,7 +19,7 @@ Offline — no hardware. Writes ``linearity.md`` + ``figures/`` to the output di
 Usage:
     $env:PYTHONPATH = "src"
     python scripts/generate_zernike_linearity_report.py
-    python scripts/generate_zernike_linearity_report.py -o docs/slm/zernike_linearity
+    python scripts/generate_zernike_linearity_report.py -o report/slm/zernike_linearity
 """
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ plt.rcParams["font.sans-serif"] = [
 ]
 plt.rcParams["axes.unicode_minus"] = False
 
-DEFAULT_OUT = ROOT / "docs" / "slm" / "zernike_linearity"
+DEFAULT_OUT = ROOT / "report" / "slm" / "zernike_linearity"
 AMPS = LINEARITY_AMPS
 
 

@@ -1,7 +1,7 @@
 """Hermetic tests for the robust-SPGD integrity gates in slm-zernike-pib.
 
 Covers the three environment-robustness primitives added for the ep15 J-collapse
-fix (see docs/slm/report2.md):
+fix (see report/slm/report2.md):
 
 - ``_frame_fold_check`` / ``_update_fold_baseline`` — bright-state fold gate
   (measured discrete brightness states with ``corr(J, max_brt) = -0.9996`` on

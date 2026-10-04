@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 
 import numpy as np
+import numpy.typing as npt
 
 from ao_shaping.algorithm.heuristic.gm import GMOptimizerMixin, guided_mutation
 from ao_shaping.algorithm.heuristic.heuristic_base import (
@@ -43,7 +44,7 @@ from ao_shaping.algorithm.heuristic.heuristic_base import (
 class FitnessFunction(Protocol):
     """Protocol for fitness function."""
 
-    def __call__(self, x: np.ndarray) -> float:
+    def __call__(self, x: npt.NDArray[np.float64]) -> float:
         """Evaluate fitness."""
         ...
 
@@ -74,8 +75,8 @@ class Particle:
 
     def __init__(
         self,
-        position: np.ndarray,
-        velocity: np.ndarray,
+        position: npt.NDArray[np.float64],
+        velocity: npt.NDArray[np.float64],
         fitness: float,
     ):
         self.position = position
@@ -118,7 +119,7 @@ class ParticleSwarmOptimizer(GMOptimizerMixin, HeuristicOptimizer):
         super().__init__(dim, config, random_state)
         self.history = PSOHistory()
         self.particles: list[Particle] = []
-        self.global_best_position: np.ndarray | None = None
+        self.global_best_position: npt.NDArray[np.float64] | None = None
         self.global_best_fitness: float = float("inf")
         self._current_iter: int = 0
 
@@ -153,7 +154,7 @@ class ParticleSwarmOptimizer(GMOptimizerMixin, HeuristicOptimizer):
         self.global_best_position = None
         self.global_best_fitness = float("inf")
 
-    def _initialize_particles(self, init_x: np.ndarray | None = None) -> list[Particle]:
+    def _initialize_particles(self, init_x: npt.NDArray[np.float64] | None = None) -> list[Particle]:
         """Initialize particles.
 
         Args:
@@ -214,7 +215,7 @@ class ParticleSwarmOptimizer(GMOptimizerMixin, HeuristicOptimizer):
             p.velocity = np.clip(p.velocity, -self.params.v_max, self.params.v_max)
 
     @guided_mutation(merge="replace_worst")
-    def _advance_positions(self) -> np.ndarray:
+    def _advance_positions(self) -> npt.NDArray[np.float64]:
         """Advance every particle one step and return the swarm as an array.
 
         The decorator reads the swarm through the :class:`GMOptimizerMixin`
@@ -237,10 +238,10 @@ class ParticleSwarmOptimizer(GMOptimizerMixin, HeuristicOptimizer):
     # GMOptimizerMixin contract -- PSO keeps a list[Particle], so each hook
     # projects to and from an (n, dim) array.
     # ------------------------------------------------------------------
-    def _gm_population(self) -> np.ndarray:
+    def _gm_population(self) -> npt.NDArray[np.float64]:
         return np.array([p.position for p in self.particles])
 
-    def _gm_fitness(self) -> np.ndarray:
+    def _gm_fitness(self) -> npt.NDArray[np.float64]:
         return np.array([p.fitness for p in self.particles])
 
     def _gm_iteration(self) -> int:
@@ -256,7 +257,7 @@ class ParticleSwarmOptimizer(GMOptimizerMixin, HeuristicOptimizer):
     def _gm_bounds(self) -> tuple[float, float]:
         return self.params.bounds
 
-    def _gm_commit(self, population: np.ndarray) -> None:
+    def _gm_commit(self, population: npt.NDArray[np.float64]) -> None:
         """Write the merged swarm back, zeroing the velocity of moved particles.
 
         An injected particle keeps a zero velocity so the swarm does not
@@ -272,10 +273,10 @@ class ParticleSwarmOptimizer(GMOptimizerMixin, HeuristicOptimizer):
     def optimize(
         self,
         fitness_fn: FitnessFunction,
-        init_x: np.ndarray | None = None,
+        init_x: npt.NDArray[np.float64] | None = None,
         early_stop_threshold: float | None = None,
-        callback: Callable[[int, np.ndarray, float], None] | None = None,
-    ) -> tuple[np.ndarray, float]:
+        callback: Callable[[int, npt.NDArray[np.float64], float], None] | None = None,
+    ) -> tuple[npt.NDArray[np.float64], float]:
         """Run PSO optimization.
 
         Args:
@@ -335,9 +336,9 @@ def minimize_pso(
     n_particles: int = 30,
     n_iterations: int = 1000,
     bounds: tuple[float, float] = (-10.0, 10.0),
-    init_x: np.ndarray | None = None,
+    init_x: npt.NDArray[np.float64] | None = None,
     early_stop_threshold: float | None = None,
-) -> tuple[np.ndarray, float]:
+) -> tuple[npt.NDArray[np.float64], float]:
     """Convenience function for PSO optimization.
 
     Args:

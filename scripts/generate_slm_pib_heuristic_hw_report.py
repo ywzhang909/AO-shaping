@@ -4,7 +4,7 @@ Runs the camera test and then every heuristic algorithm on the physical bench
 (Santec SLM-200 + Daheng MER2-507 NIR camera), optimising the far-field
 power-in-bucket (PIB) of the SLM-Zernike loop. Emits a report with the CCD
 initial/best spot images, the PIB convergence curves and a text summary into
-``docs/slm_pib_heuristic_hw/``.
+``report/slm_pib_heuristic_hw/``.
 
 Budget note: this is an **indicative** comparison on a small per-algorithm
 device-load budget (the SLM needs ~0.3 s to settle per phase load), not a full
@@ -60,7 +60,7 @@ from ao_shaping.utils.image.beam_metrics import (  # noqa: E402
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]
 plt.rcParams["axes.unicode_minus"] = False
 
-OUT_DIR = ROOT / "docs" / "slm_pib_heuristic_hw"
+OUT_DIR = ROOT / "report" / "slm_pib_heuristic_hw"
 
 # Metric label for report text/figure titles, set from --objective in main().
 _OBJECTIVE_LABEL = "pib"

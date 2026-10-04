@@ -18,6 +18,8 @@ Commands:
     greedy-zernike  贪婪局部搜索Zernike优化器
     slm-pib         SLM Zernike PIB优化器 (runners/slm/shaping_runner.py)
     spgd-square     SLM 方形远场均匀性整形 (同一模块的 square 子命令)
+    slm-gs-refine   GS 预矫正 + 自由相位 SPGD 细化
+    slm-model-in-loop  正向模型闭环校正 + 目标光斑相位合成 (反复迭代)
 
 Examples:
     python main.py --debug wf --epochs 10000
@@ -54,6 +56,7 @@ from ao_shaping.runners import (
     rms_zernike_run,
     slm_gs_refine_run,
     slm_gsnet_run,
+    slm_model_in_loop_run,
     slm_pib_run,
     slm_square_run,
     wf_run,
@@ -116,6 +119,7 @@ cli.add_command(slm_diagnose_run, name="slm-diagnose")
 cli.add_command(slm_square_run, name="spgd-square")
 cli.add_command(slm_gsnet_run, name="slm-gsnet")
 cli.add_command(slm_gs_refine_run, name="slm-gs-refine")
+cli.add_command(slm_model_in_loop_run, name="slm-model-in-loop")
 cli.add_command(slm_pib_run, name="slm-pib")
 cli.add_command(hadamard_matrix_run, name="hadamard-matrix")
 

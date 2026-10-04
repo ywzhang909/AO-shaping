@@ -77,15 +77,24 @@ def test_parse_args_builds_the_expected_disturbance_config() -> None:
     mod = _load_runner()
     args = mod.parse_args(
         [
-            "--disturbance", "dynamic",
-            "--cn2", "1e-13",
-            "--distance-m", "750",
-            "--l-max", "25",
-            "--l-min", "1e-3",
-            "--pixel-pitch-um", "12.5",
-            "--halo-pv-waves", "0.6",
-            "--halo-radius-px", "500",
-            "--dist-seed", "7",
+            "--disturbance",
+            "dynamic",
+            "--cn2",
+            "1e-13",
+            "--distance-m",
+            "750",
+            "--l-max",
+            "25",
+            "--l-min",
+            "1e-3",
+            "--pixel-pitch-um",
+            "12.5",
+            "--halo-pv-waves",
+            "0.6",
+            "--halo-radius-px",
+            "500",
+            "--dist-seed",
+            "7",
         ]
     )
     cfg = mod.build_disturbance_config(args)
@@ -105,7 +114,9 @@ def test_tag_is_explicit_or_derived_from_the_mode() -> None:
     assert mod.resolve_tag(mod.parse_args(["--disturbance", "static"])) == "static"
     assert mod.resolve_tag(mod.parse_args(["--disturbance", "dynamic"])) == "dynamic"
     assert (
-        mod.resolve_tag(mod.parse_args(["--disturbance", "dynamic", "--dist-tag", "turb-x"]))
+        mod.resolve_tag(
+            mod.parse_args(["--disturbance", "dynamic", "--dist-tag", "turb-x"])
+        )
         == "turb-x"
     )
 
@@ -126,7 +137,9 @@ def test_artifact_dir_discovery_finds_the_newly_created_dir(tmp_path: Path) -> N
     assert mod.find_new_artifact_dir(tmp_path, before) == fresh.resolve()
 
 
-def test_artifact_dir_discovery_ignores_unrelated_pre_existing_dirs(tmp_path: Path) -> None:
+def test_artifact_dir_discovery_ignores_unrelated_pre_existing_dirs(
+    tmp_path: Path,
+) -> None:
     mod = _load_runner()
     debug = tmp_path / "debug"
     debug.mkdir(parents=True)
@@ -203,7 +216,11 @@ def test_companion_archive_is_capped_but_trace_is_complete(tmp_path: Path) -> No
         dist.phase()
 
     json_path, npz_path = mod.write_companion(
-        dist, tmp_path / "run", run_meta={"tag": "dynamic"}, archive_factor=4, archive_max=3
+        dist,
+        tmp_path / "run",
+        run_meta={"tag": "dynamic"},
+        archive_factor=4,
+        archive_max=3,
     )
     payload = json.loads(json_path.read_text())
     assert payload["run"]["streaks_total"] == calls
@@ -235,7 +252,9 @@ def test_companion_writing_is_deterministic_for_a_fixed_seed(tmp_path: Path) -> 
     mod = _load_runner()
 
     def write(where: Path) -> tuple[bytes, bytes]:
-        dist = SimDisturbance(DisturbanceConfig(mode="static", cn2=2e-13, seed=5), (120, 192))
+        dist = SimDisturbance(
+            DisturbanceConfig(mode="static", cn2=2e-13, seed=5), (120, 192)
+        )
         dist.phase()
         json_path, npz_path = mod.write_companion(
             dist, where, run_meta={"tag": "static"}, archive_factor=4, archive_max=12
@@ -299,7 +318,9 @@ def test_install_disturbance_reset_is_idempotent() -> None:
 def test_manifest_is_json_round_trippable(tmp_path: Path) -> None:
     mod = _load_runner()
     dist = SimDisturbance(DisturbanceConfig(mode="static"), (120, 192))
-    json_path, _ = mod.write_companion(dist, tmp_path / "run", run_meta={"tag": "static"})
+    json_path, _ = mod.write_companion(
+        dist, tmp_path / "run", run_meta={"tag": "static"}
+    )
     payload = json.loads(json_path.read_text())
     assert payload["config"]["mode"] == "static"
     assert payload["config"]["halo_noll"] == [[4, -1.0], [11, -1.0]]

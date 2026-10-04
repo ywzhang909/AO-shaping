@@ -396,18 +396,15 @@ def square_peak_to_background_ratio(
     (CV), energy capture (EE) and shape (AR), but nothing about how dark the
     *background* got relative to the peak.
 
-    Read-noise handling is mandatory here, not optional. A raw CCD frame carries
-    symmetric read noise, so roughly half its pixels are negative; dividing by a
-    raw background mean on such a frame drives the ratio **above 1** (measured
-    ``PIB=1.0120`` on this bench) and the optimizer then chases noise. Negatives
-    are therefore clipped at 0 *inside* this function, so callers cannot get it
+    Read-noise handling is mandatory here, not optional: an unprocessed frame
+    drives the ratio **above 1** and the optimizer then chases noise, so
+    negatives are clipped at 0 *inside* this function and callers cannot get it
     wrong.
 
-    Note that only clipping is applied -- deliberately NOT median subtraction.
-    The background occupies most of the frame, so the median *is* the pedestal;
-    subtracting it would drive the background mean to ~0 and make the ratio
-    explode (measured 1.3e5 on a synthetic frame, and independent of the actual
-    background level). Clipping alone removes the negative half of the read-noise
+    Only clipping is applied -- deliberately NOT median subtraction, unlike
+    ``slm_gs_refine._prepare_frame``. The background occupies most of the frame,
+    so the median *is* the pedestal and subtracting it makes the ratio explode.
+    Clipping alone removes the negative half of the read-noise
     distribution while leaving the pedestal intact, so the denominator stays a
     real measurement.
 
@@ -1373,7 +1370,7 @@ def optimize_slm_square(
                 )
         else:
             # Freeform init. HARDWARE MEASURED (2026-10-01, bench 2f/SLM #1 +
-            # Daheng, docs/fouriergsnet_pipeline/hardware_run_20261001.md): the
+            # Daheng, report/fouriergsnet_pipeline/hardware_run_20261001.md): the
             # flat state is the BEST-focus state (FWHM 13.6 px, hollowness 0.92),
             # and a full-amplitude random start destroys it -- the failed run
             # began at 0-order peak 225 and ended at 17, with its best iterate

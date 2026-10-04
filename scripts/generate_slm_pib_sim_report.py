@@ -3,10 +3,10 @@
 Reads the debug artifacts written by ``slm_pib_runner`` (PKL + JSON sidecar) and
 produces:
 
-* ``docs/slm_pib_sim/figures/*.png`` — per-run figures (objective curve,
+* ``report/slm_pib_sim/figures/*.png`` — per-run figures (objective curve,
   Zernike-coefficient trace, sent-phase evolution, far-field spot evolution);
-* ``docs/slm_pib_sim/gifs/*.gif`` — animated sent-phase and far-field evolution;
-* ``docs/slm_pib_sim/report.md`` — the markdown report tying it all together.
+* ``report/slm_pib_sim/gifs/*.gif`` — animated sent-phase and far-field evolution;
+* ``report/slm_pib_sim/report.md`` — the markdown report tying it all together.
 
 Fully offline: it never opens hardware, it only reads the saved PKL/JSON. This
 follows the repo convention that report generation lives in ``scripts/`` and is
@@ -465,7 +465,7 @@ def best_of(values: np.ndarray, mode: str) -> int:
 
 def rel(p: Path) -> str:
     try:
-        return str(p.relative_to(ROOT / "docs" / "slm_pib_sim"))
+        return str(p.relative_to(ROOT / "report" / "slm_pib_sim"))
     except ValueError:
         return str(p)
 
@@ -820,7 +820,7 @@ def cli() -> None:
     ap.add_argument(
         "--out",
         type=Path,
-        default=ROOT / "docs" / "slm_pib_sim",
+        default=ROOT / "report" / "slm_pib_sim",
         help="Output dir for figures/gifs/report.md.",
     )
     args = ap.parse_args()

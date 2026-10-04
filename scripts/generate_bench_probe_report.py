@@ -34,7 +34,7 @@ What it reports
 
 Usage:
     python scripts/generate_bench_probe_report.py
-    python scripts/generate_bench_probe_report.py -o docs/slm/bench_probe
+    python scripts/generate_bench_probe_report.py -o report/slm/bench_probe
     python scripts/generate_bench_probe_report.py --sweep-npz <path> --no-figures
 """
 
@@ -70,7 +70,7 @@ plt.rcParams["font.size"] = 10
 DEFAULT_NPZ = ROOT / "data" / "model_in_loop_hw" / "sweep_records.npz"
 DEFAULT_GEOMETRY = ROOT / "data" / "model_in_loop_hw" / "bench_geometry.json"
 DEFAULT_DEBUG_ROOT = ROOT / "data" / "debug"
-DEFAULT_OUT = ROOT / "docs" / "slm" / "bench_probe"
+DEFAULT_OUT = ROOT / "report" / "slm" / "bench_probe"
 
 #: Bench constant from the shared measurement core; the report states loudly when
 #: the import failed and the fallback below was used instead.

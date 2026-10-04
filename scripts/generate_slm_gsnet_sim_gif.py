@@ -4,7 +4,7 @@ Reads the newest ``data/debug/slm_gsnet_*/**/*.pkl`` debug artifact produced by:
 
     python src/ao_shaping/main.py slm-gsnet spgd --cam_type sim --epochs 40 --debug
 
-and renders two animated GIFs into ``docs/fouriergsnet_sim/gifs/``:
+and renders two animated GIFs into ``report/fouriergsnet_sim/gifs/``:
 
 * ``slm_gsnet_spgd_sim_far.gif`` — far-field (CCD) evolution, inferno;
 * ``slm_gsnet_spgd_sim_phase.gif`` — freeform phase grid (24×24) evolution,
@@ -19,7 +19,7 @@ Usage::
 
     python scripts/generate_slm_gsnet_sim_gif.py
     python scripts/generate_slm_gsnet_sim_gif.py --pkl data/debug/slm_gsnet_xxx/20260923_*/xxx.pkl
-    python scripts/generate_slm_gsnet_sim_gif.py -o docs/fouriergsnet_sim
+    python scripts/generate_slm_gsnet_sim_gif.py -o report/fouriergsnet_sim
 """
 
 from __future__ import annotations
@@ -160,7 +160,7 @@ def _make_phase_frames(data: dict) -> list[np.ndarray]:
 )
 @click.option(
     "-o", "--output",
-    default="docs/fouriergsnet_sim",
+    default="report/fouriergsnet_sim",
     show_default=True,
     help="报告输出目录 (GIF 写入 <output>/gifs/)",
 )

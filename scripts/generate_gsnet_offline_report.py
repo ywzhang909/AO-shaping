@@ -1,8 +1,8 @@
 """Generate the FourierGSNet offline-training illustrated report.
 
-Reads one ``ao_shaping.runners.gsnet_train`` output directory
+Reads one ``ml.gsnet_debug.train`` output directory
 (``data/gsnet_train/run-<timestamp>/``) and renders an illustrated Chinese
-report to ``docs/fouriergsnet_pipeline/offline_training/``:
+report to ``report/fouriergsnet_pipeline/offline_training/``:
 
 * ``report.md`` — training config, convergence summary, evaluation metrics,
   loss-curve / training-history / prediction-vs-ground-truth sections (all
@@ -22,7 +22,7 @@ Usage::
 
     python scripts/generate_gsnet_offline_report.py
     python scripts/generate_gsnet_offline_report.py --run-dir data/gsnet_train/run-<ts>
-    python scripts/generate_gsnet_offline_report.py -o docs/fouriergsnet_pipeline/offline_training
+    python scripts/generate_gsnet_offline_report.py -o report/fouriergsnet_pipeline/offline_training
 """
 
 from __future__ import annotations
@@ -82,7 +82,7 @@ PHASE_CMAP = "twilight"  # cyclic — kept for parity with the sibling generator
 FAR_CMAP = "inferno"  # far-field intensity
 
 RUN_ROOT = "data/gsnet_train"
-DEFAULT_OUTPUT = "docs/fouriergsnet_pipeline/offline_training"
+DEFAULT_OUTPUT = "report/fouriergsnet_pipeline/offline_training"
 
 
 # ---------------------------------------------------------------------------
@@ -295,8 +295,8 @@ $config_json
 > 合并后作为 GSNet 的监督训练语料。
 
 > **入口说明**: 训练由 `main.py` 的 Click 子命令 `slm-gsnet train` 驱动。
-> `ao_shaping/runners/gsnet_train.py` 只是库模块 (无 `__main__`、无 Click 命令),
-> 因此 `python -m ao_shaping.runners.gsnet_train` **不是**有效调用方式。
+> `ml/gsnet_debug/train.py` 只是库模块 (无 `__main__`、无 Click 命令),
+> 因此 `python -m ml.gsnet_debug.train` **不是**有效调用方式。
 > 运行前需设置 `PYTHONPATH=src;libs` (Windows: `$env:PYTHONPATH = "src;libs"`)。
 """
 )
@@ -320,7 +320,7 @@ def _build_repro_section(summary: dict) -> str:
     grid = cfg.get("grid")
     # The real entry point is the Click group in main.py -- gsnet_train.py is a
     # library module (no __main__, no Click command), so `python -m
-    # ao_shaping.runners.gsnet_train` would fail.
+    # ml.gsnet_debug.train` would fail.
     parts = ["python src/ao_shaping/main.py slm-gsnet train"]
     flag_map = (
         ("--epochs", epochs),

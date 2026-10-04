@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 import numpy as np
+import numpy.typing as npt
 
 from ao_shaping.algorithm.heuristic.heuristic_base import (
     HeuristicOptimizer,
@@ -65,7 +66,7 @@ class HeuristicSearchResult:
         history: Raw objective value of every evaluation, in order.
     """
 
-    best_x: np.ndarray
+    best_x: npt.NDArray[np.float64]
     best_value: float
     evaluations: int
     history: list[float] = field(default_factory=list)
@@ -114,15 +115,15 @@ def create_heuristic(
 
 def run_heuristic_search(
     algorithm: str,
-    evaluate: Callable[[np.ndarray], float],
+    evaluate: Callable[[npt.NDArray[np.float64]], float],
     dim: int,
     iterations: int,
     bounds: tuple[float, float],
-    x0: np.ndarray | None = None,
+    x0: npt.NDArray[np.float64] | None = None,
     maximize: bool = False,
     seed: int | None = None,
     pop_size: int | None = None,
-    on_evaluate: Callable[[np.ndarray, float, int], None] | None = None,
+    on_evaluate: Callable[[npt.NDArray[np.float64], float, int], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
 ) -> HeuristicSearchResult:
     """Drive ``evaluate`` with the named heuristic algorithm.
@@ -171,7 +172,7 @@ def run_heuristic_search(
     evaluations = {"n": 0}
     history: list[float] = []
     best_value: list[float | None] = [None]
-    best_x: list[np.ndarray | None] = [None]
+    best_x: list[npt.NDArray[np.float64] | None] = [None]
 
     def fitness(x) -> float:
         x_clipped = np.clip(np.asarray(x, dtype=np.float64), lo, hi)
@@ -200,9 +201,7 @@ def run_heuristic_search(
         pass
 
     if best_x[0] is None:
-        raise RuntimeError(
-            f"heuristic {algorithm!r} performed no objective evaluation"
-        )
+        raise RuntimeError(f"heuristic {algorithm!r} performed no objective evaluation")
 
     return HeuristicSearchResult(
         best_x=best_x[0],

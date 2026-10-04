@@ -88,7 +88,7 @@ def analyze_run(run_dir: Path) -> dict:
                 "uniformity_cv": round(cv, 4),
                 # 0 级光斑位置: 优先用 argmax (spot), 回退旧强度质心 (centroid)。
                 # 真机验证: 全帧强度质心被杂散光晕拖偏 150~450px (见
-                # docs/diff_beam/README.md §2), 只有 argmax 是真实光斑。
+                # report/diff_beam/README.md §2), 只有 argmax 是真实光斑。
                 "centroid_y": round((m.get("spot") or m.get("centroid", [0, 0]))[0], 1),
                 "centroid_x": round((m.get("spot") or m.get("centroid", [0, 0]))[1], 1),
             }

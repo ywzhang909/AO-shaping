@@ -42,6 +42,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
+import numpy.typing as npt
 
 from ao_shaping.algorithm.signal_processing.iterative_base import IterativeOptimizer
 from ao_shaping.utils.slm.phase_display import DEFAULT_WAVELENGTH
@@ -68,7 +69,7 @@ def _torch():
     return _t
 
 
-def _to_tensor(x: np.ndarray, device: torch.device) -> torch.Tensor:
+def _to_tensor(x: npt.NDArray[np.floating], device: torch.device) -> torch.Tensor:
     """Convert a real 2D numpy array to a float32 torch tensor on ``device``."""
     torch = _torch()
     arr = np.asarray(x, dtype=np.float32)
@@ -76,7 +77,7 @@ def _to_tensor(x: np.ndarray, device: torch.device) -> torch.Tensor:
 
 
 def differentiable_far_field(
-    amplitude: np.ndarray,
+    amplitude: npt.NDArray[np.floating],
     phase: torch.Tensor,
 ) -> torch.Tensor:
     """Differentiable far-field amplitude from a source amplitude and phase.
@@ -102,7 +103,7 @@ def differentiable_far_field(
 
 
 def far_field_intensity(
-    amplitude: np.ndarray,
+    amplitude: npt.NDArray[np.floating],
     phase: torch.Tensor,
 ) -> torch.Tensor:
     """Differentiable far-field *intensity* ``|E_far|²``.
@@ -143,10 +144,10 @@ class DifferentiableBeamOptimizer(IterativeOptimizer):
 
     def __init__(
         self,
-        target_intensity: np.ndarray,
-        source_amplitude: np.ndarray | None = None,
+        target_intensity: npt.NDArray[np.floating],
+        source_amplitude: npt.NDArray[np.floating] | None = None,
         lr: float = 0.01,
-        init_phase: np.ndarray | None = None,
+        init_phase: npt.NDArray[np.floating] | None = None,
         device: str | None = None,
         seed: int | None = None,
     ) -> None:
@@ -254,7 +255,7 @@ class DifferentiableBeamOptimizer(IterativeOptimizer):
         return self._phase
 
     @property
-    def current_phase(self) -> np.ndarray:
+    def current_phase(self) -> npt.NDArray[np.floating]:
         """Detached numpy copy of the current phase (radians)."""
         return self._phase.detach().cpu().numpy()
 
@@ -302,7 +303,7 @@ class DifferentiableBeamOptimizer(IterativeOptimizer):
         i_far = far_field_intensity(self._source_amplitude, self._phase)
         return self._intensity_loss(i_far)
 
-    def update(self, measured_intensity: np.ndarray | None = None) -> np.ndarray:
+    def update(self, measured_intensity: npt.NDArray[np.floating] | None = None) -> npt.NDArray[np.floating]:
         """Perform one backpropagation step and return the next phase.
 
         With ``measured_intensity=None`` (the default) the step is the

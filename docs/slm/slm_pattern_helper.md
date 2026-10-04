@@ -275,7 +275,7 @@ PatternHelper 提供以下坐标属性：
 
 > ⚠️ 注意与 **SLM DLL 索引**区分：`zernike-matrix` / `slm_zernike_response` 走的
 > `matrix` 行序是 **DLL 自有 m 枚举**（`[5]=(2,0) defocus`、`[13]=(4,0) spherical`），
-> **不是** 标准 Noll 空间。两套不可互换，详见 `docs/slm/report3.md` 与
+> **不是** 标准 Noll 空间。两套不可互换，详见 `report/slm/report3.md` 与
 > `drivers/slm/AGENTS.md`。
 
 ---

@@ -16,6 +16,15 @@ from ml.zernike.dataset import (
     create_zernike_loaders,
     load_zernike_coefficients,
 )
+from ml.zernike.forward_model import (
+    DEFAULT_N_COEFFS,
+    ZernikeCoeffConfig,
+    ZernikeCoeffConvNet,
+    ZernikeCoeffMLP,
+    build_forward_model,
+    count_parameters,
+    peak_normalize,
+)
 from ml.zernike.models import (
     ZernikeAmpConfig,
     ZernikeAmpFitConfig,
@@ -31,6 +40,14 @@ __all__ = [
     "ZernikeAmpFitConfig",
     "ZernikeAmpModel",
     "ZernikeAmpResult",
+    # Learned coefficient -> far-field forward model (conv decoder + MLP baseline)
+    "DEFAULT_N_COEFFS",
+    "ZernikeCoeffConfig",
+    "ZernikeCoeffConvNet",
+    "ZernikeCoeffMLP",
+    "peak_normalize",
+    "build_forward_model",
+    "count_parameters",
     # Dataset
     "ZernikeCoefficientDataset",
     "coefficients_to_phase_map",

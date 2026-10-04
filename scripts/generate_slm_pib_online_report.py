@@ -33,7 +33,7 @@ Recorder row contract (mirrors
 Usage:
     python scripts/generate_slm_pib_online_report.py
     python scripts/generate_slm_pib_online_report.py --root data/debug/slm_pib_online
-    python scripts/generate_slm_pib_online_report.py -o docs/slm_pib_online
+    python scripts/generate_slm_pib_online_report.py -o report/slm_pib_online
 """
 
 from __future__ import annotations
@@ -72,7 +72,7 @@ DEFAULT_ROOT = ROOT / "data" / "debug" / "slm_pib_online"
 # `src`) must be importable. Direct `python scripts/<name>.py` does not put
 # it there; pytest does via `pythonpath = ["src", ".", "scripts"]`.
 sys.path.insert(0, str(DEFAULT_ROOT))
-DEFAULT_OUT = ROOT / "docs" / "slm_pib_online"
+DEFAULT_OUT = ROOT / "report" / "slm_pib_online"
 
 GATE_ORDER = ("applied", "fold", "noise")
 GATE_COLORS = {"applied": "#2ca02c", "fold": "#d62728", "noise": "#ff7f0e"}

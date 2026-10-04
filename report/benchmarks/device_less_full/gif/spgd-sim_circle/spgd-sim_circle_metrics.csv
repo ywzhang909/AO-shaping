@@ -1,0 +1,2 @@
+algorithm,shape,requested_area,measured_area,area_met,fill_ratio,uniformity_cv,encircled_energy,elapsed_s
+spgd-sim,circle,1160,1,False,0.0008620689655172414,34.03819855213467,0.9976579679480033,0.818649800028652

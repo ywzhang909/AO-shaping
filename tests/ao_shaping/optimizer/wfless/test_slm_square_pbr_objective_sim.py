@@ -71,9 +71,7 @@ class TestSquarePeakToBackgroundRatio:
         background, peak, delta = 2.0, 100.0, 3.0
         img = _frame_with_blob(background=background, blob_peak=peak)
         base = square_peak_to_background_ratio(img, (60, 60), side=20)
-        shifted = square_peak_to_background_ratio(
-            img + delta, (60, 60), side=20
-        )
+        shifted = square_peak_to_background_ratio(img + delta, (60, 60), side=20)
         expected = (background + peak + delta) / (background + delta)
         assert base == pytest.approx((background + peak) / background, rel=0.02)
         assert shifted == pytest.approx(expected, rel=0.02)
@@ -148,8 +146,7 @@ class TestSquarePeakToBackgroundRatio:
 
     def test_returns_zero_for_a_dead_frame(self):
         assert (
-            square_peak_to_background_ratio(np.zeros((40, 40)), (20, 20), side=8)
-            == 0.0
+            square_peak_to_background_ratio(np.zeros((40, 40)), (20, 20), side=8) == 0.0
         )
 
     def test_returns_zero_when_the_frame_is_too_small_to_measure(self):
@@ -343,6 +340,6 @@ class TestConfigAndCliPlumbing:
             shaping_runner as slm_shaping_runner,
         )
 
-        for mod in (slm_gsnet_runner, slm_square_runner):
+        for mod in (slm_gsnet_runner, slm_shaping_runner):
             src = inspect.getsource(mod)
             assert "w_pbr=" in src, f"{mod.__name__} does not forward w_pbr"

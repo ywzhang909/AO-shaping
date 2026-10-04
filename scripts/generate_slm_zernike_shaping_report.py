@@ -4,10 +4,10 @@ Reads the debug artifact bundles written by
 ``src/ao_shaping/optimizer/wfless/slm_zernike_shaping.py`` when ``debug=True``
 (PKL + JSON sidecar + PNG) and produces:
 
-* ``docs/slm_zernike_shaping/figures/*.png`` — per-run figures (objective
+* ``report/slm_zernike_shaping/figures/*.png`` — per-run figures (objective
   curve, Zernike-coefficient evolution, first/best/last CCD frame);
-* ``docs/slm_zernike_shaping/figures/*.gif`` — animated far-field evolution;
-* ``docs/slm_zernike_shaping/report.md`` — the markdown report.
+* ``report/slm_zernike_shaping/figures/*.gif`` — animated far-field evolution;
+* ``report/slm_zernike_shaping/report.md`` — the markdown report.
 
 Fully offline: it never opens hardware, it only reads the saved PKL/JSON. This
 follows the repo convention that report generation lives in ``scripts/`` and is
@@ -550,7 +550,7 @@ def cli() -> None:
     ap.add_argument(
         "--out",
         type=Path,
-        default=ROOT / "docs" / "slm_zernike_shaping",
+        default=ROOT / "report" / "slm_zernike_shaping",
         help="Output dir for figures/report.md.",
     )
     args = ap.parse_args()

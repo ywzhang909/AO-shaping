@@ -145,7 +145,7 @@ def main() -> None:
         "all_results": [asdict(r) for r in sorted(results, key=lambda x: x.score, reverse=True)],
     }
 
-    out_path = Path("docs/simulation/sim_spgd_zernike_tuning.json")
+    out_path = Path("report/simulation/sim_spgd_zernike_tuning.json")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
 

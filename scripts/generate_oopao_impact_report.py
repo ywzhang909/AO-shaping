@@ -8,7 +8,7 @@
 - ``closed`` 闭环: 冻结湍流 (screen_step_px=0), 3 步贪婪 SPGD (δ=0.03) 校正静态像差。
 
 输出 ``report.md`` + ``summary.csv`` + ``figures/`` 到 ``--out-dir`` (默认
-``docs/oopao_impact/``)。
+``report/oopao_impact/``)。
 
 守卫 (任一失败即中止, 拒绝写出空洞报告):
 
@@ -997,7 +997,7 @@ def _phase_screen_ratio_section(
         lines.append(
             f"2. **随 mode 改变**: 恒定比值逐 mode 不同 ({pairs}) —— "
             "两者 `l_max` / `propagation_distance` 配置不同, 与前一份报告 "
-            "`docs/oopao_vs_numpy/report.md` 「比值随配置变化」"
+            "`report/oopao_vs_numpy/report.md` 「比值随配置变化」"
             "(该配置 8.72×–8.81×, 另一组配置 9.72×) 的结论一致。"
         )
     lines.append("")
@@ -1041,7 +1041,7 @@ def _incomparability_section(
     )
     if constant:
         lines.append(
-            "前一份报告 `docs/oopao_vs_numpy/report.md` 在其配置下测得 8.72×–8.81× "
+            "前一份报告 `report/oopao_vs_numpy/report.md` 在其配置下测得 8.72×–8.81× "
             "(中位 8.77×); 本报告在端到端环境里**独立测得**的是逐位恒定的常数 "
             "(§4.3):"
         )
@@ -1053,7 +1053,7 @@ def _incomparability_section(
             )
     else:
         lines.append(
-            "前一份报告 `docs/oopao_vs_numpy/report.md` 在其配置下测得 8.72×–8.81× "
+            "前一份报告 `report/oopao_vs_numpy/report.md` 在其配置下测得 8.72×–8.81× "
             "(中位 8.77×), 并显式声明该比值随配置变化; 本报告本次阶梯的 cn2>0 "
             "档位不足, 未能给出可判定恒定的比值 (§4.3) —— "
             "跨臂绝对指标同样不可比 (定性结论不变)。"
@@ -1257,8 +1257,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=ROOT / "docs" / "oopao_impact",
-        help="输出目录 (默认 docs/oopao_impact)",
+        default=ROOT / "report" / "oopao_impact",
+        help="输出目录 (默认 report/oopao_impact)",
     )
     parser.add_argument(
         "--cn2",

@@ -20,6 +20,7 @@ from collections.abc import Callable
 from typing import Literal
 
 import numpy as np
+import numpy.typing as npt
 from loguru import logger
 from scipy.ndimage import gaussian_filter, zoom
 
@@ -57,7 +58,7 @@ class PhaseWrapOptimizer(IterativeOptimizer):
     # ==================== 1. 基础工具 ====================
 
     @staticmethod
-    def wrap_hard(phase: np.ndarray) -> np.ndarray:
+    def wrap_hard(phase: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
         """Standard hard wrapping: modulo 2π into [-π, π).
 
         Args:
@@ -70,9 +71,9 @@ class PhaseWrapOptimizer(IterativeOptimizer):
 
     @staticmethod
     def detect_jumps(
-        wrapped_phase: np.ndarray,
+        wrapped_phase: npt.NDArray[np.floating],
         threshold: float = 0.5 * np.pi,
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.floating]:
         """Detect 2π jump edge pixels in a wrapped phase map.
 
         Computes 4-directional gradients and flags pixels where the
@@ -101,7 +102,7 @@ class PhaseWrapOptimizer(IterativeOptimizer):
 
     @staticmethod
     def calculate_diffraction_efficiency(
-        phase: np.ndarray,
+        phase: npt.NDArray[np.floating],
         pixel_size_um: float = 8.0,
         wavelength_um: float = 0.633,
     ) -> float:
@@ -127,9 +128,9 @@ class PhaseWrapOptimizer(IterativeOptimizer):
 
     def min_jump_wrap(
         self,
-        phase_unwrapped: np.ndarray,
+        phase_unwrapped: npt.NDArray[np.floating],
         connectivity: int = 4,
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.floating]:
         """Minimum-jump wrapping: choose 2π offset to minimize phase differences.
 
         Iterative relaxation that adjusts the integer 2π offset at each pixel
@@ -195,9 +196,9 @@ class PhaseWrapOptimizer(IterativeOptimizer):
 
     def error_diffusion_wrap(
         self,
-        phase_unwrapped: np.ndarray,
+        phase_unwrapped: npt.NDArray[np.floating],
         quantization_levels: int = 256,
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.floating]:
         """Error diffusion wrapping: spread 2π jumps into gradual transitions.
 
         Adapted Floyd-Steinberg error diffusion for phase:
@@ -251,9 +252,9 @@ class PhaseWrapOptimizer(IterativeOptimizer):
 
     def oversample_smooth(
         self,
-        phase_unwrapped: np.ndarray,
+        phase_unwrapped: npt.NDArray[np.floating],
         sigma_pixels: float = 0.8,
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.floating]:
         """Oversample → smooth → downsample wrapping.
 
         Generates a continuous phase at higher resolution, applies
@@ -289,7 +290,7 @@ class PhaseWrapOptimizer(IterativeOptimizer):
         return phase_out
 
     @staticmethod
-    def _circular_mean(angles: np.ndarray) -> float:
+    def _circular_mean(angles: npt.NDArray[np.floating]) -> float:
         """Circular mean of angles, robust to 2π wraps.
 
         Projects angles to the complex plane for proper averaging.
@@ -310,10 +311,10 @@ class PhaseWrapOptimizer(IterativeOptimizer):
 
     def repair_jumps(
         self,
-        wrapped_phase: np.ndarray,
+        wrapped_phase: npt.NDArray[np.floating],
         repair_width: int = 2,
         blend_factor: float = 0.5,
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.floating]:
         """Detect and locally repair 2π jump edges via spiral interpolation.
 
         Acts as a post-processing step after hard wrapping to fix
@@ -370,11 +371,11 @@ class PhaseWrapOptimizer(IterativeOptimizer):
 
     def optimize(
         self,
-        phase_unwrapped: np.ndarray,
+        phase_unwrapped: npt.NDArray[np.floating],
         strategy: Literal[
             "min_jump", "error_diffusion", "oversample", "repair", "hybrid"
         ] = "hybrid",
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.floating]:
         """Run the chosen phase wrapping optimization strategy.
 
         The ``hybrid`` strategy (recommended) runs:
@@ -406,11 +407,11 @@ class PhaseWrapOptimizer(IterativeOptimizer):
 
     def update(
         self,
-        phase_unwrapped: np.ndarray,
+        phase_unwrapped: npt.NDArray[np.floating],
         strategy: Literal[
             "min_jump", "error_diffusion", "oversample", "repair", "hybrid"
         ] = "hybrid",
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.floating]:
         """Perform one phase-wrapping optimization step.
 
         Alias for :meth:`optimize`; satisfies the
@@ -426,7 +427,7 @@ class PhaseWrapOptimizer(IterativeOptimizer):
         """
         return self.optimize(phase_unwrapped, strategy)
 
-    def _hybrid_pipeline(self, phase_unwrapped: np.ndarray) -> np.ndarray:
+    def _hybrid_pipeline(self, phase_unwrapped: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
         """Recommended hybrid pipeline: min_jump → error_diffusion → fringe repair.
 
         Returns:
@@ -484,10 +485,10 @@ class SLMPhaseController:
 
     def load_zernike_coefficients(
         self,
-        a: np.ndarray,
+        a: npt.NDArray[np.floating],
         method: Literal["min_jump", "error_diffusion", "oversample", "repair", "hybrid"] = "hybrid",
         apply_lut: bool = True,
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]:
         """Synthesize Zernike phase, optimize wrapping, and send to SLM.
 
         Args:
@@ -518,7 +519,7 @@ class SLMPhaseController:
 
         return phase_wrapped, gray
 
-    def _synthesize_zernike(self, a: np.ndarray) -> np.ndarray:
+    def _synthesize_zernike(self, a: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
         """Synthesize a continuous Zernike phase map from coefficients.
 
         Args:

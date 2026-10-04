@@ -70,7 +70,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run the slm-pib SPGD pipeline on the 2f-Fourier sim (no hardware)."
     )
-    parser.add_argument("--epochs", type=int, default=300, help="SPGD epochs (default: 300)")
+    parser.add_argument(
+        "--epochs", type=int, default=300, help="SPGD epochs (default: 300)"
+    )
     parser.add_argument(
         "--objective",
         default="shape",
@@ -119,7 +121,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=500.0,
         help="Generator path-length knob [m] (default: 500). Degenerate with --cn2.",
     )
-    parser.add_argument("--l-max", type=float, default=30.0, help="Outer scale [m] (default: 30)")
+    parser.add_argument(
+        "--l-max", type=float, default=30.0, help="Outer scale [m] (default: 30)"
+    )
     parser.add_argument(
         "--l-min", type=float, default=2e-3, help="Inner scale [m] (default: 2e-3)"
     )
@@ -145,7 +149,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--dist-seed", type=int, default=20261001, help="Disturbance seed (default: 20261001)"
+        "--dist-seed",
+        type=int,
+        default=20261001,
+        help="Disturbance seed (default: 20261001)",
     )
     parser.add_argument(
         "--dist-archive-factor",
@@ -207,7 +214,11 @@ def find_new_artifact_dir(data_root: Path, before: set[Path]) -> Path | None:
 
 def run_dir_of(artifact_root: Path) -> Path:
     """The nested dir holding the ``.pkl`` (what the report globs as ``slm_pib_*/*``)."""
-    subdirs = [p for p in artifact_root.iterdir() if p.is_dir()] if artifact_root.is_dir() else []
+    subdirs = (
+        [p for p in artifact_root.iterdir() if p.is_dir()]
+        if artifact_root.is_dir()
+        else []
+    )
     with_pkl = [p for p in subdirs if any(p.glob("*.pkl"))]
     if with_pkl:
         return max(with_pkl, key=lambda p: p.stat().st_mtime)
@@ -338,24 +349,41 @@ def main() -> None:
 
     click_args = [
         "spgd",
-        "-d", str(args.data_root),
+        "-d",
+        str(args.data_root),
         "--debug",
-        "--cam_type", "sim",
-        "--cam-id", "0",
-        "--exposure_time_ms", "80",
-        "--cam_size", "512",
-        "-c", "shape",
-        "--slm_number", "1",
-        "--slm_wavelength", "1064",
-        "-n", "4",
-        "--objective", args.objective,
-        "--target_shape", args.target_shape,
-        "--target_size", "120",
-        "-e", str(args.epochs),
-        "--delta", "0.5",
-        "--optimizer_type", "adamod",
-        "--w_uniformity", "2.0",
-        "--w_peak", "0.5",
+        "--cam_type",
+        "sim",
+        "--cam-id",
+        "0",
+        "--exposure_time_ms",
+        "80",
+        "--cam_size",
+        "512",
+        "-c",
+        "shape",
+        "--slm_number",
+        "1",
+        "--slm_wavelength",
+        "1064",
+        "-n",
+        "4",
+        "--objective",
+        args.objective,
+        "--target_shape",
+        args.target_shape,
+        "--target_size",
+        "120",
+        "-e",
+        str(args.epochs),
+        "--delta",
+        "0.5",
+        "--optimizer_type",
+        "adamod",
+        "--w_uniformity",
+        "2.0",
+        "--w_peak",
+        "0.5",
     ]
     if args.algorithm:
         click_args += ["--algorithm", args.algorithm]

@@ -187,6 +187,6 @@
 ## 十、参考资料
 
 - `README.md` §「SLM 台架探针」— 四条台架铁律 + 实测台架几何
-- `docs/slm/model_in_loop_bench_calibration.md` — 台架常数来源
+- `report/slm/model_in_loop_bench_calibration.md` — 台架常数来源
 - `src/ao_shaping/runners/runner_common.py:118–323` — 待抽取的机制本体
 - `src/ao_shaping/drivers/slm/AGENTS.md:116` — `calibration.py` 的 shift CLI 用法

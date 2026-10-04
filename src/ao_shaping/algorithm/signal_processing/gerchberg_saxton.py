@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 import numpy as np
+import numpy.typing as npt
 from numpy.fft import fft2, fftshift, ifft2, ifftshift
 from loguru import logger
 
@@ -26,7 +27,7 @@ from loguru import logger
 @dataclass
 class GSResult:
     """Result container for Gerchberg-Saxton algorithm.
-    
+
     Attributes:
         phase: Computed phase pattern for SLM (radians, 0-2π)
         amplitude: Final amplitude at target plane
@@ -34,8 +35,9 @@ class GSResult:
         iterations: Number of iterations performed
         converged: Whether the algorithm converged
     """
-    phase: np.ndarray
-    amplitude: np.ndarray
+
+    phase: npt.NDArray[np.floating]
+    amplitude: npt.NDArray[np.floating]
     error_history: list[float]
     iterations: int
     converged: bool
@@ -48,7 +50,7 @@ def _compute_propagator(
     dx: float,
     z: float,
     wavelength: float,
-) -> np.ndarray:
+) -> npt.NDArray[np.complexfloating]:
     """预计算 ASM 传播子 (已 ifftshift 对齐 fft2 输出), 跨调用复用.
 
     传播子只依赖 (网格形状, 像素间距, 距离, 波长), 与输入场无关. GS 迭代中
@@ -69,26 +71,26 @@ def _compute_propagator(
 
 
 def angular_spectrum_propagate(
-    field: np.ndarray,
+    field: npt.NDArray,
     dx: float,
     z: float,
     wavelength: float,
-) -> np.ndarray:
+) -> npt.NDArray[np.complexfloating]:
     """Propagate optical field using Angular Spectrum Method (ASM).
-    
+
     The Angular Spectrum Method propagates a complex optical field from one
     plane to another using Fourier optics. It's accurate for near-field and
     far-field propagation.
-    
+
     Args:
         field: Complex field array (2D numpy array)
         dx: Pixel spacing (meters)
         z: Propagation distance (meters, positive=forward, negative=backward)
         wavelength: Light wavelength (meters)
-    
+
     Returns:
         Propagated complex field (same shape as input)
-    
+
     Example:
         >>> # Forward propagate by 10cm
         >>> propagated = angular_spectrum_propagate(field, dx=8e-6, z=0.1, wavelength=633e-9)
@@ -105,22 +107,22 @@ def angular_spectrum_propagate(
 
 
 def gerchberg_saxton(
-    source_amplitude: np.ndarray,
-    target_amplitude: np.ndarray,
+    source_amplitude: npt.NDArray[np.floating],
+    target_amplitude: npt.NDArray[np.floating],
     iterations: int = 50,
     cell_spacing: float = 8e-6,
     distance: float = 0.1,
     wavelength: float = 1064e-9,
     error_threshold: float | None = None,
     progress_callback: Callable[[int, float], None] | None = None,
-    phase_callback: Callable[[int, np.ndarray], None] | None = None,
+    phase_callback: Callable[[int, npt.NDArray[np.floating]], None] | None = None,
     propagation: str = "asm",
 ) -> GSResult:
     """Gerchberg-Saxton algorithm for phase retrieval.
-    
+
     Computes the optimal phase pattern to apply at the source plane (SLM)
     to produce a desired intensity distribution at the target plane.
-    
+
     Algorithm:
         1. Initialize field A at source plane
         2. For each iteration:
@@ -129,7 +131,7 @@ def gerchberg_saxton(
            c. Apply target amplitude constraint: D = target_amp * exp(i*phase(C))
            d. Propagate backward to source plane: A = ASM(D, -z)
         3. Extract final phase: phase = angle(A)
-    
+
     Args:
         source_amplitude: 2D array, amplitude constraint at SLM plane
                          (typically uniform illumination, shape matches SLM)
@@ -149,21 +151,21 @@ def gerchberg_saxton(
             plane is treated as the Fourier transform of the source plane).
             ``"fft"`` drops the per-iteration propagator construction entirely,
             matching the far-field GS speed of a single FFT/IFFT pair.
-    
+
     Returns:
         GSResult containing computed phase, amplitude, error history, and convergence info
-    
+
     Raises:
         ValueError: If input arrays have wrong dimensions or parameters are invalid
-    
+
     Example:
         >>> # Create target amplitude from image
         >>> target_img = np.loadtxt('target_pattern.csv', delimiter=',')
         >>> target_amp = np.sqrt(target_img / target_img.max())  # Normalize and sqrt
-        >>> 
+        >>>
         >>> # Uniform source amplitude
         >>> source_amp = np.ones((1200, 1920))
-        >>> 
+        >>>
         >>> # Run GS algorithm
         >>> result = gerchberg_saxton(
         ...     source_amplitude=source_amp,
@@ -173,7 +175,7 @@ def gerchberg_saxton(
         ...     distance=0.15,
         ...     wavelength=1064e-9,
         ... )
-        >>> 
+        >>>
         >>> # Use computed phase
         >>> slm_phase = result.phase  # Radians, 0-2π
     """
@@ -198,8 +200,8 @@ def gerchberg_saxton(
 
     logger.info(
         f"Starting Gerchberg-Saxton algorithm: "
-        f"iterations={iterations}, distance={distance*1000:.1f}mm, "
-        f"λ={wavelength*1e9:.0f}nm, pixel={cell_spacing*1e6:.1f}µm, "
+        f"iterations={iterations}, distance={distance * 1000:.1f}mm, "
+        f"λ={wavelength * 1e9:.0f}nm, pixel={cell_spacing * 1e6:.1f}µm, "
         f"propagation={propagation}"
     )
 
@@ -262,11 +264,11 @@ def gerchberg_saxton(
 
         # Log progress every 10 iterations
         if (i + 1) % 10 == 0 or i == 0:
-            logger.debug(f"Iteration {i+1}/{iterations}, MSE={mse:.6f}")
+            logger.debug(f"Iteration {i + 1}/{iterations}, MSE={mse:.6f}")
 
         # Check convergence
         if error_threshold is not None and mse < error_threshold:
-            logger.info(f"Converged at iteration {i+1} with MSE={mse:.6f}")
+            logger.info(f"Converged at iteration {i + 1} with MSE={mse:.6f}")
             break
 
     # Extract final results
@@ -275,7 +277,9 @@ def gerchberg_saxton(
     # Forward propagate one more time to get target plane amplitude
     final_B = source_amplitude * np.exp(1j * final_phase)
     if propagation == "asm":
-        final_C = angular_spectrum_propagate(final_B, cell_spacing, distance, wavelength)
+        final_C = angular_spectrum_propagate(
+            final_B, cell_spacing, distance, wavelength
+        )
     else:
         final_C = fftshift(fft2(final_B))
     final_amplitude = np.abs(final_C)
@@ -298,9 +302,11 @@ def gerchberg_saxton(
 
 
 def adaptive_gerchberg_saxton(
-    source_amplitude: np.ndarray,
-    target_amplitude: np.ndarray,
-    measured_amplitude_callback: Callable[[np.ndarray], np.ndarray],
+    source_amplitude: npt.NDArray[np.floating],
+    target_amplitude: npt.NDArray[np.floating],
+    measured_amplitude_callback: Callable[
+        [npt.NDArray[np.floating]], npt.NDArray[np.floating]
+    ],
     outer_iterations: int = 5,
     inner_iterations: int = 30,
     cell_spacing: float = 8e-6,
@@ -309,11 +315,11 @@ def adaptive_gerchberg_saxton(
     feedback_weight: float = 0.3,
 ) -> GSResult:
     """Adaptive Gerchberg-Saxton with experimental feedback.
-    
+
     This variant incorporates actual measured amplitude from the experimental
     setup to refine the phase pattern iteratively. It's useful when the
     theoretical model doesn't perfectly match reality.
-    
+
     Args:
         source_amplitude: Amplitude constraint at SLM plane
         target_amplitude: Desired amplitude at target plane
@@ -326,16 +332,16 @@ def adaptive_gerchberg_saxton(
         distance: Propagation distance in meters
         wavelength: Light wavelength in meters
         feedback_weight: Weight for blending measured vs simulated (0-1)
-    
+
     Returns:
         GSResult with final computed phase
-    
+
     Example:
         >>> def capture_amplitude(phase_pattern):
         ...     slm.display_phase(phase_pattern)
         ...     img = camera.get_image()
         ...     return np.sqrt(img)  # Amplitude from intensity
-        >>> 
+        >>>
         >>> result = adaptive_gerchberg_saxton(
         ...     source_amplitude,
         ...     target_amplitude,
@@ -359,7 +365,7 @@ def adaptive_gerchberg_saxton(
     current_phase = result.phase
 
     for outer_i in range(outer_iterations):
-        logger.info(f"Adaptive iteration {outer_i+1}/{outer_iterations}")
+        logger.info(f"Adaptive iteration {outer_i + 1}/{outer_iterations}")
 
         # Get measured amplitude from experiment
         measured_amp = measured_amplitude_callback(current_phase)
@@ -367,8 +373,9 @@ def adaptive_gerchberg_saxton(
         # Blend target with measured (feedback)
         # This allows the algorithm to adapt to real-world imperfections
         blended_target = (
-            (1 - feedback_weight) * target_amplitude +
-            feedback_weight * measured_amp * target_amplitude / (measured_amp + 1e-10)
+            1 - feedback_weight
+        ) * target_amplitude + feedback_weight * measured_amp * target_amplitude / (
+            measured_amp + 1e-10
         )
 
         # Run GS with blended target
@@ -387,15 +394,15 @@ def adaptive_gerchberg_saxton(
 
 
 def calculate_reconstruction_error(
-    computed_phase: np.ndarray,
-    source_amplitude: np.ndarray,
-    target_amplitude: np.ndarray,
+    computed_phase: npt.NDArray[np.floating],
+    source_amplitude: npt.NDArray[np.floating],
+    target_amplitude: npt.NDArray[np.floating],
     cell_spacing: float = 8e-6,
     distance: float = 0.1,
     wavelength: float = 1064e-9,
 ) -> dict[str, float]:
     """Calculate various error metrics for GS reconstruction quality.
-    
+
     Args:
         computed_phase: Phase pattern computed by GS algorithm
         source_amplitude: Source plane amplitude constraint
@@ -403,7 +410,7 @@ def calculate_reconstruction_error(
         cell_spacing: Pixel spacing in meters
         distance: Propagation distance in meters
         wavelength: Light wavelength in meters
-    
+
     Returns:
         Dictionary with error metrics:
             - mse: Mean squared error
@@ -427,10 +434,7 @@ def calculate_reconstruction_error(
     nmse = mse / (np.mean(target_norm**2) + 1e-10)
 
     # Correlation coefficient
-    correlation = np.corrcoef(
-        computed_norm.flatten(),
-        target_norm.flatten()
-    )[0, 1]
+    correlation = np.corrcoef(computed_norm.flatten(), target_norm.flatten())[0, 1]
 
     # Optical efficiency (energy in target region / total energy)
     efficiency = np.sum(computed_amplitude**2) / (np.sum(source_amplitude**2) + 1e-10)

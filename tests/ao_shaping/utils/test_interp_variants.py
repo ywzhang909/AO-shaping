@@ -148,7 +148,7 @@ def test_default_zoom_is_align_corners_while_A_is_half_pixel() -> None:
 
 
 def test_block_mean_is_not_bilinear_and_loses_energy_on_noise() -> None:
-    """``runners/gsnet_offline.py`` block-averages instead of interpolating.
+    """``ml/gsnet_debug/offline.py`` block-averages instead of interpolating.
 
     That is a deliberate low-pass, not a sloppy bilinear: on a random field it
     differs by ~0.43 of full scale, which is the point of averaging.

@@ -28,9 +28,9 @@
 
 输出::
 
-    docs/oopao_vs_numpy/report.md
-    docs/oopao_vs_numpy/summary.csv
-    docs/oopao_vs_numpy/figures/*.png
+    report/oopao_vs_numpy/report.md
+    report/oopao_vs_numpy/summary.csv
+    report/oopao_vs_numpy/figures/*.png
 """
 
 from __future__ import annotations
@@ -1359,8 +1359,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=ROOT / "docs" / "oopao_vs_numpy",
-        help="输出目录 (默认 docs/oopao_vs_numpy)",
+        default=ROOT / "report" / "oopao_vs_numpy",
+        help="输出目录 (默认 report/oopao_vs_numpy)",
     )
     parser.add_argument(
         "--aberrations",

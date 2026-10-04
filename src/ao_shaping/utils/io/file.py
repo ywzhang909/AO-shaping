@@ -51,7 +51,11 @@ def find_cell_image(base_dir: str | Path, ip_group: int, seq: int) -> Path | Non
 
     prefix = f"192.168.0.{ip_group}-{seq:03d}"
     for f in ip_dir.iterdir():
-        if f.is_file() and f.stem.startswith(prefix) and f.suffix.lower() in _IMG_EXTENSIONS:
+        if (
+            f.is_file()
+            and f.stem.startswith(prefix)
+            and f.suffix.lower() in _IMG_EXTENSIONS
+        ):
             return f
     return None
 
@@ -200,7 +204,8 @@ def get_init_V_by_energy(date: str = ""):
 
 
 def save_history(
-    history: pd.DataFrame | list[dict[str, Any]], file_path: str | Path = None,
+    history: pd.DataFrame | list[dict[str, Any]],
+    file_path: str | Path = None,
     sidecar_dir: str | Path | None = None,
 ):
     if isinstance(file_path, str):
@@ -210,7 +215,7 @@ def save_history(
     if file_path is not None:
         if not file_path.exists():
             file_path.parent.mkdir(parents=True, exist_ok=True)
-        csv_path = file_path.with_suffix('.csv')
+        csv_path = file_path.with_suffix(".csv")
         history.to_csv(csv_path, index=False)
         logger.info(f"History saved to {csv_path}")
         if sidecar_dir is not None:
@@ -324,9 +329,7 @@ def save_history_hdf5(
         ):
             numeric_cols.append(col)
         elif vals:
-            logger.warning(
-                "skip mixed/non-scalar column {} in HDF5 export", col
-            )
+            logger.warning("skip mixed/non-scalar column {} in HDF5 export", col)
 
     with h5py.File(path, "w") as f:
         if metadata:
@@ -343,9 +346,7 @@ def save_history_hdf5(
         for col in numeric_cols:
             scalars.create_dataset(
                 col,
-                data=np.asarray(
-                    [row.get(col, np.nan) for row in rows], dtype=float
-                ),
+                data=np.asarray([row.get(col, np.nan) for row in rows], dtype=float),
             )
         for col in str_cols:
             scalars.create_dataset(
@@ -429,7 +430,9 @@ class Recorder:
         df = pd.DataFrame(self.history)
         return self._ensure_postprocess_applied(df)
 
-    def save_dataframe(self, filename: str | Path, sidecar_dir: str | Path | None = None, **kwargs):
+    def save_dataframe(
+        self, filename: str | Path, sidecar_dir: str | Path | None = None, **kwargs
+    ):
         df = self.dataframe
         save_history(df, filename, sidecar_dir=sidecar_dir)
         return df
@@ -486,14 +489,12 @@ class Recorder:
         assert index < len(self.history), (
             f"index {index} out of range {len(self.history)}"
         )
-        if hasattr(self.history, 'iloc'):
+        if hasattr(self.history, "iloc"):
             return self.history.iloc[index]
         return self.history[index]
 
     def __add__(self, other: "Recorder"):
-        assert self.mark == other.mark, (
-            "mark must be the same"
-        )
+        assert self.mark == other.mark, "mark must be the same"
         self.history.extend(other.history)
         return self
 
@@ -637,7 +638,7 @@ def _save_data_mode_debug_artifacts(
 
 
 def save_optimization_debug_artifacts(
-    records : Recorder | None = None,
+    records: Recorder | None = None,
     save_dir: Path | None = None,
     saved_file_name: Path | None = None,
     min_epoch: int | None = None,
@@ -722,26 +723,28 @@ def save_optimization_debug_artifacts(
 
     best_coeffs = records.get_best_iter()[0][best_coeff_key]
     title_suffix = (
-        f"{plot_params_note}" if plot_params_note
+        f"{plot_params_note}"
+        if plot_params_note
         else f"{min_metric:.3f} @ epoch {min_epoch}"
     )
     plot_funcs["voltages"](best_coeffs, ax[0, 1], title_suffix)
 
-    make_debug_wavefront_ax_plots(ax[1], init_wavefront, opt_wavefront,
-                                   init_title=init_title, opt_title=opt_title)
+    make_debug_wavefront_ax_plots(
+        ax[1], init_wavefront, opt_wavefront, init_title=init_title, opt_title=opt_title
+    )
 
     plt.tight_layout()
     plt.savefig(saved_file_name.with_suffix(".png"))
     plt.close()
 
-    records.save_dataframe(saved_file_name.with_suffix(".zip"),
-                          compression="zip")
+    records.save_dataframe(saved_file_name.with_suffix(".zip"), compression="zip")
     return None
 
 
 # ---------------------------------------------------------------------------
 # Generic recorder → {epoch: record} debug-artifact writer
 # ---------------------------------------------------------------------------
+
 
 def save_recorder_debug_artifacts(
     res: Recorder,
@@ -758,7 +761,7 @@ def save_recorder_debug_artifacts(
 ) -> Path:
     """Convert a :class:`Recorder` into the data-mode debug artifacts.
 
-    This is the shared backend for ``slm_pib_runner._save_debug_artifacts``
+    This is the shared backend for ``shaping_runner._save_debug_artifacts``
     and ``slm_gsnet_runner._save_debug_artifacts``: it walks ``res.history``,
     extracts the configured key sets into a ``{epoch: record}`` dict and
     delegates to :func:`save_optimization_debug_artifacts` (data mode).
@@ -820,23 +823,25 @@ def save_recorder_debug_artifacts(
 
 class DeviceConfigManager:
     """通用设备配置管理器
-    
+
     管理设备的JSON配置文件加载和保存，支持所有设备类型。
     配置文件按设备序列号存储，路径: <config_dir>/{device_type}/{serial_number}.json
-    
+
     支持默认启动参数，可在配置目录下放置 defaults.json 作为全局默认配置。
     """
 
     def __init__(self, config_dir: str | Path, device_type: str = ""):
         """初始化配置管理器
-        
+
         Args:
             config_dir: 配置文件根目录路径
             device_type: 设备类型标识（如 'slm', 'dm', 'ccd' 等）
         """
         self.config_dir = Path(config_dir)
         self.device_type = device_type
-        self.device_config_dir = self.config_dir / device_type if device_type else self.config_dir
+        self.device_config_dir = (
+            self.config_dir / device_type if device_type else self.config_dir
+        )
         self.device_config_dir.mkdir(parents=True, exist_ok=True)
 
         # 加载默认配置
@@ -863,13 +868,13 @@ class DeviceConfigManager:
 
     def load_config(self, serial: str) -> dict:
         """根据序列号加载JSON配置文件
-        
+
         配置文件路径: <config_dir>/{device_type}/{serial}.json
         如果文件不存在，返回默认配置（如果已设置）
-        
+
         Args:
             serial: 设备序列号
-            
+
         Returns:
             配置字典；合并默认配置和设备特定配置
         """
@@ -895,9 +900,9 @@ class DeviceConfigManager:
 
     def save_config(self, serial: str, config: dict) -> None:
         """将配置保存到JSON文件
-        
+
         配置文件路径: <config_dir>/{device_type}/{serial}.json
-        
+
         Args:
             serial: 设备序列号
             config: 配置字典
@@ -917,10 +922,10 @@ class DeviceConfigManager:
 
     def config_exists(self, serial: str) -> bool:
         """检查指定序列号的配置文件是否存在
-        
+
         Args:
             serial: 设备序列号
-            
+
         Returns:
             配置文件是否存在
         """
@@ -928,10 +933,10 @@ class DeviceConfigManager:
 
     def delete_config(self, serial: str) -> bool:
         """删除指定序列号的配置文件
-        
+
         Args:
             serial: 设备序列号
-            
+
         Returns:
             是否成功删除
         """
@@ -948,7 +953,7 @@ class DeviceConfigManager:
 
     def list_configs(self) -> list[str]:
         """列出所有已保存的配置文件对应的序列号
-        
+
         Returns:
             序列号列表
         """
@@ -959,7 +964,7 @@ class DeviceConfigManager:
 
     def set_default_config(self, defaults: dict) -> None:
         """设置默认配置（运行时）
-        
+
         Args:
             defaults: 默认配置字典
         """
@@ -967,7 +972,7 @@ class DeviceConfigManager:
 
     def save_default_config(self, defaults: dict) -> None:
         """保存默认配置到文件 defaults.json
-        
+
         Args:
             defaults: 默认配置字典，可按设备类型组织
                       如: {'slm': {'wavelength': 1064}, 'dm': {'voltages': [0]*64}}

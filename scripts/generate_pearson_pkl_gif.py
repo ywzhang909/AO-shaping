@@ -13,13 +13,13 @@ synchronously displays:
 Only pickles that contain **both** ``_img`` and ``_phase`` produce a GIF.  When a
 ``pearson`` key exists it is annotated on every frame.
 
-Output GIFs are written to ``docs/pearson_gifs/<pkl_stem>.gif``.
+Output GIFs are written to ``report/pearson_gifs/<pkl_stem>.gif``.
 
 Usage::
 
     python scripts/generate_pearson_pkl_gif.py
     python scripts/generate_pearson_pkl_gif.py --pkl data/debug/slm_pib_pearson_20260929_160921/20260929_160921/slm_pib_pearson_20260929_160921_20260929_160921.pkl
-    python scripts/generate_pearson_pkl_gif.py --output-dir docs/pearson_gifs --max-frames 300 --fps 12
+    python scripts/generate_pearson_pkl_gif.py --output-dir report/pearson_gifs --max-frames 300 --fps 12
 """
 
 from __future__ import annotations
@@ -350,7 +350,7 @@ def process_pkl(pkl: Path, out_dir: Path, pearson_only: bool = False, **gif_kwar
 @click.option(
     "-o",
     "--output-dir",
-    default="docs/pearson_gifs",
+    default="report/pearson_gifs",
     show_default=True,
     help="output directory for GIFs",
 )

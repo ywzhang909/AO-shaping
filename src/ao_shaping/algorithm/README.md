@@ -24,6 +24,43 @@ The loop that drives `update()` (logging, early stopping, progress reporting, pe
 
 Within the `algorithm` package the class is the **sole public API** — there is no one-shot free function; anything more granular uses `update()` directly. Do not reintroduce a free-function wrapper inside `algorithm`: new features go to the class. Callers who want the whole loop in one call use the optimizer-layer function (e.g. `optimize_beam_shaping` in `ao_shaping.optimizer.wfless.differentiable_beam`), which constructs the class and drives `update()`.
 
+## Array annotation convention
+
+Array parameters and returns are annotated with `numpy.typing.NDArray`, not the
+bare `np.ndarray` alias:
+
+```python
+import numpy as np
+import numpy.typing as npt
+
+def compute(self, phase: npt.NDArray[np.floating]) -> npt.NDArray[np.float64]:
+    ...
+```
+
+Always parameterise the scalar type rather than writing a bare `npt.NDArray`,
+because the dtype is the part that documents the contract. Pick it from what the
+function actually does:
+
+| dtype | use for |
+|---|---|
+| `np.float64` | Optimization vectors, populations, state / feedback-gain matrices. The heuristics build these with `np.empty(...)`, `np.random.*` and in-place arithmetic, all of which are float64. |
+| `np.floating` | Phase and amplitude maps, where the precision is chosen by the caller. `zernike_coefficient_optimizer` runs in float32 or float64 (`dtype=` argument), so `np.float64` would be a lie there. |
+| `np.complexfloating` | Optical fields that are genuinely complex, e.g. an ASM propagator (`np.exp(1j * kz * z)`) or an FFT output. |
+| `np.intp` | Rank / index arrays produced by `argsort()`, e.g. the guided-mutation `ranks`. |
+| `np.bool_` | Boolean masks used for indexing. |
+| `np.floating` / bare `npt.NDArray` | A parameter array that accepts either real or complex, e.g. `angular_spectrum_propagate(field=...)` — `fft2` happily accepts a real field. |
+
+Two traps this avoids:
+
+- **Do not** use `npt.NDArray` in an `isinstance` / `issubclass` check. It is a
+  `_GenericAlias`, so `isinstance(x, npt.NDArray)` raises `TypeError` at runtime.
+  Runtime type guards must keep testing against `np.ndarray`; only annotations
+  change.
+- **`np.float64` is not the safe default.** `gradient/adam.py` keeps its
+  moment estimates in `float32`, and `beam_shaping_benchmark` receives whatever
+  the caller produced. Reading the code before choosing the parameter matters
+  more than being consistent.
+
 ## Simulation-first testing rule
 
 torch/numpy tests on synthetic targets are REQUIRED before any hardware run. Tests must never import hardware or SDK modules. CPU is the default test device; CUDA is never hard-required (tests must pass on a machine without a GPU). A test that needs real hardware uses `pytest.skip("Requires hardware")` and is never part of the default suite.
@@ -36,17 +73,17 @@ torch/numpy tests on synthetic targets are REQUIRED before any hardware run. Tes
 class DifferentiableBeamOptimizer:
     def __init__(
         self,
-        target_intensity: np.ndarray,
-        source_amplitude: np.ndarray | None = None,
+        target_intensity: npt.NDArray[np.floating],
+        source_amplitude: npt.NDArray[np.floating] | None = None,
         lr: float = 0.01,
-        init_phase: np.ndarray | None = None,
+        init_phase: npt.NDArray[np.floating] | None = None,
         device: str | None = None,
         seed: int | None = None,
     ) -> None:
         # validate inputs (raise ValueError early), set up all state
         ...
 
-    def update(self) -> np.ndarray:
+    def update(self) -> npt.NDArray[np.floating]:
         # exactly ONE step; returns the next phase (radians)
         ...
 ```

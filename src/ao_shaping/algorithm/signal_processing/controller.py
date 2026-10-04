@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 import numpy as np
+import numpy.typing as npt
 from loguru import logger
 
 
@@ -56,7 +57,7 @@ class LoopConfig:
     Ki: float = 0.3
     Kd: float = 0.05
     leak: float = 0.97
-    Q_diag: np.ndarray = field(default_factory=lambda: np.ones(15))
+    Q_diag: npt.NDArray[np.float64] = field(default_factory=lambda: np.ones(15))
     R_scalar: float = 0.1
     horizon: int = 3
     delay_steps: int = 1
@@ -154,7 +155,7 @@ class HardwareConfig:
 # =============================================================================
 
 
-def solve_lqr(Q_diag: np.ndarray, R_scalar: float, n_modes: int) -> np.ndarray:
+def solve_lqr(Q_diag: npt.NDArray[np.float64], R_scalar: float, n_modes: int) -> npt.NDArray[np.float64]:
     """Solve discrete LQR gain via Riccati iteration.
 
     Computes the optimal state feedback gain K for the discrete-time
@@ -185,7 +186,7 @@ def solve_lqr(Q_diag: np.ndarray, R_scalar: float, n_modes: int) -> np.ndarray:
     return K
 
 
-def solve_lqr_static(Q_diag: np.ndarray, R_scalar: float, n_modes: int) -> np.ndarray:
+def solve_lqr_static(Q_diag: npt.NDArray[np.float64], R_scalar: float, n_modes: int) -> npt.NDArray[np.float64]:
     """Static LQR solver (standalone, used by MPC gain computation).
 
     Args:
@@ -211,7 +212,7 @@ def solve_lqr_static(Q_diag: np.ndarray, R_scalar: float, n_modes: int) -> np.nd
     return np.linalg.inv(R + B.T @ P @ B) @ B.T @ P @ A
 
 
-def solve_mpc_gain(horizon: int, delay: int, Q_diag: np.ndarray, R_scalar: float) -> np.ndarray:
+def solve_mpc_gain(horizon: int, delay: int, Q_diag: npt.NDArray[np.float64], R_scalar: float) -> npt.NDArray[np.float64]:
     """Compute MPC feedback gain (long-horizon LQR approximation).
 
     Args:
@@ -258,14 +259,14 @@ class BaseController(ABC):
     produces a control output vector from the current WFS measurement.
     """
 
-    def __init__(self, dim: int, dt: float, D_pinv: np.ndarray, s_ref: np.ndarray) -> None:
+    def __init__(self, dim: int, dt: float, D_pinv: npt.NDArray[np.float64], s_ref: npt.NDArray[np.float64]) -> None:
         self.dim = dim
         self.dt = dt
         self.D_pinv = D_pinv
         self.s_ref = s_ref
 
     @abstractmethod
-    def compute(self, s_meas: np.ndarray, k: int) -> np.ndarray:
+    def compute(self, s_meas: npt.NDArray[np.float64], k: int) -> npt.NDArray[np.float64]:
         """Compute control output from current measurement.
 
         Args:
@@ -308,8 +309,8 @@ class PIDController(BaseController):
         self,
         dim: int,
         dt: float,
-        D_pinv: np.ndarray,
-        s_ref: np.ndarray,
+        D_pinv: npt.NDArray[np.float64],
+        s_ref: npt.NDArray[np.float64],
         Kp: float,
         Ki: float,
         Kd: float,
@@ -321,7 +322,7 @@ class PIDController(BaseController):
         self.integral = np.zeros(dim)
         self.prev_error = np.zeros(dim)
 
-    def compute(self, s_meas: np.ndarray, k: int) -> np.ndarray:
+    def compute(self, s_meas: npt.NDArray[np.float64], k: int) -> npt.NDArray[np.float64]:
         e_s = s_meas - self.s_ref
         e_a = self.D_pinv @ e_s
 
@@ -349,15 +350,15 @@ class LeakyIntegratorController(BaseController):
         self,
         dim: int,
         dt: float,
-        D_pinv: np.ndarray,
-        s_ref: np.ndarray,
+        D_pinv: npt.NDArray[np.float64],
+        s_ref: npt.NDArray[np.float64],
         gain_schedule: list[tuple[int, int, float, float]],
     ) -> None:
         super().__init__(dim, dt, D_pinv, s_ref)
         self.gain_schedule = gain_schedule
         self.a = np.zeros(dim)
 
-    def compute(self, s_meas: np.ndarray, k: int) -> np.ndarray:
+    def compute(self, s_meas: npt.NDArray[np.float64], k: int) -> npt.NDArray[np.float64]:
         e_s = s_meas - self.s_ref
         e_a = self.D_pinv @ e_s
 
@@ -380,18 +381,18 @@ class QuadraticGaussianController(BaseController):
         self,
         dim: int,
         dt: float,
-        D_pinv: np.ndarray,
-        s_ref: np.ndarray,
-        Q_diag: np.ndarray,
+        D_pinv: npt.NDArray[np.float64],
+        s_ref: npt.NDArray[np.float64],
+        Q_diag: npt.NDArray[np.float64],
         R_scalar: float,
     ) -> None:
         super().__init__(dim, dt, D_pinv, s_ref)
         self.Q_diag = Q_diag
         self.R_scalar = R_scalar
         self.a = np.zeros(dim)
-        self._K_lqr: np.ndarray | None = None
+        self._K_lqr: npt.NDArray[np.float64] | None = None
 
-    def compute(self, s_meas: np.ndarray, k: int) -> np.ndarray:
+    def compute(self, s_meas: npt.NDArray[np.float64], k: int) -> npt.NDArray[np.float64]:
         a_meas = self.D_pinv @ (s_meas - self.s_ref)
 
         if self._K_lqr is None:
@@ -418,10 +419,10 @@ class LQGController(BaseController):
         self,
         dim: int,
         dt: float,
-        D_pinv: np.ndarray,
-        s_ref: np.ndarray,
-        D: np.ndarray,
-        Q_diag: np.ndarray,
+        D_pinv: npt.NDArray[np.float64],
+        s_ref: npt.NDArray[np.float64],
+        D: npt.NDArray[np.float64],
+        Q_diag: npt.NDArray[np.float64],
         R_scalar: float,
     ) -> None:
         super().__init__(dim, dt, D_pinv, s_ref)
@@ -431,9 +432,9 @@ class LQGController(BaseController):
         self.R_scalar = R_scalar
         self.x_est = np.zeros(dim)
         self.P_est = np.eye(dim) * 0.1
-        self._K_lqr: np.ndarray | None = None
+        self._K_lqr: npt.NDArray[np.float64] | None = None
 
-    def compute(self, s_meas: np.ndarray, k: int) -> np.ndarray:
+    def compute(self, s_meas: npt.NDArray[np.float64], k: int) -> npt.NDArray[np.float64]:
         # Kalman prediction
         x_pred = self.x_est
         P_pred = self.P_est + 0.01 * np.eye(self.dim)
@@ -470,11 +471,11 @@ class PredictiveController(BaseController):
         self,
         dim: int,
         dt: float,
-        D_pinv: np.ndarray,
-        s_ref: np.ndarray,
+        D_pinv: npt.NDArray[np.float64],
+        s_ref: npt.NDArray[np.float64],
         horizon: int,
         delay_steps: int,
-        Q_diag: np.ndarray,
+        Q_diag: npt.NDArray[np.float64],
         R_scalar: float,
     ) -> None:
         super().__init__(dim, dt, D_pinv, s_ref)
@@ -483,9 +484,9 @@ class PredictiveController(BaseController):
         self.Q_diag = Q_diag
         self.R_scalar = R_scalar
         self.a = np.zeros(dim)
-        self._K_mpc: np.ndarray | None = None
+        self._K_mpc: npt.NDArray[np.float64] | None = None
 
-    def compute(self, s_meas: np.ndarray, k: int) -> np.ndarray:
+    def compute(self, s_meas: npt.NDArray[np.float64], k: int) -> npt.NDArray[np.float64]:
         a_current = self.D_pinv @ (s_meas - self.s_ref)
 
         if self._K_mpc is None:
@@ -512,8 +513,8 @@ class AdaptiveGainController(BaseController):
         self,
         dim: int,
         dt: float,
-        D_pinv: np.ndarray,
-        s_ref: np.ndarray,
+        D_pinv: npt.NDArray[np.float64],
+        s_ref: npt.NDArray[np.float64],
         gain_schedule: list[tuple[int, int, float, float]],
         default_gain: float = 0.5,
         default_leak: float = 0.97,
@@ -533,7 +534,7 @@ class AdaptiveGainController(BaseController):
         """
         self.rms_buffer.append(rms)
 
-    def compute(self, s_meas: np.ndarray, k: int) -> np.ndarray:
+    def compute(self, s_meas: npt.NDArray[np.float64], k: int) -> npt.NDArray[np.float64]:
         e_s = s_meas - self.s_ref
         e_a = self.D_pinv @ e_s
 

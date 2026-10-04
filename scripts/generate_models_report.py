@@ -2,7 +2,7 @@
 
 分析 models/ 下全部 SAC 训练运行, 结合 logs/<run>/ 的旁路遥测
 (config.json / summary.json / eval/evaluations.npz / tfevents),
-生成中文 Markdown 报告与 matplotlib PNG 图, 输出到 docs/models_analysis/.
+生成中文 Markdown 报告与 matplotlib PNG 图, 输出到 report/models_analysis/.
 
 纯离线读取: 不导入 ao_shaping / stable_baselines3 / tensorboard, 不触碰硬件。
 """
@@ -26,7 +26,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 MODELS_DIR = ROOT / "models"
 LOGS_DIR = ROOT / "logs"
-OUT_DIR = ROOT / "docs" / "models_analysis"
+OUT_DIR = ROOT / "report" / "models_analysis"
 
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]
 plt.rcParams["axes.unicode_minus"] = False

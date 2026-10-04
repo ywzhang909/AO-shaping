@@ -66,6 +66,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 from loguru import logger
 from scipy import ndimage
 
@@ -119,7 +120,7 @@ def _numpy_dtype(dtype_name: str) -> Any:
 
 
 def _to_tensor(
-    x: np.ndarray,
+    x: npt.NDArray[np.floating],
     device: torch.device,
     dtype: str = "float32",
 ) -> torch.Tensor:
@@ -148,7 +149,7 @@ class ZernikeCoefficientResult:
             ran out.
     """
 
-    coefficients: np.ndarray
+    coefficients: npt.NDArray[np.floating]
     history: dict[str, list] = field(default_factory=dict)
     iterations: int = 0
     converged: bool = False
@@ -211,7 +212,7 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         n_orders: int = 10,
         region: int = 64,
         radius: int | None = None,
-        initial_coefficients: np.ndarray | None = None,
+        initial_coefficients: npt.NDArray[np.floating] | None = None,
         lr: float = 0.1,
         max_iterations: int = 500,
         device: str | None = None,
@@ -309,7 +310,7 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
             mask[index - 1] = 0.0
         # Kept as numpy and turned into a tensor on first use: the device is not
         # resolved yet at this point in __init__.
-        self._frozen_mask: np.ndarray | None = None if mask.all() else mask
+        self._frozen_mask: npt.NDArray[np.float64] | None = None if mask.all() else mask
         self._mode_mask: Any = None
 
         n_coeffs = calc_n_zernike_terms(n_orders)
@@ -367,7 +368,7 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
     # ------------------------------------------------------------------
     # Construction helpers
     # ------------------------------------------------------------------
-    def _build_basis(self) -> np.ndarray:
+    def _build_basis(self) -> npt.NDArray[np.floating]:
         """Build the Noll-ordered Zernike basis, zero outside the aperture.
 
         Returns:
@@ -424,7 +425,7 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
     # Public helpers
     # ------------------------------------------------------------------
     @staticmethod
-    def native_amplitude(region: int) -> np.ndarray:
+    def native_amplitude(region: int) -> npt.NDArray[np.floating]:
         """Return the digital twin's native Gaussian beam for a ``region`` grid.
 
         The waist scales linearly with the grid so that ``region=TWIN_REGION``
@@ -481,7 +482,7 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         return self._coefficients
 
     @property
-    def coefficients(self) -> np.ndarray:
+    def coefficients(self) -> npt.NDArray[np.floating]:
         """Detached numpy copy of the current coefficients (radians)."""
         return self._coefficients.detach().cpu().numpy().astype(np.float64)
 
@@ -528,7 +529,7 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def generate_basis(self) -> np.ndarray:
+    def generate_basis(self) -> npt.NDArray[np.floating]:
         """Return a copy of the cached Zernike basis.
 
         Returns:
@@ -538,7 +539,7 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         """
         return self._basis_np.copy()
 
-    def set_source_amplitude(self, source_amplitude: np.ndarray) -> None:
+    def set_source_amplitude(self, source_amplitude: npt.NDArray[np.floating]) -> None:
         """Set the source-plane (pupil) amplitude used by subsequent steps.
 
         Args:
@@ -560,10 +561,10 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
 
     def forward_intensity(
         self,
-        coefficients: np.ndarray,
-        phase_slm: np.ndarray,
-        source_amplitude: np.ndarray | None = None,
-    ) -> np.ndarray:
+        coefficients: npt.NDArray[np.floating],
+        phase_slm: npt.NDArray[np.floating],
+        source_amplitude: npt.NDArray[np.floating] | None = None,
+    ) -> npt.NDArray[np.floating]:
         """Evaluate the far-field intensity of a coefficient vector.
 
         This is the single source of truth for the forward model; it is the
@@ -611,7 +612,7 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         self._restart(restore_initial=True)
         logger.debug("ZernikeCoefficientOptimizer reset to initial coefficients")
 
-    def update(self, i_meas: np.ndarray, phase_slm: np.ndarray) -> np.ndarray:
+    def update(self, i_meas: npt.NDArray[np.floating], phase_slm: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
         """Perform one Adam step and return the next coefficient vector.
 
         The step is measurement-anchored: the peak-normalized MSE is taken
@@ -665,9 +666,9 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
 
     def run(
         self,
-        i_meas: np.ndarray,
-        phase_slm: np.ndarray,
-        source_amplitude: np.ndarray | None = None,
+        i_meas: npt.NDArray[np.floating],
+        phase_slm: npt.NDArray[np.floating],
+        source_amplitude: npt.NDArray[np.floating] | None = None,
     ) -> ZernikeCoefficientResult:
         """Run the fitting loop until convergence or the iteration budget.
 
@@ -853,7 +854,7 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
     # ------------------------------------------------------------------
     # Input preparation and bookkeeping
     # ------------------------------------------------------------------
-    def _validate_phase(self, phase_slm: np.ndarray) -> np.ndarray:
+    def _validate_phase(self, phase_slm: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
         """Validate the fixed SLM phase map and return it as a 2D array.
 
         The phase is consumed as **raw unwrapped radians**; this method never
@@ -871,7 +872,7 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
             raise ValueError("phase_slm must be finite")
         return phase
 
-    def _resolve_amplitude(self, source_amplitude: np.ndarray | None) -> np.ndarray:
+    def _resolve_amplitude(self, source_amplitude: npt.NDArray[np.floating] | None) -> npt.NDArray[np.floating]:
         """Return the amplitude to use, defaulting to the stored one."""
         if source_amplitude is None:
             return self._source_amplitude
@@ -885,8 +886,28 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
             raise ValueError("source_amplitude must be finite")
         return amplitude
 
+    def _target_grid(self) -> tuple[int, int]:
+        """Grid the measured frame must be resampled onto for the loss.
+
+        This is the **far-field** grid, not the pupil grid: ``_far_field_intensity``
+        zero-pads the pupil to ``far_field_size`` before the FFT, so it returns
+        ``far_field_size``-square intensity, and the residual in
+        ``_anchored_intensity_loss`` is only meaningful when the measurement lives
+        on that same grid. When no padding is configured the two coincide.
+
+        Fixing this is what makes ``far_field_size`` usable at all. Previously the
+        measurement was resampled to ``region`` while the prediction was
+        ``far_field_size``, so every ``update()`` with ``far_field_size > region``
+        raised a shape mismatch -- which is precisely the configuration the
+        ``far_field_size`` docstring calls mandatory for real benches, because an
+        unpadded grid samples this bench's ~27 um spot as a sub-pixel delta.
+        """
+        pad = int(self._far_field_size)
+        side = pad if pad > 0 else int(self._region)
+        return (side, side)
+
     def _prepare_measurement(
-        self, i_meas: np.ndarray
+        self, i_meas: npt.NDArray[np.floating]
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Resize, peak-normalize and tensorize a measured far field.
 
@@ -909,9 +930,9 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         if not np.all(np.isfinite(measured)):
             raise ValueError("i_meas must be finite")
 
-        grid = (self._region, self._region)
+        grid = self._target_grid()
         if measured.shape != grid:
-            factors = (self._region / measured.shape[0], self._region / measured.shape[1])
+            factors = (grid[0] / measured.shape[0], grid[1] / measured.shape[1])
             measured = np.asarray(
                 ndimage.zoom(measured, factors, order=1), dtype=np.float64
             )

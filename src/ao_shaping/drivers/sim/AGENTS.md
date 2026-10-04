@@ -347,23 +347,29 @@ RMS 最小解, SPGD 正确地保留初始平场命令。要看到真实的校正
 2. **静默回退**: `_oopao_enabled()` 在 OOPAO 不可导入或不可用时返回 `False` 并**静默退回
    numpy**。开启后务必确认 `oopao_backend._oopao_available()` 为 `True`, 否则会误以为在跑 OOPAO。
 3. **两后端不等价 (勿假设同 Cn2 可互换)**: 端到端实测 `disturbance_rms` 的
-   oopao/numpy 比值在**所有**湍流档位上**恒定**, 但**随仿真配置变化** (open 模式
-   1.068× / closed 模式 2.628×, 跨 1e-16→5e-14 两个数量级相对离散度 ≤1.8e-09), 详见
-   `docs/oopao_impact/report.md` §4.3。**不要把某次配置的常数当成普适标定系数。**
-   绝对 Strehl / FWHM / PIB **不可跨臂直接比较**。
+   oopao/numpy 比值在**所有**湍流档位上**恒定**, 但**随仿真配置变化** (实测
+   **open 模式 5.428× / closed 模式 13.354×**, 跨 1e-16→5e-14 两个数量级相对
+   离散度 ≤1.8e-09), 详见 `report/oopao_impact/report.md` §4.3。**不要把某次配置的
+   常数当成普适标定系数。** 绝对 Strehl / FWHM / PIB **不可跨臂直接比较**。
    ⚠️ 比较时注意 `init_rms` (`compat.py::_phase_rms()` = **截瞳后总波前** RMS, 含像差与 DM)
    与 `disturbance_rms` (`env._disturbance_rms` = **全网格未截瞳**原始相位屏 RMS) 是**两个不同的量**,
    不可互相推断 —— 前者可因像差项跨臂反向。
+   > 🔴 **2026-10-01 复核：上面这个 5.428/13.354 之前在此处被写成 1.068/2.628，
+   > 那是错的且不可复现。** 本报告的正交来源 `report/oopao_impact/report.md:62-63,100-101`
+   > 给的也是 5.428/13.354，与下面第 4 条描述的**未改动**的代码一致，已按实测统一。
 
-4. **相位屏标定 (2026-09 修正)**: `_rescale_for(r0_slab) = (_R0_REF_500/r0_slab)**(5/6)`,
-   **只此一项**。此前版本额外乘了 `lam/_LAM_REF_500`、并除以经验常数 `_CAL_REF`、再乘
-   `sqrt(1.03)`, 三者叠加使后端相位屏 std **完全不含波长依赖** (物理上相位[rad]必须 ∝1/λ),
-   且常数项掩盖了真实差异。现已验证: OOPAO 臂 std 随 λ 的变化与 legacy 完全一致
-   (比值 0.5000 / 0.6865 = 波长比), 比值收敛为**与波长无关的单一常数**。
-   **不要再引入独立的 λ 因子** —— 波长已完全由 `compute_r0()` 里的 `r0_slab` 携带
-   (`r0 ∝ λ^(6/5)`, 相位幅度 ∝ `r0**(-5/6) ∝ 1/λ`), 额外因子会重复计入并抵消它。
-   OOPAO 自身的次谐波增强使其相位方差**更接近**解析 von-Karman 值 (legacy 纯 FFT 路径
-   低阶模欠采样), 故不再除以任何经验归一化常数。
+4. **相位屏标定 —— ⚠️ 2026-09 的「只留 r0 因子」改写从未落地 (2026-10-01 复核)**:
+   本文档此前声称 `_rescale_for(r0_slab) = (_R0_REF_500/r0_slab)**(5/6)` **只此一项**，
+   并称已移除 `lam/_LAM_REF_500`、`/_CAL_REF`、`*sqrt(1.03)`。**代码里三者仍在**:
+   `oopao_backend.py:96,101-103` 至今是
+   `M = (lam/_LAM_REF_500) * (r0_ref/r0_slab)**(5/6) * sqrt(1.03) / _CAL_REF`
+   （`_CAL_REF = 0.6191`，`oopao_backend.py:71`），docstring 也是按旧公式写的。
+   **下面的论证本身仍然成立、仍是正确的目标态**（`lam` 因子与 `r0_slab` 里的
+   `r0 ∝ λ^(6/5)` 重复计入会抵消 1/λ 依赖；经验常数掩盖真实差异；OOPAO 次谐波增强
+   使其方差更接近解析 von-Karman），但**尚未实施**。
+   **不要再引入独立的 λ 因子** —— 波长已由 `compute_r0()` 里的 `r0_slab` 携带。
+   落地后必须重跑 `scripts/generate_oopao_impact_report.py` 并同步本条与第 3 条的常数。
+   已开 `TODO.md` 追踪。
 
 5. **内尺度 `l_min` 无法兑现 (OOPAO 限制)**: `OOPAO/Atmosphere.py` `__init__` **没有 `l0`
    参数**, `generateNewPhaseScreen` 也不传, 故 OOPAO 恒用 `l0=1e-10` —— 内尺度滚降
@@ -376,7 +382,7 @@ RMS 最小解, SPGD 正确地保留初始平场命令。要看到真实的校正
 7. **API 漂移**: 本地 submodule 比旧 pin `8e12a17f` 领先若干提交, 导入会打印
    `Telescope is no longer the "master" class ...` 警告 — 属预期, 当前用法未触及该 API。
 
-对比报告与图片见 [`docs/oopao_vs_numpy/report.md`](../../../../docs/oopao_vs_numpy/report.md)
+对比报告与图片见 [`report/oopao_vs_numpy/report.md`](../../../../report/oopao_vs_numpy/report.md)
 (生成器 `scripts/generate_oopao_vs_numpy_report.py`); 后端回归测试
 `tests/ao_shaping/drivers/sim/test_oopao_backend.py`。
 

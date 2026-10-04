@@ -1,0 +1,2 @@
+algorithm,shape,requested_area,measured_area,area_met,fill_ratio,uniformity_cv,encircled_energy,elapsed_s
+gs,gaussian,392,351,True,0.8954081632653061,0.21035875992795774,0.4786682844056268,0.7930123000405729

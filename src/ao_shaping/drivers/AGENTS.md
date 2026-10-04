@@ -156,8 +156,16 @@ class MyDriver(Device):
 | 设备 | 确认信息 |
 |------|---------|
 | Santec SLM200 SLM#1 | 序列号 22030108; 1920×1200; 10-bit; 内部内存模式; @1064nm 2π=993 灰度 (设备动态查询) |
+| Daheng MER2-507-23GM NIR CCD | 序列号 FJB24112232; 2592×1944; uint8; 像元 **2.2 µm** (用户 2026-09-21 权威确认); IP 192.168.0.11 —— 全部 SLM-PIB 硬件数据都依赖此相机, 2026-10-01 补录 |
 | MiiCam 相机 | 序列号 TP2408221418059418FD83E3A448D82; 2688×1520; MONO8; `reset_exposure_time()` 修改曝光必须 Stop→设置→重启拉流 |
 | 2f Fourier 光路 | SLM 前焦面 125mm → f=125mm 透镜 → CCD 后焦面; CCD 坐标=空间频率; 0 级=帧全局最大 (argmax), 非相机几何中心 |
+
+> 🔴 **SLM 序列号三路冲突 (2026-10-01 复核, 尚未收口)**：本文件与
+> `report/slm/bench_calibration_20261001.md` 记 SLM#1 = **22030108** (@1064nm, 2π=993)；
+> `drivers/slm/AGENTS.md:114,139` 记 SLM = **22030102** (@532nm, 2π=998)；
+> `report/slm/report2.md` / `report3.md` / `zernike_linearity` 记 **23020026** (@532nm)。
+> 三者可能对应**两台不同 SLM**（SLM#1 @1064nm 与另一台 @532nm）。**引用任一序列号前
+> 请先确认是哪台设备**，并把结论回写到本表。见 `TODO.md`。
 
 ### SLM 故障排查 (详细见 [slm/AGENTS.md](slm/AGENTS.md))
 

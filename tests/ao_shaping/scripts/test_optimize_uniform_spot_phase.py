@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from optimize_uniform_spot_phase import (  # noqa: E402
+    PhaseVariable,
     box_slice,
     box_target,
     diagnose_extrapolation,
@@ -245,3 +246,51 @@ class TestExtrapolationDiagnostic:
 
         assert zfraction(in_band) > 0.99  # by construction it IS in the span
         assert zfraction(freeform) < 0.5
+
+class TestPhaseVariable:
+    """Band-limited parametrisation: the DOF count and the reconstruction must agree."""
+
+    def test_freeform_dof_is_the_pixel_count(self):
+        variable = PhaseVariable(16, 15, torch.device("cpu"), mode="freeform")
+        assert variable.tensor.numel() == 16 * 16
+        assert variable.to_phase().shape == (16, 16)
+
+    @pytest.mark.parametrize("n_max,dof", [(4, 14), (8, 44), (15, 135), (20, 230)])
+    def test_zernike_dof_excludes_piston(self, n_max, dof):
+        # (n+1)(n+2)/2 - 1: the -1 is piston, which cannot change intensity.
+        variable = PhaseVariable(16, n_max, torch.device("cpu"), mode="zernike")
+        assert variable.tensor.numel() == dof
+        assert variable.to_phase().shape == (16, 16)
+
+    def test_zernike_reconstruction_is_exact_at_random_coefficients(self):
+        # to_phase() must be the plain basis @ coefficients, not an approximation.
+        n_max = 8
+        variable = PhaseVariable(24, n_max, torch.device("cpu"), mode="zernike")
+        with torch.no_grad():
+            variable.tensor.copy_(torch.randn(variable.tensor.numel()))
+        rebuilt = PhaseVariable(
+            24, n_max, torch.device("cpu"), mode="zernike", init=variable.to_phase()[None]
+        )
+        assert torch.allclose(rebuilt.tensor, variable.tensor, atol=1e-4)
+
+    def test_zernike_phase_lands_in_the_band_limited_span(self):
+        # The whole point: a synthesised phase must be reconstructible from its own
+        # Zernike coefficients, which is what diagnose_extrapolation measures.
+        # Relative tolerance: 135 modes summed reach tens of radians, so an absolute
+        # 1e-5 on the phase would be tighter than float32 round-off (~2e-6 relative).
+        grid = 64
+        variable = PhaseVariable(grid, 15, torch.device("cpu"), mode="zernike")
+        with torch.no_grad():
+            variable.tensor.copy_(torch.randn(variable.tensor.numel()) * 0.3)
+        phase = variable.to_phase()
+        again = PhaseVariable(grid, 15, torch.device("cpu"), mode="zernike", init=phase[None])
+        scale = float(phase.abs().max())
+        error = float((again.to_phase() - phase).abs().max())
+        assert error / scale < 1e-5, f"relative reconstruction error {error / scale:.2e}"
+
+    def test_gradients_reach_the_coefficients(self):
+        variable = PhaseVariable(16, 4, torch.device("cpu"), mode="zernike")
+        variable.to_phase().sum().backward()
+        assert variable.tensor.grad is not None
+        assert torch.isfinite(variable.tensor.grad).all()
+        assert variable.tensor.grad.abs().sum() > 0

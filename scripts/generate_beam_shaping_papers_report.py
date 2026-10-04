@@ -5,13 +5,13 @@ This script drives the simulated 2f-Fourier SLM shaping bench to compare
 representative beam-shaping
 methods from the literature on one identical optical model and one identical
 target. It is a *report generator* (lives in ``scripts/`` per repo rule) and
-writes its markdown + figures to ``docs/beam_shaping/papers/``.
+writes its markdown + figures to ``report/beam_shaping/papers/``.
 
 Run:
     source .venv/bin/activate   # python 3.13 + torch
     python scripts/generate_beam_shaping_papers_report.py
 
-Outputs (under docs/beam_shaping/papers/):
+Outputs (under report/beam_shaping/papers/):
     figures/<method>_<stamp>.png     far-field intensity per method
     figures/target_<stamp>.png       the target pattern
     beam_shaping_papers.md           this report (metric table + links)
@@ -51,14 +51,14 @@ from ao_shaping.drivers.sim.slm_shaping_bench import (  # noqa: E402
     forward_intensity,
     make_target,
 )
-from ao_shaping.optimizer.wfless.slm_shaping_bench import (  # noqa: E402
+from ao_shaping.drivers.sim.slm_shaping_bench import (  # noqa: E402
     analytic_amplitude_target,
     differentiable_shape,
     gs_shape,
     spgd_shape,
 )
 
-OUT_DIR = ROOT / "docs" / "beam_shaping" / "papers"
+OUT_DIR = ROOT / "report" / "beam_shaping" / "papers"
 FIG_DIR = OUT_DIR / "figures"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 FIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -219,7 +219,7 @@ def main() -> int:
         "",
         "> 本报告由 `scripts/generate_beam_shaping_papers_report.py` 生成，仿真基于 "
         "`ao_shaping.drivers.sim.slm_shaping_bench` 的前向模型和 "
-        "`ao_shaping.optimizer.wfless.slm_shaping_bench` 的优化方法。",
+        "`ao_shaping.drivers.sim.slm_shaping_bench` 的优化方法。",
     ]
     (OUT_DIR / "beam_shaping_papers.md").write_text("\n".join(md), encoding="utf-8")
     logger.info("Report written: {}", OUT_DIR / "beam_shaping_papers.md")

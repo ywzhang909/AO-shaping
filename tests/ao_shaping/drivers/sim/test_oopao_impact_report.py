@@ -2,7 +2,7 @@
 
 Covers the offline report script ``scripts/generate_oopao_impact_report.py``,
 which drives ``SimTurbulenceAOEnv`` under both AO backends and writes
-``docs/oopao_impact/{report.md,summary.csv,figures/}``.
+``report/oopao_impact/{report.md,summary.csv,figures/}``.
 
 OOPAO is optional: tests that need it are skipped when
 ``oopao_backend._oopao_available()`` is False, so a machine without OOPAO still

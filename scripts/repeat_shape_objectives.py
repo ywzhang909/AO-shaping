@@ -11,7 +11,7 @@ target ROI (2 x spot waist, anchored at the fixed centre, spot located by argmax
     CV     = std(I[box]) / mean(I[box])  LOWER = more uniform
     peak   = max(I[box]) / mean(I[box])  lower = fewer hot spots
 
-Outputs (into ``docs/slm_pib_heuristic_hw/``):
+Outputs (into ``report/slm_pib_heuristic_hw/``):
 * ``objectives_repeats.csv`` - one row per (variant, repeat) plus the medians;
 * ``objectives_repeats.png`` - median CV per variant with the repeat min/max as
   error bars (and the energy / peak panels);
@@ -120,9 +120,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--wavelength", type=int, default=1064)
     parser.add_argument("--n-max", type=int, default=4)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("-o", "--output", default="docs/slm_pib_heuristic_hw")
+    parser.add_argument("-o", "--output", default="report/slm_pib_heuristic_hw")
     parser.add_argument(
-        "--append-to", default="docs/slm_pib_heuristic_hw/report.md"
+        "--append-to", default="report/slm_pib_heuristic_hw/report.md"
     )
     return parser.parse_args()
 

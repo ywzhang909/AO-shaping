@@ -36,7 +36,7 @@ from ao_shaping.drivers.sim.slm_shaping_bench import (
     forward_intensity,
     make_target,
 )
-from ao_shaping.optimizer.wfless.slm_shaping_bench import gs_shape, spgd_shape
+from ao_shaping.drivers.sim.slm_shaping_bench import gs_shape, spgd_shape
 from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
 
 N = 64
@@ -279,7 +279,7 @@ def test_s7_objective_consistency_and_shaping_discrimination():
     NOTE: the previous "iterative A<->B beats GS and SPGD" claim does NOT hold
     on the corrected (zero-padded, un-aliased) model once the uniformity term
     is non-degenerate; it was an artefact of the aliased forward field plus a
-    uniformly-saturated CV term. See ``docs/iterative_zernike_shaping/data.json``.
+    uniformly-saturated CV term. See ``report/iterative_zernike_shaping/data.json``.
     """
     from ao_shaping.drivers.sim.slm_shaping_bench import spgd_shape
 

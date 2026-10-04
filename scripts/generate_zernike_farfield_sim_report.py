@@ -5,10 +5,10 @@
 灰度量化, 适合批量模式×幅度扫描), 对每个 Zernike 模式 × 系数幅度 (waves) 仿真
 远场光斑形貌, 生成图文报告:
 
-- ``docs/zernike_farfield_sim/report.md``  — 报告主体 (中文)
-- ``docs/zernike_farfield_sim/figures/``   — 6 张图
+- ``report/zernike_farfield_sim/report.md``  — 报告主体 (中文)
+- ``report/zernike_farfield_sim/figures/``   — 6 张图
   (01 远场形貌网格 / 02 相位形貌网格 / 03 Strehl / 04 环围能量 / 05 FWHM / 06 峰值偏移)
-- ``docs/zernike_farfield_sim/metrics.csv`` — 全量指标表 (96 行)
+- ``report/zernike_farfield_sim/metrics.csv`` — 全量指标表 (96 行)
 
 Usage (Windows PowerShell):
     $env:PYTHONPATH = "src"
@@ -45,7 +45,7 @@ N_MAX = 4              # 最大径向阶数 (Noll 15 = (4, -4))
 NOLL_MODES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]  # 跳过 piston/tilt (1-3)
 AMPS_WAVES = [0.0, 0.1, 0.2, 0.4, 0.8, 1.2, 1.6, 2.0]    # 幅度扫描 (λ)
 
-OUT_DIR = REPO_ROOT / "docs" / "zernike_farfield_sim"
+OUT_DIR = REPO_ROOT / "report" / "zernike_farfield_sim"
 FIG_DIR = OUT_DIR / "figures"
 LOG_FLOOR_DB = -25.0   # 远场 log 显示底 (dB) — 提高显示底以抑制衍射环间低强度衍射纹理
 SMOOTH_SIGMA_PX = 1.5  # 远场图 log 域高斯平滑 σ (px) — 柔化衍射环边缘/间隙对比, 降低"方正周期条纹"观感

@@ -44,6 +44,7 @@ from enum import Enum, auto
 from typing import Any, ClassVar
 
 import numpy as np
+import numpy.typing as npt
 
 from ao_shaping.algorithm.base import RegisteredBase
 
@@ -125,16 +126,16 @@ class HeuristicOptimizer(RegisteredBase):
             if random_state is not None
             else np.random.default_rng(self.config.seed)
         )
-        self._best_solution: np.ndarray | None = None
+        self._best_solution: npt.NDArray[np.float64] | None = None
         self._best_fitness: float | None = None
         self._convergence_history: list[float] = []
 
     @abstractmethod
     def optimize(
         self,
-        fitness_fn: Callable[[np.ndarray], float],
-        init_x: np.ndarray | None = None,
-    ) -> tuple[np.ndarray, float]:
+        fitness_fn: Callable[[npt.NDArray[np.float64]], float],
+        init_x: npt.NDArray[np.float64] | None = None,
+    ) -> tuple[npt.NDArray[np.float64], float]:
         """Run optimization.
 
         Args:
@@ -147,7 +148,7 @@ class HeuristicOptimizer(RegisteredBase):
         pass
 
     @property
-    def best_solution(self) -> np.ndarray | None:
+    def best_solution(self) -> npt.NDArray[np.float64] | None:
         """Return best solution found."""
         return self._best_solution
 

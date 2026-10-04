@@ -3,7 +3,7 @@
 Reads a ``scripts/fouriergsnet_sim_train.py`` matrix output directory
 (``config.json`` / ``summary.json`` / per-cell ``metrics.csv`` / ``final.json``
 / ``frames/<scenario>/far_%04d.npy`` + ``phase_%04d.npy``) and renders an
-illustrated Chinese report to ``docs/fouriergsnet_sim/``:
+illustrated Chinese report to ``report/fouriergsnet_sim/``:
 
 * ``report.md`` — matrix config header, summary table, per-scenario sections
   (2 animated GIFs + 2 figures + auto interpretation), turbulence impact
@@ -20,7 +20,7 @@ Usage::
 
     python scripts/generate_fouriergsnet_sim_report.py
     python scripts/generate_fouriergsnet_sim_report.py --matrix-dir /tmp/fgn_probe512b
-    python scripts/generate_fouriergsnet_sim_report.py --matrix-dir data/fouriergsnet_sim/<ts> -o docs/fouriergsnet_sim
+    python scripts/generate_fouriergsnet_sim_report.py --matrix-dir data/fouriergsnet_sim/<ts> -o report/fouriergsnet_sim
 """
 
 from __future__ import annotations
@@ -871,9 +871,9 @@ def _build_pipeline_section(cfg: dict, matrix_dir: Path) -> str:
 )
 @click.option(
     "-o", "--output",
-    default="docs/fouriergsnet_sim",
+    default="report/fouriergsnet_sim",
     show_default=True,
-    help="报告输出目录 (默认 docs/fouriergsnet_sim)",
+    help="报告输出目录 (默认 report/fouriergsnet_sim)",
 )
 def cli(matrix_dir: str | None, output: str) -> None:
     """FourierGSNet 湍流仿真矩阵离线报告生成器 (无硬件)."""

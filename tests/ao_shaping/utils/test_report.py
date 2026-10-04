@@ -202,8 +202,27 @@ class TestReport:
             )
 
     def save(self) -> Path:
-        """Save the report to markdown file."""
+        """Save the report to markdown file.
+
+        When the target lives under ``report/`` the file gets the provenance
+        header first. That is not decoration: this harness **overwrites** the
+        report every time the test runs, so a header added by a separate sync
+        pass would be deleted on the next run and the report would silently lose
+        the pointer to whatever produced it. The device reports that stay in
+        ``docs/<device>/`` are unaffected (unregistered -> empty header).
+        """
         content = "".join(self.sections)
+        header = ""
+        try:
+            from scripts._common.provenance import insert_header
+
+            key = self.report_path.resolve().relative_to(
+                self.project_root.resolve()
+            ).as_posix()
+            content = insert_header(content, key)
+        except (ImportError, ValueError):
+            # Outside the repo, or the helper unavailable -> write the body only.
+            pass
         self.report_path.write_text(content, encoding="utf-8")
         return self.report_path
 

@@ -1,6 +1,6 @@
 """R-26 — the Strehl report must not silently drop the cross-benchmark table.
 
-The old code hardcoded ``docs/heuristic_pib/summary.csv`` and, on any problem
+The old code hardcoded ``report/heuristic_pib/summary.csv`` and, on any problem
 (missing / unreadable / wrong columns), simply returned ``None`` and omitted the
 table. The report still rendered, still looked complete, and the only clue was one
 log line — so **a report already on disk could be quietly missing a section**
@@ -151,8 +151,8 @@ def test_report_keeps_the_table_when_the_summary_is_usable(mod, tmp_path: Path) 
 
 
 def test_rel_is_repo_relative_posix(mod) -> None:
-    assert mod._rel(mod.PIB_SUMMARY) == "docs/heuristic_pib/summary.csv"
-    assert mod._rel(mod.OUT_DIR) == "docs/strehl_benchmark"
+    assert mod._rel(mod.PIB_SUMMARY) == "report/heuristic_pib/summary.csv"
+    assert mod._rel(mod.OUT_DIR) == "report/strehl_benchmark"
 
 
 def test_rel_falls_back_for_outside_paths(mod, tmp_path: Path) -> None:

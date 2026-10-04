@@ -4,7 +4,7 @@ Benchmarks all 7 heuristic optimizers in ``ao_shaping.algorithm`` on the PIB
 (power-in-bucket) optimization problem, offline (pure numpy, no hardware),
 using the synthetic landscape from
 ``ao_shaping.optimizer.wfless.pib_sim_eval.SimLandscape``. Emits PIB iteration
-curves + before/after spot images + summary into ``docs/heuristic_pib/``.
+curves + before/after spot images + summary into ``report/heuristic_pib/``.
 
 Usage:
     $env:PYTHONPATH = "src;libs"
@@ -59,7 +59,7 @@ plt.rcParams["axes.unicode_minus"] = False
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-OUT_DIR = ROOT / "docs" / "heuristic_pib"
+OUT_DIR = ROOT / "report" / "heuristic_pib"
 
 # `scripts._common` lives in this package, so the REPO ROOT (not just
 # `src`) must be importable. Direct `python scripts/<name>.py` does not put

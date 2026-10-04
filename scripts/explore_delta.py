@@ -136,12 +136,14 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(
-        "--deltas", default="0.02,0.05,0.1",
+        "--deltas",
+        default="0.02,0.05,0.1",
         help="comma-separated perturbation amplitudes (rad)",
     )
     p.add_argument("--epochs", type=int, default=200, help="epochs per candidate")
     p.add_argument(
-        "--objective", default="pearson",
+        "--objective",
+        default="pearson",
         help="shaping objective (pearson / shape / roi_pib / ...)",
     )
     p.add_argument("--n-max", type=int, default=9, help="max Zernike radial order")
@@ -158,11 +160,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--target-size", type=float, default=50.0, help="target size (px)")
     p.add_argument("--target-shape", default="square", help="target shape")
     p.add_argument(
-        "--out", default=str(ROOT / "docs" / "slm_pib_bench" / "delta_scan.md"),
+        "--out",
+        default=str(ROOT / "report" / "slm_pib_bench" / "delta_scan.md"),
         help="where to write the markdown summary",
     )
     p.add_argument(
-        "--analyze-only", action="store_true",
+        "--analyze-only",
+        action="store_true",
         help=(
             "do not touch hardware; re-judge the newest existing debug run per "
             "delta (use after editing the judging logic, costs nothing)"
@@ -222,23 +226,39 @@ def main() -> int:
 
         click_args = [
             "spgd",
-            "-d", "data",
+            "-d",
+            "data",
             "--debug",
-            "--cam_type", args.cam_type,
-            "--cam-id", str(args.cam_id),
-            "--exposure_time_ms", str(args.exposure_ms),
-            "--cam_size", str(args.cam_size),
-            "-c", "max",
-            "--slm_number", "1",
-            "--slm_wavelength", "1064",
-            "-n", str(args.n_max),
-            "--zernike_radius", str(args.zernike_radius),
-            "--target_shape", args.target_shape,
-            "--target_size", str(args.target_size),
-            "--objective", args.objective,
-            "-e", str(args.epochs),
-            "--delta", str(delta),
-            "--lr", str(args.lr),
+            "--cam_type",
+            args.cam_type,
+            "--cam-id",
+            str(args.cam_id),
+            "--exposure_time_ms",
+            str(args.exposure_ms),
+            "--cam_size",
+            str(args.cam_size),
+            "-c",
+            "max",
+            "--slm_number",
+            "1",
+            "--slm_wavelength",
+            "1064",
+            "-n",
+            str(args.n_max),
+            "--zernike_radius",
+            str(args.zernike_radius),
+            "--target_shape",
+            args.target_shape,
+            "--target_size",
+            str(args.target_size),
+            "--objective",
+            args.objective,
+            "-e",
+            str(args.epochs),
+            "--delta",
+            str(delta),
+            "--lr",
+            str(args.lr),
         ]
         # The Click entry writes its own debug artefacts and closes the devices.
         slm_pib_run.main(args=click_args, standalone_mode=False)
@@ -247,7 +267,11 @@ def main() -> int:
 
     logger.info(
         "sweeping {} deltas x {} epochs (objective={}, n_max={}, analyze_only={})",
-        len(deltas), args.epochs, args.objective, args.n_max, args.analyze_only,
+        len(deltas),
+        args.epochs,
+        args.objective,
+        args.n_max,
+        args.analyze_only,
     )
     scan = explore_delta(
         run_one,
@@ -266,7 +290,7 @@ def main() -> int:
         f"- 每个候选都带 `--debug`, recorder/sidecar/PNG 落在 `data/debug/slm_pib_{args.objective}/`",
         "",
         "判据: `dec` = 下降步占比 (0.5 为随机游走), `late` = 前 1/3 与后 1/3 均值之差。",
-        "**不使用 final-vs-first** —— 实机上它会被端点噪声骗到 (见 docs/slm_pib_bench/EXPERIMENT_REPORT.md §3.2)。",
+        "**不使用 final-vs-first** —— 实机上它会被端点噪声骗到 (见 report/slm_pib_bench/EXPERIMENT_REPORT.md §3.2)。",
         "",
         scan.table(),
         "",

@@ -1,0 +1,127 @@
+| 输入电压`<br>`高位偏移 | 5.0  | 10.0 | 15.0  |
+| ------------------------ | ---- | ---- | ----- |
+| 256                      | 4.69 | 9.50 | 14.44 |
+| 255                      | 4.96 | 9.50 | 15.32 |
+
+![1781690640001](images/voltage_test/1781690640001.png)
+
+![192.168.0.124-002](../../data/md_test/md_img-100v\192.168.0.124\192.168.0.124-002.png)
+
+---
+
+![1787218057514](images/voltage_test/1787218057514.png)
+
+![192.168.0.124-002](../../data/md_test/md_img-100v/192.168.0.114/192.168.0.114-000.png)
+
+---
+
+![1787218161063](images/voltage_test/1787218161063.png)
+
+![192.168.0.124-002](../../data/md_test/md_img-100v/192.168.0.114/192.168.0.114-001.png)
+
+---
+
+![1787218239448](images/voltage_test/1787218239448.png)
+
+![192.168.0.124-002](../../data/md_test/md_img-100v/192.168.0.114/192.168.0.114-002.png)
+
+---
+
+![1787218294426](images/voltage_test/1787218294426.png)
+
+---
+
+![1787218335564](images/voltage_test/1787218335564.png)
+
+---
+
+![1787218370323](images/voltage_test/1787218370323.png)
+
+# 驱动器位置测试
+
+<!-- provenance:start -->
+> **生成脚本**: 人工撰写，无生成脚本
+> **运行环境**: 硬件
+> **说明**: 微驱动器电压测试记录 (R50Power)；images/voltage_test/ 为同期截图
+<!-- provenance:end -->
+
+![1789549169974](images/voltage_test/1789549169974.png)
+
+![1789549207712](images/voltage_test/1789549207712.png)
+
+![1789549288806](images/voltage_test/1789549288806.png)
+
+  File "D:\workspace\AO-shaping\src\ao_shaping\gui\r50\r50_sidebar.py", line 112, in _sidebar_connection_config
+    _sidebar_joint_connection()
+    └ <function _sidebar_joint_connection at 0x000001E0B023F240>
+
+  File "D:\workspace\AO-shaping\src\ao_shaping\gui\r50\r50_sidebar.py", line 268, in _sidebar_joint_connection
+    _jc_connect()
+    └ <function _jc_connect at 0x000001E0B023DA80>
+
+> File "D:\workspace\AO-shaping\src\ao_shaping\gui\r50\r50_joint.py", line 76, in _jc_connect
+> dm.open()
+> │  └ <function MicroDM.open at 0x000001E0AF7E7C40>
+> └ MicroDM(controllers=0, connected=0, channels=1521, voltage=[-20.0, 120.0] V, state=ERROR)
+
+  File "D:\workspace\AO-shaping\src\ao_shaping\drivers\dm\MicroDM.py", line 973, in open
+    raise MicroDMConnectionError(
+          └ <class 'ao_shaping.drivers.dm.MicroDM.MicroDMConnectionError'>
+
+ao_shaping.drivers.dm.MicroDM.MicroDMConnectionError: Failed to connect to any of 0 controller(s)
+
+## 1300-5.xlsx 歧义 Key 记录
+
+反向重建验证 `data/1300-5-enriched.csv` → `docs/micro deformable mirror/docs/1300-5.xlsx` 时发现：原 xlsx 中存在 **同一 (IP组, 序号) 组合对应多个不同 A 列（位置序号）** 的情况，即反向映射不唯一。明细如下：
+
+| IP组 | 序号 | 对应的 A 列值（位置序号） | 出现次数 |
+| ---- | ---- | ------------------------- | -------- |
+| 106  | 6    | 1, 1293, 1296             | 3        |
+| 116  | 26   | 1273, 1188                | 2        |
+
+**影响**：通过 (IP组, 序号) 反查 A 列时，上述 key 存在歧义（无法唯一确定位置序号）。当前 CSV 反向重建时按原 xlsx 中的出现顺序匹配，仍可 100% 还原；但这两个 key 的语义对应关系不唯一，疑似为源数据录入错误，需人工核实。
+
+其余 1293 个 (IP组, 序号) key 均为唯一映射，可无损还原。
+![1787886733436](images/voltage_test/1787886733436.png)
+
+# 驱动器响应频率测试
+
+### 静态
+
+![1787902906886](images/voltage_test/1787902906886.png)
+
+### 行程测试
+
+10Hz
+
+![1787902879085](images/voltage_test/1787902879085.png)
+
+![1787902950811](images/voltage_test/1787902950811.png)
+
+---
+
+## 频率测试
+
+20Hz
+
+![1787903033656](images/voltage_test/1787903033656.png)
+
+![1787903090558](images/voltage_test/1787903090558.png)
+
+![1787902985750](images/voltage_test/1787902985750.png)
+
+---
+
+40Hz
+
+![1787903138563](images/voltage_test/1787903138563.png)
+
+80Hz
+
+![1787903320341](images/voltage_test/1787903320341.png)
+
+---
+
+### 单控制器比较
+
+![1787903577118](images/voltage_test/1787903577118.png)

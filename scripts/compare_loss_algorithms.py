@@ -419,7 +419,16 @@ def _write_markdown(path: Path, rows: list[dict], args, epochs: int) -> None:
             name = row.get("loss") or row.get("objective")
             lines.append(f"| {name} | {row['error']} |")
 
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Stamp the provenance header from the central registry, so the report says
+    # which script produced it without this file having to restate its own path.
+    try:
+        from scripts._common.provenance import insert_header
+
+        key = path.resolve().relative_to(ROOT.resolve()).as_posix()
+        text = insert_header("\n".join(lines), key)
+    except (ImportError, ValueError):
+        text = "\n".join(lines)
+    path.write_text(text.rstrip("\n") + "\n", encoding="utf-8")
 
 
 def _plot(path: Path, rows: list[dict]) -> None:
