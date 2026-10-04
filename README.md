@@ -19,7 +19,7 @@ AO-shaping/
 ├── src/
 │   ├── ao_shaping/               # 主程序包
 │   │   ├── __init__.py
-│   │   ├── main.py               # CLI入口点 (Click-based), 注册 19 个命令
+│   │   ├── main.py               # CLI入口点 (Click-based), 注册 20 个命令
 │   │   ├── config.py             # 中央配置 (DM_N_ACTUATORS, DEFAULTS, PATHS, ao_config)
 │   │   ├── runners/              # 运行器包 (硬件编排层: Click CLI, 设备生命周期)
 │   │   │   ├── __init__.py       # Lazy imports + re-exports (via __getattr__)
@@ -43,8 +43,7 @@ AO-shaping/
 │   │   │   │   ├── pipeline_runner.py     # 串行WF→PIB (pipeline)
 │   │   │   │   └── combined_runner.py     # AdaMOD+SPGD (combined)
 │   │   │   ├── micro_drive/               # 微驱 (R50Power) 相关 runner
-│   │   │   │   ├── alt_voltage_runner.py  # 交替电压 (alt-voltage)
-│   │   │   │   └── full_voltage_runner.py # 全量交替电压 (full-voltage)
+│   │   │   │   ├── voltage_runner.py      # 交替电压 (alt-voltage) + 全量交替电压 (full-voltage)
 │   │   │   └── slm/                       # SLM 相关 runner
 │   │   │       ├── rms_zernike_runner.py  # SLM Zernike RMS (rms-zernike)
 │   │   │       └── zernike_matrix_runner.py  # Zernike响应矩阵 (zernike-matrix) + closed-loop
@@ -151,7 +150,7 @@ uv sync
 python src/ao_shaping/main.py [OPTIONS] COMMAND [ARGS]...
 ```
 
-所有运行器位于 `src/ao_shaping/runners/` 包及其子包中，通过 main CLI 统一调用。目前共注册 **19 个命令**：
+所有运行器位于 `src/ao_shaping/runners/` 包及其子包中，通过 main CLI 统一调用。目前共注册 **20 个命令**：
 
 | 命令 | Runner | 功能 |
 |------|--------|------|
@@ -165,8 +164,8 @@ python src/ao_shaping/main.py [OPTIONS] COMMAND [ARGS]...
 | `closed-loop` | `runners/slm/zernike_matrix_runner.py` | 基于响应矩阵的闭环波前优化 |
 | `dm-matrix` | `runners/dm_matrix_runner.py` | DM响应矩阵标定 |
 | `hadamard-matrix` | `runners/hadamard_matrix_runner.py` | Hadamard响应矩阵标定 |
-| `alt-voltage` | `runners/micro_drive/alt_voltage_runner.py` | 交替电压下发 (R50Power + ADC) |
-| `full-voltage` | `runners/micro_drive/full_voltage_runner.py` | 全量交替电压 (AsyncMicroDM) |
+| `alt-voltage` | `runners/micro_drive/voltage_runner.py` | 交替电压下发 (R50Power + ADC) |
+| `full-voltage` | `runners/micro_drive/voltage_runner.py` | 全量交替电压 (AsyncMicroDM) |
 | `combined` | `runners/nlight_dm/combined_runner.py` | AdaMOD+SPGD 混合PIB (DM+CCD) |
 | `slm-lut` | `tools/slm/slm_lut_runner.py` | SLM灰度→相位LUT校准 |
 | `slm-diagnose` | `tools/slm/slm_diagnose.py` | SLM硬件自检 |
@@ -174,6 +173,7 @@ python src/ao_shaping/main.py [OPTIONS] COMMAND [ARGS]...
 | `slm-gsnet` | `runners/slm_gsnet_runner.py` | SLM自由相位方形整形 (SPGD/启发式) |
 | `slm-pib` | `runners/slm_pib_runner.py` | SLM Zernike PIB优化 |
 | `slm-gs-refine` | `runners/slm_gs_refine_runner.py` | GS 预矫正 + 自由相位 SPGD 整形 |
+| `slm-model-in-loop` | `runners/slm_model_in_loop_runner.py` | 正向模型闭环校正 + 目标光斑相位合成 (反复迭代) |
 
 > **注意**: `gs`、`gs-square`、`diff-shaping`、`diff-beam` 命令已从 CLI 中移除 (运行器文件不再存在)。其功能已并入 `slm-gsnet` (自由相位整形)、`algorithm/signal_processing/gerchberg_saxton.py` (GS算法) 和 `algorithm/signal_processing/differentiable_shaping.py` (可微分整形)。
 
@@ -859,7 +859,7 @@ DEBUG=1 python src/ao_shaping/main.py closed-loop --load-file data/zm.h5 --contr
 ```bash
 python src/ao_shaping/main.py alt-voltage [OPTIONS]
 ```
-等同于: `python -m ao_shaping.runners.micro_drive.alt_voltage_runner`
+等同于: `python -m ao_shaping.runners.micro_drive.voltage_runner`
 
 在 0V 和指定电压之间循环交替发送到 R50Power 控制器的指定单元。可选同步采集 NI DAQ ADC 信号。
 
@@ -893,7 +893,7 @@ python src/ao_shaping/main.py alt-voltage --ip 192.168.0.101 --voltage 30 --freq
 ```bash
 python src/ao_shaping/main.py full-voltage [OPTIONS]
 ```
-等同于: `python -m ao_shaping.runners.micro_drive.full_voltage_runner`
+等同于: `python -m ao_shaping.runners.micro_drive.voltage_runner full-voltage`
 
 基于 **AsyncMicroDM 异步驱动**的全量交替电压工具：所有单元的电压**同时、均匀**地在 0V 和指定电压之间交替（无逐通道选择），可用于变形镜老化测试、寿命验证等场景。
 
@@ -1121,12 +1121,12 @@ python -m ao_shaping.runners.nlight_dm.combined_runner [OPTIONS]
 
 12. 交替电压下发:
 ```bash
-python -m ao_shaping.runners.micro_drive.alt_voltage_runner [OPTIONS]
+python -m ao_shaping.runners.micro_drive.voltage_runner [OPTIONS]
 ```
 
 13. 全量交替电压下发 (AsyncMicroDM):
 ```bash
-python -m ao_shaping.runners.micro_drive.full_voltage_runner [OPTIONS]
+python -m ao_shaping.runners.micro_drive.voltage_runner full-voltage [OPTIONS]
 ```
 
 14. SLM 灰度→相位 LUT 校准:
@@ -1962,3 +1962,6 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 - PIB优化功能
 - 串行流水线优化
 - SAC强化学习集成
+
+
+

@@ -15,6 +15,17 @@ source of truth, and
 ``tests/ao_shaping/runners/test_runners_package_lazy.py`` asserts that
 ``__all__`` and the map cannot drift apart -- which is precisely what let the two
 lists diverge unnoticed before.
+
+Two modules export more than one command, so ``_IMPORT_ATTRS`` is load-bearing
+rather than decorative:
+
+* ``slm/zernike_matrix_runner.py`` -> ``zernike_matrix_run`` / ``zernike_closed_loop_run``
+* ``micro_drive/voltage_runner.py`` -> ``alt_voltage_run`` / ``full_voltage_run``
+
+Forgetting the second name in each pair hands back the *wrong command* instead
+of raising, because ``run`` resolves happily in both modules. When adding a
+second command to a module, add the sibling to ``_IMPORT_ATTRS`` in the same
+commit.
 """
 
 from __future__ import annotations
@@ -39,6 +50,7 @@ __all__ = [
     "slm_pib_run",
     "slm_gs_refine_run",
     "slm_gsnet_run",
+    "slm_model_in_loop_run",
 ]
 
 _LAZY_RUNNERS: dict[str, str] = {
@@ -51,8 +63,10 @@ _LAZY_RUNNERS: dict[str, str] = {
     "ga_zernike_run": "ao_shaping.runners.ga_zernike_runner",
     "greedy_zernike_run": "ao_shaping.runners.greedy_zernike_runner",
     "dm_matrix_run": "ao_shaping.runners.dm_matrix_runner",
-    "alt_voltage_run": "ao_shaping.runners.micro_drive.alt_voltage_runner",
-    "full_voltage_run": "ao_shaping.runners.micro_drive.full_voltage_runner",
+    # Both commands live in one module, so they need distinct attributes --
+    # see the _IMPORT_ATTRS note below.
+    "alt_voltage_run": "ao_shaping.runners.micro_drive.voltage_runner",
+    "full_voltage_run": "ao_shaping.runners.micro_drive.voltage_runner",
     "hadamard_matrix_run": "ao_shaping.runners.hadamard_matrix_runner",
     "combined_run": "ao_shaping.runners.nlight_dm.combined_runner",
     "slm_square_run": "ao_shaping.runners.slm_square_runner",
@@ -62,6 +76,7 @@ _LAZY_RUNNERS: dict[str, str] = {
     # eager imports this module used to carry, so main.py's `slm-gsnet`
     # registration depended on an accident rather than on a declaration.
     "slm_gsnet_run": "ao_shaping.runners.slm_gsnet_runner",
+    "slm_model_in_loop_run": "ao_shaping.runners.slm_model_in_loop_runner",
 }
 
 #: Override the attribute name only when a module exposes more than one command.
@@ -82,10 +97,11 @@ _IMPORT_ATTRS: dict[str, str] = {
     "greedy_zernike_run": "run",
     "dm_matrix_run": "run",
     "alt_voltage_run": "run",
-    "full_voltage_run": "run",
+    "full_voltage_run": "full_voltage_run",
     "hadamard_matrix_run": "run",
     "combined_run": "run",
     "slm_gsnet_run": "run",
+    "slm_model_in_loop_run": "run",
 }
 
 
