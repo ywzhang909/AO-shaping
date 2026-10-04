@@ -157,7 +157,7 @@
 | F-1 | ~~**内存槽固件 no-op 违规**~~ | ✅ 已修 → §5.16。`:383` 曾在 `for i in range(max_iter)` 里反复 `apply_compensation(comp_gs, memory_slot=2)` → 固件把已显示槽当 no-op，**第 2..N 次迭代全是空操作，LCOS 不刷新**。⚠️ 原记录另两条**实测为不成立**：`memory_mode` 在 `display_data` 签名里**本就默认 `MEMORY_MODE_INTERNAL`**（`driver.py:1197`），不传不是"漏"；`:272` docstring 的 "1-128" 与驱动 `_display_memory` 的校验区间一致，也不是错 | `tools/slm/cartographer/dynamic_compensation.py:263,383` | 2026-10-01 |
 | F-3 | `--display/--no-display` 的 help 写"暂未实现"，需确认补实现还是删选项 | ✅ **无需改动**（2026-10-04 实测）：**两个同名 flag 状态不同，且各自 help 都是对的** —— `DmMatrixRunnerParams.display`（`runner_common.py:1689`）只 `click.echo("Note: --display mode is not yet implemented...")`⇒ help 标"暂未实现"**准确**；`HadamardMatrixRunnerParams.display`（`:1743`）在 `zernike_matrix_runner.py:1203` **真的构造 `ZernikeCalibrationDisplay`** ⇒ 它的 help 不带caveat 也准确 | 2026-09-25 |
 | F-4 | `src/ml/` 移入 `src/ao_shaping/ml/` 并更新所有引用（`docs/issues_report.md` §10.3，待评估至今） | `src/ml/` | 2026-05-26 |
-| F-5 | `docs/issues_report.md` §11 的代码规范整改：`print()` 替代 loguru（原文 82 处）、宽泛 `except`、配置项分散、大文件拆分（~22 个）、冗余 `__main__` 入口（32 处）、`__future__` 覆盖率（29 个文件）。⚠️ **原文数字已过期，实施前需重新扫描** | 全仓 | 2026-05-26 |
+| **F-5** | `docs/issues_report.md` §11 的代码规范整改：**已重新扫描（2026-10-04，原文数字全部过期，见 §5.33）**。真实量级：`print()` src **96** 处（原文 82）；`except Exception` 类 **430** 处（原文无数字）；`__main__` **161** 处（原文 32）；缺 `from __future__` **145** 个文件（其中 42 个是 `__init__.py`、1 个 vendored ⇒ 真实 **102**，原文 29）；≥500 行文件 **155** 个（38 个是测试、1 个 vendored ⇒ 真实 **117**，原文 ~22）。**建议按切片做，不要当成一个大条目** | 全仓 | 2026-05-26 |
 | ~~F-9~~ | ~~`repeat_shape_objectives.py` 加进度显示（用户要求）~~ | ✅ **部分已存在 + 补全局计数** → §5.28。原有 `rep {rep}/{repeats}` 只报**单 variant 内**进度；各 variant 耗时差异大，操作者无法从日志判断整体到哪一步 → 新增 `run i/N` 全局计数 | `scripts/repeat_shape_objectives.py` | 2026-09-30 |
 | **F-10** | 🔴 **`sim/AGENTS.md`「已知约束」第 4 条描述的代码改写从未落地**：该条声称 `_rescale_for` 已改为**只** `(_R0_REF_500/r0_slab)**(5/6)`，并称已移除 `lam/_LAM_REF_500`、`/_CAL_REF`、`*sqrt(1.03)`。**三者至今仍在** `oopao_backend.py:96,101-103`（`_CAL_REF = 0.6191` 在 `:71`）。连带第 3 条的实测常数 1.068/2.628 **不可复现** —— 真实值是 **5.428 / 13.354**（与 `docs/oopao_impact/report.md:62-63` 一致）。**先落地改写并重跑 `generate_oopao_impact_report.py`，或回退那两条。** | `oopao_backend.py:88-103` + `sim/AGENTS.md` 第 3/4 条 | 2026-10-01 |
 | **F-11** | 🔴 **SLM 序列号三路冲突**：`drivers/AGENTS.md:158` 与 `docs/slm/bench_calibration_20261001.md` 记 SLM#1 = **22030108**（@1064nm，2π=993）；`drivers/slm/AGENTS.md:114,139` 记 **22030102**（@532nm，2π=998）；`docs/slm/report2.md` / `report3.md` / `zernike_linearity/linearity.md` 记 **23020026**（@532nm）。三者或为两台设备。**引用前必须确认，并回写 `drivers/AGENTS.md` 硬件表**（Daheng CCD `FJB24112232` 已于 2026-10-01 补录进该表） | `drivers/AGENTS.md` 硬件事实表 | 2026-10-01 |
@@ -1652,6 +1652,45 @@ R-43 原本只是「两个文件 0 测试」。真去看之后发现：**问题�
 改为把该行为**用测试钉住**（`test_cosine_goes_negative_after_its_midpoint`，
 注释里写明「这是实测事实、不是期望行为」），并开 **R-44** 记录。
 `exp` / `linear` 两条确实全程为正，单独断言。
+
+---
+
+### 5.33 F-5 —— 重新扫描：原文数字低估了 5～14 倍（2026-10-04）
+
+F-5 的条目自己写着「⚠️ **原文数字已过期，实施前需重新扫描**」。扫描了
+`src/` + `scripts/` + `tests/` 共 **670** 个 `.py`（AST 解析，不是 grep 计数）：
+
+| 项 | 原文 | 实测 | 差 |
+|---|---|---|---|
+| `print()` 替代 loguru | 82 | src **96**（scripts 345 / tests 301） | 低估 14 |
+| 宽泛 `except` | 未给数字 | **430**（`Exception` 427 / `BaseException` 2 / 裸 `except` 1） | — |
+| 冗余 `__main__` 入口 | 32 | **161** | **低估 5×** |
+| `from __future__` 缺失 | 29 个文件 | **145** 个，其中 `__init__.py` 42 + vendored 1 ⇒ 真实 **102** | **低估 3.5×** |
+| 大文件（≥500 行） | ~22 | **155**，其中测试 38 + vendored 1 ⇒ 真实 **117** | **低估 5×** |
+
+`__main__` 那一项特别说明问题：161 个入口里绝大多数是 `python -m` 可跑的探针 /
+runner / 工具，而 README 只登记了 20 个 `main.py` 命令。**「冗余」这个词描述错了
+问题** —— 大概率不是「多余」，而是「没进文档」。这两件事的处理方式完全不同。
+
+**两条需要避免的误判**：
+
+1. **`print()` 的 742 里有 646 处在 `scripts/` 和 `tests/`**，那基本是合法的
+   （CLI 输出、测试诊断）。仓库规则针对的是 **src 里的调试/状态打印**，
+   所以真正要改的是 **src 的 96 处**，不是 742。
+2. **「≥500 行」不等于违规**。README 的规范是**两档**：
+   工具/算法 `< 500`，驱动/优化器 `< 800`。所以 117 个里有相当一部分（驱动、
+   优化器）按 800 的上限算并不超标。要按档位分别统计才有意义，上表只给原始分布。
+   真要找最该拆的，`src/ao_shaping/tools/slm/calibration.py`（2827 行）和
+   `optimizer/wfless/model_in_loop_shaping.py`（2671 行）排前两位。
+
+**结论：F-5 不是一个条目，是 5 个独立切片**（print→loguru / 宽泛 except /
+`__future__` 补齐 / 大文件按档位拆 / `__future__` 之外的规范）。它们的风险差一个
+数量级：`__future__` 补齐是纯机械零风险，拆 `calibration.py` 是高风险重构。
+本轮**只做重扫、不开拆**，理由与 §5.27~§5.32 一致 —— 先把过期的数字换成真的，
+让后续每一轮都有准确依据。
+
+> 顺带修正：`docs/issues_report.md` §11 是本条的出处，它的数字同样过期；
+> 本节即其替代来源。
 
 ---
 
