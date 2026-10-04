@@ -3,7 +3,7 @@
 Hardware-free and corpus-free: every test builds a handful of synthetic pickles
 in ``tmp_path`` in the real two-level nested layout
 (``<family>/<timestamp>/<prefix>_<timestamp>.pkl``) that
-:func:`~ao_shaping.runners.gsnet_offline.build_record_index` globs
+:func:`~ml.gsnet_debug.offline.build_record_index` globs
 recursively. ``grid=64`` matches the production default.
 
 The load-bearing test is
@@ -40,7 +40,7 @@ import pytest
 import torch
 from loguru import logger
 
-from ao_shaping.runners.gsnet_cache import (
+from ml.gsnet_debug.cache import (
     CACHE_FILENAMES,
     CACHE_FORMAT_VERSION,
     C_DTYPE,
@@ -57,8 +57,8 @@ from ao_shaping.runners.gsnet_cache import (
     load_cached_family,
     prepare_gsnet_cache,
 )
-from ao_shaping.runners.gsnet_dataset import GSNetDebugDataset
-from ao_shaping.runners.gsnet_offline import RecordIndex
+from ml.gsnet_debug.dataset import GSNetDebugDataset
+from ml.gsnet_debug.offline import RecordIndex
 
 GRID = 64
 SLM_WIDTH = 1920
@@ -551,7 +551,7 @@ class TestBitIdenticalTrainingTriples:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """With a valid cache, ``pickle.load`` is not called at all."""
-        import ao_shaping.runners.gsnet_dataset as dataset_module
+        import ml.gsnet_debug.dataset as dataset_module
 
         path = _write_pickle(tmp_path, "slm_pib", "nopickle")
         index = _index_for(path)

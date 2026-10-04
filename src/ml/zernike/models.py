@@ -25,7 +25,7 @@ via ``atan2``.
 Units
 -----
 Zernike coefficients are **raw unwrapped radians**, matching the hardware path
-(:func:`ao_shaping.runners.gsnet_offline.reconstruct_pupil_phase_rad`).
+(:func:`ml.gsnet_debug.offline.reconstruct_pupil_phase_rad`).
 No ``um_to_waves()`` or ``* 2pi`` conversion is applied; adding one is the unit
 bug documented in ``AGENTS.md``.
 

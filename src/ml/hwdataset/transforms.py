@@ -8,7 +8,7 @@ and any offline analysis script.
 
 Layering note
 -------------
-It reuses the canonical helpers in :mod:`ao_shaping.runners.gsnet_offline`
+It reuses the canonical helpers in :mod:`ml.gsnet_debug.offline`
 (``pupil_phase_to_grid``, ``farfield_to_grid``,
 ``reconstruct_pupil_phase_rad``) rather than reimplementing them: this repo has
 been bitten repeatedly by duplicated Zernike/crop math drifting between copies.
@@ -72,7 +72,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import torch
 
-from ao_shaping.runners.gsnet_offline import (
+from ml.gsnet_debug.offline import (
     farfield_to_grid,
     reconstruct_pupil_phase_rad,
 )
@@ -235,7 +235,7 @@ def coherent_block_mean(
     docstring for why the arithmetic mean is wrong for a wrapped phase.
 
     The block geometry and the symmetric zero-pad-up rule are identical to
-    :func:`ao_shaping.runners.gsnet_offline.pupil_phase_to_grid`; a unit test
+    :func:`ml.gsnet_debug.offline.pupil_phase_to_grid`; a unit test
     pins that equivalence. On the real 1200x1920 panel this runs in a few
     milliseconds at ``grid=64`` because ``torch`` evaluates ``cos``/``sin`` over
     the whole array with multiple threads.
@@ -339,7 +339,7 @@ def zernike_coeffs_to_panel(
     documented in ``AGENTS.md``).
 
     A thin wrapper over
-    :func:`ao_shaping.runners.gsnet_offline.reconstruct_pupil_phase_rad`, with
+    :func:`ml.gsnet_debug.offline.reconstruct_pupil_phase_rad`, with
     one addition: the result is explicitly masked to zero outside the aperture.
     That helper only applies ``nan_to_num``, so pixels just outside the circular
     aperture keep a small non-zero value (measured up to 0.44 rad on a
@@ -447,7 +447,7 @@ def _anchored_window(frame: NDArray[np.floating], grid: int) -> NDArray[np.float
     Outside the frame the window is zero-filled.
 
     This mirrors the private ``_fixed_window`` of
-    :mod:`ao_shaping.runners.gsnet_offline`, which cannot be reused directly
+    :mod:`ml.gsnet_debug.offline`, which cannot be reused directly
     because every public entry point there peak-normalises -- exactly the
     transformation the absolute-intensity modes must not apply.
 
@@ -499,7 +499,7 @@ def farfield_frame_to_grid(
             that encodes it. Correct for every dtype in the corpus, including the
             ``float32`` / ``float64`` frames: see the module docstring.
             ``"peak"`` peak-normalises (delegating to
-            :func:`~ao_shaping.runners.gsnet_offline.farfield_to_grid`), which
+            :func:`~ml.gsnet_debug.offline.farfield_to_grid`), which
             discards absolute intensity. ``"raw"`` returns the float32 values
             unscaled.
 

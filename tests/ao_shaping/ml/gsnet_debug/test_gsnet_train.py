@@ -25,10 +25,10 @@ import torch
 from click.testing import CliRunner
 from loguru import logger
 
-from ao_shaping.runners import gsnet_train
-from ao_shaping.runners.gsnet_cache import GSNetCacheError, cache_dir_for
-from ao_shaping.runners.gsnet_offline import build_record_index
-from ao_shaping.runners.gsnet_train import (
+from ml.gsnet_debug import train as gsnet_train
+from ml.gsnet_debug.cache import GSNetCacheError, cache_dir_for
+from ml.gsnet_debug.offline import build_record_index
+from ml.gsnet_debug.train import (
     HISTORY_FIGURE_NAME,
     PANEL_KEYS,
     GsnetTrainParams,
@@ -108,9 +108,7 @@ def _corpus(tmp_path: Path, n_records: int = 4) -> str:
     return str(tmp_path / "slm_*")
 
 
-def _tiny_params(
-    roots: str, out_dir: Path | str, **overrides: Any
-) -> GsnetTrainParams:
+def _tiny_params(roots: str, out_dir: Path | str, **overrides: Any) -> GsnetTrainParams:
     """A 1-epoch / 1-layer / 4-channel CPU configuration over a small corpus.
 
     W&B is off by default so no test ever touches the network or writes run
@@ -235,9 +233,7 @@ class TestReconstructFarIntensity:
 
     def test_predicted_phase_is_finite(self) -> None:
         source, target = self._inputs()
-        pred_phase, _ = reconstruct_far_intensity(
-            _small_model(), source, target, "cpu"
-        )
+        pred_phase, _ = reconstruct_far_intensity(_small_model(), source, target, "cpu")
 
         assert torch.isfinite(pred_phase).all()
 
@@ -584,9 +580,7 @@ class TestSeeding:
 
         assert payload["resolved"]["seed"] == 7
 
-    def test_a_different_seed_gives_a_different_stream(
-        self, tmp_path: Path
-    ) -> None:
+    def test_a_different_seed_gives_a_different_stream(self, tmp_path: Path) -> None:
         roots = _corpus(tmp_path)
         first = run_offline_training(
             RunParams(seed=1), _tiny_params(roots, tmp_path / "a")
@@ -653,7 +647,9 @@ class _FakeWandbRun:
 class _FakeWandbLogger:
     """Stand-in for :mod:`ml.wandb_logger`."""
 
-    def __init__(self, run: _FakeWandbRun | None = None, init_error: Exception | None = None) -> None:
+    def __init__(
+        self, run: _FakeWandbRun | None = None, init_error: Exception | None = None
+    ) -> None:
         self.run = run if run is not None else _FakeWandbRun()
         self.init_error = init_error
         self.init_kwargs: dict[str, Any] = {}
@@ -673,7 +669,9 @@ class _FakeWandbLogger:
 
 
 class TestWandb:
-    def test_import_failure_is_survivable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_import_failure_is_survivable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A broken optional extra must degrade to "no W&B", never to a crash.
 
         ``None`` in ``sys.modules`` makes the import machinery raise
@@ -739,9 +737,7 @@ class TestWandb:
         assert result.wandb_url == fake.run.url
         assert fake.run.finish_calls == 1
 
-        epoch_payloads = [
-            p for p in fake.run.logged if "train/loss" in p
-        ]
+        epoch_payloads = [p for p in fake.run.logged if "train/loss" in p]
         assert len(epoch_payloads) == 2
         assert fake.run.steps[:2] == [1, 2]
         assert "train/lr" in epoch_payloads[0]
@@ -812,7 +808,9 @@ class TestWandb:
         monkeypatch.setattr(gsnet_train, "_load_wandb_logger", lambda: fake)
         roots = _corpus(tmp_path)
 
-        result = run_offline_training(RunParams(), _tiny_params(roots, tmp_path / "out"))
+        result = run_offline_training(
+            RunParams(), _tiny_params(roots, tmp_path / "out")
+        )
         payload = json.loads(result.artifacts["summary"].read_text(encoding="utf-8"))
 
         assert payload["wandb_url"] == fake.run.url
@@ -845,7 +843,9 @@ class TestWandb:
         monkeypatch.setattr(gsnet_train, "_load_wandb_logger", lambda: fake)
         roots = _corpus(tmp_path)
 
-        result = run_offline_training(RunParams(), _tiny_params(roots, tmp_path / "out"))
+        result = run_offline_training(
+            RunParams(), _tiny_params(roots, tmp_path / "out")
+        )
 
         assert result.artifacts["summary"].is_file()
 
@@ -902,7 +902,7 @@ class TestNoHardware:
 # --------------------------------------------------------------------------- #
 class TestTrainCli:
     def test_group_help_lists_the_train_subcommand(self) -> None:
-        from ao_shaping.runners.slm_gsnet_runner import run as group
+        from ao_shaping.runners.slm.gsnet_runner import run as group
 
         result = CliRunner().invoke(group, ["--help"])
 
@@ -910,7 +910,7 @@ class TestTrainCli:
         assert "train" in result.output
 
     def test_train_help_exposes_the_key_options(self) -> None:
-        from ao_shaping.runners.slm_gsnet_runner import run as group
+        from ao_shaping.runners.slm.gsnet_runner import run as group
 
         result = CliRunner().invoke(group, ["train", "--help"])
 
@@ -935,7 +935,7 @@ class TestTrainCli:
             assert opt in result.output, f"missing train option: {opt}"
 
     def test_train_help_documents_the_offline_default_and_login(self) -> None:
-        from ao_shaping.runners.slm_gsnet_runner import run as group
+        from ao_shaping.runners.slm.gsnet_runner import run as group
 
         result = CliRunner().invoke(group, ["train", "--help"])
         text = " ".join(result.output.split())
@@ -945,7 +945,7 @@ class TestTrainCli:
         assert "--wandb-mode online" in text
 
     def test_train_help_does_not_leak_the_search_options(self) -> None:
-        from ao_shaping.runners.slm_gsnet_runner import run as group
+        from ao_shaping.runners.slm.gsnet_runner import run as group
 
         result = CliRunner().invoke(group, ["train", "--help"])
 
@@ -978,7 +978,7 @@ class TestTrainCli:
         assert len(names) == len(set(names))
 
     def test_zero_epochs_exits_non_zero(self, tmp_path: Path) -> None:
-        from ao_shaping.runners.slm_gsnet_runner import run as group
+        from ao_shaping.runners.slm.gsnet_runner import run as group
 
         result = CliRunner().invoke(
             group,
@@ -989,7 +989,7 @@ class TestTrainCli:
         assert isinstance(result.exception, ValueError)
 
     def test_end_to_end_invocation_writes_artifacts(self, tmp_path: Path) -> None:
-        from ao_shaping.runners.slm_gsnet_runner import run as group
+        from ao_shaping.runners.slm.gsnet_runner import run as group
 
         roots = _corpus(tmp_path)
         out = tmp_path / "cli-out"
@@ -1038,7 +1038,7 @@ class TestTrainCli:
         trainer -- the module docstring's "options live on the subcommand"
         rule is load-bearing.
         """
-        from ao_shaping.runners.slm_gsnet_runner import run as group
+        from ao_shaping.runners.slm.gsnet_runner import run as group
 
         roots = _corpus(tmp_path)
         out = tmp_path / "cli-seeded"
@@ -1081,7 +1081,7 @@ class TestTrainCli:
         assert payload["resolved"]["seed"] == 4321
 
     def test_default_out_dir_follows_the_subcommand_dir(self, tmp_path: Path) -> None:
-        from ao_shaping.runners.slm_gsnet_runner import run as group
+        from ao_shaping.runners.slm.gsnet_runner import run as group
 
         roots = _corpus(tmp_path)
         root = tmp_path / "dataroot"
@@ -1152,9 +1152,7 @@ class TestEnsureLeanCache:
         for pkl in pickles:
             cache_dir = cache_dir_for(pkl)
             assert cache_dir.is_dir(), f"no cache built for {pkl}"
-            meta = json.loads(
-                (cache_dir / "meta.json").read_text(encoding="utf-8")
-            )
+            meta = json.loads((cache_dir / "meta.json").read_text(encoding="utf-8"))
             assert meta["n_records"] == 3, meta
             assert Path(meta["source"]) == pkl, meta
             for name in self.CACHE_FILES:

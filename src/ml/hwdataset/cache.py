@@ -40,7 +40,7 @@ One directory per source pickle, by default the sibling
     meta.json                                       <-- written LAST
 
 The rules follow the existing precedent in
-:mod:`ao_shaping.runners.gsnet_cache`: plain numeric ``.npy`` written with
+:mod:`ml.gsnet_debug.cache`: plain numeric ``.npy`` written with
 ``allow_pickle=False`` so ``np.load(..., mmap_mode="r", allow_pickle=False)``
 always works; ``meta.json`` written **last** as the "build finished" marker so an
 interrupted build leaves no meta and is simply rebuilt; a ``format_version``

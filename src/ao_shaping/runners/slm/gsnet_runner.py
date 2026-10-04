@@ -37,7 +37,7 @@ from ao_shaping.optimizer.wfless.slm_square_shaping import (
     SlmSquareConfig,
     optimize_slm_square,
 )
-from ao_shaping.runners.gsnet_train import GsnetTrainParams, run_offline_training
+from ml.gsnet_debug.train import GsnetTrainParams, run_offline_training
 from ao_shaping.runners.runner_common import (
     CameraParams,
     HeuristicParams,
@@ -47,6 +47,7 @@ from ao_shaping.runners.runner_common import (
     SpgdParams,
     config_payload,
     parse_center,
+    patch_sim_square_shaping,
     resolve_spgd_delta,
     with_params,
 )
@@ -188,7 +189,7 @@ def _build_square_config(cfg: SlmGsnetConfig) -> SlmSquareConfig:
         # HARDWARE: without it the 2026-10-01 run traded 6x of encircled energy
         # (0.158 -> 0.026) for a +0.0118 uniformity gain and ended 35.9% worse,
         # with dec=0.487 (random walk). Guarded epochs are SKIPPED, not merely
-        # penalised. See docs/fouriergsnet_pipeline/hardware_run_20261001.md.
+        # penalised. See report/fouriergsnet_pipeline/hardware_run_20261001.md.
         max_roi_energy_loss=0.6,
         # Start from flat (the measured best-focus state, FWHM 13.6px /
         # hollowness 0.92) rather than the previous uniform(-pi, pi), which

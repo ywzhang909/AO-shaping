@@ -10,9 +10,9 @@ field). Together they are ~0.20 GB, i.e. **2.0 %** of the raw bytes. The bulk is
 carry it) which is **never used**: the pupil phase is reconstructed from ``_c``
 and was already verified bit-exact against the hardware path.
 
-``pickle`` cannot be memory-mapped, and :class:`~ao_shaping.runners.gsnet_dataset.GSNetDebugDataset`
+``pickle`` cannot be memory-mapped, and :class:`~ml.gsnet_debug.dataset.GSNetDebugDataset`
 deserialises one whole file per LRU miss. With ``cache_size=1`` and a
-:class:`~ao_shaping.runners.gsnet_dataset.FileGroupedSampler` interleaving 26
+:class:`~ml.gsnet_debug.dataset.FileGroupedSampler` interleaving 26
 files, training therefore re-loaded multi-hundred-MB and 3.2 GB pickles
 constantly: measured 3.5 samples/s (~15 min/epoch) with RSS peaking at ~2.5 GB.
 No LRU tuning can fix that -- the bytes themselves are the problem. This module
@@ -49,7 +49,7 @@ meta and the next :func:`prepare_gsnet_cache` simply rebuilds.
 The original design asked for a **float32** ``c_flat``. That is incompatible
 with the hard requirement that the cache be a *pure* storage optimisation:
 ``c_flat`` is the only copy of ``_c`` in the cache, and
-:func:`~ao_shaping.runners.gsnet_offline.reconstruct_pupil_phase_rad` does
+:func:`~ml.gsnet_debug.offline.reconstruct_pupil_phase_rad` does
 **not** quantise (``ZernikeGenerator.set_bits`` only records ``_max_val``; the
 ``generate_noll`` -> ``eval_grid`` path returns raw float64 radians), so a
 float32 round-trip perturbs the reconstructed phase. Measured on this repo's own
@@ -72,7 +72,7 @@ is rejected rather than silently requantised, for the same reason).
 * :class:`CachedFamily` -- per-record accessors (``coeffs`` / ``image`` /
   ``n_terms`` / ``keys`` / ``close``).
 * :meth:`CachedFamily.as_payload` -- a ``dict``-shaped payload for
-  :class:`~ao_shaping.runners.gsnet_dataset.GSNetDebugDataset`, whose records
+  :class:`~ml.gsnet_debug.dataset.GSNetDebugDataset`, whose records
   are lazy :class:`CachedRecord` views that resolve on first access.
 
 Nothing here imports ``torch`` and nothing touches Zernike math: this is pure
@@ -94,7 +94,7 @@ import numpy as np
 
 from loguru import logger
 
-from ao_shaping.runners.gsnet_offline import RecordIndex
+from ml.gsnet_debug.offline import RecordIndex
 
 __all__ = [
     "CACHE_FILENAMES",
@@ -878,7 +878,7 @@ def prepare_gsnet_cache(
 
     Args:
         index: Record index from
-            :func:`~ao_shaping.runners.gsnet_offline.build_record_index`; the
+            :func:`~ml.gsnet_debug.offline.build_record_index`; the
             pickles are the distinct paths of its entries, in index order.
         cache_root: Explicit cache root, or ``None`` for the default sibling
             ``.gsnet_cache`` directory next to each pickle.

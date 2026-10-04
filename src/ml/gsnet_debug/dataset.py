@@ -1,7 +1,7 @@
 """Lazy PyTorch Dataset, file-grouped sampler and DataLoader factory.
 
 This is the **batching** half of the offline GSNet training feature. The
-transform half already exists in :mod:`ao_shaping.runners.gsnet_offline`; this
+transform half already exists in :mod:`ml.gsnet_debug.offline`; this
 module only wraps it in a :class:`torch.utils.data.Dataset` (plus a sampler and
 a ``DataLoader`` factory) so the debug pickles can be streamed into
 ``ml.gsnet.FourierGSNet`` without ever holding the corpus in RAM.
@@ -27,7 +27,7 @@ re-served (as a fresh ``clone``) on every access. Its one per-sample cost is a
 ====================  Item 2: ``target`` (measured far field)  ==========
 
 The measured CCD frame ``record["_img"]`` passed through
-:func:`~ao_shaping.runners.gsnet_offline.farfield_to_grid` (argmax-anchored
+:func:`~ml.gsnet_debug.offline.farfield_to_grid` (argmax-anchored
 crop around the 0-order, peak-normalised to ``[0, 1]``, float32).
 
 ==================  Item 3: ``gt_phase`` (SLM pupil phase)  ============
@@ -48,7 +48,7 @@ observed), so ``n_max`` is always inferred from the record at hand.
 ``pickle`` cannot be memory-mapped, so the LRU above can only ever amortise a
 file that is already resident -- and with 26 interleaved files the corpus is
 re-loaded constantly (measured: 3.5 samples/s, ~15 min/epoch, RSS peaking at
-~2.5 GB). :mod:`ao_shaping.runners.gsnet_cache` therefore stores only the two
+~2.5 GB). :mod:`ml.gsnet_debug.cache` therefore stores only the two
 live fields per record (``_c`` and ``_img``; together 2.0 % of the 9.6 GB raw
 bytes -- ``_phase`` is never used) as plain ``.npy`` arrays that
 ``np.load(..., mmap_mode="r")`` can map. A cached record then costs a page-in
@@ -66,7 +66,7 @@ Three behaviours are worth stating explicitly:
 * **Absent cache -> warn once, use ``pickle.load``.** Building a multi-GB cache
   is not something to do implicitly inside a ``__getitem__`` (it would stall
   the first sample for minutes, once per worker process). Call
-  :func:`~ao_shaping.runners.gsnet_cache.prepare_gsnet_cache` once per corpus.
+  :func:`~ml.gsnet_debug.cache.prepare_gsnet_cache` once per corpus.
 * **Corrupt cache -> warn, rebuild that one family, carry on.** A single bad
   family never raises; if the rebuild also fails, the pickle path is used.
 * **A record that genuinely lacks ``_c`` / ``_img`` still raises**
@@ -81,9 +81,9 @@ The corpus is ~5.2 GB across ~25 pickles and the largest single pickle is
 ~472 MB, while ``pickle.load`` cannot stream. This module therefore:
 
 * :meth:`GSNetDebugDataset.__init__` opens **no** pickle beyond what
-  :func:`~ao_shaping.runners.gsnet_offline.build_record_index` already did, and
+  :func:`~ml.gsnet_debug.offline.build_record_index` already did, and
   retains **no arrays** -- only the immutable
-  :class:`~ao_shaping.runners.gsnet_offline.RecordIndex` of ``(Path, int)``
+  :class:`~ml.gsnet_debug.offline.RecordIndex` of ``(Path, int)``
   pairs, which is itself pickle-free of large payloads.
 * :meth:`GSNetDebugDataset.__getitem__` deserialises **exactly one** pickle and
   pulls one record out of it. The file payload is then referenced *only* by the
@@ -148,7 +148,7 @@ from loguru import logger
 from ml.gsnet.dataset import make_source_intensity
 from torch.utils.data import DataLoader, Dataset, Sampler, SequentialSampler
 
-from ao_shaping.runners.gsnet_cache import (
+from ml.gsnet_debug.cache import (
     CachedFamily,
     GSNetCacheError,
     cache_dir_for,
@@ -156,7 +156,7 @@ from ao_shaping.runners.gsnet_cache import (
     load_cached_family,
     prepare_gsnet_cache,
 )
-from ao_shaping.runners.gsnet_offline import (
+from ml.gsnet_debug.offline import (
     RecordIndex,
     farfield_to_grid,
     infer_n_max,
@@ -256,7 +256,7 @@ class GSNetDebugDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
 
         Args:
             index: Record index from
-                :func:`~ao_shaping.runners.gsnet_offline.build_record_index`.
+                :func:`~ml.gsnet_debug.offline.build_record_index`.
                 Only its ``(Path, int)`` tuples are retained.
             grid: Output grid side length; every returned tensor is
                 ``(1, grid, grid)``.
@@ -272,7 +272,7 @@ class GSNetDebugDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
                 above ``1`` trade RAM for fewer ``pickle.load`` calls when the
                 sampler alternates between files.
             cache_root: Root directory for the lean on-disk cache built by
-                :mod:`ao_shaping.runners.gsnet_cache`. ``None`` (default) uses
+                :mod:`ml.gsnet_debug.cache`. ``None`` (default) uses
                 the sibling ``.gsnet_cache`` directory next to each pickle.
                 Only consulted when ``use_cache=True``.
             use_cache: Read records from the lean on-disk cache when one exists
@@ -362,7 +362,7 @@ class GSNetDebugDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
           cache inside ``__getitem__`` would stall the first sample of every
           worker process for minutes, so absence is reported once per file and
           the pickle path is used. Call
-          :func:`~ao_shaping.runners.gsnet_cache.prepare_gsnet_cache` once per
+          :func:`~ml.gsnet_debug.cache.prepare_gsnet_cache` once per
           corpus instead.
         * **unrecoverable** -- the family is corrupt *and* the rebuild also
           failed, so there is nothing left to try.
@@ -510,7 +510,7 @@ class GSNetDebugDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
 
         This clears the in-RAM state only. Nothing on disk is deleted: an
         on-disk cache is expensive to rebuild and is the operator's to remove
-        (see :func:`~ao_shaping.runners.gsnet_cache.prepare_gsnet_cache`).
+        (see :func:`~ml.gsnet_debug.cache.prepare_gsnet_cache`).
         """
         if self._cache:
             logger.debug("Clearing {} cached GSNet debug payloads", len(self._cache))
@@ -674,7 +674,7 @@ class FileGroupedSampler(Sampler[int]):
 
         Args:
             index: Record index from
-                :func:`~ao_shaping.runners.gsnet_offline.build_record_index`.
+                :func:`~ml.gsnet_debug.offline.build_record_index`.
             num_samples: Total number of indices to yield, enabling upsampling
                 (``> len(index)``, whole cycles are repeated) and downsampling
                 (``< len(index)``, whole groups are dropped and the last
@@ -805,7 +805,7 @@ def build_gsnet_dataloader(
 
     Args:
         index: Record index from
-            :func:`~ao_shaping.runners.gsnet_offline.build_record_index`.
+            :func:`~ml.gsnet_debug.offline.build_record_index`.
         grid: Output grid side length; batches are ``(B, 1, grid, grid)``.
         batch_size: Samples per batch.
         num_workers: Worker processes. ``0`` (default, recommended) loads in the

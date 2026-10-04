@@ -1,9 +1,9 @@
-"""Tests for :mod:`ao_shaping.runners.gsnet_dataset`.
+"""Tests for :mod:`ml.gsnet_debug.dataset`.
 
 Everything is hardware-free: the corpus is a handful of synthetic pickles in
 ``tmp_path``, written in the **real two-level nested layout**
 (``<family>/<timestamp>/<prefix>_<timestamp>.pkl``) that
-:func:`~ao_shaping.runners.gsnet_offline.build_record_index` globs
+:func:`~ml.gsnet_debug.offline.build_record_index` globs
 recursively. ``grid=64`` matches the production default so the shapes asserted
 here are the shapes ``ml.gsnet.train.train_gsnet`` consumes.
 """
@@ -23,14 +23,14 @@ import torch
 from ml.gsnet.dataset import make_source_intensity
 from torch.utils.data import SequentialSampler
 
-from ao_shaping.runners.gsnet_dataset import (
+from ml.gsnet_debug.dataset import (
     DEFAULT_PREFETCH_FACTOR,
     FileGroupedSampler,
     GSNetDebugDataset,
     GSNetRecordError,
     build_gsnet_dataloader,
 )
-from ao_shaping.runners.gsnet_offline import (
+from ml.gsnet_debug.offline import (
     RecordIndex,
     build_record_index,
     farfield_to_grid,
@@ -350,7 +350,7 @@ class TestApertureRadius:
         return pupil_phase_to_grid(phase, GRID)
 
     def test_default_radius_is_three_hundred(self) -> None:
-        from ao_shaping.runners.gsnet_dataset import DEFAULT_SLM_RADIUS
+        from ml.gsnet_debug.dataset import DEFAULT_SLM_RADIUS
 
         assert DEFAULT_SLM_RADIUS == 300.0
         assert SLM_RADIUS == 300.0

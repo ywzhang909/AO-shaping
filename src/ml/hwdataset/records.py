@@ -78,7 +78,7 @@ is already radians, wrapped to ``[0, 2pi)`` (observed panel max 6.2605).
 conversion and no ``mod 2*pi`` happens here: a generator that re-wraps its own
 output duplicates the driver's single wrap point and hides the true phase
 (``AGENTS.md`` red line). The Zernike ``lru_cache``d generator inside
-:func:`~ao_shaping.runners.gsnet_offline.reconstruct_pupil_phase_rad` is reused
+:func:`~ml.gsnet_debug.offline.reconstruct_pupil_phase_rad` is reused
 as-is, which is why no generator cache lives in this module -- only the
 ``radius`` / ``resolution`` arguments, taken from the config rather than
 hard-coded.

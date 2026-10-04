@@ -55,13 +55,13 @@ Module map
 
 Layering note
 -------------
-This package imports the pure helpers of :mod:`ao_shaping.runners.gsnet_offline`
+This package imports the pure helpers of :mod:`ml.gsnet_debug.offline`
 (``infer_n_max``, ``reconstruct_pupil_phase_rad``, ``pupil_phase_to_grid``,
 ``farfield_to_grid``) rather than reimplementing them: this repository has been
  bitten repeatedly by duplicated Zernike and crop maths drifting between copies.
 That module imports only ``ao_shaping.utils.*`` and
 ``ao_shaping/runners/__init__.py`` uses a PEP-562 lazy ``__getattr__``, so no
-import cycle forms even though ``ao_shaping.runners.gsnet_dataset`` imports
+import cycle forms even though ``ml.gsnet_debug.dataset`` imports
 ``ml.gsnet.dataset`` in the other direction.
 """
 

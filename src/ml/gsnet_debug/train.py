@@ -2,9 +2,9 @@
 
 This module wires the three halves of the offline GSNet feature together:
 
-* :mod:`ao_shaping.runners.gsnet_offline` — the numpy transforms that turn a
+* :mod:`ml.gsnet_debug.offline` — the numpy transforms that turn a
   debug record into ``(source, target, gt_phase)`` grids;
-* :mod:`ao_shaping.runners.gsnet_dataset` — the lazy ``Dataset`` + ``DataLoader``
+* :mod:`ml.gsnet_debug.dataset` — the lazy ``Dataset`` + ``DataLoader``
   that streams those records without ever holding the corpus in RAM;
 * :mod:`ml.gsnet` — the network, the losses and the training loop.
 
@@ -45,15 +45,15 @@ import numpy as np  # noqa: E402
 import torch  # noqa: E402
 from loguru import logger  # noqa: E402
 
-from ao_shaping.runners.gsnet_cache import (  # noqa: E402
+from ml.gsnet_debug.cache import (  # noqa: E402
     GSNetCacheError,
     prepare_gsnet_cache,
 )
-from ao_shaping.runners.gsnet_dataset import (
+from ml.gsnet_debug.dataset import (
     GSNetDebugDataset,
     build_gsnet_dataloader,
 )  # noqa: E402
-from ao_shaping.runners.gsnet_offline import (  # noqa: E402
+from ml.gsnet_debug.offline import (  # noqa: E402
     DEFAULT_ROOTS,
     RecordIndex,
     build_record_index,
@@ -681,7 +681,7 @@ def run_offline_training(run: RunParams, params: GsnetTrainParams) -> TrainResul
             negative ``n_compare``, or an unknown ``device``. An empty corpus
             raises ``ValueError`` from :func:`build_gsnet_dataloader` (the
             indexer only warns), and a malformed record raises
-            :class:`~ao_shaping.runners.gsnet_dataset.GSNetRecordError`.
+            :class:`~ml.gsnet_debug.dataset.GSNetRecordError`.
     """
     setup_coredumpy()
 

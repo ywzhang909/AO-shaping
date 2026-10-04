@@ -13,7 +13,7 @@ built and unit-tested on a machine with nothing plugged in. The ``Dataset`` /
 
    **Import cost is NOT torch-free — this is a pre-existing repo defect, not a
    property of this module.** This module's only cross-package import is
-   ``infer_n_max`` from :mod:`ao_shaping.runners.gsnet_offline`, and *that module
+   ``infer_n_max`` from :mod:`ml.gsnet_debug.offline`, and *that module
    is itself torch-free* (stdlib + numpy + loguru +
    ``ao_shaping.utils.*``). The cost comes from its **parent package**:
    ``ao_shaping/runners/__init__.py`` documents a PEP 562 lazy ``__getattr__``
@@ -84,7 +84,7 @@ it is **ambiguous for some lengths**: 36 is both a triangular Zernike count
    -> :attr:`PhaseSource.FREEFORM` (a freeform grid is by construction
    ``grid*grid``). Unambiguous: 576, 100, ... are never triangular;
 3. a length that is a triangular Zernike mode count, verified with
-   :func:`~ao_shaping.runners.gsnet_offline.infer_n_max`
+   :func:`~ml.gsnet_debug.offline.infer_n_max`
    -> :attr:`PhaseSource.ZERNIKE`;
 4. a length that is **both** (only 36 occurs in this corpus) is resolved by
    :data:`_FREEFORM_FAMILIES`: inside one of those families the square wins,
@@ -107,13 +107,13 @@ records (1.7%) would be reconstructed as the wrong basis entirely.
 same quantity off the camera as ``exposure_time_ms``; observed ``exp_t`` values
 are 0.1 / 0.4 / 1.2 / 1.5 / 2.0 / 80.0. ``_c`` is in **radians** (Noll order for
 Zernike, ``grid*grid`` cell amplitudes for freeform) -- the same convention
-:mod:`ao_shaping.runners.gsnet_offline` documents for its offline transforms.
+:mod:`ml.gsnet_debug.offline` documents for its offline transforms.
 Sidecar ``exposure_ms`` values seen in the wild are 1.1 / 3.0 and
 ``exposure_time_ms`` is 1.2.
 
 ============================  Layering note (deliberate)  =============================
 
-This module imports :func:`~ao_shaping.runners.gsnet_offline.infer_n_max` from
+This module imports :func:`~ml.gsnet_debug.offline.infer_n_max` from
 ``ao_shaping.runners`` while living under ``src/ml/``. That is a reviewed,
 intentional layering choice, not an accident: ``infer_n_max`` is the exact integer
 triangular inverse of the Zernike mode count and re-implementing it here would
@@ -121,14 +121,14 @@ create a second discriminant that can drift (a repo red line). There is **no
 import cycle** -- ``gsnet_offline`` imports only ``ao_shaping.utils.*``, and
 ``ao_shaping/runners/__init__.py`` resolves its runner attributes through PEP-562
 module ``__getattr__``. Cost of that reuse, measured: importing
-``ao_shaping.runners.gsnet_offline`` takes ~35 s cold, because
+``ml.gsnet_debug.offline`` takes ~35 s cold, because
 ``ao_shaping/runners/__init__.py`` eagerly imports the runner modules. Pay it once
 per process.
 
 =========================  Where ``build_record_index`` falls short  ==========================
 
-:func:`~ao_shaping.runners.gsnet_offline.build_record_index` and its
-:class:`~ao_shaping.runners.gsnet_offline.RecordIndex` were read before this
+:func:`~ml.gsnet_debug.offline.build_record_index` and its
+:class:`~ml.gsnet_debug.offline.RecordIndex` were read before this
 module was written, and their *contract* is deliberately mirrored (recursive
 discovery, per-file skip-with-warning, JSON index cache, ``limit_files`` applied
 after sorting, ``del`` before the next file). Three measured shortfalls make it
@@ -178,7 +178,7 @@ from typing import Any
 
 from loguru import logger
 
-from ao_shaping.runners.gsnet_offline import infer_n_max
+from ml.gsnet_debug.offline import infer_n_max
 
 __all__ = [
     "DEFAULT_ROOTS",

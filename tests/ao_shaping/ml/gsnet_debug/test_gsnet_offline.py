@@ -1,4 +1,4 @@
-"""Offline tests for :mod:`ao_shaping.runners.gsnet_offline`.
+"""Offline tests for :mod:`ml.gsnet_debug.offline`.
 
 Everything here is hardware-free and torch-free. The synthetic fixtures are
 fully deterministic (no RNG), and the real-data tests exercise the actual
@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from ao_shaping.runners.gsnet_offline import (
+from ml.gsnet_debug.offline import (
     DEFAULT_ROOTS,
     RecordIndex,
     build_record_index,
@@ -26,8 +26,8 @@ from ao_shaping.runners.gsnet_offline import (
     reconstruct_pupil_phase_rad,
 )
 
-# tests/ao_shaping/runners/<this file> -> repo root
-REPO_ROOT = Path(__file__).resolve().parents[3]
+# tests/ao_shaping/ml/gsnet_debug/<this file> -> repo root
+REPO_ROOT = Path(__file__).resolve().parents[4]
 DEBUG_DIR = REPO_ROOT / "data" / "debug"
 REAL_ZERNIKE_GLOB = str(DEBUG_DIR / "slm_zernike_*")
 REAL_PIB_GLOB = str(DEBUG_DIR / "slm_pib_*")
@@ -566,7 +566,7 @@ class TestHardwareParity:
         Measured motivation: rebuilding the 1200x1920 RZern grid for every
         record dominated the pipeline.
         """
-        from ao_shaping.runners import gsnet_offline
+        from ml.gsnet_debug import offline as gsnet_offline
 
         gsnet_offline._zernike_generator.cache_clear()
         c = np.zeros(66, dtype=np.float64)
