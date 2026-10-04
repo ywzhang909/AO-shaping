@@ -16,7 +16,8 @@ Commands:
     rms-zernike     Zernike RMS优化器
     ga-zernike      GA Zernike优化器
     greedy-zernike  贪婪局部搜索Zernike优化器
-    slm-pib         SLM Zernike PIB优化器
+    slm-pib         SLM Zernike PIB优化器 (runners/slm/shaping_runner.py)
+    spgd-square     SLM 方形远场均匀性整形 (同一模块的 square 子命令)
 
 Examples:
     python main.py --debug wf --epochs 10000

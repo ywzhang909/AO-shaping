@@ -249,7 +249,7 @@ def test_companion_writing_is_deterministic_for_a_fixed_seed(tmp_path: Path) -> 
 
 
 def test_runner_reset_system_does_not_discard_the_disturbance() -> None:
-    """Regression: ``slm_pib_runner`` resets the system while sim-patching.
+    """Regression: the ``slm-pib`` runner resets the system while sim-patching.
 
     ``_maybe_sim_patch`` imports ``reset_system`` locally and calls it with a
     seed only. Without re-attaching the disturbance, the run silently executes

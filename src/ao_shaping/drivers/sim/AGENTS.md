@@ -102,10 +102,11 @@ SimulatedDevice (Device)
 > (L305-307), 既不报错也不产生任何相位。需要热晕相位请用 `disturbance.py` 的
 > `SimDisturbance`(负热透镜: Noll 4 离焦 + Noll 11 球差, 经 smoothstep 光晕窗延展到光束半径之外)。
 
-> ⚠️ **扰动会随 `reset_system()` 一起被丢弃**。`slm_pib_runner._maybe_sim_patch` 在 `--cam_type sim`
-> 时会调用 `reset_system(seed=42)`, 这会**替换**进程级 system 并清掉已注入的干扰 —— 运行会静默地以
-> **无干扰**方式执行, 而 companion 清单却声称有干扰。`scripts/slm_pib_sim_run.py` 因此包装了
-> `slm_pib_sim.reset_system`, 使每次调用都重新挂上干扰 (由
+> ⚠️ **扰动会随 `reset_system()` 一起被丢弃**。任何 sim 接线在 `--cam_type sim` 时调用
+> `reset_system(seed=42)` (现为 `runners/runner_common.py::patch_sim_square_shaping`; 2026-10-05 前
+> 该函数只服务 `slm-pib`/`slm-gsnet`, `slm-pib` 那一份后来被移除), 这会**替换**进程级 system 并清掉
+> 已注入的干扰 —— 运行会静默地以**无干扰**方式执行, 而 companion 清单却声称有干扰。
+> `scripts/slm_pib_sim_run.py` 因此包装了 `slm_pib_sim.reset_system`, 使每次调用都重新挂上干扰 (由
 > `tests/ao_shaping/scripts/test_slm_pib_sim_run_disturbance.py` 锁定)。
 
 ## SimulatedDevice 接口

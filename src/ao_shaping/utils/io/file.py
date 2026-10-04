@@ -667,7 +667,7 @@ def save_optimization_debug_artifacts(
     * **Data mode**: ``data`` is a ``{epoch: record}`` dict; writes a 2×2
       PNG (objective history / best coefficients / first & last image), a
       pickled copy of ``data`` and a JSON sidecar of ``json_payload``.
-      Used by ``slm_pib_runner``.
+      Used by ``shaping_runner``.
 
     Args:
         records:           Recorder object with ``get_sublist()``,

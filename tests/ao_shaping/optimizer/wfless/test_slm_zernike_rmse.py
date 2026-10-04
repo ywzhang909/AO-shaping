@@ -31,7 +31,7 @@ from ao_shaping.optimizer.wfless.slm_zernike_pib import (
     target_shape_roi,
 )
 from ao_shaping.runners.runner_common import CameraParamsPib, ObjectiveTarget
-from ao_shaping.runners.slm.pib_runner import _effective_objective_key, run
+from ao_shaping.runners.slm.shaping_runner import _effective_objective_key, run
 
 
 def test_rmse_is_named_tuple_of_score_and_energy() -> None:

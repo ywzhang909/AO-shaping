@@ -1013,9 +1013,18 @@ class SlmSquareParams:
     side_factor: Annotated[
         float, option("--side-factor", help="自动边长倍率 (default: 1.5)")
     ] = 1.5
-    delta: Annotated[float, option("-d", "--delta", help="扰动幅度 (default: 0.1)")] = (
-        0.1
-    )
+    delta: Annotated[
+        float | None,
+        option(
+            "-d",
+            "--delta",
+            type=float,
+            help=(
+                "扰动幅度 (rad). 省略 = 0.1 且由自适应调度接管; "
+                "显式给出则钉住该值, 调度不再改写 delta。"
+            ),
+        ),
+    ] = None
     lr: Annotated[float, option("--lr", help="学习率, 0=自动 (default: 0)")] = 0.0
     exposure_ms: Annotated[
         float,
@@ -1292,6 +1301,75 @@ def config_payload(obj: Any) -> dict[str, Any]:
     therefore tolerate both shapes.
     """
     return _config_group(obj)
+
+
+def _patch_sim_devices(
+    cam_type: str,
+    optimizer_modules: tuple[Any, ...],
+    *,
+    reset_seed: int | None,
+) -> None:
+    """Shared body of the ``--cam_type sim`` wiring. No-op for hardware cameras.
+
+    Both SLM shaping optimizers resolve their camera through
+    ``drivers.ccd.common.create_camera(cam_type, ...)`` and their SLM through a
+    module-global ``Santec`` name, both looked up at *call* time. That
+    indirection is the whole reason a digital-twin run needs no patch beyond
+    registering the ``"sim"`` camera and rebinding one name per optimizer
+    module.
+
+    ``reset_seed=None`` means "leave the process-wide simulated system alone" —
+    it is created lazily on first use, so a harness that already called
+    ``reset_system`` (with its own seed and disturbance) keeps it. Passing an
+    int forces a fresh deterministic system instead.
+
+    Lives here rather than in any single runner because the duplication was not
+    benign: each per-runner copy patched a *different* module set, so
+    ``--cam_type sim`` quietly worked on one command and opened real hardware on
+    another.
+    """
+    if cam_type != "sim":
+        return
+
+    from ao_shaping.drivers.sim.sim_bench_patch import install_sim_slm
+    from ao_shaping.drivers.sim.slm_pib_sim import register_sim_camera
+
+    register_sim_camera()
+    if reset_seed is not None:
+        from ao_shaping.drivers.sim.slm_pib_sim import reset_system
+
+        reset_system(seed=reset_seed)
+    install_sim_slm(*optimizer_modules)
+
+
+def patch_sim_square_shaping(cam_type: str) -> None:
+    """Route the square-shaping optimizer onto the 2f-Fourier digital twin.
+
+    Used by ``runners/slm/gsnet_runner.py`` (freeform square) and
+    ``runners/slm/shaping_runner.py`` (``spgd-square``).
+
+    Pins ``seed=42`` so a dry run is reproducible: neither family has a
+    user-facing seed that reaches the bench itself, and a drifting disturbance
+    stream would make ``--cam_type sim`` runs incomparable across invocations.
+    """
+    import ao_shaping.optimizer.wfless.slm_square_shaping as opt
+
+    _patch_sim_devices(cam_type, (opt,), reset_seed=42)
+
+
+def patch_sim_pib_shaping(cam_type: str) -> None:
+    """Route the PIB optimizer (``slm-pib``) onto the 2f-Fourier digital twin.
+
+    Deliberately does **not** reset the simulated system. The PIB sim harness
+    (``scripts/slm_pib_sim_run.py``) installs its own seeded system *with* a
+    wavefront disturbance and wraps ``reset_system`` so every call re-attaches
+    it; a reset here would replace that system with an unseeded, disturbance-free
+    one and the run would silently contradict its own companion manifest. The
+    system is created lazily, so doing nothing is both correct and sufficient.
+    """
+    import ao_shaping.optimizer.wfless.slm_zernike_pib as opt
+
+    _patch_sim_devices(cam_type, (opt,), reset_seed=None)
 
 
 # ---------------------------------------------------------------------------

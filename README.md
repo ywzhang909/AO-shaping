@@ -167,11 +167,11 @@ python src/ao_shaping/main.py [OPTIONS] COMMAND [ARGS]...
 | `combined` | `runners/nlight_dm/combined_runner.py` | AdaMOD+SPGD 混合PIB (DM+CCD) |
 | `slm-lut` | `tools/slm/slm_lut_runner.py` | SLM灰度→相位LUT校准 |
 | `slm-diagnose` | `tools/slm/slm_diagnose.py` | SLM硬件自检 |
-| `spgd-square` | `runners/slm_square_runner.py` | SLM方形光斑SPGD整形 |
-| `slm-gsnet` | `runners/slm_gsnet_runner.py` | SLM自由相位方形整形 (SPGD/启发式) |
-| `slm-pib` | `runners/slm_pib_runner.py` | SLM Zernike PIB优化 |
-| `slm-gs-refine` | `runners/slm_gs_refine_runner.py` | GS 预矫正 + 自由相位 SPGD 整形 |
-| `slm-model-in-loop` | `runners/slm_model_in_loop_runner.py` | 正向模型闭环校正 + 目标光斑相位合成 (反复迭代) |
+| `spgd-square` | `runners/slm/shaping_runner.py` (`square`) | SLM方形光斑SPGD整形 |
+| `slm-gsnet` | `runners/slm/gsnet_runner.py` | SLM自由相位方形整形 (SPGD/启发式) |
+| `slm-pib` | `runners/slm/shaping_runner.py` | SLM Zernike PIB优化 (`spgd` / `heuristic`) |
+| `slm-gs-refine` | `runners/slm/gs_refine_runner.py` | GS 预矫正 + 自由相位 SPGD 整形 |
+| `slm-model-in-loop` | `runners/slm/model_in_loop_runner.py` | 正向模型闭环校正 + 目标光斑相位合成 (反复迭代) |
 
 > **注意**: `gs`、`gs-square`、`diff-shaping`、`diff-beam` 命令已从 CLI 中移除 (运行器文件不再存在)。其功能已并入 `slm-gsnet` (自由相位整形)、`algorithm/signal_processing/gerchberg_saxton.py` (GS算法) 和 `algorithm/signal_processing/differentiable_shaping.py` (可微分整形)。
 

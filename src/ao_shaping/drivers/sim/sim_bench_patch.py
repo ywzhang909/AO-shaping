@@ -6,7 +6,7 @@ Every SLM-Zernike shaping optimizer builds its device through
 2f-Fourier digital twin instead of hardware, and three separate places were
 exploiting it by hand:
 
-* ``runners/slm/gsnet_runner.py::_maybe_sim_patch`` -> ``slm_square_shaping``
+* ``runner_common.patch_sim_square_shaping`` -> ``slm_square_shaping``
 * ``scripts/slm_pib_sim_run.py::_patch_santec`` -> ``slm_zernike_pib``
 * ``tests/.../test_slm_zernike_objectives_sim.py::_patch_slm`` -> both
 

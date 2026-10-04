@@ -111,7 +111,7 @@ AO-shaping/
 > 嵌套 `camera: CameraParamsPib` / `slm: SlmParamsPib` (惰性默认, 定义于 `runners/runner_common.py`),
 > 保留 `kwargs` 逃生口 (`**config.kwargs`)。**不再接受任何平铺关键字参数 / `cam=` / `slm=`**;
 > 设备由优化器内部经 `create_camera(config.camera)` / `Santec.from_params(config.slm)` 上下文管理器
-> 自行打开/关闭 (禁止跨 run 复用设备)。调用方: `runners/slm_pib_runner.py`、`scripts/compare_shape_objectives.py`、
+> 自行打开/关闭 (禁止跨 run 复用设备)。调用方: `runners/slm/shaping_runner.py`、`scripts/compare_shape_objectives.py`、
 > `scripts/generate_slm_pib_heuristic_hw_report.py`、`scripts/repeat_shape_objectives.py`、
 > `tests/ao_shaping/optimizer/wfless/test_slm_zernike_*`。
 > 内部重命名 (非公开 API): `test_pib`→`ideal_pib_ratio`、`intellij_center`→`_smart_center`

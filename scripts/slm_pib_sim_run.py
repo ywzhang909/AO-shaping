@@ -1,14 +1,14 @@
 """Run the ``slm-pib`` SPGD pipeline in the simulation environment.
 
 Wires the pure-numpy 2f-Fourier sim (``drivers/sim/slm_pib_sim.py``) into the
-real ``slm_pib_runner`` CLI path:
+real ``slm-pib`` CLI path:
 
 * registers the ``"sim"`` camera type so ``create_camera("sim", ...)`` returns a
   :class:`SimPibCCD` that reads the shared far-field state;
 * monkeypatches ``ao_shaping.optimizer.wfless.slm_zernike_pib.Santec`` to
   :class:`SimSLMPib` so the optimizer's SLM context manager instantiates the
   sim instead of the real Santec driver (no hardware, no DVI hang);
-* invokes the genuine ``slm_pib_runner.run`` Click entry with ``--cam_type sim``
+* invokes the genuine ``shaping_runner.run`` Click entry with ``--cam_type sim``
   and ``--debug`` so the standard debug artifacts (PNG / PKL / JSON) are written.
 
 An optional wavefront disturbance -- atmospheric turbulence plus a thermal halo
@@ -281,7 +281,7 @@ _INJECTED_DISTURBANCE: SimDisturbance | None = None
 def _install_disturbance_reset(disturbance: SimDisturbance) -> None:
     """Make every ``slm_pib_sim.reset_system`` call re-attach ``disturbance``.
 
-    ``slm_pib_runner._maybe_sim_patch`` imports ``reset_system`` *inside* the
+    The runner's sim patch imports ``reset_system`` *inside* the
     function and calls it with a seed only, which replaces the process-wide
     system and silently discards whatever disturbance the harness installed.
     That import resolves the module attribute at call time, so wrapping the
@@ -332,7 +332,7 @@ def main() -> None:
     register_sim_camera()
     _patch_santec()
 
-    from ao_shaping.runners.slm.pib_runner import run as slm_pib_run
+    from ao_shaping.runners.slm.shaping_runner import run as slm_pib_run
 
     before = _artifact_roots(args.data_root)
 

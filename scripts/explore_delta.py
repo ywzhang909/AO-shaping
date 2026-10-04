@@ -1,6 +1,6 @@
 """Sweep SPGD's perturbation amplitude on the real bench and pick a winner.
 
-Runs the **genuine** ``slm_pib_runner`` CLI once per candidate ``delta`` and
+Runs the **genuine** ``slm-pib`` CLI once per candidate ``delta`` and
 judges each run by **convergence**, not by how much the objective moved from the
 first epoch to the last.
 
@@ -214,7 +214,7 @@ def main() -> int:
         logger.error("--deltas is empty")
         return 1
 
-    from ao_shaping.runners.slm.pib_runner import run as slm_pib_run
+    from ao_shaping.runners.slm.shaping_runner import run as slm_pib_run
 
     def run_one(delta: float):
         if args.analyze_only:

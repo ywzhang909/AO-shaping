@@ -221,25 +221,14 @@ def _build_square_config(cfg: SlmGsnetConfig) -> SlmSquareConfig:
 def _maybe_sim_patch(cam_type: str) -> None:
     """Wire the pure-numpy 2f-Fourier sim into the square-shaping optimizer.
 
-    ``optimize_slm_square`` builds its camera through the
-    ``drivers.ccd.common.create_camera`` registry, so an offline dry-run only
-    needs the ``"sim"`` backend registered (``register_sim_camera``) and the
-    hard-coded ``Santec`` patched to the sim SLM — no hardware is touched and no
-    DVI hang is possible. No-op unless ``cam_type == "sim"``.
+    Thin alias kept for back-compat: the implementation now lives in
+    ``runner_common.patch_sim_square_shaping`` so ``spgd-square``
+    (``runners/slm/shaping_runner.py``) and this runner cannot drift into
+    patching different module sets. The module-level name is what
+    ``_execute`` resolves at call time, so monkeypatching
+    ``gsnet_runner._maybe_sim_patch`` still works.
     """
-    if cam_type != "sim":
-        return
-    from ao_shaping.drivers.sim.slm_pib_sim import (
-        register_sim_camera,
-        reset_system,
-    )
-    from ao_shaping.drivers.sim.sim_bench_patch import install_sim_slm
-
-    import ao_shaping.optimizer.wfless.slm_square_shaping as opt
-
-    register_sim_camera()
-    reset_system(seed=42)
-    install_sim_slm(opt)
+    patch_sim_square_shaping(cam_type)
 
 
 # --- click group + subcommands ---------------------------------------------
