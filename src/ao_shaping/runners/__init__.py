@@ -61,8 +61,8 @@ _LAZY_RUNNERS: dict[str, str] = {
     "zernike_matrix_run": "ao_shaping.runners.slm.zernike_matrix_runner",
     "zernike_closed_loop_run": "ao_shaping.runners.slm.zernike_matrix_runner",
     "rms_zernike_run": "ao_shaping.runners.slm.rms_zernike_runner",
-    "ga_zernike_run": "ao_shaping.runners.ga_zernike_runner",
-    "greedy_zernike_run": "ao_shaping.runners.greedy_zernike_runner",
+    "ga_zernike_run": "ao_shaping.runners.zernike_search_runner",
+    "greedy_zernike_run": "ao_shaping.runners.zernike_search_runner",
     "dm_matrix_run": "ao_shaping.runners.matrix_runner",
     # Both commands live in one module, so they need distinct attributes --
     # see the _IMPORT_ATTRS note below.
@@ -95,7 +95,7 @@ _IMPORT_ATTRS: dict[str, str] = {
     "pipeline_run": "run",
     "rms_zernike_run": "run",
     "ga_zernike_run": "run",
-    "greedy_zernike_run": "run",
+    "greedy_zernike_run": "greedy_zernike_run",
     "dm_matrix_run": "run",
     "alt_voltage_run": "run",
     "full_voltage_run": "full_voltage_run",

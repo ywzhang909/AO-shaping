@@ -26,8 +26,7 @@ AO-shaping/
 │   │   │   ├── runner_common.py  # 共享参数 dataclass + with_params click 集成
 │   │   │   ├── closed_loop.py    # [向后兼容 shim] AOClosedLoop re-export (canonical: optimizer/wf/)
 │   │   │   ├── matrix_runner.py        # DM响应矩阵 (dm-matrix) + Hadamard响应矩阵 (hadamard-matrix)
-│   │   │   ├── ga_zernike_runner.py       # GA Zernike优化 (ga-zernike)
-│   │   │   ├── greedy_zernike_runner.py   # 贪婪局部搜索Zernike (greedy-zernike)
+│   │   │   ├── zernike_search_runner.py  # GA Zernike (ga-zernike) + 贪婪局部搜索 (greedy-zernike)
 │   │   │   ├── gsnet_cache.py             # GSNet缓存
 │   │   │   ├── gsnet_dataset.py           # GSNet数据集
 │   │   │   ├── gsnet_offline.py           # GSNet离线评估
@@ -158,8 +157,8 @@ python src/ao_shaping/main.py [OPTIONS] COMMAND [ARGS]...
 | `pipeline` | `runners/nlight_dm/pipeline_runner.py` | 串行 WF RMS → PIB 流水线 |
 | `zernike-matrix` | `runners/slm/zernike_matrix_runner.py` | Zernike响应矩阵校准 |
 | `rms-zernike` | `runners/slm/rms_zernike_runner.py` | SLM Zernike RMS优化 |
-| `ga-zernike` | `runners/ga_zernike_runner.py` | 遗传算法 Zernike优化 |
-| `greedy-zernike` | `runners/greedy_zernike_runner.py` | 贪婪局部搜索 Zernike优化 |
+| `ga-zernike` | `runners/zernike_search_runner.py` | 遗传算法 Zernike优化 |
+| `greedy-zernike` | `runners/zernike_search_runner.py` | 贪婪局部搜索 Zernike优化 |
 | `closed-loop` | `runners/slm/zernike_matrix_runner.py` | 基于响应矩阵的闭环波前优化 |
 | `dm-matrix` | `runners/matrix_runner.py` | DM响应矩阵标定 |
 | `hadamard-matrix` | `runners/matrix_runner.py` | Hadamard响应矩阵标定 |
@@ -323,7 +322,7 @@ python src/ao_shaping/main.py rms-zernike [OPTIONS]
 ```bash
 python src/ao_shaping/main.py ga-zernike [OPTIONS]
 ```
-等同于: `python -m ao_shaping.runners.ga_zernike_runner`
+等同于: `python -m ao_shaping.runners.zernike_search_runner`
 
 基于遗传算法 (GA) 搜索最优 Zernike 系数组合, 以 WFS 测量 RMS 为适应度。适合无梯度/多峰搜索场景。
 
@@ -1090,12 +1089,12 @@ python -m ao_shaping.runners.slm.rms_zernike_runner [OPTIONS]
 
 6. 遗传算法 Zernike 优化:
 ```bash
-python -m ao_shaping.runners.ga_zernike_runner [OPTIONS]
+python -m ao_shaping.runners.zernike_search_runner [OPTIONS]
 ```
 
 7. 贪婪局部搜索 Zernike 优化:
 ```bash
-python -m ao_shaping.runners.greedy_zernike_runner [OPTIONS]
+python -m ao_shaping.runners.zernike_search_runner greedy-zernike [OPTIONS]
 ```
 
 8. DM响应矩阵标定:
