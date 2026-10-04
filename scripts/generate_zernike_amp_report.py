@@ -34,6 +34,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import statistics
 import sys
 from pathlib import Path
 
@@ -519,6 +521,83 @@ def synthesis_table(synthesis: dict) -> str:
     return markdown_table(["方案", "参数量", "CV", "EE", "quality", "评判者"], rows)
 
 
+def fig_parametrization_sweep(sweep: dict, iteration: dict | None) -> dict[str, str | None]:
+    """Band-limit vs freeform, and whether a better surrogate gives a better phase."""
+    rows = sweep["rows"]
+    labels = [f"{r['param']}\nn={r['n_max']}" for r in rows]
+    cv = [r["cv"] for r in rows]
+    zfrac = [r["zfrac"] for r in rows]
+
+    fig, axes = plt.subplots(1, 3, figsize=(16, 4.6))
+
+    ax = axes[0]
+    colours = ["#2f6f9f" if r["param"] == "zernike" else "#a63d5a" for r in rows]
+    ax.bar(range(len(rows)), cv, color=colours, alpha=0.85)
+    ax.set_xticks(range(len(rows))); ax.set_xticklabels(labels, fontsize=7)
+    ax.set_ylabel("CV（越低越好）")
+    ax.set_title("参数化扫描：带限 vs 自由相位")
+    ax.invert_yaxis()
+    ax.grid(alpha=0.3, axis="y")
+
+    ax = axes[1]
+    ax.scatter(zfrac, cv, c=colours, s=70)
+    for r in rows:
+        ax.annotate(f"n={r['n_max']}", (r["zfrac"], r["cv"]),
+                    textcoords="offset points", xytext=(5, 5), fontsize=7)
+    ax.set_xlabel("落在 n_max=15 Zernike 张成空间内的能量占比")
+    ax.set_ylabel("CV")
+    ax.set_title("可信度 vs 均匀度（右下=既可信又均匀）")
+    ax.invert_yaxis()
+    ax.grid(alpha=0.3)
+
+    ax = axes[2]
+    if iteration:
+        cols = list(next(iter(iteration["cross_model_cv"].values())).keys())
+        matrix = np.array([[iteration["cross_model_cv"][s][c] for c in cols] for s in cols])
+        im = ax.imshow(matrix, cmap="magma")
+        ax.set_xticks(range(len(cols)), cols, rotation=40, ha="right", fontsize=7)
+        ax.set_yticks(range(len(cols)), cols, fontsize=7)
+        for i in range(len(cols)):
+            for j in range(len(cols)):
+                value = matrix[i, j]
+                ax.text(j, i, f"{value:.2f}", ha="center", va="center", fontsize=7,
+                        color="white" if value > matrix.mean() else "black",
+                        fontweight="bold" if i == j else "normal")
+        ax.set_title("交叉评判 CV（对角线=自评，每行最小）")
+        fig.colorbar(im, ax=ax, shrink=0.8)
+    fig.tight_layout()
+    path = FIGURES / "11_parametrization_and_iteration.png"
+    savefig(fig, path)
+    return {"parametrization": path.name}
+
+
+def parametrization_table(sweep: dict | None) -> str:
+    rows = []
+    for r in (sweep or {}).get("rows", []):
+        label = (f"zernike n_max={r['n_max']}" if r["param"] == "zernike" else "**freeform**")
+        rows.append([
+            label, f"{r['dof']:,}", f"{r['cv']:.4f}", f"{r['ee']:.4f}",
+            f"{r['quality']:.4f}", f"{r['zfrac']:.3f}", f"{r['highfreq']:.3f}",
+        ])
+    return markdown_table(
+        ["参数化", "DOF", "CV", "EE", "quality", "Zernike 跨度内能量", "高频能量占比"], rows
+    )
+
+
+def iteration_table(iteration: dict | None) -> str:
+    if not iteration:
+        return "_(未运行 iterate_surrogate_synthesis.py)_"
+    rows = []
+    for r in iteration["surrogates"]:
+        rows.append([
+            r["label"], f"{r['model_dof']:,}", f"{r['held_out_r2']:+.4f}",
+            f"{r['synth_cv']:.4f}", f"{r['synth_quality']:.4f}",
+        ])
+    return markdown_table(
+        ["代理", "DOF", "留出 R²（3 折）", "合成相位 CV", "quality"], rows
+    )
+
+
 # --------------------------------------------------------------------------- #
 # report
 # --------------------------------------------------------------------------- #
@@ -562,6 +641,21 @@ def build_report(
     s_ood_c = s_ood.get("corpus_zernike_fraction_mean", float("nan"))
     s_ood_hf = s_ood.get("high_frequency_fraction", float("nan"))
     s_ood_n = s_ood.get("corpus_samples", 0)
+    zsweep = (synthesis or {}).get("parametrization_sweep") or {}
+    zrow = {r["n_max"]: r for r in zsweep.get("rows", []) if r["param"] == "zernike"}
+    frow = {r["param"]: r for r in zsweep.get("rows", [])}
+    s_z15 = zrow.get(15, {}).get("cv", float("nan"))
+    s_free = frow.get("freeform", {}).get("cv", float("nan"))
+    s_ratio = (s_z15 / s_free) if s_free else float("nan")
+    iteration = (synthesis or {}).get("surrogate_iteration")
+    it_rows = (iteration or {}).get("surrogates", [])
+    it_cvs = [r["synth_cv"] for r in it_rows]
+    s_cv_spread = (max(it_cvs) - min(it_cvs)) if it_cvs else float("nan")
+    it_mat = (iteration or {}).get("cross_model_cv", {})
+    it_sp = [max(r.values()) - min(r.values()) for r in it_mat.values()] or [float("nan")]
+    s_noise_ratio = (statistics.fmean(it_sp) / s_cv_spread) if s_cv_spread else float("nan")
+    s_corr = (synthesis or {}).get("iteration_corr", {}).get("r", float("nan"))
+    s_corr_p = (synthesis or {}).get("iteration_corr", {}).get("p", float("nan"))
 
     return f"""# Zernike 远场模型 —— 开发报告
 
@@ -896,9 +990,44 @@ U-Net 也看到光斑变均匀（{s_x_flat_cv} → {s_x_cv}），所以这个相
 要修，两条路：把优化限制在模型可信的流形上（Zernike 限定 —— 但仓库已记录低阶 Zernike
 **造不出**方斑），或者给损失加散斑敏感项。
 
-**3. 与仓库自己的整形结果相比：赢了 GS，输给完整细化。** 仓库数值仿真里 GS 单次约
-CV 0.41，`GS + 自由相位细化` 约 CV 0.12；本方法 0.166 落在两者之间。注意两者并非
-严格同条件（padding、网格、目标构造都不同），所以这是量级参照而非等价比较。
+**3. 回到可信流形：Zernike 带限的代价是 2.5 倍。** 把相位限制在语料所在的
+`n_max` Zernike 张成空间内（piston 排除，因为不影响强度）：
+
+{parametrization_table(zsweep)}
+
+三点值得记：
+
+1. **可信的答案是 CV {s_z15:.4f}**（`n_max=15`），不是 freeform 的 {s_free:.4f}。
+   带限让它差 **{s_ratio:.1f} 倍**，且恰好落在仓库 GS 基线 0.41 上 —— 这就定量证实了
+   仓库那条反模式："低阶 Zernike 造不出方斑远场"。
+2. **`n_max` 非单调**：4→8→15 依次改善（0.76→0.57→0.39），到 20/30 反而变差
+   （0.43/0.48）。更高的模式让优化器去追局部纹理，牺牲了框内均匀性。
+3. **`n_max>15` 也出流形**：zfrac 从 1.000 掉到 0.639/0.362。代理是在 `n_max=15`
+   上训练并验证的，所以"带限"的分界不是数学上的，是**验证过的**分界。
+
+**4. 迭代优化这个模型 —— 试了，但它不是瓶颈。** 用一个代理"动物园"（DOF 14→135、
+epoch 25→100，横跨欠拟合到过训练）迭代，每个都在**留出 pickle** 上评 R²，
+再各自在可信流形内合成相位：
+
+{iteration_table(iteration)}
+
+**结论一：更好的模型并不给出更好的相位。** 留出 R² 从 +0.849 升到 +0.872，
+合成相位 CV 却在 0.39–0.44 之间（跨度仅 **{s_cv_spread:.3f}**），
+`corr(留出 R², 合成 CV) = {s_corr:+.3f}`（n=5，**p = {s_corr_p:.3f}，不显著**）。
+
+**结论二：每个代理都认为自己的相位最好。** 交叉评判矩阵里，**对角线在每一行都是最小值**
+（自评 0.399/0.418/0.387/0.410/0.443，逐行等于该行的最优裁判）。这是把
+self-confirmation bias 直接量化出来了。
+
+**结论三：测量被"模型选择"噪声淹没。** 同一相位在不同代理眼下的 CV 跨度是
+**0.21–0.43**，而我们想测的配置差异只有 **{s_cv_spread:.3f}** —— 差约
+{s_noise_ratio:.0f} 倍。换模型带来的扰动远大于信号。
+
+![参数化与迭代]({fig_ref(figures.get("parametrization"))})
+
+所以"把模型迭代得更好"**不是**做出更好方斑相位的杠杆。杠杆是一个**可信的、散斑敏感的**
+前向模型，而那需要硬件 —— 学习到的回归器按定义就把散斑抹平了。第 2 节那个 {s_gap:.1f} 倍
+的分歧、以及这里 {s_noise_ratio:.0f} 倍的模型间噪声，都指向同一件事。
 
 > **这条结论只到"代理空间"为止。** 物理模型在留出 pickle 上 R² ≈ 0.88，
 > 一个把代理优化到 CV 0.17 的相位，并不因此在真实台架上也是 CV 0.17。
@@ -958,6 +1087,8 @@ def main() -> int:
     parser.add_argument("--history", default="logs/zernike_amp_final/summary.json")
     parser.add_argument("--index-cache", default="data/hw_index_cache.json")
     parser.add_argument("--compare-png", default="logs/zernike_amp_final/compare_epoch024.png")
+    parser.add_argument("--zernike-sweep", default="logs/zernike_phase_sweep.json")
+    parser.add_argument("--iteration", default="logs/surrogate_iteration.json")
     parser.add_argument(
         "--synthesis", default="logs/uniform_spot_phase",
         help="directory written by scripts/optimize_uniform_spot_phase.py",
@@ -992,6 +1123,25 @@ def main() -> int:
         )
         if synthesis is not None:
             figures.update(fig_phase_synthesis(synthesis, synthesis_dir))
+            zs_path, it_path = Path(args.zernike_sweep), Path(args.iteration)
+            zs = json.loads(zs_path.read_text(encoding='utf-8')) if zs_path.exists() else None
+            it = json.loads(it_path.read_text(encoding='utf-8')) if it_path.exists() else None
+            if zs:
+                figures.update(fig_parametrization_sweep(zs, it))
+                synthesis = synthesis | {"parametrization_sweep": zs, "surrogate_iteration": it}
+                if it:
+                    from scipy import stats
+
+                    held_out = [r["held_out_r2"] for r in it["surrogates"]]
+                    synth_cv = [r["synth_cv"] for r in it["surrogates"]]
+                    # r from the stdlib (fully typed) rather than scipy: the bundled
+                    # scipy stubs declare PearsonRResult without its fields. The
+                    # two-sided p-value then follows from t = r*sqrt((n-2)/(1-r^2)).
+                    n = len(held_out)
+                    rho = statistics.correlation(held_out, synth_cv)
+                    t_stat = rho * math.sqrt((n - 2) / (1.0 - rho * rho))
+                    p_value = float(stats.t.sf(abs(t_stat), df=n - 2)) * 2.0
+                    synthesis["iteration_corr"] = {"r": rho, "p": p_value}
         print(f"rendered {sum(1 for v in figures.values() if v)} figures -> {FIGURES}")
 
     text = build_report(sweep, history, figures, synthesis)
