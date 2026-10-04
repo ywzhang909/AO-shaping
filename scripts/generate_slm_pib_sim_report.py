@@ -1,6 +1,6 @@
 """Offline report generator for the ``slm-pib`` simulation run.
 
-Reads the debug artifacts written by ``slm_pib_runner`` (PKL + JSON sidecar) and
+Reads the debug artifacts written by ``shaping_runner`` (PKL + JSON sidecar) and
 produces:
 
 * ``report/slm_pib_sim/figures/*.png`` — per-run figures (objective curve,
@@ -655,13 +655,13 @@ def build_markdown(
     lines.append("")
     lines.append(
         "**Fully offline** — 本报告由 `scripts/generate_slm_pib_sim_report.py` 离线生成, "
-        "仅读取 `slm_pib_runner --debug` 保存的 PKL/JSON 调试产物, 不打开任何硬件。"
+        "仅读取 `slm-pib --debug` 保存的 PKL/JSON 调试产物, 不打开任何硬件。"
     )
     lines.append("")
     lines.append("## 1. 运行说明")
     lines.append("")
     lines.append(
-        "本运行使用 `src/ao_shaping/runners/slm/pib_runner.py` 的 **SPGD** 子命令, 在纯 numpy "
+        "本运行使用 `src/ao_shaping/runners/slm/shaping_runner.py` (`slm-pib` 组) 的 **SPGD** 子命令, 在纯 numpy "
         "2f-Fourier 仿真 (`src/ao_shaping/drivers/sim/slm_pib_sim.py`) 下执行, 无硬件。"
     )
     lines.append("")

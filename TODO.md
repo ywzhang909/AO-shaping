@@ -1093,7 +1093,7 @@ flag 总数因此 287 → 285（help 可见 289 → 287）。
 
 | 入口 | 实际用的模块 |
 |---|---|
-| `slm-pib`（`runners/slm_pib_runner.py:15`） | `wfless.slm_zernike_pib` ✅ |
+| `slm-pib`（`runners/slm_pib_runner.py:15`，2026-10-05 起为 `runners/slm/shaping_runner.py`） | `wfless.slm_zernike_pib` ✅ |
 | `delta_explorer`（`tools/slm/delta_explorer.py:49`） | `wfless.slm_zernike_pib` ✅ |
 | `rms-zernike`（`runners/slm/rms_zernike_runner.py:12`） | **`wf.rms_by_zernike`** ❌ 不是 shaping |
 | `slm_zernike_shaping` | **零生产导入方**（只有 3 个测试 + 自己的 legacy `__main__`） |
@@ -1716,6 +1716,11 @@ R-19 本体（对称 BenchSession）没动，但先做它的**注入机制**那�
 |---|---|
 | `runners/slm_gsnet_runner.py:220 _maybe_sim_patch` | `slm_square_shaping` |
 | `scripts/slm_pib_sim_run.py:309 _patch_santec` | `slm_zernike_pib` |
+
+> ⚠️ **2026-10-05 后续**：两份 runner 侧补丁已抽成
+> `runners/runner_common.py::patch_sim_square_shaping` / `patch_sim_pib_shaping`
+> （共用 `_patch_sim_devices`），`gsnet_runner._maybe_sim_patch` 变成薄别名。
+> **两半有一处故意不同**：方形那半钉 `seed=42`，pib 那半**不 reset**（见 §5.35）。
 | `tests/.../test_slm_zernike_objectives_sim.py:81 _patch_slm` | 两个都打 |
 
 **这不只是重复**：因为覆盖不一致，唯一的端到端离线测试打的是
@@ -1757,6 +1762,44 @@ R-19 本体（对称 BenchSession）没动，但先做它的**注入机制**那�
 > 正好是新增的 7 例），所以与本次改动无关 —— 属于本仓库已知的跨测试顺序干扰。
 > 同目录另有 2 个 collection error 也是既有的环境缺失：OOPAO 子模块未装、
 > `gymnasium`（`rl` 可选依赖组）未装。
+
+### 5.35 `slm-pib` / `spgd-square` 合并成 `shaping_runner`（2026-10-05，无设备）
+
+`runners/slm/pib_runner.py` → `runners/slm/shaping_runner.py`，
+`runners/slm/square_runner.py` 作为其 `square` 子命令合入（commit `278a3bc`）。
+命令行名与全部选项不变；新增两个等价入口 `main.py slm-pib square` 与
+`python -m ao_shaping.runners.slm.shaping_runner square`。
+
+**合并的理由不是排版**。两个模块驱动同一对设备（Santec SLM + CCD，相机反馈，
+Zernike 系数），但漂移已经产生**行为差异**：`--cam_type sim` 号称"无需设备"，
+而 `spgd-square` **从未注册**模拟相机（"离线试跑"实际去开真实 Santec，
+`SantecError -10002`），`slm-pib` 只换了相机却仍构造真实 `Santec`，且是在烧掉
+自动曝光探针之后。两半统一走 `runner_common.patch_sim_square_shaping` /
+`patch_sim_pib_shaping`（共用 `_patch_sim_devices`），实测都能在 2f-Fourier
+数字孪生上跑完 2 epoch。
+
+**两半有一处故意不同，别"顺手统一"**：方形那半钉 `seed=42`；pib 那半**不
+reset** 模拟系统 —— `slm_pib_sim_run.py` harness 自己装了带干扰的定种子系统，
+并专门包装 `reset_system` 使每次调用重新挂上干扰。runner 里再 reset 一次就会把
+它换成无种子、无干扰的系统，而 companion manifest 仍声称有干扰 ⇒ **静默无干扰
+运行**。改动后重跑 harness 核对干扰量不变（`sigma_total=0.5658 rad`、
+`sigma_turb=0.3741`、`sigma_halo=0.4049`、`streaks=1`）。
+
+顺带修掉的：
+
+- `spgd-square --delta` 曾是**空操作**（`SlmSquareParams.delta` 硬编码 `0.1`，
+  Click 无法区分"没传"与"传了 0.1"，默认 `lr=0` 的自适应调度每轮改写它）。
+  现 `None` + `resolve_spgd_delta`，与 `slm-gsnet` / `slm-pib` 一致。⇒ **H-21 需真机 A/B**。
+- `spgd-square --debug` 过去什么都不产出；现写 `data/debug/slm_square_<ts>/`。
+  ⚠️ 但实测只有 `--basis freeform` 能进 `ml/hwdataset`（Zernike 基 0/3）⇒ **H-23**。
+- **上一提交遗留的破仓**：`gsnet_runner` 已 import `patch_sim_square_shaping` 而定义
+  没跟着进 `runner_common`，`import ao_shaping.main` 直接 ImportError（clean checkout
+  跑不了 CLI）。本提交补上定义才修好。
+
+**未上真机**：H-20（`spgd-square` 光学回归）、H-21（`--delta` A/B）、
+H-22（`slm-pib` 未变）、H-24（新 family ⇒ 新 `fov_px` ⇒ `far_field_padding` 标定重扫）。
+离线新增 `test_shaping_runner_sim_backend.py`（8 例：硬件相机类型下 patch 是 no-op、
+pib 那半不 reset、两半真能离线跑通）。
 
 ---
 

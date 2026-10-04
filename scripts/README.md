@@ -1720,7 +1720,8 @@ python scripts/generate_pearson_pkl_gif.py --pkl data/debug/<run>/<ts>/<name>.pk
 Runs the **`slm-pib`** SPGD shaping pipeline **entirely in the simulation
 environment** (no hardware). Wires the pure-numpy 2f-Fourier sim
 (`src/ao_shaping/drivers/sim/slm_pib_sim.py`) into the **genuine**
-`slm_pib_runner` CLI path so the standard debug artifacts (PNG/PKL/JSON) are
+`shaping_runner` (the `slm-pib` half) CLI path so the standard debug artifacts
+(PNG/PKL/JSON) are
 produced exactly as a hardware run would write them — ready for report
 generation.
 
@@ -1783,15 +1784,18 @@ smoothly apodised out to `--halo-radius-px` and PV-normalised to
 > compensation (`drivers/sim/AGENTS.md` §4), so the measured σ is a **lower
 > bound** — reports quote the *measured* value.
 
-> ⚠️ `slm_pib_runner._maybe_sim_patch` calls `reset_system(seed=42)` when
-> `--cam_type sim`. The harness wraps that call so the injected disturbance is
-> re-attached; without it the run silently executes **disturbance-free** while
-> the companion manifest claims otherwise (locked by
-> `tests/ao_shaping/scripts/test_slm_pib_sim_run_disturbance.py`).
+> ⚠️ `slm_pib_sim_run.py` 在调用 CLI 前自己 `reset_system(...)` 装好带干扰的系统, 并包装
+> 该调用使每次都重新挂上干扰。`slm-pib` runner 侧的 sim 接线
+> (`runner_common.patch_sim_pib_shaping`) **刻意不 reset** —— 否则会把 harness 装好的
+> 带干扰系统换成无种子、无干扰的系统, 运行静默地与自己的 manifest 矛盾。方形家族那边
+> (`patch_sim_square_shaping`) 则钉 `seed=42`, 因为它没有面向用户的 seed 能传到台架,
+> 不钉住的话两次 `spgd-square --cam_type sim` 的干扰流不可比
+> (locked by `tests/ao_shaping/scripts/test_slm_pib_sim_run_disturbance.py` +
+> `tests/ao_shaping/runners/test_shaping_runner_sim_backend.py`)。
 
 **What it does:**
 - registers the `"sim"` camera type so `create_camera("sim", ...)` returns a
-  `SimPibCCD` reading the shared far-field state (the `slm_pib_runner --cam_type`
+  `SimPibCCD` reading the shared far-field state (the `slm-pib --cam_type`
   `click.Choice` was extended to include `"sim"`)
 - monkeypatches `ao_shaping.optimizer.wfless.slm_zernike_pib.Santec` →
   `SimSLMPib` so the optimizer's SLM context manager instantiates the sim
@@ -1801,7 +1805,7 @@ smoothly apodised out to `--halo-radius-px` and PV-normalised to
   without the classmethod the sim path dies with
   `AttributeError: type object 'SimSLMPib' has no attribute 'from_params'`
   (locked by `tests/ao_shaping/drivers/sim/test_sim_slm_from_params.py`)
-- invokes the genuine `slm_pib_runner.run` Click entry with `--cam_type sim`
+- invokes the genuine `shaping_runner.run` Click entry with `--cam_type sim`
   `--debug` (square target, Zernike n≤4, SPGD + AdaMOD)
 - optical model: SLM = 2f front focal plane, CCD = back focal plane, so the CCD
   image is the 2D FFT (Fraunhofer far field) of the SLM pupil field — the
@@ -1896,7 +1900,7 @@ python scripts/generate_shape_objective_comparison.py
   constant frame gives exactly `1.0`); the `1e3` value is a discrete sentinel
   for a dark / NaN / non-normalisable frame, not a continuous tail
 
-> ⚠️ **Provenance is inferred unless the sidecar records it.** `slm_pib_runner`
+> ⚠️ **Provenance is inferred unless the sidecar records it.** `shaping_runner`
 > now writes `objective` / `cam_type` / `cam_id` / `exposure_time_ms` /
 > `zernike_radius` / search knobs into the JSON sidecar, so new runs are
 > self-attributing. Runs written before that still record only
@@ -2016,7 +2020,7 @@ single pass, and the unshaped initial state.
 ### generate_slm_pib_sim_report.py
 
 Generates the illustrated **slm-pib simulation** report from a
-`slm_pib_runner --debug` artifact directory. **Fully offline** — reads the saved
+`slm-pib --debug` artifact directory. **Fully offline** — reads the saved
 PKL/JSON only, no hardware, no pipeline code.
 
 **Usage:**

@@ -528,7 +528,7 @@ python -m ao_shaping.tools.slm.slm_zernike_sweep_probe --exposure-ms 3.0 \
 ```bash
 python src/ao_shaping/main.py spgd-square [OPTIONS]
 ```
-等同于: `python -m ao_shaping.runners.slm.shaping_runner`
+等同于: `python -m ao_shaping.runners.slm.shaping_runner square` (也可写成 `main.py slm-pib square` —— 三个入口等价)
 
 通过 SPGD (随机并行梯度下降) 优化 Zernike 系数, 将远场光斑整形为**均匀方形** (SLM+CCD 闭环)。目标方形边长可由 `--target-side` 显式指定 (像素) 或由 `--target-mean-brightness` 按总亮度能量守恒自动推导。支持 `--basis zernike` (与 GUI 一致的 radius=600 + defocus + spherical 初始化) 与 `--basis freeform` (自由相位网格, 可合成方形)。
 
@@ -539,7 +539,7 @@ python src/ao_shaping/main.py spgd-square [OPTIONS]
 - `--target-side`: 目标方形边长 (像素, 默认: 0=自动; 与 --target-mean-brightness 互斥)
 - `--target-mean-brightness`: 目标方形平均亮度 (灰度, >0 时由总亮度能量守恒自动推导边长)
 - `--side-factor`: 自动边长倍率 (默认: 1.5)
-- `-d, --delta`: 扰动幅度 (默认: 0.1)
+- `-d, --delta`: 扰动幅度 (rad)。**省略 = 0.1 且交给自适应调度**; 显式给出则钉住该值, 调度不再改写 (合并前该 flag 是空操作, 见 TODO H-21)
 - `--lr`: 学习率, 0=自动 (默认: 0)
 - `-t, --exposure-ms`: 相机曝光时间ms (默认: **0** = 不固定, 见下方⚠️)
 - `--cam-id`: 相机设备ID (默认: 0)
@@ -561,6 +561,8 @@ python src/ao_shaping/main.py spgd-square [OPTIONS]
 - `--show`: 显示中间图像
 
 > **注意**: 目标函数必须包含能量项 (环绕能量 EE), 仅优化亮度均匀性 (-CV) 会把能量推出目标框 (硬件实测 EE→0.002)。方形整形应使用自由相位自由度 (full-pixel/freeform), 低阶 Zernike (n≤4) 无法合成方形远场。
+
+> **`--cam_type sim` / `--slm_type sim` 已真正接线** (2026-10-05)。此前这两个 flag 只写在帮助里, 实际仍会打开真实 Santec (`SantecError -10002`)。现在走数字孪生, 无需设备: `main.py spgd-square --cam_type sim --slm_type sim -e 5`。`--slm_type sim` 必须与 `--cam_type sim` 同时给 (模拟 SLM 只在装上孪生台架后存在), 否则直接报 UsageError。⚠️ `--debug` 产物目前只有 `--basis freeform` 能进 `ml/hwdataset` 语料 (Zernike 基因 `_c` 存的是活动模式向量而被判 `odd_coefficient_length`, 见 TODO H-23)。
 
 > ⚠️ **曝光默认值是 `0` = "不固定", 不是"自动安全"。**
 > `drivers/ccd/common.py::resolve_initial_exposure` 的分派是:
@@ -1141,7 +1143,7 @@ python -m ao_shaping.tools.slm.slm_diagnose
 
 16. SLM 方形光斑 SPGD 整形:
 ```bash
-python -m ao_shaping.runners.slm.shaping_runner [OPTIONS]
+python -m ao_shaping.runners.slm.shaping_runner square [OPTIONS]
 ```
 
 17. SLM 自由相位方形整形:
@@ -1151,7 +1153,7 @@ python -m ao_shaping.runners.slm.gsnet_runner [OPTIONS]
 
 18. SLM Zernike PIB 优化:
 ```bash
-python -m ao_shaping.runners.slm.shaping_runner [OPTIONS]
+python -m ao_shaping.runners.slm.shaping_runner [spgd|heuristic] [OPTIONS]
 ```
 
 19. 闭环波前优化:
@@ -1840,6 +1842,14 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
   - [驱动层架构](docs/drivers_architecture.md)、[AO 仿真指南](docs/simulation.md)、[Tabu 算法](docs/tabu_search_algorithm.md)、[已知问题](docs/issues_report.md)、[待办总账](TODO.md)
 
 ## 近期更新
+
+### v0.16.0 (2026-10-05)
+- **`slm-pib` / `spgd-square` 合并进单个 runner**: `runners/slm/pib_runner.py` → `runners/slm/shaping_runner.py`, `runners/slm/square_runner.py` 作为其 `square` 子命令合入。命令行名与全部选项不变; 新增两个等价入口 `main.py slm-pib square` 与 `python -m ...shaping_runner square`。
+- 修复: **`--cam_type sim` 在两半都是坏的** —— `spgd-square` 从未注册模拟相机 (所谓"离线试跑"会去开真实 Santec 并以 `SantecError -10002` 收场), `slm-pib` 只换了相机却仍构造真实 `Santec`, 且是在烧掉自动曝光探针之后。现统一走 `runner_common.patch_sim_square_shaping` / `patch_sim_pib_shaping`; 两半都能在 2f-Fourier 数字孪生上跑完 2 epoch。`--slm_type sim` 同时从"声明但无效"变成有效 (缺 `--cam_type sim` 时报 UsageError, 而不是去连硬件)。两个 helper 有一处**故意不同**: pib 那半**不** reset 模拟系统, 因为 `slm_pib_sim_run.py` harness 自己装了带干扰的定种子系统并包装了 `reset_system` 以保住干扰 —— 实测重跑 harness 干扰量不变 (`sigma_total=0.5658 rad`)。
+- 修复: `spgd-square --delta` 是**空操作** —— `SlmSquareParams.delta` 硬编码 `0.1`, Click 无法区分"没传"与"传了 0.1", 于是默认 `lr=0` 的自适应调度每轮改写它。现改为 `None` + `resolve_spgd_delta` (省略=自适应, 显式=钉住), 与 `slm-gsnet` / `slm-pib` 一致。
+- `spgd-square --debug` 过去不产出任何东西; 现写 `data/debug/slm_square_<ts>/` 的 PNG/PKL/JSON (带自描述 sidecar)。历史上的 CSV / 最优系数 / 最优图输出不变。⚠️ 实测这些记录目前**只有 `--basis freeform` 能进 `ml/hwdataset`** (Zernike 基 0/3, 因 `_c` 存的是活动模式向量而被判 `odd_coefficient_length`), 见 TODO H-23。
+- 顺带修复了一个**上一提交遗留的破仓**: `gsnet_runner` 已 import `patch_sim_square_shaping` 但定义没跟着进 `runner_common`, 导致 `import ao_shaping.main` 直接 ImportError (clean checkout 无法跑 CLI)。
+- 合并动机不是"文件挪个窝": 两个模块驱动同一对设备, 漂移已经产生了**行为差异**而非仅仅排版差异。详见 commit `278a3bc`; 待上设备复测项见 TODO H-20~H-24。
 
 ### v0.15.0 (2026-10-01)
 

@@ -30,7 +30,7 @@
 | 类别 | 篇数 | 方法主线 | 本仓库对应实现 |
 |------|-----|---------|----------------|
 | (A) 经典 / 相位生成 | 8 | GS 族 + 最优传输初始化 + 反馈 GS + 混合 (SIFTA/SA) | `algorithm/signal_processing/gerchberg_saxton.py` (⚠️ 原列 `gs_hologram_runner`/`gs_square_runner` **已删除**) |
-| (B) 可微分 / SPGD | 5 | 自动微分全息 + M-SPGD + 物理嵌入式 NN + 最优传输+phase diversity | `runners/slm_gsnet_runner.py` / `runners/slm_square_runner.py` (⚠️ 原列 `diff_shaping_runner`/`diff_beam_runner`/`spgd_square_runner` **均已删除**) |
+| (B) 可微分 / SPGD | 5 | 自动微分全息 + M-SPGD + 物理嵌入式 NN + 最优传输+phase diversity | `runners/slm/gsnet_runner.py` / `runners/slm/shaping_runner.py` 的 `square` 子命令 (⚠️ 原列 `diff_shaping_runner`/`diff_beam_runner`/`spgd_square_runner` **均已删除**) |
 | (C) 强化学习 | 5 | PPO/SAC/DDPG/准-RL 闭环控制 (多为 DM 或相位元件) | `optimizer/rl` (SAC) |
 | (D) 目标函数 / 指标 | 5 | 重叠系数 / VecCos / M² 束质量 / 均匀性+效率 / 路线图综述 | `utils/image/beam_metrics` (`compute_metrics`) + 各优化器评分 |
 | (E) 偏振 / 振幅+相位 | 2 | 矢量 AO (相位+偏振) + 偏振非线性 CGH | (尚无, 规划中) |

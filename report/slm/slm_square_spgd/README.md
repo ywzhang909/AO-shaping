@@ -1,4 +1,4 @@
-# SLM 方形光斑 SPGD 整形 (`slm_square_runner`) — 经验总结与故障分析
+# SLM 方形光斑 SPGD 整形 (`spgd-square`) — 经验总结与故障分析
 
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
@@ -6,12 +6,19 @@
 > **说明**: 方形光斑 SPGD 经验总结与故障分析
 <!-- provenance:end -->
 
-> 记录 `spgd-square` / `slm_square_runner` 的完整分析、硬件实测、缺陷根因与修复，
+> ⚠️ **2026-10-05：`slm_square_runner.py` 已不存在。** 它被合进
+> `src/ao_shaping/runners/slm/shaping_runner.py`，作为 `square` 子命令
+> （即 `spgd-square` ≡ `slm-pib square` ≡
+> `python -m ao_shaping.runners.slm.shaping_runner square`）。下文凡出现
+> `slm_square_runner` / `ao_shaping.runners.slm_square_runner` 均指这一子命令；
+> 硬件结论与缺陷分析不受影响。
+>
+> 记录 `spgd-square` 的完整分析、硬件实测、缺陷根因与修复，
 > 供后续开发与评审参考。
 >
 > 分析日期: 2026-09-10 · 硬件: Santec SLM200 #1 (SN 22030108) + Daheng MER2-507-23GM NIR (cam_id=0)
 > 相关文件:
-> - `src/ao_shaping/runners/slm_square_runner.py` (CLI)
+> - `src/ao_shaping/runners/slm/shaping_runner.py` (CLI, `square` 子命令)
 > - `src/ao_shaping/optimizer/wfless/slm_square_shaping.py` (核心算法)
 > - `src/ao_shaping/utils/wavefront/pattern_helper.py`
 > - `src/ao_shaping/drivers/slm/santec/driver.py` (`create_phase_from_array`, `display_data`)
@@ -33,14 +40,14 @@
 
 ```powershell
 python src/ao_shaping/main.py spgd-square --target-side 20 --center shape
-python -m ao_shaping.runners.slm_square_runner --target-side 20 --center shape
+python -m ao_shaping.runners.slm.shaping_runner square --target-side 20 --center shape
 ```
 
 ---
 
 ## 2. 结论
 
-**原版 `slm_square_runner` 无法完成该任务。** 经代码分析 + Oracle 复核 + 硬件实测确认，
+**原版 `slm_square_runner`（现已并入 `shaping_runner` 的 `square` 子命令）无法完成该任务。** 经代码分析 + Oracle 复核 + 硬件实测确认，
 存在 **5 个阻断性问题**。修复其中 4 个 bug 后，目标框能正确落在光斑上并显著变亮，
 但**模型无关 SPGD 收敛到散斑**，仍非干净方形（见 §5、§6）。
 
@@ -156,7 +163,7 @@ SPGD 路径完全绕开了它（原文引用的 `diff_shaping_runner.py:729` **�
 - 梯度目标改为**质量分**（CV+EE+AR）而非 `-CV`（修 B4）；freeform 的 lr/delta 缩放 0.1。
 - 窗口重置后**在窗内重新检测质心**作为目标框中心（修 B5）。
 
-`src/ao_shaping/runners/slm_square_runner.py`
+`src/ao_shaping/runners/slm/shaping_runner.py` (`square` 子命令)
 - 新增 `--basis [freeform|zernike]`（默认 freeform）、`--phase-grid`（默认 24）。
 
 ---
@@ -187,7 +194,7 @@ SPGD 路径完全绕开了它（原文引用的 `diff_shaping_runner.py:729` **�
 > - `slm-gsnet spgd|backprop|heuristic`（`runners/slm_gsnet_runner.py`）——
 >   FourierGSNet / freeform 路径，**已接能量守卫 + 24×24 网格，替代本节方案**
 > - `slm-gs-refine`（`runners/slm_gs_refine_runner.py`）—— GS 预矫正 bake-off + SPGD 细化
-> - `spgd-square`（`runners/slm_square_runner.py`）—— 本文件对应的 SPGD 路径
+> - `spgd-square`（`runners/slm/shaping_runner.py` 的 `square` 子命令）—— 本文件对应的 SPGD 路径
 
 要得到干净的 20×20 方形，使用项目已验证的**模型化引擎**：
 
@@ -198,7 +205,7 @@ SPGD 路径完全绕开了它（原文引用的 `diff_shaping_runner.py:729` **�
   SLM200+大恒真机 Corr 0.8776, footprint 20×22px）— **命令已移除**；
   实测记录仍归档在 `report/diff_beam/README.md`（200 步最优, 400 步无增益）
 
-若要保留 `slm_square_runner` 的 CLI，可将其相位合成接到 `train_beam_shaping` /
+若要保留 `spgd-square` 的 CLI，可将其相位合成接到 `train_beam_shaping` /
 GS 引擎（保留 `--target-side` / `--center`），而非依赖模型无关 SPGD。
 
 ---
@@ -209,11 +216,11 @@ GS 引擎（保留 `--target-side` / `--center`），而非依赖模型无关 SP
 $env:PYTHONPATH = "src;libs"
 
 # 原版（有缺陷）—— 目标框为空，EE≈0
-python -m ao_shaping.runners.slm_square_runner `
+python -m ao_shaping.runners.slm.shaping_runner square `
     --target-side 20 --center shape -e 100 --exposure-ms 0 --save-best-image
 
 # 修复版 freeform —— 框已点亮，但仍为散斑
-python -m ao_shaping.runners.slm_square_runner `
+python -m ao_shaping.runners.slm.shaping_runner square `
     --target-side 20 --center shape -e 120 --exposure-ms 0 `
     --basis freeform --phase-grid 24 --save-best-image
 ```
