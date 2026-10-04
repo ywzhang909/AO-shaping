@@ -108,7 +108,7 @@
 | R-10 P2 | 死代码 `gauss_center`（零生产调用，可删） | ✅ **早已完成**（本轮实测确认）：全仓 grep 只剩 `TODO.md` / `docs/TODO.md` 的记录行，`src/` 无定义、无调用；专属测试也已删（`test_slm_zernike_pib_shape.py` 里剩下的 `"gaussian"` 是 target_shape 取值，无关） | 2026-09-25 |
 | R-11 P2 | ~~常量替换字面量~~ | ✅ **早已完成**（本轮实测确认）：两侧都有 `ZERNIKE_CLIP = 5.0` 与 `IMPROVE_EPS = 1e-4`，全文件再无裸 `5.0` / `1e-4` clip 字面量（除常量定义自身）。⚠️ 顺带纠正：`GUARD_PENALTY` **不在** `drivers/ccd/common.py`，而在 `utils/image/target/objective.py:33`（随 ObjectiveSpec 抽取时搬的）；且 `metrics.py:298,384,396` 另有 3 处裸 `1e3` **语义不同、故意不统一** → §5.21 | 2026-09-25 |
 | R-12 P2 | `_update_dynamic_weights` → `AdaptiveWeights` dataclass（现为裸 dict setdefault + 2/3-tuple 联合返回），顺带收口 R-4 | `slm_zernike_pib.py:251-375` | 2026-09-25 |
-| R-13 P2 | `_create_optimizer` 的 `inspect.signature` 创可贴 → 显式 `OptimizerConfig` | `slm_zernike_pib.py:422-430` | 2026-09-25 |
+| R-13 P2 | `_create_optimizer` 的 `inspect.signature` 创可贴 | ✅ **已按实测修**（§5.25），但**未**引入 `OptimizerConfig`：真正的问题是**静默吞参数**，不是签名不够显式。实测 `SGD` 签名只有 `(self, dim, lr)` ⇒ `momentum`/`weight_decay`/`ns_steps` 被无声丢弃；且带 `**kwargs` 的类永远收不到 kwargs ⇒ `**config.kwargs` 逃生口是死的 | 2026-09-25 |
 | R-14 P2 | `_metric_panel` 每 epoch 全量六套指标 → 加 `panel_every_n: int = 1` 开关 | `slm_zernike_pib.py:1544` | 2026-09-25 |
 | R-15 P2 | `_apply_best_on_exit` 往 Recorder 挂属性 → 显式 `RawReport` 字段 | `slm_zernike_pib.py:~1584` | 2026-09-25 |
 | R-16 P2 | `SLM_WIDTH/HEIGHT` 与驱动 `Panel_Res` 重复 | ✅ **已完成**（§5.22）：两侧改为 `SLM_WIDTH, SLM_HEIGHT = PANEL_RES`（值实测一致 (1920,1200)），**保留常量名**（有测试 import），只改值的来源；并加 AST 守卫禁止再写回字面量 | 2026-09-25 |

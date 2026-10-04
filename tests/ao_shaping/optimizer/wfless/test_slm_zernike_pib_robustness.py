@@ -18,6 +18,8 @@ These are pure functions / pure-objective behaviours: no hardware, offline.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 from typing import Any
 
 import numpy as np
@@ -530,3 +532,102 @@ class TestLearningScheduleCentreIsWindowLocal:
             f"line(s) {offenders}; import it from "
             f"ao_shaping.utils.image.targets instead"
         )
+
+# ---------------------------------------------------------------------------
+# R-13: the inspect.signature kwarg filter used to swallow arguments silently
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _loguru_records():
+    """Collect WARNING+ loguru messages.
+
+    ``caplog`` cannot be used here: loguru owns its own handler and does not
+    propagate to the stdlib ``logging`` tree, so a warning emitted through
+    ``logger.warning`` is invisible to it. Adding a temporary sink is the
+    supported way to observe loguru output in-process.
+    """
+    from loguru import logger
+
+    seen: list[str] = []
+    handler_id = logger.add(lambda m: seen.append(str(m)), level="WARNING")
+    try:
+        yield seen
+    finally:
+        logger.remove(handler_id)
+
+
+class TestCreateOptimizerKwargFilter:
+    """One CLI passes the union of every optimizer's parameters, so the extras must
+    be filtered per class. The old filter did that and then dropped anything
+    unmatched without a word -- and it could never satisfy a callee declaring
+    ``**kwargs``, because a var-keyword's parameters are *named* ``kwargs``, so no
+    caller's key ever tested as present in the signature.
+
+    Measured against the real map:
+
+    * ``SGD``'s signature is ``(self, dim, lr)`` -- so ``momentum``,
+      ``weight_decay`` and ``ns_steps`` were all silently discarded;
+    * ``AdaMOD`` declares ``**kwargs`` -- so the documented ``**config.kwargs``
+      escape hatch was dead twice over: filtered out here, and ignored by AdaMOD.
+    """
+
+    @pytest.mark.parametrize(
+        "module_name",
+        ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
+    )
+    def test_unsupported_kwarg_is_reported_not_swallowed(self, module_name) -> None:
+        import importlib
+
+        module = importlib.import_module(module_name)
+        with _loguru_records() as records:
+            optimizer = module._create_optimizer("sgd", dim=4, lr=0.1, momentum=0.9)
+        assert type(optimizer).__name__ == "SGD"
+        assert any("momentum" in r for r in records), (
+            "a kwarg the optimizer cannot accept must be reported; dropping it "
+            "silently makes the flag look accepted while doing nothing"
+        )
+
+    @pytest.mark.parametrize(
+        "module_name",
+        ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
+    )
+    def test_var_keyword_callee_actually_receives_the_kwargs(self, module_name) -> None:
+        """A callee declaring ``**kwargs`` must not have them filtered away."""
+        import importlib
+
+        module = importlib.import_module(module_name)
+        received: dict[str, object] = {}
+
+        class _Sinks:
+            def __init__(self, dim: int, lr: float = 1.0, **kwargs) -> None:
+                received.update(kwargs)
+                self.dim = dim
+                self.lr = lr
+
+        original = dict(module.OPTIMIZER_MAP)
+        module.OPTIMIZER_MAP["sink"] = _Sinks
+        try:
+            with _loguru_records() as records:
+                module._create_optimizer("sink", dim=4, lr=0.1, beta1=0.85, freeform=7)
+        finally:
+            module.OPTIMIZER_MAP.clear()
+            module.OPTIMIZER_MAP.update(original)
+
+        assert received == {"beta1": 0.85, "freeform": 7}, received
+        assert not records, (
+            "nothing should be reported dropped when the callee accepts **kwargs: "
+            f"{records}"
+        )
+
+    @pytest.mark.parametrize(
+        "module_name",
+        ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
+    )
+    def test_accepted_kwargs_still_reach_a_plain_optimizer(self, module_name) -> None:
+        """The happy path is unchanged: Adam really does take beta1."""
+        import importlib
+
+        module = importlib.import_module(module_name)
+        optimizer = module._create_optimizer("adam", dim=4, lr=0.1, beta1=0.85)
+        assert optimizer.beta1 == pytest.approx(0.85)

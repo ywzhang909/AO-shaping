@@ -170,14 +170,32 @@ IMPROVE_EPS = 1e-4
 
 
 def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs: Any) -> Base:
-    """Create the configured optimizer while filtering unsupported kwargs."""
+    """Create the configured optimizer, forwarding the kwargs it can accept.
+
+    Mirrors ``slm_zernike_pib._create_optimizer`` -- see that docstring for why
+    the filter reports instead of swallowing, and why ``**kwargs`` must actually be
+    forwarded when the callee declares one.
+    """
     optimizer_cls = OPTIMIZER_MAP.get(optimizer_type.lower(), AdaMOD)
-    filtered_kwargs = {}
     signature = inspect.signature(optimizer_cls.__init__)
+    accepts_var_keyword = any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in signature.parameters.values()
+    )
+    accepted: dict[str, Any] = {}
+    dropped: list[str] = []
     for key, value in kwargs.items():
-        if key in signature.parameters:
-            filtered_kwargs[key] = value
-    return optimizer_cls(dim, lr=lr, **filtered_kwargs)
+        if key in signature.parameters or accepts_var_keyword:
+            accepted[key] = value
+        else:
+            dropped.append(key)
+    if dropped:
+        logger.warning(
+            "{} does not accept {}; ignored. Accepted: {{}}",
+            optimizer_cls.__name__,
+            ", ".join(sorted(dropped)),
+            ", ".join(sorted(signature.parameters)),
+        )
+    return optimizer_cls(dim, lr=lr, **accepted)
 
 
 # Fallback Zernike aperture radius (panel px) used only when the caller passes no
