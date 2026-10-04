@@ -129,7 +129,7 @@ class TestReport:
     def test_report_is_chinese_and_has_the_expected_sections(self, sweep, history) -> None:
         text = build_report(sweep, history, {})
         assert "## 1. 模型是什么" in text
-        assert "## 11. 复现" in text
+        assert "## 12. 复现" in text
         # Chinese body, not an English leftover.
         assert "分组交叉验证" in text
 
