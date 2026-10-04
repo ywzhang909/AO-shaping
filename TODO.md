@@ -156,7 +156,7 @@
 | F-3 | `--display/--no-display` 的 help 写"暂未实现"，需确认补实现还是删选项 | ✅ **无需改动**（2026-10-04 实测）：**两个同名 flag 状态不同，且各自 help 都是对的** —— `DmMatrixRunnerParams.display`（`runner_common.py:1689`）只 `click.echo("Note: --display mode is not yet implemented...")`⇒ help 标"暂未实现"**准确**；`HadamardMatrixRunnerParams.display`（`:1743`）在 `zernike_matrix_runner.py:1203` **真的构造 `ZernikeCalibrationDisplay`** ⇒ 它的 help 不带caveat 也准确 | 2026-09-25 |
 | F-4 | `src/ml/` 移入 `src/ao_shaping/ml/` 并更新所有引用（`docs/issues_report.md` §10.3，待评估至今） | `src/ml/` | 2026-05-26 |
 | F-5 | `docs/issues_report.md` §11 的代码规范整改：`print()` 替代 loguru（原文 82 处）、宽泛 `except`、配置项分散、大文件拆分（~22 个）、冗余 `__main__` 入口（32 处）、`__future__` 覆盖率（29 个文件）。⚠️ **原文数字已过期，实施前需重新扫描** | 全仓 | 2026-05-26 |
-| F-9 | `repeat_shape_objectives.py` 加进度显示（用户要求） | `scripts/` | 2026-09-30 |
+| ~~F-9~~ | ~~`repeat_shape_objectives.py` 加进度显示（用户要求）~~ | ✅ **部分已存在 + 补全局计数** → §5.28。原有 `rep {rep}/{repeats}` 只报**单 variant 内**进度；各 variant 耗时差异大，操作者无法从日志判断整体到哪一步 → 新增 `run i/N` 全局计数 | `scripts/repeat_shape_objectives.py` | 2026-09-30 |
 | **F-10** | 🔴 **`sim/AGENTS.md`「已知约束」第 4 条描述的代码改写从未落地**：该条声称 `_rescale_for` 已改为**只** `(_R0_REF_500/r0_slab)**(5/6)`，并称已移除 `lam/_LAM_REF_500`、`/_CAL_REF`、`*sqrt(1.03)`。**三者至今仍在** `oopao_backend.py:96,101-103`（`_CAL_REF = 0.6191` 在 `:71`）。连带第 3 条的实测常数 1.068/2.628 **不可复现** —— 真实值是 **5.428 / 13.354**（与 `docs/oopao_impact/report.md:62-63` 一致）。**先落地改写并重跑 `generate_oopao_impact_report.py`，或回退那两条。** | `oopao_backend.py:88-103` + `sim/AGENTS.md` 第 3/4 条 | 2026-10-01 |
 | **F-11** | 🔴 **SLM 序列号三路冲突**：`drivers/AGENTS.md:158` 与 `docs/slm/bench_calibration_20261001.md` 记 SLM#1 = **22030108**（@1064nm，2π=993）；`drivers/slm/AGENTS.md:114,139` 记 **22030102**（@532nm，2π=998）；`docs/slm/report2.md` / `report3.md` / `zernike_linearity/linearity.md` 记 **23020026**（@532nm）。三者或为两台设备。**引用前必须确认，并回写 `drivers/AGENTS.md` 硬件表**（Daheng CCD `FJB24112232` 已于 2026-10-01 补录进该表） | `drivers/AGENTS.md` 硬件事实表 | 2026-10-01 |
 | **F-12** | **焦面标定常数三方不一致**：`AGENTS.md:697` 写 `5021/Λ`（对应 3.31 µm 像元）；`docs/slm/model_in_loop_bench_calibration.md` / `README.md:517` 写 7400–7600（对应 2.2 µm 像元）；`docs/slm_pib_heuristic_hw/report.md:159` 主张改 **10954**。⚠️ **2.2 µm 像元推得 ~7557 而非 10954，故该主张本身也待复核**。H-11 只覆盖了 132940 vs 7600，**未覆盖此三方冲突** | `slm_diagnose.py:54`、`slm_lut_runner.py:38`、`slm_bench_probe.py:78`、两处测试 | 2026-10-01 |
@@ -1404,6 +1404,41 @@ that calls them"）。
 > （R-9/R-10/R-11 已完成，X-3 前提不成立，R-38 前提不成立，R-29 前提不成立，
 > R-14 符号已搬家）。**结论：§2.1 的行号与描述需要一次系统性重扫**，
 > 否则后续每轮都会重走这些已经清掉的路。
+
+---
+
+### 5.28 F-9 —— 进度显示本来就有，但缺"全局计数"（2026-10-04）
+
+原条目只写"加进度显示"，实测**已存在**：`repeat_shape_objectives.py:137` 在
+`variant x rep` 双层循环里逐次打 `=== {slug} rep {rep}/{repeats} ===`。
+所以本条不是"从零加"，而是判断已有日志够不够。
+
+**不够，缺的是全局位置。** 各 variant 的耗时差异很大（启发式 vs SPGD、
+不同 objective 的收敛轮数），而 `rep 1/1` 这种尾行**在整轮扫描的任何位置都可能出现**：
+第 1 个 variant 的第 1 次运行和最后 1 个 variant 的第 1 次运行打印出的字符串完全一样。
+操作者无法回答"现在到第几个了、还剩多少"。
+
+**改动**（`scripts/repeat_shape_objectives.py`）：
+
+* 抽出纯函数 `_progress_label(...)`，把三层计数拼成一行：
+  `=== run {i}/{N} | variant {v}/{V} '{slug}' | rep {r}/{R} ===`；
+* `main` 里 `variants = list(cso.VARIANTS)` 先物化，`n_runs = len(variants) * args.repeats`，
+  循环内 `run_idx += 1` 后再打日志；
+* 循环前多打一行 `sweep matrix = V variants x R repeats = N runs`，让 N 在第一次运行前就可见。
+
+`variants` 物化是必需的：原来 `enumerate(cso.VARIANTS)` 直接消费可迭代对象，
+新增的 `len()` 需要能重复求长度。
+
+**离线验证**（`tests/ao_shaping/scripts/test_repeat_shape_objectives_progress.py`，3 例）：
+标签格式、2x3 矩阵走完恰好铺满 `1..6` 且末行为 `run 6/6`、
+以及一条**源码守卫**（`n_runs` 必须由 `len(variants) * args.repeats` 得出，
+且 `run_idx += 1` 必须出现在日志调用之前 —— 否则首 run 报 `0/N`、末 run 报 `N-1/N`）。
+两处变异（删掉自增、把总数改成 `len(variants)`）均被捕获。
+
+> 顺带记录：`tests/ao_shaping/scripts/` 全目录跑下来有**一个既有失败**，与本条无关 ——
+> `test_common_helpers_not_reintroduced.py::test_migrated_generator_import_actually_resolves[generate_oopao_impact_report.py]`
+> 因 `ModuleNotFoundError: No module named 'gymnasium'` 失败（`gymnasium` 是 `rl` 可选依赖组，
+> 本环境未装），即该 generator 的 import 链会拖进 `optimizer/rl/envs.py`。留给 F-10 一并看。
 
 ---
 

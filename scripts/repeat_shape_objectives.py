@@ -82,6 +82,30 @@ def _load_logging_module():
     return _load_sibling_module("objective_rep_logging", "objective_rep_logging.py")
 
 
+def _progress_label(
+    run_idx: int,
+    n_runs: int,
+    variant_idx: int,
+    n_variants: int,
+    slug: str,
+    rep: int,
+    n_reps: int,
+) -> str:
+    """One progress line for the ``variant x repeat`` matrix.
+
+    ``run_idx``/``n_runs`` counts *global* runs, so a log tail alone tells the
+    operator how far the whole sweep is (``run 11/45``), which the per-variant
+    ``rep 3/3`` cannot: the variants have wildly different runtimes and the
+    operator otherwise cannot tell whether ``rep 1/1`` is the first run of the
+    sweep or the last.
+    """
+    return (
+        f"=== run {run_idx}/{n_runs} | "
+        f"variant {variant_idx}/{n_variants} '{slug}' | "
+        f"rep {rep}/{n_reps} ==="
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repeats", type=int, default=3)
@@ -132,9 +156,23 @@ def main() -> None:
     rows: list[dict] = []
     # Each variant opens and closes its own camera + SLM pair through the
     # optimizer's device context managers, so there is no shared device to hold.
-    for idx, (slug, label, kwargs) in enumerate(cso.VARIANTS, start=1):
+    variants = list(cso.VARIANTS)
+    n_runs = len(variants) * args.repeats
+    logger.info(
+        "sweep matrix = {} variants x {} repeats = {} runs",
+        len(variants),
+        args.repeats,
+        n_runs,
+    )
+    run_idx = 0
+    for idx, (slug, label, kwargs) in enumerate(variants, start=1):
         for rep in range(1, args.repeats + 1):
-            logger.info("=== {} rep {}/{} ===", slug, rep, args.repeats)
+            run_idx += 1
+            logger.info(
+                _progress_label(
+                    run_idx, n_runs, idx, len(variants), slug, rep, args.repeats
+                )
+            )
             try:
                 res = cso.run_variant(slug, kwargs, args, exp, center, waist)
             except Exception as exc:
