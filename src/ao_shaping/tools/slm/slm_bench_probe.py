@@ -57,6 +57,8 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.ndimage import zoom
 
+from ao_shaping.utils.image.beam_metrics import despike_frame as _despike_frame
+
 # Bench constants measured 2026-09-30 (Santec SLM-200 #1 22030108, 1920x1200,
 # 10-bit, 2pi = 993 gray at 1064 nm; Daheng MER2-507, 2592x1944, 2.2 um pixel).
 # See report/slm/model_in_loop_bench_calibration.md.
@@ -119,24 +121,16 @@ def smooth_frame(img: np.ndarray, k: int = 5) -> np.ndarray:
 def despike_frame(img: np.ndarray, k: int = 3) -> np.ndarray:
     """Replace isolated hot/cold pixels with a ``k x k`` median.
 
-    A box blur alone is not enough against a *single* hot pixel: a 5000-count
-    defect spread over a 5x5 box still reads 200, which beats a dim spot peaking at
-    20. Real sensors have defects, and one is enough to send ``argmax`` -- and
-    therefore the centroid and every width derived from it -- to the wrong place.
-    A median kills isolated outliers outright while leaving a real spot (which is
-    spatially correlated) essentially unchanged.
+    Re-exported from :func:`ao_shaping.utils.image.beam_metrics.despike_frame`,
+    which is now the single definition. It moved down to the leaf ``utils/image``
+    layer because the dataset transforms (:func:`ml.hwdataset.transforms
+    ._anchored_window`) need the same primitive to place their crop, and ``utils``
+    must not import upward from ``tools``. The docstring and the rationale -- a box
+    blur still lets a 5000-count defect beat a dim 20-count spot, whereas a median
+    kills isolated outliers and leaves a spatially correlated spot alone -- live
+    with the definition.
     """
-    frame = np.asarray(img, dtype=np.float64)
-    k = int(k)
-    if k < 3:
-        return frame
-    pad = k // 2
-    p = np.pad(frame, pad, mode="edge")
-    stack = np.stack(
-        [p[dy : dy + frame.shape[0], dx : dx + frame.shape[1]] for dy in range(k) for dx in range(k)],
-        axis=0,
-    )
-    return np.median(stack, axis=0)
+    return _despike_frame(img, k)
 
 
 def estimate_shift(

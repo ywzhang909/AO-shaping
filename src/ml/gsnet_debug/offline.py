@@ -570,6 +570,14 @@ def farfield_to_grid(img: np.ndarray, grid: int, *, eps: float = 1e-12) -> np.nd
     height, width = frame.shape
 
     # (x, y) project convention; refine=False keeps the exact argmax anchor.
+    # NOTE: deliberately NOT despiked, unlike
+    # ml/hwdataset/transforms._anchored_window. A 3x3 median deletes an isolated
+    # single-pixel feature outright (median of one lit pixel + eight dark = dark),
+    # which is correct for a real spatially-correlated spot but destroys the
+    # 1-px features this function's tests use as spot surrogates
+    # (test_gsnet_offline.py::TestFarfieldToGrid). Changing it here would break
+    # that public contract for no gain on real data; the dataset path is where the
+    # hot-pixel hazard was measured, so that is where it is fixed.
     cx, cy = zero_order_center(frame, refine=False)
     cx, cy = clamp_center_to_frame((cx, cy), (height, width), min(step, height, width))
 

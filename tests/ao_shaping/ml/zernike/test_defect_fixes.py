@@ -221,13 +221,32 @@ def test_robust_mode_ignores_a_single_hot_pixel_for_the_beam():
     )
 
 
-def test_peak_mode_is_disturbed_by_a_hot_pixel_so_that_test_is_not_vacuous():
+def test_peak_mode_also_uses_a_bare_argmax_locator():
+    """``peak`` mode is NOT despike-protected, unlike ``abs255``/``robust``.
+
+    ``farfield_frame_to_grid(mode="peak")`` delegates to
+    ``ml.gsnet_debug.offline.farfield_to_grid``, which locates the 0-order with a
+    bare argmax. So a lone hot pixel still moves *that* path's crop. Recorded here
+    rather than asserted as correct: the fix was deliberately confined to
+    ``_anchored_window`` because despiking deletes isolated single-pixel features,
+    which that function's own tests use as spot surrogates. Revisit only together
+    with a despike that preserves genuinely isolated features.
+    """
     clean = _frame((32, 32), peak=255.0, background=2.0)
     hot = clean.copy()
     hot[4, 4] = 60000.0
-    a = farfield_frame_to_grid(clean, GRID, mode="peak")
-    b = farfield_frame_to_grid(hot, GRID, mode="peak")
-    assert not np.allclose(a, b, atol=0.02)
+    a = farfield_frame_to_grid(clean, 16, mode="peak")
+    b = farfield_frame_to_grid(hot, 16, mode="peak")
+    assert not np.array_equal(a, b), (
+        "peak mode is now despike-protected; this note is stale and the "
+        "farfield_to_grid path can be fixed too"
+    )
+    # ...while the two paths that go through _anchored_window ARE protected.
+    for mode in ("abs255", "robust"):
+        assert np.array_equal(
+            farfield_frame_to_grid(clean, 16, mode=mode),
+            farfield_frame_to_grid(hot, 16, mode=mode),
+        ), f"{mode} crop moved under a hot pixel"
 
 
 def test_robust_mode_removes_the_background_pedestal():

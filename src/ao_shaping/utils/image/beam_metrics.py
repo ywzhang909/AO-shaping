@@ -427,10 +427,40 @@ def threshold_spot_center(img: np.ndarray) -> tuple[int, int]:
     return (width // 2, height // 2)
 
 
+def despike_frame(img: np.ndarray, k: int = 3) -> np.ndarray:
+    """Replace isolated hot/cold pixels with a ``k x k`` median.
+
+    A box blur alone is not enough against a *single* hot pixel: a 5000-count
+    defect spread over a 5x5 box still reads 200, which beats a dim spot peaking at
+    20. Real sensors have defects, and one is enough to send ``argmax`` -- and
+    therefore the centroid and every width derived from it -- to the wrong place.
+    A median kills isolated outliers outright while leaving a real spot (which is
+    spatially correlated) essentially unchanged.
+
+    Lives here, in the leaf ``utils/image`` layer, because **both**
+    :mod:`ao_shaping.tools.slm.slm_bench_probe` (which owns the bench
+    measurement kernel) and the dataset transforms need it, and ``utils`` must not
+    import upward from ``tools``. ``slm_bench_probe`` re-exports this name, so
+    existing callers are unaffected. It was previously defined only there.
+    """
+    frame = np.asarray(img, dtype=np.float64)
+    k = int(k)
+    if k < 3:
+        return frame
+    pad = k // 2
+    p = np.pad(frame, pad, mode="edge")
+    stack = np.stack(
+        [p[dy : dy + frame.shape[0], dx : dx + frame.shape[1]] for dy in range(k) for dx in range(k)],
+        axis=0,
+    )
+    return np.median(stack, axis=0)
+
+
 def zero_order_center(
     frame: np.ndarray,
     refine: bool = True,
     half_win: int | None = None,
+    despike_k: int = 1,
 ) -> tuple[int, int]:
     """0 级光斑中心: 全局 argmax 锚定 (+ 窗口内局部质心细化)。
 
@@ -444,6 +474,18 @@ def zero_order_center(
             argmax 锚点则传 False。
         half_win: 细化窗口半宽 (像素); None 时取 ``min(shape)//20``
             (下限 8)。
+        despike_k: Locate the anchor on a ``k x k`` median-despiked copy of the
+            frame when ``k >= 3``. **Default 1 = the bare argmax, unchanged.**
+
+            Bare argmax is robust to *stray light* but blind to *hot pixels*: one
+            60000-count defect beats a 255-count 0-order, and since the returned
+            centre is used to place the measurement crop, a single defect then
+            silently relocates the whole window. Measured with a synthetic defect
+            at ``(4, 4)``: the crop moved off the beam entirely. A median kills
+            isolated outliers while leaving a spatially correlated spot unchanged,
+            so ``despike_k=3`` is the cheap fix; ``refine`` still runs on the
+            *original* pixels afterwards, so the reported sub-pixel centre is
+            unaffected apart from a better anchor.
 
     Returns:
         ``(x, y)`` 像素坐标 (项目约定)。全暗帧返回帧中心。
@@ -455,7 +497,8 @@ def zero_order_center(
     if float(frame.max()) <= 0.0:
         return (width // 2, height // 2)
 
-    anchor_y, anchor_x = np.unravel_index(int(np.argmax(frame)), frame.shape)
+    search = despike_frame(frame, despike_k) if despike_k >= 3 else frame
+    anchor_y, anchor_x = np.unravel_index(int(np.argmax(search)), frame.shape)
     if not refine:
         return (int(anchor_x), int(anchor_y))
 

@@ -200,17 +200,25 @@ def test_model_output_is_intensity_and_matches_the_lost_reference_shape():
 
 
 # Captured from the MSE path (grid=16, n_max=3, epochs=2, lr=0.01, batch=4,
-# seed=0) on the synthetic corpus above, BEFORE the loss switch existed.
-# DO NOT REGENERATE -- if this test fails, the incumbent objective changed.
-# Regenerate ONLY together with a deliberate decision to move the incumbent.
+# seed=0) on the synthetic corpus above. DO NOT REGENERATE -- if this test fails,
+# the incumbent objective changed.
+#
+# Re-captured once, deliberately, when `_anchored_window` began locating the
+# 0-order with `despike_k=3` (a lone hot pixel must not be able to move the crop;
+# see `zero_order_center`). The median can shift the anchor by a pixel where two
+# neighbours tie, which moves the crop, which changes the data the MSE path sees.
+# That is an intended data-pipeline fix, not an optimisation change -- the
+# objective is still plain MSE and the property this file protects (that adding a
+# loss switch does not perturb the incumbent) is unaffected. Regenerate ONLY
+# together with a deliberate decision to move the crop or the objective.
 _MSE_REFERENCE_COEFFICIENTS = [
-    -0.04087536036968231,
-    0.12745238840579987,
-    -0.14962252974510193,
-    -0.14194655418395996,
-    -0.1434120535850525,
-    0.012570694088935852,
-    0.043325670063495636,
-    -0.13279908895492554,
-    0.12056267261505127,
+    -0.09963550418615341,
+    0.14116191864013672,
+    -0.14995715022087097,
+    -0.1291704773902893,
+    -0.14330090582370758,
+    0.02307407185435295,
+    0.07393936067819595,
+    -0.14945508539676666,
+    0.12371844053268433,
 ]

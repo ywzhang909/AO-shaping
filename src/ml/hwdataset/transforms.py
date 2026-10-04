@@ -446,6 +446,15 @@ def _anchored_window(frame: NDArray[np.floating], grid: int) -> NDArray[np.float
     Fourier bench the optical axis lands at the frame centre only by luck.
     Outside the frame the window is zero-filled.
 
+    The anchor is located with ``despike_k=3``. Bare argmax is robust to stray
+    light but blind to hot pixels: one 60000-count defect beats a 255-count
+    0-order, and because this centre places the crop, a single defect silently
+    relocates the entire window. Measured with a synthetic defect at ``(4, 4)`` on
+    a 64x64 frame -- the crop moved clean off the beam. A 3x3 median kills isolated
+    outliers while leaving a spatially correlated spot unchanged. This is a
+    *locator* fix: no intensity ``image_mode`` can prevent it, since normalising
+    the scale does not change which pixel wins the argmax.
+
     This mirrors the private ``_fixed_window`` of
     :mod:`ml.gsnet_debug.offline`, which cannot be reused directly
     because every public entry point there peak-normalises -- exactly the
@@ -464,7 +473,7 @@ def _anchored_window(frame: NDArray[np.floating], grid: int) -> NDArray[np.float
     )
 
     height, width = frame.shape
-    center_x, center_y = zero_order_center(frame, refine=False)
+    center_x, center_y = zero_order_center(frame, refine=False, despike_k=3)
     center_x, center_y = clamp_center_to_frame(
         (center_x, center_y), (height, width), min(grid, height, width)
     )
