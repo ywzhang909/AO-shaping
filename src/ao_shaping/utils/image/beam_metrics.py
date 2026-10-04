@@ -307,11 +307,27 @@ def compute_quality_score(metrics: dict[str, float]) -> float:
 
     长宽比、均匀性与环围能量的加权组合。
 
+    ⚠️ **均匀度项在 CV ≳ 0.8 时数值饱和, 不要用它给整形目标排序。**
+    ``f_uni = exp(-((CV/0.3)**2))`` 在 CV=0.9 时约 ``1.2e-4``, 在 CV=3 时约
+    ``e^-100``, 在 CV=11 (未整形的紧聚焦) 时**恰好为 0**。也就是说 CV 0.9 与
+    CV 11 的均匀度得分都是 0, 合成评分退化为 ``0.3*aspect + 0.3*EE``。
+
+    实测后果: 用本函数做 bake-off 会把 CV≈0.9 的**均匀方斑**排在 CV≈11 的
+    **未整形聚焦**之后 (本仓 ``slm-model-in-loop`` 首次实现即踩中, 结果丢弃了
+    正确相位保留了平场)。环围能量也会掩盖这一点 —— 未整形的紧聚焦天然
+    EE≈0.99。
+
+    **给方形/平顶整形打分请用**
+    :func:`ao_shaping.drivers.sim.slm_shaping_bench.composite_from_pib_cv`
+    (即 ``w_pib*PIB + w_unif/(1+CV)``): 它在 CV 的整个可达范围内单调且不饱和,
+    没有阈值可调, 因此每一次均匀度改善都得到回报。本函数保留给通用图像
+    指标场景, 不为整形优化服务。
+
     Args:
         metrics: :func:`compute_square_metrics` 返回的字典。
 
     Returns:
-        ``[0, 1]`` 范围内的浮点质量评分 (越高越好)。
+        ``[0, 1]`` 范围内的浮点质量评分 (越高越好)。整形优化请勿使用, 见上方警告。
     """
     f_ar = math.exp(-(((metrics["aspect_ratio"] - 1.0) / 0.3) ** 2))
     f_uni = math.exp(-((metrics["uniformity_cv"] / 0.3) ** 2))
