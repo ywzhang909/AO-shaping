@@ -206,7 +206,7 @@
 |---|---|---|---|
 | X-1 | `docs/refactor/TODO.md` #16：「`utils/image/resample.py` **0 导入** → 删模块并修 README」 | ❌ **现在有 1 个生产导入方**：`FourierGSNet.py:42` `from ao_shaping.utils.image.resample import resample_to_grid`（用于 `:345`、`:419`）。**照原文删会直接打断 FourierGSNet** | 2026-10-01 |
 | X-2 | `tools/slm/TODO.md` D2：「`calibration.py:2182` min-max 归一化 → 尺度无关反模式（系数 ×1 与 ×4 输出字节相同）」 | ❌ **误报**。该处 `P` 是**实测功率-扫描位置曲线**，归一化到 [0,1] 后用 `np.interp` 找 50%/84%/16% 交点是标准做法，功能正确。它**不是** `PatternHelper._zernike_to_uint16` / `ZernikeDM.generate_phase` 那类系数归一化 | 2026-10-01 |
-| **X-3** | （2026-10-03 新增）两个 runner 的 `ZERNIKE_APERTURE_RADIUS` 默认值不同：`slm_zernike_pib.py` = **300.0**，`slm_zernike_shaping.py` = `min(PANEL_RES)/2.0` = **600**，README 记 **600** | ⚠️ **副本漂移，非副本 bug**。两者都是生产入口（`slm-pib` / `rms-zernike`），所以同一台架上**换个 runner 就换光阑**。300 vs 600 恰好是 R-9 那段硬件注释里"只有内一半落在光束上 ⇒ 修正静默无效"的分界（该注释记录的是 600 的失败）。**需一次硬件对比判定**，不擅自改 | 2026-10-03 |
+| **X-3** | ~~两个 runner 的 `ZERNIKE_APERTURE_RADIUS` 默认值不同：`slm_zernike_pib.py` = **300.0**，`slm_zernike_shaping.py` = `min(PANEL_RES)/2.0` = **600**，README 记 **600**~~ | ✅ **2026-10-04 解开，原结论的前提是错的**（见 §5.17）。实测：`_zernike_to_phase` 两份**逐字节相同**，但读各自的模块常量 ⇒ pib=**300**、shaping=**600**（import 实测，非读码）。**但 `slm_zernike_shaping` 没有任何生产导入方**（只有测试 + 自己的 legacy `__main__`）：`slm-pib`→`slm_zernike_pib`、`rms-zernike`→**`optimizer.wf.rms_by_zernike`**（不是 shaping）、`delta_explorer`→`slm_zernike_pib`。所以**不存在"换个 runner 就换光阑"的生产风险**，也**不需要硬件对比**：语料 `test_gsnet_dataset.py:328-333` 钉的 **300** 与 pib 一致，shaping 的 600 是死代码 | 2026-10-03 |
 
 ---
 
@@ -1070,6 +1070,84 @@ flag 总数因此 287 → 285（help 可见 289 → 287）。
 **变异验证**：把 `memory_number=2` 塞回去 → 3 个测试如期失败。
 
 回归：`tests/ao_shaping/tools` + `test_conventions.py` **473 passed / 4 skipped**。
+
+---
+
+### 5.17 `slm_zernike_shaping.py` 副本盘点 + 修掉一处会静默归零的桶半径（2026-10-04）
+
+#### (a) 副本的真实性质：**没有生产导入方**
+
+全仓 grep（`from|import` 形式，非字符串）实测：
+
+| 入口 | 实际用的模块 |
+|---|---|
+| `slm-pib`（`runners/slm_pib_runner.py:15`） | `wfless.slm_zernike_pib` ✅ |
+| `delta_explorer`（`tools/slm/delta_explorer.py:49`） | `wfless.slm_zernike_pib` ✅ |
+| `rms-zernike`（`runners/slm/rms_zernike_runner.py:12`） | **`wf.rms_by_zernike`** ❌ 不是 shaping |
+| `slm_zernike_shaping` | **零生产导入方**（只有 3 个测试 + 自己的 legacy `__main__`） |
+
+⚠️ `slm_zernike_shaping` 在仓库里出现 174 次，但**绝大多数是数据 family 名**
+（`slm_zernike_shaping_rms_pib_<ts>.pkl`），不是模块引用。
+X-3 说的"两者都是生产入口（`slm-pib` / `rms-zernike`）"**不成立**。
+
+**这条改变了合并的风险评估**：既然 shaping 无生产入口，它可以按
+`slm_shaping_bench.py` 的既有做法直接变成 **re-export shim**，
+不会打断任何生产路径。
+
+#### (b) 已逐字节核对的重叠（AST 提取函数体后程序化比对，非目测）
+
+| 符号 | pib | shaping | 结论 |
+|---|---|---|---|
+| `_create_optimizer` | 183-191 | 170-178 | **逐字节相同** |
+| `_default_camera` / `_default_slm` | 382-386 / 389-393 | 370-374 / 377-381 | **逐字节相同** |
+| `_display` | 231-249 | 219-237 | **逐字节相同** |
+| `learning_schedule` | 272-375 | 260-363 | **逐字节相同（104 行）** |
+| `_zernike_to_phase` | 252-269 | 240-257 | **函数体逐字节相同，但读不同常量 ⇒ 行为不同** |
+| `SlmZernikePibConfig` | 397-475 | 385-447 | 分叉（pib 多 5 个鲁棒字段，shaping 多 `debug`/`w_outside`） |
+| `optimize_slm_zernike_pib` | 543-1596 | 517-1451 | **分叉 273 行** |
+
+`_zernike_to_phase` 正是 `slm_shaping_bench.py` 那个回归的同一形状：
+**函数体一样，行为由模块常量决定**。import 实测 pib=300.0 / shaping=600.0。
+
+#### (c) 已修：桶半径静默归零（shaping，pib 早已正确）
+
+`shaping:1363` 的收缩块把 **full-frame** 的 `center` 传给了窗口内图像的 `radius()`：
+
+```python
+power_radio = radius(pos_img, center=center, energy=0.8)   # 错
+_pr      = power_radio * shrink_ratio        # → 0.0
+r_bucket = min(_r, _pr, _init_r)             # → 0.0   桶半径归零
+```
+
+* `center` 在该作用域是 `reset_window` 返回的**全画幅**中心（`:737`），
+  `pos_img` 是**重新开窗后**的帧 —— 正是 AGENTS.md 已登记的反模式
+  「Full-frame centre leaking into window-local metrics」。
+* `radius()` 对越界中心**不报错，直接返回 `0.0`**（实测 `(125,125)`→62.5，`(577,655)`→0.0），
+  所以**没有任何异常**，`r_bucket` 直接归零，而 objective 之后读的就是这个 0。
+* 同一文件在 `:844` 和 `:924` 已经写明"用 `reference_center`（窗口内），**不要**用 `center`"——
+  收缩块是唯一漏掉的一处。
+* pib 在同一位置用的是窗口内重定位的 `pos_center`（`:1413` 定义，`:1501` 使用），**一直是对的**。
+
+**改为** `center=reference_center`（与同文件另外两处 `radius()` 调用一致）。
+
+**为什么原有守卫没抓到**：`test_slm_zernike_pib_robustness.py` 的守卫
+只遍历 **`learning_schedule` 调用节点内部的 `radius`**，而这一处在 epoch 循环里
+**直接调用 `radius`**，不在任何 `learning_schedule` 里。
+**已补一条守卫：遍历两个模块里所有 `radius(...)` 调用**，禁止裸 `center=`。
+变异验证：塞回 `center=center` → 新守卫如期失败。
+`test_slm_zernike_pib_robustness.py` **29 passed**；
+`tests/ao_shaping/optimizer/wfless` **428 passed / 1 skipped**。
+
+#### (d) 尚未处理（留待后续，避免与本轮混淆）
+
+* `optimize_slm_zernike_pib` 两份分叉 273 行，**不能当一次 drop-in 合并**。
+  其中 pib 独有：fold gate / noise gate / ABBA / 逐评估重定位中心 / `n_eval_frames`；
+  shaping 独有：`debug` 产物与 `_debug_report`、`w_outside`（`rmse_out` 靠它）。
+  建议形状：pib 为唯一实现，shaping 变 re-export，能力差异用 config 字段保留。
+* `pib.py` 里可能还有**第三份** `learning_schedule`/`_create_optimizer`
+  （`test_pib_helpers.py` 测的是它），**未核对**。
+* `_display_shape` 的 objective 列表**已经漂移**：pib 缺 `"rmse_out"`
+  ⇒ `rmse_out` 在 pib 里实际是失效的。**这是一个独立 bug，本轮未修。**
 
 ---
 

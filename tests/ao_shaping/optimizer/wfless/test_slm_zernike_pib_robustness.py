@@ -318,3 +318,54 @@ class TestLearningScheduleCentreIsWindowLocal:
             f"{module_name}: learning_schedule radius anchored on the full-frame "
             f"`center` at line(s) {offenders}; use the window-local spot instead"
         )
+
+    @pytest.mark.parametrize(
+        "module_name",
+        ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
+    )
+    def test_no_bare_radius_call_is_anchored_on_the_full_frame_centre(
+        self, module_name: str
+    ) -> None:
+        """Catch every ``radius(...)`` call, not just the ones inside learning_schedule.
+
+        The guard above walks ``learning_schedule`` call nodes only, so it could not
+        see the bucket-shrink path -- that one calls ``radius`` directly, in the
+        middle of the epoch loop. In ``slm_zernike_shaping`` it passed the bare
+        full-frame ``center``, so ``power_radio`` came back ``0.0`` and
+
+            _pr = power_radio * shrink_ratio            # 0.0
+            r_bucket = min(_r, _pr, _init_r)            # -> 0.0
+
+        silently zeroed the bucket radius that the objective then reads. Nothing
+        raised; the run just stopped measuring anything meaningful.
+
+        ``pib`` already used the re-located window-local ``pos_center`` here, so
+        this is the same drift the two copies are prone to, one level deeper.
+        """
+        import ast
+        import importlib
+        import inspect
+
+        module = importlib.import_module(module_name)
+        tree = ast.parse(inspect.getsource(module))
+
+        offenders: list[tuple[int, str]] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
+            if name != "radius":
+                continue
+            for kw in node.keywords:
+                # `center=center` is the trap; `center=reference_center` /
+                # `center=pos_center` are the window-local spot and are fine.
+                if kw.arg == "center" and isinstance(kw.value, ast.Name):
+                    if kw.value.id == "center":
+                        offenders.append((kw.value.lineno, kw.value.id))
+
+        assert not offenders, (
+            f"{module_name}: radius(...) anchored on the full-frame `center` at "
+            f"line(s) {offenders}; use the window-local spot (reference_center / "
+            f"pos_center) or the bucket silently collapses to 0"
+        )

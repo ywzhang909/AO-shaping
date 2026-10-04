@@ -1360,7 +1360,13 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     and not _fix_bucket
                     and objective_val > 0
                 ):
-                    power_radio = radius(pos_img, center=center, energy=0.8)
+                    # Window-local spot, NOT `center`: in this scope `center` is the
+                    # FULL-FRAME window centre `reset_window` returned, while
+                    # `pos_img` is the re-windowed frame. `radius` does not raise on
+                    # an out-of-frame centre -- it returns 0.0 -- which collapsed
+                    # `r_bucket` to 0 through `min(_r, _pr, _init_r)` below. Same rule
+                    # as the initial-radius call at :929.
+                    power_radio = radius(pos_img, center=reference_center, energy=0.8)
                     _pr = power_radio * shrink_ratio
                     _r = max(r_bucket * shrink_ratio + 1, IDEAL_SPOT_RADIUS, r_bucket)
                     r_bucket = min(_r, _pr, _init_r)
