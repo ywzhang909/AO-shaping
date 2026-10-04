@@ -82,4 +82,4 @@ SLM(Santec SLM-200)+ 远场相机(Daheng / MiiCam)2f-Fourier 台架的**独立�
 pytest tests/ao_shaping/tools/slm/ -q
 ```
 
-全部离线(硬件用 mock 或门控 skip)。当前 **265 passed / 3 skipped**。
+全部离线(硬件用 mock 或门控 skip)。当前 **293 passed / 3 skipped**。

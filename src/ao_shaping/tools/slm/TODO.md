@@ -36,7 +36,7 @@
 
 ## 三、仍然重复（本次重构对象）
 
-- [ ] **CLI 管道** — 15 个模块手写 click；1 个用 argparse（`slm_zernike_sweep_probe.py`）；**0个**用 `with_params`
+- [x] **CLI 管道** — **已收敛**：15 个模块全部走 `with_params`（`cc2efa0` 试点 → `79c57bd` 13 个 → `d45f1e0` 补上 `phase_capture`），`slm_zernike_sweep_probe.py` 已由 argparse 迁为 click；`--help` 逐字节不变（黄金 0 键变化）。`calibration.py` 按 §六 保留手写 click。
 - [ ] **设备会话** — `Santec(...)` 散落 17 个文件（**18 处调用点**）；相机打开实为
       **3 个助手族的 15 处调用点**（`open_camera` / `create_camera` / 裸 `DahengCamera(`·`MIICamera(`），
       原文「13 种写法」是把调用点数与写法数混淆
@@ -210,6 +210,7 @@
 | **Step 1** 抽机制到 `utils/cli/params.py` | ✅ `e5e5b79` | `runner_common.py` 2078 → 1870 行；**15** 个符号逐字节搬迁（原文只列 11，漏 `_TYPE_INFERENCE` / `_is_click_group` / `_ClickOption` / `_ClickGroupSpec`，按名单挑会 `NameError`） |
 | **Step 2** 试点 `slm_zernike_sweep_probe` | ✅ `cc2efa0` | argparse → click；`--no-hw` 仍 exit 0；黄金 **+2 键 / 0 键变化** |
 | **Step 3** 剩余 13 个 CLI 迁移 | ✅ `79c57bd` | **黄金 0 键变化** —— 逐字保持 `--help`；`slm-diagnose` / `slm-lut` 注册与 `python -m` 入口均不变 |
+| **Step 3b** 补上 `phase_capture`（复审 F19） | ✅ `d45f1e0` | `79c57bd` 漏迁最后 1 个（24 个手写 option + 4 个死 import）。补迁后**黄金 0 键变化**；连带修 R3 守卫自身的缺陷：`_gates_device_open` / `_diverges_before_device_open` 只收 `ast.Name`，迁移后 body 读 `params.<field>`（`ast.Attribute`）→ 结构性豁免集体失效，改为 `_tested_names()` 同收两种 |
 | **Step 4** D1 / D3 / D4 | ✅ `eaba803` `307d90d` | D1 RED `[2,2,2] != [None,None,None]` → GREEN；D2 推翻 |
 | **合并上游** | ✅ `6f544a2` | 上游 15 提交（ABBA / PBR / 新探针）合入；仅 2 个黄金键因上游新增 `--w-pbr` 等而重基线 |
 
