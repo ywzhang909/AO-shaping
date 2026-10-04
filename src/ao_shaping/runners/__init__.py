@@ -20,6 +20,7 @@ Two modules export more than one command, so ``_IMPORT_ATTRS`` is load-bearing
 rather than decorative:
 
 * ``slm/zernike_matrix_runner.py`` -> ``zernike_matrix_run`` / ``zernike_closed_loop_run``
+* ``matrix_runner.py`` -> ``dm_matrix_run`` / ``hadamard_matrix_run``
 * ``micro_drive/voltage_runner.py`` -> ``alt_voltage_run`` / ``full_voltage_run``
 
 Forgetting the second name in each pair hands back the *wrong command* instead
@@ -62,12 +63,12 @@ _LAZY_RUNNERS: dict[str, str] = {
     "rms_zernike_run": "ao_shaping.runners.slm.rms_zernike_runner",
     "ga_zernike_run": "ao_shaping.runners.ga_zernike_runner",
     "greedy_zernike_run": "ao_shaping.runners.greedy_zernike_runner",
-    "dm_matrix_run": "ao_shaping.runners.dm_matrix_runner",
+    "dm_matrix_run": "ao_shaping.runners.matrix_runner",
     # Both commands live in one module, so they need distinct attributes --
     # see the _IMPORT_ATTRS note below.
     "alt_voltage_run": "ao_shaping.runners.micro_drive.voltage_runner",
     "full_voltage_run": "ao_shaping.runners.micro_drive.voltage_runner",
-    "hadamard_matrix_run": "ao_shaping.runners.hadamard_matrix_runner",
+    "hadamard_matrix_run": "ao_shaping.runners.matrix_runner",
     "combined_run": "ao_shaping.runners.nlight_dm.combined_runner",
     "slm_square_run": "ao_shaping.runners.slm_square_runner",
     "slm_pib_run": "ao_shaping.runners.slm_pib_runner",
@@ -98,7 +99,7 @@ _IMPORT_ATTRS: dict[str, str] = {
     "dm_matrix_run": "run",
     "alt_voltage_run": "run",
     "full_voltage_run": "full_voltage_run",
-    "hadamard_matrix_run": "run",
+    "hadamard_matrix_run": "hadamard_matrix_run",
     "combined_run": "run",
     "slm_gsnet_run": "run",
     "slm_model_in_loop_run": "run",

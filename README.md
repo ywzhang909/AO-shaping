@@ -25,10 +25,9 @@ AO-shaping/
 │   │   │   ├── __init__.py       # Lazy imports + re-exports (via __getattr__)
 │   │   │   ├── runner_common.py  # 共享参数 dataclass + with_params click 集成
 │   │   │   ├── closed_loop.py    # [向后兼容 shim] AOClosedLoop re-export (canonical: optimizer/wf/)
-│   │   │   ├── dm_matrix_runner.py        # DM响应矩阵标定 (dm-matrix)
+│   │   │   ├── matrix_runner.py        # DM响应矩阵 (dm-matrix) + Hadamard响应矩阵 (hadamard-matrix)
 │   │   │   ├── ga_zernike_runner.py       # GA Zernike优化 (ga-zernike)
 │   │   │   ├── greedy_zernike_runner.py   # 贪婪局部搜索Zernike (greedy-zernike)
-│   │   │   ├── hadamard_matrix_runner.py  # Hadamard响应矩阵 (hadamard-matrix)
 │   │   │   ├── gsnet_cache.py             # GSNet缓存
 │   │   │   ├── gsnet_dataset.py           # GSNet数据集
 │   │   │   ├── gsnet_offline.py           # GSNet离线评估
@@ -162,8 +161,8 @@ python src/ao_shaping/main.py [OPTIONS] COMMAND [ARGS]...
 | `ga-zernike` | `runners/ga_zernike_runner.py` | 遗传算法 Zernike优化 |
 | `greedy-zernike` | `runners/greedy_zernike_runner.py` | 贪婪局部搜索 Zernike优化 |
 | `closed-loop` | `runners/slm/zernike_matrix_runner.py` | 基于响应矩阵的闭环波前优化 |
-| `dm-matrix` | `runners/dm_matrix_runner.py` | DM响应矩阵标定 |
-| `hadamard-matrix` | `runners/hadamard_matrix_runner.py` | Hadamard响应矩阵标定 |
+| `dm-matrix` | `runners/matrix_runner.py` | DM响应矩阵标定 |
+| `hadamard-matrix` | `runners/matrix_runner.py` | Hadamard响应矩阵标定 |
 | `alt-voltage` | `runners/micro_drive/voltage_runner.py` | 交替电压下发 (R50Power + ADC) |
 | `full-voltage` | `runners/micro_drive/voltage_runner.py` | 全量交替电压 (AsyncMicroDM) |
 | `combined` | `runners/nlight_dm/combined_runner.py` | AdaMOD+SPGD 混合PIB (DM+CCD) |
@@ -929,7 +928,7 @@ python src/ao_shaping/main.py full-voltage --voltage 5 --freq 0.5 --no-relay-on
 ```bash
 python src/ao_shaping/main.py dm-matrix [OPTIONS]
 ```
-等同于: `python -m ao_shaping.runners.dm_matrix_runner`
+等同于: `python -m ao_shaping.runners.matrix_runner`
 
 通过推拉电压扰动测量DM-to-WFS响应矩阵。
 
@@ -1101,12 +1100,12 @@ python -m ao_shaping.runners.greedy_zernike_runner [OPTIONS]
 
 8. DM响应矩阵标定:
 ```bash
-python -m ao_shaping.runners.dm_matrix_runner [OPTIONS]
+python -m ao_shaping.runners.matrix_runner [OPTIONS]
 ```
 
 9. Hadamard响应矩阵标定:
 ```bash
-python -m ao_shaping.runners.hadamard_matrix_runner [OPTIONS]
+python -m ao_shaping.runners.matrix_runner hadamard-matrix [OPTIONS]
 ```
 
 10. 串行流水线优化:
