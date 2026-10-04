@@ -561,6 +561,21 @@ def _still_at_default(obj: Any, prefix: str = "") -> set[str]:
     return out
 
 
+def _tested_names(test: ast.AST) -> set[str]:
+    """Names an ``if`` test reads, as bare params *or* ``params.field`` attributes.
+
+    ``with_params`` hands the callback a single dataclass, so a migrated body
+    tests ``params.no_daheng`` -- an :class:`ast.Attribute` -- rather than a bare
+    ``no_daheng`` (:class:`ast.Name`). Both spellings must resolve, otherwise
+    every *structural* exemption (``gates_open`` / ``diverges_before_device_open``)
+    silently stops being detected the moment its command is migrated, and the
+    honesty check then fails on a field that is still legitimately exempt.
+    """
+    return {n.id for n in ast.walk(test) if isinstance(n, ast.Name)} | {
+        n.attr for n in ast.walk(test) if isinstance(n, ast.Attribute)
+    }
+
+
 def _diverges_before_device_open(module_name: str, attr: str, field: str) -> bool:
     """True if ``attr`` returns/raises on ``field`` before its first device open."""
     source = TOOLS_SLM_DIR / f"{module_name}.py"
@@ -584,7 +599,7 @@ def _diverges_before_device_open(module_name: str, attr: str, field: str) -> boo
                 continue
             if index >= device_stmt:
                 continue
-            tested = {n.id for n in ast.walk(stmt.test) if isinstance(n, ast.Name)}
+            tested = _tested_names(stmt.test)
             if field not in tested:
                 continue
             if any(
@@ -611,7 +626,7 @@ def _gates_device_open(module_name: str, attr: str, field: str) -> bool:
         for stmt in node.body:
             if not isinstance(stmt, ast.If):
                 continue
-            tested = {n.id for n in ast.walk(stmt.test) if isinstance(n, ast.Name)}
+            tested = _tested_names(stmt.test)
             if field not in tested:
                 continue
             for inner in stmt.body:
