@@ -49,6 +49,7 @@ from ml.hwdataset import (
     build_hw_dataloader,
     build_hw_index,
 )
+from ml.zernike.losses import LossConfig, composite_loss, roi_mask
 from ml.zernike.metrics import (
     available_perceptual_metrics,
     batch_image_metrics,
@@ -92,6 +93,12 @@ WandbMode = Literal["online", "offline", "disabled", "shared"]
 # ---------------------------------------------------------------------------
 # Config / result
 # ---------------------------------------------------------------------------
+#: Objectives ``train`` knows how to optimise. ``"mse"`` is the incumbent pixel
+#: MSE on the normalised frame (bit-identical to the pre-``losses.py`` path);
+#: ``"physical"`` optimises the differentiable ROI terms.
+LOSS_CHOICES = ("mse", "physical")
+
+
 @dataclass
 class AmpTrainConfig:
     """Everything the training run needs. Every field is a plain value."""
@@ -121,6 +128,29 @@ class AmpTrainConfig:
     seed: int = 0
     device: str = "cuda"
     num_workers: int = 0
+
+    #: Training objective. ``"mse"`` is the incumbent pixel MSE on the
+    #: normalised frame and is bit-identical to the pre-``losses.py`` behaviour.
+    #: ``"physical"`` optimises the differentiable ROI terms in
+    #: :mod:`ml.zernike.losses` instead, which can see *where* the light lands
+    #: rather than only how close each pixel is.
+    loss: str = "mse"
+    #: Term weights for ``loss="physical"``. Defaults to pib + uniformity with
+    #: **no** fidelity term, so selecting ``loss="physical"`` actually changes
+    #: the objective; add ``w_mse`` back to optimise the blend instead. Note this
+    #: deliberately differs from :class:`~ml.zernike.losses.LossConfig`'s own
+    #: default (which is the incumbent ``w_mse=1.0``), because inside the loss
+    #: module the neutral default is right, whereas here it would make the
+    #: physical switch a no-op.
+    loss_weights: LossConfig = field(
+        default_factory=lambda: LossConfig(w_mse=0.0, w_pib=1.0, w_uniformity=1.0)
+    )
+    #: ROI side as a fraction of the (centre-cropped) output grid edge. The
+    #: default 0.375 reproduces the 24/64 grid the bench tooling uses; it is a
+    #: free parameter of the objective, not a fitted constant.
+    target_size_frac: float = 0.375
+    #: ROI aspect ratio, forwarded verbatim to ``target_shape_roi``.
+    target_aspect_ratio: float = 4.0 / 3.0
 
     out_dir: str = "logs/zernike_amp"
     log_every: int = 1
@@ -428,6 +458,11 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
         An :class:`AmpTrainResult` with the best coefficients and the full history.
     """
     torch.manual_seed(cfg.seed)
+    # Validate the objective name up front. Falling through to MSE on an
+    # unrecognised value would make a typo (e.g. "physcial") silently reproduce
+    # the incumbent run, which is the one outcome this switch must not have.
+    if cfg.loss not in LOSS_CHOICES:
+        raise ValueError(f"loss must be one of {LOSS_CHOICES}, got {cfg.loss!r}")
     out_dir = Path(cfg.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     device = torch.device(cfg.device if torch.cuda.is_available() else "cpu")
@@ -478,6 +513,28 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
     started = time.perf_counter()
     n_train = train_t["phase_cos"].shape[0]
 
+    # The physical objective needs one ROI mask on the model's own output grid,
+    # built by the canonical shape helper so the loss is scored on exactly the
+    # region the bench optimiser reports.
+    grid = int(train_t["target"].shape[-1])
+    loss_mask = None
+    if cfg.loss == "physical":
+        loss_mask = roi_mask(
+            (grid, grid),
+            (grid / 2.0, grid / 2.0),
+            "rectangle",
+            cfg.target_size_frac * grid,
+            cfg.target_aspect_ratio,
+        )
+        logger.info(
+            "physical loss: ROI {:.1f}x{:.1f} px of a {}x{} grid, weights={}",
+            cfg.target_size_frac * grid,
+            cfg.target_size_frac * grid,
+            grid,
+            grid,
+            cfg.loss_weights,
+        )
+
     for epoch in range(cfg.epochs):
         model.train()
         permutation = torch.randperm(n_train, device=device)
@@ -487,8 +544,16 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
             idx = permutation[start : start + cfg.batch_size]
             optimizer.zero_grad(set_to_none=True)
             prediction = model(train_t["phase_cos"][idx], train_t["phase_sin"][idx])
+            # Always measured, for every loss: model selection and the reported
+            # history stay on val MSE so runs remain comparable across objectives.
             data_mse = torch.mean((prediction - fit_target[idx]) ** 2)
-            loss = data_mse
+            if loss_mask is not None:
+                terms = composite_loss(
+                    prediction, fit_target[idx], loss_mask, cfg.loss_weights
+                )
+                loss = terms["_mean_total"]
+            else:
+                loss = data_mse
             if cfg.l2_penalty:
                 loss = loss + cfg.l2_penalty * torch.sum(model.coefficients**2)
             loss.backward()
@@ -736,6 +801,7 @@ def _build_parser() -> argparse.ArgumentParser:
     which is exactly the sort of default drift the repo's AGENTS.md warns about.
     """
     model_default = ZernikeAmpConfig()
+    train_default = AmpTrainConfig()
     parser = argparse.ArgumentParser(
         prog="python -m ml.zernike.train_amp",
         description="Train ZernikeAmpModel on the real hardware corpus.",
@@ -765,6 +831,28 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lr", type=float, default=0.02)
     parser.add_argument("--l2-penalty", type=float, default=0.0)
     parser.add_argument("--grad-clip", type=float, default=None)
+    parser.add_argument(
+        "--loss",
+        choices=list(LOSS_CHOICES),
+        default=train_default.loss,
+        help=(
+            "Training objective. 'mse' is the incumbent pixel MSE on the "
+            "normalised far field; 'physical' optimises the differentiable ROI "
+            "terms (pib + uniformity), which can see where the light lands."
+        ),
+    )
+    parser.add_argument(
+        "--target-size-frac",
+        type=float,
+        default=train_default.target_size_frac,
+        help="ROI side as a fraction of the output grid edge (physical loss only).",
+    )
+    parser.add_argument(
+        "--target-aspect-ratio",
+        type=float,
+        default=train_default.target_aspect_ratio,
+        help="ROI aspect ratio (physical loss only).",
+    )
     parser.add_argument(
         "--optimizer", choices=["adam", "adamw", "sgd"], default="adam"
     )
@@ -810,6 +898,9 @@ def main(argv: list[str] | None = None) -> int:
         batch_size=args.batch_size,
         lr=args.lr,
         l2_penalty=args.l2_penalty,
+    loss=args.loss,
+    target_size_frac=args.target_size_frac,
+    target_aspect_ratio=args.target_aspect_ratio,
         grad_clip=args.grad_clip,
         optimizer=args.optimizer,
         momentum=args.momentum,
