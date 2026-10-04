@@ -4,144 +4,30 @@ dmunitcompute.m 的Python实现
 用于计算100mm×100mm对应的像素尺寸，并处理stdWavefront目录下的矩阵文件
 """
 
+from __future__ import annotations
+
 from contextlib import contextmanager
-from pathlib import Path
 
 import numpy as np
 
-from ao_shaping.drivers import MlaRes, NlightDM, ThorlabWFS
-from ao_shaping.utils import get_init_V_by_energy, get_init_V_by_rms
-from ao_shaping.utils.wavefront.wavefront_calc import normalize_01
+from ao_shaping.drivers import MlaRes, ThorlabWFS
+from ao_shaping.utils.wavefront.wavefront_calc import (
+    ZernikeCentroidCalculator,
+    calculate_derotation,
+    to_color,
+)
 
-
-def centroid_calculation(matrix):
-    """
-    计算矩阵的质心坐标
-
-    参数:
-    matrix: 输入矩阵
-
-    返回:
-    c_x: 质心x坐标
-    c_y: 质心y坐标
-    """
-    # 获取矩阵尺寸
-    rows, cols = matrix.shape
-
-    # 创建坐标网格
-    x, y = np.meshgrid(np.arange(1, cols + 1), np.arange(1, rows + 1))
-
-    # 计算总和
-    sum_intensity = np.sum(matrix)
-
-    # 计算质心坐标 (加权平均)
-    c_x = np.sum(matrix * x) / sum_intensity
-    c_y = np.sum(matrix * y) / sum_intensity
-
-    return c_x, c_y
-
-
-def calculate_derotation(x_actual, y_actual, theta):
-    """
-    计算消旋坐标变换（反向旋转theta角）
-
-    参数:
-    x_actual: 实际x坐标
-    y_actual: 实际y坐标
-    theta: 旋转角度
-
-    返回:
-    x_derotated: 消旋后的x坐标
-    y_derotated: 消旋后的y坐标
-    """
-    # 步骤2：计算旋转角的余弦值和正弦值
-    cos_theta = np.cos(theta)
-    sin_theta = np.sin(theta)
-
-    # 步骤3：执行消旋坐标变换（反向旋转theta角），公式依据专利消旋原理推导
-    x_derotated = x_actual * cos_theta + y_actual * sin_theta
-    y_derotated = -x_actual * sin_theta + y_actual * cos_theta
-
-    # 步骤4：输出消旋后的坐标（保留6位小数，与专利实施例数据精度一致，如0.025mm、-0.144mm）
-    x_derotated = np.round(x_derotated, 6)
-    y_derotated = np.round(y_derotated, 6)
-
-    return x_derotated, y_derotated
-
-
-def get_zernike_base_matrixs(folder_path="scripts/tuning_devices/stdWavefront"):
-    # 获取所有txt文件
-    txt_files = list(Path(folder_path).glob("*.txt"))
-    print(f"找到 {len(txt_files)} 个文件")
-
-    # 一次性读取所有文件到一个三维数组中
-    num_files = len(txt_files)  # 最多处理64个文件
-    wavefront_matrices = np.zeros((num_files, 360, 360))
-    # 读取所有文件
-    for i in range(num_files):
-        data = np.loadtxt(txt_files[i])
-        wavefront_matrices[i] = data.reshape(360, 360)
-
-    return wavefront_matrices
-
-
-def to_color(matrix, max_val=1):
-    # 将矩阵转换为RGB图像（归一化到0-255范围）
-    normalized_matrix = (matrix) / (max_val + 1e-8)
-    rgb_matrix = np.stack([normalized_matrix * 255] * 3, axis=-1).astype(np.uint8)
-    return rgb_matrix
-
-
-class ZernikeCentroidCalculator:
-    # 计算100mm×100mm对应的像素尺寸  —（233，220）  （237，223）
-    mm_size = 100  # 实际尺寸(mm)
-    resolution_for_70mm = 360  # 70mm对应的像素数
-    shape = (resolution_for_70mm, resolution_for_70mm)
-    pixel_per_mm = resolution_for_70mm / 70  # 每毫米的像素数
-    pixel_size = int(round(mm_size * pixel_per_mm))  # 100mm对应的像素数
-    mm_per_pixel = 1 / pixel_per_mm  # 每像素对应的毫米数 (约0.1944mm/像素)
-
-    # print(f"像素尺寸: {pixel_size}x{pixel_size}")
-    # print(f"每像素毫米数: {mm_per_pixel:.4f} mm/pixel")
-    def __init__(
-        self, folder_path="scripts/tuning_devices/stdWavefront", black_level=0.0
-    ):
-        self.wavefront_matrices = get_zernike_base_matrixs(folder_path)
-        self.num_files = self.wavefront_matrices.shape[0]
-        self.black_level = black_level
-
-    def get_centroid(self, zernike_coef):
-        """
-        计算给定Zernike系数组合的波前矩阵的质心坐标
-        """
-        zer_class = min(len(zernike_coef), self.num_files)
-        _zernike_coef = zernike_coef[:zer_class]
-        _wavefront_matrices = self.wavefront_matrices[:zer_class]
-        _zernike_base_matrix = np.sum(
-            _wavefront_matrices * _zernike_coef[:, np.newaxis, np.newaxis], axis=0
-        )
-        _zernike_base_matrix = normalize_01(_zernike_base_matrix)
-        _zernike_base_matrix = _zernike_base_matrix - self.black_level
-        _zernike_base_matrix = np.where(
-            _zernike_base_matrix < 0, 0, _zernike_base_matrix
-        )
-        cx, cy = centroid_calculation(_zernike_base_matrix)
-        return (cx, cy), _zernike_base_matrix
-
-    def pix_to_mm(self, pix):
-        """
-        将像素坐标转换为毫米坐标
-        """
-        return (pix - self.resolution_for_70mm / 2) * self.mm_per_pixel
-
-    def center_coordinate(self, cx, cy):
-        """
-        将像素坐标转换为毫米坐标
-        """
-        return (cx - self.resolution_for_70mm / 2), (cy - self.resolution_for_70mm / 2)
-
-    # def __iter__(self):
-    #     self.wfs.initialize()
+# NOTE (R-34, 2026-10-04): `centroid_calculation`,
+# `calculate_derotation`, `get_zernike_base_matrixs`, `to_color` and
+# `ZernikeCentroidCalculator` used to be duplicated here verbatim. They now
+# live only in `ao_shaping.utils.wavefront.wavefront_calc` and are imported
+# above. The copy was not merely redundant: its `get_zernike_base_matrixs`
+# iterated `Path.glob('*.txt')`, which is lexicographic, so mode 10 sat at
+# index 1 -- 65 of the 66 slots were wrong and a pure tilt-x command reported a
+# centroid on the array centre instead of a ~35 px shift.
+#
+# `get_init_V_by_energy` / `get_init_V_by_rms` / `NlightDM` were imported
+# but never referenced here; the visualisation loop is WFS-only.
 
 
 @contextmanager

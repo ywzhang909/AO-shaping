@@ -107,6 +107,13 @@ docs/benchmarks/device_less/**
 !docs/benchmarks/device_less/suite_stdout.txt
 !docs/benchmarks/device_less/gif/*/*_metrics.md
 !docs/benchmarks/device_less/gif/*/*_evolution.gif
+# `*.npz` is ignored above because every other .npz in this repo is a probe/run
+# artefact under data/. This one is *source data*: the 66 measured Zernike base
+# maps that ZernikeCentroidCalculator needs (R-34). It replaced 66 tracked ASCII
+# .txt files (56.4 MB -> 23.2 MB, bit-exact float64). Without the negation a
+# fresh clone would raise FileNotFoundError from
+# ao_shaping.utils.wavefront.wavefront_calc.get_zernike_base_matrixs.
+!scripts/tuning_devices/stdWavefront/std_wavefront.npz
 *.log
 scripts/dev**
 tmp_*

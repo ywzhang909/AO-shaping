@@ -132,7 +132,8 @@
 | R-31 | `cartographer/test_smoke.py` 从 `src/` 迁到 `tests/`（现永不被收集）；修 2 处输出路径违规（`generate_cython_optimizer_report.py` 写 `docs/` 根、`generate_centroid_test_visualization.py` 写进 `scripts/reports/`） | 清理 | 2026-10-01 |
 | R-32 | 加约定测试（孤儿检测 + `python -m` 一致性 + utils 分层守卫 + **测试写已提交 docs** 守卫），**warn-only + baseline** | ✅ 4 条守卫全部落地，2 条零 baseline（树本来就干净）→ §5.12 | 重构 | 2026-10-01 |
 | R-33 | `micro_dm_image_collect.py` → `with_params(MicroDMParams)`；删 7 个驱动内部符号导入与手写 `_resolve_ips`；同 PR 内启用已有的 `R50Controller.__enter__/__exit__`（全仓库零使用）。⚠️ 必须先钉死 Micro-DM 磁盘布局（承重：`find_cell_image` + 4 个 `md_img_*` 脚本依赖） | 重构 | 2026-10-01 |
-| R-34 | 清理被 git 跟踪的 `scripts/tuning_devices/stdWavefront/` **66 个 .txt（~57 MB）**；`train_data_collect.py` 与 `micro_dm_image_collect.py` 均 **0 测试** | 清理 | 2026-10-01 |
+| ~~R-34~~ | ~~清理被 git 跟踪的 `scripts/tuning_devices/stdWavefront/` **66 个 .txt（~57 MB）**~~ | ✅ **清理完成，并修掉一个静默算错质心的 bug** → §5.29。ASCII → 单个 bit-exact `.npz`（56.4 → 23.2 MB）；`glob("*.txt")` 是**字典序** ⇒ 66 个模式位错 65 个 | `scripts/tuning_devices/stdWavefront/` + `wavefront_calc.py` | 2026-10-01 |
+| **R-43** | 原 R-34 的另一半：**`train_data_collect.py` 与 `micro_dm_image_collect.py` 均 0 测试**（随 R-34 一并拆出）。`micro_dm_image_collect.py` 正在被 Micro-DM 大重构改动，故当时未做 | `tools/train_data_collect.py`、`tools/micro_dm/micro_dm_image_collect.py` | 2026-10-04 |
 
 ### 2.3 `tools/slm/` CLI 层重构（源自 `src/ao_shaping/tools/slm/TODO.md`，2026-10-01）
 
@@ -1439,6 +1440,64 @@ that calls them"）。
 > `test_common_helpers_not_reintroduced.py::test_migrated_generator_import_actually_resolves[generate_oopao_impact_report.py]`
 > 因 `ModuleNotFoundError: No module named 'gymnasium'` 失败（`gymnasium` 是 `rl` 可选依赖组，
 > 本环境未装），即该 generator 的 import 链会拖进 `optimizer/rl/envs.py`。留给 F-10 一并看。
+
+---
+
+### 5.29 R-34 —— 66 个 ASCII 文件里藏着一个「质心算错但从不报错」的 bug（2026-10-04）
+
+原条目只说"清理 66 个 .txt（~57 MB）"。实测**加载器是坏的**，所以这不只是搬家。
+
+**Bug**：`get_zernike_base_matrixs()` 用 `Path(folder_path).glob("*.txt")` 遍历，
+而 `glob` 是**字典序** —— 实测返回
+`['1.txt','10.txt','11.txt',...,'66.txt','7.txt','8.txt','9.txt']`。
+文件本身确实是标准 Zernike 序（1=piston，2=x tilt，3=y tilt，4=defocus，5=astig…，
+用梯度方向验证过），但 `ZernikeCentroidCalculator.get_centroid()` 是**按位置**加权
+`sum_i matrices[i] * coef[i]` ⇒ **66 个槽位错了 65 个**。
+
+后果实测：纯 x tilt（`coef[1] = 1`）返回质心 **(179.500, 179.496)**，即**正中**，
+因为替它做乘法的是一个旋转对称模式；正确的值是 **(144.291, 179.500)**
+（x 偏移 −35.7 mm，y 偏移 −0.5 mm）。也就是说**最常用的 DM 单元测试命令，光斑纹丝不动**。
+
+这个类在 `ao_shaping/__init__.py:149,213` 里是导出的公共 API，不是死代码。
+
+**改动**：
+
+1. `scripts/tuning_devices/stdWavefront/`：66 个 ASCII → **一个**
+   `std_wavefront.npz`（`modes` int16 1..66 + `matrices` float64 (66,360,360)）。
+   用 `np.savez_compressed` 存 **float64**，所以 `np.array_equal` **逐位相同**（已验证）；
+   56.4 MB → **23.2 MB**，加载 0.71 s → **0.13 s**。
+   （试过 int16×1e-4 更小，但实测值并非严格落在 1e-4 栅格上，会丢精度，故不用。）
+2. `wavefront_calc.py`：加载器改读 npz，路径**锚定仓库**（`parents[4]`，与
+   `dm/_adjacency.py::load_adjacency` 同做法；原来是 CWD 相对字符串，只在仓库根目录下能用），
+   `print` → loguru；**每次加载都校验 `modes == 1..N` 连续递增**，顺序再坏会直接报错而不是静默算错。
+   `ZernikeCentroidCalculator.__init__` 参数随之由 `folder_path` 改为 `path`，并新增
+   形状与本类标定值（360×360）的一致性检查。
+3. **去重**：`scripts/tuning_devices/dm_unit_compute.py` 里
+   `centroid_calculation` / `calculate_derotation` / `get_zernike_base_matrixs` /
+   `to_color` / `ZernikeCentroidCalculator` 五个函数是 canonical 的**逐字副本**
+   （且副本里就带着上面那个 bug），现全部删除、改为 import canonical。
+   同时删掉三个从未引用的 import（`NlightDM` / `get_init_V_by_energy` /
+   `get_init_V_by_rms`）——可视化循环只用 WFS。243 行 → 129 行。
+4. `scripts/tuning_devices/__init__.py` 之前 import
+   `.calculate_derotation` / `.centroid_calculation` / `.normalize_01`
+   **三个不存在的模块**（目录里只有对应的 `.m` 文件）⇒ import 即 `ModuleNotFoundError`。
+   改为纯文档，指向 canonical。
+
+**验证**（`tests/ao_shaping/utils/test_std_wavefront_bases.py`，16 例）：
+数据形状/dtype/有限性 · `modes == 1..66` · 低阶模式的物理身份（piston 二值、
+2 是 x tilt、3 是 y tilt、4/5 旋转对称）· 66 个模式互不相同 ·
+纯 x/y tilt 的质心（钉住修复前的错误值）· 缺文件抛 `FileNotFoundError` 而非静默回落 ·
+**从任意 CWD 都能加载** · `.txt` 不得回流 · 乱序 `modes`/非方阵被拒 ·
+npz 往返逐位相同 · 三个源码守卫（脚本不得再复制那五个函数、必须 import canonical、
+`tuning_devices/__init__.py` 必须能 import）。
+
+**变异测试**（都真的失败过）：
+* 把 npz 的 `matrices` 按旧的字典序打乱、`modes` 保持 1..66 ⇒
+  **3 个物理测试失败**（低阶模式身份 + 纯 x tilt + 纯 y tilt）；
+* 把 `modes` 连续性校验改成 `if False` ⇒ `test_reordered_modes_are_rejected` 失败。
+
+> R-34 的另一半（`train_data_collect.py` 与 `micro_dm_image_collect.py` 0 测试）
+> 拆成 **R-43**：前者在干净文件上可做，后者正被 Micro-DM 大重构改动，当时不宜插手。
 
 ---
 

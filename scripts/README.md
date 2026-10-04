@@ -2379,7 +2379,12 @@ Contains scripts for device tuning and calibration:
 - `dm_unit_compute.py` - Computes DM unit properties
 - `calculateDerotation.m` - Calculates derotation
 - `centroidcaculation.m` - Calculates centroids
-- `stdWavefront/` - Standard wavefront reference data
+- `stdWavefront/std_wavefront.npz` — Standard wavefront reference data: 66 measured
+  Zernike base maps (modes 1..66, 360×360, float64) in one compressed archive,
+  loaded by `ao_shaping.utils.wavefront.wavefront_calc.get_zernike_base_matrixs`.
+  It replaced 66 ASCII `.txt` files (56.4 MB → 23.2 MB, bit-exact, ~5× faster to
+  load) whose `Path.glob("*.txt")` loader ordered the modes **lexicographically**,
+  so 65 of the 66 slots held the wrong map.
 - Various utility scripts for device tuning
 
 ### _common/
