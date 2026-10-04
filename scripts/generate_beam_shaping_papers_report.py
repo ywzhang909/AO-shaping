@@ -51,7 +51,7 @@ from ao_shaping.drivers.sim.slm_shaping_bench import (  # noqa: E402
     forward_intensity,
     make_target,
 )
-from ao_shaping.optimizer.wfless.slm_shaping_bench import (  # noqa: E402
+from ao_shaping.drivers.sim.slm_shaping_bench import (  # noqa: E402
     analytic_amplitude_target,
     differentiable_shape,
     gs_shape,
@@ -219,7 +219,7 @@ def main() -> int:
         "",
         "> 本报告由 `scripts/generate_beam_shaping_papers_report.py` 生成，仿真基于 "
         "`ao_shaping.drivers.sim.slm_shaping_bench` 的前向模型和 "
-        "`ao_shaping.optimizer.wfless.slm_shaping_bench` 的优化方法。",
+        "`ao_shaping.drivers.sim.slm_shaping_bench` 的优化方法。",
     ]
     (OUT_DIR / "beam_shaping_papers.md").write_text("\n".join(md), encoding="utf-8")
     logger.info("Report written: {}", OUT_DIR / "beam_shaping_papers.md")
