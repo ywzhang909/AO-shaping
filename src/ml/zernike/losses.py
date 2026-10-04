@@ -100,6 +100,53 @@ def _cached_mask(
     return torch.from_numpy(np.ascontiguousarray(mask))
 
 
+def shape_gap_term(
+    intensity: Tensor,
+    reference: Tensor,
+    mask: Tensor,
+) -> Tensor:
+    """Anchored physical term: how far the ROI shape statistics are from the target.
+
+    This exists because :func:`pib_term` and :func:`uniformity_term` are
+    **unanchored** -- they read only the prediction. That is correct for *shaping*
+    (you genuinely want the brightest, flattest box you can synthesise) but
+    **wrong for fitting a forward model**, where the model's job is to predict
+    the measured frame rather than to produce an ideal spot. Maximising them on a
+    fidelity task has a degenerate optimum: emit a clean square, ignore the data.
+
+    Measured on the real corpus, unanchored ``pib + uniformity`` reaches
+    ``shape_sum = 1.496`` against a measured target of ``1.113`` -- 34% *better
+    than the physics being predicted* -- while val R2 collapses from +0.78 to
+    **-0.86**, worse than predicting a constant. The model had stopped
+    predicting and started idealising.
+
+    Anchoring to the reference's own terms removes the degenerate direction: the
+    best achievable value is 0, attained when the prediction reproduces the
+    measured shape statistics, and overshooting is penalised exactly like
+    undershooting.
+
+    Returns ``|shape_sum(pred) - shape_sum(reference)|`` per sample, shape
+    ``(B,)``.
+    """
+    pred_sum = pib_term(intensity, mask) + uniformity_term(intensity, mask)
+    ref_sum = pib_term(reference, mask) + uniformity_term(reference, mask)
+    return (pred_sum - ref_sum).abs()
+
+
+@torch.no_grad()
+def _shape_gap_reference_scale(reference: Tensor, mask: Tensor) -> Tensor:
+    """Mean ``shape_sum`` of the reference -- the natural unit for weighting.
+
+    The physical terms are ``O(1)`` while a peak-normalised MSE is ``O(0.003)``,
+    a gap of roughly 450x. That is why ``w_mse=1.0`` alongside ``w_pib=1.0`` is
+    *not* a balanced blend: measured on the corpus, the blend's val R2 was -0.28,
+    i.e. the fidelity anchor contributed about 0.2% of the gradient. Normalising
+    the anchored term by the reference's own magnitude puts it back on the same
+    footing as MSE, so ``w_mse=1`` and ``w_shape_gap=1`` are comparable weights.
+    """
+    return (pib_term(reference, mask) + uniformity_term(reference, mask)).mean()
+
+
 def _flatten_roi(intensity: Tensor, mask: Tensor) -> tuple[Tensor, Tensor]:
     """Reduce ``(B,1,H,W)`` intensity to per-sample ``(roi_sum, total_sum)``.
 
@@ -201,6 +248,19 @@ class LossConfig:
             :attr:`normalization`.
         w_pib: Weight on the in-ROI energy fraction (maximised).
         w_uniformity: Weight on the in-ROI flatness term (maximised).
+        w_shape_gap: Weight on the **anchored** physical term
+            :func:`shape_gap_term`, i.e. the absolute error between the
+            prediction's ROI shape statistics and the measured frame's. This is
+            the term to use when *fitting* a forward model: ``w_pib`` /
+            ``w_uniformity`` are unanchored and their best value is "ignore the
+            data and emit an ideal spot" (measured: val R2 +0.78 -> -0.86, with
+            ``shape_sum`` 34% above the physics being predicted). Set this
+            instead of ``w_pib``/``w_uniformity`` for fidelity tasks.
+        shape_gap_relative: Normalise :func:`shape_gap_term` by the reference's
+            own mean ``shape_sum``. The physical terms are ``O(1)`` while a
+            peak-normalised MSE is ``O(0.003)``, so without this a nominal
+            ``w_mse=1.0`` contributes ~0.2% of the gradient and cannot anchor
+            anything. Default ``True``.
         normalization: Which forward-model observable the loss expects. ``"none"``
             keeps absolute scale (required for :func:`poisson_nll`);
             ``"peak"`` matches the incumbent setup but makes ``w_poisson``
@@ -211,6 +271,8 @@ class LossConfig:
     w_poisson: float = 0.0
     w_pib: float = 0.0
     w_uniformity: float = 0.0
+    w_shape_gap: float = 0.0
+    shape_gap_relative: bool = True
     normalization: str = "peak"
 
     def __post_init__(self) -> None:
@@ -268,6 +330,13 @@ def composite_loss(
         uni = uniformity_term(pred, mask)
         out["uniformity"] = uni
         per_sample.append(cfg.w_uniformity * (1.0 - uni))
+
+    if cfg.w_shape_gap:
+        gap = shape_gap_term(pred, target, mask)
+        if cfg.shape_gap_relative:
+            gap = gap / _shape_gap_reference_scale(target, mask).clamp(min=EPS)
+        out["shape_gap"] = gap
+        per_sample.append(cfg.w_shape_gap * gap)
 
     if not per_sample:
         raise ValueError("LossConfig has no non-zero weight; nothing to optimise")

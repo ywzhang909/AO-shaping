@@ -178,6 +178,19 @@ class ZernikeAmpConfig:
             than a monotone "sharper is better". The right value depends on the
             family's ``fov_px``, so re-run the sweep for a new family rather than
             copying the default.
+        attention: Add a trainable self-attention refinement **after** the far
+            field is formed. Off by default, because the pure physics path is the
+            model's whole value proposition: it is a closed-form function of its
+            coefficients, so the phase it implies (``Σ Z_k B_k``) is directly
+            implementable on the SLM. An attention block is **not** invertible
+            back to a phase, so enabling it trades that guarantee away.
+        attention_grid: Token grid the attention runs on. The far field is
+            adaptively pooled to ``attention_grid x attention_grid`` before
+            attention and bilinearly restored after. At ``grid=64`` the full
+            field is 4096 tokens, which would make attention quadratic in a very
+            large number; 16x16 = 256 tokens keeps it ~1% of the cost. Default 16.
+        attention_dim: Bottleneck width of the attention block. Default 32.
+        attention_heads: Self-attention heads. Default 1.
     """
 
     n_max: int = 4
@@ -187,6 +200,99 @@ class ZernikeAmpConfig:
     normalization: Normalization = "peak"
     far_field_padding: int = 10
     center_crop: bool = True
+    attention: bool = False
+    attention_grid: int = 16
+    attention_dim: int = 32
+    attention_heads: int = 1
+
+
+class FarFieldAttention(torch.nn.Module):
+    """Self-attention refinement of a far field, as an identity-initialised residual.
+
+    Placed after the physics (the Zernike phase and the Fraunhofer FFT) and
+    applied to the *intensity*, so the coefficients keep their meaning as the
+    physical description of the bench and attention learns a bounded correction on
+    top of it.
+
+    Two properties are deliberate:
+
+    * **Identity at initialisation.** ``out_proj`` is zero-initialised, so the
+      block returns exactly its input before training. A randomly-initialised
+      residual would start by *destroying* a model that is already good -- the
+      measured pure-physics fit reaches val R^2 +0.79 on this corpus -- and the
+      optimiser would have to recover that from scratch. With identity init the
+      attention can only ever improve on the physics it starts from.
+    * **Cannot annihilate the field.** An earlier version used an *additive*
+      residual followed by ``clamp(min=0)``. That is a silent dead end: the
+      optimiser's first sign-based step (Adam) pushes ``out_proj`` negative
+      enough that the clamp zeroes the entire far field, so the output is
+      identically 0, its gradient is identically 0, and **every** parameter --
+      the coefficients included -- stops receiving gradient. Measured: nonzero
+      gradient at step 0 for ``coefficients``/``out_proj``, then empty from step 1
+      onwards, with no error raised anywhere. The correction is therefore
+      *multiplicative*, ``intensity * (1 + tanh(.))``, which is bounded to
+      ``(0, 2x)``: it can reshape the beam but can never zero it, lose positivity,
+      or block the gradient path.
+    * **Cheap tokens.** The far field is pooled to ``attention_grid`` first
+      (256 tokens at the 16x16 default instead of 4096 at 64x64), because
+      attention cost is quadratic in token count and 4096 would dominate the
+      forward pass for no measurable gain at this output resolution.
+    """
+
+    def __init__(self, grid: int, token_grid: int, dim: int, heads: int) -> None:
+        super().__init__()
+        if heads < 1:
+            raise ValueError(f"attention_heads must be >= 1, got {heads}")
+        if token_grid < 1:
+            raise ValueError(f"attention_grid must be >= 1, got {token_grid}")
+        self.grid = int(grid)
+        self.token_grid = int(token_grid)
+        self.dim = int(dim)
+        self.heads = int(heads)
+
+        # (B, 1, g, g) -> (B, dim, t, t): the bottleneck also does the pooling.
+        self.down = torch.nn.Conv2d(1, dim, kernel_size=1)
+        self.qkv = torch.nn.Conv2d(dim, 3 * dim, kernel_size=1)
+        self.proj = torch.nn.Conv2d(dim, dim, kernel_size=1)
+        self.out_proj = torch.nn.Conv2d(dim, 1, kernel_size=1)
+        # Identity at init: the block starts as an exact no-op.
+        torch.nn.init.zeros_(self.out_proj.weight)
+        torch.nn.init.zeros_(self.out_proj.bias)
+
+    def forward(self, intensity: torch.Tensor) -> torch.Tensor:
+        if intensity.dim() != 4 or intensity.shape[1] != 1:
+            raise ValueError(
+                f"expected (B, 1, g, g) intensity, got {tuple(intensity.shape)}"
+            )
+        tokens = self.down(intensity)
+        if tokens.shape[-2:] != (self.token_grid, self.token_grid):
+            tokens = torch.nn.functional.adaptive_avg_pool2d(
+                tokens, (self.token_grid, self.token_grid)
+            )
+        b, dim = tokens.shape[0], self.dim
+        n = self.token_grid * self.token_grid
+        qkv = self.qkv(tokens).reshape(b, 3, self.heads, dim // self.heads, n)
+        # (B, heads, n, head_dim)
+        query, key, value = qkv.unbind(dim=1)
+        scale = (dim // self.heads) ** -0.5
+        weights = torch.softmax(
+            query.transpose(-2, -1) @ key * scale, dim=-1
+        )  # (B, heads, head_dim, head_dim)
+        attended = (weights @ value.transpose(-2, -1)).transpose(-2, -1)
+        merged = attended.reshape(b, dim, self.token_grid, self.token_grid)
+        merged = self.proj(merged)
+        if merged.shape[-2:] != intensity.shape[-2:]:
+            merged = torch.nn.functional.interpolate(
+                merged,
+                size=intensity.shape[-2:],
+                mode="bilinear",
+                align_corners=False,
+            )
+        # Multiplicative, bounded gate: identity at init (out_proj is zero), and
+        # incapable of driving the field to zero -- see the class docstring for
+        # why the additive+clamp form was a silent dead end.
+        gate = 1.0 + torch.tanh(self.out_proj(merged))
+        return intensity * gate
 
 
 @dataclass
@@ -395,6 +501,26 @@ class ZernikeAmpModel(nn.Module):
 
         # ONE global vector, shared by every sample in the dataset.
         self.coefficients = nn.Parameter(torch.zeros(self.K))
+
+        # Optional trainable refinement of the far field. Identity at init, so
+        # enabling it cannot degrade the physics before training has done
+        # anything. Note this makes the output a function of the attention
+        # weights too, so the coefficients stop being a closed-form description
+        # of the phase -- see ZernikeAmpConfig.attention.
+        self.attention: FarFieldAttention | None = None
+        if config.attention:
+            if config.attention_dim % config.attention_heads:
+                raise ValueError(
+                    f"attention_dim ({config.attention_dim}) must be divisible by "
+                    f"attention_heads ({config.attention_heads})"
+                )
+            self.attention = FarFieldAttention(
+                grid=self.grid,
+                token_grid=config.attention_grid,
+                dim=config.attention_dim,
+                heads=config.attention_heads,
+            )
+
         logger.info(
             "ZernikeAmpModel grid={} n_max={} K={} observable={} normalization={}",
             self.grid,
@@ -459,6 +585,15 @@ class ZernikeAmpModel(nn.Module):
         if self.center_crop:
             focal = _centre_crop(focal, self.grid)
         intensity = focal.real.pow(2) + focal.imag.pow(2)
+
+        if self.attention is not None:
+            # Refine the *intensity*, then take the observable branch exactly as
+            # the pure-physics path does. Doing the branch first (and squaring
+            # the attention output here) would insert a spurious sqrt into the
+            # "intensity" observable and break the identity-at-init guarantee.
+            # The block is a bounded multiplicative gate, so the refined field is
+            # already positive and needs no clamp here.
+            intensity = self.attention(intensity)
 
         if self.observable == "intensity":
             observable = intensity

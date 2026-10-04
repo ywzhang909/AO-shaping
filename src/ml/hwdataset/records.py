@@ -154,7 +154,7 @@ _HISTORY_ATTR = "history"
 #: :func:`~ml.hwdataset.transforms.farfield_frame_to_grid`. Mirrored here so
 #: :meth:`MaterialiserConfig.validate` can name an unknown ``image_mode``
 #: without calling the transform (and so the default cannot drift apart).
-_IMAGE_MODES: tuple[str, ...] = ("abs255", "peak", "raw")
+_IMAGE_MODES: tuple[str, ...] = ("abs255", "peak", "raw", "robust")
 
 #: Exceptions that mean "this file is not a usable record dump". Mirrors
 #: ``ml.hwdataset.index._UNREADABLE_PICKLE_ERRORS``: a corrupt or truncated

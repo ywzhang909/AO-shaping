@@ -501,7 +501,29 @@ def farfield_frame_to_grid(
             ``"peak"`` peak-normalises (delegating to
             :func:`~ml.gsnet_debug.offline.farfield_to_grid`), which
             discards absolute intensity. ``"raw"`` returns the float32 values
-            unscaled.
+            unscaled. ``"robust"`` (added for forward-model preprocessing)
+            subtracts the median background then divides by a high percentile,
+            see below.
+
+    ``"robust"`` rationale. The two existing scalings each fail in a different
+    direction, and the corpus contains both failure modes:
+
+    * ``abs255`` keeps absolute intensity (correct when exposure is an *input*,
+      because the brightness encodes it) but leaves the per-frame detector gain
+      in -- measured frame maxima across the corpus span 255 (uint8) / 239.6
+      (float32) / 100.9 (float64), so two frames of the same illumination differ
+      by 2.5x before any physics.
+    * ``peak`` removes the gain but divides by a **single pixel**. AGENTS records
+      that on this bench a hot pixel can outrank the real 0-order (peak 22-46
+      against a frame mean of 0.26), so peak mode is set by detector defects
+      rather than by the beam.
+
+``"robust"`` divides by the median of the background-subtracted frame's lit
+    pixels, which is a scale that reflects the beam while ignoring any number of
+    hot pixels, and subtracts the median first so the read-noise pedestal does
+    not inflate the scale. It still discards absolute intensity, so like
+    ``peak`` it belongs with a model that takes exposure as an input rather than
+    inferring brightness.
 
     Returns:
         ``(grid, grid) float32`` window.
@@ -512,9 +534,9 @@ def farfield_frame_to_grid(
     """
     if int(grid) < 1:
         raise ValueError(f"grid must be >= 1, got {grid}")
-    if mode not in ("abs255", "peak", "raw"):
+    if mode not in ("abs255", "peak", "raw", "robust"):
         raise ValueError(
-            f"mode must be one of 'abs255', 'peak', 'raw'; got {mode!r}"
+            f"mode must be one of 'abs255', 'peak', 'raw', 'robust'; got {mode!r}"
         )
 
     frame = np.asarray(img)
@@ -530,4 +552,42 @@ def farfield_frame_to_grid(
     values = np.nan_to_num(values, nan=0.0, posinf=0.0, neginf=0.0)
     if mode == "abs255":
         values = np.clip(values / np.float32(255.0), 0.0, 1.0)
+    elif mode == "robust":
+        values = _robust_normalise(values)
     return _anchored_window(values, int(grid))
+
+
+#: Percentile of the *above-background* pixels used as the scale estimator by
+#: ``image_mode="robust"``.
+#:
+#: It is deliberately the **median**, not a high quantile. The percentile is taken
+#: over ``excess[excess > 0]`` -- i.e. only the lit pixels -- and that subset is
+#: small whenever the beam is a small fraction of the frame (a 4x4 spot in a 64x64
+#: crop gives ~65 lit pixels). At 99.5 on a 65-element subset a *single* hot pixel
+#: *is* the quantile, so the scale became 60000 instead of 255 and the beam
+#: normalised to 0.004: measured ``max|d| = 1.0`` for a clean vs one-hot-pixel
+#: frame. The median of the lit pixels tracks the beam's own level and is immune
+#: to any number of hot pixels.
+ROBUST_PERCENTILE = 50.0
+
+
+def _robust_normalise(values: NDArray[np.float32]) -> NDArray[np.float32]:
+    """Median-subtract, then divide by a robust estimate of the beam level.
+
+    The median is the background pedestal (symmetric read noise sits on it), and
+    the median of the pixels that remain estimates the beam height above it
+    without being hostage to the hottest pixels. Falls back to zeros when the
+    frame has no positive signal, so a dead frame yields zeros rather than a
+    division by zero. Output is clipped to ``[0, 1]``.
+    """
+    if values.size == 0:
+        return values
+    background = np.float32(np.median(values))
+    excess = values - background
+    positive = excess[excess > 0]
+    if positive.size == 0:
+        return np.zeros_like(excess)
+    scale = float(np.percentile(positive, ROBUST_PERCENTILE))
+    if not np.isfinite(scale) or scale <= 0.0:
+        return np.zeros_like(excess)
+    return np.clip(excess / np.float32(scale), 0.0, 1.0).astype(np.float32)

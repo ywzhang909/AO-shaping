@@ -54,6 +54,7 @@ from ml.zernike.metrics import (
     available_perceptual_metrics,
     batch_image_metrics,
     per_sample_beam_metrics,
+    roi_shape_terms,
     summarise_beam_metrics,
 )
 from ml.zernike.models import (
@@ -112,6 +113,18 @@ class AmpTrainConfig:
     far_field_padding: int = 10
     center_crop: bool = True
 
+    #: Trainable self-attention refinement after the far field (see
+    #: :class:`~ml.zernike.models.ZernikeAmpConfig.attention`). Off by default:
+    #: the pure-physics path is a closed-form function of its coefficients, so
+    #: the phase it implies is directly implementable on the SLM, and an
+    #: attention block is not invertible back to a phase. When enabled it is
+    #: identity-initialised, so training starts from the physics rather than from
+    #: noise, and it is optimised alongside the coefficients.
+    attention: bool = False
+    attention_grid: int = 16
+    attention_dim: int = 32
+    attention_heads: int = 1
+
     max_train: int = DEFAULT_MAX_RECORDS
     max_val: int = 128
     val_fraction: float = 0.25
@@ -135,15 +148,22 @@ class AmpTrainConfig:
     #: :mod:`ml.zernike.losses` instead, which can see *where* the light lands
     #: rather than only how close each pixel is.
     loss: str = "mse"
-    #: Term weights for ``loss="physical"``. Defaults to pib + uniformity with
-    #: **no** fidelity term, so selecting ``loss="physical"`` actually changes
-    #: the objective; add ``w_mse`` back to optimise the blend instead. Note this
-    #: deliberately differs from :class:`~ml.zernike.losses.LossConfig`'s own
-    #: default (which is the incumbent ``w_mse=1.0``), because inside the loss
-    #: module the neutral default is right, whereas here it would make the
-    #: physical switch a no-op.
+    #: Term weights for ``loss="physical"``. Defaults to the **anchored** physical
+    #: term: MSE for fidelity plus ``w_shape_gap`` for the ROI shape statistics,
+    #: relative-normalised so the two are comparable weights.
+    #:
+    #: It deliberately does NOT default to ``w_pib``/``w_uniformity``. Those are
+    #: unanchored -- they read only the prediction -- so on a *fitting* task their
+    #: optimum is "ignore the data and emit an ideal spot". Measured here:
+    #: ``w_pib=1, w_uniformity=1`` drove val R2 from +0.78 to **-0.86** while
+    #: ``shape_sum`` reached 1.496 against a measured 1.113, i.e. 34% "better"
+    #: than the physics being predicted. Even ``w_mse=1`` alongside them left
+    #: R2 at -0.28, because the physical terms are ``O(1)`` and a peak-normalised
+    #: MSE is ``O(0.003)`` -- roughly 450x, so the fidelity anchor carried about
+    #: 0.2% of the gradient. Keep the unanchored pair for *shaping* (inverting a
+    #: model to produce a phase), not for training one.
     loss_weights: LossConfig = field(
-        default_factory=lambda: LossConfig(w_mse=0.0, w_pib=1.0, w_uniformity=1.0)
+        default_factory=lambda: LossConfig(w_mse=1.0, w_shape_gap=1.0)
     )
     #: ROI side as a fraction of the (centre-cropped) output grid edge. The
     #: default 0.375 reproduces the 24/64 grid the bench tooling uses; it is a
@@ -359,6 +379,7 @@ def evaluate(
     batch: int = 256,
     *,
     beam_samples: int = 64,
+    roi_size_frac: float | None = None,
 ) -> dict[str, float]:
     """Score the model on a materialised split.
 
@@ -366,6 +387,14 @@ def evaluate(
     the GPU, plus the beam-domain set (centroid offset, spot diameter, correlation,
     efficiency, peak ratio) on the first ``beam_samples`` -- the beam metrics need a
     per-sample numpy pass and are far too slow to run on all 11k records.
+
+    When ``roi_size_frac`` is given, the ROI shape terms (``pib_term`` /
+    ``uniformity`` / ``shape_sum``, plus the measured frame's own) are added via
+    :func:`~ml.zernike.metrics.roi_shape_terms`. Those are the quantities
+    ``loss="physical"`` actually optimises; without them a loss change is
+    unmeasurable, because the beam set alone never says where the light landed
+    inside the target box. Pass the *same* fraction the loss was configured with
+    so the objective and the score refer to one region.
 
     The target is put on the same scale as the prediction using the model's own
     normalisation, exactly as :meth:`ZernikeAmpModel.fit` does, so the numbers are
@@ -376,6 +405,8 @@ def evaluate(
         tensors: Output of :func:`collect_split`.
         batch: Chunk size, to bound peak memory.
         beam_samples: How many validation samples to run beam metrics on.
+        roi_size_frac: ROI short side as a fraction of the grid edge, or ``None``
+            to skip the ROI terms.
 
     Returns:
         One flat dict of scalars.
@@ -403,6 +434,21 @@ def evaluate(
         for i in range(min(beam_samples, n))
     ]
     out.update(summarise_beam_metrics(rows))
+
+    if roi_size_frac:
+        grid = int(target.shape[-1])
+        side = float(roi_size_frac) * grid
+        centre = (grid / 2.0, grid / 2.0)
+        roi_rows = [
+            roi_shape_terms(
+                prediction[i, 0].cpu().numpy(),
+                reference[i, 0].cpu().numpy(),
+                center=centre,
+                size=side,
+            )
+            for i in range(min(beam_samples, n))
+        ]
+        out.update(summarise_beam_metrics(roi_rows))
     return out
 
 
@@ -494,6 +540,11 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
             observable=cfg.observable,
             normalization=cfg.normalization,
             far_field_padding=cfg.far_field_padding,
+            center_crop=cfg.center_crop,
+            attention=cfg.attention,
+            attention_grid=cfg.attention_grid,
+            attention_dim=cfg.attention_dim,
+            attention_heads=cfg.attention_heads,
         )
     ).to(device)
     fit_target = model._normalize(train_t["target"].clone())  # noqa: SLF001
@@ -558,7 +609,7 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
                 loss = loss + cfg.l2_penalty * torch.sum(model.coefficients**2)
             loss.backward()
             if cfg.grad_clip:
-                torch.nn.utils.clip_grad_norm_([model.coefficients], cfg.grad_clip)
+                torch.nn.utils.clip_grad_norm_(_trainable_params(model), cfg.grad_clip)
             optimizer.step()
             se += float(data_mse.detach()) * idx.numel()
             penalty += float(loss.detach()) * idx.numel()
@@ -566,7 +617,12 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
 
         grads = grad_statistics(model)
         coefficients = model.coefficients_array()
-        metrics = evaluate(model, val_t, beam_samples=cfg.beam_samples)
+        metrics = evaluate(
+            model,
+            val_t,
+            beam_samples=cfg.beam_samples,
+            roi_size_frac=cfg.target_size_frac,
+        )
         row = {
             "epoch": epoch,
             "lr": float(scheduler.get_last_lr()[0]),
@@ -687,6 +743,18 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
         _log_wandb_summary(run, result)
         run.finish()
     return result
+
+
+def _trainable_params(model: ZernikeAmpModel) -> list[torch.nn.Parameter]:
+    """Every trainable tensor on the model, not just the coefficients.
+
+    ``_build_optimizer`` already optimises ``model.parameters()``, so an optional
+    attention block is trained. Gradient *clipping* was still hard-wired to
+    ``[model.coefficients]``, which would have left the attention's gradients
+    unclipped while the physics was clipped -- silently applying two different
+    effective learning rates to two parts of the same model.
+    """
+    return [p for p in model.parameters() if p.requires_grad]
 
 
 def _build_optimizer(

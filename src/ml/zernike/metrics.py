@@ -199,6 +199,63 @@ def per_sample_beam_metrics(
     }
 
 
+def roi_shape_terms(
+    pred: np.ndarray,
+    target: np.ndarray,
+    *,
+    center: tuple[float, float],
+    size: float,
+    aspect_ratio: float = 4.0 / 3.0,
+    shape: str = "rectangle",
+) -> dict[str, float]:
+    """ROI shape terms for one ``(H, W)`` predicted/measured pair.
+
+    This closes a real gap in the panel. ``summarise_beam_metrics`` reports
+    correlation / efficiency / spot diameter / peak ratio, but **none of those
+    say where the light landed inside the target box** -- and those are exactly
+    the quantities the shaping objective optimises (``roi_pib_metric``) and the
+    physical losses in :mod:`ml.zernike.losses` optimise (``pib_term``,
+    ``uniformity_term``). Without them a loss change is unmeasurable: training
+    with ``loss="physical"`` could improve or wreck the ROI terms and the logged
+    panel would be identical either way.
+
+    The target's own terms are returned alongside so a *relative* change can be
+    read off directly; a prediction is not "better" just because its absolute
+    PIB is high if the measured frame sits lower.
+
+    Both images are passed through the canonical
+    :func:`~ao_shaping.utils.image.target.metrics.rms_pib_terms`, so this cannot
+    drift from the metric the hardware optimiser reports.
+
+    Args:
+        pred: ``(H, W)`` predicted observable.
+        target: ``(H, W)`` measured frame.
+        center: ROI centre in pixels, ``(x, y)``.
+        size: ROI short side in pixels.
+        aspect_ratio: ROI width / height.
+        shape: ROI shape name (see ``target_shape_roi``).
+
+    Returns:
+        ``pib_term`` / ``uniformity`` / ``shape_sum`` of the prediction, the
+        same three for the measured frame, and ``shape_sum_delta``.
+    """
+    from ao_shaping.utils.image.target.metrics import rms_pib_terms
+
+    p = np.asarray(pred, dtype=np.float64)
+    t = np.asarray(target, dtype=np.float64)
+    pred_pib, pred_uni = rms_pib_terms(p, center, shape, size, aspect_ratio)
+    ref_pib, ref_uni = rms_pib_terms(t, center, shape, size, aspect_ratio)
+    return {
+        "pib_term": float(pred_pib),
+        "uniformity": float(pred_uni),
+        "shape_sum": float(pred_pib + pred_uni),
+        "target_pib_term": float(ref_pib),
+        "target_uniformity": float(ref_uni),
+        "target_shape_sum": float(ref_pib + ref_uni),
+        "shape_sum_delta": float((pred_pib + pred_uni) - (ref_pib + ref_uni)),
+    }
+
+
 def summarise_beam_metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
     """Average per-sample beam metrics into one flat dict.
 

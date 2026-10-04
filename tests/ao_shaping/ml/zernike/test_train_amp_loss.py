@@ -98,17 +98,23 @@ def test_physical_switch_is_not_a_no_op():
     Regression: ``LossConfig``'s own default is the incumbent ``w_mse=1.0``, so
     wiring the switch to a bare ``LossConfig()`` would have made
     ``loss="physical"`` bit-identical to ``loss="mse"`` -- a flag that silently
-    did nothing. ``AmpTrainConfig.loss_weights`` therefore defaults to the
-    physical mix instead.
+    did nothing. ``AmpTrainConfig.loss_weights`` therefore defaults to a blend
+    that includes a non-zero physical term.
     """
     from ml.zernike.train_amp import AmpTrainConfig
 
     weights = AmpTrainConfig().loss_weights
-    assert weights.w_mse == 0.0
-    assert weights.w_pib == 1.0
-    assert weights.w_uniformity == 1.0
-    # ...which is NOT the neutral LossConfig default.
+    assert weights.w_mse == 1.0
+    # A physical term must be active ...
+    assert weights.w_shape_gap == 1.0
+    # ... and it must be the ANCHORED one. The unanchored pair has a degenerate
+    # optimum on a fitting task (measured: val R2 +0.78 -> -0.86, with shape_sum
+    # 34% above the physics being predicted), so it must not be the default here.
+    assert weights.w_pib == 0.0
+    assert weights.w_uniformity == 0.0
+    # ... which is NOT the neutral LossConfig default.
     assert LossConfig().w_mse == 1.0
+    assert LossConfig().w_shape_gap == 0.0
 
 
 def test_mse_path_is_bit_identical_to_the_hard_captured_reference(tmp_path):
