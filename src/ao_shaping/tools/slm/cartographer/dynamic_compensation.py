@@ -260,22 +260,30 @@ class DynamicCompensator:
         )
         return comp_gs
 
-    def apply_compensation(
-        self,
-        compensation_grayscale: np.ndarray,
-        memory_slot: int = 2,
-    ) -> None:
-        """Display compensation pattern on SLM.
+    def apply_compensation(self, compensation_grayscale: np.ndarray) -> int:
+        """Display the compensation pattern, letting the driver rotate memory slots.
 
         Args:
             compensation_grayscale: 2D uint16 grayscale array.
-            memory_slot: Target SLM memory slot (1-128).
+
+        Returns:
+            The memory slot the pattern landed in.
+
+        ⚠️ **Never pass ``memory_number`` here.** Santec firmware treats
+        ``display_memory(slot)`` as a no-op when ``slot`` is already the displayed
+        slot, so a pinned slot makes every iteration after the first write fresh
+        data into a slot the panel is already showing -- the LCOS never refreshes
+        and the loop just re-measures the same panel state. ``display_data`` with
+        no ``memory_number`` rotates on its own *and* skips the currently displayed
+        slot, so the first write after ``open()`` cannot collide with a pattern
+        another process left there. ``memory_mode`` already defaults to
+        ``MEMORY_MODE_INTERNAL`` at the driver, so it needs no argument either.
         """
         assert self.slm.is_open, "SLM must be opened"
-        logger.info(f"Applying compensation to SLM memory slot {memory_slot}...")
-        self.slm.display_data(compensation_grayscale, memory_number=memory_slot)
+        slot = self.slm.display_data(compensation_grayscale)
+        logger.info(f"Compensation applied to SLM memory slot {slot}.")
         time.sleep(0.3)
-        logger.info("Compensation applied.")
+        return slot
 
     def verify_correction(self) -> tuple[np.ndarray, dict[str, float]]:
         """Re-measure wavefront after compensation.
@@ -380,7 +388,7 @@ class DynamicCompensator:
 
             comp_gs = self.compute_compensation(wf_before)
             comp_gs_final = comp_gs
-            self.apply_compensation(comp_gs, memory_slot=2)
+            self.apply_compensation(comp_gs)
             corrected_wf, corrected_stats = self.verify_correction()
             rms_after = corrected_stats.get("rms", float(np.nanstd(corrected_wf)))
             pv_after = float(np.nanmax(corrected_wf) - np.nanmin(corrected_wf))

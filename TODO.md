@@ -152,7 +152,7 @@
 
 | # | 项 | 位置 | 提出 |
 |---|---|---|---|
-| F-1 | **内存槽固件 no-op 违规**：`:383` 在 `for i in range(max_iter)` 里反复 `apply_compensation(comp_gs, memory_slot=2)` → 固件把已显示槽当 no-op，**第 2..N 次迭代全是空操作，LCOS 不刷新**。且 `:266` 默认值写死 2、`:272` docstring 写 "1-128"、`:276` 漏 `memory_mode=MEMORY_MODE_INTERNAL`（不同于 canonical `_display()`） | `tools/slm/cartographer/dynamic_compensation.py:266,272,276,383` | 2026-10-01 |
+| F-1 | ~~**内存槽固件 no-op 违规**~~ | ✅ 已修 → §5.16。`:383` 曾在 `for i in range(max_iter)` 里反复 `apply_compensation(comp_gs, memory_slot=2)` → 固件把已显示槽当 no-op，**第 2..N 次迭代全是空操作，LCOS 不刷新**。⚠️ 原记录另两条**实测为不成立**：`memory_mode` 在 `display_data` 签名里**本就默认 `MEMORY_MODE_INTERNAL`**（`driver.py:1197`），不传不是"漏"；`:272` docstring 的 "1-128" 与驱动 `_display_memory` 的校验区间一致，也不是错 | `tools/slm/cartographer/dynamic_compensation.py:263,383` | 2026-10-01 |
 | F-3 | `--display/--no-display` 选项的 help 写"暂未实现"——需确认是补实现还是删选项 | `runner_common.py:1795` | 2026-09-25 |
 | F-4 | `src/ml/` 移入 `src/ao_shaping/ml/` 并更新所有引用（`docs/issues_report.md` §10.3，待评估至今） | `src/ml/` | 2026-05-26 |
 | F-5 | `docs/issues_report.md` §11 的代码规范整改：`print()` 替代 loguru（原文 82 处）、宽泛 `except`、配置项分散、大文件拆分（~22 个）、冗余 `__main__` 入口（32 处）、`__future__` 覆盖率（29 个文件）。⚠️ **原文数字已过期，实施前需重新扫描** | 全仓 | 2026-05-26 |
@@ -1018,6 +1018,58 @@ flag 总数因此 287 → 285（help 可见 289 → 287）。
 （735 vs 741 个用例）—— 这是 §5.14 已记录的跨用例干扰，不是本次改动：
 `test_optimize_uniform_spot_phase.py` 只 import `ml.zernike.models` 与
 `ao_shaping.utils.image.beam_metrics`（都不在本次 diff 内），单独跑 **23 passed**。
+
+---
+
+### 5.16 F-1 —— 补偿闭环把内存槽写死，迭代 2..N 全是固件 no-op（2026-10-04）
+
+`compensate_once` 的循环里每一轮都调用
+`apply_compensation(comp_gs, memory_slot=2)`（原 `:383`），而
+`apply_compensation` 把它透传给 `display_data(..., memory_number=2)`。
+
+**后果不是"少刷一次"，而是整个闭环失效**：固件把"对正在显示的同一槽再写"
+视为 no-op —— 数据写进去了，**但 LCOS 不刷新**。于是第 2..N 轮量到的
+**还是第 1 轮那幅画面**，只是叠上了新算出的相位数据。循环会照常跑完、
+照常写 `per_iteration`、照常打印 `RMS 0.58 -> 0.50`，但那个改善里
+没有任何一次来自面板真的换图。**它看起来完全正常。**
+
+驱动其实已经在提醒这件事：`_display_memory` 检测到同一槽连写会
+`logger.warning("...固件视为 no-op, LCOS 面板不会刷新...")`
+（`driver.py:1140-1148`），所以旧代码跑起来日志里本该有告警。
+
+**修法：不传 `memory_number`。** `display_data` 在 `memory_number is None`
+时**自己轮换**，并且**额外跳过当前正在显示的槽**（`driver.py:1230-1249`），
+所以 `open()` 之后第一次写也不会撞上别的进程留在屏上的图案。
+这正是 `tools/slm/README.md` 写的台架纪律。
+
+`apply_compensation` 的 `memory_slot` 参数**整个删掉**（全仓只有 `:383`
+一个调用方，无外部依赖），并改为返回驱动选中的槽位号以便日志追踪。
+
+#### 顺带纠正原记录里两条不成立的指控
+
+* 「`:276` 漏 `memory_mode=MEMORY_MODE_INTERNAL`」—— **不成立**。
+  `display_data(..., memory_mode: int = MEMORY_MODE_INTERNAL)`（`driver.py:1197`）
+  本来就是默认值，不传是**对的**，传了反而多一个真相来源。
+* 「`:272` docstring 写 "1-128" 与实际不符」—— **不成立**。
+  `1-128` 与 `_display_memory` 的 `MEMORY_NUMBER_MIN/MAX` 校验区间一致。
+  （真正需要区分的是**校验区间 1-128** 与**轮换建议区间 2-125** `SLOT_MIN/MAX`，
+  两者不同，但这属于文档可以补一句，不是违规。）
+
+#### 测试（纯离线，`DynamicCompensator` 的 slm/wfs 是注入的）
+
+`tests/ao_shaping/tools/slm/test_cartographer_slot_rotation.py`，**7 passed**：
+* `memory_number` 恒为 `None`（**回归本体**）
+* `memory_mode` 也不传（锁住上面那条纠正）
+* 返回值 == 驱动选中的槽
+* SLM 未 open 时拒绝写入且不记录调用
+* **3 轮迭代每一轮都不钉槽**，且 `iterations_used == 3`、`per_iteration_data == 3`
+  —— 后者防止"迭代被悄悄丢掉"让前一条**空过**
+* **相邻两次写入落在不同槽** —— 把 `memory_number is None` 重新挂回那个物理事实：
+  固件对同槽写入 no-op，所以断言槽真的**移动了**
+
+**变异验证**：把 `memory_number=2` 塞回去 → 3 个测试如期失败。
+
+回归：`tests/ao_shaping/tools` + `test_conventions.py` **473 passed / 4 skipped**。
 
 ---
 
