@@ -106,7 +106,7 @@
 | R-8 P1 | 硬件安全 try/finally：任何异常（相机掉线、越界、KeyboardInterrupt）都让 SLM 停在随机相位 | `slm_zernike_pib.py:1060` | 2026-09-25 |
 | R-9 P2 | 300px 光阑踩坑文档**挂错常量** | ✅ **已完成**（`pib` 早已正确）。实测：note 现正确挂在 `ZERNIKE_APERTURE_RADIUS = 300.0`（`slm_zernike_pib.py:195`）之后。**本轮只修了 `slm_zernike_shaping.py`** —— 那里 docstring 是 `TARGET_BOX_WAIST_FACTOR` 之后的**裸字符串**（不是 docstring、不可达），且与 `:186-188` 的注释**互相矛盾**（一个说该用 600、一个说 600 会让修正静默失效且是硬件实测）→ §5.20 | 2026-09-25 |
 | R-10 P2 | 死代码 `gauss_center`（零生产调用，可删） | ✅ **早已完成**（本轮实测确认）：全仓 grep 只剩 `TODO.md` / `docs/TODO.md` 的记录行，`src/` 无定义、无调用；专属测试也已删（`test_slm_zernike_pib_shape.py` 里剩下的 `"gaussian"` 是 target_shape 取值，无关） | 2026-09-25 |
-| R-11 P2 | 常量替换字面量（`-5.0/5.0` clip ×6、`1e-4`）→ `IMPROVE_EPS` / 复用 `ZERNIKE_CLIP`。守卫惩罚 `1e3` **已于 R-1 落地为 `GUARD_PENALTY`**（定义在 `drivers/ccd/common.py`，经 `utils/image/target` 导出） | 多处 | 2026-09-25 |
+| R-11 P2 | ~~常量替换字面量~~ | ✅ **早已完成**（本轮实测确认）：两侧都有 `ZERNIKE_CLIP = 5.0` 与 `IMPROVE_EPS = 1e-4`，全文件再无裸 `5.0` / `1e-4` clip 字面量（除常量定义自身）。⚠️ 顺带纠正：`GUARD_PENALTY` **不在** `drivers/ccd/common.py`，而在 `utils/image/target/objective.py:33`（随 ObjectiveSpec 抽取时搬的）；且 `metrics.py:298,384,396` 另有 3 处裸 `1e3` **语义不同、故意不统一** → §5.21 | 2026-09-25 |
 | R-12 P2 | `_update_dynamic_weights` → `AdaptiveWeights` dataclass（现为裸 dict setdefault + 2/3-tuple 联合返回），顺带收口 R-4 | `slm_zernike_pib.py:251-375` | 2026-09-25 |
 | R-13 P2 | `_create_optimizer` 的 `inspect.signature` 创可贴 → 显式 `OptimizerConfig` | `slm_zernike_pib.py:422-430` | 2026-09-25 |
 | R-14 P2 | `_metric_panel` 每 epoch 全量六套指标 → 加 `panel_every_n: int = 1` 开关 | `slm_zernike_pib.py:1544` | 2026-09-25 |
@@ -1246,6 +1246,30 @@ if slm is not None:
 并把 `:186-188` 那段改写成"此处存在未决矛盾"而不是继续断言 600 是对的。
 **没有改常量值** —— 值归 X-3 决定（§5.17：本模块无生产导入方、语料钉 300），
 不静默改动。
+
+---
+
+### 5.21 两处 `1e3` **故意不统一** —— 别顺手去重（2026-10-04）
+
+R-11 实测**已完成**（`ZERNIKE_CLIP` / `IMPROVE_EPS` 两侧都在，裸字面量已清）。
+顺带纠正一条**过期的位置记录**：TODO 说 `GUARD_PENALTY` 定义在
+`drivers/ccd/common.py`，**实际在 `utils/image/target/objective.py:33`**
+（它随 `ObjectiveSpec` 抽取一起搬进了叶子）。
+
+但仓库里还有 3 处裸 `1e3`（`metrics.py:298,384,396`），
+**它们与 `GUARD_PENALTY` 不是同一个用法，不能合并**：
+
+| | 用法 | 含义 |
+|---|---|---|
+| `objective.py:773-775` | `j + sign * GUARD_PENALTY` | **相对偏移**：无论 `j` 多大，惩罚后一定比 `j` 差 |
+| `metrics.py:298/384/396` | `return 1e3, 0.0` | **绝对值**：注释声称"far worse than any valid state"，但这只在**没有任何合法目标超过 1e3** 时成立 |
+
+`GUARD_PENALTY` 之所以做成偏移量，恰恰就是为了**不依赖目标的取值范围**。
+绝对值那种写法在范围变大时会静默失效 —— 这是它更脆弱的地方。
+
+⚠️ **本轮不修**：改绝对值会改变真实数据上的目标函数取值，
+可能影响优化轨迹与最优解，**必须用硬件/基准对照**才能确认，
+不属于"不需要设备就能确认修改是否正确"的范畴。
 
 ---
 
