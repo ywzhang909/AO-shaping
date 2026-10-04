@@ -35,7 +35,7 @@ import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Annotated, Callable
 
 import click
 import numpy as np
@@ -48,6 +48,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from ao_shaping.utils.slm_phase import flat_gray
 from ao_shaping.drivers.slm.santec import SlotRotator
+from ao_shaping.utils.cli_params import option, with_params
 
 if TYPE_CHECKING:
     from ao_shaping.drivers.slm.santec import Santec
@@ -419,52 +420,72 @@ def _render_only(cases: list[PhaseCase], out: Path) -> dict:
 # ── CLI ─────────────────────────────────────────────────────────────────────
 
 
+@dataclass
+class SlmPhaseResponseParams:
+    """CLI surface of :func:`main`.
+
+    Values are deliberately NOT shared with the other probes: they encode this
+    probe's own confirmed bench facts -- ``exposure_ms`` 0.02 is the known-good
+    normal-exposure baseline on this MiiCam bench, ``slm_wavelength`` 1064 nm, and
+    the ``slot_min``/``slot_max`` window (2~125, excluding the currently displayed
+    slot) is the AGENTS.md LCOS no-op workaround, not a tuning knob. Other probes
+    carry different values for identically-named flags; see R-37 in ``TODO.md``.
+    """
+
+    probe: Annotated[
+        str,
+        option(
+            "--probe",
+            type=click.Choice(["lens", "defocus"]),
+            help="相位用例组 (默认 lens)",
+        ),
+    ] = "lens"
+    slm_number: Annotated[int, option("--slm-number", help="SLM 设备编号 (默认 1)")] = 1
+    slm_wavelength: Annotated[
+        int, option("--slm-wavelength", help="SLM 工作波长 nm (默认 1064)")
+    ] = 1064
+    cam_id: Annotated[int, option("--cam-id", help="MiiCam 相机 ID (默认 0)")] = 0
+    exposure_ms: Annotated[
+        float, option("--exposure-ms", help="相机曝光 ms (默认 0.02)")
+    ] = 0.02
+    n_sample: Annotated[
+        int, option("--n-sample", help="每帧平均采样数 (默认 10)")
+    ] = 10
+    slot_min: Annotated[int, option("--slot-min", help="内存槽下限 (默认 2)")] = _SLOT_MIN
+    slot_max: Annotated[
+        int, option("--slot-max", help="内存槽上限 (默认 125)")
+    ] = _SLOT_MAX
+    settle_s: Annotated[
+        float, option("--settle-s", help="写相位后稳定等待 s (默认 0.4)")
+    ] = 0.4
+    output: Annotated[
+        str | None, option("-o", "--output", help="输出目录 (默认 docs/slm/<probe>_probe)")
+    ] = None
+    render_only: Annotated[
+        bool,
+        option(
+            "--render-only",
+            is_flag=True,
+            help="仅从已保存结果离线重绘/判定 (不碰硬件)",
+        ),
+    ] = False
+
+
 @click.command()
-@click.option(
-    "--probe",
-    type=click.Choice(["lens", "defocus"]),
-    default="lens",
-    help="相位用例组 (默认 lens)",
-)
-@click.option("--slm-number", type=int, default=1, help="SLM 设备编号 (默认 1)")
-@click.option(
-    "--slm-wavelength", type=int, default=1064, help="SLM 工作波长 nm (默认 1064)"
-)
-@click.option("--cam-id", type=int, default=0, help="MiiCam 相机 ID (默认 0)")
-@click.option("--exposure-ms", type=float, default=0.02, help="相机曝光 ms (默认 0.02)")
-@click.option("--n-sample", type=int, default=10, help="每帧平均采样数 (默认 10)")
-@click.option("--slot-min", type=int, default=_SLOT_MIN, help="内存槽下限 (默认 2)")
-@click.option("--slot-max", type=int, default=_SLOT_MAX, help="内存槽上限 (默认 125)")
-@click.option(
-    "--settle-s", type=float, default=0.4, help="写相位后稳定等待 s (默认 0.4)"
-)
-@click.option(
-    "-o", "--output", default=None, help="输出目录 (默认 docs/slm/<probe>_probe)"
-)
-@click.option(
-    "--render-only", is_flag=True, help="仅从已保存结果离线重绘/判定 (不碰硬件)"
-)
-def main(
-    probe: str,
-    slm_number: int,
-    slm_wavelength: int,
-    cam_id: int,
-    exposure_ms: float,
-    n_sample: int,
-    slot_min: int,
-    slot_max: int,
-    settle_s: float,
-    output: str | None,
-    render_only: bool,
-) -> None:
+@with_params(SlmPhaseResponseParams, kw_name="params")
+def main(params: SlmPhaseResponseParams) -> None:
     """SLM 相位→CCD 响应探针: 验证 SLM 相位调制是否真的作用于光。
 
     使用 memory 模式 (video_mode=0); 相位写到随机内存槽 (2~125, 排除当前槽)。
     """
-    cases = lens_cases() if probe == "lens" else defocus_cases()
-    out = Path(output) if output else (Path("docs/slm") / f"slm_{probe}_probe")
+    cases = lens_cases() if params.probe == "lens" else defocus_cases()
+    out = (
+        Path(params.output)
+        if params.output
+        else (Path("docs/slm") / f"slm_{params.probe}_probe")
+    )
 
-    if render_only:
+    if params.render_only:
         saved = _render_only(cases, out)
         click.echo(f"[render-only] 已重建 PNG -> {out.resolve()}")
         click.echo("verdict: " + json.dumps(saved.get("verdict", {}), indent=2))
@@ -477,21 +498,25 @@ def main(
     logger.info(
         "SLM phase probe: {} | slm#{} @{}nm | camera#{} exposure {:.3f}ms | "
         "n_sample={} slots {}-{} | out={}",
-        probe,
-        slm_number,
-        slm_wavelength,
-        cam_id,
-        exposure_ms,
-        n_sample,
-        slot_min,
-        slot_max,
+        params.probe,
+        params.slm_number,
+        params.slm_wavelength,
+        params.cam_id,
+        params.exposure_ms,
+        params.n_sample,
+        params.slot_min,
+        params.slot_max,
         out.resolve(),
     )
 
     slm: "Santec | None" = None
     camera = None
     try:
-        slm = Santec(slm_number=slm_number, wavelength=slm_wavelength, video_mode=0)
+        slm = Santec(
+            slm_number=params.slm_number,
+            wavelength=params.slm_wavelength,
+            video_mode=0,
+        )
         slm.open()
         logger.info(
             "SLM 已打开: serial={} {}x{} {}bit",
@@ -502,13 +527,27 @@ def main(
         )
 
         camera = MIICamera(
-            cam_id=cam_id, exposure_time_ms=exposure_ms, bit_depth=8
+            cam_id=params.cam_id,
+            exposure_time_ms=params.exposure_ms,
+            bit_depth=8,
         )
         camera.open()
-        logger.info("相机已打开: camera#{} exposure={:.3f}ms", cam_id, exposure_ms)
+        logger.info(
+            "相机已打开: camera#{} exposure={:.3f}ms",
+            params.cam_id,
+            params.exposure_ms,
+        )
 
         result = run_phase_probe(
-            camera, slm, cases, out, n_sample, settle_s, slot_min, slot_max, exposure_ms
+            camera,
+            slm,
+            cases,
+            out,
+            params.n_sample,
+            params.settle_s,
+            params.slot_min,
+            params.slot_max,
+            params.exposure_ms,
         )
 
         click.echo("=== SLM phase-response probe summary ===")

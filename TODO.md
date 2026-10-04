@@ -140,10 +140,11 @@
 
 | # | 项 | 当前实测 | 提出 |
 |---|---|---|---|
-| R-37 | Step 2/3：逐族迁移 22 个探针到 `tools/slm/params.py`。实测 **15 个手写 `@click.option`**（~200 个 flag）、1 个 argparse、**0 个用 `with_params`**；**17 个文件直接构造 `Santec(...)`**（18 处） | 同左 | 2026-10-01 |
+| R-37 | Step 2/3：逐个迁移 19 个可执行探针到 `with_params` 机制。**原计划「抽共享 dataclass 到 `params.py`」已实测证伪并取消**（见 §5.15）：19 个探针 / **287 个声明 flag** 中**只有 1 个**（`--settle-extra-s` ×3）能原样共享。改为**每个探针自带 dataclass，default/help/type 全部留在本地不动** | ✅ **已完成 15/15 个 Click 探针**（§5.15）；4 个 argparse 探针拆出为 R-42 | 2026-10-01 |
+| R-42 | **4 个 argparse 探针改 click**（`slm_abba_probe` / `slm_drift_probe` / `slm_floor_probe` / `slm_zernike_sweep_probe`）。实测三个非机械迁移障碍：① `main(argv) -> int` + `raise SystemExit(main())`，click command 不接 argv；② `test_slm_abba_probe.py:541/560` **直接绑定 `probe._parse_args(...)`**（断言默认值 + 断言非法 `--cam-type nikon` 报错），改 click 就得删掉 `_parse_args` 并重写这些测试；③ `--help` 格式从 argparse 变 click | 同左 | 2026-10-04 |
 | R-38 | canonical 采用率过低：19 个构造 SLM 的文件里 **只有 1 个**用 `zero_order_center`（`slm_snr_probe.py`），其余裸 `np.argmax`；`phase_to_slm_grayscale` 也**只有 1 个**文件用，另有 **7 处**直调 `create_phase_from_array` | 同左 | 2026-10-01 |
 | R-39 | 曝光默认值 7 种并存（0.02/0.03/1.1/1.2/2.0/3.0/4.0 ms）；内存槽轮换 3 种写法（驱动自动 / 自建 `SlotRotator` / 手工 `current_slot`） | 同左 | 2026-10-01 |
-| R-41 | flag 拼写分裂：`--cam-type`（6 个探针）vs `--camera-type`（`slm_diagnose` / `slm_lut_runner`）。建议保留现有拼写不破坏习惯用法 | 同左 | 2026-10-01 |
+| R-41 | flag 拼写分裂（2026-10-04 实测）：`--cam-type` **9** 个探针 vs `--camera-type` **2** 个（`slm_diagnose` / `slm_lut_runner`）；另有 `--output` **8** vs `--out` **4**、`--slm-wavelength` **15** vs `--wavelength` **3**。建议保留现有拼写不破坏习惯用法 | 同左 | 2026-10-01 |
 
 ---
 
@@ -860,6 +861,163 @@ runners 重组进 `micro_drive/` 与 `slm/` 子包后，**文档里的模块路�
 
 ⚠️ 全量单进程跑会在 ~32% 崩（同一个 GC/tqdm 问题），**按目录分块跑即可完整计数**；
 `gui` 单独跑 191 passed，但混在全量里会触发那次崩溃。
+
+---
+
+### 5.15 R-37 —— 「抽共享 dataclass」被实测证伪（2026-10-04）
+
+**结论先行：R-37 原设计的 Step 2/3（把 recurring flag 抽成 `tools/slm/params.py` 共享 dataclass）
+在物理上不可实现，已取消。**改为**只迁移声明机制**——每个探针自带 dataclass，
+`default` / `help` / `type` 全部留在本地不动。
+
+#### 实测数据（R-37 step 0，19 个可执行探针）
+
+| 项 | 实测值 | TODO 原记录 |
+|---|---|---|
+| 可执行探针 | **19** | 22 |
+| Click / argparse | **15 / 4** | 15 / 1 |
+| 声明 flag 总数 | **287** | ~200 |
+| 用 `with_params` 的 | **0** | 0 |
+| 直接构造 `Santec(...)` | 20 处 | 17 文件 / 18 处 |
+
+#### 为什么共享不可行（两条独立的硬约束）
+
+**① `cli_params` 的 dataclass 字段是 CLI default 的唯一来源**（`utils/cli_params.py:142`
+`_patch_defaults`：`option()` 里传 `default=` 直接 `raise TypeError`）。
+⇒ 共享 dataclass 每个字段**只能有一个 default**，没有 per-consumer override 机制。
+
+**② `help=` 也写在 `option()` 里**，同样只能有一份 ⇒ 共享组还会强制统一 help 文本。
+
+于是逐一核对「同名 flag 是否 type+default+help 三者全同」：
+
+| flag | 出现探针数 | 不同签名数 | default 分布 |
+|---|---|---|---|
+| `--slm-wavelength` | 15 | **6** | **1064（11 个）vs 532（6 个）** |
+| `--exposure-ms` | 15 | **12** | 0.02 / 0.03 / 0.4 / 0.8 / 1.0 / 1.2 / 2.0 / 3.0 … |
+| `--slm-number` | 18 | 6 | 全是 `1`（差在 `type=` 与中英文 help） |
+| `--output` | 8 | 8 | 4 个不同目录 |
+| `--zernike-radius` | 6 | 6 | 300 / 450 / 600 / `BEAM_RADIUS_PANEL` / `None` |
+| `--settle-extra-s` | 3 | **1** | ✅ **唯一真正可共享的** |
+
+**全包 287 个 flag 里只有 `--settle-extra-s` 一个能原样共享。**
+
+#### 「按物理台架拆分再共享」也救不了（第二轮实测）
+
+先按 `--slm-wavelength` 把探针分成两台架再核对：
+
+| 台架 | 探针数 | 可共享 | 被阻塞 |
+|---|---|---|---|
+| 1064 nm（远场 CCD） | 13 | **0** | 28 |
+| 532 nm（WFS 通道） | 5 | **1** | 12 |
+| 无该 flag（`slm_exposure_check`） | 1 | 0 | 0 |
+
+阻塞项**主要不是 default，而是 help 文本与 `show_default` 漂移**：
+`--slm-number` ×13 default 全是 `1` 却有 5 种签名；`--period-ref` ×2 default 全是 `'64'` 仍有 2 种签名。
+
+#### 真正的性质：这不是「重复逻辑」，是「各自标定」
+
+532 nm 那 6 个探针恰好就是 WFS 通道工具
+（`calibration` / `slm_wfs_probe` / `slm_wfs_reference` / `slm_zernike_correction` /
+`slm_zernike_response`，外加 `slm_zernike_sweep_probe` 用 1064）——
+**波长不是随手写的默认值，而是台架的物理属性**。
+`--exposure-ms` 的 12 种取值同理：每个探针的曝光是对着自己那台架单独标定的。
+
+⚠️ **如果按原计划抽共享组，flag 名守卫生效、物理默认值被改写**：
+WFS 探针被静默改成 1064（或反之），而这种改动**不会触发任何测试**——
+它长得像一个纯重构。建 `Slm532Params` / `Slm1064Params` 只会得到一个**没有使用者的抽象**。
+
+#### Step 0 护栏（本次真正的产出，先于任何迁移落地）
+
+`tests/ao_shaping/tools/slm/test_probe_flags.py`（41 passed, **0.20 s**）
++ `probe_help_golden.json`：
+
+* **AST 扫描器必须同时认得两种声明形态**，否则它会在每个「已迁移」文件上误报：
+  - 迁移前：`@click.option("--x", type=int, default=1, help=...)`
+  - 迁移后：`x: Annotated[int, option("--x", help=...)] = 1`
+  实现上按**被调用名**匹配（`option` / `add_argument`），不看语法位置。
+  ⚠️ 只认装饰器形态的扫描器会在迁移后报告「该探针一个 flag 都没有了」。
+* 第三种形态也要认：`calibration.py:2711` 用
+  `@click.command(context_settings=dict(help_option_names=["-h", "--help"]))`
+  覆盖 click 内建 help —— 注意 `help_option_names` 挂在**内层 `dict(...)`** 上，
+  不是 `click.command(...)` 上，按 callee 名匹配会漏。
+* click 的配对布尔 `"--display/--no-display"` 是**一个字符串两个 flag**，
+  必须按 `/` 拆开各自计数，否则重写成 `"--display", "--no-display"` 会「看起来没变」。
+* **为什么默认守卫不比对渲染后的 `--help`**：19 个子进程各付一次 ~28 s
+  `import ao_shaping` ⇒ **549 s**。这个价位的守卫只会被关掉。
+  渲染文本留在 golden 里，用 `AO_PROBE_HELP_UPDATE=1` 走 opt-in 深检，
+  且**只允许顺序变化**（click 的 `__click_params__` 是逆序累积，R-35 已记录同一效应）。
+* 变异测试：植入一个多余 flag / 删掉一个已迁移的 flag，守卫均如期失败。
+
+**首例迁移 `slm_exposure_check.py`（5 flag）的 `--help` 逐字节未变。**
+
+#### 落地结果：15/15 个 Click 探针，`--help` 逐字节未变
+
+全部 15 个 Click 探针改完，**每一个的 `--help` 与迁移前逐字节相同**（不只是 flag 集合相同）。
+`calibration.py` 最险：它有**两个命令**、26 个 flag、16 个参数、
+62 处引用分布在 228 行 body 里，其中 `-o, --output` 与 `--help` 覆盖都保留。
+
+**三道守卫**（`tests/ao_shaping/tools/slm/test_probe_flags.py`，**79 passed / 0.44 s**）：
+
+| 守卫 | 抓什么 | 为什么 flag 名守卫生效不了 |
+|---|---|---|
+| ① 声明 flag 集合（AST） | flag 丢了/改名/重复/两种拼写 | — |
+| ② **函数体内 string literal 计数 + sha256** | dict key / Recorder kwarg / log 格式被改写 | `{"csv_path": params.csv_path}` 仍是合法 Python，flag 名一个没少 |
+| ③ **`option()` 内禁止 `default=`**（静态） | import 期 `TypeError` | 声明全都正确、flag 名一个不少，只有 `--help` 跑不起来 |
+
+守卫 ② 和 ③ 都是**实测逼出来的**，不是预防性设计：
+
+* ② 抓到 `slm_zernike_correction` 的 dict key `"pred_z_norm"` 被改成 `"_z_norm"`。
+  只看 flag 名的守卫对这类损坏完全失明。
+* ③ 抓到两个已"通过全部 flag 断言"的探针在 `option()` 里带了 `default=`，
+  `cli_params._patch_defaults` 直接 `raise TypeError` ⇒ **模块 import 就崩**。
+  这个错误只有跑 `--help` 才看得见，而一个要 28 s 子进程才报警的守卫，实践中只会被关掉。
+  改成静态检查后 **0.44 s 就能抓**。
+
+⚠️ **body 改写必须用 AST 位置、且按 UTF-8 字节算偏移**。两次踩坑：
+`ast` 的 `col_offset` 是**字节**偏移，按字符数算会在含中文的行上错位
+（`f"WFS 曝光 {wfs_exposure_ms}ms"` → `{wfs_params.wfs_exposure_ms}`）；
+只删 `default=` 的**值**会留下 `default=`（`expected argument value expression`）；
+删 `, default=None` 时若把「前一个元素」当成位置参数，会连带删掉 `-o` 而丢掉 `--output`。
+**只有 `ast.Name` 节点才是真引用** —— kwarg 名 (`Santec(slm_number=...)`) 和
+字符串字面量都不是，所以位置法天然避开它们，而字符串里的 `{...}` 插值**是** Name 节点、正该改。
+
+#### 顺带修掉一个真实的坏 flag（不是迁移造成的）
+
+`slm_zernike_sweep_probe.py` 声明了 `ap.add_argument("--save-frames/--no-save-frames", default=True)`。
+**argparse 没有 `/` 语法**，所以它只注册了一个字面长选项：
+
+| 命令 | 迁移前 | 删除后 |
+|---|---|---|
+| `--save-frames` | rc=2 `expected one argument` | rc=2 `unrecognized arguments` |
+| `--no-save-frames` | rc=2 `unrecognized arguments` | 同左 |
+
+且 `args.save_frames` **全模块从未被读取**（`args` 只按属性显式取用，没有 `**vars(args)`），
+落盘是无条件的 `save_recorder_debug_artifacts(...)` ⇒ 这个 flag **什么都没控制**。
+所以是**删掉**而不是"修好"：修好会造出一个声称能控制存帧、实际仍什么都不做的 flag。
+两个拼法迁移前就都是 rc=2，**没有任何能用的命令被改变**。
+flag 总数因此 287 → 285（help 可见 289 → 287）。
+
+#### 已知遗留（非本轮引入，`HEAD` 里就有）
+
+* `slm_zernike_response.py:311` **F541** f-string 无占位符
+* `slm_drift_probe.py:518` **F601** 字典 key `"exposure_ms"` 重复 —— 这个像是真 bug，值得单独查
+
+#### 全量回归（分块，单进程全量会在 ~32% 崩）
+
+| 目录 | 结果 |
+|---|---|
+| `tests/ao_shaping/tools` | **452 passed** / 4 skipped |
+| `tests/ao_shaping/utils` | **892 passed** |
+| `tests/ao_shaping/runners` | 541 passed / 1 **既有失败** |
+| `tests/ao_shaping/algorithm` | **561 passed** |
+| `tests/ao_shaping/optimizer` | **581 passed** / 2 skipped |
+| `tests/ao_shaping/model` / `display` / `gui` | 76 / 38 / 191 passed |
+| `tests/ao_shaping/scripts` + `test_conventions.py` | **287 passed** |
+
+⚠️ 混在一个进程里跑 `tests/ao_shaping` 根目录会出现 3～5 个失败，且**每次集合都不一样**
+（735 vs 741 个用例）—— 这是 §5.14 已记录的跨用例干扰，不是本次改动：
+`test_optimize_uniform_spot_phase.py` 只 import `ml.zernike.models` 与
+`ao_shaping.utils.image.beam_metrics`（都不在本次 diff 内），单独跑 **23 passed**。
 
 ---
 

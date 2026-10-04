@@ -33,6 +33,9 @@ Usage
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Annotated
+
 import click
 import numpy as np
 from loguru import logger
@@ -45,50 +48,68 @@ from ao_shaping.tools.slm.slm_bench_probe import (
     measure_flat_reference,
     random_phase,
 )
+from ao_shaping.utils.cli_params import option, with_params
+
+
+@dataclass
+class SlmBeamExtentParams:
+    """CLI surface of :func:`main`.
+
+    Values are deliberately NOT shared with the other probes: the bench-specific
+    physical constants here were each calibrated against this one measurement --
+    ``slm_wavelength`` 1064 nm, ``exposure_ms`` 3.0, ``core_radius`` 40 px, and
+    ``seed`` 2024 (the sweep needs one *fixed* random phase per run, otherwise the
+    point-to-point scatter swamps the knee). Other probes carry different values
+    for identically-named flags; see R-37 in ``TODO.md``.
+    """
+
+    slm_number: Annotated[int, option("--slm-number", help="SLM 设备编号 (默认 1)")] = 1
+    slm_wavelength: Annotated[
+        int, option("--slm-wavelength", help="SLM 波长 nm (默认 1064)")
+    ] = 1064
+    cam_type: Annotated[
+        str, option("--cam-type", help="相机类型 (daheng/miicam, 默认 daheng)")
+    ] = "daheng"
+    cam_id: Annotated[int, option("--cam-id", help="相机 ID (默认 0)")] = 0
+    exposure_ms: Annotated[
+        float, option("--exposure-ms", help="相机曝光 ms (默认 3.0)")
+    ] = 3.0
+    axis: Annotated[
+        str, option("--axis", type=click.Choice(["x", "y"]), help="扫描轴 (默认 x)")
+    ] = "x"
+    steps: Annotated[int, option("--steps", help="边界位置数 (默认 12)")] = 12
+    frames: Annotated[int, option("--frames", help="每帧平均张数 (默认 4)")] = 4
+    repeats: Annotated[int, option("--repeats", help="每个边界重复次数 (默认 2)")] = 2
+    core_radius: Annotated[
+        float, option("--core-radius", help="中心盘半径 px (默认 40)")
+    ] = 40.0
+    seed: Annotated[int, option("--seed", help="随机相位种子 (默认 2024)")] = 2024
 
 
 @click.command()
-@click.option("--slm-number", type=int, default=1, help="SLM 设备编号 (默认 1)")
-@click.option("--slm-wavelength", type=int, default=1064, help="SLM 波长 nm (默认 1064)")
-@click.option("--cam-type", default="daheng", help="相机类型 (daheng/miicam, 默认 daheng)")
-@click.option("--cam-id", type=int, default=0, help="相机 ID (默认 0)")
-@click.option("--exposure-ms", type=float, default=3.0, help="相机曝光 ms (默认 3.0)")
-@click.option("--axis", type=click.Choice(["x", "y"]), default="x", help="扫描轴 (默认 x)")
-@click.option("--steps", type=int, default=12, help="边界位置数 (默认 12)")
-@click.option("--frames", type=int, default=4, help="每帧平均张数 (默认 4)")
-@click.option("--repeats", type=int, default=2, help="每个边界重复次数 (默认 2)")
-@click.option("--core-radius", type=float, default=40.0, help="中心盘半径 px (默认 40)")
-@click.option("--seed", type=int, default=2024, help="随机相位种子 (默认 2024)")
-def main(
-    slm_number: int,
-    slm_wavelength: int,
-    cam_type: str,
-    cam_id: int,
-    exposure_ms: float,
-    axis: str,
-    steps: int,
-    frames: int,
-    repeats: int,
-    core_radius: float,
-    seed: int,
-) -> None:
+@with_params(SlmBeamExtentParams, kw_name="params")
+def main(params: SlmBeamExtentParams) -> None:
     """用半平面随机相位边界扫描测光斑在面板上的中心与半径。"""
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm.santec import Santec
 
     panel = (SLM_PANEL_H, SLM_PANEL_W)
-    span = SLM_PANEL_W if axis == "x" else SLM_PANEL_H
-    positions = np.linspace(0, span, int(steps) + 1)[1:]
-    rng = np.random.default_rng(int(seed))
-    base_rand = random_phase(panel, seed=int(seed))
+    span = SLM_PANEL_W if params.axis == "x" else SLM_PANEL_H
+    positions = np.linspace(0, span, int(params.steps) + 1)[1:]
+    rng = np.random.default_rng(int(params.seed))
+    base_rand = random_phase(panel, seed=int(params.seed))
     yy, xx = np.mgrid[0 : panel[0], 0 : panel[1]]
 
     with Santec(
-        slm_number=slm_number, wavelength=slm_wavelength, video_mode=0
-    ) as slm, create_camera(cam_type, cam_id, exposure_time_ms=exposure_ms) as cam:
-        cam.reset_exposure_time(float(exposure_ms))
-        ref, flat = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
-        f0 = core_fraction(ref, flat.centroid_x, flat.centroid_y, core_radius)
+        slm_number=params.slm_number, wavelength=params.slm_wavelength, video_mode=0
+    ) as slm, create_camera(
+        params.cam_type, params.cam_id, exposure_time_ms=params.exposure_ms
+    ) as cam:
+        cam.reset_exposure_time(float(params.exposure_ms))
+        ref, flat = measure_flat_reference(
+            cam, slm, n_frames=params.frames, panel_shape=panel
+        )
+        f0 = core_fraction(ref, flat.centroid_x, flat.centroid_y, params.core_radius)
         logger.info(
             "flat reference: {}  core_fraction={:.4f}", flat.as_row(), f0
         )
@@ -97,20 +118,22 @@ def main(
 
         rows: list[tuple[int, float]] = []
         for t in positions:
-            mask = (xx < t) if axis == "x" else (yy < t)
+            mask = (xx < t) if params.axis == "x" else (yy < t)
             fracs: list[float] = []
-            for _ in range(int(repeats)):
+            for _ in range(int(params.repeats)):
                 phase = np.where(mask, base_rand, 0.0)
-                img = display_and_average(cam, slm, phase, n_frames=frames)
+                img = display_and_average(cam, slm, phase, n_frames=params.frames)
                 fracs.append(
-                    core_fraction(img, flat.centroid_x, flat.centroid_y, core_radius)
+                    core_fraction(
+                        img, flat.centroid_x, flat.centroid_y, params.core_radius
+                    )
                 )
             cf = float(np.mean(fracs))
             rows.append((int(t), cf))
             logger.info(
                 "  boundary at {a}={t:>5}  area={p:>5.1f}%  core_fraction={c:.4f}  "
                 "rel={r:.3f}",
-                a=axis, t=int(t), p=100.0 * mask.sum() / mask.size,
+                a=params.axis, t=int(t), p=100.0 * mask.sum() / mask.size,
                 c=cf, r=cf / f0,
             )
 
@@ -125,9 +148,9 @@ def main(
     logger.info(
         "randomising up to {a}={e} px saturates the response (floor rel={f:.2f}), "
         "so the beam's {a} extent ends near {e} px",
-        a=axis, e=int(edge), f=floor,
+        a=params.axis, e=int(edge), f=floor,
     )
-    if axis == "x":
+    if params.axis == "x":
         logger.info(
             "if the beam is centred, that implies centre ~{c} px, radius ~{r} px",
             c=int(edge) // 2, r=int(edge) // 2,
@@ -136,7 +159,8 @@ def main(
         logger.info("panel height is {}, so compare with the x scan", SLM_PANEL_H)
     logger.info(
         "run both axes before trusting a radius: the first few points of a scan "
-        "are non-monotonic because each is only {} random draw(s)", int(repeats)
+        "are non-monotonic because each is only {} random draw(s)",
+        int(params.repeats),
     )
 
 

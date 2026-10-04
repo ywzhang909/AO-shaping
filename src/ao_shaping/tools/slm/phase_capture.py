@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import json
 import sys
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Annotated
 
 import click
 import numpy as np
@@ -21,6 +23,7 @@ import torch
 from loguru import logger
 
 from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.utils.cli_params import option, with_params
 from ao_shaping.utils.image.hardware_utils import open_camera
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.slm_phase import capture_frame
@@ -225,116 +228,138 @@ def save_capture(
     return saved_files
 
 
+@dataclass
+class PhaseCaptureParams:
+    """CLI surface of :func:`run` (random-phase capture).
+
+    Values are deliberately NOT shared with the other probes.  Several defaults
+    are bench-specific physical facts of THIS setup and must not be treated as
+    generic:
+
+    * ``--wavelength`` 1064 nm is the laser programmed into SLM #1 on this bench
+      (other probes use 532, and 11 of the 19 use 1064).
+    * ``--memory-slot`` 1 is only the *base* slot: the loop writes
+      ``(memory_slot + i - 1) % 128 + 1``, so consecutive writes never collide.
+    * ``--daheng-exposure`` 20 ms / ``--miicam-exposure`` 1.0 ms are the two
+      cameras' working points on this bench; they differ by 20x because the
+      MiiCam is far more sensitive.
+    * ``--cn2`` 1e-14 and ``--length`` 1000 m are the von Karman screen knobs
+      for the turbulence phase; they are degenerate together (only ``r0``,
+      proportional to their product, is observable).
+    """
+
+    mode: Annotated[
+        str,
+        option(
+            "--mode",
+            type=click.Choice(["turbulence", "zernike"]),
+            help="相位生成模式: turbulence=湍流相位屏, zernike=Zernike随机系数",
+        ),
+    ] = "turbulence"
+    samples: Annotated[
+        int, option("--samples", "-n", help="采集样本数量 (default: 10)")
+    ] = 10
+    output: Annotated[
+        str, option("--output", "-o", help="输出目录 (default: data/slm_capture)")
+    ] = "data/slm_capture"
+    slm_number: Annotated[
+        int, option("--slm-number", help="SLM设备编号 1-8 (default: 1)")
+    ] = 1
+    wavelength: Annotated[
+        int, option("--wavelength", help="SLM工作波长 nm (default: 1064)")
+    ] = 1064
+    memory_slot: Annotated[
+        int, option("--memory-slot", help="SLM内存槽编号 1-128 (default: 1)")
+    ] = 1
+    # Turbulence parameters
+    cn2: Annotated[
+        float, option("--cn2", help="折射率结构常数 Cn² (default: 1e-14)")
+    ] = 1e-14
+    length: Annotated[
+        float, option("--length", "-L", help="传播距离 L (m) (default: 1000)")
+    ] = 1000.0
+    # Zernike parameters
+    n_max: Annotated[
+        int, option("--n-max", help="Zernike最大径向阶数 (default: 10)")
+    ] = 10
+    max_coeff: Annotated[
+        float, option("--max-coeff", help="Zernike系数最大绝对值 (default: 1.0)")
+    ] = 1.0
+    zernike_radius: Annotated[
+        float | None,
+        option("--zernike-radius", help="Zernike孔径半径(像素), 默认短边一半"),
+    ] = None
+    # Daheng camera parameters
+    daheng_id: Annotated[int, option("--daheng-id", help="Daheng相机ID (default: 0)")] = 0
+    daheng_exposure: Annotated[
+        int, option("--daheng-exposure", help="Daheng相机曝光时间 ms (default: 20)")
+    ] = 20
+    no_daheng: Annotated[
+        bool, option("--no-daheng", is_flag=True, help="跳过Daheng相机采集")
+    ] = False
+    # MiiCam camera parameters
+    miicam_id: Annotated[int, option("--miicam-id", help="MiiCam相机ID (default: 0)")] = 0
+    miicam_exposure: Annotated[
+        float, option("--miicam-exposure", help="MiiCam相机曝光时间 ms (default: 1.0)")
+    ] = 1.0
+    miicam_bit_depth: Annotated[
+        int,
+        option(
+            "--miicam-bit-depth",
+            type=click.IntRange(8, 16),
+            help="MiiCam相机输出位深 8或16 (default: 8)",
+        ),
+    ] = 8
+    no_miicam: Annotated[
+        bool, option("--no-miicam", is_flag=True, help="跳过MiiCam相机采集")
+    ] = False
+    # Capture parameters
+    n_sample: Annotated[
+        int, option("--n-sample", help="每帧平均采样数 (default: 1)")
+    ] = 1
+    skip_first: Annotated[
+        bool,
+        option(
+            "--skip-first", is_flag=True, help="跳过首帧 (default: True)"
+        ),
+    ] = True
+    interval: Annotated[
+        float, option("--interval", help="样本间隔秒 (default: 0.5)")
+    ] = 0.5
+    no_slm: Annotated[
+        bool,
+        option("--no-slm", is_flag=True, help="仅采集相机画面，不下发相位到SLM"),
+    ] = False
+    seed: Annotated[int | None, option("--seed", help="随机种子 (default: None)")] = None
+    resume_from: Annotated[
+        str | None,
+        option(
+            "-f",
+            "--resume-from",
+            help="从已有 global_metadata.json 继续采集 (路径)",
+        ),
+    ] = None
+
+
 @click.command()
-@click.option(
-    "--mode",
-    type=click.Choice(["turbulence", "zernike"]),
-    default="turbulence",
-    help="相位生成模式: turbulence=湍流相位屏, zernike=Zernike随机系数",
-)
-@click.option("--samples", "-n", default=10, help="采集样本数量 (default: 10)")
-@click.option(
-    "--output",
-    "-o",
-    default="data/slm_capture",
-    help="输出目录 (default: data/slm_capture)",
-)
-@click.option("--slm-number", default=1, help="SLM设备编号 1-8 (default: 1)")
-@click.option("--wavelength", default=1064, help="SLM工作波长 nm (default: 1064)")
-@click.option("--memory-slot", default=1, help="SLM内存槽编号 1-128 (default: 1)")
-# Turbulence parameters
-@click.option(
-    "--cn2", default=1e-14, type=float, help="折射率结构常数 Cn² (default: 1e-14)"
-)
-@click.option(
-    "--length", "-L", default=1000.0, type=float, help="传播距离 L (m) (default: 1000)"
-)
-# Zernike parameters
-@click.option("--n-max", default=10, type=int, help="Zernike最大径向阶数 (default: 10)")
-@click.option(
-    "--max-coeff", default=1.0, type=float, help="Zernike系数最大绝对值 (default: 1.0)"
-)
-@click.option(
-    "--zernike-radius",
-    default=None,
-    type=float,
-    help="Zernike孔径半径(像素), 默认短边一半",
-)
-# Daheng camera parameters
-@click.option("--daheng-id", default=0, help="Daheng相机ID (default: 0)")
-@click.option(
-    "--daheng-exposure", default=20, help="Daheng相机曝光时间 ms (default: 20)"
-)
-@click.option("--no-daheng", is_flag=True, help="跳过Daheng相机采集")
-# MiiCam camera parameters
-@click.option("--miicam-id", default=0, help="MiiCam相机ID (default: 0)")
-@click.option(
-    "--miicam-exposure", default=1.0, help="MiiCam相机曝光时间 ms (default: 1.0)"
-)
-@click.option(
-    "--miicam-bit-depth",
-    default=8,
-    type=click.IntRange(8, 16),
-    help="MiiCam相机输出位深 8或16 (default: 8)",
-)
-@click.option("--no-miicam", is_flag=True, help="跳过MiiCam相机采集")
-# Capture parameters
-@click.option("--n-sample", default=1, help="每帧平均采样数 (default: 1)")
-@click.option(
-    "--skip-first", is_flag=True, default=True, help="跳过首帧 (default: True)"
-)
-@click.option("--interval", default=0.5, type=float, help="样本间隔秒 (default: 0.5)")
-@click.option("--no-slm", is_flag=True, help="仅采集相机画面，不下发相位到SLM")
-@click.option("--seed", default=None, type=int, help="随机种子 (default: None)")
-@click.option(
-    "-f",
-    "--resume-from",
-    default=None,
-    type=str,
-    help="从已有 global_metadata.json 继续采集 (路径)",
-)
-def run(
-    mode: str,
-    samples: int,
-    output: str,
-    slm_number: int,
-    wavelength: int,
-    memory_slot: int,
-    cn2: float,
-    length: float,
-    n_max: int,
-    max_coeff: float,
-    zernike_radius: float | None,
-    daheng_id: int,
-    daheng_exposure: int,
-    no_daheng: bool,
-    miicam_id: int,
-    miicam_exposure: int,
-    miicam_bit_depth: int,
-    no_miicam: bool,
-    n_sample: int,
-    skip_first: bool,
-    interval: float,
-    no_slm: bool,
-    seed: int | None,
-    resume_from: str | None,
-):
+@with_params(PhaseCaptureParams, kw_name="params")
+def run(params: PhaseCaptureParams) -> None:
     """SLM随机相位采集工具
 
     生成随机相位（湍流屏或Zernike），下发到SLM显示，同时采集Daheng和MiiCam相机画面。
     """
     import time
 
-    if seed is not None:
-        np.random.seed(seed)
+    if params.seed is not None:
+        np.random.seed(params.seed)
 
     # Determine output directory and starting sample index
-    base_output_dir = Path(output)
+    base_output_dir = Path(params.output)
     start_idx = 0
     resumed_meta = None
 
-    if resume_from is not None:
-        resume_path = Path(resume_from)
+    if params.resume_from is not None:
+        resume_path = Path(params.resume_from)
         if not resume_path.exists():
             logger.error(f"Resume file not found: {resume_path}")
             sys.exit(1)
@@ -362,7 +387,7 @@ def run(
 
     base_output_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"输出目录: {base_output_dir}")
-    logger.info(f"采集模式: {mode}, 样本数: {samples}")
+    logger.info(f"采集模式: {params.mode}, 样本数: {params.samples}")
 
     # Initialize devices
     slm: Santec | None = None
@@ -370,16 +395,16 @@ def run(
     miicam_cam = None
 
     # Initialize SLM (unless --no-slm)
-    if not no_slm:
+    if not params.no_slm:
         try:
-            logger.info(f"正在连接SLM #{slm_number}...")
+            logger.info(f"正在连接SLM #{params.slm_number}...")
             slm = Santec(
-                slm_number=slm_number,
-                wavelength=wavelength,
+                slm_number=params.slm_number,
+                wavelength=params.wavelength,
                 video_mode=0,  # Memory mode
             )
             slm.open()
-            logger.info(f"SLM #{slm_number} 已连接, 分辨率: {slm.Panel_Res}")
+            logger.info(f"SLM #{params.slm_number} 已连接, 分辨率: {slm.Panel_Res}")
         except Exception as e:
             logger.error(f"SLM连接失败: {e}")
             logger.warning("将继续采集但不显示相位到SLM")
@@ -397,12 +422,12 @@ def run(
     logger.info(f"PatternHelper: resolution={resolution}, bits={bits}")
 
     # Initialize Daheng camera
-    if not no_daheng:
+    if not params.no_daheng:
         try:
             logger.info(
-                f"正在连接Daheng相机 ID={daheng_id}, 曝光={daheng_exposure}ms..."
+                f"正在连接Daheng相机 ID={params.daheng_id}, 曝光={params.daheng_exposure}ms..."
             )
-            daheng_cam = open_camera("daheng", daheng_id, daheng_exposure)
+            daheng_cam = open_camera("daheng", params.daheng_id, params.daheng_exposure)
             logger.info(
                 f"Daheng相机已连接: {daheng_cam.cam_width}x{daheng_cam.cam_height}"
             )
@@ -411,13 +436,13 @@ def run(
             daheng_cam = None
 
     # Initialize MiiCam camera
-    if not no_miicam:
+    if not params.no_miicam:
         try:
             logger.info(
-                f"正在连接MiiCam相机 ID={miicam_id}, 曝光={miicam_exposure}ms..."
+                f"正在连接MiiCam相机 ID={params.miicam_id}, 曝光={params.miicam_exposure}ms..."
             )
             miicam_cam = open_camera(
-                "miicam", miicam_id, miicam_exposure, bit_depth=miicam_bit_depth
+                "miicam", params.miicam_id, params.miicam_exposure, bit_depth=params.miicam_bit_depth
             )
             logger.info(
                 f"MiiCam相机已连接: {miicam_cam.cam_width}x{miicam_cam.cam_height}"
@@ -429,31 +454,31 @@ def run(
     # Build global metadata
     global_meta = {
         "timestamp": datetime.now().isoformat(),
-        "mode": mode,
-        "samples": samples,
-        "slm_number": slm_number if slm else None,
-        "wavelength": wavelength,
+        "mode": params.mode,
+        "samples": params.samples,
+        "slm_number": params.slm_number if slm else None,
+        "wavelength": params.wavelength,
         "resolution": resolution,
         "bits": bits,
         "daheng": {
             "enabled": daheng_cam is not None,
-            "cam_id": daheng_id,
-            "exposure_ms": daheng_exposure,
+            "cam_id": params.daheng_id,
+            "exposure_ms": params.daheng_exposure,
         },
         "miicam": {
             "enabled": miicam_cam is not None,
-            "cam_id": miicam_id,
-            "exposure_ms": miicam_exposure,
-            "bit_depth": miicam_bit_depth,
+            "cam_id": params.miicam_id,
+            "exposure_ms": params.miicam_exposure,
+            "bit_depth": params.miicam_bit_depth,
         },
     }
-    if mode == "turbulence":
-        global_meta["turbulence"] = {"Cn2": cn2, "L": length}
+    if params.mode == "turbulence":
+        global_meta["turbulence"] = {"Cn2": params.cn2, "L": params.length}
     else:
         global_meta["zernike"] = {
-            "n_max": n_max,
-            "max_coeff": max_coeff,
-            "radius": zernike_radius,
+            "n_max": params.n_max,
+            "max_coeff": params.max_coeff,
+            "radius": params.zernike_radius,
         }
 
     # Merge with resumed metadata if resuming
@@ -463,7 +488,7 @@ def run(
             "timestamp", global_meta["timestamp"]
         )
         global_meta["resumed_at"] = datetime.now().isoformat()
-        global_meta["total_samples"] = resumed_meta.get("total_samples", 0) + samples
+        global_meta["total_samples"] = resumed_meta.get("total_samples", 0) + params.samples
 
     # Save global metadata
     meta_path = base_output_dir / "global_metadata.json"
@@ -471,24 +496,24 @@ def run(
         json.dump(global_meta, f, ensure_ascii=False, indent=2)
 
     # Main capture loop
-    logger.info(f"开始采集 {samples} 个样本...")
+    logger.info(f"开始采集 {params.samples} 个样本...")
     all_saved = []
 
-    for i in range(samples):
+    for i in range(params.samples):
         logger.info(f"\n{'=' * 50}")
-        logger.info(f"采集样本 {i + 1}/{samples}")
+        logger.info(f"采集样本 {i + 1}/{params.samples}")
 
         # Generate random phase
-        if mode == "turbulence":
+        if params.mode == "turbulence":
             phase_rad = generate_random_turbulence_phase(
                 pattern_helper,
-                cn2=cn2,
-                length=length,
+                cn2=params.cn2,
+                length=params.length,
                 pixel_size_um=slm.Pixel_Size_um if slm else 8.0,
-                wavelength_nm=wavelength,
+                wavelength_nm=params.wavelength,
             )
             phase_type = "turbulence"
-            phase_params = {"Cn2": cn2, "L": length}
+            phase_params = {"Cn2": params.cn2, "L": params.length}
             # 相位→灰度由 SLM 驱动完成 (PatternHelper 只生成弧度相位,
             # 无 SLM 时用通用 to_uint16 供日志/记录)
             phase_gray = (
@@ -498,9 +523,9 @@ def run(
             )
         else:
             kwargs = generate_random_zernike_coeffs(
-                n_max=n_max,
-                radius=zernike_radius,
-                max_coeff=max_coeff,
+                n_max=params.n_max,
+                radius=params.zernike_radius,
+                max_coeff=params.max_coeff,
             )
             phase_rad = pattern_helper.generate_zernike_polynomial(**kwargs)
             phase_type = "zernike"
@@ -523,7 +548,7 @@ def run(
         # Display phase on SLM
         if slm is not None:
             try:
-                current_slot = (memory_slot + i - 1) % 128 + 1
+                current_slot = (params.memory_slot + i - 1) % 128 + 1
                 slm.display_phase(phase_rad, memory_number=current_slot)
                 logger.info(f"相位已写入SLM内存槽 {current_slot} 并显示")
             except Exception as e:
@@ -535,10 +560,10 @@ def run(
 
         # Capture camera frames
         daheng_frame = capture_camera_frame(
-            daheng_cam, "Daheng", n_sample=n_sample, skip_first=skip_first
+            daheng_cam, "Daheng", n_sample=params.n_sample, skip_first=params.skip_first
         )
         miicam_frame = capture_camera_frame(
-            miicam_cam, "MiiCam", n_sample=n_sample, skip_first=skip_first
+            miicam_cam, "MiiCam", n_sample=params.n_sample, skip_first=params.skip_first
         )
 
         # Save all data
@@ -550,7 +575,7 @@ def run(
             "phase_shape": list(phase_gray.shape),
             "phase_min": int(phase_gray.min()),
             "phase_max": int(phase_gray.max()),
-            "slm_memory_slot": (memory_slot + i - 1) % 128 + 1 if slm else None,
+            "slm_memory_slot": (params.memory_slot + i - 1) % 128 + 1 if slm else None,
             "daheng": {
                 "captured": daheng_frame is not None,
                 "shape": list(daheng_frame.shape) if daheng_frame is not None else None,
@@ -574,8 +599,8 @@ def run(
         all_saved.append(saved)
 
         # Inter-sample interval
-        if i < samples - 1:
-            time.sleep(interval)
+        if i < params.samples - 1:
+            time.sleep(params.interval)
 
     # Cleanup
     logger.info(f"\n{'=' * 50}")
@@ -602,7 +627,7 @@ def run(
         except Exception as e:
             logger.warning(f"MiiCam相机断开失败: {e}")
 
-    logger.info(f"全部 {samples} 个样本已保存到 {base_output_dir}")
+    logger.info(f"全部 {params.samples} 个样本已保存到 {base_output_dir}")
     logger.info(f"全局元数据: {base_output_dir / 'global_metadata.json'}")
 
 

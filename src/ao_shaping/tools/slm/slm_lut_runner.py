@@ -15,14 +15,17 @@ from __future__ import annotations
 import pickle
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Annotated
 
 import click
 import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.utils.cli_params import option, with_params
 from ao_shaping.utils.image.hardware_utils import open_camera
 from ao_shaping.utils.slm.slm_lut import (
     build_inverse_lut,
@@ -385,115 +388,129 @@ def _check_spot_drift(
 # ── CLI command ──────────────────────────────────────────────────────────────
 
 
+@dataclass
+class SlmLutParams:
+    """CLI surface of :func:`run` (LUT calibration).
+
+    Values are deliberately NOT shared with the other probes -- see R-37 in
+    ``TODO.md``.  Several defaults are bench-specific physical facts of THIS
+    setup and must not be treated as generic:
+
+    * ``--slm-wavelength`` 1064 nm is the laser actually programmed into SLM
+      #1 here (other probes use 532, and 11 of the 19 use 1064).
+    * ``--exposure-ms`` 0.03 is only the *initial* value handed to
+      ``_joint_exposure_settle``, which then walks it into the safe band before
+      the scan; it is not the exposure the scan runs at.
+    * ``--period-ref``/``--period-test`` 64/32 and ``--spot-window`` 41 come from
+      the measured 2f geometry (``_DIFFRACTION_SCALE_PX``), where the two +1
+      orders sit 78 and 157 px off the 0-order.
+    """
+
+    # Method
+    method: Annotated[
+        str,
+        option(
+            "--method",
+            type=click.Choice(["depth", "offset"], case_sensitive=False),
+            show_default=True,
+            help="Scan method: depth=scale blaze peak gray; offset=uniform gray-offset scan.",
+        ),
+    ] = "depth"
+    # Grating parameters
+    period_ref: Annotated[
+        int, option("--period-ref", help="Reference half blaze period (SLM px).")
+    ] = 64
+    period_test: Annotated[
+        int, option("--period-test", help="Test half blaze period (SLM px).")
+    ] = 32
+    gray_step: Annotated[
+        int, option("--gray-step", help="Scan step over gray values.")
+    ] = 16
+    # Camera
+    exposure_ms: Annotated[
+        float, option("--exposure-ms", help="Initial camera exposure (ms).")
+    ] = 0.03
+    n_frames: Annotated[
+        int, option("--n-frames", help="Frames averaged per gray point.")
+    ] = 10
+    camera_type: Annotated[
+        str,
+        option(
+            "--camera-type",
+            type=click.Choice(["miicam", "daheng"], case_sensitive=False),
+            show_default=True,
+            help="Camera type.",
+        ),
+    ] = "miicam"
+    cam_id: Annotated[int, option("--cam-id", help="Camera device ID.")] = 0
+    # SLM
+    settle_time: Annotated[
+        float, option("--settle-time", help="SLM settle wait after write (s).")
+    ] = 0.3
+    slm_number: Annotated[int, option("--slm-number", help="SLM device number.")] = 1
+    slm_wavelength: Annotated[
+        int, option("--slm-wavelength", help="SLM working wavelength (nm).")
+    ] = 1064
+    # Spot detection
+    spot_window: Annotated[
+        int, option("--spot-window", help="Odd-sized pixel window around spot.")
+    ] = 41
+    # Auto-exposure thresholds
+    bright_floor: Annotated[
+        float, option("--bright-floor", help="Min normalized ROI mean.")
+    ] = 0.02
+    saturation_stop: Annotated[
+        float, option("--saturation-stop", help="Max normalized ROI max.")
+    ] = 0.9
+    # Output
+    output: Annotated[
+        str,
+        option(
+            "-o",
+            "--output",
+            type=click.Path(),
+            show_default=True,
+            help="Output directory for artifacts.",
+        ),
+    ] = "data/slm_lut"
+    display: Annotated[
+        bool,
+        option(
+            "--display/--no-display",
+            show_default=True,
+            help="Show matplotlib figures (blocking) instead of just saving PNGs.",
+        ),
+    ] = False
+
+
 @click.command()
-# Method
-@click.option(
-    "--method",
-    type=click.Choice(["depth", "offset"], case_sensitive=False),
-    default="depth",
-    show_default=True,
-    help="Scan method: depth=scale blaze peak gray; offset=uniform gray-offset scan.",
-)
-# Grating parameters
-@click.option(
-    "--period-ref", default=64, type=int, help="Reference half blaze period (SLM px)."
-)
-@click.option(
-    "--period-test", default=32, type=int, help="Test half blaze period (SLM px)."
-)
-@click.option("--gray-step", default=16, type=int, help="Scan step over gray values.")
-# Camera
-@click.option(
-    "--exposure-ms", default=0.03, type=float, help="Initial camera exposure (ms)."
-)
-@click.option(
-    "--n-frames", default=10, type=int, help="Frames averaged per gray point."
-)
-@click.option(
-    "--camera-type",
-    type=click.Choice(["miicam", "daheng"], case_sensitive=False),
-    default="miicam",
-    show_default=True,
-    help="Camera type.",
-)
-@click.option("--cam-id", default=0, type=int, help="Camera device ID.")
-# SLM
-@click.option(
-    "--settle-time", default=0.3, type=float, help="SLM settle wait after write (s)."
-)
-@click.option("--slm-number", default=1, type=int, help="SLM device number.")
-@click.option(
-    "--slm-wavelength", default=1064, type=int, help="SLM working wavelength (nm)."
-)
-# Spot detection
-@click.option(
-    "--spot-window", default=41, type=int, help="Odd-sized pixel window around spot."
-)
-# Auto-exposure thresholds
-@click.option(
-    "--bright-floor", default=0.02, type=float, help="Min normalized ROI mean."
-)
-@click.option(
-    "--saturation-stop", default=0.9, type=float, help="Max normalized ROI max."
-)
-# Output
-@click.option(
-    "-o",
-    "--output",
-    type=click.Path(),
-    default="data/slm_lut",
-    show_default=True,
-    help="Output directory for artifacts.",
-)
-@click.option(
-    "--display/--no-display",
-    default=False,
-    show_default=True,
-    help="Show matplotlib figures (blocking) instead of just saving PNGs.",
-)
-def run(
-    method: str,
-    period_ref: int,
-    period_test: int,
-    gray_step: int,
-    exposure_ms: float,
-    n_frames: int,
-    settle_time: float,
-    slm_number: int,
-    slm_wavelength: int,
-    camera_type: str,
-    cam_id: int,
-    spot_window: int,
-    bright_floor: float,
-    saturation_stop: float,
-    output: str,
-    display: bool,
-) -> None:
+@with_params(SlmLutParams, kw_name="params")
+def run(params: SlmLutParams) -> None:
     """SLM gray-to-phase LUT calibration.
 
     Drives the Santec SLM-200 in half-screen blazed-grating mode, scans gray
     depth or offset, measures +1 diffraction efficiency of both halves (drift-
     canceled ratio), inverts to a phase LUT, and saves artifacts.
     """
-    output_dir = Path(output)
+    output_dir = Path(params.output)
     run_name = datetime.now().strftime("run-%Y%m%d_%H%M%S")
     run_dir = output_dir / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
 
     slm: Santec | None = None
     camera = None
-    final_exposure_ms = exposure_ms
+    final_exposure_ms = params.exposure_ms
 
     try:
         # ═══════════════════════════════════════════════════════════════════
         # 1. Open SLM
         # ═══════════════════════════════════════════════════════════════════
         logger.info(
-            "Connecting to SLM #{} (wavelength={} nm)...", slm_number, slm_wavelength
+            "Connecting to SLM #{} (wavelength={} nm)...", params.slm_number, params.slm_wavelength
         )
         slm = Santec(
-            slm_number=slm_number,
-            wavelength=slm_wavelength,
+            slm_number=params.slm_number,
+            wavelength=params.slm_wavelength,
             video_mode=0,  # memory mode
         )
         slm.open()
@@ -502,7 +519,7 @@ def run(
         wl_device, gray_for_2pi = slm.get_wavelength_info()
         logger.info(
             "SLM #{} connected — device wl={}nm, 2pi gray={}",
-            slm_number,
+            params.slm_number,
             wl_device,
             gray_for_2pi,
         )
@@ -529,15 +546,15 @@ def run(
         # ═══════════════════════════════════════════════════════════════════
         logger.info(
             "Opening {} camera (id={}, exposure={:.3f} ms)...",
-            camera_type,
-            cam_id,
-            exposure_ms,
+            params.camera_type,
+            params.cam_id,
+            params.exposure_ms,
         )
-        if camera_type == "daheng":
-            camera = open_camera("daheng", cam_id, exposure_ms)
+        if params.camera_type == "daheng":
+            camera = open_camera("daheng", params.cam_id, params.exposure_ms)
         else:
-            camera = open_camera("miicam", cam_id, exposure_ms)
-        final_exposure_ms = exposure_ms
+            camera = open_camera("miicam", params.cam_id, params.exposure_ms)
+        final_exposure_ms = params.exposure_ms
 
         # Estimate full-well based on bit depth (for saturation detection)
         cam_bit_depth = getattr(camera, "_bit_depth", 8)
@@ -554,16 +571,16 @@ def run(
         half_h = slm_height // 2
 
         # Reference half: full-depth blaze at gray_for_2pi
-        ref_calib = depth_pattern(period_ref, gray_for_2pi, half_h, slm_width)
+        ref_calib = depth_pattern(params.period_ref, gray_for_2pi, half_h, slm_width)
         # Test half: also full-depth blaze for calibration
-        test_calib = depth_pattern(period_test, gray_for_2pi, half_h, slm_width)
+        test_calib = depth_pattern(params.period_test, gray_for_2pi, half_h, slm_width)
         calib_pattern = stack_halves(ref_calib, test_calib, axis=0)
 
-        slm.display_data(calib_pattern, wait_time_s=settle_time)
-        time.sleep(settle_time)
+        slm.display_data(calib_pattern, wait_time_s=params.settle_time)
+        time.sleep(params.settle_time)
 
         calib_frame = np.asarray(
-            camera.get_numpy_image(n_sample=n_frames, skip_first=True),
+            camera.get_numpy_image(n_sample=params.n_frames, skip_first=True),
             dtype=np.float64,
         )
         logger.info(
@@ -572,19 +589,19 @@ def run(
             calib_frame.max(),
         )
 
-        spots = _locate_spots(calib_frame, period_ref, period_test, spot_window)
+        spots = _locate_spots(calib_frame, params.period_ref, params.period_test, params.spot_window)
         ref_center = spots["ref"]
         test_center = spots["test"]
 
         # Joint exposure settle BEFORE the scan — exposure must stay constant
         # across every gray point so invert_depth_scan's model holds.
         final_exposure_ms = _joint_exposure_settle(
-            [(ref_center, spot_window), (test_center, spot_window)],
+            [(ref_center, params.spot_window), (test_center, params.spot_window)],
             full_well,
             camera,
             final_exposure_ms,
-            bright_floor,
-            saturation_stop,
+            params.bright_floor,
+            params.saturation_stop,
         )
 
         logger.info(
@@ -605,14 +622,14 @@ def run(
         # and invert_depth_scan would mis-assign the last point to 2π.
         max_g = max_gray
 
-        g_values = np.arange(0, max_g + 1, gray_step, dtype=int)
+        g_values = np.arange(0, max_g + 1, params.gray_step, dtype=int)
         # Ensure last value included
         if g_values[-1] != max_g:
             g_values = np.append(g_values, max_g)
 
         logger.info(
             "Scan: method={}, {} gray points from {} to {}",
-            method,
+            params.method,
             len(g_values),
             g_values[0],
             g_values[-1],
@@ -626,20 +643,20 @@ def run(
         p_test_arr = np.zeros(len(g_values), dtype=np.float64)
 
         # Reference pattern (always full-depth blaze at gray_for_2pi), top half
-        ref_pattern = depth_pattern(period_ref, gray_for_2pi, half_h, slm_width)
+        ref_pattern = depth_pattern(params.period_ref, gray_for_2pi, half_h, slm_width)
 
         # Per-spot expected calibration centers for drift detection
         ref_calib_center = ref_center
         test_calib_center = test_center
 
         for i, g in enumerate(g_values):
-            if method == "depth":
+            if params.method == "depth":
                 # Test half: blaze with peak_gray = g
-                test_pattern = depth_pattern(period_test, int(g), half_h, slm_width)
+                test_pattern = depth_pattern(params.period_test, int(g), half_h, slm_width)
             else:
                 # Test half: offset blaze (full depth + gray_offset = g)
                 test_pattern = offset_pattern(
-                    period_test,
+                    params.period_test,
                     gray_for_2pi,
                     int(g),
                     slm_bits,
@@ -648,11 +665,11 @@ def run(
                 )
 
             combined = stack_halves(ref_pattern, test_pattern, axis=0)
-            slm.display_data(combined, wait_time_s=settle_time)
+            slm.display_data(combined, wait_time_s=params.settle_time)
 
             # Capture and average
             frame = np.asarray(
-                camera.get_numpy_image(n_sample=n_frames, skip_first=True),
+                camera.get_numpy_image(n_sample=params.n_frames, skip_first=True),
                 dtype=np.float64,
             )
 
@@ -661,15 +678,15 @@ def run(
                 ref_center,
                 frame,
                 ref_calib_center,
-                period_ref,
-                spot_window,
+                params.period_ref,
+                params.spot_window,
             )
             test_center = _check_spot_drift(
                 test_center,
                 frame,
                 test_calib_center,
-                period_test,
-                spot_window,
+                params.period_test,
+                params.spot_window,
             )
 
             # NOTE: exposure is fixed for the whole scan (set before the loop
@@ -677,8 +694,8 @@ def run(
             # invert_depth_scan assumes a constant exposure across gray points.
 
             # Measure both powers from the same frame (drift-canceled ratio)
-            p_ref, _ = _measure_power(frame, ref_center, spot_window)
-            p_test, _ = _measure_power(frame, test_center, spot_window)
+            p_ref, _ = _measure_power(frame, ref_center, params.spot_window)
+            p_test, _ = _measure_power(frame, test_center, params.spot_window)
 
             # Drift-canceled ratio
             if p_ref > 0:
@@ -716,7 +733,7 @@ def run(
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
-        if method == "depth":
+        if params.method == "depth":
             phi = invert_depth_scan(eta)
         else:
             phi = invert_offset_scan(eta, g_values, gray_for_2pi)
@@ -731,7 +748,7 @@ def run(
         axes[0].plot(g_values, eta, "o-", markersize=3)
         axes[0].set_xlabel("Gray value")
         axes[0].set_ylabel("η (+1 efficiency ratio)")
-        axes[0].set_title(f"Diffraction efficiency ({method})")
+        axes[0].set_title(f"Diffraction efficiency ({params.method})")
         axes[0].grid(True, alpha=0.3)
 
         # (b) recovered phi vs g
@@ -749,7 +766,7 @@ def run(
         axes[2].grid(True, alpha=0.3)
 
         fig.suptitle(
-            f"SLM LUT Calibration — method={method}, λ={slm_wavelength}nm, "
+            f"SLM LUT Calibration — method={params.method}, λ={params.slm_wavelength}nm, "
             f"2π gray={gray_for_2pi}",
             fontsize=12,
         )
@@ -757,7 +774,7 @@ def run(
         plot_path = run_dir / "lut_calibration.png"
         fig.savefig(plot_path, dpi=150, bbox_inches="tight")
         logger.info("Calibration plot saved: {}", plot_path)
-        if display:
+        if params.display:
             plt.show()
         plt.close(fig)
 
@@ -767,12 +784,12 @@ def run(
             "test": list(test_center),
         }
         meta = {
-            "method": method,
-            "period_ref": period_ref,
-            "period_test": period_test,
-            "gray_step": gray_step,
+            "method": params.method,
+            "period_ref": params.period_ref,
+            "period_test": params.period_test,
+            "gray_step": params.gray_step,
             "gray_for_2pi": gray_for_2pi,
-            "slm_wavelength": slm_wavelength,
+            "slm_wavelength": params.slm_wavelength,
             "spot_centers": spot_centers,
             "exposure_final_ms": final_exposure_ms,
             "timestamp": datetime.now().isoformat(),
@@ -784,8 +801,8 @@ def run(
 
         # ── Save run record pkl ──
         patterns_summary = {
-            "ref_period": period_ref,
-            "test_period": period_test,
+            "ref_period": params.period_ref,
+            "test_period": params.period_test,
             "ref_pattern_shape": list(ref_pattern.shape),
         }
         record = {
@@ -816,7 +833,7 @@ def run(
         mono_pct = float(100.0 * (1.0 - n_non_mono / max(len(phi_diff), 1)))
 
         summary = (
-            f"LUT calibration complete — method={method}\n"
+            f"LUT calibration complete — method={params.method}\n"
             f"  max η = {peak_eta:.4f} at g = {peak_g} (gray_for_2pi={gray_for_2pi})\n"
             f"  phase monotonicity: {mono_pct:.1f}%\n"
             f"  final exposure: {final_exposure_ms:.3f} ms\n"

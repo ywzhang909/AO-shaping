@@ -37,10 +37,13 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Annotated
 
 import click
 import numpy as np
 from loguru import logger
+
+from ao_shaping.utils.cli_params import option, with_params
 
 # ── 已确认的硬件/光路事实 (2026-09 诊断固化, 勿改) ──────────────────────────
 
@@ -246,47 +249,60 @@ def step_linearity(
 # ── CLI ─────────────────────────────────────────────────────────────────────
 
 
+@dataclass
+class SlmDiagnoseParams:
+    """SLM 硬件自检三步走的 CLI 参数。
+
+    除 ``--step`` 外每个默认值都是 2026-09 在**本台架** (Santec SLM-200 #1 +
+    2f Fourier) 固化的事实, 不要与其他探针共享取值: ``--slm-wavelength`` 1064 nm
+    (该波长下振幅耦合周期 ~993 灰度, 见 ``_SLM_AMPLITUDE_PERIOD_GRAY``),
+    ``--camera-type`` **miicam** (大恒台架必须显式覆盖, 否则 MiiCam SDK 报
+    "请求的资源在使用中"), ``--exposure-ms`` 2.0 与 ``--settle-s`` 1.0 是液晶
+    稳定等待 (判据是"连续两次读数一致"而非固定时长), ``--period-ref/-test``
+    64/32 配 ``_DIFFRACTION_SCALE_PX`` = 5021 (P64→78 px, P32→157 px)。
+    """
+
+    slm_number: Annotated[int, option("--slm-number", help="SLM 设备编号 (默认 1)")] = 1
+    slm_wavelength: Annotated[
+        int, option("--slm-wavelength", help="SLM 工作波长 nm (默认 1064)")
+    ] = 1064
+    cam_id: Annotated[int, option("--cam-id", help="相机 ID (默认 0)")] = 0
+    camera_type: Annotated[
+        str,
+        option(
+            "--camera-type",
+            type=click.Choice(["miicam", "daheng"]),
+            help="相机类型 (miicam/daheng, 默认 miicam)",
+        ),
+    ] = "miicam"
+    period_ref: Annotated[
+        int, option("--period-ref", help="参考光栅周期 SLM px (默认 64)")
+    ] = 64
+    period_test: Annotated[
+        int, option("--period-test", help="测试光栅周期 SLM px (默认 32)")
+    ] = 32
+    exposure_ms: Annotated[
+        float, option("--exposure-ms", help="自检曝光 ms (默认 2.0)")
+    ] = 2.0
+    settle_s: Annotated[
+        float, option("--settle-s", help="SLM/相机稳定等待 s (默认 1.0)")
+    ] = 1.0
+    step: Annotated[
+        str,
+        option(
+            "--step",
+            type=click.Choice(["all", "freeze", "modulate", "linearity"]),
+            help="只跑某个步骤 (默认 all)",
+        ),
+    ] = "all"
+    output: Annotated[
+        str | None, option("-o", "--output", help="保存诊断报告的目录 (默认不保存)")
+    ] = None
+
+
 @click.command()
-@click.option("--slm-number", type=int, default=1, help="SLM 设备编号 (默认 1)")
-@click.option(
-    "--slm-wavelength", type=int, default=1064, help="SLM 工作波长 nm (默认 1064)"
-)
-@click.option("--cam-id", type=int, default=0, help="相机 ID (默认 0)")
-@click.option(
-    "--camera-type",
-    type=click.Choice(["miicam", "daheng"]),
-    default="miicam",
-    help="相机类型 (miicam/daheng, 默认 miicam)",
-)
-@click.option(
-    "--period-ref", type=int, default=64, help="参考光栅周期 SLM px (默认 64)"
-)
-@click.option(
-    "--period-test", type=int, default=32, help="测试光栅周期 SLM px (默认 32)"
-)
-@click.option("--exposure-ms", type=float, default=2.0, help="自检曝光 ms (默认 2.0)")
-@click.option(
-    "--settle-s", type=float, default=1.0, help="SLM/相机稳定等待 s (默认 1.0)"
-)
-@click.option(
-    "--step",
-    type=click.Choice(["all", "freeze", "modulate", "linearity"]),
-    default="all",
-    help="只跑某个步骤 (默认 all)",
-)
-@click.option("-o", "--output", default=None, help="保存诊断报告的目录 (默认不保存)")
-def main(
-    slm_number: int,
-    slm_wavelength: int,
-    cam_id: int,
-    camera_type: str,
-    period_ref: int,
-    period_test: int,
-    exposure_ms: float,
-    settle_s: float,
-    step: str,
-    output: str | None,
-) -> None:
+@with_params(SlmDiagnoseParams, kw_name="params")
+def main(params: SlmDiagnoseParams) -> None:
     """SLM 硬件自检: 逐级定位是否存在"面板不调制光"类故障。"""
     from ao_shaping.drivers.slm.santec import Santec
     from ao_shaping.utils.image.hardware_utils import open_camera
@@ -294,16 +310,16 @@ def main(
     logger.info(
         "SLM self-check: slm#{} @{}nm, periods {}/{}px, camera#{} ({}) exposure {:.2f}ms "
         "(2f Fourier bench: SLM front-focus -> f=125mm lens -> CCD back-focus)",
-        slm_number,
-        slm_wavelength,
-        period_ref,
-        period_test,
-        cam_id,
-        camera_type,
-        exposure_ms,
+        params.slm_number,
+        params.slm_wavelength,
+        params.period_ref,
+        params.period_test,
+        params.cam_id,
+        params.camera_type,
+        params.exposure_ms,
     )
 
-    if step in ("all", "freeze"):
+    if params.step in ("all", "freeze"):
         logger.warning(
             "Known constraint: DVI mode (video_mode=1) open() can hang; a hung "
             "controller then also hangs memory-mode open until physical power "
@@ -315,7 +331,11 @@ def main(
     results: dict[str, DiagnoseResult] = {}
     try:
         # 仅 memory 模式: 绝不自动进入 DVI 模式 (见 docstring 已知约束).
-        slm = Santec(slm_number=slm_number, wavelength=slm_wavelength, video_mode=0)
+        slm = Santec(
+            slm_number=params.slm_number,
+            wavelength=params.slm_wavelength,
+            video_mode=0,
+        )
         slm.open()
         _, gray_for_2pi = slm.get_wavelength_info()
         serial = slm.get_serial_number()
@@ -325,42 +345,42 @@ def main(
             slm.Panel_Res[0],
             slm.Panel_Res[1],
             gray_for_2pi,
-            slm_wavelength,
+            params.slm_wavelength,
         )
 
-        camera = open_camera(camera_type, cam_id, exposure_ms)
+        camera = open_camera(params.camera_type, params.cam_id, params.exposure_ms)
         logger.info(
             "Camera opened: id={} exposure={:.2f}ms (frame readback on first grab)",
-            cam_id,
-            exposure_ms,
+            params.cam_id,
+            params.exposure_ms,
         )
 
-        if step in ("all", "freeze"):
+        if params.step in ("all", "freeze"):
             results["freeze"] = step_freezing(
                 slm,
                 camera,
-                period_ref,
-                period_test,
-                slm_wavelength,
-                settle_s,
-                exposure_ms,
+                params.period_ref,
+                params.period_test,
+                params.slm_wavelength,
+                params.settle_s,
+                params.exposure_ms,
             )
-        if step in ("all", "modulate"):
+        if params.step in ("all", "modulate"):
             results["modulate"] = step_modulation(
                 slm,
                 camera,
-                slm_wavelength,
-                settle_s,
-                exposure_ms,
+                params.slm_wavelength,
+                params.settle_s,
+                params.exposure_ms,
             )
-        if step in ("all", "linearity"):
+        if params.step in ("all", "linearity"):
             results["linearity"] = step_linearity(
                 slm,
                 camera,
-                period_ref,
-                slm_wavelength,
-                settle_s,
-                exposure_ms,
+                params.period_ref,
+                params.slm_wavelength,
+                params.settle_s,
+                params.exposure_ms,
             )
     except SystemExit:
         raise
@@ -385,12 +405,12 @@ def main(
     for name, r in results.items():
         click.echo(f"[{'PASS' if r.ok else 'FAIL'}] {name}: {r.message}")
         all_ok = all_ok and r.ok
-        if output:
-            Path(output).mkdir(parents=True, exist_ok=True)
+        if params.output:
+            Path(params.output).mkdir(parents=True, exist_ok=True)
             metrics_arr = np.asarray(list(r.metrics.values()), dtype=np.float64)
             keys_arr = np.asarray(list(r.metrics.keys()))
             np.savez(
-                Path(output) / f"diagnose_{name}.npz",
+                Path(params.output) / f"diagnose_{name}.npz",
                 metrics=metrics_arr,
                 metric_keys=keys_arr,
                 message=np.asarray(r.message),

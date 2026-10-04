@@ -455,7 +455,6 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--settle-s", type=float, default=0.5)
     ap.add_argument("--stable-tol", type=float, default=0.02)
     ap.add_argument("--max-wait-s", type=float, default=6.0)
-    ap.add_argument("--save-frames/--no-save-frames", default=True)
     ap.add_argument("--no-hw", action="store_true",
                     help="不打开硬件, 只打印将要采集的点 (自检用)")
     return ap.parse_args(argv)

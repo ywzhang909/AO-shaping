@@ -34,13 +34,16 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import click
 import numpy as np
 from loguru import logger
+
+from ao_shaping.utils.cli_params import option, with_params
 
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.wfs import ThorlabWFS
@@ -65,7 +68,7 @@ from ao_shaping.tools.slm.slm_zernike_common import (
     safe_pinv,
     show_phase,
     um_to_waves,
-    wfs_validity,
+    wfs_validity
 )
 from ao_shaping.tools.slm.slm_scan_analysis import outlier_mask
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
@@ -270,7 +273,7 @@ def save_matrix_debug(dbg: Path, matrix: np.ndarray, variance: np.ndarray,
     """
     from ao_shaping.optimizer.wf.zernike_response_matrix import (
         ZernikeResponseMatrixResult,
-        save_zernike_response_matrix,
+        save_zernike_response_matrix
     )
 
     dc = {
@@ -459,72 +462,158 @@ def closed_loop_correct(slm: Santec, wfs: ThorlabWFS, ph: PatternHelper,
 
 # ─────────────────────────── CLI ───────────────────────────
 
+@dataclass
+class SlmZernikeCorrectionParams:
+    """CLI surface of :func:`main`.
+
+    This probe runs on the 532 nm WFS bench (default --slm-wavelength 532),
+    unlike most of the package which is 1064 nm. Field values are not shared
+    with other probes.
+    """
+
+    stage: Annotated[
+        str,
+        option(
+            "--stage",
+            type=click.Choice(["all", "auto", "matrix", "closed"]),
+            show_default=True,
+            help="执行阶段"
+        ),
+    ] = "all"
+    slm_number: Annotated[
+        int, option("--slm-number", show_default=True)
+    ] = 1
+    slm_wavelength: Annotated[
+        int, option("--slm-wavelength", show_default=True)
+    ] = 532
+    wfs_exposure_ms: Annotated[
+        float, option("--wfs-exposure-ms", show_default=True)
+    ] = DEFAULT_EXPOSURE_MS
+    wfs_order: Annotated[
+        int, option("--wfs-order", show_default=True)
+    ] = WFS_ZERNIKE_ORDER
+    n_max: Annotated[
+        int, option("--n-max", show_default=True, help="SLM 模式最大阶数")
+    ] = 4
+    n_avg: Annotated[
+        int, option("--n-avg", show_default=True, help="WFS 多帧平均")
+    ] = 3
+    settle_extra_s: Annotated[
+        float,
+        option(
+            "--settle-extra-s",
+            show_default=True,
+            help="像素翻转估算之外的冗余等待 (s)"
+        ),
+    ] = SETTLE_REDUNDANCY_S
+    radius_factor: Annotated[
+        str,
+        option(
+            "--radius-factor",
+            show_default=True,
+            help="扫描半径 = 光束半径 × 该列表 (默认避开 1.0×: R≈光束半径时大振幅击穿拟合)"
+        ),
+    ] = "1.5,2.0"
+    radii: Annotated[
+        str | None,
+        option(
+            "--radii",
+            help="直接指定扫描半径 px (逗号分隔, 覆盖 --radius-factor)"
+        ),
+    ] = None
+    amps: Annotated[
+        str,
+        option("--amps", show_default=True, help="幅度 rad 列表 (各测 ±)"),
+    ] = "2,5,10"
+    outlier_factor: Annotated[
+        float,
+        option(
+            "--outlier-factor",
+            show_default=True,
+            help="逐点异常剔除: 同组 |resp| 偏离中位数超过该倍数则剔除"
+        ),
+    ] = 3.0
+    coverage_tol: Annotated[
+        int,
+        option(
+            "--coverage-tol",
+            show_default=True,
+            help="统一半径选择: 覆盖度容差内取最小 R (实测 R=300 优于 R=400 条件数 5×)"
+        ),
+    ] = 1
+    radius_scan: Annotated[
+        str,
+        option("--radius-scan", show_default=True, help="阶段1 半径诊断扫描列表 px"),
+    ] = "120,200,300,450,600"
+    n_iter: Annotated[
+        int, option("--n-iter", show_default=True, help="闭环迭代轮数")
+    ] = 3
+    gain: Annotated[
+        float, option("--gain", show_default=True, help="闭环增益")
+    ] = 0.8
+    leak: Annotated[
+        float, option("--leak", show_default=True, help="闭环泄漏因子")
+    ] = 0.0
+    quick: Annotated[
+        bool, option("--quick", is_flag=True, help="快速模式 (单尺寸/单幅度)")
+    ] = False
+    save_phase: Annotated[
+        bool,
+        option(
+            "--save-phase",
+            is_flag=True,
+            help="debug: 额外保存每轮实际上屏 uint16 灰度相位 (npy, 每张 ~4.6MB)"
+        ),
+    ] = False
+    export_correction: Annotated[
+        bool,
+        option(
+            "--export-correction/--no-export-correction",
+            show_default=True,
+            help="导出可复原的矫正相位 CSV (驱动 Santec.save_phase_to_csv; "
+            "文件名含 序列号/波长/shift/半径/时间 + sidecar JSON 元数据)"
+        ),
+    ] = True
+    export_dir: Annotated[
+        str,
+        option("--export-dir", show_default=True, help="矫正相位导出目录"),
+    ] = "data/slm_corrections"
+    output_dir: Annotated[
+        str, option("-o", "--output-dir", show_default=True)
+    ] = "data/zernike_correction"
+
+
 @click.command()
-@click.option("--stage", type=click.Choice(["all", "auto", "matrix", "closed"]),
-              default="all", show_default=True, help="执行阶段")
-@click.option("--slm-number", type=int, default=1, show_default=True)
-@click.option("--slm-wavelength", type=int, default=532, show_default=True)
-@click.option("--wfs-exposure-ms", type=float, default=DEFAULT_EXPOSURE_MS, show_default=True)
-@click.option("--wfs-order", type=int, default=WFS_ZERNIKE_ORDER, show_default=True)
-@click.option("--n-max", type=int, default=4, show_default=True, help="SLM 模式最大阶数")
-@click.option("--n-avg", type=int, default=3, show_default=True, help="WFS 多帧平均")
-@click.option("--settle-extra-s", type=float, default=SETTLE_REDUNDANCY_S,
-              show_default=True, help="像素翻转估算之外的冗余等待 (s)")
-@click.option("--radius-factor", default="1.5,2.0", show_default=True,
-              help="扫描半径 = 光束半径 × 该列表 (默认避开 1.0×: R≈光束半径时大振幅击穿拟合)")
-@click.option("--radii", default=None, help="直接指定扫描半径 px (逗号分隔, 覆盖 --radius-factor)")
-@click.option("--amps", default="2,5,10", show_default=True, help="幅度 rad 列表 (各测 ±)")
-@click.option("--outlier-factor", type=float, default=3.0, show_default=True,
-              help="逐点异常剔除: 同组 |resp| 偏离中位数超过该倍数则剔除")
-@click.option("--coverage-tol", type=int, default=1, show_default=True,
-              help="统一半径选择: 覆盖度容差内取最小 R (实测 R=300 优于 R=400 条件数 5×)")
-@click.option("--radius-scan", default="120,200,300,450,600", show_default=True,
-              help="阶段1 半径诊断扫描列表 px")
-@click.option("--n-iter", type=int, default=3, show_default=True, help="闭环迭代轮数")
-@click.option("--gain", type=float, default=0.8, show_default=True, help="闭环增益")
-@click.option("--leak", type=float, default=0.0, show_default=True, help="闭环泄漏因子")
-@click.option("--quick", is_flag=True, default=False, help="快速模式 (单尺寸/单幅度)")
-@click.option("--save-phase", is_flag=True, default=False,
-              help="debug: 额外保存每轮实际上屏 uint16 灰度相位 (npy, 每张 ~4.6MB)")
-@click.option("--export-correction/--no-export-correction", "export_correction",
-              default=True, show_default=True,
-              help="导出可复原的矫正相位 CSV (驱动 Santec.save_phase_to_csv; "
-                   "文件名含 序列号/波长/shift/半径/时间 + sidecar JSON 元数据)")
-@click.option("--export-dir", default="data/slm_corrections", show_default=True,
-              help="矫正相位导出目录")
-@click.option("-o", "--output-dir", default="data/zernike_correction", show_default=True)
-def main(stage, slm_number, slm_wavelength, wfs_exposure_ms, wfs_order, n_max,
-         n_avg, settle_extra_s, radius_factor, radii, amps, radius_scan,
-         n_iter, gain, leak, quick, outlier_factor, coverage_tol,
-         save_phase, export_correction, export_dir, output_dir) -> int:
+@with_params(SlmZernikeCorrectionParams, kw_name="params")
+def main(params: SlmZernikeCorrectionParams) -> int:
     """SLM Zernike 模式法波前矫正 — 三阶段流程."""
-    if wfs_exposure_ms > MAX_EXPOSURE_MS:
-        raise click.BadParameter(f"WFS 曝光 {wfs_exposure_ms}ms > {MAX_EXPOSURE_MS}ms")
-    if not 2 <= wfs_order <= 10:
+    if params.wfs_exposure_ms > MAX_EXPOSURE_MS:
+        raise click.BadParameter(f"WFS 曝光 {params.wfs_exposure_ms}ms > {MAX_EXPOSURE_MS}ms")
+    if not 2 <= params.wfs_order <= 10:
         raise click.BadParameter("--wfs-order 必须在 2..10")
 
-    out = Path(output_dir)
+    out = Path(params.output_dir)
     out.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     incr = out / f"raw_scan_{ts}.json"
     dbg = out / f"debug_{ts}"          # 全过程 debug 数据
     dbg.mkdir(parents=True, exist_ok=True)
 
-    modes = [i for i in range(2, (n_max + 1) * (n_max + 2) // 2 + 1)]
-    r_scan = [float(v) for v in radius_scan.split(",")]
-    amp_list = [float(v) for v in amps.split(",")]
-    fac_list = [float(v) for v in radius_factor.split(",")]
-    if quick:
+    modes = [i for i in range(2, (params.n_max + 1) * (params.n_max + 2) // 2 + 1)]
+    r_scan = [float(v) for v in params.radius_scan.split(",")]
+    amp_list = [float(v) for v in params.amps.split(",")]
+    fac_list = [float(v) for v in params.radius_factor.split(",")]
+    if params.quick:
         amp_list = [amp_list[0]]
 
     click.echo("=" * 72)
     click.echo("[SLM Zernike 模式法波前矫正] 三阶段流程 (已按实测优化)")
     click.echo("=" * 72)
 
-    slm = Santec(slm_number=slm_number, wavelength=slm_wavelength, video_mode=0)
-    wfs = ThorlabWFS(exposure_time=wfs_exposure_ms, use_custom_ref=False)
+    slm = Santec(slm_number=params.slm_number, wavelength=params.slm_wavelength, video_mode=0)
+    wfs = ThorlabWFS(exposure_time=params.wfs_exposure_ms, use_custom_ref=False)
     ph = PatternHelper(resolution=(PANEL_W, PANEL_H))
-    report: dict = {"stage": stage, "timestamp": ts}
+    report: dict = {"stage": params.stage, "timestamp": ts}
 
     try:
         slm.open()
@@ -537,7 +626,7 @@ def main(stage, slm_number, slm_wavelength, wfs_exposure_ms, wfs_order, n_max,
         click.echo(f"[OK] SLM #{slm._serial_number} {wl}nm 2π={max_gray}; "
                    f"WFS {wfs.serial_num} exp={exp:.3f}ms "
                    f"pupil=({cx:.3f},{cy:.3f})mm d=({dx:.3f},{dy:.3f})mm")
-        report["device"] = collect_device_info(slm, wfs, slm_number)
+        report["device"] = collect_device_info(slm, wfs, params.slm_number)
         _d = report["device"]
         click.echo(f"[OK] 设备参数: SLM #{_d['slm'].get('serial_number')} "
                    f"{_d['slm'].get('wavelength_nm')}nm 2π={_d['slm'].get('two_pi_gray')}gray "
@@ -552,33 +641,33 @@ def main(stage, slm_number, slm_wavelength, wfs_exposure_ms, wfs_order, n_max,
                    f"{_d['wfs'].get('num_spots_x')}x{_d['wfs'].get('num_spots_y')}")
 
         r_beam = 250.0
-        if stage in ("all", "auto"):
+        if params.stage in ("all", "auto"):
             r_beam, r_diag = diagnose_beam_radius(slm, wfs, ph, r_scan, 20.0,
-                                                  n_avg, settle_extra_s)
+                                                  params.n_avg, params.settle_extra_s)
             report["radius_diagnostic"] = r_diag
             sx, sy, sh_scan = calibrate_center_shift(slm, wfs, ph, r_beam, 20.0,
-                                                     n_avg=n_avg,
-                                                     extra_sleep=settle_extra_s)
+                                                     n_avg=params.n_avg,
+                                                     extra_sleep=params.settle_extra_s)
             report["shift_scan"] = sh_scan
             slm.set_shift(sx, sy)
             slm.save_config()
             report["shift"] = [sx, sy]
-            report["flat_reference"] = setup_flat_reference(slm, wfs, max(n_avg, 3),
-                                                            settle_extra_s)
+            report["flat_reference"] = setup_flat_reference(slm, wfs, max(params.n_avg, 3),
+                                                            params.settle_extra_s)
 
         matrix = None
         r_used = r_beam
-        if stage in ("all", "matrix"):
-            if radii:
-                r_list = [float(v) for v in radii.split(",")]
-            elif quick:
+        if params.stage in ("all", "matrix"):
+            if params.radii:
+                r_list = [float(v) for v in params.radii.split(",")]
+            elif params.quick:
                 r_list = [r_beam * fac_list[0]]
             else:
                 r_list = [r_beam * f for f in fac_list]
             r_list = [float(np.clip(r, 120, 600)) for r in r_list]
             matrix, metrics, extra = scan_response_matrix(
-                slm, wfs, ph, modes, r_list, amp_list, n_avg, settle_extra_s,
-                incr, wfs_order, outlier_factor, coverage_tol)
+                slm, wfs, ph, modes, r_list, amp_list, params.n_avg, params.settle_extra_s,
+                incr, params.wfs_order, params.outlier_factor, params.coverage_tol)
             variance = np.array(extra.pop("variance", []), dtype=float)
             pts = extra.pop("points", [])
             report["metrics"] = metrics
@@ -590,24 +679,24 @@ def main(stage, slm_number, slm_wavelength, wfs_exposure_ms, wfs_order, n_max,
             amp_mid = float(amp_list[len(amp_list) // 2]) if amp_list else 0.0
             save_matrix_debug(dbg, matrix, variance, modes, r_used,
                               report.get("device", {}), report.get("shift"),
-                              report.get("flat_reference"), amp_mid, n_avg, extra)
+                              report.get("flat_reference"), amp_mid, params.n_avg, extra)
             (dbg / "scan_points.json").write_text(
                 json.dumps(pts, ensure_ascii=False), encoding="utf-8")
             click.echo(f"   [debug] 逐点诊断: {dbg / 'scan_points.json'} "
                        f"({len(pts)} 点, 含 ±对称性/SNR)")
 
-        if stage in ("all", "closed"):
+        if params.stage in ("all", "closed"):
             if matrix is None:
                 click.echo("[WARN] 无矩阵, 跳过闭环矫正")
             else:
                 cl = closed_loop_correct(
-                    slm, wfs, ph, matrix, modes, r_used, n_avg, settle_extra_s,
-                    n_iter=n_iter, gain=gain, leak=leak,
-                    debug_dir=dbg / "closed_loop", save_phase=save_phase)
+                    slm, wfs, ph, matrix, modes, r_used, params.n_avg, params.settle_extra_s,
+                    n_iter=params.n_iter, gain=params.gain, leak=params.leak,
+                    debug_dir=dbg / "closed_loop", save_phase=params.save_phase)
                 report["closed_loop"] = cl
 
                 # ---- 导出可复原的矫正相位 (驱动自带 Santec.save_phase_to_csv) ----
-                if export_correction:
+                if params.export_correction:
                     # cl["coeffs"] 单位 λ → ×2π 得弧度 (make_phase 收弧度)
                     coeffs_lam = {nm_of(m): float(cl["coeffs"].get(str(nm_of(m)), 0.0))
                                   for m in modes}
@@ -639,7 +728,7 @@ def main(stage, slm_number, slm_wavelength, wfs_exposure_ms, wfs_order, n_max,
                                           "勿走 load_gray_from_csv/csv_to_phase (只接受灰度)"),
                         }
                         csv_p, json_p = export_correction_csv(
-                            slm, phase_corr, meta, out_dir=export_dir, prefix="slm_corr")
+                            slm, phase_corr, meta, out_dir=params.export_dir, prefix="slm_corr")
                         click.echo(f"[OK] 矫正相位已导出: {csv_p}")
                         click.echo(f"[OK]   元数据 sidecar: {json_p}")
                         report["correction_export"] = {"csv": str(csv_p),
@@ -663,7 +752,7 @@ def main(stage, slm_number, slm_wavelength, wfs_exposure_ms, wfs_order, n_max,
     # ---- debug manifest: 列出全过程产物 ----
     files = sorted(str(p.relative_to(out)) for p in dbg.rglob("*") if p.is_file())
     (dbg / "manifest.json").write_text(json.dumps({
-        "timestamp": ts, "stage": stage,
+        "timestamp": ts, "stage": params.stage,
         "report": rp.name, "raw_scan": incr.name, "debug_dir": dbg.name,
         "files": files,
         "notes": [

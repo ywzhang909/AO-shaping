@@ -23,9 +23,10 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import click
 import numpy as np
@@ -44,6 +45,7 @@ from ao_shaping.tools.slm.slm_zernike_common import (
     measure_zernike,
     show_phase,
 )
+from ao_shaping.utils.cli_params import option, with_params
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 PANEL_H, PANEL_W = 1200, 1920
@@ -114,37 +116,82 @@ def fit_linear(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
     return kk, (1 - ss_res / ss_tot if ss_tot > 0 else float("nan"))
 
 
+@dataclass
+class WfsReferenceParams:
+    """CLI surface of :func:`main` (532 nm WFS bench).
+
+    Local values on purpose -- measured across the 19 ``tools/slm`` probes, only
+    ``--settle-extra-s`` has an identical signature in more than one probe, and
+    ``--slm-wavelength`` alone splits 1064 (11 probes) vs 532 (6). A shared
+    dataclass has exactly one default per field, so consolidating here would
+    silently retarget the laser this probe calibrates against.
+    """
+
+    slm_number: Annotated[int, option("--slm-number", show_default=True)] = 1
+    slm_wavelength: Annotated[
+        int, option("--slm-wavelength", show_default=True)
+    ] = 532
+    wfs_exposure_ms: Annotated[
+        float,
+        option(
+            "--wfs-exposure-ms",
+            show_default=True,
+            help=f"WFS 曝光 ms (必须 ≤ {MAX_EXPOSURE_MS})",
+        ),
+    ] = DEFAULT_EXPOSURE_MS
+    wfs_order: Annotated[int, option("--wfs-order", show_default=True)] = 10
+    zernike_radius: Annotated[
+        float,
+        option(
+            "--zernike-radius",
+            show_default=True,
+            help="Step3 倾斜 Zernike 半径 px (建议 ≥1.5×光束半径)",
+        ),
+    ] = 600.0
+    tilt_amps: Annotated[
+        str,
+        option(
+            "--tilt-amps",
+            show_default=True,
+            help="倾斜幅度序列 rad (Zernike (1,1) 系数)",
+        ),
+    ] = "0.1,0.2,0.4,0.8,1.6,3.2"
+    n_avg: Annotated[
+        int, option("--n-avg", show_default=True, help="每点 WFS 帧平均")
+    ] = 5
+    settle_extra_s: Annotated[
+        float,
+        option(
+            "--settle-extra-s",
+            show_default=True,
+            help="像素翻转估算之外的冗余等待 (s)",
+        ),
+    ] = SETTLE_REDUNDANCY_S
+    flat_rms_threshold: Annotated[
+        float,
+        option("--flat-rms-threshold", show_default=True, help="纯平波前 RMS 合格阈值 (λ)"),
+    ] = 0.05
+    output: Annotated[
+        str | None, option("-o", "--output", help="报告 JSON 路径")
+    ] = None
+
+
 @click.command()
-@click.option("--slm-number", type=int, default=1, show_default=True)
-@click.option("--slm-wavelength", type=int, default=532, show_default=True)
-@click.option("--wfs-exposure-ms", type=float, default=DEFAULT_EXPOSURE_MS, show_default=True,
-              help=f"WFS 曝光 ms (必须 ≤ {MAX_EXPOSURE_MS})")
-@click.option("--wfs-order", type=int, default=10, show_default=True)
-@click.option("--zernike-radius", type=float, default=600.0, show_default=True,
-              help="Step3 倾斜 Zernike 半径 px (建议 ≥1.5×光束半径)")
-@click.option("--tilt-amps", default="0.1,0.2,0.4,0.8,1.6,3.2", show_default=True,
-              help="倾斜幅度序列 rad (Zernike (1,1) 系数)")
-@click.option("--n-avg", type=int, default=5, show_default=True, help="每点 WFS 帧平均")
-@click.option("--settle-extra-s", type=float, default=SETTLE_REDUNDANCY_S,
-              show_default=True, help="像素翻转估算之外的冗余等待 (s)")
-@click.option("--flat-rms-threshold", type=float, default=0.05, show_default=True,
-              help="纯平波前 RMS 合格阈值 (λ)")
-@click.option("-o", "--output", default=None, help="报告 JSON 路径")
-def main(slm_number, slm_wavelength, wfs_exposure_ms, wfs_order, zernike_radius,
-         tilt_amps, n_avg, settle_extra_s, flat_rms_threshold, output) -> int:
+@with_params(WfsReferenceParams, kw_name="params")
+def main(params: WfsReferenceParams) -> int:
     """SLM + WFS 参考波前标定与倾斜线性度 (三步)."""
-    if wfs_exposure_ms > MAX_EXPOSURE_MS:
-        raise click.BadParameter(f"WFS 曝光 {wfs_exposure_ms}ms > {MAX_EXPOSURE_MS}ms")
-    if not 2 <= wfs_order <= 10:
+    if params.wfs_exposure_ms > MAX_EXPOSURE_MS:
+        raise click.BadParameter(f"WFS 曝光 {params.wfs_exposure_ms}ms > {MAX_EXPOSURE_MS}ms")
+    if not 2 <= params.wfs_order <= 10:
         raise click.BadParameter("--wfs-order 必须在 2..10")
 
-    amps = [float(v) for v in tilt_amps.split(",")]
+    amps = [float(v) for v in params.tilt_amps.split(",")]
     click.echo("=" * 72)
     click.echo("[SLM+WFS 参考波前标定 + 倾斜线性度] 三步流程")
     click.echo("=" * 72)
 
-    slm = Santec(slm_number=slm_number, wavelength=slm_wavelength, video_mode=0)
-    wfs = ThorlabWFS(exposure_time=wfs_exposure_ms, use_custom_ref=False)
+    slm = Santec(slm_number=params.slm_number, wavelength=params.slm_wavelength, video_mode=0)
+    wfs = ThorlabWFS(exposure_time=params.wfs_exposure_ms, use_custom_ref=False)
     ph = PatternHelper(resolution=(PANEL_W, PANEL_H))
     report: dict = {"timestamp": datetime.now().isoformat(), "tilt_amps": amps}
     all_ok = True
@@ -157,7 +204,7 @@ def main(slm_number, slm_wavelength, wfs_exposure_ms, wfs_order, zernike_radius,
         wl, max_gray = slm.get_wavelength_info()
         wfs.take_image(n_sample=1, dynamicNoiseCut=True)
         cx, cy, dx, dy = wfs.pupil = wfs.optimize_pupil()
-        report["device"] = collect_device_info(slm, wfs, slm_number)
+        report["device"] = collect_device_info(slm, wfs, params.slm_number)
         _d = report["device"]
         click.echo(f"[OK] 设备参数: SLM #{_d['slm'].get('serial_number')} "
                    f"{_d['slm'].get('wavelength_nm')}nm 2π={_d['slm'].get('two_pi_gray')}gray "
@@ -189,23 +236,23 @@ def main(slm_number, slm_wavelength, wfs_exposure_ms, wfs_order, zernike_radius,
         if not ok or not wfs.use_custom_ref:
             raise RuntimeError("用户参考创建/激活失败")
 
-        rec = measure_wavefront(wfs, max(n_avg, 3))
+        rec = measure_wavefront(wfs, max(params.n_avg, 3))
         if rec is None:
             raise RuntimeError("平整度测量失败")
         _, st = rec
-        z0 = measure_zernike(wfs, max(n_avg, 3), wfs_order)
+        z0 = measure_zernike(wfs, max(params.n_avg, 3), params.wfs_order)
         z0n = float(np.linalg.norm(z0[2:7])) / 0.532 if z0 is not None else float("nan")
-        flat_ok = st["rms"] < flat_rms_threshold
+        flat_ok = st["rms"] < params.flat_rms_threshold
         click.echo(f"[{'OK' if flat_ok else 'WARN'}] 纯平波前 RMS={st['rms']:.4f}λ, "
                    f"PV={st['diff']:.4f}λ, |z[2..6]|={z0n:.4f}λ "
-                   f"(阈值 {flat_rms_threshold}λ)")
+                   f"(阈值 {params.flat_rms_threshold}λ)")
         report["step1"] = {"create_ok": bool(ok), "backup_ref": str(backup),
                            "use_custom_ref": bool(wfs.use_custom_ref),
                            "flat_rms_lam": st["rms"], "flat_pv_lam": st["diff"],
                            "flat_z_norm_lam": z0n, "flat_ok": bool(flat_ok)}
         all_ok &= flat_ok
 
-        fit_ref = measure_tilt(wfs, n_avg, wfs_order)
+        fit_ref = measure_tilt(wfs, params.n_avg, params.wfs_order)
         click.echo(f"[INFO] 参考态: rms={fit_ref['rms']:.6f}λ, pv={fit_ref['pv']:.6f}λ, "
                    f"valid={fit_ref['n_valid']}/{fit_ref['n_valid'] + fit_ref['n_nan']}")
 
@@ -214,7 +261,7 @@ def main(slm_number, slm_wavelength, wfs_exposure_ms, wfs_order, zernike_radius,
         click.echo("[STEP 2] 还原内置参考 → 加载保存的参考 → 交替验证")
         click.echo("=" * 72)
         wfs.set_ref_plane(custom=False)
-        fit_builtin = measure_tilt(wfs, n_avg, wfs_order)
+        fit_builtin = measure_tilt(wfs, params.n_avg, params.wfs_order)
         diff_b = abs(fit_builtin["rms"] - fit_ref["rms"]) * 1000
         click.echo(f"[INFO] 内置参考: rms={fit_builtin['rms']:.6f}λ "
                    f"(与自定义参考差 {diff_b:.3f} mλ)")
@@ -223,7 +270,7 @@ def main(slm_number, slm_wavelength, wfs_exposure_ms, wfs_order, zernike_radius,
 
         ok_load = wfs.load_user_ref(backup) if backup else False
         wfs.set_ref_plane(custom=True)
-        fit_loaded = measure_tilt(wfs, n_avg, wfs_order)
+        fit_loaded = measure_tilt(wfs, params.n_avg, params.wfs_order)
         diff_l = abs(fit_loaded["rms"] - fit_ref["rms"]) * 1000
         click.echo(f"[{'OK' if ok_load else 'FAIL'}] load_user_ref={ok_load}; "
                    f"加载后 rms={fit_loaded['rms']:.6f}λ (与保存时差 {diff_l:.3f} mλ)")
@@ -240,9 +287,9 @@ def main(slm_number, slm_wavelength, wfs_exposure_ms, wfs_order, zernike_radius,
         click.echo("=" * 72)
         results = []
         for a in amps:
-            phase = make_phase(ph, {(1, 1): a}, zernike_radius, n_max=5)
-            show_phase(slm, phase, settle_extra_s)
-            fit = measure_tilt(wfs, n_avg, wfs_order)
+            phase = make_phase(ph, {(1, 1): a}, params.zernike_radius, n_max=5)
+            show_phase(slm, phase, params.settle_extra_s)
+            fit = measure_tilt(wfs, params.n_avg, params.wfs_order)
             zt = fit.pop("z_tilt")
             results.append({"A": a, **fit, "z_tilt": zt})
             click.echo(f"[DATA] A={a:5.2f} rad → plane a={fit['a']:+.4f} "
@@ -285,7 +332,7 @@ def main(slm_number, slm_wavelength, wfs_exposure_ms, wfs_order, zernike_radius,
                 pass
 
     report["all_ok"] = bool(all_ok)
-    out = Path(output) if output else Path("data/calibration") / (
+    out = Path(params.output) if params.output else Path("data/calibration") / (
         f"slm_wfs_reference_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")

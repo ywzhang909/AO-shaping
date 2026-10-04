@@ -36,6 +36,9 @@ mapping.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Annotated
+
 import click
 import numpy as np
 from loguru import logger
@@ -51,72 +54,96 @@ from ao_shaping.tools.slm.slm_bench_probe import (
     measure_spot,
     ramp_panel,
 )
+from ao_shaping.utils.cli_params import option, with_params
+
+
+@dataclass
+class SlmTiltProbeParams:
+    """倾斜斜坡探针的 CLI 参数。
+
+    三个默认值都是**本台架**标定的物理常数, 不与其他探针共享取值:
+    ``--slm-wavelength`` 默认 1064 nm (红外工位; 532 nm 是另一台 SLM),
+    ``--exposure-ms`` 默认 3.0 ms —— 1.1 ms 时 0 阶峰值约 60 但散斑帧太暗,
+    ``--periods`` 默认 ``480,240,120`` 面板 px, 对应焦面位移 ≈ 7600/period 相机 px,
+    所以周期必须大 (周期 1 会把光斑甩出 5.7 mm 画框)。
+    """
+
+    slm_number: Annotated[int, option("--slm-number", help="SLM 设备编号 (默认 1)")] = 1
+    slm_wavelength: Annotated[
+        int, option("--slm-wavelength", help="SLM 波长 nm (默认 1064)")
+    ] = 1064
+    cam_type: Annotated[
+        str, option("--cam-type", help="相机类型 (daheng/miicam, 默认 daheng)")
+    ] = "daheng"
+    cam_id: Annotated[int, option("--cam-id", help="相机 ID (默认 0)")] = 0
+    exposure_ms: Annotated[
+        float,
+        option(
+            "--exposure-ms",
+            help="相机曝光 ms (默认 3.0; 1.1 ms 落在 0 阶峰值 ~60, 但散斑帧太暗)",
+        ),
+    ] = 3.0
+    periods: Annotated[
+        str,
+        option(
+            "--periods",
+            help="2*pi 斜坡周期 (面板 px, 逗号分隔)。位移 = 7600/period 相机 px, "
+            "所以周期必须大——周期 1 会把光斑甩出 5.7 mm 画框",
+        ),
+    ] = "480,240,120"
+    axis: Annotated[
+        str,
+        option(
+            "--axis",
+            type=click.Choice(["x", "y"]),
+            help="倾斜轴 (面板坐标, 默认 x)",
+        ),
+    ] = "x"
+    frames: Annotated[int, option("--frames", help="每帧平均张数 (默认 4)")] = 4
+    repeat: Annotated[int, option("--repeat", help="每个周期重复次数 (默认 2)")] = 2
 
 
 @click.command()
-@click.option("--slm-number", type=int, default=1, help="SLM 设备编号 (默认 1)")
-@click.option("--slm-wavelength", type=int, default=1064, help="SLM 波长 nm (默认 1064)")
-@click.option("--cam-type", default="daheng", help="相机类型 (daheng/miicam, 默认 daheng)")
-@click.option("--cam-id", type=int, default=0, help="相机 ID (默认 0)")
-@click.option(
-    "--exposure-ms", type=float, default=3.0,
-    help="相机曝光 ms (默认 3.0; 1.1 ms 落在 0 阶峰值 ~60, 但散斑帧太暗)",
-)
-@click.option(
-    "--periods", default="480,240,120",
-    help="2*pi 斜坡周期 (面板 px, 逗号分隔)。位移 = 7600/period 相机 px, "
-    "所以周期必须大——周期 1 会把光斑甩出 5.7 mm 画框",
-)
-@click.option("--axis", type=click.Choice(["x", "y"]), default="x", help="倾斜轴 (面板坐标, 默认 x)")
-@click.option("--frames", type=int, default=4, help="每帧平均张数 (默认 4)")
-@click.option("--repeat", type=int, default=2, help="每个周期重复次数 (默认 2)")
-def main(
-    slm_number: int,
-    slm_wavelength: int,
-    cam_type: str,
-    cam_id: int,
-    exposure_ms: float,
-    periods: str,
-    axis: str,
-    frames: int,
-    repeat: int,
-) -> None:
+@with_params(SlmTiltProbeParams, kw_name="params")
+def main(params: SlmTiltProbeParams) -> None:
     """用相位倾斜斜坡判定面板是否真的在调制 (比光栅可靠得多)。"""
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL, Santec
 
-    period_list = [int(float(p)) for p in str(periods).split(",") if p.strip()]
+    period_list = [int(float(p)) for p in str(params.periods).split(",") if p.strip()]
     if not period_list:
         raise SystemExit("--periods 没有解析出任何周期")
     panel = (SLM_PANEL_H, SLM_PANEL_W)
-    axis_index = 1 if axis == "x" else 0
+    axis_index = 1 if params.axis == "x" else 0
     points: list[tuple[float, float, float, int]] = []  # (period, cx, cy, slot)
 
     with Santec(
-        slm_number=slm_number, wavelength=slm_wavelength, video_mode=0
-    ) as slm, create_camera(cam_type, cam_id, exposure_time_ms=exposure_ms) as cam:
-        cam.reset_exposure_time(float(exposure_ms))
+        slm_number=params.slm_number, wavelength=params.slm_wavelength, video_mode=0
+    ) as slm, create_camera(
+        params.cam_type, params.cam_id, exposure_time_ms=params.exposure_ms
+    ) as cam:
+        cam.reset_exposure_time(float(params.exposure_ms))
 
         # Flat FIRST: the panel retains the last displayed pattern, so a "flat"
         # read before any write is the previous run's speckle.
-        _, flat = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
+        _, flat = measure_flat_reference(cam, slm, n_frames=params.frames, panel_shape=panel)
         logger.info(
             "flat reference: {}  (0-order is the frame's brightest point, never "
             "the geometric centre)", flat.as_row()
         )
 
         for period in period_list:
-            for rep in range(int(repeat)):
+            for rep in range(int(params.repeat)):
                 gray = slm.create_phase_from_array(ramp_panel(period, axis_index, panel))
                 slot = slm.display_data(gray, memory_mode=MEMORY_MODE_INTERNAL)
                 img = display_and_average(
-                    cam, slm, ramp_panel(period, axis_index, panel), n_frames=frames
+                    cam, slm, ramp_panel(period, axis_index, panel), n_frames=params.frames
                 )
                 m = measure_spot(img)
                 points.append((float(period), m.centroid_x, m.centroid_y, int(slot)))
                 logger.info(
                     "panel-{a} ramp period {p:>4} px  rep {r}  slot={s:<4} {m}",
-                    a=axis, p=period, r=rep + 1, s=slot, m=m.as_row(),
+                    a=params.axis, p=period, r=rep + 1, s=slot, m=m.as_row(),
                 )
 
     # The panel-x ramp moves the spot along one *camera* axis; find out which.
@@ -153,10 +180,10 @@ def main(
     logger.info(
         "a panel-{a} ramp moved the spot along {b} -- {v} the expected 90 degree "
         "axis swap",
-        a=axis, b=moved_axis,
+        a=params.axis, b=moved_axis,
         v=(
             "CONFIRMING"
-            if (axis == "x") == (moved_axis == "camera-y")
+            if (params.axis == "x") == (moved_axis == "camera-y")
             else "NOT the"
         ),
     )

@@ -99,7 +99,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Protocol, TYPE_CHECKING, Union
+from typing import Annotated, Protocol, TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
     import torch
@@ -114,6 +114,7 @@ from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.wfs import ThorlabWFS
 from ao_shaping.tools.slm.slm_scan_analysis import clamp_shift, parabolic_min
 from ao_shaping.tools.slm.slm_zernike_common import make_phase, measure_tilt_defocus
+from ao_shaping.utils.cli_params import option, with_params
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 SETTLE_S = 0.2
@@ -1528,68 +1529,113 @@ def diagnose_radius(
     return results
 
 
+@dataclass
+class ShiftCalibParams:
+    """CLI surface of :func:`main_shift_calib` (532 nm WFS bench).
+
+    Values stay local on purpose. Measured across the 19 ``tools/slm`` probes,
+    only ``--settle-extra-s`` has an identical signature in more than one probe,
+    and ``--slm-wavelength`` alone splits 1064 (11 probes) vs 532 (6) because the
+    WFS-channel tools sit on a different bench. A shared dataclass has exactly one
+    default per field, so consolidating here would silently retarget the laser.
+    """
+
+    slm_number: Annotated[int, option("--slm-number", show_default=True, help="SLM 设备编号")] = 1
+    slm_wavelength: Annotated[
+        int, option("--slm-wavelength", show_default=True, help="SLM 波长 nm")
+    ] = 532
+    wfs_exposure_ms: Annotated[
+        float,
+        option(
+            "--wfs-exposure-ms",
+            show_default=True,
+            help=f"WFS 曝光 ms (必须 ≤ {MAX_EXPOSURE_MS})",
+        ),
+    ] = DEFAULT_EXPOSURE_MS
+    zernike_radius: Annotated[
+        float,
+        option(
+            "--zernike-radius",
+            show_default=True,
+            help="defocus Zernike 半径 px (必须 > 光束半径, 默认 600)",
+        ),
+    ] = 600.0
+    defocus_a: Annotated[
+        float,
+        option(
+            "--defocus-a",
+            show_default=True,
+            help="defocus 幅度 rad (太小则响应淹没在噪声中)",
+        ),
+    ] = 20.0
+    shift_limit: Annotated[
+        int,
+        option(
+            "--shift-limit",
+            show_default=True,
+            help="shift 绝对值上限 (防 defocus 盘推出面板)",
+        ),
+    ] = DEFAULT_SHIFT_LIMIT
+    coarse_step: Annotated[
+        int, option("--coarse-step", show_default=True, help="粗扫步长 px")
+    ] = 100
+    coarse_half: Annotated[
+        int, option("--coarse-half", show_default=True, help="粗扫半宽 px")
+    ] = 300
+    fine_half: Annotated[
+        int, option("--fine-half", show_default=True, help="细扫半宽 px")
+    ] = 40
+    iterations: Annotated[
+        int, option("--iterations", show_default=True, help="x/y 迭代轮数")
+    ] = 2
+    n_avg_scan: Annotated[
+        int, option("--n-avg-scan", show_default=True, help="扫描帧平均次数")
+    ] = 3
+    n_avg_verify: Annotated[
+        int, option("--n-avg-verify", show_default=True, help="校验帧平均次数")
+    ] = 5
+    improve_ratio: Annotated[
+        float,
+        option(
+            "--improve-ratio",
+            show_default=True,
+            help="质量门控: 附加倾斜需降低到该比例以下才写入 config",
+        ),
+    ] = 0.5
+    radius_scan: Annotated[
+        bool,
+        option("--radius-scan", is_flag=True, help="先诊断光束半径 (扫 Zernike R), 不做标定"),
+    ] = False
+    no_save: Annotated[
+        bool, option("--no-save", is_flag=True, help="只测量, 不写入 SLM config (dry run)")
+    ] = False
+    output: Annotated[
+        str, option("-o", "--output", show_default=True, help="标定报告 JSON 路径")
+    ] = str(DEFAULT_OUTPUT)
+
+
 @click.command()
-@click.option("--slm-number", type=int, default=1, show_default=True, help="SLM 设备编号")
-@click.option("--slm-wavelength", type=int, default=532, show_default=True, help="SLM 波长 nm")
-@click.option("--wfs-exposure-ms", type=float, default=DEFAULT_EXPOSURE_MS,
-              show_default=True, help=f"WFS 曝光 ms (必须 ≤ {MAX_EXPOSURE_MS})")
-@click.option("--zernike-radius", type=float, default=600.0, show_default=True,
-              help="defocus Zernike 半径 px (必须 > 光束半径, 默认 600)")
-@click.option("--defocus-a", type=float, default=20.0, show_default=True,
-              help="defocus 幅度 rad (太小则响应淹没在噪声中)")
-@click.option("--shift-limit", type=int, default=DEFAULT_SHIFT_LIMIT, show_default=True,
-              help="shift 绝对值上限 (防 defocus 盘推出面板)")
-@click.option("--coarse-step", type=int, default=100, show_default=True, help="粗扫步长 px")
-@click.option("--coarse-half", type=int, default=300, show_default=True, help="粗扫半宽 px")
-@click.option("--fine-half", type=int, default=40, show_default=True, help="细扫半宽 px")
-@click.option("--iterations", type=int, default=2, show_default=True, help="x/y 迭代轮数")
-@click.option("--n-avg-scan", type=int, default=3, show_default=True, help="扫描帧平均次数")
-@click.option("--n-avg-verify", type=int, default=5, show_default=True, help="校验帧平均次数")
-@click.option("--improve-ratio", type=float, default=0.5, show_default=True,
-              help="质量门控: 附加倾斜需降低到该比例以下才写入 config")
-@click.option("--radius-scan", is_flag=True, default=False,
-              help="先诊断光束半径 (扫 Zernike R), 不做标定")
-@click.option("--no-save", is_flag=True, default=False,
-              help="只测量, 不写入 SLM config (dry run)")
-@click.option("-o", "--output", default=str(DEFAULT_OUTPUT), show_default=True,
-              help="标定报告 JSON 路径")
-def main_shift_calib(
-    slm_number: int,
-    slm_wavelength: int,
-    wfs_exposure_ms: float,
-    zernike_radius: float,
-    defocus_a: float,
-    shift_limit: int,
-    coarse_step: int,
-    coarse_half: int,
-    fine_half: int,
-    iterations: int,
-    n_avg_scan: int,
-    n_avg_verify: int,
-    improve_ratio: float,
-    radius_scan: bool,
-    no_save: bool,
-    output: str,
-) -> int:
+@with_params(ShiftCalibParams, kw_name="params")
+def main_shift_calib(params: ShiftCalibParams) -> int:
     """SLM defocus 平移标定 — WFS tip/tilt 零点法."""
-    if wfs_exposure_ms > MAX_EXPOSURE_MS:
+    if params.wfs_exposure_ms > MAX_EXPOSURE_MS:
         raise click.BadParameter(
-            f"WFS 曝光 {wfs_exposure_ms}ms 超过安全上限 {MAX_EXPOSURE_MS}ms"
+            f"WFS 曝光 {params.wfs_exposure_ms}ms 超过安全上限 {MAX_EXPOSURE_MS}ms"
         )
-    if zernike_radius <= 0:
+    if params.zernike_radius <= 0:
         raise click.BadParameter("--zernike-radius 必须 > 0")
 
     click.echo("=" * 72)
     click.echo("[SLM defocus shift 标定] WFS tip/tilt 零点法")
     click.echo("=" * 72)
 
-    slm = Santec(slm_number=slm_number, wavelength=slm_wavelength, video_mode=0)
-    wfs = ThorlabWFS(exposure_time=wfs_exposure_ms, use_custom_ref=False)
+    slm = Santec(slm_number=params.slm_number, wavelength=params.slm_wavelength, video_mode=0)
+    wfs = ThorlabWFS(exposure_time=params.wfs_exposure_ms, use_custom_ref=False)
     ph = PatternHelper(resolution=(PANEL_W, PANEL_H))
 
     report: dict = {
-        "zernike_radius": zernike_radius,
-        "defocus_a": defocus_a,
+        "zernike_radius": params.zernike_radius,
+        "defocus_a": params.defocus_a,
         "method": "minimize ||z_tilt(defocus@shift) - z_tilt(flat)||",
         "evals": [],
     }
@@ -1619,32 +1665,32 @@ def main_shift_calib(
 
         flat = np.full((PANEL_H, PANEL_W), 0, dtype=np.uint16)
 
-        if radius_scan:
+        if params.radius_scan:
             click.echo("\n[诊断] 扫描 Zernike 半径 → WFS defocus 响应")
             report["radius_diagnostic"] = diagnose_radius(
-                slm, wfs, ph, (120.0, 200.0, 300.0, 450.0, 600.0), defocus_a, n_avg_scan
+                slm, wfs, ph, (120.0, 200.0, 300.0, 450.0, 600.0), params.defocus_a, params.n_avg_scan
             )
             slm.display_data(flat, wait_time_s=0.5)
-            _write_report(output, report)
+            _write_report(params.output, report)
             return 0
 
         # 基线: 纯平下的静态倾斜 (判据基准)
         slm.set_shift(0, 0)
         slm.display_data(flat, wait_time_s=0.5)
         time.sleep(0.3)
-        base_tilt, base_def = measure_tilt_defocus(wfs, n_avg=n_avg_verify)
+        base_tilt, base_def = measure_tilt_defocus(wfs, n_avg=params.n_avg_verify)
         if base_tilt is None:
             raise RuntimeError("基线测量失败: 无有效 zernike")
         click.echo(f"[BASE] 纯平: tip={base_tilt[0]:+.4f}λ tilt={base_tilt[1]:+.4f}λ "
                    f"(defocus={base_def:+.4f}λ) ← 判据为相对此值的附加倾斜")
         report["baseline"] = {"tip": float(base_tilt[0]), "tilt": float(base_tilt[1])}
 
-        phase_rad = make_phase(ph, {(2, 0): defocus_a}, zernike_radius, n_max=5)
-        click.echo(f"[INFO] defocus R={zernike_radius:.0f}px A={defocus_a}rad, "
+        phase_rad = make_phase(ph, {(2, 0): params.defocus_a}, params.zernike_radius, n_max=5)
+        click.echo(f"[INFO] defocus R={params.zernike_radius:.0f}px A={params.defocus_a}rad, "
                    f"range=[{phase_rad.min():.1f},{phase_rad.max():.1f}] rad")
 
         def evaluate(sx: int, sy: int, n_avg: int, tag: str) -> float | None:
-            slm.set_shift(clamp_shift(sx, shift_limit), clamp_shift(sy, shift_limit))
+            slm.set_shift(clamp_shift(sx, params.shift_limit), clamp_shift(sy, params.shift_limit))
             slm.display_phase(phase_rad, wait_time_s=0.5)
             time.sleep(0.25)
             zt, zd = measure_tilt_defocus(wfs, n_avg=n_avg)
@@ -1669,7 +1715,7 @@ def main_shift_calib(
             for v in values:
                 sx = int(v) if axis == "x" else other
                 sy = int(v) if axis == "y" else other
-                m = evaluate(sx, sy, n_avg_scan, tag)
+                m = evaluate(sx, sy, params.n_avg_scan, tag)
                 if m is None:
                     continue
                 pts.append((float(v), m))
@@ -1677,45 +1723,45 @@ def main_shift_calib(
                     best_m, best_v = m, float(v)
             return best_v, best_m, pts
 
-        coarse = list(range(-coarse_half, coarse_half + 1, coarse_step))
+        coarse = list(range(-params.coarse_half, params.coarse_half + 1, params.coarse_step))
 
-        for it in range(1, iterations + 1):
+        for it in range(1, params.iterations + 1):
             click.echo("\n" + "=" * 72)
-            click.echo(f"[迭代 {it}/{iterations}]")
+            click.echo(f"[迭代 {it}/{params.iterations}]")
             click.echo("=" * 72)
 
-            bx, bm, _ = scan_axis("x", clamp_shift(sy_star, shift_limit), coarse, f"it{it}-x-coarse")
+            bx, bm, _ = scan_axis("x", clamp_shift(sy_star, params.shift_limit), coarse, f"it{it}-x-coarse")
             if bx is None:
                 raise RuntimeError("X 粗扫无有效点")
-            fine_x = [bx + d for d in np.linspace(-fine_half, fine_half, 5)]
+            fine_x = [bx + d for d in np.linspace(-params.fine_half, params.fine_half, 5)]
             click.echo(f"[X 粗扫] 最优 sx={bx:.0f} (‖Δ‖={bm:.4f}) → 细扫 "
                        f"{[round(v) for v in fine_x]}")
-            bx2, bm2, pts2 = scan_axis("x", clamp_shift(sy_star, shift_limit), fine_x,
+            bx2, bm2, pts2 = scan_axis("x", clamp_shift(sy_star, params.shift_limit), fine_x,
                                        f"it{it}-x-fine")
             if bx2 is not None:
                 px = parabolic_min(sorted(pts2))
-                sx_star = float(clamp_shift(px if px is not None else bx2, shift_limit))
+                sx_star = float(clamp_shift(px if px is not None else bx2, params.shift_limit))
                 click.echo(f"[X] → sx*={sx_star:.1f} (‖Δ‖={bm2:.4f})")
 
-            by, bmy, _ = scan_axis("y", clamp_shift(sx_star, shift_limit), coarse, f"it{it}-y-coarse")
+            by, bmy, _ = scan_axis("y", clamp_shift(sx_star, params.shift_limit), coarse, f"it{it}-y-coarse")
             if by is None:
                 raise RuntimeError("Y 粗扫无有效点")
-            fine_y = [by + d for d in np.linspace(-fine_half, fine_half, 5)]
+            fine_y = [by + d for d in np.linspace(-params.fine_half, params.fine_half, 5)]
             click.echo(f"[Y 粗扫] 最优 sy={by:.0f} (‖Δ‖={bmy:.4f}) → 细扫 "
                        f"{[round(v) for v in fine_y]}")
-            by2, bmy2, ptsy2 = scan_axis("y", clamp_shift(sx_star, shift_limit), fine_y,
+            by2, bmy2, ptsy2 = scan_axis("y", clamp_shift(sx_star, params.shift_limit), fine_y,
                                          f"it{it}-y-fine")
             if by2 is not None:
                 py = parabolic_min(sorted(ptsy2))
-                sy_star = float(clamp_shift(py if py is not None else by2, shift_limit))
+                sy_star = float(clamp_shift(py if py is not None else by2, params.shift_limit))
                 click.echo(f"[Y] → sy*={sy_star:.1f} (‖Δ‖={bmy2:.4f})")
 
         # 校验: 标定 shift vs (0,0)
         click.echo("\n" + "=" * 72)
         click.echo(f"[VERIFY] shift=({sx_star:.0f},{sy_star:.0f}) vs (0,0)")
         click.echo("=" * 72)
-        m_star = evaluate(int(round(sx_star)), int(round(sy_star)), n_avg_verify, "verify")
-        m_zero = evaluate(0, 0, n_avg_scan, "verify-zero")
+        m_star = evaluate(int(round(sx_star)), int(round(sy_star)), params.n_avg_verify, "verify")
+        m_zero = evaluate(0, 0, params.n_avg_scan, "verify-zero")
         if m_star is None or m_zero is None:
             raise RuntimeError("校验测量失败")
         ratio = m_star / m_zero if m_zero > 0 else 1.0
@@ -1724,18 +1770,18 @@ def main_shift_calib(
         report["verify"] = {"shift": [sx_star, sy_star], "added_norm": m_star,
                             "zero_shift_added_norm": m_zero, "improvement_ratio": ratio}
 
-        quality_ok = m_star < m_zero and ratio < improve_ratio
+        quality_ok = m_star < m_zero and ratio < params.improve_ratio
         report["quality_ok"] = bool(quality_ok)
-        click.echo(f"[GATE] 比值={ratio:.3f} (阈值 {improve_ratio}) → "
+        click.echo(f"[GATE] 比值={ratio:.3f} (阈值 {params.improve_ratio}) → "
                    f"{'通过' if quality_ok else '不通过'}")
 
-        if quality_ok and not no_save:
+        if quality_ok and not params.no_save:
             slm.set_shift(int(round(sx_star)), int(round(sy_star)))
             slm.save_config()
             click.echo(f"[OK] config 已写入: shift_x={slm.shift_x}, shift_y={slm.shift_y}")
             report["saved_shift"] = [slm.shift_x, slm.shift_y]
             ok = True
-        elif quality_ok and no_save:
+        elif quality_ok and params.no_save:
             click.echo(f"[INFO] --no-save: 标定通过但未写入 config "
                        f"(建议 shift=({sx_star:.0f},{sy_star:.0f}))")
             report["saved_shift"] = None
@@ -1774,7 +1820,7 @@ def main_shift_calib(
             except Exception as e:
                 logger.warning("{} close: {}", name, e)
 
-    _write_report(output, report)
+    _write_report(params.output, report)
     click.echo("=" * 72)
     click.echo(f"[{'ALL PASS' if ok else 'SOME FAILURES'}] "
                f"final_shift=({sx_star:.0f},{sy_star:.0f})")
@@ -2708,73 +2754,71 @@ class SLMLUTCalibrator:
 # =====================================================================
 # CLI: 全流程 装配 -> 光束位置 -> 几何标定 -> 几何验证 (LUT 已移出, 见 slm-lut)
 # =====================================================================
+@dataclass
+class GeometryCalibParams:
+    """CLI surface of :func:`main` (assemble -> beam -> geometry -> verify).
+
+    Local values, same reason as :class:`ShiftCalibParams`. Note this command
+    keeps its own ``help_option_names`` override on the ``click.command`` below,
+    which :func:`main_shift_calib` deliberately does not.
+    """
+
+    out_calib: Annotated[
+        str, option("--out-calib", show_default=True, help="几何标定输出路径")
+    ] = "calib.npz"
+    calib_path: Annotated[
+        str | None, option("--calib", help="已有几何标定文件(verify-only时作为输入)")
+    ] = None
+    skip_align: Annotated[
+        bool, option("--skip-align", is_flag=True, help="跳过装配辅助")
+    ] = False
+    skip_beam: Annotated[
+        bool,
+        option("--skip-beam", is_flag=True, help="跳过光束位置测量(沿用已有beam_center)"),
+    ] = False
+    verify_only: Annotated[
+        bool, option("--verify-only", is_flag=True, help="只验证已有几何标定(需 --calib)")
+    ] = False
+    align_margin: Annotated[
+        float, option("--align-margin", show_default=True, help="align 窗口边缘余量倍数(×FWHM)")
+    ] = 4.0
+    align_min_window: Annotated[
+        int, option("--align-min-window", show_default=True, help="align 最小窗口边长(px)")
+    ] = 128
+    exposure_ms: Annotated[
+        float, option("--exposure-ms", show_default=True, help="CCD曝光(ms)")
+    ] = 1.2
+    settle_s: Annotated[
+        float, option("--settle-s", show_default=True, help="SLM显示稳定等待(s)")
+    ] = 0.2
+
+
 @click.command(context_settings=dict(help_option_names=["-h", "--help"]))
-@click.option(
-    "--out-calib",
-    "out_calib",
-    default="calib.npz",
-    show_default=True,
-    help="几何标定输出路径",
-)
-@click.option(
-    "--calib",
-    "calib_path",
-    default=None,
-    help="已有几何标定文件(verify-only时作为输入)",
-)
-@click.option("--skip-align", is_flag=True, help="跳过装配辅助")
-@click.option("--skip-beam", is_flag=True, help="跳过光束位置测量(沿用已有beam_center)")
-@click.option(
-    "--verify-only", is_flag=True, help="只验证已有几何标定(需 --calib)"
-)
-@click.option(
-    "--align-margin",
-    default=4.0,
-    show_default=True,
-    help="align 窗口边缘余量倍数(×FWHM)",
-)
-@click.option(
-    "--align-min-window",
-    default=128,
-    show_default=True,
-    help="align 最小窗口边长(px)",
-)
-@click.option("--exposure-ms", default=1.2, show_default=True, help="CCD曝光(ms)")
-@click.option("--settle-s", default=0.2, show_default=True, help="SLM显示稳定等待(s)")
-def main(
-    out_calib,
-    calib_path,
-    skip_align,
-    skip_beam,
-    verify_only,
-    align_margin,
-    align_min_window,
-    exposure_ms,
-    settle_s,
-):
+@with_params(GeometryCalibParams, kw_name="params")
+def main(params: GeometryCalibParams) -> None:
     """SLM+CCD 几何标定工具: 装配 -> 光束位置 -> 几何标定 -> 验证."""
-    with Santec() as slm, DahengCamera(exposure_time_ms=exposure_ms) as ccd:
-        geo = SLMCCDCalibrator(slm, ccd, settle_s=settle_s)
+    with Santec() as slm, DahengCamera(exposure_time_ms=params.exposure_ms) as ccd:
+        geo = SLMCCDCalibrator(slm, ccd, settle_s=params.settle_s)
 
         # ---------- 仅验证 ----------
-        if verify_only:
-            if not calib_path:
+        if params.verify_only:
+            if not params.calib_path:
                 raise click.UsageError("--verify-only 需要 --calib")
-            geo.load(calib_path)
+            geo.load(params.calib_path)
             geo.verify()
             return
 
         # ---------- 几何标定 ----------
-        if calib_path and skip_align and skip_beam:
-            geo.load(calib_path)  # 以已有标定为底, 增量复标
-        if not skip_align:
+        if params.calib_path and params.skip_align and params.skip_beam:
+            geo.load(params.calib_path)  # 以已有标定为底, 增量复标
+        if not params.skip_align:
             geo.align(
-                window_margin_factor=align_margin, min_window_side=align_min_window
+                window_margin_factor=params.align_margin, min_window_side=params.align_min_window
             )
-        if not skip_beam:
+        if not params.skip_beam:
             geo.find_beam_on_slm()
         geo.calibrate()
-        geo.save(out_calib)
+        geo.save(params.out_calib)
         geo.verify()
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "shift":
