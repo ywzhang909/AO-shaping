@@ -332,7 +332,7 @@ def main() -> None:
     register_sim_camera()
     _patch_santec()
 
-    from ao_shaping.runners.slm_pib_runner import run as slm_pib_run
+    from ao_shaping.runners.slm.pib_runner import run as slm_pib_run
 
     before = _artifact_roots(args.data_root)
 

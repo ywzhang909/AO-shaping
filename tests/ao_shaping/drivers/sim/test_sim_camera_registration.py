@@ -10,7 +10,7 @@ Reproduced 2026-10-01 through the real CLI::
 ``--cam_type sim`` is an advertised choice on the ``slm-pib`` / ``slm-gsnet``
 families and the README documents ``slm-pib spgd --cam_type sim`` as a working
 command, yet the only registration call sites were
-``runners/slm_gsnet_runner.py`` (inside its ``_maybe_sim_patch``) and the
+``runners/slm/gsnet_runner.py`` (inside its ``_maybe_sim_patch``) and the
 ``scripts/slm_pib_sim_run.py`` harness — so the plain CLI path could never work.
 
 The fix makes the invariant explicit: importing the simulated optical system

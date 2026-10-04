@@ -16,10 +16,10 @@ EXPECTED_ALGORITHMS = ("spgd", "ga", "pso", "sa", "hc", "rs", "cem", "de")
 
 # runner module path -> display name
 SLM_PHASE_RUNNERS = [
-    ("ao_shaping.runners.slm_pib_runner", "slm-pib"),
-    ("ao_shaping.runners.slm.rms_zernike_runner", "rms-zernike"),
-    ("ao_shaping.runners.greedy_zernike_runner", "greedy-zernike"),
-    ("ao_shaping.runners.slm_gsnet_runner", "slm-gsnet"),
+    ("ao_shaping.runners.slm.pib_runner", "slm-pib", "run"),
+    ("ao_shaping.runners.slm.rms_zernike_runner", "rms-zernike", "run"),
+    ("ao_shaping.runners.zernike_search_runner", "greedy-zernike", "greedy_zernike_run"),
+    ("ao_shaping.runners.slm.gsnet_runner", "slm-gsnet", "run"),
 ]
 
 
@@ -27,13 +27,13 @@ def test_helper_choices_match_expected_set():
     assert heuristic_algorithm_choices() == EXPECTED_ALGORITHMS
 
 
-@pytest.mark.parametrize("module_path,name", SLM_PHASE_RUNNERS)
-def test_runner_exposes_algorithm_and_pop_size(module_path, name):
+@pytest.mark.parametrize("module_path,name,attr", SLM_PHASE_RUNNERS)
+def test_runner_exposes_algorithm_and_pop_size(module_path, name, attr):
     module = importlib.import_module(module_path)
     # slm-pib and slm-gsnet are click groups: the heuristic-search options live
     # on the "heuristic" subcommand. Every other runner is a flat command.
     args = ["heuristic", "--help"] if name in ("slm-pib", "slm-gsnet") else ["--help"]
-    result = CliRunner().invoke(module.run, args)
+    result = CliRunner().invoke(getattr(module, attr), args)
 
     assert result.exit_code == 0, f"{name}: {result.output}"
     assert "--algorithm" in result.output, name

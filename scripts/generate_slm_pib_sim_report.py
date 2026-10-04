@@ -661,7 +661,7 @@ def build_markdown(
     lines.append("## 1. 运行说明")
     lines.append("")
     lines.append(
-        "本运行使用 `src/ao_shaping/runners/slm_pib_runner.py` 的 **SPGD** 子命令, 在纯 numpy "
+        "本运行使用 `src/ao_shaping/runners/slm/pib_runner.py` 的 **SPGD** 子命令, 在纯 numpy "
         "2f-Fourier 仿真 (`src/ao_shaping/drivers/sim/slm_pib_sim.py`) 下执行, 无硬件。"
     )
     lines.append("")

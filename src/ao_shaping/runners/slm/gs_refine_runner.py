@@ -9,7 +9,7 @@ a real CCD (Daheng by default, MiiCam also supported).
 CLI 两种入口等价::
 
     python src/ao_shaping/main.py slm-gs-refine [OPTIONS]
-    python -m ao_shaping.runners.slm_gs_refine_runner [OPTIONS]
+    python -m ao_shaping.runners.slm.gs_refine_runner [OPTIONS]
 
 示例::
 

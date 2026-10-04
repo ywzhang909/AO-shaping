@@ -7,7 +7,7 @@ square intensity pattern, using camera feedback.
 
 CLI 两种入口等价:
     python src/ao_shaping/main.py spgd-square [OPTIONS]
-    python -m ao_shaping.runners.slm_square_runner [OPTIONS]
+    python -m ao_shaping.runners.slm.square_runner [OPTIONS]
 
 常用示例:
     # 默认配置 (SLM #1, 相机 0, n_max=4, 2000 轮)

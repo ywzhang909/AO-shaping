@@ -26,7 +26,7 @@ from ao_shaping.optimizer.wfless.slm_zernike_pib import (
     rms_pib_terms,
     target_shape_roi,
 )
-from ao_shaping.runners.slm_pib_runner import ObjectiveParams, run
+from ao_shaping.runners.slm.pib_runner import ObjectiveParams, run
 
 
 # --------------------------------------------------------------------------- #

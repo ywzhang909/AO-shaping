@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from click.testing import CliRunner
 
-from ao_shaping.runners.slm_gsnet_runner import run
+from ao_shaping.runners.slm.gsnet_runner import run
 
 SHARED_OPTIONS = (
     "-e",

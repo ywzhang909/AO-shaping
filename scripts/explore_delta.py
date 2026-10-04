@@ -214,7 +214,7 @@ def main() -> int:
         logger.error("--deltas is empty")
         return 1
 
-    from ao_shaping.runners.slm_pib_runner import run as slm_pib_run
+    from ao_shaping.runners.slm.pib_runner import run as slm_pib_run
 
     def run_one(delta: float):
         if args.analyze_only:

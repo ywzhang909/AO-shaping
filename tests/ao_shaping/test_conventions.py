@@ -274,22 +274,24 @@ def test_the_reorganisation_stale_paths_are_gone_from_the_files_that_had_them() 
     Naming the files and the old paths makes the failure legible; a bare count
     would not say which file regressed.
     """
-    stale = {
-        "src/ao_shaping/runners/micro_drive/alt_voltage_runner.py":
-            "python -m ao_shaping.runners.alt_voltage_runner",
-        "src/ao_shaping/runners/micro_drive/full_voltage_runner.py":
-            "python -m ao_shaping.runners.full_voltage_runner",
-        "scripts/generate_zernike_response_matrix_report.py":
-            "python -m ao_shaping.runners.zernike_matrix_runner",
-        "src/ao_shaping/tools/slm/cartographer/__init__.py":
-            "python -m ao_shaping.tools.slm.cartographer\n",
-    }
-    for rel, old in stale.items():
+    # A list, not a dict: alt-voltage and full-voltage now share ONE module, and
+    # two identical dict keys would silently drop the first assertion.
+    stale = [
+        ("src/ao_shaping/runners/micro_drive/voltage_runner.py",
+            "python -m ao_shaping.runners.alt_voltage_runner"),
+        ("src/ao_shaping/runners/micro_drive/voltage_runner.py",
+            "python -m ao_shaping.runners.full_voltage_runner"),
+        ("scripts/generate_zernike_response_matrix_report.py",
+            "python -m ao_shaping.runners.zernike_matrix_runner"),
+        ("src/ao_shaping/tools/slm/cartographer/__init__.py",
+            "python -m ao_shaping.tools.slm.cartographer\n"),
+    ]
+    for rel, old in stale:
         text = (REPO / rel).read_text(encoding="utf-8-sig")
         assert old not in text, f"{rel} still documents the pre-move path {old!r}"
 
     # And the replacements must resolve, or the fix traded one broken path for another.
-    for rel, old in stale.items():
+    for rel, old in stale:
         text = (REPO / rel).read_text(encoding="utf-8-sig")
         for match in _PY_M.finditer(text):
             mod = match.group(1).rstrip(".")

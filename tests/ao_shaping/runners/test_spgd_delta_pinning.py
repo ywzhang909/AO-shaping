@@ -69,7 +69,7 @@ class TestSquareRunnerWiring:
     def _cfg_with(delta: float | None):
         # Imported lazily: the runner module pulls in the SDK-backed camera
         # stack at import time, which is irrelevant to these pure-config tests.
-        from ao_shaping.runners.slm_gsnet_runner import _build_square_config
+        from ao_shaping.runners.slm.gsnet_runner import _build_square_config
 
         class _Objective:
             target_side = 100

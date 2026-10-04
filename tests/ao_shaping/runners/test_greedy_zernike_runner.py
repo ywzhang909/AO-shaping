@@ -1,4 +1,4 @@
-"""Tests for greedy_zernike_runner module (B2 dataclass-click conversion, 2026-09).
+"""Tests for the greedy-zernike command in zernike_search_runner (B2 dataclass-click conversion, 2026-09).
 
 Locks the converted CLI surface (21 options = GreedyZernikeParams 11 +
 WfsParams 5 + ZernikeSlmParams 5) and the run() parameter delivery to
@@ -66,14 +66,14 @@ class TestCliOptions:
 
     def test_command_exists(self):
         """Test that the run command is a Click command."""
-        from ao_shaping.runners.greedy_zernike_runner import run
+        from ao_shaping.runners.zernike_search_runner import greedy_zernike_run as run
 
         assert hasattr(run, "callback")
         assert callable(run)
 
     def test_all_expected_options_exist(self):
         """Test that all 22 expected CLI options are present."""
-        from ao_shaping.runners.greedy_zernike_runner import run
+        from ao_shaping.runners.zernike_search_runner import greedy_zernike_run as run
 
         param_names = [p.name for p in run.params]
         assert len(param_names) == 22, f"got {len(param_names)} options"
@@ -82,7 +82,7 @@ class TestCliOptions:
 
     def test_cli_help_shows_perturbation_flag(self):
         """Help text exposes the kebab-case --perturbation-scale flag."""
-        from ao_shaping.runners.greedy_zernike_runner import run
+        from ao_shaping.runners.zernike_search_runner import greedy_zernike_run as run
 
         result = CliRunner().invoke(run, ["--help"])
         assert result.exit_code == 0, result.output
@@ -93,7 +93,7 @@ class TestRunFunction:
     """Test the main run function with a mocked optimizer (no hardware)."""
 
     def _invoke(self, args, monkeypatch=None, capture=None):
-        from ao_shaping.runners.greedy_zernike_runner import run
+        from ao_shaping.runners.zernike_search_runner import greedy_zernike_run as run
 
         def fake_optimizer_greedy(**kwargs):
             if capture is not None:
@@ -101,7 +101,7 @@ class TestRunFunction:
             return _FakeRecords()
 
         with patch(
-            "ao_shaping.runners.greedy_zernike_runner.optimizer_greedy",
+            "ao_shaping.runners.zernike_search_runner.optimizer_greedy",
             side_effect=fake_optimizer_greedy,
         ):
             return CliRunner().invoke(run, args)
@@ -186,9 +186,9 @@ class TestImports:
     """Test that the module imports cleanly."""
 
     def test_module_imports_clean(self):
-        from ao_shaping.runners import greedy_zernike_runner
+        from ao_shaping.runners import zernike_search_runner
 
-        assert hasattr(greedy_zernike_runner, "run")
+        assert hasattr(zernike_search_runner, "greedy_zernike_run")
 
 
 if __name__ == "__main__":

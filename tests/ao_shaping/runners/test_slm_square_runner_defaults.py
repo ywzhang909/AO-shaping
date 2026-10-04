@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 from click.testing import CliRunner
 
-from ao_shaping.runners.slm_square_runner import run
+from ao_shaping.runners.slm.square_runner import run
 
 
 def _invoke(args: list[str]):

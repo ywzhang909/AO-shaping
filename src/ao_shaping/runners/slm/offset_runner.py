@@ -492,7 +492,7 @@ def run(
     - vortex: 使用涡旋相位,寻找相位奇点
 
     示例:
-        python -m ao_shaping.runners.slm_offset_runner --method defocus --search-range 50
+        python -m ao_shaping.runners.slm.offset_runner --method defocus --search-range 50
     """
     # WfsParams.pupil_center 静态类型为 str | tuple (parse_tuple callback 已保证
     # 运行时为 tuple[float, float]), 此处归一化为 ThorlabWFS 期望的 tuple。

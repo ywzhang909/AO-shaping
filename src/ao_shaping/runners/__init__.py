@@ -70,14 +70,14 @@ _LAZY_RUNNERS: dict[str, str] = {
     "full_voltage_run": "ao_shaping.runners.micro_drive.voltage_runner",
     "hadamard_matrix_run": "ao_shaping.runners.matrix_runner",
     "combined_run": "ao_shaping.runners.nlight_dm.combined_runner",
-    "slm_square_run": "ao_shaping.runners.slm_square_runner",
-    "slm_pib_run": "ao_shaping.runners.slm_pib_runner",
-    "slm_gs_refine_run": "ao_shaping.runners.slm_gs_refine_runner",
+    "slm_square_run": "ao_shaping.runners.slm.square_runner",
+    "slm_pib_run": "ao_shaping.runners.slm.pib_runner",
+    "slm_gs_refine_run": "ao_shaping.runners.slm.gs_refine_runner",
     # Was in neither __all__ nor _LAZY_RUNNERS. It resolved only because of the
     # eager imports this module used to carry, so main.py's `slm-gsnet`
     # registration depended on an accident rather than on a declaration.
-    "slm_gsnet_run": "ao_shaping.runners.slm_gsnet_runner",
-    "slm_model_in_loop_run": "ao_shaping.runners.slm_model_in_loop_runner",
+    "slm_gsnet_run": "ao_shaping.runners.slm.gsnet_runner",
+    "slm_model_in_loop_run": "ao_shaping.runners.slm.model_in_loop_runner",
 }
 
 #: Override the attribute name only when a module exposes more than one command.

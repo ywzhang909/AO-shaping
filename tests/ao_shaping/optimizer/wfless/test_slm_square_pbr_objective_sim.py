@@ -338,7 +338,7 @@ class TestConfigAndCliPlumbing:
         run with PBR off while the user believes it is on."""
         import inspect
 
-        from ao_shaping.runners import slm_gsnet_runner, slm_square_runner
+        from ao_shaping.runners.slm import gsnet_runner as slm_gsnet_runner, square_runner as slm_square_runner
 
         for mod in (slm_gsnet_runner, slm_square_runner):
             src = inspect.getsource(mod)

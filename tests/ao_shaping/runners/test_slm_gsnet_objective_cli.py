@@ -37,14 +37,14 @@ import numpy as np
 import pytest
 from click.testing import CliRunner
 
-from ao_shaping.runners import slm_gsnet_runner
+from ao_shaping.runners.slm import gsnet_runner as slm_gsnet_runner
 from ao_shaping.optimizer.wfless.slm_square_shaping import (
     SlmSquareConfig,
     square_objective_score,
     square_quality_score,
 )
 from ao_shaping.runners.runner_common import ObjectiveParamsSquare
-from ao_shaping.runners.slm_gsnet_runner import heuristic, run, spgd
+from ao_shaping.runners.slm.gsnet_runner import heuristic, run, spgd
 from ao_shaping.utils.image.target import SQUARE_OBJECTIVE_CHOICES as CANONICAL_CHOICES
 from ao_shaping.utils.image.targets import pearson_shape_metric, target_shape_roi
 from ao_shaping.utils.image.targets import SQUARE_OBJECTIVE_CHOICES as SHIM_CHOICES
