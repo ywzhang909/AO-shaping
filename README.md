@@ -174,6 +174,7 @@ python src/ao_shaping/main.py [OPTIONS] COMMAND [ARGS]...
 | `slm-gsnet` | `runners/slm_gsnet_runner.py` | SLM自由相位方形整形 (SPGD/启发式) |
 | `slm-pib` | `runners/slm_pib_runner.py` | SLM Zernike PIB优化 |
 | `slm-gs-refine` | `runners/slm_gs_refine_runner.py` | GS 预矫正 + 自由相位 SPGD 整形 |
+| `slm-model-in-loop` | `runners/slm_model_in_loop_runner.py` | 正向模型闭环校正 + 目标光斑相位合成 (反复迭代) |
 
 > **注意**: `gs`、`gs-square`、`diff-shaping`、`diff-beam` 命令已从 CLI 中移除 (运行器文件不再存在)。其功能已并入 `slm-gsnet` (自由相位整形)、`algorithm/signal_processing/gerchberg_saxton.py` (GS算法) 和 `algorithm/signal_processing/differentiable_shaping.py` (可微分整形)。
 
