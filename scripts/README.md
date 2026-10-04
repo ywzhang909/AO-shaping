@@ -704,6 +704,78 @@ python scripts/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts> --p
 > `parabolic_min`, `latest_match`, `group_raw_scan`, `analyze_linearity`,
 > `LINEARITY_AMPS`) — scripts keep only figure/markdown rendering.
 
+### generate_zernike_amp_report.py
+
+Generates the **illustrated Chinese report** for the learned Zernike far-field
+model: `docs/zernike_amp/report.md` + `docs/zernike_amp/figures/*.png`.
+**Fully offline** — reads only saved artefacts, never opens a camera or SLM.
+
+**Usage:**
+```bash
+python scripts/generate_zernike_amp_report.py
+python scripts/generate_zernike_amp_report.py --no-figures
+```
+
+**Inputs** (both produced by other scripts, so the report is regenerable):
+- `logs/zernike_amp_sweep.json` ← `scripts/sweep_zernike_models.py` (grouped-CV grids,
+  the tuned final comparison, paired per-fold differences, per-objective breakdown)
+- `logs/zernike_amp_final/summary.json` ← `ml.zernike.train_amp` per-epoch history
+  (the same series the run logged to wandb)
+- `logs/zernike_amp_final/compare_epoch*.png` — true-vs-prediction frames, copied in
+- `data/hw_index_cache.json` — only to recompute the objective-distribution matrix
+
+**Figures** (9): training curves · physics `(n_max, lr)` joint grid · `n_max`
+saturation · U-Net candidate re-verification · per-fold scores · paired differences
+· per-objective breakdown · objective-distribution matrix · true-vs-pred.
+
+**Three things this report encodes that are easy to get wrong**, and which the
+figures exist to make checkable:
+
+1. **Every interval is a paired per-fold difference**, tested with an exact
+   sign-flip permutation test. The between-fold spread of R² is ~0.08 while the
+   paired spread is ~0.01, so an unpaired comparison cannot resolve the effects
+   being claimed.
+2. **The objective-distribution matrix uses the target group's own `SS_tot`** as
+   the denominator, peak-normalised to match what the model sees. An earlier
+   hand-computed version divided a pixel-only quantity by a sample+pixel variance
+   and reported a spurious **negative** R²; the figure caught it.
+3. **A figure that fails to render degrades to no image tag**, never to a broken
+   markdown link (`test_report_embeds_only_figures_that_were_produced`).
+
+Regeneration is idempotent; section 10 of the report is a table of every
+conclusion this project has overturned, with the reason each time.
+
+### sweep_zernike_models.py
+
+Runs and **persists** the model sweeps the Zernike report is drawn from, under the
+protocol that has statistical power: leave-one-pickle-out (10 grouped folds).
+
+**Usage:**
+```bash
+python scripts/sweep_zernike_models.py                 # full, ~30 min on one GPU
+python scripts/sweep_zernike_models.py --quick         # 2 folds, smoke only
+python scripts/sweep_zernike_models.py --final-only    # reuse grids, redo the tuned block
+```
+
+**Why it exists**: the report's numbers must come from a saved artefact rather than
+from prose, and the *fair* comparison is easy to get wrong — `physics` and `hybrid`
+are swept at the **same** tuned configuration, because the hybrid wraps the physics
+model and holding it at the untuned setting would flatter the physics model.
+
+| sweep | axis | note |
+|---|---|---|
+| `physics_grid` | `(n_max, lr)` jointly | they are **non-additive**: `lr=0.02` alone does nothing at `n_max=15`, yet is best at `n_max=20`. A coordinate sweep lands on the wrong cell. |
+| `unet_grid` | `(features, epochs, lr)` | re-verifies a config originally chosen on the underpowered single split |
+| `final` | tuned physics + hybrid + unet | the headline table, with per-objective means retained |
+
+Writes `logs/zernike_amp_sweep.json`. The repo has **no sklearn dependency**, so the
+folds are built by hand on `str(record.path)`, matching the group key
+`_select_records` already uses.
+
+**Related**: `scripts/compare_models_cv.py` is the general-purpose CV harness
+(arbitrary models, two protocols, `--analyse` to recompute statistics from saved
+folds without retraining); this script is the batch sweep that feeds the report.
+
 ### generate_zernike_wfs_report.py
 
 Generates the illustrated **Zernike phase → WFS readout distribution** report

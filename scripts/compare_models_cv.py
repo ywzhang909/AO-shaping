@@ -412,6 +412,25 @@ def _summarise(rows: list[dict], models: list[str]) -> dict:
             }
             for metric in METRICS
         }
+    # Per-objective means. Pooled R^2 over a mixture of objectives is the number
+    # that made the first comparison unreadable, so the breakdown is kept in the
+    # artefact rather than only in the log line.
+    by_objective: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+    for row in mine:
+        for objective, metrics in row.get("by_objective", {}).items():
+            for metric, value in metrics.items():
+                by_objective[objective][metric].append(value)
+    out["by_objective"] = {
+        objective: {
+            metric: {
+                "mean": statistics.fmean(values),
+                "std": statistics.stdev(values) if len(values) > 1 else 0.0,
+                "per_fold": values,
+            }
+            for metric, values in metrics.items()
+        }
+        for objective, metrics in by_objective.items()
+    }
     out["paired"] = _paired(rows, models[0], models[1:])
     return out
 
