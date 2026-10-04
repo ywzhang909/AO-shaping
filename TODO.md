@@ -107,7 +107,7 @@
 | R-9 P2 | 300px 光阑踩坑文档**挂错常量** | ✅ **已完成**（`pib` 早已正确）。实测：note 现正确挂在 `ZERNIKE_APERTURE_RADIUS = 300.0`（`slm_zernike_pib.py:195`）之后。**本轮只修了 `slm_zernike_shaping.py`** —— 那里 docstring 是 `TARGET_BOX_WAIST_FACTOR` 之后的**裸字符串**（不是 docstring、不可达），且与 `:186-188` 的注释**互相矛盾**（一个说该用 600、一个说 600 会让修正静默失效且是硬件实测）→ §5.20 | 2026-09-25 |
 | R-10 P2 | 死代码 `gauss_center`（零生产调用，可删） | ✅ **早已完成**（本轮实测确认）：全仓 grep 只剩 `TODO.md` / `docs/TODO.md` 的记录行，`src/` 无定义、无调用；专属测试也已删（`test_slm_zernike_pib_shape.py` 里剩下的 `"gaussian"` 是 target_shape 取值，无关） | 2026-09-25 |
 | R-11 P2 | ~~常量替换字面量~~ | ✅ **早已完成**（本轮实测确认）：两侧都有 `ZERNIKE_CLIP = 5.0` 与 `IMPROVE_EPS = 1e-4`，全文件再无裸 `5.0` / `1e-4` clip 字面量（除常量定义自身）。⚠️ 顺带纠正：`GUARD_PENALTY` **不在** `drivers/ccd/common.py`，而在 `utils/image/target/objective.py:33`（随 ObjectiveSpec 抽取时搬的）；且 `metrics.py:298,384,396` 另有 3 处裸 `1e3` **语义不同、故意不统一** → §5.21 | 2026-09-25 |
-| R-12 P2 | `_update_dynamic_weights` → `AdaptiveWeights` dataclass（现为裸 dict setdefault + 2/3-tuple 联合返回），顺带收口 R-4 | `slm_zernike_pib.py:251-375` | 2026-09-25 |
+| R-12 P2 | `_update_dynamic_weights` → `AdaptiveWeights` dataclass | ✅ **原定理由已不存在**（§5.27）：该函数**早已搬进共享叶子** `utils/image/target/objective.py:36`，两个引擎各自 import **同一份**（`slm_zernike_pib.py:93`），**副本漂移的风险已经消失**。剩下的裸 dict `setdefault` + 2/3-tuple 联合返回是**已测试的既定契约**（`test_slm_zernike_rms_pib.py:128+`，且 docstring 写明两元组分支"byte-identical to the previous pair"）⇒ 改成 dataclass 是**纯 churn**，本轮不做 | 2026-09-25 |
 | R-13 P2 | `_create_optimizer` 的 `inspect.signature` 创可贴 | ✅ **已按实测修**（§5.25），但**未**引入 `OptimizerConfig`：真正的问题是**静默吞参数**，不是签名不够显式。实测 `SGD` 签名只有 `(self, dim, lr)` ⇒ `momentum`/`weight_decay`/`ns_steps` 被无声丢弃；且带 `**kwargs` 的类永远收不到 kwargs ⇒ `**config.kwargs` 逃生口是死的 | 2026-09-25 |
 | R-14 P2 | `_metric_panel` 每 epoch 全量指标 → 加 `panel_every_n` 开关 | ⚠️ **符号已搬家**，原 `_metric_panel` 不存在，面板现在是共享叶子里的 `ShapingObjective.metric_panel()`，每轮在 `slm_zernike_pib.py:1091` 被调。**未做**：跳过的那几轮 `m_*` 列该留空还是沿用上一轮，是**产品决策**（报告生成器与 NaN 判据测试都读这些列），且需真实 run 对照 → §5.26 | 2026-09-25 |
 | R-15 P2 | `_apply_best_on_exit` 往 Recorder 挂属性 → 显式 `RawReport` 字段 | ⚠️ **部分完成，`RawReport` 不该做**（§5.26）：该值是**整轮一个标量**，而 `Recorder.append` 取每轮 record 键的并集⇒ 做成列要么不出现、要么只挂在最后一轮，且 `Recorder` 没有"轮次元数据"schema。已改成**显式直接赋值 + 写明理由 + 加测试**（唯一消费者是 `scripts/compare_shape_objectives.py:258`）| 2026-09-25 |
@@ -1372,6 +1372,38 @@ logger.debug(
 
 两次都是 `ruff` 先报出来、而不是测试 —— 说明**语法层的破坏必须先过 ruff**。
 修法：不再硬编码缩进，而是**从被替换的那一行读取缩进**再重建。
+
+---
+
+### 5.27 R-12 —— 副本早就合并了，剩下的只是"形状不好看"（2026-10-04）
+
+原条目把 `_update_dynamic_weights` 的问题定义为"两个引擎各有一份、会漂移"，
+建议改成 `AdaptiveWeights` dataclass。实测：**前半句已经不成立**。
+
+`_update_dynamic_weights` 现在**只有一份**，在共享叶子
+`utils/image/target/objective.py:36`，两个引擎各自 import 同一份
+（`slm_zernike_pib.py:93`），`slm_zernike_shaping.py` 同理；
+`slm_zernike_pib.py:180` 的注释也写明了这次搬迁
+（"likewise now live in `utils.image.targets` next to the `ShapingObjective`
+that calls them"）。
+
+**所以 R-12 真正想消灭的风险（副本漂移）已经消失。**
+
+剩下的两点确实存在：裸 `dict` 上的 `state.setdefault(...)`，
+以及变长返回 `tuple[float, float] | tuple[float, float, float]`。
+但它们**不是缺陷，是被测试钉住的既定契约**：
+* `test_slm_zernike_rms_pib.py:128+` 覆盖首调 50/50、PIB 改善抬高权重、RMS 改善抬高权重等行为；
+* docstring 明确写了 `ee is None`（两项）与给了 `ee`（三项）两种分支，
+  且两项分支"byte-identical to the previous `(w_pib, w_rms)` pair"——
+  这是 R-4 有意保留的兼容面。
+
+改成 dataclass 会同时动共享叶子 + 两个引擎 + R-4 测试，
+**行为收益为零**，属于纯 churn，故本轮不做。
+
+> 这是本轮第 6 次出现"条目描述的问题已被后续重构解决"的模式
+> （R-9/R-10/R-11 已完成，X-3 前提不成立，R-38 前提不成立，R-29 前提不成立，
+> R-14 符号已搬家）。**结论：§2.1 的行号与描述需要一次系统性重扫**，
+> 否则后续每轮都会重走这些已经清掉的路。
 
 ---
 
