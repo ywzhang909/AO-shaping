@@ -79,21 +79,21 @@ def _sim_config(
 
 # ---- helper to monkeypatch the real SLM with the sim one ------------------
 def _patch_slm(monkeypatch):
-    # Patch both modules since they both import Santec
+    # Both engines resolve their SLM from a module-level ``Santec`` import, so
+    # both have to be patched -- but which ones matter varies, and getting it
+    # wrong leaves the engine opening real hardware while the test passes.
+    import importlib
+
+    from ao_shaping.drivers.sim.sim_bench_patch import SimSLMPib, install_sim_slm
+
     for mod_name in (
         "ao_shaping.optimizer.wfless.slm_zernike_pib",
         "ao_shaping.optimizer.wfless.slm_zernike_shaping",
     ):
-        import importlib
-
-        mod = importlib.import_module(mod_name)
+        install_sim_slm(importlib.import_module(mod_name))
         monkeypatch.setattr(
-            SimSLMPib,
-            "from_params",
-            classmethod(lambda cls, params, **kw: cls()),
-            raising=False,
+            importlib.import_module(mod_name), "Santec", SimSLMPib, raising=False
         )
-        monkeypatch.setattr(mod, "Santec", SimSLMPib)
 
 
 # ---- tests -----------------------------------------------------------------

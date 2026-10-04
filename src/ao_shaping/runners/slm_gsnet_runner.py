@@ -231,14 +231,14 @@ def _maybe_sim_patch(cam_type: str) -> None:
     from ao_shaping.drivers.sim.slm_pib_sim import (
         register_sim_camera,
         reset_system,
-        SimSLMPib,
     )
+    from ao_shaping.drivers.sim.sim_bench_patch import install_sim_slm
 
     import ao_shaping.optimizer.wfless.slm_square_shaping as opt
 
     register_sim_camera()
     reset_system(seed=42)
-    opt.Santec = SimSLMPib
+    install_sim_slm(opt)
 
 
 # --- click group + subcommands ---------------------------------------------

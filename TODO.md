@@ -114,7 +114,7 @@
 | R-16 P2 | `SLM_WIDTH/HEIGHT` 与驱动 `Panel_Res` 重复 | ✅ **已完成**（§5.22）：两侧改为 `SLM_WIDTH, SLM_HEIGHT = PANEL_RES`（值实测一致 (1920,1200)），**保留常量名**（有测试 import），只改值的来源；并加 AST 守卫禁止再写回字面量 | 2026-09-25 |
 | R-17 P2 | 日志 f-string/`{}` 占位符混用 | ✅ **已完成**（§5.23）：9 处 f-string 日志全改为 loguru 惰性格式化参数，并加 AST 守卫（变异验证过） | 2026-09-25 |
 | R-18 P3 | 离线 GS 作闭环初值 `--init-gs`。⚠️ **`gs_warm_start` 已在别处落地**（`slm_gs_refine.py`、`iterative_zernike_shaping.py` + `slm_gs_refine_runner`）→ 本项改为"接入已有实现"或删掉 `:739` 的陈旧注释 | `slm_zernike_pib.py:739` | 2026-09-25 |
-| R-19 P3 | 补 sim 台架对称 BenchSession（`sim` 相机后端已有 2f-Fourier），使 R-1~R-17 可无硬件回归 | — | 2026-09-25 |
+| R-19 P3 | 🟡 **注入机制已统一（§5.34），BenchSession 本体未做** → 剩余 R-5~R-8 仍待办 | — | 2026-09-25 |
 
 ### 2.2 `utils/` + `scripts/` + `tools/` 架构重构（源自 `docs/refactor/TODO.md`，2026-10-01）
 
@@ -1691,6 +1691,62 @@ runner / 工具，而 README 只登记了 20 个 `main.py` 命令。**「冗余�
 
 > 顺带修正：`docs/issues_report.md` §11 是本条的出处，它的数字同样过期；
 > 本节即其替代来源。
+
+---
+
+### 5.34 R-19（第一步）—— 三份「把 Santec 换成仿真 SLM」的手写补丁（2026-10-04）
+
+R-19 本体（对称 BenchSession）没动，但先做它的**注入机制**那一半，因为它是
+纯增量、离线可验、且是 R-6 去重的必要前提。
+
+调查发现 `opt.Santec = SimSLMPib` 这同一件事在**三个地方**各写了一遍，
+而且**每份覆盖的模块还不一样**：
+
+| 位置 | 覆盖的模块 |
+|---|---|
+| `runners/slm_gsnet_runner.py:220 _maybe_sim_patch` | `slm_square_shaping` |
+| `scripts/slm_pib_sim_run.py:309 _patch_santec` | `slm_zernike_pib` |
+| `tests/.../test_slm_zernike_objectives_sim.py:81 _patch_slm` | 两个都打 |
+
+**这不只是重复**：因为覆盖不一致，唯一的端到端离线测试打的是
+`slm_zernike_shaping`（副本），而**生产调用方真正用的 `slm_zernike_pib`
+根本没有端到端离线覆盖**。R-19 要解决的正是这个，而根因就是这三份补丁各自为政。
+
+**做法**：新增 `drivers/sim/sim_bench_patch.py::install_sim_slm(*modules)`，
+三处改为调用它。它只做**真正逐字相同**的那部分（替换模块全局 `Santec`）：
+
+* `register_sim_camera()` 与 `reset_system()` **故意留在调用方** ——
+  三处意图不同（`slm_pib_sim_run` 需要带 disturbance 的 `reset_system` 包装，
+  见 §5.x 关于 `_install_disturbance_reset` 的记录），统一它们会引入 bug；
+* **加了一层 `hasattr` 前置检查**：`setattr` 在模块上**永远成功**，传错模块名会
+  造出一个新属性、补丁「看起来生效」，而代码仍然去开真硬件 —— 正是这个间接层
+  要避免的失败模式。空调用同样报错，不做 no-op。
+* **分层**：新模块在 `drivers/sim/`，**不 import 任何 `optimizer`**（目标模块
+  全靠参数传入），生产优化器也从不 import 它 ⇒ 硬件路径的惰性导入图不变。
+
+**顺带删掉一处多余的 monkeypatch**：原 `_patch_slm` 还会把
+`SimSLMPib.from_params` 打成 `classmethod(lambda ...)`；但 `SimSLMPib.from_params`
+**本来就存在**（`tests/ao_shaping/drivers/sim/test_sim_slm_from_params.py` 守着），
+那行是多余的，去掉后 31 个端到端用例照过。
+
+**验证**：新增 `tests/ao_shaping/drivers/sim/test_sim_bench_patch.py`（7 例）——
+替换生效、多模块、幂等、**无 Santec 全局时报错且不留下属性**、空调用报错、
+**三个真引擎模块确实都暴露 `Santec`**（这条正是能挡住当初那个不对称的检查）、
+以及「本模块不 import optimizer」的分层守卫。
+
+| 范围 | 结果 |
+|---|---|
+| `test_sim_bench_patch.py` | 7 passed |
+| `test_slm_zernike_objectives_sim.py`（被改的那份） | **31 passed**（两个引擎 × 全部 objective） |
+| `test_slm_pib_sim_run_disturbance.py`（脚本侧） | 15 passed |
+| `test_gsnet_train.py`（runner 侧） | 83 passed |
+| `tests/ao_shaping/drivers/sim` | 128 passed / 4 skipped，**5 failed 为既有失败** |
+
+> 那 5 个失败是 `test_sim_camera_registration.py` 的全局相机注册表状态用例，
+> **把本轮新增的测试文件移走后再跑，一模一样的 5 个失败**（121 passed → 128 passed
+> 正好是新增的 7 例），所以与本次改动无关 —— 属于本仓库已知的跨测试顺序干扰。
+> 同目录另有 2 个 collection error 也是既有的环境缺失：OOPAO 子模块未装、
+> `gymnasium`（`rl` 可选依赖组）未装。
 
 ---
 

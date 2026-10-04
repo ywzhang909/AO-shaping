@@ -309,8 +309,9 @@ def _install_disturbance_reset(disturbance: SimDisturbance) -> None:
 def _patch_santec() -> None:
     """Replace the Santec SLM with the sim in the optimizer module."""
     import ao_shaping.optimizer.wfless.slm_zernike_pib as opt
+    from ao_shaping.drivers.sim.sim_bench_patch import install_sim_slm
 
-    opt.Santec = SimSLMPib
+    install_sim_slm(opt)
 
 
 def main() -> None:
