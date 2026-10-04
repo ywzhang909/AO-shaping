@@ -127,7 +127,7 @@
 |---|---|---|---|
 | R-27 | `runner_common.py` 的 CLI 机制 → 新叶子模块（**零 `ao_shaping` 导入**）；`runners/__init__.py` 改真 lazy | ✅ 两半均完成 → §5.11（机制部分已在 R-36 落地，路径按实测改为 `utils/cli_params.py` 而非 TODO 写的 `utils/io/cli_params.py`） | 重构 | 2026-10-01 |
 | R-28 | utils 内部去重：D1/D2 ✅ 已合并；D3/D4/D5 ⚠️ **实测判定不可合并**，改为钉特征测试 | → §5.10 | 重构 | 2026-10-01 |
-| R-29 | `utils/image/display.py:19` 从 `io/handler.py` 导入 `Register`，AGENTS.md 把方向说反了 → **改文档，不迁移 `Register`** | 文档 | 2026-10-01 |
+| R-29 | ~~`utils/image/display.py:19` 从 `io/handler.py` 导入 `Register`，AGENTS.md 把方向说反了~~ | ❌ **前提不成立，作废**（2026-10-04 实测）：① 导入方向确实是 `utils/image/display.py` → `utils/io/handler.py`（`:19`），`Register` 定义在 `handler.py:1`，**与 TODO 描述一致**；② 实测 **AGENTS.md 里没有任何关于该方向的表述**（grep `Register`/`handler.py` 无命中），"把方向说反了"**无从谈起**；③ `display.py:12-14` 的注释方向也**是对的**。真正待办是"把 `utils/image/display.py` 搬到 `display/`"（AGENTS 反模式表已如实跟踪，含 `utils/__init__.py:78/80/81` 的三个 re-export），**不在本 TODO 项范围内** | 文档 | 2026-10-01 |
 | R-30 | 修 `pyproject.toml` 加 `pythonpath = ["src", "scripts"]`（一行修好 11 个脆弱脚本在 pytest/IDE 下的导入）；清空 `tools/slm/__init__.py` eager 再导出（保留 docstring，**只能清空不能删文件**） | 修复 | 2026-10-01 |
 | R-31 | `cartographer/test_smoke.py` 从 `src/` 迁到 `tests/`（现永不被收集）；修 2 处输出路径违规（`generate_cython_optimizer_report.py` 写 `docs/` 根、`generate_centroid_test_visualization.py` 写进 `scripts/reports/`） | 清理 | 2026-10-01 |
 | R-32 | 加约定测试（孤儿检测 + `python -m` 一致性 + utils 分层守卫 + **测试写已提交 docs** 守卫），**warn-only + baseline** | ✅ 4 条守卫全部落地，2 条零 baseline（树本来就干净）→ §5.12 | 重构 | 2026-10-01 |
