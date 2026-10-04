@@ -81,6 +81,7 @@ from ao_shaping.utils.image.targets import (
     # ``TARGET_SHAPE_CHOICES`` is no longer referenced directly in this module
     # (ObjectiveSpec.resolve validates the shape), but it is re-exported here for
     # backward compatibility with existing importers/tests.
+    DEFAULT_SHAPE_OBJECTIVES,
     SHAPE_STAGE_WEIGHTS,
     TARGET_SHAPE_CHOICES,
     ObjectiveResult,
@@ -685,12 +686,13 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         _curve_y_range = (
             (0.0, 1.0) if objective in ("pib", "roi_pib", "rms_pib") else None
         )
-        # Target shape is only meaningful for the shape/roi_pib/rms_pib/rmse
-        # objectives; for pib/radiu/avg_radiu the bucket circle is the correct overlay.
+        # Target shape is only meaningful for the objectives that score against a
+        # target ROI; for pib/radiu/avg_radiu the bucket circle is the correct
+        # overlay. Use the shared tuple: a hand-written copy here had already
+        # drifted from the leaf (it was missing ``rmse_out`` and ``pearson``), and
+        # the sibling module carried a third, different spelling of the same list.
         _display_shape = (
-            shape_for_metric
-            if objective in ("shape", "roi_pib", "rms_pib", "rmse")
-            else None
+            shape_for_metric if objective in DEFAULT_SHAPE_OBJECTIVES else None
         )
         display_ctx = SlmZernikeDisplay(
             zernike_clip=ZERNIKE_CLIP,

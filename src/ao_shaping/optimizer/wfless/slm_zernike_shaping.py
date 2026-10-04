@@ -77,6 +77,7 @@ from ao_shaping.utils.image.hardware_utils import (
 )
 from ao_shaping.utils.image.spots_calc import radius
 from ao_shaping.utils.image.targets import (
+    DEFAULT_SHAPE_OBJECTIVES,
     ObjectiveSpec,
     ShapeScoringParams,
     ShapingObjective,
@@ -665,9 +666,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         # Target shape is only meaningful for the shape/roi_pib/rms_pib/rmse
         # objectives; for pib/radiu/avg_radiu the bucket circle is the correct overlay.
         _display_shape = (
-            shape_for_metric
-            if objective in ("shape", "roi_pib", "rms_pib", "rmse", "rmse_out")
-            else None
+            shape_for_metric if objective in DEFAULT_SHAPE_OBJECTIVES else None
         )
         display_ctx = SlmZernikeDisplay(
             zernike_clip=ZERNIKE_CLIP,

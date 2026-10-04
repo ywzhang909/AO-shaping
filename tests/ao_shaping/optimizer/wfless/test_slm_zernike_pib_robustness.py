@@ -369,3 +369,53 @@ class TestLearningScheduleCentreIsWindowLocal:
             f"line(s) {offenders}; use the window-local spot (reference_center / "
             f"pos_center) or the bucket silently collapses to 0"
         )
+
+    @pytest.mark.parametrize(
+        "module_name",
+        ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
+    )
+    def test_shape_aware_objectives_are_not_retyped_as_a_literal(
+        self, module_name: str
+    ) -> None:
+        """The ROI-objective tuple must be imported, not written out again.
+
+        Deciding whether to draw the target-shape overlay needs "does this
+        objective score against a target ROI?". That set already lives in the
+        shared leaf as ``DEFAULT_SHAPE_OBJECTIVES``. All three copies disagreed:
+        the leaf listed 6 objectives, one engine hard-coded 4 (missing
+        ``rmse_out`` and ``pearson``), the other hard-coded 5. So ``rmse_out``
+        silently fell back to the bucket-circle overlay in one engine only.
+
+        Scoped to subsets of ``DEFAULT_SHAPE_OBJECTIVES`` on purpose -- the
+        unrelated ``("pib", "roi_pib", "rms_pib")`` y-range tuple contains
+        ``"pib"``, which is not in that set, so it is not flagged.
+        """
+        import ast
+        import importlib
+        import inspect
+
+        from ao_shaping.utils.image.targets import DEFAULT_SHAPE_OBJECTIVES
+
+        module = importlib.import_module(module_name)
+        tree = ast.parse(inspect.getsource(module))
+        allowed = set(DEFAULT_SHAPE_OBJECTIVES)
+
+        offenders: list[tuple[int, tuple[str, ...]]] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Tuple):
+                continue
+            values = tuple(
+                e.value
+                for e in node.elts
+                if isinstance(e, ast.Constant) and isinstance(e.value, str)
+            )
+            if len(values) != len(node.elts):
+                continue  # not a pure string tuple
+            if len(values) >= 2 and set(values) <= allowed:
+                offenders.append((node.lineno, values))
+
+        assert not offenders, (
+            f"{module_name}: DEFAULT_SHAPE_OBJECTIVES re-typed as a literal at "
+            f"line(s) {offenders}; import it from "
+            f"ao_shaping.utils.image.targets instead"
+        )
