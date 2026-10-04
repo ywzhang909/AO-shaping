@@ -1,4 +1,4 @@
-﻿"""R50 单控制器模块 — 连通性测试 / 连接 / 断开 / 继电器 / 单次下发。
+"""R50 单控制器模块 — 连通性测试 / 连接 / 断开 / 继电器 / 单次下发。
 
 被 ``r50_tabs.render_tab_single_controller`` 与
 ``r50_sidebar._sidebar_single_connection`` 复用。
@@ -12,7 +12,7 @@ import numpy as np
 import streamlit as st
 from loguru import logger
 
-from ao_shaping.drivers.dm.MicroDM import (
+from ao_shaping.drivers.dm.micro import (
     CMD_RELAY_OFF,
     CMD_RELAY_ON,
     CMD_SET_ALL_CHANNEL_VOLTAGE,

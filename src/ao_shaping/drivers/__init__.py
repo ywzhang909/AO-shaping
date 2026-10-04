@@ -64,11 +64,11 @@ _LAZY_BACKENDS: dict[str, tuple[str, str]] = {
     "NidaqADCNotFoundError": ("ao_shaping.drivers.adc", "NidaqADCNotFoundError"),
     "ZernikeSLM": ("ao_shaping.drivers.slm.zernike_slm", "ZernikeSLM"),
     "ZernikeSLMError": ("ao_shaping.drivers.slm.zernike_slm", "ZernikeSLMError"),
-    "NlightDM": ("ao_shaping.drivers.dm.NLight", "NLight"),
+    "NlightDM": ("ao_shaping.drivers.dm.nlight", "NLight"),
     "HadamardDM": ("ao_shaping.drivers.dm.hadamard_dm", "HadamardDM"),
     "ZernikeDM": ("ao_shaping.drivers.dm.zernike_dm", "ZernikeDM"),
-    "MicroDM": ("ao_shaping.drivers.dm.MicroDM", "MicroDM"),
-    "AsyncMicroDM": ("ao_shaping.drivers.dm.asyn_micro_dm", "AsyncMicroDM"),
+    "MicroDM": ("ao_shaping.drivers.dm.micro", "MicroDM"),
+    "AsyncMicroDM": ("ao_shaping.drivers.dm.micro", "AsyncMicroDM"),
     "SimulateDM": ("ao_shaping.drivers.sim.dm", "SimulateDM"),
     "SimMicroDM": ("ao_shaping.drivers.sim.dm", "SimMicroDM"),
 }
@@ -101,10 +101,10 @@ if TYPE_CHECKING:
     from ao_shaping.drivers.ccd.daheng import DahengCamera
     from ao_shaping.drivers.ccd.ffmpeg import FFmpegCamera, FFmpegCameraError
     from ao_shaping.drivers.ccd.miicam import MIICamera
-    from ao_shaping.drivers.dm.asyn_micro_dm import AsyncMicroDM
+    from ao_shaping.drivers.dm.micro import AsyncMicroDM
     from ao_shaping.drivers.dm.hadamard_dm import HadamardDM
-    from ao_shaping.drivers.dm.MicroDM import MicroDM
-    from ao_shaping.drivers.dm.NLight import NLight as NlightDM
+    from ao_shaping.drivers.dm.micro import MicroDM
+    from ao_shaping.drivers.dm.nlight import NLight as NlightDM
     from ao_shaping.drivers.dm.zernike_dm import ZernikeDM
     from ao_shaping.drivers.sim.dm import SimMicroDM, SimulateDM
     from ao_shaping.drivers.slm.santec import Santec, SantecError

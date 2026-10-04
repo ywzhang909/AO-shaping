@@ -19,7 +19,7 @@ import pandas as pd
 
 from loguru import logger
 
-from ao_shaping.drivers.dm.MicroDM import MAX_CHANNELS, VOLTAGE_MAX, VOLTAGE_MIN
+from ao_shaping.drivers.dm.micro import MAX_CHANNELS, VOLTAGE_MAX, VOLTAGE_MIN
 from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 
 
@@ -34,7 +34,7 @@ class Cfg:
 
     # session_state key prefix
     PREFIX: str = "r50c"
-    # single controller (hardware limits from drivers.dm.MicroDM)
+    # single controller (hardware limits from drivers.dm.micro)
     SINGLE_CHANNELS: int = MAX_CHANNELS
     DEFAULT_PORT: int = 10101
     # voltage hardware limits (never exceeded)

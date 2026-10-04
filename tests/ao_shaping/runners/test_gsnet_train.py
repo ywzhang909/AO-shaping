@@ -882,7 +882,7 @@ class TestNoHardware:
             ("ao_shaping.drivers.ccd", "MIICamera"),
             ("ao_shaping.drivers.ccd", "DahengCamera"),
             ("ao_shaping.drivers.slm.santec", "Santec"),
-            ("ao_shaping.drivers.dm.NLight", "NLightDM"),
+            ("ao_shaping.drivers.dm.nlight", "NLight"),
         ):
             module = pytest.importorskip(module_name)
             monkeypatch.setattr(

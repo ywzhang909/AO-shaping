@@ -1,4 +1,4 @@
-﻿"""R50 分组控制模块 (GC) — 组连接 / 断开 / 继电器 / 下发 / 批量上下电。
+"""R50 分组控制模块 (GC) — 组连接 / 断开 / 继电器 / 下发 / 批量上下电。
 
 被 ``r50_tabs.render_tab_single_group`` 与
 ``r50_sidebar._sidebar_group_connection`` 复用。
@@ -17,7 +17,7 @@ from ao_shaping.gui.r50.r50_channel_select import (
     P,
     SINGLE_CHANNELS,
 )
-from ao_shaping.drivers.dm.MicroDM import (
+from ao_shaping.drivers.dm.micro import (
     CMD_SET_ALL_VOLTAGE_BY_ARR,
     FOOTER,
     HEADER,

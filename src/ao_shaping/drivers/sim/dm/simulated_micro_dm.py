@@ -10,7 +10,7 @@ from ao_shaping.drivers.device_base import DeviceState, DeviceType
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.dm._registry import register_dm
 from ao_shaping.model.quantities import DmCommands
-from ao_shaping.drivers.dm.MicroDM import (
+from ao_shaping.drivers.dm.micro import (
     MicroDMVoltageError,
     RelayState,
     VOLTAGE_MIN,

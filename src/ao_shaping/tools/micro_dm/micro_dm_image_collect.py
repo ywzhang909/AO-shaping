@@ -48,7 +48,7 @@ from loguru import logger
 
 from ao_shaping.config import DEVICES
 from ao_shaping.drivers.ccd import BaseCamera
-from ao_shaping.drivers.dm.MicroDM import (
+from ao_shaping.drivers.dm.micro import (
     DEFAULT_IPS,
     MAX_CHANNELS,
     VOLTAGE_MAX,

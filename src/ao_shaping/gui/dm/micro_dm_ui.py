@@ -1,4 +1,4 @@
-﻿"""
+"""
 Micro DM 微驱动器控制 UI (Streamlit)
 
 功能:
@@ -25,7 +25,7 @@ import numpy as np
 import streamlit as st
 from loguru import logger
 
-from ao_shaping.drivers.dm.MicroDM import R50Controller
+from ao_shaping.drivers.dm.micro import R50Controller
 from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 from ao_shaping.utils.io.network import ping_reachable, tcp_reachable
 # =============================================================================
@@ -596,7 +596,7 @@ def connect_dm() -> bool:
             st.session_state.mdm_dm = None
             st.session_state.mdm_connected = False
 
-        from ao_shaping.drivers.dm.MicroDM import MicroDM
+        from ao_shaping.drivers.dm.micro import MicroDM
 
         use_wiring_map = st.session_state.mdm_use_wiring_map
         ips = None

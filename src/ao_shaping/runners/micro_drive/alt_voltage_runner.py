@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, NoReturn
 import click
 from loguru import logger
 
-from ao_shaping.drivers.dm.MicroDM import R50Controller
+from ao_shaping.drivers.dm.micro import R50Controller
 from ao_shaping.runners.runner_common import AltVoltageRunnerParams, with_params
 from ao_shaping.utils.io.cli_helpers import setup_coredumpy
 from ao_shaping.utils.io.network import ping_reachable

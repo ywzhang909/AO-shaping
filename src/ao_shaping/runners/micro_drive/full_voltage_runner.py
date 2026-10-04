@@ -27,13 +27,13 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.drivers.dm.MicroDM import (
+from ao_shaping.drivers.dm.micro import (
     DEFAULT_IPS,
     MAX_CHANNELS,
     VOLTAGE_MAX,
     VOLTAGE_MIN,
 )
-from ao_shaping.drivers.dm.asyn_micro_dm import AsyncMicroDM
+from ao_shaping.drivers.dm.micro import AsyncMicroDM
 from ao_shaping.runners.runner_common import FullVoltageRunnerParams, with_params
 from ao_shaping.utils.io.cli_helpers import setup_coredumpy
 

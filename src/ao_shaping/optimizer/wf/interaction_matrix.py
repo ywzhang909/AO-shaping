@@ -20,7 +20,7 @@ import numpy as np
 from loguru import logger
 from tqdm import tqdm
 
-from ao_shaping.drivers.dm.NLight import NLight
+from ao_shaping.drivers.dm.nlight import NLight
 from ao_shaping.drivers import MlaRes
 from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.drivers.wfs import ThorlabWFS as WFSManager

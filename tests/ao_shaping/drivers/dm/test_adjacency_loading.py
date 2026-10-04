@@ -52,7 +52,7 @@ class TestImportIsCwdIndependent:
         result = _run(
             """
             import ao_shaping
-            from ao_shaping.drivers.dm.NLight import NLight
+            from ao_shaping.drivers.dm.nlight import NLight
             print("OK", NLight.__name__)
             """,
             cwd,
@@ -90,7 +90,7 @@ class TestImportIsCwdIndependent:
         """Laziness must not remove the public matrix the safety checks use."""
         result = _run(
             """
-            from ao_shaping.drivers.dm.NLight import NLight
+            from ao_shaping.drivers.dm.nlight import NLight
             m = NLight.Units_Adj_Mat
             print("OK", m.shape, m.sum())
             """,
@@ -104,7 +104,7 @@ class TestImportIsCwdIndependent:
         result = _run(
             """
             import numpy as np
-            from ao_shaping.drivers.dm.NLight import NLight
+            from ao_shaping.drivers.dm.nlight import NLight
             mat = NLight.Units_Adj_Mat
             nbrs = np.where(mat[1, :] == 1)[0]
             print("OK", len(nbrs) > 0)

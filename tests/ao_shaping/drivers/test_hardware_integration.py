@@ -356,7 +356,7 @@ class TestDMHardware:
             pytest.skip("DM tests disabled (set TEST_DM=1 to enable)")
 
         try:
-            from ao_shaping.drivers.dm.NLight import NLight
+            from ao_shaping.drivers.dm.nlight import NLight
 
             dm = NLight()
             dm.open()
@@ -413,7 +413,7 @@ class TestDMHardware:
 
     def test_context_manager(self):
         """Test DM context manager protocol."""
-        from ao_shaping.drivers.dm.NLight import NLight
+        from ao_shaping.drivers.dm.nlight import NLight
 
         with NLight() as dm:
             print(f"  Context manager: Connected to DM with {dm.DM_Num} actuators")
@@ -518,7 +518,7 @@ class TestFullPipeline:
         setup = {}
         try:
             from ao_shaping.drivers import MlaRes, ThorlabWFS
-            from ao_shaping.drivers.dm.NLight import NLight
+            from ao_shaping.drivers.dm.nlight import NLight
             from ao_shaping.drivers.slm import ZernikeSLM
 
             print("\n[Pipeline] Initializing all devices...")

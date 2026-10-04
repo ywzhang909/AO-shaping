@@ -1,0 +1,921 @@
+"""Micro DM (R50Power) 驱动 —— 同步 TCP 路径.
+
+通过 TCP/IP (阻塞 socket) 控制一台或多台 R50Power 控制器，每台 50 通道，
+电压范围 -20V..120V，最多 26 台 (1296 通道)。
+
+组帧协议 (0xAA 0xBB 头 / 0xCC 0xDD 脚) 与电压编码见
+:mod:`ao_shaping.drivers.dm.micro.constants`；接线表解析见
+:mod:`ao_shaping.drivers.dm.micro.wiring_map`。
+
+Wiring Map:
+    控制器 IP 与通道映射默认从 ``libs/micro_drive1300/wiring_map.json``
+    加载 (``use_wiring_map=True``)。``use_wiring_map=False`` 时退回默认 IP。
+
+Example:
+    >>> dm = MicroDM()
+    >>> dm.open()
+    >>> dm.send_voltages(np.zeros(50))
+    >>> dm.set_relay_state(True)
+    >>> print(dm.get_actuator_positions())
+    >>> dm.close()
+
+Channel Lookup:
+    >>> dm = MicroDM()
+    >>> info = dm.get_channel_by_xy(x=1, y=3)  # 39x39 array coordinates
+    >>> print(info.ip_address, info.payload_position)
+    >>> info = dm.get_channel_by_ip_position(ip_suffix=101, payload_position=13)
+    >>> print(info.physical_label, info.physical_position)
+"""
+
+from __future__ import annotations
+
+import os
+import socket
+from dataclasses import dataclass
+from enum import IntEnum
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import numpy.typing as npt
+from loguru import logger
+
+from ao_shaping.drivers.device_base import Device, DeviceState, DeviceType
+from ao_shaping.drivers.dm._registry import register_dm
+from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm.micro.constants import (
+    CMD_RELAY_OFF,
+    CMD_RELAY_ON,
+    CMD_SET_ALL_CHANNEL_VOLTAGE,
+    CMD_SET_ALL_VOLTAGE_BY_ARR,
+    CMD_SET_CHANNEL_VOLTAGE,
+    FOOTER,
+    HEADER,
+    PAYLOAD_OFFSET,
+    PAYLOAD_SCALE,
+    WIRING_MAP_PATH,
+)
+from ao_shaping.drivers.dm.micro.micro_constants import (
+    CHANNELS_PER_CONTROLLER,
+    DEFAULT_IPS,
+    DEFAULT_TIMEOUT,
+    DM_NUM,
+    IP_SUFFIX_MAX,
+    IP_SUFFIX_MIN,
+    MAX_ACTUATORS,
+    MAX_CONTROLLERS,
+    PORT_BASE,
+    VOLTAGE_MAX,
+    VOLTAGE_MIN,
+)
+from ao_shaping.drivers.dm.micro.wiring_map import ChannelInfo, WiringMap
+from ao_shaping.model.quantities import DmCommands
+from ao_shaping.utils.io.device_config import ConfigHandler, DeviceParam, param
+from ao_shaping.utils.io.file import ROOT_DIR
+
+# ── MicroDM 配置参数 ──────────────────────────────────────
+
+_MICRO_DM_CONFIG_DIR = Path(
+    os.environ.get("MICRO_DM_CONFIG_DIR", ROOT_DIR / "data" / "micro_dm_configs")
+)
+
+
+@dataclass
+class MicroDMParams(DeviceParam):
+    """MicroDM 配置参数（可持久化的标量参数）。"""
+
+    timeout: float = param(default=DEFAULT_TIMEOUT, cast=float)
+    use_wiring_map: bool = param(default=True, cast=bool)
+    safety_mode: bool = param(default=True, cast=bool)
+
+
+# MicroDM intentionally has no from_params factory: MicroDMParams only covers
+# persisted scalar settings, not controller IPs, device ID, or exclusion lists.
+
+
+# 模块级单例，所有 MicroDM 实例共用
+MICRO_DM_CONFIG = ConfigHandler(_MICRO_DM_CONFIG_DIR, "micro_dm", MicroDMParams)
+
+#: 历史别名 —— 外部以 ``MAX_CHANNELS`` 指单台控制器的通道数。
+MAX_CHANNELS: int = CHANNELS_PER_CONTROLLER
+
+
+# =============================================================================
+# Voltage Conversion
+# =============================================================================
+def voltages_to_payload(
+    voltages: npt.NDArray[np.floating] | list[float] | float,
+) -> bytes:
+    """Convert voltage(s) to the 0x09 command payload.
+
+    Supports single float (returns 2 bytes) or array (returns 2*N bytes).
+    Vectorized numpy version — clips, scales, and interleaves
+    high/low bytes in one pass.
+
+    Protocol reference (from R50PowerV1.m MATLAB):
+        value = (voltage + 20) / 20 / 3.4 / 3.3 * 65535.0
+        highByte = floor(value / 255)
+        lowByte = floor(mod(value, 256))
+
+    # NOTO
+    THEORETICAL CORRECT IMPLEMENTATION (consistent byte extraction):
+        The MATLAB implementation has an inconsistency: it uses 255 for high byte
+        division but 256 for low byte (via mod). Theoretically correct would be:
+            raw = round(value)  # proper rounding to nearest integer
+            high = raw // 256   # consistent with low = raw % 256
+            low = raw % 256
+        This ensures high * 256 + low == raw for the full value range.
+        However, the MATLAB behavior is preserved for hardware compatibility.
+
+    Args:
+        voltages: Single voltage (float) or array of voltages (list/np.ndarray).
+
+    Returns:
+        Interleaved high/low bytes as bytes object.
+    """
+    v = np.asarray(voltages, dtype=np.float32)
+    if v.ndim == 0:
+        v = v.reshape(1)
+    elif not v.flags["C_CONTIGUOUS"]:
+        v = np.ascontiguousarray(v, dtype=np.float32)
+    np.clip(v, VOLTAGE_MIN, VOLTAGE_MAX, out=v)
+    v *= PAYLOAD_SCALE
+    v += PAYLOAD_OFFSET
+    raw = np.round(v).astype(np.uint16)
+    # 转换为 big-endian 字节序，使 uint16 内存布局为 [high_byte, low_byte]
+    raw_be = raw.byteswap().view(np.uint8)
+    return raw_be.tobytes()
+
+
+# =============================================================================
+# Exceptions
+# =============================================================================
+
+
+class MicroDMError(Exception):
+    """Base exception for MicroDM errors."""
+
+
+class MicroDMConnectionError(MicroDMError):
+    """Raised when connection to a controller fails."""
+
+
+class MicroDMVoltageError(MicroDMError):
+    """Raised when a voltage value is out of range."""
+
+
+# =============================================================================
+# Relay State
+# =============================================================================
+
+
+class RelayState(IntEnum):
+    """Relay open/close state."""
+
+    OFF = 0
+    ON = 1
+
+
+# =============================================================================
+# Low-Level Sync R50 Controller
+# =============================================================================
+
+
+class R50Controller:
+    """Sync TCP client for a single R50Power controller (50 channels).
+
+    Low-level helper used internally by MicroDM. Each instance manages a
+    persistent TCP connection to one physical power supply unit.
+
+    Implements the same method names as :class:`DM` where applicable
+    (``open``/``close``/``is_connected``) so it composes naturally
+    with the DM interface.
+
+    Attributes:
+        controller_id: 1-based controller identifier.
+        ip: IP address string.
+        port: TCP port number.
+    """
+
+    def __init__(
+        self,
+        controller_id: int,
+        ip: str,
+        port: int,
+        timeout: float = DEFAULT_TIMEOUT,
+    ):
+        self.controller_id = controller_id
+        self.ip = ip
+        self.port = port
+        self._timeout = timeout
+
+        self._socket: socket.socket | None = None
+
+    # ---- Properties ---------------------------------------------------------
+
+    @property
+    def is_connected(self) -> bool:
+        """Check if the TCP connection is established."""
+        return self._socket is not None
+
+    # ---- Context Manager ---------------------------------------------------
+
+    def __enter__(self) -> R50Controller:
+        """Context manager entry — opens the TCP connection.
+
+        Usage::
+
+            with R50Controller(1, "192.168.0.101", 10101) as ctrl:
+                ctrl.set_all_channel_voltage(0.0)
+        """
+        self.open()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Context manager exit — closes the TCP connection."""
+        self.close()
+
+    # ---- Connection Management ----------------------------------------------
+
+    def open(self) -> bool:
+        """Open a TCP connection to the controller.
+
+        Returns:
+            True on success, False on failure.
+        """
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(self._timeout)
+            sock.connect((self.ip, self.port))
+            # 禁用 Nagle算法（减少小包延迟，适合低延迟控制）
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self._socket = sock
+            logger.debug(
+                f"R50Controller[{self.controller_id}] connected to {self.ip}:{self.port}"
+            )
+            return True
+        except (socket.timeout, OSError, ConnectionError) as exc:
+            logger.warning(f"R50Controller[{self.controller_id}] connect failed: {exc}")
+            self._socket = None
+            return False
+
+    def close(self) -> None:
+        """Close the TCP connection."""
+        if self._socket is not None:
+            try:
+                self._socket.close()
+            except Exception:
+                pass
+            self._socket = None
+            logger.debug(f"R50Controller[{self.controller_id}] disconnected")
+
+    # ---- Command Sending ----------------------------------------------------
+
+    def send(self, data: bytes) -> bool:
+        """Send raw command bytes to the controller.
+
+        Args:
+            data: Complete command packet (header + payload + footer).
+
+        Returns:
+            True on success. On failure, marks the controller as disconnected.
+        """
+        if self._socket is None:
+            return False
+        try:
+            self._socket.sendall(data)
+            return True
+        except (OSError, ConnectionError) as exc:
+            logger.warning(f"R50Controller[{self.controller_id}] send error: {exc}")
+            self._socket = None
+            return False
+
+    def set_all_channel_voltage(self, voltage: float) -> bool:
+        """Set all 50 channels to the same voltage (command 0x08).
+
+        Args:
+            voltage: Voltage in volts (clipped to [-20, 120]).
+
+        Returns:
+            True on success.
+        """
+        payload = voltages_to_payload(voltage)
+        hv, lv = payload[0], payload[1]
+        cmd = HEADER + bytes([CMD_SET_ALL_CHANNEL_VOLTAGE, hv, lv]) + FOOTER
+        return self.send(cmd)
+
+    def set_channel_voltage(self, channel: int, voltage: float) -> bool:
+        """Set a single channel voltage (command 0x04).
+
+        Args:
+            channel: Channel index (0-49).
+            voltage: Voltage in volts.
+
+        Returns:
+            True on success, False if channel is out of range.
+        """
+        if not 0 <= channel < MAX_CHANNELS:
+            logger.warning(
+                f"R50Controller[{self.controller_id}] invalid channel: {channel}"
+            )
+            return False
+        payload = voltages_to_payload(voltage)
+        hv, lv = payload[0], payload[1]
+        cmd = HEADER + bytes([CMD_SET_CHANNEL_VOLTAGE, channel, hv, lv]) + FOOTER
+        return self.send(cmd)
+
+    def set_all_voltage_array(self, voltages: list[float]) -> bool:
+        """Set all 50 channels by array (command 0x09, fastest method).
+
+        Args:
+            voltages: List of exactly 50 voltage values.
+
+        Returns:
+            True on success, False if array length is not 50.
+        """
+        if len(voltages) != MAX_CHANNELS:
+            logger.warning(
+                f"R50Controller[{self.controller_id}] expected {MAX_CHANNELS} voltages, "
+                f"got {len(voltages)}"
+            )
+            return False
+
+        cmd = (
+            HEADER
+            + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR])
+            + voltages_to_payload(voltages)
+            + FOOTER
+        )
+        return self.send(cmd)
+
+    def set_relay(self, state: bool) -> bool:
+        """Open (True) or close (False) the relay.
+
+        Command 0x06 = open, 0x07 = close.
+        """
+        cmd = HEADER + bytes([CMD_RELAY_ON if state else CMD_RELAY_OFF]) + FOOTER
+        return self.send(cmd)
+
+    def power_off_and_close(self, home_voltage: float = 0.0) -> bool:
+        """Safe shutdown: home all channels, relay OFF, then close connection.
+
+        Homes (zeroes) the output voltages before cutting relay power so the
+        mirror surface returns to its reference position while the controller
+        is still energised. Single call shared by CLI tools and the GUI.
+
+        Returns:
+            True if both voltage and relay commands succeeded.
+        """
+        ok1 = self.set_all_channel_voltage(home_voltage)
+        ok2 = self.set_relay(False)
+        self.close()
+        return bool(ok1 and ok2)
+
+
+# =============================================================================
+# Main MicroDM Driver
+# =============================================================================
+
+
+@register_dm("micro")
+class MicroDM(DM, Device):
+    """Micro DM (R50Power) deformable mirror driver.
+
+    Controls one or more R50Power controllers via synchronous TCP.
+    Defaults to a single 50-channel controller at 192.168.0.101:10101.
+
+    When multiple IPs are supplied, channels are assigned sequentially::
+
+        controller 0  →  channels   0-49
+        controller 1  →  channels  50-99
+        ...
+
+    All TCP communication to all controllers happens synchronously,
+    without an async event loop.
+
+    Attributes:
+        DM_Num: Total logical channel count (50 per controller).
+        V_Min: Minimum voltage (-20.0 V).
+        V_Max: Maximum voltage (120.0 V).
+
+    Example:
+        >>> dm = MicroDM()
+        >>> dm.open()
+        >>> dm.send_voltages(np.zeros(50))
+        >>> dm.set_relay_state(True)
+        >>> print(dm.get_actuator_positions())
+        >>> dm.close()
+    """
+
+    DM_Num: int = DM_NUM
+    DM_NUM: int = DM_NUM  # Alias for base class compatibility
+    V_Min: float = VOLTAGE_MIN
+    V_Max: float = VOLTAGE_MAX
+    max_neibor_diff: float = float("inf")  # No neighbor constraint
+
+    device_type = DeviceType.DM
+    manufacturer = "R50Power"
+    model = "MicroDM"
+
+    @classmethod
+    def is_reachable(cls) -> bool:
+        """Check if at least one R50Power controller is reachable on TCP."""
+        for suffix in range(IP_SUFFIX_MIN, IP_SUFFIX_MAX + 1):
+            ip = f"192.168.0.{suffix}"
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(1.0)
+                result = sock.connect_ex((ip, PORT_BASE + suffix))
+                sock.close()
+                if result == 0:
+                    return True
+            except OSError:
+                continue
+        return False
+
+    @property
+    def default_dm_unit_mask(self) -> npt.NDArray[np.bool_]:
+        return np.ones(self.DM_NUM, dtype=bool)
+
+    def __init__(
+        self,
+        ips: list[str] | None = None,
+        timeout: float = DEFAULT_TIMEOUT,
+        device_id: str = "",
+        use_wiring_map: bool = True,
+        exclude_ips: list[str] | None = None,
+        exclude_ids: list[int] | None = None,
+        safety_mode: bool = True,
+    ):
+        """Initialize the MicroDM driver.
+
+        Args:
+            ips: IP addresses of R50Power controllers.
+                Default: loaded from wiring map if ``use_wiring_map=True``,
+                otherwise ``["192.168.0.101"]`` (single controller).
+                Pass multiple IPs for multi-controller setups.
+            timeout: TCP connection/send timeout in seconds.
+            device_id: Unique device identifier (auto-generated if empty).
+            use_wiring_map: If True (default), load controller IPs from
+                ``libs/micro_drive1300/wiring_map.json``.
+            exclude_ips: IP addresses to skip during initialization.
+                Controllers with these IPs will not be created.
+            exclude_ids: Controller IDs (1-based) to skip during initialization.
+                Controllers with these IDs will not be created.
+            safety_mode: If True (default), send_voltages ramps from current
+                state to target in steps bounded by max_neibor_diff.
+        """
+        self._init_values = {
+            "timeout": timeout,
+            "use_wiring_map": use_wiring_map,
+            "safety_mode": safety_mode,
+        }
+        # 使用 defaults + __init__ 参数解析可持久化的标量参数
+        params = MICRO_DM_CONFIG.resolve_from_config({}, init_values=self._init_values)
+
+        DM.__init__(self, safety_mode=params.safety_mode)
+        Device.__init__(self, device_id)
+
+        # Load wiring map if enabled
+        self._wiring_map: WiringMap | None = None
+        self._channel_by_position: dict[
+            int, ChannelInfo
+        ] = {}  # physical_position → info
+        self._channel_by_ip_payload: dict[
+            tuple[int, int], ChannelInfo
+        ] = {}  # (ip_suffix, payload_pos) → info
+        self._channel_by_xy: dict[
+            tuple[int, int], ChannelInfo
+        ] = {}  # (x, y) in 39x39 → info
+
+        if params.use_wiring_map:
+            self._wiring_map = WiringMap.from_file(WIRING_MAP_PATH)
+            if self._wiring_map is not None:
+                self._build_channel_indices(self._wiring_map)
+
+        # Determine IPs from wiring map or use defaults
+        if ips is not None:
+            self._ips = ips
+        elif self._wiring_map is not None:
+            self._ips = self._wiring_map.unique_ips
+        else:
+            self._ips = [DEFAULT_IPS[0]]
+
+        # Filter out excluded IPs
+        exclude_ip_set = set(exclude_ips or [])
+        self._ips = [ip for ip in self._ips if ip not in exclude_ip_set]
+
+        if exclude_ip_set:
+            excluded_found = exclude_ip_set & set(self._ips)
+            for ip in excluded_found:
+                logger.warning(f"Excluded controller IP: {ip}")
+
+        self._timeout = params.timeout
+
+        self._relay_state = RelayState.OFF
+
+        # Build sync controllers, skipping excluded IDs
+        exclude_id_set = set(exclude_ids or [])
+        self._controllers: list[R50Controller] = [
+            R50Controller(
+                controller_id=i,
+                ip=ip_str,
+                port=PORT_BASE + int(ip_str.split(".")[-1]),
+                timeout=params.timeout,
+            )
+            for i, ip_str in enumerate(self._ips, start=1)
+            if (i + 1) not in exclude_id_set
+        ]
+
+        if exclude_id_set:
+            for cid in exclude_id_set:
+                logger.warning(f"Excluded controller ID: {cid}")
+
+        # Register device parameters
+        self._register_parameters()
+
+        logger.debug(
+            f"MicroDM initialized: {len(self._controllers)} controller(s), "
+            f"{self.DM_Num} channels, "
+            f"voltage range [{self.V_Min}, {self.V_Max}] V"
+        )
+
+    # ---- Parameter Registration ---------------------------------------------
+
+    def _register_parameters(self) -> None:
+        """Register device parameters for the parameter management system."""
+        self.register_parameter(
+            "voltage_min",
+            self.V_Min,
+            description="Minimum allowed voltage (V)",
+        )
+        self.register_parameter(
+            "voltage_max",
+            self.V_Max,
+            description="Maximum allowed voltage (V)",
+        )
+        self.register_parameter(
+            "channel_count",
+            self.DM_Num,
+            description="Total logical channel count",
+        )
+        self.register_parameter(
+            "n_controllers",
+            len(self._controllers),
+            description="Number of physical R50Power controllers",
+        )
+
+    # ---- Wiring Map Methods -------------------------------------------------
+
+    def _build_channel_indices(self, wiring_map: WiringMap) -> None:
+        """Build lookup indices from a parsed WiringMap.
+
+        Creates three indices for O(1) channel lookup:
+        - _channel_by_position: physical_position → ChannelInfo
+        - _channel_by_ip_payload: (ip_suffix, payload_position) → ChannelInfo
+        - _channel_by_xy: (x, y) in 39x39 grid → ChannelInfo
+        """
+        for group_key, group in wiring_map.groups.items():
+            for entry in group.channels:
+                if not entry.is_valid:
+                    continue
+
+                info = ChannelInfo.from_entry(entry, group.name, group_key)
+
+                # Index by physical position (safe: is_valid guarantees non-None)
+                assert entry.physical_position is not None
+                self._channel_by_position[entry.physical_position] = info
+
+                # Index by (ip_suffix, payload_position)
+                if entry.ip_suffix is not None and entry.payload_position is not None:
+                    self._channel_by_ip_payload[
+                        (entry.ip_suffix, entry.payload_position)
+                    ] = info
+
+                # Index by (x, y) from physical_label (format: "group-row-col")
+                if entry.physical_label is not None:
+                    parts = entry.physical_label.split("-")
+                    if len(parts) == 3:
+                        try:
+                            row = int(parts[1])  # y coordinate (1-based)
+                            col = int(parts[2])  # x coordinate (1-based)
+                            self._channel_by_xy[(col, row)] = info
+                        except ValueError:
+                            pass
+
+        logger.debug(
+            f"Built channel indices: {len(self._channel_by_position)} by position, "
+            f"{len(self._channel_by_ip_payload)} by ip/payload, "
+            f"{len(self._channel_by_xy)} by xy"
+        )
+
+    @property
+    def wiring_map(self) -> WiringMap | None:
+        """Access the loaded wiring map (read-only)."""
+        return self._wiring_map
+
+    def get_channel_by_xy(self, x: int, y: int) -> ChannelInfo | None:
+        """Get channel info by x, y coordinates in the 39×39 array.
+
+        Args:
+            x: Column index (1-based, 1-39).
+            y: Row index (1-based, 1-39).
+
+        Returns:
+            ChannelInfo if found, None otherwise.
+        """
+        return self._channel_by_xy.get((x, y))
+
+    def get_channel_by_ip_position(
+        self, ip_suffix: int, payload_position: int
+    ) -> ChannelInfo | None:
+        """Get channel info by controller IP suffix and payload position.
+
+        Args:
+            ip_suffix: IP address suffix (e.g., 101 for 192.168.0.101).
+            payload_position: Channel position within the controller (1-50).
+
+        Returns:
+            ChannelInfo if found, None otherwise.
+        """
+        return self._channel_by_ip_payload.get((ip_suffix, payload_position))
+
+    # ---- Device Interface ---------------------------------------------------
+
+    def open(self) -> None:
+        """Open connections to all R50Power controllers.
+
+        Connects to every controller synchronously. Individual connection
+        failures are logged as warnings but do not prevent other controllers
+        from connecting.
+
+        Raises:
+            MicroDMConnectionError: If no controller can be reached.
+        """
+        self._set_state(DeviceState.CONNECTING)
+
+        connected, failed = 0, []
+        for ctrl in self._controllers:
+            if ctrl.open():
+                connected += 1
+            else:
+                failed.append((ctrl.controller_id, ctrl.ip))
+
+        for ctrl_id, ip in failed:
+            logger.warning(f"Controller[{ctrl_id}] {ip} connection failed")
+
+        if connected == 0:
+            self._set_state(DeviceState.ERROR, "No controllers connected")
+            raise MicroDMConnectionError(
+                f"Failed to connect to any of {len(self._controllers)} controller(s)"
+            )
+
+        self._set_state(DeviceState.READY)
+        logger.info(
+            f"MicroDM ready: {connected}/{len(self._controllers)} controllers connected"
+        )
+
+    def close(self) -> None:
+        """Close all controller connections."""
+        for ctrl in self._controllers:
+            try:
+                ctrl.close()
+            except Exception as exc:
+                logger.warning(f"Error closing controller: {exc}")
+
+        self._set_state(DeviceState.DISCONNECTED)
+        logger.info("MicroDM disconnected")
+
+    def is_connected(self) -> bool:
+        """Check whether at least one controller is connected and ready.
+
+        Returns:
+            True if at least one controller has an active TCP connection.
+        """
+        return self._state == DeviceState.READY and any(
+            ctrl.is_connected for ctrl in self._controllers
+        )
+
+    def get_hardware_info(self) -> dict[str, Any]:
+        """Get hardware-specific information.
+
+        Returns:
+            Dictionary with device info, connection status, and ranges.
+        """
+        connected_count = sum(1 for c in self._controllers if c.is_connected)
+        return {
+            "manufacturer": self.manufacturer,
+            "model": self.model,
+            "n_controllers": len(self._controllers),
+            "connected_controllers": connected_count,
+            "channels_per_controller": MAX_CHANNELS,
+            "total_channels": self.DM_Num,
+            "voltage_range": [self.V_Min, self.V_Max],
+            "relay_state": self._relay_state.name,
+            "controller_ips": [ctrl.ip for ctrl in self._controllers],
+            "controller_ports": [ctrl.port for ctrl in self._controllers],
+        }
+
+    def get_actuator_positions(self) -> npt.NDArray[np.floating]:
+        """Get the current actuator voltages.
+
+        Returns:
+            Copy of the current voltage array (DM_Num elements).
+        """
+        return self._last_voltages.copy()
+
+    # ---- DM Interface -------------------------------------------------------
+
+    def transform(self, cmd: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
+        """Transform a normalized command ``[-1, 1]`` to device voltage range.
+
+        Maps [-1, 1] linearly to [V_Min, V_Max].
+
+        Args:
+            cmd: Normalized command array.
+
+        Returns:
+            Voltage array in the device range.
+        """
+        return self.transform_voltage(cmd)
+
+    def send(self, cmd: npt.NDArray[np.floating] | float) -> npt.NDArray[np.floating]:
+        """Send a voltage command to all channels.
+
+        Args:
+            cmd: Voltage array (DM_Num elements) or a single float for all channels.
+
+        Returns:
+            The applied voltage array.
+
+        Raises:
+            MicroDMVoltageError: If the command type is unsupported.
+        """
+        if isinstance(cmd, np.ndarray):
+            return self.send_voltages(cmd)
+        if isinstance(cmd, (int, float)):
+            return self.set_all_channel_voltage(float(cmd))
+        raise MicroDMVoltageError(f"Unsupported command type: {type(cmd)}")
+
+    def _apply_voltages(self, vs: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
+        """Low-level voltage application via sync TCP to all controllers.
+
+        Channels are distributed round-robin across controllers:
+
+            controller 0  →  vs[0:50]
+            controller 1  →  vs[50:100]
+            ...
+        """
+        vs = np.clip(vs, self.V_Min, self.V_Max)
+        failed: list[str] = []
+        for ctrl_idx, ctrl in enumerate(self._controllers):
+            start = ctrl_idx * MAX_CHANNELS
+            end = start + MAX_CHANNELS
+            if start >= len(vs):
+                break
+            chunk = vs[start:end]
+            if len(chunk) < MAX_CHANNELS:
+                chunk = np.pad(
+                    chunk, (0, MAX_CHANNELS - len(chunk)), constant_values=0.0
+                )
+
+            cmd = (
+                HEADER
+                + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR])
+                + voltages_to_payload(chunk)
+                + FOOTER
+            )
+            ok = ctrl.send(cmd)
+            if not ok:
+                failed.append(ctrl.ip)
+
+        if failed:
+            raise MicroDMConnectionError(
+                f"电压下发失败 (控制器未响应): {', '.join(failed)}"
+            )
+
+        self._last_voltages = vs.copy()
+        return self._last_voltages
+
+    def send_voltages(
+        self, vs: npt.NDArray[np.floating], wait_time_s: float = 0.001
+    ) -> npt.NDArray[np.floating]:
+        """Send a voltage array to all channels using sync parallel TCP.
+
+        Voltages are distributed across R50Power controllers automatically.
+        When safety_mode is True (default), voltages are ramped from current
+        state to target in steps bounded by max_neibor_diff.
+
+        Args:
+            vs: Voltage array for all logical channels.
+            wait_time_s: Sleep after sending (hardware settling time).
+
+        Returns:
+            The applied voltage array.
+
+        Raises:
+            MicroDMVoltageError: If the array length does not match DM_Num.
+        """
+        vs = np.asarray(vs, dtype=np.float64)
+        if vs.shape != (self.DM_Num,):
+            raise MicroDMVoltageError(
+                f"Expected {self.DM_Num} voltages, got {vs.shape}"
+            )
+        result = super().send_voltages(vs, wait_time_s=wait_time_s)
+        # The base class echoes its input type, but ``vs`` was coerced to a
+        # plain ndarray above (a ``DmCommands`` has no array protocol, so it
+        # would already have been rejected by the shape check).
+        assert isinstance(result, np.ndarray)
+        return result
+
+    # ---- Protocol Commands --------------------------------------------------
+
+    def set_channel_voltage(self, channel: int, voltage: float) -> None:
+        """Set voltage for a single logical channel.
+
+        Automatically routes to the correct physical controller.
+
+        Args:
+            channel: Logical channel index (0 to DM_Num - 1).
+            voltage: Voltage in volts.
+
+        Raises:
+            MicroDMVoltageError: If channel is out of range.
+        """
+        if not 0 <= channel < self.DM_Num:
+            raise MicroDMVoltageError(
+                f"Channel must be 0-{self.DM_Num - 1}, got {channel}"
+            )
+
+        ctrl_idx = channel // MAX_CHANNELS
+        ch_idx = channel % MAX_CHANNELS
+
+        if ctrl_idx < len(self._controllers):
+            ctrl = self._controllers[ctrl_idx]
+            voltage_clipped = max(self.V_Min, min(self.V_Max, float(voltage)))
+            ctrl.set_channel_voltage(ch_idx, voltage_clipped)
+            self._last_voltages[channel] = voltage_clipped
+
+    def set_all_channel_voltage(self, voltage: float) -> npt.NDArray[np.floating]:
+        """Set all logical channels to the same voltage.
+
+        Sends to all controllers.
+
+        Args:
+            voltage: Voltage in volts for all channels.
+
+        Returns:
+            The applied voltage array.
+        """
+        voltage = max(self.V_Min, min(self.V_Max, float(voltage)))
+        vs = np.full(self.DM_Num, voltage)
+        self.send_voltages(vs)
+        logger.debug(f"Set all channels to {voltage} V")
+        return self._last_voltages.copy()
+
+    def set_relay_state(self, state: bool) -> None:
+        """Set relay state on all connected controllers.
+
+        Args:
+            state: True to open relay, False to close.
+        """
+        cmd = HEADER + bytes([CMD_RELAY_ON if state else CMD_RELAY_OFF]) + FOOTER
+        for ctrl in self._controllers:
+            if ctrl.is_connected:
+                ctrl.send(cmd)
+        self._relay_state = RelayState.ON if state else RelayState.OFF
+        logger.info(f"Relay {'opened' if state else 'closed'} on all controllers")
+
+    def reset_all(self) -> None:
+        """Reset all channels to 0 V."""
+        vs = np.zeros(self.DM_Num)
+        self.send_voltages(vs)
+        logger.info("MicroDM reset to 0 V")
+
+    def __repr__(self) -> str:
+        connected = sum(1 for c in self._controllers if c.is_connected)
+        return (
+            f"MicroDM("
+            f"controllers={len(self._controllers)}, "
+            f"connected={connected}, "
+            f"channels={self.DM_Num}, "
+            f"voltage=[{self.V_Min}, {self.V_Max}] V, "
+            f"state={self._state.name}"
+            f")"
+        )
+
+
+__all__ = [
+    "MAX_ACTUATORS",
+    "MAX_CHANNELS",
+    "MAX_CONTROLLERS",
+    "MICRO_DM_CONFIG",
+    "MicroDM",
+    "MicroDMConnectionError",
+    "MicroDMError",
+    "MicroDMParams",
+    "MicroDMVoltageError",
+    "R50Controller",
+    "RelayState",
+    "voltages_to_payload",
+]

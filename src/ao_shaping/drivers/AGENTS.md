@@ -129,7 +129,7 @@ class MyDriver(Device):
 
 ### 静态资源也必须锚定包路径, 不可用 CWD 相对路径
 
-`NLight.py` 曾在**类体**里执行 `np.loadtxt("data/dm_adj.txt")` —— 类体赋值即
+`dm/nlight/driver.py` (原 `NLight.py`) 曾在**类体**里执行 `np.loadtxt("data/dm_adj.txt")` —— 类体赋值即
 **import 期**读文件, 且路径相对 CWD。任何在仓库根目录之外运行的消费者 (cron、
 服务、安装后的 console script、`cwd=tmp_path` 的测试) 都会
 `FileNotFoundError: data/dm_adj.txt not found`, 即 **`import ao_shaping` 直接失败**。
@@ -176,7 +176,7 @@ class MyDriver(Device):
 | `get_displayed_memory_number` 报错码 1 正常 | slm | set_grayscale 模式无内存槽显示 |
 | 同内存槽连续 `display_memory` 是 no-op | slm | 固件不刷新正在显示的槽位 |
 | MiiCam 曝光修改 | ccd | 须 `reset_exposure_time()` (Stop→put_ExpoTime→重启拉流) |
-| 类名 `NLight` 非 `NLightDM` | dm | dm/NLight.py 中类名为 `NLight`, 非 `NLightDM` |
+| 类名 `NLight` 非 `NlightDM` | dm | `dm/nlight/driver.py` 中类名为 `NLight`, 非 `NlightDM` |
 
 ## Mock 设备
 

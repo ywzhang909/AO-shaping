@@ -291,7 +291,9 @@ WFS 驱动通常需要实现以下功能（参考 [`MockWFS`](src/ao_shaping/dri
 
 | 驱动 | 文件 | 说明 |
 |------|------|------|
-| [`NLight`](src/ao_shaping/drivers/dm/NLight.py:17) | `dm/NLight.py` | NLight 变形镜 |
+| [`NLight`](src/ao_shaping/drivers/dm/nlight/driver.py) | `dm/nlight/` | NLight 变形镜 |
+| [`MicroDM`](src/ao_shaping/drivers/dm/micro/driver.py) | `dm/micro/` | Micro-DM (R50Power) |
+| [`AsyncMicroDM`](src/ao_shaping/drivers/dm/micro/asyn_driver.py) | `dm/micro/asyn_driver.py` | Micro-DM 异步版 |
 | [`SimulateDM`](src/ao_shaping/drivers/dm/simulateDM.py) | `dm/simulateDM.py` | 模拟 DM |
 | [`MockDM`](src/ao_shaping/drivers/mock_devices.py:458) | `mock_devices.py` | 模拟 DM |
 

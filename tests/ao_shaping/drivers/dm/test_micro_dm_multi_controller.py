@@ -20,7 +20,7 @@ import time
 import numpy as np
 import pytest
 
-from ao_shaping.drivers.dm.MicroDM import (
+from ao_shaping.drivers.dm.micro import (
     CMD_RELAY_OFF,
     CMD_RELAY_ON,
     CMD_SET_ALL_CHANNEL_VOLTAGE,

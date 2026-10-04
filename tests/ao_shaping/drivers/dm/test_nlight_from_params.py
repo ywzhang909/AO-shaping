@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from ao_shaping.drivers.dm.NLight import NLight
+from ao_shaping.drivers.dm.nlight import NLight
 
 
 def _constructor_defaults() -> dict[str, Any]:

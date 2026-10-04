@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Callable, Self
 
 import numpy as np
+import numpy.typing as npt
 from loguru import logger
 from retrying import retry
 from scipy import ndimage
@@ -65,7 +66,9 @@ SLOT_MIN: int = 2
 SLOT_MAX: int = 125
 
 
-def apply_lut_remap(gray: np.ndarray, lut: np.ndarray) -> np.ndarray:
+def apply_lut_remap(
+    gray: npt.NDArray[np.number], lut: npt.NDArray[np.uint16]
+) -> npt.NDArray[np.float64]:
     """Apply phase→gray compensation lookup table to a grayscale array.
 
     Maps each pixel's ideal gray value (0..1023) through the inverse_gray LUT
@@ -338,9 +341,9 @@ class Santec:
         self.video_mode = video_mode if isinstance(video_mode, int) else int(video_mode)
         self.is_open = False
         self._max_gray = self.MAX_GRAYSCALE_VALUE
-        self._memory_phase_cache: dict[int, np.ndarray] = {}
+        self._memory_phase_cache: dict[int, npt.NDArray[np.uint16]] = {}
         self._displayed_memory_number: int | None = None
-        self._displayed_phase_cache: np.ndarray | None = None
+        self._displayed_phase_cache: npt.NDArray[np.uint16] | None = None
 
         # 保存init参数，用于open()中优先级判断
         # 与 ConfigHandler 兼容的字典形式
@@ -366,11 +369,11 @@ class Santec:
         self._correction = WavefrontCorrection(correction_csv_path)
 
         # 底相位叠加（UI 设置，write_phase 中自动叠加）
-        self._base_phase: np.ndarray | None = None
+        self._base_phase: npt.NDArray[np.floating] | None = None
         self._overlay_base_phase: bool = False
 
         # 相位→灰度补偿查找表（load_lut 加载，create_phase_from_array 中应用）
-        self._lut: np.ndarray | None = None
+        self._lut: npt.NDArray[np.uint16] | None = None
         self._lut_dir: Path | None = None
 
         # 延迟导入SLM SDK
@@ -407,7 +410,7 @@ class Santec:
         )
 
     @staticmethod
-    def shift_phase(phase: np.ndarray, shift_x: int, shift_y: int) -> np.ndarray:
+    def shift_phase(phase: npt.NDArray, shift_x: int, shift_y: int) -> npt.NDArray:
         """纯函数: 对相位图施加 X/Y 平移, 空白区域填 0.
 
         平移数学的唯一实现 (驱动 :meth:`apply_shift` / GUI 预览 / 其他调用方
@@ -456,7 +459,7 @@ class Santec:
     # ── LUT (phase→gray compensation) ─────────────────────
 
     @property
-    def lut(self) -> np.ndarray | None:
+    def lut(self) -> npt.NDArray[np.uint16] | None:
         """Loaded inverse_gray compensation table (uint16, len ~1024) or None."""
         return self._lut
 
@@ -828,7 +831,7 @@ class Santec:
             raise SantecError("读取当前灰度值失败", code=ret)
         return gray.value
 
-    def get_displayed_phase(self) -> tuple[np.ndarray | None, str]:
+    def get_displayed_phase(self) -> tuple[npt.NDArray[np.uint16] | None, str]:
         """获取当前显示的相位缓存及其来源说明。
 
         Returns:
@@ -1067,7 +1070,7 @@ class Santec:
     )
     def _write_phase(
         self,
-        phase: np.ndarray,
+        phase: npt.NDArray[np.uint16],
         memory_number: int = 1,
         memory_mode: int = MEMORY_MODE_INTERNAL,
     ) -> None:
@@ -1188,7 +1191,7 @@ class Santec:
 
     def display_data(
         self,
-        phase_gray: np.ndarray,
+        phase_gray: npt.NDArray[np.uint16],
         wait_time_s: float | None = None,
         memory_number: int | None = None,
         memory_mode: int = MEMORY_MODE_INTERNAL,
@@ -1254,12 +1257,12 @@ class Santec:
 
         if wait_time_s > 0:
             time.sleep(wait_time_s)
-            
+
         return memory_number if memory_number else target_slot
 
     def display_phase(
         self,
-        phase_rad: np.ndarray,
+        phase_rad: npt.NDArray[np.floating],
         wait_time_s: float | None = None,
         memory_number: int | None = None,
         memory_mode: int = MEMORY_MODE_INTERNAL,
@@ -1295,7 +1298,7 @@ class Santec:
         skiprows: int = 1,
         delimiter: str = ",",
         panel_resolution: tuple[int, int] | None = None,
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.uint16]:
         """从CSV文件加载灰度数据
 
         CSV格式:
@@ -1331,7 +1334,7 @@ class Santec:
         filepath: str | Path,
         skiprows: int = 1,
         delimiter: str = ",",
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.float64]:
         """将CSV中的灰度矩阵（0~2^GRAY_SCALE_BITS-1）还原为弧度制相位数组。
 
         将CSV文件中的原始灰度值（0~1023）按设备常量 :func:`get_max_grayscale`
@@ -1352,7 +1355,7 @@ class Santec:
 
     @staticmethod
     def save_phase_to_csv(
-        phase_rad: np.ndarray,
+        phase_rad: npt.NDArray[np.floating],
         filepath: str | Path | io.BufferedIOBase | io.TextIOBase,
         delimiter: str = ",",
         panel_resolution: tuple[int, int] | None = None,
@@ -1382,7 +1385,7 @@ class Santec:
 
     @staticmethod
     def save_gray_to_csv(
-        gray: np.ndarray,
+        gray: npt.NDArray[np.integer],
         filepath: str | Path | io.BufferedIOBase | io.TextIOBase,
         delimiter: str = ",",
     ) -> None:
@@ -1413,9 +1416,7 @@ class Santec:
                 f"({target_h}, {target_w})"
             )
         if not np.issubdtype(phase.dtype, np.integer):
-            raise ValueError(
-                f"灰度值必须是整数，当前 dtype: {phase.dtype}"
-            )
+            raise ValueError(f"灰度值必须是整数，当前 dtype: {phase.dtype}")
         if phase.min() < GRAYSCALE_MIN or phase.max() > GRAYSCALE_MAX:
             raise ValueError(
                 f"灰度值越界: 范围 [{phase.min()}, {phase.max()}]，"
@@ -1450,13 +1451,12 @@ class Santec:
                 filepath.write(content.encode("utf-8"))
 
         logger.info(
-            f"灰度数据已导出: 形状={phase.shape}, "
-            f"范围=[{phase.min()}, {phase.max()}]"
+            f"灰度数据已导出: 形状={phase.shape}, 范围=[{phase.min()}, {phase.max()}]"
         )
 
     def create_phase_from_array(
-        self, phase_rad: np.ndarray, max_grayscale: int | None = None
-    ) -> np.ndarray:
+        self, phase_rad: npt.NDArray[np.floating], max_grayscale: int | None = None
+    ) -> npt.NDArray[np.uint16]:
         """Convert radian phase values to SLM grayscale values.
 
         Converts phase values in radians (0-2π) to SLM grayscale (0-1023).
@@ -1560,7 +1560,7 @@ class Santec:
         *,
         wait_time_s: float = 0.3,
         save_config: bool = True,
-    ) -> np.ndarray | None:
+    ) -> npt.NDArray[np.uint16] | None:
         """应用平移并自动重绘当前显示的相位 (绝对定位, 不累积).
 
         与多SLM控制器 "应用平移" 按钮一致的高层接口, 供任意调用方复用:
@@ -1797,7 +1797,7 @@ class Santec:
             f"use_120hz={params.use_120hz}"
         )
 
-    def _apply_shift(self, phase: np.ndarray) -> np.ndarray:
+    def _apply_shift(self, phase: npt.NDArray) -> npt.NDArray:
         """应用当前 shift 参数到相位图 (委托 :meth:`shift_phase`)"""
         return self.shift_phase(phase, self._shift_x, self._shift_y)
 
@@ -1823,7 +1823,9 @@ class Santec:
             raise RuntimeError("SLM设备未打开，请先调用open()方法")
 
     def _estimate_pixel_flip_wait(
-        self, new_phase: np.ndarray, prev_phase: np.ndarray | None
+        self,
+        new_phase: npt.NDArray[np.number],
+        prev_phase: npt.NDArray[np.number] | None,
     ) -> float:
         """按最大灰度变化估算 LCOS 像素翻转等待时间。
 
@@ -1928,7 +1930,7 @@ class Santec:
             return buf.value.decode("utf-8").strip() or None
         return None
 
-    def _resize_to_panel(self, data: np.ndarray) -> np.ndarray:
+    def _resize_to_panel(self, data: npt.NDArray) -> npt.NDArray[np.float64]:
         """将数组裁切或补零至SLM面板分辨率（委托至 WavefrontCorrection）
 
         若输入尺寸超过面板分辨率，从中心裁切；
@@ -2036,7 +2038,7 @@ class Santec:
 
     def _write_to_memory(
         self,
-        phase: np.ndarray,
+        phase: npt.NDArray[np.uint16],
         memory_number: int,
         memory_mode: int = MEMORY_MODE_INTERNAL,
     ) -> None:

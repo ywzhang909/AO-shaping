@@ -1,4 +1,4 @@
-﻿"""R50 联合控制模块 (JC) — MicroDM 矩阵读取 / 连接 / 继电器 / 下发 / 编辑 / 可视化。
+"""R50 联合控制模块 (JC) — MicroDM 矩阵读取 / 连接 / 继电器 / 下发 / 编辑 / 可视化。
 
 被 ``r50_tabs.render_tab_all_control`` 与
 ``r50_sidebar._sidebar_joint_connection`` 复用。
@@ -13,7 +13,7 @@ import pandas as pd
 import streamlit as st
 from loguru import logger
 
-from ao_shaping.drivers.dm.MicroDM import (
+from ao_shaping.drivers.dm.micro import (
     CMD_SET_ALL_VOLTAGE_BY_ARR,
     FOOTER,
     HEADER,

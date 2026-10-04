@@ -143,12 +143,14 @@ _DEFAULT_FOCAL_LENGTH_M = focal_length_from_camera_pixel(
 # Preserve that exact ordering for byte-identical help output.
 DM_TYPES_PRE_ASYN_MICRO = list_dm_types()
 
-# Importing asyn_micro_dm registers the "asyn_micro" DM type (side effect).
-# It is normally registered by micro_drive.full_voltage_runner, which is
+# Importing the async driver module registers the "asyn_micro" DM type (side
+# effect). It is normally registered by micro_drive.full_voltage_runner, which is
 # imported AFTER this module in runners/__init__.py — without this import,
 # DM_TYPES below would miss asyn_micro and the --dm_type choice list would
-# silently shrink from 6 to 5 entries.
-import ao_shaping.drivers.dm.asyn_micro_dm  # noqa: F401
+# silently shrink from 7 to 6 entries. The submodule is imported directly
+# rather than via ``dm.micro``, whose __getattr__ resolves the async driver
+# lazily (that laziness is what keeps DM_TYPES_PRE_ASYN_MICRO above honest).
+import ao_shaping.drivers.dm.micro.asyn_driver  # noqa: F401
 
 DM_TYPES = list_dm_types()
 

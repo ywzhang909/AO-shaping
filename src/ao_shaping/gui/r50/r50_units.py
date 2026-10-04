@@ -1,4 +1,4 @@
-﻿"""R50 单单元控制模块 — 跨控制器选择物理单元并下发电压。
+"""R50 单单元控制模块 — 跨控制器选择物理单元并下发电压。
 
 包含 ``render_tab_single_unit`` 及其辅助函数。复用方:
 ``r50_tabs`` (``_render_current_voltages`` / ``_channel_info_to_dict``) 与
@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from ao_shaping.drivers.dm.MicroDM import (
+from ao_shaping.drivers.dm.micro import (
     CMD_SET_ALL_VOLTAGE_BY_ARR,
     FOOTER,
     HEADER,

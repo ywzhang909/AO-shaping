@@ -15,12 +15,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import numpy as np
 import pytest
 
-from ao_shaping.drivers.dm.MicroDM import voltages_to_payload
+from ao_shaping.drivers.dm.micro import voltages_to_payload
 
 # Import from the module under test.
 # NOTE: WiringMap is re-exported from asyn_micro_dm for convenience,
 # but we import the canonical class from MicroDM for assertion.
-from ao_shaping.drivers.dm.asyn_micro_dm import (
+from ao_shaping.drivers.dm.micro import (
     AsyncMicroDM,
     AsyncR50Controller,
     SendResult,
@@ -143,7 +143,7 @@ class TestAsyncR50Controller:
         mock_reader = MagicMock()
         mock_writer = _make_mock_writer()
 
-        with patch("ao_shaping.drivers.dm.asyn_micro_dm.asyncio.open_connection",
+        with patch("ao_shaping.drivers.dm.micro.asyn_driver.asyncio.open_connection",
                     new_callable=AsyncMock, return_value=(mock_reader, mock_writer)):
             result = await controller.connect()
 
@@ -153,7 +153,7 @@ class TestAsyncR50Controller:
     @pytest.mark.asyncio
     async def test_connect_failure(self, controller: AsyncR50Controller):
         """Failed connect (exception) should return False."""
-        with patch("ao_shaping.drivers.dm.asyn_micro_dm.asyncio.open_connection",
+        with patch("ao_shaping.drivers.dm.micro.asyn_driver.asyncio.open_connection",
                     new_callable=AsyncMock, side_effect=OSError("refused")):
             result = await controller.connect()
 
@@ -447,8 +447,8 @@ class TestWiringMapReuse:
 
     def test_import_wiring_map(self):
         """WiringMap should be importable from asyn_micro_dm."""
-        from ao_shaping.drivers.dm.asyn_micro_dm import WiringMap as WMFromAsync
-        from ao_shaping.drivers.dm.MicroDM import WiringMap as WMFromMicro
+        from ao_shaping.drivers.dm.micro import WiringMap as WMFromAsync
+        from ao_shaping.drivers.dm.micro import WiringMap as WMFromMicro
 
         assert WMFromAsync is WMFromMicro
 

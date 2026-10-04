@@ -14,7 +14,7 @@ Supports:
 
 Example:
     >>> from ao_shaping.optimizer.wf.dm_response_matrix import calibrate_dm_response_matrix
-    >>> from ao_shaping.drivers.dm.NLight import NLight
+    >>> from ao_shaping.drivers.dm.nlight import NLight
     >>> from ao_shaping.drivers.wfs import ThorlabWFS
     >>>
     >>> with NLight() as dm:

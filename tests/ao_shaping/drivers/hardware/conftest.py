@@ -136,7 +136,7 @@ def zernike_slm():
 def dm():
     """NLight DM instance. Skips if hardware unavailable."""
     try:
-        from ao_shaping.drivers.dm.NLight import NLight
+        from ao_shaping.drivers.dm.nlight import NLight
         dm = NLight()
         dm.open()
         yield dm

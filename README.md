@@ -1384,7 +1384,7 @@ canonical `ZernikeGenerator` 预计算的基，**不得**在算法层重新推�
   - **排除控制器**: 初始化时可通过 `exclude_ips` 或 `exclude_ids` 跳过指定控制器
 
   ```python
-  from ao_shaping.drivers.dm.MicroDM import MicroDM
+  from ao_shaping.drivers.dm.micro import MicroDM
 
   # 默认加载 wiring map，自动识别控制器 IP
   dm = MicroDM()
@@ -1427,7 +1427,7 @@ canonical `ZernikeGenerator` 预计算的基，**不得**在算法层重新推�
   - 并行控制器通信，独立超时控制
 
   ```python
-  from ao_shaping.drivers.dm.asyn_micro_dm import AsyncMicroDM
+  from ao_shaping.drivers.dm.micro import AsyncMicroDM
 
   # 同步用法（内部桥接到异步）
   dm = AsyncMicroDM(ips=["192.168.0.101", "192.168.0.102"])

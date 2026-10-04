@@ -13,7 +13,7 @@ from ao_shaping.drivers.dm._registry import (
 )
 from ao_shaping.drivers.dm.hadamard_dm import HadamardDM
 from ao_shaping.drivers.dm.zernike_dm import ZernikeDM
-from ao_shaping.drivers.dm.MicroDM import (
+from ao_shaping.drivers.dm.micro import (
     MicroDM,
     MicroDMError,
     MicroDMConnectionError,
@@ -24,7 +24,7 @@ from ao_shaping.drivers.dm.MicroDM import (
 # this (hardware) package -> drivers.sim.dm -> simulated_micro_dm ->
 # drivers.dm.base -> back into this module, while drivers.sim.dm was only half
 # initialised. The cycle used to be masked because ``drivers/__init__`` imported
-# ``dm.NLight`` eagerly, completing this module before ``drivers.sim`` was
+# ``dm.nlight`` eagerly, completing this module before ``drivers.sim`` was
 # touched; making that import lazy exposed it.
 _LAZY_BACKENDS: dict[str, tuple[str, str]] = {
     "SimMicroDM": ("ao_shaping.drivers.sim.dm", "SimMicroDM"),

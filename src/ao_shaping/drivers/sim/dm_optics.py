@@ -23,7 +23,7 @@ pin, and the reason a reported "response" carries any meaning.
 
 Physical device
 ---------------
-This model stands in for the **NLight deformable mirror** (``drivers/dm/NLight.py``),
+This model stands in for the **NLight deformable mirror** (``drivers/dm/nlight/driver.py``),
 the bench's primary DM. Its actuator count and voltage limits are taken from that
 driver's own class attributes rather than restated here, so the simulated device
 cannot silently drift away from the hardware it mirrors.
@@ -55,7 +55,7 @@ from __future__ import annotations
 import numpy as np
 from loguru import logger
 
-from ao_shaping.drivers.dm.NLight import NLight
+from ao_shaping.drivers.dm.nlight import NLight
 
 #: Physical device this model mirrors. Actuator count and voltage limits are read
 #: from it directly; only the un-documented stroke is a modelling parameter here.

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ao_shaping.drivers.dm.MicroDM import (
+from ao_shaping.drivers.dm.micro import (
     CMD_SET_ALL_CHANNEL_VOLTAGE,
     CMD_SET_ALL_VOLTAGE_BY_ARR,
     FOOTER,

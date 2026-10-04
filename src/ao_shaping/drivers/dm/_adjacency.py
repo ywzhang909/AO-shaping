@@ -2,7 +2,7 @@
 
 The matrix used to be read twice, with divergent behaviour:
 
-* ``drivers/dm/NLight.py`` read ``"data/dm_adj.txt"`` in its **class body**,
+* ``drivers/dm/nlight/driver.py`` read ``"data/dm_adj.txt"`` in its **class body**,
   so the read happened at *import* time and a wrong working directory made
   ``import ao_shaping`` fail outright with ``FileNotFoundError``.
 * ``drivers/sim/dm/simulated_dm.py`` read the same path in ``__init__`` but
@@ -18,6 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 
 #: ``src/ao_shaping/drivers/dm/_adjacency.py`` -> repository root.
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -25,10 +26,13 @@ ADJACENCY_PATH: Path = _REPO_ROOT / "data" / "dm_adj.txt"
 
 _ACTUATOR_COUNT = 64
 
-_cache: np.ndarray | None = None
+#: ``np.loadtxt`` yields float64; the synthetic fallback yields int. Both are
+#: consumed only via ``== 1`` / boolean indexing, so the cache is typed to the
+#: common numeric supertype rather than coercing (which would change values).
+_cache: npt.NDArray[np.number] | None = None
 
 
-def _synthetic_grid(size: int = _ACTUATOR_COUNT) -> np.ndarray:
+def _synthetic_grid(size: int = _ACTUATOR_COUNT) -> npt.NDArray[np.intp]:
     """A 4-neighbour grid, used only when the asset is genuinely unavailable."""
     side = int(np.sqrt(size))
     if side * side != size:
@@ -49,7 +53,7 @@ def _cache_clear() -> None:
     _cache = None
 
 
-def load_adjacency() -> np.ndarray:
+def load_adjacency() -> npt.NDArray[np.number]:
     """Return the ``(64, 64)`` actuator adjacency matrix, loading it once.
 
     Resolution order: the packaged asset, then a CWD-relative ``data/`` copy for
@@ -84,7 +88,9 @@ class lazy_adjacency:
     ``self.Units_Adj_Mat`` working while moving the I/O to first use.
     """
 
-    def __get__(self, obj: object, objtype: type | None = None) -> np.ndarray:
+    def __get__(
+        self, obj: object, objtype: type | None = None
+    ) -> npt.NDArray[np.number]:
         return load_adjacency()
 
 
