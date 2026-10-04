@@ -160,7 +160,7 @@
 | **F-10** | 🔴 **`sim/AGENTS.md`「已知约束」第 4 条描述的代码改写从未落地**：该条声称 `_rescale_for` 已改为**只** `(_R0_REF_500/r0_slab)**(5/6)`，并称已移除 `lam/_LAM_REF_500`、`/_CAL_REF`、`*sqrt(1.03)`。**三者至今仍在** `oopao_backend.py:96,101-103`（`_CAL_REF = 0.6191` 在 `:71`）。连带第 3 条的实测常数 1.068/2.628 **不可复现** —— 真实值是 **5.428 / 13.354**（与 `docs/oopao_impact/report.md:62-63` 一致）。**先落地改写并重跑 `generate_oopao_impact_report.py`，或回退那两条。** | `oopao_backend.py:88-103` + `sim/AGENTS.md` 第 3/4 条 | 2026-10-01 |
 | **F-11** | 🔴 **SLM 序列号三路冲突**：`drivers/AGENTS.md:158` 与 `docs/slm/bench_calibration_20261001.md` 记 SLM#1 = **22030108**（@1064nm，2π=993）；`drivers/slm/AGENTS.md:114,139` 记 **22030102**（@532nm，2π=998）；`docs/slm/report2.md` / `report3.md` / `zernike_linearity/linearity.md` 记 **23020026**（@532nm）。三者或为两台设备。**引用前必须确认，并回写 `drivers/AGENTS.md` 硬件表**（Daheng CCD `FJB24112232` 已于 2026-10-01 补录进该表） | `drivers/AGENTS.md` 硬件事实表 | 2026-10-01 |
 | **F-12** | **焦面标定常数三方不一致**：`AGENTS.md:697` 写 `5021/Λ`（对应 3.31 µm 像元）；`docs/slm/model_in_loop_bench_calibration.md` / `README.md:517` 写 7400–7600（对应 2.2 µm 像元）；`docs/slm_pib_heuristic_hw/report.md:159` 主张改 **10954**。⚠️ **2.2 µm 像元推得 ~7557 而非 10954，故该主张本身也待复核**。H-11 只覆盖了 132940 vs 7600，**未覆盖此三方冲突** | `slm_diagnose.py:54`、`slm_lut_runner.py:38`、`slm_bench_probe.py:78`、两处测试 | 2026-10-01 |
-| **F-13** | `strehl()` 是**去均值余弦相似度**，不是物理 Strehl 比（`slm_shaping_bench.py:309-323`）。但 `beam_shaping_benchmark.py` 与 `docs/beam_shaping/papers/beam_shaping_papers.md:30` 消费它的输出并称 "Strehl" ⇒ **docs 树里所有 "Strehl" 数字实为归一化重叠**。`docs/zotero_objectives/README.md:526-528` 已标记「需决策」但未修 | `slm_shaping_bench.py:309` | 2026-10-01 |
+| **F-13** | ~~`strehl()` 被当物理 Strehl 比~~ | ✅ **早已基本处理完**（2026-10-04 实测）：`strehl()` 的 docstring 已自述 "Normalized overlap (**Strehl-like**)" 并写明是余弦相似度；`beam_shaping_papers.md:30` 也已定义为"归一化重叠"；`zotero_objectives/README.md:524-529` 已列命名冲突与建议。⚠️ 原记录里"`beam_shaping_benchmark.py` 消费其输出并称 Strehl"**已不成立** —— 该文件现在**完全没有** overlap / strehl / cosine 引用。**本轮只补最后一处裸列名**：表头 `Strehl` → `Strehl†` 并加脚注 → §5.24 | `slm_shaping_bench.py:309` | 2026-10-01 |
 | **F-14** 报告生成写在 `algorithm/` 层 | ✅ 违反反模式「report generation MUST live in `scripts/`」。写出器移到 `scripts/generate_beam_shaping_benchmark_report.py`；`algorithm/` 侧 `run_benchmark`/`run_benchmark_suite` **不再接受 `output_dir`** → §5.13 |
 | **F-15** `docs/beam_shaping_benchmark_metrics.md` 被 README 当权威链接，实际是 1 行 smoke 残留 |✅ 9 单元权威网格已生成并**提交**（~100 s 全离线），README 改指真产物；1 行残留**删除** → §5.13 |
 
@@ -1300,6 +1300,29 @@ logger.debug(
 
 > 顺带说明：`slm_model_in_loop.py` 有一个 F821（`Recorder` 未定义），
 > 但该文件**不在 HEAD 里、且是未跟踪状态** ⇒ 属于并行的 WIP，不是本轮引入。
+
+---
+
+### 5.24 F-13 —— `Strehl` 列名加脚注（2026-10-04）
+
+实测发现这条**早已基本处理完**，原记录有两处过时：
+
+* `strehl()` 的 docstring 已自述 `Normalized overlap (**Strehl-like**)`，
+  并明确写了是均值中心化后的余弦相似度 ⇒ 函数侧早就诚实了；
+* `beam_shaping_papers.md:30` 早已定义 `- **Strehl**: 归一化重叠（余弦相似度）`；
+* `zotero_objectives/README.md:524-529` 早已列出命名冲突与建议；
+* ⚠️ 原记录说 **`beam_shaping_benchmark.py`** 消费其输出并称 Strehl ——
+  实测该文件**完全没有** `overlap` / `strehl` / `cosine` 引用，**该前提已不成立**。
+
+**唯一真正误导的残留**是表格列名：表头只有裸 `Strehl`，读者若不往下翻到
+定义行，会把它当物理 Strehl 比读。
+
+改动：列名 `Strehl` → `Strehl†`，并在定义处补脚注，写明
+① 它是去均值余弦相似度、② 真 Strehl 比是 `峰值强度 / 理想峰值强度`、
+③ 列名保留只为与既有表格对齐但**不可当 Strehl 读**、④ 指向 zotero README 的决策记录。
+
+**没有改函数名**：`strehl` 是既有 API，重命名会波及调用方与已提交产物，
+属于需要一并决策的事，留在 `zotero_objectives/README.md` 的待决项里。
 
 ---
 
