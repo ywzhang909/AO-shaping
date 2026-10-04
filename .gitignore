@@ -144,4 +144,6 @@ docs/micro-dm/images/00*.png
 report/miicam_simulation/miicam_report.md
 report/miicam_simulation/images/001_simulated_images.png
 report/slm_pib_online*
-report/pearson_gifs/*.gif
+# report/pearson_gifs/*.gif is deliberately NOT ignored: those 10 GIFs (~69 MB) are
+# the animated record of the Pearson-correlation runs and are the only visual
+# evidence for the `1 - Pearson` objective verdict, so they are reviewed in CI.
