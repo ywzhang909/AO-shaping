@@ -336,6 +336,51 @@ def test_no_dataclass_option_carries_a_default(probe: str) -> None:
     )
 
 
+def test_both_camera_flag_spellings_survive() -> None:
+    """R-41: the camera-flag spelling is split across probes, and both are habit.
+
+    Nine probes take ``--cam-type``; ``slm_diagnose`` and ``slm_lut_runner`` take
+    ``--camera-type``. Neither is a typo to be swept up -- they are what operators
+    already type -- so the contract is that **both stay**, and that no single probe
+    grows both spellings (which would be a silent CLI fork, not an alias).
+
+    The golden already pins every flag name, so this test does not add coverage; it
+    makes the *intent* legible, so a future "harmonise the spelling" change has to
+    come here on purpose rather than ride along in a refactor.
+    """
+    g = _golden()
+    short = {p for p in PROBES if "--cam-type" in g[p]["declared"]}
+    long_ = {p for p in PROBES if "--camera-type" in g[p]["declared"]}
+
+    assert len(short) == 9, f"--cam-type lost a probe: {sorted(short)}"
+    assert len(long_) == 2, f"--camera-type lost a probe: {sorted(long_)}"
+    assert not short & long_, (
+        f"{sorted(short & long_)} expose both spellings; pick one or add a real "
+        f"alias, do not fork the CLI"
+    )
+    assert long_ == {"slm_diagnose", "slm_lut_runner"}
+
+
+@pytest.mark.parametrize(
+    ("a", "b", "count_a", "count_b"),
+    [
+        ("--output", "--out", 8, 4),
+        ("--slm-wavelength", "--wavelength", 15, 3),
+    ],
+)
+def test_other_split_flag_spellings_survive(
+    a: str, b: str, count_a: int, count_b: int
+) -> None:
+    """The other two split spellings R-41 swept up, same contract as above."""
+    g = _golden()
+    users_a = {p for p in PROBES if a in g[p]["declared"]}
+    users_b = {p for p in PROBES if b in g[p]["declared"]}
+
+    assert len(users_a) == count_a, f"{a} moved: {len(users_a)} != {count_a}"
+    assert len(users_b) == count_b, f"{b} moved: {len(users_b)} != {count_b}"
+    assert not users_a & users_b, f"{sorted(users_a & users_b)} expose both {a} and {b}"
+
+
 def test_the_flag_surface_is_the_size_we_think_it_is() -> None:
     """285 declared flags across 19 probes. A drop here means the scan went blind.
 

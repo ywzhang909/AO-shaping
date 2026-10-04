@@ -144,7 +144,7 @@
 | R-42 | **4 个 argparse 探针改 click**（`slm_abba_probe` / `slm_drift_probe` / `slm_floor_probe` / `slm_zernike_sweep_probe`）。实测三个非机械迁移障碍：① `main(argv) -> int` + `raise SystemExit(main())`，click command 不接 argv；② `test_slm_abba_probe.py:541/560` **直接绑定 `probe._parse_args(...)`**（断言默认值 + 断言非法 `--cam-type nikon` 报错），改 click 就得删掉 `_parse_args` 并重写这些测试；③ `--help` 格式从 argparse 变 click | 同左 | 2026-10-04 |
 | R-38 | canonical 采用率过低：19 个构造 SLM 的文件里 **只有 1 个**用 `zero_order_center`（`slm_snr_probe.py`），其余裸 `np.argmax`；`phase_to_slm_grayscale` 也**只有 1 个**文件用，另有 **7 处**直调 `create_phase_from_array` | 同左 | 2026-10-01 |
 | R-39 | 曝光默认值 7 种并存（0.02/0.03/1.1/1.2/2.0/3.0/4.0 ms）；内存槽轮换 3 种写法（驱动自动 / 自建 `SlotRotator` / 手工 `current_slot`） | 同左 | 2026-10-01 |
-| R-41 | flag 拼写分裂（2026-10-04 实测）：`--cam-type` **9** 个探针 vs `--camera-type` **2** 个（`slm_diagnose` / `slm_lut_runner`）；另有 `--output` **8** vs `--out` **4**、`--slm-wavelength` **15** vs `--wavelength` **3**。建议保留现有拼写不破坏习惯用法 | 同左 | 2026-10-01 |
+| R-41 | flag 拼写分裂（2026-10-04 实测）：`--cam-type` **9** 个探针 vs `--camera-type` **2** 个（`slm_diagnose` / `slm_lut_runner`）；另有 `--output` **8** vs `--out` **4**、`--slm-wavelength` **15** vs `--wavelength` **3**。建议保留现有拼写不破坏习惯用法 | ✅ **已完成**（§5.18）：两种拼法都**保留**，并加**契约测试**把意图写死 —— 不只是"golden 顺带钉住"，而是明确断言「两套都在、且没有任何探针同时暴露两套」 | 2026-10-01 |
 
 ---
 
@@ -1148,6 +1148,25 @@ r_bucket = min(_r, _pr, _init_r)             # → 0.0   桶半径归零
   （`test_pib_helpers.py` 测的是它），**未核对**。
 * `_display_shape` 的 objective 列表**已经漂移**：pib 缺 `"rmse_out"`
   ⇒ `rmse_out` 在 pib 里实际是失效的。**这是一个独立 bug，本轮未修。**
+
+---
+
+### 5.18 R-41 —— 两种 flag 拼法都保留，并加契约测试（2026-10-04）
+
+R-37 的 golden 已经**隐含**钉住了所有 flag 名，所以 R-41 其实是"已经被覆盖"的。
+但**隐式覆盖不够**：下一次有人做"顺手统一拼写"的重构时，
+golden 会以"我只是想清理一下"的名义被重新生成，意图就此消失。
+
+所以补了**显式契约测试**（`test_probe_flags.py`，现 **82 passed / 0.45 s**）：
+
+* `--cam-type` **9** 个探针、`--camera-type` **2** 个（`slm_diagnose` / `slm_lut_runner`）
+  —— 断言**两套都在**，且**没有任何探针同时暴露两套**
+  （同时暴露是 CLI 分叉，不是别名，必须显式决定）。
+* `--output` **8** vs `--out` **4**、`--slm-wavelength` **15** vs `--wavelength` **3**
+  —— 同样断言。
+
+计数写死在测试里，所以任何拼写侧的改动都会**先在这里失败**，
+逼作者说明这是有意为之还是顺手改的。
 
 ---
 
