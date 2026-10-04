@@ -183,9 +183,22 @@ def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs: Any) -
 # radius. Derived from the panel so it cannot drift from
 # `runners.runner_common.DEFAULT_ZERNIKE_RADIUS`, which the GUI and the other SLM
 # runners also use. The value it replaces, 300.0, was a bare literal: on a
-# 1920x1200 panel 300 is half the short side *again*, i.e. half the aperture the
-# rest of the project uses, so this runner silently generated its Zernike basis
-# over a quarter of the area the GUI would have used for the same request.
+# Aperture radius (px) the Zernike phase is defined over. Must match the
+# illuminated beam radius on the SLM.
+#
+# ⚠️ UNRESOLVED, and the two comments that used to sit here contradicted each
+# other. One argued for 600 on the grounds that 300 would give this runner a
+# quarter of the area the GUI uses. The other -- hardware-verified, and the reason
+# ``slm_zernike_pib`` pins 300 -- recorded that with a 600 px aperture only the
+# inner half of the polynomial lands on the beam, every mode is nearly CONSTANT
+# across the illuminated area, and a constant phase does not change the far field:
+# flat and a 2 rad defocus were indistinguishable until the aperture matched.
+#
+# This module has no production importer (``rms-zernike`` routes to
+# ``optimizer.wf.rms_by_zernike``), so nothing production is affected either way;
+# the 1010-record corpus is pinned to 300 by
+# ``tests/ao_shaping/runners/test_gsnet_dataset.py``. Aligning the value is left
+# to the X-3 decision rather than changed silently here.
 ZERNIKE_APERTURE_RADIUS = min(PANEL_RES) / 2.0
 
 # The camera window must be at least this multiple of the target's LONG side.
@@ -200,16 +213,6 @@ CAM_WINDOW_TARGET_MARGIN = 1.5
 # radius is dominated by the stray halo and lands ~2x too large, which leaves no
 # shaping headroom at all.)
 TARGET_BOX_WAIST_FACTOR = 2.0
-"""Aperture radius (px) the Zernike phase is defined over.
-
-Must match the illuminated beam radius on the SLM. The panel is 1920x1200, so
-PatternHelper's default is half the short side = 600 px; this bench's beam
-radius is only ~300 px. With a 600 px aperture only the inner half of the
-polynomial lands on the beam, so every mode is nearly CONSTANT across the
-illuminated area -- and a constant phase does not change the far field, i.e.
-the correction silently does nothing (hardware-verified: flat vs a 2 rad
-defocus were indistinguishable until this was matched).
-"""
 
 
 # Memory-slot range used for phase writes (never repeat a slot consecutively).

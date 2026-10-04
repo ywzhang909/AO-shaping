@@ -104,8 +104,8 @@
 | R-6 P1 | 两个搜索分支共享 `BenchSession`（"clip→相位→display→sleep→采图→饱和→算目标" 序列重复，饱和策略还不一致） | SPGD ~`:1419` / heuristic `:1190` | 2026-09-25 |
 | R-7 P1 | 巨型函数拆编排器：~900 行 → `prepare_geometry` 返回**不可变 dataclass**（字段区分 `window_center_full_frame` / `reference_center_window_local`）+ `_run_spgd`/`_run_heuristic` | `slm_zernike_pib.py:760-1700` | 2026-09-25 |
 | R-8 P1 | 硬件安全 try/finally：任何异常（相机掉线、越界、KeyboardInterrupt）都让 SLM 停在随机相位 | `slm_zernike_pib.py:1060` | 2026-09-25 |
-| R-9 P2 | 300px 光阑踩坑文档**挂错常量**：文字在 `TARGET_BOX_WAIST_FACTOR`（`:252`）后且是字符串字面量（不是 docstring、不可达），真正该注释的 `ZERNIKE_APERTURE_RADIUS = 300.0`（`:239`）无任何说明 | `slm_zernike_pib.py:239,252` | 2026-09-25 |
-| R-10 P2 | 死代码 `gauss_center`（零生产调用，可删）。**已确认 `slm_zernike_shaping.py:154` 有第二份副本，而那份是生产代码** —— 两份一起删 | `slm_zernike_pib.py:167-217` | 2026-09-25 |
+| R-9 P2 | 300px 光阑踩坑文档**挂错常量** | ✅ **已完成**（`pib` 早已正确）。实测：note 现正确挂在 `ZERNIKE_APERTURE_RADIUS = 300.0`（`slm_zernike_pib.py:195`）之后。**本轮只修了 `slm_zernike_shaping.py`** —— 那里 docstring 是 `TARGET_BOX_WAIST_FACTOR` 之后的**裸字符串**（不是 docstring、不可达），且与 `:186-188` 的注释**互相矛盾**（一个说该用 600、一个说 600 会让修正静默失效且是硬件实测）→ §5.20 | 2026-09-25 |
+| R-10 P2 | 死代码 `gauss_center`（零生产调用，可删） | ✅ **早已完成**（本轮实测确认）：全仓 grep 只剩 `TODO.md` / `docs/TODO.md` 的记录行，`src/` 无定义、无调用；专属测试也已删（`test_slm_zernike_pib_shape.py` 里剩下的 `"gaussian"` 是 target_shape 取值，无关） | 2026-09-25 |
 | R-11 P2 | 常量替换字面量（`-5.0/5.0` clip ×6、`1e-4`）→ `IMPROVE_EPS` / 复用 `ZERNIKE_CLIP`。守卫惩罚 `1e3` **已于 R-1 落地为 `GUARD_PENALTY`**（定义在 `drivers/ccd/common.py`，经 `utils/image/target` 导出） | 多处 | 2026-09-25 |
 | R-12 P2 | `_update_dynamic_weights` → `AdaptiveWeights` dataclass（现为裸 dict setdefault + 2/3-tuple 联合返回），顺带收口 R-4 | `slm_zernike_pib.py:251-375` | 2026-09-25 |
 | R-13 P2 | `_create_optimizer` 的 `inspect.signature` 创可贴 → 显式 `OptimizerConfig` | `slm_zernike_pib.py:422-430` | 2026-09-25 |
@@ -1222,6 +1222,30 @@ if slm is not None:
 
 **结论**：R-38 剩余候选都需要**逐处判断 + 硬件确认**，不属于
 "不需要设备就能确认修改是否正确"的范畴，故留在待办、不进本轮。
+
+---
+
+### 5.20 R-9 —— 把 300px 光阑的说明挂回它真正讲的那个常量（2026-10-04）
+
+`slm_zernike_pib.py` 早已正确：那段硬件踩坑说明就挂在
+`ZERNIKE_APERTURE_RADIUS = 300.0`（`:195`）正下方。
+
+**`slm_zernike_shaping.py` 才是坏的那份**，而且比"挂错常量"更糟 —— 同一个常量
+上挂着**两段互相矛盾**的注释：
+
+| 位置 | 主张 |
+|---|---|
+| `:186-188`（正确挂在常量上） | 300 太窄，本 runner 应当用 600，否则"生成的 Zernike 基只有 GUI 的 1/4 面积" |
+| `:203-212`（**裸字符串**，挂在 `TARGET_BOX_WAIST_FACTOR` 之后） | 本台架光束半径只有 ~300 px；用 600 光阑则只有内一半落在光束上，每个模式在照明区几乎**恒定**，而恒定相位不改变远场 ⇒ **修正静默失效**（**硬件实测**：平场与 2 rad 离焦无法区分，直到匹配） |
+
+第二段是**硬件实测**结论，第一段是推理。而且 `:203-212` 是普通字符串表达式，
+**不是 docstring**，所以它谁都没在解释 —— 读者只会以为 `TARGET_BOX_WAIST_FACTOR`
+的说明。
+
+**做法**：把这段硬件实测说明搬回 `ZERNIKE_APERTURE_RADIUS` 名下，
+并把 `:186-188` 那段改写成"此处存在未决矛盾"而不是继续断言 600 是对的。
+**没有改常量值** —— 值归 X-3 决定（§5.17：本模块无生产导入方、语料钉 300），
+不静默改动。
 
 ---
 
