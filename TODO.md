@@ -142,7 +142,7 @@
 |---|---|---|---|
 | R-37 | Step 2/3：逐个迁移 19 个可执行探针到 `with_params` 机制。**原计划「抽共享 dataclass 到 `params.py`」已实测证伪并取消**（见 §5.15）：19 个探针 / **287 个声明 flag** 中**只有 1 个**（`--settle-extra-s` ×3）能原样共享。改为**每个探针自带 dataclass，default/help/type 全部留在本地不动** | ✅ **已完成 15/15 个 Click 探针**（§5.15）；4 个 argparse 探针拆出为 R-42 | 2026-10-01 |
 | R-42 | **4 个 argparse 探针改 click**（`slm_abba_probe` / `slm_drift_probe` / `slm_floor_probe` / `slm_zernike_sweep_probe`）。实测三个非机械迁移障碍：① `main(argv) -> int` + `raise SystemExit(main())`，click command 不接 argv；② `test_slm_abba_probe.py:541/560` **直接绑定 `probe._parse_args(...)`**（断言默认值 + 断言非法 `--cam-type nikon` 报错），改 click 就得删掉 `_parse_args` 并重写这些测试；③ `--help` 格式从 argparse 变 click | 同左 | 2026-10-04 |
-| R-38 | canonical 采用率过低：19 个构造 SLM 的文件里 **只有 1 个**用 `zero_order_center`（`slm_snr_probe.py`），其余裸 `np.argmax`；`phase_to_slm_grayscale` 也**只有 1 个**文件用，另有 **7 处**直调 `create_phase_from_array` | 同左 | 2026-10-01 |
+| R-38 | ~~canonical 采用率过低~~ | ❌ **2026-10-04 实测后按原描述拒做**（见 §5.19）。两条理由：(1) `phase_to_slm_grayscale(phase, slm=...)` **就是** `slm.create_phase_from_array(...)`（`phase_display.py:72-73` 直接委托），那"7 处直调"**行为完全等价**，不是缺陷；(2) `zero_order_center` 返回 **`(x, y)`**，而裸 `np.unravel_index(np.argmax(...))` 解包成 **`(y, x)`** ⇒ **替换不是机械操作**，照抄会静默转置每个 ROI 中心 | 2026-10-01 |
 | R-39 | 曝光默认值 7 种并存（0.02/0.03/1.1/1.2/2.0/3.0/4.0 ms）；内存槽轮换 3 种写法（驱动自动 / 自建 `SlotRotator` / 手工 `current_slot`） | 同左 | 2026-10-01 |
 | R-41 | flag 拼写分裂（2026-10-04 实测）：`--cam-type` **9** 个探针 vs `--camera-type` **2** 个（`slm_diagnose` / `slm_lut_runner`）；另有 `--output` **8** vs `--out` **4**、`--slm-wavelength` **15** vs `--wavelength` **3**。建议保留现有拼写不破坏习惯用法 | ✅ **已完成**（§5.18）：两种拼法都**保留**，并加**契约测试**把意图写死 —— 不只是"golden 顺带钉住"，而是明确断言「两套都在、且没有任何探针同时暴露两套」 | 2026-10-01 |
 
@@ -1167,6 +1167,61 @@ golden 会以"我只是想清理一下"的名义被重新生成，意图就此�
 
 计数写死在测试里，所以任何拼写侧的改动都会**先在这里失败**，
 逼作者说明这是有意为之还是顺手改的。
+
+---
+
+### 5.19 R-38 实测后**拒做**：「采用率过低」本身不是缺陷（2026-10-04）
+
+原条目把"canonical helper 采用率低"当成待修的问题。实测后**按原描述不动**，
+因为两条前提都不成立。
+
+#### (1) `phase_to_slm_grayscale` vs 直调 `create_phase_from_array`：行为等价
+
+`utils/slm/phase_display.py:72-73`：
+
+```python
+if slm is not None:
+    return slm.create_phase_from_array(phase, max_grayscale=max_grayscale)
+```
+
+传活跃 SLM 时**它就是**一次转发。全仓 17 个文件 46 处 `create_phase_from_array(`
+里，**没有一处把 uint16 灰度图传进去**（逐个看过实参：`phase_rad` / `ramp_panel(...)`
+/ Zernike 相位，都是弧度）⇒ **不存在"灰度值被当弧度静默损坏"这个风险**。
+改写这 7 处纯属 churn。
+
+#### (2) `zero_order_center` **不是** `np.argmax` 的 drop-in
+
+`beam_metrics.py:414`：
+
+* 返回 **`(x, y)`**（项目约定）；
+* 默认 `refine=True`，会在 argmax 锚点邻域内**再做一次质心细化**。
+
+而裸写法 `py, px = np.unravel_index(np.argmax(frame), frame.shape)` 得到 **`(y, x)`**。
+**两者坐标序相反** —— 照抄会把每个 ROI 中心静默转置。
+再叠加"质心细化会把坐标挪动几像素"，直接替换还会改变所有半径/ROI 数值。
+
+#### (3) 逐处分类：多数"裸 argmax"是对的
+
+`tools/slm/` 共 **18 处** argmax，按用途分三类：
+
+| 类别 | 处数 | 该不该换 |
+|---|---|---|
+| **一维曲线峰值**（强度/效率/相位带、`argmax(eta)` 等） | ~10 | ❌ 本来就不是定位光斑，换了反而错 |
+| **相关峰**（`slm_bench_probe.py:176` `argmax(corr)`） | 1 | ❌ 相关峰定位是另一个问题 |
+| **二维光斑定位** | ~7 | ⚠️ 需逐处判断，**不能批量替换** |
+
+其中 `slm_diagnose.py:90` 特别确认过：它所在的 `peak_and_bucket()`
+**函数名与 docstring 都写明"帧内全局最大"**，并返回 `frame[py, px]` 作为
+**峰值**。换成带质心细化的 `zero_order_center`，`py, px` 可能不再指向峰，
+**这个函数会直接坏掉**。README 里"暗帧不可用裸 argmax"针对的是
+`measure_flat_reference` 那种**无光**帧，不是这里的有光平场/光栅帧。
+
+⚠️ 真正与 README 那条铁律相关的 `measure_flat_reference` 属
+`slm_bench_probe.py` / `slm_drift_probe.py`，本轮**未在无硬件条件下判定**，
+留给有硬件时确认。
+
+**结论**：R-38 剩余候选都需要**逐处判断 + 硬件确认**，不属于
+"不需要设备就能确认修改是否正确"的范畴，故留在待办、不进本轮。
 
 ---
 
