@@ -1094,7 +1094,13 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
 
         def _apply_best_on_exit() -> None:
             """Leave the SLM at the best-found phase (or flat if never improved)."""
-            setattr(recorder, "energy_loss_violations", shaping.guard_violations)
+            # Run-level scalar, deliberately an attribute on the Recorder and NOT a
+            # row column: ``Recorder.append`` unions per-epoch record keys, so a
+            # once-per-run summary would either never appear or appear on the last
+            # row only, and ``Recorder`` has no schema for run-level metadata. The
+            # single consumer reads it defensively as
+            # ``getattr(rec, "energy_loss_violations", 0)``.
+            recorder.energy_loss_violations = shaping.guard_violations
             if not SLM_APPLY_BEST_ON_EXIT:
                 return
             improved = (

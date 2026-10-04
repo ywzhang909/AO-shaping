@@ -1050,7 +1050,9 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
 
         def _apply_best_on_exit() -> None:
             """Leave the SLM at the best-found phase (or flat if never improved)."""
-            setattr(recorder, "energy_loss_violations", shaping.guard_violations)
+            # Run-level scalar; see the note in slm_zernike_pib._apply_best_on_exit
+            # for why this is an attribute on the Recorder rather than a row column.
+            recorder.energy_loss_violations = shaping.guard_violations
             if not SLM_APPLY_BEST_ON_EXIT:
                 return
             improved = (

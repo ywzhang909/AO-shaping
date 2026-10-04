@@ -109,8 +109,8 @@
 | R-11 P2 | ~~常量替换字面量~~ | ✅ **早已完成**（本轮实测确认）：两侧都有 `ZERNIKE_CLIP = 5.0` 与 `IMPROVE_EPS = 1e-4`，全文件再无裸 `5.0` / `1e-4` clip 字面量（除常量定义自身）。⚠️ 顺带纠正：`GUARD_PENALTY` **不在** `drivers/ccd/common.py`，而在 `utils/image/target/objective.py:33`（随 ObjectiveSpec 抽取时搬的）；且 `metrics.py:298,384,396` 另有 3 处裸 `1e3` **语义不同、故意不统一** → §5.21 | 2026-09-25 |
 | R-12 P2 | `_update_dynamic_weights` → `AdaptiveWeights` dataclass（现为裸 dict setdefault + 2/3-tuple 联合返回），顺带收口 R-4 | `slm_zernike_pib.py:251-375` | 2026-09-25 |
 | R-13 P2 | `_create_optimizer` 的 `inspect.signature` 创可贴 | ✅ **已按实测修**（§5.25），但**未**引入 `OptimizerConfig`：真正的问题是**静默吞参数**，不是签名不够显式。实测 `SGD` 签名只有 `(self, dim, lr)` ⇒ `momentum`/`weight_decay`/`ns_steps` 被无声丢弃；且带 `**kwargs` 的类永远收不到 kwargs ⇒ `**config.kwargs` 逃生口是死的 | 2026-09-25 |
-| R-14 P2 | `_metric_panel` 每 epoch 全量六套指标 → 加 `panel_every_n: int = 1` 开关 | `slm_zernike_pib.py:1544` | 2026-09-25 |
-| R-15 P2 | `_apply_best_on_exit` 往 Recorder 挂属性 → 显式 `RawReport` 字段 | `slm_zernike_pib.py:~1584` | 2026-09-25 |
+| R-14 P2 | `_metric_panel` 每 epoch 全量指标 → 加 `panel_every_n` 开关 | ⚠️ **符号已搬家**，原 `_metric_panel` 不存在，面板现在是共享叶子里的 `ShapingObjective.metric_panel()`，每轮在 `slm_zernike_pib.py:1091` 被调。**未做**：跳过的那几轮 `m_*` 列该留空还是沿用上一轮，是**产品决策**（报告生成器与 NaN 判据测试都读这些列），且需真实 run 对照 → §5.26 | 2026-09-25 |
+| R-15 P2 | `_apply_best_on_exit` 往 Recorder 挂属性 → 显式 `RawReport` 字段 | ⚠️ **部分完成，`RawReport` 不该做**（§5.26）：该值是**整轮一个标量**，而 `Recorder.append` 取每轮 record 键的并集⇒ 做成列要么不出现、要么只挂在最后一轮，且 `Recorder` 没有"轮次元数据"schema。已改成**显式直接赋值 + 写明理由 + 加测试**（唯一消费者是 `scripts/compare_shape_objectives.py:258`）| 2026-09-25 |
 | R-16 P2 | `SLM_WIDTH/HEIGHT` 与驱动 `Panel_Res` 重复 | ✅ **已完成**（§5.22）：两侧改为 `SLM_WIDTH, SLM_HEIGHT = PANEL_RES`（值实测一致 (1920,1200)），**保留常量名**（有测试 import），只改值的来源；并加 AST 守卫禁止再写回字面量 | 2026-09-25 |
 | R-17 P2 | 日志 f-string/`{}` 占位符混用 | ✅ **已完成**（§5.23）：9 处 f-string 日志全改为 loguru 惰性格式化参数，并加 AST 守卫（变异验证过） | 2026-09-25 |
 | R-18 P3 | 离线 GS 作闭环初值 `--init-gs`。⚠️ **`gs_warm_start` 已在别处落地**（`slm_gs_refine.py`、`iterative_zernike_shaping.py` + `slm_gs_refine_runner`）→ 本项改为"接入已有实现"或删掉 `:739` 的陈旧注释 | `slm_zernike_pib.py:739` | 2026-09-25 |

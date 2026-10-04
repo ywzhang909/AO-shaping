@@ -631,3 +631,46 @@ class TestCreateOptimizerKwargFilter:
         module = importlib.import_module(module_name)
         optimizer = module._create_optimizer("adam", dim=4, lr=0.1, beta1=0.85)
         assert optimizer.beta1 == pytest.approx(0.85)
+
+
+class TestEnergyLossViolationsIsAnExplicitRunLevelField:
+    """R-15: the exit hook attached a run summary with a bare ``setattr``.
+
+    ``energy_loss_violations`` is a single value for the whole run, and
+    ``Recorder.append`` unions per-epoch record keys -- so making it a row column
+    would either drop it or attach it to whichever row happened to be last.
+    ``Recorder`` also has no schema for run-level metadata. So it stays an
+    attribute, but now by a direct assignment with the reason written down, and
+    pinned by a test instead of being an accident nobody documented.
+    """
+
+    @pytest.mark.parametrize(
+        "module_name",
+        ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
+    )
+    def test_recorder_carries_the_violation_count(self, module_name) -> None:
+        import importlib
+        import inspect
+
+        module = importlib.import_module(module_name)
+        from ao_shaping.utils.io.file import Recorder
+
+        # the exit hook must assign the attribute directly, not via setattr
+        src = inspect.getsource(module)
+        assert 'setattr(recorder, "energy_loss_violations"' not in src, (
+            "the run-level violation count should be a plain documented assignment"
+        )
+        assert "recorder.energy_loss_violations = shaping.guard_violations" in src
+
+        # and a Recorder accepts it, so the single consumer's getattr works
+        rec = Recorder()
+        rec.energy_loss_violations = 3
+        assert getattr(rec, "energy_loss_violations", 0) == 3
+
+    def test_the_only_consumer_reads_it_defensively(self) -> None:
+        """``scripts/compare_shape_objectives.py`` is the single reader."""
+        import pathlib
+
+        script = pathlib.Path(__file__).resolve().parents[4] / "scripts" / "compare_shape_objectives.py"
+        src = script.read_text(encoding="utf-8")
+        assert 'getattr(rec, "energy_loss_violations", 0)' in src
