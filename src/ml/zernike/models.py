@@ -101,6 +101,67 @@ def _centre_crop(field: torch.Tensor, grid: int) -> torch.Tensor:
     return field[..., start : start + grid, start : start + grid]
 
 
+#: Measured ``far_field_padding`` optima, keyed by the family's ``fov_px``.
+#:
+#: Measured by ``scripts/sweep_far_field_padding.py`` on the real corpus with the
+#: coefficients left at Z = 0, so this is *geometric* agreement between the
+#: predicted and measured angular extents and nothing else -- no training, no
+#: fitting. 48 samples per family, ``grid=64``, ``n_max=15``,
+#: ``normalization="peak"``, judged on R^2.
+#:
+#: ==========================  ======  ========  ==========
+#: family                      fov_px  best pad  R2(best) vs R2(10)
+#: ==========================  ======  ========  ==========
+#: ``model_in_loop_hw_collect``    64      8     +0.484 vs +0.306
+#: ``model_in_loop_hw_sweep``   64/1944    10     +0.497 vs +0.497
+#: ``slm_gsnet_square``           1944      4     **-1.106** vs -1.373
+#: ``slm_pib``                    320     16     +0.735 vs +0.537
+#: ``slm_pib_online``             248     14     +0.682 vs +0.517
+#: ``slm_zernike_shaping``        248     12     +0.553 vs +0.494
+#: ==========================  ======  ========  ==========
+#:
+#: Two things to read carefully:
+#:
+#: * The optimum tracks ``fov_px``, so the dataclass default of 10 is wrong for
+#:   most families -- and for ``model_in_loop_hw_collect`` it is badly wrong:
+#:   R2 falls from +0.48 at pad 8 to **-4.46** at pad 20. The default is only
+#:   correct for ``model_in_loop_hw_sweep``.
+#: * ``fov_px = 1944`` (the full sensor) is **negative at every padding**, so it is
+#:   absent from the table: that family is not geometrically comparable at all.
+#:   ``slm_gsnet_square`` stores freeform phase cells rather than Zernike
+#:   coefficients, so a Zernike-parameterised forward model has nothing to fit --
+#:   do not read its -1.1 as a padding problem.
+#:
+#: Adjacent optima differ by ~0.05 R2 in places, which is near this repo's noise
+#: floor, so treat the exact argmax as +-1 step and the trend (larger ``fov_px``
+#: needs larger padding) as the real signal.
+PADDING_BY_FOV_PX: dict[int, int] = {
+    64: 8,
+    248: 14,
+    320: 16,
+}
+
+#: ``fov_px`` values with no usable optimum (see :data:`PADDING_BY_FOV_PX`).
+NO_VALID_PADDING_FOV: frozenset[int] = frozenset({1944})
+
+
+def recommended_padding(fov_px: int | None) -> int:
+    """The measured ``far_field_padding`` for a family's ``fov_px``.
+
+    Args:
+        fov_px: The family's camera window in pixels, or ``None`` when unknown.
+
+    Returns:
+        The measured optimum, or the dataclass default of 10 when ``fov_px`` was
+        not measured. Never returns a value for a ``fov_px`` known to have no
+        valid optimum -- those fall back to the default and the caller is
+        expected to treat a negative R2 as "this model does not apply here".
+    """
+    if fov_px is None or int(fov_px) in NO_VALID_PADDING_FOV:
+        return ZernikeAmpConfig.far_field_padding
+    return PADDING_BY_FOV_PX.get(int(fov_px), ZernikeAmpConfig.far_field_padding)
+
+
 @dataclass
 class ZernikeAmpConfig:
     """Geometry and observable contract for :class:`ZernikeAmpModel`.
@@ -177,7 +238,9 @@ class ZernikeAmpConfig:
             A clear interior optimum, so the extent is a real calibration rather
             than a monotone "sharper is better". The right value depends on the
             family's ``fov_px``, so re-run the sweep for a new family rather than
-            copying the default.
+            copying the default. That warning is not hypothetical -- see
+            :data:`PADDING_BY_FOV_PX` for the measured per-``fov_px`` optima and
+            :func:`recommended_padding`.
         attention: Add a trainable self-attention refinement **after** the far
             field is formed. Off by default, because the pure physics path is the
             model's whole value proposition: it is a closed-form function of its
