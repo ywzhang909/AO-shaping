@@ -142,7 +142,7 @@
 | # | 项 | 当前实测 | 提出 |
 |---|---|---|---|
 | R-37 | Step 2/3：逐个迁移 19 个可执行探针到 `with_params` 机制。**原计划「抽共享 dataclass 到 `params.py`」已实测证伪并取消**（见 §5.15）：19 个探针 / **287 个声明 flag** 中**只有 1 个**（`--settle-extra-s` ×3）能原样共享。改为**每个探针自带 dataclass，default/help/type 全部留在本地不动** | ✅ **已完成 15/15 个 Click 探针**（§5.15）；4 个 argparse 探针拆出为 R-42 | 2026-10-01 |
-| R-42 | **4 个 argparse 探针改 click**（`slm_abba_probe` / `slm_drift_probe` / `slm_floor_probe` / `slm_zernike_sweep_probe`）。实测三个非机械迁移障碍：① `main(argv) -> int` + `raise SystemExit(main())`，click command 不接 argv；② `test_slm_abba_probe.py:541/560` **直接绑定 `probe._parse_args(...)`**（断言默认值 + 断言非法 `--cam-type nikon` 报错），改 click 就得删掉 `_parse_args` 并重写这些测试；③ `--help` 格式从 argparse 变 click | 同左 | 2026-10-04 |
+| R-42 | **4 个 argparse 探针改 click**（`slm_abba_probe` / `slm_drift_probe` / `slm_floor_probe` / `slm_zernike_sweep_probe`）。实测三个非机械迁移障碍：① `main(argv) -> int` + `raise SystemExit(main())`，click command 不接 argv；② `test_slm_abba_probe.py:541/560` **直接绑定 `probe._parse_args(...)`**（断言默认值 + 断言非法 `--cam-type nikon` 报错），改 click 就得删掉 `_parse_args` 并重写这些测试；③ `--help` 格式从 argparse 变 click。**侦察已完成（§5.30）**：破坏面 = 4 个测试文件里 9 处 `main(argv)`/`_parse_args` 调用；`_parse_args` 全仓只有 2 个直绑点；另有 3 处测试**强制 driver 必须函数内 import**（不能为了 click 把 import 提到模块级）；4 个探针正好是 `--out` 的全部 4 个使用者 | 同左 | 2026-10-04 |
 | R-38 | ~~canonical 采用率过低~~ | ❌ **2026-10-04 实测后按原描述拒做**（见 §5.19）。两条理由：(1) `phase_to_slm_grayscale(phase, slm=...)` **就是** `slm.create_phase_from_array(...)`（`phase_display.py:72-73` 直接委托），那"7 处直调"**行为完全等价**，不是缺陷；(2) `zero_order_center` 返回 **`(x, y)`**，而裸 `np.unravel_index(np.argmax(...))` 解包成 **`(y, x)`** ⇒ **替换不是机械操作**，照抄会静默转置每个 ROI 中心 | 2026-10-01 |
 | R-39 | 曝光默认值 7 种并存（0.02/0.03/1.1/1.2/2.0/3.0/4.0 ms）；内存槽轮换 3 种写法（驱动自动 / 自建 `SlotRotator` / 手工 `current_slot`） | 同左 | 2026-10-01 |
 | R-41 | flag 拼写分裂（2026-10-04 实测）：`--cam-type` **9** 个探针 vs `--camera-type` **2** 个（`slm_diagnose` / `slm_lut_runner`）；另有 `--output` **8** vs `--out` **4**、`--slm-wavelength` **15** vs `--wavelength` **3**。建议保留现有拼写不破坏习惯用法 | ✅ **已完成**（§5.18）：两种拼法都**保留**，并加**契约测试**把意图写死 —— 不只是"golden 顺带钉住"，而是明确断言「两套都在、且没有任何探针同时暴露两套」 | 2026-10-01 |
@@ -1498,6 +1498,50 @@ npz 往返逐位相同 · 三个源码守卫（脚本不得再复制那五个函
 
 > R-34 的另一半（`train_data_collect.py` 与 `micro_dm_image_collect.py` 0 测试）
 > 拆成 **R-43**：前者在干净文件上可做，后者正被 Micro-DM 大重构改动，当时不宜插手。
+
+---
+
+### 5.30 R-42 的前置 —— `--help` golden 的再生成路径会静默丢字段（2026-10-04）
+
+准备 R-42（4 个 argparse 探针改 click）时发现：`probe_help_golden.json` 的
+**再生成路径是有损的**，所以 R-42 现在**不能安全地**重新生成 golden。
+
+`test_probe_flags.py:436-450` 的 writer 只写 **3 个键**
+（`help` / `help_flags` / `declared`），而 golden 里每个条目存 **5 个键**
+（还有 `body_literals` / `body_literals_sha256`）。于是：
+
+* 跑 `AO_PROBE_HELP_UPDATE=1 pytest .../test_probe_flags.py` 会把 **19 个条目的
+  两个 body 字段全部抹掉**；
+* **这一次运行仍然通过** —— 因为 `expected = _golden()` 在 L425 读、L436 才写，
+  读到的还是完整的旧文件；
+* **下一次运行**在 `test_probe_body_literals_are_unchanged` L277 直接
+  `KeyError: 'body_literals'`。
+
+也就是说这个缺陷**只能靠"再跑一次"暴露**，而再跑一次要 ~9 min（19 个子进程
+各付一次 `import ao_shaping`）—— 这个价位的守卫实际上等于没有守卫。
+R-37 记录的"15/15 逐字节一致"也没有暴露它，因为那 15 个本来就是 click。
+
+**修法**：把五个字段的重新测量收敛到一个函数 `_golden_entry(probe, help_text)`，
+writer 改为 `{p: _golden_entry(p, actual[p]) for p in PROBES}`。重新计算正是这条路径
+的语义（它本来就是显式 re-baseline，`help`/`declared` 一直这么做的）。
+
+**并补一个不花 subprocess 的守卫** `test_golden_entry_rewrites_every_field_it_stores`
+（19 个参数，用例 0.24 s 跑完）：拿 committed golden 的 `help` 当输入重新过一遍
+`_golden_entry`，断言**键集合完全一致**，且重新测得的 `body_literals` /
+`body_literals_sha256` / `declared` / `help_flags` 与 golden 里存的值逐个相符。
+这在**毫秒级**就能抓住部分 writer。
+
+> 变异测试：把守卫里的 `rewritten` 删掉那两个字段（复现原缺陷）⇒
+> 19 个参数**全部失败**，报错直接指出
+> `writes ['declared','help','help_flags'] but the golden stores [...5 keys]`。
+
+`test_probe_flags.py`：82 passed/1 skipped → **101 passed/1 skipped**。
+`test_cli_params_leaf.py` 8 passed。
+
+> 与 R-42 相关的另一个已确认事实（不是缺陷，是设计）：AST 扫描器的
+> `_OPTION_CALLS = {"option", "add_argument"}` **按被调用名匹配，不区分 argparse/click**，
+> 所以 4 个探针**今天就已经被计入**（77 个 `add_argument`）。只要做到逐 flag 对应，
+> `declared == 285` / `visible == 287` / `len(PROBES) == 19` **三个硬编码数字都不用改**。
 
 ---
 

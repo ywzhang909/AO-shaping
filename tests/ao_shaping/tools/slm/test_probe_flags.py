@@ -418,6 +418,62 @@ def _rendered_help(probe: str) -> str:
     return result.stdout.replace("\r\n", "\n").rstrip("\n")
 
 
+def _golden_entry(probe: str, help_text: str) -> dict:
+    """Re-measure every field the golden stores for ``probe``.
+
+    All five must be recomputed together. Writing only three of them (the
+    original bug here) drops ``body_literals``/``body_literals_sha256`` from
+    every entry; the run that does the damage still passes, because
+    ``expected = _golden()`` is read *before* the write, but the next run dies
+    with ``KeyError: 'body_literals'`` in
+    :func:`test_probe_body_literals_are_unchanged`. Recomputing is also the
+    right semantics: this path is the explicit re-baseline, exactly like
+    ``help``/``help_flags``/``declared`` beside it.
+    """
+    path = SLM_PKG_DIR / f"{probe}.py"
+    lits = _body_literals(path)
+    return {
+        "help": help_text,
+        "help_flags": sorted(set(_HELP_FLAG.findall(help_text))),
+        "declared": _declared_flags(path),
+        "body_literals": len(lits),
+        "body_literals_sha256": hashlib.sha256(
+            json.dumps(lits, ensure_ascii=False).encode()
+        ).hexdigest()[:16],
+    }
+
+
+@pytest.mark.parametrize("probe", PROBES)
+def test_golden_entry_rewrites_every_field_it_stores(probe: str) -> None:
+    """The regeneration path must not be lossy.
+
+    ``AO_PROBE_HELP_UPDATE=1`` used to write only ``help``/``help_flags``/
+    ``declared`` while the golden stores five keys. The run that dropped the
+    other two still passed -- ``expected = _golden()`` is read before the write
+    -- and the *next* run raised ``KeyError: 'body_literals'``. Nothing caught
+    it because the check lived behind the ~9-minute opt-in.
+
+    This re-measures every probe against the committed golden with no
+    subprocess at all, so a partial writer fails in milliseconds.
+    """
+    stored = _golden()[probe]
+    rewritten = _golden_entry(probe, stored["help"])
+
+    assert set(rewritten) == set(stored), (
+        f"{probe}: the regeneration path writes {sorted(rewritten)} but the golden "
+        f"stores {sorted(stored)} -- a field would be silently dropped"
+    )
+    assert rewritten["body_literals"] == stored["body_literals"], (
+        f"{probe}: _golden_entry measures {rewritten['body_literals']} in-body "
+        f"literals but the golden stores {stored['body_literals']}"
+    )
+    assert (
+        rewritten["body_literals_sha256"] == stored["body_literals_sha256"]
+    ), f"{probe}: _golden_entry digest disagrees with the golden"
+    assert rewritten["declared"] == stored["declared"]
+    assert rewritten["help_flags"] == stored["help_flags"]
+
+
 def test_rendered_help_matches_golden_or_differs_only_in_order() -> None:
     if not UPDATE:
         pytest.skip("opt-in: set AO_PROBE_HELP_UPDATE=1 to compare (costs ~9 min)")
@@ -435,14 +491,7 @@ def test_rendered_help_matches_golden_or_differs_only_in_order() -> None:
             }
     GOLDEN.write_text(
         json.dumps(
-            {
-                p: {
-                    "help": actual[p],
-                    "help_flags": sorted(set(_HELP_FLAG.findall(actual[p]))),
-                    "declared": _declared_flags(SLM_PKG_DIR / f"{p}.py"),
-                }
-                for p in PROBES
-            },
+            {p: _golden_entry(p, actual[p]) for p in PROBES},
             indent=2, ensure_ascii=False, sort_keys=True,
         )
         + "\n",
