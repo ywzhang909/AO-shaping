@@ -367,7 +367,7 @@ def write_markdown(out: Path, ctx: dict) -> str:
 
     # ── §1 创建 ──
     md.append("## 1. 创建 (Creation)\n")
-    md.append("响应矩阵由 `runners/dm_matrix_runner` 以**推拉法**标定: 对每个 DM "
+    md.append("响应矩阵由 `runners/matrix_runner` 以**推拉法**标定: 对每个 DM "
               "执行器施加 ±V 扰动电压, 测 WFS 斜率读数增量, "
               "`matrix[slope_ch, actuator] = Δ(WFS_slopes)/Δ(voltage)`。\n")
     md.append("| 项 | 值 |")
@@ -538,7 +538,7 @@ def write_markdown(out: Path, ctx: dict) -> str:
     md.append("| 产物 | 路径 |")
     md.append("|---|---|")
     md.append(f"| 响应矩阵 h5 | `{ctx['h5']}` |")
-    md.append("| 标定工具 | `src/ao_shaping/runners/dm_matrix_runner.py` |")
+    md.append("| 标定工具 | `src/ao_shaping/runners/matrix_runner.py` |")
     md.append("| 核心函数 | `src/ao_shaping/optimizer/wf/dm_response_matrix.py` |")
     md.append("")
 
