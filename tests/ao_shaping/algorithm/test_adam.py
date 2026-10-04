@@ -1,6 +1,116 @@
-import numpy as np
+import ast
+from pathlib import Path
 
-from ao_shaping.algorithm import Adam, AdamW, SGD, AdaMOD
+import numpy as np
+import pytest
+
+from ao_shaping.algorithm import Adam, AdamW, SGD, AdaMOD, learning_schedule
+
+#: Files that used to carry their own copy of ``learning_schedule`` (R-43).
+LR_SCHEDULE_COPIES = ("src/ao_shaping/tools/train_data_collect.py",)
+
+
+class TestLearningSchedule:
+    """``learning_schedule`` is the canonical LR-decay helper.
+
+    It was exported from :mod:`ao_shaping.algorithm` without a single test, and
+    ``tools/train_data_collect.py`` carried a byte-identical copy -- so the two
+    could drift silently. These tests pin the behaviour; the guard at the
+    bottom stops the copy coming back.
+    """
+
+    def test_static_returns_lr_untouched(self):
+        for epoch in (0, 1, 50, 99, 100):
+            assert learning_schedule(0.7, epoch, 100, method="static") == 0.7
+
+    @pytest.mark.parametrize("method", ["cosin", "exp", "linear"])
+    def test_starts_at_lr_at_epoch_zero(self, method):
+        # every branch adds the 1e-6 floor, so epoch 0 is lr + 1e-6
+        assert learning_schedule(0.5, 0, 100, method=method) == pytest.approx(
+            0.5 + 1e-6
+        )
+
+    def test_cosine_decays_and_matches_the_closed_form(self):
+        values = [learning_schedule(1.0, e, 100, method="cosin") for e in range(101)]
+        assert values[0] == pytest.approx(1.0 + 1e-6)
+        # cos(pi * 50/100) == 0 -> only the floor is left at the midpoint
+        assert values[50] == pytest.approx(1e-6, abs=1e-12)
+        assert values[100] == pytest.approx(-1.0 + 1e-6)
+        assert all(b <= a for a, b in zip(values, values[1:], strict=False))
+
+    def test_exponential_decays_monotonically(self):
+        values = [learning_schedule(1.0, e, 100, method="exp") for e in range(101)]
+        assert all(b < a for a, b in zip(values, values[1:], strict=False))
+        assert values[100] == pytest.approx(np.exp(-1.0) + 1e-6)
+
+    def test_linear_halves_at_the_midpoint(self):
+        assert learning_schedule(1.0, 50, 100, method="linear") == pytest.approx(
+            0.5 + 1e-6
+        )
+        assert learning_schedule(1.0, 100, 100, method="linear") == pytest.approx(1e-6)
+
+    @pytest.mark.parametrize("method", ["exp", "linear"])
+    def test_exp_and_linear_stay_positive_inside_the_run(self, method):
+        """The 1e-6 floor keeps these two from reaching exactly 0."""
+        for epoch in range(101):
+            assert learning_schedule(1e-3, epoch, 100, method=method) > 0.0
+
+    def test_cosine_goes_negative_after_its_midpoint(self):
+        """Pinned because it is surprising, not because it is desirable.
+
+        ``cos(pi * epoch / epochs)`` changes sign at ``epoch == epochs/2``, so
+        the ``+ 1e-6`` floor does **not** keep a cosine-decayed LR positive --
+        the second half of every cosine run feeds the optimizer a *negative*
+        step size. The floor only prevents an exact zero at ``epochs/2``.
+
+        Left as-is: changing it would alter the trajectory of every caller.
+        Recorded in TODO.md (R-44) rather than silently "fixed".
+        """
+        assert learning_schedule(1e-3, 25, 100, method="cosin") > 0.0
+        assert learning_schedule(1e-3, 50, 100, method="cosin") == pytest.approx(
+            1e-6, abs=1e-12
+        )
+        assert learning_schedule(1e-3, 75, 100, method="cosin") < 0.0
+        assert learning_schedule(1e-3, 100, 100, method="cosin") == pytest.approx(
+            -1e-3 + 1e-6
+        )
+
+    def test_unknown_method_is_rejected(self):
+        with pytest.raises(ValueError, match="static, cosin, exp or linear"):
+            learning_schedule(1.0, 0, 100, method="nope")
+
+    def test_default_method_is_static(self):
+        assert learning_schedule(0.3, 42, 100) == 0.3
+
+
+def test_learning_schedule_is_not_re_duplicated():
+    """The copy in ``train_data_collect.py`` was removed; keep it removed.
+
+    Checked on the AST rather than by importing: that module pulls in matplotlib
+    and four hardware drivers at module scope, and a source-level check is
+    enough to catch a re-definition.
+    """
+    root = Path(__file__).resolve().parents[3]
+    for rel in LR_SCHEDULE_COPIES:
+        path = root / rel
+        assert path.is_file(), rel
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        defined = [
+            node.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "learning_schedule"
+        ]
+        assert defined == [], f"{rel} re-defines learning_schedule; import it instead"
+        imported = [
+            alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            and node.module == "ao_shaping.algorithm.gradient.adam"
+            for alias in node.names
+        ]
+        assert "learning_schedule" in imported, (
+            f"{rel} uses learning_schedule but does not import the canonical one"
+        )
 
 
 class TestAdaMOD:

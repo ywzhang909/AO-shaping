@@ -133,7 +133,8 @@
 | R-32 | 加约定测试（孤儿检测 + `python -m` 一致性 + utils 分层守卫 + **测试写已提交 docs** 守卫），**warn-only + baseline** | ✅ 4 条守卫全部落地，2 条零 baseline（树本来就干净）→ §5.12 | 重构 | 2026-10-01 |
 | R-33 | `micro_dm_image_collect.py` → `with_params(MicroDMParams)`；删 7 个驱动内部符号导入与手写 `_resolve_ips`；同 PR 内启用已有的 `R50Controller.__enter__/__exit__`（全仓库零使用）。⚠️ 必须先钉死 Micro-DM 磁盘布局（承重：`find_cell_image` + 4 个 `md_img_*` 脚本依赖） | 重构 | 2026-10-01 |
 | ~~R-34~~ | ~~清理被 git 跟踪的 `scripts/tuning_devices/stdWavefront/` **66 个 .txt（~57 MB）**~~ | ✅ **清理完成，并修掉一个静默算错质心的 bug** → §5.29。ASCII → 单个 bit-exact `.npz`（56.4 → 23.2 MB）；`glob("*.txt")` 是**字典序** ⇒ 66 个模式位错 65 个 | `scripts/tuning_devices/stdWavefront/` + `wavefront_calc.py` | 2026-10-01 |
-| **R-43** | 原 R-34 的另一半：**`train_data_collect.py` 与 `micro_dm_image_collect.py` 均 0 测试**（随 R-34 一并拆出）。`micro_dm_image_collect.py` 正在被 Micro-DM 大重构改动，故当时未做 | `tools/train_data_collect.py`、`tools/micro_dm/micro_dm_image_collect.py` | 2026-10-04 |
+| **R-43** | ~~原 R-34 的另一半：`train_data_collect.py` 与 `micro_dm_image_collect.py` 均 0 测试~~ | 🟡 **一半完成** → §5.32。`train_data_collect.py` 的 `learning_schedule` 与 `adam.py` **逐字节相同**，已删除副本改为 import canonical，并给 canonical 补了 16 个测试 + 防再复制守卫；`micro_dm_image_collect.py` 仍在 Micro-DM 大重构中，待其稳定后再做 | `tools/train_data_collect.py`、`tools/micro_dm/micro_dm_image_collect.py` | 2026-10-04 |
+| **R-44** | 🔴 **`algorithm.learning_schedule` 的 `cosin` 分支在 epoch > epochs/2 后返回负学习率**：`cos(pi*e/E)` 在 `e = E/2` 变号，`+1e-6` 这个下限**挡不住负数**（实测 `lr=1e-3, E=100, e=75` → `-3.09e-4`）。⇒ 每一次 cosine 衰减跑的后半段都在给优化器喂**负步长**。实测确认，未修改（改了会动到所有调用者的轨迹）；已在 `test_adam.py::test_cosine_goes_negative_after_its_midpoint` 里把该行为**钉住**，免得以后被当成 bug 顺手改掉 | `algorithm/gradient/adam.py:36-38` | 2026-10-04 |
 
 ### 2.3 `tools/slm/` CLI 层重构（源自 `src/ao_shaping/tools/slm/TODO.md`，2026-10-01）
 
@@ -1611,6 +1612,46 @@ sweep 用 `click.Choice([...])`，abba 用 `str` + 显式校验（它原先就�
 
 dataclass 命名：`AbbaProbeParams` / `DriftProbeParams` / `SlmFloorProbeParams` /
 `ZernikeSweepProbeParams`。
+
+---
+
+### 5.32 R-43 —— `learning_schedule` 的逐字副本，以及一个从没被测过的导出函数（2026-10-04）
+
+R-43 原本只是「两个文件 0 测试」。真去看之后发现：**问题不是「没测试」，
+而是「被测的其实是副本」**。
+
+`src/ao_shaping/tools/train_data_collect.py:35-53` 的 `learning_schedule` 与
+`src/ao_shaping/algorithm/gradient/adam.py:30-48` **逐字节相同** —— 同样的签名、同样的
+四个分支、同样的 `+ 1e-6`、同样的中文注释、同样的
+`ValueError("method must be static, cosin, exp or linear")`。而 canonical 那个虽然
+从 `ao_shaping.algorithm` 导出（`__init__.py:8,19,138`），**一个测试都没有**
+（`test_adam.py` 246 行只测 `Adam/AdamW/SGD/AdaMOD`）。
+
+副本删掉，改为 `from ao_shaping.algorithm.gradient.adam import learning_schedule`。
+等价性是**实测**的，不是目测：把删掉的那份原样重建，与 canonical 在
+4 种 method × epoch 0..100 × 4 个初值 = **1616 个点**上逐个 `!=` 比较，
+**0 处不一致**；`ValueError` 消息也逐字保留。
+
+**补的测试**（`test_adam.py::TestLearningSchedule`，16 例）覆盖 canonical：
+`static` 全程不动、`cosin/exp/linear` 在 epoch 0 都返回 `lr + 1e-6`、
+`cosin` 中点只剩 `1e-6`、`exp` 单调下降且 `e=E` 时等于 `exp(-1)+1e-6`、
+`linear` 中点正好一半、默认 method 是 `static`、未知 method 报错。
+另加 `test_learning_schedule_is_not_re_duplicated`：用 **AST**（不是 import）
+确认 `train_data_collect.py` 不再 `def learning_schedule` 且确实 import 了 canonical
+—— 该模块在模块级拉 matplotlib + 4 个硬件驱动，源码级检查已经够。
+变异测试：把副本塞回去 ⇒ 守卫失败并指名文件。
+
+**顺带查出一个真 bug ⇒ R-44**：我最初写了一条
+「三种衰减都恒 > 0」的断言，**它失败了**。查下去发现不是测试写错，是
+`cosin` 分支的 `cos(pi * epoch / epochs)` 在 `epoch > epochs/2` 后**为负**，
+所以 `+1e-6` 这个下限**根本挡不住负学习率**（实测 `lr=1e-3, E=100, e=75`
+→ `-3.09e-4`；`e=100` → `-1e-3+1e-6`）。也就是说**每一次 cosine 衰减的后半段
+都在给优化器喂负步长**。
+
+**没有改**：改了会动到所有调用者的优化轨迹，那不是「离线可验证」的清理。
+改为把该行为**用测试钉住**（`test_cosine_goes_negative_after_its_midpoint`，
+注释里写明「这是实测事实、不是期望行为」），并开 **R-44** 记录。
+`exp` / `linear` 两条确实全程为正，单独断言。
 
 ---
 

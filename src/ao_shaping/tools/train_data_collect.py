@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import tqdm
 
+from ao_shaping.algorithm.gradient.adam import learning_schedule
 from ao_shaping.drivers import MIICamera, MlaRes, NlightDM, ThorlabWFS
 from ao_shaping.utils import gen_file_path_inc, gen_file_path_uuid
 from ao_shaping.optimizer.constants import METROPOLIS_ALPHA
@@ -31,26 +32,6 @@ async def async_to_pickle(df, file_path, **kwargs):
     loop = asyncio.get_event_loop()
     with concurrent.futures.ThreadPoolExecutor() as executor:
         await loop.run_in_executor(executor, lambda: df.to_pickle(file_path, **kwargs))
-
-def learning_schedule(
-    lr, epoch, epochs, method: Literal["static", "cosin", "exp", "linear"] = "static"
-):
-    if method == "static":
-        return lr
-    # 余弦退火
-    elif method == "cosin":
-        lr = lr * np.cos(np.pi * epoch / epochs) + 1e-6
-        return lr
-    # 指数衰减
-    elif method == "exp":
-        lr = lr * np.exp(-epoch / epochs) + 1e-6
-        return lr
-    # 线性衰减
-    elif method == "linear":
-        lr = lr * (1 - epoch / epochs) + 1e-6
-        return lr
-    else:
-        raise ValueError("method must be static, cosin, exp or linear")
 
 def optimizer(
     saved_dir,
