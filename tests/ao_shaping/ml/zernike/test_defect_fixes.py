@@ -50,6 +50,10 @@ def _frame(spot: tuple[int, int], peak: float = 255.0, background: float = 0.0,
 # 1. The anchored physical term
 # --------------------------------------------------------------------------
 def test_shape_gap_is_zero_only_when_the_shape_statistics_match():
+    # Seeded: this file shares a process-wide torch RNG with every other test and
+    # the repo has no conftest.py, so an unseeded draw here perturbs unrelated
+    # tests downstream (observed as intermittent failures in test_forward_model.py).
+    torch.manual_seed(11)
     target = torch.rand(2, 1, GRID, GRID, dtype=torch.float64)
     target = target / target.sum(dim=(-2, -1), keepdim=True)
     mask = _mask()
