@@ -642,8 +642,15 @@ class ZernikeAmpModel(nn.Module):
         measured = torch.complex(phase_cos, phase_sin)
         correction = self.correction_phase()
         unit_phase = torch.polar(torch.ones_like(correction), correction)
-        field = measured * unit_phase
 
+        return self._normalize(self._observable_from_field(measured * unit_phase))
+
+    def _observable_from_field(self, field: torch.Tensor) -> torch.Tensor:
+        """Pupil field -> far-field observable, before normalisation.
+
+        Shared by :meth:`forward` and :meth:`correction_far_field` so the two can
+        never drift on the propagation, crop, attention or observable branch.
+        """
         focal = self._propagate(field)
         if self.center_crop:
             focal = _centre_crop(focal, self.grid)
@@ -659,16 +666,53 @@ class ZernikeAmpModel(nn.Module):
             intensity = self.attention(intensity)
 
         if self.observable == "intensity":
-            observable = intensity
-        else:
-            # `sqrt` has a singular derivative at 0, and a far field has many
-            # exact zeros (sidelobes, and every pixel but one for a delta-like
-            # pupil), so a bare `sqrt(intensity)` yields NaN gradients.
-            # Clamping the argument bounds the slope to 1/(2*sqrt(_EPS)) and
-            # makes the zero-intensity pixels inert.
-            observable = torch.sqrt(torch.clamp(intensity, min=_EPS))
+            return intensity
+        # `sqrt` has a singular derivative at 0, and a far field has many exact
+        # zeros (sidelobes, and every pixel but one for a delta-like pupil), so a
+        # bare `sqrt(intensity)` yields NaN gradients. Clamping the argument
+        # bounds the slope to 1/(2*sqrt(_EPS)) and makes zero-intensity pixels
+        # inert.
+        return torch.sqrt(torch.clamp(intensity, min=_EPS))
 
-        return self._normalize(observable)
+    def correction_far_field(self, *, normalize: bool = True) -> torch.Tensor:
+        """Far field produced by the **coefficients alone**, no measured phasor.
+
+        This is the entry point inverse (shaping) design needs, and it does not
+        exist implicitly: :meth:`forward` returns
+        ``measured_phasor * exp(i * correction)``, so it is a *forward* model of
+        the bench, not a generator. Handing it a zero phasor -- the obvious way to
+        "just use the coefficients" -- makes the field identically zero, hence the
+        output identically zero and the gradient **exactly** 0.0 for every
+        parameter (measured). So there is no gradient path to invert until this
+        method exists.
+
+        Physically the distinction matters: ``correction`` is the phase the SLM
+        applies, while the learned coefficients describe the bench's own
+        aberration. To synthesise a far field from a target you want the phase you
+        will command, i.e. this method; to *predict a measurement* you want
+        :meth:`forward`.
+
+        Args:
+            normalize: Apply the model's output normalisation (``peak`` by
+                default) so the result is comparable with :meth:`forward` and with
+                the dataset. Pass ``False`` for the raw observable.
+
+        Returns:
+            ``(1, 1, grid, grid)`` when ``center_crop`` is set, else
+            ``(1, 1, grid * padding, grid * padding)``. Differentiable w.r.t.
+            ``self.coefficients``.
+        """
+        correction = self.correction_phase()
+        # `correction_phase` is a bare (grid, grid) pupil map with no batch or
+        # channel axis, so `forward` gets its (B, 1, g, g) shape from the measured
+        # phasor it multiplies. Here there is nothing to broadcast against, so add
+        # the axes explicitly -- otherwise this returns (g, g) while `forward`
+        # returns (B, 1, g, g), and the two would not be comparable.
+        unit_phase = torch.polar(
+            torch.ones_like(correction), correction
+        )[None, None]
+        observable = self._observable_from_field(unit_phase)
+        return self._normalize(observable) if normalize else observable
 
     def _validate_inputs(self, phase_cos: torch.Tensor, phase_sin: torch.Tensor) -> None:
         """Check the phasor pair matches the basis resolution."""
