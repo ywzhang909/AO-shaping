@@ -111,7 +111,7 @@
 | R-13 P2 | `_create_optimizer` 的 `inspect.signature` 创可贴 → 显式 `OptimizerConfig` | `slm_zernike_pib.py:422-430` | 2026-09-25 |
 | R-14 P2 | `_metric_panel` 每 epoch 全量六套指标 → 加 `panel_every_n: int = 1` 开关 | `slm_zernike_pib.py:1544` | 2026-09-25 |
 | R-15 P2 | `_apply_best_on_exit` 往 Recorder 挂属性 → 显式 `RawReport` 字段 | `slm_zernike_pib.py:~1584` | 2026-09-25 |
-| R-16 P2 | `SLM_WIDTH/HEIGHT` 与驱动 `Panel_Res` 重复 → 读驱动常量 | `slm_zernike_pib.py:129-131` | 2026-09-25 |
+| R-16 P2 | `SLM_WIDTH/HEIGHT` 与驱动 `Panel_Res` 重复 | ✅ **已完成**（§5.22）：两侧改为 `SLM_WIDTH, SLM_HEIGHT = PANEL_RES`（值实测一致 (1920,1200)），**保留常量名**（有测试 import），只改值的来源；并加 AST 守卫禁止再写回字面量 | 2026-09-25 |
 | R-17 P2 | 日志 f-string/`{}` 占位符混用 → 统一 | `slm_zernike_pib.py` 多处 | 2026-09-25 |
 | R-18 P3 | 离线 GS 作闭环初值 `--init-gs`。⚠️ **`gs_warm_start` 已在别处落地**（`slm_gs_refine.py`、`iterative_zernike_shaping.py` + `slm_gs_refine_runner`）→ 本项改为"接入已有实现"或删掉 `:739` 的陈旧注释 | `slm_zernike_pib.py:739` | 2026-09-25 |
 | R-19 P3 | 补 sim 台架对称 BenchSession（`sim` 相机后端已有 2f-Fourier），使 R-1~R-17 可无硬件回归 | — | 2026-09-25 |

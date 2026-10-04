@@ -374,6 +374,78 @@ class TestLearningScheduleCentreIsWindowLocal:
         "module_name",
         ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
     )
+    def test_panel_resolution_is_not_hardcoded(self, module_name: str) -> None:
+        """Panel geometry must come from the driver, not a third copy of the literal.
+
+        ``Santec.Panel_Res`` and the driver's ``PANEL_RES`` already hold it. Two
+        optimizer modules each carried their own ``SLM_WIDTH = 1920`` /
+        ``SLM_HEIGHT = 1200``, which is a third copy of a value that is a property
+        of the hardware -- exactly the shape of the ``ZERNIKE_APERTURE_RADIUS``
+        drift documented in TODO 5.17.
+
+        The names stay exported because tests import them; only the value's origin
+        changes.
+        """
+        import ast
+        import importlib
+        import inspect
+
+        module = importlib.import_module(module_name)
+        source = inspect.getsource(module)
+        tree = ast.parse(source)
+
+        offenders: list[tuple[int, str]] = []
+        for node in ast.walk(tree):
+            targets: list[ast.expr]
+            value: ast.expr
+            if isinstance(node, ast.Assign):
+                targets = list(node.targets)
+                value = node.value
+            elif isinstance(node, ast.AnnAssign) and node.value is not None:
+                targets = [node.target]
+                value = node.value
+            else:
+                continue  # must not touch .value before the type check
+            # ``SLM_WIDTH, SLM_HEIGHT = PANEL_RES`` puts a single ast.Tuple in
+            # ``targets``, so the names have to be flattened out of it.
+            names: list[str] = []
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    names.append(target.id)
+                elif isinstance(target, (ast.Tuple, ast.List)):
+                    names.extend(
+                        e.id for e in target.elts if isinstance(e, ast.Name)
+                    )
+            if not {"SLM_WIDTH", "SLM_HEIGHT"} & set(names):
+                continue
+            # Reject a hardcoded panel number in ANY syntactic form. Checking only
+            # for a bare Constant misses ``SLM_WIDTH, SLM_HEIGHT = 1920, 1200``,
+            # which is a Tuple and was a silent hole in the first version of this
+            # guard -- the mutation test caught it.
+            hardcoded = [
+                n.value
+                for n in ast.walk(value)
+                if isinstance(n, ast.Constant)
+                and isinstance(n.value, int)
+                and n.value in (1920, 1200)
+            ]
+            if hardcoded:
+                offenders.append((node.lineno, names[0]))
+
+        assert not offenders, (
+            f"{module_name}: panel size hardcoded at line(s) {offenders}; import "
+            f"PANEL_RES from ao_shaping.drivers.slm.santec instead"
+        )
+
+        from ao_shaping.drivers.slm.santec import PANEL_RES
+
+        assert module.SLM_RESOLUTION == tuple(PANEL_RES)
+        assert (module.SLM_WIDTH, module.SLM_HEIGHT) == tuple(PANEL_RES)
+
+    @pytest.mark.parametrize(
+        "module_name",
+        ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
+    )
     def test_shape_aware_objectives_are_not_retyped_as_a_literal(
         self, module_name: str
     ) -> None:

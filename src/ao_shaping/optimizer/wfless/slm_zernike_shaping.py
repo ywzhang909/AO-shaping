@@ -63,7 +63,7 @@ from ao_shaping.drivers.ccd.common import (
     resample_on_saturation,
 )
 from ao_shaping.drivers.slm import Santec
-from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL
+from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL, PANEL_RES
 from ao_shaping.drivers.slm.santec.slm200_constants import PANEL_RES
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils import Recorder, logger
@@ -132,9 +132,10 @@ SLM_RESPONSE_TIME_S = 0.0
 SLM_APPLY_BEST_ON_EXIT = True
 
 # SLM resolution (from Santec.Panel_Res = (1920, 1200))
-SLM_WIDTH = 1920
-SLM_HEIGHT = 1200
-SLM_RESOLUTION = (SLM_WIDTH, SLM_HEIGHT)
+# SLM resolution. Sourced from the driver rather than repeated here -- see the
+# note in slm_zernike_pib.py. Names kept because tests import them.
+SLM_WIDTH, SLM_HEIGHT = PANEL_RES
+SLM_RESOLUTION = tuple(PANEL_RES)
 
 OPTIMIZER_MAP = {
     "adam": Adam,

@@ -64,7 +64,7 @@ from ao_shaping.drivers.ccd.common import (
     resolve_initial_exposure,
 )
 from ao_shaping.drivers.slm import Santec
-from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL
+from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL, PANEL_RES
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils import Recorder, logger
 from ao_shaping.utils.image.beam_metrics import (
@@ -144,10 +144,11 @@ SLM_RESPONSE_TIME_S = 0.0
 # touching the SLM on exit.
 SLM_APPLY_BEST_ON_EXIT = True
 
-# SLM resolution (from Santec.Panel_Res = (1920, 1200))
-SLM_WIDTH = 1920
-SLM_HEIGHT = 1200
-SLM_RESOLUTION = (SLM_WIDTH, SLM_HEIGHT)
+# SLM resolution. Sourced from the driver rather than repeated here: the literal
+# was a third copy of the panel geometry (the driver has PANEL_RES, exposed as
+# Santec.Panel_Res). The names stay because tests import them.
+SLM_WIDTH, SLM_HEIGHT = PANEL_RES
+SLM_RESOLUTION = tuple(PANEL_RES)
 
 OPTIMIZER_MAP = {
     "adam": Adam,
