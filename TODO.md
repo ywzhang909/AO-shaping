@@ -1326,6 +1326,55 @@ logger.debug(
 
 ---
 
+### 5.26 R-14 / R-15 —— 一个符号搬家了，一个方案不该做（2026-10-04）
+
+#### R-14：`_metric_panel` 已不存在，问题搬家且**需要产品决策**
+
+原条目指向 `slm_zernike_pib.py:1544` 的 `_metric_panel`。实测**该函数已不存在**：
+面板现在是共享叶子里的 `ShapingObjective.metric_panel()`
+（`utils/image/target/objective.py:780`），每轮在 `slm_zernike_pib.py:1091`
+被调用一次（另有 `:1031` 在 init 帧上跑一次）。
+**"每 epoch 全量指标"这个担忧仍然成立**，但符号与行号都失效了。
+
+**未做，原因是它不是机械改动**：跳过的那几轮，`m_*` 列该**留空**还是
+**沿用上一轮**？
+* 留空 ⇒ `m_ee` 等字段变 NaN，而报告生成器与
+  `test_rms_pib_adaptive_columns_are_not_nan_on_later_rows`（**NaN 判据**）
+  都读这些列；
+* 沿用 ⇒ 面板描述的是**上一帧**的远场，而代码里明确写着
+  "The recorded panel/metrics describe the POSITIVE frame" ⇒ **指标会说谎**。
+
+这是**产品决策**（每 N 轮记一次全量面板是否可接受），且要真实 run 对照，
+不属于"不用硬件就能确认"的范畴。
+
+#### R-15：`RawReport` 字段**不该做**，但契约应该写死
+
+原条目要求把 `setattr(recorder, "energy_loss_violations", ...)` 改成
+"显式 `RawReport` 字段"。实测**这个方案形状不对**：
+
+`energy_loss_violations` 是**整轮一个标量**，而 `Recorder.append`
+（`utils/io/file.py:388`）取**每轮 record 键的并集** ⇒ 做成"列"
+要么根本不出现，要么只挂在**最后一轮**那一行上；`Recorder` 也**没有**
+"轮次元数据"的 schema（只有 `mark`/`mode`/`history`/`_all_columns`）。
+
+所以**保留属性**是对的机制，改成：
+1. **直接赋值**而非 `setattr`（意图明确，不靠读者推断）；
+2. **写明为什么是属性而不是列**（避免下次有人"顺手"改成列）；
+3. **加测试钉住**：断言两侧都不用 `setattr`、都直接赋值，
+   并断言唯一消费者 `scripts/compare_shape_objectives.py:258`
+   的 `getattr(rec, "energy_loss_violations", 0)` 读法成立。
+
+#### 过程失误：同一个错误犯两次
+
+两次改坏文件，**同一个原因**：`oldString` 从无缩进的 `def` 开头，
+它在**缩进后的行里作为子串匹配成功**，于是**静默吃掉 4 空格缩进**。
+第二次是"优化 complete 日志"时踩的（`logger.info(` 那次）。
+
+两次都是 `ruff` 先报出来、而不是测试 —— 说明**语法层的破坏必须先过 ruff**。
+修法：不再硬编码缩进，而是**从被替换的那一行读取缩进**再重建。
+
+---
+
 ## 6. 建议执行顺序
 
 | 批次 | 内容 | 前置 |
