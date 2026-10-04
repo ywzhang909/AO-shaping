@@ -64,20 +64,23 @@ AO-shaping/
 | Wavefront optimizers | `src/ao_shaping/optimizer/wf/` | RMS optimization |
 | Zernike response matrix | `src/ao_shaping/optimizer/wf/zernike_response_matrix.py` | SLM→WFS Zernike校准 |
 | PIB optimizers | `src/ao_shaping/optimizer/wfless/` | Power-in-bucket |
-| SLM方形光斑整形 (SPGD) | `src/ao_shaping/optimizer/wfless/slm_square_shaping.py` + `runners/slm/gsnet_runner.py` | SPGD 优化 Zernike 系数 → 均匀方形远场 (CLI: `slm-gsnet`) |
+| SLM Zernike PIB / 方形整形 (同一模块) | `src/ao_shaping/optimizer/wfless/slm_zernike_pib.py` + `slm_square_shaping.py` + `runners/slm/shaping_runner.py` | `shaping_runner` 一个 click 组装下两个家族: `slm-pib`(`spgd`/`heuristic`) → `slm_zernike_pib.py`; `spgd-square`(同 `square` 子命令) → `slm_square_shaping.py`。`--cam_type sim` 在两半都走数字孪生 (`runner_common.patch_sim_*_shaping`) |
+| SLM方形光斑整形 (SPGD, freeform) | `src/ao_shaping/optimizer/wfless/slm_square_shaping.py` + `runners/slm/gsnet_runner.py` | SPGD 优化 Zernike 系数 → 均匀方形远场 (CLI: `slm-gsnet`) |
 | GS 预整形 + 自由相位 SPGD 细化 (硬件) | `src/ao_shaping/optimizer/wfless/slm_gs_refine.py` + `runners/slm/gs_refine_runner.py` | 仿真 `iterative_zernike_shaping.py` 的硬件移植: GS 开环预矫正 (仅当实测优于平场才采用) + 无感知 SPGD 细化 (CLI: `slm-gs-refine`) |
 | 正向模型闭环校正 + 反复迭代 (硬件) | `src/ao_shaping/optimizer/wfless/slm_model_in_loop.py` + `runners/slm/model_in_loop_runner.py` | 仿真 `model_in_loop_shaping.simulate_iterative_shaping` 的硬件移植: 每轮用强随机探针重拟合正向模型的 Zernike 像差 (Step A), 再冻结该像差合成目标方斑相位 (Step B), 用 trust region + 逐轮验收抑制两者互相追�� (CLI: `slm-model-in-loop`) |
 | Zernike 工具 | `src/ao_shaping/utils/wavefront/zernike_utils.py` | 系数解析 (Noll/(n,m)/数组) + 相位生成，Noll 1976 约定 |
 | RL training | `src/ao_shaping/optimizer/rl/` | SAC, LR-WFS |
 | Simulation | `src/ao_shaping/drivers/sim/` | Digital twin devices |
 | Utilities | `src/ao_shaping/utils/{io,image,wavefront,slm}/` + root `cli_params.py` | 4 子包: io/, image/, wavefront/, slm/ (spots_calc, wavefront_calc, zernike_calc, display 等) + 零导入叶子 `cli_params.py` |
-| Standalone runners (未注册) | `src/ao_shaping/runners/` | `shaping_runner` 计划迁移至 `scripts/`, `slm_offset_runner` 计划迁移至 `tools/slm/` |
+| Standalone runners (未注册) | `src/ao_shaping/runners/` | `slm_offset_runner` 计划迁移至 `tools/slm/`。⚠️ `shaping_runner` **曾经**在此列 (2026-10-05 前它未注册); 现已注册为 `slm-pib` + `spgd-square`, 不再属于本行 |
 | ML training | `src/ml/` (standalone, not inside `ao_shaping/`) | U-Net+GAN, trainer, wandb_logger |
 | 硬件相位→相机图像 DataLoader | `src/ml/hwdataset/` | `data/debug` 全量转 PyTorch Dataset: 输入=SLM 相位+曝光, 输出=CCD 画面 (见 `硬件调试转 Dataset` 节) |
 | Standalone tools | `src/ao_shaping/tools/` | SLM phase capture, Micro-DM per-channel image collection, train data collection |
 | Visualization | `src/ao_shaping/display/` | Windows, frames for GUI |
 | GUI | `src/ao_shaping/gui/{r50,dm,slm,zernike,ccd}/` | Streamlit components, 按设备域分包 (见上方目录树) |
 | Tests | `tests/ao_shaping/` | Mirror of src structure |
+| **实验报告** | `report/<topic>/` | 一次实验/基准/仿真的**结论**。2026-10-05 从 `docs/` 迁出；每份带 `生成脚本` 溯源块，总索引见 [`report/README.md`](report/README.md) |
+| **设备说明文档** | `docs/` | 设备规格、SDK/驱动用法、装配与操作手册、图集，外加每设备硬件测试报告 `<device>/<device>_report.md` |
 
 ---
 
@@ -172,6 +175,8 @@ CLI (main.py Click 命令)
   ├─ zernike-matrix ──→ runners/zernike_matrix_runner.py ──→ optimizer/wf/zernike_response_matrix.py ──→ (标定)
   ├─ rms-zernike ────→ runners/rms_zernike_runner.py ──→ optimizer/wf/rms_by_zernike.py ──→ algorithm: Adam/AdaMOD
   ├─ ga-zernike ─────→ runners/zernike_search_runner.py ──→ optimizer/wf/ga_zernike.py ──→ algorithm: GA
+  ├─ slm-pib ─────────→ runners/slm/shaping_runner.py ──→ optimizer/wfless/slm_zernike_pib.py ──→ algorithm: Adam/AdaMOD/GA/PSO…
+  ├─ spgd-square ─────→ runners/slm/shaping_runner.py (square) ──→ optimizer/wfless/slm_square_shaping.py ──→ algorithm: SPGD (同名 click 组)
   └─ combined ────────→ runners/combined_runner.py ──→ optimizer/combined_optimizer.py ──→ algorithm: AdaMOD/SPGD
 
 runners/       硬件编排层  — Click CLI, 设备生命周期 (open/close), 结果保存
@@ -199,7 +204,7 @@ algorithm/     算法基础层  — 纯数学优化器 (update/grad), 无硬件�
 | 类型 | 说明 |
 |------|------|
 | 已注册 CLI 命令 | main.py 注册 20 个命令 (含 `slm-gsnet`, `combined` 等), 见 Entry Points 节 |
-| 独立 Runner (未注册) | 需直接运行 `python -m ao_shaping.runners.xxx` 或 standalone 脚本; `shaping_runner` 计划迁移至 `scripts/`, `slm_offset_runner` 计划迁移至 `tools/slm/` |
+| 独立 Runner (未注册) | 需直接运行 `python -m ao_shaping.runners.xxx` 或 standalone 脚本; `slm_offset_runner` 计划迁移至 `tools/slm/`。⚠️ `shaping_runner` **曾经**在此列 (2026-10-05 前它未注册); 现已注册为 `slm-pib` + `spgd-square`, 不再属于本行 |
 
 ### 共享辅助
 
@@ -612,6 +617,8 @@ python src/ao_shaping/main.py pipeline
 python src/ao_shaping/main.py zernike-matrix
 python src/ao_shaping/main.py rms-zernike
 python src/ao_shaping/main.py ga-zernike
+python src/ao_shaping/main.py slm-pib spgd          # SLM Zernike PIB (SLM + CCD)
+python src/ao_shaping/main.py spgd-square           # SLM 方形远场整形 (同上模块的 square 子命令)
 python src/ao_shaping/main.py combined
 ```
 
@@ -624,6 +631,8 @@ main (click.group)
 ├── zernike-matrix ← zernike_matrix_runner.run [Zernike响应矩阵标定 + 闭环优化 (closed_loop_run)]
 ├── rms-zernike    ← rms_zernike_runner.run    [SLM Zernike RMS]
 ├── ga-zernike     ← ga_zernike_runner.run     [GA Zernike]
+├── slm-pib         ← slm_pib_run                [SLM Zernike PIB (spgd / heuristic 子命令)]
+├── spgd-square     ← slm_square_run             [SLM 方形远场均匀性整形 (shaping_runner 的 square 子命令)]
 ├── slm-gsnet      ← slm_gsnet_run             [SLM方形光斑 SPGD 整形 (freeform)]
 ├── slm-gs-refine  ← slm_gs_refine_run         [GS 预矫正 + 自由相位 SPGD 细化]
 ├── slm-model-in-loop ← slm_model_in_loop_run   [正向模型闭环校正 + 目标光斑相位合成]
@@ -633,7 +642,8 @@ main (click.group)
 **Note:** `combined` 命令仍注册于 main.py (main.py:106) 且功能可用, 作为 legacy 保留。`pipeline_runner.py` 是推荐的 WF→PIB 串行方案。
 
 > **未注册到 main.py 的独立 Runner** (需直接运行 `python -m ao_shaping.runners.xxx` 或 standalone 脚本):
-> `shaping_runner` (计划迁移至 `scripts/`), `slm_offset_runner` (计划迁移至 `tools/slm/`), `hadamard_matrix_runner` (正在注册为 `hadamard-matrix` 命令)
+> `slm_offset_runner` (计划迁移至 `tools/slm/`), `hadamard_matrix_runner` (正在注册为 `hadamard-matrix` 命令)。
+> ⚠️ `shaping_runner` 曾列于此 (2026-10-05 前未注册), 现已注册为 `slm-pib` + `spgd-square`。
 
 **Refactoring Notes:**
 - All runner scripts now use centralized config from `config.py` (DM_N_ACTUATORS, PATHS, DEFAULTS)

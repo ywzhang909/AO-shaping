@@ -1,5 +1,12 @@
 # Forward-model / loss defect hunt
 
+<!-- provenance:start -->
+> **生成脚本**: 人工撰写，无生成脚本
+> **数据/关联脚本**: [`scripts/sweep_far_field_padding.py`](../../scripts/sweep_far_field_padding.py)
+> **运行环境**: 离线
+> **说明**: 前向模型/loss 缺陷排查结论（人工撰写）；同目录 *.json 为各探针面板
+<!-- provenance:end -->
+
 Conclusions from metric- and gradient-probing `ZernikeAmpModel` and
 `ml/zernike/losses.py` on the real corpus (`slm_zernike_shaping`, 1010 records,
 10 pickles, `grid=64`, `n_max=15`, `far_field_padding=10`, sim/offline only).
@@ -80,7 +87,47 @@ All 9 tensors receive gradient from step 1.
 
 ---
 
-## 5. REFUTED — one global coefficient vector is **not** a capacity bottleneck
+## 5. FIXED — `far_field_padding=10` is wrong for most families
+
+`ZernikeAmpConfig.far_field_padding` defaults to 10 and its own docstring warns
+"the right value depends on the family's `fov_px`, so re-run the sweep for a new
+family rather than copying the default". That warning was never acted on.
+
+Swept all 6 usable families (`scripts/sweep_far_field_padding.py`, coefficients
+at Z = 0 so this is *purely* geometric agreement — no training, no fitting;
+48 samples/family, `grid=64`, `n_max=15`, `normalization="peak"`, judged on R²):
+
+| family | fov_px | best pad | R²(best) | R²(10) | gain vs default |
+|---|---|---|---|---|---|
+| `model_in_loop_hw_collect` | 64 | **8** | +0.4839 | +0.3063 | **+0.178** |
+| `model_in_loop_hw_sweep` | 64/1944 | 10 | +0.4967 | +0.4967 | 0.000 |
+| `slm_pib` (**7866 rec**) | 320 | **16** | +0.7350 | +0.5367 | **+0.198** |
+| `slm_pib_online` | 248 | **14** | +0.6819 | +0.5167 | **+0.165** |
+| `slm_zernike_shaping` | 248 | 12 | +0.5530 | +0.4945 | +0.058 |
+| `slm_gsnet_square` | 1944 | 4 | **−1.106** | −1.373 | — |
+
+**The default is optimal for exactly one family.** It is badly wrong for
+`model_in_loop_hw_collect`: R² falls from +0.484 at pad 8 to **−4.46** at pad 20,
+so a large padding is not a "conservative" choice on a narrow window. The largest
+family in the corpus (`slm_pib`, 7866 records) peaks at 16, not 10.
+
+The real signal is the **trend** — the optimum increases with `fov_px`
+(64→8, 248→14, 320→16), which is what a zero-padding/angular-extent argument
+predicts. Adjacent optima differ by ~0.05 R² in places, near this repo's noise
+floor, so treat the argmax as ±1 step and the trend as the finding.
+
+`fov_px = 1944` is **negative at every padding** and is deliberately absent from
+the lookup: `slm_gsnet_square` stores freeform phase cells rather than Zernike
+coefficients, so a Zernike-parameterised model has nothing to fit. Do not read its
+−1.11 as a padding problem.
+
+Added `PADDING_BY_FOV_PX` and `recommended_padding(fov_px)` (unmeasured values fall
+back to the default rather than being guessed at) so this is queryable instead of
+folklore.
+
+---
+
+## 6. REFUTED — one global coefficient vector is **not** a capacity bottleneck
 
 `slm_zernike_shaping` looks like one family but is **four** optimisation
 objectives (rms_pib 404 / rmse_out 303 / shape 202 / roi_pib 101 records over 10
@@ -104,7 +151,7 @@ vector suffices. **No architecture change is warranted** — do not "fix" this.
 Note `roi_pib` is excluded: a single pickle cannot be split by file, and a
 record-level split would leak consecutive epochs of one run across the split.
 
-## 6. NOT DEMONSTRATED — the self-attention buys nothing measurable
+## 7. NOT DEMONSTRATED — the self-attention buys nothing measurable
 
 Same 3 seeds, paired:
 

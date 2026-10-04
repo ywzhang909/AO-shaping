@@ -44,6 +44,7 @@
 | [`fouriergsnet_sim/report.md`](fouriergsnet_sim/report.md) | `scripts/generate_fouriergsnet_sim_report.py (+fouriergsnet_sim_train.py, generate_slm_gsnet_sim_gif.py)` | 离线 | 数据由 fouriergsnet_sim_train.py 产生；gifs/ 由 generate_slm_gsnet_sim_gif.py 追加 |
 | [`heuristic_pib/report.md`](heuristic_pib/report.md) | `scripts/generate_heuristic_pib_report.py` | 离线 | 7 种启发式 + PIB 目标；summary.csv 为本脚本产物 |
 | [`loss_algorithms_smoke/report.md`](loss_algorithms_smoke/report.md) | `scripts/compare_loss_algorithms.py` | 离线 | 测试用例跑 --quick 生成的冒烟版本 |
+| [`loss_defects/README.md`](loss_defects/README.md) | `人工撰写 (+sweep_far_field_padding.py)` | 离线 | 前向模型/loss 缺陷排查结论（人工撰写）；同目录 *.json 为各探针面板 |
 | [`micro_deformable_mirror/freq_test.md`](micro_deformable_mirror/freq_test.md) | `人工撰写` | 硬件 | 微驱动器频率测试记录；images/freq_test/ 为同期截图 |
 | [`micro_deformable_mirror/voltage_test.md`](micro_deformable_mirror/voltage_test.md) | `人工撰写` | 硬件 | 微驱动器电压测试记录 (R50Power)；images/voltage_test/ 为同期截图 |
 | [`miicam_simulation/miicam_report.md`](miicam_simulation/miicam_report.md) | `tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py` | 离线 | 仿真 MiiCam 的测试报告 (无需设备) |

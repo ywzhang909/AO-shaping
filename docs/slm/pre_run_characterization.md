@@ -303,4 +303,4 @@ K = λ·f / (d_slm · p_cam)          K = tools/slm/slm_bench_probe.TILT_SHIFT_S
 - 纯分析内核: `src/ao_shaping/tools/slm/slm_bench_metrics.py`
 - 规范测量内核(设备注入): `src/ao_shaping/tools/slm/slm_bench_probe.py`
 - 目录说明: [`src/ao_shaping/tools/slm/README.md`](../../src/ao_shaping/tools/slm/README.md)
-- 实测标定报告: [`report/slm/bench_calibration_20261001.md`](bench_calibration_20261001.md)
+- 实测标定报告: [`report/slm/bench_calibration_20261001.md`](../../report/slm/bench_calibration_20261001.md)

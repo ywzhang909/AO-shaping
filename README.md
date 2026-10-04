@@ -1837,7 +1837,7 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
   - [SLM 操作手册](docs/slm/slm_gui_manual.md)、[PatternHelper 指南](docs/slm/slm_pattern_helper.md)、[开机表征指南](docs/slm/pre_run_characterization.md)、[SLM 相位图集](docs/slm/slm_patterns/)
   - **每设备硬件评测报告** (2026-09 重新生成): [WFS](docs/wfs/wfs_report.md) / [MiiCam](docs/miicam/miicam_report.md) / [SLM-200](docs/slm-200/slm-200_report.md) / [Micro-DM](docs/micro-dm/micro-dm_report.md)
   - 厂商手册: [大恒相机 SDK](docs/daheng/) · [Thorlabs WFS](docs/thorlab-wfs/) · [Santec SLM-200/DLL](docs/slm-200/) · [微驱动器接线表](docs/micro%20deformable%20mirror/)
-  - [驱动层架构](docs/drivers_architecture.md)、[AO 仿真指南](docs/simulation.md)、[Tabu 算法](docs/tabu_search_algorithm.md)、[已知问题](docs/issues_report.md)、[待办](docs/TODO.md)
+  - [驱动层架构](docs/drivers_architecture.md)、[AO 仿真指南](docs/simulation.md)、[Tabu 算法](docs/tabu_search_algorithm.md)、[已知问题](docs/issues_report.md)、[待办总账](TODO.md)
 
 ## 近期更新
 

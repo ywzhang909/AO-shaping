@@ -198,4 +198,5 @@ class MyDriver(Device):
 |------|------|------|
 | 接口文档 | `drivers/INTERFACE_DOCS.md` | 架构概览、接口规范、扩展指南 |
 | SLM 标定 | `drivers/slm/README.md` | 闪耀光栅法/零级比值法/干涉法/衍射效率法标定详解 |
-| 方形光斑 SPGD | `docs/slm_square_spgd/README.md` | SPGD 整形硬件实测与故障记录 |
+| 方形光斑 SPGD | `report/slm/slm_square_spgd/README.md` | SPGD 整形硬件实测与故障记录 |
+| 实验报告总索引 | `report/README.md` | 报告 → 生成脚本 → 离线/硬件 的对应关系；硬件实测结论查这里，设备用法查上面两份 |

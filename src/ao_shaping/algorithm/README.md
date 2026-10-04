@@ -67,7 +67,7 @@ torch/numpy tests on synthetic targets are REQUIRED before any hardware run. Tes
 
 ## Canonical example
 
-[`differentiable_beam.py`](./differentiable_beam.py) is the reference implementation. `DifferentiableBeamOptimizer` demonstrates the full convention: validation in `__init__` and one-step `update()`. The loop that drives `update()` lives in the optimizer layer as `optimize_beam_shaping` (`ao_shaping.optimizer.wfless.differentiable_beam`), which returns a `Recorder`.
+[`differentiable_beam.py`](./signal_processing/differentiable_beam.py) is the reference implementation. `DifferentiableBeamOptimizer` demonstrates the full convention: validation in `__init__` and one-step `update()`. The loop that drives `update()` lives in the optimizer layer as `optimize_beam_shaping` (`ao_shaping.optimizer.wfless.differentiable_beam`), which returns a `Recorder`.
 
 ```python
 class DifferentiableBeamOptimizer:

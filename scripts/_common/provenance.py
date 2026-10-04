@@ -476,6 +476,14 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线",
         note="9 单元网格中 spgd-sim x square 的逐 GIF 指标；area 已坍缩，勿据此比均匀性",
     ),
+    # -- 正向模型 / loss 缺陷排查 ------------------------------------------
+    "report/loss_defects/README.md": ReportProvenance(
+        script=HANDWRITTEN,
+        command="python -m ml.zernike.train_amp",
+        environment="离线",
+        note="前向模型/loss 缺陷排查结论（人工撰写）；同目录 *.json 为各探针面板",
+        extra_scripts=("scripts/sweep_far_field_padding.py",),
+    ),
     # -- 附属记录 ------------------------------------------------------------
     "report/fouriergsnet_pipeline/TODO.md": ReportProvenance(
         script=HANDWRITTEN,

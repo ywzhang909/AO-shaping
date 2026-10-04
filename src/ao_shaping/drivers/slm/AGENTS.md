@@ -167,7 +167,7 @@ X 粗扫 tip 几乎不变 (+0.39→+0.22) 而 tilt 强线性 (+2.72→−1.50); 
 
 详细标定方法见 [`README.md`](./README.md) 和 [`tools/slm/calibration.py`](../../tools/slm/calibration.py)。
 
-详细硬件实测与故障记录见 [`docs/slm_square_spgd/README.md`](../../../../docs/slm_square_spgd/README.md)。
+详细硬件实测与故障记录见 [`report/slm/slm_square_spgd/README.md`](../../../../report/slm/slm_square_spgd/README.md)。
 
 ## GUI CSV 相位加载与导出
 

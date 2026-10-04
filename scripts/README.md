@@ -754,6 +754,23 @@ python scripts/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts> --p
 > (naming `generate_*_report.py`), never in `src/ao_shaping/tools/` (reserved for
 > hardware-interaction tools). See `AGENTS.md` anti-patterns.
 
+> **Output location**: reports go to `report/<topic>/` at the **repo root**, not to
+> `docs/`. `docs/` is device documentation only (specs, SDK usage, assembly
+> manuals, image galleries); a measurement result and the manual for the device it
+> came from are different documents with different lifetimes, and interleaving them
+> by topic made "is this a manual or a result?" unanswerable from the path. Moved
+> on 2026-10-05; every generator's output path moved with it.
+
+> **Provenance**: every report states the script that produced it. Declare the
+> mapping once in `scripts/_common/provenance.py::REPORTS`, then run
+> `python scripts/sync_report_provenance.py` (idempotent; `--check` only
+> verifies). **Do not hand-write the header or `report/README.md`** — they are
+> generated, and `tests/ao_shaping/scripts/test_report_provenance.py` fails if
+> they drift from the registry. A generator that **overwrites** its own report must
+> stamp the header at write time (`insert_header`), or the next run deletes it —
+> three writers do this (`TestReport`, the `test_spots_calc` benchmark, and
+> `compare_loss_algorithms.py`).
+
 > **Shared analysis helpers**: `scripts/` report generators in the SLM/Zernike
 > family delegate measurement/analysis logic to
 > `src/ao_shaping/tools/slm/slm_scan_analysis.py` (`outlier_mask`, `clamp_shift`,
@@ -871,7 +888,7 @@ hardware.
 ```powershell
 $env:PYTHONPATH = "src"
 python scripts/generate_zernike_response_matrix_report.py
-python scripts/generate_zernike_response_matrix_report.py --h5 <path> -o docs/slm/<dir>
+python scripts/generate_zernike_response_matrix_report.py --h5 <path> -o report/slm/<dir>
 ```
 
 **What it does** (writes `report.md` + `figures/`):
@@ -1325,7 +1342,7 @@ with CV 16-34 device-less, so its uniformity numbers are meaningless. The report
 header repeats this so the table cannot be misread on its own.
 
 The `.csv` siblings are written but **not committed**: the repo has a global
-`*.csv` ignore rule and no CSV under `docs/` is tracked. The markdown is the
+`*.csv` ignore rule and no CSV under `report/` is tracked. The markdown is the
 tracked artefact.
 
 `run_device_less_full.py` is kept as a thin forwarder to this script, because
@@ -2479,6 +2496,39 @@ from scripts._common import fmt_metric, markdown_table
 Behaviour is pinned by `tests/ao_shaping/scripts/test_common_helpers.py`, and
 `test_common_helpers_not_reintroduced.py` fails if any generator grows a local copy
 again.
+
+### sync_report_provenance.py
+
+Owns the provenance header in every report under `report/` plus the
+`report/README.md` index. Both are **generated** — the same reason a report's
+numbers are: hand-maintained provenance drifts the moment a generator is renamed,
+which is exactly the failure the 2026-10-05 `docs/` → `report/` migration had to
+clean up (reports pointed at scripts that no longer existed under those names).
+
+```bash
+python scripts/sync_report_provenance.py            # headers + index
+python scripts/sync_report_provenance.py --check    # verify only, exit 1 on drift
+python scripts/sync_report_provenance.py --verbose  # list every file touched
+```
+
+**Adding a report** means adding one entry to `REPORTS` keyed by repo-root-relative
+path and re-running the sync. Nothing else needs to know the rule.
+
+| API | Purpose |
+|---|---|
+| `provenance_block(key, depth)` | The `> 生成脚本` / `> 复现命令` / `> 运行环境` header text. `depth` is the report's directory depth below the repo root, so the relative script link is computed rather than hardcoded. |
+| `provenance_block_for(key)` | Fenced block, or `""` when unregistered. For **writers**. |
+| `insert_header(body, key)` | Places the block into a report body, idempotently. **The single placement implementation** — the sync pass and every writer call it, because two placement rules means `--check` reports drift forever on a file that is actually correct. |
+| `render_index()` | The `report/README.md` body: report → script → 离线/硬件, with registered-but-unproduced reports listed separately so the index has no dead links. |
+
+**Writers must stamp their own output.** A generator that overwrites its report
+without calling `insert_header` deletes the header on every run — three did exactly
+that, and the test suite regenerates two of them, so `pytest` alone was enough to
+strip it. `render_index()` is filesystem-aware, so a registered report that has not
+been produced yet is listed as pending instead of linked.
+
+Pinned by `tests/ao_shaping/scripts/test_report_provenance.py` (registry ↔ disk,
+header presence, no stacked headers, link resolution, index links).
 
 ## Common Patterns
 
