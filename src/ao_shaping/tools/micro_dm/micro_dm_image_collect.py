@@ -38,9 +38,10 @@ import json
 import signal
 import sys
 import time
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Annotated, Any, NoReturn
 
 import click
 import numpy as np
@@ -57,6 +58,7 @@ from ao_shaping.drivers.dm.micro import (
     R50Controller,
     WiringMap,
 )
+from ao_shaping.utils.cli_params import option, with_params
 from ao_shaping.utils.io.cli_helpers import setup_coredumpy
 from ao_shaping.utils.image.hardware_utils import open_camera
 from ao_shaping.utils.io.network import controller_tcp_port, ping_reachable
@@ -410,70 +412,87 @@ def _safe_shutdown(ctrl: R50Controller, home_voltage: float) -> None:
     click.echo("🏁 控制器已退出")
 
 
+@dataclass
+class MicroDMImageCollectParams:
+    """CLI parameters for :func:`run` (R-33: migrated to ``with_params``).
+
+    ``voltage`` is declared first because it is the only **required** option and
+    a dataclass cannot put a default-less field after defaulted ones. That moves
+    ``--voltage`` to the top of ``--help``; the previous ordering (third, after
+    ``--ip`` and ``--port``) is not a contract anywhere -- this tool is not a
+    registered ``main.py`` command and is not in the probe help golden.
+    """
+
+    voltage: Annotated[
+        float,
+        option("--voltage", required=True, help="下发电压 V (手动输入, 必需)"),
+    ] = field(default_factory=lambda: 0.0)
+    ip: Annotated[
+        tuple[str, ...],
+        option(
+            "--ip",
+            multiple=True,
+            help="R50Power 控制器 IP 地址, 可多次指定; 不指定则遍历所有控制器",
+        ),
+    ] = ()
+    port: Annotated[
+        int | None, option("--port", help="TCP端口 (默认: 10000 + IP末段)")
+    ] = None
+    home_voltage: Annotated[
+        float, option("--home-voltage", help="归位电压 V (default: 0.0)")
+    ] = 0.0
+    channels: Annotated[
+        str, option("--channels", help="通道列表 逗号分隔 或 'all' 全部50通道")
+    ] = "all"
+    output: Annotated[
+        str, option("--output", "-o", help="输出目录")
+    ] = "data/micro_dm_images"
+    camera_type: Annotated[
+        str,
+        option(
+            "--camera-type",
+            type=click.Choice(["miicam", "daheng"], case_sensitive=False),
+            help="相机类型: miicam (默认) 或 daheng",
+        ),
+    ] = "miicam"
+    cam_id: Annotated[
+        int | None, option("--cam-id", help="相机ID (默认: config far_cam_id)")
+    ] = None
+    exposure_ms: Annotated[
+        float, option("--exposure-ms", help="曝光时间 ms")
+    ] = 20.0
+    bit_depth: Annotated[
+        int,
+        option(
+            "--bit-depth",
+            type=click.IntRange(8, 16),
+            help="MiiCam输出位深 8或16 (仅miicam有效)",
+        ),
+    ] = 8
+    n_sample: Annotated[
+        int, option("--n-sample", help="每帧平均采样数")
+    ] = 1
+    n_frames: Annotated[
+        int, option("--n-frames", help="每通道采集图像张数 (default: 1)")
+    ] = 1
+    skip_first: Annotated[
+        bool, option("--skip-first/--no-skip-first", help="跳过首帧")
+    ] = True
+    settle_time: Annotated[
+        float, option("--settle-time", help="电压下发后等待时间 s (default: 0.5)")
+    ] = 0.5
+    ping_first: Annotated[
+        bool, option("--ping-first/--no-ping-first", help="连接前先 ping 测试")
+    ] = True
+    save_npy: Annotated[
+        bool, option("--save-npy", is_flag=True, help="额外保存 .npy 原始数组")
+    ] = False
+    debug: Annotated[bool, option("--debug", is_flag=True, help="启用DEBUG日志")] = False
+
+
 @click.command("micro-dm-collect")
-@click.option(
-    "--ip",
-    multiple=True,
-    help="R50Power 控制器 IP 地址, 可多次指定; 不指定则遍历所有控制器",
-)
-@click.option("--port", default=None, type=int, help="TCP端口 (默认: 10000 + IP末段)")
-@click.option("--voltage", required=True, type=float, help="下发电压 V (手动输入)")
-@click.option(
-    "--home-voltage", default=0.0, type=float, help="归位电压 V (default: 0.0)"
-)
-@click.option(
-    "--channels", default="all", type=str, help="通道列表 逗号分隔 或 'all' 全部50通道"
-)
-@click.option(
-    "--output",
-    "-o",
-    default="data/micro_dm_images",
-    help="输出目录",
-)
-@click.option(
-    "--camera-type",
-    default="miicam",
-    type=click.Choice(["miicam", "daheng"], case_sensitive=False),
-    help="相机类型: miicam (默认) 或 daheng",
-)
-@click.option(
-    "--cam-id", default=None, type=int, help="相机ID (默认: config far_cam_id)"
-)
-@click.option("--exposure-ms", default=20.0, type=float, help="曝光时间 ms")
-@click.option(
-    "--bit-depth",
-    default=8,
-    type=click.IntRange(8, 16),
-    help="MiiCam输出位深 8或16 (仅miicam有效)",
-)
-@click.option("--n-sample", default=1, type=int, help="每帧平均采样数")
-@click.option("--n-frames", default=1, type=int, help="每通道采集图像张数 (default: 1)")
-@click.option("--skip-first/--no-skip-first", default=True, help="跳过首帧")
-@click.option(
-    "--settle-time", default=0.5, type=float, help="电压下发后等待时间 s (default: 0.5)"
-)
-@click.option("--ping-first/--no-ping-first", default=True, help="连接前先 ping 测试")
-@click.option("--save-npy", is_flag=True, default=False, help="额外保存 .npy 原始数组")
-@click.option("--debug", is_flag=True, default=False, help="启用DEBUG日志")
-def run(
-    ip: tuple[str, ...],
-    port: int | None,
-    voltage: float,
-    home_voltage: float,
-    channels: str,
-    output: str,
-    camera_type: str,
-    cam_id: int | None,
-    exposure_ms: float,
-    bit_depth: int,
-    n_sample: int,
-    n_frames: int,
-    skip_first: bool,
-    settle_time: float,
-    ping_first: bool,
-    save_npy: bool,
-    debug: bool,
-) -> None:
+@with_params(MicroDMImageCollectParams, kw_name="params")
+def run(params: MicroDMImageCollectParams) -> None:
     """Micro-DM 逐单元图像采集工具
 
     遍历多个 R50Power 控制器, 对每个通道依次下发电压并用相机 (MiiCam 或 Daheng) 采集图像,
@@ -505,64 +524,64 @@ def run(
     """
     global _running
 
-    if debug:
+    if params.debug:
         logger.remove()
         logger.add(sys.stderr, level="DEBUG")
 
     # 校验电压范围
-    if voltage < VOLTAGE_MIN or voltage > VOLTAGE_MAX:
-        click.echo(f"❌ 电压 {voltage} V 超出硬件范围 [{VOLTAGE_MIN}, {VOLTAGE_MAX}] V")
+    if params.voltage < VOLTAGE_MIN or params.voltage > VOLTAGE_MAX:
+        click.echo(f"❌ 电压 {params.voltage} V 超出硬件范围 [{VOLTAGE_MIN}, {VOLTAGE_MAX}] V")
         sys.exit(1)
 
     # 解析通道列表
-    ch_list = _parse_channels(channels)
+    ch_list = _parse_channels(params.channels)
 
     # 解析待采集的控制器 IP 列表 (未指定 → 遍历所有控制器)
-    ip_list = _resolve_ips(ip)
+    ip_list = _resolve_ips(params.ip)
     if not ip_list:
         click.echo("❌ 未指定 IP 且无法解析控制器列表, 请使用 --ip 手动指定")
         sys.exit(1)
 
     # 每通道采集图像张数 (至少 1 张)
-    frame_count = n_frames if n_frames >= 1 else 1
+    frame_count = params.n_frames if params.n_frames >= 1 else 1
 
     # 校验 IP 格式并解析端口 (公共函数, 输入错误直接退出)
     ip_ports: list[tuple[str, int]] = []
     for ip_addr in ip_list:
         try:
-            ip_ports.append(_resolve_ip_port(ip_addr, port))
+            ip_ports.append(_resolve_ip_port(ip_addr, params.port))
         except ValueError as e:
             click.echo(f"❌ {e}")
             sys.exit(1)
 
     # 打开相机 (必需, 失败即退出)
-    if cam_id is None:
+    if params.cam_id is None:
         cam_id = DEVICES.far_cam_id
     try:
-        if camera_type == "daheng":
+        if params.camera_type == "daheng":
             click.echo(
-                f"📷 打开 Daheng 相机 ID={cam_id}, 曝光={exposure_ms}ms... ",
+                f"📷 打开 Daheng 相机 ID={params.cam_id}, 曝光={params.exposure_ms}ms... ",
                 nl=False,
             )
-            cam = _get_daheng_camera(cam_id, exposure_ms)
+            cam = _get_daheng_camera(params.cam_id, params.exposure_ms)
             click.echo("✅")
-            logger.info("Daheng相机已连接: ID={}", cam_id)
+            logger.info("Daheng相机已连接: ID={}", params.cam_id)
         else:
             click.echo(
-                f"📷 打开 MiiCam 相机 ID={cam_id}, 曝光={exposure_ms}ms, 位深={bit_depth}... ",
+                f"📷 打开 MiiCam 相机 ID={params.cam_id}, 曝光={params.exposure_ms}ms, 位深={params.bit_depth}... ",
                 nl=False,
             )
-            cam = _get_miicam_camera(cam_id, exposure_ms, bit_depth)
+            cam = _get_miicam_camera(params.cam_id, params.exposure_ms, params.bit_depth)
             click.echo("✅")
-            logger.info("MiiCam相机已连接: ID={}, bit_depth={}", cam_id, bit_depth)
+            logger.info("MiiCam相机已连接: ID={}, bit_depth={}", params.cam_id, params.bit_depth)
     except Exception as e:
-        cam_name = "Daheng" if camera_type == "daheng" else "MiiCam"
+        cam_name = "Daheng" if params.camera_type == "daheng" else "MiiCam"
         click.echo(f"❌ {cam_name} 相机打开失败: {e}")
         logger.error("{}相机打开失败: {}", cam_name, e)
         sys.exit(1)
 
     # 创建基础输出目录
-    base_dir = Path(output)
+    base_dir = Path(params.output)
     base_dir.mkdir(parents=True, exist_ok=True)
     logger.info("输出目录: {}", base_dir)
 
@@ -587,7 +606,7 @@ def run(
                 break
 
             # 可选 ping 测试
-            if ping_first:
+            if params.ping_first:
                 click.echo(f"📡 Ping 测试 {ip_addr}... ", nl=False)
                 if ping_reachable(ip_addr, timeout=2.0):
                     click.echo("✅ 可达")
@@ -634,39 +653,39 @@ def run(
 
                 # 逐通道采集
                 click.echo(
-                    f"  待采集通道: {len(ch_list)} 个, 电压 {voltage:g}V, "
-                    f"归位 {home_voltage:g}V, 等待 {settle_time:g}s"
+                    f"  待采集通道: {len(ch_list)} 个, 电压 {params.voltage:g}V, "
+                    f"归位 {params.home_voltage:g}V, 等待 {params.settle_time:g}s"
                 )
                 saved_files = _collect_for_ip(
                     ctrl=ctrl,
                     cam=cam,
                     ip=ip_addr,
                     channels=ch_list,
-                    voltage=voltage,
-                    home_voltage=home_voltage,
+                    voltage=params.voltage,
+                    home_voltage=params.home_voltage,
                     ip_dir=ip_dir,
-                    n_frames=n_frames,
-                    n_sample=n_sample,
-                    skip_first=skip_first,
-                    settle_time=settle_time,
-                    save_npy=save_npy,
+                    n_frames=params.n_frames,
+                    n_sample=params.n_sample,
+                    skip_first=params.skip_first,
+                    settle_time=params.settle_time,
+                    save_npy=params.save_npy,
                 )
 
                 # 写入每 IP 元数据
                 metadata = {
                     "ip": ip_addr,
                     "port": resolved_port,
-                    "voltage": voltage,
-                    "home_voltage": home_voltage,
+                    "voltage": params.voltage,
+                    "home_voltage": params.home_voltage,
                     "channels": ch_list,
                     "timestamp": datetime.now().isoformat(),
-                    "camera_type": camera_type,
-                    "cam_id": cam_id,
-                    "exposure_ms": exposure_ms,
-                    "bit_depth": bit_depth,
+                    "camera_type": params.camera_type,
+                    "cam_id": params.cam_id,
+                    "exposure_ms": params.exposure_ms,
+                    "bit_depth": params.bit_depth,
                     "n_frames": frame_count,
-                    "n_sample": n_sample,
-                    "settle_time": settle_time,
+                    "n_sample": params.n_sample,
+                    "settle_time": params.settle_time,
                     "saved_count": len(saved_files),
                     "saved_files": saved_files,
                 }
@@ -681,16 +700,16 @@ def run(
                 ok_ips.append(ip_addr)
             finally:
                 if ctrl is not None and ctrl.is_connected:
-                    _safe_shutdown(ctrl, home_voltage)
+                    _safe_shutdown(ctrl, params.home_voltage)
     finally:
         # 关闭相机 (保证任何错误路径下相机都会被关闭)
         try:
             cam.close()
-            cam_name = "Daheng" if camera_type == "daheng" else "MiiCam"
+            cam_name = "Daheng" if params.camera_type == "daheng" else "MiiCam"
             click.echo(f"📷 {cam_name} 相机已关闭")
             logger.info("{}相机已关闭", cam_name)
         except Exception as e:
-            cam_name = "Daheng" if camera_type == "daheng" else "MiiCam"
+            cam_name = "Daheng" if params.camera_type == "daheng" else "MiiCam"
             click.echo(f"⚠️  {cam_name} 相机关闭失败: {e}")
             logger.warning("{}相机关闭失败: {}", cam_name, e)
 
