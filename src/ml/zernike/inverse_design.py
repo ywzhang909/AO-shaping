@@ -174,10 +174,18 @@ def centre_crop(image: np.ndarray, grid: int = GRID) -> np.ndarray:
     return image[start_r : start_r + grid, start_c : start_c + grid]
 
 
-def sim_far_field(phase: np.ndarray) -> np.ndarray:
+def sim_far_field(phase: np.ndarray, padding: int = SIM_PADDING) -> np.ndarray:
     """Independent simulator far field for a pupil phase, cropped to ``grid x grid``.
 
     The crop is **centred on the 0-order** (see :func:`centre_crop`).
+
+    Args:
+        phase: ``(grid, grid)`` pupil phase in radians.
+        padding: Far-field zero-padding factor. The centre-cropped ``grid x grid`` output
+            of a padding-``p`` FFT covers ``1/p`` of the padded angular extent, so this
+            sets the **angular scale** of the result. Pass the same value the model under
+            test was built with, or the two are not comparable pixel-for-pixel. The
+            default matches the scale Gerchberg-Saxton designs on.
 
     Raises:
         RuntimeError: If the far field is non-finite, which means the geometry is out
@@ -191,7 +199,7 @@ def sim_far_field(phase: np.ndarray) -> np.ndarray:
         beam_w0=float(BEAM_W0),
         noise_adu=0.0,
         seed=0,
-        far_field_padding=SIM_PADDING,
+        far_field_padding=int(padding),
         far_field_window=SIM_WINDOW,
     )
     system.set_phase_rad(embed_phase(phase))
@@ -205,11 +213,22 @@ def sim_far_field(phase: np.ndarray) -> np.ndarray:
 
 
 def score_phase(
-    phase: np.ndarray, size_frac: float = SIZE_FRAC, aspect: float = ASPECT
+    phase: np.ndarray,
+    size_frac: float = SIZE_FRAC,
+    aspect: float = ASPECT,
+    padding: int = SIM_PADDING,
 ) -> float:
-    """``pib + uniformity`` on the independent simulator (higher is better)."""
+    """``pib + uniformity`` on the independent simulator (higher is better).
+
+    ``padding`` is forwarded to :func:`sim_far_field`; see there for why it sets the
+    angular scale.
+    """
     pib, uni = rms_pib_terms(
-        sim_far_field(phase), (GRID / 2, GRID / 2), "rectangle", size_frac * GRID, aspect
+        sim_far_field(phase, padding),
+        (GRID / 2, GRID / 2),
+        "rectangle",
+        size_frac * GRID,
+        aspect,
     )
     return float(pib + uni)
 
@@ -231,9 +250,12 @@ def score_coefficients(
     size_frac: float = SIZE_FRAC,
     aspect: float = ASPECT,
     n_max: int = N_MAX,
+    padding: int = SIM_PADDING,
 ) -> float:
     """:func:`score_phase` for a Zernike coefficient vector."""
-    return score_phase(coefficients_to_phase(coefficients, n_max), size_frac, aspect)
+    return score_phase(
+        coefficients_to_phase(coefficients, n_max), size_frac, aspect, padding
+    )
 
 
 # ----------------------------------------------------------------------

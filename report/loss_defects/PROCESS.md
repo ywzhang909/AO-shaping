@@ -1210,14 +1210,81 @@ Rendering the report surfaced bugs the numbers had hidden:
    with the config it was trained under (n_max 20, padding 10 — not the library defaults
    15/12), and the title states which case is shown.
 
-⚠️ **The inverse panel is still not a fair comparison, and says so in its own title.** The
-checkpoint was fitted at `far_field_padding=10` while the independent evaluator runs at
-padding 1, so the two far fields differ in angular scale by roughly that factor: the
-simulator's panel is a near-single-pixel focus while the model predicts a broad blob. That
-is the same class of error as the attempt-13 scale mismatch, and it is why the freeform
-inverse conclusions in this file must not be read as statements about the trained model's
-inverse accuracy. Reconciling them needs the model re-fitted at the evaluator's padding,
-which is not done.
+### The inverse panel: padding was a red herring, the real cause is model accuracy
+
+The first hypothesis for the inverse panel's disagreement was an angular-scale mismatch —
+the checkpoint is fitted at `far_field_padding=10`, the evaluator runs at padding 1, and a
+centre-cropped padding-`p` FFT covers `1/p` of the padded extent. `sim_far_field` now takes
+`padding` so the two can be put on one scale, and `scripts/padding_alignment.py` sweeps it:
+
+| sim padding | pearson | spearman | var_r sim | var_r pred / sim |
+|---|---|---|---|---|
+| 1 | 0.1501 | 0.0889 | 149.48 | 4.39 |
+| 4 | 0.1035 | 0.0068 | 566.15 | 1.16 |
+| 8 | 0.1904 | 0.1061 | 538.69 | 1.22 |
+| **12** | **0.2660** | 0.1553 | 470.28 | 1.40 |
+| 16 | 0.2427 | 0.1381 | 411.72 | 1.59 |
+
+**No padding makes them agree** — the best shape correlation across the whole sweep is
+**0.27**. So the panel is not a scale artefact: the trained model simply has **no accuracy
+in the inverse direction**. `var_r(pred) = 656` against `149 … 566` for the simulator across
+the sweep, i.e. the model's predicted spot is consistently broader than a physical focus.
+
+That is the same asymmetry as attempt 6 (forward accuracy is not an input to the gradient
+path) arriving from the other side, and it lines up with the freeform result: the model
+reproduces the *forward* map it was fitted on (R² ≈ 0.88 on held-out real frames) and has
+nothing usable outside it. The panel title now says this, measured, instead of blaming a
+padding mismatch that the sweep rules out.
+
+The default padding stays **1** in `inverse_design`, because that is the scale
+Gerchberg-Saxton designs on and every re-measured result in this file was measured there.
+
+## There is no overfitting — measured
+
+Asked to fix overfitting. Measured instead of assumed: train-vs-validation error at the
+best epoch across training-set size, plus every regularisation lever
+(`scripts/overfit_diagnose.py`, 3 seeds, paired).
+
+**Learning curve** (`n_max=20`, varying the number of training records):
+
+| train records | val R² | train MSE | val MSE | gap | val/train |
+|---|---|---|---|---|---|
+| 128 | +0.8767 | 0.00169 | 0.00177 | +0.00008 | 1.16 |
+| 256 | +0.8850 | 0.00170 | 0.00165 | −0.00005 | 1.02 |
+| 512 (default) | **+0.8860** | 0.00158 | 0.00163 | +0.00005 | **1.08** |
+| 768 | +0.8851 | 0.00152 | 0.00165 | +0.00013 | 1.12 |
+
+**Regularisation levers** (all at `max_train=512`):
+
+| config | val R² | ΔR² | positives |
+|---|---|---|---|
+| incumbent `n_max=20` | **+0.8860** | — | — |
+| `+ l2=1e-3` | +0.8611 | −0.0250 | 0/3 |
+| `+ l2=1e-2` | +0.6334 | −0.2526 | 0/3 |
+| `+ weight_decay=1e-2` | +0.6790 | −0.2070 | 0/3 |
+| `n_max=15` (fewer DOF) | +0.8855 | −0.0005 | 1/3 |
+
+Three things follow, and none of them is "add regularisation":
+
+1. **There is no generalisation gap.** `val/train = 1.08`. Validation error does not exceed
+   training error by more than 8%, and at 256 records it is *lower*.
+2. **The learning curve is flat.** Going 128 → 512 records buys +0.009 R² and then
+   saturates; 768 is no better than 512. The model is **saturated, not data-limited** — so
+   the free `DEFAULT_MAX_RECORDS = 512` out of 1010 available records is not the constraint
+   it looked like. (It was worth checking precisely because half the corpus going unused is
+   the most plausible-sounding explanation.)
+3. **Every regulariser makes it strictly worse**, monotonically in strength, 0/3 paired
+   every time. Reducing capacity (`n_max=15`) changes nothing (−0.0005, 1/3).
+
+So the forward error is a **representation ceiling**, not overfitting: a 230-coefficient
+linear-in-coefficients model saturates near R² 0.88 on this corpus regardless of data,
+capacity or regularisation. That is consistent with the grouped-CV comparison already on
+record, where this family reaches R² +0.8727 ± 0.0867 and a 7.8 M-parameter U-Net reaches
++0.9004 ± 0.0610 — a +0.028 R² gain for 34 000× the parameters, and +0.11 SSIM. The honest
+options are therefore to accept ~0.88 for a model that emits a closed-form realisable phase
+(`Σ Z_k B_k`, 230 interpretable radians), or to change the architecture and give up that
+property. **Adding regularisation to fix a gap that is not there would make the model worse,
+and the measurements say so at three seeds each.**
 
 ### Remaining caveats
 
