@@ -240,10 +240,70 @@ value that `design()` ignored (its step count was hardcoded), so the 5/20/60 col
 came out byte-identical and only 0 vs 60 was really tested. The table above is from
 the fixed version, where the design axis genuinely varies.
 
+### Attempt 5 — overfitting hypothesis REFUTED, and attempt 4 needs weakening
+
+If the heavily-fitted start is worse *because* it overfits its single training
+sample, then fitting on more samples should improve held-out accuracy and move the
+best start rung toward high accuracy. Tested train_size ∈ {1, 4}, start scored
+directly on the sim (design_steps=0), 3 disjoint sample blocks, full rung ladder.
+
+| train_size | fit_steps | held-out MSE | sim shape_sum | vs flat |
+|---|---|---|---|---|
+| 1 | 0 | 0.00349 | 0.6578 | +0.0000 |
+| 1 | 5 | 0.00273 | **0.9502** | +0.2923 |
+| 1 | 15 | 0.00186 | 0.8137 | +0.1559 |
+| 1 | 40 | 0.00135 | 0.8132 | +0.1553 |
+| 1 | 80 | **0.00130** | 0.9189 | +0.2610 |
+| 1 | 200 | 0.00130 | 0.8858 | +0.2279 |
+| 4 | 0 | 0.00349 | 0.6578 | +0.0000 |
+| 4 | 5 | 0.00283 | 0.9402 | +0.2824 |
+| 4 | **15** | 0.00198 | **0.9988** | +0.3409 |
+| 4 | 40 | 0.00144 | 0.8902 | +0.2323 |
+| 4 | 80 | 0.00139 | 0.9364 | +0.2786 |
+| 4 | 200 | **0.00138** | 0.8439 | +0.1861 |
+
+Two results, one of which corrects attempt 4:
+
+**1. The overfitting hypothesis is refuted.** Going from 1 to 4 training samples
+does *not* improve held-out MSE (0.00130 → 0.00138 at the top rung — marginally
+worse, i.e. flat) and does *not* move the best start rung toward high accuracy. So
+the forward model is **capacity/optimisation-limited, not data-limited**. More
+data buys nothing here, which means the attempt-4 dip at high accuracy is not an
+overfitting artefact.
+
+**2. Attempt 4's "more accuracy is not better" is too strong, and is probably a
+noise ordering I over-read.** The identity of the best rung is **not stable across
+resampling**: attempt 4 found `fit_steps=15` clearly best (1.1210, with every other
+rung 0/6 behind), while this run on different sample blocks finds `fit_steps=5`
+best for train_size=1 (0.9502) and `fit_steps=15` best for train_size=4 (0.9988),
+with the high-accuracy rungs at 0.84–0.92 and paired positives of only 1/3. A
+"best rung" that changes identity when the sample block changes was never a real
+optimum.
+
+The defensible version of the finding, which survives both runs:
+
+* **Fitting helps a lot over no information** — 0.6578 → 0.81–1.12, paired positives
+  0/6 and 0/3 against the no-info floor. This is the one solid inverse-design result.
+* **Above that floor, start quality is flat within noise** across a 4x range of
+  held-out MSE (0.00079–0.00311). No rung can be called best, and none beats the
+  others consistently.
+* **Therefore held-out forward MSE is a saturated, uninformative model-selection
+  criterion for inverse shaping in this regime** — not because the relationship is
+  non-monotonic, but because MSE barely moves while the thing we care about wanders.
+
+That is a weaker claim than attempt 4 made, and the weakening is the point: attempt 4
+was one sample block reading an ordering that did not replicate.
+
+**Practical consequence — where the leverage actually is.** The forward model is at
+its accuracy ceiling (MSE flat vs training-set size) and the start quality is flat in
+that ceiling. So the productive lever is the **inverse optimiser**, not the forward
+model: design_steps gives a real monotone gain (+0.045 / +0.093 / +0.116 at 5 / 20 /
+60 steps, attempt 4) with no sign of saturating at 60.
+
 ### Next direction
 
-Test the overfitting hypothesis directly rather than leaving it as a story: if the
-heavily-fitted start is worse because it overfits one sample, then fitting on
-*several* samples should move the best rung toward the high-accuracy end. If the
-best rung stays at low accuracy, overfitting is not the mechanism and the
-relationship is genuinely non-monotonic.
+Push the inverse design harder now that it is the identified lever — more steps,
+multiple restarts, and a proper step-count sweep to find where it does saturate —
+and check on the sim whether the gain is real or another noise ordering. Treat any
+single ordering as unproven until it replicates across sample blocks, which is the
+mistake attempts 4 and 5 just paid for twice.

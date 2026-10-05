@@ -1,0 +1,290 @@
+[
+  {
+    "pair": 0,
+    "train_size": 1,
+    "fit_steps": 0,
+    "held_out_mse": 0.0031600994989275932,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.6578448985428038
+  },
+  {
+    "pair": 0,
+    "train_size": 1,
+    "fit_steps": 5,
+    "held_out_mse": 0.003101889044046402,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.8633260063782888
+  },
+  {
+    "pair": 0,
+    "train_size": 1,
+    "fit_steps": 15,
+    "held_out_mse": 0.0015457350527867675,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 1.04628508458566
+  },
+  {
+    "pair": 0,
+    "train_size": 1,
+    "fit_steps": 40,
+    "held_out_mse": 0.0011020746314898133,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 1.005037499173701
+  },
+  {
+    "pair": 0,
+    "train_size": 1,
+    "fit_steps": 80,
+    "held_out_mse": 0.0010472266003489494,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 1.0001296713055854
+  },
+  {
+    "pair": 0,
+    "train_size": 1,
+    "fit_steps": 200,
+    "held_out_mse": 0.0010047275573015213,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.9533727947171055
+  },
+  {
+    "pair": 0,
+    "train_size": 4,
+    "fit_steps": 0,
+    "held_out_mse": 0.0031600994989275932,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.6578448985428038
+  },
+  {
+    "pair": 0,
+    "train_size": 4,
+    "fit_steps": 5,
+    "held_out_mse": 0.0030676722526550293,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.8925261791078067
+  },
+  {
+    "pair": 0,
+    "train_size": 4,
+    "fit_steps": 15,
+    "held_out_mse": 0.001606556586921215,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 1.040808863984953
+  },
+  {
+    "pair": 0,
+    "train_size": 4,
+    "fit_steps": 40,
+    "held_out_mse": 0.001080722315236926,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 1.0775477659754
+  },
+  {
+    "pair": 0,
+    "train_size": 4,
+    "fit_steps": 80,
+    "held_out_mse": 0.0010853121057152748,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.7398623197989873
+  },
+  {
+    "pair": 0,
+    "train_size": 4,
+    "fit_steps": 200,
+    "held_out_mse": 0.0011008339934051037,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.6610166584243238
+  },
+  {
+    "pair": 1,
+    "train_size": 1,
+    "fit_steps": 0,
+    "held_out_mse": 0.0031006955541670322,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.6578448985428038
+  },
+  {
+    "pair": 1,
+    "train_size": 1,
+    "fit_steps": 5,
+    "held_out_mse": 0.0022027557715773582,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.9718198844256947
+  },
+  {
+    "pair": 1,
+    "train_size": 1,
+    "fit_steps": 15,
+    "held_out_mse": 0.0011069757165387273,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.8756501804259711
+  },
+  {
+    "pair": 1,
+    "train_size": 1,
+    "fit_steps": 40,
+    "held_out_mse": 0.000705634942278266,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.5880580197739252
+  },
+  {
+    "pair": 1,
+    "train_size": 1,
+    "fit_steps": 80,
+    "held_out_mse": 0.0006450662622228265,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.7617211845480529
+  },
+  {
+    "pair": 1,
+    "train_size": 1,
+    "fit_steps": 200,
+    "held_out_mse": 0.0006247214041650295,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.8467368566124381
+  },
+  {
+    "pair": 1,
+    "train_size": 4,
+    "fit_steps": 0,
+    "held_out_mse": 0.0031006955541670322,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.6578448985428038
+  },
+  {
+    "pair": 1,
+    "train_size": 4,
+    "fit_steps": 5,
+    "held_out_mse": 0.0021995403803884983,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.9638280863920715
+  },
+  {
+    "pair": 1,
+    "train_size": 4,
+    "fit_steps": 15,
+    "held_out_mse": 0.001071071601472795,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.884243960769875
+  },
+  {
+    "pair": 1,
+    "train_size": 4,
+    "fit_steps": 40,
+    "held_out_mse": 0.0007113578612916172,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.6136832948734955
+  },
+  {
+    "pair": 1,
+    "train_size": 4,
+    "fit_steps": 80,
+    "held_out_mse": 0.000661304104141891,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 1.01002221427107
+  },
+  {
+    "pair": 1,
+    "train_size": 4,
+    "fit_steps": 200,
+    "held_out_mse": 0.0006424644961953163,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 1.0724607640759034
+  },
+  {
+    "pair": 2,
+    "train_size": 1,
+    "fit_steps": 0,
+    "held_out_mse": 0.0042135086841881275,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.6578448985428038
+  },
+  {
+    "pair": 2,
+    "train_size": 1,
+    "fit_steps": 5,
+    "held_out_mse": 0.0028814899269491434,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 1.0153723107582524
+  },
+  {
+    "pair": 2,
+    "train_size": 1,
+    "fit_steps": 15,
+    "held_out_mse": 0.0029238304123282433,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.5192153421371375
+  },
+  {
+    "pair": 2,
+    "train_size": 1,
+    "fit_steps": 40,
+    "held_out_mse": 0.0022497959434986115,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.846459063391604
+  },
+  {
+    "pair": 2,
+    "train_size": 1,
+    "fit_steps": 80,
+    "held_out_mse": 0.00221804715692997,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.9948012900700958
+  },
+  {
+    "pair": 2,
+    "train_size": 1,
+    "fit_steps": 200,
+    "held_out_mse": 0.002284846967086196,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.8572524610551752
+  },
+  {
+    "pair": 2,
+    "train_size": 4,
+    "fit_steps": 0,
+    "held_out_mse": 0.0042135086841881275,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.6578448985428038
+  },
+  {
+    "pair": 2,
+    "train_size": 4,
+    "fit_steps": 5,
+    "held_out_mse": 0.0032295528799295425,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.9642749692705865
+  },
+  {
+    "pair": 2,
+    "train_size": 4,
+    "fit_steps": 15,
+    "held_out_mse": 0.0032505663111805916,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 1.0712090606592066
+  },
+  {
+    "pair": 2,
+    "train_size": 4,
+    "fit_steps": 40,
+    "held_out_mse": 0.0025312185753136873,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.9792378381878182
+  },
+  {
+    "pair": 2,
+    "train_size": 4,
+    "fit_steps": 80,
+    "held_out_mse": 0.002435159869492054,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 1.0594313338560035
+  },
+  {
+    "pair": 2,
+    "train_size": 4,
+    "fit_steps": 200,
+    "held_out_mse": 0.0023961393162608147,
+    "flat": 0.6578448985428038,
+    "sim_shape_sum": 0.7982149329743323
+  }
+]
