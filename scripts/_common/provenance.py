@@ -352,6 +352,13 @@ REPORTS: dict[str, ReportProvenance] = {
         note="2f-Fourier 数字孪生跑 slm-pib；数据由 slm_pib_sim_run.py 产生",
         extra_scripts=("scripts/slm_pib_sim_run.py",),
     ),
+    "report/slm_shaping_sim/report.md": ReportProvenance(
+        script="scripts/generate_slm_shaping_sim_report.py",
+        command="python scripts/generate_slm_shaping_sim_report.py",
+        environment="离线",
+        note="SLM+CCD 整形仿真: 三个 SLM 族 runner 的收敛与 DM 族烟测对照",
+        extra_scripts=("scripts/run_sim_bench.py",),
+    ),
     "report/slm_pib_shape_50px/report.md": ReportProvenance(
         script="scripts/generate_slm_pib_sim_report.py",
         command="python scripts/generate_slm_pib_sim_report.py",

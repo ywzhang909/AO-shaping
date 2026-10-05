@@ -331,6 +331,12 @@ class ZernikeCoeffConvNet(nn.Module):
         super().__init__()
         _validate_common(config)
 
+        # Positivity first: `bottleneck=0` makes `reachable` 0, which can never
+        # equal the already-validated `grid >= 1`, so checking reachability first
+        # would shadow this error with a misleading "grid unreachable" message.
+        if config.bottleneck < 1:
+            raise ValueError(f"bottleneck must be >= 1, got {config.bottleneck}")
+
         self.config = config
         reachable = config.bottleneck * 2 ** len(config.features)
         if reachable != config.grid:
@@ -343,8 +349,6 @@ class ZernikeCoeffConvNet(nn.Module):
                 f"(with len(features)={len(config.features)}) or adjust "
                 f"len(features) to match bottleneck={config.bottleneck}"
             )
-        if config.bottleneck < 1:
-            raise ValueError(f"bottleneck must be >= 1, got {config.bottleneck}")
 
         self.coeff_proj = nn.Linear(
             config.n_coeffs, config.latent_channels * config.bottleneck * config.bottleneck

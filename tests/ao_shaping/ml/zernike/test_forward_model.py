@@ -386,6 +386,12 @@ class TestReachabilityValidation:
             ZernikeCoeffConvNet(_config(grid=0))
         with pytest.raises(ValueError, match="latent_channels"):
             ZernikeCoeffConvNet(_config(latent_channels=0))
+        # The positivity check must fire *before* the reachability identity:
+        # `bottleneck=0` yields `reachable == 0`, which can never equal the
+        # already-validated `grid >= 1`, so the reverse order would report a
+        # misleading "grid unreachable" error instead of naming the field.
+        with pytest.raises(ValueError, match=r"bottleneck must be >= 1"):
+            ZernikeCoeffConvNet(_config(bottleneck=0))
         with pytest.raises(ValueError, match="norm_layer"):
             ZernikeCoeffConvNet(_config(norm_layer="instance"))  # type: ignore[arg-type]
         with pytest.raises(ValueError, match="hidden"):

@@ -1576,11 +1576,7 @@ python scripts/generate_oopao_vs_numpy_report.py --aberrations none,defocus --tu
   is `@lru_cache`), and **fails fast** if OOPAO is not importable rather than
   silently producing a two-arm-numpy report.
 - Reports the `phase_std_rad` ratio per scenario; on the default config the two
-<<<<<<< HEAD
   backends are **not** equivalent (≈8.7×, see `report/oopao_vs_numpy/report.md`),
-=======
-  backends are **not** equivalent (≈2.5×, see `docs/oopao_vs_numpy/report.md`),
->>>>>>> 59c2fefefe0e30754d69a81c8f0e638973c6880b
   so the report states that absolute Strehl/FWHM must not be compared across arms.
 
 **Zernike coefficients are radians**: aberration cases use Noll indices fed to
@@ -1921,11 +1917,11 @@ opens a device and never re-optimises.
 **Usage:**
 ```bash
 python scripts/generate_slm_shaping_sim_report.py
-python scripts/generate_slm_shaping_sim_report.py --out docs/slm_shaping_sim
+python scripts/generate_slm_shaping_sim_report.py --out report/slm_shaping_sim
 python scripts/generate_slm_shaping_sim_report.py --no-figures
 ```
 
-**What it does** (writes `docs/slm_shaping_sim/report.md` + `figures/`):
+**What it does** (writes `report/slm_shaping_sim/report.md` + `figures/`):
 - Covers the three **SLM-driven** runners (`slm-pib`, `slm-gsnet`, `spgd-square`)
   — the ones whose actuator the model actually represents, so their objective
   responds to the optimiser
@@ -1947,7 +1943,7 @@ python scripts/generate_slm_shaping_sim_report.py --no-figures
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--out` | `docs/slm_shaping_sim` | Report output dir |
+| `--out` | `report/slm_shaping_sim` | Report output dir |
 | `--manifest` | `data/sim_bench/summary.json` | Manifest for the DM smoke-test table |
 | `--no-figures` | off | Markdown only |
 

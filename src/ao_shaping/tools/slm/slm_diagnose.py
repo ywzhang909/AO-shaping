@@ -314,7 +314,7 @@ class DiagnoseParams:
 def main(params: DiagnoseParams) -> None:
     """SLM 硬件自检: 逐级定位是否存在"面板不调制光"类故障。"""
     from ao_shaping.drivers.slm.santec import Santec
-    from ao_shaping.utils.hardware_utils import open_camera
+    from ao_shaping.utils.image.hardware_utils import open_camera
 
     logger.info(
         "SLM self-check: slm#{} @{}nm, periods {}/{}px, camera#{} ({}) exposure {:.2f}ms "

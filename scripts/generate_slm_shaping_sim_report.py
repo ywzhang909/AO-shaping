@@ -15,7 +15,7 @@ labelled smoke-test table and never plotted as convergence. See
 
 Usage:
     python scripts/generate_slm_shaping_sim_report.py
-    python scripts/generate_slm_shaping_sim_report.py --out docs/slm_shaping_sim
+    python scripts/generate_slm_shaping_sim_report.py --out report/slm_shaping_sim
     python scripts/generate_slm_shaping_sim_report.py --no-figures
 """
 
@@ -412,7 +412,7 @@ def build_markdown(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--out", default=str(ROOT / "docs" / "slm_shaping_sim"))
+    parser.add_argument("--out", default=str(ROOT / "report" / "slm_shaping_sim"))
     parser.add_argument("--manifest", default=str(ROOT / "data" / "sim_bench" / "summary.json"))
     parser.add_argument("--no-figures", action="store_true")
     args = parser.parse_args()

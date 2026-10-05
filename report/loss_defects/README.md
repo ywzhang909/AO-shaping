@@ -14,6 +14,12 @@ Conclusions from metric- and gradient-probing `ZernikeAmpModel` and
 Reproduce with `python -m ml.zernike.train_amp` plus the panels described below.
 Absolute R² is **not** comparable across runs — see "Noise floor" at the end.
 
+> **Sections 1–7 are the forward/loss hunt. The inverse (shaping) investigation is a
+> separate, longer record in [`PROCESS.md`](PROCESS.md)** — 14 numbered attempts, of
+> which **three headline conclusions were retracted** once the evaluator's ROI geometry
+> was swept. Read that file before quoting any inverse-design claim; the only
+> conclusions that survived are summarised in its closing table.
+
 ---
 
 ## 1. FIXED — the physical loss terms were unanchored (category error)
@@ -181,3 +187,45 @@ on the split seed. Absolute R² here is meaningless; only *paired* differences a
 informative, and the paired spread on a delta is ~0.003–0.06 depending on the
 objective. Any comparison at a single seed — including several conclusions that
 were reversed during this hunt — is inside that band.
+
+---
+
+## 8. INVERSE DESIGN — the one finding that survived a robustness sweep
+
+Summarised from [`PROCESS.md`](PROCESS.md) for the reader who does not need the full
+14-attempt record. **Inverse design here means: synthesise a Zernike phase that
+shapes the far field, then score the result on an independent simulator
+(`SimPibSystem`, separate numpy FFT and illumination model) so the model never
+grades its own work.**
+
+### The robust results
+
+| finding | evidence |
+|---|---|
+| **Inverse design works.** Both GS and gradient design beat the flat reference. | 82/90 and 90/90 paired draws across 9 ROI geometries |
+| **Refinement is a restart, not a gradient.** It rescues weak proposals and degrades strong ones, monotonically, *regardless of what it optimises*. | pearson −0.91 / −0.83, spearman −0.87 / −0.92 over 9 ROI × 2 objectives (180 refinements) |
+| **Forward-model accuracy is not an input to the gradient path.** `correction_far_field()` reads only `self.coefficients`, so an unfitted and a fitted+regularised model produce *bit-identical* refinements. | coef norm 0.0000 vs 2.5421 → refined 6.84294, sim 0.997656 in both (proof, not a measurement) |
+| **Gate refinement on proposal quality** — refine only what failed the bar. | follows from the two rows above; this is what `slm_gs_refine`'s bake-off already does |
+
+### What was retracted, and why it matters
+
+Three conclusions looked significant at a single evaluator configuration and
+dissolved when the ROI geometry was swept:
+
+| retracted claim | single-config result | across 9 ROIs |
+|---|---|---|
+| "GS beats gradient inverse design" | +0.1171, t = **+2.77** | **34/90** — a coin flip |
+| "Refinement destroys a GS solution" | −0.2206, **0/16**, t = −7.65 | sign flips; helps where GS is weak |
+| "Inverse loss choice is worth +0.0002" | 5 objectives, paired | ROI-conditional |
+
+Every one had a good t-statistic. **The constant that broke them was the ROI box
+(`SIZE_FRAC=0.375`, `ASPECT=4/3`) — a value I chose once and never questioned**, which
+is the same failure mode as trusting a single split. It is recorded here so the next
+person sweeps the nuisance parameter instead of the conclusion.
+
+### Scope limits that are not optional
+
+* Zernike parameterisation at 64×64 throughout. **Freeform phase — what
+  `slm_gs_refine` actually optimises on hardware — was never tested**, and given the
+  retractions above the Zernike results should not be transferred to it unexamined.
+* Every number is a **sim** claim, not a bench claim.

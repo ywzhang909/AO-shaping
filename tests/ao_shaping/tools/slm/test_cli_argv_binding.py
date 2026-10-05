@@ -94,7 +94,7 @@ _DEVICE_SOURCES: tuple[tuple[str, str], ...] = (
     ("ao_shaping.drivers.ccd.daheng.driver", "DahengCamera"),
     ("ao_shaping.drivers.wfs.thorlab_wfs", "ThorlabWFS"),
     ("ao_shaping.drivers.ccd.common", "create_camera"),
-    ("ao_shaping.utils.hardware_utils", "open_camera"),
+    ("ao_shaping.utils.image.hardware_utils", "open_camera"),
 )
 
 #: Symbol names rebound in each tool module's own namespace.

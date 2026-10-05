@@ -85,6 +85,7 @@
 | [`slm_pib_online_hw/objective_comparison.md`](slm_pib_online_hw/objective_comparison.md) | `scripts/generate_shape_objective_comparison.py` | 离线 | 真机帧上的目标函数排序对比 |
 | [`slm_pib_shape_50px/report.md`](slm_pib_shape_50px/report.md) | `scripts/generate_slm_pib_sim_report.py` | 离线 | 50px target 的仿真运行报告 |
 | [`slm_pib_sim/report.md`](slm_pib_sim/report.md) | `scripts/generate_slm_pib_sim_report.py (+slm_pib_sim_run.py)` | 离线 | 2f-Fourier 数字孪生跑 slm-pib；数据由 slm_pib_sim_run.py 产生 |
+| [`slm_shaping_sim/report.md`](slm_shaping_sim/report.md) | `scripts/generate_slm_shaping_sim_report.py (+run_sim_bench.py)` | 离线 | SLM+CCD 整形仿真: 三个 SLM 族 runner 的收敛与 DM 族烟测对照 |
 | [`slm_zernike_shaping/report.md`](slm_zernike_shaping/report.md) | `scripts/generate_slm_zernike_shaping_report.py` | 离线 | 读 slm_zernike_shaping optimizer 的 debug 产物 |
 | [`strehl_benchmark/report.md`](strehl_benchmark/report.md) | `scripts/generate_strehl_benchmark_report.py` | 离线 | 8 种算法 + Strehl 目标；交叉对比 heuristic_pib/summary.csv |
 | [`zernike_amp/report.md`](zernike_amp/report.md) | `scripts/generate_zernike_amp_report.py (+sweep_zernike_models.py, compare_models_cv.py)` | 离线 | 9 张图；数据由 sweep_zernike_models.py 与 ml.zernike.train_amp 产生 |

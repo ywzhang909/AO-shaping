@@ -52,9 +52,26 @@ _HIGHER_LAYERS = ("algorithm", "drivers", "optimizer", "runners", "gui", "tools"
 #: wholesale rather than per-topic: it is entirely records, it is not scanned by
 #: ``_LIVE_DOCS`` below, and enumerating its ~30 topics here would rot on the
 #: first report added after this edit.
-_HISTORICAL_DOCS = ("TODO.md", "report/", "docs/slm/", "docs/wfs/", "docs/micro",
-                    "docs/miicam/", "docs/slm-200/", "docs/thorlab-wfs/",
-                    "docs/daheng/", "docs/micro-dm/", "docs/TM/")
+#:
+#: ``docs/dev/`` qualifies for the same reason: it holds the completed half of the
+#: ledger (``todo_archive.md``), which documents *why* the tree looks the way it
+#: does and cites the broken paths it was written against. It is split out of
+#: ``TODO.md`` (2026-10-06) so the ledger's actionable half stays small; the split
+#: does not change what kind of document either half is.
+_HISTORICAL_DOCS = (
+    "TODO.md",
+    "report/",
+    "docs/dev/",
+    "docs/slm/",
+    "docs/wfs/",
+    "docs/micro",
+    "docs/miicam/",
+    "docs/slm-200/",
+    "docs/thorlab-wfs/",
+    "docs/daheng/",
+    "docs/micro-dm/",
+    "docs/TM/",
+)
 
 _PY_MODULE_DOCS = sorted(SRC.rglob("*.py")) + sorted((REPO / "scripts").glob("*.py"))
 #: Documents that carry *current* instructions, so every ``python -m`` target in
@@ -85,7 +102,9 @@ def _module_inventory() -> dict[str, tuple[bool, bool]]:
             tree = ast.parse(text)
         except (OSError, SyntaxError):
             continue
-        rel = _dotted(path.relative_to(SRC).with_suffix("").as_posix().replace("/", "."))
+        rel = _dotted(
+            path.relative_to(SRC).with_suffix("").as_posix().replace("/", ".")
+        )
         has_click = any(
             isinstance(node, ast.Call)
             and getattr(node.func, "attr", "") in ("command", "group")
@@ -104,9 +123,7 @@ INVENTORY = _module_inventory()
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "pattern", ["test_*.py", "*_test.py", "conftest.py"], ids=str
-)
+@pytest.mark.parametrize("pattern", ["test_*.py", "*_test.py", "conftest.py"], ids=str)
 def test_src_contains_no_test_files_pytest_would_skip(pattern: str) -> None:
     """``testpaths = ["tests"]`` means anything here is dead weight."""
     found = sorted(p.relative_to(REPO).as_posix() for p in SRC.rglob(pattern))
@@ -158,7 +175,11 @@ def _higher_layer_imports(path: Path) -> list[tuple[int, int, str]]:
                     else child.names[0].name
                 )
                 parts = mod.split(".")
-                if len(parts) > 1 and parts[0] == "ao_shaping" and parts[1] in _HIGHER_LAYERS:
+                if (
+                    len(parts) > 1
+                    and parts[0] == "ao_shaping"
+                    and parts[1] in _HIGHER_LAYERS
+                ):
                     found.append((child.lineno, depth, mod))
 
     visit(tree, 0)
@@ -229,7 +250,9 @@ def _unresolved() -> dict[str, list[str]]:
     for path in _PY_MODULE_DOCS:
         if _is_historical(path):
             continue
-        for lineno, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), 1):
+        for lineno, line in enumerate(
+            path.read_text(encoding="utf-8-sig").splitlines(), 1
+        ):
             for match in _PY_M.finditer(line):
                 mod = match.group(1).rstrip(".")
                 tail = line[match.end() :][:14]
@@ -285,14 +308,22 @@ def test_the_reorganisation_stale_paths_are_gone_from_the_files_that_had_them() 
     # A list, not a dict: alt-voltage and full-voltage now share ONE module, and
     # two identical dict keys would silently drop the first assertion.
     stale = [
-        ("src/ao_shaping/runners/micro_drive/voltage_runner.py",
-            "python -m ao_shaping.runners.alt_voltage_runner"),
-        ("src/ao_shaping/runners/micro_drive/voltage_runner.py",
-            "python -m ao_shaping.runners.full_voltage_runner"),
-        ("scripts/generate_zernike_response_matrix_report.py",
-            "python -m ao_shaping.runners.zernike_matrix_runner"),
-        ("src/ao_shaping/tools/slm/cartographer/__init__.py",
-            "python -m ao_shaping.tools.slm.cartographer\n"),
+        (
+            "src/ao_shaping/runners/micro_drive/voltage_runner.py",
+            "python -m ao_shaping.runners.alt_voltage_runner",
+        ),
+        (
+            "src/ao_shaping/runners/micro_drive/voltage_runner.py",
+            "python -m ao_shaping.runners.full_voltage_runner",
+        ),
+        (
+            "scripts/generate_zernike_response_matrix_report.py",
+            "python -m ao_shaping.runners.zernike_matrix_runner",
+        ),
+        (
+            "src/ao_shaping/tools/slm/cartographer/__init__.py",
+            "python -m ao_shaping.tools.slm.cartographer\n",
+        ),
     ]
     for rel, old in stale:
         text = (REPO / rel).read_text(encoding="utf-8-sig")
@@ -334,8 +365,13 @@ def _tracked_docs_paths() -> set[str]:
     import subprocess
 
     out = subprocess.run(
-        ["git", "ls-files", "docs"], capture_output=True, text=True,
-        encoding="utf-8", errors="replace", cwd=str(REPO), check=False,
+        ["git", "ls-files", "docs"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=str(REPO),
+        check=False,
     ).stdout.split()
     return {p for p in out if p.endswith((".md", ".png", ".json", ".csv"))}
 
@@ -347,9 +383,8 @@ _HARNESS_MODULE = "tests/ao_shaping/utils/test_report.py"
 #: dirty, but they cannot corrupt a commit, so they are allowed -- and each one
 #: needs a reason.
 _ALLOWED_UNTRACKED_WRITERS = {
-    "tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py":
-        "targets report/miicam_simulation/, which git does not track, and needs no "
-        "device (it is the simulated camera)",
+    "tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py": "targets report/miicam_simulation/, which git does not track, and needs no "
+    "device (it is the simulated camera)",
 }
 
 
@@ -358,8 +393,13 @@ def _targets_a_tracked_docs_dir(path: Path) -> str | None:
     import subprocess
 
     tracked = subprocess.run(
-        ["git", "ls-files", "docs"], capture_output=True, text=True,
-        encoding="utf-8", errors="replace", cwd=str(REPO), check=False,
+        ["git", "ls-files", "docs"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=str(REPO),
+        check=False,
     ).stdout.split()
     tracked_dirs = {str(Path(f).parent).replace("\\", "/") for f in tracked}
 
@@ -400,7 +440,7 @@ def test_only_the_harness_or_hardware_tests_write_tracked_docs() -> None:
     assert not offenders, (
         f"these tests write into tracked docs dirs without a `hardware` marker: "
         f"{offenders}. Add `pytestmark = pytest.mark.hardware` so "
-        "`-m \"not hardware\"` can exclude them."
+        '`-m "not hardware"` can exclude them.'
     )
 
 
@@ -412,8 +452,13 @@ def test_the_allow_list_has_not_grown_without_a_reason() -> None:
     import subprocess
 
     tracked = subprocess.run(
-        ["git", "ls-files", "docs"], capture_output=True, text=True,
-        encoding="utf-8", errors="replace", cwd=str(REPO), check=False,
+        ["git", "ls-files", "docs"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=str(REPO),
+        check=False,
     ).stdout.split()
     assert tracked
     tracked_dirs = {str(Path(f).parent).replace("\\", "/") for f in tracked}
@@ -464,10 +509,14 @@ _WRITE_CALLS = re.compile(
 def test_algorithm_layer_writes_no_reports() -> None:
     offenders: list[str] = []
     for path in sorted((SRC / "ao_shaping" / "algorithm").rglob("*.py")):
-        for lineno, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), 1):
+        for lineno, line in enumerate(
+            path.read_text(encoding="utf-8-sig").splitlines(), 1
+        ):
             code = line.split("#", 1)[0]
             if _WRITE_CALLS.search(code):
-                offenders.append(f"{path.relative_to(REPO).as_posix()}:{lineno} {code.strip()[:70]}")
+                offenders.append(
+                    f"{path.relative_to(REPO).as_posix()}:{lineno} {code.strip()[:70]}"
+                )
     assert not offenders, (
         "the algorithm layer must compute, not serialise -- report generation "
         f"belongs in scripts/ (AGENTS.md anti-pattern). Offenders: {offenders}"
@@ -481,8 +530,13 @@ def test_the_benchmark_writer_is_reachable_from_scripts() -> None:
     text = writer.read_text(encoding="utf-8")
     assert "def write_table(" in text and "def write_artifacts(" in text
     # And the algorithm module must no longer expose them.
-    algo = (SRC / "ao_shaping" / "algorithm" / "signal_processing"
-            / "beam_shaping_benchmark.py").read_text(encoding="utf-8")
+    algo = (
+        SRC
+        / "ao_shaping"
+        / "algorithm"
+        / "signal_processing"
+        / "beam_shaping_benchmark.py"
+    ).read_text(encoding="utf-8")
     assert "def _write_table" not in algo and "def _write_artifacts" not in algo
     assert "output_dir" not in algo, (
         "beam_shaping_benchmark still takes an output_dir, so it is still a writer"

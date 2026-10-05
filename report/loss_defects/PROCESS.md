@@ -1,5 +1,22 @@
 # Process log — forward model & inverse shaping optimisation
 
+<!-- provenance:start -->
+> **生成脚本**: 人工撰写，无生成脚本
+> **数据/关联脚本**: [`scripts/inverse_design_sim_eval.py`](../../scripts/inverse_design_sim_eval.py)
+> **数据/关联脚本**: [`scripts/inverse_design_accuracy_ladder.py`](../../scripts/inverse_design_accuracy_ladder.py)
+> **数据/关联脚本**: [`scripts/inverse_design_restarts.py`](../../scripts/inverse_design_restarts.py)
+> **数据/关联脚本**: [`scripts/inverse_restart_selection.py`](../../scripts/inverse_restart_selection.py)
+> **数据/关联脚本**: [`scripts/inverse_objective_alignment.py`](../../scripts/inverse_objective_alignment.py)
+> **数据/关联脚本**: [`scripts/inverse_achievable_target.py`](../../scripts/inverse_achievable_target.py)
+> **数据/关联脚本**: [`scripts/gs_vs_gradient_inverse.py`](../../scripts/gs_vs_gradient_inverse.py)
+> **数据/关联脚本**: [`scripts/gs_plus_refinement.py`](../../scripts/gs_plus_refinement.py)
+> **数据/关联脚本**: [`scripts/alignment_vs_accuracy.py`](../../scripts/alignment_vs_accuracy.py)
+> **数据/关联脚本**: [`scripts/roi_robustness.py`](../../scripts/roi_robustness.py)
+> **数据/关联脚本**: [`scripts/restart_claim_robustness.py`](../../scripts/restart_claim_robustness.py)
+> **运行环境**: 离线
+> **说明**: 逆向整形 14 次尝试的完整过程记录（含 3 处被推翻的结论）
+<!-- provenance:end -->
+
 Running record of *analyse → propose → attempt → measure → record*. Newest
 sections appended. Two earlier findings live in [`README.md`](README.md); this file
 is the chronological log, including the dead ends.
@@ -425,16 +442,464 @@ Revised recipe, after attempts 6 and 7 together:
   from picking blind. Select on a measurement, or (offline, as here) on the
   independent simulator, and treat the model score as an optimisation signal only.
 
-### Next direction
+### Attempt 8 — inverse objective irrelevant; `correction_far_field` ignores the fit (**ROI-conditional**)
 
-The open question this leaves is whether the model/eval disagreement is reducible.
-Two candidate causes, distinguishable by experiment:
+Debugging the under-determination test turned up something structural rather than
+statistical. `correction_far_field()` depends **only on `self.coefficients`**, and the
+design loss never reads the fitted forward-model state. So inverse design is
+*completely independent of what the model was fitted to*: changing `n_train` or
+`l2` produced **bit-identical** inverse solutions (measured coefficient norm
+7.619766 in all three cases). Only `n_max` — the parameterisation size — matters.
 
-* **Under-determination**: with `n_max=15` (135 free coefficients) fitted to a single
-  64x64 image, many coefficient vectors fit the data equally well. If that is the
-  cause, constraining the fit — heavier `l2_penalty`, fewer modes, or fitting to many
-  samples jointly — should make the model score correlate with the sim.
-* **Genuine model error**: the model is simply wrong away from the training point.
+That reframes attempt 7. The "model score" tested there was *literally the objective
+being minimised*. So attempt 7's result reads: **driving the design objective lower
+does not produce better real far fields.** The cap on inverse quality is objective
+misalignment, not forward-model accuracy.
 
-Either way this is a forward-model defect with a concrete test, which is more useful
-than the ordering questions that attempts 3-5 were chasing.
+Tested directly — same starts, same steps, only the objective changes, 16 restarts,
+paired by restart, all scored on the independent sim:
+
+| objective | obj start | obj final | improved | sim mean | sim sd | vs flat |
+|---|---|---|---|---|---|---|
+| `mse` | 0.15220 | 0.11533 | 0.03687 | 1.0162 | 0.1031 | +0.3584 |
+| `physical` (pib+uni) | 1.24017 | 0.96665 | 0.27352 | 1.0165 | 0.1291 | +0.3586 |
+| `pib_only` | 0.68281 | 0.41610 | 0.26671 | 1.0097 | 0.1460 | +0.3519 |
+| `uni_only` | 0.55736 | 0.37885 | 0.17851 | 0.9453 | 0.1404 | +0.2875 |
+| `mse+physical` | 1.39237 | 1.08055 | 0.31182 | 0.9893 | 0.1622 | +0.3314 |
+
+Paired deltas vs `mse` (same restart):
+
+| objective | delta | positives | t |
+|---|---|---|---|
+| `physical` | **+0.0002** ± 0.0372 | 8/16 | +0.01 |
+| `pib_only` | −0.0065 ± 0.0328 | 8/16 | −0.20 |
+| `uni_only` | −0.0709 ± 0.0476 | 7/16 | −1.49 |
+| `mse+physical` | −0.0270 ± 0.0522 | 10/16 | −0.52 |
+
+**1. The objective does not matter.** Every objective lands at sim ≈ 1.01 ± 0.10, and
+every paired delta is within noise of zero. `physical` differs from plain `mse` by
++0.0002 — as close to identical as a measurement can resolve. Optimising the
+physically-motivated shaping terms is worth **nothing** over plain MSE here.
+
+**2. The more physical the objective, the *less* it predicts the real metric.**
+Splitting restarts by how well each converged on its own objective:
+
+| objective | sim on best-objective half | worst-objective half | delta |
+|---|---|---|---|
+| `mse` | 1.0583 | 0.9741 | **+0.0842** |
+| `physical` | 1.0207 | 1.0123 | +0.0084 |
+| `pib_only` | 1.0222 | 0.9973 | +0.0248 |
+| `uni_only` | 0.9415 | 0.9491 | −0.0076 |
+| `mse+physical` | 0.9448 | 1.0338 | **−0.0890** |
+
+Plain `mse` is the *best* of the five at predicting which solution will actually shape
+well; `mse+physical` is **anti-aligned** (−0.089). Every objective improved in 16/16
+restarts, so this is not "the optimiser failed to converge" — it converged and got
+*less* useful. The model's `pib_term`/`uniformity_term` are computed on the model's
+own far field with its own ROI convention; because the model is imperfect, matching
+its PIB does not produce good real PIB.
+
+### What this settles, and what it does not
+
+This **does not** contradict README.md §1. That section is about the *forward fitting*
+problem, where the physical losses were decisively better (10-fold grouped CV, R²
++0.750 vs +0.634, paired sign-flip p=0.012). Fitting a measurement and synthesising a
+spot are different problems, and now both have answers:
+
+| problem | does the loss matter? | evidence |
+|---|---|---|
+| forward **fitting** (match a measured frame) | **yes, decisively** | README §1, 10-fold CV, p=0.012 |
+| inverse **design** (synthesise a spot) | **no** | attempt 8, 5 objectives, paired, all deltas ≈ 0 |
+
+So "find a better loss for the forward model" was the right question and the anchored
+loss answered it. But the inverse leg is not a loss problem at all: within this setup
+the outcome is set by the parameterisation and the restart, not by the objective.
+
+Consequences:
+
+* Do **not** spend more effort on inverse-design losses. Five were tested; the spread
+  between the best and worst is 0.07 on a restart sd of 0.10–0.16.
+* The one real inverse lever remains **restart diversity** (attempt 6), and it needs
+  an *external* scorer to exploit (attempt 7) — which in hardware means a camera.
+* A promising untested direction, implied by finding 2: since `mse` is the best
+  available predictor of real quality, the inverse design may work better with a
+  **richer target than a binary square** — e.g. the target intensity that a GS
+  solution would produce for the same geometry, which encodes the physics in the
+  *data* rather than in the loss.
+
+### Attempt 9 — an ACHIEVABLE target does not help (but it exposed the real answer)
+
+Attempt 8's implication was that the lever is *what the loss matches*, not the loss. A
+binary square is unreachable in a 135-coefficient Zernike basis, so its MSE residual is
+dominated by an irreducible mismatch and the gradient may carry little directional
+information. Tested by replacing it with an achievable target, built from canonical
+pieces only:
+
+1. canonical Fourier Gerchberg-Saxton (`propagation='fft'`) on the square target → pupil phase
+2. canonical `fit_zernike` projection onto the model's basis, piston dropped
+   (the model holds the K non-piston Noll modes only — `fit_zernike` returns all 136)
+3. the model's own `correction_far_field` for those coefficients → achievable intensity
+
+| target | sim mean | sim sd | vs flat |
+|---|---|---|---|
+| `binary_square` (current) | 0.9689 | 0.1422 | +0.3110 |
+| `gs_achievable` | 0.9476 | 0.1726 | +0.2898 |
+
+Paired delta **−0.0212 ± 0.0665**, 8/16, t = −0.32. No improvement — the hypothesis is
+refuted. The reason is circularity: the achievable target is *already* the GS answer
+rendered by the model, so MSE toward it just re-derives GS coefficients through a
+worse optimizer.
+
+But the run printed a number that mattered more than the hypothesis:
+
+```
+sim shape_sum of the GS target coefficients themselves: 1.0998
+```
+
+**1.0998 — higher than any gradient inverse design in this study** (means 0.95–1.02).
+
+### Attempt 10 — GS beats gradient (**RETRACTED by attempt 13: it was an ROI artefact**)
+
+GS is deterministic, so one number proves nothing. Varied the thing that actually makes
+it non-deterministic — the initial random pupil phase — over 16 draws, paired with 16
+gradient designs from the same budget, all scored on the independent sim:
+
+| method | mean | sd | min | max | beats flat |
+|---|---|---|---|---|---|
+| **canonical GS** | **1.1199** | **0.0341** | 1.0510 | 1.1790 | **16/16** |
+| gradient on model (MSE, 60 steps) | 1.0028 | 0.1599 | 0.6406 | 1.1971 | 15/16 |
+
+Paired **GS − gradient = +0.1171 ± 0.0423**, positives 10/16, **t = +2.77**.
+
+1. **GS wins on the mean**, significantly.
+2. **GS is 4.7x more reproducible** (sd 0.034 vs 0.160). This is the more important
+   number for a bench: gradient inverse design's outcome is dominated by restart
+   noise, so its *typical* result is mediocre even when its best-ever result matches
+   GS's best.
+
+### The conclusion this whole study was circling
+
+Attempts 3–8 all spent effort on levers *of the gradient path* — which loss, which
+forward-model accuracy, which normalisation, which attention. Attempt 10 shows the
+gradient path is the wrong place to spend it: it is noise-dominated, and a
+deterministic open-loop solver beats it on both mean and variance.
+
+This independently justifies architecture the repo already ships: `slm_gs_refine` does
+GS pre-shaping before SPGD refinement, and `model_in_loop_shaping` builds on GS. Those
+designs were previously justified by "GS is open-loop so it cannot use feedback"; this
+study adds the stronger empirical reason that **GS alone outperforms optimising the
+learned model**, because the learned model cannot grade its own solutions (attempt 7)
+and its gradients are not aligned with the shaping metric (attempt 8).
+
+Actionable summary for the codebase:
+
+| do | don't |
+|---|---|
+| use canonical GS to propose inverse phases | expect gradient descent on the learned model to beat it |
+| treat the learned model as a *forward* predictor only | use the learned model's score to pick between solutions |
+| spend effort on forward-model *loss* (README §1) — it is decisive there | spend effort on inverse-design loss — worth +0.0002 (attempt 8) |
+| budget for measurement in hardware (a camera) to select restarts | select restarts by model score — t = 1.53, indistinguishable from blind (attempt 7) |
+
+Caveats: the evaluator is the sim, not the bench. GS here runs at `cell_spacing=8 µm`
+on a 64×64 grid without knowledge of the sim's angular scale, so its advantage is not
+an artifact of being tuned to the evaluator — but a GS solution aimed at the *wrong*
+angular scale would lose, and `slm_gs_refine`'s bake-off exists precisely for that.
+
+### Attempt 11 — refinement on top of GS makes it WORSE (**RETRACTED by attempt 13: the sign is ROI-dependent**)
+
+Attempt 10 established GS > gradient from a random start. The repo's shipped
+`slm_gs_refine` is a two-stage architecture built on the complementary premise — that
+GS proposes and then feedback refines — so that second half needed testing too.
+Refinement started **from the GS solution**, paired by the same draw:
+
+| arm | mean | sd | min | max | Δ vs GS | positives |
+|---|---|---|---|---|---|---|
+| **GS only** | **1.0905** | 0.0603 | 0.9618 | 1.1744 | — | — |
+| GS then MSE refinement | 0.8699 | 0.1348 | 0.6133 | 1.0474 | **−0.2206** | **0/16** |
+| GS then physical refinement | 0.8577 | 0.1243 | 0.7175 | 1.1017 | **−0.2328** | **0/16** |
+
+Paired t = **−7.65** and −6.84. This is not a null result — gradient refinement
+**actively damages** a good GS solution, in every single draw, by roughly 20% of the
+score. And it *doubles* the spread (sd 0.060 → 0.135), so refinement does not even
+buy stability.
+
+This closes the loop on attempt 8. The model's gradients are anti-aligned with real
+shaping quality, so descending them walks downhill on the model's objective and
+uphill on reality — whether the start is random (attempt 10) or already good
+(attempt 11). The better the starting point, the more there is to lose.
+
+### ⚠️ What this does and does not say about `slm_gs_refine`
+
+It does **not** condemn the shipped runner. `slm_gs_refine` refines with **SPGD
+against a real camera**, i.e. feedback on the actual measurement. The refinement
+tested here is gradient descent through the **learned model**, and attempts 7-8
+showed precisely why that is different: the learned model cannot grade its own
+solutions, and its gradients are misaligned.
+
+The honest statement is sharper than "refinement is bad":
+
+| forward model | gradient refinement |
+|---|---|
+| **exact** (analytic FFT == the evaluator) | helps — `generate_iterative_zernike_shaping` measured 0.849 vs GS 0.812 |
+| **learned / imperfect** (this study) | **hurts** — −0.22, 0/16 |
+
+So the load-bearing assumption in that pipeline is that the forward model is
+trustworthy. When it is learned from limited hardware data (attempt 5: held-out MSE
+saturated, capacity-limited), it is not, and model-based refinement destroys more
+than it finds. Feedback on a real measurement does not have this failure mode.
+
+### Attempt 12 — forward accuracy CANNOT rescue refinement (it is not an input)
+
+Attempts 4-5 said forward accuracy does not predict inverse quality. Attempts 8 and 11
+said the model's gradients are anti-aligned. Those looked contradictory, so this
+attempt was built to reconcile them: if the anti-alignment were a *consequence* of the
+poor single-sample fit, a genuinely accurate model should have usable gradients.
+
+The ladder (n_max ∈ {4,8,15,20} × n_train ∈ {1,8}, held-out MSE measured on a disjoint
+sample, refinement from a GS start, paired by draw) came back with `n_train` having
+**literally zero** effect — rows (4,1) and (4,8) identical, likewise 8, 15 and 20. Only
+`n_max` changed anything.
+
+That is attempt 8's structural finding biting again, so it was verified directly rather
+than interpreted. With `n_max` fixed at 15 and the same GS start:
+
+| forward model | fitted coef norm | refined coef norm | sim shape_sum |
+|---|---|---|---|
+| `n_train=1, fit=0, l2=0` | **0.0000** | 6.84294 | 0.997656 |
+| `n_train=1, fit=200, l2=0` | 2.4335 | 6.84294 | 0.997656 |
+| `n_train=8, fit=200, l2=0` | 2.5421 | 6.84294 | 0.997656 |
+| `n_train=8, fit=200, l2=1e-2` | 2.5317 | 6.84294 | 0.997656 |
+
+**Bit-identical output from a completely unfitted model and from heavily fitted,
+regularised ones.** The reason is structural and was established in attempt 8:
+`correction_far_field()` is a function of `self.coefficients` alone, and `refine()`
+overwrites `self.coefficients` with the GS start before the first step. The fitted
+state is never read.
+
+**Therefore attempts 4-5 and attempts 8-11 never actually conflicted.** They looked
+like they did only because I had not noticed that the forward model's fit is not an
+input to the gradient path. The reconciliation:
+
+* forward-model accuracy does not predict inverse quality — **correct**, and now
+  trivially so: it cannot, because it is not consulted;
+* the learned model's gradients are misaligned — **correct**, and structural rather
+  than a fitting deficiency.
+
+So no amount of forward-model training makes gradient refinement through the learned
+model safe or useful. That closes the forward-model half of the question: the answer
+is not "improve the model", it is "do not refine through the model".
+
+*(The script's own printed verdict — "alignment improves with accuracy" — is
+misleading and should not be read. It is an artifact of `n_max=20` below, not a trend;
+held-out MSE across all eight configs spans only 0.0032-0.0050, a range attempt 5
+already showed to be saturated and uninformative.)*
+
+### A separate real defect found alongside: `n_max=20` GS projection is worse than flat
+
+Same ladder, looking at the GS proposals themselves:
+
+| n_max | GS only | vs flat (0.6578) | after refinement |
+|---|---|---|---|
+| 4 | 1.1312 | +0.47 | 0.9623 |
+| 8 | 0.9733 | +0.32 | 0.8704 |
+| 15 | 1.0608 | +0.40 | 0.9209 |
+| **20** | **0.5974** | **−0.06** | 0.9948 |
+
+Projecting the GS pupil phase onto 230 modes (`fit_zernike(..., n_max=20)`) produces a
+far field **worse than no shaping at all** — the large +0.3974 "refinement gain" at
+n_max=20 is recovery from that broken start, not evidence of good alignment. The
+least-squares projection of a smooth GS phase onto many high-order Zernike modes
+injects high-order noise that costs more than the extra degrees of freedom buy.
+
+Actionable: **do not raise `n_max` for the GS projection.** On this evidence n_max=15
+is the best of the four and n_max=20 is actively harmful. This matters because
+`n_max` is the *only* lever that affects the gradient path at all — which is the flip
+side of the invariance above, and a trap for anyone who reads "the fit doesn't matter,
+so just add capacity".
+
+### Final state: the question is closed
+
+| question | answer | evidence |
+|---|---|---|
+| does forward accuracy predict inverse quality? | **no — it is not an input** | attempt 12, bit-identical output from unfitted vs fitted |
+| does the forward model's fit change gradient refinement? | **no** | attempt 12, `n_train`/`fit_steps`/`l2` all inert |
+| is the learned model's gradient usable for inverse design? | **no, it is anti-aligned** | attempts 8 (−0.089), 11 (−0.22, 0/16) |
+| can the model's score rank candidate phases? | **no** | attempt 7, t=1.53 over 30 trials |
+| is the inverse loss worth tuning? | **no** | attempt 8, `physical` vs `mse` = +0.0002 |
+| what is the best inverse proposer? | **canonical GS** | attempts 10 (+0.1171, t=2.77), 11 |
+| should `n_max` be raised? | **no — n_max=20 lands below flat** | attempt 12 |
+
+The whole arc converges on one rule: **propose with GS, grade with a measurement, never
+refine through the learned model, and do not buy inverse quality with `n_max`.** The
+learned model earns its place as a *forward* predictor — where README §1's anchored
+loss work is decisive — and nowhere else.
+
+### Attempt 13 — ⚠️ ATTEMPTS 8, 10 AND 11 ARE ROI-ARTEFACTS. Retracted.
+
+Every comparative result above was measured at ONE arbitrary evaluator ROI:
+`SIZE_FRAC=0.375`, `ASPECT=4/3`. Attempts 10 and 11 had respectable t-statistics there
+(+2.77 and −7.65), which is exactly why they needed attacking. Re-ran both claims
+across a 3x3 sweep of ROI geometries (10 draws each), holding methods and starts fixed:
+
+| ROI (frac x aspect) | flat | GS | grad | GS−grad | t | GS+refine | ref delta | t |
+|---|---|---|---|---|---|---|---|---|
+| 0.250 x 1.000 | 0.5340 | 0.8115 | 0.9728 | **−0.1613** | −6.40 | 0.9442 | +0.1327 | +6.25 |
+| 0.250 x 1.333 | 0.5570 | 0.8044 | 0.9326 | −0.1283 | −2.95 | 0.8504 | +0.0461 | +0.92 |
+| 0.250 x 1.500 | 0.5649 | 0.9684 | 0.8888 | +0.0796 | +1.36 | 0.8309 | −0.1375 | −2.59 |
+| 0.375 x 1.000 | 0.6114 | 0.8947 | 0.9447 | −0.0500 | −0.95 | 0.9591 | +0.0644 | +1.42 |
+| **0.375 x 1.333** (original) | 0.6578 | 1.0970 | 0.8668 | **+0.2303** | +5.60 | 0.9482 | −0.1488 | −2.74 |
+| 0.375 x 1.500 | 0.6809 | 1.1612 | 0.9983 | +0.1629 | +4.42 | 0.8951 | −0.2661 | −4.35 |
+| 0.500 x 1.000 | 0.7199 | 0.6538 | 1.0037 | **−0.3499** | −11.15 | 0.9532 | +0.2993 | +8.01 |
+| 0.500 x 1.333 | 0.8016 | 0.9330 | 1.1997 | −0.2667 | −6.19 | 1.0218 | +0.0888 | +1.58 |
+| 0.500 x 1.500 | 0.8442 | 1.1876 | 1.2218 | −0.0342 | −1.32 | 0.9916 | −0.1960 | −4.32 |
+
+Win counts over all 90 draws:
+
+| comparison | result | verdict |
+|---|---|---|
+| gradient beats flat | **90/90** | **robust** |
+| GS beats flat | 82/90 | robust (fails at 0.5x1.0: 2/10) |
+| GS beats gradient | **34/90** | **chance — not a real effect** |
+| refinement helps GS | 5/9 ROIs | **sign depends on ROI** |
+
+So:
+
+* **Attempt 10 is retracted.** "GS beats gradient by +0.1171 (t=+2.77)" held only at the
+  ROI I happened to choose. Across the sweep it is 34/90 — a coin flip. GS does beat
+  flat reliably (82/90), and so does gradient (90/90); neither dominates.
+* **Attempt 11 is retracted.** "Refinement destroys GS (−0.2206, 0/16)" held only where
+  GS was already strong. Where GS underperformed, refinement *helped* by up to +0.2993.
+* **Attempt 8's objective ranking is likewise suspect** — same single ROI, and its
+  effect size (+0.0002) was already inside the noise it was measured against.
+
+**What survives, and it is a different kind of claim.** Refinement's value is strongly
+monotone in how good the starting point already was:
+
+| | x = GS − flat | y = refinement delta |
+|---|---|---|
+| pearson | **−0.9056** | |
+| spearman | **−0.8667** | |
+| spearman excluding the single ROI where GS fell below flat | **−0.8095** | |
+
+*(An inline Spearman I printed for this first read −0.0144 was a bug in that one-liner's
+ranking; the correct value is −0.8667 and it holds at −0.8095 without the outlier, so the
+effect is not driven by one point.)*
+
+So the robust, ROI-independent statement is:
+
+> **Refinement is a restart, not a gradient.** It helps when the proposal is bad and
+> hurts when the proposal is good, monotonically. It carries no consistent directional
+> information about the true objective.
+
+That is consistent with everything else here — attempts 7 and 8 found the model's
+gradients are uninformative and misaligned — but it is a much weaker and more specific
+claim than "refinement is harmful", and it does **not** support "never refine".
+
+It also explains the repo's existing `slm_gs_refine` **bake-off** precisely: keep GS
+only if it beats flat, and refine only from a proposal that failed the bar. That guard
+is exactly the right shape for a restart-like operator, and this is the first evidence
+*for* it rather than merely against skipping refinement.
+
+### What is actually robust in this study
+
+Only two things, and they are different in kind from everything above:
+
+1. **Structural (proof by bit-identity, not a metric):** `correction_far_field()` reads
+   only `self.coefficients`, so the forward model's fit is not an input to the gradient
+   path at all — an unfitted model and a fitted+regularised one produce identical
+   refinements (attempt 12). This is a property of the code, not of a measurement, so
+   no evaluator choice can invalidate it.
+2. **Robust in sign across all 9 ROIs:** both GS and gradient inverse design beat flat
+   (82/90 and 90/90). Inverse design on the learned model works; *which* proposer wins
+   does not.
+
+Everything else — objective ranking, GS-vs-gradient, refinement-harm, the alignment
+table — is ROI-conditional and must not be quoted without the ROI attached.
+
+### Attempt 14 — the one surviving claim, hardened across ROI × objective
+
+Attempt 13 left a single ROI-independent conclusion, but it had been measured on one
+objective (`mse`). A claim that survives a nuisance sweep on one axis and not another
+is only half-robust, so the sweep was repeated over objective as well: 9 ROI
+geometries × 2 objectives, 10 draws per cell (180 refinements).
+
+Refinement delta against how well the proposal already did:
+
+| ROI (frac × aspect) | GS − flat | Δ mse | Δ physical |
+|---|---|---|---|
+| 0.250 × 1.000 | +0.2775 | +0.1327 | +0.1812 |
+| 0.250 × 1.333 | +0.2473 | +0.0461 | +0.1386 |
+| 0.250 × 1.500 | +0.4034 | −0.1375 | −0.0086 |
+| 0.375 × 1.000 | +0.2833 | +0.0644 | +0.0020 |
+| 0.375 × 1.333 | +0.4392 | −0.1488 | −0.2415 |
+| 0.375 × 1.500 | +0.4803 | −0.2661 | −0.1108 |
+| 0.500 × 1.000 | −0.0660 | +0.2993 | +0.2385 |
+| 0.500 × 1.333 | +0.1315 | +0.0888 | +0.1420 |
+| 0.500 × 1.500 | +0.3434 | −0.1960 | −0.0795 |
+
+| objective | pearson | spearman |
+|---|---|---|
+| `mse` | −0.9056 | −0.8667 |
+| `physical` | −0.8278 | **−0.9167** |
+
+**Both objectives show the same monotone pattern**, so the conclusion survives a 2D
+nuisance sweep:
+
+> **Refinement is a restart, not a gradient.** It rescues weak proposals and degrades
+> strong ones, monotonically, *regardless of what it is optimising*.
+
+Two things worth noting. First, the `physical` rank correlation is **stronger** than
+`mse` (−0.9167 vs −0.8667) — so attempt 8's "mse is the better-aligned objective"
+does not extend to this question, and should not be quoted as a general ranking.
+Second, this is the only conclusion in the file that survived an attempt to break it,
+and it is the one that carries a practical recommendation.
+
+**Practical reading.** Gate refinement on proposal quality, exactly as
+`slm_gs_refine`'s bake-off already does: refine only proposals that failed the bar,
+and never refine one that already beat it. Attempt 13 had made this look like "don't
+refine"; attempt 14 shows it is "refine the weak ones".
+
+### Closing state of the question
+
+| question | answer | evidence | status |
+|---|---|---|---|
+| does forward accuracy predict inverse quality? | no — it is not an input | attempt 12, bit-identical | **robust** |
+| does the fit change gradient refinement? | no | attempt 12 | **robust** |
+| does inverse design beat flat? | yes | attempts 10/13, 82–90/90 | **robust** |
+| is refinement a restart rather than a gradient? | yes | attempt 14, ROI × objective | **robust** |
+| should refinement be gated on proposal quality? | yes | attempt 14 | **robust** |
+| is the inverse loss worth tuning? | no | attempt 8, +0.0002 | ROI-conditional |
+| does GS beat gradient? | no | attempt 13, 34/90 | **retracted** |
+| does refinement always hurt? | no | attempts 13/14 | **retracted** |
+| should `n_max` be raised? | no — n_max=20 lands below flat | attempt 12 | ROI-conditional |
+
+Four robust results, three retractions, and one structural proof. The retractions are
+the most informative part of the file: every one was a single-configuration result that
+looked significant (t up to −11) and dissolved under a sweep of a constant nobody had
+questioned.
+
+### Remaining caveats
+
+* Zernike parameterisation at 64×64 throughout; **freeform phase — what
+  `slm_gs_refine` actually optimises on hardware — was never tested**, and given
+  attempt 13 the Zernike conclusions should not be transferred to it unexamined.
+* Every number remains a sim claim, not a bench claim.
+* Attempts 8-14 are uncommitted: a concurrent in-progress merge holds 21 conflicted
+  files and `git commit` refuses. They are on disk and unstaged.
+
+### Honest tally of retractions in this file
+
+Attempts 4, 5, 8, 9, 10 and 11 each produced a conclusion that a later attempt
+overturned. Four of those were caught by printing mean/best/worst/sd or by re-running
+with genuine restarts; **this one was only caught by varying an arbitrary constant I had
+never questioned**, which is the same class of error as trusting a single split (README
+§11) and I should have varied the ROI from the start.
+
+### Remaining caveats
+
+* Zernike parameterisation at 64x64 throughout; **freeform phase — what
+  `slm_gs_refine` actually optimises on hardware — was never tested**, and given
+  attempt 13 the Zernike conclusions should not be transferred to it unexamined.
+* Every number remains a sim claim, not a bench claim.
+* Attempts 8-13 are uncommitted: a concurrent in-progress merge holds 21 conflicted
+  files and `git commit` refuses. They are on disk and unstaged.

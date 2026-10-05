@@ -26,7 +26,7 @@ from loguru import logger
 
 from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.utils.cli.params import option, with_params
-from ao_shaping.utils.hardware_utils import open_camera
+from ao_shaping.utils.image.hardware_utils import open_camera
 from ao_shaping.utils.slm.slm_lut import (
     build_inverse_lut,
     depth_pattern,

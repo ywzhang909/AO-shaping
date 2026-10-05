@@ -50,6 +50,10 @@ Module map
     The ``Dataset``, a file-grouped sampler, and the DataLoader factories.
 :mod:`ml.hwdataset.cache`
     Optional memory-mappable cache of the derived grid-sized arrays.
+:mod:`ml.hwdataset.zernike_dataset`
+    The Zernike-coefficient-keyed sibling of :mod:`ml.hwdataset.dataset`:
+    ``_c`` coefficients (zero-padded, train-fitted standardisation) -> the same
+    normalised far field.
 :mod:`ml.hwdataset.inspect`
     ``python -m ml.hwdataset.inspect`` corpus statistics / smoke run.
 
@@ -102,6 +106,15 @@ from ml.hwdataset.transforms import (
     phase_to_grid,
     zernike_coeffs_to_panel,
 )
+from ml.hwdataset.zernike_dataset import (
+    DEFAULT_N_MAX,
+    ZERNIKE_COEFF_SOURCES,
+    ZernikeCoeffDataset,
+    build_zernike_coeff_dataloader,
+    create_zernike_coeff_dataloaders,
+    fit_coeff_stats,
+    pad_coefficients,
+)
 
 # Imported last: cache.py imports index and records, so it must see them already
 # bound in this namespace.
@@ -147,6 +160,14 @@ __all__ = [
     "HwPhaseImageDataset",
     "build_hw_dataloader",
     "create_hw_dataloaders",
+    # zernike_dataset
+    "ZERNIKE_COEFF_SOURCES",
+    "DEFAULT_N_MAX",
+    "ZernikeCoeffDataset",
+    "pad_coefficients",
+    "fit_coeff_stats",
+    "build_zernike_coeff_dataloader",
+    "create_zernike_coeff_dataloaders",
     # cache
     "CACHE_FORMAT_VERSION",
     "HwCacheError",
