@@ -89,7 +89,7 @@ class TestBenchConstants:
     """Constants must come from the code, not from a literal that can drift."""
 
     def test_tilt_shift_scale_matches_the_kernel(self, gen: Any) -> None:
-        from ao_shaping.tools.slm.slm_bench_probe import TILT_SHIFT_SCALE
+        from ao_shaping.tools.slm.bench_kernels import TILT_SHIFT_SCALE
 
         constants = gen._import_bench_constants()
         assert float(constants["tilt_shift_scale"]) == float(TILT_SHIFT_SCALE)
@@ -103,7 +103,7 @@ class TestBenchConstants:
         assert float(constants["max_defocus_fit_rms"]) == float(_MAX_DEFOCUS_FIT_RMS)
 
     def test_importing_the_kernel_pure_numpy_module_is_allowed(self, gen: Any) -> None:
-        """``slm_bench_probe`` takes its devices by injection, so it is safe.
+        """``bench_kernels`` takes its devices by injection, so it is safe.
 
         The generator must not blanket-refuse it: doing so is what let a literal
         drift away from the code unnoticed.

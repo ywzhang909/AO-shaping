@@ -17,7 +17,6 @@ SLM(Santec SLM-200)+ 远场相机(Daheng / MiiCam)2f-Fourier 台架的**独立�
 | **`slm_drift_probe`** | 平场漂移 + 曝光阶梯线性。用区域范数判漂移(**不用峰值** —— 实测不可复现) |
 | **`slm_floor_probe`** | 测量本底、稳定时间拟合、SNR-vs-K。判定噪声是读噪声(`noise_limited`)还是漂移(`drift_limited`) |
 | **`slm_abba_probe`** | 稠密随机相位**是否可分辨**。ABBA 消一阶漂移, 先量本底再判信号。回答"能不能去测转移矩阵" |
-| **`slm_bench_metrics`** | 上面三个探针的**纯 numpy 分析内核**(无设备、无 I/O)。含两种帧预处理 `finite_clip` / `finite_median_subtract` |
 
 这四个模块共同的硬性纪律(违反会得到看似可信的错结论):
 
@@ -40,7 +39,8 @@ SLM(Santec SLM-200)+ 远场相机(Daheng / MiiCam)2f-Fourier 台架的**独立�
 | `slm_phase_resolution` | 面板能否分辨**像素级**相位? 决定散斑标定路线是否可用 |
 | `slm_exposure_check` | 相机是否真在手动曝光、固定设置下漂移多少 |
 | `slm_phase_response` | 相位 → CCD 响应曲线(defocus/tilt/…) |
-| `slm_bench_probe` | **共享测量内核**: 设备由参数注入, 无 CLI。`display_and_average` / `capture_settled` / `measure_spot` / `tilt_shift_px` 的出处 |
+| `bench_kernels` | **共享测量内核** (合并自 `slm_bench_probe` + `slm_bench_metrics`): 设备由参数注入, 无 CLI。`display_and_average` / `capture_settled` / `measure_spot` / `tilt_shift_px` / 帧预处理与分析函数的出处 |
+| `sweep_analysis` | **扫描/扫参分析助手** (合并自 `slm_scan_analysis` + `delta_explorer` + `slm_snr_probe`): 纯 numpy 分析、delta 探索、SNR 测量(含 ABBA 实现) |
 
 ## Zernike 与 WFS
 
@@ -62,9 +62,9 @@ SLM(Santec SLM-200)+ 远场相机(Daheng / MiiCam)2f-Fourier 台架的**独立�
 | `slm_lut_runner` | 灰度→相位 LUT 标定。**注册为 `slm-lut`** |
 | `gray_response` | SLM 灰度 → 相机最大亮度响应(注意 SLM 幅度耦合: 周期 ≈ 2π) |
 | `phase_capture` | 随机相位采集 |
-| `delta_explorer` | 扫 `delta` 看 SPGD 收敛性 |
-| `slm_scan_analysis` | 扫描报告的纯 numpy 分析助手(异常点剔除、线性度) |
-| `slm_snr_probe` | 扰动灵敏度(SNR)测量, 含 **ABBA 实现** |
+
+
+
 
 ---
 

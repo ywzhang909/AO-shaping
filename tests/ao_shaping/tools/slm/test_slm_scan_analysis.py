@@ -1,4 +1,4 @@
-"""Tests for ``ao_shaping.tools.slm.slm_scan_analysis`` (pure numpy/stdlib helpers).
+"""Tests for ``ao_shaping.tools.slm.sweep_analysis`` (pure numpy/stdlib helpers).
 
 Covers the 7 public symbols extracted verbatim from the Zernike report scripts
 and ``calibration.py``: ``LINEARITY_AMPS``, ``outlier_mask``,
@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from ao_shaping.tools.slm.slm_scan_analysis import (
+from ao_shaping.tools.slm.sweep_analysis import (
     LINEARITY_AMPS,
     analyze_linearity,
     clamp_shift,

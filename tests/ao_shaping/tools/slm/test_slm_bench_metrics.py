@@ -14,7 +14,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.tools.slm.slm_bench_metrics import (
+from ao_shaping.tools.slm.bench_kernels import (
     build_block_pattern,
     camera_pixel_um_from_focal_scale,
     focal_length_from_camera_pixel,

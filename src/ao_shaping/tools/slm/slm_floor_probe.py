@@ -5,21 +5,21 @@ work is worth attempting:
 
 1. **What is the bench's own noise floor?** :func:`repeatability_floor` --
    consecutive flat reads, median ``roi_l2`` difference
-   (:func:`~ao_shaping.tools.slm.slm_bench_metrics.flat_to_flat_floor`).
+   (:func:`~ao_shaping.tools.slm.bench_kernels.flat_to_flat_floor`).
 2. **How long does the panel take to settle after a phase write?**
    :func:`settle_curve` -- sample one observable until it plateaus
-   (:func:`~ao_shaping.tools.slm.slm_bench_metrics.settle_time_s`). A fixed
+   (:func:`~ao_shaping.tools.slm.bench_kernels.settle_time_s`). A fixed
    sleep is invalid here: the driver's flip-time estimate under-reports (it
    reports 0.0 ms for two phases with similar grey statistics), so the same ramp
    read 43.2 px FWHM immediately and 12.8 px three seconds later.
 3. **Does averaging K frames actually buy SNR?**
-   :func:`snr_ladder` -- :func:`~ao_shaping.tools.slm.slm_bench_metrics.snr_vs_averages`.
+   :func:`snr_ladder` -- :func:`~ao_shaping.tools.slm.bench_kernels.snr_vs_averages`.
    This is the diagnostic that decides whether the residual is independent read
    noise (SNR grows like ``sqrt(K)``, longer averaging helps) or drift (SNR
    flat or falling, longer averaging is wasted exposure).
 
 Nothing here re-derives frame preparation or drift statistics: the pure kernels
-live in :mod:`ao_shaping.tools.slm.slm_bench_metrics` and this module is only
+live in :mod:`ao_shaping.tools.slm.bench_kernels` and this module is only
 the protocol plus the CLI, exactly as
 :mod:`~ao_shaping.tools.slm.slm_abba_probe` relates to the same kernels.
 
@@ -34,19 +34,18 @@ Run it with ``python -m ao_shaping.tools.slm.slm_floor_probe``;
 
 from __future__ import annotations
 
+import argparse
 import math
 import pickle
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Any
 
-import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.tools.slm.slm_bench_metrics import (
+from ao_shaping.tools.slm.bench_kernels import (
     build_block_pattern,
     crop_roi,
     finite_clip,
@@ -55,12 +54,11 @@ from ao_shaping.tools.slm.slm_bench_metrics import (
     settle_time_s,
     snr_vs_averages,
 )
-from ao_shaping.tools.slm.slm_bench_probe import measure_spot
-from ao_shaping.tools.slm.slm_snr_probe import SIGMA_FLOOR
-from ao_shaping.utils.cli.params import option, with_params
+from ao_shaping.tools.slm.bench_kernels import measure_spot
+from ao_shaping.tools.slm.sweep_analysis import SIGMA_FLOOR
 
 #: Full width of the analysis ROI in pixels; half of this is the half-width
-#: handed to :func:`~ao_shaping.tools.slm.slm_bench_metrics.crop_roi`.
+#: handed to :func:`~ao_shaping.tools.slm.bench_kernels.crop_roi`.
 DEFAULT_ROI = 192
 DEFAULT_ROI_HALF = DEFAULT_ROI // 2
 
@@ -80,7 +78,7 @@ DEFAULT_KS: tuple[int, ...] = (1, 4, 9)
 
 #: Settle tolerance as a fraction of the curve's final value, and how many
 #: consecutive samples must sit inside it. These are
-#: :func:`~ao_shaping.tools.slm.slm_bench_metrics.settle_time_s` defaults.
+#: :func:`~ao_shaping.tools.slm.bench_kernels.settle_time_s` defaults.
 DEFAULT_SETTLE_FRAC = 0.10
 DEFAULT_SETTLE_RUN = 3
 
@@ -110,12 +108,12 @@ def prepare_roi_frame(
 ) -> np.ndarray:
     """Clip negatives, then crop the frozen ROI.
 
-    Two steps, both from :mod:`~ao_shaping.tools.slm.slm_bench_metrics`:
+    Two steps, both from :mod:`~ao_shaping.tools.slm.bench_kernels`:
 
-    1. :func:`~ao_shaping.tools.slm.slm_bench_metrics.finite_clip` masks
+    1. :func:`~ao_shaping.tools.slm.bench_kernels.finite_clip` masks
        non-finite pixels and clips negatives **while leaving the pedestal
        alone**. This is deliberate and is not
-       :func:`~ao_shaping.tools.slm.slm_bench_metrics.finite_median_subtract`:
+       :func:`~ao_shaping.tools.slm.bench_kernels.finite_median_subtract`:
        every observable here is a *region norm* (a plain L2 over the ROI, or a
        box sum against a flat reference), not a whole-frame ratio, so the flat
        pedestal is part of the signal we are measuring rather than the offset we
@@ -123,7 +121,7 @@ def prepare_roi_frame(
        drift floor and the SNR ladder are built on, and on this bench it is
        also what turns a peak-to-background ratio into ~1e5 when the
        denominator collapses.
-    2. :func:`~ao_shaping.tools.slm.slm_bench_metrics.crop_roi` cuts a
+    2. :func:`~ao_shaping.tools.slm.bench_kernels.crop_roi` cuts a
        ``2*half`` square about the **measured** centre. The 0-order is the frame
        global maximum and is routinely nowhere near the geometric centre (the
        ROI maths must never be driven by ``shape // 2``).
@@ -487,127 +485,88 @@ def save_floor_summary_npz(path: Path, summary: dict[str, Any]) -> Path:
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class SlmFloorProbeParams:
-    """SLM 台架本底探针的 CLI 参数。
-
-    三个阶段的默认值全部来自 ``docs/slm/pre_run_characterization.md``
-    (``--roi`` 192 px、``--exposure-ms`` 1.5 ms、``--n-repeat`` 20、
-    ``--settle-curve-s`` 4.0 s、``--settle-sample-ms`` 120 ms、``--ks``
-    ``1,4,9``) —— 改任何一个都要同步改那份文档, 否则文档就在撒谎。
-
-    ``--ks`` 保持**原始逗号分隔字符串**, 不在 CLI 层解析成 ``list[int]``:
-    click 的 ``multiple`` 语义是重复传同一个 flag (``--ks 1 --ks 4``), 与
-    argparse 时代一次传 ``"1,4"`` 的写法不兼容; 而 :func:`_parse_ints` 是被
-    测试直接覆盖的纯函数, 所以解析留在 body 里由 :func:`_plan_lines` 和
-    :func:`main` 各调一次, 与迁移前完全一致。
-    """
-
-    out: Annotated[str, option("--out", help="输出目录")] = "data/slm_floor"
-    slm_number: Annotated[int, option("--slm-number", help="SLM 设备编号 (默认 1)")] = 1
-    slm_wavelength: Annotated[
-        int, option("--slm-wavelength", help="SLM 波长 nm (默认 1064)")
-    ] = 1064
-    cam_type: Annotated[
-        str,
-        option(
-            "--cam-type",
-            type=click.Choice(["daheng", "miicam"]),
-            help="相机类型 (daheng/miicam, 默认 daheng)",
-        ),
-    ] = "daheng"
-    cam_id: Annotated[int, option("--cam-id", help="相机 ID (默认 0)")] = 0
-    exposure_ms: Annotated[
-        float, option("--exposure-ms", help="相机曝光 ms (默认 1.5)")
-    ] = DEFAULT_EXPOSURE_MS
-    n_repeat: Annotated[
-        int, option("--n-repeat", help="重复性本底用的连续平场读帧数")
-    ] = DEFAULT_N_REPEAT
-    settle_curve_s: Annotated[
-        float, option("--settle-curve-s", help="稳定曲线总时长 s")
-    ] = DEFAULT_SETTLE_CURVE_S
-    settle_sample_ms: Annotated[
-        float, option("--settle-sample-ms", help="稳定曲线采样间隔 ms")
-    ] = DEFAULT_SETTLE_SAMPLE_MS
-    settle_frac: Annotated[
-        float, option("--settle-frac", help="判稳容差 = frac * 末值")
-    ] = DEFAULT_SETTLE_FRAC
-    settle_run: Annotated[
-        int, option("--settle-run", help="判稳所需的连续在容差内采样数")
-    ] = DEFAULT_SETTLE_RUN
-    ks: Annotated[
-        str, option("--ks", help="SNR 梯度的平均帧数 (逗号分隔)")
-    ] = ",".join(str(k) for k in DEFAULT_KS)
-    perturbation_rad: Annotated[
-        float, option("--perturbation-rad", help="扰动幅度 rad (默认 0.6)")
-    ] = DEFAULT_PERTURBATION_RAD
-    roi: Annotated[
-        int, option("--roi", help="分析 ROI 全宽 px (取半宽送入 crop_roi)")
-    ] = DEFAULT_ROI
-    cell_grid: Annotated[
-        int, option("--cell-grid", help="扰动块系数网格边长 (cell-grid^2 DOF)")
-    ] = DEFAULT_GRID
-    frames: Annotated[
-        int, option("--frames", help="每帧平均张数 (默认 4)")
-    ] = DEFAULT_FRAMES
-    discard: Annotated[
-        int, option("--discard", help="丢弃前 N 帧等稳定 (默认 3)")
-    ] = DEFAULT_DISCARD
-    settle_s: Annotated[
-        float,
-        option("--settle-s", help="单次读帧的稳定等待 s (交给 capture_settled)"),
-    ] = DEFAULT_CAPTURE_SETTLE_S
-    stable_tol: Annotated[
-        float, option("--stable-tol", help="连续两帧读数的相对容差 (默认 0.02)")
-    ] = DEFAULT_STABLE_TOL
-    max_wait_s: Annotated[
-        float, option("--max-wait-s", help="单次读帧稳定等待上限 s (默认 6.0)")
-    ] = DEFAULT_MAX_WAIT_S
-    no_hw: Annotated[
-        bool,
-        option("--no-hw", is_flag=True, help="不打开硬件, 只打印采集计划 (自检用)"),
-    ] = False
-
-
 def _parse_ints(text: str) -> list[int]:
     return [int(v) for v in str(text).split(",") if v.strip()]
 
 
-def _plan_lines(
-    params: SlmFloorProbeParams, shape: tuple[int, int]
-) -> list[str]:
-    ks = _parse_ints(params.ks)
-    step = float(params.settle_sample_ms) / 1000.0
-    n_settle = int(math.floor(float(params.settle_curve_s) / step)) + 1
-    return [
-        f"panel {shape}  roi {params.roi}px (half {params.roi // 2})",
-        f"exposure {params.exposure_ms} ms  cam {params.cam_type}#{params.cam_id}  "
-        f"slm #{params.slm_number} @ {params.slm_wavelength} nm",
-        f"stage repeat: {params.n_repeat} consecutive flat reads",
-        f"stage settle: {n_settle} samples over {params.settle_curve_s}s "
-        f"every {params.settle_sample_ms}ms (frac {params.settle_frac}, "
-        f"run {params.settle_run})",
-        f"stage snr: perturbation {params.perturbation_rad} rad  "
-        f"grid {params.cell_grid} ({params.cell_grid * params.cell_grid} DOF)  "
-        f"ks {ks}",
-        f"capture: frames {params.frames} discard {params.discard} "
-        f"settle {params.settle_s}s tol {params.stable_tol} "
-        f"max-wait {params.max_wait_s}s",
-        f"outputs: {Path(params.out) / 'floor_records.pkl'}, "
-        f"{Path(params.out) / 'floor_summary.npz'}",
-    ]
-
-
-@click.command()
-@with_params(SlmFloorProbeParams, kw_name="params")
-def main(params: SlmFloorProbeParams) -> None:
-    """Run the floor probe on hardware and persist it.
-
-    ``--no-hw`` prints the acquisition plan and returns without importing a driver.
-    """
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     from ao_shaping.utils.io.cli_helpers import setup_coredumpy
 
     setup_coredumpy()
+    ap = argparse.ArgumentParser(
+        description=(
+            "SLM 台架本底探针 (需硬件: Santec SLM-200 + 远场相机): "
+            "重复性本底 / 稳定时间 / SNR-平均帧数 梯度"
+        ),
+    )
+    ap.add_argument("--out", default="data/slm_floor", help="输出目录")
+    ap.add_argument("--slm-number", type=int, default=1)
+    ap.add_argument("--slm-wavelength", type=int, default=1064)
+    ap.add_argument("--cam-type", default="daheng", choices=["daheng", "miicam"])
+    ap.add_argument("--cam-id", type=int, default=0)
+    ap.add_argument("--exposure-ms", type=float, default=DEFAULT_EXPOSURE_MS)
+    ap.add_argument("--n-repeat", type=int, default=DEFAULT_N_REPEAT,
+                    help="重复性本底用的连续平场读帧数")
+    ap.add_argument("--settle-curve-s", type=float, default=DEFAULT_SETTLE_CURVE_S,
+                    help="稳定曲线总时长 s")
+    ap.add_argument("--settle-sample-ms", type=float, default=DEFAULT_SETTLE_SAMPLE_MS,
+                    help="稳定曲线采样间隔 ms")
+    ap.add_argument("--settle-frac", type=float, default=DEFAULT_SETTLE_FRAC,
+                    help="判稳容差 = frac * 末值")
+    ap.add_argument("--settle-run", type=int, default=DEFAULT_SETTLE_RUN,
+                    help="判稳所需的连续在容差内采样数")
+    ap.add_argument("--ks", default=",".join(str(k) for k in DEFAULT_KS),
+                    help="SNR 梯度的平均帧数 (逗号分隔)")
+    ap.add_argument("--perturbation-rad", type=float,
+                    default=DEFAULT_PERTURBATION_RAD)
+    ap.add_argument("--roi", type=int, default=DEFAULT_ROI,
+                    help="分析 ROI 全宽 px (取半宽送入 crop_roi)")
+    ap.add_argument("--cell-grid", type=int, default=DEFAULT_GRID,
+                    help="扰动块系数网格边长 (cell-grid^2 DOF)")
+    ap.add_argument("--frames", type=int, default=DEFAULT_FRAMES)
+    ap.add_argument("--discard", type=int, default=DEFAULT_DISCARD)
+    ap.add_argument("--settle-s", type=float, default=DEFAULT_CAPTURE_SETTLE_S,
+                    help="单次读帧的稳定等待 s (交给 capture_settled)")
+    ap.add_argument("--stable-tol", type=float, default=DEFAULT_STABLE_TOL)
+    ap.add_argument("--max-wait-s", type=float, default=DEFAULT_MAX_WAIT_S)
+    ap.add_argument("--no-hw", action="store_true",
+                    help="不打开硬件, 只打印采集计划 (自检用)")
+    return ap.parse_args(argv)
+
+
+def _plan_lines(args: argparse.Namespace, shape: tuple[int, int]) -> list[str]:
+    ks = _parse_ints(args.ks)
+    step = float(args.settle_sample_ms) / 1000.0
+    n_settle = int(math.floor(float(args.settle_curve_s) / step)) + 1
+    return [
+        f"panel {shape}  roi {args.roi}px (half {args.roi // 2})",
+        f"exposure {args.exposure_ms} ms  cam {args.cam_type}#{args.cam_id}  "
+        f"slm #{args.slm_number} @ {args.slm_wavelength} nm",
+        f"stage repeat: {args.n_repeat} consecutive flat reads",
+        f"stage settle: {n_settle} samples over {args.settle_curve_s}s "
+        f"every {args.settle_sample_ms}ms (frac {args.settle_frac}, "
+        f"run {args.settle_run})",
+        f"stage snr: perturbation {args.perturbation_rad} rad  "
+        f"grid {args.cell_grid} ({args.cell_grid * args.cell_grid} DOF)  "
+        f"ks {ks}",
+        f"capture: frames {args.frames} discard {args.discard} "
+        f"settle {args.settle_s}s tol {args.stable_tol} "
+        f"max-wait {args.max_wait_s}s",
+        f"outputs: {Path(args.out) / 'floor_records.pkl'}, "
+        f"{Path(args.out) / 'floor_summary.npz'}",
+    ]
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run the floor probe on hardware and persist it.
+
+    Args:
+        argv: Command-line arguments; defaults to ``sys.argv[1:]``.
+
+    Returns:
+        ``0`` on success, including on the ``--no-hw`` self-check path.
+    """
+    args = _parse_args(argv)
 
     # Deferred so the self-check is safe on a machine with no SLM and no camera
     # SDK installed at all.
@@ -618,22 +577,22 @@ def main(params: SlmFloorProbeParams) -> None:
     from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
 
     shape = DEFAULT_PANEL_SHAPE
-    if params.no_hw:
+    if args.no_hw:
         logger.info("--no-hw: SLM 本底探针采集计划, 不打开硬件")
-        for line in _plan_lines(params, shape):
+        for line in _plan_lines(args, shape):
             logger.info("  {}", line)
-        return
+        return 0
 
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm.santec import Santec
 
-    ks = _parse_ints(params.ks)
-    out_dir = Path(params.out)
+    ks = _parse_ints(args.ks)
+    out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     flat_phase = np.zeros(shape, dtype=np.float64)
     current: dict[str, np.ndarray] = {"phase": flat_phase}
     pattern = perturbation_pattern(
-        int(params.cell_grid), float(params.perturbation_rad), shape
+        int(args.cell_grid), float(args.perturbation_rad), shape
     )
     rows: list[dict[str, Any]] = []
     records_path = out_dir / "floor_records.pkl"
@@ -643,9 +602,9 @@ def main(params: SlmFloorProbeParams) -> None:
         save_floor_records_pkl(records_path, rows)
 
     with Santec(
-        slm_number=params.slm_number, wavelength=params.slm_wavelength, video_mode=0
+        slm_number=args.slm_number, wavelength=args.slm_wavelength, video_mode=0
     ) as slm, create_camera(
-        params.cam_type, params.cam_id, exposure_time_ms=params.exposure_ms
+        args.cam_type, args.cam_id, exposure_time_ms=args.exposure_ms
     ) as cam:
 
         def display_phase(phase: np.ndarray) -> None:
@@ -661,12 +620,12 @@ def main(params: SlmFloorProbeParams) -> None:
             # readings agree -- the discipline a single-shot read would skip.
             return capture_settled(
                 cam, slm, current["phase"],
-                n_frames=params.frames, n_discard=params.discard,
-                wait_time_s=params.settle_s, stable_tol=params.stable_tol,
-                max_wait_s=params.max_wait_s,
+                n_frames=args.frames, n_discard=args.discard,
+                wait_time_s=args.settle_s, stable_tol=args.stable_tol,
+                max_wait_s=args.max_wait_s,
             )
 
-        cam.reset_exposure_time(float(params.exposure_ms))
+        cam.reset_exposure_time(float(args.exposure_ms))
 
         # Anchor the ROI once on the flat state, then freeze it. Re-locating by
         # argmax per sample would roll the box between speckle grains under a
@@ -675,7 +634,7 @@ def main(params: SlmFloorProbeParams) -> None:
         probe = np.asarray(capture(), dtype=np.float64)
         spot = measure_spot(probe)
         center = (int(round(spot.centroid_x)), int(round(spot.centroid_y)))
-        half = int(params.roi) // 2
+        half = int(args.roi) // 2
         logger.info(
             "ROI 中心 {} half={} ({})", center, half, spot.as_row(),
         )
@@ -686,7 +645,7 @@ def main(params: SlmFloorProbeParams) -> None:
         # Stage 1 -- drift floor, on an untouched flat bench.
         display_phase(flat_phase)
         repeat_rows, repeat_summary = repeatability_floor(
-            roi_capture, params.n_repeat
+            roi_capture, args.n_repeat
         )
         for row in repeat_rows:
             checkpoint(row)
@@ -699,10 +658,10 @@ def main(params: SlmFloorProbeParams) -> None:
         display_phase(pattern)
         settle_rows, settle_summary = settle_curve(
             roi_capture,
-            float(params.settle_curve_s),
-            float(params.settle_sample_ms),
-            frac=float(params.settle_frac),
-            run=int(params.settle_run),
+            float(args.settle_curve_s),
+            float(args.settle_sample_ms),
+            frac=float(args.settle_frac),
+            run=int(args.settle_run),
         )
         for row in settle_rows:
             checkpoint(row)
@@ -725,7 +684,7 @@ def main(params: SlmFloorProbeParams) -> None:
     summary: dict[str, Any] = {
         "stage_repeat_floor": floor,
         "repeat_series": np.asarray(repeat_summary["series"], dtype=np.float64),
-        "n_repeat": int(params.n_repeat),
+        "n_repeat": int(args.n_repeat),
         "settle_times_s": np.asarray(settle_summary["times_s"], dtype=np.float64),
         "settle_norms": np.asarray(settle_summary["norms"], dtype=np.float64),
         "settle_s": (
@@ -741,10 +700,10 @@ def main(params: SlmFloorProbeParams) -> None:
         "snr_norms": np.asarray(snr_summary["norms"], dtype=np.float64),
         "snr_improves": bool(snr_summary["improves"]),
         "verdict": str(snr_summary["verdict"]),
-        "exposure_ms": float(params.exposure_ms),
-        "perturbation_rad": float(params.perturbation_rad),
-        "cell_grid": int(params.cell_grid),
-        "n_dof": int(params.cell_grid) * int(params.cell_grid),
+        "exposure_ms": float(args.exposure_ms),
+        "perturbation_rad": float(args.perturbation_rad),
+        "cell_grid": int(args.cell_grid),
+        "n_dof": int(args.cell_grid) * int(args.cell_grid),
         "panel_shape": np.asarray(shape, dtype=np.int64),
         "roi_center": np.asarray(center, dtype=np.int64),
         "roi_half": int(half),
@@ -763,7 +722,8 @@ def main(params: SlmFloorProbeParams) -> None:
             "继续加 K 只浪费曝光, 应先改稳定协议"
         )
     logger.info("本底探针完成 -> {} / {}", records_path, summary_path)
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
-    main()
+    raise SystemExit(main())

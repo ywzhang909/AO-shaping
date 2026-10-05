@@ -1,4 +1,8 @@
-"""Shared measurement core for the SLM bench probes.
+"""Shared measurement kernels for the SLM bench (merged).
+
+Merged from:
+- :mod:`ao_shaping.tools.slm.slm_bench_probe` (442 lines, 19 public symbols)
+- :mod:`ao_shaping.tools.slm.slm_bench_metrics` (372 lines, 10 public symbols)
 
 **Pure measurement + panel geometry, no device construction and no CLI.** Every
 entry point takes already-opened device *instances* (anything with the
@@ -35,33 +39,58 @@ reinvents them wrong.
    px/rad instead of 5.36**, a 3.3x error that survived three runs because
    repeats were masking it. :func:`display_and_average` therefore discards
    frames until two consecutive readings agree.
-
-Public symbols
---------------
-- ``smooth_frame``       — box blur, so noise cannot win ``argmax``
-- ``despike_frame``      — median filter for isolated hot/cold pixels
-- ``SpotMeasurement``    — dataclass returned by :func:`measure_spot`
-- ``measure_spot``       — peak / FWHM / centroid / hollowness of one frame
-- ``measure_flat_reference`` — N averaged flats, written first
-- ``core_fraction``      — energy fraction near the 0-order (monotone in scatter)
-- ``zernike_panel``      — Zernike phase placed on the panel at the beam
-- ``fit_linear_slope``   — least-squares slope/intercept
-- ``ramp_panel``         — linear phase ramp (a tilt) of a given period
-- ``tilt_shift_px``      — focal shift a ramp of period ``P`` should produce
 """
-
 from __future__ import annotations
 
+from ao_shaping.utils.wavefront.matrix_utils import (
+    camera_pixel_um_from_focal_scale,
+    focal_length_from_camera_pixel,
+)
+
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.ndimage import zoom
 
-from ao_shaping.utils.image.beam_metrics import despike_frame as _despike_frame
+#: Union of both sources' star-export surfaces (`slm_bench_probe` had no `__all__`,
+#: `slm_bench_metrics` declared 9). Keeping the union stops `import *` narrowing.
+__all__ = [
+    "BEAM_CENTER_PANEL",
+    "BEAM_RADIUS_PANEL",
+    "SLM_PANEL_H",
+    "SLM_PANEL_W",
+    "SLM_PITCH_M",
+    "SpotMeasurement",
+    "TILT_SHIFT_SCALE",
+    "build_block_pattern",
+    "core_fraction",
+    "crop_roi",
+    "despike_frame",
+    "display_and_average",
+    "estimate_shift",
+    "exposure_monotonicity",
+    "finite_clip",
+    "finite_median_subtract",
+    "fit_linear_slope",
+    "flat_to_flat_floor",
+    "measure_flat_reference",
+    "measure_spot",
+    "ramp_panel",
+    "random_phase",
+    "roi_l2",
+    "settle_time_s",
+    "smooth_frame",
+    "snr_vs_averages",
+    "tilt_shift_px",
+    "zernike_panel",
+
+    "camera_pixel_um_from_focal_scale",
+    "focal_length_from_camera_pixel",
+]
 
 # Bench constants measured 2026-09-30 (Santec SLM-200 #1 22030108, 1920x1200,
 # 10-bit, 2pi = 993 gray at 1064 nm; Daheng MER2-507, 2592x1944, 2.2 um pixel).
-# See report/slm/model_in_loop_bench_calibration.md.
+# See docs/slm/model_in_loop_bench_calibration.md.
 SLM_PANEL_W = 1920
 SLM_PANEL_H = 1200
 SLM_PITCH_M = 8e-6
@@ -79,8 +108,6 @@ BEAM_RADIUS_PANEL = 450
 #: ``f*lambda/(pi*R*camera_pixel)`` = 5.34 cam px per radian of Zernike tilt,
 #: which the same data gives as 4.6-5.3.
 TILT_SHIFT_SCALE = 7400.0
-
-
 @dataclass
 class SpotMeasurement:
     """One frame's spot characterisation, in camera pixels."""
@@ -121,16 +148,24 @@ def smooth_frame(img: np.ndarray, k: int = 5) -> np.ndarray:
 def despike_frame(img: np.ndarray, k: int = 3) -> np.ndarray:
     """Replace isolated hot/cold pixels with a ``k x k`` median.
 
-    Re-exported from :func:`ao_shaping.utils.image.beam_metrics.despike_frame`,
-    which is now the single definition. It moved down to the leaf ``utils/image``
-    layer because the dataset transforms (:func:`ml.hwdataset.transforms
-    ._anchored_window`) need the same primitive to place their crop, and ``utils``
-    must not import upward from ``tools``. The docstring and the rationale -- a box
-    blur still lets a 5000-count defect beat a dim 20-count spot, whereas a median
-    kills isolated outliers and leaves a spatially correlated spot alone -- live
-    with the definition.
+    A box blur alone is not enough against a *single* hot pixel: a 5000-count
+    defect spread over a 5x5 box still reads 200, which beats a dim spot peaking at
+    20. Real sensors have defects, and one is enough to send ``argmax`` -- and
+    therefore the centroid and every width derived from it -- to the wrong place.
+    A median kills isolated outliers outright while leaving a real spot (which is
+    spatially correlated) essentially unchanged.
     """
-    return _despike_frame(img, k)
+    frame = np.asarray(img, dtype=np.float64)
+    k = int(k)
+    if k < 3:
+        return frame
+    pad = k // 2
+    p = np.pad(frame, pad, mode="edge")
+    stack = np.stack(
+        [p[dy : dy + frame.shape[0], dx : dx + frame.shape[1]] for dy in range(k) for dx in range(k)],
+        axis=0,
+    )
+    return np.median(stack, axis=0)
 
 
 def estimate_shift(
@@ -435,101 +470,321 @@ def random_phase(
     return np.random.default_rng(int(seed)).uniform(
         0.0, 2.0 * np.pi, (int(shape[0]), int(shape[1]))
     )
-
-
 # ---------------------------------------------------------------------------
-# Model-grid <-> panel <-> camera mapping
-#
-# These three used to live only in ``scripts/model_in_loop_hw_runbook.py``.
-# They are pure geometry with no device access, so a library (a runner) could
-# not reach them without importing a script -- which is why the runbook and the
-# optimizer each grew their own copy. They live here, in the module documented
-# as the shared measurement kernel, and the runbook imports them.
+# Frame preparation — the two variants are deliberately different
 # ---------------------------------------------------------------------------
 
 
-def gaussian_grid(region: int, waist_grid: float) -> np.ndarray:
-    """Gaussian illumination on the model grid, masked to the inscribed circle.
+def _as_2d_float(frame: np.ndarray) -> np.ndarray:
+    arr = np.asarray(frame, dtype=np.float64)
+    if arr.ndim != 2:
+        raise ValueError(f"frame must be 2D, got shape {arr.shape}")
+    return arr
+
+
+def finite_clip(frame: np.ndarray) -> np.ndarray:
+    """Mask non-finite pixels to 0 and clip negatives, keeping the pedestal.
+
+    Mirrors the preparation used by
+    :func:`~ao_shaping.optimizer.wfless.slm_square_shaping.square_peak_to_background_ratio`.
+    Correct for peak/background-style ratios, where subtracting the median would
+    destroy the very pedestal that gives the denominator meaning.
 
     Args:
-        region: Model grid edge length in pixels.
-        waist_grid: Gaussian waist in **model pixels**.
+        frame: 2D camera frame.
 
     Returns:
-        A ``(region, region)`` amplitude array, zero outside the inscribed
-        circle of radius ``region / 2``.
+        New float64 array, non-negative, same shape.
     """
-    yy, xx = np.mgrid[0:region, 0:region]
-    r2 = (xx - region / 2.0) ** 2 + (yy - region / 2.0) ** 2
-    amp = np.exp(-r2 / (2.0 * max(float(waist_grid), 1e-6) ** 2))
-    amp[r2 > (region / 2.0) ** 2] = 0.0
-    return amp
+    arr = _as_2d_float(frame)
+    return np.clip(np.where(np.isfinite(arr), arr, 0.0), 0.0, None)
 
 
-def phase_to_panel(
-    phase_model: np.ndarray, disc_radius: int, pupil_center: tuple[int, int]
-) -> np.ndarray:
-    """Resize a model-grid phase onto the panel disc, centred on the beam.
+def finite_median_subtract(frame: np.ndarray) -> np.ndarray:
+    """Mask non-finite pixels, subtract the median, then clip at 0.
+
+    Mirrors :func:`~ao_shaping.optimizer.wfless.slm_gs_refine._prepare_frame`.
+    Required before any ratio whose denominator is a whole-frame statistic:
+    symmetric read noise leaves ~half of a raw frame negative, which pushes such
+    a ratio above 1 and makes an optimizer chase noise.
+
+    The order matters. Clipping first would rectify the noise distribution and
+    invent a DC pedestal proportional to the pixel count.
 
     Args:
-        phase_model: ``(region, region)`` phase, raw unwrapped radians.
-        disc_radius: Half-width of the target window, **panel** pixels.
-        pupil_center: Beam centre in **panel** pixels as ``(x, y)``.
+        frame: 2D camera frame.
 
     Returns:
-        A ``(SLM_PANEL_H, SLM_PANEL_W)`` float64 array holding the phase inside
-        the disc and zero elsewhere -- the shape the Santec driver expects.
+        New float64 array, non-negative, same shape.
+    """
+    arr = _as_2d_float(frame)
+    clean = np.where(np.isfinite(arr), arr, 0.0)
+    return np.clip(clean - float(np.median(clean)), 0.0, None)
+
+
+# ---------------------------------------------------------------------------
+# ROI helpers
+# ---------------------------------------------------------------------------
+
+
+def crop_roi(
+    frame: np.ndarray, center: tuple[int, int], half: int
+) -> np.ndarray:
+    """Crop a ``2*half`` square about ``center``, zero-padding off-frame.
+
+    The spot is frequently not at the frame centre on this bench (measured
+    0-order near (674, 1026) on a 1944x2592 frame), so ROI maths must always be
+    driven by a measured centre rather than ``shape // 2``.
+
+    Args:
+        frame: 2D camera frame.
+        center: ROI centre as ``(x, y)`` in pixels.
+        half: Half-width; the result is ``2*half`` wide.
+
+    Returns:
+        ``(2*half, 2*half)`` float array, zero where the request fell outside.
+    """
+    arr = _as_2d_float(frame)
+    half = int(half)
+    if half <= 0:
+        raise ValueError(f"half must be positive, got {half!r}")
+    h, w = arr.shape
+    cx, cy = int(center[0]), int(center[1])
+    out = np.zeros((2 * half, 2 * half), dtype=np.float64)
+    x0, x1 = cx - half, cx + half
+    y0, y1 = cy - half, cy + half
+    sx0, sy0 = max(x0, 0), max(y0, 0)
+    sx1, sy1 = min(x1, w), min(y1, h)
+    if sx1 <= sx0 or sy1 <= sy0:
+        return out
+    out[sy0 - y0 : sy1 - y0, sx0 - x0 : sx1 - x0] = arr[sy0:sy1, sx0:sx1]
+    return out
+
+
+def roi_l2(a: np.ndarray, b: np.ndarray) -> float:
+    """L2 distance between two same-shape frames or crops.
+
+    Used as the drift observable: on a stable bench two consecutive flat reads
+    differ only by noise, whereas an unsettled panel or a drifting laser gives
+    a much larger value. Peak intensity is *not* a reliable observable here
+    (it is not reproducible run to run); a region sum or norm is.
+    """
+    x = np.asarray(a, dtype=np.float64).ravel()
+    y = np.asarray(b, dtype=np.float64).ravel()
+    if x.shape != y.shape:
+        raise ValueError(f"shape mismatch: {x.shape} vs {y.shape}")
+    return float(np.linalg.norm(x - y))
+
+
+def flat_to_flat_floor(
+    frames: Sequence[np.ndarray],
+) -> tuple[float, list[float]]:
+    """Drift floor from consecutive flat reads.
+
+    Args:
+        frames: At least two consecutive flat-field frames.
+
+    Returns:
+        ``(median, series)`` where ``series`` holds every consecutive
+        ``roi_l2`` difference.
 
     Raises:
-        ValueError: If ``phase_model`` is not square.
-
-    Note:
-        ``pupil_center`` must be measured **on the panel**. The camera's 0-order
-        is a different coordinate frame entirely (on this bench the two axes are
-        swapped and the scales differ by more than 10x), so deriving one from the
-        other silently writes the phase where the beam is not.
+        ValueError: If fewer than two frames are given.
     """
-    phase_model = np.asarray(phase_model, dtype=np.float64)
-    if phase_model.ndim != 2 or phase_model.shape[0] != phase_model.shape[1]:
-        raise ValueError(f"phase_model must be square, got {phase_model.shape}")
-    r = int(disc_radius)
-    region = phase_model.shape[0]
-    sub = np.asarray(
-        zoom(phase_model, (2 * r / region, 2 * r / region), order=1), dtype=np.float64
-    )
-    panel = np.zeros((SLM_PANEL_H, SLM_PANEL_W), dtype=np.float64)
-    cx, cy = int(pupil_center[0]), int(pupil_center[1])
-    # Clip the window so an off-centre or oversized disc stays in bounds.
-    x0, x1 = max(cx - r, 0), min(cx + r, SLM_PANEL_W)
-    y0, y1 = max(cy - r, 0), min(cy + r, SLM_PANEL_H)
-    sub = sub[y0 - (cy - r) : y1 - (cy - r), x0 - (cx - r) : x1 - (cx - r)]
-    panel[y0:y1, x0:x1] = sub
-    return panel
+    if len(frames) < 2:
+        raise ValueError("need at least two frames to estimate a drift floor")
+    series = [roi_l2(frames[i], frames[i + 1]) for i in range(len(frames) - 1)]
+    return float(np.median(series)), series
 
 
-def crop_around_zero_order(frame: np.ndarray, size: int = 512) -> np.ndarray:
-    """Crop a fixed-size window centred on the frame's global argmax.
+# ---------------------------------------------------------------------------
+# Settle / drift characterisation
+# ---------------------------------------------------------------------------
 
-    The optical axis is the frame's brightest point, never the geometric centre:
-    on this bench the 0-order sits ~620 px off-centre in x. A geometry solve
-    compares the model's *central* far-field window against the stored frame, so
-    an uncropped frame would be compared against a misaligned window and the
-    speckle correlation would collapse.
+
+def settle_time_s(
+    deltas: Sequence[float],
+    times_s: Sequence[float],
+    *,
+    frac: float = 0.10,
+    run: int = 3,
+) -> float | None:
+    """First time the settle curve stays within ``frac`` of its final value.
+
+    Replaces "sleep a fixed duration and hope". A fixed wait is invalid on this
+    bench because the driver's flip-time estimate under-reports (it reports
+    0.0 ms for two phases with similar grey statistics), so the same ramp read
+    43.2 px FWHM immediately and 12.8 px three seconds later.
 
     Args:
-        frame: 2D far-field frame.
-        size: Window side in pixels, clamped to the frame and zero-padded up.
+        deltas: Observable (e.g. a norm) at each sample.
+        times_s: Sample times, seconds.
+        frac: Tolerance as a fraction of the final value.
+        run: Number of consecutive samples that must all be within tolerance.
 
     Returns:
-        The cropped ``(size, size)`` window.
+        The settle time, or ``None`` if it never settles.
+
+    Raises:
+        ValueError: If the two sequences differ in length.
     """
-    data = np.asarray(frame, dtype=np.float64)
-    side = int(min(max(size, 1), data.shape[0], data.shape[1]))
-    cy, cx = np.unravel_index(int(np.argmax(data)), data.shape)
-    y0, x0 = int(cy) - side // 2, int(cx) - side // 2
-    out = np.zeros((side, side), dtype=np.float64)
-    sy0, sx0 = max(y0, 0), max(x0, 0)
-    sy1, sx1 = min(y0 + side, data.shape[0]), min(x0 + side, data.shape[1])
-    if sy1 > sy0 and sx1 > sx0:
-        out[sy0 - y0 : sy1 - y0, sx0 - x0 : sx1 - x0] = data[sy0:sy1, sx0:sx1]
+    d = np.asarray(list(deltas), dtype=np.float64)
+    t = np.asarray(list(times_s), dtype=np.float64)
+    if d.shape != t.shape:
+        raise ValueError("deltas and times_s must have the same length")
+    if d.size == 0:
+        return None
+    tol = abs(float(frac)) * abs(float(d[-1]))
+    if tol <= 0.0:
+        # A zero-valued curve is trivially settled from the first sample.
+        return float(t[0]) if abs(float(d[0])) <= 0.0 else None
+    for i in range(d.size):
+        window = d[i : i + int(run)]
+        if window.size < int(run):
+            break
+        if bool(np.all(np.abs(window - d[-1]) <= tol)):
+            return float(t[i])
+    return None
+
+
+def snr_vs_averages(
+    signal_norms: Sequence[float],
+    floor: float,
+    ks: Sequence[int],
+) -> dict[int, float]:
+    """SNR at K-frame averages against a measured noise floor.
+
+    Useful as a *diagnostic*: if averaging K frames does not improve the SNR,
+    the residual is not independent read noise but drift, and averaging longer
+    will not help. That distinction decides whether a bench needs a better
+    exposure or a better settle protocol.
+
+    Args:
+        signal_norms: Observable for each of K identical repeats.
+        floor: Single-frame noise floor (same observable, same units).
+        ks: Averaging factors to report.
+
+    Returns:
+        ``{K: snr}``.
+
+    Raises:
+        ValueError: If ``floor`` is not positive.
+    """
+    f = float(floor)
+    if not np.isfinite(f) or f <= 0.0:
+        raise ValueError(f"floor must be finite and positive, got {floor!r}")
+    x = np.asarray(list(signal_norms), dtype=np.float64)
+    out: dict[int, float] = {}
+    for k in ks:
+        kk = int(k)
+        if kk < 1:
+            raise ValueError(f"K must be >= 1, got {k!r}")
+        mean = float(x[:kk].mean()) if x.size >= kk else float(x.mean())
+        out[kk] = mean / (f / np.sqrt(kk))
     return out
+
+
+def exposure_monotonicity(
+    exposures_ms: Sequence[float],
+    peaks: Sequence[float],
+    *,
+    rel_tol: float = 0.02,
+    saturation_level: float | None = None,
+) -> dict[str, object]:
+    """Check that peak brightness rises monotonically with exposure.
+
+    Monotonicity is the cheap way to prove the camera is not being pushed past
+    its linear range and that the laser is not drifting across the bracket.
+
+    Args:
+        exposures_ms: Exposure settings, ascending.
+        peaks: Measured peak per exposure.
+        rel_tol: Allowed relative shortfall on each step.
+        saturation_level: Detector full-scale value; flags saturation when a
+            peak reaches it.
+
+    Returns:
+        Dict with ``verdict``, ``ratios``, ``expected`` and ``saturated``.
+
+    Raises:
+        ValueError: If the two sequences differ in length.
+    """
+    e = np.asarray(list(exposures_ms), dtype=np.float64)
+    p = np.asarray(list(peaks), dtype=np.float64)
+    if e.shape != p.shape:
+        raise ValueError("exposures_ms and peaks must have the same length")
+    if e.size < 2:
+        return {
+            "verdict": "insufficient_data",
+            "ratios": [],
+            "expected": [],
+            "saturated": False,
+        }
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        expected = e[1:] / e[:-1]
+        ratios = p[1:] / p[:-1]
+    ok = ratios >= (expected * (1.0 - float(rel_tol)))
+    saturated = False
+    if saturation_level is not None:
+        saturated = bool(np.any(p >= float(saturation_level)))
+    return {
+        "verdict": "monotonic" if bool(np.all(ok)) and not saturated else
+                   "saturated" if saturated else "non_monotonic",
+        "ratios": [float(v) for v in ratios],
+        "expected": [float(v) for v in expected],
+        "saturated": saturated,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Pattern construction
+# ---------------------------------------------------------------------------
+
+
+def build_block_pattern(
+    coeffs: np.ndarray,
+    grid: int,
+    panel_shape: tuple[int, int],
+) -> np.ndarray:
+    """Tile a ``grid x grid`` coefficient map onto the panel as blocks.
+
+    Matches the freeform SPGD basis used by
+    ``slm_square_shaping._freeform_phase_radians``: coefficients are
+    block-replicated, not applied per pixel, so one DOF covers an 80x50 px SLM
+    region. A 24x24 grid on a 1200x1920 panel therefore yields 5x8 blocks.
+
+    Args:
+        coeffs: ``grid*grid`` coefficients, row-major.
+        grid: Grid edge length.
+        panel_shape: ``(height, width)`` of the SLM panel.
+
+    Returns:
+        ``panel_shape`` float64 phase array (raw radians, unwrapped).
+
+    Raises:
+        ValueError: If ``grid`` is not positive or ``coeffs`` is the wrong size.
+    """
+    g = int(grid)
+    if g <= 0:
+        raise ValueError(f"grid must be positive, got {grid!r}")
+    c = np.asarray(coeffs, dtype=np.float64).ravel()
+    if c.size != g * g:
+        raise ValueError(
+            f"coeffs must hold grid*grid = {g * g} values, got {c.size}"
+        )
+    ph, pw = int(panel_shape[0]), int(panel_shape[1])
+    blocks = c.reshape(g, g)
+    bh, bw = ph // g, pw // g
+    if bh < 1 or bw < 1:
+        raise ValueError(
+            f"grid {g} is too coarse for panel {panel_shape!r}"
+        )
+    tiled = np.kron(blocks, np.ones((bh, bw), dtype=np.float64))
+    # np.kron stops at the first g*bh rows / g*bw cols; pad if the panel is
+    # not an exact multiple of the grid.
+    if tiled.shape != (ph, pw):
+        padded = np.zeros((ph, pw), dtype=np.float64)
+        padded[: tiled.shape[0], : tiled.shape[1]] = tiled
+        return padded
+    return tiled

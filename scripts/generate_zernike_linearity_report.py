@@ -45,7 +45,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from ao_shaping.tools.slm.slm_zernike_common import DLL_ZERNIKE_NAMES  # noqa: E402
-from ao_shaping.tools.slm.slm_scan_analysis import (  # noqa: E402
+from ao_shaping.tools.slm.sweep_analysis import (  # noqa: E402
     LINEARITY_AMPS, analyze_linearity, group_raw_scan, latest_match)
 
 plt.rcParams["font.sans-serif"] = [

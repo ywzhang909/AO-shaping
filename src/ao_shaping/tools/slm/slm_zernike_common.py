@@ -29,7 +29,7 @@ from loguru import logger
 
 from ao_shaping.drivers.slm.santec import Santec, WavefrontCorrection
 from ao_shaping.drivers.wfs import ThorlabWFS
-from ao_shaping.tools.slm.slm_scan_analysis import outlier_mask
+from ao_shaping.tools.slm.sweep_analysis import outlier_mask
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
 from ao_shaping.utils.wavefront.zernike_utils import LAMBDA_UM, UM_TO_WAVES, um_to_waves

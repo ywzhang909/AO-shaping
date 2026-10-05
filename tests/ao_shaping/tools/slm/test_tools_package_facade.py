@@ -37,16 +37,27 @@ class TestToolsSlmPackage:
     def test_init_exists(self) -> None:
         assert (_SLM_PKG / "__init__.py").is_file()
 
-    def test_all_is_empty(self) -> None:
+    # 54d9613 turned this package into a curated facade: __init__ re-exports the shared
+    # bench kernels so callers take them from one place. The contract is no longer "zero
+    # eager imports" but "eager imports stay inside this allowlist" -- an unlisted import
+    # would still be a regression, because it drags a device-facing module into every
+    # `import ao_shaping.tools.slm.<x>`.
+    ALLOWED_EAGER = ('bench_kernels', 'slm_phase_response', 'sweep_analysis', 'slm_zernike_sweep_probe')
+
+    def test_all_lists_the_reexported_surface(self) -> None:
         import ao_shaping.tools.slm as pkg
 
-        assert pkg.__all__ == []
+        assert pkg.__all__, "the curated facade must declare __all__ so `import *` is explicit"
 
-    def test_init_has_no_eager_imports(self) -> None:
-        init = _SLM_PKG / "__init__.py"
-        assert _top_level_imports(init) == [], (
-            "ao_shaping.tools.slm.__init__ must not eagerly import submodules; "
-            "import the symbol from its own submodule instead"
+    def test_eager_imports_stay_inside_the_allowlist(self) -> None:
+        offenders = []
+        for node in _top_level_imports(_SLM_PKG / "__init__.py"):
+            mod = getattr(node, "module", None) or ""
+            leaf = mod.rsplit(".", 1)[-1] if mod else ""
+            if not mod.startswith("ao_shaping.tools.slm") or leaf not in self.ALLOWED_EAGER:
+                offenders.append(mod or ",".join(a.name for a in node.names))
+        assert not offenders, (
+            f"eager import outside {sorted(self.ALLOWED_EAGER)}: {offenders}"
         )
 
     @pytest.mark.parametrize("module_name", sorted(p.name for p in _SLM_PKG.glob("*.py")))

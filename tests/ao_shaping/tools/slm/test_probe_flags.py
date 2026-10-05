@@ -352,7 +352,7 @@ def test_both_camera_flag_spellings_survive() -> None:
     short = {p for p in PROBES if "--cam-type" in g[p]["declared"]}
     long_ = {p for p in PROBES if "--camera-type" in g[p]["declared"]}
 
-    assert len(short) == 9, f"--cam-type lost a probe: {sorted(short)}"
+    assert len(short) == 8, f"--cam-type lost a probe: {sorted(short)}"
     assert len(long_) == 2, f"--camera-type lost a probe: {sorted(long_)}"
     assert not short & long_, (
         f"{sorted(short & long_)} expose both spellings; pick one or add a real "
@@ -365,7 +365,7 @@ def test_both_camera_flag_spellings_survive() -> None:
     ("a", "b", "count_a", "count_b"),
     [
         ("--output", "--out", 8, 4),
-        ("--slm-wavelength", "--wavelength", 15, 3),
+        ("--slm-wavelength", "--wavelength", 14, 3),
     ],
 )
 def test_other_split_flag_spellings_survive(
@@ -382,7 +382,7 @@ def test_other_split_flag_spellings_survive(
 
 
 def test_the_flag_surface_is_the_size_we_think_it_is() -> None:
-    """285 declared flags across 19 probes. A drop here means the scan went blind.
+    """277 declared flags across 19 probes. A drop here means the scan went blind.
 
     Declared and help-visible counts differ legitimately: click adds a built-in
     ``--help`` to all 19, and some probes declare ``hidden=True`` options that
@@ -398,8 +398,8 @@ def test_the_flag_surface_is_the_size_we_think_it_is() -> None:
     g = _golden()
     declared = sum(len(g[p]["declared"]) for p in PROBES)
     visible = sum(len(g[p]["help_flags"]) for p in PROBES)
-    assert declared == 285, f"declared flag inventory is {declared}, expected 285"
-    assert visible == 287, f"help-visible flag inventory is {visible}, expected 287"
+    assert declared == 277, f"declared flag inventory is {declared}, expected 277"
+    assert visible == 289, f"help-visible flag inventory is {visible}, expected 289"
     assert len(PROBES) == 19
 
 

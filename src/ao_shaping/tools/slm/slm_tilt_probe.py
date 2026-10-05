@@ -43,7 +43,7 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.tools.slm.slm_bench_probe import (
+from ao_shaping.tools.slm.bench_kernels import (
     SLM_PANEL_H,
     SLM_PANEL_W,
     SLM_PITCH_M,
@@ -190,7 +190,7 @@ def main(params: TiltProbeParams) -> None:
         "this run measures at {:.0f})", scale, scale,
     )
     logger.info(
-        "the bench constant in slm_bench_probe is {}. Ratio {:.2f} -- update it if "
+        "the bench constant in bench_kernels is {}. Ratio {:.2f} -- update it if "
         "this is a different setup.",
         int(TILT_SHIFT_SCALE), scale / TILT_SHIFT_SCALE,
     )

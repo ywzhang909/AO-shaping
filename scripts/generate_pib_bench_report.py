@@ -57,7 +57,7 @@ plt.rcParams["axes.unicode_minus"] = False
 DEFAULT_ROOT = ROOT / "data" / "debug"
 DEFAULT_OUT = ROOT / "report" / "slm_pib_bench"
 
-#: Verdicts mirrored from ao_shaping.tools.slm.slm_snr_probe so this report
+#: Verdicts mirrored from ao_shaping.tools.slm.sweep_analysis so this report
 #: renders offline without importing driver-side code paths.
 VERDICT_ZH = {"strong": "强", "usable": "可用", "unusable": "不可用"}
 
@@ -529,11 +529,11 @@ def write_report(
         "## 5. 参数测量工具 (设备无关)",
         "",
         "本报告引用的 SNR / 噪声地板测量已抽到 "
-        "**`ao_shaping.tools.slm.slm_snr_probe`**, 设备实例由参数传入, "
+        "**`ao_shaping.tools.slm.sweep_analysis`**, 设备实例由参数传入, "
         "不构造任何设备:",
         "",
         "```python",
-        "from ao_shaping.tools.slm.slm_snr_probe import snr_sweep",
+        "from ao_shaping.tools.slm.sweep_analysis import snr_sweep",
         "with create_camera('daheng', cam_id=0, exposure_time_ms=1.2) as cam, \\",
         "     Santec(slm_number=1, wavelength=1064) as slm:",
         "    result = snr_sweep(cam, slm, n_max=9, radius=480.0)",

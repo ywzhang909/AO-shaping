@@ -108,7 +108,7 @@ from ao_shaping.tools.slm.slm_zernike_common import (
     um_to_waves,
     wfs_validity,
 )
-from ao_shaping.tools.slm.slm_scan_analysis import outlier_mask
+from ao_shaping.tools.slm.sweep_analysis import outlier_mask
 from ao_shaping.utils.io.cli_helpers import (
     get_timestamp_str,
     setup_coredumpy,

@@ -7,11 +7,11 @@ Every probe in this package drives the *same* two pieces of hardware over the
 
 * which device to open — SLM index / wavelength, camera backend / id / exposure;
 * how to read a frame — frame count, discard count, and the three settle-criterion
-  numbers that :func:`~ao_shaping.tools.slm.slm_bench_probe.display_and_average`
+  numbers that :func:`~ao_shaping.tools.slm.bench_kernels.display_and_average`
   needs to tell an *unsettled* frame from a noisy one.
 
 Those knobs are not cosmetic. ``settle_s`` / ``stable_tol`` / ``max_wait_s``
-encode the measurement in :mod:`ao_shaping.tools.slm.slm_bench_probe`'s module
+encode the measurement in :mod:`ao_shaping.tools.slm.bench_kernels`'s module
 docstring (waiting a fixed duration instead of waiting for *stability* recorded a
 3.3x slope error), so a probe that re-declares them with different defaults is a
 silent correctness hazard, not just duplication. Lifting them here makes the
@@ -102,7 +102,7 @@ class SlmAcquireParams:
     ``settle_s`` / ``stable_tol`` / ``max_wait_s`` are the settle criterion, not
     a sleep: the first is the *initial* wait, the second the relative agreement
     required between two consecutive readings, the third the ceiling on waiting.
-    See :func:`~ao_shaping.tools.slm.slm_bench_probe.display_and_average`.
+    See :func:`~ao_shaping.tools.slm.bench_kernels.display_and_average`.
     """
 
     frames: Annotated[int, option("--frames")] = 4

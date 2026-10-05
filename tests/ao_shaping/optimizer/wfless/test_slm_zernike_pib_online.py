@@ -11,7 +11,7 @@ What is validated (user constraints: daheng CCD, n_max > 6, delta < 0.001):
 
 1. ``test_noise_floor_and_snr_monotone_with_delta`` — delegates to the shared,
    **device-agnostic** probe
-   :func:`ao_shaping.tools.slm.slm_snr_probe.snr_sweep` (already-open cam/slm are
+   :func:`ao_shaping.tools.slm.sweep_analysis.snr_sweep` (already-open cam/slm are
    passed in; the probe never constructs a device), so this bench test and
    ``scripts/measure_shape_sensitivity.py`` measure identically and cannot drift
    apart. The J measurement noise floor at a fixed phase is finite and positive,
@@ -225,7 +225,7 @@ class TestNoiseFloorAndSnr:
 
         from ao_shaping.drivers.ccd.common import create_camera
         from ao_shaping.drivers.slm import Santec
-        from ao_shaping.tools.slm.slm_snr_probe import snr_sweep
+        from ao_shaping.tools.slm.sweep_analysis import snr_sweep
 
         with create_camera(cfg.camera) as cam, Santec.from_params(cfg.slm) as slm:
             # The measurement itself is delegated to the shared, device-agnostic

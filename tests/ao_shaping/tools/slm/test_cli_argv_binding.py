@@ -912,7 +912,7 @@ def _construction_sites(pattern: re.Pattern[str]) -> dict[str, int]:
     Counting convention (reproducible, see the module docstring):
     ``executable construction sites`` (comments/strings stripped) **plus** the
     occurrences inside a module docstring — which is where
-    ``slm_snr_probe``'s ``Typical use::`` example documents how a caller opens
+    ``sweep_analysis``'s ``Typical use::`` example documents how a caller opens
     the bench.  Function docstrings and prose are excluded, so a docstring edit
     cannot move the numbers.
     """
@@ -961,13 +961,13 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm_panel_locate.py": 1,
         "slm_phase_resolution.py": 1,
         "slm_phase_response.py": 1,
-        "slm_snr_probe.py": 1,
         "slm_tilt_probe.py": 1,
         "slm_wfs_probe.py": 1,
         "slm_wfs_reference.py": 1,
         "slm_zernike_correction.py": 1,
         "slm_zernike_response.py": 1,
         "slm_zernike_sweep_probe.py": 1,
+        "sweep_analysis.py": 1,
     }, f"Santec( per-file census drifted: {santec}"
 
     assert camera == {
@@ -984,29 +984,30 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm_panel_locate.py": 1,
         "slm_phase_resolution.py": 1,
         "slm_phase_response.py": 1,
-        "slm_snr_probe.py": 1,
         "slm_tilt_probe.py": 1,
         "slm_zernike_sweep_probe.py": 1,
+        "sweep_analysis.py": 1,
     }, f"camera-open per-file census drifted: {camera}"
 
-    # ``slm_snr_probe`` is the one module that is *not* a CLI: it exposes no
-    # click command and constructs no device, so every caller keeps full control
-    # of the settle/slot/dark-frame ordering (the R1 hazard).  Its
-    # ``Santec(`` / ``create_camera(`` occurrences are documentation only.
-    snr_path = TOOLS_SLM_DIR / "slm_snr_probe.py"
+    # ``sweep_analysis`` (merged from ``slm_scan_analysis`` + ``delta_explorer`` +
+    # ``slm_snr_probe``) is not a CLI and constructs no device, so callers keep
+    # full control of settle/slot/dark-frame ordering (the R1 hazard). Its
+    # ``Santec(`` hits are the ``Typical use::`` module-docstring example — hence
+    # the census key above is 1, not 0.
+    snr_path = TOOLS_SLM_DIR / "sweep_analysis.py"
     snr_source = snr_path.read_text(encoding="utf-8")
-    assert "import click" not in snr_source, "slm_snr_probe must stay CLI-free"
+    assert "import click" not in snr_source, "sweep_analysis must stay CLI-free"
     assert "@click.command" not in snr_source
     assert not _SANTEC_RE.search(_code_only(snr_path)), (
-        "slm_snr_probe must not construct a Santec — it is device-agnostic by "
+        "sweep_analysis must not construct a Santec — it is device-agnostic by "
         "design and takes already-opened instances"
     )
     assert not _CAMERA_RE.search(_code_only(snr_path)), (
-        "slm_snr_probe must not open a camera — it is device-agnostic by "
+        "sweep_analysis must not open a camera — it is device-agnostic by "
         "design and takes already-opened instances"
     )
     assert _SANTEC_RE.search(_module_docstring(snr_path)), (
-        "slm_snr_probe's documented 'Typical use' example must keep showing how "
+        "sweep_analysis's documented 'Typical use' example must keep showing how "
         "a caller opens the bench"
     )
 

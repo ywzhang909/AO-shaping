@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from click.testing import CliRunner
 from loguru import logger
 
 from ao_shaping.tools.slm import slm_floor_probe as probe
@@ -258,8 +257,10 @@ class TestNoHardware:
         logged: list[str] = []
         sink_id = logger.add(logged.append, level="INFO")
         try:
-            result = CliRunner().invoke(
-                main,
+            # main is a plain `def main(argv) -> int` entry point, not a click Command,
+            # so it is called directly rather than through CliRunner (which needs a
+            # Command and raises "'function' object has no attribute 'name'" otherwise).
+            exit_code = main(
                 [
                     "--out", str(tmp_path / "floor"),
                     "--n-repeat", "3",
@@ -267,11 +268,11 @@ class TestNoHardware:
                     "--settle-sample-ms", "100",
                     "--ks", "1,4",
                     "--no-hw",
-                ],
+                ]
             )
         finally:
             logger.remove(sink_id)
-        assert result.exit_code == 0, result.output
+        assert exit_code == 0, f"main() returned {exit_code!r}"
         assert any("ks [1, 4]" in line for line in logged), logged
         assert not (tmp_path / "floor").exists(), "--no-hw must not touch disk"
 

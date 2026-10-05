@@ -6,12 +6,12 @@ building, the settle criterion, the per-point metrics, the Recorder bookkeeping
 and the ``.npz`` round-trip -- is useful to anything that needs to characterise
 this bench, not just to that one script.
 
-What it buys over calling :mod:`ao_shaping.tools.slm.slm_bench_probe` directly:
+What it buys over calling :mod:`ao_shaping.tools.slm.bench_kernels` directly:
 
 * **One settle criterion, applied once.** :func:`display_and_average` discards
   frames until two consecutive readings agree. An unsettled frame is not a noisy
   frame, it is a *wrong* frame that still looks plausible -- see the module
-  docstring of :mod:`ao_shaping.tools.slm.slm_bench_probe` for the measurement
+  docstring of :mod:`ao_shaping.tools.slm.bench_kernels` for the measurement
   that cost a 3.3x error.
 * **Devices are injected, not constructed.** :func:`acquire_sweep` takes an open
   ``cam``/``slm`` pair, so the whole probe runs offline against mocks in the test
@@ -40,7 +40,8 @@ import numpy as np
 
 from loguru import logger
 
-from ao_shaping.tools.slm.slm_bench_probe import (
+from ao_shaping.tools.slm.params import SlmAcquireParams, SlmBenchParams
+from ao_shaping.tools.slm.bench_kernels import (
     SLM_PITCH_M,
     SLM_PANEL_H,
     SLM_PANEL_W,
@@ -50,7 +51,8 @@ from ao_shaping.tools.slm.slm_bench_probe import (
     ramp_panel,
     zernike_panel,
 )
-from ao_shaping.utils.cli.params import option, with_params
+from ao_shaping.utils.cli.params import ClickGroup, option, with_params
+from ao_shaping.utils.io.cli_helpers import parse_tuple, setup_coredumpy
 
 #: Panel raster of the Santec SLM-200 used on this bench (height, width).
 DEFAULT_PANEL_SHAPE: tuple[int, int] = (SLM_PANEL_H, SLM_PANEL_W)
@@ -421,33 +423,26 @@ def _parse_floats(text: str) -> list[float]:
 
 
 @dataclass
-class ZernikeSweepProbeParams:
-    """光滑 Zernike 台架扫描探针的 CLI 参数。
+class SweepProbeParams:
+    """CLI surface of the smooth-Zernike sweep probe.
 
-    默认值是**本台架**的几何与物理常数, 不与其他探针共享取值: 光斑中心
-    ``--pupil-center`` 默认 ``960,600``、``--zernike-radius`` 默认 450, 即
-    实测台架几何 (r=450 面板 px @ (960,600))。六个 ``--sweep-*`` 是逗号分隔的
-    系数列表 (rad; ``--sweep-ramps`` 是斜坡周期 px), 合计 42 点, 外加前置 flat
-    参考帧。
-
-    ``--no-hw`` 只打印采集计划并退出 0, 不打开任何设备。
-
-    ``--pupil-center`` 与 ``--sweep-*`` 收字符串、在 :func:`main` 里解析:
-    click 没有 ``argparse.ArgumentTypeError`` 的等价物, 不在参数层校验。
+    Field order *is* the ``--help`` order, and it is deliberately identical to
+    the ``add_argument`` sequence this command had before its click migration —
+    ``tools/slm/TODO.md`` R5 froze that surface at 21 options, and the order
+    itself is a contract. The two :class:`ClickGroup` fields splice the shared
+    device and acquisition groups in at exactly the positions the hand-written
+    declarations occupied, which is why the groups are contiguous blocks.
     """
 
     out: Annotated[
         str, option("--out", help="输出目录 (默认 data/slm_zernike_sweep)")
     ] = "data/slm_zernike_sweep"
-    slm_number: Annotated[int, option("--slm-number")] = 1
-    slm_wavelength: Annotated[int, option("--slm-wavelength")] = 1064
-    cam_type: Annotated[
-        str, option("--cam-type", type=click.Choice(["daheng", "miicam"]))
-    ] = "daheng"
-    cam_id: Annotated[int, option("--cam-id")] = 0
-    exposure_ms: Annotated[float, option("--exposure-ms")] = 3.0
+    bench: Annotated[SlmBenchParams, ClickGroup()] = field(
+        default_factory=SlmBenchParams
+    )
     pupil_center: Annotated[
-        str, option("--pupil-center", help="光斑中心 (面板 px x,y)")
+        str | tuple[float, float],
+        option("--pupil-center", callback=parse_tuple, help="光斑中心 (面板 px x,y)"),
     ] = "960,600"
     zernike_radius: Annotated[int, option("--zernike-radius")] = 450
     sweep_tilt: Annotated[str, option("--sweep-tilt")] = "-1.0,1.0"
@@ -456,37 +451,29 @@ class ZernikeSweepProbeParams:
     ] = "-4.0,-2.5,-1.5,-0.75,0.75,1.5,2.5,4.0"
     sweep_astig: Annotated[str, option("--sweep-astig")] = "-3.0,-1.5,1.5,3.0"
     sweep_coma: Annotated[str, option("--sweep-coma")] = "-1.2,-0.6,0.6,1.2"
-    sweep_spherical: Annotated[str, option("--sweep-spherical")] = "-1.2,-0.6,0.6,1.2"
+    sweep_spherical: Annotated[
+        str, option("--sweep-spherical")
+    ] = "-1.2,-0.6,0.6,1.2"
     sweep_ramps: Annotated[str, option("--sweep-ramps")] = "120,240,480,960,1920"
-    frames: Annotated[int, option("--frames")] = 4
-    discard: Annotated[int, option("--discard")] = 3
-    settle_s: Annotated[float, option("--settle-s")] = 0.5
-    stable_tol: Annotated[float, option("--stable-tol")] = 0.02
-    max_wait_s: Annotated[float, option("--max-wait-s")] = 6.0
+    acquire: Annotated[SlmAcquireParams, ClickGroup()] = field(
+        default_factory=SlmAcquireParams
+    )
+    save_frames: Annotated[bool, option("--save-frames/--no-save-frames")] = True
     no_hw: Annotated[
         bool,
-        option(
-            "--no-hw", is_flag=True,
-            help="不打开硬件, 只打印将要采集的点 (自检用)",
-        ),
+        option("--no-hw", is_flag=True, help="不打开硬件, 只打印将要采集的点 (自检用)"),
     ] = False
 
 
 @click.command()
-@with_params(ZernikeSweepProbeParams, kw_name="params")
-def main(params: ZernikeSweepProbeParams) -> None:
-    """光滑 Zernike 台架扫描探针 (需硬件: Santec SLM-200 + 远场相机)。"""
+@with_params(SweepProbeParams, kw_name="params")
+def main(params: SweepProbeParams) -> None:
+    """光滑 Zernike 台架扫描探针 (需硬件: Santec SLM-200 + 远场相机)."""
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm.santec import Santec
-    from ao_shaping.utils.io.cli_helpers import setup_coredumpy
     from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts
 
     setup_coredumpy()
-
-    pupil = tuple(int(float(v)) for v in str(params.pupil_center).split(","))
-    if len(pupil) != 2:
-        raise SystemExit("--pupil-center must be 'x,y' in panel pixels")
-
     points = default_sweep_points(
         tilt=_parse_floats(params.sweep_tilt),
         defocus=_parse_floats(params.sweep_defocus),
@@ -506,19 +493,21 @@ def main(params: ZernikeSweepProbeParams) -> None:
                         point.coefficient)
         return
 
+    bench = params.bench
+    acquire = params.acquire
     with Santec(
-        slm_number=params.slm_number, wavelength=params.slm_wavelength, video_mode=0
+        slm_number=bench.slm_number, wavelength=bench.slm_wavelength, video_mode=0
     ) as slm, create_camera(
-        params.cam_type, params.cam_id, exposure_time_ms=params.exposure_ms
+        bench.cam_type, bench.cam_id, exposure_time_ms=bench.exposure_ms
     ) as cam:
-        cam.reset_exposure_time(float(params.exposure_ms))
+        cam.reset_exposure_time(float(bench.exposure_ms))
         result = acquire_sweep(
             cam, slm, points,
-            pupil_center=pupil,
+            pupil_center=tuple(params.pupil_center),
             zernike_radius=params.zernike_radius,
-            n_frames=params.frames, n_discard=params.discard,
-            wait_time_s=params.settle_s, stable_tol=params.stable_tol,
-            max_wait_s=params.max_wait_s,
+            n_frames=acquire.frames, n_discard=acquire.discard,
+            wait_time_s=acquire.settle_s, stable_tol=acquire.stable_tol,
+            max_wait_s=acquire.max_wait_s,
         )
 
     npz_path = save_sweep_npz(out_dir / "sweep_records.npz", result)
@@ -558,10 +547,10 @@ def main(params: ZernikeSweepProbeParams) -> None:
             "mode_codes": MODE_CODES,
             "axis_codes": AXIS_CODES,
             "single_lobe_min_hollowness": SINGLE_LOBE_MIN_HOLLOWNESS,
-            "exposure_ms": params.exposure_ms,
-            "settle_s": params.settle_s,
-            "stable_tol": params.stable_tol,
-            "max_wait_s": params.max_wait_s,
+            "exposure_ms": bench.exposure_ms,
+            "settle_s": acquire.settle_s,
+            "stable_tol": acquire.stable_tol,
+            "max_wait_s": acquire.max_wait_s,
         },
         title="SLM Zernike sweep",
     )
@@ -569,4 +558,4 @@ def main(params: ZernikeSweepProbeParams) -> None:
 
 
 if __name__ == "__main__":  # pragma: no cover
-    main()
+    main()  # a click command exits via SystemExit itself; no return value to wrap

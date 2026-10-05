@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.tools.slm.slm_bench_probe import (
+from ao_shaping.tools.slm.bench_kernels import (
     BEAM_CENTER_PANEL,
     SLM_PANEL_H,
     SLM_PANEL_W,
