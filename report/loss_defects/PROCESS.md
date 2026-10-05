@@ -1040,9 +1040,45 @@ better the GS proposal, the *more* refinement gains — which is what a gradient
 directional information does, and the exact opposite of restart behaviour.
 
 The corrected picture is `GS + refine > flat > GS > gradient-from-random`: GS supplies the
-right basin, the gradient finishes the job. That is a sensible division of labour, and it
-is the opposite of the "refinement degrades strong proposals" story the retracted numbers
-told.
+right basin and the gradient finishes the job. That is a sensible division of labour, and
+it is the opposite of the "refinement degrades strong proposals" story the retracted
+numbers told.
+
+### Attempt 15 (freeform), re-measured — and it *disagrees* with Zernike
+
+`freeform_vs_zernike.py` ported onto the same library and re-run. `gs_fm_refine` is a
+freeform refinement started from `gs_freeform`; `COARSE = 24` is `slm_gs_refine`'s own
+default `--phase-grid`.
+
+| quantity | Zernike space | freeform space |
+|---|---|---|
+| `GS − flat` | **−0.0147, negative in 90/90** (GS alone never helps) | **+0.2843, 9/9** (GS alone helps decisively) |
+| `GS − flat(projected)` | — | +0.2128, 9/9 — the **projection bottleneck is confirmed and larger than reported** (+0.1272 in 7/9) |
+| refinement delta | **+0.0795**, 78/90 (helps) | **−0.2779, 0/9** (hurts, every ROI) |
+| spearman(proposal quality, delta) | +0.9333 / +0.9500 | +0.4500 (positive but weak) |
+
+The projection bottleneck — `fit_zernike(gs.phase)` throwing away quality that the
+freeform phase still has — is real and worth **+0.2128 in 9/9**, so attempt 15's one
+substantive claim survives the fix with a *larger* margin.
+
+But **freeform refinement destroys the GS solution in 9/9 ROIs** (−0.2779), the opposite
+of the Zernike result. The mechanism is a span mismatch, and it is worth stating
+precisely because the shipped `slm_gs_refine` is freeform:
+
+* a freeform refinement optimises **576 DOF** (24×24 upsampled to 64×64);
+* the forward model it is scored through carries **135 Zernike modes**.
+
+So the refinement is descending a 576-dimensional space against an objective that can
+only see 135 of those directions, and it drives the solution out of the good region. In
+Zernike space the refinement never leaves the model's span, which is why the same
+gradient is helpful there.
+
+⚠️ **Scope of that warning.** It is about refinement driven by the *learned model*. It is
+**not** a claim about `slm_gs_refine` on hardware, where the forward model is the
+measurement itself and therefore does span all 576 DOF. What it does say is that a
+model-based freeform loop is unsound unless the model covers the refinement space — which
+is the same requirement as attempt 12's invariance result, approached from the other
+side.
 
 The methodological lesson is the same one as attempts 3, 5 and 13, and this time it is
 about *plots*: a metric can be reproducible, self-consistent, and still measure the wrong

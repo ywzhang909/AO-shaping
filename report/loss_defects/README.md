@@ -244,9 +244,39 @@ questioned) and then the evaluator's crop. Both are the same failure mode as tru
 single split — a nuisance parameter fixed once and never swept. Recorded so the next
 person sweeps the nuisance parameter instead of trusting the conclusion.
 
+### Freeform does *not* replicate Zernike — and that is the interesting part
+
+`freeform_vs_zernike.py` re-measured on the same corrected evaluator, same 9 ROIs.
+Score is `pib + uniformity`, higher is better.
+
+| quantity | Zernike space | freeform space |
+|---|---|---|
+| `GS − flat` | −0.0147, negative in **90/90** | **+0.2843, 9/9** |
+| `GS − GS(projected)` | — | **+0.2128, 9/9** |
+| refinement delta | **+0.0795**, 78/90 (helps) | **−0.2779, 0/9** (hurts every ROI) |
+| spearman(proposal quality, delta) | +0.93 / +0.95 | +0.45 (positive, weak) |
+
+Two conclusions, opposite in sign:
+
+* **The Zernike projection bottleneck is real** and larger than the retracted run
+  reported: using the GS pupil phase directly is worth **+0.2128 in 9/9** (+0.1272 in
+  7/9 before). `slm_gs_refine` is freeform, so it never pays this.
+* **Freeform refinement destroys the GS solution**, where the same gradient helps in
+  Zernike space. A freeform refinement moves **576 DOF** while the forward model it is
+  scored through carries **135 Zernike modes** — it descends a space the objective
+  cannot see. This is attempt 12's invariance result from the other side: the refinement
+  must stay inside what the model can represent.
+
+⚠️ That is a statement about **model-based** refinement. It is **not** a claim about
+`slm_gs_refine` on hardware, where the forward model is the measurement and therefore
+does span all 576 DOF. It does say a model-based freeform loop is unsound unless the
+model covers the refinement space.
+
 ### Scope limits that are not optional
 
-* **Not re-measured:** the freeform (`phase-grid=24`) replication and the Zernike
-  projection cost. Both were computed on the corner-cropped evaluator, so the
-  "replicated in freeform" claim above is currently void.
-* Every number is a **sim** claim, not a bench claim.
+* Every number is a **sim** claim, not a bench claim. A native full-resolution freeform
+  grid (4096 DOF) and a physically-apertured coarse grid were never tried, so the choice
+  of `phase-grid=24` remains unvalidated.
+* The two parameterisations **disagree** on whether refinement helps. Treat "refine
+  after GS" as a claim that must be re-established per parameterisation, never carried
+  over.

@@ -780,7 +780,7 @@ python scripts/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts> --p
 ### generate_zernike_amp_report.py
 
 Generates the **illustrated Chinese report** for the learned Zernike far-field
-model: `report/zernike_amp/report.md` + `report/zernike_amp/figures/*.png`.
+model: `report/phase2amp/report.md` + `report/phase2amp/figures/*.png`.
 **Fully offline** — reads only saved artefacts, never opens a camera or SLM.
 
 **Usage:**
@@ -2327,7 +2327,7 @@ therefore still reports numbers from the broken geometry — port them before qu
 | `alignment_vs_accuracy.py` | Does gradient alignment improve with forward accuracy? No, and provably: `correction_far_field()` reads only `coefficients`, so an unfitted and a fitted model give identical refinements. |
 | `roi_robustness.py` | Re-runs both headline claims across a 3×3 ROI sweep. Retracted them once, then **re-measured on the corrected evaluator**, where claim 1 holds 9/9 and claim 2 has flipped sign. |
 | `restart_claim_robustness.py` | **Kills the last "robust" claim.** Across ROI **and** objective (9 × 2, 180 refinements), spearman(proposal quality, refinement delta) is **+0.93 / +0.95**, not the −0.87 / −0.92 the corner-cropped evaluator gave. Refinement carries directional information; it is not a restart. |
-| `freeform_vs_zernike.py` | Closes the last scope gap: the same study in the **freeform** parameterisation `slm_gs_refine` actually uses (`phase-grid=24` → 64×64). Confirms both surviving conclusions replicate, keeps "GS beats gradient" retracted (4/9), and quantifies the Zernike projection bottleneck at **+0.1272 for removing it** (7/9 ROIs). |
+| `freeform_vs_zernike.py` | Closes the last scope gap: the same study in the **freeform** parameterisation `slm_gs_refine` actually uses (`phase-grid=24` → 64×64). Re-measured on the corrected evaluator, where it **disagrees with Zernike**: the projection bottleneck is confirmed and *larger* (**+0.2128, 9/9**), but freeform refinement *hurts* (−0.2779, **0/9**) where the Zernike gradient helps — 576 DOF of freedom scored through a 135-mode model. |
 
 **Freeform needs no new forward model**, contrary to an earlier note in `PROCESS.md`:
 `ZernikeAmpModel.forward` validates only that its input is `(B, 1, g, g)` at the basis
