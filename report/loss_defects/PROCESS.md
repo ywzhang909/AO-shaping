@@ -1151,6 +1151,74 @@ Recommendation, given the measurements rather than the intent:
   optional.
 * Do not enable `conserve_energy` alone against a peak-normalised target.
 
+### The 150-step single-sample fit above was misleading — retested on the real corpus
+
+That ablation fitted **one sample for 150 steps** and read the moment gap off the *same*
+sample. Retested properly as 5-seed paired full training runs on `slm_zernike_shaping`
+(60 epochs, `scripts/spot_moment_sweep.py`, ranked on R² per the repo rule), the term
+**fails on both counts**:
+
+| config | R² mean | sd | ΔR² vs incumbent | paired sd | positives | moment gap |
+|---|---|---|---|---|---|---|
+| **incumbent (mse)** | **+0.8724** | 0.0745 | — | — | — | 0.0368 |
+| moment 0.25 | +0.7930 | 0.1156 | **−0.0794** | 0.0204 | **0/5** | 0.0405 |
+| moment 0.5 | +0.7578 | 0.1369 | **−0.1146** | 0.0300 | **0/5** | 0.0381 |
+| moment 1.0 | +0.6569 | 0.1284 | **−0.2154** | 0.0314 | **0/5** | 0.0380 |
+| moment 2.0 | +0.6749 | 0.1031 | **−0.1974** | 0.0198 | **0/5** | 0.0379 |
+| incumbent n_max=20 | **+0.8767** | 0.0674 | +0.0043 | 0.0043 | 3/5 | 0.0355 |
+| moment 0.5 n_max=20 | +0.8030 | 0.0926 | −0.0693 | 0.0147 | **0/5** | 0.0365 |
+| moment 1.0 n_max=20 | +0.6723 | 0.1183 | −0.2000 | 0.0337 | **0/5** | 0.0372 |
+
+* **It does not reduce the error.** 0/5 paired at every weight, at both capacities,
+  monotone in the weight. That much of the 150-step result replicates.
+* **It no longer even improves the spot size it targets** — the validation moment gap sits
+  at 0.036–0.041 regardless of the weight, against 0.0368 for the incumbent. On held-out
+  data the term supplies gradient without moving its own metric, which is what a
+  denominator (`var_r(ref)`, small and noisy) dominated by noise looks like.
+* So it is **not enabled by default** (`w_spot_moment = 0`). It is wired and measurable —
+  `python -m ml.zernike.train_amp --w-spot-moment 0.5`, and every run now reports
+  `val_spot_moment_gap` — but shipping it would make the model worse.
+
+Why the two experiments disagree: the first overfit a single sample and scored that same
+sample, so it measured memorisation, not generalisation. This repo has now produced that
+exact shape of error twice (a single seed read as a consistent gain; a metric scored on
+the quantity it optimised). Retest any "the loss went down" claim on held-out data.
+
+### What actually moved the forward error
+
+`n_max=20` — the repo's prior tuned finding, reproduced here at +0.0043 ± 0.0043, 3/5 — is
+the only lever that helped, and it is small and inside the seed spread. Final checkpoint
+is `n_max=20`, 60 epochs: **val R² +0.9265, PSNR 31.04 dB, SSIM 0.815, corr 0.972,
+0 dead modes, max|c| 0.611**.
+
+⚠️ Do not read `+0.9265` against the older `+0.7971` as a +0.129 gain: those runs differ
+in seed, epochs (25 → 60) *and* capacity. The honest comparison is the 5-seed mean,
+0.8724 → 0.8767. The absolute value moves between 0.780 and 0.930 **on split seed alone**.
+
+### Two more defects the figures exposed
+
+Rendering the report surfaced bugs the numbers had hidden:
+
+1. **`figure_forward` and `figure_inverse` both raised `NameError: vmax`** — neither defined
+   the `vmax` it passed to `_imshow`. Both committed PNGs were therefore **stale**: not
+   produced by the committed code. Fixed with a **shared** true/pred scale, because a
+   per-panel `vmax` would hide exactly the scale error a pred-vs-true panel exists to
+   expose. The inverse panel was also missing its ③ title, so its numbering jumped ② → ④.
+2. **Both panels used `inv.build_model()`, whose coefficients initialise to zeros.** The
+   forward "prediction" was an Airy pattern from an untrained model, so the R² printed
+   beside it described nothing. Both now load a real checkpoint (`--checkpoint`), rebuilt
+   with the config it was trained under (n_max 20, padding 10 — not the library defaults
+   15/12), and the title states which case is shown.
+
+⚠️ **The inverse panel is still not a fair comparison, and says so in its own title.** The
+checkpoint was fitted at `far_field_padding=10` while the independent evaluator runs at
+padding 1, so the two far fields differ in angular scale by roughly that factor: the
+simulator's panel is a near-single-pixel focus while the model predicts a broad blob. That
+is the same class of error as the attempt-13 scale mismatch, and it is why the freeform
+inverse conclusions in this file must not be read as statements about the trained model's
+inverse accuracy. Reconciling them needs the model re-fitted at the evaluator's padding,
+which is not done.
+
 ### Remaining caveats
 
 * Every number remains a **sim** claim, not a bench claim.

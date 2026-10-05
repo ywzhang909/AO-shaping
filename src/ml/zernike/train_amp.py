@@ -49,7 +49,12 @@ from ml.hwdataset import (
     build_hw_dataloader,
     build_hw_index,
 )
-from ml.zernike.losses import LossConfig, composite_loss, roi_mask
+from ml.zernike.losses import (
+    LossConfig,
+    composite_loss,
+    roi_mask,
+    spot_moment_gap_term,
+)
 from ml.zernike.metrics import (
     available_perceptual_metrics,
     batch_image_metrics,
@@ -403,6 +408,7 @@ def evaluate(
     *,
     beam_samples: int = 64,
     roi_size_frac: float | None = None,
+    roi_aspect: float = 1.0,
 ) -> dict[str, float]:
     """Score the model on a materialised split.
 
@@ -472,6 +478,18 @@ def evaluate(
             for i in range(min(beam_samples, n))
         ]
         out.update(summarise_beam_metrics(roi_rows))
+        # The anchored spot-size gap the new term optimises, on the same ROI, so a run
+        # that enables the term is observable rather than assumed. One batched call on
+        # the concatenated tensor -- `prediction` is (N, 1, g, g); `predictions` is the
+        # list of per-batch chunks and indexing that indexes BATCHES, not samples.
+        k = min(beam_samples, n)
+        out["spot_moment_gap"] = float(
+            spot_moment_gap_term(
+                prediction[:k],
+                reference[:k],
+                roi_mask((grid, grid), centre, "rectangle", side, roi_aspect),
+            ).mean()
+        )
     return out
 
 
@@ -593,7 +611,7 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
     # region the bench optimiser reports.
     grid = int(train_t["target"].shape[-1])
     loss_mask = None
-    if cfg.loss == "physical":
+    if cfg.loss == "physical" or cfg.loss_weights.w_spot_moment > 0.0:
         loss_mask = roi_mask(
             (grid, grid),
             (grid / 2.0, grid / 2.0),
@@ -646,6 +664,7 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
             val_t,
             beam_samples=cfg.beam_samples,
             roi_size_frac=cfg.target_size_frac,
+            roi_aspect=cfg.target_aspect_ratio,
         )
         row = {
             "epoch": epoch,
@@ -939,6 +958,17 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--w-spot-moment",
+        type=float,
+        default=0.0,
+        help=(
+            "Weight on the anchored spot-size term |var_r(pred)-var_r(ref)|/var_r(ref), "
+            "var_r = second moment about the intensity centroid. >0 switches the "
+            "objective to mse + this term, and makes the val moment gap visible in the "
+            "history. Trades fidelity for spot size -- measure before enabling."
+        ),
+    )
+    parser.add_argument(
         "--target-size-frac",
         type=float,
         default=train_default.target_size_frac,
@@ -985,7 +1015,7 @@ def main(argv: list[str] | None = None) -> int:
         n_max=args.n_max,
         observable=args.observable,
         normalization=args.normalization,
-    conserve_energy=args.conserve_energy,
+        conserve_energy=args.conserve_energy,
         far_field_padding=args.far_field_padding,
         center_crop=args.center_crop,
         max_train=args.max_train,
@@ -996,7 +1026,10 @@ def main(argv: list[str] | None = None) -> int:
         batch_size=args.batch_size,
         lr=args.lr,
         l2_penalty=args.l2_penalty,
-    loss=args.loss,
+        loss=args.loss,
+        loss_weights=LossConfig(
+            w_mse=1.0, w_shape_gap=1.0, w_spot_moment=args.w_spot_moment
+        ),
     target_size_frac=args.target_size_frac,
     target_aspect_ratio=args.target_aspect_ratio,
         grad_clip=args.grad_clip,

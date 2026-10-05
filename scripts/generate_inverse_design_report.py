@@ -104,9 +104,35 @@ def _metrics(pred: np.ndarray, true: np.ndarray) -> dict[str, float]:
 # ----------------------------------------------------------------------
 # Figure 1 -- forward pred vs true
 # ----------------------------------------------------------------------
-def figure_forward(index, path: Path) -> dict:
+def load_trained(checkpoint: Path):
+    """Rebuild the model a training checkpoint was saved from, coefficients loaded.
+
+    A checkpoint written with ``n_max=20, far_field_padding=10`` must be rebuilt with
+    those, not with this module's inverse-design defaults (15/12): the coefficient vector
+    length and the basis grid both have to match or the result is silently meaningless.
+    """
+    blob = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    model = inv.build_model(
+        n_max=int(blob["n_max"]),
+        grid=int(blob["grid"]),
+        padding=int(blob["far_field_padding"]),
+    )
+    with torch.no_grad():
+        model.coefficients.copy_(
+            torch.as_tensor(blob["coefficients"], dtype=torch.float32)
+        )
+    return model, blob
+
+
+def figure_forward(index, path: Path, checkpoint: Path | None = None) -> dict:
     cos, sin, image = inv.load_corpus_sample(index, 0, grid=inv.GRID)
-    model = inv.build_model()
+    if checkpoint is None or not checkpoint.exists():
+        model = inv.build_model()
+        trained = False
+        blob: dict = {}
+    else:
+        model, blob = load_trained(checkpoint)
+        trained = True
     with torch.no_grad():
         pred = model(cos, sin)
     p = _norm(pred[0, 0].numpy())
@@ -114,6 +140,10 @@ def figure_forward(index, path: Path) -> dict:
     stats = _metrics(p, t)
 
     fig, axes = plt.subplots(1, 4, figsize=(15.5, 4.3))
+    # ONE shared colour scale for true and pred. Giving each panel its own vmax would
+    # make a badly-scaled prediction look identical to a good one, which is the whole
+    # question this figure exists to answer.
+    vmax = float(max(t.max(), p.max()))
     _imshow(axes[0], t, "① 实测帧 true（CCD 记录）", vmax=vmax)
     _imshow(axes[1], p, "② 模型预测 pred（forward）", vmax=vmax)
     im = axes[2].imshow(p - t, cmap="coolwarm", vmin=-0.5, vmax=0.5)
@@ -134,8 +164,14 @@ def figure_forward(index, path: Path) -> dict:
     axes[3].grid(alpha=0.3)
 
     fig.suptitle(
-        "正向模型：pred vs true —— 模型能否预测一次真实测量",
-        fontsize=13, y=1.02,
+        "正向模型：pred vs true —— 模型能否预测一次真实测量"
+        + (
+            f"（已训练 n_max={blob['n_max']}, pad={blob['far_field_padding']}）"
+            if trained
+            else "（⚠ 未训练，系数为零）"
+        ),
+        fontsize=13,
+        y=1.02,
     )
     fig.tight_layout()
     fig.savefig(path, bbox_inches="tight")
@@ -146,8 +182,14 @@ def figure_forward(index, path: Path) -> dict:
 # ----------------------------------------------------------------------
 # Figure 2 -- inverse pred vs true
 # ----------------------------------------------------------------------
-def figure_inverse(index, path: Path) -> dict:
-    model = inv.build_model()
+def figure_inverse(index, path: Path, checkpoint: Path | None = None) -> dict:
+    if checkpoint is None or not checkpoint.exists():
+        model = inv.build_model()
+        trained = False
+        blob: dict = {}
+    else:
+        model, blob = load_trained(checkpoint)
+        trained = True
     target = inv.target_tensor(inv.GRID, SIZE_FRAC, ASPECT)
     mask = inv.roi(inv.GRID, SIZE_FRAC, ASPECT)
 
@@ -172,8 +214,14 @@ def figure_inverse(index, path: Path) -> dict:
     }
 
     fig, axes = plt.subplots(1, 5, figsize=(19, 4.3))
+    # Shared scale for pred vs true, same reasoning as the forward panel: per-panel
+    # vmax would hide exactly the scale error this comparison is meant to expose.
+    vmax = float(max(true.max(), pred.max()))
     _imshow(axes[0], tgt, "① 目标 target（方形）", cmap="gray")
     _imshow(axes[1], pred, "② 模型预测 pred（逆向）", vmax=vmax)
+    _imshow(axes[2], true, "③ 独立仿真 true（未经模型）", vmax=vmax)
+    axes[2].set_xticks([])
+    axes[2].set_yticks([])
     axes[3].set_xticks([])
     axes[3].set_yticks([])
     im = axes[3].imshow(pred - true, cmap="coolwarm", vmin=-0.5, vmax=0.5)
@@ -198,8 +246,15 @@ def figure_inverse(index, path: Path) -> dict:
     axes[4].grid(alpha=0.3)
 
     fig.suptitle(
-        "逆向整形：pred vs true —— 模型对自己提出的相位预测得准吗",
-        fontsize=13, y=1.02,
+        "逆向整形：pred vs true —— 模型对自己提出的相位预测准吗"
+        + (
+            f"（⚠ 模型 padding={blob['far_field_padding']} vs 独立仿真 padding="
+            f"{inv.SIM_PADDING}：两者角标度不同，面板不可直接比较，见报告 §已知缺陷）"
+            if trained
+            else "（⚠ 未训练，系数为零）"
+        ),
+        fontsize=12,
+        y=1.02,
     )
     fig.tight_layout()
     fig.savefig(path, bbox_inches="tight")
@@ -433,9 +488,18 @@ def build_report(stats: dict, figures_ok: bool) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--checkpoint",
+        type=Path,
+        default=Path("logs/zernike_amp_final_nmax20/best_coefficients.pt"),
+        help="Trained coefficients for the forward panel. Point it at a "
+        "'best_coefficients.pt'; without one the panel falls back to a "
+        "zero-coefficient model and says so in its title.",
+    )
     parser.add_argument("--no-figures", action="store_true", help="markdown only")
     parser.add_argument("--index-cache", default="data/hw_index_cache.json")
     args = parser.parse_args()
+    checkpoint = args.checkpoint
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     FIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -447,8 +511,12 @@ def main() -> int:
     figures_ok = not args.no_figures
 
     if figures_ok:
-        stats["forward"] = figure_forward(index, FIG_DIR / "forward_pred_vs_true.png")
-        stats["inverse"] = figure_inverse(index, FIG_DIR / "inverse_pred_vs_true.png")
+        stats["forward"] = figure_forward(
+            index, FIG_DIR / "forward_pred_vs_true.png", checkpoint
+        )
+        stats["inverse"] = figure_inverse(
+            index, FIG_DIR / "inverse_pred_vs_true.png", checkpoint
+        )
         stats["phase"] = figure_phases(FIG_DIR / "phases.png")
         figure_roi_sweep(FIG_DIR / "roi_sweep.png")
         print(f"figures written to {FIG_DIR}")
