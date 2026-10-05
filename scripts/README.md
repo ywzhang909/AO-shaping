@@ -2288,28 +2288,45 @@ Fully offline — pure numpy/torch, no hardware. These back the14-attempt record
 [`report/loss_defects/PROCESS.md`](../report/loss_defects/PROCESS.md). **Read that file
 before quoting any conclusion from these scripts**: three headline results were
 retracted once the evaluator's ROI geometry was swept, and the closing table there
-separates the four robust findings from the retractions.
+separates the surviving findings from the retractions. **The evaluator itself was later found to crop the wrong region of the far field, which voided every quantitative result in that group; re-measured values are in the CORRECTION section of PROCESS.md.**
 
-Shared entry point: `inverse_design_sim_eval.py` owns the independent evaluator
-(`SimPibSystem` via an embedded panel disc, scored with the canonical `rms_pib_terms`)
-and exports `GRID`/`N_MAX`/`PADDING` so the others import one source of truth rather
-than re-declaring constants. `ZernikeGenerator` returns **NaN outside the aperture
-disc** — every scorer here zeroes it explicitly (`nan_to_num`), because embedding NaN
-into the panel makes the whole far field non-finite and every metric silently read 0.
+Shared entry point: **`ml.zernike.inverse_design`** owns the independent evaluator, the
+ROI helpers, GS, and both gradient operators, so the rest import one source of truth
+rather than re-declaring constants. It runs the 64×64 pupil **directly**
+(`far_field_window=64`), so the evaluator's far-field grid matches the grid GS designs
+on, pixel for pixel. Two traps it documents because they cost real time:
+`ZernikeGenerator` returns **NaN outside the aperture disc** (every scorer must
+`nan_to_num`, or the whole far field goes non-finite and every metric silently reads 0);
+and a phase-only pupil needs an explicit aperture mask, because `forward()` uses the
+phasor raw and would otherwise light the whole grid.
+
+> ⚠️ **This paragraph used to describe the opposite, and the old behaviour was a bug.**
+> The first evaluator embedded the 64×64 pupil into the 1200×1920 panel and cropped the
+> far field with `[:64, :64]` — the **top-left corner**, while the 0-order sits at the
+> array centre. Values there are `1e-5` against a peak of `100`, so every ROI metric
+> measured off-axis sidelobes, and the evaluator's angular scale did not match the
+> design's (beam core ~6 px against a 24 px target). Rendering a pred-vs-true figure is
+> what caught it: the simulator panel came out blank while the numbers stayed
+> self-consistent and reproducible. See the CORRECTION section of
+> [`report/loss_defects/PROCESS.md`](../report/loss_defects/PROCESS.md).
+
+`roi_robustness.py` and `restart_claim_robustness.py` have been ported onto the library
+and re-measured. **The rest of this table still carries its own evaluator copy** and
+therefore still reports numbers from the broken geometry — port them before quoting.
 
 | Script | Answers |
 |---|---|
-| `inverse_design_sim_eval.py` | Inverse design on the learned model, scored on an independent simulator. Also the shared evaluator. `--samples/--seeds/--out` |
+| `inverse_design_sim_eval.py` | Inverse design on the learned model, scored on an independent simulator. **Still carries its own (broken) evaluator copy — port to `ml.zernike.inverse_design` before quoting.** `--samples/--seeds/--out` |
 | `inverse_design_accuracy_ladder.py` | Does forward-model *accuracy* affect inverse quality? Ladder rung = fit steps, accuracy = **held-out** MSE on a disjoint sample, `design_steps=0` scores the fitted vector directly. |
 | `inverse_design_restarts.py` | Step sweep vs restart count. Restart sd (0.07–0.26) dwarfs every step-count effect past ~60 steps. |
 | `inverse_restart_selection.py` | Does picking the best restart by the **model's own score** beat picking blind? 30 trials — it does not (t = 1.53). |
 | `inverse_objective_alignment.py` | Does the design objective matter? Five objectives paired by restart: `physical` − `mse` = +0.0002. |
 | `inverse_achievable_target.py` | Replace the binary-square target with a GS-derived *achievable* one. Refuted (−0.0212). |
-| `gs_vs_gradient_inverse.py` | Canonical GS vs gradient inverse design. **Retracted** — held at one ROI (t=+2.77) but 34/90 across nine. |
-| `gs_plus_refinement.py` | Does refinement on top of GS help? **Retracted** — the sign is ROI-dependent; value is monotone in how good the start already was. |
+| `gs_vs_gradient_inverse.py` | Canonical GS vs gradient inverse design. **Void, then re-confirmed**: 34/90 across nine ROIs on the broken evaluator, **9/9 (paired t = +6.4…+32.5)** on the corrected one. |
+| `gs_plus_refinement.py` | Does refinement on top of GS help? **Void, sign reversed** — it helps (mean +0.0795, positive in 78/90) where it had appeared to hurt. |
 | `alignment_vs_accuracy.py` | Does gradient alignment improve with forward accuracy? No, and provably: `correction_far_field()` reads only `coefficients`, so an unfitted and a fitted model give identical refinements. |
-| `roi_robustness.py` | Re-runs both headline claims across a 3×3 ROI sweep. This is what retracted them. |
-| `restart_claim_robustness.py` | Hardens the one surviving claim across ROI **and** objective (9 × 2, 180 refinements): refinement is a restart, not a gradient. |
+| `roi_robustness.py` | Re-runs both headline claims across a 3×3 ROI sweep. Retracted them once, then **re-measured on the corrected evaluator**, where claim 1 holds 9/9 and claim 2 has flipped sign. |
+| `restart_claim_robustness.py` | **Kills the last "robust" claim.** Across ROI **and** objective (9 × 2, 180 refinements), spearman(proposal quality, refinement delta) is **+0.93 / +0.95**, not the −0.87 / −0.92 the corner-cropped evaluator gave. Refinement carries directional information; it is not a restart. |
 | `freeform_vs_zernike.py` | Closes the last scope gap: the same study in the **freeform** parameterisation `slm_gs_refine` actually uses (`phase-grid=24` → 64×64). Confirms both surviving conclusions replicate, keeps "GS beats gradient" retracted (4/9), and quantifies the Zernike projection bottleneck at **+0.1272 for removing it** (7/9 ROIs). |
 
 **Freeform needs no new forward model**, contrary to an earlier note in `PROCESS.md`:

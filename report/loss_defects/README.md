@@ -15,10 +15,12 @@ Reproduce with `python -m ml.zernike.train_amp` plus the panels described below.
 Absolute R² is **not** comparable across runs — see "Noise floor" at the end.
 
 > **Sections 1–7 are the forward/loss hunt. The inverse (shaping) investigation is a
-> separate, longer record in [`PROCESS.md`](PROCESS.md)** — 14 numbered attempts, of
-> which **three headline conclusions were retracted** once the evaluator's ROI geometry
-> was swept. Read that file before quoting any inverse-design claim; the only
-> conclusions that survived are summarised in its closing table.
+> separate, longer record in [`PROCESS.md`](PROCESS.md)** — 16 numbered attempts, of
+> which **four headline conclusions were retracted**: three when the evaluator's ROI
+> geometry was swept, and one more when the evaluator itself was found to have been
+> cropping the wrong region of the far field. **That last one invalidated every
+> quantitative inverse result in this file**, so §8 below has been re-measured rather
+> than inherited.
 
 ---
 
@@ -190,44 +192,61 @@ were reversed during this hunt — is inside that band.
 
 ---
 
-## 8. INVERSE DESIGN — the one finding that survived a robustness sweep
+## 8. INVERSE DESIGN — re-measured on the corrected evaluator
 
 Summarised from [`PROCESS.md`](PROCESS.md) for the reader who does not need the full
-14-attempt record. **Inverse design here means: synthesise a Zernike phase that
+16-attempt record. **Inverse design here means: synthesise a Zernike phase that
 shapes the far field, then score the result on an independent simulator
 (`SimPibSystem`, separate numpy FFT and illumination model) so the model never
-grades its own work.**
+grades its own work.** Score is `pib + uniformity`, **higher is better**.
 
-### The robust results
+⚠️ **Every number below was re-measured.** The first evaluator cropped the simulator's
+far field with `[:64, :64]` — the top-left corner, while the 0-order sits at the
+array centre (value `1e-5` against a peak of `100`). All of it therefore described
+off-axis sidelobes. It is now `ml.zernike.inverse_design`, which runs the 64×64 pupil
+directly so its far-field grid matches the grid GS designs on. Caught by *drawing* the
+result: the simulator panel rendered blank while the numbers stayed self-consistent.
+
+### The results that hold
 
 | finding | evidence |
 |---|---|
-| **Inverse design works.** Both GS and gradient design beat the flat reference. | 82/90 and 90/90 paired draws across 9 ROI geometries; **replicated in freeform** at 9/9 |
-| **Refinement is a restart, not a gradient.** It rescues weak proposals and degrades strong ones, monotonically, *regardless of what it optimises*. | pearson −0.91 / −0.83, spearman −0.87 / −0.92 over 9 ROI × 2 objectives (180 refinements); **spearman −0.73 in freeform** |
+| **Inverse design beats flat — but only with refinement.** Gradient refinement on top of GS gains **+0.0795** mean (`mse`, positive in 78/90) and **+0.0426** (`physical`, 68/90). | 9 ROI geometries × 10 paired draws |
+| **GS beats gradient from a random start.** | **9/9 ROIs**, paired t = **+6.4 … +32.5** (was 34/90 before the fix) |
+| **Gradient refinement carries directional information — it is not a restart.** The better the GS proposal, the *more* refinement gains. | pearson +0.90 / +0.80, spearman **+0.93 / +0.95** over 9 ROI × 2 objectives |
 | **Forward-model accuracy is not an input to the gradient path.** `correction_far_field()` reads only `self.coefficients`, so an unfitted and a fitted+regularised model produce *bit-identical* refinements. | coef norm 0.0000 vs 2.5421 → refined 6.84294, sim 0.997656 in both (proof, not a measurement) |
-| **Gate refinement on proposal quality** — refine only what failed the bar. | follows from the two rows above; this is what `slm_gs_refine`'s bake-off already does |
-| **The Zernike projection costs quality.** Using the GS pupil phase directly instead of `fit_zernike`-projecting it is worth +0.1272 in 7/9 ROIs. | 9 ROI × 8 draws, `phase-grid=24` freeform vs the Zernike path. `slm_gs_refine` is freeform, so it never pays this penalty |
+
+### The corrected division of labour
+
+`GS + refine (1.1214) > flat (1.0366) > GS alone (1.0280) > gradient-from-random (0.7179)`
+at the canonical ROI. Two facts the broken crop had concealed:
+
+* **GS alone never beats flat** — `GS − flat` is negative in **90/90** runs (−0.0025 to
+  −0.0364). The GS *proposal* is not an improvement on doing nothing.
+* **Gradient from a random start is far worse than flat** (−0.3287 mean).
+
+So GS supplies the basin and the gradient does the work. That is the opposite of the
+"refinement degrades strong proposals" story the retracted numbers told.
 
 ### What was retracted, and why it matters
 
-Three conclusions looked significant at a single evaluator configuration and
-dissolved when the ROI geometry was swept:
-
-| retracted claim | single-config result | across 9 ROIs |
+| retracted claim | original result | what actually happened |
 |---|---|---|
-| "GS beats gradient inverse design" | +0.1171, t = **+2.77** | **34/90** — a coin flip; **4/9 in freeform too** |
-| "Refinement destroys a GS solution" | −0.2206, **0/16**, t = −7.65 | sign flips; helps where GS is weak |
+| "GS beats gradient inverse design" | +0.1171, t=+2.77, **34/90** across 9 ROIs — a coin flip | **9/9**, t = +6.4…+32.5. The coin flip was the broken evaluator |
+| "Refinement destroys a GS solution" | −0.2206, 0/16, t=−7.65 | **sign reversed** — refinement helps in 8/9, mean +0.0795 |
+| "Refinement is a restart, not a gradient" | spearman **−0.87 / −0.92** | **spearman +0.93 / +0.95** — sign reversal, larger magnitude |
 | "Inverse loss choice is worth +0.0002" | 5 objectives, paired | ROI-conditional |
+| "The Zernike projection costs +0.1272" | 9 ROI × 8 draws | **not yet re-measured** — void until it is |
 
-Every one had a good t-statistic. **The constant that broke them was the ROI box
-(`SIZE_FRAC=0.375`, `ASPECT=4/3`) — a value I chose once and never questioned**, which
-is the same failure mode as trusting a single split. It is recorded here so the next
-person sweeps the nuisance parameter instead of the conclusion.
+The first three all had good t-statistics and all were reproducible. Two constants broke
+them, in order: the ROI box (`SIZE_FRAC=0.375`, `ASPECT=4/3`, chosen once and never
+questioned) and then the evaluator's crop. Both are the same failure mode as trusting a
+single split — a nuisance parameter fixed once and never swept. Recorded so the next
+person sweeps the nuisance parameter instead of trusting the conclusion.
 
 ### Scope limits that are not optional
 
-* Both parameterisations are covered now — Zernike (135 DOF) and freeform
-  (`phase-grid=24`, 576 DOF) — and the conclusions agree. **Not** covered: a native
-  full-resolution freeform grid (4096 DOF), or a physically-apertured coarse grid, so
-  the coarse-grid choice is unvalidated.
+* **Not re-measured:** the freeform (`phase-grid=24`) replication and the Zernike
+  projection cost. Both were computed on the corner-cropped evaluator, so the
+  "replicated in freeform" claim above is currently void.
 * Every number is a **sim** claim, not a bench claim.

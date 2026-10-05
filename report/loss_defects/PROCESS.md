@@ -995,19 +995,58 @@ matched, shaping works as expected: **GS - flat = +0.2945** at `SIZE_FRAC=0.375`
 
 What survives and what does not:
 
-| claim | status after the fix |
+| claim | status after the corrected re-measurement |
 |---|---|
 | `correction_far_field` ignores the fitted model (attempt 12) | **unaffected** — a code-level fact proved by bit-identity, with no metric involved |
 | forward accuracy does not predict inverse quality | **unaffected in substance** — it was never an input to the path |
-| inverse design beats flat | survives qualitatively; the margin changes |
-| "GS beats gradient" | was a coin flip before; needs re-measuring on the fixed evaluator |
-| "refinement is a restart" (spearman -0.87/-0.92) | **needs re-measuring** — it was computed on the corner patch |
+| GS beats gradient from a random start | **confirmed, 9/9**, paired t = +6.4…+32.5 (was 34/90) |
+| inverse design beats flat | **only together with refinement** — GS alone does not |
+| "refinement hurts GS" (attempt 11) | **void** — sign reversed, refinement helps in 8/9 |
+| "refinement is a restart" (attempt 14) | **void** — spearman −0.87/−0.92 → **+0.93/+0.95** |
+| freeform replication (attempt 15) | **needs re-measuring** on the corrected evaluator |
 | absolute numbers throughout | **void**; the JSON panels are kept only as a record of the bug |
 
+### Attempts 13 and 14, re-measured on the corrected evaluator
+
+Both scripts were refactored onto `ml.zernike.inverse_design` — their private evaluator
+copies are gone, and those copies are how the bug survived in twelve files. Score is
+`pib + uniformity` on the independent simulator, **higher is better**, so a positive delta
+means refinement *helped*.
+
+| ROI | flat | GS | gradient | GS + refine |
+|---|---|---|---|---|
+| 0.250 × 1.000 | 1.0618 | 1.0254 | 0.5329 | 1.0321 |
+| 0.375 × 4/3 | 1.0366 | 1.0280 | 0.7179 | 1.1214 |
+| 0.500 × 1.500 | 1.0261 | 1.0217 | 0.9128 | 1.1475 |
+
+Two facts the corner crop had hidden:
+
+* **GS alone never beats flat.** `GS − flat` is negative in **90/90** runs, by −0.0025 to
+  −0.0364. The GS *proposal* is not an improvement on doing nothing.
+* **Gradient from a random start is far worse than flat** (`−0.3287` mean), while gradient
+  *refinement on top of GS* is clearly better than flat (+0.0795 mean, positive in 78/90
+  for `mse`; +0.0426, 68/90 for `physical`).
+
+And the claim that survived the original sweep, "refinement is a restart, not a
+gradient", **is dead**:
+
+| objective | pearson | spearman (was) | spearman (now) |
+|---|---|---|---|
+| `mse` | +0.896 | **−0.87** | **+0.9333** |
+| `physical` | +0.805 | **−0.92** | **+0.9500** |
+
+That is not a weakened effect, it is a **sign reversal with a larger magnitude**. The
+better the GS proposal, the *more* refinement gains — which is what a gradient carrying
+directional information does, and the exact opposite of restart behaviour.
+
+The corrected picture is `GS + refine > flat > GS > gradient-from-random`: GS supplies the
+right basin, the gradient finishes the job. That is a sensible division of labour, and it
+is the opposite of the "refinement degrades strong proposals" story the retracted numbers
+told.
+
 The methodological lesson is the same one as attempts 3, 5 and 13, and this time it is
-about *plots*: a metric can be reproducible, self-consistent, and still measure the
-wrong region. Rendering it is what caught it. The re-measurement is the first thing
-`scripts/inverse_restart_selection.py` / `roi_robustness.py` should be re-run for.
+about *plots*: a metric can be reproducible, self-consistent, and still measure the wrong
+region. Rendering it is what caught it.
 
 ---
 
