@@ -73,8 +73,12 @@ import click
 from ao_shaping.utils.cli.params import option
 
 #: Camera backends the bench probes can open.
-CAM_TYPE_CHOICES: tuple[str, ...] = ("daheng", "miicam")
-
+CAM_TYPE_CHOICES: tuple[str, ...] = ("daheng", "miicam", "sim")
+#: ``sim`` is a registered camera type (drivers/ccd/common.py::register_camera) and
+#: runner_common.py has offered ``--cam_type sim`` in five places since 2026-09, so a
+#: probe sharing this group must accept it too. Kept as an explicit tuple rather than
+#: derived from list_camera_types(): the registry is populated during import, and a
+#: click.Choice computed then would make the CLI surface depend on import side effects.
 
 @dataclass
 class SlmBenchParams:
