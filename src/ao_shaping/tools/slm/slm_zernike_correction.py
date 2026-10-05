@@ -68,7 +68,7 @@ from ao_shaping.tools.slm.slm_zernike_common import (
     um_to_waves,
     wfs_validity,
 )
-from ao_shaping.tools.slm.slm_scan_analysis import outlier_mask
+from ao_shaping.tools.slm.sweep_analysis import outlier_mask
 from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 

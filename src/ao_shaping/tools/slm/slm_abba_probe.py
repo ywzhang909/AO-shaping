@@ -13,7 +13,7 @@ Method, reusing the existing kernels rather than re-deriving them:
 * the drift floor is the median consecutive flat-to-flat ``roi_l2``
   (:func:`drift_floor_at_exposure`, delegating to ``flat_to_flat_floor``);
 * each dense pattern is measured with the drift-cancelling ``+ - - +``
-  palindrome (:func:`~ao_shaping.tools.slm.slm_snr_probe.abba_signal`);
+  palindrome (:func:`~ao_shaping.tools.slm.sweep_analysis.abba_signal`);
 * ``snr = response / floor`` is graded against the thresholds that
   ``slm_snr_probe`` already uses (:data:`SNR_USABLE`, :data:`SNR_STRONG`).
 
@@ -42,14 +42,14 @@ from typing import Any
 import numpy as np
 from loguru import logger
 
-from ao_shaping.tools.slm.slm_bench_metrics import (
+from ao_shaping.tools.slm.bench_kernels import (
     build_block_pattern,
     crop_roi,
     finite_clip,
     flat_to_flat_floor,
     roi_l2,
 )
-from ao_shaping.tools.slm.slm_snr_probe import (
+from ao_shaping.tools.slm.sweep_analysis import (
     SNR_STRONG,
     SNR_USABLE,
     SIGMA_FLOOR,

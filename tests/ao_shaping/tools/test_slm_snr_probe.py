@@ -1,6 +1,6 @@
 """Offline tests for the device-agnostic SNR probe (no hardware required).
 
-The point of :mod:`ao_shaping.tools.slm.slm_snr_probe` is that the measurement
+The point of :mod:`ao_shaping.tools.slm.sweep_analysis` is that the measurement
 logic is separable from any device: these tests drive it with **fakes** and
 assert the statistics, so the bench-facing code has real coverage even while
 the instruments are offline.
@@ -15,7 +15,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.tools.slm.slm_snr_probe import (
+from ao_shaping.tools.slm.sweep_analysis import (
     DEFAULT_DELTAS,
     SIGMA_FLOOR,
     SNR_STRONG,

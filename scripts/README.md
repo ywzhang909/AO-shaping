@@ -881,7 +881,7 @@ python scripts/generate_pib_bench_report.py --no-figures
 
 ### measure_shape_sensitivity.py
 
-> **Now a thin CLI over `ao_shaping.tools.slm.slm_snr_probe`** (see the
+> **Now a thin CLI over `ao_shaping.tools.slm.sweep_analysis`** (see the
 > hardware-tools section). It keeps its own device construction, target-size
 > derivation and markdown output, but the noise-floor / ΔJ / SNR measurement is
 > delegated so this script, the report generator and the hardware-gated test
@@ -910,7 +910,7 @@ into `-o/--output`, default `docs/slm_pib_heuristic_hw/`):
   unusable (raise `Δa` toward 0.2 rad, or average more frames per perturbation).
 
 > ⚠️ **Measurement core now shared.** The noise-floor / ΔJ / SNR logic lives in
-> `ao_shaping.tools.slm.slm_snr_probe` and this script delegates to it, so it
+> `ao_shaping.tools.slm.sweep_analysis` and this script delegates to it, so it
 > also gains the **multi-mode (SPGD-style)** SNR column. Judge `--delta` by
 > `multi_snrs` / `usable_deltas()` — the single-mode column over-reports what
 > SPGD can resolve (bench, same `delta=0.0005`: 2.25 single vs 1.34 at 54 DOF).

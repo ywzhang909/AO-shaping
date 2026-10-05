@@ -95,7 +95,7 @@ delta             dec     late %   guard %  结论
            J- = score(−δ)                 →  漂移 d3      d1+d3 ≈ d2+d4
            J+ = score(+δ)                 →  漂移 d4         (线性漂移下精确抵消)
 
-``ao_shaping.tools.slm.slm_snr_probe.abba_signal`` 已实现并单测 (``+ - - +``
+``ao_shaping.tools.slm.sweep_analysis.abba_signal`` 已实现并单测 (``+ - - +``
 可精确对消线性漂移), 但**主循环仍是单次正负采样** —— 这是投入产出比最高的改动。
 
 =============================================================================
@@ -124,7 +124,7 @@ sys.path.insert(0, str(ROOT / "libs"))
 
 from loguru import logger  # noqa: E402
 
-from ao_shaping.tools.slm.delta_explorer import explore_delta  # noqa: E402
+from ao_shaping.tools.slm.sweep_analysis import explore_delta  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:

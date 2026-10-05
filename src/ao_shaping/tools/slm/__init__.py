@@ -11,17 +11,28 @@
   `python src/ao_shaping/tools/slm/calibration.py`, `--skip-align` 可跳过) +
   shift 平移标定 (CLI: `python -m ao_shaping.tools.slm.calibration shift <args>`),
   含已废弃的 SLMLUTCalibrator
-- slm_scan_analysis.py — SLM 扫描数据分析共享助手 (纯 numpy/stdlib, 无硬件依赖)
+- sweep_analysis.py — SLM 扫描/扰动分析共享助手 (纯 numpy/stdlib, 无硬件依赖),
+  合并原 slm_scan_analysis.py + delta_explorer.py + slm_snr_probe.py:
+  - 扫描分析: 线性度网格 `LINEARITY_AMPS` / `outlier_mask` 中值剔除 / `group_raw_scan`
+    分批聚合 / `analyze_linearity` 比例性判据
+  - SPGD 扰动 `delta` 探索 (原 delta_explorer): **纯分析**收敛性判据 (不构造设备,
+    轨迹由调用方提供), 用 `frac_decreasing` (改善步占比) 与 `late_gain` (前 1/3 与
+    后 1/3 均值之差) 排名候选值, 取代"末值对比首值"这种会被随机游走骗到的判据
+  - SNR 扰动灵敏度 (原 slm_snr_probe): **设备实例由参数传入**, 噪底 sigma /
+    `+ - - +` 回文漂移对消 dJ / 单模式与多模式 (SPGD 实际) SNR, 用于按实测 SNR 选
+    `--delta`; 离线可用 fake 设备单测
 - params.py — 台架探针**共享 click 参数组**: `SlmBenchParams` (开哪台设备: SLM
   编号/波长 + 相机类型/id/曝光) 与 `SlmAcquireParams` (怎么读帧: 帧数/丢弃数 +
   稳定判据 `settle_s`/`stable_tol`/`max_wait_s`)。稳定判据是**实测教训** (等固定
   时长而非等稳定会读成 1.63 而非 5.36 的斜率), 单点化默认值才不会各处漂移。
   探针用 `ClickGroup` 就地拼接以保持各自 `--help` 顺序不变。本模块**禁止** import
   `ao_shaping.runners` (见文件内不变量说明)
-- slm_bench_probe.py — SLM 台架探针共享测量内核 (纯测量, 设备由参数传入):
-  平滑/光斑 FWHM+质心+中心凹陷度/0 阶能量占比/面板 Zernike 放置/倾斜斜坡/线性拟合。
-  固化了三条踩过坑的台架事实: 暗帧不可用裸 argmax 定位光斑 (参考质心曾漂 60px)、
-  SLM 保留上次图案 (所以"平场"必须先下发)、固定 memory_number 是固件 no-op
+- bench_kernels.py — SLM 台架**纯测量核** (合并原 slm_bench_probe.py +
+  slm_bench_metrics.py; 纯测量, 设备由参数传入):
+  平滑/光斑 FWHM+质心+中心凹陷度/0 阶能量占比/面板 Zernike 放置/倾斜斜坡/线性拟合 +
+  帧准备/判据/聚合。固化了三条踩过坑的台架事实: 暗帧不可用裸 argmax 定位光斑
+  (参考质心曾漂 60px)、SLM 保留上次图案 (所以"平场"必须先下发)、固定
+  memory_number 是固件 no-op
 - slm_tilt_probe.py — **判定面板是否真的在调制** (倾斜斜坡)。比光栅可靠: 光斑
   位移只取决于斜坡周期, 与衍射效率无关。用于推翻过一次"面板冻结"的假故障
 - slm_panel_locate.py — 面板坐标上定位光斑中心 (扫描随机相位圆盘)。相机 0 阶
@@ -33,9 +44,6 @@
   面板无法分辨像素级相位, 因此散斑相关度标定路线在此台架不可用, 必须走 sweep
 - slm_exposure_check.py — 相机自动曝光状态 + 固定设置下漂移。区分"相机漂移"与
   "SLM 保留上次图案"两种同样表现为"变暗 4 倍"的原因
-- slm_snr_probe.py — SLM 扰动灵敏度 (SNR) 测量, **设备实例由参数传入**:
-  噪底 sigma / `+ - - +` 回文漂移对消 dJ / 单模式与多模式 (SPGD 实际) SNR。
-  用于按实测 SNR 选 `--delta`; 离线可用 fake 设备单测
 - slm_zernike_sweep_probe.py — **光滑 Zernike 台架扫描探针** (CLI 入口,
   `python -m ao_shaping.tools.slm.slm_zernike_sweep_probe`)。一次扫描采集
   ramp + tilt + defocus + astig_x/y + coma_x/y + spherical 共 42 点 (前置一个 flat
@@ -57,11 +65,6 @@
   设, pupil 必须显式写回 `wfs.pupil`
 - slm_wfs_probe.py — SLM + WFS **光强与 pupil 探针**, 标定前的硬件状态门控: 平相位下
   WFS 点阵强度/有效子孔径比例检查 + pupil 显式写回, 输出 JSON 报告
-- delta_explorer.py — SPGD 扰动幅度 `delta` 的**纯分析**收敛性判据 (不构造设备,
-  轨迹由调用方提供): 用 `frac_decreasing` (改善步占比) 与 `late_gain` (前 1/3 与
-  后 1/3 均值之差) 排名候选值, 取代"末值对比首值"这种会被随机游走骗到的判据
-- slm_bench_metrics.py — 台架**纯测量核** (无设备依赖, 帧准备/判据/聚合),
-  供探针复用以锁定帧准备口径, 避免各处各写一套
 - slm_abba_probe.py — **ABBA 密集随机相位可探测性探针** (ABBA 序消除慢漂移)
 - slm_drift_probe.py — 平场**漂移与曝光阶梯**探针 (区分"相机漂移"与"SLM 保留上次图案")
 - slm_floor_probe.py — **本底/地板特性标定**探针 (重复性 / 稳定判据 / SNR-随曝光)
@@ -76,7 +79,7 @@ LUT 路径约定:
   cartographer 闭环, 不可被 Santec.load_lut 消费)。
 """
 
-from ao_shaping.tools.slm.slm_bench_probe import (
+from ao_shaping.tools.slm.bench_kernels import (
     BEAM_CENTER_PANEL,
     BEAM_RADIUS_PANEL,
     SLM_PANEL_H,
@@ -96,7 +99,7 @@ from ao_shaping.tools.slm.slm_bench_probe import (
     zernike_panel,
 )
 from ao_shaping.tools.slm.slm_phase_response import build_sequence, lens_cases, defocus_cases
-from ao_shaping.tools.slm.slm_scan_analysis import (
+from ao_shaping.tools.slm.sweep_analysis import (
     LINEARITY_AMPS,
     analyze_linearity,
     clamp_shift,
@@ -105,7 +108,7 @@ from ao_shaping.tools.slm.slm_scan_analysis import (
     outlier_mask,
     parabolic_min,
 )
-from ao_shaping.tools.slm.slm_snr_probe import (
+from ao_shaping.tools.slm.sweep_analysis import (
     SIGMA_FLOOR,
     SNR_STRONG,
     SNR_USABLE,

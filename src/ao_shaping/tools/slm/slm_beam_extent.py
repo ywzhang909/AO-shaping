@@ -40,7 +40,7 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.tools.slm.slm_bench_probe import (
+from ao_shaping.tools.slm.bench_kernels import (
     SLM_PANEL_H,
     SLM_PANEL_W,
     core_fraction,

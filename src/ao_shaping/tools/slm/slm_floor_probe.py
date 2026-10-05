@@ -5,21 +5,21 @@ work is worth attempting:
 
 1. **What is the bench's own noise floor?** :func:`repeatability_floor` --
    consecutive flat reads, median ``roi_l2`` difference
-   (:func:`~ao_shaping.tools.slm.slm_bench_metrics.flat_to_flat_floor`).
+   (:func:`~ao_shaping.tools.slm.bench_kernels.flat_to_flat_floor`).
 2. **How long does the panel take to settle after a phase write?**
    :func:`settle_curve` -- sample one observable until it plateaus
-   (:func:`~ao_shaping.tools.slm.slm_bench_metrics.settle_time_s`). A fixed
+   (:func:`~ao_shaping.tools.slm.bench_kernels.settle_time_s`). A fixed
    sleep is invalid here: the driver's flip-time estimate under-reports (it
    reports 0.0 ms for two phases with similar grey statistics), so the same ramp
    read 43.2 px FWHM immediately and 12.8 px three seconds later.
 3. **Does averaging K frames actually buy SNR?**
-   :func:`snr_ladder` -- :func:`~ao_shaping.tools.slm.slm_bench_metrics.snr_vs_averages`.
+   :func:`snr_ladder` -- :func:`~ao_shaping.tools.slm.bench_kernels.snr_vs_averages`.
    This is the diagnostic that decides whether the residual is independent read
    noise (SNR grows like ``sqrt(K)``, longer averaging helps) or drift (SNR
    flat or falling, longer averaging is wasted exposure).
 
 Nothing here re-derives frame preparation or drift statistics: the pure kernels
-live in :mod:`ao_shaping.tools.slm.slm_bench_metrics` and this module is only
+live in :mod:`ao_shaping.tools.slm.bench_kernels` and this module is only
 the protocol plus the CLI, exactly as
 :mod:`~ao_shaping.tools.slm.slm_abba_probe` relates to the same kernels.
 
@@ -45,7 +45,7 @@ from typing import Any
 import numpy as np
 from loguru import logger
 
-from ao_shaping.tools.slm.slm_bench_metrics import (
+from ao_shaping.tools.slm.bench_kernels import (
     build_block_pattern,
     crop_roi,
     finite_clip,
@@ -54,11 +54,11 @@ from ao_shaping.tools.slm.slm_bench_metrics import (
     settle_time_s,
     snr_vs_averages,
 )
-from ao_shaping.tools.slm.slm_bench_probe import measure_spot
-from ao_shaping.tools.slm.slm_snr_probe import SIGMA_FLOOR
+from ao_shaping.tools.slm.bench_kernels import measure_spot
+from ao_shaping.tools.slm.sweep_analysis import SIGMA_FLOOR
 
 #: Full width of the analysis ROI in pixels; half of this is the half-width
-#: handed to :func:`~ao_shaping.tools.slm.slm_bench_metrics.crop_roi`.
+#: handed to :func:`~ao_shaping.tools.slm.bench_kernels.crop_roi`.
 DEFAULT_ROI = 192
 DEFAULT_ROI_HALF = DEFAULT_ROI // 2
 
@@ -78,7 +78,7 @@ DEFAULT_KS: tuple[int, ...] = (1, 4, 9)
 
 #: Settle tolerance as a fraction of the curve's final value, and how many
 #: consecutive samples must sit inside it. These are
-#: :func:`~ao_shaping.tools.slm.slm_bench_metrics.settle_time_s` defaults.
+#: :func:`~ao_shaping.tools.slm.bench_kernels.settle_time_s` defaults.
 DEFAULT_SETTLE_FRAC = 0.10
 DEFAULT_SETTLE_RUN = 3
 
@@ -108,12 +108,12 @@ def prepare_roi_frame(
 ) -> np.ndarray:
     """Clip negatives, then crop the frozen ROI.
 
-    Two steps, both from :mod:`~ao_shaping.tools.slm.slm_bench_metrics`:
+    Two steps, both from :mod:`~ao_shaping.tools.slm.bench_kernels`:
 
-    1. :func:`~ao_shaping.tools.slm.slm_bench_metrics.finite_clip` masks
+    1. :func:`~ao_shaping.tools.slm.bench_kernels.finite_clip` masks
        non-finite pixels and clips negatives **while leaving the pedestal
        alone**. This is deliberate and is not
-       :func:`~ao_shaping.tools.slm.slm_bench_metrics.finite_median_subtract`:
+       :func:`~ao_shaping.tools.slm.bench_kernels.finite_median_subtract`:
        every observable here is a *region norm* (a plain L2 over the ROI, or a
        box sum against a flat reference), not a whole-frame ratio, so the flat
        pedestal is part of the signal we are measuring rather than the offset we
@@ -121,7 +121,7 @@ def prepare_roi_frame(
        drift floor and the SNR ladder are built on, and on this bench it is
        also what turns a peak-to-background ratio into ~1e5 when the
        denominator collapses.
-    2. :func:`~ao_shaping.tools.slm.slm_bench_metrics.crop_roi` cuts a
+    2. :func:`~ao_shaping.tools.slm.bench_kernels.crop_roi` cuts a
        ``2*half`` square about the **measured** centre. The 0-order is the frame
        global maximum and is routinely nowhere near the geometric centre (the
        ROI maths must never be driven by ``shape // 2``).

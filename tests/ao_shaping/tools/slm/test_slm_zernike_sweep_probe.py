@@ -95,7 +95,7 @@ class TestZernikePanelIsTheKernelOne:
     """
 
     def test_reexported_from_the_kernel(self) -> None:
-        from ao_shaping.tools.slm.slm_bench_probe import (
+        from ao_shaping.tools.slm.bench_kernels import (
             zernike_panel as kernel_builder,
         )
 

@@ -58,7 +58,7 @@ from ao_shaping.tools.slm.slm_zernike_common import (  # noqa: E402
     DLL_ZERNIKE_NAMES,
     linearity_metrics,
 )
-from ao_shaping.tools.slm.slm_scan_analysis import (  # noqa: E402
+from ao_shaping.tools.slm.sweep_analysis import (  # noqa: E402
     group_raw_scan,
     latest_match,
 )

@@ -22,13 +22,15 @@ DOCSTRING: str = slm_tools.__doc__ or ""
 
 # Modules that were missing from the catalogue when this guard was written
 # (2026-10-01). Asserted by name so the test documents what it protects.
+# 2026-10-05 merge: `delta_explorer` → `sweep_analysis`, `slm_bench_*` → `bench_kernels`.
 NEWLY_DOCUMENTED: tuple[str, ...] = (
     "slm_zernike_response",
     "slm_zernike_correction",
     "slm_zernike_common",
     "slm_wfs_probe",
     "slm_wfs_reference",
-    "delta_explorer",
+    "sweep_analysis",
+    "bench_kernels",
 )
 
 

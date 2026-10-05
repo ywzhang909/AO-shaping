@@ -58,17 +58,17 @@ from ao_shaping.optimizer.wfless.model_in_loop_shaping import (  # noqa: E402
     shape_phase_with_frozen_aberration,
     square_metrics_at_zero_order,
 )
-from ao_shaping.tools.slm.slm_bench_probe import (  # noqa: E402
+from ao_shaping.tools.slm.bench_kernels import (  # noqa: E402
     SLM_PITCH_M,
     core_fraction,
     display_and_average,
     estimate_shift,
     ramp_panel,
 )
-from ao_shaping.tools.slm.slm_bench_probe import (  # noqa: E402
+from ao_shaping.tools.slm.bench_kernels import (  # noqa: E402
     measure_spot as _measure_spot,
 )
-from ao_shaping.tools.slm.slm_bench_probe import (  # noqa: E402
+from ao_shaping.tools.slm.bench_kernels import (  # noqa: E402
     zernike_panel,
 )
 from ao_shaping.tools.slm.slm_zernike_sweep_probe import (  # noqa: E402
@@ -259,7 +259,7 @@ def measure_spot(frame: np.ndarray) -> tuple[float, float, float, float, float]:
     """``(peak, fwhm_px, cx, cy, hollowness)`` for one CCD frame.
 
     Thin tuple-shaped adapter over the shared kernel in
-    :mod:`ao_shaping.tools.slm.slm_bench_probe`, which owns the logic and the
+    :mod:`ao_shaping.tools.slm.bench_kernels`, which owns the logic and the
     offline tests. The kernel despikes with a median before blurring -- a box blur
     alone does not stop a single hot pixel, and on this bench the reference
     centroid used to wander 60 px, which was enough to call a healthy panel

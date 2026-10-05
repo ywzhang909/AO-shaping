@@ -12,7 +12,7 @@ non-reproducibility as if it were drift.
 and judge whether brightness rises monotonically and stays off the detector's
 full scale. This is the cheap check that the camera is being driven inside its
 linear range; the verdict comes from
-:func:`~ao_shaping.tools.slm.slm_bench_metrics.exposure_monotonicity`.
+:func:`~ao_shaping.tools.slm.bench_kernels.exposure_monotonicity`.
 
 Layering
 --------
@@ -20,7 +20,7 @@ The analysis is two pure functions (:func:`drift_series`,
 :func:`exposure_ladder`) that take a ``capture() -> frame`` callable and never
 touch a device, so the whole probe logic is unit-testable offline. Only
 :func:`main` constructs hardware. All the frame maths is reused from
-:mod:`ao_shaping.tools.slm.slm_bench_metrics` -- nothing here re-implements
+:mod:`ao_shaping.tools.slm.bench_kernels` -- nothing here re-implements
 ``finite_clip``, ``crop_roi``, ``roi_l2``, ``flat_to_flat_floor`` or
 ``exposure_monotonicity``, because a second copy of a metric silently drifts
 from the first (see the sweep probe's docstring on the same hazard).
@@ -64,13 +64,13 @@ import numpy as np
 
 from loguru import logger
 
-from ao_shaping.tools.slm.slm_bench_metrics import (
+from ao_shaping.tools.slm.bench_kernels import (
     crop_roi,
     exposure_monotonicity,
     finite_clip,
     flat_to_flat_floor,
 )
-from ao_shaping.tools.slm.slm_bench_probe import (
+from ao_shaping.tools.slm.bench_kernels import (
     SLM_PANEL_H,
     SLM_PANEL_W,
     despike_frame,

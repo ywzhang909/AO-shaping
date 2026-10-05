@@ -29,7 +29,7 @@ What it reports
    field-of-view ratio -- so a disagreement is visible instead of resolved
    silently.
 7. **关键陷阱** -- the four bench traps encoded in
-   ``ao_shaping.tools.slm.slm_bench_probe``, each with the number that proves it
+   ``ao_shaping.tools.slm.bench_kernels``, each with the number that proves it
    is still live on this bench.
 
 Usage:
@@ -106,7 +106,7 @@ def _import_bench_constants() -> dict[str, float | bool]:
     safely, and importing them is strictly better than hardcoding a literal that
     can silently drift:
 
-    * ``slm_bench_probe.TILT_SHIFT_SCALE`` -- that module is pure numpy and takes
+    * ``bench_kernels.TILT_SHIFT_SCALE`` -- that module is pure numpy and takes
       its devices by injection, so it imports nothing hardware-bound.
     * ``model_in_loop_shaping._MAX_DEFOCUS_FIT_RMS`` -- this one *does* pull in
       torch, so it is only attempted behind a guard.
@@ -119,12 +119,12 @@ def _import_bench_constants() -> dict[str, float | bool]:
     fallbacks: list[str] = []
 
     try:
-        from ao_shaping.tools.slm.slm_bench_probe import (
+        from ao_shaping.tools.slm.bench_kernels import (
             TILT_SHIFT_SCALE as _kernel_scale,
         )
 
         tilt_scale = float(_kernel_scale)
-        logger.info("TILT_SHIFT_SCALE imported from slm_bench_probe: {}", tilt_scale)
+        logger.info("TILT_SHIFT_SCALE imported from bench_kernels: {}", tilt_scale)
     except ImportError as exc:
         fallbacks.append("TILT_SHIFT_SCALE")
         logger.warning(
@@ -1778,7 +1778,7 @@ def render_report(
 
     add("## 7. 关键陷阱")
     add(
-        "以下四条台架铁律固化在 `ao_shaping/tools/slm/slm_bench_probe.py` 的模块"
+        "以下四条台架铁律固化在 `ao_shaping/tools/slm/bench_kernels.py` 的模块"
         "文档里。**每一条都附上本数据集里能证明它仍然生效的具体数字**——"
         "因为违反它们得到的是「看起来完全可信的错误结论」，而不是报错。"
     )

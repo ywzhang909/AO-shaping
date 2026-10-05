@@ -6,12 +6,12 @@ building, the settle criterion, the per-point metrics, the Recorder bookkeeping
 and the ``.npz`` round-trip -- is useful to anything that needs to characterise
 this bench, not just to that one script.
 
-What it buys over calling :mod:`ao_shaping.tools.slm.slm_bench_probe` directly:
+What it buys over calling :mod:`ao_shaping.tools.slm.bench_kernels` directly:
 
 * **One settle criterion, applied once.** :func:`display_and_average` discards
   frames until two consecutive readings agree. An unsettled frame is not a noisy
   frame, it is a *wrong* frame that still looks plausible -- see the module
-  docstring of :mod:`ao_shaping.tools.slm.slm_bench_probe` for the measurement
+  docstring of :mod:`ao_shaping.tools.slm.bench_kernels` for the measurement
   that cost a 3.3x error.
 * **Devices are injected, not constructed.** :func:`acquire_sweep` takes an open
   ``cam``/``slm`` pair, so the whole probe runs offline against mocks in the test
@@ -41,7 +41,7 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.tools.slm.params import SlmAcquireParams, SlmBenchParams
-from ao_shaping.tools.slm.slm_bench_probe import (
+from ao_shaping.tools.slm.bench_kernels import (
     SLM_PITCH_M,
     SLM_PANEL_H,
     SLM_PANEL_W,

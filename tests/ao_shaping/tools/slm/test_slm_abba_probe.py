@@ -28,8 +28,8 @@ from ao_shaping.tools.slm.slm_abba_probe import (
     save_abba_records_pkl,
     save_abba_summary_npz,
 )
-from ao_shaping.tools.slm.slm_bench_metrics import crop_roi, finite_clip
-from ao_shaping.tools.slm.slm_snr_probe import SNR_STRONG, SNR_USABLE
+from ao_shaping.tools.slm.bench_kernels import crop_roi, finite_clip
+from ao_shaping.tools.slm.sweep_analysis import SNR_STRONG, SNR_USABLE
 
 PANEL = (48, 64)
 FRAME = (64, 64)
@@ -221,7 +221,7 @@ class TestDriftFloor:
             drift_floor_at_exposure(lambda: np.zeros((4, 4)), 1)
 
     def test_it_is_the_shared_kernel_not_a_reimplementation(self) -> None:
-        from ao_shaping.tools.slm.slm_bench_metrics import flat_to_flat_floor
+        from ao_shaping.tools.slm.bench_kernels import flat_to_flat_floor
 
         bench = FakeBench()
         frames = [np.asarray(_capture(bench)()) for _ in range(4)]
@@ -296,7 +296,7 @@ class TestDenseAbbaSweep:
         A zero block pattern is flat whatever sign multiplies it, so the + and -
         writes are byte-identical and every ABBA response can only be noise.
         """
-        from ao_shaping.tools.slm.slm_bench_metrics import build_block_pattern
+        from ao_shaping.tools.slm.bench_kernels import build_block_pattern
 
         assert not np.any(build_block_pattern(np.zeros(16), 4, PANEL))
 
@@ -435,13 +435,13 @@ class TestDenseAbbaSweep:
             _sweep(bench, **kwargs)
 
     def test_a_grid_too_coarse_for_the_panel_is_rejected(self) -> None:
-        from ao_shaping.tools.slm.slm_bench_metrics import build_block_pattern
+        from ao_shaping.tools.slm.bench_kernels import build_block_pattern
 
         with pytest.raises(ValueError, match="too coarse"):
             build_block_pattern(np.zeros(4096), 64, PANEL)
 
     def test_it_builds_its_patterns_with_the_shared_kernel(self) -> None:
-        from ao_shaping.tools.slm.slm_bench_metrics import build_block_pattern
+        from ao_shaping.tools.slm.bench_kernels import build_block_pattern
 
         bench = FakeBench()
         _sweep(bench, grid=4, floor=_floor_for(bench))
