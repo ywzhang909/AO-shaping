@@ -81,6 +81,7 @@ from typing import Annotated, Any, cast
 
 import click
 
+from ao_shaping.drivers.ccd.common import CAMERA_TYPE_CHOICES
 from ao_shaping.algorithm.heuristic.search import heuristic_algorithm_choices
 from ao_shaping.utils.cli.params import (
     ClickGroup,
@@ -207,7 +208,7 @@ class CameraParams:
         str,
         option(
             "--cam_type",
-            type=click.Choice(["miicam", "daheng", "sim"]),
+            type=click.Choice(CAMERA_TYPE_CHOICES),
             help="CCD camera backend (sim = 2f-Fourier numerical simulation, no hardware).",
         ),
     ] = "daheng"
@@ -1049,7 +1050,7 @@ class SlmSquareParams:
         str,
         option(
             "--cam_type",
-            type=click.Choice(["miicam", "daheng", "sim"]),
+            type=click.Choice(CAMERA_TYPE_CHOICES),
             help="CCD 相机后端 (sim = 2f-Fourier 数值仿真, 无需硬件)。",
         ),
     ] = "daheng"
@@ -1462,7 +1463,7 @@ class PibRunnerParams:
         str,
         option(
             "--cam_type",
-            type=click.Choice(["miicam", "daheng", "sim"]),
+            type=click.Choice(CAMERA_TYPE_CHOICES),
             help="CCD 相机后端 (sim = 2f-Fourier 数值仿真, 需配合 --dm_type sim)。",
         ),
     ] = "miicam"

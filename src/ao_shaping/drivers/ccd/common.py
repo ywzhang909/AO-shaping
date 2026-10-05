@@ -153,6 +153,13 @@ CAMERA_TYPES: dict[str, CameraSpec] = {
 }
 
 
+#: Canonical camera-type names for click options, beside the registry that defines
+#: what a camera type *is*. An explicit literal, NOT list_camera_types(): the
+#: registry is populated during import and click.Choice needs a static tuple then,
+#: so deriving would tie the CLI surface to import side effects.
+CAMERA_TYPE_CHOICES: tuple[str, ...] = ("miicam", "daheng", "sim")
+
+
 def register_camera(
     name: str,
     target: str | type,
