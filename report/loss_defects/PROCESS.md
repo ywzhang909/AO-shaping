@@ -300,10 +300,82 @@ that ceiling. So the productive lever is the **inverse optimiser**, not the forw
 model: design_steps gives a real monotone gain (+0.045 / +0.093 / +0.116 at 5 / 20 /
 60 steps, attempt 4) with no sign of saturating at 60.
 
+### Attempt 6 — the noise floor was never measured, and it explains attempts 3-5
+
+First run of this sweep came back with `sd = 0.0000` across 4 seeds and mean == best
+== worst. Not a result: `ZernikeAmpModel.coefficients` is initialised to **zeros
+deterministically**, so `torch.manual_seed(seed)` has no effect on the inverse design
+at all. Every "seed" was a byte-identical replicate.
+
+**This retroactively weakens attempts 3, 4 and 5.** Their paired sign counts
+(`0/6`, `3/12`, `4/4`...) were computed over duplicate rows, so the effective n was
+the number of *sample blocks* (3-4), not the row count (6-12). The direction of those
+results stands, but the counts were not the evidence they looked like. This is the
+third time in this file that a methodological bug, not physics, produced the headline
+number — and the second time it was only caught by printing mean/best/worst/sd
+together rather than a single average.
+
+Redone with explicit restarts, `coefficients ~ N(0, sigma)`, 5 restarts per cell:
+
+| sigma | objective | steps | mean | best | worst | sd |
+|---|---|---|---|---|---|---|
+| 0.3 | physical | 20 | 0.7919 | 0.9559 | 0.5584 | 0.1615 |
+| 0.3 | physical | 60 | 0.9681 | 1.1550 | 0.5457 | 0.2174 |
+| 0.3 | physical | 300 | 1.0038 | 1.1067 | 0.8693 | 0.0772 |
+| 0.3 | mse | 60 | 0.9061 | 1.1152 | 0.5320 | 0.2011 |
+| 1.0 | mse | 60 | 1.0961 | 1.1931 | 0.8668 | 0.1216 |
+| 1.0 | mse | 150 | 1.0520 | 1.1448 | 0.9443 | 0.0664 |
+
+**1. The noise floor is larger than every effect chased in attempts 3-5.**
+Restart-to-restart sd is 0.07-0.26 on means of 0.79-1.10. Attempt 4's headline gap
+was 0.15-0.46 and attempt 3's was 0.05-0.10 — i.e. *inside* the restart noise. Those
+results were not wrong, they were underpowered: nothing in the earlier design
+measured the restart distribution before comparing means across configurations.
+
+**2. Inverse design saturates by ~20-60 steps; more steps do nothing.** Restart-matched
+paired deltas:
+
+| transition | sigma=0.3 physical | sigma=0.3 mse | sigma=1.0 physical | sigma=1.0 mse |
+|---|---|---|---|---|
+| 0 → 20 | +0.134 (3/5) | **+0.211 (5/5)** | **+0.204 (5/5)** | **+0.258 (5/5)** |
+| 20 → 60 | +0.176 (4/5) | +0.037 (4/5) | +0.065 (3/5) | **+0.181 (5/5)** |
+| 60 → 150 | −0.059 (2/5) | −0.044 (2/5) | +0.084 (2/5) | −0.044 (1/5) |
+| 150 → 300 | +0.094 (3/5) | +0.120 (4/5) | −0.042 (2/5) | −0.022 (2/5) |
+| 300 → 600 | +0.003 (3/5) | −0.192 (1/5) | −0.074 (2/5) | −0.067 (1/5) |
+
+Only the first rung is reliably real. Everything past ~60 steps is mixed at 5
+restarts, and 300 → 600 is *negative* in three of four arms.
+
+**3. The lever is restarts, not steps.** Best-of-5 restarts, expected value over
+restarts:
+
+| sigma | objective | steps | single run | best-of-5 | gain |
+|---|---|---|---|---|---|
+| 0.3 | mse | 150 | 0.8619 | 1.0632 | **+0.2013** |
+| 0.3 | physical | 60 | 0.9681 | 1.1315 | **+0.1634** |
+| 1.0 | physical | 60 | 0.9271 | 1.1156 | **+0.1885** |
+| 1.0 | mse | 20 | 0.9156 | 0.9481 | +0.0859 |
+
+Restarting buys +0.08 to +0.20 *consistently across every arm*, whereas step-count
+tuning beyond 60 buys nothing and sometimes hurts. That is a larger and far more
+reliable gain than anything the forward-model or loss changes produced.
+
+### What this means for the codebase
+
+`slm_gs_refine` and the shaping runners spend their budget on epochs (steps). On this
+evidence the budget is better spent on **restarts with pick-the-best**, since the
+per-restart outcome spread (sd 0.08-0.26) dwarfs the within-restart progress past
+~60 steps. Concretely: ~60 steps per restart, N restarts, score each on the model,
+keep the best. That is a cheap change and it is the one this study actually
+supports.
+
+Caveats: 5 restarts per cell is thin for an sd estimate; the evaluator is a sim, not
+the bench; and "score the restarts on the model" assumes the model's score correlates
+with the independent one, which is the next thing worth checking.
+
 ### Next direction
 
-Push the inverse design harder now that it is the identified lever — more steps,
-multiple restarts, and a proper step-count sweep to find where it does saturate —
-and check on the sim whether the gain is real or another noise ordering. Treat any
-single ordering as unproven until it replicates across sample blocks, which is the
-mistake attempts 4 and 5 just paid for twice.
+Check the assumption the recipe depends on: does picking the best restart *by the
+learned model's own score* also pick a good one *on the independent sim*? If model
+score and sim score are uncorrelated across restarts, then best-of-N needs an
+external scorer and the recipe above is wrong.
