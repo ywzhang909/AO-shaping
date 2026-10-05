@@ -155,6 +155,93 @@ class Case:
 # paths under pytest's ``tmp_path`` so no command writes into the repo.
 CASES: tuple[Case, ...] = (
     Case(
+        "slm_abba_probe",
+        "main",
+        (
+            "--out",
+            "{out}",
+            "--slm-number",
+            "3",
+            "--slm-wavelength",
+            "532",
+            "--cam-type",
+            "miicam",
+            "--cam-id",
+            "2",
+            "--exposure-ms",
+            "2.5",
+            "--rebracket-exposure",
+            "--exposure-ladder",
+            "0.5,0.7,0.9",
+            "--saturation-level",
+            "240.0",
+            "--saturation-max-peak",
+            "230.0",
+            "--delta-rad",
+            "0.7",
+            "--grid",
+            "20",
+            "--n-patterns",
+            "10",
+            "--pairs",
+            "4",
+            "--roi",
+            "160",
+            "--drift-frames",
+            "6",
+            "--frames",
+            "5",
+            "--discard",
+            "2",
+            "--settle-s",
+            "0.7",
+            "--stable-tol",
+            "0.03",
+            "--max-wait-s",
+            "8.0",
+            "--seed",
+            "12345",
+            "--no-hw",
+        ),
+        stop="offline",
+    ),
+    Case(
+        "slm_drift_probe",
+        "main",
+        (
+            "--out",
+            "{out}",
+            "--slm-number",
+            "4",
+            "--slm-wavelength",
+            "532",
+            "--cam-type",
+            "miicam",
+            "--cam-id",
+            "1",
+            "--exposure-ms",
+            "0.9",
+            "--n-drift",
+            "20",
+            "--drift-period-s",
+            "4.0",
+            "--exposure-ladder",
+            "0.3,0.5,0.7",
+            "--ladder-repeats",
+            "3",
+            "--roi",
+            "150",
+            "--saturation-level",
+            "200.0",
+            "--no-hw",
+        ),
+        stop="offline",
+    ),
+    # NOTE: no `slm_floor_probe` case on purpose. Its `main` is a plain
+    # `def main(argv) -> int`, not a click Command, so it is not part of the click
+    # inventory this table guards -- listing it here would read as stale. Its
+    # `--no-hw` path is covered directly by test_slm_floor_probe.py::TestNoHardware.
+    Case(
         "calibration",
         "main_shift_calib",
         (
@@ -492,7 +579,7 @@ CASES: tuple[Case, ...] = (
 )
 
 #: Number of ``@click.command``-decorated functions the guard must cover.
-EXPECTED_COMMAND_COUNT = 17
+EXPECTED_COMMAND_COUNT = 19  # 17 -> 19: the kernel consolidation added the slm_abba_probe and slm_drift_probe click commands
 
 #: Construction symbols counted by test 3.
 _SANTEC_RE = re.compile(r"(?<![\w.])Santec\s*\(")
