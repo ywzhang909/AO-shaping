@@ -1,7 +1,7 @@
 """R-37 step 0: pin every ``tools/slm`` probe's flag surface before migrating.
 
 R-37 moves ~200 flag declarations from hand-written ``@click.option`` stacks onto
-the shared ``with_params`` convention (TODO R-36). That is 19 probe files and 285
+the shared ``with_params`` convention (TODO R-36). That is 19 probe files and 277
 declared flags, and -- unlike the 19 ``main.py`` commands -- **the probes are not
 covered by R-35's golden**, because they are ``python -m`` entry points rather than
 registered Click commands. So before touching any of them, the surface they
