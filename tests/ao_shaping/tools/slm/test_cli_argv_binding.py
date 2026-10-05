@@ -923,7 +923,7 @@ def _construction_sites(pattern: re.Pattern[str]) -> dict[str, int]:
         hits = len(pattern.findall(_code_only(path)))
         hits += len(pattern.findall(_module_docstring(path)))
         if hits:
-            counts[str(path.relative_to(TOOLS_SLM_DIR))] = hits
+            counts[path.relative_to(TOOLS_SLM_DIR).as_posix()] = hits
     return counts
 
 
