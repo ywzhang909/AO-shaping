@@ -508,6 +508,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/alignment_vs_accuracy.py",
             "scripts/roi_robustness.py",
             "scripts/restart_claim_robustness.py",
+            "scripts/freeform_vs_zernike.py",
         ),
     ),
     # -- 附属记录 ------------------------------------------------------------

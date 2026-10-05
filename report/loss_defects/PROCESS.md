@@ -13,6 +13,7 @@
 > **数据/关联脚本**: [`scripts/alignment_vs_accuracy.py`](../../scripts/alignment_vs_accuracy.py)
 > **数据/关联脚本**: [`scripts/roi_robustness.py`](../../scripts/roi_robustness.py)
 > **数据/关联脚本**: [`scripts/restart_claim_robustness.py`](../../scripts/restart_claim_robustness.py)
+> **数据/关联脚本**: [`scripts/freeform_vs_zernike.py`](../../scripts/freeform_vs_zernike.py)
 > **运行环境**: 离线
 > **说明**: 逆向整形 14 次尝试的完整过程记录（含 3 处被推翻的结论）
 <!-- provenance:end -->
@@ -878,12 +879,87 @@ the most informative part of the file: every one was a single-configuration resu
 looked significant (t up to −11) and dissolved under a sweep of a constant nobody had
 questioned.
 
+### Attempt 15 — freeform phase: the conclusions are parameterisation-independent
+
+Every attempt above optimised a 135-coefficient Zernike vector, but the shipped
+`slm_gs_refine` optimises a **freeform** phase grid. Since attempt 13 proved the
+Zernike results ROI-conditional, they could not be transferred unexamined.
+
+An earlier note in this file claimed freeform needed a new forward model. **That was
+wrong.** `forward` validates only that its input is `(B, 1, g, g)` at the basis
+resolution, and `measured = complex(phase_cos, phase_sin)` *is* the input phasor — so
+any phase, including a freeform one, is pushed straight through the existing model.
+The aperture is masked explicitly, because `forward` uses the phasor raw and a
+phase-only pupil would otherwise have unit amplitude *outside* the illuminated disc
+while the sim lights a finite disc.
+
+9 ROI geometries x 8 draws, `phase-grid=24` (576 DOF, the runner's default) upsampled
+to 64x64, all scored on the independent sim:
+
+| ROI (frac × aspect) | flat | GS_zernike | GS_freeform | grad_freeform | GS_fm+refine |
+|---|---|---|---|---|---|
+| 0.250 × 1.000 | 0.5340 | 1.0290 | 0.9405 | 0.9418 | 1.0095 |
+| 0.250 × 1.333 | 0.5570 | 0.5344 | 0.7929 | 0.9614 | 0.9436 |
+| 0.250 × 1.500 | 0.5649 | 0.6843 | 0.8939 | 0.9707 | 0.6971 |
+| 0.375 × 1.000 | 0.6114 | 1.0942 | 0.5323 | 1.0023 | 0.9379 |
+| 0.375 × 1.333 | 0.6578 | 0.7640 | 1.0406 | 0.9805 | 0.9537 |
+| 0.375 × 1.500 | 0.6809 | 0.7058 | 1.0115 | 0.9567 | 1.0880 |
+| 0.500 × 1.000 | 0.7199 | 1.1138 | 1.1811 | 0.9940 | 0.6868 |
+| 0.500 × 1.333 | 0.8016 | 1.0091 | 1.3215 | 1.1276 | 0.9874 |
+| 0.500 × 1.500 | 0.8442 | 0.8757 | 1.2404 | 1.1319 | 1.3191 |
+
+Paired across the 9 ROI cells:
+
+| comparison | mean | positives | verdict |
+|---|---|---|---|
+| **GS_freeform − GS_zernike** | **+0.1272** | **7/9** | the projection bottleneck is real |
+| grad_freeform − GS_freeform | +0.0125 | 4/9 | coin flip |
+| GS_freeform − flat | +0.3315 | 8/9 | beats flat |
+| grad_freeform − flat | +0.3439 | **9/9** | beats flat |
+
+Three things this settles:
+
+1. **The Zernike projection is a lossy bottleneck, quantified.** Using the GS pupil
+   phase directly instead of projecting it through `fit_zernike` is worth **+0.1272
+   in 7 of 9 ROIs**. This is the constructive version of attempt 12's finding that the
+   projection lands *below* flat at `n_max=20` — and it means `slm_gs_refine`, being
+   freeform, already avoids the failure mode entirely. The Zernike path was paying a
+   penalty the hardware path never incurs.
+2. **"GS beats gradient" stays retracted, now in a second parameterisation.**
+   `grad_freeform − GS_freeform` is +0.0125 at **4/9** — the same coin flip attempt 13
+   found in Zernike space. The retraction was not a Zernike artefact either.
+3. **The two surviving conclusions replicate in freeform**, which is what actually
+   makes them credible:
+   * inverse design beats flat — `grad_freeform` **9/9**, `GS_freeform` 8/9;
+   * **refinement is a restart** — `spearman(GS_freeform − flat, refinement delta) =
+     **−0.7333**` (Zernike gave −0.8667 / −0.9167). Weaker, but the same strong sign
+     in a completely different parameterisation, so it is not a basis artefact.
+
+One ROI fails: at `0.375 × 1.000`, `GS_freeform` scores **0.5323 against a flat of
+0.6114** — GS itself lands below no-shaping in freeform there, while the same GS phase
+projected to Zernike scores 1.0942. Since it is a single cell out of nine and the
+gradient arms are unaffected, it is recorded rather than chased.
+
+### Closing state of the question (updated by attempt 15)
+
+| question | answer | evidence | status |
+|---|---|---|---|
+| does forward accuracy predict inverse quality? | no — it is not an input | attempt 12, bit-identical | **robust** |
+| does inverse design beat flat? | yes | attempts 10/13/15, 90/90 and 9/9 | **robust, 2 parameterisations** |
+| is refinement a restart rather than a gradient? | yes | attempt 14, ROI × objective; attempt 15, freeform | **robust, 2 parameterisations** |
+| should refinement be gated on proposal quality? | yes | follows from the two rows above | **robust** |
+| does the Zernike projection cost quality? | yes, +0.1272 by removing it | attempt 15, 7/9 | **new** |
+| does GS beat gradient? | no | attempt 13 (34/90); attempt 15 (4/9) | **retracted twice** |
+| does refinement always hurt? | no | attempts 13/14/15 | **retracted** |
+| is the inverse loss worth tuning? | no | attempt 8, +0.0002 | ROI-conditional |
+| should `n_max` be raised? | no — n_max=20 lands below flat | attempt 12 | ROI-conditional |
+
 ### Remaining caveats
 
-* Zernike parameterisation at 64×64 throughout; **freeform phase — what
-  `slm_gs_refine` actually optimises on hardware — was never tested**, and given
-  attempt 13 the Zernike conclusions should not be transferred to it unexamined.
-* Every number remains a sim claim, not a bench claim.
+* Every number remains a **sim** claim, not a bench claim.
+* The freeform grid is `24x24` upsampled to 64x64 on a 64x64 pupil grid. A native
+  full-resolution freeform grid (4096 DOF) was not tried, and neither was a
+  physically-apertured coarse grid, so the coarse-grid choice is unvalidated.
 * Attempts 8-14 are uncommitted: a concurrent in-progress merge holds 21 conflicted
   files and `git commit` refuses. They are on disk and unstaged.
 

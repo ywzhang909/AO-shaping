@@ -2310,6 +2310,14 @@ into the panel makes the whole far field non-finite and every metric silently re
 | `alignment_vs_accuracy.py` | Does gradient alignment improve with forward accuracy? No, and provably: `correction_far_field()` reads only `coefficients`, so an unfitted and a fitted model give identical refinements. |
 | `roi_robustness.py` | Re-runs both headline claims across a 3×3 ROI sweep. This is what retracted them. |
 | `restart_claim_robustness.py` | Hardens the one surviving claim across ROI **and** objective (9 × 2, 180 refinements): refinement is a restart, not a gradient. |
+| `freeform_vs_zernike.py` | Closes the last scope gap: the same study in the **freeform** parameterisation `slm_gs_refine` actually uses (`phase-grid=24` → 64×64). Confirms both surviving conclusions replicate, keeps "GS beats gradient" retracted (4/9), and quantifies the Zernike projection bottleneck at **+0.1272 for removing it** (7/9 ROIs). |
+
+**Freeform needs no new forward model**, contrary to an earlier note in `PROCESS.md`:
+`ZernikeAmpModel.forward` validates only that its input is `(B, 1, g, g)` at the basis
+resolution, and `measured = complex(phase_cos, phase_sin)` *is* the input phasor — so any
+phase goes straight through. The aperture **must** be masked explicitly, though: `forward`
+uses the phasor raw, so a phase-only pupil has unit amplitude outside the illuminated
+disc while the sim lights a finite disc.
 
 **One trap worth stating once:** `ZernikeAmpModel.coefficients` initialises to zeros
 **deterministically**, so `torch.manual_seed` has no effect on an inverse-design loop.

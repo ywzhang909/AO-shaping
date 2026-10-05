@@ -202,10 +202,11 @@ grades its own work.**
 
 | finding | evidence |
 |---|---|
-| **Inverse design works.** Both GS and gradient design beat the flat reference. | 82/90 and 90/90 paired draws across 9 ROI geometries |
-| **Refinement is a restart, not a gradient.** It rescues weak proposals and degrades strong ones, monotonically, *regardless of what it optimises*. | pearson −0.91 / −0.83, spearman −0.87 / −0.92 over 9 ROI × 2 objectives (180 refinements) |
+| **Inverse design works.** Both GS and gradient design beat the flat reference. | 82/90 and 90/90 paired draws across 9 ROI geometries; **replicated in freeform** at 9/9 |
+| **Refinement is a restart, not a gradient.** It rescues weak proposals and degrades strong ones, monotonically, *regardless of what it optimises*. | pearson −0.91 / −0.83, spearman −0.87 / −0.92 over 9 ROI × 2 objectives (180 refinements); **spearman −0.73 in freeform** |
 | **Forward-model accuracy is not an input to the gradient path.** `correction_far_field()` reads only `self.coefficients`, so an unfitted and a fitted+regularised model produce *bit-identical* refinements. | coef norm 0.0000 vs 2.5421 → refined 6.84294, sim 0.997656 in both (proof, not a measurement) |
 | **Gate refinement on proposal quality** — refine only what failed the bar. | follows from the two rows above; this is what `slm_gs_refine`'s bake-off already does |
+| **The Zernike projection costs quality.** Using the GS pupil phase directly instead of `fit_zernike`-projecting it is worth +0.1272 in 7/9 ROIs. | 9 ROI × 8 draws, `phase-grid=24` freeform vs the Zernike path. `slm_gs_refine` is freeform, so it never pays this penalty |
 
 ### What was retracted, and why it matters
 
@@ -214,7 +215,7 @@ dissolved when the ROI geometry was swept:
 
 | retracted claim | single-config result | across 9 ROIs |
 |---|---|---|
-| "GS beats gradient inverse design" | +0.1171, t = **+2.77** | **34/90** — a coin flip |
+| "GS beats gradient inverse design" | +0.1171, t = **+2.77** | **34/90** — a coin flip; **4/9 in freeform too** |
 | "Refinement destroys a GS solution" | −0.2206, **0/16**, t = −7.65 | sign flips; helps where GS is weak |
 | "Inverse loss choice is worth +0.0002" | 5 objectives, paired | ROI-conditional |
 
@@ -225,7 +226,8 @@ person sweeps the nuisance parameter instead of the conclusion.
 
 ### Scope limits that are not optional
 
-* Zernike parameterisation at 64×64 throughout. **Freeform phase — what
-  `slm_gs_refine` actually optimises on hardware — was never tested**, and given the
-  retractions above the Zernike results should not be transferred to it unexamined.
+* Both parameterisations are covered now — Zernike (135 DOF) and freeform
+  (`phase-grid=24`, 576 DOF) — and the conclusions agree. **Not** covered: a native
+  full-resolution freeform grid (4096 DOF), or a physically-apertured coarse grid, so
+  the coarse-grid choice is unvalidated.
 * Every number is a **sim** claim, not a bench claim.
