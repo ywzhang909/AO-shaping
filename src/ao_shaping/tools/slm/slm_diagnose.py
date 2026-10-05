@@ -43,7 +43,7 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.utils.cli_params import option, with_params
+from ao_shaping.utils.cli.params import option, with_params
 
 # ── 已确认的硬件/光路事实 (2026-09 诊断固化, 勿改) ──────────────────────────
 
@@ -250,19 +250,27 @@ def step_linearity(
 
 
 @dataclass
-class SlmDiagnoseParams:
-    """SLM 硬件自检三步走的 CLI 参数。
+class DiagnoseParams:
+    """CLI surface of the SLM hardware self-check (``slm-diagnose``).
 
-    除 ``--step`` 外每个默认值都是 2026-09 在**本台架** (Santec SLM-200 #1 +
-    2f Fourier) 固化的事实, 不要与其他探针共享取值: ``--slm-wavelength`` 1064 nm
-    (该波长下振幅耦合周期 ~993 灰度, 见 ``_SLM_AMPLITUDE_PERIOD_GRAY``),
-    ``--camera-type`` **miicam** (大恒台架必须显式覆盖, 否则 MiiCam SDK 报
-    "请求的资源在使用中"), ``--exposure-ms`` 2.0 与 ``--settle-s`` 1.0 是液晶
-    稳定等待 (判据是"连续两次读数一致"而非固定时长), ``--period-ref/-test``
-    64/32 配 ``_DIFFRACTION_SCALE_PX`` = 5021 (P64→78 px, P32→157 px)。
+    Field order *is* the ``--help`` order, identical to the ``@click.option``
+    stack this command had before its ``with_params`` migration, because that
+    order is frozen by ``tests/ao_shaping/runners/test_cli_help_golden.py``
+    under ``main:slm-diagnose``. Each dataclass default is the single source of
+    truth for the CLI default (``option(...)`` must not carry ``default=``).
+
+    The shared :mod:`ao_shaping.tools.slm.params` groups are deliberately NOT
+    spliced in: :class:`~ao_shaping.tools.slm.params.SlmBenchParams` spells the
+    backend ``--cam-type`` (this command has always spelled it ``--camera-type``)
+    and defaults ``--exposure-ms`` to ``3.0`` (this bench runs ``2.0``), and its
+    ``--settle-s`` lives in :class:`~ao_shaping.tools.slm.params.SlmAcquireParams`
+    with a different default and no help text. Reusing either would rename a
+    documented flag or change a number on the bench.
     """
 
-    slm_number: Annotated[int, option("--slm-number", help="SLM 设备编号 (默认 1)")] = 1
+    slm_number: Annotated[
+        int, option("--slm-number", help="SLM 设备编号 (默认 1)")
+    ] = 1
     slm_wavelength: Annotated[
         int, option("--slm-wavelength", help="SLM 工作波长 nm (默认 1064)")
     ] = 1064
@@ -296,16 +304,17 @@ class SlmDiagnoseParams:
         ),
     ] = "all"
     output: Annotated[
-        str | None, option("-o", "--output", help="保存诊断报告的目录 (默认不保存)")
+        str | None,
+        option("-o", "--output", help="保存诊断报告的目录 (默认不保存)"),
     ] = None
 
 
 @click.command()
-@with_params(SlmDiagnoseParams, kw_name="params")
-def main(params: SlmDiagnoseParams) -> None:
+@with_params(DiagnoseParams, kw_name="params")
+def main(params: DiagnoseParams) -> None:
     """SLM 硬件自检: 逐级定位是否存在"面板不调制光"类故障。"""
     from ao_shaping.drivers.slm.santec import Santec
-    from ao_shaping.utils.image.hardware_utils import open_camera
+    from ao_shaping.utils.hardware_utils import open_camera
 
     logger.info(
         "SLM self-check: slm#{} @{}nm, periods {}/{}px, camera#{} ({}) exposure {:.2f}ms "

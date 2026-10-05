@@ -79,7 +79,7 @@ from ao_shaping.tools.slm.slm_bench_probe import (
     smooth_frame,
 )
 from ao_shaping.tools.slm.slm_zernike_sweep_probe import capture_settled
-from ao_shaping.utils.cli_params import option, with_params
+from ao_shaping.utils.cli.params import option, with_params
 
 __all__ = [
     "DRIFT_REPEAT_TOL",

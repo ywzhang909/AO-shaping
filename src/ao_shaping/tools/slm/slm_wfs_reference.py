@@ -45,7 +45,7 @@ from ao_shaping.tools.slm.slm_zernike_common import (
     measure_zernike,
     show_phase,
 )
-from ao_shaping.utils.cli_params import option, with_params
+from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 PANEL_H, PANEL_W = 1200, 1920
@@ -118,58 +118,36 @@ def fit_linear(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
 
 @dataclass
 class WfsReferenceParams:
-    """CLI surface of :func:`main` (532 nm WFS bench).
-
-    Local values on purpose -- measured across the 19 ``tools/slm`` probes, only
-    ``--settle-extra-s`` has an identical signature in more than one probe, and
-    ``--slm-wavelength`` alone splits 1064 (11 probes) vs 532 (6). A shared
-    dataclass has exactly one default per field, so consolidating here would
-    silently retarget the laser this probe calibrates against.
-    """
-
     slm_number: Annotated[int, option("--slm-number", show_default=True)] = 1
-    slm_wavelength: Annotated[
-        int, option("--slm-wavelength", show_default=True)
-    ] = 532
+    slm_wavelength: Annotated[int, option("--slm-wavelength", show_default=True)] = 532
     wfs_exposure_ms: Annotated[
         float,
-        option(
-            "--wfs-exposure-ms",
-            show_default=True,
-            help=f"WFS 曝光 ms (必须 ≤ {MAX_EXPOSURE_MS})",
-        ),
+        option("--wfs-exposure-ms", show_default=True,
+               help=f"WFS 曝光 ms (必须 ≤ {MAX_EXPOSURE_MS})"),
     ] = DEFAULT_EXPOSURE_MS
     wfs_order: Annotated[int, option("--wfs-order", show_default=True)] = 10
     zernike_radius: Annotated[
         float,
-        option(
-            "--zernike-radius",
-            show_default=True,
-            help="Step3 倾斜 Zernike 半径 px (建议 ≥1.5×光束半径)",
-        ),
+        option("--zernike-radius", show_default=True,
+               help="Step3 倾斜 Zernike 半径 px (建议 ≥1.5×光束半径)"),
     ] = 600.0
     tilt_amps: Annotated[
         str,
-        option(
-            "--tilt-amps",
-            show_default=True,
-            help="倾斜幅度序列 rad (Zernike (1,1) 系数)",
-        ),
+        option("--tilt-amps", show_default=True,
+               help="倾斜幅度序列 rad (Zernike (1,1) 系数)"),
     ] = "0.1,0.2,0.4,0.8,1.6,3.2"
     n_avg: Annotated[
         int, option("--n-avg", show_default=True, help="每点 WFS 帧平均")
     ] = 5
     settle_extra_s: Annotated[
         float,
-        option(
-            "--settle-extra-s",
-            show_default=True,
-            help="像素翻转估算之外的冗余等待 (s)",
-        ),
+        option("--settle-extra-s", show_default=True,
+               help="像素翻转估算之外的冗余等待 (s)"),
     ] = SETTLE_REDUNDANCY_S
     flat_rms_threshold: Annotated[
         float,
-        option("--flat-rms-threshold", show_default=True, help="纯平波前 RMS 合格阈值 (λ)"),
+        option("--flat-rms-threshold", show_default=True,
+               help="纯平波前 RMS 合格阈值 (λ)"),
     ] = 0.05
     output: Annotated[
         str | None, option("-o", "--output", help="报告 JSON 路径")
@@ -181,7 +159,8 @@ class WfsReferenceParams:
 def main(params: WfsReferenceParams) -> int:
     """SLM + WFS 参考波前标定与倾斜线性度 (三步)."""
     if params.wfs_exposure_ms > MAX_EXPOSURE_MS:
-        raise click.BadParameter(f"WFS 曝光 {params.wfs_exposure_ms}ms > {MAX_EXPOSURE_MS}ms")
+        raise click.BadParameter(
+            f"WFS 曝光 {params.wfs_exposure_ms}ms > {MAX_EXPOSURE_MS}ms")
     if not 2 <= params.wfs_order <= 10:
         raise click.BadParameter("--wfs-order 必须在 2..10")
 
@@ -190,7 +169,8 @@ def main(params: WfsReferenceParams) -> int:
     click.echo("[SLM+WFS 参考波前标定 + 倾斜线性度] 三步流程")
     click.echo("=" * 72)
 
-    slm = Santec(slm_number=params.slm_number, wavelength=params.slm_wavelength, video_mode=0)
+    slm = Santec(slm_number=params.slm_number, wavelength=params.slm_wavelength,
+                 video_mode=0)
     wfs = ThorlabWFS(exposure_time=params.wfs_exposure_ms, use_custom_ref=False)
     ph = PatternHelper(resolution=(PANEL_W, PANEL_H))
     report: dict = {"timestamp": datetime.now().isoformat(), "tilt_amps": amps}

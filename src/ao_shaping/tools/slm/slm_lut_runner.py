@@ -25,8 +25,8 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.slm.santec import Santec
-from ao_shaping.utils.cli_params import option, with_params
-from ao_shaping.utils.image.hardware_utils import open_camera
+from ao_shaping.utils.cli.params import option, with_params
+from ao_shaping.utils.hardware_utils import open_camera
 from ao_shaping.utils.slm.slm_lut import (
     build_inverse_lut,
     depth_pattern,
@@ -389,34 +389,37 @@ def _check_spot_drift(
 
 
 @dataclass
-class SlmLutParams:
-    """CLI surface of :func:`run` (LUT calibration).
+class LutRunnerParams:
+    """CLI surface of the SLM gray-to-phase LUT calibration (``slm-lut``).
 
-    Values are deliberately NOT shared with the other probes -- see R-37 in
-    ``TODO.md``.  Several defaults are bench-specific physical facts of THIS
-    setup and must not be treated as generic:
+    Field order *is* the ``--help`` order, identical to the ``@click.option``
+    stack this command had before its ``with_params`` migration, because that
+    order is frozen by ``tests/ao_shaping/runners/test_cli_help_golden.py``
+    under both ``main:slm-lut`` and ``tools.slm.slm_lut_runner:run``. Each
+    dataclass default is the single source of truth for the CLI default
+    (``option(...)`` must not carry ``default=``); ``show_default=True`` is
+    preserved per-field because the frozen help renders ``[default: ...]`` only
+    on the five options that carried it.
 
-    * ``--slm-wavelength`` 1064 nm is the laser actually programmed into SLM
-      #1 here (other probes use 532, and 11 of the 19 use 1064).
-    * ``--exposure-ms`` 0.03 is only the *initial* value handed to
-      ``_joint_exposure_settle``, which then walks it into the safe band before
-      the scan; it is not the exposure the scan runs at.
-    * ``--period-ref``/``--period-test`` 64/32 and ``--spot-window`` 41 come from
-      the measured 2f geometry (``_DIFFRACTION_SCALE_PX``), where the two +1
-      orders sit 78 and 157 px off the 0-order.
+    The shared :mod:`ao_shaping.tools.slm.params` groups are deliberately NOT
+    spliced in: :class:`~ao_shaping.tools.slm.params.SlmBenchParams` spells the
+    backend ``--cam-type`` (this command has always spelled it ``--camera-type``),
+    has no help text at all, defaults ``--exposure-ms`` to ``3.0`` where the
+    LUT's starting exposure is ``0.03``, and its members are not contiguous here
+    (``--cam-id`` sits between ``--camera-type`` and ``--settle-time``), so
+    splicing would rename flags, drop help text and change bench numbers.
     """
 
-    # Method
     method: Annotated[
         str,
         option(
             "--method",
             type=click.Choice(["depth", "offset"], case_sensitive=False),
             show_default=True,
-            help="Scan method: depth=scale blaze peak gray; offset=uniform gray-offset scan.",
+            help="Scan method: depth=scale blaze peak gray; "
+            "offset=uniform gray-offset scan.",
         ),
     ] = "depth"
-    # Grating parameters
     period_ref: Annotated[
         int, option("--period-ref", help="Reference half blaze period (SLM px).")
     ] = 64
@@ -426,7 +429,6 @@ class SlmLutParams:
     gray_step: Annotated[
         int, option("--gray-step", help="Scan step over gray values.")
     ] = 16
-    # Camera
     exposure_ms: Annotated[
         float, option("--exposure-ms", help="Initial camera exposure (ms).")
     ] = 0.03
@@ -443,26 +445,24 @@ class SlmLutParams:
         ),
     ] = "miicam"
     cam_id: Annotated[int, option("--cam-id", help="Camera device ID.")] = 0
-    # SLM
     settle_time: Annotated[
         float, option("--settle-time", help="SLM settle wait after write (s).")
     ] = 0.3
-    slm_number: Annotated[int, option("--slm-number", help="SLM device number.")] = 1
+    slm_number: Annotated[
+        int, option("--slm-number", help="SLM device number.")
+    ] = 1
     slm_wavelength: Annotated[
         int, option("--slm-wavelength", help="SLM working wavelength (nm).")
     ] = 1064
-    # Spot detection
     spot_window: Annotated[
         int, option("--spot-window", help="Odd-sized pixel window around spot.")
     ] = 41
-    # Auto-exposure thresholds
     bright_floor: Annotated[
         float, option("--bright-floor", help="Min normalized ROI mean.")
     ] = 0.02
     saturation_stop: Annotated[
         float, option("--saturation-stop", help="Max normalized ROI max.")
     ] = 0.9
-    # Output
     output: Annotated[
         str,
         option(
@@ -484,8 +484,8 @@ class SlmLutParams:
 
 
 @click.command()
-@with_params(SlmLutParams, kw_name="params")
-def run(params: SlmLutParams) -> None:
+@with_params(LutRunnerParams, kw_name="params")
+def run(params: LutRunnerParams) -> None:
     """SLM gray-to-phase LUT calibration.
 
     Drives the Santec SLM-200 in half-screen blazed-grating mode, scans gray
@@ -506,7 +506,9 @@ def run(params: SlmLutParams) -> None:
         # 1. Open SLM
         # ═══════════════════════════════════════════════════════════════════
         logger.info(
-            "Connecting to SLM #{} (wavelength={} nm)...", params.slm_number, params.slm_wavelength
+            "Connecting to SLM #{} (wavelength={} nm)...",
+            params.slm_number,
+            params.slm_wavelength,
         )
         slm = Santec(
             slm_number=params.slm_number,
@@ -571,9 +573,13 @@ def run(params: SlmLutParams) -> None:
         half_h = slm_height // 2
 
         # Reference half: full-depth blaze at gray_for_2pi
-        ref_calib = depth_pattern(params.period_ref, gray_for_2pi, half_h, slm_width)
+        ref_calib = depth_pattern(
+            params.period_ref, gray_for_2pi, half_h, slm_width
+        )
         # Test half: also full-depth blaze for calibration
-        test_calib = depth_pattern(params.period_test, gray_for_2pi, half_h, slm_width)
+        test_calib = depth_pattern(
+            params.period_test, gray_for_2pi, half_h, slm_width
+        )
         calib_pattern = stack_halves(ref_calib, test_calib, axis=0)
 
         slm.display_data(calib_pattern, wait_time_s=params.settle_time)
@@ -589,7 +595,9 @@ def run(params: SlmLutParams) -> None:
             calib_frame.max(),
         )
 
-        spots = _locate_spots(calib_frame, params.period_ref, params.period_test, params.spot_window)
+        spots = _locate_spots(
+            calib_frame, params.period_ref, params.period_test, params.spot_window
+        )
         ref_center = spots["ref"]
         test_center = spots["test"]
 
@@ -643,7 +651,9 @@ def run(params: SlmLutParams) -> None:
         p_test_arr = np.zeros(len(g_values), dtype=np.float64)
 
         # Reference pattern (always full-depth blaze at gray_for_2pi), top half
-        ref_pattern = depth_pattern(params.period_ref, gray_for_2pi, half_h, slm_width)
+        ref_pattern = depth_pattern(
+            params.period_ref, gray_for_2pi, half_h, slm_width
+        )
 
         # Per-spot expected calibration centers for drift detection
         ref_calib_center = ref_center
@@ -652,7 +662,9 @@ def run(params: SlmLutParams) -> None:
         for i, g in enumerate(g_values):
             if params.method == "depth":
                 # Test half: blaze with peak_gray = g
-                test_pattern = depth_pattern(params.period_test, int(g), half_h, slm_width)
+                test_pattern = depth_pattern(
+                    params.period_test, int(g), half_h, slm_width
+                )
             else:
                 # Test half: offset blaze (full depth + gray_offset = g)
                 test_pattern = offset_pattern(

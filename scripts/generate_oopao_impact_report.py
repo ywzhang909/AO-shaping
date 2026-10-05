@@ -996,9 +996,9 @@ def _phase_screen_ratio_section(
         )
         lines.append(
             f"2. **随 mode 改变**: 恒定比值逐 mode 不同 ({pairs}) —— "
-            "两者 `l_max` / `propagation_distance` 配置不同, 与前一份报告 "
-            "`report/oopao_vs_numpy/report.md` 「比值随配置变化」"
-            "(该配置 8.72×–8.81×, 另一组配置 9.72×) 的结论一致。"
+<"两者 `l_max` / `propagation_distance` 配置不同。该常数因此是**配置相关**的, "
+            "与 `report/oopao_vs_numpy/report.md` 记录的比值随配置变化一致"
+            "(该报告在另一组配置下亦测得逐档恒定的常数)。"
         )
     lines.append("")
     lines.append("⚠️ **`init_rms` 与 `disturbance_rms` 是两个不同的量, 不可互相推断**:")
@@ -1040,11 +1040,7 @@ def _incomparability_section(
         "绝对 Strehl/PIB 不可跨臂直接比较 —— 同 Cn2 下 OOPAO 相位起伏远强于 numpy。"
     )
     if constant:
-        lines.append(
-            "前一份报告 `report/oopao_vs_numpy/report.md` 在其配置下测得 8.72×–8.81× "
-            "(中位 8.77×); 本报告在端到端环境里**独立测得**的是逐位恒定的常数 "
-            "(§4.3):"
-        )
+        lines.append("`disturbance_rms` 的两臂比值在本次阶梯上**逐位恒定** (§4.3):")
         for profile in constant:
             lines.append(
                 f"- `{profile.mode}` 模式: **{profile.mean:.3f}×** "
@@ -1053,9 +1049,8 @@ def _incomparability_section(
             )
     else:
         lines.append(
-            "前一份报告 `report/oopao_vs_numpy/report.md` 在其配置下测得 8.72×–8.81× "
-            "(中位 8.77×), 并显式声明该比值随配置变化; 本报告本次阶梯的 cn2>0 "
-            "档位不足, 未能给出可判定恒定的比值 (§4.3) —— "
+            "`disturbance_rms` 的两臂比值需要至少 2 个 cn2>0 档位才能判定恒定性; "
+            "本次阶梯档位不足, 未能给出可判定的比值 (§4.3) —— "
             "跨臂绝对指标同样不可比 (定性结论不变)。"
         )
     gap = _max_init_strehl_gap(results, cn2_values)

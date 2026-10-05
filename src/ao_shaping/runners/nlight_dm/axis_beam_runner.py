@@ -86,6 +86,7 @@ def run(ctx: click.Context, params: PibRunnerParams) -> None:
         delta=params.delta,
         lr=params.lr,
         exposure_time_ms=params.exposure_time_ms,
+        cam_type=params.cam_type,
         shrink_iter=params.shrink_iter,
         shrink_ratio=params.shrink_ratio,
         cam_id=cast(int, params.cam_id),

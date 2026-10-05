@@ -37,7 +37,7 @@ from loguru import logger
 
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
-from ao_shaping.utils.cli_params import option, with_params
+from ao_shaping.utils.cli.params import option, with_params
 
 PANEL_H, PANEL_W = 1200, 1920
 DEFAULT_OUTPUT = Path("data/calibration/wfs_light_pupil_probe.json")
@@ -46,37 +46,20 @@ DEFAULT_EXPOSURE_MS = 4.0
 
 
 @dataclass
-class SlmWfsProbeParams:
-    """SLM 纯平 + WFS 光强/pupil 探针的 CLI 参数。
-
-    物理常数是本探针**自己台架**标定的, 不与其他探针共享取值:
-    ``--wavelength`` 默认 532 nm (绿光 WFS 工位; 另有 1064 nm 工位),
-    ``--exposure-ms`` 默认 4.0 ms 且强制 ≤ ``MAX_EXPOSURE_MS`` (7.0 ms) ——
-    超过则 WFS 饱和, 有效子孔径比例失去意义。见 ``TODO.md`` R-37。
-    """
-
-    slm_number: Annotated[
-        int, option("--slm-number", show_default=True, help="SLM 设备编号")
-    ] = 1
-    wavelength: Annotated[
-        int, option("--wavelength", show_default=True, help="SLM 波长 nm")
-    ] = 532
+class WfsProbeParams:
+    slm_number: Annotated[int, option("--slm-number", show_default=True,
+                                      help="SLM 设备编号")] = 1
+    wavelength: Annotated[int, option("--wavelength", show_default=True,
+                                     help="SLM 波长 nm")] = 532
     mla_index: Annotated[
         str,
-        option(
-            "--mla-index",
-            type=click.Choice(["512", "540", "600", "768", "1280"]),
-            show_default=True,
-            help="MLA 分辨率",
-        ),
+        option("--mla-index", type=click.Choice(["512", "540", "600", "768", "1280"]),
+               show_default=True, help="MLA 分辨率"),
     ] = "512"
     exposure_ms: Annotated[
         float,
-        option(
-            "--exposure-ms",
-            show_default=True,
-            help=f"WFS 曝光 ms (必须 ≤ {MAX_EXPOSURE_MS})",
-        ),
+        option("--exposure-ms", show_default=True,
+               help=f"WFS 曝光 ms (必须 ≤ {MAX_EXPOSURE_MS})"),
     ] = DEFAULT_EXPOSURE_MS
     no_save: Annotated[
         bool, option("--no-save", is_flag=True, help="不写回 pupil / 不保存报告")
@@ -87,8 +70,8 @@ class SlmWfsProbeParams:
 
 
 @click.command()
-@with_params(SlmWfsProbeParams, kw_name="params")
-def main(params: SlmWfsProbeParams) -> int:
+@with_params(WfsProbeParams, kw_name="params")
+def main(params: WfsProbeParams) -> int:
     """SLM 纯平 + WFS 光强/pupil 检查."""
     if params.exposure_ms > MAX_EXPOSURE_MS:
         raise click.BadParameter(
@@ -99,7 +82,8 @@ def main(params: SlmWfsProbeParams) -> int:
     click.echo("[SLM + WFS 光强/pupil 探针]")
     click.echo("=" * 72)
 
-    slm = Santec(slm_number=params.slm_number, wavelength=params.wavelength, video_mode=0)
+    slm = Santec(slm_number=params.slm_number, wavelength=params.wavelength,
+                 video_mode=0)
     wfs = ThorlabWFS(mla_index=MlaRes.from_str(params.mla_index),
                      exposure_time=params.exposure_ms, use_custom_ref=False)
 

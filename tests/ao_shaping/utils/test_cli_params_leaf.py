@@ -1,7 +1,7 @@
 """R-36: the dataclass-click mechanism must stay a zero-``ao_shaping`` leaf.
 
 The mechanism was extracted out of ``runners/runner_common.py`` into
-:mod:`ao_shaping.utils.cli_params` so that ``tools/slm/params.py`` (R-37) can
+:mod:`ao_shaping.utils.cli.params` so that ``tools/slm/params.py`` (R-37) can
 declare its 22 probes' options with the same ``Annotated[..., option(...)]``
 convention. That only works while the mechanism sits **below** both of them.
 
@@ -23,7 +23,7 @@ from typing import Annotated
 
 import pytest
 
-from ao_shaping.utils import cli_params
+from ao_shaping.utils.cli import params as cli_params
 
 _MODULE = Path(cli_params.__file__).resolve()
 _REPO_ROOT = _MODULE.parents[3]
@@ -180,7 +180,7 @@ def test_mechanism_is_not_duplicated_anywhere_else() -> None:
                 )
     assert not offenders, (
         f"mechanism redefined outside {_LEAF}: {offenders}. "
-        "Import from ao_shaping.utils.cli_params instead of re-implementing."
+        "Import from ao_shaping.utils.cli.params instead of re-implementing."
     )
 
 

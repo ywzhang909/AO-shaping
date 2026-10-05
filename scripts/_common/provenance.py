@@ -484,6 +484,25 @@ REPORTS: dict[str, ReportProvenance] = {
         note="前向模型/loss 缺陷排查结论（人工撰写）；同目录 *.json 为各探针面板",
         extra_scripts=("scripts/sweep_far_field_padding.py",),
     ),
+    "report/loss_defects/PROCESS.md": ReportProvenance(
+        script=HANDWRITTEN,
+        command="python scripts/inverse_design_sim_eval.py",
+        environment="离线",
+        note="逆向整形 14 次尝试的完整过程记录（含 3 处被推翻的结论）",
+        extra_scripts=(
+            "scripts/inverse_design_sim_eval.py",
+            "scripts/inverse_design_accuracy_ladder.py",
+            "scripts/inverse_design_restarts.py",
+            "scripts/inverse_restart_selection.py",
+            "scripts/inverse_objective_alignment.py",
+            "scripts/inverse_achievable_target.py",
+            "scripts/gs_vs_gradient_inverse.py",
+            "scripts/gs_plus_refinement.py",
+            "scripts/alignment_vs_accuracy.py",
+            "scripts/roi_robustness.py",
+            "scripts/restart_claim_robustness.py",
+        ),
+    ),
     # -- 附属记录 ------------------------------------------------------------
     "report/fouriergsnet_pipeline/TODO.md": ReportProvenance(
         script=HANDWRITTEN,

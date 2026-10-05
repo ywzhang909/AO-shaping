@@ -52,8 +52,6 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.utils.cli_params import option, with_params
-
 from ao_shaping.drivers.slm.santec import (
     Santec,
     WavefrontCorrection,
@@ -84,6 +82,7 @@ from ao_shaping.tools.slm.slm_zernike_common import (
     um_to_waves,
     wfs_validity,
 )
+from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 # 兼容旧引用: DLL 顺序 m 枚举索引表 (定义在 slm_zernike_common)
@@ -308,7 +307,7 @@ def export_driver_correction(h5_path: str | Path,
     click.echo(f"[OK] 侧车 JSON: {sidecar_path}")
     active = [(i, nm, c) for i, nm, c in zip(ids, nm_list, c_waves)
               if abs(float(c)) > 1e-3]
-    click.echo(f"[INFO] 矫正系数 (λ): "
+    click.echo("[INFO] 矫正系数 (λ): "
                + ", ".join(f"DL{i}({nm[0]},{nm[1]}) = {c:+.3f}" for i, nm, c in
                            sorted(active, key=lambda t: -abs(t[2]))[:8]))
     click.echo(f"[INFO] 矩阵残差 ‖M c + w‖/‖w‖ = {resid:.3f} (抵消后残差)")
@@ -316,56 +315,36 @@ def export_driver_correction(h5_path: str | Path,
 
 
 @dataclass
-class SlmZernikeResponseParams:
-    """CLI surface of :func:`main`.
-
-    This probe runs on the 532 nm WFS bench (default --slm-wavelength 532),
-    unlike most of the package which is 1064 nm. Field values are not shared
-    with other probes.
-    """
-
-    slm_number: Annotated[
-        int, option("--slm-number", show_default=True)
-    ] = 1
+class ZernikeResponseParams:
+    slm_number: Annotated[int, option("--slm-number", show_default=True)] = 1
     slm_wavelength: Annotated[
         int, option("--slm-wavelength", show_default=True, help="SLM 波长 nm")
     ] = 532
     wfs_exposure_ms: Annotated[
         float,
-        option(
-            "--wfs-exposure-ms",
-            show_default=True,
-            help=f"WFS 曝光 ms (必须 ≤ {MAX_EXPOSURE_MS})",
-        ),
+        option("--wfs-exposure-ms", show_default=True,
+               help=f"WFS 曝光 ms (必须 ≤ {MAX_EXPOSURE_MS})"),
     ] = DEFAULT_EXPOSURE_MS
     wfs_order: Annotated[
         int,
-        option(
-            "--wfs-order",
-            show_default=True,
-            help="WFS Zernike 拟合阶数 (有效 2..10, 10 → 66 项)",
-        ),
+        option("--wfs-order", show_default=True,
+               help="WFS Zernike 拟合阶数 (有效 2..10, 10 → 66 项)"),
     ] = 10
     n_max: Annotated[
         int,
-        option(
-            "--n-max",
-            show_default=True,
-            help="扫描的 SLM Zernike 最大阶数 (4 → 15 模式)",
-        ),
+        option("--n-max", show_default=True,
+               help="扫描的 SLM Zernike 最大阶数 (4 → 15 模式)"),
     ] = 4
     zernike_radius: Annotated[
         float,
-        option(
-            "--zernike-radius",
-            show_default=True,
-            help="Zernike 归一化半径 px (实测光束半径≈200px; 建议 ≥1.5×光束半径, "
-            "R≈光束半径时大振幅会击穿 WFS 拟合)",
-        ),
+        option("--zernike-radius", show_default=True,
+               help="Zernike 归一化半径 px (实测光束半径≈200px; 建议 ≥1.5×光束半径, "
+                    "R≈光束半径时大振幅会击穿 WFS 拟合)"),
     ] = 300.0
     amplitude_rad: Annotated[
         float,
-        option("--amplitude-rad", show_default=True, help="推拉扰动幅度 rad (Zernike 系数)"),
+        option("--amplitude-rad", show_default=True,
+               help="推拉扰动幅度 rad (Zernike 系数)"),
     ] = 5.0
     n_avg: Annotated[
         int, option("--n-avg", show_default=True, help="每点 WFS 帧平均")
@@ -374,12 +353,10 @@ class SlmZernikeResponseParams:
         int, option("--n-cycles", show_default=True, help="推拉循环次数 (估方差)")
     ] = 2
     shift_x: Annotated[
-        int | None,
-        option("--shift-x", help="SLM shift_x (默认读设备配置)"),
+        int | None, option("--shift-x", help="SLM shift_x (默认读设备配置)")
     ] = None
     shift_y: Annotated[
-        int | None,
-        option("--shift-y", help="SLM shift_y (默认读设备配置)"),
+        int | None, option("--shift-y", help="SLM shift_y (默认读设备配置)")
     ] = None
     exclude_tip_tilt: Annotated[
         bool,
@@ -387,78 +364,63 @@ class SlmZernikeResponseParams:
     ] = False
     settle_extra_s: Annotated[
         float,
-        option(
-            "--settle-extra-s",
-            show_default=True,
-            help="像素翻转估算之外的冗余等待 (s)",
-        ),
+        option("--settle-extra-s", show_default=True,
+               help="像素翻转估算之外的冗余等待 (s)"),
     ] = SETTLE_REDUNDANCY_S
     output: Annotated[
-        str | None,
-        option("-o", "--output", help="输出 h5 路径 (默认 data/zernike_response_matrix/)"),
+        str | None, option("-o", "--output", help="输出 h5 路径 (默认 data/zernike_response_matrix/)")
     ] = None
     verify_path: Annotated[
         str | None,
-        option(
-            "--verify",
-            help="离线校验已保存的 h5 (不接触硬件); 指定后忽略其他选项",
-        ),
+        option("--verify", help="离线校验已保存的 h5 (不接触硬件); 指定后忽略其他选项"),
     ] = None
     export_h5: Annotated[
         str | None,
-        option(
-            "--export-correction",
-            help="离线导出驱动可消费的灰度矫正 CSV (官方软件/驱动可直接加载; 不接触硬件); 需配合 --w-file",
-        ),
+        option("--export-correction",
+               help="离线导出驱动可消费的灰度矫正 CSV (官方软件/驱动可直接加载; 不接触硬件); 需配合 --w-file"),
     ] = None
     w_file: Annotated[
         str | None,
-        option(
-            "--w-file",
-            help="WFS 波前 JSON (66 长, 单位 λ; 或含 w/w_before 键的字典); 仅用于 --export-correction",
-        ),
+        option("--w-file",
+               help="WFS 波前 JSON (66 长, 单位 λ; 或含 w/w_before 键的字典); 仅用于 --export-correction"),
     ] = None
     export_out: Annotated[
         str | None,
-        option(
-            "--out-correction",
-            help="矫正 CSV 输出路径 (默认: 输入 h5 同目录 <stem>_correction_gray.csv)",
-        ),
+        option("--out-correction",
+               help="矫正 CSV 输出路径 (默认: 输入 h5 同目录 <stem>_correction_gray.csv)"),
     ] = None
     export_shift: Annotated[
         bool,
-        option(
-            "--export-shift",
-            is_flag=True,
-            help="把 config shift 烘焙进矫正 CSV (灰度编码前 Santec.shift_phase; "
-            "shift 默认取 h5 device_config.shift_x/y)",
-        ),
+        option("--export-shift", is_flag=True,
+               help="把 config shift 烘焙进矫正 CSV (灰度编码前 Santec.shift_phase; "
+                    "shift 默认取 h5 device_config.shift_x/y)"),
     ] = False
     export_shift_x: Annotated[
-        int | None,
-        option("--export-shift-x", help="烘焙平移 shift_x (默认读 h5 device_config)"),
+        int | None, option("--export-shift-x", help="烘焙平移 shift_x (默认读 h5 device_config)")
     ] = None
     export_shift_y: Annotated[
-        int | None,
-        option("--export-shift-y", help="烘焙平移 shift_y (默认读 h5 device_config)"),
+        int | None, option("--export-shift-y", help="烘焙平移 shift_y (默认读 h5 device_config)")
     ] = None
 
 
 @click.command()
-@with_params(SlmZernikeResponseParams, kw_name="params")
-def main(params: SlmZernikeResponseParams) -> int:
+@with_params(ZernikeResponseParams, kw_name="params")
+def main(params: ZernikeResponseParams) -> int:
     """SLM Zernike 模式 → WFS 读数 响应矩阵标定."""
-    if params.verify_path:
-        return verify_response_matrix(params.verify_path)
-    if params.export_h5:
+    # 这两个离线开关在测试里按 ast.Name 静态判定"开硬件前即短路", 故保留局部名
+    verify_path, export_h5 = params.verify_path, params.export_h5
+    if verify_path:
+        return verify_response_matrix(verify_path)
+    if export_h5:
         if not params.w_file:
             raise click.BadParameter("--export-correction 需要 --w-file (WFS 波前 JSON)")
-        return export_driver_correction(params.export_h5, params.w_file, params.export_out,
+        return export_driver_correction(export_h5, params.w_file, params.export_out,
                                         include_shift=params.export_shift,
                                         shift_x=params.export_shift_x,
                                         shift_y=params.export_shift_y)
     if params.wfs_exposure_ms > MAX_EXPOSURE_MS:
-        raise click.BadParameter(f"WFS 曝光 {params.wfs_exposure_ms}ms > {MAX_EXPOSURE_MS}ms")
+        raise click.BadParameter(
+            f"WFS 曝光 {params.wfs_exposure_ms}ms > {MAX_EXPOSURE_MS}ms")
     if not 2 <= params.wfs_order <= 10:
         raise click.BadParameter("--wfs-order 必须在 2..10 (10 → 66 项)")
 
@@ -472,7 +434,8 @@ def main(params: SlmZernikeResponseParams) -> int:
     if params.exclude_tip_tilt:
         mode_ids = [i for i in mode_ids if i not in (2, 3)]
 
-    slm = Santec(slm_number=params.slm_number, wavelength=params.slm_wavelength, video_mode=0)
+    slm = Santec(slm_number=params.slm_number, wavelength=params.slm_wavelength,
+                 video_mode=0)
     wfs = ThorlabWFS(exposure_time=params.wfs_exposure_ms, use_custom_ref=False)
     ph = PatternHelper(resolution=(PANEL_W, PANEL_H))
 
@@ -528,7 +491,8 @@ def main(params: SlmZernikeResponseParams) -> int:
         amp_waves = params.amplitude_rad / (2 * np.pi)
         click.echo(f"[INFO] 扫描 {len(mode_ids)} 个模式, R={params.zernike_radius:.0f}px, "
                    f"A={params.amplitude_rad} rad ({amp_waves:.3f}λ), "
-                   f"推拉 {params.n_cycles} 循环 × {params.n_avg} 帧, WFS 阶数 {params.wfs_order} "
+                   f"推拉 {params.n_cycles} 循环 × {params.n_avg} 帧, "
+                   f"WFS 阶数 {params.wfs_order} "
                    f"({n_wfs_terms} 项)")
 
         for col, midx in enumerate(mode_ids):
@@ -601,50 +565,50 @@ def main(params: SlmZernikeResponseParams) -> int:
     _ds = device_info.get("slm") or {}
     _dw = device_info.get("wfs") or {}
     device_config = {
-            "device": device_info,
-            "slm_serial": _ds.get("serial_number"),
-            "wfs_serial": _dw.get("serial_number"),
-            "wavelength_nm": params.slm_wavelength,
-            "slm_2pi_gray": max_gray,
-            "wfs_exposure_ms": exp,
-            "shift_x": int(sx),
-            "shift_y": int(sy),
-            "pupil_center_mm": [cx, cy],
-            "pupil_diameter_mm": [dx, dy],
-            "zernike_radius_px": params.zernike_radius,
-            "amplitude_rad": params.amplitude_rad,
-            "amplitude_waves": amp_waves,
-            "wfs_zernike_order": params.wfs_order,
-            "slm_mode_ids_dll": mode_ids,
-            "slm_mode_nm": [list(DLL_ZERNIKE[i - 1]) for i in mode_ids],
-            "zernike_ordering": (
-                "DLL 顺序 m 枚举 (m=-n..+n), 非标准 Noll 1976: "
-                "[1](0,0) [2](1,-1) [3](1,1) [4](2,-2) [5](2,0)defocus [6](2,2) "
-                "[9](3,1)coma [13](4,0)spherical"
-            ),
-            "matrix_layout": (
-                f"matrix[wfs_coeff_index, slm_mode_index]; wfs_coeff_index 0..{n_wfs_terms - 1} "
-                "对应 DLL [1..N] (非 Noll)"
-            ),
-            "units": "λ/λ (WFS 系数 µm 经 um_to_waves 换算; 与矫正 w 同单位)",
-            "method": "push-pull ±A, PatternHelper + display_phase (GUI 同链路)",
-            "reference": "custom user ref @ flat phase (shift 已应用)",
+        "device": device_info,
+        "slm_serial": _ds.get("serial_number"),
+        "wfs_serial": _dw.get("serial_number"),
+        "wavelength_nm": params.slm_wavelength,
+        "slm_2pi_gray": max_gray,
+        "wfs_exposure_ms": exp,
+        "shift_x": int(sx),
+        "shift_y": int(sy),
+        "pupil_center_mm": [cx, cy],
+        "pupil_diameter_mm": [dx, dy],
+        "zernike_radius_px": params.zernike_radius,
+        "amplitude_rad": params.amplitude_rad,
+        "amplitude_waves": amp_waves,
+        "wfs_zernike_order": params.wfs_order,
+        "slm_mode_ids_dll": mode_ids,
+        "slm_mode_nm": [list(DLL_ZERNIKE[i - 1]) for i in mode_ids],
+        "zernike_ordering": (
+            "DLL 顺序 m 枚举 (m=-n..+n), 非标准 Noll 1976: "
+            "[1](0,0) [2](1,-1) [3](1,1) [4](2,-2) [5](2,0)defocus [6](2,2) "
+            "[9](3,1)coma [13](4,0)spherical"
+        ),
+        "matrix_layout": (
+            f"matrix[wfs_coeff_index, slm_mode_index]; wfs_coeff_index 0..{n_wfs_terms - 1} "
+            "对应 DLL [1..N] (非 Noll)"
+        ),
+        "units": "λ/λ (WFS 系数 µm 经 um_to_waves 换算; 与矫正 w 同单位)",
+        "method": "push-pull ±A, PatternHelper + display_phase (GUI 同链路)",
+        "reference": "custom user ref @ flat phase (shift 已应用)",
     }
     result = ZernikeResponseMatrixResult(
-            matrix=matrix,
-            variance_matrix=variance,
-            deviation_response_matrix=None,
-            subaperture_mask=None,
-            n_max=params.n_max,
-            magnitude=amp_waves,
-            wavelength_nm=params.slm_wavelength,
-            n_averages=params.n_avg,
-            n_cycles=params.n_cycles,
-            timestamp=datetime.now().isoformat(),
-            excluded_piston=True,
-            excluded_tip_tilt=params.exclude_tip_tilt,
-            device_config=device_config,
-        )
+        matrix=matrix,
+        variance_matrix=variance,
+        deviation_response_matrix=None,
+        subaperture_mask=None,
+        n_max=params.n_max,
+        magnitude=amp_waves,
+        wavelength_nm=params.slm_wavelength,
+        n_averages=params.n_avg,
+        n_cycles=params.n_cycles,
+        timestamp=datetime.now().isoformat(),
+        excluded_piston=True,
+        excluded_tip_tilt=params.exclude_tip_tilt,
+        device_config=device_config,
+    )
     # 逆矩阵 (Zernike 模式法矫正控制律: c = pinv(M) @ w, c=(n_slm_modes,), w=(n_wfs_terms,))
     try:
         result.pinv_matrix = safe_pinv(matrix)
@@ -660,7 +624,8 @@ def main(params: SlmZernikeResponseParams) -> int:
         out = Path(params.output)
     else:
         out = Path("data/zernike_response_matrix") / (
-            f"zm_slm{slm._serial_number}_wfs{wfs.serial_num}_{params.slm_wavelength}nm_{ts}.h5"
+            f"zm_slm{slm._serial_number}_wfs{wfs.serial_num}_"
+            f"{params.slm_wavelength}nm_{ts}.h5"
         )
     save_zernike_response_matrix(result, out)
     sidecar = out.with_suffix(".json")

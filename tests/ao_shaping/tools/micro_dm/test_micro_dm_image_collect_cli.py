@@ -2,7 +2,7 @@
 
 The migration moved this tool from loose ``@click.option`` kwargs onto the
 canonical ``with_params`` dataclass binding in
-:mod:`ao_shaping.utils.cli_params`. Two things about that binding are easy to
+:mod:`ao_shaping.utils.cli.params`. Two things about that binding are easy to
 get wrong and invisible to the on-disk-layout tests in the sibling module:
 
 1. **A dataclass field without a default is NOT automatically required.**

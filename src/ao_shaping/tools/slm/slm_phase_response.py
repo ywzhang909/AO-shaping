@@ -48,7 +48,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from ao_shaping.utils.slm_phase import flat_gray
 from ao_shaping.drivers.slm.santec import SlotRotator
-from ao_shaping.utils.cli_params import option, with_params
+from ao_shaping.utils.cli.params import option, with_params
 
 if TYPE_CHECKING:
     from ao_shaping.drivers.slm.santec import Santec
@@ -421,15 +421,22 @@ def _render_only(cases: list[PhaseCase], out: Path) -> dict:
 
 
 @dataclass
-class SlmPhaseResponseParams:
-    """CLI surface of :func:`main`.
+class PhaseResponseParams:
+    """CLI 表面: 11 个选项, 字段顺序 **就是** ``--help`` 顺序 (迁移前的
+    ``@click.option`` 声明顺序, 由 ``tests/ao_shaping/runners/_cli_help_golden.json``
+    逐字节冻结, 勿调整)。
 
-    Values are deliberately NOT shared with the other probes: they encode this
-    probe's own confirmed bench facts -- ``exposure_ms`` 0.02 is the known-good
-    normal-exposure baseline on this MiiCam bench, ``slm_wavelength`` 1064 nm, and
-    the ``slot_min``/``slot_max`` window (2~125, excluding the currently displayed
-    slot) is the AGENTS.md LCOS no-op workaround, not a tuning knob. Other probes
-    carry different values for identically-named flags; see R-37 in ``TODO.md``.
+    默认值只写在 dataclass 字段上 —— ``with_params`` 把它注入 click 选项
+    (在 ``option(...)`` 里再写 ``default=`` 会 ``TypeError``)。因此各选项
+    ``help`` 文本里的 "(默认 …)" 是给人看的副本, 改默认值时两处都要改。
+
+    刻意**不**复用 ``tools/slm/params.py`` 的共享组:
+    :class:`~ao_shaping.tools.slm.params.SlmBenchParams` 会额外引入
+    ``--cam-type`` (本命令硬编码 ``MIICamera``, 不接受相机后端选择) 且
+    ``--exposure-ms`` 默认值是 3.0 而本命令是 0.02 (2026-09 固化的近饱和基线);
+    :class:`~ao_shaping.tools.slm.params.SlmAcquireParams` 会引入
+    ``--frames/--discard/--stable-tol/--max-wait-s`` 且 ``--settle-s`` 默认 0.5
+    而本命令是 0.4。两者都会改变 ``--help`` 与默认采集行为, 违反行为中性。
     """
 
     probe: Annotated[
@@ -440,18 +447,24 @@ class SlmPhaseResponseParams:
             help="相位用例组 (默认 lens)",
         ),
     ] = "lens"
-    slm_number: Annotated[int, option("--slm-number", help="SLM 设备编号 (默认 1)")] = 1
+    slm_number: Annotated[
+        int, option("--slm-number", help="SLM 设备编号 (默认 1)")
+    ] = 1
     slm_wavelength: Annotated[
         int, option("--slm-wavelength", help="SLM 工作波长 nm (默认 1064)")
     ] = 1064
-    cam_id: Annotated[int, option("--cam-id", help="MiiCam 相机 ID (默认 0)")] = 0
+    cam_id: Annotated[
+        int, option("--cam-id", help="MiiCam 相机 ID (默认 0)")
+    ] = 0
     exposure_ms: Annotated[
         float, option("--exposure-ms", help="相机曝光 ms (默认 0.02)")
     ] = 0.02
     n_sample: Annotated[
         int, option("--n-sample", help="每帧平均采样数 (默认 10)")
     ] = 10
-    slot_min: Annotated[int, option("--slot-min", help="内存槽下限 (默认 2)")] = _SLOT_MIN
+    slot_min: Annotated[
+        int, option("--slot-min", help="内存槽下限 (默认 2)")
+    ] = _SLOT_MIN
     slot_max: Annotated[
         int, option("--slot-max", help="内存槽上限 (默认 125)")
     ] = _SLOT_MAX
@@ -459,7 +472,8 @@ class SlmPhaseResponseParams:
         float, option("--settle-s", help="写相位后稳定等待 s (默认 0.4)")
     ] = 0.4
     output: Annotated[
-        str | None, option("-o", "--output", help="输出目录 (默认 docs/slm/<probe>_probe)")
+        str | None,
+        option("-o", "--output", help="输出目录 (默认 docs/slm/<probe>_probe)"),
     ] = None
     render_only: Annotated[
         bool,
@@ -472,18 +486,16 @@ class SlmPhaseResponseParams:
 
 
 @click.command()
-@with_params(SlmPhaseResponseParams, kw_name="params")
-def main(params: SlmPhaseResponseParams) -> None:
+@with_params(PhaseResponseParams, kw_name="params")
+def main(params: PhaseResponseParams) -> None:
     """SLM 相位→CCD 响应探针: 验证 SLM 相位调制是否真的作用于光。
 
     使用 memory 模式 (video_mode=0); 相位写到随机内存槽 (2~125, 排除当前槽)。
     """
-    cases = lens_cases() if params.probe == "lens" else defocus_cases()
-    out = (
-        Path(params.output)
-        if params.output
-        else (Path("docs/slm") / f"slm_{params.probe}_probe")
-    )
+    probe = params.probe
+    cases = lens_cases() if probe == "lens" else defocus_cases()
+    output = params.output
+    out = Path(output) if output else (Path("docs/slm") / f"slm_{probe}_probe")
 
     if params.render_only:
         saved = _render_only(cases, out)
@@ -498,7 +510,7 @@ def main(params: SlmPhaseResponseParams) -> None:
     logger.info(
         "SLM phase probe: {} | slm#{} @{}nm | camera#{} exposure {:.3f}ms | "
         "n_sample={} slots {}-{} | out={}",
-        params.probe,
+        probe,
         params.slm_number,
         params.slm_wavelength,
         params.cam_id,

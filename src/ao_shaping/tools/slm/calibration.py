@@ -114,7 +114,7 @@ from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.wfs import ThorlabWFS
 from ao_shaping.tools.slm.slm_scan_analysis import clamp_shift, parabolic_min
 from ao_shaping.tools.slm.slm_zernike_common import make_phase, measure_tilt_defocus
-from ao_shaping.utils.cli_params import option, with_params
+from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 SETTLE_S = 0.2

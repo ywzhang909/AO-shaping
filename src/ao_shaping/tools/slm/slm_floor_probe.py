@@ -57,7 +57,7 @@ from ao_shaping.tools.slm.slm_bench_metrics import (
 )
 from ao_shaping.tools.slm.slm_bench_probe import measure_spot
 from ao_shaping.tools.slm.slm_snr_probe import SIGMA_FLOOR
-from ao_shaping.utils.cli_params import option, with_params
+from ao_shaping.utils.cli.params import option, with_params
 
 #: Full width of the analysis ROI in pixels; half of this is the half-width
 #: handed to :func:`~ao_shaping.tools.slm.slm_bench_metrics.crop_roi`.

@@ -957,7 +957,7 @@ class TestTrainCli:
         """``--seed`` lives on :class:`RunParams`; declaring it twice is a hard
         click error, so the training dataclass must not contribute it (nor the
         other group-level flags)."""
-        from ao_shaping.utils.cli_params import _collect_click_annotations
+        from ao_shaping.utils.cli.params import _collect_click_annotations
 
         options, _groups = _collect_click_annotations(GsnetTrainParams)
         names = [name for _fld, name, _tp, _delayed in options]
@@ -969,7 +969,7 @@ class TestTrainCli:
 
     def test_train_params_only_infers_click_types_it_can_map(self) -> None:
         """Guards the ``_patch_click_types`` contract for every field."""
-        from ao_shaping.utils.cli_params import _collect_click_annotations
+        from ao_shaping.utils.cli.params import _collect_click_annotations
 
         options, _groups = _collect_click_annotations(GsnetTrainParams)
 

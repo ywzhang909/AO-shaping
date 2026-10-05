@@ -225,11 +225,11 @@ Utility functions for image processing and calculations, organized into 4 subpac
 | `utils/image/` | `spots_calc`, `beam_metrics`, `targets`, `resample`, `display`, `hardware_utils` | `gs_visualization` 已迁至 `display/`（2026-10-03）；`utils/hardware_utils.py` 别名 shim 已删（2026-10-03）。**仍开放**: `display.py` 本身仍是 utils 里的渲染器，需连同 `ImageVoltagesDisplay` / `plot_funcs` / `VOLT_HEIGHT` 的 re-export 一起搬 |
 | `utils/wavefront/` | `zernike_calc`, `zernike_utils`, `wavefront_calc`, `wfs_utils`, `phase_unwrap`, `hadamard_calc`, `matrix_utils` | |
 | `utils/slm/` | `pattern_helper`, `slm_lut`, `phase_display` | |
-| `utils/cli_params.py` (root, not a subpackage) | `option`, `with_params`, `ClickGroup` | **零 `ao_shaping` 导入**（2026-10-03 从 `runners/runner_common.py` 抽出，TODO R-36）。见下方红线 |
+| `utils/cli/params.py` (`utils/cli/` 子包) | `option`, `with_params`, `ClickGroup` | **零 `ao_shaping` 导入**（2026-10-03 从 `runners/runner_common.py` 抽出，TODO R-36）。见下方红线 |
 
 > **注意**: legacy top-level `ao_shaping.utils.X` paths remain importable via shims.
 
-### 🔴 `utils/cli_params.py` 是零导入叶子 (2026-10-03, R-36)
+### 🔴 `utils/cli/params.py` 是零导入叶子 (2026-10-03 抽出 R-36, 2026-10-05 移入 `utils/cli/`)
 
 dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params` 收集器 +
 对象投递) 的**唯一**实现。它同时被 `runners/` 和 `tools/slm/` 消费，所以:

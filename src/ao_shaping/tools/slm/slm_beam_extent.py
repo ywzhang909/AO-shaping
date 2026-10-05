@@ -48,22 +48,25 @@ from ao_shaping.tools.slm.slm_bench_probe import (
     measure_flat_reference,
     random_phase,
 )
-from ao_shaping.utils.cli_params import option, with_params
+from ao_shaping.utils.cli.params import option, with_params
 
 
 @dataclass
-class SlmBeamExtentParams:
-    """CLI surface of :func:`main`.
+class BeamExtentParams:
+    """CLI surface of the beam-extent probe.
 
-    Values are deliberately NOT shared with the other probes: the bench-specific
-    physical constants here were each calibrated against this one measurement --
-    ``slm_wavelength`` 1064 nm, ``exposure_ms`` 3.0, ``core_radius`` 40 px, and
-    ``seed`` 2024 (the sweep needs one *fixed* random phase per run, otherwise the
-    point-to-point scatter swamps the knee). Other probes carry different values
-    for identically-named flags; see R-37 in ``TODO.md``.
+    Field order *is* the ``--help`` order, and the whole eleven-option surface
+    is frozen by ``tests/ao_shaping/runners/_cli_help_golden.json``.
+
+    Declared locally rather than spliced from :mod:`ao_shaping.tools.slm.params`:
+    the shared ``SlmBenchParams`` types ``--cam-type`` as a ``click.Choice``
+    (renders ``[daheng|miicam]``, not ``TEXT``) and leaves ``--exposure-ms`` /
+    ``--frames`` without help text, so reuse would change the frozen help.
     """
 
-    slm_number: Annotated[int, option("--slm-number", help="SLM 设备编号 (默认 1)")] = 1
+    slm_number: Annotated[
+        int, option("--slm-number", help="SLM 设备编号 (默认 1)")
+    ] = 1
     slm_wavelength: Annotated[
         int, option("--slm-wavelength", help="SLM 波长 nm (默认 1064)")
     ] = 1064
@@ -75,11 +78,14 @@ class SlmBeamExtentParams:
         float, option("--exposure-ms", help="相机曝光 ms (默认 3.0)")
     ] = 3.0
     axis: Annotated[
-        str, option("--axis", type=click.Choice(["x", "y"]), help="扫描轴 (默认 x)")
+        str,
+        option("--axis", type=click.Choice(["x", "y"]), help="扫描轴 (默认 x)"),
     ] = "x"
     steps: Annotated[int, option("--steps", help="边界位置数 (默认 12)")] = 12
     frames: Annotated[int, option("--frames", help="每帧平均张数 (默认 4)")] = 4
-    repeats: Annotated[int, option("--repeats", help="每个边界重复次数 (默认 2)")] = 2
+    repeats: Annotated[
+        int, option("--repeats", help="每个边界重复次数 (默认 2)")
+    ] = 2
     core_radius: Annotated[
         float, option("--core-radius", help="中心盘半径 px (默认 40)")
     ] = 40.0
@@ -87,29 +93,38 @@ class SlmBeamExtentParams:
 
 
 @click.command()
-@with_params(SlmBeamExtentParams, kw_name="params")
-def main(params: SlmBeamExtentParams) -> None:
+@with_params(BeamExtentParams, kw_name="params")
+def main(params: BeamExtentParams) -> None:
     """用半平面随机相位边界扫描测光斑在面板上的中心与半径。"""
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm.santec import Santec
 
+    # Local aliases keep the measurement body below verbatim.
+    slm_number = params.slm_number
+    slm_wavelength = params.slm_wavelength
+    cam_type = params.cam_type
+    cam_id = params.cam_id
+    exposure_ms = params.exposure_ms
+    axis = params.axis
+    steps = params.steps
+    frames = params.frames
+    repeats = params.repeats
+    core_radius = params.core_radius
+    seed = params.seed
+
     panel = (SLM_PANEL_H, SLM_PANEL_W)
-    span = SLM_PANEL_W if params.axis == "x" else SLM_PANEL_H
-    positions = np.linspace(0, span, int(params.steps) + 1)[1:]
-    rng = np.random.default_rng(int(params.seed))
-    base_rand = random_phase(panel, seed=int(params.seed))
+    span = SLM_PANEL_W if axis == "x" else SLM_PANEL_H
+    positions = np.linspace(0, span, int(steps) + 1)[1:]
+    rng = np.random.default_rng(int(seed))
+    base_rand = random_phase(panel, seed=int(seed))
     yy, xx = np.mgrid[0 : panel[0], 0 : panel[1]]
 
     with Santec(
-        slm_number=params.slm_number, wavelength=params.slm_wavelength, video_mode=0
-    ) as slm, create_camera(
-        params.cam_type, params.cam_id, exposure_time_ms=params.exposure_ms
-    ) as cam:
-        cam.reset_exposure_time(float(params.exposure_ms))
-        ref, flat = measure_flat_reference(
-            cam, slm, n_frames=params.frames, panel_shape=panel
-        )
-        f0 = core_fraction(ref, flat.centroid_x, flat.centroid_y, params.core_radius)
+        slm_number=slm_number, wavelength=slm_wavelength, video_mode=0
+    ) as slm, create_camera(cam_type, cam_id, exposure_time_ms=exposure_ms) as cam:
+        cam.reset_exposure_time(float(exposure_ms))
+        ref, flat = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
+        f0 = core_fraction(ref, flat.centroid_x, flat.centroid_y, core_radius)
         logger.info(
             "flat reference: {}  core_fraction={:.4f}", flat.as_row(), f0
         )
@@ -118,22 +133,20 @@ def main(params: SlmBeamExtentParams) -> None:
 
         rows: list[tuple[int, float]] = []
         for t in positions:
-            mask = (xx < t) if params.axis == "x" else (yy < t)
+            mask = (xx < t) if axis == "x" else (yy < t)
             fracs: list[float] = []
-            for _ in range(int(params.repeats)):
+            for _ in range(int(repeats)):
                 phase = np.where(mask, base_rand, 0.0)
-                img = display_and_average(cam, slm, phase, n_frames=params.frames)
+                img = display_and_average(cam, slm, phase, n_frames=frames)
                 fracs.append(
-                    core_fraction(
-                        img, flat.centroid_x, flat.centroid_y, params.core_radius
-                    )
+                    core_fraction(img, flat.centroid_x, flat.centroid_y, core_radius)
                 )
             cf = float(np.mean(fracs))
             rows.append((int(t), cf))
             logger.info(
                 "  boundary at {a}={t:>5}  area={p:>5.1f}%  core_fraction={c:.4f}  "
                 "rel={r:.3f}",
-                a=params.axis, t=int(t), p=100.0 * mask.sum() / mask.size,
+                a=axis, t=int(t), p=100.0 * mask.sum() / mask.size,
                 c=cf, r=cf / f0,
             )
 
@@ -148,9 +161,9 @@ def main(params: SlmBeamExtentParams) -> None:
     logger.info(
         "randomising up to {a}={e} px saturates the response (floor rel={f:.2f}), "
         "so the beam's {a} extent ends near {e} px",
-        a=params.axis, e=int(edge), f=floor,
+        a=axis, e=int(edge), f=floor,
     )
-    if params.axis == "x":
+    if axis == "x":
         logger.info(
             "if the beam is centred, that implies centre ~{c} px, radius ~{r} px",
             c=int(edge) // 2, r=int(edge) // 2,
@@ -159,8 +172,7 @@ def main(params: SlmBeamExtentParams) -> None:
         logger.info("panel height is {}, so compare with the x scan", SLM_PANEL_H)
     logger.info(
         "run both axes before trusting a radius: the first few points of a scan "
-        "are non-monotonic because each is only {} random draw(s)",
-        int(params.repeats),
+        "are non-monotonic because each is only {} random draw(s)", int(repeats)
     )
 
 

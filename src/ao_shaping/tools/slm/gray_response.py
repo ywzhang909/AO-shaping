@@ -28,7 +28,7 @@ except ImportError:
 
 from ao_shaping.drivers.ccd.miicam.driver import MIICamera
 from ao_shaping.drivers.slm.santec import Santec, SlotRotator
-from ao_shaping.utils.cli_params import option, with_params
+from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.utils.slm_phase import capture_frame, flat_gray
 
 FIELDNAMES = [
@@ -280,16 +280,20 @@ def acquire_gray_response(
 
 @dataclass
 class GrayResponseParams:
-    """CLI surface of :func:`run`.
+    """CLI 表面: 11 个选项, 字段顺序 **就是** ``--help`` 顺序 (迁移前的
+    ``@click.option`` 声明顺序, 由 ``tests/ao_shaping/runners/_cli_help_golden.json``
+    逐字节冻结, 勿调整)。默认值只写在 dataclass 字段上 (``with_params`` 会注入
+    click, 在 ``option(...)`` 里再写 ``default=`` 会 ``TypeError``), 因此
+    ``show_default=True`` 渲染的正是这些字段默认值。
 
-    Values are deliberately NOT shared with the other probes: the ranges and the
-    bench constants encoded here are this tool's own -- ``exposure_ms`` 0.8 and
-    ``wait_time_s`` 0.3 are the validated flat-phase-gray observation settings on
-    this bench (a separate physical fact: the SLM has amplitude coupling with a
-    period of ~2pi, i.e. ~993 gray at 1064 nm), and ``wavelength`` 1064 is *not*
-    the value most other probes use. Every ``type=`` below is explicit because the
-    original used a non-inferable ``IntRange``/``FloatRange``/``Choice``/``Path``;
-    see R-37 in ``TODO.md``.
+    刻意**不**复用 ``tools/slm/params.py`` 的共享组: 本命令把相机硬编码为
+    ``MIICamera`` (不暴露 ``--cam-type``), 用 ``--discard-count`` 而非
+    ``--discard``, 且 ``--n-sample`` 是每点平均帧数而非 ``--frames``; 曝光范围
+    也不一样。套用 ``SlmBenchParams``/``SlmAcquireParams`` 会新增 flag 并改变
+    默认值 → 违反 ``--help`` 逐字节冻结与行为中性。
+
+    ``bit_depth`` 保持 ``str``: ``click.Choice(["8", "16"])`` 交付字符串, 由
+    :func:`acquire_gray_response` 调用处的 ``int(...)`` 转换 —— 与迁移前一致。
     """
 
     gray_step: Annotated[
@@ -371,7 +375,9 @@ class GrayResponseParams:
     skip_first: Annotated[
         bool,
         option(
-            "--skip-first/--no-skip-first", show_default=True, help="是否跳过首帧"
+            "--skip-first/--no-skip-first",
+            show_default=True,
+            help="是否跳过首帧",
         ),
     ] = True
     discard_count: Annotated[

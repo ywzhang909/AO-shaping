@@ -43,8 +43,6 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.utils.cli_params import option, with_params
-
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.wfs import ThorlabWFS
 from ao_shaping.tools.slm.slm_zernike_common import (
@@ -68,9 +66,10 @@ from ao_shaping.tools.slm.slm_zernike_common import (
     safe_pinv,
     show_phase,
     um_to_waves,
-    wfs_validity
+    wfs_validity,
 )
 from ao_shaping.tools.slm.slm_scan_analysis import outlier_mask
+from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 
@@ -273,7 +272,7 @@ def save_matrix_debug(dbg: Path, matrix: np.ndarray, variance: np.ndarray,
     """
     from ao_shaping.optimizer.wf.zernike_response_matrix import (
         ZernikeResponseMatrixResult,
-        save_zernike_response_matrix
+        save_zernike_response_matrix,
     )
 
     dc = {
@@ -463,29 +462,14 @@ def closed_loop_correct(slm: Santec, wfs: ThorlabWFS, ph: PatternHelper,
 # ─────────────────────────── CLI ───────────────────────────
 
 @dataclass
-class SlmZernikeCorrectionParams:
-    """CLI surface of :func:`main`.
-
-    This probe runs on the 532 nm WFS bench (default --slm-wavelength 532),
-    unlike most of the package which is 1064 nm. Field values are not shared
-    with other probes.
-    """
-
+class ZernikeCorrectionParams:
     stage: Annotated[
         str,
-        option(
-            "--stage",
-            type=click.Choice(["all", "auto", "matrix", "closed"]),
-            show_default=True,
-            help="执行阶段"
-        ),
+        option("--stage", type=click.Choice(["all", "auto", "matrix", "closed"]),
+               show_default=True, help="执行阶段"),
     ] = "all"
-    slm_number: Annotated[
-        int, option("--slm-number", show_default=True)
-    ] = 1
-    slm_wavelength: Annotated[
-        int, option("--slm-wavelength", show_default=True)
-    ] = 532
+    slm_number: Annotated[int, option("--slm-number", show_default=True)] = 1
+    slm_wavelength: Annotated[int, option("--slm-wavelength", show_default=True)] = 532
     wfs_exposure_ms: Annotated[
         float, option("--wfs-exposure-ms", show_default=True)
     ] = DEFAULT_EXPOSURE_MS
@@ -500,46 +484,30 @@ class SlmZernikeCorrectionParams:
     ] = 3
     settle_extra_s: Annotated[
         float,
-        option(
-            "--settle-extra-s",
-            show_default=True,
-            help="像素翻转估算之外的冗余等待 (s)"
-        ),
+        option("--settle-extra-s", show_default=True,
+               help="像素翻转估算之外的冗余等待 (s)"),
     ] = SETTLE_REDUNDANCY_S
     radius_factor: Annotated[
         str,
-        option(
-            "--radius-factor",
-            show_default=True,
-            help="扫描半径 = 光束半径 × 该列表 (默认避开 1.0×: R≈光束半径时大振幅击穿拟合)"
-        ),
+        option("--radius-factor", show_default=True,
+               help="扫描半径 = 光束半径 × 该列表 (默认避开 1.0×: R≈光束半径时大振幅击穿拟合)"),
     ] = "1.5,2.0"
     radii: Annotated[
         str | None,
-        option(
-            "--radii",
-            help="直接指定扫描半径 px (逗号分隔, 覆盖 --radius-factor)"
-        ),
+        option("--radii", help="直接指定扫描半径 px (逗号分隔, 覆盖 --radius-factor)"),
     ] = None
     amps: Annotated[
-        str,
-        option("--amps", show_default=True, help="幅度 rad 列表 (各测 ±)"),
+        str, option("--amps", show_default=True, help="幅度 rad 列表 (各测 ±)")
     ] = "2,5,10"
     outlier_factor: Annotated[
         float,
-        option(
-            "--outlier-factor",
-            show_default=True,
-            help="逐点异常剔除: 同组 |resp| 偏离中位数超过该倍数则剔除"
-        ),
+        option("--outlier-factor", show_default=True,
+               help="逐点异常剔除: 同组 |resp| 偏离中位数超过该倍数则剔除"),
     ] = 3.0
     coverage_tol: Annotated[
         int,
-        option(
-            "--coverage-tol",
-            show_default=True,
-            help="统一半径选择: 覆盖度容差内取最小 R (实测 R=300 优于 R=400 条件数 5×)"
-        ),
+        option("--coverage-tol", show_default=True,
+               help="统一半径选择: 覆盖度容差内取最小 R (实测 R=300 优于 R=400 条件数 5×)"),
     ] = 1
     radius_scan: Annotated[
         str,
@@ -559,24 +527,17 @@ class SlmZernikeCorrectionParams:
     ] = False
     save_phase: Annotated[
         bool,
-        option(
-            "--save-phase",
-            is_flag=True,
-            help="debug: 额外保存每轮实际上屏 uint16 灰度相位 (npy, 每张 ~4.6MB)"
-        ),
+        option("--save-phase", is_flag=True,
+               help="debug: 额外保存每轮实际上屏 uint16 灰度相位 (npy, 每张 ~4.6MB)"),
     ] = False
     export_correction: Annotated[
         bool,
-        option(
-            "--export-correction/--no-export-correction",
-            show_default=True,
-            help="导出可复原的矫正相位 CSV (驱动 Santec.save_phase_to_csv; "
-            "文件名含 序列号/波长/shift/半径/时间 + sidecar JSON 元数据)"
-        ),
+        option("--export-correction/--no-export-correction", show_default=True,
+               help="导出可复原的矫正相位 CSV (驱动 Santec.save_phase_to_csv; "
+                    "文件名含 序列号/波长/shift/半径/时间 + sidecar JSON 元数据)"),
     ] = True
     export_dir: Annotated[
-        str,
-        option("--export-dir", show_default=True, help="矫正相位导出目录"),
+        str, option("--export-dir", show_default=True, help="矫正相位导出目录")
     ] = "data/slm_corrections"
     output_dir: Annotated[
         str, option("-o", "--output-dir", show_default=True)
@@ -584,11 +545,12 @@ class SlmZernikeCorrectionParams:
 
 
 @click.command()
-@with_params(SlmZernikeCorrectionParams, kw_name="params")
-def main(params: SlmZernikeCorrectionParams) -> int:
+@with_params(ZernikeCorrectionParams, kw_name="params")
+def main(params: ZernikeCorrectionParams) -> int:
     """SLM Zernike 模式法波前矫正 — 三阶段流程."""
     if params.wfs_exposure_ms > MAX_EXPOSURE_MS:
-        raise click.BadParameter(f"WFS 曝光 {params.wfs_exposure_ms}ms > {MAX_EXPOSURE_MS}ms")
+        raise click.BadParameter(
+            f"WFS 曝光 {params.wfs_exposure_ms}ms > {MAX_EXPOSURE_MS}ms")
     if not 2 <= params.wfs_order <= 10:
         raise click.BadParameter("--wfs-order 必须在 2..10")
 
@@ -610,7 +572,8 @@ def main(params: SlmZernikeCorrectionParams) -> int:
     click.echo("[SLM Zernike 模式法波前矫正] 三阶段流程 (已按实测优化)")
     click.echo("=" * 72)
 
-    slm = Santec(slm_number=params.slm_number, wavelength=params.slm_wavelength, video_mode=0)
+    slm = Santec(slm_number=params.slm_number, wavelength=params.slm_wavelength,
+                 video_mode=0)
     wfs = ThorlabWFS(exposure_time=params.wfs_exposure_ms, use_custom_ref=False)
     ph = PatternHelper(resolution=(PANEL_W, PANEL_H))
     report: dict = {"stage": params.stage, "timestamp": ts}
@@ -652,8 +615,8 @@ def main(params: SlmZernikeCorrectionParams) -> int:
             slm.set_shift(sx, sy)
             slm.save_config()
             report["shift"] = [sx, sy]
-            report["flat_reference"] = setup_flat_reference(slm, wfs, max(params.n_avg, 3),
-                                                            params.settle_extra_s)
+            report["flat_reference"] = setup_flat_reference(
+                slm, wfs, max(params.n_avg, 3), params.settle_extra_s)
 
         matrix = None
         r_used = r_beam
@@ -666,8 +629,9 @@ def main(params: SlmZernikeCorrectionParams) -> int:
                 r_list = [r_beam * f for f in fac_list]
             r_list = [float(np.clip(r, 120, 600)) for r in r_list]
             matrix, metrics, extra = scan_response_matrix(
-                slm, wfs, ph, modes, r_list, amp_list, params.n_avg, params.settle_extra_s,
-                incr, params.wfs_order, params.outlier_factor, params.coverage_tol)
+                slm, wfs, ph, modes, r_list, amp_list, params.n_avg,
+                params.settle_extra_s, incr, params.wfs_order,
+                params.outlier_factor, params.coverage_tol)
             variance = np.array(extra.pop("variance", []), dtype=float)
             pts = extra.pop("points", [])
             report["metrics"] = metrics
@@ -690,7 +654,8 @@ def main(params: SlmZernikeCorrectionParams) -> int:
                 click.echo("[WARN] 无矩阵, 跳过闭环矫正")
             else:
                 cl = closed_loop_correct(
-                    slm, wfs, ph, matrix, modes, r_used, params.n_avg, params.settle_extra_s,
+                    slm, wfs, ph, matrix, modes, r_used, params.n_avg,
+                    params.settle_extra_s,
                     n_iter=params.n_iter, gain=params.gain, leak=params.leak,
                     debug_dir=dbg / "closed_loop", save_phase=params.save_phase)
                 report["closed_loop"] = cl

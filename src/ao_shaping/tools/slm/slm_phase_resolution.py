@@ -71,7 +71,59 @@ from ao_shaping.tools.slm.slm_bench_probe import (
     measure_spot,
     random_phase,
 )
-from ao_shaping.utils.cli_params import option, with_params
+from ao_shaping.utils.cli.params import option, with_params
+
+
+@dataclass
+class PhaseResolutionParams:
+    """CLI surface of the phase-resolution probe.
+
+    Field order *is* the ``--help`` order, and the whole eleven-option surface
+    is frozen by ``tests/ao_shaping/runners/_cli_help_golden.json``.
+
+    Declared locally rather than spliced from :mod:`ao_shaping.tools.slm.params`:
+    the shared ``SlmBenchParams`` types ``--cam-type`` as a ``click.Choice``
+    (renders ``[daheng|miicam]``, not ``TEXT``) and leaves ``--exposure-ms`` /
+    ``--frames`` without help text, so reuse would change the frozen help.
+    """
+
+    slm_number: Annotated[
+        int, option("--slm-number", help="SLM 设备编号 (默认 1)")
+    ] = 1
+    slm_wavelength: Annotated[
+        int, option("--slm-wavelength", help="SLM 波长 nm (默认 1064)")
+    ] = 1064
+    cam_type: Annotated[
+        str, option("--cam-type", help="相机类型 (daheng/miicam, 默认 daheng)")
+    ] = "daheng"
+    cam_id: Annotated[int, option("--cam-id", help="相机 ID (默认 0)")] = 0
+    exposure_ms: Annotated[
+        float, option("--exposure-ms", help="相机曝光 ms (默认 3.0)")
+    ] = 3.0
+    zernike_radius: Annotated[
+        int,
+        option("--zernike-radius", help="Zernike 孔径半径 px (默认 450)"),
+    ] = BEAM_RADIUS_PANEL
+    pupil_center: Annotated[
+        str,
+        option("--pupil-center", help="光斑中心 (面板 px 'x,y', 默认 960,600)"),
+    ] = "960,600"
+    orders: Annotated[
+        str,
+        option(
+            "--orders",
+            help="随机 Zernike 的最高阶 (逗号分隔)。阶数越低越光滑, 默认 4,8,14",
+        ),
+    ] = "4,8,14"
+    scale: Annotated[
+        float,
+        option(
+            "--scale",
+            help="每阶系数的高斯 sigma (rad)。默认 0.8 对应高阶自动衰减, 保持总 RMS 相当",
+        ),
+    ] = 0.8
+    frames: Annotated[int, option("--frames", help="每帧平均张数 (默认 4)")] = 4
+    seed: Annotated[int, option("--seed", help="随机种子 (默认 11)")] = 11
 
 
 def zernike_random_panel(
@@ -128,78 +180,37 @@ def _paste(
     return out
 
 
-@dataclass
-class SlmPhaseResolutionParams:
-    """CLI surface of :func:`main`.
-
-    Values are deliberately NOT shared with the other probes: the table this probe
-    exists to reproduce was measured on *this* bench at 3.0 ms with beam r=450 px
-    (hence ``zernike_radius = BEAM_RADIUS_PANEL`` and ``pupil_center`` 960,600), and
-    ``scale`` 0.8 rad is the per-order sigma that keeps total RMS roughly constant
-    as the order cap rises -- the whole verdict ("smoother degrades the focus,
-    per-pixel does nothing") depends on it. Other probes carry different values for
-    identically-named flags; see R-37 in ``TODO.md``.
-    """
-
-    slm_number: Annotated[int, option("--slm-number", help="SLM 设备编号 (默认 1)")] = 1
-    slm_wavelength: Annotated[
-        int, option("--slm-wavelength", help="SLM 波长 nm (默认 1064)")
-    ] = 1064
-    cam_type: Annotated[
-        str, option("--cam-type", help="相机类型 (daheng/miicam, 默认 daheng)")
-    ] = "daheng"
-    cam_id: Annotated[int, option("--cam-id", help="相机 ID (默认 0)")] = 0
-    exposure_ms: Annotated[
-        float, option("--exposure-ms", help="相机曝光 ms (默认 3.0)")
-    ] = 3.0
-    zernike_radius: Annotated[
-        int, option("--zernike-radius", help="Zernike 孔径半径 px (默认 450)")
-    ] = BEAM_RADIUS_PANEL
-    pupil_center: Annotated[
-        str, option("--pupil-center", help="光斑中心 (面板 px 'x,y', 默认 960,600)")
-    ] = "960,600"
-    orders: Annotated[
-        str,
-        option(
-            "--orders",
-            help="随机 Zernike 的最高阶 (逗号分隔)。阶数越低越光滑, 默认 4,8,14",
-        ),
-    ] = "4,8,14"
-    scale: Annotated[
-        float,
-        option(
-            "--scale",
-            help="每阶系数的高斯 sigma (rad)。默认 0.8 对应高阶自动衰减, 保持总 RMS 相当",
-        ),
-    ] = 0.8
-    frames: Annotated[int, option("--frames", help="每帧平均张数 (默认 4)")] = 4
-    seed: Annotated[int, option("--seed", help="随机种子 (默认 11)")] = 11
-
-
 @click.command()
-@with_params(SlmPhaseResolutionParams, kw_name="params")
-def main(params: SlmPhaseResolutionParams) -> None:
+@with_params(PhaseResolutionParams, kw_name="params")
+def main(params: PhaseResolutionParams) -> None:
     """比较逐像素随机相位与光滑 Zernike 相位, 判定面板的等效相位分辨率。"""
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm.santec import Santec
 
+    # Local aliases keep the measurement body below verbatim.
+    slm_number = params.slm_number
+    slm_wavelength = params.slm_wavelength
+    cam_type = params.cam_type
+    cam_id = params.cam_id
+    exposure_ms = params.exposure_ms
+    zernike_radius = params.zernike_radius
+    pupil_center = params.pupil_center
+    orders = params.orders
+    scale = params.scale
+    frames = params.frames
+    seed = params.seed
+
     panel = (SLM_PANEL_H, SLM_PANEL_W)
-    pupil = tuple(int(float(v)) for v in str(params.pupil_center).split(","))
+    pupil = tuple(int(float(v)) for v in str(pupil_center).split(","))
     if len(pupil) != 2:
         raise SystemExit("--pupil-center must be 'x,y' in panel pixels")
-    order_list = [
-        int(float(v)) for v in str(params.orders).split(",") if v.strip()
-    ]
+    order_list = [int(float(v)) for v in str(orders).split(",") if v.strip()]
 
     with Santec(
-        slm_number=params.slm_number, wavelength=params.slm_wavelength, video_mode=0
-    ) as slm, create_camera(
-        params.cam_type, params.cam_id, exposure_time_ms=params.exposure_ms
-    ) as cam:
-        cam.reset_exposure_time(float(params.exposure_ms))
-        ref, flat = measure_flat_reference(
-            cam, slm, n_frames=params.frames, panel_shape=panel
-        )
+        slm_number=slm_number, wavelength=slm_wavelength, video_mode=0
+    ) as slm, create_camera(cam_type, cam_id, exposure_time_ms=exposure_ms) as cam:
+        cam.reset_exposure_time(float(exposure_ms))
+        ref, flat = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
         flat_core = core_fraction(ref, flat.centroid_x, flat.centroid_y, 40.0)
         logger.info("flat: {}  core40={:.4f}", flat.as_row(), flat_core)
 
@@ -207,14 +218,8 @@ def main(params: SlmPhaseResolutionParams) -> None:
             (
                 "per-pixel random",
                 _paste(
-                    random_phase(
-                        (
-                            2 * params.zernike_radius + 1,
-                            2 * params.zernike_radius + 1,
-                        ),
-                        params.seed,
-                    ),
-                    params.zernike_radius,
+                    random_phase((2 * zernike_radius + 1, 2 * zernike_radius + 1), seed),
+                    zernike_radius,
                     pupil,
                     panel,
                 ),
@@ -224,18 +229,13 @@ def main(params: SlmPhaseResolutionParams) -> None:
             cases.append((
                 f"Zernike n<={n} random",
                 zernike_random_panel(
-                    params.seed + k + 1,
-                    n,
-                    params.scale,
-                    params.zernike_radius,
-                    pupil,
-                    panel,
+                    seed + k + 1, n, scale, zernike_radius, pupil, panel
                 ),
             ))
 
         rows: list[tuple[str, float, float, float]] = []
         for name, phase in cases:
-            img = display_and_average(cam, slm, phase, n_frames=params.frames)
+            img = display_and_average(cam, slm, phase, n_frames=frames)
             m = measure_spot(img)
             c = core_fraction(img, flat.centroid_x, flat.centroid_y, 40.0)
             rows.append((name, m.peak, c, m.fwhm_px))

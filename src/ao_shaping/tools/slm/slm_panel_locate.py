@@ -48,7 +48,7 @@ from ao_shaping.tools.slm.slm_bench_probe import (
     measure_flat_reference,
     random_phase,
 )
-from ao_shaping.utils.cli_params import option, with_params
+from ao_shaping.utils.cli.params import option, with_params
 
 
 def _box_mask(shape: tuple[int, int], cx: int, cy: int, r: int) -> np.ndarray:
@@ -58,16 +58,20 @@ def _box_mask(shape: tuple[int, int], cx: int, cy: int, r: int) -> np.ndarray:
 
 @dataclass
 class PanelLocateParams:
-    """面板坐标光斑定位探针的 CLI 参数。
+    """CLI surface of the panel-locate probe.
 
-    ``--slm-wavelength`` 默认 1064 nm (本台架红外工位) 与 ``--patch-radius``
-    默认 ``BEAM_RADIUS_PANEL`` (实测光斑半径 450 面板 px) 都是**本台架**标定的
-    物理常数; 候选网格 ``--grid-xs``/``--grid-ys`` 的默认值覆盖 240..1680 px,
-    即整块面板, 因为相机 0 阶坐标与面板坐标轴互换 90° 且尺度差 >10 倍 ——
-    面板偏移必须实测, 不能从相机坐标推导。
+    Field order *is* the ``--help`` order, and the whole ten-option surface is
+    frozen by ``tests/ao_shaping/runners/_cli_help_golden.json``.
+
+    Declared locally rather than spliced from :mod:`ao_shaping.tools.slm.params`:
+    the shared ``SlmBenchParams`` types ``--cam-type`` as a ``click.Choice``
+    (renders ``[daheng|miicam]``, not ``TEXT``) and leaves ``--exposure-ms`` /
+    ``--frames`` without help text, so reuse would change the frozen help.
     """
 
-    slm_number: Annotated[int, option("--slm-number", help="SLM 设备编号 (默认 1)")] = 1
+    slm_number: Annotated[
+        int, option("--slm-number", help="SLM 设备编号 (默认 1)")
+    ] = 1
     slm_wavelength: Annotated[
         int, option("--slm-wavelength", help="SLM 波长 nm (默认 1064)")
     ] = 1064
@@ -86,10 +90,12 @@ class PanelLocateParams:
         ),
     ] = BEAM_RADIUS_PANEL
     grid_xs: Annotated[
-        str, option("--grid-xs", help="候选 x (面板 px, 逗号分隔)")
+        str,
+        option("--grid-xs", help="候选 x (面板 px, 逗号分隔)"),
     ] = "240,600,960,1320,1680"
     grid_ys: Annotated[
-        str, option("--grid-ys", help="候选 y (面板 px, 逗号分隔)")
+        str,
+        option("--grid-ys", help="候选 y (面板 px, 逗号分隔)"),
     ] = "220,480,720,980"
     frames: Annotated[int, option("--frames", help="每帧平均张数 (默认 4)")] = 4
     seed: Annotated[int, option("--seed", help="随机相位种子 (默认 7)")] = 7
@@ -102,20 +108,28 @@ def main(params: PanelLocateParams) -> None:
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm.santec import Santec
 
-    xs = [int(float(v)) for v in str(params.grid_xs).split(",") if v.strip()]
-    ys = [int(float(v)) for v in str(params.grid_ys).split(",") if v.strip()]
+    # Local aliases keep the measurement body below verbatim.
+    slm_number = params.slm_number
+    slm_wavelength = params.slm_wavelength
+    cam_type = params.cam_type
+    cam_id = params.cam_id
+    exposure_ms = params.exposure_ms
+    patch_radius = params.patch_radius
+    grid_xs = params.grid_xs
+    grid_ys = params.grid_ys
+    frames = params.frames
+    seed = params.seed
+
+    xs = [int(float(v)) for v in str(grid_xs).split(",") if v.strip()]
+    ys = [int(float(v)) for v in str(grid_ys).split(",") if v.strip()]
     panel = (SLM_PANEL_H, SLM_PANEL_W)
-    rng = np.random.default_rng(int(params.seed))
+    rng = np.random.default_rng(int(seed))
 
     with Santec(
-        slm_number=params.slm_number, wavelength=params.slm_wavelength, video_mode=0
-    ) as slm, create_camera(
-        params.cam_type, params.cam_id, exposure_time_ms=params.exposure_ms
-    ) as cam:
-        cam.reset_exposure_time(float(params.exposure_ms))
-        ref, flat = measure_flat_reference(
-            cam, slm, n_frames=params.frames, panel_shape=panel
-        )
+        slm_number=slm_number, wavelength=slm_wavelength, video_mode=0
+    ) as slm, create_camera(cam_type, cam_id, exposure_time_ms=exposure_ms) as cam:
+        cam.reset_exposure_time(float(exposure_ms))
+        ref, flat = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
         box = _box_mask(ref.shape, int(round(flat.centroid_x)),
                         int(round(flat.centroid_y)), 60)
         base = float(ref[box].sum())
@@ -131,9 +145,9 @@ def main(params: PanelLocateParams) -> None:
             for xi, px in enumerate(xs):
                 phase = np.zeros(panel, dtype=np.float64)
                 yy, xx = np.mgrid[0 : panel[0], 0 : panel[1]]
-                m = (yy - py) ** 2 + (xx - px) ** 2 <= int(params.patch_radius) ** 2
+                m = (yy - py) ** 2 + (xx - px) ** 2 <= int(patch_radius) ** 2
                 phase[m] = rng.uniform(0.0, 2.0 * np.pi, int(m.sum()))
-                img = display_and_average(cam, slm, phase, n_frames=params.frames)
+                img = display_and_average(cam, slm, phase, n_frames=frames)
                 delta = float((img[box].sum() - base) / base)
                 row.append(delta)
                 results.append((abs(delta), py, px, delta))

@@ -79,8 +79,6 @@ dev = [
     "ruff>=0.15.12",
 ]
 ml = [
-    "torch>=2.4.0",
-    "torchvision>=0.20",
     "wandb>=0.20.0",
 ]
 rl = [
@@ -94,18 +92,73 @@ data = [
     "ipython>=9.2.0",
 ]
 
+# ---------------------------------------------------------------------------
+# PyTorch build selection (uv `tool.uv.sources` + explicit indexes)
+# ---------------------------------------------------------------------------
+# torch/torchvision live in EXTRAS, not in a dependency group, because uv's
+# `--extra` selects `[project.optional-dependencies]` and CANNOT select a
+# `[dependency-groups]` entry. Declaring them as extras is what makes
+# `uv sync --extra torch-cu128` able to pick the index at all.
+#
+# Pick the extra by your GPU's compute capability -- the deciding fact is that
+# NVIDIA Blackwell (RTX 50xx, sm_120) needs CUDA >= 12.8. A cu124/cu121 build
+# installs cleanly and then fails at runtime with
+#     RuntimeError: CUDA error: no kernel image is available for execution on the device
+# (pytorch/pytorch#159207). Verify before choosing:
+#     python -c "import torch; print(torch.cuda.get_device_capability(0))"
+#   sm_120 (RTX 50xx)  -> torch-cu128 / torch-cu130 / torch-cu132
+#   sm_90  (RTX 40xx)  -> torch-cu126 or newer
+#   no CUDA            -> torch-cpu
+[project.optional-dependencies]
+torch-cpu = [
+    "torch>=2.4.0",
+    "torchvision>=0.20",
+]
+torch-cu128 = [
+    "torch>=2.4.0",
+    "torchvision>=0.20",
+]
+torch-cu130 = [
+    "torch>=2.4.0",
+    "torchvision>=0.20",
+]
+torch-cu132 = [
+    "torch>=2.4.0",
+    "torchvision>=0.20",
+]
+
+[tool.uv]
+# Without this, several extras are satisfiable at once and uv would try to
+# resolve torch from more than one index. Exactly one torch extra may be active.
+conflicts = [
+    [
+        { extra = "torch-cpu" },
+        { extra = "torch-cu128" },
+        { extra = "torch-cu130" },
+        { extra = "torch-cu132" },
+    ],
+]
+
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
 
+# PyTorch CUDA indexes. `explicit = true` means each is used ONLY by a package
+# that names it in [tool.uv.sources] below -- without that flag these would leak
+# into the resolution of every other dependency.
 [[tool.uv.index]]
-name = "pytorch-cu130"
-url = "https://download.pytorch.org/whl/cu130"
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [[tool.uv.index]]
-name = "pytorch-cu124"
-url = "https://download.pytorch.org/whl/cu124"
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [[tool.uv.index]]
@@ -115,10 +168,16 @@ explicit = true
 
 [tool.uv.sources]
 torch = [
-  { index = "pytorch-cu132", marker = "sys_platform == 'win32'" },
+  { index = "pytorch-cpu", extra = "torch-cpu" },
+  { index = "pytorch-cu128", extra = "torch-cu128" },
+  { index = "pytorch-cu130", extra = "torch-cu130" },
+  { index = "pytorch-cu132", extra = "torch-cu132" },
 ]
 torchvision = [
-  { index = "pytorch-cu132", marker = "sys_platform == 'win32'" },
+  { index = "pytorch-cpu", extra = "torch-cpu" },
+  { index = "pytorch-cu128", extra = "torch-cu128" },
+  { index = "pytorch-cu130", extra = "torch-cu130" },
+  { index = "pytorch-cu132", extra = "torch-cu132" },
 ]
 # OOPAO: optional dependency for the AO_OOPAO_BACKEND=1 sim path.
 # Non-default: absent installs fall back to the numpy/legacy path.

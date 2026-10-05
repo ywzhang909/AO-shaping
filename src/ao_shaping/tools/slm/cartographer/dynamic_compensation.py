@@ -260,30 +260,21 @@ class DynamicCompensator:
         )
         return comp_gs
 
-    def apply_compensation(self, compensation_grayscale: np.ndarray) -> int:
-        """Display the compensation pattern, letting the driver rotate memory slots.
+    def apply_compensation(
+        self,
+        compensation_grayscale: np.ndarray,
+    ) -> None:
+        """Display compensation pattern on SLM.
 
         Args:
             compensation_grayscale: 2D uint16 grayscale array.
-
-        Returns:
-            The memory slot the pattern landed in.
-
-        ⚠️ **Never pass ``memory_number`` here.** Santec firmware treats
-        ``display_memory(slot)`` as a no-op when ``slot`` is already the displayed
-        slot, so a pinned slot makes every iteration after the first write fresh
-        data into a slot the panel is already showing -- the LCOS never refreshes
-        and the loop just re-measures the same panel state. ``display_data`` with
-        no ``memory_number`` rotates on its own *and* skips the currently displayed
-        slot, so the first write after ``open()`` cannot collide with a pattern
-        another process left there. ``memory_mode`` already defaults to
-        ``MEMORY_MODE_INTERNAL`` at the driver, so it needs no argument either.
         """
         assert self.slm.is_open, "SLM must be opened"
-        slot = self.slm.display_data(compensation_grayscale)
-        logger.info(f"Compensation applied to SLM memory slot {slot}.")
+        logger.info("Applying compensation to SLM (driver-rotated memory slot)...")
+        # 刻意省略 display_data 的槽位参数: 固定槽位是固件 no-op (同一槽连续 display_memory 不刷新面板, 之后每帧都是旧图), 省略后驱动在 1~127 槽间自行轮换
+        self.slm.display_data(compensation_grayscale)
         time.sleep(0.3)
-        return slot
+        logger.info("Compensation applied.")
 
     def verify_correction(self) -> tuple[np.ndarray, dict[str, float]]:
         """Re-measure wavefront after compensation.

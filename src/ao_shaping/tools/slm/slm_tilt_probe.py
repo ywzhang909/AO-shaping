@@ -54,21 +54,27 @@ from ao_shaping.tools.slm.slm_bench_probe import (
     measure_spot,
     ramp_panel,
 )
-from ao_shaping.utils.cli_params import option, with_params
+from ao_shaping.utils.cli.params import option, with_params
 
 
 @dataclass
-class SlmTiltProbeParams:
-    """倾斜斜坡探针的 CLI 参数。
+class TiltProbeParams:
+    """CLI surface of the tilt probe.
 
-    三个默认值都是**本台架**标定的物理常数, 不与其他探针共享取值:
-    ``--slm-wavelength`` 默认 1064 nm (红外工位; 532 nm 是另一台 SLM),
-    ``--exposure-ms`` 默认 3.0 ms —— 1.1 ms 时 0 阶峰值约 60 但散斑帧太暗,
-    ``--periods`` 默认 ``480,240,120`` 面板 px, 对应焦面位移 ≈ 7600/period 相机 px,
-    所以周期必须大 (周期 1 会把光斑甩出 5.7 mm 画框)。
+    Field order *is* the ``--help`` order, and the whole nine-option surface is
+    frozen by ``tests/ao_shaping/runners/_cli_help_golden.json``.
+
+    These five device/acquisition knobs are declared locally rather than spliced
+    from :mod:`ao_shaping.tools.slm.params`. The shared groups are deliberately
+    *not* a drop-in here: :class:`~ao_shaping.tools.slm.params.SlmBenchParams`
+    types ``--cam-type`` as a ``click.Choice`` (which renders
+    ``[daheng|miicam]``, not ``TEXT``) and leaves ``--exposure-ms``/``--frames``
+    without help text, so reusing it would silently change the frozen help.
     """
 
-    slm_number: Annotated[int, option("--slm-number", help="SLM 设备编号 (默认 1)")] = 1
+    slm_number: Annotated[
+        int, option("--slm-number", help="SLM 设备编号 (默认 1)")
+    ] = 1
     slm_wavelength: Annotated[
         int, option("--slm-wavelength", help="SLM 波长 nm (默认 1064)")
     ] = 1064
@@ -100,50 +106,61 @@ class SlmTiltProbeParams:
         ),
     ] = "x"
     frames: Annotated[int, option("--frames", help="每帧平均张数 (默认 4)")] = 4
-    repeat: Annotated[int, option("--repeat", help="每个周期重复次数 (默认 2)")] = 2
+    repeat: Annotated[
+        int, option("--repeat", help="每个周期重复次数 (默认 2)")
+    ] = 2
 
 
 @click.command()
-@with_params(SlmTiltProbeParams, kw_name="params")
-def main(params: SlmTiltProbeParams) -> None:
+@with_params(TiltProbeParams, kw_name="params")
+def main(params: TiltProbeParams) -> None:
     """用相位倾斜斜坡判定面板是否真的在调制 (比光栅可靠得多)。"""
+    # Local aliases keep the position-sensitive measurement body below verbatim.
+    slm_number = params.slm_number
+    slm_wavelength = params.slm_wavelength
+    cam_type = params.cam_type
+    cam_id = params.cam_id
+    exposure_ms = params.exposure_ms
+    periods = params.periods
+    axis = params.axis
+    frames = params.frames
+    repeat = params.repeat
+
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL, Santec
 
-    period_list = [int(float(p)) for p in str(params.periods).split(",") if p.strip()]
+    period_list = [int(float(p)) for p in str(periods).split(",") if p.strip()]
     if not period_list:
         raise SystemExit("--periods 没有解析出任何周期")
     panel = (SLM_PANEL_H, SLM_PANEL_W)
-    axis_index = 1 if params.axis == "x" else 0
+    axis_index = 1 if axis == "x" else 0
     points: list[tuple[float, float, float, int]] = []  # (period, cx, cy, slot)
 
     with Santec(
-        slm_number=params.slm_number, wavelength=params.slm_wavelength, video_mode=0
-    ) as slm, create_camera(
-        params.cam_type, params.cam_id, exposure_time_ms=params.exposure_ms
-    ) as cam:
-        cam.reset_exposure_time(float(params.exposure_ms))
+        slm_number=slm_number, wavelength=slm_wavelength, video_mode=0
+    ) as slm, create_camera(cam_type, cam_id, exposure_time_ms=exposure_ms) as cam:
+        cam.reset_exposure_time(float(exposure_ms))
 
         # Flat FIRST: the panel retains the last displayed pattern, so a "flat"
         # read before any write is the previous run's speckle.
-        _, flat = measure_flat_reference(cam, slm, n_frames=params.frames, panel_shape=panel)
+        _, flat = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
         logger.info(
             "flat reference: {}  (0-order is the frame's brightest point, never "
             "the geometric centre)", flat.as_row()
         )
 
         for period in period_list:
-            for rep in range(int(params.repeat)):
+            for rep in range(int(repeat)):
                 gray = slm.create_phase_from_array(ramp_panel(period, axis_index, panel))
                 slot = slm.display_data(gray, memory_mode=MEMORY_MODE_INTERNAL)
                 img = display_and_average(
-                    cam, slm, ramp_panel(period, axis_index, panel), n_frames=params.frames
+                    cam, slm, ramp_panel(period, axis_index, panel), n_frames=frames
                 )
                 m = measure_spot(img)
                 points.append((float(period), m.centroid_x, m.centroid_y, int(slot)))
                 logger.info(
                     "panel-{a} ramp period {p:>4} px  rep {r}  slot={s:<4} {m}",
-                    a=params.axis, p=period, r=rep + 1, s=slot, m=m.as_row(),
+                    a=axis, p=period, r=rep + 1, s=slot, m=m.as_row(),
                 )
 
     # The panel-x ramp moves the spot along one *camera* axis; find out which.
@@ -180,10 +197,10 @@ def main(params: SlmTiltProbeParams) -> None:
     logger.info(
         "a panel-{a} ramp moved the spot along {b} -- {v} the expected 90 degree "
         "axis swap",
-        a=params.axis, b=moved_axis,
+        a=axis, b=moved_axis,
         v=(
             "CONFIRMING"
-            if (params.axis == "x") == (moved_axis == "camera-y")
+            if (axis == "x") == (moved_axis == "camera-y")
             else "NOT the"
         ),
     )

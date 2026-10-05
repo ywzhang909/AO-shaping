@@ -1,53 +1,63 @@
-"""dataclass-to-click parameter binding: the ``Annotated[..., option(...)]`` convention.
+"""``Annotated[...]`` → click options: the ``with_params`` dataclass-click mechanism.
 
-Every parameter group in this repo declares its CLI options as dataclass fields
-carrying click metadata::
+**Leaf-module invariant: this module MUST NOT import anything from
+``ao_shaping``** — not even indirectly. It is the leaf that both ``runners/``
+and ``tools/`` depend on, and its only third-party dependency is ``click``.
 
-    @dataclass
-    class MyParams:
-        epochs: Annotated[int, option("-e", "--epochs")] = 2000
+Why the constraint is load-bearing (do not relax it):
 
-:func:`with_params` then turns that class into a stack of ``click.option``
-decorators, so the **dataclass field default is the single source of truth for
-the CLI default** and the option list reads in declaration order. Callers
-receive one populated instance instead of a dozen loose kwargs.
+* ``runners/slm/zernike_matrix_runner.py`` imports ``ao_shaping.tools.slm.*`` at
+  module level, so ``tools/slm`` must never import ``runners/``. Because this
+  module sits below both, a single ``from ao_shaping...`` here would open the
+  cycle ``utils.cli.params → ao_shaping.<pkg> → ... → runners.runner_common →
+  utils.cli.params``.
+* The mechanism is *pure metadata plumbing*: delayed click options, annotation
+  introspection, and option-name/type/default patching. None of it needs a
+  driver, an optimizer, a dataclass from the repo, or ``loguru`` — which is
+  exactly why it can live this low.
 
-Invariants
-----------
-**This module must not import anything from ``ao_shaping``** -- not at module
-scope, not inside a function, not under ``TYPE_CHECKING``. It is the shared
-leaf of two layers that sit *above* ``utils/`` (``runners/`` and
-``tools/slm/``), so any ``ao_shaping`` import would make one of them depend on
-the other through a module both of them are meant to share. Only the standard
-library and ``click`` itself belong here; ``tests/ao_shaping/utils/
-test_cli_params_leaf.py`` enforces this by AST, including deferred imports.
+The convention
+--------------
+Each parameter field is declared ``name: Annotated[T, option(...)] = default``.
+The dataclass field default is the single source of truth for the CLI default —
+``with_params`` injects it into the click option (an explicit ``default=``
+inside ``option(...)`` raises ``TypeError``). ``option`` is a delayed
+``click.option``: inside ``Annotated`` it returns a ``_DelayedCall`` that
+``with_params`` applies to the command in *reversed* declaration order, so the
+CLI help lists the options top-to-bottom in the same order the class reads.
 
-The convention in one paragraph
--------------------------------
-* The dataclass field default is the CLI default. Passing an explicit
-  ``default=`` inside ``option(...)`` raises ``TypeError`` -- silently having two
-  sources of truth is how a flag ends up documented at one value and applying
-  another.
-* ``option`` is a **delayed** ``click.option``: inside ``Annotated`` it returns a
-  :class:`_DelayedCall` that :func:`with_params` applies to the command in
-  *reversed* declaration order, so ``--help`` lists options top-to-bottom in the
-  order the class reads. (Click accumulates ``__click_params__`` in reverse.)
-* Option names come from the declaration, **flags first** (e.g.
-  ``option("-c", "--center")``). The field name is prepended automatically, so
-  repeating it as the first positional would create a duplicate flag.
-* The click type is inferred from the field annotation (``str``/``int``/``float``/
-  ``bool``/``Path``; ``Optional[x]`` and ``x | None`` strip to ``x``) unless
-  ``type=``, ``callback=``, ``is_flag`` or ``multiple`` is given explicitly. A
-  union of two concrete types (e.g. ``str | tuple[int, int]``) **must** pass an
-  explicit ``type=``.
-* A field annotated ``Annotated[SomeParams, ClickGroup()]`` is a *nested group*:
-  its options are hoisted onto the parent command at the position where the group
-  is declared, then re-assembled into a ``SomeParams`` instance before delivery.
-  Unmarked fields stay strictly flat, which is what every existing runner
-  relies on.
+Option names come from the declaration, flags first (e.g.
+``option("-c", "--center")``) — never repeat the field name as the first
+positional. The click type is inferred from the field annotation
+(``str``/``int``/``float``/``bool``/``Path``; ``Optional[x]`` / ``x | None``
+strips to ``x``) unless ``type=``, ``callback=``, ``is_flag`` or ``multiple``
+is given explicitly. A union of two concrete types (e.g.
+``str | tuple[int, int]``) MUST pass an explicit ``type=``.
 
-Note: never paste Windows paths with ``\\U``/``\\u`` escapes into docstrings or
-comments verbatim -- they start unicode escapes and raise ``SyntaxError``.
+The wrapped command receives one keyword argument per decorator, named by
+``kw_name``, holding a fully-populated instance of the parameter class.
+
+Four fail-fast sites guard the convention — all raise at *import* time when a
+consumer declaration drifts, so a mistake cannot reach a hardware run:
+
+* :func:`_strip_optional` — ``TypeError`` unless a union has exactly one
+  non-``None`` member.
+* :func:`_patch_click_types` — ``TypeError`` for an unmappable bare type.
+* :func:`_patch_defaults` — ``TypeError`` if ``default=`` is passed inside
+  ``option(...)``.
+* :func:`_collect_click_annotations` — ``TypeError`` on a duplicate click
+  parameter name within one class tree (a nested :class:`ClickGroup` shadowing
+  an existing option name).
+
+Annotations are resolved through :func:`typing.get_type_hints` with
+``include_extras=True``, so the dataclasses that carry these fields may use
+either eager or PEP 563 (``from __future__ import annotations``) evaluation;
+the ``Annotated`` metadata objects are only materialised at decoration time.
+
+Public API re-exported by :mod:`ao_shaping.utils.cli`: :class:`ClickGroup`,
+:data:`option`, :func:`with_params`. The private ``_``-prefixed helpers are
+internal, except ``_collect_click_annotations`` which stays reachable from
+``ao_shaping.runners.runner_common`` for back-compat.
 """
 
 from __future__ import annotations
@@ -60,11 +70,10 @@ from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 
 import click
 
-__all__ = [
-    "ClickGroup",
-    "option",
-    "with_params",
-]
+# ---------------------------------------------------------------------------
+# dataclass-click machinery (B2 copy of the dataclass-click convention:
+# Annotated[...] metadata + with_params collector, object delivery)
+# ---------------------------------------------------------------------------
 
 
 class _DelayedCall:

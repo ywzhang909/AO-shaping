@@ -18,7 +18,7 @@ So a scanner that only understands the decorator form reports **zero flags** the
 moment a file is migrated -- it would look like the probe had lost every option.
 :func:`_declarations` therefore matches on the *called name* rather than on the
 syntactic context: anything that calls a function named ``option`` (bare, as
-imported from :mod:`ao_shaping.utils.cli_params`, or as ``click.option``) or
+imported from :mod:`ao_shaping.utils.cli.params`, or as ``click.option``) or
 ``add_argument`` contributes its flags. Both forms land in the same set, so the
 golden compares like with like and the files can be migrated one at a time.
 

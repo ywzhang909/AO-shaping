@@ -23,8 +23,8 @@ import torch
 from loguru import logger
 
 from ao_shaping.drivers.slm.santec import Santec
-from ao_shaping.utils.cli_params import option, with_params
-from ao_shaping.utils.image.hardware_utils import open_camera
+from ao_shaping.utils.cli.params import option, with_params
+from ao_shaping.utils.hardware_utils import open_camera
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.slm_phase import capture_frame
 
@@ -230,22 +230,10 @@ def save_capture(
 
 @dataclass
 class PhaseCaptureParams:
-    """CLI surface of :func:`run` (random-phase capture).
+    """``phase_capture`` CLI 参数组。
 
-    Values are deliberately NOT shared with the other probes.  Several defaults
-    are bench-specific physical facts of THIS setup and must not be treated as
-    generic:
-
-    * ``--wavelength`` 1064 nm is the laser programmed into SLM #1 on this bench
-      (other probes use 532, and 11 of the 19 use 1064).
-    * ``--memory-slot`` 1 is only the *base* slot: the loop writes
-      ``(memory_slot + i - 1) % 128 + 1``, so consecutive writes never collide.
-    * ``--daheng-exposure`` 20 ms / ``--miicam-exposure`` 1.0 ms are the two
-      cameras' working points on this bench; they differ by 20x because the
-      MiiCam is far more sensitive.
-    * ``--cn2`` 1e-14 and ``--length`` 1000 m are the von Karman screen knobs
-      for the turbulence phase; they are degenerate together (only ``r0``,
-      proportional to their product, is observable).
+    字段声明顺序 = 原 ``@click.option`` 装饰器栈自上而下的顺序,
+    因此 ``with_params`` 生成的 ``--help`` 与迁移前逐字节一致。
     """
 
     mode: Annotated[
@@ -256,15 +244,11 @@ class PhaseCaptureParams:
             help="相位生成模式: turbulence=湍流相位屏, zernike=Zernike随机系数",
         ),
     ] = "turbulence"
-    samples: Annotated[
-        int, option("--samples", "-n", help="采集样本数量 (default: 10)")
-    ] = 10
+    samples: Annotated[int, option("--samples", "-n", help="采集样本数量 (default: 10)")] = 10
     output: Annotated[
         str, option("--output", "-o", help="输出目录 (default: data/slm_capture)")
     ] = "data/slm_capture"
-    slm_number: Annotated[
-        int, option("--slm-number", help="SLM设备编号 1-8 (default: 1)")
-    ] = 1
+    slm_number: Annotated[int, option("--slm-number", help="SLM设备编号 1-8 (default: 1)")] = 1
     wavelength: Annotated[
         int, option("--wavelength", help="SLM工作波长 nm (default: 1064)")
     ] = 1064
@@ -272,16 +256,12 @@ class PhaseCaptureParams:
         int, option("--memory-slot", help="SLM内存槽编号 1-128 (default: 1)")
     ] = 1
     # Turbulence parameters
-    cn2: Annotated[
-        float, option("--cn2", help="折射率结构常数 Cn² (default: 1e-14)")
-    ] = 1e-14
+    cn2: Annotated[float, option("--cn2", help="折射率结构常数 Cn² (default: 1e-14)")] = 1e-14
     length: Annotated[
         float, option("--length", "-L", help="传播距离 L (m) (default: 1000)")
     ] = 1000.0
     # Zernike parameters
-    n_max: Annotated[
-        int, option("--n-max", help="Zernike最大径向阶数 (default: 10)")
-    ] = 10
+    n_max: Annotated[int, option("--n-max", help="Zernike最大径向阶数 (default: 10)")] = 10
     max_coeff: Annotated[
         float, option("--max-coeff", help="Zernike系数最大绝对值 (default: 1.0)")
     ] = 1.0
@@ -314,18 +294,11 @@ class PhaseCaptureParams:
         bool, option("--no-miicam", is_flag=True, help="跳过MiiCam相机采集")
     ] = False
     # Capture parameters
-    n_sample: Annotated[
-        int, option("--n-sample", help="每帧平均采样数 (default: 1)")
-    ] = 1
+    n_sample: Annotated[int, option("--n-sample", help="每帧平均采样数 (default: 1)")] = 1
     skip_first: Annotated[
-        bool,
-        option(
-            "--skip-first", is_flag=True, help="跳过首帧 (default: True)"
-        ),
+        bool, option("--skip-first", is_flag=True, help="跳过首帧 (default: True)")
     ] = True
-    interval: Annotated[
-        float, option("--interval", help="样本间隔秒 (default: 0.5)")
-    ] = 0.5
+    interval: Annotated[float, option("--interval", help="样本间隔秒 (default: 0.5)")] = 0.5
     no_slm: Annotated[
         bool,
         option("--no-slm", is_flag=True, help="仅采集相机画面，不下发相位到SLM"),
@@ -334,9 +307,7 @@ class PhaseCaptureParams:
     resume_from: Annotated[
         str | None,
         option(
-            "-f",
-            "--resume-from",
-            help="从已有 global_metadata.json 继续采集 (路径)",
+            "-f", "--resume-from", help="从已有 global_metadata.json 继续采集 (路径)"
         ),
     ] = None
 

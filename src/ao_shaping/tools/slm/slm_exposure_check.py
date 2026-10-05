@@ -45,25 +45,37 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.utils.cli_params import option, with_params
+from ao_shaping.utils.cli.params import option, with_params
 
 
 @dataclass
 class ExposureCheckParams:
-    """CLI surface of :func:`main`.
+    """CLI surface of the exposure-check probe.
 
-    Values are deliberately NOT shared with the other probes: ``--exposure-ms``
-    alone carries 12 distinct defaults across the package, because every probe
-    was calibrated separately against its own bench. See R-37 in ``TODO.md``.
+    Field order *is* the ``--help`` order, and the whole five-option surface is
+    frozen by ``tests/ao_shaping/runners/_cli_help_golden.json``.
+
+    This probe is camera-only, so neither shared group is a fit:
+    ``SlmBenchParams`` would add ``--slm-number``/``--slm-wavelength`` that this
+    command does not own, and ``SlmAcquireParams`` adds
+    ``--discard``/``--settle-s``/``--stable-tol``/``--max-wait-s``. Both also type
+    ``--cam-type`` as a ``click.Choice``, which renders ``[daheng|miicam]``
+    instead of the frozen ``TEXT``.
     """
 
     cam_type: Annotated[
         str, option("--cam-type", help="相机类型 (daheng/miicam, 默认 daheng)")
     ] = "daheng"
     cam_id: Annotated[int, option("--cam-id", help="相机 ID (默认 0)")] = 0
-    exposure_ms: Annotated[float, option("--exposure-ms", help="相机曝光 ms (默认 3.0)")] = 3.0
-    n_grabs: Annotated[int, option("--n-grabs", help="连续采集次数 (默认 12)")] = 12
-    grab_delay_s: Annotated[float, option("--grab-delay-s", help="采集间隔 s (默认 0.4)")] = 0.4
+    exposure_ms: Annotated[
+        float, option("--exposure-ms", help="相机曝光 ms (默认 3.0)")
+    ] = 3.0
+    n_grabs: Annotated[
+        int, option("--n-grabs", help="连续采集次数 (默认 12)")
+    ] = 12
+    grab_delay_s: Annotated[
+        float, option("--grab-delay-s", help="采集间隔 s (默认 0.4)")
+    ] = 0.4
 
 
 @click.command()
@@ -72,7 +84,14 @@ def main(params: ExposureCheckParams) -> None:
     """检查相机自动曝光状态与固定设置下的亮度漂移。"""
     from ao_shaping.drivers.ccd.common import create_camera
 
-    with create_camera(params.cam_type, params.cam_id, exposure_time_ms=params.exposure_ms) as cam:
+    # Local aliases keep the measurement body below verbatim.
+    cam_type = params.cam_type
+    cam_id = params.cam_id
+    exposure_ms = params.exposure_ms
+    n_grabs = params.n_grabs
+    grab_delay_s = params.grab_delay_s
+
+    with create_camera(cam_type, cam_id, exposure_time_ms=exposure_ms) as cam:
         # The GenICam feature tree is Daheng-specific and is not on the base
         # camera interface, so reach it defensively rather than pretending every
         # backend has it.
@@ -98,20 +117,20 @@ def main(params: ExposureCheckParams) -> None:
             logger.info(
                 "ExposureTime.get() = {} us (requested {:.0f} us)",
                 _genicam_get(genicam, "ExposureTime"),
-                params.exposure_ms * 1000.0,
+                exposure_ms * 1000.0,
             )
         except (AttributeError, RuntimeError, OSError, ValueError) as exc:
             logger.warning("exposure readback failed {}: {}", type(exc).__name__, exc)
 
         logger.info("")
-        logger.info("=== drift at a fixed setting ({} grabs) ===", params.n_grabs)
+        logger.info("=== drift at a fixed setting ({} grabs) ===", n_grabs)
         peaks: list[float] = []
         sums: list[float] = []
-        for i in range(int(params.n_grabs)):
+        for i in range(int(n_grabs)):
             img = np.asarray(cam.get_numpy_image(n_sample=1), dtype=np.float64)
             peaks.append(float(img.max()))
             sums.append(float(img.sum()))
-            time.sleep(float(params.grab_delay_s))
+            time.sleep(float(grab_delay_s))
             logger.info("   {:>2}: peak={:>6.0f} sum={:>10.0f}", i + 1, peaks[-1], sums[-1])
 
     p = np.array(peaks)

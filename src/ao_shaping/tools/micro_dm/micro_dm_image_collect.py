@@ -58,7 +58,7 @@ from ao_shaping.drivers.dm.micro import (
     R50Controller,
     WiringMap,
 )
-from ao_shaping.utils.cli_params import option, with_params
+from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.utils.io.cli_helpers import setup_coredumpy
 from ao_shaping.utils.image.hardware_utils import open_camera
 from ao_shaping.utils.io.network import controller_tcp_port, ping_reachable

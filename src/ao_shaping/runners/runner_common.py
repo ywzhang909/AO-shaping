@@ -29,7 +29,7 @@ Parameter dataclasses are grouped by role:
 
 dataclass-click mechanism
 -------------------------
-**The mechanism itself lives in :mod:`ao_shaping.utils.cli_params`** (TODO R-36)
+**The mechanism itself lives in :mod:`ao_shaping.utils.cli.params`** (TODO R-36)
 -- a zero-``ao_shaping``-import leaf shared with ``tools/slm/params.py`` so both
 layers can declare options with the same convention without depending on each
 other. This module only *uses* it: every parameter class below is written in
@@ -82,6 +82,12 @@ from typing import Annotated, Any, cast
 import click
 
 from ao_shaping.algorithm.heuristic.search import heuristic_algorithm_choices
+from ao_shaping.utils.cli.params import (
+    ClickGroup,
+    _collect_click_annotations,
+    option,
+    with_params,
+)
 from ao_shaping.utils.image.target import (
     SHAPING_OBJECTIVE_CHOICES,
     SQUARE_OBJECTIVE_CHOICES,
@@ -98,7 +104,7 @@ from ao_shaping.drivers.slm.santec.slm200_constants import PANEL_RES
 # The dataclass-click mechanism (the ``Annotated[..., option(...)]`` convention,
 # the ``with_params`` collector and object delivery) is a zero-``ao_shaping``
 # leaf shared with ``tools/slm/params.py``. Defined here, not here.
-from ao_shaping.utils.cli_params import ClickGroup, option, with_params
+from ao_shaping.utils.cli.params import ClickGroup, option, with_params
 
 # slm-pib 的 Zernike 孔径半径默认值: SLM 面板短边的一半 (PANEL_RES = (1920, 1200) -> 600 px),
 # 与方形整形 (slm_square_shaping) 及 GUI 的默认值一致; 取短边保证基圆完整落在面板内。
